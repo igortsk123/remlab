@@ -72,6 +72,12 @@ export const kitAsset = z.object({
   level: z.enum(["base", "practical", "comfort", "premium"]).default("base"),
   materials: z.record(z.string(), z.string()).default({}), // слот кита → id материала
   features: z.array(z.string()).default([]), // integrated-oven, wine-cooler, …
+  /**
+   * Размер плиты ковра товара (demo-18 п.2): замена ковра меняет не только фото, но и размер на полу (`resolve.fitPlacement`
+   * кладёт его вдоль длинной стороны места). Нет — размер места.
+   */
+  wCm: z.number().positive().optional(),
+  dCm: z.number().positive().optional(),
 });
 
 /** Меш из нашего конвейера: ключ — msid (представитель семейства, ADR-0196). */

@@ -13,7 +13,7 @@
 // данных: диван 162 см шириной стоит в x=166 при комнате 439 см, то есть 85…247 — у стены.
 // Поворот витрины — градусы по часовой, 0 — «лицом на +y», тоже как у нас.
 
-import { alternatives, feedForStyle, type FeedItem } from "@/lib/configurator/demo-feeds";
+import { alternatives, feedForStyle, placeOf, type FeedItem } from "@/lib/configurator/demo-feeds";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { apartment as apartmentSchema, type Apartment, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
@@ -214,8 +214,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     const it = items[i]!;
     const base = baseOf(it.role);
     const feed = feedForStyle(data.feeds?.[base] ?? [], v.style);
-    const place = { w: it.w as number, d: it.d as number, model: it.sku?.msid, corner: !!it.corner, cornerLeft: !!it.corner_left };
-    return alternatives(feed, place, new Set([it.sku?.sid ?? "", it.sku?.name ?? ""])).map((p) => {
+    return alternatives(feed, placeOf(it, items), new Set([it.sku?.sid ?? "", it.sku?.name ?? ""])).map((p) => {
       const id = `feed:${base}:${p.sid ?? p.name}`;
       if (!feedOptions.has(id)) {
         feedOptions.set(id, { id, category: "furniture", titleRu: p.name ?? base, titleEn: p.name ?? base,
@@ -260,20 +259,42 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   const decor = (v.decor ?? []).filter((x) => x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
   const extraOptions: unknown[] = [];
   const extraMaterials: unknown[] = [];
+  // плита ковра: материал с фото товара (повтор — один на ковёр) и опция-кит с размером товара вдоль длинной стороны места
+  const rugOption = (id: string, mat: string, sku: { name?: string; price?: number; url?: string; shop?: string; img?: string },
+    w: number, d: number): void => {
+    const img = assetUrl(sku.img, ctx.assetBase);
+    extraMaterials.push({ id: mat, titleRu: "Ковёр", titleEn: "Rug", colorHex: "#b8b0a4", roughness: 0.95, tileCm: [w, d],
+      surfaces: ["rug"], ...(img ? { baseColorUrl: img } : {}) });
+    extraOptions.push({ id, category: "furniture", titleRu: sku.name ?? "Ковёр", titleEn: sku.name ?? "Rug",
+      descRu: `${Math.round(Math.max(w, d))}×${Math.round(Math.min(w, d))} см`,
+      tier: "standard", price: rub(sku.price), availability: "available", roomKinds: ["living"],
+      asset: { kind: "kit", kit: "rug", materials: { body: mat }, wCm: w, dCm: d },
+      ...(img ? { previewUrl: img } : {}), ...(sku.url ? { shopUrl: sku.url } : {}), ...(sku.shop ? { shopName: sku.shop } : {}) });
+  };
+  const rugFeed = new Set<string>();
   rugs.forEach((it, k) => {
     const id = `ковёр#${k}`;
-    const img = assetUrl(it.sku?.img, ctx.assetBase);
     // материал назван по ТОВАРУ: подпись ковра в движке — по материалу, и замена ковра того же размера иначе оставила бы
     // старое фото (verify 14.10)
-    const mat = `rug:${k}:${it.sku?.sid ?? it.sku?.img ?? ""}`;
-    extraMaterials.push({ id: mat, titleRu: "Ковёр", titleEn: "Rug", colorHex: "#b8b0a4", roughness: 0.95, tileCm: [it.w, it.d],
-      surfaces: ["rug"], ...(img ? { baseColorUrl: img } : {}) });
-    extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: it.sku?.name ?? "Ковёр", titleEn: it.sku?.name ?? "Rug",
-      tier: "standard", price: rub(it.sku?.price), availability: "available", roomKinds: ["living"],
-      asset: { kind: "kit", kit: "rug", materials: { body: mat } },
-      ...(it.sku?.url ? { shopUrl: it.sku.url } : {}), ...(it.sku?.shop ? { shopName: it.sku.shop } : {}) });
+    rugOption(`opt:${id}`, `rug:${k}:${it.sku?.sid ?? it.sku?.img ?? ""}`, it.sku ?? {}, it.w as number, it.d as number);
+    // ЗАМЕНЫ КОВРА (demo-18 п.2): лента ковров стиля, ближайшие по размеру, длинная сторона не короче дивана (`placeOf`);
+    // размер плиты — товара, вдоль длинной стороны места (`resolve.fitPlacement`)
+    const alts = alternatives(feedForStyle(data.feeds?.["ковёр"] ?? [], v.style), placeOf(it, v.items ?? []),
+      new Set([it.sku?.sid ?? "", it.sku?.name ?? ""]));
+    const along = (p: FeedItem): [number, number] => {
+      const [a, b] = [Math.max(p.w!, p.d!), Math.min(p.w!, p.d!)];
+      return (it.w as number) >= (it.d as number) ? [a, b] : [b, a];
+    };
+    const feedIds = alts.map((p) => {
+      const fid = `feed:ковёр:${p.sid ?? p.name}`;
+      if (!rugFeed.has(fid)) {
+        rugFeed.add(fid);
+        rugOption(fid, `rug:feed:${p.sid ?? p.name}`, p, ...along(p));
+      }
+      return fid;
+    });
     slots.push({ id, roomId: "living", category: "furniture" as const, kind: "furniture" as const, titleRu: it.role ?? "ковёр",
-      titleEn: "rug", photoRole: it.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
+      titleEn: "rug", photoRole: it.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`, ...feedIds],
       placement: { x: it.x ?? 0, y: it.y ?? 0, rot: it.rot ?? 0, wCm: it.w as number, dCm: it.d as number, hCm: 1, elevCm: 0 } });
   });
   const decorIds = stableSlotIds(decor.map((x) => ({ role: x.role ?? "декор" })));

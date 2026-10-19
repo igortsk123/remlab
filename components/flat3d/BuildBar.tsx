@@ -152,6 +152,10 @@ export function BuildBar(props: BuildBarProps) {
               {lang === "en" ? current.titleEn : current.titleRu}
               {/* размер спрашивают чаще цены (план flat3d-sims-ux E4): Ш×Г×В модели, только из паспорта товара */}
               {current.asset.kind === "mesh" ? ` · ${Math.round(current.asset.wCm)}×${Math.round(current.asset.dCm)}×${Math.round(current.asset.hCm)} ${lang === "en" ? "cm" : "см"}` : ""}
+              {/* ковёр — длина × ширина плиты товара (demo-18 п.2): замена ковра меняет размер на полу */}
+              {current.asset.kind === "kit" && current.asset.wCm && current.asset.dCm
+                ? ` · ${Math.round(Math.max(current.asset.wCm, current.asset.dCm))}×${Math.round(Math.min(current.asset.wCm, current.asset.dCm))} ${lang === "en" ? "cm" : "см"}`
+                : ""}
               {current.listPrice ? ` · ${formatMoney(current.listPrice, catalogue.currency, lang)}` : ""}
               {current.shopUrl ? (
                 <>

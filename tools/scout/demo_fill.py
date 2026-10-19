@@ -30,6 +30,14 @@ CORE = ('диван', 'столик', 'тв-тумба', 'ковёр', 'торш
 FILL_ROLES = set(CORE) | {'кресло', 'стеллаж', 'комод', 'пуф', 'кашпо', 'витрина', 'банкетка',
                           'стол обеденный', 'стул'}
 NOMESH = {'ковёр', 'ковер'}
+# HARD-контракт зонного ковра (ADR-0120): короткая сторона не меньше, длинная — не короче дивана. Одно правило для дозаполнения
+# вариантов (`make_gate`) и ленты замен ковра (`flat215_demo.swap_rug_ok`, demo-18 п.2)
+RUG_SHORT_MIN = 140
+
+
+def rug_fits(w: float, d: float, sofa: float = 0) -> bool:
+    """Ковёр годен зоне дивана: короткая ≥ `RUG_SHORT_MIN`, длинная ≥ ширины дивана (дивана нет — без второго условия)."""
+    return min(w, d) >= RUG_SHORT_MIN and not (sofa and max(w, d) < sofa)
 
 RUG_SQL = """
 select p.shop_mid||':'||p.external_id, coalesce(p.name,''), coalesce(p.shop,''),
@@ -156,9 +164,7 @@ def make_gate(env: dict, media, alive_img, footprint_known, proportions=None, su
         if not (lo <= side <= hi):
             return False
         if b == 'ковёр':
-            sofa = (chosen.get('диван') or {}).get('w') or 0
-            # HARD-контракт зонного ковра (ADR-0120): короткая ≥ 140, длинная ≥ ширины дивана
-            if min(w, d) < 140 or (sofa and max(w, d) < sofa):
+            if not rug_fits(w, d, (chosen.get('диван') or {}).get('w') or 0):
                 return False
         # ПРОПОРЦИИ К УЖЕ ВЫБРАННОМУ (столик к дивану и т. п.): те же жёсткие правила, что у сборки и
         # лечения (`proportions.check`); без них замена могла поставить столик шире дивана (Codex 13.10)
@@ -206,6 +212,8 @@ def _selftest() -> int:
     ok('торшер чужого стиля не подставлен — ядро честно неполное', core_missing(s) == ['торшер'])
     ok('журнал пишет причину', any(x['role'] == 'столик' and x['reason'] == 'снят с продажи' for x in j))
     ok('годный диван не тронут', s['items']['диван']['name'] == 'Диван')
+    ok('ковёр зоны дивана: 160×230 под диван 198 — да, 120×180 и 140×190 под 198 — нет, без дивана 140×190 — да',
+       [rug_fits(230, 160, 198), rug_fits(180, 120, 198), rug_fits(190, 140, 198), rug_fits(140, 190)] == [True, False, False, True])
     return 1 if bad else 0
 
 

@@ -8,10 +8,10 @@
 //   node tools/flat3d/swap-report.mjs <demo-data.json> [--json]
 import { readFileSync } from "node:fs";
 
-import { alternatives, candidates, feedForStyle } from "../../lib/configurator/demo-feeds.ts";
+import { alternatives, candidates, feedForStyle, placeOf } from "../../lib/configurator/demo-feeds.ts";
 
-// роли ядра, у которых /flat даёт ленту замен (ковёр — плита с фото, своя лента — demo-18 п.2)
-const ROLES = ["диван", "столик", "тв-тумба", "торшер", "стол обеденный"];
+// роли ядра, у которых /flat даёт ленту замен; ковёр — плита с фото, длинная сторона не короче дивана (demo-18 п.2, `placeOf`)
+const ROLES = ["диван", "столик", "тв-тумба", "торшер", "стол обеденный", "ковёр"];
 const NEED = 5;
 
 export function swapReport(data) {
@@ -21,7 +21,7 @@ export function swapReport(data) {
       const it = (v.items ?? []).find((i) => i.role === role);
       if (!it) continue;
       const feed = feedForStyle(data.feeds?.[role] ?? [], v.style);
-      const place = { w: it.w ?? 0, d: it.d ?? 0, model: it.sku?.msid, corner: !!it.corner, cornerLeft: !!it.corner_left };
+      const place = placeOf(it, v.items ?? []);
       const exclude = new Set([it.sku?.sid ?? "", it.sku?.name ?? ""]);
       const all = candidates(feed, place, exclude);
       rows.push({ variant: v.id, style: v.style, role, eligible_sku: all.length, unique_msid: new Set(all.map((p) => p.msid)).size,

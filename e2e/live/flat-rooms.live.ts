@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-import { alternatives, feedForStyle, type FeedItem } from "../../lib/configurator/demo-feeds";
+import { alternatives, feedForStyle, placeOf, type FeedItem } from "../../lib/configurator/demo-feeds";
 import { LIVE_BROWSER_ARGS } from "./browser";
 
 // КВАРТИРА В 3D (/flat) — СТРОКИ 2.19–2.22 КАРТЫ СЦЕНАРИЕВ (долг плана demo-03, T-20261018-11). Как и 1д (`flat-walk.live.ts`),
@@ -31,6 +31,10 @@ const CORE = ["диван", "столик", "тв-тумба", "стол обе�
 const SWAP_SHORT_OK: ReadonlySet<string> = new Set<string>([
   "лофт:стол обеденный", // ожидает решения владельца, вопрос 41 (18.10): обеденных столов лофта в каталоге нет, кроме текущего
   "лофт:диван", // ожидает решения владельца, вопрос 41 (18.10): угловых диванов лофта в ширину комнаты — одна модель (цвета)
+  // ковры (demo-18 п.2, 19.10): балл стиля ≥ 6.6, короткая ≥ 140, длинная ≤ 260 — в каталоге 1 / 2 / 4 замены; ожидает вопроса 41
+  "лофт:ковёр",
+  "джапанди:ковёр",
+  "минимализм:ковёр",
 ]);
 const FLAT = "flat215";
 
@@ -86,6 +90,17 @@ async function spots(page: Page): Promise<Spot[]> {
     const vw = (window as unknown as { __flatViewer: Viewer }).__flatViewer;
     return [...vw.placed.values()].map((p) => ({ kind: p.spec.kind, slotId: p.spec.slotId, roomId: p.spec.roomId, placement: p.spec.placement }));
   })) as Spot[];
+}
+
+/** Ковёр в сцене: размер плиты, материал и его фото (у кита ковра в спецификации — `materialId`, `build-scene.ts`). */
+async function rugNow(page: Page): Promise<{ w: number; d: number; material: string; photo: string | null } | null> {
+  return (await page.evaluate(() => {
+    const vw = (window as unknown as { __flatViewer: Viewer }).__flatViewer;
+    const sp = vw.placed.get("ковёр#0")?.spec as (Spot & { materialId?: string }) | undefined;
+    if (!sp) return null;
+    const m = vw.catalogue.materials.find((x) => x.id === sp.materialId);
+    return { w: Math.round(sp.placement.wCm), d: Math.round(sp.placement.dCm), material: sp.materialId ?? "", photo: m?.baseColorUrl ?? null };
+  })) as { w: number; d: number; material: string; photo: string | null } | null;
 }
 
 /** Расстояние от точки до прямоугольника следа (как `tvDist` движка): 0 — внутри. */
@@ -191,30 +206,44 @@ test("2.20 ковёр с фото и ценой, ваза на столике, �
       await expect(btn).toHaveAttribute("aria-pressed", "true");
       const n = await strip.count();
       const line = await bar.locator("p.truncate").first().innerText();
-      if (slot.startsWith("ковёр")) {
-        // фото ковра — фото товара на самом ковре в сцене (материал `rug:…`, `fromDemo.ts`), цена — на плитке выбранного
-        const photo = (await page.evaluate(() => {
-          const vw = (window as unknown as { __flatViewer: Viewer }).__flatViewer;
-          return vw.catalogue.materials.find((m) => m.id.startsWith("rug:") && m.surfaces?.includes("rug"))?.baseColorUrl ?? null;
-        })) as string | null;
-        const ok = photo ? (await page.request.get(photo)).ok() : false;
-        const tile = await strip.locator("button[aria-pressed=true]").innerText();
-        report.push(`  ковёр: «${line.slice(0, 60)}», фото в сцене ${photo ? (ok ? "открывается" : "НЕ ОТКРЫВАЕТСЯ") : "НЕТ"}, плитка «${tile.replace(/\s+/g, " ")}», вариантов ${n}`);
-        if (!photo || !ok) bad.push(`${v.id}: ковёр без фото товара в сцене (${photo ?? "нет ссылки"})`);
-        if (!/\d[\d\s ]*\s?₽/.test(tile)) bad.push(`${v.id}: у ковра нет цены — «${tile}»`);
-      } else {
-        // плитки полосы = текущий товар + альтернативы; сколько даёт лента витрины — тем же правилом, что мост `fromDemo` (для отчёта)
-        const it = v.items.find((i) => `${i.role}#0` === slot)!;
-        const role = slot.slice(0, -2);
-        const can = alternatives(feedForStyle(data.feeds?.[role] ?? [], v.style),
-          { w: it.w ?? 0, d: it.d ?? 0, model: it.sku?.msid, corner: !!it.corner, cornerLeft: !!it.corner_left },
-          new Set([it.sku?.sid ?? "", it.sku?.name ?? ""])).length;
-        const alt = n - 1;
-        const short = alt < 5;
-        const allowed = SWAP_SHORT_OK.has(`${v.style}:${role}`);
-        report.push(`  ${slot}: альтернатив ${alt} (лента стиля даёт ${can})${short ? (allowed ? ` — ! известная нехватка «${v.style}:${role}», вопрос 41` : " — ! меньше 5") : ""}`);
-        if (short && !allowed) bad.push(`${v.id} ${v.style ?? ""}: у «${slot}» альтернатив ${alt} (норма ≥ 5 без текущего), лента стиля даёт ${can}`);
+      // плитки полосы = текущий товар + альтернативы; сколько даёт лента витрины — тем же правилом, что мост `fromDemo` (для отчёта)
+      const it = v.items.find((i) => `${i.role}#0` === slot)!;
+      const role = slot.slice(0, -2);
+      const alts = alternatives(feedForStyle(data.feeds?.[role] ?? [], v.style), placeOf(it, v.items), new Set([it.sku?.sid ?? "", it.sku?.name ?? ""]));
+      const alt = n - 1;
+      const short = alt < 5;
+      const allowed = SWAP_SHORT_OK.has(`${v.style}:${role}`);
+      report.push(`  ${slot}: альтернатив ${alt} (лента стиля даёт ${alts.length})${short ? (allowed ? ` — ! известная нехватка «${v.style}:${role}», вопрос 41` : " — ! меньше 5") : ""}`);
+      if (short && !allowed) bad.push(`${v.id} ${v.style ?? ""}: у «${slot}» альтернатив ${alt} (норма ≥ 5 без текущего), лента стиля даёт ${alts.length}`);
+      if (!slot.startsWith("ковёр")) continue;
+      // ковёр: фото товара на самом ковре в сцене (материал места, `fromDemo.ts`), цена — на плитке выбранного
+      const now = await rugNow(page);
+      const ok = now?.photo ? (await page.request.get(now.photo)).ok() : false;
+      const tile = await strip.locator("button[aria-pressed=true]").innerText();
+      report.push(`  ковёр: «${line.slice(0, 60)}», фото в сцене ${now?.photo ? (ok ? "открывается" : "НЕ ОТКРЫВАЕТСЯ") : "НЕТ"}, плитка «${tile.replace(/\s+/g, " ")}»`);
+      if (!now?.photo || !ok) bad.push(`${v.id}: ковёр без фото товара в сцене (${now?.photo ?? "нет ссылки"})`);
+      if (!/\d[\d\s ]*\s?₽/.test(tile)) bad.push(`${v.id}: у ковра нет цены — «${tile}»`);
+      // ВЫБОР ЗАМЕНЫ (demo-18 п.2): первая альтернатива другого размера (нет такой — первая) меняет фото, цену и размер плиты;
+      // плитки идут в порядке ленты моста (`alternatives`), первая — текущий ковёр
+      const k = Math.max(0, alts.findIndex((p) => Math.max(p.w!, p.d!) !== Math.max(it.w ?? 0, it.d ?? 0) || Math.min(p.w!, p.d!) !== Math.min(it.w ?? 0, it.d ?? 0)));
+      const pick = alts[k];
+      if (!now || !pick || alt < 1) continue;
+      await strip.nth(k + 1).locator("button").click();
+      let after = now;
+      for (let i = 0; i < 30 && after.material === now.material; i += 1) {
+        await page.waitForTimeout(500);
+        after = (await rugNow(page)) ?? now;
       }
+      const tile2 = await strip.locator("button[aria-pressed=true]").innerText();
+      const want = [Math.max(pick.w!, pick.d!), Math.min(pick.w!, pick.d!)];
+      const got = [Math.max(after.w, after.d), Math.min(after.w, after.d)];
+      const ok2 = after.photo ? (await page.request.get(after.photo)).ok() : false;
+      report.push(`  ковёр → «${(pick.name ?? "").slice(0, 50)}»: плита ${got.join("×")} (было ${Math.max(now.w, now.d)}×${Math.min(now.w, now.d)}), `
+        + `фото ${after.photo !== now.photo ? (ok2 ? "сменилось, открывается" : "сменилось, НЕ ОТКРЫВАЕТСЯ") : "ПРЕЖНЕЕ"}, плитка «${tile2.replace(/\s+/g, " ")}»`);
+      if (after.photo === now.photo || !ok2) bad.push(`${v.id}: выбор ковра не сменил фото в сцене (${after.photo ?? "нет"})`);
+      if (got[0] !== want[0] || got[1] !== want[1]) bad.push(`${v.id}: плита ковра ${got.join("×")}, у товара ${want.join("×")}`);
+      if ((now.w >= now.d) !== (after.w >= after.d)) bad.push(`${v.id}: ковёр лёг поперёк места (${now.w}×${now.d} → ${after.w}×${after.d})`);
+      if (!tile2.replace(/\s/g, "").includes(String(pick.price ?? "—"))) bad.push(`${v.id}: цена выбранного ковра не ${pick.price} — «${tile2}»`);
     }
     await page.close();
   }

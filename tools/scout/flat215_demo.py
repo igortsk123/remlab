@@ -8,6 +8,7 @@
 
   ~/venvs/scout/bin/python flat215_demo.py [--publish]      # → /demo/
 """
+import functools
 import glob
 import json
 import os
@@ -17,7 +18,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'rules')
-OUT = os.path.expanduser('~/scout-scenes/flat215-demo')
+# папка витрины; FLAT215_DEMO_OUT — проверочная сборка рядом, не трогая публикуемую (T-20261019-02)
+OUT = os.path.expanduser(os.environ.get('FLAT215_DEMO_OUT', '~/scout-scenes/flat215-demo'))
 # ВАРИАНТЫ РАССТАНОВКИ и КОМПЛЕКТЫ ТОВАРОВ — РАЗНЫЕ СУЩНОСТИ (владелец 26.08):
 # «шаблоны не называть стилями, а просто варианты; далее под любой из шаблонов показываем наши
 # сеты; люди могут смешать разные товары из разных стилей». Поэтому: вариант = геометрия
@@ -542,6 +544,32 @@ def swap_ok(p: dict) -> bool:
             and color_ok(p['msid'], p.get('name')) and alive_now(p.get('img')))
 
 
+@functools.lru_cache(maxsize=1)
+def rug_ceiling() -> float:
+    """Потолок длинной стороны ковра в гостиной демо: конверт ленты (`DEMO_ENV`) и проектный предел комнаты по площади
+    (`zones.json` → `template_slot_envelopes.slots.ковёр`, ≤ 16 м² — 260: у стен остаётся полоса пола) — меньшее."""
+    import slot_rules
+    liv = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))['rooms'][0]
+    room = slot_rules.slot_ideal('ковёр', liv['w'] * liv['d'] / 10000)
+    return min(DEMO_ENV['ковёр'][1], room or DEMO_ENV['ковёр'][1])
+
+
+def swap_rug_ok(p: dict) -> bool:
+    """Ковёр показуем в ленте замен (demo-18 п.2): есть артикул, цена и ссылка (без них корзина товар не признаёт —
+    `lib/collections/prices.ts`), живое фото, не детский по картинке (`rug_kids.py`), годится для гостиной (`unfit.py`, резиновый
+    и т. п.), размер — контракт зонного ковра (`demo_fill.rug_fits`: короткая ≥ 140) и потолок комнаты (`rug_ceiling`). «Не
+    короче дивана» проверяет место (окно — `feedFor`, /flat — `demo-feeds.candidates`): диван можно заменить."""
+    import demo_fill as DF
+    import rug_kids
+    from img_alive import alive_now
+    from unfit import unfit
+    w, d = p.get('w') or 0, p.get('d') or 0
+    return (bool(p.get('sid')) and (p.get('price') or 0) > 0 and bool(p.get('url'))
+            and DF.rug_fits(w, d) and max(w, d) <= rug_ceiling()
+            and not unfit('ковёр', p.get('name'), None, p.get('h')) and not rug_kids.is_kids_rug(p.get('img'))
+            and alive_now(p.get('img')))
+
+
 _COLOR_OK = []
 
 
@@ -847,9 +875,17 @@ def build() -> dict:
             from unfit import unfit as _unfit
             if _unfit(base, it.get('name'), None, it.get('h')):
                 continue          # барный/офисный стул, уличное, резиновый ковёр — не для гостиной (`unfit.py`)
+            # КОВЁР — ТЕ ЖЕ ПРОВЕРКИ, ЧТО У ЛЕНТЫ КОВРОВ ИЗ ПУЛА (demo-18 п.2): потолок комнаты (ковёр 200×300 съедал проход у
+            # стен), короткая ≥ 140, артикул и цена, не детский; длинная сторона — в `w`, как у пула
+            if base == 'ковёр' and not swap_rug_ok({**it, 'sid': _sid, 'price': _price(it)[0]}):
+                continue
             seen.add(key)
+            # ковёр — как строка пула (`demo_swap_pool.rug_sql`): длинная в `w`, плита 1 см, модель = товар
+            _w, _d, _h = ((max(it['w'], it['d']), min(it['w'], it['d']), 1.0) if base == 'ковёр'
+                          else (it.get('w'), it.get('d'), it.get('h')))
+            _msd = _msd or (_sid if base == 'ковёр' else None)
             feeds.setdefault(base, []).append(
-                {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
+                {'name': it.get('name'), 'w': _w, 'd': _d, 'h': _h,
                  'price': _price(it)[0], 'price_at': _price(it)[1], 'img': it.get('img'), 'url': it.get('url'),
                  'shop': it.get('shop'), 'style': s.get('style'), 'sid': _sid, 'msid': _msd,
                  'src': 'set',
@@ -888,8 +924,8 @@ def build() -> dict:
                 continue
             if not p.get('img') or not (p.get('w') and p.get('d')):
                 continue
-            if not p.get('msid') or p['msid'] not in _mesh_index() or not color_ok(p['msid'], p.get('name')):
-                continue          # модели на сервере нет (серая коробка) или она другого цвета, чем товар
+            if base not in NOMESH_ROLES and (not p.get('msid') or p['msid'] not in _mesh_index() or not color_ok(p['msid'], p.get('name'))):
+                continue          # модели на сервере нет (серая коробка) или она другого цвета, чем товар; ковёр — плита с фото
             from unfit import unfit as _unfit
             if _unfit(base, p.get('name'), None, p.get('h')):
                 continue          # не для гостиной (`unfit.py`): барный стул в ленте обеденных и т.п.
@@ -919,6 +955,15 @@ def build() -> dict:
         glue(demo_swap_pool.pool_top(), dec_feeds, {(r, p.get('sid')): p for r, lst in dec_feeds.items() for p in lst})
     except Exception as e:  # noqa: BLE001 — нет БД/пула: ленты остаются набором сетов
         print('пул замены не подключён:', e)
+    # КОВРЫ — СВОЙ ЗАПРОС (модель ковру не нужна), тот же отбор и та же лента (demo-18 п.2); в дозаполнение и подмену декора не
+    # идут — показываемые варианты не меняются; сбой — громко, ковры остаются из наборов
+    try:
+        import demo_swap_pool
+        rugs = demo_swap_pool.rug_pool(swap_rug_ok)
+        n_rug = glue(rugs, feeds, have)
+        print(f'ковры ленты замен: из пула {len(rugs)}, добавлено {n_rug[0]} (потолок длинной стороны {rug_ceiling():g} см)')
+    except Exception as e:  # noqa: BLE001
+        print(f'WARN:rug_pool: ковры пула в ленту не попали: {repr(e)[:160]}')
     print(f'пул замены добавил в ленты: {added} товаров (мимо конверта комнаты: {off_env}); '
           'всего по ролям: '
           + ', '.join(f'{k} {len(v)}' for k, v in sorted(feeds.items())))

@@ -4090,8 +4090,11 @@ function sameShape(p,place){
   if(!!p.corner!==!!place.corner)return false;
   return !place.corner||p.corner_left===undefined||p.corner_left===!!place.corner_left;
 }
+// КОВЁР НЕ КОРОЧЕ ДИВАНА (demo-18 п.2, контракт зонного ковра `demo_fill.rug_fits`): длинная сторона ≥ ширины дивана расстановки —
+// текущего, после его замены тоже; правило — как у /flat (`lib/configurator/demo-feeds.ts:placeOf`)
+function rugFitsSofa(p){const sofa=items.find(i=>i.role==='диван'); return !sofa||Math.max(p.w||0,p.d||0)>=(sofa.w||0);}
 function feedFor(base){
-  const all=((D.feeds&&D.feeds[base])||[]).filter(p=>base!=='диван'||!sel||sameShape(p,sel));
+  const all=((D.feeds&&D.feeds[base])||[]).filter(p=>(base!=='диван'||!sel||sameShape(p,sel))&&(base!=='ковёр'||rugFitsSofa(p)));
   const st=(allVariants()[cur]||{}).style||'';
   if(F.anyStyle||!st)return all;
   // у товара стилей может быть несколько (`styles`) — он подходит и неоклассике, и современному
@@ -4100,8 +4103,9 @@ function feedFor(base){
   // диваны джапанди и наоборот: из 20 диванов неоклассики 7 были из чужих сетов, из 15 джапанди —
   // 5. Оставляем всегда видимыми только предметы СВОЕГО варианта: обещание «изначальный набор
   // остаётся» выполняется, а стили перестают перемешиваться.
-  const mine=all.filter(p=>(p.src==='set'&&(!p.style||p.style===st))
-    ||(p.src!=='set'&&(p.styles?p.styles.indexOf(st)>=0:(!p.style||p.style===st))));
+  // Исключение (demo-18 п.2): товар чужого набора, который пул отобрал и для этого стиля по баллу, — в `styles` (`flat215_demo.glue`):
+  // ковёр «Котри» сканди с баллом джапанди 7.0 был скрыт в джапанди. Правило — как у /flat (`demo-feeds.ts:feedForStyle`)
+  const mine=all.filter(p=>p.styles?p.styles.indexOf(st)>=0:(!p.style||p.style===st));
   return mine.length?mine:all;
 }
 // ВЫБРАННЫЙ ДЕКОР — не предмет расстановки, а строка списка варианта. Заворачиваем её в такой же
@@ -4174,7 +4178,8 @@ function grid(){
       b.onclick=()=>{if(on)return; tryOn(p); grid(); closePicker(); refreshShotList();}; row.appendChild(b);});}
   list=[...byM.values()];
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
-    const dims=dimsText(p);
+    // у ковра высоты нет — плита (в данных 1 см только для расчёта сцены): «200×140 см», а не «200×140×1 см»
+    const dims=base==='ковёр'?dimsText({w:p.w,d:p.d}):dimsText(p);
     const bg=fitBadge(sel,p), cur=sel.sku&&sel.sku.name===p.name;
     if(cur)c.classList.add('cur');
     c.innerHTML=`<img src="${p.img}" loading="lazy" alt="">`+
@@ -4215,7 +4220,9 @@ function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
   }
   // sid и упаковка едут вместе с товаром: по sid рендер берёт 3D-модель, по pack считается
   // количество покупок. Без них замена меняла картинку в списке, но не то, что попадёт в кадр.
-  s.w=p.w;s.d=p.d;s.h=p.h||s.h;
+  // ковёр ложится вдоль длинной стороны своего места (demo-18 п.2, как `resolve.fitPlacement` в /flat): в ленте длинная — `w`
+  if(s.role.startsWith('ковёр')){const a=Math.max(p.w,p.d), b=Math.min(p.w,p.d); [s.w,s.d]=s.w>=s.d?[a,b]:[b,a];}
+  else{s.w=p.w;s.d=p.d;s.h=p.h||s.h;}
   // msid — артикул МОДЕЛИ (представителя семейства): у цветового варианта своего меша нет, и
   // без этого поля сцена после замены рисовала серую коробку (08.09, ADR-0196).
   s.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,

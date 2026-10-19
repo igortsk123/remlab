@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alternatives, candidates, sameShape, type FeedItem } from "@/lib/configurator/demo-feeds";
+import { alternatives, candidates, feedForStyle, placeOf, sameShape, type FeedItem } from "@/lib/configurator/demo-feeds";
 
 // ленты замен витрины → «Варианты» в /flat (план demo-18 п.1): разные модели раньше цветов, диван — той же формы
 const item = (sid: string, msid: string, w: number, extra: Partial<FeedItem> = {}): FeedItem =>
@@ -30,5 +30,38 @@ describe("ленты замен: порядок и форма", () => {
     expect(alternatives(feed, { w: 180, d: 90, corner: true, cornerLeft: true }, new Set()).map((p) => p.sid)).toEqual(["ca", "cl"]);
     expect(alternatives(feed, { w: 180, d: 90, corner: true, cornerLeft: false }, new Set()).map((p) => p.sid)).toEqual(["ca", "cr"]);
     expect(sameShape(item("x", "X", 1), { w: 1, d: 1 })).toBe(true);    // не диван: пометки нет ни у места, ни у товара
+  });
+});
+
+// demo-18 п.2: ковёр — плита, сравнение длинной с длинной; длинная сторона не короче дивана расстановки
+describe("ленты замен: ковёр", () => {
+  const rug = (sid: string, w: number, d: number): FeedItem => ({ name: `Ковёр ${sid}`, sid, msid: sid, img: "i", w, d, h: 1, price: 1 });
+
+  it("место ковра: длинная сторона не короче дивана той же расстановки; без дивана — без условия", () => {
+    const items = [{ role: "диван", w: 186, d: 90 }, { role: "ковёр", w: 160, d: 230, sku: { msid: "r0" } }];
+    expect(placeOf(items[1]!, items)).toEqual({ w: 160, d: 230, model: "r0", corner: false, cornerLeft: false, rug: true, minLong: 186 });
+    expect(placeOf(items[1]!, [items[1]!])).not.toHaveProperty("minLong");
+    expect(placeOf(items[0]!, items)).not.toHaveProperty("rug");
+  });
+
+  it("порядок — по длинной и короткой стороне независимо от записи w/d; короче дивана — мимо", () => {
+    const feed = [rug("long", 300, 200), rug("same", 230, 160), rug("turned", 160, 230), rug("short", 180, 140)];
+    const place = { w: 160, d: 230, rug: true, minLong: 186 };
+    expect(alternatives(feed, place, new Set()).map((p) => p.sid)).toEqual(["same", "turned", "long"]);
+    expect(alternatives(feed, { ...place, minLong: undefined }, new Set()).map((p) => p.sid)).toEqual(["same", "turned", "short", "long"]);
+  });
+});
+
+// demo-18 п.2: товар чужого набора виден в стиле, только если пул отобрал его и для этого стиля (`styles`)
+describe("ленты замен: стиль", () => {
+  it("свой набор и подтверждённые пулом стили — да, чужой набор без балла стиля — нет; без `styles` — по стилю набора", () => {
+    const feed: FeedItem[] = [
+      { sid: "own", src: "set", style: "джапанди", styles: ["джапанди"] },
+      { sid: "other", src: "set", style: "сканди", styles: ["сканди"] },
+      { sid: "both", src: "set", style: "сканди", styles: ["сканди", "джапанди"] },
+      { sid: "pool", src: "pool", style: "джапанди", styles: ["джапанди"] },
+      { sid: "old", src: "set", style: "джапанди" },
+    ];
+    expect(feedForStyle(feed, "джапанди").map((p) => p.sid)).toEqual(["own", "both", "pool", "old"]);
   });
 });

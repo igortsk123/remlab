@@ -85,6 +85,41 @@ select sku, rep, sub, style, cat_role, name, shop, img, url, coalesce(price::tex
   from ranked {f"where rn <= {top} order by cat_role, style, sku" if top else "order by sub, style, rn"}"""
 
 
+RUG = 'ковёр'
+
+
+def rug_sql(in_style_min: float = IN_STYLE_MIN) -> str:
+    """ЛЕНТА ЗАМЕН КОВРА (план demo-18 п.2): ковру модель не нужна (он плита с фото), поэтому в `pool_sql` его нет. Отбор — запрос
+    дозаполнения (`demo_fill.RUG_SQL`), но стиль — балл ≥ порога ленты, как у мебели, а порядок — тот же, что у пула. Та же форма
+    строки, что у `pool_sql` (`_row`): модели семейства у ковров нет — модель = сам товар; `w` — длинная сторона, `d` — короткая
+    (в фидах у ковров `w` бывает короткой — `zones.json` `measured_side`)."""
+    return f"""
+with cand as (
+  select p.shop_mid||':'||p.external_id as sku, s.style, coalesce(p.name,'') as name, coalesce(p.shop,'') as shop,
+         coalesce(p.image_url_hd, p.image_url) as img, p.url, coalesce(p.price_shown_rub, p.price_rub) as price,
+         greatest(p.w_cm, p.d_cm) as w_cm, least(p.w_cm, p.d_cm) as d_cm, coalesce(e.quality, 0) as q,
+         coalesce((ps.scores->>s.style)::numeric, 0) as st_score, coalesce(ps.universal, false) as uni
+    from products p
+    join product_enrichment e using (shop_mid, external_id)
+    join product_style_scores ps using (shop_mid, external_id)
+    cross join lateral (select unnest(array[{_lit(STYLES)}]) as style) s
+   where p.cat_role = '{RUG}' and p.in_stock and p.status = 'active'
+     and p.w_cm is not null and p.d_cm is not null
+     and coalesce(p.image_url_hd, p.image_url) is not null and coalesce(p.photo_alive, true)
+     and coalesce((ps.scores->>s.style)::numeric, 0) >= {in_style_min}),
+ranked as (
+  select *, row_number() over (partition by style order by uni asc, q desc, st_score desc, price asc nulls last, sku) as rn from cand)
+select sku, sku, '{RUG}', style, '{RUG}', name, shop, img, url, coalesce(price::text,''), w_cm, d_cm, 1
+  from ranked order by style, rn"""
+
+
+def rug_pool(ok=None) -> list[dict]:
+    """Ковры ленты замен: тот же отбор `pick` (до `PER_GROUP` прошедших на стиль, конверт роли — `ENVELOPE['ковёр']` по длинной
+    стороне), `ok` — проверки сборки ковра (`flat215_demo.swap_rug_ok`)."""
+    from mesh_queue import db
+    return pick([p for p in map(_row, db(rug_sql())) if p], ok)
+
+
 def _row(r: list) -> dict | None:
     if len(r) != 13:
         return None
@@ -189,7 +224,25 @@ def _selftest() -> int:
     if 'where rn <= 30 order by cat_role, style, sku' not in pool_sql(top=30):
         bad += 1
         print('  FAIL: пул дозаполнения — прежний запрос (срез группы до проверок, прежний порядок)')
-    print(f'demo_swap_pool selftest: случаев 14, ошибок {bad}')
+    # ковры (demo-18 п.2): свой запрос — порог стиля ленты, длинная сторона в `w`, модель = товар; отбор — тот же `pick`
+    rq = rug_sql()
+    for must in (f">= {IN_STYLE_MIN}", "cat_role = 'ковёр'", 'greatest(p.w_cm, p.d_cm) as w_cm', 'least(p.w_cm, p.d_cm) as d_cm',
+                 'photo_alive', 'order by uni asc, q desc, st_score desc', 'order by style, rn'):
+        if must not in rq:
+            bad += 1
+            print('  FAIL: в запросе ковров нет', must)
+    if 'mesh_status' in rq or 'rn <=' in rq:
+        bad += 1
+        print('  FAIL: ковру модель не нужна, срез — после проверок')
+    rug = _row(['112923:7', '112923:7', 'ковёр', 'сканди', 'ковёр', 'Ковер 160x230', 'divan', 'i', 'u', '9990', '230', '160', '1'])
+    if not rug or rug['msid'] != rug['sid'] or rug['w'] != 230 or rug['price'] != 9990:
+        bad += 1
+        print('  FAIL: строка ковра — модель = товар, длинная сторона в w:', rug)
+    rugs = [dict(rug, sid=f'r{i}', msid=f'r{i}', w=w) for i, w in enumerate((230, 170, 290, 200))]
+    if [p['sid'] for p in pick(rugs)] != ['r0', 'r2', 'r3']:
+        bad += 1
+        print('  FAIL: конверт ковра — по длинной стороне 180–300')
+    print(f'demo_swap_pool selftest: случаев 17, ошибок {bad}')
     return 1 if bad else 0
 
 

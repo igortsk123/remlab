@@ -271,6 +271,11 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
  * Это же правило «габарит только из паспорта» (Р1): выдумывать оси нельзя.
  */
 export function fitPlacement(base: Placement, asset: OptionAsset): Placement {
+  if (asset.kind === "kit" && asset.wCm && asset.dCm) {
+    // плита ковра (demo-18 п.2): размер товара, длинная сторона — вдоль длинной стороны места (поворот места не меняется)
+    const [long, short] = [Math.max(asset.wCm, asset.dCm), Math.min(asset.wCm, asset.dCm)];
+    return base.wCm >= base.dCm ? { ...base, wCm: long, dCm: short } : { ...base, wCm: short, dCm: long };
+  }
   if (asset.kind !== "mesh") return base;
   return { ...base, wCm: asset.wCm, dCm: asset.dCm, hCm: asset.hCm };
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { loadFlat3d } from "@/lib/configurator/data";
-import { defaultConfiguration, optionsForSlot, resolveScene } from "@/lib/configurator/resolve";
+import { defaultConfiguration, fitPlacement, optionsForSlot, resolveScene } from "@/lib/configurator/resolve";
+import { optionAsset } from "@/contracts/configurator";
 import { toPhotoRequest } from "@/lib/configurator/photo";
 
 const { apartment, catalogue } = loadFlat3d();
@@ -233,5 +234,23 @@ describe("конфигуратор: мост в photo-конвейер", () => {
     expect(win.offset_cm).toBe(120);
     expect(win.width_cm).toBe(150);
     expect(win.sill_cm).toBe(90);
+  });
+});
+
+// demo-18 п.2: размер у ковровой опции — схема и применение к месту
+describe("конфигуратор: плита ковра с размером товара", () => {
+  const base = { x: 100, y: 120, rot: 90, wCm: 150, dCm: 200, hCm: 1, elevCm: 0 };
+
+  it("схема: размер ковра необязателен и только положительный; кит без размера — как раньше", () => {
+    expect(optionAsset.parse({ kind: "kit", kit: "rug", materials: { body: "m" }, wCm: 230, dCm: 160 })).toMatchObject({ wCm: 230, dCm: 160 });
+    expect(optionAsset.parse({ kind: "kit", kit: "rug" })).not.toHaveProperty("wCm");
+    expect(optionAsset.safeParse({ kind: "kit", kit: "rug", wCm: -1, dCm: 160 }).success).toBe(false);
+  });
+
+  it("fitPlacement: ковёр — размер товара вдоль длинной стороны места, центр и поворот места; без размера — место", () => {
+    const rug = optionAsset.parse({ kind: "kit", kit: "rug", wCm: 230, dCm: 160 });
+    expect(fitPlacement(base, rug)).toEqual({ ...base, wCm: 160, dCm: 230 });
+    expect(fitPlacement({ ...base, wCm: 200, dCm: 150 }, rug)).toEqual({ ...base, wCm: 230, dCm: 160 });
+    expect(fitPlacement(base, optionAsset.parse({ kind: "kit", kit: "rug" }))).toEqual(base);
   });
 });

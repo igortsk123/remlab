@@ -270,3 +270,44 @@ describe("стены от застройщика в /flat", () => {
     expect(finishChoiceOf(findApartment("flat215")!, "wall")).toBeUndefined();
   });
 });
+
+// demo-18 п.2: у места ковра — лента ковров стиля; выбор меняет фото, цену и размер плиты
+describe("мост витрина → конфигуратор: замены ковра", () => {
+  const rug = (sid: string, w: number, d: number, extra: object = {}) => ({ name: `Ковёр ${sid}`, sid, msid: sid, img: `img/${sid}.jpg`,
+    w, d, h: 1, price: 5000 + w, url: `u${sid}`, shop: "divan.ru", src: "pool", styles: ["джапанди"], ...extra });
+  const withRugs = { ...data, feeds: { ковёр: [rug("r1", 200, 150), rug("a", 230, 160), rug("b", 200, 140), rug("short", 180, 140),
+    rug("loft", 230, 160, { styles: ["лофт"] }), rug("nophoto", 230, 160, { img: undefined })] } };
+
+  it("варианты ковра — своего стиля, с фото, длинная сторона не короче дивана, без текущего", () => {
+    const r = fromDemoVariant(withRugs, "set16", { ...CTX, assetBase: "/demo/demo-data.json" })!;
+    const slot = r.apartment.slots.find((s) => s.id === "ковёр#0")!;
+    // диван 162: «short» 180 проходит; чужой стиль, без фото и текущий (r1) — нет; ближе по размеру — раньше
+    expect(slot.optionIds).toEqual(["opt:ковёр#0", "feed:ковёр:b", "feed:ковёр:short", "feed:ковёр:a"]);
+    const a = r.catalogue.options.find((o) => o.id === "feed:ковёр:a")!;
+    expect(a).toMatchObject({ price: 5230, previewUrl: "/demo/img/a.jpg", shopUrl: "ua", descRu: "230×160 см" });
+    expect(a.asset).toMatchObject({ kind: "kit", kit: "rug", wCm: 230, dCm: 160 });
+    const mat = r.catalogue.materials.find((m) => m.id === (a.asset.kind === "kit" ? a.asset.materials.body : ""))!;
+    expect(mat).toMatchObject({ baseColorUrl: "/demo/img/a.jpg", tileCm: [230, 160], surfaces: ["rug"] });
+    // диван шире ковра — ковёр не короче дивана (контракт зонного ковра)
+    const wide = { ...withRugs, variants: [{ ...data.variants[0]!, items: data.variants[0]!.items.map((it) => (it.role === "диван" ? { ...it, w: 210 } : it)) }] };
+    const w = fromDemoVariant(wide, "set16", CTX)!;
+    expect(w.apartment.slots.find((s) => s.id === "ковёр#0")!.optionIds).toEqual(["opt:ковёр#0", "feed:ковёр:a"]);
+  });
+
+  it("выбор ковра меняет размер плиты (вдоль длинной стороны места), фото и цену", () => {
+    const turned = { ...withRugs, variants: [{ ...data.variants[0]!,
+      items: data.variants[0]!.items.map((it) => (it.role === "ковёр" ? { ...it, w: 150, d: 200, rot: 90 } : it)) }] };
+    const r = fromDemoVariant(turned, "set16", CTX)!;
+    const cfg = defaultConfiguration(r.apartment, r.catalogue);
+    const at = (sel: Record<string, string>) => resolveScene(r.apartment, r.catalogue, { ...cfg, selections: { ...cfg.selections, ...sel } });
+    const base = at({});
+    const rug0 = base.items.find((i) => i.slotId === "ковёр#0")!;
+    expect(rug0.placement).toMatchObject({ wCm: 150, dCm: 200, rot: 90 });
+    const sw = at({ "ковёр#0": "feed:ковёр:a" });
+    const rug1 = sw.items.find((i) => i.slotId === "ковёр#0")!;
+    // место стоит длинной стороной по d — ковёр 230×160 ложится так же, центр и поворот места не меняются
+    expect(rug1.placement).toMatchObject({ wCm: 160, dCm: 230, rot: 90, x: rug0.placement.x, y: rug0.placement.y });
+    expect(rug1.asset.kind === "kit" && rug1.asset.materials.body).toBe("rug:feed:a");
+    expect(sw.totals.upgrades - base.totals.upgrades).toBe(5230 - 9291);
+  });
+});
