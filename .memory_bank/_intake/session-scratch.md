@@ -14,3 +14,4 @@
 
 <!-- SCRATCH START — /memory-check переносит обработанное в банк и усекает до этой метки -->
 - 2026-10-19 — свод выполнен (/memory-check, ведущий на algor): ночь 18.10 и T-20261019-01 — project-state, history, уроки 513–515, observability § Аналитика, viz-playbook, deployment-details (память DEV), guides/orchestration (видимые исполнители), вопросы 42–43, лог demo-02; замер очереди мешей 11.10 → mesh-run-playbook; блокнот чист
+- 2026-10-19 — правило кэша (владелец «ок» на предложение по ADR-0166 tamara): модель не менять посреди сессии, effort на Opus 5.5/Fable 5.1 по подписке кэш не сбрасывает (документация — у tamara было неточно), /compact на границе задач пока кэш тёплый; чтение кэша не бесплатно — порог 400K остаётся → .claude/rules/orchestration.md
