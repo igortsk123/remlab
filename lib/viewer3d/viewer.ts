@@ -23,6 +23,7 @@ import { buildTv } from "@/lib/viewer3d/kits/tv";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
+import { outlineFrame } from "@/lib/viewer3d/outline";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
 
@@ -386,6 +387,7 @@ export class FlatViewer {
         placeGroup(p.group, next.placement);
         p.spec = next;
       }
+      this.refreshSelection(slotId);
     }
 
     const sorted = [...specs].sort((a, b) => order.indexOf(a.roomId) - order.indexOf(b.roomId));
@@ -449,6 +451,7 @@ export class FlatViewer {
       outer.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
       this.scene.add(outer);
       this.placed.set(spec.slotId, { spec, group: outer, signature: signatureOf(spec), status: "pending" });
+      this.refreshSelection(spec.slotId);
 
       try {
         this.pendingUrls.add(spec.url);
@@ -467,6 +470,7 @@ export class FlatViewer {
           disposeObject(stub);
           outer.add(real);
           cur.status = "loaded";
+          this.refreshSelection(spec.slotId);
         } else {
           // пока грузилась, предмет заменили или убрали: эта группа больше не нужна — не оставляем её в сцене
           this.scene.remove(outer);
@@ -539,6 +543,7 @@ export class FlatViewer {
     group.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
     this.scene.add(group);
     this.placed.set(spec.slotId, { spec, group, signature: signatureOf(spec), status: "loaded" });
+    this.refreshSelection(spec.slotId);
     this.loadedCount += 1;
     this.events.onProgress?.(Math.min(this.loadedCount, this.totalCount), this.totalCount);
   }
@@ -1216,15 +1221,26 @@ export class FlatViewer {
       this.outline.visible = false;
       return;
     }
-    const bb = this._bb.setFromObject(placed.group);
-    const size = bb.getSize(new THREE.Vector3());
-    const centre = bb.getCenter(new THREE.Vector3());
-    this.outline.scale.set(Math.max(size.x, 0.05) * 1.04, Math.max(size.y, 0.05) * 1.04, Math.max(size.z, 0.05) * 1.04);
+    const { size, centre } = outlineFrame(placed.group, this._bb);
+    this.outline.scale.copy(size);
     this.outline.position.copy(centre);
     this.outline.visible = true;
   }
 
+  /** Выбранное место — его рамку и подсветку пересчитываем, когда объект места пересобран или сдвинут. */
+  private selectedSlot: string | null = null;
+
+  /**
+   * Объект места пересобран, сдвинут или убран (замена товара, догрузка модели). Если место выбрано — рамка и подсветка
+   * строятся заново по НОВОМУ объекту: раньше рамка считалась один раз при выборе, и после замены ковра на другой
+   * размер оставалась по прежней плите (T-20261019-02).
+   */
+  private refreshSelection(slotId: string): void {
+    if (slotId === this.selectedSlot) this.highlight(slotId);
+  }
+
   highlight(slotId: string | null): void {
+    this.selectedSlot = slotId;
     this.showOutline(slotId);
     for (const [id, p] of this.placed) {
       p.group.traverse((o) => {
