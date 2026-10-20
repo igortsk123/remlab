@@ -21,3 +21,4 @@
 - 2026-10-20 — владелец открыл вкладки рабочих сам (как в tamara): remlab-a6 = рабочий 1, remlab-65 = рабочий 2; задания SendMessage, /clear между задачами — строкой владельцу → .claude/rules/orchestration.md
 - 2026-10-20 — T-20261020-01 PASS (подписи плана, fav-check, report) — лог demo-02.
 - 2026-10-20 — T-20261020-02 принят: db-backup.sh и catalog-watchdog.sh едут с деплоем, сторож deploy-scripts.test.ts; записано в domain/deployment-details.md. Открыто владельцу: юниты systemd в деплой, копия базы вне сервера.
+- 2026-10-20 — T-20261020-03 принят (accf3fcc в проде): calc_started — первая правка с площадью > 0, одна на расчёт (lib/calc/started-goal.ts); ряд в Метрике нулевой с 712dc35a до 20.10. Мелочь: шапка lib/metrika.ts устарела.
