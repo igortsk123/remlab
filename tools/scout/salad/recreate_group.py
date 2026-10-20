@@ -18,13 +18,17 @@ POST → GET-сверка. Без --apply печатает тело без се�
     ~/venvs/scout/bin/python recreate_group.py mesh-low-4 --memory 24576                 # разбор
     ~/venvs/scout/bin/python recreate_group.py mesh-low-4 --memory 24576 --apply
     ~/venvs/scout/bin/python recreate_group.py mesh-batch-3 --memory 24576 --no-autostart --apply
+    ~/venvs/scout/bin/python recreate_group.py mesh-low-8 --donor mesh-low-6 --memory 24576 --gpu "RTX A5000" \\
+        --replicas 30 --no-autostart --create-only            # группа только на A5000 (без --apply — разбор)
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
+import urllib.request
 
 import migrate_groups as MG
 import salad_groups as SG
@@ -37,6 +41,39 @@ def wait(pred, timeout_s: float, every_s: float = 5.0) -> bool:
             return True
         time.sleep(every_s)
     return False
+
+
+def gpu_classes() -> dict[str, str]:
+    """id → имя всех классов GPU организации (`MG.api` ходит только в контейнеры проекта)."""
+    url = MG.API.split('/projects/')[0] + '/gpu-classes'
+    req = urllib.request.Request(url, headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
+                                               'User-Agent': 'remlab-mesh/1.0'})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return {c['id']: c['name'] for c in (json.loads(r.read()).get('items') or [])}
+    except Exception as e:  # noqa: BLE001 — пусто = отказ создавать в main()
+        print(f'gpu-classes: {type(e).__name__}: {str(e)[:100]}')
+        return {}
+
+
+def pick_gpu(donor_ids: list[str], classes: dict[str, str], wanted: list[str]) -> list[str]:
+    """Классы GPU для новой группы — ПОДМНОЖЕСТВО классов образца, по имени без «(24 GB)».
+
+    ЗАЧЕМ (20.10, владелец «только A5000»). С 16.10 новые RTX 3090 умирают на первом же задании
+    (обрывы на задание 4 % 05.09 → 59 % 20.10), A5000 — нет. Отсечь 3090 на стороне Salad можно
+    только списком `gpu_classes` при создании группы. Ищем лишь среди классов образца: у Salad есть
+    одноимённые классы разной памяти («RTX 3060 (12 GB)» и «(8 GB)»), а образец уже отобран под
+    модель по видеопамяти. Не нашлось или неоднозначно — отказ, а не тихий выбор."""
+    out = []
+    for w in wanted:
+        key = w.strip().lower()
+        hit = [i for i in donor_ids if classes.get(i, '').split(' (')[0].strip().lower() == key]
+        if len(hit) != 1:
+            have = sorted(classes.get(i, i) for i in donor_ids)
+            raise ValueError(f'GPU «{w}»: у образца совпадений {len(hit)}, есть {have}')
+        if hit[0] not in out:
+            out.append(hit[0])
+    return out
 
 
 def summary(body: dict) -> str:
@@ -57,6 +94,7 @@ def main() -> int:
     ap.add_argument('--donor', default=None)
     ap.add_argument('--replicas', type=int, default=None)
     ap.add_argument('--no-autostart', action='store_true', help='не стартовать после создания (batch вне окна)')
+    ap.add_argument('--gpu', default=None, help='оставить только эти GPU образца, через запятую: "RTX A5000"')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--create-only', action='store_true', help='группа уже удалена (прошлый запуск упёрся в name_conflict)')
     a = ap.parse_args()
@@ -75,6 +113,16 @@ def main() -> int:
     body['container']['resources']['memory'] = a.memory
     body['container']['environment_variables']['DEPLOYMENT_EPOCH'] = f'{time.strftime("%Y%m%d")}-{a.group}'
     body['autostart_policy'] = not a.no_autostart
+    if a.gpu:
+        classes = gpu_classes()
+        if not classes:
+            return print('классы GPU организации не прочитаны — не создаю') or 1
+        try:
+            ids = pick_gpu(body['container']['resources']['gpu_classes'], classes, a.gpu.split(','))
+        except ValueError as e:
+            return print(e) or 2
+        body['container']['resources']['gpu_classes'] = ids
+        print('GPU:', ', '.join(classes[i] for i in ids))
     print('создам:', summary(body))
     if not a.apply:
         return print('\nэто разбор без действий. Выполнить: --apply') or 0
