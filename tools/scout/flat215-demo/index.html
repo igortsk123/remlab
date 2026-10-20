@@ -226,6 +226,11 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
 .favcard .fph{position:relative;aspect-ratio:3/2;background:var(--wash-2);cursor:pointer}
 .favcard .fph img{display:block;width:100%;height:100%;object-fit:cover}
 .favcard .fph .nopv{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
+/* фото рисуется (demo-19 В3): плашка внизу картинки — полоса ползёт, секунды убывают (`photoWaitHtml`) */
+.pwait{position:absolute;left:8px;right:8px;bottom:8px;height:30px;border-radius:999px;background:var(--veil);color:#fff;overflow:hidden;
+ display:flex;align-items:center;justify-content:center;font-size:12.5px;line-height:1.2;pointer-events:none}
+.pwait i{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(176,106,74,.9);transition:width 1s linear}
+.pwait span{position:relative;padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .favcard .fb{padding:8px 10px 10px;display:flex;flex-direction:column;gap:4px}
 .favcard .nm{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .favcard .pr{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -3619,6 +3624,15 @@ function photoWait(t0){
   const pct=s<PHOTO_EST_S?s/PHOTO_EST_S*95:99-4*Math.exp(-(s-PHOTO_EST_S)/30);
   return {pct, left, text:left>0?(EN?left+' s left':'осталось '+left+' с'):(EN?'almost there…':'ещё немного…')};
 }
+// ПЛАШКА ОЖИДАНИЯ ФОТО ПОВЕРХ КАРТИНКИ (demo-19 В3: карточка избранного): узел `[data-pwait=t0]` — полоса и отсчёт из `photoWait`;
+// перерисовывает его секундный тик задания (`vwRealistic`)
+const photoWaitText=w=>(LANG==='en'?'Rendering the photo · ':'Рисуем фото · ')+w.text;
+function photoWaitHtml(t0){const w=photoWait(t0);
+  return `<div class="pwait" data-pwait="${t0}" data-left="${w.left}"><i style="width:${w.pct.toFixed(1)}%"></i><span>${escHtml(photoWaitText(w))}</span></div>`;}
+function photoWaitPaint(){
+  document.querySelectorAll('[data-pwait]').forEach(el=>{const w=photoWait(+el.dataset.pwait), i=el.querySelector('i'), t=el.querySelector('span');
+    if(i)i.style.width=w.pct.toFixed(1)+'%'; if(t)t.textContent=photoWaitText(w); el.dataset.left=w.left;});
+}
 async function makePhoto(quality, srcId, replaceBatch, opt){
   opt=opt||{};
   const wait=(html,cap)=>{if(opt.bg){const t=document.createElement('div'); t.innerHTML=html; opt.fail(t.textContent.trim()); return;} shotOpen(html,cap);};
@@ -5490,21 +5504,29 @@ async function vwCaptureViews(){
   }
   return null;
 }
-async function vwRealistic(){
-  if(VJ.job)return;
-  const c=VW.photo, job={vid:curVid(), stateId:curStateId(), cam:c, t0:Date.now(), note:''};
-  VJ.job=job; VJ.err=''; vwCtaUi(); clearInterval(VJ.tick); VJ.tick=setInterval(vwCtaUi,1000);
+// АВТОФОТО ИЗБРАННОГО (demo-19 В3): тот же путь, `o.auto` — отказ без текста на экране (остаётся 3D-снимок), `o.fail` — сообщить
+// избранному. Готовое фото любого задания (и ручного) — событие `remlab:photo`: избранное этого состояния берёт его картинкой
+async function vwRealistic(o){
+  o=(o&&o.auto)?o:{};
+  if(VJ.job)return false;
+  const c=VW.photo, job={vid:curVid(), stateId:curStateId(), cam:c, t0:Date.now(), note:'', auto:!!o.auto};
+  const favDraw=()=>{try{if(window.__fav)window.__fav.draw();}catch(e){}};
+  VJ.job=job; VJ.err=''; vwCtaUi(); clearInterval(VJ.tick); VJ.tick=setInterval(()=>{vwCtaUi(); photoWaitPaint();},1000); favDraw();
   const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();};
   const cap=await vwCaptureViews(); VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay}:null;   // для проверок и замера
   makePhoto('realistic','','',{bg:true, extra:cap?{views:cap.views, clay:cap.clay, sheet:cap.sheet}:{},
     progress:t=>{job.note=t; vwCtaUi();},
-    fail:(msg)=>{end(); VJ.err=String(msg||'').slice(0,220); vwCtaUi();},
+    fail:(msg)=>{end(); if(job.auto){if(o.fail)o.fail(msg); favDraw(); return;} VJ.err=String(msg||'').slice(0,220); vwCtaUi(); favDraw();},
     done:(n0)=>{end();
+      try{document.dispatchEvent(new CustomEvent('remlab:photo',{detail:{stateId:job.stateId, shots:shots.slice(n0)}}));}catch(e){}
       const shot=document.getElementById('shot'), open=shot.classList.contains('on')&&shot.classList.contains('v2');
       const same=job.vid===curVid()&&job.stateId===curStateId();
       // ГОТОВО → «ФОТО» САМО, если расстановка с нажатия не менялась; иначе — снимок в истории и подсказка (владелец 37.2)
+      // автофото избранного окно не переключает (человек мог крутить 3D) — «Фото» просто появляется среди режимов
+      if(open&&same&&job.auto){vwModeUi(); return;}
       if(open&&same){VW.photo=job.cam; vwModeUi(); vwMode('photo'); return;}
       if(open){const mine=shots.slice(n0).find(x=>(x.camera||'C1')==='C'+(job.cam+1))||shots[n0]; if(mine)vwReady(mine.url);}}});
+  return true;
 }
 // «Фото готово для прежней расстановки» — ненавязчиво, в углу сцены; тап — снимок во весь экран; сама уходит через 12 с
 function vwReady(url){
@@ -6219,8 +6241,9 @@ async function liveShow(){
     return location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#c='+id;}
   function post(snap){return fetch('/api/collections',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(snap)})
     .then(function(r){return r.json().then(function(j){if(!r.ok||!j.ok)throw new Error((j&&j.error)||'');return j;});});}
-  function afterSave(id,snap){remember(id,snap.style||'',true); if(window.__embedEvent)window.__embedEvent('save');
-    if(snap.shot)attachCollShot(id,location.origin+snap.shot); else snapLater(id, snap.stateId);
+  // `auto` — рисуется улучшенное фото (`autoPhoto`): бесплатный черновик не снимаем — картинку коллекции прикрепляют один раз
+  function afterSave(id,snap,auto){remember(id,snap.style||'',true); if(window.__embedEvent)window.__embedEvent('save');
+    if(snap.shot)attachCollShot(id,location.origin+snap.shot); else if(!auto)snapLater(id, snap.stateId);
     return fetchOne(id).then(function(v){if(v&&!MINE.some(function(x){return x.cid===id;})){MINE.unshift(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}
       drawColl(true);});}
   // ДИАЛОГ ВЫБОРА (вопрос «вместо …?», превышение суммы): та же карточка, что окошко имени
@@ -6274,10 +6297,53 @@ async function liveShow(){
     var why=pendingWhy(f.quote);
     toast(added+'. '+(why||(EN()?'Include it in the allowance from Favourites':'Включить в сертификат — в избранном')),goFav(f.roomId));
   }
+  // АВТОФОТО ИЗБРАННОГО (demo-19 В3, владелец 20.10): сохранили вариант без улучшенного фото — оно рисуется в фоне тем же путём, что
+  // «Сделать реалистичнее» (`vwRealistic`), на карточке — плашка с отсчётом, готовое встаёт картинкой. Одно фото на состояние: номер
+  // состояния → кадр (или «рисуется») на этом устройстве, повтор того же состояния — без запроса. Не больше AUTO_DAY_MAX в сутки на
+  // устройство — только автофото, ручная кнопка без лимита. У сервиса нет денег (`/api/draft/paid`) или лимит исчерпан — тихо: 3D-снимок
+  var AKEY='remlab-autophoto-v1', AUTO_DAY_MAX=10, AP_MEM=null;
+  var SHOT_PATH=/^\/test\/share\/frames\/[\w.-]{1,120}\.(?:jpg|jpeg|png|webp)$/;
+  function apLoad(){var o=null; try{o=JSON.parse(localStorage.getItem(AKEY)||'null');}catch(_){} o=o||AP_MEM||{};
+    var d=new Date(), day=d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(), old=Date.now()-7*864e5;
+    if(o.d!==day){o.d=day; o.n=0;} o.s=o.s||{};
+    Object.keys(o.s).forEach(function(k){if(!(o.s[k].t>old))delete o.s[k];});
+    return o;}
+  function apSave(o){AP_MEM=o; try{localStorage.setItem(AKEY,JSON.stringify(o));}catch(_){}}
+  function paidOk(){return fetch('/api/draft/paid',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})
+    .then(function(j){return !!(j&&j.available);}).catch(function(){return false;});}
+  // → Promise<true>, если фото этого состояния рисуется (нами или ручной кнопкой) — тогда черновик коллекции не нужен
+  function autoPhoto(f){
+    var job=typeof VJ!=='undefined'?VJ.job:null;
+    if(job)return Promise.resolve(job.stateId===f.stateId);   // идёт фото этого состояния — его и возьмём; другого — одно за раз
+    var ap=apLoad(), rec=ap.s[f.stateId];
+    if(rec||ap.n>=AUTO_DAY_MAX)return Promise.resolve(false);  // уже заказано на этом устройстве (не платим дважды) или лимит суток
+    return paidOk().then(function(ok){
+      if(!ok||VJ.job||curStateId()!==f.stateId)return false;
+      var a=apLoad(); if(a.s[f.stateId]||a.n>=AUTO_DAY_MAX)return false;
+      a.n+=1; a.s[f.stateId]={t:Date.now()}; apSave(a);
+      vwRealistic({auto:true, fail:function(){var b=apLoad(); delete b.s[f.stateId]; apSave(b); snapLater(f.favoriteId,f.stateId);}});
+      return true;
+    });
+  }
+  // фото готово (автофото или ручное): избранное этого состояния без картинки берёт главный ракурс; коллекция — тоже (один раз)
+  function setFavShot(id,path){ if(!BK.b)return;
+    BK.b=Object.assign({},BK.b,{favorites:BK.b.favorites.map(function(x){return x.favoriteId===id?Object.assign({},x,{shot:path}):x;})});
+    bkStore(BK.apt,BK.b);
+    fetch('/api/collections/'+id,{method:'PATCH',headers:{'content-type':'application/json'},
+      body:JSON.stringify({shot:path,stateId:(favOf(id)||{}).stateId||undefined})}).catch(function(){});}
+  document.addEventListener('remlab:photo',function(e){var d=e.detail||{}, l=d.shots||[];
+    var sh=l.find(function(x){return (x.camera||'C1')==='C1';})||l[0], path='';
+    try{path=sh?new URL(sh.url,location.origin).pathname:'';}catch(_){}
+    if(!d.stateId||!SHOT_PATH.test(path))return;
+    var a=apLoad(); a.s[d.stateId]={t:Date.now(), shot:path}; apSave(a);
+    favs().filter(function(f){return f.stateId===d.stateId&&!f.shot;}).forEach(function(f){setFavShot(f.favoriteId,path);});
+    bkRedraw();});
   function save(name){
     var v=allVariants()[cur]||{}, room=roomOfV(v), st=styleIdOfV(v)||(typeof HOME!=='undefined'&&HOME.styleId)||'';
     var def=defaultName(), nm=String(name||'').trim().slice(0,80)||def;
     var snap=snapshot(); snap.schemaVersion=3; snap.roomId=room.id; snap.styleId=st; snap.displayName=nm;
+    // фото этого состояния уже снято на этом устройстве (сохраняли раньше) — оно и картинка, без нового запроса
+    if(!snap.shot){var was=apLoad().s[snap.stateId]; if(was&&was.shot)snap.shot=was.shot;}
     var draft=draftQuote();
     var tp=snap.shot?Promise.resolve(''):grabThumb();      // есть реалистичное фото этой расстановки — оно и есть картинка
     return post(snap).then(function(j){
@@ -6290,7 +6356,9 @@ async function liveShow(){
       whenBasket(function(){if(!draft){var dq=draftQuote(); if(dq)f.quote=dq;}   // корзина открылась позже сохранения — строки досчитать сейчас
         var b=BK.mod.addFavorite(BK.b,f); markMig(f.favoriteId); decide(b,f,BK.mod.evaluate(b,room.id,f.quote,BK.limit));});
       // коллекция с сервера — текущие цены: строки пересчитываются, уже включённый вариант остаётся включённым
-      return afterSave(j.id,snap).then(function(){bkRefresh(); bkRedraw();});
+      // автофото — после миниатюры: оба снимают одну живую сцену, вместе миниатюра терялась (самопроверка T-16)
+      return (snap.shot?Promise.resolve(false):tp.then(function(){return autoPhoto(f);})).then(function(auto){return afterSave(j.id,snap,auto);})
+        .then(function(){bkRefresh(); bkRedraw();});
     }).catch(function(){toast(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.');});
   }
   function rename(id,name){
@@ -6438,8 +6506,9 @@ async function liveShow(){
       var known=f.quote.lines.filter(function(x){return x.settlement==='allowance';}), full=f.quote.status==='fresh'&&known.every(function(x){return x.priceStatus==='known';});
       var sum=known.reduce(function(s,x){return s+(x.amount||0);},0), on=inc[f.roomId]===f.favoriteId;
       var price=full?'<b>'+fmtCard(sum)+'</b>':(EN()?'prices are being checked':'цены уточняются');
+      var job=typeof VJ!=='undefined'?VJ.job:null, wait=!f.shot&&job&&job.stateId===f.stateId?photoWaitHtml(job.t0):'';
       return '<div class="favcard'+(on?' inc':'')+'" data-fid="'+e(f.favoriteId)+'"><div class="fph" data-fopen="'+e(f.favoriteId)+'">'+
-          (img?'<img src="'+e(img)+'" alt="" loading="lazy">':'<div class="nopv">'+(EN()?'Open to see it in 3D':'Откройте — покажем в 3D')+'</div>')+'</div>'+
+          (img?'<img src="'+e(img)+'" alt="" loading="lazy">':'<div class="nopv">'+(EN()?'Open to see it in 3D':'Откройте — покажем в 3D')+'</div>')+wait+'</div>'+
         '<div class="fb"><div class="nm">'+e(f.displayName)+'</div><div class="pr">'+e(styleTitle(f.styleId))+' · '+date+' · '+price+'</div>'+
         (BK.limit?'<label class="inc-l"><input type="radio" name="inc-'+e(f.roomId)+'" data-finc="'+e(f.favoriteId)+'"'+(on?' checked':'')+'> '+
           (on?(EN()?'In the allowance':'Включено в сертификат'):(EN()?'Include in the allowance':'Включить в сертификат'))+'</label>':'')+
