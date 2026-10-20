@@ -20,6 +20,16 @@
         9,
         15
       ]
+    },
+    "mesh-low-8": {
+      "tier": "low"
+    },
+    "mesh-batch-5": {
+      "tier": "batch",
+      "window_utc": [
+        9,
+        15
+      ]
     }
   },
   "wave": {
