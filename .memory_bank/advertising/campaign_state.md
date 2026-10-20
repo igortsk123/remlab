@@ -126,9 +126,11 @@ review_after: "2026-12-15"
 (JS — /go/ это redirect, не pageview). Код: `lib/metrika.ts` (`trackGoal`), `components/MetrikaPageviews.tsx`
 (SPA-hit); цели сметы шлют `components/calc/ResultView.tsx` и `components/TrackedSubmit.tsx` (`estimate_saved`),
 `components/GoLink.tsx` (`ref_click`). Цели НЕ удалять — архивировать (урок соседей).
-⚠️ **`10_calc_started` код сейчас НЕ шлёт** — отправитель `CalcForm` удалён вместе с калькуляторами v1;
-калькуляторы v2 (`components/calc/*`) шлют только `estimate_saved`. Отчёт автопилота
-(`infra/server/ads-watchdog/report.py`, цель 581529922 в `common.py`) по шагу «расчёт» покажет нули.
+`10_calc_started` (с 20.10, T-20261020-03) шлёт `lib/calc/started-goal.ts` (`calcStartedGoal`, вызов — `components/calc/CalcBuilder.tsx`,
+правки считает `useCalcProject.ts: edits`): первая правка пользователя, после которой площадь > 0, — одна цель на расчёт,
+повтор только после «новый расчёт»; открытие страницы и черновик из localStorage цель не шлют. В v1 (`CalcForm`) — по
+кнопке «Посчитать». Разрыв ряда: с удаления v1 (коммит 712dc35a) до 20.10 цель была нулевой — шаг «расчёт» в отчёте автопилота
+(`infra/server/ads-watchdog/report.py`, цель 581529922 в `common.py`) за этот период не сравнивать.
 ⚠️ **С 13.10 (b2b-04) Метрика работает не везде:** скрипт (`app/layout.tsx`), просмотры и все цели идут только
 при `metrikaAllowed()` (`lib/metrika.ts`) — не на путях `/manager*` и `/partner*`; в английском режиме
 (`?lang=en` или `localStorage remlab-lang=en`) — только после согласия `remlab-cookies=yes`; проверка на каждое

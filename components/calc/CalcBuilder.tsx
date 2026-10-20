@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { COMPANIONS, type CalcKind } from "@/lib/estimate/companions";
 import { computeRoomParts } from "@/lib/calc/formulas";
+import { calcStartedGoal } from "@/lib/calc/started-goal";
 import { pluralUnit } from "@/lib/format/plural";
 import { Button } from "@/components/base/buttons/button";
 import { Chip } from "@/components/base/chip/chip";
@@ -19,8 +20,9 @@ const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
 
 // Билдер калькулятора v2: мультикомната (К0) + геометрия (К1) + параметры/формулы (К2) + итог/смета (К3).
 export function CalcBuilder({ kind }: { kind: CalcKind }) {
-  const { project, add, remove, update, clear } = useCalcProject(kind);
+  const { project, edits, add, remove, update, clear } = useCalcProject(kind);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const startedGoal = useRef(calcStartedGoal());
 
   const activeIdSafe =
     activeId && project.rooms.some((r) => r.id === activeId) ? activeId : project.rooms[0]?.id ?? null;
@@ -34,6 +36,12 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
   const totalQty = round2(counted.filter((p) => p.out.unit === qtyUnit).reduce((s, p) => s + p.out.qty, 0));
   // Размеры есть, но материал не задан → зовём указать материал, а не цену (количество ещё не считаем).
   const needMaterial = allParts.some((p) => p.out.qtyUnknown && p.out.areaNetM2 > 0);
+
+  // Цель «расчёт начат»: первая правка с площадью > 0; edits = 0 (открытие, черновик, «новый расчёт») — сброс.
+  useEffect(() => {
+    if (edits === 0) startedGoal.current.reset();
+    else startedGoal.current.edited(totalNet > 0);
+  }, [edits, totalNet]);
 
   return (
     <div className="stack">
