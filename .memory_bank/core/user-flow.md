@@ -3,7 +3,7 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-10-18
+updated: 2026-10-20
 importance: high
 source: manual
 status: working
@@ -37,7 +37,7 @@ review_after: 2026-12-05
 
 ## Аналитика
 `lib/analytics.ts` (PostHog, no-op без ключа), сверка 11.10: 17 событий объявлено (`EventName`), 12 эмитится
-(estimate_*, lab_tab, lead_*, quiz_completed, viz_started, project_started, preview_ready…).
+(estimate_*, lab_tab, lead_*, quiz_completed, viz_started, project_started, preview_ready…); цель Метрики `calc_started` — `lib/calc/started-goal.ts`.
 
 **Отчёт застройщику (ADR-0265):** `/partner/report#<ключ>` — воронка по ссылкам менеджеров
 (`modules/partner-report/report.ts:buildReport`) + анонимные счётчики `/api/events`; детали — Tier 2.

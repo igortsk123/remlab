@@ -3,7 +3,7 @@ tier: 1
 topic: apartment-configurator
 scope: 3D-конфигуратор квартиры — что это, из чего собран, где детали
 tier2: "../domain/flat3d-configurator.md"
-updated: 2026-10-18
+updated: 2026-10-20
 importance: high
 source: manual
 status: working
@@ -39,7 +39,7 @@ review_after: 2026-12-28
 **С 16.10 (demo-06/07, ADR-0297/0298):** пол и стены витрины — опции места из группы застройщика (`source.floorChoiceOf`,
 `source.finishChoiceOf(hit,"wall")`, `?opt=`), итоги по назначению (`totals.bySettlement`): сертификат — только мебель;
 UK-двойник — цены по курсу (`ctx.fxRate`).
-**Нет:** перекраски по маске, лайтмапов, непрямоугольных комнат.
+**Нет:** перекраски по маске, лайтмапов, непрямоугольных комнат. **Открыто (20.10):** дефекты 375 и пересборка `furniture.json` — Tier 2.
 
 **Уроки:** `lessons/flat3d-configurator.md`.
 

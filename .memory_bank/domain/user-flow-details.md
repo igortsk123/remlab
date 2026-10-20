@@ -3,7 +3,7 @@ tier: 2
 topic: user-flow-details
 scope: Детальные сценарии и экраны Stage 1 — 7-экранный flow, free/paid варианты, сегменты, аналитика
 tier1: ../core/user-flow.md
-updated: 2026-10-18
+updated: 2026-10-20
 importance: high
 source: manual
 status: working
@@ -97,7 +97,8 @@ confidence (low/mid/high). Сумму считает движок, НЕ LLM.
   `preview_ready`, `pack_unlocked` (демо-разблокировка и вебхук YooKassa), `problem_reported`, `estimate_created`,
   `estimate_deleted`, `quiz_completed`, `lab_tab`, `viz_started`, `lead_captured`, `lead_replied`, `app_error`
   (+ `captureError`). Объявлены, но не отправляются: `brief_completed`, `style_selected`, `paywall_viewed`,
-  `cost_fake_door_viewed`, `estimate_saved` (последнее — только цель Метрики на клиенте, `lib/metrika.ts:trackGoal`). Ошибки тоже через PostHog; Sentry — позже, если захотим.
+  `cost_fake_door_viewed`, `estimate_saved` (последнее — только цель Метрики на клиенте, `lib/metrika.ts:trackGoal`). Цель Метрики `calc_started` — первая правка расчёта с площадью > 0, одна на расчёт
+  (`lib/calc/started-goal.ts`; с 712dc35a до accf3fcc 20.10 ряд был нулевым). Ошибки тоже через PostHog; Sentry — позже, если захотим.
 - **План (CJM, НЕ реализовано):** события по всем экранам (landing_*, room/goal/intervention,
   photo/brief, style_card_*, ai_preview_*, paywall_*, payment_*, workspace_*, cost_*) +
   **affiliate** (`affiliate_link_clicked`, `affiliate_postback_received`,
