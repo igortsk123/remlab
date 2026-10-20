@@ -20,3 +20,4 @@
 - 2026-10-20 — владелец: исполнители называются «рабочий 1», «рабочий 2»… — вкладки tmux-сессии «рабочие», смотреть командой рабочие в терминале, без ссылок → .claude/rules/orchestration.md
 - 2026-10-20 — владелец открыл вкладки рабочих сам (как в tamara): remlab-a6 = рабочий 1, remlab-65 = рабочий 2; задания SendMessage, /clear между задачами — строкой владельцу → .claude/rules/orchestration.md
 - 2026-10-20 — T-20261020-01 PASS (подписи плана, fav-check, report) — лог demo-02.
+- 2026-10-20 — T-20261020-02 принят: db-backup.sh и catalog-watchdog.sh едут с деплоем, сторож deploy-scripts.test.ts; записано в domain/deployment-details.md. Открыто владельцу: юниты systemd в деплой, копия базы вне сервера.

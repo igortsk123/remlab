@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-10-19
+updated: 2026-10-20
 importance: med
 source: manual
 last_verified: 2026-10-18
@@ -62,10 +62,14 @@ remlab-app:prev` не срабатывала ни разу — сервер тя
 - **Диск и очистка (ADR-0005/0176):** `remlab-cleanup` weekly + из CI (теги `remlab-app:*` кроме
   используемых, под flock); `pg_dump` ×7; `remlab-watchdog.timer` ежечасно: ≥80% → cleanup →
   Telegram; рестарты `remlab-app` → `backups/app-mem.log`.
-- Скрипты `infra/server/*` деплой везёт по списку в `deploy.yml` (тот же список — `deploy.sh`); руками остаются
-  `infra/server/scripts/catalog-watchdog.sh`, юниты systemd, аварийный `draft-run.sh`, **`infra/server/db-backup.sh`**
-  (его запускает `remlab-db-backup.service` как `/opt/remlab/scripts/db-backup.sh`, но в списке деплоя его нет — правка
-  в репо на сервер сама не приедет; сверка 18.10) и `infra/server/ads-watchdog/*` (свой `deploy-watchdog.sh`).
+- Скрипты `infra/server/*` деплой везёт по списку в `deploy.yml` (тот же список — `deploy.sh`), с 20.10 (T-20261020-02)
+  в нём и `infra/server/db-backup.sh`, и `infra/server/scripts/catalog-watchdog.sh`; сторож `tests/unit/deploy-scripts.test.ts` — каждый
+  `ExecStart=/opt/remlab/scripts/<файл>` из `infra/server/systemd/*.service` обязан быть в scp и `chmod +x` обоих списков.
+  Руками остаются: юниты systemd (без `daemon-reload` в деплое), аварийный `draft-run.sh` (ADR-0278, на сервере — своя
+  версия) и `infra/server/ads-watchdog/*` (свой `deploy-watchdog.sh`, тестом не покрыт).
+- **Ночная копия базы:** `remlab-db-backup.timer` 03:30 UTC → `/opt/remlab/scripts/db-backup.sh` →
+  `/opt/remlab/backups/db-<ts>.sql.gz`; `cleanup.sh` оставляет 7, но идёт раз в неделю и перед деплоем — на деле
+  7–13 копий. Лежит на том же сервере, что и база (копии вне сервера нет — вопрос владельцу, `b2b-09`).
 
 ## Правки сервера 31.08
 sshd, iptables-туннель DEV-рендера, `remlab-draft` через docker cp — ADR-0139

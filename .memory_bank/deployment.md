@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi
 tier2: "domain/deployment-details.md"
-updated: 2026-10-19
+updated: 2026-10-20
 importance: high
 source: manual
 status: working
@@ -44,7 +44,7 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 **13.10 (ADR-0256):** ПДн только в базе; после деплоя `tools/security-smoke.sh`; `remlab-draft` выкатывает деплой (ADR-0278). Детали — Tier 2.
 
 ## Сторожа
-Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), безопасность — `disk-watchdog.sh`. Правка сервера = бэкап + rollback. Ночной `infra/server/db-backup.sh` деплой не возит — Tier 2.
+Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), безопасность — `disk-watchdog.sh`. Правка сервера = бэкап + rollback. Ночная копия базы и список скриптов деплоя — Tier 2.
 Доступность — `health-watch.sh` → Telegram; копия дампа и репетиция восстановления — DEV `tools/ops/` (ADR-0266). Без DEV и DEV-рендер как юниты `systemctl --user` (`tools/scout/systemd/`, 18.10) — Tier 2 § «Прод без DEV», «DEV-рендер».
 
 **Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy и статик, сторожа.
