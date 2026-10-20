@@ -178,5 +178,6 @@ jobs:
             echo "== $m --selftest"; python tools/scout/$m.py --selftest || exit 1
           done
       - run: python tools/scout/salad/tests_sink_gate.py   # ворота приёмника и чистка — одна мера с зазором, счётчик = диск (mesh-12)
+      - run: python tools/scout/salad/tests_topview_step.py   # шаг топ-вью: проход под таймаутом, дедлайн в /bin/sh, таймаут = сбой (T-20261020-15)
       - run: diff -q tools/scout/asset_strategy.py tools/scout/salad/asset_strategy.py
       - run: diff -q tools/scout/rules/asset-strategies.json tools/scout/salad/asset-strategies.json

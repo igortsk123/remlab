@@ -352,21 +352,44 @@ ORIENT_CMD = (f'for i in $(seq {ORIENT_PASSES}); do '
 # общего дедлайна; упавший проход считается, но не останавливает остальные.
 POST_EVERY_S = float(os.environ.get('MESH_POST_EVERY_S', '900'))   # разбор каждые 15 мин
 TOPVIEW_NEW_CAP = int(os.environ.get('MESH_TOPVIEW_NEW_CAP', '20'))
-# Дедлайн ВНУТРЕННЕГО цикла проходов. Держим заметно ниже таймаута шага (2700 с в `_run_post`):
-# 04.09 при 2400 последний проход не успевал завершиться в оставшиеся пять минут, и шаг падал
-# «топ-вью: СБОЙ ТАЙМАУТ 2700с», а весь разбор растягивался на 75 минут. Один проход — до 420 с
-# (TOPVIEW_BUDGET_S), поэтому запас берём с двумя проходами: 1800 + 420 < 2700.
-TOPVIEW_DEADLINE_S = int(os.environ.get('MESH_TOPVIEW_DEADLINE_S', '1800'))
-TOPVIEW_CMD = (f'fails=0; passes=0; t0=$SECONDS; '
-               f'while [ $((SECONDS - t0)) -lt {TOPVIEW_DEADLINE_S} ]; do '
-               f'  out=$(TOPVIEW_NEW_CAP={TOPVIEW_NEW_CAP} TOPVIEW_BUDGET_S=420 {PY} {HERE}/topview_render.py 2>&1); rc=$?; '
-               f'  echo "$out" | tail -4; passes=$((passes+1)); '
-               f'  [ $rc -ne 0 ] && fails=$((fails+1)); '
-               f'  n=$(echo "$out" | sed -n "s/^TOPVIEW_NEW //p" | tail -1); '
-               f'  [ "${{n:-0}}" -gt 0 ] || break; '
-               f'  [ $fails -ge 3 ] && break; '
-               f'done; echo "топ-вью: проходов $passes, с ошибкой $fails"; '
-               f'[ $fails -lt $passes ] || [ $passes -eq 0 ]')
+# ДВА ПРЕДЕЛА ВРЕМЕНИ (20.10, T-20261020-15). Разбор идёт строго по одному (`start_post`), а реестр
+# поколений — его второй шаг: пока топ-вью держит разбор, следующий заход по таймеру пропускается, и
+# `mesh_generations` отстаёт. 20.10 один проход завис дольше своего бюджета 420 с; общий дедлайн
+# проверяется только МЕЖДУ проходами, поэтому шаг снял лишь таймаут 2700 с — разбор шёл 51 минуту.
+#   * проход — не дольше TOPVIEW_PASS_S: `timeout` гасит ВСЮ его группу процессов (без --foreground
+#     сигнал идёт группе, вместе с потомками рендера; не pkill -f), через TOPVIEW_KILL_S — KILL;
+#   * новый проход не начинаем после TOPVIEW_DEADLINE_S (прежний дедлайн 1800 с не работал вовсе —
+#     см. `topview_cmd`, часы оболочки).
+# Худший шаг: дедлайн + проход + KILL = 420 + 480 + 30 ≈ 15.5 мин. Недоделанное — у следующего
+# разбора: проход берёт «ещё не сделанные», ничего не теряется.
+# Таймаут — ЧЕСТНЫЙ СБОЙ ШАГА, даже если до него были удачные проходы: иначе `_run_post` напечатал бы
+# «ok», и зависание повторялось бы молча каждые 15 минут.
+TOPVIEW_DEADLINE_S = int(os.environ.get('MESH_TOPVIEW_DEADLINE_S', '420'))
+TOPVIEW_PASS_S = int(os.environ.get('MESH_TOPVIEW_PASS_S', '480'))     # бюджет прохода 420 + запас на выход
+TOPVIEW_KILL_S = int(os.environ.get('MESH_TOPVIEW_KILL_S', '30'))
+
+
+def topview_cmd(render: str, deadline_s: int = TOPVIEW_DEADLINE_S, pass_s: int = TOPVIEW_PASS_S,
+                kill_s: int = TOPVIEW_KILL_S) -> str:
+    """Шаг топ-вью: проходы `render`, пока он печатает `TOPVIEW_NEW N>0`, с двумя пределами времени.
+    Код 124 (TERM) / 137 (KILL) от `timeout` — проход снят по времени. Стенд — `tests_topview_step.py`."""
+    # Часы — `date +%s`, НЕ `$SECONDS`: шаг исполняет /bin/sh (`proc_run`: shell=True), на DEV это dash,
+    # где `$SECONDS` пуст, `$((SECONDS - t0))` всегда 0 — и дедлайн 1800 с с 04.09 не срабатывал ни разу.
+    return (f'fails=0; passes=0; tmo=0; t0=$(date +%s); '
+            f'while [ $(( $(date +%s) - t0 )) -lt {deadline_s} ]; do '
+            f'  out=$(timeout -k {kill_s} {pass_s} {render} 2>&1); rc=$?; '
+            f'  echo "$out" | tail -4; passes=$((passes+1)); '
+            f'  if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then tmo=$((tmo+1)); fails=$((fails+1)); '
+            f'    echo "топ-вью: проход снят по таймауту {pass_s} с (код $rc)"; break; fi; '
+            f'  [ $rc -ne 0 ] && fails=$((fails+1)); '
+            f'  n=$(echo "$out" | sed -n "s/^TOPVIEW_NEW //p" | tail -1); '
+            f'  [ "${{n:-0}}" -gt 0 ] || break; '
+            f'  [ $fails -ge 3 ] && break; '
+            f'done; echo "топ-вью: проходов $passes, с ошибкой $fails, по таймауту $tmo"; '
+            f'[ $tmo -eq 0 ] && {{ [ $fails -lt $passes ] || [ $passes -eq 0 ]; }}')
+
+
+TOPVIEW_CMD = topview_cmd(f'env TOPVIEW_NEW_CAP={TOPVIEW_NEW_CAP} TOPVIEW_BUDGET_S=420 {PY} {HERE}/topview_render.py')
 
 
 def iso_age_s(ts: str | None, now: float) -> float | None:
