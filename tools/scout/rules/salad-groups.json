@@ -15,7 +15,11 @@
       "tier": "low"
     },
     "mesh-batch-3": {
-      "tier": "batch"
+      "tier": "batch",
+      "window_utc": [
+        9,
+        15
+      ]
     },
     "mesh-low-6": {
       "tier": "low"
