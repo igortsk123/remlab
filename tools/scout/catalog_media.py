@@ -63,7 +63,12 @@ def _load() -> dict:
          "||'\x1f'||coalesce(p.price_basis,'feed')||'\x1f'||coalesce(to_char(p.price_checked_at,'YYYY-MM-DD'),'')"
          " from products p left join product_page_status ps"
          " on ps.shop_mid=p.shop_mid and ps.external_id=p.external_id")
-    out = subprocess.run(PSQL + [q], capture_output=True, text=True).stdout
+    r = subprocess.run(PSQL + [q], capture_output=True, text=True)
+    if r.returncode != 0:
+        # БД недоступна — исключение, а не пустой каталог в кэше: пустой означал «каждый товар выбыл» без единой ошибки
+        # (conv-12 п.1); кэш не заполняем — следующий вызов попробует снова
+        raise RuntimeError(f'catalog_media: psql rc={r.returncode}: {r.stderr.strip()[:200]}')
+    out = r.stdout
     m = {}
     for line in out.splitlines():
         p = line.split('\x1f')

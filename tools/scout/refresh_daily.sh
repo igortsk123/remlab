@@ -360,6 +360,9 @@ step bank_photos "$PY" img_alive.py --scan --force
 # sets_index они правили бы банк по вчерашнему снимку.
 if [ "${RES[candidates]:-FAIL}" = ok ] && [ "${RES[sets_index]:-FAIL}" = ok ]; then
 step sets_heal "$PY" sets_incremental.py --heal --apply
+# 5b-0b. ПАРА КРЕСЕЛ — ОДНА МОДЕЛЬ (conv-12 п.2, владелец 20.10): heal меняет основное кресло — экземпляр пары следом.
+# Раньше синхронизация жила только внутри contracts, а тот стоял на предохранителе (27 сетов с разными креслами).
+step sets_pairs "$PY" sets_incremental.py --sync-pairs --apply
 # 5b-1. КОНТРАКТ СЛОТА И ЖИВОЕ ФОТО (владелец 26.08: «товар без фото не должен участвовать —
 # пересчитывать надо на этапе сетов»): позиция вне конверта слота или с мёртвой картинкой
 # ЗАМЕНЯЕТСЯ, и только если замены нет — снимается с записью coverage_gap.
@@ -432,6 +435,8 @@ if [ "$(date +%u)" = "1" ]; then
   step solver_full env CHECK_TAG=weekly "$PY" solver_check.py
   # В3 (владелец 07.08): точечное освежение сетов новинками — лучшая ступень стиля, ≤2 замен/сет
   [ -f exam.lock ] || step sets_refresh "$PY" sets_incremental.py --refresh --apply
+  # refresh меняет основное кресло — пара следом (conv-12 п.2)
+  [ -f exam.lock ] || step sets_pairs_w "$PY" sets_incremental.py --sync-pairs --apply
   # W5: после недельных замен — переиндекс и судья сетов (вернулся в цикл: баланс OpenAI есть,
   # владелец 10.08); судья смотрит коллажи и отмечает выбивающиеся предметы
   step sets_reindex_w "$PY" sets_incremental.py --index

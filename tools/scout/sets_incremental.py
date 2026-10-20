@@ -141,8 +141,15 @@ def why(mid: str, eid: str) -> None:
 
 
 _CAND_CACHE: dict = {}
-# Сбои проверки каталога в воротах слота (`_slot_ok`): тип исключения → сколько раз. Итог — строка WARN в main().
+# Сбои проверок в воротах слота (`_slot_ok`): «проверка:тип исключения» → сколько раз. Итог — строка WARN в main().
 _GATE_ERRORS: dict = {}
+
+
+def _gate_error(where: str, e: Exception) -> bool:
+    """Сбой проверки ворот: посчитать и отказать кандидату (fail-closed). Всегда False."""
+    k = f'{where}:{type(e).__name__}'
+    _GATE_ERRORS[k] = _GATE_ERRORS.get(k, 0) + 1
+    return False
 
 
 def _mesh_gate_ok(cand: dict) -> bool:
@@ -173,16 +180,21 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
         return False
     # Тот же предикат пригодности фото, что и у первичной сборки (`slot_contract`) — иначе
     # два пути расходятся и лечение возвращает в сет то, что сборка бы не взяла.
+    # СБОЙ ЛЮБОЙ ПРОВЕРКИ ВОРОТ — ОТКАЗ, А НЕ ПРОПУСК (conv-12 п.1): раньше except глотал сбой, и кандидат проходил без
+    # проверки (а без конверта — `return True` вовсе без ворот). Сбой считается в _GATE_ERRORS → WARN команды.
     try:
         from slot_contract import photo_ok as _photo_ok
         if not _photo_ok(f"{cand.get('mid')}:{cand.get('eid')}", context='published'):
             return False
-    except Exception:  # noqa: BLE001 — модуль недоступен: ведём себя как раньше
-        pass
+    except Exception as e:  # noqa: BLE001
+        return _gate_error('фото', e)
     try:
-        from compose2 import slot_ideal, _SLOT_ENV
-    except Exception:
-        return True
+        # идеал слота — из slot_rules (ADR-0270, одно место), не из compose2: импорт compose2 исполняет сборку v2
+        # и переписывает sets2.json на каждом прогоне ворот
+        from slot_rules import slot_ideal, slot_envelopes
+        _SLOT_ENV = slot_envelopes()
+    except Exception as e:  # noqa: BLE001
+        return _gate_error('конверт', e)
     m2 = float(s.get('m2') or 0)
     items = chosen if chosen is not None else (s.get('items') or {})
     # ФОТО — УСЛОВИЕ ПОДБОРА (владелец 26.08: «товар без фото не должен участвовать; пересчитывать
@@ -192,8 +204,8 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
         from img_alive import alive_now as _img_alive
         if not _img_alive(cand.get('img')):
             return False
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001
+        return _gate_error('живое фото', e)
     # ГОДНЫЙ МЕШ — 4-е условие контракта визуализируемых ролей (решение владельца 28.08,
     # план viz-mesh-orientation): блокирует ТОЛЬКО явный вердикт «replace_product» после
     # двойного брака (Trellis и Hunyuan) в реестре мешей; отсутствие меша не блокирует.
@@ -203,14 +215,12 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
         if verdict_for_photo(cand.get('img') or '', _os.path.expanduser(
                 '~/scout-scenes/meshes')) == 'replace_product':
             return False
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 — нет реестра — это не сбой: verdict_for_photo сам отдаёт None
+        return _gate_error('меш', e)
     # ТОВАР ДОЛЖЕН БЫТЬ В ПРОДАЖЕ И С ИЗВЕСТНЫМ РАЗМЕРОМ (26.08). Программа магазина закрыта или
     # товар архивный — его нельзя ни показать, ни продать. Каталог не знает НИ ОДНОГО габарита —
     # предмет нельзя расставить честно: размер тогда берётся «по памяти слота», а это и был
     # коврик 90 см, стоявший в банке как 230×160 (находка владельца).
-    # Сбой этой проверки раньше глотался (`except: pass`) — кандидат проходил БЕЗ проверки наличия и размера
-    # (conv-12 п.1). Теперь: кандидат отклоняется, сбой считается, команда печатает WARN (статус шага — warn).
     try:
         from catalog_media import media as _media
         _m = _media(cand.get('mid'), cand.get('eid'))
@@ -225,8 +235,7 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
         elif not any(_m.get(f) for f in ('w', 'd', 'h', 'dia')):
             return False
     except Exception as e:  # noqa: BLE001
-        _GATE_ERRORS[type(e).__name__] = _GATE_ERRORS.get(type(e).__name__, 0) + 1
-        return False
+        return _gate_error('каталог', e)
     w = cand.get('w') or 0
     d = cand.get('d') or 0
     if role == 'ковёр':
@@ -405,6 +414,7 @@ def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
     major = ('диван', 'кресло', 'столик', 'тв-тумба', 'стеллаж', 'комод', 'стол обеденный')
     from testmode import skip as _tm_skip
     swapped = 0
+    _journal: list = []      # каждая замена — в set_changes (conv-12 п.2: refresh менял состав мимо журнала)
     for n, s in enumerate(sets, 1):
         if _tm_skip(n):
             continue                     # тест-режим: освежаем только выбранные (heal — всегда все)
@@ -438,6 +448,8 @@ def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
                       f'→ «{cand["name"][:30]}» (высокая)')
                 if apply:
                     s['items'][role] = trial
+                    _journal.append((s.get('set_id'), role, key(it['mid'], it['eid']),
+                                     key(trial.get('mid'), trial.get('eid'))))
                 swapped += 1
                 done += 1
                 break
@@ -445,6 +457,9 @@ def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
     if apply and swapped:
         shutil.copy(SETS, SETS + '.bak')
         _ensure_ids(sets)          # новый сет обязан получить стабильный id сразу
+        from heal_policy import record as _rec
+        for sid, slot, old_sku, new_sku in _journal:
+            _rec(sid, slot, old_sku, new_sku, 'refresh_upgrade')
         json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
         print('sets3.json обновлён (бэкап .bak)')
 
@@ -638,8 +653,16 @@ def heal(apply: bool = False, only_trusted: bool = False) -> None:
                         s['items'][role] = _cl
                 else:
                     hopeless.append((n, role, it['name'][:38], 'основное кресло тоже мертво'))
+                    healed += 1               # снятие с пробелом — изменение банка (как снятие pod выше): без счёта
+                    _touched.add(n)           # оно не записывалось, если в прогоне больше ничего не вылечено
                     if apply:
                         s['items'].pop(role, None)
+                        # СНЯЛИ ЭКЗЕМПЛЯР — ПИШЕМ ПРОБЕЛ, как ветка pod выше (conv-12 п.2): молча снятое «кресло 2»
+                        # оставило 4 large-сета без пары и без gap (инцидент 29.08, сторож банка)
+                        _g = s.setdefault('gaps', [])
+                        _msg = 'coverage_gap: кресло 2 — основное кресло выбыло, экземпляра пары нет'
+                        if _msg not in _g:
+                            _g.append(_msg)
                 continue
             spares = [a for a in ((s.get('alternates') or {}).get(role) or [])
                       if key(a['mid'], a['eid']) in alive]
@@ -736,21 +759,20 @@ def heal(apply: bool = False, only_trusted: bool = False) -> None:
     # из ВСЕХ 126 комплектов: лимит «одна замена на сет» ущерб ограничил, но не предотвратил.
     # Массовость почти всегда означает сломанный предикат, а не массовое выбытие товаров,
     # поэтому проверяем ДО записи: ни файл, ни журнал не трогаем.
-    try:
-        from heal_policy import run_allowed
-        ok_run, why = run_allowed(len(_touched), len(sets))
-    except Exception:  # noqa: BLE001 — модуля нет: ведём себя как раньше
-        ok_run, why = True, ''
+    # Без модуля предохранителя писать нельзя — шаг падает (conv-12 п.1; раньше except лечил без предохранителя).
+    # Отказ — строкой WARN: (статус шага warn в refresh-status.json и в дайджесте), alert.sh — как прежде.
+    from heal_policy import run_allowed
+    ok_run, why = run_allowed(len(_touched), len(sets))
     if not ok_run and apply and not only_trusted:
         # ЧАСТИЧНОЕ ЛЕЧЕНИЕ (Codex 14.10): подозрительных касаний много — их не трогаем, а надёжные причины
         # (archived магазина с честным импортом, «нет в наличии» по странице) лечим; человеку — тревога
-        print(f'\n⚠ {why} — лечу только надёжные причины')
+        print(f'\nWARN:heal_fuse_partial: {why} — лечу только надёжные причины')
         subprocess.run(['bash', os.path.join(HERE, 'alert.sh'),
                         f'remlab: лечение сетов — подозрительных касаний много ({why}); вылечены только надёжные причины'],
                        check=False)
         return heal(apply=True, only_trusted=True)
     if not ok_run:
-        print(f'\n⚠ {why}')
+        print(f'\nWARN:heal_fuse: {why} — лечение не применено')
         try:
             import alert_local  # noqa: F401
         except Exception:  # noqa: BLE001
@@ -768,6 +790,60 @@ def heal(apply: bool = False, only_trusted: bool = False) -> None:
         print('\nsets3.json обновлён (бэкап рядом, .bak)')
     elif not apply:
         print('\nэто был показ без изменений; применить — ключом --apply')
+
+
+# ПАРА КРЕСЕЛ — ОДНА МОДЕЛЬ (Q5 20.08; владелец 20.10: «в комплекте все кресла группы — одна модель, меняешь одно —
+# меняются все»). «кресло 2» — экземпляр основного «кресла», «кресло 4» — пара к «креслу 3». До conv-12 синхронизация жила
+# только внутри enforce_contracts, а тот с 05.09 стоял на предохранителе: heal/refresh меняли основное — пара расходилась.
+PAIRS = (('кресло 2', 'кресло'), ('кресло 4', 'кресло 3'))
+
+
+def sync_pairs(sets: list, apply: bool = False) -> list[tuple]:
+    """Экземпляр пары ≠ основному → [(номер сета, set_id, слот, старый SKU, новый SKU)]; apply — правит sets на месте."""
+    out = []
+    for n, s in enumerate(sets, 1):
+        items = s.get('items') or {}
+        for inst, main in PAIRS:
+            a_, b_ = items.get(inst), items.get(main)
+            if not a_ or not b_ or (a_.get('mid'), a_.get('eid')) == (b_.get('mid'), b_.get('eid')):
+                continue
+            out.append((n, s.get('set_id'), inst, key(a_.get('mid'), a_.get('eid')), key(b_.get('mid'), b_.get('eid'))))
+            if apply:
+                _new = dict(b_, qty=1, alt=a_.get('alt', True), pair_key=key(b_.get('mid'), b_.get('eid')),
+                            pair_provenance='exact_sku')
+                if 'pod_key' in b_:
+                    _new['pod_key'] = b_['pod_key']
+                if (a_.get('w'), a_.get('d')) != (b_.get('w'), b_.get('d')):
+                    s['_relayout_pending'] = True     # габарит пары сменился — раскладку пересчитает солвер
+                items[inst] = _new
+                s['total'] = sum(int(v.get('price') or 0) * int(v.get('qty') or 1) for v in items.values())
+    return out
+
+
+def pairs_step(apply: bool = False) -> None:
+    """Шаг ночи `sets_pairs` (conv-12 п.2): после heal и после еженедельного --refresh. Через предохранитель и журнал
+    (`set_changes`, причина pair_sync); отказ предохранителя — WARN, банк не трогаем."""
+    import shutil
+    from heal_policy import record as _rec, run_allowed as _ra
+    sets = json.load(open(SETS))
+    plan = sync_pairs(sets, apply=apply)
+    touched = {sid or n for n, sid, *_ in plan}
+    for n, _sid, inst, old, new in plan[:40]:
+        print(f'  сет {n}: {inst} {old} → {new} (экземпляр основного)')
+    ok_run, why = _ra(len(touched), len(sets))
+    print(f'экземпляров пары к синхронизации: {len(plan)} в {len(touched)} сетах из {len(sets)}; '
+          f'предохранитель: {"пропускает" if ok_run else "ОТКАЗ"}' + ('' if apply else ' (показ; применить — --apply)'))
+    if not (apply and plan):
+        return
+    if not ok_run:
+        print(f'WARN:pairs_fuse: {why} — пары НЕ синхронизированы')
+        return
+    shutil.copy(SETS, SETS + '.bak-pairs')
+    _ensure_ids(sets)
+    for _n, sid, inst, old, new in plan:
+        _rec(sid, inst, old, new, 'pair_sync')
+    json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
+    print('sets3.json обновлён (бэкап .bak-pairs)')
 
 
 def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
@@ -803,7 +879,7 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
             # подошедшим» ставила в 15 м² угловой диван 235 см, и носитель ТВ переставал влезать
             # (8 сцен MEDIA_MISSING на первом прогоне 26.08)
             try:
-                from compose2 import slot_ideal as _si
+                from slot_rules import slot_ideal as _si   # не compose2: его импорт исполняет сборку v2
                 _ideal = _si(role, float(s.get('m2') or 0)) or 0
             except Exception:
                 _ideal = 0
@@ -847,25 +923,8 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
                     msg = f'coverage_gap: {role} — нет живого SKU в конверте слота'
                     if msg not in g:
                         g.append(msg)
-    # ПОСЛЕ ЗАМЕН — синхронизация ЭКЗЕМПЛЯРОВ (26.08): «кресло 2» это второй экземпляр основного
-    # кресла, «кресло 4» — пара к «креслу 3». Замена одного из них в одиночку ломает контракт
-    # комплекта (сторож test_second_pod_pair_is_one_sku_from_25m2)
-    synced = 0
-    for s in sets:
-        items = s.get('items') or {}
-        for inst, main in (('кресло 2', 'кресло'), ('кресло 4', 'кресло 3')):
-            a_, b_ = items.get(inst), items.get(main)
-            if not a_ or not b_:
-                continue
-            if (a_.get('mid'), a_.get('eid')) != (b_.get('mid'), b_.get('eid')):
-                synced += 1
-                if apply:
-                    _new = dict(b_, qty=1, alt=a_.get('alt', True),
-                                pair_key=f"{b_.get('mid')}:{b_.get('eid')}",
-                                pair_provenance='exact_sku')
-                    if 'pod_key' in b_:
-                        _new['pod_key'] = b_['pod_key']
-                    items[inst] = _new
+    # ПОСЛЕ ЗАМЕН — синхронизация экземпляров пары (та же функция, что у шага --sync-pairs)
+    synced = len(sync_pairs(sets, apply))
     if synced:
         print(f'синхронизировано экземпляров пары: {synced}')
     # АГРЕГАТЫ СЕТА ПОСЛЕ ЗАМЕН (26.08, замечание Codex): замена товара меняет и сумму комплекта,
@@ -908,6 +967,8 @@ def main() -> None:
         if '--roles' in sys.argv:
             _r = tuple(sys.argv[sys.argv.index('--roles') + 1].split(','))
         enforce_contracts('--apply' in sys.argv, roles=_r)
+    elif '--sync-pairs' in sys.argv:
+        pairs_step('--apply' in sys.argv)
     elif '--refresh' in sys.argv:
         refresh('--apply' in sys.argv)
     elif '--heal' in sys.argv:
@@ -925,12 +986,11 @@ def main() -> None:
 
 
 def _warn_gate_errors() -> None:
-    """Сбои проверки каталога в воротах слота — строкой WARN (статус шага refresh_daily — warn)."""
+    """Сбои проверок в воротах слота — строкой WARN (статус шага refresh_daily — warn)."""
     if _GATE_ERRORS:
         n = sum(_GATE_ERRORS.values())
         kinds = ', '.join(f'{k}×{v}' for k, v in sorted(_GATE_ERRORS.items()))
-        print(f'WARN:slot_gate_catalog: проверка каталога в воротах слота упала {n} раз ({kinds}) — '
-              f'кандидаты отклонены, сверь catalog_media/БД')
+        print(f'WARN:slot_gate: проверки ворот слота упали {n} раз ({kinds}) — кандидаты отклонены')
 
 
 def _selftest() -> int:

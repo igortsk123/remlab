@@ -33,7 +33,8 @@ DAYS = int(os.environ.get('CHANGES_DAYS', '14'))
 
 REASON = {'out_of_stock': 'пропало наличие', 'dead_photo': 'умерло фото',
           'bad_photo': 'негодное фото', 'contract_fail': 'не прошёл контракт',
-          'bad_mesh': 'брак меша'}
+          'bad_mesh': 'брак меша', 'pair_sync': 'пара кресел — одна модель',
+          'refresh_upgrade': 'замена на более подходящий по стилю'}
 
 
 def _cards() -> dict:

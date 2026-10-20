@@ -745,6 +745,8 @@ def main() -> int:
     if report['quarantine']:
         alert(f'remlab: stock_check — магазины в карантине {report["quarantine"]} '
               f'(всплеск отрицательных, вердикты не применены)')
+        # статус шага refresh_daily — warn (conv-12 п.1): раньше карантин был виден только тревогой, шаг писал ok
+        print(f'WARN:stock_quarantine: магазины в карантине {report["quarantine"]} — вердикты наличия не применены')
     return 1 if bad else 0
 
 
