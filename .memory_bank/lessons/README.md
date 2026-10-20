@@ -315,3 +315,4 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 514 — живые тесты только по пути файла (+ --list); свои launchOptions добавляют LIVE_BROWSER_ARGS → `lessons/dev-ops.md`
 - 515 — Метрика tag.js с defer шлёт адрес в nohit/clmap — маска в init url/referrer + clickmap выкл → `lessons/estimate-ads-leads.md`
 - 516 — кроны DEV берут скрипты из основной копии: правка рабочего в main живая сразу — задачи по `tools/scout/**` только в worktree → `lessons/dev-ops.md`
+- 517 — шаги через subprocess shell=True исполняет dash: `$SECONDS` и прочие bash-измы молча ломают логику → `lessons/dev-ops.md`
