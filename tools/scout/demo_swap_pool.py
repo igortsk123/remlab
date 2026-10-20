@@ -180,6 +180,24 @@ def pool_top() -> list[dict]:
     return [p for p in map(_row, db(pool_sql(top=PER_GROUP))) if p]
 
 
+def report(items: list[dict] | None = None) -> list[dict]:
+    """Сводка пула для запуска без флагов (из fd87f948; при добавлении `pool_top` в 4bb8da72 выпала случайно). Без `ok` —
+    до проверок сборки (модель на сервере, цвет): только конверт и габариты, т.е. верхняя граница того, что дойдёт до ленты."""
+    items = items if items is not None else pool()
+    models = {i['msid'] for i in items}
+    groups: dict[tuple, int] = {}
+    for i in items:
+        groups[(i['sub'], i['style'])] = groups.get((i['sub'], i['style']), 0) + 1
+    print(f'пул замены: товаров {len(items)}, моделей (уникальных мешей) {len(models)}, '
+          f'групп «подкатегория×стиль» {len(groups)}, лимит на группу {PER_GROUP}')
+    by_role: dict[str, int] = {}
+    for i in items:
+        by_role[i['role']] = by_role.get(i['role'], 0) + 1
+    print('по ролям:', dict(sorted(by_role.items(), key=lambda kv: -kv[1])))
+    print(f'вес моделей ≈ {len(models) * 7.6 / 1024:.1f} ГБ')
+    return items
+
+
 def _selftest() -> int:
     bad = 0
     q = pool_sql()

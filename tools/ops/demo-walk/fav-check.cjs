@@ -6,6 +6,7 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 //   BASE=https://remont-lab.online/test/share/demo-stage/ node tools/ops/demo-walk/fav-check.cjs 375x667
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=process.env.OUT||require('os').tmpdir()+'/fav-';
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number), PHONE=W<=700;
+const CTA=require('./cta-rule.cjs');
 const R=[]; const ok=(n,c,i)=>R.push((c?'OK  ':'FAIL')+' '+n+(i!==undefined?' — '+i:''));
 async function page(b,lang){
   const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,isMobile:PHONE,hasTouch:PHONE,locale:lang==='en'?'en-GB':'ru-RU'});
@@ -46,8 +47,8 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
     ok('строка предмета подсвечена, пока выделен',st1.hl&&st1.sel===k);
     if(PHONE)ok('строка предмета — в верхней трети списка',st1.rel!=null&&st1.rel>=0&&st1.rel<0.34,st1.rel&&st1.rel.toFixed(2));
     // компьютер: кнопка «Сделать реалистичнее» целиком видна под плашкой и после прокрутки к строке (fable-lead 18.10, цикл 1)
-    const ctaOk=()=>p.evaluate(()=>{const c=document.getElementById('vCta').getBoundingClientRect(), s=document.getElementById('vscroll').getBoundingClientRect(),
-      pl=document.getElementById('vsum').getBoundingClientRect(); return {ok:c.height>0&&c.top>=s.top-1&&c.top>=pl.bottom-1&&c.bottom<=s.bottom+1, cta:Math.round(c.top), list:Math.round(s.top), plate:Math.round(pl.bottom)};});
+    // правило 2.32 — общее с sheet-gestures (`cta-rule.cjs`): кнопка над списком, под плашкой, целиком в экране
+    const ctaOk=async()=>{const g=await p.evaluate(CTA.ctaGeom); return {ok:CTA.ctaUnderPlate(g), ...g};};
     if(!PHONE){const c1=await ctaOk(); ok('компьютер: после выделения строки кнопка целиком под плашкой',c1.ok,JSON.stringify(c1));}
     await p.waitForTimeout(600);   // миниатюры строк грузятся лениво — снимок после загрузки
     await p.screenshot({path:OUT+W+'-2-row.png'});

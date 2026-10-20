@@ -8,6 +8,7 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 // v5.2: свёрнутая = плашка + чип + кнопка (кнопка целиком в экране, высота ≤ 190 px на высоте 667) — при открытии окна и после
 // замены; тап по предмету — список прокручен сразу (через 50 мс), строка в верхней трети к концу подъёма.
 //   EN=1 — английский; ширина > 700 (1440x900) — только колонка компьютера: кнопка под плашкой, не уезжает с прокруткой (2.32)
+const CTA=require('./cta-rule.cjs');
 const SP=process.env.SP, LOCAL=process.env.LOCAL, EN=!!process.env.EN, OUT=process.env.OUT||require('os').tmpdir()+'/'; const prod=!LOCAL&&(process.env.PROD||!SP);
 const F=(prod||LOCAL)?null:JSON.parse(fs.readFileSync(SP+'/floorlib/scene.json','utf8')).file;
 const [W,H]=(process.argv[2]||'390x844').split('x').map(Number);
@@ -26,14 +27,14 @@ const R=global.__R=[]; const ok=(name,cond,info)=>{R.push((cond?'OK  ':'FAIL')+'
 const SFX=(EN?'-en':'')+'-'+W+'x'+H;
 // v5.2: положение шторки и кнопки — до переключения режима (окно само в «Фото», если есть снимок) и в 3D
 const head=()=>p.evaluate(()=>{const sd=document.getElementById('vside'), c=document.getElementById('vCta'), r=c.getBoundingClientRect(), pl=document.getElementById('vsum').getBoundingClientRect();
-  return {pos:sd.dataset.pos, h:Math.round(innerHeight-sd.getBoundingClientRect().top), cta:c.hidden?'hidden':[Math.round(r.top),Math.round(r.bottom)].join('-'),
+  return {pos:sd.dataset.pos, h:Math.round(innerHeight-sd.getBoundingClientRect().top), top:Math.round(r.top), cta:c.hidden?'hidden':[Math.round(r.top),Math.round(r.bottom)].join('-'),
     inScreen:!c.hidden&&r.top>=0&&r.bottom<=innerHeight, ctaTxt:c.textContent, plate:Math.round(pl.bottom), mode:VW.mode, chip:document.getElementById('vchip').textContent};});
 await p.evaluate(()=>openLiveWindow()); await p.waitForTimeout(1500);
 const hOpen=await head(); console.log('open',JSON.stringify(hOpen)); await p.screenshot({path:OUT+`v52${SFX}-open-${hOpen.mode}.png`});
 if(W>700){   // КОМПЬЮТЕР (2.32): кнопка — под плашкой, при прокрутке списка не уезжает
   await p.evaluate(()=>{if(VW.mode==='photo')vwMode('walk');}); await p.waitForTimeout(1500);
   const d0=await head(); await p.evaluate(()=>{document.getElementById('vscroll').scrollTop=400;}); await p.waitForTimeout(400); const d1=await head();
-  ok('1440: кнопка под плашкой',d0.inScreen&&+d0.cta.split('-')[0]>=d0.plate-1,JSON.stringify(d0));
+  ok('1440: кнопка под плашкой',CTA.ctaUnderPlate(d0),JSON.stringify(d0));   // правило — `cta-rule.cjs`, общее с fav-check
   ok('1440: прокрутка списка — кнопка на месте',d1.cta===d0.cta,`${d0.cta} → ${d1.cta}`);
   await p.screenshot({path:OUT+`v52${SFX}-desk.png`});
   const idx=await p.evaluate(()=>items.findIndex(it=>vwRowOf(it))); await p.evaluate(i=>{document.getElementById('vscroll').scrollTop=0; vwHighlight(i);},idx); await p.waitForTimeout(900);

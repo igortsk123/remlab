@@ -2102,11 +2102,9 @@ function draw(){
       stroke:o.kind==='door'?'#C8783C':'#5A9BD4','stroke-width':8}));
     if(o.kind==='door'){const sw=swing(o);stage.appendChild(el('path',{d:sw,fill:'none',stroke:'#E0B389','stroke-width':1.5}));}
     const m=wallMid(o);stage.appendChild(txt(m.x,m.y,o.kind==='door'?'дверь':'окно',11,o.kind==='door'?'#B4652B':'#3E7BB0'));});
-  items.slice().sort((a,b)=>(a.role.startsWith('ковёр')?0:1)-(b.role.startsWith('ковёр')?0:1)).forEach(it=>{
-    stage.appendChild(shape(it));
-    const b=box(it);
-    stage.appendChild(txt((b.x0+b.x1)/2,b.y1+9,`${it.role} ${Math.round(it.w)}×${Math.round(it.d)}`,10.5,'#2A2F2C'));});
+  items.slice().sort((a,b)=>(a.role.startsWith('ковёр')?0:1)-(b.role.startsWith('ковёр')?0:1)).forEach(it=>stage.appendChild(shape(it)));
   drawDecor();                                         // вазы на столешнице — видно, но не двигается
+  drawLabels();                                        // подписи предметов — слоем над всеми предметами, без наездов
   if(sel)stage.appendChild(handles(sel));               // ручки выделенного — под значками
   drawCams();                                          // точка съёмки — над предметами
   items.forEach(it=>stage.appendChild(badgeFor(it)));   // значки — последним слоем и БЕЗ поворота
@@ -2793,6 +2791,46 @@ function shade(hex,amt){const n=parseInt(hex.slice(1),16);
   return '#'+((r<<16)|(g2<<8)|b2).toString(16).padStart(6,'0');}
 function txt(x,y,s,sz,c){const t=el('text',{x:X(x),y:Y(y),'text-anchor':'middle','font-size':sz,fill:c,
   'paint-order':'stroke',stroke:'#fff','stroke-width':3,'stroke-linejoin':'round','pointer-events':'none'});t.textContent=s;return t;}
+// ПОДПИСИ ПРЕДМЕТОВ БЕЗ НАЕЗДОВ (T-20261020-01, прод 20.10 на 375: «стол обеденный» и «банкетка» закрыты соседним стулом,
+// «банкетка» обрезана краем, у джапанди подписи налезали друг на друга). Подписи — отдельным слоем после всех предметов (раньше
+// следующий предмет закрывал подпись прошлого); каждой — первое свободное место: под предметом → внутри → над → сбоку, сдвиг
+// вдоль строки, чтобы не выйти за рамку плана. Нельзя: налезть на другую подпись (дверь, окно, ваза — уже стоят) и выйти за рамку;
+// штраф: закрыть соседний предмет (ковёр не в счёт — он фон). Мест нет — подпись без размера, нет и так — не рисуем.
+// Мелкие ставим первыми (у них меньше мест), ковёр — последним. Замер — `tools/ops/demo-walk/plan-labels.cjs`.
+let labCtx=null, labFam='system-ui';
+function labBox(x,y,s,sz){
+  if(!labCtx)labCtx=document.createElement('canvas').getContext('2d');
+  labCtx.font=sz+'px '+labFam;
+  const w=labCtx.measureText(s).width+2;
+  return {l:x-w/2,r:x+w/2,t:y-0.8*sz,b:y+0.25*sz};
+}
+function drawLabels(){
+  const sz=10.5, G=2, M=2, vw=D.room.w*S+2*PAD, vh=D.room.d*S+2*PAD;
+  labFam=getComputedStyle(stage).fontFamily||'system-ui';
+  const hit=(a,b)=>a.l<b.r+G&&b.l<a.r+G&&a.t<b.b+G&&b.t<a.b+G;
+  const area=(a,b)=>Math.max(0,Math.min(a.r,b.r)-Math.max(a.l,b.l))*Math.max(0,Math.min(a.b,b.b)-Math.max(a.t,b.t));
+  const placed=[...stage.querySelectorAll('text')].map(t=>labBox(+t.getAttribute('x'),+t.getAttribute('y'),t.textContent,+t.getAttribute('font-size')));
+  const rug=it=>it.role.startsWith('ковёр');
+  const B=items.map(it=>{const b=box(it); return {it,l:X(b.x0),r:X(b.x1),t:Y(b.y0),b:Y(b.y1)};});
+  const order=B.slice().sort((p,q)=>(rug(p.it)-rug(q.it))||((p.r-p.l)*(p.b-p.t)-(q.r-q.l)*(q.b-q.t)));
+  let hidden=0;
+  order.forEach(o=>{
+    const it=o.it, cx=(o.l+o.r)/2, cy=(o.t+o.b)/2+0.3*sz, full=`${it.role} ${Math.round(it.w)}×${Math.round(it.d)}`;
+    let best=null;
+    [full,it.role].forEach((s,short)=>{
+      const w=labBox(0,0,s,sz).r*2;
+      [[cx,o.b+sz],[cx,cy],[cx,o.t-0.35*sz],[cx,o.t+sz+2],[cx,o.b-0.35*sz-2],[o.r+G+w/2,cy],[o.l-G-w/2,cy]].forEach(([x0,y],k)=>{
+        const x=Math.min(Math.max(x0,M+w/2),vw-M-w/2), r=labBox(x,y,s,sz);
+        if(r.t<M||r.b>vh-M||placed.some(p=>hit(r,p)))return;
+        const cover=B.reduce((t,q)=>t+(q===o||rug(q.it)?0:area(r,q)),0)/((r.r-r.l)*(r.b-r.t));
+        const pen=short*50+k*3+cover*40+Math.abs(x-x0)*0.05;
+        if(!best||pen<best.pen)best={pen,x,y,s,r};});});
+    if(!best){hidden++; return;}
+    placed.push(best.r);
+    const t=el('text',{x:best.x,y:best.y,'text-anchor':'middle','font-size':sz,fill:'#2A2F2C','paint-order':'stroke',stroke:'#fff',
+      'stroke-width':3,'stroke-linejoin':'round','pointer-events':'none'}); t.textContent=best.s; stage.appendChild(t);});
+  stage.dataset.labHidden=hidden;
+}
 function wallMid(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm);const cx=(p.x1+p.x2)/2,cy=(p.y1+p.y2)/2;
   const dx=(D.room.w/2-cx),dy=(D.room.d/2-cy),n=Math.hypot(dx,dy)||1;return{x:cx+dx/n*22,y:cy+dy/n*22};}
 // ДВЕРЬ ОТКРЫВАЕТСЯ ТУДА, КУДА СКАЖУТ (владелец 27.08): у проёма два переключателя — сторона
