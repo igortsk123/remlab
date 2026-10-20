@@ -273,7 +273,8 @@ for r in raw:
     role=r[0]
     if role not in ROLES: continue
     if (int(r[1]),r[2]) in BLACK: continue
-    if unfit(role,r[3],r[13] if len(r)>13 else '', float(r[8]) if r[8] else None, float(r[7]) if r[7] else None): continue
+    if unfit(role,r[3],r[13] if len(r)>13 else '', float(r[8]) if r[8] else None, float(r[7]) if r[7] else None,
+             d=float(r[5]) if r[5] else None): continue
     k=(r[10],model_key(r[3]))
     pool=cat.setdefault(role,{})
     if k in pool: continue

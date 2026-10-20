@@ -16,7 +16,7 @@ UNFIT_BY_CLASS={
  ('кашпо','ваза'):           re.compile(r'для рассады|торфян|вазон|flower|чаша|горшечн|подвесн|ампельн|цеп|балконн',re.I),
  ('стул','кресло'):          re.compile(r'компьютерн|офисн|геймерск|игров|руководител|оператор|барн',re.I),
 }
-def unfit(role,name,mat=None,h=None,dia=None):
+def unfit(role,name,mat=None,h=None,dia=None,*,d=None):
     txt=(name or '')+' '+(mat or '')
     if UNFIT_ANY.search(txt): return True
     for roles,rx in UNFIT_BY_CLASS.items():
@@ -25,14 +25,31 @@ def unfit(role,name,mat=None,h=None,dia=None):
         return True  # напольное кашпо ≥30 см высоты или диаметра; мелочь = подвесное/настольное
     if role=='стул' and (h or 0)>110:
         return True  # спинка обеденного стула ≤110 см; выше — офисное/компьютерное кресло
+    if role=='стол обеденный':
+        # ГОСТ 13025.3-85: обеденный 72–78 см; <65 — журнальный, >90 — барный (T-20261020-23, Codex 20.10).
+        # Высоты/глубины нет — не отсекаем: сбой пробы ≠ вердикт. Глубина — `d`, не меньшая сторона: у раскладных
+        # «100+30×70» в `w` лежит вставка 30. <50 — консоль (Shengfang 100×35), не обеденный
+        if h and (h<65 or h>90): return True
+        de=d or dia
+        if de and de<50: return True
+        from category_map import dining_name_bad
+        if dining_name_bad(name): return True  # «Стол кофейный …», «Стол рабочий …» — тип вплотную к «стол»
     return False
 
 
 def _selftest() -> int:
     cases = [(('стул', 'Стул барный divan.ru Эрин Рогожка Графитовый'), True), (('стул', 'Стул divan.ru Алекс Букле Серый'), False),
              (('стул', 'Стул офисный Х'), True), (('ковёр', 'Ковёр резиновый грязезащитный'), True), (('диван', 'Диван уличный'), True),
-             (('стол обеденный', 'Стол барный'), False)]
+             (('стол обеденный', 'Стол барный'), True)]
+    kw = [(('стол обеденный', 'Стол кофейный Glasar', None, 40.0), {'d': 81.0}, True),
+          (('стол обеденный', 'Стол divan.ru Олэн Латте', None, 103.0), {'d': 70.0}, True),
+          (('стол обеденный', 'Стол Shengfang 100х35х75 см', None, 75.0), {'d': 35.0}, True),
+          (('стол обеденный', 'Стол круглый', None, 75.0, 45.0), {}, True),
+          (('стол обеденный', 'Обеденный стол TC Caterina Provence кофейный 100+30х70х75 см', None, 75.0), {'d': 70.0}, False),
+          (('стол обеденный', 'Стол обеденный без размеров'), {}, False),
+          (('столик', 'Столик кофейный Glasar', None, 40.0), {'d': 81.0}, False)]
     bad = [c for c, want in cases if unfit(*c) != want]
+    bad += [a for a, k, want in kw if unfit(*a, **k) != want]
     print('unfit selftest:', 'чисто' if not bad else f'провалы {bad}')
     return 1 if bad else 0
 

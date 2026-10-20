@@ -56,6 +56,7 @@ from dim_resolver import resolve as resolve_dims  # noqa: E402 — единиц�
 from reflink import direct  # noqa: E402 — прямая ссылка строится тем же способом, что в catalog_media
 from page_alive import url_key  # noqa: E402 — хеш текущей карточки: негатив проверки действует только по ней (Н1)
 import category_map  # noqa: E402 — is_kids, а после П3.5 — MIXED/role_by_name
+from unfit import unfit  # noqa: E402 — карантин обеденного стола по размерам (T-20261020-23)
 
 
 def sql(q, inp=None):
@@ -241,6 +242,11 @@ def assign(o: dict, catrole: dict, known: set) -> dict:
     if role:
         dims, ev, dsrc = resolve_dims(o['mid'], o['name'], o['params'], role)
         o['dims'], o['dims_evidence'], o['dims_source'] = dims, ev, dsrc
+        if role == 'стол обеденный' and unfit(role, o['name'], None, dims.get('h'), dims.get('dia'), d=dims.get('d')):
+            # КАРАНТИН ПО РАЗМЕРАМ (T-20261020-23): журнальный/барный/консоль без типа в названии («Стол divan.ru Олэн»
+            # h=103, «Стол Shengfang» 100×35) — строка с размерами грузится, но БЕЗ роли, как детское. Пороги — только
+            # `unfit.py`; размеров нет — роль остаётся (сбой пробы ≠ вердикт)
+            o['role'] = None
     else:
         o['dims'], o['dims_evidence'], o['dims_source'] = {'w': None, 'd': None, 'h': None, 'len': None, 'dia': None}, None, None
     o['feed_status'] = 'active' if o['price'] else 'out_of_stock'
@@ -630,6 +636,17 @@ def selftest() -> int:
     check('attrs: порядок ключей', attrs_hash({'a': '1', 'b': '2'}) == attrs_hash({'b': '2', 'a': '1'}))
     check('text_hash: эффективное описание', text_hash('x', 'old') != text_hash('x', None))
     check('accepted ⊇ role: строка с ролью всегда принята', all(o['accepted'] for o in offers if o['role']))
+    # карантин обеденного стола по размерам (T-20261020-23): реальные названия и параметры фидов 20.10
+    gab = lambda l, w, h: {'Размеры: Длина габаритная': f'{l}см', 'Размеры: Ширина габаритная': f'{w}см',  # noqa: E731
+                           'Размеры: Высота габаритная': f'{h}см'}
+    for mid, cid, nm, params, want in (
+            ('112923', '334', 'Стол divan.ru Нолан White', gab(35, 35, 75), None),
+            ('112923', '334', 'Стол divan.ru Олэн Латте', gab(70, 70, 103), None),
+            ('99272', '6983', 'Стол Shengfang 100х35х75 см', {'Длина': '100', 'Ширина': '35', 'Высота': '75'}, None),
+            ('112923', '30', 'Кухонный стол divan.ru Хилл 85 Древесный черный', gab(85, 85, 75), 'стол обеденный'),
+            ('112923', '334', 'Стол divan.ru Безразмерный', {}, 'стол обеденный')):
+        o = assign({'mid': mid, 'cid': cid, 'name': nm, 'params': params, 'price': 1}, {}, set())
+        check(f'стол «{nm[:24]}» → {want}', o['role'] == want and o['accepted'], f"{o['role']} {o['dims']}")
     check('norm_hd: // → https', norm_hd('//cdn.shop.ru/a.jpg') == 'https://cdn.shop.ru/a.jpg')
     check('norm_hd: не URL → None', norm_hd('картинка.jpg') is None and norm_hd('') is None)
     # строки COPY собираются без исключений и с нужным числом колонок

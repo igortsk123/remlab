@@ -13,6 +13,7 @@
 """
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -178,6 +179,14 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
     """
     if not _mesh_gate_ok(cand):
         return False
+    # ПРИГОДНОСТЬ ДЛЯ ГОСТИНОЙ — то же правило, что у сборки (`compose2`) и демо (`unfit.py`; T-20261020-23): иначе
+    # `--enforce-contracts` не меняет уже лежащий в банке журнальный/барный стол в слоте обеденного
+    try:
+        from unfit import unfit as _unfit
+        if _unfit(re.sub(r'\s+\d+$', '', role), cand.get('name'), None, cand.get('h'), cand.get('dia'), d=cand.get('d')):
+            return False
+    except Exception as e:  # noqa: BLE001
+        return _gate_error('пригодность', e)
     # Тот же предикат пригодности фото, что и у первичной сборки (`slot_contract`) — иначе
     # два пути расходятся и лечение возвращает в сет то, что сборка бы не взяла.
     # СБОЙ ЛЮБОЙ ПРОВЕРКИ ВОРОТ — ОТКАЗ, А НЕ ПРОПУСК (conv-12 п.1): раньше except глотал сбой, и кандидат проходил без

@@ -98,6 +98,22 @@ def link_daily_limit(r: Report) -> None:
          'взято 0 — добивать нечего, и это не ошибка')
 
 
+# ---------------------------------------------------------------- звено 1б: стол в смешанной ветке → роль → подбор
+def link_dining_table(r: Report) -> None:
+    """Кофейный стол не доезжает до слота обеденного (T-20261020-23: «Стол кофейный Glasar 81×81×40» стоял обеденным
+    в демо сканди): ни по роли из названия, ни через ворота подбора, если роль уже стоит."""
+    import category_map as CM
+    from unfit import unfit
+    glasar = 'Стол кофейный Glasar белый с коричневым 81х81х40 см'
+    r.ok('стол: кофейный по названию — столик', CM.role_by_name(glasar) == 'столик', str(CM.role_by_name(glasar)))
+    r.ok('стол: «кофейный» цвет в хвосте — обеденный',
+         CM.role_by_name('Обеденный стол TC Caterina Provence кофейный') == 'стол обеденный',
+         str(CM.role_by_name('Обеденный стол TC Caterina Provence кофейный')))
+    r.ok('стол: ворота обеденного режут h=40', unfit('стол обеденный', 'Стол Х', None, 40.0, d=81.0), 'h=40')
+    r.ok('стол: обычный обеденный проходит', not unfit('стол обеденный', 'Кухонный стол Хилл 85', None, 75.0, d=85.0),
+         'h=75 d=85')
+
+
 # ---------------------------------------------------------------- звено 5: закреплённые
 def link_pinned_first(r: Report) -> None:
     """Закреплённый владельцем идёт первым в ЛЮБОЙ очереди, а не только в боевой."""
@@ -129,6 +145,22 @@ def live_role_canon(r: Report) -> None:
                 'where p.cat_role is distinct from l.role') or 0)
     r.warn('role_canon', n == 0,
            f'товаров, где роль витрины расходится с картой категорий: {n} (должно быть 0)')
+
+
+def live_dining_fit(r: Report) -> None:
+    """В роли «стол обеденный» в наличии нет журнальных, барных и консолей (T-20261020-23): высота 65–90, глубина ≥ 50,
+    тип вплотную к «стол» не чужой — одно правило `unfit.py`. Высоты/глубины нет — не нарушение (сбой пробы ≠ вердикт)."""
+    from unfit import unfit
+    num = lambda v: float(v) if v else None  # noqa: E731
+    bad = []
+    for ln in sql("select shop_mid||':'||external_id||chr(31)||coalesce(name,'')||chr(31)||coalesce(h_cm::text,'')"
+                  "||chr(31)||coalesce(d_cm::text,'')||chr(31)||coalesce(dia_cm::text,'') from products "
+                  "where cat_role='стол обеденный' and in_stock and status='active'").splitlines():
+        sku, name, h, d, dia = (ln.split('\x1f') + [''] * 5)[:5]
+        if unfit('стол обеденный', name, None, num(h), num(dia), d=num(d)):
+            bad.append(f'{sku} {name[:40]} h={h or "?"} d={d or dia or "?"}')
+    r.warn('dining_fit', not bad, f'обеденных столов, негодных по высоте/глубине/названию: {len(bad)}'
+           + (f" ({'; '.join(bad[:5])})" if bad else ''))
 
 
 def mesh_roles() -> list[str]:
@@ -265,7 +297,7 @@ def main() -> int:
     r = Report()
     if live:
         print('проверки цепочки по ЖИВЫМ данным:', flush=True)
-        for fn in (live_role_canon, live_mesh_required, live_queue_not_empty, live_guards_scheduled,
+        for fn in (live_role_canon, live_dining_fit, live_mesh_required, live_queue_not_empty, live_guards_scheduled,
                    live_demo_variants, live_photo_gate, live_swap_feeds):
             try:
                 fn(r)
@@ -276,7 +308,7 @@ def main() -> int:
         print(f'цепочка (живые): расхождений {r.bad}', flush=True)
         return 0          # живые расхождения — предупреждение, а не падение конвейера
     print('проверки цепочки на фикстурах:', flush=True)
-    for fn in (link_feed_to_role, link_daily_limit, link_pinned_first):
+    for fn in (link_feed_to_role, link_dining_table, link_daily_limit, link_pinned_first):
         fn(r)
     print(f'tests_chain selftest: ошибок {r.bad}', flush=True)
     return 1 if r.bad else 0

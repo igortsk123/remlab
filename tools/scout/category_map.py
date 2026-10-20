@@ -160,11 +160,61 @@ MIXED = {'112923:334', '99272:6983', '112923:30',
 # внутри лежат и пуфы (28 из 60), поэтому роль решает название, а не ветка (11.10)
 
 
+# СТОЛЫ В СМЕШАННЫХ ВЕТКАХ — тип по названию (T-20261020-23, Codex 20.10). Общее `^стол\s` в ALLOW писало в обеденные
+# любой «Стол …»: «Стол кофейный Glasar 81×81×40» встал обеденным в демо сканди, «Стол рабочий» и «Стол барный» — в ленту.
+# Тип — слово ВПЛОТНУЮ к «стол» (пробел или дефис, с границами слова): «кофейный» в хвосте названия — цвет
+# («Обеденный стол TC Caterina кофейный»), «кофейня» — не тип. Порядок: «… для обеденного стола» — принадлежность,
+# не стол → двойное назначение (трансформер) → не гостиная (рабочий, барный…) → явное «обеденный» → журнальный.
+_TABLE = r'стол(?:ы|а|ик|ики)?'
+_SEP = r'[\s-]+'
+
+
+def _near_table(types: str) -> re.Pattern:
+    return re.compile(rf'\b{_TABLE}{_SEP}(?:{types})\b|\b(?:{types}){_SEP}{_TABLE}\b', re.I)
+
+
+TABLE_WORD = re.compile(rf'\b{_TABLE}\b', re.I)
+TABLE_FOR = re.compile(rf'\bдля{_SEP}(?:\w+{_SEP}){{0,2}}{_TABLE}\b', re.I)
+# ДВОЙНОЕ НАЗНАЧЕНИЕ — из автоподбора вон (карантин): меш и габарит сложенного журнального не совпадают с обеденным
+TABLE_DUAL = re.compile(r'\bтрансформер\w*\b|\bжурнальн\w*-обеденн|\bобеденн\w*-журнальн', re.I)
+TABLE_NOT_LIVING = _near_table(r'рабоч(?:ий|ая|ие|его)|письменн\w*|компьютерн\w*|барн(?:ый|ая|ые|ого)|'
+                               r'консол\w*|туалетн\w*|сервировочн\w*')
+TABLE_DINING = re.compile(r'\bобеденн\w*\b', re.I)
+TABLE_COFFEE = _near_table(r'кофейн(?:ый|ая|ое|ые|ого|ой)|журнальн\w*|приставн\w*|придиванн\w*')
+
+
+def table_role(name: str) -> tuple[bool, str | None]:
+    """(решено ли правилом столов, роль). Не решено — роль даёт общий `classify`."""
+    low = (name or '').lower()
+    if TABLE_FOR.search(low):
+        return True, classify(TABLE_FOR.sub(' ', low))[0]     # «Стул для обеденного стола» — стул
+    if not TABLE_WORD.search(low):
+        return False, None
+    if TABLE_DUAL.search(low) or TABLE_NOT_LIVING.search(low):
+        return True, None
+    if TABLE_DINING.search(low):
+        return True, 'стол обеденный'
+    if TABLE_COFFEE.search(low):
+        return True, 'столик'
+    return False, None
+
+
+def dining_name_bad(name: str) -> bool:
+    """Название говорит, что это НЕ обеденный стол — для сторожей роли «стол обеденный» (`unfit`, tests_chain)."""
+    low = (name or '').lower()
+    return bool(TABLE_DUAL.search(low) or TABLE_NOT_LIVING.search(low)
+                or (TABLE_COFFEE.search(low) and not TABLE_DINING.search(low)))
+
+
 def role_by_name(name: str) -> str | None:
-    """Роль по названию товара (только для MIXED-веток): те же DENY/ALLOW, что для путей категорий."""
+    """Роль по названию товара (только для MIXED-веток): те же DENY/ALLOW, что для путей категорий, плюс правило столов."""
     if is_kids(name):
         return None
-    return classify(name or '')[0]
+    role, why = classify(name or '')
+    if role is None and why.startswith('исключено'):
+        return None                                           # DENY сильнее (подсветка, детское, офис…)
+    decided, trole = table_role(name)
+    return trole if decided else role
 
 
 def classify(path: str) -> tuple[str | None, str]:
@@ -284,6 +334,28 @@ def selftest() -> int:
     check('mixed: кухонный стол', role_by_name('Кухонный стол divan.ru Таргет 90 Белый') == 'стол обеденный', role_by_name('Кухонный стол divan.ru Таргет 90 Белый'))
     check('mixed: журнальный столик', role_by_name('Столик журнальный Glasar 60') == 'столик', role_by_name('Столик журнальный Glasar 60'))
     check('mixed: стул', role_by_name('Стул divan.ru Франс Рогожка') == 'стул', role_by_name('Стул divan.ru Франс Рогожка'))
+    # столы в смешанных ветках (T-20261020-23, кейсы Codex 20.10): тип — слово вплотную к «стол»
+    for nm, want in (('Стол кофейный Glasar белый с коричневым 81х81х40 см', 'столик'),
+                     ('Обеденный стол TC Caterina Provence кофейный 100+30х70х75 см (19128)', 'стол обеденный'),
+                     ('Обеденный стол кофейный', 'стол обеденный'),
+                     ('Стол TC кофейный 80х80х75 см', 'стол обеденный'),
+                     ('Стол у кофейни Glasar 70х70х75', 'стол обеденный'),
+                     ('Стол-трансформер журнальный-обеденный Х 120х60х75', None),
+                     ('Стол-трансформер City Furniture белый с черным 133х133х75 см', None),
+                     ('Стол барный divan.ru Парсон 60x60 Древесный/Черный', None),
+                     ('Стол рабочий City Furniture бежевый с черным 100х50х76,5 см', None),
+                     ('Стол-консоль Glasar 100х35х75', None),
+                     ('Столешница дуб 120х60', None),
+                     ('Столешница для обеденного стола 120х80', None),
+                     ('Стул для обеденного стола Х', 'стул'),
+                     ('Стол журнальный ROS SRL Sydney круглый мрамор', 'столик'),
+                     ('Кофейный столик TC Modern Osteria 25,5х25,5х59 см', 'столик'),
+                     ('Стол TC Rusto мдф/металл 160x90x75 см черный/ореx', 'стол обеденный'),
+                     ('Кухонный стол divan.ru Хилл 85', 'стол обеденный'),
+                     ('Орматек Подсветка для стола OrmaSoft-2 16x1490', None)):
+        check(f'mixed-стол: {nm[:40]}', role_by_name(nm) == want, role_by_name(nm))
+    check('dining_name_bad: кофейный рядом — да, цвет в хвосте — нет',
+          dining_name_bad('Стол кофейный Glasar') and not dining_name_bad('Обеденный стол TC кофейный'))
     check('путь «Столы и столики» не становится обеденным', classify('Мебель / Мебель для дома / Столы и столики')[0] == 'столик')
     check('лист сильнее родителя', classify('Диваны и кресла / Кресла')[0] == 'кресло')
     check('кашпо allow-first, но не уличное', classify('Товары для сада / Кашпо')[0] == 'кашпо' and classify('Товары для сада / Уличные кашпо')[0] is None)

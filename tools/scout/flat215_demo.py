@@ -502,7 +502,7 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     # столу барный стул «Эрин»
     from unfit import unfit as _unfit
     gate = lambda role, c, s_, others: (_gate0(role, c, s_, others)  # noqa: E731
-                                        and not _unfit(DF.base_role(role), c.get('name'), None, c.get('h'))
+                                        and not _unfit(DF.base_role(role), c.get('name'), None, c.get('h'), d=c.get('d'))
                                         and (DF.base_role(role) in NOMESH_ROLES or has_mesh(c)))
     pool = DF.load_pool()
     print(f'пул дозаполнения: {len(pool)} товаров', flush=True)
@@ -552,7 +552,7 @@ def swap_ok(p: dict) -> bool:
     Дозаполнение вариантов берёт прежний пул (`pool_top`): показываемые варианты в этой задаче не меняются."""
     from img_alive import alive_now
     from unfit import unfit
-    return (bool(p.get('msid')) and p['msid'] in _mesh_index() and not unfit(p.get('role'), p.get('name'), None, p.get('h'))
+    return (bool(p.get('msid')) and p['msid'] in _mesh_index() and not unfit(p.get('role'), p.get('name'), None, p.get('h'), d=p.get('d'))
             and color_ok(p['msid'], p.get('name')) and alive_now(p.get('img')))
 
 
@@ -578,7 +578,7 @@ def swap_rug_ok(p: dict) -> bool:
     w, d = p.get('w') or 0, p.get('d') or 0
     return (bool(p.get('sid')) and (p.get('price') or 0) > 0 and bool(p.get('url'))
             and DF.rug_fits(w, d) and max(w, d) <= rug_ceiling()
-            and not unfit('ковёр', p.get('name'), None, p.get('h')) and not rug_kids.is_kids_rug(p.get('img'))
+            and not unfit('ковёр', p.get('name'), None, p.get('h'), d=p.get('d')) and not rug_kids.is_kids_rug(p.get('img'))
             and alive_now(p.get('img')))
 
 
@@ -638,7 +638,7 @@ def set_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
     if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_index() or not color_ok(_msd, it.get('name'))):
         return None          # нет модели или модель семейства другого цвета (demo-05: бежевый товар — чёрный меш)
     from unfit import unfit as _unfit
-    if _unfit(base, it.get('name'), None, it.get('h')):
+    if _unfit(base, it.get('name'), None, it.get('h'), d=it.get('d')):
         return None          # барный/офисный стул, уличное, резиновый ковёр — не для гостиной (`unfit.py`)
     # КОВЁР — ТЕ ЖЕ ПРОВЕРКИ, ЧТО У ЛЕНТЫ КОВРОВ ИЗ ПУЛА (demo-18 п.2): потолок комнаты (ковёр 200×300 съедал проход у стен),
     # короткая ≥ 140, артикул и цена, не детский; длинная сторона — в `w`, как у пула
@@ -671,7 +671,7 @@ def pool_feed_check(p: dict) -> str:
     if base not in NOMESH_ROLES and (not p.get('msid') or p['msid'] not in _mesh_index() or not color_ok(p['msid'], p.get('name'))):
         return 'mesh'        # модели на сервере нет (серая коробка) или она другого цвета, чем товар; ковёр — плита с фото
     from unfit import unfit as _unfit
-    if _unfit(base, p.get('name'), None, p.get('h')):
+    if _unfit(base, p.get('name'), None, p.get('h'), d=p.get('d')):
         return 'unfit'       # не для гостиной (`unfit.py`): барный стул в ленте обеденных и т.п.
     lo, hi = env_all[base]
     if not (lo <= (p.get('w') or 0) <= hi):
