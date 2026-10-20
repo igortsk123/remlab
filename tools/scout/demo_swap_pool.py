@@ -167,9 +167,11 @@ def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP) -> list[dict]:
     return out
 
 
-def pool(ok=None) -> list[dict]:
+def pool(ok=None, roles: tuple | None = None) -> list[dict]:
+    """Пул ленты замен; `roles` — только эти роли (отбор тот же, проверки `ok` — только им: счёт банкеток стиля до расстановки,
+    `flat215_demo.bench_pool`, demo-19 Г2)."""
     from mesh_queue import db
-    return pick([p for p in map(_row, db(pool_sql())) if p], ok)
+    return pick([p for p in map(_row, db(pool_sql())) if p and (roles is None or p['role'] in roles)], ok)
 
 
 def pool_top() -> list[dict]:

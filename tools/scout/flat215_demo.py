@@ -506,6 +506,15 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
                                         and (DF.base_role(role) in NOMESH_ROLES or has_mesh(c)))
     pool = DF.load_pool()
     print(f'пул дозаполнения: {len(pool)} товаров', flush=True)
+    # «есть ли чем заменить банкетку» — по ленте замен стиля (demo-19 Г2); пул недоступен — считаем по наборам, громко
+    try:
+        import demo_swap_pool as _DSP
+        benches = bench_pool(sets, _DSP.pool(swap_ok, roles=(BENCH,)))
+    except Exception as e:  # noqa: BLE001
+        print(f'WARN:bench_pool: банкетки пула не прочитаны ({repr(e)[:120]}) — считаю только по наборам', flush=True)
+        benches = bench_pool(sets)
+    print(f'банкетки в лентах стилей: {dict(sorted((k, len(v)) for k, v in benches.items()))}; '
+          f'«уголок» — при ≥ {NOOK_MIN}', flush=True)
     by_style: dict = {}
     for i, st in enumerate(sets, 1):
         if st.get('band') != band:
@@ -522,6 +531,9 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
             i = _k[2]
             s = copy.deepcopy(sets[i - 1])
             j = DF.fill_set(s, pool, gate, _card, _media, has_mesh, DEMO_ENV, taken)
+            nook = drop_lonely_nook(s, benches)
+            if nook:
+                j.append(nook)
             items = s.get('items') or {}
             no_mesh = sum(1 for r, it in items.items() if DF.base_role(r) in PLACEABLE
                           and DF.base_role(r) not in NOMESH_ROLES and it and not has_mesh(it))
@@ -578,6 +590,139 @@ def color_ok(msid, name) -> bool:
     if not _COLOR_OK:
         _COLOR_OK.append(_mesh_color_ok())
     return _COLOR_OK[0](msid, name or '')
+
+
+def feed_base(role: str) -> str:
+    """Ключ ленты замен — роль БЕЗ ХВОСТОВОГО НОМЕРА, а не «первое слово» (владелец 01.09: «стол косячный, просил заменить,
+    а он до сих пор в модели»). `split(' ')[0]` резал «стол обеденный» до «стол», такого ключа в конверте нет — и обеденные
+    столы не попадали в ленту замены ВООБЩЕ. Номер экземпляра («стул 2») по-прежнему отбрасываем."""
+    return re.sub(r'\s+\d+$', '', role)
+
+
+def feed_envs() -> tuple[dict, dict]:
+    """Конверты лент замен → (мебель и декор, только декор), `rules/demo-swap.json`. НАСТОЛЬНЫЙ ДЕКОР — СВОЙ КОНВЕРТ (владелец
+    08.09: «вазы настольные … добавлять в список товаров и считать сумму»): слота на полу у него нет, граница — «влезает на
+    столешницу», поэтому меряем сам предмет, а не место в комнате."""
+    dec = {k: tuple(v) for k, v in _SWAP_RULES['decor_envelope_cm'].items() if not k.startswith('_')}
+    return {**DEMO_ENV, **dec}, dec
+
+
+def set_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
+    """Товар набора → строка ленты замен его роли, или None, если показать его заменой нельзя. Одна проверка для ленты
+    (`build`) и для счёта «есть ли чем заменить» (`bench_pool`, demo-19 Г2)."""
+    env_all, env_decor = feed_envs()
+    if base not in env_all or not it or not it.get('img'):
+        return None
+    lo, hi = env_all[base]
+    # без ОБОИХ габаритов товар примерять нечестно: объект пришлось бы «додумать»
+    if not (it.get('w') and it.get('d')):
+        return None
+    # У НАСТОЛЬНОГО ДЕКОРА ТРЕБУЕМ И ВЫСОТУ (08.09). Ваза встаёт на столешницу, и без высоты сцена её поставить не может —
+    # предлагать в замену то, что не появится в кадре, нельзя (пул это условие держит с самого начала, лента — не держала).
+    if base in env_decor and not it.get('h'):
+        return None
+    side = max(it.get('w') or 0, it.get('d') or 0) if base == 'ковёр' else (it.get('w') or 0)
+    if not (lo <= side <= hi):
+        return None
+    try:
+        from img_alive import alive_now as _alive
+        if not _alive(it.get('img')):
+            return None          # фото мертво — товар в выборку не попадает вовсе
+    except Exception:  # noqa: BLE001
+        pass
+    # ТОЛЬКО ТО, ЧТО МЫ УМЕЕМ ПОКАЗАТЬ (владелец 01.09: «по кнопкам „заменить“ оставь только то, что есть в мешах и подходит
+    # под соответствующий стиль»). Товар без меша, поставленный заменой, превращает предмет в серую заглушку — предлагать его
+    # человеку значит обещать то, чего не будет в кадре. `sid` кладём рядом: страница по нему берёт модель.
+    _sid = f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else None
+    _msd = _msid(_sid)
+    if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_index() or not color_ok(_msd, it.get('name'))):
+        return None          # нет модели или модель семейства другого цвета (demo-05: бежевый товар — чёрный меш)
+    from unfit import unfit as _unfit
+    if _unfit(base, it.get('name'), None, it.get('h')):
+        return None          # барный/офисный стул, уличное, резиновый ковёр — не для гостиной (`unfit.py`)
+    # КОВЁР — ТЕ ЖЕ ПРОВЕРКИ, ЧТО У ЛЕНТЫ КОВРОВ ИЗ ПУЛА (demo-18 п.2): потолок комнаты (ковёр 200×300 съедал проход у стен),
+    # короткая ≥ 140, артикул и цена, не детский; длинная сторона — в `w`, как у пула
+    if base == 'ковёр' and not swap_rug_ok({**it, 'sid': _sid, 'price': _price(it)[0]}):
+        return None
+    # ковёр — как строка пула (`demo_swap_pool.rug_sql`): длинная в `w`, плита 1 см, модель = товар
+    _w, _d, _h = ((max(it['w'], it['d']), min(it['w'], it['d']), 1.0) if base == 'ковёр'
+                  else (it.get('w'), it.get('d'), it.get('h')))
+    _msd = _msd or (_sid if base == 'ковёр' else None)
+    return {'name': it.get('name'), 'w': _w, 'd': _d, 'h': _h,
+            'price': _price(it)[0], 'price_at': _price(it)[1], 'img': it.get('img'), 'url': it.get('url'),
+            'shop': it.get('shop'), 'style': style, 'sid': _sid, 'msid': _msd,
+            'src': 'set',
+            'basis': _basis(it.get('mid'), it.get('eid')),
+            'hung': _hung(it.get('name')),
+            # ШТУК В ПОКУПКЕ — И В ЛЕНТЕ ЗАМЕНЫ ТОЖЕ (02.09). Без этого после замены товара «Стул 2 шт.» два слота считались
+            # бы двумя покупками, хотя это одна.
+            'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name'))}
+
+
+def pool_feed_check(p: dict) -> str:
+    """Товар пула (`demo_swap_pool`) годится в ленту замен? → '' — да; иначе причина ('off_env' — габарит вне конверта роли).
+    Те же проверки, что у товаров наборов (`set_feed_row`); одна функция для ленты (`build.glue`) и для счёта (`bench_pool`)."""
+    base = p['role']
+    env_all, _ = feed_envs()
+    if base not in env_all:
+        return 'role'
+    if not p.get('img') or not (p.get('w') and p.get('d')):
+        return 'dims'
+    if base not in NOMESH_ROLES and (not p.get('msid') or p['msid'] not in _mesh_index() or not color_ok(p['msid'], p.get('name'))):
+        return 'mesh'        # модели на сервере нет (серая коробка) или она другого цвета, чем товар; ковёр — плита с фото
+    from unfit import unfit as _unfit
+    if _unfit(base, p.get('name'), None, p.get('h')):
+        return 'unfit'       # не для гостиной (`unfit.py`): барный стул в ленте обеденных и т.п.
+    lo, hi = env_all[base]
+    if not (lo <= (p.get('w') or 0) <= hi):
+        return 'off_env'     # габарит вне конверта слота этой комнаты
+    return ''
+
+
+BENCH = 'банкетка'
+NOOK_MIN = int(_SWAP_RULES['nook_min_benches'])
+
+
+def bench_pool(sets: list, pool_rows: list | None = None) -> dict[str, set]:
+    """Банкетки, которые лента замен покажет стилю → {стиль: {sid}} — тем же отбором, что сама лента (`build`): товары наборов
+    (`set_feed_row`, без снятых из продажи) и пул (`pool_feed_check`); товар набора, который пул отобрал и для другого стиля, —
+    в обоих (`glue` дописывает ему стиль). `pool_rows` — банкетки пула (`demo_swap_pool.pool(swap_ok, roles=…)`)."""
+    from catalog_media import media as _media
+    out: dict = {}
+    known: set = set()
+    for s in sets:
+        it = (s.get('items') or {}).get(BENCH)
+        if not it:
+            continue
+        m = _media(it.get('mid'), it.get('eid'))
+        if m is None or m.get('state') == 'gone':
+            continue                # снят из продажи: ленту строят по банку без таких (`drop_unavailable`)
+        row = set_feed_row(BENCH, it, s.get('style'))
+        if row and row['sid']:
+            known.add(row['sid'])
+            out.setdefault(s.get('style') or '', set()).add(row['sid'])
+    for p in pool_rows or []:
+        if p.get('role') == BENCH and (p['sid'] in known or not pool_feed_check(p)):
+            out.setdefault(p.get('style') or '', set()).add(p['sid'])
+    return out
+
+
+def drop_lonely_nook(s: dict, benches: dict) -> dict | None:
+    """«УГОЛОК» С БАНКЕТКОЙ — ТОЛЬКО ЕСЛИ ЕЁ ЕСТЬ ЧЕМ ЗАМЕНИТЬ (владелец 20.10, demo-19 Г2). В ленте сканди банкетка была одна —
+    сама эта: кнопка «заменить» открывала пустой выбор. Банкеток в ленте стиля меньше `NOOK_MIN` (`rules/demo-swap.json`) —
+    банкетку из набора снимаем, и солвер расставляет обычную столовую со стульями, как в других стилях (без банкетки
+    `template.place_edge_nook` не пробуется). Снимаем ДО расстановки и ДО выбора набора стиля: план рисует солвер по правилам,
+    а выбор видит настоящий состав. → строка журнала дозаполнения или None."""
+    items = s.get('items') or {}
+    b = items.get(BENCH)
+    if not b:
+        return None
+    n = len(benches.get(s.get('style') or '', set()))
+    if n >= NOOK_MIN:
+        return None
+    items.pop(BENCH)
+    return {'role': BENCH, 'from': b.get('name'), 'from_sku': f"{b.get('mid')}:{b.get('eid')}", 'to': None, 'to_sku': None,
+            'reason': f'уголок: банкеток в ленте стиля {n} < {NOOK_MIN} — столовая со стульями'}
 
 
 def _mesh_color_ok():
@@ -825,75 +970,21 @@ def build() -> dict:
     # собираем живые SKU с фото; границы — конверт слота той же комнаты, чтобы примерка не
     # предлагала заведомо негодный габарит (диван 260 см в 14 м²).
     ENV = DEMO_ENV
-    # НАСТОЛЬНЫЙ ДЕКОР — СВОЙ КОНВЕРТ (владелец 08.09: «вазы настольные … добавлять в список
-    # товаров и считать сумму»). У него нет слота на полу: граница — «влезает на столешницу»,
-    # поэтому меряем не место в комнате, а сам предмет.
-    ENV_DECOR = {k: tuple(v) for k, v in _SWAP_RULES['decor_envelope_cm'].items() if not k.startswith('_')}
-    ENV_ALL = {**ENV, **ENV_DECOR}
+    ENV_ALL, _ = feed_envs()
     feeds, seen = {}, set()
     for s in sets:
         for role, it in (s.get('items') or {}).items():
-            # КЛЮЧ РОЛИ — БЕЗ ХВОСТОВОГО НОМЕРА, А НЕ «ПЕРВОЕ СЛОВО» (владелец 01.09: «стол
-            # косячный, просил заменить, а он до сих пор в модели»). `split(' ')[0]` резал
-            # «стол обеденный» до «стол», такого ключа в ENV нет — и обеденные столы не
-            # попадали в ленту замены ВООБЩЕ: лист подбора открывался пустым, заменить было
-            # нечем. Номер экземпляра («стул 2») по-прежнему отбрасываем.
-            base = re.sub(r'\s+\d+$', '', role)
-            if base not in ENV_ALL or not it or not it.get('img'):
+            base = feed_base(role)
+            if not it:
                 continue
             key = (base, it.get('mid'), it.get('eid'))
             if key in seen:
                 continue
-            lo, hi = ENV_ALL[base]
-            # без ОБОИХ габаритов товар примерять нечестно: объект пришлось бы «додумать»
-            if not (it.get('w') and it.get('d')):
-                continue
-            # У НАСТОЛЬНОГО ДЕКОРА ТРЕБУЕМ И ВЫСОТУ (08.09). Ваза встаёт на столешницу, и без
-            # высоты сцена её поставить не может — предлагать в замену то, что не появится в
-            # кадре, нельзя (пул это условие держит с самого начала, лента — не держала).
-            if base in ENV_DECOR and not it.get('h'):
-                continue
-            side = max(it.get('w') or 0, it.get('d') or 0) if base == 'ковёр' else (it.get('w') or 0)
-            if not (lo <= side <= hi):
-                continue
-            try:
-                from img_alive import alive_now as _alive
-                if not _alive(it.get('img')):
-                    continue          # фото мертво — товар в выборку не попадает вовсе
-            except Exception:
-                pass
-            # ТОЛЬКО ТО, ЧТО МЫ УМЕЕМ ПОКАЗАТЬ (владелец 01.09: «по кнопкам „заменить“ оставь
-            # только то, что есть в мешах и подходит под соответствующий стиль»). Товар без
-            # меша, поставленный заменой, превращает предмет в серую заглушку — предлагать его
-            # человеку значит обещать то, чего не будет в кадре. `sid` кладём рядом: страница
-            # по нему берёт модель, а раньше ленты шли вовсе без него.
-            _sid = (f"{it.get('mid')}_{it.get('eid')}"
-                    if it.get('mid') and it.get('eid') else None)
-            _msd = _msid(_sid)
-            if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_index() or not color_ok(_msd, it.get('name'))):
-                continue          # нет модели или модель семейства другого цвета (demo-05: бежевый товар — чёрный меш)
-            from unfit import unfit as _unfit
-            if _unfit(base, it.get('name'), None, it.get('h')):
-                continue          # барный/офисный стул, уличное, резиновый ковёр — не для гостиной (`unfit.py`)
-            # КОВЁР — ТЕ ЖЕ ПРОВЕРКИ, ЧТО У ЛЕНТЫ КОВРОВ ИЗ ПУЛА (demo-18 п.2): потолок комнаты (ковёр 200×300 съедал проход у
-            # стен), короткая ≥ 140, артикул и цена, не детский; длинная сторона — в `w`, как у пула
-            if base == 'ковёр' and not swap_rug_ok({**it, 'sid': _sid, 'price': _price(it)[0]}):
+            row = set_feed_row(base, it, s.get('style'))
+            if row is None:
                 continue
             seen.add(key)
-            # ковёр — как строка пула (`demo_swap_pool.rug_sql`): длинная в `w`, плита 1 см, модель = товар
-            _w, _d, _h = ((max(it['w'], it['d']), min(it['w'], it['d']), 1.0) if base == 'ковёр'
-                          else (it.get('w'), it.get('d'), it.get('h')))
-            _msd = _msd or (_sid if base == 'ковёр' else None)
-            feeds.setdefault(base, []).append(
-                {'name': it.get('name'), 'w': _w, 'd': _d, 'h': _h,
-                 'price': _price(it)[0], 'price_at': _price(it)[1], 'img': it.get('img'), 'url': it.get('url'),
-                 'shop': it.get('shop'), 'style': s.get('style'), 'sid': _sid, 'msid': _msd,
-                 'src': 'set',
-                 'basis': _basis(it.get('mid'), it.get('eid')),
-                 'hung': _hung(it.get('name')),
-                 # ШТУК В ПОКУПКЕ — И В ЛЕНТЕ ЗАМЕНЫ ТОЖЕ (02.09). Без этого после замены товара
-                 # «Стул 2 шт.» два слота считались бы двумя покупками, хотя это одна.
-                 'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name'))})
+            feeds.setdefault(base, []).append(row)
     for k in feeds:
         feeds[k].sort(key=lambda x: x['price'] or 0)
     # ПУЛ ЗАМЕНЫ — ЛЮБАЯ МЕБЕЛЬ СВОЕГО СТИЛЯ, У КОТОРОЙ ЕСТЬ МЕШ (владелец 08.09: «сделай так,
@@ -922,17 +1013,11 @@ def build() -> dict:
                 if p['style'] not in old['styles']:
                     old['styles'].append(p['style'])
                 continue
-            if not p.get('img') or not (p.get('w') and p.get('d')):
-                continue
-            if base not in NOMESH_ROLES and (not p.get('msid') or p['msid'] not in _mesh_index() or not color_ok(p['msid'], p.get('name'))):
-                continue          # модели на сервере нет (серая коробка) или она другого цвета, чем товар; ковёр — плита с фото
-            from unfit import unfit as _unfit
-            if _unfit(base, p.get('name'), None, p.get('h')):
-                continue          # не для гостиной (`unfit.py`): барный стул в ленте обеденных и т.п.
-            lo, hi = ENV_ALL[base]
-            if not (lo <= (p.get('w') or 0) <= hi):
+            why = pool_feed_check(p)
+            if why == 'off_env':
                 n[1] += 1
-                continue          # габарит вне конверта слота этой комнаты
+            if why:
+                continue
             mid, eid = p['sid'].split('_', 1)
             it = {'name': p['name'], 'w': p['w'], 'd': p['d'], 'h': p['h'], 'price': p['price'],
                   'img': p['img'], 'url': p['url'], 'shop': p.get('shop'),
