@@ -41,8 +41,8 @@ scp caddy/Caddyfile "$SERVER:$REMOTE_DIR/caddy/Caddyfile.new"
 # (`--delete` убирает файлы, удалённые из репозитория) и применяют его одним скриптом.
 rsync -az --delete --include='*.sql' --exclude='*' db/init/ "$SERVER:$REMOTE_DIR/db/init/"
 ssh "$SERVER" "mkdir -p $REMOTE_DIR/scripts"
-scp tools/apply-db-init.sh infra/server/deploy-remote.sh infra/server/caddy-sync.sh infra/server/disk-watchdog.sh infra/server/manager-add.sh infra/server/partner-key-add.sh infra/server/health-watch.sh infra/server/prod-digest.sh infra/server/salad-deadman.py infra/server/cleanup.sh "$SERVER:$REMOTE_DIR/scripts/"
-ssh "$SERVER" "chmod +x $REMOTE_DIR/scripts/apply-db-init.sh $REMOTE_DIR/scripts/deploy-remote.sh $REMOTE_DIR/scripts/caddy-sync.sh $REMOTE_DIR/scripts/disk-watchdog.sh $REMOTE_DIR/scripts/manager-add.sh $REMOTE_DIR/scripts/partner-key-add.sh $REMOTE_DIR/scripts/health-watch.sh $REMOTE_DIR/scripts/prod-digest.sh $REMOTE_DIR/scripts/salad-deadman.py $REMOTE_DIR/scripts/cleanup.sh"
+scp tools/apply-db-init.sh infra/server/deploy-remote.sh infra/server/caddy-sync.sh infra/server/disk-watchdog.sh infra/server/manager-add.sh infra/server/partner-key-add.sh infra/server/health-watch.sh infra/server/prod-digest.sh infra/server/salad-deadman.py infra/server/cleanup.sh infra/server/db-backup.sh infra/server/scripts/catalog-watchdog.sh "$SERVER:$REMOTE_DIR/scripts/"
+ssh "$SERVER" "chmod +x $REMOTE_DIR/scripts/apply-db-init.sh $REMOTE_DIR/scripts/deploy-remote.sh $REMOTE_DIR/scripts/caddy-sync.sh $REMOTE_DIR/scripts/disk-watchdog.sh $REMOTE_DIR/scripts/manager-add.sh $REMOTE_DIR/scripts/partner-key-add.sh $REMOTE_DIR/scripts/health-watch.sh $REMOTE_DIR/scripts/prod-digest.sh $REMOTE_DIR/scripts/salad-deadman.py $REMOTE_DIR/scripts/cleanup.sh $REMOTE_DIR/scripts/db-backup.sh $REMOTE_DIR/scripts/catalog-watchdog.sh"
 ssh "$SERVER" "test -f $REMOTE_DIR/.env || { echo 'FATAL: нет $REMOTE_DIR/.env (скопируй из .env.example и задай POSTGRES_PASSWORD)'; exit 1; }"
 ssh "$SERVER" "grep -q '^GEMINI_API_KEY=' $REMOTE_DIR/.env || { echo 'FATAL: в $REMOTE_DIR/.env нет GEMINI_API_KEY'; exit 1; }"
 
