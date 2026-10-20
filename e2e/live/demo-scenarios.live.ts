@@ -16,9 +16,16 @@ async function openDemo(page: Page, q = ""): Promise<string[]> {
   say("загрузка", Date.now() - t, "мс");
   return errors;
 }
+// КОНСТРУКТОР — ИЗ ОКНА ВАРИАНТА (demo-19 Б5, владелец 20.10: «свою расстановку делают на основе любой»): окно гостиной → «План» → «Изменить план»
+async function openConstructor(page: Page) {
+  if (!(await page.locator("#shot.on").count())) await page.locator("#hmRooms [data-swap]").first().click();
+  await page.locator('#shot [data-vm="plan"]').click();
+  await page.locator("#vCta").click();
+  await expect(page.locator("#cons")).toHaveClass(/on/);
+}
 const num = (t: string) => Number((t.match(/([\d\s ]+)\s*₽/)?.[1] ?? "").replace(/\D/g, ""));
 
-test("1.2–1.5 первый экран: консультация, ипотека, «i», план квартиры ссылкой, комнаты стиля и заглушки (demo-16)", async ({ page }) => {
+test("1.2–1.5 первый экран: консультация, ипотека, «Подробнее», план квартиры ссылкой, комнаты стиля и заглушки (demo-16)", async ({ page }) => {
   const errors = await openDemo(page);
   for (const id of ["#pcCons", "#pcMort"]) {
     await page.locator(id).click();
@@ -26,8 +33,10 @@ test("1.2–1.5 первый экран: консультация, ипотек�
     say(id, JSON.stringify((await page.locator("#shotbody").innerText()).slice(0, 60)));
     await page.keyboard.press("Escape");
   }
-  await page.locator("#payInfo").click();
-  await expect(page.locator("#payInfoTxt")).toBeVisible();
+  // условия цены — в «Подробнее» под строкой дома (demo-19 Б1), значка «i» у цены нет
+  await page.locator("#flatMoreBtn").click();
+  await expect(page.locator("#flatMore")).toBeVisible();
+  await expect(page.locator("#flatMore")).toContainText("оплате 100");
   // кнопки «Пройтись по квартире в 3D» в шапке нет (владелец 16.10, demo-02 п.8) — 3D внутри окна варианта
   await expect(page.locator("#pc3d")).toHaveCount(0);
   // план квартиры — ссылкой, не вкладкой (demo-16); назад — «← К стилям»
@@ -210,7 +219,7 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
   await expect(page.locator("#shot")).toBeVisible();      // «Готово» возвращает в окно кадра, откуда пришли
   await expect(page.locator('[data-vm="walk"]')).toHaveClass(/on/);   // …в 3D: расстановку меняли (demo-09 п.4)
   await page.keyboard.press("Escape");
-  await page.locator("text=Добавить новую расстановку").first().click();
+  await openConstructor(page);   // карточки «Добавить новую расстановку» нет (demo-19 Б5) — вход из окна варианта
   await expect(page.locator("#consHint")).toBeVisible();
   say("подсказка:", (await page.locator("#consHint").innerText()).slice(0, 50));
 });
@@ -231,7 +240,7 @@ test("2.14–2.15 «поделиться» иконкой с подтвержд�
 
 test("1.6 английский: конструктор и ожидание без русских подписей", async ({ page }) => {
   await openDemo(page, "?lang=en");
-  await page.locator("text=Add a new layout").first().click();
+  await openConstructor(page);
   const t = await page.locator("#consWhat, #consSum, #consHint").allInnerTexts();
   say(t.join(" | ").slice(0, 160));
   expect(t.join(" ")).not.toMatch(/[А-Яа-яЁё]/);
@@ -244,7 +253,7 @@ test("2.18 телефон: без горизонтальной прокрутк�
   const sw = await page.evaluate("[document.documentElement.scrollWidth, innerWidth]") as number[];
   say("ширина страницы / экрана:", sw.join(" / "));
   expect(sw[0]!).toBeLessThanOrEqual(sw[1]! + 1);
-  await page.locator("text=Добавить новую расстановку").first().click();
+  await openConstructor(page);   // карточки «Добавить новую расстановку» нет (demo-19 Б5) — вход из окна варианта
   const w = await page.evaluate("stage.getBoundingClientRect().width / innerWidth") as number;
   say("план занимает ширины экрана:", Math.round(w * 100), "%");
   expect(w).toBeGreaterThan(0.9);

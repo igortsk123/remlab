@@ -101,8 +101,8 @@ const pins=async()=>p.evaluate(()=>JSON.stringify(LIVE.scene.pins().filter(x=>x.
 const p0=await pins(); await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(1200); const p1=await pins();
 ok('пины не смещаются при открытии',p0===p1,'');
 await p.screenshot({path:OUT+`v4-${W}-full.png`}); await p.evaluate(()=>vwSheet(0)); await p.waitForTimeout(900); await p.screenshot({path:OUT+`v4-${W}-collapsed.png`});
-// 7. пузырь ⓘ
-await p.click('.vpl-i'); await p.waitForTimeout(300); const bub=await p.evaluate(()=>{const e=document.getElementById('vplBub');return e&&!e.hidden?e.innerText.replace(/\n/g,' | '):null;});
+// 7. пузырь ⓘ — у шкалы окна («i» есть и у шкалы главной под окном, demo-19 Б2)
+await p.click('#vsum .vpl-i'); await p.waitForTimeout(300); const bub=await p.evaluate(()=>{const e=document.getElementById('vplBub');return e&&!e.hidden?e.innerText.replace(/\n/g,' | '):null;});
 ok('ⓘ открывает расшифровку',!!bub,bub||''); await p.screenshot({path:OUT+`v4-${W}-bubble.png`});
 // 8. v5: средняя по содержимому, полная — до верха, раздел и возврат высоты, строки по комнате
 await p.evaluate(()=>{const bb=document.getElementById('vplBub'); if(bb)bb.hidden=true;});   // закрыть пузырь ⓘ (клик по сцене открыл бы фото)
@@ -175,4 +175,4 @@ ok('v5 выбор кухни → s2, DEVOPT, ссылка',/^s2-/.test(fit2.s)&&
 await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(700);   // выбор кухни свернул шторку (demo-09 п.4a) — раскрыть
 await p.click('#vOptsBack'); await p.waitForTimeout(700);
 ok('v5 сводка строки обновилась',(await p.$eval('#vGroups [data-group="fitted"] span',e=>e.textContent)).includes('Practical'),await p.$eval('#vGroups [data-group="fitted"] span',e=>e.textContent));
-console.log(R.join('\n')); console.log('plate',await p.$eval('#vsum .vpl-row',e=>e.innerText.replace(/\n/g,' '))); console.log('errs',errs.slice(0,4)); await b.close();})().catch(e=>{console.log((global.__R||[]).join('\n')); console.error(e);process.exit(1);});
+console.log(R.join('\n')); console.log('plate',await p.$eval('#vsum .cs-t',e=>e.innerText.replace(/\n/g,' '))); console.log('errs',errs.slice(0,4)); await b.close();})().catch(e=>{console.log((global.__R||[]).join('\n')); console.error(e);process.exit(1);});

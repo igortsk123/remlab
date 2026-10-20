@@ -1,7 +1,8 @@
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // КОРЗИНА СЕРТИФИКАТА (план demo-16 шаг 2, «Решения владельца 18.10»): 0 на старте; первый вариант комнаты включается сам; второй — вопрос
 // «вместо «Гостиная #1»? Да/Нет»; в избранном — группы по комнатам и переключатель «Включить в сертификат» с пересчётом шкалы; окно —
-// «Остаток с этой гостиной» на той же полосе; не влезает — в избранное без включения, «превышена сумма на N» и «Изменить расстановку»
+// та же шкала, что на главной (demo-19 Б2: «Набрано N … сертификат M», светлая часть — эта расстановка); не влезает — в избранное без
+// включения, сообщение «больше остатка на N — уменьшите сумму» с «Изменить →» (demo-19 Б4)
 // (лимит подменяется ответом карточки квартиры, страница не трогается); перенос избранного demo-15. Избранное — отдельный экран
 // `#screen-fav` с «← Назад» туда, откуда пришли; поле имени — фокус и каретка в конце сразу после тапа по ♡ (demo-17). Платного пути нет.
 //   BASE=https://remont-lab.online/test/share/demo-stage/ OUT=~/scout-scenes/<сессия>/ node tools/ops/demo-walk/basket-check.cjs 375x667
@@ -59,20 +60,20 @@ const saveHeart=async(p)=>{await p.click('#vFav'); CARET=await caret(p); await p
       ok('подсказка шторки — не во время загрузки (нет крутилки; в 3D — сцена готова) и над переключателем ракурсов',!!tip&&tip.busy==='false'&&(tip.mode!=='walk'||tip.live==='ready')&&tip.tipBottom<=tip.camsTop,JSON.stringify(tip));
     }
     await p.waitForFunction("document.getElementById('shot').classList.contains('on')",null,{timeout:30000}); await p.waitForTimeout(1200);
-    const plate0=await p.evaluate(()=>{const row=document.querySelector('#vsum .vpl-row'), pl=document.getElementById('vsum').getBoundingClientRect(), last=row.lastElementChild.getBoundingClientRect();
-      return {head:row.querySelector('span').textContent, pv:(document.querySelector('#vsum .vpl-bar i.pv')||{}).style?.width, sum:+document.getElementById('vsum').dataset.sum,
-        fits:row.scrollWidth<=row.clientWidth+1&&last.right<=pl.right+1&&row.querySelector('span').scrollWidth<=row.querySelector('span').clientWidth+1};});
+    const plate0=await p.evaluate(()=>{const row=document.querySelector('#vsum .cs-t'), pl=document.getElementById('vsum').getBoundingClientRect(), last=row.lastElementChild.getBoundingClientRect();
+      return {head:row.querySelector('.cs-l').textContent, pv:(document.querySelector('#vsum .cs-bar i.pv')||{}).style?.width, sum:+document.getElementById('vsum').dataset.sum,
+        fits:row.scrollWidth<=row.clientWidth+1&&last.right<=pl.right+1&&row.querySelector('.cs-l').scrollWidth<=row.querySelector('.cs-l').clientWidth+1};});
     ok('плашка окна — в одну строку, не вылезает',plate0.fits,JSON.stringify(plate0));
-    ok('окно до добавления: «С гостиной», светлая часть полосы — эта расстановка',/^С гостиной$/.test(plate0.head.trim())&&parseFloat(plate0.pv)>0,JSON.stringify(plate0));
+    ok('окно до добавления: «Набрано 0», светлая часть полосы — эта расстановка',/^Набрано 0\s₽$/.test(plate0.head.trim())&&parseFloat(plate0.pv)>0,JSON.stringify(plate0));
     await p.screenshot({path:OUT+W+'-1-plate.png'});
     const n1=await saveHeart(p);
     const s1=await st(p);
     ok('имя по комнате «Гостиная #1»',n1==='Гостиная #1',n1);
     ok('тап по ♡ — поле имени в фокусе сразу, каретка в конце, текст не выделен',caretOk(CARET),JSON.stringify(CARET));
     ok('первый вариант комнаты — включён сам, шкала пересчитана',s1.n===1&&Object.keys(s1.inc).length===1&&s1.eligible>0&&s1.cert===s1.eligible,JSON.stringify({inc:s1.inc,eligible:s1.eligible,cert:s1.cert}));
-    ok('тост «Добавлено в избранное · Перейти →»',/Добавлено в избранное/.test(s1.toast)&&/Перейти/.test(s1.toast),s1.toast);
-    const plate1=await p.evaluate(()=>document.querySelector('#vsum .vpl-row span').textContent);
-    ok('после включения плашка — «Остаток» по корзине',/^Остаток$/.test(plate1.trim()),plate1);
+    ok('сообщение ««Гостиная #1» — в избранном, включено в сертификат, остаток N · Перейти →»',/Гостиная.#1» — в избранном, включено в сертификат, остаток [\d\s ]+₽/.test(s1.toast)&&/Перейти/.test(s1.toast),s1.toast);
+    const plate1=await p.evaluate(()=>document.querySelector('#vsum .cs-l').textContent);
+    ok('после включения шкала окна — «Набрано» по корзине',/^Набрано [1-9]/.test(plate1.trim()),plate1);
     // 1б) «Перейти →» и «назад» (шаг 3): из окна (ракурс 2, шторка приподнята) — в избранное; «назад» — то же окно в том же виде; «вперёд» — снова избранное
     await p.evaluate(()=>{vwCamGo(1); if(VW_PHONE())vwSheet(1);}); await p.waitForTimeout(700);
     const before=await p.evaluate(()=>({vid:(allVariants()[cur]||{}).id, photo:VW.photo, sheet:+document.getElementById('vside').dataset.pos, mode:VW.mode}));
@@ -180,19 +181,19 @@ const saveHeart=async(p)=>{await p.click('#vFav'); CARET=await caret(p); await p
       else ok('окно сразу в 3D: нет варианта без реалистичного фото — проверить нечем',true,'пропуск');
       await t3.context().close();
     }
-    // 7) не влезает: сертификат 100 000 → в избранное без включения, «превышена сумма на N», «Изменить расстановку»
+    // 7) не влезает: сертификат 100 000 → в избранное без включения, «больше остатка на N — уменьшите сумму», «Изменить →» (demo-19 Б4)
     const q=await page(b,{limit:100000});
     await openWin(q,0);
     await q.click('#vFav'); await q.waitForSelector('#favName'); await q.click('#favOk');
-    await q.waitForFunction("/превышена сумма/.test((document.getElementById('favPop')||{}).innerText||'')",null,{timeout:30000}).catch(()=>{});
+    await q.waitForFunction("/больше остатка/.test((document.getElementById('toast')||{}).textContent||'')",null,{timeout:30000}).catch(()=>{});
     const s7=await st(q), sum7=await q.evaluate(()=>+document.getElementById('vsum').dataset.sum);
-    const over=Number((s7.pop.match(/на ([\d\s ]+)₽/)||[])[1]?.replace(/\D/g,''));
-    ok('не влезает — в избранном без включения, «превышена сумма на N ₽» (N = сумма − лимит), кнопка «Изменить расстановку»',
-      s7.n===1&&!Object.keys(s7.inc).length&&over===sum7-100000&&/Изменить расстановку/.test(s7.pop),JSON.stringify({n:s7.n,inc:s7.inc,over,sum7}));
-    const plateOver=await q.evaluate(()=>{const sp=document.querySelector('#vsum .vpl-row span'); return {head:sp.textContent, cut:sp.scrollWidth>sp.clientWidth+1};});
-    ok('плашка при превышении — «Сверх лимита», подпись не обрезана',plateOver.head.trim()==='Сверх лимита'&&!plateOver.cut,JSON.stringify(plateOver));
+    const over=Number((s7.toast.match(/на ([\d\s ]+)₽/)||[])[1]?.replace(/\D/g,''));
+    ok('не влезает — в избранном без включения, «больше остатка на N ₽ — уменьшите сумму» (N = сумма − лимит), действие «Изменить →», без диалога',
+      s7.n===1&&!Object.keys(s7.inc).length&&over===sum7-100000&&/уменьшите сумму/.test(s7.toast)&&/Изменить/.test(s7.toast)&&!/больше|превыш/.test(s7.pop),JSON.stringify({n:s7.n,inc:s7.inc,over,sum7,toast:s7.toast}));
+    const plateOver=await q.evaluate(()=>{const sp=document.querySelector('#vsum .cs-l'); return {head:sp.textContent, over:!!document.querySelector('#vsum .cs.over'), cut:sp.scrollWidth>sp.clientWidth+1};});
+    ok('шкала при превышении — красная светлая часть, подпись не обрезана',plateOver.over&&!plateOver.cut,JSON.stringify(plateOver));
     await q.screenshot({path:OUT+W+'-4-over.png'});
-    await q.click('#favPop button.primary'); await q.waitForTimeout(700);
+    await q.click('#toast .toastact'); await q.waitForTimeout(700);
     ok('«Изменить расстановку» — остаёмся в окне этой расстановки',await q.evaluate(()=>document.getElementById('shot').classList.contains('on')));
     ok('без ошибок страницы (лимит)',!q.errs.length,q.errs.slice(0,2).join(' | '));
     const cid=await q.evaluate(()=>window.__basket.state().favorites[0].favoriteId);

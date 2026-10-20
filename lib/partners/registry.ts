@@ -117,18 +117,18 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
   const amount = certificateAmount(p, a);
   const area = `${String(a.areaM2).replace(".", en ? "." : ",")}\u00a0${en ? "m²" : "м²"}`;
   const short = en ? a.kindShortEn : a.kindShortRu;
-  const floorShort = a.floor && a.floorsTotal ? (en ? `floor ${a.floor}/${a.floorsTotal}` : `эт. ${a.floor}/${a.floorsTotal}`) : null;
   return {
     id: a.id, partnerId: p.id, complexId: c.id, market: p.market, lang, currency: p.currency,
     // площадь и единица — неразрывным пробелом: «м²» не уезжает на свою строку на телефоне
     kind: `${en ? a.kindEn : a.kindRu} ${area}`,
-    kindShort: short ? `${short} · ${area}` : `${en ? a.kindEn : a.kindRu} ${area}`,
+    // ШАПКА В ДВЕ СТРОКИ (demo-19 Б1, владелец 20.10): «комнаты · цена» и «ЖК · сдача»; площадь, этаж, корпус — в «Подробнее» (`meta`)
+    kindShort: short ?? (en ? a.kindEn : a.kindRu),
     number: a.number ?? null,
     areaM2: a.areaM2,
     complex: complexName,
     handover: handoverText(c, lang),
     meta: [complexName, handoverText(c, lang), floor, bld].filter(Boolean).join(" · "),
-    metaShort: [complexName, handoverText(c, lang), floorShort].filter(Boolean).join(" · "),
+    metaShort: [complexName, handoverText(c, lang)].filter(Boolean).join(" · "),
     price: a.price,
     demoPrice: a.demoPrice,
     priceAsOf: a.priceAsOf ?? null,

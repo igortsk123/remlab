@@ -213,14 +213,14 @@ export type ApartmentCard = {
   lang: Lang;
   currency: Currency;
   kind: string;
-  /** «3-комн. · 73,7 м²» — строка квартиры первого экрана (demo-16); нет короткого типа — как `kind`. */
+  /** «3-комн.» — строка квартиры первого экрана рядом с ценой (demo-19 Б1, без площади); нет короткого типа — полный без площади. */
   kindShort: string;
   number: string | null;
   areaM2: number;
   complex: string;
   handover: string;
   meta: string; // «ЖК … · сдан · эт. 6 из 17 · корп. 3»
-  /** Короткая строка дома для первого экрана: «ЖК … · сдача 4 кв. 2026 · эт. 6/17» (без корпуса). */
+  /** Короткая строка дома для первого экрана: «ЖК … · сдача 4 кв. 2026» (demo-19 Б1; этаж и корпус — в `meta`, «Подробнее»). */
   metaShort: string;
   price: number;
   demoPrice: boolean;

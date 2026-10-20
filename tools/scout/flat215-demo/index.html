@@ -130,34 +130,45 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-hd{position:sticky;top:0;z-index:20;height:var(--hm-hd);display:flex;align-items:center;gap:8px;
   background:var(--bg);margin:0 calc(-1*var(--hm-gut));padding:0 var(--hm-gut)}
 .hm-fk{font-weight:700;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
-.hm-price{display:flex;align-items:center;gap:5px;font-weight:700;font-size:16px;white-space:nowrap;background:none;border:0;
-  padding:0 2px;min-height:40px;cursor:pointer;color:var(--ink)}
-.hm-ih{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--muted);
-  color:var(--muted);font:600 10px/1 system-ui}
+/* цена — просто число (demo-19 Б1, владелец 20.10: «не надо лепить значок i»); условия цены — в «Подробнее» */
+.hm-price{display:flex;align-items:center;font-weight:700;font-size:16px;white-space:nowrap;padding:0 2px;color:var(--ink)}
 .hm-fav{position:relative;flex:none;width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface);
   display:grid;place-items:center;font-size:17px;color:var(--accent);padding:0;cursor:pointer}
 .hm-fav b{position:absolute;top:-3px;right:-3px;min-width:17px;height:17px;border-radius:9px;background:var(--accent);color:#fff;
   font:700 11px/17px system-ui;text-align:center;padding:0 4px}
 .hm-fav b[hidden]{display:none}
-.hm-paytxt{font-size:13px;color:var(--muted);margin:0 0 6px;line-height:1.35}
-.hm-paytxt[hidden]{display:none}
-.hm-meta{display:flex;align-items:baseline;gap:10px;font-size:12.5px;color:var(--muted);min-width:0;margin-top:-4px}
-.hm-meta>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+/* ВТОРАЯ СТРОКА ШАПКИ (demo-19 Б1): «ЖК · сдача» и «Подробнее ⌄» — раскрывашка: тип и площадь, дом целиком (этаж, корпус), условия цены.
+   Не влезает слово — остаётся галочка (`fitMeta`), строка дома не обрезается */
+.hm-meta{display:flex;align-items:baseline;gap:8px;font-size:12.5px;color:var(--muted);min-width:0;margin-top:-4px}
+.hm-meta>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;cursor:pointer}
+.hm-more{flex:none;margin-right:auto;display:inline-flex;align-items:baseline;gap:3px;background:none;border:0;padding:0;min-height:28px;
+  font:inherit;font-weight:600;color:var(--accent);cursor:pointer;white-space:nowrap}
+.hm-more .chev{display:inline-block;transition:transform .2s ease}.hm-more[aria-expanded="true"] .chev{transform:rotate(180deg)}
+.hm-meta.tight .hm-more .w{display:none}
+.hm-meta.fold{align-items:flex-start}.hm-meta.fold>span{white-space:normal}   /* не `wrap`: это класс контейнера страницы */
+.hm-more-box{font-size:13px;color:var(--muted);line-height:1.45;margin:2px 0 4px}
+.hm-more-box[hidden]{display:none}
 .hm-plan{flex:none;color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
 .hm-acts{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}
 .hm-acts .btn{flex:1 1 0;min-width:0;height:40px;min-height:40px;padding:0 8px;font-size:14px;font-weight:600;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;border-radius:var(--radius-sm,10px)}
-.hm-cert{margin:8px 0 0;padding:6px 10px 7px;border-radius:var(--radius-sm,10px);background:var(--accent-soft)}
+/* ШКАЛА СЕРТИФИКАТА (demo-19 Б2–Б3, владелец 20.10): ОДНА разметка для главной и окна варианта (`certScale`) — полоса = набрано;
+   над ней слева «Набрано N», справа в конце — сумма сертификата; остаток и пояснения — в «i». На главной и в избранном шкала липкая
+   под строкой квартиры (тот же элемент `#hmCert`, не копия): остаток виден при любой прокрутке */
+.hm-cert{position:sticky;top:var(--hm-hd);z-index:18;margin:6px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut) 6px;background:var(--bg)}
 .hm-cert[hidden]{display:none}
-.hm-cert .t{display:flex;justify-content:space-between;gap:8px;font-size:13px;white-space:nowrap}
-.hm-cert .t span{overflow:hidden;text-overflow:ellipsis}
-.hm-cert .t b{color:var(--accent)}
-.hm-cert .d{display:none}                 /* «на мебель и технику» — только на широком экране */
-.hm-cert .bar{height:5px;border-radius:3px;background:rgba(176,106,74,.18);margin-top:5px;overflow:hidden}
-.hm-cert .bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:3px;transition:width .45s ease}
-.hm-cert .fx{font-size:12px;color:var(--muted);margin-top:3px}
+.cs{position:relative;container-type:inline-size;padding:6px 10px 7px;border-radius:var(--radius-sm,10px);background:var(--accent-soft)}
+.cs-t{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);white-space:nowrap;min-width:0}
+.cs-t b{color:var(--ink);font-weight:700}
+.cs-l{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cs-r{margin-left:auto;flex:none}
+@container (max-width:340px){.cs .lab-r{display:none}}     /* узко (320 px, крупный шрифт, колонка окна на компьютере) — справа только сумма */
+.cs-bar{display:flex;height:6px;border-radius:3px;background:rgba(176,106,74,.18);margin-top:5px;overflow:hidden}
+.cs-bar i{flex:none;display:block;height:100%;background:var(--accent);transition:width .45s ease}
+.cs-bar i.pv{opacity:.35}
+.cs.over .cs-bar i.pv{background:#B3261E;opacity:.5}
 .hm-hint{margin:8px 0 0;font-size:13px;color:var(--muted);line-height:1.3}
-.hm-tabs{position:sticky;top:var(--hm-hd);z-index:19;height:44px;display:flex;align-items:center;gap:6px;overflow-x:auto;
+.hm-tabs{position:sticky;top:calc(var(--hm-hd) + var(--hm-cert,0px));z-index:19;height:44px;display:flex;align-items:center;gap:6px;overflow-x:auto;
   scrollbar-width:none;background:var(--bg);margin:2px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut);
   box-shadow:0 6px 8px -8px rgba(28,25,23,.25)}
 .hm-tabs::-webkit-scrollbar{display:none}
@@ -183,8 +194,6 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-stub b{font-size:15px;white-space:nowrap}
 .hm-stub b small{font-weight:500;color:var(--muted)}
 .hm-stub span{font-size:12.5px;color:var(--muted);white-space:nowrap}
-/* корзина: строки под шкалой — доплаты застройщику и неполный итог (вне сертификата, в «остаток» не входят) */
-.hm-cert .dev{font-size:12px;color:var(--muted);margin-top:3px;white-space:normal}
 /* ИЗБРАННОЕ — строка-ссылка на главной (demo-16 шаг 2) и отдельный экран `#screen-fav` (demo-17) */
 .hm-fav-row{margin:6px 0 0}.hm-fav-row[hidden]{display:none}
 .hm-fav-btn{width:100%;min-height:40px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:var(--radius-sm,10px);
@@ -193,7 +202,7 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-fav-btn .s{flex:1;min-width:0;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hm-fav-btn .chev{color:var(--muted)}
 /* на экране избранного — только строка квартиры (липкая, ♡ N) и шкала сертификата: остальное первого экрана скрыто, как на плане */
-body.on-fav #flatPrice,body.on-fav #payInfoTxt,body.on-fav #favHead{display:none!important}
+body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!important}
 #screen-fav{padding:4px 0 18px}
 .fv-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0 8px}
 .fv-top .hm-back{margin:0;min-height:40px;display:inline-flex;align-items:center}
@@ -230,12 +239,12 @@ body.on-fav #flatPrice,body.on-fav #payInfoTxt,body.on-fav #favHead{display:none
   :root{--hm-hd:60px}
   .hm-hd{gap:16px}
   .hm-fk,.hm-price{font-size:20px}
-  .hm-top{display:flex;align-items:center;gap:16px;margin-top:4px}
+  .hm-top{display:flex;flex-wrap:wrap;align-items:center;gap:0 16px;margin-top:4px}
+  .hm-more-box{order:3;flex-basis:100%;font-size:14px}
   .hm-meta{flex:1;margin:0;font-size:14px}
   .hm-acts{margin:0;flex-wrap:nowrap}
   .hm-acts .btn{flex:none;padding:0 16px}
-  .hm-cert{max-width:560px}
-  .hm-cert .d{display:inline}
+  .hm-cert .cs{max-width:560px}
   .hm-hint{font-size:15px}
   .hm-tabs{margin-top:6px;height:54px}
   .hm-tab{height:38px;font-size:15px;padding:0 18px}
@@ -649,6 +658,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 
 /* ——— ВИТРИНА: коллекция расстановок (план demo-collection-flow) ——— */
 .sechead{margin:22px 0 0}
+#coll[hidden],#collHead[hidden]{display:none}   /* коллекций по ссылке нет — раздела нет (demo-19 Б5) */
 .sechead h2{margin:0;font-size:clamp(22px,2.2vw,29px)}
 .sechead p{margin:4px 0 0;color:var(--muted)}
 .budget{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);
@@ -698,6 +708,14 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .vtopbtn[hidden]{display:none}
 .favcard .nm{text-transform:none}                /* имя избранного — как его написал человек */
 /* ОКОШКО ИМЕНИ ИЗБРАННОГО (demo-15 п.4) */
+/* ВСПЛЫВАЮЩЕЕ СООБЩЕНИЕ (demo-19 Б4, владелец 20.10): полупрозрачная светлая плашка в тон страницы (как кнопки поверх фото), длинная —
+   во всю ширину телефона, на компьютере до 560 px; действие («Перейти →») — терракотой в той же строке */
+.msg{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);width:min(92vw,560px);box-sizing:border-box;z-index:90;
+  background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(14px) saturate(1.3);backdrop-filter:blur(14px) saturate(1.3);
+  color:var(--ink);border:1px solid rgba(28,25,23,.08);border-radius:14px;box-shadow:0 8px 28px rgba(28,25,23,.18);
+  padding:11px 16px;font-size:15px;line-height:1.35;text-align:center;white-space:normal}
+.msg[hidden]{display:none}
+.msg .toastact{margin-left:10px;background:none;border:0;color:var(--accent);font:inherit;font-weight:700;cursor:pointer;padding:4px 0;min-height:0}
 .favpop{position:fixed;inset:0;z-index:95;background:rgba(20,16,12,.38);display:flex;align-items:center;justify-content:center;padding:16px}
 .favbox{background:var(--surface);color:var(--ink);border-radius:16px;padding:18px 16px 14px;width:min(380px,100%);box-shadow:0 12px 40px rgba(0,0,0,.25);
  display:flex;flex-direction:column;gap:12px}
@@ -818,15 +836,18 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
      вкладки теперь — стили, внутри стиля — комнаты в порядке плана; план квартиры — ссылкой. «Оплата 100 %» — в пояснении к цене. -->
 <header class="hm-hd" id="hmHd">
   <div class="hm-fk" id="flatKind">&nbsp;</div>
-  <button class="hm-price" id="payInfo" type="button" aria-label="Цена, подробнее"><span id="flatSum">—</span><span class="hm-ih" aria-hidden="true">i</span></button>
+  <span class="hm-price" id="flatPriceSum"><span id="flatSum">—</span></span>
   <button class="hm-fav" id="hmFav" type="button" aria-label="Избранное">♡<b id="hmFavN" hidden>0</b></button>
 </header>
-<p class="hm-paytxt" id="payInfoTxt" hidden>Оплата 100 %: сумма при условии оплаты наличными, без ипотеки и рассрочки</p>
+<!-- ШАПКА В ДВЕ СТРОКИ (demo-19 Б1, владелец 20.10): 1) комнаты · цена · ♡; 2) ЖК · сдача · «Подробнее» — в раскрывашке тип с площадью,
+     дом целиком (этаж, корпус) и условия цены (бывший значок «i» у цены) -->
 <div class="hm-top" id="flatPrice">
-  <div class="hm-meta"><span id="flatMeta">&nbsp;</span><a class="hm-plan hm-plan-top" id="planLink" data-plan href="#plan">План квартиры</a></div>
+  <div class="hm-meta" id="flatMetaRow"><span id="flatMeta">&nbsp;</span><button class="hm-more" id="flatMoreBtn" type="button" aria-expanded="false"
+    aria-controls="flatMore"><span class="w">Подробнее</span><span class="chev" aria-hidden="true">⌄</span></button><a class="hm-plan hm-plan-top" id="planLink" data-plan href="#plan">План квартиры</a></div>
+  <div class="hm-more-box" id="flatMore" hidden></div>
   <!-- `fh-acts` — точка встраивания строки «Ваш менеджер» по ссылке менеджера (`mount`, блок b2b-02) -->
   <div class="hm-acts fh-acts">
-    <button class="btn round" id="pcMort" type="button">Ипотека, рассрочка</button>
+    <button class="btn round" id="pcMort" type="button">Ипотека</button>
     <button class="btn cta round" id="pcCons" type="button">Консультация</button>
   </div>
 </div>
@@ -872,8 +893,8 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 
   <!-- ИЗБРАННОЕ НА ЭТОМ УСТРОЙСТВЕ (владелец 18.10, demo-15 п.6): все сохранённые сердечком расстановки — над готовыми вариантами;
        пусто — раздела нет. Межустройственное «все» — только с аккаунтом (не сейчас) -->
-  <div class="sechead" id="collHead"><h2>Своя расстановка</h2></div>
-  <div class="grid" id="coll"></div>
+  <div class="sechead" id="collHead" hidden><h2>Расстановки по ссылке</h2></div>
+  <div class="grid" id="coll" hidden></div>
 
   <!-- разворот «Заменить мебель»: список предметов выбранного варианта прямо на витрине -->
   <div id="swapBox">
@@ -1109,22 +1130,47 @@ function drawVariants(){
   if(c){
     if(!t.amount){c.hidden=true;}
     else{
-      // КОРЗИНА (demo-16 шаг 2): «включено» — варианты комнат, помеченные «Включить в сертификат»; пусто — 0, остаток = вся сумма.
-      // Доплаты застройщику (RF пол) и прибавка к цене квартиры (UK) — отдельными строками: в остаток не входят (как `settle`)
+      // КОРЗИНА (demo-16 шаг 2): «набрано» — варианты комнат, помеченные «Включить в сертификат»; пусто — 0, остаток = вся сумма.
+      // Доплаты застройщику (RF пол) и прибавка к цене квартиры (UK) — в «i»: в остаток не входят (как `settle`)
       const EN=LANG==='en', bt=window.__basket&&window.__basket.totals(), inc=bt?bt.allowanceEligible:0, over=bt?bt.allowanceOverage:0;
-      const left=Math.max(0,t.amount-inc), pct=Math.min(100,Math.round(inc/t.amount*1000)/10);
+      const left=Math.max(0,t.amount-inc);
       c.hidden=false;
       c.dataset.amount=String(t.amount); c.dataset.included=String(inc); c.dataset.complete=String(!bt||bt.allowanceComplete);
-      const dev=bt?[bt.developerSurcharge?`<div class="dev">+${fmtCard(bt.developerSurcharge)} — ${EN?'paid to the developer, not from the allowance':'доплата застройщику, не из сертификата'}</div>`:'',
-        bt.propertyPriceDelta?`<div class="dev">+${fmtCard(bt.propertyPriceDelta)} — ${EN?'added to the property price':'к цене квартиры'}</div>`:'',
-        (!bt.allowanceComplete||bt.onRequest.length)?`<div class="dev">${EN?'some prices are still being checked — the total may change':'часть цен уточняется — итог может измениться'}</div>`:''].join(''):'';
-      c.innerHTML=`<div class="t"><span>${EN?'Allowance':'Сертификат'}<span class="d">${EN?' for furniture and appliances':' на мебель и технику'}</span> `+
-        `<b>${fmtCard(t.amount)}</b></span><span>${over?(EN?'over by':'сверх')+' <b class="vpl-over">'+fmtCard(over)+'</b>':(EN?'left':'остаток')+' <b>'+fmtCard(left)+'</b>'}</span></div>`+
-        `<div class="bar${over?' over':''}" role="progressbar" aria-valuemin="0" aria-valuemax="${t.amount}" aria-valuenow="${inc}"><i style="width:${pct}%"></i></div>`+
-        dev+(fxNote()?`<div class="fx">${fxNote()}</div>`:'');
+      const lines=[`${EN?'Developer allowance for furniture and appliances':'Сертификат застройщика на мебель и технику'} <b>${fmtCard(t.amount)}</b>`,
+        over?`${EN?'Over by':'Сверх сертификата'} <b>${fmtCard(over)}</b>`:`${EN?'Chosen':'Набрано'} ${fmtCard(inc)}, ${EN?'left':'остаток'} <b>${fmtCard(left)}</b>`,
+        inc?'':(EN?'To include a layout in the allowance, add it to favourites':'Чтобы включить расстановку в сертификат, добавьте её в избранное'),
+        bt&&bt.developerSurcharge?`+${fmtCard(bt.developerSurcharge)} — ${EN?'paid to the developer, not from the allowance':'доплата застройщику, не из сертификата'}`:'',
+        bt&&bt.propertyPriceDelta?`+${fmtCard(bt.propertyPriceDelta)} — ${EN?'added to the property price':'к цене квартиры'}`:'',
+        bt&&(!bt.allowanceComplete||bt.onRequest.length)?(EN?'some prices are still being checked — the total may change':'часть цен уточняется — итог может измениться'):'',
+        fxNote()];
+      // перерисовка — только когда шкала изменилась: `drawVariants` зовётся часто, открытый пузырь «i» не должен закрываться сам
+      const html=certScale({cert:t.amount, inc, over:over>0, lines});
+      if(c._html!==html){c._html=html; c.innerHTML=html;}
     }
   }
+  certStick();
   drawColl();
+}
+// ШКАЛА СЕРТИФИКАТА — ОДНА ДЛЯ ГЛАВНОЙ И ОКНА (demo-19 Б2, владелец 20.10: «шкала показывает, сколько набрано, и общую сумму в конце —
+// иначе диссонанс: заполнена на треть, а над ней „доступно 470 тыс.“»). Полоса = набрано; светлая часть — что добавит эта расстановка
+// (окно); слева «Набрано N», справа — сумма сертификата; остаток, «как включить» и доплаты вне сертификата — в пузыре «i» (`lines`, HTML)
+function certScale(o){
+  const EN=LANG==='en', cert=o.cert, inc=Math.max(0,o.inc||0), add=Math.max(0,o.add||0);
+  const pb=Math.min(100,Math.round(inc/cert*1000)/10), pw=Math.max(0,Math.min(100-pb,Math.round(add/cert*1000)/10));
+  return `<div class="cs${o.over?' over':''}"><div class="cs-t"><span class="cs-l">${EN?'Chosen':'Набрано'} `+
+      `<b data-k="inc" data-to="${inc}">${fmtCard(inc)}</b></span>`+
+      `<button class="vpl-i" type="button" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
+      `<span class="cs-r"><span class="lab-r">${EN?'allowance ':'сертификат '}</span><b>${fmtCard(cert)}</b></span></div>`+
+    `<div class="cs-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${cert}" aria-valuenow="${inc}">`+
+      `<i style="width:${pb}%"></i><i class="pv" style="width:${pw}%"></i></div>`+
+    `<div class="vpl-bub"${o.bubId?` id="${o.bubId}"`:''} hidden role="dialog">${o.lines.filter(Boolean).map(t=>`<div>${t}</div>`).join('')}</div></div>`;
+}
+// ЛИПКАЯ ШКАЛА (demo-19 Б3): вкладки стилей встают под шкалу — её высота в `--hm-cert` (крупный шрифт, перенос пузыря не влияет: он поверх)
+function certStick(){
+  const c=document.getElementById('hmCert'); if(!c)return;
+  const h=c.hidden?0:Math.round(c.getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--hm-cert',h+'px');
+  if(!c._ro&&window.ResizeObserver){c._ro=new ResizeObserver(()=>certStick()); c._ro.observe(c);}
 }
 function theDoor(){ return (D.room.openings||[]).find(o=>o.kind==='door'); }
 function drawDoorCtl(){
@@ -1157,7 +1203,7 @@ function showTab(which){
   ['styleTabs','hmHint'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=!room;});
   document.body.classList.toggle('on-fav',fav);   // экран избранного: строка ЖК, кнопки и строка «Избранное» скрыты (CSS)
   syncHash(which);
-  if(room){draw(); drawHome();}
+  if(room){draw(); drawHome(); try{fitMeta();}catch(e){}}
   if(fav&&window.__fav)window.__fav.draw();
 }
 // какой экран показан: витрина, план квартиры или избранное (demo-17)
@@ -2390,8 +2436,7 @@ function devSet(gid, vid){
   if(wasOpen&&sd&&shot){
     vwSheet(0);
     const g=devGroups().find(x=>x.id===gid), v=g&&devPick(g);
-    if(v){const t=document.createElement('div'); t.className='vtip';
-      t.style.cssText='white-space:normal;text-align:center;max-width:calc(100% - 32px)';
+    if(v){const t=document.createElement('div'); t.className='vtip msg';
       t.textContent=v.name+(v.price.type==='included'?'':' · '+v.price.text);
       setTimeout(()=>{vwTipPlace(t); shot.appendChild(t); setTimeout(()=>t.remove(),2600);},300);}
   }
@@ -2427,10 +2472,12 @@ function DEMO_UK_PENDING(){return LANG==='en'&&demoAnon()&&!FLAT;}
 function loadFlatCard(){const id=flatId(); if(!id)return;
   fetch('/api/apartments/'+encodeURIComponent(id)+'?lang='+LANG+(demoAnon()?'&demo=1':'')).then(r=>r.ok?r.json():null).then(j=>{
     if(!j||!j.ok||id!==flatId())return; FLAT=j.card;      // поздний ответ прежней квартиры не перетирает текущую (Codex 18.10)
-    // строка квартиры первого экрана — короткая (макет A: «3-комн. · 73,7 м²», дом без корпуса); полная — подсказкой
+    // шапка в две строки (demo-19 Б1): «3-комн. · цена» и «ЖК · сдача»; полное — в «Подробнее» (`drawFlatMore`)
     const fk=document.getElementById('flatKind'); if(fk){fk.textContent=FLAT.kindShort||FLAT.kind; fk.title=FLAT.kind;}
-    const fm=document.getElementById('flatMeta'); if(fm){fm.textContent=FLAT.metaShort||FLAT.meta; fm.title=FLAT.meta;}
+    // переносить строку дома (узкий экран, крупный шрифт) — только между частями «ЖК · сдача», не внутри «4 кв. 2026»
+    const fm=document.getElementById('flatMeta'); if(fm){fm.textContent=String(FLAT.metaShort||FLAT.meta).split(' · ').map(x=>x.replace(/ /g,'\u00a0')).join(' · '); fm.title=FLAT.meta;}
     const fs=document.getElementById('flatSum'); if(fs)fs.textContent=fmtCard(FLAT.price);
+    drawFlatMore();
     const ft=document.getElementById('flatTitle'); if(ft)ft.textContent=flatTitle();
     document.title=FLAT.kind+(LANG==='en'?' — living room (demo)':' — гостиная (демо)');
     drawVariants(); try{sync3dLink();}catch(e){} try{drawHome(true);}catch(e){}
@@ -2439,6 +2486,37 @@ function loadFlatCard(){const id=flatId(); if(!id)return;
     document.dispatchEvent(new CustomEvent('flatcard',{detail:FLAT}));
   }).catch(()=>{});}
 window.__loadFlatCard=loadFlatCard;
+// «ПОДРОБНЕЕ» (demo-19 Б1, владелец 20.10: «всё, что не влезает, — под „Подробнее“, туда же условия цены вместо значка i»):
+// тип с площадью, дом целиком (этаж, корпус), условия цены. Строка дома не обрезается: не влезает слово — остаётся «⌄» (`fitMeta`)
+function drawFlatMore(){
+  const box=document.getElementById('flatMore'); if(!box||!FLAT)return; const EN=LANG==='en';
+  const pay=EN?'The price is for full payment, without a mortgage or instalments':'Цена — при оплате 100 %: наличными, без ипотеки и рассрочки';
+  // ЖК и сдача уже во второй строке — здесь остальное из полной строки дома (этаж, корпус)
+  const rest=FLAT.metaShort&&String(FLAT.meta||'').indexOf(FLAT.metaShort)===0?String(FLAT.meta).slice(FLAT.metaShort.length).replace(/^ · /,''):(FLAT.meta||'');
+  const flat=[FLAT.kind, FLAT.number?(EN?'flat ':'кв. ')+FLAT.number:'', rest].filter(Boolean).join(' · ');
+  box.innerHTML=[flat, pay].map(t=>`<div>${escHtml(t)}</div>`).join('');
+  const mb=document.getElementById('flatMoreBtn'), mr=document.getElementById('flatMeta');
+  if(mb)mb.onclick=toggleFlatMore; if(mr)mr.onclick=toggleFlatMore;   // строка дома — тоже раскрывает
+  fitMeta();
+}
+// СТРОКА ДОМА НЕ ОБРЕЗАЕТСЯ (владелец 20.10 — про «три точки»): подпись раскрывашки по месту — «Подробнее», «ещё», одна «⌄»;
+// узкий экран или крупный шрифт — строка чуть мельче (до 11 px), и только потом переносится, но без многоточия
+function fitMeta(){
+  const row=document.getElementById('flatMetaRow'), m=document.getElementById('flatMeta'), w=row&&row.querySelector('.hm-more .w'); if(!row||!m||!w)return;
+  if(!row.getBoundingClientRect().width)return;     // строка скрыта (экран избранного) — мерить нечего, подгонка при возврате
+  const EN=LANG==='en', fits=()=>m.scrollWidth<=m.clientWidth+1;
+  row.classList.remove('tight','fold'); m.style.fontSize=''; w.textContent=EN?'Details':'Подробнее'; if(fits())return;
+  w.textContent=EN?'more':'ещё'; if(fits())return;
+  row.classList.add('tight'); if(fits())return;
+  for(let fs=12;fs>=11;fs-=0.5){m.style.fontSize=fs+'px'; if(fits())return;}
+  m.style.fontSize=''; row.classList.add('fold');
+}
+function toggleFlatMore(){
+  const b=document.getElementById('flatMoreBtn'), box=document.getElementById('flatMore'); if(!b||!box)return;
+  box.hidden=!box.hidden; b.setAttribute('aria-expanded',String(!box.hidden));
+}
+addEventListener('resize',()=>{try{fitMeta();}catch(e){}});
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{try{fitMeta();}catch(e){}});
 let LAST_SUM=0, LAST_CNT=0;
 function priceCard(sum, cnt){
   LAST_SUM=sum||0; LAST_CNT=cnt||0;
@@ -2461,8 +2539,6 @@ function priceCard(sum, cnt){
   // У КАЖДОЙ КНОПКИ — СВОЯ ПОДПИСЬ (владелец 01.09). Обе вели один и тот же общий текст про
   // «демонстрацию блока»; человеку важно, КУДА ведёт именно эта кнопка.
   const say=t=>()=>shotOpen('<div class="wait">'+t+'</div>','');
-  const inf=document.getElementById('payInfo'), inft=document.getElementById('payInfoTxt');
-  if(inf&&inft)inf.onclick=()=>{inft.hidden=!inft.hidden;};
   const mort=document.getElementById('pcMort'), cons=document.getElementById('pcCons');
   if(mort)mort.onclick=say('Эта ссылка ведет на условия ипотеки по квартире');
   // ВСТРОЕНО НА САЙТ ЗАСТРОЙЩИКА (b2b-07): консультацию ведёт сам сайт — отдаём ему событие «contact», он открывает свою форму
@@ -2479,12 +2555,12 @@ function reportAct(kind){
   document.dispatchEvent(new CustomEvent('remlab:act',{detail:kind}));
 }
 // КОРОТКОЕ СООБЩЕНИЕ ВМЕСТО alert() (b2b-12): alert блокирует страницу и выглядит как сбой.
+// ВСЕ ВСПЛЫВАЮЩИЕ СООБЩЕНИЯ ОДНОГО ВИДА (demo-19 Б4, владелец 20.10: «не на чёрном, а на полупрозрачном, шире»): класс `.msg` —
+// у сообщений страницы и у подсказок окна (`.vtip`); длинный текст держится дольше
 function toast(t,act){let el=document.getElementById('toast');
-  if(!el){el=document.createElement('div');el.id='toast';el.setAttribute('role','status');
-    el.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:min(92vw,520px);'+
-      'background:#2b2622;color:#fff;padding:12px 16px;border-radius:12px;font-size:15px;z-index:90;box-shadow:0 6px 20px rgba(0,0,0,.2)';
+  if(!el){el=document.createElement('div');el.id='toast';el.className='msg';el.setAttribute('role','status');
     document.body.appendChild(el);}
-  el.textContent=t; el.hidden=false; clearTimeout(el._t); el._t=setTimeout(()=>{el.hidden=true;},act?4500:3500);
+  el.textContent=t; el.hidden=false; clearTimeout(el._t); el._t=setTimeout(()=>{el.hidden=true;},(act?4500:3500)+(String(t).length>60?1500:0));
   // ОКНО ВАРИАНТА НА ТЕЛЕФОНЕ (demo-02 v5.2): сообщение — над шторкой и переключателем ракурсов, а не поверх кнопки
   // «Сделать реалистичнее» (после замены «Заменено: …» закрывало её на 3,5 с). Положение — по цели сдвига шторки, не по кадру анимации
   el.style.bottom='24px';
@@ -2494,7 +2570,6 @@ function toast(t,act){let el=document.getElementById('toast');
       el.style.bottom=Math.round(VW.sheetVis+12+cv)+'px';}}catch(e){}
   // ДЕЙСТВИЕ В СООБЩЕНИИ (demo-16 шаг 2, владелец 18.10: «Добавлено в избранное · Перейти →» на несколько секунд)
   if(act){const b=document.createElement('button'); b.type='button'; b.className='toastact'; b.textContent=act.label;
-    b.style.cssText='margin-left:10px;background:none;border:0;color:#f4c9a8;font:inherit;font-weight:700;cursor:pointer;padding:4px 0';
     b.onclick=()=>{el.hidden=true; act.fn();}; el.appendChild(b);}}
 // СПИСОК В JPG (b2b-12): текст на холсте — картинки магазинов чужого домена «запачкали» бы холст и
 // сохранить его было бы нельзя. Те же данные, что на странице списка: товары, количество, цена, магазин, итог.
@@ -3164,26 +3239,16 @@ function drawColl(force){
     el.onclick=e=>{ if(e.target.closest('button'))return;
       vwOpenVariant(i); };   // окно варианта открывается и без кадра — в 3D (demo-09)
   });
-  const add=document.createElement('div');
-  add.className='newlay'; add.onclick=()=>openCons();
-  add.innerHTML='<div class="plus">＋</div><b>Добавить новую расстановку</b>'+
-    '<span>план комнаты, перестановка мебели, свои размеры</span>';
-  box.appendChild(add);
+  // «СВОЯ РАССТАНОВКА» / «ДОБАВИТЬ НОВУЮ» СНЯТЫ (demo-19 Б5, владелец 20.10: «свою люди делают на основе любой») — конструктор
+  // открывается из окна варианта («Изменить план»)
   // «ОТКРЫТЬ» = НАЖАТИЕ ПО ФОТОГРАФИИ (владелец 02.09: «открывается модалка без фото, а должна
   // так же, как по фото»). Кнопка вела в список мебели — окно без кадра; человек нажимал
   // «Открыть» у карточки со снимком и снимка не видел. Кадра нет — открываем список, как раньше.
   box.querySelectorAll('[data-swap]').forEach(b=>b.onclick=()=>{
     vwOpenVariant(+b.dataset.swap);
   });
-  // СТИЛИ БЕЗ ПОЛНОГО НАБОРА (conv-09): вариант без дивана, столика, ТВ-тумбы, ковра или торшера не
-  // публикуется — вместо худой комнаты честная строка, чего не хватает в наличии сейчас.
-  (D.incomplete_styles||[]).forEach(x=>{
-    const n=document.createElement('div');n.className='hint';n.style.gridColumn='1/-1';
-    // снят воротами артефактов (demo-05 п.1: наезд, тёмная модель) — покупателю без внутренних подробностей
-    n.textContent=(x.artifacts&&!(x.missing||[]).length)
-      ?(LANG==='en'?`Style “${x.style}” is hidden for now: we are updating its 3D models.`:`Стиль «${x.style}» временно скрыт: обновляем его 3D-модели.`)
-      :`Стиль «${x.style}»: сейчас нет полного набора в наличии (не хватает: ${(x.missing||[]).join(', ')}) — покажем, как только появится.`;
-    box.appendChild(n);});
+  // СТРОКИ «СТИЛЬ … НЕТ ПОЛНОГО НАБОРА» / «ВРЕМЕННО СКРЫТ» (conv-09) сняты вместе с блоком (demo-19 Б5): покупателю ни к чему — во вкладках
+  // только опубликованные стили; причины — в журнале сборки (`D.incomplete_styles`)
   showSwap();   // список выбранного варианта рисуется вместе с коллекцией, не отдельным событием
   box.querySelectorAll('[data-share]').forEach(b=>b.onclick=e=>{
     e.stopPropagation(); const v=allVariants()[+b.dataset.share]||{};
@@ -3207,9 +3272,10 @@ function drawColl(force){
   // в подборку, потом снял по этому же стилю новое фото — превью сменилось на неотмеченное,
   // и карточка молча «выпала» из подборки.
   try{window.__fav&&window.__fav.draw();}catch(e){}
-  // ЗАГОЛОВОК СЕТКИ (demo-16): варианты стилей ушли во вкладки — здесь коллекции по ссылке и «своя расстановка»
+  // ЗАГОЛОВОК СЕТКИ (demo-16): варианты стилей ушли во вкладки — здесь только коллекции по ссылке; их нет — раздела нет (demo-19 Б5)
   const head=document.getElementById('collHead'), shared=list.some(v=>v.mine&&!v.own), EN=LANG==='en';
-  if(head)head.innerHTML=shared?`<h2>${EN?'Layouts from links':'Расстановки по ссылке'}</h2>`:`<h2>${EN?'Your own layout':'Своя расстановка'}</h2>`;
+  if(head){head.hidden=!shared; head.innerHTML=`<h2>${EN?'Layouts from links':'Расстановки по ссылке'}</h2>`;}
+  box.hidden=!shared;
   drawHome();
 }
 // СПИСОК ФАЙЛОВ СБОРКИ — ОДИН НА СТРАНИЦУ (demo-16 шаг 2, Codex 18.10 п.16): модуль корзины берёт его сразу, движок сцены — лениво
@@ -4581,12 +4647,8 @@ function histFwd(){return histGo(1);}
 .vpl-bar{height:5px;border-radius:3px;background:var(--line);margin-top:8px;overflow:hidden}
 .vpl-bar i{display:block;height:100%;background:var(--accent);transition:width .45s ease}.vpl-bar.over i{background:#B3261E}
 .vpl-dev{font-size:13px;color:var(--muted);margin-top:6px}
-/* плашка v4 — одна строка + полоса; ⓘ — пузырь расшифровки */
-.vplate{position:relative}.vpl-row{display:flex;align-items:baseline;gap:6px;font-size:14px;color:var(--muted);white-space:nowrap}
-/* «С этой гостиной · N из M» (demo-16 шаг 2) на компьютере теснит «×» окна: плотнее, подпись при нехватке — с многоточием, число целиком */
-.vpl-row>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}.vpl-row b,.vpl-row small{flex:none}
-@media(min-width:701px){.vpl-row{gap:4px}.vpl-row small{font-size:12px}.vpl-row.over small{display:none}}   /* превышение: «из лимита» — в «i», иначе «Сверх лимита» обрезалось */
-.vpl-row b{margin-left:auto;font-size:16px}.vpl-row small{font-size:13px}.vpl-bar{margin-top:7px}
+/* плашка с сертификатом — та же шкала, что на главной (`certScale`, demo-19 Б2): карточку рисует сама шкала, у плашки — только место */
+.vplate{position:relative}.vplate:has(.cs){background:none;border:0;padding:0}
 .vpl-i{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);font:600 12px/18px system-ui;
  padding:0;cursor:pointer;position:relative;align-self:center}.vpl-i::after{content:"";position:absolute;inset:-12px}
 .vpl-bub{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:9;background:var(--surface);border:1px solid var(--line);
@@ -4678,8 +4740,8 @@ function histFwd(){return histGo(1);}
 /* обновление готовой сцены — крутилка в углу, сцена не «моргает» */
 .vload.corner{inset:auto 12px 12px auto;background:none}.vload.corner div{flex-direction:row;padding:8px 12px}
 .vload.corner i{width:20px;height:20px}
-#shot .vtip{position:fixed;left:50%;transform:translateX(-50%);background:var(--ink-strong);color:#fff;font-size:14px;
- padding:8px 12px;border-radius:10px;white-space:nowrap;z-index:9;pointer-events:none}
+/* подсказка окна — того же вида, что сообщения страницы (`.msg`, demo-19 Б4); нажатия проходят сквозь неё */
+#shot .vtip{z-index:9;pointer-events:none}
 @media(max-width:700px){
   /* ширина тоже 100 % (T-20261019-01): `#shot.v2 .box{width:min(1320px,97vw)}` выше сильнее общего мобильного `#shot .box{width:100%}`,
      и на 375 px окно было 364 — справа светлела полоса фона #shot */
@@ -4754,45 +4816,23 @@ function vwSum(){
   // ПЛАШКА СЕРТИФИКАТА (demo-02 v3, владелец 16.10: «явно и ярко: сертификат на N, выбрано столько-то, остаток такой-то»):
   // отдельный элемент над шторкой (телефон) / шапкой колонки (компьютер), вне прокрутки — сумма видна при замене из глубины списка
   if(!cert)return `<div class="vpl-h"><span>${n} ${word}</span><b data-k="sum" data-to="${sumC}">${money(sumC)}</b></div>${extra}`;
-  // ОСТАТОК ПО КОРЗИНЕ «С ЭТОЙ КОМНАТОЙ» (demo-16 шаг 2, владелец 18.10): сплошная часть полосы — что уже включено в других комнатах,
-  // светлая — эта расстановка; цифра — остаток, если включить её ВМЕСТО включённого варианта этой комнаты (замена, не сложение)
-  const P=window.__basket&&window.__basket.preview&&window.__basket.preview();
-  if(P){
-    const base=P.base.allowanceEligible, withE=P.with.allowanceEligible, ov=P.with.allowanceOverage, lf=Math.max(0,cert-withE);
-    const pb=Math.min(100,Math.round(base/cert*1000)/10), pw=Math.max(0,Math.min(100-pb,Math.round((withE-base)/cert*1000)/10));
-    // подпись короткая — плашка в одну строку и на 375 px, и в колонке компьютера («Остаток с этой гостиной» не влезал, самопроверка 18.10); что это — в «i»
-    const R=EN?{living:'room',kitchen:'kitchen',bedroom:'bedroom',bathroom:'bathroom',hall:'hallway'}:{living:'С гостиной',kitchen:'С кухней',bedroom:'Со спальней',bathroom:'С санузлом',hall:'С прихожей'};
-    const withTxt=EN?'With this '+(R[P.room.kind]||'room'):(R[P.room.kind]||'С комнатой');
-    // «Сверх лимита» — коротко: «Сверх сертификата» на 375 px обрезалось многоточием (fable-lead 18.10)
-    const head=ov?(EN?'Over limit':'Сверх лимита'):(P.included?(EN?'Allowance left':'Остаток'):withTxt);
-    const pdev=(P.with.developerSurcharge||0)+(P.with.propertyPriceDelta||0);
-    const bub=`<div class="vpl-bub" id="vplBub" hidden role="dialog">`+
-      `<div>${EN?'Developer furniture allowance':'Сертификат застройщика на мебель'} <b>${money(cert)}</b></div>`+
-      `<div>${EN?'already included in other rooms':'уже включено в других комнатах'}: ${money(base)}</div>`+
-      `<div>${EN?'this layout':'эта расстановка'}: ${money(withE-base)}${P.included?'':(EN?' — if included':' — если включить её')}</div>`+
-      `<div>${ov?(EN?'over':'сверх')+' '+money(ov):(EN?'left':'остаток')+' '+money(lf)}</div>`+
-      (pdev?`<div>${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}</div>`:'')+
-      (!P.with.allowanceComplete||P.with.onRequest.length?`<div>${EN?'some prices are still being checked':'часть цен уточняется'}</div>`:'')+`</div>`;
-    return `<div class="vpl-row${ov?' over':''}"><span>${head}</span>`+
-      `<button class="vpl-i" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
-      `<b class="${ov?'vpl-over':'vpl-rest'}" data-k="${ov?'over':'left'}" data-to="${ov||lf}">${ov?'+':''}${money(ov||lf)}</b>`+
-      `<small>${EN?'of ':'из '}${money(cert)}</small></div>`+
-      `<div class="vpl-bar ${ov?'over':(pb+pw>=85?'warn':'ok')}"><i style="width:${pb}%"></i><i class="pv" style="width:${pw}%"></i></div>${bub}`;
-  }
-  const chosen=t?t.allowanceEligible:sumC, left=Math.max(0,cert-chosen), pct=Math.min(100,Math.round(chosen/cert*100));
-  const lvl=over?'over':pct>=85?'warn':'ok';
-  // ПЛАШКА v4 — ВСЕГДА ОДНА СТРОКА (владелец 16.10: «в таком варианте пиши кратко всегда»): «Остаток ⓘ · N из M» + полоса;
-  // ⓘ — пузырь с расшифровкой (сертификат, выбрано, остаток, доплаты за отделку вне сертификата)
-  const dev=t?(t.developerSurcharge||0)+(t.propertyPriceDelta||0):0;
-  const bub=`<div class="vpl-bub" id="vplBub" hidden role="dialog">`+
-    `<div>${EN?'Developer furniture allowance':'Сертификат застройщика на мебель'} <b>${money(cert)}</b></div>`+
-    `<div>${EN?'chosen':'выбрано'} ${money(chosen)} · ${over?(EN?'over':'сверх')+' '+money(over):(EN?'left':'остаток')+' '+money(left)}</div>`+
-    (dev?`<div>${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(dev)}</div>`:'')+
-    (t&&t.onRequest.length?`<div>${EN?'on request':'по запросу'}: ${t.onRequest.map(escHtml).join(', ')}</div>`:'')+`</div>`;
-  return `<div class="vpl-row"><span>${over?(EN?'Over limit':'Сверх лимита'):(EN?'Allowance left':'Остаток')}</span>`+
-    `<button class="vpl-i" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
-    `<b class="${over?'vpl-over':'vpl-rest'}" data-k="${over?'over':'left'}" data-to="${over||left}">${over?'+':''}${money(over||left)}</b>`+
-    `<small>${EN?'of ':'из '}${money(cert)}</small></div><div class="vpl-bar ${lvl}"><i style="width:${pct}%"></i></div>${bub}`;
+  // ШКАЛА ОКНА = ШКАЛА ГЛАВНОЙ (demo-19 Б2, владелец 20.10): сплошная часть — набрано по корзине, светлая — сколько добавит эта
+  // расстановка, если её включить (вместо включённого варианта этой комнаты); в «i» — «Вам доступно … Эта расстановка … как включить»
+  const P=window.__basket&&window.__basket.preview&&window.__basket.preview(), T=window.__basket&&window.__basket.totals&&window.__basket.totals();
+  const base=P?P.base.allowanceEligible:0, withE=P?P.with.allowanceEligible:(t?t.allowanceEligible:sumC);
+  const inc=T?T.allowanceEligible:0, ov=P?P.with.allowanceOverage:over, left=Math.max(0,cert-inc);
+  const fav=window.__fav&&window.__fav.ofState&&window.__fav.ofState(curStateId());
+  const pdev=P?(P.with.developerSurcharge||0)+(P.with.propertyPriceDelta||0):(t?(t.developerSurcharge||0)+(t.propertyPriceDelta||0):0);
+  const ask=P?(!P.with.allowanceComplete||P.with.onRequest.length):!!(t&&t.onRequest.length);
+  const how=ov?(EN?`It is ${money(ov)} over — reduce the total to include it`:`Это больше на ${money(ov)} — уменьшите сумму, чтобы включить её`)
+    :fav?(EN?'Include it in the allowance in Favourites':'Включить её в сертификат — в избранном')
+    :(EN?'To include it in the allowance, add it to favourites':'Чтобы включить её в сертификат, добавьте в избранное');
+  const lines=[P&&P.included
+      ?`${EN?'This layout is in the allowance.':'Эта расстановка — в сертификате.'} ${EN?'Chosen':'Набрано'} ${money(inc)}, ${EN?'left':'остаток'} <b>${money(left)}</b>`
+      :`${EN?'You have':'Вам доступно'} <b>${money(Math.max(0,cert-base))}</b>. ${EN?'This layout':'Эта расстановка'} <b>${money(Math.max(0,withE-base))}</b>. ${how}`,
+    pdev?`${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}`:'',
+    ask?(EN?'some prices are still being checked':'часть цен уточняется'):''];
+  return certScale({cert, inc, add:withE-inc, over:ov>0, lines, bubId:'vplBub'});
 }
 // ЦИФРЫ ПЛАШКИ МЕНЯЮТСЯ ПЛАВНО (v3): прежнее значение → новое за 0,45 с, плашка коротко подсвечивается — замена видна сразу
 function vwSumUpdate(){
@@ -5055,7 +5095,7 @@ function vwSheetWire(){
   // него — только когда жест пошёл: захват с касания увёл бы `click` с кнопки на блок
   const vtop=sd.querySelector('.vtop');
   const heads=[document.getElementById('vpill'), document.getElementById('vsum'), grip, vtop].filter(Boolean);
-  const own=t=>t&&t.closest&&t.closest('.vpl-i,#vplBub');
+  const own=t=>t&&t.closest&&t.closest('.vpl-i,.vpl-bub');
   let st=null;
   const begin=(y,id,fromGrip)=>{st={y0:y, vis0:VW.sheetVis||vwEdges().min, id, grip:fromGrip, moved:false, smp:[[performance.now(),y]]};};
   const drag=y=>{const e=vwEdges(); let vis=st.vis0-(y-st.y0);
@@ -5106,10 +5146,16 @@ function vwSheetWire(){
     window.addEventListener('resize',rl); if(window.visualViewport){visualViewport.addEventListener('resize',rl);}}
 }
 // ПУЗЫРЬ ПЛАШКИ (v4): плашка — одна строка «Остаток ⓘ · N из M»; ⓘ — расшифровка: сертификат, выбрано, остаток, доплаты за отделку
+// шкал две (главная и окно, demo-19 Б2): «i» открывает пузырь СВОЕЙ шкалы, прочие закрываются; тап мимо — закрыть
 document.addEventListener('click',e=>{const b=e.target&&e.target.closest&&e.target.closest('.vpl-i');
-  const bub=document.getElementById('vplBub');
-  if(b){e.stopPropagation(); if(bub)bub.hidden=!bub.hidden; b.setAttribute('aria-expanded',String(bub&&!bub.hidden)); return;}
-  if(bub&&!bub.hidden&&!(e.target.closest&&e.target.closest('#vplBub')))bub.hidden=true;});
+  const open=[...document.querySelectorAll('.vpl-bub:not([hidden])')], own=e.target&&e.target.closest&&e.target.closest('.vpl-bub');
+  if(b){e.stopPropagation(); const box=b.closest('.cs,.vplate'), bub=box&&box.querySelector('.vpl-bub');
+    open.forEach(x=>{if(x!==bub)x.hidden=true;}); if(bub)bub.hidden=!bub.hidden; b.setAttribute('aria-expanded',String(!!bub&&!bub.hidden));
+    // шкала у низа экрана (свёрнутая шторка окна) — пузырь открывается вверх, иначе уходил за край
+    if(bub&&!bub.hidden){document.querySelectorAll('#shot .vtip').forEach(t=>t.remove());   // подсказка окна не ложится на пузырь
+      bub.style.top=bub.style.bottom=''; if(bub.getBoundingClientRect().bottom>innerHeight-8){bub.style.top='auto'; bub.style.bottom='calc(100% + 6px)';}}
+    return;}
+  open.forEach(x=>{if(x!==own)x.hidden=true;});});
 // ТАП ПО МЕБЕЛИ (владелец 16.10): предмет выделяется на сцене (тёплая рамка и подсветка), шторка открывается до половины,
 // список прокручивается к его строке, строка подсвечивается; тап по пустому месту снимает выделение
 // подсветка строки живёт, пока предмет выделен (`VW.sel`, demo-15, Codex п.1): снятие выделения снимает и её
@@ -5224,10 +5270,9 @@ function vwMount(s){
       (function tip(){
         if(!shot.classList.contains('on'))return;
         if(Date.now()-at<700||isBusy()){if(Date.now()-at<20000)setTimeout(tip,250); return;}
-        const t=document.createElement('div'); t.className='vtip';
+        const t=document.createElement('div'); t.className='vtip msg';
         t.dataset.mode=VW.mode; t.dataset.live=String(typeof LIVE!=='undefined'&&LIVE.state); t.dataset.busy=String(isBusy());   // состояние в момент показа — для проверок
         t.textContent=LANG==='en'?'Pull or tap — items and swaps':'Потяните или нажмите — товары и замены';
-        t.style.cssText='white-space:normal;text-align:center;max-width:calc(100% - 32px)';
         // над переключателем ракурсов; его нет — над шапкой шторки в её конечном положении (приёмка d8 17.10); шторка сдвинется — следом
         vwTipPlace(t);
         shot.appendChild(t);
@@ -6124,24 +6169,33 @@ async function liveShow(){
     if(!on){histFromFav(); vwOpenVariant(i);}
     setTimeout(function(){try{if(VW_PHONE())vwSheet(3);}catch(_){}},on?0:600);
   }
-  function overText(n){return (EN()?'Could not add it to the allowance: the total is over by ':'Добавить в сертификат не получилось — превышена сумма на ')+fmtCard(n);}
+  // ТЕКСТЫ ВКЛЮЧЕНИЯ (demo-19 Б4, владелец 20.10): какой вариант включён и сколько осталось — подтверждение; не влезает — так и сказать
+  // и что делать («уменьшите сумму»), с переходом к правке расстановки — вместо диалога
+  function overWhy(n){return EN()?(fmtCard(n)+' over what is left — reduce the total'):('больше остатка на '+fmtCard(n)+' — уменьшите сумму');}
+  function overText(n){return (EN()?'Not possible: ':'Нельзя: ')+overWhy(n);}
+  var editAct=function(id){return {label:EN()?'Change →':'Изменить →', fn:function(){editLayout(id);}};};
+  function incText(f,added){
+    var t=BK.mod.basketTotals(BK.b,BK.limit), left=Math.max(0,BK.limit-t.allowanceEligible), nm=String((f&&f.displayName)||'');
+    var room=(homeRooms().find(function(r){return f&&r.id===f.roomId;})||{}).title||'';
+    if(nm.length<=24)nm=nm.replace(/ /g,'\u00a0');   // короткое имя не рвётся на две строки («Гостиная / #1»)
+    var who=(room&&nm.toLowerCase().indexOf(room.toLowerCase())!==0?room+' ':'')+(EN()?'“'+nm+'”':'«'+nm+'»');   // «Гостиная #1» без «Гостиная» дважды
+    return who+(EN()?(added?' — in favourites and ':' — ')+'included in the allowance, '+fmtCard(left)+' left'
+      :(added?' — в избранном, ':' — ')+'включено в сертификат, остаток '+fmtCard(left));
+  }
   // РЕШЕНИЕ ПОСЛЕ ДОБАВЛЕНИЯ (владелец 18.10): первый вариант комнаты влезает — включается сам; в комнате уже есть включённый — вопрос
   // «вместо …?»; не влезает — в избранном без включения, сумма превышения и переход к правке; цены не досчитаны — не включаем
   function decide(b,f,d){
     var added=EN()?'Added to favourites':'Добавлено в избранное';
     if(!BK.limit){bkPut(b); toast(added,goFav(f.roomId)); return;}
-    if(d.kind==='included'){bkPut(BK.mod.include(b,f.favoriteId,BK.limit).basket); toast(added,goFav(f.roomId)); return;}
+    if(d.kind==='included'){bkPut(BK.mod.include(b,f.favoriteId,BK.limit).basket); toast(incText(f,true),goFav(f.roomId)); return;}
     bkPut(b);
     if(d.kind==='ask_replace'){var c=favOf(d.currentId)||{displayName:''};
       dlg(added,(EN()?'Use this layout in the allowance instead of “':'Добавить этот вариант в расчёт вместо «')+c.displayName+(EN()?'”?':'»?'),
         [{label:EN()?'Yes':'Да',primary:true,fn:function(){var r=BK.mod.include(BK.b,f.favoriteId,BK.limit);
-            if(r.result==='included'){bkPut(r.basket); toast(added,goFav(f.roomId));} else if(r.result==='over_limit')dlg(added,overText(r.overBy||0),[{label:EN()?'OK':'Понятно',primary:true}]);}},
+            if(r.result==='included'){bkPut(r.basket); toast(incText(f),goFav(f.roomId));} else if(r.result==='over_limit')toast(overText(r.overBy||0),editAct(f.favoriteId));}},
          {label:EN()?'No':'Нет',fn:function(){toast(added,goFav(f.roomId));}}]);
       return;}
-    if(d.kind==='over_limit'){
-      dlg(added,overText(d.overBy),[{label:EN()?'Change the layout to fit':'Изменить расстановку',primary:true,fn:function(){editLayout(f.favoriteId);}},
-        {label:EN()?'OK':'Понятно'}]);
-      return;}
+    if(d.kind==='over_limit'){toast((EN()?'In favourites, not in the allowance: ':'В избранном, но не в сертификате: ')+overWhy(d.overBy),editAct(f.favoriteId)); return;}
     // цена неизвестна — причину называем (demo-19 А1); сама она позже не включится, поэтому обещания «включим» нет
     var why=pendingWhy(f.quote);
     toast(added+'. '+(why||(EN()?'Include it in the allowance from Favourites':'Включить в сертификат — в избранном')),goFav(f.roomId));
@@ -6198,9 +6252,9 @@ async function liveShow(){
   }
   // «Включить в сертификат» в избранном: ворота модуля — не влезает или цена неизвестна — переключатель не двигается
   function includeFav(id,again){ if(!BK.mod||!BK.b)return; var r=BK.mod.include(BK.b,id,BK.limit);
-    if(r.result==='included'){bkPut(r.basket); toast(EN()?'Included in the allowance':'Включено в сертификат'); return;}
+    if(r.result==='included'){bkPut(r.basket); toast(incText(favOf(id))); return;}
     favDraw();
-    if(r.result==='over_limit'){dlg(EN()?'Not included':'Не включено',overText(r.overBy||0),[{label:EN()?'Change the layout to fit':'Изменить расстановку',primary:true,fn:function(){editLayout(id);}},{label:EN()?'OK':'Понятно'}]); return;}
+    if(r.result==='over_limit'){toast(overText(r.overBy||0),editAct(id)); return;}
     var f=favOf(id), why=pendingWhy(f&&f.quote);
     if(why){toast(why); return;}
     var offline=function(){toast(EN()?'No connection to the server — check the internet and tap again':'Нет связи с сервером — проверьте интернет и нажмите ещё раз');};
@@ -6366,7 +6420,7 @@ async function liveShow(){
     'люстра':'chandelier','лампа':'lamp','подушка':'cushion','шторы':'curtains','приставной':'side table','окно':'window','дверь':'door'};
   var STYLE={'сканди':'Scandi','современный':'Modern','минимализм':'Minimalist','лофт':'Loft','неоклассика':'Neoclassic','джапанди':'Japandi'};
   var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom','Прихожая':'Hallway'};
-  var EX={'Оплата 100%':'Full payment','Ипотека, рассрочка':'Mortgage, instalments','Консультация':'Get advice','← К стилям':'← Back to styles',
+  var EX={'Оплата 100%':'Full payment','Ипотека, рассрочка':'Mortgage, instalments','Ипотека':'Mortgage','Подробнее':'Details','Консультация':'Get advice','← К стилям':'← Back to styles',
     'Оплата 100 %: сумма при условии оплаты наличными, без ипотеки и рассрочки':'Full payment: the price when paying in full, without a mortgage or instalments',
     'Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.':'We have furnished your apartment in different styles. You can change the furniture, finishes and fitted items.',
     'Своя расстановка':'Your own layout','План квартиры →':'Apartment plan →','Выбрать условия ипотеки или рассрочки':'Mortgage or instalment options','Получить консультацию':'Get advice',

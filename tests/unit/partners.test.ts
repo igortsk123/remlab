@@ -63,11 +63,13 @@ describe("комнаты квартиры", () => {
     expect(apartmentCard(findApartment("demo-uk-215")!, "en").rooms.map((r) => r.id)).toEqual(ru.rooms.map((r) => r.id));
   });
 
-  it("строка квартиры первого экрана: короткий тип и дом без корпуса", () => {
+  it("шапка первого экрана в две строки: «комнаты» и «ЖК · сдача»; площадь, этаж, корпус — в полной строке (demo-19 Б1)", () => {
     const ru = apartmentCard(findApartment("flat215")!, "ru");
-    expect(ru.kindShort).toBe("3-комн. · 73,7\u00a0м²");
-    expect(ru.metaShort).toBe("ЖК «Ольховый квартал» · сдача 4 кв. 2026 · эт. 6/17");
-    expect(apartmentCard(findApartment("flat215")!, "en").kindShort).toBe("2-bed · 73.7\u00a0m²");
+    expect(ru.kindShort).toBe("3-комн.");
+    expect(ru.metaShort).toBe("ЖК «Ольховый квартал» · сдача 4 кв. 2026");
+    expect(ru.kind).toBe("Трёхкомнатная 73,7\u00a0м²");
+    expect(ru.meta).toBe("ЖК «Ольховый квартал» · сдача 4 кв. 2026 · эт. 6 из 17 · корп. 3");
+    expect(apartmentCard(findApartment("flat215")!, "en").kindShort).toBe("2-bed");
   });
 
   it("квартира без комнат — пустой список, не ошибка", () => {
