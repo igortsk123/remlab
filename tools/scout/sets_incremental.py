@@ -141,6 +141,8 @@ def why(mid: str, eid: str) -> None:
 
 
 _CAND_CACHE: dict = {}
+# Сбои проверки каталога в воротах слота (`_slot_ok`): тип исключения → сколько раз. Итог — строка WARN в main().
+_GATE_ERRORS: dict = {}
 
 
 def _mesh_gate_ok(cand: dict) -> bool:
@@ -207,6 +209,8 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
     # товар архивный — его нельзя ни показать, ни продать. Каталог не знает НИ ОДНОГО габарита —
     # предмет нельзя расставить честно: размер тогда берётся «по памяти слота», а это и был
     # коврик 90 см, стоявший в банке как 230×160 (находка владельца).
+    # Сбой этой проверки раньше глотался (`except: pass`) — кандидат проходил БЕЗ проверки наличия и размера
+    # (conv-12 п.1). Теперь: кандидат отклоняется, сбой считается, команда печатает WARN (статус шага — warn).
     try:
         from catalog_media import media as _media
         _m = _media(cand.get('mid'), cand.get('eid'))
@@ -220,8 +224,9 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
                 return False
         elif not any(_m.get(f) for f in ('w', 'd', 'h', 'dia')):
             return False
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001
+        _GATE_ERRORS[type(e).__name__] = _GATE_ERRORS.get(type(e).__name__, 0) + 1
+        return False
     w = cand.get('w') or 0
     d = cand.get('d') or 0
     if role == 'ковёр':
@@ -878,22 +883,21 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
             s['_relayout_pending'] = True
     print(f'\nвне контракта: заменено {fixed}, снято {dropped}')
     if apply and (fixed or dropped):
-        shutil.copy(SETS, SETS + '.bak-contracts')
-        _ensure_ids(sets)          # новый сет обязан получить стабильный id сразу
         # Предохранитель на прогон и журнал (Codex P1-8): contracts умел молча переписать
         # ВСЕ 126 сетов — без записи в set_changes точечная пересборка не узнала бы об этом,
-        # и сцены остались бы от старых составов.
-        try:
-            from heal_policy import record as _rec, run_allowed as _ra
-            ok_run, why = _ra(len(_c_touched), len(sets))
-        except Exception:  # noqa: BLE001
-            ok_run, why, _rec = True, '', None
+        # и сцены остались бы от старых составов. Без модуля предохранителя писать нельзя — шаг падает
+        # (раньше `except` пропускал запись без проверки и журнала).
+        from heal_policy import record as _rec, run_allowed as _ra
+        ok_run, why = _ra(len(_c_touched), len(sets))
         if not ok_run:
-            print(f'⚠ {why} — contracts НЕ применены')
+            # ОТКАЗ — WARN, не тихий return (conv-12 п.1): с 05.09 шаг 46 ночей писал `ok`, не применив ничего.
+            # Строку `WARN:` refresh_daily.sh переводит в статус шага warn и в дайджест Telegram.
+            print(f'WARN:contracts_fuse: {why} — contracts НЕ применены')
             return
-        if _rec:
-            for sid, slot, old_sku, new_sku in _c_journal:
-                _rec(sid, slot, old_sku, new_sku, 'contract_fail')
+        shutil.copy(SETS, SETS + '.bak-contracts')   # бэкап — только перед реальной записью
+        _ensure_ids(sets)          # новый сет обязан получить стабильный id сразу
+        for sid, slot, old_sku, new_sku in _c_journal:
+            _rec(sid, slot, old_sku, new_sku, 'contract_fail')
         json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
         print('sets3.json обновлён (бэкап .bak-contracts)')
 
@@ -917,6 +921,16 @@ def main() -> None:
         why(sys.argv[i + 1], sys.argv[i + 2])
     else:
         print(__doc__)
+    _warn_gate_errors()
+
+
+def _warn_gate_errors() -> None:
+    """Сбои проверки каталога в воротах слота — строкой WARN (статус шага refresh_daily — warn)."""
+    if _GATE_ERRORS:
+        n = sum(_GATE_ERRORS.values())
+        kinds = ', '.join(f'{k}×{v}' for k, v in sorted(_GATE_ERRORS.items()))
+        print(f'WARN:slot_gate_catalog: проверка каталога в воротах слота упала {n} раз ({kinds}) — '
+              f'кандидаты отклонены, сверь catalog_media/БД')
 
 
 def _selftest() -> int:
