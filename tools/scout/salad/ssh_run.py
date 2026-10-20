@@ -242,14 +242,16 @@ PROBE_WORKERS = int(os.environ.get('MESH_PROBE_WORKERS', '6'))
 #
 # Шаги те же, что у аварийной ветки `batch_show` («приёмник не принимает — стаскиваю и чищу
 # СЕЙЧАС»): drain --keep + purge. Гонок нет: у `drain.sh` свой flock (ждёт и возвращает 75), а
-# `receiver_purge` идемпотентен и удаляет только уже скачанное и помеченное в базе.
-SINK_YELLOW_GB = float(os.environ.get('MESH_SINK_YELLOW_GB', '6'))
+# `receiver_purge` идемпотентен и удаляет только уже скачанное и записанное в реестр.
+# Жёлтый порог — «тесно» из `sink_health.tight` (20.10, mesh-12): своя копия числа 6 ГБ здесь мерила
+# тот же каталог, что ворота, но порог жил отдельно от чистки — теперь у всех троих одна лестница.
 SINK_RELIEF_COOLDOWN_S = float(os.environ.get('MESH_SINK_RELIEF_COOLDOWN_S', '600'))
 _RELIEF: dict = {'busy': False, 'at': 0.0}
 
 # МИНИМАЛЬНАЯ ЦЕПОЧКА ОСВОБОЖДЕНИЯ ПРИЁМНИКА — не «стащить и почистить» (05.09).
-# `receiver_purge` удаляет комплект, только если его SKU помечен `mesh_status='ready'`
-# (`receiver_purge.ready_skus`), а метку ставит `mesh_bind` после `ingest_registry`. Уборка из
+# `receiver_purge` удаляет комплект с моделью, только если он записан в реестр поколений
+# (`receiver_purge.registered_dirs`, пишет `ingest_registry`; до 20.10 — метка `mesh_status='ready'`
+# от `mesh_bind`). Уборка из
 # двух шагов честно печатала «ok» и удаляла НОЛЬ: 459 комплектов, 7.3 ГБ, «оставляю: нет в базе
 # 459» — то есть и упреждающая уборка (ADR-0199), и аварийная ветка `batch_show` были пустыми,
 # а пул стоял оплаченным на красном приёмнике. `apply_repairs` (приёмка) здесь пропускаем
@@ -262,18 +264,19 @@ SINK_RELIEF_CHAIN = (
 )
 
 
-def sink_relief(dir_gb: float, now: float | None = None) -> bool:
-    """Запустить уборку транзита ДО красной черты. True — запустили в этот раз.
+def sink_relief(h: dict, now: float | None = None) -> bool:
+    """Запустить уборку транзита ДО красной черты. True — запустили в этот раз. `h` — ответ
+    `SH.check()`: уборка идёт, когда там непустое `tight`.
 
     Порог жёлтый, а не красный: на красном пул уже стоит. Дроссель нужен, чтобы при медленной
     уборке не плодить параллельные заходы — один разбор идёт до 30 минут.
     """
     now = now or time.time()
-    if _RELIEF['busy'] or dir_gb < SINK_YELLOW_GB or now - _RELIEF['at'] < SINK_RELIEF_COOLDOWN_S:
+    why = h.get('tight') or ''
+    if _RELIEF['busy'] or not why or now - _RELIEF['at'] < SINK_RELIEF_COOLDOWN_S:
         return False
     _RELIEF.update(busy=True, at=now)
-    print(f'  приёмник {dir_gb:.1f} ГБ ≥ {SINK_YELLOW_GB:.0f} — упреждающая уборка, пул не '
-          f'останавливаю', flush=True)
+    print(f'  приёмник: тесно — {why}; упреждающая уборка, пул не останавливаю', flush=True)
 
     def work() -> None:
         try:
@@ -299,7 +302,7 @@ def sink_poll(force: bool = False) -> bool:
     if not force and now - _SINK['at'] < POLL_S * 0.9:
         return _SINK['ok']
     h = SH.check()
-    sink_relief(float(h.get('dir_gb') or 0), now)
+    sink_relief(h, now)
     if _SINK['ok'] and not h['ok']:
         print(f'!! приёмник красный: {h["why"]} — воркеры ждут', flush=True)
     elif not _SINK['ok'] and h['ok']:

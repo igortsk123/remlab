@@ -23,10 +23,9 @@ PY="${MESH_PY:-$HOME/venvs/scout/bin/python}"
 ENVFILE="${MESH_ENV:-$HOME/scout-scenes/salad.env}"
 LOG="${MESH_KEEPER_LOG:-$HOME/scout-scenes/sink-keeper.log}"
 LOCK="$HOME/scout-scenes/.sink_keeper.lock"
-# С какого размера каталога начинаем уборку на ЗЕЛЁНОМ приёмнике. Тот же порог, при котором
-# `receiver_purge` снимает срок хранения (`MESH_RECV_DIR_TIGHT_GB`). Вынесен в переменную,
-# чтобы поведение можно было проверить, не дожидаясь настоящего переполнения.
-TRIGGER_GB="${MESH_KEEPER_DIR_GB:-6.0}"
+# С какого момента начинаем уборку на ЗЕЛЁНОМ приёмнике — «тесно» из `sink_health.tight`: та же
+# мера и тот же порог, при котором `receiver_purge` снимает срок хранения (своей копии числа здесь
+# больше нет — 20.10, mesh-12). Проверить без переполнения: `MESH_SINK_TIGHT_BELOW_GB=7`.
 
 # Токен приёмника берётся из переменных группы Salad (`sink_health.sink_token`), а ключ и имя
 # группы — отсюда. Без них удаление через API невозможно.
@@ -46,13 +45,12 @@ fi
 # Дальше зовём `sink_health` как модуль — он лежит рядом, поэтому работаем из своего каталога.
 cd "$HERE" || exit 0
 
-BEFORE="$("$PY" -c "import sink_health,json;r=sink_health.check();print(json.dumps({'ok':r['ok'],'dir':r['dir_gb']}))" 2>/dev/null)"
+BEFORE="$("$PY" -c "import sink_health,json;r=sink_health.check();print(json.dumps({'ok':r['ok'],'dir':r['dir_gb'],'tight':bool(r['tight'])}))" 2>/dev/null)"
 case "$BEFORE" in
   *'"ok": true'*|*'"ok":true'*)
-    # Зелёный приёмник — чистим только если каталог уже подрос: держим кэш «уже сделано»,
+    # Зелёный приёмник — чистим только когда уже тесно: держим кэш «уже сделано»,
     # он экономит GPU на повторах. Порог — тот же, при котором purge снимает срок хранения.
-    DIR="$(printf '%s' "$BEFORE" | sed -n 's/.*"dir": *\([0-9.]*\).*/\1/p')"
-    awk -v d="${DIR:-0}" -v t="$TRIGGER_GB" 'BEGIN{exit !(d+0 >= t+0)}' || exit 0
+    case "$BEFORE" in *'"tight": true'*) ;; *) exit 0 ;; esac
     ;;
 esac
 
@@ -88,7 +86,7 @@ run "чистка приёмника"  900 "$PY" "$HERE/receiver_purge.py" --app
 # при его недоступности не делает ничего, так что порядок здесь — не формальность (ADR-0231).
 run "чистка болванок"   900 "$PY" "$HERE/prune_shapes.py" --apply
 
-AFTER="$("$PY" -c "import sink_health,json;r=sink_health.check();print(json.dumps({'ok':r['ok'],'dir':r['dir_gb']}))" 2>/dev/null)"
+AFTER="$("$PY" -c "import sink_health,json;r=sink_health.check();print(json.dumps({'ok':r['ok'],'dir':r['dir_gb'],'tight':bool(r['tight'])}))" 2>/dev/null)"
 say "финиш (приёмник: ${AFTER:-неизвестно}, сбоев шагов: $FAIL)"
 
 # Тревога — только когда после уборки приёмник ВСЁ ЕЩЁ красный: это значит, что автоматика

@@ -14,6 +14,15 @@
 
 Кто зовёт: `ssh_run.run()` перед раздачей (оба), супервизор `ssh_run` раз в POLL_S (`check`),
 `money_guard` раз в тик (`check`). Оповещение — с дросселем: одна авария = одно сообщение в час.
+
+ОДНА МЕРА ДЛЯ ВОРОТ И ЧИСТКИ (20.10, mesh-12). 17.10 ворота закрылись на «каталоге 7.1 ГБ», а
+чистка в это же время насчитала у себя 0.6 ГБ комплектов (`du` по каталогам) — и «тесно» не
+включила: две меры одного каталога разошлись на 5.6 ГБ, и пул простоял до стоп-файла. Теперь мера
+одна — `measure()`: числа самого приёмника из /health, те же, по которым он отвечает 507. Пороги
+лестницы — тоже здесь, и «тесно» (`tight`) всегда строго раньше ворот (`verdict`):
+  dir:  тесно > max−2  →  ворота > max−1  →  507 приёмника > max;
+  free: тесно < 5+2+1  →  ворота < 5+2    →  507 приёмника < 5.
+Чистка, супервизор и сторож приёмника берут пороги отсюда, своих копий у них нет.
 """
 from __future__ import annotations
 
@@ -29,6 +38,13 @@ SINK_URL = os.environ.get('MESH_SINK_URL', 'https://remont-lab.online/mesh-sink'
 HEALTH_URL = os.environ.get('MESH_SINK_HEALTH_URL', SINK_URL + '/health')
 MARGIN_GB = float(os.environ.get('MESH_SINK_MARGIN_GB', '2'))
 MIN_FREE_GB = float(os.environ.get('MESH_MIN_FREE_GB', '5'))      # порог самого приёмника
+# Ступени лестницы, ГБ: ворота закрываются за GATE_BELOW до 507, «тесно» — ещё за TIGHT_BELOW до ворот.
+# Нулевой зазор — та же мина, что 17.10 (чистка спохватывается, когда раздача уже стоит), поэтому
+# недопустимая настройка роняет импорт, а не тихо выравнивает пороги.
+GATE_BELOW_GB = float(os.environ.get('MESH_SINK_GATE_BELOW_GB', '1'))
+TIGHT_BELOW_GB = float(os.environ.get('MESH_SINK_TIGHT_BELOW_GB', '1'))
+if GATE_BELOW_GB < 0 or TIGHT_BELOW_GB <= 0:
+    raise ValueError(f'лестница приёмника без зазора: ворота {GATE_BELOW_GB}, тесно {TIGHT_BELOW_GB}')
 ALERT_STAMP = os.path.expanduser('~/scout-scenes/.sink-alert-at')
 ALERT_EVERY_S = float(os.environ.get('MESH_SINK_ALERT_EVERY_S', '3600'))
 UA = 'remlab-mesh/1.0'
@@ -40,30 +56,70 @@ def _get(url: str, timeout: int = 15) -> dict:
         return json.loads(r.read() or b'{}')
 
 
+def gate_dir_gb(mx: float) -> float:
+    """Каталог больше этого — ворота закрыты, задания не раздаём."""
+    return mx - GATE_BELOW_GB
+
+
+def tight_dir_gb(mx: float) -> float:
+    """Каталог больше этого — «тесно»: чистка не ждёт срока хранения, супервизор зовёт уборку."""
+    return gate_dir_gb(mx) - TIGHT_BELOW_GB
+
+
+def gate_free_gb() -> float:
+    return MIN_FREE_GB + MARGIN_GB
+
+
+def tight_free_gb() -> float:
+    return gate_free_gb() + TIGHT_BELOW_GB
+
+
+def measure() -> dict:
+    """ОДНА МЕРА приёмника: {'free_gb', 'dir_gb', 'max_dir_gb', 'refuses'} из его /health.
+    Исключение — приёмник не ответил (решает вызывающий: ворота — «закрыто», чистка — пропуск)."""
+    h = _get(HEALTH_URL)
+    return {'free_gb': float(h.get('free_gb', 0)), 'dir_gb': float(h.get('dir_gb', 0)),
+            'max_dir_gb': float(h.get('max_dir_gb', 8)),
+            # /ready (если приёмник его уже умеет) сам говорит «нет»; /health всегда ok:true
+            'refuses': (h.get('detail') or str(h)) if h.get('ok') is False else ''}
+
+
+def verdict(m: dict) -> dict:
+    """Ворота по мере `measure()`: {'ok', 'why', 'free_gb', 'dir_gb', 'max_dir_gb'}."""
+    free, d, mx = m['free_gb'], m['dir_gb'], m['max_dir_gb']
+    nums = {'free_gb': free, 'dir_gb': d, 'max_dir_gb': mx}
+    if m.get('refuses'):
+        return {'ok': False, 'why': f'приёмник сам отказывает: {m["refuses"]}', **nums}
+    if free < gate_free_gb():
+        return {'ok': False, 'why': f'на сервере свободно {free:.1f} ГБ (< {gate_free_gb():.0f})', **nums}
+    if d > gate_dir_gb(mx):
+        return {'ok': False, 'why': f'каталог приёмника {d:.1f} ГБ (предел {mx:.0f}) — нужен drain', **nums}
+    return {'ok': True, 'why': '', **nums}
+
+
+def tight(m: dict) -> str:
+    """«Тесно» по той же мере, что ворота, и строго раньше них. Пусто — не тесно, иначе причина."""
+    if m['free_gb'] < tight_free_gb():
+        return f'свободно {m["free_gb"]:.1f} ГБ (< {tight_free_gb():.0f})'
+    if m['dir_gb'] > tight_dir_gb(m['max_dir_gb']):
+        return f'каталог {m["dir_gb"]:.1f} ГБ (> {tight_dir_gb(m["max_dir_gb"]):.0f}, ворота на {gate_dir_gb(m["max_dir_gb"]):.0f})'
+    return ''
+
+
 def check() -> dict:
-    """{'ok', 'why', 'free_gb', 'dir_gb', 'max_dir_gb'}. Недоступен — ok=False: ноды идут тем же
-    адресом, раздавать им работу нельзя."""
+    """{'ok', 'why', 'free_gb', 'dir_gb', 'max_dir_gb', 'tight'}. Недоступен — ok=False: ноды идут
+    тем же адресом, раздавать им работу нельзя."""
     last = ''
     for attempt in (1, 2):
         try:
-            h = _get(HEALTH_URL)
-            free, d, mx = float(h.get('free_gb', 0)), float(h.get('dir_gb', 0)), float(h.get('max_dir_gb', 8))
-            # /ready (если приёмник его уже умеет) сам говорит «нет»; /health всегда ok:true
-            if h.get('ok') is False:
-                return {'ok': False, 'why': f'приёмник сам отказывает: {h.get("detail") or h}',
-                        'free_gb': free, 'dir_gb': d, 'max_dir_gb': mx}
-            if free < MIN_FREE_GB + MARGIN_GB:
-                return {'ok': False, 'why': f'на сервере свободно {free:.1f} ГБ (< {MIN_FREE_GB + MARGIN_GB:.0f})',
-                        'free_gb': free, 'dir_gb': d, 'max_dir_gb': mx}
-            if d > mx - 1:
-                return {'ok': False, 'why': f'каталог приёмника {d:.1f} ГБ (предел {mx:.0f}) — нужен drain',
-                        'free_gb': free, 'dir_gb': d, 'max_dir_gb': mx}
-            return {'ok': True, 'why': '', 'free_gb': free, 'dir_gb': d, 'max_dir_gb': mx}
+            m = measure()
+            return {**verdict(m), 'tight': tight(m)}
         except Exception as e:  # noqa: BLE001 — сеть/таймаут: вторая попытка, потом «недоступен»
             last = f'{type(e).__name__}: {str(e)[:80]}'
             if attempt == 1:
                 time.sleep(5)
-    return {'ok': False, 'why': f'приёмник недоступен ({last})', 'free_gb': 0, 'dir_gb': 0, 'max_dir_gb': 0}
+    return {'ok': False, 'why': f'приёмник недоступен ({last})', 'free_gb': 0, 'dir_gb': 0, 'max_dir_gb': 0,
+            'tight': ''}
 
 
 def sink_token() -> str:

@@ -13,15 +13,29 @@
 
 ЧТО СЧИТАЕТСЯ «МОЖНО УДАЛЯТЬ» — три условия разом:
   1) локальная копия есть и её объём не меньше серверного (не оборванный rsync);
-  2) если в комплекте есть `model.glb` — товар отмечен `mesh_status='ready'` в базе;
-     если модели нет (гейт завернул форму) — достаточно локальной копии: это диагностика,
-     в карточку она и не должна попадать;
+  2) если в комплекте есть `model.glb` — его каталог записан в реестр поколений
+     `mesh_generations` (пишет `ingest_registry.py`; оттуда же `mesh_bind` ставит ссылку в
+     карточку); если модели нет (гейт завернул форму) — достаточно локальной копии: это
+     диагностика, в карточку она и не должна попадать;
   3) комплект старше RETAIN_H часов — свежие оставляем, чтобы жил кэш «уже сделано» на
      приёмнике: повтор из спула и волна лечения тогда возвращаются мгновенно, не тратя GPU.
-При нехватке места (свободно меньше FREE_MIN_GB) условие 3 снимается — диск важнее кэша.
+Когда тесно (`sink_health.tight` — та же мера, что у ворот, и раньше них) условие 3 снимается —
+диск важнее кэша.
 
-  ~/venvs/scout/bin/python receiver_purge.py            # показать, что удалил бы
-  ~/venvs/scout/bin/python receiver_purge.py --apply    # удалить
+ПОЧЕМУ РЕЕСТР, А НЕ `mesh_status='ready'` (20.10, mesh-12). До 20.10 условие 2 требовало метку
+«ready» в карточке. Но `mesh_bind` после привязки переводит товар в `stale` (фото сменилось) или
+`quarantine` (ревизия выведена) — и такой комплект, уже скачанный, записанный и привязанный,
+лежал на приёмнике вечно: 17–20.10 там стояли 39 таких (32 stale, 7 quarantine) и ни одного
+другого. «Записано в базу» по правилу владельца — это запись в реестре, а не текущая оценка меша.
+
+КОМПЛЕКТ С МОДЕЛЬЮ, НО НЕ В РЕЕСТРЕ старше ORPHAN_H: реестр обходит локальные копии каждые 15 минут,
+так что это уже не «не успел», а сбой записи — печатаем `WARN:sink_unregistered` со списком.
+Удаляем такие только явно (`--apply --orphans`): локальная копия есть (условие 1), с приёмника
+теряется лишь кэш, но причину сбоя должен увидеть человек.
+
+  ~/venvs/scout/bin/python receiver_purge.py                     # показать, что удалил бы
+  ~/venvs/scout/bin/python receiver_purge.py --apply             # удалить
+  ~/venvs/scout/bin/python receiver_purge.py --apply --orphans   # + не записанные в реестр
 """
 import json
 import os
@@ -38,12 +52,14 @@ PORT = os.environ.get('MESH_SSH_PORT', '22222')
 REMOTE = os.environ.get('MESH_ROOT_REMOTE', '/opt/remlab/meshes')
 LOCAL = os.path.expanduser(os.environ.get('MESH_LOCAL', '~/scout-scenes/meshes-hunyuan'))
 RETAIN_H = float(os.environ.get('MESH_RECV_RETAIN_H', '6'))
-FREE_MIN_GB = float(os.environ.get('MESH_RECV_FREE_MIN_GB', '8'))
-# ПОРОГ ПО ОБЪЁМУ КАТАЛОГА (04.09). Приёмник отказывает (507) при `dir_gb > 8`, а пред-проверка
-# конвейера (`sink_health`) — при `> 7`. При 70–100 мешах в час кэш на 6 часов дорастает до 6 ГБ и
-# упирается в эти пороги при ПУСТОМ диске. Поэтому срок хранения снимаем не только когда мало места
-# на диске, но и когда каталог сам вырос: лестница purge 6 → пред-проверка 7 → приёмник 8.
-DIR_TIGHT_GB = float(os.environ.get('MESH_RECV_DIR_TIGHT_GB', '6'))
+# ПОРОГ «ТЕСНО» — НЕ ЗДЕСЬ (20.10, mesh-12). До 20.10 тут жили свои 6 ГБ по сумме `du` комплектов,
+# а ворота (`sink_health`) судили по счётчику приёмника. 17.10 счётчик показывал 7.1 ГБ при 0.6 ГБ
+# комплектов — ворота закрыты, чистка «не тесно», пул стоял. Теперь и порог, и мера — из
+# `sink_health` (лестница там). Здесь — только сторож расхождения: счётчик приёмника больше
+# настоящего объёма каталога на DRIFT_WARN_GB → `WARN:sink_counter_drift` (лечение — перезапуск
+# приёмника, он пересчитывает каталог при старте).
+DRIFT_WARN_GB = float(os.environ.get('MESH_RECV_DRIFT_WARN_GB', '0.5'))
+ORPHAN_H = float(os.environ.get('MESH_RECV_ORPHAN_H', '48'))
 # Остатки `.staging`: приёмник переносит файлы в постоянный каталог по /complete и только тогда
 # сносит staging. Если нода упала посреди комплекта (или приёмник ответил 507 на N-й файл, а первые
 # уже легли), `.staging` остаётся навсегда — ни drain, ни эта чистка его не видели (искали только
@@ -102,12 +118,10 @@ def sink_delete(prefixes: list) -> tuple[int, int]:
     return done, failed
 
 
-def free_gb() -> float:
-    """Свободно на КОРНЕ сервера — намеренно тот же диск, по которому судит приёмник
-    (`statvfs(ROOT)`): иначе их вердикты разойдутся. Образы докера и прочее на этом же корне чистит
-    серверный watchdog, а не мы — мы освобождаем только меши."""
-    out = ssh("df -Pk / | tail -1").split()
-    return int(out[3]) / 1024 / 1024
+def remote_bytes() -> int:
+    """Настоящий объём ВСЕГО каталога приёмника (`du`) — только для сторожа расхождения со счётчиком;
+    решения принимаются по мере `sink_health.measure()`."""
+    return int(ssh(f"du -sb {REMOTE} | cut -f1").strip())
 
 
 def sweep_staging(apply: bool) -> int:
@@ -172,12 +186,13 @@ def remote_sets() -> list[tuple[str, int, float]]:
     return [(d, by_dir.get(d, 0), age) for d, _, age in res]
 
 
-def ready_skus() -> set:
-    q = "select shop_mid||':'||external_id from products where mesh_status='ready';"
-    r = subprocess.run(PSQL, input=q, capture_output=True, text=True)
+def registered_dirs() -> set:
+    """Каталоги комплектов (относительно LOCAL), записанные в реестр поколений."""
+    r = subprocess.run(PSQL, input='select path from mesh_generations;', capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f'psql: {r.stderr[:200]}')
-    return {s.strip() for s in r.stdout.split() if s.strip()}
+    root = LOCAL.rstrip('/') + '/'
+    return {p.strip()[len(root):] for p in r.stdout.splitlines() if p.strip().startswith(root)}
 
 
 def local_bytes(d: str) -> int:
@@ -192,14 +207,36 @@ def has_model(d: str) -> bool:
     return os.path.exists(os.path.join(LOCAL, d, 'model.glb'))
 
 
-def sku_of(d: str) -> str | None:
-    """`meshes/hunyuan21/v2/<mid>_<eid>/<jid>` → `<mid>:<eid>`."""
-    parts = d.strip('/').split('/')
-    return parts[-2].replace('_', ':', 1) if len(parts) >= 2 else None
+def decide(sets: list, registered: set, tight: bool, local_bytes_of=None, model_in=None) -> tuple:
+    """Что удалить. → (к удалению, {причина: сколько оставлено}, не в реестре старше ORPHAN_H).
+    Чистая функция: стенд (`tests_sink_gate.py`) подаёт свои комплекты и локальные объёмы."""
+    local_bytes_of = local_bytes_of or local_bytes
+    model_in = model_in or has_model
+    purge, orphans = [], []
+    keep = {'молодые': 0, 'нет локально': 0, 'объём меньше': 0, 'нет в реестре': 0}
+    for d, size, age_h in sets:
+        loc = local_bytes_of(d)
+        if loc < 0:
+            keep['нет локально'] += 1
+            continue
+        if loc < size:
+            keep['объём меньше'] += 1
+            continue
+        if model_in(d) and d not in registered:
+            keep['нет в реестре'] += 1
+            if age_h >= ORPHAN_H:
+                orphans.append(d)
+            continue
+        if age_h < RETAIN_H and not tight:
+            keep['молодые'] += 1
+            continue
+        purge.append(d)
+    return purge, keep, orphans
 
 
 def main() -> None:
     apply = '--apply' in sys.argv
+    with_orphans = '--orphans' in sys.argv
     try:
         sets = remote_sets()
     except Exception as e:  # noqa: BLE001 — приёмник недоступен: это не авария конвейера
@@ -209,47 +246,62 @@ def main() -> None:
         sweep_staging(apply)
     except Exception as e:  # noqa: BLE001 — уборка остатков не должна ломать основную чистку
         print(f'.staging: не разобрал ({type(e).__name__}: {str(e)[:80]})')
+    import sink_health as SH  # noqa: PLC0415 — рядом лежит, кругового импорта нет
+    warns = []
+    try:
+        m = SH.measure()
+    except Exception as e:  # noqa: BLE001 — /health молчит: удалить через API всё равно не выйдет
+        m = None
+        print(f'приёмник не ответил на /health ({type(e).__name__}) — меры нет, срок хранения соблюдаю')
+    why = SH.tight(m) if m else ''
+    if m:
+        try:
+            real = remote_bytes() / 2 ** 30
+            if m['dir_gb'] - real > DRIFT_WARN_GB:
+                warns.append(f'WARN:sink_counter_drift: приёмник считает каталог {m["dir_gb"]:.2f} ГБ, на диске '
+                             f'{real:.2f} ГБ — счётчик завышен на {m["dir_gb"] - real:.1f} ГБ, ворота закроются раньше '
+                             f'времени; лечит перезапуск приёмника (пересчёт при старте)')
+        except Exception as e:  # noqa: BLE001 — сторож расхождения не должен ломать чистку
+            print(f'настоящий объём каталога не измерил ({type(e).__name__}: {str(e)[:60]})')
     if not sets:
         print('на приёмнике пусто')
+        for w in warns:
+            print(w)
         return
-    ready = ready_skus()
-    free = free_gb()
-    dir_gb = sum(s[1] for s in sets) / 2 ** 30
-    tight = free < FREE_MIN_GB or dir_gb > DIR_TIGHT_GB
-    print(f'на приёмнике комплектов: {len(sets)} ({dir_gb:.1f} ГБ); свободно на сервере {free:.1f} ГБ'
-          + (f' — {"меньше %.0f ГБ" % FREE_MIN_GB if free < FREE_MIN_GB else "каталог больше %.0f ГБ" % DIR_TIGHT_GB}'
-             f', срок хранения не соблюдаю' if tight else ''))
-
-    purge, keep = [], {'молодые': 0, 'нет локально': 0, 'объём меньше': 0, 'нет в базе': 0}
-    for d, size, age_h in sets:
-        loc = local_bytes(d)
-        if loc < 0:
-            keep['нет локально'] += 1
-            continue
-        if loc < size:
-            keep['объём меньше'] += 1
-            continue
-        if has_model(d) and sku_of(d) not in ready:
-            keep['нет в базе'] += 1
-            continue
-        if age_h < RETAIN_H and not tight:
-            keep['молодые'] += 1
-            continue
-        purge.append(d)
-
+    purge, keep, orphans = decide(sets, registered_dirs(), bool(why))
+    kits_gb = sum(s[1] for s in sets) / 2 ** 30
+    print(f'на приёмнике комплектов: {len(sets)} ({kits_gb:.1f} ГБ)'
+          + (f'; приёмник: каталог {m["dir_gb"]:.1f} ГБ, свободно {m["free_gb"]:.1f} ГБ' if m else '')
+          + (f' — тесно: {why}, срок хранения не соблюдаю' if why else ''))
     print(f'к удалению: {len(purge)}; оставляю: '
           + ', '.join(f'{k} {v}' for k, v in keep.items() if v))
-    if not purge:
-        return
-    if not apply:
-        print('это разбор без действий. Удалить: --apply')
-        return
-    done, failed = sink_delete(purge)
-    print(f'удалено комплектов: {done}; не удалось: {failed}; свободно стало {free_gb():.1f} ГБ')
-    if failed:
-        # Молчаливый успех при неудалении — как раз то, из-за чего таймер докладывал бы «ок»,
-        # а приёмник копился. Пусть вызывающий видит отказ.
-        sys.exit(1)
+    if orphans:
+        warns.append(f'WARN:sink_unregistered: {len(orphans)} комплектов с моделью старше {ORPHAN_H:.0f} ч не записаны '
+                     f'в реестр (пример: {orphans[0]}) — удаляю только с --orphans')
+        if with_orphans:
+            purge += orphans
+    try:
+        if not purge:
+            return
+        if not apply:
+            print('это разбор без действий. Удалить: --apply' + (' (+ --orphans)' if orphans else ''))
+            return
+        done, failed = sink_delete(purge)
+        after = ''
+        try:
+            a = SH.measure()
+            after = f'; приёмник: каталог {a["dir_gb"]:.1f} ГБ, свободно {a["free_gb"]:.1f} ГБ'
+        except Exception:  # noqa: BLE001 — итог печатаем и без «после»
+            pass
+        print(f'удалено комплектов: {done}; не удалось: {failed}{after}')
+        if failed:
+            # Молчаливый успех при неудалении — как раз то, из-за чего таймер докладывал бы «ок»,
+            # а приёмник копился. Пусть вызывающий видит отказ.
+            sys.exit(1)
+    finally:
+        # Предупреждения — ПОСЛЕДНИМИ строками: сторож приёмника пишет в журнал хвост вывода.
+        for w in warns:
+            print(w)
 
 
 if __name__ == '__main__':

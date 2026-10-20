@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.abspath(os.environ.get('MESH_ROOT', '/opt/remlab/meshes'))
@@ -36,19 +37,30 @@ PORT = int(os.environ.get('MESH_SINK_PORT', '8770'))
 # существенна: рядом живёт боевая VPN-нода, лишний открытый порт там не нужен.
 BIND = os.environ.get('MESH_SINK_BIND', '127.0.0.1')
 
-_lock = threading.Lock()
+# RLock: `dir_gb()` пересчитывает под замком и сам зовётся из-под него (гейт PUT в `_would_refuse`)
+_lock = threading.RLock()
 # РАЗМЕР КАТАЛОГА — ИНКРЕМЕНТАЛЬНО (04.09, Codex): раньше каждый /health и каждый PUT обходили
 # весь каталог os.walk'ом; на десятках тысяч комплектов это само стало бы узким местом, а
 # проверку места звали бы раз в 45 с из супервизора конвейера. Считаем один раз при старте,
 # дальше прибавляем принятые байты и вычитаем удалённые. Плюс РЕЗЕРВ под активные PUT:
 # несколько загрузок разом проходили гейт, каждая видела «место есть», и диск переполнялся.
-_SIZE = {'bytes': 0, 'reserved': 0, 'inited': False}
+#
+# СЧЁТЧИК ОБЯЗАН СХОДИТЬСЯ С ДИСКОМ (20.10, mesh-12). За 6 недель без перезапуска он ушёл на +5.6 ГБ
+# (6.3 ГБ при 0.74 ГБ на диске): 507 сносил `.staging` с уже учтёнными файлами, а повторная выкладка
+# комплекта затирала файлы, не вычитая старые. Ворота конвейера закрываются на max−1 = 7 ГБ, так что
+# фантом съел почти всё место и 17.10 остановил волну. Дыры закрыты ниже, и на случай новых —
+# пересчёт обходом раз в RECOUNT_S (на сотнях комплектов — доли секунды). Недописанные `.part` в
+# обход не входят: их байты уже стоят в резерве своего PUT.
+_SIZE = {'bytes': 0, 'reserved': 0, 'inited': False, 'at': 0.0}
+RECOUNT_S = float(os.environ.get('MESH_SIZE_RECOUNT_S', '600'))
 
 
-def _walk_bytes() -> int:
+def _walk_bytes(top: str = ROOT) -> int:
     total = 0
-    for dirpath, _, files in os.walk(ROOT):
+    for dirpath, _, files in os.walk(top):
         for f in files:
+            if f.endswith('.part'):
+                continue
             try:
                 total += os.path.getsize(os.path.join(dirpath, f))
             except OSError:
@@ -57,9 +69,10 @@ def _walk_bytes() -> int:
 
 
 def dir_gb() -> float:
-    if not _SIZE['inited']:
-        _SIZE['bytes'] = _walk_bytes()
-        _SIZE['inited'] = True
+    if not _SIZE['inited'] or time.time() - _SIZE['at'] > RECOUNT_S:
+        walked = _walk_bytes()
+        with _lock:
+            _SIZE.update(bytes=walked, inited=True, at=time.time())
     return (_SIZE['bytes'] + _SIZE['reserved']) / 2 ** 30
 
 
@@ -161,7 +174,10 @@ class Handler(BaseHTTPRequestHandler):
         with _lock:
             why = _would_refuse(n)
             if why:
+                # байты уже легших файлов комплекта учтены — вычесть, иначе счётчик только растёт
+                gone = _walk_bytes(d) if os.path.isdir(d) else 0
                 shutil.rmtree(d, ignore_errors=True)
+                _SIZE['bytes'] = max(0, _SIZE['bytes'] - gone)
                 return self._send(507, {'detail': f'нет места: {why}'})
             _SIZE['reserved'] += n
         os.makedirs(d, exist_ok=True)
@@ -213,12 +229,24 @@ class Handler(BaseHTTPRequestHandler):
             if actual != size:
                 return self._send(400, {'detail': f'{name}: пришло {actual}, заявлено {size}'})
 
+        def size_of(p: str) -> int:
+            return os.path.getsize(p) if os.path.isfile(p) else 0
         for name in have:
+            if name.endswith('.part'):     # чужой недописанный PUT — его байты в резерве, не наши
+                continue
+            # ПОВТОРНАЯ ВЫКЛАДКА затирает прежний файл: его байты уходят с диска — вычесть
+            replaced = size_of(os.path.join(dest, name))
             os.replace(os.path.join(staging, name), os.path.join(dest, name))
+            with _lock:
+                _SIZE['bytes'] = max(0, _SIZE['bytes'] - replaced)
         shutil.rmtree(staging, ignore_errors=True)
         # МАРКЕР — СТРОГО ПОСЛЕДНИМ: до этой строки комплекта «не существует» для повторов
-        with open(os.path.join(dest, 'complete.json'), 'w', encoding='utf-8') as f:
+        marker = os.path.join(dest, 'complete.json')
+        before = size_of(marker)
+        with open(marker, 'w', encoding='utf-8') as f:
             json.dump(meta, f, ensure_ascii=False)
+        with _lock:
+            _SIZE['bytes'] = max(0, _SIZE['bytes'] + size_of(marker) - before)
         self._send(200, {'ok': True, 'files': len(have)})
 
     def do_DELETE(self):
@@ -234,13 +262,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {'detail': 'плохой путь'})
         if not os.path.isdir(p):
             return self._send(404, {'detail': 'нет такого'})
-        freed = 0
-        for dirpath, _, files in os.walk(p):
-            for f in files:
-                try:
-                    freed += os.path.getsize(os.path.join(dirpath, f))
-                except OSError:
-                    pass
+        freed = _walk_bytes(p)    # та же мера, что у счётчика (без `.part` — те в резерве)
         shutil.rmtree(p, ignore_errors=True)
         with _lock:
             _SIZE['bytes'] = max(0, _SIZE['bytes'] - freed)

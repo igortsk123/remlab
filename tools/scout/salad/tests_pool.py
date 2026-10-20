@@ -589,8 +589,9 @@ def case_sink_relief_before_red() -> None:
     не плодит параллельные заходы, пока предыдущий разбор ещё идёт.
     """
     import ssh_run as SR  # noqa: PLC0415
-    # ЦЕПОЧКА ОБЯЗАНА УМЕТЬ ОСВОБОЖДАТЬ МЕСТО. `receiver_purge` удаляет комплект, только если его
-    # SKU помечен `mesh_status='ready'`, а метку ставит `mesh_bind` после `ingest_registry`.
+    import sink_health as SH  # noqa: PLC0415
+    # ЦЕПОЧКА ОБЯЗАНА УМЕТЬ ОСВОБОЖДАТЬ МЕСТО. `receiver_purge` удаляет комплект, только если он
+    # записан в реестр (`ingest_registry`; до 20.10 — метка `mesh_status='ready'` от `mesh_bind`).
     # Уборка «стащить + почистить» печатала «ok» и удаляла НОЛЬ (05.09: 459 комплектов, 7.3 ГБ,
     # «оставляю: нет в базе 459»), пока пул стоял оплаченным на красном приёмнике.
     chain = [c for _, c in SR.SINK_RELIEF_CHAIN]
@@ -604,19 +605,25 @@ def case_sink_relief_before_red() -> None:
         'T', (), {'start': lambda _self: started.append(1)})()
     SR._RELIEF.update(busy=False, at=0.0)
     t = 1_000_000.0
+
+    def at(d: float) -> dict:   # ответ `check()` при каталоге d ГБ и просторном диске
+        m = {'free_gb': 30.0, 'dir_gb': d, 'max_dir_gb': 8.0, 'refuses': ''}
+        return {**SH.verdict(m), 'tight': SH.tight(m)}
+    yellow = SH.tight_dir_gb(8.0)
     try:
         # ниже жёлтого порога — не трогаем: кэш «уже сделано» экономит GPU на повторах
-        assert SR.sink_relief(SR.SINK_YELLOW_GB - 0.1, t) is False, 'убрал раньше времени'
+        assert SR.sink_relief(at(yellow - 0.1), t) is False, 'убрал раньше времени'
         assert not started
-        # на пороге — запускаем, ДО красной черты (красная = max_dir - 1)
-        assert SR.sink_relief(SR.SINK_YELLOW_GB, t) is True, 'не убрал на жёлтом'
+        # выше жёлтого — запускаем, ДО красной черты (красная = max_dir - 1)
+        assert at(yellow + 0.1)['ok'], 'жёлтый порог не раньше ворот'
+        assert SR.sink_relief(at(yellow + 0.1), t) is True, 'не убрал на жёлтом'
         assert len(started) == 1
         # пока предыдущая уборка идёт — второй заход не плодим
-        assert SR.sink_relief(99.0, t + 1) is False, 'запустил вторую уборку поверх идущей'
+        assert SR.sink_relief(at(99.0), t + 1) is False, 'запустил вторую уборку поверх идущей'
         SR._RELIEF['busy'] = False
         # дроссель: сразу после уборки не повторяем
-        assert SR.sink_relief(99.0, t + 1) is False, 'проигнорировал дроссель'
-        assert SR.sink_relief(99.0, t + SR.SINK_RELIEF_COOLDOWN_S) is True, 'не убрал после дросселя'
+        assert SR.sink_relief(at(99.0), t + 1) is False, 'проигнорировал дроссель'
+        assert SR.sink_relief(at(99.0), t + SR.SINK_RELIEF_COOLDOWN_S) is True, 'не убрал после дросселя'
         assert len(started) == 2
     finally:
         SR.threading.Thread = real_thread
