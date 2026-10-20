@@ -75,6 +75,20 @@ TICK_S = float(os.environ.get('MESH_GUARD_TICK_S', '300'))
 ALARM_NODE_MIN = float(os.environ.get('MESH_GUARD_ALARM_NODE_MIN', '40'))
 ALARM_WALL_MIN = float(os.environ.get('MESH_GUARD_ALARM_WALL_MIN', '8'))
 API = 'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers'
+# СОСТАВ ГРУПП ПЕРЕЧИТЫВАЕМ НА КАЖДОМ ТИКЕ (T-20261020-24). Сторож — вечный цикл, а `SALAD_GROUP` он брал из окружения
+# один раз на старте. 20.10 группы пересоздали (только A5000) и сменили salad.env: сторож с 19:00 опрашивал удалённые
+# группы (HTTPError), писал «работающих нод нет — не платим» и новую группу с живой нодой не видел. Ключи по-прежнему
+# из окружения крона; из файла берём ТОЛЬКО `SALAD_GROUP`.
+SALAD_ENV = os.environ.get('MESH_ENV') or os.path.expanduser('~/scout-scenes/salad.env')
+# СЛЕПОТА — НЕ «НЕ ПЛАТИМ». Ни одна группа не ответила столько тиков подряд → тревога: платим ли — неизвестно.
+BLIND_N = int(os.environ.get('MESH_GUARD_BLIND_N', '3'))
+# ПРИЧИНА ОСТАНОВКИ ПУЛА — ТОЛЬКО ПО ФАКТАМ (20.10: «вероятнее всего кончились кредиты» ввело в заблуждение ведущего
+# и владельца, кредиты были). Про кредиты — только если старт вернул no_credits (`batch_show` пишет маркер, урок 404);
+# остальное — что нашлось в журналах сторожей за последние CLUE_H часов.
+CLUE_H = float(os.environ.get('MESH_GUARD_CLUE_H', '6'))
+NO_CREDITS = os.path.expanduser('~/scout-scenes/mesh-no-credits.json')   # пишет batch_show на no_credits_available
+IDLE_LOG = os.path.expanduser('~/scout-scenes/idle-guard.log')           # idle_guard.sh: «ГАШУ ГРУППЫ»
+WINDOW_LOG = os.path.expanduser('~/remlab-logs/batch-window.log')        # batch_window.sh: «стоп <группа>»
 
 
 def _api(path: str, method: str = 'GET') -> dict:
@@ -92,6 +106,99 @@ def groups() -> list[str]:
     """Все группы под охраной (из SALAD_GROUP, без умолчания). Их бывает несколько: 03.09 владелец
     поставил рядом две по 10 реплик — на тарифах `batch` и `low` — чтобы сравнить их живьём."""
     return SG.groups_or_empty()
+
+
+def env_groups(path: str | None = None) -> list[str] | None:
+    """`SALAD_GROUP` из salad.env (последняя строка с ним; `export` и кавычки допускаются). None — файла нет или строки
+    нет/пустая: тогда оставляем прежний список, а не сторожим пустоту."""
+    try:
+        with open(path or SALAD_ENV, encoding='utf-8') as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    val = None
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith('export '):
+            s = s[len('export '):].lstrip()
+        if s.startswith('SALAD_GROUP='):
+            val = s.split('=', 1)[1].strip().strip('"\'')
+    gs = [g.strip() for g in (val or '').split(',') if g.strip()]
+    return gs or None
+
+
+def regroup(st: dict, group: str) -> dict:
+    """Сменился состав групп — терпение считаем заново, а ОПЛАЧЕННЫЕ нодо-минуты переживают: это книга расходов, её
+    обнулять нельзя (04.09). Тот же состав — состояние как есть."""
+    if st.get('group') == group:
+        return st
+    return {'group': group, 'idle_node_min': 0.0, 'silent_since': 0.0,
+            'last_seen_mesh': last_mesh_at(), 'paid_node_min': st.get('paid_node_min') or {}}
+
+
+def blind_update(st: dict, counts: dict) -> bool:
+    """Тик слепой — опрос ВСЕХ групп не удался (-1 у каждой). Счёт слепых тиков подряд — в `st`; ответила хоть одна —
+    счёт и флаг тревоги сброшены."""
+    blind = bool(counts) and all(v < 0 for v in counts.values())
+    st['blind_ticks'] = st.get('blind_ticks', 0) + 1 if blind else 0
+    if not blind:
+        st['blind_alerted'] = False
+    return blind
+
+
+def _recent_line(path: str, needle: str, fmt: str, since: float) -> str:
+    """Последняя строка журнала с `needle`, если её отметка времени (префикс в формате `fmt`, местное время, как пишет
+    `date`) не старше `since`. Без года в формате — год текущий."""
+    try:
+        with open(path, encoding='utf-8', errors='replace') as f:
+            tail = f.read().splitlines()[-300:]
+    except OSError:
+        return ''
+    width = len(time.strftime(fmt, time.localtime(0)))
+    for ln in reversed(tail):
+        if needle not in ln:
+            continue
+        stamp = ln[:width]
+        if '%Y' not in fmt:
+            stamp, fmt = f'{time.localtime().tm_year} {stamp}', f'%Y {fmt}'
+        try:
+            at = time.mktime(time.strptime(stamp, fmt))
+        except ValueError:
+            return ''
+        return ln.strip()[:160] if at >= since else ''
+    return ''
+
+
+def stop_clues(now: float | None = None) -> tuple[bool, list[str]]:
+    """Что известно о том, почему все группы стоят: (старт вернул no_credits?, факты из журналов за CLUE_H часов)."""
+    now = now or time.time()
+    since = now - CLUE_H * 3600
+    clues: list[str] = []
+    credits = False
+    try:
+        d = json.load(open(NO_CREDITS, encoding='utf-8'))
+        if float(d.get('at') or 0) >= since:
+            credits = True
+            clues.append(f'старт группы в {time.strftime("%H:%M", time.localtime(float(d["at"])))} Salad отклонил: '
+                         f'{d.get("why") or "no_credits_available"}')
+    except Exception:  # noqa: BLE001 — маркера нет или битый: про кредиты молчим
+        pass
+    line = _recent_line(IDLE_LOG, 'ГАШУ ГРУППЫ', '%Y-%m-%d %H:%M', since)
+    if line:
+        clues.append(f'сторож простоя: «{line}»')
+    line = _recent_line(WINDOW_LOG, ' стоп ', '%d.%m %H:%M', since)
+    if line:
+        clues.append(f'окно batch: «{line}»')
+    try:
+        w = (json.load(open(LEASE, encoding='utf-8')).get('waves') or [])[-1]
+        if w.get('closed') and float(w['closed']) >= since:
+            clues.append(f'волна закрыта в {time.strftime("%H:%M", time.localtime(float(w["closed"])))}: '
+                         f'{w.get("why") or "без причины"}')
+    except Exception:  # noqa: BLE001 — нет разрешения или волн: не довод
+        pass
+    if not conveyor_alive():
+        clues.append('конвейер не запущен (штатный финал волны тоже гасит группы)')
+    return credits, clues
 
 
 def snapshot_groups(gs: list[str]) -> None:
@@ -346,22 +453,37 @@ def main() -> int:
     lock = single_instance()
     if lock is None:
         return 0                            # другой сторож уже на посту — молча выходим (не засоряем журнал)
-    gs = groups()
+    gs = env_groups() or groups()
     if not gs or not os.environ.get('SALAD_API_KEY'):
         print('нет SALAD_GROUP или SALAD_API_KEY', flush=True)
         return 2
     group = ','.join(gs)
-    st = load()
-    if st.get('group') != group:            # сменился состав групп — терпение считаем заново,
-        # а ОПЛАЧЕННЫЕ нодо-минуты переживают: это книга расходов, её обнулять нельзя (04.09)
-        st = {'group': group, 'idle_node_min': 0.0, 'silent_since': 0.0,
-              'last_seen_mesh': last_mesh_at(), 'paid_node_min': st.get('paid_node_min') or {}}
+    st = regroup(load(), group)
     snapshot_groups(gs)
     print(f'сторож денег: группы {group}, бюджет молчания {BUDGET_NODE_MIN:.0f} нодо-минут '
           f'И не меньше {MIN_WALL_MIN:.0f} мин тишины, тик {TICK_S / 60:.0f} мин', flush=True)
     while True:
+        new = env_groups()
+        if new and new != gs:
+            print(f'{time.strftime("%H:%M")} состав групп сменился: {group} → {",".join(new)} (salad.env) — '
+                  f'сторожу новые, терпение заново, книга расходов сохранена', flush=True)
+            gs, group = new, ','.join(new)
+            os.environ['SALAD_GROUP'] = group
+            st = regroup(st, group)
+            snapshot_groups(gs)
         counts = {g: running_count(g) for g in gs}
         n = sum(v for v in counts.values() if v > 0)
+        blind = blind_update(st, counts)
+        if blind:
+            print(f'{time.strftime("%H:%M")} !! опрос всех групп не удался ({group}) — платим ли, не знаю: '
+                  f'слепой тик {st["blind_ticks"]} из {BLIND_N}', flush=True)
+            if st['blind_ticks'] >= BLIND_N and not st.get('blind_alerted'):
+                st['blind_alerted'] = True
+                print(f'{time.strftime("%H:%M")} !! СТОРОЖ СЛЕП: {st["blind_ticks"]} тиков подряд ни одна группа '
+                      f'не ответила', flush=True)
+                notify(f'🔴 Меши: сторож денег СЛЕП — {st["blind_ticks"]} опросов подряд ни одна группа Salad ({group}) '
+                       f'не ответила. Платим ли сейчас — неизвестно: проверь портал Salad и SALAD_GROUP в salad.env '
+                       f'(удалённая или переименованная группа?).')
         # ПРИЁМНИК — раз в тик. Красный приёмник — общая беда: оповестить (дроссель — общий с
         # конвейером), в стоп-файле пометить `shared_infra`, чтобы человек не искал вину в нодах.
         sink = SH.check()
@@ -399,7 +521,7 @@ def main() -> int:
             print(f'{time.strftime("%H:%M")} работающих нод {n} {counts}, мешей нет: '
                   f'{st["idle_node_min"]:.0f} из {BUDGET_NODE_MIN:.0f} нодо-минут, '
                   f'тишина {wall:.0f} из {MIN_WALL_MIN:.0f} мин', flush=True)
-        elif n == 0:
+        elif n == 0 and not blind:
             # Никто не работает — деньги не идут, терпение не тратим. И ЧАСЫ ТИШИНЫ ТОЖЕ СБРАСЫВАЕМ
             # (04.09): условие «40 минут тишины» существует, чтобы не гасить пул на прогреве, то
             # есть меряет молчание, ПОКА МЫ ПЛАТИМ. Без сброса выходило так: 12:36 кончились кредиты
@@ -407,12 +529,14 @@ def main() -> int:
             # поднялась одна нода, счётчик нодо-минут мгновенно добрал бюджет при уже «набежавших»
             # 75 минутах, и сторож записал запрет на подъём. Гасить было нечего: пула не было вовсе,
             # а человеку осталось разбираться с запретом, которому нет причины.
+            deaf = [g for g, v in counts.items() if v < 0]
+            deaf_s = f' (не ответили: {",".join(deaf)})' if deaf else ''
             if st.get('silent_since'):
-                print(f'{time.strftime("%H:%M")} работающих нод нет — не платим; часы тишины сброшены '
+                print(f'{time.strftime("%H:%M")} работающих нод нет — не платим{deaf_s}; часы тишины сброшены '
                       f'(шли {(time.time() - st["silent_since"]) / 60:.0f} мин)', flush=True)
                 st['silent_since'] = 0.0
             else:
-                print(f'{time.strftime("%H:%M")} работающих нод нет — не платим, жду', flush=True)
+                print(f'{time.strftime("%H:%M")} работающих нод нет — не платим{deaf_s}, жду', flush=True)
             # ПУЛ ЛЁГ САМ ПО СЕБЕ — ЭТО ТОЖЕ ПОВОД КРИЧАТЬ (05.09). 15:20 на Salad кончились
             # кредиты, все три группы разом стали `stopped`, машин ноль. Сторож честно писал
             # «не платим, жду» и молчал — тревога у него привязана к тому, что мы ПЛАТИМ, а тут
@@ -428,11 +552,16 @@ def main() -> int:
                         stopped.append(False)
                 if stopped and all(stopped):
                     st['down_alerted'] = True
-                    print(f'{time.strftime("%H:%M")} !! ВСЕ ГРУППЫ ОСТАНОВЛЕНЫ, а запрета сторожа '
-                          f'нет — вероятнее всего кончились кредиты Salad', flush=True)
-                    notify('Меши: пул стоит — ВСЕ группы Salad остановлены, машин ноль, а запрета '
-                           'сторожа нет. Чаще всего это кончившиеся кредиты Salad: пополните баланс, '
-                           'конвейер поднимет группы сам. Деньги сейчас не тратятся.')
+                    # ДИАГНОЗ — ТОЛЬКО ПО ФАКТАМ (T-20261020-24): про кредиты — лишь когда старт вернул no_credits
+                    credits, clues = stop_clues()
+                    head = 'Salad отклонил старт: нет кредитов' if credits else 'причина неизвестна'
+                    known = '; '.join(clues) or 'в журналах сторожей причины не нашёл'
+                    print(f'{time.strftime("%H:%M")} !! ВСЕ ГРУППЫ ОСТАНОВЛЕНЫ, запрета сторожа нет — {head}. '
+                          f'Известно: {known}', flush=True)
+                    notify(f'Меши: пул стоит — все группы Salad остановлены ({group}), машин ноль, запрета '
+                           f'сторожа нет. ' + ('Salad отклонил старт: нет кредитов — пополните баланс, конвейер '
+                                              'поднимет группы сам. ' if credits else 'Причина неизвестна. ')
+                           + f'Известно: {known}. Деньги сейчас не тратятся.')
         wall_min = (time.time() - st['silent_since']) / 60.0 if st.get('silent_since') else 0.0
         # РАННЯЯ ТРЕВОГА: платим и не производим — сказать человеку и попробовать вылечить самим,
         # не дожидаясь порога гашения. Один раз на эпизод простоя (флаг снимается, когда пошли меши).
