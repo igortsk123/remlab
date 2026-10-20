@@ -157,6 +157,9 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
    под строкой квартиры (тот же элемент `#hmCert`, не копия): остаток виден при любой прокрутке */
 .hm-cert{position:sticky;top:var(--hm-hd);z-index:18;margin:6px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut) 6px;background:var(--bg)}
 .hm-cert[hidden]{display:none}
+/* под прилипшей шкалой — плотная кромка и затухание: строки, уходящие под неё, не торчат обрывками (хвосты букв «· ·» в избранном,
+   приёмка Б 20.10). Только при прилипании (`.stuck`, `certStick`) — в покое кромка не закрывала бы начало экрана */
+.hm-cert.stuck::after{content:"";position:absolute;left:0;right:0;top:100%;height:11px;background:linear-gradient(var(--bg) 0 5px,rgba(251,248,243,0));pointer-events:none}
 .cs{position:relative;container-type:inline-size;padding:6px 10px 7px;border-radius:var(--radius-sm,10px);background:var(--accent-soft)}
 .cs-t{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);white-space:nowrap;min-width:0}
 .cs-t b{color:var(--ink);font-weight:700}
@@ -190,6 +193,8 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-room .rb .sum small{display:block;color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis}
 .hm-room .rb .iconbtn{flex:none}
 .hm-room .rb .btn{flex:none;min-height:40px;height:40px;padding:0 18px;border-radius:var(--radius-sm,10px)}
+/* узко (320 px, крупный шрифт): цена не касается «Поделиться» — плотнее кнопки, зазор не меньше 8 px (приёмка Б 20.10) */
+@media(max-width:340px){.hm-room .rb{gap:8px;padding:10px}.hm-room .rb .btn{padding:0 12px}.hm-room .rb .sum{font-size:14px}}
 .hm-stub{padding:10px 12px;display:flex;flex-direction:column;gap:1px;background:var(--wash);border-radius:var(--radius)}
 .hm-stub b{font-size:15px;white-space:nowrap}
 .hm-stub b small{font-weight:500;color:var(--muted)}
@@ -1171,7 +1176,11 @@ function certStick(){
   const h=c.hidden?0:Math.round(c.getBoundingClientRect().height);
   document.documentElement.style.setProperty('--hm-cert',h+'px');
   if(!c._ro&&window.ResizeObserver){c._ro=new ResizeObserver(()=>certStick()); c._ro.observe(c);}
+  certStuck();
+  if(!c._sc){c._sc=1; addEventListener('scroll',certStuck,{passive:true});}
 }
+function certStuck(){const c=document.getElementById('hmCert'); if(!c||c.hidden)return;
+  c.classList.toggle('stuck', scrollY>0&&c.getBoundingClientRect().top<=parseFloat(getComputedStyle(c).top)+0.5);}
 function theDoor(){ return (D.room.openings||[]).find(o=>o.kind==='door'); }
 function drawDoorCtl(){
   const box=document.getElementById('doorCtl'); if(!box)return;
@@ -3601,6 +3610,15 @@ function srcIdOf(s){
 }
 // `opt.bg` (demo-09, Codex п.1): фоновое задание окна варианта — без экрана ожидания и без `viewShot`; ход — `opt.progress(текст)`,
 // готово — `opt.done(номер первого нового кадра)`, отказ — `opt.fail(текст)`
+// ОЖИДАНИЕ ФОТО — ОДНО МЕСТО (demo-19 В1, владелец 20.10): убывающий отсчёт и доля полосы. Замер: фото готово за 29–35 с,
+// хвост до ~77 с — после нуля «ещё немного…», полоса дотягивается к 99 %, но не до конца. Кнопка «Сделать реалистичнее»
+// и экран ожидания берут отсюда; будущие ожидания фото (избранное, В3) — тоже
+const PHOTO_EST_S=30;
+function photoWait(t0){
+  const s=Math.max(0,(Date.now()-t0)/1000), left=Math.max(0,Math.ceil(PHOTO_EST_S-s)), EN=LANG==='en';
+  const pct=s<PHOTO_EST_S?s/PHOTO_EST_S*95:99-4*Math.exp(-(s-PHOTO_EST_S)/30);
+  return {pct, left, text:left>0?(EN?left+' s left':'осталось '+left+' с'):(EN?'almost there…':'ещё немного…')};
+}
 async function makePhoto(quality, srcId, replaceBatch, opt){
   opt=opt||{};
   const wait=(html,cap)=>{if(opt.bg){const t=document.createElement('div'); t.innerHTML=html; opt.fail(t.textContent.trim()); return;} shotOpen(html,cap);};
@@ -3613,15 +3631,16 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
   const req=Object.assign(payload(),{quality:quality},opt.extra||{});   // demo-10: кадры из браузера — `views`, `clay`
   const reqV=allVariants()[cur]||{}, reqProducts=productsOf(items), reqState=curStateId();
   req.stateId=reqState;
-  // честная оценка: генерация листа в 2048 идёт минуты, а не секунды (замер 01.09)
-  const est=quality==='realistic'?'обычно 2–4 минуты':'обычно 20–25 секунд';
+  // фото — убывающий отсчёт `photoWait` (demo-19 В1: «обычно 2–4 минуты» пугало при фактических ~30 с); черновик — прошедшие секунды
+  const real=quality==='realistic', est=real?'':'обычно 20–25 секунд';
   if(!opt.bg)shotOpen('<div class="wait"><div class="spin"></div>'+
     // ОДНА ФРАЗА БЕЗ ХВОСТА (карта сценариев 2.7): общий хвост « по вашей расстановке…» после фразы, где он уже
     // есть, давал «по вашей расстановке по вашей расстановке». Фразы целиком — их же переводит словарь EN внизу.
-    (quality==='realistic'?'Рисуем фотографию по вашей расстановке…':'Собираем кадр по вашей расстановке…')+
-    '<br><span id="el">0</span> с<br><span id="qinfo" style="font-size:14px;color:var(--muted)"></span></div>',est);
+    (real?'Рисуем фотографию по вашей расстановке…':'Собираем кадр по вашей расстановке…')+
+    (real?'<br><span id="el">'+photoWait(t0).text+'</span>':'<br><span id="el">0</span> с')+
+    '<br><span id="qinfo" style="font-size:14px;color:var(--muted)"></span></div>',est);
   const tick=setInterval(()=>{const e=document.getElementById('el');
-    if(e)e.textContent=Math.round((Date.now()-t0)/1000);},500);
+    if(e)e.textContent=real?photoWait(t0).text:Math.round((Date.now()-t0)/1000);},500);
   try{
     // ДЛИННЫЙ ЗАПРОС — В ФОН (владелец 01.09: «периодами пишет ошибку»). Минуту держать
     // соединение на телефоне нельзя: гаснет экран или меняется сеть — браузер рвёт запрос,
@@ -4328,7 +4347,8 @@ function grid(){
     c.querySelector('.mini').onclick=e=>{e.stopPropagation();take();};
     c.querySelector('.link').onclick=e=>e.stopPropagation();
     c.onclick=take; g.appendChild(c);});}
-function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
+let TRY_LAST={n:1, base:''};   // последняя замена: сколько предметов группы сменилось (сообщение «Заменено: стулья ×2»)
+function tryOn(p){const s=sel||items.find(i=>i.role==='диван'); TRY_LAST={n:1, base:''};
   if(!s){toast('Сначала коснитесь предмета на плане');return;}
   if(!p.w||!p.d){toast('У этого товара в фиде нет габаритов — примерка была бы выдумкой');return;}
   // ЗАМЕНА ДЕКОРА ПИШЕТСЯ В СПИСОК ВАРИАНТА, А НЕ В РАССТАНОВКУ (08.09): места на полу у вазы
@@ -4347,6 +4367,11 @@ function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
   }
   // sid и упаковка едут вместе с товаром: по sid рендер берёт 3D-модель, по pack считается
   // количество покупок. Без них замена меняла картинку в списке, но не то, что попадёт в кадр.
+  // ПАРА МЕНЯЕТСЯ ВМЕСТЕ (demo-19 Г1, правило владельца 20.10: «меняешь одно кресло — меняются все кресла группы»): та же базовая
+  // роль (`baseRole`: стул и стул 2) и тот же прежний товар — размеры и товар у всех; другой товар у соседа — его не трогаем
+  const was=(skuOf(s)||{}).name||'';
+  const kin=was?items.filter(it=>it!==s&&baseRole(it.role)===baseRole(s.role)&&(skuOf(it)||{}).name===was):[];
+  TRY_LAST={n:1+kin.length, base:baseRole(s.role)};
   // ковёр ложится вдоль длинной стороны своего места (demo-18 п.2, как `resolve.fitPlacement` в /flat): в ленте длинная — `w`
   if(s.role.startsWith('ковёр')){const a=Math.max(p.w,p.d), b=Math.min(p.w,p.d); [s.w,s.d]=s.w>=s.d?[a,b]:[b,a];}
   else{s.w=p.w;s.d=p.d;s.h=p.h||s.h;}
@@ -4358,6 +4383,7 @@ function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
          ...(p.yaw!=null?{yaw:p.yaw}:{}),
          // подкраска цветового варианта на модели семейства (приёмка 16.10 п.11б, `flat215_demo.annotate_tint`)
          ...(p.tint?{tint:p.tint}:{})};
+  kin.forEach(it=>{it.w=s.w; it.d=s.d; it.h=s.h; it.sku=Object.assign({},s.sku);});
   sel=s;
   document.getElementById('sel').innerHTML=`Примерено: <b>${p.name}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${money(p.price)} · <a href="${p.url}" target="_blank" rel="noopener">открыть в магазине</a>`;
   draw();}
@@ -4604,8 +4630,18 @@ function histFwd(){return histGo(1);}
  will-change:transform;user-select:none;-webkit-user-drag:none}
 #vzoom .vzx{position:absolute;top:12px;right:12px;width:42px;height:42px;border-radius:50%;border:0;background:rgba(255,255,255,.9);font-size:22px;z-index:2;transition:opacity .2s}
 #vzoom.nox .vzx{opacity:0;pointer-events:none}
-#vzoom .vzh{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(255,255,255,.92);color:#222;
- padding:8px 12px;border-radius:10px;font-size:14px;white-space:nowrap}
+/* листание ракурсов во весь экран (demo-19 В2): точки снизу, на компьютере — стрелки по бокам */
+#vzoom .vzdots{position:absolute;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;gap:8px;z-index:2;pointer-events:none}
+#vzoom .vzdots i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.45)}
+#vzoom .vzdots i.on{background:#fff}
+#vzoom .vzarr{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.9);
+ color:#222;font-size:26px;line-height:1;cursor:pointer;z-index:2;transition:opacity .2s}
+#vzoom .vzarr.l{left:14px}#vzoom .vzarr.r{right:14px}
+#vzoom.nox .vzarr{opacity:0;pointer-events:none}
+@media(hover:none){#vzoom .vzarr{display:none}}
+/* подсказка — над точками и в ширину экрана: на 375 одна строка обрезалась по краям (самопроверка T-12) */
+#vzoom .vzh{position:absolute;left:50%;bottom:calc(40px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:rgba(255,255,255,.92);color:#222;
+ padding:8px 12px;border-radius:10px;font-size:14px;width:max-content;max-width:calc(100% - 32px);text-align:center;line-height:1.35}
 #shot.v2 .shotwrap .livecv{border-radius:0}
 .vmodes{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:2px;padding:4px;border-radius:999px;
  background:var(--veil);z-index:6}
@@ -4716,7 +4752,9 @@ function histFwd(){return histGo(1);}
  background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px;line-height:1.3;padding:7px 14px;border-radius:999px;
  box-shadow:var(--sh-2);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #shot.nolive.vwalk .vcams{display:none!important}
-.vcta.busy{cursor:default;opacity:.92}
+.vcta.busy{cursor:default;position:relative;overflow:hidden}
+.vcta-bar{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.22);transition:width 1s linear;pointer-events:none}
+.vcta-t,.vcta.busy small{position:relative}
 .vcta-err{font-size:13px;color:#B3261E;margin:6px 2px 0;line-height:1.4}
 .vplanbox{display:none;position:absolute;inset:60px 12px 12px;z-index:4;background:var(--wash-2)}
 .vplanbox svg{width:100%;height:100%}
@@ -4876,7 +4914,7 @@ function vwHtml(s, navs, list){
     `<div class="vplate" id="vsum">${vwSum()}</div>`+
     `<button class="vgrip" id="vgrip" aria-expanded="false" type="button"><span class="vchip" id="vchip">${vwChipText()}</span></button>`+
     // ШТОРКА v5.2 (владелец 18.10): кнопка — в шапке шторки под чипом, вне прокрутки: видна при любой высоте, свёрнутая
-    // остановка (`vwEdges().min`) её включает. Одна строка (владелец 16.10, п.4): время «обычно 2–4 минуты» — после нажатия
+    // остановка (`vwEdges().min`) её включает. Одна строка (владелец 16.10, п.4): отсчёт времени (`photoWait`) — после нажатия
     `<div class="vtop"><button class="btn primary vcta" id="vCta">${VW.mode==='plan'?'Изменить план':'Сделать реалистичнее'}</button></div>`+
     `<div class="vscroll" id="vscroll">`+
     // ШТОРКА v5 (владелец 17.10): при входе — кнопка и три строки «Мебель · Отделка и ремонт · Встраиваемое», ничего больше;
@@ -4915,12 +4953,20 @@ function openLiveWindow(){
 // ПРОСМОТР ВО ВЕСЬ ЭКРАН — КАК ГАЛЕРЕЯ ТЕЛЕФОНА (demo-09, владелец по iPhone 17.10: «елозит», двойной тап закрывал): при масштабе 1
 // картинка целиком и неподвижна; двойной тап — ×2,5 в точку тапа, повторный — назад; щипок — 1…4 вокруг пальцев; перетаскивание —
 // только при увеличении и в пределах картинки (с резинкой); одиночный тап — показать/скрыть «×»; свайп вниз при масштабе 1 — закрыть
-function vwZoom(url){
+// ЛИСТАНИЕ РАКУРСОВ (demo-19 В2, владелец 20.10): `list` — снимки этой расстановки (`vwRealShots`, со стороны двери ↔ окна); при масштабе 1
+// свайп вбок — соседний ракурс, вниз — закрыть; точки снизу; на компьютере — стрелки и ←/→. `onPick` — какой ракурс смотрели последним
+function vwZoom(url, list, onPick){
   let z=document.getElementById('vzoom');
-  if(!z){z=document.createElement('div'); z.id='vzoom'; z.innerHTML='<img alt="" draggable="false"><button class="vzx" aria-label="Закрыть">×</button>';
+  if(!z){z=document.createElement('div'); z.id='vzoom'; z.innerHTML='<img alt="" draggable="false"><button class="vzx" aria-label="Закрыть">×</button>'+
+    '<button class="vzarr l" type="button" aria-label="Назад">‹</button><button class="vzarr r" type="button" aria-label="Дальше">›</button><div class="vzdots"></div>';
     document.body.appendChild(z);}
-  const im=z.querySelector('img'), bx=z.querySelector('.vzx'); im.src=url; z.classList.add('on'); z.classList.remove('nox'); z.style.background='';
-  let k=1, tx=0, ty=0, g=null, lastTap=null, tapT=0;
+  const L=(list||[]).filter(x=>x&&x.url); let at=L.findIndex(x=>x.url===url); const many=at>=0&&L.length>1, at0=at;
+  const im=z.querySelector('img'), bx=z.querySelector('.vzx'), dots=z.querySelector('.vzdots'), arr=[...z.querySelectorAll('.vzarr')];
+  im.src=url; z.classList.add('on'); z.classList.remove('nox'); z.style.background='';
+  arr.forEach(a=>{a.hidden=!many;}); dots.hidden=!many;
+  const dotsUi=()=>{dots.innerHTML=many?L.map((_,i)=>`<i${i===at?' class="on"':''}></i>`).join(''):''; z.dataset.at=many?at:'';};
+  dotsUi();
+  let k=1, tx=0, ty=0, g=null, lastTap=null, tapT=0, slideT=0;
   const pts=new Map(), W=()=>z.clientWidth, H=()=>z.clientHeight;
   // размер картинки при масштабе 1 (вписана целиком)
   const base=()=>{const nw=im.naturalWidth||16, nh=im.naturalHeight||9, s0=Math.min(W()/nw,H()/nh); return {w:nw*s0,h:nh*s0};};
@@ -4933,21 +4979,35 @@ function vwZoom(url){
     tx=(px-cx)-((px-cx)-tx)*nk/k; ty=(py-cy)-((py-cy)-ty)*nk/k; k=nk; const m=lim(k); tx=clamp(tx,m.x); ty=clamp(ty,m.y); put(anim);};
   const settle=()=>{const m=lim(k); tx=clamp(tx,m.x); ty=clamp(ty,m.y); if(k<=1.001){k=1;tx=0;ty=0;} put(true);};
   put(false);
-  const close=()=>{z.classList.remove('on'); z.onpointerdown=z.onpointermove=z.onpointerup=z.onpointercancel=z.onwheel=null; clearTimeout(tapT);};
+  // соседний ракурс: текущий уезжает за край, новый въезжает с другой стороны; по кругу (ракурсов два)
+  const go=d=>{if(!many)return; clearTimeout(slideT); const n=((at+d)%L.length+L.length)%L.length;
+    k=1; ty=0; tx=-d*W(); put(true);
+    slideT=setTimeout(()=>{at=n; im.src=L[at].url; dotsUi(); tx=d*W(); put(false); void im.offsetWidth; tx=0; put(true);},200);};
+  const key=e=>{if(e.key==='Escape'){close(); e.preventDefault();}
+    else if(e.key==='ArrowLeft'||e.key==='ArrowRight'){go(e.key==='ArrowLeft'?-1:1); e.preventDefault();}};
+  const close=()=>{z.classList.remove('on'); z.onpointerdown=z.onpointermove=z.onpointerup=z.onpointercancel=z.onwheel=null; clearTimeout(tapT);
+    clearTimeout(slideT); document.removeEventListener('keydown',key); if(many&&at!==at0&&onPick)onPick(L[at]);};
+  document.removeEventListener('keydown',z._key||key); z._key=key; document.addEventListener('keydown',key);
   bx.onclick=e=>{e.stopPropagation(); close();};
-  z.onpointerdown=e=>{if(e.target===bx)return; e.preventDefault(); pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  arr[0].onclick=e=>{e.stopPropagation(); go(-1);}; arr[1].onclick=e=>{e.stopPropagation(); go(1);};
+  z.onpointerdown=e=>{if(e.target===bx||arr.includes(e.target))return; e.preventDefault(); pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(pts.size===2){const [a,b]=[...pts.values()]; g={pinch:true, d0:Math.hypot(a.x-b.x,a.y-b.y)||1, k0:k};}
     else if(pts.size===1)g={x0:e.clientX,y0:e.clientY,tx0:tx,ty0:ty,t0:Date.now(),moved:false};};
   z.onpointermove=e=>{if(!pts.has(e.pointerId)||!g)return; pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(g.pinch&&pts.size===2){const [a,b]=[...pts.values()]; zoomAt(g.k0*Math.hypot(a.x-b.x,a.y-b.y)/g.d0,(a.x+b.x)/2,(a.y+b.y)/2,false); return;}
     if(g.pinch)return;
-    const dx=e.clientX-g.x0, dy=e.clientY-g.y0; if(!g.moved&&Math.hypot(dx,dy)<8)return; g.moved=true;
+    const dx=e.clientX-g.x0, dy=e.clientY-g.y0; if(!g.moved&&Math.hypot(dx,dy)<8)return;
+    // направление жеста решается один раз: вбок — листание, вниз — закрытие (при масштабе 1)
+    if(!g.moved){g.moved=true; g.ax=Math.abs(dx)>Math.abs(dy)?'x':'y';}
     if(k>1){const m=lim(k); tx=clamp(g.tx0+dx,m.x,true); ty=clamp(g.ty0+dy,m.y,true); put(false);}
-    else if(dy>0&&Math.abs(dy)>Math.abs(dx)){ty=dy; put(false); z.style.background=`rgba(17,17,17,${Math.max(0.35,1-dy/400)})`;}};
+    else if(g.ax==='x'){if(many){tx=dx; put(false);}}
+    else if(dy>0){ty=dy; put(false); z.style.background=`rgba(17,17,17,${Math.max(0.35,1-dy/400)})`;}};
   const up=e=>{pts.delete(e.pointerId); const g0=g;
     if(g0&&g0.pinch){if(!pts.size)g=null; settle(); return;}
     g=null; if(!g0)return;
-    if(g0.moved){if(k<=1&&ty>110){close(); return;} z.style.background=''; settle(); return;}
+    if(g0.moved){if(k<=1&&ty>110){close(); return;}
+      if(k<=1&&g0.ax==='x'&&many&&Math.abs(e.clientX-g0.x0)>60){go(e.clientX<g0.x0?1:-1); return;}
+      z.style.background=''; settle(); return;}
     // тап: двойной — масштаб в точку; одиночный (если второго не было за 280 мс) — показать/скрыть «×»
     const now=Date.now();
     if(lastTap&&now-lastTap.t<300&&Math.hypot(e.clientX-lastTap.x,e.clientY-lastTap.y)<30){clearTimeout(tapT); lastTap=null;
@@ -4957,7 +5017,8 @@ function vwZoom(url){
   z.onwheel=e=>{e.preventDefault(); zoomAt(k*(e.deltaY<0?1.15:0.87),e.clientX,e.clientY,false);};
   let seen=false; try{seen=!!localStorage.getItem('remlab-zoom-hint-v2');}catch(e){}
   if(!seen){const h=document.createElement('div'); h.className='vzh';
-    h.textContent=LANG==='en'?'Double tap to zoom · pinch · swipe down to close':'Двойной тап — увеличить · щипок · свайп вниз — закрыть';
+    h.textContent=LANG==='en'?'Double tap to zoom · pinch · '+(many?'swipe sideways — other view · ':'')+'swipe down to close'
+      :'Двойной тап — увеличить · щипок · '+(many?'свайп вбок — другой ракурс · ':'')+'свайп вниз — закрыть';
     z.appendChild(h); setTimeout(()=>h.remove(),3500); try{localStorage.setItem('remlab-zoom-hint-v2','1');}catch(e){}}
 }
 // ФОТО НА ТЕЛЕФОНЕ ЗАПОЛНЯЕТ ОБЛАСТЬ СЦЕНЫ (demo-09, владелец 17.10: полосы сверху и снизу — убрать): картинка по высоте области,
@@ -5285,11 +5346,12 @@ function vwMount(s){
   // увеличить картинку: «⤢» или тап по ней; свайп по кадру — другой ракурс
   const zb=document.getElementById('vzBtn'), mi=shot.querySelector('.shotwrap img.vmain');
   if(mi&&VW_PHONE())vwPhotoFocus(mi,s);
-  if(zb)zb.onclick=()=>vwZoom(s.url);
+  const zoom=()=>vwZoom(s.url, vwRealShots(), x=>{if(VW.mode==='photo')vwCamGo(vwCamIndex(x.camera));});
+  if(zb)zb.onclick=zoom;
   if(mi){let sx=null; mi.addEventListener('pointerdown',e=>{sx=e.clientX;});
     mi.addEventListener('pointerup',e=>{if(sx===null)return; const dx=e.clientX-sx; sx=null;
       if(Math.abs(dx)>50)vwPhoto(VW.photo+(dx<0?1:-1));
-      else vwZoom(s.url);});}
+      else zoom();});}
   vwPins();
 }
 // ПЕРЕКЛЮЧЕНИЕ РЕЖИМА МЕНЯЕТ ТОЛЬКО ОБЛАСТЬ СЦЕНЫ (владелец 16.10, п.6): шторка/колонка, список и сумма остаются как были
@@ -5387,9 +5449,16 @@ function vwCtaUi(){
   const vt=cta.closest('.vtop'), h0=vt?vt.offsetHeight:0;
   cta.hidden=m==='photo';
   if(m==='plan'){cta.classList.remove('busy'); cta.textContent=EN?'Edit the plan':'Изменить план';}
-  else if(VJ.job){const sec=Math.round((Date.now()-VJ.job.t0)/1000); cta.classList.add('busy');
-    cta.innerHTML=`${EN?'Rendering the photo… ':'Рисуем фото… '}${sec} ${EN?'s':'с'}<small>${escHtml(VJ.job.note||(EN?'usually 2–4 minutes':'обычно 2–4 минуты'))}</small>`;}
+  else if(VJ.job){cta.classList.add('busy'); const w=photoWait(VJ.job.t0);
+    // на самой кнопке ползёт полоса и убывают секунды (demo-19 В1); узлы живут всё задание — полоса едет плавно, а не прыгает.
+    // Подпись сервера — только очередь и обрыв связи: его «осталось примерно» заменяет один отсчёт
+    const nt=/^осталось/.test(VJ.job.note||'')?'':(VJ.job.note||'');
+    if(!cta.querySelector('.vcta-bar'))cta.innerHTML='<span class="vcta-bar"></span><span class="vcta-t"></span><small></small>';
+    cta.querySelector('.vcta-bar').style.width=w.pct.toFixed(1)+'%';
+    cta.querySelector('.vcta-t').textContent=(EN?'Rendering the photo · ':'Рисуем фото · ')+w.text;
+    const sm=cta.querySelector('small'); sm.textContent=nt; sm.hidden=!nt; cta.dataset.left=w.left;}
   else{cta.classList.remove('busy'); cta.textContent=EN?'Make it realistic':'Сделать реалистичнее';}
+  if(!VJ.job||m==='plan')delete cta.dataset.left;
   let er=document.getElementById('vCtaErr');
   if(VJ.err&&m!=='photo'){if(!er){er=document.createElement('p'); er.id='vCtaErr'; er.className='vcta-err'; cta.after(er);} er.textContent=VJ.err;}
   else if(er)er.remove();
@@ -5461,6 +5530,7 @@ function vwPlanDraw(){
 // ← → листают снимки в «Фото» и точки съёмки в «3D», пока окно открыто и фокус не в поле ввода
 document.addEventListener('keydown',e=>{const sh=document.getElementById('shot');
   if(!sh||!sh.classList.contains('on')||!sh.classList.contains('v2')||VW.mode==='plan'||/INPUT|TEXTAREA|SELECT/.test((e.target||{}).tagName||''))return;
+  const zm=document.getElementById('vzoom'); if(zm&&zm.classList.contains('on'))return;
   if(e.key==='ArrowLeft'){vwPhoto(VW.photo-1); e.preventDefault();} else if(e.key==='ArrowRight'){vwPhoto(VW.photo+1); e.preventDefault();}});
 // БЕЗ 3D СЕРВЕРНОГО ЭСКИЗА В ОКНЕ НЕТ (demo-09, ответ владельца 37.4): реалистичное фото, если есть, иначе спокойная заглушка
 // (`.vstub`) и рабочая «Сделать реалистичнее»; серверный черновик — только картинка коллекции (`snapLater`)
@@ -5473,15 +5543,19 @@ function vwAfterChange(){
   if(VW.mode==='photo')vwMode('walk'); else vwModeUi();
   if(VW_PHONE()&&VW.mode!=='plan'){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos>0)vwSheet(0);}
 }
+// «Заменено: стулья ×2» — множественное для ролей, что стоят парой (demo-19 Г1)
+const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пуф':'пуфы','табурет':'табуреты','банкетка':'банкетки','тумба':'тумбы',
+  'прикроватная тумба':'прикроватные тумбы','бра':'бра','торшер':'торшеры','светильник':'светильники','полка':'полки'};
 (function(){
   const _try=tryOn; tryOn=function(p){
-    const s0=sel, before=s0&&(skuOf(s0)||{}).price||0, role=s0&&s0.role;
+    // разница — по списку покупок (`productsOf`: пара стульев, упаковки), а не по цене одной штуки (demo-19 Г1)
+    const sum=()=>totalsOf(productsOf(items,[])).sum, s0=sel, before=s0?sum():0, role=s0&&s0.role;
     if(s0&&typeof LIVE!=='undefined'){const k=items.indexOf(s0); LIVE.focus=k>=0?k:null;}
     const r=_try.apply(this,arguments);
     if(s0&&document.getElementById('shot').classList.contains('v2')){
-      const after=(skuOf(s0)||{}).price||0, d=after-before, EN=LANG==='en';
-      const base=String(role||'').replace(/\s+\d+$/,'');
-      toast((EN?'Replaced: '+base:'Заменено: '+base)+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
+      const n=TRY_LAST.n||1, d=sum()-before, EN=LANG==='en';
+      const base=baseRole(role), what=n>1?(TRY_PLURAL[base]||base)+' ×'+n:base;
+      toast((EN?'Replaced: '+what:'Заменено: '+what)+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
       // шторка уже свёрнута — сцена с заменой видна; выделение и наведение камеры — после обновления сцены (`liveShow`, demo-15 п.2)
       const i=items.indexOf(s0); setTimeout(()=>{if(VW.mode!=='walk')vwHighlight(i,{open:false});},200);
     }
@@ -6442,7 +6516,7 @@ async function liveShow(){
     'Тесно / не помещается':'Too cramped / does not fit','Другой цвет':'Another colour','Другое':'Something else','Отправляем…':'Sending…',
     'Сумма при условии оплаты наличными, без ипотеки и рассрочки':'Price for full payment, without mortgage or instalments','Перейти к товару →':'Go to product →',
     'Планировка':'Layout','Рисуем фотографию по вашей расстановке…':'Painting a photo of your layout…',
-    'Собираем кадр по вашей расстановке…':'Building a shot of your layout…','обычно 2–4 минуты':'usually 2–4 minutes',
+    'Собираем кадр по вашей расстановке…':'Building a shot of your layout…',
     'обычно 20–25 секунд':'usually 20–25 seconds','с':'s','Не получилось собрать кадр.':'Could not build the shot.',
     'попробуйте ещё раз':'please try again','Один кадр уже считается — дождитесь его.':'A shot is already being made — please wait for it.',
     'Ссылка скопирована':'Link copied','Ракурс':'View','План':'Plan','Товары и замены ⌃':'Items & swaps ⌃','⌄ Свернуть':'⌄ Collapse',
@@ -6510,7 +6584,7 @@ async function liveShow(){
     [/^Расстановка (\d+) из (\d+)$/,function(m){return 'Layout '+m[1]+' of '+m[2];}],
     [/^Загружаем модели (\d+) из (\d+)$/,function(m){return 'Loading models '+m[1]+' of '+m[2];}],
     [/^Считаем кадр на сервере ≈ (\d+) с$/,function(m){return 'Rendering on the server ≈ '+m[1]+' s';}],
-    [/^Заменено: (.+?)( · .+)?$/,function(m){return 'Replaced: '+(role(m[1])||m[1])+(m[2]||'');}],
+    [/^Заменено: (.+?)( ×\d+)?( · .+)?$/,function(m){var one=m[1];if(m[2]&&typeof TRY_PLURAL!=='undefined')for(var k in TRY_PLURAL)if(TRY_PLURAL[k]===m[1])one=k;return 'Replaced: '+(role(one)||m[1])+(m[2]||'')+(m[3]||'');}],
     [/^В очереди: (\d+)(?: · примерно (\d+) с)?$/,function(m){return 'In queue: '+m[1]+(m[2]?' · about '+m[2]+' s':'');}],
     [/^осталось примерно (\d+) с$/,function(m){return 'about '+m[1]+' s left';}],
     [/^Нет связи с сервером — ждём, кадр не потерян \((\d+) с\)$/,function(m){return 'No connection to the server — waiting, the shot is not lost ('+m[1]+' s)';}],
