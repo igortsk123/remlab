@@ -6,7 +6,7 @@ vi.mock("@/lib/partners/demo-data", async (orig) => ({
   loadDemoRaw: async () => ({ variants: [{ id: "set2", style: "сканди", items: [{ sku: { sid: "112923_1", name: "Диван А (витрина)", price: 51000, url: "https://xf.gdeslon.ru/a", shop: "divan.ru" } }] }] }),
 }));
 
-import { POST } from "@/app/api/collections/route";
+import { GET as GET_MANY, POST } from "@/app/api/collections/route";
 import { GET, PATCH } from "@/app/api/collections/[id]/route";
 import { currentPrices, priceIndex } from "@/lib/collections/prices";
 
@@ -40,6 +40,36 @@ describe("коллекции", () => {
     const oid = ((await old.json()) as { id: string }).id;
     const oc = ((await (await GET(new Request(`http://x/api/collections/${oid}`), { params: Promise.resolve({ id: oid }) })).json()) as { collection: Record<string, unknown> }).collection;
     expect(oc.roomId).toBe("living");
+  });
+
+  // ЧТЕНИЕ ПАЧКОЙ (demo-19 А1): по одному запросу на коллекцию страница упиралась в лимит чтений, и часть избранного считалась
+  // «без цены»; пачка отдаёт те же публичные снимки, несуществующих в ответе нет, номера проверяются
+  it("пачка: те же снимки, что по одному; несуществующих нет; без хеша секрета; повторы убираются", async () => {
+    const ids: string[] = [];
+    const post = (b: unknown) => new Request("http://x/api/collections", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "10.0.7.9" }, body: JSON.stringify(b) });
+    for (let k = 0; k < 3; k++) ids.push(((await (await POST(post({ ...body, items: [{ ...body.items[0], x: 100 + k }] }))).json()) as { id: string }).id);
+    const ghost = "A".repeat(22);
+    const many = (q: string) => GET_MANY(new Request(`http://x/api/collections?ids=${q}`, { headers: { "x-forwarded-for": "10.0.7.1" } }));
+    const r = await many([...ids, ids[0], ghost].join(","));
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { ok: boolean; collections: Record<string, unknown>[] };
+    expect(j.collections.map((c) => c.id).sort()).toEqual([...ids].sort());
+    const one = ((await (await GET(new Request(`http://x/api/collections/${ids[1]}`), { params: Promise.resolve({ id: ids[1]! }) })).json()) as { collection: unknown }).collection;
+    expect(j.collections.find((c) => c.id === ids[1])).toEqual(one);
+    expect(JSON.stringify(j)).not.toContain("editHash");
+    expect(j.collections[0]!.current).toMatchObject({ "112923_1": { price: 51000, unavailable: false } });
+  });
+
+  it("пачка: мусор, пусто и больше 25 номеров — 400; лимит чтений — на запрос, а не на коллекцию", async () => {
+    const many = (q: string | null, ip = "10.0.7.2") => GET_MANY(new Request(`http://x/api/collections${q === null ? "" : `?ids=${q}`}`, { headers: { "x-forwarded-for": ip } }));
+    expect((await many(null)).status).toBe(400);
+    expect((await many("")).status).toBe(400);
+    expect((await many("../etc,passwd")).status).toBe(400);
+    const id = (k: number) => String(k).padStart(22, "B");
+    expect((await many(Array.from({ length: 26 }, (_, k) => id(k)).join(","))).status).toBe(400);
+    expect((await many(Array.from({ length: 25 }, (_, k) => id(k)).join(","))).status).toBe(200);
+    // 200 коллекций браузера = 8 пачек — укладываются в лимит; по одной было бы 200 запросов при лимите 60/мин
+    for (let k = 0; k < 8; k++) expect((await many(Array.from({ length: 25 }, (_, n) => id(k * 25 + n)).join(","), "10.0.7.3")).status).toBe(200);
   });
 
   it("сохранение → ссылка → тот же снимок", async () => {

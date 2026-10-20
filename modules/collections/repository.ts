@@ -1,7 +1,7 @@
 // Хранилище коллекций (план b2b-05): DATABASE_URL → Postgres, иначе память процесса (тесты).
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { collections } from "@/db/schema";
 import { randomToken } from "@/lib/token";
@@ -14,6 +14,8 @@ export type StoredCollection = { id: string; partnerId: string; payload: StoredP
 export interface CollectionRepo {
   create(partnerId: string, c: CollectionIn, now?: Date, editHash?: string): Promise<StoredCollection>;
   get(id: string, now?: Date): Promise<StoredCollection | null>;
+  /** Живые коллекции из списка номеров (чтение пачкой, demo-19 А1); несуществующие и истёкшие пропускаются. */
+  getMany(ids: string[], now?: Date): Promise<StoredCollection[]>;
   /** Картинка снята после сохранения: ставится ОДИН раз и только в первые SHOT_WINDOW_MS (иначе — false). */
   setShot(id: string, shot: string, now?: Date, stateId?: string): Promise<boolean>;
   /** Новое имя — только если хеш секрета совпал с сохранённым (у коллекций до demo-15 хеша нет — false). */
@@ -38,6 +40,9 @@ export class MemoryCollectionRepo implements CollectionRepo {
   async get(id: string, now = new Date()) {
     const r = this.rows.get(id);
     return r && r.expiresAt > now ? r : null;
+  }
+  async getMany(ids: string[], now = new Date()) {
+    return ids.map((id) => this.rows.get(id)).filter((r): r is NonNullable<typeof r> => !!r && r.expiresAt > now);
   }
   async setShot(id: string, shot: string, now = new Date(), stateId?: string) {
     const r = this.rows.get(id);
@@ -70,6 +75,11 @@ class PgCollectionRepo implements CollectionRepo {
     const r = (await db().select().from(collections).where(eq(collections.id, id)).limit(1))[0];
     if (!r || r.expiresAt <= now) return null;
     return { id: r.id, partnerId: r.partnerId, payload: r.payload as unknown as StoredPayload, createdAt: r.createdAt };
+  }
+  async getMany(ids: string[], now = new Date()) {
+    if (!ids.length) return [];
+    const rows = await db().select().from(collections).where(and(inArray(collections.id, ids), gt(collections.expiresAt, now)));
+    return rows.map((r) => ({ id: r.id, partnerId: r.partnerId, payload: r.payload as unknown as StoredPayload, createdAt: r.createdAt }));
   }
   async setShot(id: string, shot: string, now = new Date(), stateId?: string) {
     // одно условие в одном UPDATE: нет картинки И коллекция свежая И (номер состояния не задан у коллекции ИЛИ совпал) —

@@ -511,7 +511,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 /* ОКНО ЧЕРНОВОГО РЕНДЕРА (26.08): кадр считается на сервере (~15 с), поэтому показываем и
    ожидание, и время — человеку должно быть видно, что процесс идёт, а не завис. */
 #shot{position:fixed;inset:0;z-index:60;background:var(--scrim);display:none;align-items:center;
- justify-content:center;padding:16px}
+ justify-content:center;padding:16px;overscroll-behavior:none}   /* страницу под окном держит `lockPage` (demo-19 А2) */
 #shot.on{display:flex}
 /* МОДАЛКА КАДРА: ШАПКА И НИЗ ЗАКРЕПЛЕНЫ, ПРОКРУЧИВАЕТСЯ ТОЛЬКО СЕРЕДИНА (владелец 01.09:
    «не видно низ товаров, прокрутка не очень, кнопки внизу должны быть видны»). Раньше вся
@@ -1037,7 +1037,7 @@ function init(){
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'&&document.getElementById('cons').classList.contains('on'))closeCons();});
   // ПЛАН КВАРТИРЫ — ССЫЛКОЙ, НЕ ВКЛАДКОЙ (demo-16): вкладки теперь стили; назад — «← К стилям»
-  document.querySelectorAll('[data-plan]').forEach(a=>a.onclick=e=>{e.preventDefault(); showTab('plan'); scrollTo(0,0);});
+  document.querySelectorAll('[data-plan]').forEach(a=>a.onclick=e=>{e.preventDefault(); showTab('plan'); pageScrollTo(0);});
   on('planBack','onclick',e=>{e.preventDefault(); showTab('room');});
   on('favBack','onclick',e=>{e.preventDefault(); favBack();});
   // ♡ N в строке квартиры — экран «Избранное» (корзина); пусто — подсказка, куда нажать
@@ -3319,11 +3319,11 @@ const NAV={restoring:0, t:0};   // не путать с `HIST` — истори�
 function viewSnap(){
   const sh=document.getElementById('shot'), on=!!(sh&&sh.classList.contains('on')&&sh.classList.contains('v2'));
   // окно закрыто — главная или экран избранного (demo-17: закрыли окно, открытое с карточки избранного, — под ним избранное)
-  if(!on&&curScreen()==='fav')return {view:'favorites', room:(window.__basket&&window.__basket.sel())||'', y:Math.round(scrollY)};
-  if(!on)return {view:'home', y:Math.round(scrollY)};
+  if(!on&&curScreen()==='fav')return {view:'favorites', room:(window.__basket&&window.__basket.sel())||'', y:Math.round(pageY())};
+  if(!on)return {view:'home', y:Math.round(pageY())};
   const v=allVariants()[cur]||{}, sd=document.getElementById('vside'), sc=document.getElementById('vscroll');
   return {view:'variant', vid:v.id||'', mode:VW.mode, photo:VW.photo, free:!!VW.free, sheet:sd?+sd.dataset.pos||0:0,
-    list:sc?Math.round(sc.scrollTop):0, y:Math.round(scrollY)};
+    list:sc?Math.round(sc.scrollTop):0, y:Math.round(pageY())};
 }
 function histKeep(){ if(window.__EMBED)return;
   if(Date.now()-NAV.restoring<800){clearTimeout(NAV.t); NAV.t=setTimeout(histKeep,850-(Date.now()-NAV.restoring)); return;}   // идёт восстановление — записать после
@@ -3351,18 +3351,18 @@ function favBack(){
   const st=history.state||{};
   if(!window.__EMBED&&NAV.favFrom&&st.remlab&&st.view==='favorites'){history.go(-(st.back||1)); return;}
   if(!window.__EMBED)try{history.replaceState({remlab:1, view:'home', y:0},'');}catch(e){}
-  showTab('room'); scrollTo(0,0);
+  showTab('room'); pageScrollTo(0);
 }
 // восстановить вид записи: окно варианта — тот же вариант, режим, ракурс, шторка, прокрутка списка; избранное; главная
 function restoreView(s){
   NAV.restoring=Date.now();
   const sh=document.getElementById('shot'), open=sh.classList.contains('on'), close=()=>{const x=document.getElementById('shotx'); if(x&&sh.classList.contains('on'))x.click();};
   if(s.view==='favorites'){ if(window.__basket)window.__basket.open(s.room||''); return; }
-  if(s.view==='home'){ close(); if(window.__basket&&window.__basket.close)window.__basket.close(); setTimeout(()=>scrollTo(0,s.y||0),30); return; }
+  if(s.view==='home'){ close(); if(window.__basket&&window.__basket.close)window.__basket.close(); setTimeout(()=>pageScrollTo(s.y||0),30); return; }
   if(s.view!=='variant')return;
   const i=allVariants().findIndex(v=>(v.id||'')===s.vid); if(i<0)return;
   if(!open||i!==cur)vwOpenVariant(i);
-  if(typeof s.y==='number')scrollTo(0,s.y);           // главная под окном — где была (закроют окно — та же прокрутка)
+  if(typeof s.y==='number')pageScrollTo(s.y);         // главная под окном — где была (закроют окно — та же прокрутка)
   setTimeout(()=>{ NAV.restoring=Date.now();
     if(s.mode&&s.mode!==VW.mode&&(s.mode!=='photo'||vwRealShots().length))vwMode(s.mode);
     if(!s.free&&typeof s.photo==='number'&&s.photo!==VW.photo)vwCamGo(s.photo);
@@ -3429,15 +3429,40 @@ function showSwap(){
   const f=document.getElementById('swapFoot');
   if(f)f.hidden=!(baseRev&&items.length&&revision()!==baseRev);
 }
+// ЛЮБОЙ ПОЛНОЭКРАННЫЙ СЛОЙ БЛОКИРУЕТ СТРАНИЦУ (demo-19 А2, владелец 20.10 с телефона): свайп по фото в окне варианта листал
+// главную под окном — закрыл окно и оказался в конце страницы. Под пальцем на фото нет прокручиваемого блока, и жест уходил
+// документу; `overflow:hidden` у body iPhone не держит. Правило одно для всех слоёв: пока открыт хоть один (окно варианта, список
+// мебели, конструктор, лента замен, «во весь экран», окошко имени/выбора), body стоит `position:fixed` со сдвигом на прежнюю
+// прокрутку; закрыли последний — прокрутка та же. Состояние берётся с самих слоёв (а не счётчиком вызовов): слой в слое не
+// отпускает страницу раньше времени, забытый вызов не оставляет её запертой. Прокрутку главной, пока она заперта, читать и
+// задавать — `pageY()`/`pageScrollTo()`
+var PAGE_LOCK={on:false, y:0};   // var, не const: прокрутку могут спросить раньше, чем выполнится эта строка
+var PAGE_LAYERS=[['shot','on'],['swapBox','on'],['cons','on'],['vzoom','on'],['mlist','on'],['sheet','open']];
+function pageLayerOpen(){
+  return PAGE_LAYERS.some(([id,c])=>{const e=document.getElementById(id); return !!e&&e.classList.contains(c);})||!!document.getElementById('favPop');}
+function pageY(){return PAGE_LOCK&&PAGE_LOCK.on?PAGE_LOCK.y:window.scrollY;}
+function pageScrollTo(y){ if(!(PAGE_LOCK&&PAGE_LOCK.on)){window.scrollTo(0,y); return;}
+  PAGE_LOCK.y=Math.max(0,y); document.body.style.top=-PAGE_LOCK.y+'px'; }
+function lockPage(){ if(PAGE_LOCK.on)return;
+  const y=window.scrollY, gap=window.innerWidth-document.documentElement.clientWidth, s=document.body.style;
+  PAGE_LOCK.on=true; PAGE_LOCK.y=y;
+  s.position='fixed'; s.top=-y+'px'; s.left='0'; s.right='0'; s.width='100%'; if(gap>0)s.paddingRight=gap+'px';   // без полосы прокрутки страница не сдвигается
+  document.documentElement.style.overscrollBehavior='none'; }
+function unlockPage(){ if(!PAGE_LOCK.on)return;
+  const s=document.body.style; PAGE_LOCK.on=false;
+  s.position=s.top=s.left=s.right=s.width=s.paddingRight=''; document.documentElement.style.overscrollBehavior='';
+  window.scrollTo(0,PAGE_LOCK.y); }
+function syncPageLock(){ if(pageLayerOpen())lockPage(); else unlockPage(); }
+new MutationObserver(syncPageLock).observe(document.body,{subtree:true, childList:true, attributes:true, attributeFilter:['class']});
 // на телефоне список открывается слоем поверх страницы; на десктопе — как раньше, врезкой
 function openSwapFull(){
   const box=document.getElementById('swapBox'); if(!box)return;
   showSwap();
-  box.classList.add('on'); document.body.style.overflow='hidden'; window.scrollTo(0,0);
+  box.classList.add('on');
 }
 function closeSwapFull(){
   const box=document.getElementById('swapBox'); if(!box)return;
-  box.classList.remove('on'); document.body.style.overflow='';
+  box.classList.remove('on');
 }
 function toggleSwap(i){   // кнопка «Заменить мебель» — выбрать вариант и открыть список
   pickVariant(i);
@@ -3469,13 +3494,11 @@ function openCons(mode){
     :'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Готово — посмотреть в окне» внизу.';
   body.appendChild(hint);
   document.getElementById('cons').classList.add('on');
-  document.body.style.overflow='hidden';
   requestAnimationFrame(()=>{draw();updateConsShot();});
 }
 function closeCons(){
   const work=document.getElementById('work');
   document.getElementById('cons').classList.remove('on');
-  document.body.style.overflow='';
   if(work&&consHome){consHome.appendChild(work);work.hidden=true;}
   drawColl(); showSwap();
   // «Готово» в редакторе — в 3D (demo-09 п.4): расстановку меняли, смотреть её надо в сцене, не в плане и не на старом фото
@@ -5883,6 +5906,47 @@ async function liveShow(){
   }
   function fetchOne(id){return fetch('/api/collections/'+id,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})
     .then(function(j){return j&&j.ok?asVariant(j.collection):null;}).catch(function(){return null;});}
+  // COLLREAD START — ЧТЕНИЕ КОЛЛЕКЦИЙ ПАЧКОЙ С ПОВТОРОМ (demo-19 А1; чистые функции — тест `tests/unit/demo-collread.test.ts`).
+  // Было: при открытии — по запросу на КАЖДУЮ коллекцию разом; сервер пускает 60 чтений в минуту, остальным отвечал 429, и эти
+  // варианты избранного до перезагрузки считались «без цены» («часть цен уточняется — попробуйте через минуту», и через минуту не
+  // проходило). Теперь пачки по 25 (`GET /api/collections?ids=`); отказ (429, 5xx, сеть) — повтор через 1, 2, 4 с (или сколько
+  // велел сервер); «коллекции нет» — только когда сервер ответил пачкой без неё. Сервер без чтения пачкой (404/405) — `legacy`
+  var COLL_BATCH=25, COLL_TRIES=4;
+  function collChunks(ids,n){var out=[]; for(var i=0;i<ids.length;i+=n)out.push(ids.slice(i,i+n)); return out;}
+  // get(url) → Promise<{status, json, retryAfter}> (сеть упала — reject); wait(ms) → Promise.
+  // Итог: found {id: коллекция}, gone [нет на сервере], failed [не прочитаны после всех повторов], legacy [старый сервер]
+  function collReadAll(ids,get,wait){
+    var res={found:{}, gone:[], failed:[], legacy:false};
+    function one(chunk,k){
+      return get('/api/collections?ids='+chunk.join(',')).then(function(r){
+        if(r.status===200&&r.json&&r.json.ok){var have={};
+          (r.json.collections||[]).forEach(function(c){if(c&&c.id){res.found[c.id]=c; have[c.id]=1;}});
+          chunk.forEach(function(id){if(!have[id])res.gone.push(id);}); return;}
+        if(r.status===404||r.status===405){res.legacy=true; return;}
+        var e=new Error('http '+r.status); e.retryAfter=r.retryAfter||0; throw e;
+      }).catch(function(e){
+        if(k+1>=COLL_TRIES){Array.prototype.push.apply(res.failed,chunk); return;}
+        var ms=Math.min(15000,Math.max(1000*Math.pow(2,k),((e&&e.retryAfter)||0)*1000));
+        return wait(ms).then(function(){return one(chunk,k+1);});
+      });
+    }
+    return Promise.all(collChunks(ids,COLL_BATCH).map(function(c){return one(c,0);})).then(function(){return res;});
+  }
+  // COLLREAD END
+  var COLL_GONE={};   // id → сервер ответил, что коллекции нет (истекла, удалена) — только такие избранные «недоступны»
+  function collGet(url){return fetch(url,{cache:'no-store'}).then(function(r){var ra=+(r.headers.get('retry-after')||0)||0;
+    return r.json().catch(function(){return null;}).then(function(j){return {status:r.status, json:j, retryAfter:ra};});});}
+  // прочитать коллекции → варианты; старый сервер — по одной, как раньше (не прочитанная там — «не прочитана», а не «нет»)
+  function readColls(ids){
+    return collReadAll(ids,collGet,function(ms){return new Promise(function(f){setTimeout(f,ms);});}).then(function(r){
+      r.gone.forEach(function(id){COLL_GONE[id]=1;});
+      var vs=ids.filter(function(id){return r.found[id];}).map(function(id){return asVariant(r.found[id]);});
+      if(!r.legacy)return {vs:vs, failed:r.failed};
+      var rest=ids.filter(function(id){return !r.found[id]&&r.gone.indexOf(id)<0;});
+      return Promise.all(rest.map(fetchOne)).then(function(more){
+        return {vs:vs.concat(more.filter(Boolean)), failed:rest.filter(function(_,k){return !more[k];})};});
+    });
+  }
   function openId(id){var i=allVariants().findIndex(function(v){return v.cid===id;});
     if(i>=0){cur=i;
       // пол коллекции — её состояние: применяем до загрузки, чтобы номер состояния совпал с сохранённым (demo-06)
@@ -5899,10 +5963,11 @@ async function liveShow(){
     favsV1().forEach(function(f){add(f.collectionId);});
     try{for(var k=0;k<localStorage.length;k++){var key=localStorage.key(k); if(key&&key.indexOf(BKP)===0){var r=JSON.parse(localStorage.getItem(key)||'null');
       ((r&&r.favorites)||[]).forEach(function(f){add(f&&f.favoriteId);});}}}catch(_){}
-    Promise.all(ids.slice(0,LIMIT).map(fetchOne)).then(function(vs){
-      vs.forEach(function(v){if(v){MINE.push(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}}); if(MINE.length)drawColl(true);
-      // коллекции пришли — перенос demo-15 и пересчёт избранного по текущим ценам (не пришла — «не досчитано», не ноль)
-      if(BK.b){bkMigrate(); bkRefresh(true); bkRedraw();} else {favDraw(); favUi();}
+    readColls(ids.slice(0,LIMIT)).then(function(r){
+      r.vs.forEach(function(v){if(v){MINE.push(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}}); if(MINE.length)drawColl(true);
+      // коллекции пришли — перенос demo-15 и пересчёт избранного по текущим ценам (не прочитана — строки прежние, не ноль;
+      // «недоступна» — только та, которой нет на сервере)
+      if(BK.b){bkMigrate(); bkRefresh(); bkRedraw();} else {favDraw(); favUi();}
       if(want){var v=MINE.find(function(x){return x.cid===want;});
         // коллекция — своей квартиры (британский двойник английского демо, ADR-0298): карточка, валюта и рынок — её
         if(v&&v.apt&&window.__loadFlatCard&&(typeof FLAT==='undefined'||!FLAT||FLAT.id!==v.apt)){window.__sendFlat=v.apt; window.__loadFlatCard();}
@@ -5992,10 +6057,12 @@ async function liveShow(){
     return BK.mod.quoteRoom({roomId:room.id, roomKind:room.kind, currency:FLAT.currency, fx:fxKey()||undefined, at:Date.now(), items:live?items:(v.items||[]),
       decor:variantDecor(v)||[], developerOptions:dev||{}, options:cardOptions(), toCard:function(r){return toCard(r);}});}
   function draftQuote(){var v=allVariants()[cur]||{}; return quoteFor(v,roomOfV(v),DEVOPT,true);}
-  // пересчёт кэша по коллекциям, пришедшим с сервера (текущие цены); не пришла — строки остаются, статус «не досчитано»
-  function bkRefresh(final){ if(!BK.b||!BK.mod)return; var b=BK.b, ch=false;
+  // пересчёт кэша по коллекциям, пришедшим с сервера (текущие цены); не прочитана (сеть, лимит) — строки остаются как были;
+  // «недоступна» — только коллекция, которой на сервере нет (`COLL_GONE`, demo-19 А1: сбой сети навсегда «без цены» не делает);
+  // «нет» сказал сам сервер — метим при любом пересчёте, не дожидаясь конца загрузки
+  function bkRefresh(){ if(!BK.b||!BK.mod)return; var b=BK.b, ch=false;
     b.favorites.forEach(function(f){var v=MINE.find(function(x){return x.cid===f.favoriteId;});
-      if(!v){if(final&&f.quote.status!=='unavailable'){b=BK.mod.updateQuote(b,f.favoriteId,Object.assign({},f.quote,{status:'unavailable'})); ch=true;} return;}
+      if(!v){if(COLL_GONE[f.favoriteId]&&f.quote.status!=='unavailable'){b=BK.mod.updateQuote(b,f.favoriteId,Object.assign({},f.quote,{status:'unavailable'})); ch=true;} return;}
       var q=quoteFor(v,{id:f.roomId,kind:f.roomKind},v.dev||{},false); if(q){b=BK.mod.updateQuote(b,f.favoriteId,q); ch=true;}});
     if(ch){BK.b=b; bkStore(BK.apt,b);}}
   // ПЕРЕНОС demo-15 (Codex 18.10 п.11): старый список общий для всех квартир — квартиру каждой записи узнаём по её коллекции
@@ -6023,7 +6090,7 @@ async function liveShow(){
         BK.apt=FLAT.id; BK.cur=FLAT.currency; BK.limit=(FLAT.certificate&&FLAT.certificate.amount)||0;
         BK.b=m.loadBasket(rawOf(FLAT.id),{apartmentId:FLAT.id, currency:FLAT.currency, fx:fxKey()||undefined});}
       BK.wait.splice(0).forEach(function(f){try{f();}catch(_){}});
-      bkMigrate(); bkRefresh(false); bkRedraw();}).catch(function(e){try{console.warn('модуль корзины не загрузился',e);}catch(_){}});}
+      bkMigrate(); bkRefresh(); bkRedraw();}).catch(function(e){try{console.warn('модуль корзины не загрузился',e);}catch(_){}});}
   document.addEventListener('flatcard',bkOpen); if(typeof FLAT!=='undefined'&&FLAT)bkOpen();
   function baseState(v){if(!v)return '';
     try{return v.mine&&v.stateId?v.stateId:stateIdOf(v.items||[], variantDecor(v), D&&D.room, v.dev||{});}catch(_){return '';}}
@@ -6075,7 +6142,9 @@ async function liveShow(){
       dlg(added,overText(d.overBy),[{label:EN()?'Change the layout to fit':'Изменить расстановку',primary:true,fn:function(){editLayout(f.favoriteId);}},
         {label:EN()?'OK':'Понятно'}]);
       return;}
-    toast(EN()?'Added to favourites. It joins the allowance once all prices are known':'Добавлено в избранное. В сертификат включим, когда уточним цены',goFav(f.roomId));
+    // цена неизвестна — причину называем (demo-19 А1); сама она позже не включится, поэтому обещания «включим» нет
+    var why=pendingWhy(f.quote);
+    toast(added+'. '+(why||(EN()?'Include it in the allowance from Favourites':'Включить в сертификат — в избранном')),goFav(f.roomId));
   }
   function save(name){
     var v=allVariants()[cur]||{}, room=roomOfV(v), st=styleIdOfV(v)||(typeof HOME!=='undefined'&&HOME.styleId)||'';
@@ -6093,7 +6162,7 @@ async function liveShow(){
       whenBasket(function(){if(!draft){var dq=draftQuote(); if(dq)f.quote=dq;}   // корзина открылась позже сохранения — строки досчитать сейчас
         var b=BK.mod.addFavorite(BK.b,f); markMig(f.favoriteId); decide(b,f,BK.mod.evaluate(b,room.id,f.quote,BK.limit));});
       // коллекция с сервера — текущие цены: строки пересчитываются, уже включённый вариант остаётся включённым
-      return afterSave(j.id,snap).then(function(){bkRefresh(false); bkRedraw();});
+      return afterSave(j.id,snap).then(function(){bkRefresh(); bkRedraw();});
     }).catch(function(){toast(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.');});
   }
   function rename(id,name){
@@ -6113,12 +6182,34 @@ async function liveShow(){
   // «Не включать в сертификат»: комната уходит из расчёта, вариант остаётся в избранном; включить снова — переключателем (те же ворота)
   function excludeFav(id){ var f=favOf(id); if(!f||!BK.mod||BK.b.includedByRoom[f.roomId]!==id)return; bkPut(BK.mod.exclude(BK.b,f.roomId));
     toast(EN()?'Not included in the allowance — the total is updated':'Не включено в сертификат — шкала пересчитана');}
-  // «Включить в сертификат» в избранном: ворота модуля — не влезает или цена не досчитана — переключатель не двигается
-  function includeFav(id){ if(!BK.mod||!BK.b)return; var r=BK.mod.include(BK.b,id,BK.limit);
+  // ПОЧЕМУ ВАРИАНТ НЕ ВКЛЮЧАЕТСЯ (demo-19 А1): называем причину — товара нет в продаже, цену даёт менеджер, коллекции больше нет;
+  // null — строки ещё не прочитаны с сервера (их перечитываем, а не просим «попробовать через минуту»)
+  function pendingWhy(q){
+    var EF=EN(), clean=function(t){return String(t||'').replace(/ — (сейчас нет в витрине|no longer in the showroom)$/,'');};
+    if(q&&q.status==='unavailable')return EF?'This layout is no longer available — choose another one':'Эта расстановка больше недоступна — выберите другую';
+    if(!q||q.status!=='fresh')return null;
+    var of=function(st){return q.lines.filter(function(l){return l.settlement==='allowance'&&l.priceStatus===st;}).map(function(l){return '«'+clean(l.label)+'»';});};
+    var gone=of('unavailable'), ask=of('on_request');
+    if(gone.length)return EF?(gone.join(', ')+(gone.length>1?' are':' is')+' no longer on sale — replace '+(gone.length>1?'them':'it')+' in the layout')
+      :((gone.length>1?'Товаров ':'Товара ')+gone.join(', ')+' нет в продаже — замените '+(gone.length>1?'их':'его')+' в расстановке');
+    if(ask.length)return EF?('The price of '+ask.join(', ')+' comes from the manager — it can be included after their reply')
+      :('Цену '+ask.join(', ')+' уточняет менеджер — включить можно после его ответа');
+    return null;
+  }
+  // «Включить в сертификат» в избранном: ворота модуля — не влезает или цена неизвестна — переключатель не двигается
+  function includeFav(id,again){ if(!BK.mod||!BK.b)return; var r=BK.mod.include(BK.b,id,BK.limit);
     if(r.result==='included'){bkPut(r.basket); toast(EN()?'Included in the allowance':'Включено в сертификат'); return;}
     favDraw();
-    if(r.result==='over_limit')dlg(EN()?'Not included':'Не включено',overText(r.overBy||0),[{label:EN()?'Change the layout to fit':'Изменить расстановку',primary:true,fn:function(){editLayout(id);}},{label:EN()?'OK':'Понятно'}]);
-    else toast(EN()?'Some prices are not known yet — try again in a minute':'Часть цен ещё уточняется — попробуйте через минуту');
+    if(r.result==='over_limit'){dlg(EN()?'Not included':'Не включено',overText(r.overBy||0),[{label:EN()?'Change the layout to fit':'Изменить расстановку',primary:true,fn:function(){editLayout(id);}},{label:EN()?'OK':'Понятно'}]); return;}
+    var f=favOf(id), why=pendingWhy(f&&f.quote);
+    if(why){toast(why); return;}
+    var offline=function(){toast(EN()?'No connection to the server — check the internet and tap again':'Нет связи с сервером — проверьте интернет и нажмите ещё раз');};
+    if(again){offline(); return;}
+    // строки не прочитаны (сеть или лимит при открытии) — перечитываем эту коллекцию и пробуем ещё раз
+    readColls([id]).then(function(x){var v=x.vs[0];
+      if(!v){if(!COLL_GONE[id]){offline(); return;} bkRefresh(); bkRedraw(); toast(pendingWhy({status:'unavailable'})); return;}
+      if(!MINE.some(function(m){return m.cid===id;}))MINE.push(v);
+      bkRefresh(); includeFav(id,true);}).catch(offline);
   }
   // «ПОДЕЛИТЬСЯ» (demo-15 п.5): избранное этого состояния → его коллекция; нетронутый готовый вариант → `#v=`;
   // изменённая несохранённая расстановка — сперва снимок (иначе `#v=` отдал бы базовый вариант, Codex (б)); снимок одного состояния — один
@@ -6184,7 +6275,7 @@ async function liveShow(){
   function openFavs(roomId){
     var x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();
     if(roomId)BK.sel=roomId;
-    showTab('fav'); scrollTo(0,0);
+    showTab('fav'); pageScrollTo(0);
   }
   // ИЗБРАННОЕ (demo-16 шаг 2; экраном — demo-17): строка-ссылка под сертификатом на главной; экран — комнаты (группы, в порядке плана)
   // и варианты выбранной комнаты; у каждого — «Включить в сертификат» (ровно один на комнату), «Открыть», «поделиться», «⋯»

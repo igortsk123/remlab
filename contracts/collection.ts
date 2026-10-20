@@ -73,6 +73,14 @@ export type CollectionIn = z.infer<typeof collectionIn>;
  *  публичному `id` переименовать нельзя (ссылкой делятся). В базе — только хеш секрета (`payload.editHash`). */
 export const collectionRenameIn = z.object({ displayName, editToken: z.string().regex(/^[A-Za-z0-9_-]{22}$/) });
 
+/** Чтение пачкой (demo-19 А1): страница при открытии читала каждую коллекцию отдельным запросом и упиралась в лимит
+ *  чтений (60/мин) — отказанные считались «без цены». Теперь `GET /api/collections?ids=a,b,c`: до 25 номеров на запрос
+ *  (ответ ≲ 25 × 5 КБ; 200 коллекций браузера — 8 запросов), повторы убираются. */
+export const COLLECTION_BATCH_MAX = 25;
+export const collectionIdsIn = z.string().max(COLLECTION_BATCH_MAX * 23)
+  .transform((s) => [...new Set(s.split(","))])
+  .pipe(z.array(z.string().regex(/^[A-Za-z0-9_-]{22}$/)).min(1).max(COLLECTION_BATCH_MAX));
+
 /** Текущая цена товара при открытии коллекции: из витрины; нет в витрине — `unavailable`. */
 export type CurrentPrice = {
   price: number | null; priceAt: string | null; unavailable: boolean; temporarilyUnavailable?: boolean;

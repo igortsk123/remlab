@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { collectionRenameIn, collectionShotIn, type CollectionOut } from "@/contracts/collection";
+import { collectionRenameIn, collectionShotIn } from "@/contracts/collection";
 import { foreignOrigin } from "@/lib/http/origin";
-import { currentPrices, priceIndex } from "@/lib/collections/prices";
-import { loadDemoRaw } from "@/lib/partners/demo-data";
-import { findApartment } from "@/lib/partners/registry";
+import { collectionOut, showcaseIndexes } from "@/lib/collections/read";
 import { guard } from "@/lib/ratelimit/http";
 import { TOKEN_RE } from "@/lib/token";
 import { collectionRepo, editHashOf } from "@/modules/collections/repository";
@@ -20,13 +18,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { id } = await ctx.params;
   const row = TOKEN_RE.test(id) ? await collectionRepo().get(id) : null;
   if (!row) return NextResponse.json({ ok: false }, { status: 404 });
-  const src = findApartment(row.payload.apartmentId)?.apartment.sources.demoData;
-  const idx = src ? priceIndex(await loadDemoRaw(src)) : null;
-  const sids = [...row.payload.items, ...row.payload.decor].map((i) => i.sku?.sid).filter((x): x is string => !!x);
-  const { editHash: _secret, ...pub } = row.payload;      // хеш секрета редактирования наружу не уходит
-  const out: CollectionOut = { ...pub, id: row.id, partnerId: row.partnerId, createdAt: row.createdAt.toISOString(),
-    expiresAt: new Date(row.createdAt.getTime() + 365 * 86_400_000).toISOString(),
-    current: currentPrices([...new Set(sids)], idx && idx.size ? idx : null) };
+  const out = await collectionOut(row, showcaseIndexes());
   return NextResponse.json({ ok: true, collection: out }, { headers: { "Cache-Control": "no-store" } });
 }
 

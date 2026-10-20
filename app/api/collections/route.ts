@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 import { foreignOrigin } from "@/lib/http/origin";
 
-import { collectionIn } from "@/contracts/collection";
+import { collectionIdsIn, collectionIn } from "@/contracts/collection";
+import { collectionOut, showcaseIndexes } from "@/lib/collections/read";
 import { guard } from "@/lib/ratelimit/http";
 import { apartmentCard, findApartment } from "@/lib/partners/registry";
 import { canonDeveloperOptions } from "@/lib/partners/options";
@@ -16,6 +17,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 64 * 1024;
+
+// Открыть коллекции пачкой (demo-19 А1): `?ids=a,b,c` — те же публичные снимки, что `GET /api/collections/[id]`, по номерам из
+// ссылок этого браузера; лимит чтений — на запрос, а не на коллекцию. Несуществующих и истёкших в ответе нет — так страница
+// отличает «коллекции нет» от сбоя сети.
+export async function GET(req: Request): Promise<Response> {
+  const limited = await guard(req, "sendRead");
+  if (limited) return limited;
+  const parsed = collectionIdsIn.safeParse(new URL(req.url).searchParams.get("ids") ?? "");
+  if (!parsed.success) return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
+  const rows = await collectionRepo().getMany(parsed.data);
+  const indexOf = showcaseIndexes();
+  const out = await Promise.all(rows.map((r) => collectionOut(r, indexOf)));
+  return NextResponse.json({ ok: true, collections: out }, { headers: { "Cache-Control": "no-store" } });
+}
 
 // Сохранить коллекцию (план b2b-05): снимок своей расстановки → короткая ссылка. Квартира — только из
 // реестра и только с витриной; номер отправки менеджера — только существующий и не отозванный.
