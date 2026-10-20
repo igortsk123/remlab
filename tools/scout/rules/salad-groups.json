@@ -8,19 +8,6 @@
   },
   "usd_rub": 86.89,
   "groups": {
-    "mesh-low-4": {
-      "tier": "low"
-    },
-    "mesh-low-5": {
-      "tier": "low"
-    },
-    "mesh-batch-3": {
-      "tier": "batch",
-      "window_utc": [
-        9,
-        15
-      ]
-    },
     "mesh-low-6": {
       "tier": "low"
     },
