@@ -4,7 +4,7 @@ slug: demo-02-frame-window-ux
 title: Одно окно варианта — живая сцена, «В 3D», «Улучшить», история состояний и ракурсы раздельно; кадр и список всегда из одного состояния (stateId)
 status: in_progress
 created: 2026-10-14
-updated: 2026-10-19
+updated: 2026-10-20
 completed:
 plan_kind: sub
 parent_plan: MASTER-cost-first
@@ -760,6 +760,8 @@ PR kiel-live/kiel-live#602, magic-spells/bottom-sheet)
   а не время (на загруженной DEV анимация длиннее 0,3 с): SE и 390 — 24/24.
 
 - 2026-10-19 — T-20261019-01 (видимая сессия) PASS: на телефоне окно было 97vw — `#shot.v2 .box{width:min(1320px,97vw)}` сильнее мобильного `#shot .box{width:100%}`, полоса прокрутки ни при чём; в мобильный блок `#shot.v2 .box{width:100%}` (9768d24d), /demo опубликован; проба прода: 375/390 во всю ширину, компьютер 1320 без изменений. Хвост: `tools/ops/demo-walk/fav-check.cjs:49` устарел (кнопка с 2.32 под плашкой) — 26/28 на компьютере и до правки.
+
+- 2026-10-20 — T-20261020-01 PASS: подписи плана — отдельный слой drawLabels() в tools/scout/flat215-demo/index.html (7 мест-кандидатов, без наложений и выхода за рамку; ковёр подписан); замер tools/ops/demo-walk/plan-labels.cjs — прод 375/390/1440 × 5 вариантов: нарушений 0 (до — 10/10/5). Правило кнопки под плашкой — tools/ops/demo-walk/cta-rule.cjs (fav-check 28/28 и 30/30, sheet-gestures). demo_swap_pool.report восстановлен (выпал в 4bb8da72). 213ee7c7, /demo опубликован. Открыто: подписи у стен иногда на линии стены (читаются).
 
 ## Completion summary
 —
