@@ -222,7 +222,9 @@ def ensure_group_started():
     # чтобы в логе было видно, что это решение, а не сбой.
     skipped = [g for g in SG.groups_from_env() if not SG.allowed_now(g)]
     if skipped:
-        print(f'группы вне окна, не поднимаю: {", ".join(skipped)}', flush=True)
+        # запрет цены (план mesh-15) — та же ветка: группу, у которой меш дороже потолка, не поднимает никто
+        print('группы вне окна или под запретом цены, не поднимаю: '
+              + ', '.join(f'{g} ({SG.price_halted(g) or "вне окна"})' for g in skipped), flush=True)
     # УЖЕ ПОДНЯТУЮ ГРУППУ НЕ СТАРТУЕМ ПОВТОРНО (05.09). Salad на /start живой группы отвечает
     # `400 replicas_quota_exceeded` (квота 50 реплик уже разобрана ею же). Это не отказ, но в
     # логе он неотличим от настоящей беды — а `no_credits_available` приходит тем же кодом 400

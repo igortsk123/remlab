@@ -20,6 +20,10 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = os.environ.get('MESH_GROUPS_RULES') or os.path.join(HERE, '..', 'rules', 'salad-groups.json')
+# ЗАПРЕТ ЦЕНЫ ПО ГРУППЕ (план mesh-15): сторож денег кладёт сюда группу, у которой меш дороже потолка, ДО её остановки —
+# иначе конвейер (`batch_show.ensure_group_started`) или расписание (`batch_window.sh up`) поднимут её обратно. Общий
+# стоп-файл `mesh-group-halt.json` гасит весь пул; этот — одну группу. Снимает человек (удалить группу из файла).
+PRICE_HALT = os.environ.get('MESH_PRICE_HALT') or os.path.expanduser('~/scout-scenes/mesh-price-halt.json')
 _CACHE: dict | None = None
 
 
@@ -48,12 +52,32 @@ def usd_rub() -> float:
     return float(load().get('usd_rub') or 0)
 
 
+def price_ceiling() -> dict:
+    """Потолок цены меша и правила суда (`price_ceiling` в rules/salad-groups.json); нет блока — пусто (сторож молчит)."""
+    return load().get('price_ceiling') or {}
+
+
+def price_halted(group: str) -> str:
+    """Причина запрета подъёма группы по цене меша; '' — запрета нет. Битый файл — запрета нет, но громко."""
+    try:
+        with open(PRICE_HALT, encoding='utf-8') as f:
+            d = json.load(f)
+    except FileNotFoundError:
+        return ''
+    except (OSError, ValueError) as e:
+        print(f'!! {PRICE_HALT} не читается ({type(e).__name__}) — запрет цены не учтён', flush=True)
+        return ''
+    return str((d.get(group) or {}).get('why') or '') if isinstance(d, dict) else ''
+
+
 def allowed_now(group: str, now: float | None = None) -> bool:
-    """Можно ли ПОДНИМАТЬ группу сейчас. Нет окна — всегда (low работает круглосуточно).
+    """Можно ли ПОДНИМАТЬ группу сейчас. Нет окна — всегда (low работает круглосуточно). Запрет цены — никогда.
 
     Окно — [с, до) по часам UTC. Разбор журнала 01–03.09: доля закрытых заданий на `batch`
     09–14ч 51–81%, 15–19ч 0–9% — вечером хозяева забирают домашние компьютеры, задание рвётся.
     """
+    if price_halted(group):
+        return False
     win = info(group).get('window_utc')
     if not win:
         return True
@@ -87,6 +111,11 @@ if __name__ == '__main__':
     import sys
     if '--windowed' in sys.argv:
         print(' '.join(windowed()))
+    elif '--can-start' in sys.argv:          # batch_window.sh up: 0 — можно поднимать, 1 — запрет цены (окно там своё — cron)
+        _why = price_halted(sys.argv[sys.argv.index('--can-start') + 1])
+        if _why:
+            print(f'запрет цены: {_why}')
+        sys.exit(1 if _why else 0)
     else:
         for g, i in (load().get('groups') or {}).items():
             print(f"{g:14s} {i.get('tier'):6s} {price(g)} $/ч  окно {i.get('window_utc') or '—'}  "

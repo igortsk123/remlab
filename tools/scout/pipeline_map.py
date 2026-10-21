@@ -115,6 +115,16 @@ def collect() -> dict:
         m['demo_engine_drift'] = None if not loc else float(pub != loc)
     except Exception:  # noqa: BLE001
         m['demo_engine_drift'] = None
+    # ₽ ЗА МЕШ (план mesh-15): худшая группа среди тех, что сторож денег уже судит (его окно и его состояние — одна
+    # истина); 0 новых мешей при суде — 99; оценки свежее часа нет или судить пока некого — неизвестно
+    try:
+        p = json.load(open(os.path.expanduser('~/scout-scenes/mesh-money-guard.json'), encoding='utf-8')).get('price') or {}
+        judged = [v for v in (p.get('groups') or {}).values() if v.get('state') in ('дорого', 'дёшево')]
+        fresh = time.time() - float(p.get('at') or 0) < 3600
+        m['mesh_rub_per_mesh'] = (max(99.0 if v.get('per_mesh') is None else float(v['per_mesh']) for v in judged)
+                                  if judged and fresh else None)
+    except Exception:  # noqa: BLE001 — нет состояния сторожа: неизвестно, а не ноль
+        m['mesh_rub_per_mesh'] = None
     # ВРЕМЯ ЧЕРНОВОГО КАДРА на проде (b2b-08 п.5): среднее последних замеров сервиса кадров; нет замеров — неизвестно
     try:
         import urllib.request

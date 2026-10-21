@@ -80,6 +80,10 @@ case "$action" in
       exit 0
     fi
     for g in $WGROUPS; do
+      # ЗАПРЕТ ЦЕНЫ (план mesh-15): группу, у которой меш дороже потолка, расписание не поднимает
+      if ! why=$("$PY" "$HERE/salad_groups.py" --can-start "$g"); then
+        say "старт $g пропущен: $why"; continue
+      fi
       code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Salad-Api-Key: $SALAD_API_KEY" \
              -d '' "$BASE/$g/start" || echo 000)
       say "старт $g: HTTP $code"      # 400 = уже запущена, это не ошибка

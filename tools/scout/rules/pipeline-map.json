@@ -115,6 +115,16 @@
    "runbook": "photo_hash.py --only-mesh; причина — строки «хеш <sku>: …» в логе ночного шага cutout (мёртвое фото — conv-05)"
   },
   {
+   "id": "mesh_rub_per_mesh",
+   "title": "₽ за меш: худшая группа за сутки (потолок 1,5 ₽)",
+   "metric": "mesh_rub_per_mesh",
+   "kind": "backlog",
+   "yellow": 1.5,
+   "red": 3,
+   "owner": "mesh",
+   "runbook": "сторож денег гасит дорогую группу сам (план mesh-15) — разбор: строки «₽ за меш» и «ДОРОГАЯ ГРУППА» в его логе, ~/scout-scenes/mesh-price-halt.json"
+  },
+  {
    "id": "mesh_queue_age",
    "title": "Очередь мешей: возраст старейшего задания, ч",
    "metric": "queue_oldest_hours",

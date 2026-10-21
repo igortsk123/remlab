@@ -29,6 +29,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import salad_groups as SG  # noqa: E402 — тариф/цена группы: ОДИН источник (rules/salad-groups.json)
+import mesh_price as MP    # noqa: E402 — ₽ за меш по группам за сутки (план mesh-15)
 import proc_run as PR      # noqa: E402 — шаг оболочки без сирот
 import sink_health as SH   # noqa: E402 — приёмник: красный = общая беда, а не вина нод
 import ssh_run as SR       # noqa: E402 — ОДНА цепочка уборки приёмника на всех
@@ -133,7 +134,8 @@ def regroup(st: dict, group: str) -> dict:
     if st.get('group') == group:
         return st
     return {'group': group, 'idle_node_min': 0.0, 'silent_since': 0.0,
-            'last_seen_mesh': last_mesh_at(), 'paid_node_min': st.get('paid_node_min') or {}}
+            'last_seen_mesh': last_mesh_at(), 'paid_node_min': st.get('paid_node_min') or {},
+            'price_floor': st.get('price_floor') or {}}
 
 
 def blind_update(st: dict, counts: dict) -> bool:
@@ -424,13 +426,77 @@ def heartbeat(st: dict, gs: list[str], counts: dict, sink: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
     rep, _ = repeats(day_ago)
+    try:   # ₽ ЗА МЕШ ПО ГРУППАМ ЗА СУТКИ (план mesh-15) — без окна сторожа, как есть: пульс — отчёт, а не суд
+        price = MP.summary(MP.by_group(gs, census=CENSUS, journal=JOURNAL))
+    except Exception as e:  # noqa: BLE001 — сводка не должна ронять пульс
+        price = f'не посчитано ({type(e).__name__})'
     notify(f'Пульс мешей: за сутки ok {ok}, из кэша {cached}, повторы {rep}; работает нод {sum(v for v in counts.values() if v > 0)} '
            f'{counts}; оплачено всего {sum(paid.values()) / 60:.1f} нодо-ч ≈ ${usd:.2f} ({rub:.0f} ₽); '
+           f'₽ за меш по группам за сутки: {price}; '
            f'приёмник {"ок" if sink["ok"] else "КРАСНЫЙ: " + sink["why"]}, свободно {sink.get("free_gb", 0):.1f} ГБ.{halt}')
     st['heartbeat_day'] = today
 
 
 LEASE = os.path.expanduser('~/scout-scenes/wave-lease.json')   # разрешение владельца на волну (`wave_guard.py`)
+
+
+def price_tick(st: dict, gs: list[str], now: float | None = None) -> list[str]:
+    """ПОТОЛОК ЦЕНЫ МЕША (план mesh-15, владелец 21.10: «меш не дороже 1,5 рубля»). Каждый тик — ₽ за меш по группам за
+    окно правила (`mesh_price.by_group`); дорогая группа гасится ОДНА (не весь пул, как у правил тишины и обвала), до
+    остановки — запрет её подъёма в `SG.PRICE_HALT` (иначе конвейер или расписание batch поднимут её обратно). Снимает
+    запрет человек. → список погашенных за тик.
+
+    ОКНО ГРУППЫ — НЕ РАНЬШЕ `price_floor[группа]`: первого тика, когда сторож её увидел, и последнего гашения по цене.
+    История до запуска правила не судится (20.10–21.10 A5000 платила за повторы — дефект конвейера mesh-13, не группы:
+    по новым мешам 1,70 ₽, по разным 0,80 ₽, `~/remlab-logs/t21-01-cost.md`); после снятия запрета — суд заново."""
+    now = now or time.time()
+    rule = SG.price_ceiling()
+    if not rule:
+        return []
+    floor = st.setdefault('price_floor', {})
+    for g in gs:
+        floor.setdefault(g, now)
+    res = MP.by_group(gs, now, floor, CENSUS, JOURNAL)
+    st['price'] = {'at': round(now), 'groups': res}
+    hour = time.strftime('%Y-%m-%d %H', time.gmtime(now))
+    if st.get('price_log_h') != hour:          # строка в журнал раз в час — цифра видна без запроса
+        st['price_log_h'] = hour
+        print(f'{time.strftime("%H:%M")} ₽ за меш по группам (потолок {rule["rub_per_mesh"]} ₽): {MP.summary(res)}',
+              flush=True)
+    stopped = []
+    for g, v in res.items():
+        if v['state'] != 'дорого' or SG.price_halted(g):
+            continue
+        per = f'{v["per_mesh"]:.2f} ₽' if v['per_mesh'] is not None else 'ни одного нового'
+        hours = (now - max(float(floor.get(g, now)), now - float(rule.get('window_h') or 24) * 3600)) / 3600
+        why = (f'меш {per} при потолке {v["ceil"]} ₽: потрачено {v["rub"]:.1f} ₽ ({v["node_min"]:.0f} нодо-мин), '
+               f'новых мешей {v["meshes"]} за {hours:.1f} ч (остановлено {time.strftime("%d.%m %H:%M")})')
+        print(f'{time.strftime("%H:%M")} !! ДОРОГАЯ ГРУППА {g}: {why}', flush=True)
+        try:                                   # ЗАПРЕТ ДО ОСТАНОВКИ — как у общего стоп-файла (ночь на 03.09)
+            try:
+                d = json.load(open(SG.PRICE_HALT, encoding='utf-8'))
+            except (OSError, ValueError):
+                d = {}
+            d = d if isinstance(d, dict) else {}
+            d[g] = {'why': why, 'at': round(now), **{k: v[k] for k in ('rub', 'per_mesh', 'meshes', 'node_min')}}
+            tmp = SG.PRICE_HALT + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(d, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, SG.PRICE_HALT)
+        except OSError as e:
+            print(f'{time.strftime("%H:%M")} !! не смог записать запрет цены ({e}) — конвейер может поднять {g} обратно',
+                  flush=True)
+        try:
+            _api(f'{g}/stop', 'POST')
+            census(g)                          # финальная точка переписи: интервал оплаты закрыт здесь
+            print(f'{time.strftime("%H:%M")} группа {g} остановлена по цене меша', flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f'{time.strftime("%H:%M")} !! НЕ СМОГ ПОГАСИТЬ {g} ({type(e).__name__}: {e}) — нужен человек', flush=True)
+        floor[g] = now                         # снимут запрет — судим заново, а не по тем же суткам
+        notify(f'Меши: группа {g} ОСТАНОВЛЕНА — дорого. {why}. Остальные группы работают. Поднять: убрать {g} из '
+               f'{SG.PRICE_HALT} — но сперва разберись, почему меш дорогой (сбои, простой, повторы).')
+        stopped.append(g)
+    return stopped
 
 
 def paid_usd(st: dict) -> float:
@@ -534,6 +600,13 @@ def main() -> int:
         for g, c in counts.items():
             if c > 0:
                 paid[g] = round(paid.get(g, 0.0) + c * (TICK_S / 60.0), 1)
+        # ЧЕТВЁРТЫЙ ПОВОД — ЦЕНА МЕША (план mesh-15): гасит одну дорогую группу, не пул; сбой подсчёта не роняет сторожа
+        try:
+            for g in price_tick(st, gs):
+                counts[g] = 0
+            n = sum(v for v in counts.values() if v > 0)
+        except Exception as e:  # noqa: BLE001
+            print(f'{time.strftime("%H:%M")} !! цена меша не посчитана ({type(e).__name__}: {e})', flush=True)
         mesh_at = last_mesh_at()
         # ПОВТОРЫ — строка в лог за каждый тик, где они появились (план mesh-13). Отсчёт — с прошлой проверки;
         # первый тик после старта сторожа историю не судит.

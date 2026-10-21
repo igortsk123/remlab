@@ -11,19 +11,24 @@ API, сном и путями и проверяет:
   3) все группы остановлены без маркера no_credits → «причина неизвестна» + факт из журнала сторожа простоя, о кредитах
      ни слова; с маркером — про кредиты;
   4) разбор salad.env: последняя строка, `export`, кавычки; нет строки — None (старый список остаётся);
-  5) повторы (план mesh-13): ok того же job_id второй раз считается, cached и разные job_id — нет.
+  5) повторы (план mesh-13): ok того же job_id второй раз считается, cached и разные job_id — нет;
+  6) потолок цены меша (план mesh-15): дорогая группа гаснет одна и под запретом подъёма; дешёвая — нет; мало данных —
+     не судит; повторы не считаются мешами; история до запуска правила не судится; правило — из файла.
 Запуск: ~/venvs/scout/bin/python tests_money_guard.py
 """
 import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import money_guard as G  # noqa: E402
+import mesh_price as MP  # noqa: E402
+import salad_groups as SG  # noqa: E402
 
 bad = 0
 
@@ -146,6 +151,76 @@ def case_repeats(tmp: str) -> None:
         G.JOURNAL = keep
 
 
+def case_price(tmp: str) -> None:
+    """Потолок цены (план mesh-15). Три группы low ($0.143/ч, 86.89 ₽/$) за последние 2 ч, по 1 ноде:
+    g-cheap и g-dear — 24 тика × 5 мин = 120 нодо-мин ≈ 24.9 ₽; g-few — 2 тика ≈ 2.1 ₽ (меньше 3 × 1.5 ₽).
+    g-cheap — 30 новых мешей + 30 повторов (≈0.83 ₽); g-dear — 5 новых + 20 повторов мешей, готовых 30 ч назад
+    (по новым ≈4.97 ₽ — дорого; посчитай повторы мешами — было бы ≈0.99 ₽ и группа уцелела бы)."""
+    rules = os.path.join(tmp, 'salad-groups.json')
+    rule = {'prices_usd_h': {'low': 0.143}, 'usd_rub': 86.89,
+            'groups': {g: {'tier': 'low'} for g in ('g-cheap', 'g-dear', 'g-few')},
+            'price_ceiling': {'rub_per_mesh': 1.5, 'window_h': 24, 'judge_after_meshes': 3}}
+    json.dump(rule, open(rules, 'w'))
+    keep = (SG.RULES, SG._CACHE, SG.PRICE_HALT, G.CENSUS, G.JOURNAL, G._api, G.notify)
+    SG.RULES, SG._CACHE, SG.PRICE_HALT = rules, None, os.path.join(tmp, 'price-halt.json')
+    G.CENSUS, G.JOURNAL = os.path.join(tmp, 'price-census.jsonl'), os.path.join(tmp, 'price-progress.jsonl')
+    now = time.time()
+    with open(G.CENSUS, 'w') as f:
+        for k in range(1, 25):
+            for g in ('g-cheap', 'g-dear') + (('g-few',) if k <= 2 else ()):
+                f.write(json.dumps({'at': now - k * 300, 'group': g, 'total': 1, 'running': 1}) + '\n')
+    rows = [{'status': 'ok', 'group': 'g-cheap', 'prefix': f'm/C{i}', 'at': now - 3000 + i} for i in range(30)]
+    rows += [{'status': 'ok', 'group': 'g-cheap', 'prefix': f'm/C{i}', 'at': now - 1000 + i} for i in range(30)]
+    rows += [{'status': 'ok', 'group': 'g-dear', 'prefix': f'm/D{i}', 'at': now - 30 * 3600 + i} for i in range(20)]
+    rows += [{'status': 'ok', 'group': 'g-dear', 'prefix': f'm/D{i}', 'at': now - 2000 + i} for i in range(20)]
+    rows += [{'status': 'ok', 'group': 'g-dear', 'prefix': f'm/N{i}', 'at': now - 1500 + i} for i in range(5)]
+    rows += [{'status': 'cached', 'group': 'g-dear', 'prefix': f'm/X{i}', 'at': now - 900} for i in range(9)]
+    open(G.JOURNAL, 'w').write(''.join(json.dumps(r) + '\n' for r in rows))
+    calls, sent = [], []
+    G._api = lambda path, method='GET': calls.append((path, method)) or {'instances': []}
+    G.notify = lambda t: sent.append(t) or True
+    gs = ['g-cheap', 'g-dear', 'g-few']
+    try:
+        st = {'price_floor': {g: now - 3 * 3600 for g in gs}}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            stopped = G.price_tick(st, gs, now)
+        res = st['price']['groups']
+        ok('дорогая группа гаснет одна (stop, не delete)', stopped == ['g-dear']
+           and [c for c in calls if c[1] == 'POST'] == [('g-dear/stop', 'POST')])
+        ok('повторы не меши: g-dear 5 новых из 25 ok, g-cheap 30 из 60',
+           res['g-dear']['meshes'] == 5 and res['g-cheap']['meshes'] == 30)
+        ok(f'дешёвая — не гаснет ({res["g-cheap"]["per_mesh"]} ₽), дорогая {res["g-dear"]["per_mesh"]} ₽',
+           res['g-cheap']['state'] == 'дёшево' and 0.8 < res['g-cheap']['per_mesh'] < 0.9
+           and 4.9 < res['g-dear']['per_mesh'] < 5.1)
+        ok('мало данных — не судит (2.1 ₽ < 3 × 1.5 ₽, мешей 0)', res['g-few']['state'] == 'мало данных')
+        ok('запрет подъёма до остановки: g-dear запрещена, g-cheap нет',
+           SG.price_halted('g-dear') and not SG.allowed_now('g-dear') and SG.allowed_now('g-cheap'))
+        ok('сообщение владельцу — одно, про g-dear', len(sent) == 1 and 'g-dear' in sent[0] and 'ОСТАНОВЛЕНА' in sent[0])
+        ok('строка в журнал: «ДОРОГАЯ ГРУППА» и сводка ₽ за меш', 'ДОРОГАЯ ГРУППА g-dear' in out.getvalue()
+           and '₽ за меш по группам' in out.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            again = G.price_tick(st, gs, now + 300)
+        ok('под запретом — второй раз не гасит и не пишет', again == [] and len(sent) == 1)
+        env = dict(os.environ, MESH_GROUPS_RULES=rules, MESH_PRICE_HALT=SG.PRICE_HALT)
+        sg = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'salad_groups.py')
+        r1 = subprocess.run([sys.executable, sg, '--can-start', 'g-dear'], env=env, capture_output=True, text=True)
+        r0 = subprocess.run([sys.executable, sg, '--can-start', 'g-cheap'], env=env, capture_output=True, text=True)
+        ok('batch_window: --can-start — запрещённой 1 с причиной, остальным 0',
+           r1.returncode == 1 and 'запрет цены' in r1.stdout and r0.returncode == 0)
+        st2: dict = {}
+        with contextlib.redirect_stdout(io.StringIO()):
+            G.price_tick(st2, ['g-cheap'], now)
+        ok('история до запуска правила не судится (окно — с первого тика)',
+           st2['price']['groups']['g-cheap']['state'] == 'мало данных' and st2['price_floor']['g-cheap'] == now)
+        json.dump(dict(rule, price_ceiling=dict(rule['price_ceiling'], rub_per_mesh=0.5)), open(rules, 'w'))
+        SG._CACHE = None
+        ok('правило из файла: потолок 0.5 ₽ — g-cheap уже дорого',
+           MP.by_group(['g-cheap'], now, census=G.CENSUS, journal=G.JOURNAL)['g-cheap']['state'] == 'дорого')
+    finally:
+        SG.RULES, SG._CACHE, SG.PRICE_HALT, G.CENSUS, G.JOURNAL, G._api, G.notify = keep
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         G.STATE, G.HALT = os.path.join(tmp, 'guard.json'), os.path.join(tmp, 'halt.json')
@@ -153,11 +228,13 @@ def main() -> int:
         G.JOURNAL, G.LEASE = os.path.join(tmp, 'progress.jsonl'), os.path.join(tmp, 'lease.json')
         G.NO_CREDITS, G.IDLE_LOG = os.path.join(tmp, 'no-credits.json'), os.path.join(tmp, 'idle.log')
         G.WINDOW_LOG = os.path.join(tmp, 'window.log')
+        SG.PRICE_HALT = os.path.join(tmp, 'price-halt-loop.json')   # живой запрет цены стенд не читает и не пишет
         open(G.JOURNAL, 'w').close()
         case_env_parse(tmp)
         case_loop(tmp)
         case_credits_only_by_marker(tmp)
         case_repeats(tmp)
+        case_price(tmp)
     print('сторож денег: ' + ('ВСЁ ЗЕЛЁНОЕ' if not bad else f'ПРОВАЛОВ {bad}'))
     return 1 if bad else 0
 
