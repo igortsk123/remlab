@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import photo_hash as PH  # noqa: E402
 MAP = os.path.join(HERE, 'rules', 'pipeline-map.json')
 STATE = os.path.expanduser(os.environ.get('PIPELINE_STATE', '~/scout-scenes/pipeline-state.json'))
 HISTORY = os.path.expanduser(os.environ.get('PIPELINE_HISTORY', '~/scout-scenes/pipeline-history.jsonl'))
@@ -81,6 +82,11 @@ def collect() -> dict:
     except Exception:  # noqa: BLE001
         m['demo_variants'] = None
     m['swap_below_floor'], m['swap_hungry'] = _swap_stats()
+    # ХЕШ ФОТО У ТОВАРОВ С МЕШОМ (план mesh-14): без него готовый меш не станет ready, а сменившееся фото не вызовет
+    # переделку (`mesh_priority.suppress_seed0`). Число — из базы; «с какого времени» — отметка `photo_hash.MISSING`.
+    miss = set(_sql(PH.missing_sql()).split('\n')) - {''}
+    m['photo_hash_missing'] = float(len(miss))
+    m['photo_hash_missing_oldest_h'] = PH.oldest_hours(miss, PH._load_missing(), time.time())
     # карантин моделей (ADR-0276): ждут решения владельца; цены «по странице», у которых страница устарела (ADR-0260)
     m['quarantine_open'] = _n("select count(*) from mesh_quarantine where decision is null")
     m['price_stale'] = _n("select count(*) from products where in_stock and price_basis = 'feed-stale'")
@@ -291,6 +297,8 @@ def _selftest() -> int:
     ok('сломанный стык: тревога сразу, через час — тишина, через сутки — напоминание, починили — «восстановился»',
        len(m1) == 1 and 'КРАСНЫМ' in m1[0] and m1[0].startswith('WARN:pipe_role') and not m2 and len(m3) == 1
        and len(m4) == 1 and 'восстановился' in m4[0])
+    ok('товар с мешом без хеша фото: 23 ч — норма, 25 ч — жёлтый (тревога), 73 ч — красный',
+       [level(st['photo_hash_age'], h, None) for h in (23, 25, 73)] == ['ok', 'yellow', 'red'])
     m5, _ = alerts(stages, {'role': 'red'}, {'role_share': 0.0}, {}, 1000.0, cfg['remind_hours'],
                    {'role': {'reason': 'известно', 'expires': '2999-01-01'}})
     ok('отсрочка с причиной и сроком глушит тревогу', not m5)

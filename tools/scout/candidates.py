@@ -20,10 +20,12 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import pool_gate as PG  # noqa: E402 — граница качества 0.65 включительно (план mesh-14)
 INDEX = os.path.join(HERE, 'candidates-index.json')
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
-MIN_QUALITY = 0.65
+MIN_QUALITY = PG.MIN_QUALITY   # граница — pool_gate (0.65 включительно, план mesh-14)
 
 # размерные полки по длинной стороне, см: комплект подбирается под метраж, и полка отсекает
 # заведомо чужое до всякого скоринга
@@ -67,7 +69,7 @@ def build() -> dict:
              e.payload->'model'->>'visual_mass', e.payload->'model'->>'warmth', e.quality,
              p.url
         from product_enrichment e join products p using (shop_mid, external_id)
-       where e.payload is not null and e.status='active' and e.quality >= {MIN_QUALITY}
+       where e.payload is not null and e.status='active' and {PG.quality_ok('e.quality')}
          and p.price_rub is not null and p.image_url is not null and coalesce(p.photo_alive, true)  -- conv-05
          and p.in_stock  -- мёртвые карточки (health.py) не должны попадать в комплекты (А2)
          and p.cat_role is not null  -- роль снята каталогом (детское по названию или картинке, demo-05 17.10) — не кандидат

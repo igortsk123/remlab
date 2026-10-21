@@ -21,11 +21,9 @@ sys.path.insert(0, HERE)
 from asset_strategy import non_mesh_roles  # noqa: E402
 from mesh_queue import db, q  # noqa: E402
 from preprocess import ASSESSOR_VERSION     # noqa: E402
+import pool_gate as PG  # noqa: E402
 
-POOL = ("from products p join product_enrichment e using (shop_mid, external_id) "
-        "where p.cat_role is not null and p.status='active' and p.in_stock "
-        "and p.image_url is not null and p.price_rub is not null "
-        "and e.status='active' and e.payload is not null and e.quality>=0.65")
+POOL = PG.POOL_SQL   # ворота пула и граница 0.65 — одно место (pool_gate, план mesh-14)
 EX = ','.join(q(r) for r in sorted(non_mesh_roles()))
 
 

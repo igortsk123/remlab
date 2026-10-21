@@ -11,6 +11,7 @@ from PIL import Image
 from style_tags import tag, style_ok
 from item_function import fits_role, subtype
 import enrich_bridge as EB   # проверенное моделью обогащение каталога (К2): подтип, стиль, качество
+import pool_gate as PG       # граница качества 0.65 включительно — одно место (план mesh-14)
 from proportions import P as _PROP, check as prop_check
 PROP_RULES={r['id']: r['allowed'] for r in _PROP['rules']}
 
@@ -55,7 +56,7 @@ def _load_rich():
        +", ".join(f"count(*) filter (where {c})" for c in _TIER_BAND_SQL.values())
        +" from products p join product_enrichment e using (shop_mid, external_id)"
        " where p.cat_role is not null and p.status='active' and p.in_stock"
-       " and e.payload is not null and e.quality>=0.65 group by 1;")
+       " and e.payload is not null and " + PG.quality_ok('e.quality') + " group by 1;")
     r=_sp.run(PSQL,input=q,capture_output=True,text=True)
     for line in r.stdout.strip().split('\n'):
         f=line.split('\x1f')

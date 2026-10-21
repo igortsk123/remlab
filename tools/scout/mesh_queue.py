@@ -21,12 +21,14 @@
   ~/venvs/scout/bin/python mesh_queue.py --report           # состояние конвейера
 Повторный --run без изменений каталога обязан дать 0 новых заданий (гейт плана).
 """
-import hashlib
 import json
 import os
 import subprocess
 import sys
-import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import photo_hash as PH  # noqa: E402 — хеш фото считает только он (план mesh-14)
+import pool_gate as PG  # noqa: E402 — граница качества 0.65 включительно (план mesh-14)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SETS = os.path.join(HERE, 'sets3.json')
@@ -199,7 +201,7 @@ def demand_reserve() -> dict[str, dict]:
         from products p
         join product_enrichment e using (shop_mid, external_id)
        where p.cat_role in ({roles}) and p.in_stock and p.image_url is not null
-         and e.status='active' and e.payload is not null and e.quality >= 0.65
+         and e.status='active' and e.payload is not null and {PG.quality_ok('e.quality')}
        order by p.cat_role, e.quality desc, p.shop_mid, p.external_id
     """)
     out, per_role = {}, {}
@@ -304,29 +306,32 @@ SHA_MAX_AGE_DAYS = int(os.environ.get('MESH_SHA_MAX_AGE_DAYS', '30'))
 
 
 def ingest(limit: int) -> int:
-    """SHA-256 байтов фото для demand-строк без него. Байты выбрасываем — хеш остаётся.
+    """Хеш фото для demand-строк без него — СЧИТАЕТ `photo_hash` (единственный писатель `product_photo_current`,
+    план mesh-14), здесь только копия. Раньше хеш считался тут же по фидовому адресу, а `product_photo_current` — по HD:
+    у одного товара жили два sha, и готовый меш не узнавал своё фото.
 
     Перехешируем не только новые строки, но и те, чей хеш старше `SHA_MAX_AGE_DAYS`: магазин
     может подменить картинку под ТЕМ ЖЕ адресом, и тогда смену не поймать ни по URL, ни по
     расписанию фида. Без этого меш от старого фото молча числится свежим.
     """
-    rows = db("select sku, image_url from mesh_demand "
+    rows = db("select sku from mesh_demand "
               "where status='wanted' and image_url is not null "
               "  and (source_sha is null "
               f"       or sha_at is null or sha_at < now() - interval '{SHA_MAX_AGE_DAYS} days') "
               f"order by (source_sha is not null), priority, sku limit {limit}")
-    n = 0
-    for sku, url in rows:
-        try:
-            if url.startswith('//'):
-                url = 'https:' + url          # фид отдаёт протокол-относительные URL
-            with urllib.request.urlopen(url, timeout=30) as r:
-                sha = hashlib.sha256(r.read()).hexdigest()
-            db(f"update mesh_demand set source_sha={q(sha)}, sha_at=now() where sku={q(sku)}")
-            n += 1
-        except Exception as e:  # noqa: BLE001 — мёртвое фото не валит прогон, строка ждёт
-            print(f'  ingest {sku}: {str(e)[:80]}', flush=True)
+    n = PH.hash_skus([r[0] for r in rows])['hashed']
+    copy_photo_current()
     return n
+
+
+def copy_photo_current() -> None:
+    """ЕДИНАЯ ИСТИНА ФОТО (Codex P1-5): спрос из сетов несёт фидовый url, а хеши считаются по
+    HD — без нормализации в задании могли разъехаться url, вердикт и sha (три разных снимка)."""
+    db("""update mesh_demand d set image_url = c.image_url, source_sha = c.source_sha,
+              sha_at = c.observed_at
+         from product_photo_current c where c.sku = d.sku
+          and (d.source_sha is distinct from c.source_sha
+               or d.image_url is distinct from c.image_url)""")
 
 
 def reconcile_legacy() -> int:
@@ -399,13 +404,7 @@ def run() -> None:
     db(f"update mesh_demand set status='not_required' "
        f"where status='wanted' and sku not in ({skus})")
 
-    # ЕДИНАЯ ИСТИНА ФОТО (Codex P1-5): спрос из сетов несёт фидовый url, а хеши считаются по
-    # HD — без нормализации в задании могли разъехаться url, вердикт и sha (три разных снимка).
-    db("""update mesh_demand d set image_url = c.image_url, source_sha = c.source_sha,
-              sha_at = c.observed_at
-         from product_photo_current c where c.sku = d.sku
-          and (d.source_sha is distinct from c.source_sha
-               or d.image_url is distinct from c.image_url)""")
+    copy_photo_current()
     got = ingest(INGEST_MAX)
     legacy = reconcile_legacy()
 

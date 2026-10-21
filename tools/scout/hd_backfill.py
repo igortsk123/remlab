@@ -9,9 +9,9 @@
 Что делает для каждого SKU из очереди (in_stock, image_url_hd пуст, есть ревизия меша):
   1. берёт original_picture из свежего фида магазина;
   2. качает текущее фото (по адресу из product_photo_current, иначе image_url) и HD, сравнивает SHA байтов;
-  3. байты одинаковые → только записывает адрес HD (перехеширования не будет);
-     разные → записывает HD и СРАЗУ обновляет product_photo_current новым SHA (cutout_sync не тратит
-     обход на повторную закачку), меш станет stale при ближайшем mesh_bind;
+  3. записывает адрес HD и СРАЗУ — хеш HD в product_photo_current через `photo_hash.upsert_sql` (единственный
+     писатель, план mesh-14). Байты разные → меш станет stale при ближайшем mesh_bind; одинаковые → хеш тот же,
+     строка всё равно пишется: раньше при SD = HD её не создавали, и у товара без строки хеш не появлялся никогда;
   4. пишет строку в hd_backfill_log.
 
   hd_backfill.py --dry            # только сравнить и показать
@@ -34,6 +34,7 @@ UA = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) remlab-catalog/1.0'}
 
 sys.path.insert(0, HERE)
 from load3 import norm_hd  # noqa: E402 — одна и та же нормализация HD-адреса
+import photo_hash as PH  # noqa: E402 — единственный писатель product_photo_current (план mesh-14)
 
 
 def db(q: str) -> list[list[str]]:
@@ -129,13 +130,11 @@ def main() -> int:
         is_same = sd_sha == hd_sha
         same += is_same
         diff += (not is_same)
-        print(f'  {sku}: байты {"одинаковые" if is_same else "РАЗНЫЕ"} → {"только адрес" if is_same else "HD + новый source_sha, меш → stale"}', flush=True)
+        print(f'  {sku}: байты {"одинаковые" if is_same else "РАЗНЫЕ"} → {"адрес HD, хеш тот же" if is_same else "HD + новый source_sha, меш → stale"}', flush=True)
         if dry:
             continue
-        stmts = [f"update products set image_url_hd={q(hd_url)} where shop_mid={mid} and external_id={q(eid)};"]
-        if not is_same:
-            stmts.append(f"insert into product_photo_current (sku, image_url, source_sha, observed_at) values ({q(sku)},{q(hd_url)},{q(hd_sha)},now()) "
-                         "on conflict (sku) do update set image_url=excluded.image_url, source_sha=excluded.source_sha, observed_at=now();")
+        stmts = [f"update products set image_url_hd={q(hd_url)} where shop_mid={mid} and external_id={q(eid)};",
+                 PH.upsert_sql(sku, hd_url, hd_sha)]
         stmts.append(f"insert into hd_backfill_log (sku, hd_url, sd_url, sd_sha, hd_sha, same_bytes) values ({q(sku)},{q(hd_url)},{q(sd_url)},{q(sd_sha)},{q(hd_sha)},{'true' if is_same else 'false'}) "
                      "on conflict (sku) do nothing;")
         db('begin;' + ''.join(stmts) + 'commit;')

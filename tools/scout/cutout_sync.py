@@ -50,6 +50,8 @@ import collage            # noqa: E402
 import components         # noqa: E402
 import hybrid_mask        # noqa: E402
 import preprocess as PRE  # noqa: E402  (defringe/trim_alpha/mask_verdict — они без GPU)
+import photo_hash as PH   # noqa: E402  (единственный писатель хеша фото, план mesh-14)
+import pool_gate as PG    # noqa: E402  (ворота пула и граница 0.65)
 
 CACHE = os.path.expanduser(os.environ.get('CUTOUT_CACHE', '~/scout-scenes/cutouts'))
 BACKEND = os.environ.get('CUTOUT_BACKEND', 'fal')
@@ -199,64 +201,21 @@ def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[
 # сборки, то есть слишком поздно и слишком узко.
 # Ворота пула — те же, что у подбора: роль, активен, в наличии, есть фото и цена,
 # обогащение активно, quality >= 0.65. На 29.08 это 16 653 товара, из них 14 989 идут и на меши.
-POOL_SQL = """
-  from products p join product_enrichment e using (shop_mid, external_id)
- where p.cat_role is not null and p.status='active' and p.in_stock
-   and p.image_url is not null and p.price_rub is not null
-   and e.status='active' and e.payload is not null and e.quality >= %s
-"""
-MIN_QUALITY = os.environ.get('CUTOUT_MIN_QUALITY', '0.65')
+# Ворота пула и граница качества — `pool_gate.py` (одно место; 0.65 включительно, план mesh-14).
+POOL_SQL = PG.POOL_SQL
 
 
 def pool_size() -> int:
-    return int(db('select count(*)' + (POOL_SQL % MIN_QUALITY))[0][0])
+    return int(db('select count(*)' + POOL_SQL)[0][0])
 
 
 def sync_photos(limit: int) -> int:
-    """Хеш байтов фото для пула — без него нечем ключевать оценку.
+    """Хеш байтов фото — теперь `photo_hash.sync` (ЕДИНСТВЕННЫЙ писатель `product_photo_current`, план mesh-14).
 
-    Держим отдельно от `mesh_demand.source_sha`: спрос мешей узок, а резать надо весь пул.
-    Перехеширование раз в `SHA_MAX_AGE_DAYS` — магазин подменяет картинку под тем же адресом.
-    """
-    # КРУПНОЕ ФОТО В ПРИОРИТЕТЕ (29.08). `image_url_hd` — картинка с CDN магазина, 800×600
-    # против 450×338 в фиде. На 450 px проволочная ножка занимает 1–2 пикселя физически, и
-    # никакой вырезальщик её не восстановит; вдвое больше по стороне — это вчетверо больше
-    # информации ровно там, где мы теряем детали. Хеш считается по ТЕМ байтам, которые режем,
-    # поэтому появление HD у товара автоматически ставит его на перерезку.
-    rows = db(
-        "select p.shop_mid||':'||p.external_id, coalesce(p.image_url_hd, p.image_url) "
-        + (POOL_SQL % MIN_QUALITY) +
-        # Сравнивать надо с ТЕМ адресом, который мы реально качаем (HD в приоритете): иначе
-        # каждый прогон заново хеширует все товары с HD-фото — c.image_url хранит HD-адрес,
-        # а p.image_url остаётся фидовым, и проверка свежести вечно промахивается.
-        "   and not exists (select 1 from product_photo_current c "
-        "        where c.sku = p.shop_mid||':'||p.external_id "
-        "          and c.image_url = coalesce(p.image_url_hd, p.image_url) "
-        f"          and c.observed_at > now() - interval '{os.environ.get('SHA_MAX_AGE_DAYS', '30')} days') "
-        f" order by p.shop_mid, p.external_id limit {limit}")
-    def one_hash(r):
-        if len(r) != 2:
-            return None
-        sku, url = r
-        try:
-            return sku, url, hashlib.sha256(fetch(url)).hexdigest()
-        except Exception as e:  # noqa: BLE001 — мёртвое фото не валит прогон
-            print(f'  хеш {sku}: {type(e).__name__}: {str(e)[:70]}', flush=True)
-            return None
-    n = 0
-    # Скачивание параллельно (CDN магазинов держат 8 потоков), ЗАПИСЬ — последовательно:
-    # psql через docker exec не любит одновременных клиентов из тредов.
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        for res in ex.map(one_hash, rows):
-            if not res:
-                continue
-            sku, url, sha = res
-            db("insert into product_photo_current (sku, image_url, source_sha, observed_at) "
-               f"values ({q(sku)}, {q(url)}, {q(sha)}, now()) "
-               "on conflict (sku) do update set image_url=excluded.image_url, "
-               "source_sha=excluded.source_sha, observed_at=now()")
-            n += 1
-    return n
+    Раньше хешировали здесь и только пул подбора (качество ≥ 0.65), а меш нужен и товарам ниже порога: 405
+    представителей `mesh_required` остались без хеша, готовые меши висели в вечном stale. Кого хешировать и в каком
+    порядке (сначала mesh-товары stale/none, потом пул; HD в приоритете) — решает `photo_hash.targets_sql`."""
+    return PH.sync(limit)['hashed']
 
 
 def todo(limit: int) -> list[tuple[str, str, str, str]]:

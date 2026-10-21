@@ -22,9 +22,11 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import pool_gate as PG  # noqa: E402
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
-MIN_QUALITY = 0.65
+MIN_QUALITY = PG.MIN_QUALITY   # одно место — pool_gate (план mesh-14)
 
 # «нет/низкая/средняя/высокая» → шкала 0–10, в которой живёт style-scores.json.
 # Дискретные ступени — осознанный выбор К3: числа 0–1 от модели не воспроизводятся между

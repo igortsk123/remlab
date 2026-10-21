@@ -31,6 +31,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from golden_label import SCHEMA, SYS, prompt, schema_for, _key, _image_b64  # noqa: E402
+import pool_gate as PG  # noqa: E402 — граница качества 0.65 включительно (план mesh-14)
 from rules0 import extract, flags, pool  # noqa: E402
 
 MODEL = 'gpt-5.6-luna'
@@ -465,10 +466,10 @@ def fetch(batch_id: str, items: dict | None = None) -> None:
 
 
 def stats() -> None:
-    print(sql("""select 'обогащено: '||count(*) filter (where payload is not null)
+    print(sql(f"""select 'обогащено: '||count(*) filter (where payload is not null)
                      ||' из '||count(*)||'; среднее качество '
                      ||coalesce(round(avg(quality)::numeric,2)::text,'—')
-                     ||'; ниже 0.65: '||count(*) filter (where quality<0.65)
+                     ||'; ниже 0.65: '||count(*) filter (where not {PG.quality_ok('quality')})
                  from product_enrichment e
                  join lr_roles l using (shop_mid, external_id) where l.role is not null;""").strip())
 
@@ -593,8 +594,8 @@ def main() -> None:
         # Уровень 3 только тем, кому сильная модель реально поможет: текст есть, размеры полные,
         # а роль или подтип спорны. Позициям с дырами в размерах эскалация бесполезна — модель
         # не восстанавливает сантиметры (замер 2026-08-05: из 2 284 слабых таких 2 143).
-        ids = sql("""select shop_mid, external_id from product_enrichment
-                     where quality<0.65 and payload is not null
+        ids = sql(f"""select shop_mid, external_id from product_enrichment
+                     where not {PG.quality_ok('quality')} and payload is not null
                        and payload->'rules'->>'has_desc'='true'
                        and payload->'rules'->>'dims_quality'='полные'""")
         keys = {tuple(l.split('\x1f')) for l in ids.strip().split('\n') if l}
