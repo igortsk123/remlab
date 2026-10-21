@@ -18,6 +18,13 @@
 (`mesh-group-halt.json`, `mesh-batch.PAUSE`); «нет денег» было меньше 2 ч назад; диск DEV ≥ 85 % или < 20 ГБ.
 «Жду денег» — одно сообщение в сутки. Крон DEV: */15.
 
+ПРОФИЛЬ ОЧЕРЕДИ — ИЗ РАЗРЕШЕНИЯ (владелец 21.10: «меши не на весь каталог, а сколько нужно для демо»; T-20261021-10/2).
+`"profile": "demo"` в lease → старт с `MESH_QUEUE_PROFILE=demo` (`mesh_wave_start.sh` собирает снимок по
+`rules/mesh-queue-demo.json`), порог — `"profile_min_jobs"` (по умолчанию 1) вместо боевого `min_jobs`. Без поля — боевая
+очередь, как раньше. Раньше профиль жил только в окружении ручного запуска: крон его не знал и через ≤15 мин после
+demo-волны поднимал боевую на 5578 заданий. Заданий профиля меньше порога → «нечего делать»: шаги старта не проходим,
+волну не открываем, в журнал — одна строка на смену состояния.
+
   ~/venvs/scout/bin/python salad/wave_guard.py           # решение (+ старт, если можно)
   ~/venvs/scout/bin/python salad/wave_guard.py --dry     # только решение
   python3 salad/wave_guard.py --selftest
@@ -59,9 +66,30 @@ def left_usd(lease: dict) -> float:
     return float(lease.get('max_usd', 0)) - float(lease.get('spent_usd', 0))
 
 
+def profile_of(lease: dict | None) -> tuple[str, int]:
+    """(профиль очереди, порог заданий): с профилем — свой `profile_min_jobs` (по умолчанию 1), без — боевой `min_jobs`."""
+    p = str((lease or {}).get('profile') or '')
+    return (p, int((lease or {}).get('profile_min_jobs', 1))) if p else ('', int((lease or {}).get('min_jobs', 100)))
+
+
+def profile_jobs(profile: str) -> int | None:
+    """Сколько заданий соберёт профиль — тот же отбор, что у снимка (`mesh_priority --profile … --export`), без шагов
+    старта. None — посчитать не вышло (тогда не стартуем)."""
+    import tempfile  # noqa: PLC0415
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, 'q.json')
+        r = subprocess.run([sys.executable, os.path.join(HERE, '..', 'mesh_priority.py'), '--profile', profile, '--export', out],
+                           capture_output=True, text=True, timeout=1800)
+        try:
+            return len(json.load(open(out, encoding='utf-8'))) if r.returncode == 0 else None
+        except (OSError, ValueError):
+            return None
+
+
 def decide(lease: dict | None, today: str, busy: bool, stops: list, no_credit_age_h: float | None,
-           disk_pct: float, free_gb: float, usd_per_mesh: float) -> tuple[str, dict]:
-    """→ (решение, параметры старта). Чистая функция — проверяется селфтестом."""
+           disk_pct: float, free_gb: float, usd_per_mesh: float, jobs: int | None = None) -> tuple[str, dict]:
+    """→ (решение, параметры старта). Чистая функция — проверяется селфтестом. `jobs` — сколько заданий у профиля
+    (считает `main` только для профиля и только когда иначе был бы старт): меньше порога → 'nothing_to_do'."""
     if busy:
         return 'busy', {}
     if stops:
@@ -71,14 +99,30 @@ def decide(lease: dict | None, today: str, busy: bool, stops: list, no_credit_ag
     if str(lease.get('expires', '')) < today:
         return 'lease_expired', {}
     left = int(left_usd(lease) / usd_per_mesh)
-    min_jobs = int(lease.get('min_jobs', 100))
+    profile, min_jobs = profile_of(lease)
     if left < min_jobs:
         return 'budget_spent', {}
     if no_credit_age_h is not None and no_credit_age_h < 2:
         return 'waiting_money', {}
     if disk_pct >= 85 or free_gb < 20:
         return 'disk', {}
-    return 'start', {'MESH_TAKE_JOBS': str(left), 'MESH_MIN_JOBS': str(min_jobs)}
+    if profile and jobs is None:
+        return 'profile_unknown', {'MESH_QUEUE_PROFILE': profile}
+    if profile and jobs < min_jobs:
+        return 'nothing_to_do', {'MESH_QUEUE_PROFILE': profile, 'jobs': jobs}
+    return 'start', {'MESH_TAKE_JOBS': str(left), 'MESH_MIN_JOBS': str(min_jobs),
+                     **({'MESH_QUEUE_PROFILE': profile} if profile else {})}
+
+
+def last_verdict() -> str:
+    """Решение прошлого тика (последняя строка журнала) — чтобы «нечего делать» не писать каждые 15 минут."""
+    try:
+        with open(JOURNAL, 'rb') as f:
+            f.seek(max(0, f.seek(0, 2) - 4096))
+            tail = f.read().decode('utf-8', 'replace').strip().splitlines()
+        return str(json.loads(tail[-1]).get('verdict') or '') if tail else ''
+    except (OSError, ValueError, IndexError):
+        return ''
 
 
 def wave_summary(w: dict, spent: float, meshes: int, why: str, left: float) -> str:
@@ -148,10 +192,14 @@ def main() -> int:
     nc_age = (time.time() - json.load(open(NO_CREDITS)).get('at', 0)) / 3600 if os.path.exists(NO_CREDITS) else None
     du = shutil.disk_usage(os.path.expanduser('~'))
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    verdict, env = decide(lease, today, busy or open_wave and not lease['waves'][-1].get('closed'),
-                          [p for p in STOPS if os.path.exists(p)],
-                          nc_age, du.used / du.total * 100, du.free / 2**30, usd_per_mesh)
+    args = (lease, today, busy or open_wave and not lease['waves'][-1].get('closed'),
+            [p for p in STOPS if os.path.exists(p)], nc_age, du.used / du.total * 100, du.free / 2**30, usd_per_mesh)
+    verdict, env = decide(*args)
+    if verdict == 'profile_unknown':                    # профиль: задания считаем, только когда иначе был бы старт
+        verdict, env = decide(*args, jobs=profile_jobs(env['MESH_QUEUE_PROFILE']))
     rec = {'at': time.time(), 'verdict': verdict, **env}
+    if verdict in ('nothing_to_do', 'profile_unknown') and last_verdict() == verdict:
+        return 0                                        # то же «нечего делать» — молчим: одна строка на смену состояния
     with open(JOURNAL, 'a', encoding='utf-8') as f:
         f.write(json.dumps(rec, ensure_ascii=False) + '\n')
     print(f'{today} автозапуск волны: {verdict} {env}', flush=True)
@@ -230,7 +278,44 @@ def _selftest() -> int:
     ok('конвейер идёт — не мешаем', d(busy=True)[0] == 'busy')
     ok('стоп-файл владельца сильнее разрешения', d(stops=['halt'])[0] == 'stopped_by_owner')
     ok('диск DEV почти полон — не стартуем', d(disk_pct=90)[0] == 'disk')
+    # ПРОФИЛЬ ОЧЕРЕДИ (T-20261021-10/2)
+    D = {**L, 'profile': 'demo', 'profile_min_jobs': 1}
+    ok('lease без profile — боевой: в env старта профиля нет', 'MESH_QUEUE_PROFILE' not in d()[1])
+    ok('profile=demo: без счёта заданий не стартуем', d(lease=D)[0] == 'profile_unknown')
+    ok('profile=demo доходит до env старта, порог — свой (1), не боевой 200',
+       d(lease=D, jobs=9) == ('start', {'MESH_TAKE_JOBS': '1000', 'MESH_MIN_JOBS': '1', 'MESH_QUEUE_PROFILE': 'demo'}))
+    ok('пустая demo-очередь — «нечего делать», не старт', d(lease=D, jobs=0)[0] == 'nothing_to_do')
+    ok('profile_min_jobs по умолчанию 1', profile_of({'profile': 'demo', 'min_jobs': 50}) == ('demo', 1))
+    ok('пустая demo-очередь: mesh_wave_start не зовётся, в журнале одна строка за два тика', _quiet_test())
     return 1 if bad else 0
+
+
+def _quiet_test() -> bool:
+    """main() дважды на пустой demo-очереди: ни одного вызова mesh_wave_start, ни одного счёта сверх нужного, строка
+    журнала одна. Пути, замки, диск и подпроцессы подменены — ни сети, ни Salad."""
+    import collections  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    g = globals()
+    keep = {k: g[k] for k in ('LEASE', 'JOURNAL', 'NOTE', 'NO_CREDITS', 'LOCKS', 'STOPS', 'profile_jobs')}
+    keep_run, keep_du = subprocess.run, shutil.disk_usage
+    calls = []
+    tmp = tempfile.mkdtemp()
+    try:
+        g.update(LEASE=os.path.join(tmp, 'lease.json'), JOURNAL=os.path.join(tmp, 'j.jsonl'), NOTE=os.path.join(tmp, 'n.json'),
+                 NO_CREDITS=os.path.join(tmp, 'nc.json'), LOCKS=[os.path.join(tmp, 'l')], STOPS=[os.path.join(tmp, 's')],
+                 profile_jobs=lambda p: calls.append(('count', p)) or 0)
+        json.dump({'expires': '2999-01-01', 'max_usd': 13, 'profile': 'demo', 'waves': []}, open(LEASE, 'w'))
+        subprocess.run = lambda *a, **k: calls.append(('run', a[0])) or subprocess.CompletedProcess(a[0], 0, '', '')
+        shutil.disk_usage = lambda p: collections.namedtuple('du', 'total used free')(100, 10, 90 * 2**30)
+        import io, contextlib  # noqa: E401,PLC0415
+        with contextlib.redirect_stdout(io.StringIO()):
+            main(); main()
+        lines = open(JOURNAL).read().splitlines()
+        return (not [c for c in calls if c[0] == 'run'] and len([c for c in calls if c[0] == 'count']) == 2
+                and len(lines) == 1 and json.loads(lines[0])['verdict'] == 'nothing_to_do')
+    finally:
+        g.update(keep)
+        subprocess.run, shutil.disk_usage = keep_run, keep_du
 
 
 if __name__ == '__main__':
