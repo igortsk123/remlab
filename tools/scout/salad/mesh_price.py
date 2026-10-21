@@ -8,9 +8,11 @@
   деньги группы  = рабочие нодо-минуты из переписи пула (`mesh-pool-census.jsonl`, строка на тик сторожа, поле `running`)
                    × тариф группы (`rules/salad-groups.json` → `prices_usd_h`) × курс `usd_rub` оттуда же;
   новые меши     = первый ok каждого job_id (хвост `prefix`), попавший в окно; повторы готовых — не меши (урок 523);
-  правило        = `price_ceiling` в том же файле: потолок, окно, «судить после N мешей по потолку».
+  правило        = `price_ceiling` в том же файле: потолок, окно, «судить после N рабочих нодо-часов группы».
 
-Мало данных (потрачено меньше judge_after_meshes × потолок) — не судим. Потрачено столько и 0 мешей — дорого.
+Мало данных (меньше judge_after_node_h рабочих нодо-часов группы в окне, сумма по машинам) — не судим: цена на 3–5 мешах —
+шум («рубль двадцать / рубль семьдесят», владелец 21.10), судим по средней за длинный отрезок. Отработала столько и 0 мешей —
+дорого. Быстрый случай «платим и ничего не выдаём» ловят прежние правила сторожа денег, этот суд их не заменяет.
 Модуль ничего не гасит — только считает; гасит `money_guard.py`, показывает `pipeline_map.py`.
 
   ~/venvs/scout/bin/python mesh_price.py [--at <unix>]   # ₽ за меш по группам за сутки до `at` (по умолчанию — сейчас)
@@ -121,7 +123,7 @@ def verdict(node_min: float, usd_h: float | None, usd_rub: float, meshes: int, r
         return {'state': 'нет тарифа', 'rub': None, 'per_mesh': None, 'meshes': meshes}
     rub = node_min / 60.0 * usd_h * usd_rub
     per = rub / meshes if meshes else None
-    if rub < float(rule.get('judge_after_meshes') or 3) * ceil:
+    if node_min / 60.0 < float(rule.get('judge_after_node_h') or 4):
         state = 'мало данных'
     else:
         state = 'дорого' if per is None or per > ceil else 'дёшево'
