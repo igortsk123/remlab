@@ -20,6 +20,8 @@ POST → GET-сверка. Без --apply печатает тело без се�
     ~/venvs/scout/bin/python recreate_group.py mesh-batch-3 --memory 24576 --no-autostart --apply
     ~/venvs/scout/bin/python recreate_group.py mesh-low-8 --donor mesh-low-6 --memory 24576 --gpu "RTX A5000" \\
         --replicas 30 --no-autostart --create-only            # группа только на A5000 (без --apply — разбор)
+    ~/venvs/scout/bin/python recreate_group.py mesh-try-1 --donor mesh-low-8 --memory 24576 \\
+        --gpu-exact "RTX 3090 Ti (24 GB)" --replicas 2 --no-autostart --create-only   # класс, которого нет у образца
 """
 from __future__ import annotations
 
@@ -76,6 +78,23 @@ def pick_gpu(donor_ids: list[str], classes: dict[str, str], wanted: list[str]) -
     return out
 
 
+def pick_gpu_exact(classes: dict[str, str], wanted: list[str]) -> list[str]:
+    """Классы GPU по ТОЧНОМУ ПОЛНОМУ имени среди ВСЕХ классов организации («RTX 3090 Ti (24 GB)»).
+
+    ЗАЧЕМ (21.10, проба 3090 Ti). `pick_gpu` ищет только среди классов образца, а у живых групп после 20.10 их
+    один — A5000; взять класс, которого у образца нет, нельзя. Здесь имя полное, с памятью: одноимённые классы
+    разной памяти так не путаются. Регистр и крайние пробелы не важны. Ровно одно совпадение, иначе отказ."""
+    out = []
+    for w in wanted:
+        key = w.strip().lower()
+        hit = [i for i, n in classes.items() if n.strip().lower() == key]
+        if len(hit) != 1:
+            raise ValueError(f'GPU «{w}»: у организации совпадений {len(hit)} по полному имени, есть {sorted(classes.values())}')
+        if hit[0] not in out:
+            out.append(hit[0])
+    return out
+
+
 def summary(body: dict) -> str:
     c = body['container']
     r = c['resources']
@@ -95,9 +114,13 @@ def main() -> int:
     ap.add_argument('--replicas', type=int, default=None)
     ap.add_argument('--no-autostart', action='store_true', help='не стартовать после создания (batch вне окна)')
     ap.add_argument('--gpu', default=None, help='оставить только эти GPU образца, через запятую: "RTX A5000"')
+    ap.add_argument('--gpu-exact', default=None,
+                    help='классы GPU организации по точному полному имени, через запятую: "RTX 3090 Ti (24 GB)"')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--create-only', action='store_true', help='группа уже удалена (прошлый запуск упёрся в name_conflict)')
     a = ap.parse_args()
+    if a.gpu and a.gpu_exact:
+        return print('--gpu и --gpu-exact вместе не задаются') or 2
     if not a.group.startswith('mesh-') or not 1024 <= a.memory <= 61440:
         return print('группа не mesh-* или память вне 1024–61440 МБ') or 2
     MG.env_from_file()
@@ -113,12 +136,13 @@ def main() -> int:
     body['container']['resources']['memory'] = a.memory
     body['container']['environment_variables']['DEPLOYMENT_EPOCH'] = f'{time.strftime("%Y%m%d")}-{a.group}'
     body['autostart_policy'] = not a.no_autostart
-    if a.gpu:
+    if a.gpu or a.gpu_exact:
         classes = gpu_classes()
         if not classes:
             return print('классы GPU организации не прочитаны — не создаю') or 1
         try:
-            ids = pick_gpu(body['container']['resources']['gpu_classes'], classes, a.gpu.split(','))
+            ids = (pick_gpu_exact(classes, a.gpu_exact.split(',')) if a.gpu_exact
+                   else pick_gpu(body['container']['resources']['gpu_classes'], classes, a.gpu.split(',')))
         except ValueError as e:
             return print(e) or 2
         body['container']['resources']['gpu_classes'] = ids
