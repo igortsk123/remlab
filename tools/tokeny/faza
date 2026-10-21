@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Отметка фазы ведущего для учёта токенов (план uchet-tokenov): строка в data/logs/tokeny/fazy.tsv
+# «ISO-время UTC ⇥ проект ⇥ ID/цикл ⇥ фаза». Проект — по `pwd -P` (/home/pakar/igor/<проект>/…).
+#   faza <ID>[/<цикл>] план|проверка|доработка|прочее
+#   faza прочее
+# `доработка` — ведущий разбирает замечание владельца и ставит доработку по нему.
+# Для тестов: TOKENY_PROEKT и TOKENY_FAZY подменяют проект и путь журнала.
+set -euo pipefail
+
+if [ $# -eq 1 ] && [ "$1" = "прочее" ]; then
+    id="-"; faza="прочее"
+elif [ $# -eq 2 ]; then
+    id="$1"; faza="$2"
+else
+    echo "использование: faza <ID>[/<цикл>] план|проверка|доработка|прочее  |  faza прочее" >&2
+    exit 2
+fi
+case "$faza" in
+    план|проверка|доработка|прочее) ;;
+    *) echo "фаза — план, проверка, доработка или прочее, а не «$faza»" >&2; exit 2 ;;
+esac
+if ! [[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9_./-]*$ || "$id" = "-" ]]; then
+    echo "ID — латиница, цифры и ._-/ без пробелов: «$id»" >&2
+    exit 2
+fi
+
+proekt="${TOKENY_PROEKT:-}"
+if [ -z "$proekt" ]; then
+    put="$(pwd -P)/"
+    case "$put" in
+        /home/pakar/igor/?*/*) proekt="${put#/home/pakar/igor/}"; proekt="${proekt%%/*}" ;;
+        *) echo "не в папке проекта /home/pakar/igor/<проект>: $put" >&2; exit 2 ;;
+    esac
+fi
+zhurnal="${TOKENY_FAZY:-/home/pakar/igor/$proekt/data/logs/tokeny/fazy.tsv}"
+mkdir -p "$(dirname "$zhurnal")"
+printf '%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$proekt" "$id" "$faza" >> "$zhurnal"
+echo "отмечено: $proekt $id $faza"

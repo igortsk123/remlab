@@ -112,3 +112,6 @@ remlab_knowledge_db_v1/*.log
 !tools/scout/tests/
 tools/scout/mesh-pool-census.jsonl
 tools/scout/alert-sent.log
+
+# журнал фаз ведущего (учёт токенов, tools/tokeny/faza)
+data/logs/tokeny/
