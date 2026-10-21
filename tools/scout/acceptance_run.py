@@ -46,20 +46,27 @@ if _man or _ids:
     print(f'подмножество сцен: {len(SCENES)}', flush=True)
 REPORT_SUFFIX = os.environ.get('ACC_REPORT_SUFFIX', '')
 # СНИМОК БАНКОВ: экзамен читает sets3.json, замороженный на старте (heal/сборка не меняют банки под
-# воркерами — 17.08 утренний heal переписал sets3.json посреди экзамена)
-_SNAP = os.path.join(HERE, 'sets3.snapshot.json')
-try:
-    import shutil as _sh
-    _sh.copyfile(os.path.join(HERE, 'sets3.json'), _SNAP)
-    os.environ['SETS_SNAPSHOT'] = _SNAP
-except Exception as _e:
-    print(f'снимок банков не создан ({_e}) — читаем живой sets3.json', flush=True)
+# воркерами — 17.08 утренний heal переписал sets3.json посреди экзамена). Копию банка (SETS_BANK, план conv-13)
+# читаем напрямую — живой не копируем; ей обязателен свой ACC_REPORT_SUFFIX (`bank_paths.acceptance_plan`).
+sys.path.insert(0, HERE)
+import bank_paths as _BP  # noqa: E402
+PLAN = _BP.acceptance_plan(os.environ)
+if PLAN['copy']:
+    try:
+        import shutil as _sh
+        _sh.copyfile(PLAN['bank'], PLAN['snapshot'])
+        os.environ['SETS_SNAPSHOT'] = PLAN['snapshot']
+    except Exception as _e:
+        print(f'снимок банков не создан ({_e}) — читаем живой sets3.json', flush=True)
+else:
+    os.environ['SETS_SNAPSHOT'] = PLAN['snapshot']
+    print(f"БАНК: {PLAN['bank']} (копия, не живой sets3.json)", flush=True)
 
 
 def _one(engine, sc):
     """Один прогон сцены; уникальный LAYOUT_SUFFIX на СЦЕНУ — параллельные воркеры не дерутся
     за файлы раскладок (set3-base и set3-pylons писали бы в один v3set3-layout-*.json)."""
-    env = dict(os.environ, LAYOUT_ENGINE=engine, LAYOUT_SUFFIX=f"-acc-{engine}-{sc['id']}")
+    env = dict(os.environ, LAYOUT_ENGINE=engine, LAYOUT_SUFFIX=f"{PLAN['layout_sfx']}-acc-{engine}-{sc['id']}")
     args = [PY, os.path.join(HERE, 'solver_run.py'), str(sc['set']), '--v3']
     if sc['kind'] == 'demo':
         # ДЕМО-ГОСТИНАЯ (conv-06): геометрия — из той же квартиры, что у витрины (`flat215.json`), одно место правды
@@ -156,19 +163,21 @@ def run_engine(engine):
     # ТЕЛЕМЕТРИЯ ДЛЯ ШЕДУЛЕРА (22.08): длительности сцен — в scene-durations.json;
     # сортировка «тяжёлые первыми» выше читает именно его (файл прежде никем не писался —
     # сортировка была мёртвой, и XL-хвост ловил TIMEOUT при пустеющем пуле воркеров)
-    try:
-        _prev_d = {}
-        _dp0 = os.path.join(HERE, 'scene-durations.json')
-        if os.path.exists(_dp0):
-            _prev_d = json.load(open(_dp0, encoding='utf-8'))
-        for rec0 in report:
-            if rec0.get('duration_s'):
-                _prev_d[rec0['scene']] = rec0['duration_s']
-            elif 'TIMEOUT' in str(rec0.get('fails')):
-                _prev_d[rec0['scene']] = 1800.0      # таймаут = максимальный приоритет
-        json.dump(_prev_d, open(_dp0, 'w', encoding='utf-8'), ensure_ascii=False)
-    except Exception:
-        pass
+    # прогон с суффиксом (смоук, копия банка, план conv-13) общую телеметрию не переписывает
+    if PLAN['durations']:
+        try:
+            _prev_d = {}
+            _dp0 = os.path.join(HERE, 'scene-durations.json')
+            if os.path.exists(_dp0):
+                _prev_d = json.load(open(_dp0, encoding='utf-8'))
+            for rec0 in report:
+                if rec0.get('duration_s'):
+                    _prev_d[rec0['scene']] = rec0['duration_s']
+                elif 'TIMEOUT' in str(rec0.get('fails')):
+                    _prev_d[rec0['scene']] = 1800.0      # таймаут = максимальный приоритет
+            json.dump(_prev_d, open(_dp0, 'w', encoding='utf-8'), ensure_ascii=False)
+        except Exception:
+            pass
     json.dump(report, open(os.path.join(HERE, f'acceptance-report-{engine}{REPORT_SUFFIX}.json'), 'w'),
               ensure_ascii=False, indent=1)
     if not REPORT_SUFFIX:   # длительности — только с полного прогона (для порядка и perf-manifest)

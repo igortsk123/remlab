@@ -19,6 +19,8 @@ import pytest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 SCOUT = os.path.join(ROOT, 'tools', 'scout')
+# Банк — из env `SETS_BANK` (кандидат `sets3.next.json`, план conv-13); по умолчанию — живой банк
+SETS3 = os.environ.get('SETS_BANK') or os.path.join(SCOUT, 'sets3.json')
 sys.path.insert(0, os.path.join(ROOT, 'services', 'planner-solver'))
 sys.path.insert(0, SCOUT)
 
@@ -64,8 +66,8 @@ def test_no_items_outside_templates():
 
 
 _needs_sets3 = pytest.mark.skipif(
-    not os.path.exists(os.path.join(SCOUT, 'sets3.json')),
-    reason='нет tools/scout/sets3.json (артефакт дневного прогона, вне git)')
+    not os.path.exists(SETS3),
+    reason=f'нет {SETS3} (артефакт дневного прогона, вне git)')
 
 
 @_needs_sets3
@@ -76,7 +78,7 @@ def test_no_phantom_dimensions():
     глубины, и расстановка берёт типовую. Это считается и печатается, но провалом
     не является — смета всё равно по реальному SKU (паспорт: missing_dims).
     """
-    sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    sets = json.load(open(SETS3, encoding='utf-8'))
     tol = 1                       # округление сантиметров по пути в артефакт
     bad, substituted = {}, 0
     for scene, lay, _room, ps in _scenes():
@@ -217,7 +219,7 @@ def test_focus_wall_not_empty():
     if not os.path.exists(REPORT):
         import pytest
         pytest.skip('нет отчёта приёмки — тест уровня планов, нужен полный прогон')
-    sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    sets = json.load(open(SETS3, encoding='utf-8'))
     _ok = {json.loads(l)['scene']: json.loads(l).get('ok')
            for l in open(REPORT, encoding='utf-8') if l.strip()}
     empty = []
@@ -252,7 +254,7 @@ def test_seating_matches_ladder_step():
         req = {r.split(' ')[0] for r in g['roles'].get('required', [])}
         opt = {r.split(' ')[0] for r in g['roles'].get('optional', [])}
         steps[g['id']] = (req, opt | {'столик', 'ковёр', 'приставной', 'пуф', 'торшер'})
-    sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    sets = json.load(open(SETS3, encoding='utf-8'))
     bad = {}
     for scene, lay, _room, ps in _scenes():
         tpl = lay.get('_templates') or {}
@@ -373,7 +375,7 @@ def test_level_a_never_degrades():
     Столик/пуф/кресло могут выбывать со ступенью (LEVEL C), кашпо — decor (D),
     но диван и носитель ТВ жертвой деградации не становятся никогда.
     """
-    sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    sets = json.load(open(SETS3, encoding='utf-8'))
     bad = {}
     for scene, _lay, _room, ps in _scenes():
         n = int(scene.split('-')[0].replace('set', ''))

@@ -3,20 +3,22 @@ import json
 import os
 
 SCOUT = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout')
+# Банк — из env `SETS_BANK` (кандидат `sets3.next.json`, план conv-13); по умолчанию — живой банк
+SETS3 = os.environ.get('SETS_BANK') or os.path.join(SCOUT, 'sets3.json')
 
 import pytest
 
 # sets3.json — дневной артефакт каталога, намеренно вне git (.gitignore): в CI его нет.
 # Тесты по нему — локальные сторожа данных; отсутствие файла = окружение без каталога, скип.
 pytestmark = pytest.mark.skipif(
-    not os.path.exists(os.path.join(SCOUT, 'sets3.json')),
-    reason='нет tools/scout/sets3.json (артефакт дневного прогона, вне git)')
+    not os.path.exists(SETS3),
+    reason=f'нет {SETS3} (артефакт дневного прогона, вне git)')
 
 
 
 def test_sofa_banks_have_armchair_alternative():
     """Сет с диваном от 17 м² содержит кресло (или явный coverage_gap)."""
-    sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    sets = json.load(open(SETS3, encoding='utf-8'))
     bad = []
     for i, st in enumerate(sets, 1):
         items = st.get('items') or {}
@@ -33,7 +35,7 @@ def test_sofa_banks_have_armchair_alternative():
 def test_large_banks_have_second_armchair_alternative():
     """P4 свода №12 (владелец №174): large-банк (≥25 м² = room_mode large) с диваном и
     креслом содержит кресло 2 (пара → sofa_2armchairs достижим) или явный coverage_gap."""
-    sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    sets = json.load(open(SETS3, encoding='utf-8'))
     bad = []
     for i, st in enumerate(sets, 1):
         items = st.get('items') or {}
@@ -50,7 +52,7 @@ def test_large_banks_have_second_armchair_alternative():
 def test_second_pod_pair_is_one_sku_from_25m2():
     """Q5 свода №13: с 25 м² банк содержит пару кресел 3/4 ОДНОГО SKU (pair_key) или явный gap;
     кресло 2 (alt) — экземпляр основного кресла (не другой магазин)."""
-    sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    sets = json.load(open(SETS3, encoding='utf-8'))
     bad = []
     for i, st in enumerate(sets, 1):
         it = st.get('items') or {}

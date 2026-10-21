@@ -57,9 +57,7 @@ def test_fixed_side_respected():
 def _set21_items(fixed_cl=None):
     import json
     import os
-    sets = json.load(open(os.path.join(os.path.dirname(__file__), '..', '..', '..',
-                                       'tools', 'scout', 'sets3.json'),
-                          encoding='utf-8'))
+    sets = json.load(open(_SETS3, encoding='utf-8'))
     out = []
     for r, d in (sets[20].get('items') or {}).items():
         if not isinstance(d, dict):
@@ -75,11 +73,13 @@ def _set21_items(fixed_cl=None):
     return out
 
 
-_SETS3 = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout', 'sets3.json')
+# Банк — из env `SETS_BANK` (кандидат `sets3.next.json`, план conv-13); по умолчанию — живой банк
+_SETS3 = (os.environ.get('SETS_BANK')
+          or os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout', 'sets3.json'))
 
 
 @pytest.mark.skipif(not os.path.exists(_SETS3),
-                    reason='нет tools/scout/sets3.json (артефакт дневного прогона, вне git)')
+                    reason=f'нет {_SETS3} (артефакт дневного прогона, вне git)')
 def test_mirror_quality_pick_beats_first_clean():
     """V3-H (поправка рефери №3): оба зеркала hard-valid — победитель выбирается
     по существующему quality-ключу, а не first-clean. Сцена №272: побеждает LEFT,

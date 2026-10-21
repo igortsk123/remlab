@@ -12,6 +12,8 @@ from style_tags import tag, style_ok
 from item_function import fits_role, subtype
 import enrich_bridge as EB   # проверенное моделью обогащение каталога (К2): подтип, стиль, качество
 import pool_gate as PG       # граница качества 0.65 включительно — одно место (план mesh-14)
+import compose_gates as _CG  # ворота фото/меша — fail-closed (план conv-13 п.2)
+import bank_paths as _BP     # SETS_OUTPUT — банк рядом, не в живой sets3.json (план conv-13 п.1)
 from proportions import P as _PROP, check as prop_check
 PROP_RULES={r['id']: r['allowed'] for r in _PROP['rules']}
 
@@ -24,6 +26,9 @@ FB=json.load(open(os.path.join(HERE,'sets-feedback.json'))) if os.path.exists(os
 BLACK={tuple(x) for x in FB.get('blacklist',[])}
 # --- Ф2 sets-style-v3: --style → сеты ПОД СТИЛЬ (6 стилей × 3 тира, band 14-16) в sets3.json ---
 STYLE_MODE='--style' in sys.argv
+OUT_SETS='sets3.json' if STYLE_MODE else 'sets2.json'
+# SETS_OUTPUT (план conv-13): новый банк собирается РЯДОМ (sets3.next.json); путь в живой банк — отказ СРАЗУ, до сборки
+_OUT_PATH=_BP.compose_output(os.environ,OUT_SETS)
 SPASS=json.load(open(os.path.join(HERE,'styles.json')))
 ROLE_W=SPASS['role_weight']; SNAMES6=list(SPASS['styles'])
 SS=json.load(open(os.path.join(HERE,'style-scores.json'))) if os.path.exists(os.path.join(HERE,'style-scores.json')) else {}
@@ -360,32 +365,14 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
             # скоринге не хватало — в 15 м² попадал ковёр 290x200 (39% пола).
             # ФОТО ОБЯЗАТЕЛЬНО (владелец 26.08): товар без живого изображения в сет не берём —
             # в витрине это пустая карточка. Живость проверяется кэшем img_alive (раз в 14 дней).
-            if not it.get('img'):
-                _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
-                continue
-            try:
-                from img_alive import alive as _ia
-                if not _ia(it.get('img')):
-                    _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
-                    continue
-            except Exception:
-                pass
             # ПРИГОДНОСТЬ ФОТО — здесь, а не только при ночном лечении. Раньше первичная сборка
             # шла мимо ворот `_slot_ok`, и любое новое правило («коллажи в сеты не пускать»)
             # срабатывало задним числом: товар сперва вставал в сет, потом его выносило лечение.
-            # Владелец 28.08: «на этапе выбора сетов проверку добавь».
-            try:
-                from slot_contract import mesh_ok as _mesh_ok, photo_ok as _photo_ok
-                if not _photo_ok(f"{it['mid']}:{it['eid']}", context='new'):
-                    _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
-                    continue
-                # Готовность представления (Codex P0-4): без этой проверки MESH_GATE_PHASE=hard_new
-                # ничего не делал в ПЕРВИЧНОЙ сборке — гейт жил только в лечении.
-                if not _mesh_ok(f"{it['mid']}:{it['eid']}"):
-                    _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
-                    continue
-            except Exception:
-                pass
+            # Владелец 28.08: «на этапе выбора сетов проверку добавь». Ворота — fail-closed, как у
+            # contracts (план conv-13 п.2): сбой проверки = товар не берём, счёт — `compose_gates.summary`.
+            if _CG.admit(f"{it['mid']}:{it['eid']}", it.get('img')):
+                _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
+                continue
             # АБСОЛЮТНЫЙ минимум главного дивана (26.08, Codex): детская/подростковая мягкая
             # мебель просачивается в общую категорию по имени без слова «детский» (диван «Умка»
             # 110 см в комнате 15 м²). Ловим размером — zones.json → slots.диван.abs_min_cm
@@ -1274,7 +1261,7 @@ for bi,band in enumerate(COMP['bands']):
         print(f"{style_name+' ' if style_name else ''}{band['band']} м² {tier}: {len(chosen)} пр., "
               f"капсула {ctx['style']}/{ctx['wood']}/{ctx['metal']}/{ctx['temp']}, пол {fill}%"
               +(f", стиль-фит {sfit_agg}" if sfit_agg else "")+f", {total:,} ₽".replace(',',' '),flush=True)
-OUT_SETS='sets3.json' if STYLE_MODE else 'sets2.json'
+print(_CG.summary(),flush=True)
 # Стабильный set_id: сцены и отчёты живут на НОМЕРАХ сетов, и любая перестановка массива молча
 # переадресует их на соседние комплекты. id детерминирован по полям замысла (площадь/ярус/стиль/
 # капсула), поэтому пересборка с нуля выдаёт те же id — а замена товара в слоте их не меняет.
@@ -1285,11 +1272,11 @@ except Exception as _e:   # noqa: BLE001 — идентичность не до�
     print(f'set_id не проставлен: {type(_e).__name__}: {_e}',flush=True)
 # АТОМАРНАЯ запись (инцидент 08.08: падение посреди json.dump оставило файл на 18/126 сетов):
 # пишем во временный и переименовываем — rename на одной ФС атомарен
-_tmp=os.path.join(HERE,OUT_SETS+'.tmp')
+_tmp=_OUT_PATH+'.tmp'
 json.dump(sets,open(_tmp,'w'),ensure_ascii=False,indent=1)
-os.replace(_tmp,os.path.join(HERE,OUT_SETS))
+os.replace(_tmp,_OUT_PATH)
 np.savez_compressed(EMB_PATH,**_emb)
-print(f"OK: {OUT_SETS} ({len(_emb)} embeddings в кэше)",flush=True)
+print(f"OK: {_OUT_PATH} ({len(_emb)} embeddings в кэше)",flush=True)
 
 # ---------- HTML-превью v2 ----------
 def esc(s): return s.replace('&','&amp;').replace('<','&lt;')
@@ -1316,6 +1303,6 @@ for i,s in enumerate(sets,1):
                  +f'<div><a href="{esc(it["url"])}" target=_blank>открыть</a> · {it["shop"]}</div>'
                  +f'<div class=why>{esc(it.get("why","")[:120])}</div></div>')
     H.append('</div></div>')
-PV='sets3-preview.html' if STYLE_MODE else 'sets2-preview.html'
-open(os.path.join(HERE,PV),'w').write('\n'.join(H))
+PV=_BP.compose_preview(_OUT_PATH,'sets3-preview.html' if STYLE_MODE else 'sets2-preview.html')
+open(PV,'w').write('\n'.join(H))
 print(f"OK: {PV}",flush=True)

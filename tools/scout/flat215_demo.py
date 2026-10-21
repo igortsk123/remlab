@@ -19,7 +19,12 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'rules')
 # папка витрины; FLAT215_DEMO_OUT — проверочная сборка рядом, не трогая публикуемую (T-20261019-02)
-OUT = os.path.expanduser(os.environ.get('FLAT215_DEMO_OUT', '~/scout-scenes/flat215-demo'))
+OUT = os.path.expanduser(os.environ.get('FLAT215_DEMO_OUT') or '~/scout-scenes/flat215-demo')
+# ВХОДНОЙ БАНК — SETS_BANK (план conv-13 п.5): демо по копии банка (sets3.next.json) пишет СВОЙ demo-sets.json в OUT и
+# раскладки со своим суффиксом — общие `demo-sets.json` и `v3set{n}-layout.json` живого демо не трогает
+sys.path.insert(0, HERE)
+import bank_paths as _BP  # noqa: E402
+BANK = _BP.demo_plan(os.environ, OUT)
 # ВАРИАНТЫ РАССТАНОВКИ и КОМПЛЕКТЫ ТОВАРОВ — РАЗНЫЕ СУЩНОСТИ (владелец 26.08):
 # «шаблоны не называть стилями, а просто варианты; далее под любой из шаблонов показываем наши
 # сеты; люди могут смешать разные товары из разных стилей». Поэтому: вариант = геометрия
@@ -370,14 +375,14 @@ def solve_layouts(flat: dict, only: list | None = None) -> None:
     такой артефакт для комнаты 439×325, мебель окажется за стеной. Поэтому демо само вызывает
     солвер с реальными габаритами и проёмами квартиры, а не надеется на ранее посчитанный файл."""
     liv = flat['rooms'][0]
-    env = dict(os.environ, SETS_SNAPSHOT=DEMO_SETS,
+    env = dict(os.environ, SETS_SNAPSHOT=DEMO_SETS, **({'LAYOUT_SUFFIX': BANK['layout_sfx']} if not BANK['live'] else {}),
                SCENE_OPENINGS=json.dumps([{k: v for k, v in o.items() if not k.startswith('_')}
                                           for o in liv['openings']], ensure_ascii=False),
                SCENE_RADIATORS=json.dumps([{k: v for k, v in r.items() if not k.startswith('_')}
                                            for r in (liv.get('radiators') or [])], ensure_ascii=False))
     py = os.path.expanduser('~/venvs/scout/bin/python')
     for n in (only if only is not None else BANKS):
-        art = os.path.join(HERE, f'v3set{n}-layout.json')
+        art = layout_path(n)
         fresh = (os.path.exists(art)
                  and (json.load(open(art, encoding='utf-8')).get('_room') or {}).get('w') == liv['w']
                  and os.path.getmtime(art) > os.path.getmtime(DEMO_SETS))
@@ -462,7 +467,12 @@ def living_room_id() -> str:
     return next((r['id'] for r in demo_apartment().get('rooms') or [] if r.get('kind') == 'living'), 'living')
 
 
-DEMO_SETS = os.path.join(HERE, 'demo-sets.json')     # банк, по которому считается расстановка демо
+DEMO_SETS = BANK['demo_sets']     # банк, по которому считается расстановка демо (`HERE/demo-sets.json`; у копии — в OUT)
+
+
+def layout_path(n: int) -> str:
+    """Раскладка набора `n` в комнате демо: `v3set{n}-layout.json`, у копии банка — со своим суффиксом."""
+    return os.path.join(HERE, f"v3set{n}-layout{BANK['layout_sfx']}.json")
 # Конверт слотов ЭТОЙ комнаты (гостиная 439×325): для ленты замен и для дозаполнения вариантов.
 # Правило — `rules/demo-swap.json → room_fit_envelope_cm` (conv-03, ADR-0271): «что физически встаёт в комнату»,
 # шире идеала слота сборки (`slot_rules`), иначе ленты сократились бы в разы.
@@ -775,7 +785,7 @@ def _mesh_color_ok():
 
 def layout_ok(n: int, core: tuple = ()) -> bool:
     """Расстановка набора сошлась: нет отказа солвера и на полу стоят ВСЕ роли ядра (не «хоть что-то»)."""
-    p = os.path.join(HERE, f'v3set{n}-layout.json')
+    p = layout_path(n)
     try:
         art = json.load(open(p, encoding='utf-8'))
     except Exception:  # noqa: BLE001
@@ -804,7 +814,7 @@ def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list
             _write_demo_sets(sets)
             # прежний файл расстановки удаляем: упал солвер — не должен подхватиться вчерашний результат
             try:
-                os.remove(os.path.join(HERE, f'v3set{i}-layout.json'))
+                os.remove(layout_path(i))
             except FileNotFoundError:
                 pass
             solve_layouts(flat, only=[i])
@@ -831,6 +841,21 @@ def _write_demo_sets(sets: list) -> None:
     blob = json.dumps(sets, ensure_ascii=False)
     if not os.path.exists(DEMO_SETS) or open(DEMO_SETS, encoding='utf-8').read() != blob:
         open(DEMO_SETS, 'w', encoding='utf-8').write(blob)
+
+
+def fill_report(journal: dict, gone: int) -> dict:
+    """«ЧТО ДЕМО ДОЗАПОЛНИЛО САМО» (план conv-13 п.5): демо перед показом чинит копию банка (`demo_fill.fill_set`), и
+    полный на вид вариант не доказывает полноты банка. Строка в журнал всегда; у копии банка — ещё и файл в OUT.
+    Для нового банка ожидание — 0 замен и 0 снятых."""
+    rows = [dict(x, set=k) for k, j in journal.items() for x in j]
+    rep = {'replaced': sum(1 for x in rows if x.get('to')), 'dropped': sum(1 for x in rows if not x.get('to')),
+           'gone_outside_variants': gone, 'rows': rows}
+    print(f"дозаполнено демо: замен {rep['replaced']}, снято без замены {rep['dropped']}, "
+          f"не в продаже вне вариантов {gone}", flush=True)
+    if not BANK['live']:
+        os.makedirs(OUT, exist_ok=True)
+        json.dump(rep, open(os.path.join(OUT, 'demo-fill-report.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    return rep
 
 
 BEDROOM_SHOW = {'кровать': 24, 'тумба прикроватная': 12, 'комод': 12, 'шкаф': 12, 'туалетный столик': 8}
@@ -878,13 +903,16 @@ def bedroom_catalog() -> dict:
 
 def build() -> dict:
     flat = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))
-    sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
+    sets = json.load(open(BANK['bank'], encoding='utf-8'))
+    if not BANK['live']:
+        print(f"БАНК: {BANK['bank']} (копия; demo-sets и раскладки — свои, суффикс {BANK['layout_sfx']})", flush=True)
     global BANKS
     # расстановка считается по ДОЗАПОЛНЕННОМУ банку (`demo-sets.json`): иначе место под снятый товар в
     # комнате остаётся, а самого товара нет (conv-09)
     BANKS, fill_journal, incomplete = choose_banks(flat, sets, fill_banks(sets))
     gone = drop_unavailable(sets)       # у невыбранных наборов — для лент замен (выбранные уже чисты)
     print(f'снято позиций не в продаже (вне выбранных вариантов): {gone}')
+    fill_report(fill_journal, gone)
     print('банки демо:', BANKS)
     liv = flat['rooms'][0]
     variants = []
@@ -892,7 +920,7 @@ def build() -> dict:
         # ПОДПИСЬ — СТИЛЬ, А НЕ НОМЕР (13.10). «Вариант 1…6» ничего не говорит, и два набора
         # одного стиля выглядели как дубль. Номер остаётся только запасным именем.
         style = (sets[n - 1].get('style') or f'Вариант {k}').capitalize()
-        fs = glob.glob(os.path.join(HERE, f'v3set{n}-layout.json'))
+        fs = glob.glob(layout_path(n))
         if not fs:
             continue
         art = json.load(open(fs[0], encoding='utf-8'))
@@ -1359,6 +1387,9 @@ def merge_aliases(prev: dict | None, variants: list) -> dict:
 
 
 def main() -> None:
+    if '--publish' in sys.argv and not _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
+        # publish_demo.sh публикует ПАПКУ ВИТРИНЫ, а не OUT: сборка рядом (копия банка, проверка) на прод не едет
+        raise SystemExit(f'--publish со сборкой в {OUT}: публикуется только папка витрины — копия банка идёт в /test/')
     os.makedirs(OUT, exist_ok=True)
     # ИСХОДНИК СТРАНИЦЫ ЖИВЁТ В РЕПО (26.08): до этого index.html лежал только в ~/scout-scenes и
     # не попадал в git — демо было невоспроизводимо и терялось при чистке
