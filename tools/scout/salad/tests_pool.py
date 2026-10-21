@@ -33,11 +33,14 @@ def setup(tmp: str) -> None:
     S.RESULTS = os.path.join(tmp, 'results.json')
     S.PROGRESS = os.path.join(tmp, 'progress.jsonl')
     S.RETRY_SPOOL = os.path.join(tmp, 'retry.jsonl')
+    # `.done` снимка (план mesh-13) — тоже во временную папку: иначе стенд писал бы рядом с боевым снимком
+    S.DONE_SET = os.path.join(tmp, 'snap.json.done')
+    S._done_keys = None
     S.cull_slow = lambda: None
     NH.STATE = os.path.join(tmp, 'health.json')
     # ФАЙЛ ЗАМКА НЕ УДАЛЯЕМ: от прошлого случая могли остаться демон-потоки, и подмена
     # inode'а замка снимает взаимное исключение — два потока писали состояние одновременно.
-    for p in (NH.STATE, NH.STATE + '.tmp', S.RETRY_SPOOL):
+    for p in (NH.STATE, NH.STATE + '.tmp', S.RETRY_SPOOL, S.DONE_SET):
         if os.path.exists(p):
             os.remove(p)
     NH.reallocate = lambda group, iid, why: culled.append(iid) or True   # noqa: B010 — стенд
@@ -961,6 +964,80 @@ def case_stop_verified() -> None:
     print('  ✓ остановка групп проверяется: stopped — успех, running/отказ — провал')
 
 
+def case_cursor_on_stall() -> None:
+    """Пачка кончилась пропажей машин (75), но итог в ней есть: курсор обязан сдвинуться на `terminal_prefix`,
+    а следующая пачка — начаться с него (план mesh-13). Раньше 75 уводил в ожидание до чтения итога, и ночь
+    20→21.10 пять вызовов подряд шли с `--skip 0`."""
+    import types
+    import batch_show as B  # noqa: PLC0415
+    calls = []
+    outs = [(75, 'RUN_SUMMARY {"requested": 2000, "terminal": 15, "terminal_prefix": 14, "unresolved": 1986}\n'
+                 '!! нет живых нод 30 мин — закрываю остаток'),
+            (75, 'нет прогретых нод'),
+            (0, 'RUN_SUMMARY {"requested": 2000, "terminal": 5, "terminal_prefix": 5, "unresolved": 0}')]
+    keep = {k: getattr(B, k) for k in ('sh', 'DONE', 'group_status', 'cull_slow_pulls', 'cull_dead_warmups',
+                                       'drain_retry_spool', 'start_post', 'time')}
+    tmp = tempfile.mkdtemp()
+    try:
+        B.sh = lambda cmd, timeout=3600: (calls.append(cmd), outs[len(calls) - 1])[1]
+        B.DONE = os.path.join(tmp, 'snap.json.progress.json')
+        B.group_status = lambda states=None: 'running'
+        B.cull_slow_pulls = B.cull_dead_warmups = B.drain_retry_spool = lambda: None
+        B.start_post = lambda tag: None
+        B.time = types.SimpleNamespace(sleep=lambda s: None, time=time.time)
+        done, nxt = B.run_batch(0, 2000, 2592)
+        assert (done, nxt) == (14, 'wait'), (done, nxt)
+        assert json.load(open(B.DONE))['done'] == 14, 'курсор не сохранён после 75'
+        done, nxt = B.run_batch(done, 2000, 2592)       # нод нет, итога нет — курсор стоит
+        assert (done, nxt) == (14, 'wait'), (done, nxt)
+        done, nxt = B.run_batch(done, 2000, 2592)
+        assert '--skip 14 ' in calls[1] and '--skip 14 ' in calls[2], calls
+        assert (done, nxt) == (19, 'next') and json.load(open(B.DONE))['done'] == 19, (done, nxt)
+    finally:
+        for k, v in keep.items():
+            setattr(B, k, v)
+    print('  ✓ 75 с итогом: курсор 14 сохранён, следующие пачки идут с --skip 14')
+
+
+def case_done_set() -> None:
+    """Идемпотентность по снимку (план mesh-13): сделанное ok/cached ложится в `<снимок>.done` атомарно и
+    переживает перезапуск; срез с уже сделанным не раздаёт его нодам, но курсор проходит его целиком."""
+    S.mark_done('sku0', 0)
+    S.mark_done('sku0', 0)
+    S.mark_done('sku1', None)
+    S._done_keys = None                                    # новый процесс ssh_run
+    assert S.done_keys() == {('sku0', 0), ('sku1', 0)}, S.done_keys()
+    assert not os.path.exists(S.DONE_SET + '.tmp'), 'tmp не переименован'
+    nodes = [{'id': 'A' * 8, 'port': 1, 'group': 'g', 'state': 'running'}]
+    sent = []
+
+    def job_fn(port, job):
+        sent.append(job['sku'])
+        return {'sku': job['sku'], 'status': 'ok', 'timings_s': {'total': 1}}
+
+    keep = S.jobs_from_sample
+    try:
+        patch.jobs = []
+        patch(nodes, job_fn)
+        S.jobs_from_sample = lambda limit: jobs(4)
+        code = S.run(4, True, skip=0)
+        st = json.load(open(S.RESULTS, encoding='utf-8'))['summary']
+        assert code == 0 and sorted(sent) == ['sku2', 'sku3'], (code, sent)
+        assert st['terminal_prefix'] == 4, st
+        assert ('sku3', 0) in S.done_keys(), 'новый ok не записан в .done'
+        # весь срез сделан — ни одной ноды не спрашиваем, курсор проходит срез
+        S.instances = lambda: (_ for _ in ()).throw(AssertionError('спросил ноды при сделанном срезе'))
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()) as buf:
+            code = S.run(4, True, skip=0)
+        assert code == 0 and '"terminal_prefix": 4' in buf.getvalue(), (code, buf.getvalue()[-200:])
+        assert NH.classify({'status': 'done_before'}) == NH.FAULT_NONE
+    finally:
+        S.jobs_from_sample = keep
+    print('  ✓ .done: атомарно, переживает перезапуск, сделанное не раздаётся, курсор проходит срез')
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
@@ -970,7 +1047,7 @@ def main() -> None:
                 case_step_timeout_kills_children, case_no_restart_of_running_group,
                 case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart,
                 case_stop_verified)
-        for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
+        for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix, case_cursor_on_stall, case_done_set,
                    case_stall_is_capacity, case_no_capacity, case_cull_rule, case_checkpoint,
                    case_fault_classes, case_streak_rules, case_streak_survives_restart,
                    case_retire_is_temporary, case_fleet_wide_guard, case_cull_budget_shared, case_node_breaker_run,

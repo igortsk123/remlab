@@ -527,6 +527,52 @@ def jobs_from_sample(limit: int | None) -> list[dict]:
     return out[:limit] if limit else out
 
 
+# ИДЕМПОТЕНТНОСТЬ ПО СНИМКУ (план mesh-13, 21.10). Курсор позиционный: хвост за «дыркой» (terminal_prefix <
+# terminal) и любая пачка, начатая с прежнего места, снова раздавали сделанное, а кэш приёмника, на который
+# рассчитывал этот замысел, к тому времени вычищен разбором по таймеру — платили второй раз. Теперь (sku, seed),
+# закрытые ok/cached в ЭТОМ снимке, лежат в `<снимок>.done` и ноде не раздаются.
+DONE_SET = SAMPLE + '.done'
+_done_lock = threading.Lock()
+_done_keys: set | None = None
+
+
+def done_keys() -> set:
+    """(sku, seed), уже закрытые ok/cached в этом снимке. Нет файла — пусто; битый — пусто С ПРЕДУПРЕЖДЕНИЕМ
+    (худшее — повтор за деньги, но не потеря задания)."""
+    global _done_keys
+    with _done_lock:
+        if _done_keys is None:
+            _done_keys = set()
+            if os.path.exists(DONE_SET):
+                try:
+                    _done_keys = {(k[0], int(k[1])) for k in json.load(open(DONE_SET, encoding='utf-8'))}
+                except (OSError, ValueError, TypeError, IndexError) as e:
+                    print(f'  !! {DONE_SET} не читается ({type(e).__name__}) — сделанное этого снимка не отсекаю',
+                          flush=True)
+        return set(_done_keys)
+
+
+def mark_done(sku: str, seed) -> None:
+    """Задание закрыто ok/cached — в `<снимок>.done`. Запись атомарная (tmp → rename): файл читают следующие
+    вызовы `ssh_run`, половину они видеть не должны. Сбой записи прогон не роняет, но не молчит."""
+    global _done_keys
+    done_keys()
+    k = (sku, int(seed or 0))
+    with _done_lock:
+        if k in _done_keys:
+            return
+        _done_keys.add(k)
+        tmp = DONE_SET + '.tmp'
+        try:
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(sorted([s, n] for s, n in _done_keys), f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, DONE_SET)
+        except OSError as e:
+            print(f'  !! {DONE_SET}: не записан ({type(e).__name__}) — повтор этого задания возможен', flush=True)
+
+
 def checkpoint(rec: dict) -> None:
     """Строка на КАЖДОЕ завершённое задание. Раньше знание о сделанном появлялось только в
     конце прогона — падение процесса стирало его целиком."""
@@ -651,6 +697,18 @@ class Jobs:
                 it['not_before'] = time.time() + RETRY_GRACE_S
             self.cv.notify_all()
 
+    def preclose(self, keys: set) -> int:
+        """Задания, уже закрытые в этом снимке (`done_keys`), не раздаём: результат `done_before` терминален и
+        входит в `terminal_prefix` — курсор проходит их без денег. Возвращает, сколько закрыто."""
+        n = 0
+        with self.cv:
+            for it in self.items:
+                j = it['job']
+                if it['result'] is None and (j.get('sku'), int(j.get('seed') or 0)) in keys:
+                    it['result'] = {'sku': j.get('sku'), 'status': 'done_before'}
+                    n += 1
+        return n
+
     def pending(self) -> int:
         with self.cv:
             return sum(1 for it in self.items if it['result'] is None)
@@ -730,18 +788,28 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
     # чистит и повторяет, спул остаётся на месте.
     if not sink_preflight():
         return EXIT_NO_CAPACITY
+    jobs = jobs_from_file(jobs_file) if jobs_file else jobs_from_sample(None)[skip:(skip + limit) if limit else None]
+    # --skip вместо растущего --limit: кэш «уже сделано» живёт на приёмнике и умирает при
+    # drain — растущий префикс перегенерировал ВСЁ предыдущее каждой пачкой (поймано 30.08:
+    # конвейер стал квадратичным, страница стояла).
+    js = Jobs(jobs)
+    # Срез снимка — без сделанного в этом снимке (`.done`); перегон и спул идут своими файлами и seed.
+    n_pre = 0 if jobs_file else js.preclose(done_keys())
+    if n_pre:
+        print(f'уже сделано в этом снимке ({os.path.basename(DONE_SET)}): {n_pre} из {len(jobs)} — ноде не раздаю',
+              flush=True)
+    if jobs and n_pre == len(jobs):
+        # Весь срез сделан: курсор проходит его без нод и без денег.
+        print('RUN_SUMMARY ' + json.dumps(js.summary()), flush=True)
+        return 0
     ports = warm_ports()
     print(f'тёплых нод: {len(ports)} {ports}')
     if not ports:
         print('нет прогретых нод', flush=True)
         return EXIT_NO_CAPACITY
-    jobs = jobs_from_file(jobs_file) if jobs_file else jobs_from_sample(None)[skip:(skip + limit) if limit else None]
-    # --skip вместо растущего --limit: кэш «уже сделано» живёт на приёмнике и умирает при
-    # drain — растущий префикс перегенерировал ВСЁ предыдущее каждой пачкой (поймано 30.08:
-    # конвейер стал квадратичным, страница стояла).
-    print(f'заданий: {len(jobs)} на {len(ports)} нод(ы) на старте')
+    print(f'заданий: {len(jobs) - n_pre} на {len(ports)} нод(ы) на старте')
 
-    js, t0 = Jobs(jobs), time.time()
+    t0 = time.time()
     stop = threading.Event()
     nodes: dict = {}          # instance_id → {'thread', 'port', 'until'}: реестр пула
     gpu_of: dict = {}         # instance_id → модель видеокарты (для сравнения скорости)
@@ -755,7 +823,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
         except Exception:  # noqa: BLE001 — диагностика не должна мешать работе
             gpu_of[node_id] = '?'
     nodes_lock = threading.Lock()
-    closed = [0]
+    closed = [n_pre]          # счёт [k/N] — по всему срезу, сделанное раньше уже закрыто
 
     def worker(node_id: str, port: int, group: str):
         node_key = f'{group}/{node_id}'
@@ -802,6 +870,8 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                         'seed': it['job'].get('seed'), 'instance': node_id, 'group': group,
                         'fault': fault, 'err_class': ecls,
                         'error': str(r.get('error') or '')[:200], 'at': round(time.time())})
+            if r.get('status') in ('ok', 'cached'):
+                mark_done(it['job'].get('sku'), it['job'].get('seed'))
             with _lock:
                 closed[0] += 1
                 t = (r.get('timings_s') or {}).get('total')

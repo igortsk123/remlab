@@ -769,64 +769,41 @@ def _main():
             return
         if os.path.exists(PAUSE):
             # Пауза владельца: глушим группу (деньги!) и выходим. Продолжение — удалить файл
-            # и перезапустить: сделанное вернётся как cached, перегона не будет.
+            # и перезапустить: курсор и `<снимок>.done` пропустят сделанное, перегона не будет.
             # Группу гасит finale(), и гасит ПЕРВЫМ делом — фоновый разбор доделывается уже
             # без нод, бесплатно. Ждать его здесь значило бы платить за простой.
             print('ПАУЗА (файл mesh-batch.PAUSE) — гашу группу и выхожу', flush=True)
             return
-        n = min(batch, total - done)
-        # ssh_run сам берёт первые limit заданий; сделанные вернутся как cached мгновенно —
-        # поэтому просто наращиваем limit, а не режем список (проще и идемпотентно)
-        code, out = sh(f'{PY} {HERE}/ssh_run.py --skip {done} --limit {n} --keep-alive', timeout=n * 420 + 600)
-        print(out, flush=True)
-        if code == NO_CAPACITY or (code != 0 and 'нет прогретых' in out):
-            # ноды переезжают (бытовые ПК) — это не авария: ждём и пробуем снова.
-            # НО: группа stopped + отказ старта = похоже, КОНЧИЛСЯ БАЛАНС (30.08 владелец
-            # заметил раньше конвейера) — говорим прямо, монитор донесёт.
-            st = group_status()
-            if st == 'stopped' and not ensure_group_started():
-                print('группа остановлена и не стартует — см. причину выше (кредиты / запрет / окно)', flush=True)
-                if _NO_CREDITS:
-                    # НЕТ ДЕНЕГ — ВЫХОДИМ (conv-11, разбор Codex 13.10): раньше конвейер повторял /start каждые
-                    # 3 минуты вечно. Отметку читает сторож автозапуска (`wave_guard.py`): следующая попытка —
-                    # не раньше чем через 2 часа. Группы гасит finale() с проверкой stopped.
-                    json.dump({'at': time.time(), 'why': 'no_credits_available'}, open(NO_CREDITS_FILE, 'w'))
-                    print('НЕТ ДЕНЕГ НА SALAD — конвейер завершается; автозапуск попробует снова через 2 ч', flush=True)
-                    return
-            elif 'ПРИЁМНИК' in out:
-                # 75 от ssh_run из-за приёмника (нет места / канарейка не прошла): не ждём фонового
-                # тика разбора — стаскиваем и чистим СЕЙЧАС, иначе ноды простаивают до 15 минут,
-                # пока место уже можно было освободить (04.09).
-                print('приёмник не принимает — стаскиваю и чищу немедленно', flush=True)
-                for step, cmd in SR.SINK_RELIEF_CHAIN:
-                    c, o = sh(cmd, timeout=1800)
-                    # ПЕЧАТАЕМ ИТОГ ШАГА, А НЕ «ok» (05.09): чистка отвечала `ok`, удаляя НОЛЬ
-                    # комплектов, и по логу это было неотличимо от успешной уборки — пул стоял
-                    # оплаченным, а лог выглядел здоровым. Успех шага уборки — это цифра.
-                    last = (o.strip().splitlines() or [''])[-1][:150]
-                    print(f'  [приёмник] {step}: {"ok " + last if c == 0 else "СБОЙ " + o[-200:]}',
-                          flush=True)
-            else:
-                print('нет тёплых нод — жду 3 мин и пробую снова', flush=True)
-            cull_slow_pulls()
-            cull_dead_warmups()   # ноды «Running» с мёртвым прогревом — самый дорогой простой
-            time.sleep(180)
-            continue
-        s = run_summary(out)
-        if s is None:
-            print(f'!! пачка без итога (код {code}) — стоп, разбор руками', flush=True)
+        done, nxt = run_batch(done, min(batch, total - done), total)
+        if nxt == 'exit':
+            return
+        if nxt == 'stop':
             break
-        # Курсор двигаем ТОЛЬКО на подряд закрытые задания: дырка от транспортного сбоя
-        # останется в начале следующей пачки и будет перегенерирована, а не потеряна.
-        step_done = s.get('terminal_prefix', 0)
-        if s.get('unresolved'):
-            print(f'   нерешённых по транспорту: {s["unresolved"]} — курсор двигаю на {step_done} из {n}', flush=True)
-        if step_done == 0:
-            print('   ни одного закрытого задания — жду 3 мин и пробую снова', flush=True)
-            cull_slow_pulls()
-            cull_dead_warmups()   # ноды «Running» с мёртвым прогревом — самый дорогой простой
-            time.sleep(180)
-            continue
+
+    _post_stop.set()
+    wait_post()          # волна лечения работает по итогам приёмки — она должна доработать
+    heal_wave(PAUSE, guard_done=(done >= total))
+
+
+def run_batch(done: int, n: int, total: int) -> tuple[int, str]:
+    """Одна пачка: `ssh_run` по срезу [done, done+n), сдвиг курсора по итогу, решение, что дальше.
+    → (новый done, 'next' | 'wait' | 'stop' | 'exit').
+
+    ИТОГ ПАЧКИ ЧИТАЕМ ДО ВЕТКИ ОЖИДАНИЯ (план mesh-13, 21.10). При «нет живых нод 30 мин» `ssh_run` печатает
+    `RUN_SUMMARY` и выходит с 75; раньше 75 уводил в ожидание ДО чтения итога, курсор не двигался, и следующая
+    пачка шла снова с `--skip` прежнего места. С пачкой 2000 машины пропадают почти в каждой — ночь 20→21.10 пять
+    вызовов подряд начинались с нуля, 04–05.09 окно 680–880 прогнано пять раз: 25 % всех денег пула. Сделанное
+    при этом НЕ возвращается как cached: кэш приёмника вычищает разбор по таймеру. Внутри среза сделанное
+    отсекает файл `<снимок>.done` (`ssh_run.done_keys`), а не кэш."""
+    code, out = sh(f'{PY} {HERE}/ssh_run.py --skip {done} --limit {n} --keep-alive', timeout=n * 420 + 600)
+    print(out, flush=True)
+    s = run_summary(out)
+    # Курсор двигаем ТОЛЬКО на подряд закрытые задания: дырка от транспортного сбоя
+    # останется в начале следующей пачки и будет перегенерирована, а не потеряна.
+    step_done = (s or {}).get('terminal_prefix', 0)
+    if s and s.get('unresolved'):
+        print(f'   нерешённых по транспорту: {s["unresolved"]} — курсор двигаю на {step_done} из {n}', flush=True)
+    if step_done > 0:
         done += step_done
         save_cursor(done)
         drain_retry_spool()
@@ -837,10 +814,49 @@ def _main():
         # сделанное и ВНУТРИ длинной пачки, поэтому пачку можно брать большой.
         start_post(done)
         print(f'== {done}/{total} очереди сгенерировано, разбор идёт фоном ==', flush=True)
-
-    _post_stop.set()
-    wait_post()          # волна лечения работает по итогам приёмки — она должна доработать
-    heal_wave(PAUSE, guard_done=(done >= total))
+    if code == NO_CAPACITY or (code != 0 and 'нет прогретых' in out):
+        # ноды переезжают (бытовые ПК) — это не авария: ждём и пробуем снова.
+        # НО: группа stopped + отказ старта = похоже, КОНЧИЛСЯ БАЛАНС (30.08 владелец
+        # заметил раньше конвейера) — говорим прямо, монитор донесёт.
+        st = group_status()
+        if st == 'stopped' and not ensure_group_started():
+            print('группа остановлена и не стартует — см. причину выше (кредиты / запрет / окно)', flush=True)
+            if _NO_CREDITS:
+                # НЕТ ДЕНЕГ — ВЫХОДИМ (conv-11, разбор Codex 13.10): раньше конвейер повторял /start каждые
+                # 3 минуты вечно. Отметку читает сторож автозапуска (`wave_guard.py`): следующая попытка —
+                # не раньше чем через 2 часа. Группы гасит finale() с проверкой stopped.
+                json.dump({'at': time.time(), 'why': 'no_credits_available'}, open(NO_CREDITS_FILE, 'w'))
+                print('НЕТ ДЕНЕГ НА SALAD — конвейер завершается; автозапуск попробует снова через 2 ч', flush=True)
+                return done, 'exit'
+        elif 'ПРИЁМНИК' in out:
+            # 75 от ssh_run из-за приёмника (нет места / канарейка не прошла): не ждём фонового
+            # тика разбора — стаскиваем и чистим СЕЙЧАС, иначе ноды простаивают до 15 минут,
+            # пока место уже можно было освободить (04.09).
+            print('приёмник не принимает — стаскиваю и чищу немедленно', flush=True)
+            for step, cmd in SR.SINK_RELIEF_CHAIN:
+                c, o = sh(cmd, timeout=1800)
+                # ПЕЧАТАЕМ ИТОГ ШАГА, А НЕ «ok» (05.09): чистка отвечала `ok`, удаляя НОЛЬ
+                # комплектов, и по логу это было неотличимо от успешной уборки — пул стоял
+                # оплаченным, а лог выглядел здоровым. Успех шага уборки — это цифра.
+                last = (o.strip().splitlines() or [''])[-1][:150]
+                print(f'  [приёмник] {step}: {"ok " + last if c == 0 else "СБОЙ " + o[-200:]}',
+                      flush=True)
+        else:
+            print('нет тёплых нод — жду 3 мин и пробую снова', flush=True)
+        cull_slow_pulls()
+        cull_dead_warmups()   # ноды «Running» с мёртвым прогревом — самый дорогой простой
+        time.sleep(180)
+        return done, 'wait'
+    if s is None:
+        print(f'!! пачка без итога (код {code}) — стоп, разбор руками', flush=True)
+        return done, 'stop'
+    if step_done == 0:
+        print('   ни одного закрытого задания — жду 3 мин и пробую снова', flush=True)
+        cull_slow_pulls()
+        cull_dead_warmups()   # ноды «Running» с мёртвым прогревом — самый дорогой простой
+        time.sleep(180)
+        return done, 'wait'
+    return done, 'next'
 
 
 def heal_wave(PAUSE: str, guard_done: bool = True) -> None:

@@ -422,12 +422,19 @@ def build_queue(path: str, todo: list, prod: dict) -> None:
     import time
     rework = pending_rework()
     used = used_seeds(set(rework), os.path.join(HERE, 'mesh-reseed.json'), active_snapshots())
+    photo, gen0 = stale_facts(todo)
+    # Причины — по представителям семейства: варианты в `todo` не попадают (`products`).
+    no_hash = sum(1 for x in todo if x['status'] == 'stale' and x['sku'] not in photo)
+    suppressed = 0
     jobs, queued, seen = [], [], set()
     for x in todo:
         p = prod[x['sku']]
         mid, eid = x['sku'].split(':', 1)
         seeds, strata = [0], {'tier': x['tier'], 'reason': x['reason']}
         rq = rework.get(x['sku'])
+        if suppress_seed0(x['status'], bool(rq), x['sku'] in photo, x['sku'] in gen0):
+            suppressed += 1
+            continue
         if rq:
             others = used[x['sku']] - ({rq['next_seed']} if rq['next_seed'] is not None else set())
             gen_has = db(f"select 1 from mesh_generations where sku='{x['sku']}' and seed={rq['next_seed']}") \
@@ -474,6 +481,32 @@ def build_queue(path: str, todo: list, prod: dict) -> None:
            f"(нет mesh_required)', updated=now() where status in ('requested','queued') and sku in ({lit})")
     print(f'очередь собрана: {len(jobs)} заданий в порядке приоритета, переделок владельца '
           f'{len(queued)}, заблокировано вне потребности {len(orphans)} → {path}')
+    print(f'stale_missing_photo_hash {no_hash}, suppressed_seed0 {suppressed}', flush=True)
+
+
+def suppress_seed0(status: str, has_rework: bool, photo_known: bool, has_gen0: bool) -> bool:
+    """Не ставить задание seed 0 (план mesh-13, правило сверено с Codex 21.10). Только для stale:
+    - запрос переделки владельца → ставим (свой seed, `build_queue`);
+    - хеш текущего фото известен → ставим seed 0: stale при известном фото значит «фото сменилось» — новый job_id;
+    - хеша фото нет (`product_photo_current`), а поколение seed 0 уже есть → НЕ ставим: «не знаем фото» ≠
+      «фото сменилось», а `mesh_bind.enforce_ready_invariant` ставит stale и в этом случае. Перегон дал бы тот же
+      job_id, хеш фото генерация не создаёт — товар оставался stale, и каждая волна делала его заново (21.10:
+      127 из 239 мешей ночи, 295 таких товаров);
+    - поколения нет → ставим.
+    quarantine и rejected — как было (вне плана). Чистая функция."""
+    return status == 'stale' and not has_rework and not photo_known and has_gen0
+
+
+def stale_facts(todo: list) -> tuple[set, set]:
+    """Факты для `suppress_seed0` из базы по stale-товарам очереди: (хеш фото известен, есть поколение seed 0)."""
+    stale = {x['sku'] for x in todo if x['status'] == 'stale'}
+    if not stale:
+        return set(), set()
+    lit = ','.join("'" + s.replace("'", "''") + "'" for s in stale)
+    photo = {r[0] for r in db(f"select sku from product_photo_current where coalesce(source_sha,'') <> '' "
+                              f"and sku in ({lit})") if r}
+    gen0 = {r[0] for r in db(f"select distinct sku from mesh_generations where seed = 0 and sku in ({lit})") if r}
+    return photo, gen0
 
 
 def _selftest() -> int:
@@ -547,6 +580,8 @@ def _selftest() -> int:
     bad = 0
     if next_seed(set()) != 1 or next_seed({0}) != 1 or next_seed({0, 1}) != 2 or next_seed({0, 3}) != 4:
         bad += 1; print('  FAIL next_seed')
+    import contextlib
+    import io
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         rs = os.path.join(td, 'reseed.json')
@@ -574,7 +609,37 @@ def _selftest() -> int:
     if take_top(js, q, 0) != (js, q) or take_top(js, q, 10) != (js, q):
         bad += 1
         print('  FAIL take_top: без лимита или лимит больше очереди должен вернуть всё')
-    print(f'mesh_priority selftest: случаев 4, ошибок {bad}')
+    # --- STALE БЕЗ ХЕША ФОТО (план mesh-13): не знаем фото ≠ фото сменилось ---
+    if (suppress_seed0('stale', True, False, True) or not suppress_seed0('stale', False, False, True)
+            or suppress_seed0('stale', False, True, True) or suppress_seed0('stale', False, False, False)
+            or suppress_seed0('quarantine', False, False, True)):
+        bad += 1
+        print('  FAIL suppress_seed0: подавлять только stale без хеша, с поколением seed 0 и без переделки')
+    g = globals()
+    keep = {k: g[k] for k in ('pending_rework', 'used_seeds', 'active_snapshots', 'stale_facts', 'db')}
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            g['pending_rework'] = lambda: {'9:1': {'id': 7, 'attempt': 2, 'next_seed': None, 'status': 'requested'}}
+            g['used_seeds'] = lambda skus, rp, sn: {s_: {0} for s_ in skus}
+            g['active_snapshots'] = lambda: []
+            g['stale_facts'] = lambda todo: ({'9:3'}, {'9:1', '9:2', '9:3', '9:5'})
+            g['db'] = lambda sql: []
+            st = {1: 'stale', 2: 'stale', 3: 'stale', 4: 'stale', 5: 'quarantine'}
+            todo = [{'sku': f'9:{i}', 'role': 'кресло', 'tier': 1, 'reason': 'т', 'status': st[i],
+                     'policy_version': 't'} for i in st]
+            prod = {x['sku']: {'image_url': 'u', 'dims_cm': {}} for x in todo}
+            out = os.path.join(td, 'q.json')
+            with contextlib.redirect_stdout(io.StringIO()) as buf:
+                build_queue(out, todo, prod)
+            got = {j['sku']: j['seeds'] for j in json.load(open(out, encoding='utf-8'))['jobs']}
+        finally:
+            g.update(keep)
+    want = {'9:1': [1], '9:3': [0], '9:4': [0], '9:5': [0]}
+    if got != want or 'stale_missing_photo_hash 3, suppressed_seed0 1' not in buf.getvalue():
+        bad += 1
+        print('  FAIL build_queue: переделка без хеша ставится, без переделки подавлена, другой хеш — seed 0',
+              got, buf.getvalue()[-120:])
+    print(f'mesh_priority selftest: случаев 6, ошибок {bad}')
     return 1 if bad else 0
 
 

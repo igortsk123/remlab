@@ -95,7 +95,8 @@ def classify(res: dict, sink_ok: bool | None = None) -> str:
     st = (res or {}).get('status')
     if sink_ok is False and infra_suspect(res):
         return FAULT_INFRA
-    if st in ('ok', 'cached'):
+    # `done_before` — уже сделано в этом снимке (`ssh_run.done_keys`), ноде не раздавалось (план mesh-13)
+    if st in ('ok', 'cached', 'done_before'):
         return FAULT_NONE
     if st in _JOB_STATUSES:
         return FAULT_JOB

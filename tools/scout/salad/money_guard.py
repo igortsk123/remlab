@@ -360,6 +360,37 @@ def last_mesh_at() -> float:
     return best
 
 
+def repeats(since: float) -> tuple[int, str]:
+    """Повторы после `since`: ok, чей job_id (хвост prefix) уже был ok раньше. job_id = вход + параметры + seed
+    (`manifest.job_id`), а законная переделка меняет seed (владелец, перегон приёмки) или фото — значит, и job_id.
+    Тот же job_id второй раз — всегда оплаченный повтор (план mesh-13: 29 % денег пула за 31.08–21.10).
+    → (сколько, пример job_id)."""
+    rows = []
+    try:
+        with open(JOURNAL, encoding='utf-8') as f:
+            for line in f:
+                if '"ok"' not in line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r.get('status') == 'ok':
+                    rows.append(r)
+    except FileNotFoundError:
+        return 0, ''
+    seen, n, ex = set(), 0, ''
+    for r in sorted(rows, key=lambda r: float(r.get('at') or 0)):
+        j = str(r.get('prefix') or '').rsplit('/', 1)[-1]
+        if not j:
+            continue
+        if j in seen and float(r.get('at') or 0) > since:
+            n += 1
+            ex = ex or j
+        seen.add(j)
+    return n, ex
+
+
 def heartbeat(st: dict, gs: list[str], counts: dict, sink: dict) -> None:
     """Раз в сутки в HEARTBEAT_H UTC — короткая сводка владельцу. Ловит и «оповещения молча
     сломаны»: не пришёл пульс — значит сторож или телеграм мертвы."""
@@ -392,7 +423,8 @@ def heartbeat(st: dict, gs: list[str], counts: dict, sink: dict) -> None:
         halt = f' ЗАПРЕТ стоит: {h.get("why")}'
     except Exception:  # noqa: BLE001
         pass
-    notify(f'Пульс мешей: за сутки ok {ok}, из кэша {cached}; работает нод {sum(v for v in counts.values() if v > 0)} '
+    rep, _ = repeats(day_ago)
+    notify(f'Пульс мешей: за сутки ok {ok}, из кэша {cached}, повторы {rep}; работает нод {sum(v for v in counts.values() if v > 0)} '
            f'{counts}; оплачено всего {sum(paid.values()) / 60:.1f} нодо-ч ≈ ${usd:.2f} ({rub:.0f} ₽); '
            f'приёмник {"ок" if sink["ok"] else "КРАСНЫЙ: " + sink["why"]}, свободно {sink.get("free_gb", 0):.1f} ГБ.{halt}')
     st['heartbeat_day'] = today
@@ -503,6 +535,15 @@ def main() -> int:
             if c > 0:
                 paid[g] = round(paid.get(g, 0.0) + c * (TICK_S / 60.0), 1)
         mesh_at = last_mesh_at()
+        # ПОВТОРЫ — строка в лог за каждый тик, где они появились (план mesh-13). Отсчёт — с прошлой проверки;
+        # первый тик после старта сторожа историю не судит.
+        rep_since = st.setdefault('repeats_at', time.time())
+        if mesh_at > rep_since:
+            rep, rep_ex = repeats(rep_since)
+            if rep:
+                print(f'{time.strftime("%H:%M")} !! ПОВТОРЫ: {rep} меш(ей) сделаны второй раз — тот же вход и seed '
+                      f'(пример {rep_ex}); курсор или `<снимок>.done` не сработали', flush=True)
+            st['repeats_at'] = mesh_at
         if mesh_at > st.get('last_seen_mesh', 0):
             # Пошли меши — терпение обнуляем целиком: пул работает, платим за дело.
             if st['idle_node_min'] > 0:

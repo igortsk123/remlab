@@ -10,7 +10,8 @@ API, сном и путями и проверяет:
      книга расходов не обнулена;
   3) все группы остановлены без маркера no_credits → «причина неизвестна» + факт из журнала сторожа простоя, о кредитах
      ни слова; с маркером — про кредиты;
-  4) разбор salad.env: последняя строка, `export`, кавычки; нет строки — None (старый список остаётся).
+  4) разбор salad.env: последняя строка, `export`, кавычки; нет строки — None (старый список остаётся);
+  5) повторы (план mesh-13): ok того же job_id второй раз считается, cached и разные job_id — нет.
 Запуск: ~/venvs/scout/bin/python tests_money_guard.py
 """
 import contextlib
@@ -126,6 +127,25 @@ def case_credits_only_by_marker(tmp: str) -> None:
         G.conveyor_alive = keep
 
 
+def case_repeats(tmp: str) -> None:
+    """Повторы (план mesh-13): ok того же job_id второй раз — счёт после `since`, разные job_id и cached — не повтор."""
+    keep = G.JOURNAL
+    G.JOURNAL = os.path.join(tmp, 'rep.jsonl')
+    try:
+        rows = [{'status': 'ok', 'prefix': 'meshes/v2/1_a/J1', 'at': 100},
+                {'status': 'ok', 'prefix': 'meshes/v2/1_b/J2', 'at': 200},
+                {'status': 'cached', 'prefix': 'meshes/v2/1_a/J1', 'at': 250},
+                {'status': 'ok', 'prefix': 'meshes/v2/1_a/J1', 'at': 300},
+                {'status': 'ok', 'prefix': 'meshes/v2/1_c/J3', 'at': 400}]
+        with open(G.JOURNAL, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(json.dumps(r) for r in rows) + '\n')
+        ok('повтор J1 после 150 — один, пример J1', G.repeats(150) == (1, 'J1'))
+        ok('после последнего повтора — ноль', G.repeats(300) == (0, ''))
+        ok('история: первый ok не повтор', G.repeats(0)[0] == 1)
+    finally:
+        G.JOURNAL = keep
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         G.STATE, G.HALT = os.path.join(tmp, 'guard.json'), os.path.join(tmp, 'halt.json')
@@ -137,6 +157,7 @@ def main() -> int:
         case_env_parse(tmp)
         case_loop(tmp)
         case_credits_only_by_marker(tmp)
+        case_repeats(tmp)
     print('сторож денег: ' + ('ВСЁ ЗЕЛЁНОЕ' if not bad else f'ПРОВАЛОВ {bad}'))
     return 1 if bad else 0
 
