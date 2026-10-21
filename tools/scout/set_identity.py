@@ -24,6 +24,10 @@ SETS = os.path.join(HERE, 'sets3.json')
 
 # Поля замысла: они задают, ЧТО это за комплект, и не меняются при подмене товара в слоте.
 IDENTITY_FIELDS = ('band', 'm2', 'tier', 'style', 'capsule', 'group')
+# КЛЮЧ ПЕРЕНОСА ПРИ ПЕРЕСБОРКЕ (conv-13, T-20261021-09): без `capsule`. Капсулу сборка выводит из выбранных товаров —
+# сменился каталог, сменилась капсула, и пересборка с нуля 21.10 дала новые id 115 сетам из 126, хотя комплекты те же
+# (та же площадь, ярус, стиль, группа). Id из отпечатка — только для сета, которого в прежнем банке не было.
+CARRY_FIELDS = ('band', 'm2', 'tier', 'style', 'group')
 
 
 def _fingerprint(s: dict) -> str:
@@ -56,6 +60,33 @@ def ensure_ids(sets: list[dict]) -> int:
         taken.add(sid)
         added += 1
     return added
+
+
+def carry_ids(sets: list[dict], prev: list[dict]) -> dict:
+    """Перенести `set_id` из прежнего банка в пересобранный: ключ CARRY_FIELDS + порядковый номер внутри одинакового
+    ключа (порядок первой встречи), а не индекс массива. Записанный id не трогаем. → {'carried', 'unmatched', 'lost'}:
+    сколько перенесено, сколько новых сетов осталось без id (их доразметит `ensure_ids`), сколько прежних id не нашли
+    пары (комплект из банка ушёл)."""
+    def keyed(xs: list[dict]) -> dict:
+        out, seen = {}, {}
+        for s in xs:
+            k = tuple(json.dumps(s.get(f), ensure_ascii=False, sort_keys=True) for f in CARRY_FIELDS)
+            n = seen.get(k, 0)
+            seen[k] = n + 1
+            out[(k, n)] = s
+        return out
+    old, new = keyed(prev), keyed(sets)
+    taken = {s['set_id'] for s in sets if s.get('set_id')}
+    carried = 0
+    for k, s in new.items():
+        sid = (old.get(k) or {}).get('set_id')
+        if s.get('set_id') or not sid or sid in taken:
+            continue
+        s['set_id'] = sid
+        taken.add(sid)
+        carried += 1
+    lost = sum(1 for k, o in old.items() if o.get('set_id') and k not in new)
+    return {'carried': carried, 'unmatched': sum(1 for s in sets if not s.get('set_id')), 'lost': lost}
 
 
 def index_map(sets: list[dict]) -> dict[int, str]:
@@ -109,5 +140,32 @@ def main() -> int:
     return 1 if problems else 0
 
 
+def _selftest() -> int:
+    bad = 0
+
+    def ok(name: str, cond: bool) -> None:
+        nonlocal bad
+        print(('  ✓ ' if cond else '  ✗ ') + name)
+        bad += 0 if cond else 1
+
+    def mk(m2, style, cap, sid=None):
+        return {'band': '14-16', 'm2': m2, 'tier': 'эконом', 'style': style, 'group': 'g', 'capsule': cap,
+                **({'set_id': sid} if sid else {})}
+    prev = [mk(15, 'сканди', 'a', 'set-1'), mk(15, 'сканди', 'b', 'set-2'), mk(15, 'лофт', 'c', 'set-3'),
+            mk(16, 'лофт', 'd', 'set-4')]
+    new = [mk(15, 'лофт', 'x'), mk(15, 'сканди', 'y'), mk(15, 'сканди', 'z'), mk(17, 'лофт', 'w')]
+    r = carry_ids(new, prev)
+    ok('капсула сменилась — id тот же (ключ без капсулы)', new[0]['set_id'] == 'set-3')
+    ok('одинаковый ключ — по порядковому номеру, не по индексу массива', [s['set_id'] for s in new[1:3]] == ['set-1', 'set-2'])
+    ok('новый сет без пары — без id (доразметит ensure_ids), прежний без пары — посчитан',
+       'set_id' not in new[3] and r == {'carried': 3, 'unmatched': 1, 'lost': 1})
+    ensure_ids(new)
+    ok('ensure_ids размечает только новый', new[3]['set_id'].startswith('set-') and new[0]['set_id'] == 'set-3')
+    keep = [mk(15, 'лофт', 'x', 'set-own')]
+    ok('записанный id не трогается', carry_ids(keep, prev)['carried'] == 0 and keep[0]['set_id'] == 'set-own')
+    print(f'set_identity selftest: ошибок {bad}')
+    return 1 if bad else 0
+
+
 if __name__ == '__main__':
-    raise SystemExit(main())
+    raise SystemExit(_selftest() if '--selftest' in sys.argv else main())

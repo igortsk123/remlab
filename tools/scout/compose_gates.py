@@ -6,6 +6,10 @@
 предиката товар НЕ пускает, поэтому свежая сборка уходила в банк с позициями, которые валидатор потом массово менял.
 Теперь сбой проверки = товар не берём, а сколько раз и какая проверка падала — строка в журнале сборки (`summary`).
 
+ЖИВОСТЬ ФОТО — ТОТ ЖЕ ПРЕДИКАТ, ЧТО У КОНТРАКТА (`sets_incremental._slot_ok` → `img_alive.alive_now`; T-20261021-09).
+Сборка спрашивала мягкий `alive`: непроверенное фото — «живое». Пересборка 21.10 взяла комод с мёртвым фото (в кэше
+записи не было) в 7 сетов, а сухой контракт тут же его снимал. Теперь непроверенное проверяется сразу и ложится в кэш.
+
   python3 compose_gates.py --selftest
 """
 import collections
@@ -19,8 +23,8 @@ def admit(sku: str, img: str | None) -> str | None:
     if not img:
         return 'нет фото'
     try:
-        from img_alive import alive
-        if not alive(img):
+        from img_alive import alive_now
+        if not alive_now(img):
             return 'фото мёртвое'
     except Exception as e:  # noqa: BLE001 — fail-closed, считаем
         FAILS[f'живость фото: {type(e).__name__}'] += 1
@@ -66,7 +70,7 @@ def _selftest() -> int:
     saved = {m: sys.modules.get(m) for m in ('img_alive', 'slot_contract')}
 
     def fake(alive=lambda u: True, photo=lambda s, context=None: True, mesh=lambda s: True):
-        sys.modules['img_alive'] = types.SimpleNamespace(alive=alive)
+        sys.modules['img_alive'] = types.SimpleNamespace(alive_now=alive, alive=lambda u, unknown=True: True)
         sys.modules['slot_contract'] = types.SimpleNamespace(photo_ok=photo, mesh_ok=mesh)
         FAILS.clear()
 
@@ -75,7 +79,8 @@ def _selftest() -> int:
         ok('всё годно — товар берём', admit('1:a', '//img') is None and summary().endswith('0'))
         ok('нет фото — отказ', admit('1:a', None) == 'нет фото')
         fake(alive=lambda u: False)
-        ok('мёртвое фото — отказ', admit('1:a', '//img') == 'фото мёртвое' and not FAILS)
+        ok('мёртвое фото по строгой проверке (как у контракта `_slot_ok`) — отказ, даже если мягкий `alive` «жив»',
+           admit('1:a', '//img') == 'фото мёртвое' and not FAILS)
         fake(alive=boom)
         ok('сбой проверки живости — отказ и счёт', admit('1:a', '//img') == 'сбой проверки фото'
            and FAILS['живость фото: RuntimeError'] == 1)

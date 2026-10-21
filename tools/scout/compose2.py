@@ -1265,8 +1265,16 @@ print(_CG.summary(),flush=True)
 # Стабильный set_id: сцены и отчёты живут на НОМЕРАХ сетов, и любая перестановка массива молча
 # переадресует их на соседние комплекты. id детерминирован по полям замысла (площадь/ярус/стиль/
 # капсула), поэтому пересборка с нуля выдаёт те же id — а замена товара в слоте их не меняет.
+# ПЕРЕНОС ИЗ ПРЕЖНЕГО БАНКА (conv-13, T-20261021-09): капсула входит в отпечаток и зависит от выбранных товаров, поэтому
+# пересборка с нуля давала новые id почти всем сетам. Сначала переносим id прежнего банка (живой sets3.json; для v2 —
+# прежний sets2.json) по замыслу без капсулы (`set_identity.carry_ids`), отпечаток — только новым сетам.
 try:
-    from set_identity import ensure_ids as _ensure_ids
+    from set_identity import ensure_ids as _ensure_ids, carry_ids as _carry_ids
+    _prev_path=os.path.join(os.path.dirname(_BP.LIVE),OUT_SETS)
+    if os.path.exists(_prev_path):
+        _c=_carry_ids(sets,json.load(open(_prev_path,encoding='utf-8')))
+        print(f"set_id из прежнего банка ({os.path.basename(_prev_path)}): перенесено {_c['carried']}, "
+              f"новых сетов {_c['unmatched']}, прежних без пары {_c['lost']}",flush=True)
     _ensure_ids(sets)
 except Exception as _e:   # noqa: BLE001 — идентичность не должна ронять сборку сетов
     print(f'set_id не проставлен: {type(_e).__name__}: {_e}',flush=True)
