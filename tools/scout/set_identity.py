@@ -13,6 +13,10 @@
 
 Идентификатор детерминирован (одна и та же выборка даёт те же id при пересборке с нуля), но
 однажды записанный НЕ пересчитывается — даже если поля замысла кто-то поправит.
+
+ЯЧЕЙКА И ФАТАЛЬНОСТЬ (conv-14 шаг 1). При пересборке id и номер массива переносятся по постоянной ячейке
+`(band, style, tier)` (`assign_ids`); потеря, дубль или дрейф id — `IdentityError`, и `write_bank` банк не пишет:
+раньше сборщик ловил ошибку идентичности и писал банк всё равно.
 """
 import hashlib
 import json
@@ -24,10 +28,18 @@ SETS = os.path.join(HERE, 'sets3.json')
 
 # Поля замысла: они задают, ЧТО это за комплект, и не меняются при подмене товара в слоте.
 IDENTITY_FIELDS = ('band', 'm2', 'tier', 'style', 'capsule', 'group')
-# КЛЮЧ ПЕРЕНОСА ПРИ ПЕРЕСБОРКЕ (conv-13, T-20261021-09): без `capsule`. Капсулу сборка выводит из выбранных товаров —
-# сменился каталог, сменилась капсула, и пересборка с нуля 21.10 дала новые id 115 сетам из 126, хотя комплекты те же
-# (та же площадь, ярус, стиль, группа). Id из отпечатка — только для сета, которого в прежнем банке не было.
-CARRY_FIELDS = ('band', 'm2', 'tier', 'style', 'group')
+# ЯЧЕЙКА БАНКА (conv-14 шаг 1, разбор Codex 22.10): постоянная идентичность комплекта — `(band, style, tier)`. В банке
+# 7 полос × 6 стилей × 3 яруса = 126 ячеек, каждая ровно одна. Прежний ключ переноса (band, m2, tier, style, group)
+# с порядковым номером зависел от `group`, а группу сборка ротирует — id мог уехать на соседний сет молча.
+CELL_FIELDS = ('band', 'style', 'tier')
+
+
+class IdentityError(Exception):
+    """Потеря, дубль или дрейф set_id / ячейки: банк с такой ошибкой не пишется (сцены, отчёты и демо живут на номерах)."""
+
+
+def cell(s: dict) -> tuple:
+    return tuple(s.get(f) for f in CELL_FIELDS)
 
 
 def _fingerprint(s: dict) -> str:
@@ -62,31 +74,90 @@ def ensure_ids(sets: list[dict]) -> int:
     return added
 
 
-def carry_ids(sets: list[dict], prev: list[dict]) -> dict:
-    """Перенести `set_id` из прежнего банка в пересобранный: ключ CARRY_FIELDS + порядковый номер внутри одинакового
-    ключа (порядок первой встречи), а не индекс массива. Записанный id не трогаем. → {'carried', 'unmatched', 'lost'}:
-    сколько перенесено, сколько новых сетов осталось без id (их доразметит `ensure_ids`), сколько прежних id не нашли
-    пары (комплект из банка ушёл)."""
-    def keyed(xs: list[dict]) -> dict:
-        out, seen = {}, {}
-        for s in xs:
-            k = tuple(json.dumps(s.get(f), ensure_ascii=False, sort_keys=True) for f in CARRY_FIELDS)
-            n = seen.get(k, 0)
-            seen[k] = n + 1
-            out[(k, n)] = s
-        return out
-    old, new = keyed(prev), keyed(sets)
-    taken = {s['set_id'] for s in sets if s.get('set_id')}
-    carried = 0
-    for k, s in new.items():
-        sid = (old.get(k) or {}).get('set_id')
-        if s.get('set_id') or not sid or sid in taken:
-            continue
-        s['set_id'] = sid
-        taken.add(sid)
-        carried += 1
-    lost = sum(1 for k, o in old.items() if o.get('set_id') and k not in new)
-    return {'carried': carried, 'unmatched': sum(1 for s in sets if not s.get('set_id')), 'lost': lost}
+def assign_ids(sets: list[dict], prev: list[dict] | None) -> list[dict]:
+    """Идентичность пересобранного банка относительно прежнего: id и ПОРЯДОК — по ячейке `(band, style, tier)`.
+
+    Возвращает новый список: сеты в порядке прежнего банка, у каждого id его ячейки. Без прежнего (первая сборка) —
+    отпечаток `ensure_ids`. Любое нарушение — `IdentityError`, ничего не возвращаем: дубль ячейки, пропавшая или лишняя
+    ячейка, у сета уже записан ДРУГОЙ id, в прежнем банке нет id или он повторяется. Номер массива — тоже идентичность
+    (сцены `setN-*`, демо публикует `setN`): поэтому порядок задаёт прежний банк, а не порядок сборки."""
+    dup = [c for c, n in _count(cell(s) for s in sets).items() if n > 1]
+    if dup:
+        raise IdentityError(f'дубль ячейки в новом банке: {dup[:3]}')
+    if prev is None:
+        ensure_ids(sets)
+        return list(sets)
+    pdup = [c for c, n in _count(cell(s) for s in prev).items() if n > 1]
+    if pdup:
+        raise IdentityError(f'дубль ячейки в прежнем банке: {pdup[:3]}')
+    noid = [n for n, s in enumerate(prev, 1) if not s.get('set_id')]
+    if noid:
+        raise IdentityError(f'в прежнем банке сеты без set_id: номера {noid[:5]}')
+    piddup = [i for i, n in _count(s['set_id'] for s in prev).items() if n > 1]
+    if piddup:
+        raise IdentityError(f'в прежнем банке повторяется set_id: {piddup[:3]}')
+    by_cell = {cell(s): s for s in sets}
+    lost = [cell(p) for p in prev if cell(p) not in by_cell]
+    extra = [c for c in by_cell if c not in {cell(p) for p in prev}]
+    if lost or extra:
+        raise IdentityError(f'ячейки не совпали с прежним банком: пропали {len(lost)} {lost[:3]}, лишние {len(extra)} {extra[:3]}')
+    out = []
+    for p in prev:
+        s = by_cell[cell(p)]
+        if s.get('set_id') and s['set_id'] != p['set_id']:
+            raise IdentityError(f'дрейф set_id ячейки {cell(p)}: записан {s["set_id"]}, в прежнем банке {p["set_id"]}')
+        s['set_id'] = p['set_id']
+        out.append(s)
+    problems = verify(out, prev, cells=None)     # число ячеек задаёт прежний банк (живой — 126)
+    if problems:
+        raise IdentityError('; '.join(problems))
+    return out
+
+
+def verify(sets: list[dict], prev: list[dict] | None = None, cells: int | None = 126) -> list[str]:
+    """Структура банка: `cells` уникальных ячеек (None — не проверять число), у каждого сета set_id, id не повторяются;
+    с `prev` — карта «номер массива → (ячейка, set_id)» та же. Пусто — всё цело."""
+    out = []
+    cs = [cell(s) for s in sets]
+    if cells is not None and len(sets) != cells:
+        out.append(f'сетов {len(sets)}, ждали {cells}')
+    if len(set(cs)) != len(cs):
+        out.append(f'ячейки повторяются: {[c for c, n in _count(cs).items() if n > 1][:3]}')
+    noid = [n for n, s in enumerate(sets, 1) if not s.get('set_id')]
+    if noid:
+        out.append(f'без set_id: номера {noid[:5]}')
+    iddup = [i for i, n in _count(s.get('set_id') for s in sets if s.get('set_id')).items() if n > 1]
+    if iddup:
+        out.append(f'повторяется set_id: {iddup[:3]}')
+    if prev is not None:
+        moved = [n for n, (a, b) in enumerate(zip(prev, sets), 1)
+                 if (cell(a), a.get('set_id')) != (cell(b), b.get('set_id'))]
+        if moved or len(prev) != len(sets):
+            out.append(f'карта «номер → set_id» не та: сдвинуты номера {moved[:5]}' + ('…' if len(moved) > 5 else '')
+                       + (f', сетов {len(sets)} против {len(prev)}' if len(prev) != len(sets) else ''))
+    return out
+
+
+def _count(xs) -> dict:
+    out: dict = {}
+    for x in xs:
+        out[x] = out.get(x, 0) + 1
+    return out
+
+
+def write_bank(sets: list[dict], out_path: str, prev_path: str | None) -> list[dict]:
+    """Записать собранный банк: идентичность по прежнему (`assign_ids`), затем АТОМАРНО (временный файл + rename; инцидент
+    08.08 — падение посреди json.dump оставило 18/126). Нарушение идентичности — `IdentityError` ДО записи: файл не тронут.
+    Возвращает сеты в записанном порядке."""
+    prev = json.load(open(prev_path, encoding='utf-8')) if prev_path and os.path.exists(prev_path) else None
+    out = assign_ids(sets, prev)
+    tmp = out_path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(out, f, ensure_ascii=False, indent=1)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, out_path)
+    return out
 
 
 def index_map(sets: list[dict]) -> dict[int, str]:
@@ -148,21 +219,64 @@ def _selftest() -> int:
         print(('  ✓ ' if cond else '  ✗ ') + name)
         bad += 0 if cond else 1
 
-    def mk(m2, style, cap, sid=None):
-        return {'band': '14-16', 'm2': m2, 'tier': 'эконом', 'style': style, 'group': 'g', 'capsule': cap,
+    def mk(band, style, tier, sid=None, group='g'):
+        return {'band': band, 'm2': 15, 'tier': tier, 'style': style, 'group': group, 'capsule': 'c',
                 **({'set_id': sid} if sid else {})}
-    prev = [mk(15, 'сканди', 'a', 'set-1'), mk(15, 'сканди', 'b', 'set-2'), mk(15, 'лофт', 'c', 'set-3'),
-            mk(16, 'лофт', 'd', 'set-4')]
-    new = [mk(15, 'лофт', 'x'), mk(15, 'сканди', 'y'), mk(15, 'сканди', 'z'), mk(17, 'лофт', 'w')]
-    r = carry_ids(new, prev)
-    ok('капсула сменилась — id тот же (ключ без капсулы)', new[0]['set_id'] == 'set-3')
-    ok('одинаковый ключ — по порядковому номеру, не по индексу массива', [s['set_id'] for s in new[1:3]] == ['set-1', 'set-2'])
-    ok('новый сет без пары — без id (доразметит ensure_ids), прежний без пары — посчитан',
-       'set_id' not in new[3] and r == {'carried': 3, 'unmatched': 1, 'lost': 1})
-    ensure_ids(new)
-    ok('ensure_ids размечает только новый', new[3]['set_id'].startswith('set-') and new[0]['set_id'] == 'set-3')
-    keep = [mk(15, 'лофт', 'x', 'set-own')]
-    ok('записанный id не трогается', carry_ids(keep, prev)['carried'] == 0 and keep[0]['set_id'] == 'set-own')
+    prev = [mk('14-16', 'сканди', 'эконом', 'set-1'), mk('14-16', 'лофт', 'эконом', 'set-2'),
+            mk('17-20', 'сканди', 'премиум', 'set-3')]
+    # пересборка в другом порядке, с другой группой и капсулой — id и номер по ячейке
+    new = [mk('17-20', 'сканди', 'премиум', group='x'), mk('14-16', 'сканди', 'эконом'), mk('14-16', 'лофт', 'эконом')]
+    out = assign_ids(new, prev)
+    ok('id и порядок — по ячейке (band, style, tier), не по порядку сборки и не по группе',
+       [s['set_id'] for s in out] == ['set-1', 'set-2', 'set-3'] and out[2]['group'] == 'x')
+    ok('карта номеров та же — verify пуст', verify(out, prev, cells=3) == [])
+
+    def fails(xs, why):
+        try:
+            assign_ids(xs, prev)
+        except IdentityError as e:
+            return why in str(e)
+        return False
+    ok('дубль ячейки — ошибка', fails([mk('14-16', 'сканди', 'эконом'), mk('14-16', 'сканди', 'эконом'),
+                                       mk('17-20', 'сканди', 'премиум')], 'дубль ячейки'))
+    ok('пропавшая ячейка — ошибка', fails([mk('14-16', 'сканди', 'эконом'), mk('14-16', 'лофт', 'эконом')], 'пропали 1'))
+    ok('лишняя ячейка — ошибка', fails([mk('14-16', 'сканди', 'эконом'), mk('14-16', 'лофт', 'эконом'),
+                                        mk('17-20', 'сканди', 'премиум'), mk('50+', 'лофт', 'эконом')], 'лишние 1'))
+    ok('у сета записан другой id — дрейф, ошибка', fails([mk('14-16', 'сканди', 'эконом', 'set-9'), mk('14-16', 'лофт', 'эконом'),
+                                                       mk('17-20', 'сканди', 'премиум')], 'дрейф'))
+    bad_prev = [dict(p, set_id='set-1') for p in prev]
+    try:
+        assign_ids([mk('14-16', 'сканди', 'эконом'), mk('14-16', 'лофт', 'эконом'), mk('17-20', 'сканди', 'премиум')], bad_prev)
+        ok('повтор id в прежнем банке — ошибка', False)
+    except IdentityError as e:
+        ok('повтор id в прежнем банке — ошибка', 'повторяется' in str(e))
+    swapped = [out[1], out[0], out[2]]
+    ok('сдвиг порядка — verify ловит', any('карта' in p for p in verify(swapped, prev, cells=3)))
+    ok('verify: число ячеек и повтор id', len(verify([dict(out[0]), dict(out[0])], None, cells=3)) == 3)
+    first = [mk('14-16', 'сканди', 'эконом'), mk('14-16', 'лофт', 'эконом')]
+    ok('первая сборка без прежнего — отпечаток всем', all(s.get('set_id') for s in assign_ids(first, None)))
+    # ЗАПИСЬ: нарушение идентичности — банк не записан, файл как был; порядок сборки — не порядок файла
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        live, out_p = os.path.join(tmp, 'sets3.json'), os.path.join(tmp, 'sets3.next.json')
+        json.dump(prev, open(live, 'w', encoding='utf-8'), ensure_ascii=False)
+        open(out_p, 'w').write('ПРЕЖНИЙ')
+
+        def kept(xs):
+            try:
+                write_bank(xs, out_p, live)
+            except IdentityError:
+                return open(out_p).read() == 'ПРЕЖНИЙ' and not os.path.exists(out_p + '.tmp')
+            return False
+        ok('дубль ячейки — банк не записан', kept([mk('14-16', 'сканди', 'эконом'), mk('14-16', 'сканди', 'эконом'),
+                                                    mk('17-20', 'сканди', 'премиум')]))
+        ok('пропажа ячейки — банк не записан', kept([mk('14-16', 'сканди', 'эконом'), mk('14-16', 'лофт', 'эконом')]))
+        ok('id сдвинуты на соседние ячейки — банк не записан',
+           kept([mk('14-16', 'сканди', 'эконом', 'set-2'), mk('14-16', 'лофт', 'эконом', 'set-1'), mk('17-20', 'сканди', 'премиум', 'set-3')]))
+        got = write_bank([mk('17-20', 'сканди', 'премиум'), mk('14-16', 'лофт', 'эконом'), mk('14-16', 'сканди', 'эконом')], out_p, live)
+        disk = json.load(open(out_p, encoding='utf-8'))
+        ok('порядок сборки другой — записан в порядке живого, карта номеров та же',
+           [x['set_id'] for x in disk] == ['set-1', 'set-2', 'set-3'] == [x['set_id'] for x in got] and verify(disk, prev, cells=3) == [])
     print(f'set_identity selftest: ошибок {bad}')
     return 1 if bad else 0
 

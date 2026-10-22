@@ -175,7 +175,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: |
-          for m in dim_resolver reflink stock_truth feed_guard load3 category_map page_alive stock_check footprint dim_audit dim_prior render_strategy salad/ingest_registry salad/prune_shapes mesh_priority mesh_family tests_chain draft_guard draft_jobs demo_fill price_truth style_axes style_bench slot_rules pipeline_map salad/wave_guard mesh_quarantine bed_dims room_catalog orient_review heal_policy demo_swap_pool demo_band sofa_shape pool_gate photo_hash bank_paths compose_gates mesh_publish enrich set_identity; do
+          for m in dim_resolver reflink stock_truth feed_guard load3 category_map page_alive stock_check footprint dim_audit dim_prior render_strategy salad/ingest_registry salad/prune_shapes mesh_priority mesh_family tests_chain draft_guard draft_jobs demo_fill price_truth style_axes style_bench slot_rules pipeline_map salad/wave_guard mesh_quarantine bed_dims room_catalog orient_review heal_policy demo_swap_pool demo_band sofa_shape pool_gate photo_hash bank_paths compose_gates mesh_publish enrich set_identity bank_invariants; do
             echo "== $m --selftest"; python tools/scout/$m.py --selftest || exit 1
           done
       - run: python tools/scout/salad/tests_sink_gate.py   # ворота приёмника и чистка — одна мера с зазором, счётчик = диск (mesh-12)

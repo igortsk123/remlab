@@ -1262,28 +1262,17 @@ for bi,band in enumerate(COMP['bands']):
               f"капсула {ctx['style']}/{ctx['wood']}/{ctx['metal']}/{ctx['temp']}, пол {fill}%"
               +(f", стиль-фит {sfit_agg}" if sfit_agg else "")+f", {total:,} ₽".replace(',',' '),flush=True)
 print(_CG.summary(),flush=True)
-# Стабильный set_id: сцены и отчёты живут на НОМЕРАХ сетов, и любая перестановка массива молча
-# переадресует их на соседние комплекты. id детерминирован по полям замысла (площадь/ярус/стиль/
-# капсула), поэтому пересборка с нуля выдаёт те же id — а замена товара в слоте их не меняет.
-# ПЕРЕНОС ИЗ ПРЕЖНЕГО БАНКА (conv-13, T-20261021-09): капсула входит в отпечаток и зависит от выбранных товаров, поэтому
-# пересборка с нуля давала новые id почти всем сетам. Сначала переносим id прежнего банка (живой sets3.json; для v2 —
-# прежний sets2.json) по замыслу без капсулы (`set_identity.carry_ids`), отпечаток — только новым сетам.
+# Стабильный set_id и НОМЕР сета: сцены и отчёты живут на номерах (`setN-*`), демо публикует `setN` — любая перестановка
+# молча переадресует их на соседние комплекты. ИДЕНТИЧНОСТЬ — ЯЧЕЙКА (band, style, tier) (conv-14 шаг 1, Codex 22.10):
+# id и порядок переносятся из прежнего банка (живой sets3.json; для v2 — sets2.json) по ячейке; дубль, пропажа, лишняя
+# ячейка или дрейф id — ФАТАЛЬНО: банк не пишется (раньше ошибка ловилась и банк писался всё равно). Запись атомарная.
+np.savez_compressed(EMB_PATH,**_emb)          # кэш эмбеддингов — до проверки: он от банка не зависит
+from set_identity import write_bank as _write_bank, IdentityError as _IdentityError
 try:
-    from set_identity import ensure_ids as _ensure_ids, carry_ids as _carry_ids
-    _prev_path=os.path.join(os.path.dirname(_BP.LIVE),OUT_SETS)
-    if os.path.exists(_prev_path):
-        _c=_carry_ids(sets,json.load(open(_prev_path,encoding='utf-8')))
-        print(f"set_id из прежнего банка ({os.path.basename(_prev_path)}): перенесено {_c['carried']}, "
-              f"новых сетов {_c['unmatched']}, прежних без пары {_c['lost']}",flush=True)
-    _ensure_ids(sets)
-except Exception as _e:   # noqa: BLE001 — идентичность не должна ронять сборку сетов
-    print(f'set_id не проставлен: {type(_e).__name__}: {_e}',flush=True)
-# АТОМАРНАЯ запись (инцидент 08.08: падение посреди json.dump оставило файл на 18/126 сетов):
-# пишем во временный и переименовываем — rename на одной ФС атомарен
-_tmp=_OUT_PATH+'.tmp'
-json.dump(sets,open(_tmp,'w'),ensure_ascii=False,indent=1)
-os.replace(_tmp,_OUT_PATH)
-np.savez_compressed(EMB_PATH,**_emb)
+    sets=_write_bank(sets,_OUT_PATH,os.path.join(os.path.dirname(_BP.LIVE),OUT_SETS))
+except _IdentityError as _e:
+    print(f'!! БАНК НЕ ЗАПИСАН ({_OUT_PATH}) — идентичность сетов нарушена: {_e}',flush=True)
+    sys.exit(3)
 print(f"OK: {_OUT_PATH} ({len(_emb)} embeddings в кэше)",flush=True)
 
 # ---------- HTML-превью v2 ----------
