@@ -41,7 +41,7 @@ def setup(tmp: str) -> None:
     # Карантин входа (T-20261022-10 Г) — тоже во временную папку: каждый прогон читает его и выпускает истёкшее,
     # на боевом файле стенд пометил бы живые записи «отданными на проверку», и проверка бы не случилась.
     S.IQ.STATE = os.path.join(tmp, 'input-quarantine.json')
-    S.IQ._rules = {'forbidden_marks': ['http error 403'], 'after_n': 2, 'recheck_h': 24}   # правило, не живой файл
+    S.IQ._rules = {'forbidden_marks': ['http error 403'], 'after_n': 2, 'recheck_h': 24, 'node_after_n': 3}   # правило, не живой файл
     # ФАЙЛ ЗАМКА НЕ УДАЛЯЕМ: от прошлого случая могли остаться демон-потоки, и подмена
     # inode'а замка снимает взаимное исключение — два потока писали состояние одновременно.
     for p in (NH.STATE, NH.STATE + '.tmp', S.RETRY_SPOOL, S.DONE_SET, S.IQ.STATE):
@@ -1165,6 +1165,77 @@ def case_input_quarantine() -> None:
     print('  ✓ 403 дважды → карантин без спула и без вины машины; второй прогон не раздаёт; по сроку — одна проверка')
 
 
+def case_forbidden_node() -> None:
+    """403 бывает виной машины (T-20261022-13): 65141c32 22.10 — 5 разных товаров подряд, другая машина их сделала.
+    3 разных товара с 403 подряд на одной машине → машина уходит (`node_reject`, reason forbidden), товары не в карантине
+    и уходят другой машине, попытка на заблокированной не в счёт. Серия рвётся скачанным фото."""
+    IQ = S.IQ
+    S.NODE_COOLDOWN_S = 0.1
+    nodes = [{'id': 'A' * 8, 'port': 1, 'group': 'g', 'state': 'running'},
+             {'id': 'B' * 8, 'port': 2, 'group': 'g', 'state': 'running'}]
+    on_a = []
+
+    def job_fn(port, job):
+        if port == 1:
+            on_a.append(job['sku'])
+            return {'sku': job['sku'], 'status': 'input_failed', 'error': 'HTTP Error 403: Forbidden'}
+        time.sleep(1.0)          # B медленная: A успевает вернуться из паузы и набрать серию
+        return {'sku': job['sku'], 'status': 'ok', 'timings_s': {'total': 1}}
+
+    # 1) машина A не пускается магазином — уходит на третьем разном товаре
+    patch.jobs = jobs(6)
+    patch(nodes, job_fn)
+    code = S.run(None, True, jobs_file='x')
+    res = json.load(open(S.RESULTS, encoding='utf-8'))
+    st, rows = res['summary'], {r['sku']: r for r in res['results']}
+    assert code == 0 and st['unresolved'] == 0, (code, st)
+    assert all(r['status'] == 'ok' for r in rows.values()), {k: r['status'] for k, r in rows.items()}
+    assert len(on_a) == 3 and len(set(on_a)) == 3, f'A получила {on_a} — ждали 3 разных товара и уход'
+    assert culled == ['A' * 8], f'пересажены {culled}'
+    rej = [x for x in map(json.loads, open(S.PROGRESS, encoding='utf-8')) if x.get('reason') == 'forbidden']
+    assert len(rej) == 1 and rej[0]['reason'] == 'forbidden' and sorted(rej[0]['skus']) == sorted(on_a), rej
+    assert IQ._load() == {}, f'товары машины A попали в карантин: {IQ._load()}'
+    # попытка на заблокированной машине не в счёт; закрытое запретом (карантин, исчерпанные попытки) — снова в очередь
+    q = S.Jobs(jobs(3))
+    for it in q.items:
+        it['attempts'] = S.MAX_ATTEMPTS
+    q.items[0]['result'] = {'sku': 'sku0', 'status': IQ.STATUS}
+    q.items[1]['result'] = {'sku': 'sku1', 'status': 'input_failed', 'error': 'HTTP Error 403: Forbidden'}
+    q.items[2]['result'] = {'sku': 'sku2', 'status': 'ok'}
+    assert q.reopen({'sku0', 'sku1', 'sku2'}) == 2
+    assert [(it['result'], it['attempts']) for it in q.items[:2]] == [(None, S.MAX_ATTEMPTS - 1)] * 2
+    assert q.items[2]['result']['status'] == 'ok' and q.items[2]['attempts'] == S.MAX_ATTEMPTS, 'сделанное тронуто'
+
+    # 2) серия рвётся скачанным фото: 403, 403, ok, 403, 403 — машина остаётся (магазин отдаёт ей фото через раз)
+    culled.clear()
+    first = set()
+    solo = [{'id': 'C' * 8, 'port': 3, 'group': 'g', 'state': 'running'}]
+
+    def flaky(port, job):
+        if job['sku'] in ('sku0', 'sku1', 'sku3', 'sku4') and job['sku'] not in first:
+            first.add(job['sku'])
+            return {'sku': job['sku'], 'status': 'input_failed', 'error': 'HTTP Error 403: Forbidden'}
+        return {'sku': job['sku'], 'status': 'ok', 'timings_s': {'total': 1}}
+
+    patch.jobs = jobs(6)
+    patch(solo, flaky)
+    code = S.run(None, True, jobs_file='x')
+    st = json.load(open(S.RESULTS, encoding='utf-8'))['summary']
+    rej = [x for x in map(json.loads, open(S.PROGRESS, encoding='utf-8')) if x.get('reason') == 'forbidden']
+    assert code == 0 and st['unresolved'] == 0, (code, st)
+    assert not culled and len(rej) == 1, f'машину сняли, хотя серию рвало скачанное фото: {culled}, {rej}'
+    assert IQ._load() == {}, IQ._load()
+
+    # 3) правила: один 403 у товара на двух машинах — по-прежнему карантин товара (машины не виноваты, серия у каждой 1)
+    assert IQ.note({'sku': 'q'}, {'status': 'input_failed', 'error': 'HTTP Error 403'}) == 0       # машина X
+    assert IQ.note({'sku': 'q'}, {'status': 'input_failed', 'error': 'HTTP Error 403'}) > 0        # машина Y
+    assert IQ.active() == {'q'}
+    assert IQ.forgive('q') and IQ.active() == set(), 'снятие запрета не вывело товар из карантина'
+    assert not IQ.forgive('нет такого')
+    print('  ✓ 403 на 3 разных товарах у одной машины → машина уходит, товары не в карантине и сделаны другой; '
+          'серию рвёт скачанное фото')
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
@@ -1185,7 +1256,7 @@ def main() -> None:
                    case_step_timeout_kills_children, case_no_restart_of_running_group,
                    case_silent_node_is_zombie, case_sink_relief_before_red,
                    case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart,
-                   case_stop_verified, case_low_ram_node, case_input_quarantine):
+                   case_stop_verified, case_low_ram_node, case_input_quarantine, case_forbidden_node):
             if fn not in pure:
                 setup(tmp)
             fn()

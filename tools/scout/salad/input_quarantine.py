@@ -12,6 +12,10 @@
 атомарная. Карантинное задание прогон закрывает сам, без машины (`ssh_run.Jobs.preclose`, статус
 `input_quarantined` — терминальный, курсор идёт дальше); по истечении срока `release_due` один раз отдаёт
 задание в спул повторов: снова запрет — снова карантин (серия уже набрана), готовый меш — запись снимается.
+
+403 БЫВАЕТ ВИНОЙ МАШИНЫ (T-20261022-13): 22.10 машина 65141c32 получила 403 на 5 разных товарах подряд, другая машина
+их сделала — магазин не пускал её адрес. `node_after_n` разных товаров с запретом подряд на одной машине (без скачанного
+фото между ними, `fetched`) — уходит машина (`ssh_run.reject_node`), а запреты из этой серии с товаров снимаются (`forgive`).
 """
 from __future__ import annotations
 
@@ -72,6 +76,39 @@ def forbidden(res: dict) -> bool:
         return False
     err = str((res or {}).get('error') or '').lower()
     return any(m in err for m in (rules().get('forbidden_marks') or []))
+
+
+# Фото скачано: генерация шла (успех или содержательный отказ) — машине магазин фото отдаёт, её серия 403 рвётся.
+# `cached` — нет: готовый меш берётся из приёмника без загрузки фото, про доступ машины к магазину он ничего не говорит.
+FETCHED = frozenset({'ok', 'failed', 'flat_shape', 'bad_cutout', 'slab_suspect'})
+
+
+def node_after_n() -> int:
+    """Сколько РАЗНЫХ товаров подряд с запретом на одной машине — уже вина машины, а не товаров (0 — выключено)."""
+    return int(rules().get('node_after_n') or 0)
+
+
+def fetched(res: dict) -> bool:
+    return (res or {}).get('status') in FETCHED
+
+
+def forgive(sku: str) -> bool:
+    """Снять с товара один запрет: его дала машина (T-20261022-13 — серия 403 на разных товарах одной машины),
+    а не магазин. Карантин, который этот запрет довёл до порога, снимается. True — товар был в карантине."""
+    with _lock:
+        d = _load()
+        e = d.get(sku or '')
+        if not e:
+            return False
+        was = bool(e.get('until'))
+        e['streak'] = int(e.get('streak', 0)) - 1
+        if e['streak'] <= 0:
+            d.pop(sku)
+        elif e['streak'] < int(rules().get('after_n') or 0):
+            e.pop('until', None)
+            e.pop('released_at', None)
+        _save(d)
+        return was and not (sku in d and d[sku].get('until'))
 
 
 def note(job: dict, res: dict, now: float | None = None) -> float:

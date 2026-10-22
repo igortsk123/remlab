@@ -734,6 +734,27 @@ class Jobs:
                     n += 1
         return n
 
+    def reopen(self, skus: list | set) -> int:
+        """Задания, чьи 403 дала машина, а не магазин (T-20261022-13): попытка на ней не в счёт, закрытое этим запретом
+        (карантин или исчерпанные попытки) — снова в очередь, без паузы повтора. Возвращает, сколько вернулось."""
+        n = 0
+        with self.cv:
+            if self.stalled:
+                return 0
+            for it in self.items:
+                r = it['result']
+                if it['job'].get('sku') not in skus:
+                    continue
+                if r is not None and not (r.get('status') == IQ.STATUS or IQ.forbidden(r)):
+                    continue                     # уже сделано другой машиной — трогать нечего
+                it['attempts'] = max(0, it['attempts'] - 1)
+                if it['busy']:
+                    continue                     # другая машина уже везёт — снята только попытка
+                it['result'], it['not_before'] = None, 0.0
+                n += 1
+            self.cv.notify_all()
+        return n
+
     def pending(self) -> int:
         with self.cv:
             return sum(1 for it in self.items if it['result'] is None)
@@ -879,7 +900,10 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             if it is None:
                 return
             r = run_job(port, it['job'])
-            q_until = IQ.note(it['job'], r)
+            # 403 на N разных товарах подряд у ОДНОЙ машины — магазин не пускает её адрес (T-20261022-13): товары не
+            # виноваты, текущий запрет в их карантин не идёт, прежние из серии с них снимаются
+            blocked = forbid_series(node_id, it['job'], r)
+            q_until = 0.0 if blocked else IQ.note(it['job'], r)
             # Подозрение на приёмник (генерация прошла, публикация упала с 507/EOF) — это ПОВОД
             # спросить приёмник, а не диагноз: тот же текст даёт CDN фото и SSH-шлюз (Codex 04.09).
             # Красный → остаток пачки закрываем как инфра-сбой (75), нод не виним и не пересаживаем.
@@ -926,6 +950,14 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                 print(f'  [{closed[0]}/{len(jobs)}] {str(it["job"].get("role")):14s} '
                       f'{r.get("status","?"):16s} {"" if t is None else str(t) + "с"} '
                       f'{node_id[:8]} {str(r.get("error") or "")[:60]}', flush=True)
+            if blocked:
+                for sku in blocked[:-1]:        # текущий запрет в карантин не записан — снимаем только прежние
+                    IQ.forgive(sku)
+                skus = list(dict.fromkeys(blocked))
+                n_back = js.reopen(set(skus))
+                reject_node(node_id, group, 'forbidden', f'403 на {len(skus)} разных товарах подряд — магазин не пускает машину',
+                            skus=skus, reopened=n_back)
+                return
             if fault == NH.FAULT_INFRA:
                 return                     # виновата инфра: серию ноды не растим, из пула не выводим
             streak = NH.record(node_key, fault, ecls)
@@ -961,23 +993,41 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                       f'просто вывожу из пула', flush=True)
             return
 
-    mem_low: dict = {}        # instance_id → группа: машина с малой ОЗУ ждёт пересадки (бюджет пересадок кончился)
+    mem_low: dict = {}        # instance_id → (группа, причина): снятая машина ждёт пересадки (бюджет пересадок кончился)
 
-    def mem_reject(node_id: str, group: str, gpu: str, mem: float, need: float) -> None:
-        """Машина с ОЗУ меньше порога уходит ДО первого задания (T-20261022-10 Б): строка в журнал — не попытка и
-        не сбой меша (`kind`), задание никто не брал; нода снята (`retire`), чтобы супервизор не подключил её снова,
-        и пересажена штатно — или ждёт свободного слота пересадок в `mem_low`."""
-        why = f'ОЗУ машины {mem} ГБ < {need:g}'
-        print(f'  нода {node_id[:8]} ({gpu}): {why} — ухожу до первого задания', flush=True)
+    def reject_node(node_id: str, group: str, tag: str, why: str, gpu: str | None = None, **fields) -> None:
+        """Машина уходит по свойству САМОЙ машины (малая ОЗУ, магазин не пускает её адрес): строка в журнал — не попытка
+        и не сбой меша (`kind`); нода снята (`retire`), чтобы супервизор не подключил её снова, и пересажена штатно —
+        или ждёт свободного слота пересадок в `mem_low`."""
+        gpu = gpu or gpu_of.get(node_id) or '?'
+        print(f'  нода {node_id[:8]} ({gpu}): {why} — ухожу', flush=True)
         checkpoint({'at': round(time.time()), 'kind': 'node_reject', 'status': 'node_reject', 'node': node_id[:8],
-                    'instance': node_id, 'group': group, 'gpu': gpu, 'mem_total_gb': mem, 'min_gb': need,
-                    'why': why})
+                    'instance': node_id, 'group': group, 'gpu': gpu, 'reason': tag, 'why': why, **fields})
         NH.retire(f'{group}/{node_id}')
         if NH.take_cull_slot():
-            if NH.reallocate(group, node_id, f'ram: {why}'):
+            if NH.reallocate(group, node_id, f'{tag}: {why}'):
                 js.extend_grace(WARMUP_GRACE_S)
         else:
-            mem_low[node_id] = group
+            mem_low[node_id] = (group, f'{tag}: {why}')
+
+    def mem_reject(node_id: str, group: str, gpu: str, mem: float, need: float) -> None:
+        """Машина с ОЗУ меньше порога уходит ДО первого задания (T-20261022-10 Б): задание никто не брал."""
+        reject_node(node_id, group, 'ram', f'ОЗУ машины {mem} ГБ < {need:g} — до первого задания', gpu, mem_total_gb=mem, min_gb=need)
+
+    forbid_seq: dict = {}     # instance_id → товары каждого запрета магазина подряд на этой машине (T-20261022-13)
+
+    def forbid_series(node_id: str, job: dict, r: dict) -> list:
+        """Серия набрала `node_after_n` РАЗНЫХ товаров — вернуть её (по товару на каждый запрет, текущий — последний;
+        серия сброшена), иначе []. Скачанное фото рвёт серию (`IQ.fetched`); обрыв машины, 404, таймаут её не трогают."""
+        n = IQ.node_after_n()
+        if IQ.fetched(r):
+            forbid_seq.pop(node_id, None)
+            return []
+        if n <= 0 or not IQ.forbidden(r):
+            return []
+        seq = forbid_seq.setdefault(node_id, [])
+        seq.append(job.get('sku'))
+        return forbid_seq.pop(node_id) if len(set(seq)) >= n else []
 
     def spawn(node_id: str, port: int, group: str = GROUP):
         need = SG.node_min_ram_gb()
@@ -1016,11 +1066,11 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             if js.pending() == 0:
                 return
             sink_poll()                      # один опрос приёмника на процесс, флаг читают воркеры
-            for nid, g in list(mem_low.items()):   # малая ОЗУ, а слота пересадки не было — пробуем снова
+            for nid, (g, why) in list(mem_low.items()):   # машину сняли, а слота пересадки не было — пробуем снова
                 if not NH.take_cull_slot():
                     break
                 mem_low.pop(nid)
-                if NH.reallocate(g, nid, 'ram: ОЗУ машины ниже порога'):
+                if NH.reallocate(g, nid, why):
                     js.extend_grace(WARMUP_GRACE_S)
             cands = []
             for inst in instances():
