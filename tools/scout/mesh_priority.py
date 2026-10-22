@@ -155,11 +155,19 @@ def demo_rank() -> list[dict]:
     if len(pinned) > demo_band.QUEUE_MAX:
         print(f'WARN:mesh_priority: закреплённых владельцем {len(pinned)} — больше потолка очереди demo '
               f'{demo_band.QUEUE_MAX}; закреплённые не режем, недобор ленты встанет после них', flush=True)
-    return demo_pick(pinned, demo_band.queue_skus(), prod, f"demo-v{prof.get('policy_version', 2)}")
+    band = demo_band.queue_skus()
+    # КАНДИДАТ БАНКА (conv-14 шаг 2): спрос `bank_candidate` — за флагом `rules/bank-candidate.json:enabled` (выключен,
+    # пустой список). Потолок `mesh_queue_max` — ОБЩИЙ с недобором ленты после дедупликации по представителю семейства
+    import bank_pending
+    bank = bank_pending.queue_skus()
+    if bank:
+        band, bank = bank_pending.combine(band, bank, demo_band.QUEUE_MAX, int(bank_pending.rules().get('reserve') or 0))
+    return demo_pick(pinned, band, prod, f"demo-v{prof.get('policy_version', 2)}", bank)
 
 
-def demo_pick(pinned: tuple, band: list, prod: dict, ver: str) -> list[dict]:
-    """Чистый отбор: закреплённые (ярус 0), затем недобор ленты (ярус 1) по порядку `demo_band`, без повторов; товар вне
+def demo_pick(pinned: tuple, band: list, prod: dict, ver: str, bank: list | tuple = ()) -> list[dict]:
+    """Чистый отбор: закреплённые (ярус 0), затем недобор ленты (ярус 1) по порядку `demo_band`, затем кандидат банка (ярус 2,
+    `bank_pending`; общий потолок уже посчитан `bank_pending.combine`), без повторов; товар вне
     `products()` (нет пометки «требуется меш» или не представитель семейства) пропускается. Готовые отбрасывает `main()` тем же
     фильтром, что у боевой очереди. Потолок очереди считает `demo_band` по незавершённым — закреплённые его не съедают.
 
@@ -168,7 +176,8 @@ def demo_pick(pinned: tuple, band: list, prod: dict, ver: str) -> list[dict]:
     это прямое указание человека, а не отбор."""
     rows, seen = [], set()
     for tier, skus, why in ((0, pinned, 'закреплено владельцем (rules/mesh-pinned.json)'),
-                            (1, band, 'демо: недобор ленты замен по полосе размера (demo_band)')):
+                            (1, band, 'демо: недобор ленты замен по полосе размера (demo_band)'),
+                            (2, bank, 'демо: кандидат банка ждёт меш (bank_candidate, conv-14)')):
         for sku in skus:
             p = prod.get(sku)
             if not p or sku in seen:
@@ -425,6 +434,10 @@ def _selftest() -> int:
         bad_demo += 1; print('  FAIL готовый меш попал бы в генерацию')
     if [r['key'][:2] for r in rows] != ['00', '00', '01', '01', '01'] or rows != sorted(rows, key=lambda r: r['key']):
         bad_demo += 1; print(f'  FAIL ключи ряда — ярус и порядок, снимок не должен перемешаться: {[r["key"] for r in rows]}')
+    # кандидат банка (conv-14 шаг 2) — ярус 2 после ленты, без повторов с закреплёнными и лентой
+    rows = demo_pick(('m:8',), ['m:1'], prod, 'test', ['m:1', 'm:2', 'm:8', 'm:4'])
+    if [(r['sku'], r['tier']) for r in rows] != [('m:8', 0), ('m:1', 1), ('m:2', 2)] or 'bank_candidate' not in rows[-1]['reason']:
+        bad_demo += 1; print(f'  FAIL кандидат банка — ярус 2 после ленты, без повторов: {[(r["sku"], r["tier"]) for r in rows]}')
     print('профиль демо: ' + ('ОК' if not bad_demo else f'ПРОВАЛОВ {bad_demo}'))
 
     bad = 0

@@ -18,8 +18,33 @@ import sys
 FAILS: collections.Counter = collections.Counter()   # {«какая проверка: класс ошибки»: сколько раз}
 
 
+BLOCKED: dict | None = None   # sku → причина «меш не заказать / чёрный список кандидата»; None — ещё не загружен
+
+
+def _blocked() -> dict:
+    """ДО СБОРКИ (conv-14 шаг 2, `bank_pending.blocklist`): товар мешевой роли без высоты (кресла 93965 — меш не заказать,
+    кандидат ждал бы вечно) и чёрный список состояния кандидата (меш rejected/quarantine, failed_terminal). Включается
+    `rules/bank-candidate.json:compose_blocklist`. Загружается один раз на сборку."""
+    global BLOCKED
+    if BLOCKED is None:
+        import bank_pending as BP
+        if BP.rules().get('compose_blocklist'):
+            F = BP.load_facts()
+            BLOCKED = BP.blocklist(F.prod, F.strategy, BP.load_state())
+        else:
+            BLOCKED = {}
+    return BLOCKED
+
+
 def admit(sku: str, img: str | None) -> str | None:
     """None — товар годен по фото и мешу; иначе причина отказа. Сбой проверки — отказ и счёт в `FAILS`."""
+    try:
+        why = _blocked().get(sku)
+    except Exception as e:  # noqa: BLE001 — fail-closed, как прочие ворота
+        FAILS[f'чёрный список: {type(e).__name__}'] += 1
+        return 'сбой проверки чёрного списка'
+    if why:
+        return why
     if not img:
         return 'нет фото'
     try:
@@ -69,9 +94,11 @@ def _selftest() -> int:
 
     saved = {m: sys.modules.get(m) for m in ('img_alive', 'slot_contract')}
 
-    def fake(alive=lambda u: True, photo=lambda s, context=None: True, mesh=lambda s: True):
+    def fake(alive=lambda u: True, photo=lambda s, context=None: True, mesh=lambda s: True, blocked=None):
+        global BLOCKED
         sys.modules['img_alive'] = types.SimpleNamespace(alive_now=alive, alive=lambda u, unknown=True: True)
         sys.modules['slot_contract'] = types.SimpleNamespace(photo_ok=photo, mesh_ok=mesh)
+        BLOCKED = {} if blocked is None else blocked
         FAILS.clear()
 
     try:
@@ -92,6 +119,9 @@ def _selftest() -> int:
            r == ('сбой проверки меша',) * 2 and FAILS['меш: RuntimeError'] == 2 and summary().startswith('WARN:'))
         fake(mesh=lambda s: False)
         ok('нет меша — отказ без счёта сбоя', admit('1:a', '//img') == 'нет меша' and not FAILS)
+        fake(blocked={'1:k': 'нет высоты (h_cm) — меш не заказать'})
+        ok('мешевая роль без высоты / чёрный список кандидата — отказ до сборки с причиной, прочие — как раньше',
+           admit('1:k', '//img') == 'нет высоты (h_cm) — меш не заказать' and admit('1:a', '//img') is None)
         sys.modules['slot_contract'] = types.SimpleNamespace()     # модуль без функций — ImportError
         FAILS.clear()
         ok('нет функции проверки — отказ (а не пропуск)', admit('1:a', '//img') == 'сбой проверки фото')
@@ -102,6 +132,7 @@ def _selftest() -> int:
             else:
                 sys.modules[m] = v
         FAILS.clear()
+        globals()['BLOCKED'] = None
     print(f'compose_gates selftest: ошибок {bad}')
     return 1 if bad else 0
 
