@@ -4915,6 +4915,7 @@ function histFwd(){return histGo(1);}
 .vw{display:grid;grid-template-columns:minmax(0,1fr) 410px;flex:1;min-height:0;width:100%}
 .vstage{position:relative;background:var(--wash-2);min-height:0;overflow:hidden}
 .vstage .shotwrap{position:absolute;inset:0}
+.vstage .shotwrap .vpan{position:absolute;inset:0;overflow:hidden}
 /* КАРТИНКА ЦЕЛИКОМ (demo-02 п.9, владелец 14.10: «на телефоне обрезает по краям»): кадр по пропорции (`contain`), поля —
    размытая копия той же картинки; увеличить — тап или «⤢» (просмотр во весь экран со щипком). */
 #shot.v2 .vstage .shotwrap img{width:100%;height:100%;max-height:none;object-fit:contain;border-radius:0;background:transparent;position:relative}
@@ -4927,17 +4928,22 @@ function histFwd(){return histGo(1);}
  will-change:transform;user-select:none;-webkit-user-drag:none}
 #vzoom .vzx{position:absolute;top:12px;right:12px;width:42px;height:42px;border-radius:50%;border:0;background:rgba(255,255,255,.9);font-size:22px;z-index:2;transition:opacity .2s}
 #vzoom.nox .vzx{opacity:0;pointer-events:none}
-/* листание ракурсов во весь экран (demo-19 В2): точки снизу, на компьютере — стрелки по бокам */
-#vzoom .vzdots{position:absolute;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;gap:8px;z-index:2;pointer-events:none}
-#vzoom .vzdots i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.45)}
-#vzoom .vzdots i.on{background:#fff}
+/* ракурсы во весь экран (demo-19 В2; demo-22 п.3 — только кнопками): снизу тот же переключатель, что в окне, на компьютере ещё стрелки */
+#vzoom .vzcams{position:absolute;left:0;right:0;margin:0 auto;width:max-content;max-width:calc(100% - 32px);box-sizing:border-box;
+ bottom:calc(16px + env(safe-area-inset-bottom,0px));display:flex;gap:2px;padding:3px;border-radius:999px;z-index:2;
+ background:rgba(24,20,17,.55);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:var(--e3);transition:opacity .2s}
+#vzoom .vzcams[hidden]{display:none}
+#vzoom .vzcams button{border:0;background:transparent;color:#fff;font:600 13px/1.1 system-ui,sans-serif;padding:8px 12px;border-radius:999px;cursor:pointer;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto;opacity:.85}
+#vzoom .vzcams button.on{background:#fff;color:#2b2622;opacity:1}
+#vzoom.nox .vzcams{opacity:0;pointer-events:none}
 #vzoom .vzarr{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.9);
  color:#222;font-size:26px;line-height:1;cursor:pointer;z-index:2;transition:opacity .2s}
 #vzoom .vzarr.l{left:14px}#vzoom .vzarr.r{right:14px}
 #vzoom.nox .vzarr{opacity:0;pointer-events:none}
 @media(hover:none){#vzoom .vzarr{display:none}}
-/* подсказка — над точками и в ширину экрана: на 375 одна строка обрезалась по краям (самопроверка T-12) */
-#vzoom .vzh{position:absolute;left:50%;bottom:calc(40px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:rgba(255,255,255,.92);color:#222;
+/* подсказка — над переключателем ракурсов и в ширину экрана: на 375 одна строка обрезалась по краям (самопроверка T-12) */
+#vzoom .vzh{position:absolute;left:50%;bottom:calc(68px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:rgba(255,255,255,.92);color:#222;
  padding:8px 12px;border-radius:var(--radius-sm);font-size:14px;width:max-content;max-width:calc(100% - 32px);text-align:center;line-height:1.35}
 #shot.v2 .shotwrap .livecv{border-radius:0}
 .vmodes{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:2px;padding:4px;border-radius:999px;
@@ -5046,7 +5052,7 @@ function histFwd(){return histGo(1);}
 .vcams button.on{background:#fff;color:#2b2622;opacity:1}
 #shot.vphoto.vmany .vcams,#shot.vwalk.vmany .vcams{display:flex}
 /* 3D (demo-09): под живой сценой картинок нет; без 3D — спокойная заглушка; «фото готово для прежней расстановки» — в углу */
-#shot.vwalk .shotwrap img,#shot.vwalk .vzbtn,#shot.vwalk .vold{visibility:hidden}
+#shot.vwalk .shotwrap img,#shot.vwalk .vpan,#shot.vwalk .vzbtn,#shot.vwalk .vold{visibility:hidden}
 .vstub{display:none;position:absolute;inset:0;z-index:calc(var(--zl-scene) + 1);flex-direction:column;align-items:center;justify-content:center;gap:14px;
  padding:24px;text-align:center;background:var(--wash-2);color:var(--ink);font-size:15px;line-height:1.45}
 .vstub p{max-width:340px;margin:0}
@@ -5075,7 +5081,7 @@ function histFwd(){return histGo(1);}
 .vcta-err{font-size:13px;color:#B3261E;margin:6px 2px 0;line-height:1.4}
 .vplanbox{display:none;position:absolute;inset:60px 12px 12px;z-index:var(--zl-scene);background:var(--wash-2)}
 .vplanbox svg{width:100%;height:100%}
-#shot.vplan .vplanbox{display:block}#shot.vplan .shotwrap img,#shot.vplan .vpins,#shot.vplan .vold,#shot.vplan .vzbtn,
+#shot.vplan .vplanbox{display:block}#shot.vplan .shotwrap img,#shot.vplan .vpan,#shot.vplan .vpins,#shot.vplan .vold,#shot.vplan .vzbtn,
 #shot.vplan .livebadge{visibility:hidden}
 #shot.v2 .pinlist .total{display:none}
 #shot.v2 .restale{display:none}   /* черновик из окна убран (demo-09 п.5) */
@@ -5139,8 +5145,12 @@ function histFwd(){return histGo(1);}
   .vstub{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
   /* ход фото закрывает весь кадр (под шторкой — тоже: иначе между ним и шторкой виден прежний снимок), надпись — над шторкой */
   .vphwait{padding-bottom:calc(var(--vsh,320px) + 24px)}
-  /* «Фото» на телефоне — во всю область сцены, без размытых полос; сторону обрезки выбирает `vwPhotoFocus` (мебель в центре) */
-  #shot.v2 .vstage .shotwrap img.vmain{object-fit:cover}
+  /* «Фото» на телефоне — во всю высоту области сцены, без размытых полос; по ширине фото шире экрана и двигается пальцем
+     (demo-22 п.3, владелец TG 854/860): нативная прокрутка — инерция и упор у краёв как в системе, без стрелок и увеличения;
+     старт — окно превью вида (`vwPhotoFocus`) */
+  #shot.v2 .vstage .vpan{overflow-x:auto;overflow-y:hidden;touch-action:pan-x;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  #shot.v2 .vstage .vpan::-webkit-scrollbar{display:none}
+  #shot.v2 .vstage .shotwrap .vpan img.vmain{width:auto;min-width:100%;max-width:none;height:100%;object-fit:cover}
   #shot.v2 .vstage .shotwrap img.vblur{display:none}
   /* «3D» — холст на весь экран под шторкой; «Фото»/«План» — постоянная зона над свёрнутой шторкой (при жесте не меняется) */
   #shot.vwalk .vstage .shotwrap{bottom:0}
@@ -5215,13 +5225,14 @@ function vwHtml(s, navs, list){
   // старое фото без номера состояния — честная пометка (Codex 14.10: «состояние неизвестно», а не «точно другое»)
   const old=s.url&&!s.stateId&&s.quality==='realistic'?`<span class="vold">${EN?'AI photo · the layout may differ':'Фото нейросети · расстановка могла отличаться'}</span>`
     :s.sketch?`<span class="vold">${EN?'Server sketch · your device has no graphics card':'Эскиз с сервера · у устройства нет видеокарты'}</span>`:'';
-  const img=s.url?`<img class="vblur" src="${s.url}" alt="" aria-hidden="true"><img class="vmain" src="${s.url}" alt="${styleOf(s)}">`+
+  // `.vpan` — полоса прокрутки фото: на телефоне фото двигается пальцем влево-вправо (demo-22 п.3), на компьютере — просто рамка
+  const img=s.url?`<img class="vblur" src="${s.url}" alt="" aria-hidden="true"><div class="vpan"><img class="vmain" src="${s.url}" alt="${styleOf(s)}" draggable="false"></div>`+
     `<button class="vzbtn" id="vzBtn">${EN?'⤢ full screen':'⤢ во весь экран'}</button>`:'';
   return `<div class="vw"><div class="vstage"><div class="shotwrap">${img}${navs}${old}</div>`+
     `<div class="vmodes" role="tablist"><button data-vm="photo" class="${VW.mode==='photo'?'on':''}">Фото</button>`+
     `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button><button data-vm="plan" class="${VW.mode==='plan'?'on':''}">План</button></div>`+
     // РАКУРСЫ СЛОВАМИ (владелец 18.10, demo-15 п.3: «стрелочки непонятно что значат»): один переключатель для «Фото» и 3D,
-    // подписи — по месту камеры (`vwCamNames`); свайп по фото и ← → остаются (`vwPhoto`)
+    // подписи — по месту камеры (`vwCamNames`); ← → на компьютере остаются (`vwPhoto`), свайп по фото ракурс не листает (demo-22)
     `<div class="vcams" id="vCams" role="tablist">${vwCamLabels().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
     `<div class="vplanbox" id="vPlan"></div>`+
     `<div class="vstub" id="vStub"><p>${EN?'3D does not open on this device — open the link on another phone or a computer.':'3D на этом устройстве не открывается — откройте ссылку на другом телефоне или компьютере.'}</p>`+
@@ -5278,18 +5289,23 @@ function openLiveWindow(){
 // ПРОСМОТР ВО ВЕСЬ ЭКРАН — КАК ГАЛЕРЕЯ ТЕЛЕФОНА (demo-09, владелец по iPhone 17.10: «елозит», двойной тап закрывал): при масштабе 1
 // картинка целиком и неподвижна; двойной тап — ×2,5 в точку тапа, повторный — назад; щипок — 1…4 вокруг пальцев; перетаскивание —
 // только при увеличении и в пределах картинки (с резинкой); одиночный тап — показать/скрыть «×»; свайп вниз при масштабе 1 — закрыть
-// ЛИСТАНИЕ РАКУРСОВ (demo-19 В2, владелец 20.10): `list` — снимки этой расстановки (`vwRealShots`, со стороны двери ↔ окна); при масштабе 1
-// свайп вбок — соседний ракурс, вниз — закрыть; точки снизу; на компьютере — стрелки и ←/→. `onPick` — какой ракурс смотрели последним
+// РАКУРСЫ (demo-19 В2, владелец 20.10): `list` — снимки этой расстановки (`vwRealShots`, со стороны двери ↔ окна). РАКУРС — ТОЛЬКО
+// КНОПКАМИ (demo-22 п.3, владелец TG 860): снизу те же подписи, что в окне (`vwCamLabels`), на компьютере ещё стрелки и ←/→; свайп вбок
+// ракурс не листает, вниз при масштабе 1 — закрыть. `onPick` — какой ракурс смотрели последним
 function vwZoom(url, list, onPick){
   let z=document.getElementById('vzoom');
   if(!z){z=document.createElement('div'); z.id='vzoom'; z.innerHTML='<img alt="" draggable="false"><button class="vzx" aria-label="Закрыть">×</button>'+
-    '<button class="vzarr l" type="button" aria-label="Назад">‹</button><button class="vzarr r" type="button" aria-label="Дальше">›</button><div class="vzdots"></div>';
+    '<button class="vzarr l" type="button" aria-label="Назад">‹</button><button class="vzarr r" type="button" aria-label="Дальше">›</button><div class="vzcams" role="tablist"></div>';
     document.body.appendChild(z);}
   const L=(list||[]).filter(x=>x&&x.url); let at=L.findIndex(x=>x.url===url); const many=at>=0&&L.length>1, at0=at;
-  const im=z.querySelector('img'), bx=z.querySelector('.vzx'), dots=z.querySelector('.vzdots'), arr=[...z.querySelectorAll('.vzarr')];
+  const im=z.querySelector('img'), bx=z.querySelector('.vzx'), dots=z.querySelector('.vzcams'), arr=[...z.querySelectorAll('.vzarr')];
   im.src=url; z.classList.add('on'); z.classList.remove('nox'); z.style.background='';
   arr.forEach(a=>{a.hidden=!many;}); dots.hidden=!many;
-  const dotsUi=()=>{dots.innerHTML=many?L.map((_,i)=>`<i${i===at?' class="on"':''}></i>`).join(''):''; z.dataset.at=many?at:'';};
+  // подписи ракурсов — как у переключателя окна; снимок без своей подписи — «Ракурс N»
+  const names=many?(()=>{const lb=typeof vwCamLabels==='function'?vwCamLabels():[], EN=LANG==='en';
+    return L.map((x,i)=>{const k=typeof vwCamIndex==='function'?vwCamIndex(x.camera):i; return lb[k]||((EN?'View ':'Ракурс ')+(k+1));});})():[];
+  const dotsUi=()=>{dots.innerHTML=many?names.map((t,i)=>`<button type="button" role="tab" data-zi="${i}" aria-selected="${i===at}"${i===at?' class="on"':''}>${escHtml(t)}</button>`).join(''):'';
+    z.dataset.at=many?at:'';};
   dotsUi();
   let k=1, tx=0, ty=0, g=null, lastTap=null, tapT=0, slideT=0;
   const pts=new Map(), W=()=>z.clientWidth, H=()=>z.clientHeight;
@@ -5305,7 +5321,8 @@ function vwZoom(url, list, onPick){
   const settle=()=>{const m=lim(k); tx=clamp(tx,m.x); ty=clamp(ty,m.y); if(k<=1.001){k=1;tx=0;ty=0;} put(true);};
   put(false);
   // соседний ракурс: текущий уезжает за край, новый въезжает с другой стороны; по кругу (ракурсов два)
-  const go=d=>{if(!many)return; clearTimeout(slideT); const n=((at+d)%L.length+L.length)%L.length;
+  const go=(d,to)=>{if(!many)return; clearTimeout(slideT); const n=to!=null?to:((at+d)%L.length+L.length)%L.length; if(n===at)return;
+    if(to!=null)d=n>at?1:-1;
     k=1; ty=0; tx=-d*W(); put(true);
     slideT=setTimeout(()=>{at=n; im.src=L[at].url; dotsUi(); tx=d*W(); put(false); void im.offsetWidth; tx=0; put(true);},200);};
   const key=e=>{if(e.key==='Escape'){close(); e.preventDefault();}
@@ -5315,23 +5332,22 @@ function vwZoom(url, list, onPick){
   document.removeEventListener('keydown',z._key||key); z._key=key; document.addEventListener('keydown',key);
   bx.onclick=e=>{e.stopPropagation(); close();};
   arr[0].onclick=e=>{e.stopPropagation(); go(-1);}; arr[1].onclick=e=>{e.stopPropagation(); go(1);};
-  z.onpointerdown=e=>{if(e.target===bx||arr.includes(e.target))return; e.preventDefault(); pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  dots.onclick=e=>{const b=e.target.closest&&e.target.closest('[data-zi]'); if(!b)return; e.stopPropagation(); go(0,+b.dataset.zi);};
+  z.onpointerdown=e=>{if(e.target===bx||arr.includes(e.target)||dots.contains(e.target))return; e.preventDefault(); pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(pts.size===2){const [a,b]=[...pts.values()]; g={pinch:true, d0:Math.hypot(a.x-b.x,a.y-b.y)||1, k0:k};}
     else if(pts.size===1)g={x0:e.clientX,y0:e.clientY,tx0:tx,ty0:ty,t0:Date.now(),moved:false};};
   z.onpointermove=e=>{if(!pts.has(e.pointerId)||!g)return; pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(g.pinch&&pts.size===2){const [a,b]=[...pts.values()]; zoomAt(g.k0*Math.hypot(a.x-b.x,a.y-b.y)/g.d0,(a.x+b.x)/2,(a.y+b.y)/2,false); return;}
     if(g.pinch)return;
     const dx=e.clientX-g.x0, dy=e.clientY-g.y0; if(!g.moved&&Math.hypot(dx,dy)<8)return;
-    // направление жеста решается один раз: вбок — листание, вниз — закрытие (при масштабе 1)
+    // направление жеста решается один раз: вниз — закрытие (при масштабе 1); вбок при масштабе 1 — ничего (ракурс — кнопками)
     if(!g.moved){g.moved=true; g.ax=Math.abs(dx)>Math.abs(dy)?'x':'y';}
     if(k>1){const m=lim(k); tx=clamp(g.tx0+dx,m.x,true); ty=clamp(g.ty0+dy,m.y,true); put(false);}
-    else if(g.ax==='x'){if(many){tx=dx; put(false);}}
     else if(dy>0){ty=dy; put(false); z.style.background=`rgba(17,17,17,${Math.max(0.35,1-dy/400)})`;}};
   const up=e=>{pts.delete(e.pointerId); const g0=g;
     if(g0&&g0.pinch){if(!pts.size)g=null; settle(); return;}
     g=null; if(!g0)return;
     if(g0.moved){if(k<=1&&ty>110){close(); return;}
-      if(k<=1&&g0.ax==='x'&&many&&Math.abs(e.clientX-g0.x0)>60){go(e.clientX<g0.x0?1:-1); return;}
       z.style.background=''; settle(); return;}
     // тап: двойной — масштаб в точку; одиночный (если второго не было за 280 мс) — показать/скрыть «×»
     const now=Date.now();
@@ -5342,14 +5358,24 @@ function vwZoom(url, list, onPick){
   z.onwheel=e=>{e.preventDefault(); zoomAt(k*(e.deltaY<0?1.15:0.87),e.clientX,e.clientY,false);};
   let seen=false; try{seen=!!localStorage.getItem('remlab-zoom-hint-v2');}catch(e){}
   if(!seen){const h=document.createElement('div'); h.className='vzh';
-    h.textContent=LANG==='en'?'Double tap to zoom · pinch · '+(many?'swipe sideways — other view · ':'')+'swipe down to close'
-      :'Двойной тап — увеличить · щипок · '+(many?'свайп вбок — другой ракурс · ':'')+'свайп вниз — закрыть';
+    h.textContent=LANG==='en'?'Double tap to zoom · pinch · swipe down to close':'Двойной тап — увеличить · щипок · свайп вниз — закрыть';
     z.appendChild(h); setTimeout(()=>h.remove(),3500); try{localStorage.setItem('remlab-zoom-hint-v2','1');}catch(e){}}
 }
 // ФОТО НА ТЕЛЕФОНЕ ЗАПОЛНЯЕТ ОБЛАСТЬ СЦЕНЫ (demo-09, владелец 17.10: полосы сверху и снизу — убрать): картинка по высоте области,
-// по бокам обрезается, центр кадрирования — на мебели: середина ядра (диван, ТВ-тумба, столик…) в проекции камеры этого снимка
-function vwPhotoFocus(img, s){
-  if(!img||!s)return;
+// шире экрана и двигается пальцем (`.vpan`, demo-22 п.3). С чего начать — ОКНО ПРЕВЬЮ ВИДА (demo-22 п.2): замороженное в записи
+// кадра (`s.cams[].crop`, сервер) → нынешней точки того же имени, если кадр снят с неё (`shotCamOk`); пропорция окна — ближайшая
+// к фактической области (`vwCropOf`). Окна нет (старые кадры) — прежний расчёт по мебели ядра в проекции камеры снимка
+function vwCropOf(s, a){
+  const nm=s.camera||'C1', own=(s.cams||[]).find(c=>c&&c.name===nm&&c.crop);
+  const cur=!own&&cams&&shotCamOk(s,cams)?cams.find(c=>c&&c.name===nm&&c.crop):null, cr=(own||cur||{}).crop;
+  if(!cr)return null;
+  let best=null;
+  for(const k in cr){const b=cr[k], d=Math.abs(Math.log((+k||1)/a)); if(b&&b.w<1&&b.w>0&&(!best||d<best.d))best={d,k,b};}
+  return best&&{key:best.k, ...best.b};
+}
+// середина окна обрезки по мебели — для кадров без окна превью (самопроверка 17.10: середина между диваном и ТВ попадала на окно,
+// оба срезаны): сумма «вес × видимая доля предмета» по сдвигам окна; при равенстве — ближе к середине; ответ — доля ширины кадра
+function vwFocusByItems(s, fr){
   const cam=((s.cams||[]).find(c=>c.name===(s.camera||'C1')))||((cams||loadCams())[vwCamIndex(s.camera)]);
   // предметы ядра в долях ширины снимка (0…1) с весом роли: диван важнее столика (`CAM_CORE`)
   const boxes=[];
@@ -5357,17 +5383,41 @@ function vwPhotoFocus(img, s){
     const b=camProj(cam,it,0,+it.h>0?+it.h:60); if(!b||b.behind)return;
     // диван — главное (критерий владельца: «диван в кадре»): его вес решающий, остальное — добором
     const x0=(Math.max(-1,b.x0)+1)/2, x1=(Math.min(1,b.x1)+1)/2; if(x1>x0)boxes.push({x0,x1,w:camRole(it)==='диван'?wgt*4:wgt});});
-  // ОКНО ОБРЕЗКИ — ГДЕ МЕБЕЛЬ ВИДНА ЦЕЛИКОМ БОЛЬШЕ ВСЕГО (самопроверка 17.10: середина между диваном и ТВ попадала на окно, оба срезаны):
-  // сумма «вес × видимая доля предмета» по сдвигам окна; при равенстве — ближе к середине
-  const apply=()=>{const wrap=img.parentNode; if(!wrap||!img.naturalWidth)return;
-    const Wc=wrap.clientWidth, Hc=wrap.clientHeight, sc=Math.max(Wc/img.naturalWidth,Hc/img.naturalHeight), Ws=img.naturalWidth*sc;
-    const over=Ws-Wc; if(over<=1||!boxes.length){img.style.objectPosition='50% 50%'; return;}
-    const fr=Wc/Ws; let best=0.5, bs=-1;
-    for(let k=0;k<=100;k++){const o=k/100*(1-fr), sc2=boxes.reduce((t,b)=>t+b.w*Math.max(0,Math.min(b.x1,o+fr)-Math.max(b.x0,o))/(b.x1-b.x0),0);
-      if(sc2>bs+1e-6||(Math.abs(sc2-bs)<=1e-6&&Math.abs(k-50)<Math.abs(best*100-50))){bs=sc2; best=k/100;}}
-    img.style.objectPosition=`${Math.round(best*100)}% 50%`;};
+  if(!boxes.length)return 0.5;
+  let best=0.5, bs=-1;
+  for(let k=0;k<=100;k++){const o=k/100*(1-fr), sc2=boxes.reduce((t,b)=>t+b.w*Math.max(0,Math.min(b.x1,o+fr)-Math.max(b.x0,o))/(b.x1-b.x0),0);
+    if(sc2>bs+1e-6||(Math.abs(sc2-bs)<=1e-6&&Math.abs(k-50)<Math.abs(best*100-50))){bs=sc2; best=k/100;}}
+  return best*(1-fr)+fr/2;
+}
+// `pan._fc` — середина видимой части в долях ширины фото: её держим при смене размера области (поворот, высота шторки), чтобы
+// фото не «уезжало»; человек подвинул — запоминаем его место
+function vwPhotoFocus(img, s){
+  if(!img||!s)return;
+  const pan=img.parentNode; if(!pan)return;
+  pan._fc=null;
+  const geo=()=>{const Wc=pan.clientWidth, Hc=pan.clientHeight, nw=img.naturalWidth, nh=img.naturalHeight;
+    return {Wc, Hc, Ws:Math.max(Wc, nh?Hc*nw/nh:Wc)};};
+  const apply=()=>{if(!img.naturalWidth||!pan.isConnected)return;
+    const g=geo(), over=g.Ws-g.Wc; if(over<=1||!g.Hc){pan.scrollLeft=0; return;}
+    if(pan._fc==null){const a=g.Wc/g.Hc, cr=vwCropOf(s,a);
+      pan._fc=cr?cr.x+cr.w/2:vwFocusByItems(s,g.Wc/g.Ws);
+      pan.dataset.crop=cr?cr.key:''; pan.dataset.aspect=a.toFixed(3);}
+    pan.scrollLeft=Math.round(Math.max(0,Math.min(over,pan._fc*g.Ws-g.Wc/2)));};
+  if(!pan._wired){pan._wired=true;
+    pan.addEventListener('scroll',()=>{const g=geo(); if(g.Ws>0)pan._fc=(pan.scrollLeft+g.Wc/2)/g.Ws;},{passive:true});}
   if(img.complete)apply(); else img.addEventListener('load',apply,{once:true});
   img._focus=apply;
+}
+// ТАП ПО ФОТО — ВО ВЕСЬ ЭКРАН (demo-22 п.3, Codex 22.10 §4): тап — сдвиг пальца < 8 px и фото не прокрутилось; нажатие, которым
+// останавливают инерцию, — не тап (прокрутка была только что); браузер забрал жест в прокрутку — `pointercancel`, тапа нет
+function vwTapZoom(el, fn){
+  if(!el)return; el._tapFn=fn; if(el._tap)return; el._tap=true;
+  let p=null, last=0;
+  el.addEventListener('scroll',()=>{last=performance.now();},{passive:true});
+  el.addEventListener('pointerdown',e=>{p={x:e.clientX,y:e.clientY,sl:el.scrollLeft,still:performance.now()-last>150};});
+  el.addEventListener('pointercancel',()=>{p=null;});
+  el.addEventListener('pointerup',e=>{const q=p; p=null;
+    if(q&&q.still&&Math.hypot(e.clientX-q.x,e.clientY-q.y)<8&&Math.abs(el.scrollLeft-q.sl)<1&&el._tapFn)el._tapFn();});
 }
 function vwLoad(on, txt, corner){
   const l=document.getElementById('vload'); if(!l)return;
@@ -5698,15 +5748,13 @@ function vwMount(s){
           if(Date.now()-t0>=3000){t.remove(); try{localStorage.setItem('remlab-sheet-hint-v1','1');}catch(e){} return;}
           setTimeout(watch,150);})();
       })();}}
-  // увеличить картинку: «⤢» или тап по ней; свайп по кадру — другой ракурс
+  // увеличить картинку: «⤢» или тап по ней. РАКУРС — ТОЛЬКО КНОПКАМИ (demo-22 п.3, владелец TG 860): свайп по кадру больше не
+  // листает ракурсы — на телефоне он двигает фото (`.vpan`)
   const zb=document.getElementById('vzBtn'), mi=shot.querySelector('.shotwrap img.vmain');
   if(mi&&VW_PHONE())vwPhotoFocus(mi,s);
   const zoom=()=>vwZoom(s.url, vwRealShots(), x=>{if(VW.mode==='photo')vwCamGo(vwCamIndex(x.camera));});
   if(zb)zb.onclick=zoom;
-  if(mi){let sx=null; mi.addEventListener('pointerdown',e=>{sx=e.clientX;});
-    mi.addEventListener('pointerup',e=>{if(sx===null)return; const dx=e.clientX-sx; sx=null;
-      if(Math.abs(dx)>50)vwPhoto(VW.photo+(dx<0?1:-1));
-      else zoom();});}
+  if(mi)vwTapZoom(mi.parentNode, zoom);
   vwPins();
 }
 // ПЕРЕКЛЮЧЕНИЕ РЕЖИМА МЕНЯЕТ ТОЛЬКО ОБЛАСТЬ СЦЕНЫ (владелец 16.10, п.6): шторка/колонка, список и сумма остаются как были
@@ -5768,7 +5816,7 @@ function vwCamGo(k){
   if(LIVE.scene&&c&&LIVE.scene.goToPose)LIVE.scene.goToPose(camPoseOf(c));
   reportAct('view_switch');
 }
-// свайп по фото и ← → — следующий/предыдущий ракурс тем же переходом
+// ← → — следующий/предыдущий ракурс тем же переходом (свайп по фото — нет, demo-22: на телефоне он двигает фото)
 function vwPhoto(k){
   if(VW.mode==='photo'){const r=vwRealShots(); if(r.length<2)return;
     const at=Math.max(0,r.findIndex(x=>(x.camera||'C1')===vwCam())), nx=r[((at+(k>VW.photo?1:-1))%r.length+r.length)%r.length];
@@ -6000,7 +6048,7 @@ const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пу�
 #shot .shotwrap .livecv{position:absolute;inset:0;width:100%;height:100%;border-radius:inherit;display:block;background:#e9edf1}
 #shot .shotwrap:has(.livecv){background:linear-gradient(#ebe8e3,#e4ded4)}   /* поля вокруг кадра 3:2 — тоном комнаты */
 /* под живой сценой фото не нужно: в полях кадра 3:2 его размытая копия (другой расстановки) отвлекала */
-#shot .shotwrap:has(.livecv.in) .vblur,#shot .shotwrap:has(.livecv.in) .vmain{visibility:hidden}
+#shot .shotwrap:has(.livecv.in) .vblur,#shot .shotwrap:has(.livecv.in) .vpan{visibility:hidden}
 #shot .shotwrap .livebadge{position:absolute;left:10px;top:10px;background:rgba(43,38,34,.82);color:#fff;font-size:13px;
  padding:5px 10px;border-radius:999px;pointer-events:none}
 </style>
@@ -6095,13 +6143,12 @@ function liveWire(){
   let p0=null, last=null;
   cv.addEventListener('pointerdown',e=>{p0={x:e.clientX,y:e.clientY}; last={...p0}; cv.setPointerCapture(e.pointerId);});
   cv.addEventListener('pointermove',e=>{if(!p0||VW.mode!=='walk')return; LIVE.scene.look(e.clientX-last.x,e.clientY-last.y); last={x:e.clientX,y:e.clientY};});
-  // КОНТРАКТ ЖЕСТОВ (demo-02 v3, Codex п.4): «Фото» — горизонтальный свайп > 50 px листает ракурс; «3D» — движение > 8 px =
+  // КОНТРАКТ ЖЕСТОВ (demo-02 v3, Codex п.4): «Фото» — тап по предмету выбирает его (ракурс — только кнопками, demo-22); «3D» — движение > 8 px =
   // осмотр, короткий тап в крайних 20 % ширины = поворот на 30°, по предмету = выбор, по полу = шаг туда — только с мышью: на сенсорном
   // экране ходьбы нет (demo-20 Б6, владелец 22.10), остаются осмотр, повороты и ракурсы «со стороны двери / окна» (`walk` сцены)
   cv.addEventListener('pointerup',e=>{if(!p0)return; const dx=e.clientX-p0.x, dy=e.clientY-p0.y, tap=Math.hypot(dx,dy)<8; p0=null;
     if(!LIVE.scene)return;
     if(VW.mode==='photo'){
-      if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)){vwPhoto(VW.photo+(dx<0?1:-1)); return;}
       if(tap){const i=LIVE.scene.pick(e.clientX,e.clientY); if(i>=0)vwHighlight(i); else vwSelect(null);}
       return;}
     if(VW.mode==='walk'&&tap){
