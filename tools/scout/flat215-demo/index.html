@@ -4863,7 +4863,9 @@ function histFwd(){return histGo(1);}
   #shot.v2 .vzbtn{top:62px;bottom:auto;right:10px}
   .vplanbox{inset:60px 8px var(--vsh,320px) 8px}
   /* подсказка «фото готово» — сверху, под ↶ ↷: снизу её перекрывала подпись выбранного пола (самопроверка 17.10) */
-  .vstub,.vphwait{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
+  .vstub{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
+  /* ход фото закрывает весь кадр (под шторкой — тоже: иначе между ним и шторкой виден прежний снимок), надпись — над шторкой */
+  .vphwait{padding-bottom:calc(var(--vsh,320px) + 24px)}
   /* «Фото» на телефоне — во всю область сцены, без размытых полос; сторону обрезки выбирает `vwPhotoFocus` (мебель в центре) */
   #shot.v2 .vstage .shotwrap img.vmain{object-fit:cover}
   #shot.v2 .vstage .shotwrap img.vblur{display:none}
@@ -5573,7 +5575,11 @@ async function vwRealistic(o){
   const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();
     // не вышло — вкладка «Фото» без снимка исчезает, человек возвращается в 3D
     if(here()&&VW.mode==='photo'&&!vwRealShots().length){VJ.self=1; vwMode('walk'); VJ.self=0;} else vwModeUi();};
-  const cap=await vwCaptureViews(); VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay}:null;   // для проверок и замера
+  let cap=await vwCaptureViews();
+  // расстановку поменяли, пока снимались кадры: заказ (`makePhoto` берёт товары и номер состояния сейчас) и кадры должны быть об
+  // одном — снимаем ещё раз уже новую; иначе фото подписано новой расстановкой, а нарисовано по кадрам прежней (demo-20 Б3, 1440)
+  if(job.stateId!==curStateId()){job.stateId=curStateId(); job.vid=curVid(); cap=await vwCaptureViews(); vwModeUi();}
+  VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay}:null;   // для проверок и замера
   if(VW.mode==='photo')liveHide();   // съёмка кадров запускает цикл сцены — на «Фото» он не нужен
   makePhoto('realistic','','',{bg:true, extra:cap?{views:cap.views, clay:cap.clay, sheet:cap.sheet}:{},
     progress:t=>{job.note=t; vwCtaUi();},

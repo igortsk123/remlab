@@ -61,10 +61,13 @@ if(W<=700){await p.evaluate(()=>vwSheet(3)); await p.waitForFunction(()=>documen
     scrolled:[...document.querySelectorAll('#shot, #shot *')].filter(e=>e.scrollTop>0&&!/vscroll|sheetscroll/.test(e.id)).map(e=>(e.id||e.className)+':'+e.scrollTop)};});
   ok('1б замена через ленту → шторка свёрнута на деле',sw.pos==='0'&&sw.top>=sw.want-2&&!sw.scrolled.length,JSON.stringify(sw));
   await p.evaluate(()=>closePicker()); await p.waitForTimeout(500);}
-// 2. «Сделать реалистичнее» → ход на кнопке, 3D остаётся → готово → «Фото» само
+// 2. «Сделать реалистичнее» → сразу вкладка «Фото» и на ней «Улучшаю… N %» во весь кадр (demo-20 Б3, владелец 22.10 TG 791/795) → готово → снимок сам
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);
 await p.click('#vCta'); await p.waitForTimeout(1500); s=await st(p);
-ok('2 после нажатия — ход на кнопке, режим 3D',s.mode==='walk'&&/Рисуем фото/.test(s.cta||''),s.cta);
+const pw2=await p.evaluate(()=>{const o=document.querySelector('#shot .vphwait'); return o?o.querySelector('b').textContent:'';});
+ok('2 после нажатия — сразу «Фото» с ходом работы',s.mode==='photo'&&s.photoTab&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(pw2),JSON.stringify({mode:s.mode,tab:s.photoTab,wait:pw2}));
+// заказ уходит после съёмки кадров — на 1440 под программной графикой это дольше 1,5 с: ждём сам заказ, не время
+for(let t=0;t<40&&!p.renderBodies.some(x=>x.quality==='realistic');t++)await p.waitForTimeout(500);
 const rb=p.renderBodies.filter(x=>x.quality==='realistic').pop()||{};
 ok('2 кадры из браузера: оба вида загружены и в задании только их имена',(rb.views||[]).length===2&&rb.views.every(v=>/^[0-9a-f]{64}$/.test(v.id))&&rb.views.every(v=>p.frames.some(f=>f.id===v.id)),
   JSON.stringify({views:rb.views, frames:p.frames.map(f=>[f.id.slice(0,8),f.bytes,f.w]), cap:await p.evaluate('JSON.stringify(VW.lastCapture)')}));
@@ -85,7 +88,10 @@ ok('4 ↶ вернул расстановку со снимком → «Фото
 // 3. состояние изменилось во время задания → без переключения, подсказка
 await p.evaluate(()=>{window.__fakeReady=0; const g=devGroups().find(x=>x.kind==='flooring'); devSet(g.id,g.variants[2].id);}); await p.waitForTimeout(900);
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);   // после изменения шторка свёрнута — кнопку сперва видно, как у человека
+await p.evaluate(()=>{window.__cap0=VW.lastCapture;});
 await p.click('#vCta'); await p.waitForTimeout(1200);
+// меняем ПОСЛЕ съёмки кадров (заказ уже ушёл); смена посреди съёмки — переснимает новую расстановку, это другой случай
+await p.waitForFunction(()=>VW.lastCapture!==window.__cap0,null,{timeout:20000}).catch(()=>{});
 await p.evaluate(()=>{const g=devGroups().find(x=>x.kind==='flooring'); devSet(g.id,g.variants[3].id); window.__fakeReady=1;});
 await p.waitForFunction(()=>!VJ.job,null,{timeout:20000}).catch(()=>{}); await p.waitForTimeout(500); s=await st(p);
 ok('3 расстановка менялась во время съёмки → 3D, подсказка «фото готово для прежней»',s.mode==='walk'&&!s.photoTab&&s.ready,JSON.stringify({mode:s.mode,tab:s.photoTab,ready:s.ready}));

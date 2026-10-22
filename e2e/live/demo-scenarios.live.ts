@@ -125,8 +125,9 @@ test("2.25–2.26 фото готово для этой расстановки �
   await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
   await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
   await page.locator("#vCta").click();
-  await expect(page.locator("#vCta")).toContainText("Рисуем фото");
-  expect(await page.evaluate("VW.mode")).toBe("walk");
+  // сразу «Фото» с ходом работы во весь кадр (demo-20 Б3, владелец 22.10 TG 791/795)
+  await expect(page.locator("#shot .vphwait b")).toHaveText(/^Улучшаю… \d+ %$/);
+  expect(await page.evaluate("VW.mode")).toBe("photo");
   ready = true;
   await expect.poll(() => page.evaluate("VW.mode"), { timeout: 20_000 }).toBe("photo");
   await expect(page.locator('[data-vm="photo"]')).toBeVisible();
