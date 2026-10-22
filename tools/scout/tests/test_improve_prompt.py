@@ -21,11 +21,14 @@ def check(name, cond, info=''):
 
 import re
 
-check('версия промпта improve-v3.1', IM.PROMPT_VERSION == 'improve-v3.1', IM.PROMPT_VERSION)
+_want = 'improve-v4.2' if os.environ.get('IMPROVE_PROMPT') == 'v4' else 'improve-v3.2'   # v4 — у рисующего процесса прода
+check(f'версия промпта {_want}', IM.PROMPT_VERSION == _want, IM.PROMPT_VERSION)
 db = json.load(open(os.path.join(HERE, '..', 'styles.json'), encoding='utf-8'))
 # ДОБАВЛЕНИЯ, КОТОРЫЕ ГАЙД ДЕЛАТЬ НЕ ВПРАВЕ (demo-13): светильники, ниши, экраны радиатора, ковры, мебель. Ссылки на уже стоящее
-# («behind the sofa», «over the sofa») и образ («as if through paper screens») — не добавление
-BANNED = re.compile(r'\b(lamps?|lighting|coves?|chandeliers?|covers?|rugs?|armchairs?)\b', re.I)
+# («behind the sofa», «over the sofa») и образ («as if through paper screens») — не добавление.
+# Исключение (demo-20 Г4, владелец 22.10): ровно одна строка CEILING LIGHT — единственный светильник; в прочих строках светильников нет
+BANNED = re.compile(r'\b(lamps?|lighting|coves?|chandeliers?|pendants?|lanterns?|fixtures?|sconces?|spotlights?|covers?|rugs?|'
+                    r'armchairs?)\b', re.I)
 SOFA_OK = re.compile(r'\b(behind|over) the sofa\b', re.I)
 NEVER_OK = ('never the furniture',)   # неоклассика: «симметрия — не мебель» — защита, а не абсолют стиля
 for st in ('сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди'):
@@ -36,9 +39,13 @@ for st in ('сканди', 'современный', 'минимализм', 'л
           ('WALLS:', 'FLOOR:', 'TRIM & DOOR:', 'LIGHT:', 'WINDOW DRESSING:', 'ART & DECOR:', 'STYLE NO:')), g[:60])
     check(f'{st}: гайд целиком в промпте (без выбора застройщика)', g in p)
     check(f'{st}: префикс-защита один раз', p.count('STYLE GUIDE — OPTIONAL PRIORITIES') == 1)
-    body = '\n'.join(l for l in lines if not l.startswith('STYLE NO:'))
+    cl = [l for l in lines if l.startswith('CEILING LIGHT:')]
+    check(f'{st}: строка CEILING LIGHT ровно одна — один выключенный светильник у центральной точки потолка', len(cl) == 1 and
+          cl[0].startswith('CEILING LIGHT: one ') and cl[0].rstrip('.').endswith('switched off') and
+          re.search(r'central ceiling point|centred in the room', cl[0]), str(cl))
+    body = '\n'.join(l for l in lines if not l.startswith(('STYLE NO:', 'CEILING LIGHT:')))
     hit = BANNED.findall(body)
-    check(f'{st}: нет добавления светильников, ниш, экранов, ковров, мебели', not hit, str(hit))
+    check(f'{st}: вне CEILING LIGHT нет добавления светильников, ниш, экранов, ковров, мебели', not hit, str(hit))
     sofa = [m.start() for m in re.finditer(r'\bsofa\b', body, re.I)]
     check(f'{st}: «sofa» — только как ссылка на стоящий диван', all(SOFA_OK.search(body[max(0, k - 12):k + 5]) for k in sofa))
     check(f'{st}: нет чисел с см/К', not re.search(r'\d+\s*(cm|K)\b', g), g[:80])
@@ -60,10 +67,34 @@ for st in ('сканди', 'современный', 'минимализм', 'л
     _pr = IM.prompt_for(st)
     check(f'{st}: правило радиатора под окном — один раз, без экрана', _pr.count('RADIATORS: under every window') == 1 and
           'with no cover, screen or box' in _pr and 'keep it exactly as rendered' in _pr)
+# ПОТОЛОЧНЫЙ СВЕТИЛЬНИК (demo-20 Г4): заглушка сцены заменяется светильником стиля; прочий свет и второй светильник запрещены; без
+# противоречий — ни одного общего «не добавлять свет» и «ничего больше» без исключения светильника
+for st in ('сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди'):
+    for dec in (None, ['ваза']):
+        _pr = IM.prompt_for(st, dec)
+        _tag = f'{st}{" + декор IMAGE 3" if dec else ""}'
+        check(f'{_tag}: блок CEILING FIXTURE один раз, до RENOVATION и до гайда',
+              _pr.count('CEILING FIXTURE — THE ONLY NEW LIGHTING') == 1 and
+              _pr.index('CEILING FIXTURE — THE ONLY') < _pr.index('RENOVATION') < _pr.index('STYLE GUIDE — OPTIONAL'))
+        check(f'{_tag}: белый диск — заглушка, заменить светильником CEILING LIGHT (не «сохранить»)',
+              'The flat white disc at the ceiling centre in IMAGE 1 is a schematic placeholder' in _pr and
+              'replace it with the fixture described by CEILING LIGHT' in _pr)
+        check(f'{_tag}: нет общего запрета света без исключения', 'Do not add visible or concealed lighting' not in _pr and
+              'Do not add any visible or concealed lighting except that single ceiling fixture' in _pr)
+        check(f'{_tag}: «Nothing else may be added» — только с исключением светильника',
+              all(_pr[m.end():m.end() + 7] == ' except' for m in re.finditer('Nothing else may be added', _pr)))
+        check(f'{_tag}: TASK называет светильник единственным новым объектом', 'The only new object is the single ceiling fixture' in _pr)
+        check(f'{_tag}: камеру ради светильника не трогать, без свечения',
+              'do not move, tilt, widen or raise the camera' in _pr and 'The fixture emits no glow' in _pr)
+check('FORBIDDEN: прочий свет и второй светильник; прежнего общего запрета ламп нет',
+      any(x.startswith('any lighting other than the single ceiling fixture') for x in deny) and 'a second ceiling fixture' in deny
+      and not any(x.startswith('lamps, chandeliers') for x in deny))
+check('ALLOWED: светильник стиля — запись решения владельца',
+      any('ceiling fixture' in k for k in db['_decor_policy']['allow_now']) and 'ceiling fixture' in IM.prompt_for('сканди').split('Explicitly ALLOWED')[1])
 check('отпечаток промпта стабилен', IM.prompt_sha('abc') == IM.prompt_sha('abc') and len(IM.prompt_sha('abc')) == 12)
 # improve-v4 (demo-14): список товаров — только по флагу; без флага промпт и версия прежние
-check('без флага — improve-v3.1 и без списка товаров', (os.environ.get('IMPROVE_PROMPT') == 'v4') or
-      (IM.PROMPT_VERSION == 'improve-v3.1' and 'PRODUCT LIST' not in IM.prompt_for('сканди')))
+check('без флага — improve-v3.2 и без списка товаров', (os.environ.get('IMPROVE_PROMPT') == 'v4') or
+      (IM.PROMPT_VERSION == 'improve-v3.2' and 'PRODUCT LIST' not in IM.prompt_for('сканди')))
 _pl = [{'id': [1], 'role': 'диван', 'name': 'Диван Викс Рогожка Серый', 'material': 'woven matting fabric', 'colour_name': 'Серый',
         'colour_hex': '#82828C', 'confidence': 0.8}]
 _p4 = IM.prompt_for('сканди', products=_pl)

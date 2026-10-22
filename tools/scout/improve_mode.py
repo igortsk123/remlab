@@ -45,8 +45,9 @@ SIZE = os.environ.get('IMPROVE_SIZE', '2048x3072')     # замер: прини�
 # роль, название, материал и цвет словами, измеренный основной тон фото (`refs_check.ref_colour`) и уверенность; средний ΔE00 12.1 → 9.0/10.4
 # в двух прогонах без роста времени. ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН до приёмки d8: включается `IMPROVE_PROMPT=v4` в окружении рисующего процесса
 # «.1» (demo-20 Г3, владелец 22.10 TG 824): + общее правило РАДИАТОР ПОД КАЖДЫМ ОКНОМ — для всех стилей; ответ без него из кэша не отдаётся
+# «.2» (demo-20 Г4, владелец 22.10 TG 830–836): белый плафон-заглушка сцены → потолочный светильник стиля (CEILING LIGHT гайда, блок CEILING FIXTURE)
 PROMPT_V4 = os.environ.get('IMPROVE_PROMPT') == 'v4'
-PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.1'
+PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.2'
 _MATERIALS = [('рогожк', 'woven matting fabric'), ('шенилл', 'chenille'), ('велюр', 'velour'), ('букле', 'bouclé'), ('вельвет', 'corduroy'),
               ('экокож', 'faux leather'), ('кож', 'leather'), ('лён', 'linen'), ('шерст', 'wool'), ('хлоп', 'cotton'), ('дуб', 'oak'),
               ('орех', 'walnut'), ('ясень', 'ash'), ('сосн', 'pine'), ('древесн', 'wood'), ('дерев', 'wood'), ('металл', 'metal'),
@@ -81,13 +82,39 @@ def product_list(items: list, photos: dict) -> list:
 
 
 # ОБЩИЙ ПРЕФИКС ГАЙДА (demo-13, критика Codex 17.10): гайд — подсказки, а не список обязательного; готовые окно/дверь/батарея/ручки на
-# кадре не трогать; ни видимого, ни скрытого света, ниш и экранов радиатора; ваза/кашпо — только с живым растением; направление света — как есть
+# кадре не трогать; ни видимого, ни скрытого света, ниш и экранов радиатора; ваза/кашпо — только с живым растением; направление света — как есть.
+# Исключение (demo-20 Г4, 22.10): строка CEILING LIGHT гайда — обязательная, не из «3–4 подсказок»: единственный новый светильник
 STYLE_PREFIX = ('STYLE GUIDE — OPTIONAL PRIORITIES. Apply only 3–4 compatible cues to eligible surfaces, choose one option per category, '
-                'and omit every cue that conflicts with IMAGE 1, the HARD RULES, SERVICE PLACEHOLDERS or FORBIDDEN. If a window, door, '
+                'and omit every cue that conflicts with IMAGE 1, the HARD RULES, SERVICE PLACEHOLDERS or FORBIDDEN. The CEILING LIGHT line '
+                'is not optional: it describes the single ceiling fixture governed by CEILING FIXTURE above. If a window, door, '
                 'radiator, sill, frame, trim, handle or curtain hardware is already rendered as a real object in IMAGE 1, preserve its exact '
                 'shape, colour, material, position and visibility; only schematic BLUE/BROWN rectangles may be resolved under SERVICE '
-                'PLACEHOLDERS. Do not add visible or concealed lighting, ceiling coves, radiator covers or screens. Any added vase or '
-                'planter must contain a live plant; otherwise omit it. Preserve the visible light direction.')
+                'PLACEHOLDERS. Do not add any visible or concealed lighting except that single ceiling fixture: no recessed or track '
+                'lights, spotlights, sconces, floor or table lamps, LED strips, luminous ceilings, ceiling coves, radiator covers or '
+                'screens. Any added vase or planter must contain a live plant; otherwise omit it. Preserve the visible light direction.')
+
+# ПОТОЛОЧНЫЙ СВЕТИЛЬНИК (demo-20 Г4, владелец 22.10 TG 830–836: «стрёмная выключенная люстра»). Белый диск у потолка на IMAGE 1 — заглушка
+# 3D-сцены (`lib/viewer3d/fixtures-ir.ts:ceilingLampIR`), она даёт модели точку крепления; модель ставит на её место светильник из строки
+# CEILING LIGHT гайда. Один физический светильник в обоих видах, короткий подвес, выключен; камеру ради него не трогать (критика Codex 22.10)
+CEILING_FIXTURE = '\n'.join([
+    'CEILING FIXTURE — THE ONLY NEW LIGHTING',
+    '',
+    'The flat white disc at the ceiling centre in IMAGE 1 is a schematic placeholder for the ceiling fixture: replace it with the '
+    'fixture described by CEILING LIGHT in the active STYLE GUIDE (if the guide has no CEILING LIGHT, one simple shallow flush-mount '
+    'ceiling light in matte white). Only if IMAGE 1 shows a real catalogue ceiling fixture instead of the flat disc, preserve that '
+    'product exactly and do not add another one.',
+    '',
+    'It is the same physical fixture in both views: the same design, materials, colour, scale, ceiling attachment point and '
+    'switched-off state, shown only where naturally visible from each existing camera.',
+    '',
+    'Use the placeholder\'s ceiling point, the room\'s central ceiling point. Keep the fixture shallow and close to the ceiling, with '
+    'normal head clearance. It must remain high in the frame and must not overlap or obscure any furniture, television, door, '
+    'window or curtain.',
+    '',
+    'If the ceiling point falls outside the existing crop, do not move, tilt, widen or raise the camera and do not lower the '
+    'fixture merely to make it visible. The fixture emits no glow and must not change the original daylight direction, exposure, '
+    'white balance or shadows.',
+])
 
 
 def guide_for(guide: str, floor: str | None = None, walls: str | None = None) -> str:
@@ -134,9 +161,10 @@ def styles_db() -> dict:
 def style_block(style: str | None) -> tuple[str, str, dict]:
     """→ (имя стиля, STYLE GUIDE из канона, политика декора).
 
-    Берём `render_guide`, а НЕ соседнее поле `prompt`: то писалось для генерации сцены с нуля и
-    требует шторы, люстру и розетку под неё — светильники и текстиль, добавлять которые в этом
-    режиме запрещено.
+    Берём `render_guide`, а НЕ соседнее поле `prompt`: то писалось для генерации сцены с нуля
+    (шторы, люстра, розетка под неё — без наших запретов). Светильник в этом режиме один —
+    потолочный из строки CEILING LIGHT гайда (владелец 22.10, блок CEILING_FIXTURE); прочий свет
+    запрещён (`_decor_policy.deny_always`).
     """
     db = styles_db()
     st = (style or '').strip().lower()
@@ -180,7 +208,8 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
     ] if decor else []) + [
         '',
         'TASK: turn IMAGE 1 into two photorealistic views of a renovated room. Preserve the room, '
-        'cameras and furniture; change only finishes, product materials and service placeholders.',
+        'cameras and furniture; change only finishes, product materials and service placeholders. The only new object is the '
+        'single ceiling fixture that replaces the white ceiling placeholder (CEILING FIXTURE below).',
         '',
         'STATIC HARD RULES',
         '',
@@ -189,7 +218,7 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         '* camera, crop, perspective or proportions;',
         '* room geometry, wall corners, ceiling, door or window openings;',
         '* the position, silhouette, size, rotation, orientation, count or design of any '
-        'furniture, lamp or rug;',
+        'furniture, catalogue lamp or rug;',
         '* the furniture arrangement or object visibility;',
         '* the two-view layout or magenta separator;',
         SHAPE_RULE,
@@ -229,7 +258,7 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         'surface: the TV console, the coffee table or the dining table. Choose the surface that '
         'suits it, keep it small and natural in scale, and do not let it hide, touch or move any '
         'existing product. Place each item ONCE and show it in both views if that surface is '
-        'visible in both. Nothing else may be added.',
+        'visible in both. Nothing else may be added except the ceiling fixture governed by CEILING FIXTURE below.',
         '',
     ] if decor else []) + [
         'SERVICE PLACEHOLDERS',
@@ -254,6 +283,8 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         'RADIATORS: under every window, directly below the windowsill and centred on the opening, there must be one white '
         'panel radiator, fully visible, with no cover, screen or box. If IMAGE 1 already shows a radiator under that window, '
         'keep it exactly as rendered and do not add a second one.',
+        '',
+        CEILING_FIXTURE,
         '',
         'RENOVATION',
         '',
