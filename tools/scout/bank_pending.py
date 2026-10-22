@@ -14,8 +14,8 @@
 
 НЕ ЖДАТЬ БЕСКОНЕЧНО: меш `rejected`/`quarantine`, задание `failed_terminal`, нет высоты (`h_cm`), не мешепригоден
 (`mesh_required=false`) → ячейка `invalid`, товар — в чёрный список (`blacklist`) для пересборки ячейки. Карантин — не готовность.
-Товары мешевых ролей без высоты отсеиваются ещё ДО сборки (`blocklist` → `compose_gates.admit`): кресла 93965 без `h_cm` в
-`mesh_required` не попадут никогда.
+До сборки (`blocklist` → `compose_gates.admit`) отсеивается чёрный список (`compose_reject_blacklist`); отсев мешевых ролей
+без высоты (`compose_no_height`) — отдельным ключом, выключен: 2740 таких товаров — вероятно, дыра в данных о высоте.
 
 СПРОС. Порядок ячеек: замена живого `gone` → меньше недостающего → ячейка в вариантах демо → дольше ждёт. В ячейке — по
 порядку ролей, без повторов по представителю семейства меша (`mesh_family_rep`: один меш на модель). Потолок очереди demo
@@ -168,13 +168,18 @@ def combine(band: list, bank: list, cap: int, reserve: int = 0) -> tuple[list, l
     return band_k, bank_u[:cap - band_n]
 
 
-def blocklist(prod: dict, strategy, state: dict | None = None) -> dict:
-    """Не пускать в сборку кандидата (ДО сборки, `compose_gates.admit`): мешевая роль без высоты — меш не заказать; товары
-    из чёрного списка состояния (меш брак/карантин/failed_terminal). → {sku: причина}."""
-    out = {s: 'нет высоты (h_cm) — меш не заказать' for s, p in prod.items()
-           if not p.get('has_h') and p.get('role') and strategy(p['role']) == 'mesh'}
-    for s, b in ((state or {}).get('blacklist') or {}).items():
-        out.setdefault(s, b.get('why') or 'чёрный список кандидата')
+def blocklist(prod: dict, strategy, state: dict | None = None, no_height: bool = False, reject: bool = True) -> dict:
+    """Не пускать в сборку кандидата (ДО сборки, `compose_gates.admit`). `reject` — чёрный список состояния (меш брак/
+    карантин/failed_terminal); `no_height` — мешевая роль без высоты (меш не заказать). → {sku: причина}.
+    «Нет высоты» по умолчанию ВЫКЛЮЧЕНО (ведущий 22.10): по каталогу это 2740 товаров — похоже на дыру в данных о высоте,
+    а не на свойство товаров; резать по ней каталог нельзя, пока она не разобрана."""
+    out = {}
+    if no_height:
+        out = {s: 'нет высоты (h_cm) — меш не заказать' for s, p in prod.items()
+               if not p.get('has_h') and p.get('role') and strategy(p['role']) == 'mesh'}
+    if reject:
+        for s, b in ((state or {}).get('blacklist') or {}).items():
+            out.setdefault(s, b.get('why') or 'чёрный список кандидата')
     return out
 
 
@@ -331,9 +336,12 @@ def _selftest() -> int:
     ok('резерв за банком 40, а у банка 30 — банку 30, ленте 120', len(k) == 30 and len(b) == 120, (len(b), len(k)))
     b, k = combine([f'b{i}' for i in range(200)], [], 150, reserve=40)
     ok('резерв не простаивает: банку нечего — лента берёт все 150', len(b) == 150 and k == [])
-    bl = blocklist(prod, strat, st)
-    ok('до сборки не пускаем: мешевая роль без высоты и чёрный список; вырезке высота не нужна',
+    bl = blocklist(prod, strat, st, no_height=True)
+    ok('до сборки не пускаем (оба ключа): мешевая роль без высоты и чёрный список; вырезке высота не нужна',
        set(bl) == {'1:k2', '1:t2'}, bl)
+    ok('по умолчанию — только чёрный список состояния, «нет высоты» выключено',
+       set(blocklist(prod, strat, st)) == {'1:k2', '1:t2'} and set(blocklist(prod, strat, {})) == set())
+    ok('чёрный список выключен — пусто', blocklist(prod, strat, st, reject=False) == {})
     print(f'bank_pending selftest: ошибок {bad}')
     return 1 if bad else 0
 

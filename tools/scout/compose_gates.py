@@ -23,16 +23,19 @@ BLOCKED: dict | None = None   # sku → причина «меш не заказ�
 
 def _blocked() -> dict:
     """ДО СБОРКИ (conv-14 шаг 2, `bank_pending.blocklist`): товар мешевой роли без высоты (кресла 93965 — меш не заказать,
-    кандидат ждал бы вечно) и чёрный список состояния кандидата (меш rejected/quarantine, failed_terminal). Включается
-    `rules/bank-candidate.json:compose_blocklist`. Загружается один раз на сборку."""
+    кандидат ждал бы вечно) и чёрный список состояния кандидата (меш rejected/quarantine, failed_terminal). Ключи
+    `rules/bank-candidate.json`: `compose_reject_blacklist` (чёрный список), `compose_no_height` (нет высоты, выключен).
+    Загружается один раз на сборку."""
     global BLOCKED
     if BLOCKED is None:
         import bank_pending as BP
-        if BP.rules().get('compose_blocklist'):
+        r = BP.rules()
+        nh, rj = bool(r.get('compose_no_height')), bool(r.get('compose_reject_blacklist'))
+        if nh:
             F = BP.load_facts()
-            BLOCKED = BP.blocklist(F.prod, F.strategy, BP.load_state())
+            BLOCKED = BP.blocklist(F.prod, F.strategy, BP.load_state(), no_height=True, reject=rj)
         else:
-            BLOCKED = {}
+            BLOCKED = BP.blocklist({}, None, BP.load_state(), reject=rj)   # без каталога: только состояние
     return BLOCKED
 
 
