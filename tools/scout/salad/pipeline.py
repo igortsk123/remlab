@@ -17,6 +17,12 @@ import time
 import torch
 
 STAGED = os.environ.get('STAGED', '1') == '1'
+# ФОРМА И ПОКРАСКА — ОТДЕЛЬНЫМИ ПРОЦЕССАМИ (T-20261022-10 В). Замер 22.10 на живой машине (RTX 4060 Ti, 33 ГБ ОЗУ):
+# после выгрузки покраски на карте 0.5 ГБ, а собственная память процесса так и осталась 15 ГБ; загрузка весов
+# следующей стадии добавляет сверху 7+ ГБ (12 → 19 ГБ за 6 с), пик процесса — 25.8 ГБ, и машина падает на старте
+# следующего задания. Процесс стадии, закончившись, отдаёт системе ВСЁ. Цена — запуск Python и CUDA на стадию
+# (≈10–20 с на задание). По умолчанию выключено: сначала канарейка (`_trim` ниже может оказаться достаточным).
+STAGE_PROC = os.environ.get('STAGE_PROC', '0') == '1'
 WEIGHTS = os.environ.get('WEIGHTS_DIR', '/opt/weights')
 MODEL_PATH = os.path.join(WEIGHTS, 'hunyuan3d-2.1')
 
@@ -28,10 +34,66 @@ def _peak_gb() -> float:
     return round(torch.cuda.max_memory_allocated() / 2 ** 30, 2)
 
 
+def _trim() -> None:
+    """Вернуть системе освобождённую память кучи. glibc держит освобождённые куски у себя (веса грузятся тысячами
+    тензоров меньше порога mmap), поэтому после `_unload` память процесса не падает — замер 22.10: 15 ГБ при пустой
+    карте. `malloc_trim(0)` отдаёт свободные страницы всех арен. Не glibc — тихо ничего."""
+    try:
+        import ctypes
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
+
+
 def _free():
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
+    _trim()
+
+
+def _status_kb(key: str) -> int:
+    try:
+        with open('/proc/self/status', encoding='ascii') as f:
+            for line in f:
+                if line.startswith(key + ':'):
+                    return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
+def _ram_mark() -> None:
+    """Сбросить пик памяти процесса (VmHWM) перед стадией: `5` в clear_refs (Linux ≥ 4.0). Не вышло — пик будет
+    «с начала процесса», то есть не меньше настоящего: для телеметрии это честная верхняя оценка."""
+    try:
+        with open('/proc/self/clear_refs', 'w', encoding='ascii') as f:
+            f.write('5')
+    except OSError:
+        pass
+
+
+def _ram_peak_gb() -> float:
+    """Пик памяти процесса (VmHWM, ГБ) со времени `_ram_mark`."""
+    return round(_status_kb('VmHWM') / 2 ** 20, 2)
+
+
+def _ram_anon_gb() -> float:
+    """Собственная память процесса сейчас (RssAnon, ГБ) — без отображённых файлов весов."""
+    return round(_status_kb('RssAnon') / 2 ** 20, 2)
+
+
+def _in_proc(fn, *args):
+    """Стадия в отдельном процессе (`spawn`: чистый интерпретатор, без унаследованной CUDA и памяти родителя).
+    Процесс, убитый системой за нехватку памяти, — внятная ошибка, а не зависание. `spawn` заново импортирует главный
+    модуль родителя (`/app/worker.py`): это безопасно — uvicorn и прогрев там только под `__main__`/startup."""
+    import concurrent.futures as cf
+    import multiprocessing as mp
+    with cf.ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context('spawn')) as ex:
+        try:
+            return ex.submit(fn, *args).result()
+        except cf.process.BrokenProcessPool as e:
+            raise RuntimeError(f'процесс стадии {fn.__name__} убит (вероятно, нехватка ОЗУ машины): {e}') from e
 
 
 HY_ROOT = os.environ.get('HY_ROOT', '/opt/hunyuan')
@@ -461,22 +523,13 @@ def cut_base_slab(glb_path: str, role: str | None = None) -> None:
         print(f'cut_base_slab пропущен: {type(e).__name__} {str(e)[:80]}', flush=True)
 
 
-def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
-             paint_image=None, role: str | None = None) -> dict:
-    """Одно задание: картинка → GLB с PBR-картами. Возвращает пути, времена и пики памяти.
-
-    `image` — RGBA на полном холсте: альфа и есть маска товара, `ImageProcessorV2` сам кропает
-    её по bbox и добавляет поле. `paint_image` — та же вырезка, но уже кропнутая: покраска вход
-    не центрирует, только ужимает до 512, и без кропа половина её разрешения уходит на пустоту.
-    """
-    p = {'octree_resolution': 380, 'num_inference_steps': 50, 'guidance_scale': 5.0}
-    p.update(params or {})
-    os.makedirs(out_dir, exist_ok=True)
-    timings, peaks = {}, {}
+def _shape_stage(image, raw_glb: str, seed: int, p: dict) -> dict:
+    """Стадия формы: картинка → меш → файл `raw_glb`. Меш дальше живёт только файлом (покраска читает его с диска),
+    поэтому объект удаляется сразу — раньше он висел в памяти до конца покраски. При `STAGE_PROC` — весь процесс."""
     generator = torch.Generator(device='cuda').manual_seed(seed)
-
     _free()
-    t0 = time.time()
+    _ram_mark()
+    t = time.time()
     extra = {}
     if p.get('mc_level') is not None:
         extra['mc_level'] = float(p['mc_level'])      # A/B q28: изоуровень marching cubes
@@ -485,11 +538,66 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
         octree_resolution=p['octree_resolution'],
         num_inference_steps=p['num_inference_steps'],
         guidance_scale=p['guidance_scale'], **extra)[0]
-    timings['shape'] = round(time.time() - t0, 1)
-    peaks['shape_gb'] = _peak_gb()
-
-    raw_glb = os.path.join(out_dir, 'shape.glb')
+    s, vram = round(time.time() - t, 1), _peak_gb()
     mesh.export(raw_glb)
+    del mesh
+    return {'s': s, 'vram_gb': vram, 'ram_gb': _ram_peak_gb(), 'gpu': torch.cuda.get_device_name(0)}
+
+
+def _save_painted(painted, final_glb: str) -> None:
+    if isinstance(painted, str) and painted.lower().endswith('.obj'):
+        # Покраска возвращает OBJ + mtl + карты РЯДОМ ОТДЕЛЬНЫМИ ФАЙЛАМИ. Переименовать его
+        # в .glb — потерять материалы: первая десятка 29.08 уехала к нам геометрией без
+        # текстур именно так. Конвертация обязана собрать САМОДОСТАТОЧНЫЙ GLB с PBR-картами —
+        # это наш bpy-free convert_obj_to_glb (pygltflib, карты внутри base64).
+        from DifferentiableRenderer.mesh_utils import convert_obj_to_glb
+        ok = convert_obj_to_glb(painted, final_glb)
+        if not ok or not os.path.exists(final_glb) or os.path.getsize(final_glb) == 0:
+            raise RuntimeError('OBJ→GLB конвертация не удалась')
+    elif isinstance(painted, str):
+        os.replace(painted, final_glb)
+    else:
+        painted.export(final_glb)
+
+
+def _paint_stage(raw_glb: str, paint_image, final_glb: str) -> dict:
+    """Стадия покраски: форма с диска → итоговый GLB. Сохранение — здесь же: при `STAGE_PROC` результат покраски
+    (OBJ рядом с картами или объект) не должен пересекать границу процесса."""
+    _ram_mark()
+    t = time.time()
+    painted = paint_pipeline()(mesh_path=raw_glb, image_path=paint_image)
+    s, vram = round(time.time() - t, 1), _peak_gb()
+    t2 = time.time()
+    _save_painted(painted, final_glb)
+    del painted
+    return {'s': s, 'vram_gb': vram, 'ram_gb': _ram_peak_gb(), 'save_s': round(time.time() - t2, 1)}
+
+
+def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
+             paint_image=None, role: str | None = None) -> dict:
+    """Одно задание: картинка → GLB с PBR-картами. Возвращает пути, времена и пики памяти.
+
+    `image` — RGBA на полном холсте: альфа и есть маска товара, `ImageProcessorV2` сам кропает
+    её по bbox и добавляет поле. `paint_image` — та же вырезка, но уже кропнутая: покраска вход
+    не центрирует, только ужимает до 512, и без кропа половина её разрешения уходит на пустоту.
+
+    Пики ОЗУ (T-20261022-10 В) — в `gpu`: `ram_shape_gb`/`ram_paint_gb` — пик памяти процесса стадии (VmHWM),
+    `ram_left_gb` — собственная память воркера после задания: её рост от задания к заданию и есть удержание,
+    которое роняло машины 22.10.
+    """
+    p = {'octree_resolution': 380, 'num_inference_steps': 50, 'guidance_scale': 5.0}
+    p.update(params or {})
+    os.makedirs(out_dir, exist_ok=True)
+    timings, peaks = {}, {}
+    raw_glb = os.path.join(out_dir, 'shape.glb')
+    final_glb = os.path.join(out_dir, 'model.glb')
+
+    t0 = time.time()
+    # При STAGE_PROC родитель CUDA не трогает вовсе: контекст в нём держал бы видеопамять и ОЗУ рядом с процессом стадии
+    sh = _in_proc(_shape_stage, image, raw_glb, seed, p) if STAGE_PROC else _shape_stage(image, raw_glb, seed, p)
+    timings['shape'] = sh['s']
+    peaks['shape_gb'], peaks['ram_shape_gb'] = sh['vram_gb'], sh['ram_gb']
+
     import shutil
     shutil.copy(raw_glb, os.path.join(out_dir, 'shape.generated.glb'))  # бэкап ДО ножей
     # РЕМОНТ И ГЕЙТЫ ДО ПОКРАСКИ (Codex q26): плита режется на форме — краска ляжет на
@@ -521,37 +629,27 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
                 raise SlabSuspect(sus)
             print(f'диагноз плиты (не блокирует): {sus}', flush=True)
 
-    if STAGED:
+    if STAGED and not STAGE_PROC:
         _unload('shape')          # ← ради этой строки вся конструкция и затевалась
 
-    t1 = time.time()
-    painted = paint_pipeline()(mesh_path=raw_glb, image_path=paint_image or image)
-    timings['paint'] = round(time.time() - t1, 1)
-    peaks['paint_gb'] = _peak_gb()
+    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb) if STAGE_PROC else \
+        _paint_stage(raw_glb, paint_image or image, final_glb)
+    timings['paint'] = pt['s']
+    peaks['paint_gb'], peaks['ram_paint_gb'] = pt['vram_gb'], pt['ram_gb']
 
     t2 = time.time()
-    final_glb = os.path.join(out_dir, 'model.glb')
-    if isinstance(painted, str) and painted.lower().endswith('.obj'):
-        # Покраска возвращает OBJ + mtl + карты РЯДОМ ОТДЕЛЬНЫМИ ФАЙЛАМИ. Переименовать его
-        # в .glb — потерять материалы: первая десятка 29.08 уехала к нам геометрией без
-        # текстур именно так. Конвертация обязана собрать САМОДОСТАТОЧНЫЙ GLB с PBR-картами —
-        # это наш bpy-free convert_obj_to_glb (pygltflib, карты внутри base64).
-        from DifferentiableRenderer.mesh_utils import convert_obj_to_glb
-        ok = convert_obj_to_glb(painted, final_glb)
-        if not ok or not os.path.exists(final_glb) or os.path.getsize(final_glb) == 0:
-            raise RuntimeError('OBJ→GLB конвертация не удалась')
-    elif isinstance(painted, str):
-        os.replace(painted, final_glb)
-    else:
-        painted.export(final_glb)
     # Фильтр обломков — для ЛЮБОГО итогового glb, не только после OBJ→GLB (04.09: в других ветках
     # он не звался вовсе, и это нигде не отмечалось); только пометка, автосрез под флагом
     alien = cut_alien_debris(final_glb)
-    timings['export'] = round(time.time() - t2, 1)
+    timings['export'] = round(pt['save_s'] + time.time() - t2, 1)
     timings['total'] = round(time.time() - t0, 1)
 
-    if STAGED:
+    if STAGED and not STAGE_PROC:
         _unload('paint')
+    else:
+        gc.collect()
+        _trim()
+    peaks['ram_left_gb'] = _ram_anon_gb()
 
     return {'glb': final_glb, 'shape_glb': raw_glb, 'timings': timings,
-            'gpu': {'name': torch.cuda.get_device_name(0), 'staged': STAGED, 'alien': alien, **peaks}}
+            'gpu': {'name': sh['gpu'], 'staged': STAGED, 'stage_proc': STAGE_PROC, 'alien': alien, **peaks}}
