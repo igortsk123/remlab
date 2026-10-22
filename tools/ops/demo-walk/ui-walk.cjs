@@ -74,7 +74,8 @@ const METRICS_JS=`(()=>{const box=[], font={};
     await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(1500); await shot('win-3d-hint',true); await p.waitForTimeout(3500); await settle(); await shot('win-3d',true);
     note('win-modes',await p.evaluate(()=>({mode:VW.mode, photo:!(document.querySelector('[data-vm="photo"]')||{hidden:true}).hidden, real:vwRealShots().length})));
     if(PHONE){
-      for(const n of [0,1,2,3]){await p.evaluate(n=>vwSheet(n),n); await p.waitForTimeout(700); await settle(); await shot('sheet-'+['collapsed','low','mid','full'][n],n>=2);}
+      // у шторки три остановки (demo-21 п.5): 1 в `vwSheet` — то же, что 2 (средняя), отдельным состоянием не снимаем
+      for(const n of [0,2,3]){await p.evaluate(n=>vwSheet(n),n); await p.waitForTimeout(700); await settle(); await shot('sheet-'+['collapsed','low','mid','full'][n],n>=2);}
       await p.evaluate(()=>{const s=document.getElementById('vscroll'); s.scrollTop=260;}); await p.waitForTimeout(600); await shot('sheet-full-scrolled',true);
       await p.evaluate(()=>{const s=document.getElementById('vscroll'); s.scrollTop=s.scrollHeight;}); await p.waitForTimeout(600); await shot('sheet-full-bottom');
       await p.evaluate(()=>{document.getElementById('vscroll').scrollTop=0; vwSheet(2);}); await p.waitForTimeout(700); await settle();}
