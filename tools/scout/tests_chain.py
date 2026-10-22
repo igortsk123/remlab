@@ -120,13 +120,11 @@ def link_pinned_first(r: Report) -> None:
     import mesh_priority as MP
 
     p = lambda role: {'role': role, 'status': 'none'}  # noqa: E731
-    scored = [('m:1', p('диван'), {'сканди': 9, 'universal': False}),
-              ('m:2', p('диван'), {'сканди': 8, 'universal': False})]
-    prod = {s: pp for s, pp, _ in scored} | {'m:9': p('тв-тумба')}
-    rows = MP.demo_pick(scored, ['сканди'], {'диван'}, 2, 0.0, 'test',
-                        pinned=('m:9',), prod=prod)
+    prod = {'m:1': p('диван'), 'm:2': p('диван'), 'm:9': p('тв-тумба')}
+    # профиль demo v2 (demo-20 В2): закреплённые, затем недобор ленты замен (`demo_band`); закреплённый — и в недоборе тоже
+    rows = MP.demo_pick(('m:9',), ['m:1', 'm:9', 'm:2'], prod, 'test')
     got = [x['sku'] for x in rows]
-    r.ok('закреплённые: идут первыми даже вне профиля ролей', got[:1] == ['m:9'],
+    r.ok('закреплённые: идут первыми и в очереди под демо', got[:1] == ['m:9'],
          f'первые: {got[:3]}')
     r.ok('закреплённые: не дублируются отбором', len(got) == len(set(got)), f'строк {len(got)}')
 
@@ -256,7 +254,8 @@ SWAP_CORE = ('диван', 'столик', 'тв-тумба', 'торшер', '�
 
 def swap_feed_stats(demo_path: str = '~/scout-scenes/flat215-demo/demo-data.json') -> dict:
     """Лента замен демо (conv-03, ADR-0271): товары ленты ниже порога стиля и «голодающие» пары обязательной матрицы
-    (роль ядра × опубликованный стиль) с замен < `starving_below`. Одна реализация — для `--live` и `pipeline_map`."""
+    (роль ядра × опубликованный стиль) с альтернатив-моделей в полосе < `starving_below`. Одна реализация — для `--live` и
+    `pipeline_map`."""
     rules = json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))
     thr, starve = float(rules['in_style_min']), int(rules['starving_below'])
     d = json.load(open(os.path.expanduser(demo_path), encoding='utf-8'))
@@ -272,11 +271,16 @@ def swap_feed_stats(demo_path: str = '~/scout-scenes/flat215-demo/demo-data.json
                 scores[k] = json.loads(v)
     low = [f"{it['sid']}:{st}" for _, it in pool for st in it.get('styles') or []
            if float((scores.get(it['sid']) or {}).get(st, 0)) < thr]
-    feeds = d.get('feeds') or {}
-    styles = [v.get('style') for v in d.get('variants') or [] if v.get('style')]
-    cnt = {(ro, st): sum(1 for it in feeds.get(ro, []) if st in (it.get('styles') or [it.get('style')]))
-           for ro in SWAP_CORE for st in styles}
-    hungry = [f'{ro}/{st} {n}' for (ro, st), n in cnt.items() if n < starve]
+    # СЧЁТ — ТЕМ ЖЕ ПРАВИЛОМ, ЧТО ДОБИРАЕТ (demo-20 В2, Codex 22.10): модели в полосе размера, без текущей, диван той же формы,
+    # у каждого места варианта (`demo_band`); пара голодна, если хоть одному её месту не хватает до `starving_below`.
+    # Прежний счёт брал ТОВАРЫ (цвета одной модели — разные) любого размера
+    import demo_band as DB
+    fm = DB.feed_models(d)
+    cnt: dict = {}
+    for u in DB.places(d, SWAP_CORE):
+        n = DB.alternatives(u, fm.get(u['pair'], {}))
+        cnt[u['pair']] = min(n, cnt.get(u['pair'], n))
+    hungry = [f'{ro}/{st} {n}' for (ro, st), n in sorted(cnt.items()) if n < starve]
     return {'low': low, 'hungry': hungry, 'threshold': thr, 'starving_below': starve}
 
 
@@ -288,7 +292,8 @@ def live_swap_feeds(r: Report) -> None:
            + (f" ({', '.join(x['low'][:5])}…)" if x['low'] else ''))
     # голодающие пары — известный недостаток моделей (лечится волной мешей), а не поломка: тревогу по нему шлёт
     # карта стыков `pipeline_map.py` только при смене состояния; здесь — строка с числом без WARN
-    print(f"  [info] swap_starving: пар «роль ядра × стиль» с замен < {x['starving_below']}: {len(x['hungry'])}"
+    print(f"  [info] swap_starving: пар «роль ядра × стиль» с альтернатив-моделей в полосе < {x['starving_below']}: "
+          f"{len(x['hungry'])}"
           + (f" — {'; '.join(x['hungry'][:15])}" if x['hungry'] else ''), flush=True)
 
 

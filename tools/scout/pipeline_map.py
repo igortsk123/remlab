@@ -146,14 +146,16 @@ def collect() -> dict:
 
 
 def _publish_stats() -> tuple[float | None, float | None]:
-    """Стык «публикация» (conv-06): готовые меши комплектов, которых нет в индексе прода; опубликованные модели без
-    записи разворота на проде (3D и демо ставят их «как получится», 14.10: 551 из 745). Ключи — как у `mesh_publish`."""
+    """Стык «публикация» (conv-06): готовые меши комплектов и недобора ленты замен (`demo_band`, demo-20 В2: без них
+    невыложенная модель «под ленту» оставалась бы зелёной), которых нет в индексе прода; опубликованные модели без записи
+    разворота на проде (3D и демо ставят их «как получится», 14.10: 551 из 745). Ключи — как у `mesh_publish`."""
     try:
         import urllib.request
         import mesh_publish as MP
         idx = json.load(urllib.request.urlopen(MP.PROD_IDX, timeout=30))
         ori = json.load(urllib.request.urlopen(MP.PROD_IDX.replace('mesh-index.json', 'orient.json'), timeout=30))
-        want = {k.replace(':', '_') for k in MP.ready_skus()}
+        import demo_band
+        want = {k.replace(':', '_') for k in MP.ready_skus() | demo_band.publish_skus()}
         return float(len(want - set(idx))), float(sum(1 for k in idx if k not in ori))
     except Exception:  # noqa: BLE001 — нет сети/базы: метрика неизвестна, а не ноль
         return None, None

@@ -4,7 +4,9 @@
 //   eligible_sku           сколько товаров ленты стиля годится месту (модель, фото, размеры, та же форма дивана, не текущий);
 //   unique_msid            сколько среди них разных моделей;
 //   published_alternatives сколько вариантов получит полоса выбора /flat (до `FEED_LIMIT`, без текущего).
-// Зовёт сборка демо (`tools/scout/flat215_demo.py`) после записи данных; меньше 5 — пометка «!» (норма карты 2.20).
+// Зовёт сборка демо (`tools/scout/flat215_demo.py`) после записи данных; меньше `mesh_target` (10, `rules/demo-swap.json`,
+// владелец 22.10 TG 793) — пометка «!». Жёсткий гейт live-теста 2.20 остаётся ≥ 5 (`e2e/live/flat-rooms.live.ts`): недобор до 10
+// по нехватке каталога ведёт и добирает `tools/scout/demo_band.py`, а не красный тест.
 //   node tools/flat3d/swap-report.mjs <demo-data.json> [--json]
 import { readFileSync } from "node:fs";
 
@@ -12,7 +14,7 @@ import { alternatives, candidates, feedForStyle, placeOf } from "../../lib/confi
 
 // роли ядра, у которых /flat даёт ленту замен; ковёр — плита с фото, длинная сторона не короче дивана (demo-18 п.2, `placeOf`)
 const ROLES = ["диван", "столик", "тв-тумба", "торшер", "стол обеденный", "ковёр"];
-const NEED = 5;
+const NEED = JSON.parse(readFileSync(new URL("../scout/rules/demo-swap.json", import.meta.url), "utf8")).mesh_target;
 
 export function swapReport(data) {
   const rows = [];
