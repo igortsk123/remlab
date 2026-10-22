@@ -24,6 +24,7 @@ import { InfoPanel } from "@/components/flat3d/InfoPanel";
 import { ManagerContact } from "@/components/flat3d/ManagerContact";
 import type { Spot } from "@/components/flat3d/Hotspots";
 import { optionsForSlot } from "@/lib/configurator/resolve";
+import { shopStripper } from "@/lib/configurator/label";
 import { settle } from "@/lib/configurator/settlement";
 
 const MODES = ["walk", "top", "photo", "plan"] as const;
@@ -170,15 +171,16 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
     setMode("walk");
   }, []);
 
-  // Точки «можно заменить» (D6): мебель текущей комнаты, у которой больше одного варианта; подпись — название товара
-  // (магазин — в карточке товара в панели выбора: в кадре «tvoydom.ru · …» съедал ширину подписи, flat3d-375-overlaps)
+  // Точки «можно заменить» (D6): мебель текущей комнаты, у которой больше одного варианта; подпись — название товара без
+  // магазина, даже если фид вписал домен в само название (магазин — в строке товара панели выбора; flat3d-375-overlaps)
+  const noShop = useMemo(() => shopStripper(catalogue.options.flatMap((o) => (o.shopName ? [o.shopName] : []))), [catalogue]);
   const spots: Spot[] = useMemo(() => scene.items
     .filter((i) => i.roomId === roomId && i.kind === "furniture")
     .filter((i) => {
       const slot = apartment.slots.find((s) => s.id === i.slotId);
       return slot ? optionsForSlot(apartment, catalogue, slot).length > 1 : false;
     })
-    .map((i) => ({ slotId: i.slotId, label: lang === "en" ? i.titleEn : i.titleRu })), [scene.items, roomId, apartment, catalogue, lang]);
+    .map((i) => ({ slotId: i.slotId, label: noShop(lang === "en" ? i.titleEn : i.titleRu) })), [scene.items, roomId, apartment, catalogue, lang, noShop]);
 
   // Коробки всех предметов сцены — вход для проверки «сюда можно / сюда нельзя».
   const boxes: Box[] = useMemo(

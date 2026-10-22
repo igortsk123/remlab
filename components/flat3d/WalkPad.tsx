@@ -37,9 +37,9 @@ const BOTTOM = 12;
 
 const padSize = (compact: boolean): number => (compact ? 60 : 52);
 
-/** Высота нижней зоны управления в кадре (кнопки + отступы): над ней не ставим подписи и меню предмета. */
-export function walkPadZone(compact: boolean): number {
-  return BOTTOM + padSize(compact) * 2 + GAP + 8;
+/** Прямоугольник стрелок у нижнего края по центру кадра, с полями 8 px: в нём не ставим точки, подписи и меню предмета. */
+export function walkPadRect(compact: boolean): { w: number; h: number } {
+  return { w: padSize(compact) * 3 + GAP * 2 + 16, h: BOTTOM + padSize(compact) * 2 + GAP + 8 };
 }
 
 export function WalkPad({ onHold, onTurn, compact = false, liftPx = 0, onHide, hideLabel }: WalkPadProps) {

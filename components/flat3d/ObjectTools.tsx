@@ -55,7 +55,10 @@ export function ObjectTools({ project, onOptions, onMove, onRemove, labels, zone
   const { w, h, fw, fh } = size;
   // до первого замера — по центру над предметом, как раньше; дальше — зажать в свободную часть кадра
   const left = fw ? clamp(pos.x - w / 2, EDGE, fw - w - EDGE) : pos.x - w / 2;
-  const top = fh ? clamp(pos.y - ABOVE, zones.top, fh - zones.bottom - h) : Math.max(EDGE, pos.y - ABOVE);
+  // над стрелками держимся, только если меню по ширине заходит на них (стрелки — по центру кадра)
+  const overPad = !!zones.pad && left < (fw + zones.pad.w) / 2 && left + w > (fw - zones.pad.w) / 2;
+  const bottom = Math.max(zones.bottom, overPad ? zones.pad!.h : 0);
+  const top = fh ? clamp(pos.y - ABOVE, zones.top, fh - bottom - h) : Math.max(EDGE, pos.y - ABOVE);
   const btn = "min-h-11 rounded-lg bg-primary px-3 text-sm font-medium text-primary shadow-md ring-1 ring-inset ring-secondary";
   return (
     <div ref={ref} data-flat3d="object-tools" style={{ position: "absolute", left, top, zIndex: 6, display: "flex", gap: 6 }}>

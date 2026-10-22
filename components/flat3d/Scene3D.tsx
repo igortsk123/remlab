@@ -16,7 +16,7 @@ import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
 import type { FlatViewer, QualityProfile } from "@/lib/viewer3d/viewer";
-import { WalkPad, walkPadZone } from "@/components/flat3d/WalkPad";
+import { WalkPad, walkPadRect } from "@/components/flat3d/WalkPad";
 
 export interface Scene3DProps {
   apartment: Apartment;
@@ -70,8 +70,8 @@ export interface Scene3DProps {
 import { ObjectTools } from "@/components/flat3d/ObjectTools";
 import { Hotspots, type Spot, type Zones } from "@/components/flat3d/Hotspots";
 
-// ЗОНЫ КАДРА (flat3d-375-overlaps, 21.10): сверху — строка кнопок правой панели (`InfoPanel`), снизу — стрелки ходьбы,
-// во «Сверху» — полоса «Войти в комнату» (`FlatConfigurator`). Подписи точек и меню предмета держатся между ними.
+// ЗОНЫ КАДРА (flat3d-375-overlaps, 21.10): сверху — строка кнопок правой панели (`InfoPanel`), снизу — прямоугольник стрелок
+// ходьбы по центру, во «Сверху» — полоса «Войти в комнату» (`FlatConfigurator`). Подписи точек и меню предмета их обходят.
 const ZONE_TOP = 60; // 8 + кнопка 44 + 8
 const ZONE_STRIP = 60; // одна строка кнопок у нижнего края: «Показать управление» или комнаты во «Сверху»
 const ZONE_EDGE = 8;
@@ -422,9 +422,12 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
   // выбора — тоже: кадр там в пол-экрана, и стрелки закрывали бы его половину
   const padVisible = ready && !error && padShown && !topView && !props.padSuppressed;
   const toggleVisible = ready && !error && !padShown && !topView && !props.padSuppressed;
+  // стрелки — прямоугольник по центру, а не вся полоса: ближняя мебель с высоты глаз почти всегда внизу кадра, и при запрете
+  // всей полосы её подпись на телефоне почти не появлялась (снимки прода 22.10); слева и справа от стрелок подпись можно
   const zones: Zones = {
     top: ZONE_TOP,
-    bottom: topView ? ZONE_STRIP : padVisible ? walkPadZone(lite) : toggleVisible ? ZONE_STRIP : ZONE_EDGE,
+    bottom: topView || toggleVisible ? ZONE_STRIP : ZONE_EDGE,
+    ...(padVisible ? { pad: walkPadRect(lite) } : {}),
   };
 
   return (
