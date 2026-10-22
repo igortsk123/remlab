@@ -1382,8 +1382,9 @@ function flatPlan(){
       stroke:'#585E58','stroke-width':PART},g);
     if(go)el('rect',{x:r.x+PART/2,y:r.y+PART/2,width:r.w-PART,height:r.d-PART,fill:'none',
       stroke:'#3B76A2','stroke-width':0.05},g);
-    const fs=Math.max(0.2,Math.min(0.32,Math.min(r.w,r.d)/4.4));
-    const cx=r.x+r.w/2, name=r.name||room.title||r.id;
+    const name=r.name||room.title||r.id, cx=r.x+r.w/2;
+    // узкая комната (санузлы 0,8 м): имя по ширине комнаты, иначе соседние «Санузел» слипались через стену
+    const fs=Math.min(Math.max(0.2,Math.min(0.32,Math.min(r.w,r.d)/4.4)),r.w*0.88/(name.length*0.6));
     // строки подписи: имя комнаты; дальше — вариант в сертификате (название в 1–2 строки и сумма) или площадь и «Обустроить →»/«скоро»
     const L=[{t:name,k:1,a:{fill:'#2A2F2C','font-weight':go?'700':'500'}}];
     if(f){
