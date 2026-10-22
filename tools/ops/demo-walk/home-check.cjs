@@ -80,7 +80,10 @@ const fold=p=>p.evaluate(()=>{const R=s=>{const e=document.querySelector(s);retu
         sk.hdTop===0&&Math.abs(sk.certTop-sk.hdBot)<=1&&sk.tabsTop>=sk.certBot-1&&(sk.gone||(!phone&&sk.short))&&(!phone||sk.sticky<=140),JSON.stringify(sk));
       await p.screenshot({path:OUT+`home-${tag}-4-sticky.png`});
       const id2=st.tabs[0];
-      await p.click(`#styleTabs [data-style="${id2}"]`); await p.waitForTimeout(900);
+      // прокрутка к комнатам плавная, её длина зависит от высоты страницы — ждём конца: scrollY не меняется 300 мс (не дольше 3 с)
+      await p.click(`#styleTabs [data-style="${id2}"]`);
+      await p.evaluate(()=>new Promise(res=>{let y=scrollY, t0=Date.now(), same=Date.now();
+        const tick=()=>{const n=Date.now(); if(scrollY!==y){y=scrollY; same=n;} if(n-same>=300||n-t0>=3000)return res(); requestAnimationFrame(tick);}; requestAnimationFrame(tick);}));
       const s4=await p.evaluate(()=>{const r=document.getElementById('hmRooms').getBoundingClientRect(), tb=document.getElementById('styleTabs').getBoundingClientRect();
         return {roomsTop:Math.round(r.top), tabsBottom:Math.round(tb.bottom), vh:innerHeight, style:new URLSearchParams(location.search).get('style'), room:new URLSearchParams(location.search).get('room')};});
       ok('вкладка стиля из липкой шапки снизу страницы — комнаты нового стиля под шапкой, в адресе стиль и комната',s4.roomsTop>=s4.tabsBottom-1&&s4.roomsTop<s4.vh*0.6&&s4.style===id2&&s4.room==='living',JSON.stringify(s4));
