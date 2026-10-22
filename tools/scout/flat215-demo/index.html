@@ -1900,7 +1900,9 @@ function camCover(c,its,W,H){
 }
 // качество единицы в виде: 1 — покрыта; меньше — доля до порога по худшему из двух (в кадре, не заслонён)
 function camUnitQ(cv,u){let q=1; for(const i of u.ids){const r=cv[i]; q=Math.min(q,Math.min(1,r.inF/CAM_COVER),Math.min(1,r.vis/CAM_COVER));} return q;}
+// CAMANG START — разница направлений; её же берёт ночной прогрев с блоком SHOTCAM (`tools/ops/demo-warm.mjs`)
 const camAng=(a,b)=>Math.abs(((a-b)%360+540)%360-180);   // циклическая разница направлений, 0…180°
+// CAMANG END
 const camBits=n=>{let k=0; while(n){n&=n-1;k++;} return k;};
 // ВЫБОР ПАРЫ — ЛЕКСИКОГРАФИЧЕСКИ (Codex 22.10): (1) не покрыто обязательных → (2) недобор обязательных до порога → (3) не покрыто
 // необязательных → (4) нарушения правил кадра обоих видов (`camBad`, допуск CAM_BAD_TOL; ракурсу 1 — ещё ступень строгих правил,
@@ -2188,6 +2190,7 @@ function camSameItems(a,b){
 // смены подбора ракурсов фото со старых плохих углов оставались бы «кадром этой расстановки». Кадр годится, если его точка
 // (`s.cams`, по имени `s.camera`) совпадает с нынешней точкой того же имени (±CAM_ID_TOL см и °, тот же объектив); кадр без записи
 // точки — по-старому. Формулу номера состояния не трогаем — по нему сервер связывает корзину и коллекции
+// SHOTCAM START — тождество точки кадра; ночной прогрев зовёт ЭТУ функцию (`tools/ops/demo-warm.mjs`, тест там же --selftest)
 const CAM_ID_TOL=2;
 function shotCamOk(s,list){
   if(!s||!Array.isArray(s.cams)||!s.cams.length||!Array.isArray(list)||!list.length)return true;
@@ -2195,6 +2198,7 @@ function shotCamOk(s,list){
   if(!a||!b)return true;
   return Math.abs(a.x-b.x)<=CAM_ID_TOL&&Math.abs(a.y-b.y)<=CAM_ID_TOL&&camAng(+a.rot||0,+b.rot||0)<=CAM_ID_TOL&&(+a.fov||72)===(+b.fov||72);
 }
+// SHOTCAM END
 // точки съёмки варианта: у открытого — нынешние (их могли подвинуть руками), у остальных — из данных витрины
 function camsOfVariant(v){ return v&&v===allVariants()[cur]&&cams?cams:(v&&v.cams)||null; }
 // СМЕНА РАКУРСА ПО КРУГУ (владелец 01.09). Обе камеры переезжают в следующую пару углов по

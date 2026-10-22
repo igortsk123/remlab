@@ -56,6 +56,8 @@ jobs:
           fi
           exit 0
       - run: pnpm install --frozen-lockfile
+      # ночной прогрев кадров демо: сверка кадра по состоянию И точке съёмки — предикатом самой страницы (T-20261022-16)
+      - run: node tools/ops/demo-warm.mjs --selftest
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
