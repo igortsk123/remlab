@@ -8,21 +8,32 @@
 //   node tools/ops/demo-realistic.mjs --force сканди [--go]   # переснять и у кого фото уже есть (demo-11: новая модель и промпт)
 //   node tools/ops/demo-realistic.mjs --force all --go --all
 //   --frames   кадры из браузера (живая 3D-сцена, как у покупателя: `vwCaptureViews`), а не серверный эскиз; не снялись — СТОП без оплаты
+//   DEMO_LOCAL=<папка сборки>   страница и данные витрины — из локальной сборки (`FLAT215_DEMO_OUT`), сервер и реестр — прода: фото
+//              новых ракурсов снимаются ДО публикации (demo-22: опубликованная страница их сразу показывает — номер состояния тот же)
 // Годна только НОВАЯ запись реестра (не из прежних id) этого стиля и состояния, с обеими точками, позами камер страницы,
 // моделью и версией промпта, которых ждём (EXPECT_MODEL, EXPECT_PROMPT); `shots.json` не чистится — старое остаётся историей.
 // Ошибка любого варианта останавливает прогон (деньги не тратятся вслепую); счётчик «снято / не вышло» — в конце.
 import { chromium } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const GO = process.argv.includes("--go"), ALL = process.argv.includes("--all"), FRAMES = process.argv.includes("--frames");
 const fi = process.argv.indexOf("--force"), FORCE = fi >= 0 ? (process.argv[fi + 1] || "all") : "";
 const EXPECT_MODEL = process.env.EXPECT_MODEL ?? "improve/openai/gpt-image-2.5-sunburst";
+const LOCAL = process.env.DEMO_LOCAL ?? "";
 const EXPECT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v4.2";   // demo-14: + список товаров (ADR-0305); .1 — радиатор под окном (demo-20 Г3); .2 — люстра стиля (Г4)
 
 async function main() {
   const paid = await (await fetch(`${BASE}/api/draft/paid`)).json().catch(() => ({ available: false, code: "нет ответа" }));
   const browser = await chromium.launch(FRAMES ? { args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } : {});
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  if (LOCAL) {
+    const file = (n) => readFileSync(join(LOCAL, n));
+    await page.route((u) => ["/demo/", "/demo/index.html"].includes(new URL(u).pathname), (r) => r.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: file("index.html") }));
+    await page.route((u) => new URL(u).pathname === "/demo/demo-data.json", (r) => r.fulfill({ status: 200, contentType: "application/json", body: file("demo-data.json") }));
+    console.log(`страница и данные витрины — из ${LOCAL} (не опубликованы); рендер и реестр — ${BASE}`);
+  }
   let done = 0, failed = 0;
   try {
     // без 3D-сцены (см. demo-warm.mjs); с --frames — со сценой: кадры снимает браузер
