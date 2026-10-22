@@ -407,6 +407,11 @@ step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 
 # НЕДОБОР ЛЕНТЫ ЗАМЕН ПО ПОЛОСЕ (план demo-20 В1, владелец 22.10 TG 793): готовность мешей — свежая (ранние идемпотентные
 # семейства и привязка, как в mesh_wave_start.sh; поздняя привязка в мешевом блоке остаётся), затем `demo_band` считает
 # недобор, `mesh_publish` выкладывает готовые под него — в ту же ночь, без лага в сутки (Codex 22.10)
+# КАНДИДАТ БАНКА (conv-14 шаг 2.2, Codex 22.10 «Место в ночи»): после каталога и ночных правок живого банка, до ранней привязки
+# мешей — сборка `sets3.next.json` (сырая сборка → медиа из каталога → только файл кандидата, `set_identity.write_bank`; ~11 мин), инварианты против живого (идентичность —
+# фатально), состояние ожидания `bank_pending`. За флагом `rules/bank-candidate.json:prepare_enabled` (выключен — ok «выключено»);
+# сбой — FAIL в дайджест, прежний кандидат цел, ночь идёт дальше
+step bank_prepare "$PY" bank_prepare.py
 step mesh_family_early "$PY" mesh_family.py --fill
 step mesh_bind_early "$PY" mesh_bind.py
 step demo_band "$PY" demo_band.py --report

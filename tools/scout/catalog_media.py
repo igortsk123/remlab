@@ -125,6 +125,18 @@ def sync_bank(path: str = 'sets3.json', apply: bool = False) -> dict:
     """Привести медиа банка к каталогу. Позиции, которых нет в фиде, помечаются `_gone: true` —
     решение о замене принимает лечение (`sets_incremental.py`), не этот модуль."""
     sets = json.load(open(path, encoding='utf-8'))
+    stat = sync_sets(sets)
+    if apply:
+        bak = path + '.bak-media'
+        if not os.path.exists(bak):
+            json.dump(json.load(open(path, encoding='utf-8')), open(bak, 'w', encoding='utf-8'),
+                      ensure_ascii=False)
+        json.dump(sets, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
+    return stat
+
+
+def sync_sets(sets: list) -> dict:
+    """То же в памяти, без записи: кандидат банка (`bank_prepare`, conv-14 шаг 2.2) пишет только `set_identity.write_bank`."""
     stat = {'ok': 0, 'fixed_img': 0, 'fixed_url': 0, 'gone': 0, 'unknown': 0,
             'fixed_shop': 0, 'fixed_dims': 0, 'dims_unknown': 0}
     for st in sets:
@@ -172,12 +184,6 @@ def sync_bank(path: str = 'sets3.json', apply: bool = False) -> dict:
             else:
                 it.pop('_dims_unknown', None)
             stat['ok'] += 1
-    if apply:
-        bak = path + '.bak-media'
-        if not os.path.exists(bak):
-            json.dump(json.load(open(path, encoding='utf-8')), open(bak, 'w', encoding='utf-8'),
-                      ensure_ascii=False)
-        json.dump(sets, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
     return stat
 
 
