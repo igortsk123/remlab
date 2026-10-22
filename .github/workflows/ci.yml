@@ -161,6 +161,7 @@ jobs:
       - run: python tools/scout/tests/test_kids_textile.py   # словарь детского текстиля — только ковры и текстиль, общий KIDS — все роли (T-20261017-01)
       - run: python tools/scout/tests/test_home_rooms.py   # главная «стиль → комнаты»: комнаты из реестра, id стиля для ?style= (demo-16)
       - run: python tools/scout/tests/test_bench_nook.py   # «уголок» с банкеткой — только при ≥ 2 банкеток в ленте стиля, иначе стулья (demo-19 Г2)
+      - run: python tools/scout/tests/test_demo_hidden.py   # скрытый банком сет (bank_status hidden) — не вариант демо и не источник ленты замен (conv-14)
 
   scout-selftest:
     # Селфтесты загрузки каталога (план catalog-load-hardening П0.4): правила разбора фида, единиц

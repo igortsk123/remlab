@@ -39,6 +39,13 @@ PLACEABLE = {'диван', 'кресло', 'столик', 'ковёр', 'тв-�
              'торшер', 'пуф', 'кашпо', 'стул', 'банкетка', 'стол обеденный', 'камин', 'стенка'}
 
 
+def hidden(s: dict) -> bool:
+    """Сет скрыт банком (`bank_status.state == 'hidden'`, conv-14: ушёл товар ключевой роли — вариант без него не пройдёт
+    рубеж ядра): не становится вариантом демо и не даёт товаров в ленты замен. `degraded` — как прежде, дозаполнение. Нет поля
+    (старый банк) — не скрыт."""
+    return ((s.get('bank_status') or {}).get('state')) == 'hidden'
+
+
 def pick_banks(sets: list, band: str = '14-16', n: int = 6) -> list:
     """По ОДНОМУ набору на стиль, и это самый СОБИРАЕМЫЙ набор стиля.
 
@@ -56,7 +63,7 @@ def pick_banks(sets: list, band: str = '14-16', n: int = 6) -> list:
     order = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
     best: dict = {}
     for i, st in enumerate(sets, 1):
-        if st.get('band') != band or 'диван' not in (st.get('items') or {}):
+        if st.get('band') != band or 'диван' not in (st.get('items') or {}) or hidden(st):
             continue
         items = st.get('items') or {}
         placeable = sum(1 for r in items if r.split(' ')[0] in PLACEABLE)
@@ -550,12 +557,18 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     print(f'банкетки в лентах стилей: {dict(sorted((k, len(v)) for k, v in benches.items()))}; '
           f'«уголок» — при ≥ {NOOK_MIN}', flush=True)
     by_style: dict = {}
+    n_hidden = 0
     for i, st in enumerate(sets, 1):
         if st.get('band') != band:
+            continue
+        if hidden(st):
+            n_hidden += 1
             continue
         items = st.get('items') or {}
         placeable = sum(1 for r in items if DF.base_role(r) in PLACEABLE)
         by_style.setdefault(st.get('style') or '', []).append((-placeable, len(st.get('gaps') or []), i))
+    if n_hidden:
+        print(f'скрыты банком (bank_status hidden) — не варианты: {n_hidden} наборов полосы {band}', flush=True)
     order = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
     ranked: dict = {}
     taken: set = set()          # товары, уже подставленные в другие стили: разнообразие между вариантами
@@ -732,7 +745,7 @@ def bench_pool(sets: list, pool_rows: list | None = None) -> dict[str, set]:
     known: set = set()
     for s in sets:
         it = (s.get('items') or {}).get(BENCH)
-        if not it:
+        if not it or hidden(s):
             continue
         m = _media(it.get('mid'), it.get('eid'))
         if m is None or m.get('state') == 'gone':
@@ -772,7 +785,8 @@ def _mesh_color_ok():
     при фото в 5 раз светлее; «оливковый» не светлый цвет) прошёл в минимализм, и ворота скрыли весь стиль. Яркость
     поверхности модели и фото считаются один раз и кэшируются по файлу (`~/scout-scenes/mesh-luma-cache.json`)."""
     import mesh_dark as MDK
-    path = os.path.expanduser('~/scout-scenes/mesh-luma-cache.json')
+    # MESH_LUMA_CACHE — своя копия кэша у изолированных прогонов (проверки банка): кэш живого демо они не дописывают
+    path = os.path.expanduser(os.environ.get('MESH_LUMA_CACHE') or '~/scout-scenes/mesh-luma-cache.json')
     try:
         cache = json.load(open(path))
     except (OSError, ValueError):
@@ -1031,6 +1045,8 @@ def build() -> dict:
     ENV_ALL, _ = feed_envs()
     feeds, seen = {}, set()
     for s in sets:
+        if hidden(s):
+            continue                # скрытый банком сет — не источник ленты замен (conv-14); `bench_pool` — тем же правилом
         for role, it in (s.get('items') or {}).items():
             base = feed_base(role)
             if not it:
