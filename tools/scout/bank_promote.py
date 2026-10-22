@@ -5,7 +5,7 @@
 ЗАЧЕМ. Кандидат `sets3.next.json` (ночной `bank_prepare`) целиком живой банк заменить не может: часть ячеек ждёт мешей или
 каталога. Подменять надо ячейку `(band, style, tier, set_id)` ЦЕЛИКОМ — как только она готова, — а итоговый СМЕШАННЫЙ банк
 проверять целиком: повторы крупной мебели между сетами, порядок и номера, связи. ЭТОТ ШАГ ТОЛЬКО ОТЧИТЫВАЕТСЯ: строит
-временный смешанный банк и manifest продвижения; `sets3.json` пишет лишь атомарный писатель шага 4.
+временный смешанный банк и manifest продвижения; `sets3.json` пишет лишь атомарный писатель шага 4 (`bank_refresh.py`).
 
 ПОРЯДОК (за флагом `rules/bank-candidate.json:promote_enabled`, по умолчанию выключен — шаг `ok` со строкой «выключено»):
   1. идентичность кандидата против живого (`set_identity.verify`) — фатально: ничего не продвигаем;
@@ -30,7 +30,9 @@
      `hidden` — ушёл товар ключевой роли (вариант без него не пройдёт рубеж публикации ядра), иначе `degraded`
      (демо снимет позицию и дозаполнит, `flat215_demo.drop_unavailable` / `demo_fill`);
   7. смешанный банк → `<рабочая папка>/hybrid.json` (`set_identity.write_bank`), manifest → `~/scout-scenes/bank-promote.json`
-     (ячейка, set_id, candidate_hash, решение и причины, итог экзамена).
+     (ячейка, set_id, candidate_hash, решение и причины, итог экзамена, состояние ожидания и недостающие меши; отпечатки
+     живого `live_sha` и смешанного `hybrid_sha` — писатель пишет, только если живой с тех пор не менялся);
+  ячейка, откаченная вручную (`bank_refresh.py rollback`, `bank-generations/hold.json`), с тем же кандидатом не идёт.
 
   ~/venvs/scout/bin/python bank_promote.py                      # ночной шаг (флаг из правил)
   ~/venvs/scout/bin/python bank_promote.py --force [--no-exam] [--force-ready 5,17,40]   # ручной прогон
@@ -39,6 +41,7 @@
 """
 import ast
 import copy
+import hashlib
 import json
 import math
 import os
@@ -225,8 +228,9 @@ def demo_verdict(base: dict, new: dict, promoted_ns: list, styles: dict) -> dict
 
 
 def plan(live: list, cand: list, state: dict, R: dict, *, strict_fn, media, gone_cells: set, demo_cells: set,
-         major: set, exam_fn=None, demo_fn=None, force_ready: set = frozenset()) -> dict:
-    """Чистое ядро: → {'fatal', 'hybrid', 'rows', 'promoted', 'cap', 'status', 'exam', 'demo'}. Живой банк не меняется."""
+         major: set, exam_fn=None, demo_fn=None, force_ready: set = frozenset(), held: dict | None = None) -> dict:
+    """Чистое ядро: → {'fatal', 'hybrid', 'rows', 'promoted', 'cap', 'status', 'exam', 'demo'}. Живой банк не меняется.
+    `held` — ячейки, откаченные вручную (`bank_refresh.py rollback`): {ключ ячейки: candidate_hash} — тот же кандидат не идёт."""
     ident = SID.verify(cand, live, cells=len(live))
     if ident:
         return {'fatal': 'идентичность кандидата против живого: ' + '; '.join(ident), 'hybrid': None, 'rows': [],
@@ -240,6 +244,8 @@ def plan(live: list, cand: list, state: dict, R: dict, *, strict_fn, media, gone
         st = cells.get(k) or {}
         row = rows[n] = {'n': n + 1, 'cell': k, 'set_id': C.get('set_id'), 'candidate_hash': h, 'decision': 'wait',
                          'reasons': [], 'since': st.get('since')}
+        if st.get('candidate_hash') == h:              # ожидание по ЭТОМУ кандидату — в дайджест писателя «ждёт меш»
+            row.update(pending=st.get('status'), mesh_missing=st.get('mesh_missing') or 0)
         if _strip(C) == _strip(L):
             row.update(decision='same', reasons=['кандидат совпадает с живым'])
             continue
@@ -252,6 +258,8 @@ def plan(live: list, cand: list, state: dict, R: dict, *, strict_fn, media, gone
         elif st.get('status') != 'ready':
             row['reasons'].append(f"не готова: {st.get('status')} (не хватает {len(st.get('missing') or {})})")
         bad = strict_fn(C)
+        if (held or {}).get(k) == h:
+            bad = ['откачена вручную (bank_refresh.py rollback) — этот же кандидат не продвигаем'] + bad
         if bad:
             row['decision'] = 'blocked'
             row['reasons'] += bad
@@ -445,6 +453,15 @@ def make_demo(live_path: str, R: dict, work: str):
     return demo
 
 
+def _held() -> dict:
+    """Откаченные вручную ячейки (`bank_refresh.py rollback` → `bank-generations/hold.json`): {ячейка: candidate_hash}."""
+    p = os.path.join(os.path.expanduser(os.environ.get('BANK_GENERATIONS') or os.path.join(HERE, 'bank-generations')), 'hold.json')
+    try:
+        return {k: v['candidate_hash'] for k, v in (json.load(open(p, encoding='utf-8')).get('cells') or {}).items()}
+    except FileNotFoundError:
+        return {}
+
+
 def _save(path: str, obj) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + '.tmp'
@@ -466,7 +483,8 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
     from catalog_media import media
     from item_function import fits_role
     t0 = time.time()
-    live = json.load(open(LIVE, encoding='utf-8'))
+    raw = open(LIVE, 'rb').read()
+    live = json.loads(raw)
     try:
         cand = json.load(open(CANDIDATE, encoding='utf-8'))
     except FileNotFoundError:
@@ -483,7 +501,7 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
     exam = None if (no_exam or R.get('promote_exam') is False) else make_exam(live_copy, R, WORK)
     demo = None if (no_exam or R.get('promote_demo_check') is False) else make_demo(live_copy, R, WORK)
     res = plan(live, cand, BP.load_state(), R, media=media, gone_cells=gone_cells, demo_cells=demo_cells,
-               major=_compose_const('MAJOR_ROLES'), exam_fn=exam, demo_fn=demo, force_ready=force_ready,
+               major=_compose_const('MAJOR_ROLES'), exam_fn=exam, demo_fn=demo, force_ready=force_ready, held=_held(),
                strict_fn=lambda s: strict(s, media, SI._slot_ok, SI.sync_pairs, fits_role, groups, region,
                                           R.get('promote_dining_check', True)))
     dec = collections.Counter(r['decision'] for r in res['rows'])
@@ -491,7 +509,7 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
                               for x in r['reasons'])
     stc = collections.Counter(s['state'] for s in res['status'].values())
     man = {'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'report_only': True, 'live': LIVE, 'candidate': CANDIDATE,
-           'hybrid': None, 'cap': res['cap'], 'promoted': res['promoted'], 'decisions': dict(dec), 'fatal': res['fatal'],
+           'live_sha': hashlib.sha256(raw).hexdigest(), 'hybrid': None, 'hybrid_sha': None, 'cap': res['cap'], 'promoted': res['promoted'], 'decisions': dict(dec), 'fatal': res['fatal'],
            'exam': {k: v for k, v in (res['exam'] or {}).items() if k != 'cells'} or None,
            'demo': {k: v for k, v in (res['demo'] or {}).items() if k != 'cells'} or None,
            'live_status': res['status'], 'cells': res['rows'], 'forced_ready': sorted(force_ready)}
@@ -502,7 +520,7 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
     elif res['hybrid'] is not None:
         hp = os.path.join(WORK, 'hybrid.json')
         SID.write_bank(res['hybrid'], hp, LIVE)
-        man['hybrid'] = hp
+        man['hybrid'], man['hybrid_sha'] = hp, hashlib.sha256(open(hp, 'rb').read()).hexdigest()
     for k in ('exam', 'demo'):
         if (res[k] or {}).get('error'):
             print(f"ERROR:bank_promote: {STAGE_LABEL[k]} — {res[k]['error']}; продвигаемых нет (fail-closed)", flush=True)
@@ -554,10 +572,11 @@ def _selftest() -> int:
                        for i, c in enumerate(cand)}}
     ok_strict = lambda s: []  # noqa: E731
 
-    def go(c=None, st=None, R=None, exam=None, gone=frozenset(), demo=frozenset(), fr=frozenset(), lv=None, demo_fn=None):
+    def go(c=None, st=None, R=None, exam=None, gone=frozenset(), demo=frozenset(), fr=frozenset(), lv=None, demo_fn=None,
+           held=None):
         return plan(lv or live, c or cand, state if st is None else st, R or {'max_promote_share': 0.25}, strict_fn=ok_strict,
                     media=media, gone_cells=set(gone), demo_cells=set(demo), major=MAJ, exam_fn=exam, demo_fn=demo_fn,
-                    force_ready=set(fr))
+                    force_ready=set(fr), held=held)
     r = go()
     ok('предел доли: 25 % от 24 = 6 ячеек, остальные «следующей ночью»',
        len(r['promoted']) == 6 and sum(1 for x in r['rows'] if x['decision'] == 'deferred') == 18, (r['promoted'], r['cap']))
@@ -565,6 +584,10 @@ def _selftest() -> int:
        and [SID.cell(s) for s in r['hybrid']] == [SID.cell(s) for s in live] and r['fatal'] is None)
     ok('продвинутая ячейка — целиком из кандидата, нетронутая — как в живом',
        r['hybrid'][r['promoted'][0] - 1] == cand[r['promoted'][0] - 1] and r['hybrid'][N - 1] == live[N - 1])
+    r = go(held={BP.key(cand[0]): BP.candidate_hash(cand[0]), BP.key(cand[1]): 'другой'})
+    ok('откаченная вручную ячейка с тем же кандидатом не идёт; с новым кандидатом — идёт',
+       1 not in r['promoted'] and r['rows'][0]['decision'] == 'blocked' and 'откачена' in r['rows'][0]['reasons'][0]
+       and 2 in r['promoted'], r['rows'][0])
     k5 = BP.key(cand[20])
     r = go(gone={k5})
     ok('приоритет: замена ушедшего первой', r['promoted'][0] == 21, r['promoted'])

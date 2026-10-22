@@ -91,11 +91,13 @@ try:
 except Exception:
     sha = ''
 delta = ''
+info = []      # строки шагов `DIGEST:текст` (писатель банка: снято / добавлено / ждёт меш) — в дайджест как есть, статус не меняют
 try:
     seen = False
     for line in open(env['LOG_FILE'], encoding='utf-8', errors='ignore'):
         if line.startswith('=== ' + env['TODAY']): seen = True
         if seen and line.startswith('ДЕЛЬТА'): delta = line[len('ДЕЛЬТА'):].strip()[:200]
+        if seen and line.startswith('DIGEST:'): info.append(line[len('DIGEST:'):].strip()[:300])
 except Exception:
     pass
 fresh = '?'
@@ -117,7 +119,7 @@ os.replace(tmp, env['STATUS_FILE'])
 head = {'ok': 'ок', 'warn': 'с предупреждениями', 'FAIL': 'С ОШИБКАМИ'}[overall]
 msg = [f"remlab каталог {env['TODAY']}: прогон {head}, {status['finished_at'][11:16]} UTC",
        f"фиды: скачано {status['feeds_downloaded']}/{status['feeds_total']}, свежих {fresh}; товаров в наличии: {status['products']}",
-       f"дельта: {delta or 'нет'}"]
+       f"дельта: {delta or 'нет'}"] + info[-6:]
 if fails: msg.append('FAIL: ' + ', '.join(fails) + (f' (exit {rc})' if rc else ''))
 for k, w in sorted(warns.items()): msg.append(f"WARN {k}" + (f" ×{w['n']}" if w['n'] > 1 else '') + f": {w['first']}")
 if skipped: msg.append('пропущено (openai.off): ' + ', '.join(skipped))
@@ -347,18 +349,27 @@ step stock_audit "$PY" stock_truth.py --audit
 # 5b. АВТОЗАМЕНА выбывших (владелец 2026-08-07: «товар заменяться должен автоматом, если
 # наличия нет»): запасной той же роли, в наличии, ±30% цены, с перепроверкой пропорций;
 # без замены — комплект честно помечается. Бэкап sets3.json пишет сам heal.
+# ЕДИНСТВЕННЫЙ ПИСАТЕЛЬ БАНКА (conv-14 шаги 4–5, Codex 22.10 § 2): при `rules/bank-candidate.json:write_enabled=true` живой
+# sets3.json пишет только `bank_refresh` (сразу за bank_promote, со снимком-поколением и откатом); прежние --apply-писатели
+# (sets_heal, sets_pairs, sets_contracts, недельные sets_refresh/sets_pairs_w) не идут, медиа — сухим прогоном (в банк их кладёт
+# писатель), а sets_reindex/set_ids/resolve_affected — после писателя. Флаг читается ОДИН раз на ночь; false или ошибка
+# чтения — ночь ровно как прежде (порядок сверяет `tests_refresh_order.py`)
+BANK_WRITE=$("$PY" bank_refresh.py --enabled 2>/dev/null || echo 0)
+MEDIA_APPLY=--apply; [ "$BANK_WRITE" = 1 ] && MEDIA_APPLY=
 # ЗАМОК экзамена (17.08): банки под бегущими воркерами не менять — heal/refresh/сборка отложены до завтра
 if [ -f exam.lock ]; then echo "exam.lock: идёт экзамен — sets_heal/sets_refresh пропущены" >> "$LOG"; else
 # 5b-0. МЕДИА БАНКА = КАТАЛОГ (26.08). Фото и ссылка — производные данные: держать их в банке
 # замороженными означает показывать чужую картинку и мёртвую реф-ссылку (найдено 1490 позиций
 # с фото ДРУГОГО товара). Сверяем перед лечением, чтобы лечение решало по актуальным данным.
-step bank_media "$PY" catalog_media.py --apply
+step bank_media "$PY" catalog_media.py $MEDIA_APPLY
 # ФОТО ПРОВЕРЯЕМ КАЖДЫЙ ДЕНЬ, А НЕ РАЗ В 14 ДНЕЙ (владелец 26.08: «чтоб всегда были актуальные
 # ссылки и фотки»): ссылок в банке ~750, это минуты; TTL кэша остаётся для пула замен.
 step bank_photos "$PY" img_alive.py --scan --force
 # Лечение и контракты — только на СВЕЖИХ данных (Codex P1-9): при упавших candidates или
 # sets_index они правили бы банк по вчерашнему снимку.
-if [ "${RES[candidates]:-FAIL}" = ok ] && [ "${RES[sets_index]:-FAIL}" = ok ]; then
+if [ "$BANK_WRITE" = 1 ]; then
+  echo "write_enabled: живой банк пишет только bank_refresh — sets_heal/sets_pairs/sets_contracts не идут" >> "$LOG"
+elif [ "${RES[candidates]:-FAIL}" = ok ] && [ "${RES[sets_index]:-FAIL}" = ok ]; then
 step sets_heal "$PY" sets_incremental.py --heal --apply
 # 5b-0b. ПАРА КРЕСЕЛ — ОДНА МОДЕЛЬ (conv-12 п.2, владелец 20.10): heal меняет основное кресло — экземпляр пары следом.
 # Раньше синхронизация жила только внутри contracts, а тот стоял на предохранителе (27 сетов с разными креслами).
@@ -371,8 +382,9 @@ else
   echo "candidates/sets_index не прошли — heal и contracts пропущены" >> "$LOG"
 fi
 # после замен индекс и медиа обязаны сойтись с банком СЕГОДНЯ
-step bank_media2 "$PY" catalog_media.py --apply
+step bank_media2 "$PY" catalog_media.py $MEDIA_APPLY
 fi
+bank_index_steps() {
 # W5: после замен индекс обязан сойтись с sets3 СЕГОДНЯ, а не завтра
 step sets_reindex "$PY" sets_incremental.py --index
 # Стабильный set_id новым комплектам + карта «номер → id». Сцены и отчёты пока живут на НОМЕРАХ
@@ -383,6 +395,9 @@ step set_ids "$PY" set_identity.py --apply
 # замены — трата часов, а «пересчитать что-нибудь» даёт отчёт-франкенштейн (часть сцен старым
 # составом). Шаг сам останавливается, если карта «номер → id» уехала.
 step resolve_affected "$PY" resolve_affected.py --run
+}
+# при включённом писателе банк меняется позже (bank_refresh) — индекс, set_id и пересчёт сцен идут за ним
+[ "$BANK_WRITE" = 1 ] || bank_index_steps
 # Что именно поменялось за две недели — человеку, на хаб /test/
 step changes_page "$PY" set_changes_page.py --publish
 # Покрытие резерва: у скольких занятых слотов есть готовая подмена. Пока метрика теневая —
@@ -416,9 +431,15 @@ step mesh_family_early "$PY" mesh_family.py --fill
 step mesh_bind_early "$PY" mesh_bind.py
 # ПОДМЕНА ГОТОВЫХ ЯЧЕЕК — ПОКА ТОЛЬКО ОТЧЁТ (conv-14 шаг 3): ready-ячейки кандидата ∩ строгая чистота, предел 25 %, смешанный
 # банк (номера и set_id на месте, связки крупной мебели, тиры), экзамен по сценам продвигаемых → manifest
-# ~/scout-scenes/bank-promote.json. sets3.json не пишет (писатель — шаг 4; тогда же reindex/set_ids — после него).
+# ~/scout-scenes/bank-promote.json. sets3.json не пишет (писатель — bank_refresh ниже; тогда же reindex/set_ids — после него).
 # За флагом rules/bank-candidate.json:promote_enabled (выключен — ok «выключено»); сбой — FAIL в дайджест, ночь идёт дальше
 step bank_promote "$PY" bank_promote.py
+# ПИСАТЕЛЬ ЖИВОГО БАНКА (conv-14 шаг 4) — только при write_enabled: manifest этой ночи → снимок-поколение → атомарная запись;
+# строки DIGEST: (снято / добавлено / ждёт меш) — в дайджест; откат — `bank_refresh.py rollback <поколение>`
+if [ "$BANK_WRITE" = 1 ]; then
+  step bank_refresh "$PY" bank_refresh.py
+  bank_index_steps
+fi
 step demo_band "$PY" demo_band.py --report
 step mesh_publish "$PY" mesh_publish.py
 # каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины
@@ -450,9 +471,10 @@ if [ "$(date +%u)" = "1" ]; then
   step book_check bash ../book-check.sh
   step solver_full env CHECK_TAG=weekly "$PY" solver_check.py
   # В3 (владелец 07.08): точечное освежение сетов новинками — лучшая ступень стиля, ≤2 замен/сет
-  [ -f exam.lock ] || step sets_refresh "$PY" sets_incremental.py --refresh --apply
+  # при включённом писателе (write_enabled) новинки приходят кандидатом банка — прямая запись не идёт (conv-14 шаг 5)
+  [ -f exam.lock ] || [ "$BANK_WRITE" = 1 ] || step sets_refresh "$PY" sets_incremental.py --refresh --apply
   # refresh меняет основное кресло — пара следом (conv-12 п.2)
-  [ -f exam.lock ] || step sets_pairs_w "$PY" sets_incremental.py --sync-pairs --apply
+  [ -f exam.lock ] || [ "$BANK_WRITE" = 1 ] || step sets_pairs_w "$PY" sets_incremental.py --sync-pairs --apply
   # W5: после недельных замен — переиндекс и судья сетов (вернулся в цикл: баланс OpenAI есть,
   # владелец 10.08); судья смотрит коллажи и отмечает выбивающиеся предметы
   step sets_reindex_w "$PY" sets_incremental.py --index
