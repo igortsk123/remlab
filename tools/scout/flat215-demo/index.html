@@ -265,7 +265,7 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
   .hm-tabs{margin-top:6px;height:54px}
   .hm-tab{height:38px;font-size:15px;padding:0 18px}
   .hm-rooms{grid-template-columns:repeat(3,1fr);margin-top:12px}
-  .hm-rooms .hm-room{grid-column:span 2;grid-row:span 5}
+  .hm-rooms .hm-room{grid-column:span 2;grid-row:span 6}   /* справа столбец: 5 комнат + плашка «План квартиры» (demo-20 А7) */
   .hm-stub{justify-content:center}
   .hm-plan-bot{display:none}
 }
@@ -338,8 +338,8 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
 #sheet .grab{display:none}
 #sheet header{position:sticky;top:0;background:var(--surface);z-index:2}
 #sheet.open{transform:translateY(0)}
-#sheet .grab{width:44px;height:4px;background:var(--grip);border-radius:999px;margin:8px auto 4px}
-#sheet header{display:flex;align-items:center;gap:10px;padding:4px 14px 8px;border-bottom:1px solid var(--line)}
+#sheet .grab{width:44px;height:4px;background:var(--grip);border-radius:999px;margin:6px auto 2px}
+#sheet header{display:flex;align-items:center;gap:10px;padding:4px 14px 6px;border-bottom:1px solid var(--line)}
 #sheet header .h{flex:1;min-width:0}
 #sheet header b{font-size:clamp(18px,2.5vw,21px);display:block}
 #sheet header span{font-size:clamp(14.5px,1.9vw,16.5px);color:var(--muted)}
@@ -351,23 +351,27 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
    требовала бокового жеста внутри и без того прокручиваемого листа. Теперь они просто
    переносятся на вторую строку и все видны сразу. */
 /* ЧИПЫ МЕЛЬЧЕ (владелец 22.10, demo-20 А4): на iPhone SE фильтры съедали треть листа */
-#filters{display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px}
+#filters{display:flex;flex-wrap:wrap;gap:6px;padding:6px 14px 4px}
 #filters .chip{padding:6px 11px;font-size:13.5px;white-space:nowrap;
  line-height:1.15;min-height:0}
 #filters .chip.on{box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent)}
 #sheetscroll{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
-#grid{padding:8px 14px 24px;display:grid;gap:12px;
+#grid{padding:4px 14px 24px;display:grid;gap:12px;
  grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
 /* цвета текущей модели — строка чипов во всю ширину ленты (приёмка 16.10 п.11а) */
-#grid .colrow{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-#grid .colrow b{flex-basis:100%;font-size:14px;color:var(--muted);font-weight:600}
-#grid .colchip{display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;border:1px solid var(--line);border-radius:999px;
- background:var(--surface);cursor:pointer;min-height:44px;font-size:14px}
-#grid .colchip img{width:36px;height:36px;border-radius:50%;object-fit:cover}
+#grid .colrow{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+#grid .colrow b{flex-basis:100%;font-size:13px;color:var(--muted);font-weight:600}
+#grid .colchip{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 3px;border:1px solid var(--line);border-radius:999px;
+ background:var(--surface);cursor:pointer;min-height:38px;font-size:13.5px;max-width:100%;font-family:inherit;color:inherit}
+#grid .colchip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#grid .colchip img{width:30px;height:30px;border-radius:50%;object-fit:cover;flex:0 0 30px}
 #grid .colchip small{color:var(--muted)}#grid .colchip.on{border:2px solid var(--accent);cursor:default}
 /* КАРТОЧКА ЦЕЛИКОМ НА iPhone SE (владелец 22.10, demo-20 А1): фото ниже при той же ширине — шапка ~53 + фильтры ~117 + карточка
    ≤ 548 px видимой высоты SE с панелью Safari; «Заменить» и «В магазин» видны без прокрутки */
-#grid .card img{aspect-ratio:auto;height:150px;object-fit:contain}
+#grid .card img{aspect-ratio:auto;height:132px;object-fit:contain}
+/* плашка «по размеру / впритык» — поверх угла фото, не отдельной строкой (та же цель: карточка ниже) */
+#grid .card{position:relative}
+#grid .card .badge{position:absolute;top:13px;left:13px;box-shadow:0 0 0 1px var(--surface)}
 @media(min-width:700px){#sheet{left:auto;right:0;top:0;bottom:0;width:460px;max-height:none;
  border-radius:0;transform:translateX(102%);box-shadow:var(--sh-5)}
  #sheet.open{transform:translateX(0)}}
@@ -1235,6 +1239,7 @@ function showTab(which){
   ['styleTabs','hmHint'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=!room;});
   document.body.classList.toggle('on-fav',fav);   // экран избранного: строка ЖК, кнопки и строка «Избранное» скрыты (CSS)
   syncHash(which);
+  if(which==='plan')flatPlan();   // план — каждый раз заново: подписи комнат зависят от того, что сейчас в сертификате (demo-20 А8)
   if(room){draw(); drawHome(); try{fitMeta();}catch(e){}}
   if(fav&&window.__fav)window.__fav.draw();
 }
@@ -1364,24 +1369,40 @@ function flatPlan(){
     el('polygon',{points:P.contour.map(p=>p.join(',')).join(' '),fill:'#fff',
       stroke:'#585E58','stroke-width':WALL,'stroke-linejoin':'miter'});
   }
+  // КОМНАТА = КНОПКА, «ЧТО Я ОБУСТРОИЛ» С ПЛАНА (владелец 22.10, demo-20 А8): в сертификате есть вариант комнаты — вместо площади его
+  // название и сумма, клик открывает его; нет — готовая комната открывает вариант текущего стиля. Id плана (чертёж) и реестра квартиры
+  // разные — `planRoomMap`
+  const map=planRoomMap(), m=homeModel(), act=homeActive(m), inc=window.__basket&&window.__basket.included;
   R.forEach(r=>{                                     // комнаты: заливка + перегородки
-    const room=by[r.id]||{}, go=!!room.ready;      // кликается только та комната, что у нас готова
+    const room=by[r.id]||{}, br=map[r.id], f=br&&inc?inc(br.id):null;
+    const rv=br&&room.ready?(m.roomVariants.find(x=>x.styleId===act.styleId&&x.roomId===br.id)||m.roomVariants.find(x=>x.roomId===br.id)):null;
+    const go=!!(f||room.ready);                    // кликается готовая комната или та, где уже выбран вариант
     const g=el('g',{},svg); g.style.cursor=go?'pointer':'default';
     el('rect',{x:r.x,y:r.y,width:r.w,height:r.d,fill:go?'#E7F0F7':'#FBFAF7',
       stroke:'#585E58','stroke-width':PART},g);
     if(go)el('rect',{x:r.x+PART/2,y:r.y+PART/2,width:r.w-PART,height:r.d-PART,fill:'none',
       stroke:'#3B76A2','stroke-width':0.05},g);
     const fs=Math.max(0.2,Math.min(0.32,Math.min(r.w,r.d)/4.4));
-    const cx=r.x+r.w/2, cy=r.y+r.d/2;
-    el('text',{x:cx,y:cy-fs*0.35,'text-anchor':'middle','font-size':fs,fill:'#2A2F2C',
-      'font-weight':go?'700':'500'},g).textContent=(r.name||room.title||r.id);
-    el('text',{x:cx,y:cy+fs*0.85,'text-anchor':'middle','font-size':fs*0.95,fill:'#5C655E'},g)
-      .textContent=(r.m2?String(r.m2).replace('.',',')+' м²':'');
-    if(go)el('text',{x:cx,y:cy+fs*2.1,'text-anchor':'middle','font-size':fs*0.9,
-      fill:'#3B76A2','font-weight':'600'},g).textContent='Обустроить →';
-    else el('text',{x:cx,y:cy+fs*2.1,'text-anchor':'middle','font-size':fs*0.85,
-      fill:'#9AA098'},g).textContent='скоро';
-    if(go)g.onclick=()=>showTab('room');
+    const cx=r.x+r.w/2, name=r.name||room.title||r.id;
+    // строки подписи: имя комнаты; дальше — вариант в сертификате (название в 1–2 строки и сумма) или площадь и «Обустроить →»/«скоро»
+    const L=[{t:name,k:1,a:{fill:'#2A2F2C','font-weight':go?'700':'500'}}];
+    if(f){
+      wrap2(f.name,r.w*0.9/(fs*0.95*0.56)).forEach(t=>L.push({t,k:0.95,a:{fill:'#2A2F2C'}}));
+      L.push({t:(f.sumText?f.sumText+' ':'')+'→',k:0.95,a:{fill:'#3B76A2','font-weight':'700'}});
+    }else{
+      L.push({t:r.m2?String(r.m2).replace('.',',')+' м²':'',k:0.95,a:{fill:'#5C655E'}});
+      L.push(go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
+    }
+    const LH=fs*1.2; let y=r.y+r.d/2-LH*(L.length-1)/2+fs*0.35;
+    L.forEach(l=>{el('text',Object.assign({x:cx,y,'text-anchor':'middle','font-size':fs*l.k},l.a),g).textContent=l.t; y+=LH;});
+    if(!go)return;
+    const open=()=>{
+      if(f){const i=allVariants().findIndex(v=>v.cid===f.id); if(i>=0)vwOpenVariant(i); else location.hash='#c='+f.id; return;}
+      if(rv)vwOpenVariant(rv.index); else showTab('room');
+    };
+    g.setAttribute('role','button'); g.setAttribute('tabindex','0');
+    g.setAttribute('aria-label',name+(f?' · '+f.name+(f.sumText?' · '+f.sumText:''):''));
+    g.onclick=open; g.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault(); open();}};
   });
   (P.windows||[]).forEach(w=>{                       // окно: белый разрыв стены + двойная линия
     const x2=w.x+(w.w||0), y2=w.y+(w.d||0);
@@ -1399,6 +1420,25 @@ function flatPlan(){
   });
   box.appendChild(svg);
 
+}
+// комнаты чертежа ↔ комнаты реестра квартиры (`homeRooms`): совпал id — она; иначе того же вида (по началу id чертежа) с ближайшей
+// площадью, каждая комната реестра — одной комнате чертежа (`bedroom_9` → «Спальня 2», `bath_44` → «Санузел», второй санузел — без пары)
+function planRoomMap(){
+  const kind=id=>/^bed/.test(id)?'bedroom':/^bath/.test(id)?'bathroom':String(id).replace(/[_-]\d+$/,'');
+  const left=homeRooms().slice(), out={};
+  (((D.plan||{}).rooms)||[]).forEach(r=>{
+    let i=left.findIndex(x=>x.id===r.id);
+    if(i<0){let best=Infinity; left.forEach((x,k)=>{const dd=Math.abs((x.areaM2||0)-(r.m2||0)); if(x.kind===kind(r.id)&&dd<best){best=dd; i=k;}});}
+    if(i>=0)out[r.id]=left.splice(i,1)[0];
+  });
+  return out;
+}
+// подпись в две строки по словам, не длиннее `max` знаков; не влезла — вторая строка с «…»
+function wrap2(s,max){
+  const w=String(s||'').split(/\s+/).filter(Boolean), out=[''];
+  w.forEach(x=>{const k=out.length-1, t=out[k]?out[k]+' '+x:x; if(t.length<=max||!out[k])out[k]=t; else out.push(x);});
+  if(out.length>2)out.splice(1,out.length,out.slice(1).join(' '));
+  return out.map(l=>l.length>max?l.slice(0,Math.max(1,Math.floor(max)-1))+'…':l);
 }
 function applyKit(kit){            // комплект накладывается на ЛЮБУЮ расстановку; предметы,
   let n=0;                          // которых в комплекте нет, остаются как были (можно смешивать)
@@ -4377,7 +4417,8 @@ function grid(){
   const g=document.getElementById('grid');g.innerHTML='';
   const base=sel?sel.role.replace(/\s+\d+$/,''):'диван';
   let list=feedFor(base).slice();
-  // ШАПКА — «Выбрать <роль> (N)»: роль без номера слота, N — товаров ПОСЛЕ фильтров (владелец 22.10, demo-20 А3)
+  // ШАПКА — «Выбрать <роль> (N)»: роль без номера слота, N — моделей ПОСЛЕ фильтров, сколько видно в ленте: цвета одной модели — одна
+  // (владелец 22.10, demo-20 А3)
   const head=n=>{document.getElementById('sh-title').textContent=`Выбрать ${base} (${n})`;};
   if(!list.length){head(0); g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
   const isCur=p=>!!(sel&&sel.sku&&sel.sku.name===p.name);
@@ -4389,12 +4430,11 @@ function grid(){
     // текущий товар места виден всегда — от него и меняем
     if(F.fitOnly&&!isCur(p)&&(!inBand(base,p)||fitBadge(sel,p).cls==='b-no'))return false;
     return true;});
-  head(list.length);
   const rank=p=>({'b-ok':0,'b-tight':1,'b-no':2})[fitBadge(sel,p).cls];
   // товаров без фото в выборке уже нет — их отсекает сборка данных (владелец 26.08)
   list.sort((a,b)=>F.sort==='price'?((a.price||0)-(b.price||0))
                                    :(rank(a)-rank(b)||(a.price||0)-(b.price||0)));
-  if(!list.length){g.innerHTML='<div class="hint">Под фильтры ничего не подошло — снимите ограничения.</div>';return;}
+  if(!list.length){head(0); g.innerHTML='<div class="hint">Под фильтры ничего не подошло — снимите ограничения.</div>';return;}
   // ЦВЕТА ОДНОЙ МОДЕЛИ — ЧИПАМИ, ПЕРВЫМИ — ДРУГИЕ МОДЕЛИ (приёмка владельцем 16.10 п.11а): первые три кандидата сканди-дивана были
   // цветами того же «Викс» — одна модель, и замена выглядела несработавшей. Цвета текущей модели — строкой чипов сверху, другие
   // модели — по одной карточке с пометкой «ещё N цветов»; цвет на сцене — подкраской (`sku.tint`)
@@ -4403,10 +4443,13 @@ function grid(){
   list.forEach(p=>{const m=modelOf(p); if(m===curM)return; if(byM.has(m)){more.set(m,(more.get(m)||0)+1);return;} byM.set(m,p);});
   const tail=(n,ref)=>{const a=String(n||'').split(' '), b=String(ref||'').split(' '); let i=0; while(i<a.length&&a[i]===b[i])i++;
     return a.slice(Math.min(i,Math.max(0,a.length-2))).join(' ');};
+  head(byM.size+(colours.length>1?1:0));
   if(colours.length>1){const row=document.createElement('div'); row.className='colrow';
     row.innerHTML='<b>Цвета этой модели</b>'; g.appendChild(row);
+    // цена — только если у цвета она другая (demo-20 А1: два цвета в строку, карточка ниже — целиком на iPhone SE)
     colours.forEach(p=>{const on=sel.sku&&sel.sku.name===p.name, b=document.createElement('button'); b.className='colchip'+(on?' on':'');
-      b.innerHTML=`<img src="${p.img}" alt="" loading="lazy"><span>${tail(p.name,sel.sku.name)||p.name}</span><small>${money(p.price)}</small>`;
+      b.innerHTML=`<img src="${p.img}" alt="" loading="lazy"><span>${tail(p.name,sel.sku.name)||p.name}</span>`+
+        ((p.price||0)!==(sel.sku.price||0)?`<small>${money(p.price)}</small>`:'');
       b.onclick=()=>{if(on)return; tryOn(p); grid(); closePicker(); refreshShotList();}; row.appendChild(b);});}
   list=[...byM.values()];
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
@@ -4823,8 +4866,10 @@ function histFwd(){return histGo(1);}
 .vfl-cur{font-size:13.5px;color:var(--ink);margin-top:8px}.vfl-gap{height:14px}.vfl-gap:last-child{display:none}
 .vsum small.vdev{color:var(--ink)}
 /* ракурсы «Фото» — стрелки по краям и точки внизу (v3 п.5); план «План» — в той же области сцены */
-.vcams{display:none;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;gap:2px;padding:3px;border-radius:999px;
-  background:rgba(24,20,17,.55);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);max-width:calc(100% - 32px)}
+/* по центру через left/right + margin:auto, НЕ left:50% + translate (demo-20 А9): у left:50% ширина «по содержимому» ограничена ПОЛОВИНОЙ
+   сцены — на 375 подписи «Со стороны двери, слева» резались, хотя места хватало */
+.vcams{display:none;position:absolute;left:0;right:0;margin:0 auto;width:max-content;bottom:14px;z-index:6;gap:2px;padding:3px;border-radius:999px;
+  background:rgba(24,20,17,.55);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);max-width:calc(100% - 32px);box-sizing:border-box}
 .vcams button{border:0;background:transparent;color:#fff;font:600 13px/1.1 system-ui,sans-serif;padding:8px 12px;border-radius:999px;cursor:pointer;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto;opacity:.85}
 .vcams button.on{background:#fff;color:#2b2622;opacity:1}
@@ -5003,7 +5048,7 @@ function vwHtml(s, navs, list){
     `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button><button data-vm="plan" class="${VW.mode==='plan'?'on':''}">План</button></div>`+
     // РАКУРСЫ СЛОВАМИ (владелец 18.10, demo-15 п.3: «стрелочки непонятно что значат»): один переключатель для «Фото» и 3D,
     // подписи — по месту камеры (`vwCamNames`); свайп по фото и ← → остаются (`vwPhoto`)
-    `<div class="vcams" id="vCams" role="tablist">${vwCamNames().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
+    `<div class="vcams" id="vCams" role="tablist">${vwCamLabels().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
     `<div class="vplanbox" id="vPlan"></div>`+
     `<div class="vstub" id="vStub"><p>${EN?'3D does not open on this device — open the link on another phone or a computer.':'3D на этом устройстве не открывается — откройте ссылку на другом телефоне или компьютере.'}</p>`+
     `<button class="btn" id="vStubLink" type="button">${EN?'Copy the link':'Скопировать ссылку'}</button></div>`+
@@ -5537,7 +5582,7 @@ function vwCamsUi(){
 // окна» / «Со стороны двери»; у обоих один проём — «…, слева / справа» (если стоять в проёме лицом в комнату); привязки нет или имена
 // совпали — «Ракурс 1 / 2» в порядке C1/C2
 const CAM_NAME_NEAR=220;
-function vwCamNames(){
+function vwCamNames(short){
   const EN=LANG==='en', cs=((typeof cams!=='undefined'&&cams)||loadCams()).slice(0,2), R=(D&&D.room)||{};
   const plain=cs.map((_,k)=>(EN?'View ':'Ракурс ')+(k+1));
   if(cs.length<2)return plain;
@@ -5545,7 +5590,8 @@ function vwCamNames(){
   const seg=(px,py,g)=>{const vx=g.x2-g.x1, vy=g.y2-g.y1, L=vx*vx+vy*vy||1, t=Math.max(0,Math.min(1,((px-g.x1)*vx+(py-g.y1)*vy)/L));
     return Math.hypot(px-(g.x1+t*vx),py-(g.y1+t*vy));};
   const bind=c=>{let b=null; ops.forEach(o=>{const g=wallSeg(o.wall,+o.offset_cm||0,+o.width_cm), d=seg(c.x,c.y,g); if(d<=CAM_NAME_NEAR&&(!b||d<b.d))b={o,g,d};}); return b;};
-  const nm=o=>o.kind==='window'?(EN?'From the window':'Со стороны окна'):(EN?'From the door':'Со стороны двери');
+  const nm=o=>o.kind==='window'?(short?(EN?'Window':'От окна'):(EN?'From the window':'Со стороны окна'))
+    :(short?(EN?'Door':'От двери'):(EN?'From the door':'Со стороны двери'));
   const b=cs.map(bind);
   if(!b[0]||!b[1])return plain;
   if(b[0].o!==b[1].o)return nm(b[0].o)!==nm(b[1].o)?[nm(b[0].o),nm(b[1].o)]:plain;
@@ -5554,6 +5600,15 @@ function vwCamNames(){
   const side=c=>((c.x-cx)*rx+(c.y-cy)*ry)>=0?(EN?'right':'справа'):(EN?'left':'слева');
   const s0=side(cs[0]), s1=side(cs[1]);
   return s0!==s1?cs.map(c=>nm(b[0].o)+', '+side(c)):plain;
+}
+// ПОДПИСИ КНОПОК РАКУРСА ЦЕЛИКОМ (владелец 22.10, demo-20 А9): полные имена не влезают в ширину сцены (телефон 375, «…двери, слева /
+// справа») — короткие «От двери / От окна». Ширина — по шрифту кнопки (холст считает и у скрытой панели), отступы кнопки 2×10–12 px
+function vwCamLabels(){
+  const full=vwCamNames(), sh=document.getElementById('shot'), W=((sh&&sh.clientWidth)||window.innerWidth)-32-6;
+  const ph=VW_PHONE(), ctx=document.createElement('canvas').getContext('2d'); if(!ctx)return full;
+  ctx.font='600 '+(ph?12:13)+'px system-ui,sans-serif';
+  const need=a=>a.reduce((s,t)=>s+Math.ceil(ctx.measureText(t).width)+(ph?20:24)+2,0);
+  return need(full)<=W?full:vwCamNames(true);
 }
 // КНОПКА «СДЕЛАТЬ РЕАЛИСТИЧНЕЕ» (demo-09 п.3, Codex п.1): видна в 3D и без 3D; в «Фото» её нет (снимок уже есть), в «Плане» —
 // «Изменить план». Во время задания — ход на самой кнопке; окно и режим не трогаются
@@ -6627,6 +6682,7 @@ async function liveShow(){
   // и варианты выбранной комнаты; у каждого — «Включить в сертификат» (ровно один на комнату), «Открыть», «поделиться», «⋯»
   function favDraw(){
     try{if(typeof drawHome==='function')drawHome();}catch(_){}
+    try{if(curScreen()==='plan')flatPlan();}catch(_){}   // сертификат поменялся, пока открыт план (окно поверх плана) — подписи комнат
     var head=document.getElementById('favHead'), grid=document.getElementById('favGrid'), chips=document.getElementById('favChips');
     if(!head||!grid||!chips)return;
     var l=favs(); head.hidden=!l.length;
@@ -6684,7 +6740,10 @@ async function liveShow(){
       var p=BK.mod.preview(BK.b,room.id,q,BK.limit), f=ofState(curStateId());
       return {base:p.base, with:p.with, room:room, included:!!(f&&BK.b.includedByRoom[room.id]===f.favoriteId), hasIncluded:!!BK.b.includedByRoom[room.id]};},
     open:openFavs, close:function(){if(curScreen()==='fav')showTab('room');}, sel:function(){return BK.sel;},
-    state:function(){return BK.b;}, limit:function(){return BK.limit;}};
+    state:function(){return BK.b;}, limit:function(){return BK.limit;},
+    // вариант комнаты в сертификате — для плана квартиры (demo-20 А8): id, название, сумма (null, пока цены не досчитаны)
+    included:function(roomId){ var id=BK.b&&BK.b.includedByRoom[roomId], f=id&&favOf(id); if(!f)return null; var s=allowanceSum(f);
+      return {id:f.favoriteId, name:f.displayName||'', sum:s, sumText:s==null?'':fmtCard(s)};}};
   window.__fav={list:function(){return favs().map(function(f){return Object.assign({collectionId:f.favoriteId},f);});},
     ofState:ofState, baseState:baseState, toggle:toggle, share:share, shareUrl:shareUrl, shareUrlOpen:shareOpenUrl,
     ui:favUi, draw:favDraw, save:save, rename:rename, remove:removeFav, include:includeFav, exclude:excludeFav, defaultName:defaultName};

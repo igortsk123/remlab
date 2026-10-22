@@ -44,7 +44,7 @@ const fold=p=>p.evaluate(()=>{const R=s=>{const e=document.querySelector(s);retu
       if(!phone&&vp!==VPS[VPS.length-1]){await p.context().close(); continue;}
       const st=await p.evaluate(()=>({tabs:[...document.querySelectorAll('#styleTabs [data-style]')].map(t=>t.dataset.style), on:(document.querySelector('#styleTabs .hm-tab.on')||{}).dataset,
         rooms:[...document.querySelectorAll('#hmRooms [data-room]')].map(e=>e.dataset.room), ready:[...document.querySelectorAll('#hmRooms .hm-room')].map(e=>e.dataset.room),
-        stubs:[...document.querySelectorAll('#hmRooms .hm-stub span')].map(e=>e.textContent), card:!!FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length,
+        stubs:[...document.querySelectorAll('#hmRooms .hm-stub:not(.hm-plan-tile) span')].map(e=>e.textContent), card:!!FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length,
         cert:(document.getElementById('hmCert')||{}).dataset||{}, styleUrl:new URLSearchParams(location.search).get('style'), nVar:allVariants().filter(v=>!v.mine).length,
         oldTabs:document.querySelectorAll('#tab-plan,#tab-room,[data-soon],#screen-soon,#feedShare,#budgetGo').length,
         collBase:[...document.querySelectorAll('#coll .lay')].length}));
