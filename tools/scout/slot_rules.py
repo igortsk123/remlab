@@ -82,6 +82,14 @@ def slot_band(m2: float, env: dict | None = None) -> dict:
     return out
 
 
+def in_band(p: dict, b: dict | None) -> bool:
+    """Товар (`w`, `d` в см) в полосе роли из `slot_band`; полосы нет — роль не фильтруется (как на странице)."""
+    if not b:
+        return True
+    side = max(float(p.get('w') or 0), float(p.get('d') or 0)) if b.get('side') == 'long' else float(p.get('w') or 0)
+    return b['lo'] <= side <= b['hi']
+
+
 def _old_slot_ideal(role: str, m2: float, env: dict) -> float | None:
     """Прежняя реализация из compose2 (до 14.10) — эталон для селфтеста «поведение не изменилось»."""
     cfg = (env.get('slots') or {}).get(role)
@@ -131,6 +139,9 @@ def _selftest() -> int:
     ok('полоса: роли без правила (ваза, банкетка) не фильтруются', 'ваза' not in b and 'банкетка' not in b)
     ok('полоса: допуск берётся из правила', slot_band(14.3, {'tolerance': [0.5, 2], 'slots': {'пуф': {'ideal': 40}}})
        == {'пуф': {'lo': 20, 'hi': 80, 'side': 'w'}})
+    ok('в полосе: ширина у мебели, длинная сторона у ковра, без полосы — всё',
+       in_band({'w': 150, 'd': 40}, b['тв-тумба']) and not in_band({'w': 100, 'd': 40}, b['тв-тумба'])
+       and in_band({'w': 160, 'd': 230}, b['ковёр']) and in_band({'w': 5, 'd': 5}, None))
     return 1 if bad else 0
 
 

@@ -404,6 +404,12 @@ step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 
 # (решение 31.08 «соберу утром руками») и руками не собиралась — волна 12.10 сделала 986 мешей,
 # и ни один не появился в демо. Шаг обязан идти ДО `flat215_demo`, иначе страница соберётся по
 # вчерашнему индексу.
+# НЕДОБОР ЛЕНТЫ ЗАМЕН ПО ПОЛОСЕ (план demo-20 В1, владелец 22.10 TG 793): готовность мешей — свежая (ранние идемпотентные
+# семейства и привязка, как в mesh_wave_start.sh; поздняя привязка в мешевом блоке остаётся), затем `demo_band` считает
+# недобор, `mesh_publish` выкладывает готовые под него — в ту же ночь, без лага в сутки (Codex 22.10)
+step mesh_family_early "$PY" mesh_family.py --fill
+step mesh_bind_early "$PY" mesh_bind.py
+step demo_band "$PY" demo_band.py --report
 step mesh_publish "$PY" mesh_publish.py
 # каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины
 # решения владельца по развороту моделей (/test/orient-review/) → orient.json прода слиянием (flat3d-sims-ux A1)

@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'rules')
@@ -211,25 +212,22 @@ _MESH_IDX = None
 def _mesh_index() -> set:
     """SKU, у которых меш реально ЛЕЖИТ НА СЕРВЕРЕ (страница грузит GLB только оттуда).
 
-    Спрашиваем каталог прода и объединяем с локальным: локальный отстаёт (модели пула замены
-    выкладывались напрямую), а обещать в ленте товар, модели которого на сервере нет, нельзя —
-    в кадре он станет серой коробкой. Нет сети — остаётся локальный, ленты не режем впустую.
+    ИСТИНА — СВЕЖИЙ ИНДЕКС ПРОДА, без локальной галереи (план demo-20 В1, Codex 22.10): объединение с локальной пускало в
+    демо модель, которую `rsync` в эту ночь не довёз, — в кадре она стала бы серой коробкой; а с выкладкой моделей «под
+    ленту» (`demo_band` → `mesh_publish`) таких стало бы больше. `?v=` — мимо кэша. Прод не ответил — модели вчерашнего
+    демо (они точно на сервере) и WARN: ленты не режем впустую, но и не обещаем непроверенного.
     """
     global _MESH_IDX
     if _MESH_IDX is None:
         idx = set()
-        p = os.path.expanduser('~/scout-scenes/mesh-pilot-gallery/mesh-index.json')
-        try:
-            idx |= set(json.load(open(p, encoding='utf-8')))
-        except Exception:  # noqa: BLE001 — каталога нет: не режем ленты вовсе
-            pass
         try:
             import urllib.request
             with urllib.request.urlopen(
-                    'https://remont-lab.online/test/mesh-pilot10/mesh-index.json', timeout=60) as f:
-                idx |= set(json.load(f))
-        except Exception as e:  # noqa: BLE001 — прод недоступен: работаем по локальному
-            print('каталог мешей прода недоступен:', e)
+                    f'https://remont-lab.online/test/mesh-pilot10/mesh-index.json?v={int(time.time())}', timeout=60) as f:
+                idx = set(json.load(f))
+        except Exception as e:  # noqa: BLE001 — прод недоступен: вчерашнее демо
+            idx = _demo_msids(os.path.join(OUT, 'demo-data.json'))
+            print(f'WARN:mesh_index: каталог мешей прода недоступен ({repr(e)[:80]}) — беру модели вчерашнего демо: {len(idx)}')
         # КАРАНТИН (conv-04, ADR-0276): модель лежит на сервере, но кривая по осям — для демо её «нет»,
         # предмет дозаполнится заменой из ленты; вернётся после «принять» владельца
         try:
@@ -243,6 +241,17 @@ def _mesh_index() -> set:
             print('карантин не прочитан:', e)
         _MESH_IDX = idx
     return _MESH_IDX
+
+
+def _demo_msids(path: str) -> set:
+    """Модели опубликованного демо (ленты и предметы вариантов) — запасная истина «на сервере», когда прод не ответил."""
+    try:
+        d = json.load(open(path, encoding='utf-8'))
+    except Exception:  # noqa: BLE001 — демо ещё не собиралось
+        return set()
+    out = {p['msid'] for lst in (d.get('feeds') or {}).values() for p in lst if p.get('msid')}
+    out |= {(i.get('sku') or {}).get('msid') for v in d.get('variants') or [] for i in v.get('items') or []}
+    return {m for m in out if m}
 
 
 _MESH_REP: dict | None = None
@@ -1085,7 +1094,7 @@ def build() -> dict:
     added, off_env = 0, 0
     try:
         import demo_swap_pool
-        added, off_env = glue(demo_swap_pool.pool(swap_ok), feeds, have)
+        added, off_env = glue(demo_swap_pool.pool(swap_ok, band=_slot_band(liv)), feeds, have)   # в группе сперва в полосе (demo-20 В)
         glue(demo_swap_pool.pool_top(), dec_feeds, {(r, p.get('sid')): p for r, lst in dec_feeds.items() for p in lst})
     except Exception as e:  # noqa: BLE001 — нет БД/пула: ленты остаются набором сетов
         print('пул замены не подключён:', e)
@@ -1093,7 +1102,7 @@ def build() -> dict:
     # идут — показываемые варианты не меняются; сбой — громко, ковры остаются из наборов
     try:
         import demo_swap_pool
-        rugs = demo_swap_pool.rug_pool(swap_rug_ok)
+        rugs = demo_swap_pool.rug_pool(swap_rug_ok, band=_slot_band(liv))
         n_rug = glue(rugs, feeds, have)
         print(f'ковры ленты замен: из пула {len(rugs)}, добавлено {n_rug[0]} (потолок длинной стороны {rug_ceiling():g} см)')
     except Exception as e:  # noqa: BLE001

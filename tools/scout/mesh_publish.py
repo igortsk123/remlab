@@ -97,6 +97,29 @@ def prod_free_gb() -> float:
     return float(''.join(c for c in out if c.isdigit() or c == '.') or 0)
 
 
+def prod_keys() -> set[str] | None:
+    """Модели в индексе прода (свежий, мимо кэша); нет ответа — None."""
+    import time
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f'{PROD_IDX}?v={int(time.time())}', timeout=60) as f:
+            return set(json.load(f))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def bytes_to_send(gallery: str = GALLERY, prod: set[str] | None = None) -> int:
+    """Сколько байт уедет на прод: папки галереи, которых нет в индексе прода (rsync шлёт новое, лежащее не трогает). Индекс не
+    ответил — считаем всю галерею: лучше не выложить, чем забить диск."""
+    prod = prod_keys() if prod is None else prod
+    n = 0
+    for k in (os.listdir(gallery) if os.path.isdir(gallery) else []):
+        d = os.path.join(gallery, k)
+        if os.path.isdir(d) and (not prod or k not in prod):
+            n += sum(os.path.getsize(os.path.join(d, f)) for f in os.listdir(d) if os.path.isfile(os.path.join(d, f)))
+    return n
+
+
 def rebuild_index() -> tuple[int, str]:
     """Индекс = то, что РЕАЛЬНО лежит на сервере: перечисляем каталоги и пишем файл по списку.
 
@@ -125,9 +148,20 @@ def main() -> int:
     if len(files) > 1:
         print(f'[публикация] банк-кандидат {files[1]} — публикую товары живого банка и кандидата', flush=True)
     skus = ready_skus(files)
+    # ПОД НЕДОБОР ЛЕНТЫ ЗАМЕН (план demo-20 В1, владелец 22.10 TG 793): готовые меши годных в полосе размера, которых нет на
+    # сервере, — в той же выкладке. До этого шаг брал только товары комплектов, и модели «под ленту» до ленты не доходили
+    demo = set()
+    try:
+        import demo_band
+        demo = demo_band.publish_skus() - skus
+    except Exception as e:  # noqa: BLE001 — нет демо/базы: выкладываем как раньше, но громко
+        print(f'WARN:mesh_publish: недобор ленты не посчитан ({repr(e)[:120]}) — только комплекты', flush=True)
+    if demo:
+        print(f'[публикация] под недобор ленты замен (demo_band): ещё {len(demo)} моделей', flush=True)
+    skus |= demo
     have = set(os.listdir(GALLERY)) if os.path.isdir(GALLERY) else set()
     missing = {s for s in skus if s.replace(':', '_') not in have}
-    print(f'[публикация] в комплектах с готовым мешем: {len(skus)}; '
+    print(f'[публикация] с готовым мешем (комплекты + недобор ленты): {len(skus)}; '
           f'в локальной галерее уже {len(skus) - len(missing)}; добавить {len(missing)}', flush=True)
 
     free = prod_free_gb()
@@ -151,6 +185,15 @@ def main() -> int:
     if code:
         print('WARN:mesh_publish: галерея не собралась — на прод ничего не везу', flush=True)
         return 0
+
+    # МЕСТО — ПО РЕАЛЬНЫМ БАЙТАМ (Codex 22.10): rsync без удаления, склад на проде только растёт; выкладку, после которой
+    # останется меньше порога, не начинаем вовсе. Старое не удаляем — это только по слову владельца
+    new_gb = bytes_to_send() / 2 ** 30
+    if free - new_gb < MIN_FREE_GB:
+        print(f'WARN:mesh_publish: выложить {new_gb:.2f} ГБ, на проде свободно {free:.0f} ГБ — останется меньше '
+              f'{MIN_FREE_GB:.0f}; выкладку пропускаю', flush=True)
+        return 0
+    print(f'[публикация] к выкладке {new_gb:.2f} ГБ новых моделей; на проде свободно {free:.0f} ГБ', flush=True)
 
     # ИНДЕКС НЕ ВЕЗЁМ (13.10). rsync клал локальный `mesh-index.json` поверх прода, а слияние
     # следом читало уже ПОДМЕНЁННЫЙ файл и «сохраняло с прода 0»: индекс витрины схлопнулся с 590
@@ -207,6 +250,13 @@ def _selftest() -> int:
                   open(live, 'w', encoding='utf-8'))
         ok('товары — объединение банков, пустые слоты пропущены',
            want_skus([live, cand]) == {'1:old', '1:new', '2:lamp'})
+        gal = os.path.join(tmp, 'gal')
+        for k, size in (('1_a', 300), ('1_b', 500)):
+            os.makedirs(os.path.join(gal, k))
+            open(os.path.join(gal, k, 'model.glb'), 'wb').write(b'x' * size)
+        open(os.path.join(gal, 'index.html'), 'w').write('<html>')
+        ok('байты к выкладке — только папки, которых нет в индексе прода', bytes_to_send(gal, {'1_a'}) == 500)
+        ok('индекс прода не ответил (пустой) — считаем всю галерею', bytes_to_send(gal, set()) == 800)
     print(f'mesh_publish selftest: ошибок {bad}')
     return 1 if bad else 0
 

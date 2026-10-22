@@ -52,10 +52,11 @@ def _lit(xs) -> str:
     return ','.join("'" + str(x).replace("'", "''") + "'" for x in xs) or "''"
 
 
-def pool_sql(in_style_min: float = IN_STYLE_MIN, top: int | None = None) -> str:
+def pool_sql(in_style_min: float = IN_STYLE_MIN, top: int | None = None, any_mesh: bool = False) -> str:
     """Запрос пула — ВСЕ кандидаты по порядку группы (срез до `PER_GROUP` — в `pick` после проверок); `top` — прежний запрос
-    (первые `top` группы до проверок, порядок выдачи базы) для дозаполнения вариантов. Вынесен отдельно, чтобы `--selftest`
-    проверял его форму без БД."""
+    (первые `top` группы до проверок, порядок выдачи базы) для дозаполнения вариантов; `any_mesh` — те же ворота и порядок, но
+    и товары без готового меша (кого добирать в ленту, `demo_band`). Вынесен отдельно, чтобы `--selftest` проверял его форму
+    без БД."""
     return f"""
 with cand as (
   select p.shop_mid||':'||p.external_id as sku,
@@ -70,7 +71,7 @@ with cand as (
     join product_style_scores ps using (shop_mid, external_id)
     cross join lateral (select unnest(array[{_lit(STYLES)}]) as style) s
    where p.cat_role in ({_lit(ROLES)})
-     and p.mesh_status = 'ready' and p.in_stock and p.status = 'active'
+     and {"" if any_mesh else "p.mesh_status = 'ready' and "}p.in_stock and p.status = 'active'
      -- круглое (столик, пуф, кашпо) — диаметр за обе стороны: общая норма размеров (verify 14.10, conv-03)
      and coalesce(p.w_cm, p.dia_cm) is not null and coalesce(p.d_cm, p.dia_cm) is not null and p.h_cm is not null
      and coalesce(p.image_url_hd, p.image_url) is not null and coalesce(p.photo_alive, true)  -- conv-05
@@ -113,11 +114,11 @@ select sku, sku, '{RUG}', style, '{RUG}', name, shop, img, url, coalesce(price::
   from ranked order by style, rn"""
 
 
-def rug_pool(ok=None) -> list[dict]:
+def rug_pool(ok=None, band: dict | None = None) -> list[dict]:
     """Ковры ленты замен: тот же отбор `pick` (до `PER_GROUP` прошедших на стиль, конверт роли — `ENVELOPE['ковёр']` по длинной
-    стороне), `ok` — проверки сборки ковра (`flat215_demo.swap_rug_ok`)."""
+    стороне, сперва — в полосе `band`), `ok` — проверки сборки ковра (`flat215_demo.swap_rug_ok`)."""
     from mesh_queue import db
-    return pick([p for p in map(_row, db(rug_sql())) if p], ok)
+    return pick([p for p in map(_row, db(rug_sql())) if p], ok, band=band)
 
 
 def _row(r: list) -> dict | None:
@@ -137,10 +138,14 @@ def fits(p: dict) -> bool:
     return bool(p.get('img') and p.get('w') and p.get('d')) and lo <= p['w'] <= hi
 
 
-def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP) -> list[dict]:
+def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP, band: dict | None = None) -> list[dict]:
     """Группа «подкатегория × стиль» в порядке запроса → до `per_group` прошедших проверки: сперва по одному товару на модель
     (`msid`), потом цвета тех же моделей. `ok(p)` — проверки сборки (модель на сервере, цвет, `unfit`); зовётся лениво, пока
-    группа не набрана, и один раз на товар (товар повторяется в каждом своём стиле)."""
+    группа не набрана, и один раз на товар (товар повторяется в каждом своём стиле).
+
+    СПЕРВА — В ПОЛОСЕ РАЗМЕРА (`band` — `slot_rules.slot_band` комнаты демо; план demo-20 часть В, владелец 22.10 TG 793): лента
+    по умолчанию показывает только подходящих по размеру, а 30 мест группы раньше занимали лучшие по качеству любого размера —
+    тв-тумб «современный» в полосе с моделью на сервере 103, а в ленту доходило 19. Внутри «в полосе» и «вне» порядок прежний."""
     seen: dict = {}
 
     def good(p: dict) -> bool:
@@ -148,11 +153,14 @@ def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP) -> list[dict]:
             seen[p['sid']] = fits(p) and (ok is None or bool(ok(p)))
         return seen[p['sid']]
 
+    from slot_rules import in_band
     groups: dict = {}
     for p in rows:
         groups.setdefault((p['sub'], p['style']), []).append(p)
     out = []
     for grp in groups.values():
+        if band:
+            grp = sorted(grp, key=lambda p: not in_band(p, band.get(p['role'])))   # устойчивая: порядок внутри сохраняется
         took, models = [], set()
         for p in grp:                                   # сперва разные модели: лучший прошедший товар каждой
             if len(took) < per_group and p['msid'] not in models and good(p):
@@ -167,11 +175,11 @@ def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP) -> list[dict]:
     return out
 
 
-def pool(ok=None, roles: tuple | None = None) -> list[dict]:
+def pool(ok=None, roles: tuple | None = None, band: dict | None = None) -> list[dict]:
     """Пул ленты замен; `roles` — только эти роли (отбор тот же, проверки `ok` — только им: счёт банкеток стиля до расстановки,
-    `flat215_demo.bench_pool`, demo-19 Г2)."""
+    `flat215_demo.bench_pool`, demo-19 Г2); `band` — полоса размера комнаты (в группе сперва подходящие, `pick`)."""
     from mesh_queue import db
-    return pick([p for p in map(_row, db(pool_sql())) if p and (roles is None or p['role'] in roles)], ok)
+    return pick([p for p in map(_row, db(pool_sql())) if p and (roles is None or p['role'] in roles)], ok, band=band)
 
 
 def pool_top() -> list[dict]:
@@ -262,7 +270,20 @@ def _selftest() -> int:
     if [p['sid'] for p in pick(rugs)] != ['r0', 'r2', 'r3']:
         bad += 1
         print('  FAIL: конверт ковра — по длинной стороне 180–300')
-    print(f'demo_swap_pool selftest: случаев 17, ошибок {bad}')
+    # полоса (demo-20 В): в группе сперва подходящие по размеру, порядок внутри прежний; без полосы — как было
+    bnd = {'диван': {'lo': 160, 'hi': 200, 'side': 'w'}}
+    rows_b = [row('w1', 'W', 150), row('n1', 'N', 180), row('w2', 'X', 150), row('n2', 'Y', 190)]
+    if [p['sid'] for p in pick(rows_b, per_group=3, band=bnd)] != ['n1', 'n2', 'w1']:
+        bad += 1
+        print('  FAIL: полоса — сперва в полосе по порядку, потом остальные:', [p['sid'] for p in pick(rows_b, per_group=3, band=bnd)])
+    if [p['sid'] for p in pick(rows_b, per_group=3)] != ['w1', 'n1', 'w2']:
+        bad += 1
+        print('  FAIL: без полосы порядок прежний')
+    q2 = pool_sql(any_mesh=True)
+    if 'mesh_status' in q2 or 'photo_alive' not in q2 or f'>= {IN_STYLE_MIN}' not in q2:
+        bad += 1
+        print('  FAIL: запрос «и без меша» — те же ворота, кроме готовности меша')
+    print(f'demo_swap_pool selftest: случаев 20, ошибок {bad}')
     return 1 if bad else 0
 
 
