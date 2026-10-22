@@ -24,10 +24,12 @@ test("1.1 стили опубликованы, у каждого есть кад
   const res = await request.get("/demo/demo-data.json");
   const age = (Date.now() - new Date(res.headers()["last-modified"] ?? 0).getTime()) / 86_400_000;
   expect(age, "витрина демо старше 2 суток").toBeLessThan(2);
-  // кадры приезжают с сервера позже данных — ждём, потом называем стили без кадра поимённо
+  // кадры приезжают с сервера позже данных — ждём, потом называем стили без кадра поимённо. «Есть кадр» — правило главной
+  // (`index.html:pubShot`: кадр опубликованного состояния, снятый с нынешней точки, T-20261022-16): любой кадр варианта
+  // засчитывал и кадр прежней расстановки или прежнего ракурса, которого главная не покажет
   await expect.poll(() => page.evaluate("Array.isArray(shots) && shots.length > 0"), { timeout: 15_000 }).toBe(true);
-  const noShot = await page.evaluate("allVariants().filter(v => !shots.some(s => s.vid === v.id && !s.svc)).map(v => v.style)");
-  expect(noShot, "стили без кадра").toEqual([]);
+  const noShot = await page.evaluate("allVariants().filter(v => !v.mine && !v.cid && !pubShot(v)).map(v => v.style)");
+  expect(noShot, "стили без фото своей расстановки и своих ракурсов").toEqual([]);
   expect(errors).toEqual([]);
 });
 
