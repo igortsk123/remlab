@@ -4788,8 +4788,13 @@ function histFwd(){return histGo(1);}
 #shot.nolive.vwalk .vstub{display:flex}
 /* «УЛУЧШАЮ… N %» НА ВСЮ ОБЛАСТЬ «ФОТО» (demo-20 Б3, владелец 22.10 TG 791/795): фото этой расстановки рисуется — вкладка «Фото» уже есть,
    на ней ход работы крупно, а не только полоса на кнопке */
-.vphwait{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
- padding:24px;text-align:center;background:var(--wash-2);color:var(--ink)}
+.vphwait{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;
+ padding:24px;text-align:center;background:var(--wash-2) center/cover no-repeat;color:var(--ink)}
+/* под ходом — кадр этой расстановки (fable-lead 22.10: «оверлей НА 3D-модели»), приглушён вуалью; текст — на светлой плашке */
+.vphwait.vbg::before{content:'';position:absolute;inset:0;background:rgba(251,248,243,.42)}
+.vphcard{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 22px;min-width:min(300px,82%);
+ border-radius:16px;background:rgba(255,255,255,.9);box-shadow:0 6px 24px rgba(41,37,36,.16)}
+.vphwait:not(.vbg) .vphcard{background:none;box-shadow:none}
 .vphwait b{font-size:20px;font-weight:600}
 .vphwait i{display:block;width:min(260px,70%);height:6px;border-radius:999px;background:rgba(176,106,74,.18);overflow:hidden}
 .vphwait s{display:block;height:100%;width:0;background:var(--accent);transition:width 1s linear}
@@ -5504,11 +5509,24 @@ function vwCamNames(){
 const VJ={job:null, err:'', tick:0, self:0};
 // фото рисуется для ЭТОЙ расстановки (задание окна или автофото избранного того же состояния)
 function vwJobHere(){ try{return !!(VJ.job&&VJ.job.stateId===curStateId());}catch(e){return false;} }
+// КАДР ПОД «УЛУЧШАЮ…» (fable-lead 22.10: ход — поверх расстановки, не на пустом фоне): вид 3D, каким его видел человек; живой
+// сцены нет — черновой снимок этого состояния; нет и его — кадр будущего фото, когда снимутся кадры (`vwRealistic`)
+async function vwPhGrab(job){
+  try{const wrap=document.querySelector('#shot .shotwrap'), r=wrap&&wrap.getBoundingClientRect();
+    if(LIVE.ok===true&&LIVE.scene&&LIVE.scene.exportFrame&&LIVE.canvas&&LIVE.canvas.isConnected&&r&&r.width>0&&r.height>0){
+      const k=Math.min(2,window.devicePixelRatio||1);
+      const b=await LIVE.scene.exportFrame(Math.round(r.width*k),Math.round(r.height*k),'image/jpeg',0.8);
+      if(b){job.bg=URL.createObjectURL(b); return;}}}catch(e){}
+  vwPhDraft(job);
+}
+function vwPhDraft(job){const d=shots.filter(x=>x.stateId===job.stateId&&x.url&&!x.orphan&&x.quality!=='realistic').pop(); if(d)job.bg=d.url;}
 function vwPhWaitUi(){
   const wrap=document.querySelector('#shot .shotwrap'); if(!wrap)return;
   let el=wrap.querySelector('.vphwait');
   if(VW.mode!=='photo'||!vwJobHere()){if(el)el.remove(); return;}
-  if(!el){el=document.createElement('div'); el.className='vphwait'; el.setAttribute('role','status'); el.innerHTML='<b></b><i><s></s></i><small></small>'; wrap.appendChild(el);}
+  if(!el){el=document.createElement('div'); el.className='vphwait'; el.setAttribute('role','status'); el.innerHTML='<div class="vphcard"><b></b><i><s></s></i><small></small></div>'; wrap.appendChild(el);}
+  if(!VJ.job.bg)vwPhDraft(VJ.job);   // окно открыли посреди задания (автофото избранного) — хотя бы черновик
+  const bg=VJ.job.bg||''; if(el.dataset.bg!==bg){el.dataset.bg=bg; el.style.backgroundImage=bg?'url("'+bg+'")':''; el.classList.toggle('vbg',!!bg);}
   const w=photoWait(VJ.job.t0), EN=LANG==='en', nt=/^осталось/.test(VJ.job.note||'')?'':(VJ.job.note||'');
   el.querySelector('b').textContent=(EN?'Enhancing… ':'Улучшаю… ')+Math.floor(w.pct)+' %';
   el.querySelector('s').style.width=w.pct.toFixed(1)+'%';
@@ -5554,7 +5572,7 @@ async function vwCaptureViews(){
       const r=await LIVE.scene.capture(poses,w,h), tc=performance.now();
       const ids=await Promise.all(r.frames.map(b=>fetch('/api/render/frame',{method:'POST',headers:{'content-type':'image/jpeg'},body:b})
         .then(x=>x.ok?x.json():Promise.reject(new Error('кадр не принят '+x.status))).then(j=>j.id)));
-      return {views:ids.map((id,k)=>({camera:'C'+(k+1),id})), clay:r.clay, sheet:port?'portrait':'landscape',
+      return {views:ids.map((id,k)=>({camera:'C'+(k+1),id})), clay:r.clay, blobs:r.frames, sheet:port?'portrait':'landscape',
         ms:{capture:Math.round(tc-t0), upload:Math.round(performance.now()-tc)}, size:w+'×'+h};
     }catch(e){try{console.warn('кадр из браузера не снят',w,e);}catch(_){}}
   }
@@ -5571,8 +5589,9 @@ async function vwRealistic(o){
   // ОКНО ЭТОЙ РАССТАНОВКИ ОТКРЫТО — СРАЗУ «ФОТО» С ХОДОМ РАБОТЫ (demo-20 Б3, владелец 22.10 TG 791/795): и по кнопке «Сделать реалистичнее»,
   // и при добавлении в избранное (автофото) — одинаково; готовое фото встанет туда само
   const shotEl=document.getElementById('shot'), here=()=>shotEl.classList.contains('on')&&shotEl.classList.contains('v2')&&job.stateId===curStateId();
-  if(here()){VJ.self=1; vwMode('photo'); VJ.self=0;}
+  if(here()){await vwPhGrab(job); if(here()){VJ.self=1; vwMode('photo'); VJ.self=0;}}
   const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();
+    if(job.bg&&job.bg.startsWith('blob:'))setTimeout(()=>URL.revokeObjectURL(job.bg),3000);
     // не вышло — вкладка «Фото» без снимка исчезает, человек возвращается в 3D
     if(here()&&VW.mode==='photo'&&!vwRealShots().length){VJ.self=1; vwMode('walk'); VJ.self=0;} else vwModeUi();};
   let cap=await vwCaptureViews();
@@ -5580,6 +5599,7 @@ async function vwRealistic(o){
   // одном — снимаем ещё раз уже новую; иначе фото подписано новой расстановкой, а нарисовано по кадрам прежней (demo-20 Б3, 1440)
   if(job.stateId!==curStateId()){job.stateId=curStateId(); job.vid=curVid(); cap=await vwCaptureViews(); vwModeUi();}
   VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay}:null;   // для проверок и замера
+  if(!job.bg&&cap&&cap.blobs&&cap.blobs.length){job.bg=URL.createObjectURL(cap.blobs[job.cam]||cap.blobs[0]); vwPhWaitUi();}
   if(VW.mode==='photo')liveHide();   // съёмка кадров запускает цикл сцены — на «Фото» он не нужен
   makePhoto('realistic','','',{bg:true, extra:cap?{views:cap.views, clay:cap.clay, sheet:cap.sheet}:{},
     progress:t=>{job.note=t; vwCtaUi();},
