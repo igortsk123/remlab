@@ -15,7 +15,7 @@
 
 import { alternatives, feedForStyle, placeOf, type FeedItem } from "@/lib/configurator/demo-feeds";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
-import { apartment as apartmentSchema, type Apartment, type Opening } from "@/contracts/apartment";
+import { apartment as apartmentSchema, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
 
 /** Чья квартира и в какой валюте: из реестра застройщиков (b2b-06), не из файла витрины. */
@@ -113,7 +113,7 @@ type DemoItem = {
 type DemoDecor = { role?: string; sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number } };
 type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[]; decor?: DemoDecor[];
   /** Ракурсы окна (`tools/flat3d/demo-cams.mjs`) — режим «Фото» в /flat снимает ими (demo-05 п.8). */
-  cams?: { name?: string; x?: number; y?: number; rot?: number; fov?: number; pose?: number; pshift?: number }[] };
+  cams?: { name?: string; x?: number; y?: number; rot?: number; fov?: number; pose?: number; pshift?: number; crop?: Record<string, CropWindow> }[] };
 
 const isRugRole = (role?: string): boolean => String(role ?? "").startsWith("ковёр");
 /** Картинка товара витрины: абсолютная — как есть, относительная (`img/…`) — от адреса витрины. */
@@ -378,7 +378,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     slots,
     cameras: (v.cams ?? []).filter((c) => c.x !== undefined && c.y !== undefined).map((c, k) => ({ id: `cam${k + 1}`, roomId: "living",
       titleRu: `Ракурс ${k + 1}`, x: c.x as number, y: c.y as number, rot: c.rot ?? 0, fov: c.fov ?? 72, ...(c.pose ? { pose: c.pose } : {}),
-      ...(typeof c.pshift === "number" ? { pshift: c.pshift } : {}) })),
+      ...(typeof c.pshift === "number" ? { pshift: c.pshift } : {}), ...(c.crop ? { crop: c.crop } : {}) })),
     // Старт прогулки — у середины комнаты, лицом вглубь: так человек сразу видит расстановку.
     spawn: { x: room.w / 2, y: Math.min(120, room.d / 3), rot: 0 },
   });

@@ -121,6 +121,15 @@ export const slot = z.object({
 });
 export type Slot = z.infer<typeof slot>;
 
+export const cropWindow = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number().positive(),
+  h: z.number().positive(),
+  keep: z.array(z.string()).optional(),
+});
+export type CropWindow = z.infer<typeof cropWindow>;
+
 /** Готовая точка съёмки для photo-режима: см и градусы, как ждёт `/api/render`. */
 export const cameraPreset = z.object({
   id: z.string(),
@@ -134,6 +143,11 @@ export const cameraPreset = z.object({
   pose: z.number().optional(),
   /** Сдвиг вертикального кадра телефона (`viewer.PhotoPose.pshift`, demo-12). */
   pshift: z.number().optional(),
+  /**
+   * Окно превью по пропорции окна («1.500», «0.673»…): доли кадра 2048×1489 (y — сверху) и id мебели, что в нём целиком.
+   * Считает сборка демо по 3D-модели расстановки (`camCrop` в блоке CAMFIT, demo-22).
+   */
+  crop: z.record(z.string(), cropWindow).optional(),
 });
 export type CameraPreset = z.infer<typeof cameraPreset>;
 
