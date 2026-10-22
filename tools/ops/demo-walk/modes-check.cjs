@@ -71,10 +71,10 @@ for(let t=0;t<40&&!p.renderBodies.some(x=>x.quality==='realistic');t++)await p.w
 const rb=p.renderBodies.filter(x=>x.quality==='realistic').pop()||{};
 ok('2 кадры из браузера: оба вида загружены и в задании только их имена',(rb.views||[]).length===2&&rb.views.every(v=>/^[0-9a-f]{64}$/.test(v.id))&&rb.views.every(v=>p.frames.some(f=>f.id===v.id)),
   JSON.stringify({views:rb.views, frames:p.frames.map(f=>[f.id.slice(0,8),f.bytes,f.w]), cap:await p.evaluate('JSON.stringify(VW.lastCapture)')}));
-// компьютер — горизонтальные виды под лист 2048×3072; телефон в портрете — вертикальные под лист 3072×2048 (demo-10, «кадр в пропорции устройства»)
-const okSize=W<=700&&H>W?(f=>f.w&&((f.w[0]===1489&&f.w[1]===2048)||(f.w[0]===1117&&f.w[1]===1536))):(f=>f.w&&((f.w[0]===2048&&f.w[1]===1489)||(f.w[0]===1536&&f.w[1]===1117)));
-ok('2 размер кадра — под лист устройства',p.frames.length>=2&&p.frames.slice(-2).every(okSize),JSON.stringify(p.frames.slice(-2).map(f=>f.w)));
-ok('2 ориентация листа в задании',rb.sheet===(W<=700&&H>W?'portrait':'landscape'),String(rb.sheet));
+// ВСЕГДА ШИРОКИЕ виды под лист 2048×3072 на любом устройстве (demo-20 Г1, владелец 22.10: «не обрезай под телефон»; обрезка — только при показе)
+const okSize=f=>f.w&&((f.w[0]===2048&&f.w[1]===1489)||(f.w[0]===1536&&f.w[1]===1117));
+ok('2 размер кадра — широкий на любом устройстве',p.frames.length>=2&&p.frames.slice(-2).every(okSize),JSON.stringify(p.frames.slice(-2).map(f=>f.w)));
+ok('2 ориентация листа в задании — широкая',rb.sheet==='landscape',String(rb.sheet));
 await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>VW.mode==='photo',null,{timeout:20000}).catch(()=>{}); s=await st(p);
 ok('2 готово для этой расстановки → «Фото» открылось само, кнопки нет',s.mode==='photo'&&s.photoTab&&s.cta===null,JSON.stringify({mode:s.mode,tab:s.photoTab,cta:s.cta}));
 await p.screenshot({path:OUT+`m09-${W}-photo.png`});

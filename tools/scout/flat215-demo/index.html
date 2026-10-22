@@ -5663,23 +5663,22 @@ function vwCtaUi(){
 // КАДРЫ ДЛЯ НЕЙРОСЕТИ — ИЗ ЭТОЙ ЖЕ 3D-СЦЕНЫ (demo-10, владелец 17.10: «3D рисуем моментально — сфотать и отправить»): оба вида из поз
 // C1/C2 (`DemoScene.capture`: атомарно, без наклона и подсветки), каждый — отдельным запросом на прод (`/api/render/frame`, имя =
 // sha256), в задании — только имена. Без 3D или при ошибке — серверный рендер, как раньше. Телефон — сразу облегчённый размер
+// ВСЕГДА ШИРОКИЙ КАДР на любом устройстве (demo-20 Г1, владелец 22.10: «не обрезай под телефон» — «пропорция устройства» означала только
+// ПОКАЗ): окно «Фото» и превью обрезают по месту (`vwPhotoFocus`), «⤢» показывает широкое фото целиком
 const VW_FRAME_SIZES=[[2048,1489],[1536,1117]];   // пропорция вида листа 2048×3072 с полосой 94 px (Codex 17.10 п.2)
-// ТЕЛЕФОН — ВЕРТИКАЛЬНЫЕ ВИДЫ (владелец 17.10: «кадр в пропорции устройства»): лист 3072×2048, два вида 1489×2048 бок о бок
-const VW_FRAME_SIZES_PORTRAIT=[[1489,2048],[1117,1536]];
 async function vwCaptureViews(){
   if(LIVE.ok!==true||!LIVE.scene||!LIVE.scene.capture)return null;
   const poses=(cams||loadCams()).slice(0,2).map(camPoseOf);
   // СЦЕНА — ТОЧНО ЭТА РАССТАНОВКА (самопроверка 17.10: после смены варианта снимок ловил часть мебели прежнего — сцена ещё обновлялась):
   // ставим текущие предметы и декор и ждём, затем снимаем (`update` — последняя побеждает, повтор того же — без перезагрузки моделей)
   try{await LIVE.scene.update(clone(items), liveDecor());}catch(e){return null;}
-  const t0=performance.now(), port=VW_PHONE()&&window.innerHeight>window.innerWidth;
-  const sizes=port?VW_FRAME_SIZES_PORTRAIT:VW_FRAME_SIZES;
-  for(const [w,h] of (isTouchUI()?sizes.slice(1):sizes)){
+  const t0=performance.now();
+  for(const [w,h] of (isTouchUI()?VW_FRAME_SIZES.slice(1):VW_FRAME_SIZES)){
     try{
       const r=await LIVE.scene.capture(poses,w,h), tc=performance.now();
       const ids=await Promise.all(r.frames.map(b=>fetch('/api/render/frame',{method:'POST',headers:{'content-type':'image/jpeg'},body:b})
         .then(x=>x.ok?x.json():Promise.reject(new Error('кадр не принят '+x.status))).then(j=>j.id)));
-      return {views:ids.map((id,k)=>({camera:'C'+(k+1),id})), clay:r.clay, blobs:r.frames, sheet:port?'portrait':'landscape',
+      return {views:ids.map((id,k)=>({camera:'C'+(k+1),id})), clay:r.clay, blobs:r.frames, sheet:'landscape',
         ms:{capture:Math.round(tc-t0), upload:Math.round(performance.now()-tc)}, size:w+'×'+h};
     }catch(e){try{console.warn('кадр из браузера не снят',w,e);}catch(_){}}
   }

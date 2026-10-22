@@ -17,7 +17,7 @@ const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const GO = process.argv.includes("--go"), ALL = process.argv.includes("--all"), FRAMES = process.argv.includes("--frames");
 const fi = process.argv.indexOf("--force"), FORCE = fi >= 0 ? (process.argv[fi + 1] || "all") : "";
 const EXPECT_MODEL = process.env.EXPECT_MODEL ?? "improve/openai/gpt-image-2.5-sunburst";
-const EXPECT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v4";   // demo-14: + список товаров (ADR-0305)
+const EXPECT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v4.1";   // demo-14: + список товаров (ADR-0305); .1 — радиатор под окном (demo-20 Г3)
 
 async function main() {
   const paid = await (await fetch(`${BASE}/api/draft/paid`)).json().catch(() => ({ available: false, code: "нет ответа" }));

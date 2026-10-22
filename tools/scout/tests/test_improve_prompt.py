@@ -21,7 +21,7 @@ def check(name, cond, info=''):
 
 import re
 
-check('версия промпта improve-v3', IM.PROMPT_VERSION == 'improve-v3', IM.PROMPT_VERSION)
+check('версия промпта improve-v3.1', IM.PROMPT_VERSION == 'improve-v3.1', IM.PROMPT_VERSION)
 db = json.load(open(os.path.join(HERE, '..', 'styles.json'), encoding='utf-8'))
 # ДОБАВЛЕНИЯ, КОТОРЫЕ ГАЙД ДЕЛАТЬ НЕ ВПРАВЕ (demo-13): светильники, ниши, экраны радиатора, ковры, мебель. Ссылки на уже стоящее
 # («behind the sofa», «over the sofa») и образ («as if through paper screens») — не добавление
@@ -55,10 +55,15 @@ for st in ('сканди', 'современный', 'минимализм', 'л
 deny = db['_decor_policy']['deny_always']
 check('запрет выдуманных подушек и подлокотников в FORBIDDEN',
       any('cushions, throws or armrests that the catalogue product does not have' == x for x in deny))
+# РАДИАТОР ПОД КАЖДЫМ ОКНОМ (demo-20 Г3): одно общее правило для всех стилей, без экрана; уже нарисованный — оставить
+for st in ('сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди'):
+    _pr = IM.prompt_for(st)
+    check(f'{st}: правило радиатора под окном — один раз, без экрана', _pr.count('RADIATORS: under every window') == 1 and
+          'with no cover, screen or box' in _pr and 'keep it exactly as rendered' in _pr)
 check('отпечаток промпта стабилен', IM.prompt_sha('abc') == IM.prompt_sha('abc') and len(IM.prompt_sha('abc')) == 12)
 # improve-v4 (demo-14): список товаров — только по флагу; без флага промпт и версия прежние
-check('без флага — improve-v3 и без списка товаров', (os.environ.get('IMPROVE_PROMPT') == 'v4') or
-      (IM.PROMPT_VERSION == 'improve-v3' and 'PRODUCT LIST' not in IM.prompt_for('сканди')))
+check('без флага — improve-v3.1 и без списка товаров', (os.environ.get('IMPROVE_PROMPT') == 'v4') or
+      (IM.PROMPT_VERSION == 'improve-v3.1' and 'PRODUCT LIST' not in IM.prompt_for('сканди')))
 _pl = [{'id': [1], 'role': 'диван', 'name': 'Диван Викс Рогожка Серый', 'material': 'woven matting fabric', 'colour_name': 'Серый',
         'colour_hex': '#82828C', 'confidence': 0.8}]
 _p4 = IM.prompt_for('сканди', products=_pl)

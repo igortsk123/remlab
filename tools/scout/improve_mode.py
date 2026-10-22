@@ -44,8 +44,9 @@ SIZE = os.environ.get('IMPROVE_SIZE', '2048x3072')     # замер: прини�
 # improve-v4 (demo-14, 17.10, A/B на листе сканди — `/test/share/refs-check/`): + СПИСОК ТОВАРОВ в промпте — номер как на листе эталонов,
 # роль, название, материал и цвет словами, измеренный основной тон фото (`refs_check.ref_colour`) и уверенность; средний ΔE00 12.1 → 9.0/10.4
 # в двух прогонах без роста времени. ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН до приёмки d8: включается `IMPROVE_PROMPT=v4` в окружении рисующего процесса
+# «.1» (demo-20 Г3, владелец 22.10 TG 824): + общее правило РАДИАТОР ПОД КАЖДЫМ ОКНОМ — для всех стилей; ответ без него из кэша не отдаётся
 PROMPT_V4 = os.environ.get('IMPROVE_PROMPT') == 'v4'
-PROMPT_VERSION = 'improve-v4' if PROMPT_V4 else 'improve-v3'
+PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.1'
 _MATERIALS = [('рогожк', 'woven matting fabric'), ('шенилл', 'chenille'), ('велюр', 'velour'), ('букле', 'bouclé'), ('вельвет', 'corduroy'),
               ('экокож', 'faux leather'), ('кож', 'leather'), ('лён', 'linen'), ('шерст', 'wool'), ('хлоп', 'cotton'), ('дуб', 'oak'),
               ('орех', 'walnut'), ('ясень', 'ash'), ('сосн', 'pine'), ('древесн', 'wood'), ('дерев', 'wood'), ('металл', 'metal'),
@@ -248,6 +249,11 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         '* Keep the rug flat on the floor with its exact existing size, position, pattern and '
         'colour. Never add a second rug or place textile on a wall.',
         '* Every planter or vase must hold a live plant sized to it.',
+        '',
+        # РАДИАТОР ПОД КАЖДЫМ ОКНОМ (demo-20 Г3, владелец 22.10): одно правило на все стили; уже нарисованный — как есть (STYLE_PREFIX)
+        'RADIATORS: under every window, directly below the windowsill and centred on the opening, there must be one white '
+        'panel radiator, fully visible, with no cover, screen or box. If IMAGE 1 already shows a radiator under that window, '
+        'keep it exactly as rendered and do not add a second one.',
         '',
         'RENOVATION',
         '',
