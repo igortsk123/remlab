@@ -75,7 +75,8 @@ ok('2 кадры из браузера: оба вида загружены и в
 const okSize=f=>f.w&&((f.w[0]===2048&&f.w[1]===1489)||(f.w[0]===1536&&f.w[1]===1117));
 ok('2 размер кадра — широкий на любом устройстве',p.frames.length>=2&&p.frames.slice(-2).every(okSize),JSON.stringify(p.frames.slice(-2).map(f=>f.w)));
 ok('2 ориентация листа в задании — широкая',rb.sheet==='landscape',String(rb.sheet));
-await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>VW.mode==='photo',null,{timeout:20000}).catch(()=>{}); s=await st(p);
+// окно уже на «Фото» с самого нажатия — ждём конец задания, а не режим (иначе шаг 4 правил бы под замком «Улучшаю…», demo-20 Г5)
+await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>!VJ.job&&VW.mode==='photo',null,{timeout:20000}).catch(()=>{}); s=await st(p);
 ok('2 готово для этой расстановки → «Фото» открылось само, кнопки нет',s.mode==='photo'&&s.photoTab&&s.cta===null,JSON.stringify({mode:s.mode,tab:s.photoTab,cta:s.cta}));
 await p.screenshot({path:OUT+`m09-${W}-photo.png`});
 // 4. изменение → 3D и шторка вниз (телефон)
@@ -85,16 +86,21 @@ ok('4 смена пола → 3D, вкладки «Фото» нет',s.mode==='
 if(W<=700)ok('4a шторка свернулась сама',s.pos==='0','pos '+s.pos);
 await p.evaluate(()=>histBack()); await p.waitForTimeout(1200); s=await st(p);
 ok('4 ↶ вернул расстановку со снимком → «Фото» снова доступно (в 3D)',s.mode==='walk'&&s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));
-// 3. состояние изменилось во время задания → без переключения, подсказка
+// 3. ПРАВКА ВО ВРЕМЯ «УЛУЧШАЮ…» НЕ ПРИМЕНЯЕТСЯ (demo-20 Г5, владелец 22.10 TG 867): ушёл в 3D, пробует сменить пол — подсказка, расстановка
+// та же; по готовности окно остаётся в 3D, вкладка «Фото» есть и «Фото готово · Смотреть». Прежний сценарий «поменял во время съёмки →
+// „фото готово для прежней“» стал невозможен по замыслу
 await p.evaluate(()=>{window.__fakeReady=0; const g=devGroups().find(x=>x.kind==='flooring'); devSet(g.id,g.variants[2].id);}); await p.waitForTimeout(900);
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);   // после изменения шторка свёрнута — кнопку сперва видно, как у человека
 await p.evaluate(()=>{window.__cap0=VW.lastCapture;});
 await p.click('#vCta'); await p.waitForTimeout(1200);
-// меняем ПОСЛЕ съёмки кадров (заказ уже ушёл); смена посреди съёмки — переснимает новую расстановку, это другой случай
 await p.waitForFunction(()=>VW.lastCapture!==window.__cap0,null,{timeout:20000}).catch(()=>{});
-await p.evaluate(()=>{const g=devGroups().find(x=>x.kind==='flooring'); devSet(g.id,g.variants[3].id); window.__fakeReady=1;});
+const lk=await p.evaluate(()=>{vwMode('walk'); const s0=curStateId(), g=devGroups().find(x=>x.kind==='flooring'); devSet(g.id,g.variants[3].id);
+  const t=document.getElementById('toast'); return {same:curStateId()===s0, hint:t&&!t.hidden?t.textContent:''};});
+ok('3 правка во время «Улучшаю…» не применяется, подсказка',lk.same&&/Менять можно, когда улучшение закончится|You can change things once the enhancement is finished/.test(lk.hint),JSON.stringify(lk));
+await p.evaluate(()=>{window.__fakeReady=1;});
 await p.waitForFunction(()=>!VJ.job,null,{timeout:20000}).catch(()=>{}); await p.waitForTimeout(500); s=await st(p);
-ok('3 расстановка менялась во время съёмки → 3D, подсказка «фото готово для прежней»',s.mode==='walk'&&!s.photoTab&&s.ready,JSON.stringify({mode:s.mode,tab:s.photoTab,ready:s.ready}));
+const rd=await p.evaluate(()=>{const t=document.getElementById('toast'); return t&&!t.hidden?t.textContent:'';});
+ok('3 готово, человек в 3D → вкладка «Фото» есть, «Фото готово · Смотреть»',s.mode==='walk'&&s.photoTab&&/Фото готово.*Смотреть|Photo ready.*View/.test(rd),JSON.stringify({mode:s.mode,tab:s.photoTab,toast:rd}));
 const geo=await p.evaluate(()=>{const R=s=>{const e=document.querySelector(s); if(!e)return null; const r=e.getBoundingClientRect(); return [Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)];};
   const sc=[...document.querySelectorAll('#shot, #shot *')].filter(e=>e.scrollTop>0).map(e=>(e.id||e.className||e.tagName)+':'+e.scrollTop);
   return {vmodes:R('#shot .vmodes'), canvas:R('#shot canvas'), ready:R('#shot .vready'), scrolled:sc, win:scrollY};});

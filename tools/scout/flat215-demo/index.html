@@ -2548,6 +2548,7 @@ document.addEventListener('click',e=>{const t=e.target&&e.target.closest; if(!t)
   const g=e.target.closest('#vside [data-group]'); if(g){vwGroupOpen(g.dataset.group); return;}
   if(e.target.closest('#vOptsBack'))vwGroupOpen(null);});
 function devSet(gid, vid){
+  if(vwEditLock())return;
   const next=devCanon(Object.assign({},DEVOPT,{[gid]:vid}));
   if(JSON.stringify(next)===JSON.stringify(DEVOPT))return;
   DEVOPT=next; devApply(); devDraw(); try{sync3dLink();}catch(e){}
@@ -2691,7 +2692,7 @@ function toast(t,act){let el=document.getElementById('toast');
     document.body.appendChild(el);}
   el.textContent=t; el.hidden=false; el.classList.remove('out'); clearTimeout(el._t);
   el._t=setTimeout(()=>{el.classList.add('out'); el._t=setTimeout(()=>{el.hidden=true; el.classList.remove('out');},250);},
-    (act?2250:1750)+(String(t).length>60?750:0));
+    (act&&act.ms)||(act?2250:1750)+(String(t).length>60?750:0));   // `act.ms` — своя длительность (готовое фото, demo-20 Г5)
   // ОКНО ВАРИАНТА НА ТЕЛЕФОНЕ (demo-02 v5.2): сообщение — над шторкой и переключателем ракурсов, а не поверх кнопки
   // «Сделать реалистичнее» (после замены «Заменено: …» закрывало её на 3,5 с). Положение — по цели сдвига шторки, не по кадру анимации
   el.style.bottom='24px';
@@ -3437,15 +3438,21 @@ function homeRooms(){
 // КАДР ОПУБЛИКОВАННОГО СОСТОЯНИЯ ВАРИАНТА (demo-20 Б2, владелец 22.10: «вариантов без фото быть не должно»): `bestShot` ищет кадр
 // ЖИВОЙ расстановки — у открытого варианта её сбивают правки и общая отделка `DEVOPT`, и карточка оставалась без фото. Здесь —
 // состояние из данных витрины (предметы, декор, своя отделка `v.dev`), как его снимает ночной прогрев (`tools/ops/demo-warm.mjs`)
+function pubStateOf(v){ return stateIdOf(v.items||[], (v.decor||[]).filter(x=>(x.sku||{}).name), D.room, v.dev||{}); }
 function pubShot(v){
   if(!v||!D)return null;
-  const st=stateIdOf(v.items||[], (v.decor||[]).filter(x=>(x.sku||{}).name), D.room, v.dev||{});
+  const st=pubStateOf(v);
   const fit=shots.filter(x=>x.url&&!x.orphan&&(DBG||!x.svc)&&x.stateId===st);
   if(!fit.length)return null;
   const real=fit.filter(x=>x.quality==='realistic'), pool=real.length?real:fit;
   const c1=pool.filter(x=>(x.camera||'C1')==='C1'), P=c1.length?c1:pool;
   return P[P.length-1]||null;
 }
+// КАРТОЧКА ПРАВЛЕНОГО ВАРИАНТА — КАДР 3D ЕГО НЫНЕШНЕЙ РАССТАНОВКИ (demo-20 Г5, сценарий владельца 22.10): своего кадра у правленой
+// расстановки нет, а `pubShot` — фото ОПУБЛИКОВАННОЙ, не то, что человек видел в окне. Живая сцена снимает точку 1 после правки
+// (правка или показ 3D → `liveShotSoon`); карта «номер состояния → кадр» живёт до перезагрузки страницы; кадра нет — запасной путь `pubShot`
+const LIVE_SHOTS=new Map();
+function liveShot(v){ const u=v&&D&&LIVE_SHOTS.get(variantStateOf(v)); return u?{url:u, thumb:u, quality:'live'}:null; }
 function homeModel(){
   const vs=allVariants(), styles=[], seen=new Set(), roomVariants=[];
   // реестр кадров пришёл — вариант без кадра опубликованного состояния на главную не выводим (его стиль — тоже); реестр не пришёл
@@ -3497,7 +3504,8 @@ function drawHome(force){
   const cards=m.rooms.map(r=>{
     const rv=r.contentState==='ready'?m.roomVariants.find(x=>x.styleId===act.styleId&&x.roomId===r.id):null, v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
-    const sh=bestShot(v)||pubShot(v), fav=F&&F.ofState(F.baseState(v));   // правленый вариант без своего кадра — кадр опубликованного
+    // правленый вариант без своего кадра — кадр 3D его расстановки, нет и его — кадр опубликованного
+    const sh=bestShot(v)||liveShot(v)||pubShot(v), fav=F&&F.ofState(F.baseState(v));
     return {r, i:rv.index, v, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), fav:fav?(fav.displayName||''):null};
   });
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
@@ -4179,7 +4187,7 @@ let drag=null, rotDrag=null;
 // ±90° оверлеем; долгий тап (~450мс без движения) — перетаскивание. Мышь — как раньше.
 let touchTimer=null, touchStart=null, rotBtns=null;
 function hideRotOvl(){if(rotBtns){rotBtns.forEach(b=>b.remove());rotBtns=null;}}
-function rotate90(dir){if(!sel)return;
+function rotate90(dir){if(!sel||vwEditLock())return;
   // у стены не запрещаем, а ЗАВОДИМ внутрь комнаты (владелец 31.08: «у стены стрелками
   // не поворачивается»): повернули → центр клэмпится по новому габариту
   const prev=sel.rot, px=sel.x, py=sel.y;
@@ -4235,7 +4243,7 @@ function showRotOvl(){hideRotOvl();if(!sel)return;
     document.body.appendChild(b);return b;});
   updateRotOvl();}
 window.addEventListener('scroll',updateRotOvl,{passive:true});
-stage.addEventListener('pointerdown',e=>{const pt=loc(e);
+stage.addEventListener('pointerdown',e=>{if(vwEditLock()){e.preventDefault(); return;} const pt=loc(e);
   // камера имеет приоритет над предметами: её значок мелкий и лежит поверх
   const rotCam=e.target.closest?e.target.closest('[data-camrot]'):null;
   if(rotCam){const i=+rotCam.getAttribute('data-camrot');
@@ -4442,6 +4450,7 @@ function decorSel(i){
   return {role:x.role||'ваза', dec:i, sku:p, w:p.w||0, d:p.d||0, h:p.h||0, x:0, y:0, rot:0};
 }
 function openPicker(it){
+  if(vwEditLock())return;
   // ключ ленты — роль без хвостового номера; «первое слово» ломало «стол обеденный» (01.09)
   sel=it; F={...F_DEFAULT}; const base=it.role.replace(/\s+\d+$/,'');
   const list=feedFor(base);
@@ -4545,7 +4554,7 @@ function grid(){
     c.querySelector('.link').onclick=e=>e.stopPropagation();
     c.onclick=take; g.appendChild(c);});}
 let TRY_LAST={n:1, base:''};   // последняя замена: сколько предметов группы сменилось (сообщение «Заменено: стулья ×2»)
-function tryOn(p){const s=sel||items.find(i=>i.role==='диван'); TRY_LAST={n:1, base:''};
+function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.role==='диван'); TRY_LAST={n:1, base:''};
   if(!s){toast('Сначала коснитесь предмета на плане');return;}
   if(!p.w||!p.d){toast('У этого товара в фиде нет габаритов — примерка была бы выдумкой');return;}
   // ЗАМЕНА ДЕКОРА ПИШЕТСЯ В СПИСОК ВАРИАНТА, А НЕ В РАССТАНОВКУ (08.09): места на полу у вазы
@@ -4782,7 +4791,7 @@ function histPush(){
 }
 function histGo(step){
   const h=histOf(), to=h.at+step;
-  if(to<0||to>=h.stack.length)return false;
+  if(to<0||to>=h.stack.length||vwEditLock())return false;
   h.at=to; const s=h.stack[to], v=allVariants()[cur]||{};
   items=clone(s.items); sel=null;
   (v.decor||[]).forEach((x,i)=>{if(s.decor[i]!==undefined)x.sku=clone(s.decor[i]);});
@@ -5571,7 +5580,7 @@ function vwMount(s){
   // главное действие режима (v3): «Фото» — «Сделать реалистичнее», «План» — «Изменить план» (редактор, «Готово» вернёт сюда же)
   // «Сделать реалистичнее» — в 3D (demo-09): фоновое задание, окно не трогаем; «План» — «Изменить план»
   if(cta)cta.onclick=()=>{
-    if(VW.mode==='plan'){const ed=document.getElementById('shEdit'); if(ed&&ed.onclick)ed.onclick(); return;}
+    if(VW.mode==='plan'){if(vwEditLock())return; const ed=document.getElementById('shEdit'); if(ed&&ed.onclick)ed.onclick(); return;}
     vwRealistic();};
   const sl=document.getElementById('vStubLink'); if(sl)sl.onclick=()=>{if(window.__fav)window.__fav.share();};
   vwSheetWire();
@@ -5721,6 +5730,14 @@ function vwCamLabels(){
 const VJ={job:null, err:'', tick:0, self:0};
 // фото рисуется для ЭТОЙ расстановки (задание окна или автофото избранного того же состояния)
 function vwJobHere(){ try{return !!(VJ.job&&VJ.job.stateId===curStateId());}catch(e){return false;} }
+// ЗАМОК ПРАВОК НА ВРЕМЯ «УЛУЧШАЮ…» (demo-20 Г5, владелец 22.10 TG 867: ушёл в 3D, поменял расстановку — вкладка «Фото» пропала, о готовом
+// фото не узнал): пока рисуется фото ЭТОЙ расстановки, замена, сдвиг, поворот, отделка, ↶/↷ и редактор плана не применяются — подсказка;
+// смотреть 3D/план и вращать взгляд можно. Правка — `if(vwEditLock())return;` в начале каждой точки входа
+function vwEditLock(){
+  if(!vwJobHere())return false;
+  toast(LANG==='en'?'You can change things once the enhancement is finished':'Менять можно, когда улучшение закончится');
+  return true;
+}
 // КАДР ПОД «УЛУЧШАЮ…» (fable-lead 22.10: ход — поверх расстановки, не на пустом фоне): вид 3D, каким его видел человек; живой
 // сцены нет — черновой снимок этого состояния; нет и его — кадр будущего фото, когда снимутся кадры (`vwRealistic`)
 async function vwPhGrab(job){
@@ -5823,9 +5840,16 @@ async function vwRealistic(o){
       // расстановкой (demo-20 Б3, владелец 22.10: «фото не обновилось, кнопки «Фото» нет»); автофото избранного — так же
       const same=job.stateId===curStateId();
       // на «Фото» или не уходил с неё — показываем готовое; ушёл сам в 3D/план — вкладка «Фото» просто есть
-      if(open&&same){VW.photo=job.cam; if(VW.mode==='photo'||!job.moved){VJ.self=1; vwMode('photo'); VJ.self=0;} else vwModeUi(); return;}
-      if(open){const mine=shots.slice(n0).find(x=>(x.camera||'C1')==='C'+(job.cam+1))||shots[n0]; if(mine)vwReady(mine.url);}}});
+      // ушёл в 3D/план или закрыл окно — заметное «Фото готово · Смотреть» (demo-20 Г5): иначе о готовом фото не узнать
+      const toPhoto=()=>{VJ.self=1; vwMode('photo'); VJ.self=0;};
+      if(open&&same){VW.photo=job.cam; if(VW.mode==='photo'||!job.moved)toPhoto(); else{vwModeUi(); vwPhotoReady(toPhoto);} return;}
+      if(open){const mine=shots.slice(n0).find(x=>(x.camera||'C1')==='C'+(job.cam+1))||shots[n0]; if(mine)vwReady(mine.url); return;}
+      // окно закрыто: «Смотреть» открывает расстановку, для которой фото (окно само встанет на «Фото», `openLiveWindow`)
+      if(!job.auto){const i=allVariants().findIndex(v=>variantStateOf(v)===job.stateId); if(i>=0)vwPhotoReady(()=>vwOpenVariant(i));}}});
   return true;
+}
+function vwPhotoReady(fn){
+  const EN=LANG==='en'; toast(EN?'Photo ready':'Фото готово',{label:EN?'View':'Смотреть', fn, ms:12000});
 }
 // «Фото готово для прежней расстановки» — ненавязчиво, в углу сцены; тап — снимок во весь экран; сама уходит через 12 с
 function vwReady(url){
@@ -6055,6 +6079,28 @@ async function liveShow(){
     const how=sc.frameItem?sc.frameItem(k):(sc.focus&&sc.focus(k),'turn'); LIVE.framed=how; VW.free=true; vwCamsUi(); sc.start();}
   LIVE.focus=null;
   LIVE.state='ready'; vwLoad(false);
+  liveShotSoon();
+}
+// кадр правленой расстановки для карточки главной (`liveShot`): точка 1, без наклона — `capture`, как кадры нейросети, но без отправки.
+// Не снимаем, если у расстановки есть свой кадр, она не правлена (карточке хватает опубликованного) или идёт «Улучшаю…» (своя съёмка).
+// Повод — любая правка (`remlab:hist`: замена, пол/стены, ↶/↷) и показ 3D; сцену перед съёмкой ставим в эту расстановку (`update` —
+// последняя побеждает, повтор того же без перезагрузки моделей): пол меняет сцену своим путём, не через `liveShow`
+let _liveShotT=0;
+function liveShotSoon(){ clearTimeout(_liveShotT); _liveShotT=setTimeout(liveShotTake,1200); }
+document.addEventListener('remlab:hist',liveShotSoon);
+async function liveShotTake(){
+  const v=allVariants()[cur], sc=LIVE.scene;
+  if(LIVE.ok!==true||!sc||!sc.capture||!v||!D||!LIVE.canvas||!LIVE.canvas.isConnected||VJ.job)return;
+  const st=variantStateOf(v);
+  if(LIVE_SHOTS.has(st)||bestShot(v)||st===pubStateOf(v))return;
+  const c=(cams||loadCams())[0]; if(!c)return;
+  try{await sc.update(clone(items), liveDecor());
+    if(st!==variantStateOf(allVariants()[cur]||{}))return;
+    const r=await sc.capture([camPoseOf(c)],1024,723);
+    if(VW.mode!=='walk'||!LIVE.canvas.isConnected)sc.stop();   // `capture` заново запускает цикл кадров — вне «3D» он не нужен
+    if(!r||!r.frames||!r.frames[0]||st!==variantStateOf(allVariants()[cur]||{}))return;
+    LIVE_SHOTS.set(st,URL.createObjectURL(r.frames[0])); drawHome();
+  }catch(e){}
 }
 </script>
 <script>
@@ -6128,7 +6174,7 @@ async function liveShow(){
   // кнопки шапки перерисовывает priceCard — после каждой перерисовки ставим свои обработчики заново
   var _pc=window.priceCard; if(typeof _pc==='function')window.priceCard=priceCard=function(){var r=_pc.apply(this,arguments);if(CARD){var a=document.getElementById('pcMort'),c=document.getElementById('pcCons');if(a)a.onclick=function(){contactSheet('mortgage');};if(c)c.onclick=function(){contactSheet('consult');};}return r;};
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);ev('variant_view',state());return r;};
-  var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);ev('item_swap',state());return r;};
+  var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);if(r!==false)ev('item_swap',state());return r;};   // false — замок «Улучшаю…»
   document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share'||e.detail==='floor_pick'||e.detail==='walls_pick')ev(e.detail,state());});
   // менеджер смотрит сам (`&mgr=1`) — его 3D и коллекции не засчитываются покупателю (verify b2b-03)
   var _s3=window.sync3dLink; if(typeof _s3==='function'&&!PREVIEW)window.sync3dLink=sync3dLink=function(){var r=_s3.apply(this,arguments);
