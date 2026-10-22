@@ -14,8 +14,16 @@
 ПОРЯДОК ОБЯЗАТЕЛЕН: шаг идёт ПЕРЕД пересборкой демо (`flat215_demo.py`), иначе страница соберётся
 по вчерашнему индексу и новые меши увидит только через сутки.
 
+БАНК-КАНДИДАТ (T-20261021-09/4). Новый банк собирается рядом (`sets3.next.json`, `bank_paths`), и до подмены демо на нём
+не видело моделей его новых товаров: шаг публиковал только товары живого банка. С `SETS_BANK=<банк>` публикуются товары
+ЖИВОГО банка И кандидата — объединение, а не замена: галерея пишет локальный `mesh-index.json` и страницы по списку
+отбора, и список «только кандидат» сжал бы их. На прод rsync идёт без `--delete`, индекс пересобирается по папкам
+сервера — модели живого демо не пропадают. Без `SETS_BANK` — как раньше, только живой банк.
+
   ~/venvs/scout/bin/python mesh_publish.py          # собрать, выложить, слить индекс
   ~/venvs/scout/bin/python mesh_publish.py --dry    # только показать числа
+  SETS_BANK=<банк> ~/venvs/scout/bin/python mesh_publish.py   # живой банк + кандидат
+  ~/venvs/scout/bin/python mesh_publish.py --selftest
 """
 from __future__ import annotations
 
@@ -25,10 +33,13 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import bank_paths as _BP  # noqa: E402
+
 SALAD = os.path.join(HERE, 'salad')
 PY = os.path.expanduser('~/venvs/scout/bin/python')
 GALLERY = os.path.expanduser('~/scout-scenes/mesh-pilot-gallery')
-SETS = os.path.join(HERE, 'sets3.json')
+SETS = _BP.LIVE
 HOST = 'root@89.167.127.0'
 PROD_DIR = '/opt/remlab/test/mesh-pilot10'
 PROD_IDX = 'https://remont-lab.online/test/mesh-pilot10/mesh-index.json'
@@ -42,7 +53,20 @@ def sh(cmd: str, timeout: int = 1800) -> tuple[int, str]:
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
-def ready_skus() -> set[str]:
+def bank_files(env=os.environ) -> list[str]:
+    """Банки, чьи товары публикуем: живой всегда; кандидат из `SETS_BANK` — в добавку (заданный, но отсутствующий —
+    отказ `bank_paths`, на «только живой» молча не откатываемся)."""
+    bank, live = _BP.input_bank(env)
+    return [SETS] if live else [SETS, bank]
+
+
+def want_skus(files: list[str]) -> set[str]:
+    """`mid:eid` всех товаров комплектов из этих банков."""
+    return {f"{it['mid']}:{it['eid']}" for f in files for s in json.load(open(f, encoding='utf-8'))
+            for _r, it in (s.get('items') or {}).items() if it and it.get('mid')}
+
+
+def ready_skus(files: list[str] | None = None) -> set[str]:
     """Ключи КАТАЛОГА МЕШЕЙ для товаров комплектов, у которых меш готов.
 
     Ключ — не артикул товара, а артикул ПРЕДСТАВИТЕЛЯ СЕМЕЙСТВА (ADR-0196): цветовые варианты
@@ -51,9 +75,7 @@ def ready_skus() -> set[str]:
     все они лежат под ключом родителя — ровно та ложная тревога, из-за которой проверки
     перестают читать (урок 470).
     """
-    sets = json.load(open(SETS, encoding='utf-8'))
-    want = {f"{it['mid']}:{it['eid']}" for s in sets for _r, it in (s.get('items') or {}).items()
-            if it and it.get('mid')}
+    want = want_skus(files or [SETS])
     out = subprocess.run(
         PSQL + ["select shop_mid||':'||external_id||'~'||coalesce(mesh_family_rep,'') "
                 "from products where mesh_uri is not null and mesh_status='ready'"],
@@ -99,7 +121,10 @@ def rebuild_index() -> tuple[int, str]:
 
 def main() -> int:
     dry = '--dry' in sys.argv
-    skus = ready_skus()
+    files = bank_files()
+    if len(files) > 1:
+        print(f'[публикация] банк-кандидат {files[1]} — публикую товары живого банка и кандидата', flush=True)
+    skus = ready_skus(files)
     have = set(os.listdir(GALLERY)) if os.path.isdir(GALLERY) else set()
     missing = {s for s in skus if s.replace(':', '_') not in have}
     print(f'[публикация] в комплектах с готовым мешем: {len(skus)}; '
@@ -155,5 +180,36 @@ def main() -> int:
     return 0
 
 
+def _selftest() -> int:
+    import tempfile
+    bad = 0
+
+    def ok(name: str, cond: bool) -> None:
+        nonlocal bad
+        print(('  ✓ ' if cond else '  ✗ ') + name)
+        bad += 0 if cond else 1
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cand = os.path.join(tmp, 'sets3.next.json')
+        json.dump([{'items': {'диван': {'mid': 1, 'eid': 'new'}, 'торшер': {'mid': 2, 'eid': 'lamp'}, 'шторы': None}}],
+                  open(cand, 'w', encoding='utf-8'))
+        ok('без SETS_BANK — только живой банк, как раньше', bank_files({}) == [SETS])
+        if os.path.exists(SETS):                            # в CI живого банка нет (вне git)
+            ok('SETS_BANK = живой — без дубля', bank_files({'SETS_BANK': SETS}) == [SETS])
+        ok('SETS_BANK = кандидат — живой И кандидат (объединение, не замена)', bank_files({'SETS_BANK': cand}) == [SETS, cand])
+        try:
+            bank_files({'SETS_BANK': os.path.join(tmp, 'нет.json')})
+            ok('отсутствующий кандидат — отказ', False)
+        except SystemExit:
+            ok('отсутствующий кандидат — отказ, а не тихий откат на живой', True)
+        live = os.path.join(tmp, 'live.json')
+        json.dump([{'items': {'диван': {'mid': 1, 'eid': 'old'}, 'торшер': {'mid': 2, 'eid': 'lamp'}}}],
+                  open(live, 'w', encoding='utf-8'))
+        ok('товары — объединение банков, пустые слоты пропущены',
+           want_skus([live, cand]) == {'1:old', '1:new', '2:lamp'})
+    print(f'mesh_publish selftest: ошибок {bad}')
+    return 1 if bad else 0
+
+
 if __name__ == '__main__':
-    raise SystemExit(main())
+    raise SystemExit(_selftest() if '--selftest' in sys.argv else main())
