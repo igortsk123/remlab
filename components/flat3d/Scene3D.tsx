@@ -16,7 +16,7 @@ import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
 import type { FlatViewer, QualityProfile } from "@/lib/viewer3d/viewer";
-import { WalkPad } from "@/components/flat3d/WalkPad";
+import { WalkPad, walkPadZone } from "@/components/flat3d/WalkPad";
 
 export interface Scene3DProps {
   apartment: Apartment;
@@ -49,6 +49,8 @@ export interface Scene3DProps {
   itemLabels?: { options: string; move: string; remove: string };
   /** Подписи кнопки «показать/скрыть управление» (D4). */
   padLabels?: { show: string; hide: string };
+  /** Стрелки ходьбы не показывать: на телефоне открыта панель выбора, и кадр короткий (flat3d-375-overlaps). */
+  padSuppressed?: boolean;
   /** Точки на заменяемых предметах текущей комнаты (D6). */
   spots?: Spot[];
   hintText: string;
@@ -66,7 +68,13 @@ export interface Scene3DProps {
 }
 
 import { ObjectTools } from "@/components/flat3d/ObjectTools";
-import { Hotspots, type Spot } from "@/components/flat3d/Hotspots";
+import { Hotspots, type Spot, type Zones } from "@/components/flat3d/Hotspots";
+
+// ЗОНЫ КАДРА (flat3d-375-overlaps, 21.10): сверху — строка кнопок правой панели (`InfoPanel`), снизу — стрелки ходьбы,
+// во «Сверху» — полоса «Войти в комнату» (`FlatConfigurator`). Подписи точек и меню предмета держатся между ними.
+const ZONE_TOP = 60; // 8 + кнопка 44 + 8
+const ZONE_STRIP = 60; // одна строка кнопок у нижнего края: «Показать управление» или комнаты во «Сверху»
+const ZONE_EDGE = 8;
 
 export function Scene3D(props: Scene3DProps): React.ReactElement {
   const { apartment, catalogue, scene, lite, roomId, onPickSlot, onRoomChange, onReady } = props;
@@ -410,6 +418,15 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
     return () => document.removeEventListener("keydown", onKey);
   }, [movingSlotId, ready, onMoveCancel, canPlace]);
 
+  // во «Сверху» ходьбы нет — стрелок нет (их место у нижнего края занимает полоса комнат); на телефоне с открытой панелью
+  // выбора — тоже: кадр там в пол-экрана, и стрелки закрывали бы его половину
+  const padVisible = ready && !error && padShown && !topView && !props.padSuppressed;
+  const toggleVisible = ready && !error && !padShown && !topView && !props.padSuppressed;
+  const zones: Zones = {
+    top: ZONE_TOP,
+    bottom: topView ? ZONE_STRIP : padVisible ? walkPadZone(lite) : toggleVisible ? ZONE_STRIP : ZONE_EDGE,
+  };
+
   return (
     <div className="relative h-full w-full">
       <canvas
@@ -426,10 +443,12 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         role="img"
       />
       {ready && firstLoadDone && !topView && props.spots ? (
-        <Hotspots spots={props.spots} project={projectAny} onPick={pickSpot} hidden={Boolean(selectedSlotId || movingSlotId)} />
+        <Hotspots spots={props.spots} project={projectAny} onPick={pickSpot} hidden={Boolean(selectedSlotId || movingSlotId)}
+          zones={zones} maxLabels={lite ? 1 : 3} />
       ) : null}
       {ready && selectedSlotId && !movingSlotId && props.onItemOptions && props.itemLabels ? (
         <ObjectTools
+          zones={zones}
           project={projectSelected}
           onOptions={props.onItemOptions}
           onMove={props.onItemMove ? () => props.onItemMove!(selectedSlotId) : undefined}
@@ -536,16 +555,18 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         </div>
       ) : null}
 
-      {ready && !error && padShown ? (
-        <WalkPad onHold={holdKey} onTurn={turnBy} compact={lite} liftPx={bottomInsetPx} />
-      ) : null}
       {/* «ПОКАЗАТЬ/СКРЫТЬ УПРАВЛЕНИЕ» (flat3d-sims-ux D4, референс A101): кнопки ходьбы не мешают смотреть, пока не нужны;
-          выбор помним в браузере. Ходить можно и без них — стрелками, тапом по полу. */}
-      {ready && !error && !topView ? (
-        <button type="button" onClick={togglePad} aria-pressed={padShown}
+          выбор помним в браузере. Ходить можно и без них — стрелками, тапом по полу. «Скрыть» — клеткой в самих стрелках
+          (отдельной кнопкой в углу она на узком экране наезжала на них), «Показать» — в углу, когда стрелок нет. */}
+      {padVisible ? (
+        <WalkPad onHold={holdKey} onTurn={turnBy} compact={lite} liftPx={bottomInsetPx} onHide={togglePad}
+          hideLabel={props.padLabels?.hide ?? "Скрыть управление"} />
+      ) : null}
+      {toggleVisible ? (
+        <button type="button" onClick={togglePad} aria-pressed={false}
           className="absolute min-h-11 rounded-lg bg-primary px-3 text-xs text-secondary shadow-md ring-1 ring-inset ring-secondary"
           style={{ left: 8, bottom: 8 + bottomInsetPx, zIndex: 6 }}>
-          {padShown ? props.padLabels?.hide ?? "Скрыть управление" : props.padLabels?.show ?? "Показать управление"}
+          {props.padLabels?.show ?? "Показать управление"}
         </button>
       ) : null}
 

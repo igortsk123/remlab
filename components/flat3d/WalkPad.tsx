@@ -25,12 +25,24 @@ interface WalkPadProps {
   compact?: boolean;
   /** На сколько поднять кнопки, когда снизу открыта панель выбора. */
   liftPx?: number;
+  /** «Скрыть» — в пустой клетке слева от «назад»: своей кнопкой в углу она наезжала на стрелки на узком экране (21.10). */
+  onHide?: () => void;
+  hideLabel?: string;
 }
 
 const HOLD_MS = 90;
 const IDLE_MS = 4000;
+const GAP = 6;
+const BOTTOM = 12;
 
-export function WalkPad({ onHold, onTurn, compact = false, liftPx = 0 }: WalkPadProps) {
+const padSize = (compact: boolean): number => (compact ? 60 : 52);
+
+/** Высота нижней зоны управления в кадре (кнопки + отступы): над ней не ставим подписи и меню предмета. */
+export function walkPadZone(compact: boolean): number {
+  return BOTTOM + padSize(compact) * 2 + GAP + 8;
+}
+
+export function WalkPad({ onHold, onTurn, compact = false, liftPx = 0, onHide, hideLabel }: WalkPadProps) {
   const heldRef = useRef<Set<string>>(new Set());
   const turnRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dim, setDim] = useState(false);
@@ -103,7 +115,7 @@ export function WalkPad({ onHold, onTurn, compact = false, liftPx = 0 }: WalkPad
     turnRef.current = null;
   }, []);
 
-  const size = compact ? 60 : 52;
+  const size = padSize(compact);
   const btn =
     "flex items-center justify-center rounded-2xl bg-primary text-primary ring-1 ring-inset ring-secondary " +
     "backdrop-blur-md active:bg-brand-solid active:text-white select-none touch-none shadow-sm";
@@ -113,16 +125,17 @@ export function WalkPad({ onHold, onTurn, compact = false, liftPx = 0 }: WalkPad
   // по «Заменить», когда предмет оказался в нижней части кадра (поймано CI 29.09).
   return (
     <div
+      data-flat3d="walkpad"
       className="pointer-events-none absolute inset-x-0 flex justify-center"
       style={{
         zIndex: 5,
-        bottom: 12 + liftPx,
+        bottom: BOTTOM + liftPx,
         opacity: dim ? 0.45 : 0.95,
         transition: "opacity 400ms ease",
       }}
       onPointerEnter={wake}
     >
-      <div className="pointer-events-auto grid grid-cols-3 gap-1.5" style={{ justifyItems: "center" }}>
+      <div className="pointer-events-auto grid grid-cols-3" style={{ justifyItems: "center", alignItems: "end", gap: GAP }}>
         <button
           type="button"
           aria-label="Повернуться влево"
@@ -159,7 +172,13 @@ export function WalkPad({ onHold, onTurn, compact = false, liftPx = 0 }: WalkPad
         >
           ↱
         </button>
-        <span />
+        {onHide ? (
+          <button type="button" onClick={onHide} aria-label={hideLabel} title={hideLabel}
+            className="min-h-11 rounded-lg bg-primary px-1 text-xs text-tertiary ring-1 ring-inset ring-secondary shadow-sm"
+            style={{ width: size, opacity: 0.92 }}>
+            {hideLabel?.split(" ")[0]}
+          </button>
+        ) : <span />}
         <button
           type="button"
           aria-label="Отойти назад"

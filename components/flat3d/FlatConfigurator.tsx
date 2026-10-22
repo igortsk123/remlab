@@ -26,7 +26,8 @@ import type { Spot } from "@/components/flat3d/Hotspots";
 import { optionsForSlot } from "@/lib/configurator/resolve";
 import { settle } from "@/lib/configurator/settlement";
 
-type Mode = "walk" | "top" | "photo" | "plan";
+const MODES = ["walk", "top", "photo", "plan"] as const;
+type Mode = (typeof MODES)[number];
 
 interface Props {
   apartment: Apartment;
@@ -63,11 +64,17 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [savedUrl, setSavedUrl] = useState<string>("");
 
-  // режим по умолчанию решаем ПОСЛЕ гидрации: сервер не знает ширину экрана
+  // режим по умолчанию решаем ПОСЛЕ гидрации: сервер не знает ширину экрана. Вкладку, нажатую ДО гидрации, запомнил скрипт
+  // страницы (`app/flat/page.tsx:EARLY_TAB_JS`) — она важнее режима по умолчанию: раньше такое касание терялось (T-23, 20.10)
+  const pickedRef = useRef(false);
   useEffect(() => {
     const small = window.matchMedia("(max-width: 780px)").matches;
     setMobile(small);
-    setMode(small ? "photo" : "walk");
+    const w = window as unknown as { __flatTab?: string | null; __flatReady?: boolean };
+    const early = MODES.find((m) => m === w.__flatTab);
+    w.__flatReady = true;
+    document.querySelectorAll("[data-flat3d-tab][data-early]").forEach((el) => el.removeAttribute("data-early"));
+    if (!pickedRef.current) setMode(early ?? (small ? "photo" : "walk"));
     // на телефоне «Фото» открывается с комнатой на пол-экрана, полоса выбора свёрнута (прогон d8 16.10: сцена занимала 22 %
     // экрана, а полоса закрывала кнопку кадра); откроется касанием предмета или кнопкой
     if (small) setBarOpen(false);
@@ -163,18 +170,15 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
     setMode("walk");
   }, []);
 
-  // Точки «можно заменить» (D6): мебель текущей комнаты, у которой больше одного варианта; подпись «магазин · название»
+  // Точки «можно заменить» (D6): мебель текущей комнаты, у которой больше одного варианта; подпись — название товара
+  // (магазин — в карточке товара в панели выбора: в кадре «tvoydom.ru · …» съедал ширину подписи, flat3d-375-overlaps)
   const spots: Spot[] = useMemo(() => scene.items
     .filter((i) => i.roomId === roomId && i.kind === "furniture")
     .filter((i) => {
       const slot = apartment.slots.find((s) => s.id === i.slotId);
       return slot ? optionsForSlot(apartment, catalogue, slot).length > 1 : false;
     })
-    .map((i) => {
-      const opt = catalogue.options.find((o) => o.id === i.optionId);
-      const title = lang === "en" ? i.titleEn : i.titleRu;
-      return { slotId: i.slotId, label: opt?.shopName ? `${opt.shopName} · ${title}` : title };
-    }), [scene.items, roomId, apartment, catalogue, lang]);
+    .map((i) => ({ slotId: i.slotId, label: lang === "en" ? i.titleEn : i.titleRu })), [scene.items, roomId, apartment, catalogue, lang]);
 
   // Коробки всех предметов сцены — вход для проверки «сюда можно / сюда нельзя».
   const boxes: Box[] = useMemo(
@@ -280,8 +284,12 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
               key={m.id}
               type="button"
               role="tab"
+              data-flat3d-tab={m.id}
               aria-selected={mode === m.id}
-              onClick={() => setMode(m.id)}
+              onClick={() => {
+                pickedRef.current = true;
+                setMode(m.id);
+              }}
               className={`min-h-11 rounded-md px-3 text-sm font-medium ${
                 mode === m.id ? "bg-primary text-primary shadow-sm" : "text-secondary"
               }`}
@@ -398,6 +406,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             onItemOptions={() => setBarOpen(true)}
             spots={spots}
             padLabels={lang === "en" ? { show: "Show controls", hide: "Hide controls" } : { show: "Показать управление", hide: "Скрыть управление" }}
+            padSuppressed={mobile && barOpen}
             onItemMove={slotId && apartment.slots.find((s) => s.id === slotId)?.tabletop ? undefined : startMove}
             onItemRemove={slotId && apartment.slots.find((s) => s.id === slotId)?.kind === "furniture" ? removeItem : undefined}
             itemLabels={lang === "en" ? { options: "Options", move: "Drag", remove: "Remove" } : { options: "Варианты", move: "Двигать", remove: "Убрать" }}   // не «Передвинуть»: та кнопка есть в нижней панели
@@ -420,12 +429,17 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
               items={scene.items.filter((i) => i.price > 0).map((i) => (lang === "en" ? i.titleEn : i.titleRu))} /> : null} />
         ) : null}
         {mode === "top" ? (
-          // КНОПКИ КОМНАТ НА ВИДЕ СВЕРХУ (flat3d-sims-ux D3): войти в комнату одним нажатием, как на плане
-          <div data-flat3d="rooms-top" style={{ position: "absolute", left: 8, bottom: 8, zIndex: 4, display: "flex", flexWrap: "wrap", gap: 6, maxWidth: "70%" }}>
+          // КНОПКИ КОМНАТ НА ВИДЕ СВЕРХУ (flat3d-sims-ux D3): войти в комнату одним нажатием, как на плане. Одной строкой у
+          // нижнего края с прокруткой вбок, «Войти:» — один раз в начале (flat3d-375-overlaps: на телефоне пять кнопок
+          // «Войти: …» стопкой ложились под стрелки; стрелок во «Сверху» больше нет — их место у этой строки)
+          <div data-flat3d="rooms-top" className="flex items-center gap-1.5 overflow-x-auto"
+            style={{ position: "absolute", left: 8, right: 8, bottom: 8, zIndex: 4, scrollbarWidth: "none" }}>
+            <span className="shrink-0 rounded-lg bg-primary px-2 py-1 text-xs text-tertiary">{lang === "en" ? "Enter:" : "Войти:"}</span>
             {apartment.rooms.map((r) => (
               <button key={r.id} type="button" onClick={() => enterRoom(r.id)}
-                className="min-h-11 rounded-lg bg-primary px-3 text-sm text-secondary shadow-md ring-1 ring-inset ring-secondary">
-                {(lang === "en" ? "Enter: " : "Войти: ") + (lang === "en" ? r.titleEn : r.titleRu)}
+                aria-label={(lang === "en" ? "Enter: " : "Войти: ") + (lang === "en" ? r.titleEn : r.titleRu)}
+                className="min-h-11 shrink-0 whitespace-nowrap rounded-lg bg-primary px-3 text-sm text-secondary shadow-md ring-1 ring-inset ring-secondary">
+                {lang === "en" ? r.titleEn : r.titleRu}
               </button>
             ))}
           </div>

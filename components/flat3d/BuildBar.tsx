@@ -32,6 +32,9 @@ interface BuildBarProps {
   onClose: () => void;
 }
 
+/** Уже этой ширины полоса раскладывается в столбец (телефон в портрете). */
+const NARROW_PX = 560;
+
 /** Картинка плитки: у мебели — фото товара, у покрытия — превью материала. */
 function tileImage(c: Catalogue, o: Option): string | undefined {
   if (o.previewUrl) return o.previewUrl;
@@ -59,8 +62,10 @@ function tileColour(c: Catalogue, o: Option): string | undefined {
  * тогда маленькие, когда мало — покрупнее»). Только от числа считать нельзя: четыре «крупные»
  * плитки не влезают в 320 px на телефоне.
  */
-function tileLayout(count: number, width: number): { size: number; rows: 1 | 2 } {
+function tileLayout(count: number, width: number, narrow: boolean): { size: number; rows: 1 | 2 } {
   if (count === 0) return { size: 96, rows: 1 };
+  // узкая полоса (телефон): один ряд на всю ширину с прокруткой вбок
+  if (narrow) return { size: Math.max(96, Math.min(140, Math.floor((width - (count - 1) * 6 - 4) / count))), rows: 1 };
   const rows: 1 | 2 = count <= 5 ? 1 : 2;
   const perRow = Math.ceil(count / rows);
   const gaps = (perRow - 1) * 6 + 4;
@@ -80,35 +85,72 @@ export function BuildBar(props: BuildBarProps) {
   const chosenId = active ? selections[active.id] ?? active.defaultOptionId : "";
   const current = options.find((o) => o.id === chosenId);
 
-  // ширину ленты меряем по факту: от неё зависит, сколько плиток поместится крупными
+  // ширину ленты и всей полосы меряем по факту: от первой зависит, сколько плиток поместится крупными, от второй — раскладка
   const stripRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [stripWidth, setStripWidth] = useState(600);
+  const [rootWidth, setRootWidth] = useState(1000);
   useEffect(() => {
-    const el = stripRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setStripWidth(el.getBoundingClientRect().width));
-    ro.observe(el);
-    setStripWidth(el.getBoundingClientRect().width);
+    const strip = stripRef.current;
+    const root = rootRef.current;
+    if (!strip || !root) return;
+    const measure = () => {
+      setStripWidth(strip.getBoundingClientRect().width);
+      setRootWidth(root.getBoundingClientRect().width);
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(strip);
+    ro.observe(root);
+    measure();
     return () => ro.disconnect();
   }, []);
-  const { size: tileSize, rows: tileRows } = tileLayout(options.length, stripWidth);
-  const tileHeight = tileRows === 1 ? 168 : 82;
+  // УЗКАЯ ПОЛОСА (телефон, flat3d-375-overlaps 21.10): меню слева и плитки справа делили 375 px пополам — от строки товара
+  // оставалась одна буква, плитки и кнопки мест обрезались краем. На узкой — сверху строка «комната · места», ниже
+  // строка товара с ✕ и один ряд плиток на всю ширину.
+  const narrow = rootWidth < NARROW_PX;
+  const { size: tileSize, rows: tileRows } = tileLayout(options.length, stripWidth, narrow);
+  // картинка плитки — так, чтобы под ней влезли название и цена (≈41 px с полями): прежние 168/82 при ленте 172 px прятали
+  // подпись и цену за нижним краем полосы (снимки 1440, 21.10)
+  const tileHeight = narrow ? 72 : tileRows === 1 ? 148 : 52;
+
+  // выбранное место — в видимую часть строки мест (выбор пришёл из сцены, а кнопка могла быть за краем прокрутки)
+  const slotsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = slotsRef.current;
+    const btn = box?.querySelector<HTMLElement>(`[data-slot="${active?.id ?? ""}"]`);
+    if (!box || !btn || !narrow) return;
+    box.scrollLeft = btn.offsetLeft - box.offsetLeft - (box.clientWidth - btn.offsetWidth) / 2;
+  }, [active?.id, narrow]);
+
+  const closeBtn = (
+    <button
+      type="button"
+      onClick={onClose}
+      aria-label={lang === "en" ? "Close" : "Закрыть"}
+      className="min-h-11 min-w-11 shrink-0 self-start rounded-lg text-tertiary hover:bg-secondary"
+    >
+      ✕
+    </button>
+  );
 
   return (
     <div
+      ref={rootRef}
       className="flex shrink-0 gap-2 rounded-xl bg-primary p-2 ring-1 ring-inset ring-secondary"
-      style={{ height: 212 }}
+      style={narrow ? { flexDirection: "column", gap: 6 } : { height: 248 }}
       role="region"
       aria-label={lang === "en" ? "Build bar" : "Панель выбора"}
     >
       {/* МЕНЮ СЛЕВА: комната сверху, ниже — что меняем, кнопками в ДВА РЯДА (без прокрутки:
-          владелец 30.09 — «прокрутку не надо, там влезет в два ряда кнопки») */}
-      <div className="flex shrink-0 flex-col gap-1.5" style={{ maxWidth: "46%" }}>
+          владелец 30.09 — «прокрутку не надо, там влезет в два ряда кнопки»); на узкой полосе — одной строкой */}
+      <div className={narrow ? "flex min-w-0 items-center gap-1.5" : "flex shrink-0 flex-col gap-1.5"} style={narrow ? undefined : { maxWidth: "46%" }}>
         <select
           aria-label={lang === "en" ? "Room" : "Комната"}
           value={roomId}
           onChange={(e) => onRoom(e.target.value)}
           className="min-h-11 rounded-lg bg-secondary px-2 text-sm font-medium text-primary"
+          // название комнаты целиком («Гостиная 14.4 м²»): нативный список обрезает текст без многоточия
+          style={narrow ? { flex: "none" } : undefined}
         >
           {apartment.rooms.map((r) => (
             <option key={r.id} value={r.id}>
@@ -117,8 +159,9 @@ export function BuildBar(props: BuildBarProps) {
           ))}
         </select>
         <div
-          className="grid gap-1 overflow-x-auto"
-          style={{ gridTemplateRows: "repeat(2, minmax(0, 1fr))", gridAutoFlow: "column", gridAutoColumns: "104px", maxHeight: 96 }}
+          ref={slotsRef}
+          className={narrow ? "flex min-w-0 flex-1 gap-1 overflow-x-auto" : "grid gap-1 overflow-x-auto"}
+          style={narrow ? { scrollbarWidth: "none" } : { gridTemplateRows: "repeat(2, minmax(0, 1fr))", gridAutoFlow: "column", gridAutoColumns: "104px", maxHeight: 96 }}
         >
           {slots.map((s) => {
             const isActive = s.id === active?.id;
@@ -129,10 +172,10 @@ export function BuildBar(props: BuildBarProps) {
                 data-slot={s.id}
                 aria-pressed={isActive}
                 onClick={() => onSlot(s.id)}
-                className={`min-h-11 rounded-lg px-2 text-left leading-tight ${
+                className={`min-h-11 shrink-0 rounded-lg px-2 text-left leading-tight ${
                   isActive ? "bg-brand-solid text-white" : "bg-secondary text-secondary"
                 }`}
-                style={{ fontSize: 12, width: 104, minHeight: 44 }}
+                style={narrow ? { fontSize: 12, minHeight: 44, whiteSpace: "nowrap" } : { fontSize: 12, width: 104, minHeight: 44 }}
                 title={`${categoryTitle(s.category, lang)} · ${lang === "en" ? s.titleEn : s.titleRu}`}
               >
                 {lang === "en" ? s.titleEn : s.titleRu}
@@ -140,6 +183,7 @@ export function BuildBar(props: BuildBarProps) {
             );
           })}
         </div>
+        {narrow && !current ? closeBtn : null}
       </div>
 
       {/* ПЛИТКИ ВАРИАНТОВ: два ряда, прокрутка вбок */}
@@ -188,6 +232,7 @@ export function BuildBar(props: BuildBarProps) {
                 {lang === "en" ? "Reset position" : "Вернуть на место"}
               </button>
             ) : null}
+            {narrow ? closeBtn : null}
           </div>
         ) : null}
         {/* два ряда плиток, прокрутка вбок; ширина колонки задана жёстко, иначе одна длинная
@@ -195,7 +240,7 @@ export function BuildBar(props: BuildBarProps) {
         <ul
           className="grid grid-flow-col gap-1.5 overflow-x-auto pb-1"
           style={{
-            height: 172,
+            height: narrow ? 120 : 196,
             gridTemplateRows: `repeat(${tileRows}, minmax(0, 1fr))`,
             gridAutoColumns: `${tileSize}px`,
           }}
@@ -240,14 +285,7 @@ export function BuildBar(props: BuildBarProps) {
         </ul>
       </div>
 
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label={lang === "en" ? "Close" : "Закрыть"}
-        className="min-h-11 min-w-11 shrink-0 self-start rounded-lg text-tertiary hover:bg-secondary"
-      >
-        ✕
-      </button>
+      {narrow ? null : closeBtn}
     </div>
   );
 }

@@ -25,6 +25,12 @@ export const metadata = {
 // Страница динамическая: по ?c=<id> открывается сохранённый подбор.
 export const dynamic = "force-dynamic";
 
+// ВКЛАДКА ДО ГИДРАЦИИ (flat3d-375-overlaps, 21.10): на телефоне вкладки видны раньше, чем оживает конфигуратор, и касание
+// «Бродилка» в эти секунды терялось. Скрипт запоминает нажатую вкладку и подсвечивает её; конфигуратор при запуске открывает
+// её вместо режима по умолчанию (`components/flat3d/FlatConfigurator.tsx`), подсветку снимает.
+const EARLY_TAB_JS = `(function(){document.addEventListener("click",function(e){if(window.__flatReady)return;var t=e.target&&e.target.closest&&e.target.closest("[data-flat3d-tab]");if(!t)return;window.__flatTab=t.getAttribute("data-flat3d-tab");var a=document.querySelectorAll("[data-flat3d-tab]");for(var i=0;i<a.length;i++)a[i].removeAttribute("data-early");t.setAttribute("data-early","1");},true);})();`;
+const EARLY_TAB_CSS = "[data-flat3d-tab][data-early]{background:var(--color-bg-primary);color:var(--color-text-primary)}";
+
 type Search = { c?: string; coll?: string; lang?: string; room?: string; demo?: string; flat?: string; s?: string; opt?: string };
 
 /** Ссылка на ту же страницу с другим языком: все остальные параметры (`c`, `demo`, `flat`, `s`) сохраняются. */
@@ -184,6 +190,8 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
         </p>
       ) : null}
       <OpenBeacon apartmentId={hit.apartment.id} sendId={sendId} lang={lang} />
+      <style>{EARLY_TAB_CSS}</style>
+      <script dangerouslySetInnerHTML={{ __html: EARLY_TAB_JS }} />
       <FlatConfigurator
         apartment={apartment}
         catalogue={catalogue}
