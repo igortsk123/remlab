@@ -8,7 +8,7 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=(process.env.OUT||require('os').homedir()+'/scout-scenes/home-check/').replace(/\/?$/,'/');
 fs.mkdirSync(OUT,{recursive:true});
 const VPS=(process.argv[2]?[process.argv[2]]:['375x667','390x844','1440x900']).map(s=>s.split('x').map(Number));
-const ORDER=['living','kitchen','bedroom-1','bedroom-2','bathroom-1','hall'];
+const ORDER=['living','kitchen','bedroom-1','bedroom-2','bathroom-1','bathroom-2','hall'];   // второй санузел — T-20261022-04
 const R=[]; const ok=(n,c,i)=>R.push((c?'OK  ':'FAIL')+' '+n+(i!==undefined?' — '+i:''));
 async function page(b,[W,H],q,lang){
   const phone=W<=700;
@@ -49,8 +49,8 @@ const fold=p=>p.evaluate(()=>{const R=s=>{const e=document.querySelector(s);retu
         oldTabs:document.querySelectorAll('#tab-plan,#tab-room,[data-soon],#screen-soon,#feedShare,#budgetGo').length,
         collBase:[...document.querySelectorAll('#coll .lay')].length}));
       ok('вкладки — стили, по одной на опубликованный стиль',st.tabs.length===st.nVar&&st.tabs.length>=4,st.tabs.join(','));
-      ok('комнаты в порядке плана: гостиная, кухня, спальня 1, спальня 2, санузел, прихожая',JSON.stringify(st.rooms)===JSON.stringify(ORDER),st.rooms.join(',')+(st.card?' (из карточки)':' (запасной путь витрины)'));
-      ok('готова только гостиная, остальные — единая заглушка',JSON.stringify(st.ready)===JSON.stringify(['living'])&&st.stubs.length===5&&new Set(st.stubs).size===1,st.stubs[0]);
+      ok('комнаты в порядке плана: гостиная, кухня, спальня 1, спальня 2, санузел 1, санузел 2, прихожая',JSON.stringify(st.rooms)===JSON.stringify(ORDER),st.rooms.join(',')+(st.card?' (из карточки)':' (запасной путь витрины)'));
+      ok('готова только гостиная, остальные — единая заглушка',JSON.stringify(st.ready)===JSON.stringify(['living'])&&st.stubs.length===ORDER.length-1&&new Set(st.stubs).size===1,st.stubs[0]);
       ok('сертификат: 0 включено, остаток = весь сертификат',+st.cert.included===0&&+st.cert.amount>0,JSON.stringify(st.cert));
       ok('стиль в адресе',st.styleUrl===st.on.style,st.styleUrl);
       ok('старых вкладок-комнат, «бюджета» и feedShare нет; варианты стилей не дублируются сеткой',st.oldTabs===0&&st.collBase===0,st.oldTabs+'/'+st.collBase);

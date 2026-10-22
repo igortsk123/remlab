@@ -51,7 +51,7 @@ test("1.2–1.5 первый экран: консультация, ипотек�
   const stubs = await page.locator("#hmRooms .hm-stub").allInnerTexts();
   say("стили:", tabs.join(" | "), "· комнаты:", rooms.join(","));
   expect(tabs.length).toBeGreaterThanOrEqual(4);
-  expect(rooms).toEqual(["living", "kitchen", "bedroom-1", "bedroom-2", "bathroom-1", "hall"]);
+  expect(rooms).toEqual(["living", "kitchen", "bedroom-1", "bedroom-2", "bathroom-1", "bathroom-2", "hall"]);
   expect(stubs.length).toBe(5);
   for (const t of stubs) { expect(t).toContain("м²"); expect(t).toContain("появится следующим шагом"); }
   expect(errors).toEqual([]);

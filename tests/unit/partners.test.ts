@@ -53,8 +53,8 @@ describe("реестр застройщиков", () => {
 describe("комнаты квартиры", () => {
   it("карточка: комнаты в порядке плана, подписи на языке; опции знают свою комнату", () => {
     const ru = apartmentCard(findApartment("flat215")!, "ru");
-    expect(ru.rooms.map((r) => r.title)).toEqual(["Гостиная", "Кухня", "Спальня 1", "Спальня 2", "Санузел", "Прихожая"]);
-    expect(ru.rooms.map((r) => r.ordinal)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(ru.rooms.map((r) => r.title)).toEqual(["Гостиная", "Кухня", "Спальня 1", "Спальня 2", "Санузел 1", "Санузел 2", "Прихожая"]);
+    expect(ru.rooms.map((r) => r.ordinal)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(ru.rooms.filter((r) => r.contentState === "ready").map((r) => r.id)).toEqual(["living"]);
     expect(ru.rooms.find((r) => r.id === "bedroom-1")?.areaM2).toBe(17.5);
     expect(apartmentCard(findApartment("flat215")!, "en").rooms[0]?.title).toBe("Living room");
@@ -91,8 +91,19 @@ describe("комнаты квартиры", () => {
   it("английский двойник — с тем же составом комнат", () => {
     const ru = JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
     const uk = JSON.parse(readFileSync("data/partners/demo-uk.json", "utf8"));
-    uk.apartments.find((a: { id: string }) => a.id === "demo-uk-215").rooms.pop();
+    uk.apartments.find((a: { id: string }) => a.id === "demo-uk-215").rooms[6].id = "hall-2";   // площадь та же — ловит именно двойник
     expect(() => partners([ru, uk])).toThrow(/двойника/);
+  });
+
+  it("площади: комнаты + лоджия = площадь квартиры (T-20261022-04), иначе карточка не грузится", () => {
+    const a = findApartment("flat215")!.apartment;
+    expect(a.rooms.reduce((s, r) => s + r.areaM2, 0) + (a.loggiaM2 ?? 0)).toBeCloseTo(73.7, 1);
+    const base = () => JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
+    const lost = base(); lost.apartments[0].rooms.splice(5, 1);
+    lost.apartments[0].rooms.forEach((r: { ordinal: number }, k: number) => { r.ordinal = k + 1; });
+    expect(() => partners([lost])).toThrow(/сумма площадей/);
+    const nolog = base(); delete nolog.apartments[0].loggiaM2;
+    expect(() => partners([nolog])).toThrow(/сумма площадей/);
   });
 });
 

@@ -265,7 +265,7 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
   .hm-tabs{margin-top:6px;height:54px}
   .hm-tab{height:38px;font-size:15px;padding:0 18px}
   .hm-rooms{grid-template-columns:repeat(3,1fr);margin-top:12px}
-  .hm-rooms .hm-room{grid-column:span 2;grid-row:span 6}   /* справа столбец: 5 комнат + плашка «План квартиры» (demo-20 А7) */
+  .hm-rooms .hm-room{grid-column:span 2;grid-row:span var(--hm-rows,6)}   /* справа столбец: комнаты + «План квартиры» (`--hm-rows` — drawHome) */
   .hm-stub{justify-content:center}
   .hm-plan-bot{display:none}
 }
@@ -1345,7 +1345,7 @@ function openWantedShot(){
 // санузлы ядром, окна разрывом в стене, двери дугой открывания. Геометрия — из `flat215.json`
 // (`plan_example`), гостиная в НАСТОЯЩИХ габаритах 4,39 × 3,25 м. Клик по комнате открывает её.
 function flatPlan(){
-  const P=D.plan||{}, R=P.rooms||[], by={};
+  const P=D.plan||{}, R=P.rooms||[];
   // ОДНА КВАРТИРА — ОДНО ЧИСЛО (владелец 01.09: «проверь, что этот блок чётко»). В шапке
   // стояло 73,7 м² (сумма наших комнат), а на вкладке плана — 76,5 м² из ЧЕРТЕЖА-ИСТОЧНИКА
   // №180, по которому снималась геометрия. На одной странице два разных числа про одну
@@ -1353,7 +1353,6 @@ function flatPlan(){
   // чертежа-источника (`P.title`) НЕ показываем — он про другую квартиру. Карточки ещё нет — нейтрально.
   document.getElementById('flatTitle').textContent=flatTitle();
   const box=document.getElementById('flatRooms');box.innerHTML='';
-  (D.rooms||[]).forEach(r=>by[r.id]=r);
   if(!R.length){box.innerHTML='<div class="hint">План не загружен.</div>';return;}
   const xs=R.flatMap(r=>[r.x,r.x+r.w]).concat((P.contour||[]).map(p=>p[0]));
   const ys=R.flatMap(r=>[r.y,r.y+r.d]).concat((P.contour||[]).map(p=>p[1]));
@@ -1370,28 +1369,28 @@ function flatPlan(){
       stroke:'#585E58','stroke-width':WALL,'stroke-linejoin':'miter'});
   }
   // КОМНАТА = КНОПКА, «ЧТО Я ОБУСТРОИЛ» С ПЛАНА (владелец 22.10, demo-20 А8): в сертификате есть вариант комнаты — вместо площади его
-  // название и сумма, клик открывает его; нет — готовая комната открывает вариант текущего стиля. Id плана (чертёж) и реестра квартиры
-  // разные — `planRoomMap`
+  // название и сумма, клик открывает его; нет — готовая комната открывает вариант текущего стиля.
+  // ИМЯ, ПЛОЩАДЬ, ГОТОВНОСТЬ — ИЗ РЕЕСТРА КВАРТИРЫ (`homeRooms`, T-20261022-04): у схемы плана только геометрия, id — те же
   const map=planRoomMap(), m=homeModel(), act=homeActive(m), inc=window.__basket&&window.__basket.included;
   R.forEach(r=>{                                     // комнаты: заливка + перегородки
-    const room=by[r.id]||{}, br=map[r.id], f=br&&inc?inc(br.id):null;
-    const rv=br&&room.ready?(m.roomVariants.find(x=>x.styleId===act.styleId&&x.roomId===br.id)||m.roomVariants.find(x=>x.roomId===br.id)):null;
-    const go=!!(f||room.ready);                    // кликается готовая комната или та, где уже выбран вариант
+    const br=map[r.id], room=br||{}, f=br&&inc?inc(br.id):null, ready=room.contentState==='ready';
+    const rv=br&&ready?(m.roomVariants.find(x=>x.styleId===act.styleId&&x.roomId===br.id)||m.roomVariants.find(x=>x.roomId===br.id)):null;
+    const go=!!(f||ready);                         // кликается готовая комната или та, где уже выбран вариант
     const g=el('g',{},svg); g.style.cursor=go?'pointer':'default';
     el('rect',{x:r.x,y:r.y,width:r.w,height:r.d,fill:go?'#E7F0F7':'#FBFAF7',
       stroke:'#585E58','stroke-width':PART},g);
     if(go)el('rect',{x:r.x+PART/2,y:r.y+PART/2,width:r.w-PART,height:r.d-PART,fill:'none',
       stroke:'#3B76A2','stroke-width':0.05},g);
-    const name=r.name||room.title||r.id, cx=r.x+r.w/2;
+    const name=room.title||r.id, cx=r.x+r.w/2;
     // узкая комната (санузлы 0,8 м): имя по ширине комнаты, иначе соседние «Санузел» слипались через стену
-    const fs=Math.min(Math.max(0.2,Math.min(0.32,Math.min(r.w,r.d)/4.4)),r.w*0.88/(name.length*0.6));
+    const fs=Math.min(Math.max(0.2,Math.min(0.32,Math.min(r.w,r.d)/4.4)),r.w*0.84/(name.length*0.62));
     // строки подписи: имя комнаты; дальше — вариант в сертификате (название в 1–2 строки и сумма) или площадь и «Обустроить →»/«скоро»
     const L=[{t:name,k:1,a:{fill:'#2A2F2C','font-weight':go?'700':'500'}}];
     if(f){
       wrap2(f.name,r.w*0.9/(fs*0.95*0.56)).forEach(t=>L.push({t,k:0.95,a:{fill:'#2A2F2C'}}));
       L.push({t:(f.sumText?f.sumText+' ':'')+'→',k:0.95,a:{fill:'#3B76A2','font-weight':'700'}});
     }else{
-      L.push({t:r.m2?String(r.m2).replace('.',',')+' м²':'',k:0.95,a:{fill:'#5C655E'}});
+      L.push({t:homeM2(room.areaM2),k:0.95,a:{fill:'#5C655E'}});
       L.push(go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
     }
     const LH=fs*1.2; let y=r.y+r.d/2-LH*(L.length-1)/2+fs*0.35;
@@ -1422,16 +1421,11 @@ function flatPlan(){
   box.appendChild(svg);
 
 }
-// комнаты чертежа ↔ комнаты реестра квартиры (`homeRooms`): совпал id — она; иначе того же вида (по началу id чертежа) с ближайшей
-// площадью, каждая комната реестра — одной комнате чертежа (`bedroom_9` → «Спальня 2», `bath_44` → «Санузел», второй санузел — без пары)
+// комнаты схемы плана ↔ комнаты реестра квартиры (`homeRooms`) — по id: у схемы id реестра (T-20261022-04; сборка падает, если
+// комнаты схемы в реестре нет — `flat215_demo.apartment_area_check`)
 function planRoomMap(){
-  const kind=id=>/^bed/.test(id)?'bedroom':/^bath/.test(id)?'bathroom':String(id).replace(/[_-]\d+$/,'');
-  const left=homeRooms().slice(), out={};
-  (((D.plan||{}).rooms)||[]).forEach(r=>{
-    let i=left.findIndex(x=>x.id===r.id);
-    if(i<0){let best=Infinity; left.forEach((x,k)=>{const dd=Math.abs((x.areaM2||0)-(r.m2||0)); if(x.kind===kind(r.id)&&dd<best){best=dd; i=k;}});}
-    if(i>=0)out[r.id]=left.splice(i,1)[0];
-  });
+  const by={}; homeRooms().forEach(x=>by[x.id]=x);
+  const out={}; (((D.plan||{}).rooms)||[]).forEach(r=>{if(by[r.id])out[r.id]=by[r.id];});
   return out;
 }
 // подпись в две строки по словам, не длиннее `max` знаков; не влезла — вторая строка с «…»
@@ -2554,6 +2548,7 @@ function loadFlatCard(){const id=flatId(); if(!id)return;
     const ft=document.getElementById('flatTitle'); if(ft)ft.textContent=flatTitle();
     document.title=FLAT.kind+(LANG==='en'?' — living room (demo)':' — гостиная (демо)');
     drawVariants(); try{sync3dLink();}catch(e){} try{drawHome(true);}catch(e){}
+    try{if(curScreen()==='plan')flatPlan();}catch(e){}   // открыли сразу план — подписи комнат из карточки (язык, состав)
     // суммы витрины, уже нарисованные до карточки, — в её валюте (британский двойник)
     if(fxRate()){try{basket(); showSwap(); priceCard(LAST_SUM,LAST_CNT);}catch(e){}}
     document.dispatchEvent(new CustomEvent('flatcard',{detail:FLAT}));
@@ -3473,6 +3468,9 @@ function drawHome(force){
   // Клик — делегатом `#hmRooms` (ниже): плашка рисуется заново, разовая привязка `[data-plan]` её бы не увидела
   `<a class="hm-stub hm-plan-tile" data-plan href="#plan"><b>${EN?'Apartment plan':'План квартиры'}${FLAT&&FLAT.areaM2?` <small>· ${homeM2(FLAT.areaM2)}</small>`:''}</b>`+
     `<span>${EN?'all rooms':'все комнаты'}</span></a>`;
+  // компьютер: карточка гостиной слева на столько рядов, сколько плашек справа (комнаты реестра + «План квартиры») — иначе лишние
+  // уезжают строкой под неё (второй санузел, T-20261022-04)
+  box.style.setProperty('--hm-rows',String(Math.max(1,box.querySelectorAll(':scope > .hm-stub').length)));
 }
 // ——— ВОЗВРАТ «НАЗАД» (demo-16 шаг 3, Codex 18.10 п.5 и п.14). Адрес держит стиль и комнату (`?style=&room=`) и вариант или
 // коллекцию (`#v=`/`#c=`), `lang` и `s` не трогаются; запись истории (`history.state`) — снимок вида: окно варианта (вариант, режим,

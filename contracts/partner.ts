@@ -137,6 +137,11 @@ export const apartmentRef = z.object({
   kindShortRu: z.string().max(16).optional(),
   kindShortEn: z.string().max(16).optional(),
   areaM2: z.number().positive(),
+  /**
+   * Лоджия/балкон — площадь с понижающим коэффициентом, как в экспликации (у №215 — 1,3 из 2,6 м²). Комнатой не является (в корзину и
+   * на главную не идёт), но входит в общую площадь: комнаты + лоджия = `areaM2` (demo-21, T-20261022-04).
+   */
+  loggiaM2: z.number().nonnegative().optional(),
   /** Номер квартиры в ЖК для бейджа («215»); у демо — условный. */
   number: z.string().max(12).optional(),
   floor: z.number().int().optional(),
@@ -164,6 +169,9 @@ export const apartmentRef = z.object({
 })
   .refine((a) => new Set(a.rooms.map((r) => r.id)).size === a.rooms.length, "id комнат повторяются")
   .refine((a) => a.rooms.every((r, k) => r.ordinal === k + 1), "ordinal комнат — по порядку плана с 1")
+  // ОДНА ИСТИНА ПЛОЩАДЕЙ (T-20261022-04): комнаты реестра + лоджия = общая площадь квартиры (±0,2 — округление экспликации)
+  .refine((a) => !a.rooms.length || Math.abs(a.rooms.reduce((s, r) => s + r.areaM2, 0) + (a.loggiaM2 ?? 0) - a.areaM2) <= 0.2,
+    "сумма площадей комнат и лоджии не равна площади квартиры")
   // опция с комнатой — к существующей комнате (сумма по комнатам иначе молча потеряет доплату)
   .refine((a) => !a.rooms.length || a.options.every((g) => !g.roomId || a.rooms.some((r) => r.id === g.roomId)), "roomId опции нет среди комнат")
   // кухня застройщика — к кухне: тип комнаты опции совпадает с типом помещения, к которому она привязана (Codex 18.10)

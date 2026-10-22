@@ -452,6 +452,21 @@ def demo_apartment_id() -> str | None:
     return demo_apartment().get('id')
 
 
+def apartment_area_check(apt: dict, plan: dict) -> None:
+    """Сторожа площадей (T-20261022-04): комнаты реестра + лоджия = площадь квартиры (±0,2, как в `contracts/partner.ts`);
+    у каждой комнаты схемы плана — комната реестра с тем же id (подпись и площадь берутся оттуда). Нарушено — сборка падает."""
+    rooms = apt.get('rooms') or []
+    if rooms:
+        tot = sum(r['areaM2'] for r in rooms) + (apt.get('loggiaM2') or 0)
+        if abs(tot - apt['areaM2']) > 0.2:
+            raise SystemExit(f"FAIL:площади: комнаты {round(tot - (apt.get('loggiaM2') or 0), 2)} + лоджия {apt.get('loggiaM2') or 0} "
+                             f"= {round(tot, 2)} м², а квартира {apt['areaM2']} м² (data/partners)")
+    ids = {r['id'] for r in rooms}
+    lost = [r.get('id') for r in plan.get('rooms') or [] if r.get('id') not in ids]
+    if rooms and lost:
+        raise SystemExit(f'FAIL:площади: комнат схемы плана нет в реестре квартиры: {lost}')
+
+
 # id стиля для адреса главной (`?style=scandi`, demo-16): латиница, стабильная между пересборками
 STYLE_IDS = {'сканди': 'scandi', 'современный': 'modern', 'минимализм': 'minimal', 'лофт': 'loft',
              'неоклассика': 'neoclassic', 'джапанди': 'japandi'}
@@ -1136,27 +1151,20 @@ def build() -> dict:
             product_sets.append({'id': f'kit{n}', 'title': f'Комплект {BANKS.index(n) + 1}',
                                  'roles': roles,
                                  'sum': sum((v.get('price') or 0) for v in roles.values())})
-    # СПИСОК КОМНАТ КВАРТИРЫ (26.08) — для вкладки «План квартиры». Геометрии всей квартиры у нас
-    # нет (с чертежа сняты только габариты гостиной), поэтому отдаём честный состав: название,
-    # площадь и признак заглушки. Схему страница рисует из площадей и подписывает как схему.
-    rooms = []
-    for r in flat['rooms']:
-        title = r.get('title') or r.get('id')
-        m2 = None
-        m = re.search(r'([\d.,]+)\s*(?:\([\d.,]+\)\s*)?м²', title)   # «Лоджия 1.3 (2.6) м²» тоже
-        if m:
-            m2 = float(m.group(1).replace(',', '.'))
-        rooms.append({'id': r.get('id'), 'title': re.sub(r'\s*[\d.,()\s]+м²', '', title).strip(),
-                      'm2': m2, 'ready': not r.get('stub')})
+    # КОМНАТЫ КВАРТИРЫ — ОДНО МЕСТО, РЕЕСТР (T-20261022-04): чертёж плана, главная и карточка `/api/apartments` берут состав и
+    # площади из `data/partners/*.json`; прежний список с площадями в заголовках `flat215.json` (вторая копия, разошлась со схемой
+    # плана №180) снят. Сторожа — `apartment_area_check`
+    apt = demo_apartment()
+    apartment_area_check(apt, flat.get('plan_example') or {})
     plan = flat.get('plan_example') or {}
     return {'room': {'w': liv['w'], 'd': liv['d'], 'title': liv['title'],
                      'openings': liv['openings'], 'radiators': liv.get('radiators') or [],
                      # вид из окна — из карточки квартиры застройщика (demo-04 п.5); нет — страница и кадр берут вид по умолчанию
                      **({'window_view': demo_apartment()['windowView']} if demo_apartment().get('windowView') else {})},
-            'rooms': rooms, 'apartment_id': demo_apartment_id(), 'plan': plan,
+            'apartment_id': demo_apartment_id(), 'plan': plan,
             # ПОМЕЩЕНИЯ КВАРТИРЫ ИЗ РЕЕСТРА (demo-16): порядок плана и площади — `data/partners/*.json`; страница берёт их
             # карточкой `/api/apartments`, а это — запасной путь, пока карточка не пришла (`rooms` выше — схема плана целиком)
-            'apartment_rooms': demo_apartment().get('rooms') or [],
+            'apartment_rooms': apt.get('rooms') or [],
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             # ПОЛОСА «ПОДХОДЯЩИХ ПО РАЗМЕРУ» ленты замен (решение владельца 22.10, demo-20 А4; частично отменяет ADR-0271): ширина
             # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных
