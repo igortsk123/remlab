@@ -414,6 +414,11 @@ step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 
 step bank_prepare "$PY" bank_prepare.py
 step mesh_family_early "$PY" mesh_family.py --fill
 step mesh_bind_early "$PY" mesh_bind.py
+# ПОДМЕНА ГОТОВЫХ ЯЧЕЕК — ПОКА ТОЛЬКО ОТЧЁТ (conv-14 шаг 3): ready-ячейки кандидата ∩ строгая чистота, предел 25 %, смешанный
+# банк (номера и set_id на месте, связки крупной мебели, тиры), экзамен по сценам продвигаемых → manifest
+# ~/scout-scenes/bank-promote.json. sets3.json не пишет (писатель — шаг 4; тогда же reindex/set_ids — после него).
+# За флагом rules/bank-candidate.json:promote_enabled (выключен — ok «выключено»); сбой — FAIL в дайджест, ночь идёт дальше
+step bank_promote "$PY" bank_promote.py
 step demo_band "$PY" demo_band.py --report
 step mesh_publish "$PY" mesh_publish.py
 # каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины
