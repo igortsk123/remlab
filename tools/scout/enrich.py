@@ -19,6 +19,11 @@
   ~/venvs/scout/bin/python enrich.py --pool --batch      # весь пул пакетом (−50%)
   ~/venvs/scout/bin/python enrich.py --fetch <batch_id>  # забрать результат пакета
   ~/venvs/scout/bin/python enrich.py --stats             # что уже обогащено
+  python3 enrich.py --selftest                           # дневная порция: банки комплектов первыми
+
+Ночная порция (`--pool --limit N`, refresh_daily) берёт сначала товары банков комплектов без обогащения — живого
+`sets3.json`, кандидатов `sets3.next*.json` рядом и путей из `ENRICH_BANKS`, — остаток лимита поровну по категориям
+(`daily_pick`, T-20261021-09/5).
 """
 import concurrent.futures as cf
 import json
@@ -145,6 +150,60 @@ def todo(items: list[dict]) -> list[dict]:
     if len(out) < len(items):
         print(f'пропускаю {len(items) - len(out)} — уже обогащены этой версией')
     return out
+
+
+def bank_skus(paths: list[str] | None = None) -> set[str]:
+    """SKU товаров живого банка `sets3.json`, банков-кандидатов рядом (`sets3.next*.json`) и банков из `ENRICH_BANKS`
+    (пути через «:»). Файла нет или он битый — WARN, его товары просто без приоритета."""
+    import glob
+    if paths is None:
+        paths = ([os.path.join(HERE, 'sets3.json')] + sorted(glob.glob(os.path.join(HERE, 'sets3.next*.json')))
+                 + [p for p in os.environ.get('ENRICH_BANKS', '').split(':') if p])
+    out: set[str] = set()
+    for p in paths:
+        try:
+            sets = json.load(open(p, encoding='utf-8'))
+        except (OSError, ValueError) as e:
+            print(f'WARN:enrich: банк {p} не прочитан ({e}) — его товары идут без приоритета', flush=True)
+            continue
+        out |= {f"{it['mid']}:{it['eid']}" for s in sets for it in (s.get('items') or {}).values()
+                if it and it.get('mid')}
+    return out
+
+
+def bank_unenriched() -> set[str]:
+    """SKU банков комплектов без обогащения вовсе. Только они идут вперёд: у «устаревших» (stale) данные читаемы, стили
+    есть, в очередь мешей они встают и так; замер 22.10 — таких в банках ~280, вперёд они съели бы лимит на полторы ночи."""
+    have = {tuple(ln.split('\x1f')) for ln in sql('select shop_mid, external_id from product_enrichment '
+                                                  'where payload is not null').strip().split('\n') if ln}
+    return {k for k in bank_skus() if tuple(k.split(':', 1)) not in have}
+
+
+def daily_pick(items: list[dict], n: int, first: set[str]) -> tuple[list[dict], int, int, int]:
+    """Дневная порция ночного обогащения → (порция, из банков, категорий, по сколько).
+
+    СНАЧАЛА — `first`: необогащённые товары банков комплектов (живого и кандидата). Сборщик берёт и необогащённые товары
+    (`enrich_bridge.quality_ok`: нет данных — не отвергаем), а без обогащения товар не встаёт в очередь мешей
+    (`mesh_bind`: нужны `enriched_at` и стили) — демо остаётся без модели. До 22.10 порция была только
+    поровну по категориям: ~12 товаров категории за ночь против очереди 5 021 (диванов 1 360), и 80 товаров
+    кандидата conv-13 ждали по 5–8 ночей без шанса (T-20261021-09/5).
+    ОСТАТОК лимита — ПОРОВНУ ИЗ ВСЕХ КАТЕГОРИЙ, а не первые N подряд: пул отсортирован по магазину, и «первая
+    тысяча» — это один поставщик и две-три категории, то есть проверка ни о чём (замечание владельца, 2026-08-06).
+    Лимит общий: приоритет меняет только порядок, не деньги. Чистая функция (селфтест)."""
+    head = [it for it in items if f"{it['mid']}:{it['eid']}" in first][:n]
+    taken = {id(it) for it in head}
+    by: dict = {}
+    for it in items:
+        if id(it) not in taken:
+            by.setdefault(it['role_feed'], []).append(it)
+    left = n - len(head)
+    per = max(left // max(len(by), 1), 1)
+    picked: list[dict] = []
+    if left > 0:
+        for _role, lst in sorted(by.items()):
+            step = max(len(lst) // per, 1)
+            picked += lst[::step][:per]
+    return head + picked[:left], len(head), len(by), per
 
 
 VISION_FIELDS = ('styles', 'style_strength', 'materials', 'primary_color', 'shape',
@@ -545,19 +604,9 @@ def main() -> None:
             print(f'imgcache: сброшено {_busted} картинок переобогащаемых')
         if '--limit' in a:
             n = int(a[a.index('--limit') + 1])
-            # Пилот берём ПОРОВНУ ИЗ ВСЕХ КАТЕГОРИЙ, а не первые N подряд: пул отсортирован по
-            # магазину, и «первая тысяча» — это один поставщик и две-три категории, то есть
-            # проверка ни о чём (замечание владельца, 2026-08-06).
-            by: dict = {}
-            for it in items:
-                by.setdefault(it['role_feed'], []).append(it)
-            per = max(n // max(len(by), 1), 1)
-            picked = []
-            for role, lst in sorted(by.items()):
-                step = max(len(lst) // per, 1)
-                picked += lst[::step][:per]
-            items = picked[:n]
-            print(f'пилот: {len(items)} товаров из {len(by)} категорий, примерно по {per}')
+            items, nb, ncat, per = daily_pick(items, n, bank_unenriched())
+            print(f'пилот: {len(items)} товаров — необогащённых из банков комплектов {nb}, '
+                  f'остальные из {ncat} категорий, примерно по {per}')
         if '--sets-roles' in a:
             # Роли, которые сборщик комплектов реально использует. Шкафы-купе и «другое» в
             # гостиную не идут — платить за их фотографии незачем (6 423 товара, 4.4 $).
@@ -619,5 +668,49 @@ def main() -> None:
         print(__doc__)
 
 
+def _selftest() -> int:
+    import tempfile
+    bad = []
+
+    def ok(name, cond):
+        print(('  ok  ' if cond else '  FAIL ') + name)
+        if not cond:
+            bad.append(name)
+
+    def mk(role, k):
+        return {'mid': 1, 'eid': f'{role}{k}', 'role_feed': role}
+    items = [mk('диван', k) for k in range(100)] + [mk('стул', k) for k in range(10)] + [mk('пуф', k) for k in range(5)]
+
+    # старое правило (до 22.10) — для сверки «без банка ничего не меняется»
+    def old(items, n):
+        by: dict = {}
+        for it in items:
+            by.setdefault(it['role_feed'], []).append(it)
+        per = max(n // max(len(by), 1), 1)
+        picked = []
+        for _r, lst in sorted(by.items()):
+            picked += lst[::max(len(lst) // per, 1)][:per]
+        return picked[:n]
+    got, nb, _c, _p = daily_pick(items, 9, set())
+    ok('без банка — та же порция, что раньше', got == old(items, 9) and nb == 0)
+    bank = {'1:диван7', '1:диван55', '1:пуф4'}
+    got, nb, _c, _p = daily_pick(items, 9, bank)
+    keys = [f"{it['mid']}:{it['eid']}" for it in got]
+    ok('товары банка взяты первыми, даже те, мимо которых шёл шаг по категории',
+       keys[:3] == ['1:диван7', '1:диван55', '1:пуф4'] and nb == 3)
+    ok('общий лимит не превышен, повторов нет', len(got) == 9 and len(set(keys)) == 9)
+    ok('остаток лимита — по категориям', {it['role_feed'] for it in got[3:]} == {'диван', 'стул', 'пуф'})
+    got, nb, _c, _p = daily_pick(items, 2, bank)
+    ok('банк больше лимита — только банк, в пределах лимита', len(got) == 2 and nb == 2)
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, 'b.json')
+        json.dump([{'items': {'sofa': {'mid': 5, 'eid': 'x'}, 'rug': None}}, {'items': {'pouf': {'mid': '6', 'eid': 'y'}}}],
+                  open(p, 'w'))
+        ok('SKU банка читаются, пустые слоты пропускаются', bank_skus([p]) == {'5:x', '6:y'})
+        ok('нет файла банка — WARN, не падение', bank_skus([os.path.join(d, 'nope.json'), p]) == {'5:x', '6:y'})
+    print('FAIL' if bad else 'OK')
+    return 1 if bad else 0
+
+
 if __name__ == '__main__':
-    main()
+    sys.exit(_selftest()) if '--selftest' in sys.argv else main()
