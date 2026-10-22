@@ -23,23 +23,23 @@ review_after: 2026-12-28
 
 **Режимы:** бродилка · сверху (`viewer.ts:setViewMode`) · фото (`setPhotoPose`, `LivePhoto.tsx`) · план (`PlanView.tsx`); телефон — «Фото».
 
-**Мебель двигают и поворачивают** (ADR-0227, шаг 15°, координаты — в подборе); стулья — группой (ADR-0230).
+**Мебель двигают и поворачивают** (ADR-0227, шаг 15°); стулья — группой (ADR-0230).
 
-**Из чего собрано** (детали — Tier 2): ядро — `contracts/apartment.ts`,
-`lib/configurator/resolve.ts`; сцена — `lib/viewer3d/*`; сохранение — `flat_configs`;
-вход с витрины — `lib/configurator/fromDemo.ts` (`/flat?demo=<вариант>&flat=<квартира>`; места «роль#N»).
+**Из чего собрано** (Tier 2): ядро — `contracts/apartment.ts`, `lib/configurator/resolve.ts`; сцена — `lib/viewer3d/*`;
+сохранение — `flat_configs`; вход с витрины — `lib/configurator/fromDemo.ts` (`?demo=<вариант>&flat=<квартира>`).
 
 **Общий движок с демо (ADR-0288):** `lib/viewer3d` собирается и бандлом для `/demo` (`demo-scene.ts`); предмет = опора
 + модель (сдвиг без пересоздания), фото-поза = серверная камера (`viewer.ts:photoRay`).
 
-**Решения:** ADR-0210…0230, 0258, 0281, 0288, 0292 (проёмы), 0293 (вид из окна), 0297–0298.
+**Решения:** ADR-0210…0230, 0258, 0281, 0288, 0292–0293, 0297–0298.
 
 **С 14–15.10 (ADR-0281, demo-05):** отмена (`lib/configurator/history.ts`), «убрать»; мост с окном — ковёр, ваза
 (`resolve.placeTabletop`), ленты (`demo-feeds.ts`), упаковки (`resolve.packPrices`), ТВ — `build-scene.sceneExtras`.
 **С 16.10 (demo-06/07, ADR-0297/0298):** пол и стены витрины — опции места из группы застройщика (`source.floorChoiceOf`,
 `source.finishChoiceOf(hit,"wall")`, `?opt=`), итоги по назначению (`totals.bySettlement`): сертификат — только мебель;
 UK-двойник — цены по курсу (`ctx.fxRate`).
-**Нет:** перекраски по маске, лайтмапов, непрямоугольных комнат. **Телефон (22.10):** зоны кадра — стрелки и подписи не пересекаются (`components/flat3d/WalkPad.tsx:walkPadRect`, `Hotspots.tsx:labelBox`), подпись без магазина (`lib/configurator/label.ts`) — Tier 2. **Открыто:** пересборка `furniture.json`.
+**Нет:** маски перекраски, лайтмапов, непрямоугольных комнат. **Телефон (22.10):** стрелки и подписи не пересекаются
+(`WalkPad.tsx:walkPadRect`, `Hotspots.tsx:labelBox`) — Tier 2. **Открыто:** пересборка `furniture.json`.
 
 **Уроки:** `lessons/flat3d-configurator.md`.
 
