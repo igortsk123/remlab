@@ -1,8 +1,8 @@
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // КОРЗИНА СЕРТИФИКАТА (план demo-16 шаг 2, «Решения владельца 18.10»): 0 на старте; первый вариант комнаты включается сам; второй — вопрос
 // «вместо «Гостиная #1»? Да/Нет»; в избранном — группы по комнатам и переключатель «Включить в сертификат» с пересчётом шкалы; окно —
-// та же шкала, что на главной (demo-19 Б2, demo-20 А6: «Выбрано N … сертификат M», светлая часть — эта расстановка); не влезает — в избранное без
-// включения, сообщение «больше остатка на N — уменьшите сумму» с «Изменить →» (demo-19 Б4)
+// та же шкала, что на главной (demo-19 Б2, demo-20 А6: «Выбрано N … сертификат M», светлая часть — эта расстановка); не влезает — в избранное,
+// диалог «Доплата N — подтвердить?» с «Подтвердить» / «Изменить расстановку»; без подтверждения не включается (demo-23, ADR-0308)
 // (лимит подменяется ответом карточки квартиры, страница не трогается); перенос избранного demo-15. Избранное — отдельный экран
 // `#screen-fav` с «← Назад» туда, откуда пришли; поле имени — фокус и каретка в конце сразу после тапа по ♡ (demo-17). Платного пути нет.
 //   BASE=https://remont-lab.online/test/share/demo-stage/ OUT=~/scout-scenes/<сессия>/ node tools/ops/demo-walk/basket-check.cjs 375x667
@@ -17,7 +17,9 @@ async function page(b,o={}){
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   await p.route(/\/api\/render(\?|$)/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({job:'fake-'+Date.now()})}));
   await p.route(/\/api\/job\?/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'running',eta:30})}));
+  // лимит — пакетом одной суммы (demo-23: страница берёт политику `incentive`, сумма сертификата — её итог)
   if(o.limit)await p.route(/\/api\/apartments\//,async r=>{const res=await r.fetch(); const j=await res.json(); if(j.card&&j.card.certificate)j.card.certificate.amount=o.limit;
+    if(j.card&&j.card.incentive)j.card.incentive={...j.card.incentive,mode:'pooled',limits:{furniture:o.limit,fitout:0},total:o.limit};
     await r.fulfill({response:res,body:JSON.stringify(j),headers:{...res.headers(),'content-type':'application/json'}});});
   if(o.embed)await ctx.addInitScript(()=>{window.__EMBED={partner:'demo',flat:'flat215',lang:'ru'}; window.__sendFlat='flat215';});   // как `lib/embed/page.ts`
   if(o.seed)await ctx.addInitScript(s=>{try{if(!sessionStorage.getItem('seeded')){localStorage.clear(); Object.entries(s).forEach(([k,v])=>localStorage.setItem(k,v)); sessionStorage.setItem('seeded','1');}}catch(e){}},o.seed);
@@ -181,20 +183,22 @@ const saveHeart=async(p)=>{await p.click('#vFav'); CARET=await caret(p); await p
       else ok('окно сразу в 3D: нет варианта без реалистичного фото — проверить нечем',true,'пропуск');
       await t3.context().close();
     }
-    // 7) не влезает: сертификат 100 000 → в избранное без включения, «больше остатка на N — уменьшите сумму», «Изменить →» (demo-19 Б4)
+    // 7) не влезает: пакет 100 000 → в избранное, диалог «Доплата N — подтвердить?» (N = сумма − лимит); без «Подтвердить» не включено;
+    //    «Изменить расстановку» — остаёмся в окне этой расстановки (demo-23, ADR-0308; было — отказ «больше остатка», demo-19 Б4)
     const q=await page(b,{limit:100000});
     await openWin(q,0);
     await q.click('#vFav'); await q.waitForSelector('#favName'); await q.click('#favOk');
-    await q.waitForFunction("/больше остатка/.test((document.getElementById('toast')||{}).textContent||'')",null,{timeout:30000}).catch(()=>{});
-    const s7=await st(q), sum7=await q.evaluate(()=>+document.getElementById('vsum').dataset.sum);
-    const over=Number((s7.toast.match(/на ([\d\s ]+)₽/)||[])[1]?.replace(/\D/g,''));
-    ok('не влезает — в избранном без включения, «больше остатка на N ₽ — уменьшите сумму» (N = сумма − лимит), действие «Изменить →», без диалога',
-      s7.n===1&&!Object.keys(s7.inc).length&&over===sum7-100000&&/уменьшите сумму/.test(s7.toast)&&/Изменить/.test(s7.toast)&&!/больше|превыш/.test(s7.pop),JSON.stringify({n:s7.n,inc:s7.inc,over,sum7,toast:s7.toast}));
+    await q.waitForFunction("/Доплата .* — подтвердить\\?/.test((document.getElementById('favPop')||{}).innerText||'')",null,{timeout:30000}).catch(()=>{});
+    const s7=await st(q), sum7=await q.evaluate(()=>{const f=window.__basket.state().favorites[0]; return f?f.quote.lines.filter(x=>x.settlement==='allowance').reduce((a,x)=>a+(x.amount||0),0):-1;});
+    const over=Number((s7.pop.match(/Доплата ([\d\s  ]+)₽/)||[])[1]?.replace(/\D/g,''));
+    const btns=await q.evaluate(()=>[...document.querySelectorAll('#favPop button')].map(x=>x.textContent));
+    ok('не влезает — в избранном, диалог «Доплата N ₽ — подтвердить?» (N = сумма − лимит), «Подтвердить» / «Изменить расстановку», до ответа не включено',
+      s7.n===1&&!Object.keys(s7.inc).length&&over===sum7-100000&&btns.join('|')==='Подтвердить|Изменить расстановку',JSON.stringify({n:s7.n,inc:s7.inc,over,sum7,pop:s7.pop,btns}));
     const plateOver=await q.evaluate(()=>{const sp=document.querySelector('#vsum .cs-l'); return {head:sp.textContent, over:!!document.querySelector('#vsum .cs.over'), cut:sp.scrollWidth>sp.clientWidth+1};});
     ok('шкала при превышении — красная светлая часть, подпись не обрезана',plateOver.over&&!plateOver.cut,JSON.stringify(plateOver));
     await q.screenshot({path:OUT+W+'-4-over.png'});
-    await q.click('#toast .toastact'); await q.waitForTimeout(700);
-    ok('«Изменить расстановку» — остаёмся в окне этой расстановки',await q.evaluate(()=>document.getElementById('shot').classList.contains('on')));
+    await q.locator('#favPop button',{hasText:'Изменить расстановку'}).click(); await q.waitForTimeout(700);
+    ok('«Изменить расстановку» — остаёмся в окне этой расстановки, корзина без изменений',await q.evaluate(()=>document.getElementById('shot').classList.contains('on')&&!Object.keys(window.__basket.state().includedByRoom).length));
     ok('без ошибок страницы (лимит)',!q.errs.length,q.errs.slice(0,2).join(' | '));
     const cid=await q.evaluate(()=>window.__basket.state().favorites[0].favoriteId);
     await q.context().close();

@@ -32,6 +32,7 @@ const BAR=`(()=>{const c=document.getElementById('hmCert'); if(!c||c.hidden)retu
   const fit=e=>e.scrollWidth<=e.clientWidth+1;
   return {mode:c.dataset.mode, over:+c.dataset.over, head:(c.querySelector('.cs-t')||{}).innerText, legend:(c.querySelector('.cs-lg')||{}).innerText||'',
     group:q('.cs-bar[role=group]').length, meters:q('[role=meter]').map(m=>({name:m.getAttribute('aria-label'), now:+m.getAttribute('aria-valuenow'), max:+m.getAttribute('aria-valuemax'), text:m.getAttribute('aria-valuetext')})),
+    ovl:(c.querySelector('.cs-ov')||{}).innerText||'', rowsOne:q('.cs-lg .li').every(e=>e.getBoundingClientRect().height<=24),
     hatch:q('.sg i.x').some(i=>parseFloat(i.style.width)>0), fits:q('.cs-t,.cs-lg .li,.cs-l').every(fit), h:Math.round(c.getBoundingClientRect().height)};})()`;
 const BUB=`(()=>{const b=document.querySelector('#hmCert .vpl-bub'); if(!b||b.hidden)return null; const r=b.getBoundingClientRect(); return {text:b.innerText, r:[r.left,r.top,r.right,r.bottom].map(Math.round)};})()`;
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
@@ -59,21 +60,37 @@ const BUB=`(()=>{const b=document.querySelector('#hmCert .vpl-bub'); if(!b||b.hi
     ok(`${name}: группа и ${split?'два':'один'} meter`,s&&s.group===1&&s.meters.length===(split?2:1),s&&s.meters);
     if(split)ok(`${name}: части названы`,s.meters.map(m=>m.name).join('|')==='Furniture and appliances|Upgrades',s.meters.map(m=>m.name));
     ok(`${name}: текст не обрезан`,s&&s.fits,s&&s.head);
-    if(name==='ru-over'){ok('ru-over: штриховка и «доплата 80 000 ₽» под полосой',s.hatch&&/доплата 80[\s  ]000 ₽/.test(s.legend),s.legend);}
-    if(name==='uk-part')ok('uk-part: легенда — обе части цифрами',/Furniture( and appliances)?\s*1,200\s*\/\s*4,500/.test(s.legend)&&/Upgrades\s*3,000\s*\/\s*8,000/.test(s.legend)&&!s.hatch,s.legend);
-    if(name==='uk-over-f')ok('uk-over-f: доплата £800 у мебели, улучшения без доплаты',s.hatch&&/top-up £800/.test(s.legend)&&/Upgrades\s*3,000\s*\/\s*8,000\s*$/m.test(s.legend),s.legend);
-    if(name==='uk-zero')ok('uk-zero: обычная полоса, улучшения — доплата £600',s.meters.length===1&&s.meters[0].max===4500&&/top-up £600/.test(s.legend),s.legend);
+    if(name==='ru-over'){ok('ru-over: штриховка и «доплата 80 000 ₽» строкой под полосой',s.hatch&&/доплата 80[\s\u202f\u00a0]000 ₽/.test(s.ovl),s.ovl);}
+    ok(`${name}: строки бюджетов — каждая в одну строку`,s.rowsOne,s.legend);
+    if(name==='uk-part')ok('uk-part: легенда — обе части цифрами, строки перерасхода нет',/Furniture( and appliances)?\s*1,200\s*\/\s*4,500/.test(s.legend)&&/Upgrades\s*3,000\s*\/\s*8,000/.test(s.legend)&&!s.hatch&&!s.ovl,s.legend);
+    if(name==='uk-over-f')ok('uk-over-f: штриховка у мебели, «доплата £800» отдельной строкой под легендой',s.hatch&&/Furniture( and appliances)?\s*5,300\s*\/\s*4,500/.test(s.legend)&&!/top-up/.test(s.legend)&&/top-up £800/.test(s.ovl),{lg:s.legend,ov:s.ovl});
+    if(name==='uk-zero')ok('uk-zero: обычная полоса, улучшения — доплата £600',s.meters.length===1&&s.meters[0].max===4500&&/top-up £600/.test(s.ovl),s.ovl);
     if(name==='ru-empty'||name==='uk-empty')ok(`${name}: выбрано 0, без штриховки`,!s.hatch&&s.meters.every(m=>m.now===0),s.meters);
     await shot(p,name);
     if(['ru-part','uk-part','uk-over-f','uk-zero'].includes(name)){
       await p.click('#hmCert .vpl-i'); await p.waitForTimeout(400); const u=await p.evaluate(BUB);
       const want=name.startsWith('ru')?/мебель, технику и улучшения/:name==='uk-zero'?/Upgrades — not included in the package/:/Furniture and appliances: £[\d,]+ of £4,500[\s\S]*Upgrades: £[\d,]+ of £8,000[\s\S]*No transfer between the budgets/;
       ok(`${name}: пузырь «i» — оба бюджета`,!!u&&want.test(u.text)&&u.r[0]>=0&&u.r[2]<=W,u&&u.text.replace(/\n/g,' | '));
-      await shot(p,name+'-i');}
-    if(PHONE&&(name==='ru-part'||name==='uk-part')){   // 2.34: высота липкой шапки после прокрутки
+      await shot(p,name+'-i');
+      await p.click('#hmCert .vpl-i'); await p.waitForTimeout(300);}   // закрыть пузырь — снимок липкой шапки без него
+    if(['ru-part','ru-over','uk-part','uk-over-f'].includes(name)){   // липкая шапка — компакт (T-19/2); 2.34 — ≤ 140 px на телефоне
+      const Y="Math.round(document.getElementById('hmRooms').getBoundingClientRect().top+scrollY)", y0=await p.evaluate(Y);
+      // страница целиком на экране (большой монитор) — прокручивать нечего, шапка не прилипает: проверять нечего
+      const room=await p.evaluate("(()=>{const c=document.getElementById('hmCert'); return document.documentElement.scrollHeight-innerHeight-(c.getBoundingClientRect().top+scrollY-parseFloat(getComputedStyle(c).top));})()");
+      if(room<1){R.push(`ИНФО ${name} ${W}×${H}: страница не прокручивается до шапки — липкого состояния нет`); await p.context().close(); continue;}
       await p.evaluate("scrollTo(0, document.documentElement.scrollHeight)"); await p.waitForTimeout(500);
-      const st=await p.evaluate("({sticky:Math.round(Math.max(document.getElementById('hmHd').getBoundingClientRect().bottom, document.getElementById('styleTabs').getBoundingClientRect().bottom)), cert:Math.round(document.getElementById('hmCert').getBoundingClientRect().height)})");
-      R.push(`ИНФО липкая шапка ${name} ${W}×${H}: ${st.sticky} px (полоса ${st.cert} px)`); await shot(p,name+'-sticky');}
+      const st=await p.evaluate(`({sticky:Math.round(Math.max(document.getElementById('hmHd').getBoundingClientRect().bottom, document.getElementById('styleTabs').getBoundingClientRect().bottom)),
+        cert:Math.round(document.getElementById('hmCert').getBoundingClientRect().height), stuck:document.getElementById('hmCert').classList.contains('stuck'),
+        lg:[...document.querySelectorAll('#hmCert .cs-lg,#hmCert .cs-ov')].some(e=>!!e.offsetParent),
+        right:[...document.querySelectorAll('#hmCert .cs-t .cs-r')].filter(e=>!!e.offsetParent).map(e=>e.innerText).join('|'), y:${Y}})`);
+      R.push(`ИНФО липкая шапка ${name} ${W}×${H}: ${st.sticky} px (полоса ${st.cert} px)`);
+      ok(`${name}: липкая — компакт${PHONE?' ≤ 140 px':''}, легенды нет`,st.stuck&&(!PHONE||st.sticky<=140)&&!st.lg,st);
+      ok(`${name}: под шапкой ничего не сдвинулось`,st.y===y0,{y0,y:st.y});
+      const over=name==='ru-over'||name==='uk-over-f';
+      ok(`${name}: справа — ${over?'доплата вместо суммы':'сумма сертификата'}`,over?/(доплата|top-up) /.test(st.right)&&!/(сертификат|allowance)/.test(st.right):!/(доплата|top-up)/.test(st.right),st.right);
+      await shot(p,name+'-sticky');
+      await p.evaluate("scrollTo(0,0)"); await p.waitForTimeout(400);
+      ok(`${name}: наверху шапка снова полная`,await p.evaluate("!document.getElementById('hmCert').classList.contains('stuck')&&!document.getElementById('hmCert').style.marginBottom"));}
     await p.context().close();}
   // 2. окно варианта: эта расстановка выведет за лимит — «выйдет за лимит на N», штриховка предпросмотра
   for(const [name,re] of [['ru-win',/выйдет за лимит на [\d\s  ]+₽/],['uk-win',/goes over the limit by £[\d,]+/]]){
@@ -81,10 +98,10 @@ const BUB=`(()=>{const b=document.querySelector('#hmCert .vpl-bub'); if(!b||b.hi
     const p=await open(name);
     await p.evaluate(()=>vwOpenVariant(0)); await p.waitForFunction(()=>!!document.querySelector('#vsum .cs'),null,{timeout:60000}); await p.waitForTimeout(1500);
     const v=await p.evaluate(()=>{const c=document.querySelector('#vsum .cs'), cr=c.getBoundingClientRect();
-      return {lg:(c.querySelector('.cs-lg')||{}).innerText||'', xp:[...c.querySelectorAll('.sg i.xp')].some(i=>parseFloat(i.style.width)>0), meters:c.querySelectorAll('[role=meter]').length,
+      return {lg:[...c.querySelectorAll('.cs-lg,.cs-ov')].map(e=>e.innerText).join('\n'), rowsOne:[...c.querySelectorAll('.cs-lg .li')].every(e=>e.getBoundingClientRect().height<=24), xp:[...c.querySelectorAll('.sg i.xp')].some(i=>parseFloat(i.style.width)>0), meters:c.querySelectorAll('[role=meter]').length,
         inside:[...c.querySelectorAll('.cs-lg .li>*,.cs-t>*')].every(e=>{const r=e.getBoundingClientRect(); return !r.width||r.left>=cr.left-0.5&&r.right<=cr.right+0.5;})};});
     ok(`${name}: окно — «выйдет за лимит», штриховка предпросмотра`,re.test(v.lg)&&v.xp,v);
-    ok(`${name}: подписи окна внутри плашки`,v.inside);
+    ok(`${name}: подписи окна внутри плашки, строки бюджетов — в одну строку`,v.inside&&v.rowsOne,v);
     await shot(p,name);
     await p.click('#vsum .vpl-i'); await p.waitForTimeout(400);
     ok(`${name}: пузырь окна открыт`,await p.evaluate(()=>{const x=document.getElementById('vplBub'); return !!x&&!x.hidden;}));
@@ -104,7 +121,7 @@ const BUB=`(()=>{const b=document.querySelector('#hmCert .vpl-bub'); if(!b||b.hi
     ok(`${name}: без подтверждения корзина та же`,await p.evaluate(()=>JSON.stringify(window.__basket.state().includedByRoom))===inc0);
     await p.click(`#favGrid [data-finc="${fid(4)}"]`); await p.waitForSelector('#favPop',{timeout:10000});
     await p.locator('#favPop button.primary').click(); await p.waitForTimeout(700);
-    const after=await p.evaluate(()=>({inc:window.__basket.state().includedByRoom.living, lg:(document.querySelector('#hmCert .cs-lg')||{}).innerText||''}));
+    const after=await p.evaluate(()=>({inc:window.__basket.state().includedByRoom.living, lg:(document.querySelector('#hmCert .cs-ov')||{}).innerText||''}));
     ok(`${name}: «${cf}» — включён, на полосе доплата`,after.inc===fid(4)&&/(доплата|top-up)/.test(after.lg),after);
     await shot(p,name+'-done'); await p.context().close();}
   ok('ошибок страницы нет',!errs.length,errs.slice(0,3));

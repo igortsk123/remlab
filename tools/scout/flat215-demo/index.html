@@ -209,11 +209,15 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .cs-lg{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 10px;margin-top:4px;font-size:12.5px;color:var(--muted);line-height:1.35}
 .cs-lg .li{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .cs-lg .li b{color:var(--ink);font-weight:700}
-.cs-lg .li .dop{margin-left:4px}
 .cs-lg .sh{display:none}
-@container (max-width:420px){.cs-lg.two{display:block}.cs-lg.two .li{display:flex}.cs-lg.two .nv{margin-left:auto;order:2}
-  .cs-lg.two .li.ov{flex-wrap:wrap}            /* «выйдет за лимит на N» не влезает рядом с цифрами — цифры строкой ниже, у правого края */
-  .cs-lg.two .li.ov .lf{display:none}.cs-lg.two .li.ov .sh{display:inline}}
+@container (max-width:420px){.cs-lg.two{display:block}.cs-lg.two .li{display:flex}.cs-lg.two .nv{margin-left:auto;order:2}}
+.cs-ov{margin-top:3px;font-size:12.5px;line-height:1.35}
+.cs .cs-dop{display:none}
+/* ЛИПКАЯ ШАПКА — КОМПАКТ (ведущий 22.10, T-19/2: UK split 178 px из 667 — треть экрана): после прокрутки — строка «Выбрано … сертификат»
+   и трек; легенда и строка перерасхода скрыты (детали — в «i»), при доплате справа вместо суммы — «▨ доплата N». Высота, которую
+   отдала легенда, остаётся полем снизу (`certStuck`) — содержимое под шапкой не прыгает */
+.hm-cert.stuck .cs-lg,.hm-cert.stuck .cs-ov{display:none}
+.hm-cert.stuck .cs.over .cs-r:not(.cs-dop){display:none}.hm-cert.stuck .cs-dop{display:inline-flex}
 @container (max-width:300px){.cs-lg .lf{display:none}.cs-lg .sh{display:inline}}
 .vpl-bub .bub-row{display:flex;gap:8px;align-items:baseline}
 .vpl-bub .bub-row .sw{transform:translateY(-1px)}
@@ -1276,8 +1280,12 @@ function certScale(o){
   const zero=P.mode==='split'&&!two?B.find(k=>!(L[k]>0)):null;
   if(zero){ov[0].real+=inc[zero]; ov[0].soon+=add[zero];}
   const over=ov.some(x=>x.real||x.soon);
-  const dop=x=>x.real?`<span class="dop"><span class="sw x"></span>${EN?'top-up':'доплата'} ${fmtCard(x.real)}</span>`
-    :x.soon?`<span class="dop"><span class="sw x"></span>${EN?'goes over the limit by':'выйдет за лимит на'} ${fmtCard(x.soon)}</span>`:'';
+  // ПЕРЕРАСХОД — ОТДЕЛЬНОЙ СТРОКОЙ ПОД ЛЕГЕНДОЙ (ведущий 22.10, T-19/2): строки бюджетов всегда «■ название … N / лимит» в одну строку,
+  // какой бюджет сверх — видно штриховкой его части; слова — сумма: выбрано сверх — «доплата N», только предпросмотр — «выйдет за лимит на N»
+  const real=ov.reduce((a,x)=>a+x.real,0), soon=ov.reduce((a,x)=>a+x.soon,0);
+  const topTxt=n=>`${EN?'top-up':'доплата'} ${fmtCard(n)}`;
+  const ovLine=over?`<div class="cs-ov"><span class="dop"><span class="sw x"></span>`+[real?topTxt(real):'',
+      soon?`${EN?'goes over the limit by':'выйдет за лимит на'} ${fmtCard(soon)}`:''].filter(Boolean).join(' · ')+`</span></div>`:'';
   const seg=([k,Lm,c,p])=>{const t=c+p, s=Math.max(Lm,t)||1, w=x=>(x/s*100).toFixed(3)+'%';
     const pv=Math.max(0,Math.min(t,Lm)-c), x=Math.max(0,c-Lm), xp=Math.max(0,t-Math.max(c,Lm));
     const vt=(EN?`${fmtCard(c)} of ${fmtCard(Lm)}`:`${fmtCard(c)} из ${fmtCard(Lm)}`)+(p?(EN?`, this layout adds ${fmtCard(p)}`:`, расстановка добавит ${fmtCard(p)}`):'')+
@@ -1287,13 +1295,14 @@ function certScale(o){
       `<i class="s" style="width:${w(Math.min(c,Lm))}"></i><i class="pv" style="width:${w(pv)}"></i><i class="x" style="width:${w(x)}"></i>`+
       `<i class="xp" style="width:${w(xp)}"></i>${t>Lm?`<b class="lim" style="left:${w(Lm)}"></b>`:''}</div>`;};
   const chosen=inc.furniture+inc.fitout;
-  const legend=two?`<div class="cs-lg two">`+parts.map(([k,Lm,c],i)=>`<span class="li${ov[i].real||ov[i].soon?' ov':''}"><span class="sw ${cls[k]}"></span>`+
-      `<span class="lf">${NM[k]}</span><span class="sh">${BUD_SHORT()[k]}</span> <span class="nv"><b>${fmtNum(c)}</b> / ${fmtNum(Lm)}</span>${dop(ov[i])}</span>`).join('')+`</div>`
-    :over?`<div class="cs-lg">${dop(ov[0])}</div>`:'';
+  const legend=(two?`<div class="cs-lg two">`+parts.map(([k,Lm,c])=>`<span class="li"><span class="sw ${cls[k]}"></span>`+
+      `<span class="lf">${NM[k]}</span><span class="sh">${BUD_SHORT()[k]}</span> <span class="nv"><b>${fmtNum(c)}</b> / ${fmtNum(Lm)}</span></span>`).join('')+`</div>`:'')+ovLine;
   return `<div class="cs${over?' over':''}${two?' two':''}"><div class="cs-t"><span class="cs-l">${EN?'Chosen':'Выбрано'} `+
       `<b data-k="inc" data-to="${chosen}">${fmtCard(chosen)}</b></span>`+
       `<button class="vpl-i" type="button" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
-      `<span class="cs-r"><span class="lab-r">${EN?'allowance ':'сертификат '}</span><b>${fmtCard(P.total)}</b></span></div>`+
+      `<span class="cs-r"><span class="lab-r">${EN?'allowance ':'сертификат '}</span><b>${fmtCard(P.total)}</b></span>`+
+      // липкая шапка (компакт): вместо суммы сертификата — доплата, если она есть (`.hm-cert.stuck`)
+      (real?`<span class="cs-r cs-dop dop"><span class="sw x"></span>${topTxt(real)}</span>`:'')+`</div>`+
     `<div class="cs-bar${two?' two':''}" role="group" aria-label="${two?(EN?'Allowance: two budgets, no transfer between them':'Сертификат: два бюджета, перенос между ними недоступен'):(EN?'Allowance':'Сертификат')}">`+
       parts.map(seg).join('')+`</div>${legend}`+
     `<div class="vpl-bub"${o.bubId?` id="${o.bubId}"`:''} hidden role="dialog">${certBub(P,inc,add,o.head)}${(o.lines||[]).filter(Boolean).map(t=>`<div>${t}</div>`).join('')}</div></div>`;
@@ -1335,8 +1344,18 @@ function certStick(){
   certStuck();
   if(!c._sc){c._sc=1; addEventListener('scroll',certStuck,{passive:true});}
 }
-function certStuck(){const c=document.getElementById('hmCert'); if(c&&!c.hidden)
-  c.classList.toggle('stuck', scrollY>0&&c.getBoundingClientRect().top<=parseFloat(getComputedStyle(c).top)+0.5);
+// липкая — компакт (T-19/2): легенда прячется, а отданная ею высота остаётся полем снизу — поток под шапкой не сдвигается (не прыгает
+// содержимое и не дёргается прилипание: условие — верх шкалы, а не её высота)
+function certStuck(){const c=document.getElementById('hmCert'); if(c&&!c.hidden){
+  const st=scrollY>0&&c.getBoundingClientRect().top<=parseFloat(getComputedStyle(c).top)+0.5;
+  if(st!==c.classList.contains('stuck')){
+    // поле — по факту: сколько сдвинулся первый видимый блок под шкалой (поле шкалы схлопывается с верхним полем соседа); в координатах
+    // страницы — браузер при сдвиге сам подкручивает прокрутку (scroll anchoring), и в координатах экрана сдвиг не виден
+    if(st){let n=c.nextElementSibling; while(n&&!n.getClientRects().length)n=n.nextElementSibling;
+      const at=()=>n?n.getBoundingClientRect().top+scrollY:0, t0=at(), h0=c.getBoundingClientRect().height; c.classList.add('stuck');
+      let mb=Math.max(0,h0-c.getBoundingClientRect().height); c.style.marginBottom=mb+'px';
+      const dt=t0-at(); if(dt>0.5){mb+=dt; c.style.marginBottom=mb+'px';}}
+    else{c.classList.remove('stuck'); c.style.marginBottom='';}}}
   hmE2();}
 // ОДНА ТЕНЬ У ЛИПКОГО БЛОКА ГЛАВНОЙ (demo-21 п.3): строка квартиры, шкала и вкладки стилей — один слой; линию и тень `--e2` получает
 // НИЖНИЙ из прилипших (стоит ровно на своём `top`), и только когда страница прокручена — под ним есть уехавшее содержимое

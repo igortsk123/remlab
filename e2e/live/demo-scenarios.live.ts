@@ -346,25 +346,34 @@ test("2.33 первый экран телефона: вкладки стилей
   }
 });
 
-test("2.34 липкая шапка после прокрутки ≤ 96 px, вкладка стиля из любого места — комнаты стиля под шапкой", async ({ browser }) => {
-  const ctx = await browser.newContext(phone);
-  const page = await ctx.newPage();
-  await page.goto("/demo/", { waitUntil: "load" });
-  await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 1 && !!FLAT");
-  await page.evaluate("scrollTo(0, document.documentElement.scrollHeight)");
-  await page.waitForTimeout(400);
-  const sticky = await page.evaluate("Math.round(Math.max(document.getElementById('hmHd').getBoundingClientRect().bottom, document.getElementById('styleTabs').getBoundingClientRect().bottom))") as number;
-  say("липкая часть:", sticky, "px");
-  expect(sticky).toBeLessThanOrEqual(96);
-  const id = await page.locator("#styleTabs [data-style]").nth(1).getAttribute("data-style");
-  await page.locator(`#styleTabs [data-style="${id}"]`).click();
-  await page.waitForTimeout(900);
-  const r = await page.evaluate("({top: Math.round(document.getElementById('hmRooms').getBoundingClientRect().top), style: new URLSearchParams(location.search).get('style'), card: document.querySelector('#hmRooms .hm-room').dataset.style})") as { top: number; style: string; card: string };
-  say("после вкладки:", JSON.stringify(r));
-  expect(r.style).toBe(id);
-  expect(r.card).toBe(id);
-  expect(r.top).toBeGreaterThanOrEqual(sticky - 1);
-  await ctx.close();
+// 2.34 (demo-23 T-19/2): в липком состоянии полоса пакета — компакт (строка «Выбрано … лимит» + трек, легенда скрыта) — ≤ 140 px
+// в обеих схемах: РФ (один бюджет) и UK (два раздельных бюджета)
+test("2.34 липкая шапка после прокрутки ≤ 140 px (РФ и UK раздельно), вкладка стиля из любого места — комнаты стиля под шапкой", async ({ browser }) => {
+  for (const q of ["", "?lang=en"]) {
+    const ctx = await browser.newContext(phone);
+    const page = await ctx.newPage();
+    await page.goto(`/demo/${q}`, { waitUntil: "load" });
+    await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 1 && !!FLAT");
+    await page.evaluate("scrollTo(0, document.documentElement.scrollHeight)");
+    await page.waitForTimeout(500);
+    const st = await page.evaluate(`({ sticky: Math.round(Math.max(document.getElementById('hmHd').getBoundingClientRect().bottom, document.getElementById('styleTabs').getBoundingClientRect().bottom)),
+      mode: document.getElementById('hmCert').dataset.mode, stuck: document.getElementById('hmCert').classList.contains('stuck'),
+      legend: [...document.querySelectorAll('#hmCert .cs-lg, #hmCert .cs-ov')].some((e) => !!e.offsetParent) })`) as { sticky: number; mode: string; stuck: boolean; legend: boolean };
+    say(`${q || "РФ"} липкая часть:`, JSON.stringify(st));
+    expect(st.mode).toBe(q ? "split" : "pooled");
+    expect(st.stuck).toBe(true);
+    expect(st.legend).toBe(false);
+    expect(st.sticky).toBeLessThanOrEqual(140);
+    const id = await page.locator("#styleTabs [data-style]").nth(1).getAttribute("data-style");
+    await page.locator(`#styleTabs [data-style="${id}"]`).click();
+    await page.waitForTimeout(900);
+    const r = await page.evaluate("({top: Math.round(document.getElementById('hmRooms').getBoundingClientRect().top), style: new URLSearchParams(location.search).get('style'), card: document.querySelector('#hmRooms .hm-room').dataset.style})") as { top: number; style: string; card: string };
+    say("после вкладки:", JSON.stringify(r));
+    expect(r.style).toBe(id);
+    expect(r.card).toBe(id);
+    expect(r.top).toBeGreaterThanOrEqual(st.sticky - 1);
+    await ctx.close();
+  }
 });
 
 // 2.35 корзина (владелец 18.10): две коллекции и по одной на каждую схему пакета при подменённом лимите — без ПДн, без номера менеджера.
@@ -408,7 +417,7 @@ test("2.35 корзина: 0 на старте; первая гостиная в
     expect(await o.page.locator("#hmCert [role=group] [role=meter]").count()).toBe(pkg.mode === "split" ? 2 : 1);
     await o.page.locator("#hmRooms .hm-room [data-swap]").click();
     await o.page.waitForSelector("#vFav:visible");
-    await expect(o.page.locator("#vsum .cs-lg")).toContainText(/выйдет за лимит на [\d\s  ]+₽/, { timeout: 30_000 });
+    await expect(o.page.locator("#vsum .cs-ov")).toContainText(/выйдет за лимит на [\d\s  ]+₽/, { timeout: 30_000 });
     await o.page.locator("#vFav").click();
     await o.page.locator("#favOk").click();
     await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽ — подтвердить\?/, { timeout: 30_000 });
@@ -426,7 +435,7 @@ test("2.35 корзина: 0 на старте; первая гостиная в
     await o.page.locator("#favPop button.primary").click();
     const s5 = await basketState(o.page);
     expect(Object.keys(s5.inc).length).toBe(1);
-    await expect(o.page.locator("#hmCert .cs-lg")).toContainText(/доплата [\d\s  ]+₽/);
+    await expect(o.page.locator("#hmCert .cs-ov")).toContainText(/доплата [\d\s  ]+₽/);
     await o.ctx.close();
   }
 });
