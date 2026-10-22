@@ -517,6 +517,12 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
 
 TIERS=['эконом','комфорт','премиум']
 QTY={'стул':4,'кресло':1}
+def dining_capacity(m2):
+    """ЁМКОСТЬ СТОЛОВОЙ ПО ПЛОЩАДИ — столовая на 2/4/6 мест из библиотеки шаблонов (правило владельца 11.08 «шаблон
+    целиком»). ОДНО правило для окна подбора стула (на сколько стульев делится доля площади, `pick2`) и для обрезки состава
+    ниже. Раньше окно считалось на 4 стула, а ставилось 2: 22.10 из каталога ушли маленькие стулья (≤0,188 м²), и столовая
+    пропала во всех 18 сетах 14-16 (T-20261022-21/1)."""
+    return 2 if m2 < 22 else (4 if m2 < 45 else 6)
 STYLE_OF={}
 if STYLE_MODE:  # псевдо-бэнды (метраж × стиль); по умолчанию band 14-16, --bands all → все 7 (room-size-fit Ф3)
     src=COMP['bands'] if ('--bands' in sys.argv and sys.argv[sys.argv.index('--bands')+1]=='all') else COMP['bands'][:1]
@@ -609,7 +615,7 @@ for bi,band in enumerate(COMP['bands']):
         print(f"  Z4: группа {zgroup['id']} (мест {zgroup['seats']}, usable {z_usable:.1f} м²)")
         _extras_left=int(zband.get('extras_max',3))
         _EXTRA_ROLES={'пуф','торшер','кашпо'}
-        chosen={}; alts={}; floor_fp=0; wall_len=0.0
+        chosen={}; alts={}; floor_fp=0; wall_len=0.0; _r3_table_gap=False
         # свободный периметр комнаты этого метража (минус дверь+окно ≈230 см) — под кап
         # «суммарная ширина пристенной мебели ≤ доли периметра» (решение владельца 2026-08-03)
         _W=int((m2*10000/1.15)**0.5//5*5); _D=int(m2*10000/_W//5*5)
@@ -677,6 +683,8 @@ for bi,band in enumerate(COMP['bands']):
                 # канон sectional (08.08): у Г-дивана chaise уже даёт посадку — пара кресел
                 # избыточна и геометрически не встаёт (зеркало попадает в плечо); одно кресло
                 if ctx.get('corner_sofa'): q=min(q,1)
+            elif role=='стул':
+                q=min(QTY['стул'],dining_capacity(m2))   # доля площади — на те стулья, что встанут (ёмкость столовой)
             else:
                 q=QTY.get(role,1)
             top=pick2(role,m2,band['floor'][role],tier,pair,ctx,qty=q) or \
@@ -800,6 +808,7 @@ for bi,band in enumerate(COMP['bands']):
             _orph='стол обеденный' if 'стол обеденный' in chosen else 'стул'
             _fp_o=chosen[_orph].get('fp') or 0
             print(f"  R3: «{_orph}» без пары (стол⇔стулья) — из состава вон")
+            if _orph=='стол обеденный': _r3_table_gap=True   # пробел виден в gaps, а не молча (T-20261022-21/1)
             floor_fp-=_fp_o*chosen[_orph].get('qty',1); chosen.pop(_orph); alts.pop(_orph,None)
         if 'стул' in chosen and chosen['стул'].get('qty',1)<3 and (m2>=26):
             chosen['стул']['qty']=3   # priors p50: три стула вплотную к столу
@@ -982,7 +991,7 @@ for bi,band in enumerate(COMP['bands']):
         # шаблон, который влезет в эту площадь. Иначе лишнее становится ИЗБЫТКОМ
         # (экзамен: 425 лишних стульев — сеты давали 6, а вставала столовая на 4).
         # Ёмкости — из библиотеки шаблонов: столовая 2/4/6 по площади зоны.
-        _seats_cap = 2 if m2 < 22 else (4 if m2 < 45 else 6)
+        _seats_cap = dining_capacity(m2)
         for _i in range(_seats_cap + 1, 7):
             chosen.pop(f'стул {_i}', None)
         if chosen.get('стул') and _seats_cap >= 2:
@@ -1249,6 +1258,8 @@ for bi,band in enumerate(COMP['bands']):
                     gaps.append('coverage_gap: кресло (alt) — нет SKU в стиле/тире')
             else:
                 gaps.append('coverage_gap: кресло (alt) — нет floor-доли band')
+        if _r3_table_gap and 'стол обеденный' not in chosen:
+            gaps.append('coverage_gap: стол обеденный — R3: нет стульев в паре (стол⇔стулья), стол снят')
         sets.append(dict(band=band['band'],m2=m2,tier=tier,pair=list(pair),gaps=gaps,
                          group=zgroup['id'],usable_m2=round(z_usable,1),
                          pod_delta_price=_pod_price,pod_floor_fp=_pod_fp,
