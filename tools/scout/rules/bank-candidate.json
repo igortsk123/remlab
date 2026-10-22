@@ -19,6 +19,10 @@
  "_promote_demo_check_why": "Codex 22.10 § 4: для шести вариантов демо из смешанного банка demo-fill-report replaced=0, dropped=0 — продвигаемая ячейка, которую витрина дозаполнила, не идёт; сборка демо — flat215_demo.choose_banks(fill_banks) отдельным процессом, копия банка и своя папка (bank_paths.demo_plan), без картинок и публикации; предел — на оба прогона",
  "promote_dining_check": true,
  "_promote_dining_check_why": "строгая чистота продвигаемой ячейки: свободный регион столовой (zones.json dining_region_m2, правило compose2 Z4) при отсутствии стола — дефект ячейки (Codex § 4: «обязательные роли и зоны»)",
+ "hidden_roles": [
+  "диван"
+ ],
+ "_hidden_roles_why": "живой сет с ушедшим товаром этих ролей — bank_status hidden: демо его не показывает вариантом и не берёт в ленты замен (flat215_demo.hidden); ушло другое (столик, ковёр, стол, носитель ТВ, пара кресел, декор) — degraded, демо дозаполнит. Ведущий 23.10 (T-20261022-25/2, вариант Б): прежнее «ушла любая ключевая роль» скрывало 6 и 11 — полные варианты демо сегодня",
  "write_enabled": false,
  "_write_enabled_why": "conv-14 шаги 4–5: единственный писатель живого sets3.json — bank_refresh.py сразу за bank_promote (manifest этой ночи → снимок-поколение bank-generations/sets3-<поколение>.json.gz → set_identity.write_bank; bank_status, медиа из каталога — им же; откат — bank_refresh.py rollback <поколение>), затем sets_reindex/set_ids/resolve_affected; прежние --apply-писатели (sets_heal, sets_pairs, sets_contracts, недельные sets_refresh/sets_pairs_w) не идут, bank_media — сухим прогоном. ВЫКЛЮЧЕНО (ведущий 22.10, T-20261022-22/1): сегодня живой банк лечат прежние писатели; при false ночь ровно как прежде (шаг bank_refresh не вызывается — tests_refresh_order.py)",
  "write_manifest_max_age_h": 12,

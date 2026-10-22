@@ -27,7 +27,7 @@
      стала вариантом и витрина её дозаполнила (замен или снятых без замены > 0, `demo-fill-report`) или её стиль потерял
      полный вариант — ячейка не идёт;
   6. нетронутые ячейки — «не хуже прежнего»: ровно как в живом банке, плюс явный `bank_status` у сетов с ушедшим товаром:
-     `hidden` — ушёл товар ключевой роли (вариант без него не пройдёт рубеж публикации ядра), иначе `degraded`
+     `hidden` — ушёл диван (`hidden_roles`; демо такой сет не показывает), иначе `degraded`
      (демо снимет позицию и дозаполнит, `flat215_demo.drop_unavailable` / `demo_fill`);
   7. смешанный банк → `<рабочая папка>/hybrid.json` (`set_identity.write_bank`), manifest → `~/scout-scenes/bank-promote.json`
      (ячейка, set_id, candidate_hash, решение и причины, итог экзамена, состояние ожидания и недостающие меши; отпечатки
@@ -166,14 +166,20 @@ def gone_roles(s: dict, media) -> list[tuple]:
     return out
 
 
-def live_status(s: dict, gone: list) -> dict | None:
-    """Статус живого сета с ушедшим товаром. `hidden` — ушёл товар ключевой роли (без него вариант не пройдёт рубеж ядра
-    публикации — смысла показывать нет), иначе `degraded` (демо снимет позицию и дозаполнит). Предложение правила — шаг 3."""
+HIDE_ROLES = ('диван',)
+
+
+def live_status(s: dict, gone: list, hide: tuple = HIDE_ROLES) -> dict | None:
+    """Статус живого сета с ушедшим товаром. `hidden` — ушёл ДИВАН (`rules/bank-candidate.json:hidden_roles`): без него
+    вариант теряет смысл, демо его не показывает (`flat215_demo.hidden`); иначе `degraded` — демо снимет позицию и дозаполнит,
+    в том числе столик, ковёр, стол, носитель ТВ и пару кресел (ведущий 23.10, T-20261022-25/2: прежнее «ушла любая ключевая
+    роль — hidden» скрывало сеты, которые демо чинит заменами и показывает полными). `core_lost` — справочно."""
     if not gone:
         return None
     rest = {**s, 'items': {r: it for r, it in (s.get('items') or {}).items() if r not in {g[0] for g in gone}}}
     lost = sorted(set(BI.core_missing(rest)) - set(BI.core_missing(s)))
-    return {'state': 'hidden' if lost else 'degraded', 'gone': [list(g) for g in gone], 'core_lost': lost}
+    hid = any(g[0] in hide for g in gone)
+    return {'state': 'hidden' if hid else 'degraded', 'gone': [list(g) for g in gone], 'core_lost': lost}
 
 
 def _strip(s: dict) -> dict:
@@ -342,7 +348,7 @@ def plan(live: list, cand: list, state: dict, R: dict, *, strict_fn, media, gone
     for n, s in enumerate(hybrid):
         if n in promoted:
             continue
-        st = live_status(s, gone_roles(s, media))
+        st = live_status(s, gone_roles(s, media), tuple(R.get('hidden_roles') or HIDE_ROLES))
         if st:
             s['bank_status'] = st
             status[n + 1] = st
@@ -645,12 +651,17 @@ def _selftest() -> int:
     lv[10]['items']['столик'] = it('gone1')
     lv[11]['items']['торшер'] = it('gone2')
     lv[12]['bank_status'] = {'state': 'hidden'}     # прежний статус — пересчитывается каждую ночь
+    lv[13]['items']['диван'] = it('gone3')
     cat[('1', 'gone1')] = {'state': 'gone'}
     cat[('1', 'gone2')] = None
+    cat[('1', 'gone3')] = {'state': 'gone'}
     r = go(lv=lv, R={'max_promote_share': 0})
-    ok('hybrid с прежними degraded: ушёл столик — hidden, ушёл торшер — degraded, остальные без статуса',
-       r['status'].get(11, {}).get('state') == 'hidden' and r['status'].get(12, {}).get('state') == 'degraded'
+    ok('статус: ушёл столик (ключевая роль) — degraded, ушёл диван — hidden, торшер — degraded, остальные без статуса',
+       r['status'].get(11, {}).get('state') == 'degraded' and r['status'][11]['core_lost'] == ['столик']
+       and r['status'].get(14, {}).get('state') == 'hidden' and r['status'].get(12, {}).get('state') == 'degraded'
        and 13 not in r['status'] and 'bank_status' not in r['hybrid'][12] and r['fatal'] is None, r['status'])
+    ok('роли скрытия — из правил (hidden_roles)', live_status(lv[10], [('столик', 'x')], ('столик',))['state'] == 'hidden'
+       and live_status(lv[10], [('диван 2', 'x')])['state'] == 'degraded')
     c5 = copy.deepcopy(cand)
     c5[3]['set_id'] = 'чужой'
     ok('идентичность кандидата нарушена — фатально, ничего', go(c=c5)['fatal'] and go(c=c5)['promoted'] == [])
