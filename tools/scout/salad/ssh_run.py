@@ -734,11 +734,24 @@ class Jobs:
                     n += 1
         return n
 
+    def machine_blocked(self, cur: dict, skus: set) -> int:
+        """Машину не пускает магазин (T-20261022-13): её текущее задание `cur` отпускается без результата (вместо `done`:
+        busy снят, inflight−1) и вместе с прежними заданиями серии возвращается в очередь — `reopen`. Один шаг под `cv`."""
+        with self.cv:
+            cur['busy'] = False
+            self.inflight -= 1
+            if self.stalled:             # остаток уже закрыт (приёмник/нет нод) — своё закрываем, как `done`
+                cur['result'] = {'sku': cur['job'].get('sku'), 'status': 'transport_failed', 'error': 'машину не пускает магазин'}
+                self.cv.notify_all()
+                return 0
+            return self.reopen(skus)
+
     def reopen(self, skus: list | set) -> int:
         """Задания, чьи 403 дала машина, а не магазин (T-20261022-13): попытка на ней не в счёт, закрытое этим запретом
-        (карантин или исчерпанные попытки) — снова в очередь, без паузы повтора. Возвращает, сколько вернулось."""
+        (карантин или исчерпанные попытки) — снова в очередь, без паузы повтора. Возвращает, сколько вернулось.
+        Занятое другой машиной не трогаем (его закроет её `done`), снимаем только попытку."""
         n = 0
-        with self.cv:
+        with self.cv:                    # Condition на RLock — повторный вход из `machine_blocked` допустим
             if self.stalled:
                 return 0
             for it in self.items:
@@ -926,7 +939,8 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             terminal = fault in (NH.FAULT_NONE, NH.FAULT_JOB) or bool(q_until)
             rec = {**r, 'node': node_id[:8], 'attempt': it['attempts'], 'fault': fault,
                    'group': group, 'at': round(time.time()), **({'status': IQ.STATUS} if q_until else {})}
-            js.done(it, rec, terminal)
+            # ЖУРНАЛ И ПЕЧАТЬ — ДО `js.done` (T-20261022-13/2): `done` последнего задания отпускает `wait_all`, и прогон
+            # мог подвести итог и выйти раньше, чем поток ноды запишет строку журнала (демон-поток при выходе обрывается)
             checkpoint({'sku': it['job'].get('sku'), 'role': it['job'].get('role'),
                         'status': r.get('status'), 'attempt': it['attempts'],
                         'node': node_id[:8], 'prefix': r.get('prefix'),
@@ -954,10 +968,13 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                 for sku in blocked[:-1]:        # текущий запрет в карантин не записан — снимаем только прежние
                     IQ.forgive(sku)
                 skus = list(dict.fromkeys(blocked))
-                n_back = js.reopen(set(skus))
+                # текущее задание и прежние из серии — в очередь ОДНИМ шагом под замком очереди, вместо `done`:
+                # между «закрыто» и «снова открыто» `wait_all` мог бы подвести итог и потерять задание
+                n_back = js.machine_blocked(it, set(skus))
                 reject_node(node_id, group, 'forbidden', f'403 на {len(skus)} разных товарах подряд — магазин не пускает машину',
                             skus=skus, reopened=n_back)
                 return
+            js.done(it, rec, terminal)
             if fault == NH.FAULT_INFRA:
                 return                     # виновата инфра: серию ноды не растим, из пула не выводим
             streak = NH.record(node_key, fault, ecls)

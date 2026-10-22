@@ -10,6 +10,8 @@
 
 Запуск: ~/venvs/scout/bin/python tests_pool.py
 """
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -1185,7 +1187,30 @@ def case_forbidden_node() -> None:
     # 1) машина A не пускается магазином — уходит на третьем разном товаре
     patch.jobs = jobs(6)
     patch(nodes, job_fn)
-    code = S.run(None, True, jobs_file='x')
+    made, keep, out = [], S.Jobs, io.StringIO()
+    n_before = sum(1 for _ in open(S.PROGRESS, encoding='utf-8')) if os.path.exists(S.PROGRESS) else 0   # журнал общий для стенда
+
+    class Seen(keep):                       # очередь прогона — чтобы проверить её счётчики после итога
+        def __init__(self, js):
+            super().__init__(js)
+            made.append(self)
+    S.Jobs = Seen
+    try:
+        with contextlib.redirect_stdout(out):
+            code = S.run(None, True, jobs_file='x')
+            n_rows = sum(1 for _ in open(S.PROGRESS, encoding='utf-8'))
+            time.sleep(1.5)                 # дольше одного задания B: лишний повтор после итога успел бы напечататься
+    finally:
+        S.Jobs = keep
+    log = out.getvalue()
+    tail = log[log.index('RUN_SUMMARY'):].splitlines()[1:]
+    assert not [x for x in tail if x.lstrip().startswith('[')], f'задание после итога прогона: {tail}'
+    assert sum(1 for _ in open(S.PROGRESS, encoding='utf-8')) == n_rows, 'строка журнала после итога прогона'
+    q = made[0]
+    assert q.inflight == 0 and not any(it['busy'] for it in q.items), (q.inflight, [it['busy'] for it in q.items])
+    oks = [x['sku'] for x in map(json.loads, open(S.PROGRESS, encoding='utf-8').readlines()[n_before:])
+           if x.get('status') == 'ok' and x.get('node') == 'B' * 8]
+    assert sorted(oks) == sorted(f'sku{i}' for i in range(6)), f'B сделала {sorted(oks)} — каждый товар ровно один раз'
     res = json.load(open(S.RESULTS, encoding='utf-8'))
     st, rows = res['summary'], {r['sku']: r for r in res['results']}
     assert code == 0 and st['unresolved'] == 0, (code, st)
