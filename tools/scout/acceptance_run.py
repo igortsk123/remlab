@@ -25,7 +25,7 @@ SCENES = json.load(open(os.path.join(HERE, 'acceptance-scenes.json')))
 # защита от «смотрю старый отчёт как новый» (13.08 это стоило получаса ложных выводов)
 def _announce_report(engine: str) -> None:
     import time
-    p = os.path.join(HERE, f'acceptance-report-{engine}.jsonl')
+    p = os.path.join(HERE, f'acceptance-report-{engine}{REPORT_SUFFIX}.jsonl')   # тот же файл, что пишет run_engine
     print(f'ОТЧЁТ: {os.path.abspath(p)}', flush=True)
     if os.path.exists(p):
         age = time.time() - os.path.getmtime(p)
