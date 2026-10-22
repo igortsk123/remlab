@@ -7,6 +7,7 @@
   "defaultLang": "ru",
   "currency": "RUB",
   "certificateShare": 0.05,
+  "incentive": { "mode": "pooled", "limits": { "furniture": 600000, "fitout": 0 } },
   "certificateTextRu": "Выбирайте мебель и встраиваемое из набора партнёров застройщика. Все предметы можно двигать, сохранять коллекции и делиться с близкими.",
   "demo": true,
   "complexes": [

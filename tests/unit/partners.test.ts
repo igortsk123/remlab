@@ -17,7 +17,7 @@ describe("реестр застройщиков", () => {
     expect(findApartment("demo-uk-1")?.partner.currency).toBe("GBP");
   });
 
-  it("сертификат — доля цены, округлённая ВНИЗ (не обещаем больше доли)", () => {
+  it("прежний сертификат — доля цены, округлённая ВНИЗ (не обещаем больше доли); действует, пока нет пакета `incentive`", () => {
     const hit = findApartment("flat215")!;
     expect(certificateAmount(hit.partner, hit.apartment)).toBe(470_000); // 9 578 200 × 5 % = 478 910 → 470 000
     const uk = findApartment("demo-uk-1")!;
@@ -27,7 +27,7 @@ describe("реестр застройщиков", () => {
   it("карточка: тип, ЖК, срок сдачи и этаж собраны из данных; язык меняет только подписи", () => {
     const ru = apartmentCard(findApartment("flat215")!, "ru");
     expect(ru.meta).toBe("ЖК «Ольховый квартал» · сдача 4 кв. 2026 · эт. 6 из 17 · корп. 3");
-    expect(ru.certificate?.title).toContain("470 000 ₽");
+    expect(ru.certificate?.title).toContain("600 000 ₽");   // пакет demo-23: 600 000 ₽ одной суммой (было 470 000 по доле)
     const en = apartmentCard(findApartment("flat215")!, "en");
     expect(en.meta).toContain("completion Q4 2026");
     expect(en.currency).toBe("RUB"); // рынок задаёт застройщик, не язык (ADR-0254)
@@ -40,7 +40,7 @@ describe("реестр застройщиков", () => {
     const list = partners([raw]);
     const card = apartmentCard(findApartment("flat-copy", list)!);
     expect(card.kind).toBe("Трёхкомнатная 73,7\u00a0м²");
-    expect(card.certificate?.amount).toBe(470_000);
+    expect(card.certificate?.amount).toBe(600_000);
   });
 
   it("повтор id квартиры между застройщиками — ошибка данных", () => {
@@ -213,7 +213,9 @@ describe("британский профиль английского демо", 
     expect(twin.apartment.id).toBe("demo-uk-215");
     const card = apartmentCard(twin, "en");
     expect(card.currency).toBe("GBP");
-    expect(card.certificate?.amount).toBe(Math.round(425000 * 0.04));
+    // пакет demo-23: £4 500 мебель и техника + £8 000 улучшения, раздельно (было 4 % цены)
+    expect(card.certificate?.amount).toBe(12_500);
+    expect(card.incentive).toMatchObject({ mode: "split", limits: { furniture: 4_500, fitout: 8_000 }, total: 12_500, source: "partner" });
     expect(card.fx).toMatchObject({ from: "RUB", to: "GBP" });
     const fl = card.options.find((o) => o.kind === "flooring")!;
     expect(fl.settlement).toBe("property_price");

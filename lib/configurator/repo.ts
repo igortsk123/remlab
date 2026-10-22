@@ -28,7 +28,29 @@ export interface Quote {
   certificate?: { amount: number; share: number };
   /** Доплаты по назначению (demo-06): в сертификат / застройщику за отделку / в цену квартиры. Старые снимки — без поля. */
   bySettlement?: { allowance: number; developer_surcharge: number; property_price: number };
+  /** То, что идёт в пакет, по бюджетам (demo-23): мебель и техника / улучшения. Старые снимки — без поля. */
+  byBudget?: { furniture: number; fitout: number };
+  /** Пакет на момент сохранения (demo-23): режим и лимиты бюджетов; сумма — по-прежнему `certificate.amount`. */
+  incentive?: { mode: "pooled" | "split"; limits: { furniture: number; fitout: number } };
   computedAt: string;
+}
+
+/** Числовые поля объекта снимка — только конечные неотрицательные; не объект или чего-то нет — поля нет (старый снимок). */
+function numbers<K extends string>(raw: unknown, keys: readonly K[]): Record<K, number> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>, out = {} as Record<K, number>;
+  for (const k of keys) {
+    const v = Number(r[k]);
+    if (!Number.isFinite(v) || v < 0) return undefined;
+    out[k] = v;
+  }
+  return out;
+}
+
+function incentiveOf(raw: unknown): Quote["incentive"] {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const limits = numbers(r.limits, ["furniture", "fitout"] as const);
+  return (r.mode === "pooled" || r.mode === "split") && limits ? { mode: r.mode, limits } : undefined;
 }
 
 /** Старые снимки цены (до 13.10) писали поля с суффиксом Gbp — читаем их тем же видом. */
@@ -38,10 +60,17 @@ export function upgradeQuote(raw: Record<string, unknown>): Quote {
     slotId: String(l.slotId), optionId: String(l.optionId), titleRu: String(l.titleRu ?? ""), roomId: String(l.roomId ?? ""),
     price: Number(l.price ?? l.priceGbp ?? 0),
   }));
+  // `bySettlement` объявлен в типе, но здесь терялся (найдено Codex 22.10): снимок из базы приходил без разбивки доплат
+  const bySettlement = numbers(raw.bySettlement, ["allowance", "developer_surcharge", "property_price"] as const);
+  const byBudget = numbers(raw.byBudget, ["furniture", "fitout"] as const);
+  const incentive = incentiveOf(raw.incentive);
   return {
     basePrice: n("basePrice"), upgrades: n("upgrades"), total: n("total"),
     currency: raw.currency === "RUB" ? "RUB" : "GBP", lines,
     ...(raw.certificate ? { certificate: raw.certificate as Quote["certificate"] } : {}),
+    ...(bySettlement ? { bySettlement } : {}),
+    ...(byBudget ? { byBudget } : {}),
+    ...(incentive ? { incentive } : {}),
     computedAt: String(raw.computedAt ?? ""),
   };
 }

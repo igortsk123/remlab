@@ -8,6 +8,7 @@ import type { Apartment, Placement, Slot, SlotCategory, WallSide } from "@/contr
 import { resolveAccentSide } from "@/lib/configurator/accent";
 import type { Catalogue, Configuration, Material, Option, OptionAsset } from "@/contracts/configurator";
 import { materialById, optionById } from "@/contracts/configurator";
+import { budgetBucket, type BudgetBucket } from "@/lib/configurator/budget";
 import type { Settlement } from "@/lib/configurator/settlement";
 
 export interface ResolvedItem {
@@ -64,6 +65,8 @@ export interface Totals {
   upgradeCount: number;
   /** Доплаты по назначению (demo-06): в сертификат, застройщику вне сертификата, в цену квартиры; сумма = `upgrades`. */
   bySettlement: Record<Settlement, number>;
+  /** То, что идёт в пакет (`allowance`), по бюджетам (demo-23); сумма = `bySettlement.allowance`. */
+  byBudget: Record<BudgetBucket, number>;
 }
 
 export interface ResolvedScene {
@@ -155,6 +158,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
   let upgrades = 0;
   let upgradeCount = 0;
   const bySettlement: Record<Settlement, number> = { allowance: 0, developer_surcharge: 0, property_price: 0 };
+  const byBudget: Record<BudgetBucket, number> = { furniture: 0, fitout: 0 };
 
   const hidden = new Set(config.hidden ?? []);
   for (const slot of a.slots) {
@@ -166,6 +170,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     if (price > 0 || opt.tier !== "base") {
       upgrades += price;
       bySettlement[opt.settlement ?? "allowance"] += price;
+      if ((opt.settlement ?? "allowance") === "allowance") byBudget[budgetBucket({ slotKind: slot.kind, slotCategory: slot.category })] += price;
       if (price > 0) upgradeCount += 1;
       byRoom[slot.roomId] = (byRoom[slot.roomId] ?? 0) + price;
     }
@@ -245,6 +250,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
   const packed = packPrices(c, items);
   upgrades += packed.delta;
   bySettlement.allowance += packed.delta;   // упаковки — мебель
+  byBudget.furniture += packed.delta;
   for (const [roomId, d] of packed.byRoom) byRoom[roomId] = (byRoom[roomId] ?? 0) + d;
   upgradeCount += packed.countDelta;
 
@@ -259,6 +265,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
       byRoom,
       upgradeCount,
       bySettlement,
+      byBudget,
     },
     issues,
     selections,

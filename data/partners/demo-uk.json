@@ -8,6 +8,7 @@
   "currency": "GBP",
   "timezone": "Europe/London",
   "certificateShare": 0.04,
+  "incentive": { "mode": "split", "limits": { "furniture": 4500, "fitout": 8000 } },
   "demo": true,
   "complexes": [
     {

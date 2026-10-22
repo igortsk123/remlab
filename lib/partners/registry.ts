@@ -5,6 +5,7 @@
 import { perM2Amount, settlementOf } from "@/lib/configurator/settlement";
 import { partner as partnerSchema, type ApartmentCard, type ApartmentRef, type Complex, type Lang, type OptionGroup, type Partner } from "@/contracts/partner";
 import { loadFlat3d } from "@/lib/configurator/data";
+import { certificateAmount, resolveIncentive } from "@/lib/partners/incentive";
 import demoJson from "@/data/partners/demo.json";
 import demoUkJson from "@/data/partners/demo-uk.json";
 
@@ -48,11 +49,10 @@ export function findPartner(id: string, list: Partner[] = partners()): Partner |
   return list.find((p) => p.id === id) ?? null;
 }
 
-/** Предельная сумма сертификата: доля цены, округлённая ВНИЗ (₽ — до 10 000, £ — до 100): не обещаем больше доли. */
-export function certificateAmount(p: Partner, a: ApartmentRef): number {
-  const step = p.currency === "RUB" ? 10_000 : 100;
-  return Math.floor((a.price * p.certificateShare) / step) * step;
-}
+export { certificateAmount };
+
+/** Пакет поощрения квартиры (demo-23): ближайший уровень квартира → ЖК → партнёр, иначе прежний сертификат (`lib/partners/incentive.ts`). */
+export const incentiveOf = (hit: ApartmentHit) => resolveIncentive(hit.partner, hit.complex, hit.apartment);
 
 export function money(n: number, currency: Partner["currency"], lang: Lang): string {
   const s = Math.round(n).toLocaleString(lang === "en" ? "en-GB" : "ru-RU").replace(/ /g, " ");
@@ -114,7 +114,8 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
   const floor = a.floor && a.floorsTotal ? (en ? `floor ${a.floor} of ${a.floorsTotal}` : `эт. ${a.floor} из ${a.floorsTotal}`) : null;
   const bld = a.building ? (en ? `building ${a.building}` : `корп. ${a.building}`) : null;
   const complexName = en ? c.nameEn : c.nameRu;
-  const amount = certificateAmount(p, a);
+  const incentive = incentiveOf(hit);
+  const amount = incentive?.total ?? 0;
   const area = `${String(a.areaM2).replace(".", en ? "." : ",")}\u00a0${en ? "m²" : "м²"}`;
   const short = en ? a.kindShortEn : a.kindShortRu;
   return {
@@ -146,6 +147,7 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
       contentState: r.contentState })),
     options: optionsCard(p, a, lang),
     fx: p.fx ?? null,
+    incentive,
   };
 }
 

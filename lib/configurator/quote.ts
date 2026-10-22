@@ -19,6 +19,7 @@ export function buildQuote(a: Apartment, c: Catalogue, config: Configuration): Q
     basePrice: scene.totals.basePrice,
     upgrades: scene.totals.upgrades,
     bySettlement: scene.totals.bySettlement,
+    byBudget: scene.totals.byBudget,
     total: scene.totals.total,
     currency: c.currency,
     lines,

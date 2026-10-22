@@ -11,7 +11,8 @@ import {
   safeParse, string, type infer as Infer,
 } from "zod/mini";
 
-import { settle, type Settlement, type SettlementLine, type SettlementTotals } from "@/lib/configurator/settlement";
+import { budgetBucket } from "@/lib/configurator/budget";
+import { settle, type BudgetPolicy, type Settlement, type SettlementLine, type SettlementTotals } from "@/lib/configurator/settlement";
 
 const TOKEN = /^[A-Za-z0-9_-]{22}$/;
 const ROOM = /^[a-z0-9-]{2,40}$/;
@@ -26,6 +27,8 @@ export const quoteLine = object({
   amount: nullable(number().check(minimum(0))),
   priceStatus: zenum(["known", "on_request", "unavailable"]),
   source: zenum(["shop", "developer"]),
+  /** Бюджет пакета (demo-23) — для `allowance`; нет поля (кэш до demo-23) — мебель, пересчёт строк комнаты его проставит. */
+  budgetBucket: optional(zenum(["furniture", "fitout"])),
 });
 export type QuoteLine = Infer<typeof quoteLine>;
 
@@ -108,6 +111,8 @@ function repair(raw: unknown, apartmentId: string): BasketV2 {
 export type QuoteSku = { sid?: string; name?: string; price?: number; pack?: number; unavailable?: boolean };
 export type QuoteOption = {
   id: string; roomKind: string; roomId: string | null; title: string; settlement: Settlement; defaultVariantId: string;
+  /** Вид группы (`optionGroup.kind`) — из него бюджет пакета (demo-23); нет — мебель, как до двух бюджетов. */
+  kind?: string;
   variants: { id: string; name?: string; price: { type: string; amount: number | null } }[];
 };
 
@@ -133,12 +138,14 @@ export function quoteRoom(p: {
     const pack = g.sku.pack && g.sku.pack > 0 ? g.sku.pack : 1, buys = Math.ceil(g.slots / pack);
     const known = !g.sku.unavailable && typeof g.sku.price === "number" && g.sku.price > 0;
     lines.push({ chargeKey: k, roomId: p.roomId, label: String(g.sku.name ?? g.role).slice(0, 200), settlement: "allowance",
-      amount: known ? Math.round(p.toCard(g.sku.price! * buys)) : null, priceStatus: known ? "known" : "unavailable", source: "shop" });
+      amount: known ? Math.round(p.toCard(g.sku.price! * buys)) : null, priceStatus: known ? "known" : "unavailable", source: "shop",
+      budgetBucket: budgetBucket({ source: "shop" }) });
   }
   for (const g of p.options) {
     if (g.roomId ? g.roomId !== p.roomId : g.roomKind !== p.roomKind) continue;
     const vid = p.developerOptions[g.id] ?? g.defaultVariantId, v = g.variants.find((x) => x.id === vid);
-    const base = { chargeKey: `dev:${g.id}`, roomId: p.roomId, label: g.title.slice(0, 200), settlement: g.settlement, source: "developer" as const };
+    const base = { chargeKey: `dev:${g.id}`, roomId: p.roomId, label: g.title.slice(0, 200), settlement: g.settlement, source: "developer" as const,
+      ...(g.settlement === "allowance" ? { budgetBucket: g.kind ? budgetBucket({ groupKind: g.kind }) : "furniture" as const } : {}) };
     if (!v) { lines.push({ ...base, amount: null, priceStatus: "unavailable" }); continue; }   // вариант исчез — не молча «по умолчанию»
     if (v.price.type === "included") continue;
     if (v.price.type === "surcharge" && typeof v.price.amount === "number") lines.push({ ...base, amount: Math.round(v.price.amount), priceStatus: "known" });
@@ -159,7 +166,10 @@ export type BasketTotals = SettlementTotals & {
   rooms: number;
 };
 
-function totalsOf(quotes: { roomId: string; quote: RoomQuote }[], limit: number): BasketTotals {
+/** Пакет: политика двух бюджетов (demo-23) или число — прежний контракт (одна сумма, всё в мебели, перерасход — отказ). */
+export type Limit = number | BudgetPolicy;
+
+function totalsOf(quotes: { roomId: string; quote: RoomQuote }[], limit: Limit): BasketTotals {
   const lines: SettlementLine[] = [];
   let allowanceComplete = true, complete = true;
   const pendingRooms: string[] = [];
@@ -168,7 +178,8 @@ function totalsOf(quotes: { roomId: string; quote: RoomQuote }[], limit: number)
     for (const l of quote.lines) {
       const unknown = l.priceStatus !== "known" || l.amount == null;
       if (unknown) { complete = false; if (l.settlement === "allowance") allowanceComplete = false; }
-      lines.push({ amount: l.amount ?? 0, settlement: l.settlement, onRequest: unknown, label: l.label });
+      lines.push({ amount: l.amount ?? 0, settlement: l.settlement, onRequest: unknown, label: l.label,
+        ...(l.budgetBucket ? { budgetBucket: l.budgetBucket } : {}) });
     }
   }
   return { ...settle(lines, limit), allowanceComplete, complete, pendingRooms, rooms: quotes.length };
@@ -179,28 +190,39 @@ const included = (b: BasketV2, exceptRoom?: string) => Object.entries(b.included
   .map(([roomId, id]) => ({ roomId, quote: b.favorites.find((f) => f.favoriteId === id)!.quote }));
 
 /** Сумма сертификата по корзине: только включённые варианты комнат. */
-export const basketTotals = (b: BasketV2, limit: number): BasketTotals => totalsOf(included(b), limit);
+export const basketTotals = (b: BasketV2, limit: Limit): BasketTotals => totalsOf(included(b), limit);
 
 /** Плашка окна: корзина без этой комнаты и она же с черновиком окна вместо комнаты («с этой гостиной»). Замена, не сложение. */
-export function preview(b: BasketV2, roomId: string, draft: RoomQuote, limit: number): { base: BasketTotals; with: BasketTotals } {
+export function preview(b: BasketV2, roomId: string, draft: RoomQuote, limit: Limit): { base: BasketTotals; with: BasketTotals } {
   const rest = included(b, roomId);
   return { base: totalsOf(rest, limit), with: totalsOf([...rest, { roomId, quote: draft }], limit) };
 }
 
 // ——— решения (ворота лимита — только здесь, UI `includedByRoom` руками не меняет; Codex п.4)
 
+/** Доплата покупателя сверх пакета: всего и по бюджетам (в `split` перенос запрещён — доплата может быть при остатке в другом). */
+export type Topup = { overBy: number; furniture: number; fitout: number };
+
 export type Decision =
   | { kind: "included" }
-  | { kind: "ask_replace"; currentId: string }
+  /** Место в комнате занято; `topup` — с этим вариантом пакет будет превышен (demo-23: включить можно, с подтверждением доплаты). */
+  | { kind: "ask_replace"; currentId: string; topup?: Topup }
+  /** demo-23: перерасход — не отказ, а доплата покупателя; включается только с его явным подтверждением (`include(…, {confirmTopup})`). */
+  | { kind: "included_with_topup"; overBy: number; topup: Topup }
+  /** Прежний контракт (лимит числом — страница до шага 3 demo-23): сверх сертификата не включаем. */
   | { kind: "over_limit"; overBy: number }
   | { kind: "price_pending" };
 
 /** Что будет, если включить этот вариант комнаты: сперва цена и лимит, потом — пусто ли место (Codex п.5). */
-export function evaluate(b: BasketV2, roomId: string, candidate: RoomQuote, limit: number): Decision {
+export function evaluate(b: BasketV2, roomId: string, candidate: RoomQuote, limit: Limit): Decision {
   const t = preview(b, roomId, candidate, limit).with;
   if (candidate.status !== "fresh" || !candidate.lines.every((l) => l.settlement !== "allowance" || l.priceStatus === "known")) return { kind: "price_pending" };
-  if (t.allowanceOverage > 0) return { kind: "over_limit", overBy: t.allowanceOverage };
   const cur = b.includedByRoom[roomId];
+  if (t.allowanceOverage > 0) {
+    if (typeof limit === "number") return { kind: "over_limit", overBy: t.allowanceOverage };
+    const topup = { overBy: t.budget.overage.total, furniture: t.budget.overage.furniture, fitout: t.budget.overage.fitout };
+    return cur ? { kind: "ask_replace", currentId: cur, topup } : { kind: "included_with_topup", overBy: topup.overBy, topup };
+  }
   return cur ? { kind: "ask_replace", currentId: cur } : { kind: "included" };
 }
 
@@ -219,14 +241,23 @@ export function addFavorite(b: BasketV2, f: FavoriteRef): BasketV2 {
   return { ...b, favorites: list };
 }
 
-/** Включить вариант в сертификат: единственные ворота лимита. Не влезает или цена не досчитана — корзина не меняется. */
-export function include(b: BasketV2, favoriteId: string, limit: number): { basket: BasketV2; result: Decision["kind"]; overBy?: number } {
+export type IncludeResult = { basket: BasketV2; result: "included" | "included_with_topup" | "topup_unconfirmed" | "over_limit" | "price_pending";
+  overBy?: number; topup?: Topup };
+
+/**
+ * Включить вариант в пакет: единственные ворота лимита. Цена не досчитана — корзина не меняется. Сверх пакета: с политикой
+ * (demo-23) — включается только с `confirmTopup` (иначе `topup_unconfirmed`, корзина та же); с лимитом числом — отказ, как раньше.
+ */
+export function include(b: BasketV2, favoriteId: string, limit: Limit, opts: { confirmTopup?: boolean } = {}): IncludeResult {
   const f = b.favorites.find((x) => x.favoriteId === favoriteId);
   if (!f) return { basket: b, result: "price_pending" };
   const d = evaluate(b, f.roomId, f.quote, limit);
   if (d.kind === "price_pending") return { basket: b, result: d.kind };
   if (d.kind === "over_limit") return { basket: b, result: d.kind, overBy: d.overBy };
-  return { basket: { ...b, includedByRoom: { ...b.includedByRoom, [f.roomId]: favoriteId } }, result: "included" };
+  const topup = d.kind === "included_with_topup" || d.kind === "ask_replace" ? d.topup : undefined;
+  if (topup && !opts.confirmTopup) return { basket: b, result: "topup_unconfirmed", overBy: topup.overBy, topup };
+  const basket = { ...b, includedByRoom: { ...b.includedByRoom, [f.roomId]: favoriteId } };
+  return topup ? { basket, result: "included_with_topup", overBy: topup.overBy, topup } : { basket, result: "included" };
 }
 
 /** Снять комнату из расчёта (вариант остаётся в избранном). */
@@ -237,7 +268,7 @@ export function exclude(b: BasketV2, roomId: string): BasketV2 {
 
 /** Убрать из избранного. Был включён — включается СТАРЕЙШИЙ оставшийся вариант комнаты, если влезает; нет — комната пустая
  *  (к следующему молча не перескакиваем, Codex п.6). */
-export function removeFavorite(b: BasketV2, favoriteId: string, limit: number): BasketV2 {
+export function removeFavorite(b: BasketV2, favoriteId: string, limit: Limit): BasketV2 {
   const f = b.favorites.find((x) => x.favoriteId === favoriteId);
   if (!f) return b;
   const wasIncluded = b.includedByRoom[f.roomId] === favoriteId;

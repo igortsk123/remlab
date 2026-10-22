@@ -22,11 +22,28 @@ export const handover = z.object({
 });
 export type Handover = z.infer<typeof handover>;
 
+/**
+ * Пакет поощрения застройщика из двух бюджетов (demo-23, разбор Codex 22.10): «Мебель и техника» (`furniture`) и «Улучшения» —
+ * отделка и встроенное (`fitout`). `pooled` — одна общая сумма (лимиты складываются, остаток общий); `split` — два лимита, перенос
+ * между ними запрещён. Задаётся на партнёре, ЖК или квартире — ближайший уровень заменяет политику ЦЕЛИКОМ (без слияния полей).
+ * Нет ни на одном уровне — прежний `certificateShare` (pooled, всё в мебели). «Вне пакета» — это `settlement` опции
+ * (`developer_surcharge`/`property_price`), а не лимит 0: в `pooled` нулевой лимит бюджета всё равно тратит общий остаток.
+ */
+export const budgetMode = z.enum(["pooled", "split"]);
+export type BudgetMode = z.infer<typeof budgetMode>;
+export const incentive = z.object({
+  mode: budgetMode,
+  limits: z.object({ furniture: z.number().int().nonnegative(), fitout: z.number().int().nonnegative() }).strict(),
+}).strict();
+export type Incentive = z.infer<typeof incentive>;
+
 export const complex = z.object({
   id: z.string().min(1),
   nameRu: z.string().min(1),
   nameEn: z.string().min(1),
   handover,
+  /** Пакет поощрения ЖК — заменяет пакет партнёра целиком; у квартиры свой — заменяет этот. */
+  incentive: incentive.optional(),
 });
 export type Complex = z.infer<typeof complex>;
 
@@ -166,6 +183,8 @@ export const apartmentRef = z.object({
    * британского демо-застройщика (£, allowance, «к цене квартиры»). По ссылке менеджера/партнёра — эта же квартира (ADR-0254).
    */
   enTwin: z.string().regex(/^[a-z0-9-]{2,40}$/).optional(),
+  /** Пакет поощрения этой квартиры — ближайший уровень, заменяет пакеты ЖК и партнёра целиком. */
+  incentive: incentive.optional(),
 })
   .refine((a) => new Set(a.rooms.map((r) => r.id)).size === a.rooms.length, "id комнат повторяются")
   .refine((a) => a.rooms.every((r, k) => r.ordinal === k + 1), "ordinal комнат — по порядку плана с 1")
@@ -187,8 +206,10 @@ export const partner = z.object({
   market,
   defaultLang: lang,
   currency,
-  /** Доля сертификата от цены квартиры: 0 — сертификата нет. */
+  /** Доля сертификата от цены квартиры: 0 — сертификата нет. Переходное: действует, пока ни на одном уровне нет `incentive`. */
   certificateShare: z.number().min(0).max(0.3),
+  /** Пакет поощрения партнёра по умолчанию (demo-23); ЖК и квартира могут заменить его своим. */
+  incentive: incentive.optional(),
   /** Тексты блока сертификата; пусто — стандартные. */
   certificateTextRu: z.string().optional(),
   certificateTextEn: z.string().optional(),
@@ -212,6 +233,9 @@ export const partner = z.object({
 }).strict(); // опечатка в ключе («certificateshare») — ошибка, а не тихий пропуск (рецензия 13.10)
 export type Partner = z.infer<typeof partner>;
 
+/** Пакет, уже разрешённый для квартиры: абсолютные суммы и уровень, с которого взят (`legacy` — из `certificateShare`). */
+export type ResolvedIncentive = Incentive & { total: number; source: "apartment" | "complex" | "partner" | "legacy" };
+
 /** Публичная карточка квартиры для шапки витрины и 3D — всё уже посчитано сервером. */
 export type ApartmentCard = {
   id: string;
@@ -233,7 +257,10 @@ export type ApartmentCard = {
   price: number;
   demoPrice: boolean;
   priceAsOf: string | null;
+  /** Пакет одной суммой — для прежних потребителей: `amount` = сумма обоих бюджетов (`incentive.total`). */
   certificate: { amount: number; title: string; text: string } | null;
+  /** Пакет поощрения в абсолютных суммах (demo-23): режим, лимиты бюджетов, откуда взят; нет пакета — `null`. */
+  incentive: ResolvedIncentive | null;
   /** Курс показа рублёвых цен витрины (у британского демо-двойника); нет — цены в валюте витрины. */
   fx: { from: "RUB"; to: Currency; rate: number; asOf: string; source: string } | null;
   /** Помещения в порядке плана, подписи на языке страницы (demo-16). */

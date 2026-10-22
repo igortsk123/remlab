@@ -8,7 +8,7 @@ import { buildQuote, revisions } from "@/lib/configurator/quote";
 import { resolveScene } from "@/lib/configurator/resolve";
 import { saveConfig } from "@/lib/configurator/repo";
 import { resolveCollectionFlat, resolveFlat } from "@/lib/configurator/source";
-import { certificateAmount } from "@/lib/partners/registry";
+import { incentiveOf } from "@/lib/partners/registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,9 +47,12 @@ export async function POST(req: Request): Promise<Response> {
       developerId: hit.partner.id,
       ...(cfg.baseVariant ? { baseSnapshot: baseSnapshotOf(apartment, catalogue) } : {}),
     };
+    // снимок пакета на момент сохранения — для отчёта застройщику: сумма (как раньше) и, с demo-23, режим и лимиты бюджетов
+    const inc = incentiveOf(hit);
     const quote = {
       ...buildQuote(apartment, catalogue, trusted),
-      certificate: { amount: certificateAmount(hit.partner, hit.apartment), share: hit.partner.certificateShare },
+      certificate: { amount: inc?.total ?? 0, share: hit.partner.certificateShare },
+      ...(inc ? { incentive: { mode: inc.mode, limits: inc.limits } } : {}),
     };
     const id = await saveConfig({ configuration: trusted, quote, ...revisions(apartment, catalogue) });
     return NextResponse.json({ id, quote });
