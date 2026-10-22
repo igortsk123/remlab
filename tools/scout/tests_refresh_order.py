@@ -80,7 +80,7 @@ def against(ref: str) -> int:
     a1 = night(new, 1, 1, False)
     print(f'  write_enabled=true, понедельник: шагов {len(a1)}; ' + ' → '.join(n for n in names(a1)
           if n in ('bank_media', 'bank_photos', 'bank_media2', 'bank_prepare', 'bank_promote', 'bank_refresh', 'sets_reindex',
-                   'set_ids', 'resolve_affected', 'demo_band', 'solver_full', 'sets_reindex_w')))
+                   'set_ids', 'resolve_affected', 'changes_page', 'reserve_cov', 'layout_page', 'demo_band', 'solver_full', 'sets_reindex_w')))
     print(f'tests_refresh_order --against {ref}: расхождений {bad}')
     return 1 if bad else 0
 
@@ -94,22 +94,22 @@ def _selftest() -> int:
         bad += 0 if cond else 1
     text = open(SCRIPT, encoding='utf-8').read()
     OLD_WRITERS = ('sets_heal', 'sets_pairs', 'sets_contracts', 'sets_refresh', 'sets_pairs_w')
-    IDX = ('sets_reindex', 'set_ids', 'resolve_affected')
+    IDX = ('sets_reindex', 'set_ids', 'resolve_affected', 'changes_page', 'reserve_cov', 'layout_page')
     for wd, lock in COMBOS:
         tag = f"{'пн' if wd == 1 else 'ср'}{', exam.lock' if lock else ''}"
         f, t = night(text, 0, wd, lock), night(text, 1, wd, lock)
         fn, tn = names(f), names(t)
         ok(f'[{tag}] каждый шаг — один раз (false и true)', len(fn) == len(set(fn)) and len(tn) == len(set(tn)),
            [n for n in fn if fn.count(n) > 1] + [n for n in tn if tn.count(n) > 1])
-        ok(f'[{tag}] false: писателя нет; индекс, set_id и пересчёт — на прежнем месте (до changes_page и bank_prepare)',
+        ok(f'[{tag}] false: писателя нет; индекс, set_id, пересчёт и страницы — на прежнем месте, подряд, до bank_prepare',
            'bank_refresh' not in fn and all(n in fn for n in IDX)
-           and fn.index('set_ids') == fn.index('sets_reindex') + 1 and fn.index('resolve_affected') == fn.index('set_ids') + 1
-           and fn.index('changes_page') == fn.index('resolve_affected') + 1 and fn.index('resolve_affected') < fn.index('bank_prepare'))
+           and fn[fn.index('sets_reindex'):fn.index('sets_reindex') + len(IDX)] == list(IDX)
+           and fn.index('layout_page') < fn.index('bank_prepare'))
         ok(f'[{tag}] false: медиа пишет банк (--apply)', all(s.endswith('catalog_media.py --apply') for s in f
                                                               if s.startswith('bank_media')))
-        ok(f'[{tag}] true: писатель сразу за bank_promote, за ним индекс, set_id, пересчёт сцен, затем demo_band',
-           tn[tn.index('bank_promote') + 1:tn.index('bank_promote') + 6] == ['bank_refresh', *IDX, 'demo_band'],
-           tn[tn.index('bank_promote'):tn.index('bank_promote') + 6])
+        k = tn.index('bank_promote') + 1
+        ok(f'[{tag}] true: писатель сразу за bank_promote, за ним индекс, set_id, пересчёт сцен, страницы, затем demo_band',
+           tn[k:k + len(IDX) + 2] == ['bank_refresh', *IDX, 'demo_band'], tn[k:k + len(IDX) + 2])
         ok(f'[{tag}] true: прежних --apply-писателей нет, медиа — сухим прогоном',
            not any(n in tn for n in OLD_WRITERS) and not any('--apply' in s for s in t if s.startswith('bank_media')))
         want = [n for n in fn if n not in OLD_WRITERS and n not in IDX]

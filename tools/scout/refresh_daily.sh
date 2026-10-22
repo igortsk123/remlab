@@ -352,7 +352,7 @@ step stock_audit "$PY" stock_truth.py --audit
 # ЕДИНСТВЕННЫЙ ПИСАТЕЛЬ БАНКА (conv-14 шаги 4–5, Codex 22.10 § 2): при `rules/bank-candidate.json:write_enabled=true` живой
 # sets3.json пишет только `bank_refresh` (сразу за bank_promote, со снимком-поколением и откатом); прежние --apply-писатели
 # (sets_heal, sets_pairs, sets_contracts, недельные sets_refresh/sets_pairs_w) не идут, медиа — сухим прогоном (в банк их кладёт
-# писатель), а sets_reindex/set_ids/resolve_affected — после писателя. Флаг читается ОДИН раз на ночь; false или ошибка
+# писатель), а sets_reindex/set_ids/resolve_affected и страницы changes/reserve/layout — после писателя. Флаг — ОДИН раз за ночь; false или ошибка
 # чтения — ночь ровно как прежде (порядок сверяет `tests_refresh_order.py`)
 BANK_WRITE=$("$PY" bank_refresh.py --enabled 2>/dev/null || echo 0)
 MEDIA_APPLY=--apply; [ "$BANK_WRITE" = 1 ] && MEDIA_APPLY=
@@ -395,9 +395,6 @@ step set_ids "$PY" set_identity.py --apply
 # замены — трата часов, а «пересчитать что-нибудь» даёт отчёт-франкенштейн (часть сцен старым
 # составом). Шаг сам останавливается, если карта «номер → id» уехала.
 step resolve_affected "$PY" resolve_affected.py --run
-}
-# при включённом писателе банк меняется позже (bank_refresh) — индекс, set_id и пересчёт сцен идут за ним
-[ "$BANK_WRITE" = 1 ] || bank_index_steps
 # Что именно поменялось за две недели — человеку, на хаб /test/
 step changes_page "$PY" set_changes_page.py --publish
 # Покрытие резерва: у скольких занятых слотов есть готовая подмена. Пока метрика теневая —
@@ -410,6 +407,10 @@ step reserve_cov "$PY" reserve.py
 # 7. Страница расстановок владельцу — пересобирается и публикуется КОНВЕЙЕРОМ ежедневно
 # (требование владельца 2026-08-07: никаких ручных сборок). Набор сетов — референсная десятка.
 step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 66 84 113 117
+}
+# при включённом писателе банк меняется позже (bank_refresh) — индекс, set_id, пересчёт сцен и страницы по банку (изменения,
+# резерв, расстановки) идут за ним, иначе показывали бы банк прошлой ночи (T-20261022-25/1)
+[ "$BANK_WRITE" = 1 ] || bank_index_steps
 
 # 7b. ДЕМО ИНТЕРАКТИВНОГО ПЛАНИРОВЩИКА — тоже ежедневно (26.08): банк меняется каждый день,
 # и страница с вчерашними товарами показывает мёртвые карточки.
