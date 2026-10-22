@@ -44,7 +44,7 @@ parent_plan: MASTER-conveyor-gaps
 ## Задачи (порядок Codex § 5)
 - [x] 1. Инварианты (расширить) + стабильная идентичность ячейки, фатальные ошибки ID. (T-20261022-14/1, ca984e6f)
 - [x] 2. Persistent pending-state + спрос мешей `bank_candidate` (общий потолок с demo_band). (T-20261022-15, 8a4d48d0/f49e6f51; выключен)
-- [ ] 2.1 (Codex 22.10, `_intake/codex/conv-14-step3-readiness-2026-10-22-answer.md`, принят ведущим):
+- [x] 2.1 (Codex 22.10, `_intake/codex/conv-14-step3-readiness-2026-10-22-answer.md`, принят ведущим):
   - `bank_display_ready` отдельно от глобального `render_strategy.asset_ready` (его не менять): `cutout` (подушки/шторы/пледы) =
     доступен + живое актуальное фото по `img_alive.alive_now` + текущая партнёрская ссылка, без маски и габаритов — вырезка в
     показе не используется (`flat215_demo.py:38/78`, `lib/configurator/fromDemo.ts:191/255`, `draft_render.py:60/3181`);
@@ -60,7 +60,7 @@ parent_plan: MASTER-conveyor-gaps
     (`-кровать`, «Раскладная конструкция=Да») без доказанных собранных размеров — `wait_catalog` (Орматек: «Длина» = спальное место);
   - `reserve` > 0 или fair-share для `bank_candidate` (иначе голодает при полном `demo_band`);
   - `asset_ready(sku, role)` игнорирует переданную роль (`render_strategy.py:95/113`) — поправить или обойти в `bank_display_ready`.
-- [ ] 2.2 Ночной `bank_prepare` — пересборка `sets3.next.json` ДО pending (в `refresh_daily.sh` её нет).
+- [x] 2.2 Ночной `bank_prepare` — пересборка `sets3.next.json` ДО pending (в `refresh_daily.sh` её нет).
 - [ ] 3. Селектор готовых ячеек + проверка смешанного банка + экзамен по сценам продвигаемых. Продвигаемые — строго
   (gone=0 и т.д.), нетронутые — «не хуже прежнего» + обязательный `degraded/hidden`; глобально строго — идентичность,
   порядок, повторы, связи. Шаг 3 строит временный hybrid + manifest продвижения; пишет `sets3.json` только writer шага 4.
@@ -74,6 +74,7 @@ parent_plan: MASTER-conveyor-gaps
 - Правила подбора и пороги; платное сверх обычной очереди мешей; кабинет Гдеслона.
 
 ## Лог выполнения
+- 2026-10-22 ~22:45 Лондон — шаг 2.2 PASS (T-20261022-18/1, beba35a6): `bank_prepare` сборка → медиа (`catalog_media.sync_sets`) → `write_bank` → инварианты → ожидание; за флагом `prepare_enabled`. Замер: 11 мин, 0,95 ГБ; кандидат чист (без столика 5), ready 0 / wait_asset 10 / wait_catalog 37 / blocked_policy 79 (кашпо replace_needed 54, ваза reject 40). Шаг 3 выдан T-20/1 (включение флага — отдельным коммитом).
 - 2026-10-22 ~22:15 Лондон — **шаг 2.1 сделан, T-20261022-17/1** (работник 2), ветка `worktree-bank21` 1ade55a8 (от main f49e6f51, без push):
   `bank_ready` (готовность к показу по переданной роли: доступен + текущая ссылка + живое фото; мягкому — всё, ковру — обе стороны,
   мешу — гейт геометрии с трансформером раньше готовности меша), типы `wait_asset|wait_catalog|redo|blocked_policy|legacy_unknown`,
@@ -90,3 +91,4 @@ parent_plan: MASTER-conveyor-gaps
 - 2026-10-22 ~21:50 Лондон — **шаг 2 сделан, T-20261022-15/1** (работник 2), ветка `worktree-bank2` f5eead74 (от main ca984e6f, без push): `bank_pending` — состояние по ячейке (candidate_hash, since, missing, ready|wait|invalid, чёрный список), спрос `bank_candidate` (gone → меньше недостающего → демо → возраст; дедуп по семейству), общий потолок 150 с demo_band (`combine`, reserve 0), ярус 2 в `mesh_priority.demo_pick`; флаг `rules/bank-candidate.json:enabled=false`; `compose_gates` отсеивает мешевые роли без h_cm и чёрный список. Сухой прогон sets3.next.json: готовы 0 / ждут 36 / invalid 90; спрос 83 семейства; стопор готовности — вырезки подушка/шторы/плед (510 позиций); отсев до сборки 2752 товара. Вопросы: reserve, compose_blocklist, спрос вырезок.
 - 2026-10-22 ~21:50 Лондон — **шаг 1 сделан, T-20261022-14/1** (работник 2), ветка `worktree-bank1` (от main 779f3b19, без push): cherry-pick 57e6d129 → f71cf190, e2c38609 → eed795b9 (строгий alive_now + fail-closed фото-гейт); мой de23bc32 — ячейка `(band, style, tier)`: `set_identity.assign_ids/verify/write_bank` (id и порядок по ячейке живого банка; дубль/пропажа/лишняя/дрейф — `IdentityError`, банк не пишется), `compose2` пишет только через `write_bank` (exit 3), carry_ids снят; `bank_invariants` + identity, запасные: повтор и «не той роли» относительно выбранного. Живой банк: идентичность цела (126, карта = sets-id-map.json), содержимое — ушедших 187 в 103 сетах, вне контракта 199, запасных негодных 484, без столика 53; кандидат sets3.next.json — всё OK. Ночь не ломается: compose2 в refresh_daily не вызывается.
 - 2026-10-22 — план создан in_progress (владелец TG 895), Codex. Исполнитель — следующий освободившийся рабочий.
+- 2026-10-22 ~22:45 Лондон [работник 2] шаг 2.2 (T-20261022-18/1, worktree-bank22 6b150912): ночной `bank_prepare` перед mesh_family_early, флаг `prepare_enabled` выключен. Порядок: сборка в сырой `sets3.next.build.json` → медиа из каталога (`catalog_media.sync_sets`; без неё все 2726 ссылок кандидата «не текущие» — сборщик кладёт прямую ссылку фида) → кандидат через `write_bank` → инварианты → `bank_pending`. Замер на текущем каталоге (изолированная копия): сборка 11 мин, пик 0,95 ГБ; хвост 5 с. Кандидат: 126 сетов, идентичность цела, ушедших 0, без столика 5; ready 0 / wait_asset 10 / wait_catalog 37 / blocked_policy 79; спрос 139 семейств.
