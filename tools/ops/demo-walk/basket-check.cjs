@@ -1,7 +1,7 @@
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // КОРЗИНА СЕРТИФИКАТА (план demo-16 шаг 2, «Решения владельца 18.10»): 0 на старте; первый вариант комнаты включается сам; второй — вопрос
 // «вместо «Гостиная #1»? Да/Нет»; в избранном — группы по комнатам и переключатель «Включить в сертификат» с пересчётом шкалы; окно —
-// та же шкала, что на главной (demo-19 Б2: «Набрано N … сертификат M», светлая часть — эта расстановка); не влезает — в избранное без
+// та же шкала, что на главной (demo-19 Б2, demo-20 А6: «Выбрано N … сертификат M», светлая часть — эта расстановка); не влезает — в избранное без
 // включения, сообщение «больше остатка на N — уменьшите сумму» с «Изменить →» (demo-19 Б4)
 // (лимит подменяется ответом карточки квартиры, страница не трогается); перенос избранного demo-15. Избранное — отдельный экран
 // `#screen-fav` с «← Назад» туда, откуда пришли; поле имени — фокус и каретка в конце сразу после тапа по ♡ (demo-17). Платного пути нет.
@@ -64,7 +64,7 @@ const saveHeart=async(p)=>{await p.click('#vFav'); CARET=await caret(p); await p
       return {head:row.querySelector('.cs-l').textContent, pv:(document.querySelector('#vsum .cs-bar i.pv')||{}).style?.width, sum:+document.getElementById('vsum').dataset.sum,
         fits:row.scrollWidth<=row.clientWidth+1&&last.right<=pl.right+1&&row.querySelector('.cs-l').scrollWidth<=row.querySelector('.cs-l').clientWidth+1};});
     ok('плашка окна — в одну строку, не вылезает',plate0.fits,JSON.stringify(plate0));
-    ok('окно до добавления: «Набрано 0», светлая часть полосы — эта расстановка',/^Набрано 0\s₽$/.test(plate0.head.trim())&&parseFloat(plate0.pv)>0,JSON.stringify(plate0));
+    ok('окно до добавления: «Выбрано 0», светлая часть полосы — эта расстановка',/^Выбрано 0\s₽$/.test(plate0.head.trim())&&parseFloat(plate0.pv)>0,JSON.stringify(plate0));
     await p.screenshot({path:OUT+W+'-1-plate.png'});
     const n1=await saveHeart(p);
     const s1=await st(p);
@@ -73,7 +73,7 @@ const saveHeart=async(p)=>{await p.click('#vFav'); CARET=await caret(p); await p
     ok('первый вариант комнаты — включён сам, шкала пересчитана',s1.n===1&&Object.keys(s1.inc).length===1&&s1.eligible>0&&s1.cert===s1.eligible,JSON.stringify({inc:s1.inc,eligible:s1.eligible,cert:s1.cert}));
     ok('сообщение ««Гостиная #1» — в избранном, включено в сертификат, остаток N · Перейти →»',/Гостиная.#1» — в избранном, включено в сертификат, остаток [\d\s ]+₽/.test(s1.toast)&&/Перейти/.test(s1.toast),s1.toast);
     const plate1=await p.evaluate(()=>document.querySelector('#vsum .cs-l').textContent);
-    ok('после включения шкала окна — «Набрано» по корзине',/^Набрано [1-9]/.test(plate1.trim()),plate1);
+    ok('после включения шкала окна — «Выбрано» по корзине',/^Выбрано [1-9]/.test(plate1.trim()),plate1);
     // 1б) «Перейти →» и «назад» (шаг 3): из окна (ракурс 2, шторка приподнята) — в избранное; «назад» — то же окно в том же виде; «вперёд» — снова избранное
     await p.evaluate(()=>{vwCamGo(1); if(VW_PHONE())vwSheet(1);}); await p.waitForTimeout(700);
     const before=await p.evaluate(()=>({vid:(allVariants()[cur]||{}).id, photo:VW.photo, sheet:+document.getElementById('vside').dataset.pos, mode:VW.mode}));
@@ -110,7 +110,7 @@ const saveHeart=async(p)=>{await p.click('#vFav'); CARET=await caret(p); await p
     await p.click('#vFav'); await p.waitForSelector('#favName'); const n2=await p.inputValue('#favName'); await p.click('#favOk');
     await p.waitForFunction("/вместо/.test((document.getElementById('favPop')||{}).innerText||'')",null,{timeout:30000}).catch(()=>{});
     const ask=await st(p);
-    ok('второй вариант гостиной — «Гостиная #2» и вопрос «вместо «Гостиная #1»?»',n2==='Гостиная #2'&&/вместо «Гостиная #1»/.test(ask.pop),n2+' | '+ask.pop.replace(/\n/g,' '));
+    ok('второй вариант гостиной — «Гостиная #2» и вопрос «в сертификат вместо «Гостиная #1»? ±N» (demo-20 А6)',n2==='Гостиная #2'&&/в сертификат вместо «Гостиная #1»\?( [+−][\d\s ]+₽)?/.test(ask.pop),n2+' | '+ask.pop.replace(/\n/g,' '));
     await p.screenshot({path:OUT+W+'-2-ask.png'});
     const fav2=await p.evaluate(()=>window.__basket.state().favorites.find(f=>f.displayName==='Гостиная #2').favoriteId);
     await p.click('#favPop button.primary'); await p.waitForTimeout(800);

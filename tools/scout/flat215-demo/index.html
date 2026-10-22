@@ -153,7 +153,7 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-acts .btn{flex:1 1 0;min-width:0;height:40px;min-height:40px;padding:0 8px;font-size:14px;font-weight:600;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;border-radius:var(--radius-sm,10px)}
 /* ШКАЛА СЕРТИФИКАТА (demo-19 Б2–Б3, владелец 20.10): ОДНА разметка для главной и окна варианта (`certScale`) — полоса = набрано;
-   над ней слева «Набрано N», справа в конце — сумма сертификата; остаток и пояснения — в «i». На главной и в избранном шкала липкая
+   над ней слева «Выбрано N», справа в конце — сумма сертификата; остаток и пояснения — в «i». На главной и в избранном шкала липкая
    под строкой квартиры (тот же элемент `#hmCert`, не копия): остаток виден при любой прокрутке */
 .hm-cert{position:sticky;top:var(--hm-hd);z-index:18;margin:6px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut) 6px;background:var(--bg)}
 .hm-cert[hidden]{display:none}
@@ -199,6 +199,9 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-stub b{font-size:15px;white-space:nowrap}
 .hm-stub b small{font-weight:500;color:var(--muted)}
 .hm-stub span{font-size:12.5px;color:var(--muted);white-space:nowrap}
+/* плашка плана квартиры (demo-20 А7): как заглушки комнат, акцентным фоном и ссылкой */
+.hm-plan-tile{background:var(--accent-soft);color:var(--ink);text-decoration:none;cursor:pointer}
+.hm-plan-tile b{color:var(--accent-dark,var(--accent))}
 /* ИЗБРАННОЕ — строка-ссылка на главной (demo-16 шаг 2) и отдельный экран `#screen-fav` (demo-17) */
 .hm-fav-row{margin:6px 0 0}.hm-fav-row[hidden]{display:none}
 .hm-fav-btn{width:100%;min-height:40px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:var(--radius-sm,10px);
@@ -238,6 +241,9 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
 .favcard .inc-l{display:flex;align-items:center;gap:8px;min-height:36px;font-size:13.5px;cursor:pointer}
 .favcard .inc-l input{width:18px;height:18px;accent-color:var(--accent);margin:0}
 .favcard .inc-l small{color:var(--muted)}
+/* «Добавлено в сертификат» + «i» (demo-20 А6): пузырь — вверх, в пределах карточки */
+.favcard .incw{position:relative;display:flex;align-items:center;gap:8px}
+.favcard .incw .vpl-bub{top:auto;bottom:calc(100% + 6px)}
 .favcard .acts{display:flex;gap:6px}.favcard .acts .btn{flex:1;min-height:38px;height:38px}.favcard .acts .iconbtn{width:38px;min-height:38px}
 /* плашка окна: светлая часть полосы — что добавит эта расстановка, если её включить (владелец 18.10: «на той же полосе») */
 .vpl-bar{display:flex}.vpl-bar i{flex:none}.vpl-bar i.pv{background:var(--accent);opacity:.35}
@@ -909,7 +915,6 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 <section id="screen-room">
   <!-- КОМНАТЫ ВЫБРАННОГО СТИЛЯ (demo-16): гостиная — карточкой варианта, остальные — единой заглушкой «появится следующим шагом» -->
   <div class="hm-rooms" id="hmRooms"></div>
-  <a class="hm-plan hm-plan-bot" id="planLink2" data-plan href="#plan">План квартиры →</a>
   <div class="budget" id="budget" hidden></div>
 
   <!-- ИЗБРАННОЕ НА ЭТОМ УСТРОЙСТВЕ (владелец 18.10, demo-15 п.6): все сохранённые сердечком расстановки — над готовыми вариантами;
@@ -1157,9 +1162,11 @@ function drawVariants(){
       const left=Math.max(0,t.amount-inc);
       c.hidden=false;
       c.dataset.amount=String(t.amount); c.dataset.included=String(inc); c.dataset.complete=String(!bt||bt.allowanceComplete);
-      const lines=[`${EN?'Developer allowance for furniture and appliances':'Сертификат застройщика на мебель и технику'} <b>${fmtCard(t.amount)}</b>`,
-        over?`${EN?'Over by':'Сверх сертификата'} <b>${fmtCard(over)}</b>`:`${EN?'Chosen':'Набрано'} ${fmtCard(inc)}, ${EN?'left':'остаток'} <b>${fmtCard(left)}</b>`,
-        inc?'':(EN?'To include a layout in the allowance, add it to favourites':'Чтобы включить расстановку в сертификат, добавьте её в избранное'),
+      // ПУЗЫРЬ «i» СЛОВАМИ ВЛАДЕЛЬЦА (22.10, demo-20 А6): «Вам доступен сертификат на мебель и технику X ₽. Выбрано Y ₽. Осталось Z ₽.»,
+      // сверх лимита — «…Сверх сертификата N ₽.»; доплаты, «цены уточняются» и курс — прежними строками ниже
+      const lines=[`${EN?'You have a furniture and appliance allowance of':'Вам доступен сертификат на мебель и технику'} <b>${fmtCard(t.amount)}</b>. `+
+          `${EN?'Chosen':'Выбрано'} ${fmtCard(inc)}. `+
+          (over?`${EN?'Over the allowance by':'Сверх сертификата'} <b>${fmtCard(over)}</b>.`:`${EN?'Left':'Осталось'} <b>${fmtCard(left)}</b>.`),
         bt&&bt.developerSurcharge?`+${fmtCard(bt.developerSurcharge)} — ${EN?'paid to the developer, not from the allowance':'доплата застройщику, не из сертификата'}`:'',
         bt&&bt.propertyPriceDelta?`+${fmtCard(bt.propertyPriceDelta)} — ${EN?'added to the property price':'к цене квартиры'}`:'',
         bt&&(!bt.allowanceComplete||bt.onRequest.length)?(EN?'some prices are still being checked — the total may change':'часть цен уточняется — итог может измениться'):'',
@@ -1174,11 +1181,11 @@ function drawVariants(){
 }
 // ШКАЛА СЕРТИФИКАТА — ОДНА ДЛЯ ГЛАВНОЙ И ОКНА (demo-19 Б2, владелец 20.10: «шкала показывает, сколько набрано, и общую сумму в конце —
 // иначе диссонанс: заполнена на треть, а над ней „доступно 470 тыс.“»). Полоса = набрано; светлая часть — что добавит эта расстановка
-// (окно); слева «Набрано N», справа — сумма сертификата; остаток, «как включить» и доплаты вне сертификата — в пузыре «i» (`lines`, HTML)
+// (окно); слева «Выбрано N», справа — сумма сертификата; остаток, «как включить» и доплаты вне сертификата — в пузыре «i» (`lines`, HTML)
 function certScale(o){
   const EN=LANG==='en', cert=o.cert, inc=Math.max(0,o.inc||0), add=Math.max(0,o.add||0);
   const pb=Math.min(100,Math.round(inc/cert*1000)/10), pw=Math.max(0,Math.min(100-pb,Math.round(add/cert*1000)/10));
-  return `<div class="cs${o.over?' over':''}"><div class="cs-t"><span class="cs-l">${EN?'Chosen':'Набрано'} `+
+  return `<div class="cs${o.over?' over':''}"><div class="cs-t"><span class="cs-l">${EN?'Chosen':'Выбрано'} `+
       `<b data-k="inc" data-to="${inc}">${fmtCard(inc)}</b></span>`+
       `<button class="vpl-i" type="button" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
       `<span class="cs-r"><span class="lab-r">${EN?'allowance ':'сертификат '}</span><b>${fmtCard(cert)}</b></span></div>`+
@@ -3420,7 +3427,11 @@ function drawHome(force){
       `<div class="rb"><div class="sum"><b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}${c.fav?' · ♥ '+escHtml(c.fav):''}</small></div>`+
       `<button class="iconbtn" type="button" data-share="${c.i}" aria-label="${EN?'Share':'Поделиться'}" title="${EN?'Share':'Поделиться'}">${SHARE_SVG}</button>`+
       `<button class="btn cta" type="button" data-swap="${c.i}">${EN?'Open':'Открыть'}</button></div></article>`;
-  }).join('');
+  }).join('')+
+  // «ПЛАН КВАРТИРЫ» — ПЛАШКОЙ В РЯД С КОМНАТАМИ, ЧУТЬ ВЫДЕЛЕН ЦВЕТОМ (владелец 22.10, demo-20 А7); прежняя ссылка под комнатами убрана.
+  // Клик — делегатом `#hmRooms` (ниже): плашка рисуется заново, разовая привязка `[data-plan]` её бы не увидела
+  `<a class="hm-stub hm-plan-tile" data-plan href="#plan"><b>${EN?'Apartment plan':'План квартиры'}${FLAT&&FLAT.areaM2?` <small>· ${homeM2(FLAT.areaM2)}</small>`:''}</b>`+
+    `<span>${EN?'all rooms':'все комнаты'}</span></a>`;
 }
 // ——— ВОЗВРАТ «НАЗАД» (demo-16 шаг 3, Codex 18.10 п.5 и п.14). Адрес держит стиль и комнату (`?style=&room=`) и вариант или
 // коллекцию (`#v=`/`#c=`), `lang` и `s` не трогаются; запись истории (`history.state`) — снимок вида: окно варианта (вариант, режим,
@@ -3496,6 +3507,7 @@ function homeFavUi(){
 document.addEventListener('click',e=>{
   const t=e.target&&e.target.closest&&e.target.closest('#styleTabs [data-style]'); if(t){homeSelectStyle(t.dataset.style); return;}
   const box=e.target&&e.target.closest&&e.target.closest('#hmRooms'); if(!box)return;
+  const pl=e.target.closest('[data-plan]'); if(pl){e.preventDefault(); showTab('plan'); pageScrollTo(0); return;}
   const fav=e.target.closest('[data-favorite]'), sh=e.target.closest('[data-share]'), op=e.target.closest('[data-swap],[data-open]');
   if(fav){e.stopPropagation(); const i=+fav.dataset.favorite; if(!window.__fav)return; if(i!==cur)pickVariant(i); window.__fav.toggle(); return;}
   if(sh){e.stopPropagation(); const i=+sh.dataset.share, v=allVariants()[i]||{}; if(!window.__fav)return;
@@ -3658,7 +3670,9 @@ function photoWait(t0){
 }
 // ПЛАШКА ОЖИДАНИЯ ФОТО ПОВЕРХ КАРТИНКИ (demo-19 В3: карточка избранного): узел `[data-pwait=t0]` — полоса и отсчёт из `photoWait`;
 // перерисовывает его секундный тик задания (`vwRealistic`)
-const photoWaitText=w=>(LANG==='en'?'Rendering the photo · ':'Рисуем фото · ')+w.text;
+// «УЛУЧШАЮ», А НЕ «РИСУЕМ ФОТО» (владелец 22.10, demo-20 А6): фото не рисуется заново — расстановку улучшает нейросеть; одна подпись
+// для кнопки окна (`vwCtaUi`) и карточки избранного
+const photoWaitText=w=>(LANG==='en'?'Enhancing · ':'Улучшаю · ')+w.text;
 function photoWaitHtml(t0){const w=photoWait(t0);
   return `<div class="pwait" data-pwait="${t0}" data-left="${w.left}"><i style="width:${w.pct.toFixed(1)}%"></i><span>${escHtml(photoWaitText(w))}</span></div>`;}
 function photoWaitPaint(){
@@ -3682,7 +3696,7 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
   if(!opt.bg)shotOpen('<div class="wait"><div class="spin"></div>'+
     // ОДНА ФРАЗА БЕЗ ХВОСТА (карта сценариев 2.7): общий хвост « по вашей расстановке…» после фразы, где он уже
     // есть, давал «по вашей расстановке по вашей расстановке». Фразы целиком — их же переводит словарь EN внизу.
-    (real?'Рисуем фотографию по вашей расстановке…':'Собираем кадр по вашей расстановке…')+
+    (real?'Улучшаю фото…':'Собираем кадр по вашей расстановке…')+
     (real?'<br><span id="el">'+photoWait(t0).text+'</span>':'<br><span id="el">0</span> с')+
     '<br><span id="qinfo" style="font-size:14px;color:var(--muted)"></span></div>',est);
   const tick=setInterval(()=>{const e=document.getElementById('el');
@@ -4955,7 +4969,7 @@ function vwSum(){
     :fav?(EN?'Include it in the allowance in Favourites':'Включить её в сертификат — в избранном')
     :(EN?'To include it in the allowance, add it to favourites':'Чтобы включить её в сертификат, добавьте в избранное');
   const lines=[P&&P.included
-      ?`${EN?'This layout is in the allowance.':'Эта расстановка — в сертификате.'} ${EN?'Chosen':'Набрано'} ${money(inc)}, ${EN?'left':'остаток'} <b>${money(left)}</b>`
+      ?`${EN?'This layout is in the allowance.':'Эта расстановка — в сертификате.'} ${EN?'Chosen':'Выбрано'} ${money(inc)}, ${EN?'left':'остаток'} <b>${money(left)}</b>`
       :`${EN?'You have':'Вам доступно'} <b>${money(Math.max(0,cert-base))}</b>. ${EN?'This layout':'Эта расстановка'} <b>${money(Math.max(0,withE-base))}</b>. ${how}`,
     pdev?`${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}`:'',
     ask?(EN?'some prices are still being checked':'часть цен уточняется'):''];
@@ -5303,7 +5317,7 @@ function vwSheetWire(){
 // шкал две (главная и окно, demo-19 Б2): «i» открывает пузырь СВОЕЙ шкалы, прочие закрываются; тап мимо — закрыть
 document.addEventListener('click',e=>{const b=e.target&&e.target.closest&&e.target.closest('.vpl-i');
   const open=[...document.querySelectorAll('.vpl-bub:not([hidden])')], own=e.target&&e.target.closest&&e.target.closest('.vpl-bub');
-  if(b){e.stopPropagation(); const box=b.closest('.cs,.vplate'), bub=box&&box.querySelector('.vpl-bub');
+  if(b){e.stopPropagation(); const box=b.closest('.cs,.vplate,.incw'), bub=box&&box.querySelector('.vpl-bub');
     open.forEach(x=>{if(x!==bub)x.hidden=true;}); if(bub)bub.hidden=!bub.hidden; b.setAttribute('aria-expanded',String(!!bub&&!bub.hidden));
     // шкала у низа экрана (свёрнутая шторка окна) — пузырь открывается вверх, иначе уходил за край
     if(bub&&!bub.hidden){document.querySelectorAll('#shot .vtip').forEach(t=>t.remove());   // подсказка окна не ложится на пузырь
@@ -5580,7 +5594,7 @@ function vwCtaUi(){
     const nt=/^осталось/.test(VJ.job.note||'')?'':(VJ.job.note||'');
     if(!cta.querySelector('.vcta-bar'))cta.innerHTML='<span class="vcta-bar"></span><span class="vcta-t"></span><small></small>';
     cta.querySelector('.vcta-bar').style.width=w.pct.toFixed(1)+'%';
-    cta.querySelector('.vcta-t').textContent=(EN?'Rendering the photo · ':'Рисуем фото · ')+w.text;
+    cta.querySelector('.vcta-t').textContent=photoWaitText(w);
     const sm=cta.querySelector('small'); sm.textContent=nt; sm.hidden=!nt; cta.dataset.left=w.left;}
   else{cta.classList.remove('busy'); cta.textContent=EN?'Make it realistic':'Сделать реалистичнее';}
   if(!VJ.job||m==='plan')delete cta.dataset.left;
@@ -6409,13 +6423,21 @@ async function liveShow(){
   }
   // РЕШЕНИЕ ПОСЛЕ ДОБАВЛЕНИЯ (владелец 18.10): первый вариант комнаты влезает — включается сам; в комнате уже есть включённый — вопрос
   // «вместо …?»; не влезает — в избранном без включения, сумма превышения и переход к правке; цены не досчитаны — не включаем
+  // сумма варианта в сертификате — только если все цены известны и свежие (как цена карточки в `favDraw`), иначе null
+  function allowanceSum(f){var q=f&&f.quote; if(!q||!q.lines)return null;
+    var known=q.lines.filter(function(x){return x.settlement==='allowance';});
+    if(q.status!=='fresh'||!known.every(function(x){return x.priceStatus==='known';}))return null;
+    return known.reduce(function(s,x){return s+(x.amount||0);},0);}
   function decide(b,f,d){
     var added=EN()?'Added to favourites':'Добавлено в избранное';
     if(!BK.limit){bkPut(b); toast(added,goFav(f.roomId)); return;}
     if(d.kind==='included'){bkPut(BK.mod.include(b,f.favoriteId,BK.limit).basket); toast(incText(f,true),goFav(f.roomId)); return;}
     bkPut(b);
-    if(d.kind==='ask_replace'){var c=favOf(d.currentId)||{displayName:''};
-      dlg(added,(EN()?'Use this layout in the allowance instead of “':'Добавить этот вариант в расчёт вместо «')+c.displayName+(EN()?'”?':'»?'),
+    // «В СЕРТИФИКАТ ВМЕСТО …? +N / −N» (владелец 22.10, demo-20 А6): разница — по строкам сертификата (`settlement==='allowance'`), как сумма
+    // карточки избранного; цена у кого-то не полная — разницу не показываем, а не выдумываем
+    if(d.kind==='ask_replace'){var c=favOf(d.currentId)||{displayName:''}, s1=allowanceSum(f), s0=allowanceSum(c);
+      var delta=s1!=null&&s0!=null&&s1!==s0?' '+(s1>s0?'+':'−')+fmtCard(Math.abs(s1-s0)):'';
+      dlg(added,(EN()?'Add this layout to the allowance instead of “':'Добавить этот вариант в сертификат вместо «')+c.displayName+(EN()?'”?':'»?')+delta,
         [{label:EN()?'Yes':'Да',primary:true,fn:function(){var r=BK.mod.include(BK.b,f.favoriteId,BK.limit);
             if(r.result==='included'){bkPut(r.basket); toast(incText(f),goFav(f.roomId));} else if(r.result==='over_limit')toast(overText(r.overBy||0),editAct(f.favoriteId));}},
          {label:EN()?'No':'Нет',fn:function(){toast(added,goFav(f.roomId));}}]);
@@ -6621,7 +6643,8 @@ async function liveShow(){
     document.getElementById('favRowN').textContent='· '+l.length;
     var nInc=Object.keys(inc).length;
     var sub=nInc?((EN()?'in the allowance: ':'в сертификате: ')+groups.filter(function(g){return inc[g.id];}).map(function(g){return g.title;}).join(', ')):(EN()?'nothing in the allowance yet':'в сертификат пока ничего не включено');
-    document.getElementById('favRowSub').textContent=sub; document.getElementById('favSub').textContent=sub;
+    // кнопка на главной — просто «Избранное · N», без «в сертификате: гостиная…» (владелец 22.10, demo-20 А6); на экране избранного строка остаётся
+    document.getElementById('favRowSub').textContent=''; document.getElementById('favSub').textContent=sub;
     chips.innerHTML=groups.map(function(g){var n=l.filter(function(f){return f.roomId===g.id;}).length;
       return '<button class="hm-fav-chip'+(g.id===BK.sel?' on':'')+'" type="button" role="tab" aria-selected="'+(g.id===BK.sel)+'" data-froom="'+e(g.id)+'">'+e(g.title)+' · '+n+'</button>';}).join('');
     chips.querySelectorAll('[data-froom]').forEach(function(b){b.onclick=function(){BK.sel=b.dataset.froom; favDraw();};});
@@ -6638,8 +6661,12 @@ async function liveShow(){
       return '<div class="favcard'+(on?' inc':'')+'" data-fid="'+e(f.favoriteId)+'"><div class="fph" data-fopen="'+e(f.favoriteId)+'">'+
           (img?'<img src="'+e(img)+'" alt="" loading="lazy">':'<div class="nopv">'+(EN()?'Open to see it in 3D':'Откройте — покажем в 3D')+'</div>')+wait+'</div>'+
         '<div class="fb"><div class="nm">'+e(f.displayName)+'</div><div class="pr">'+e(styleTitle(f.styleId))+' · '+date+' · '+price+'</div>'+
-        (BK.limit?'<label class="inc-l"><input type="radio" name="inc-'+e(f.roomId)+'" data-finc="'+e(f.favoriteId)+'"'+(on?' checked':'')+'> '+
-          (on?(EN()?'In the allowance':'Включено в сертификат'):(EN()?'Include in the allowance':'Включить в сертификат'))+'</label>':'')+
+        // «Добавлено в сертификат» и «i» рядом, вне <label> — тап по «i» не переключает выбор (владелец 22.10, demo-20 А6); пузырь — общий
+        // обработчик `.vpl-i`, открывается вверх (у карточки `overflow:hidden`, вниз его срезало бы)
+        (BK.limit?'<div class="incw"><label class="inc-l"><input type="radio" name="inc-'+e(f.roomId)+'" data-finc="'+e(f.favoriteId)+'"'+(on?' checked':'')+'> '+
+          (on?(EN()?'Added to the allowance':'Добавлено в сертификат'):(EN()?'Include in the allowance':'Включить в сертификат'))+'</label>'+
+          '<button class="vpl-i" type="button" aria-label="'+(EN()?'What is this':'Что это')+'" aria-expanded="false">i</button>'+
+          '<div class="vpl-bub" hidden>'+(EN()?'By choosing an item or a layout, you include it in the gift allowance.':'Выбирая предмет или расстановку, вы включаете их в подарочный сертификат.')+'</div></div>':'')+
         '<div class="acts"><button class="btn" type="button" data-fopen="'+e(f.favoriteId)+'">'+(EN()?'Open':'Открыть')+'</button>'+
         '<button class="iconbtn" type="button" data-fshare="'+e(f.favoriteId)+'" aria-label="'+(EN()?'Share':'Поделиться')+'">'+SHARE_SVG+'</button>'+
         '<button class="iconbtn" type="button" data-fmore="'+e(f.favoriteId)+'" aria-label="'+(EN()?'Rename or remove':'Переименовать или убрать')+'">⋯</button></div></div></div>';}).join('');
@@ -6724,7 +6751,7 @@ async function liveShow(){
     'Хочу другой вариант':'I want another option','Что подобрать иначе?':'What should we change?','Дорого':'Too expensive','Не мой стиль':'Not my style',
     'Тесно / не помещается':'Too cramped / does not fit','Другой цвет':'Another colour','Другое':'Something else','Отправляем…':'Sending…',
     'Сумма при условии оплаты наличными, без ипотеки и рассрочки':'Price for full payment, without mortgage or instalments','Перейти к товару →':'Go to product →',
-    'Планировка':'Layout','Рисуем фотографию по вашей расстановке…':'Painting a photo of your layout…',
+    'Планировка':'Layout','Улучшаю фото…':'Enhancing the photo…',
     'Собираем кадр по вашей расстановке…':'Building a shot of your layout…',
     'обычно 20–25 секунд':'usually 20–25 seconds','с':'s','Не получилось собрать кадр.':'Could not build the shot.',
     'попробуйте ещё раз':'please try again','Один кадр уже считается — дождитесь его.':'A shot is already being made — please wait for it.',
