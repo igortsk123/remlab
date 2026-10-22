@@ -3212,8 +3212,9 @@ function payload(){
   // пол и прочие опции застройщика (demo-06): выбор — парами, пол — id материала для кадра
   return {room:D.room, style:v.style||'', variant:v.title||'', decor:v.decor||[], developerOptions:clone(DEVOPT),
     floor:devFloorReq(), walls:devWallReq(),
+    // окно превью вида (`crop`, demo-22) уходит вместе с позой: сервер замораживает его в записи кадра (`draft_service._cams_clean`)
     cams:(cams||loadCams()).map(c=>({name:c.name,x:Math.round(c.x),y:Math.round(c.y),
-      rot:Math.round(c.rot||0),fov:c.fov||72,pose:POSE_VER})),
+      rot:Math.round(c.rot||0),fov:c.fov||72,pose:POSE_VER,...(c.crop?{crop:c.crop}:{})})),
     // место и поворот — округлённые так же, как в номере состояния (demo-02, Codex 14.10): иначе две разные
     // отрисованные расстановки могли бы получить один номер
     items:items.map(it=>({role:it.role,x:Math.round(+it.x||0),y:Math.round(+it.y||0),rot:((Math.round(+it.rot||0)%360)+360)%360,

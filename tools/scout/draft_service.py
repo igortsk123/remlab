@@ -14,6 +14,7 @@ import hashlib
 import html
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -128,6 +129,46 @@ def _group_items(items: list) -> list:
     return out
 
 
+_CROP_KEY = re.compile(r'^\d\.\d{3}$')
+
+
+def _crop_clean(crop) -> dict | None:
+    """ОКНО ПРЕВЬЮ КАДРА ЗАМОРАЖИВАЕТСЯ В ЗАПИСИ (demo-22 п.2, Codex 22.10): страница считает окна по 3D-модели расстановки
+    (`camCrops`: пропорция → {x,y,w,h} в долях кадра + `keep` — id предметов целиком). Камеры потом подбираются заново,
+    а превью готового фото должно резаться по окну ТОГО снимка. Сюда — только форма: до 6 пропорций, доли 0…1, `keep` ≤ 40 id."""
+    if not isinstance(crop, dict):
+        return None
+    out = {}
+    for k, v in list(crop.items())[:6]:
+        if not (isinstance(k, str) and _CROP_KEY.match(k) and isinstance(v, dict)):
+            continue
+        try:
+            box = {a: round(min(1.0, max(0.0, float(v[a]))), 3) for a in ('x', 'y', 'w', 'h')}
+        except (KeyError, TypeError, ValueError):
+            continue
+        if box['w'] <= 0 or box['h'] <= 0:
+            continue
+        keep = v.get('keep')
+        if isinstance(keep, list):
+            box['keep'] = [str(i)[:64] for i in keep[:40] if isinstance(i, (str, int))]
+        out[k] = box
+    return out or None
+
+
+def _cams_clean(cams) -> list:
+    """Позы камер кадра (demo-02) + окно превью вида (`crop`, demo-22) — для записи в реестр."""
+    out = []
+    for c in (cams or [])[:4] if isinstance(cams, list) else []:
+        if not isinstance(c, dict):
+            continue
+        rec = {k: c.get(k) for k in ('name', 'x', 'y', 'rot', 'fov', 'pose')}
+        crop = _crop_clean(c.get('crop'))
+        if crop:
+            rec['crop'] = crop
+        out.append(rec)
+    return out
+
+
 def _registry_add(payload: dict, out: dict) -> None:
     """РЕЕСТР КАДРОВ ЖИВЁТ НА СЕРВЕРЕ (владелец 01.09: «фото должны храниться на сервере и
     отдаваться на фронт быстро — это же классика»). Сами картинки и так лежали файлами, но связь
@@ -152,8 +193,7 @@ def _registry_add(payload: dict, out: dict) -> None:
                'id': uuid.uuid4().hex[:16],
                'stateId': sid if len(sid) <= 64 else '',
                # pose — версия позы ракурса (`draft_render.photo_pose_heights`): кадр со старой позой страница пересъёмет
-               'cams': [{k: c.get(k) for k in ('name', 'x', 'y', 'rot', 'fov', 'pose')} for c in (payload.get('cams') or [])[:4]
-                        if isinstance(c, dict)],
+               'cams': _cams_clean(payload.get('cams')),
                'ts': int(time.time() * 1000),
                'shots': [{'camera': sh.get('camera'), 'url': sh.get('url'),
                           'thumb': DR.thumb_name(sh['url']) if sh.get('url') else None}
