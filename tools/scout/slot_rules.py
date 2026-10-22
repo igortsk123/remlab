@@ -66,6 +66,22 @@ def slot_ideal(role: str, m2: float, qty: int = 1, env: dict | None = None) -> f
     return None
 
 
+def slot_band(m2: float, env: dict | None = None) -> dict:
+    """Полоса «подходящих по размеру» в ленте замен демо (решение владельца 22.10, план demo-20 А4): ширина в
+    `tolerance` (0.8–1.1) от идеала слота комнаты этой площади. → {роль: {'lo', 'hi', 'side'}}; `side` — какую
+    сторону мерить: 'w' (ширина товара) или 'long' (у ковра в фидах `w` — короткая, правило — по длинной).
+    Роли без правила в полосу не попадают — страница их не фильтрует."""
+    env = env if env is not None else slot_envelopes()
+    lo_k, hi_k = env.get('tolerance') or [0.8, 1.1]
+    out = {}
+    for role, cfg in (env.get('slots') or {}).items():
+        ideal = slot_ideal(role, m2, env=env)
+        if ideal:
+            out[role] = {'lo': round(ideal * lo_k), 'hi': round(ideal * hi_k),
+                         'side': 'long' if 'длинная' in str(cfg.get('measured_side', '')) else 'w'}
+    return out
+
+
 def _old_slot_ideal(role: str, m2: float, env: dict) -> float | None:
     """Прежняя реализация из compose2 (до 14.10) — эталон для селфтеста «поведение не изменилось»."""
     cfg = (env.get('slots') or {}).get(role)
@@ -106,6 +122,15 @@ def _selftest() -> int:
        [seats_for_room(t, m) for m in (21.9, 22, 39.9, 40)] == ['2', '4', '4', '6'])
     alt = {'slots': {'стол обеденный': {'by_seats': {'2': 1, '4': 2, '6': 3}, 'seats_by_room_m2': {'<18': '2', '<30': '4', '>=30': '6'}}}}
     ok('порог берётся из правила, не из кода (подмена правила меняет результат)', slot_ideal('стол обеденный', 20, env=alt) == 2.0)
+    b = slot_band(14.3)
+    ok('полоса ленты демо, 14.3 м²: диван 144–198, кресло 68–94, стол обеденный 72–99',
+       (b['диван']['lo'], b['диван']['hi'], b['кресло']['lo'], b['кресло']['hi'], b['стол обеденный']['lo'], b['стол обеденный']['hi'])
+       == (144, 198, 68, 94, 72, 99))
+    ok('полоса: ковёр меряется по длинной стороне, остальные — по ширине',
+       b['ковёр']['side'] == 'long' and b['диван']['side'] == 'w')
+    ok('полоса: роли без правила (ваза, банкетка) не фильтруются', 'ваза' not in b and 'банкетка' not in b)
+    ok('полоса: допуск берётся из правила', slot_band(14.3, {'tolerance': [0.5, 2], 'slots': {'пуф': {'ideal': 40}}})
+       == {'пуф': {'lo': 20, 'hi': 80, 'side': 'w'}})
     return 1 if bad else 0
 
 

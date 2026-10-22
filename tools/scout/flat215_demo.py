@@ -576,6 +576,12 @@ def rug_ceiling() -> float:
     return min(DEMO_ENV['ковёр'][1], room or DEMO_ENV['ковёр'][1])
 
 
+def _slot_band(liv: dict) -> dict:
+    """Полоса ленты замен для гостиной демо (`slot_rules.slot_band` по площади комнаты из чертежа)."""
+    import slot_rules
+    return slot_rules.slot_band(liv['w'] * liv['d'] / 10000)
+
+
 def swap_rug_ok(p: dict) -> bool:
     """Ковёр показуем в ленте замен (demo-18 п.2): есть артикул, цена и ссылка (без них корзина товар не признаёт —
     `lib/collections/prices.ts`), живое фото, не детский по картинке (`rug_kids.py`), годится для гостиной (`unfit.py`, резиновый
@@ -1152,7 +1158,10 @@ def build() -> dict:
             # карточкой `/api/apartments`, а это — запасной путь, пока карточка не пришла (`rooms` выше — схема плана целиком)
             'apartment_rooms': demo_apartment().get('rooms') or [],
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
-            'rules': _rules(),
+            # ПОЛОСА «ПОДХОДЯЩИХ ПО РАЗМЕРУ» ленты замен (решение владельца 22.10, demo-20 А4; частично отменяет ADR-0271): ширина
+            # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных
+            # остаётся широкой (`DEMO_ENV`), страница фильтрует по полосе, пока включён чип «Подходящие по размеру»
+            'rules': {**_rules(), 'slot_band_cm': _slot_band(liv)},
             'bedroom_catalog': bedroom_catalog(),
             # стили, где после дозаполнения нет ядра: вариант не публикуется, страница честно пишет почему
             'incomplete_styles': incomplete,

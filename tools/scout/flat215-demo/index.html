@@ -338,16 +338,19 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
 #sheet header b{font-size:clamp(18px,2.5vw,21px);display:block}
 #sheet header span{font-size:clamp(14.5px,1.9vw,16.5px);color:var(--muted)}
 #sheet .close{border:0;background:var(--wash-2);border-radius:var(--radius-sm);padding:9px 16px;font-size:clamp(15px,1.9vw,16px);cursor:pointer}
+/* «ГОТОВО» → КРЕСТИК, КАК В ОКНЕ КАДРА (владелец 22.10, demo-20 А3): в строке шапки, не поверх; id `sh-close` прежний — его жмут пробы */
+#sheet .xclose{position:static;flex:0 0 40px}
 /* ФИЛЬТРЫ — ОБЫЧНЫЙ ПЕРЕНОСЯЩИЙСЯ РЯД (владелец 01.09: «фильтры корявые, прокрутка некрасиво,
    сделай как обычно делают»). Горизонтальная прокрутка прятала половину кнопок за краем и
    требовала бокового жеста внутри и без того прокручиваемого листа. Теперь они просто
    переносятся на вторую строку и все видны сразу. */
-#filters{display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px 12px}
-#filters .chip{padding:9px 15px;font-size:clamp(14.5px,1.7vw,16px);white-space:nowrap;
+/* ЧИПЫ МЕЛЬЧЕ (владелец 22.10, demo-20 А4): на iPhone SE фильтры съедали треть листа */
+#filters{display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px}
+#filters .chip{padding:6px 11px;font-size:13.5px;white-space:nowrap;
  line-height:1.15;min-height:0}
 #filters .chip.on{box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent)}
 #sheetscroll{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
-#grid{padding:12px 14px 24px;display:grid;gap:12px;
+#grid{padding:8px 14px 24px;display:grid;gap:12px;
  grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
 /* цвета текущей модели — строка чипов во всю ширину ленты (приёмка 16.10 п.11а) */
 #grid .colrow{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
@@ -356,6 +359,9 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
  background:var(--surface);cursor:pointer;min-height:44px;font-size:14px}
 #grid .colchip img{width:36px;height:36px;border-radius:50%;object-fit:cover}
 #grid .colchip small{color:var(--muted)}#grid .colchip.on{border:2px solid var(--accent);cursor:default}
+/* КАРТОЧКА ЦЕЛИКОМ НА iPhone SE (владелец 22.10, demo-20 А1): фото ниже при той же ширине — шапка ~53 + фильтры ~117 + карточка
+   ≤ 548 px видимой высоты SE с панелью Safari; «Заменить» и «В магазин» видны без прокрутки */
+#grid .card img{aspect-ratio:auto;height:150px;object-fit:contain}
 @media(min-width:700px){#sheet{left:auto;right:0;top:0;bottom:0;width:460px;max-height:none;
  border-radius:0;transform:translateX(102%);box-shadow:var(--sh-5)}
  #sheet.open{transform:translateX(0)}}
@@ -384,7 +390,9 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
 .sel{font-size:clamp(16px,2vw,17.5px);color:var(--ink);margin-top:8px}
 .acts{display:flex;gap:4px;margin-top:5px}
 .mini{flex:1;text-align:center;border:1px solid var(--line);background:var(--surface);border-radius:6px;
- padding:5px 4px;font-size:11.5px;cursor:pointer;text-decoration:none;color:var(--ink)}
+ padding:5px 4px;font-size:11.5px;cursor:pointer;text-decoration:none;color:var(--ink);
+ /* «В магазин» (ссылка) — по центру своей кнопки, как «Заменить» (владелец 22.10, demo-20 А2): у <a> нет центровки кнопки */
+ display:inline-flex;align-items:center;justify-content:center;line-height:1.2;font-family:inherit}
 .mini.link{color:var(--accent);border-color:var(--accent-soft)}
 #basket{margin-top:10px}
 /* РАБОЧАЯ ОБЛАСТЬ (26.08, структура референса): план слева, список товаров справа; на телефоне —
@@ -994,8 +1002,8 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   </div>
 </div></div>
 <div id="sheet"><div class="grab"></div>
-  <header><div class="h"><b id="sh-title">Подбор товара</b><span id="sh-sub"></span></div>
-  <button class="close" id="sh-close">Готово</button></header>
+  <header><div class="h"><b id="sh-title">Подбор товара</b></div>
+  <button class="xclose" id="sh-close" aria-label="Закрыть">×</button></header>
   <!-- ФИЛЬТРЫ ПРОКРУЧИВАЮТСЯ ВМЕСТЕ СО СПИСКОМ (владелец 02.09: «не лепи к верху, кому надо —
        промотает наверх»). Раньше они стояли отдельной строкой над прокручиваемой сеткой и
        занимали место постоянно; на телефоне это заметная часть экрана. -->
@@ -1059,8 +1067,8 @@ function init(){
   on('shot','onclick',e=>{if(e.target.id==='shot')e.currentTarget.classList.remove('on');});
   // кнопок «повернуть» и «подобрать товар» больше нет: поворот — за угловые ручки предмета,
   // товар — по значку на предмете или строке в списке справа (владелец 26.08)
-  on('sh-close','onclick',closePicker);
-  on('scrim','onclick',closePicker);
+  on('sh-close','onclick',()=>pickerCancel());
+  on('scrim','onclick',()=>pickerCancel());
   on('shotNow','onclick',()=>makePhoto('draft'));
   on('consDone','onclick',closeCons);
   on('swapClose','onclick',closeSwapFull);
@@ -4262,7 +4270,20 @@ function fitBadge(me,p){
 }
 
 // ——— ЛИСТ ПОДБОРА
-let F={price:null, fitOnly:false, sort:'fit', anyStyle:false};
+// ФИЛЬТРЫ ПО УМОЛЧАНИЮ (владелец 22.10, demo-20 А4): «Подходящие по размеру» и «Только стиль <стиль>» включены, снятый чип
+// показывает всё. Сбрасываются при каждом открытии листа — «все размеры» у дивана не переносится на стул.
+const F_DEFAULT={price:null, fitOnly:true, sort:'fit', anyStyle:false};
+let F={...F_DEFAULT};
+// стиль варианта без приставки коллекции: «моя коллекция · сканди» → «сканди» (как `styleOfV` избранного)
+const plainStyle=s=>String(s||'').replace(/^(моя коллекция|my collection|коллекция по ссылке|shared collection) · /,'');
+// ПОЛОСА РАЗМЕРА (решение владельца 22.10, частично отменяет ADR-0271): «подходящий» = ширина в полосе 0.8–1.1 идеала слота
+// комнаты (`demo-data.json → rules.slot_band_cm`, генератор — `slot_rules.slot_band`) И на своё место встаёт (`fitBadge`≠b-no).
+// Роли без правила (ваза, банкетка) полосой не режутся; декор на столешнице — тоже.
+function inBand(base,p){
+  const b=((D.rules||{}).slot_band_cm||{})[base]; if(!b||(sel&&sel.dec!==undefined))return true;
+  const v=b.side==='long'?Math.max(p.w||0,p.d||0):(p.w||0);
+  return v>=b.lo&&v<=b.hi;
+}
 // ТОВАРЫ СВОЕГО СТИЛЯ (владелец 08.09: «если стиль неоклассика, то всю мебель, где есть меши и
 // относятся к этому стилю, надо выгружать»). Лента общая на роль, стиль у каждого товара свой —
 // поэтому режем её стилем текущего варианта. Товары рекомендованного сета (`src:'set'`) видны
@@ -4279,7 +4300,7 @@ function sameShape(p,place){
 function rugFitsSofa(p){const sofa=items.find(i=>i.role==='диван'); return !sofa||Math.max(p.w||0,p.d||0)>=(sofa.w||0);}
 function feedFor(base){
   const all=((D.feeds&&D.feeds[base])||[]).filter(p=>(base!=='диван'||!sel||sameShape(p,sel))&&(base!=='ковёр'||rugFitsSofa(p)));
-  const st=(allVariants()[cur]||{}).style||'';
+  const st=plainStyle((allVariants()[cur]||{}).style);
   if(F.anyStyle||!st)return all;
   // у товара стилей может быть несколько (`styles`) — он подходит и неоклассике, и современному
   // ЧУЖИЕ СЕТЫ НЕ ПОКАЗЫВАЕМ (13.10). Товары рекомендованных наборов видны всегда — это правило
@@ -4301,12 +4322,8 @@ function decorSel(i){
 }
 function openPicker(it){
   // ключ ленты — роль без хвостового номера; «первое слово» ломало «стол обеденный» (01.09)
-  sel=it; const base=it.role.replace(/\s+\d+$/,'');
+  sel=it; F={...F_DEFAULT}; const base=it.role.replace(/\s+\d+$/,'');
   const list=feedFor(base);
-  document.getElementById('sh-title').textContent=`Выбрать: ${it.role}`;
-  document.getElementById('sh-sub').textContent=list.length
-    ? `${list.length} товаров · сейчас ${Math.round(it.w)}×${Math.round(it.d)} см`
-    : 'товаров с фото для этой роли в банке нет';
   document.getElementById('sheet').classList.add('open');
   document.getElementById('scrim').classList.add('on');
   filters(); grid();
@@ -4316,13 +4333,25 @@ function openPicker(it){
 }
 function closePicker(){document.getElementById('sheet').classList.remove('open');
   document.getElementById('scrim').classList.remove('on');}
+// КРЕСТИК ЛИСТА БЕЗ ЗАМЕНЫ — ВСЁ КАК БЫЛО (владелец 22.10, demo-20 А5): тап по предмету в 3D сам раскрыл шторку окна до верха
+// (`vwHighlight` запомнил `VW.auto`) → «Заменить» → «×»: лист закрываем, выделение снимаем, шторку и прокрутку списка возвращаем.
+// Шторку раскрыл человек (жест, тап по ручке) или замена прошла — `VW.auto` сброшен, «×» только закрывает лист.
+function pickerCancel(){
+  closePicker();
+  const a=typeof VW!=='undefined'&&VW.auto, sh=document.getElementById('shot'); if(!a)return;
+  VW.auto=null; if(!sh||!sh.classList.contains('on'))return;
+  vwSelect(null); vwSheet(a.pos);
+  const sc=document.getElementById('vscroll'); if(sc)sc.scrollTop=a.top;
+}
 function filters(){
   const f=document.getElementById('filters');f.innerHTML='';
   const add=(txt,on,fn)=>{const b=document.createElement('button');b.className='chip'+(on?' on':'');
     b.textContent=txt;b.onclick=()=>{fn();filters();grid();};f.appendChild(b);};
-  add('подходящие по размеру',F.fitOnly,()=>F.fitOnly=!F.fitOnly);
-  const st=(allVariants()[cur]||{}).style||'';
-  if(st)add(F.anyStyle?'все стили':'только '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);
+  // ПОДПИСИ ЧИПОВ НЕ МЕНЯЮТСЯ ПРИ НАЖАТИИ (владелец 22.10, demo-20 А4): прежний «только сканди» ↔ «все стили» путал — включён = фильтр
+  // действует, снят = показываем всё
+  add('Подходящие по размеру',F.fitOnly,()=>F.fitOnly=!F.fitOnly);
+  const st=plainStyle((allVariants()[cur]||{}).style);
+  if(st)add('Только стиль '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);
   // пороги — рубли витрины; подписи — в валюте карточки (британский двойник: £)
   const fx=fxRate(), EN=LANG==='en';
   add(fx?(EN?'under ':'до ')+money(30000):'до 30 тыс',F.price==='lo',()=>F.price=F.price==='lo'?null:'lo');
@@ -4334,14 +4363,19 @@ function grid(){
   const g=document.getElementById('grid');g.innerHTML='';
   const base=sel?sel.role.replace(/\s+\d+$/,''):'диван';
   let list=feedFor(base).slice();
-  if(!list.length){g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
+  // ШАПКА — «Выбрать <роль> (N)»: роль без номера слота, N — товаров ПОСЛЕ фильтров (владелец 22.10, demo-20 А3)
+  const head=n=>{document.getElementById('sh-title').textContent=`Выбрать ${base} (${n})`;};
+  if(!list.length){head(0); g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
+  const isCur=p=>!!(sel&&sel.sku&&sel.sku.name===p.name);
   list=list.filter(p=>{
     const pr=p.price||0;
     if(F.price==='lo'&&pr>=30000)return false;
     if(F.price==='mid'&&(pr<30000||pr>60000))return false;
     if(F.price==='hi'&&pr<60000)return false;
-    if(F.fitOnly&&fitBadge(sel,p).cls==='b-no')return false;
+    // текущий товар места виден всегда — от него и меняем
+    if(F.fitOnly&&!isCur(p)&&(!inBand(base,p)||fitBadge(sel,p).cls==='b-no'))return false;
     return true;});
+  head(list.length);
   const rank=p=>({'b-ok':0,'b-tight':1,'b-no':2})[fitBadge(sel,p).cls];
   // товаров без фото в выборке уже нет — их отсекает сборка данных (владелец 26.08)
   list.sort((a,b)=>F.sort==='price'?((a.price||0)-(b.price||0))
@@ -4370,8 +4404,9 @@ function grid(){
       `<span class="badge ${bg.cls}">${bg.txt}</span>`+
       `<div class="nm">${p.name||''}</div>`+
       `<div class="pr">${money(p.price)}</div>`+
-      `<div class="dim">${dims}${p.shop?' · '+p.shop:''}</div>`+
-      (more.get(modelOf(p))?`<div class="dim">${'ещё '+more.get(modelOf(p))+' '+(more.get(modelOf(p))===1?'цвет':more.get(modelOf(p))<5?'цвета':'цветов')}</div>`:'')+
+      // «ещё N цветов» — в строке размера, а не отдельной строкой (demo-20 А1: карточка ниже на iPhone SE)
+      `<div class="dim">${dims}${p.shop?' · '+p.shop:''}`+
+      (more.get(modelOf(p))?` · <span>${'ещё '+more.get(modelOf(p))+' '+(more.get(modelOf(p))===1?'цвет':more.get(modelOf(p))<5?'цвета':'цветов')}</span>`:'')+`</div>`+
       `<div class="acts"><button class="mini">${cur?'Выбрано':'Заменить'}</button>`+
       `<a class="mini link" href="${p.url}" target="_blank" rel="noopener">В магазин</a></div>`;
     // ВЫБРАЛ — ОКНО ЗАКРЫВАЕТСЯ (владелец 02.09). Раньше лист подбора оставался открытым, и
@@ -4381,7 +4416,7 @@ function grid(){
     // СПИСОК В ОТКРЫТОМ ОКНЕ КАДРА ОБНОВЛЯЕМ СРАЗУ (владелец 02.09: «в списке не обновляет…
     // и сумма должна считаться»). Без этого окно оставалось со старой строкой и старой суммой,
     // а вторая замена того же предмета вообще не срабатывала — строка искалась по прежнему имени.
-    const take=()=>{ tryOn(p); grid(); closePicker(); refreshShotList(); };
+    const take=()=>{ if(typeof VW!=='undefined')VW.auto=null; tryOn(p); grid(); closePicker(); refreshShotList(); };
     c.querySelector('.mini').onclick=e=>{e.stopPropagation();take();};
     c.querySelector('.link').onclick=e=>e.stopPropagation();
     c.onclick=take; g.appendChild(c);});}
@@ -4997,7 +5032,7 @@ function vwOpenVariant(i){ const v=allVariants()[i];
   openLiveWindow(); }
 function openLiveWindow(){
   if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
-  VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null; VW.sheetVis=0;   // новое окно варианта — первая точка съёмки
+  VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null; VW.sheetVis=0; VW.auto=null;   // новое окно варианта — первая точка съёмки
   // ОКНО ОТКРЫВАЕТСЯ В «ФОТО», ЕСЛИ ЕСТЬ РЕАЛИСТИЧНЫЙ СНИМОК ЭТОЙ РАССТАНОВКИ, ИНАЧЕ В «3D» (demo-09 п.1)
   const v=allVariants()[cur]||{}, vid=v.id||('v'+cur), real=vwRealShots();
   // «Фото» — со свёрнутой шторкой (приёмка d8 17.10: на средней диван был под шторкой — фото видно целиком)
@@ -5219,7 +5254,7 @@ function vwSheetWire(){
   const begin=(y,id,fromGrip)=>{st={y0:y, vis0:VW.sheetVis||vwEdges().min, id, grip:fromGrip, moved:false, smp:[[performance.now(),y]]};};
   const drag=y=>{const e=vwEdges(); let vis=st.vis0-(y-st.y0);
     if(vis>e.max)vis=e.max+(vis-e.max)*0.3; else if(vis<e.min)vis=e.min-(e.min-vis)*0.3;   // резинка за краями
-    st.moved=true; st.smp.push([performance.now(),y]); if(st.smp.length>8)st.smp.shift(); vwSheetApply(vis,false);};
+    st.moved=true; VW.auto=null; st.smp.push([performance.now(),y]); if(st.smp.length>8)st.smp.shift(); vwSheetApply(vis,false);};   // жест — шторка человека
   const end=(cancel)=>{const s0=st; st=null; if(!s0)return;
     if(!s0.moved)return;                                     // тап по шапке — переключение по `click` ниже
     VW.dragEndAt=performance.now();
@@ -5241,7 +5276,7 @@ function vwSheetWire(){
     ['pointercancel','lostpointercapture'].forEach(n=>h.addEventListener(n,e=>{if(st&&st.grip&&e.pointerId===st.id)end(true);}));
     if(h!==vtop)h.addEventListener('click',e=>{if(!VW_PHONE()||own(e.target))return; e.preventDefault();
       if(performance.now()-(VW.dragEndAt||0)<350)return;    // клик в конце перетаскивания — не тап
-      vwSheet();});});
+      VW.auto=null; vwSheet();});});
   // пока шторка едет после программного сдвига (и 150 мс после), нажатия по содержимому и кнопке не проходят (v5.1 п.2; v5.2 —
   // кнопка прямо под чипом); клик в конце перетаскивания за блок кнопки — тоже не нажатие
   sc.addEventListener('click',e=>{if(VW_PHONE()&&performance.now()-(VW.sheetMovedAt||0)<450){e.stopPropagation(); e.preventDefault();}},{capture:true});
@@ -5302,7 +5337,9 @@ function vwHighlight(idx, opt){
   const r=vwRowOf(it); if(!r)return;
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   r.classList.add('hl'); clearTimeout(VW.hlT);
-  if(open&&VW_PHONE()){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos!==3)vwSheet(3);}
+  // шторку раскрыл сам тап — запоминаем, как было (demo-20 А5: «×» листа замены вернёт), до раскрытия
+  if(open&&VW_PHONE()){const sd=document.getElementById('vside'), sc0=document.getElementById('vscroll');
+    if(sd&&+sd.dataset.pos!==3){VW.auto={pos:+sd.dataset.pos||0, top:sc0?sc0.scrollTop:0}; vwSheet(3);}}
   // прокрутка — СРАЗУ и мгновенно на телефоне (v5.2 п.5, владелец 18.10: «сначала шторка открывается, потом перелистывается» — два
   // движения): высота шторки всегда полная, едет только сдвиг, геометрия списка не меняется — к концу подъёма строка уже в верхней
   // трети. Только сам список: `scrollIntoView` двигал и окно над шторкой. Компьютер — плавно, как было
@@ -6682,7 +6719,7 @@ async function liveShow(){
     'Дверь:':'Door:','петли справа':'hinges on the right','петли слева':'hinges on the left','открывается внутрь':'opens inwards','открывается наружу':'opens outwards',
     'поменять ракурс':'change angle','Новая расстановка':'New layout','Изменить планировку':'Edit layout','♡ В избранное':'♡ Add to favourites','Закрыть':'Close',
     'Мебель и техника':'Furniture','Загрузить список в PDF':'Download list as PDF','Загрузить список в JPG':'Download list as JPG','Подбор товара':'Choose a product',
-    '← Назад к плану':'← Back to plan','подходящие по размеру':'fits the space','дешевле сначала':'cheapest first','по размеру':'by size','Выбрано':'Selected',
+    '← Назад к плану':'← Back to plan','Подходящие по размеру':'Fits the space','дешевле сначала':'cheapest first','по размеру':'by size','Выбрано':'Selected',
     'Создать фото':'Create photo','Улучшить фото':'Improve photo','фото появится после съёмки':'photo appears after shooting','нет фото':'no photo','фото недоступно':'photo unavailable',
     'Хочу другой вариант':'I want another option','Что подобрать иначе?':'What should we change?','Дорого':'Too expensive','Не мой стиль':'Not my style',
     'Тесно / не помещается':'Too cramped / does not fit','Другой цвет':'Another colour','Другое':'Something else','Отправляем…':'Sending…',
@@ -6744,9 +6781,8 @@ async function liveShow(){
     [/^Итого (\d+) товар\S*$/,function(m){return 'Total '+m[1]+' items';}],
     [/^Мебель варианта «(.+)»$/,function(m){return 'Furniture: '+m[1].split(' · ').map(function(x){return STYLE[x]||x;}).join(' · ');}],
     [/^(my collection|shared collection) · (.+)$/,function(m){return m[1]+' · '+(STYLE[m[2]]||m[2]);}],
-    [/^Выбрать: (.+)$/,function(m){return 'Choose: '+(role(m[1])||m[1]);}],
-    [/^(\d+) товар\S* · сейчас (.+)$/,function(m){return m[1]+' items · now '+cm(m[2]);}],
-    [/^только (.+)$/,function(m){return 'only '+(STYLE[m[1]]||m[1]);}],
+    [/^Выбрать (.+) \((\d+)\)$/,function(m){return 'Choose a '+(role(m[1])||m[1])+' ('+m[2]+')';}],
+    [/^Только стиль (.+)$/,function(m){return 'Only '+(STYLE[m[1]]||m[1])+' style';}],
     [/^до (\d+) тыс$/,function(m){return 'under '+m[1]+'k';}],[/^(\d+)–(\d+) тыс$/,function(m){return m[1]+'–'+m[2]+'k';}],
     [/^(\d+)\+ тыс$/,function(m){return m[1]+'k+';}],[/^(\d+) из (\d+)$/,function(m){return m[1]+' of '+m[2];}],
     [/^Товары на фото · (\d+)$/,function(m){return 'Items in the photo · '+m[1];}],[/^Камера (\d+)$/,function(m){return 'Camera '+m[1];}],
