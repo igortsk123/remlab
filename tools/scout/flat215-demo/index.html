@@ -5026,6 +5026,8 @@ function histFwd(){return histGo(1);}
   /* «Фото»: кнопки нет (снимок уже есть) — пустой блок не добавляет высоты свёрнутой шторке */
   .vtop:not(:has(.vcta:not([hidden]),#vCtaErr)){display:none}
   .vlist{padding:0 14px}
+  /* рамка выделенной строки — внутри поля списка 14 px (обход 1808: при −12 px она доходила до края экрана на 2 px) */
+  #shot.v2 .pinlist .row.hl{margin:0 -8px;padding-left:8px;padding-right:8px}
   .vmodes{top:10px;left:10px;transform:none}.vmodes button{padding:6px 10px;font-size:14px;white-space:nowrap}
   .vhist{top:58px;bottom:auto;left:10px}
   /* сцена — только над шторкой: под полуоткрытой шторкой мебель иначе пряталась, а видно было потолок */

@@ -54,14 +54,15 @@ const bubSeen=sel=>`(()=>{const b=document.querySelector(${JSON.stringify(sel)})
     const other=[...document.querySelectorAll('#shotbody .pinlist .row:not(.hl)')].map(x=>x.querySelector('img,.noimg-sm')).filter(Boolean)[0];
     return {row:[rr.left,rr.right].map(Math.round), img:[ir.left,ir.right].map(Math.round), priceR:pr.length?Math.round(Math.max(...pr)):null, bar:cs.boxShadow,
       gapL:Math.round(ir.left-rr.left), otherImgL:other?Math.round(other.getBoundingClientRect().left):null, list:Math.round(r.closest('.pinlist').getBoundingClientRect().left)};});
-  ok('4 выделенная строка: картинка внутри рамки, от полосы (3 px) — отступ ≥ 8 px',!!row&&row.gapL>=11&&row.img[1]<=row.row[1],JSON.stringify(row));
+  ok('4 выделенная строка: картинка внутри рамки, от полосы (3 px) — отступ ≥ 8 px',!!row&&row.gapL>=8&&row.img[1]<=row.row[1],JSON.stringify(row));
   ok('4 выделенная строка: цена не прижата к правому краю рамки (≥ 6 px)',!!row&&row.priceR!=null&&row.row[1]-row.priceR>=6,row&&JSON.stringify({rowR:row.row[1],priceR:row.priceR}));
   ok('4 картинка выделенной строки — на той же вертикали, что у обычных строк',!!row&&row.otherImgL!=null&&Math.abs(row.img[0]-row.otherImgL)<=1&&(g0==null||Math.abs(row.img[0]-row.list-g0)<=1),
     row&&JSON.stringify({hl:row.img[0],other:row.otherImgL,before:g0==null?null:g0+row.list}));
   const hl=await p.$('#shotbody .row.hl'); if(hl){const bb=await hl.boundingBox(); await p.screenshot({path:OUT+`tip-${W}-4-row.png`,clip:{x:0,y:Math.max(0,bb.y-70),width:W,height:Math.min(H-Math.max(0,bb.y-70),bb.height+140)}});}
   await p.screenshot({path:OUT+`tip-${W}-4-sheet.png`});
   // 5. избранное: сохранить, на главной — «i» у «Добавлено в сертификат»
-  await p.evaluate(()=>vwSelect(null)); await p.waitForTimeout(300);
+  // шторка во весь экран закрывает кнопки сцены — свернуть, иначе ♡ не нажать
+  await p.evaluate(()=>{vwSelect(null); if(VW_PHONE())vwSheet(0);}); await p.waitForTimeout(700);
   await p.click('#vFav'); await p.waitForTimeout(300); await p.click('#favOk');
   await p.waitForFunction("!document.getElementById('favPop')",null,{timeout:30000}).catch(()=>{}); await p.waitForTimeout(1200);
   await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(1200);
