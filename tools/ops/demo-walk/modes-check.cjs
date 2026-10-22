@@ -105,8 +105,15 @@ const rd=await p.evaluate(()=>{const t=document.getElementById('toast'); return 
 ok('3 готово, человек в 3D → вкладка «Фото» есть, «Фото готово · Смотреть»',s.mode==='walk'&&s.photoTab&&/Фото готово.*Смотреть|Photo ready.*View/.test(rd),JSON.stringify({mode:s.mode,tab:s.photoTab,toast:rd}));
 const geo=await p.evaluate(()=>{const R=s=>{const e=document.querySelector(s); if(!e)return null; const r=e.getBoundingClientRect(); return [Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)];};
   const sc=[...document.querySelectorAll('#shot, #shot *')].filter(e=>e.scrollTop>0).map(e=>(e.id||e.className||e.tagName)+':'+e.scrollTop);
-  return {vmodes:R('#shot .vmodes'), canvas:R('#shot canvas'), ready:R('#shot .vready'), scrolled:sc, win:scrollY};});
-ok('3 переключатель режимов на месте, сцена не уехала',!!geo.vmodes&&geo.vmodes[1]>=0&&geo.vmodes[1]<40&&!geo.scrolled.filter(x=>!/vscroll/.test(x)).length,JSON.stringify(geo));
+  const m=document.querySelector('#shot .vmodes'), mr=m&&m.getBoundingClientRect(), hit=mr&&document.elementFromPoint(mr.left+mr.width/2,mr.top+mr.height/2);
+  return {vmodes:R('#shot .vmodes'), canvas:R('#shot canvas'), box:R('#shot .box'), ready:R('#shot .vready'), scrolled:sc, win:scrollY, top:!!hit&&m.contains(hit)};});
+// место — относительно сцены, не экрана: на телефоне окно во весь экран (сцена с 0), на компьютере — карточка 92vh по центру (demo-02,
+// ADR-0290), её верх = 4vh (36 px на 900), переключатель — 12 px внутри. Прежнее «верх < 40 px от экрана» (demo-09, писалось под 375)
+// на компьютере не выполнялось никогда
+const dy=geo.vmodes&&geo.canvas?geo.vmodes[1]-geo.canvas[1]:-1;
+ok('3 переключатель режимов на месте (у верха сцены, внутри неё, сверху ничего), сцена не уехала',
+  !!geo.vmodes&&dy>=0&&dy<40&&geo.vmodes[0]>=geo.canvas[0]&&geo.vmodes[0]+geo.vmodes[2]<=geo.canvas[0]+geo.canvas[2]&&geo.top
+  &&!!geo.box&&geo.canvas[1]===geo.box[1]&&!geo.win&&!geo.scrolled.filter(x=>!/vscroll/.test(x)).length,JSON.stringify({dy,...geo}));
 await p.screenshot({path:OUT+`m09-${W}-ready.png`});
 console.log('errs',p.errs.slice(0,3)); await p.context().close();
 // 5. без 3D: заглушка, кнопка работает. ПЛАТНОЕ НЕ ВЫЗЫВАЕТСЯ НИКОГДА: отказ «нет денег» подменён (17.10 сценарий нажимал настоящую
