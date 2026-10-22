@@ -1,5 +1,5 @@
 {
-  "_note": "Демонстрационный застройщик для Англии: квартира 3D-конфигуратора demo-uk-1 (data/flat3d/apartment.json). Цена — демонстрационная. «Двухкомнатная» = «1-bedroom»: в РФ считают все комнаты, в Англии — спальни; это не ошибка. Квартира demo-uk-215 — британский двойник демо-витрины flat215 для английского демо (ADR-0298): та же витрина, цены мебели — рубли фидов по курсу fx «≈ на дату», отделка — к цене квартиры.",
+  "_note": "Демонстрационный застройщик для Англии: квартира 3D-конфигуратора demo-uk-1 (data/flat3d/apartment.json). Цена — демонстрационная. «Двухкомнатная» = «1-bedroom»: в РФ считают все комнаты, в Англии — спальни; это не ошибка. Квартира demo-uk-215 — британский двойник демо-витрины flat215 для английского демо (ADR-0298): та же витрина, цены мебели — рубли фидов по курсу fx «≈ на дату», опции застройщика (кухня, пол, стены) — в пакет, бюджет «Улучшения» (demo-23 шаг 3, владелец TG 878; было — к цене квартиры).",
   "id": "demo-uk",
   "nameRu": "Демо-застройщик (Англия)",
   "nameEn": "Demo developer (UK)",
@@ -240,7 +240,7 @@
               "configuratorOptionId": "kitchen-premium"
             }
           ],
-          "settlement": "property_price",
+          "settlement": "allowance",
           "roomId": "kitchen"
         },
         {
@@ -251,7 +251,7 @@
           "titleEn": "Floor",
           "defaultVariantId": "laminate-oak-light",
           "enabled": true,
-          "settlement": "property_price",
+          "settlement": "allowance",
           "slotIds": [
             "floor"
           ],
@@ -321,7 +321,7 @@
           "titleEn": "Walls",
           "defaultVariantId": "paint-white",
           "enabled": false,
-          "settlement": "property_price",
+          "settlement": "allowance",
           "slotIds": [
             "wall"
           ],

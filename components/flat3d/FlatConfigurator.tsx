@@ -25,7 +25,7 @@ import { ManagerContact } from "@/components/flat3d/ManagerContact";
 import type { Spot } from "@/components/flat3d/Hotspots";
 import { optionsForSlot } from "@/lib/configurator/resolve";
 import { shopStripper } from "@/lib/configurator/label";
-import { settle } from "@/lib/configurator/settlement";
+import { settle, type BudgetPolicy, type BudgetTotals } from "@/lib/configurator/settlement";
 
 const MODES = ["walk", "top", "photo", "plan"] as const;
 type Mode = (typeof MODES)[number];
@@ -35,8 +35,8 @@ interface Props {
   catalogue: Catalogue;
   initialConfig?: Configuration | null;
   lang: Lang;
-  /** Предельная сумма сертификата застройщика (подсказка, выбор не блокирует), ADR-0254/0258. */
-  certificate?: { amount: number } | null;
+  /** Предельная сумма сертификата застройщика (подсказка, выбор не блокирует), ADR-0254/0258; `incentive` — пакет двух бюджетов (demo-23). */
+  certificate?: { amount: number; incentive?: BudgetPolicy | null } | null;
   /** Факты о квартире строкой (ЖК, срок, этаж) — из карточки застройщика, для правой панели. */
   facts?: string;
   /** Пришёл по ссылке менеджера (`?s=`) — в правой панели «Связаться с менеджером» (E3). */
@@ -84,8 +84,11 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
   const room = useMemo(() => apartment.rooms.find((r) => r.id === roomId) ?? apartment.rooms[0]!, [apartment, roomId]);
   const roomTotal = scene.totals.byRoom[room.id] ?? 0;
   const bs = scene.totals.bySettlement;
-  const money = settle([{ amount: bs.allowance, settlement: "allowance" }, { amount: bs.developer_surcharge, settlement: "developer_surcharge" },
-    { amount: bs.property_price, settlement: "property_price" }], certificate?.amount ?? 0);
+  // пакет — по бюджетам (demo-23, ADR-0308): в раздельном каждый бюджет со своим лимитом, перенос запрещён
+  const bb = scene.totals.byBudget;
+  const money = settle([{ amount: bb.furniture, settlement: "allowance", budgetBucket: "furniture" },
+    { amount: bb.fitout, settlement: "allowance", budgetBucket: "fitout" }, { amount: bs.developer_surcharge, settlement: "developer_surcharge" },
+    { amount: bs.property_price, settlement: "property_price" }], certificate?.incentive ?? certificate?.amount ?? 0);
   const is3d = mode === "walk" || mode === "top";
 
   // 3D РАЗВОРАЧИВАЕМ НА ВЕСЬ ЭКРАН (владелец 29.09): по квартире ходят, а не подглядывают в
@@ -317,8 +320,8 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
           </span>
           {/* на телефоне сертификат уже в строке застройщика — строку «выбрано» не повторяем, итоги в одну строку (п.8) */}
           {/* ДЕНЬГИ — ОБЩИМ ЯДРОМ (demo-06): в сертификат — только мебель и встроенное; отделка застройщика (пол) — своей строкой:
-              RF — доплата застройщику, UK — к цене квартиры. Раньше пол съел бы сертификат */}
-          {certificate && !mobile ? <CertificateLine amount={certificate.amount} spent={money.allowanceEligible} fmt={fmt} lang={lang} /> : null}
+              RF — доплата застройщику; UK — в пакет, бюджет «Улучшения» (demo-23). Раньше пол съел бы сертификат */}
+          {certificate && !mobile ? <CertificateLine budget={money.budget} fmt={fmt} lang={lang} /> : null}
           {money.developerSurcharge > 0 ? <span className="text-sm text-tertiary">{L.devSurcharge} <b className="text-primary">+{fmt(money.developerSurcharge)}</b></span> : null}
           {money.propertyPriceDelta > 0 ? <span className="text-sm text-tertiary">{L.propertyDelta} <b className="text-primary">+{fmt(money.propertyPriceDelta)}</b></span> : null}
           {/* кнопки — одной группой: при переносе строки «отменить/вернуть» не разъезжаются по разным строкам (п.8) */}
@@ -513,12 +516,19 @@ function UndoRedo({ lang, undo, redo, canUndo, canRedo }: { lang: Lang; undo: ()
 }
 
 /** «Сертификат до X · выбрано на Y · доплата Z» — подсказка, выбор не блокирует (ADR-0254 п.2). */
-function CertificateLine({ amount, spent, fmt, lang }: { amount: number; spent: number; fmt: (v: number) => string; lang: Lang }) {
-  const extra = Math.max(0, spent - amount);
+// раздельный пакет (demo-23): «Мебель и техника 1 200 / 4 500 · Улучшения 3 000 / 8 000», доплата — общая сумма сверх лимитов
+function CertificateLine({ budget: b, fmt, lang }: { budget: BudgetTotals; fmt: (v: number) => string; lang: Lang }) {
+  const en = lang === "en";
+  const split = b.mode === "split" && b.limits.furniture > 0 && b.limits.fitout > 0;
   return (
     <span className="text-sm text-tertiary">
-      {lang === "en" ? "Allowance" : "Сертификат"} {fmt(amount)} · {lang === "en" ? "chosen" : "выбрано"} {fmt(spent)}
-      {extra > 0 ? <> · {lang === "en" ? "top-up" : "доплата"} <b className="text-primary">{fmt(extra)}</b></> : null}
+      {split ? <>
+        {en ? "Furniture and appliances" : "Мебель и техника"} {fmt(b.eligible.furniture)} / {fmt(b.limits.furniture)} · {en ? "Upgrades" : "Улучшения"}{" "}
+        {fmt(b.eligible.fitout)} / {fmt(b.limits.fitout)}
+      </> : <>
+        {en ? "Allowance" : "Сертификат"} {fmt(b.limits.total)} · {en ? "chosen" : "выбрано"} {fmt(b.eligible.total)}
+      </>}
+      {b.overage.total > 0 ? <> · {en ? "top-up" : "доплата"} <b className="text-primary">{fmt(b.overage.total)}</b></> : null}
     </span>
   );
 }

@@ -110,8 +110,8 @@ export async function resolveFlat(apartmentId: string, baseVariant?: string, loa
   if (base.catalogue.currency !== hit.partner.currency) {
     throw new Error(`валюта каталога ${base.catalogue.currency} ≠ валюте застройщика ${hit.partner.currency}`);
   }
-  // ОТДЕЛКА НЕ ИЗ СЕРТИФИКАТА (demo-06, ADR-0254): пол квартиры 3D идёт по правилу рынка застройщика (UK — в цену квартиры),
-  // если у опции не задано своё; мебель и встроенное — в сертификат
+  // ОТДЕЛКА (demo-06, ADR-0254; demo-23 шаг 3): пол квартиры 3D идёт по правилу рынка застройщика (RF — доплата застройщику вне
+  // сертификата, UK — в пакет), если у опции не задано своё; мебель и встроенное — в сертификат
   // кухня UK — тоже персонализация в цене квартиры (ADR-0298); RF кухня по-прежнему в сертификате
   const options = base.catalogue.options.map((o) => (["flooring", "walls", "kitchen"].includes(o.category) && !o.settlement
     ? { ...o, settlement: settlementOf(o.category, hit.partner.market) } : o));

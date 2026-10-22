@@ -15,6 +15,8 @@ async function page(b,q,lang){
   if(!prod){const F=JSON.parse(fs.readFileSync(SP+'/floorlib/scene.json','utf8')).file;
     await p.route(/\/demo\/lib\/scene\.json/,r=>r.fulfill({status:200,contentType:'application/json',body:fs.readFileSync(SP+'/floorlib/scene.json','utf8')}));
     await p.route(/\/demo\/lib\/scene\.[0-9a-f]+\.js/,r=>r.fulfill({status:200,contentType:'text/javascript',body:fs.readFileSync(SP+'/floorlib/'+F,'utf8')}));
+    // модуль корзины той же сборки (его версия — в том же scene.json; на проде такого файла ещё нет)
+    await p.route(/\/demo\/lib\/basket\.[0-9a-f]+\.js/,r=>r.fulfill({status:200,contentType:'text/javascript',body:fs.readFileSync(SP+'/floorlib/'+r.request().url().split('/').pop().split('?')[0],'utf8')}));
     await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));}
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   // подмена съёмки: задание отвечает «готово» по флагу страницы `__fakeReady` (сценарий 3 успевает изменить расстановку)

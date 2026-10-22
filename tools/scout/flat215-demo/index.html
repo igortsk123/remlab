@@ -36,6 +36,10 @@ window.__collHash=(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1
   --ok-bg:rgb(231 243 236);--ok-ink:rgb(47 125 79);
   --warn-bg:rgb(251 240 226);--warn-ink:rgb(150 96 31);--warn-line:rgb(228 199 154);
   --bad-bg:rgb(251 233 230);--bad-ink:rgb(169 59 39);
+  /* ДВА БЮДЖЕТА ПАКЕТА (demo-23, макет А владельца 22.10): «Мебель и техника» — терракота (`--accent`), «Улучшения» — глубокий шалфей:
+     темнее терракоты и с другой стороны цветового круга — различим и при нарушениях цветового зрения; сверх лимита — штриховка */
+  --up:rgb(72 104 100);--up-soft:rgba(72,104,100,.24);--fu-soft:rgba(176,106,74,.18);
+  --hatch:repeating-linear-gradient(-45deg,var(--bad-ink) 0 2px,var(--surface) 2px 4.2px);
   --scrim:rgba(11,13,12,.80);        /* затемнение под модалкой */
   --scrim-soft:rgba(0,0,0,.40);
   --veil:rgba(0,0,0,.66);            /* плашки поверх фотографии */
@@ -186,10 +190,34 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .cs-l{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .cs-r{margin-left:auto;flex:none}
 @container (max-width:340px){.cs .lab-r{display:none}}     /* узко (320 px, крупный шрифт, колонка окна на компьютере) — справа только сумма */
-.cs-bar{display:flex;height:6px;border-radius:999px;background:rgba(176,106,74,.18);margin-top:5px;overflow:hidden}
-.cs-bar i{flex:none;display:block;height:100%;background:var(--accent);transition:width .45s ease}
-.cs-bar i.pv{opacity:.35}
-.cs.over .cs-bar i.pv{background:#B3261E;opacity:.5}
+/* ПОЛОСА — ЧАСТИ ПО БЮДЖЕТАМ (demo-23, макет А): одна часть (`.sg`) на бюджет, ширина части — доля её лимита; внутри — выбрано (`.s`),
+   что добавит эта расстановка (`.pv`, светлее), сверх лимита — штриховка (`.x` выбрано, `.xp` — только в предпросмотре), белая засечка —
+   где кончился лимит. Общий бюджет (РФ) и раздельный с одним нулевым лимитом — одна часть, как прежняя полоса */
+.cs-bar{display:flex;gap:3px;margin-top:5px}
+.sg{position:relative;display:flex;height:6px;overflow:hidden;min-width:0;border-radius:999px}
+.cs-bar.two .sg{height:8px;border-radius:3px}
+.sg.f{background:var(--fu-soft)}.sg.u{background:var(--up-soft)}
+.sg i{flex:none;display:block;height:100%;transition:width .45s ease}
+.sg.f .s,.sg.f .pv{background:var(--accent)}.sg.u .s,.sg.u .pv{background:var(--up)}
+.sg .pv{opacity:.38}
+.sg .x{background:var(--hatch)}.sg .xp{background:var(--hatch);opacity:.55}
+.sg .lim{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--surface)}
+.sw{flex:none;display:inline-block;width:10px;height:10px;border-radius:3px}
+.sw.f{background:var(--accent)}.sw.u{background:var(--up)}.sw.x{background:var(--hatch);box-shadow:inset 0 0 0 1px var(--bad-ink)}
+.cs .dop,.vpl-bub .dop{color:var(--bad-ink);font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+/* легенда под полосой: имя и цифры каждой части — смысл не держится на одном цвете; на компьютере в строку, узко — две строки-таблички */
+.cs-lg{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 10px;margin-top:4px;font-size:12.5px;color:var(--muted);line-height:1.35}
+.cs-lg .li{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.cs-lg .li b{color:var(--ink);font-weight:700}
+.cs-lg .li .dop{margin-left:4px}
+.cs-lg .sh{display:none}
+@container (max-width:420px){.cs-lg.two{display:block}.cs-lg.two .li{display:flex}.cs-lg.two .nv{margin-left:auto;order:2}
+  .cs-lg.two .li.ov{flex-wrap:wrap}            /* «выйдет за лимит на N» не влезает рядом с цифрами — цифры строкой ниже, у правого края */
+  .cs-lg.two .li.ov .lf{display:none}.cs-lg.two .li.ov .sh{display:inline}}
+@container (max-width:300px){.cs-lg .lf{display:none}.cs-lg .sh{display:inline}}
+.vpl-bub .bub-row{display:flex;gap:8px;align-items:baseline}
+.vpl-bub .bub-row .sw{transform:translateY(-1px)}
+.vpl-bub .bub-note{color:var(--muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
 .hm-hint{margin:8px 0 0;font-size:13px;color:var(--muted);line-height:1.3}
 .hm-tabs{position:sticky;top:calc(var(--hm-hd) + var(--hm-cert,0px));z-index:calc(var(--z-sticky) + 1);height:44px;display:flex;align-items:center;gap:6px;overflow-x:auto;
   scrollbar-width:none;background:var(--bg);margin:2px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut)}
@@ -1210,20 +1238,17 @@ function drawVariants(){
       // КОРЗИНА (demo-16 шаг 2): «набрано» — варианты комнат, помеченные «Включить в сертификат»; пусто — 0, остаток = вся сумма.
       // Доплаты застройщику (RF пол) и прибавка к цене квартиры (UK) — в «i»: в остаток не входят (как `settle`)
       const EN=LANG==='en', bt=window.__basket&&window.__basket.totals(), inc=bt?bt.allowanceEligible:0, over=bt?bt.allowanceOverage:0;
-      const left=Math.max(0,t.amount-inc);
       c.hidden=false;
       c.dataset.amount=String(t.amount); c.dataset.included=String(inc); c.dataset.complete=String(!bt||bt.allowanceComplete);
-      // ПУЗЫРЬ «i» СЛОВАМИ ВЛАДЕЛЬЦА (22.10, demo-20 А6): «Вам доступен сертификат на мебель и технику X ₽. Выбрано Y ₽. Осталось Z ₽.»,
-      // сверх лимита — «…Сверх сертификата N ₽.»; доплаты, «цены уточняются» и курс — прежними строками ниже
-      const lines=[`${EN?'You have a furniture and appliance allowance of':'Вам доступен сертификат на мебель и технику'} <b>${fmtCard(t.amount)}</b>. `+
-          `${EN?'Chosen':'Выбрано'} ${fmtCard(inc)}. `+
-          (over?`${EN?'Over the allowance by':'Сверх сертификата'} <b>${fmtCard(over)}</b>.`:`${EN?'Left':'Осталось'} <b>${fmtCard(left)}</b>.`),
+      c.dataset.mode=pkgOf().mode; c.dataset.over=String(over);
+      // ПУЗЫРЬ «i» (владелец 22.10, demo-20 А6; demo-23 — по бюджетам, `certBub`); доплаты вне пакета, «цены уточняются» и курс — строками ниже
+      const lines=[
         bt&&bt.developerSurcharge?`+${fmtCard(bt.developerSurcharge)} — ${EN?'paid to the developer, not from the allowance':'доплата застройщику, не из сертификата'}`:'',
         bt&&bt.propertyPriceDelta?`+${fmtCard(bt.propertyPriceDelta)} — ${EN?'added to the property price':'к цене квартиры'}`:'',
         bt&&(!bt.allowanceComplete||bt.onRequest.length)?(EN?'some prices are still being checked — the total may change':'часть цен уточняется — итог может измениться'):'',
         fxNote()];
       // перерисовка — только когда шкала изменилась: `drawVariants` зовётся часто, открытый пузырь «i» не должен закрываться сам
-      const html=certScale({cert:t.amount, inc, over:over>0, lines});
+      const html=certScale({pkg:pkgOf(), inc:bt?bt.budget.eligible:null, lines});
       if(c._html!==html){c._html=html; c.innerHTML=html;}
     }
   }
@@ -1233,16 +1258,73 @@ function drawVariants(){
 // ШКАЛА СЕРТИФИКАТА — ОДНА ДЛЯ ГЛАВНОЙ И ОКНА (demo-19 Б2, владелец 20.10: «шкала показывает, сколько набрано, и общую сумму в конце —
 // иначе диссонанс: заполнена на треть, а над ней „доступно 470 тыс.“»). Полоса = набрано; светлая часть — что добавит эта расстановка
 // (окно); слева «Выбрано N», справа — сумма сертификата; остаток, «как включить» и доплаты вне сертификата — в пузыре «i» (`lines`, HTML)
+// ДВА БЮДЖЕТА (demo-23, ADR-0308, макет А владельца 22.10): `o.pkg` — пакет карточки (`pkgOf`), `o.inc`/`o.add` — выбрано и что добавит
+// эта расстановка ПО БЮДЖЕТАМ ({furniture, fitout}). Общий (РФ) — одна полоса, как прежде; раздельный — один трек из двух частей по
+// доле лимитов, под ним легенда «■ Мебель и техника 1 200 / 4 500»; раздельный с нулевым лимитом — обычная полоса, «… не входит в
+// пакет» — в «i». Сверх лимита — штриховка и слова: выбрано — «доплата N», только предпросмотр — «выйдет за лимит на N». Доступность —
+// `role="group"` и по `meter` на бюджет. В «i» — детали обоих бюджетов, затем `o.lines` (доплаты вне пакета, «цены уточняются», курс)
 function certScale(o){
-  const EN=LANG==='en', cert=o.cert, inc=Math.max(0,o.inc||0), add=Math.max(0,o.add||0);
-  const pb=Math.min(100,Math.round(inc/cert*1000)/10), pw=Math.max(0,Math.min(100-pb,Math.round(add/cert*1000)/10));
-  return `<div class="cs${o.over?' over':''}"><div class="cs-t"><span class="cs-l">${EN?'Chosen':'Выбрано'} `+
-      `<b data-k="inc" data-to="${inc}">${fmtCard(inc)}</b></span>`+
+  const EN=LANG==='en', P=o.pkg, L=P.limits, z={furniture:0,fitout:0}, inc={...z,...o.inc}, add={...z,...o.add};
+  const B=['furniture','fitout'], NM=BUD_NAME(), cls={furniture:'f',fitout:'u'};
+  const two=P.mode==='split'&&L.furniture>0&&L.fitout>0;
+  // части полосы: [бюджет-цвет, лимит, выбрано, добавит]; общий — одна часть на всю сумму, раздельный с нулём — часть ненулевого
+  const parts=two?B.map(k=>[k,L[k],inc[k],add[k]])
+    :P.mode==='split'?[[L.fitout>0?'fitout':'furniture',P.total,inc[L.fitout>0?'fitout':'furniture'],add[L.fitout>0?'fitout':'furniture']]]
+    :[['furniture',P.total,inc.furniture+inc.fitout,add.furniture+add.fitout]];
+  const ov=parts.map(([,Lm,c,p])=>({real:Math.max(0,c-Lm), soon:Math.max(0,c+p-Math.max(c,Lm))}));
+  // в раздельном нулевой бюджет — весь сверх лимита (покупатель доплачивает за его позиции целиком)
+  const zero=P.mode==='split'&&!two?B.find(k=>!(L[k]>0)):null;
+  if(zero){ov[0].real+=inc[zero]; ov[0].soon+=add[zero];}
+  const over=ov.some(x=>x.real||x.soon);
+  const dop=x=>x.real?`<span class="dop"><span class="sw x"></span>${EN?'top-up':'доплата'} ${fmtCard(x.real)}</span>`
+    :x.soon?`<span class="dop"><span class="sw x"></span>${EN?'goes over the limit by':'выйдет за лимит на'} ${fmtCard(x.soon)}</span>`:'';
+  const seg=([k,Lm,c,p])=>{const t=c+p, s=Math.max(Lm,t)||1, w=x=>(x/s*100).toFixed(3)+'%';
+    const pv=Math.max(0,Math.min(t,Lm)-c), x=Math.max(0,c-Lm), xp=Math.max(0,t-Math.max(c,Lm));
+    const vt=(EN?`${fmtCard(c)} of ${fmtCard(Lm)}`:`${fmtCard(c)} из ${fmtCard(Lm)}`)+(p?(EN?`, this layout adds ${fmtCard(p)}`:`, расстановка добавит ${fmtCard(p)}`):'')+
+      (t>Lm?(EN?`, top-up ${fmtCard(t-Lm)}`:`, доплата ${fmtCard(t-Lm)}`):(EN?`, ${fmtCard(Lm-t)} left`:`, осталось ${fmtCard(Lm-t)}`));
+    return `<div class="sg ${cls[k]}" style="flex:${Lm} 1 0" role="meter" aria-label="${two?NM[k]:(EN?'Allowance':'Сертификат')}" `+
+      `aria-valuemin="0" aria-valuemax="${Lm}" aria-valuenow="${Math.min(c,Lm)}" aria-valuetext="${vt}">`+
+      `<i class="s" style="width:${w(Math.min(c,Lm))}"></i><i class="pv" style="width:${w(pv)}"></i><i class="x" style="width:${w(x)}"></i>`+
+      `<i class="xp" style="width:${w(xp)}"></i>${t>Lm?`<b class="lim" style="left:${w(Lm)}"></b>`:''}</div>`;};
+  const chosen=inc.furniture+inc.fitout;
+  const legend=two?`<div class="cs-lg two">`+parts.map(([k,Lm,c],i)=>`<span class="li${ov[i].real||ov[i].soon?' ov':''}"><span class="sw ${cls[k]}"></span>`+
+      `<span class="lf">${NM[k]}</span><span class="sh">${BUD_SHORT()[k]}</span> <span class="nv"><b>${fmtNum(c)}</b> / ${fmtNum(Lm)}</span>${dop(ov[i])}</span>`).join('')+`</div>`
+    :over?`<div class="cs-lg">${dop(ov[0])}</div>`:'';
+  return `<div class="cs${over?' over':''}${two?' two':''}"><div class="cs-t"><span class="cs-l">${EN?'Chosen':'Выбрано'} `+
+      `<b data-k="inc" data-to="${chosen}">${fmtCard(chosen)}</b></span>`+
       `<button class="vpl-i" type="button" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
-      `<span class="cs-r"><span class="lab-r">${EN?'allowance ':'сертификат '}</span><b>${fmtCard(cert)}</b></span></div>`+
-    `<div class="cs-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${cert}" aria-valuenow="${inc}">`+
-      `<i style="width:${pb}%"></i><i class="pv" style="width:${pw}%"></i></div>`+
-    `<div class="vpl-bub"${o.bubId?` id="${o.bubId}"`:''} hidden role="dialog">${o.lines.filter(Boolean).map(t=>`<div>${t}</div>`).join('')}</div></div>`;
+      `<span class="cs-r"><span class="lab-r">${EN?'allowance ':'сертификат '}</span><b>${fmtCard(P.total)}</b></span></div>`+
+    `<div class="cs-bar${two?' two':''}" role="group" aria-label="${two?(EN?'Allowance: two budgets, no transfer between them':'Сертификат: два бюджета, перенос между ними недоступен'):(EN?'Allowance':'Сертификат')}">`+
+      parts.map(seg).join('')+`</div>${legend}`+
+    `<div class="vpl-bub"${o.bubId?` id="${o.bubId}"`:''} hidden role="dialog">${certBub(P,inc,add,o.head)}${(o.lines||[]).filter(Boolean).map(t=>`<div>${t}</div>`).join('')}</div></div>`;
+}
+const BUD_NAME=()=>LANG==='en'?{furniture:'Furniture and appliances',fitout:'Upgrades'}:{furniture:'Мебель и техника',fitout:'Улучшения'};
+const BUD_SHORT=()=>LANG==='en'?{furniture:'Furniture',fitout:'Upgrades'}:{furniture:'Мебель',fitout:'Улучшения'};
+// сумма без знака валюты — для легенды «1 200 / 4 500» (узкие пробелы: строка влезает в 375)
+function fmtNum(v){const n=Math.round(+v||0); return FLAT&&FLAT.currency==='GBP'?n.toLocaleString('en-GB'):n.toLocaleString('ru-RU').replace(/ /g,' ');}
+// ПАКЕТ КАРТОЧКИ (demo-23): `incentive` {mode, limits, total}; старая карточка без него — одна сумма `certificate.amount`, всё в мебели
+function pkgOf(){ const c=FLAT||{}, i=c.incentive, a=(c.certificate&&c.certificate.amount)||0;
+  if(i&&i.limits&&(i.mode==='split'||i.mode==='pooled')){const f=Math.max(0,+i.limits.furniture||0), u=Math.max(0,+i.limits.fitout||0);
+    return {mode:i.mode, limits:{furniture:f, fitout:u}, total:f+u};}
+  return {mode:'pooled', limits:{furniture:a, fitout:0}, total:a}; }
+// ПУЗЫРЬ «i» ПО БЮДЖЕТАМ (макет А): общий — «Вам доступен сертификат … X. Выбрано Y. Осталось Z.» (`head` — своя первая строка окна);
+// раздельный — строка на бюджет «■ Мебель и техника: £1 200 из £4 500 · осталось £3 300», нулевой — «… не входит в пакет», и про перенос
+function certBub(P,inc,add,head){
+  const EN=LANG==='en', NM=BUD_NAME(), sw={furniture:'f',fitout:'u'};
+  if(P.mode!=='split'){ if(head)return `<div>${head}</div>`;
+    const c=inc.furniture+inc.fitout, over=Math.max(0,c-P.total);
+    return `<div>${EN?'You have an allowance for furniture, appliances and upgrades of':'Вам доступен сертификат на мебель, технику и улучшения'} <b>${fmtCard(P.total)}</b>. `+
+      `${EN?'Chosen':'Выбрано'} ${fmtCard(c)}. `+(over?`<span class="dop">${EN?'Top-up':'Доплата'} ${fmtCard(over)}</span>.`:`${EN?'Left':'Осталось'} <b>${fmtCard(P.total-c)}</b>.`)+`</div>`;}
+  let anyOver=false;
+  const rows=['furniture','fitout'].map(k=>{const Lm=P.limits[k], c=inc[k], t=c+add[k];
+    if(!(Lm>0))return `<div class="bub-row"><span class="sw ${sw[k]}"></span><span>${NM[k]} — ${EN?'not included in the package':'не входит в пакет'}`+
+      (t?` · <span class="dop">${EN?'top-up':'доплата'} ${fmtCard(t)}</span>`:'')+`</span></div>`;
+    const o=Math.max(0,t-Lm); if(o)anyOver=true;
+    return `<div class="bub-row"><span class="sw ${sw[k]}"></span><span>${NM[k]}: <b>${fmtCard(c)}</b> ${EN?'of':'из'} ${fmtCard(Lm)} · `+
+      (o?`<span class="dop">${c>Lm?(EN?'top-up':'доплата'):(EN?'goes over by':'выйдет за лимит на')} ${fmtCard(o)}</span>`:`${EN?'left':'осталось'} <b>${fmtCard(Lm-t)}</b>`)+`</span></div>`+
+      (add[k]?`<div class="bub-row" style="padding-left:18px;color:var(--muted)">${EN?'this layout adds':'эта расстановка добавит'} ${fmtCard(add[k])}</div>`:'');});
+  return (head?`<div>${head}</div>`:'')+rows.join('')+
+    `<div class="bub-note">${EN?'No transfer between the budgets':'Перенос между бюджетами недоступен'}${anyOver?(EN?' — you pay the difference':' — разницу оплачиваете вы'):''}.</div>`;
 }
 // ЛИПКАЯ ШКАЛА (demo-19 Б3): вкладки стилей встают под шкалу — её высота в `--hm-cert` (крупный шрифт, перенос пузыря не влияет: он поверх)
 function certStick(){
@@ -2576,7 +2658,9 @@ function devFloor(){ const g=devFloorGroup(), v=g&&devPick(g); return (v&&v.mate
 function devWall(){ const g=devGroupFor('wall'), v=g&&devPick(g); if(!v||!v.material)return null;
   return {material:v.material, ...(v.accent&&v.accent.material?{accent:{material:v.accent.material, anchor:v.accent.anchor}}:{})}; }
 function devLines(){ return devGroups().map(g=>{const v=devPick(g), p=v.price||{};
-  return {amount:p.amount||0, settlement:g.settlement, onRequest:p.type==='on_request', label:g.title, group:g.title};})
+  // бюджет пакета (demo-23) — классификатором модуля корзины по виду группы; модуль ещё не пришёл — без поля (= мебель, только до загрузки)
+  const bb=g.settlement==='allowance'&&window.__basket&&window.__basket.bucket?window.__basket.bucket(g.kind):undefined;
+  return {amount:p.amount||0, settlement:g.settlement, onRequest:p.type==='on_request', label:g.title, group:g.title, ...(bb?{budgetBucket:bb}:{})};})
   .filter(l=>l.amount>0||l.onRequest); }
 // пол для серверного кадра: файл карты цвета на сайте и размер плитки — сервер рисует его на пиксели пола (`draft_render._paint_floor`)
 function devFloorReq(){ const m=devFloor(); if(!m||!m.baseColorUrl||!m.tileCm)return null;
@@ -5177,12 +5261,12 @@ function vwSum(){
   const v=allVariants()[cur]||{}, n=variantCount(v), sum=variantPrice(v), EN=LANG==='en';
   const cert=(FLAT&&FLAT.certificate&&FLAT.certificate.amount)||0;
   const word=itemsWord(n);
-  // ДЕНЬГИ — ОБЩИМ ЯДРОМ (`settle`, demo-06): мебель — в сертификат, пол RF — доплата застройщику отдельной строкой, UK — в
-  // цену квартиры. Пока бандл движка не пришёл — прежний счёт мебели, без строк опций (формулу не копируем)
+  // ДЕНЬГИ — ОБЩИМ ЯДРОМ (`settle`, demo-06): мебель — в сертификат, пол RF — доплата застройщику отдельной строкой, UK — в пакет,
+  // бюджет «Улучшения» (demo-23 шаг 3). Пока бандл движка не пришёл — прежний счёт мебели, без строк опций (формулу не копируем)
   const S=window.RemlabScene&&window.RemlabScene.settle, dl=devLines();
   // всё ниже — в валюте карточки: мебель (рубли витрины) пересчитана по курсу, сертификат и опции пришли в ней же
-  const sumC=toCard(sum), money=fmtCard;
-  const t=S?S([{amount:sumC,settlement:'allowance'}].concat(dl),cert):null;
+  const sumC=toCard(sum), money=fmtCard, pkg=pkgOf();
+  const t=S?S([{amount:sumC,settlement:'allowance',budgetBucket:'furniture'}].concat(dl),{mode:pkg.mode,limits:pkg.limits}):null;
   const over=t?t.allowanceOverage:Math.max(0,sumC-cert);
   const grp=k=>dl.filter(l=>l.settlement===k).map(l=>String(l.group).toLowerCase()).join(', ');
   const extra=t?[t.developerSurcharge?`<div class="vpl-dev">+<span data-k="dev" data-to="${t.developerSurcharge}">${money(t.developerSurcharge)}</span> — ${EN?'paid to the developer for the ':'доплата застройщику за '}${grp('developer_surcharge')}${cert?(EN?', not from the allowance':', не из сертификата'):''}</div>`:'',
@@ -5194,20 +5278,27 @@ function vwSum(){
   // ШКАЛА ОКНА = ШКАЛА ГЛАВНОЙ (demo-19 Б2, владелец 20.10): сплошная часть — набрано по корзине, светлая — сколько добавит эта
   // расстановка, если её включить (вместо включённого варианта этой комнаты); в «i» — «Вам доступно … Эта расстановка … как включить»
   const P=window.__basket&&window.__basket.preview&&window.__basket.preview(), T=window.__basket&&window.__basket.totals&&window.__basket.totals();
-  const base=P?P.base.allowanceEligible:0, withE=P?P.with.allowanceEligible:(t?t.allowanceEligible:sumC);
-  const inc=T?T.allowanceEligible:0, ov=P?P.with.allowanceOverage:over, left=Math.max(0,cert-inc);
+  // по бюджетам (demo-23): выбрано — корзина; светлое — сколько добавит эта расстановка вместо включённого варианта комнаты (не меньше 0)
+  const z={furniture:0,fitout:0}, incB=T?T.budget.eligible:z, withB=P?P.with.budget.eligible:(t?t.budget.eligible:{furniture:sumC,fitout:0});
+  const baseB=P?P.base.budget.eligible:z, addB={furniture:Math.max(0,withB.furniture-incB.furniture), fitout:Math.max(0,withB.fitout-incB.fitout)};
+  const inc=incB.furniture+incB.fitout, base=baseB.furniture+baseB.fitout, withE=withB.furniture+withB.fitout;
+  const ov=P?P.with.allowanceOverage:over, left=Math.max(0,cert-inc);
   const fav=window.__fav&&window.__fav.ofState&&window.__fav.ofState(curStateId());
   const pdev=P?(P.with.developerSurcharge||0)+(P.with.propertyPriceDelta||0):(t?(t.developerSurcharge||0)+(t.propertyPriceDelta||0):0);
   const ask=P?(!P.with.allowanceComplete||P.with.onRequest.length):!!(t&&t.onRequest.length);
-  const how=ov?(EN?`It is ${money(ov)} over — reduce the total to include it`:`Это больше на ${money(ov)} — уменьшите сумму, чтобы включить её`)
-    :fav?(EN?'Include it in the allowance in Favourites':'Включить её в сертификат — в избранном')
+  // перерасход — не отказ, а доплата покупателя с подтверждением (ADR-0308): «выйдет за лимит на N», включить можно
+  const how=ov&&!(P&&P.included)?(EN?`Goes over the limit by ${money(ov)} — you pay the difference`:`Выйдет за лимит на ${money(ov)} — разницу доплачиваете вы`)+'. '
+    :'';
+  const next=fav?(EN?'Include it in the allowance in Favourites':'Включить её в сертификат — в избранном')
     :(EN?'To include it in the allowance, add it to favourites':'Чтобы включить её в сертификат, добавьте в избранное');
-  const lines=[P&&P.included
-      ?`${EN?'This layout is in the allowance.':'Эта расстановка — в сертификате.'} ${EN?'Chosen':'Выбрано'} ${money(inc)}, ${EN?'left':'остаток'} <b>${money(left)}</b>`
-      :`${EN?'You have':'Вам доступно'} <b>${money(Math.max(0,cert-base))}</b>. ${EN?'This layout':'Эта расстановка'} <b>${money(Math.max(0,withE-base))}</b>. ${how}`,
-    pdev?`${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}`:'',
+  const head=P&&P.included
+      ?(pkg.mode==='split'?(EN?'This layout is in the allowance.':'Эта расстановка — в сертификате.')
+        :`${EN?'This layout is in the allowance.':'Эта расстановка — в сертификате.'} ${EN?'Chosen':'Выбрано'} ${money(inc)}, ${EN?'left':'остаток'} <b>${money(left)}</b>`)
+      :pkg.mode==='split'?next          // перерасход по бюджету — строкой бюджета ниже (`certBub`), без повтора
+      :`${EN?'You have':'Вам доступно'} <b>${money(Math.max(0,cert-base))}</b>. ${EN?'This layout':'Эта расстановка'} <b>${money(Math.max(0,withE-base))}</b>. ${how}${next}`;
+  const lines=[pdev?`${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}`:'',
     ask?(EN?'some prices are still being checked':'часть цен уточняется'):''];
-  return certScale({cert, inc, add:withE-inc, over:ov>0, lines, bubId:'vplBub'});
+  return certScale({pkg, inc:incB, add:addB, head, lines, bubId:'vplBub'});
 }
 // ЦИФРЫ ПЛАШКИ МЕНЯЮТСЯ ПЛАВНО (v3): прежнее значение → новое за 0,45 с, плашка коротко подсвечивается — замена видна сразу
 function vwSumUpdate(){
@@ -6679,7 +6770,7 @@ async function liveShotTake(){
   function styleTitle(id){return EN()?(STYLE_EN[id]||id):cap(Object.keys(STYLE_IDS).find(function(k){return STYLE_IDS[k]===id;})||id);}
   // ——— строки цен комнаты: тот же состав, что список мебели окна (товары и декор), опции застройщика — только этой комнаты
   function cardOptions(){return ((typeof FLAT!=='undefined'&&FLAT&&FLAT.options)||[]).map(function(g){return {id:g.id, roomKind:g.roomKind,
-    roomId:g.roomId||null, title:g.title, settlement:g.settlement, defaultVariantId:g.defaultVariantId,
+    roomId:g.roomId||null, title:g.title, settlement:g.settlement, defaultVariantId:g.defaultVariantId, kind:g.kind,
     variants:(g.variants||[]).map(function(x){return {id:x.id, name:x.name, price:{type:x.price.type, amount:x.price.amount}};})};});}
   var fxKey=function(){return (typeof FLAT!=='undefined'&&FLAT&&FLAT.fx)?FLAT.fx.rate+'@'+FLAT.fx.asOf:'';};
   function quoteFor(v,room,dev,live){ if(!BK.mod||typeof FLAT==='undefined'||!FLAT)return null;
@@ -6716,7 +6807,8 @@ async function liveShotTake(){
   function bkOpen(){ if(typeof FLAT==='undefined'||!FLAT||!FLAT.id)return;
     basketModule().then(function(m){ BK.mod=m;
       if(!(BK.b&&BK.apt===FLAT.id&&BK.cur===FLAT.currency)){
-        BK.apt=FLAT.id; BK.cur=FLAT.currency; BK.limit=(FLAT.certificate&&FLAT.certificate.amount)||0;
+        // пакет — политикой двух бюджетов (demo-23, ADR-0308): перерасход — доплата с подтверждением, а не отказ; пакета нет — 0
+        var pk=pkgOf(); BK.apt=FLAT.id; BK.cur=FLAT.currency; BK.limit=pk.total?{mode:pk.mode, limits:pk.limits}:0;
         BK.b=m.loadBasket(rawOf(FLAT.id),{apartmentId:FLAT.id, currency:FLAT.currency, fx:fxKey()||undefined});}
       BK.wait.splice(0).forEach(function(f){try{f();}catch(_){}});
       bkMigrate(); bkRefresh(); bkRedraw();}).catch(function(e){try{console.warn('модуль корзины не загрузился',e);}catch(_){}});}
@@ -6736,7 +6828,7 @@ async function liveShotTake(){
     return fetchOne(id).then(function(v){if(v&&!MINE.some(function(x){return x.cid===id;})){var was=allVariants()[cur];
         MINE.unshift(v); var k=allVariants().indexOf(was); if(k>=0)cur=k; if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}
       drawColl(true);});}
-  // ДИАЛОГ ВЫБОРА (вопрос «вместо …?», превышение суммы): та же карточка, что окошко имени
+  // ДИАЛОГ ВЫБОРА (вопрос «вместо …?», доплата сверх пакета): та же карточка, что окошко имени
   function dlg(title,text,btns){
     var old=document.getElementById('favPop'); if(old)old.remove();
     var el=document.createElement('div'); el.id='favPop'; el.className='favpop'; el.setAttribute('role','dialog'); el.setAttribute('aria-modal','true');
@@ -6756,18 +6848,24 @@ async function liveShotTake(){
     if(!on){histFromFav(); vwOpenVariant(i);}
     setTimeout(function(){try{if(VW_PHONE())vwSheet(3);}catch(_){}},on?0:600);
   }
-  // ТЕКСТЫ ВКЛЮЧЕНИЯ (demo-19 Б4, владелец 20.10): какой вариант включён и сколько осталось — подтверждение; не влезает — так и сказать
-  // и что делать («уменьшите сумму»), с переходом к правке расстановки — вместо диалога
-  function overWhy(n){return EN()?(fmtCard(n)+' over what is left — reduce the total'):('больше остатка на '+fmtCard(n)+' — уменьшите сумму');}
-  function overText(n){return (EN()?'Not possible: ':'Нельзя: ')+overWhy(n);}
-  var editAct=function(id){return {label:EN()?'Change →':'Изменить →', fn:function(){editLayout(id);}};};
+  // ТЕКСТЫ ВКЛЮЧЕНИЯ (demo-19 Б4, владелец 20.10): какой вариант включён и сколько осталось (или доплата) — подтверждение
+  // ДОПЛАТА СВЕРХ ПАКЕТА (demo-23, ADR-0308): перерасход — не отказ; включаем только после явного «Подтвердить» (`include(…, {confirmTopup})`),
+  // без него корзина не меняется. Текст коротко (правило владельца: минимум текста): «Доплата N — подтвердить?»; вторая кнопка — к правке
+  // расстановки (уменьшить сумму), закрыть мимо — ничего не меняется
+  function topupAsk(f,overBy,onYes){
+    dlg(EN()?'Top-up '+fmtCard(overBy)+' — confirm?':'Доплата '+fmtCard(overBy)+' — подтвердить?',
+      EN()?'This layout goes over the allowance — you pay the difference.':'Вариант выходит за лимит сертификата — разницу оплачиваете вы.',
+      [{label:EN()?'Confirm':'Подтвердить',primary:true,fn:onYes},{label:EN()?'Change layout':'Изменить расстановку',fn:function(){if(f)editLayout(f.favoriteId);}}]);}
+  function includeTopup(id,again){var r=BK.mod.include(BK.b,id,BK.limit,{confirmTopup:true});
+    if(r.result==='included'||r.result==='included_with_topup'){bkPut(r.basket); toast(incText(favOf(id)),again);} else favDraw();}
   function incText(f,added){
-    var t=BK.mod.basketTotals(BK.b,BK.limit), left=Math.max(0,BK.limit-t.allowanceEligible), nm=String((f&&f.displayName)||'');
+    var t=BK.mod.basketTotals(BK.b,BK.limit), left=Math.max(0,t.budget.left.total), top=t.allowanceOverage, nm=String((f&&f.displayName)||'');
     var room=(homeRooms().find(function(r){return f&&r.id===f.roomId;})||{}).title||'';
     if(nm.length<=24)nm=nm.replace(/ /g,'\u00a0');   // короткое имя не рвётся на две строки («Гостиная / #1»)
     var who=(room&&nm.toLowerCase().indexOf(room.toLowerCase())!==0?room+' ':'')+(EN()?'“'+nm+'”':'«'+nm+'»');   // «Гостиная #1» без «Гостиная» дважды
-    return who+(EN()?(added?' — in favourites and ':' — ')+'included in the allowance, '+fmtCard(left)+' left'
-      :(added?' — в избранном, ':' — ')+'включено в сертификат, остаток '+fmtCard(left));
+    var tail=top?(EN()?'top-up '+fmtCard(top):'доплата '+fmtCard(top)):(EN()?fmtCard(left)+' left':'остаток '+fmtCard(left));
+    return who+(EN()?(added?' — in favourites and ':' — ')+'included in the allowance, '+tail
+      :(added?' — в избранном, ':' — ')+'включено в сертификат, '+tail);
   }
   // РЕШЕНИЕ ПОСЛЕ ДОБАВЛЕНИЯ (владелец 18.10): первый вариант комнаты влезает — включается сам; в комнате уже есть включённый — вопрос
   // «вместо …?»; не влезает — в избранном без включения, сумма превышения и переход к правке; цены не досчитаны — не включаем
@@ -6783,14 +6881,16 @@ async function liveShotTake(){
     bkPut(b);
     // «В СЕРТИФИКАТ ВМЕСТО …? +N / −N» (владелец 22.10, demo-20 А6): разница — по строкам сертификата (`settlement==='allowance'`), как сумма
     // карточки избранного; цена у кого-то не полная — разницу не показываем, а не выдумываем
+    // занятая комната и перерасход — тот же вопрос «вместо …?» с доплатой; «Да» здесь и есть подтверждение доплаты (demo-23)
     if(d.kind==='ask_replace'){var c=favOf(d.currentId)||{displayName:''}, s1=allowanceSum(f), s0=allowanceSum(c);
       var delta=s1!=null&&s0!=null&&s1!==s0?' '+(s1>s0?'+':'−')+fmtCard(Math.abs(s1-s0)):'';
-      dlg(added,(EN()?'Add this layout to the allowance instead of “':'Добавить этот вариант в сертификат вместо «')+c.displayName+(EN()?'”?':'»?')+delta,
-        [{label:EN()?'Yes':'Да',primary:true,fn:function(){var r=BK.mod.include(BK.b,f.favoriteId,BK.limit);
-            if(r.result==='included'){bkPut(r.basket); toast(incText(f),goFav(f.roomId));} else if(r.result==='over_limit')toast(overText(r.overBy||0),editAct(f.favoriteId));}},
+      var top=d.topup?(EN()?' Top-up '+fmtCard(d.topup.overBy)+'.':' Доплата '+fmtCard(d.topup.overBy)+'.'):'';
+      dlg(added,(EN()?'Add this layout to the allowance instead of “':'Добавить этот вариант в сертификат вместо «')+c.displayName+(EN()?'”?':'»?')+delta+top,
+        [{label:EN()?'Yes':'Да',primary:true,fn:function(){var r=BK.mod.include(BK.b,f.favoriteId,BK.limit,{confirmTopup:!!d.topup});
+            if(r.result==='included'||r.result==='included_with_topup'){bkPut(r.basket); toast(incText(f),goFav(f.roomId));}}},
          {label:EN()?'No':'Нет',fn:function(){toast(added,goFav(f.roomId));}}]);
       return;}
-    if(d.kind==='over_limit'){toast((EN()?'In favourites, not in the allowance: ':'В избранном, но не в сертификате: ')+overWhy(d.overBy),editAct(f.favoriteId)); return;}
+    if(d.kind==='included_with_topup'){topupAsk(f,d.overBy,function(){includeTopup(f.favoriteId,goFav(f.roomId));}); return;}
     // цена неизвестна — причину называем (demo-19 А1); сама она позже не включится, поэтому обещания «включим» нет
     var why=pendingWhy(f.quote);
     toast(added+'. '+(why||(EN()?'Include it in the allowance from Favourites':'Включить в сертификат — в избранном')),goFav(f.roomId));
@@ -6894,7 +6994,7 @@ async function liveShotTake(){
   function includeFav(id,again){ if(!BK.mod||!BK.b)return; var r=BK.mod.include(BK.b,id,BK.limit);
     if(r.result==='included'){bkPut(r.basket); toast(incText(favOf(id))); return;}
     favDraw();
-    if(r.result==='over_limit'){toast(overText(r.overBy||0),editAct(id)); return;}
+    if(r.result==='topup_unconfirmed'){topupAsk(favOf(id),r.overBy||0,function(){includeTopup(id);}); return;}
     var f=favOf(id), why=pendingWhy(f&&f.quote);
     if(why){toast(why); return;}
     var offline=function(){toast(EN()?'No connection to the server — check the internet and tap again':'Нет связи с сервером — проверьте интернет и нажмите ещё раз');};
@@ -7034,6 +7134,8 @@ async function liveShotTake(){
       return {base:p.base, with:p.with, room:room, included:!!(f&&BK.b.includedByRoom[room.id]===f.favoriteId), hasIncluded:!!BK.b.includedByRoom[room.id]};},
     open:openFavs, close:function(){if(curScreen()==='fav')showTab('room');}, sel:function(){return BK.sel;},
     state:function(){return BK.b;}, limit:function(){return BK.limit;},
+    // бюджет пакета группы опций по её виду (demo-23) — классификатор модуля, не копия правила; модуль не пришёл — undefined
+    bucket:function(kind){return BK.mod&&BK.mod.budgetBucket?BK.mod.budgetBucket({groupKind:String(kind||'')}):undefined;},
     // вариант комнаты в сертификате — для плана квартиры (demo-20 А8): id, название, сумма (null, пока цены не досчитаны)
     included:function(roomId){ var id=BK.b&&BK.b.includedByRoom[roomId], f=id&&favOf(id); if(!f)return null; var s=allowanceSum(f);
       return {id:f.favoriteId, name:f.displayName||'', sum:s, sumText:s==null?'':fmtCard(s)};}};

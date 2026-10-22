@@ -2,3 +2,4 @@
 // `lib/basket.<версия>.js` рядом с движком сцены; страница грузит его `import()` сразу (он маленький), движок — лениво.
 export * from "@/lib/basket/basket";
 export { settle } from "@/lib/configurator/settlement";
+export { budgetBucket } from "@/lib/configurator/budget";

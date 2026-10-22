@@ -20,14 +20,14 @@ describe("куда идёт деньга выбора", () => {
     expect(t.allowanceEligible).toBe(0);
   });
 
-  it("умолчания по рынку и виду: кухня — сертификат, пол RF — застройщику, UK — цена квартиры; явное — главнее", () => {
+  it("умолчания по рынку и виду: кухня — сертификат, пол RF — застройщику, UK — всё в пакет; явное — главнее", () => {
     expect(settlementOf("kitchen", "ru")).toBe("allowance");
     expect(settlementOf("flooring", "ru")).toBe("developer_surcharge");
-    expect(settlementOf("flooring", "uk")).toBe("property_price");
+    expect(settlementOf("walls", "ru")).toBe("developer_surcharge");
     expect(settlementOf("flooring", "ru", "allowance")).toBe("allowance");
-    expect(settlementOf("kitchen", "uk")).toBe("property_price");   // ADR-0298: кухня UK — персонализация в цене квартиры
-    expect(settlementOf("wardrobe", "uk")).toBe("property_price");  // шторка v5: всё встраиваемое UK — так же
-    expect(settlementOf("appliances", "uk")).toBe("property_price");
+    // demo-23 шаг 3 (владелец TG 878): опции застройщика UK — в пакет, а не в цену квартиры (было ADR-0298)
+    for (const k of ["flooring", "walls", "bathroom", "kitchen", "wardrobe", "appliances"]) expect(settlementOf(k, "uk")).toBe("allowance");
+    expect(settlementOf("flooring", "uk", "property_price")).toBe("property_price");   // партнёр может задать явно
     expect(settlementOf("wardrobe", "ru")).toBe("allowance");
   });
 

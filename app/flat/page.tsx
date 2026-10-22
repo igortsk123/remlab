@@ -197,7 +197,8 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
         catalogue={catalogue}
         initialConfig={initial}
         lang={lang}
-        certificate={card.certificate ? { amount: card.certificate.amount } : null}
+        certificate={card.certificate ? { amount: card.certificate.amount,
+          incentive: card.incentive ? { mode: card.incentive.mode, limits: card.incentive.limits } : null } : null}
         facts={card.meta}
         sendId={sendId}
         logo={hit.partner.logoUrl}

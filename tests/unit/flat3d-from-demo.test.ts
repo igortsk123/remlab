@@ -195,14 +195,14 @@ describe("пол от застройщика в /flat", () => {
     expect(developerSelections(hit, r.apartment, { flooring: "nope" })).toEqual({});
   });
 
-  it("UK-квартира 3D: пол — к цене квартиры, мебель — в сертификат", async () => {
+  it("UK-квартира 3D: пол — в пакет (demo-23 шаг 3, TG 878), мебель — в сертификат", async () => {
     const { resolveFlat } = await import("@/lib/configurator/source");
     const f = await resolveFlat("demo-uk-1");
     expect(f.ok).toBe(true);
     if (!f.ok) return;
     const floors = f.catalogue.options.filter((o) => o.category === "flooring");
     expect(floors.length).toBeGreaterThan(0);
-    expect(floors.every((o) => o.settlement === "property_price")).toBe(true);
+    expect(floors.every((o) => o.settlement === "allowance")).toBe(true);
     expect(f.catalogue.options.filter((o) => o.category === "furniture").every((o) => !o.settlement)).toBe(true);
   });
 });
@@ -231,14 +231,14 @@ describe("курс показа в мосту", () => {
     expect(r.catalogue.options.find((o) => o.id === "opt:ковёр#0")!.price).toBe(Math.round(9291 * 0.0089));
     expect(r.catalogue.currency).toBe("GBP");
   });
-  it("/flat британского двойника: каталог в £, пол — к цене квартиры", async () => {
+  it("/flat британского двойника: каталог в £, пол — в пакет", async () => {
     const { resolveFlat } = await import("@/lib/configurator/source");
     const f = await resolveFlat("demo-uk-215", "set16", async () => data);
     expect(f.ok).toBe(true);
     if (!f.ok) return;
     expect(f.catalogue.currency).toBe("GBP");
     expect(f.catalogue.options.find((o) => o.id === "opt:диван#0")!.price).toBe(Math.round(54990 * 0.0089));
-    expect(f.catalogue.options.filter((o) => o.id.startsWith("opt:floor:")).every((o) => o.settlement === "property_price")).toBe(true);
+    expect(f.catalogue.options.filter((o) => o.id.startsWith("opt:floor:")).every((o) => o.settlement === "allowance")).toBe(true);
   });
 });
 

@@ -58,10 +58,10 @@ export interface SettlementTotals {
 /** Куда идёт группа по умолчанию, когда в данных поле не задано (Codex: только для старых данных; новые задают явно). */
 export function settlementOf(kind: string, market: string, explicit?: Settlement): Settlement {
   if (explicit) return explicit;
-  if (kind === "flooring" || kind === "walls" || kind === "bathroom") return market === "uk" ? "property_price" : "developer_surcharge";
-  // UK: встраиваемое застройщика (кухня; позже шкафы и техника, шторка v5) — персонализация в цене квартиры, не furniture
-  // allowance (владелец 16.10, ADR-0298); RF — в сертификат
-  if ((kind === "kitchen" || kind === "wardrobe" || kind === "appliances") && market === "uk") return "property_price";
+  // UK: опции застройщика (кухня, шкафы, техника, пол, стены) — в пакет, бюджет «Улучшения» или «Мебель и техника» по виду группы
+  // (владелец 22.10 TG 878 «опции застройщика тоже в сертификат входить должны», demo-23 шаг 3; было — в цену квартиры, ADR-0298).
+  // RF: отделка — доплата застройщику вне сертификата, встраиваемое — в сертификат
+  if (market !== "uk" && (kind === "flooring" || kind === "walls" || kind === "bathroom")) return "developer_surcharge";
   return "allowance";
 }
 

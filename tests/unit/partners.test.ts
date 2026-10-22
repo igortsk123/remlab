@@ -218,9 +218,9 @@ describe("британский профиль английского демо", 
     expect(card.incentive).toMatchObject({ mode: "split", limits: { furniture: 4_500, fitout: 8_000 }, total: 12_500, source: "partner" });
     expect(card.fx).toMatchObject({ from: "RUB", to: "GBP" });
     const fl = card.options.find((o) => o.kind === "flooring")!;
-    expect(fl.settlement).toBe("property_price");
+    expect(fl.settlement).toBe("allowance");   // demo-23 шаг 3: опции застройщика UK — в пакет (TG 878)
     expect(fl.variants.every((v) => !v.price.text.includes("₽"))).toBe(true);
-    expect(card.options.find((o) => o.kind === "kitchen")!.settlement).toBe("property_price");
+    expect(card.options.find((o) => o.kind === "kitchen")!.settlement).toBe("allowance");
     expect(card.sources.demoData).toBe(hit.apartment.sources.demoData);   // та же витрина
   });
 });

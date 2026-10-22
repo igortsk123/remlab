@@ -39,20 +39,22 @@ test("1.2–1.5 первый экран: консультация, ипотек�
   await expect(page.locator("#flatMore")).toContainText("оплате 100");
   // кнопки «Пройтись по квартире в 3D» в шапке нет (владелец 16.10, demo-02 п.8) — 3D внутри окна варианта
   await expect(page.locator("#pc3d")).toHaveCount(0);
-  // план квартиры — ссылкой, не вкладкой (demo-16); назад — «← К стилям»
-  await page.locator("[data-plan]:visible").click();
-  await expect(page.locator("#screen-plan")).toBeVisible();
-  await expect(page.locator("#styleTabs")).toBeHidden();
-  await page.locator("#planBack").click();
-  await expect(page.locator("#screen-room")).toBeVisible();
+  // план квартиры — ссылкой, не вкладкой (demo-16), и плашкой в конце комнат (demo-20 А7); назад — «← К стилям»
+  for (const sel of ["#planLink", "#hmRooms .hm-plan-tile"]) {
+    await page.locator(sel).click();
+    await expect(page.locator("#screen-plan")).toBeVisible();
+    await expect(page.locator("#styleTabs")).toBeHidden();
+    await page.locator("#planBack").click();
+    await expect(page.locator("#screen-room")).toBeVisible();
+  }
   // вкладки — стили; внутри — комнаты в порядке плана, неготовые — одинаковой заглушкой с площадью (demo-16)
   const tabs = await page.locator("#styleTabs [data-style]").allInnerTexts();
   const rooms = await page.locator("#hmRooms [data-room]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.room));
-  const stubs = await page.locator("#hmRooms .hm-stub").allInnerTexts();
+  const stubs = await page.locator("#hmRooms .hm-stub:not(.hm-plan-tile)").allInnerTexts();
   say("стили:", tabs.join(" | "), "· комнаты:", rooms.join(","));
   expect(tabs.length).toBeGreaterThanOrEqual(4);
   expect(rooms).toEqual(["living", "kitchen", "bedroom-1", "bedroom-2", "bathroom-1", "bathroom-2", "hall"]);
-  expect(stubs.length).toBe(5);
+  expect(stubs.length).toBe(rooms.length - 1);   // готова только гостиная (спальня снята с показа — `core/bedroom.md`), плашка плана — не заглушка
   for (const t of stubs) { expect(t).toContain("м²"); expect(t).toContain("появится следующим шагом"); }
   expect(errors).toEqual([]);
 });
@@ -115,7 +117,8 @@ test("2.24 без реалистичного фото — 3D с ценникам
 });
 
 // 2.25–2.26 (demo-09): «Сделать реалистичнее» — фоновое задание; ответ сервера подменён (платный путь не вызывается)
-test("2.25–2.26 фото готово для этой расстановки → «Фото» само; расстановку меняли во время съёмки → 3D и подсказка", async ({ page }) => {
+// 2.26 после demo-20 Г5: менять расстановку, пока рисуется её фото, нельзя (`vwEditLock`) — правка не применяется, подсказка; фото — само
+test("2.25–2.26 фото готово для этой расстановки → «Фото» само; правка во время съёмки не применяется — подсказка, фото той же расстановки", async ({ page }) => {
   let ready = false;
   await page.route(/\/api\/render/, (r) => r.fulfill({ json: { job: "fake-" + Date.now() } }));
   await page.route(/\/api\/job\?/, (r) => r.fulfill({ json: ready
@@ -130,17 +133,23 @@ test("2.25–2.26 фото готово для этой расстановки �
   expect(await page.evaluate("VW.mode")).toBe("photo");
   ready = true;
   await expect.poll(() => page.evaluate("VW.mode"), { timeout: 20_000 }).toBe("photo");
+  // «Фото» включено сразу с ходом работы (demo-20 Б3) — ждём КОНЕЦ задания: пока «Улучшаю…», правки заперты (demo-20 Г5, `vwEditLock`)
+  await expect(page.locator("#shot .vphwait")).toHaveCount(0, { timeout: 20_000 });
   await expect(page.locator('[data-vm="photo"]')).toBeVisible();
   await expect(page.locator("#vCta")).toBeHidden();
   ready = false;
   await page.evaluate("(() => { const g = devGroups().find((x) => x.kind === 'flooring'); devSet(g.id, g.variants[1].id); })()");
   await expect.poll(() => page.evaluate("VW.mode")).toBe("walk");               // изменение → 3D
   await page.locator("#vCta").click();
+  const floor = "(() => { const g = devGroups().find((x) => x.kind === 'flooring'); return devPick(g).id; })()";
+  const before = await page.evaluate(floor);
   await page.evaluate("(() => { const g = devGroups().find((x) => x.kind === 'flooring'); devSet(g.id, g.variants[2].id); })()");
+  await expect(page.locator("#toast")).toContainText("Менять можно, когда улучшение закончится");
+  expect(await page.evaluate(floor)).toBe(before);                              // правка не применилась
   ready = true;
-  await expect(page.locator("#shot .vready")).toBeVisible({ timeout: 20_000 });  // «Фото готово для прежней расстановки»
-  expect(await page.evaluate("VW.mode")).toBe("walk");
-  await expect(page.locator('[data-vm="photo"]')).toBeHidden();
+  await expect(page.locator("#shot .vphwait")).toHaveCount(0, { timeout: 20_000 });
+  expect(await page.evaluate("VW.mode")).toBe("photo");
+  await expect(page.locator('[data-vm="photo"]')).toBeVisible();
 });
 
 // 2.27 (demo-09, дополнение 17.10): фото нейросети 13.10 сняты с прежних расстановок — карточка показывает кадр ТОЛЬКО своей расстановки
@@ -292,13 +301,16 @@ test("2.9 «Улучшить» без денег — честный ответ �
 // ——— demo-16: главная «стиль → комнаты», корзина сертификата, липкая шапка, возврат «назад» (строки карты 2.33–2.36) ———
 const phone = { viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: "ru-RU" };
 const basketReady = "typeof D !== 'undefined' && !!D && !!FLAT && !!(window.__basket && window.__basket.state())";
-async function phonePage(browser: import("@playwright/test").Browser, q = "", limit?: number) {
+type Pkg = { mode: "pooled" | "split"; limits: { furniture: number; fitout: number } };
+async function phonePage(browser: import("@playwright/test").Browser, q = "", pkg?: Pkg) {
   const ctx = await browser.newContext({ ...phone, permissions: ["clipboard-read", "clipboard-write"] });
   const page = await ctx.newPage();
   await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
-  if (limit) await page.route(/\/api\/apartments\//, async (r) => {   // лимит сертификата — подменой ответа, страница не трогается
-    const res = await r.fetch(); const j = await res.json() as { card?: { certificate?: { amount: number } } };
-    if (j.card?.certificate) j.card.certificate.amount = limit;
+  // пакет застройщика (demo-23: режим и лимиты двух бюджетов) — подменой ответа карточки, страница не трогается
+  if (pkg) await page.route(/\/api\/apartments\//, async (r) => {
+    const res = await r.fetch(); const j = await res.json() as { card?: { certificate?: { amount: number }; incentive?: Pkg & { total: number } } };
+    const total = pkg.limits.furniture + pkg.limits.fitout;
+    if (j.card?.certificate) { j.card.certificate.amount = total; j.card.incentive = { ...pkg, total }; }
     await r.fulfill({ response: res, body: JSON.stringify(j), headers: { ...res.headers(), "content-type": "application/json" } });
   });
   await page.goto(`/demo/${q}`, { waitUntil: "load" });
@@ -355,9 +367,10 @@ test("2.34 липкая шапка после прокрутки ≤ 96 px, вк
   await ctx.close();
 });
 
-// 2.35 корзина (владелец 18.10): две коллекции и одна при подменённом лимите за прогон — без ПДн, без номера менеджера
-test("2.35 корзина: 0 на старте; первая гостиная включается сама; вторая — «вместо …?»; «Не включать»; превышение — сумма и «Изменить расстановку»", async ({ browser }) => {
-  test.setTimeout(5 * 60_000);
+// 2.35 корзина (владелец 18.10): две коллекции и по одной на каждую схему пакета при подменённом лимите — без ПДн, без номера менеджера.
+// Перерасход (demo-23, ADR-0308) — не отказ, а доплата: полоса окна «выйдет за лимит на N», включение — только по «Доплата N — подтвердить?»
+test("2.35 корзина: 0 на старте; первая гостиная включается сама; вторая — «вместо …?»; «Не включать»; перерасход — «выйдет за лимит», доплата с подтверждением (общий и раздельный пакет)", async ({ browser }) => {
+  test.setTimeout(8 * 60_000);
   const { ctx, page } = await phonePage(browser, "?live=force");
   expect((await basketState(page)).cert).toBe(0);
   await page.locator("#hmRooms .hm-room [data-swap]").click();
@@ -389,18 +402,33 @@ test("2.35 корзина: 0 на старте; первая гостиная в
   expect(s3.cert).toBe(0);
   expect(s3.n).toBe(2);
   await ctx.close();
-  // превышение: лимит 100 000 — в избранное без включения, сумма превышения и переход к правке
-  const o = await phonePage(browser, "?live=force", 100_000);
-  await o.page.locator("#hmRooms .hm-room [data-swap]").click();
-  await o.page.waitForSelector("#vFav:visible");
-  await o.page.locator("#vFav").click();
-  await o.page.locator("#favOk").click();
-  await expect(o.page.locator("#favPop")).toContainText(/превышена сумма на [\d\s ]+₽/, { timeout: 30_000 });
-  await expect(o.page.locator("#favPop")).toContainText("Изменить расстановку");
-  const s4 = await basketState(o.page);
-  expect(s4.n).toBe(1);
-  expect(s4.inc).toEqual({});
-  await o.ctx.close();
+  // перерасход: мебель 100 000 — общий пакет (РФ) и раздельный (+ улучшения 50 000); гостиная дороже лимита мебели
+  for (const pkg of [{ mode: "pooled", limits: { furniture: 100_000, fitout: 0 } }, { mode: "split", limits: { furniture: 100_000, fitout: 50_000 } }] as Pkg[]) {
+    const o = await phonePage(browser, "?live=force", pkg);
+    expect(await o.page.locator("#hmCert [role=group] [role=meter]").count()).toBe(pkg.mode === "split" ? 2 : 1);
+    await o.page.locator("#hmRooms .hm-room [data-swap]").click();
+    await o.page.waitForSelector("#vFav:visible");
+    await expect(o.page.locator("#vsum .cs-lg")).toContainText(/выйдет за лимит на [\d\s  ]+₽/, { timeout: 30_000 });
+    await o.page.locator("#vFav").click();
+    await o.page.locator("#favOk").click();
+    await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽ — подтвердить\?/, { timeout: 30_000 });
+    await expect(o.page.locator("#favPop")).toContainText("Изменить расстановку");
+    await o.page.mouse.click(3, 3);                                  // закрыть мимо — без подтверждения ничего не меняется
+    const s4 = await basketState(o.page);
+    say(pkg.mode, "без подтверждения:", JSON.stringify(s4));
+    expect(s4.n).toBe(1);
+    expect(s4.inc).toEqual({});
+    // из избранного: «Включить» → тот же вопрос → «Подтвердить» — включено, на полосе доплата
+    await o.page.keyboard.press("Escape");
+    await o.page.evaluate("window.__basket.open('living')");
+    await o.page.locator("#favGrid [data-finc]").first().click();
+    await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽ — подтвердить\?/);
+    await o.page.locator("#favPop button.primary").click();
+    const s5 = await basketState(o.page);
+    expect(Object.keys(s5.inc).length).toBe(1);
+    await expect(o.page.locator("#hmCert .cs-lg")).toContainText(/доплата [\d\s  ]+₽/);
+    await o.ctx.close();
+  }
 });
 
 test("2.36 возврат «назад»: «Перейти →» из окна — экран избранного; «назад» — то же окно, ракурс и шторка; «вперёд» — избранное", async ({ browser }) => {
