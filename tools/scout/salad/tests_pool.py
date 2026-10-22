@@ -38,9 +38,13 @@ def setup(tmp: str) -> None:
     S._done_keys = None
     S.cull_slow = lambda: None
     NH.STATE = os.path.join(tmp, 'health.json')
+    # Карантин входа (T-20261022-10 Г) — тоже во временную папку: каждый прогон читает его и выпускает истёкшее,
+    # на боевом файле стенд пометил бы живые записи «отданными на проверку», и проверка бы не случилась.
+    S.IQ.STATE = os.path.join(tmp, 'input-quarantine.json')
+    S.IQ._rules = {'forbidden_marks': ['http error 403'], 'after_n': 2, 'recheck_h': 24}   # правило, не живой файл
     # ФАЙЛ ЗАМКА НЕ УДАЛЯЕМ: от прошлого случая могли остаться демон-потоки, и подмена
     # inode'а замка снимает взаимное исключение — два потока писали состояние одновременно.
-    for p in (NH.STATE, NH.STATE + '.tmp', S.RETRY_SPOOL, S.DONE_SET):
+    for p in (NH.STATE, NH.STATE + '.tmp', S.RETRY_SPOOL, S.DONE_SET, S.IQ.STATE):
         if os.path.exists(p):
             os.remove(p)
     NH.reallocate = lambda group, iid, why: culled.append(iid) or True   # noqa: B010 — стенд
@@ -1038,6 +1042,129 @@ def case_done_set() -> None:
     print('  ✓ .done: атомарно, переживает перезапуск, сделанное не раздаётся, курсор проходит срез')
 
 
+def case_low_ram_node() -> None:
+    """Машина с ОЗУ ниже порога уходит ДО первого задания (T-20261022-10 Б): ни одного задания не взяла, снята и
+    пересажена, в журнале — служебная строка `node_reject`, которую сторож денег не считает ни попыткой, ни сбоем.
+    Нет слота пересадок — ждёт его и пересаживается, когда слот появится; машину, не ответившую про ОЗУ, не наказываем."""
+    import money_guard as G  # noqa: PLC0415
+    kb = {1: 16 * 1024 ** 2, 2: 64 * 1024 ** 2}    # 16 и 64 ГиБ в kB, как пишет /proc/meminfo
+    nodes = [{'id': 'LOW' + 'a' * 5, 'port': 1, 'group': 'g', 'state': 'running'},
+             {'id': 'BIG' + 'b' * 5, 'port': 2, 'group': 'g', 'state': 'running'},
+             {'id': 'MUT' + 'c' * 5, 'port': 3, 'group': 'g', 'state': 'running'}]
+    used = []
+
+    def job_fn(port, job):
+        used.append(port)
+        time.sleep(0.5)      # очередь длиннее стартового обхода (по 2 с на ноду): супервизор успевает покрутиться
+        return {'sku': job['sku'], 'status': 'ok', 'timings_s': {'total': 1}}
+
+    slots = iter([0, 0])     # первые два запроса слота — отказ: бюджет пересадок кончился
+    keep_min, keep_slot = S.SG.node_min_ram_gb, NH.take_cull_slot
+    patch.jobs = jobs(16)
+    patch(nodes, job_fn)
+    # порт 3 — машина, не ответившая про ОЗУ: работает как обычно
+    S.ssh_text = lambda port, cmd, timeout=60: ('' if port == 3 else
+                                                f'NVIDIA GeForce RTX 4080\nMemTotal:       {kb[port]} kB\n')
+    S.SG.node_min_ram_gb = lambda: 32.0
+    NH.take_cull_slot = lambda: next(slots, 1)
+    try:
+        code = S.run(None, True, jobs_file='x')
+    finally:
+        S.SG.node_min_ram_gb, NH.take_cull_slot = keep_min, keep_slot
+    rows = json.load(open(S.RESULTS, encoding='utf-8'))['results']
+    assert code == 0 and all(r['status'] == 'ok' for r in rows), (code, [r['status'] for r in rows])
+    assert 1 not in used, f'машина с 16 ГБ взяла заданий: {used.count(1)}'
+    assert 2 in used and 3 in used, f'здоровые машины простаивали: {used}'
+    assert culled == [nodes[0]['id']], f'пересадка: {culled} — ждали ровно одну, малой ОЗУ, после ожидания слота'
+    assert NH.is_retired(f'g/{nodes[0]["id"]}'), 'машина с малой ОЗУ не помечена снятой — супервизор вернёт её'
+    rej = [x for x in map(json.loads, open(S.PROGRESS, encoding='utf-8')) if x.get('kind') == 'node_reject']
+    assert len(rej) == 1, rej
+    r = rej[0]
+    assert r['instance'] == nodes[0]['id'] and r['min_gb'] == 32.0 and 17.0 <= r['mem_total_gb'] <= 17.5, r
+    keep_j = G.JOURNAL
+    G.JOURNAL = S.PROGRESS
+    try:
+        assert G.failure_burst() == ('', 0), 'уход машины с малой ОЗУ посчитан сбоем'
+    finally:
+        G.JOURNAL = keep_j
+    print('  ✓ малая ОЗУ: ни одного задания, строка node_reject, пересадка — и после ожидания слота')
+
+
+def case_input_quarantine() -> None:
+    """Фото, которое магазин не отдаёт (403), не гоняем по машинам (T-20261022-10 Г): два ответа 403 подряд → карантин,
+    задание закрыто без спула и без вины машины; следующий прогон его не раздаёт; по сроку — один раз на проверку."""
+    IQ = S.IQ
+    nodes = [{'id': 'A' * 8, 'port': 1, 'group': 'g', 'state': 'running'},
+             {'id': 'B' * 8, 'port': 2, 'group': 'g', 'state': 'running'}]
+    S.NODE_COOLDOWN_S = 0.1
+    sent = []
+    forbid = {'on': True}
+
+    def job_fn(port, job):
+        sent.append(job['sku'])
+        if job['sku'] == 'sku0' and forbid['on']:
+            return {'sku': job['sku'], 'status': 'input_failed', 'error': 'HTTP Error 403: Forbidden'}
+        time.sleep(0.1)
+        return {'sku': job['sku'], 'status': 'ok', 'timings_s': {'total': 1}}
+
+    # мелкие правила: прочие исходы серию не растят
+    assert IQ.note({'sku': 'z'}, {'status': 'transport_failed', 'error': 'HTTP Error 403'}) == 0
+    assert IQ.note({'sku': 'z'}, {'status': 'input_failed', 'error': 'HTTP Error 404: Not Found'}) == 0
+    assert 'z' not in IQ._load(), 'не-403 завёл запись карантина'
+
+    # 1) два 403 → карантин
+    patch.jobs = jobs(3)
+    patch(nodes, job_fn)
+    code = S.run(None, True, jobs_file='x')
+    res = json.load(open(S.RESULTS, encoding='utf-8'))
+    st, rows = res['summary'], {r['sku']: r for r in res['results']}
+    assert sent.count('sku0') == 2, f'sku0 отправлен {sent.count("sku0")} раз — ждали 2 (на втором 403 — карантин)'
+    assert rows['sku0']['status'] == IQ.STATUS, rows['sku0']
+    assert code == 0 and st['unresolved'] == 0 and st['terminal_prefix'] == 3, (code, st)
+    assert not os.path.exists(S.RETRY_SPOOL), 'карантинное задание ушло в спул повторов'
+    assert not culled, f'машину пересадили за запрет магазина: {culled}'
+    assert IQ.active() == {'sku0'}, IQ.active()
+    q = [x for x in map(json.loads, open(S.PROGRESS, encoding='utf-8')) if x.get('quarantine_until')]
+    assert len(q) == 1 and q[0]['sku'] == 'sku0', q
+
+    # 2) второй прогон того же среза — карантинное ноде не раздаётся, курсор проходит его
+    sent.clear()
+    code = S.run(None, True, jobs_file='x')
+    st = json.load(open(S.RESULTS, encoding='utf-8'))['summary']
+    assert 'sku0' not in sent, f'карантинное задание раздано: {sent}'
+    assert code == 0 and st['terminal_prefix'] == 3 and st['unresolved'] == 0, (code, st)
+
+    # 3) срок вышел → прогон среза отдаёт его ОДИН раз в спул на проверку (товар не в срезе)
+    d = json.load(open(IQ.STATE, encoding='utf-8'))
+    d['sku0']['until'] = round(time.time()) - 1
+    json.dump(d, open(IQ.STATE, 'w', encoding='utf-8'))
+    keep = S.jobs_from_sample
+    try:
+        S.jobs_from_sample = lambda limit: jobs(3)[1:]
+        S.run(2, True, skip=0)
+    finally:
+        S.jobs_from_sample = keep
+    spool = [json.loads(x) for x in open(S.RETRY_SPOOL, encoding='utf-8') if x.strip()]
+    assert [(r['sku'], r['status']) for r in spool] == [('sku0', 'input_recheck')], spool
+    back = ORIG_JOBS_FROM_FILE(S.RETRY_SPOOL)
+    assert [j['sku'] for j in back] == ['sku0'], back
+    assert IQ.release_due() == [], 'истёкший карантин отдан на проверку второй раз'
+
+    # 4) проверка из спула: снова 403 → карантин с первого же ответа (серия набрана); готовый меш снимает запись
+    sent.clear()
+    patch.jobs = back
+    S.run(None, True, jobs_file='x')
+    assert sent == ['sku0'], f'повторный 403 после проверки: {sent} — ждали ровно одну отправку'
+    assert IQ.active() == {'sku0'}
+    assert IQ.note({'sku': 'sku0'}, {'status': 'ok'}) == 0 and 'sku0' not in IQ._load(), 'готовый меш не снял запись'
+
+    # 5) истёкший товар, который и так идёт в текущем срезе, в спул не дублируется
+    IQ.note({'sku': 'sku5'}, {'status': 'input_failed', 'error': 'HTTP Error 403'}, now=0)
+    IQ.note({'sku': 'sku5'}, {'status': 'input_failed', 'error': 'HTTP Error 403'}, now=0)
+    assert IQ.release_due(skip={'sku5'}) == [] and IQ.release_due() == [], 'товар из среза отдан ещё и в спул'
+    print('  ✓ 403 дважды → карантин без спула и без вины машины; второй прогон не раздаёт; по сроку — одна проверка')
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
@@ -1058,7 +1185,7 @@ def main() -> None:
                    case_step_timeout_kills_children, case_no_restart_of_running_group,
                    case_silent_node_is_zombie, case_sink_relief_before_red,
                    case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart,
-                   case_stop_verified):
+                   case_stop_verified, case_low_ram_node, case_input_quarantine):
             if fn not in pure:
                 setup(tmp)
             fn()

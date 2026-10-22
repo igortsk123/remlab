@@ -56,7 +56,8 @@ _NODE_MARKS = ('network is unreachable', 'errno 101',
                'connection refused', 'errno 111')
 # 404/410 = сервер ответил. Значит DNS, TCP и HTTP у ноды работают — это мёртвое фото.
 _JOB_MARKS = ('http error 404', 'http error 410', 'error 404', 'error 410')
-_JOB_STATUSES = ('bad_cutout', 'flat_shape', 'slab_suspect', 'not_generator_eligible')
+# `input_quarantined` — товар в карантине входа (`input_quarantine.py`): магазин не отдаёт фото, машину не винить
+_JOB_STATUSES = ('bad_cutout', 'flat_shape', 'slab_suspect', 'not_generator_eligible', 'input_quarantined')
 
 
 def infra_suspect(res: dict) -> bool:

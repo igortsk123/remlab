@@ -57,6 +57,11 @@ def price_ceiling() -> dict:
     return load().get('price_ceiling') or {}
 
 
+def node_min_ram_gb() -> float:
+    """Сколько ОЗУ должно быть у машины, чтобы брать задания (`node_ram.min_gb`, T-20261022-10); 0 — не проверяем."""
+    return float((load().get('node_ram') or {}).get('min_gb') or 0)
+
+
 def price_halted(group: str) -> str:
     """Причина запрета подъёма группы по цене меша; '' — запрета нет. Битый файл — запрета нет, но громко."""
     try:

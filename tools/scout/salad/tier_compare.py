@@ -109,6 +109,8 @@ def main() -> int:
             if r.get('warmup_s'):
                 warm[g].append(float(r['warmup_s']))
             continue
+        if r.get('kind'):   # уход машины с малой ОЗУ (`node_reject`) и прочие служебные строки — тоже не задания
+            continue
         by[g].append(r)
 
     paid = paid_hours(hours)

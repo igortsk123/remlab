@@ -75,6 +75,7 @@ EXIT_NO_CAPACITY = 75           # «нод нет» — не авария, ко�
 sys.path.insert(0, HERE)
 import node_health as NH  # noqa: E402
 import proc_run as PR     # noqa: E402 — шаг оболочки без сирот (общий с `batch_show`)
+import input_quarantine as IQ  # noqa: E402 — фото, которое магазин не отдаёт (403), не гоняем по машинам (T-20261022-10 Г)
 
 # Параллельные сессии к РАЗНЫМ нодам допустимы, если не открывать их залпом: сбой 29.08
 # («нет маркера», пустой вывод) случался при одновременном старте. Разносим НАЧАЛА всех
@@ -355,6 +356,19 @@ def ssh_text(port: int, cmd: str, timeout: int = 60) -> str:
          '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30', '-p', str(port), SSH_HOST],
         input=f'{cmd}; exit\n', capture_output=True, text=True, timeout=timeout)
     return r.stdout
+
+
+def probe_node(port: int) -> tuple[str, float | None]:
+    """Модель карты и ОЗУ машины (MemTotal, десятичные ГБ) одной сессией. `/proc/meminfo` в контейнере — память ВСЕЙ
+    машины (у WSL — её виртуалки), а не наш лимит (`mem_probe.py`): именно она решает, переживёт ли машина генерацию.
+    Не ответила — ('?', None): проверку пропускаем, ноду не наказываем."""
+    try:
+        out = ssh_text(port, 'nvidia-smi --query-gpu=name --format=csv,noheader; grep MemTotal /proc/meminfo', timeout=40) or ''
+    except Exception:  # noqa: BLE001 — диагностика не должна мешать работе
+        return '?', None
+    g = re.search(r'(?:NVIDIA|AMD)[^\r\n]*', out)
+    m = re.search(r'MemTotal:\s+(\d+)\s*kB', out)
+    return (g.group(0).strip()[:40] if g else '?'), (round(int(m.group(1)) * 1024 / 1e9, 1) if m else None)
 
 
 def run_job(port: int, job: dict) -> dict:
@@ -709,6 +723,17 @@ class Jobs:
                     n += 1
         return n
 
+    def preclose_quarantine(self, skus: set) -> int:
+        """Товары в карантине входа (`input_quarantine`) ноде не раздаём: статус `input_quarantined` терминален
+        (`node_health._JOB_STATUSES`), курсор идёт дальше; на проверку товар вернёт `release_due` через спул."""
+        n = 0
+        with self.cv:
+            for it in self.items:
+                if it['result'] is None and it['job'].get('sku') in skus:
+                    it['result'] = {'sku': it['job'].get('sku'), 'status': IQ.STATUS, 'error': 'карантин входа'}
+                    n += 1
+        return n
+
     def pending(self) -> int:
         with self.cv:
             return sum(1 for it in self.items if it['result'] is None)
@@ -798,6 +823,23 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
     if n_pre:
         print(f'уже сделано в этом снимке ({os.path.basename(DONE_SET)}): {n_pre} из {len(jobs)} — ноде не раздаю',
               flush=True)
+    n_q = js.preclose_quarantine(IQ.active())
+    if n_q:
+        print(f'в карантине входа (магазин не отдаёт фото): {n_q} — ноде не раздаю', flush=True)
+    # Срок вышел — на проверку через спул. Только в прогоне СРЕЗА: прогон по файлу — это сам спул (`drain_retry_spool`
+    # забрал его в `.inflight`); новый спул, созданный посреди него, при «нет нод» не дал бы вернуть `.inflight` на место.
+    due = [] if jobs_file else IQ.release_due(skip={j.get('sku') for j in jobs})
+    if due:
+        # срок вышел — один раз на проверку через спул повторов (его прогонит `batch_show.drain_retry_spool`)
+        try:
+            with open(RETRY_SPOOL, 'a', encoding='utf-8') as f:
+                for j in due:
+                    f.write(json.dumps({'job': j, 'sku': j.get('sku'), 'seed': j.get('seed'), 'status': 'input_recheck',
+                                        'at': round(time.time())}, ensure_ascii=False) + '\n')
+            print(f'карантин входа истёк: {len(due)} — в спул повторов на проверку', flush=True)
+        except OSError as e:
+            print(f'  !! спул повторов: {type(e).__name__} — проверка карантина отложена', flush=True)
+    n_pre += n_q
     if jobs and n_pre == len(jobs):
         # Весь срез сделан: курсор проходит его без нод и без денег.
         print('RUN_SUMMARY ' + json.dumps(js.summary()), flush=True)
@@ -837,6 +879,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             if it is None:
                 return
             r = run_job(port, it['job'])
+            q_until = IQ.note(it['job'], r)
             # Подозрение на приёмник (генерация прошла, публикация упала с 507/EOF) — это ПОВОД
             # спросить приёмник, а не диагноз: тот же текст даёт CDN фото и SSH-шлюз (Codex 04.09).
             # Красный → остаток пачки закрываем как инфра-сбой (75), нод не виним и не пересаживаем.
@@ -855,9 +898,10 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             # как ответ генератора, курсор уходил вперёд, и товар терялся молча (01.09).
             fault = NH.classify(r, sink_ok)
             ecls = NH.error_class(r)
-            terminal = fault in (NH.FAULT_NONE, NH.FAULT_JOB)
+            # карантин входа: запрет магазина набрал серию — задание закрыто, по машинам больше не едет
+            terminal = fault in (NH.FAULT_NONE, NH.FAULT_JOB) or bool(q_until)
             rec = {**r, 'node': node_id[:8], 'attempt': it['attempts'], 'fault': fault,
-                   'group': group, 'at': round(time.time())}
+                   'group': group, 'at': round(time.time()), **({'status': IQ.STATUS} if q_until else {})}
             js.done(it, rec, terminal)
             checkpoint({'sku': it['job'].get('sku'), 'role': it['job'].get('role'),
                         'status': r.get('status'), 'attempt': it['attempts'],
@@ -869,7 +913,11 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                         # 01.09 именно поэтому нельзя было сказать точно, что пропало.
                         'seed': it['job'].get('seed'), 'instance': node_id, 'group': group,
                         'fault': fault, 'err_class': ecls,
-                        'error': str(r.get('error') or '')[:200], 'at': round(time.time())})
+                        'error': str(r.get('error') or '')[:200], 'at': round(time.time()),
+                        **({'quarantine_until': round(q_until)} if q_until else {})})
+            if q_until:
+                print(f'  {it["job"].get("sku")}: магазин не отдаёт фото — карантин входа до '
+                      f'{time.strftime("%d.%m %H:%M", time.gmtime(q_until))} UTC', flush=True)
             if r.get('status') in ('ok', 'cached'):
                 mark_done(it['job'].get('sku'), it['job'].get('seed'))
             with _lock:
@@ -913,7 +961,35 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                       f'просто вывожу из пула', flush=True)
             return
 
+    mem_low: dict = {}        # instance_id → группа: машина с малой ОЗУ ждёт пересадки (бюджет пересадок кончился)
+
+    def mem_reject(node_id: str, group: str, gpu: str, mem: float, need: float) -> None:
+        """Машина с ОЗУ меньше порога уходит ДО первого задания (T-20261022-10 Б): строка в журнал — не попытка и
+        не сбой меша (`kind`), задание никто не брал; нода снята (`retire`), чтобы супервизор не подключил её снова,
+        и пересажена штатно — или ждёт свободного слота пересадок в `mem_low`."""
+        why = f'ОЗУ машины {mem} ГБ < {need:g}'
+        print(f'  нода {node_id[:8]} ({gpu}): {why} — ухожу до первого задания', flush=True)
+        checkpoint({'at': round(time.time()), 'kind': 'node_reject', 'status': 'node_reject', 'node': node_id[:8],
+                    'instance': node_id, 'group': group, 'gpu': gpu, 'mem_total_gb': mem, 'min_gb': need,
+                    'why': why})
+        NH.retire(f'{group}/{node_id}')
+        if NH.take_cull_slot():
+            if NH.reallocate(group, node_id, f'ram: {why}'):
+                js.extend_grace(WARMUP_GRACE_S)
+        else:
+            mem_low[node_id] = group
+
     def spawn(node_id: str, port: int, group: str = GROUP):
+        need = SG.node_min_ram_gb()
+        if need > 0 and node_id not in gpu_of:
+            # ОЗУ — ДО первого задания (T-20261022-10 Б): машина с малой памятью роняет генерацию посередине
+            # (`ssh/mid_generation`, 22.10 — 37 % за час) и платит за пустую работу. Заодно — модель карты.
+            gpu, mem = probe_node(port)
+            if gpu != '?':
+                gpu_of[node_id] = gpu        # не ответила — карту спросит фоновый опрос ниже
+            if mem is not None and mem < need:
+                mem_reject(node_id, group, gpu, mem, need)
+                return
         if node_id not in gpu_of:
             # Модель карты спрашиваем ОДИН раз на ноду и ФОНОМ: нужна для сравнения
             # 4090 с 3090/3090 Ti/A5000, но задерживать из-за неё первое задание нельзя.
@@ -940,6 +1016,12 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             if js.pending() == 0:
                 return
             sink_poll()                      # один опрос приёмника на процесс, флаг читают воркеры
+            for nid, g in list(mem_low.items()):   # малая ОЗУ, а слота пересадки не было — пробуем снова
+                if not NH.take_cull_slot():
+                    break
+                mem_low.pop(nid)
+                if NH.reallocate(g, nid, 'ram: ОЗУ машины ниже порога'):
+                    js.extend_grace(WARMUP_GRACE_S)
             cands = []
             for inst in instances():
                 with nodes_lock:

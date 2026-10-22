@@ -313,6 +313,8 @@ def failure_burst() -> tuple[str, int]:
                     r = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if r.get('kind'):   # служебные строки (прогрев, уход машины с малой ОЗУ) — не задания
+                    continue
                 if r.get('at', 0) < now - BURST_MIN * 60:
                     continue
                 # `cached` — не новый меш, но живой транспорт и живой приёмник: в счёт «успехов»
