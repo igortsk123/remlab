@@ -4,5 +4,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 . tools/ops/node-env.sh
-timeout 1800 node tools/ops/demo-warm.mjs || echo "WARN:demo_warm: прогрев кадров упал (код $?) — см. лог шага"
-exit 0
+# вариант без кадра опубликованного состояния — код 1, шаг FAIL (demo-20 Б2): главная такой вариант не покажет
+timeout 1800 node tools/ops/demo-warm.mjs; rc=$?
+[ "$rc" -ne 0 ] && echo "ERROR:demo_warm: прогрев кадров — код $rc, см. лог шага"
+exit "$rc"

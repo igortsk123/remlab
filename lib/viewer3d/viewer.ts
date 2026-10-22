@@ -195,6 +195,8 @@ export class FlatViewer {
   private pitch = 0;
   private keys = new Set<string>();
   private moveTarget: THREE.Vector2 | null = null;
+  /** Ход к точке: ближе всего к цели, см, и сколько кадров подряд без продвижения (`tick`, demo-20 Б6). */
+  private moveProgress = { best: Infinity, idle: 0 };
   private currentRoom: string | null = null;
   /**
    * Режим камеры: прогулка или «кукольный дом» — вид сверху под углом (владелец 29.09).
@@ -670,11 +672,12 @@ export class FlatViewer {
    * Плавно перейти к позе ракурса (стрелки «‹ ›» в 3D, demo-09): из фото-позы — по разнице поз, из прогулки — от точки,
    * где стоит человек. Поворот взгляда сбрасывается: в конце перехода кадр = кадр будущего реалистичного фото.
    */
-  goToPose(pose: PhotoPose, ms = 650): void {
+  goToPose(pose: PhotoPose, ms = 650, pitch?: number): void {
     const now = performance.now();
     const cur = this.viewMode === "photo" ? this.livePose(now)
       : { x: this.pos.x, y: this.pos.y, rot: (540 - this.heading) % 360, pitch: this.pitch };
     this.setPhotoPose(pose);
+    if (pitch !== undefined) this.photoLook.pitch = Math.max(-35, Math.min(35, pitch));   // наклон к предмету (`frameItem`)
     if (!cur) return;
     const yaw = ((cur.rot - pose.rot + 540) % 360) - 180;
     this.poseAnim = { dx: cur.x - pose.x, dy: cur.y - pose.y, yaw, pitch: cur.pitch - this.photoLook.pitch, t0: now, ms };
@@ -864,6 +867,7 @@ export class FlatViewer {
     const target = nearestStandable(this.area, xCm, yCm);
     if (!target) return;
     this.moveTarget = new THREE.Vector2(target.x, target.y);
+    this.moveProgress = { best: Infinity, idle: 0 };
   }
 
   /**
@@ -1321,10 +1325,18 @@ export class FlatViewer {
         const step = Math.min(dist, 260 * dt);
         const next = stepWithSlide(this.area, { x: this.pos.x, y: this.pos.y }, (dx / dist) * step, (dy / dist) * step);
         if (next.x === this.pos.x && next.y === this.pos.y) this.moveTarget = null;
+        // ДРОЖЬ У СТЕНЫ И МЕБЕЛИ (demo-20 Б6, владелец 22.10: «шаг к двери — мелкая дрожь забила сцену»): обход упирался и метался
+        // «вбок — назад» каждый кадр, а курс крутился за ним. Курс — только если шаг приблизил к цели; 9 кадров подряд без
+        // продвижения хотя бы на четверть шага — стоп: дошли, куда можно
+        const left = Math.hypot(this.pos.x + dx - next.x, this.pos.y + dy - next.y);
+        const mp = this.moveProgress;
+        if (left <= mp.best - step / 4) { mp.best = left; mp.idle = 0; } else if (++mp.idle >= 9) this.moveTarget = null;
         this.pos.set(next.x, next.y);
-        const targetHeading = (Math.atan2(dx, dy) * 180) / Math.PI;
-        const diff = ((targetHeading - this.heading + 540) % 360) - 180;
-        this.heading = (this.heading + diff * Math.min(1, dt * 4) + 360) % 360;
+        if (left < dist) {
+          const targetHeading = (Math.atan2(dx, dy) * 180) / Math.PI;
+          const diff = ((targetHeading - this.heading + 540) % 360) - 180;
+          this.heading = (this.heading + diff * Math.min(1, dt * 4) + 360) % 360;
+        }
         this.updateRoom();
       }
     }
@@ -1593,19 +1605,33 @@ export class FlatViewer {
    * НАВЕСТИСЬ НА ПРЕДМЕТ (demo-15, критика Codex п.5): после замены покупатель видит новый предмет. Прямой полёт камеры прошёл бы
    * сквозь стену или мебель, поэтому: текущая точка годится (до следа предмета ≥ `FRAME_MIN_CM`, взгляд не закрыт высоким) — только
    * плавный поворот; иначе — точки кольца 1–1.8 м вокруг следа, где можно стоять, видно предмет и прямой путь от текущей проходим,
-   * ближайшая к текущей — плавный переход; подходящей нет — только поворот. Ответ — что сделано.
+   * ближайшая к текущей — плавный переход; подходящей нет — только поворот. Расстояние — по размеру предмета (`frameDistCm`,
+   * demo-20 Б5), взгляд наклонён к середине предмета по высоте (низкая тумба не уходит под нижний край). Ответ — что сделано.
    */
   frameItem(at: { x: number; y: number }, ms = 600): "turn" | "move" | "none" {
     const cur = this.viewMode === "photo" ? this.livePose()
       : { x: this.pos.x, y: this.pos.y, rot: (540 - this.heading) % 360, pitch: this.pitch };
     if (!cur) return "none";
-    const spot = frameSpot(this.area, cur, at);
     const base = this.photo ?? { x: cur.x, y: cur.y, rot: cur.rot, fov: 72, pose: PHOTO_POSE_VER };
+    const spot = frameSpot(this.area, cur, at, base.fov ?? 72);
     // сдвиг вертикального кадра подобран для точки съёмки — на новой точке он не годится
     const keep = spot.kind !== "move" && typeof base.pshift === "number";
-    this.goToPose({ x: spot.x, y: spot.y, rot: spot.rot, fov: base.fov ?? 72, pose: base.pose ?? PHOTO_POSE_VER, ...(keep ? { pshift: base.pshift } : {}) },
-      spot.kind === "move" ? Math.max(ms, Math.min(1400, Math.hypot(spot.x - cur.x, spot.y - cur.y) * 4)) : ms);
+    const pose: PhotoPose = { x: spot.x, y: spot.y, rot: spot.rot, fov: base.fov ?? 72, pose: base.pose ?? PHOTO_POSE_VER, ...(keep ? { pshift: base.pshift } : {}) };
+    this.goToPose(pose, spot.kind === "move" ? Math.max(ms, Math.min(1400, Math.hypot(spot.x - cur.x, spot.y - cur.y) * 4)) : ms,
+      this.pitchToward(pose, spot.item));
     return spot.kind;
+  }
+
+  /**
+   * Наклон взгляда позы, при котором середина предмета по высоте — в середине кадра (градусы, вниз — минус; вверх не смотрим).
+   * Учитывает сдвиг объектива позы: опущенный кадр уже смотрит ниже оси камеры. Предел ±35° — в `goToPose`.
+   */
+  private pitchToward(pose: PhotoPose, it: { x: number; y: number; w: number; d: number; rot: number; h?: number }): number {
+    const dist = Math.max(30, Math.hypot(it.x - pose.x, it.y - pose.y));
+    const toItem = Math.atan2((it.h ?? 60) / 2 - photoRay(pose).eye[1], dist);
+    const vhalf = (verticalFov(pose.fov ?? 72, this.camera.aspect) * Math.PI) / 360;
+    const lens = Math.atan(2 * photoShift(pose, this.camera.aspect) * Math.tan(vhalf));   // минус — кадр опущен
+    return Math.min(0, ((toItem - lens) * 180) / Math.PI);
   }
 
   /** Где стоит человек в прогулке и сколько до ближайшей мебели — метрика живой проверки (прогон d8 15.10). */

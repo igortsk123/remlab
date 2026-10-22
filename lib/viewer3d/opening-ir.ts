@@ -164,8 +164,11 @@ function doorIR(u0: number, u1: number, top: number, pose: LeafPose): { boxes: I
   const cx = (u0 + u1) / 2;
   const P = 5;
   const DEPTH = 12;
-  const leafW = w - P * 2 - 1;
-  const leafH = top - P - 1;
+  // ПОЛОТНО ЗАХОДИТ ЗА КОРОБКУ (demo-20 Б6, снимок владельца 22.10): было `w − 2P − 1` и `top − P − 1` — у закрытой входной двери
+  // между полотном и коробкой оставалась щель 3,5 см сбоку и 1 см сверху, сквозь неё была видна зелёная земля за домом.
+  // Теперь края полотна — посередине профиля коробки: от петли (u0 + P/2) до u1 − P/2, верх — top − P/2
+  const leafW = w - P;
+  const leafH = top - P / 2;
   const handleY = 105;
   const boxes: IrBox[] = [
     b("reveal", "reveal", 4, top + 6, DEPTH, u0 - 2, (top + 6) / 2, 0),

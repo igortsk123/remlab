@@ -36,6 +36,9 @@ export interface DemoSceneOptions {
   floor?: Record<string, unknown> & { id: string };
   /** Стены застройщика (demo-07): материал и необязательная акцентная стена «за диваном». */
   wall?: DemoWall;
+  /** Тап по полу ведёт туда (по умолчанию да). Сенсорный экран — нет (demo-20 Б6, владелец 22.10): на телефоне только осмотр,
+   *  повороты и ракурсы «со стороны двери / окна»; тап по предмету по-прежнему выбирает его. */
+  walk?: boolean;
 }
 
 type Mat = Record<string, unknown> & { id: string };
@@ -82,7 +85,7 @@ export interface DemoScene {
   select(index: number | null): void;
   /** Повернуть взгляд прогулки на `deg` градусов (тап по краю сцены в «3D», demo-02 v3: поворот не только перетаскиванием). */
   turn(deg: number): void;
-  /** Тап в «3D»: по предмету — его номер в расстановке; по полу — шаг туда (`viewer.goTo`) и -1. */
+  /** Тап в «3D»: по предмету — его номер в расстановке; по полу (и ковру) — шаг туда (`viewer.goTo`, если `walk` не выключен) и -1. */
   walkTap(clientX: number, clientY: number): number;
   /** Где стоит и куда смотрит прогулка (см, градусы) — живая проверка поворота тапом по краю и шага по полу. */
   pose(): { x: number; y: number; yaw: number };
@@ -239,11 +242,16 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     },
     turn: (deg) => viewer.look(-deg / 0.22, 0),
     walkTap: (x, y) => {
-      const hit = viewer.pick(x, y, canvas.getBoundingClientRect());
-      if (hit.slotId) return slotIndex().get(hit.slotId) ?? -1;
-      if (hit.point) {
+      const rect = canvas.getBoundingClientRect();
+      const hit = viewer.pick(x, y, rect);
+      const i = hit.slotId ? slotIndex().get(hit.slotId) : undefined;
+      if (i !== undefined) return i;
+      if (opts.walk === false) return -1;
+      // ковёр не выбирается (нет в `slotIndex`) — под ним пол: шаг туда, как по полу
+      const point = hit.point ?? (hit.slotId ? viewer.floorPoint(x, y, rect) : null);
+      if (point) {
         if (viewer.mode === "photo") viewer.photoToWalk();   // 3D из точки съёмки: шаг по полу — уже прогулка
-        viewer.goTo(hit.point.x, hit.point.y);
+        viewer.goTo(point.x, point.y);
       }
       return -1;
     },

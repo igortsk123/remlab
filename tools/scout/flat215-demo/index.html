@@ -723,8 +723,11 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .msg{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);width:min(92vw,560px);box-sizing:border-box;z-index:90;
   background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(14px) saturate(1.3);backdrop-filter:blur(14px) saturate(1.3);
   color:var(--ink);border:1px solid rgba(28,25,23,.08);border-radius:14px;box-shadow:0 8px 28px rgba(28,25,23,.18);
-  padding:11px 16px;font-size:15px;line-height:1.35;text-align:center;white-space:normal}
+  padding:11px 16px;font-size:15px;line-height:1.35;text-align:center;white-space:normal;transition:opacity .25s ease}
 .msg[hidden]{display:none}
+/* гаснет плавно (demo-20 Б4, владелец 22.10): `.out` — прозрачность до нуля, потом `hidden` */
+.msg.out{opacity:0}
+@media (prefers-reduced-motion:reduce){.msg{transition:none}}
 .msg .toastact{margin-left:10px;background:none;border:0;color:var(--accent);font:inherit;font-weight:700;cursor:pointer;padding:4px 0;min-height:0}
 .favpop{position:fixed;inset:0;z-index:95;background:rgba(20,16,12,.38);display:flex;align-items:center;justify-content:center;padding:16px}
 .favbox{background:var(--surface);color:var(--ink);border-radius:16px;padding:18px 16px 14px;width:min(380px,100%);box-shadow:0 12px 40px rgba(0,0,0,.25);
@@ -2570,11 +2573,14 @@ function reportAct(kind){
 }
 // КОРОТКОЕ СООБЩЕНИЕ ВМЕСТО alert() (b2b-12): alert блокирует страницу и выглядит как сбой.
 // ВСЕ ВСПЛЫВАЮЩИЕ СООБЩЕНИЯ ОДНОГО ВИДА (demo-19 Б4, владелец 20.10: «не на чёрном, а на полупрозрачном, шире»): класс `.msg` —
-// у сообщений страницы и у подсказок окна (`.vtip`); длинный текст держится дольше
+// у сообщений страницы и у подсказок окна (`.vtip`); длинный текст держится дольше.
+// ВДВОЕ КОРОЧЕ И ГАСНЕТ ПЛАВНО (demo-20 Б4, владелец 22.10: «Заменено: диван +4 000» висело и пропадало рывком)
 function toast(t,act){let el=document.getElementById('toast');
   if(!el){el=document.createElement('div');el.id='toast';el.className='msg';el.setAttribute('role','status');
     document.body.appendChild(el);}
-  el.textContent=t; el.hidden=false; clearTimeout(el._t); el._t=setTimeout(()=>{el.hidden=true;},(act?4500:3500)+(String(t).length>60?1500:0));
+  el.textContent=t; el.hidden=false; el.classList.remove('out'); clearTimeout(el._t);
+  el._t=setTimeout(()=>{el.classList.add('out'); el._t=setTimeout(()=>{el.hidden=true; el.classList.remove('out');},250);},
+    (act?2250:1750)+(String(t).length>60?750:0));
   // ОКНО ВАРИАНТА НА ТЕЛЕФОНЕ (demo-02 v5.2): сообщение — над шторкой и переключателем ракурсов, а не поверх кнопки
   // «Сделать реалистичнее» (после замены «Заменено: …» закрывало её на 3,5 с). Положение — по цели сдвига шторки, не по кадру анимации
   el.style.bottom='24px';
@@ -3010,11 +3016,12 @@ function payload(){
 // сервере и отдаваться на фронт быстро»). Раньше связь «кадр ↔ стиль» жила только в браузере:
 // с другого устройства коллекция была пустой, а предгенерация не имела смысла. Теперь страница
 // читает серверный реестр и дополняет его тем, что сняли в этом браузере.
+let SHOTS_LOADED=false;   // реестр кадров пришёл с сервера (главная отсеивает варианты без кадра, `homeModel`)
 async function loadServerShots(){
   try{
     const r=await fetch('/test/share/shots.json?v='+Date.now(),{cache:'no-store'});
     if(!r.ok)return [];
-    const data=await r.json();
+    const data=await r.json(); SHOTS_LOADED=Array.isArray(data);
     const out=[];
     (data||[]).forEach(rec=>{
       const batch='srv'+rec.ts;
@@ -3059,6 +3066,7 @@ function loadShots(){
       if(shotAt!==was&&document.getElementById('shot').classList.contains('on')&&typeof liveShow==='function')setTimeout(()=>liveShow(),0);}
     Object.keys(COLL_SHOTS).forEach(cid=>attachCollShot(cid,COLL_SHOTS[cid]));
     drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
+    try{drawHome();}catch(e){}   // карточки главной — по кадрам опубликованного состояния (demo-20 Б2)
     openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
   });
   drawFeed();
@@ -3315,10 +3323,26 @@ function homeRooms(){
   // реестр молчит (старая сборка без карточки) — честно только то, что обставлено: гостиная
   return [{id:'living', kind:'living', ordinal:1, title:EN?'Living room':'Гостиная', areaM2:null, contentState:'ready'}];
 }
+// КАДР ОПУБЛИКОВАННОГО СОСТОЯНИЯ ВАРИАНТА (demo-20 Б2, владелец 22.10: «вариантов без фото быть не должно»): `bestShot` ищет кадр
+// ЖИВОЙ расстановки — у открытого варианта её сбивают правки и общая отделка `DEVOPT`, и карточка оставалась без фото. Здесь —
+// состояние из данных витрины (предметы, декор, своя отделка `v.dev`), как его снимает ночной прогрев (`tools/ops/demo-warm.mjs`)
+function pubShot(v){
+  if(!v||!D)return null;
+  const st=stateIdOf(v.items||[], (v.decor||[]).filter(x=>(x.sku||{}).name), D.room, v.dev||{});
+  const fit=shots.filter(x=>x.url&&!x.orphan&&(DBG||!x.svc)&&x.stateId===st);
+  if(!fit.length)return null;
+  const real=fit.filter(x=>x.quality==='realistic'), pool=real.length?real:fit;
+  const c1=pool.filter(x=>(x.camera||'C1')==='C1'), P=c1.length?c1:pool;
+  return P[P.length-1]||null;
+}
 function homeModel(){
   const vs=allVariants(), styles=[], seen=new Set(), roomVariants=[];
+  // реестр кадров пришёл — вариант без кадра опубликованного состояния на главную не выводим (его стиль — тоже); реестр не пришёл
+  // или пуст у всех — показываем все: пустая главная хуже карточки «Откройте — покажем в 3D»
+  const shown=v=>!SHOTS_LOADED||!!pubShot(v), any=vs.some(v=>!v.mine&&!v.cid&&shown(v));
   vs.forEach((v,i)=>{
     if(v.mine||v.cid)return;                     // коллекция — не вариант каталога
+    if(any&&!shown(v))return;
     const id=styleIdOf(v); if(!id)return;
     if(!seen.has(id)){seen.add(id); styles.push({id, title:LANG==='en'?(STYLE_EN[id]||v.title||id):(v.title||v.style||id)});}
     roomVariants.push({styleId:id, roomId:v.room_id||'living', variantId:v.id, index:i});
@@ -3362,7 +3386,7 @@ function drawHome(force){
   const cards=m.rooms.map(r=>{
     const rv=r.contentState==='ready'?m.roomVariants.find(x=>x.styleId===act.styleId&&x.roomId===r.id):null, v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
-    const sh=bestShot(v), fav=F&&F.ofState(F.baseState(v));
+    const sh=bestShot(v)||pubShot(v), fav=F&&F.ofState(F.baseState(v));   // правленый вариант без своего кадра — кадр опубликованного
     return {r, i:rv.index, v, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), fav:fav?(fav.displayName||''):null};
   });
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
@@ -4762,6 +4786,15 @@ function histFwd(){return histGo(1);}
  padding:24px;text-align:center;background:var(--wash-2);color:var(--ink);font-size:15px;line-height:1.45}
 .vstub p{max-width:340px;margin:0}
 #shot.nolive.vwalk .vstub{display:flex}
+/* «УЛУЧШАЮ… N %» НА ВСЮ ОБЛАСТЬ «ФОТО» (demo-20 Б3, владелец 22.10 TG 791/795): фото этой расстановки рисуется — вкладка «Фото» уже есть,
+   на ней ход работы крупно, а не только полоса на кнопке */
+.vphwait{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+ padding:24px;text-align:center;background:var(--wash-2);color:var(--ink)}
+.vphwait b{font-size:20px;font-weight:600}
+.vphwait i{display:block;width:min(260px,70%);height:6px;border-radius:999px;background:rgba(176,106,74,.18);overflow:hidden}
+.vphwait s{display:block;height:100%;width:0;background:var(--accent);transition:width 1s linear}
+.vphwait small{font-size:13.5px;color:var(--muted,#6b625b)}
+@media (prefers-reduced-motion:reduce){.vphwait s{transition:none}}
 .vready{position:absolute;left:0;right:0;margin:0 auto;width:max-content;max-width:calc(100% - 24px);top:60px;z-index:6;border:0;
  background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px;line-height:1.3;padding:7px 14px;border-radius:999px;
  box-shadow:var(--sh-2);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -4830,7 +4863,7 @@ function histFwd(){return histGo(1);}
   #shot.v2 .vzbtn{top:62px;bottom:auto;right:10px}
   .vplanbox{inset:60px 8px var(--vsh,320px) 8px}
   /* подсказка «фото готово» — сверху, под ↶ ↷: снизу её перекрывала подпись выбранного пола (самопроверка 17.10) */
-  .vstub{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
+  .vstub,.vphwait{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
   /* «Фото» на телефоне — во всю область сцены, без размытых полос; сторону обрезки выбирает `vwPhotoFocus` (мебель в центре) */
   #shot.v2 .vstage .shotwrap img.vmain{object-fit:cover}
   #shot.v2 .vstage .shotwrap img.vblur{display:none}
@@ -4950,7 +4983,11 @@ function vwHist(){
 }
 // ОКНО ВАРИАНТА БЕЗ ОЖИДАНИЯ: кадр варианта (или пустая «живая» запись, если кадров нет) — сцена покажет текущую расстановку
 // карточка, ссылка #v= → окно варианта по правилам режимов (demo-09): «Фото» при реалистичном снимке этой расстановки, иначе 3D
-function vwOpenVariant(i){ if(i>=0&&i!==cur)pickVariant(i); openLiveWindow(); }
+// сохранённая расстановка (коллекция) — со своей отделкой, как по ссылке (`openId`): иначе номер состояния не совпадёт с сохранённым,
+// и её фото в окне не найдётся (demo-20 Б3)
+function vwOpenVariant(i){ const v=allVariants()[i];
+  if(i>=0&&i!==cur){ if(v&&v.cid&&v.dev){DEVOPT=devCanon(v.dev); devApply(); devDraw();} pickVariant(i); }
+  openLiveWindow(); }
 function openLiveWindow(){
   if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
   VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null; VW.sheetVis=0;   // новое окно варианта — первая точка съёмки
@@ -5375,35 +5412,40 @@ function vwModeUi(){
   shot.querySelectorAll('[data-vm]').forEach(x=>x.classList.toggle('on',x.dataset.vm===m));
   shot.classList.toggle('vwalk',m==='walk'); shot.classList.toggle('vplan',m==='plan'); shot.classList.toggle('vphoto',m==='photo');
   // «Фото» — только когда есть реалистичный снимок ЭТОЙ расстановки (demo-09); стрелки — по снимкам в «Фото», по позам в 3D
-  const real=vwRealShots(), ph=shot.querySelector('[data-vm="photo"]'); if(ph)ph.hidden=!real.length;
+  // …или пока фото этой расстановки рисуется (demo-20 Б3): вкладка появляется сразу, на ней — ход работы (`vwPhWaitUi`)
+  const real=vwRealShots(), ph=shot.querySelector('[data-vm="photo"]'); if(ph)ph.hidden=!real.length&&!vwJobHere();
   shot.classList.toggle('vmany',m==='photo'?real.length>1:vwCamN()>1);
   // область сцены зависит от режима («3D» — на весь экран), шторка остаётся, где была (v4)
   if(VW_PHONE())requestAnimationFrame(()=>vwLayout());
   const cta=document.getElementById('vCta');
   vwCtaUi();
   vwCamsUi();
+  vwPhWaitUi();
   if(m==='plan')vwPlanDraw();
 }
 function vwMode(m){
   if(!['photo','walk','plan'].includes(m))return;
-  if(m==='photo'&&!vwRealShots().length)return;
+  if(m==='photo'&&!vwRealShots().length&&!vwJobHere())return;
+  if(VJ.job&&!VJ.self)VJ.job.moved=true;   // человек сам ушёл с вкладки — по готовности не переключаем, если он не на «Фото»
   VW.mode=m; vwModeUi();
   if(m==='plan'){liveHide(); return;}
   vwPhotoShow();
 }
 // РЕАЛИСТИЧНЫЕ СНИМКИ ТЕКУЩЕЙ РАССТАНОВКИ (demo-09, Codex п.2): не `bestShot` — тот берёт по ревизии и допускает черновик.
-// Только «realistic» этого варианта с номером состояния = текущему; по точке съёмки — последний снимок
+// Только «realistic» с номером состояния = текущему; по точке съёмки — последний снимок. Номер состояния и есть расстановка: вариант
+// не сверяем (demo-20 Б3, владелец 22.10: у избранного id `c:<id>`, а фото, снятое до сохранения, записано на вариант витрины —
+// «Фото» в окне избранного не появлялось). Старые снимки без номера — как раньше, по варианту и списку товаров
 function vwRealShots(){
   if(!D||!items)return [];
   const vid=curVid(), st=curStateId(), by=new Map();
   const v=allVariants()[cur];
-  shots.forEach(x=>{if(x.vid===vid&&x.quality==='realistic'&&x.url&&!x.svc&&!x.orphan&&(x.stateId?x.stateId===st:shotFits(x,v)))by.set(x.camera||'C1',x);});
+  shots.forEach(x=>{if(x.quality==='realistic'&&x.url&&!x.svc&&!x.orphan&&(x.stateId?x.stateId===st:x.vid===vid&&shotFits(x,v)))by.set(x.camera||'C1',x);});
   return [...by.values()].sort((a,b)=>String(a.camera||'C1').localeCompare(String(b.camera||'C1')));
 }
 const vwCamIndex=c=>Math.max(0,(+String(c||'C1').slice(1)||1)-1);
 // «Фото» — снимок выбранной точки (или первый); «3D» — живая сцена
 function vwPhotoShow(){
-  if(VW.mode==='photo'){const r=vwRealShots(); if(!r.length){vwMode('walk'); return;}
+  if(VW.mode==='photo'){const r=vwRealShots(); if(!r.length){if(vwJobHere()){liveHide(); vwPhWaitUi(); return;} vwMode('walk'); return;}
     const k=r.find(x=>(x.camera||'C1')===vwCam())||r[0]; VW.photo=vwCamIndex(k.camera);
     const i=shots.indexOf(k); if(i!==shotAt){viewShot(i); return;} liveHide(); return;}
   liveShow();
@@ -5457,7 +5499,19 @@ function vwCamNames(){
 }
 // КНОПКА «СДЕЛАТЬ РЕАЛИСТИЧНЕЕ» (demo-09 п.3, Codex п.1): видна в 3D и без 3D; в «Фото» её нет (снимок уже есть), в «Плане» —
 // «Изменить план». Во время задания — ход на самой кнопке; окно и режим не трогаются
-const VJ={job:null, err:'', tick:0};
+const VJ={job:null, err:'', tick:0, self:0};
+// фото рисуется для ЭТОЙ расстановки (задание окна или автофото избранного того же состояния)
+function vwJobHere(){ try{return !!(VJ.job&&VJ.job.stateId===curStateId());}catch(e){return false;} }
+function vwPhWaitUi(){
+  const wrap=document.querySelector('#shot .shotwrap'); if(!wrap)return;
+  let el=wrap.querySelector('.vphwait');
+  if(VW.mode!=='photo'||!vwJobHere()){if(el)el.remove(); return;}
+  if(!el){el=document.createElement('div'); el.className='vphwait'; el.setAttribute('role','status'); el.innerHTML='<b></b><i><s></s></i><small></small>'; wrap.appendChild(el);}
+  const w=photoWait(VJ.job.t0), EN=LANG==='en', nt=/^осталось/.test(VJ.job.note||'')?'':(VJ.job.note||'');
+  el.querySelector('b').textContent=(EN?'Enhancing… ':'Улучшаю… ')+Math.floor(w.pct)+' %';
+  el.querySelector('s').style.width=w.pct.toFixed(1)+'%';
+  el.querySelector('small').textContent=nt||w.text;
+}
 function vwCtaUi(){
   const cta=document.getElementById('vCta'); if(!cta)return; const m=VW.mode, EN=LANG==='en';
   const vt=cta.closest('.vtop'), h0=vt?vt.offsetHeight:0;
@@ -5511,20 +5565,28 @@ async function vwRealistic(o){
   if(VJ.job)return false;
   const c=VW.photo, job={vid:curVid(), stateId:curStateId(), cam:c, t0:Date.now(), note:'', auto:!!o.auto};
   const favDraw=()=>{try{if(window.__fav)window.__fav.draw();}catch(e){}};
-  VJ.job=job; VJ.err=''; vwCtaUi(); clearInterval(VJ.tick); VJ.tick=setInterval(()=>{vwCtaUi(); photoWaitPaint();},1000); favDraw();
-  const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();};
+  VJ.job=job; VJ.err=''; vwCtaUi(); clearInterval(VJ.tick); VJ.tick=setInterval(()=>{vwCtaUi(); photoWaitPaint(); vwPhWaitUi();},1000); favDraw();
+  // ОКНО ЭТОЙ РАССТАНОВКИ ОТКРЫТО — СРАЗУ «ФОТО» С ХОДОМ РАБОТЫ (demo-20 Б3, владелец 22.10 TG 791/795): и по кнопке «Сделать реалистичнее»,
+  // и при добавлении в избранное (автофото) — одинаково; готовое фото встанет туда само
+  const shotEl=document.getElementById('shot'), here=()=>shotEl.classList.contains('on')&&shotEl.classList.contains('v2')&&job.stateId===curStateId();
+  if(here()){VJ.self=1; vwMode('photo'); VJ.self=0;}
+  const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();
+    // не вышло — вкладка «Фото» без снимка исчезает, человек возвращается в 3D
+    if(here()&&VW.mode==='photo'&&!vwRealShots().length){VJ.self=1; vwMode('walk'); VJ.self=0;} else vwModeUi();};
   const cap=await vwCaptureViews(); VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay}:null;   // для проверок и замера
+  if(VW.mode==='photo')liveHide();   // съёмка кадров запускает цикл сцены — на «Фото» он не нужен
   makePhoto('realistic','','',{bg:true, extra:cap?{views:cap.views, clay:cap.clay, sheet:cap.sheet}:{},
     progress:t=>{job.note=t; vwCtaUi();},
     fail:(msg)=>{end(); if(job.auto){if(o.fail)o.fail(msg); favDraw(); return;} VJ.err=String(msg||'').slice(0,220); vwCtaUi(); favDraw();},
     done:(n0)=>{end();
       try{document.dispatchEvent(new CustomEvent('remlab:photo',{detail:{stateId:job.stateId, shots:shots.slice(n0)}}));}catch(e){}
       const shot=document.getElementById('shot'), open=shot.classList.contains('on')&&shot.classList.contains('v2');
-      const same=job.vid===curVid()&&job.stateId===curStateId();
-      // ГОТОВО → «ФОТО» САМО, если расстановка с нажатия не менялась; иначе — снимок в истории и подсказка (владелец 37.2)
-      // автофото избранного окно не переключает (человек мог крутить 3D) — «Фото» просто появляется среди режимов
-      if(open&&same&&job.auto){vwModeUi(); return;}
-      if(open&&same){VW.photo=job.cam; vwModeUi(); vwMode('photo'); return;}
+      // ГОТОВО → «ФОТО» САМО, если расстановка с нажатия не менялась; иначе — снимок в истории и подсказка (владелец 37.2). Сверка —
+      // по номеру состояния, не по id варианта: сохранение в избранное посреди задания делает окно коллекцией `c:<id>` с той же
+      // расстановкой (demo-20 Б3, владелец 22.10: «фото не обновилось, кнопки «Фото» нет»); автофото избранного — так же
+      const same=job.stateId===curStateId();
+      // на «Фото» или не уходил с неё — показываем готовое; ушёл сам в 3D/план — вкладка «Фото» просто есть
+      if(open&&same){VW.photo=job.cam; if(VW.mode==='photo'||!job.moved){VJ.self=1; vwMode('photo'); VJ.self=0;} else vwModeUi(); return;}
       if(open){const mine=shots.slice(n0).find(x=>(x.camera||'C1')==='C'+(job.cam+1))||shots[n0]; if(mine)vwReady(mine.url);}}});
   return true;
 }
@@ -5578,8 +5640,9 @@ const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пу�
       const n=TRY_LAST.n||1, d=sum()-before, EN=LANG==='en';
       const base=baseRole(role), what=n>1?(TRY_PLURAL[base]||base)+' ×'+n:base;
       toast((EN?'Replaced: '+what:'Заменено: '+what)+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
-      // шторка уже свёрнута — сцена с заменой видна; выделение и наведение камеры — после обновления сцены (`liveShow`, demo-15 п.2)
-      const i=items.indexOf(s0); setTimeout(()=>{if(VW.mode!=='walk')vwHighlight(i,{open:false});},200);
+      // шторка уже свёрнута — сцена с заменой видна; наведение камеры — после обновления сцены (`liveShow`, demo-15 п.2).
+      // КОНТУР СНИМАЕМ СРАЗУ (demo-20 Б4, владелец 22.10: «рамку убирать автоматически»): заменённое видно и так — камера у предмета
+      vwSelect(null);
     }
     return r;};
 })();
@@ -5642,7 +5705,7 @@ function liveEngine(){
       let rt; try{rt=(await (await fetch('rt-meshes.json',{cache:'no-store'})).json()).meshes;}catch(e){}
       const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
       const sc=window.RemlabScene.createDemoScene(cv,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href,
-        runtimeMeshes:rt, lite:isTouchUI(), floor:devFloor()||undefined, wall:devWall()||undefined});
+        runtimeMeshes:rt, lite:isTouchUI(), walk:!isTouchUI(), floor:devFloor()||undefined, wall:devWall()||undefined});
       sc.on('contextlost',()=>liveOff('видеоконтекст потерян'));
       // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Загружаем модель…» при замене
       sc.on('progress',(l,t)=>{if(LIVE.state==='warming')vwLoad(true,(LANG==='en'?'Loading models ':'Загружаем модели ')+l+(LANG==='en'?' of ':' из ')+t);
@@ -5657,7 +5720,7 @@ function liveEngine(){
       if(!LIVE.force&&!pr.software&&!isTouchUI()&&pr.p95Ms>60&&pr.p95Ms<=120){
         sc.dispose();
         const cv2=document.createElement('canvas'); cv2.className='livecv'; cv2.width=896; cv2.height=597;
-        const sc2=window.RemlabScene.createDemoScene(cv2,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true,
+        const sc2=window.RemlabScene.createDemoScene(cv2,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true, walk:!isTouchUI(),
           floor:devFloor()||undefined, wall:devWall()||undefined});
         sc2.on('contextlost',()=>liveOff('видеоконтекст потерян'));
         sc2.setSize(896,597); await sc2.ready;
@@ -5684,7 +5747,8 @@ function liveWire(){
   cv.addEventListener('pointerdown',e=>{p0={x:e.clientX,y:e.clientY}; last={...p0}; cv.setPointerCapture(e.pointerId);});
   cv.addEventListener('pointermove',e=>{if(!p0||VW.mode!=='walk')return; LIVE.scene.look(e.clientX-last.x,e.clientY-last.y); last={x:e.clientX,y:e.clientY};});
   // КОНТРАКТ ЖЕСТОВ (demo-02 v3, Codex п.4): «Фото» — горизонтальный свайп > 50 px листает ракурс; «3D» — движение > 8 px =
-  // осмотр, короткий тап в крайних 20 % ширины = поворот на 30°, по предмету = выбор, по полу = шаг туда
+  // осмотр, короткий тап в крайних 20 % ширины = поворот на 30°, по предмету = выбор, по полу = шаг туда — только с мышью: на сенсорном
+  // экране ходьбы нет (demo-20 Б6, владелец 22.10), остаются осмотр, повороты и ракурсы «со стороны двери / окна» (`walk` сцены)
   cv.addEventListener('pointerup',e=>{if(!p0)return; const dx=e.clientX-p0.x, dy=e.clientY-p0.y, tap=Math.hypot(dx,dy)<8; p0=null;
     if(!LIVE.scene)return;
     if(VW.mode==='photo'){
@@ -5749,10 +5813,9 @@ async function liveShow(){
   // казалось, что замена не сработала
   // demo-15 п.2 (владелец 18.10: «после замены фокус камеры автоматом напротив предмета»): безопасное наведение движка — поворот на
   // месте или переход на точку в 1–1.8 м, где можно стоять и предмет виден (`frameItem`); точка съёмки после этого — «своя» (`VW.free`):
-  // переключатель ракурсов вернёт к C1/C2. Ценник предмета подсвечен 3 с
+  // переключатель ракурсов вернёт к C1/C2. Без контура и ценника (demo-20 Б4): после замены выделения нет вовсе
   if(VW.mode==='walk'&&LIVE.focus!=null){const k=LIVE.focus;
-    const how=sc.frameItem?sc.frameItem(k):(sc.focus&&sc.focus(k),'turn'); LIVE.framed=how; VW.free=true; vwCamsUi(); sc.start();
-    vwSelect(k); clearTimeout(VW.pinT); VW.pinT=setTimeout(()=>{if(VW.sel===k)vwSelect(null);},3000);}
+    const how=sc.frameItem?sc.frameItem(k):(sc.focus&&sc.focus(k),'turn'); LIVE.framed=how; VW.free=true; vwCamsUi(); sc.start();}
   LIVE.focus=null;
   LIVE.state='ready'; vwLoad(false);
 }
@@ -6244,7 +6307,9 @@ async function liveShow(){
   // `auto` — рисуется улучшенное фото (`autoPhoto`): бесплатный черновик не снимаем — картинку коллекции прикрепляют один раз
   function afterSave(id,snap,auto){remember(id,snap.style||'',true); if(window.__embedEvent)window.__embedEvent('save');
     if(snap.shot)attachCollShot(id,location.origin+snap.shot); else if(!auto)snapLater(id, snap.stateId);
-    return fetchOne(id).then(function(v){if(v&&!MINE.some(function(x){return x.cid===id;})){MINE.unshift(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}
+    // новая коллекция встаёт в начало списка — открытое окно остаётся на своём варианте (номер `cur` сдвигаем, demo-20 Б3)
+    return fetchOne(id).then(function(v){if(v&&!MINE.some(function(x){return x.cid===id;})){var was=allVariants()[cur];
+        MINE.unshift(v); var k=allVariants().indexOf(was); if(k>=0)cur=k; if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}
       drawColl(true);});}
   // ДИАЛОГ ВЫБОРА (вопрос «вместо …?», превышение суммы): та же карточка, что окошко имени
   function dlg(title,text,btns){
@@ -6553,8 +6618,20 @@ async function liveShow(){
     document.body.appendChild(w);
     w.querySelectorAll('[data-lang]').forEach(function(a){a.onclick=function(e){e.preventDefault(); var l=a.dataset.lang;
       try{localStorage.setItem('remlab-lang',l);}catch(_){}
-      var u=new URL(location.href); u.searchParams.set('lang',l); location.href=u.toString();};});
+      // ТОТ ЖЕ ЭКРАН НА ДРУГОМ ЯЗЫКЕ (demo-20 Б1, владелец 22.10: «переключил — открылась первая карточка гостиной»): на главной в
+      // адресе живёт `#v=` открытого стиля, и после перезагрузки `applyHash` открывал окно варианта. Окно не открыто — якорь `#v=`
+      // убираем (стиль держит `?style=`), прокрутку возвращаем после перезагрузки
+      var u=new URL(location.href), sh=document.getElementById('shot');
+      if(/^#v=/.test(u.hash)&&!(sh&&sh.classList.contains('on')))u.hash='';
+      try{sessionStorage.setItem('remlab-lang-y',String(Math.round(pageY()||0)));}catch(_){}
+      u.searchParams.set('lang',l); location.href=u.toString();};});
   }
+  // прокрутка до смены языка: страница строится после данных — ставим, когда главная нарисована, и ещё раз на `load` (картинки)
+  (function(){var y=null; try{y=sessionStorage.getItem('remlab-lang-y'); sessionStorage.removeItem('remlab-lang-y');}catch(_){}
+    if(!y||location.hash)return; var n=0;
+    var go=function(){if(document.querySelector('#hmRooms .hm-room')){window.scrollTo(0,+y); return true;} return false;};
+    var t=setInterval(function(){if(go()||++n>40)clearInterval(t);},100);
+    window.addEventListener('load',function(){setTimeout(go,50);});})();
   if(LANG!=='en'){document.addEventListener('DOMContentLoaded',switcher); if(document.readyState!=='loading')switcher(); return;}
   document.documentElement.lang='en';
   var ROLE={'диван':'sofa','кресло':'armchair','столик':'coffee table','тв-тумба':'TV unit','ковёр':'rug','торшер':'floor lamp',

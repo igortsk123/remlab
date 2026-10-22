@@ -3,6 +3,9 @@
 // или с кадром вчерашнего набора. Шаг ночного прогона после публикации: открыть демо на проде и для каждого стиля без
 // кадра НОВЕЕ данных витрины снять черновой кадр — функциями самой страницы (`pickVariant`, `makePhoto`), без копии
 // логики расстановки. Черновой кадр — рендер на сервере, денег не стоит. Предел — WARM_MAX кадров за прогон.
+// ВАРИАНТ БЕЗ КАДРА — ОШИБКА ШАГА (demo-20 Б2, владелец 22.10: «вариантов без фото быть не должно»): главная прячет вариант без
+// кадра опубликованного состояния (`index.html:pubShot`), поэтому после прогрева каждый вариант сверяется с реестром ещё раз; кадр
+// не снялся или вариантов без кадра осталось больше WARM_MAX — код 1, шаг FAIL в дайджесте `refresh_daily`.
 //   node tools/ops/demo-warm.mjs            # прогрев прода
 //   DRY=1 node tools/ops/demo-warm.mjs      # только список стилей, кадры не снимаются
 import { chromium } from "@playwright/test";
@@ -29,7 +32,7 @@ async function main() {
   const dataTs = new Date(head.headers.get("last-modified") ?? 0).getTime();
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  let done = 0, failed = 0;
+  let done = 0, failed = 0, missing = [];
   try {
     // `?live=0` — без живой 3D-сцены: после съёмки страница открывает окно варианта, и сборка сцены программным рендером
     // (у прогрева нет видеокарты) подвешивала следующий кадр (17.10: прогон снял 1 из 5 и встал по сроку)
@@ -40,8 +43,10 @@ async function main() {
     await page.waitForTimeout(4000); // реестр кадров приезжает позже данных
     // номер опубликованного состояния — той же функцией страницы (блок STATEID), что ставит его кадрам
     // номер состояния — тем, чем его считает сама страница для кадра (`variantStateOf`, demo-09), а не своей копией формулы
-    const variants = await page.evaluate(`allVariants().map(v => ({ id: v.id, style: v.style,
-      stateId: typeof variantStateOf === "function" ? variantStateOf(v) : "" }))`);
+    // ОПУБЛИКОВАННОЕ состояние (данные витрины и своя отделка `v.dev`), а не живое: у открытого варианта живое сбивает общая отделка
+    const pub = `allVariants().filter(v => !v.mine && !v.cid).map(v => ({ id: v.id, style: v.style,
+      stateId: stateIdOf(v.items || [], (v.decor || []).filter(x => (x.sku || {}).name), D.room, v.dev || {}) }))`;
+    const variants = await page.evaluate(pub);
     const shots = await page.evaluate("(Array.isArray(shots) ? shots : []).map(s => ({ vid: s.vid, svc: !!s.svc, ts: s.ts, stateId: s.stateId || '', quality: s.quality || '', pose: ((s.cams || [])[0] || {}).pose || 1 }))");
     const poseVer = await page.evaluate("typeof POSE_VER === 'number' ? POSE_VER : 0");
     const todo = needWarm(variants, shots, dataTs, poseVer).slice(0, MAX);
@@ -50,7 +55,10 @@ async function main() {
     for (const t of todo) {
       try {
         await page.evaluate(async (i) => {
+          // кадр — опубликованного состояния: отделка варианта, а не общая (`DEVOPT`) — иначе номер состояния кадра не совпал бы
           // eslint-disable-next-line no-undef -- функции страницы демо
+          DEVOPT = devCanon(allVariants()[i].dev || {});
+          // eslint-disable-next-line no-undef
           pickVariant(i);
           // eslint-disable-next-line no-undef
           await makePhoto("draft");
@@ -66,11 +74,21 @@ async function main() {
         console.log(`  ${t.style}: ${String(e).slice(0, 160)}`);
       }
     }
+    // итог — по реестру: у каждого варианта есть кадр опубликованного состояния (снятый когда угодно — главной этого хватает)
+    const reg = await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json();
+    missing = withoutShot(variants, reg);
   } finally {
     await browser.close();
   }
   console.log(`прогрев кадров: снято ${done}, не вышло ${failed}`);
-  if (failed) console.log(`WARN:demo_warm: ${failed} стил. без свежего кадра — карточки покажут старый кадр или пустоту`);
+  if (missing.length) console.log(`ERROR:demo_warm: без кадра опубликованного состояния — ${missing.map((v) => v.style).join(", ")}: на главной их нет`);
+  else if (failed) console.log(`ERROR:demo_warm: ${failed} кадр(ов) не снялось`);
+  if (missing.length || failed) process.exitCode = 1;
+}
+
+/** Варианты, у которых в реестре нет ни одного кадра их состояния (запись реестра — `stateId` и непустой `shots`). */
+export function withoutShot(variants, reg) {
+  return variants.filter((v) => v.stateId && !reg.some((r) => r.stateId === v.stateId && (r.shots ?? []).length));
 }
 
 if (process.argv.includes("--selftest")) {
@@ -85,7 +103,10 @@ if (process.argv.includes("--selftest")) {
   const got2 = needWarm([v[0], v[4]], s2, 100, 2).map((x) => x.id).join(",");
   const ok2 = got2 === "a";
   console.log(ok2 ? "OK   эскиз прежней позы камеры — снимаем заново; фото нейросети — оставляем" : `FAIL поза: ${got2}`);
-  process.exit(ok && ok2 ? 0 : 1);
+  const miss = withoutShot(v.slice(0, 2), [{ stateId: "s1-a", shots: [{}] }, { stateId: "s1-b", shots: [] }]).map((x) => x.id).join(",");
+  const ok3 = miss === "b";
+  console.log(ok3 ? "OK   итог по реестру: вариант без кадра своего состояния — в ошибку" : `FAIL итог: ${miss}`);
+  process.exit(ok && ok2 && ok3 ? 0 : 1);
 } else {
   await main();
 }

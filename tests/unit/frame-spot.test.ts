@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { Room } from "@/contracts/apartment";
-import { canStand, frameSpot, obstacleDistanceCm, type Obstacle, type WalkArea } from "@/lib/viewer3d/walk";
+import { canStand, frameDistCm, frameSpot, obstacleDistanceCm, type Obstacle, type WalkArea } from "@/lib/viewer3d/walk";
 
-// НАВЕДЕНИЕ НА ЗАМЕНЁННЫЙ ПРЕДМЕТ (demo-15, критика Codex п.5): поворот на месте, если видно и не вплотную; иначе — точка кольца
-// 1–1.8 м, где можно стоять и предмет виден, по проходимому пути; нет такой — только поворот. Комната — как гостиная демо 439×325.
+// НАВЕДЕНИЕ НА ЗАМЕНЁННЫЙ ПРЕДМЕТ (demo-15, критика Codex п.5): поворот на месте, если видно и расстояние уже то, что нужно; иначе —
+// точка колец вокруг следа, где можно стоять и предмет виден, по проходимому пути; нет такой — только поворот. Расстояние — по
+// размеру предмета (demo-20 Б5): стул ~1 м, диван и тумба — 1,8 м. Комната — как гостиная демо 439×325.
 
 const room = { id: "living", x: 0, y: 0, w: 439, d: 325 } as unknown as Room;
 const area = (obstacles: Obstacle[]): WalkArea => ({ rooms: [room], passages: [], marginCm: 28, obstacles, bodyCm: 20 });
@@ -19,14 +20,35 @@ describe("навести камеру на предмет", () => {
     expect(fx * (sofa.x - 400) + fy * (sofa.y - 120)).toBeGreaterThan(0);          // смотрит в сторону дивана
   });
 
-  it("стоим вплотную — переход на точку в 1–1.8 м, где можно стоять", () => {
+  it("стоим вплотную — переход на точку колец нужного расстояния, где можно стоять", () => {
     const ar = area([sofa]);
     const s = frameSpot(ar, { x: 155, y: 215 }, sofa);
     expect(s.kind).toBe("move");
     const d = obstacleDistanceCm(sofa, s.x, s.y);
-    expect(d).toBeGreaterThanOrEqual(100);
-    expect(d).toBeLessThanOrEqual(190);
+    expect(d).toBeGreaterThanOrEqual(frameDistCm(sofa));
+    expect(d).toBeLessThanOrEqual(frameDistCm(sofa) + 70);
     expect(canStand(ar, s.x, s.y)).toBe(true);
+  });
+
+  it("расстояние — по размеру предмета: стул ближе, диван и тумба дальше, в пределах 60–180 см", () => {
+    const chair: Obstacle = { x: 0, y: 0, w: 45, d: 50, h: 85, rot: 0 };
+    const tv: Obstacle = { x: 0, y: 0, w: 160, d: 40, h: 50, rot: 0 };
+    expect(frameDistCm(chair)).toBeGreaterThan(80);
+    expect(frameDistCm(chair)).toBeLessThan(130);
+    expect(frameDistCm(tv)).toBe(180);
+    expect(frameDistCm(sofa)).toBe(180);
+    expect(frameDistCm({ w: 10, d: 10, h: 10 })).toBe(60);
+  });
+
+  it("маленький предмет далеко — не поворот издалека, а подойти (владелец 22.10: «издалека не видно»)", () => {
+    const chair: Obstacle = { x: 380, y: 270, w: 45, d: 50, h: 85, rot: 180 };
+    const ar = area([sofa, chair]);
+    const s = frameSpot(ar, { x: 60, y: 60 }, chair);
+    expect(s.kind).toBe("move");
+    const d = obstacleDistanceCm(chair, s.x, s.y);
+    expect(d).toBeGreaterThanOrEqual(frameDistCm(chair));
+    expect(d).toBeLessThanOrEqual(frameDistCm(chair) + 70);
+    expect(s.item).toBe(chair);
   });
 
   it("высокий шкаф между камерой и предметом — обходим, а не смотрим в шкаф; низкий столик взгляду не мешает", () => {

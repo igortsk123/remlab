@@ -115,6 +115,21 @@ describe("описание проёма", () => {
     expect(leafTipZ({ ...base, swingCm: 0 }).z).toBeLessThan(-70);
     expect(Math.abs(leafTipZ(base, true).z)).toBeLessThan(0.01);
   });
+
+  it("закрытое полотно заходит под коробку со всех сторон — щели, сквозь которую видно улицу, нет (demo-20 Б6)", () => {
+    for (const hinge of ["left", "right"] as const) {
+      const ir = openingIR({ kind: "door", wall: "south", offsetCm: 100, widthCm: 90, hinge }, { ...H, entrance: true });
+      const g = ir.groups.leaf!;
+      const leaf = ir.boxes.find((x) => x.role === "leaf")!;
+      const casings = ir.boxes.filter((x) => x.role === "casing");
+      const ends = [g.x, g.x + Math.cos((g.rotYDeg * Math.PI) / 180) * leaf.w].sort((a, b) => a - b);
+      const jambs = casings.filter((x) => x.h > x.w).map((x) => [x.x - x.w / 2, x.x + x.w / 2]).sort((a, b) => a[0]! - b[0]!);
+      const head = casings.find((x) => x.w > x.h)!;
+      expect(ends[0]!).toBeLessThanOrEqual(jambs[0]![1]!);                     // у петли — под левой стойкой
+      expect(ends[1]!).toBeGreaterThanOrEqual(jambs[1]![0]!);                  // у ручки — под правой стойкой
+      expect(leaf.h).toBeGreaterThanOrEqual(head.y - head.h / 2);              // верх — под перекладиной
+    }
+  });
 });
 
 describe("вид из окна (demo-04 п.5)", () => {

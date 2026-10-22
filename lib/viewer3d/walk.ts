@@ -182,20 +182,32 @@ export function nearestStandable(
   return null;
 }
 
-/** Наведение на предмет (demo-15): не ближе 1 м к его следу, кольцо поиска точки 1–1.8 м, «высокое» закрывает взгляд от 110 см. */
-export const FRAME_MIN_CM = 100;
-const FRAME_RING_CM = [100, 140, 180], FRAME_TALL_CM = 110;
+/** Наведение на предмет: «высокое» закрывает взгляд от 110 см; до следа — от 60 до 180 см по размеру предмета (`frameDistCm`). */
+const FRAME_NEAR_CM = 60, FRAME_FAR_CM = 180, FRAME_TALL_CM = 110, FRAME_FILL = 0.45;
 
 /**
- * ОТКУДА СМОТРЕТЬ НА ПРЕДМЕТ (demo-15, критика Codex п.5): `turn` — текущая точка годится (до следа ≥ 1 м, взгляд не закрыт
- * высоким), только поворот; `move` — ближайшая к текущей точка кольца 1–1.8 м вокруг следа, где можно стоять, предмет виден и
- * прямой путь проходим; `none` — такой нет, только поворот. `rot` — взгляд позы на предмет: (sin rot, −cos rot).
+ * СКОЛЬКО ДО СЛЕДА ПРЕДМЕТА, ЧТОБЫ ЕГО БЫЛО ВИДНО (demo-20 Б5, владелец 22.10: «после замены ТВ-тумбы и стульев камера должна
+ * подойти ближе — сейчас издалека не видно»): больший из размеров (ширина, высота) занимает ~45 % ширины кадра; от центра —
+ * минус половина глубины. Стул ≈ 1 м, тумба и диван — 1,8 м.
  */
-export function frameSpot(area: WalkArea, cur: { x: number; y: number }, at: { x: number; y: number }): { x: number; y: number; rot: number; kind: "turn" | "move" | "none" } {
+export function frameDistCm(it: Pick<Obstacle, "w" | "d" | "h">, hfovDeg = 72): number {
+  const half = Math.max(it.w, it.h ?? 0) / 2;
+  const want = half / Math.tan((hfovDeg * Math.PI) / 360) / FRAME_FILL - it.d / 2;
+  return Math.max(FRAME_NEAR_CM, Math.min(FRAME_FAR_CM, want));
+}
+
+/**
+ * ОТКУДА СМОТРЕТЬ НА ПРЕДМЕТ (demo-15, критика Codex п.5; demo-20 Б5 — дистанция по размеру): `turn` — текущая точка уже на нужном
+ * расстоянии (0,7–1,4 от `frameDistCm`) и взгляд не закрыт высоким, только поворот; `move` — ближайшая к текущей точка колец
+ * [нужное, +30, +60 см] вокруг следа, где можно стоять, предмет виден и прямой путь проходим; `none` — такой нет, только поворот.
+ * `rot` — взгляд позы на предмет: (sin rot, −cos rot); `item` — след предмета (по нему наклон взгляда).
+ */
+export function frameSpot(area: WalkArea, cur: { x: number; y: number }, at: { x: number; y: number }, hfovDeg = 72): { x: number; y: number; rot: number; kind: "turn" | "move" | "none"; item: Obstacle } {
   const obs = area.obstacles ?? [];
   // след предмета — тот же, что у прогулки (её поворот и размеры), иначе «вокруг» считалось бы не от того контура
   let it: Obstacle = { x: at.x, y: at.y, w: 1, d: 1, rot: 0 }, bd = 15;
   for (const o of obs) { const d = Math.hypot(o.x - at.x, o.y - at.y); if (d < bd) { bd = d; it = o; } }
+  const want = frameDistCm(it, hfovDeg);
   const aim = (px: number, py: number) => (Math.atan2(it.x - px, -(it.y - py)) * 180) / Math.PI;
   const seen = (ax: number, ay: number) => {
     const n = Math.max(4, Math.ceil(Math.hypot(it.x - ax, it.y - ay) / 10));
@@ -214,20 +226,21 @@ export function frameSpot(area: WalkArea, cur: { x: number; y: number }, at: { x
     }
     return true;
   };
-  if (obstacleDistanceCm(it, cur.x, cur.y) >= FRAME_MIN_CM && seen(cur.x, cur.y)) return { x: cur.x, y: cur.y, rot: aim(cur.x, cur.y), kind: "turn" };
+  const now = obstacleDistanceCm(it, cur.x, cur.y);
+  if (now >= want * 0.7 && now <= want * 1.4 && seen(cur.x, cur.y)) return { x: cur.x, y: cur.y, rot: aim(cur.x, cur.y), kind: "turn", item: it };
   let best: { x: number; y: number; cost: number } | null = null;
   for (let a = 0; a < 360; a += 15) {
     const dx = Math.sin((a * Math.PI) / 180), dy = -Math.cos((a * Math.PI) / 180);
-    for (const want of FRAME_RING_CM) {
+    for (const ring of [want, want + 30, want + 60]) {
       let r = 5;
-      while (r < 700 && obstacleDistanceCm(it, it.x + dx * r, it.y + dy * r) < want) r += 5;
+      while (r < 700 && obstacleDistanceCm(it, it.x + dx * r, it.y + dy * r) < ring) r += 5;
       const px = it.x + dx * r, py = it.y + dy * r;
       if (!canStand(area, px, py) || !seen(px, py) || !path(px, py)) continue;
       const cost = Math.hypot(px - cur.x, py - cur.y);
       if (!best || cost < best.cost) best = { x: px, y: py, cost };
     }
   }
-  if (best) return { x: best.x, y: best.y, rot: aim(best.x, best.y), kind: "move" };
-  return { x: cur.x, y: cur.y, rot: aim(cur.x, cur.y), kind: "none" };
+  if (best) return { x: best.x, y: best.y, rot: aim(best.x, best.y), kind: "move", item: it };
+  return { x: cur.x, y: cur.y, rot: aim(cur.x, cur.y), kind: "none", item: it };
 }
 
