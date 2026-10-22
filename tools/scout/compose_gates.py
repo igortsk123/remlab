@@ -75,6 +75,29 @@ def admit(sku: str, img: str | None) -> str | None:
     return None
 
 
+# ВЫЛЕТ ПОДВЕСА (catalog-holes-bank Н2в, этап 1 без миграции; разбор Codex 23.10). Под люстрой нужен проход 210 см
+# (СП 59.13330.2020; ADA §307.4 — 203 см), базовый потолок квартиры — 270 см → подвес не длиннее 60 см. Высота люстры
+# в фиде — это и есть вылет от потолка; у диапазона «50/160» резолвер берёт нижнюю границу (минимальная подвеска).
+# Этап 2 (⚑ миграция) — поля вылета min/max и гейт в солвере по `Room.ceiling_cm`.
+CEILING_CM, CLEARANCE_CM = 270, 210
+DROP_MAX_CM = CEILING_CM - CLEARANCE_CM
+_NO = {'', 'нет', 'no', '0', '-', 'false'}
+
+
+def pendant_out(h: float | None, h_source: str | None, h_cm: str | float | None, adjustable: str | None) -> str | None:
+    """None — люстра годна для слота по вылету; иначе причина. Без высоты и без признаков подвеса — как раньше (ждёт каталог)."""
+    if h is not None:
+        return f'вылет {h:g} см > {DROP_MAX_CM} (проход {CLEARANCE_CM} при потолке {CEILING_CM})' if h > DROP_MAX_CM else None
+    if (h_source or '').endswith('-suspension'):
+        try:
+            return f'подвес {float(h_cm):g} см > {DROP_MAX_CM} (проход {CLEARANCE_CM} при потолке {CEILING_CM})'
+        except (TypeError, ValueError):
+            return 'подвес длиннее нормы, число не разобрано'
+    if (adjustable or '').strip().lower() not in _NO:
+        return 'регулируемый подвес без высоты — вылет неизвестен'
+    return None
+
+
 def summary() -> str:
     n = sum(FAILS.values())
     if not n:
@@ -125,6 +148,14 @@ def _selftest() -> int:
         fake(blocked={'1:k': 'нет высоты (h_cm) — меш не заказать'})
         ok('мешевая роль без высоты / чёрный список кандидата — отказ до сборки с причиной, прочие — как раньше',
            admit('1:k', '//img') == 'нет высоты (h_cm) — меш не заказать' and admit('1:a', '//img') is None)
+        ok('вылет: 60 см — годен, 61 — вне слота с причиной', pendant_out(60, 'param', None, 'Да') is None
+           and 'вылет 61 см > 60' in (pendant_out(61, 'param', None, '') or ''))
+        ok('плоская и обычная люстра — годна', pendant_out(2.5, 'param', None, 'Нет') is None)
+        ok('длинный подвес без h (резолвер: suspension) — вне слота, число в причине',
+           'подвес 230 см' in (pendant_out(None, 'param-suspension', '230.0', '') or ''))
+        ok('регулируемый без высоты — вне слота; «нет»/пусто без высоты — как раньше (ждёт каталог)',
+           pendant_out(None, None, None, 'да') and pendant_out(None, None, None, 'нет') is None
+           and pendant_out(None, 'param-insane', None, None) is None)
         sys.modules['slot_contract'] = types.SimpleNamespace()     # модуль без функций — ImportError
         FAILS.clear()
         ok('нет функции проверки — отказ (а не пропуск)', admit('1:a', '//img') == 'сбой проверки фото')

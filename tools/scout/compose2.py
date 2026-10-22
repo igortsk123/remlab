@@ -127,7 +127,7 @@ def size_gate(band_name,role,w):
     rng=SIZEB.get(band_name,{}).get(role)
     if not rng or rng==[0,0] or not w: return True   # нет правила/размера — не гейтим
     return rng[0]<=w<=rng[1]
-PSQL=["docker","exec","-i","remlab-devdb","psql","-U","remlab","-d","remlab","-q","-v","ON_ERROR_STOP=1","-t","-A","-F","\x1f"]
+PSQL=["docker","exec","-i","remlab-devdb","psql","-U","remlab","-d",os.environ.get("REMLAB_DEVDB_NAME","remlab"),"-q","-v","ON_ERROR_STOP=1","-t","-A","-F","\x1f"]
 def rows(q):
     r=subprocess.run(PSQL,input=q,capture_output=True,text=True)
     if r.returncode!=0: print(r.stderr[:400]); sys.exit(1)
@@ -234,6 +234,9 @@ def cos(a_key,b_key):
 
 # ---------- каталог ----------
 import footprint as _fp   # одно правило «размер известен» для сборки/лечения/экспорта/сцены (Р1)
+# Категория без размеров (n ≥ 5, ни одного измеренного Ш и В — фурнитура mdm под «шкаф»/«стеллаж») в пул не идёт:
+# роль у неё осталась (загрузка), а в подбор — нет (catalog-holes-bank Н1, 23.10). Правило — `dimless.py`
+import dimless as _DL
 _no_fp={}
 ROLES=['диван','кресло','пуф','столик','тв-тумба','комод','стеллаж','витрина','стенка',
  'стол обеденный','стул','камин','кашпо','торшер','ковёр','лампа','люстра','ваза','статуэтка',
@@ -244,9 +247,11 @@ print("Загружаю каталог...",flush=True)
 raw=rows("""select p.cat_role, p.shop_mid, p.external_id, p.name, p.w_cm, p.d_cm, p.len_cm, p.dia_cm, p.h_cm,
  p.price_rub, p.shop, p.image_url,
  coalesce(p.direct_url, replace(replace(replace(substring(p.url from 'goto=([^&]+)'),'%3A',':'),'%2F','/'),'%3F','?')),
- coalesce(p.params->>'Материал','')||' '||coalesce(p.params->>'Назначение','')||' '||coalesce(p.params->>'Тип','')
+ coalesce(p.params->>'Материал','')||' '||coalesce(p.params->>'Назначение','')||' '||coalesce(p.params->>'Тип',''),
+ coalesce(p.dims_evidence->'h'->>'source',''), coalesce(p.dims_evidence->'h'->>'cm',''), coalesce(p.params->>'Регулируемая высота','')
  from products p
  where p.cat_role is not null and p.price_rub is not null and p.image_url is not null and p.in_stock
+   and """+_DL.exclude_sql('p')+"""
  order by p.price_rub, p.shop_mid, p.external_id""")
 assert len(raw)>1000, f"каталог-запрос вернул {len(raw)} строк — SQL сломан, СТОП (не собирать пустые сеты)"
 
@@ -275,12 +280,20 @@ if _stale_mids:
 # СИСТЕМНЫЙ фильтр пригодности — общий с лечением демо (`unfit.py`, 15.10)
 from unfit import UNFIT_ANY, UNFIT_BY_CLASS, unfit  # noqa: E402,F401
 cat={}
+_pendant_out={}
 for r in raw:
     role=r[0]
     if role not in ROLES: continue
     if (int(r[1]),r[2]) in BLACK: continue
     if unfit(role,r[3],r[13] if len(r)>13 else '', float(r[8]) if r[8] else None, float(r[7]) if r[7] else None,
              d=float(r[5]) if r[5] else None): continue
+    if role=='люстра':   # вылет подвеса ≤ потолок − проход (catalog-holes-bank Н2в): иначе вне слота, с причиной
+        _why=_CG.pendant_out(float(r[8]) if r[8] else None, r[14] if len(r)>14 else '', r[15] if len(r)>15 else '',
+                             r[16] if len(r)>16 else '')
+        if _why:
+            _k=_why.split(' ')[0] if not _why.startswith('регулир') else 'регулируемый без высоты'   # «вылет»/«подвес»
+            _pendant_out[_k]=_pendant_out.get(_k,0)+1
+            continue
     k=(r[10],model_key(r[3]))
     pool=cat.setdefault(role,{})
     if k in pool: continue
@@ -297,6 +310,9 @@ for r in raw:
     pool[k]=dict(mid=int(r[1]),eid=r[2],name=r[3],w=w,d=d,dia=dia,h=h,fp=fp,
                  price=int(r[9]),shop=r[10],img=r[11],url=r[12],**tag(r[3]))
 cat={role:list(p.values()) for role,p in cat.items()}
+if _pendant_out:
+    print(f'[pool] люстры вне слота по вылету (> {_CG.DROP_MAX_CM} см: проход {_CG.CLEARANCE_CM} при потолке {_CG.CEILING_CM}): '
+          + ', '.join(f'{k} {n}' for k,n in sorted(_pendant_out.items(), key=lambda kv:-kv[1])), flush=True)
 if _no_fp:
     print('[pool] напольные без размера (в расстановку не берём, витрина покажет «размеры не указаны магазином»): '
           + ', '.join(f'{r} {n}' for r,n in sorted(_no_fp.items(), key=lambda kv:-kv[1])), flush=True)

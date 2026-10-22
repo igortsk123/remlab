@@ -44,11 +44,11 @@ ROLES_PATH = os.environ.get('SCOUT_ROLES_PATH') or os.path.join(HERE, 'category-
 FRESH_PATH = os.path.join(HERE, 'feed-freshness.json')
 PSQL = shlex.split(os.environ.get('SCOUT_PSQL_CMD') or '') or [
     "docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", "remlab", "-q", "-v", "ON_ERROR_STOP=1"]
-HASH_VERSION = 4          # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси по магазину/роли; 4 — tvoydom оси перевёрнуты по замеру + тройка в названии (03.09)
+HASH_VERSION = 5          # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси по магазину/роли; 4 — tvoydom оси перевёрнуты по замеру + тройка в названии (03.09); 5 — пороги правдоподобия по роли: плоский свет, ваза-шар, роль света по «Тип» (catalog-holes-bank, 23.10)
 # Отпечаток правил разбора размеров (`dim_resolver.rules_fingerprint`), при котором действует HASH_VERSION.
 # Правила изменились → селфтест `dim_resolver` красный, пока не поднят HASH_VERSION и не записан новый
 # отпечаток (13.10: правила осей 11.10 без подъёма версии дали +3 761 ложных stale, сняты по снимку 05.10).
-RULES_FINGERPRINT = 'd6014fd2a910'
+RULES_FINGERPRINT = 'e6a298e1108d'
 SHRINK_RATIO = 0.7
 DESC_MAX = 1500
 
@@ -236,6 +236,9 @@ def assign(o: dict, catrole: dict, known: set) -> dict:
     elif role == 'ковёр' and _rug_kids(o.get('pic_hd') or o.get('pic')):
         role = None       # детский ковёр ПО КАРТИНКЕ (demo-05, 17.10): решение нейросети-зрителя из кэша `rug_kids.py`, без сети
         o['kids_visual'] = True
+    # СВЕТ ПО ТИПУ ТОВАРА (catalog-holes-bank Н2а): встраиваемый/трековый/подсветка/принадлежность — строка грузится БЕЗ
+    # роли (как детское: не в архив), «Светильник настенный» в ветке люстр — бра. До разбора размеров: потолок высоты по роли
+    role, o['role_note'] = category_map.light_role(role, o['name'], o.get('params'))
     o['role'] = role
     o['known'] = key in known
     o['accepted'] = accepted
@@ -368,6 +371,13 @@ def main() -> int:
             feed_of_mid.setdefault(mid, fh)
 
     accepted = [o for o in offers if o['accepted']]
+    light = {}
+    for o in accepted:
+        if o.get('role_note'):
+            k = 'бра' if o['role'] == 'бра' else 'без роли'
+            light[k] = light.get(k, 0) + 1
+    if light:
+        print('свет по типу товара (Н2а): ' + ', '.join(f'{k} — {v}' for k, v in sorted(light.items())), flush=True)
     mismatch = sum(1 for o in offers if o['mid_mismatch'])
     if mismatch:
         print(f'WARN:mid_mismatch: у {mismatch} офферов merchant_id не совпадает с mid в ссылке (взят атрибут)', flush=True)
@@ -493,12 +503,16 @@ on conflict (shop_mid,external_id) do update set
   h_cm   =case when p.dims_source in ('scrape','manual') then p.h_cm    else excluded.h_cm    end,
   len_cm =case when p.dims_source in ('scrape','manual') then p.len_cm  else excluded.len_cm  end,
   dia_cm =case when p.dims_source in ('scrape','manual') then p.dia_cm  else excluded.dia_cm  end,
+  -- провенанс выведенной глубины живёт вместе с самим числом (catalog-holes-bank Н6): раньше `role_prior` оставался
+  -- в d_cm, а источник стирался — 1 272 глубины выглядели измеренными, а следующая загрузка их стирала («мигание»)
   dims_source  =case when p.dims_source in ('scrape','manual') then p.dims_source
                      when excluded.d_cm is null and p.dims_evidence->'d'->>'source' = 'mesh_ratio'
                        then coalesce(excluded.dims_source,'') || ' mesh:1'
+                     when excluded.d_cm is null and p.dims_evidence->'d'->>'source' = 'role_prior'
+                       then coalesce(excluded.dims_source,'') || ' prior:1'
                      else excluded.dims_source end,
   dims_evidence=case when p.dims_source in ('scrape','manual') then p.dims_evidence
-                     when excluded.d_cm is null and p.dims_evidence->'d'->>'source' = 'mesh_ratio'
+                     when excluded.d_cm is null and p.dims_evidence->'d'->>'source' in ('mesh_ratio','role_prior')
                        then coalesce(excluded.dims_evidence,'{{}}'::jsonb) || jsonb_build_object('d', p.dims_evidence->'d')
                      else excluded.dims_evidence end,
   params=excluded.params, cat_role=excluded.cat_role,

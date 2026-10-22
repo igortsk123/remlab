@@ -49,9 +49,12 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dimless as DL  # noqa: E402 — категория без размеров: приор не ложится (catalog-holes-bank Н1)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, 'dim-priors.json')
-PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
+PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', os.environ.get('REMLAB_DEVDB_NAME', 'remlab'),
         '-v', 'ON_ERROR_STOP=1', '-q', '-t', '-A', '-F', '\t']
 MIN_N = int(os.environ.get('DIM_PRIOR_MIN_N', '30'))
 # 0.45, а не 0.35: шкаф даёт 0.40 (40/50/60) и это физично — шкафы действительно 40–60 см глубиной.
@@ -106,6 +109,9 @@ def gate(n: int, p10: float, p75: float, p90: float, med: float) -> tuple[bool, 
 
 def calibrate() -> dict:
     """Замер по (роль, форма) на товарах, чья глубина ПРИШЛА ИЗ ФИДА."""
+    # ИСТОЧНИК ОБЯЗАТЕЛЕН (catalog-holes-bank Н6, 23.10): прежнее `coalesce(source,'feed')` считало измеренной глубину
+    # БЕЗ evidence — а это 1 272 приора, чей провенанс стёр `load3` (шкаф 50 ×834, стеллаж 35 ×169, подушка 40 ×141).
+    # Калибровка училась на собственных медианах и сужала разброс. Резолвер и меш пишут evidence каждой оси.
     # НАЗВАНИЕ — ПОСЛЕДНЕЙ КОЛОНКОЙ (11.10): в названиях товаров встречается табуляция, а вывод
     # psql разбирается по табам. Стояло бы `name` в середине — сдвинулась бы сама глубина, и
     # калибровка соврала бы молча (поймано падением на распаковке).
@@ -113,7 +119,8 @@ def calibrate() -> dict:
       select coalesce(cat_role,''), d_cm, replace(name, chr(9), ' ')
         from products
        where in_stock and d_cm is not null and cat_role is not null
-         and coalesce(dims_evidence->'d'->>'source','feed') not in ('role_prior','mesh_ratio')
+         and dims_evidence->'d'->>'source' is not null
+         and dims_evidence->'d'->>'source' !~ '^(role_prior|mesh_ratio|shape_rule)'
     """)
     groups: dict[tuple[str, str], list[float]] = {}
     for r in rows:
@@ -170,10 +177,26 @@ def main() -> int:
         print(__doc__.strip().splitlines()[-4])
         return 1
 
-    rows = db("""
-      select shop_mid, external_id, coalesce(cat_role,''), replace(name, chr(9), ' ')
-        from products
-       where in_stock and d_cm is null and cat_role is not null and image_url is not null
+    # УБОРКА ДО ПРИМЕНЕНИЯ (catalog-holes-bank Н6 + Н1, атомарно с провенансом в load3):
+    # 1) глубина без источника — выведенная, чей провенанс стёрла прежняя загрузка (`load3` до Н6 хранил число, но не
+    #    `dims_evidence.d`): выглядит измеренной и учит калибровку. Резолвер пишет evidence каждой своей оси, ручные и
+    #    скрейпленные размеры помечены `dims_source` — значит «d есть, evidence.d нет» = потерянный вывод. Снимаем; ниже
+    #    приор вернёт её с провенансом там, где можно.
+    # 2) приор глубины на категории без размеров (`dimless.py`: фурнитура mdm — «шкаф 50 см») — снимаем, не возвращаем.
+    orphan = db("""with x as (update products set d_cm = null,
+                   dims_source = nullif(btrim(replace(coalesce(dims_source,''), ' prior:1', '')), '')
+                 where d_cm is not null and (dims_evidence is null or dims_evidence->'d' is null)
+                   and coalesce(dims_source,'') !~ '(scrape|manual)' returning 1) select count(*) from x""")
+    gone = db(f"""with x as (update products p set d_cm = null, dims_evidence = p.dims_evidence - 'd',
+                   dims_source = nullif(btrim(replace(coalesce(p.dims_source,''), ' prior:1', '')), '')
+                 where p.dims_evidence->'d'->>'source' = 'role_prior' and not ({DL.exclude_sql('p')})
+               returning 1) select count(*) from x""")
+    print(f'снято глубин без источника: {orphan[0][0]}; приоров на категориях без размеров: {gone[0][0]}')
+    rows = db(f"""
+      select p.shop_mid, p.external_id, coalesce(p.cat_role,''), replace(p.name, chr(9), ' ')
+        from products p
+       where p.in_stock and p.d_cm is null and p.cat_role is not null and p.image_url is not null
+         and {DL.exclude_sql('p')}
     """)
     done, skip = 0, {}
     for r in rows:

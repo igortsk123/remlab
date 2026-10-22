@@ -24,6 +24,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'salad'))
 sys.path.insert(0, HERE)   # корень побеждает salad/ (см. render_strategy.py)
+import dimless as DL  # noqa: E402 — категория без размеров вне спроса мешей (catalog-holes-bank Н1)
 # Источник привязки — реестр поколений `mesh_generations` (05.09), не обход диска: диск читает
 # `salad/ingest_registry.py` шагом раньше, и «текущее поколение» решается в одном месте.
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab',
@@ -107,6 +108,9 @@ update products p set mesh_required = true, mesh_policy_version = {ver}
    -- осей того же дня. Исключение — роли с круглым/квадратным пятном: им нода честно берёт
    -- `d = w` (`salad/worker.py:227`), канон списка — `rules/asset-strategies.json`.
    and (p.d_cm is not null or p.dia_cm is not null or p.cat_role in ({lit(square)}))
+   -- КАТЕГОРИЯ БЕЗ РАЗМЕРОВ — НЕ В СПРОС (catalog-holes-bank Н1, 23.10): фурнитура mdm под ролями шкафа/стеллажа
+   -- (n ≥ 5, ни одного измеренного Ш и В) — меш оплатили бы за рельс и корзину. Правило — `dimless.py`
+   and {DL.exclude_sql('p')}
    and e.enriched_at is not null and e.payload->'model'->'styles' is not null;
 commit;""")
     return len(need), len(skip)

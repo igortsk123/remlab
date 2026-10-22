@@ -164,6 +164,19 @@ ROLE_MAX_CM = {
 ROLE_MAX_H_CM = {'ваза': 120, 'статуэтка': 110, 'лампа': 100, 'бра': 80,
                  'люстра': 150, 'часы': 120, 'кашпо': 120, 'подушка': 80, 'плед': 260}
 MIN_CM = 5.0    # меньше 5 см любая ось мебели/декора неправдоподобна
+# НИЖНИЙ ПОРОГ ВЫСОТЫ ПО РОЛИ (catalog-holes-bank Н2б, 23.10) — зеркало `ROLE_MAX_H_CM` снизу. Накладной потолочный и
+# настенный свет бывает плоским: панель 2,5 см, «таблетка» 3,6 см — 259 светильников теряли высоту как «неправдоподобную».
+# Только люстра/бра: настольная лампа и торшер ниже 5 см не бывают, там это мусор. 0,1 см (6 штук) — мусор и для света.
+ROLE_MIN_H_CM = {'люстра': 1.0, 'бра': 1.0}
+# ДЛИННЫЙ ПОДВЕС (Н2в, этап 1): «Высота 230 см» у люстры — длина троса, а не мусор. Высоту `h_cm` по-прежнему не пишем
+# (солвер, меш и сцена приняли бы её за рост предмета), но и в «нет высоты» не прячем: evidence `<источник>-suspension`
+# с числом `cm` — подбор (`compose_gates.pendant_out`) исключает такой подвес из слота «люстра» с причиной.
+PENDANT_MAX_CM = 600.0
+# ВАЗА-ШАР БЕЗ ВЫСОТЫ (Н4): у шара высота = горизонтальный габарит (диаметр или Ш≈Г). Геометрия, не приор; ошибка
+# до ~20 % (срез горла, ножка) — допустимо для гейта «влезает». Провенанс `shape_rule:sphere`.
+SPHERE_ROLES = frozenset({'ваза', 'кашпо'})
+SPHERE_RX = re.compile(r'(?<![а-яёa-z])шар(?![а-яёa-z])|сферическ', re.I)
+SPHERE_WD_TOL = 0.10   # Ш и Г различаются не больше чем на 10 % — круглый в плане
 
 _num = re.compile(r'\d+(?:[.,]\d+)?')
 _title_triple = re.compile(r'(\d{2,4})\s*[x×хXХ*]\s*(\d{2,4})(?:\s*[x×хXХ*]\s*(\d{2,4}))?')
@@ -224,6 +237,26 @@ def title_numbers(name: str) -> set[float]:
     return out
 
 
+def role_min(role: str | None, dim: str) -> float:
+    if dim == 'h':
+        return ROLE_MIN_H_CM.get(role or '', MIN_CM)
+    return MIN_CM
+
+
+def sphere_height(role: str | None, name: str, dims: dict) -> tuple[float, str] | None:
+    """(высота, из чего) для вазы/кашпо-шара без высоты; None — правило не применимо."""
+    if role not in SPHERE_ROLES or dims.get('h') is not None or not SPHERE_RX.search(name or ''):
+        return None
+    dia, w, d = dims.get('dia'), dims.get('w'), dims.get('d')
+    if dia:
+        h, src = max(x for x in (dia, w, d) if x), 'dia'
+    elif w and d and abs(w - d) <= SPHERE_WD_TOL * max(w, d):
+        h, src = max(w, d), 'w=d'
+    else:
+        return None
+    return (h, src) if role_min(role, 'h') <= h <= role_max(role, 'h') else None
+
+
 def role_max(role: str | None, dim: str) -> float:
     if dim == 'h':
         return ROLE_MAX_H_CM.get(role or '', 330.0)
@@ -252,7 +285,7 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
         raw, key_used, val_str = None, None, ''
         if dim in ttriple and dim in ('w', 'd', 'h'):
             val = ttriple[dim]
-            if MIN_CM <= val <= role_max(role, dim) * 1.15:
+            if role_min(role, dim) <= val <= role_max(role, dim) * 1.15:
                 dims[dim] = val
                 evidence[dim] = {'raw': val, 'unit': 'cm', 'source': 'title-triple'}
                 counts['title-triple'] = counts.get('title-triple', 0) + 1
@@ -267,7 +300,7 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
             raw, key_used, val_str = comp[dim][0], comp[dim][1], params.get(comp[dim][1], '')
         if raw is None and dim in tdims:
             # название — единственный источник; числа в нём считаем сантиметрами (см. title_numbers)
-            dims[dim] = tdims[dim] if MIN_CM <= tdims[dim] <= role_max(role, dim) * 1.15 else None
+            dims[dim] = tdims[dim] if role_min(role, dim) <= tdims[dim] <= role_max(role, dim) * 1.15 else None
             if dims[dim] is not None:
                 evidence[dim] = {'raw': tdims[dim], 'unit': 'cm', 'source': 'title-only'}
                 counts['title-only'] = counts.get('title-only', 0) + 1
@@ -303,16 +336,16 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
         if unit is None:
             pr = priors.get(f'{mid}:{role or "?"}:{dim}')
             if pr and pr['n'] >= LEARN_MIN_N:
-                if pr['unit'] == 'mm' and raw / 10 >= MIN_CM:
+                if pr['unit'] == 'mm' and raw / 10 >= role_min(role, dim):
                     unit, source = 'mm', 'prior'
-                elif pr['unit'] == 'cm' and MIN_CM <= raw <= role_max(role, dim):
+                elif pr['unit'] == 'cm' and role_min(role, dim) <= raw <= role_max(role, dim):
                     unit, source = 'cm', 'prior'
         # 4. Правдоподобие по роли
         if unit is None:
-            mx = role_max(role, dim)
-            if MIN_CM <= raw <= mx:
+            mx, mn = role_max(role, dim), role_min(role, dim)
+            if mn <= raw <= mx:
                 unit, source = 'cm', 'plaus'
-            elif raw > mx and MIN_CM <= raw / 10 <= mx:
+            elif raw > mx and mn <= raw / 10 <= mx:
                 unit, source = 'mm', 'plaus'
 
         if unit is None:
@@ -323,8 +356,12 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
         val = round(raw / 10, 1) if unit == 'mm' else raw
         # Ролевой sanity-clamp итога: даже правильно разрешённая единица не спасает от
         # мусорного сырья (объём/артикул в размерном поле) — ваза «190 см» невозможна
-        if not (MIN_CM <= val <= role_max(role, dim) * 1.15):
+        if not (role_min(role, dim) <= val <= role_max(role, dim) * 1.15):
             dims[dim] = None
+            if role == 'люстра' and dim == 'h' and role_max(role, dim) * 1.15 < val <= PENDANT_MAX_CM:
+                evidence[dim] = {'raw': raw, 'unit': unit, 'source': f'{source}-suspension', 'cm': val}
+                counts['suspension'] = counts.get('suspension', 0) + 1
+                continue
             evidence[dim] = {'raw': raw, 'unit': unit, 'source': f'{source}-insane'}
             counts['unresolved'] = counts.get('unresolved', 0) + 1
             continue
@@ -333,6 +370,11 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
         tag = source if unit == 'cm' else f'{source}-mm'
         counts[tag] = counts.get(tag, 0) + 1
 
+    sph = sphere_height(role, name, dims)
+    if sph:
+        dims['h'] = sph[0]
+        evidence['h'] = {'raw': sph[0], 'unit': 'cm', 'source': 'shape_rule:sphere', 'from': sph[1]}
+        counts['shape-sphere'] = counts.get('shape-sphere', 0) + 1
     summary = ' '.join(f'{k}:{v}' for k, v in sorted(counts.items())) or None
     return dims, evidence, summary
 
@@ -416,7 +458,10 @@ def rules_fingerprint() -> str:
         if isinstance(x, (list, tuple)):
             return [norm(v) for v in x]
         return x if isinstance(x, (str, int, float, bool)) or x is None else str(x)
-    blob = json.dumps(norm({'dim': DIM_KEYS, 'shop': SHOP_DIM_KEYS, 'comp': COMPOSITE_KEYS}),
+    # Пороги правдоподобия тоже меняют `geometry_hash` (Н2б/Н2в/Н4, 23.10: высота у 259 плоских светильников) — в отпечатке
+    blob = json.dumps(norm({'dim': DIM_KEYS, 'shop': SHOP_DIM_KEYS, 'comp': COMPOSITE_KEYS,
+                            'max': ROLE_MAX_CM, 'max_h': ROLE_MAX_H_CM, 'min': MIN_CM, 'min_h': ROLE_MIN_H_CM,
+                            'pendant': PENDANT_MAX_CM, 'sphere': [sorted(SPHERE_ROLES), SPHERE_RX.pattern, SPHERE_WD_TOL]}),
                       sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
@@ -494,6 +539,26 @@ def selftest() -> None:
          'комод', 'w', 92.0, 'param'),
         (93965, 'Комод Орма', {'Ширина': '92 см', 'Длина': '53 см', 'Высота': '80 см'},
          'комод', 'd', 53.0, 'param'),
+        # Н2б (23.10): НИЖНИЙ ПОРОГ ВЫСОТЫ СВЕТА — 1 см. Плоский накладной светильник — с высотой, а не «неправдоподобный»
+        (99272, 'Светильник настенно-потолочный Плато', {'Высота': '2.5 см'}, 'люстра', 'h', 2.5, 'param'),
+        (99272, 'Бра Таблетка', {'Высота': '45 мм'}, 'бра', 'h', 4.5, 'param'),
+        (99272, 'Люстра Панель', {'Высота': '3'}, 'люстра', 'h', 3.0, 'prior'),   # cm-приор группы 99272
+        (99272, 'Люстра Край', {'Высота': '1 см'}, 'люстра', 'h', 1.0, 'param'),    # ровно 1 см — берём
+        (99272, 'Люстра Мусор', {'Высота': '0.9 см'}, 'люстра', 'h', None, None),   # ниже 1 см — нет
+        (99272, 'Люстра Мусор', {'Высота': '0.1 см'}, 'люстра', 'h', None, None),   # 6 таких в каталоге — мусор
+        (99272, 'Лампа настольная', {'Высота': '3 см'}, 'лампа', 'h', None, None),   # лампа ниже 5 см не бывает
+        (99272, 'Торшер', {'Высота': '3 см'}, 'торшер', 'h', None, None),
+        (99272, 'Люстра Плато', {'Диаметр': '3 см', 'Высота': '3 см'}, 'люстра', 'dia', None, None),   # порог 1 см — только высота
+        # Н2в: подвес длиннее ROLE_MAX_H — высоту не пишем (рост предмета), но и не «нет высоты» (проверка ниже)
+        (99272, 'Люстра Каскад', {'Высота': '230 см'}, 'люстра', 'h', None, None),
+        # Н4: ваза-шар без высоты — высота = горизонталь; не шар / не круглая в плане / высота есть — правило молчит
+        (99272, 'Ваза-шар Неман 260 мм', {'Длина': '26', 'Ширина': '26'}, 'ваза', 'h', 26.0, 'shape_rule:sphere'),
+        (99272, 'Ваза Неман шар 140 мм', {'Длина': '14', 'Ширина': '14'}, 'ваза', 'h', 14.0, 'shape_rule:sphere'),
+        (99272, 'Кашпо сферическое Луна', {'Диаметр': '30 см'}, 'кашпо', 'h', 30.0, 'shape_rule:sphere'),
+        (99272, 'Ваза Шарм', {'Длина': '26', 'Ширина': '26'}, 'ваза', 'h', None, None),
+        (99272, 'Ваза-шар овальная', {'Длина': '26', 'Ширина': '15'}, 'ваза', 'h', None, None),
+        (99272, 'Ваза-шар Неман 18 см', {'Длина': '18', 'Ширина': '18', 'Высота': '15'}, 'ваза', 'h', 15.0, 'prior'),
+        (99272, 'Статуэтка Шар', {'Длина': '26', 'Ширина': '26'}, 'статуэтка', 'h', None, None),
     ]
     bad = 0
     for mid, name, params, role, dim, want, want_src in cases:
@@ -502,6 +567,14 @@ def selftest() -> None:
         ok = (got == want) and (want is None or src == want_src)
         bad += 0 if ok else 1
         print(f'{"ok " if ok else "FAIL"} {name[:32]:34} {dim}={got} (src={src}, ждали {want}/{want_src})')
+    # Н2в: длинный подвес помечен «вылет» с числом — подбор исключит его из слота с причиной; мусор остаётся мусором
+    _, ev, summ = resolve(99272, 'Люстра Каскад', {'Высота': '230 см'}, 'люстра')
+    ok = ev['h'].get('source') == 'param-suspension' and ev['h'].get('cm') == 230.0 and 'suspension:1' in (summ or '')
+    _, ev2, _ = resolve(99272, 'Люстра Мусор', {'Высота': '900 см'}, 'люстра')
+    _, ev3, _ = resolve(99272, 'Бра Длинное', {'Высота': '230 см'}, 'бра')
+    ok = ok and ev2['h']['source'].endswith('-insane') and ev3['h']['source'].endswith('-insane')
+    bad += 0 if ok else 1
+    print(f'{"ok " if ok else "FAIL"} подвес 230 см → suspension с числом; 900 см и бра 230 — мусор')
     if not _fingerprint_guard():
         bad += 1
     sys.exit(1 if bad else 0)

@@ -29,7 +29,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 MESH_DIR = os.path.expanduser(os.environ.get('MESH_DIR') or '~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2')
 CALIB = os.path.join(HERE, 'mesh-dims-calibration.json')
-PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
+PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', os.environ.get('REMLAB_DEVDB_NAME', 'remlab'),
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
 SCALE_TOL = 0.25        # |s_w/s_h − 1| больше — масштаб по осям не сходится, глубину не выводим
 FORMULA = 'v1'
@@ -64,6 +64,10 @@ select p.shop_mid, p.external_id, p.cat_role, p.name, p.w_cm, p.d_cm, p.h_cm,
  where p.in_stock and p.w_cm is not null and p.h_cm is not null and p.cat_role in ({roles}) {extra}
  order by p.shop_mid, p.external_id, r.created desc
 """
+
+
+MEASURED_D_SQL = ("and p.d_cm is not null and p.dims_evidence->'d'->>'source' is not null "
+                  "and p.dims_evidence->'d'->>'source' !~ '^(role_prior|mesh_ratio|shape_rule)'")
 
 
 def find_glb(sku: str, glb_sha: str) -> str | None:
@@ -205,7 +209,9 @@ def estimate(it: dict) -> dict | None:
 
 
 def calibrate() -> int:
-    items = [it for it in rows(ROLES_APPLY, extra='and p.d_cm is not null') if not CORNER.search(it['name'])]
+    # Эталон — ТОЛЬКО измеренная глубина (catalog-holes-bank Н6): без evidence или выведенная (`role_prior` 98 у дивана,
+    # `mesh_ratio` — наш же ответ) сравнивала бы формулу с медианой, а не с фидом
+    items = [it for it in rows(ROLES_APPLY, extra=MEASURED_D_SQL) if not CORNER.search(it['name'])]
     print(f'калибровка: прямых диванов с глубиной из фида, мешом и ориентацией по тому же glb: {len(items)}', flush=True)
     res = []
     t0 = time.time()
