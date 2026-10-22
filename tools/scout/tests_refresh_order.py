@@ -25,7 +25,7 @@ LOG="$TD/log"; STAMP="$TD/stamp"; today=x; PY="$TD/py"
 declare -A RES; RES[candidates]=ok; RES[sets_index]=ok
 step() { local n="$1"; shift; local c="$*"; echo "$n :: ${c//$PY/\$PY}" >> "$TD/steps"; RES[$n]=ok; return 0; }
 paid_step() { step "$@"; }
-date() { if [ "${1:-}" = "+%u" ]; then echo "$WEEKDAY"; else command date "$@"; fi; }
+date() { case "${1:-}" in +%u) echo "$WEEKDAY" ;; +%s) echo 0 ;; *) command date "$@" ;; esac; }   # +%s — метка в адресе, шаги сравнимы
 '''
 PY_STUB = '#!/bin/bash\nif [ "${1:-}" = bank_refresh.py ] && [ "${2:-}" = --enabled ]; then echo "$BANK_WRITE_STUB"; fi\nexit 0\n'
 
