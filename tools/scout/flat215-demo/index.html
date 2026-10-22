@@ -2691,11 +2691,21 @@ function toast(t,act){let el=document.getElementById('toast');
     (act&&act.ms)||(act?2250:1750)+(String(t).length>60?750:0));   // `act.ms` — своя длительность (готовое фото, demo-20 Г5)
   // ОКНО ВАРИАНТА НА ТЕЛЕФОНЕ (demo-02 v5.2): сообщение — над шторкой и переключателем ракурсов, а не поверх кнопки
   // «Сделать реалистичнее» (после замены «Заменено: …» закрывало её на 3,5 с). Положение — по цели сдвига шторки, не по кадру анимации
-  el.style.bottom='24px';
+  el.style.bottom='24px'; el.style.left=el.style.width=el.style.maxWidth='';
   try{const sh=document.getElementById('shot');      // try: сообщение до объявления окна (загрузка) — внизу, как всегда
-    if(sh&&sh.classList.contains('on')&&sh.classList.contains('v2')&&VW_PHONE()&&VW.sheetVis&&VW.sheetVis<innerHeight/2){
+    const win=sh&&sh.classList.contains('on')&&sh.classList.contains('v2');
+    if(win&&VW_PHONE()&&VW.sheetVis&&VW.sheetVis<innerHeight/2){
       const cm=document.getElementById('vCams'), cv=cm&&getComputedStyle(cm).display!=='none'?cm.offsetHeight+10:0;
-      el.style.bottom=Math.round(VW.sheetVis+12+cv)+'px';}}catch(e){}
+      el.style.bottom=Math.round(VW.sheetVis+12+cv)+'px';}
+    // ОКНО НА КОМПЬЮТЕРЕ (demo-20 Г5, приёмка ведущего 22.10: по центру всего экрана тост срезал переключатель ракурсов, заходил на
+    // правую панель и за нижний край окна): внутри области 3D/фото, по её центру, на 8 px выше переключателя ракурсов (его нет — выше
+    // низа области), ширина по тексту, не шире 70 % области
+    else if(win&&!VW_PHONE()){const st=sh.querySelector('.vstage'), r=st&&st.getBoundingClientRect();
+      if(r&&r.width>0&&r.height>0){
+        const cm=document.getElementById('vCams'), cr=cm&&getComputedStyle(cm).display!=='none'?cm.getBoundingClientRect():null;
+        const top=cr&&cr.height>0?cr.top:r.bottom-8;
+        el.style.left=Math.round(r.left+r.width/2)+'px'; el.style.width='max-content'; el.style.maxWidth=Math.round(r.width*0.7)+'px';
+        el.style.bottom=Math.round(innerHeight-top+8)+'px';}}}catch(e){}
   // ДЕЙСТВИЕ В СООБЩЕНИИ (demo-16 шаг 2, владелец 18.10: «Добавлено в избранное · Перейти →» на несколько секунд)
   if(act){const b=document.createElement('button'); b.type='button'; b.className='toastact'; b.textContent=act.label;
     b.onclick=()=>{el.hidden=true; act.fn();}; el.appendChild(b);}}

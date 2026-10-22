@@ -8,9 +8,23 @@ const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=process.env.
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number), PHONE=W<=700;
 const R=[]; const ok=(n,c,i)=>R.push((c?'OK  ':'FAIL')+' '+n+' '+(i===undefined?'':typeof i==='string'?i:JSON.stringify(i)));
 const LOCK=/Менять можно, когда улучшение закончится/;
+// ТОСТ ОКНА НА МЕСТЕ (T-20261022-07/3): компьютер — внутри области 3D/фото, по её центру, выше переключателя ракурсов (≥ 8 px), не на правой
+// панели; телефон — не задевает переключатель ракурсов и шторку
+const TOAST_GEO=`(()=>{const t=document.getElementById('toast'); if(!t||t.hidden)return {shown:false};
+  const R=e=>{const r=e.getBoundingClientRect(); return [r.left,r.top,r.right,r.bottom].map(Math.round);};
+  const tr=R(t), st=document.querySelector('#shot .vstage'), sr=st?R(st):null;
+  const cm=document.getElementById('vCams'), cr=cm&&getComputedStyle(cm).display!=='none'&&cm.getBoundingClientRect().height>0?R(cm):null;
+  const sd=document.getElementById('vside'), pr=sd?R(sd):null;
+  const cross=(a,b)=>!!(a&&b&&a[0]<b[2]&&b[0]<a[2]&&a[1]<b[3]&&b[1]<a[3]);
+  return {shown:true, toast:tr, stage:sr, cams:cr, panel:pr, inside:!!sr&&tr[0]>=sr[0]&&tr[2]<=sr[2]&&tr[1]>=sr[1]&&tr[3]<=sr[3],
+    center:sr?Math.abs((tr[0]+tr[2])/2-(sr[0]+sr[2])/2):null, overCams:cross(tr,cr), overPanel:cross(tr,pr), gap:cr?cr[1]-tr[3]:null};})()`;
+const geoOk=g=>g.shown&&!g.overCams&&!g.overPanel&&(g.gap==null||g.gap>=8)&&(PHONE||(g.inside&&g.center<=2));
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
   const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,isMobile:PHONE,hasTouch:PHONE,locale:'ru-RU'});
   const p=await ctx.newPage(); const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
+  // снимок под программной графикой идёт секунды — короткий тост успел бы погаснуть: на время снимка таймер исчезновения стоит
+  const shotToast=async name=>{await p.evaluate(()=>{const t=document.getElementById('toast'); if(t)clearTimeout(t._t);});
+    await p.screenshot({path:OUT+name}); await p.evaluate(()=>{const t=document.getElementById('toast'); if(t)t.hidden=true;});};
   let done=null;   // ответ задания по готовности: {status:'done', shots:[…]}
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   await p.route(/\/api\/render\/frame/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:'f'+Date.now()+Math.random().toString(36).slice(2,8)})}));
@@ -42,7 +56,8 @@ const LOCK=/Менять можно, когда улучшение законч�
   await p.waitForTimeout(300);
   ok('2 «Заменить» — лист не открылся',await p.evaluate(()=>!document.getElementById('sheet').classList.contains('open')));
   const t2=await toastTxt(); ok('2 подсказка «Менять можно, когда улучшение закончится»',LOCK.test(t2),t2);
-  await p.screenshot({path:OUT+`lock-${W}-2-hint.png`});
+  const g2=await p.evaluate(TOAST_GEO); ok('2 подсказка на месте (область 3D, над ракурсами, не на панели)',geoOk(g2),g2);
+  await shotToast(`lock-${W}-2-hint.png`);
   const r3=await p.evaluate(()=>{const before=JSON.stringify(DEVOPT); const g=devGroups().find(x=>x.kind==='flooring'); const o=g&&(g.variants||[]).find(x=>x.id!==(DEVOPT[g.id]||g.defaultVariantId));
     if(g&&o)devSet(g.id,o.id); return {tried:!!(g&&o), same:JSON.stringify(DEVOPT)===before};});
   ok('3 отделка не меняется',r3.same,r3);
@@ -59,6 +74,7 @@ const LOCK=/Менять можно, когда улучшение законч�
   await p.waitForFunction(()=>!VJ.job,null,{timeout:30000}).catch(()=>{});
   await p.waitForTimeout(400);
   const t4=await toastTxt(); ok('4 «Фото готово» с «Смотреть»',/Фото готово/.test(t4)&&/Смотреть/.test(t4),t4);
+  const g4=await p.evaluate(TOAST_GEO); ok('4 «Фото готово» на месте',geoOk(g4),g4);
   ok('4 окно осталось в 3D',await p.evaluate(()=>VW.mode==='walk'));
   const t0=Date.now(); await p.screenshot({path:OUT+`lock-${W}-4-ready.png`}); const shotMs=Date.now()-t0;
   // кнопка сверху (не перекрыта) — и настоящий щелчок по ней; ожидание «устойчивости» не нужно: под программной графикой на 1440
@@ -69,6 +85,14 @@ const LOCK=/Менять можно, когда улучшение законч�
   const ce=await p.click('#toast .toastact',{timeout:3000,force:true}).then(()=>'',e=>String(e).slice(0,400)); await p.waitForTimeout(800);
   ok('4 «Смотреть» → «Фото»',await p.evaluate(()=>VW.mode==='photo'),
     {click:ce, shotMs, ...await p.evaluate(()=>({mode:VW.mode, real:vwRealShots().length, st:curStateId(), toast:!document.getElementById('toast').hidden}))});
+  // 4б. замок снят: замена из ленты — тост «Заменено: …» на том же месте, что подсказка
+  await p.evaluate(()=>{const it=items.find(i=>i.role==='диван')||items[0]; sel=it; openPicker(it);}); await p.waitForTimeout(1500);
+  const took=await p.evaluate(()=>{const b=[...document.querySelectorAll('#sheet .mini')].find(x=>!/Выбрано/.test(x.textContent)); if(!b)return false; b.click(); return true;});
+  await p.waitForTimeout(400);
+  const t4b=await toastTxt(); ok('4б замена из ленты — тост «Заменено»',took&&/Заменено/.test(t4b),{took,t:t4b});
+  const g4b=await p.evaluate(TOAST_GEO); ok('4б тост после замены на месте',geoOk(g4b),g4b);
+  await shotToast(`lock-${W}-4b-replaced.png`);
+  await p.waitForTimeout(2500);
   // 5. замок снят: отделка меняется; в 3D снимается кадр карточки; на главной — он, а не опубликованное фото
   await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(800);
   const r5=await p.evaluate(()=>{const g=devGroups().find(x=>x.kind==='flooring'); const o=g&&(g.variants||[]).find(x=>x.id!==(DEVOPT[g.id]||g.defaultVariantId));
