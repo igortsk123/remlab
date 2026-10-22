@@ -983,9 +983,6 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
         <button class="btn" id="swapClose">Готово</button></div>
       <div class="sub" id="basketSub">Меняйте предметы прямо здесь — план открывать не нужно.</div>
       <div id="blist">—</div>
-      <!-- 3D ИМЕННО ЭТОГО ВАРИАНТА (владелец 13.10): кнопка живёт В КАРТОЧКЕ, рядом с составом,
-           и открывает бродилку с этой же комнатой и этой же мебелью. -->
-      <div class="swapfoot"><a class="btn round" id="swap3d" href="/flat">Посмотреть в 3D</a></div>
       <div class="swapfoot" id="swapFoot" hidden>
         <button class="btn primary round" id="swapShot">Посмотреть фото с изменениями</button>
       </div>
@@ -1506,7 +1503,6 @@ function applyKit(kit){            // комплект накладываетс�
   draw();}
 let baseRev='';                       // ревизия «как отдал движок» — по ней видно, правил ли человек
 function load(){const v=allVariants()[cur]||D.variants[0];items=clone(v.items);sel=null;
-  try{sync3dLink();}catch(e){}
   // КАМЕРЫ ПРИНАДЛЕЖАТ ВАРИАНТУ (01.09). Положения хранятся под ключом варианта
   // (`camsKey()`), но глобальная `cams` заполнялась ОДИН раз и при переключении варианта
   // оставалась прежней — снимок нового варианта уходил бы с ракурсов старого. Сбрасываем:
@@ -2551,7 +2547,7 @@ function devSet(gid, vid){
   if(vwEditLock())return;
   const next=devCanon(Object.assign({},DEVOPT,{[gid]:vid}));
   if(JSON.stringify(next)===JSON.stringify(DEVOPT))return;
-  DEVOPT=next; devApply(); devDraw(); try{sync3dLink();}catch(e){}
+  DEVOPT=next; devApply(); devDraw();
   const sd0=document.getElementById('vside'), wasOpen=window.innerWidth<=700&&sd0&&+sd0.dataset.pos>0;
   histPush();              // номер состояния сменился: сумма, история, 3D и свёрнутая шторка — по `remlab:hist` (demo-09 п.4a)
   const gg=devGroups().find(x=>x.id===gid)||{}, gk=gg.kind;
@@ -2608,7 +2604,7 @@ function loadFlatCard(){const id=flatId(); if(!id)return;
     drawFlatMore();
     const ft=document.getElementById('flatTitle'); if(ft)ft.textContent=flatTitle();
     document.title=FLAT.kind+(LANG==='en'?' — living room (demo)':' — гостиная (демо)');
-    drawVariants(); try{sync3dLink();}catch(e){} try{drawHome(true);}catch(e){}
+    drawVariants(); try{drawHome(true);}catch(e){}
     try{if(curScreen()==='plan')flatPlan();}catch(e){}   // открыли сразу план — подписи комнат из карточки (язык, состав)
     // суммы витрины, уже нарисованные до карточки, — в её валюте (британский двойник)
     if(fxRate()){try{basket(); showSwap(); priceCard(LAST_SUM,LAST_CNT);}catch(e){}}
@@ -3626,34 +3622,13 @@ document.addEventListener('click',e=>{
 // расстановку, а списка нет внизу»; и он пропадал после закрытия модалки). Раньше панель
 // открывалась только кнопкой и жила отдельным состоянием, которое сбрасывалось при любой
 // перерисовке. Состояния больше нет: выбран вариант — виден его список.
-function pickVariant(i){ if(i===cur){showSwap();syncHash();sync3dLink();return;}
-  cur=i; load(); showSwap(); drawColl(); syncHash(); sync3dLink(); }
-// ВХОД В 3D — С ТЕКУЩИМ ВАРИАНТОМ (13.10, владелец: «бродилка должна открываться по кнопке
-// конкретного варианта»). Раньше кнопка вела на абстрактную демо-квартиру: человек смотрел
-// джапанди, нажимал «в 3D» и попадал в другую комнату с другой мебелью. Теперь в ссылке едет id
-// варианта, а конфигуратор собирает по нему ту же комнату и ту же расстановку. Текст кнопок НЕ
-// меняем (владелец 13.10): наверху остаётся прежняя надпись, а в карточке — короткое
-// «Посмотреть в 3D».
-function sync3dLink(){
-  // кнопки 3D в шапке больше нет (п.8 16.10) — ссылка живёт у «Посмотреть в 3D» ленты (`#swap3d`); `#pc3d` — если вернут
-  const a=document.getElementById('pc3d'), b=document.getElementById('swap3d'), f0=document.getElementById('vFlat'); if(!a&&!b&&!f0)return;
-  const v=allVariants()[cur]||{};
-  // квартира едет вместе с набором (b2b-06): 3D берёт её из реестра застройщиков, а не «по умолчанию»
-  const fl = FLAT ? '&flat='+encodeURIComponent(FLAT.id) : '';
-  const lg = LANG==='en' ? '&lang=en' : '';
-  // КОЛЛЕКЦИЯ ПОКУПАТЕЛЯ (b2b-05): в 3D — её расстановка и товары по её номеру, а не исходный набор
-  const coll = /^c:[A-Za-z0-9_-]{22}$/.test(v.id||'') ? v.id.slice(2) : '';
-  // пол и прочие опции застройщика (demo-06) — тем же выбором, что в окне: `opt=группа:вариант`, сервер проверит по карточке
-  const op = Object.keys(DEVOPT).length ? '&opt='+Object.keys(DEVOPT).sort().map(k=>k+':'+DEVOPT[k]).join(',') : '';
-  const href = coll ? '/flat?coll='+coll+lg+op : v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl+lg+op : '/flat'+(lg?'?lang=en':'');
-  if(a)a.href = href;
-  if(b)b.href = href;
-  const f=document.getElementById('vFlat'); if(f)f.href = href;
-}
+function pickVariant(i){ if(i===cur){showSwap();syncHash();return;}
+  cur=i; load(); showSwap(); drawColl(); syncHash(); }
+// ССЫЛОК «ВСЯ КВАРТИРА В 3D» / «ПОСМОТРЕТЬ В 3D» НЕТ (demo-20 Г6, владелец 22.10 TG 869: «устаревший и сложный функционал; пока
+// не удаляй, но ссылки на него убери»): страница `/flat` и её маршрут остаются, со страницы демо на неё не ведёт ничего
 function showSwap(){
   const box=document.getElementById('swapBox'); if(!box)return;
   const v=allVariants()[cur]||{};
-  try{sync3dLink();}catch(e){}   // карточку открывают и без смены варианта — ссылка должна быть своей
   const head=document.getElementById('basketHead');
   if(head)head.textContent='Мебель варианта «'+(v.style||v.title||'')+'»';
   basket();
@@ -4086,7 +4061,7 @@ function viewShot(i){
   // конструкторе («Комплект: …»). Вернуть стиль — только по слову владельца.
   // ОКНО ВАРИАНТА (demo-02, ADR-0290): сцена + колонка (компьютер) / шторка (телефон). Полоса действий `.cap` с её
   // кнопками и обработчиками переезжает в колонку — сохранение, избранное и ссылка работают как раньше.
-  shotOpen(vwHtml(s, navs, list),''); try{sync3dLink();}catch(e){}
+  shotOpen(vwHtml(s, navs, list),'');
   vwMount(s);
   wireShotList();
   liveShow();      // расстановка уже не та, что на фото, — живая сцена поверх (demo-01)
@@ -4796,7 +4771,7 @@ function histGo(step){
   items=clone(s.items); sel=null;
   (v.decor||[]).forEach((x,i)=>{if(s.decor[i]!==undefined)x.sku=clone(s.decor[i]);});
   // пол — часть состояния: сцена, блок образцов и ссылка в 3D — из шага истории (прогон d8 16.10: блок оставался прежним)
-  if(s.dev&&JSON.stringify(s.dev)!==JSON.stringify(DEVOPT)){DEVOPT=clone(s.dev); devApply(); devDraw(); try{sync3dLink();}catch(e){}}
+  if(s.dev&&JSON.stringify(s.dev)!==JSON.stringify(DEVOPT)){DEVOPT=clone(s.dev); devApply(); devDraw();}
   draw(); try{basket(); showSwap(); refreshShotList();}catch(e){}
   document.dispatchEvent(new CustomEvent('remlab:hist',{detail:{at:h.at,n:h.stack.length,stateId:s.stateId}}));
   return true;
@@ -4986,9 +4961,6 @@ function histFwd(){return histGo(1);}
 .vplanbox svg{width:100%;height:100%}
 #shot.vplan .vplanbox{display:block}#shot.vplan .shotwrap img,#shot.vplan .vpins,#shot.vplan .vold,#shot.vplan .vzbtn,
 #shot.vplan .livebadge{visibility:hidden}
-.vflat{display:none;position:absolute;right:12px;bottom:12px;z-index:6;background:rgba(255,255,255,.92);color:var(--ink);
- text-decoration:none;font-size:14px;font-weight:600;padding:8px 14px;border-radius:999px;box-shadow:var(--e3)}
-#shot.vwalk .vflat{display:inline-block}
 #shot.v2 .pinlist .total{display:none}
 #shot.v2 .restale{display:none}   /* черновик из окна убран (demo-09 п.5) */
 #shot.v2 .cap{border-top:1px solid var(--line)}
@@ -5141,8 +5113,7 @@ function vwHtml(s, navs, list){
     `<div class="vhist" hidden><button id="vhBack" aria-label="Отменить изменение" title="Отменить изменение">↶</button><span id="vhTxt"></span>`+
     `<button id="vhFwd" aria-label="Вернуть изменение" title="Вернуть изменение">↷</button></div><div class="vpins" id="vpins"></div>`+
     `<div class="vload" id="vload"><div><i></i><span id="vloadTxt">Собираем сцену…</span></div></div>`+
-    // ВСЯ КВАРТИРА В 3D — из режима «3D» окна (п.8 16.10: кнопка в шапке страницы убрана); ссылку держит `sync3dLink`
-    `<a class="vflat" id="vFlat" href="/flat">${EN?'Whole apartment in 3D →':'Вся квартира в 3D →'}</a></div>`+
+    `</div>`+
     // ШТОРКА v3: плашка денег — отдельно и вне прокрутки; ручка с подписью — вне прокрутки; ниже — прокручиваемое содержимое
     `<div class="vside${VW.group?' g-any g-'+VW.group:''}" id="vside" data-pos="1"><i class="vpill" id="vpill" aria-hidden="true"></i>`+
     `<div class="vplate" id="vsum">${vwSum()}</div>`+
@@ -5534,7 +5505,7 @@ function vwPinsTick(now){
   const on=shot.classList.contains('on')&&VW.mode==='walk'&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
   if(!on){if(box.childElementCount)box.innerHTML=''; PINS.map.clear(); return;}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
-    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vflat, #shot .vready')]
+    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready')]
       .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);}
   const fr=PINS.fr, pad=4, seen=new Set(), cand=[];
   const hit=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
@@ -6176,9 +6147,6 @@ async function liveShotTake(){
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);ev('variant_view',state());return r;};
   var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);if(r!==false)ev('item_swap',state());return r;};   // false — замок «Улучшаю…»
   document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share'||e.detail==='floor_pick'||e.detail==='walls_pick')ev(e.detail,state());});
-  // менеджер смотрит сам (`&mgr=1`) — его 3D и коллекции не засчитываются покупателю (verify b2b-03)
-  var _s3=window.sync3dLink; if(typeof _s3==='function'&&!PREVIEW)window.sync3dLink=sync3dLink=function(){var r=_s3.apply(this,arguments);
-    ['pc3d','swap3d'].forEach(function(id){var a=document.getElementById(id);if(a&&a.href.indexOf('s=')<0)a.href+=(a.href.indexOf('?')<0?'?':'&')+'s='+SEND;});return r;};
   fetch('/api/sends/'+SEND,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(j){
     if(!j||!j.ok){
       var b=document.createElement('div');
@@ -6263,8 +6231,8 @@ async function liveShotTake(){
 </script>
 <script>
 /* ——— РЕЖИМ ВСТРАИВАНИЯ (план b2b-07, ADR-0283). Страница открыта рамкой на сайте застройщика (`/embed/<партнёр>/<квартира>`
-   ставит window.__EMBED): наружу — только высота и имена событий (без идентификаторов и личных данных), 3D — в новой
-   вкладке (`/flat` встраивать нельзя). Сообщения ловит `public/embed.js`, проверяя и источник, и рамку. */
+   ставит window.__EMBED): наружу — только высота и имена событий (без идентификаторов и личных данных; событие
+   «3d» осталось в перечне, но ссылок на `/flat` со страницы нет — demo-20 Г6). Сообщения ловит `public/embed.js`, проверяя и источник, и рамку. */
 (function(){
   if(!window.__EMBED||window.parent===window)return;
   var EVENTS={open:1,'3d':1,save:1,contact:1};
@@ -6273,8 +6241,6 @@ async function liveShotTake(){
   var last=0, send=function(){var h=Math.min(20000,Math.ceil(document.documentElement.scrollHeight));
     if(Math.abs(h-last)>4){last=h;post({type:'remlab:height',h:h});}};
   if(window.ResizeObserver)new ResizeObserver(send).observe(document.body); setInterval(send,1500); send();
-  document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('#pc3d,#swap3d');
-    if(a){a.target='_blank';a.rel='noopener';window.__embedEvent('3d');}},true);
   window.__embedEvent('open');
 })();
 </script>

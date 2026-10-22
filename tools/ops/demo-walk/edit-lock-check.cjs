@@ -2,7 +2,7 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 // ЗАМОК ПРАВОК НА ВРЕМЯ «УЛУЧШАЮ…» И «ФОТО ГОТОВО» (demo-20 Г5, T-20261022-07/2): пока рисуется фото этой расстановки, замена, ↶,
 // отделка и «Изменить план» не применяются — подсказка; по готовности (ушёл в 3D) — сообщение «Фото готово · Смотреть» → вкладка «Фото»;
 // карточка главной у правленого варианта — кадр 3D его расстановки (`liveShot`), а не фото опубликованной. Платный путь подменён:
-// задание «идёт», пока проба не скажет «готово», и отдаёт уже опубликованный кадр.
+// задание «идёт», пока проба не скажет «готово», и отдаёт уже опубликованный кадр. Заодно: ссылок на /flat нет (demo-20 Г6).
 //   BASE=https://remont-lab.online/demo/ OUT=<папка/> node tools/ops/demo-walk/edit-lock-check.cjs 375x667
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=process.env.OUT||require('os').tmpdir()+'/';
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number), PHONE=W<=700;
@@ -25,6 +25,9 @@ const LOCK=/Менять можно, когда улучшение законч�
   await p.waitForFunction(()=>LIVE.scene&&LIVE.state==='ready',null,{timeout:300000}).catch(()=>{}); await p.waitForTimeout(2500);
   ok('0 живая сцена готова',await p.evaluate(()=>LIVE.state==='ready'),await p.evaluate(()=>({state:LIVE.state,ok:LIVE.ok,why:LIVE.why||''})));
   ok('0 без правок кадр карточки не снят',await p.evaluate(()=>LIVE_SHOTS.size===0));
+  // ссылок «Вся квартира в 3D» / «Посмотреть в 3D» нет (demo-20 Г6): ни в окне 3D, ни на странице под ним
+  const fl0=await p.evaluate(()=>[...document.querySelectorAll('a[href*="/flat"]')].map(a=>a.id||a.className||a.textContent.trim()).slice(0,5));
+  ok('0 окно 3D — ссылок на /flat нет',!fl0.length,fl0);
   const s0=await p.evaluate(()=>curStateId());
   // 1. «Сделать реалистичнее» → «Фото» с ходом работы
   await p.click('#vCta'); await p.waitForFunction(()=>!!VJ.job,null,{timeout:20000});
@@ -76,6 +79,8 @@ const LOCK=/Менять можно, когда улучшение законч�
   await p.evaluate(()=>{const c=document.getElementById('shotx'); if(c)c.click();}); await p.waitForTimeout(1200);
   const card=await p.evaluate(()=>{const i=document.querySelector('#hmRooms .hm-room img'); return i?i.getAttribute('src'):'';});
   ok('5 карточка главной — кадр 3D (blob:)',/^blob:/.test(card),card.slice(0,60));
+  const fl5=await p.evaluate(()=>[...document.querySelectorAll('a[href*="/flat"]')].map(a=>a.id||a.className||a.textContent.trim()).slice(0,5));
+  ok('5 главная — ссылок на /flat нет',!fl5.length,fl5);
   await p.evaluate(()=>{const c=document.querySelector('#hmRooms .hm-room'); if(c)c.scrollIntoView({block:'center'});}); await p.waitForTimeout(600);
   await p.screenshot({path:OUT+`lock-${W}-5-home-card.png`});
   ok('ошибок страницы нет',!errs.length,errs.slice(0,3));

@@ -1,10 +1,11 @@
 import { test, expect } from "@playwright/test";
 
 // ПОЛ ОТ ЗАСТРОЙЩИКА — ЖИВАЯ ПРОВЕРКА (план demo-06). В окне варианта — вход «Отделка и ремонт», пять образцов пола с ценой;
-// выбор меняет номер состояния на s2, попадает в ссылку /flat (`opt=flooring:…`), а /flat показывает доплату отдельной строкой,
+// выбор меняет номер состояния на s2 и `DEVOPT` (ссылки на /flat из окна нет — demo-20 Г6); /flat по прямой ссылке
+// (`opt=flooring:…`) показывает доплату отдельной строкой,
 // не трогая сертификат. Без видеокарты сцена — запасной путь, поэтому проверяем состояние и деньги, а не картинку.
 
-test("окно: «Отделка» → пять полов, выбор паркета — s2 и ссылка в 3D с полом", async ({ page }) => {
+test("окно: «Отделка» → пять полов, выбор паркета — s2 и пол в состоянии", async ({ page }) => {
   test.setTimeout(120_000);
   await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
   await page.goto("/demo/?live=0&lang=ru");
@@ -19,8 +20,8 @@ test("окно: «Отделка» → пять полов, выбор парк�
   await expect(page.locator(".vfl-cur").first()).toContainText("Ёлочка");
   expect(await page.evaluate("curStateId()")).toMatch(/^s2-/);
   expect(await page.evaluate("JSON.stringify(DEVOPT)")).toBe('{"flooring":"parquet-herringbone"}');
-  const href = (await page.locator("#vFlat").getAttribute("href")) ?? "";
-  expect(href).toContain("opt=flooring:parquet-herringbone");
+  // ссылки «Вся квартира в 3D» в окне нет (demo-20 Г6) — пол проверяем по выбору и номеру состояния
+  await expect(page.locator('a[href^="/flat"]')).toHaveCount(0);
   // «назад» возвращает пол по умолчанию и номер s1
   await page.evaluate("histBack()");
   expect(await page.evaluate("curStateId()")).toBe(s1);
@@ -59,7 +60,7 @@ test("2.23 окно: строки-входы по комнате — «Отде�
   await expect(page.locator("#vfitted .vfit.on .vfit-p")).toHaveText("в цене");
   await page.locator('#vfitted [data-fl="kitchen:kitchen-practical"]').click();
   expect(await page.evaluate("curStateId()")).toMatch(/^s2-/);
-  expect((await page.locator("#vFlat").getAttribute("href")) ?? "").toContain("kitchen:kitchen-practical");
+  expect(await page.evaluate("JSON.stringify(DEVOPT)")).toContain('"kitchen":"kitchen-practical"');
   await page.locator("#vOptsBack").click();
   await expect(page.locator('#vGroups [data-group="fitted"] span')).toContainText("Practical · по запросу");
 });
