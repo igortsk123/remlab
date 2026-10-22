@@ -5104,6 +5104,7 @@ function histFwd(){return histGo(1);}
 .vload.corner i{width:20px;height:20px}
 /* подсказка окна — того же вида, что сообщения страницы (`.msg`, demo-19 Б4); нажатия проходят сквозь неё */
 #shot .vtip{z-index:var(--zl-pop);pointer-events:none}
+#shot .vtip .vtip-br{display:block;height:0;overflow:hidden}
 @media(max-width:700px){
   /* ширина тоже 100 % (T-20261019-01): `#shot.v2 .box{width:min(1320px,97vw)}` выше сильнее общего мобильного `#shot .box{width:100%}`,
      и на 375 px окно было 364 — справа светлела полоса фона #shot */
@@ -5738,13 +5739,20 @@ function vwMount(s){
         if(Date.now()-at<700||isBusy()){if(Date.now()-at<20000)setTimeout(tip,250); return;}
         const t=document.createElement('div'); t.className='vtip msg';
         t.dataset.mode=VW.mode; t.dataset.live=String(typeof LIVE!=='undefined'&&LIVE.state); t.dataset.busy=String(isBusy());   // состояние в момент показа — для проверок
-        t.textContent=LANG==='en'?'Pull or tap — items and swaps':'Потяните или нажмите — товары и замены';
+        // В «ФОТО» ПАЛЕЦ ДВИГАЕТ ФОТО (demo-22 п.3, ведущий T-12/2): подсказка называет оба жеста — фото и шторку; текст — по режиму в момент
+        // показа, сменили режим, пока она видна, — уходит (покажется при следующем открытии окна: «уже видел» не ставится)
+        const ph=VW.mode==='photo';
+        t.textContent=LANG==='en'?(ph?'Drag the photo — whole room · pull the sheet — items and swaps':'Pull or tap — items and swaps')
+          :(ph?'Потяните фото — вся комната · шторку — товары и замены':'Потяните или нажмите — товары и замены');
+        // два жеста — две строки: разделитель « · » в тексте остаётся, на экране он — перенос (точка не висит в конце строки)
+        if(ph){const [a,c]=t.textContent.split(' · '); t.textContent=''; t.append(a); const br=document.createElement('span'); br.className='vtip-br'; br.textContent=' · '; t.append(br,c);}
         // над переключателем ракурсов; его нет — над шапкой шторки в её конечном положении (приёмка d8 17.10); шторка сдвинется — следом
         vwTipPlace(t);
         shot.appendChild(t);
         // началась загрузка (переключили в 3D) — подсказка уходит и вернётся, когда сцена будет готова
         const t0=Date.now(); (function watch(){ if(!t.isConnected)return;
           if(isBusy()){t.remove(); setTimeout(tip,250); return;}
+          if(VW.mode!==t.dataset.mode){t.remove(); return;}
           if(Date.now()-t0>=3000){t.remove(); try{localStorage.setItem('remlab-sheet-hint-v1','1');}catch(e){} return;}
           setTimeout(watch,150);})();
       })();}}
@@ -7098,7 +7106,7 @@ async function liveShotTake(){
     'Ссылка скопирована':'Link copied','Ракурс':'View','План':'Plan','Товары и замены ⌃':'Items & swaps ⌃','⌄ Свернуть':'⌄ Collapse',
     'Сделать фотореалистичное фото':'Make a photorealistic photo','нейросеть · 2–4 мин · бесплатно для вас':'AI · 2–4 min · free for you',
     'Сделать реалистичнее':'Make it realistic','Отменить изменение':'Undo the change','Вернуть изменение':'Redo the change',
-    'Потяните или нажмите — товары и замены':'Pull or tap — items and swaps','Фото нейросети · расстановка могла отличаться':'AI photo · the layout may differ','Собираем сцену…':'Building the scene…','⤢ во весь экран':'⤢ full screen','Двигайте пальцем · щипок — увеличить · двойной тап — назад':'Drag to move · pinch to zoom · double tap to go back','Ракурс 1':'View 1','Ракурс 2':'View 2','Загружаем модели…':'Loading models…','Обновляем…':'Updating…','Загружаем модель…':'Loading the model…','Сервер рисует эскиз…':'The server is drawing a sketch…','Эскиз с сервера · у устройства нет видеокарты':'Server sketch · your device has no graphics card','Готово — посмотреть в окне':'Done — view in the window','Расставляем мебель…':'Placing furniture…','Предыдущая расстановка':'Previous layout','Следующая расстановка':'Next layout',
+    'Потяните или нажмите — товары и замены':'Pull or tap — items and swaps','Потяните фото — вся комната · шторку — товары и замены':'Drag the photo — whole room · pull the sheet — items and swaps','Фото нейросети · расстановка могла отличаться':'AI photo · the layout may differ','Собираем сцену…':'Building the scene…','⤢ во весь экран':'⤢ full screen','Двигайте пальцем · щипок — увеличить · двойной тап — назад':'Drag to move · pinch to zoom · double tap to go back','Ракурс 1':'View 1','Ракурс 2':'View 2','Загружаем модели…':'Loading models…','Обновляем…':'Updating…','Загружаем модель…':'Loading the model…','Сервер рисует эскиз…':'The server is drawing a sketch…','Эскиз с сервера · у устройства нет видеокарты':'Server sketch · your device has no graphics card','Готово — посмотреть в окне':'Done — view in the window','Расставляем мебель…':'Placing furniture…','Предыдущая расстановка':'Previous layout','Следующая расстановка':'Next layout',
     'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Готово — посмотреть в окне» внизу.':
       'Hold an item for half a second and drag it to move. A short tap shows rotation arrows. When ready, tap “Done — view in the window” below.',
     'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Готово — посмотреть в окне» внизу.':
