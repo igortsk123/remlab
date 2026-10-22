@@ -22,6 +22,10 @@
   5. экзамен: сцены продвигаемых сетов (`acceptance-scenes.json` → `ACC_MANIFEST`), старый банк против смешанного, движок
      из правил (zoned); новый hard / не размещено больше / TIMEOUT / сбой — ячейка не идёт, остальные идут; после отката
      провалившихся связки и тиры перепроверяются;
+  5б. демо (`promote_demo_check`): выбор и дозаполнение шести вариантов демо (`flat215_demo.choose_banks(fill_banks)`,
+     отдельным процессом, банк — копия, папка — своя, без публикации) по живому и по смешанному банку; продвигаемая ячейка
+     стала вариантом и витрина её дозаполнила (замен или снятых без замены > 0, `demo-fill-report`) или её стиль потерял
+     полный вариант — ячейка не идёт;
   6. нетронутые ячейки — «не хуже прежнего»: ровно как в живом банке, плюс явный `bank_status` у сетов с ушедшим товаром:
      `hidden` — ушёл товар ключевой роли (вариант без него не пройдёт рубеж публикации ядра), иначе `degraded`
      (демо снимет позицию и дозаполнит, `flat215_demo.drop_unavailable` / `demo_fill`);
@@ -58,6 +62,7 @@ WORK = os.path.expanduser(os.environ.get('BANK_PROMOTE_DIR', '~/scout-scenes/ban
 ZONES = os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'rules', 'zones.json')
 SCENES = os.path.join(HERE, 'acceptance-scenes.json')
 TIERS = ('эконом', 'комфорт', 'премиум')
+STAGE_LABEL = {'exam': 'экзамен', 'demo': 'демо'}
 
 
 def rules() -> dict:
@@ -199,13 +204,33 @@ def exam_verdict(old: dict, new: dict, ids: list) -> tuple[bool, list]:
     return not why, why
 
 
+def demo_verdict(base: dict, new: dict, promoted_ns: list, styles: dict) -> dict:
+    """Демо из смешанного банка против демо из живого (`flat215_demo.choose_banks(fill_banks)` — то, что публикует ночь).
+    Продвигаемая ячейка стала вариантом демо — витрина не должна её чинить: замен 0 и снятых без замены 0 (Codex § 4,
+    `demo-fill-report`). Стиль ячейки имел полный вариант на живом банке, а на смешанном потерял — тоже провал ячейки."""
+    lost = {x.get('style') for x in new.get('incomplete') or []} - {x.get('style') for x in base.get('incomplete') or []}
+    out = {}
+    for n in promoted_ns:
+        why = []
+        if n in (new.get('banks') or []):
+            rows = (new.get('journal') or {}).get(f'set{n}') or []
+            rep, drop = sum(1 for x in rows if x.get('to')), sum(1 for x in rows if not x.get('to'))
+            if rep or drop:
+                why.append(f'вариант демо дозаполнен: замен {rep}, снято без замены {drop} — '
+                           + ', '.join(f"{x.get('role')}: {x.get('reason') or ''}".strip(': ') for x in rows[:4]))
+        if styles.get(n) in lost:
+            why.append(f'стиль «{styles.get(n)}» потерял полный вариант демо')
+        out[n] = {'ok': not why, 'why': why, 'in_variants': n in (new.get('banks') or [])}
+    return out
+
+
 def plan(live: list, cand: list, state: dict, R: dict, *, strict_fn, media, gone_cells: set, demo_cells: set,
-         major: set, exam_fn=None, force_ready: set = frozenset()) -> dict:
-    """Чистое ядро: → {'fatal', 'hybrid', 'rows', 'promoted', 'cap', 'status', 'exam'}. Живой банк не меняется."""
+         major: set, exam_fn=None, demo_fn=None, force_ready: set = frozenset()) -> dict:
+    """Чистое ядро: → {'fatal', 'hybrid', 'rows', 'promoted', 'cap', 'status', 'exam', 'demo'}. Живой банк не меняется."""
     ident = SID.verify(cand, live, cells=len(live))
     if ident:
         return {'fatal': 'идентичность кандидата против живого: ' + '; '.join(ident), 'hybrid': None, 'rows': [],
-                'promoted': [], 'cap': 0, 'status': {}, 'exam': None}
+                'promoted': [], 'cap': 0, 'status': {}, 'exam': None, 'demo': None}
     share = float(os.environ.get('BANK_MAX_PROMOTE_SHARE') or R.get('max_promote_share', 0.25))
     cap = math.floor(share * len(live))
     cells = (state or {}).get('cells') or {}
@@ -267,38 +292,44 @@ def plan(live: list, cand: list, state: dict, R: dict, *, strict_fn, media, gone
             hybrid[n] = copy.deepcopy(cand[n])
             promoted.append(n)
         todo, first = (later if len(later) < len(todo) else []), False
-    exam = None
-    if promoted and exam_fn is not None:
-        exam = exam_fn(hybrid, promoted)
-        if exam.get('error'):
+    # ПРОВЕРКИ ПО ОЧЕРЕДИ (каждая — по смешанному банку, провал ячейки откатывает только её): экзамен сцен, затем демо —
+    # дозаполнение шести вариантов (Codex § 4: replaced=0, dropped=0). Проверка упала целиком — fail-closed, никого
+    results = {}
+    for name, fn in (('exam', exam_fn), ('demo', demo_fn)):
+        if not promoted or fn is None:
+            continue
+        label = STAGE_LABEL[name]
+        res = results[name] = fn(hybrid, promoted)
+        if res.get('error'):
             for n in promoted:
-                rows[n].update(decision='blocked', reasons=[f"экзамен не прошёл целиком: {exam['error']}"])
+                rows[n].update(decision='blocked', reasons=[f"{label} не прошёл целиком: {res['error']}"])
                 hybrid[n] = copy.deepcopy(base[n])
             promoted = []
-        else:
+            break
+        for n in list(promoted):
+            v = (res.get('cells') or {}).get(n + 1) or {'ok': False, 'why': [f'нет итога: {label}']}
+            rows[n][name] = v
+            if not v['ok']:
+                rows[n].update(decision='blocked', reasons=[f'{label}: ' + '; '.join(v['why'][:6])])
+                hybrid[n] = copy.deepcopy(base[n])
+                promoted.remove(n)
+        # откат провалившихся мог вернуть живые сеты, с которыми продвигаемый образует связку / нарушает тиры
+        changed = True
+        while changed:
+            changed = False
             for n in list(promoted):
-                v = exam['cells'].get(n + 1) or {'ok': False, 'why': ['нет итога экзамена']}
-                rows[n]['exam'] = v
-                if not v['ok']:
-                    rows[n].update(decision='blocked', reasons=['экзамен: ' + '; '.join(v['why'][:6])])
+                hybrid[n] = copy.deepcopy(base[n])
+                why = admit(n)
+                hybrid[n] = copy.deepcopy(cand[n])
+                if why:
+                    rows[n].update(decision='blocked', reasons=['после отката соседа: ' + '; '.join(why)])
                     hybrid[n] = copy.deepcopy(base[n])
                     promoted.remove(n)
-            # откат провалившихся мог вернуть живые сеты, с которыми продвигаемый образует связку / нарушает тиры
-            changed = True
-            while changed:
-                changed = False
-                for n in list(promoted):
-                    hybrid[n] = copy.deepcopy(base[n])
-                    why = admit(n)
-                    hybrid[n] = copy.deepcopy(cand[n])
-                    if why:
-                        rows[n].update(decision='blocked', reasons=['после отката соседа: ' + '; '.join(why)])
-                        hybrid[n] = copy.deepcopy(base[n])
-                        promoted.remove(n)
-                        changed = True
+                    changed = True
+    done = [STAGE_LABEL[k] for k in ('exam', 'demo') if k in results]
     for n in promoted:
         rows[n]['decision'] = 'promote'
-        rows[n]['reasons'] = ['готова, чиста, экзамен пройден' if exam_fn else 'готова и чиста (без экзамена)']
+        rows[n]['reasons'] = ['готова, чиста' + (', пройдено: ' + ', '.join(done) if done else ' (без проверок)')]
     status = {}
     for n, s in enumerate(hybrid):
         if n in promoted:
@@ -315,7 +346,7 @@ def plan(live: list, cand: list, state: dict, R: dict, *, strict_fn, media, gone
     if worse:
         fatal = f'нетронутые ячейки изменились: {worse[:5]}'
     return {'fatal': fatal, 'hybrid': hybrid, 'rows': [rows[n] for n in sorted(rows)], 'promoted': [n + 1 for n in promoted],
-            'cap': cap, 'status': status, 'exam': exam}
+            'cap': cap, 'status': status, 'exam': results.get('exam'), 'demo': results.get('demo')}
 
 
 # ——— ввод-вывод ———
@@ -365,6 +396,55 @@ def make_exam(live_path: str, R: dict, work: str):
     return exam
 
 
+def _demo_runner(out_json: str) -> int:
+    """Отдельный процесс (env SETS_BANK, FLAT215_DEMO_OUT): выбор и дозаполнение вариантов демо ровно как в ночной сборке
+    (`flat215_demo.build` → `choose_banks(flat, sets, fill_banks(sets))`, с расстановкой солвером в комнате демо); без
+    картинок, движка сцены и публикации. Банк, demo-sets и раскладки — свои (`bank_paths.demo_plan`: копия банка)."""
+    import flat215_demo as FD
+    if FD.BANK['live'] or _same_default(FD.OUT):
+        print('ERROR:bank_promote: демо-проверка только по копии банка и в своей папке', flush=True)
+        return 2
+    os.makedirs(FD.OUT, exist_ok=True)          # как `flat215_demo.main`: demo-sets.json копии пишется в OUT
+    flat = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))
+    sets = json.load(open(FD.BANK['bank'], encoding='utf-8'))
+    banks, journal, incomplete = FD.choose_banks(flat, sets, FD.fill_banks(sets))
+    _save(out_json, {'banks': banks, 'journal': journal, 'incomplete': incomplete})
+    return 0
+
+
+def _same_default(out: str) -> bool:
+    import bank_paths as _BPS
+    return _BPS.same(out, _BPS.DEMO_OUT_DEFAULT)
+
+
+def make_demo(live_path: str, R: dict, work: str):
+    """Демо-проверка: два прогона `_demo_runner` (копия живого / смешанный), каждый в свою папку `work/demo-<сторона>`."""
+    timeout = int(R.get('promote_demo_timeout_min') or 40) * 60
+
+    def demo(hybrid: list, promoted: list) -> dict:
+        t0 = time.time()
+        hpath = os.path.join(work, 'hybrid.demo.json')
+        SID.write_bank(hybrid, hpath, LIVE)
+        got = {}
+        for side, bank in (('old', live_path), ('new', hpath)):
+            out = os.path.join(work, f'demo-{side}')
+            res = os.path.join(work, f'demo-{side}.json')
+            env = {**os.environ, 'SETS_BANK': bank, 'FLAT215_DEMO_OUT': out}
+            try:
+                p = subprocess.run([sys.executable, os.path.abspath(__file__), '--demo-run', res], cwd=HERE, env=env,
+                                   capture_output=True, text=True, timeout=max(60, timeout // 2))
+            except subprocess.TimeoutExpired:
+                return {'error': f'{side}: не уложилось в {timeout // 120} мин'}
+            if p.returncode:
+                return {'error': f'{side}: rc={p.returncode} {(p.stderr or p.stdout or "").strip()[-200:]}'}
+            got[side] = json.load(open(res, encoding='utf-8'))
+        ns = [n + 1 for n in promoted]
+        cells = demo_verdict(got['old'], got['new'], ns, {n: hybrid[n - 1].get('style') for n in ns})
+        return {'seconds': round(time.time() - t0), 'variants_old': got['old']['banks'], 'variants_new': got['new']['banks'],
+                'incomplete_new': got['new'].get('incomplete'), 'cells': cells}
+    return demo
+
+
 def _save(path: str, obj) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + '.tmp'
@@ -401,8 +481,9 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
     live_copy = os.path.join(WORK, 'live.exam.json')
     _save(live_copy, live)
     exam = None if (no_exam or R.get('promote_exam') is False) else make_exam(live_copy, R, WORK)
+    demo = None if (no_exam or R.get('promote_demo_check') is False) else make_demo(live_copy, R, WORK)
     res = plan(live, cand, BP.load_state(), R, media=media, gone_cells=gone_cells, demo_cells=demo_cells,
-               major=_compose_const('MAJOR_ROLES'), exam_fn=exam, force_ready=force_ready,
+               major=_compose_const('MAJOR_ROLES'), exam_fn=exam, demo_fn=demo, force_ready=force_ready,
                strict_fn=lambda s: strict(s, media, SI._slot_ok, SI.sync_pairs, fits_role, groups, region,
                                           R.get('promote_dining_check', True)))
     dec = collections.Counter(r['decision'] for r in res['rows'])
@@ -412,6 +493,7 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
     man = {'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'report_only': True, 'live': LIVE, 'candidate': CANDIDATE,
            'hybrid': None, 'cap': res['cap'], 'promoted': res['promoted'], 'decisions': dict(dec), 'fatal': res['fatal'],
            'exam': {k: v for k, v in (res['exam'] or {}).items() if k != 'cells'} or None,
+           'demo': {k: v for k, v in (res['demo'] or {}).items() if k != 'cells'} or None,
            'live_status': res['status'], 'cells': res['rows'], 'forced_ready': sorted(force_ready)}
     rc = 0
     if res['fatal']:
@@ -421,9 +503,10 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
         hp = os.path.join(WORK, 'hybrid.json')
         SID.write_bank(res['hybrid'], hp, LIVE)
         man['hybrid'] = hp
-    if (res['exam'] or {}).get('error'):
-        print(f"ERROR:bank_promote: экзамен — {res['exam']['error']}; продвигаемых нет (fail-closed)", flush=True)
-        rc = 1
+    for k in ('exam', 'demo'):
+        if (res[k] or {}).get('error'):
+            print(f"ERROR:bank_promote: {STAGE_LABEL[k]} — {res[k]['error']}; продвигаемых нет (fail-closed)", flush=True)
+            rc = 1
     man['seconds'] = round(time.time() - t0)
     _save(MANIFEST, man)
     print(f"bank_promote (только отчёт): ячеек {len(cand)} — продвигается {len(res['promoted'])} {res['promoted'][:12]} "
@@ -431,7 +514,10 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
     print('  почему нет: ' + '; '.join(f'{w} — {n}' for w, n in why.most_common(8)), flush=True)
     print(f"  живые с ушедшим товаром: {dict(stc) or 0}; экзамен: "
           + (f"{res['exam'].get('scenes')} сцен за {res['exam'].get('seconds')} с" if res['exam'] and 'cells' in res['exam']
-             else 'не запускался' if not res['exam'] else 'ошибка'), flush=True)
+             else 'не запускался' if not res['exam'] else 'ошибка')
+          + '; демо: ' + (f"варианты {res['demo'].get('variants_new')} (живой {res['demo'].get('variants_old')}) за "
+                          f"{res['demo'].get('seconds')} с" if res['demo'] and 'cells' in res['demo']
+                          else 'не запускалось' if not res['demo'] else 'ошибка'), flush=True)
     print(f"[bank_promote] manifest → {MANIFEST}" + (f"; смешанный банк → {man['hybrid']}" if man['hybrid'] else ''), flush=True)
     return rc
 
@@ -468,9 +554,10 @@ def _selftest() -> int:
                        for i, c in enumerate(cand)}}
     ok_strict = lambda s: []  # noqa: E731
 
-    def go(c=None, st=None, R=None, exam=None, gone=frozenset(), demo=frozenset(), fr=frozenset(), lv=None):
+    def go(c=None, st=None, R=None, exam=None, gone=frozenset(), demo=frozenset(), fr=frozenset(), lv=None, demo_fn=None):
         return plan(lv or live, c or cand, state if st is None else st, R or {'max_promote_share': 0.25}, strict_fn=ok_strict,
-                    media=media, gone_cells=set(gone), demo_cells=set(demo), major=MAJ, exam_fn=exam, force_ready=set(fr))
+                    media=media, gone_cells=set(gone), demo_cells=set(demo), major=MAJ, exam_fn=exam, demo_fn=demo_fn,
+                    force_ready=set(fr))
     r = go()
     ok('предел доли: 25 % от 24 = 6 ячеек, остальные «следующей ночью»',
        len(r['promoted']) == 6 and sum(1 for x in r['rows'] if x['decision'] == 'deferred') == 18, (r['promoted'], r['cap']))
@@ -546,6 +633,28 @@ def _selftest() -> int:
     ok('идентичность кандидата нарушена — фатально, ничего', go(c=c5)['fatal'] and go(c=c5)['promoted'] == [])
     same = copy.deepcopy(live)
     ok('кандидат = живой — «same», продвигать нечего', all(x['decision'] == 'same' for x in go(c=same)['rows']))
+    seen = {}
+
+    def demo_fix(hybrid, promoted):      # вариант демо из 2-й продвигаемой дозаполнен, 3-я — не вариант
+        ns = [n + 1 for n in promoted]
+        seen['ns'] = ns
+        new = {'banks': ns[:2], 'journal': {f'set{ns[1]}': [{'role': 'ковёр', 'to': 'x', 'reason': 'нет модели'}]}, 'incomplete': []}
+        return {'cells': demo_verdict({'incomplete': []}, new, ns, {n: hybrid[n - 1]['style'] for n in ns})}
+    r = go(exam=lambda h, p: {'cells': {n + 1: {'ok': n != p[0], 'why': ['s: TIMEOUT']} for n in p}}, demo_fn=demo_fix)
+    ok('демо: дозаполненный вариант не продвигается, не-вариант идёт; провалившие экзамен в демо не попадают',
+       len(r['promoted']) == 4 and len(seen['ns']) == 5 and first[0] not in seen['ns']
+       and r['rows'][seen['ns'][1] - 1]['decision'] == 'blocked'
+       and 'демо: вариант демо дозаполнен: замен 1, снято без замены 0 — ковёр: нет модели' in r['rows'][seen['ns'][1] - 1]['reasons'][0]
+       and seen['ns'][2] in r['promoted'], (r['promoted'], seen))
+    r = go(demo_fn=lambda h, p: {'error': 'rc=2'})
+    ok('демо упало целиком — fail-closed', r['promoted'] == [] and 'демо не прошёл целиком' in r['rows'][0]['reasons'][0])
+    v = demo_verdict({'incomplete': []}, {'banks': [5], 'journal': {'set5': [{'role': 'пуф'}]},
+                                          'incomplete': [{'style': 'лофт'}]}, [5, 7, 9], {5: 'сканди', 7: 'лофт', 9: 'сканди'})
+    ok('демо-вердикт: снято без замены — провал; стиль потерял полный вариант — провал; прочее — идёт',
+       not v[5]['ok'] and 'снято без замены 1' in v[5]['why'][0] and not v[7]['ok'] and 'потерял' in v[7]['why'][0]
+       and v[9]['ok'] and not v[9]['in_variants'], v)
+    v = demo_verdict({'incomplete': [{'style': 'лофт'}]}, {'banks': [], 'incomplete': [{'style': 'лофт'}]}, [7], {7: 'лофт'})
+    ok('демо-вердикт: стиль был неполным и на живом — не хуже прежнего', v[7]['ok'])
     ok('экзамен: новый hard / больше неразмещённых / TIMEOUT — провал; прежний провал — не хуже',
        not exam_verdict({'a': {'fails': []}}, {'a': {'fails': ['FAIL collision: x']}}, ['a'])[0]
        and not exam_verdict({'a': {'missing': []}}, {'a': {'missing': ['кресло'], 'fails': []}}, ['a'])[0]
@@ -566,6 +675,8 @@ def _selftest() -> int:
 if __name__ == '__main__':
     if '--selftest' in sys.argv:
         sys.exit(_selftest())
+    if '--demo-run' in sys.argv:
+        sys.exit(_demo_runner(sys.argv[sys.argv.index('--demo-run') + 1]))
     fr = set()
     if '--force-ready' in sys.argv:
         fr = {int(x) for x in sys.argv[sys.argv.index('--force-ready') + 1].split(',') if x.strip()}
