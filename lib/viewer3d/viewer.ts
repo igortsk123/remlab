@@ -25,6 +25,7 @@ import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/v
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { outlineFrame } from "@/lib/viewer3d/outline";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
+import { boxPoints, livePitchDeg, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
 
 const CM = 0.01;
@@ -212,9 +213,14 @@ export class FlatViewer {
   private photoLook = { yaw: 0, pitch: 0 };
   /** Портрет телефона (приёмка d8 17.10): в позе взгляд наклонён к мебели, иначе верх кадра — потолок. Снимок сервера — без наклона. */
   private tilt = false;
+  /**
+   * «3D» глазами стоящего (demo-27, `live-eye.ts`): есть — живая фото-поза берёт глаз `eyeCm` вместо высоты кадра нейросети, без
+   * сдвига объектива, с наклоном вниз, при котором мебель — в видимой полосе холста `band`. Кадры нейросети (`capturePhoto`) — как были.
+   */
+  private liveEye: { eyeCm: number; band: LiveBand } | null = null;
   private poseAnim: { dx: number; dy: number; yaw: number; pitch: number; t0: number; ms: number } | null = null;
   /** Кэш точки ценника над предметом: `Box3` по группе — дорого на каждый кадр (Codex 17.10, ценники в прогулке). */
-  private anchors = new Map<string, { g: THREE.Object3D; px: number; pz: number; ry: number; t: number; c: THREE.Vector3 }>();
+  private anchors = new Map<string, { g: THREE.Object3D; px: number; pz: number; ry: number; t: number; c: THREE.Vector3; bb: THREE.Box3 }>();
   private topTarget = new THREE.Vector2();   // точка, вокруг которой крутится вид сверху
   private topDistanceCm = 620;
   private topPitch = -52;
@@ -623,7 +629,7 @@ export class FlatViewer {
   /** Неподвижная камера фото-кадра (см. `PhotoPose`). Выход — `setViewMode`. */
   setPhotoPose(pose: PhotoPose): void {
     this.photo = { ...pose };
-    this.photoLook = { yaw: 0, pitch: this.tilt ? this.tiltFor(pose) : 0 };
+    this.photoLook = { yaw: 0, pitch: this.basePitch(pose) };
     this.poseAnim = null;
     if (this.viewMode === "top") {
       this.scene.traverse((o) => {
@@ -635,6 +641,46 @@ export class FlatViewer {
 
   setTilt(on: boolean): void {
     this.tilt = on;
+  }
+
+  /** «3D» глазами стоящего: глаз (см) и видимая полоса холста (доли высоты); null — живая поза как кадр нейросети. */
+  setLiveEye(v: { eyeCm?: number; band?: Partial<LiveBand> } | null): void {
+    this.liveEye = v ? { eyeCm: v.eyeCm ?? LIVE_EYE_CM, band: { top: v.band?.top ?? 0, bottom: v.band?.bottom ?? 1 } } : null;
+  }
+
+  /** Наклон взгляда в текущей позе заново — по мебели, что уже в сцене (после загрузки расстановки: до неё мебели нет). */
+  aimLive(): void {
+    if (this.viewMode === "photo" && this.photo && !this.poseAnim) this.photoLook.pitch = this.basePitch(this.photo);
+  }
+
+  /** Наклон позы по умолчанию: «3D» глазами стоящего — по мебели (`livePitch`); иначе портрет — `tiltFor`; иначе прямо. */
+  private basePitch(pose: PhotoPose): number {
+    return this.liveEye ? this.livePitch(pose) : this.tilt ? this.tiltFor(pose) : 0;
+  }
+
+  /** Наклон, при котором мебель комнаты позы — в видимой полосе холста (`live-eye.ts`). */
+  private livePitch(pose: PhotoPose): number {
+    const room = roomAt(this.apartment, pose.x, pose.y);
+    const pts: LivePoint[] = [];
+    for (const [id, p] of this.placed) {
+      if (room && p.spec.roomId !== room.id) continue;
+      const bb = this.anchorOf(id)?.bb;
+      if (!bb || bb.isEmpty()) continue;
+      pts.push(...boxPoints({ x: bb.min.x / CM, y: bb.min.z / CM, h: bb.min.y / CM }, { x: bb.max.x / CM, y: bb.max.z / CM, h: bb.max.y / CM }));
+    }
+    return livePitchDeg(pose, pts, this.camera.aspect, this.liveEye?.band ?? { top: 0, bottom: 1 }, this.liveEye?.eyeCm);
+  }
+
+  /** Глаз и цель позы (см) для ЖИВОЙ сцены: «3D» глазами стоящего — глаз `liveEye`, взгляд горизонтален (наклон — `photoLook`). */
+  private liveRay(p: PhotoPose): { eye: [number, number, number]; target: [number, number, number] } {
+    const r = photoRay(p);
+    if (this.liveEye) { r.eye[1] = this.liveEye.eyeCm; r.target[1] = this.liveEye.eyeCm; }
+    return r;
+  }
+
+  /** Сдвиг объектива живой позы: «3D» глазами стоящего — без сдвига (кадр опускает наклон), иначе — как у кадра. */
+  private liveShift(p: PhotoPose): number {
+    return this.liveEye ? 0 : photoShift(p, this.camera.aspect);
   }
 
   /** Наклон взгляда из позы к середине мебели комнаты на высоте сидений: 70 % от прямого угла, не круче 18°. */
@@ -1343,10 +1389,10 @@ export class FlatViewer {
 
     if (this.viewMode === "photo" && this.photo) {
       const lp = this.livePose();
-      const { eye, target } = photoRay(lp ? { ...this.photo, x: lp.x, y: lp.y, rot: lp.rot } : this.photo);
+      const { eye, target } = this.liveRay(lp ? { ...this.photo, x: lp.x, y: lp.y, rot: lp.rot } : this.photo);
       if (lp && lp.pitch) target[1] += Math.tan((lp.pitch * Math.PI) / 180) * PHOTO_AIM_CM;   // поворот взгляда вверх-вниз
       const vfov = verticalFov(this.photo.fov ?? 72, this.camera.aspect);
-      const shift = photoShift(this.photo, this.camera.aspect);
+      const shift = this.liveShift(this.photo);
       if (Math.abs(this.camera.fov - vfov) > 0.01 || (this.camera.view?.offsetY ?? 0) !== -shift) {
         this.camera.fov = vfov;
         applyPhotoShift(this.camera, shift);
@@ -1514,29 +1560,62 @@ export class FlatViewer {
    * Экранная точка предмета «здесь и сейчас» — для проверок и для наведения на предмет.
    * Тот же расчёт, что у карточки, но по запросу.
    */
-  projectSlot(slotId: string): { x: number; y: number; visible: boolean; distM: number } | null {
+  /** Габаритная коробка предмета и её центр — из кэша, пока группа та же и не сдвинута (и не старше 1 с: модель могла смениться с коробки). */
+  private anchorOf(slotId: string) {
     const placed = this.placed.get(slotId);
     if (!placed) return null;
-    // точка предмета — из кэша, пока группа та же и не сдвинута (и не старше 1 с: модель могла смениться с коробки)
     const g = placed.group, now = performance.now();
     let a = this.anchors.get(slotId);
     if (!a || a.g !== g || a.px !== g.position.x || a.pz !== g.position.z || a.ry !== g.rotation.y || now - a.t > 1000) {
       const bb = new THREE.Box3().setFromObject(g);
-      a = { g, px: g.position.x, pz: g.position.z, ry: g.rotation.y, t: now,
+      // ЧТО СТОИТ НА ПРЕДМЕТЕ — В ЕГО РАМКЕ (demo-27 В): телевизор на тумбе, ваза на столике — объекты сцены (`@extra:`), а не
+      // предметы; без них ценник тумбы ложился на экран телевизора. Своё — центр на плане внутри следа предмета, низ не ниже его низа
+      if (!isExtra(slotId) && !bb.isEmpty()) {
+        const own = bb.clone();
+        for (const [id2, p2] of this.placed) {
+          if (!isExtra(id2)) continue;
+          const b2 = new THREE.Box3().setFromObject(p2.group);
+          if (b2.isEmpty()) continue;
+          const cx = (b2.min.x + b2.max.x) / 2, cz = (b2.min.z + b2.max.z) / 2;
+          if (cx >= own.min.x && cx <= own.max.x && cz >= own.min.z && cz <= own.max.z && b2.min.y >= own.min.y) bb.union(b2);
+        }
+      }
+      a = { g, px: g.position.x, pz: g.position.z, ry: g.rotation.y, t: now, bb,
         c: new THREE.Vector3((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, (bb.min.z + bb.max.z) / 2) };
       this.anchors.set(slotId, a);
     }
+    return a;
+  }
+
+  /**
+   * Точка предмета на холсте (px) и его РАМКА — проекция габаритной коробки `[left, top, right, bottom]` (demo-27 В: ценник ставится
+   * над рамкой, а не на середину предмета — у дальнего стола он закрывал столешницу). Угол коробки за камерой — рамки нет.
+   */
+  projectSlot(slotId: string): { x: number; y: number; visible: boolean; distM: number; box: [number, number, number, number] | null } | null {
+    const a = this.anchorOf(slotId);
+    if (!a) return null;
     const centre = a.c.clone();
     const distM = this.camera.position.distanceTo(centre);
     const v = centre.project(this.camera);
     const el = this.renderer.domElement;
     const w = el.clientWidth || el.width;
     const h = el.clientHeight || el.height;
+    let box: [number, number, number, number] | null = [Infinity, Infinity, -Infinity, -Infinity];
+    const q = new THREE.Vector3();
+    for (const x of [a.bb.min.x, a.bb.max.x]) for (const y of [a.bb.min.y, a.bb.max.y]) for (const z of [a.bb.min.z, a.bb.max.z]) {
+      if (!box) break;
+      q.set(x, y, z).applyMatrix4(this.camera.matrixWorldInverse);
+      if (q.z > -this.camera.near) { box = null; break; }        // угол за камерой — проекция неверна
+      q.applyMatrix4(this.camera.projectionMatrix);
+      const sx = (q.x * 0.5 + 0.5) * w, sy = (-q.y * 0.5 + 0.5) * h;
+      box = [Math.min(box[0], sx), Math.min(box[1], sy), Math.max(box[2], sx), Math.max(box[3], sy)];
+    }
     return {
       x: (v.x * 0.5 + 0.5) * w,
       y: (-v.y * 0.5 + 0.5) * h,
       visible: v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1,
       distM,
+      box,
     };
   }
 
@@ -1595,7 +1674,7 @@ export class FlatViewer {
       // взгляд из точки съёмки: направление позы на плане — (sin rot, −cos rot)
       const want = (Math.atan2(x - this.photo.x, -(y - this.photo.y)) * 180) / Math.PI;
       this.photoLook.yaw = ((want - this.photo.rot + 540) % 360) - 180;
-      this.photoLook.pitch = this.tilt ? this.tiltFor(this.photo) : 0;
+      this.photoLook.pitch = this.basePitch(this.photo);
       return;
     }
     this.heading = ((Math.atan2(x - this.pos.x, y - this.pos.y) * 180) / Math.PI + 360) % 360;
@@ -1628,9 +1707,9 @@ export class FlatViewer {
    */
   private pitchToward(pose: PhotoPose, it: { x: number; y: number; w: number; d: number; rot: number; h?: number }): number {
     const dist = Math.max(30, Math.hypot(it.x - pose.x, it.y - pose.y));
-    const toItem = Math.atan2((it.h ?? 60) / 2 - photoRay(pose).eye[1], dist);
+    const toItem = Math.atan2((it.h ?? 60) / 2 - this.liveRay(pose).eye[1], dist);
     const vhalf = (verticalFov(pose.fov ?? 72, this.camera.aspect) * Math.PI) / 360;
-    const lens = Math.atan(2 * photoShift(pose, this.camera.aspect) * Math.tan(vhalf));   // минус — кадр опущен
+    const lens = Math.atan(2 * this.liveShift(pose) * Math.tan(vhalf));   // минус — кадр опущен
     return Math.min(0, ((toItem - lens) * 180) / Math.PI);
   }
 

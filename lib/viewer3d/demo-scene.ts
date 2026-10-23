@@ -70,14 +70,19 @@ export interface DemoScene {
   goToPose(pose: PhotoPose): void;
   /** Портрет телефона: взгляд из позы наклонён к мебели (снимок сервера — без наклона). */
   setTilt(on: boolean): void;
+  /** «3D» глазами стоящего (demo-27): глаз, см, и видимая полоса холста — доли высоты (над шторкой и переключателем); null — выкл. */
+  setLiveEye(v: { eyeCm?: number; band?: { top?: number; bottom?: number } } | null): void;
+  /** Наклон взгляда по мебели заново (после загрузки расстановки). */
+  aimLive(): void;
   /** Кадры для нейросети из поз ракурсов (demo-10): JPEG каждого вида и роли предметов, оставшихся коробкой (clay). */
   capture(poses: PhotoPose[], width: number, height: number): Promise<{ frames: Blob[]; clay: string[] }>;
   /** Повернуть взгляд в прогулке (перетаскивание пальцем/мышью). */
   look(dx: number, dy: number): void;
   /** Какой предмет под точкой холста: номер в расстановке страницы (как в `update`), иначе -1. */
   pick(clientX: number, clientY: number): number;
-  /** Метки предметов на холсте: номер в расстановке и точка (px холста), видна ли (demo-02: цены на сцене). */
-  pins(): { index: number; x: number; y: number; visible: boolean }[];
+  /** Метки предметов на холсте: номер в расстановке и точка (px холста), видна ли (demo-02: цены на сцене); рамка предмета на холсте
+   *  `[left, top, right, bottom]` — ценник над ней (demo-27 В), null — угол коробки за камерой. */
+  pins(): { index: number; x: number; y: number; visible: boolean; box: [number, number, number, number] | null }[];
   /** Повернуть взгляд прогулки к предмету расстановки (номер как в `update`): заменённый в «3D» предмет должен быть виден
    *  (приёмка владельцем 16.10: диван менялся за краем кадра, и замена казалась несработавшей). */
   focus(index: number): void;
@@ -245,6 +250,8 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     setWalk: (from) => (from ? viewer.walkFrom(from) : viewer.setViewMode("walk")),
     goToPose: (pose) => { viewer.goToPose(pose); viewer.start(); },
     setTilt: (on) => viewer.setTilt(on),
+    setLiveEye: (v) => viewer.setLiveEye(v),
+    aimLive: () => viewer.aimLive(),
     capture: async (poses, width, height) => {
       await running;                                  // последняя расстановка уже в сцене
       viewer.highlight(null);                         // тёплая подсветка выбранного — не в кадр нейросети
@@ -305,10 +312,10 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
       return id ? slotIndex().get(id) ?? -1 : -1;
     },
     pins: () => {
-      const out: { index: number; x: number; y: number; visible: boolean }[] = [];
+      const out: { index: number; x: number; y: number; visible: boolean; box: [number, number, number, number] | null }[] = [];
       for (const [id, index] of slotIndex()) {
         const p = viewer.projectSlot(id);
-        if (p) out.push({ index, x: p.x, y: p.y, visible: p.visible });
+        if (p) out.push({ index, x: p.x, y: p.y, visible: p.visible, box: p.box });
       }
       return out;
     },

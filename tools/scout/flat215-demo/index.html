@@ -5934,6 +5934,17 @@ function vwHighlight(idx, opt){
 // меток нет — там только картинка. Правила прежние: только целиком в кадре, не под кнопками и шторкой, из пересекающихся — дороже
 const PINS={map:new Map(), box:null, t:0, fr:null, busy:[], raf:0};
 function vwPins(){ if(!PINS.raf)PINS.raf=requestAnimationFrame(vwPinsTick); }
+// ЦЕННИК НЕ ЗАКРЫВАЕТ СВОЙ ПРЕДМЕТ (demo-27 В, владелец 23.10: у дальнего обеденного стола цена целиком скрывала столешницу): место — над
+// РАМКОЙ предмета (проекция его габаритной коробки, движок `projectSlot`) с зазором; занято (другой ценник, кнопки, шторка, край) — выше
+// ещё на ценник и на два (разводка по вертикали), затем сбоку от рамки — справа, слева. Рамки нет (угол коробки за камерой) — прежнее
+// место над серединой предмета. → кандидаты [x, y] px холста по порядку предпочтения
+const PIN_GAP=6;
+function pinSpots(p, w, h, fw, pad){
+  const b=p.box;
+  if(!b)return [[Math.round(p.x-w/2), Math.round(p.y-PIN_GAP-h)]];
+  const cx=Math.round(Math.max(pad,Math.min(fw-w-pad,(b[0]+b[2])/2-w/2))), cy=Math.round((b[1]+b[3])/2-h/2), up=Math.round(b[1]-PIN_GAP-h);
+  return [[cx,up],[cx,up-h-4],[cx,up-2*(h+4)],[Math.round(b[2]+PIN_GAP),cy],[Math.round(b[0]-PIN_GAP-w),cy]];
+}
 function vwPinsTick(now){
   PINS.raf=0;
   const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
@@ -5953,12 +5964,13 @@ function vwPinsTick(now){
     if(!n._w){n.hidden=false; n._w=n.offsetWidth; n._h=n.offsetHeight;}
     seen.add(p.index); cand.push({n,p,pr:+pr});});
   const kept=[];
-  cand.sort((a,b)=>b.pr-a.pr).forEach(c=>{const w=c.n._w, h=c.n._h, x=Math.round(c.p.x-w/2), y=Math.round(c.p.y-6-h);
-    const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
-    const ok=!(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k)));
-    c.n.hidden=!ok; if(!ok)return; kept.push(r);
+  cand.sort((a,b)=>b.pr-a.pr).forEach(c=>{const w=c.n._w, h=c.n._h;
+    const free=(x,y)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
+      return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k)))&&r;};
+    const at=pinSpots(c.p, w, h, fr.width, pad).find(([x,y])=>free(x,y)), r=at&&free(at[0],at[1]);
+    c.n.hidden=!r; if(!r)return; kept.push(r);
     const sel=c.p.index===VW.sel; c.n.classList.toggle('sel',sel);
-    c.n.style.transform=`translate(${x}px,${y}px)${sel?' scale(1.08)':''}`;});
+    c.n.style.transform=`translate(${at[0]}px,${at[1]}px)${sel?' scale(1.08)':''}`;});
   PINS.map.forEach((n,i)=>{if(!seen.has(i)){n.remove(); PINS.map.delete(i);}});
   PINS.raf=requestAnimationFrame(vwPinsTick);
 }
@@ -6507,6 +6519,22 @@ function liveFit(wrap){
   LIVE.canvas.style.top='0px'; LIVE.canvas.style.height=r.height+'px';
   const pins=document.getElementById('vpins'); if(pins){pins.style.top='0px'; pins.style.height=r.height+'px'; pins.style.bottom='auto';}
   LIVE.scene.setSize(r.width,r.height);
+  if(LIVE.scene.setLiveEye)LIVE.scene.setLiveEye({eyeCm:LIVE_EYE_CM, band:liveBand(r)});
+}
+// «3D» ГЛАЗАМИ СТОЯЩЕГО (demo-27, владелец 23.10: «глаза где-то 150–155 см… тогда и мебель вся будет видно сразу»): в точке ракурса
+// глаз 152 см, взгляд наклонён вниз так, что мебель — в ВИДИМОЙ полосе холста (движок, `live-eye.ts`). Полоса — от верха холста (под
+// кнопками режима) до переключателя ракурсов; на телефоне — по СВЁРНУТОЙ шторке (окно открывается свёрнутым, вид не прыгает при
+// жесте). Кадры нейросети и камеры фото — как были
+const LIVE_EYE_CM=152;
+function liveBand(r){
+  if(!(r&&r.height>0))return {top:0,bottom:1};
+  const cm=document.getElementById('vCams'), ch=cm&&getComputedStyle(cm).display!=='none'?cm.offsetHeight:0;
+  let bot=r.bottom;
+  if(VW_PHONE()){const vw=document.querySelector('#shot .vw'), vb=vw?vw.getBoundingClientRect().bottom:innerHeight;
+    bot=Math.min(bot, vb-vwEdges().min-12-ch-8);}
+  else if(cm&&ch){const cr=cm.getBoundingClientRect(); if(cr.top>r.top)bot=Math.min(bot,cr.top-8);}
+  const top=r.top+Math.min(64,r.height*0.1);
+  return {top:(top-r.top)/r.height, bottom:Math.max(0.3,(bot-r.top)/r.height)};
 }
 async function liveShow(){
   if(VW.mode==='plan'){liveHide(); vwPlanDraw(); return;}   // в «План» сцены нет — после правки перерисовывается план
@@ -6530,13 +6558,16 @@ async function liveShow(){
   // другая точка. Только при входе в режим: повторный показ после замены не отбрасывает человека туда, откуда он ушёл
   // портрет телефона: взгляд наклонён к мебели (приёмка d8 17.10: верхние 40 % кадра были потолком); снимок нейросети — без наклона
   if(sc.setTilt)sc.setTilt(VW_PHONE()&&window.innerHeight>window.innerWidth);
-  if(LIVE.lastMode!=='walk')sc.setPhotoPose(camPoseOf(c));
+  const entering=LIVE.lastMode!=='walk';
+  if(entering)sc.setPhotoPose(camPoseOf(c));
   LIVE.badge.textContent=LANG==='en'?'3D: drag to look around':'3D: тяните, чтобы осмотреться';
   LIVE.lastMode=VW.mode;
   liveWire();
   sc.start(); vwPins();
   LIVE.state='updating'; vwLoad(true, LANG==='en'?'Updating…':'Обновляем…', true);
   await sc.update(clone(items), liveDecor());
+  // наклон «глазами стоящего» — по мебели, которая только что пришла в сцену (при входе её ещё не было); не после замены — там наведение
+  if(entering&&LIVE.focus==null&&!VW.free&&sc.aimLive)sc.aimLive();
   // ЗАМЕНА В «3D» — ВЗГЛЯД НА ЗАМЕНЁННЫЙ ПРЕДМЕТ (приёмка владельцем 16.10 п.1): иначе диван менялся за краем кадра и
   // казалось, что замена не сработала
   // demo-15 п.2 (владелец 18.10: «после замены фокус камеры автоматом напротив предмета»): безопасное наведение движка — поворот на
