@@ -83,7 +83,7 @@ si._rows = lambda q: []                                   # БД не нужна
 before = write_bank([{'set_id': f'set-t{i}', 'm2': 18, 'style': 'сканди',
                       'items': {'диван': {'mid': 1, 'eid': str(i), 'name': f'Диван {i}', 'w': 200, 'd': 90, 'price': 1000,
                                           'qty': 1}}} for i in range(4)])
-si._slot_ok = lambda role, cand, s, chosen=None: False    # все позиции вне контракта
+si._slot_ok = lambda role, cand, s, chosen=None, current=False: False    # все позиции вне контракта
 si._live_candidates = lambda *a, **k: []                  # замен нет → снятие → затронуты все 4 из 4
 warn = [ln for ln in run(si.enforce_contracts, apply=True) if ln.startswith('WARN:')]
 check('contracts: отказ предохранителя — WARN:contracts_fuse', any(ln.startswith('WARN:contracts_fuse:') for ln in warn))
@@ -164,7 +164,7 @@ si._CAND_CACHE.clear()
 si._CAND_CACHE['items'] = {'1:old': {'styles': {'сканди': 'низкая'}}, '1:new': {'styles': {'сканди': 'высокая'}}}
 si._live_candidates = lambda role, it, *a, **k: ([{'mid': 1, 'eid': 'new', 'name': 'Диван новый', 'w': 200, 'd': 90,
                                                    'price': 1000}] if role == 'диван' else [])
-si._slot_ok = lambda role, cand, s, chosen=None: True
+si._slot_ok = lambda role, cand, s, chosen=None, current=False: True
 stub('catalog_media', media=lambda mid, eid: None)
 stub('testmode', skip=lambda n: False)
 run(si.refresh, apply=True)
