@@ -1379,10 +1379,14 @@ def cache_images(data: dict) -> dict:
             if p.get('img'):
                 urls.add(p['img'])
 
+    # КРУПНАЯ КОПИЯ ДЛЯ КАРТОЧКИ ТОВАРА (demo-26 Д, владелец 23.10): рядом с плиткой 400 px — `<id>-l.jpg` до 1200 px из того же
+    # исходника (в выборке уже `coalesce(image_url_hd, image_url)` — HD магазина, где есть). Замер 23.10 на 25 товарах: исходники
+    # 700–2560 px, копия 1200 px — в среднем 36 КБ (на ~850 фото ~30 МБ). Страница берёт её по имени и только при `_img_large`
     def grab(u: str):
         name = hashlib.md5(u.encode()).hexdigest()[:16] + '.jpg'
         dst = os.path.join(imgdir, name)
-        if os.path.exists(dst):
+        big = dst[:-4] + '-l.jpg'
+        if os.path.exists(dst) and os.path.exists(big):
             return u, 'img/' + name
         full = ('https:' + u) if u.startswith('//') else u
         # ТРИ ПОПЫТКИ (demo-24): фото Гдеслона отвечает 403 через раз на тот же адрес (замер 23.10: 2 из 3 подушек — 403,
@@ -1394,13 +1398,18 @@ def cache_images(data: dict) -> dict:
                 with urllib.request.urlopen(req, timeout=15) as f:
                     raw = f.read()
                 im = Image.open(io.BytesIO(raw)).convert('RGB')
-                im.thumbnail((400, 400))
-                im.save(dst, 'JPEG', quality=82)
+                large = im.copy()
+                large.thumbnail((1200, 1200))
+                large.save(big, 'JPEG', quality=82)
+                if not os.path.exists(dst):             # плитка уже лежит — не переписываем (докачали только крупную)
+                    im.thumbnail((400, 400))
+                    im.save(dst, 'JPEG', quality=82)
                 return u, 'img/' + name
             except Exception:
                 if k < 2:
                     time.sleep(1.5)
-        return u, None
+        # крупная не скачалась, плитка есть — товар остаётся с плиткой (карточка покажет её)
+        return u, ('img/' + name) if os.path.exists(dst) else None
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         got = dict(ex.map(grab, sorted(urls)))
@@ -1480,6 +1489,9 @@ def cache_images(data: dict) -> dict:
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items())))
     data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped,
                            'capped': capped}
+    large = sum(1 for v in got.values() if v and os.path.exists(os.path.join(OUT, v[:-4] + '-l.jpg')))
+    print(f'крупных копий для карточки товара: {large} из {ok}')
+    data['_img_large'] = large > 0                 # страница пробует `<id>-l.jpg` только при этом флаге (нет файла — остаётся плитка)
     return data
 
 

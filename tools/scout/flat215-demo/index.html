@@ -842,6 +842,35 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .favbtns{display:flex;gap:8px}.favbtns .btn{flex:1 1 0}
 .favexcl{align-self:flex-start;color:var(--accent);background:none;border:0;padding:4px 0;cursor:pointer;font:inherit;font-size:14px}
 .favdel{align-self:flex-start;color:var(--danger,#b4442f);background:none;border:0;padding:4px 0;cursor:pointer;font:inherit;font-size:14px}
+/* КАРТОЧКА ТОВАРА (demo-26 Д, `itemCardOpen`): телефон — лист снизу на всю ширину (свайп вниз закрывает), компьютер — окно по центру.
+   Фото — плитка строки сразу, крупная копия проявляется поверх в той же рамке (`object-fit:contain` у обеих — без скачка) */
+#itemCard{position:fixed;inset:0;z-index:calc(var(--z-modal) + 1);background:var(--scrim-soft);display:none;align-items:flex-end;justify-content:center}
+#itemCard.on{display:flex}
+#itemCard .ic-box{position:relative;box-sizing:border-box;outline:none;width:100%;max-height:92vh;max-height:92dvh;overflow:auto;overscroll-behavior:contain;
+ background:var(--surface);color:var(--ink);border-radius:20px 20px 0 0;box-shadow:var(--e5);padding:10px 16px calc(16px + env(safe-area-inset-bottom));
+ animation:icUp .2s ease-out}
+@keyframes icUp{from{transform:translateY(32px);opacity:.5}to{transform:none;opacity:1}}
+#itemCard .ic-grab{width:40px;height:4px;border-radius:999px;background:var(--line);margin:0 auto 10px}
+#itemCard .ic-x{position:absolute;top:18px;right:24px;z-index:1;width:40px;height:40px;border-radius:50%;border:0;background:var(--surface);color:var(--ink);
+ box-shadow:var(--e3);font-size:22px;line-height:40px;padding:0;cursor:pointer}
+#itemCard .ic-ph{position:relative;aspect-ratio:4/3;max-height:52vh;max-height:52dvh;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);overflow:hidden}
+#itemCard .ic-ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:14px;box-sizing:border-box}
+#itemCard .ic-ph .ic-l{opacity:0;transition:opacity .25s}#itemCard .ic-ph .ic-l.ld{opacity:1}
+#itemCard .ic-no{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--faint)}
+#itemCard .ic-nm{font-size:19px;font-weight:600;line-height:1.3;margin-top:12px;overflow-wrap:anywhere}
+#itemCard .ic-meta{font-size:15px;color:var(--muted);margin-top:4px}
+#itemCard .ic-pr{font-size:20px;font-weight:700;margin-top:8px}
+#itemCard .ic-acts{display:flex;gap:8px;margin-top:14px}
+#itemCard .ic-acts .btn{flex:1 1 0;min-height:46px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:inherit;white-space:nowrap}
+#itemCard .ic-acts .btn.primary{color:var(--surface)}
+@media (min-width:701px){
+  #itemCard{align-items:center;padding:24px}
+  #itemCard .ic-box{width:min(520px,100%);max-height:90vh;border-radius:var(--radius);padding:18px}
+  #itemCard .ic-grab{display:none}
+  #itemCard .ic-x{top:26px;right:26px}
+}
+/* название и миниатюра строки открывают карточку — указатель-рука (остальная строка — как была) */
+.row img,.row .noimg-sm,.row .t b,#grid .card img,#grid .card .nm{cursor:pointer}
 .lay .acts .btn{flex:1 1 auto;padding:10px 12px;font-size:.92em}
 .lay .badge2{position:absolute;top:12px;right:12px;background:var(--veil);color:#fff;
  border-radius:999px;padding:4px 12px;font-size:.8em}
@@ -2645,14 +2674,15 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
   // клик по строке или «Заменить» открывает тот же каталог замены, что и значок на предмете
   box.querySelectorAll('.row').forEach(r=>{
     // строка декора адресуется своим индексом: у него нет места в расстановке
+    // название или миниатюра — карточка товара (demo-26 Д), её «Заменить» — то же, что тап по строке
     if(r.dataset.d!==undefined){
-      const k=+r.dataset.d;
-      r.onclick=()=>openPicker(decorSel(k));
+      const k=+r.dataset.d, x=decorList().find(y=>y.i===k), go=()=>openPicker(decorSel(k));
+      r.onclick=e=>{if(icHit(e)&&x&&x.sku){itemCardOpen(icItem(x.sku,x.role),go); return;} go();};
       const a2=r.querySelector('a'); if(a2)a2.onclick=e=>e.stopPropagation();
       return;
     }
-    const it=items[+r.dataset.i];
-    r.onclick=()=>{if(it){sel=it;draw();openPicker(it);}};
+    const it=items[+r.dataset.i], go=()=>{if(it){sel=it;draw();openPicker(it);}};
+    r.onclick=e=>{const p=it&&skuOf(it); if(icHit(e)&&p){itemCardOpen(icItem(p,it.role),go); return;} go();};
     const a=r.querySelector('a'); if(a)a.onclick=e=>e.stopPropagation();
   });
 }
@@ -3844,7 +3874,11 @@ function restoreView(s){
     setTimeout(()=>{const sc=document.getElementById('vscroll'); if(sc&&s.list)sc.scrollTop=s.list;},VW_SLOW()?40:380);},120);
 }
 // окно варианта из записи, открытой НЕ с избранного, — над главной: экран избранного под ним убираем (иначе «×» покажет избранное)
-window.addEventListener('popstate',e=>{const s=e.state; if(!s||!s.remlab)return;
+window.addEventListener('popstate',e=>{
+  // карточка товара (demo-26 Д): «назад» закрывает её, вид под ней не трогаем; закрыли сами — свой `back()` гасим
+  if(IC.eat){IC.eat=false; return;}
+  if(IC.on){itemCardClose(true); return;}
+  const s=e.state; if(!s||!s.remlab)return;
   if(s.view==='variant'&&!s.fromFav&&curScreen()==='fav')showTab('room');
   restoreView(s);});
 // ♡ N в строке квартиры: сколько расстановок в избранном (корзина — demo-16 шаг 2)
@@ -3891,7 +3925,7 @@ function showSwap(){
 // отпускает страницу раньше времени, забытый вызов не оставляет её запертой. Прокрутку главной, пока она заперта, читать и
 // задавать — `pageY()`/`pageScrollTo()`
 var PAGE_LOCK={on:false, y:0};   // var, не const: прокрутку могут спросить раньше, чем выполнится эта строка
-var PAGE_LAYERS=[['shot','on'],['swapBox','on'],['cons','on'],['vzoom','on'],['mlist','on'],['sheet','open']];
+var PAGE_LAYERS=[['shot','on'],['swapBox','on'],['cons','on'],['vzoom','on'],['mlist','on'],['sheet','open'],['itemCard','on']];
 function pageLayerOpen(){
   return PAGE_LAYERS.some(([id,c])=>{const e=document.getElementById(id); return !!e&&e.classList.contains(c);})||!!document.getElementById('favPop');}
 function pageY(){return PAGE_LOCK&&PAGE_LOCK.on?PAGE_LOCK.y:window.scrollY;}
@@ -4226,7 +4260,7 @@ function shotListHtml(s){
         // только у того, что нашлось в расстановке, а ваза лежит в отдельном списке.
         const own=items.find(i=>(skuOf(i)||{}).name===a.name)
           ||decorList().find(x=>(x.sku||{}).name===a.name);
-        return `<div class="row" style="cursor:default"${a.sid?` data-sid="${escHtml(a.sid)}"`:''}>`+
+        return `<div class="row" style="cursor:default" data-k="${k}"${a.sid?` data-sid="${escHtml(a.sid)}"`:''}>`+
           // первые 10 строк — сразу, остальные — лениво; до загрузки — заглушка тона страницы (demo-21 п.5), загрузилась — белая плитка
           (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`:'<div class="noimg-sm">нет фото</div>')+
           `<div class="t"><b>${a.name}</b>`+
@@ -4242,6 +4276,12 @@ function shotListHtml(s){
 }
 // «Заменить» из просмотра: находим предмет текущей расстановки по названию товара
 function wireShotList(){
+  // название или миниатюра — карточка товара (demo-26 Д); «Заменить» в ней — та же кнопка строки
+  const pl=document.querySelector('#shotbody .pinlist');
+  if(pl)pl.onclick=ev=>{const h=icHit(ev), row=h&&h.closest('.row'), a=row&&shotRows[+row.dataset.k]; if(!a)return;
+    const it=items.find(i=>(skuOf(i)||{}).name===a.name), dx=decorList().find(x=>(x.sku||{}).name===a.name);
+    const s=(it&&skuOf(it))||(dx&&dx.sku)||{}, rep=row.querySelector('[data-rep]');
+    itemCardOpen(icItem({...a, w:s.w, d:s.d, h:s.h}, a.role), rep?()=>rep.click():null);};
   document.querySelectorAll('#shotbody [data-rep]').forEach(b=>b.onclick=()=>{
     const a=shotRows[+b.dataset.rep];
     const dx=a&&decorList().find(x=>(x.sku||{}).name===a.name);
@@ -4276,6 +4316,68 @@ function refreshShotList(){
   if(VW.sel!=null&&items[VW.sel]){const r=vwRowOf(items[VW.sel]); if(r)r.classList.add('hl');}
   liveShow();      // замена в окне — живая сцена показывает её сразу (demo-01)
 }
+// ——— КАРТОЧКА ТОВАРА (demo-26 Д, владелец 23.10): тап по НАЗВАНИЮ или МИНИАТЮРЕ строки (список окна — мебель, декор, мягкое; избранное
+// открывает то же окно; список у плана; лента замен) — крупное фото, полное название, роль, магазин, цена, размеры, «Заменить» и
+// «В магазин». Остальная строка — как была. Закрывают «×», тап мимо, свайп вниз (телефон), Esc и «назад» браузера: карточка — своя
+// запись истории, «назад» закрывает её, а не окно. Фото — сразу плитка строки (уже в кэше), поверх — крупная копия сборки
+// (`img/<id>-l.jpg`, `cache_images`), проявляется, когда загрузилась. Несколько фото у товара в данных нет — листать нечего.
+const IC={on:false, pushed:false, eat:false, swap:null, from:null};
+function icBig(src){ return D&&D._img_large&&/(^|\/)img\/[0-9a-f]{16}\.jpg$/.test(src||'')?src.replace(/\.jpg$/,'-l.jpg'):''; }
+// товар строки → поля карточки; у ковра высоты нет (плита), как в ленте замен
+function icItem(p, role){ const r=baseRole(role), rug=r==='ковёр';
+  return {name:p.name, img:p.img, url:p.url, shop:p.shop, price:p.price, qty:p.qty||1, role:r, w:p.w, d:p.d, h:rug?null:p.h}; }
+function itemCardOpen(p, swap){
+  let el=document.getElementById('itemCard');
+  if(!el){el=document.createElement('div'); el.id='itemCard'; el.setAttribute('role','dialog'); el.setAttribute('aria-modal','true');
+    document.body.appendChild(el); icWire(el);}
+  const big=icBig(p.img), e=escHtml;
+  el.innerHTML=`<div class="ic-box" tabindex="-1"><div class="ic-grab"></div>`+
+    `<button class="ic-x" type="button" aria-label="Закрыть">×</button>`+
+    `<div class="ic-ph">`+(p.img?`<img class="ic-s" src="${e(p.img)}" alt="">`+
+      (big?`<img class="ic-l" src="${e(big)}" alt="" onload="this.classList.add('ld')" onerror="this.remove()">`:'')
+      :'<div class="ic-no">нет фото</div>')+`</div>`+
+    `<div class="ic-nm">${e(p.name||'')}</div>`+
+    `<div class="ic-meta">${[p.role,p.shop,p.qty>1?p.qty+' шт.':''].filter(Boolean).map(e).join(' · ')}</div>`+
+    (p.w&&p.d?`<div class="ic-meta">${dimsText(p)}</div>`:'')+
+    `<div class="ic-pr">${money(p.price)}</div>`+
+    `<div class="ic-acts">`+(swap?`<button class="btn primary ic-sw" type="button">Заменить</button>`:'')+
+      (p.url?`<a class="btn" href="${e(p.url)}" target="_blank" rel="noopener">В магазин</a>`:'')+`</div></div>`;
+  IC.swap=swap||null; IC.from=document.activeElement;
+  if(!IC.on){IC.on=true; el.classList.add('on');
+    if(!window.__EMBED)try{history.pushState(Object.assign({},history.state||{},{icard:1}),''); IC.pushed=true;}catch(x){}}
+  // фокус — на саму карточку (Tab идёт по её кнопкам, Esc закрывает), без рамки на «×» при открытии мышью
+  const bx=el.querySelector('.ic-box'); if(bx)bx.focus({preventScroll:true});
+}
+// `fromPop` — закрыл «назад» браузера: запись уже снята. Иначе снимаем свою запись сами, и этот `popstate` гасим (`IC.eat`) —
+// окно под карточкой остаётся как было
+function itemCardClose(fromPop){
+  const el=document.getElementById('itemCard'); if(!IC.on||!el)return;
+  IC.on=false; el.classList.remove('on'); el.innerHTML='';
+  if(!fromPop&&IC.pushed){IC.eat=true; history.back();}
+  IC.pushed=false;
+  if(IC.from&&IC.from.focus&&document.contains(IC.from))try{IC.from.focus({preventScroll:true});}catch(x){}
+  IC.from=null;
+}
+function icWire(el){
+  el.addEventListener('click',ev=>{
+    if(ev.target===el||ev.target.closest('.ic-x')){itemCardClose(); return;}
+    if(ev.target.closest('.ic-sw')){const fn=IC.swap; itemCardClose(); if(fn)fn();}});
+  // свайп вниз — лист уезжает за пальцем; отпустил ниже 90 px (или быстрый рывок) — закрыт, иначе — на место. Только когда
+  // содержимое листа прокручено к началу: иначе палец прокручивает лист
+  let y0=null, t0=0, dy=0;
+  el.addEventListener('touchstart',ev=>{const b=el.querySelector('.ic-box');
+    y0=b&&b.scrollTop<=0&&ev.touches.length===1?ev.touches[0].clientY:null; t0=Date.now(); dy=0;},{passive:true});
+  el.addEventListener('touchmove',ev=>{if(y0==null)return; dy=ev.touches[0].clientY-y0; const b=el.querySelector('.ic-box');
+    if(dy<=0){if(b)b.style.transform=''; return;}
+    ev.preventDefault(); if(b){b.style.transition='none'; b.style.transform=`translateY(${dy}px)`;}},{passive:false});
+  el.addEventListener('touchend',()=>{if(y0==null)return; const b=el.querySelector('.ic-box'), fast=dy>40&&dy/(Date.now()-t0)>0.5;
+    y0=null; if(!b)return;
+    if(dy>90||fast){itemCardClose(); return;}
+    b.style.transition='transform .2s'; b.style.transform=''; dy=0;});
+  document.addEventListener('keydown',ev=>{if(IC.on&&ev.key==='Escape'){ev.stopPropagation(); ev.preventDefault(); itemCardClose();}},true);
+}
+// тап по названию или миниатюре строки списка (окно варианта, список у плана)
+function icHit(ev){ return ev.target&&ev.target.closest&&ev.target.closest('.row img,.row .noimg-sm,.row .t b'); }
 function viewShot(i){
   const s=shots[i]; if(!s)return;
   shotAt=i;
@@ -4779,7 +4881,9 @@ function grid(){
     const take=()=>{ if(typeof VW!=='undefined')VW.auto=null; tryOn(p); grid(); closePicker(); refreshShotList(); };
     c.querySelector('.mini').onclick=e=>{e.stopPropagation();take();};
     c.querySelector('.link').onclick=e=>e.stopPropagation();
-    c.onclick=take; g.appendChild(c);});}
+    // фото или название — карточка товара (demo-26 Д), остальная карточка ленты — замена, как была; у выбранного «Заменить» нет
+    c.onclick=e=>{if(e.target.closest('img,.nm')){itemCardOpen(icItem(p,base),cur?null:take); return;} take();};
+    g.appendChild(c);});}
 let TRY_LAST={n:1, base:''};   // последняя замена: сколько предметов группы сменилось (сообщение «Заменено: стулья ×2»)
 function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.role==='диван'); TRY_LAST={n:1, base:''};
   if(!s){toast('Сначала коснитесь предмета на плане');return;}
