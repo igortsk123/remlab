@@ -115,6 +115,12 @@ def _selftest() -> int:
         want = [n for n in fn if n not in OLD_WRITERS and n not in IDX]
         i = want.index('bank_promote') + 1
         ok(f'[{tag}] true: остальные шаги — те же и в том же порядке', tn == want[:i] + ['bank_refresh', *IDX] + want[i:])
+        ok(f'[{tag}] порядок кандидата (T-20261023-08, Codex 23.10; обогащение — выше, вне хвоста): семейства → привязка → bank_prepare → '
+           'bank_pending --night → bank_promote (меш, привязанный этой ночью, promote видит в ту же ночь)',
+           all(n.index('mesh_family_early') < n.index('mesh_bind_early') < n.index('bank_prepare')
+               < n.index('bank_pending') < n.index('bank_promote') for n in (fn, tn))
+           and any(x.startswith('bank_pending ::') and x.endswith('bank_pending.py --night') for x in f),
+           fn[fn.index('mesh_family_early'):fn.index('bank_promote') + 1])
         if wd == 1 and not lock:
             ok('[пн] false: недельные sets_refresh и sets_pairs_w идут', 'sets_refresh' in fn and 'sets_pairs_w' in fn)
     ok('флаг не прочитан (заглушка молчит) — ночь как при false', names(night(text, 0)) == names(night(text.replace(

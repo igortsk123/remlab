@@ -14,7 +14,9 @@
      сырая сборка → кандидат `sets3.next.json` через `write_bank` — кандидат меняется только целиком готовым;
   2. инварианты `bank_invariants.check` против живого банка: идентичность и карта номеров — ФАТАЛЬНО (код 1), содержимое
      (ушедшие, ссылки, контракты, пары, запасные, ключевые роли) — отчётом `WARN:`; отчёт → `~/scout-scenes/bank-prepare.json`;
-  3. состояние ожидания `bank_pending.run(..., write=True)`.
+  3. состояние ожидания — НЕ здесь (T-20261023-08, Codex 23.10): отдельный шаг ночи `bank_pending.py --night` ПОСЛЕ ранней
+     привязки мешей, иначе меш, привязанный этой ночью, promote увидел бы только завтра. Здесь — отметка `pending_due` в отчёте:
+     кандидат этой ночи прошёл медиа и идентичность, его можно судить.
 Сбой сборки/медиа/идентичности — ненулевой код: `step` ночи пишет FAIL в дайджест и идёт дальше; прежний кандидат остаётся
 нетронутым (запись атомарная). Сам банк здесь не меняется — подмена только шагами 3–4.
 
@@ -99,11 +101,6 @@ def _invariants(out: str) -> dict:
     return r
 
 
-def _pending(out: str) -> int:
-    import bank_pending as BP
-    return BP.run(out, write=True)
-
-
 def _save(rep: dict) -> None:
     os.makedirs(os.path.dirname(REPORT), exist_ok=True)
     tmp = REPORT + '.tmp'
@@ -113,7 +110,7 @@ def _save(rep: dict) -> None:
 
 
 def run(force: bool = False, R: dict | None = None, out: str = CANDIDATE, compose=_compose, media=_media,
-        invariants=_invariants, pending=_pending, save=_save) -> int:
+        invariants=_invariants, save=_save) -> int:
     """Шаг ночи. Зависимости подменяемые (селфтест без базы и сборки)."""
     R = rules() if R is None else R
     if not (R.get('prepare_enabled') or force):
@@ -147,11 +144,11 @@ def run(force: bool = False, R: dict | None = None, out: str = CANDIDATE, compos
         return 1
     if content:
         print(f'WARN:bank_prepare: кандидат: {", ".join(content)} — это отчёт, подмена судит ячейки отдельно (шаг 3)', flush=True)
-    rep['pending_rc'] = pending(out)
+    rep['pending_due'] = True          # суд ячеек — шаг `bank_pending --night` после ранней привязки мешей
     rep['seconds'] = round(time.time() - t0)
     save(rep)
-    print(f'bank_prepare: готово за {rep["seconds"]} с', flush=True)
-    return rep['pending_rc']
+    print(f'bank_prepare: готово за {rep["seconds"]} с; ожидание ячеек — шагом bank_pending после привязки мешей', flush=True)
+    return 0
 
 
 def _selftest() -> int:
@@ -173,35 +170,37 @@ def _selftest() -> int:
             rc = run(force, R, out, compose=lambda o, t: calls.append(('compose', t, o)) or comp_rc,
                      media=lambda b, o: calls.append(('media', b, o)) or media_fn(),
                      invariants=lambda o: calls.append(('inv',)) or inv,
-                     pending=lambda o: calls.append(('pending',)) or 0, save=lambda rep: calls.append(('save',)))
+                     save=lambda rep: calls.append(('save', rep)))
         return rc, buf.getvalue(), [c[0] for c in calls]
     rc, txt, cl = go({})
     ok('флаг выключен — ok и «выключено», ничего не собирается', rc == 0 and 'выключено' in txt and cl == [], (rc, cl))
     rc, txt, cl = go({}, force=True)
-    ok('--force при выключенном флаге — собирает', rc == 0 and cl == ['compose', 'media', 'inv', 'pending', 'save'], cl)
+    ok('--force при выключенном флаге — собирает', rc == 0 and cl == ['compose', 'media', 'inv', 'save'], cl)
     rc, txt, cl = go({'prepare_enabled': True, 'prepare_timeout_min': 5})
-    ok('включено: сборка → медиа → инварианты → ожидание → отчёт; предел времени из правил',
-       rc == 0 and cl == ['compose', 'media', 'inv', 'pending', 'save'] and calls[0][1] == 300, (rc, calls))
+    ok('включено: сборка → медиа → инварианты → отчёт с pending_due (ожидание — отдельный шаг после привязки); предел из правил',
+       rc == 0 and cl == ['compose', 'media', 'inv', 'save'] and calls[0][1] == 300 and calls[-1][1].get('pending_due'),
+       (rc, calls))
     ok('сборка пишет сырой файл рядом, кандидат — только сверка медиа',
        calls[0][2] == '/x/sets3.next.build.json' and calls[1][1:] == ('/x/sets3.next.build.json', '/x/sets3.next.json'), calls)
 
     def boom():
         raise RuntimeError('база недоступна')
     rc, txt, cl = go({'prepare_enabled': True}, media_fn=boom)
-    ok('медиа упало — FAIL, кандидат и ожидание не трогаем', rc == 1 and 'ERROR:bank_prepare' in txt
-       and cl == ['compose', 'media', 'save'], (rc, cl))
+    ok('медиа упало — FAIL, кандидат не трогаем, судить нечего (нет pending_due)', rc == 1 and 'ERROR:bank_prepare' in txt
+       and cl == ['compose', 'media', 'save'] and not calls[-1][1].get('pending_due'), (rc, cl))
     rc, txt, cl = go({'prepare_enabled': True}, out=LIVE)
     ok('кандидат = живой банк — отказ до сборки', rc == 2 and cl == [], (rc, cl))
     rc, txt, cl = go({'prepare_enabled': True}, comp_rc=3)
     ok('сборка: идентичность нарушена (rc 3) — FAIL, ожидание не трогаем', rc == 3 and 'ERROR:bank_prepare' in txt
-       and 'pending' not in cl and 'inv' not in cl, (rc, cl))
+       and not calls[-1][1].get('pending_due') and 'inv' not in cl, (rc, cl))
     rc, txt, cl = go({'prepare_enabled': True}, inv={**good, 'identity_ok': False, 'identity': ['дубль']})
-    ok('инварианты: идентичность против живого — фатально, ожидание не обновляем', rc == 1 and 'pending' not in cl, (rc, cl))
+    ok('инварианты: идентичность против живого — фатально, ожидание не обновляем', rc == 1 and not calls[-1][1].get('pending_due'),
+       (rc, cl))
     rc, txt, cl = go({'prepare_enabled': True}, inv={**good, 'map_ok': False})
     ok('инварианты: карта номеров разошлась — фатально', rc == 1)
     rc, txt, cl = go({'prepare_enabled': True}, inv={**good, 'gone': 3, 'contracts': 2})
     ok('содержимое — WARN отчётом, шаг идёт дальше', rc == 0 and 'WARN:bank_prepare: кандидат: ушедших 3, вне контракта 2' in txt
-       and 'pending' in cl, txt)
+       and calls[-1][1].get('pending_due'), txt)
     ok('verdict: чистый кандидат — не фатально, без строк', verdict(good) == (False, []))
     print(f'bank_prepare selftest: ошибок {bad}')
     return 1 if bad else 0

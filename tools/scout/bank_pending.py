@@ -29,7 +29,8 @@
 как есть. Включение — `rules/bank-candidate.json:enabled` (по умолчанию выключено, шаги 3–4 плана — селектор и подмена).
 
   ~/venvs/scout/bin/python bank_pending.py --dry [--candidate sets3.next.json]   # что попало бы в спрос, без записи
-  ~/venvs/scout/bin/python bank_pending.py --update                               # обновить состояние (ночной шаг, позже)
+  ~/venvs/scout/bin/python bank_pending.py --update                               # обновить состояние по кандидату
+  ~/venvs/scout/bin/python bank_pending.py --night                                # ночной шаг: --update, если bank_prepare этой ночи готов
   python3 bank_pending.py --selftest
 """
 import hashlib
@@ -125,8 +126,8 @@ def update(state: dict, cand: list, F: Facts, now: float | None = None) -> tuple
             missing[sku] = {'role': role, 'type': t, 'why': why, 'need': need, 'rep': F.rep(sku),
                             'since': (was.get(sku) or {}).get('since', now)}
             if t == 'blocked_policy':
-                b = black.setdefault(sku, {'role': role, 'why': why, 'at': ((state.get('blacklist') or {}).get(sku) or {})
-                                           .get('at', now), 'cells': []})
+                b = black.setdefault(sku, {'role': role, 'why': why, 'rep': F.rep(sku),
+                                           'at': ((state.get('blacklist') or {}).get(sku) or {}).get('at', now), 'cells': []})
                 b['cells'].append(k)
         cells[k] = {'set_id': s.get('set_id'), 'candidate_hash': h, 'since': prev['since'] if same else now,
                     'status': cell_status(missing), 'total': len(shown(s)), 'missing': missing,
@@ -137,7 +138,7 @@ def update(state: dict, cand: list, F: Facts, now: float | None = None) -> tuple
             continue
         t, why, _ = classify(b.get('role') or '', sku, F, None)
         if t == 'blocked_policy':
-            black[sku] = {**b, 'why': why, 'cells': []}
+            black[sku] = {**b, 'why': why, 'rep': F.rep(sku), 'cells': []}
         else:
             diff['cleared'] += 1
     diff['dropped'] = sum(1 for k in old if k not in cells)
@@ -170,9 +171,46 @@ def combine(band: list, bank: list, cap: int, reserve: int = 0) -> tuple[list, l
     return band_k, bank_u[:cap - band_n]
 
 
-def blocklist(prod: dict, strategy, state: dict | None = None, no_height: bool = False, reject: bool = True) -> dict:
-    """Не пускать в сборку кандидата (ДО сборки, `compose_gates.admit`). `reject` — чёрный список состояния (меш брак/
-    карантин/failed_terminal); `no_height` — мешевая роль без высоты (меш не заказать). → {sku: причина}.
+POLICY = ('replace_needed', 'reject')
+
+
+def policy_blocks(prod: dict, decisions: dict, failed=(), mesh_ok=()) -> dict:
+    """БЛОКИ ПОЛИТИКИ ИЗ ТЕКУЩИХ ФАКТОВ, С СЕМЕЙСТВОМ (T-20261023-08, Codex 23.10 «blacklist refresh до compose»): то же, что
+    `bank_ready.classify` назовёт `blocked_policy` по журналу и генерации, — не из вчерашнего состояния. Решение журнала
+    `replace_needed`/`reject` у товара — блок товара; у ПРЕДСТАВИТЕЛЯ семейства (`mesh_family_rep`) — и всех его вариантов без
+    своей записи журнала (classify: `decisions.get(sku) or decisions.get(rep)`). failed_terminal представителя — его семейство,
+    кроме вариантов с записью журнала и тех, чей меш (или меш представителя) готов (classify проверяет готовность раньше).
+    `prod[sku]['rep']` — представитель (`bank_ready.load_prod`). → {sku: причина}."""
+    members: dict = {}
+    for s, p in prod.items():
+        members.setdefault(p.get('rep') or s, []).append(s)
+    out = {}
+    for sku, d in (decisions or {}).items():
+        dec = (d or {}).get('decision')
+        if dec not in POLICY:
+            continue
+        why = f'решение по мешу: {dec}'
+        out.setdefault(sku, why)
+        rep = (prod.get(sku) or {}).get('rep') or sku
+        if rep == sku:
+            for m in members.get(rep, ()):
+                if m not in decisions:
+                    out.setdefault(m, f'{why} (семейство {rep})')
+    for rep in failed or ():
+        if rep in mesh_ok:
+            continue
+        for m in members.get(rep, ()):
+            if m not in (decisions or {}) and m not in mesh_ok:
+                out.setdefault(m, 'генерация failed_terminal' + ('' if m == rep else f' (семейство {rep})'))
+    return out
+
+
+def blocklist(prod: dict, strategy, state: dict | None = None, no_height: bool = False, reject: bool = True,
+              decisions: dict | None = None, failed=(), mesh_ok=()) -> dict:
+    """Не пускать в сборку кандидата (ДО сборки, `compose_gates.admit`). → {sku: причина}.
+    `reject` — блоки политики из ТЕКУЩИХ решений журнала и генераций с семейством (`policy_blocks`) плюс прочие записи чёрного
+    списка состояния (ушёл из продажи, нет в каталоге); записи состояния «решение по мешу»/failed_terminal не берём — их решает
+    текущий журнал (снятое вчера решение не держит товар ещё ночь). `no_height` — мешевая роль без высоты (меш не заказать).
     «Нет высоты» по умолчанию ВЫКЛЮЧЕНО (ведущий 22.10): по каталогу это 2740 товаров — похоже на дыру в данных о высоте,
     а не на свойство товаров; резать по ней каталог нельзя, пока она не разобрана."""
     out = {}
@@ -180,8 +218,12 @@ def blocklist(prod: dict, strategy, state: dict | None = None, no_height: bool =
         out = {s: 'нет высоты (h_cm) — меш не заказать' for s, p in prod.items()
                if not p.get('has_h') and p.get('role') and strategy(p['role']) == 'mesh'}
     if reject:
+        for s, why in policy_blocks(prod, decisions or {}, failed, mesh_ok).items():
+            out.setdefault(s, why)
         for s, b in ((state or {}).get('blacklist') or {}).items():
-            out.setdefault(s, b.get('why') or 'чёрный список кандидата')
+            why = b.get('why') or 'чёрный список кандидата'
+            if not why.startswith(('решение по мешу', 'генерация failed_terminal')):
+                out.setdefault(s, why)
     return out
 
 
@@ -268,6 +310,30 @@ def run(cand_path: str, write: bool) -> int:
         save_state(state)
         print(f'[bank_pending] состояние → {STATE}')
     return 0
+
+
+PREPARE_REPORT = os.path.expanduser(os.environ.get('BANK_PREPARE_REPORT', '~/scout-scenes/bank-prepare.json'))
+NIGHT_MAX_AGE_H = 12
+
+
+def night(report: str = PREPARE_REPORT, now: float | None = None, runner=None) -> int:
+    """ШАГ НОЧИ ПОСЛЕ РАННЕЙ ПРИВЯЗКИ МЕШЕЙ (T-20261023-08, Codex 23.10): `refresh_daily` → `bank_prepare` (сборка без ожидания) →
+    `bank_pending --night` → `bank_promote`. Судит кандидат, только если `bank_prepare` ЭТОЙ ночи довёл его до `pending_due`
+    (медиа сверены, идентичность цела) — иначе ожидание не трогаем, как прежде внутри `bank_prepare`. Флаг — `prepare_enabled`."""
+    if not rules().get('prepare_enabled'):
+        print('bank_pending: выключено (rules/bank-candidate.json:prepare_enabled=false)', flush=True)
+        return 0
+    try:
+        rep = json.load(open(report, encoding='utf-8'))
+        age_h = ((time.time() if now is None else now) - os.path.getmtime(report)) / 3600
+    except (OSError, ValueError) as e:
+        print(f'bank_pending: отчёта bank_prepare нет ({type(e).__name__}) — ожидание не обновляю', flush=True)
+        return 0
+    if age_h > NIGHT_MAX_AGE_H or not rep.get('pending_due'):
+        why = f'отчёт старше {NIGHT_MAX_AGE_H} ч' if age_h > NIGHT_MAX_AGE_H else 'кандидат этой ночи не прошёл bank_prepare'
+        print(f'bank_pending: {why} — ожидание не обновляю', flush=True)
+        return 0
+    return (runner or run)(rep.get('candidate') or CANDIDATE, True)
 
 
 def _selftest() -> int:
@@ -360,12 +426,67 @@ def _selftest() -> int:
     b2, k2 = combine([f'b{i}' for i in range(200)], bank, 150, reserve=int(rules().get('reserve') or 0))
     ok('голодание: при reserve=0 полная лента забирает все 150 — банку 0; резерв правил (> 0) банку места оставляет',
        len(k) == 0 and len(k2) > 0 and len(b2) + len(k2) == 150, (len(k), len(k2)))
-    bl = blocklist(prod, strat, st, no_height=True)
-    ok('до сборки не пускаем (оба ключа): мешевая роль без высоты и чёрный список; вырезке высота не нужна',
+    bl = blocklist(prod, strat, st, no_height=True, decisions=dec)
+    ok('до сборки не пускаем (оба ключа): мешевая роль без высоты и блок политики; вырезке высота не нужна',
        set(bl) == {'1:k2', '1:t2'}, bl)
-    ok('по умолчанию — только чёрный список состояния (blocked_policy), «нет высоты» выключено',
-       set(blocklist(prod, strat, st)) == {'1:t2'} and set(blocklist(prod, strat, {})) == set())
-    ok('чёрный список выключен — пусто', blocklist(prod, strat, st, reject=False) == {})
+    ok('по умолчанию — только блоки политики, «нет высоты» выключено',
+       set(blocklist(prod, strat, st, decisions=dec)) == {'1:t2'} and set(blocklist(prod, strat, {})) == set())
+    ok('чёрный список выключен — пусто', blocklist(prod, strat, st, reject=False, decisions=dec) == {})
+    # ТЕКУЩИЕ ФАКТЫ, А НЕ ВЧЕРАШНЕЕ СОСТОЯНИЕ (Codex 23.10): решение сняли — товар свободен уже в эту сборку; «ушёл» из состояния
+    # держим (его решает каталог при --update)
+    old = {'blacklist': {'1:t2': {'why': 'решение по мешу: replace_needed'}, '1:g': {'why': 'товар ушёл из продажи'}}}
+    ok('решение журнала снято — запись состояния «решение по мешу» не держит; «ушёл» из состояния — держит',
+       blocklist(prod, strat, old, decisions={}) == {'1:g': 'товар ушёл из продажи'})
+    # СЕМЕЙСТВО (T-20261023-08, Tubo): reject(rep) исключает всех сестёр, снятие решения возвращает всё семейство; вариант со своей
+    # записью журнала (v4: ok) classify судит по ней — не блокируем; решение варианта (не представителя) — только он
+    prod['1:v3'] = P('диван', rep='1:v1')
+    prod['1:v4'] = P('диван', rep='1:v1')
+    D = {'1:v1': {'decision': 'reject'}, '1:v4': {'decision': 'ok'}}
+    bf = blocklist(prod, strat, {}, decisions=D)
+    ok('reject представителя — v1, v2, v3 не пускаем; v4 со своим решением — пускаем',
+       set(bf) == {'1:v1', '1:v2', '1:v3'} and 'семейство 1:v1' in bf['1:v3'], bf)
+    ok('решение сняли — всё семейство вернулось', blocklist(prod, strat, {}, decisions={}) == {})
+    ok('replace_needed у варианта (не представителя) — только он', set(blocklist(prod, strat, {}, decisions={
+        '1:v2': {'decision': 'replace_needed'}})) == {'1:v2'})
+    Ff = Facts(prod, failed=set(), strategy=strat, media=media.get, mesh_ok=set(), decisions=D)
+    media['1:v3'] = media['1:v4'] = {'state': 'available', 'url': 'u', 'img': 'i'}
+    same = {s: classify('диван', s, Ff)[0] == 'blocked_policy' for s in ('1:v1', '1:v2', '1:v3', '1:v4')}
+    ok('сборка блокирует ровно то, что classify назовёт blocked_policy (сверка на семье)',
+       {s for s, b in same.items() if b} == set(bf), same)
+    pf = policy_blocks(prod, {}, failed={'1:v1'}, mesh_ok={'1:v3'})
+    ok('failed_terminal представителя — семейство без готового меша; готовый меш варианта — пускаем',
+       set(pf) == {'1:v1', '1:v2', '1:v4'} and policy_blocks(prod, {}, failed={'1:v1'}, mesh_ok={'1:v1'}) == {}, pf)
+    # ОДНА НОЧЬ (Codex 23.10, порядок T-08): меш привязан этой ночью (mesh_bind_early) → bank_pending --update ПОСЛЕ привязки видит
+    # ready по тому же кандидату — bank_promote этой ночи берёт ячейку (тот же candidate_hash, status ready)
+    F.decisions = {}
+    F.mesh_ok = {'1:d1', '1:t1'}
+    s0, _ = update({}, [B], F, now=600)
+    F.mesh_ok = {'1:d1', '1:t1', '1:d2'}                          # привязка этой ночи
+    s1, d1 = update(json.loads(json.dumps(s0)), [B], F, now=601)
+    cB = s1['cells']['14-16|лофт|эконом']
+    ok('меш привязан в эту ночь → ячейка ready в ту же ночь, кандидат тот же (kept) — видна promote',
+       s0['cells']['14-16|лофт|эконом']['status'] == 'wait_asset' and cB['status'] == 'ready'
+       and cB['candidate_hash'] == candidate_hash(B) and d1['kept'] == 1, (cB, d1))
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='bp-night-') as td:
+        rp = os.path.join(td, 'bank-prepare.json')
+        got = []
+        R0 = globals()['rules']
+        globals()['rules'] = lambda: {'prepare_enabled': True}
+        try:
+            json.dump({'candidate': '/x/cand.json', 'pending_due': True}, open(rp, 'w'))
+            rc1 = night(rp, runner=lambda c, w: got.append((c, w)) or 0)
+            json.dump({'candidate': '/x/cand.json'}, open(rp, 'w'))
+            rc2 = night(rp, runner=lambda c, w: got.append('нельзя') or 0)
+            json.dump({'candidate': '/x/cand.json', 'pending_due': True}, open(rp, 'w'))
+            rc3 = night(rp, now=time.time() + 13 * 3600, runner=lambda c, w: got.append('старый') or 0)
+            rc4 = night(os.path.join(td, 'нет.json'), runner=lambda c, w: got.append('нет') or 0)
+            globals()['rules'] = lambda: {}
+            rc5 = night(rp, runner=lambda c, w: got.append('выкл') or 0)
+        finally:
+            globals()['rules'] = R0
+    ok('--night: судит кандидат этой ночи с записью; без pending_due, старый отчёт, нет отчёта, флаг выключен — не трогает',
+       got == [('/x/cand.json', True)] and (rc1, rc2, rc3, rc4, rc5) == (0,) * 5, got)
     print(f'bank_pending selftest: ошибок {bad}')
     return 1 if bad else 0
 
@@ -373,6 +494,8 @@ def _selftest() -> int:
 if __name__ == '__main__':
     if '--selftest' in sys.argv:
         sys.exit(_selftest())
+    if '--night' in sys.argv:
+        sys.exit(night())
     if '--dry' in sys.argv or '--update' in sys.argv:
         cp = sys.argv[sys.argv.index('--candidate') + 1] if '--candidate' in sys.argv else CANDIDATE
         sys.exit(run(cp, '--update' in sys.argv))

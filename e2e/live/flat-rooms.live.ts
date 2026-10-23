@@ -256,10 +256,14 @@ test("2.20 ковёр с фото и ценой, ваза на столике, �
 // 2.21: устаревший номер варианта (ночная пересборка витрины) открывает текущий того же стиля с пометкой, а не 404
 // (`resolveFlat.replaced`, `app/flat/page.tsx`). Устаревший номер — любой из `variant_aliases` данных витрины, которого нет среди
 // опубликованных: номер вариантов меняет ночная пересборка (set18 был устаревшим до 18.10, после demo-18 снова живой джапанди)
+// Устаревший номер берём того стиля, что опубликован этой ночью: ночь 23.10 сняла лофт (диван ушёл из продажи), и первый по алфавиту
+// устаревший set11 = лофт — «того же стиля» быть не могло, проверка краснела при верном продукте (T-20261023-08). Снятый стиль — 2.21б.
+const staleAliases = (data: DemoData) => Object.keys(data.variant_aliases ?? {}).sort().filter((id) => !data.variants.some((v) => v.id === id));
 test("2.21 старая ссылка ?demo=<устаревший номер> — 200, текущий вариант того же стиля с пометкой «обновилась»", async ({ page, request }) => {
   const data = await demoData(request);
-  const stale = Object.keys(data.variant_aliases ?? {}).sort().find((id) => !data.variants.some((v) => v.id === id));
-  expect(stale, "в псевдонимах витрины есть неопубликованный номер").toBeTruthy();
+  const published = new Set(data.variants.map((v) => v.style));
+  const stale = staleAliases(data).find((id) => published.has(data.variant_aliases![id]!));
+  expect(stale, "в псевдонимах витрины есть неопубликованный номер опубликованного стиля").toBeTruthy();
   const style = data.variant_aliases![stale!];
   const res = await page.goto(`/flat?demo=${stale}&flat=${FLAT}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
   expect(res?.status()).toBe(200);
@@ -267,6 +271,21 @@ test("2.21 старая ссылка ?demo=<устаревший номер> —
   await expect(note).toBeVisible();
   await expect(note).toContainText(`в том же стиле (${style})`);
   console.log(`  ${stale} → «${(await note.innerText()).trim()}»`);
+});
+
+// 2.21б: старая ссылка на СНЯТЫЙ этой ночью стиль (полного варианта нет — `WARN:demo_style_dropped`) — 200, текущий вариант без
+// обещания «того же стиля» (`app/flat/page.tsx`: `replaced.style` пуст). Снятого стиля нет — проверять нечего, пропуск с причиной.
+test("2.21б старая ссылка на снятый стиль — 200, пометка «обновилась» без «в том же стиле»", async ({ page, request }) => {
+  const data = await demoData(request);
+  const published = new Set(data.variants.map((v) => v.style));
+  const stale = staleAliases(data).find((id) => !published.has(data.variant_aliases![id]!));
+  test.skip(!stale, "все стили псевдонимов опубликованы — снятого нет");
+  const res = await page.goto(`/flat?demo=${stale}&flat=${FLAT}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
+  expect(res?.status()).toBe(200);
+  const note = page.locator("p.note", { hasText: "обновилась" });
+  await expect(note).toBeVisible();
+  await expect(note).not.toContainText("в том же стиле");
+  console.log(`  ${stale} (${data.variant_aliases![stale!]}, снят) → «${(await note.innerText()).trim()}»`);
 });
 
 // 2.22: покупатель по ссылке из окна демо (`?demo=`) и по коллекции (`?coll=`) видит строку застройщика (ЖК · квартира ·

@@ -46,15 +46,16 @@ def sql_stdin(script: str) -> list[str]:
     return [x for x in r.stdout.strip().splitlines() if x]
 
 
-def mark_required() -> tuple[int, int]:
-    """Пометка «нужен ли меш» по канону ролей — одной транзакцией, без построчных вызовов."""
+def _lit(xs) -> str:
+    return ','.join("'" + x.replace("'", "''") + "'" for x in xs) or "''"
+
+
+def need_and_square() -> tuple[list, list, list]:
+    """(роли, которым нужен меш; прочие роли; роли с круглым/квадратным пятном) — по канону `rules/asset-strategies.json`."""
     import asset_strategy as AS
     roles = [r for r in sql("select distinct cat_role from products where cat_role is not null")]
     need = [r for r in roles if AS.strategy(r) == 'hunyuan3d']
     skip = [r for r in roles if AS.strategy(r) != 'hunyuan3d']
-
-    def lit(xs):
-        return ','.join("'" + x.replace("'", "''") + "'" for x in xs) or "''"
     # Роли с круглым/квадратным пятном — ЕДИНЫЙ канон (`rules/asset-strategies.json`), тот же
     # список, что у ноды: им глубина не нужна отдельным полем, нода берёт `d = w`.
     try:
@@ -62,6 +63,51 @@ def mark_required() -> tuple[int, int]:
         square = sorted(square_roles())
     except Exception:  # noqa: BLE001 — пустой список строже: без глубины в пул не пустим никого
         square = []
+    return need, skip, square
+
+
+def catalog_gates_sql(need: list, square: list) -> str:
+    """КАТАЛОЖНАЯ ЧАСТЬ предиката «требуется меш» (всё, кроме обогащения) — для `mark_required` и `awaiting_enrichment`
+    (T-20261023-08: сборка кандидата пускает товар, которому до мешепригодности не хватает только обогащения)."""
+    lit = _lit
+    return f"""p.cat_role in ({lit(need)})
+   and p.in_stock and p.image_url is not null and coalesce(p.photo_alive, true) and p.h_cm is not null  -- фото скачивается (conv-05)
+   -- КРУГЛОЕ ДОПУСКАЕМ ПО ДИАМЕТРУ (11.10). Генератору нужен горизонтальный габарит, а у
+   -- света/кашпо/ваз его присылают как «Диаметр», а не «Ширину»: 108 из 125 торшеров без
+   -- габаритов имели высоту и диаметр. Предикат `(w или dia) и h` уже жил в mesh_pilot.py:67 —
+   -- здесь он был строже и молча выбрасывал круглые предметы. Выдуманные w/d в каталог НЕ
+   -- пишем: ось выводить из диаметра нельзя (у бра диаметр — лицевая часть, а не глубина).
+   and (p.w_cm is not null or p.dia_cm is not null)
+   -- БЕЗ ГЛУБИНЫ НЕ ГЕНЕРИМ (правило владельца 11.10): «если товар не круглый и не квадратный, а
+   -- глубину достроить не можем — в меши идти не должно, мы его всё равно не расставим». Меш
+   -- стоит денег, а без глубины солвер не посчитает вылет в комнату и предмет не встанет —
+   -- значит это оплаченный GPU впустую. Замер на 11.10: под правило попадало 1 960 товаров,
+   -- ждущих генерации (~2 200 ₽), из них 1 888 — свет, которому глубину закрывает конвенция
+   -- осей того же дня. Исключение — роли с круглым/квадратным пятном: им нода честно берёт
+   -- `d = w` (`salad/worker.py:227`), канон списка — `rules/asset-strategies.json`.
+   and (p.d_cm is not null or p.dia_cm is not null or p.cat_role in ({lit(square)}))
+   -- КАТЕГОРИЯ БЕЗ РАЗМЕРОВ — НЕ В СПРОС (catalog-holes-bank Н1, 23.10): фурнитура mdm под ролями шкафа/стеллажа
+   -- (n ≥ 5, ни одного измеренного Ш и В) — меш оплатили бы за рельс и корзину. Правило — `dimless.py`
+   and {DL.exclude_sql('p')}
+   """
+
+
+def awaiting_enrichment() -> set:
+    """SKU, прошедшие каталожную часть предиката `mesh_required`, но без обогащения со стилями: мешепригодными их сделает
+    обогащение — ночная порция берёт сперва товары банков и кандидата (`enrich.py:pool_first`). Только чтение."""
+    need, _, square = need_and_square()
+    return set(sql(f"""select p.shop_mid||':'||p.external_id from products p
+  left join product_enrichment e on e.shop_mid = p.shop_mid and e.external_id = p.external_id
+ where {catalog_gates_sql(need, square)}
+   and (e.enriched_at is null or e.payload->'model'->'styles' is null)"""))
+
+
+def mark_required() -> tuple[int, int]:
+    """Пометка «нужен ли меш» по канону ролей — одной транзакцией, без построчных вызовов."""
+    import asset_strategy as AS
+    need, skip, square = need_and_square()
+    roles = need + skip
+    lit = _lit
     ver = AS.policy_version()
     # СПОСОБ ПОПАДАНИЯ В СЦЕНУ пишем ВСЕМ (владелец 01.09: «ковры и пледы надо пометить
     # в базе, что они идут вклейкой вместо меша») — чтобы это было видно в карточке,
@@ -92,25 +138,7 @@ update products set mesh_required = false, mesh_policy_version = {ver}
 update products p set mesh_required = true, mesh_policy_version = {ver}
   from product_enrichment e
  where e.shop_mid = p.shop_mid and e.external_id = p.external_id
-   and p.cat_role in ({lit(need)})
-   and p.in_stock and p.image_url is not null and coalesce(p.photo_alive, true) and p.h_cm is not null  -- фото скачивается (conv-05)
-   -- КРУГЛОЕ ДОПУСКАЕМ ПО ДИАМЕТРУ (11.10). Генератору нужен горизонтальный габарит, а у
-   -- света/кашпо/ваз его присылают как «Диаметр», а не «Ширину»: 108 из 125 торшеров без
-   -- габаритов имели высоту и диаметр. Предикат `(w или dia) и h` уже жил в mesh_pilot.py:67 —
-   -- здесь он был строже и молча выбрасывал круглые предметы. Выдуманные w/d в каталог НЕ
-   -- пишем: ось выводить из диаметра нельзя (у бра диаметр — лицевая часть, а не глубина).
-   and (p.w_cm is not null or p.dia_cm is not null)
-   -- БЕЗ ГЛУБИНЫ НЕ ГЕНЕРИМ (правило владельца 11.10): «если товар не круглый и не квадратный, а
-   -- глубину достроить не можем — в меши идти не должно, мы его всё равно не расставим». Меш
-   -- стоит денег, а без глубины солвер не посчитает вылет в комнату и предмет не встанет —
-   -- значит это оплаченный GPU впустую. Замер на 11.10: под правило попадало 1 960 товаров,
-   -- ждущих генерации (~2 200 ₽), из них 1 888 — свет, которому глубину закрывает конвенция
-   -- осей того же дня. Исключение — роли с круглым/квадратным пятном: им нода честно берёт
-   -- `d = w` (`salad/worker.py:227`), канон списка — `rules/asset-strategies.json`.
-   and (p.d_cm is not null or p.dia_cm is not null or p.cat_role in ({lit(square)}))
-   -- КАТЕГОРИЯ БЕЗ РАЗМЕРОВ — НЕ В СПРОС (catalog-holes-bank Н1, 23.10): фурнитура mdm под ролями шкафа/стеллажа
-   -- (n ≥ 5, ни одного измеренного Ш и В) — меш оплатили бы за рельс и корзину. Правило — `dimless.py`
-   and {DL.exclude_sql('p')}
+   and {catalog_gates_sql(need, square)}
    and e.enriched_at is not null and e.payload->'model'->'styles' is not null;
 commit;""")
     return len(need), len(skip)

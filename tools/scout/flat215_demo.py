@@ -937,7 +937,9 @@ def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list
             why = None
             break
         if why:
-            print(f'  стиль «{style}»: полного варианта нет ({", ".join(why["missing"])}) — не публикуем', flush=True)
+            # стиль пропал из демо — в дайджест (T-20261023-08: ночь 23.10 сняла лофт и неоклассику молча, живая 2.21 покраснела)
+            print(f'WARN:demo_style_dropped: стиль «{style}»: полного варианта нет ({", ".join(why["missing"])}) — не публикуем',
+                  flush=True)
             incomplete.append(why)
     _write_demo_sets(sets)
     return banks[:6], journal, incomplete
@@ -1104,7 +1106,8 @@ def build() -> dict:
         roles = {re.sub(r'\s+\d+$', '', i['role']) for i in v['items']}
         miss = [c for c in _DF.CORE if c not in roles]
         if miss:
-            print(f'  вариант «{v.get("style")}» без {", ".join(miss)} в расстановке — не публикуем', flush=True)
+            print(f'WARN:demo_style_dropped: вариант «{v.get("style")}» без {", ".join(miss)} в расстановке — не публикуем',
+                  flush=True)
             incomplete.append({'style': v.get('style'), 'missing': miss})
         else:
             full.append(v)

@@ -594,6 +594,20 @@ def _selftest() -> int:
     ok('откаченная вручную ячейка с тем же кандидатом не идёт; с новым кандидатом — идёт',
        1 not in r['promoted'] and r['rows'][0]['decision'] == 'blocked' and 'откачена' in r['rows'][0]['reasons'][0]
        and 2 in r['promoted'], r['rows'][0])
+    # ОДНА НОЧЬ (T-20261023-08, Codex 23.10): кандидат собран, меш дивана ячейки 1 привязан ЭТОЙ ночью (mesh_bind_early) →
+    # bank_pending --update после привязки → bank_promote той же ночи берёт ячейку
+    skus = {f"1:{x['eid']}" for c in cand for x in c['items'].values()}
+    P1 = {s: {'role': 'диван', 'status': 'none', 'eligible': True, 'rep': None, 'w': 200, 'd': 90, 'h': 80, 'dia': None,
+              'tr': False, 'proven': False} for s in skus}
+    F1 = BP.Facts(P1, failed=set(), strategy=lambda r: 'mesh', media=lambda s: {'state': 'available', 'url': 'u' + s[2:],
+                                                                                 'img': 'i'}, mesh_ok=skus - {'1:D0'})
+    before, _ = BP.update({}, cand, F1, now=1)
+    F1.mesh_ok = set(skus)                                        # привязка этой ночи
+    after, _ = BP.update(copy.deepcopy(before), cand, F1, now=2)
+    r0, r1 = go(st=before), go(st=after)
+    ok('меш привязан этой ночью: до привязки ячейка 1 ждёт (wait_asset), после --update — продвигается в ту же ночь',
+       1 not in r0['promoted'] and r0['rows'][0]['pending'] == 'wait_asset' and 1 in r1['promoted'],
+       (r0['rows'][0], r1['promoted']))
     k5 = BP.key(cand[20])
     r = go(gone={k5})
     ok('приоритет: замена ушедшего первой', r['promoted'][0] == 21, r['promoted'])

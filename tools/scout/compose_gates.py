@@ -16,37 +16,102 @@ import collections
 import sys
 
 FAILS: collections.Counter = collections.Counter()   # {«какая проверка: класс ошибки»: сколько раз}
+UNFIT: collections.Counter = collections.Counter()   # {причина «не мешепригоден»: сколько отказов} — строка журнала сборки
 
 
 BLOCKED: dict | None = None   # sku → причина «меш не заказать / чёрный список кандидата»; None — ещё не загружен
+MESHF = None                  # лёгкие факты мешевой пригодности (каталог одним запросом); None — ещё не загружены
+
+
+def _mesh_facts():
+    """Каталог одним запросом (`bank_ready.load_prod`: роль, представитель семейства, `mesh_required`, габариты, трансформер),
+    готовые меши, стратегия ролей, квадратные роли, журнал решений по мешам и failed_terminal — то же, на чём `bank_ready.classify`
+    судит мешевую позицию (как `bank_ready.load_facts`). Без медиа и живости фото (их проверяют ворота ниже). Один раз на сборку."""
+    global MESHF
+    if MESHF is None:
+        import types
+        import bank_ready as BR
+        import render_strategy as RS
+        from mesh_ready import mesh_ready_raw
+        import bank_pending as BP
+        import mesh_bind as MB
+        import mesh_decisions as MD
+        from mesh_queue import db
+        failed = {r[0] for r in db("select distinct sku from mesh_jobs where status = 'failed_terminal'") if r and r[0]}
+        MESHF = types.SimpleNamespace(prod=BR.load_prod(), mesh_ok=mesh_ready_raw(), strategy=RS.strategy,
+                                      square=RS.square_roles(), rules=BP.rules(),
+                                      decisions=MD.load(), failed=failed, awaiting=MB.awaiting_enrichment())
+    return MESHF
 
 
 def _blocked() -> dict:
-    """ДО СБОРКИ (conv-14 шаг 2, `bank_pending.blocklist`): товар мешевой роли без высоты (кресла 93965 — меш не заказать,
-    кандидат ждал бы вечно) и чёрный список состояния кандидата (меш rejected/quarantine, failed_terminal). Ключи
-    `rules/bank-candidate.json`: `compose_reject_blacklist` (чёрный список), `compose_no_height` (нет высоты, выключен).
+    """ДО СБОРКИ (conv-14 шаг 2, `bank_pending.blocklist`): блоки политики из ТЕКУЩИХ фактов — журнал решений по мешам
+    (`replace_needed`/`reject`) и failed_terminal, с раскрытием на всё семейство по `mesh_family_rep` (`bank_pending.policy_blocks`:
+    `bank_ready.classify` наследует решение представителя всем цветам модели — T-20261023-08, Codex 23.10 «чёрный список до
+    compose, не из вчерашнего pending»), плюс прочие записи состояния (ушёл, нет в каталоге) и, по ключу, мешевая роль без высоты.
+    Ключи `rules/bank-candidate.json`: `compose_reject_blacklist` (блоки политики), `compose_no_height` (нет высоты, выключен).
     Загружается один раз на сборку."""
     global BLOCKED
     if BLOCKED is None:
         import bank_pending as BP
         r = BP.rules()
         nh, rj = bool(r.get('compose_no_height')), bool(r.get('compose_reject_blacklist'))
-        if nh:
-            F = BP.load_facts()
-            BLOCKED = BP.blocklist(F.prod, F.strategy, BP.load_state(), no_height=True, reject=rj)
-        else:
-            BLOCKED = BP.blocklist({}, None, BP.load_state(), reject=rj)   # без каталога: только состояние
+        M = _mesh_facts()
+        BLOCKED = BP.blocklist(M.prod, M.strategy, BP.load_state(), no_height=nh, reject=rj, decisions=M.decisions,
+                               failed=M.failed, mesh_ok=M.mesh_ok)
     return BLOCKED
 
 
-def admit(sku: str, img: str | None) -> str | None:
-    """None — товар годен по фото и мешу; иначе причина отказа. Сбой проверки — отказ и счёт в `FAILS`."""
+def mesh_unfit(sku: str, role: str | None) -> str | None:
+    """МЕШЕВАЯ РОЛЬ — ТОЛЬКО МЕШЕПРИГОДНОЕ (T-20261023-08, ночь 23.10: 27 необогащённых товаров divan.ru держали 31 ячейку в
+    wait_catalog). Тот же суд, что у `bank_ready.classify` для мешевой позиции: гейт геометрии (высота, горизонталь, глубина,
+    доказанный трансформер), затем «меш готов у товара или представителя» ИЛИ «представитель мешепригоден» (`mesh_required` —
+    выход `mesh_bind.mark_required`: наличие, фото, обогащение со стилями, габариты, категория не без размеров). Иначе ячейка
+    с этим товаром не станет готовой никогда — не берём. НЕ ХВАТАЕТ ТОЛЬКО ОБОГАЩЕНИЯ (`mesh_bind.awaiting_enrichment`: каталожная
+    часть предиката пройдена) — берём: ночная порция обогащения берёт сперва товары кандидата (`enrich.py`), и следующей ночью
+    товар мешепригоден; отрежь его здесь — он не попал бы в кандидата и не обогатился бы никогда (проба 23.10: без этого в больших
+    комнатах эконома прямые диваны divan.ru сменились модульными до 271×176 и ковёр 300 перестал подходить — 7 новых дыр).
+    Роль не мешевая или ключ `compose_mesh_eligible` выключен — None."""
+    if not role:
+        return None
+    M = _mesh_facts()
+    if not M.rules.get('compose_mesh_eligible', True):
+        return None
+    import bank_ready as BR
+    b = BR.base_role(role)
+    if M.strategy(b) != 'mesh':
+        return None
+    p = M.prod.get(sku)
+    if not p:
+        return 'нет в каталоге'
+    geo = BR.geometry(b, p, M.square)
+    if geo:
+        return geo
+    rep = p.get('rep') or sku
+    if sku in M.mesh_ok or rep in M.mesh_ok:
+        return None
+    if (M.prod.get(rep) or p).get('eligible') or rep in M.awaiting:
+        return None                 # ждёт только обогащения — его даст ночная порция (товары кандидата — первыми)
+    return 'не мешепригоден (mesh_required=false)'
+
+
+def admit(sku: str, img: str | None, role: str | None = None) -> str | None:
+    """None — товар годен по фото и мешу; иначе причина отказа. Сбой проверки — отказ и счёт в `FAILS`.
+    `role` — слот сборки: для мешевой роли ещё и мешепригодность (`mesh_unfit`)."""
     try:
         why = _blocked().get(sku)
     except Exception as e:  # noqa: BLE001 — fail-closed, как прочие ворота
         FAILS[f'чёрный список: {type(e).__name__}'] += 1
         return 'сбой проверки чёрного списка'
     if why:
+        return why
+    try:
+        why = mesh_unfit(sku, role)
+    except Exception as e:  # noqa: BLE001 — fail-closed
+        FAILS[f'мешепригодность: {type(e).__name__}'] += 1
+        return 'сбой проверки мешепригодности'
+    if why:
+        UNFIT[why] += 1
         return why
     if not img:
         return 'нет фото'
@@ -121,10 +186,12 @@ def pendant_out_media(m: dict | None, ceiling_cm: float | None = None) -> str | 
 
 def summary() -> str:
     n = sum(FAILS.values())
+    unfit = ('; мешевой роли не мешепригодных отказов: ' + ', '.join(f'{k} ×{v}' for k, v in UNFIT.most_common())) \
+        if UNFIT else ''
     if not n:
-        return 'ворота фото/меша: сбоев проверки 0'
+        return 'ворота фото/меша: сбоев проверки 0' + unfit
     return (f'WARN:compose_gate_fail: сбоев проверки {n} — эти товары НЕ взяты: '
-            + ', '.join(f'{k} ×{v}' for k, v in FAILS.most_common()))
+            + ', '.join(f'{k} ×{v}' for k, v in FAILS.most_common()) + unfit)
 
 
 def _selftest() -> int:
@@ -141,12 +208,21 @@ def _selftest() -> int:
 
     saved = {m: sys.modules.get(m) for m in ('img_alive', 'slot_contract')}
 
-    def fake(alive=lambda u: True, photo=lambda s, context=None: True, mesh=lambda s: True, blocked=None):
-        global BLOCKED
+    P = lambda **k: {'role': 'диван', 'status': 'none', 'eligible': True, 'rep': None, 'w': 200, 'd': 90, 'h': 80,  # noqa: E731
+                     'dia': None, 'has_h': True, 'tr': False, 'proven': False, **k}
+    prod = {'1:ok': P(), '1:ne': P(eligible=False), '1:noh': P(h=None, has_h=False, eligible=False),
+            '1:mesh': P(eligible=False), '1:var': P(eligible=False, rep='1:ok'), '1:var2': P(eligible=False, rep='1:ne'),
+            '1:bed': P(tr=True), '1:pil': P(role='подушка', eligible=False, h=None), '1:wait': P(eligible=False)}
+
+    def fake(alive=lambda u: True, photo=lambda s, context=None: True, mesh=lambda s: True, blocked=None, rules=None):
+        global BLOCKED, MESHF
         sys.modules['img_alive'] = types.SimpleNamespace(alive_now=alive, alive=lambda u, unknown=True: True)
         sys.modules['slot_contract'] = types.SimpleNamespace(photo_ok=photo, mesh_ok=mesh)
         BLOCKED = {} if blocked is None else blocked
+        MESHF = types.SimpleNamespace(prod=prod, mesh_ok={'1:mesh'}, square=set(), rules=rules or {}, awaiting={'1:wait'},
+                                      strategy=lambda r: 'cutout' if r == 'подушка' else 'mesh')
         FAILS.clear()
+        UNFIT.clear()
 
     try:
         fake()
@@ -169,6 +245,26 @@ def _selftest() -> int:
         fake(blocked={'1:k': 'нет высоты (h_cm) — меш не заказать'})
         ok('мешевая роль без высоты / чёрный список кандидата — отказ до сборки с причиной, прочие — как раньше',
            admit('1:k', '//img') == 'нет высоты (h_cm) — меш не заказать' and admit('1:a', '//img') is None)
+        fake()
+        ok('мешевая роль: мешепригодный — берём; без обогащения (mesh_required=false) — отказ со счётом в журнале',
+           admit('1:ok', '//img', 'диван') is None and 'не мешепригоден' in (admit('1:ne', '//img', 'диван 2') or '')
+           and 'мешевой роли не мешепригодных отказов' in summary())
+        ok('без высоты — отказ по геометрии (как classify: wait_catalog навсегда); трансформер без доказанных размеров — отказ',
+           admit('1:noh', '//img', 'диван') == 'нет высоты (h_cm)' and 'трансформер' in (admit('1:bed', '//img', 'диван') or ''))
+        ok('меш готов у товара или у представителя, мешепригоден представитель — берём; представитель не годен — отказ',
+           admit('1:mesh', '//img', 'диван') is None and admit('1:var', '//img', 'диван') is None
+           and admit('1:var2', '//img', 'диван') is not None)
+        ok('не хватает только обогащения (каталожная часть предиката пройдена) — берём: обогащение возьмёт товар кандидата первым',
+           admit('1:wait', '//img', 'диван') is None)
+        ok('не мешевая роль (подушка) и вызов без роли — мешепригодность не спрашиваем',
+           admit('1:pil', '//img', 'подушка') is None and admit('1:ne', '//img') is None)
+        fake(rules={'compose_mesh_eligible': False})
+        ok('ключ compose_mesh_eligible=false — ворота выключены', admit('1:ne', '//img', 'диван') is None)
+        fake()
+        MESHF.prod = None                                             # сломанные факты — отказ и счёт, не пропуск
+        ok('сбой проверки мешепригодности — отказ и счёт (fail-closed)',
+           admit('1:ok', '//img', 'диван') == 'сбой проверки мешепригодности'
+           and FAILS['мешепригодность: AttributeError'] == 1)
         ok('вылет: 60 см — годен, 61 — вне слота с причиной', pendant_out(60, 'param', None, 'Да') is None
            and 'вылет 61 см > 60' in (pendant_out(61, 'param', None, '') or ''))
         ok('плоская и обычная люстра — годна', pendant_out(2.5, 'param', None, 'Нет') is None)
@@ -196,7 +292,9 @@ def _selftest() -> int:
             else:
                 sys.modules[m] = v
         FAILS.clear()
+        UNFIT.clear()
         globals()['BLOCKED'] = None
+        globals()['MESHF'] = None
     print(f'compose_gates selftest: ошибок {bad}')
     return 1 if bad else 0
 

@@ -387,7 +387,7 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
             # срабатывало задним числом: товар сперва вставал в сет, потом его выносило лечение.
             # Владелец 28.08: «на этапе выбора сетов проверку добавь». Ворота — fail-closed, как у
             # contracts (план conv-13 п.2): сбой проверки = товар не берём, счёт — `compose_gates.summary`.
-            if _CG.admit(f"{it['mid']}:{it['eid']}", it.get('img')):
+            if _CG.admit(f"{it['mid']}:{it['eid']}", it.get('img'), role):
                 _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
                 continue
             # АБСОЛЮТНЫЙ минимум главного дивана (26.08, Codex): детская/подростковая мягкая
@@ -930,7 +930,10 @@ for bi,band in enumerate(COMP['bands']):
             dmid=_lw*8.2; dlo,dhi=dmid*0.8,dmid*1.2
         else:
             dlo,dhi=(45,70) if m2<=20 else ((60,90) if m2<=30 else (60,100))
-        lu=[it for it in cat.get('люстра',[]) if it['dia'] and dlo<=it['dia']<=dhi] or cat.get('люстра',[])
+        # ВОРОТА ЛЮСТРЫ (T-20261023-08): люстра выбиралась мимо `admit` — без чёрного списка, фото и мешепригодности; ночь 23.10:
+        # люстра — первая по позициям «нет меша» в кандидате (108). Те же ворота, что у слотов `pick2`
+        _lu_ok=[it for it in cat.get('люстра',[]) if not _CG.admit(f"{it['mid']}:{it['eid']}", it.get('img'), 'люстра')]
+        lu=[it for it in _lu_ok if it['dia'] and dlo<=it['dia']<=dhi] or _lu_ok
         lu=[it for it in lu if overlap_ok(emb_key(it['mid'],it['eid']),style_name,chosen,role='люстра',tier=tier)]  # строго: лимит важнее люстры
         if lu:
             plo,phi=tier_band('люстра',tier)
@@ -1248,7 +1251,8 @@ for bi,band in enumerate(COMP['bands']):
                 and 'банкетка' not in chosen and not chosen.get('dining_bundle'):
             _tw=float(chosen['стол обеденный'].get('w') or 0)
             _bench=[b for b in cat.get('банкетка',[])
-                    if (b.get('caps_used') or {}).get('dining_seat_capable')
+                    if not _CG.admit(f"{b['mid']}:{b['eid']}", b.get('img'), 'банкетка')   # те же ворота (T-20261023-08)
+                    and (b.get('caps_used') or {}).get('dining_seat_capable')
                     and ((b.get('caps_used') or {}).get('guaranteed_seats') or 0)>=2
                     and _tw and 0.5*float(b.get('w') or 0)<=_tw<=1.2*float(b.get('w') or 0)
                     and int(b.get('mid') or 0) not in _pod_banned_mids]
