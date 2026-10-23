@@ -256,6 +256,22 @@ def assign(o: dict, catrole: dict, known: set) -> dict:
     return o
 
 
+def mark_soft_kids(offers: list[dict]) -> dict:
+    """МЯГКОЕ ДЕТСКИХ ЛИНИЙ — без роли (demo-24, правило `category_map.soft_kids`). Нужен весь фид: детской линию делает
+    СОСЕДНИЙ товар серии (пуф «Для детской» у подушки Вигге), поэтому шаг идёт после разбора, а не в `assign`. Строка грузится
+    без роли, как детское (`accepted` не трогаем — не в архив); heal меняет её в комплектах («роль снята каталогом»).
+    → {причина-вид: число} для строки прогона."""
+    ks = category_map.kids_series(offers)
+    cnt: dict[str, int] = {}
+    for o in offers:
+        why = o.get('role') and category_map.soft_kids(o['role'], o['name'], o.get('params'), o['mid'], ks)
+        if why:
+            k = f"{o['role']}: {why.split(' (')[0]}"
+            cnt[k] = cnt.get(k, 0) + 1
+            o['role'], o['soft_kids'] = None, why     # не role_note: тот счётчик — «свет по типу» (Н2а)
+    return cnt
+
+
 def parse_feed(zip_path: str, catrole: dict, known: set):
     """→ (список офферов с полями и ролями, счётчики по mid)."""
     zf = zipfile.ZipFile(zip_path)
@@ -370,6 +386,11 @@ def main() -> int:
             raw_by_mid[mid] = raw_by_mid.get(mid, 0) + n
             feed_of_mid.setdefault(mid, fh)
 
+    soft_kids = mark_soft_kids(offers)
+    if soft_kids:
+        # не WARN: правило осознанное и срабатывает каждую ночь — дайджест показывает первый WARN шага и спрятал бы настоящие
+        print(f'мягкое детских линий без роли: {sum(soft_kids.values())} — '
+              + '; '.join(f'{k} {v}' for k, v in sorted(soft_kids.items(), key=lambda kv: -kv[1])[:8]), flush=True)
     accepted = [o for o in offers if o['accepted']]
     light = {}
     for o in accepted:
@@ -661,6 +682,18 @@ def selftest() -> int:
             ('112923', '334', 'Стол divan.ru Безразмерный', {}, 'стол обеденный')):
         o = assign({'mid': mid, 'cid': cid, 'name': nm, 'params': params, 'price': 1}, {}, set())
         check(f'стол «{nm[:24]}» → {want}', o['role'] == want and o['accepted'], f"{o['role']} {o['dims']}")
+    # мягкое детских линий (demo-24): подушка Вигге без роли по соседу-пуфу, обычная подушка — с ролью, строка принята
+    offs = [assign({'mid': 112923, 'cid': '445', 'name': 'Пуф divan.ru Вигге Мех Зеленый', 'price': 1,
+                    'params': {'Серия': 'Вигге', 'Назначение': 'Для детской'}}, {(112923, '445'): 'пуф'}, set()),
+            assign({'mid': 112923, 'cid': '3748', 'name': 'Подушка divan.ru Вигге', 'price': 1,
+                    'params': {'Серия': 'Вигге', 'Назначение по функционалу': 'для дома'}}, {(112923, '3748'): 'подушка'}, set()),
+            assign({'mid': 112923, 'cid': '3748', 'name': 'Подушка divan.ru Фортис Велюр Бежевый', 'price': 1,
+                    'params': {'Серия': 'Фортис'}}, {(112923, '3748'): 'подушка'}, set())]
+    sk = mark_soft_kids(offs)
+    check('Вигге: подушка без роли, но принята (не в архив); пуф — свой путь (роль осталась)',
+          offs[1]['role'] is None and offs[1]['accepted'] and offs[1].get('soft_kids') and offs[0]['role'] == 'пуф', offs[1])
+    check('обычная декоративная подушка — с ролью', offs[2]['role'] == 'подушка' and not offs[2].get('soft_kids'), offs[2])
+    check('счётчик прогона', sk == {'подушка: детская линия «вигге»': 1}, sk)
     check('norm_hd: // → https', norm_hd('//cdn.shop.ru/a.jpg') == 'https://cdn.shop.ru/a.jpg')
     check('norm_hd: не URL → None', norm_hd('картинка.jpg') is None and norm_hd('') is None)
     # строки COPY собираются без исключений и с нужным числом колонок

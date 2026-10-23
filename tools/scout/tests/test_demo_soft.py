@@ -57,11 +57,43 @@ finally:
         sys.modules['img_alive'] = keep[0]
     F._basis, F._pack_of = keep[1], keep[2]
 
+# 2б) мягкое, у которого каталог снял роль (детская линия «Вигге», правки 23.10): не в ленту, в варианте — замена
+import mesh_queue  # noqa: E402
+keep_db = mesh_queue.db
+asked = []
+mesh_queue.db = lambda q: (asked.append(q), [['112923:vigge']])[1]
+try:
+    bank = [{'items': {'подушка 2': {'mid': 112923, 'eid': 'vigge', 'name': 'Подушка divan.ru Вигге'},
+                       'ваза': {'mid': 1, 'eid': 'v', 'name': 'Ваза'}, 'диван': {'mid': 2, 'eid': 's', 'name': 'Диван'}}}]
+    lost = F.soft_lost(bank)
+    check('без роли в каталоге: спрашиваем только мягкое банка', lost == {'112923:vigge'} and "'112923:vigge'" in asked[0]
+          and "'1:v'" not in asked[0] and "'2:s'" not in asked[0], str(asked))
+    sys.modules['img_alive'] = types.SimpleNamespace(alive_now=lambda u: True)
+    F._basis, F._pack_of = (lambda mid, eid: 'feed'), (lambda mid, eid, name: 1)
+    F._SOFT_LOST.clear()
+    F._SOFT_LOST.update(lost)
+    vig = {'mid': 112923, 'eid': 'vigge', 'name': 'Подушка divan.ru Вигге', 'price': 4490, 'img': '//i/v.jpg', 'url': 'https://s/v'}
+    check('лента: мягкое без роли в каталоге — не предлагаем', F.set_feed_row('подушка', vig, 'сканди') is None
+          and F.set_feed_row('подушка', {**vig, 'eid': 'ok'}, 'сканди') is not None)
+    mesh_queue.db = lambda q: (_ for _ in ()).throw(RuntimeError('нет базы'))
+    check('нет базы — пусто: сбой пробы не снимает товары', F.soft_lost(bank) == set())
+finally:
+    mesh_queue.db = keep_db
+    F._SOFT_LOST.clear()
+    F._basis, F._pack_of = keep[1], keep[2]
+    if keep[0] is None:
+        sys.modules.pop('img_alive', None)
+    else:
+        sys.modules['img_alive'] = keep[0]
+
 SRC = open(os.path.join(HERE, '..', 'flat215_demo.py'), encoding='utf-8').read()
 FUNCS = {n.name: ast.get_source_segment(SRC, n) for n in ast.parse(SRC).body if isinstance(n, ast.FunctionDef)}
 check('экспорт варианта: мягкое — в список варианта, модель обнулена',
       "soft = soft_role(role)" in FUNCS['build'] and "sk['msid'] = None" in FUNCS['build'])
 check('данные: правило ролей уходит странице (rules.soft_roles)', "'soft_roles': soft_roles()" in FUNCS['build'])
+check('сборка: мягкое без роли в каталоге меняется из ленты сборки, нечем — строка снята; показуемой вазой мягкое не меняем',
+      '_SOFT_LOST.update(soft_lost(sets))' in FUNCS['build'] and "p.get('soft') and p.get('sid') not in taken" in FUNCS['build']
+      and 'soft_dropped.append' in FUNCS['build'] and "if soft_role(d.get('role')):\n                continue" in FUNCS['build'])
 
 # 3) сцена сервера
 pay = {'items': [{'role': 'столик', 'x': 200, 'y': 150, 'rot': 0, 'w': 120, 'd': 60, 'h': 40}],

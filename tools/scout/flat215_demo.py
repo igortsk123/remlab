@@ -731,10 +731,35 @@ def set_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
             'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name'))}
 
 
+_SOFT_LOST: set = set()
+
+
+def soft_lost(sets: list) -> set:
+    """Мягкое банка, у которого каталог СНЯЛ РОЛЬ — {'mid:eid'} (demo-24 правки). Ночное лечение банка стоит на предохранителе
+    (`demo_fill.py`, шапка), и снятая загрузкой роль (детская линия — `category_map.soft_kids`, `load3.mark_soft_kids`) из банка
+    сама не уходит: лягушка «Вигге» осталась бы подушкой в показе. Правило не дублируем — читаем его итог, `products.cat_role`.
+    Нет базы — пусто (сбой пробы ≠ вердикт)."""
+    keys = sorted({f"{it.get('mid')}:{it.get('eid')}" for s in sets for r, it in (s.get('items') or {}).items()
+                   if it and it.get('mid') and it.get('eid') and soft_role(r)})
+    if not keys:
+        return set()
+    try:
+        from mesh_queue import db as _db
+        lit = ','.join("'" + k.replace("'", "''") + "'" for k in keys)
+        return {r[0] for r in _db(f"select shop_mid||':'||external_id from products where cat_role is null "
+                                  f"and shop_mid||':'||external_id = any(array[{lit}])") if r and r[0]}
+    except Exception as e:  # noqa: BLE001
+        print(f'WARN:soft_lost: роль мягкого в каталоге не проверена: {repr(e)[:120]}', flush=True)
+        return set()
+
+
 def soft_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
     """Мягкое (demo-24) → строка ленты замен: места на полу и модели нет, поэтому ни конверта размера, ни меша не требуем —
-    только то, без чего строку списка не показать честно: название, живое фото, цена и ссылка в магазин."""
+    только то, без чего строку списка не показать честно: название, живое фото, цена и ссылка в магазин. Роль снята
+    каталогом (детская линия) — не в ленту."""
     if not it or not it.get('name') or not it.get('img') or not it.get('url') or not _price(it)[0]:
+        return None
+    if f"{it.get('mid')}:{it.get('eid')}" in _SOFT_LOST:
         return None
     try:
         from img_alive import alive_now as _alive
@@ -986,6 +1011,10 @@ def bedroom_catalog() -> dict:
 def build() -> dict:
     flat = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))
     sets = json.load(open(BANK['bank'], encoding='utf-8'))
+    _SOFT_LOST.clear()
+    _SOFT_LOST.update(soft_lost(sets))      # мягкое без роли в каталоге — не в варианты и не в ленты (demo-24 правки)
+    if _SOFT_LOST:
+        print(f'мягкое банка без роли в каталоге (детские линии и т.п.): {len(_SOFT_LOST)} — заменяем из ленты', flush=True)
     if not BANK['live']:
         print(f"БАНК: {BANK['bank']} (копия; demo-sets и раскладки — свои, суффикс {BANK['layout_sfx']})", flush=True)
     global BANKS
@@ -1184,9 +1213,51 @@ def build() -> dict:
     # стиля из ленты сборки (`dec_feeds`) — то же место в наборе, но её видно в комнате. Не нашлось замены — оставляем
     # как есть: пусть лучше товар будет только в списке, чем подставим чужой стиль.
     dec_fixed, dec_left = 0, 0
+    # МЯГКОЕ БЕЗ РОЛИ В КАТАЛОГЕ (demo-24 правки, детская линия): меняем на мягкое той же роли из ленты сборки — стиль варианта
+    # первым, затем не взятое в другой вариант (разнообразие, как `demo_fill.candidates`), затем ближе по цене, без повтора внутри
+    # варианта; модели и габариты мягкому не нужны. Нечем — строку снимаем: игрушка в списке хуже, чем подушкой меньше.
+    # МЁРТВОЕ ФОТО — ТА ЖЕ ЗАМЕНА: лента мягкого требует живого фото (`soft_feed_row`), а товар варианта приходил из банка без
+    # проверки — «Линкс Ваби» с фото 404 стоял битой картинкой в списке и на третьем листе «Улучшить» (прогон 23.10)
+    try:
+        from img_alive import alive_now as _alive
+    except Exception:  # noqa: BLE001
+        _alive = lambda u: True  # noqa: E731
+    soft_fixed, soft_dropped, soft_used = [], [], set()
+    for v in variants:
+        st = v.get('style') or ''
+        keep = []
+        for d in (v.get('decor') or []):
+            sk = d.get('sku') or {}
+            why = None
+            if soft_role(d.get('role')):
+                why = ('роль снята каталогом' if (sk.get('sid') or '').replace('_', ':', 1) in _SOFT_LOST
+                       else None if _alive(sk.get('img')) else 'фото не открывается')
+            if not why:
+                keep.append(d)
+                continue
+            base = re.sub(r'\s+\d+$', '', d.get('role') or '')
+            taken = {(x.get('sku') or {}).get('sid') for x in v.get('decor') or []}
+            cand = [p for p in dec_feeds.get(base, []) if p.get('soft') and p.get('sid') not in taken]
+            if not cand:
+                soft_dropped.append((v.get('id'), d.get('role'), sk.get('name'), why))
+                continue
+            best = min(cand, key=lambda p: (not (st and (p.get('style') == st or st in (p.get('styles') or []))),
+                                            p.get('sid') in soft_used, abs((p.get('price') or 0) - (sk.get('price') or 0))))
+            soft_used.add(best.get('sid'))
+            d['sku'] = {k: best.get(k) for k in ('name', 'price', 'price_at', 'img', 'url', 'shop', 'basis', 'sid', 'msid',
+                                                 'pack', 'w', 'd', 'h')}
+            soft_fixed.append((v.get('id'), d.get('role'), sk.get('name'), best.get('name'), why))
+            keep.append(d)
+        v['decor'] = keep
+    for vid, role, old, new, why in soft_fixed:
+        print(f'  мягкое {vid} {role}: «{old}» ({why}) → «{new}»', flush=True)
+    for vid, role, old, why in soft_dropped:
+        print(f'  мягкое {vid} {role}: «{old}» ({why}) — замены нет, строка снята', flush=True)
     for v in variants:
         for d in (v.get('decor') or []):
             sk = d.get('sku') or {}
+            if soft_role(d.get('role')):
+                continue          # мягкому место в 3D не нужно — показуемой вазой его не меняем
             if sk.get('w') and sk.get('d') and sk.get('h') and sk.get('msid') in _mesh_index():
                 continue
             base = re.sub(r'\s+\d+$', '', d.get('role') or '')

@@ -2554,8 +2554,9 @@ function decorRows(){
   const html=d.map(x=>{const p=x.sku; sum+=(p.price||0);
     return `<div class="row" data-d="${x.i}">`+
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
-      // мягкое: роль, точка и пометка — отдельными узлами текста, иначе слой EN не узнаёт ни роль, ни пометку
-      `<div class="t"><b>${p.name}</b><span>`+(isSoft(x.role)?`${x.role}<span> · </span><i class="soft">видно на улучшенном фото</i>`:`${x.role} · ${decorWhere(x)}`)+
+      // роль — без номера слота («подушка 2» → «подушка», ведущий 23.10); мягкое — без пометки (владелец 23.10: вариант и так
+      // открывается улучшенным фото, подушки там видны; подсказка — только тостом при замене, `softSwapToast`)
+      `<div class="t"><b>${p.name}</b><span>`+(isSoft(x.role)?baseRole(x.role):`${baseRole(x.role)} · ${decorWhere(x)}`)+
       (p.shop?' · '+p.shop:'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
       `<span class="acts"><button class="lnk swap">Заменить</button>`+
       (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span>`+
@@ -2605,7 +2606,7 @@ function decorSupport(){
   return null;
 }
 function decorWhere(x){
-  if(x&&isSoft(x.role))return 'видно на улучшенном фото';
+  if(x&&isSoft(x.role))return '';                 // мягкому места в 3D нет — и подписи «куда встанет» тоже (demo-24)
   const s=decorSupport();
   return s?('на '+s.role.replace(/\s+\d+$/,'')+', по центру'):'в кадр не ставим: не указан размер или не влезает';
 }
@@ -2904,6 +2905,11 @@ function reportAct(kind){
 // ВСЕ ВСПЛЫВАЮЩИЕ СООБЩЕНИЯ ОДНОГО ВИДА (demo-19 Б4, владелец 20.10: «не на чёрном, а на полупрозрачном, шире»): класс `.msg` —
 // у сообщений страницы и у подсказок окна (`.vtip`); длинный текст держится дольше.
 // ВДВОЕ КОРОЧЕ И ГАСНЕТ ПЛАВНО (demo-20 Б4, владелец 22.10: «Заменено: диван +4 000» висело и пропадало рывком)
+// НАДПИСЬ КНОПКИ УЛУЧШЕНИЯ — ОДНА СТРОКА (demo-24 правки): кнопка окна и подсказка после замены мягкого берут её отсюда, перевод —
+// та же строка слоя EN («Make it realistic»), подсказка переводится шаблоном с ней же — надписи не разойдутся
+const CTA_REAL='Сделать реалистичнее';
+// ЗАМЕНА МЯГКОГО (владелец 23.10): в 3D подушки нет — обычный затухающий тост «Нажмите «<кнопка>», чтобы увидеть изменения»
+function softSwapToast(){toast(`Нажмите «${CTA_REAL}», чтобы увидеть изменения`);}
 function toast(t,act){let el=document.getElementById('toast');
   if(!el){el=document.createElement('div');el.id='toast';el.className='msg';el.setAttribute('role','status');
     document.body.appendChild(el);}
@@ -4218,8 +4224,8 @@ function shotListHtml(s){
           // первые 10 строк — сразу, остальные — лениво; до загрузки — заглушка тона страницы (demo-21 п.5), загрузилась — белая плитка
           (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`:'<div class="noimg-sm">нет фото</div>')+
           `<div class="t"><b>${a.name}</b>`+
-          // мягкое (demo-24): в 3D его нет — пометка, где его увидеть; роль и пометка — отдельными узлами (слой EN)
-          `<span>${a.role||''}${isSoft(a.role)?'<span> · </span><i class="soft">видно на улучшенном фото</i>':''}${a.shop?' · '+a.shop:''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
+          // мягкое (demo-24) — без пометки, роль без номера слота (владелец и ведущий 23.10)
+          `<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${a.shop?' · '+a.shop:''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
           `<span class="acts">`+
             (own?`<button class="lnk" data-rep="${k}">Заменить</button>`:'')+
             (a.url?`${own?' · ':''}<a href="${a.url}" target="_blank" rel="noopener">В магазин</a>`:'')+
@@ -4642,7 +4648,9 @@ function rugFitsSofa(p){const sofa=items.find(i=>i.role==='диван'); return 
 function feedFor(base){
   const all=((D.feeds&&D.feeds[base])||[]).filter(p=>(base!=='диван'||!sel||sameShape(p,sel))&&(base!=='ковёр'||rugFitsSofa(p)));
   const st=plainStyle((allVariants()[cur]||{}).style);
-  if(F.anyStyle||!st)return all;
+  // МЯГКОЕ — ЛЕНТА ВСЕХ СТИЛЕЙ (demo-24 правки): ленты подушек и штор собраны из наборов банка — по одной-две на стиль, и в своём
+  // стиле заменить было не на что (сканди: одна «Удина» — она же текущая). Правило «чужие сеты не показываем» — про мебель
+  if(F.anyStyle||!st||isSoft(base))return all;
   // у товара стилей может быть несколько (`styles`) — он подходит и неоклассике, и современному
   // ЧУЖИЕ СЕТЫ НЕ ПОКАЗЫВАЕМ (13.10). Товары рекомендованных наборов видны всегда — это правило
   // владельца 08.09 про «изначальный набор». Но наборов шесть, и в ленту неоклассики падали
@@ -4746,7 +4754,7 @@ function grid(){
     const bg=fitBadge(sel,p), cur=sel.sku&&sel.sku.name===p.name;
     if(cur)c.classList.add('cur');
     c.innerHTML=`<img src="${p.img}" loading="lazy" alt="">`+
-      `<span class="badge ${bg.cls}">${bg.txt}</span>`+
+      (bg.txt?`<span class="badge ${bg.cls}">${bg.txt}</span>`:'')+
       `<div class="nm">${p.name||''}</div>`+
       `<div class="pr">${money(p.price)}</div>`+
       // «ещё N цветов» — в строке размера, а не отдельной строкой (demo-20 А1: карточка ниже на iPhone SE)
@@ -4781,8 +4789,8 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
              w:p.w,d:p.d,h:p.h||null,pack:p.pack||1,...(p.yaw!=null?{yaw:p.yaw}:{}),...(p.tint?{tint:p.tint}:{})};
       sel=decorSel(s.dec);
       basket(); showSwap(); refreshShotList();
-      // В 3D МЯГКОГО НЕТ — говорим, где его увидеть (владелец 23.10: «при замене подушки писать, что будут видны на улучшенном фото»)
-      if(soft)toast('Будет видно на улучшенном фото');
+      // В 3D МЯГКОГО НЕТ — говорим, как увидеть замену (владелец 23.10)
+      if(soft)softSwapToast();
     }
     return;
   }
@@ -5379,7 +5387,7 @@ function vwHtml(s, navs, list){
     `<button class="vgrip" id="vgrip" aria-expanded="false" type="button"><span class="vchip" id="vchip">${vwChipText()}</span></button>`+
     // ШТОРКА v5.2 (владелец 18.10): кнопка — в шапке шторки под чипом, вне прокрутки: видна при любой высоте, свёрнутая
     // остановка (`vwEdges().min`) её включает. Одна строка (владелец 16.10, п.4): отсчёт времени (`photoWait`) — после нажатия
-    `<div class="vtop"><button class="btn primary vcta" id="vCta">${VW.mode==='plan'?'Изменить план':'Сделать реалистичнее'}</button></div>`+
+    `<div class="vtop"><button class="btn primary vcta" id="vCta">${VW.mode==='plan'?'Изменить план':CTA_REAL}</button></div>`+
     `<div class="vscroll" id="vscroll">`+
     // ШТОРКА v5 (владелец 17.10): при входе — кнопка и три строки «Мебель · Отделка и ремонт · Встраиваемое», ничего больше;
     // тап по строке — раздел в той же области, сверху «← Назад» и заголовок (`vwGroupOpen`); группа — вид, не состояние
@@ -6048,7 +6056,7 @@ function vwCtaUi(){
     cta.querySelector('.vcta-bar').style.width=w.pct.toFixed(1)+'%';
     cta.querySelector('.vcta-t').textContent=photoWaitText(w);
     const sm=cta.querySelector('small'); sm.textContent=nt; sm.hidden=!nt; cta.dataset.left=w.left;}
-  else{cta.classList.remove('busy'); cta.textContent=EN?'Make it realistic':'Сделать реалистичнее';}
+  else{cta.classList.remove('busy'); cta.textContent=EN?'Make it realistic':CTA_REAL;}
   if(!VJ.job||m==='plan')delete cta.dataset.left;
   let er=document.getElementById('vCtaErr');
   if(VJ.err&&m!=='photo'){if(!er){er=document.createElement('p'); er.id='vCtaErr'; er.className='vcta-err'; cta.after(er);} er.textContent=VJ.err;}
@@ -6175,7 +6183,7 @@ const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пу�
       const n=TRY_LAST.n||1, d=sum()-before, EN=LANG==='en';
       const base=baseRole(role), what=n>1?(TRY_PLURAL[base]||base)+' ×'+n:base;
       // мягкое (demo-24): в 3D замены не видно — сообщение говорит, где она появится (тот же текст, что у `tryOn`)
-      if(s0.dec!==undefined&&isSoft(role))toast('Будет видно на улучшенном фото');
+      if(s0.dec!==undefined&&isSoft(role))softSwapToast();
       else toast((EN?'Replaced: '+what:'Заменено: '+what)+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
       // шторка уже свёрнута — сцена с заменой видна; наведение камеры — после обновления сцены (`liveShow`, demo-15 п.2).
       // КОНТУР СНИМАЕМ СРАЗУ (demo-20 Б4, владелец 22.10: «рамку убирать автоматически»): заменённое видно и так — камера у предмета
@@ -7267,7 +7275,7 @@ async function liveShotTake(){
     'Спальни появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.':'Bedrooms are coming next — furnished the same way as the living room.',
     'Кухня появится следующим шагом — варианты от партнёров застройщика.':"The kitchen is coming next — options from the developer's partners.",
     'Сначала коснитесь предмета на плане':'Tap an item on the plan first',
-    'видно на улучшенном фото':'shown on the enhanced photo','Будет видно на улучшенном фото':'It will be shown on the enhanced photo',
+
     'У этого товара в фиде нет габаритов — примерка была бы выдумкой':'The shop gives no dimensions for this product — a try-on would be made up','Сохранить коллекцию':'Save collection',
     '3D-модель носит ознакомительный характер и может отличаться от фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать у нашего менеджера. Цена и данные о доме — демонстрационные. Цены товаров — с сайтов магазинов на дату проверки и могут измениться; точная цена — по ссылке в магазин.':
       'The 3D model is for illustration and may differ from the actual specification. Ask our manager for the exact details of your future home. The price and building details are for demonstration. Product prices are taken from shop websites on the check date and may change; see the shop link for the exact price.',
@@ -7317,6 +7325,7 @@ async function liveShotTake(){
     [/^осталось примерно (\d+) с$/,function(m){return 'about '+m[1]+' s left';}],
     [/^Нет связи с сервером — ждём, кадр не потерян \((\d+) с\)$/,function(m){return 'No connection to the server — waiting, the shot is not lost ('+m[1]+' s)';}],
     [/^Выбранный вариант: (.+)$/,function(m){return 'Selected: '+m[1];}],
+    [/^Нажмите «(.+)», чтобы увидеть изменения$/,function(m){return 'Tap “'+(EX[m[1]]||m[1])+'” to see the changes';}],   // `softSwapToast`
     [/^(\d+(?:[.,]\d)?)\s*м²$/,function(m){return m[1].replace(',','.')+' m²';}],
     [/^Ваш менеджер: (.+)$/,function(m){return 'Your manager: '+m[1];}],
     [/^Позвонить (.+)$/,function(m){return 'Call '+m[1];}],
