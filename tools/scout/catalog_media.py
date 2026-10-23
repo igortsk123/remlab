@@ -24,7 +24,7 @@ import os
 from reflink import direct as _direct     # ссылка в магазин строится ТЕМ ЖЕ кодом, что при
                                          # загрузке (раскрытие goto= + починка разделителя erid)
 
-PSQL = ["docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", "remlab",
+PSQL = ["docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", os.environ.get("REMLAB_DEVDB_NAME", "remlab"),
         "-q", "-v", "ON_ERROR_STOP=1", "-tAc"]
 _CACHE = None
 
@@ -61,6 +61,10 @@ def _load() -> dict:
          # ПРАВДИВАЯ ЦЕНА (conv-10): показываемая цена выше — фид или страница по правилу магазина; рядом
          # её источник и дата, витрина пишет «цена на …»
          "||'\x1f'||coalesce(p.price_basis,'feed')||'\x1f'||coalesce(to_char(p.price_checked_at,'YYYY-MM-DD'),'')"
+         # ВЫЛЕТ ПОДВЕСА (catalog-holes-bank Н2в): источник высоты, длина подвеса сверх нормы роли, «Регулируемая высота» —
+         # для `compose_gates.pendant_out` при выборе замены люстры в лечении (`sets_incremental._slot_ok`)
+         "||'\x1f'||coalesce(p.dims_evidence->'h'->>'source','')||'\x1f'||coalesce(p.dims_evidence->'h'->>'cm','')"
+         "||'\x1f'||coalesce(p.params->>'Регулируемая высота','')"
          " from products p left join product_page_status ps"
          " on ps.shop_mid=p.shop_mid and ps.external_id=p.external_id")
     r = subprocess.run(PSQL + [q], capture_output=True, text=True)
@@ -108,7 +112,9 @@ def _load() -> dict:
                                    'basis': p[17] if len(p) > 17 else 'feed',
                                    'evidence_at': (p[18] if len(p) > 18 else '') or None,
                                    'price_basis': p[19] if len(p) > 19 else 'feed',
-                                   'price_at': (p[20] if len(p) > 20 else '') or None}
+                                   'price_at': (p[20] if len(p) > 20 else '') or None,
+                                   'h_src': p[21] if len(p) > 21 else '', 'h_cm': (p[22] if len(p) > 22 else '') or None,
+                                   'adj': p[23] if len(p) > 23 else ''}
     _CACHE = m
     return m
 

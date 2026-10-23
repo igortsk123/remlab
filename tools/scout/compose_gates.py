@@ -98,6 +98,12 @@ def pendant_out(h: float | None, h_source: str | None, h_cm: str | float | None,
     return None
 
 
+def pendant_out_media(m: dict | None) -> str | None:
+    """`pendant_out` по записи `catalog_media.media` — для лечения банка (замена люстры проходит ту же норму, что сборка)."""
+    m = m or {}
+    return pendant_out(m.get('h'), m.get('h_src'), m.get('h_cm'), m.get('adj'))
+
+
 def summary() -> str:
     n = sum(FAILS.values())
     if not n:

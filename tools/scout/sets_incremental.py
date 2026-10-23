@@ -54,7 +54,7 @@ def _record_change(set_id, slot, old_sku, new_sku, reason) -> None:
         pass
 SETS = os.path.join(HERE, 'sets3.json')
 INDEX = os.path.join(HERE, 'sets-index.json')
-PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
+PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', os.environ.get('REMLAB_DEVDB_NAME', 'remlab'),
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
 
 
@@ -166,7 +166,7 @@ def _mesh_gate_ok(cand: dict) -> bool:
         return os.environ.get('MESH_GATE_PHASE', 'off') in ('off', 'shadow')
 
 
-def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool:
+def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None, current: bool = False) -> bool:
     """КОНТРАКТЫ ПОДБОРА при лечении (22.08→25.08, разбор владельца по галерее): замена обязана
     проходить ТЕ ЖЕ ворота, что и первичная сборка. Иначе ночное лечение тихо подменяет товар
     на негодный: 20.08 в сете 7 стоял диван 187 и ковёр 230×160, после лечения — диван 110 и
@@ -235,6 +235,14 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
         _m = _media(cand.get('mid'), cand.get('eid'))
         if not _m or _m['state'] != 'available':
             return False
+        # ВЫЛЕТ ПОДВЕСА — ТОЛЬКО ДЛЯ ЗАМЕНЫ (catalog-holes-bank Н2в, ведущий 23.10): длинная люстра не возвращается в банк
+        # лечением, освежением или контрактами — та же норма, что в сборке (`compose_gates.pendant_out`, проход 210 при
+        # потолке 270). Уже стоящую (`current=True`, проверка контрактов) не выселяем: в живом банке таких 30 из 126 сетов,
+        # массовое снятие сработало бы предохранителем `heal_policy` (25 %) и остановило бы ВСЕ контракты ночи.
+        if not current and re.sub(r'\s+\d+$', '', role) == 'люстра':
+            import compose_gates as _CG
+            if _CG.pendant_out_media(_m):
+                return False
         # напольному предмету нужен footprint (Ш×Г или диаметр) ИЗ КАТАЛОГА, не «хоть какой-то габарит»
         # и не размер из карточки сета (Р1, Codex 03.09)
         import footprint as _fp
@@ -881,7 +889,7 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
             if roles and role not in roles:
                 continue
             it = items[role]
-            if _slot_ok(role, it, s):
+            if _slot_ok(role, it, s, current=True):
                 continue
             repl = None
             # кандидатов сортируем по БЛИЗОСТИ К ИДЕАЛУ СЛОТА, а не по стилю/цене: замена «первым
@@ -1018,8 +1026,61 @@ def _selftest() -> int:
         if got is not want:
             bad += 1
             print(f'  FAIL {title}: получили {got}, ждали {want}')
-    print(f'sets_incremental selftest: случаев {len(cases)}, ошибок {bad}')
+    bad += _selftest_pendant()
+    print(f'sets_incremental selftest: случаев {len(cases) + 6}, ошибок {bad}')
     return 1 if bad else 0
+
+
+def _selftest_pendant() -> int:
+    """ВЫЛЕТ ПОДВЕСА В ЛЕЧЕНИИ (catalog-holes-bank Н2в): ворота замены — те же, что у сборки. Внешние проверки `_slot_ok`
+    подменены заглушками «годно», каталог — словарём; путь лечения/освежения/контрактов зовёт `_slot_ok` для кандидата
+    (по умолчанию `current=False`), проверка уже стоящей позиции контрактами — с `current=True` (не выселяем)."""
+    import types
+    cat = {('1', 'short'): {'state': 'available', 'h': 45.0, 'w': 60, 'dia': 60},
+           ('1', 'long'): {'state': 'available', 'h': 120.0, 'w': 60, 'dia': 60},
+           ('1', 'susp'): {'state': 'available', 'h': None, 'dia': 60, 'h_src': 'param-suspension', 'h_cm': '230.0'},
+           ('1', 'adj'): {'state': 'available', 'h': None, 'dia': 60, 'adj': 'Да'},
+           ('1', 'sofa'): {'state': 'available', 'h': 120.0, 'w': 200, 'd': 90}}
+    stub = {'unfit': types.SimpleNamespace(unfit=lambda *a, **k: False),
+            'slot_contract': types.SimpleNamespace(photo_ok=lambda *a, **k: True),
+            'slot_rules': types.SimpleNamespace(slot_ideal=lambda *a, **k: None, slot_envelopes=lambda: {}),
+            'img_alive': types.SimpleNamespace(alive_now=lambda u: True),
+            'mesh_gate': types.SimpleNamespace(verdict_for_photo=lambda *a, **k: None),
+            'catalog_media': types.SimpleNamespace(media=lambda mid, eid: cat.get((str(mid), str(eid)))),
+            'mesh_ready': types.SimpleNamespace(gate_active=lambda: False, mesh_ready=lambda s: True)}
+    saved = {k: sys.modules.get(k) for k in stub}
+    sys.modules.update(stub)
+    bad = 0
+    try:
+        c = lambda e: {'mid': 1, 'eid': e, 'img': 'i', 'name': e}  # noqa: E731
+        S = {'m2': 20}
+        for title, got, want in (
+                ('замена: люстра 45 см — годна', _slot_ok('люстра', c('short'), S), True),
+                ('замена: люстра 120 см (> 60) — нет (лечение, освежение, контракты)', _slot_ok('люстра', c('long'), S), False),
+                ('замена: подвес «suspension» 230 см — нет', _slot_ok('люстра', c('susp'), S), False),
+                ('замена: регулируемый без высоты — нет', _slot_ok('люстра', c('adj'), S), False),
+                ('уже стоящая длинная люстра (контракты, current=True) — не выселяем',
+                 _slot_ok('люстра', c('long'), S, current=True), True),
+                ('другие роли гейт не трогает (диван h 120)', _slot_ok('диван', c('sofa'), S), True)):
+            if got is not want:
+                bad += 1
+                print(f'  FAIL {title}: получили {got}, ждали {want}')
+        import inspect
+        src = inspect.getsource(enforce_contracts)
+        if src.count('current=True') != 1 or '_slot_ok(role, it, s, current=True)' not in src:
+            bad += 1
+            print('  FAIL контракты: current=True — только у проверки уже стоящей позиции, кандидаты — без него')
+        for fn in (refresh, heal):
+            if 'current=True' in inspect.getsource(fn):
+                bad += 1
+                print(f'  FAIL {fn.__name__}: замена обязана проходить гейт вылета (current=True запрещён)')
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+    return bad
 
 
 if __name__ == '__main__':

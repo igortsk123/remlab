@@ -134,6 +134,12 @@ def _row(r: list) -> dict | None:
 
 def fits(p: dict) -> bool:
     """Фото, ширина и глубина есть, ширина — в конверте роли (`ENVELOPE`)."""
+    # ЛЮСТРЫ В ЛЕНТЕ НЕТ (на плане она не стоит, `demo_fill`). Появится роль — длинный подвес не пройдёт: та же норма
+    # вылета, что у сборки и лечения (catalog-holes-bank Н2в, `compose_gates.pendant_out`; регулируемость здесь не видна)
+    if p.get('role') == 'люстра':
+        import compose_gates as _CG
+        if _CG.pendant_out(p.get('h'), None, None, None):
+            return False
     lo, hi = ENVELOPE.get(p.get('role'), (0, 0))
     return bool(p.get('img') and p.get('w') and p.get('d')) and lo <= p['w'] <= hi
 
@@ -252,6 +258,16 @@ def _selftest() -> int:
     if 'where rn <= 30 order by cat_role, style, sku' not in pool_sql(top=30):
         bad += 1
         print('  FAIL: пул дозаполнения — прежний запрос (срез группы до проверок, прежний порядок)')
+    # ЛЮСТРА (catalog-holes-bank Н2в): в ленте её нет; если роль появится — подвес длиннее 60 см не проходит `fits`
+    _env = ENVELOPE.pop('люстра', None)
+    ENVELOPE['люстра'] = (0, 300)
+    lu = lambda h: {'role': 'люстра', 'img': 'i', 'w': 60, 'd': 60, 'h': h}  # noqa: E731
+    if not (fits(lu(50)) and fits(lu(60)) and not fits(lu(61)) and not fits(lu(230))):
+        bad += 1
+        print('  FAIL: длинная люстра (вылет > 60 см) не должна проходить в ленту замен')
+    ENVELOPE.pop('люстра')
+    if _env is not None:
+        ENVELOPE['люстра'] = _env
     # ковры (demo-18 п.2): свой запрос — порог стиля ленты, длинная сторона в `w`, модель = товар; отбор — тот же `pick`
     rq = rug_sql()
     for must in (f">= {IN_STYLE_MIN}", "cat_role = 'ковёр'", 'greatest(p.w_cm, p.d_cm) as w_cm', 'least(p.w_cm, p.d_cm) as d_cm',
