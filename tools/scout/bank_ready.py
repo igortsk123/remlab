@@ -127,9 +127,14 @@ def classify(role: str, sku: str, item: dict | None, F: Facts) -> tuple[str, str
 TRANSFORMER_SQL = (
     "(p.cat_role in ('диван','кресло') and (p.name ~* 'кроват' or p.params->>'Раскладная конструкция' = 'Да' "
     " or p.params->>'Раскладной' ~* '^да' or p.params->>'Раскладывается' ~* '^да' "
-    " or coalesce(p.params->>'Механизм трансформации','') !~* '^(|нет|без механизма|отсутствует)$'))")
+    # «Не раскладывается» — тоже отсутствие механизма (Орматек: 16 угловых Verona с собранными размерами числились
+    # «трансформер, не доказано» навсегда; catalog-holes-bank Н3, 23.10)
+    " or coalesce(p.params->>'Механизм трансформации','') !~* '^\\s*(|нет|без механизма|отсутствует|не раскладывается)\\s*$'))")
+# Доказано: размеры сняты руками/скрейпом, в фиде есть спальное место отдельно от габаритов, или собранные Ш×Г×В достроены
+# правилом производителя (`dim_resolver.transformer_dims`, `shape_rule:transformer` — владелец 23.10, catalog-holes-bank Н3)
 PROVEN_SQL = (
-    "(coalesce(p.dims_source,'') ~ '(scrape|manual)' or exists (select 1 from jsonb_object_keys("
+    "(coalesce(p.dims_source,'') ~ '(scrape|manual)' or p.dims_evidence->'w'->>'source' = 'shape_rule:transformer'"
+    " or exists (select 1 from jsonb_object_keys("
     " case when jsonb_typeof(p.params)='object' then p.params else '{}'::jsonb end) k where k ~* '(спальн|разложенн|габаритн)'))")
 
 
@@ -202,6 +207,8 @@ def _selftest() -> int:
        c('кашпо', 's:pot')[0] == 'wait_asset' and c('бра', 's:bra')[0] == 'wait_catalog')
     ok('трансформер без доказанных собранных размеров — wait_catalog даже с готовым мешем; доказано — по мешу',
        c('диван', 's:bed')[0] == 'wait_catalog' and 'трансформер' in c('диван', 's:bed')[1] and c('диван', 's:bed2')[0] == 'wait_asset')
+    ok('Н3: собранные размеры по правилу трансформера — доказаны; «Не раскладывается» — не трансформер',
+       "'shape_rule:transformer'" in PROVEN_SQL and 'не раскладывается' in TRANSFORMER_SQL)
     ok('Tubo — replace_needed журнала → blocked_policy', c('кашпо', 's:tubo') == ('blocked_policy', 'решение по мешу: replace_needed'))
     ok('rejected без решения и поколения — legacy_unknown', c('витрина', 's:leg')[0] == 'legacy_unknown')
     ok('владелец велел переделать — redo, не спрос мешей', classify('кресло', 's:redo', it('s:redo'), F)[::2] == ('redo', None))

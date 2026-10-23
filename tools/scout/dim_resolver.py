@@ -178,6 +178,30 @@ SPHERE_ROLES = frozenset({'ваза', 'кашпо'})
 SPHERE_RX = re.compile(r'(?<![а-яёa-z])шар(?![а-яёa-z])|сферическ', re.I)
 SPHERE_WD_TOL = 0.10   # Ш и Г различаются не больше чем на 10 % — круглый в плане
 
+# ТРАНСФОРМЕР: В ФИДЕ СПАЛЬНОЕ МЕСТО — ПАТТЕРН ПРОИЗВОДИТЕЛЯ (catalog-holes-bank Н3; владелец 23.10: «если указан только размер
+# спального места и это характерный паттерн производителя — достраивай размеры сам примерно; главное — чтобы влезло»).
+# Орматек: у дивана/кресла с механизмом «Ширина × Длина» фида и хвост названия «80x200» — спальное место (98 из 98 трансформеров
+# 23.10; собранных Ш×Г в фиде нет, сайт за антиботом). Магазин в таблице = его паттерн замерен, не список товаров.
+SLEEP_IN_FEED = {93965: 'Орматек: «Ширина×Длина» и хвост названия «A×B» у трансформера — спальное место'}
+# Как лежит спальное место относительно фронта: ВДОЛЬ (еврокнижка, пантограф, клик-кляк…: фронт ≈ длина места) или ВПЕРЁД
+# (аккордеон, выкатной, каскад…: фронт ≈ ширина места). Замер на 962 трансформерах divan.ru (место + собранные размеры):
+# еврокнижка 165/165 и пантограф 96/96 — вдоль, шагающий 128/128 и выкатной 25/25 — вперёд. Неизвестный механизм — вдоль:
+# фронт выходит больше, это безопасная сторона.
+FORWARD_MECH = ('аккордеон', 'выкатн', 'каскад', 'отелло', 'седафлекс', 'миксотойл', 'шагающ', 'раскладушк', 'французск')
+NOT_TRANSFORMER = re.compile(r'^\s*(|нет|не раскладывается|без механизма)\s*$', re.I)
+# (тип, как лежит место) → (прибавка к фронту, глубина собранного [у углового — боковая сторона], высота), см. Квантиль 0,75
+# по 956 трансформерам divan.ru 23.10 — пересчёт и сверка с этой таблицей: `transformer_calib.py`. Ошибка — скорее в «больше».
+# Доля товаров с недооценкой > 10 % по Ш/Г/В: прямой — 0–4 % / 0 % / 0–7 %; кресло — 13 / 0 / 9 %; угловой «вдоль» — Ш 12 %,
+# сторона 22 % (форма «Г» ~160 или шезлонг/«П» 240+ по названию не видна); угловой «вперёд» — Ш 18 % (n=55, разброс большой).
+TRANSFORMER_COEF = {('кресло', 'вперёд'): (24, 105, 89), ('прямой', 'вдоль'): (52, 115, 90),
+                    ('прямой', 'вперёд'): (24, 105, 87), ('угловой', 'вдоль'): (66, 175, 90),
+                    ('угловой', 'вперёд'): (122, 160, 95)}
+# Спальное место короче 173 см у 962 трансформеров divan.ru не встретилось (длинное — бывает до 396 у модульных, фронт ≈ место
+# + 0…70, правило это уже покрывает); хвост короче — габарит предмета, а не место.
+SLEEP_MIN_LEN = 170
+_TAIL_AXB = re.compile(r'(\d{2,3})\s*[xх×X]\s*(\d{2,3})\s*\)?\s*$')
+_CORNER = re.compile(r'углов|шезлонг|оттоманк|п-образ|модульн', re.I)
+
 _num = re.compile(r'\d+(?:[.,]\d+)?')
 _title_triple = re.compile(r'(\d{2,4})\s*[x×хXХ*]\s*(\d{2,4})(?:\s*[x×хXХ*]\s*(\d{2,4}))?')
 
@@ -255,6 +279,44 @@ def sphere_height(role: str | None, name: str, dims: dict) -> tuple[float, str] 
     else:
         return None
     return (h, src) if role_min(role, 'h') <= h <= role_max(role, 'h') else None
+
+
+def transformer_dims(mid: int, role: str | None, name: str, params: dict, dims: dict):
+    """Собранные Ш×Г×В трансформера по спальному месту (паттерн магазина `SLEEP_IN_FEED`); None — правило не применимо.
+    → ({w,d,h}, {ось: evidence}, тип, ориентация). Измеренная высота фида остаётся (её не трогаем); фронт не меньше «Ширины»
+    фида, если магазин прислал её больше места (Орматек Berlin: место 120, «Ширина» 180 — это собранный фронт)."""
+    if mid not in SLEEP_IN_FEED or role not in ('диван', 'кресло'):
+        return None
+    mech = str(params.get('Механизм трансформации') or '')
+    # трансформер — как у гейта банка (`bank_ready.TRANSFORMER_SQL`): механизм, «Раскладная конструкция» или «кровать» в названии
+    if NOT_TRANSFORMER.match(mech) and str(params.get('Раскладная конструкция') or '').strip().lower() != 'да' \
+            and not re.search(r'кроват', name or '', re.I):
+        return None
+    m = _TAIL_AXB.search(name or '')
+    if not m:
+        return None
+    sw, sl = sorted((float(m.group(1)), float(m.group(2))))
+    if sl < SLEEP_MIN_LEN:
+        return None                          # «89x83» у кресла — его габарит, не спальное место
+    typ = 'кресло' if (role == 'кресло' or re.search(r'кресло', name or '', re.I)) else \
+          'угловой' if _CORNER.search(name or '') else 'прямой'
+    orient = 'вперёд' if any(k in mech.lower() for k in FORWARD_MECH) else 'вдоль'
+    if typ == 'кресло':
+        orient = 'вперёд'                    # кресло-кровать раскладывается вперёд всегда (место 70–80 по фронту)
+    add, d, h = TRANSFORMER_COEF.get((typ, orient), TRANSFORMER_COEF[(typ, 'вдоль')] if (typ, 'вдоль') in TRANSFORMER_COEF
+                                     else TRANSFORMER_COEF[('прямой', 'вдоль')])
+    w = (sl if orient == 'вдоль' else sw) + add
+    feed_w = _numval(str(params.get('Ширина') or ''))
+    if feed_w and feed_w > sw + 5 and feed_w > w:
+        w = feed_w
+    base = {'unit': 'cm', 'source': 'shape_rule:transformer', 'sleep': [sw, sl], 'mech': mech or None, 'type': typ,
+            'orient': orient}
+    out_d = {'w': w, 'd': float(d)}
+    ev = {'w': dict(base, raw=w), 'd': dict(base, raw=float(d))}
+    if dims.get('h') is None:
+        out_d['h'] = float(h)
+        ev['h'] = dict(base, raw=float(h))
+    return out_d, ev, typ, orient
 
 
 def role_max(role: str | None, dim: str) -> float:
@@ -370,6 +432,12 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
         tag = source if unit == 'cm' else f'{source}-mm'
         counts[tag] = counts.get(tag, 0) + 1
 
+    tr = transformer_dims(mid, role, name, params, dims)
+    if tr:
+        dims.update(tr[0])
+        evidence.update(tr[1])
+        dims['len'] = None                   # спальное место — не «длина» предмета
+        counts['shape-transformer'] = counts.get('shape-transformer', 0) + 1
     sph = sphere_height(role, name, dims)
     if sph:
         dims['h'] = sph[0]
@@ -461,7 +529,9 @@ def rules_fingerprint() -> str:
     # Пороги правдоподобия тоже меняют `geometry_hash` (Н2б/Н2в/Н4, 23.10: высота у 259 плоских светильников) — в отпечатке
     blob = json.dumps(norm({'dim': DIM_KEYS, 'shop': SHOP_DIM_KEYS, 'comp': COMPOSITE_KEYS,
                             'max': ROLE_MAX_CM, 'max_h': ROLE_MAX_H_CM, 'min': MIN_CM, 'min_h': ROLE_MIN_H_CM,
-                            'pendant': PENDANT_MAX_CM, 'sphere': [sorted(SPHERE_ROLES), SPHERE_RX.pattern, SPHERE_WD_TOL]}),
+                            'pendant': PENDANT_MAX_CM, 'sphere': [sorted(SPHERE_ROLES), SPHERE_RX.pattern, SPHERE_WD_TOL],
+                            'transformer': [SLEEP_IN_FEED, SLEEP_MIN_LEN, FORWARD_MECH, NOT_TRANSFORMER.pattern, TRANSFORMER_COEF,
+                                            _TAIL_AXB.pattern, _CORNER.pattern]}),
                       sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
@@ -575,6 +645,30 @@ def selftest() -> None:
     ok = ok and ev2['h']['source'].endswith('-insane') and ev3['h']['source'].endswith('-insane')
     bad += 0 if ok else 1
     print(f'{"ok " if ok else "FAIL"} подвес 230 см → suspension с числом; 900 см и бра 230 — мусор')
+    # Н3: трансформер Орматек — собранные Ш×Г×В по спальному месту из хвоста названия; ошибка — в сторону «больше»
+    tr_cases = [   # (магазин, название, params, роль) → ожидаемые w, d, h (None — правило молчит, размеры фида как есть)
+        (93965, 'Кресло-кровать Berlin (80x200)', {'Механизм трансформации': 'Аккордеон', 'Ширина': '80'}, 'кресло',
+         (104.0, 105.0, 89.0)),
+        (93965, 'Диван-кровать Berlin (120x200)', {'Механизм трансформации': 'Аккордеон', 'Ширина': '180'}, 'диван',
+         (180.0, 105.0, 87.0)),   # «Ширина» фида больше места — это собранный фронт, берём её
+        (93965, 'Угловой диван Фиант (137x200)', {'Механизм трансформации': 'Еврокнижка'}, 'диван', (266.0, 175.0, 90.0)),
+        (93965, 'Диван Easy Home (150x200)', {'Механизм трансформации': 'Пантограф', 'Высота': '99'}, 'диван',
+         (252.0, 115.0, 99.0)),   # измеренная высота фида остаётся
+        (93965, 'Угловой диван Verona (215x334)', {'Механизм трансформации': 'Не раскладывается', 'Ширина': '215',
+                                                  'Длина': '334', 'Высота': '80'}, 'диван', None),
+        (99272, 'Диван-кровать Berlin (120x200)', {'Механизм трансформации': 'Аккордеон'}, 'диван', None),  # чужой магазин
+        (93965, 'Диван-кровать Berlin', {'Механизм трансформации': 'Аккордеон'}, 'диван', None),   # нет места в названии
+        (93965, 'Кресло-кровать Tokio Middle (Велюр) 100x157', {'Ширина': '100см'}, 'кресло', None),   # 157 — не длина места
+        (93965, 'Кресло Fiji (Велюр) 89x83', {'Раскладная конструкция': 'Да'}, 'кресло', None),   # габарит кресла
+        (93965, 'Угловой диван-кровать Tokio Middle (левый, правый) 157x296', {}, 'диван', (362.0, 175.0, 90.0)),  # «кровать»
+    ]
+    for mid, name, params, role, want in tr_cases:
+        dims, ev, _ = resolve(mid, name, params, role)
+        got = (dims.get('w'), dims.get('d'), dims.get('h'))
+        is_tr = (ev.get('w') or {}).get('source') == 'shape_rule:transformer'
+        ok = (got == want and is_tr) if want else not is_tr
+        bad += 0 if ok else 1
+        print(f'{"ok " if ok else "FAIL"} трансформер {name[:32]:34} w/d/h={got} (ждали {want or "без правила"})')
     if not _fingerprint_guard():
         bad += 1
     sys.exit(1 if bad else 0)
