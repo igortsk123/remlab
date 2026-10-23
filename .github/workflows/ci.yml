@@ -58,6 +58,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # ночной прогрев кадров демо: сверка кадра по состоянию И точке съёмки — предикатом самой страницы (T-20261022-16)
       - run: node tools/ops/demo-warm.mjs --selftest
+      # ночная досъёмка фото нейросети: потолок 50 ₽, трата по счётчику шлюза, прерванное — потрачено, пропуск после неудачной публикации (demo-29)
+      - run: node tools/ops/demo-realistic.mjs --selftest
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test

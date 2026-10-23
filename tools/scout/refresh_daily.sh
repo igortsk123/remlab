@@ -477,6 +477,13 @@ fi
 step scene_artifacts "$PY" scene_artifacts.py --data "https://remont-lab.online/demo/demo-data.json?v=$(date +%s)"
 # прогрев кадров (b2b-08 п.4): у каждого стиля — черновой кадр свежего набора, без чьего-то нажатия «снять»
 step demo_warm bash ../ops/demo-warm.sh
+# ДОСЪЁМКА ФОТО НЕЙРОСЕТИ (план demo-29, владелец 23.10 «а»): у стилей без фото своей расстановки — «Сделать реалистичнее» ночью,
+# потолок трат — rules/demo-realistic.json (50 ₽), трата — по счётчику шлюза. Только после прошедшей публикации: иначе снимали бы
+# вчерашнюю расстановку. Платный шаг — под openai.off. Итог — строка DIGEST, сбой — WARN:demo_real (шаг warn, не FAIL)
+case "${RES[flat215_publish]:-}" in
+  ok|warn) paid_step demo_real bash ../ops/demo-real.sh ;;
+  *) echo "DIGEST:фото нейросети: пропущено — публикация демо не прошла" >> "$LOG" ;;
+esac
 # живая проверка демо на проде после публикации (b2b-12): стили, кадры, замена, ссылка, английский
 step demo_live bash ../ops/demo-live.sh
 
