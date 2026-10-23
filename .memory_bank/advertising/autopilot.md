@@ -3,19 +3,19 @@ tier: 2
 topic: ads-autopilot
 scope: Автопилот рекламы на сервере — джобы, пороги, режимы (dry-run/боевой), как выключить
 tier1: ../core/marketing-acquisition.md
-updated: 2026-07-11
+updated: 2026-10-23
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-08-22
-review_after: "2026-10-22"
+last_verified: 2026-10-23
+review_after: "2026-11-23"
 ---
 
 # Автопилот рекламы (задеплоен 2026-07-11, режим DRY-RUN)
 
 > Код: `infra/server/ads-watchdog/` (git) → сервер `/opt/remlab/ads-watchdog/`.
-> Секреты: `.env` там же (600): Direct-токен, TG-бот, Gemini. Деплой: `deploy-watchdog.sh`.
+> Секреты: `.env` там же (600): Direct-токен, TG-бот и chat, Gemini, OpenAI, флаг `DRY_RUN`. Деплой: `deploy-watchdog.sh`.
 > Тесты: `python3 -m unittest discover infra/server/ads-watchdog/tests` (9 шт).
 
 ## Область: ВСЕ наши кампании (расширено 2026-07-11)
@@ -38,18 +38,18 @@ review_after: "2026-10-22"
   gpt-4.1/gpt-5/5.1): русский заметно естественнее + ключевые фразы в Title1; фолбэк на Gemini
   при недоступности (`common.llm_for_ads`). Гоча GPT-5.x: max_completion_tokens давать с запасом
   (reasoning-токены съедают лимит, при 16 вернулся пустой ответ).
-- Ключи: `/opt/remlab/ads-watchdog/.env` (`GEMINI_API_KEY`, `OPENAI_API_KEY`,
-  `OPENAI_AD_MODEL` — переопределение модели текстов без правки кода).
+- Ключи: `/opt/remlab/ads-watchdog/.env` (`GEMINI_API_KEY`, `OPENAI_API_KEY`;
+  `OPENAI_AD_MODEL` — переопределение модели текстов без правки кода, на 23.10 не задан → `gpt-5.1-chat-latest`).
 
 ## Пороги (решения владельца 2026-07-11)
 День 700 ₽ · час 300 ₽ · CPC-предупреждение 20 ₽ · AT-доля 30% · авто-потолок ставки 25 ₽
-(шаг 5 ₽, раз в 48ч) · минусов ≤10/ран · A/B ≤1/группа/нед, ≤4 объявлений в группе.
+(шаг 5 ₽, раз в 48ч) · минусов ≤10/ран · A/B ≤1/группа/нед, не больше 3 объявлений в группе (`ADS_MAX_PER_GROUP` — лимит Директа).
 Константы — `decisions.py` (чистые функции, покрыты тестами).
 
 ## Режимы и управление
 - **Сейчас: DRY_RUN=1** — в Директ НЕ пишет, в TG шлёт «🧪 [РЕПЕТИЦИЯ] что бы сделал».
 - **Боевой:** в `/opt/remlab/ads-watchdog/.env` поставить `DRY_RUN=0` (план: после 3–5 дней
-  чистой репетиции; поэтапность — minus → check → bid → ab, см. план ads-autopilot).
+  чистой репетиции; поэтапность — minus → check → bid → ab, см. план `../archive/plans/ads-autopilot.md`).
 - **Выключить всё:** `ssh root@89.167.127.0 touch /opt/remlab/ads-watchdog/DISABLED`
   (или `systemctl disable --now 'remlab-ads-*'`). Убрать файл — снова работает.
 - **Правила-инварианты:** возобновление кампании после стоп-крана — ТОЛЬКО человек
@@ -57,12 +57,15 @@ review_after: "2026-10-22"
   минусовать не может (`CORE_STOP_ROOTS`).
 - Telegram: бот `@remontlab1_bot` → владельцу (chat 95903801); токен — `../_secrets/ACCESS.md`.
 
-## Состояние
-- **Модерация кампании 712721026 ПРОЙДЕНА** (Status=ACCEPTED, зафиксировано первым раном
-  check 2026-07-11 11:44 UTC). Ждёт пополнения баланса — старт покажет TG «🚀».
-- Dry-run проверен вручную: check/report/minus отработали с сервера, отчёт доставлен в TG,
-  `state.json` пишется. Метрика в отчёте работает (визиты+6 целей).
-- Роботы Memory Bank НЕ пишут: их журнал — TG + `state.json` (`actions`); в память переносим
+## Состояние (сверено с сервером 2026-10-23, только чтение)
+- **Все 4 кампании в архиве Директа** (ARCHIVED): AI-дизайн и Ванная — 15.08, Этап 2 — 16.08, Этап 1 — 21.08
+  (журнал робота `state.json` → `actions`; статус он читает из API каждые 30 мин). Расход дня 0 ₽ — робот
+  крутится вхолостую. Возвращение кампаний — решение владельца (`campaign_state.md`).
+- Таймеры `remlab-ads-{check,minus,ab,report}` включены и активны; `DRY_RUN=1`; файла `DISABLED` нет; код на сервере
+  совпадает с git (sha256 14 файлов: 6 скриптов + 8 юнитов). Бот `@remontlab1_bot`, chat владельца — сверены.
+- Отчёт: расход/клики/CPC, топ-3 группы, **воронка сметы** — визиты и 4 цели (`common.GOALS`: расчёт начат → смета
+  открыта → сохранена → клик по реф-ссылке); AI-воронка 01–06 не показывается.
+- Роботы Memory Bank НЕ пишут: их журнал — TG + `state.json` (`actions`, последние 50); в память переносим
   на еженедельных разборах.
 
 ## Грабли API (добыты 2026-07-11)
@@ -73,4 +76,4 @@ review_after: "2026-10-22"
 - Остальные (Errors:[]=успех, AutotargetingCategories=массив, символы в текстах) —
   `campaign_state.md` §Мины.
 
-**Tier 1:** `../core/marketing-acquisition.md` · план — `../plans/ads-autopilot.md`.
+**Tier 1:** `../core/marketing-acquisition.md` · план — `../archive/plans/ads-autopilot.md`.
