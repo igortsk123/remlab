@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { COMMENT_MAX, commentOrNull, DecisionBody } from "@/lib/mesh-audit/decision-body";
 import {
   batchCount,
   batchOfPage,
@@ -94,5 +95,29 @@ describe("mesh-audit: приёмка без кнопки «принять»", ()
     for (const status of ["redo_requested", "redo_queued", "redo_blocked", "replace_needed"]) {
       expect(isAccepted({ seenAt: "2026-10-02T10:00:00Z", status })).toBe(false);
     }
+  });
+});
+
+describe("mesh-audit: комментарий к браку (необязательный)", () => {
+  const base = { itemId: 7, generationKey: "g1", verdict: "redo", idemKey: "g1:redo" };
+
+  it("без комментария — решение принимается, в журнал идёт null", () => {
+    const r = DecisionBody.safeParse(base);
+    expect(r.success).toBe(true);
+    expect(commentOrNull(r.success ? r.data.comment : "x")).toBeNull();
+  });
+  it("комментарий обрезается по краям; одни пробелы = пустой = null", () => {
+    const r = DecisionBody.safeParse({ ...base, comment: "  фото не дорезалось  " });
+    expect(r.success && r.data.comment).toBe("фото не дорезалось");
+    const e = DecisionBody.safeParse({ ...base, comment: "   " });
+    expect(e.success).toBe(true);
+    expect(commentOrNull(e.success ? e.data.comment : "x")).toBeNull();
+  });
+  it("длиннее 500 символов — 400, а ровно 500 проходит", () => {
+    expect(DecisionBody.safeParse({ ...base, comment: "я".repeat(COMMENT_MAX + 1) }).success).toBe(false);
+    expect(DecisionBody.safeParse({ ...base, comment: "я".repeat(COMMENT_MAX) }).success).toBe(true);
+  });
+  it("комментарий не строка — 400", () => {
+    expect(DecisionBody.safeParse({ ...base, comment: 5 }).success).toBe(false);
   });
 });

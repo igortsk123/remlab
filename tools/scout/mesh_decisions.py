@@ -19,6 +19,12 @@
   python3 mesh_decisions.py --selftest
   ~/venvs/scout/bin/python mesh_decisions.py --triage           # legacy_unknown: rejected без происхождения
   ~/venvs/scout/bin/python mesh_decisions.py --record SKU replace_needed "владелец: …"   # дописать решение
+  ~/venvs/scout/bin/python mesh_decisions.py --comments [--since 7d] [--digest]   # комментарии владельца к браку
+
+КОММЕНТАРИИ К БРАКУ (план mesh-audit-comments, владелец 23.10): решение с `/lab/mesh-audit` мост (`mesh_audit_sync.py`) дописывает
+в журнал с источником `AUDIT_SOURCE` и полем `note` — «что не так». `--comments` раз в неделю: сколько, по магазину / роли /
+источнику фото, с примерами — ищем ОБЩЕЕ решение (поставщик, тип фото, канал), а не правку одного товара; `--digest` — одна
+строка `DIGEST:` для утренней сводки ночного прогона.
 """
 import json
 import os
@@ -29,6 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SEED = os.path.join(HERE, 'rules', 'mesh-asset-decisions.json')
 LOG = os.path.expanduser(os.environ.get('MESH_DECISIONS', '~/scout-scenes/mesh-asset-decisions.jsonl'))
 DECISIONS = ('redo', 'replace_needed', 'reject', 'cleared')
+AUDIT_SOURCE = 'владелец /lab/mesh-audit'
 
 
 def latest(records: list, current_gen: dict | None = None) -> dict:
@@ -113,6 +120,75 @@ def record(sku: str, decision: str, source: str, generation_key: str | None = No
     return rec
 
 
+def summarize(records: list, info: dict, since: str) -> dict:
+    """Чистое ядро `--comments`: комментарии владельца к браку не раньше `since` (ISO-дата). Отменённое (`cleared` того же
+    поколения позже) не считается. `info[sku]` = {'shop','role','photo','name','url'}. → {'n', 'by_shop', 'by_role', 'by_photo',
+    'items'} — счётчики убыванием и сами комментарии (новые сверху)."""
+    live = {}
+    for r in sorted(records, key=lambda r: (str(r.get('at') or ''), r.get('_n', 0))):
+        if not str(r.get('source') or '').startswith(AUDIT_SOURCE):
+            continue
+        key = (r.get('sku'), r.get('generation_key'))
+        if r.get('decision') == 'cleared':
+            live.pop(key, None)
+        elif r.get('note') and str(r.get('at') or '') >= since:
+            live[key] = r
+    items = []
+    for (sku, gk), r in live.items():
+        i = info.get(sku) or {}
+        items.append({'sku': sku, 'generation_key': gk, 'at': r.get('at'), 'decision': r.get('decision'), 'note': r['note'],
+                      **{k: i.get(k) or '?' for k in ('shop', 'role', 'photo', 'name', 'url')}})
+    items.sort(key=lambda x: str(x['at']), reverse=True)
+
+    def count(k):
+        c = {}
+        for x in items:
+            c[x[k]] = c.get(x[k], 0) + 1
+        return sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))
+    return {'n': len(items), 'by_shop': count('shop'), 'by_role': count('role'), 'by_photo': count('photo'), 'items': items}
+
+
+def _since(arg: str | None) -> str:
+    """'7d' → ISO-дата неделю назад (по умолчанию 7d)."""
+    days = int((arg or '7d').rstrip('d') or 7)
+    return time.strftime('%Y-%m-%d', time.localtime(time.time() - days * 86400))
+
+
+def _info(skus: set) -> dict:
+    """Магазин, роль, источник фото (хост HD-фото, иначе обычного), имя, ссылка — из каталога DEV."""
+    if not skus:
+        return {}
+    from urllib.parse import urlparse
+    from mesh_queue import db, q
+    out = {}
+    for sku, shop, role, img, hd, name, url in db(
+            "select shop_mid||':'||external_id, coalesce(shop, shop_mid), coalesce(cat_role,''), coalesce(image_url,''), "
+            "(image_url_hd is not null)::text, left(coalesce(name,''),80), coalesce(url,'') from products "
+            f"where shop_mid||':'||external_id in ({','.join(q(s) for s in sorted(skus))})"):
+        out[sku] = {'shop': shop, 'role': role, 'name': name, 'url': url,
+                    'photo': (urlparse(img).hostname or '?') + (' (HD)' if hd == 'true' else '')}
+    return out
+
+
+def comments(since_arg: str | None, digest: bool) -> int:
+    recs = [r for r in _seed() + _log() if str(r.get('source') or '').startswith(AUDIT_SOURCE)]
+    since = _since(since_arg)
+    skus = {r.get('sku') for r in recs if r.get('note')}
+    s = summarize(recs, _info(skus), since)
+    top = lambda kv: ', '.join(f'{k} {n}' for k, n in kv[:3])  # noqa: E731
+    if digest:
+        print(f"DIGEST:комментариев к браку мешей с {since}: {s['n']}"
+              + (f" (магазины: {top(s['by_shop'])}; роли: {top(s['by_role'])}) — разбор: mesh_decisions.py --comments" if s['n'] else ''))
+        return 0
+    print(f"[mesh_decisions] комментариев владельца к браку с {since}: {s['n']}")
+    for title, k in (('по магазину', 'by_shop'), ('по роли', 'by_role'), ('по источнику фото', 'by_photo')):
+        if s[k]:
+            print(f'  {title}: ' + ', '.join(f'{a} — {n}' for a, n in s[k]))
+    for x in s['items']:
+        print(f"  {str(x['at'])[:10]}  {x['decision']:<14} {x['role']:<10} {x['shop']:<10} «{x['note']}»  {x['name']}  {x['url']}")
+    return 0
+
+
 def legacy_unknown(rejected: set, decisions: dict, with_generation: set) -> set:
     """`rejected` без происхождения: нет решения в журнале и нет ни одного поколения на DEV."""
     return {s for s in rejected if s not in decisions and s not in with_generation}
@@ -169,6 +245,20 @@ def _selftest() -> int:
         except ValueError:
             ok('без источника — отказ', True)
     LOG = keep
+    aud = [{'sku': 'm:1', 'decision': 'redo', 'source': AUDIT_SOURCE + ', решение 5', 'generation_key': 'g1',
+            'at': '2026-10-20T10:00:00', 'note': 'фото не дорезалось'},
+           {'sku': 'm:2', 'decision': 'redo', 'source': AUDIT_SOURCE + ', решение 6', 'generation_key': 'g2',
+            'at': '2026-10-21T10:00:00', 'note': 'ножки пропали'},
+           {'sku': 'm:2', 'decision': 'cleared', 'source': AUDIT_SOURCE + ', отмена решения 6', 'generation_key': 'g2',
+            'at': '2026-10-21T10:01:00'},
+           {'sku': 'm:3', 'decision': 'redo', 'source': AUDIT_SOURCE + ', решение 7', 'generation_key': 'g3', 'at': '2026-10-22'},
+           {'sku': 'm:4', 'decision': 'replace_needed', 'source': AUDIT_SOURCE + ', решение 8', 'generation_key': 'g4',
+            'at': '2026-10-01T10:00:00', 'note': 'старое'},
+           {'sku': 'm:5', 'decision': 'redo', 'source': 'руками', 'at': '2026-10-22', 'note': 'не с приёмки'}]
+    sm = summarize(aud, {'m:1': {'shop': 'divan.ru', 'role': 'диван', 'photo': 'cdn (HD)'}}, '2026-10-16')
+    ok('комментарии: отменённое и без текста не считаются, старое — вне окна, чужой источник — нет',
+       sm['n'] == 1 and sm['items'][0]['note'] == 'фото не дорезалось', sm)
+    ok('комментарии: сводка по магазину/роли/фото', sm['by_shop'] == [('divan.ru', 1)] and sm['by_photo'] == [('cdn (HD)', 1)], sm)
     seed = latest(_seed())
     ok('Tubo — явный replace_needed из журнала (отказ владельца, rules/mesh-pinned.json)',
        seed.get('99272:2147763667486905198', {}).get('decision') == 'replace_needed', seed)
@@ -181,6 +271,8 @@ if __name__ == '__main__':
         sys.exit(_selftest())
     if '--triage' in sys.argv:
         sys.exit(triage())
+    if '--comments' in sys.argv:
+        sys.exit(comments(sys.argv[sys.argv.index('--since') + 1] if '--since' in sys.argv else None, '--digest' in sys.argv))
     if '--record' in sys.argv:
         i = sys.argv.index('--record')
         print(json.dumps(record(sys.argv[i + 1], sys.argv[i + 2], sys.argv[i + 3]), ensure_ascii=False))

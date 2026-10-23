@@ -239,6 +239,7 @@ export const meshAuditDecisions = pgTable(
     manualAttemptNo: integer("manual_attempt_no").notNull(), // 1, 2 — переделки; 3 — «нужна замена»
     reviewer: text("reviewer").notNull().default("owner"),
     idemKey: text("idem_key").notNull().unique(),
+    comment: text("comment"), // необязательный, ≤ 500: «что не так» — разбор раз в неделю ищет общее решение
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

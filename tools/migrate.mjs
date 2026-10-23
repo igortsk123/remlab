@@ -183,6 +183,8 @@ try {
     )`;
   await sql`create index if not exists mesh_audit_decisions_item_idx on mesh_audit_decisions (item_id)`;
   await sql`create unique index if not exists mesh_audit_decisions_sku_attempt_uq on mesh_audit_decisions (sku, manual_attempt_no)`;
+  await sql`alter table mesh_audit_decisions add column if not exists comment text
+    constraint mesh_audit_decisions_comment_len check (char_length(comment) <= 500)`;
   await sql`
     create table if not exists mesh_audit_batches (
       id serial primary key,

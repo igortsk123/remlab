@@ -7,7 +7,9 @@
      `owner_reject`/`replace_needed` только при CAS «текущее поколение = отвергнутое» → отвязка
      от карточки товара (меш выходит из сетов сразу) → sidecar `owner_reject.json` для старых
      читателей. Курсор двигается ТОЛЬКО после успешной транзакции; неизвестное поколение —
-     повтор, а через полчаса — `blocked` с текстом, но не молчаливый пропуск.
+     повтор, а через полчаса — `blocked` с текстом, но не молчаливый пропуск. Комментарий
+     владельца («что не так», необязательный) — в sidecar и в журнал решений `mesh_decisions`
+     (поле `note`); отмена клика дописывает туда `cleared` того же поколения.
   2. push — текущие поколения (одна карточка на товар) и ACK статусов переделок
      (`applied → queued → done | blocked`). Отправляется только то, что изменилось с прошлого тика.
   3. партии — запрошенную партию отдаём публикатору (свой процесс, свой замок); отслужившую
@@ -19,6 +21,7 @@
   ~/venvs/scout/bin/python mesh_audit_sync.py --tick     # крон раз в минуту под flock
   ~/venvs/scout/bin/python mesh_audit_sync.py --push     # только список
   ~/venvs/scout/bin/python mesh_audit_sync.py --pull     # только решения
+  python3 mesh_audit_sync.py --selftest                  # комментарий: sidecar, журнал, отмена — без сети и базы
 """
 import json
 import os
@@ -110,12 +113,25 @@ def apply_decision(d: dict) -> str:
                f"and (mesh_generation_key={q(gk)} or mesh_generation_key is null);")
     sql.append('commit;')
     db('\n'.join(sql))
+    note = (d.get('comment') or '').strip()
     try:      # sidecar для gallery_build/topview_render — атомарно, маленький файл, без удалений
         _atomic_write(os.path.join(path, 'owner_reject.json'),
-                      json.dumps({'decision_id': did, 'verdict': verdict, 'at': time.strftime('%Y-%m-%dT%H:%M:%S')}))
+                      json.dumps({'decision_id': did, 'verdict': verdict, 'at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+                                  **({'comment': note} if note else {})}, ensure_ascii=False))
     except OSError as e:
         print(f'  sidecar не записан для {gk}: {e}', flush=True)
+    journal(sku, verdict, f'решение {did}', gk, note)
     return 'applied'
+
+
+def journal(sku: str, decision: str, what: str, gk: str, note: str = '') -> None:
+    """Решение владельца — в журнал `mesh_decisions` (там его читает разбор `--comments`). Повтор после сбоя тика даёт
+    одинаковую строку — безвредно: последнее решение побеждает. Сбой записи не валит тик — WARN в лог крона."""
+    import mesh_decisions as MD
+    try:
+        MD.record(sku, decision, f'{MD.AUDIT_SOURCE}, {what}', generation_key=gk, note=note)
+    except (OSError, ValueError) as e:
+        print(f'WARN:mesh_audit_sync: журнал решений не дописан ({sku}, {what}): {e}', flush=True)
 
 
 def pull() -> int:
@@ -178,6 +194,7 @@ def revert_decision(c: dict) -> None:
             os.remove(os.path.join(rows[0][0], 'owner_reject.json'))
         except OSError:
             pass
+    journal(sku, 'cleared', f'отмена решения {did}', gk)
 
 
 def pull_cancellations() -> int:
@@ -346,7 +363,77 @@ def tick() -> None:
             print(f'[audit] {step.__name__}: {type(e).__name__}: {str(e)[:160]}', flush=True)
 
 
+def _selftest() -> int:
+    """Комментарий владельца проходит мост: sidecar и журнал `mesh_decisions` (поле `note`), пустой — без `note`, ACK как
+    раньше, курсор после применения; отмена дописывает `cleared` того же поколения и разбор её не считает. Сеть и база —
+    заглушки, файлы — во временной папке."""
+    import tempfile
+    import types
+    import mesh_decisions as MD
+    global db, api, STATE_DIR, CURSOR, CANCEL_CURSOR, STUCK
+    bad = 0
+
+    def ok(name, cond, extra=''):
+        nonlocal bad
+        print(('  ✓ ' if cond else '  ✗ ') + name + (f' — {extra}' if extra and not cond else ''))
+        bad += 0 if cond else 1
+    keep = (db, api, STATE_DIR, CURSOR, CANCEL_CURSOR, STUCK, MD.LOG, sys.modules.get('mesh_bind'))
+    with tempfile.TemporaryDirectory() as td:
+        gens = {g: os.path.join(td, g) for g in ('g1', 'g2')}
+        for d in gens.values():
+            os.makedirs(d)
+        STATE_DIR, MD.LOG = td, os.path.join(td, 'decisions.jsonl')
+        CURSOR, CANCEL_CURSOR, STUCK = (os.path.join(td, n) for n in ('c', 'cc', 'stuck.json'))
+        sql_log, posted = [], []
+
+        def fake_db(sql):
+            sql_log.append(sql)
+            for g, path in gens.items():
+                if f"generation_key='{g}'" in sql and sql.startswith('select'):
+                    return [[path, 'sha16']] if 'source_sha' in sql else [[path]]
+            return []
+        feed = {'decisions': [
+            {'id': 11, 'sku': 'm:1', 'generationKey': 'g1', 'verdict': 'redo', 'manualAttemptNo': 1, 'comment': 'фото не дорезалось'},
+            {'id': 12, 'sku': 'm:2', 'generationKey': 'g2', 'verdict': 'replace_needed', 'manualAttemptNo': 3, 'comment': None}],
+            'cancellations': [{'id': 1, 'decisionId': 11, 'sku': 'm:1', 'generationKey': 'g1', 'verdict': 'redo'}]}
+
+        def fake_api(method, path, body=None):
+            if method == 'POST':
+                posted.append(body)
+                return {}
+            return {k: v for k, v in feed.items() if k in path}
+        db, api = fake_db, fake_api
+        sys.modules['mesh_bind'] = types.SimpleNamespace(bind_ready=lambda: None)
+        n = pull()
+        side = json.load(open(os.path.join(gens['g1'], 'owner_reject.json'), encoding='utf-8'))
+        side2 = json.load(open(os.path.join(gens['g2'], 'owner_reject.json'), encoding='utf-8'))
+        ok('два решения применены, курсор — на последнем', n == 2 and _cursor(CURSOR) == 12)
+        ok('sidecar несёт комментарий; без комментария — без поля', side.get('comment') == 'фото не дорезалось' and 'comment' not in side2,
+           (side, side2))
+        ok('ACK — как раньше (applied обоим)', posted and [a['reworkStatus'] for a in posted[0]['acks']] == ['applied', 'applied'], posted)
+        recs = MD._log()
+        ok('журнал: обе записи с поколением и источником приёмки; note — только у первой',
+           len(recs) == 2 and recs[0].get('note') == 'фото не дорезалось' and 'note' not in recs[1]
+           and all(r['source'].startswith(MD.AUDIT_SOURCE) and r['generation_key'] for r in recs), recs)
+        ok('разбор видит комментарий', MD.summarize(recs, {}, '2000-01-01')['n'] == 1)
+        pull_cancellations()
+        recs = MD._log()
+        ok('отмена: в журнал дописан cleared того же поколения, прошлое не тронуто',
+           len(recs) == 3 and recs[2]['decision'] == 'cleared' and recs[2]['generation_key'] == 'g1', recs)
+        ok('отмена: комментарий ушёл вместе с решением — разбор его не считает', MD.summarize(recs, {}, '2000-01-01')['n'] == 0)
+        ok('отмена: решение по товару снято (журнал)', 'm:1' not in MD.latest(recs, {'m:1': 'g1', 'm:2': 'g2'}))
+    db, api, STATE_DIR, CURSOR, CANCEL_CURSOR, STUCK, MD.LOG, mb = keep
+    if mb is None:
+        sys.modules.pop('mesh_bind', None)
+    else:
+        sys.modules['mesh_bind'] = mb
+    print(f'mesh_audit_sync selftest: ошибок {bad}')
+    return 1 if bad else 0
+
+
 if __name__ == '__main__':
+    if '--selftest' in sys.argv:
+        sys.exit(_selftest())
     if '--tick' in sys.argv:
         tick()
     elif '--push' in sys.argv:

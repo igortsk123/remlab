@@ -23,7 +23,11 @@
 ждёт решения); `wait_catalog` — дыра данных каталога (высота, глубина, обогащение, фото, ссылка, наличие не проверено);
 `redo` — владелец велел переделать меш (своя очередь переделок, `mesh_rework_requests`); `blocked_policy` — товар заменить
 (ушёл, `replace_needed`/`reject` журнала `mesh_decisions`, генерация failed_terminal) → чёрный список и пересборка ячейки;
-`legacy_unknown` — `rejected` без происхождения: не продвигать, не тратить, разовая триаж-очередь.
+`legacy_unknown` — `rejected` без решения в журнале, но с поколением на DEV: не продвигать, не тратить, триаж.
+БРАК БЕЗ МОДЕЛИ И ЗАПИСИ (владелец 23.10, план mesh-audit-comments п.4): `rejected` без решения, без поколения И без файла модели
+(`mesh_uri` пуст) — следы мешей v1, угадывать нечего и показывать нечего → заново через обычный спрос (`wait_asset`/need=mesh),
+если товар в продаже, нужен кандидату банка и мешепригоден; новая модель придёт владельцу на обычную приёмку. Сумма — в пределах
+спроса и `wave_guard`, отдельного прогона нет. Отказ владельца, записанный в журнале (Tubo), сюда не попадает — у него решение.
 """
 import os
 import sys
@@ -32,6 +36,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 TYPES = ('wait_asset', 'wait_catalog', 'redo', 'blocked_policy', 'legacy_unknown')
+LEGACY_REDO = 'брак без модели и записи — заново (владелец 23.10)'
 # худшее определяет статус ячейки: блок важнее ожидания (Codex § 4 — ячейка с блоком всё равно в спросе по остальным)
 SEVERITY = {'blocked_policy': 5, 'legacy_unknown': 4, 'redo': 3, 'wait_catalog': 2, 'wait_asset': 1}
 RUGS = ('ковёр', 'ковер')
@@ -43,7 +48,7 @@ def base_role(slot: str) -> str:
 
 
 class Facts:
-    """Подменяемые в тестах факты. `prod[sku]` = {'role','status','eligible','has_h','rep','w','d','h','dia','tr','proven'};
+    """Подменяемые в тестах факты. `prod[sku]` = {'role','status','eligible','has_h','rep','w','d','h','dia','tr','proven','model'};
     `media(sku)` → запись `catalog_media` или None; `alive(url)` → bool; `mesh_ok` — готовые меши; `failed` — failed_terminal;
     `decisions` — {sku: {'decision', …}} журнала; `with_gen` — SKU с поколением на DEV; `strategy(role)`; `square` — роли d = w."""
 
@@ -110,9 +115,11 @@ def classify(role: str, sku: str, item: dict | None, F: Facts) -> tuple[str, str
         return 'redo', 'владелец: переделать меш (очередь переделок)', None
     rp = F.prod.get(rep) or p
     if rp.get('status') == 'rejected':
-        if rep not in F.with_gen and sku not in F.with_gen:
-            return 'legacy_unknown', 'меш rejected без происхождения (нет решения и поколения) — в триаж', None
-        return 'legacy_unknown', 'меш rejected без решения в журнале — в триаж', None
+        if rep in F.with_gen or sku in F.with_gen or rp.get('model'):
+            return 'legacy_unknown', 'меш rejected без решения в журнале — в триаж', None
+        if not rp.get('eligible'):
+            return 'wait_catalog', f'{LEGACY_REDO}: не мешепригоден (обогащение, фото или габариты)', None
+        return 'wait_asset', LEGACY_REDO, 'mesh'
     if rp.get('status') == 'quarantine':
         return 'wait_asset', 'меш в карантине — ждёт решения', 'review'
     if rep in F.failed:
@@ -144,12 +151,12 @@ def load_prod() -> dict:
     for r in db("select p.shop_mid||':'||p.external_id, coalesce(p.cat_role,''), coalesce(p.mesh_status,'none'), "
                 "coalesce(p.mesh_required,false)::text, coalesce(p.mesh_family_rep, p.shop_mid||':'||p.external_id), "
                 "coalesce(p.w_cm,0), coalesce(p.d_cm,0), coalesce(p.h_cm,0), coalesce(p.dia_cm,0), "
-                f"{TRANSFORMER_SQL}::text, {PROVEN_SQL}::text from products p"):
-        if len(r) == 11:
+                f"{TRANSFORMER_SQL}::text, {PROVEN_SQL}::text, (p.mesh_uri is not null)::text from products p"):
+        if len(r) == 12:
             num = lambda v: float(v) or None  # noqa: E731
             prod[r[0]] = {'role': r[1], 'status': r[2], 'eligible': r[3] == 'true', 'rep': r[4], 'w': num(r[5]),
                           'd': num(r[6]), 'h': num(r[7]), 'dia': num(r[8]), 'has_h': num(r[7]) is not None,
-                          'tr': r[9] == 'true', 'proven': r[10] == 'true'}
+                          'tr': r[9] == 'true', 'proven': r[10] == 'true', 'model': r[11] == 'true'}
     return prod
 
 
@@ -180,6 +187,8 @@ def _selftest() -> int:
             's:rug2': P('ковёр', h=None), 's:sofa': P('диван'), 's:sofa2': P('диван', h=None), 's:pot': P('кашпо', d=None),
             's:bra': P('бра', d=None), 's:bed': P('диван', tr=True), 's:bed2': P('диван', tr=True, proven=True),
             's:tubo': P('кашпо', status='rejected'), 's:leg': P('витрина', status='rejected'),
+            's:legm': P('витрина', status='rejected', model=True), 's:legne': P('витрина', status='rejected', eligible=False),
+            's:legv': P('витрина', rep='s:leg'), 's:legg': P('комод', status='rejected'),
             's:redo': P('кресло', status='rejected'), 's:q': P('кресло', status='quarantine'),
             's:fail': P('кресло'), 's:ne': P('кресло', eligible=False), 's:v2': P('диван', rep='s:sofa')}
     M = {s: {'state': 'available', 'url': f'u/{s}', 'img': f'i/{s}'} for s in prod}
@@ -188,7 +197,7 @@ def _selftest() -> int:
     F = Facts(prod, failed={'s:fail'}, strategy=strat, media=M.get, alive=lambda u: u != 'i/s:dead',
               mesh_ok={'s:sofa', 's:sofa2', 's:bed'}, decisions={'s:tubo': {'decision': 'replace_needed'},
                                                                  's:redo': {'decision': 'redo'}},
-              with_gen={'s:redo'}, square={'кашпо'})
+              with_gen={'s:redo', 's:legg'}, square={'кашпо'})
     it = lambda s: {'url': f'u/{s}'}  # noqa: E731
     c = lambda role, s, item='same': classify(role, s, it(s) if item == 'same' else item, F)[:2]  # noqa: E731
     ok('подушка без маски и габаритов, живое фото и текущая ссылка — готова', c('подушка 2', 's:pil')[0] == 'ready')
@@ -210,7 +219,13 @@ def _selftest() -> int:
     ok('Н3: собранные размеры по правилу трансформера — доказаны; «Не раскладывается» — не трансформер',
        "'shape_rule:transformer'" in PROVEN_SQL and 'не раскладывается' in TRANSFORMER_SQL)
     ok('Tubo — replace_needed журнала → blocked_policy', c('кашпо', 's:tubo') == ('blocked_policy', 'решение по мешу: replace_needed'))
-    ok('rejected без решения и поколения — legacy_unknown', c('витрина', 's:leg')[0] == 'legacy_unknown')
+    ok('брак без решения, поколения и модели — заново через обычный спрос (wait_asset/mesh)',
+       classify('витрина', 's:leg', it('s:leg'), F) == ('wait_asset', LEGACY_REDO, 'mesh'))
+    ok('…его цвет-вариант — тоже в спрос через представителя', classify('витрина', 's:legv', it('s:legv'), F)[::2] == ('wait_asset', 'mesh'))
+    ok('…не мешепригоден — wait_catalog, без трат', c('витрина', 's:legne')[0] == 'wait_catalog')
+    ok('rejected с файлом модели или с поколением — по-прежнему legacy_unknown (триаж, без трат)',
+       c('витрина', 's:legm')[0] == 'legacy_unknown' and c('комод', 's:legg')[0] == 'legacy_unknown')
+    ok('Tubo (отказ владельца в журнале) — не заново: blocked_policy', c('кашпо', 's:tubo')[0] == 'blocked_policy')
     ok('владелец велел переделать — redo, не спрос мешей', classify('кресло', 's:redo', it('s:redo'), F)[::2] == ('redo', None))
     ok('карантин — wait_asset/review; failed_terminal — blocked; mesh_required=false — wait_catalog',
        classify('кресло', 's:q', it('s:q'), F)[::2] == ('wait_asset', 'review') and c('кресло', 's:fail')[0] == 'blocked_policy'

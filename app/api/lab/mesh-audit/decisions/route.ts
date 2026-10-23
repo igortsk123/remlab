@@ -1,19 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { machineOk, originOk, reviewerOk } from "@/lib/mesh-review/auth";
+import { DecisionBody, commentOrNull } from "@/lib/mesh-audit/decision-body";
 import { cancel, decide, listDecisions } from "@/lib/mesh-audit/repo-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DecisionBody = z.object({
-  itemId: z.number().int().positive(),
-  generationKey: z.string().min(1),
-  verdict: z.enum(["redo", "replace_needed"]),
-  idemKey: z.string().min(1).max(300),
-});
-
-// POST — клик владельца: одна транзакция, идемпотентно по idem_key, 409 для устаревшей вкладки.
+// POST — клик владельца: одна транзакция, идемпотентно по idem_key, 409 для устаревшей вкладки; комментарий — необязательный.
 export async function POST(req: Request): Promise<Response> {
   if (!(await reviewerOk())) return NextResponse.json({ error: "нет доступа" }, { status: 401 });
   if (!(await originOk())) return NextResponse.json({ error: "bad origin" }, { status: 403 });
@@ -21,7 +15,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!parsed.success) return NextResponse.json({ error: "неверный запрос" }, { status: 400 });
   const b = parsed.data;
   try {
-    const r = await decide(b.itemId, b.generationKey, b.verdict, b.idemKey);
+    const r = await decide(b.itemId, b.generationKey, b.verdict, b.idemKey, commentOrNull(b.comment));
     return NextResponse.json(r.body, { status: r.http });
   } catch (e) {
     // уникальность (sku, manual_attempt_no): две вкладки одновременно — вторая получает 409

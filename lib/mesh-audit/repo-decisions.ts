@@ -13,7 +13,13 @@ export type DecideResult =
   | { http: 200; body: { ok: true; duplicate?: true; item: AuditItemView } }
   | { http: 400 | 404 | 409; body: { error: string; code: string } };
 
-export async function decide(itemId: number, generationKey: string, verdict: Verdict, idemKey: string): Promise<DecideResult> {
+export async function decide(
+  itemId: number,
+  generationKey: string,
+  verdict: Verdict,
+  idemKey: string,
+  comment: string | null = null,
+): Promise<DecideResult> {
   return db().transaction(async (tx) => {
     const [item] = await tx.select().from(meshAuditItems).where(eq(meshAuditItems.id, itemId)).for("update");
     if (!item) return { http: 404, body: { error: "нет карточки", code: "not_found" } };
@@ -28,6 +34,7 @@ export async function decide(itemId: number, generationKey: string, verdict: Ver
       verdict,
       manualAttemptNo: chk.attemptNo,
       idemKey,
+      comment,
     });
     const [upd] = await tx
       .update(meshAuditItems)
@@ -39,7 +46,7 @@ export async function decide(itemId: number, generationKey: string, verdict: Ver
   });
 }
 
-// Отмена случайного клика: последнее решение по этому поколению удаляется из журнала, факт
+// Отмена случайного клика: последнее решение (с комментарием) по этому поколению удаляется из журнала, факт
 // отмены пишется append-only (конвейер откатит у себя), карточка возвращается в open и попытка
 // возвращается владельцу. Только пока переделка не ушла в снимок очереди.
 export async function cancel(itemId: number, generationKey: string): Promise<DecideResult> {
@@ -95,6 +102,7 @@ export async function listDecisions(afterId: number, limit = 200) {
       verdict: meshAuditDecisions.verdict,
       manualAttemptNo: meshAuditDecisions.manualAttemptNo,
       reviewer: meshAuditDecisions.reviewer,
+      comment: meshAuditDecisions.comment,
       createdAt: meshAuditDecisions.createdAt,
     })
     .from(meshAuditDecisions)

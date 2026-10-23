@@ -456,6 +456,8 @@ if [ "$BANK_WRITE" = 1 ]; then
 fi
 step demo_band "$PY" demo_band.py --report
 step mesh_publish "$PY" mesh_publish.py
+# комментарии владельца к браку мешей за неделю (план mesh-audit-comments) — строкой DIGEST в утреннюю сводку; разбор — --comments
+step mesh_comments "$PY" mesh_decisions.py --comments --since 7d --digest
 # каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины
 # решения владельца по развороту моделей (/test/orient-review/) → orient.json прода слиянием (flat3d-sims-ux A1)
 step orient_pull "$PY" orient_review.py --pull

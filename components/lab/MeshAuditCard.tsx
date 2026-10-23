@@ -1,15 +1,15 @@
 "use client";
 
 // Карточка меша: постер → по клику вертящаяся 3D-модель (GLB грузится ТОЛЬКО после клика:
-// 20 моделей по 7,6 МБ разом — 150 МБ на страницу); одна кнопка «переделать»; бейдж состояния.
+// 20 моделей по 7,6 МБ разом — 150 МБ на страницу); кнопки решения с комментарием — MeshAuditVerdict; бейдж состояния.
 // Сеть — lib/mesh-audit/client.ts; правила — lib/mesh-audit/rules.ts.
 
 import { useState } from "react";
 import { Badge } from "@/components/base/badges/badges";
-import { Button } from "@/components/base/buttons/button";
 import { cancelDecision, sendDecision } from "@/lib/mesh-audit/client";
 import { MAX_MANUAL_REDO, PENDING_STATUSES, type Verdict } from "@/lib/mesh-audit/rules";
 import type { AuditItemView } from "@/lib/mesh-audit/types";
+import { MeshAuditVerdict } from "./MeshAuditVerdict";
 
 interface Props {
   item: AuditItemView;
@@ -33,6 +33,7 @@ export function MeshAuditCard({ item: initial, rank, modelUrl }: Props) {
   const [show3d, setShow3d] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sentComment, setSentComment] = useState<string | null>(null);
 
   const pending = PENDING_STATUSES.has(item.status);
   const canRedo = !pending && item.status !== "replace_needed" && item.manualAttempts < MAX_MANUAL_REDO;
@@ -42,7 +43,7 @@ export function MeshAuditCard({ item: initial, rank, modelUrl }: Props) {
   const badge = stateBadge(item);
   const date = item.generatedAt ? new Date(item.generatedAt).toLocaleDateString("ru-RU") : "—";
 
-  async function act(run: () => ReturnType<typeof sendDecision>) {
+  async function act(run: () => ReturnType<typeof sendDecision>): Promise<boolean> {
     setBusy(true);
     setError(null);
     const r = await run();
@@ -50,9 +51,16 @@ export function MeshAuditCard({ item: initial, rank, modelUrl }: Props) {
     else if (r.kind === "login") setError("сессия истекла — обновите страницу");
     else setError(r.message);
     setBusy(false);
+    return r.kind === "ok";
   }
-  const decide = (verdict: Verdict) => act(() => sendDecision(item, verdict));
-  const undo = () => act(() => cancelDecision(item));
+  async function decide(verdict: Verdict, comment: string) {
+    const ok = await act(() => sendDecision(item, verdict, comment));
+    if (ok) setSentComment(comment.trim() || null);
+    return ok;
+  }
+  async function undo() {
+    if (await act(() => cancelDecision(item))) setSentComment(null);
+  }
 
   return (
     <section className="flex flex-col gap-2 rounded-xl border border-secondary p-3" data-sku={item.sku}>
@@ -104,28 +112,21 @@ export function MeshAuditCard({ item: initial, rank, modelUrl }: Props) {
       </div>
       {badge && (
         <span>
-          <Badge type="pill-color" color={badge.color} size="sm">
+          {/* длинный текст состояния переносится, а не уходит на соседнюю карточку (узкая колонка на компьютере) */}
+          <Badge type="pill-color" color={badge.color} size="sm" className="size-auto max-w-full whitespace-normal">
             {badge.text}
           </Badge>
         </span>
       )}
-      <div className="flex flex-wrap gap-2">
-        {canRedo && (
-          <Button size="sm" color="primary" isDisabled={busy} isLoading={busy} onClick={() => void decide("redo")}>
-            Переделать
-          </Button>
-        )}
-        {canReplace && (
-          <Button size="sm" color="secondary" isDisabled={busy} isLoading={busy} onClick={() => void decide("replace_needed")}>
-            Нужна замена товара/фото
-          </Button>
-        )}
-        {canCancel && (
-          <Button size="sm" color="tertiary" isDisabled={busy} isLoading={busy} onClick={() => void undo()}>
-            Отменить (нажал случайно)
-          </Button>
-        )}
-      </div>
+      <MeshAuditVerdict
+        canRedo={canRedo}
+        canReplace={canReplace}
+        canCancel={canCancel}
+        busy={busy}
+        sentComment={sentComment}
+        onDecide={decide}
+        onUndo={() => void undo()}
+      />
       {error && <p className="text-xs text-error-primary">{error}</p>}
     </section>
   );

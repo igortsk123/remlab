@@ -5,12 +5,18 @@ import type { Verdict } from "./rules";
 
 export type DecideOutcome = { kind: "ok"; item: AuditItemView } | { kind: "login" } | { kind: "error"; code?: string; message: string };
 
-export async function sendDecision(item: Pick<AuditItemView, "id" | "generationKey">, verdict: Verdict): Promise<DecideOutcome> {
+export async function sendDecision(item: Pick<AuditItemView, "id" | "generationKey">, verdict: Verdict, comment = ""): Promise<DecideOutcome> {
   try {
     const r = await fetch("/api/lab/mesh-audit/decisions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ itemId: item.id, generationKey: item.generationKey, verdict, idemKey: `${item.generationKey}:${verdict}` }),
+      body: JSON.stringify({
+        itemId: item.id,
+        generationKey: item.generationKey,
+        verdict,
+        idemKey: `${item.generationKey}:${verdict}`,
+        comment: comment.trim() || undefined,
+      }),
     });
     if (r.status === 401) return { kind: "login" };
     const data = (await r.json().catch(() => ({}))) as { item?: AuditItemView; error?: string; code?: string };
