@@ -248,7 +248,8 @@ raw=rows("""select p.cat_role, p.shop_mid, p.external_id, p.name, p.w_cm, p.d_cm
  p.price_rub, p.shop, p.image_url,
  coalesce(p.direct_url, replace(replace(replace(substring(p.url from 'goto=([^&]+)'),'%3A',':'),'%2F','/'),'%3F','?')),
  coalesce(p.params->>'Материал','')||' '||coalesce(p.params->>'Назначение','')||' '||coalesce(p.params->>'Тип',''),
- coalesce(p.dims_evidence->'h'->>'source',''), coalesce(p.dims_evidence->'h'->>'cm',''), coalesce(p.params->>'Регулируемая высота','')
+ coalesce(p.dims_evidence->'h'->>'source',''), coalesce(p.dims_evidence->'h'->>'cm',''), coalesce(p.params->>'Регулируемая высота',''),
+ coalesce(p.dims_evidence->'h'->>'drop_min','')
  from products p
  where p.cat_role is not null and p.price_rub is not null and p.image_url is not null and p.in_stock
    and """+_DL.exclude_sql('p')+"""
@@ -289,7 +290,7 @@ for r in raw:
              d=float(r[5]) if r[5] else None): continue
     if role=='люстра':   # вылет подвеса ≤ потолок − проход (catalog-holes-bank Н2в): иначе вне слота, с причиной
         _why=_CG.pendant_out(float(r[8]) if r[8] else None, r[14] if len(r)>14 else '', r[15] if len(r)>15 else '',
-                             r[16] if len(r)>16 else '')
+                             r[16] if len(r)>16 else '', r[17] if len(r)>17 else None)   # потолок — базовый: банк общий
         if _why:
             _k=_why.split(' ')[0] if not _why.startswith('регулир') else 'регулируемый без высоты'   # «вылет»/«подвес»
             _pendant_out[_k]=_pendant_out.get(_k,0)+1

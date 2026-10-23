@@ -64,7 +64,7 @@ def _load() -> dict:
          # ВЫЛЕТ ПОДВЕСА (catalog-holes-bank Н2в): источник высоты, длина подвеса сверх нормы роли, «Регулируемая высота» —
          # для `compose_gates.pendant_out` при выборе замены люстры в лечении (`sets_incremental._slot_ok`)
          "||'\x1f'||coalesce(p.dims_evidence->'h'->>'source','')||'\x1f'||coalesce(p.dims_evidence->'h'->>'cm','')"
-         "||'\x1f'||coalesce(p.params->>'Регулируемая высота','')"
+         "||'\x1f'||coalesce(p.params->>'Регулируемая высота','')||'\x1f'||coalesce(p.dims_evidence->'h'->>'drop_min','')"
          " from products p left join product_page_status ps"
          " on ps.shop_mid=p.shop_mid and ps.external_id=p.external_id")
     r = subprocess.run(PSQL + [q], capture_output=True, text=True)
@@ -114,7 +114,8 @@ def _load() -> dict:
                                    'price_basis': p[19] if len(p) > 19 else 'feed',
                                    'price_at': (p[20] if len(p) > 20 else '') or None,
                                    'h_src': p[21] if len(p) > 21 else '', 'h_cm': (p[22] if len(p) > 22 else '') or None,
-                                   'adj': p[23] if len(p) > 23 else ''}
+                                   'adj': p[23] if len(p) > 23 else '',
+                                   'drop_min': (p[24] if len(p) > 24 else '') or None}   # минимальный вылет (Н2в этап 2)
     _CACHE = m
     return m
 

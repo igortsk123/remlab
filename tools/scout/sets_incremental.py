@@ -1040,7 +1040,8 @@ def _selftest_pendant() -> int:
            ('1', 'long'): {'state': 'available', 'h': 120.0, 'w': 60, 'dia': 60},
            ('1', 'susp'): {'state': 'available', 'h': None, 'dia': 60, 'h_src': 'param-suspension', 'h_cm': '230.0'},
            ('1', 'adj'): {'state': 'available', 'h': None, 'dia': 60, 'adj': 'Да'},
-           ('1', 'sofa'): {'state': 'available', 'h': 120.0, 'w': 200, 'd': 90}}
+           ('1', 'sofa'): {'state': 'available', 'h': 120.0, 'w': 200, 'd': 90},
+           ('1', 'range'): {'state': 'available', 'h': 36.0, 'w': 60, 'dia': 60, 'adj': 'да', 'drop_min': '36.0'}}
     stub = {'unfit': types.SimpleNamespace(unfit=lambda *a, **k: False),
             'slot_contract': types.SimpleNamespace(photo_ok=lambda *a, **k: True),
             'slot_rules': types.SimpleNamespace(slot_ideal=lambda *a, **k: None, slot_envelopes=lambda: {}),
@@ -1059,6 +1060,7 @@ def _selftest_pendant() -> int:
                 ('замена: люстра 120 см (> 60) — нет (лечение, освежение, контракты)', _slot_ok('люстра', c('long'), S), False),
                 ('замена: подвес «suspension» 230 см — нет', _slot_ok('люстра', c('susp'), S), False),
                 ('замена: регулируемый без высоты — нет', _slot_ok('люстра', c('adj'), S), False),
+                ('замена: диапазон «36/136» (минимальная подвеска 36) — годна', _slot_ok('люстра', c('range'), S), True),
                 ('уже стоящая длинная люстра (контракты, current=True) — не выселяем',
                  _slot_ok('люстра', c('long'), S, current=True), True),
                 ('другие роли гейт не трогает (диван h 120)', _slot_ok('диван', c('sofa'), S), True)):

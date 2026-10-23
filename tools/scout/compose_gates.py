@@ -75,22 +75,37 @@ def admit(sku: str, img: str | None) -> str | None:
     return None
 
 
-# ВЫЛЕТ ПОДВЕСА (catalog-holes-bank Н2в, этап 1 без миграции; разбор Codex 23.10). Под люстрой нужен проход 210 см
-# (СП 59.13330.2020; ADA §307.4 — 203 см), базовый потолок квартиры — 270 см → подвес не длиннее 60 см. Высота люстры
-# в фиде — это и есть вылет от потолка; у диапазона «50/160» резолвер берёт нижнюю границу (минимальная подвеска).
-# Этап 2 (⚑ миграция) — поля вылета min/max и гейт в солвере по `Room.ceiling_cm`.
+# ВЫЛЕТ ПОДВЕСА (catalog-holes-bank Н2в; разбор Codex 23.10). Под люстрой нужен проход 210 см (СП 59.13330.2020;
+# ADA §307.4 — 203 см): подвес не длиннее «потолок − 210». Потолок — параметр (`ceiling_cm`): у квартиры с известной высотой —
+# её, иначе базовые 270 (→ 60 см). Банк комплектов общий для квартир — собирается и лечится на базовом потолке.
+# Этап 2 (23.10, без миграции): поля вылета в `dims_evidence.h` (`dim_resolver.pendant_drop`) — гейт берёт `drop_min`
+# (минимальную подвеску: регулируемый подвес укорачивают); нет полей — как в этапе 1 (высота = вылет).
 CEILING_CM, CLEARANCE_CM = 270, 210
 DROP_MAX_CM = CEILING_CM - CLEARANCE_CM
 _NO = {'', 'нет', 'no', '0', '-', 'false'}
 
 
-def pendant_out(h: float | None, h_source: str | None, h_cm: str | float | None, adjustable: str | None) -> str | None:
+def drop_limit(ceiling_cm: float | None = None) -> float:
+    """Самый длинный допустимый вылет при этом потолке, см."""
+    return float(ceiling_cm or CEILING_CM) - CLEARANCE_CM
+
+
+def pendant_out(h: float | None, h_source: str | None, h_cm: str | float | None, adjustable: str | None,
+                drop_min: str | float | None = None, ceiling_cm: float | None = None) -> str | None:
     """None — люстра годна для слота по вылету; иначе причина. Без высоты и без признаков подвеса — как раньше (ждёт каталог)."""
+    lim, ceil = drop_limit(ceiling_cm), float(ceiling_cm or CEILING_CM)
+    norm = f'{lim:g} (проход {CLEARANCE_CM} при потолке {ceil:g})'
+    try:
+        dmin = float(drop_min) if drop_min not in (None, '') else None
+    except (TypeError, ValueError):
+        dmin = None
+    if dmin is not None:
+        return f"{'вылет' if h is not None else 'подвес'} {dmin:g} см > {norm}" if dmin > lim else None
     if h is not None:
-        return f'вылет {h:g} см > {DROP_MAX_CM} (проход {CLEARANCE_CM} при потолке {CEILING_CM})' if h > DROP_MAX_CM else None
+        return f'вылет {h:g} см > {norm}' if h > lim else None
     if (h_source or '').endswith('-suspension'):
         try:
-            return f'подвес {float(h_cm):g} см > {DROP_MAX_CM} (проход {CLEARANCE_CM} при потолке {CEILING_CM})'
+            return f'подвес {float(h_cm):g} см > {norm}'
         except (TypeError, ValueError):
             return 'подвес длиннее нормы, число не разобрано'
     if (adjustable or '').strip().lower() not in _NO:
@@ -98,10 +113,10 @@ def pendant_out(h: float | None, h_source: str | None, h_cm: str | float | None,
     return None
 
 
-def pendant_out_media(m: dict | None) -> str | None:
+def pendant_out_media(m: dict | None, ceiling_cm: float | None = None) -> str | None:
     """`pendant_out` по записи `catalog_media.media` — для лечения банка (замена люстры проходит ту же норму, что сборка)."""
     m = m or {}
-    return pendant_out(m.get('h'), m.get('h_src'), m.get('h_cm'), m.get('adj'))
+    return pendant_out(m.get('h'), m.get('h_src'), m.get('h_cm'), m.get('adj'), m.get('drop_min'), ceiling_cm)
 
 
 def summary() -> str:
@@ -162,6 +177,15 @@ def _selftest() -> int:
         ok('регулируемый без высоты — вне слота; «нет»/пусто без высоты — как раньше (ждёт каталог)',
            pendant_out(None, None, None, 'да') and pendant_out(None, None, None, 'нет') is None
            and pendant_out(None, 'param-insane', None, None) is None)
+        # этап 2: потолок — параметр; поля вылета — минимальная подвеска решает
+        ok('потолок 300 → норма 90: вылет 80 годен, при базовом 270 — нет; 250 → норма 40',
+           pendant_out(80, 'param', None, '', ceiling_cm=300) is None and pendant_out(80, 'param', None, '')
+           and 'вылет 45 см > 40 (проход 210 при потолке 250)' in (pendant_out(45, 'param', None, '', ceiling_cm=250) or ''))
+        ok('диапазон 36/136: минимум 36 — годен при 270; подвес 230 с регулировкой — по минимуму 230, вне слота',
+           pendant_out(36, 'prior', None, 'да', drop_min='36.0') is None
+           and 'подвес 230 см' in (pendant_out(None, 'param-suspension', '230.0', 'да', drop_min=230) or ''))
+        ok('лечение: запись медиа с drop_min и потолком',
+           pendant_out_media({'h': 36, 'drop_min': '70'}) and pendant_out_media({'h': 36, 'drop_min': '70'}, ceiling_cm=300) is None)
         sys.modules['slot_contract'] = types.SimpleNamespace()     # модуль без функций — ImportError
         FAILS.clear()
         ok('нет функции проверки — отказ (а не пропуск)', admit('1:a', '//img') == 'сбой проверки фото')

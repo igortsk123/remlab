@@ -172,6 +172,13 @@ ROLE_MIN_H_CM = {'люстра': 1.0, 'бра': 1.0}
 # (солвер, меш и сцена приняли бы её за рост предмета), но и в «нет высоты» не прячем: evidence `<источник>-suspension`
 # с числом `cm` — подбор (`compose_gates.pendant_out`) исключает такой подвес из слота «люстра» с причиной.
 PENDANT_MAX_CM = 600.0
+# ВЫЛЕТ ПОДВЕСА — ОТДЕЛЬНЫЕ ПОЛЯ (Н2в этап 2, 23.10; без миграции — ключи в `dims_evidence.h`): `drop_min`/`drop_max` (см),
+# `drop_adj` (регулируется: да/нет/неизвестно), `drop_from` (откуда максимум). Гейт прохода берёт `drop_min`
+# (`compose_gates.pendant_out`): подвес укорачивают, не удлиняют. tvoydom 23.10: у 341 люстры «Высота» — диапазон «36/136»
+# (нижняя граница = высота, верхняя — полный спуск, регулируемый), у 597 — «Длина цепи» (максимум = высота + цепь;
+# входит ли цепь в «Высоту», фид не говорит — поэтому минимум остаётся высотой, это сторона «больше»), у 371 — флаг.
+DROP_RANGE = re.compile(r'^\s*(\d+(?:[.,]\d+)?)\s*(?:см|мм|cm|mm)?\s*[/\-–—]\s*(\d+(?:[.,]\d+)?)')
+DROP_CHAIN_KEY, DROP_ADJ_KEY = 'Длина цепи', 'Регулируемая высота'
 # ВАЗА-ШАР БЕЗ ВЫСОТЫ (Н4): у шара высота = горизонтальный габарит (диаметр или Ш≈Г). Геометрия, не приор; ошибка
 # до ~20 % (срез горла, ножка) — допустимо для гейта «влезает». Провенанс `shape_rule:sphere`.
 SPHERE_ROLES = frozenset({'ваза', 'кашпо'})
@@ -319,6 +326,34 @@ def transformer_dims(mid: int, role: str | None, name: str, params: dict, dims: 
     return out_d, ev, typ, orient
 
 
+def pendant_drop(role: str | None, params: dict, dims: dict, ev_h: dict | None, h_str: str) -> dict | None:
+    """Поля вылета люстры {drop_min, drop_max, drop_adj, drop_from} по уже разобранной высоте; None — нет высоты/не люстра."""
+    if role != 'люстра' or not ev_h:
+        return None
+    src = ev_h.get('source') or ''
+    lo = ev_h.get('cm') if src.endswith('-suspension') else dims.get('h')
+    if lo is None:
+        return None
+    k = 10.0 if ev_h.get('unit') == 'mm' else 1.0
+    a_s = str(params.get(DROP_ADJ_KEY) or '').strip().lower()
+    adj = True if a_s.startswith('да') else False if a_s.startswith('нет') else None
+    hi, frm = lo, 'height'
+    m = DROP_RANGE.match(h_str or '')
+    if m:
+        a, b = (float(x.replace(',', '.')) / k for x in m.groups())
+        if b > a and abs(a - lo) < 0.05 and b <= PENDANT_MAX_CM:
+            hi, frm, adj = round(b, 1), 'range', True        # диапазон — это и есть регулировка
+    if frm == 'height':
+        c_s = str(params.get(DROP_CHAIN_KEY) or '').lower()
+        c = _numval(c_s)
+        if c and c > 0:
+            mm = 'мм' in c_s or ('см' not in c_s and (k == 10.0 or c > 400))
+            c = c / 10 if mm else c
+            if lo + c <= PENDANT_MAX_CM:
+                hi, frm = round(lo + c, 1), 'chain'
+    return {'drop_min': lo, 'drop_max': hi, 'drop_adj': adj, 'drop_from': frm}
+
+
 def role_max(role: str | None, dim: str) -> float:
     if dim == 'h':
         return ROLE_MAX_H_CM.get(role or '', 330.0)
@@ -334,6 +369,7 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
     counts: dict[str, int] = {}
 
     comp = composite_dims(role, params)
+    h_str = ''
     # РАЗБИРАЕМЫЕ, а не просто присутствующие: товар, у которого размерные поля ТОЛЬКО
     # многозначные, иначе терял бы и фолбэк из названия (находка `verify` 11.10).
     has_params = any(params.get(k) and not ambiguous_value(params.get(k))
@@ -358,6 +394,8 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
                 raw, key_used, val_str = _numval(v), k, v
                 if raw is not None:
                     break
+        if dim == 'h':
+            h_str = val_str
         if raw is None and dim in comp:
             raw, key_used, val_str = comp[dim][0], comp[dim][1], params.get(comp[dim][1], '')
         if raw is None and dim in tdims:
@@ -432,6 +470,9 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
         tag = source if unit == 'cm' else f'{source}-mm'
         counts[tag] = counts.get(tag, 0) + 1
 
+    drop = pendant_drop(role, params, dims, evidence.get('h'), h_str)
+    if drop:
+        evidence['h'].update(drop)          # в сводку источников (`dims_source`) не пишем: высота та же, поля — рядом
     tr = transformer_dims(mid, role, name, params, dims)
     if tr:
         dims.update(tr[0])
@@ -530,7 +571,7 @@ def rules_fingerprint() -> str:
     blob = json.dumps(norm({'dim': DIM_KEYS, 'shop': SHOP_DIM_KEYS, 'comp': COMPOSITE_KEYS,
                             'max': ROLE_MAX_CM, 'max_h': ROLE_MAX_H_CM, 'min': MIN_CM, 'min_h': ROLE_MIN_H_CM,
                             'pendant': PENDANT_MAX_CM, 'sphere': [sorted(SPHERE_ROLES), SPHERE_RX.pattern, SPHERE_WD_TOL],
-                            'transformer': [SLEEP_IN_FEED, SLEEP_MIN_LEN, FORWARD_MECH, NOT_TRANSFORMER.pattern, TRANSFORMER_COEF,
+                            'drop': [DROP_RANGE.pattern, DROP_CHAIN_KEY, DROP_ADJ_KEY], 'transformer': [SLEEP_IN_FEED, SLEEP_MIN_LEN, FORWARD_MECH, NOT_TRANSFORMER.pattern, TRANSFORMER_COEF,
                                             _TAIL_AXB.pattern, _CORNER.pattern]}),
                       sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
@@ -645,6 +686,25 @@ def selftest() -> None:
     ok = ok and ev2['h']['source'].endswith('-insane') and ev3['h']['source'].endswith('-insane')
     bad += 0 if ok else 1
     print(f'{"ok " if ok else "FAIL"} подвес 230 см → suspension с числом; 900 см и бра 230 — мусор')
+    # Н2в этап 2: поля вылета люстры — (params) → (drop_min, drop_max, drop_adj, drop_from); None — полей нет
+    drop_cases = [
+        ({'Высота': '36/136'}, 'люстра', (36.0, 136.0, True, 'range')),          # диапазон = регулировка
+        ({'Высота': '59,8-142,3', 'Регулируемая высота': 'да'}, 'люстра', (59.8, 142.3, True, 'range')),
+        ({'Высота': '36', 'Длина цепи': '52'}, 'люстра', (36.0, 88.0, None, 'chain')),   # минимум — высота: сторона «больше»
+        ({'Высота': '1435', 'Длина цепи': '1000'}, 'люстра', (143.5, 243.5, None, 'chain')),   # мм у высоты → и у цепи
+        ({'Высота': '230 см', 'Регулируемая высота': 'Да'}, 'люстра', (230.0, 230.0, True, 'height')),   # подвес
+        ({'Высота': '32', 'Регулируемая высота': 'нет'}, 'люстра', (32.0, 32.0, False, 'height')),
+        ({'Высота': '136/36'}, 'люстра', (136.0, 136.0, None, 'height')),        # «наоборот» — не диапазон
+        ({'Высота': '36/136'}, 'бра', None),                                      # только люстра
+        ({'Высота': '900 см'}, 'люстра', None),                                   # мусор — полей нет
+    ]
+    for params, role, want in drop_cases:
+        _, ev, _ = resolve(99272, 'Светильник', params, role)
+        h = ev.get('h') or {}
+        got = (h.get('drop_min'), h.get('drop_max'), h.get('drop_adj'), h.get('drop_from')) if 'drop_min' in h else None
+        ok = got == want
+        bad += 0 if ok else 1
+        print(f'{"ok " if ok else "FAIL"} вылет {role} {params} → {got} (ждали {want})')
     # Н3: трансформер Орматек — собранные Ш×Г×В по спальному месту из хвоста названия; ошибка — в сторону «больше»
     tr_cases = [   # (магазин, название, params, роль) → ожидаемые w, d, h (None — правило молчит, размеры фида как есть)
         (93965, 'Кресло-кровать Berlin (80x200)', {'Механизм трансформации': 'Аккордеон', 'Ширина': '80'}, 'кресло',

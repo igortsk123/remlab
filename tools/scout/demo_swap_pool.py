@@ -132,13 +132,13 @@ def _row(r: list) -> dict | None:
             'w': float(w), 'd': float(d), 'h': float(h)}
 
 
-def fits(p: dict) -> bool:
-    """Фото, ширина и глубина есть, ширина — в конверте роли (`ENVELOPE`)."""
+def fits(p: dict, ceiling_cm: float | None = None) -> bool:
+    """Фото, ширина и глубина есть, ширина — в конверте роли (`ENVELOPE`). `ceiling_cm` — потолок комнаты (нет — базовый)."""
     # ЛЮСТРЫ В ЛЕНТЕ НЕТ (на плане она не стоит, `demo_fill`). Появится роль — длинный подвес не пройдёт: та же норма
     # вылета, что у сборки и лечения (catalog-holes-bank Н2в, `compose_gates.pendant_out`; регулируемость здесь не видна)
     if p.get('role') == 'люстра':
         import compose_gates as _CG
-        if _CG.pendant_out(p.get('h'), None, None, None):
+        if _CG.pendant_out(p.get('h'), None, None, None, p.get('drop_min'), ceiling_cm):
             return False
     lo, hi = ENVELOPE.get(p.get('role'), (0, 0))
     return bool(p.get('img') and p.get('w') and p.get('d')) and lo <= p['w'] <= hi
