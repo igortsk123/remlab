@@ -226,6 +226,25 @@ def case_price(tmp: str) -> None:
         SG._CACHE = None
         ok('правило из файла: потолок 0.5 ₽ — g-cheap уже дорого',
            MP.by_group(['g-cheap'], now, census=G.CENSUS, journal=G.JOURNAL)['g-cheap']['state'] == 'дорого')
+        # СУД ПО ПОЛНЫМ 8 ЧАСАМ (T-20261022-10/4): окно 3 ч → дорогая g-dear не судится; запрет сняли — суд заново с той минуты
+        json.dump(dict(rule, price_ceiling=dict(rule['price_ceiling'], judge_after_h=8)), open(rules, 'w'))
+        SG._CACHE = None
+        r8 = MP.by_group(['g-dear'], now, {'g-dear': now - 3 * 3600}, G.CENSUS, G.JOURNAL)['g-dear']
+        r9 = MP.by_group(['g-dear'], now, {'g-dear': now - 9 * 3600}, G.CENSUS, G.JOURNAL)['g-dear']
+        ok(f'judge_after_h=8: окно 3 ч — мало данных (ещё {r8.get("judge_in_h")} ч), окно 9 ч — дорого',
+           r8['state'] == 'мало данных' and r8.get('judge_in_h') == 5.0 and r9['state'] == 'дорого')
+        st3 = {'price_floor': {'g-dear': now - 20 * 3600}}
+        with contextlib.redirect_stdout(io.StringIO()):
+            G.price_tick(st3, ['g-dear'], now)                 # под запретом (поставлен выше) — запомнили
+        held = list(st3['price_held'])
+        d = json.load(open(SG.PRICE_HALT)); d.pop('g-dear'); json.dump(d, open(SG.PRICE_HALT, 'w'))
+        n0 = len(calls)
+        out3 = io.StringIO()
+        with contextlib.redirect_stdout(out3):
+            again = G.price_tick(st3, ['g-dear'], now + 60)
+        ok('запрет снят — окно с этой минуты, не гасит сразу; строка в журнал',
+           held == ['g-dear'] and st3['price_floor']['g-dear'] == now + 60 and again == [] and len(calls) == n0
+           and st3['price']['groups']['g-dear']['state'] == 'мало данных' and 'снят' in out3.getvalue())
     finally:
         SG.RULES, SG._CACHE, SG.PRICE_HALT, G.CENSUS, G.JOURNAL, G._api, G.notify = keep
 

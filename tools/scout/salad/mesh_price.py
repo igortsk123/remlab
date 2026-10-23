@@ -148,8 +148,17 @@ def by_group(groups: list[str] | None = None, now: float | None = None, floor: d
             made[g] = new_meshes(float(t), now, journal).get(g, 0)
     gs = groups if groups is not None else sorted(set(spend) | set(made))
     rate = SG.usd_rub()
-    return {g: dict(verdict(spend.get(g, 0.0), SG.price(g), rate, made.get(g, 0), rule),
-                    node_min=round(spend.get(g, 0.0), 1)) for g in gs}
+    out = {g: dict(verdict(spend.get(g, 0.0), SG.price(g), rate, made.get(g, 0), rule),
+                   node_min=round(spend.get(g, 0.0), 1)) for g in gs}
+    # СУД ПО ПОЛНЫМ ЧАСАМ РАБОТЫ (владелец 23.10, T-20261022-10/4: «стату считай по полным 8 часам работы»): `judge_after_h` —
+    # не судить, пока окно группы (от `floor`: первый тик, гашение или снятие запрета) короче стольких часов по часам на стене.
+    # Нодо-часы набираются за минуты при 20–30 машинах, а ночь, текучка и прогрев видны только на длинном отрезке
+    after_h = float(rule.get('judge_after_h') or 0)
+    for g, v in out.items():
+        start = max(since, float((floor or {}).get(g, since)))
+        if after_h and (now - start) / 3600 < after_h and v['state'] in ('дорого', 'дёшево'):
+            v['state'], v['judge_in_h'] = 'мало данных', round(after_h - (now - start) / 3600, 1)
+    return out
 
 
 def summary(res: dict[str, dict]) -> str:

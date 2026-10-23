@@ -456,8 +456,18 @@ def price_tick(st: dict, gs: list[str], now: float | None = None) -> list[str]:
     if not rule:
         return []
     floor = st.setdefault('price_floor', {})
+    held = st.setdefault('price_held', [])
     for g in gs:
         floor.setdefault(g, now)
+        # ЗАПРЕТ СНЯЛИ — СУД ЗАНОВО С ЭТОЙ МИНУТЫ (T-20261022-10/4): `floor` гашения остаётся в прошлом, и окно `judge_after_h`
+        # считалось бы от него — группа, простоявшая под запретом сутки, шла бы под суд на первом же нодо-часе
+        if SG.price_halted(g):
+            if g not in held:
+                held.append(g)
+        elif g in held:
+            held.remove(g)
+            floor[g] = now
+            print(f'{time.strftime("%H:%M")} запрет цены {g} снят — суд заново с этой минуты', flush=True)
     res = MP.by_group(gs, now, floor, CENSUS, JOURNAL)
     st['price'] = {'at': round(now), 'groups': res}
     hour = time.strftime('%Y-%m-%d %H', time.gmtime(now))
