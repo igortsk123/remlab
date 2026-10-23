@@ -251,9 +251,13 @@ def _dry_info(payload: dict) -> dict:
             info['render_from'] = f'proxy недоступен: {str(e)[:60]}'
     try:
         import improve_mode as IM
-        pr = IM.prompt_for(payload.get('style') or '')
+        # мягкое запроса (demo-24): что уйдёт третьим листом и словами — видно без оплаты
+        soft = IM.soft_list(IM.soft_items(payload), len(DR.decor_split(payload)[1]) + 1, payload.get('items'))
+        pr = IM.prompt_for(payload.get('style') or '', soft=soft)
         info['prompt'] = {'version': IM.PROMPT_VERSION, 'sha': IM.prompt_sha(pr), 'photo_look': 'PHOTOGRAPHIC LOOK' in pr,
-                          'shape_rule': 'never invent detachable cushions, throws or armrests' in pr}
+                          'shape_rule': 'never invent detachable cushions, throws or armrests' in pr,
+                          'soft_block': 'SOFT TEXTILES FROM IMAGE 3' in pr}
+        info['soft'] = soft
     except Exception as e:  # noqa: BLE001
         info['prompt'] = {'error': str(e)[:80]}
     return info

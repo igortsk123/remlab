@@ -2533,6 +2533,14 @@ function decorList(){
   const v=allVariants()[cur]||{};
   return (v.decor||[]).map((x,i)=>Object.assign({i:i},x)).filter(x=>(x.sku||{}).name);
 }
+// МЯГКОЕ — В СПИСКЕ, В СУММЕ И НА УЛУЧШЕННОМ ФОТО, НО НЕ В 3D (demo-24, владелец 23.10: «должны быть в списке, но появляться
+// на 3D-модели не должны, а отправляться в GPT должны»). Подушки, шторы, плед лежат в том же списке варианта, что и вазы (`v.decor`):
+// так они сами попадают в сумму, полосу бюджета, избранное, номер состояния и запрос кадра. Роль — по канону сборки
+// (`rules.soft_roles` ← `asset_strategy.soft_roles`); сцена (`liveDecor`) и план (`tableDecor`) их не берут
+const SOFT_DEF=['плед','подушка','покрывало','полка','шторы'];
+function isSoft(role){ return (((D&&D.rules)||{}).soft_roles||SOFT_DEF).includes(String(role||'').replace(/\s+\d+$/,'')); }
+// настольный декор — то, что сцена ставит на столешницу; мягкое места в 3D не имеет
+function tableDecor(){ return decorList().filter(x=>!isSoft(x.role)); }
 // цена и число товаров варианта считаются С ДЕКОРОМ (владелец 08.09: «добавлять в список товаров
 // и считать сумму»): он такая же покупка, просто стоит не на полу
 function decorSum(v){ return (variantDecor(v)||[]).reduce((t,x)=>t+((x.sku||{}).price||0),0); }
@@ -2546,7 +2554,8 @@ function decorRows(){
   const html=d.map(x=>{const p=x.sku; sum+=(p.price||0);
     return `<div class="row" data-d="${x.i}">`+
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
-      `<div class="t"><b>${p.name}</b><span>${x.role} · ${decorWhere(x)}`+
+      // мягкое: роль, точка и пометка — отдельными узлами текста, иначе слой EN не узнаёт ни роль, ни пометку
+      `<div class="t"><b>${p.name}</b><span>`+(isSoft(x.role)?`${x.role}<span> · </span><i class="soft">видно на улучшенном фото</i>`:`${x.role} · ${decorWhere(x)}`)+
       (p.shop?' · '+p.shop:'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
       `<span class="acts"><button class="lnk swap">Заменить</button>`+
       (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span>`+
@@ -2562,7 +2571,7 @@ function decorRows(){
 // правилом, по которому его ставит сцена (`draft_render._decor_places`): ряд по длинной оси,
 // центрированный. Значок не ловит указатель — перетащить его нельзя ни мышью, ни пальцем.
 function drawDecor(){
-  const list=decorList().filter(x=>{const p=x.sku||{};return p.w&&p.d&&p.h;});
+  const list=tableDecor().filter(x=>{const p=x.sku||{};return p.w&&p.d&&p.h;});
   const s=decorSupport();
   if(!list.length||!s)return;
   const gap=6, total=list.reduce((t,x)=>t+(x.sku.w||0),0)+gap*(list.length-1);
@@ -2585,7 +2594,7 @@ function decorSupport(){
   // на какой высоте, мы придумывать не будем (Р1). Не влезло — вернём null, и ваза останется
   // только в списке товаров.
   const gap=6, edge=4;
-  const list=decorList().filter(x=>{const p=x.sku||{};return p.w&&p.d&&p.h;});
+  const list=tableDecor().filter(x=>{const p=x.sku||{};return p.w&&p.d&&p.h;});
   if(!list.length)return null;
   const need=list.reduce((t,x)=>t+x.sku.w,0)+gap*(list.length-1);
   const deep=Math.max.apply(null,list.map(x=>x.sku.d));
@@ -2595,7 +2604,8 @@ function decorSupport(){
   }
   return null;
 }
-function decorWhere(){
+function decorWhere(x){
+  if(x&&isSoft(x.role))return 'видно на улучшенном фото';
   const s=decorSupport();
   return s?('на '+s.role.replace(/\s+\d+$/,'')+', по центру'):'в кадр не ставим: не указан размер или не влезает';
 }
@@ -3317,7 +3327,10 @@ function payload(){
   // отправляла — значит третья картинка «что расставить» не собиралась НИ РАЗУ, и вазы в кадр
   // не попадали. Товар куплен, а на фото его нет.
   // пол и прочие опции застройщика (demo-06): выбор — парами, пол — id материала для кадра
-  return {room:D.room, style:v.style||'', variant:v.title||'', decor:v.decor||[], developerOptions:clone(DEVOPT),
+  // фото декора и мягкого — из кэша сборки (`img/…`, demo-24): сервер берёт его по полному адресу, как фото предметов ниже
+  const absImg=u=>u&&!/^(https?:)?\/\//.test(u)?base+u:u;
+  return {room:D.room, style:v.style||'', variant:v.title||'', developerOptions:clone(DEVOPT),
+    decor:(v.decor||[]).map(d=>d&&d.sku&&d.sku.img?Object.assign({},d,{sku:Object.assign({},d.sku,{img:absImg(d.sku.img)})}):d),
     floor:devFloorReq(), walls:devWallReq(),
     // окно превью вида (`crop`, demo-22) уходит вместе с позой: сервер замораживает его в записи кадра (`draft_service._cams_clean`)
     cams:(cams||loadCams()).map(c=>({name:c.name,x:Math.round(c.x),y:Math.round(c.y),
@@ -4205,7 +4218,8 @@ function shotListHtml(s){
           // первые 10 строк — сразу, остальные — лениво; до загрузки — заглушка тона страницы (demo-21 п.5), загрузилась — белая плитка
           (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`:'<div class="noimg-sm">нет фото</div>')+
           `<div class="t"><b>${a.name}</b>`+
-          `<span>${a.role||''}${a.shop?' · '+a.shop:''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
+          // мягкое (demo-24): в 3D его нет — пометка, где его увидеть; роль и пометка — отдельными узлами (слой EN)
+          `<span>${a.role||''}${isSoft(a.role)?'<span> · </span><i class="soft">видно на улучшенном фото</i>':''}${a.shop?' · '+a.shop:''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
           `<span class="acts">`+
             (own?`<button class="lnk" data-rep="${k}">Заменить</button>`:'')+
             (a.url?`${own?' · ':''}<a href="${a.url}" target="_blank" rel="noopener">В магазин</a>`:'')+
@@ -4581,7 +4595,7 @@ function freeSpan(me){
 function fitBadge(me,p){
   // ДЕКОР МЕРЯЕТСЯ НЕ ПОЛОМ. Он стоит на столешнице, поэтому «сколько места вокруг» к нему не
   // относится: показываем, куда встанет, а не «влезает ли в комнату».
-  if(me&&me.dec!==undefined)return {cls:'b-ok', txt:decorWhere()};
+  if(me&&me.dec!==undefined)return {cls:'b-ok', txt:decorWhere(me)};
   if(!p.w||!p.d)return {cls:'b-tight', txt:'габарит не указан'};
   // ПРИ ЛЮБОМ УГЛЕ место считаем по описанному прямоугольнику товара (26.08): «повёрнут на 90°»
   // перестало быть единственным вариантом, а «влезает» должно оставаться честным.
@@ -4657,7 +4671,7 @@ function openPicker(it){
   filters(); grid();
   // кандидаты ленты — в кэш живой сцены заранее (demo-01 п.6): первые 6, не вся лента (это десятки мегабайт)
   // по модели, не по товару: цвета одной модели делят один файл (п.11а)
-  if(LIVE.scene)LIVE.scene.prefetch([...new Set(list.map(p=>p.msid||p.sid))].slice(0,6).map(m=>({sku:{msid:m}})));
+  if(LIVE.scene&&!isSoft(base))LIVE.scene.prefetch([...new Set(list.map(p=>p.msid||p.sid))].slice(0,6).map(m=>({sku:{msid:m}})));
 }
 function closePicker(){document.getElementById('sheet').classList.remove('open');
   document.getElementById('scrim').classList.remove('on');}
@@ -4754,7 +4768,8 @@ function grid(){
 let TRY_LAST={n:1, base:''};   // последняя замена: сколько предметов группы сменилось (сообщение «Заменено: стулья ×2»)
 function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.role==='диван'); TRY_LAST={n:1, base:''};
   if(!s){toast('Сначала коснитесь предмета на плане');return;}
-  if(!p.w||!p.d){toast('У этого товара в фиде нет габаритов — примерка была бы выдумкой');return;}
+  const soft=s.dec!==undefined&&isSoft(s.role);      // мягкое не примеряется на пол — габариты ему не нужны (demo-24)
+  if(!soft&&(!p.w||!p.d)){toast('У этого товара в фиде нет габаритов — примерка была бы выдумкой');return;}
   // ЗАМЕНА ДЕКОРА ПИШЕТСЯ В СПИСОК ВАРИАНТА, А НЕ В РАССТАНОВКУ (08.09): места на полу у вазы
   // нет, она стоит на столешнице. Список и сумма пересчитываются сразу — это и есть отклик на
   // кнопку «Заменить», которого раньше не было.
@@ -4766,6 +4781,8 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
              w:p.w,d:p.d,h:p.h||null,pack:p.pack||1,...(p.yaw!=null?{yaw:p.yaw}:{}),...(p.tint?{tint:p.tint}:{})};
       sel=decorSel(s.dec);
       basket(); showSwap(); refreshShotList();
+      // В 3D МЯГКОГО НЕТ — говорим, где его увидеть (владелец 23.10: «при замене подушки писать, что будут видны на улучшенном фото»)
+      if(soft)toast('Будет видно на улучшенном фото');
     }
     return;
   }
@@ -6157,7 +6174,9 @@ const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пу�
     if(s0&&document.getElementById('shot').classList.contains('v2')){
       const n=TRY_LAST.n||1, d=sum()-before, EN=LANG==='en';
       const base=baseRole(role), what=n>1?(TRY_PLURAL[base]||base)+' ×'+n:base;
-      toast((EN?'Replaced: '+what:'Заменено: '+what)+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
+      // мягкое (demo-24): в 3D замены не видно — сообщение говорит, где она появится (тот же текст, что у `tryOn`)
+      if(s0.dec!==undefined&&isSoft(role))toast('Будет видно на улучшенном фото');
+      else toast((EN?'Replaced: '+what:'Заменено: '+what)+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
       // шторка уже свёрнута — сцена с заменой видна; наведение камеры — после обновления сцены (`liveShow`, demo-15 п.2).
       // КОНТУР СНИМАЕМ СРАЗУ (demo-20 Б4, владелец 22.10: «рамку убирать автоматически»): заменённое видно и так — камера у предмета
       vwSelect(null);
@@ -6211,7 +6230,7 @@ function liveOff(why){
 }
 // ДЕКОР В ЖИВУЮ СЦЕНУ — ТОТ ЖЕ, ЧТО УХОДИТ В СЕРВЕРНЫЙ КАДР (`payload().decor`, demo-05 п.9): ваза встаёт на столик
 // одним правилом с кадром (`scene-extras.decorLayout`) и приходит одним состоянием с расстановкой
-function liveDecor(){ return clone((allVariants()[cur]||{}).decor||[]); }
+function liveDecor(){ return clone(((allVariants()[cur]||{}).decor||[]).filter(x=>!isSoft(x.role))); }   // мягкого в 3D нет (demo-24)
 function liveEngine(){
   if(LIVE.ok===false)return Promise.resolve(null);
   if(LIVE.scene)return Promise.resolve(LIVE.scene);
@@ -7200,7 +7219,7 @@ async function liveShotTake(){
   var ROLE={'диван':'sofa','кресло':'armchair','столик':'coffee table','тв-тумба':'TV unit','ковёр':'rug','торшер':'floor lamp',
     'стеллаж':'shelving','комод':'chest of drawers','пуф':'pouf','кашпо':'planter','ваза':'vase','стул':'chair','стол':'table',
     'стол обеденный':'dining table','банкетка':'bench','витрина':'display cabinet','камин':'fireplace','стенка':'wall unit',
-    'люстра':'chandelier','лампа':'lamp','подушка':'cushion','шторы':'curtains','приставной':'side table','окно':'window','дверь':'door'};
+    'люстра':'chandelier','лампа':'lamp','подушка':'cushion','шторы':'curtains','плед':'throw','покрывало':'bedspread','полка':'shelf','приставной':'side table','окно':'window','дверь':'door'};
   var STYLE={'сканди':'Scandi','современный':'Modern','минимализм':'Minimalist','лофт':'Loft','неоклассика':'Neoclassic','джапанди':'Japandi'};
   var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom','Прихожая':'Hallway'};
   var EX={'Оплата 100%':'Full payment','Ипотека, рассрочка':'Mortgage, instalments','Ипотека':'Mortgage','Подробнее':'Details','Консультация':'Get advice','← К стилям':'← Back to styles',
@@ -7248,6 +7267,7 @@ async function liveShotTake(){
     'Спальни появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.':'Bedrooms are coming next — furnished the same way as the living room.',
     'Кухня появится следующим шагом — варианты от партнёров застройщика.':"The kitchen is coming next — options from the developer's partners.",
     'Сначала коснитесь предмета на плане':'Tap an item on the plan first',
+    'видно на улучшенном фото':'shown on the enhanced photo','Будет видно на улучшенном фото':'It will be shown on the enhanced photo',
     'У этого товара в фиде нет габаритов — примерка была бы выдумкой':'The shop gives no dimensions for this product — a try-on would be made up','Сохранить коллекцию':'Save collection',
     '3D-модель носит ознакомительный характер и может отличаться от фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать у нашего менеджера. Цена и данные о доме — демонстрационные. Цены товаров — с сайтов магазинов на дату проверки и могут измениться; точная цена — по ссылке в магазин.':
       'The 3D model is for illustration and may differ from the actual specification. Ask our manager for the exact details of your future home. The price and building details are for demonstration. Product prices are taken from shop websites on the check date and may change; see the shop link for the exact price.',

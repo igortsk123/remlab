@@ -46,12 +46,60 @@ SIZE = os.environ.get('IMPROVE_SIZE', '2048x3072')     # замер: прини�
 # в двух прогонах без роста времени. ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН до приёмки d8: включается `IMPROVE_PROMPT=v4` в окружении рисующего процесса
 # «.1» (demo-20 Г3, владелец 22.10 TG 824): + общее правило РАДИАТОР ПОД КАЖДЫМ ОКНОМ — для всех стилей; ответ без него из кэша не отдаётся
 # «.2» (demo-20 Г4, владелец 22.10 TG 830–836): белый плафон-заглушка сцены → потолочный светильник стиля (CEILING LIGHT гайда, блок CEILING FIXTURE)
+# «.3» (demo-24, владелец 23.10): МЯГКОЕ комплекта (подушки, шторы, плед) — в запрос третьим листом и местом словами (блок SOFT TEXTILES):
+# в 3D их нет, мешей нет, на фото — есть. Третий лист теперь и правда уходит в модель (`draft_render`: раньше только упоминался в тексте)
 PROMPT_V4 = os.environ.get('IMPROVE_PROMPT') == 'v4'
-PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.2'
+PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.3'
 _MATERIALS = [('рогожк', 'woven matting fabric'), ('шенилл', 'chenille'), ('велюр', 'velour'), ('букле', 'bouclé'), ('вельвет', 'corduroy'),
               ('экокож', 'faux leather'), ('кож', 'leather'), ('лён', 'linen'), ('шерст', 'wool'), ('хлоп', 'cotton'), ('дуб', 'oak'),
               ('орех', 'walnut'), ('ясень', 'ash'), ('сосн', 'pine'), ('древесн', 'wood'), ('дерев', 'wood'), ('металл', 'metal'),
               ('стекл', 'glass'), ('мрамор', 'marble'), ('ротанг', 'rattan'), ('лдсп', 'laminated board'), ('мдф', 'MDF')]
+
+
+# КУДА МЯГКОЕ (demo-24, владелец 23.10: «подушки на диване», «шторы на окне», «плед на кресле»): место словами, без маски и вырезки.
+# Ключ — роль без номера; нет кресла — плед на диване
+SOFT_PLACE = {
+    'подушка': ('cushion', 'on the sofa seat, leaning against the backrest'),
+    'шторы': ('curtains', 'hung at the window from a rod above the opening, one panel at each side, without covering the glass '
+                          'centre, the radiator or any furniture'),
+    'плед': ('throw', 'draped over the armchair'),
+    'покрывало': ('throw', 'draped over the armchair'),
+    'полка': ('wall shelf', 'mounted on a free wall, not above the television'),
+}
+
+
+def soft_items(payload: dict) -> list:
+    """Мягкое варианта из запроса (`decor` страницы, роль — `draft_render.soft_role`): в сцене его нет, на фото — дорисовать."""
+    import draft_render as DR
+    return [d for d in (payload.get('decor') or []) if DR.soft_role(d.get('role')) and (d.get('sku') or {}).get('name')]
+
+
+def soft_list(soft: list, first: int, items: list | None = None) -> list:
+    """Строки блока SOFT TEXTILES: номер на третьем листе (после настольного декора), что это, название, размер и место."""
+    import draft_render as DR
+    roles = {DR._base_role(it.get('role') or '') for it in (items or [])}
+    out = []
+    for k, d in enumerate(soft):
+        base, sk = DR._base_role(d.get('role') or ''), d.get('sku') or {}
+        what, place = SOFT_PLACE.get(base, (base, 'where it naturally belongs in a living room'))
+        if what == 'throw' and items is not None and 'кресло' not in roles:
+            place = 'folded over the sofa arm'
+        # подушка — лицевая сторона (Ш×Г), шторы и плед — ширина×высота полотна
+        dims = [round(float(x)) for x in ((sk.get('w'), sk.get('d')) if what == 'cushion' else (sk.get('w'), sk.get('h') or sk.get('d'))) if x]
+        out.append({'id': first + k, 'item': what, 'name': sk.get('name'), **({'size_cm': '×'.join(map(str, dims))} if len(dims) == 2 else {}),
+                    'place': place})
+    return out
+
+
+def third_sheet(decor: list, soft: list):
+    """Третий лист: настольный декор, которого нет в сцене, затем мягкое — номера по порядку (как в промпте)."""
+    import draft_render as DR
+    allx = list(decor or []) + list(soft or [])
+    if not allx:
+        return None
+    an = [{'role': x['role'], 'n': i + 1} for i, x in enumerate(allx)]
+    ph = {x['role']: DR.photo((x.get('sku') or {}).get('img')) for x in allx}
+    return DR._identity(an, ph, {x['role']: x.get('sku') or {} for x in allx})
 
 
 def product_list(items: list, photos: dict) -> list:
@@ -181,7 +229,7 @@ def size_for(orient: str | None) -> str:
 
 
 def prompt_for(style: str | None, decor: list | None = None, floor: str | None = None, walls: str | None = None,
-               orient: str | None = None, products: list | None = None) -> str:
+               orient: str | None = None, products: list | None = None, soft: list | None = None) -> str:
     """Промпт режима ремонта. СТРУКТУРА ВЛАДЕЛЬЦА (01.09): статические правила отдельно,
     STYLE GUIDE — единственный переменный блок, и он СОВЕТУЮЩИЙ, а не список обязательного.
 
@@ -194,8 +242,11 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
     st, guide, pol = style_block(style)
     deny = list((pol.get('deny_always') or [])) + list((pol.get('deny_now') or {}).keys())
     allow = list((pol.get('allow_now') or {}).keys())
+    # `soft` — строки `soft_list` (номера на третьем листе после декора); шторы товаром — вместо «шторы под стиль»
+    curt = [x for x in (soft or []) if x.get('item') == 'curtains']
+    third = bool(decor or soft)
     return '\n'.join([
-        'You are given TWO images:',
+        f'You are given {"THREE" if third else "TWO"} images:',
         '',
         ('* IMAGE 1: one sheet containing TWO rendered views of the SAME furnished room, side by side: the LEFT half is view 1, '
          'the RIGHT half is view 2, separated by a vertical magenta band.' if orient == 'portrait' else
@@ -203,12 +254,13 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
          'vertically and separated by a magenta band.'),
         '* IMAGE 2: catalogue references for all real products already placed in the room.',
     ] + ([
-        '* IMAGE 3: decor items that are part of this set but are NOT yet in the render. They are '
-        'bought goods and MUST appear in the result.',
-    ] if decor else []) + [
+        '* IMAGE 3: ' + ('decor items and soft textiles' if decor and soft else 'soft textiles' if soft else 'decor items')
+        + ' that are part of this set but are NOT yet in the render. They are bought goods and MUST appear in the result.',
+    ] if third else []) + [
         '',
         'TASK: turn IMAGE 1 into two photorealistic views of a renovated room. Preserve the room, '
-        'cameras and furniture; change only finishes, product materials and service placeholders. The only new object is the '
+        'cameras and furniture; change only finishes, product materials and service placeholders. The only new object'
+        + (' besides the items of IMAGE 3 is' if third else ' is') + ' the '
         'single ceiling fixture that replaces the white ceiling placeholder (CEILING FIXTURE below).',
         '',
         'STATIC HARD RULES',
@@ -223,6 +275,9 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         '* the two-view layout or magenta separator;',
         SHAPE_RULE,
     ] + ([
+        '* EXCEPTION: the cushions and throws listed under SOFT TEXTILES are separate bought products, not parts of the furniture '
+        '— add them exactly as described there.',
+    ] if any(x.get('item') in ('cushion', 'throw') for x in (soft or [])) else []) + ([
         # ПОЛ ЗАСТРОЙЩИКА (demo-06): выбран покупателем и уже нарисован на IMAGE 1 — модель его не перекрашивает
         f'* the FLOOR: it is the developer option «{floor}» chosen by the buyer and already shown in '
         'IMAGE 1 — keep its pattern, plank direction and tone exactly, only add realistic sheen and shadows.',
@@ -254,13 +309,23 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
     ] + ([
         'DECOR FROM IMAGE 3 — MUST BE PLACED:',
         '',
-        'Every item on IMAGE 3 has to appear in the room, standing ON an existing horizontal '
+        ('Every item on IMAGE 3' if not soft else 'Every decor item on IMAGE 3 (' + ', '.join(f'#{i + 1}' for i in range(len(decor or []))) + ')')
+        + ' has to appear in the room, standing ON an existing horizontal '
         'surface: the TV console, the coffee table or the dining table. Choose the surface that '
         'suits it, keep it small and natural in scale, and do not let it hide, touch or move any '
         'existing product. Place each item ONCE and show it in both views if that surface is '
-        'visible in both. Nothing else may be added except the ceiling fixture governed by CEILING FIXTURE below.',
+        'visible in both. Nothing else may be added except the ceiling fixture governed by CEILING FIXTURE below'
+        + (' and the SOFT TEXTILES.' if soft else '.'),
         '',
-    ] if decor else []) + [
+    ] if decor else []) + ([
+        'SOFT TEXTILES FROM IMAGE 3 — MUST BE ADDED (numbers as on IMAGE 3):',
+        '',
+        'These are bought soft furnishings without a 3D model, so they are missing from IMAGE 1. Add each one ONCE, in the place '
+        'given, with its catalogue colour, pattern and fabric from IMAGE 3 and a realistic size; show it in both views wherever that '
+        'place is visible. Do not move, resize or hide any furniture to fit them.',
+        json.dumps(soft, ensure_ascii=False),
+        '',
+    ] if soft else []) + [
         'SERVICE PLACEHOLDERS',
         '',
         'Turn these schematic elements into realistic objects while preserving their exact outer '
@@ -298,8 +363,11 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         'plaster, brick or a single accent wall are all acceptable when the STYLE GUIDE calls for '
         'them. White walls are not the default; choose what the style needs.',
     ]) + [
-        '* DRESS THE WINDOW WITH CURTAINS or blinds that suit the style, hung correctly and '
-        'identical in both views. They must not cover furniture or change the window opening.',
+        ('* HANG THE CURTAINS FROM IMAGE 3 (' + ', '.join(f'#{x["id"]}' for x in curt) + ') at the window: they are the bought '
+         'product, so keep their colour and pattern, hang them correctly and identically in both views, and add no other curtains '
+         'or blinds. They must not cover furniture or change the window opening.' if curt else
+         '* DRESS THE WINDOW WITH CURTAINS or blinds that suit the style, hung correctly and '
+         'identical in both views. They must not cover furniture or change the window opening.'),
         '',
         'The two views show the SAME room. Use exactly the same wall colour, floor material and '
         'direction, trim, door finish, window design and light temperature in both views.',
@@ -480,15 +548,16 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
             _IDENT_CACHE[_ikey] = ident
     except Exception as e:  # noqa: BLE001 — без эталонов запрос всё равно осмыслен
         print(f'  лист эталонов не собрался: {str(e)[:80]}')
-    decor = DR.decor_split(payload)[1]
+    # ТРЕТИЙ ЛИСТ — декор, которого нет в сцене, и МЯГКОЕ (demo-24): номера по порядку, мягкое — после декора
+    decor, soft = DR.decor_split(payload)[1], soft_items(payload)
     dsheet = None
-    if decor:
+    if decor or soft:
         try:
-            an = [{'role': x['role'], 'n': i + 1} for i, x in enumerate(decor)]
-            ph = {x['role']: DR.photo((x.get('sku') or {}).get('img')) for x in decor}
-            dsheet = DR._identity(an, ph, {x['role']: x.get('sku') or {} for x in decor})
+            dsheet = third_sheet(decor, soft)
         except Exception as e:  # noqa: BLE001
             print(f'  лист декора не собрался: {str(e)[:70]}')
+    if dsheet is None:
+        decor, soft = [], []      # листа нет — в тексте о нём ни слова: модель искала бы несуществующую картинку
     fl, wl = payload.get('floor') or {}, payload.get('walls') or {}
     prods = None
     if PROMPT_V4:
@@ -496,18 +565,20 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
             prods = product_list(items, {it['role']: DR.photo(it.get('img')) for it in items if it.get('img') and it.get('role')})
         except Exception as e:  # noqa: BLE001
             print(f'  список товаров не собрался: {str(e)[:80]}')
-    prompt = prompt_for(style, decor, fl.get('title') or fl.get('id') or None, wl.get('title') or wl.get('id') or None, orient, prods)
+    prompt = prompt_for(style, decor, fl.get('title') or fl.get('id') or None, wl.get('title') or wl.get('id') or None, orient, prods,
+                        soft_list(soft, len(decor) + 1, items))
     stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'
     clay = [str(x) for x in (payload.get('clay') or []) if x][:20]
     meta = {'режим': 'улучшить фото — кадры из браузерной сцены (demo-10)', 'стиль': style or '—',
             'кадры': ', '.join(f"{v.get('camera')} {str(v.get('id'))[:12]}" for v in vs[:2]), 'размер запроса': size_for(orient),
             'лист': 'вертикальные виды бок о бок' if orient else 'горизонтальные виды друг под другом',
             'лист на входе': f'{sheet.width}×{sheet.height}', 'версия промпта': PROMPT_VERSION,
-            'серые заглушки в кадре': ', '.join(clay) or 'нет'}
+            'серые заглушки в кадре': ', '.join(clay) or 'нет',
+            'мягкое на третьем листе': ', '.join(f"{x['role']} {(x.get('sku') or {}).get('name')}" for x in soft) or 'нет'}
     imgs = {'1-ОТПРАВЛЯЕМ-лист-двух-видов': sheet, '2-ОТПРАВЛЯЕМ-эталоны-товаров': ident, '3-ОТПРАВЛЯЕМ-декор-разместить': dsheet}
     _th.Thread(target=lambda: DR._publish_sources(stamp, imgs, prompt, [], meta), daemon=True).start()
     url = (DR.PUBLIC_BASE + DR.SRC_URL + '/' + stamp + '/') if DR.PUBLIC_BASE else os.path.join(DR.SRC_DIR, stamp)
-    return {'src_url': url, 'sheet': sheet, 'ident': ident, 'prompt': prompt, 'clay': clay, 'cams': [v.get('camera') for v in vs[:2]],
+    return {'src_url': url, 'sheet': sheet, 'ident': ident, 'dsheet': dsheet, 'prompt': prompt, 'clay': clay, 'cams': [v.get('camera') for v in vs[:2]],
             'size': size_for(orient), 'orient': orient or 'landscape'}
 
 
@@ -604,15 +675,15 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
     # ПРОСИМ ДОРИСОВАТЬ ТОЛЬКО ТО, ЧЕГО В СЦЕНЕ НЕТ (08.09). Вазы теперь стоят на столешнице
     # физически (`draft_render._decor_places`); если продолжать отдавать их третьим листом с
     # просьбой «размести», модель нарисует ВТОРУЮ такую же вазу рядом с нашей.
-    decor = DR.decor_split(payload)[1]
+    decor, soft = DR.decor_split(payload)[1], soft_items(payload)      # мягкое (demo-24) — после декора, как в `build_from_views`
     dsheet = None
-    if decor:
+    if decor or soft:
         try:
-            an = [{'role': x['role'], 'n': i + 1} for i, x in enumerate(decor)]
-            ph = {x['role']: DR.photo((x.get('sku') or {}).get('img')) for x in decor}
-            dsheet = DR._identity(an, ph, {x['role']: x.get('sku') or {} for x in decor})
+            dsheet = third_sheet(decor, soft)
         except Exception as e:  # noqa: BLE001
             print(f'  лист декора не собрался: {str(e)[:70]}')
+    if dsheet is None:
+        decor, soft = [], []
     _ft = (((getattr(room, 'finish', None) or {}).get('floor') or {}).get('tex'))
     _wo = (((getattr(room, 'finish', None) or {}).get('wall') or {}).get('opt'))
     prods = None
@@ -622,7 +693,7 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
         except Exception as e:  # noqa: BLE001
             print(f'  список товаров не собрался: {str(e)[:80]}')
     prompt = prompt_for(style, decor, (_ft.get('title') or _ft.get('id')) if _ft else None, (_wo.get('title') or _wo.get('id')) if _wo else None,
-                        None, prods)
+                        None, prods, soft_list(soft, len(decor) + 1, payload.get('items')))
     # Метку может задать вызывающий: черновик заранее сообщает странице адрес исходника,
     # и папка обязана совпасть с этим адресом (иначе «Улучшить фото» не найдёт готовый лист).
     stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'
@@ -646,7 +717,7 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
          'камеры': ', '.join(f'{c.name} fov {c.fov_deg:.0f}°' for c in cams),
          'серые заглушки в кадре': ', '.join(sorted(set(clay))) or 'нет',
          'маска': 'не используется — замер показал, что она не соблюдается'})
-    return {'src_url': url, 'sheet': sheet, 'ident': ident, 'prompt': prompt,
+    return {'src_url': url, 'sheet': sheet, 'ident': ident, 'dsheet': dsheet, 'prompt': prompt,
             'clay': sorted(set(clay)), 'cams': [c.name for c in cams]}
 
 
@@ -760,8 +831,10 @@ def from_sources(src_id: str | None):
               flush=True)
         return None
     ident_p = os.path.join(d, '2-ОТПРАВЛЯЕМ-эталоны-товаров.jpg')
+    dsheet_p = os.path.join(d, '3-ОТПРАВЛЯЕМ-декор-разместить.jpg')      # третий лист (декор и мягкое) — тот же, что в промпте
     return {'sheet': sh,
             'ident': Image.open(ident_p).convert('RGB') if os.path.exists(ident_p) else None,
+            'dsheet': Image.open(dsheet_p).convert('RGB') if os.path.exists(dsheet_p) else None,
             'prompt': open(prompt_p, encoding='utf-8').read(),
             'src_url': (DR.PUBLIC_BASE + DR.SRC_URL + '/' + str(src_id) + '/')
                        if DR.PUBLIC_BASE else d,

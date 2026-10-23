@@ -21,7 +21,7 @@ def check(name, cond, info=''):
 
 import re
 
-_want = 'improve-v4.2' if os.environ.get('IMPROVE_PROMPT') == 'v4' else 'improve-v3.2'   # v4 — у рисующего процесса прода
+_want = 'improve-v4.3' if os.environ.get('IMPROVE_PROMPT') == 'v4' else 'improve-v3.3'   # v4 — у рисующего процесса прода
 check(f'версия промпта {_want}', IM.PROMPT_VERSION == _want, IM.PROMPT_VERSION)
 db = json.load(open(os.path.join(HERE, '..', 'styles.json'), encoding='utf-8'))
 # ДОБАВЛЕНИЯ, КОТОРЫЕ ГАЙД ДЕЛАТЬ НЕ ВПРАВЕ (demo-13): светильники, ниши, экраны радиатора, ковры, мебель. Ссылки на уже стоящее
@@ -83,7 +83,9 @@ for st in ('сканди', 'современный', 'минимализм', 'л
               'Do not add any visible or concealed lighting except that single ceiling fixture' in _pr)
         check(f'{_tag}: «Nothing else may be added» — только с исключением светильника',
               all(_pr[m.end():m.end() + 7] == ' except' for m in re.finditer('Nothing else may be added', _pr)))
-        check(f'{_tag}: TASK называет светильник единственным новым объектом', 'The only new object is the single ceiling fixture' in _pr)
+        # с третьим листом (demo-24) новым объектом названы и его предметы: декор и мягкое — купленный товар, светильник — единственный сверх них
+        check(f'{_tag}: TASK называет светильник единственным новым объектом',
+              re.search(r'The only new object(?: besides the items of IMAGE 3)? is the single ceiling fixture', _pr) is not None)
         check(f'{_tag}: камеру ради светильника не трогать, без свечения',
               'do not move, tilt, widen or raise the camera' in _pr and 'The fixture emits no glow' in _pr)
 check('FORBIDDEN: прочий свет и второй светильник; прежнего общего запрета ламп нет',
@@ -93,8 +95,8 @@ check('ALLOWED: светильник стиля — запись решения 
       any('ceiling fixture' in k for k in db['_decor_policy']['allow_now']) and 'ceiling fixture' in IM.prompt_for('сканди').split('Explicitly ALLOWED')[1])
 check('отпечаток промпта стабилен', IM.prompt_sha('abc') == IM.prompt_sha('abc') and len(IM.prompt_sha('abc')) == 12)
 # improve-v4 (demo-14): список товаров — только по флагу; без флага промпт и версия прежние
-check('без флага — improve-v3.2 и без списка товаров', (os.environ.get('IMPROVE_PROMPT') == 'v4') or
-      (IM.PROMPT_VERSION == 'improve-v3.2' and 'PRODUCT LIST' not in IM.prompt_for('сканди')))
+check('без флага — improve-v3.3 и без списка товаров', (os.environ.get('IMPROVE_PROMPT') == 'v4') or
+      (IM.PROMPT_VERSION == 'improve-v3.3' and 'PRODUCT LIST' not in IM.prompt_for('сканди')))
 _pl = [{'id': [1], 'role': 'диван', 'name': 'Диван Викс Рогожка Серый', 'material': 'woven matting fabric', 'colour_name': 'Серый',
         'colour_hex': '#82828C', 'confidence': 0.8}]
 _p4 = IM.prompt_for('сканди', products=_pl)

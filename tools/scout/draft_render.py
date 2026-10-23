@@ -443,10 +443,13 @@ def decor_layout(payload) -> tuple:
     """
     import math
     items = payload.get('items') or []
-    decor = [d for d in (payload.get('decor') or [])
+    # МЯГКОЕ — НЕ НАСТОЛЬНЫЙ ДЕКОР (demo-24): подушка с размерами встала бы на столешницу. В сцене его нет, на фото его
+    # дорисовывает «Улучшить» отдельным блоком (`improve_mode.soft_items`), поэтому здесь его нет ни в `placed`, ни в `rest`
+    table = [d for d in (payload.get('decor') or []) if not soft_role(d.get('role'))]
+    decor = [d for d in table
              if (d.get('sku') or {}).get('w') and (d.get('sku') or {}).get('d')
              and (d.get('sku') or {}).get('h')]
-    rest = [d for d in (payload.get('decor') or []) if d not in decor]
+    rest = [d for d in table if d not in decor]
     if not decor:
         return [], rest
     for role in DECOR_SUPPORTS:
@@ -473,6 +476,13 @@ def decor_layout(payload) -> tuple:
                         'w': w, 'd': dd, 'h': h})
         return out, rest
     return [], rest + decor
+
+
+def soft_role(role: str | None) -> bool:
+    """Мягкое без места в 3D (demo-24) — роль стратегии `cutout` канона, кроме настольного декора: то же правило, что у экспорта
+    (`flat215_demo.soft_roles`) и страницы (`rules.soft_roles`)."""
+    import asset_strategy as _AS
+    return _base_role(role or '') in _AS.soft_roles()
 
 
 def decor_split(payload) -> tuple:
@@ -3369,6 +3379,10 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                      else '(ИСХОДНИКА НЕ БЫЛО — пересобрал, это потеря)'), flush=True)
             sheet, ident, prompt = built['sheet'], built.get('ident'), built['prompt']
             imgs = [sheet] + ([ident] if ident is not None else [])
+            # ТРЕТИЙ ЛИСТ — В МОДЕЛЬ (demo-24): промпт с 01.09 говорил «IMAGE 3: декор … MUST appear», а сама картинка не уходила.
+            # Теперь на нём и мягкое (подушки, шторы, плед); без листа эталонов номер «3» съехал бы на второй — тогда пустая карточка
+            if built.get('dsheet') is not None and 'IMAGE 3' in prompt:
+                imgs = [sheet, ident if ident is not None else Image.new('RGB', (64, 64), (255, 255, 255)), built['dsheet']]
             _t_gpt = time.time()
             out = gpt_edit(imgs, prompt, size=built.get('size') or IM.SIZE, quality=gq, model=REALISTIC_MODEL)   # лист телефона — 3072×2048
             _t_gpt = time.time() - _t_gpt

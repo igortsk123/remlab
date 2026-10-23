@@ -22,7 +22,7 @@ const GO = process.argv.includes("--go"), ALL = process.argv.includes("--all"), 
 const fi = process.argv.indexOf("--force"), FORCE = fi >= 0 ? (process.argv[fi + 1] || "all") : "";
 const EXPECT_MODEL = process.env.EXPECT_MODEL ?? "improve/openai/gpt-image-2.5-sunburst";
 const LOCAL = process.env.DEMO_LOCAL ?? "";
-const EXPECT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v4.2";   // demo-14: + список товаров (ADR-0305); .1 — радиатор под окном (demo-20 Г3); .2 — люстра стиля (Г4)
+const EXPECT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v4.3";   // demo-14: + список товаров (ADR-0305); .1 — радиатор под окном (demo-20 Г3); .2 — люстра стиля (Г4); .3 — мягкое (demo-24)
 
 async function main() {
   const paid = await (await fetch(`${BASE}/api/draft/paid`)).json().catch(() => ({ available: false, code: "нет ответа" }));

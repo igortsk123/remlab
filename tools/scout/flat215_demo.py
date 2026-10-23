@@ -293,6 +293,18 @@ def _msid(sid: str | None) -> str | None:
 DECOR_ROLES = {'ваза', 'статуэтка', 'свеча', 'книги', 'поднос', 'шкатулка', 'часы'}
 
 
+def soft_roles() -> list:
+    """Мягкое без места в 3D (demo-24): `asset_strategy.soft_roles` — стратегия `cutout` канона `rules/asset-strategies.json`
+    (подушка, шторы, плед, покрывало), кроме настольного декора. Меш им не положен по канону; в варианте они идут строками
+    списка и в запрос «Улучшить фото» (`improve_mode.soft_items`), а сцена и план их не рисуют."""
+    import asset_strategy as _AS
+    return sorted(_AS.soft_roles() - DECOR_ROLES)
+
+
+def soft_role(role: str | None) -> bool:
+    return feed_base(role or '') in soft_roles()
+
+
 _MESH_EXT_CACHE: dict = {}
 
 
@@ -669,6 +681,8 @@ def set_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
     """Товар набора → строка ленты замен его роли, или None, если показать его заменой нельзя. Одна проверка для ленты
     (`build`) и для счёта «есть ли чем заменить» (`bench_pool`, demo-19 Г2)."""
     env_all, env_decor = feed_envs()
+    if soft_role(base):
+        return soft_feed_row(base, it, style)
     if base not in env_all or not it or not it.get('img'):
         return None
     lo, hi = env_all[base]
@@ -714,6 +728,25 @@ def set_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
             'hung': _hung(it.get('name')),
             # ШТУК В ПОКУПКЕ — И В ЛЕНТЕ ЗАМЕНЫ ТОЖЕ (02.09). Без этого после замены товара «Стул 2 шт.» два слота считались
             # бы двумя покупками, хотя это одна.
+            'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name'))}
+
+
+def soft_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
+    """Мягкое (demo-24) → строка ленты замен: места на полу и модели нет, поэтому ни конверта размера, ни меша не требуем —
+    только то, без чего строку списка не показать честно: название, живое фото, цена и ссылка в магазин."""
+    if not it or not it.get('name') or not it.get('img') or not it.get('url') or not _price(it)[0]:
+        return None
+    try:
+        from img_alive import alive_now as _alive
+        if not _alive(it.get('img')):
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+    _sid = f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else None
+    return {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
+            'price': _price(it)[0], 'price_at': _price(it)[1], 'img': it.get('img'), 'url': it.get('url'),
+            'shop': it.get('shop'), 'style': style, 'sid': _sid, 'msid': None, 'src': 'set', 'soft': True,
+            'basis': _basis(it.get('mid'), it.get('eid')),
             'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name'))}
 
 
@@ -1014,11 +1047,17 @@ def build() -> dict:
         # попадают: они стоят не на полу, а на тумбе или столе, и у раскладки для них нет места.
         # Из-за этого купленный товар не доезжал ни до кадра, ни до сметы. Выгружаем отдельным
         # списком — модель ставит их на горизонтальные поверхности по третьему изображению.
+        # МЯГКОЕ — ТЕМ ЖЕ СПИСКОМ, НО БЕЗ МЕСТА В 3D (demo-24, владелец 23.10: «должны быть в списке, но появляться на 3D-модели
+        # не должны, а отправляться в GPT должны; нет смысла из них меши делать»). Подушки, шторы, плед — в списке, сумме и
+        # «Улучшить фото»; сцена и план их не рисуют (`soft_role` по роли, на странице — `rules.soft_roles`). Модели у них нет: `msid` пуст
         decor = []
         for role, _it in (items or {}).items():
-            if role.split(' ')[0] in DECOR_ROLES and _it and _it.get('name'):
+            soft = soft_role(role)
+            if (role.split(' ')[0] in DECOR_ROLES or soft) and _it and _it.get('name'):
                 sk = _sku(items, role)
                 if sk:
+                    if soft:
+                        sk['msid'] = None
                     decor.append({'role': role, 'sku': sk})
         variants.append({'id': f'set{n}', 'title': style, 'style': sets[n - 1].get('style'),
                          # ключ главной «стиль → комната → вариант» (demo-16): латинский id стиля для адреса `?style=`
@@ -1201,7 +1240,7 @@ def build() -> dict:
             # ПОЛОСА «ПОДХОДЯЩИХ ПО РАЗМЕРУ» ленты замен (решение владельца 22.10, demo-20 А4; частично отменяет ADR-0271): ширина
             # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных
             # остаётся широкой (`DEMO_ENV`), страница фильтрует по полосе, пока включён чип «Подходящие по размеру»
-            'rules': {**_rules(), 'slot_band_cm': _slot_band(liv)},
+            'rules': {**_rules(), 'slot_band_cm': _slot_band(liv), 'soft_roles': soft_roles()},
             'bedroom_catalog': bedroom_catalog(),
             # стили, где после дозаполнения нет ядра: вариант не публикуется, страница честно пишет почему
             'incomplete_styles': incomplete,
@@ -1249,7 +1288,8 @@ def cache_images(data: dict) -> dict:
             if p.get('img'):
                 urls.add(p['img'])
     for v in data.get('variants') or []:
-        for it in v['items']:
+        # и декор с мягким (demo-24): фото магазина отдаёт 403 через раз (`imgng.gdeslon.ru`) — строка списка оставалась без картинки
+        for it in v['items'] + (v.get('decor') or []):
             if (it.get('sku') or {}).get('img'):
                 urls.add(it['sku']['img'])
     for lst in ((data.get('bedroom_catalog') or {}).get('roles') or {}).values():
@@ -1263,17 +1303,22 @@ def cache_images(data: dict) -> dict:
         if os.path.exists(dst):
             return u, 'img/' + name
         full = ('https:' + u) if u.startswith('//') else u
-        try:
-            req = urllib.request.Request(full, headers={'User-Agent': 'Mozilla/5.0',
-                                                        'Referer': 'https://remont-lab.online/'})
-            with urllib.request.urlopen(req, timeout=15) as f:
-                raw = f.read()
-            im = Image.open(io.BytesIO(raw)).convert('RGB')
-            im.thumbnail((400, 400))
-            im.save(dst, 'JPEG', quality=82)
-            return u, 'img/' + name
-        except Exception:
-            return u, None
+        # ТРИ ПОПЫТКИ (demo-24): фото Гдеслона отвечает 403 через раз на тот же адрес (замер 23.10: 2 из 3 подушек — 403,
+        # повтор — 200); с одной попыткой строка оставалась с адресом магазина, а он в браузере тоже 403 через раз
+        for k in range(3):
+            try:
+                req = urllib.request.Request(full, headers={'User-Agent': 'Mozilla/5.0',
+                                                            'Referer': 'https://remont-lab.online/'})
+                with urllib.request.urlopen(req, timeout=15) as f:
+                    raw = f.read()
+                im = Image.open(io.BytesIO(raw)).convert('RGB')
+                im.thumbnail((400, 400))
+                im.save(dst, 'JPEG', quality=82)
+                return u, 'img/' + name
+            except Exception:
+                if k < 2:
+                    time.sleep(1.5)
+        return u, None
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         got = dict(ex.map(grab, sorted(urls)))
@@ -1293,6 +1338,10 @@ def cache_images(data: dict) -> dict:
     for v in data.get('variants') or []:
         for it in v['items']:
             fix(it.get('sku'))
+        for x in v.get('decor') or []:              # не скачалось — остаётся адрес магазина: строка декора из списка не пропадает
+            sk = x.get('sku') or {}
+            if sk.get('img'):
+                sk['img'] = got.get(sk['img']) or sk['img']
     bc = (data.get('bedroom_catalog') or {}).get('roles') or {}
     for role in list(bc):                       # спальня: товар без живого фото не показываем
         for p in bc[role]:

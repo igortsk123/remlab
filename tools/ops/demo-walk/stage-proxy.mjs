@@ -7,17 +7,20 @@
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { existsSync } from "node:fs";
 
 const STAGE = process.env.STAGE ?? "", PORT = Number(process.env.PORT ?? 8790), UP = process.env.UPSTREAM ?? "https://remont-lab.online";
 const UK_OPT = process.env.UK_OPTIONS_IN_PACKAGE === "1";
 if (!STAGE) { console.error("нужен STAGE=<папка сборки>"); process.exit(2); }
-const TYPES = { ".html": "text/html; charset=utf-8", ".json": "application/json", ".js": "text/javascript" };
+const TYPES = { ".html": "text/html; charset=utf-8", ".json": "application/json", ".js": "text/javascript", ".jpg": "image/jpeg" };
 
 // путь страницы → файл сборки; null — на прод
 function local(path) {
   if (path === "/demo/" || path === "/demo/index.html") return "index.html";
   if (path === "/demo/demo-data.json") return "demo-data.json";
   if (path.startsWith("/demo/lib/")) { const f = normalize(path.slice("/demo/".length)); return f.startsWith("lib/") ? f : null; }
+  // фото из кэша сборки (`cache_images`, demo-24: и декор с мягким) — свои, если лежат в папке сборки; иначе — с прода
+  if (path.startsWith("/demo/img/")) { const f = normalize(path.slice("/demo/".length)); return f.startsWith("img/") && existsSync(join(STAGE, f)) ? f : null; }
   return null;
 }
 

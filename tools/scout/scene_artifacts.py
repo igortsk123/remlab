@@ -257,7 +257,9 @@ def run(data: dict, rt_dir: str, data_dir: str, thr: float = SC.OVERLAP_CM) -> d
                          'value': f"{o['depth_cm']:g} см (полоса {o['len_cm']:g} см)", 'depth_cm': o['depth_cm']})
         rows += [{**base, 'check': 'а', **n} for n in notes]
         models: dict[str, str] = {}
-        for it in list(items) + list(v.get('decor') or []):
+        import asset_strategy as _AS
+        soft = _AS.soft_roles()          # мягкое (demo-24) — без модели по канону: проверять у него текстуры нечего
+        for it in list(items) + [x for x in v.get('decor') or [] if SC._base(x.get('role', '')) not in soft]:
             m = model_id(it.get('sku'))
             if m and SC._base(it.get('role', '')) != 'ковёр':
                 models.setdefault(m, it['role'])
