@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { isExtra, planObjects } from "@/lib/viewer3d/build-scene";
-import { liveApartment } from "@/lib/viewer3d/demo-scene";
+import { liveApartment, sceneAssetUrls, sceneMeshUrls } from "@/lib/viewer3d/demo-scene";
 
 // ЖИВАЯ СЦЕНА ДЕМО (план demo-01): расстановка страницы → квартира и каталог движка. Без WebGL: проверяем то, что
 // уходит в сцену, — все предметы на местах, ковёр фотографией на полу, свои стены и пол (живая проверка 14.10:
@@ -92,3 +92,41 @@ describe("живая сцена демо: авто-ТВ и декор", () => {
   });
 });
 
+
+// ФОНОВАЯ ПОДГРУЗКА НА «ФОТО» (demo-26): страница качает в кэш те же адреса, что потом возьмёт сцена — иначе кэш мимо
+describe("живая сцена демо: адреса моделей для подгрузки заранее", () => {
+  const rt = { "112923_1": { size: 10, "size-lite": 5, src_sha: "aa", "src_sha-lite": "bb" }, "112923_2": { size: 10, src_sha: "cc" } };
+  const vase = { role: "ваза", sku: { msid: "99272_1", name: "Ваза Фьюжн", w: 19.5, d: 19.5, h: 30, price: 2490 } };
+  const base = "https://remont-lab.online/demo/";
+
+  it("совпадают с адресами сцены: по одному на модель, ковёр (фото) не качается, ваза на столике — да", () => {
+    for (const lite of [false, true]) {
+      const urls = sceneMeshUrls({ room, items, decor: [vase], base, runtimeMeshes: rt, lite });
+      const b = liveApartment(room, items, base, [vase])!;
+      const specs = planObjects(b.apartment, b.catalogue, resolveScene(b.apartment, b.catalogue, defaultConfiguration(b.apartment, b.catalogue)), { lite });
+      expect(urls.sort()).toEqual([...new Set(specs.flatMap((s) => (s.kind === "mesh" ? [s.url] : [])))].sort());
+      expect(urls).toHaveLength(4); // диван, столик, стул (два места — одна модель), ваза
+    }
+  });
+
+  it("телефон — лёгкая копия, где она есть; компьютер — полная; нет копии — исходник галереи", () => {
+    const lite = sceneMeshUrls({ room, items, base, runtimeMeshes: rt, lite: true });
+    const full = sceneMeshUrls({ room, items, base, runtimeMeshes: rt, lite: false });
+    expect(lite).toContain("/rt/112923_1-lite.glb?v=bb");
+    expect(full).toContain("/rt/112923_1.glb?v=aa");
+    expect(lite).toContain("/rt/112923_2.glb?v=cc");
+    expect(full).toContain("/test/mesh-pilot10/112923_4/model.glb");
+  });
+
+  it("оболочка: транскодер KTX2 (есть копии /rt/), фото ковра, вид за окном, панорама; доп. карты — только в полном режиме", () => {
+    const lite = sceneAssetUrls({ room, items, base, runtimeMeshes: rt, lite: true }).shell;
+    expect(lite).toEqual(expect.arrayContaining(["/vendor/basis/basis_transcoder.wasm", "https://remont-lab.online/demo/img/rug.jpg",
+      "/flat3d/env/outside.webp"]));
+    expect(lite.some((u) => u.startsWith("/scene/views/"))).toBe(true);
+    const noRt = sceneAssetUrls({ room, items, base, runtimeMeshes: {}, lite: true }).shell;
+    expect(noRt.some((u) => u.includes("basis"))).toBe(false);
+    const floor = { id: "f1", titleRu: "Пол", titleEn: "Floor", colorHex: "#c8b090", baseColorUrl: "/flat3d/materials/f1.webp", normalUrl: "/flat3d/materials/f1-n.webp", surfaces: ["floor"] };
+    expect(sceneAssetUrls({ room, items, base, floor, lite: false }).shell).toContain("/flat3d/materials/f1-n.webp");
+    expect(sceneAssetUrls({ room, items, base, floor, lite: true }).shell).not.toContain("/flat3d/materials/f1-n.webp");
+  });
+});

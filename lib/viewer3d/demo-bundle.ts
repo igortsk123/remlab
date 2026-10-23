@@ -5,6 +5,6 @@
 declare const __ENGINE_BUILD__: string;
 
 export const build: string = typeof __ENGINE_BUILD__ === "string" ? __ENGINE_BUILD__ : "dev";
-export { createDemoScene, liveApartment } from "@/lib/viewer3d/demo-scene";
+export { createDemoScene, liveApartment, sceneAssetUrls, sceneMeshUrls } from "@/lib/viewer3d/demo-scene";
 // куда идёт деньга выбора (сертификат / доплата застройщику / цена квартиры) — то же ядро, что у /flat (demo-06)
 export { settle } from "@/lib/configurator/settlement";

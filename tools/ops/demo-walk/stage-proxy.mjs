@@ -3,14 +3,15 @@
 // проксируется на прод. Любая проба (`BASE=http://127.0.0.1:<порт>/demo/`) и живая проверка (`playwright.live.config.ts` с
 // `BASE_URL`) смотрят на НОВУЮ страницу до выкладки. `UK_OPTIONS_IN_PACKAGE=1` — в ответе карточки британской квартиры опции
 // застройщика идут в пакет (`settlement: allowance`), как после выкладки данных `data/partners/demo-uk.json` шага 3.
-//   STAGE=<папка сборки> PORT=8790 [UK_OPTIONS_IN_PACKAGE=1] node tools/ops/demo-walk/stage-proxy.mjs
+//   STAGE=<папка сборки> PORT=8790 [UK_OPTIONS_IN_PACKAGE=1] [NO_EVENTS=1] node tools/ops/demo-walk/stage-proxy.mjs
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { existsSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 
 const STAGE = process.env.STAGE ?? "", PORT = Number(process.env.PORT ?? 8790), UP = process.env.UPSTREAM ?? "https://remont-lab.online";
-const UK_OPT = process.env.UK_OPTIONS_IN_PACKAGE === "1";
+const UK_OPT = process.env.UK_OPTIONS_IN_PACKAGE === "1", NO_EVENTS = process.env.NO_EVENTS === "1";
 if (!STAGE) { console.error("нужен STAGE=<папка сборки>"); process.exit(2); }
 const TYPES = { ".html": "text/html; charset=utf-8", ".json": "application/json", ".js": "text/javascript", ".jpg": "image/jpeg" };
 
@@ -31,10 +32,16 @@ const server = createServer(async (req, res) => {
     if (file) {
       const body = await readFile(join(STAGE, file)), mtime = (await stat(join(STAGE, file))).mtime;
       // дата файла — как у Caddy: живая проверка 1.1 по ней судит о свежести витрины
-      res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream", "cache-control": "no-store", "last-modified": mtime.toUTCString() });
-      res.end(body);
+      // текст — сжатым, как отдаёт Caddy (движок ~1,1 МБ → ~0,3 МБ): иначе замеры на медленной сети врут в пользу прода
+      const zip = /gzip/.test(String(req.headers["accept-encoding"] ?? "")) && /\.(html|json|js)$/.test(file);
+      res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream", "cache-control": "no-store", "last-modified": mtime.toUTCString(),
+        ...(zip ? { "content-encoding": "gzip" } : {}) });
+      res.end(zip ? gzipSync(body) : body);
       return;
     }
+    // `NO_EVENTS=1` — события пробы в аналитику прода не уходят (замеры demo-26 идут без подмен страницы: подмена запросов
+    // в Playwright выключает кэш браузера, а подгрузку заранее мерим именно по кэшу)
+    if (NO_EVENTS && url.pathname.startsWith("/api/events")) { res.writeHead(204); res.end(); return; }
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const headers = { ...req.headers };
@@ -42,7 +49,9 @@ const server = createServer(async (req, res) => {
     // сервер принимает запись только со своего адреса — источник и ссылку переписываем на прод
     if (headers.origin) headers.origin = UP;
     if (typeof headers.referer === "string") headers.referer = headers.referer.replace(/^https?:\/\/[^/]+/, UP);
-    const up = await fetch(url, { method: req.method, headers, body: chunks.length ? Buffer.concat(chunks) : undefined, redirect: "manual" });
+    // `cache: "no-cache"` — условные заголовки браузера (If-None-Match) доходят до прода, и 304 возвращается как есть: в режиме по
+    // умолчанию fetch Node отвечал 200 с телом, и замер кэша (demo-26) видел повторную закачку, которой на проде нет
+    const up = await fetch(url, { method: req.method, headers, body: chunks.length ? Buffer.concat(chunks) : undefined, redirect: "manual", cache: "no-cache" });
     let body = Buffer.from(await up.arrayBuffer());
     if (UK_OPT && url.pathname.startsWith("/api/apartments/") && up.ok) {
       const j = JSON.parse(body.toString("utf8"));

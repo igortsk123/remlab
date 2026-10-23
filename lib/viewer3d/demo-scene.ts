@@ -12,8 +12,10 @@ import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import { fromDemoVariant, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
 import { type DecorIn } from "@/lib/viewer3d/scene-extras";
-import { meshUrl, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
+import { meshUrl, RUNTIME_BASE, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
+import { windowView } from "@/lib/viewer3d/window-views";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
+import { planObjects } from "@/lib/viewer3d/build-scene";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY, type PhotoPose } from "@/lib/viewer3d/viewer";
 
 type DemoRoom = NonNullable<DemoData["room"]>;
@@ -117,6 +119,44 @@ export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, d
   const { apartment, catalogue } = built;
   // стены и пол — свои материалы из паспорта отделки: их ставит сам мост (`fromDemoVariant`), одинаково для окна и /flat
   return { apartment, catalogue };
+}
+
+/**
+ * Адреса моделей расстановки — ровно те, что возьмёт сцена (`planObjects`, тот же признак `lite`). Страница качает их в кэш
+ * браузера, пока покупатель смотрит фото варианта (demo-26): «3D» потом открывается без «Загружаем модели N из M».
+ * Без видеоконтекста — только расчёт сцены; на телефоне до «3D» холст не создаётся.
+ */
+export function sceneMeshUrls(opts: PrefetchOptions): string[] {
+  return sceneAssetUrls(opts).meshes;
+}
+
+type PrefetchOptions = Pick<DemoSceneOptions, "room" | "items" | "decor" | "base" | "runtimeMeshes" | "lite" | "floor" | "wall">;
+/** Транскодер KTX2 (`viewer.ts`: `ktx2Path`): лёгкие копии `/rt/` сжаты в KTX2, и сцена тянет его при первой модели (~0,5 МБ). */
+const BASIS = ["/vendor/basis/basis_transcoder.js", "/vendor/basis/basis_transcoder.wasm"];
+/** Панорама за окнами (`rooms.ts:buildSurroundings`, адрес по умолчанию). */
+const PANORAMA = "/flat3d/env/outside.webp";
+
+/**
+ * Всё, что сцена качает при первом показе: модели (`meshes`) и оболочка (`shell`) — карты пола, стен и ковра (дополнительные
+ * карты — только в полном режиме, как `LITE_QUALITY.extraMaps`), вид за окном (`windowView`), панорама, транскодер KTX2.
+ */
+export function sceneAssetUrls(opts: PrefetchOptions): { meshes: string[]; shell: string[] } {
+  if (opts.runtimeMeshes) setRuntimeMeshes(opts.runtimeMeshes);
+  const built = liveApartment(opts.room, opts.items, opts.base, opts.decor ?? [], opts.floor, opts.wall);
+  if (!built) return { meshes: [], shell: [] };
+  const { apartment, catalogue } = built;
+  const lite = opts.lite === true;
+  const sc = resolveScene(apartment, catalogue, defaultConfiguration(apartment, catalogue));
+  const specs = planObjects(apartment, catalogue, sc, { lite });
+  const meshes = [...new Set(specs.flatMap((s) => (s.kind === "mesh" ? [s.url] : [])))];
+  const rugIds = new Set(specs.flatMap((s) => (s.kind === "rug" && s.materialId ? [s.materialId] : [])));
+  const mats = [...sc.surfaces.flatMap((s) => (s.accent ? [s.material, s.accent.material] : [s.material])),
+    ...catalogue.materials.filter((m) => rugIds.has(m.id))];
+  const maps = mats.flatMap((m) => [m.baseColorUrl, ...(lite ? [] : [m.normalUrl, m.roughnessUrl])]);
+  const views = apartment.rooms.filter((r) => r.openings.some((o) => o.kind === "window")).map((r) => windowView(r.windowView).view.url);
+  const shell = [...new Set([...(meshes.some((u) => u.startsWith(RUNTIME_BASE)) ? BASIS : []), ...maps, ...views, PANORAMA]
+    .filter((u): u is string => !!u))];
+  return { meshes, shell };
 }
 
 export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOptions): DemoScene {

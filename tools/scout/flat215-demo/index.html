@@ -6239,16 +6239,67 @@ function liveOff(why){
 // ДЕКОР В ЖИВУЮ СЦЕНУ — ТОТ ЖЕ, ЧТО УХОДИТ В СЕРВЕРНЫЙ КАДР (`payload().decor`, demo-05 п.9): ваза встаёт на столик
 // одним правилом с кадром (`scene-extras.decorLayout`) и приходит одним состоянием с расстановкой
 function liveDecor(){ return clone(((allVariants()[cur]||{}).decor||[]).filter(x=>!isSoft(x.role))); }   // мягкого в 3D нет (demo-24)
+// модуль движка (~1,1 МБ) — один на страницу: его берут и сцена, и подгрузка заранее; ядро денег пришло — строки опций в сумме
+let _sceneMod=null;
+function sceneModule(){ if(!_sceneMod)_sceneMod=sceneManifest().then(m=>import(new URL('lib/'+m.file,document.baseURI).href))
+  .then(M=>{window.RemlabScene=M; if(typeof vwSumUpdate==='function')vwSumUpdate(); return M;}).catch(e=>{_sceneMod=null; throw e;}); return _sceneMod; }
+// таблица лёгких копий — одна на страницу: по ней и сцена, и подгрузка заранее строят адреса (`?v=`), иначе кэш мимо
+let _rtMeshes=null;
+function rtMeshes(){ if(!_rtMeshes)_rtMeshes=fetch('rt-meshes.json',{cache:'no-store'}).then(r=>r.json()).then(j=>j.meshes)
+  .catch(()=>{_rtMeshes=null; return undefined;}); return _rtMeshes; }
+// МОДЕЛИ 3D ГРУЗЯТСЯ, ПОКА СМОТРЯТ ФОТО (demo-26, владелец 23.10: «пока он рассматривает фотографию, изучает модалку… вполне можем
+// подгрузить все модели»). Только сеть — в кэш браузера (`/rt/` отдаётся immutable), без холста и видеоконтекста: на телефоне контекст до
+// «3D» — память и батарея, а разбор моделей в сцену на компьютере — это работа главного потока во время прокрутки фото и списка. Адреса —
+// те же, что возьмёт сцена (`sceneMeshUrls`: расстановка → `planObjects`, тот же `lite`). По 2–3 запроса, в простое после показа фото;
+// другой набор (сменил вариант, заменил предмет) — недокачанное отменяем, скачанное не повторяем. Экономия трафика / 2g — ничего заранее
+const PRE={key:'', ctl:null, done:new Set(), t:0, n:{start:0, ok:0, abort:0, fail:0}};
+// РИСУЕТ ЛИ КОМПЬЮТЕР ПРОЦЕССОРОМ — тем же правилом, что движок (`viewer.ts:isSoftwareRenderer`): там сцена сама уходит в лёгкие копии
+// (а без `?live=force` 3D нет вовсе — серверный эскиз), и полные копии качались бы впустую. Крошечный контекст — только на компьютере
+// и один раз, сразу освобождается; на телефоне видеоконтекст до «3D» не создаём (сцена там и так лёгкая)
+let _softGL=null;
+function liveSoftGL(){
+  if(_softGL!==null||isTouchUI())return !!_softGL;
+  try{const gl=document.createElement('canvas').getContext('webgl'); if(!gl){_softGL=true; return true;}
+    const ext=gl.getExtension('WEBGL_debug_renderer_info'), nm=String(ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER));
+    _softGL=/swiftshader|llvmpipe|software|microsoft basic/i.test(nm); const lose=gl.getExtension('WEBGL_lose_context'); if(lose)lose.loseContext();}
+  catch(e){_softGL=false;}
+  return _softGL;
+}
+function livePrefetchSoon(){
+  clearTimeout(PRE.t);
+  const c=navigator.connection; if(LIVE.ok===false||(c&&(c.saveData||/(^|slow-)2g$/.test(c.effectiveType||''))))return;
+  PRE.t=setTimeout(()=>{ if(window.requestIdleCallback)requestIdleCallback(livePrefetch,{timeout:2000}); else livePrefetch(); },600);
+}
+async function livePrefetch(){
+  if(VW.mode!=='photo'||!document.getElementById('shot').classList.contains('on')||!D||!D.room)return;
+  const soft=liveSoftGL(); if(soft&&!LIVE.force)return;   // без видеокарты 3D не будет — нечего качать
+  let urls;
+  // сперва оболочка комнаты (карты пола и стен, вид за окном, транскодер текстур) — без неё сцена не стартует; потом модели
+  try{ const M=await sceneModule(); if(!M.sceneAssetUrls)return;
+    const a=M.sceneAssetUrls({room:D.room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:await rtMeshes(),
+      lite:isTouchUI()||soft||!!(LIVE.probe&&LIVE.probe.lite), floor:devFloor()||undefined, wall:devWall()||undefined});
+    urls=[...a.shell, ...a.meshes]; }
+  catch(e){ return; }
+  const todo=urls.filter(u=>!PRE.done.has(u)), key=todo.join('|');
+  if(key===PRE.key)return;                       // тот же набор уже качается
+  if(PRE.ctl)PRE.ctl.abort();
+  PRE.key=key; if(!todo.length){PRE.ctl=null; return;}
+  const ctl=PRE.ctl=new AbortController(), q=todo.slice();
+  const one=async()=>{ for(let u; (u=q.shift())&&!ctl.signal.aborted;){
+    PRE.n.start++;
+    try{ const r=await fetch(u,{signal:ctl.signal, priority:'low'}); if(!r.ok)throw new Error(r.status); await r.arrayBuffer(); PRE.done.add(u); PRE.n.ok++; }
+    catch(e){ if(ctl.signal.aborted)PRE.n.abort++; else PRE.n.fail++; } } };
+  await Promise.all(Array.from({length:Math.min(isTouchUI()?2:3,q.length)},one));
+  if(PRE.ctl===ctl){PRE.ctl=null; PRE.key='';}
+}
 function liveEngine(){
   if(LIVE.ok===false)return Promise.resolve(null);
   if(LIVE.scene)return Promise.resolve(LIVE.scene);
   if(LIVE.loading)return LIVE.loading;
   LIVE.loading=(async()=>{
     try{
-      const m=await sceneManifest();
-      if(!window.RemlabScene){window.RemlabScene=await import(new URL('lib/'+m.file,document.baseURI).href);
-        if(typeof vwSumUpdate==='function')vwSumUpdate();}       // ядро денег пришло — строки опций в сумме
-      let rt; try{rt=(await (await fetch('rt-meshes.json',{cache:'no-store'})).json()).meshes;}catch(e){}
+      await sceneModule();
+      const rt=await rtMeshes();
       const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
       const sc=window.RemlabScene.createDemoScene(cv,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href,
         runtimeMeshes:rt, lite:isTouchUI(), walk:!isTouchUI(), floor:devFloor()||undefined, wall:devWall()||undefined});
@@ -6328,7 +6379,7 @@ function liveFit(wrap){
 async function liveShow(){
   if(VW.mode==='plan'){liveHide(); vwPlanDraw(); return;}   // в «План» сцены нет — после правки перерисовывается план
   // «Фото» — только снимок нейросети (demo-09): живая сцена — в «3D»
-  if(VW.mode==='photo'){liveHide(); return;}
+  if(VW.mode==='photo'){liveHide(); livePrefetchSoon(); return;}   // модели 3D — в кэш, пока смотрят фото (demo-26)
   const s=shots[shotAt];
   const vi=s?allVariants().findIndex(v=>(v.id||'')===(s.vid||'')):-1;
   if(!s||vi!==cur||!document.getElementById('shot').classList.contains('on')){liveHide();return;}
