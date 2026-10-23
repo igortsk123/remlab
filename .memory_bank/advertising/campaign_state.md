@@ -3,7 +3,7 @@ tier: 2
 topic: direct-campaign-state
 scope: Состояние кампании Яндекс Директ 712721026 — стратегия, группы, ключи, объявления, минусы, протоколы
 tier1: ../core/marketing-acquisition.md
-updated: 2026-10-18
+updated: 2026-10-23
 importance: high
 source: manual
 status: working
@@ -144,7 +144,7 @@ review_after: "2026-12-15"
 **Tier 1:** `../core/marketing-acquisition.md` · План: `../completed_plans/yandex-direct-launch.md`.
 
 ## Сверка к запуску (П6, 2026-07-28) — история
-Все 4 кампании SUSPENDED — активных, ведущих на заглушки, нет. Владельцу при включении:
+Все 4 кампании SUSPENDED — активных, ведущих на заглушки, нет. *(На 23.10: все 4 — ARCHIVED с 15–21.08, см. `autopilot.md`.)* Владельцу при включении:
 ✅ МОЖНО: Этап 1 Калькуляторы (712722345 → /calc/[kind] — живые).
 ⛔ НЕ включать до готовности разделов: Этап 2 Ремонт (712722343 → /calc/remont — ЗАГЛУШКА),
 AI-дизайн (712721026 → /start — ЗАГЛУШКА; на 18.10 обе заглушки — пока `NEXT_PUBLIC_SHOW_WIP` ≠ 1), Ванная (712722344 — пауза).
