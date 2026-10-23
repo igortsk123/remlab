@@ -31,6 +31,7 @@ import argparse
 import base64
 import io
 import json
+import re
 import os
 import shutil
 import struct
@@ -231,6 +232,10 @@ def demo_ids(path: str, feed_top: int) -> tuple[list[str], list[str]]:
     """Модели демо: (варианты, первые feed_top кандидатов каждой ленты). Заглушки с «:» — не модели."""
     d = json.load(open(os.path.expanduser(path), encoding="utf-8"))
     mid = lambda x: (x.get("msid") or x.get("sid") or "") if isinstance(x, dict) else ""  # noqa: E731
+    # МЯГКОЕ БЕЗ МОДЕЛИ (demo-24): подушки, шторы, плед — в списке и на фото нейросети, в 3D их нет и меша у них нет;
+    # без этого ворота требовали копии несуществующих моделей и останавливали публикацию (23.10)
+    soft = set(((d.get("rules") or {}).get("soft_roles")) or [])
+    is_soft = lambda r: re.sub(r"\s+\d+$", "", str(r or "")) in soft  # noqa: E731
     var: list[str] = []
     for v in d.get("variants") or []:
         for it in v.get("items") or []:
@@ -241,12 +246,14 @@ def demo_ids(path: str, feed_top: int) -> tuple[list[str], list[str]]:
                 var.append(m)
     for v in d.get("variants") or []:                   # декор тоже на сцене (ваза на столике)
         for x in v.get("decor") or []:
+            if is_soft(x.get("role")):
+                continue
             m = mid(x.get("sku") or {})
             if m and ":" not in m and m not in var:
                 var.append(m)
     feed: list[str] = []
     for role, lst in (d.get("feeds") or {}).items():
-        if str(role).startswith("ковёр"):
+        if str(role).startswith("ковёр") or is_soft(role):
             continue
         for x in [mid(f) for f in lst][:feed_top]:
             if x and ":" not in x and x not in var and x not in feed:
