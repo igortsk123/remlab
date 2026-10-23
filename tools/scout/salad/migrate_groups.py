@@ -35,8 +35,13 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 API = 'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers'
+# memtrim-d8c51952 (T-20261022-10/4): тонкий слой кода поверх localpaint2 — генерация отдаёт память после каждой стадии
+# (канарейка T-10/3: пик формы 23,4 ГБ, удержания нет). Откат — прежний localpaint2 …664917ddc8a656cb (снимки групп до пересоздания —
+# ~/remlab-logs/salad-mem/pool-<время>/)
 IMAGE = ('ghcr.io/igortsk123/mesh-hunyuan@sha256:'
-         'f9a9ad6d0d859a24102416632d730f59dda2ec6e9a699d85664917ddc8a656cb')   # localpaint2
+         'bb42eb56e43f9c31a0988873a5eb27357fd4f9c4f4caa83a46dbc19b6f59029a')   # memtrim-d8c51952
+IMAGE_PREV = ('ghcr.io/igortsk123/mesh-hunyuan@sha256:'
+              'f9a9ad6d0d859a24102416632d730f59dda2ec6e9a699d85664917ddc8a656cb')   # localpaint2
 DONOR = 'mesh-low-4'                       # живая группа-образец: уже на новом образе
 DROP = ('mesh-batch-1', 'mesh-batch-2', 'mesh-low-2', 'mesh-low-3')
 NEW = (

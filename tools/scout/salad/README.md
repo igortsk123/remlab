@@ -1,5 +1,9 @@
 # Образ Hunyuan3D 2.1 для SaladCloud — PBR-меши товаров
 
+> **С 23.10 (T-20261022-10/4) группы — на `memtrim-d8c51952`:** тонкий слой кода поверх рабочего варианта ниже
+> (`ghcr.io/igortsk123/mesh-hunyuan@sha256:bb42eb56e43f9c31a0988873a5eb27357fd4f9c4f4caa83a46dbc19b6f59029a`,
+> `Dockerfile.code`): память после каждой стадии возвращается системе. Основа та же — всё ниже про неё в силе.
+
 > ## РАБОЧИЙ ВАРИАНТ — `cu124-localpaint2`
 > `ghcr.io/igortsk123/mesh-hunyuan@sha256:f9a9ad6d0d859a24102416632d730f59dda2ec6e9a699d85664917ddc8a656cb`
 > Hunyuan3D 2.1 (апстрим `82920d643c0d`), CUDA 12.4.1, torch 2.5.1, RTX 3090/3090 Ti, `STAGED=1`.
