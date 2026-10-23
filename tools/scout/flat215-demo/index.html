@@ -1245,11 +1245,11 @@ function drawVariants(){
       c.hidden=false;
       c.dataset.amount=String(t.amount); c.dataset.included=String(inc); c.dataset.complete=String(!bt||bt.allowanceComplete);
       c.dataset.mode=pkgOf().mode; c.dataset.over=String(over);
-      // ПУЗЫРЬ «i» (владелец 22.10, demo-20 А6; demo-23 — по бюджетам, `certBub`); доплаты вне пакета, «цены уточняются» и курс — строками ниже
+      // ПУЗЫРЬ «i» (владелец 22.10, demo-20 А6; demo-23 — по бюджетам, `certBub`); доплаты вне пакета и курс — строками ниже.
+      // «Часть цен уточняется — итог может измениться» снята (владелец 23.10, demo-26 В): цена «по запросу» видна в строке опции
       const lines=[
         bt&&bt.developerSurcharge?`+${fmtCard(bt.developerSurcharge)} — ${EN?'paid to the developer, not from the allowance':'доплата застройщику, не из сертификата'}`:'',
         bt&&bt.propertyPriceDelta?`+${fmtCard(bt.propertyPriceDelta)} — ${EN?'added to the property price':'к цене квартиры'}`:'',
-        bt&&(!bt.allowanceComplete||bt.onRequest.length)?(EN?'some prices are still being checked — the total may change':'часть цен уточняется — итог может измениться'):'',
         fxNote()];
       // перерисовка — только когда шкала изменилась: `drawVariants` зовётся часто, открытый пузырь «i» не должен закрываться сам
       const html=certScale({pkg:pkgOf(), inc:bt?bt.budget.eligible:null, lines});
@@ -1266,7 +1266,7 @@ function drawVariants(){
 // эта расстановка ПО БЮДЖЕТАМ ({furniture, fitout}). Общий (РФ) — одна полоса, как прежде; раздельный — один трек из двух частей по
 // доле лимитов, под ним легенда «■ Мебель и техника 1 200 / 4 500»; раздельный с нулевым лимитом — обычная полоса, «… не входит в
 // пакет» — в «i». Сверх лимита — штриховка и слова: выбрано — «доплата N», только предпросмотр — «выйдет за лимит на N». Доступность —
-// `role="group"` и по `meter` на бюджет. В «i» — детали обоих бюджетов, затем `o.lines` (доплаты вне пакета, «цены уточняются», курс)
+// `role="group"` и по `meter` на бюджет. В «i» — детали обоих бюджетов, затем `o.lines` (доплаты вне пакета, курс)
 function certScale(o){
   const EN=LANG==='en', P=o.pkg, L=P.limits, z={furniture:0,fitout:0}, inc={...z,...o.inc}, add={...z,...o.add};
   const B=['furniture','fitout'], NM=BUD_NAME(), cls={furniture:'f',fitout:'u'};
@@ -5330,7 +5330,6 @@ function vwSum(){
   const ov=P?P.with.allowanceOverage:over, left=Math.max(0,cert-inc);
   const fav=window.__fav&&window.__fav.ofState&&window.__fav.ofState(curStateId());
   const pdev=P?(P.with.developerSurcharge||0)+(P.with.propertyPriceDelta||0):(t?(t.developerSurcharge||0)+(t.propertyPriceDelta||0):0);
-  const ask=P?(!P.with.allowanceComplete||P.with.onRequest.length):!!(t&&t.onRequest.length);
   // перерасход — не отказ, а доплата покупателя с подтверждением (ADR-0308): «выйдет за лимит на N», включить можно
   const how=ov&&!(P&&P.included)?(EN?`Goes over the limit by ${money(ov)} — you pay the difference`:`Выйдет за лимит на ${money(ov)} — разницу доплачиваете вы`)+'. '
     :'';
@@ -5341,8 +5340,8 @@ function vwSum(){
         :`${EN?'This layout is in the allowance.':'Эта расстановка — в сертификате.'} ${EN?'Chosen':'Выбрано'} ${money(inc)}, ${EN?'left':'остаток'} <b>${money(left)}</b>`)
       :pkg.mode==='split'?next          // перерасход по бюджету — строкой бюджета ниже (`certBub`), без повтора
       :`${EN?'You have':'Вам доступно'} <b>${money(Math.max(0,cert-base))}</b>. ${EN?'This layout':'Эта расстановка'} <b>${money(Math.max(0,withE-base))}</b>. ${how}${next}`;
-  const lines=[pdev?`${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}`:'',
-    ask?(EN?'some prices are still being checked':'часть цен уточняется'):''];
+  // «часть цен уточняется» в «i» окна снята вместе с той же строкой главной (владелец 23.10, demo-26 В)
+  const lines=[pdev?`${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}`:''];
   return certScale({pkg, inc:incB, add:addB, head, lines, bubId:'vplBub'});
 }
 // ЦИФРЫ ПЛАШКИ МЕНЯЮТСЯ ПЛАВНО (v3): прежнее значение → новое за 0,45 с, плашка коротко подсвечивается — замена видна сразу
