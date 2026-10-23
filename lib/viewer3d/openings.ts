@@ -92,16 +92,18 @@ export function meshesFromBoxes(boxes: { w: number; h: number; d: number; x: num
 
 const viewTextures = new Map<string, THREE.Texture>();
 
-/** Картинка вида — одна на id для всей сцены; без браузера (тесты) — плоскость без картинки. */
-function viewMaterial(assetId: string): THREE.MeshBasicMaterial {
+/** Картинка вида — одна на id для всей сцены; без браузера (тесты) — плоскость без картинки. `mirror` — для каймы (`skirtMesh`). */
+function viewMaterial(assetId: string, mirror = false): THREE.MeshBasicMaterial {
   const mat = new THREE.MeshBasicMaterial({ color: 0xc9dae8, toneMapped: false, fog: false });
   const url = WINDOW_VIEWS[assetId]?.url;
   if (!url || typeof document === "undefined") return mat;
-  let tex = viewTextures.get(url);
+  const key = mirror ? `${url}#mirror` : url;
+  let tex = viewTextures.get(key);
   if (!tex) {
     tex = new THREE.TextureLoader().load(url);
     tex.colorSpace = THREE.SRGBColorSpace;
-    viewTextures.set(url, tex);
+    if (mirror) tex.wrapS = tex.wrapT = THREE.MirroredRepeatWrapping;
+    viewTextures.set(key, tex);
   }
   mat.map = tex;
   mat.color.set(0xffffff);
@@ -118,6 +120,31 @@ function backdropMesh(bd: IrBackdrop): THREE.Mesh {
   const m = new THREE.Mesh(geo, viewMaterial(bd.assetId));
   m.position.set(((bd.u0 + bd.u1) / 2) * CM, ((bd.bottom + bd.top) / 2) * CM, -bd.back * CM);
   m.name = "window-view";
+  return m;
+}
+
+/**
+ * КАЙМА ВИДА (demo-27 Г, только живая сцена): плоскость вида (`IrBackdrop`) кончается у конца стены и середины простенка, и
+ * глаз «3D» в 50 см от стены видит сквозь окно под углом за её край — там была панорама вокруг дома (другой, «пиксельный»
+ * город) и шов. Кайма — та же картинка в том же масштабе и месте, продолженная зеркально, на `SKIRT_GAP_CM` дальше плоскости:
+ * в пределах плоскости всегда видна она (кадр сервера — тот же), кайма — только за её краями. У соседних окон стены кайма
+ * ещё на полсантиметра дальше на каждый номер — перекрытия без мерцания.
+ */
+const SKIRT_U_CM = 1000;
+const SKIRT_V_CM = 300;
+const SKIRT_GAP_CM = 1;
+function skirtMesh(bd: IrBackdrop, index: number): THREE.Mesh {
+  const ku = (bd.uv.u1 - bd.uv.u0) / (bd.u1 - bd.u0), kv = (bd.uv.v1 - bd.uv.v0) / (bd.top - bd.bottom);
+  const u0 = bd.u0 - SKIRT_U_CM, u1 = bd.u1 + SKIRT_U_CM, bottom = bd.bottom - SKIRT_V_CM, top = bd.top + SKIRT_V_CM;
+  const geo = new THREE.PlaneGeometry((u1 - u0) * CM, (top - bottom) * CM);
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, bd.uv.u0 + (u0 + uv.getX(i) * (u1 - u0) - bd.u0) * ku, bd.uv.v0 + (bottom + uv.getY(i) * (top - bottom) - bd.bottom) * kv);
+  }
+  const back = bd.back + SKIRT_GAP_CM + index * 0.5;
+  const m = new THREE.Mesh(geo, viewMaterial(bd.assetId, true));
+  m.position.set(((u0 + u1) / 2) * CM, ((bottom + top) / 2) * CM, -back * CM);
+  m.name = "window-view:skirt";
   return m;
 }
 
@@ -159,9 +186,14 @@ export function buildOpenings(openings: Opening[], side: string, opts: OpeningVi
   const g = new THREE.Group();
   const { id, view } = windowView(opts.windowView);
   const rooms = viewRooms(openings, opts.lengthCm ?? 1e6);
-  openings.forEach((o, i) => g.add(meshesFromIR(openingIR(o, {
-    wallHeightCm: opts.heightCm, entrance: !!opts.doorsClosed || opts.entranceWall === side,
-    view: { assetId: id, horizon01: view.horizon01, aspect: view.aspect }, viewRoomLo: rooms[i]!.lo, viewRoomHi: rooms[i]!.hi,
-  }))));
+  openings.forEach((o, i) => {
+    const ir = openingIR(o, {
+      wallHeightCm: opts.heightCm, entrance: !!opts.doorsClosed || opts.entranceWall === side,
+      view: { assetId: id, horizon01: view.horizon01, aspect: view.aspect }, viewRoomLo: rooms[i]!.lo, viewRoomHi: rooms[i]!.hi,
+    });
+    const m = meshesFromIR(ir);
+    if (ir.backdrop) m.add(skirtMesh(ir.backdrop, i));
+    g.add(m);
+  });
   return g;
 }

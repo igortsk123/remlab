@@ -25,7 +25,7 @@ import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/v
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { outlineFrame } from "@/lib/viewer3d/outline";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
-import { boxPoints, livePitchDeg, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
+import { boxPoints, livePitchDeg, liveSpot, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
 
 const CM = 0.01;
@@ -218,6 +218,8 @@ export class FlatViewer {
    * сдвига объектива, с наклоном вниз, при котором мебель — в видимой полосе холста `band`. Кадры нейросети (`capturePhoto`) — как были.
    */
   private liveEye: { eyeCm: number; band: LiveBand } | null = null;
+  /** Поза ракурса как пришла: `photo` из неё при «3D» глазами стоящего — с глазом не ближе 50 см к стенам (`liveSpot`). */
+  private photoRaw: PhotoPose | null = null;
   private poseAnim: { dx: number; dy: number; yaw: number; pitch: number; t0: number; ms: number } | null = null;
   /** Кэш точки ценника над предметом: `Box3` по группе — дорого на каждый кадр (Codex 17.10, ценники в прогулке). */
   private anchors = new Map<string, { g: THREE.Object3D; px: number; pz: number; ry: number; t: number; c: THREE.Vector3; bb: THREE.Box3 }>();
@@ -348,6 +350,7 @@ export class FlatViewer {
       const { group, floor } = buildRoom(this.matCtx, room, floorMat, wallMat, { entranceWall, doorsClosed, ...(accent ? { accent } : {}) });
       group.userData.roomId = room.id;
       floor.userData.roomId = room.id;
+      if (this.viewMode === "top") group.traverse((o) => { if (o.name === "window-view:skirt") o.visible = false; });
       this.scene.add(group);
       this.roomGroups.set(room.id, group);
       this.floors.push(floor);
@@ -576,14 +579,14 @@ export class FlatViewer {
     if (this.viewMode === "top") this.fitTop(this.currentRoom);
   }
 
-  /** Переключение вида: прогулка ↔ сверху. Потолки в виде сверху прячем, иначе видно только их. */
+  /** Переключение вида: прогулка ↔ сверху. Потолки в виде сверху прячем, иначе видно только их; кайму вида за окнами — тоже. */
   setViewMode(mode: "walk" | "top"): void {
     if (this.viewMode === mode) return;
     this.viewMode = mode;
     this.photo = null;
     applyPhotoShift(this.camera, 0); // сдвиг объектива — только у фото-позы
     this.scene.traverse((o) => {
-      if (o.name.startsWith("ceiling:")) o.visible = mode !== "top";
+      if (o.name.startsWith("ceiling:") || o.name === "window-view:skirt") o.visible = mode !== "top";
     });
     if (mode === "top") {
       // по умолчанию показываем ВСЮ квартиру («кукольный дом»), а выбор комнаты приближает к ней
@@ -628,12 +631,13 @@ export class FlatViewer {
 
   /** Неподвижная камера фото-кадра (см. `PhotoPose`). Выход — `setViewMode`. */
   setPhotoPose(pose: PhotoPose): void {
-    this.photo = { ...pose };
-    this.photoLook = { yaw: 0, pitch: this.basePitch(pose) };
+    this.photoRaw = { ...pose };
+    this.photo = this.livePlaced(pose);
+    this.photoLook = { yaw: 0, pitch: this.basePitch(this.photo) };
     this.poseAnim = null;
     if (this.viewMode === "top") {
       this.scene.traverse((o) => {
-        if (o.name.startsWith("ceiling:")) o.visible = true;
+        if (o.name.startsWith("ceiling:") || o.name === "window-view:skirt") o.visible = true;
       });
     }
     this.viewMode = "photo";
@@ -646,6 +650,15 @@ export class FlatViewer {
   /** «3D» глазами стоящего: глаз (см) и видимая полоса холста (доли высоты); null — живая поза как кадр нейросети. */
   setLiveEye(v: { eyeCm?: number; band?: Partial<LiveBand> } | null): void {
     this.liveEye = v ? { eyeCm: v.eyeCm ?? LIVE_EYE_CM, band: { top: v.band?.top ?? 0, bottom: v.band?.bottom ?? 1 } } : null;
+    if (this.photoRaw && this.photo) {
+      const p = this.livePlaced(this.photoRaw);
+      this.photo = { ...this.photo, x: p.x, y: p.y };
+    }
+  }
+
+  /** Поза для живой сцены: «3D» глазами стоящего — глаз внутри комнаты, не ближе `LIVE_WALL_CM` к стенам; иначе как есть. */
+  private livePlaced(pose: PhotoPose): PhotoPose {
+    return this.liveEye ? { ...pose, ...liveSpot(pose, this.apartment.rooms) } : { ...pose };
   }
 
   /** Наклон взгляда в текущей позе заново — по мебели, что уже в сцене (после загрузки расстановки: до неё мебели нет). */
@@ -726,7 +739,8 @@ export class FlatViewer {
     if (pitch !== undefined) this.photoLook.pitch = Math.max(-35, Math.min(35, pitch));   // наклон к предмету (`frameItem`)
     if (!cur) return;
     const yaw = ((cur.rot - pose.rot + 540) % 360) - 180;
-    this.poseAnim = { dx: cur.x - pose.x, dy: cur.y - pose.y, yaw, pitch: cur.pitch - this.photoLook.pitch, t0: now, ms };
+    const to = this.photo ?? pose;   // глаз «3D» мог отойти от стены (`livePlaced`) — переход к нему, не к точке кадра
+    this.poseAnim = { dx: cur.x - to.x, dy: cur.y - to.y, yaw, pitch: cur.pitch - this.photoLook.pitch, t0: now, ms };
   }
 
   /** Из фото-позы — в прогулку с той же точки и тем же взглядом (тап по полу в 3D: «иди сюда»). */
@@ -1497,6 +1511,8 @@ export class FlatViewer {
       });
     }
     for (const o of [this.outline, this.ghost]) if (o && o.visible) { o.visible = false; undo.push(() => { o.visible = true; }); }
+    // кайма вида за окном — только для глаза «3D» (`openings.ts:skirtMesh`); кадр нейросети — как у сервера, по плоскости вида
+    this.scene.traverse((o) => { if (o.name === "window-view:skirt" && o.visible) { o.visible = false; undo.push(() => { o.visible = true; }); } });
     const canvas = this.renderer.domElement;
     const prev = new THREE.Vector2();
     this.renderer.getSize(prev);

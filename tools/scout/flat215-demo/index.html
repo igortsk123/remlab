@@ -5168,7 +5168,10 @@ function histFwd(){return histGo(1);}
 .shotwrap:has(.livecv) .vzbtn{display:none}
 #vzoom{position:fixed;inset:0;z-index:var(--z-modal);background:#111;display:none;touch-action:none;overflow:hidden}
 #vzoom.on{display:block}#vzoom img{position:absolute;left:50%;top:50%;max-width:100%;max-height:100%;transform-origin:center;
- will-change:transform;user-select:none;-webkit-user-drag:none}
+ user-select:none;-webkit-user-drag:none}
+/* слой — только пока палец/колесо двигают картинку: постоянный `will-change` держал снимок картинки с масштаба 1 и при ×3
+   растягивал его (мыло, demo-27 Б); снят — браузер перерисовывает кадр в полном разрешении на конечном масштабе */
+#vzoom img.vzg{will-change:transform}
 #vzoom .vzx{position:absolute;top:12px;right:12px;width:42px;height:42px;border-radius:50%;border:0;background:rgba(255,255,255,.9);font-size:22px;z-index:2;transition:opacity .2s}
 #vzoom.nox .vzx{opacity:0;pointer-events:none}
 /* ракурсы во весь экран (demo-19 В2; demo-22 п.3 — только кнопками): снизу тот же переключатель, что в окне, на компьютере ещё стрелки */
@@ -5564,7 +5567,10 @@ function vwZoom(url, list, onPick){
   const base=()=>{const nw=im.naturalWidth||16, nh=im.naturalHeight||9, s0=Math.min(W()/nw,H()/nh); return {w:nw*s0,h:nh*s0};};
   const lim=kk=>{const b=base(); return {x:Math.max(0,(b.w*kk-W())/2), y:Math.max(0,(b.h*kk-H())/2)};};
   const clamp=(v,m,rub)=>rub?(v>m?m+(v-m)*0.3:v<-m?-m+(v+m)*0.3:v):Math.max(-m,Math.min(m,v));
-  const put=anim=>{im.style.transition=anim?'transform .25s ease':'none';
+  // слой на время движения (`.vzg`), через 350 мс покоя снимается — резкий кадр подменяет растянутый без мигания
+  let gT=0;
+  const put=anim=>{im.style.transition=anim?'transform .25s ease':'none'; im.classList.add('vzg'); clearTimeout(gT);
+    gT=setTimeout(()=>{if(!pts.size)im.classList.remove('vzg');},350);
     im.style.transform=`translate(calc(-50% + ${tx}px),calc(-50% + ${ty}px)) scale(${k})`;};
   // точка экрана остаётся под пальцем при смене масштаба: t' = P − C − (P − C − t)·k'/k
   const zoomAt=(nk,px,py,anim)=>{const cx=W()/2, cy=H()/2; nk=Math.max(1,Math.min(4,nk));

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
-import { boxPoints, livePitchDeg, LIVE_EYE_CM, LIVE_PITCH_DEFAULT, LIVE_TOP_CAP_CM, type LiveBand } from "@/lib/viewer3d/live-eye";
+import { boxPoints, livePitchDeg, liveSpot, LIVE_EYE_CM, LIVE_PITCH_DEFAULT, LIVE_TOP_CAP_CM, LIVE_WALL_CM, type LiveBand } from "@/lib/viewer3d/live-eye";
 import { verticalFov } from "@/lib/viewer3d/viewer";
 
 // «3D» ГЛАЗАМИ СТОЯЩЕГО (demo-27): наклон из `livePitchDeg` ставится настоящей камерой three.js так, как это делает движок (глаз
@@ -63,5 +63,24 @@ describe("наклон «3D» глазами стоящего", () => {
   it("висящее выше 120 см (люстра) — не точки мебели", () => {
     expect(boxPoints({ x: 0, y: 0, h: 200 }, { x: 10, y: 10, h: 230 })).toEqual([]);
     expect(boxPoints({ x: 0, y: 0, h: 0 }, { x: 10, y: 10, h: 230 })).toHaveLength(8);
+  });
+});
+
+// ГЛАЗ «3D» НЕ У СТЕНЫ (demo-27 Г): точки ракурсов демо стоят в 3 см от стены — при повороте стена ближе ближней плоскости камеры
+// срезалась, сквозь неё была видна панорама вокруг дома, а окно в упор — край картинки вида
+describe("глаз «3D» — не ближе 50 см к стенам", () => {
+  const room = { x: 0, y: 0, w: 439, d: 325 };
+  it("точки ракурсов демо (3 см от стены) отходят в комнату на 50 см, вдоль стены не сдвигаются", () => {
+    expect(liveSpot({ x: 3, y: 262 }, [room])).toEqual({ x: LIVE_WALL_CM, y: 262 });
+    expect(liveSpot({ x: 436, y: 242 }, [room])).toEqual({ x: 439 - LIVE_WALL_CM, y: 242 });
+  });
+  it("в середине комнаты — на месте; в углу — 50 см от обеих стен", () => {
+    expect(liveSpot({ x: 200, y: 150 }, [room])).toEqual({ x: 200, y: 150 });
+    expect(liveSpot({ x: 2, y: 323 }, [room])).toEqual({ x: 50, y: 275 });
+  });
+  it("за пределами всех комнат — в ближайшую; узкая (80 см) — посередине", () => {
+    const hall = { x: 500, y: 0, w: 80, d: 300 };
+    expect(liveSpot({ x: 460, y: 100 }, [room, hall])).toEqual({ x: 389, y: 100 });
+    expect(liveSpot({ x: 505, y: 100 }, [room, hall])).toEqual({ x: 540, y: 100 });
   });
 });
