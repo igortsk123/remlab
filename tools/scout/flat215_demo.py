@@ -1566,11 +1566,37 @@ def annotate_tint(data: dict, out_dir: str = OUT) -> int:
     return n
 
 
+def _swatch_tone(path: str):
+    """ТОН ОБРАЗЦА — цвет ткани, а не среднее по фото (ведущий 23.10: «Молочный» кружок заметно темнее дивана). Среднее `_tone`
+    серит светлое трижды: отбрасывает самые светлые пиксели ткани (порог фона), берёт тени и тёмные ножки. Здесь: фон — почти белое,
+    связанное с краем кадра (белая обивка внутри предмета остаётся); пиксели предмета — в 4 группы по цвету, берётся самая большая
+    (ткань, а не ножки и тень на полу) и в ней освещённая часть — яркость от медианы до 95-го процентиля. Доли 0..1; без scipy или
+    на мелком предмете — прежнее среднее. Подкраска 3D (`annotate_tint`) остаётся на `_tone`: там важно отношение тонов, не тон."""
+    try:
+        import numpy as _np
+        from PIL import Image as _Im
+        from scipy import ndimage as _nd
+        from scipy.cluster.vq import kmeans2 as _km
+        a = _np.asarray(_Im.open(path).convert('RGB').resize((128, 96)), _np.float32)
+        lab, _n = _nd.label(a.min(axis=2) >= 244)
+        edge = set(_np.unique(_np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]).tolist())) - {0}
+        px = a[~_np.isin(lab, list(edge))]
+        if len(px) < 200:
+            return _tone(path)
+        _c, lb = _km(px, 4, seed=_np.random.default_rng(0), minit='++')
+        s = px[lb == _np.bincount(lb, minlength=4).argmax()]
+        lum = s @ _np.array([0.299, 0.587, 0.114], _np.float32)
+        lo, hi = _np.percentile(lum, [50, 95])
+        s = s[(lum >= lo) & (lum <= hi)]
+        return [float(x) / 255.0 for x in s.mean(axis=0)] if len(s) else _tone(path)
+    except Exception:  # noqa: BLE001 — нет фото/scipy: прежнее среднее (или без образца)
+        return _tone(path)
+
+
 def annotate_swatch(data: dict, out_dir: str = OUT) -> int:
     """ОБРАЗЕЦ ЦВЕТА (demo-28, владелец 23.10): у товара, чья модель (`msid`) есть в данных хотя бы в двух цветах (разные `sid`), —
-    `sku.swatch` = '#rrggbb', средний тон фото без белого фона (`_tone`, то же правило, что у подкраски и кадра). Это кружки цвета в
-    строке списка и в карточке товара; тон приблизительный (ножки и тени тоже в нём). Нет фото — без образца: страница рисует кружок
-    из самого фото."""
+    `sku.swatch` = '#rrggbb', цвет ткани по фото (`_swatch_tone`: главная группа цвета без фона, её освещённая часть). Это кружки
+    цвета в строке списка и в карточке товара. Нет фото — без образца: страница рисует кружок из самого фото."""
     skus = [it.get('sku') or {} for v in data.get('variants') or [] for it in (v.get('items') or []) + (v.get('decor') or [])]
     skus += [f for lst in (data.get('feeds') or {}).values() for f in lst if isinstance(f, dict)]
     fam: dict = {}
@@ -1585,7 +1611,7 @@ def annotate_swatch(data: dict, out_dir: str = OUT) -> int:
         if not sid or len(fam.get(sk.get('msid'), ())) < 2 or not img or str(img).startswith('http'):
             continue
         if sid not in tone:
-            tone[sid] = _tone(os.path.join(out_dir, img))
+            tone[sid] = _swatch_tone(os.path.join(out_dir, img))
         if tone[sid]:
             sk['swatch'] = '#%02x%02x%02x' % tuple(round(x * 255) for x in tone[sid])
             n += 1

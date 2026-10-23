@@ -124,6 +124,7 @@ jobs:
       - run: python tools/scout/tests/test_browser_sheet.py   # лист из кадров браузера: размер, полоса, порядок, ключ ответа (demo-10)
       - run: python tools/scout/tests/test_contracts_fuse.py   # шаги банка не молчат (WARN при отказе предохранителя), пара кресел — одна модель (conv-12)
       - run: python tools/scout/tests/test_demo_soft.py   # (нужен planner: draft_render) мягкое (подушки, шторы, плед) — в списке и в «Улучшить фото», не в 3D и без мешей (demo-24)
+      - run: pip install scipy && python tools/scout/tests/test_demo_swatch.py   # кружок цвета — тон ткани без фона и теней, светлое не серит (demo-28)
 
   draft-image:
     # Образ сервиса кадров собирается ИЗ РЕПОЗИТОРИЯ (b2b-08, ADR-0267): сборка проверяет импорты HTTP-рендера —
