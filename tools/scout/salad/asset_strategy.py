@@ -44,6 +44,22 @@ def policy_version() -> int:
     return int(_load().get('policy_version', 0))
 
 
+def roles_with(strategy_name: str) -> set:
+    """Роли канона с этой стратегией (`cutout` — мягкое и настенное, demo-24 `flat215_demo.soft_roles`)."""
+    return {r for r, s in _load()['roles'].items() if s == strategy_name and not r.startswith('_')}
+
+
+# НАСТОЛЬНЫЙ ДЕКОР СРЕДИ `cutout` (часы стоят на столешнице, как ваза, — `flat215_demo.DECOR_ROLES`): в «без места в 3D» не входит
+_TABLETOP_CUTOUT = {'часы'}
+
+
+def soft_roles() -> set:
+    """МЯГКОЕ БЕЗ МЕСТА В 3D (demo-24, владелец 23.10): подушка, шторы, плед, покрывало (и настенная полка) — стратегия `cutout`,
+    кроме настольного декора. Одно правило на экспорт (`flat215_demo.soft_roles` → `rules.soft_roles` страницы), сцену сервера
+    (`draft_render.decor_layout` их не ставит) и «Улучшить фото» (`improve_mode.soft_items` — в запрос словами и фото)."""
+    return roles_with('cutout') - _TABLETOP_CUTOUT
+
+
 def non_mesh_roles() -> set:
     """Роли, которым меш НЕ нужен (вклейка плоскостью и вырезка по контуру).
 
