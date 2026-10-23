@@ -517,7 +517,12 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
 .row{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px dashed var(--line);
  cursor:pointer}
 .row:hover{background:var(--wash)}
-.row .t .acts{display:block;margin-top:2px}
+/* «ЗАМЕНИТЬ · В МАГАЗИН» — СВОЕЙ СТРОКОЙ ПОД ФОТО И ТЕКСТОМ (demo-26 Г, снимок владельца 23.10, iPhone SE): внутри текстовой колонки
+   пара делила ширину с ценой, и на iPhone (system-ui = SF, цифры разной ширины) «84 990 ₽» оказалась на 1–2 px шире «32 990 ₽» —
+   «В магазин» уходил столбиком. Теперь строка действий — на всю ширину ряда от края текста, цена её не сжимает, перенос запрещён */
+.row{flex-wrap:wrap;row-gap:0}
+.row>.acts{display:block;flex:0 0 100%;padding-left:74px;box-sizing:border-box;white-space:nowrap;margin-top:2px;
+ font-size:clamp(15px,1.05vw,17px);color:var(--muted)}
 /* ЗАГЛУШКИ ФОТО (26.08): пока кадра нет, показываем «плёнку» с подписью ракурса, а не пустоту */
 .ph{flex:0 0 auto;width:240px;height:170px;border-radius:var(--radius-sm);border:1px dashed var(--line);
  background:repeating-linear-gradient(135deg,var(--wash) 0 12px,var(--wash-2) 12px 24px);display:flex;
@@ -562,7 +567,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .pinlist{margin-top:16px;padding-top:4px}
 .pinlist .row{min-height:80px;align-items:center}
 .pinlist .row .t{display:flex;flex-direction:column;justify-content:center;gap:2px;min-height:64px}
-.pinlist .row .t .acts{min-height:20px;display:block;margin-top:2px}
+.pinlist .row>.acts{min-height:20px}
 /* ПЛИТКА МИНИАТЮРЫ — ЖЁСТКИЙ КВАДРАТ. Размер задаём и минимумом, и максимумом: `width` у
    элемента в строке-флексе легко перебивается, а `max-width/max-height` не даёт картинке
    растянуть плитку под свои пропорции. Рамка делает равенство видимым: у большинства товаров
@@ -2558,9 +2563,10 @@ function decorRows(){
       // открывается улучшенным фото, подушки там видны; подсказка — только тостом при замене, `softSwapToast`)
       `<div class="t"><b>${p.name}</b><span>`+(isSoft(x.role)?baseRole(x.role):`${baseRole(x.role)} · ${decorWhere(x)}`)+
       (p.shop?' · '+p.shop:'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
+      `</div><div class="p">${money(p.price)}</div>`+
+      // действия — своей строкой под фото и текстом (`.row>.acts`, demo-26 Г)
       `<span class="acts"><button class="lnk swap">Заменить</button>`+
-      (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span>`+
-      `</div><div class="p">${money(p.price)}</div></div>`;}).join('');
+      (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`;}).join('');
   return {html:html, n:d.length, sum:sum};
 }
 // КУДА СТАВИТСЯ ДЕКОР. Правило одно со сценой (`decorSupport`): журнальный столик, если он есть,
@@ -2624,10 +2630,10 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
     const buy=n>1?` · ${n} комплекта`:'';
     return `<div class="row" data-i="${items.indexOf(i)}">`+
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
-      `<div class="t"><b>${p.name||i.role}</b><span>${roles} · ${dims}${p.shop?' · '+p.shop:''}${p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':''}${cnt}${buy}</span>`+
+      `<div class="t"><b>${p.name||i.role}</b><span>${roles} · ${dims}${p.shop?' · '+p.shop:''}${p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':''}${cnt}${buy}</span></div>`+
+      `<div class="p">${money((p.price||0)*n)}</div>`+
       `<span class="acts"><button class="lnk swap">Заменить</button>`+
-      (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`+
-      `<div class="p">${money((p.price||0)*n)}</div></div>`;}).join('')
+      (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`;}).join('')
     // ДЕКОР — ТАКОЙ ЖЕ КУПЛЕННЫЙ ТОВАР (владелец 02.09: «вазы должны в списке товаров появиться,
     // не вижу»). Он лежит отдельно от расстановки, потому что места на плане у него нет — модель
     // ставит его на стол или тумбу. Но платит за него человек так же, значит и в списке, и в
@@ -4225,12 +4231,13 @@ function shotListHtml(s){
           (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`:'<div class="noimg-sm">нет фото</div>')+
           `<div class="t"><b>${a.name}</b>`+
           // мягкое (demo-24) — без пометки, роль без номера слота (владелец и ведущий 23.10)
-          `<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${a.shop?' · '+a.shop:''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
+          `<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${a.shop?' · '+a.shop:''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span></div>`+
+          `<div class="p">${money(a.price)}</div>`+
+          // действия — своей строкой под фото и текстом: цена их не сжимает (`.row>.acts`, demo-26 Г)
           `<span class="acts">`+
             (own?`<button class="lnk" data-rep="${k}">Заменить</button>`:'')+
             (a.url?`${own?' · ':''}<a href="${a.url}" target="_blank" rel="noopener">В магазин</a>`:'')+
-          `</span></div>`+
-          `<div class="p">${money(a.price)}</div></div>`;}).join('')+
+          `</span></div>`;}).join('')+
       `</div>`;
 }
 // «Заменить» из просмотра: находим предмет текущей расстановки по названию товара
