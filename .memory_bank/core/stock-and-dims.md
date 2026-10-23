@@ -3,7 +3,7 @@ tier: 1
 topic: stock-and-dims
 scope: Наличие и честность размеров — состояния, парсер, footprint
 tier2: "../domain/stock-and-dims.md"
-updated: 2026-10-18
+updated: 2026-10-23
 importance: high
 source: manual
 status: working
@@ -17,23 +17,22 @@ review_after: 2026-12-05
 **Правила владельца:** размер не придумывается; `available` API не собираем; антибот-магазины не дёргаем и
 честно пишем «неизвестно»; 404 и сбои сайта ≠ «нет в наличии».
 
-**Наличие (`tools/scout/stock_check.py`, `page_alive.py`, `stock_truth.py`):** якорь домена (главная + 3 живых
-карточки) перед обходом, карантин окончателен (`disposition=quarantined`), негатив только по текущей ссылке
-(`products.direct_url_hash`), гейт по решающим ответам с пределом при малой выборке, канарейка адреса; антибот
-подтверждён только у mdm (`probe_domain_status.policy=disabled`, проба раз в неделю). Модель в `products`:
-`availability_state` (in_stock|out_of_stock|unknown), `page_state` (alive|gone|unknown), `availability_basis`
-(page|feed|none), `stock_evidence_at`; пишет только `stock_truth.reconcile()`; демо показывает «наличие не
-проверено». Замер 11.10: основание `page` — 20 002, `feed` — 1 389. Парсер v2 (snake_case, `href=`, JSON-LD Product, inline-остаток
-tvoydom) ВКЛЮЧЁН по умолчанию с 03.09 после gold-замера (`page_alive.py: PARSER_V2`, откат
-`STOCK_PARSER_V2=0`); режим тени (`--shadow`, `stock_shadow_report.py`) остался для проверок. Цена со страницы
-— наблюдение (`product_page_facts`), показываемую цену выбирает `price_truth.py` (ADR-0260).
+**Наличие (`tools/scout/stock_check.py`, `page_alive.py`, `stock_truth.py`):** якорь домена перед обходом, карантин окончателен,
+негатив только по текущей ссылке; модель `availability_state`/`page_state`/`availability_basis`/`stock_evidence_at` пишет только
+`stock_truth.reconcile()`; парсер v2 включён (`page_alive.py:PARSER_V2`); цену показа выбирает `price_truth.py` (ADR-0260).
 
-**Размеры (`tools/scout/footprint.py`, `dim_resolver.py`):** одно правило «Ш×Г или диаметр из каталога» для
-compose2, `sets_incremental`, `catalog_media`, `solver_run` (`DIMS_STRICT=1`), `scene_build`, `export_plans_ai`,
-`flat215_demo`; выдуманных дефолтов нет, недостающую глубину по роли и форме выводит `dim_prior.py`
-(`role_prior`, с 11.10). Тройка «Ш×Г×В» в названии — авторитет; оси по магазинам — `dim_resolver.py:SHOP_DIM_KEYS` (tvoydom: «Длина» = фасад только у мебели). Банк №3: 126 сетов, 2 479 позиций, 0 напольных без размера.
+**Размеры (`tools/scout/footprint.py`, `dim_resolver.py`):** одно правило «Ш×Г или диаметр из каталога» для сборки, лечения,
+солвера, сцены, экспорта и демо; выдуманных дефолтов нет. Тройка «Ш×Г×В» в названии — авторитет; оси по магазинам —
+`dim_resolver.py:SHOP_DIM_KEYS`.
 
-**Отрицательно (не повторять без новых данных):** глубина из меша по одному фото (`mesh_dims.py`: меш додумывает
-глубину), `available` API как источник наличия.
+**Выведенные размеры — «чтобы влезло», с провенансом в `dims_evidence.<ось>.source` (ADR-0310):** `role_prior` — глубина по роли
+и форме (`dim_prior.py`); `shape_rule:sphere` — ваза-шар (`dim_resolver.py:sphere_height`); `shape_rule:transformer` — трансформер
+Орматека по спальному месту (`dim_resolver.py:transformer_dims`, доказано для `bank_ready.py`). Свет: порог высоты 1 см у люстры и бра.
+Категория без размеров — карантин, роль остаётся (ADR-0309, `dimless.py`).
 
-**Tier 2:** `../domain/stock-and-dims.md` · `completed_plans/stock-and-dims-honesty.md`.
+**Вылет люстры (ADR-0311):** минимальная подвеска ≤ потолок − 210 (`compose_gates.py:pendant_out`); поля `drop_*` в `dims_evidence.h`
+(`dim_resolver.py:pendant_drop`); потолок — `ceilingCm` квартиры (`contracts/partner.ts`), нет — 270 (`contracts/apartment.ts:DEFAULT_CEILING_CM`).
+
+**Отрицательно:** глубина из меша по одному фото (`mesh_dims.py`), `available` API, семейный приор высоты ламп (владелец 23.10).
+
+**Tier 2:** `../domain/stock-and-dims.md` (правила, числа, замеры) · `completed_plans/stock-and-dims-honesty.md`.

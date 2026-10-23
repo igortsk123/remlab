@@ -3,7 +3,7 @@ tier: 1
 topic: catalog
 scope: Каталог — загрузка из фидов/API, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-10-18
+updated: 2026-10-23
 importance: high
 source: manual
 status: working
@@ -21,18 +21,18 @@ review_after: 2026-12-05
 
 **Источник истины (ADR-0171, `tools/scout/load3.py`):** ФИД — ключ `(merchant_id, id)`, название, ссылка,
 фото, `original_picture → image_url_hd`, `article`, цена, категория, params, описание (пустое не затирает).
-API (`catalog_api_sync.py`, ЕЖЕДНЕВНО с 11.10, сплошной обход + добор словами, ADR-0239) — `charge`,
-пустые HD и описание; каноном состава НЕ является (видит 56 % магазина и молча обрывается);
-комиссия связывается по `article`, HD и описание — по картинке/названию. Вычисляем: размеры (`dim_resolver.py`, оси по магазину×роли),
-роль (`category_map.py` → `products.cat_role`, детское — название и картинка ковра `rug_kids.py`; витрина `lr_roles` её читает — ADR-0236),
+API (`catalog_api_sync.py`, ежедневно, ADR-0239) — `charge`, пустые HD и описание; каноном состава НЕ является (видит 56 %);
+комиссия — по `article`, HD и описание — по картинке/названию. Вычисляем: размеры (`dim_resolver.py`, оси по магазину×роли),
+роль (`category_map.py` → `products.cat_role`, её читает витрина `lr_roles` — ADR-0236; детское — `rug_kids.py`; свет — по «Тип»,
+`category_map.py:light_role`),
 `in_stock` (`stock_truth.reconcile()`, единственный писатель).
 
-**Дельта (HASH_VERSION=4, `load3.py`):** text/geometry/image/attrs → `stale` (payload остаётся;
-commercial и image_hd — только счётчики журнала), смена контракта → baseline. Исчез → `missing`, 3 дня → `archived`; не удаляем.
+**Дельта (`load3.py:HASH_VERSION` = 7; смена правил `dim_resolver` — подъём, сторож `RULES_FINGERPRINT`):** text/geometry/image/attrs → `stale`
+(commercial и image_hd — только счётчики), смена контракта → baseline. Исчез → `missing`, 3 дня → `archived`; не удаляем.
 Порог «< 70 %» — по магазину против последнего успеха (`catalog_import_runs`), одна транзакция.
 Карантин фидов — `feed_guard.py` (≤30 ч). Обогащение `enrich.py --vision` — ежедневно, ≤200.
 
-**Наличие и размеры честно** — [[stock-and-dims]].
+**Наличие и размеры честно** — [[stock-and-dims]]; там же категория без размеров — карантин, роль остаётся (ADR-0309, `dimless.py`).
 
 **Стили и готовность к мешам (ADR-0237/0238).** `style_score.py` (правила → CLIP → `gpt-6-luna`, потолок
 `STYLE_DAILY_LIMIT=1000`) пишет оценки в кэш и в таблицу `product_style_scores`. Витрина `catalog_ready` (`bootstrap.sql`):
@@ -40,4 +40,4 @@ commercial и image_hd — только счётчики журнала), сме
 
 **Тесты:** `--selftest` у модулей выше — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте; диванов без глубины 1 012/2 345.
 
-**Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md`. Цена показа — `tools/scout/price_truth.py` (ADR-0260).
+**Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md`.
