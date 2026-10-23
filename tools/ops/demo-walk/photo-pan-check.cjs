@@ -1,7 +1,8 @@
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
-// ФОТО ПАЛЬЦЕМ И РАКУРС КНОПКАМИ (demo-22 п.2–3, T-20261022-12/1). Телефон: в «Фото» картинка во всю высоту области и шире её,
-// двигается нативной прокруткой (`.vpan`, без обработчиков движения), старт — окно превью вида (`crop` ближайшей пропорции к
-// фактической области); свайп ракурс не листает; тап — во весь экран, там ракурс — кнопками. Компьютер — фото целиком, как было.
+// ФОТО И РАКУРСЫ (demo-22 п.2, T-20261022-12/1; свайп — demo-26 Б, T-20261023-09/1). Телефон: в «Фото» картинка во всю высоту области
+// и шире её, кадр — окно превью вида (`crop` ближайшей пропорции к фактической области, главная мебель в кадре) на ОБОИХ ракурсах;
+// прокрутки пальцем нет — свайп вбок (≥ 50 px, быстро) меняет ракурс, медленная протяжка, короткий и вертикальный жест — нет; тап —
+// во весь экран: там при масштабе 1 свайп — ракурс, при увеличении — сдвиг без смены ракурса. Компьютер — фото целиком, как было.
 // Замер: фактическая пропорция области фото и какое окно превью выбрано. Платного нет: заказ фото и коллекции подменены.
 //   DATA=<demo-data.json с crop> FROZEN=1 BASE=https://remont-lab.online/demo/ OUT=<папка/> node tools/ops/demo-walk/photo-pan-check.cjs 375x667
 // DATA — подменить данные витрины; FROZEN=1 — дописать окна превью из DATA в записи реестра кадров (как сохранит сервер)
@@ -17,7 +18,9 @@ const PAN=`(()=>{const p=document.querySelector('#shot .vpan'), im=p&&p.querySel
     fit:getComputedStyle(im).objectFit, photo:VW.photo, mode:VW.mode, zoom:!!(document.getElementById('vzoom')||{classList:{contains:()=>false}}).classList.contains('on')};})()`;
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
   const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,isMobile:PHONE,hasTouch:PHONE,locale:'ru-RU'});
-  const p=await ctx.newPage(); const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
+  const p=await ctx.newPage(); const errs=[];
+  // снимок для глаза не роняет проверку (headless иногда отказывает в кадре посреди анимации) — повтор через 0,5 с, потом пропуск
+  const shot=async o=>{for(let k=0;k<3;k++){try{return await p.screenshot(o);}catch(e){await p.waitForTimeout(500);}} R.push('WARN снимок не снят '+o.path);}; p.on('pageerror',e=>errs.push(String(e)));
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   await p.route(/\/api\/warm/,r=>r.fulfill({status:204,body:''}));
   await p.route(/\/api\/render/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({job:'fake-'+Date.now(),id:'f'+Date.now()})}));
@@ -40,9 +43,9 @@ const PAN=`(()=>{const p=document.querySelector('#shot .vpan'), im=p&&p.querySel
   await p.goto(BASE+'?lang=ru&live=0',{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&SHOTS_LOADED",null,{timeout:90000}).catch(()=>{});
   await p.waitForTimeout(1500);
-  if(!PHONE){await p.screenshot({path:OUT+`pan-${W}-0-home.png`});
+  if(!PHONE){await shot({path:OUT+`pan-${W}-0-home.png`});
     const t=await p.evaluate(()=>{const e=document.querySelector('.hm-rooms, .hm-room'); return e?Math.round(e.getBoundingClientRect().top+scrollY-80):600;});
-    await p.evaluate(y=>scrollTo(0,y),t); await p.waitForTimeout(800); await p.screenshot({path:OUT+`pan-${W}-0-home-cards.png`}); await p.evaluate(()=>scrollTo(0,0));}
+    await p.evaluate(y=>scrollTo(0,y),t); await p.waitForTimeout(800); await shot({path:OUT+`pan-${W}-0-home-cards.png`}); await p.evaluate(()=>scrollTo(0,0));}
   // окно варианта с фото: первый вариант, у которого есть реалистичные кадры ЭТОЙ расстановки
   const vi=await p.evaluate(async()=>{for(let i=0;i<allVariants().length;i++){await vwOpenVariant(i); await new Promise(r=>setTimeout(r,700));
       if(vwRealShots().length>1){vwMode('photo'); return i;}} return -1;});
@@ -53,10 +56,11 @@ const PAN=`(()=>{const p=document.querySelector('#shot .vpan'), im=p&&p.querySel
   if(PHONE){
     ok('0 область фото — фактическая пропорция',!!g0&&g0.aspect>0.4&&g0.aspect<0.8,g0&&{w:g0.w,h:g0.h,aspect:g0.aspect});
     ok('0 фото во всю высоту и шире области (есть что двигать)',!!g0&&g0.imgH===g0.h&&g0.max>50,g0&&{imgW:g0.imgW,imgH:g0.imgH,max:g0.max});
-    ok('0 нативная прокрутка по горизонтали',!!g0&&g0.ovx==='auto'&&/pan-x/.test(g0.ta),g0&&{ovx:g0.ovx,ta:g0.ta});
-    // окно превью — ближайшей пропорции к области; старт — середина окна
-    const exp=await p.evaluate(()=>{const pn=document.querySelector('#shot .vpan'), s=shots[shotAt], a=pn.clientWidth/pn.clientHeight, cr=vwCropOf(s,a);
+    ok('0 прокрутки пальцем нет (свайп — ракурс), вертикальный жест — браузеру',!!g0&&g0.ovx==='hidden'&&/pan-y/.test(g0.ta),g0&&{ovx:g0.ovx,ta:g0.ta});
+    // окно превью — ближайшей пропорции к области; старт — середина окна (диван в кадре)
+    const EXP=()=>p.evaluate(()=>{const pn=document.querySelector('#shot .vpan'), s=shots[shotAt], a=pn.clientWidth/pn.clientHeight, cr=vwCropOf(s,a);
       const Ws=pn.scrollWidth; return cr?{key:cr.key, x:cr.x, w:cr.w, want:Math.round(Math.max(0,Math.min(pn.scrollWidth-pn.clientWidth,(cr.x+cr.w/2)*Ws-pn.clientWidth/2)))}:null;});
+    const exp=await EXP();
     ok('0 старт — из окна превью вида',!!exp&&g0.crop===exp.key&&Math.abs(g0.sl-exp.want)<=2,{exp,sl:g0.sl,crop:g0.crop,frozen:g0.frozen});
     if(process.env.FROZEN)ok('0 окно превью — из записи кадра (сервер)',g0.frozen);
     // порядок источников окна: запись кадра → нынешняя точка того же имени → нет
@@ -65,37 +69,43 @@ const PAN=`(()=>{const p=document.querySelector('#shot .vpan'), im=p&&p.querySel
       const {crop:_c,...c1}=c0, old={camera:s.camera, cams:[{...c1, x:c1.x+50}]};
       return {own:(vwCropOf(fake,0.55)||{}).x, cur:!!vwCropOf({camera:s.camera,cams:[{...c0}]},0.55), other:vwCropOf(old,0.55)};});
     ok('0 окно: запись кадра важнее, кадр с другой точки — без окна',src.own===0.01&&src.other===null,src);
-    // прослушки движения на полосе нет — двигает браузер (плавность не зависит от скрипта)
+    await shot({path:OUT+`pan-${W}-1-start.png`});
+    // палец — сенсорные события CDP (как настоящий: браузер сам решает, чей жест); `steps` × 16 мс — скорость
     const cdp=await ctx.newCDPSession(p);
-    const {result}=await cdp.send('Runtime.evaluate',{expression:"document.querySelector('#shot .vpan')"});
-    const {listeners}=await cdp.send('DOMDebugger.getEventListeners',{objectId:result.objectId});
-    const types=listeners.map(l=>l.type);
-    ok('0 на полосе нет обработчиков движения',!types.some(t=>/move|touchstart|wheel/.test(t)),types);
-    await p.screenshot({path:OUT+`pan-${W}-1-start.png`});
-    // свайп пальцем: сенсорные события CDP — как палец (прокрутка браузера, инерция)
-    const swipe=async(x0,x1,y)=>{await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:x0,y}]});
-      for(let k=1;k<=12;k++){await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x0+(x1-x0)*k/12,y}]}); await p.waitForTimeout(16);}
-      await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]}); await p.waitForTimeout(900);};
-    const yM=Math.round(g0.h/2);
-    await swipe(300,120,yM); const g1=await p.evaluate(PAN);
-    ok('1 свайп влево двигает фото, ракурс тот же, полный экран не открылся',g1.sl>g0.sl+20&&g1.photo===g0.photo&&g1.cam===g0.cam&&!g1.zoom,{from:g0.sl,to:g1.sl,photo:g1.photo,zoom:g1.zoom});
-    await p.evaluate(()=>{const pn=document.querySelector('#shot .vpan'); pn.scrollLeft=Math.round((pn.scrollWidth-pn.clientWidth)/2);}); await p.waitForTimeout(400);
-    await p.screenshot({path:OUT+`pan-${W}-2-middle.png`});
-    for(let k=0;k<4;k++)await swipe(330,40,yM);
-    const g2=await p.evaluate(PAN); ok('2 у правого края — упор',g2.sl>=g2.max-1&&g2.photo===g0.photo,{sl:g2.sl,max:g2.max});
-    await p.screenshot({path:OUT+`pan-${W}-3-end.png`});
-    for(let k=0;k<4;k++)await swipe(40,330,yM);
-    const g3=await p.evaluate(PAN); ok('3 у левого края — упор, ракурс тот же',g3.sl<=1&&g3.photo===g0.photo,{sl:g3.sl});
-    await p.screenshot({path:OUT+`pan-${W}-4-left.png`});
+    const swipe=async(x0,x1,y,steps=12,y1=y)=>{await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:x0,y}]});
+      for(let k=1;k<=steps;k++){await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x0+(x1-x0)*k/steps,y:y+(y1-y)*k/steps}]}); await p.waitForTimeout(16);}
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]}); await p.waitForTimeout(1200);};
+    const yM=Math.round(g0.h/2), lab=()=>p.evaluate(()=>{const b=document.querySelector('#vCams [data-cam].on'); return b?b.textContent:'';});
+    const lab0=await lab();
+    await swipe(300,120,yM); const g1=await p.evaluate(PAN), lab1=await lab(), exp1=await EXP();
+    ok('1 свайп влево — другой ракурс, подпись активной кнопки — его, полный экран не открылся',!!g1&&g1.photo!==g0.photo&&g1.cam!==g0.cam&&lab1&&lab1!==lab0&&!g1.zoom,
+      {from:[g0.photo,lab0],to:g1&&[g1.photo,lab1],zoom:g1&&g1.zoom});
+    ok('1 второй ракурс — тоже из окна превью (главная мебель в кадре)',!!exp1&&g1.crop===exp1.key&&Math.abs(g1.sl-exp1.want)<=2,{exp1,sl:g1.sl,crop:g1.crop});
+    await shot({path:OUT+`pan-${W}-2-swiped.png`});
+    await swipe(120,300,yM); const g2=await p.evaluate(PAN);
+    ok('2 свайп вправо — обратно к первому ракурсу',!!g2&&g2.photo===g0.photo&&g2.cam===g0.cam,{photo:g2&&g2.photo});
+    await swipe(200,175,yM,6); const g2b=await p.evaluate(PAN);
+    ok('2 короткий жест (25 px) — ракурс тот же',g2b.photo===g0.photo,{photo:g2b.photo});
+    await swipe(300,120,yM,60); const g2c=await p.evaluate(PAN);
+    ok('2 медленная протяжка (~1 с) — ракурс тот же',g2c.photo===g0.photo,{photo:g2c.photo});
+    await swipe(190,210,yM+60,12,yM-100); const g3=await p.evaluate(PAN);
+    ok('3 вертикальный жест по фото — ракурс тот же, полный экран не открылся',g3.photo===g0.photo&&!g3.zoom,{photo:g3.photo,zoom:g3.zoom});
+    // шторка: вертикальная протяжка за шапку — шторка двигается, ракурс тот же
+    const sh0=await p.evaluate(()=>{const v=document.getElementById('vside'); return v?Math.round(v.getBoundingClientRect().top):null;});
+    const hd=await p.evaluate(()=>{const h=document.querySelector('#vside .vgrab, #vside .vhead, #vside'); const r=h.getBoundingClientRect(); return [Math.round(r.left+r.width/2),Math.round(r.top+12)];});
+    await swipe(hd[0],hd[0]+30,hd[1],12,hd[1]-220); const sh1=await p.evaluate(()=>{const v=document.getElementById('vside'); return v?Math.round(v.getBoundingClientRect().top):null;});
+    const g3b=await p.evaluate(PAN);
+    ok('3 шторка — вертикальный жест её, ракурс тот же',sh1!==sh0&&g3b.photo===g0.photo,{sheetTop:[sh0,sh1],photo:g3b.photo});
+    await p.evaluate(()=>vwSheet(0)); await p.waitForTimeout(700);
     // поворот/смена размера держит то же место фото
-    const fc=g3.fc; await p.setViewportSize({width:W,height:H-40}); await p.waitForTimeout(600); const g4=await p.evaluate(PAN);
+    const fc=(await p.evaluate(PAN)).fc; await p.setViewportSize({width:W,height:H-40}); await p.waitForTimeout(600); const g4=await p.evaluate(PAN);
     ok('4 смена размера области — то же место фото',g4.fc!=null&&Math.abs(g4.fc-fc)<0.03,{before:fc,after:g4.fc});
     await p.setViewportSize({width:W,height:H}); await p.waitForTimeout(600);
-    // тап — во весь экран; ракурс — кнопками
+    // тап — во весь экран
     await p.touchscreen.tap(Math.round(W/2),yM); await p.waitForTimeout(700);
   }else{
     ok('0 компьютер: фото целиком, полоса без прокрутки',g0.fit==='contain'&&g0.max<=1&&g0.ovx==='hidden',{fit:g0.fit,max:g0.max,ovx:g0.ovx});
-    await p.screenshot({path:OUT+`pan-${W}-1-window.png`});
+    await shot({path:OUT+`pan-${W}-1-window.png`});
     const box=await p.evaluate(()=>{const r=document.querySelector('#shot .vpan').getBoundingClientRect(); return [r.left+r.width/2,r.top+r.height/2];});
     await p.mouse.move(box[0],box[1]); await p.mouse.down(); await p.mouse.move(box[0]-200,box[1],{steps:8}); await p.mouse.up(); await p.waitForTimeout(500);
     const g1=await p.evaluate(PAN); ok('1 протяжка мышью — ракурс тот же, полный экран не открылся',g1.photo===g0.photo&&!g1.zoom,{photo:g1.photo,zoom:g1.zoom});
@@ -105,31 +115,42 @@ const PAN=`(()=>{const p=document.querySelector('#shot .vpan'), im=p&&p.querySel
     btn:[...z.querySelectorAll('.vzcams button')].map(b=>({t:b.textContent,on:b.classList.contains('on'),r:(r=>[r.left,r.top,r.right,r.bottom].map(Math.round))(b.getBoundingClientRect())}))};});
   ok('5 тап — во весь экран, снизу кнопки ракурсов с подписями',!!z&&z.on&&z.btn.length===2&&z.btn.every(x=>x.t&&x.r[2]<=W&&x.r[0]>=0&&x.r[3]<=H),z);
   await p.evaluate(()=>{const h=document.querySelector('#vzoom .vzh'); if(h)h.remove();});
-  await p.screenshot({path:OUT+`pan-${W}-5-full.png`});
-  // свайп вбок во весь экран — ракурс не меняется
-  if(PHONE){const yz=Math.round(H/2); await p.evaluate(([x0,x1,y])=>{const z=document.getElementById('vzoom'), ev=(t,x)=>z.dispatchEvent(new PointerEvent(t,{pointerId:7,clientX:x,clientY:y,bubbles:true,pointerType:'touch',isPrimary:true}));
-      ev('pointerdown',x0); for(let k=1;k<=8;k++)ev('pointermove',x0+(x1-x0)*k/8); ev('pointerup',x1);},[320,40,yz]); await p.waitForTimeout(700);
-    ok('5 свайп вбок во весь экран — ракурс тот же',await p.evaluate(at=>document.getElementById('vzoom').dataset.at===at,z.at));}
+  await shot({path:OUT+`pan-${W}-5-full.png`});
+  // во весь экран: свайп вбок при масштабе 1 — соседний ракурс; увеличено (двойной тап) — сдвиг, ракурс тот же, и у края тоже
+  if(PHONE){const yz=Math.round(H/2), zat=()=>p.evaluate(()=>document.getElementById('vzoom').dataset.at);
+    const zsw=(x0,x1)=>p.evaluate(([x0,x1,y])=>{const z=document.getElementById('vzoom'), ev=(t,x)=>z.dispatchEvent(new PointerEvent(t,{pointerId:7,clientX:x,clientY:y,bubbles:true,pointerType:'touch',isPrimary:true}));
+      ev('pointerdown',x0); for(let k=1;k<=8;k++)ev('pointermove',x0+(x1-x0)*k/8); ev('pointerup',x1);},[x0,x1,yz]).then(()=>p.waitForTimeout(800));
+    const dbl=()=>p.evaluate(([x,y])=>{const z=document.getElementById('vzoom'), ev=(t,id)=>z.dispatchEvent(new PointerEvent(t,{pointerId:id,clientX:x,clientY:y,bubbles:true,pointerType:'touch',isPrimary:true}));
+      ev('pointerdown',11); ev('pointerup',11); ev('pointerdown',12); ev('pointerup',12);},[Math.round(W/2),yz]).then(()=>p.waitForTimeout(600));
+    await zsw(320,40); const a1=await zat();
+    ok('5 свайп вбок во весь экран при масштабе 1 — другой ракурс',a1!==z.at,{from:z.at,to:a1});
+    await zsw(40,320); const a2=await zat(); ok('5 свайп обратно — первый ракурс',a2===z.at,{at:a2});
+    await dbl(); const sc=await p.evaluate(()=>document.querySelector('#vzoom img').style.transform);
+    await shot({path:OUT+`pan-${W}-5-full-zoomed.png`});
+    for(let k=0;k<3;k++)await zsw(320,40);
+    const a3=await zat(), tr=await p.evaluate(()=>document.querySelector('#vzoom img').style.transform);
+    ok('5 увеличено: свайп — сдвиг, ракурс тот же (и у края)',/scale\(2\.5\)/.test(sc)&&a3===z.at&&tr!==sc,{at:a3,before:sc,after:tr});
+    await dbl();}
   const other=z&&z.btn.findIndex(x=>!x.on);
   if(other>=0){const src0=await p.evaluate(()=>document.querySelector('#vzoom img').src);
     await p.click(`#vzoom .vzcams button[data-zi="${other}"]`); await p.waitForTimeout(900);
     const z2=await p.evaluate(()=>({at:document.getElementById('vzoom').dataset.at, src:document.querySelector('#vzoom img').src}));
     ok('6 кнопка второго ракурса во весь экран — другой снимок',z2.at===String(other)&&z2.src!==src0,z2);
-    await p.screenshot({path:OUT+`pan-${W}-6-full-other.png`});
+    await shot({path:OUT+`pan-${W}-6-full-other.png`});
     await p.click('#vzoom .vzx'); await p.waitForTimeout(900);
     const g5=await p.evaluate(PAN); ok('6 закрыл — окно на том же ракурсе',!!g5&&g5.photo===other&&g5.mode==='photo',g5&&{photo:g5.photo,cam:g5.cam});}
   // кнопки ракурсов в окне
   const before=await p.evaluate(()=>VW.photo);
   await p.click(`#vCams [data-cam="${before?0:1}"]`); await p.waitForTimeout(1200);
   const g6=await p.evaluate(PAN); ok('7 кнопка ракурса в окне — другой снимок',!!g6&&g6.photo!==before,g6&&{photo:g6.photo,cam:g6.cam,crop:g6.crop,sl:g6.sl});
-  await p.screenshot({path:OUT+`pan-${W}-7-cam-button.png`});
+  await shot({path:OUT+`pan-${W}-7-cam-button.png`});
   // избранное: карточка — превью кадра (без записи на сервер)
   const fav=await p.evaluate(async()=>{try{if(!window.__fav)return 'нет __fav'; document.getElementById('vFav').click(); await new Promise(r=>setTimeout(r,500));
       const okb=document.getElementById('favOk'); if(okb)okb.click(); await new Promise(r=>setTimeout(r,1500)); return window.__fav.list().length;}catch(e){return String(e);}});
   ok('8 избранное сохранено (подмена)',fav===1,fav);
   await p.evaluate(()=>{const x=document.getElementById('shotx'); if(x)x.click();}); await p.waitForTimeout(800);
   await p.evaluate(()=>{if(window.__basket)window.__basket.open(); const h=document.getElementById('favHead'); if(h)h.scrollIntoView({block:'start'});}); await p.waitForTimeout(1500);
-  await p.screenshot({path:OUT+`pan-${W}-8-fav.png`});
+  await shot({path:OUT+`pan-${W}-8-fav.png`});
   ok('ошибок страницы нет',!errs.length,errs.slice(0,3));
   fs.writeFileSync(OUT+`pan-${W}.log`,R.join('\n')+'\n'); console.log(R.join('\n')); await b.close();
 })().catch(e=>{console.log('CRASH',e); fs.writeFileSync(OUT+`pan-${W}.log`,R.join('\n')+'\nCRASH '+e+'\n'); process.exit(1);});
