@@ -869,6 +869,18 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   #itemCard .ic-grab{display:none}
   #itemCard .ic-x{top:26px;right:26px}
 }
+/* КРУЖКИ ЦВЕТОВ (demo-28): в строке — 22 px (зона нажатия шире кружка), в карточке — 34 px с подписью «Цвет: …»; выбранный — кольцо бренда */
+.sw{position:relative;flex:0 0 auto;width:22px;height:22px;border-radius:50%;border:1px solid color-mix(in srgb,var(--ink) 18%,transparent);
+ padding:0;cursor:pointer;box-sizing:border-box}
+.sw::after{content:"";position:absolute;inset:-7px -4px}
+.sw.on{box-shadow:0 0 0 2px var(--surface),0 0 0 3.5px var(--accent)}
+.row .t .sws{display:flex;align-items:center;gap:8px;margin-top:6px;min-height:24px}
+.row .t .sws .swn{border:0;background:none;padding:0 2px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer}
+#itemCard .ic-cols{margin-top:12px}
+#itemCard .ic-cl{font-size:15px;color:var(--muted)}#itemCard .ic-cl b{color:var(--ink);font-weight:600}
+#itemCard .ic-swr{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px}
+#itemCard .ic-swr .sw{width:34px;height:34px}#itemCard .ic-swr .sw::after{inset:-5px}
+#itemCard .ic-na{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;min-height:46px;color:var(--muted)}
 /* название и миниатюра строки открывают карточку — указатель-рука (остальная строка — как была) */
 .row img,.row .noimg-sm,.row .t b,#grid .card img,#grid .card .nm{cursor:pointer}
 .lay .acts .btn{flex:1 1 auto;padding:10px 12px;font-size:.92em}
@@ -2551,9 +2563,12 @@ function draw(){
 // пока слотов не больше, чем штук в комплекте. Иначе стул считался бы дважды.
 function packOf(p){const n=p&&p.pack?+p.pack:1;return n>0?n:1;}
 function buys(slots,p){return Math.ceil(slots/packOf(p));}   // сколько комплектов купить
+// КЛЮЧ ТОВАРА — артикул (`sid`), без него — ссылка+название (demo-28, Codex 23.10): цвета одной модели — разные товары, и сохранённые
+// до артикулов записи читаются как раньше
+function prodKey(p){ return p&&p.sid?'sid:'+p.sid:((p&&p.url)||'')+'|'+((p&&p.name)||''); }
 function groupBySku(list){                                   // слоты одного товара — в одну строку
   const by=new Map();
-  list.forEach(i=>{const p=i.sku, k=(p.url||'')+'|'+(p.name||'');
+  list.forEach(i=>{const p=i.sku, k=prodKey(p);
     if(!by.has(k))by.set(k,{sku:p,slots:[],first:i});
     by.get(k).slots.push(i);});
   return [...by.values()];
@@ -2677,12 +2692,12 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
     // название или миниатюра — карточка товара (demo-26 Д), её «Заменить» — то же, что тап по строке
     if(r.dataset.d!==undefined){
       const k=+r.dataset.d, x=decorList().find(y=>y.i===k), go=()=>openPicker(decorSel(k));
-      r.onclick=e=>{if(icHit(e)&&x&&x.sku){itemCardOpen(icItem(x.sku,x.role),go); return;} go();};
+      r.onclick=e=>{if(icHit(e)&&x&&x.sku){itemCardOpen(icItem(x.sku,x.role),go,{fam:colourFam(x.sku,x.role),cur:0,save:q=>saveColour(decorSel(k),q)}); return;} go();};
       const a2=r.querySelector('a'); if(a2)a2.onclick=e=>e.stopPropagation();
       return;
     }
     const it=items[+r.dataset.i], go=()=>{if(it){sel=it;draw();openPicker(it);}};
-    r.onclick=e=>{const p=it&&skuOf(it); if(icHit(e)&&p){itemCardOpen(icItem(p,it.role),go); return;} go();};
+    r.onclick=e=>{const p=it&&skuOf(it); if(icHit(e)&&p){itemCardOpen(icItem(p,it.role),go,{fam:colourFam(p,it.role),cur:0,save:q=>saveColour(it,q)}); return;} go();};
     const a=r.querySelector('a'); if(a)a.onclick=e=>e.stopPropagation();
   });
 }
@@ -3260,7 +3275,7 @@ function skuOf(it){if(it.sku&&it.sku.name)return it.sku;
   const b=items.find(o=>o!==it&&o.role===baseRole(it.role)&&o.sku&&o.sku.name);
   return b?b.sku:(it.sku||null);}
 function uniqProducts(list){const seen=new Set();return list.filter(a=>{
-  const k=(a.url||'')+'|'+(a.name||''); if(seen.has(k))return false; seen.add(k); return true;});}
+  const k=prodKey(a); if(seen.has(k))return false; seen.add(k); return true;});}
 function shade(hex,amt){const n=parseInt(hex.slice(1),16);
   const r=Math.max(0,Math.min(255,(n>>16)+amt)),g2=Math.max(0,Math.min(255,((n>>8)&255)+amt)),
         b2=Math.max(0,Math.min(255,(n&255)+amt));
@@ -3484,7 +3499,7 @@ function shotProducts(s){
 function dedupeProducts(list){
   const by=new Map();
   (list||[]).forEach(a=>{
-    const k=(a.url||'')+'|'+(a.name||'');
+    const k=prodKey(a);
     if(!by.has(k))by.set(k,Object.assign({},a,{qty:0,_slots:0}));
     const g=by.get(k); g._slots+=1; g.qty=Math.max(g.qty, a.qty||0);
   });
@@ -4265,7 +4280,8 @@ function shotListHtml(s){
           (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`:'<div class="noimg-sm">нет фото</div>')+
           `<div class="t"><b>${a.name}</b>`+
           // мягкое (demo-24) — без пометки, роль без номера слота (владелец и ведущий 23.10)
-          `<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${a.shop?' · '+a.shop:''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span></div>`+
+          `<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${a.shop?' · '+a.shop:''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
+          swatchRow(own&&(own.sku&&own.sku.name?own.sku:skuOf(own)),a.role)+`</div>`+
           `<div class="p">${money(a.price)}</div>`+
           // действия — своей строкой под фото и текстом: цена их не сжимает (`.row>.acts`, demo-26 Г)
           `<span class="acts">`+
@@ -4278,10 +4294,13 @@ function shotListHtml(s){
 function wireShotList(){
   // название или миниатюра — карточка товара (demo-26 Д); «Заменить» в ней — та же кнопка строки
   const pl=document.querySelector('#shotbody .pinlist');
-  if(pl)pl.onclick=ev=>{const h=icHit(ev), row=h&&h.closest('.row'), a=row&&shotRows[+row.dataset.k]; if(!a)return;
+  // кружок цвета — та же карточка, сразу с этим цветом в предпросмотре (demo-28)
+  if(pl)pl.onclick=ev=>{const sw=ev.target.closest&&ev.target.closest('[data-sw]'), h=sw||icHit(ev), row=h&&h.closest('.row'), a=row&&shotRows[+row.dataset.k];
+    if(!a)return;
     const it=items.find(i=>(skuOf(i)||{}).name===a.name), dx=decorList().find(x=>(x.sku||{}).name===a.name);
-    const s=(it&&skuOf(it))||(dx&&dx.sku)||{}, rep=row.querySelector('[data-rep]');
-    itemCardOpen(icItem({...a, w:s.w, d:s.d, h:s.h}, a.role), rep?()=>rep.click():null);};
+    const s=(it&&skuOf(it))||(dx&&dx.sku)||{}, rep=row.querySelector('[data-rep]'), slot=dx?decorSel(dx.i):it;
+    itemCardOpen(icItem({...a, w:s.w, d:s.d, h:s.h}, a.role), rep?()=>rep.click():null,
+      {fam:colourFam(s,a.role), cur:0, at:sw?+sw.dataset.sw:0, save:q=>saveColour(slot,q)});};
   document.querySelectorAll('#shotbody [data-rep]').forEach(b=>b.onclick=()=>{
     const a=shotRows[+b.dataset.rep];
     const dx=a&&decorList().find(x=>(x.sku||{}).name===a.name);
@@ -4321,32 +4340,94 @@ function refreshShotList(){
 // «В магазин». Остальная строка — как была. Закрывают «×», тап мимо, свайп вниз (телефон), Esc и «назад» браузера: карточка — своя
 // запись истории, «назад» закрывает её, а не окно. Фото — сразу плитка строки (уже в кэше), поверх — крупная копия сборки
 // (`img/<id>-l.jpg`, `cache_images`), проявляется, когда загрузилась. Несколько фото у товара в данных нет — листать нечего.
-const IC={on:false, pushed:false, eat:false, swap:null, from:null};
+// ЦВЕТА (demo-28, владелец 23.10): у товара с цветами в карточке — ряд образцов; тап — предпросмотр (фото, цена, ссылка выбранного
+// цвета), ничего не применяется; «Сохранить» меняет ЦВЕТ этого товара (SKU в слоте), модель та же; закрыли без «Сохранить» — как было.
+// `opts`: `fam` — цвета модели (`colourFam`), `cur` — какой сейчас в слоте (-1 — плитка ленты), `at` — какой показать, `save(p)` —
+// «Сохранить» цвета своего товара, `pick(p)` — «Заменить» плитки ленты выбранным цветом
+const IC={on:false, pushed:false, eat:false, swap:null, from:null, p:null, fam:null, cur:-1, at:-1, save:null, pick:null};
 function icBig(src){ return D&&D._img_large&&/(^|\/)img\/[0-9a-f]{16}\.jpg$/.test(src||'')?src.replace(/\.jpg$/,'-l.jpg'):''; }
 // товар строки → поля карточки; у ковра высоты нет (плита), как в ленте замен
 function icItem(p, role){ const r=baseRole(role), rug=r==='ковёр';
-  return {name:p.name, img:p.img, url:p.url, shop:p.shop, price:p.price, qty:p.qty||1, role:r, w:p.w, d:p.d, h:rug?null:p.h}; }
-function itemCardOpen(p, swap){
+  return {name:p.name, img:p.img, url:p.url, shop:p.shop, price:p.price, qty:p.qty||1, role:r, w:p.w, d:p.d, h:rug?null:p.h,
+    ...(p.in_stock===false?{in_stock:false}:{})}; }
+// ЦВЕТА МОДЕЛИ — товары ленты своей роли с той же моделью (`msid`; у цвета своего меша нет), только с фото; первым — сам товар.
+// Считаем по тому, что реально есть в ленте (лимит ленты — 30 товаров на подкатегорию×стиль), не по всему семейству магазина
+function colourFam(sku, role){
+  if(!sku||!sku.name)return [];
+  const m=sku.msid||sku.sid||sku.name, feed=(D.feeds&&D.feeds[baseRole(role)])||[];
+  const same=feed.filter(p=>p.img&&(p.msid||p.sid||p.name)===m), seen=new Set([sku.name]);
+  const out=[same.find(p=>p.name===sku.name)||sku];
+  same.forEach(p=>{if(!seen.has(p.name)){seen.add(p.name); out.push(p);}});
+  return out.length>1?out:[];
+}
+// имя цвета — хвост названия после общего начала всех цветов модели («… Викс Рогожка» + «Серый» / «Синий»)
+function colourName(fam, k){
+  const w=fam.map(p=>String(p.name||'').split(' ')); let i=0;
+  while(w.every(x=>i<x.length-1&&x[i]===w[0][i]))i++;
+  return w[k].slice(i).join(' ')||fam[k].name;
+}
+// кружок-образец: тон фото из сборки (`swatch`, `annotate_swatch`); нет — само фото в кружке
+function swatchBtn(p, attr, on, label){
+  const bg=p.swatch?`background:${p.swatch}`:`background:var(--surface) url('${escHtml(p.img)}') center/170% no-repeat`;
+  return `<button class="sw${on?' on':''}" type="button" ${attr} style="${bg}" aria-label="${escHtml(label)}"${on?' aria-pressed="true"':''}></button>`;
+}
+// КРУЖКИ ЦВЕТОВ В СТРОКЕ (demo-28): до 5, дальше «+N»; тап — карточка сразу с этим цветом в предпросмотре (`data-sw` — номер в `colourFam`)
+function swatchRow(sku, role){
+  const fam=colourFam(sku, role); if(!fam.length)return '';
+  return `<span class="sws">`+fam.slice(0,5).map((p,j)=>swatchBtn(p,`data-sw="${j}"`,j===0,colourName(fam,j))).join('')+
+    (fam.length>5?`<button class="swn" type="button" data-sw="0">+${fam.length-5}</button>`:'')+`</span>`;
+}
+// «Сохранить» цвета товара места — тот же путь, что замена (`tryOn`: пара одинаковых кресел — вместе, подкраска 3D, новый номер
+// состояния, фото устаревает честно) + подсказка, как увидеть цвет на фото (как у мягкого, `CTA_REAL`)
+function saveColour(slot, p){
+  if(!slot)return; sel=slot; if(typeof VW!=='undefined')VW.auto=null;
+  if(tryOn(p)===false)return;
+  refreshShotList(); softSwapToast();
+}
+function itemCardOpen(p, swap, opts){
   let el=document.getElementById('itemCard');
   if(!el){el=document.createElement('div'); el.id='itemCard'; el.setAttribute('role','dialog'); el.setAttribute('aria-modal','true');
     document.body.appendChild(el); icWire(el);}
-  const big=icBig(p.img), e=escHtml;
+  const o=opts||{};
+  Object.assign(IC,{p, swap:swap||null, fam:o.fam&&o.fam.length>1?o.fam:null, cur:o.cur==null?-1:o.cur, at:o.at==null?(o.cur>=0?o.cur:0):o.at,
+    save:o.save||null, pick:o.pick||null});
+  // плитки всех цветов — заранее: переключение без пустой рамки
+  if(IC.fam)IC.fam.forEach(f=>{if(f.img){const i=new Image(); i.src=f.img;}});
   el.innerHTML=`<div class="ic-box" tabindex="-1"><div class="ic-grab"></div>`+
-    `<button class="ic-x" type="button" aria-label="Закрыть">×</button>`+
-    `<div class="ic-ph">`+(p.img?`<img class="ic-s" src="${e(p.img)}" alt="">`+
-      (big?`<img class="ic-l" src="${e(big)}" alt="" onload="this.classList.add('ld')" onerror="this.remove()">`:'')
-      :'<div class="ic-no">нет фото</div>')+`</div>`+
-    `<div class="ic-nm">${e(p.name||'')}</div>`+
-    `<div class="ic-meta">${[p.role,p.shop,p.qty>1?p.qty+' шт.':''].filter(Boolean).map(e).join(' · ')}</div>`+
-    (p.w&&p.d?`<div class="ic-meta">${dimsText(p)}</div>`:'')+
-    `<div class="ic-pr">${money(p.price)}</div>`+
-    `<div class="ic-acts">`+(swap?`<button class="btn primary ic-sw" type="button">Заменить</button>`:'')+
-      (p.url?`<a class="btn" href="${e(p.url)}" target="_blank" rel="noopener">В магазин</a>`:'')+`</div></div>`;
-  IC.swap=swap||null; IC.from=document.activeElement;
+    `<button class="ic-x" type="button" aria-label="Закрыть">×</button><div class="ic-ph"></div><div class="ic-in"></div></div>`;
+  icUpdate(el);
+  IC.from=document.activeElement;
   if(!IC.on){IC.on=true; el.classList.add('on');
     if(!window.__EMBED)try{history.pushState(Object.assign({},history.state||{},{icard:1}),''); IC.pushed=true;}catch(x){}}
   // фокус — на саму карточку (Tab идёт по её кнопкам, Esc закрывает), без рамки на «×» при открытии мышью
   const bx=el.querySelector('.ic-box'); if(bx)bx.focus({preventScroll:true});
+}
+// что показано сейчас: товар строки или выбранный в предпросмотре цвет (роль и количество — от места)
+function icShown(){ return IC.fam&&IC.at>=0?{...icItem(IC.fam[IC.at],IC.p.role), qty:IC.p.qty}:IC.p; }
+function icUpdate(el){
+  const q=icShown(), e=escHtml, other=!!IC.fam&&IC.at!==IC.cur, sold=q.in_stock===false;
+  icPhoto(el.querySelector('.ic-ph'), q);
+  el.querySelector('.ic-in').innerHTML=
+    `<div class="ic-nm">${e(q.name||'')}</div>`+
+    `<div class="ic-meta">${[q.role,q.shop,q.qty>1?q.qty+' шт.':''].filter(Boolean).map(e).join(' · ')}</div>`+
+    (q.w&&q.d?`<div class="ic-meta">${dimsText(q)}</div>`:'')+
+    (IC.fam?`<div class="ic-cols"><div class="ic-cl">Цвет: <b>${e(colourName(IC.fam,IC.at))}</b></div><div class="ic-swr">`+
+      IC.fam.map((f,j)=>swatchBtn(f,`data-icsw="${j}"`,j===IC.at,colourName(IC.fam,j))).join('')+`</div></div>`:'')+
+    `<div class="ic-pr">${money(q.price)}</div>`+
+    `<div class="ic-acts">`+
+      (IC.pick?`<button class="btn primary ic-pk" type="button">Заменить</button>`
+       :other&&IC.save?(sold?`<span class="ic-na">Нет в наличии</span>`:`<button class="btn primary ic-sv" type="button">Сохранить</button>`)
+       :IC.swap?`<button class="btn primary ic-sw" type="button">Заменить</button>`:'')+
+      (q.url?`<a class="btn" href="${e(q.url)}" target="_blank" rel="noopener">В магазин</a>`:'')+`</div>`;
+}
+// фото: новая плитка встаёт, когда загрузилась (до тех пор — прежняя), крупная копия проявляется поверх
+function icPhoto(ph, q){
+  const key=q.img||''; if(!ph||ph.dataset.src===key)return; ph.dataset.src=key;
+  if(!q.img){ph.innerHTML='<div class="ic-no">нет фото</div>'; return;}
+  const big=icBig(q.img), s=new Image(); s.className='ic-s'; s.alt='';
+  const put=()=>{if(ph.dataset.src!==key)return; ph.replaceChildren(s);
+    if(big){const l=new Image(); l.className='ic-l'; l.alt=''; l.onload=()=>l.classList.add('ld'); l.onerror=()=>l.remove(); l.src=big; ph.appendChild(l);}};
+  s.onload=s.onerror=put; s.src=q.img; if(s.complete&&s.naturalWidth)put();
 }
 // `fromPop` — закрыл «назад» браузера: запись уже снята. Иначе снимаем свою запись сами, и этот `popstate` гасим (`IC.eat`) —
 // окно под карточкой остаётся как было
@@ -4361,6 +4442,10 @@ function itemCardClose(fromPop){
 function icWire(el){
   el.addEventListener('click',ev=>{
     if(ev.target===el||ev.target.closest('.ic-x')){itemCardClose(); return;}
+    const sw=ev.target.closest('[data-icsw]'); if(sw){IC.at=+sw.dataset.icsw; icUpdate(el); return;}
+    const q=IC.fam&&IC.at>=0?IC.fam[IC.at]:null;
+    if(ev.target.closest('.ic-sv')){const fn=IC.save; itemCardClose(); if(fn&&q)fn(q); return;}
+    if(ev.target.closest('.ic-pk')){const fn=IC.pick; itemCardClose(); if(fn)fn(q); return;}   // q=null — у плитки один цвет: она сама
     if(ev.target.closest('.ic-sw')){const fn=IC.swap; itemCardClose(); if(fn)fn();}});
   // свайп вниз — лист уезжает за пальцем; отпустил ниже 90 px (или быстрый рывок) — закрыт, иначе — на место. Только когда
   // содержимое листа прокручено к началу: иначе палец прокручивает лист
@@ -4844,7 +4929,9 @@ function grid(){
   // цветами того же «Викс» — одна модель, и замена выглядела несработавшей. Цвета текущей модели — строкой чипов сверху, другие
   // модели — по одной карточке с пометкой «ещё N цветов»; цвет на сцене — подкраской (`sku.tint`)
   const modelOf=p=>p.msid||p.sid||p.name, curM=sel&&sel.sku?modelOf(sel.sku):'';
-  const colours=list.filter(p=>modelOf(p)===curM), byM=new Map(), more=new Map();
+  // цвета текущей — тем же правилом, что кружки строки (`colourFam`, все цвета модели в ленте роли, текущий первым): фильтры ленты
+  // и стиль их не прячут — меняем от текущего (demo-28; раньше выпадал текущий, если его цвет не из стиля ленты)
+  const colours=sel&&sel.sku?colourFam(sel.sku,base):[], byM=new Map(), more=new Map();
   list.forEach(p=>{const m=modelOf(p); if(m===curM)return; if(byM.has(m)){more.set(m,(more.get(m)||0)+1);return;} byM.set(m,p);});
   const tail=(n,ref)=>{const a=String(n||'').split(' '), b=String(ref||'').split(' '); let i=0; while(i<a.length&&a[i]===b[i])i++;
     return a.slice(Math.min(i,Math.max(0,a.length-2))).join(' ');};
@@ -4855,7 +4942,11 @@ function grid(){
     colours.forEach(p=>{const on=sel.sku&&sel.sku.name===p.name, b=document.createElement('button'); b.className='colchip'+(on?' on':'');
       b.innerHTML=`<img src="${p.img}" alt="" loading="lazy"><span>${tail(p.name,sel.sku.name)||p.name}</span>`+
         ((p.price||0)!==(sel.sku.price||0)?`<small>${money(p.price)}</small>`:'');
-      b.onclick=()=>{if(on)return; tryOn(p); grid(); closePicker(); refreshShotList();}; row.appendChild(b);});}
+      // тап — карточка с предпросмотром этого цвета, «Сохранить» — замена цвета (demo-28; раньше чип сразу применял)
+      b.onclick=()=>{const k=colours.indexOf(p), c0=colours.findIndex(x=>sel.sku&&x.name===sel.sku.name);
+        itemCardOpen(icItem(colours[c0>=0?c0:0],base),null,{fam:colours,cur:c0,at:k,save:q=>{VW.auto=null; if(tryOn(q)===false)return;
+          grid(); closePicker(); refreshShotList(); softSwapToast();}});}; row.appendChild(b);});}
+  const allL=list;                     // вся лента после фильтров — цвета плиток (demo-28)
   list=[...byM.values()];
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
     // у ковра высоты нет — плита (в данных 1 см только для расчёта сцены): «200×140 см», а не «200×140×1 см»
@@ -4882,7 +4973,9 @@ function grid(){
     c.querySelector('.mini').onclick=e=>{e.stopPropagation();take();};
     c.querySelector('.link').onclick=e=>e.stopPropagation();
     // фото или название — карточка товара (demo-26 Д), остальная карточка ленты — замена, как была; у выбранного «Заменить» нет
-    c.onclick=e=>{if(e.target.closest('img,.nm')){itemCardOpen(icItem(p,base),cur?null:take); return;} take();};
+    // у плитки — цвета её модели в ленте: «Заменить» ставит показанный цвет (demo-28)
+    c.onclick=e=>{if(e.target.closest('img,.nm')){const fm=allL.filter(x=>modelOf(x)===modelOf(p)), f=[p,...fm.filter(x=>x!==p)];
+      itemCardOpen(icItem(p,base),null,{fam:f,cur:-1,at:0,pick:cur?null:(q=>{VW.auto=null; tryOn(q||p); grid(); closePicker(); refreshShotList();})}); return;} take();};
     g.appendChild(c);});}
 let TRY_LAST={n:1, base:''};   // последняя замена: сколько предметов группы сменилось (сообщение «Заменено: стулья ×2»)
 function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.role==='диван'); TRY_LAST={n:1, base:''};
@@ -7458,7 +7551,7 @@ async function liveShotTake(){
     'Посмотреть варианты интерьера':'See interior options','Коллекции расстановок':'Room collections','Выберите готовый вариант или создайте свой':'Pick a ready option or create your own',
     'Открыть':'Open','Ссылка':'Link','Добавить новую расстановку':'Add a new layout','план комнаты, перестановка мебели, свои размеры':'room plan, move furniture, your own sizes',
     'Избранное':'Favourites','Готово':'Done','Меняйте предметы прямо здесь — план открывать не нужно.':'Swap items right here — no need to open the plan.',
-    'Заменить':'Replace','В магазин':'To shop','Посмотреть в 3D':'View in 3D','Посмотреть фото с изменениями':'See the photo with changes',
+    'Заменить':'Replace','В магазин':'To shop','Сохранить':'Save','Цвет:':'Colour:','Нет в наличии':'Out of stock','Посмотреть в 3D':'View in 3D','Посмотреть фото с изменениями':'See the photo with changes',
     'Фотография пока с прежней расстановкой.':'The photo still shows the previous layout.',
     'Расстановка готова, но можно сделать реалистичнее.':'The layout is ready — the photo can be made more realistic.',
     'Стоимость представленной мебели и техники:':'Furniture shown costs:','Сохранить список мебели и техники':'Save the furniture list',

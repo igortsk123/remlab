@@ -81,7 +81,8 @@ const WIN=`({win:document.getElementById('shot').classList.contains('on'), card:
     await tap('#grid .card:not(.cur) img'); await p.waitForTimeout(900);
     const cf=await p.evaluate(CARD); ok(`${lang}: лента замен — фото открывает карточку с «Заменить»`,!!cf&&cf.btns.length===2,cf&&{name:cf.name,btns:cf.btns});
     await shot('card-feed');
-    await p.locator('#itemCard .ic-sw').click(); await p.waitForTimeout(1200);
+    // у плитки ленты «Заменить» ставит показанный цвет (demo-28, `.ic-pk`); без цветов — сама плитка
+    await p.locator('#itemCard .ic-pk,#itemCard .ic-sw').first().click(); await p.waitForTimeout(1200);
     w=await p.evaluate(WIN); const nm0=await p.evaluate(()=>shotRows[0].name);
     ok(`${lang}: «Заменить» в карточке ленты — диван заменён, лист закрыт`,!w.card&&!w.sheet&&!!cf&&nm0===cf.name,{sheet:w.sheet,row0:nm0,card:cf&&cf.name});
     // 9. остальная карточка ленты — замена, как раньше

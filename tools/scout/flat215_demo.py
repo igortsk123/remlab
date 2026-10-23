@@ -1566,6 +1566,32 @@ def annotate_tint(data: dict, out_dir: str = OUT) -> int:
     return n
 
 
+def annotate_swatch(data: dict, out_dir: str = OUT) -> int:
+    """ОБРАЗЕЦ ЦВЕТА (demo-28, владелец 23.10): у товара, чья модель (`msid`) есть в данных хотя бы в двух цветах (разные `sid`), —
+    `sku.swatch` = '#rrggbb', средний тон фото без белого фона (`_tone`, то же правило, что у подкраски и кадра). Это кружки цвета в
+    строке списка и в карточке товара; тон приблизительный (ножки и тени тоже в нём). Нет фото — без образца: страница рисует кружок
+    из самого фото."""
+    skus = [it.get('sku') or {} for v in data.get('variants') or [] for it in (v.get('items') or []) + (v.get('decor') or [])]
+    skus += [f for lst in (data.get('feeds') or {}).values() for f in lst if isinstance(f, dict)]
+    fam: dict = {}
+    for sk in skus:
+        if sk.get('msid') and sk.get('sid'):
+            fam.setdefault(sk['msid'], set()).add(sk['sid'])
+    tone: dict = {}
+    n = 0
+    for sk in skus:
+        sk.pop('swatch', None)
+        sid, img = sk.get('sid'), sk.get('img')
+        if not sid or len(fam.get(sk.get('msid'), ())) < 2 or not img or str(img).startswith('http'):
+            continue
+        if sid not in tone:
+            tone[sid] = _tone(os.path.join(out_dir, img))
+        if tone[sid]:
+            sk['swatch'] = '#%02x%02x%02x' % tuple(round(x * 255) for x in tone[sid])
+            n += 1
+    return n
+
+
 def merge_aliases(prev: dict | None, variants: list) -> dict:
     """ИСТОРИЯ НОМЕРОВ ВАРИАНТОВ → СТИЛЬ (план demo-05 п.10). Номер варианта (`set2`) — номер набора в сборке, и после
     пересборки он может исчезнуть: 14.10 `/flat?demo=set2` из живой ссылки менеджера дал 404. Сборка помнит, какому стилю
@@ -1600,6 +1626,7 @@ def main() -> None:
     data = cache_images(build())
     print(f'разворот фронта в предметах вариантов: {annotate_yaw(data)}')
     print(f'подкраска цветовых вариантов семейства: {annotate_tint(data)}')
+    print(f'образцы цвета у товаров с цветами: {annotate_swatch(data)}')
     # ВОРОТА АРТЕФАКТОВ (demo-05 п.1): наезд глубже 2 см или модель намного темнее товара — вариант не публикуется. Если
     # красных больше половины — это скорее поломка проверки, чем данных: публикуем всё, тревога громче
     try:
