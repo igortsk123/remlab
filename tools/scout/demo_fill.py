@@ -14,6 +14,11 @@ N из 126, предел 25 %»), поэтому снятые с продажи 
 те же ворота, что лечение (`sets_incremental._slot_ok`: живое фото, наличие, футпринт, конверт
 слота, контракт ковра). Журнал замен едет в demo-data.json.
 
+СВОЙ ЗАПАСНОЙ — ПЕРВЫМ (T-20261023-10, лофт 23.10). Роль ЯДРА ушла — сперва запасные самого набора (`alternates` банка:
+их подобрала сборка под этот стиль, метраж и бюджет), потом пул. Ворота те же: в продаже, живое фото, модель готова и
+подходит по цвету, конверт комнаты, пропорции. Без этого диван «Этен Мини» лофта ушёл, в ленте замен «диван/лофт» пусто,
+и стиль выпал из демо, хотя в наборе лежал свой «Викс» в продаже и с моделью.
+
   ~/venvs/scout/bin/python demo_fill.py --selftest
 """
 import os
@@ -93,6 +98,22 @@ def need_reason(role: str, it: dict | None, media, has_mesh) -> str | None:
     return None
 
 
+def own_spares(s: dict, role: str, media, exclude: set) -> list[dict]:
+    """Свои запасные набора для роли (`s['alternates'][роль]`) в порядке сборки, карточкой кандидата из каталога (в запасных
+    банка только артикул, имя и цена). Уже стоящие в наборе (`exclude`) пропускаем."""
+    out = []
+    for a in (s.get('alternates') or {}).get(base_role(role)) or []:
+        mid, eid = str((a or {}).get('mid') or ''), str((a or {}).get('eid') or '')
+        if not mid or not eid or f'{mid}:{eid}' in exclude:
+            continue
+        m = media(mid, eid) or {}
+        out.append({'mid': mid, 'eid': eid, 'role': base_role(role), 'style': s.get('style'),
+                    'name': m.get('name') or a.get('name'), 'shop': m.get('shop'), 'img': m.get('img'), 'url': m.get('url'),
+                    'price': m.get('price') or a.get('price'), 'w': m.get('w'), 'd': m.get('d'), 'h': m.get('h'),
+                    'dia': m.get('dia'), 'spare': True})
+    return out
+
+
 def candidates(role: str, old: dict | None, style: str | None, pool: list[dict], exclude: set,
                env: dict | None = None, avoid: set | None = None) -> list[dict]:
     """Кандидаты той же роли и стиля. Близость к ЦЕЛИ по ширине (прежний товар, а если роли не было —
@@ -115,8 +136,10 @@ def candidates(role: str, old: dict | None, style: str | None, pool: list[dict],
 
 
 def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | None = None,
-             avoid: set | None = None) -> list[dict]:
-    """Заменить негодные и добавить недостающие роли ядра. Меняет `s['items']`; → журнал замен."""
+             avoid: set | None = None, own: bool = True) -> list[dict]:
+    """Заменить негодные и добавить недостающие роли ядра. Меняет `s['items']`; → журнал замен.
+    `own=False` — без своих запасных набора, только пул (прежнее дозаполнение: запасной вариант, если со своим запасным
+    набор не расставился — `flat215_demo.fill_banks`)."""
     items = s.setdefault('items', {})
     journal = []
     used = {f"{it.get('mid')}:{it.get('eid')}" for it in items.values() if it}
@@ -128,14 +151,19 @@ def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | N
         why = need_reason(role, old, media, has_mesh)
         if not why:
             continue
-        repl = None
-        for c in candidates(role, old, s.get('style'), pool, used, env, avoid):
+        repl = spare = None
+        own_c = own_spares(s, role, media, used) if own and base_role(role) in CORE else []
+        # уже взятый в другой вариант запасной — после пула (разнообразие между стилями, как у `candidates`), но до дыры
+        k = lambda c: f"{c['mid']}:{c['eid']}" in (avoid or ())  # noqa: E731
+        for c in ([c for c in own_c if not k(c)] + candidates(role, old, s.get('style'), pool, used, env, avoid)
+                  + [c for c in own_c if k(c)]):
             if ok(role, c, s, {r: v for r, v in items.items() if r != role}):
-                repl = card(c, old or {})
+                repl, spare = card(c, old or {}), c.get('spare')
                 break
         sku = lambda it: f"{it.get('mid')}:{it.get('eid')}" if it else None  # noqa: E731
         journal.append({'role': role, 'from': (old or {}).get('name'), 'from_sku': sku(old),
-                        'to': (repl or {}).get('name'), 'to_sku': sku(repl), 'reason': why})
+                        'to': (repl or {}).get('name'), 'to_sku': sku(repl), 'reason': why,
+                        **({'source': 'запасной набора'} if spare else {})})
         if repl:
             items[role] = repl
             used.add(f"{repl.get('mid')}:{repl.get('eid')}")
@@ -212,6 +240,40 @@ def _selftest() -> int:
     ok('торшер чужого стиля не подставлен — ядро честно неполное', core_missing(s) == ['торшер'])
     ok('журнал пишет причину', any(x['role'] == 'столик' and x['reason'] == 'снят с продажи' for x in j))
     ok('годный диван не тронут', s['items']['диван']['name'] == 'Диван')
+    # свой запасной набора — первым для роли ядра; негодный (снят / не проходит ворота) пропускается, тогда — пул
+    alive |= {('5', 'spare2'), ('2', 'sofa9')}
+    cat = {('5', 'spare1'): {'name': 'Запасной снятый', 'w': 190, 'd': 90, 'img': '//a'},
+           ('5', 'spare2'): {'name': 'Запасной живой', 'w': 198, 'd': 90, 'h': 83, 'img': '//b', 'price': 25990},
+           ('5', 'huge'): {'name': 'Запасной огромный', 'w': 400, 'd': 90, 'img': '//c'}}
+    media2 = lambda mid, eid: {**cat.get((mid, eid), {}), 'state': 'available' if (mid, eid) in alive else 'gone'}  # noqa: E731
+    pool2 = pool + [{'mid': '2', 'eid': 'sofa9', 'role': 'диван', 'style': 'лофт', 'name': 'Диван из пула', 'w': 200, 'd': 95}]
+    gate2 = lambda role, c, s, chosen: c['w'] < 300 and media2(c['mid'], c['eid'])['state'] == 'available'  # noqa: E731
+    mk = lambda alts: {'style': 'лофт', 'alternates': {'диван': alts}, 'items': {  # noqa: E731
+        'диван': {'mid': '7', 'eid': 'gone', 'name': 'Этен Мини', 'w': 180}, 'тв-тумба': {'mid': '1', 'eid': 'tv', 'name': 'Тумба'}}}
+    s2 = mk([{'mid': 5, 'eid': 'spare1'}, {'mid': 5, 'eid': 'huge'}, {'mid': 5, 'eid': 'spare2'}])
+    j2 = fill_set(s2, pool2, gate2, card, media2, has_mesh)
+    x = next(x for x in j2 if x['role'] == 'диван')
+    ok('ушёл диван: свой запасной набора раньше пула (снятый и огромный пропущены), журнал помечает источник',
+       s2['items']['диван']['name'] == 'Запасной живой' and x['to_sku'] == '5:spare2' and x.get('source') == 'запасной набора')
+    s3 = mk([{'mid': 5, 'eid': 'spare1'}])
+    j3 = fill_set(s3, pool2, gate2, card, media2, has_mesh)
+    ok('свои запасные негодны — замена из пула, без пометки источника',
+       s3['items']['диван']['name'] == 'Диван из пула' and 'source' not in next(x for x in j3 if x['role'] == 'диван'))
+    s5 = mk([{'mid': 5, 'eid': 'spare2'}])
+    fill_set(s5, pool2, gate2, card, media2, has_mesh, avoid={'5:spare2'})
+    ok('запасной уже взят другим стилем — сперва пул (разнообразие), сам запасной — только если пул пуст',
+       s5['items']['диван']['name'] == 'Диван из пула')
+    s6 = mk([{'mid': 5, 'eid': 'spare2'}])
+    fill_set(s6, pool, gate2, card, media2, has_mesh, avoid={'5:spare2'})
+    ok('…пул пуст — повтор запасного лучше дыры в ядре', s6['items']['диван']['name'] == 'Запасной живой')
+    s7 = mk([{'mid': 5, 'eid': 'spare2'}])
+    j7 = fill_set(s7, pool2, gate2, card, media2, has_mesh, own=False)
+    ok('own=False — прежнее дозаполнение: только пул, свои запасные не смотрим',
+       s7['items']['диван']['name'] == 'Диван из пула' and not any(x.get('source') for x in j7))
+    s4 = {'style': 'лофт', 'alternates': {'кресло': [{'mid': 5, 'eid': 'spare2'}]}, 'items': {
+        'кресло': {'mid': '7', 'eid': 'gone', 'name': 'Кресло снятое', 'w': 80}}}
+    fill_set(s4, pool2, gate2, card, media2, has_mesh)
+    ok('не ядро (кресло) — свои запасные не берём, как прежде (заменить нечем — снято)', 'кресло' not in s4['items'])
     ok('ковёр зоны дивана: 160×230 под диван 198 — да, 120×180 и 140×190 под 198 — нет, без дивана 140×190 — да',
        [rug_fits(230, 160, 198), rug_fits(180, 120, 198), rug_fits(190, 140, 198), rug_fits(140, 190)] == [True, False, False, True])
     return 1 if bad else 0

@@ -72,6 +72,9 @@ tools/scout/*
 !tools/scout/size-bands.json
 !tools/scout/proportions.json
 !tools/scout/sets-feedback.json
+# типовые размеры и ПОРЯДОК напольных ролей солвера — правятся руками, писателей нет (T-20261023-10): вне git свежая копия
+# брала запасной список без ковра, и ковёр молча не ставился («adapter_excluded:not_floor_role»)
+!tools/scout/typical-dims.json
 
 # docker artifacts
 *.tar

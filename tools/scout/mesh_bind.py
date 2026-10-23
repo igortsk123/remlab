@@ -284,7 +284,17 @@ commit;""")
     return next((int(x.split()[1]) for x in out if x.startswith('variants ')), 0)
 
 
+KNOWN_ARGS = ('--report',)
+
+
 def main() -> None:
+    # НЕИЗВЕСТНЫЙ КЛЮЧ — ОТКАЗ ДО БАЗЫ (T-20261023-10): `mesh_bind.py --selftest` (самопроверки здесь нет) молча шёл полной
+    # привязкой по рабочей базе, как запуск без ключей. Опечатка в ключе не должна писать в базу.
+    bad = [a for a in sys.argv[1:] if a not in KNOWN_ARGS]
+    if bad:
+        print(f'ERROR:mesh_bind: неизвестный ключ {" ".join(bad)} — базу не трогаю. Ключи: без ключей — пометка и привязка, '
+              f'{", ".join(KNOWN_ARGS)} — только показать состояние', file=sys.stderr)
+        sys.exit(2)
     if '--report' not in sys.argv:
         n_need, n_skip = mark_required()
         n_bind, n_unbind = bind_ready()
