@@ -164,6 +164,11 @@ export const apartmentRef = z.object({
   floor: z.number().int().optional(),
   floorsTotal: z.number().int().optional(),
   building: z.string().optional(),
+  /**
+   * Высота потолка квартиры, см (T-20261023-04/3). Нет — 270 (`contracts/apartment.ts:DEFAULT_CEILING_CM`). Идёт в комнату демо
+   * (`flat215_demo` → `room.height_cm`: 3D, камера) и в гейт подвеса люстры ленты замен (потолок − 210 см прохода).
+   */
+  ceilingCm: z.number().int().min(220).max(450).optional(),
   /** Паспорт отделки квартиры: стены, пол, потолок, плинтус — id материала и цвет `#rrggbb` (`lib/viewer3d/finish-passport.ts`). */
   finish: z.record(z.enum(["wall", "floor", "ceiling", "skirting"]),
     z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), colorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/) })).optional(),

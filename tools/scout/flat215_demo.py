@@ -464,6 +464,11 @@ def demo_apartment() -> dict:
     return {}
 
 
+def demo_ceiling() -> float | None:
+    """Потолок квартиры витрины, см (`apartmentRef.ceilingCm`, T-20261023-04/3); нет — None: 3D и гейт подвеса берут базовые 270."""
+    return demo_apartment().get('ceilingCm')
+
+
 def demo_apartment_id() -> str | None:
     return demo_apartment().get('id')
 
@@ -550,7 +555,7 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     # «есть ли чем заменить банкетку» — по ленте замен стиля (demo-19 Г2); пул недоступен — считаем по наборам, громко
     try:
         import demo_swap_pool as _DSP
-        benches = bench_pool(sets, _DSP.pool(swap_ok, roles=(BENCH,)))
+        benches = bench_pool(sets, _DSP.pool(swap_ok, roles=(BENCH,), ceiling_cm=demo_ceiling()))
     except Exception as e:  # noqa: BLE001
         print(f'WARN:bench_pool: банкетки пула не прочитаны ({repr(e)[:120]}) — считаю только по наборам', flush=True)
         benches = bench_pool(sets)
@@ -1110,7 +1115,7 @@ def build() -> dict:
     added, off_env = 0, 0
     try:
         import demo_swap_pool
-        added, off_env = glue(demo_swap_pool.pool(swap_ok, band=_slot_band(liv)), feeds, have)   # в группе сперва в полосе (demo-20 В)
+        added, off_env = glue(demo_swap_pool.pool(swap_ok, band=_slot_band(liv), ceiling_cm=demo_ceiling()), feeds, have)   # в группе сперва в полосе (demo-20 В)
         glue(demo_swap_pool.pool_top(), dec_feeds, {(r, p.get('sid')): p for r, lst in dec_feeds.items() for p in lst})
     except Exception as e:  # noqa: BLE001 — нет БД/пула: ленты остаются набором сетов
         print('пул замены не подключён:', e)
@@ -1185,7 +1190,9 @@ def build() -> dict:
     return {'room': {'w': liv['w'], 'd': liv['d'], 'title': liv['title'],
                      'openings': liv['openings'], 'radiators': liv.get('radiators') or [],
                      # вид из окна — из карточки квартиры застройщика (demo-04 п.5); нет — страница и кадр берут вид по умолчанию
-                     **({'window_view': demo_apartment()['windowView']} if demo_apartment().get('windowView') else {})},
+                     **({'window_view': demo_apartment()['windowView']} if demo_apartment().get('windowView') else {}),
+                     # высота потолка квартиры (реестр) — 3D-комната и камера страницы (`room.height_cm ?? 270`)
+                     **({'height_cm': demo_ceiling()} if demo_ceiling() else {})},
             'apartment_id': demo_apartment_id(), 'plan': plan,
             # ПОМЕЩЕНИЯ КВАРТИРЫ ИЗ РЕЕСТРА (demo-16): порядок плана и площади — `data/partners/*.json`; страница берёт их
             # карточкой `/api/apartments`, а это — запасной путь, пока карточка не пришла (`rooms` выше — схема плана целиком)

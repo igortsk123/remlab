@@ -15,7 +15,7 @@
 
 import { alternatives, feedForStyle, placeOf, type FeedItem } from "@/lib/configurator/demo-feeds";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
-import { apartment as apartmentSchema, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
+import { DEFAULT_CEILING_CM, apartment as apartmentSchema, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
 
 /** Чья квартира и в какой валюте: из реестра застройщиков (b2b-06), не из файла витрины. */
@@ -369,7 +369,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
         y: 0,
         w: room.w,
         d: room.d,
-        heightCm: room.height_cm ?? 270,
+        heightCm: room.height_cm ?? DEFAULT_CEILING_CM,   // потолок квартиры из реестра (`apartmentRef.ceilingCm` → `flat215_demo`)
         ...(room.window_view && /^[a-z0-9-]{1,32}$/.test(room.window_view) ? { windowView: room.window_view } : {}),
         ...(room.finish ? { finish: finishPassport(room.finish) } : {}),
         openings: openings(room),

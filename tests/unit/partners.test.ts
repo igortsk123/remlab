@@ -105,6 +105,17 @@ describe("комнаты квартиры", () => {
     const nolog = base(); delete nolog.apartments[0].loggiaM2;
     expect(() => partners([nolog])).toThrow(/сумма площадей/);
   });
+
+  it("потолок квартиры: необязателен (нет — 270 по умолчанию), целое 220…450 см (T-20261023-04/3)", () => {
+    expect(findApartment("flat215")!.apartment.ceilingCm).toBeUndefined();
+    const base = () => JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
+    const ok = base(); ok.apartments[0].ceilingCm = 300;
+    expect(partners([ok])[0]!.apartments[0]!.ceilingCm).toBe(300);
+    for (const bad of [219, 451, 270.5]) {
+      const b = base(); b.apartments[0].ceilingCm = bad;
+      expect(() => partners([b])).toThrow();
+    }
+  });
 });
 
 describe("опции квартиры: кухня (b2b-10 этап 0)", () => {

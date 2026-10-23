@@ -144,7 +144,8 @@ def fits(p: dict, ceiling_cm: float | None = None) -> bool:
     return bool(p.get('img') and p.get('w') and p.get('d')) and lo <= p['w'] <= hi
 
 
-def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP, band: dict | None = None) -> list[dict]:
+def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP, band: dict | None = None,
+         ceiling_cm: float | None = None) -> list[dict]:
     """Группа «подкатегория × стиль» в порядке запроса → до `per_group` прошедших проверки: сперва по одному товару на модель
     (`msid`), потом цвета тех же моделей. `ok(p)` — проверки сборки (модель на сервере, цвет, `unfit`); зовётся лениво, пока
     группа не набрана, и один раз на товар (товар повторяется в каждом своём стиле).
@@ -156,7 +157,7 @@ def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP, band: dict | Non
 
     def good(p: dict) -> bool:
         if p['sid'] not in seen:
-            seen[p['sid']] = fits(p) and (ok is None or bool(ok(p)))
+            seen[p['sid']] = fits(p, ceiling_cm) and (ok is None or bool(ok(p)))
         return seen[p['sid']]
 
     from slot_rules import in_band
@@ -181,11 +182,13 @@ def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP, band: dict | Non
     return out
 
 
-def pool(ok=None, roles: tuple | None = None, band: dict | None = None) -> list[dict]:
+def pool(ok=None, roles: tuple | None = None, band: dict | None = None, ceiling_cm: float | None = None) -> list[dict]:
     """Пул ленты замен; `roles` — только эти роли (отбор тот же, проверки `ok` — только им: счёт банкеток стиля до расстановки,
-    `flat215_demo.bench_pool`, demo-19 Г2); `band` — полоса размера комнаты (в группе сперва подходящие, `pick`)."""
+    `flat215_demo.bench_pool`, demo-19 Г2); `band` — полоса размера комнаты (в группе сперва подходящие, `pick`); `ceiling_cm` —
+    потолок квартиры (`flat215_demo.demo_ceiling`; нет — базовый) для гейта подвеса."""
     from mesh_queue import db
-    return pick([p for p in map(_row, db(pool_sql())) if p and (roles is None or p['role'] in roles)], ok, band=band)
+    return pick([p for p in map(_row, db(pool_sql())) if p and (roles is None or p['role'] in roles)], ok, band=band,
+                ceiling_cm=ceiling_cm)
 
 
 def pool_top() -> list[dict]:
@@ -265,6 +268,11 @@ def _selftest() -> int:
     if not (fits(lu(50)) and fits(lu(60)) and not fits(lu(61)) and not fits(lu(230))):
         bad += 1
         print('  FAIL: длинная люстра (вылет > 60 см) не должна проходить в ленту замен')
+    if not (fits(lu(80), ceiling_cm=300) and not fits(lu(80)) and not fits(lu(45), ceiling_cm=250)
+            and [p['sid'] for p in pick([dict(lu(80), sid='L', msid='L', sub='s', style='x')], None, ceiling_cm=300)] == ['L']
+            and not pick([dict(lu(80), sid='L', msid='L', sub='s', style='x')], None)):
+        bad += 1
+        print('  FAIL: потолок квартиры — норма вылета «потолок − 210» (300 → 80 годна, 270 → нет, 250 → 45 нет), и через pick')
     ENVELOPE.pop('люстра')
     if _env is not None:
         ENVELOPE['люстра'] = _env

@@ -29,6 +29,13 @@ export const opening = z.object({
 });
 export type Opening = z.infer<typeof opening>;
 
+/**
+ * Высота потолка по умолчанию, см — одно число для 3D-комнаты, камеры и гейта подвеса люстры (проход 210 → вылет ≤ 60;
+ * зеркала вне TS: `tools/scout/compose_gates.py:CEILING_CM`, `tools/scout/flat215-demo/index.html:camRoomH`). Было 245 — его
+ * не читал никто: квартира 3D (`data/flat3d/apartment.json`, британская) пишет 245 у комнат сама, демо — 270 (T-20261023-04/3).
+ */
+export const DEFAULT_CEILING_CM = 270;
+
 export const room = z.object({
   id: z.string(),
   kind: roomKind,
@@ -38,7 +45,7 @@ export const room = z.object({
   y: z.number(),
   w: z.number().positive(),
   d: z.number().positive(),
-  heightCm: z.number().positive().default(245),
+  heightCm: z.number().positive().default(DEFAULT_CEILING_CM),
   openings: z.array(opening).default([]),
   /** Паспорт отделки (`lib/viewer3d/finish-passport.ts`): стены, пол, потолок, плинтус — id и цвет; нет — набор по умолчанию. */
   finish: z.object({
