@@ -10,6 +10,7 @@ const IMAGE_USD: Record<string, number> = {
 const TEXT_USD: Record<string, { in: number; out: number }> = {
   "gemini-flash-latest": { in: 0.1, out: 0.4 },
   "google/gemini-2.5-flash": { in: 0.3, out: 2.5 },
+  "openai/gpt-4o-mini": { in: 0.15, out: 0.6 }, // шлюз Vercel, /v1/models 23.10 — извлечение полей товара по ссылке
 };
 
 export function estimateImageCost(model: string): number {

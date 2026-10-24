@@ -60,9 +60,9 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - VERCEL_AI_GATEWAY_KEY=${VERCEL_AI_GATEWAY_KEY:-}
       - AI_PROVIDER=${AI_PROVIDER:-gateway}
-      # ИИ-фолбэк парсинга ссылок (ADR-0026): дочитываем недостающие поля товара через OpenAI.
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_EXTRACT_MODEL=${OPENAI_EXTRACT_MODEL:-gpt-4o-mini}
+      # ИИ-фолбэк парсинга ссылок (ADR-0026): дочитываем недостающие поля товара моделью OpenAI через шлюз Vercel
+      # (ключ — VERCEL_AI_GATEWAY_KEY выше; прямой ключ OpenAI не используется, T-20261023-12). Пусто — openai/gpt-4o-mini.
+      - EXTRACT_MODEL=${EXTRACT_MODEL:-}
       # Прокси-фолбэк чтения ссылок (link-fetch-max); пусто → только прямой fetch.
       - PARSE_PROXY_URLS=${PARSE_PROXY_URLS:-}
       # П7 лид-канал (боты/почта; пусто → деградация)

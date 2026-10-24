@@ -39,10 +39,8 @@ export async function parseProductFull(html: string, kind: CalcKind): Promise<Pa
   }
 
   const missing = missingAiFields(result.spec, kind);
-  if (missing.length > 0 && !process.env.OPENAI_API_KEY) {
-    console.error("[parse-product] OPENAI_API_KEY не задан — ИИ-дочитка пропущена, поля:", missing.join(","));
-  }
-  if (missing.length > 0 && process.env.OPENAI_API_KEY) {
+  // ИИ-дочитка — через шлюз Vercel (T-20261023-12); нет ключа или ошибка — `aiExtractSpec` пишет причину в лог и отдаёт {}
+  if (missing.length > 0) {
     const aiSpec = await aiExtractSpec(buildLlmInput(html), kind, missing);
     const target = result.spec as Record<string, number>;
     for (const [k, v] of Object.entries(aiSpec)) {

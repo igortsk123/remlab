@@ -31,17 +31,29 @@ ENVS="$(dirname "$0")/../scout/.env"
 if [ -f "$ENVS" ]; then
   # shellcheck disable=SC1090
   set -a; . "$ENVS"; set +a
-  probe() {  # $1 имя, $2 url, $3 ключ, $4 модель
+  # без денег: $5 — строка дайджеста (`WARN:<код>: …` — жёлтый; без `WARN:` — справка). Владелец 23.10 (T-20261023-12): прямой
+  # ключ OpenAI пуст и пополняться не будет, всё идёт через шлюз — его «нет денег» больше не тревога, тревога — пустой ШЛЮЗ
+  probe() {  # $1 имя, $2 url, $3 ключ, $4 модель, $5 строка «нет денег»
     [ -n "$3" ] || return 0
     c=$(curl -s -o /tmp/llm-probe.$$ -w '%{http_code}' --max-time 30 "$2" -H "Authorization: Bearer $3" \
         -H 'content-type: application/json' -d "{\"model\":\"$4\",\"messages\":[{\"role\":\"user\",\"content\":\"1\"}],\"max_completion_tokens\":16}")
     if [ "$c" = 402 ] || grep -q 'insufficient_quota\|credit_balance' /tmp/llm-probe.$$ 2>/dev/null; then
-      echo "WARN:llm_no_credits: $1 — нет денег (HTTP $c): оценка стиля и обогащение стоят"
+      echo "$5 (HTTP $c)"
     else echo "канал LLM $1: HTTP $c"; fi
     rm -f /tmp/llm-probe.$$
   }
-  probe "шлюз Vercel" https://ai-gateway.vercel.sh/v1/chat/completions "${VERCEL_AI_GATEWAY_KEY:-}" openai/gpt-6-luna
-  probe "OpenAI" https://api.openai.com/v1/chat/completions "${OPENAI_API_KEY:-}" gpt-6-luna
+  probe "шлюз Vercel" https://ai-gateway.vercel.sh/v1/chat/completions "${VERCEL_AI_GATEWAY_KEY:-}" openai/gpt-6-luna \
+    "WARN:gateway_no_credits: шлюз Vercel — нет денег: фото «Сделать реалистичнее», дочитка ссылок, оценка стиля и обогащение стоят"
+  probe "OpenAI (прямой ключ)" https://api.openai.com/v1/chat/completions "${OPENAI_API_KEY:-}" gpt-6-luna \
+    "канал LLM OpenAI (прямой ключ): без денег — не используется, всё через шлюз Vercel"
+  # баланс шлюза числом (GET /v1/credits — бесплатно): видно, сколько осталось, до того как кончится
+  if [ -n "${VERCEL_AI_GATEWAY_KEY:-}" ]; then
+    cr=$(curl -s --max-time 20 https://ai-gateway.vercel.sh/v1/credits -H "Authorization: Bearer $VERCEL_AI_GATEWAY_KEY")
+    bal=$(printf '%s' "$cr" | python3 -c 'import json,sys
+try: d=json.load(sys.stdin); print("$%.2f (потрачено всего $%.2f)" % (float(d["balance"]), float(d.get("total_used") or 0)))
+except Exception: pass' 2>/dev/null)
+    if [ -n "$bal" ]; then echo "баланс шлюза Vercel: $bal"; else echo "баланс шлюза Vercel: не прочитан (${cr:0:80})"; fi
+  fi
 fi
 # DEV-РЕНДЕР ДЕМО (план demo-03, 14.10): 13.10 его убил earlyoom, и прод сутки молча рисовал запасным путём с
 # упрощёнными мешами — дайджест не сказал ни слова. Теперь: жив ли он сам, виден ли проду через туннель, сколько

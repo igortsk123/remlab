@@ -16,14 +16,15 @@ type GatewayResponse = { choices?: { message?: GatewayMessage }[] };
 
 const imagePart = (img: ImageData): Part => ({ type: "image_url", image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
 
-async function call(key: string, model: string, parts: Part[], imageOut: boolean): Promise<Result<GatewayResponse, ProviderError>> {
+async function call(key: string, model: string, parts: Part[], imageOut: boolean, extra: Record<string, unknown> = {},
+  timeoutMs = TIMEOUT_MS): Promise<Result<GatewayResponse, ProviderError>> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(URL_, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, messages: [{ role: "user", content: parts }], ...(imageOut ? { modalities: ["text", "image"] } : {}) }),
+      body: JSON.stringify({ model, messages: [{ role: "user", content: parts }], ...(imageOut ? { modalities: ["text", "image"] } : {}), ...extra }),
       signal: controller.signal,
     });
     if (!res.ok) return err({ kind: "http", message: `Gateway HTTP ${res.status}`, status: res.status });
@@ -69,4 +70,20 @@ export function createGatewayProvider(key: string): ImageProvider & VisionProvid
       return img === null ? err({ kind: "parse", message: "no image in response" }) : ok(img);
     },
   };
+}
+
+/**
+ * ТЕКСТ ЛЮБОЙ МОДЕЛЬЮ ШЛЮЗА (T-20261023-12, владелец 23.10: прямой ключ OpenAI пуст и пополняться не будет — всё через шлюз).
+ * Извлечение полей товара по ссылке (`lib/calc/link-parse-ai.ts`): модель `openai/…`, ответ строго JSON, температура 0, свой
+ * короткий срок — страница расчёта ждёт ответа. Картинок нет: `analyze` шлёт только текст промпта.
+ */
+export function createGatewayTextProvider(key: string, model: string, opts: { json?: boolean; timeoutMs?: number } = {}): VisionProvider {
+  const extra = { temperature: 0, ...(opts.json ? { response_format: { type: "json_object" } } : {}) };
+  const text = async (prompt: string) => {
+    const r = await call(key, model, [{ type: "text", text: prompt }], false, extra, opts.timeoutMs ?? TIMEOUT_MS);
+    if (!r.ok) return r;
+    const t = firstGatewayText(r.value);
+    return t === null ? err({ kind: "parse" as const, message: "no text in response" }) : ok(t);
+  };
+  return { id: "gateway", textModel: model, generateText: (prompt: string) => text(prompt), analyze: (input: VisionInput) => text(input.prompt) };
 }

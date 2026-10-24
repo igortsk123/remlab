@@ -4,7 +4,7 @@
 
 import { providerEnv } from "@/lib/env";
 import { createGeminiProvider } from "@/lib/providers/gemini";
-import { createGatewayProvider } from "@/lib/providers/gateway";
+import { createGatewayProvider, createGatewayTextProvider } from "@/lib/providers/gateway";
 import { createFakeProvider } from "@/lib/providers/fake";
 import { instrumentImageProvider, instrumentVisionProvider } from "@/lib/providers/traced";
 import type { ImageProvider, VisionProvider } from "@/lib/providers/types";
@@ -33,6 +33,21 @@ export function getImageProvider(): ImageProvider {
 export function getVisionProvider(): VisionProvider {
   const base = fakeEnabled() ? createFakeProvider() : realProvider();
   return instrumentVisionProvider(base);
+}
+
+/**
+ * ИЗВЛЕЧЕНИЕ ПОЛЕЙ ТОВАРА ПО ССЫЛКЕ — через шлюз Vercel (T-20261023-12, владелец 23.10: прямой ключ OpenAI пуст). Модель та
+ * же, что была на прямом ключе (`gpt-4o-mini`, у шлюза — `openai/gpt-4o-mini`, та же цена), иначе поведение извлечения
+ * поменялось бы без замера; `EXTRACT_MODEL` — другая модель шлюза. Ответ — строго JSON, срок 12 с (ждёт страница расчёта).
+ * Ключ читается при каждом вызове (не из кэша `providerEnv`): нет ключа — ошибка, вызывающий пишет её в лог.
+ */
+export const EXTRACT_MODEL_DEFAULT = "openai/gpt-4o-mini";
+export function getExtractProvider(): VisionProvider {
+  if (fakeEnabled()) return instrumentVisionProvider(createFakeProvider());
+  const key = process.env.VERCEL_AI_GATEWAY_KEY;
+  if (!key) throw new Error("VERCEL_AI_GATEWAY_KEY is not set (.env)");
+  const model = process.env.EXTRACT_MODEL || EXTRACT_MODEL_DEFAULT;
+  return instrumentVisionProvider(createGatewayTextProvider(key, model, { json: true, timeoutMs: 12_000 }));
 }
 
 export type {
