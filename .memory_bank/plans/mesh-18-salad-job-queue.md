@@ -73,3 +73,27 @@ mesh-17: ночь 23→24.10 — 108 из 202 прогретых машин ра
   накладные очереди ≈ 9 с; от running до первой работы 3,5 мин. `container_groups` очереди пуст даже во время работы — не мерило связи.
   Помехи: серверная мёртвая рука гасит группу без `.batch_show.lock` (выключатель `deadman-off-until` ставил ведущий); закачка образа
   на одной машине 60+ мин. Этап 2 (боевой перевод) — T-20261024-05/1, бесплатная часть; подъём — ⚑ владелец.
+- 2026-10-24 — [работник 2] T-20261024-05/1 этап 2, бесплатная часть, ветка `worktree-meshq2` b618743f (от main 7eba9a72, ff). (1) «мёртвая рука»:
+  `queue_run.Side.start`/`--follow` держат `~/scout-scenes/.batch_show.lock` (`hold_lock`: held/busy/none) — heartbeat.sh ставит отметку,
+  выключатель не нужен. (2) машина в учёте без пересборки образа: Salad кладёт в окружение контейнера SALAD_INSTANCE_ID/SALAD_MACHINE_ID
+  (docs «Environment Variables»); посредник `salad/queue_proxy.py` (порт 8001, 940/1000 знаков, 5-й элемент `command`) дописывает
+  `_salad` в ответ генерации, `Side.account` пишет в журнал `instance`/`machine`/`node` как у SSH → pool_ledger и money_guard видят машину
+  (money_guard и так считает по `group`+`prefix`). (3) медленная закачка — `S.cull_slow()` (API) из `Side.watch`, если групп SSH нет; мёртвый
+  прогрев (running без /ready > `MESH_QUEUE_WARM_MAX_S`=45 мин) → пересадка, у ≥ половины группы — «наша беда». (4) транспорт `auto`
+  (по умолчанию) по rules: группа с `queue` — очередь, без — SSH, в ОДНОМ прогоне ssh_run с общим учётом (Jobs, журнал, .done, приёмник,
+  карантин); batch_show/wave_guard/money_guard/price_halt без флагов; машины очереди пропали — ждущие сняты, остаток доделывает SSH.
+  `disabled` в rules → `allowed_now` False, `--can-start` 1. (5) очередь `mesh-q-low` (id b76ee99c) и группа `mesh-q-low-1` созданы ОСТАНОВЛЕННЫМИ
+  (30 реплик, low, образ/ресурсы/переменные = mesh-low-10, `queue_connection` 8001 /generate, готовность /ready 8000, command сохранён целиком
+  4/2/975/2/940); в rules — `disabled: true`, в SALAD_GROUP её нет. Квота при создании не мешала (всего реплик стало 52 из 50) — при СТАРТЕ может.
+  Тесты: tests_queue 41 случай (новые: посредник, обёртка с посредником, `_salad` → журнал, общий прогон, замок, прогрев, disabled), tests_pool,
+  money_guard, recreate_group, sink_gate, topview, pool_ledger/wave_guard selftest — зелёные (venv и системный python3.14, SALAD_GROUP=g как CI).
+  Попутно: очередь в общем прогоне стартовала только после поочерёдного подключения SSH-машин (2 с на машину) — перенесено раньше.
+- 2026-10-24 — [работник 2] T-20261024-05/1 ПОРЯДОК БОЕВОГО ПЕРЕВОДА (предложение, ⚑ владелец):
+  включить: 1) влить b618743f, CI зелёный; 2) реплики mesh-q-low-1 — 10 на первые 2 ч (PATCH replicas, связь с очередью это не трогает);
+  3) снять `disabled` у mesh-q-low-1 (коммит rules); 4) `~/scout-scenes/salad.env`: SALAD_GROUP=mesh-q-low-1,mesh-batch-7 (вместо mesh-low-10);
+  5) снять запрет цены/PAUSE — решение владельца; группу поднимет wave_guard/batch_show сам (auto: mesh-q-low-1 — очередь, mesh-batch-7 — SSH).
+  Стоп-условия (любое → откат): 30 мин после running нет ни одного succeeded c `output.status=ok`; в журнале строки очереди без `instance`;
+  ≥ 3 машин подряд running без /ready > 45 мин; цена меша по money_guard выше потолка; задания `pending` > 15 мин при ready > 0; любая тревога
+  money_guard/приёмника. Деньги: 4060 Ti low $0.100/ч × 86.89 = 8.7 ₽/ч на машину; 10 машин × 2 ч ≈ 174 ₽ (потолок, оплата с running;
+  закачка образа не оплачивается); полный размах 30 машин ≈ 261 ₽/ч. Откат: `disabled: true` → SALAD_GROUP обратно на mesh-low-10 →
+  stop mesh-q-low-1 (задания в очереди снять `queue_run.py --cancel`; начатые доделает или подхватит complete.json приёмника).
