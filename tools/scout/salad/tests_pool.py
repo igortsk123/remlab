@@ -56,6 +56,7 @@ def setup(tmp: str) -> None:
 culled: list = []               # кого стенд «пересадил» вместо реального вызова Salad
 ORIG_JOBS_FROM_FILE = S.jobs_from_file   # `patch()` его подменяет — держим настоящий
 ORIG_RUN_JOB = S.run_job                 # то же: случаю про двойной /generate нужен настоящий
+ORIG_REALLOCATE = NH.reallocate          # `setup()` подменяет на запись в `culled` — случаю про 404 нужен настоящий
 ORIG_STOP_GROUP = S.stop_group           # `patch()` гасит его заглушкой — случаю про проверку остановки нужен настоящий
 
 
@@ -564,7 +565,7 @@ def case_no_double_generate() -> None:
     finally:
         S.subprocess.run = real
     assert len(calls) == 1, f'вызовов ssh: {len(calls)} — вторая попытка = второй /generate'
-    assert r['status'] == 'transport_failed' and r['error'].startswith('ssh/mid_generation'), r
+    assert r['status'] == 'transport_failed' and r['error'].startswith('ssh/node_taken'), r
     calls.clear()
     S.subprocess.run = lambda *a, **k: (calls.append(1), R(''))[1]
     try:
@@ -572,7 +573,7 @@ def case_no_double_generate() -> None:
     finally:
         S.subprocess.run = real
     assert len(calls) == 2 and r['error'].startswith('ssh/empty'), (len(calls), r)
-    print('  ✓ обрыв посреди генерации → 1 попытка (ssh/mid_generation); пустой вывод → 2 (ssh/empty)')
+    print('  ✓ обрыв после посланной команды → 1 попытка (ssh/node_taken); пустой вывод → 2 (ssh/empty)')
 
 
 def case_transport_class() -> None:
@@ -580,12 +581,16 @@ def case_transport_class() -> None:
     assert NH.transport_class('', '', 255) == 'empty'
     assert NH.transport_class('Connecting to container abc\nfailed to lookup container ID', '', 1) == 'container_id'
     assert NH.transport_class('failed to set user in spec: snapshot x' + ' ' * 40, '', 1) == 'set_user'
-    assert NH.transport_class('# python - <<RLPY\nimport urllib\n' + 'x' * 60 + 'RLPY\nexit', '', 1) == 'mid_generation'
+    assert NH.transport_class('# python - <<RLPY\nimport urllib\n' + 'x' * 60 + 'RLPY\nexit', '', 1) == 'node_taken'
     assert NH.error_class({'error': 'ssh/container_id rc=1: …'}) == 'ssh/container_id'
     assert NH.classify({'status': 'failed', 'error': 'HTTP Error 507: nope'}, sink_ok=False) == NH.FAULT_INFRA
     assert NH.classify({'status': 'failed', 'error': 'HTTP Error 507: nope'}, sink_ok=True) == NH.FAULT_UNKNOWN
     assert NH.classify({'status': 'input_failed', 'error': 'EOF occurred in violation of protocol'}, sink_ok=False) != NH.FAULT_INFRA
-    print('  ✓ классы транспорта и инфры: 8 проверок')
+    # «машину забрали» (T-20261024-01): не вина ноды — серия не растёт, в сетевые события не попадает
+    taken = {'status': 'transport_failed', 'error': 'ssh/node_taken rc=1: RemoteDisconnected'}
+    assert NH.classify(taken) == NH.FAULT_UNKNOWN
+    assert NH.classify({'status': 'transport_failed', 'error': 'ssh/empty rc=255: '}) == NH.FAULT_NODE
+    print('  ✓ классы транспорта и инфры: 10 проверок')
 
 
 def case_sink_relief_before_red() -> None:
@@ -1044,6 +1049,42 @@ def case_done_set() -> None:
     print('  ✓ .done: атомарно, переживает перезапуск, сделанное не раздаётся, курсор проходит срез')
 
 
+def case_taken_no_streak() -> None:
+    """«Машину забрали» (ssh/node_taken) не пишет машине серию: три таких обрыва подряд — серия 0, не снята."""
+    key = 'g/TAKEN000'
+    for _ in range(NH.FAIL_STREAK):
+        n = NH.record(key, NH.classify({'status': 'transport_failed', 'error': 'ssh/node_taken rc=1: x'}), 'ssh/node_taken')
+    assert n == 0 and not NH.is_retired(key), n
+    assert not NH.fleet_wide('ssh/node_taken'), 'забранные машины посчитаны общей бедой сети'
+    print(f'  ✓ «машину забрали» {NH.FAIL_STREAK} раза подряд — серия 0, машина не снята')
+
+
+def case_realloc_404_returns_slot() -> None:
+    """Пересадка, на которую Salad ответил 404 (инстанса уже нет), слот бюджета не тратит; другая ошибка — тратит."""
+    import urllib.error  # noqa: PLC0415
+    keep_open, keep_key = NH.urllib.request.urlopen, os.environ.get('SALAD_API_KEY')
+    os.environ['SALAD_API_KEY'] = 'x'
+    culls = lambda: len(NH.snapshot()['culls'])   # noqa: E731
+
+    def fail(code):
+        def _open(req, timeout=0):
+            raise urllib.error.HTTPError(req.full_url, code, 'x', {}, None)
+        return _open
+    try:
+        assert NH.take_cull_slot() == 1 and culls() == 1
+        NH.urllib.request.urlopen = fail(404)
+        assert ORIG_REALLOCATE('g', 'gone0000', 'тест') is False
+        assert culls() == 0, 'слот за 404 сгорел'
+        assert NH.take_cull_slot() == 1
+        NH.urllib.request.urlopen = fail(500)
+        assert ORIG_REALLOCATE('g', 'err00000', 'тест') is False
+        assert culls() == 1, 'слот за настоящую ошибку вернулся — лимит перестал бы защищать'
+    finally:
+        NH.urllib.request.urlopen = keep_open
+        os.environ.pop('SALAD_API_KEY', None) if keep_key is None else os.environ.__setitem__('SALAD_API_KEY', keep_key)
+    print('  ✓ пересадка: 404 — слот вернулся, 500 — слот потрачен')
+
+
 def case_low_ram_node() -> None:
     """Машина с ОЗУ ниже порога уходит ДО первого задания (T-20261022-10 Б): ни одного задания не взяла, снята и
     пересажена, в журнале — служебная строка `node_reject`, которую сторож денег не считает ни попыткой, ни сбоем.
@@ -1281,7 +1322,8 @@ def main() -> None:
                    case_step_timeout_kills_children, case_no_restart_of_running_group,
                    case_silent_node_is_zombie, case_sink_relief_before_red,
                    case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart,
-                   case_stop_verified, case_low_ram_node, case_input_quarantine, case_forbidden_node):
+                   case_stop_verified, case_low_ram_node, case_input_quarantine, case_forbidden_node,
+                   case_taken_no_streak, case_realloc_404_returns_slot):
             if fn not in pure:
                 setup(tmp)
             fn()

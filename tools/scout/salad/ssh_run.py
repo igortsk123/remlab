@@ -399,7 +399,7 @@ def run_job(port: int, job: dict) -> dict:
             kind = NH.transport_class(r.stdout, r.stderr, r.returncode)
             # ВТОРОЙ ЗАХОД — ТОЛЬКО ПРИ ПУСТОМ ВЫВОДЕ (04.09). Раньше цикл шёл на вторую попытку
             # при любом отсутствии маркера, в том числе после обрыва ПОСРЕДИ генерации — и слал
-            # /generate второй раз: двойная оплата GPU за один меш. При `mid_generation` первая
+            # /generate второй раз: двойная оплата GPU за один меш. При `node_taken` (бывш. mid_generation) первая
             # нода, скорее всего, доделает и опубликует (SSH оборвался, воркер — нет): задание
             # уедет на другую ноду через RETRY_GRACE_S, и `already_done` подхватит результат.
             # Пустой вывод после принятого /generate тоже возможен — остаточный риск признан;
@@ -410,8 +410,9 @@ def run_job(port: int, job: dict) -> dict:
             break
         if not m:
             kind = NH.transport_class(r.stdout, r.stderr, r.returncode)
-            tail = (r.stdout or '').strip()[-100:].replace('\n', ' ')
-            etail = (r.stderr or '').strip()[-100:].replace('\n', ' ')
+            # хвосты длиннее (T-20261024-01): 100 знаков обрезали причину на полуслове
+            tail = (r.stdout or '').strip()[-300:].replace('\n', ' ')
+            etail = (r.stderr or '').strip()[-300:].replace('\n', ' ')
             return {'sku': job['sku'], 'status': 'transport_failed', 'node_port': port,
                     'error': f'ssh/{kind} rc={r.returncode}: {tail} | err: {etail}'.strip()}
         res = json.loads(m.group(1))
@@ -951,7 +952,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                         # 01.09 именно поэтому нельзя было сказать точно, что пропало.
                         'seed': it['job'].get('seed'), 'instance': node_id, 'group': group,
                         'fault': fault, 'err_class': ecls,
-                        'error': str(r.get('error') or '')[:200], 'at': round(time.time()),
+                        'error': str(r.get('error') or '')[:700], 'at': round(time.time()),
                         **({'quarantine_until': round(q_until)} if q_until else {})})
             if q_until:
                 print(f'  {it["job"].get("sku")}: магазин не отдаёт фото — карантин входа до '
@@ -1050,7 +1051,8 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
         need = SG.node_min_ram_gb()
         if need > 0 and node_id not in gpu_of:
             # ОЗУ — ДО первого задания (T-20261022-10 Б): машина с малой памятью роняет генерацию посередине
-            # (`ssh/mid_generation`, 22.10 — 37 % за час) и платит за пустую работу. Заодно — модель карты.
+            # (гипотеза 22.10; события Salad 24.10 её опровергли: обрывы — вытеснение тарифом, порог выключен
+            # в rules/salad-groups.json `node_ram.min_gb` = 0, T-20261024-01). Заодно — модель карты.
             gpu, mem = probe_node(port)
             if gpu != '?':
                 gpu_of[node_id] = gpu        # не ответила — карту спросит фоновый опрос ниже

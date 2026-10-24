@@ -171,6 +171,20 @@ def _recent_line(path: str, needle: str, fmt: str, since: float) -> str:
     return ''
 
 
+def known_stops(gs: list[str], now: float | None = None) -> dict[str, str]:
+    """Группы, которые стоят ПО ПЛАНУ, и почему: запрет подъёма по цене меша (`SG.PRICE_HALT`) или вне своего окна
+    batch. Свой стоп-файл (`HALT`) проверяется отдельно — он гасит весь пул."""
+    out: dict[str, str] = {}
+    for g in gs:
+        why = SG.price_halted(g)
+        win = SG.info(g).get('window_utc')
+        if why:
+            out[g] = f'запрет по цене: {why}'
+        elif win and not SG.allowed_now(g, now):
+            out[g] = f'вне окна batch {int(win[0]):02d}–{int(win[1]):02d} UTC'
+    return out
+
+
 def stop_clues(now: float | None = None) -> tuple[bool, list[str]]:
     """Что известно о том, почему все группы стоят: (старт вернул no_credits?, факты из журналов за CLUE_H часов)."""
     now = now or time.time()
@@ -676,10 +690,18 @@ def main() -> int:
                         stopped.append((_api(g).get('current_state') or {}).get('status') == 'stopped')
                     except Exception:  # noqa: BLE001 — не смогли спросить: не выдумываем диагноз
                         stopped.append(False)
-                if stopped and all(stopped):
+                planned = known_stops(gs)
+                if stopped and all(stopped) and set(gs) <= set(planned):
+                    # ВСЕ СТОЯТ ПО ПЛАНУ (T-20261024-01): 24.10 00:42 сторож цены сам остановил mesh-low-10, batch был
+                    # вне окна — а в 00:47 ушла тревога «причина неизвестна». Тревога о цене уже была; здесь — строка.
+                    st['down_alerted'] = True
+                    print(f'{time.strftime("%H:%M")} пул стоит по плану: '
+                          + '; '.join(f'{g} — {w}' for g, w in planned.items()), flush=True)
+                elif stopped and all(stopped):
                     st['down_alerted'] = True
                     # ДИАГНОЗ — ТОЛЬКО ПО ФАКТАМ (T-20261020-24): про кредиты — лишь когда старт вернул no_credits
                     credits, clues = stop_clues()
+                    clues = [f'{g} — {w}' for g, w in planned.items()] + clues
                     head = 'Salad отклонил старт: нет кредитов' if credits else 'причина неизвестна'
                     known = '; '.join(clues) or 'в журналах сторожей причины не нашёл'
                     print(f'{time.strftime("%H:%M")} !! ВСЕ ГРУППЫ ОСТАНОВЛЕНЫ, запрета сторожа нет — {head}. '

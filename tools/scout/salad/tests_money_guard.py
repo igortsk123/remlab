@@ -249,6 +249,60 @@ def case_price(tmp: str) -> None:
         SG.RULES, SG._CACHE, SG.PRICE_HALT, G.CENSUS, G.JOURNAL, G._api, G.notify = keep
 
 
+def case_planned_stop(tmp: str) -> None:
+    """Все группы стоят ПО ПЛАНУ (T-20261024-01, 24.10 00:47): одна — запрет по цене, другая — вне окна batch. Тревоги
+    «причина неизвестна» нет, в журнале — строка «пул стоит по плану». Одна по плану, другая без причины — тревога есть,
+    и в ней названа известная часть."""
+    json.dump({'g-dear': {'why': 'меш 6.76 ₽ при потолке 1.5 ₽'}}, open(SG.PRICE_HALT, 'w'))
+    night = time.mktime(time.strptime('2026-10-24 00:47', '%Y-%m-%d %H:%M')) - time.timezone
+    keep_info = SG.info
+    SG.info = lambda g: {'window_utc': [9, 15]} if g == 'g-batch' else {}
+    try:
+        got = G.known_stops(['g-dear', 'g-batch', 'g-lost'], night)
+        ok('известные остановки: цена и окно, третья — нет',
+           set(got) == {'g-dear', 'g-batch'} and 'по цене' in got['g-dear'] and '09–15 UTC' in got['g-batch'])
+        h = time.gmtime().tm_hour       # цикл сторожа смотрит на часы сейчас: окно batch — заведомо не сейчас
+        SG.info = lambda g: {'window_utc': [(h + 1) % 24, (h + 2) % 24]} if g == 'g-batch' else {}
+        for groups, want_alert in (('g-dear,g-batch', False), ('g-dear,g-lost', True)):
+            sent, ticks = [], [0]
+
+            def fake_sleep(_s: float) -> None:
+                ticks[0] += 1
+                if ticks[0] > 1:
+                    raise _Stop
+            keep = (G._api, G.notify, G.heartbeat, G.conveyor_alive, G.SH.check, time.sleep, os.environ.get('SALAD_GROUP'))
+            G._api = lambda path, method='GET': {'instances': []} if path.endswith('/instances') else \
+                {'current_state': {'status': 'stopped'}}
+            G.notify, G.heartbeat = (lambda t: sent.append(t) or True), (lambda *a, **k: None)
+            G.conveyor_alive, G.SH.check = (lambda: True), (lambda: {'ok': True, 'why': '', 'free_gb': 10.0})
+            time.sleep = fake_sleep
+            os.environ['SALAD_GROUP'], os.environ['SALAD_API_KEY'] = groups, 'x'
+            env = os.path.join(tmp, 'salad-planned.env')
+            open(env, 'w').write(f'SALAD_API_KEY=x\nSALAD_GROUP={groups}\n')
+            G.SALAD_ENV = env
+            json.dump({'group': groups, 'idle_node_min': 0.0, 'silent_since': 0.0, 'last_seen_mesh': 0.0}, open(G.STATE, 'w'))
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    try:
+                        G.main()
+                    except _Stop:
+                        pass
+            finally:
+                G._api, G.notify, G.heartbeat, G.conveyor_alive, G.SH.check, time.sleep = keep[:6]
+                os.environ.pop('SALAD_GROUP', None) if keep[6] is None else os.environ.__setitem__('SALAD_GROUP', keep[6])
+            down = [t for t in sent if 'остановлены' in t]
+            if want_alert:
+                ok('одна без причины — тревога есть, известная часть в ней названа',
+                   len(down) == 1 and 'Причина неизвестна' in down[0] and 'g-dear — запрет по цене' in down[0])
+            else:
+                ok('все по плану — тревоги нет, строка «по плану» в журнале',
+                   not down and 'пул стоит по плану' in out.getvalue() and 'g-batch — вне окна' in out.getvalue())
+    finally:
+        SG.info = keep_info
+        os.remove(SG.PRICE_HALT)
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         G.STATE, G.HALT = os.path.join(tmp, 'guard.json'), os.path.join(tmp, 'halt.json')
@@ -263,6 +317,7 @@ def main() -> int:
         case_credits_only_by_marker(tmp)
         case_repeats(tmp)
         case_price(tmp)
+        case_planned_stop(tmp)
     print('сторож денег: ' + ('ВСЁ ЗЕЛЁНОЕ' if not bad else f'ПРОВАЛОВ {bad}'))
     return 1 if bad else 0
 

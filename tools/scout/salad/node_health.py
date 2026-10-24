@@ -14,6 +14,7 @@ import json
 import os
 import threading
 import time
+import urllib.error
 import urllib.request
 
 STATE = os.path.expanduser(os.environ.get('MESH_NODE_HEALTH',
@@ -75,7 +76,10 @@ def transport_class(stdout: str, stderr: str, rc) -> str:
       container_id   — обёртка Salad не нашла контейнер: ноду перевыделили между пробой и заданием
       set_user       — обёртка не смогла войти в контейнер (снапшот) — тот же класс, шлюз
       empty          — вывода нет вовсе: сессия не дошла до python; коллизия сессий или обрыв
-      mid_generation — эхо скрипта есть, маркера нет: обрыв ПОСРЕДИ генерации (машину отобрали)
+      node_taken     — эхо скрипта есть, маркера нет: команда дошла, ответа нет. Прежнее имя `mid_generation`
+                       обещало «генерация шла» — эхо это не доказывает (строки RLPY и /generate — из самого скрипта).
+                       По событиям Salad ночи 23→24.10 все 50 таких обрывов — `Instance Interrupted (Priority)`
+                       за 0,3–3,4 с до записи: машину забрал тариф, OOM (`Exited:137`) — ни одного (T-20261024-01)
       other          — что-то ещё, смотреть текст"""
     out = (stdout or '')
     err = (stderr or '').lower()
@@ -86,7 +90,7 @@ def transport_class(stdout: str, stderr: str, rc) -> str:
     if len(out.strip()) < 40:
         return 'empty'
     if 'RLPY' in out or '/generate' in out:
-        return 'mid_generation'
+        return 'node_taken'
     return 'other'
 
 
@@ -103,6 +107,10 @@ def classify(res: dict, sink_ok: bool | None = None) -> str:
         return FAULT_JOB
     err = str((res or {}).get('error') or '').lower()
     if st == 'transport_failed':
+        # «Машину забрали» (T-20261024-01): инстанса уже нет — серию машине не пишем, событием сети не считаем;
+        # задание вернётся в очередь. Ровно этот класс 24.10 давал серии и пересадки уже исчезнувших инстансов (404).
+        if err.startswith('ssh/node_taken'):
+            return FAULT_UNKNOWN
         # SSH до ноды не дошёл или оборвался — это про ноду, а не про товар.
         return FAULT_NODE
     if st == 'input_failed':
@@ -247,6 +255,13 @@ def take_cull_slot(n: int = 1) -> int:
         return allowed
 
 
+def give_back_slot() -> None:
+    """Вернуть один слот бюджета пересадок (последний взятый): пересадки не было."""
+    with _State() as st:
+        if st['culls']:
+            st['culls'].remove(max(st['culls']))
+
+
 def reallocate(group: str, iid: str, why: str) -> bool:
     """Пересадка инстанса. Бюджет берётся ДО вызова (`take_cull_slot`) — вызов сетевой и
     долгий, под замками его держать нельзя."""
@@ -261,6 +276,15 @@ def reallocate(group: str, iid: str, why: str) -> bool:
             r.read()
         print(f'  нода {iid[:8]}: пересажена ({why})', flush=True)
         return True
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            # Инстанса уже нет (Salad его забрал) — пересаживать нечего, слот бюджета не сгорает (T-20261024-01:
+            # 24.10 25 из 48 пересадок за ночь были 404 и занимали лимит 6/ч, пока машины ждали своей очереди).
+            give_back_slot()
+            print(f'  нода {iid[:8]}: инстанса уже нет (404) — пересаживать нечего, слот вернул', flush=True)
+            return False
+        print(f'  нода {iid[:8]}: пересадка не удалась (HTTPError: {str(e)[:80]})', flush=True)
+        return False
     except Exception as e:  # noqa: BLE001 — пересадка не должна ронять прогон
         print(f'  нода {iid[:8]}: пересадка не удалась ({type(e).__name__}: {str(e)[:80]})',
               flush=True)
