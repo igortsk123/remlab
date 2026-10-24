@@ -32,8 +32,56 @@ PY = os.environ.get('MESH_PY') or os.path.expanduser('~/venvs/scout/bin/python')
 SAMPLE = os.environ.get('MESH_SAMPLE') or os.path.join(HERE, '..', 'mesh-pilot-sample.json')
 RESULTS = os.path.join(HERE, '..', 'mesh-pilot-results.json')
 SSH_KEY = os.path.expanduser('~/.ssh/salad_mesh_ed25519')
+# Запасной адрес шлюза SSH — только когда API не отдал `ssh_ip` (тогда строка WARN). До T-20261024-01 он был ЕДИНСТВЕННЫМ:
+# `instances()` брала из ответа API лишь `ssh_port`, а `ssh_ip` выбрасывала — если у Salad несколько входов, машины
+# за другим входом мы не видели никогда (ночь 23→24.10: 108 прогретых инстансов молчали, 54 % оплаты; Codex § 1).
 SSH_HOST = 'root@195.181.163.241'
 API = 'https://api.salad.com/api/public'
+
+
+class Addr(int):
+    """SSH-порт инстанса ВМЕСТЕ с адресом шлюза (`ssh_ip` из того же ответа API). Ведёт себя как число-порт везде,
+    где порт печатают и передают (подписи функций прежние), но равенство и хеш учитывают адрес: один порт на двух
+    разных шлюзах — два разных адреса."""
+
+    def __new__(cls, port: int, ip: str | None = None):
+        o = int.__new__(cls, int(port))
+        o.ip = str(ip or '')
+        return o
+
+    @property
+    def host(self) -> str:
+        return f'root@{self.ip}' if self.ip else SSH_HOST
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, Addr):
+            return int(self) == int(other) and self.ip == other.ip
+        return int(self) == other
+
+    def __ne__(self, other) -> bool:
+        return not self.__eq__(other)
+
+    def __hash__(self) -> int:
+        return hash((int(self), self.ip))
+
+    def __reduce__(self):
+        return (Addr, (int(self), self.ip))
+
+
+def ssh_host(port) -> str:
+    """`root@<ssh_ip>` порта из API; у голого числа (стенд, старые вызовы) — запасной `SSH_HOST`."""
+    return getattr(port, 'host', SSH_HOST)
+
+
+_NO_IP_WARNED: set = set()
+MACHINE: dict = {}        # instance_id → machine_id (из того же списка инстансов) — для журнала и списка машин
+
+
+def addr_fields(instance: str, port) -> dict:
+    """Поля журнала про транспорт (T-20261024-01): какой шлюз, какой порт, какая физическая машина — без них разбор
+    «почему эта машина молчит» опирается на догадки."""
+    return {'ssh_ip': getattr(port, 'ip', '') or None, 'ssh_port': int(port) if port is not None else None,
+            'machine': MACHINE.get(instance)}
 ORG, PROJECT = 'prodstore', 'dmodel'
 # Несколько групп через запятую (владелец 30.08: параллельная группа на baked-образе).
 # Порты собираются со ВСЕХ, стоп гасит ВСЕ — иначе вторая группа жгла бы деньги после финала.
@@ -56,7 +104,12 @@ import random
 _SINK = {'ok': True, 'why': '', 'at': 0.0}
 
 # Динамический пул (план mesh-dynamic-node-pool): ноды приходят и уходят посреди прогона.
-POLL_S = float(os.environ.get('MESH_POLL_S', '45'))        # как часто ищем НОВЫЕ ноды
+# Как часто ищем НОВЫЕ ноды. 10 с, а не 45 (T-20261024-01): ночь 23→24.10 от готовности воркера до нашей записи
+# «прогрет» шло ~67 с сверх прогрева при жизни машины 12 мин (медиана, тариф low) — 9 % её оплаченного времени.
+# Цена частого круга — запрос списка инстансов Salad и SSH-пробы только СВОБОДНЫХ кандидатов (до PROBE_WORKERS
+# параллельно); реальный шаг круга всё равно не короче самих проб. Приёмник — по своему такту `SINK_POLL_S`.
+POLL_S = float(os.environ.get('MESH_POLL_S', '10'))
+SINK_POLL_S = float(os.environ.get('MESH_SINK_POLL_S', '45'))  # опрос приёмника — прежний такт, он не про машины
 CULL_S = float(os.environ.get('MESH_CULL_S', '150'))       # как часто пересаживаем зависшие
 STALL_S = float(os.environ.get('MESH_STALL_S', '1800'))    # без живых нод и движения — выходим
 RETRY_GRACE_S = float(os.environ.get('MESH_RETRY_GRACE_S', '300'))
@@ -76,6 +129,7 @@ sys.path.insert(0, HERE)
 import node_health as NH  # noqa: E402
 import proc_run as PR     # noqa: E402 — шаг оболочки без сирот (общий с `batch_show`)
 import input_quarantine as IQ  # noqa: E402 — фото, которое магазин не отдаёт (403), не гоняем по машинам (T-20261022-10 Г)
+import machine_list as ML      # noqa: E402 — физические машины: какая молчит по SSH, сколько раз пересажена быстро (mesh-17)
 
 # Параллельные сессии к РАЗНЫМ нодам допустимы, если не открывать их залпом: сбой 29.08
 # («нет маркера», пустой вывод) случался при одновременном старте. Разносим НАЧАЛА всех
@@ -129,8 +183,13 @@ def instances() -> list[dict]:
                     print(f"  инстанс {str(i.get('machine_id'))[:8]}: state={st}, started=False — пропущен")
                 continue
             if i.get('id') and i.get('ssh_port'):
-                out.append({'id': i['id'], 'port': int(i['ssh_port']), 'group': g,
-                            'state': i.get('state')})
+                if not i.get('ssh_ip') and i['id'] not in _NO_IP_WARNED:
+                    _NO_IP_WARNED.add(i['id'])
+                    print(f"WARN: инстанс {i['id'][:8]}: API не дал ssh_ip — иду на запасной {SSH_HOST}", flush=True)
+                if i.get('machine_id'):
+                    MACHINE[i['id']] = i['machine_id']
+                out.append({'id': i['id'], 'port': Addr(i['ssh_port'], i.get('ssh_ip')), 'group': g,
+                            'state': i.get('state'), 'machine': i.get('machine_id')})
     return out
 
 
@@ -176,7 +235,10 @@ def warmup_fault(h: dict) -> str:
 # Порог, а не мгновенный приговор: uvicorn поднимается ДО прогрева, но у только что
 # стартовавшей ноды первые секунды ответа может не быть, а пересадка стирает уже скачанный
 # образ (урок 402 — так сняли ноду со 100 % закачки).
-SILENT_ZOMBIE_S = float(os.environ.get('MESH_SILENT_ZOMBIE_S', '600'))
+# 240 с, а не 600 (T-20261024-01): воркер слушает порт через ~7 с после старта контейнера, модели грузятся за ~1 мин
+# (медиана, вывод контейнеров 23→24.10) — 4 минуты молчания уже не «ещё греется»; при жизни машины 12–14 мин
+# 600 с оплачивали больше половины её жизни впустую.
+SILENT_ZOMBIE_S = float(os.environ.get('MESH_SILENT_ZOMBIE_S', '240'))
 _SILENT: dict = {}       # instance_id → когда впервые не ответила подряд
 
 
@@ -298,9 +360,9 @@ def sink_relief(h: dict, now: float | None = None) -> bool:
 
 
 def sink_poll(force: bool = False) -> bool:
-    """Обновить флаг приёмника. Не чаще POLL_S, кроме `force` (подозрение на 507 у воркера)."""
+    """Обновить флаг приёмника. Не чаще SINK_POLL_S, кроме `force` (подозрение на 507 у воркера)."""
     now = time.time()
-    if not force and now - _SINK['at'] < POLL_S * 0.9:
+    if not force and now - _SINK['at'] < SINK_POLL_S * 0.9:
         return _SINK['ok']
     h = SH.check()
     sink_relief(h, now)
@@ -353,7 +415,7 @@ def ssh_text(port: int, cmd: str, timeout: int = 60) -> str:
     ssh_slot()
     r = subprocess.run(
         ['ssh', '-i', SSH_KEY, '-tt', '-o', 'StrictHostKeyChecking=no',
-         '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30', '-p', str(port), SSH_HOST],
+         '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30', '-p', str(port), ssh_host(port)],
         input=f'{cmd}; exit\n', capture_output=True, text=True, timeout=timeout)
     return r.stdout
 
@@ -391,7 +453,7 @@ def run_job(port: int, job: dict) -> dict:
             r = subprocess.run(
                 ['ssh', '-i', SSH_KEY, '-tt', '-o', 'StrictHostKeyChecking=no',
                  '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30',
-                 '-p', str(port), SSH_HOST],
+                 '-p', str(port), ssh_host(port)],
                 input=script, capture_output=True, text=True, timeout=1150)
             m = re.search(r'RLBEG(\{.*?\})RLEND', r.stdout, re.S)
             if m:
@@ -951,6 +1013,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                         # Без seed и полного id инстанса потерянное задание не восстановить —
                         # 01.09 именно поэтому нельзя было сказать точно, что пропало.
                         'seed': it['job'].get('seed'), 'instance': node_id, 'group': group,
+                        **addr_fields(node_id, port),
                         'fault': fault, 'err_class': ecls,
                         'error': str(r.get('error') or '')[:700], 'at': round(time.time()),
                         **({'quarantine_until': round(q_until)} if q_until else {})})
@@ -1012,6 +1075,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             return
 
     mem_low: dict = {}        # instance_id → (группа, причина): снятая машина ждёт пересадки (бюджет пересадок кончился)
+    port_of: dict = {}        # instance_id → адрес (порт со шлюзом), с которым его подключали — для строки журнала
 
     def reject_node(node_id: str, group: str, tag: str, why: str, gpu: str | None = None, **fields) -> None:
         """Машина уходит по свойству САМОЙ машины (малая ОЗУ, магазин не пускает её адрес): строка в журнал — не попытка
@@ -1020,7 +1084,9 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
         gpu = gpu or gpu_of.get(node_id) or '?'
         print(f'  нода {node_id[:8]} ({gpu}): {why} — ухожу', flush=True)
         checkpoint({'at': round(time.time()), 'kind': 'node_reject', 'status': 'node_reject', 'node': node_id[:8],
-                    'instance': node_id, 'group': group, 'gpu': gpu, 'reason': tag, 'why': why, **fields})
+                    'instance': node_id, 'group': group, 'gpu': gpu, 'reason': tag, 'why': why,
+                    **addr_fields(node_id, port_of.get(node_id)),
+                    **fields})
         NH.retire(f'{group}/{node_id}')
         if NH.take_cull_slot():
             if NH.reallocate(group, node_id, f'{tag}: {why}'):
@@ -1048,6 +1114,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
         return forbid_seq.pop(node_id) if len(set(seq)) >= n else []
 
     def spawn(node_id: str, port: int, group: str = GROUP):
+        port_of[node_id] = port
         need = SG.node_min_ram_gb()
         if need > 0 and node_id not in gpu_of:
             # ОЗУ — ДО первого задания (T-20261022-10 Б): машина с малой памятью роняет генерацию посередине
@@ -1148,7 +1215,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                 if is_warm and h.get('warmup_s') and inst['id'] not in warm_logged:
                     warm_logged.add(inst['id'])
                     checkpoint({'at': time.time(), 'kind': 'warmup', 'status': 'warmup', 'node': inst['id'][:8],
-                              'instance': inst['id'], 'group': inst['group'],
+                              'instance': inst['id'], 'group': inst['group'], **addr_fields(inst['id'], inst['port']),
                               'warmup_s': round(float(h['warmup_s']), 1)})
             added = 0
             for inst, is_warm in zip(cands, warm):

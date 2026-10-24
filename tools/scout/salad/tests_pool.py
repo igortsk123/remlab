@@ -56,6 +56,8 @@ def setup(tmp: str) -> None:
 culled: list = []               # кого стенд «пересадил» вместо реального вызова Salad
 ORIG_JOBS_FROM_FILE = S.jobs_from_file   # `patch()` его подменяет — держим настоящий
 ORIG_RUN_JOB = S.run_job                 # то же: случаю про двойной /generate нужен настоящий
+ORIG_SSH_TEXT = S.ssh_text              # то же для ssh_text: случай про адрес шлюза смотрит, куда уходит ssh
+ORIG_INSTANCES = S.instances           # `patch()` подменяет список инстансов — случаю про адрес шлюза нужен настоящий
 ORIG_REALLOCATE = NH.reallocate          # `setup()` подменяет на запись в `culled` — случаю про 404 нужен настоящий
 ORIG_STOP_GROUP = S.stop_group           # `patch()` гасит его заглушкой — случаю про проверку остановки нужен настоящий
 
@@ -1085,6 +1087,44 @@ def case_realloc_404_returns_slot() -> None:
     print('  ✓ пересадка: 404 — слот вернулся, 500 — слот потрачен')
 
 
+def case_ssh_addr() -> None:
+    """Адрес шлюза SSH — из того же ответа API, что и порт (T-20261024-01): пара сохраняется, уходит в ssh, разные
+    `ssh_ip` с одним портом — разные адреса; без `ssh_ip` — запасной адрес и WARN; в журнал — ip, порт, машина."""
+    keep_api, keep_groups, keep_run = S.api, S.GROUPS, S.subprocess.run
+    S.GROUPS = ['g']
+    S.api = lambda path: {'instances': [
+        {'id': 'I1' + 'a' * 6, 'started': True, 'state': 'running', 'ssh_port': 20001, 'ssh_ip': '10.0.0.1', 'machine_id': 'M1'},
+        {'id': 'I2' + 'b' * 6, 'started': True, 'state': 'running', 'ssh_port': 20001, 'ssh_ip': '10.0.0.2', 'machine_id': 'M2'},
+        {'id': 'I3' + 'c' * 6, 'started': True, 'state': 'running', 'ssh_port': 20003, 'machine_id': 'M3'}]}
+    argv = []
+
+    class R:
+        stdout, stderr, returncode = 'ok', '', 0
+    S.subprocess.run = lambda a, **k: (argv.append(a), R())[1]
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out):
+            ins = ORIG_INSTANCES()
+        p1, p2, p3 = (i['port'] for i in ins)
+        assert p1 == 20001 and p1.ip == '10.0.0.1' and p2.ip == '10.0.0.2', ins
+        assert p1 != p2 and len({p1, p2}) == 2, 'один порт на двух шлюзах слился в один адрес'
+        assert p1 == S.Addr(20001, '10.0.0.1') and str(p1) == '20001' and f'{p1}' == '20001'
+        S.ssh_slot = lambda: None
+        ORIG_SSH_TEXT(p1, 'true')
+        ORIG_SSH_TEXT(p2, 'true')
+        ORIG_SSH_TEXT(p3, 'true')
+        ORIG_SSH_TEXT(7, 'true')                                  # голое число — старые вызовы и стенд
+        hosts = [a[-1] for a in argv]
+        assert hosts == ['root@10.0.0.1', 'root@10.0.0.2', S.SSH_HOST, S.SSH_HOST], hosts
+        assert all(a[a.index('-p') + 1] in ('20001', '20003', '7') for a in argv), argv
+        assert 'WARN' in out.getvalue() and 'I3cccccc'[:8] in out.getvalue(), out.getvalue()
+        f = S.addr_fields('I2' + 'b' * 6, p2)
+        assert f == {'ssh_ip': '10.0.0.2', 'ssh_port': 20001, 'machine': 'M2'}, f
+    finally:
+        S.api, S.GROUPS, S.subprocess.run = keep_api, keep_groups, keep_run
+    print('  ✓ адрес шлюза из API: пара в ssh, разные шлюзы — разные адреса, без ssh_ip — запасной и WARN, поля журнала')
+
+
 def case_low_ram_node() -> None:
     """Машина с ОЗУ ниже порога уходит ДО первого задания (T-20261022-10 Б): ни одного задания не взяла, снята и
     пересажена, в журнале — служебная строка `node_reject`, которую сторож денег не считает ни попыткой, ни сбоем.
@@ -1323,7 +1363,7 @@ def main() -> None:
                    case_silent_node_is_zombie, case_sink_relief_before_red,
                    case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart,
                    case_stop_verified, case_low_ram_node, case_input_quarantine, case_forbidden_node,
-                   case_taken_no_streak, case_realloc_404_returns_slot):
+                   case_taken_no_streak, case_realloc_404_returns_slot, case_ssh_addr):
             if fn not in pure:
                 setup(tmp)
             fn()

@@ -561,12 +561,13 @@ def cull_dead_warmups() -> None:
                 and (iso_age_s(i.get('update_time'), now) or 0) >= ZOMBIE_MIN_MIN * 60]
         if not live:
             return
-        ports = [int(i['ssh_port']) for i in live]
+        # адрес шлюза — из того же ответа API, что и порт (`ssh_ip`, T-20261024-01), иначе проба идёт не туда
+        ports = [SR.Addr(i['ssh_port'], i.get('ssh_ip')) for i in live]
         with cf.ThreadPoolExecutor(max_workers=min(6, len(ports))) as ex:
             health = dict(zip(ports, ex.map(SR.probe_health, ports)))
 
         def _fault(inst) -> str:
-            h = health.get(int(inst['ssh_port']))
+            h = health.get(SR.Addr(inst['ssh_port'], inst.get('ssh_ip')))
             # НЕМАЯ НОДА — ТОЖЕ МЁРТВАЯ (03.09). В ночь на 03.09 одна нода семь часов была
             # `running` и не отвечала на пробу (`TimeoutExpired`, 51 с): конвейер 71 раз написал
             # «нет тёплых нод — жду 3 мин», а мы за неё платили. Прежняя проверка ловила только
