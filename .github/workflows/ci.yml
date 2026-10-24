@@ -195,7 +195,7 @@ jobs:
         env:
           SALAD_GROUP: g
           SALAD_API_KEY: x
-      - run: python tools/scout/salad/tests_queue.py   # транспорт «очередь Salad» без сети: обёртка запуска (sha, два процесса, стоп) и сборщик (итог по ответу воркера, без двойной постановки) — mesh-18
+      - run: python tools/scout/salad/tests_queue.py   # транспорт «очередь Salad» без сети: обёртка запуска (sha, два процесса, стоп), посредник (машина в ответе), сборщик (итог по ответу воркера, без двойной постановки), общий прогон SSH+очередь, мёртвый прогрев, disabled — mesh-18
         env:
           SALAD_GROUP: g
           SALAD_API_KEY: x

@@ -97,10 +97,20 @@ GROUP = GROUPS[0] if GROUPS else ''
 # (`rules/mesh-priority.json`). Держим переопределяемым: молчаливое усечение хуже явного
 # отказа, а зашитая цифра однажды уже уронила конвейер при живых нодах.
 MAX_JOBS = int(os.environ.get('MESH_MAX_JOBS', '2000'))
-# Транспорт заданий (план mesh-18): `ssh` — терминал машины (по умолчанию), `queue` — очередь Salad (`queue_run.py`).
-# Переменная, а не только флаг: конвейер (`batch_show --transport queue`) ставит её себе, и её наследуют все его вызовы
-# `ssh_run` — пачки, перегон, спул повторов.
-TRANSPORT = os.environ.get('MESH_TRANSPORT', 'ssh')
+# Транспорт заданий (план mesh-18): `auto` (по умолчанию, этап 2) — по правилам группы: у группы есть очередь
+# (`queue` в rules/salad-groups.json) — задания ей везёт очередь Salad (`queue_run.Side`), нет — SSH; обе стороны в одном
+# прогоне, учёт общий. `queue` — только группы с очередью, `ssh` — все по SSH (как до mesh-18). Правило, а не флаг: волну
+# автозапуска (`wave_guard` → `mesh_wave_start.sh`) поднимают без флагов, а транспорт обязан совпасть с тем, к чему
+# группа подключена при создании. Переменная наследуется всеми вызовами `ssh_run` конвейера (пачки, перегон, спул).
+TRANSPORT = os.environ.get('MESH_TRANSPORT', 'auto')
+QUEUE_GROUPS: set = set()   # группы, которым в этом прогоне задания везёт очередь: их машинам SSH заданий не раздаёт
+
+
+def split_groups(groups: list[str], transport: str) -> tuple[list[str], dict]:
+    """(группы SSH, {группа: очередь}) для транспорта прогона."""
+    q = {g: SG.queue_of(g) for g in groups if SG.queue_of(g)} if transport in ('auto', 'queue') else {}
+    ssh = [] if transport == 'queue' else [g for g in groups if g not in q]
+    return ssh, q
 _lock = threading.Lock()
 import random
 # СОСТОЯНИЕ ПРИЁМНИКА — один опрос на процесс (супервизор, раз в POLL_S), воркеры читают флаг без
@@ -176,6 +186,8 @@ def instances() -> list[dict]:
     порт после пересадки ноды переиспользуется, и по нему задание уедет не туда."""
     out = []
     for g in GROUPS:
+        if g in QUEUE_GROUPS:
+            continue                         # задания этой группе везёт очередь (mesh-18) — SSH её машин не трогает
         try:
             insts = api(f'containers/{g}/instances').get('instances') or []
         except Exception:  # noqa: BLE001 — одна группа недоступна: работаем с остальными
@@ -969,16 +981,27 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
         # Весь срез сделан: курсор проходит его без нод и без денег.
         print('RUN_SUMMARY ' + json.dumps(js.summary()), flush=True)
         return 0
-    if TRANSPORT == 'queue':
-        # ОЧЕРЕДЬ SALAD вместо SSH (план mesh-18): учёт заданий тот же (`js`), транспорт и готовность машин — свои
-        import queue_run as QR  # noqa: PLC0415 — нужен только в этом режиме
-        return QR.run(sys.modules[__name__], js, jobs, n_pre, keep_alive)
-    ports = warm_ports()
-    print(f'тёплых нод: {len(ports)} {ports}')
-    if not ports:
+    # ОЧЕРЕДЬ SALAD (план mesh-18): группам с очередью задания везёт она; учёт заданий тот же (`js`), готовность машин —
+    # `ready` из API (их проба `/ready`), без SSH. Группы SSH идут прежним путём рядом.
+    ssh_groups, q_groups = split_groups(GROUPS, TRANSPORT)
+    ssh_on = bool(ssh_groups) or not q_groups    # SSH-сторона есть всегда, кроме прогона из одних групп очереди
+    QUEUE_GROUPS.clear()
+    QUEUE_GROUPS.update(q_groups)
+    if TRANSPORT == 'queue' and not q_groups:
+        print('!! транспорт queue: ни у одной группы SALAD_GROUP нет очереди (`queue` в rules/salad-groups.json)', flush=True)
+        return 2
+    side = None
+    if q_groups:
+        import queue_run as QR  # noqa: PLC0415 — нужен только группам с очередью
+        side = QR.Side(sys.modules[__name__], js, q_groups)
+    ports = warm_ports() if ssh_on else []
+    q_ready = side.ready_total() if side else 0
+    print(f'тёплых нод: {len(ports)} {ports}' + (f'; готовых машин очереди: {q_ready} {side.slots.ready}' if side else ''))
+    if not ports and not q_ready:
         print('нет прогретых нод', flush=True)
         return EXIT_NO_CAPACITY
-    print(f'заданий: {len(jobs) - n_pre} на {len(ports)} нод(ы) на старте')
+    print(f'заданий: {len(jobs) - n_pre} на {len(ports)} нод(ы) SSH' + (f' и {q_ready} машин(ы) очереди' if side else '')
+          + ' на старте')
 
     t0 = time.time()
     stop = threading.Event()
@@ -1169,6 +1192,8 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             nodes[node_id] = {'thread': t, 'port': port, 'until': 0.0}
         t.start()
 
+    if side:                   # очередь — до подключения SSH-машин: они идут с паузой 2 с, очередь ждать незачем
+        side.start(stop, closed, len(jobs), only=not ssh_on)
     for i, inst in enumerate([n for n in instances() if n['port'] in ports]):
         if NH.is_retired(f'{inst["group"]}/{inst["id"]}'):
             print(f'  нода {inst["id"][:8]}: снята за серию сбоев — в прогон не беру', flush=True)
@@ -1295,14 +1320,18 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                 last_cull = time.time()
                 cull_slow()
 
-    threading.Thread(target=supervisor, daemon=True).start()
+    # Супервизор — при группах SSH (их машины `instances()` видит, группы очереди пропускает); приёмник и медленную
+    # закачку (`cull_slow` — по API, для всех групп) он ведёт за обе стороны. Групп SSH нет — это делает `Side.watch`.
+    if ssh_on:
+        threading.Thread(target=supervisor, daemon=True).start()
     js.wait_all()
     stop.set()
 
     s = js.summary()
     rows = js.results()
     spool_unresolved(rows)
-    state = {'transport': 'ssh', 'ports': ports, 'at': time.time(),
+    state = {'transport': '+'.join(x for x, on in (('ssh', ssh_on), ('queue', q_groups)) if on), 'ports': ports,
+             'queues': q_groups, 'at': time.time(),
              'wall_s': round(time.time() - t0), 'summary': s,
              'results': [{k: v for k, v in r.items() if k != 'job'} for r in rows]}
     json.dump(state, open(RESULTS, 'w'), ensure_ascii=False, indent=1)
@@ -1354,8 +1383,8 @@ def main() -> None:
     global TRANSPORT
     if '--transport' in sys.argv:
         TRANSPORT = sys.argv[sys.argv.index('--transport') + 1]
-    if TRANSPORT not in ('ssh', 'queue'):
-        sys.exit(f'транспорт {TRANSPORT!r}: только ssh или queue')
+    if TRANSPORT not in ('auto', 'ssh', 'queue'):
+        sys.exit(f'транспорт {TRANSPORT!r}: только auto, ssh или queue')
     sys.exit(run(lim, '--keep-alive' in sys.argv, jf, skip))
 
 

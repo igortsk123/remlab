@@ -16,6 +16,17 @@
  11) незакрытое задание прошлого раздатчика доопрашивается, второй раз не кладётся;
  12) машины пропали — остаток закрыт, ждущие сняты (DELETE), код 75;
  13) в очереди не больше PER_READY заданий на готовую машину.
+ЭТАП 2 (боевой режим):
+ 14) посредник `queue_proxy.py`: ответ генерации с тем же кодом + `_salad` (машина из окружения Salad), не-JSON — как есть,
+     генерация молчит — 502;
+ 15) обёртка с посредником: он слушает после прогрева, упал — контейнер выходит, SIGTERM гасит все три процесса;
+ 16) машина из ответа (`_salad`) — в журнал полями `instance`/`machine`, как у SSH (учёт пула видит, кто работал);
+ 17) `auto`: группа с очередью — очередь, без — SSH, в одном прогоне; SSH машин группы очереди не трогает;
+ 18) машины очереди пропали при живой SSH-группе — ждущие сняты, задания доделывает SSH, прогон закрыт целиком;
+ 19) замок конвейера: свободен — держим (отметка жизни для «мёртвой руки»), занят — 'busy';
+ 20) прогрев без /ready дольше WARM_MAX_S — пересадка; у половины группы — «наша беда», не трогаем;
+ 21) `disabled` в rules — группу не поднимает никто (`allowed_now`, `--can-start`);
+ 22) `auto` без групп с очередью — обычный SSH-прогон.
 
   ~/venvs/scout/bin/python tests_queue.py            # всё без сети
   ~/venvs/scout/bin/python tests_queue.py --real     # + настоящий воркер очереди v0.7.0 с GitHub (скачать, sha, 2 процесса, стоп)
@@ -127,7 +138,8 @@ def pid_of(mark: str, name: str, wait_s: float = 30) -> int | None:
     return None
 
 
-def start(d: str, url: str | None, sha: str | None, port: int, **env) -> tuple[subprocess.Popen, str]:
+def start(d: str, url: str | None, sha: str | None, port: int, cmd: list | None = None,
+          **env) -> tuple[subprocess.Popen, str]:
     """Обёртка ровно тем текстом, что уйдёт в `command` группы (`QS.entry_command`). `python` — shim на python3:
     в образе он есть (`Dockerfile`), на DEV — нет."""
     mark = tempfile.mkdtemp(dir=d)
@@ -144,7 +156,7 @@ def start(d: str, url: str | None, sha: str | None, port: int, **env) -> tuple[s
         e['QW_URL'] = url
     if sha:
         e['QW_SHA256'] = sha
-    p = subprocess.Popen(QS.entry_command(ENTRY), env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    p = subprocess.Popen(cmd or QS.entry_command(ENTRY), env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                          start_new_session=True)
     return p, mark
 
@@ -206,6 +218,35 @@ def wrapper_cases(real: bool) -> None:
         check(rc == 14 and not os.path.exists(os.path.join(mark, 'qw.pid')),
               f'генерация умерла до прогрева — выход 14, воркер очереди не запускался (rc={rc})')
 
+        # обёртка с посредником (этап 2): тот же текст, что уйдёт в `command` группы на порту 8001
+        pcmd = QS.command(QS.PROXY_PORT)
+        check(len(pcmd) == 5 and pcmd[3] == 'qw' and len(pcmd[4]) <= 1000 and '#' not in pcmd[4],
+              f'command с посредником: 5 элементов, код посредника {len(pcmd[4])} знаков ≤ 1000, без комментариев')
+        p, mark = start(d, url, sha, 18307, cmd=pcmd, READY_AFTER='1', PX_PORT='18317',
+                        GEN='http://127.0.0.1:18307/generate')
+        apid, qpid = pid_of(mark, 'app.pid'), pid_of(mark, 'qw.pid')
+        listening = wait_port(18317, 20)
+        ppids = [x for x in in_session(p.pid, 'python') if x != apid]
+        check(bool(listening and qpid and len(ppids) == 1),
+              f'после прогрева работают три процесса: генерация, посредник (порт 18317), воркер очереди (pid {ppids})')
+        if ppids:
+            os.kill(ppids[0], signal.SIGKILL)
+        rc, out = finish(p)
+        time.sleep(0.3)
+        check(rc is not None and apid and qpid and not alive(apid) and not alive(qpid),
+              f'посредник упал — генерация и воркер очереди погашены, контейнер вышел (rc={rc})')
+
+        p, mark = start(d, url, sha, 18308, cmd=pcmd, READY_AFTER='0', PX_PORT='18318',
+                        GEN='http://127.0.0.1:18308/generate')
+        apid, qpid = pid_of(mark, 'app.pid'), pid_of(mark, 'qw.pid')
+        wait_port(18318, 20)
+        ppids = [x for x in in_session(p.pid, 'python') if x != apid]
+        p.send_signal(signal.SIGTERM)
+        rc, out = finish(p)
+        time.sleep(0.3)
+        check(rc == 143 and apid and qpid and ppids and not any(alive(x) for x in [apid, qpid, *ppids]),
+              f'SIGTERM — все три остановлены, выход 143 (rc={rc})')
+
         if real:
             # настоящий архив с GitHub по ссылке и SHA-256 ИЗ САМОГО command (без подмен QW_URL/QW_SHA256)
             p, mark = start(d, None, None, 18306, READY_AFTER='0', SALAD_LOG_LEVEL='info')
@@ -226,6 +267,73 @@ def wrapper_cases(real: bool) -> None:
             check(rc == 143 and not alive(apid) and not any(alive(x) for x in qpids),
                   f'SIGTERM — оба остановлены, выход 143 (rc={rc})')
             print('    вывод обёртки (хвост):', ' | '.join(out.strip().splitlines()[-4:])[:400])
+
+
+def wait_port(port: int, wait_s: float) -> bool:
+    import socket
+    t0 = time.time()
+    while time.time() - t0 < wait_s:
+        with socket.socket() as so:
+            if so.connect_ex(('127.0.0.1', port)) == 0:
+                return True
+        time.sleep(0.2)
+    return False
+
+
+# ---------- посредник ----------
+
+def proxy_cases() -> None:
+    """Код ровно тот, что уйдёт в `command` (`QS.proxy_code`), против поддельной генерации."""
+    import http.server
+    import urllib.error
+    import urllib.request
+
+    class Gen(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            mode = json.loads(self.rfile.read(int(self.headers['Content-Length'])))['mode']
+            code, body = {'ok': (200, b'{"status": "ok", "sku": "s1"}'), 'warm': (503, b'{"detail": "warming"}'),
+                          'text': (200, b'plain')}[mode]
+            self.send_response(code)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    gen = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Gen)
+    threading.Thread(target=gen.serve_forever, daemon=True).start()
+    env = {**os.environ, 'PX_PORT': '18321', 'GEN': f'http://127.0.0.1:{gen.server_address[1]}/generate',
+           'SALAD_INSTANCE_ID': 'inst-1234abcd', 'SALAD_MACHINE_ID': 'mach-77'}
+    px = subprocess.Popen([sys.executable, '-c', QS.proxy_code()], env=env)
+
+    def post(mode: str, port: int = 18321) -> tuple[int, bytes]:
+        r = urllib.request.Request(f'http://127.0.0.1:{port}/generate', json.dumps({'mode': mode}).encode(),
+                                   {'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(r, timeout=10) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+
+    try:
+        check(wait_port(18321, 10), 'посредник слушает свой порт')
+        c, b = post('ok')
+        j = json.loads(b)
+        check(c == 200 and j.get('status') == 'ok' and j.get('_salad') == {'instance_id': 'inst-1234abcd',
+                                                                            'machine_id': 'mach-77'},
+              f'200: ответ генерации + _salad с машиной из окружения Salad ({c}, {j.get("_salad")})')
+        c, b = post('warm')
+        check(c == 503 and json.loads(b).get('detail') == 'warming', f'503 прогрева — тем же кодом (Salad повторит): {c}')
+        c, b = post('text')
+        check(c == 200 and b == b'plain', 'ответ не JSON — как есть')
+        gen.shutdown()
+        gen.server_close()
+        c, b = post('ok')
+        check(c == 502 and 'proxy:' in json.loads(b).get('error', ''), f'генерация молчит — 502 с причиной ({c})')
+    finally:
+        px.kill()
+        px.wait()
 
 
 # ---------- сборщик ----------
@@ -284,7 +392,8 @@ def qsetup(tmp: str, fake: FakeSalad) -> None:
     S.GROUPS, S.GROUP = ['g'], 'g'
     S.TRANSPORT = 'queue'
     QR.req = fake.req
-    QR.SG.queue_of = lambda g: 'q' if g == 'g' else ''
+    S.SG.queue_of = lambda g: 'q' if g == 'g' else ''
+    os.environ['MESH_LOCK'] = os.path.join(tmp, 'batch_show.lock')   # не живой замок конвейера
     QR.POLL_S, QR.READY_POLL_S, QR.STALL_S = 0.05, 0.1, 1.0
     QR.LEDGER = os.path.join(tmp, 'qledger.jsonl')
     if os.path.exists(QR.LEDGER):
@@ -304,7 +413,7 @@ def run_q(jobs: list) -> tuple[int, dict, list]:
 
 
 def collector_cases() -> None:
-    orig_req, orig_q = QR.req, QR.SG.queue_of
+    orig_req, orig_q = QR.req, S.SG.queue_of
     with tempfile.TemporaryDirectory() as tmp:
         try:
             f = FakeSalad()
@@ -353,15 +462,144 @@ def collector_cases() -> None:
                   f'машины пропали — остаток закрыт, ждущие сняты ({len(f.deletes)}), код {code}')
             check(f.max_open <= QR.PER_READY, f'в очереди не больше {QR.PER_READY} на готовую машину (было {f.max_open})')
         finally:
-            QR.req, QR.SG.queue_of = orig_req, orig_q
-            S.TRANSPORT = 'ssh'
+            QR.req, S.SG.queue_of = orig_req, orig_q
+            S.TRANSPORT = 'auto'
+
+
+def stage2_cases() -> None:
+    orig = (QR.req, S.SG.queue_of, S.SG.info, S.SG.price_halted, S.api, S.instances)
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            # 16) машина из ответа посредника — в журнал
+            f = FakeSalad()
+            f.output = lambda sku, n: {'sku': sku, 'status': 'ok', 'timings_s': {'total': 5},
+                                       '_salad': {'instance_id': 'inst-9f8e7d6c', 'machine_id': 'mach-42'}}
+            qsetup(tmp, f)
+            code, st, prog = run_q(TP.jobs(2))
+            check(code == 0 and all(r.get('instance') == 'inst-9f8e7d6c' and r.get('machine') == 'mach-42'
+                                    and r.get('node') == 'inst-9f8' for r in prog) and len(prog) == 2
+                  and S.MACHINE.get('inst-9f8e7d6c') == 'mach-42',
+                  'машина из ответа (_salad) — в журнал: instance, machine, node, как у SSH')
+            check(not any('_salad' in r for r in st.get('results') or []), '_salad в итог прогона не попадает')
+
+            # 17) auto: g — очередь, h — SSH, в одном прогоне
+            def api_for(path: str) -> dict:
+                grp = path.split('/')[1]
+                base = 11 if grp == 'g' else 21
+                return {'instances': [{'id': f'{grp}{k}' * 4, 'ssh_port': base + k, 'ssh_ip': '10.0.0.1',
+                                       'started': True, 'state': 'running', 'machine_id': f'm{grp}{k}'}
+                                      for k in range(2)]}
+            f = FakeSalad(ready=1)
+            f.plan = lambda sku, n: ['pending', 'running', 'running', 'succeeded']
+            qsetup(tmp, f)
+            used = []
+
+            def ssh_job(port, job):
+                used.append(int(port))
+                time.sleep(0.3)
+                return {'sku': job['sku'], 'status': 'ok', 'timings_s': {'total': 1}}
+            TP.patch([], ssh_job)
+            S.instances, S.api = TP.ORIG_INSTANCES, api_for
+            S.GROUPS, S.GROUP, S.TRANSPORT = ['g', 'h'], 'g', 'auto'
+            code, st, prog = run_q(TP.jobs(8))
+            tr = {r.get('transport') for r in prog}
+            check(code == 0 and st.get('transport') == 'ssh+queue' and st['summary']['unresolved'] == 0
+                  and f.posts and used and 'queue' in tr and len(prog) == 8,
+                  f'auto: очередь {len(f.posts)} и SSH {len(used)} заданий в одном прогоне, всё закрыто (код {code})')
+            check(set(used) <= {21, 22}, f'SSH раздавал только машинам SSH-группы (порты {sorted(set(used))})')
+
+            # 18) машины очереди пропали, SSH жив — ждущие сняты, остаток доделан SSH
+            f = FakeSalad(ready=1)
+            f.plan = lambda sku, n: ['pending'] * 10_000
+            qsetup(tmp, f)
+            used.clear()
+            TP.patch([], ssh_job)
+            S.instances, S.api = TP.ORIG_INSTANCES, api_for
+            S.GROUPS, S.GROUP, S.TRANSPORT = ['g', 'h'], 'g', 'auto'
+            threading.Timer(0.3, lambda: setattr(f, 'ready', 0)).start()
+            code, st, prog = run_q(TP.jobs(6))
+            check(code == 0 and st['summary']['unresolved'] == 0 and f.deletes and len(used) == 6
+                  and all(f.jobs[q]['status'] == 'cancelled' for q in f.deletes),
+                  f'машины очереди пропали — ждущие сняты ({len(f.deletes)}), все 6 доделал SSH (код {code})')
+
+            # 22) auto без групп с очередью — обычный SSH
+            f = FakeSalad()
+            qsetup(tmp, f)
+            used.clear()
+            TP.patch([], ssh_job)
+            S.instances, S.api = TP.ORIG_INSTANCES, api_for
+            S.GROUPS, S.GROUP, S.TRANSPORT = ['h'], 'h', 'auto'
+            code, st, prog = run_q(TP.jobs(3))
+            check(code == 0 and st.get('transport') == 'ssh' and len(used) == 3 and not f.posts,
+                  f'auto без очереди у групп — SSH, как раньше (транспорт {st.get("transport")})')
+            S.TRANSPORT = 'queue'
+            code, st, prog = run_q(TP.jobs(1))
+            check(code == 2 and not f.posts, f'queue без групп с очередью — отказ, код {code}')
+
+            # 19) замок конвейера
+            lk = os.path.join(tmp, 'lk')
+            r1 = QR.hold_lock(lk)
+            r2 = QR.hold_lock(lk)
+            if QR._LOCK_FH:
+                QR._LOCK_FH.close()
+                QR._LOCK_FH = None
+            r3 = QR.hold_lock(os.path.join(tmp, 'нет', 'lk'))
+            check((r1, r2, r3) == ('held', 'busy', 'none'), f'замок: свободный держим, занятый — busy, нет пути — none: {(r1, r2, r3)}')
+
+            # 20) мёртвый прогрев
+            f = FakeSalad()
+            qsetup(tmp, f)
+            side = QR.Side(S, S.Jobs([]), {'g': 'q'})
+            ins = [{'id': f'i{k}' * 4, 'state': 'running', 'ready': k > 0} for k in range(4)]
+            side.insts = {'g': ins}
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                side.cull_warmups(1000.0)
+                side.cull_warmups(1000.0 + QR.WARM_MAX_S + 1)
+            check(TP.culled == ['i0i0i0i0'], f'1 из 4 без /ready дольше WARM_MAX_S — пересажена ({TP.culled})')
+            TP.culled.clear()
+            side.insts = {'g': [{'id': f'j{k}' * 4, 'state': 'running', 'ready': k > 1} for k in range(4)]}
+            with contextlib.redirect_stdout(buf):
+                side.cull_warmups(5000.0)
+                side.cull_warmups(5000.0 + QR.WARM_MAX_S + 1)
+            check(not TP.culled and 'наша беда' in buf.getvalue(), 'у половины группы нет /ready — беда наша, не трогаем')
+            side.insts = {'g': [{'id': 'k' * 8, 'state': 'running', 'ready': False}] + ins[1:]}
+            with contextlib.redirect_stdout(buf):
+                side.cull_warmups(9000.0)
+                side.insts = {'g': [{'id': 'k' * 8, 'state': 'running', 'ready': True}] + ins[1:]}
+                side.cull_warmups(9000.0 + QR.WARM_MAX_S + 1)
+            check(not TP.culled, 'прогрелась вовремя — не трогаем')
+
+            # 21) disabled
+            S.SG.price_halted = lambda g: ''
+            S.SG.info = lambda g: {'disabled': True}
+            check(S.SG.allowed_now('x') is False, 'disabled в rules — allowed_now: нельзя')
+            S.SG.info = lambda g: {}
+            check(S.SG.allowed_now('x') is True, 'без disabled — можно')
+        finally:
+            QR.req, S.SG.queue_of, S.SG.info, S.SG.price_halted, S.api, S.instances = orig
+            S.TRANSPORT = 'auto'
+            S.QUEUE_GROUPS.clear()
+    # по живым правилам: боевая группа очереди заведена выключенной
+    live = {g: v for g, v in json.load(open(os.path.join(HERE, '..', 'rules', 'salad-groups.json'),
+                                            encoding='utf-8')).get('groups', {}).items() if isinstance(v, dict)}
+    off = [g for g, v in live.items() if v.get('queue') and not g.endswith('-canary')]
+    for g in off:
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'salad_groups.py'), '--can-start', g],
+                           capture_output=True, text=True)
+        check(r.returncode == (1 if live[g].get('disabled') else 0),
+              f'{g}: --can-start {r.returncode} ({"выключена" if live[g].get("disabled") else "включена"} в rules) {r.stdout.strip()}')
 
 
 def main() -> int:
     print('обёртка запуска (queue_entry.sh):')
     wrapper_cases('--real' in sys.argv)
+    print('посредник (queue_proxy.py):')
+    proxy_cases()
     print('сборщик очереди (queue_run):')
     collector_cases()
+    print('этап 2 — боевой режим:')
+    stage2_cases()
     print('очередь: ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'очередь: ПРОВАЛ {len(FAILS)}: {FAILS}')
     return 1 if FAILS else 0
 

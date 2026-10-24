@@ -9,7 +9,8 @@
 
   SALAD_API_KEY=... ~/venvs/scout/bin/python batch_show.py --batch 5          # весь план
   SALAD_API_KEY=... ~/venvs/scout/bin/python batch_show.py --batch 5 --max 50 # первые 50
-  SALAD_API_KEY=... ~/venvs/scout/bin/python batch_show.py --batch 5 --transport queue  # задания через очередь Salad (mesh-18)
+  SALAD_API_KEY=... ~/venvs/scout/bin/python batch_show.py --batch 5 --transport ssh  # всем по SSH (по умолчанию auto: группе
+                                                                                     # с очередью в rules — очередь, mesh-18)
 """
 import concurrent.futures as cf
 import datetime
@@ -225,7 +226,7 @@ def ensure_group_started():
     if skipped:
         # запрет цены (план mesh-15) — та же ветка: группу, у которой меш дороже потолка, не поднимает никто
         print('группы вне окна или под запретом цены, не поднимаю: '
-              + ', '.join(f'{g} ({SG.price_halted(g) or "вне окна"})' for g in skipped), flush=True)
+              + ', '.join(f'{g} ({SG.price_halted(g) or ("выключена в rules" if SG.info(g).get("disabled") else "вне окна")})' for g in skipped), flush=True)
     # УЖЕ ПОДНЯТУЮ ГРУППУ НЕ СТАРТУЕМ ПОВТОРНО (05.09). Salad на /start живой группы отвечает
     # `400 replicas_quota_exceeded` (квота 50 реплик уже разобрана ею же). Это не отказ, но в
     # логе он неотличим от настоящей беды — а `no_credits_available` приходит тем же кодом 400
@@ -547,7 +548,7 @@ def cull_dead_warmups() -> None:
     import json as _j
     import urllib.request as _u
     for grp in SG.groups_from_env():
-        if os.environ.get('MESH_TRANSPORT') == 'queue' and SG.queue_of(grp):
+        if os.environ.get('MESH_TRANSPORT', 'auto') != 'ssh' and SG.queue_of(grp):
             # задания группе везёт очередь Salad (mesh-18): молчание по SSH здесь не порок машины, судить по нему нельзя
             continue
         base = f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}'
@@ -745,10 +746,11 @@ def main():
 
 def _main():
     if '--transport' in sys.argv:
-        # Транспорт заданий (план mesh-18) — переменной окружения: её наследуют ВСЕ вызовы `ssh_run` (пачки, перегон, спул)
+        # Подмена транспорта (план mesh-18; по умолчанию auto — по правилам группы) — переменной окружения: её наследуют ВСЕ
+        # вызовы `ssh_run` (пачки, перегон, спул)
         tr = sys.argv[sys.argv.index('--transport') + 1]
-        if tr not in ('ssh', 'queue'):
-            sys.exit(f'транспорт {tr!r}: только ssh или queue')
+        if tr not in ('auto', 'ssh', 'queue'):
+            sys.exit(f'транспорт {tr!r}: только auto, ssh или queue')
         os.environ['MESH_TRANSPORT'] = tr
         print(f'транспорт заданий: {tr}', flush=True)
     acquire_singleton()

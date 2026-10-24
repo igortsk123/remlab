@@ -40,7 +40,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import salad_groups as SG  # noqa: E402
+
 
 API = 'https://api.salad.com/api/public'
 ORG, PROJECT = 'prodstore', 'dmodel'
@@ -167,6 +167,7 @@ class Slots:
         self.used = {g: 0 for g in groups}
         self.cv = threading.Condition()
         self.moved_at = time.time()                  # последнее движение: новое задание, смена статуса, итог
+        self.drain = False                           # готовых машин нет давно — ждущие задания снимаются
 
     def update(self, ready: dict) -> None:
         with self.cv:
@@ -208,9 +209,46 @@ class Slots:
             self.moved_at = time.time()
 
 
+def hold_lock(path: str | None = None):
+    """Замок конвейера (`~/scout-scenes/.batch_show.lock`) на время прогона по очереди — по нему `heartbeat.sh` ставит
+    отметку жизни, без неё «мёртвая рука» сервера (`infra/server/salad-deadman.py`) через 30 мин гасит все группы проекта
+    (канарейка 24.10 так и погасла: прогон шёл мимо `batch_show`). Занят — его держит конвейер-родитель, отметка и так
+    идёт: 'busy'. Свободен — держим до конца процесса: 'held'. Не открылся — 'none' (громко: группу погасит рука)."""
+    import fcntl
+    global _LOCK_FH
+    p = path or os.environ.get('MESH_LOCK') or os.path.expanduser('~/scout-scenes/.batch_show.lock')
+    try:
+        fh = open(p, 'a')
+    except OSError as e:
+        print(f'  !! замок конвейера {p} не открыт ({type(e).__name__}) — отметки жизни не будет, сервер погасит группы',
+              flush=True)
+        return 'none'
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return 'busy'
+    _LOCK_FH = fh
+    return 'held'
+
+
+_LOCK_FH = None
+WARM_MAX_S = float(os.environ.get('MESH_QUEUE_WARM_MAX_S', '2700'))   # running без ready дольше — прогрев мёртв
+
+
+def instances_of(groups: list[str]) -> dict:
+    """группа → список инстансов из API (None — группа не прочиталась)."""
+    out = {}
+    for g in groups:
+        code, d = req('GET', f'/containers/{g}/instances')
+        out[g] = (d.get('instances') or []) if code == 200 else None
+    return out
+
+
 def follow(queue: str, qid: str, job: dict, stop: threading.Event, slots: Slots, js) -> tuple[dict, dict]:
-    """Опрашивать задание до конца. (задание очереди, результат). Остаток закрыт (`js.stalled`) или срок вышел —
-    ждущее снимаем; начатое Salad не остановить — закрываем транспортным сбоем, повторит следующая пачка."""
+    """Опрашивать задание до конца. (задание очереди, результат). Остаток закрыт (`js.stalled`), машины очереди пропали
+    (`slots.drain`) или срок вышел — ждущее снимаем; начатое Salad не остановить — закрываем транспортным сбоем, повтор
+    решит учёт (другая машина, SSH-группа или следующая пачка)."""
     t0, last, seen = time.time(), {}, None
     while True:
         code, qj = get(queue, qid)
@@ -223,41 +261,44 @@ def follow(queue: str, qid: str, job: dict, stop: threading.Event, slots: Slots,
                 return qj, to_result(qj, job)
         elif code == 404:
             return {}, {'sku': job.get('sku'), 'status': 'transport_failed', 'error': 'queue/lost: задания нет в очереди'}
-        why = 'остаток пачки закрыт' if js.stalled else ('срок задания вышел' if time.time() - t0 > JOB_MAX_S else '')
+        st = last.get('status')
+        why = ('остаток пачки закрыт' if js.stalled else
+               'срок задания вышел' if time.time() - t0 > JOB_MAX_S else
+               'у очереди нет готовых машин' if slots.drain and st in (None, 'pending') else '')
         if why:
-            st = last.get('status')
             c = cancel(queue, qid) if st in (None, 'pending') else None
             return last, {'sku': job.get('sku'), 'status': 'transport_failed',
                           'error': f'queue/abandoned: {why}, статус {st}' + (f', снято HTTP {c}' if c else '')}
         stop.wait(POLL_S)
 
 
-def run(S, js, jobs: list, n_pre: int, keep_alive: bool) -> int:
-    """Прогон `ssh_run` по очереди Salad. `S` — модуль `ssh_run` (учёт, журнал, приёмник, стоп групп — общие).
-    Коды возврата — тот же контракт с конвейером: 0 — закрыто всё, 75 — нет ёмкости, 1 — остались нерешённые."""
-    groups = {}
-    for g in S.GROUPS:
-        q = SG.queue_of(g)
-        if q:
-            groups[g] = q
-        else:
-            print(f'  группа {g}: без очереди в rules/salad-groups.json — в прогон очереди не беру', flush=True)
-    if not groups:
-        print('!! транспорт queue: ни у одной группы SALAD_GROUP нет очереди (`queue` в rules/salad-groups.json)', flush=True)
-        return 2
-    slots = Slots(groups)
-    slots.update(ready_by_group(list(groups)))
-    print(f'очередь: группы {groups}, готовых машин {slots.ready}', flush=True)
-    if not slots.total_ready():
-        print('нет прогретых нод', flush=True)        # та же строка и тот же код, что у SSH: конвейер ждёт и повторит
-        return S.EXIT_NO_CAPACITY
-    reuse = ledger_open()
-    stop = threading.Event()
-    closed = [n_pre]
-    t_start = time.time()
+class Side:
+    """Сторона очереди в прогоне `ssh_run.run` (план mesh-18): группы с очередью получают задания через неё, учёт заданий
+    (`js`), журнал, `.done`, карантин входа и приёмник — общие с SSH-стороной. `S` — модуль `ssh_run`."""
 
-    def account(it: dict, r: dict, group: str, queue: str, qid: str | None, qj: dict) -> None:
+    def __init__(self, S, js, groups: dict):
+        self.S, self.js, self.groups = S, js, dict(groups)        # группа → очередь
+        self.slots = Slots(self.groups)
+        self.insts = instances_of(list(self.groups))
+        self.slots.update(self._ready())
+        self.reuse = ledger_open()
+        self.run_since: dict = {}                                 # инстанс → когда впервые увидели running без ready
+        self.only = False                                          # SSH-групп нет: пропали машины — остаток закрываем
+
+    def _ready(self) -> dict:
+        return {g: (None if ins is None else sum(1 for i in ins if i.get('state') == 'running' and i.get('ready')))
+                for g, ins in self.insts.items()}
+
+    def ready_total(self) -> int:
+        return self.slots.total_ready()
+
+    def account(self, it: dict, r: dict, group: str, queue: str, qid: str | None, qj: dict) -> None:
+        S, js = self.S, self.js
         job = it['job']
+        node = r.pop('_salad', None) or {}                         # посредник `queue_proxy.py`: на какой машине сделано
+        iid, mid = node.get('instance_id'), node.get('machine_id')
+        if iid and mid:
+            S.MACHINE[iid] = mid
         q_until = S.IQ.note(job, r)
         sink_ok = None
         if S.NH.infra_suspect(r):
@@ -268,18 +309,18 @@ def run(S, js, jobs: list, n_pre: int, keep_alive: bool) -> int:
                       flush=True)
                 S.SH.alert_throttled(f'Меши: приёмник не принимает результаты — {S._SINK["why"]}. Пачка остановлена '
                                      f'(транспорт очереди), конвейер стащит и почистит.')
-                stop.set()
+                self.stop.set()
         fault = S.NH.classify(r, sink_ok)
         ecls = S.NH.error_class(r)
         terminal = fault in (S.NH.FAULT_NONE, S.NH.FAULT_JOB) or bool(q_until)
         ev = qj.get('events') or []
-        rec = {**r, 'node': 'queue', 'attempt': it['attempts'], 'fault': fault, 'group': group,
+        rec = {**r, 'node': (iid or 'queue')[:8], 'attempt': it['attempts'], 'fault': fault, 'group': group,
                'at': round(time.time()), **({'status': S.IQ.STATUS} if q_until else {})}
         # журнал — ДО `js.done` (как у SSH: `done` последнего задания отпускает `wait_all`)
         S.checkpoint({'sku': job.get('sku'), 'role': job.get('role'), 'status': rec.get('status'),
-                      'attempt': it['attempts'], 'node': 'queue', 'prefix': r.get('prefix'),
+                      'attempt': it['attempts'], 'node': (iid or 'queue')[:8], 'prefix': r.get('prefix'),
                       'sec': (r.get('timings_s') or {}).get('total'), 'gpu': (r.get('gpu') or {}).get('name'),
-                      'seed': job.get('seed'), 'instance': None, 'group': group,
+                      'seed': job.get('seed'), 'instance': iid, 'machine': mid, 'group': group,
                       'transport': 'queue', 'queue': queue, 'queue_job': qid,
                       'queue_status': qj.get('status'), 'queue_tries': sum(1 for e in ev if e.get('action') == 'started'),
                       'fault': fault, 'err_class': ecls, 'error': str(r.get('error') or '')[:700], 'at': round(time.time()),
@@ -287,13 +328,15 @@ def run(S, js, jobs: list, n_pre: int, keep_alive: bool) -> int:
         if r.get('status') in ('ok', 'cached'):
             S.mark_done(job.get('sku'), job.get('seed'))
         with S._lock:
-            closed[0] += 1
+            self.closed[0] += 1
             t = (r.get('timings_s') or {}).get('total')
-            print(f'  [{closed[0]}/{len(jobs)}] {str(job.get("role")):14s} {rec.get("status", "?"):16s} '
-                  f'{"" if t is None else str(t) + "с"} {group} {str(r.get("error") or "")[:60]}', flush=True)
+            print(f'  [{self.closed[0]}/{self.total}] {str(job.get("role")):14s} {rec.get("status", "?"):16s} '
+                  f'{"" if t is None else str(t) + "с"} {group}/{(iid or "очередь")[:8]} {str(r.get("error") or "")[:60]}',
+                  flush=True)
         js.done(it, rec, terminal)
 
-    def slot(n: int):
+    def slot(self, n: int) -> None:
+        js, slots, stop = self.js, self.slots, self.stop
         while not stop.is_set():
             g = slots.acquire(stop)
             if g is None:
@@ -302,14 +345,14 @@ def run(S, js, jobs: list, n_pre: int, keep_alive: bool) -> int:
             if it is None:
                 slots.release(g)
                 return
-            job, q = it['job'], groups[g]
+            job, q = it['job'], self.groups[g]
             k = (job.get('sku'), int(job.get('seed') or 0))
             qid = None
-            if k in reuse:                      # положено прошлым раздатчиком и не закрыто — доопрашиваем
-                q0, qid0 = reuse.pop(k)
-                if q0 in groups.values():
+            if k in self.reuse:                 # положено прошлым раздатчиком и не закрыто — доопрашиваем
+                q0, qid0 = self.reuse.pop(k)
+                if q0 in self.groups.values():
                     q, qid = q0, qid0
-                    g0 = next(x for x, y in groups.items() if y == q0)
+                    g0 = next(x for x, y in self.groups.items() if y == q0)
                     if g0 != g:                 # место занимает группа той очереди, где задание уже лежит
                         slots.swap(g, g0)
                         g = g0
@@ -318,8 +361,8 @@ def run(S, js, jobs: list, n_pre: int, keep_alive: bool) -> int:
                 qid, why = submit(q, job, {'sku': job.get('sku'), 'seed': k[1], 'attempt': it['attempts']})
                 if not qid:
                     slots.release(g)
-                    account(it, {'sku': job.get('sku'), 'status': 'transport_failed', 'error': f'queue/submit: {why}'},
-                            g, q, None, {})
+                    self.account(it, {'sku': job.get('sku'), 'status': 'transport_failed',
+                                      'error': f'queue/submit: {why}'}, g, q, None, {})
                     stop.wait(POLL_S)
                     continue
                 ledger_write({'ev': 'submit', 'qid': qid, 'queue': q, 'group': g, 'sku': job.get('sku'), 'seed': k[1]})
@@ -329,42 +372,75 @@ def run(S, js, jobs: list, n_pre: int, keep_alive: bool) -> int:
             finally:
                 slots.release(g)
             ledger_write({'ev': 'end', 'qid': qid, 'queue': q, 'status': qj.get('status'), 'result': r.get('status')})
-            account(it, r, g, q, qid, qj)
+            self.account(it, r, g, q, qid, qj)
 
-    def watch():
-        """Готовые машины — раз в READY_POLL_S. Нет ни одной и ничего не движется STALL_S — закрываем остаток:
-        ждущие снимаются (`follow`), конвейер получит 75 и подождёт ёмкость, как при SSH."""
-        while not stop.wait(READY_POLL_S):
+    def cull_warmups(self, now: float) -> None:
+        """Машина в running, а `/ready` не наступил дольше WARM_MAX_S — прогрев мёртв (у SSH это `cull_dead_warmups` по
+        `/health`; здесь — по `ready` из API, без SSH). Одинаково у половины группы — беда наша, машины не трогаем."""
+        S = self.S
+        for g, ins in self.insts.items():
+            if ins is None:
+                continue
+            run = [i for i in ins if i.get('state') == 'running' and i.get('id')]
+            ids = {(g, i['id']) for i in run}
+            for i in run:
+                if i.get('ready'):
+                    self.run_since.pop((g, i['id']), None)
+                else:
+                    self.run_since.setdefault((g, i['id']), now)
+            for k in [x for x in self.run_since if x[0] == g and x not in ids]:   # ушла или пересажена — забываем
+                self.run_since.pop(k, None)
+            dead = [i for i in run if not i.get('ready') and now - self.run_since.get((g, i['id']), now) > WARM_MAX_S]
+            if not dead:
+                continue
+            if len(dead) >= max(2, len(run) * 0.5):
+                print(f'  [очередь] {g}: не прогрелись {len(dead)} из {len(run)} — это наша беда, машины не трогаю',
+                      flush=True)
+                continue
+            for i in dead:
+                if not S.NH.take_cull_slot():
+                    break
+                why = f'running без /ready {int((now - self.run_since[(g, i["id"])]) / 60)} мин'
+                print(f'  [очередь] нода {i["id"][:8]} ({g}): {why} — ПЕРЕСАЖИВАЮ', flush=True)
+                if S.NH.reallocate(g, i['id'], f'warmup: {why}'):
+                    self.run_since.pop((g, i['id']), None)
+
+    def watch(self) -> None:
+        """Раз в READY_POLL_S: готовые машины (место в очереди), мёртвый прогрев, медленная закачка (`S.cull_slow` —
+        `batch_show.cull_slow_pulls`, по API, для всех групп), приёмник. Нет готовых машин и движения STALL_S: ждущие
+        снимаются (`slots.drain`); групп SSH нет — остаток закрыт (конвейер получит 75 и подождёт ёмкость, как при SSH)."""
+        S, js, slots = self.S, self.js, self.slots
+        last_cull = time.time()
+        while not self.stop.wait(READY_POLL_S):
             if js.pending() == 0:
                 return
-            slots.update(ready_by_group(list(groups)))
-            S.sink_poll()
-            if slots.total_ready() == 0 and time.time() - slots.moved_at > STALL_S:
-                n = js.close_rest(f'нет готовых машин {int(STALL_S)} с (очередь)')
-                print(f'!! нет готовых машин {int(STALL_S / 60)} мин — закрываю остаток ({n}), ждущие в очереди снимаю',
-                      flush=True)
-                return
+            self.insts = instances_of(list(self.groups))
+            slots.update(self._ready())
+            now = time.time()
+            self.cull_warmups(now)
+            if self.only:                      # при SSH-группах приёмник и закачку ведёт супервизор `ssh_run`
+                S.sink_poll()
+                if now - last_cull > S.CULL_S:
+                    last_cull = now
+                    S.cull_slow()
+            if slots.total_ready() == 0 and now - slots.moved_at > STALL_S:
+                if not slots.drain:
+                    slots.drain = True
+                    print(f'!! у очереди нет готовых машин {int(STALL_S / 60)} мин — ждущие задания снимаю', flush=True)
+                if self.only:
+                    n = js.close_rest(f'нет готовых машин {int(STALL_S)} с (очередь)')
+                    print(f'!! закрываю остаток ({n}) — машин нет', flush=True)
+                    return
+            elif slots.total_ready():
+                slots.drain = False
 
-    n_slots = max(1, min(MAX_INFLIGHT, len(jobs) - n_pre))
-    for n in range(n_slots):
-        threading.Thread(target=slot, args=(n,), daemon=True).start()
-    threading.Thread(target=watch, daemon=True).start()
-    js.wait_all()
-    stop.set()
-
-    s = js.summary()
-    rows = js.results()
-    S.spool_unresolved(rows)
-    state = {'transport': 'queue', 'queues': groups, 'at': time.time(), 'wall_s': round(time.time() - t_start),
-             'summary': s, 'results': [{k: v for k, v in r.items() if k != 'job'} for r in rows]}
-    json.dump(state, open(S.RESULTS, 'w'), ensure_ascii=False, indent=1)
-    S.report(state)
-    print('RUN_SUMMARY ' + json.dumps(s), flush=True)
-    if not keep_alive:
-        S.stop_group()
-    if js.stalled:
-        return S.EXIT_NO_CAPACITY
-    return 0 if s['unresolved'] == 0 else 1
+    def start(self, stop: threading.Event, closed: list, total: int, only: bool) -> None:
+        self.stop, self.closed, self.total, self.only = stop, closed, total, only
+        lk = hold_lock()
+        print(f'очередь: группы {self.groups}, готовых машин {self.slots.ready}, замок конвейера: {lk}', flush=True)
+        for n in range(max(1, min(MAX_INFLIGHT, total - closed[0]))):   # открытых заданий среза — не больше
+            threading.Thread(target=self.slot, args=(n,), daemon=True).start()
+        threading.Thread(target=self.watch, daemon=True).start()
 
 
 def selftest() -> int:
@@ -428,6 +504,7 @@ def main() -> int:
         return 0 if qid else 1
     if '--follow' in a:                 # статус задания до конца, печать на каждой смене
         q, qid = a[a.index('--follow') + 1], a[a.index('--follow') + 2]
+        print(f'замок конвейера: {hold_lock()} (держу, пока слежу — иначе «мёртвая рука» сервера погасит группу)')
         seen, t0 = None, time.time()
         while True:
             code, d = get(q, qid)

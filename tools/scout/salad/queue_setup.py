@@ -10,17 +10,22 @@
   2. группу `--group` по образцу `--donor`: тот же образ (`migrate_groups.IMAGE`, сверяется с образцом), те же ресурсы
      (cpu, память, диск, shm, классы GPU) и переменные, тариф из `rules/salad-groups.json`; `autostart_policy=false`,
      реплик `--replicas`; без публичного шлюза (задания приходят изнутри, через очередь);
-     `queue_connection` → порт 8000, путь `/generate`; проба готовности `/ready` (200 только после прогрева, `worker.py`);
-     `command` = `bash -c <queue_entry.sh>` — воркер генерации + закреплённый воркер очереди со сверкой SHA-256;
-  3. GET-сверка: `queue_connection` записана, статус группы `stopped`, у очереди группа видна в `container_groups`.
+     `queue_connection` → порт `--port`, путь `/generate`; проба готовности `/ready` (200 только после прогрева, `worker.py`);
+     `command` = `bash -c <queue_entry.sh> qw [<queue_proxy.py>]` — воркер генерации + закреплённый воркер очереди со
+     сверкой SHA-256; при `--port 8001` (по умолчанию) ещё и посредник, который дописывает в ответ машину (этап 2);
+     `--port 8000` — без посредника, как канарейка 24.10 (`mesh-q-canary`);
+  3. GET-сверка: `queue_connection` записана, статус группы `stopped`. `container_groups` очереди НЕ мерило: канарейка
+     24.10 — пуст и у работающей группы, задание при этом ушло в работу (T-20261024-04).
   --test-job: положить одно тестовое задание (без фото: воркер ответит 400 до вырезки и GPU) — без машин оно обязано
   остаться `pending`. Перед платной канарейкой его снять: `queue_run.py --cancel <очередь> <id>`.
 
-Группу НЕ стартует никогда; существующую не трогает (отказ).
+Группу НЕ стартует никогда; существующую не трогает (отказ). Боевая группа (не `*-canary`) в rules обязана быть
+выключенной (`disabled`) — её поднимет только раздатчик после того, как человек снимет `disabled` (`salad_groups.allowed_now`).
 
     ~/venvs/scout/bin/python queue_setup.py --queue mesh-q --group mesh-q-canary --donor mesh-low-10             # разбор
     ~/venvs/scout/bin/python queue_setup.py --queue mesh-q --group mesh-q-canary --donor mesh-low-10 --apply
     ~/venvs/scout/bin/python queue_setup.py --queue mesh-q --group mesh-q-canary --check [--test-job]
+    ~/venvs/scout/bin/python queue_setup.py --queue mesh-q-low --group mesh-q-low-1 --donor mesh-low-10 --replicas 30 --apply
 """
 from __future__ import annotations
 
@@ -36,6 +41,9 @@ import queue_run as QR       # noqa: E402 — API очереди
 import salad_groups as SG    # noqa: E402
 
 ENTRY = os.path.join(HERE, 'queue_entry.sh')
+PROXY = os.path.join(HERE, 'queue_proxy.py')
+PROXY_PORT = 8001
+MAX_REPLICAS = 30            # как у боевой low (квота проекта 50: low 30 + batch 20)
 CMD_ITEM_MAX = 1000          # лимит Salad на элемент `container.command` (схема CreateContainer)
 READINESS = {'http': {'path': '/ready', 'port': 8000, 'scheme': 'http', 'headers': []},
              'initial_delay_seconds': 60, 'period_seconds': 10, 'timeout_seconds': 5,
@@ -51,12 +59,32 @@ def entry_command(path: str = ENTRY) -> list[str]:
     return ['bash', '-c', body]
 
 
-def build(donor: dict, group: str, queue: str, replicas: int) -> dict:
+def proxy_code(path: str = PROXY) -> str:
+    """Код посредника для `command`: без строк-комментариев и пустых строк, отступы сохраняются (это Python)."""
+    lines = open(path, encoding='utf-8').read().splitlines()
+    body = '\n'.join(ln.rstrip() for ln in lines if ln.strip() and not ln.lstrip().startswith('#'))
+    if len(body) > CMD_ITEM_MAX:
+        raise SystemExit(f'queue_proxy.py без комментариев — {len(body)} знаков > {CMD_ITEM_MAX} (лимит Salad)')
+    return body
+
+
+def command(port: int) -> list[str]:
+    """8001 — с посредником (ответ с машиной), 8000 — прямо на генерацию."""
+    if port == PROXY_PORT:
+        return entry_command() + ['qw', proxy_code()]
+    if port == 8000:
+        return entry_command()
+    raise SystemExit(f'порт {port}: только {PROXY_PORT} (с посредником) или 8000 (без)')
+
+
+def build(donor: dict, group: str, queue: str, replicas: int, port: int = PROXY_PORT) -> dict:
     tier = SG.tier(group)
     if tier == '?':
         raise SystemExit(f'{group}: нет тарифа в rules/salad-groups.json — не создаю')
     if SG.queue_of(group) != queue:
         raise SystemExit(f'{group}: в rules/salad-groups.json очередь {SG.queue_of(group)!r}, а не {queue!r} — не создаю')
+    if not group.endswith('-canary') and not SG.info(group).get('disabled'):
+        raise SystemExit(f'{group}: боевая группа должна быть в rules выключенной (`disabled`) до слова владельца — не создаю')
     if donor['container'].get('image') != MG.IMAGE:
         raise SystemExit(f'образ образца …{donor["container"].get("image", "")[-12:]} ≠ боевого …{MG.IMAGE[-12:]} — не создаю')
     body = MG.build_body(donor, {'name': group, 'tier': tier, 'replicas': replicas})
@@ -64,9 +92,9 @@ def build(donor: dict, group: str, queue: str, replicas: int) -> dict:
     c['resources'] = {k: v for k, v in donor['container']['resources'].items()
                       if k in ('cpu', 'memory', 'gpu_classes', 'storage_amount', 'shm_size')}
     c['environment_variables']['DEPLOYMENT_EPOCH'] = f'{time.strftime("%Y%m%d")}-{group}'
-    c['command'] = entry_command()
+    c['command'] = command(port)
     body['autostart_policy'] = False
-    body['queue_connection'] = {'path': '/generate', 'port': 8000, 'queue_name': queue}
+    body['queue_connection'] = {'path': '/generate', 'port': port, 'queue_name': queue}
     body['readiness_probe'] = READINESS
     for k in ('networking', 'startup_probe', 'liveness_probe', 'queue_autoscaler'):
         body.pop(k, None)
@@ -81,7 +109,8 @@ def summary(body: dict) -> str:
             f"shm {r.get('shm_size')}, GPU-классов {len(r.get('gpu_classes') or [])}, "
             f"env {sorted(k for k in c['environment_variables'] if 'TOKEN' not in k and 'KEY' not in k)}, "
             f"queue_connection {body.get('queue_connection')}, readiness {body['readiness_probe']['http']['path']}, "
-            f"сеть {'да' if body.get('networking') else 'нет'}, command {c['command'][:2]} + {len(c['command'][2])} знаков")
+            f"сеть {'да' if body.get('networking') else 'нет'}, command {c['command'][:2]} + {len(c['command'][2])} знаков"
+            + (f" + посредник {len(c['command'][4])} знаков" if len(c['command']) > 3 else ''))
 
 
 def check(group: str, queue: str) -> int:
@@ -95,8 +124,9 @@ def check(group: str, queue: str) -> int:
     qcode, q = QR.req('GET', f'/queues/{queue}')
     names = [x.get('name') for x in q.get('container_groups') or []]
     print(f'очередь {queue}: HTTP {qcode}, id {q.get("id")}, групп {names}, длина {q.get("current_queue_length")}')
-    ok = (code == 200 and st == 'stopped' and (qc or {}).get('queue_name') == queue and group in names)
-    print('СВЯЗЬ ЕСТЬ: группа ссылается на очередь, очередь видит группу' if ok else '!! связи нет или группа не остановлена')
+    # container_groups очереди — не мерило (пуст и у работающей группы, канарейка 24.10): судим по стороне группы
+    ok = code == 200 and st == 'stopped' and (qc or {}).get('queue_name') == queue and qcode == 200
+    print('СВЯЗЬ ЗАПИСАНА: группа ссылается на очередь, группа остановлена' if ok else '!! связи нет или группа не остановлена')
     return 0 if ok else 3
 
 
@@ -120,12 +150,14 @@ def main() -> int:
     ap.add_argument('--group', required=True)
     ap.add_argument('--donor', default=None)
     ap.add_argument('--replicas', type=int, default=1)
+    ap.add_argument('--port', type=int, default=PROXY_PORT, help='8001 — с посредником (машина в ответе), 8000 — без')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--check', action='store_true')
     ap.add_argument('--test-job', action='store_true')
     a = ap.parse_args()
-    if not a.group.startswith('mesh-q-') or not 1 <= a.replicas <= 2:
-        return print('группа не mesh-q-* или реплик вне 1–2 (это канарейка)') or 2
+    cap = 2 if a.group.endswith('-canary') else MAX_REPLICAS
+    if not a.group.startswith('mesh-q-') or not 1 <= a.replicas <= cap:
+        return print(f'группа не mesh-q-* или реплик вне 1–{cap}') or 2
     MG.env_from_file()
     if a.check or a.test_job:
         rc = check(a.group, a.queue) if a.check else 0
@@ -135,7 +167,7 @@ def main() -> int:
     code, donor = MG.api(f'/{a.donor}')
     if code != 200 or 'container' not in donor:
         return print(f'образец не прочитан: HTTP {code} {str(donor)[:150]}') or 1
-    body = build(donor, a.group, a.queue, a.replicas)
+    body = build(donor, a.group, a.queue, a.replicas, a.port)
     print('создам:', summary(body))
     if not a.apply:
         return print('\nэто разбор без действий. Выполнить: --apply') or 0

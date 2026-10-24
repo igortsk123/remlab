@@ -96,6 +96,10 @@ def allowed_now(group: str, now: float | None = None) -> bool:
     """
     if price_halted(group):
         return False
+    if info(group).get('disabled'):
+        # ВЫКЛЮЧЕНА В ПРАВИЛАХ (mesh-18 этап 2): новая группа заведена заранее и ждёт слова владельца — не поднимает никто,
+        # даже если её имя попало в SALAD_GROUP; включение — снять `disabled` (человек)
+        return False
     win = info(group).get('window_utc')
     if not win:
         return True
@@ -129,8 +133,9 @@ if __name__ == '__main__':
     import sys
     if '--windowed' in sys.argv:
         print(' '.join(windowed()))
-    elif '--can-start' in sys.argv:          # batch_window.sh up: 0 — можно поднимать, 1 — запрет цены (окно там своё — cron)
-        _why = price_halted(sys.argv[sys.argv.index('--can-start') + 1])
+    elif '--can-start' in sys.argv:          # batch_window.sh up: 0 — можно поднимать, 1 — запрет цены или disabled (окно — cron)
+        _g = sys.argv[sys.argv.index('--can-start') + 1]
+        _why = price_halted(_g) or ('выключена в rules (disabled)' if info(_g).get('disabled') else '')
         if _why:
             print(f'запрет цены: {_why}')
         sys.exit(1 if _why else 0)
