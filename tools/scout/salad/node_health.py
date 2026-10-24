@@ -27,6 +27,10 @@ FAIL_STREAK = int(os.environ.get('MESH_NODE_FAIL_STREAK', '3'))
 # Бюджет пересадок — общий на оба повода, иначе чехарда всего пула.
 MAX_CULL_PER_TICK = int(os.environ.get('MESH_MAX_CULL_TICK', '2'))
 MAX_CULL_PER_HOUR = int(os.environ.get('MESH_MAX_CULL_HOUR', '6'))
+# Молчащие по SSH машины — СВОЙ бюджет (T-20261024-01, Codex § 1): ночь 23→24.10 их было ~13 в час, общий лимит 6/ч
+# держал их оплаченными до вытеснения (медиана 13,8 мин). Отдельный счёт не отнимает слоты у серий сбоев и зомби прогрева.
+MAX_SILENT_CULL_PER_TICK = int(os.environ.get('MESH_MAX_SILENT_CULL_TICK', '3'))
+MAX_SILENT_CULL_PER_HOUR = int(os.environ.get('MESH_MAX_SILENT_CULL_HOUR', '12'))
 # Наблюдения о ноде живут ограниченно: вчерашние два сбоя не должны копиться к сегодняшнему.
 STREAK_TTL_S = float(os.environ.get('MESH_STREAK_TTL_S', '21600'))     # 6 ч
 RETIRED_TTL_S = float(os.environ.get('MESH_RETIRED_TTL_S', '7200'))    # 2 ч
@@ -146,11 +150,12 @@ def error_class(res: dict) -> str:
 
 
 def _empty() -> dict:
-    return {'nodes': {}, 'culls': [], 'events': []}
+    return {'nodes': {}, 'culls': [], 'silent_culls': [], 'events': []}
 
 
 def _prune(st: dict, now: float) -> dict:
     st['culls'] = [t for t in st.get('culls', []) if now - t < 3600]
+    st['silent_culls'] = [t for t in st.get('silent_culls', []) if now - t < 3600]
     st['events'] = [e for e in st.get('events', []) if now - e.get('at', 0) < FLEET_WINDOW_S]
     keep = {}
     for k, v in (st.get('nodes') or {}).items():
@@ -252,6 +257,16 @@ def take_cull_slot(n: int = 1) -> int:
         st['culls'] = [t for t in st['culls'] if now - t < 3600]
         allowed = max(0, min(n, MAX_CULL_PER_TICK, MAX_CULL_PER_HOUR - len(st['culls'])))
         st['culls'].extend([now] * allowed)
+        return allowed
+
+
+def take_silent_slot(n: int = 1) -> int:
+    """Слот из бюджета пересадок МОЛЧАЩИХ машин (свой, не общий). Возвращает, сколько разрешено."""
+    now = time.time()
+    with _State() as st:
+        st['silent_culls'] = [t for t in st.get('silent_culls', []) if now - t < 3600]
+        allowed = max(0, min(n, MAX_SILENT_CULL_PER_TICK, MAX_SILENT_CULL_PER_HOUR - len(st['silent_culls'])))
+        st['silent_culls'].extend([now] * allowed)
         return allowed
 
 

@@ -583,6 +583,16 @@ def cull_dead_warmups() -> None:
         if not dead:
             return
         kinds = {why for _, why in dead}
+        # МОЛЧАЩИЕ — СВОИМ ПРАВИЛОМ (mesh-17, как в супервизоре `ssh_run`): если хоть одна нода ответила, шлюз жив —
+        # молчание это свойство машины, а не наша беда; уходят по своему бюджету, machine_id — в список на сутки.
+        if kinds == {'нет ответа по SSH'} and any(health.values()):
+            for i, _why in dead:
+                SR.ML.mark_silent(i.get('machine_id'), i['id'])
+                if not NH.take_silent_slot():
+                    break
+                print(f'нода {i["id"][:8]} ({grp}): молчит по SSH, другие отвечают — ПЕРЕСАЖИВАЮ', flush=True)
+                NH.reallocate(grp, i['id'], 'нет ответа по SSH')
+            continue
         if len(dead) >= max(2, len(live) * 0.5) and len(kinds) == 1:
             print(f'  прогрев упал у {len(dead)} из {len(live)} нод одинаково — это наша беда, '
                   f'не машины: {next(iter(kinds))[:120]}', flush=True)

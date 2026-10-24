@@ -40,13 +40,15 @@ def setup(tmp: str) -> None:
     S._done_keys = None
     S.cull_slow = lambda: None
     NH.STATE = os.path.join(tmp, 'health.json')
+    # Список физических машин (mesh-17) — тоже во временную папку: живой файл держит карантин молчащих машин на сутки
+    S.ML.STATE = os.path.join(tmp, 'machines.json')
     # Карантин входа (T-20261022-10 Г) — тоже во временную папку: каждый прогон читает его и выпускает истёкшее,
     # на боевом файле стенд пометил бы живые записи «отданными на проверку», и проверка бы не случилась.
     S.IQ.STATE = os.path.join(tmp, 'input-quarantine.json')
     S.IQ._rules = {'forbidden_marks': ['http error 403'], 'after_n': 2, 'recheck_h': 24, 'node_after_n': 3}   # правило, не живой файл
     # ФАЙЛ ЗАМКА НЕ УДАЛЯЕМ: от прошлого случая могли остаться демон-потоки, и подмена
     # inode'а замка снимает взаимное исключение — два потока писали состояние одновременно.
-    for p in (NH.STATE, NH.STATE + '.tmp', S.RETRY_SPOOL, S.DONE_SET, S.IQ.STATE):
+    for p in (NH.STATE, NH.STATE + '.tmp', S.RETRY_SPOOL, S.DONE_SET, S.IQ.STATE, S.ML.STATE):
         if os.path.exists(p):
             os.remove(p)
     NH.reallocate = lambda group, iid, why: culled.append(iid) or True   # noqa: B010 — стенд
@@ -673,8 +675,16 @@ def case_silent_node_is_zombie() -> None:
     # ожила — таймер сбрасывается, повторное молчание считается заново
     assert SR.silent_fault('n1', {'warm': False}, t0 + SR.SILENT_ZOMBIE_S + 1) == ''
     assert SR.silent_fault('n1', {}, t0 + SR.SILENT_ZOMBIE_S + 2) == ''
+    # не меньше SILENT_MIN_PROBES проб подряд (mesh-17): одна поздняя проба после порога — ещё не приговор
+    keep = SR.SILENT_MIN_PROBES
+    SR.SILENT_MIN_PROBES = 3
+    try:
+        assert SR.silent_fault('n4', {}, t0) == '' and SR.silent_fault('n4', {}, t0 + SR.SILENT_ZOMBIE_S) == ''
+        assert SR.silent_fault('n4', {}, t0 + SR.SILENT_ZOMBIE_S + 1) == why
+    finally:
+        SR.SILENT_MIN_PROBES = keep
     SR._SILENT.clear()
-    print('  ✓ молчащая нода — зомби после порога, причина пригодна для группировки')
+    print('  ✓ молчащая нода — зомби после порога и N проб подряд, причина пригодна для группировки')
 
 
 def case_window_gate() -> None:
@@ -1125,6 +1135,96 @@ def case_ssh_addr() -> None:
     print('  ✓ адрес шлюза из API: пара в ssh, разные шлюзы — разные адреса, без ssh_ip — запасной и WARN, поля журнала')
 
 
+def case_silent_machines() -> None:
+    """Молчащие по SSH — своим правилом (mesh-17, T-20261024-01). Одна машина работает, две молчат: та, чей machine_id
+    уже молчал, пересажена СРАЗУ; новая — после порога, по своему бюджету, и её machine_id попал в список; общий лимит
+    пересадок не тронут, повторов нет. Молчат все и никто не работает — машины не трогаем (это шлюз или сеть)."""
+    keep = (S.SILENT_ZOMBIE_S, S.ML.FAST_MAX)
+    S.SILENT_ZOMBIE_S = 0.5
+    S._SILENT.clear()
+    nodes = [{'id': 'W' * 8, 'port': 1, 'group': 'g', 'state': 'running', 'machine': 'MW'},
+             {'id': 'S' * 8, 'port': 2, 'group': 'g', 'state': 'running', 'machine': 'MS1'},
+             {'id': 'N' * 8, 'port': 3, 'group': 'g', 'state': 'running', 'machine': 'MS2'}]
+
+    def job_fn(port, job):
+        time.sleep(0.4)
+        return {'sku': job['sku'], 'status': 'ok', 'timings_s': {'total': 1}}
+    patch.jobs = jobs(8)
+    patch(nodes, job_fn)
+    S.probe_warm = lambda port: port == 1
+    S.probe_health = lambda port: {'ok': True, 'warm': True, 'done': 0} if port == 1 else {}
+    S.ML.mark_silent('MS1', 'old-instance')               # молчала в прошлой выдаче
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out):
+            code = S.run(None, True, jobs_file='x')
+    finally:
+        S.SILENT_ZOMBIE_S = keep[0]
+    log = out.getvalue()
+    assert code == 0, (code, log[-600:])
+    assert culled.count('S' * 8) == 1 and culled.count('N' * 8) == 1 and 'W' * 8 not in culled, culled
+    assert culled.index('S' * 8) < culled.index('N' * 8), f'знакомую молчащую не пересадили первой: {culled}'
+    assert 'уже молчала по SSH — ПЕРЕСАЖИВАЮ сразу' in log and 'в список молчащих' in log, log[-800:]
+    assert S.ML.is_silent('MS2') and not S.ML.is_silent('MW'), 'список машин не обновлён'
+    st = NH.snapshot()
+    assert st['culls'] == [] and len(st['silent_culls']) == 1, st
+    # все молчат, работающих нет — разбор круга: шлюз недостижим, на пересадку никого (это шлюз или сеть)
+    S._SILENT.clear()
+    S.SILENT_ZOMBIE_S = 0.5
+    q = [{'id': 'Q' * 8, 'port': 4, 'group': 'g', 'machine': 'MS2'}, {'id': 'R' * 8, 'port': 5, 'group': 'g', 'machine': 'MR'}]
+    t = time.time()
+    S.sort_probes(q, [{}, {}], False, {}, t)
+    reach, z, sil, fast = S.sort_probes(q, [{}, {}], False, {}, t + 1)
+    assert not reach and not fast and len(sil) == 2 and not z, (reach, sil, fast)
+    # тот же круг, но один воркер работает — знакомая молчащая MS2 идёт на пересадку сразу
+    reach, z, sil, fast = S.sort_probes(q, [{}, {}], True, {}, t + 2)
+    assert reach and [i['id'] for i in fast] == ['Q' * 8], (reach, fast)
+    S.SILENT_ZOMBIE_S = keep[0]
+    S._SILENT.clear()
+    # не больше FAST_MAX быстрых пересадок одной машины за сутки — затем пауза (обычный путь)
+    S.ML.mark_silent('MF')
+    got = [S.ML.take_fast('MF') for _ in range(S.ML.FAST_MAX + 1)]
+    assert got == [True] * S.ML.FAST_MAX + [False] and not S.ML.take_fast('MW'), got
+    print('  ✓ молчащие: знакомая машина — сразу, новая — после порога своим бюджетом, в список; шлюз недостижим — не трогаем')
+
+
+def case_batch_show_silent() -> None:
+    """Пересадка зомби между пачками (`batch_show.cull_dead_warmups`) — то же правило молчащих (mesh-17): одна нода
+    отвечает — молчащая пересажена своим бюджетом, её машина в списке; молчат все — «наша беда», никого не трогаем."""
+    import urllib.request as U  # noqa: PLC0415
+    import batch_show as B  # noqa: PLC0415
+    old = time.strftime('%Y-%m-%dT%H:%M:%S.1234567+00:00', time.gmtime(time.time() - 1200))   # 20 мин — не молодая
+    ins = [{'id': 'A' * 8, 'state': 'running', 'ssh_port': 1, 'ssh_ip': '10.0.0.1', 'machine_id': 'MA', 'update_time': old},
+           {'id': 'B' * 8, 'state': 'running', 'ssh_port': 2, 'ssh_ip': '10.0.0.2', 'machine_id': 'MB', 'update_time': old}]
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    keep = (U.urlopen, B.SG.groups_from_env, S.probe_health, os.environ.get('SALAD_API_KEY'))
+    U.urlopen = lambda req, timeout=0: Resp(json.dumps({'instances': ins}).encode())
+    B.SG.groups_from_env = lambda: ['g']
+    os.environ['SALAD_API_KEY'] = 'x'
+    out = io.StringIO()
+    try:
+        S.probe_health = lambda port: {'ok': True, 'warm': True} if port == 1 and port.ip == '10.0.0.1' else {}
+        with contextlib.redirect_stdout(out):
+            B.cull_dead_warmups()
+        assert culled == ['B' * 8] and S.ML.is_silent('MB') and not S.ML.is_silent('MA'), (culled, out.getvalue())
+        assert len(NH.snapshot()['silent_culls']) == 1 and NH.snapshot()['culls'] == []
+        culled.clear()
+        S.probe_health = lambda port: {}
+        with contextlib.redirect_stdout(out):
+            B.cull_dead_warmups()
+        assert culled == [] and 'это наша беда' in out.getvalue(), (culled, out.getvalue())
+    finally:
+        U.urlopen, B.SG.groups_from_env, S.probe_health = keep[:3]
+        os.environ.pop('SALAD_API_KEY', None) if keep[3] is None else os.environ.__setitem__('SALAD_API_KEY', keep[3])
+    print('  ✓ batch_show: молчащая при живых соседях — пересажена своим бюджетом; молчат все — не трогаем')
+
+
 def case_low_ram_node() -> None:
     """Машина с ОЗУ ниже порога уходит ДО первого задания (T-20261022-10 Б): ни одного задания не взяла, снята и
     пересажена, в журнале — служебная строка `node_reject`, которую сторож денег не считает ни попыткой, ни сбоем.
@@ -1363,7 +1463,8 @@ def main() -> None:
                    case_silent_node_is_zombie, case_sink_relief_before_red,
                    case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart,
                    case_stop_verified, case_low_ram_node, case_input_quarantine, case_forbidden_node,
-                   case_taken_no_streak, case_realloc_404_returns_slot, case_ssh_addr):
+                   case_taken_no_streak, case_realloc_404_returns_slot, case_ssh_addr, case_silent_machines,
+                   case_batch_show_silent):
             if fn not in pure:
                 setup(tmp)
             fn()

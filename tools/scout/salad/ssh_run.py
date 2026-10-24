@@ -239,7 +239,9 @@ def warmup_fault(h: dict) -> str:
 # (медиана, вывод контейнеров 23→24.10) — 4 минуты молчания уже не «ещё греется»; при жизни машины 12–14 мин
 # 600 с оплачивали больше половины её жизни впустую.
 SILENT_ZOMBIE_S = float(os.environ.get('MESH_SILENT_ZOMBIE_S', '240'))
-_SILENT: dict = {}       # instance_id → когда впервые не ответила подряд
+_SILENT: dict = {}       # instance_id → [когда впервые не ответила подряд, сколько проб подряд молчит]
+# Приговор — не меньше стольких проб подряд (Codex § 1): одна пропавшая проба на занятом шлюзе — ещё не молчание.
+SILENT_MIN_PROBES = int(os.environ.get('MESH_SILENT_MIN_PROBES', '2'))
 
 
 def silent_fault(iid: str, h: dict, now: float | None = None) -> str:
@@ -252,8 +254,30 @@ def silent_fault(iid: str, h: dict, now: float | None = None) -> str:
     if h:
         _SILENT.pop(iid, None)
         return ''
-    first = _SILENT.setdefault(iid, now)
-    return 'нет ответа по SSH' if now - first >= SILENT_ZOMBIE_S else ''
+    mark = _SILENT.setdefault(iid, [now, 0])
+    mark[1] += 1
+    return 'нет ответа по SSH' if now - mark[0] >= SILENT_ZOMBIE_S and mark[1] >= SILENT_MIN_PROBES else ''
+
+
+def sort_probes(cands: list[dict], health: list[dict], working: bool, moved: dict, now: float):
+    """Разбор одного круга проб супервизора (mesh-17): (достижим ли шлюз, зомби прогрева [(инстанс, причина)],
+    молчащие после порога, знакомые молчащие машины — на пересадку сразу). Шлюз достижим, если ответила хоть одна
+    проба круга или работает хоть один воркер. Ответившая машина снимается из списка молчащих."""
+    reachable = working or any(bool(h) for h in health)
+    zombies, silent, fast = [], [], []
+    for i, h in zip(cands, health):
+        if h:
+            ML.mark_answered(i.get('machine'))
+        w = warmup_fault(h) or ('прогрев провален (phase=failed)' if h.get('phase') == 'failed' else '')
+        if w:
+            zombies.append((i, w))
+        elif h or now - moved.get(i['id'], 0) < 600:
+            continue
+        elif reachable and ML.is_silent(i.get('machine')) and ML.take_fast(i.get('machine')):
+            fast.append(i)
+        elif silent_fault(i['id'], h, now):
+            silent.append(i)
+    return reachable, zombies, silent, fast
 
 
 def probe_warm(port: int) -> bool:
@@ -1076,6 +1100,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
 
     mem_low: dict = {}        # instance_id → (группа, причина): снятая машина ждёт пересадки (бюджет пересадок кончился)
     port_of: dict = {}        # instance_id → адрес (порт со шлюзом), с которым его подключали — для строки журнала
+    moved: dict = {}          # instance_id → когда отправили на пересадку как молчащий: Salad меняет его не сразу
 
     def reject_node(node_id: str, group: str, tag: str, why: str, gpu: str | None = None, **fields) -> None:
         """Машина уходит по свойству САМОЙ машины (малая ОЗУ, магазин не пускает её адрес): строка в журнал — не попытка
@@ -1189,13 +1214,40 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             # Зомби — по ошибке прогрева или `phase == 'failed'`, НЕЗАВИСИМО от `warm`: после ребилда
             # воркер перестанет ставить warm=true при провале (план P1-7), и правило «warm и ошибка»
             # перестало бы ловить их вовсе.
-            zombies = [(i, warmup_fault(h)
-                        or ('прогрев провален (phase=failed)' if h.get('phase') == 'failed' else '')
-                        or silent_fault(i['id'], h))
-                       for i, h in zip(cands, health)]
-            zombies = [(i, w) for i, w in zombies if w]
+            # МОЛЧАЩИЕ ПО SSH — ОТДЕЛЬНО ОТ «ОБЩЕЙ БЕДЫ» (T-20261024-01). Ночь 23→24.10: 108 прогретых инстансов молчали
+            # на пробе, правило «у ≥ 50 % одно и то же — беда наша» 99 кругов из 325 запрещало их трогать, и они стояли
+            # оплаченными до вытеснения — 54 % денег ночи. Молчание оказалось свойством ФИЗИЧЕСКОЙ машины (machine_id):
+            # Salad отдаёт её снова. Наша беда — только когда не отвечает НИКТО: ни одна проба круга и ни один работающий
+            # воркер. Иначе молчащая машина уходит по своему бюджету (`NH.take_silent_slot`), а её machine_id — в список
+            # (`machine_list`, сутки); такую машину в следующей выдаче пересаживаем сразу, но не больше
+            # `ML.FAST_MAX` раз за сутки — затем обычным путём (порог молчания и бюджет).
+            now = time.time()
+            with nodes_lock:
+                working = any(st['thread'].is_alive() for st in nodes.values())
+            reachable, zombies, silent, fast = sort_probes(cands, health, working, moved, now)
+            for i in fast:
+                moved[i['id']] = now
+                print(f'  [супервизор] нода {i["id"][:8]}: машина {str(i.get("machine"))[:8]} уже молчала по SSH — '
+                      f'ПЕРЕСАЖИВАЮ сразу (вне лимита)', flush=True)
+                if NH.reallocate(i['group'], i['id'], 'машина уже молчала по SSH'):
+                    js.extend_grace(WARMUP_GRACE_S)
+            if silent and not reachable:
+                print(f'  [супервизор] молчат по SSH {len(silent)} из {len(cands)}, и работающих нет — это шлюз или сеть, '
+                      f'машины не трогаю', flush=True)
+            elif silent:
+                for i in silent:
+                    ML.mark_silent(i.get('machine'), i['id'])
+                    if not NH.take_silent_slot():
+                        print(f'  [супервизор] бюджет пересадок молчащих исчерпан ({NH.MAX_SILENT_CULL_PER_HOUR}/ч) — '
+                              f'жду слота', flush=True)
+                        break
+                    moved[i['id']] = now
+                    print(f'  [супервизор] нода {i["id"][:8]} молчит по SSH ≥ {SILENT_ZOMBIE_S:.0f} с, другие отвечают — '
+                          f'ПЕРЕСАЖИВАЮ, машина {str(i.get("machine"))[:8]} в список молчащих', flush=True)
+                    if NH.reallocate(i['group'], i['id'], 'нет ответа по SSH'):
+                        js.extend_grace(WARMUP_GRACE_S)
             # Общая беда — не повод менять машины: заменят такой же (тот же принцип, что в
-            # `node_health.fleet_wide` и в пересадке по закачке).
+            # `node_health.fleet_wide` и в пересадке по закачке). Молчащие — выше, своим правилом.
             if zombies and len({w for _, w in zombies}) == 1 and len(zombies) >= max(2, len(cands) * 0.5):
                 print(f'  [супервизор] прогрев упал одинаково у {len(zombies)} из {len(cands)} — '
                       f'это наша беда, не машины: {zombies[0][1][:90]}', flush=True)
