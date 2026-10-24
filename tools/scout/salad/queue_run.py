@@ -24,6 +24,8 @@ sku, seed), конец — строка `end`. Раздатчик упал и п
     ~/venvs/scout/bin/python queue_run.py --status mesh-q <id>          # одно задание очереди: статус, события, ответ
     ~/venvs/scout/bin/python queue_run.py --jobs mesh-q                 # задания очереди (первая страница)
     ~/venvs/scout/bin/python queue_run.py --cancel mesh-q <id>          # снять ждущее задание
+    ~/venvs/scout/bin/python queue_run.py --submit mesh-q job.json      # канарейка: одно задание из файла
+    ~/venvs/scout/bin/python queue_run.py --follow mesh-q <id>          # следить до конца (итог — ответ воркера)
     ~/venvs/scout/bin/python queue_run.py --selftest                    # без сети
 """
 from __future__ import annotations
@@ -415,6 +417,29 @@ def main() -> int:
         for j in d.get('items') or []:
             print(f'  {j.get("id")} {j.get("status"):10s} {j.get("create_time")} {j.get("metadata")}')
         return 0 if code == 200 else 1
+    if '--submit' in a:                 # канарейка (п.3): одно задание из файла, id — в журнал очереди
+        q, path = a[a.index('--submit') + 1], a[a.index('--submit') + 2]
+        job = json.load(open(path, encoding='utf-8'))
+        qid, why = submit(q, job, {'sku': job.get('sku'), 'seed': job.get('seed', 0), 'by': 'canary'})
+        if qid:
+            ledger_write({'ev': 'submit', 'qid': qid, 'queue': q, 'group': 'canary', 'sku': job.get('sku'),
+                          'seed': int(job.get('seed') or 0)})
+        print(f'положено: {qid}' if qid else f'!! не положено: {why}')
+        return 0 if qid else 1
+    if '--follow' in a:                 # статус задания до конца, печать на каждой смене
+        q, qid = a[a.index('--follow') + 1], a[a.index('--follow') + 2]
+        seen, t0 = None, time.time()
+        while True:
+            code, d = get(q, qid)
+            st = d.get('status') if code == 200 else f'HTTP {code}'
+            if st != seen:
+                seen = st
+                print(f'{time.strftime("%H:%M:%S", time.gmtime())} UTC +{time.time() - t0:.0f} с: {st}', flush=True)
+            if st in ('succeeded', 'failed', 'cancelled') or code == 404:
+                r = to_result(d, {}) if code == 200 else {}
+                print(f'итог воркера: {json.dumps(r, ensure_ascii=False)[:400]}')
+                return 0 if r.get('status') in ('ok', 'cached') else 1
+            time.sleep(POLL_S)
     if '--cancel' in a:
         q, qid = a[a.index('--cancel') + 1], a[a.index('--cancel') + 2]
         print(f'снять {qid}: HTTP {cancel(q, qid)}')
