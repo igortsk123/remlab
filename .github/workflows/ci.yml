@@ -195,6 +195,11 @@ jobs:
         env:
           SALAD_GROUP: g
           SALAD_API_KEY: x
+      - run: python tools/scout/salad/tests_queue.py   # транспорт «очередь Salad» без сети: обёртка запуска (sha, два процесса, стоп) и сборщик (итог по ответу воркера, без двойной постановки) — mesh-18
+        env:
+          SALAD_GROUP: g
+          SALAD_API_KEY: x
+      - run: python tools/scout/salad/queue_run.py --selftest
       - run: python tools/scout/tests_bank_isolation.py   # новый банк рядом: копия не пишет sets3.json и общие файлы, ворота сборщика fail-closed (план conv-13)
       - run: diff -q tools/scout/asset_strategy.py tools/scout/salad/asset_strategy.py
       - run: diff -q tools/scout/rules/asset-strategies.json tools/scout/salad/asset-strategies.json

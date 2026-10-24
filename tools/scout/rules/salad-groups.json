@@ -108,6 +108,12 @@
   },
   "usd_rub": 86.89,
   "groups": {
+    "mesh-q-canary": {
+      "tier": "low",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "queue": "mesh-q",
+      "_why": "план mesh-18 (T-20261024-03, 24.10): канарейка транспорта «очередь Salad» вместо SSH — задания приходят изнутри машины (queue_entry.sh), SSH-шлюз не нужен. Создана ОСТАНОВЛЕННОЙ (autostart false, 1 реплика) скриптом salad/queue_setup.py по образцу mesh-low-10: тот же образ и ресурсы; связь с очередью mesh-q задаётся только при создании группы. В SALAD_GROUP её нет — стартует только платная канарейка по слову владельца."
+    },
     "mesh-low-10": {
       "tier": "low",
       "price_class": "RTX 4060 Ti (16 GB)",
@@ -118,7 +124,10 @@
       "tier": "batch",
       "price_class": "RTX 4060 Ti (16 GB)",
       "_price_class_why": "ночь 23→24.10: 270 из 295 выдач Salad — RTX 4060 Ti (16 GB) (события Instance Allocated); смесь классов точно — pool_ledger.py",
-      "window_utc": [9, 15],
+      "window_utc": [
+        9,
+        15
+      ],
       "_why": "T-20261022-10/4 (23.10): mesh-batch-6 на образе memtrim-d8c51952 под новым именем (name_conflict); окно и тариф — как у mesh-batch-6"
     },
     "mesh-low-9": {

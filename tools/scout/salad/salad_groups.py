@@ -55,6 +55,12 @@ def price(group: str) -> float | None:
     return (load().get('prices_usd_h') or {}).get(tier(group))
 
 
+def queue_of(group: str) -> str:
+    """Очередь Salad, к которой группа подключена при создании (`queue` в правилах, план mesh-18); '' — группа без очереди
+    (задания ей возят по SSH). Связь задаётся только при создании группы — правило лишь описывает факт (`queue_setup.py`)."""
+    return str(info(group).get('queue') or '')
+
+
 def usd_rub() -> float:
     return float(load().get('usd_rub') or 0)
 

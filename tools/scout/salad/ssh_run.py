@@ -97,6 +97,10 @@ GROUP = GROUPS[0] if GROUPS else ''
 # (`rules/mesh-priority.json`). Держим переопределяемым: молчаливое усечение хуже явного
 # отказа, а зашитая цифра однажды уже уронила конвейер при живых нодах.
 MAX_JOBS = int(os.environ.get('MESH_MAX_JOBS', '2000'))
+# Транспорт заданий (план mesh-18): `ssh` — терминал машины (по умолчанию), `queue` — очередь Salad (`queue_run.py`).
+# Переменная, а не только флаг: конвейер (`batch_show --transport queue`) ставит её себе, и её наследуют все его вызовы
+# `ssh_run` — пачки, перегон, спул повторов.
+TRANSPORT = os.environ.get('MESH_TRANSPORT', 'ssh')
 _lock = threading.Lock()
 import random
 # СОСТОЯНИЕ ПРИЁМНИКА — один опрос на процесс (супервизор, раз в POLL_S), воркеры читают флаг без
@@ -965,6 +969,10 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
         # Весь срез сделан: курсор проходит его без нод и без денег.
         print('RUN_SUMMARY ' + json.dumps(js.summary()), flush=True)
         return 0
+    if TRANSPORT == 'queue':
+        # ОЧЕРЕДЬ SALAD вместо SSH (план mesh-18): учёт заданий тот же (`js`), транспорт и готовность машин — свои
+        import queue_run as QR  # noqa: PLC0415 — нужен только в этом режиме
+        return QR.run(sys.modules[__name__], js, jobs, n_pre, keep_alive)
     ports = warm_ports()
     print(f'тёплых нод: {len(ports)} {ports}')
     if not ports:
@@ -1343,6 +1351,11 @@ def main() -> None:
     lim = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else None
     skip = int(sys.argv[sys.argv.index('--skip') + 1]) if '--skip' in sys.argv else 0
     jf = sys.argv[sys.argv.index('--jobs-file') + 1] if '--jobs-file' in sys.argv else None
+    global TRANSPORT
+    if '--transport' in sys.argv:
+        TRANSPORT = sys.argv[sys.argv.index('--transport') + 1]
+    if TRANSPORT not in ('ssh', 'queue'):
+        sys.exit(f'транспорт {TRANSPORT!r}: только ssh или queue')
     sys.exit(run(lim, '--keep-alive' in sys.argv, jf, skip))
 
 
