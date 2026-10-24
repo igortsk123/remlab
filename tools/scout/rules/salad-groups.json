@@ -1,19 +1,123 @@
 {
-  "_about": "Группы Salad: тариф, цена $/ч (API gpu-classes, RTX 3090, 03.09), окно подъёма по UTC. Имя группы — не контракт: тариф и окно берутся ОТСЮДА, а не из названия. Правила — ADR (план mesh-pool-hardening).",
+  "_about": "Группы Salad: тариф, цена $/ч, окно подъёма по UTC. Цена группы — по классу карты (`price_class` группы → `prices_by_class_usd_h`, прайс Salad 24.10); нет класса — по тарифу (`prices_usd_h`, RTX 3090 03.09). Имя группы — не контракт: тариф и окно берутся ОТСЮДА, а не из названия. Правила — ADR (план mesh-pool-hardening).",
   "prices_usd_h": {
     "batch": 0.09,
     "low": 0.143,
     "medium": 0.197,
     "high": 0.25
   },
+  "_prices_usd_h_why": "запасная цена по тарифу — для группы без `price_class`. Это цена RTX 3090 на 03.09: для 4060 Ti она на 43 % выше прайса (low 0.143 против 0.100), ночь 23→24.10 так считалась 716 ₽ вместо ≈ 501 ₽",
+  "prices_by_class_usd_h": {
+    "_source": "прайс Salad по классу карты: API GET /organizations/prodstore/gpu-classes (поле prices), снято 24.10.2026 01:22 UTC; сверено с https://salad.com/pricing (RTX 4060 Ti 16 GB: high 0.140 / medium 0.120 / low 0.100 / lowest 0.080). Цена класса ПОЛНАЯ — vCPU и ОЗУ включены («Every GPU class ships with vCPU and RAM at no additional charge»). T-20261024-01",
+    "RTX 3080 Ti Laptop (16 GB)": {
+      "batch": 0.045,
+      "low": 0.063,
+      "medium": 0.082,
+      "high": 0.1
+    },
+    "RTX 3090 (24 GB)": {
+      "batch": 0.09,
+      "low": 0.117,
+      "medium": 0.143,
+      "high": 0.17
+    },
+    "RTX 3090 Ti (24 GB)": {
+      "batch": 0.1,
+      "low": 0.13,
+      "medium": 0.16,
+      "high": 0.19
+    },
+    "RTX 4060 (8 GB)": {
+      "batch": 0.05,
+      "low": 0.06,
+      "medium": 0.07,
+      "high": 0.08
+    },
+    "RTX 4060 Laptop (8 GB)": {
+      "batch": 0.035,
+      "low": 0.047,
+      "medium": 0.058,
+      "high": 0.07
+    },
+    "RTX 4060 Ti (16 GB)": {
+      "batch": 0.08,
+      "low": 0.1,
+      "medium": 0.12,
+      "high": 0.14
+    },
+    "RTX 4060 Ti (8 GB)": {
+      "batch": 0.065,
+      "low": 0.08,
+      "medium": 0.095,
+      "high": 0.11
+    },
+    "RTX 4070 (12 GB)": {
+      "batch": 0.07,
+      "low": 0.097,
+      "medium": 0.123,
+      "high": 0.15
+    },
+    "RTX 4070 Laptop (8 GB)": {
+      "batch": 0.05,
+      "low": 0.06,
+      "medium": 0.07,
+      "high": 0.08
+    },
+    "RTX 4070 Ti (12 GB)": {
+      "batch": 0.08,
+      "low": 0.12,
+      "medium": 0.16,
+      "high": 0.2
+    },
+    "RTX 4070 Ti Super (16 GB)": {
+      "batch": 0.09,
+      "low": 0.13,
+      "medium": 0.17,
+      "high": 0.21
+    },
+    "RTX 4080 (16 GB)": {
+      "batch": 0.11,
+      "low": 0.15,
+      "medium": 0.19,
+      "high": 0.23
+    },
+    "RTX 4080 Laptop (12 GB)": {
+      "batch": 0.065,
+      "low": 0.09,
+      "medium": 0.115,
+      "high": 0.14
+    },
+    "RTX 4090 (24 GB)": {
+      "batch": 0.16,
+      "low": 0.217,
+      "medium": 0.273,
+      "high": 0.33
+    },
+    "RTX 4090 Laptop (16 GB)": {
+      "batch": 0.075,
+      "low": 0.105,
+      "medium": 0.135,
+      "high": 0.165
+    },
+    "RTX A5000 (24 GB)": {
+      "batch": 0.09,
+      "low": 0.143,
+      "medium": 0.197,
+      "high": 0.25
+    }
+  },
   "usd_rub": 86.89,
   "groups": {
     "mesh-low-10": {
       "tier": "low",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "_price_class_why": "ночь 23→24.10: 270 из 295 выдач Salad — RTX 4060 Ti (16 GB) (события Instance Allocated); смесь классов точно — pool_ledger.py",
       "_why": "T-20261022-10/4 (23.10): mesh-low-9 на образе memtrim-d8c51952 — имя прежней группы Salad держал после удаления (name_conflict > 20 мин), поэтому новое имя; тариф, реплики, GPU, память — как у mesh-low-9"
     },
     "mesh-batch-7": {
       "tier": "batch",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "_price_class_why": "ночь 23→24.10: 270 из 295 выдач Salad — RTX 4060 Ti (16 GB) (события Instance Allocated); смесь классов точно — pool_ledger.py",
       "window_utc": [9, 15],
       "_why": "T-20261022-10/4 (23.10): mesh-batch-6 на образе memtrim-d8c51952 под новым именем (name_conflict); окно и тариф — как у mesh-batch-6"
     },

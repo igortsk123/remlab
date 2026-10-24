@@ -698,8 +698,12 @@ def case_window_gate() -> None:
     """
     import salad_groups as SG  # noqa: PLC0415
     fixture = {'prices_usd_h': {'batch': 0.09, 'low': 0.143},
+               'prices_by_class_usd_h': {'_source': 'стенд', 'RTX X (16 GB)': {'low': 0.10}},
                'usd_rub': 86.89,
                'groups': {'g-batch': {'tier': 'batch', 'window_utc': [9, 15]},
+                          'g-cls': {'tier': 'low', 'price_class': 'RTX X (16 GB)'},
+                          'g-cls-batch': {'tier': 'batch', 'price_class': 'RTX X (16 GB)'},
+                          'g-cls-lost': {'tier': 'low', 'price_class': 'нет в прайсе'},
                           'g-batch-closed': {'tier': 'batch', 'window_utc': [0, 0]},
                           'g-low': {'tier': 'low'}}}
     path = os.path.join(tempfile.gettempdir(), 'tests_pool-salad-groups.json')
@@ -712,9 +716,16 @@ def case_window_gate() -> None:
         assert SG.allowed_now('g-batch', hour(10)) and not SG.allowed_now('g-batch', hour(16))
         assert not SG.allowed_now('g-batch-closed', hour(8)) and SG.allowed_now('g-low', hour(3))
         assert SG.tier('g-low') == 'low' and SG.price('g-batch') == 0.09 and SG.tier('нет-такой') == '?'
+        # цена по классу карты (T-20261024-01); у класса нет тарифа или класса нет в прайсе — цена по тарифу
+        assert SG.price('g-cls') == 0.10 and SG.price('g-cls-batch') == 0.09 and SG.price('g-cls-lost') == 0.143
     finally:
         SG.RULES, SG._CACHE = keep_rules, keep_cache
         os.path.exists(path) and os.remove(path)
+    # живые правила: класс каждой группы есть в прайсе и с её тарифом — иначе цена молча уедет на запасную
+    live = json.load(open(SG.RULES, encoding='utf-8'))
+    for g, gi in (live.get('groups') or {}).items():
+        if gi.get('price_class'):
+            assert gi['tier'] in (live['prices_by_class_usd_h'].get(gi['price_class']) or {}), (g, gi['price_class'])
     print('  ✓ окно тарифа — правило на фикстуре, не на живом составе групп')
 
 

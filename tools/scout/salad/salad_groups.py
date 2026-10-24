@@ -45,6 +45,13 @@ def tier(group: str) -> str:
 
 
 def price(group: str) -> float | None:
+    """$/ч машины группы. По классу карты (`price_class` → `prices_by_class_usd_h`, прайс Salad — цена класса полная,
+    CPU и ОЗУ включены; T-20261024-01), иначе — по тарифу (`prices_usd_h`, цена RTX 3090 на 03.09: для 4060 Ti она
+    на 43 % выше прайса, ночь 23→24.10 считалась 716 ₽ вместо ≈ 501 ₽)."""
+    cls = info(group).get('price_class')
+    by_cls = ((load().get('prices_by_class_usd_h') or {}).get(cls) or {}) if cls else {}
+    if tier(group) in by_cls:
+        return by_cls[tier(group)]
     return (load().get('prices_usd_h') or {}).get(tier(group))
 
 
