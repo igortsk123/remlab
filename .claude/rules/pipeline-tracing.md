@@ -21,7 +21,7 @@ last_verified: 2026-10-18
   Они обёрнуты (`lib/providers/traced.ts`) → шаг логируется сам, но ТОЛЬКО внутри `runWithTrace`
   (`lib/trace/recorder.ts`): вне прогона вызов проходит без записи (так пред-шаг analyze в `runAnalyze`
   в лог не попадает). НЕ звать провайдера в обход фабрики, НЕ ходить в сеть к модели напрямую из модуля.
-  Долг: `lib/calc/link-parse-ai.ts` зовёт OpenAI напрямую — без трейса и без цены.
+  Дочитка по ссылке (`lib/calc/link-parse-ai.ts`) — через `getExtractProvider` (шлюз, шаг `link_extract`; T-20261023-12, 24.10).
 - **Новый шаг пайплайна** → передавай `meta: { stepName, promptId, promptVersion, params? }`
   в вызов провайдера, чтобы шаг в логе был осмысленным.
 - **Меняешь текст промпта** → бампни `version` в `lib/prompts/registry.ts` (не правь молча:
