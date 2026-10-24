@@ -55,16 +55,23 @@ def verdict(r: dict) -> tuple[bool, list]:
     return fatal, content
 
 
+def candidate_of(build: str) -> str:
+    """Сырая сборка → её кандидат (`build_path` наоборот)."""
+    return build[:-len('.build.json')] + '.json' if build.endswith('.build.json') else build
+
+
 def _compose(out: str, timeout_s: int) -> int:
     t0 = time.time()
-    env = {**os.environ, 'SETS_OUTPUT': out}
+    # УДЕРЖАНИЕ (conv-14b задача 3): источник — прошлый кандидат; сборщик копирует валидные ячейки, пересобирает только с причиной
+    env = {**os.environ, 'SETS_OUTPUT': out, 'BANK_KEEP_FROM': candidate_of(out)}
     try:
         p = subprocess.run([sys.executable, os.path.join(HERE, 'compose2.py'), '--style', '--bands', 'all'], cwd=HERE,
                            env=env, capture_output=True, text=True, timeout=timeout_s)
     except subprocess.TimeoutExpired:
         print(f'bank_prepare: сборка не уложилась в {timeout_s // 60} мин — кандидат прежний', flush=True)
         return 124
-    tail = [ln for ln in (p.stdout or '').splitlines() if ln.startswith(('OK:', '!!', '[compose_gates]', 'ворота'))]
+    tail = [ln for ln in (p.stdout or '').splitlines() if ln.startswith(('OK:', '!!', '[compose_gates]', 'ворота', '[keep]',
+                                                                        'WARN:[keep]'))]
     for ln in tail[-6:] + ((p.stderr or '').strip().splitlines()[-8:] if p.returncode else []):
         print('  ' + ln[:300], flush=True)
     print(f'bank_prepare: сборка rc={p.returncode} за {time.time() - t0:.0f} с', flush=True)
@@ -80,11 +87,14 @@ def _media(build: str, out: str) -> dict:
     """Медиа кандидата — из каталога (как `bank_media` у живого банка; разбор Codex § 2: «к рабочей копии»): сборщик пишет
     прямую ссылку фида, партнёрскую ссылку, фото, магазин и габариты ставит только сверка. Сырая сборка `build` → кандидат
     `out` через `write_bank` (атомарно, идентичность — по живому банку)."""
+    import bank_keep as BK
     import catalog_media as CM
     import set_identity as SI
     sets = json.load(open(build, encoding='utf-8'))
     st = CM.sync_sets(sets)
     SI.write_bank(sets, out, LIVE)
+    if os.path.exists(BK.meta_path(build)):      # состояние удержания — к кандидату только вместе с ним
+        os.replace(BK.meta_path(build), BK.meta_path(out))
     print(f"bank_prepare: медиа кандидата — сверено {st['ok']}, ссылок исправлено {st['fixed_url']}, фото {st['fixed_img']}, "
           f"габаритов {st['fixed_dims']}, ушли {st['gone']}, магазин в карантине {st['unknown']}", flush=True)
     return st
@@ -109,8 +119,22 @@ def _save(rep: dict) -> None:
     os.replace(tmp, REPORT)
 
 
+def keep_stats(out: str) -> dict:
+    import bank_keep as BK
+    return BK.load_stats(BK.meta_path(out))
+
+
+def digest_line(k: dict) -> str:
+    """Стабильность кандидата за ночь — строкой дайджеста (план conv-14b задача 5, Codex § 5 «защита от churn»)."""
+    pct = lambda a, b: f'{100 * a / b:.0f} %' if b else '—'  # noqa: E731
+    why = '; '.join(f'{w} {n}' for w, n in list((k.get('why') or {}).items())[:4])
+    return (f"DIGEST:кандидат банка: удержано ячеек {k.get('kept', 0)}, пересобрано {k.get('rebuilt', 0)}"
+            + (f" ({why})" if why else '') + f", новых {k.get('new', 0)}; тот же выбор "
+            f"{pct(k.get('same_selection', 0), k.get('prev_cells', 0))}, роль→SKU {pct(k.get('roles_same', 0), k.get('roles_prev', 0))}")
+
+
 def run(force: bool = False, R: dict | None = None, out: str = CANDIDATE, compose=_compose, media=_media,
-        invariants=_invariants, save=_save) -> int:
+        invariants=_invariants, save=_save, keep=keep_stats) -> int:
     """Шаг ночи. Зависимости подменяемые (селфтест без базы и сборки)."""
     R = rules() if R is None else R
     if not (R.get('prepare_enabled') or force):
@@ -135,6 +159,9 @@ def run(force: bool = False, R: dict | None = None, out: str = CANDIDATE, compos
         rep['media_error'] = f'{type(e).__name__}: {e}'
         save(rep)
         return 1
+    rep['keep'] = keep(out)
+    if rep['keep']:
+        print(digest_line(rep['keep']), flush=True)
     r = invariants(out)
     fatal, content = verdict(r)
     rep['invariants'] = {k: r.get(k) for k in ('sets', 'identity_ok', 'identity', 'map_ok') + tuple(k for k, _ in CONTENT)}
@@ -202,6 +229,17 @@ def _selftest() -> int:
     ok('содержимое — WARN отчётом, шаг идёт дальше', rc == 0 and 'WARN:bank_prepare: кандидат: ушедших 3, вне контракта 2' in txt
        and calls[-1][1].get('pending_due'), txt)
     ok('verdict: чистый кандидат — не фатально, без строк', verdict(good) == (False, []))
+    ok('удержание: источник сборки — прошлый кандидат (сырая сборка → её кандидат)',
+       candidate_of(build_path('/x/sets3.next.json')) == '/x/sets3.next.json')
+    ks = {'kept': 120, 'rebuilt': 6, 'new': 0, 'same_selection': 121, 'prev_cells': 126, 'roles_same': 2700, 'roles_prev': 2754,
+          'why': {'ушёл из каталога': 4, 'вне контракта слота': 2}}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = run(False, {'prepare_enabled': True}, '/x/sets3.next.json', compose=lambda o, t: 0, media=lambda b, o: {},
+                 invariants=lambda o: good, save=lambda rep: calls.append(('save', rep)), keep=lambda o: ks)
+    ok('удержание: строка дайджеста и отчёт (держу / пересобрано с причинами / тот же выбор, роль→SKU)',
+       rc == 0 and 'DIGEST:кандидат банка: удержано ячеек 120, пересобрано 6 (ушёл из каталога 4; вне контракта слота 2)'
+       in buf.getvalue() and 'тот же выбор 96 %, роль→SKU 98 %' in buf.getvalue() and calls[-1][1]['keep'] == ks, buf.getvalue())
     print(f'bank_prepare selftest: ошибок {bad}')
     return 1 if bad else 0
 

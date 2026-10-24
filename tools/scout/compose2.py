@@ -14,6 +14,8 @@ import enrich_bridge as EB   # проверенное моделью обога�
 import pool_gate as PG       # граница качества 0.65 включительно — одно место (план mesh-14)
 import compose_gates as _CG  # ворота фото/меша — fail-closed (план conv-13 п.2)
 import bank_paths as _BP     # SETS_OUTPUT — банк рядом, не в живой sets3.json (план conv-13 п.1)
+import bank_keep as _BK      # удержание ячеек прошлого кандидата, ничья и бонус меша (план conv-14b)
+_KR=_BK.rules()
 from proportions import P as _PROP, check as prop_check
 PROP_RULES={r['id']: r['allowed'] for r in _PROP['rules']}
 
@@ -255,6 +257,9 @@ raw=rows("""select p.cat_role, p.shop_mid, p.external_id, p.name, p.w_cm, p.d_cm
    and """+_DL.exclude_sql('p')+"""
  order by p.price_rub, p.shop_mid, p.external_id""")
 assert len(raw)>1000, f"каталог-запрос вернул {len(raw)} строк — SQL сломан, СТОП (не собирать пустые сеты)"
+# текущая цена товара (та же `price_rub`, что берёт подбор) — для удержанных ячеек прошлого кандидата (conv-14b задача 3);
+# до отсева протухших фидов: удержание — не новая сборка, как и лечение (см. ниже)
+_PRICE_NOW={f"{r[1]}:{r[2]}":int(r[9]) for r in raw}
 
 # Freshness SLA (T0 truth-first): магазины с ПРОТУХШИМ/битым фидом (feed_guard) не участвуют
 # в сборке НОВЫХ сетов — цены/наличие недельной давности хуже дыры. Heal существующих сетов
@@ -529,7 +534,11 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
         s+=max(0,2-abs(it['fp']-mid_fp)/max(mid_fp,.01)*2)
         scored.append((s,dict(it,cls=cls1,cls2=cls2,rgb=list(d1) if d1 else None,
                               why="; ".join(why))))
-    scored.sort(key=lambda x:(-x[0],x[1]['price']))
+    # ПОЛНЫЙ КЛЮЧ НИЧЬЕЙ (план conv-14b задача 2, Codex 23.10): балл → цена → SKU. Раньше ничья решалась только ценой, и два
+    # товара с равными баллом и ценой шли в порядке пула — выбор зависел от того, что ещё попало в пул этой ночью
+    scored.sort(key=lambda x:(-x[0],x[1]['price'],x[1]['mid'],str(x[1]['eid'])))
+    # БОНУС ГОТОВОМУ МЕШУ — последний разрыв ничьей в узком окне баллов (задача 4, `bank_keep.mesh_tiebreak`)
+    scored=_BK.mesh_tiebreak(scored,lambda it: _CG.mesh_ready(f"{it['mid']}:{it['eid']}"),float(_KR['mesh_tie_window']))
     return [dict(it,score=round(s,2),**({'size_relaxed':True} if relaxed else {})) for s,it in scored[:topn]]
 
 TIERS=['эконом','комфорт','премиум']
@@ -604,12 +613,83 @@ def _zone_group(m2,seq,kreslo_max=None):
                if not cat.get(r.split(' ')[0])}
         print(f"  D5: группы {lost} недоступны (нет ролей {sorted(_miss)}) — band {zb.get('max')} м² собирается меньшей группой")
     return _ZGROUPS[avail[seq%len(avail)]],zb,um
+# ---------- УДЕРЖАНИЕ ЯЧЕЕК ПРОШЛОГО КАНДИДАТА (план conv-14b задача 3, Codex 23.10 § 2а/3) ----------
+# Источник — ПРЕДЫДУЩИЙ КАНДИДАТ (`BANK_KEEP_FROM`, ночью его даёт `bank_prepare`), не живой банк: валидная ячейка копируется
+# целиком (медиа и цена — текущие каталожные), пересобираются только ячейки с причиной (`bank_keep.decide`). Без env — как раньше:
+# всё собирается заново. Тестовый режим SETS_ONLY удержание не включает.
+import copy as _copy, time as _time, collections as _col
+_KEEP_FROM=os.environ.get('BANK_KEEP_FROM') if STYLE_MODE and _ONLY is None and _KR.get('enabled') else None
+_KNOW=_time.time()
+_KACT={}; _KWHY={}; _KEPT={}; _REFRESH={}; _KPO={}; _KPMETA={}; _prev_by={}
+def _cell_key(band_name,style,tier): return '|'.join(str(x) for x in (band_name,style,tier))
+def _built_entry(s):
+    return (s.get('style'),{emb_key(it['mid'],it['eid']) for it in s['items'].values()},
+            {emb_key(it['mid'],it['eid']) for r,it in s['items'].items() if r in MAJOR_ROLES})
+def _keep_check(p,tier):
+    """Ячейка прошлого кандидата → (копия с текущими медиа/ценой, причины немедленной пересборки, отметки цены, «пора по цене»)."""
+    import catalog_media as _CM, sets_incremental as _SI, bank_invariants as _BI
+    c=_copy.deepcopy(p)
+    _CM.sync_sets([c])                       # ссылка, фото, магазин, габариты того же SKU — из каталога (выбор не меняется)
+    _BK.refresh_prices(c,_PRICE_NOW)         # цена — текущая; итог пересчитан
+    hard=[]
+    for role,it in (c.get('items') or {}).items():
+        k=_BK.sku(it)
+        if not k: continue
+        if it.get('_gone'): hard.append(f'{role}: ушёл из каталога'); continue
+        why=_CG._blocked().get(k)
+        if why: hard.append(f'{role}: {why}'); continue
+        if not _SI._slot_ok(role,it,c): hard.append(f'{role}: вне контракта слота')
+    for role,alts in list((c.get('alternates') or {}).items()):   # запасные ушедшие/повторы — вон, выбор не трогают
+        ch=(c.get('items') or {}).get(role); seen=set(); keep=[]
+        for a in alts or []:
+            m=_CM.media(a.get('mid'),a.get('eid')) if a.get('eid') else None
+            if not _BI._alt_reason(role,a,ch,m,seen,None): keep.append(a)
+            seen.add(_BK.sku(a))
+        c['alternates'][role]=keep
+    def _band_of(role):
+        b=_BK.base_role(role)
+        return tier_band(b,tier) if cat.get(b) else None
+    po,due=_BK.price_track(c,_KPMETA.get(_BK.key(c)) or {},_band_of,_KNOW,_KR)
+    return c,hard,po,due
+if _KEEP_FROM:
+    try:
+        _prev_c=json.load(open(_KEEP_FROM,encoding='utf-8')) if os.path.exists(_KEEP_FROM) else []
+        _KPMETA=_BK.load_meta(_KEEP_FROM)
+        import bank_pending as _BPd
+        _pend=(_BPd.load_state().get('cells') or {})
+        _prev_by={_BK.key(s):s for s in _prev_c}
+        for bi,band in enumerate(COMP['bands']):
+            for tier in TIERS:
+                _k=_cell_key(band['band'],STYLE_OF.get(bi),tier)
+                p=_prev_by.get(_k)
+                if not p: _KACT[_k]='new'; continue
+                c,hard,po,due=_keep_check(p,tier)
+                act,why=_BK.decide(c,_KPMETA.get(_k) or {},_pend.get(_k),hard,due,_KNOW,_KR,enriching=_CG._mesh_facts().awaiting)
+                _KACT[_k],_KWHY[_k],_KPO[_k]=act,why,po
+                if act=='keep': _KEPT[_k]=c
+                elif act=='refresh': _REFRESH[_k]=c
+        for _k in sorted(_BK.tier_conflicts({**_KEPT,**_REFRESH},_KPMETA)):   # порядок тиров сломала цена после выбора — сразу пересобрать
+            _KEPT.pop(_k,None); _REFRESH.pop(_k,None)
+            _KACT[_k],_KWHY[_k]='rebuild','порядок тиров сломан сменой цены'
+        for c in _KEPT.values(): BUILT.append(_built_entry(c))   # разнообразие: пересобираемые видят ВСЕ удержанные
+        _wc=_col.Counter(w.split(':')[-1].split(' (')[0].strip() for k,w in _KWHY.items() if _KACT[k]=='rebuild')
+        print(f"[keep] удержание из {os.path.basename(_KEEP_FROM)}: держу {len(_KEPT)}, плановое обновление {len(_REFRESH)}, "
+              f"пересобираю {sum(1 for a in _KACT.values() if a=='rebuild')}, новых {sum(1 for a in _KACT.values() if a=='new')}"
+              +(f"; причины: {dict(_wc.most_common(8))}" if _wc else ''),flush=True)
+    except Exception as _e:   # без удержания — полная сборка, но громко: тихий откат вернул бы churn незаметно
+        print(f'!! [keep] удержание не сработало ({type(_e).__name__}: {str(_e)[:200]}) — собираю все ячейки заново',flush=True)
+        _KACT={}; _KWHY={}; _KEPT={}; _REFRESH={}; _KPO={}
+        BUILT.clear()
 sets=[]
 for bi,band in enumerate(COMP['bands']):
     m2=sum(band['m2'])/2
     style_name=STYLE_OF.get(bi) if STYLE_MODE else None
     for ti,tier in enumerate(TIERS):
         _set_no=len(sets)+1
+        _ck=_cell_key(band['band'],style_name,tier)
+        if _ck in _KEPT:                     # удержанная ячейка — целиком из прошлого кандидата (в реестре разнообразия уже есть)
+            sets.append(_KEPT[_ck])
+            continue
         if _ONLY is not None and _PREV and _set_no<=len(_PREV) and _set_no not in _ONLY:
             _p=_PREV[_set_no-1]
             sets.append(_p)
@@ -1290,6 +1370,13 @@ for bi,band in enumerate(COMP['bands']):
                          fill_pct=fill,total=total,
                          items={r:{k:v for k,v in it.items() if k!='img'} | {'img':it['img']} for r,it in chosen.items()},
                          alternates=alts))
+        if _ck in _REFRESH:                  # плановое обновление: претендент заменяет удержанную, только если заметно лучше
+            _win,_why=_BK.challenger_wins(_REFRESH[_ck],sets[-1],_CG.needs_mesh,_KR)
+            print(f"  [keep] плановое обновление: {'претендент' if _win else 'держу прежнюю'} ({_why})",flush=True)
+            if _win: _KACT[_ck]='rebuild'
+            else:
+                sets[-1]=_REFRESH[_ck]; BUILT[-1]=_built_entry(sets[-1]); _KACT[_ck]='checked'
+            _KWHY[_ck]=f"{_KWHY.get(_ck)}: {_why}"
         print(f"{style_name+' ' if style_name else ''}{band['band']} м² {tier}: {len(chosen)} пр., "
               f"капсула {ctx['style']}/{ctx['wood']}/{ctx['metal']}/{ctx['temp']}, пол {fill}%"
               +(f", стиль-фит {sfit_agg}" if sfit_agg else "")+f", {total:,} ₽".replace(',',' '),flush=True)
@@ -1306,6 +1393,31 @@ except _IdentityError as _e:
     print(f'!! БАНК НЕ ЗАПИСАН ({_OUT_PATH}) — идентичность сетов нарушена: {_e}',flush=True)
     sys.exit(3)
 print(f"OK: {_OUT_PATH} ({len(_emb)} embeddings в кэше)",flush=True)
+if _KEEP_FROM:
+    # состояние удержания — рядом с выводом (`bank_prepare` переносит его к кандидату вместе с готовым кандидатом)
+    _meta={}; _same=_roles_same=_roles_all=0
+    for s in sets:
+        k=_BK.key(s); a=_KACT.get(k,'new')
+        _meta[k]=_BK.meta_for(s,_KPMETA.get(k),a,_KNOW,_KPO.get(k))
+        p=_prev_by.get(k)
+        if p:
+            _same+=_BK.selection_hash(p)==_meta[k]['selection_hash']
+            _pi,_si=p.get('items') or {},s.get('items') or {}
+            _roles_all+=len(_pi); _roles_same+=sum(1 for r,it in _pi.items() if _BK.sku(it) and _BK.sku(_si.get(r))==_BK.sku(it))
+    _bad_tiers=_BK.tier_conflicts({_BK.key(s):s for s in sets})
+    if _bad_tiers:
+        print(f'WARN:[keep] порядок тиров по итогу сломан в {len(_bad_tiers)} ячейках (подмена их не пропустит): {sorted(_bad_tiers)[:6]}',
+              flush=True)
+    _stats={'kept':sum(1 for a in _KACT.values() if a=='keep'),'checked':sum(1 for a in _KACT.values() if a=='checked'),
+            'rebuilt':sum(1 for a in _KACT.values() if a=='rebuild'),'new':sum(1 for s in sets if _KACT.get(_BK.key(s),'new')=='new'),
+            'same_selection':_same,'cells':len(sets),'prev_cells':len(_prev_by),
+            'roles_same':_roles_same,'roles_prev':_roles_all,
+            'why':dict(_col.Counter((w or '').split(':')[-1].split(' (')[0].strip() for k,w in _KWHY.items()
+                                    if _KACT.get(k)=='rebuild').most_common(12))}
+    _BK.write_meta(_BK.meta_path(_OUT_PATH),_meta,_KNOW,_stats)
+    print(f"[keep] итог: держу {_stats['kept']}, проверено обновлением {_stats['checked']}, пересобрано {_stats['rebuilt']}, "
+          f"новых {_stats['new']}; тот же выбор {_same}/{len(_prev_by)}, роль→SKU {_roles_same}/{_roles_all} "
+          f"→ {_BK.meta_path(_OUT_PATH)}",flush=True)
 
 # ---------- HTML-превью v2 ----------
 def esc(s): return s.replace('&','&amp;').replace('<','&lt;')
@@ -1324,12 +1436,12 @@ for i,s in enumerate(sets,1):
     H.append(f'<div class=set><h2>Сет {i} ({"v3" if STYLE_MODE else "v2"}): {s["band"]} м² — {s["tier"].capitalize()}{" — "+s["style"] if s.get("style") else ""}</h2>')
     H.append(f'<div class=meta>капсула: стиль {c["style"] or "—"} · дерево {c["wood"] or "—"} · металл {c["metal"] or "—"} · гамма {c["temp"]} · акценты {"+".join(s["pair"])} · пол {s["fill_pct"]}% · ≈ {s["total"]:,} ₽{st_badge}</div><div class=items>'.replace(',',' '))
     for role,it in s['items'].items():
-        img=it['img'] if not it['img'].startswith('//') else 'https:'+it['img']
+        img=(it.get('img') or '') if not (it.get('img') or '').startswith('//') else 'https:'+it['img']   # удержанная позиция — медиа из каталога
         dims=f"{it['w'] or ''}×{it['d'] or it['dia'] or ''}"
         q=f" ×{it['qty']}" if it['qty']>1 else ''
         H.append(f'<div class=it><div class=role>{role}{q}</div><img loading=lazy src="{esc(img)}">'
                  f'<div>{esc(it["name"][:70])}</div><div>{dims} см · <b>{it["price"]:,} ₽</b></div>'.replace(',',' ')
-                 +f'<div><a href="{esc(it["url"])}" target=_blank>открыть</a> · {it["shop"]}</div>'
+                 +f'<div><a href="{esc(it.get("url") or "")}" target=_blank>открыть</a> · {it["shop"]}</div>'
                  +f'<div class=why>{esc(it.get("why","")[:120])}</div></div>')
     H.append('</div></div>')
 PV=_BP.compose_preview(_OUT_PATH,'sets3-preview.html' if STYLE_MODE else 'sets2-preview.html')

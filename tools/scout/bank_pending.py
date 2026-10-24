@@ -93,6 +93,12 @@ def candidate_hash(s: dict) -> str:
     return hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
+def selection_hash(s: dict) -> str:
+    """Отпечаток ВЫБОРА ячейки (роли/SKU/кол-во) — `bank_keep.selection_hash`: по нему держится ожидание (conv-14b)."""
+    import bank_keep as BK
+    return BK.selection_hash(s)
+
+
 base_role = BR.base_role
 Facts = BR.Facts
 
@@ -110,26 +116,32 @@ def update(state: dict, cand: list, F: Facts, now: float | None = None) -> tuple
     """Чистое ядро: новое состояние по кандидату и факты. → (state, diff{'new','replaced','kept','dropped'})."""
     now = round(time.time() if now is None else now)
     old = state.get('cells') or {}
-    cells, diff = {}, {'new': 0, 'replaced': 0, 'kept': 0, 'dropped': 0, 'cleared': 0}
+    cells, diff = {}, {'new': 0, 'replaced': 0, 'kept': 0, 'media': 0, 'dropped': 0, 'cleared': 0}
     black = {}
     for s in cand:
-        k, h = key(s), candidate_hash(s)
+        k, h, sh = key(s), candidate_hash(s), selection_hash(s)
         prev = old.get(k)
-        same = bool(prev) and prev.get('candidate_hash') == h
+        # ОЖИДАНИЕ ДЕРЖИТСЯ ЗА ВЫБОР (conv-14b задача 3, Codex § 3): тот же `selection_hash` (роли/SKU/кол-во) — `since` ячейки и
+        # позиций прежние, даже если сменились цена, ссылка или фото (полный `candidate_hash` другой). Запись прежнего формата
+        # без `selection_hash` — сравниваем по полному отпечатку, как раньше
+        same = bool(prev) and (prev.get('selection_hash') == sh if prev.get('selection_hash') else prev.get('candidate_hash') == h)
         diff['kept' if same else 'replaced' if prev else 'new'] += 1
+        if same and prev.get('candidate_hash') != h:
+            diff['media'] += 1
         was = ((prev or {}).get('missing') or {}) if same else {}
         missing = {}
         for role, sku in shown(s):
             t, why, need = classify(role, sku, F, (s.get('items') or {}).get(role))
             if t == 'ready':
                 continue
+            w = was.get(sku) or {}
             missing[sku] = {'role': role, 'type': t, 'why': why, 'need': need, 'rep': F.rep(sku),
-                            'since': (was.get(sku) or {}).get('since', now)}
+                            'since': w.get('since', now) if w.get('type', t) == t else now}
             if t == 'blocked_policy':
                 b = black.setdefault(sku, {'role': role, 'why': why, 'rep': F.rep(sku),
                                            'at': ((state.get('blacklist') or {}).get(sku) or {}).get('at', now), 'cells': []})
                 b['cells'].append(k)
-        cells[k] = {'set_id': s.get('set_id'), 'candidate_hash': h, 'since': prev['since'] if same else now,
+        cells[k] = {'set_id': s.get('set_id'), 'candidate_hash': h, 'selection_hash': sh, 'since': prev['since'] if same else now,
                     'status': cell_status(missing), 'total': len(shown(s)), 'missing': missing,
                     'mesh_missing': sum(1 for m in missing.values() if m['need'] == 'mesh')}
     # ОЧИЩАЕМЫЙ ЧЁРНЫЙ СПИСОК: прежние записи вне кандидата переоцениваем; перестал быть блоком — снимаем
@@ -227,6 +239,42 @@ def blocklist(prod: dict, strategy, state: dict | None = None, no_height: bool =
     return out
 
 
+def night_metrics(prev: dict, state: dict, queued: set, mesh_ok: set) -> dict:
+    """МЕТРИКИ НОЧИ В ДАЙДЖЕСТ (план conv-14b задача 5, Codex § 5): результат — ячейки, ставшие готовыми этой ночью
+    (`ready_after_bind`: привязка мешей идёт до этого шага) и всего готовых; опережающий прогресс — по УНИКАЛЬНЫМ семействам меша
+    (`rep`), не по позициям: недостаёт / из них в очереди мешей / доделано с прошлой ночи; защита от churn — сохранённые выборы
+    (`selection_hash`) и брошенные меши: семейство ждали вчера, сегодня ни одна ячейка его не ждёт, меш не готов, а задание стоит
+    в очереди — деньги уйдут на вариант, которого нет в кандидате."""
+    pc, cc = (prev or {}).get('cells') or {}, (state or {}).get('cells') or {}
+    reps = lambda cells: {m['rep'] for c in cells.values() for m in (c.get('missing') or {}).values() if m.get('need') == 'mesh'}  # noqa: E731
+    was, now = reps(pc), reps(cc)
+    same = sum(1 for k, c in cc.items() if k in pc and pc[k].get('selection_hash') and pc[k].get('selection_hash') == c.get('selection_hash'))
+    return {'ready': sum(1 for c in cc.values() if c.get('status') == 'ready'),
+            'ready_after_bind': sum(1 for k, c in cc.items() if c.get('status') == 'ready' and (pc.get(k) or {}).get('status') != 'ready'),
+            'families_missing': len(now), 'families_queued': len(now & queued),
+            'families_done': len({r for r in was - now if r in mesh_ok}),
+            'abandoned': len({r for r in was - now if r not in mesh_ok and r in queued}),
+            'same_selection': same, 'cells_prev': sum(1 for k in cc if k in pc)}
+
+
+def digest_line(m: dict) -> str:
+    pct = lambda a, b: f'{100 * a / b:.0f} %' if b else '—'  # noqa: E731
+    return (f"DIGEST:ожидание кандидата: готово ячеек {m['ready']} (за ночь +{m['ready_after_bind']}); семейств мешей недостаёт "
+            f"{m['families_missing']}, в очереди {m['families_queued']} ({pct(m['families_queued'], m['families_missing'])}), "
+            f"доделано за ночь {m['families_done']}; выбор ячеек сохранён {pct(m['same_selection'], m['cells_prev'])}; "
+            f"брошено мешей до подмены {m['abandoned']}")
+
+
+def _queued() -> set:
+    """Семейства (и товары) с заданием в очереди мешей — для метрик; база недоступна — пусто, метрика честно «0 в очереди»."""
+    try:
+        from mesh_queue import db
+        return {r[0] for r in db("select distinct sku from mesh_jobs where status = 'queued'") if r and r[0]}
+    except Exception as e:  # noqa: BLE001 — метрика, не решение
+        print(f'WARN:bank_pending: очередь мешей не прочитана ({type(e).__name__}) — в метриках «в очереди 0»', flush=True)
+        return set()
+
+
 # ——— ввод-вывод (база, файлы) ———
 
 def load_facts() -> Facts:
@@ -281,7 +329,8 @@ def run(cand_path: str, write: bool) -> int:
     cand = json.load(open(cand_path, encoding='utf-8'))
     live = json.load(open(LIVE, encoding='utf-8'))
     F = load_facts()
-    state, diff = update(load_state(), cand, F)
+    prev = load_state()
+    state, diff = update(prev, cand, F)
     gone, demo = live_context(live)
     dem = demand(state, gone, demo)
     cells = list(state['cells'].values())
@@ -309,6 +358,7 @@ def run(cand_path: str, write: bool) -> int:
     if write:
         save_state(state)
         print(f'[bank_pending] состояние → {STATE}')
+        print(digest_line(night_metrics(prev, state, _queued(), F.mesh_ok)), flush=True)
     return 0
 
 
@@ -373,7 +423,40 @@ def _selftest() -> int:
     ok('нет высоты — wait_catalog и НЕ в чёрном списке; replace_needed — blocked_policy и в чёрном списке',
        c['17-20|сканди|эконом']['status'] == 'wait_catalog' and c['21-25|сканди|эконом']['status'] == 'blocked_policy'
        and set(st['blacklist']) == {'1:t2'}, st['blacklist'])
-    ok('смена кандидатов: все новые', diff == {'new': 5, 'replaced': 0, 'kept': 0, 'dropped': 0, 'cleared': 0}, diff)
+    ok('смена кандидатов: все новые', diff == {'new': 5, 'replaced': 0, 'kept': 0, 'media': 0, 'dropped': 0, 'cleared': 0}, diff)
+    # ОЖИДАНИЕ ДЕРЖИТСЯ ЗА ВЫБОР (conv-14b): цена/ссылка/фото того же SKU — since прежний, полный отпечаток новый
+    B_med = json.loads(json.dumps(B))
+    B_med['items']['диван'].update(price=12345, url='u/новая', img='i/новое')   # каталог сменил ссылку и фото — медиа их отдаёт
+    media2 = {**media, '1:d2': {'state': 'available', 'url': 'u/новая', 'img': 'i/новое'}}
+    F_med = Facts(prod, failed=set(), strategy=strat, media=media2.get, mesh_ok={'1:d1', '1:t1'}, decisions=dec)
+    st_m, d_m = update(json.loads(json.dumps(st)), [A, B_med, C, D, E], F_med, now=150)
+    cm = st_m['cells']['14-16|лофт|эконом']
+    ok('цена/ссылка/фото того же SKU: выбор тот же — since ячейки и позиции прежние, candidate_hash новый (подмена судит его)',
+       cm['since'] == 100 and cm['missing']['1:d2']['since'] == 100 and cm['candidate_hash'] != c['14-16|лофт|эконом']['candidate_hash']
+       and cm['selection_hash'] == c['14-16|лофт|эконом']['selection_hash'] and d_m['kept'] == 5 and d_m['media'] == 1, (cm, d_m))
+    old_fmt = json.loads(json.dumps(st))
+    for v in old_fmt['cells'].values():
+        v.pop('selection_hash')
+    st_o, d_o = update(old_fmt, [A, B_med, C, D, E], F, now=150)
+    ok('запись прежнего формата (без selection_hash) — по полному отпечатку, как раньше', d_o['kept'] == 4 and d_o['replaced'] == 1
+       and st_o['cells']['14-16|лофт|эконом']['selection_hash'], d_o)
+    # МЕШ ПРИВЯЗАН ЭТОЙ НОЧЬЮ → ячейка готова в ту же ночь, и подмена её видит (порядок ночи T-08: привязка → bank_pending → promote)
+    F_bound = Facts(prod, failed=set(), strategy=strat, media=media.get, mesh_ok={'1:d1', '1:t1', '1:d2'}, decisions=dec)
+    st_b, _ = update(json.loads(json.dumps(st)), [A, B, C, D, E], F_bound, now=160)
+    cb = st_b['cells']['14-16|лофт|эконом']
+    import bank_promote as BPR
+    pl = BPR.plan([A, {**B, 'items': {'диван': {'mid': 1, 'eid': 'old', 'url': 'u/old'}}}], [A, B], st_b, {'max_promote_share': 1},
+                  strict_fn=lambda s: [], media=lambda m, e: None, gone_cells=set(), demo_cells=set(), major=set())
+    row = next((r for r in pl['rows'] if r['cell'] == '14-16|лофт|эконом'), {})
+    ok('меш привязан этой ночью: ячейка ready той же ночью, since прежний, promote её продвигает',
+       cb['status'] == 'ready' and cb['since'] == 100 and row.get('decision') == 'promote' and pl['promoted'] == [2],
+       (cb['status'], row))
+    nm = night_metrics(st, st_b, queued={'1:v1', '1:zz'}, mesh_ok=F_bound.mesh_ok)
+    ok('метрики ночи: +1 готовая после привязки, семейство d2 доделано, v1 в очереди, выбор сохранён во всех',
+       nm['ready_after_bind'] == 1 and nm['families_done'] == 1 and nm['families_queued'] == 1 and nm['abandoned'] == 0
+       and nm['same_selection'] == 5 == nm['cells_prev'], nm)
+    ok('строка дайджеста', digest_line(nm).startswith('DIGEST:ожидание кандидата: готово ячеек') and 'брошено мешей до подмены 0'
+       in digest_line(nm), digest_line(nm))
     got = [d['sku'] for d in demand(st, set(), set())]
     ok('ячейка с блоком в спросе остаётся: меш дивана v1 (через цвет v2) просим', '1:v1' in got, got)
     # перезапуск: тот же кандидат — время ожидания сохраняется; сменился состав — запись заменена, спрос прежнего снят
@@ -384,6 +467,12 @@ def _selftest() -> int:
     ok('кандидат сменился (другой hash) — запись заменена, ожидание с новой ночи, d2 из спроса ячейки ушёл',
        st2['cells']['14-16|лофт|эконом']['since'] == 200 and '1:d2' not in st2['cells']['14-16|лофт|эконом']['missing']
        and diff2['replaced'] == 1 and diff2['kept'] == 4, diff2)
+    nm2 = night_metrics(st, st2, queued={'1:d2'}, mesh_ok=F.mesh_ok)
+    ok('метрики ночи: d2 ушёл из ячейки B, но его ждёт C — не брошен', nm2['abandoned'] == 0 and nm2['same_selection'] == 4, nm2)
+    mm = lambda rep: {'x': {'need': 'mesh', 'rep': rep}}  # noqa: E731
+    nm3 = night_metrics({'cells': {'a': {'missing': mm('1:r1')}}}, {'cells': {'a': {'missing': mm('1:r2')}}}, {'1:r1', '1:r2'}, set())
+    ok('метрики ночи: семейство ждали вчера, сегодня никто, меш не готов, задание в очереди — брошенный меш',
+       nm3['abandoned'] == 1 and nm3['families_queued'] == 1, nm3)
     # полный отпечаток: запасные, цена, ссылка, capsule — тоже состав
     h0 = candidate_hash(A)
     A_alt = {**A, 'alternates': {'диван': [{'mid': 1, 'eid': 'd2'}]}}

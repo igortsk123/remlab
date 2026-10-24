@@ -95,6 +95,26 @@ def mesh_unfit(sku: str, role: str | None) -> str | None:
     return 'не мешепригоден (mesh_required=false)'
 
 
+def mesh_ready(sku: str) -> bool:
+    """Готовый меш у товара или представителя его семейства — для ПОСЛЕДНЕГО разрыва ничьей сборки (план conv-14b задача 4,
+    `bank_keep.mesh_tiebreak`). Не ворота: сбой фактов — «не готов» (бонуса нет, отбор прежний)."""
+    try:
+        M = _mesh_facts()
+        rep = (M.prod.get(sku) or {}).get('rep') or sku
+        return sku in M.mesh_ok or rep in M.mesh_ok
+    except Exception:  # noqa: BLE001 — разрыв ничьей, не проверка годности
+        return False
+
+
+def needs_mesh(role: str, sku: str) -> bool:
+    """Мешевой долг позиции: мешевая роль, а меша нет ни у товара, ни у представителя (`bank_keep.challenger_wins`)."""
+    try:
+        import bank_ready as BR
+        return _mesh_facts().strategy(BR.base_role(role)) == 'mesh' and not mesh_ready(sku)
+    except Exception:  # noqa: BLE001 — не знаем — считаем долгом: претендент с неизвестным долгом не выигрывает даром
+        return True
+
+
 def admit(sku: str, img: str | None, role: str | None = None) -> str | None:
     """None — товар годен по фото и мешу; иначе причина отказа. Сбой проверки — отказ и счёт в `FAILS`.
     `role` — слот сборки: для мешевой роли ещё и мешепригодность (`mesh_unfit`)."""
@@ -258,6 +278,11 @@ def _selftest() -> int:
            admit('1:wait', '//img', 'диван') is None)
         ok('не мешевая роль (подушка) и вызов без роли — мешепригодность не спрашиваем',
            admit('1:pil', '//img', 'подушка') is None and admit('1:ne', '//img') is None)
+        ok('готовый меш: у товара, у представителя; нет — не готов; мешевой долг — только мешевой роли',
+           mesh_ready('1:mesh') and not mesh_ready('1:ok') and needs_mesh('диван 2', '1:ok')
+           and not needs_mesh('диван', '1:mesh') and not needs_mesh('подушка', '1:pil'))
+        prod['1:sis'] = P(eligible=False, rep='1:mesh')
+        ok('сестра готового представителя — меш готов', mesh_ready('1:sis'))
         fake(rules={'compose_mesh_eligible': False})
         ok('ключ compose_mesh_eligible=false — ворота выключены', admit('1:ne', '//img', 'диван') is None)
         fake()
