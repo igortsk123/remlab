@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-run
 scope: Прогон мешей — РАБОЧИЙ вариант, старт, остановка
 tier2: "../domain/mesh-run-playbook.md"
-updated: 2026-10-20
+updated: 2026-10-27
 importance: high
 source: manual
 status: working
@@ -29,12 +29,12 @@ Tier 2 § 5.
 - **Замер:** меш ≈ 176 с; потолок 172 меша/час на ~23 машинах при `--batch 2000`; ≈1,12 ₽/меш.
 
 ## Три команды
-- **Старт** (единственный законный): `tools/scout/mesh_wave_start.sh --launch`.
-- **Наблюдение:** лог `$MESH_BATCH_LOG` (`tools/scout/mesh_wave_start.sh:20`); цена — `tools/scout/salad/tier_compare.py`.
-- **Остановка:** `touch ~/scout-scenes/mesh-draining` — выход на границе пачки, группы гасит `finale()`.
+- **Старт** (единственный законный): `tools/scout/mesh_wave_start.sh --launch --rub-cap N` (₽ обязателен).
+- **Наблюдение:** лог `$MESH_BATCH_LOG`; цена — `tools/scout/salad/tier_compare.py`.
+- **Остановка:** `touch ~/scout-scenes/mesh-batch.PAUSE` — выход на границе пачки, группы гасит
+  `finale()`; `mesh-draining` групп НЕ гасит; срочно — стоп группы через API.
 
-**Перед стартом — чек-лист предусловий Tier 2 § 1** (стили, дев-база, диск, кредиты, стоп-файл):
-скрипт проверяет только сирот и приёмник.
+**Перед стартом — чек-лист Tier 2 § 1**; скрипт сам проверяет только сирот и приёмник.
 
 ## Запреты (каждый уже стоил денег или часов)
 - **НЕ собирать снимок очереди руками** и не обнулять курсор: он позиционный, снимок поверх

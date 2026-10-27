@@ -10,8 +10,14 @@
 # АТОМАРНО (tmp → fsync → rename), переделки получили свободный seed → курсор нового снимка
 # начинается с нуля в СВОЁМ файле (`<снимок>.progress.json`) → запуск с явным MESH_SAMPLE.
 #
-#   tools/scout/mesh_wave_start.sh            # собрать снимок и напечатать команду запуска
-#   tools/scout/mesh_wave_start.sh --launch   # …и запустить конвейер (nohup, один уровень фона)
+#   tools/scout/mesh_wave_start.sh                          # собрать снимок и напечатать команду запуска
+#   tools/scout/mesh_wave_start.sh --launch --rub-cap 174   # …и запустить конвейер с потолком денег волны, ₽
+#
+# ПОТОЛОК ДЕНЕГ — ОБЯЗАТЕЛЕН ДЛЯ РУЧНОГО СТАРТА (план mesh-18 этап 4, T-20261027-02). Проба 27.10 шла без потолка:
+# сторож денег гасит пул по деньгам волны только при записи волны, а её писал лишь автозапуск. `--rub-cap N` (или
+# MESH_RUB_CAP=N) — сколько ₽ волне можно; умолчания нет намеренно. Запись — `salad/wave_cap.py`, свой файл:
+# разрешение владельца на автоволны (`wave-lease.json`) не продлевается и не создаётся. Автозапуск (`wave_guard`)
+# держит потолок в разрешении и зовёт скрипт с MESH_WAVE_LEASE=1.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY="${MESH_PY:-$HOME/venvs/scout/bin/python}"
@@ -22,6 +28,26 @@ SNAP="$HERE/mesh-queue-$(date -u +%Y%m%dT%H%M%S).json"
 BATCH="${MESH_BATCH:-2000}"   # 2000: замер 05.09 — на пачке 200 треть оплаченного времени уходила на границы пачек (решение владельца «потоком»)
 
 say() { echo "$(date '+%d.%m %H:%M') $*"; }
+
+LAUNCH=0
+RUB_CAP="${MESH_RUB_CAP:-}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --launch) LAUNCH=1 ;;
+    --rub-cap) RUB_CAP="${2:-}"; shift $(( $# >= 2 ? 1 : 0 )) ;;   # без числа — пусто, отказ ниже
+    *) say "неизвестный ключ $1 (есть: --launch, --rub-cap N)"; exit 64 ;;
+  esac
+  shift
+done
+# Проверка — ДО любых шагов: без потолка не трогаем ни замок, ни приёмник, ни снимок.
+MANUAL_CAP=0
+if [ "$LAUNCH" = 1 ] && [ "${MESH_WAVE_LEASE:-}" != 1 ]; then
+  if ! [[ "$RUB_CAP" =~ ^[0-9]+([.][0-9]+)?$ ]] || ! awk -v c="$RUB_CAP" 'BEGIN{exit !(c > 0)}'; then
+    say "ручной старт без потолка денег — не запускаю: --rub-cap N (₽) или MESH_RUB_CAP=N"
+    exit 64
+  fi
+  MANUAL_CAP=1
+fi
 
 # КЛЮЧИ SALAD — ДО ПЕРВОГО ШАГА (12.10). Без них `receiver_purge` не достаёт токен приёмника
 # (он лежит в переменных группы Salad) и честно пишет «НИЧЕГО не удаляю»: шаг 3b отрабатывал
@@ -96,9 +122,17 @@ if [ "$N" -lt "${MESH_MIN_JOBS:-1}" ]; then say "в снимке $N задани
 CMD="set -a; . $HOME/scout-scenes/salad.env; set +a; MESH_SAMPLE=$SNAP MESH_MAX_JOBS=${MESH_MAX_JOBS:-14000} MESH_POST_EVERY_S=900 nohup $PY -u $HERE/salad/batch_show.py --batch $BATCH >> $LOG 2>&1 &"
 say "снимок готов: $N заданий. Команда запуска:"
 echo "  $CMD"
-if [ "${1:-}" = "--launch" ]; then
+if [ "$LAUNCH" = 1 ]; then
+  # потолок — ДО запуска: сторож денег видит его с первой минуты
+  [ "$MANUAL_CAP" = 1 ] && "$PY" "$HERE/salad/wave_cap.py" --open "$RUB_CAP" "$SNAP"
   say "запускаю конвейер"
   bash -c "exec 9>&-; $CMD"
   sleep 3
-  pgrep -f "[b]atch_show.py --batch" >/dev/null && say "конвейер запущен, лог: $LOG" || { say "конвейер НЕ поднялся — смотри $LOG"; exit 1; }
+  if pgrep -f "[b]atch_show.py --batch" >/dev/null; then
+    say "конвейер запущен, лог: $LOG"
+  else
+    say "конвейер НЕ поднялся — смотри $LOG"
+    [ "$MANUAL_CAP" = 1 ] && "$PY" "$HERE/salad/wave_cap.py" --close 'конвейер не поднялся'
+    exit 1
+  fi
 fi

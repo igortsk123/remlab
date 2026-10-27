@@ -196,6 +196,15 @@ def halt_reason() -> str:
     return str(d.get('why') or 'без причины')
 
 
+def halt_kind() -> str:
+    """Вид запрета из стоп-файла (`money_guard`: budget / silence / shared_infra); '' — нет файла или битый."""
+    try:
+        with open(HALT, encoding='utf-8') as f:
+            return str(json.load(f).get('kind') or '')
+    except Exception:  # noqa: BLE001
+        return ''
+
+
 NO_CREDITS_FILE = os.path.expanduser('~/scout-scenes/mesh-no-credits.json')
 _NO_CREDITS = False   # в этом процессе Salad ответил no_credits_available (conv-11)
 
@@ -786,7 +795,7 @@ def _main():
 
     PAUSE = os.path.expanduser('~/scout-scenes/mesh-batch.PAUSE')
     if os.environ.get('WAVE_FIRST') == '1':
-        heal_wave(PAUSE)
+        heal_wave(PAUSE, post=False)   # разбор перегона подберёт таймер — машины не ждут его до основной очереди
     while done < total:
         if os.path.exists(DRAINING):
             # Горячий перезапуск: пачка закончена, выходим на границе. Группы НЕ гасим (finale
@@ -807,8 +816,26 @@ def _main():
             break
 
     _post_stop.set()
-    wait_post()          # волна лечения работает по итогам приёмки — она должна доработать
-    heal_wave(PAUSE, guard_done=(done >= total))
+    wave_tail(PAUSE, guard_done=(done >= total))
+
+
+def wave_tail(PAUSE: str, guard_done: bool) -> None:
+    """КОНЕЦ ВОЛНЫ: GPU-работа → гашение групп → разбор без машин (план mesh-18 этап 4, T-20261027-02).
+
+    Раньше здесь шло `wait_post()` → `heal_wave()` → `finale()`: конвейер ждал фоновый разбор (топ-вью, ориентация —
+    22–46 мин) при поднятых группах, а платим за `running`, не за работу. Проба 27.10: последний меш в 11:05, группа
+    погашена в 11:34 — ≈ 38 ₽ из ≈ 95 (40 %) за простой. Разбору машины не нужны (`post_steps` — локальные шаги и exit-fi).
+    Машины нужны только ВОЛНЕ ЛЕЧЕНИЯ (перегон по `mesh-reseed.json`), поэтому она идёт ДО гашения и только по тому, что
+    приёмка уже записала; что приёмка забракует в этом последнем разборе — остаётся в `mesh-reseed.json` и уйдёт
+    следующей волной (`WAVE_FIRST=1` или её же конец). Держать все машины ради разбора нельзя.
+    `finale()` гасит ещё раз с проверкой `stopped` и тревогой — страховка, а не основной путь."""
+    healed = heal_wave(PAUSE, guard_done=guard_done, post=False)
+    stop_groups()
+    wait_post()
+    if healed:          # разбор перегона — тот же список шагов, уже без машин
+        for step, cmd in post_steps():
+            c, o = sh(cmd, timeout=2700)
+            print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
 
 
 def run_batch(done: int, n: int, total: int) -> tuple[int, str]:
@@ -847,6 +874,11 @@ def run_batch(done: int, n: int, total: int) -> tuple[int, str]:
         st = group_status()
         if st == 'stopped' and not ensure_group_started():
             print('группа остановлена и не стартует — см. причину выше (кредиты / запрет / окно)', flush=True)
+            if halt_kind() == 'budget':
+                # ПОТОЛОК ВОЛНЫ ВЫБРАН (T-20261027-02): сторож денег погасил пул по деньгам волны — это конец волны, а не
+                # перебой. Раньше конвейер ждал тёплых нод под стоп-файлом бесконечно и не закрывал волну.
+                print('ПОТОЛОК ДЕНЕГ ВОЛНЫ ВЫБРАН — конвейер завершается', flush=True)
+                return done, 'exit'
             if _NO_CREDITS:
                 # НЕТ ДЕНЕГ — ВЫХОДИМ (conv-11, разбор Codex 13.10): раньше конвейер повторял /start каждые
                 # 3 минуты вечно. Отметку читает сторож автозапуска (`wave_guard.py`): следующая попытка —
@@ -885,39 +917,57 @@ def run_batch(done: int, n: int, total: int) -> tuple[int, str]:
     return done, 'next'
 
 
-def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
+RESEED = os.path.join(HERE, '..', 'mesh-reseed.json')
+
+
+def heal_wave(PAUSE: str, guard_done: bool = True, post: bool = True) -> bool:
     """ВОЛНА ЛЕЧЕНИЯ: перегон того, что приёмка завернула (слой 4 системы).
     При WAVE_FIRST=1 конвейер зовёт её ДО основной очереди (владелец 30.08: тестовый
-    сет — приоритет), с ожиданием тёплых нод, как у пачек."""
-    RESEED = os.path.join(HERE, '..', 'mesh-reseed.json')
-    if guard_done and os.path.exists(RESEED) and not os.path.exists(PAUSE):
-        rs = json.load(open(RESEED, encoding='utf-8'))
-        todo = [r for r in rs]
-        if todo:
-            print(f'== волна лечения: {len(todo)} перегонов ==', flush=True)
-            for _try in range(40):
-                c, o = sh(f'{PY} {HERE}/ssh_run.py --jobs-file {RESEED} --keep-alive',
-                          timeout=len(todo) * 420 + 600)
-                print(o, flush=True)
-                if c == NO_CAPACITY or (c != 0 and 'нет прогретых' in o):
-                    print('волна: нет тёплых нод — жду 3 мин', flush=True)
-                    ensure_group_started()
-                    cull_slow_pulls()
-                    time.sleep(180)
-                    continue
-                if c != 0:
-                    # Нерешённые по транспорту остаются в mesh-reseed.json и уйдут в следующую
-                    # волну — но молчать об этом нельзя (раньше волна просто «заканчивалась»).
-                    s = run_summary(o) or {}
-                    print(f'!! волна закончилась с кодом {c}: закрыто '
-                          f'{s.get("terminal", "?")}/{s.get("requested", len(todo))}, '
-                          f'нерешённых {s.get("unresolved", "?")}', flush=True)
-                break
-            # Разбор волны — тот же список шагов, что и у пачек (`post_steps`), одно место.
-            # Здесь он идёт НЕ фоном: после волны прогон заканчивается, ждать всё равно нам.
-            for step, cmd in post_steps():
-                c, o = sh(cmd, timeout=2700)
-                print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
+    сет — приоритет), с ожиданием тёплых нод, как у пачек. `post=False` — разбор делает вызывающий
+    уже без машин (`wave_tail`). → был ли перегон.
+
+    ПЕРЕГОН — ПО СНИМКУ (T-20261027-02): в конце волны лечение идёт, пока фоновый разбор ещё работает, а его приёмка
+    (`apply_repairs`) переписывает `mesh-reseed.json` не атомарно. Читаем файл один раз (не читается — перегон в
+    следующую волну) и отдаём `ssh_run` копию."""
+    if not (guard_done and os.path.exists(RESEED) and not os.path.exists(PAUSE)):
+        return False
+    try:
+        todo = list(json.load(open(RESEED, encoding='utf-8')))
+    except (OSError, ValueError) as e:
+        print(f'волна лечения: {os.path.basename(RESEED)} сейчас не читается ({type(e).__name__}) — '
+              f'перегон уйдёт следующей волной', flush=True)
+        return False
+    if not todo:
+        return False
+    snap = RESEED + '.heal'
+    with open(snap + '.tmp', 'w', encoding='utf-8') as f:
+        json.dump(todo, f, ensure_ascii=False)
+    os.replace(snap + '.tmp', snap)
+    print(f'== волна лечения: {len(todo)} перегонов ==', flush=True)
+    for _try in range(40):
+        c, o = sh(f'{PY} {HERE}/ssh_run.py --jobs-file {snap} --keep-alive',
+                  timeout=len(todo) * 420 + 600)
+        print(o, flush=True)
+        if c == NO_CAPACITY or (c != 0 and 'нет прогретых' in o):
+            print('волна: нет тёплых нод — жду 3 мин', flush=True)
+            ensure_group_started()
+            cull_slow_pulls()
+            time.sleep(180)
+            continue
+        if c != 0:
+            # Нерешённые по транспорту остаются в mesh-reseed.json и уйдут в следующую
+            # волну — но молчать об этом нельзя (раньше волна просто «заканчивалась»).
+            s = run_summary(o) or {}
+            print(f'!! волна закончилась с кодом {c}: закрыто '
+                  f'{s.get("terminal", "?")}/{s.get("requested", len(todo))}, '
+                  f'нерешённых {s.get("unresolved", "?")}', flush=True)
+        break
+    if post:
+        # Разбор волны — тот же список шагов, что и у пачек (`post_steps`), одно место.
+        for step, cmd in post_steps():
+            c, o = sh(cmd, timeout=2700)
+            print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
+    return True
 
 
 def finale() -> None:
@@ -939,7 +989,32 @@ def finale() -> None:
     # ГРУППУ ГАСИМ ПЕРВЫМ ДЕЛОМ (деньги): тарифицируется состояние, а финальный drain —
     # работа чисто локальная, комплекты уже лежат на exit-fi. Раньше ноды ждали конца
     # drain'а и жгли деньги за это время. Гасим и при падении — это `finally` в main().
-    # код выхода = подтверждено ли `stopped` у всех групп (ssh_run.stop_group проверяет, conv-11)
+    stop_groups()
+    close_manual_cap()
+    # Фоновый разбор мог ещё идти — два drain'а разом полезли бы в один каталог.
+    wait_post()
+    # сервер чистим ОДИН раз в конце: в цикле drain --keep, иначе умирает кэш «уже сделано»
+    sh(f'bash {HERE}/drain.sh', timeout=1200)
+
+
+def close_manual_cap() -> None:
+    """Ручная волна закрывается вместе с конвейером: факт денег в `wave-manual.json`, свой стоп-файл потолка снят
+    (T-20261027-02). Ошибка учёта не должна мешать финалу — только строка в лог."""
+    try:
+        import money_guard as MG  # noqa: PLC0415 — книга расходов сторожа (один источник)
+        import wave_cap as WC  # noqa: PLC0415
+        w = WC.close('конвейер завершился', MG.paid_usd(MG.load()), SG.usd_rub())
+        if w:
+            print(f'ручная волна закрыта: ≈ {w["spent_rub"]} ₽ из потолка {w.get("rub_cap")} ₽', flush=True)
+        if WC.clear_budget_halt(HALT):
+            print('стоп-файл потолка ручной волны снят — своё отработал', flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f'!! ручная волна не закрыта ({type(e).__name__}: {e}) — закрой: salad/wave_cap.py --close', flush=True)
+
+
+def stop_groups() -> bool:
+    """Погасить группы с проверкой `stopped` (ssh_run.stop_group, conv-11): мимо — повтор, снова мимо — тревога.
+    Зовут конец волны (`wave_tail`, по концу генерации) и `finale()` (страховка). → погашены ли."""
     stop = f'{PY} - <<P\nimport sys; sys.path.insert(0,"{HERE}")\nimport ssh_run; sys.exit(0 if ssh_run.stop_group() else 1)\nP'
     c, o = sh(stop, timeout=400)
     print(o, flush=True)
@@ -955,10 +1030,7 @@ def finale() -> None:
             subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'),
                             'меши: конвейер завершился, а группы Salad НЕ погашены — '
                             'идёт оплата, погасите вручную'], check=False, timeout=60)
-    # Фоновый разбор мог ещё идти — два drain'а разом полезли бы в один каталог.
-    wait_post()
-    # сервер чистим ОДИН раз в конце: в цикле drain --keep, иначе умирает кэш «уже сделано»
-    sh(f'bash {HERE}/drain.sh', timeout=1200)
+    return c == 0
 
 
 if __name__ == '__main__':

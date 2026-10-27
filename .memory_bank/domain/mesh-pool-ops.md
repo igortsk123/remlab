@@ -3,7 +3,7 @@ tier: 2
 topic: mesh-pool-ops
 scope: Эксплуатация пула Salad — регламент подъёма/остановки, замеры темпа и цены, разбор остановок 04–05.09
 tier1: ../core/mesh-pool.md
-updated: 2026-10-20
+updated: 2026-10-27
 importance: med
 source: manual
 status: working
@@ -35,7 +35,7 @@ last_verified: 2026-10-11
 - **Стоп-файл** `~/scout-scenes/mesh-group-halt.json` — сторож денег (ADR-0174) и обвал связи
   (15 минут → гасим пул + Telegram) пишут его; он сильнее `autostart_policy`. Снимать руками
   только после разбора причины (`kind`: `shared_infra`, `silence`, …).
-- **Живые логи**: `batch-hardened.log` (конвейер, `tools/scout/mesh_wave_start.sh:20`) пока пишется в
+- **Живые логи**: `batch-hardened.log` (конвейер, `tools/scout/mesh_wave_start.sh:LOG`) пока пишется в
   `.memory_bank/_intake/` — при следующей остановке конвейера перенаправить в `~/scout-logs/`.
 
 ## 2. Замеры темпа и цены

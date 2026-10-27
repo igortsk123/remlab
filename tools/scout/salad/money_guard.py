@@ -33,6 +33,7 @@ import mesh_price as MP    # noqa: E402 — ₽ за меш по группам 
 import proc_run as PR      # noqa: E402 — шаг оболочки без сирот
 import sink_health as SH   # noqa: E402 — приёмник: красный = общая беда, а не вина нод
 import ssh_run as SR       # noqa: E402 — ОДНА цепочка уборки приёмника на всех
+import wave_cap as WC      # noqa: E402 — потолок ручной волны (свой файл, не разрешение владельца; T-20261027-02)
 JOURNAL = os.path.join(HERE, '..', 'mesh-run-progress.jsonl')
 SNAPSHOT = os.path.expanduser('~/scout-scenes/salad-groups-snapshot.json')
 HEARTBEAT_H = int(os.environ.get('MESH_GUARD_HEARTBEAT_H', '8'))   # UTC
@@ -545,6 +546,16 @@ def budget_breach(st: dict, lease: dict | None) -> str:
     return f'ПОТОЛОК ВОЛНЫ: потрачено ≈ ${spent:.2f} из разрешённых ${float(w["usd_cap"]):.2f}'
 
 
+def breach_of(st: dict, lease: dict | None, manual: dict | None) -> tuple[str, str]:
+    """Потолок какой волны выбран → (причина, 'lease' | 'manual'); ('', '') — ничей. Ручная волна (`wave_cap.py`,
+    T-20261027-02) судится тем же правилом, что волна автозапуска, но живёт в своём файле — разрешение владельца не трогаем."""
+    for src, d in (('lease', lease), ('manual', manual)):
+        why = budget_breach(st, d)
+        if why:
+            return (why if src == 'lease' else why.replace('ПОТОЛОК ВОЛНЫ', 'ПОТОЛОК РУЧНОЙ ВОЛНЫ')), src
+    return '', ''
+
+
 def load() -> dict:
     try:
         return json.load(open(STATE, encoding='utf-8'))
@@ -737,7 +748,7 @@ def main() -> int:
             lease = json.load(open(LEASE, encoding='utf-8')) if os.path.exists(LEASE) else None
         except Exception:  # noqa: BLE001 — битое разрешение не отменяет остальные правила
             lease = None
-        over = budget_breach(st, lease) if n > 0 else ''
+        over, over_src = breach_of(st, lease, WC.read()) if n > 0 else ('', '')
         if over:
             # Третий повод (conv-11): деньги, разрешённые владельцем на волну, выбраны — гасим, даже если меши идут.
             stop_why = over
@@ -751,7 +762,8 @@ def main() -> int:
             why = f'{stop_why} (остановлено {time.strftime("%d.%m %H:%M")})'
             print(f'{time.strftime("%H:%M")} !! ГАШУ ПУЛ: {why} · группы {group}', flush=True)
             notify(f'Меши: пул ОСТАНОВЛЕН. {why}. Работало нод: {n}. ' + (
-                'Деньги, разрешённые на волну, выбраны; следующая волна — по новому разрешению.' if over else
+                ('Потолок ручного старта выбран; конвейер выйдет сам.' if over_src == 'manual' else
+                 'Деньги, разрешённые на волну, выбраны; следующая волна — по новому разрешению.') if over else
                 'Поднять: rm ~/scout-scenes/mesh-group-halt.json — но сперва разберись, почему не было мешей.'))
             # СТОП-ФАЙЛ ПИШЕМ ДО ОСТАНОВКИ. Иначе конвейер успеет поднять группу обратно —
             # ровно так и вышло в ночь на 03.09: сторож погасил, `ensure_group_started` через
@@ -761,7 +773,7 @@ def main() -> int:
                 with open(HALT, 'w', encoding='utf-8') as f:
                     json.dump({'why': why, 'group': group, 'at': time.time(),
                                'kind': 'budget' if over else 'shared_infra' if not sink['ok'] else 'silence',
-                               'sink': sink}, f, ensure_ascii=False)
+                               **({'source': over_src} if over else {}), 'sink': sink}, f, ensure_ascii=False)
                 print(f'{time.strftime("%H:%M")} запрет на подъём записан: {HALT}', flush=True)
             except Exception as e:  # noqa: BLE001
                 print(f'{time.strftime("%H:%M")} !! не смог записать запрет ({e}) — конвейер '

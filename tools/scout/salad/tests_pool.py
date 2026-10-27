@@ -23,6 +23,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import node_health as NH  # noqa: E402
 import ssh_run as S  # noqa: E402
+import wave_cap as WC  # noqa: E402
 
 
 def setup(tmp: str) -> None:
@@ -53,6 +54,11 @@ def setup(tmp: str) -> None:
             os.remove(p)
     NH.reallocate = lambda group, iid, why: culled.append(iid) or True   # noqa: B010 — стенд
     culled.clear()
+    # Ручная волна и стоп-файл (T-20261027-02): `finale()` закрывает ручную волну и снимает свой запрет — на боевых
+    # файлах стенд закрыл бы идущую волну и снял настоящий стоп потолка
+    WC.PATH = os.path.join(tmp, 'wave-manual.json')
+    import batch_show as B  # noqa: PLC0415
+    B.HALT = os.path.join(tmp, 'halt.json')
 
 
 culled: list = []               # кого стенд «пересадил» вместо реального вызова Salad
@@ -1033,6 +1039,120 @@ def case_cursor_on_stall() -> None:
     print('  ✓ 75 с итогом: курсор 14 сохранён, следующие пачки идут с --skip 14')
 
 
+def case_wave_tail_order() -> None:
+    """Конец волны (план mesh-18 этап 4, T-20261027-02): GPU-перегон → гашение групп → фоновый разбор. Проба 27.10: группа
+    ждала разбор 29 мин после последнего меша (≈ 40 % денег). Перегон — по снимку файла, битый файл (его пишет приёмка
+    разбора) перегон не теряет: файл цел и уйдёт следующей волной, а группы гаснут всё равно."""
+    import batch_show as B  # noqa: PLC0415
+    ev = []
+    keep = {k: getattr(B, k) for k in ('sh', 'RESEED', 'wait_post', 'post_steps', 'ensure_group_started',
+                                       'cull_slow_pulls')}
+    tmp = tempfile.mkdtemp()
+    pause = os.path.join(tmp, 'PAUSE')
+
+    def fake_sh(cmd, timeout=3600):
+        ev.append('heal:' + cmd.split('--jobs-file ')[1].split()[0] if '--jobs-file' in cmd
+                  else 'stop' if 'stop_group' in cmd else 'post:' + cmd)
+        return 0, 'RUN_SUMMARY {"requested": 1, "terminal": 1, "terminal_prefix": 1, "unresolved": 0}'
+
+    try:
+        B.sh, B.RESEED = fake_sh, os.path.join(tmp, 'mesh-reseed.json')
+        B.wait_post = lambda: ev.append('wait_post')
+        B.post_steps = lambda: (('шаг', 'p'),)
+        B.ensure_group_started = B.cull_slow_pulls = lambda: None
+        # 1) перегон есть → он ДО гашения, разбор — после, без машин
+        json.dump([{'sku': 'a', 'seed': 1}], open(B.RESEED, 'w'))
+        with contextlib.redirect_stdout(io.StringIO()):
+            B.wave_tail(pause, guard_done=True)
+        assert ev == ['heal:' + B.RESEED + '.heal', 'stop', 'wait_post', 'post:p'], ev
+        assert json.load(open(B.RESEED + '.heal')) == [{'sku': 'a', 'seed': 1}], 'перегону отдан не снимок'
+        # 2) перегона нет → гашение раньше ожидания разбора, лишнего разбора нет
+        ev.clear()
+        json.dump([], open(B.RESEED, 'w'))
+        with contextlib.redirect_stdout(io.StringIO()):
+            B.wave_tail(pause, guard_done=True)
+        assert ev == ['stop', 'wait_post'], ev
+        # 3) файл перегона недописан приёмкой → не падаем, группы гасим, файл не тронут (уйдёт следующей волной)
+        ev.clear()
+        open(B.RESEED, 'w').write('[{"sku": "a", "se')
+        with contextlib.redirect_stdout(io.StringIO()):
+            B.wave_tail(pause, guard_done=True)
+        assert ev == ['stop', 'wait_post'] and open(B.RESEED).read() == '[{"sku": "a", "se', ev
+        # 4) пауза владельца → перегона нет, гашение есть
+        ev.clear()
+        json.dump([{'sku': 'a', 'seed': 1}], open(B.RESEED, 'w'))
+        open(pause, 'w').close()
+        with contextlib.redirect_stdout(io.StringIO()):
+            B.wave_tail(pause, guard_done=True)
+        assert ev == ['stop', 'wait_post'], ev
+    finally:
+        for k, v in keep.items():
+            setattr(B, k, v)
+    print('  ✓ конец волны: перегон до гашения, гашение до разбора; битый файл перегона не теряется')
+
+
+def case_budget_halt_ends_wave() -> None:
+    """Сторож денег погасил пул по потолку волны (стоп-файл kind=budget) → конвейер выходит, а не ждёт тёплых нод под
+    запретом вечно; другой запрет (тишина) — по-прежнему ждём (T-20261027-02)."""
+    import types
+    import batch_show as B  # noqa: PLC0415
+    keep = {k: getattr(B, k) for k in ('sh', 'HALT', 'group_status', 'ensure_group_started', 'cull_slow_pulls',
+                                       'cull_dead_warmups', 'time')}
+    tmp = tempfile.mkdtemp()
+    try:
+        B.sh = lambda cmd, timeout=3600: (75, 'нет прогретых нод')
+        B.HALT = os.path.join(tmp, 'halt.json')
+        B.group_status = lambda states=None: 'stopped'
+        B.ensure_group_started = lambda: False
+        B.cull_slow_pulls = B.cull_dead_warmups = lambda: None
+        B.time = types.SimpleNamespace(sleep=lambda s: None, time=time.time)
+        json.dump({'why': 'ПОТОЛОК', 'kind': 'budget', 'source': 'manual'}, open(B.HALT, 'w'))
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert B.run_batch(5, 10, 20) == (5, 'exit'), 'потолок выбран — конвейер обязан выйти'
+        json.dump({'why': 'тишина', 'kind': 'silence'}, open(B.HALT, 'w'))
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert B.run_batch(5, 10, 20) == (5, 'wait'), 'запрет тишины — ждём, как раньше'
+    finally:
+        for k, v in keep.items():
+            setattr(B, k, v)
+    print('  ✓ потолок денег волны выбран → конвейер выходит; запрет тишины — ждёт')
+
+
+def case_manual_cap() -> None:
+    """Ручной старт без потолка ₽ — отказ ДО любых шагов; finale закрывает ручную волну и снимает только СВОЙ стоп-файл
+    потолка (T-20261027-02)."""
+    import batch_show as B  # noqa: PLC0415
+    import wave_cap as WC  # noqa: PLC0415
+    import money_guard as MG  # noqa: PLC0415
+    tmp = tempfile.mkdtemp()
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'mesh_wave_start.sh')
+    env = {k: v for k, v in os.environ.items() if k not in ('MESH_RUB_CAP', 'MESH_WAVE_LEASE')}
+    env['HOME'] = tmp                        # ни боевого замка, ни salad.env: отказ обязан случиться раньше них
+    for args in (['--launch'], ['--launch', '--rub-cap', '0'], ['--launch', '--rub-cap', 'abc'], ['--launch', '--rub-cap']):
+        r = subprocess.run(['bash', script, *args], env=env, capture_output=True, text=True, timeout=30)
+        assert r.returncode == 64 and 'без потолка' in r.stdout, (args, r.returncode, r.stdout[-200:], r.stderr[-200:])
+    assert not os.path.exists(os.path.join(tmp, 'scout-scenes')), 'отказ тронул ~/scout-scenes'
+    keep = (WC.PATH, B.HALT, MG.load, B.SG.usd_rub)
+    try:
+        WC.PATH, B.HALT = os.path.join(tmp, 'manual.json'), os.path.join(tmp, 'halt.json')
+        MG.load = lambda: {'paid_node_min': {'g': 600}}
+        B.SG.usd_rub = lambda: 87.0
+        WC.open_wave(174, 87.0, 0.0, 's.json')
+        json.dump({'kind': 'budget', 'source': 'manual'}, open(B.HALT, 'w'))
+        with contextlib.redirect_stdout(io.StringIO()):
+            B.close_manual_cap()
+        w = WC.read()['waves'][-1]
+        assert w.get('closed') and w['why'] == 'конвейер завершился' and 'spent_rub' in w, w
+        assert not os.path.exists(B.HALT), 'свой стоп-файл потолка не снят'
+        json.dump({'kind': 'budget'}, open(B.HALT, 'w'))          # потолок разрешения владельца — не наш
+        with contextlib.redirect_stdout(io.StringIO()):
+            B.close_manual_cap()
+        assert os.path.exists(B.HALT), 'снят чужой стоп-файл'
+    finally:
+        WC.PATH, B.HALT, MG.load, B.SG.usd_rub = keep
+    print('  ✓ ручной старт без потолка — отказ до шагов; finale закрывает ручную волну и снимает только свой запрет')
+
+
 def case_done_set() -> None:
     """Идемпотентность по снимку (план mesh-13): сделанное ok/cached ложится в `<снимок>.done` атомарно и
     переживает перезапуск; срез с уже сделанным не раздаёт его нодам, но курсор проходит его целиком."""
@@ -1475,7 +1595,7 @@ def main() -> None:
                    case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart,
                    case_stop_verified, case_low_ram_node, case_input_quarantine, case_forbidden_node,
                    case_taken_no_streak, case_realloc_404_returns_slot, case_ssh_addr, case_silent_machines,
-                   case_batch_show_silent):
+                   case_batch_show_silent, case_wave_tail_order, case_budget_halt_ends_wave, case_manual_cap):
             if fn not in pure:
                 setup(tmp)
             fn()

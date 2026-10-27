@@ -303,6 +303,33 @@ def case_planned_stop(tmp: str) -> None:
         os.remove(SG.PRICE_HALT)
 
 
+def case_manual_cap(tmp: str) -> None:
+    """Потолок ручной волны (T-20261027-02): судится тем же правилом, что волна автозапуска, но из своего файла;
+    выбран — причина непустая и помечена «manual»; закрытая волна и нет файла — молчим."""
+    import wave_cap as WC  # noqa: PLC0415
+    keep = WC.PATH
+    try:
+        WC.PATH = os.path.join(tmp, 'wave-manual.json')
+        st = {'paid_node_min': {'g': 600}}               # 10 ч × тариф g
+        keep_price = SG.price
+        SG.price = lambda g: 0.1                         # $1.00 оплачено
+        ok('нет ручной волны — потолка нет', G.breach_of(st, None, WC.read()) == ('', ''))
+        WC.open_wave(87.0, 87.0, 0.5, 's.json')          # потолок $1.00, отметка $0.50 → потрачено $0.50
+        ok('ручной потолок не выбран — молчим', G.breach_of(st, None, WC.read()) == ('', ''))
+        WC.open_wave(43.5, 87.0, 0.5, 's.json')          # потолок $0.50 — выбран
+        why, src = G.breach_of(st, None, WC.read())
+        ok('ручной потолок выбран — гасим, источник manual', src == 'manual' and why.startswith('ПОТОЛОК РУЧНОЙ ВОЛНЫ'))
+        ok('прежняя открытая ручная волна закрыта как брошенная', WC.read()['waves'][-2].get('closed') is not None)
+        lease = {'waves': [{'usd_cap': 0.1, 'usd_mark': 0}]}
+        ok('волна разрешения судится первой', G.breach_of(st, lease, WC.read())[1] == 'lease')
+        w = WC.close('стенд', G.paid_usd(st), 87.0)
+        ok('закрытие пишет факт денег', w and abs(w['spent_usd'] - 0.5) < 1e-6 and w['spent_rub'] == 43.5)
+        ok('закрытая ручная волна не ограничивает', G.breach_of(st, None, WC.read()) == ('', ''))
+        SG.price = keep_price
+    finally:
+        WC.PATH = keep
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         G.STATE, G.HALT = os.path.join(tmp, 'guard.json'), os.path.join(tmp, 'halt.json')
@@ -310,6 +337,7 @@ def main() -> int:
         G.JOURNAL, G.LEASE = os.path.join(tmp, 'progress.jsonl'), os.path.join(tmp, 'lease.json')
         G.NO_CREDITS, G.IDLE_LOG = os.path.join(tmp, 'no-credits.json'), os.path.join(tmp, 'idle.log')
         G.WINDOW_LOG = os.path.join(tmp, 'window.log')
+        G.WC.PATH = os.path.join(tmp, 'wave-manual-loop.json')    # живую ручную волну стенд не читает
         SG.PRICE_HALT = os.path.join(tmp, 'price-halt-loop.json')   # живой запрет цены стенд не читает и не пишет
         open(G.JOURNAL, 'w').close()
         case_env_parse(tmp)
@@ -318,6 +346,7 @@ def main() -> int:
         case_repeats(tmp)
         case_price(tmp)
         case_planned_stop(tmp)
+        case_manual_cap(tmp)
     print('сторож денег: ' + ('ВСЁ ЗЕЛЁНОЕ' if not bad else f'ПРОВАЛОВ {bad}'))
     return 1 if bad else 0
 

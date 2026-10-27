@@ -3,7 +3,7 @@ tier: 2
 topic: mesh-run-playbook
 scope: Регламент прогона мешей — предусловия, старт, наблюдение, остановка, тупики с ценой
 tier1: ../core/mesh-run.md
-updated: 2026-10-20
+updated: 2026-10-27
 importance: high
 source: manual
 status: working
@@ -32,9 +32,13 @@ review_after: 2027-01-09
 
 ## 2. Старт
 ```
-tools/scout/mesh_wave_start.sh            # собрать снимок и НАПЕЧАТАТЬ команду (сухой заход)
-tools/scout/mesh_wave_start.sh --launch   # …и запустить
+tools/scout/mesh_wave_start.sh                          # собрать снимок и НАПЕЧАТАТЬ команду (сухой заход)
+tools/scout/mesh_wave_start.sh --launch --rub-cap 174   # …и запустить с потолком денег волны, ₽
 ```
+**Потолок обязателен у ручного старта** (`--rub-cap N` или `MESH_RUB_CAP`, умолчания нет; T-20261027-02): без него
+скрипт отказывает до любых шагов. Запись — `tools/scout/salad/wave_cap.py` (`~/scout-scenes/wave-manual.json`), сторож
+денег гасит пул по ней тем же `budget_breach`, конвейер выходит, `finale` закрывает волну. Разрешение владельца на
+автоволны (`wave-lease.json`) не трогается; автозапуск держит потолок там и зовёт скрипт с `MESH_WAVE_LEASE=1`.
 Скрипт делает по порядку: замок → снимает флаг `mesh-draining` → ждёт сирот (до 30 мин) →
 `drain.sh --keep` → реестр поколений → семейства → привязка к товарам → чистка приёмника до
 зелёного → тик решений владельца → снимок очереди АТОМАРНО → запуск с `--batch 2000`.
@@ -70,7 +74,7 @@ tools/scout/mesh_priority.py --build-queue <снимок>                  # б�
 **Замер очереди 11.10 (сессия мешей; ждёт решения владельца о закреплении сцен):** `MESH_DAILY_BATCH=10`; в `mesh_jobs` 430 заданий, из них 227 бесполезны; у всех 126 комплектов снят хотя бы один товар → замена снятых — предусловие прогона под демо.
 
 ## 3. Наблюдение
-- Лог: путь задаёт `MESH_BATCH_LOG` (умолчание — `tools/scout/mesh_wave_start.sh:20`; планово
+- Лог: путь задаёт `MESH_BATCH_LOG` (умолчание — `tools/scout/mesh_wave_start.sh:LOG`; планово
   переезжает из банка в `~/scout-logs/`, см. [[mesh-pool]] Tier 2).
 - Деньги и темп: `tools/scout/salad/tier_compare.py` (цена по ОПЛАЧЕННЫМ нодо-часам), `tools/scout/salad/pool_hours.py`.
 - Приёмник: `tools/scout/salad/sink_health.py:check()`; упреждающую уборку каждые 15 мин делает
@@ -87,8 +91,11 @@ tools/scout/mesh_priority.py --build-queue <снимок>                  # б�
   «все группы стоят» — «причина неизвестна» + факты журналов (`stop_clues`), кредиты — только по маркеру no_credits (T-24).
 
 ## 4. Остановка
-1. **Штатно:** `touch ~/scout-scenes/mesh-draining` — `batch_show` выходит на границе пачки,
-   `finale()` гасит группы сам.
+1. **Штатно:** `touch ~/scout-scenes/mesh-batch.PAUSE` — `batch_show` выходит на границе пачки, `finale()` гасит
+   группы сам. `mesh-draining` — это горячий перезапуск: выход на границе пачки, группы НЕ гасятся
+   (`tools/scout/salad/batch_show.py:finale`, T-20261027-01). Обе метки ждут конца пачки (при `--batch 2000` — часы);
+   быстрее — стоп группы через API (`ssh_run.stop_group`). Конец очереди гасит группы сразу, разбор — уже без машин
+   (`batch_show.py:wave_tail`, T-20261027-02).
 2. **Проверить, что погасли** (иначе платим за `running`, а не за работу — ADR-0135):
    состояние групп через Salad API или `tools/scout/salad/money_guard.py`.
 3. **Страховка:** `tools/scout/salad/idle_guard.sh` (крон `*/10`) гасит группы, если конвейера нет.

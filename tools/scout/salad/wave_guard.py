@@ -173,7 +173,7 @@ def close_wave(lease: dict, dry: bool) -> None:
     if dry:
         return
     json.dump(lease, open(LEASE, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    if halt and halt.get('kind') == 'budget':
+    if halt and halt.get('kind') == 'budget' and halt.get('source', 'lease') == 'lease':   # потолок ручной волны снимает её finale
         os.remove(STOPS[0])
     subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'), wave_summary(w, spent, meshes, why, left_usd(lease))],
                    check=False, timeout=60)
@@ -218,7 +218,9 @@ def main() -> int:
     lease.setdefault('waves', []).append({'at': today, 'started': time.time(), 'max_jobs': int(env['MESH_TAKE_JOBS']),
                                           'usd_cap': cap, 'usd_mark': round(MG.paid_usd(MG.load()), 2)})
     json.dump(lease, open(LEASE, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)   # ДО старта: сторож видит потолок
-    r = subprocess.run(['bash', os.path.join(HERE, '..', 'mesh_wave_start.sh'), '--launch'], env={**os.environ, **env},
+    # MESH_WAVE_LEASE=1: потолок этой волны — запись выше в разрешении, ручной `--rub-cap` старту не нужен (T-20261027-02)
+    r = subprocess.run(['bash', os.path.join(HERE, '..', 'mesh_wave_start.sh'), '--launch'],
+                       env={**os.environ, **env, 'MESH_WAVE_LEASE': '1'},
                        capture_output=True, text=True, timeout=4 * 3600)
     print(r.stdout[-1500:], r.stderr[-500:], flush=True)
     if r.returncode != 0:                               # не стартовали — волну не открываем (денег не тратили)
@@ -287,7 +289,25 @@ def _selftest() -> int:
     ok('пустая demo-очередь — «нечего делать», не старт', d(lease=D, jobs=0)[0] == 'nothing_to_do')
     ok('profile_min_jobs по умолчанию 1', profile_of({'profile': 'demo', 'min_jobs': 50}) == ('demo', 1))
     ok('пустая demo-очередь: mesh_wave_start не зовётся, в журнале одна строка за два тика', _quiet_test())
+    ok('ручная волна с потолком не продлевает разрешение: истёкший lease — по-прежнему lease_expired', _manual_cap_test())
     return 1 if bad else 0
+
+
+def _manual_cap_test() -> bool:
+    """T-20261027-02: ручной старт пишет потолок в СВОЙ файл (`wave_cap.py`), разрешение владельца не тронуто."""
+    import tempfile  # noqa: PLC0415
+    import wave_cap as WC  # noqa: PLC0415
+    keep = WC.PATH
+    tmp = tempfile.mkdtemp()
+    try:
+        WC.PATH = os.path.join(tmp, 'manual.json')
+        lease = {'expires': '2026-10-25', 'max_usd': 37, 'min_jobs': 50}
+        before = json.dumps(lease, sort_keys=True)
+        WC.open_wave(174, 86.89, 1.0, 'snap.json')
+        v = decide(lease, '2026-10-27', False, [], None, 50, 100, 0.013)[0]
+        return v == 'lease_expired' and json.dumps(lease, sort_keys=True) == before and WC.read()['waves'][-1]['usd_cap'] > 0
+    finally:
+        WC.PATH = keep
 
 
 def _quiet_test() -> bool:
