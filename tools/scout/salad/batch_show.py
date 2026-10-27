@@ -827,7 +827,8 @@ def wave_tail(PAUSE: str, guard_done: bool) -> None:
     погашена в 11:34 — ≈ 38 ₽ из ≈ 95 (40 %) за простой. Разбору машины не нужны (`post_steps` — локальные шаги и exit-fi).
     Машины нужны только ВОЛНЕ ЛЕЧЕНИЯ (перегон по `mesh-reseed.json`), поэтому она идёт ДО гашения и только по тому, что
     приёмка уже записала; что приёмка забракует в этом последнем разборе — остаётся в `mesh-reseed.json` и уйдёт
-    следующей волной (`WAVE_FIRST=1` или её же конец). Держать все машины ради разбора нельзя.
+    следующей волной (`WAVE_FIRST=1` или её же конец; и то и другое — только по слову `MESH_HEAL=1`). Держать все
+    машины ради разбора нельзя.
     `finale()` гасит ещё раз с проверкой `stopped` и тревогой — страховка, а не основной путь."""
     healed = heal_wave(PAUSE, guard_done=guard_done, post=False)
     stop_groups()
@@ -928,7 +929,11 @@ def heal_wave(PAUSE: str, guard_done: bool = True, post: bool = True) -> bool:
 
     ПЕРЕГОН — ПО СНИМКУ (T-20261027-02): в конце волны лечение идёт, пока фоновый разбор ещё работает, а его приёмка
     (`apply_repairs`) переписывает `mesh-reseed.json` не атомарно. Читаем файл один раз (не читается — перегон в
-    следующую волну) и отдаём `ssh_run` копию."""
+    следующую волну) и отдаём `ssh_run` копию.
+
+    ТОЛЬКО ПО ЯВНОМУ СЛОВУ `MESH_HEAL=1` (T-20261027-02/2): список никто не чистит (27.10 — 2540 записей), а `ssh_run
+    --jobs-file` сделанное не предзакрывает — хвост любой волны перегонял бы всё (≈ 2,5–3 тыс. ₽) до потолка. Слово даёт
+    ручной старт (`mesh_wave_start.sh --heal`) или разрешение автоволн (`"heal": true`, `wave_guard`)."""
     if not (guard_done and os.path.exists(RESEED) and not os.path.exists(PAUSE)):
         return False
     try:
@@ -938,6 +943,9 @@ def heal_wave(PAUSE: str, guard_done: bool = True, post: bool = True) -> bool:
               f'перегон уйдёт следующей волной', flush=True)
         return False
     if not todo:
+        return False
+    if os.environ.get('MESH_HEAL') != '1':
+        print(f'лечение пропущено: {len(todo)} в списке, нужен --heal', flush=True)
         return False
     snap = RESEED + '.heal'
     with open(snap + '.tmp', 'w', encoding='utf-8') as f:

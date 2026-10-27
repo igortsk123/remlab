@@ -1055,11 +1055,26 @@ def case_wave_tail_order() -> None:
                   else 'stop' if 'stop_group' in cmd else 'post:' + cmd)
         return 0, 'RUN_SUMMARY {"requested": 1, "terminal": 1, "terminal_prefix": 1, "unresolved": 0}'
 
+    keep_heal = os.environ.pop('MESH_HEAL', None)
     try:
         B.sh, B.RESEED = fake_sh, os.path.join(tmp, 'mesh-reseed.json')
         B.wait_post = lambda: ev.append('wait_post')
         B.post_steps = lambda: (('шаг', 'p'),)
         B.ensure_group_started = B.cull_slow_pulls = lambda: None
+        # 0) список есть, слова MESH_HEAL=1 нет (T-20261027-02/2) → ни одного перегона ни в конце, ни в начале
+        #    волны (WAVE_FIRST), в лог — сколько пропущено; группы гаснут как обычно
+        json.dump([{'sku': 'a', 'seed': 1}, {'sku': 'b', 'seed': 2}], open(B.RESEED, 'w'))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            B.wave_tail(pause, guard_done=True)
+            first = B.heal_wave(pause, post=False)
+        assert ev == ['stop', 'wait_post'] and first is False, ev
+        assert not [e for e in ev if e.startswith('heal:')], 'перегон без слова'
+        assert 'лечение пропущено: 2 в списке, нужен --heal' in out.getvalue(), out.getvalue()
+        script = open(os.path.join(os.path.dirname(B.__file__), '..', 'mesh_wave_start.sh'), encoding='utf-8').read()
+        assert 'MESH_HEAL=$HEAL' in script and '--heal) HEAL=1' in script, 'старт не передаёт слово конвейеру'
+        ev.clear()
+        os.environ['MESH_HEAL'] = '1'
         # 1) перегон есть → он ДО гашения, разбор — после, без машин
         json.dump([{'sku': 'a', 'seed': 1}], open(B.RESEED, 'w'))
         with contextlib.redirect_stdout(io.StringIO()):
@@ -1088,7 +1103,11 @@ def case_wave_tail_order() -> None:
     finally:
         for k, v in keep.items():
             setattr(B, k, v)
-    print('  ✓ конец волны: перегон до гашения, гашение до разбора; битый файл перегона не теряется')
+        if keep_heal is None:
+            os.environ.pop('MESH_HEAL', None)
+        else:
+            os.environ['MESH_HEAL'] = keep_heal
+    print('  ✓ конец волны: перегон только по слову MESH_HEAL=1, до гашения; гашение до разбора; битый файл не теряется')
 
 
 def case_budget_halt_ends_wave() -> None:

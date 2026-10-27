@@ -18,6 +18,9 @@
 # MESH_RUB_CAP=N) — сколько ₽ волне можно; умолчания нет намеренно. Запись — `salad/wave_cap.py`, свой файл:
 # разрешение владельца на автоволны (`wave-lease.json`) не продлевается и не создаётся. Автозапуск (`wave_guard`)
 # держит потолок в разрешении и зовёт скрипт с MESH_WAVE_LEASE=1.
+#
+# ЛЕЧЕНИЕ — ТОЛЬКО ПО СЛОВУ (T-20261027-02/2): `--heal` (или MESH_HEAL=1) пускает перегон по `mesh-reseed.json` в
+# конце волны. Без слова конвейер его пропускает: список не чистится (27.10 — 2540) и ушёл бы целиком.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY="${MESH_PY:-$HOME/venvs/scout/bin/python}"
@@ -31,14 +34,17 @@ say() { echo "$(date '+%d.%m %H:%M') $*"; }
 
 LAUNCH=0
 RUB_CAP="${MESH_RUB_CAP:-}"
+HEAL="${MESH_HEAL:-0}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --launch) LAUNCH=1 ;;
     --rub-cap) RUB_CAP="${2:-}"; shift $(( $# >= 2 ? 1 : 0 )) ;;   # без числа — пусто, отказ ниже
-    *) say "неизвестный ключ $1 (есть: --launch, --rub-cap N)"; exit 64 ;;
+    --heal) HEAL=1 ;;
+    *) say "неизвестный ключ $1 (есть: --launch, --rub-cap N, --heal)"; exit 64 ;;
   esac
   shift
 done
+[ "$HEAL" = 1 ] || HEAL=0
 # Проверка — ДО любых шагов: без потолка не трогаем ни замок, ни приёмник, ни снимок.
 MANUAL_CAP=0
 if [ "$LAUNCH" = 1 ] && [ "${MESH_WAVE_LEASE:-}" != 1 ]; then
@@ -119,8 +125,8 @@ N=$("$PY" -c "import json,sys; print(len(json.load(open(sys.argv[1]))['jobs']))"
 if [ "$N" -lt "${MESH_MIN_JOBS:-1}" ]; then say "в снимке $N заданий — меньше порога ${MESH_MIN_JOBS:-1}, волну не запускаю"; exit 3; fi
 
 # 6. Запуск — с ЯВНЫМ снимком; курсор нового снимка начинается с нуля в своём файле.
-CMD="set -a; . $HOME/scout-scenes/salad.env; set +a; MESH_SAMPLE=$SNAP MESH_MAX_JOBS=${MESH_MAX_JOBS:-14000} MESH_POST_EVERY_S=900 nohup $PY -u $HERE/salad/batch_show.py --batch $BATCH >> $LOG 2>&1 &"
-say "снимок готов: $N заданий. Команда запуска:"
+CMD="set -a; . $HOME/scout-scenes/salad.env; set +a; MESH_SAMPLE=$SNAP MESH_HEAL=$HEAL MESH_MAX_JOBS=${MESH_MAX_JOBS:-14000} MESH_POST_EVERY_S=900 nohup $PY -u $HERE/salad/batch_show.py --batch $BATCH >> $LOG 2>&1 &"
+say "снимок готов: $N заданий; лечение (перегон mesh-reseed.json): $([ "$HEAL" = 1 ] && echo ДА || echo нет — нужен --heal). Команда запуска:"
 echo "  $CMD"
 if [ "$LAUNCH" = 1 ]; then
   # потолок — ДО запуска: сторож денег видит его с первой минуты

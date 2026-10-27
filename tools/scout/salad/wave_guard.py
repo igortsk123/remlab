@@ -25,6 +25,9 @@
 demo-волны поднимал боевую на 5578 заданий. Заданий профиля меньше порога → «нечего делать»: шаги старта не проходим,
 волну не открываем, в журнал — одна строка на смену состояния.
 
+ЛЕЧЕНИЕ — ТОЛЬКО ПО СЛОВУ ВЛАДЕЛЬЦА (T-20261027-02/2): `"heal": true` в разрешении → запись волны `heal: true` и старт с
+`MESH_HEAL=1` (перегон `mesh-reseed.json` в конце волны). Без поля — `MESH_HEAL=0`: список не чистится и ушёл бы целиком.
+
   ~/venvs/scout/bin/python salad/wave_guard.py           # решение (+ старт, если можно)
   ~/venvs/scout/bin/python salad/wave_guard.py --dry     # только решение
   python3 salad/wave_guard.py --selftest
@@ -215,12 +218,13 @@ def main() -> int:
     import money_guard as MG  # noqa: PLC0415
     cap = round(min(left_usd(lease), int(env['MESH_TAKE_JOBS']) * usd_per_mesh * 1.5), 2)   # запас на прогрев/простой
     cap = min(cap, round(left_usd(lease), 2))
+    heal = lease.get('heal') is True
     lease.setdefault('waves', []).append({'at': today, 'started': time.time(), 'max_jobs': int(env['MESH_TAKE_JOBS']),
-                                          'usd_cap': cap, 'usd_mark': round(MG.paid_usd(MG.load()), 2)})
+                                          'usd_cap': cap, 'usd_mark': round(MG.paid_usd(MG.load()), 2), 'heal': heal})
     json.dump(lease, open(LEASE, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)   # ДО старта: сторож видит потолок
     # MESH_WAVE_LEASE=1: потолок этой волны — запись выше в разрешении, ручной `--rub-cap` старту не нужен (T-20261027-02)
     r = subprocess.run(['bash', os.path.join(HERE, '..', 'mesh_wave_start.sh'), '--launch'],
-                       env={**os.environ, **env, 'MESH_WAVE_LEASE': '1'},
+                       env={**os.environ, **env, 'MESH_WAVE_LEASE': '1', 'MESH_HEAL': '1' if heal else '0'},
                        capture_output=True, text=True, timeout=4 * 3600)
     print(r.stdout[-1500:], r.stderr[-500:], flush=True)
     if r.returncode != 0:                               # не стартовали — волну не открываем (денег не тратили)
@@ -290,6 +294,7 @@ def _selftest() -> int:
     ok('profile_min_jobs по умолчанию 1', profile_of({'profile': 'demo', 'min_jobs': 50}) == ('demo', 1))
     ok('пустая demo-очередь: mesh_wave_start не зовётся, в журнале одна строка за два тика', _quiet_test())
     ok('ручная волна с потолком не продлевает разрешение: истёкший lease — по-прежнему lease_expired', _manual_cap_test())
+    ok('лечение автоволны — только по "heal": true в разрешении (MESH_HEAL 0/1, запись волны)', _heal_word_test())
     return 1 if bad else 0
 
 
@@ -336,6 +341,42 @@ def _quiet_test() -> bool:
     finally:
         g.update(keep)
         subprocess.run, shutil.disk_usage = keep_run, keep_du
+
+
+def _heal_word_test() -> bool:
+    """T-20261027-02/2: лечение волны автозапуска — только по `"heal": true` в разрешении. Без поля старт идёт с
+    MESH_HEAL=0 и записью `heal: false`, с полем — MESH_HEAL=1 и `heal: true`. Подпроцессы и книга денег подменены."""
+    import collections  # noqa: PLC0415
+    import io, contextlib, tempfile  # noqa: E401,PLC0415
+    import money_guard as MG  # noqa: PLC0415
+    g = globals()
+    keep = {k: g[k] for k in ('LEASE', 'JOURNAL', 'NOTE', 'NO_CREDITS', 'LOCKS', 'STOPS', 'profile_jobs')}
+    keep_run, keep_du, keep_mg = subprocess.run, shutil.disk_usage, (MG.load, MG.paid_usd)
+    tmp = tempfile.mkdtemp()
+    got = []
+    try:
+        g.update(LEASE=os.path.join(tmp, 'lease.json'), JOURNAL=os.path.join(tmp, 'j.jsonl'), NOTE=os.path.join(tmp, 'n.json'),
+                 NO_CREDITS=os.path.join(tmp, 'nc.json'), LOCKS=[os.path.join(tmp, 'l')], STOPS=[os.path.join(tmp, 's')],
+                 profile_jobs=lambda p: 100)
+        MG.load, MG.paid_usd = (lambda: {}), (lambda st: 0.0)
+        shutil.disk_usage = lambda p: collections.namedtuple('du', 'total used free')(100, 10, 90 * 2**30)
+
+        def fake_run(args, **k):
+            if any(str(a).endswith('mesh_wave_start.sh') for a in args):
+                got.append(k['env'].get('MESH_HEAL'))
+            return subprocess.CompletedProcess(args, 0, '', '')
+        subprocess.run = fake_run
+        res = []
+        for extra in ({}, {'heal': True}):
+            json.dump({'expires': '2999-01-01', 'max_usd': 13, 'profile': 'demo', 'waves': [], **extra}, open(LEASE, 'w'))
+            with contextlib.redirect_stdout(io.StringIO()):
+                main()
+            res.append(json.load(open(LEASE))['waves'][-1].get('heal'))
+        return got == ['0', '1'] and res == [False, True]
+    finally:
+        g.update(keep)
+        subprocess.run, shutil.disk_usage = keep_run, keep_du
+        MG.load, MG.paid_usd = keep_mg
 
 
 if __name__ == '__main__':
