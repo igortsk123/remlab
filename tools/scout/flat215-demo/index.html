@@ -23,7 +23,7 @@ window.__collHash=(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1
   --accent:rgb(176 106 74);          /* --color-brand-500 — терракота */
   --accent-dark:rgb(154 90 61);      /* brand-600 — наведение */
   --accent-soft:rgb(250 243 239);    /* brand-50 — мягкая подложка */
-  --warn:var(--warn);--ok:var(--ok-ink);
+  --warn:var(--warn-ink);--ok:var(--ok-ink);--danger:var(--bad-ink);   /* было `--warn:var(--warn)` — сам на себя, цвет пропадал */
   --radius:16px;--radius-sm:12px;
   --shadow:var(--e1);
   /* ДОБАВЛЕНО ПО АУДИТУ 01.09 (В2): всё, что оставалось сырым в теле стилей, названо здесь.
@@ -202,8 +202,9 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .sg .pv{opacity:.38}
 .sg .x{background:var(--hatch)}.sg .xp{background:var(--hatch);opacity:.55}
 .sg .lim{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--surface)}
-.sw{flex:none;display:inline-block;width:10px;height:10px;border-radius:3px}
-.sw.f{background:var(--accent)}.sw.u{background:var(--up)}.sw.x{background:var(--hatch);box-shadow:inset 0 0 0 1px var(--bad-ink)}
+/* квадратик легенды бюджета — свой класс `.lsw`: общий `.sw` с кружком цвета (demo-28) раздувал его до кружка 22 px */
+.lsw{flex:none;display:inline-block;width:10px;height:10px;border-radius:3px}
+.lsw.f{background:var(--accent)}.lsw.u{background:var(--up)}.lsw.x{background:var(--hatch);box-shadow:inset 0 0 0 1px var(--bad-ink)}
 .cs .dop,.vpl-bub .dop{color:var(--bad-ink);font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
 /* легенда под полосой: имя и цифры каждой части — смысл не держится на одном цвете; на компьютере в строку, узко — две строки-таблички */
 .cs-lg{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 10px;margin-top:4px;font-size:12.5px;color:var(--muted);line-height:1.35}
@@ -220,7 +221,7 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-cert.stuck .cs.over .cs-r:not(.cs-dop){display:none}.hm-cert.stuck .cs-dop{display:inline-flex}
 @container (max-width:300px){.cs-lg .lf{display:none}.cs-lg .sh{display:inline}}
 .vpl-bub .bub-row{display:flex;gap:8px;align-items:baseline}
-.vpl-bub .bub-row .sw{transform:translateY(-1px)}
+.vpl-bub .bub-row .lsw{transform:translateY(-1px)}
 .vpl-bub .bub-note{color:var(--muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
 .hm-hint{margin:8px 0 0;font-size:13px;color:var(--muted);line-height:1.3}
 .hm-tabs{position:sticky;top:calc(var(--hm-hd) + var(--hm-cert,0px));z-index:calc(var(--z-sticky) + 1);height:44px;display:flex;align-items:center;gap:6px;overflow-x:auto;
@@ -460,7 +461,8 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
 .card:active{box-shadow:var(--e1)}
 .card.cur{border-color:var(--accent);box-shadow:var(--ring)}
 .card img{width:100%;aspect-ratio:4/3;object-fit:contain;background:var(--wash);border-radius:var(--radius-sm)}
-.card .nm{font-size:clamp(15px,1.9vw,16.5px);line-height:1.32;max-height:44px;overflow:hidden}
+.card .nm{font-size:clamp(15px,1.9vw,16.5px);line-height:1.32;max-height:44px;overflow:hidden;
+ display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical}   /* две строки и «…»: срез по высоте рвал третью строку без многоточия */
 .card .pr{font-size:clamp(18px,2.4vw,21px);font-weight:700}
 .card .dim{font-size:clamp(14px,1.8vw,15.5px);color:var(--muted)}
 .badge{display:inline-block;font-size:clamp(12.5px,1.6vw,13.5px);padding:3px 9px;border-radius:999px;align-self:flex-start}
@@ -841,7 +843,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .favbox input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--ink);background:var(--surface)}
 .favbtns{display:flex;gap:8px}.favbtns .btn{flex:1 1 0}
 .favexcl{align-self:flex-start;color:var(--accent);background:none;border:0;padding:4px 0;cursor:pointer;font:inherit;font-size:14px}
-.favdel{align-self:flex-start;color:var(--danger,#b4442f);background:none;border:0;padding:4px 0;cursor:pointer;font:inherit;font-size:14px}
+.favdel{align-self:flex-start;color:var(--danger);background:none;border:0;padding:4px 0;cursor:pointer;font:inherit;font-size:14px}
 /* КАРТОЧКА ТОВАРА (demo-26 Д, `itemCardOpen`): телефон — лист снизу на всю ширину (свайп вниз закрывает), компьютер — окно по центру.
    Фото — плитка строки сразу, крупная копия проявляется поверх в той же рамке (`object-fit:contain` у обеих — без скачка) */
 #itemCard{position:fixed;inset:0;z-index:calc(var(--z-modal) + 1);background:var(--scrim-soft);display:none;align-items:flex-end;justify-content:center}
@@ -1330,7 +1332,7 @@ function certScale(o){
   // какой бюджет сверх — видно штриховкой его части; слова — сумма: выбрано сверх — «доплата N», только предпросмотр — «выйдет за лимит на N»
   const real=ov.reduce((a,x)=>a+x.real,0), soon=ov.reduce((a,x)=>a+x.soon,0);
   const topTxt=n=>`${EN?'top-up':'доплата'} ${fmtCard(n)}`;
-  const ovLine=over?`<div class="cs-ov"><span class="dop"><span class="sw x"></span>`+[real?topTxt(real):'',
+  const ovLine=over?`<div class="cs-ov"><span class="dop"><span class="lsw x"></span>`+[real?topTxt(real):'',
       soon?`${EN?'goes over the limit by':'выйдет за лимит на'} ${fmtCard(soon)}`:''].filter(Boolean).join(' · ')+`</span></div>`:'';
   const seg=([k,Lm,c,p])=>{const t=c+p, s=Math.max(Lm,t)||1, w=x=>(x/s*100).toFixed(3)+'%';
     const pv=Math.max(0,Math.min(t,Lm)-c), x=Math.max(0,c-Lm), xp=Math.max(0,t-Math.max(c,Lm));
@@ -1341,14 +1343,14 @@ function certScale(o){
       `<i class="s" style="width:${w(Math.min(c,Lm))}"></i><i class="pv" style="width:${w(pv)}"></i><i class="x" style="width:${w(x)}"></i>`+
       `<i class="xp" style="width:${w(xp)}"></i>${t>Lm?`<b class="lim" style="left:${w(Lm)}"></b>`:''}</div>`;};
   const chosen=inc.furniture+inc.fitout;
-  const legend=(two?`<div class="cs-lg two">`+parts.map(([k,Lm,c])=>`<span class="li"><span class="sw ${cls[k]}"></span>`+
+  const legend=(two?`<div class="cs-lg two">`+parts.map(([k,Lm,c])=>`<span class="li"><span class="lsw ${cls[k]}"></span>`+
       `<span class="lf">${NM[k]}</span><span class="sh">${BUD_SHORT()[k]}</span> <span class="nv"><b>${fmtNum(c)}</b> / ${fmtNum(Lm)}</span></span>`).join('')+`</div>`:'')+ovLine;
   return `<div class="cs${over?' over':''}${two?' two':''}"><div class="cs-t"><span class="cs-l">${EN?'Chosen':'Выбрано'} `+
       `<b data-k="inc" data-to="${chosen}">${fmtCard(chosen)}</b></span>`+
       `<button class="vpl-i" type="button" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
       `<span class="cs-r"><span class="lab-r">${EN?'allowance ':'сертификат '}</span><b>${fmtCard(P.total)}</b></span>`+
       // липкая шапка (компакт): вместо суммы сертификата — доплата, если она есть (`.hm-cert.stuck`)
-      (real?`<span class="cs-r cs-dop dop"><span class="sw x"></span>${topTxt(real)}</span>`:'')+`</div>`+
+      (real?`<span class="cs-r cs-dop dop"><span class="lsw x"></span>${topTxt(real)}</span>`:'')+`</div>`+
     `<div class="cs-bar${two?' two':''}" role="group" aria-label="${two?(EN?'Allowance: two budgets, no transfer between them':'Сертификат: два бюджета, перенос между ними недоступен'):(EN?'Allowance':'Сертификат')}">`+
       parts.map(seg).join('')+`</div>${legend}`+
     `<div class="vpl-bub"${o.bubId?` id="${o.bubId}"`:''} hidden role="dialog">${certBub(P,inc,add,o.head)}${(o.lines||[]).filter(Boolean).map(t=>`<div>${t}</div>`).join('')}</div></div>`;
@@ -1372,10 +1374,10 @@ function certBub(P,inc,add,head){
       `${EN?'Chosen':'Выбрано'} ${fmtCard(c)}. `+(over?`<span class="dop">${EN?'Top-up':'Доплата'} ${fmtCard(over)}</span>.`:`${EN?'Left':'Осталось'} <b>${fmtCard(P.total-c)}</b>.`)+`</div>`;}
   let anyOver=false;
   const rows=['furniture','fitout'].map(k=>{const Lm=P.limits[k], c=inc[k], t=c+add[k];
-    if(!(Lm>0))return `<div class="bub-row"><span class="sw ${sw[k]}"></span><span>${NM[k]} — ${EN?'not included in the package':'не входит в пакет'}`+
+    if(!(Lm>0))return `<div class="bub-row"><span class="lsw ${sw[k]}"></span><span>${NM[k]} — ${EN?'not included in the package':'не входит в пакет'}`+
       (t?` · <span class="dop">${EN?'top-up':'доплата'} ${fmtCard(t)}</span>`:'')+`</span></div>`;
     const o=Math.max(0,t-Lm); if(o)anyOver=true;
-    return `<div class="bub-row"><span class="sw ${sw[k]}"></span><span>${NM[k]}: <b>${fmtCard(c)}</b> ${EN?'of':'из'} ${fmtCard(Lm)} · `+
+    return `<div class="bub-row"><span class="lsw ${sw[k]}"></span><span>${NM[k]}: <b>${fmtCard(c)}</b> ${EN?'of':'из'} ${fmtCard(Lm)} · `+
       (o?`<span class="dop">${c>Lm?(EN?'top-up':'доплата'):(EN?'goes over by':'выйдет за лимит на')} ${fmtCard(o)}</span>`:`${EN?'left':'осталось'} <b>${fmtCard(Lm-t)}</b>`)+`</span></div>`+
       (add[k]?`<div class="bub-row" style="padding-left:18px;color:var(--muted)">${EN?'this layout adds':'эта расстановка добавит'} ${fmtCard(add[k])}</div>`:'');});
   return (head?`<div>${head}</div>`:'')+rows.join('')+
@@ -6423,11 +6425,12 @@ const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пу�
     if(s0&&typeof LIVE!=='undefined'){const k=items.indexOf(s0); LIVE.focus=k>=0?k:null;}
     const r=_try.apply(this,arguments);
     if(s0&&document.getElementById('shot').classList.contains('v2')){
-      const n=TRY_LAST.n||1, d=sum()-before, EN=LANG==='en';
+      const n=TRY_LAST.n||1, d=sum()-before;
       const base=baseRole(role), what=n>1?(TRY_PLURAL[base]||base)+' ×'+n:base;
       // мягкое (demo-24): в 3D замены не видно — сообщение говорит, где она появится (тот же текст, что у `tryOn`)
       if(s0.dec!==undefined&&isSoft(role))softSwapToast();
-      else toast((EN?'Replaced: '+what:'Заменено: '+what)+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
+      // по-русски и в EN: «Заменено: …» переводит словарь EN вместе с ролью («Replaced: sofa»); готовое «Replaced: диван» он не узнавал
+      else toast('Заменено: '+what+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
       // шторка уже свёрнута — сцена с заменой видна; наведение камеры — после обновления сцены (`liveShow`, demo-15 п.2).
       // КОНТУР СНИМАЕМ СРАЗУ (demo-20 Б4, владелец 22.10: «рамку убирать автоматически»): заменённое видно и так — камера у предмета
       vwSelect(null);
@@ -7218,10 +7221,11 @@ async function liveShotTake(){
   function includeTopup(id,again){var r=BK.mod.include(BK.b,id,BK.limit,{confirmTopup:true});
     if(r.result==='included'||r.result==='included_with_topup'){bkPut(r.basket); toast(incText(favOf(id)),again);} else favDraw();}
   function incText(f,added){
-    var t=BK.mod.basketTotals(BK.b,BK.limit), left=Math.max(0,t.budget.left.total), top=t.allowanceOverage, nm=String((f&&f.displayName)||'');
+    var t=BK.mod.basketTotals(BK.b,BK.limit), left=Math.max(0,t.budget.left.total), top=t.allowanceOverage, nm=String((f&&f.displayName)||''), raw=nm;
     var room=(homeRooms().find(function(r){return f&&r.id===f.roomId;})||{}).title||'';
     if(nm.length<=24)nm=nm.replace(/ /g,'\u00a0');   // короткое имя не рвётся на две строки («Гостиная / #1»)
-    var who=(room&&nm.toLowerCase().indexOf(room.toLowerCase())!==0?room+' ':'')+(EN()?'“'+nm+'”':'«'+nm+'»');   // «Гостиная #1» без «Гостиная» дважды
+    // «Гостиная #1» без «Гостиная» дважды; сравниваем имя ДО неразрывных пробелов — иначе «Living room» из двух слов не узнавалось
+    var who=(room&&raw.toLowerCase().indexOf(room.toLowerCase())!==0?room+' ':'')+(EN()?'“'+nm+'”':'«'+nm+'»');
     var tail=top?(EN()?'top-up '+fmtCard(top):'доплата '+fmtCard(top)):(EN()?fmtCard(left)+' left':'остаток '+fmtCard(left));
     return who+(EN()?(added?' — in favourites and ':' — ')+'included in the allowance, '+tail
       :(added?' — в избранном, ':' — ')+'включено в сертификат, '+tail);
@@ -7601,7 +7605,8 @@ async function liveShotTake(){
     'Эта ссылка ведет на форму консультации застройщика':"This link leads to the developer's consultation form",
     'впритык':'a tight fit','габарит не указан':'size not given','Цвета этой модели':'Colours of this model','Фото':'Photo',
     'Изменить план':'Edit the plan','Фото сейчас не сделать: у сервиса картинок закончился баланс. Попробуйте позже.':'The photo cannot be made right now: the image service has run out of balance. Please try later.',
-    'Фото сейчас не сделать: сервер улучшения не отвечает. Попробуйте позже.':'The photo cannot be made right now: the enhancement server is not responding. Please try later.','Отделка и ремонт':'Options & upgrades','Встраиваемое':'Fitted & integrated','← Назад':'← Back'};
+    'Фото сейчас не сделать: сервер улучшения не отвечает. Попробуйте позже.':'The photo cannot be made right now: the enhancement server is not responding. Please try later.','Отделка и ремонт':'Options & upgrades','Встраиваемое':'Fitted & integrated','← Назад':'← Back',
+    'Изменено вами':'Changed by you'};
   var ATTR={'Что значит оплата 100%':'What does full payment mean','Цена, подробнее':'Price details','Стили':'Styles','Избранное':'Favourites','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
     'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
     'Следующий вид':'Next view','скоро':'soon'};
