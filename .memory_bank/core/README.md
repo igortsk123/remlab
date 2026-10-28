@@ -17,7 +17,7 @@
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-10-18 |
 | `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-10-23 |
 | `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-10-16 |
-| `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-10-20 |
+| `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-10-28 |
 | `demo-scenarios.md` | demo-scenarios | Сценарии демо /demo — карта кнопок «ожидание → факт», живые проверки, дефекты прогона и планы demo-01…03 | `../domain/demo-scenario-map.md` | 2026-10-20 |
 | `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-10-17 |
 | `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-10-19 |
@@ -44,6 +44,7 @@
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-10-17 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, аналитика | `../domain/user-flow-details.md` | 2026-10-20 |
 | `bedroom.md` | bedroom | Спальня — каталог кроватей, тумб, шкафов, комодов (с показа в демо снят); что дальше | `../plans/b2b-10-rooms-beyond-living.md` | 2026-10-16 |
+| `design-figma.md` | design-figma | Дизайн демо в Фигме для дизайнера — книги, страницы, как пересобрать, что правлено руками | `../completed_plans/design-01-figma-export.md` | 2026-10-28 |
 | `lr-checklist.md` | lr-checklist | Состав гостиной — роли и пригодность | `../domain/living-room-checklist.md` | 2026-10-18 |
 <!-- GENERATED:core-registry END -->
 

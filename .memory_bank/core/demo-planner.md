@@ -3,7 +3,7 @@ tier: 1
 topic: demo-planner
 scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
-updated: 2026-10-20
+updated: 2026-10-28
 importance: high
 source: manual
 status: working
