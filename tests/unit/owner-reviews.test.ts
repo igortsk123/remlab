@@ -25,4 +25,15 @@ describe("отметки владельца", () => {
     expect((await post({ kind: "orient", key: "112923_3", verdict: "yes" })).status).toBe(400);
     expect((await post({ kind: "orient", key: "112923_3", verdict: "new" })).status).toBe(200);
   });
+
+  it("комментарий к товару без отметки стиля и снятие отметки", async () => {
+    expect((await post({ kind: "style_note", key: "112923_1", verdict: "note", comment: "подходит и к сканди, и к джапанди" })).status).toBe(200);
+    expect((await post({ kind: "style_note", key: "112923_1", verdict: "note" })).status).toBe(200);
+    expect((await post({ kind: "style_note", key: "112923_1", verdict: "yes" })).status).toBe(400);
+    expect((await post({ kind: "style", key: "112923_1|универсальный", verdict: "clear" })).status).toBe(200);
+    expect((await post({ kind: "style_note", key: "112923_1", verdict: "note", comment: "я".repeat(1001) })).status).toBe(400);
+    const r = await GET(new Request("http://x/api/lab/review?kind=style_note&after=0", { headers: { "x-forwarded-for": "10.9.0.3" } }));
+    const j = (await r.json()) as { rows: { itemKey: string; comment: string | null }[] };
+    expect(j.rows.map((x) => x.comment)).toEqual(["подходит и к сканди, и к джапанди", null]);
+  });
 });
