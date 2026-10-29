@@ -269,12 +269,12 @@ async function all(kind){let after=0,out=[];for(;;){const j=await (await fetch(A
 function post(body,keep){return fetch(API,{method:"POST",keepalive:!!keep,headers:{"content-type":"application/json"},body:JSON.stringify(body)});}
 const say=(c,t)=>{c.querySelector(".st").textContent=t;};
 document.querySelectorAll(".c").forEach(c=>{
-  c.querySelectorAll(".r").forEach(row=>row.querySelectorAll("button").forEach(b=>b.onclick=async()=>{
-    const v=b.classList.contains("on")?"clear":b.dataset.v;
-    const r=await post({kind:"style",key:c.dataset.id+"|"+row.dataset.s,verdict:v}).catch(()=>null);
+  c.querySelectorAll(".t button").forEach(b=>b.onclick=async()=>{
+    const v=b.classList.contains("on")?"clear":"yes";
+    const r=await post({kind:"style",key:c.dataset.id+"|"+b.dataset.s,verdict:v}).catch(()=>null);
     if(!r||!r.ok){say(c,"не сохранилось — нажмите ещё раз");return;}
-    row.querySelectorAll("button").forEach(x=>x.classList.remove("on"));if(v!=="clear")b.classList.add("on");say(c,"сохранено");
-  }));
+    b.classList.toggle("on",v==="yes");b.setAttribute("aria-pressed",v==="yes");say(c,"сохранено");
+  });
   const cm=c.querySelector(".cm");let t=0,sent=cm.value;
   const save=async keep=>{clearTimeout(t);const v=cm.value.trim();if(v===sent)return;sent=v;say(c,"сохраняю…");
     const r=await post({kind:"style_note",key:c.dataset.id,verdict:"note",comment:v||undefined},keep).catch(()=>null);
@@ -290,8 +290,8 @@ Promise.all([all("style"),all("style_note")]).then(([marks,notes])=>{
   marks.forEach(x=>{last[x.itemKey]=x;if(x.comment){const id=x.itemKey.split("|")[0];(old[id]=old[id]||[]).push(x.comment);}});
   notes.forEach(x=>{note[x.itemKey]=x.comment||"";});
   document.querySelectorAll(".c").forEach(c=>{let any=false;
-    c.querySelectorAll(".r").forEach(row=>{const x=last[c.dataset.id+"|"+row.dataset.s];if(!x||x.verdict==="clear")return;any=true;
-      row.querySelectorAll("button").forEach(b=>{if(b.dataset.v===x.verdict)b.classList.add("on");});});
+    c.querySelectorAll(".t button").forEach(b=>{const x=last[c.dataset.id+"|"+b.dataset.s];if(!x||x.verdict!=="yes")return;any=true;
+      b.classList.add("on");b.setAttribute("aria-pressed","true");});
     const cm=c.querySelector(".cm");if(document.activeElement!==cm){
       const v=c.dataset.id in note?note[c.dataset.id]:[...new Set(old[c.dataset.id]||[])].join("; ");
       if(v){cm.value=v;any=true;}}
@@ -305,8 +305,8 @@ def vote_page() -> int:
     items = json.load(open(SAMPLE, encoding='utf-8'))
     cards = []
     for it in vote_cards(items):
-        rws = ''.join(f'<div class="r{" u" if st == "универсальный" else ""}" data-s="{st}"><span>{st.capitalize()}</span>'
-                      '<button data-v=yes>подходит</button><button data-v=no>не подходит</button></div>' for st in VOTE_STYLES)
+        rws = '<div class=t>' + ''.join(f'<button{" class=u" if st == "универсальный" else ""} data-s="{st}" aria-pressed=false>'
+                                        f'{st.capitalize()}</button>' for st in VOTE_STYLES) + '</div>'
         cards.append(f'<div class=c data-id="{it["mid"]}_{html.escape(it["eid"])}"><img loading=lazy src="{html.escape(it["img"])}" alt="">'
                      f'<div class=n>{html.escape(it["role"])} · {html.escape(it["name"][:70])}</div>{rws}'
                      '<textarea class=cm maxlength=1000 rows=2 placeholder="комментарий — сохраняется сам"></textarea><div class=st></div></div>')
@@ -314,20 +314,18 @@ def vote_page() -> int:
            '<style>body{font:15px system-ui;margin:16px;background:#faf8f5;color:#2b2622}h1{font-size:20px;margin:0 0 6px}p{margin:0 0 12px;color:#555}'
            '.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}'
            '.c{background:#fff;border-radius:10px;padding:8px}.c img{width:100%;aspect-ratio:4/3;object-fit:contain}'
-           '.n{font-size:12px;color:#555;margin:4px 0 6px}.r{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px;align-items:center;font-size:13px;margin:3px 0}'
-           '.r span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
-           '.r.u{border-top:1px solid #eee;padding-top:5px;margin-top:5px;font-weight:600}'
-           'button{font:12px system-ui;white-space:nowrap;padding:0 8px;min-height:30px;border-radius:7px;border:1px solid #ccc;background:#fff;color:#2b2622}'
-           'button.on[data-v=yes]{background:#2f6b3a;border-color:#2f6b3a;color:#fff}button.on[data-v=no]{background:#8a3a2e;border-color:#8a3a2e;color:#fff}'
+           '.n{font-size:12px;color:#555;margin:4px 0 6px}.t{display:flex;flex-wrap:wrap;gap:5px}'
+           'button{font:13px system-ui;white-space:nowrap;padding:0 10px;min-height:32px;border-radius:16px;border:1px solid #ccc;background:#fff;color:#2b2622}'
+           'button.u{font-weight:600}button.on{background:#2f6b3a;border-color:#2f6b3a;color:#fff}'
            '.cm{width:100%;box-sizing:border-box;margin-top:6px;padding:5px;font:13px system-ui;resize:vertical}.st{font-size:12px;color:#777;min-height:16px}</style>'
-           f'<h1>Стиль предметов — {len(cards)} карточек</h1><p>Предмет может подходить к нескольким стилям — отмечайте каждый. '
-           '«Универсальный» — подойдёт к любому стилю. Повторное нажатие снимает отметку. Всё, включая комментарий, сохраняется само; '
+           f'<h1>Стиль предметов — {len(cards)} карточек</h1><p>Нажмите стили, к которым предмет подходит, — можно несколько; не нажато — '
+           'не подходит. «Универсальный» — подойдёт к любому стилю. Повторное нажатие снимает. Всё, включая комментарий, сохраняется само; '
            'можно бросить и вернуться. Балл модели нарочно скрыт.</p>'
            '<div class=g>' + ''.join(cards) + '</div><script>' + VOTE_JS + '</script>')
     os.makedirs(OUT, exist_ok=True)
     path = os.path.join(OUT, 'vote.html')
     open(path, 'w', encoding='utf-8').write(doc)
-    print(f'страница отметок: {path} ({len(cards)} карточек × {len(VOTE_STYLES)} строк)')
+    print(f'страница отметок: {path} ({len(cards)} карточек × {len(VOTE_STYLES)} кнопок)')
     return 0
 
 
@@ -354,55 +352,78 @@ def last_marks(rows: list[dict]) -> dict:
     return last
 
 
+def card_states(marks: list[dict], notes: list[dict]) -> dict:
+    """Состояние карточек v3 (одна кнопка на стиль, план style-vote-v3): нажатые стили = последняя отметка `yes`;
+    прежнее `no` (v1/v2) = не нажато, хранится в `legacy_no` для справки. Просмотрена — нажат хоть один стиль или есть
+    комментарий: у неё ненажатые = не подходит; у непросмотренной данных нет."""
+    out: dict = {}
+    def st(sid: str) -> dict:
+        return out.setdefault(sid, {'suits': [], 'legacy_no': [], 'comment': None, 'comment_history': [], 'legacy_comments': []})
+    for key, r in last_marks(marks).items():
+        sid, _, style = key.partition('|')
+        (st(sid)['suits'] if r['verdict'] == 'yes' else st(sid)['legacy_no']).append(style)
+    for r in marks:
+        if r.get('comment'):
+            sid, _, style = r['itemKey'].partition('|')
+            st(sid)['legacy_comments'].append({'style': style, 'at': r.get('createdAt'), 'text': r['comment']})
+    for r in notes:
+        c = st(r['itemKey'])
+        c['comment_history'].append({'at': r.get('createdAt'), 'text': r['comment'] or ''})
+        c['comment'] = r['comment'] or None
+    for c in out.values():
+        c['viewed'] = bool(c['suits'] or c['comment'] or (not c['comment_history'] and c['legacy_comments']))
+    return out
+
+
 def vote_export() -> int:
-    """Отметки + комментарии по товару → style-bench/vote-export.jsonl — вход разбора алгоритма стилей через GPT."""
-    marks, notes = review_rows('style'), review_rows('style_note')
-    last = last_marks(marks)
+    """Просмотренные карточки → style-bench/vote-export.jsonl — вход разбора алгоритма стилей через GPT."""
+    states = card_states(review_rows('style'), review_rows('style_note'))
     items = json.load(open(SAMPLE, encoding='utf-8'))
-    n = 0
+    n = n_suits = 0
     path = os.path.join(OUT, 'vote-export.jsonl')
     with open(path, 'w', encoding='utf-8') as f:
         for it in vote_cards(items):
-            sid = f"{it['mid']}_{it['eid']}"
-            human = {st: last[f'{sid}|{st}']['verdict'] for st in VOTE_STYLES if f'{sid}|{st}' in last}
-            hist = [{'at': r['createdAt'], 'text': r['comment'] or ''} for r in notes if r['itemKey'] == sid]
-            legacy = [{'style': r['itemKey'].partition('|')[2], 'at': r['createdAt'], 'text': r['comment']}
-                      for r in marks if r['itemKey'].partition('|')[0] == sid and r.get('comment')]
-            if not human and not hist and not legacy:
+            c = states.get(f"{it['mid']}_{it['eid']}")
+            if not c or not c['viewed']:
                 continue
-            f.write(json.dumps({'key': sid, 'role': it['role'], 'name': it['name'], 'img': it['img'], 'shop': it.get('shop'),
-                                'model_scores': it.get('old'), 'human': {k: v for k, v in human.items() if k != 'универсальный'},
-                                'universal': human.get('универсальный'), 'comment': hist[-1]['text'] if hist else None,
-                                'comment_history': hist, 'legacy_comments': legacy}, ensure_ascii=False) + '\n')
+            suits = [x for x in STYLES6 if x in c['suits']]
+            f.write(json.dumps({'key': f"{it['mid']}_{it['eid']}", 'role': it['role'], 'name': it['name'], 'img': it['img'],
+                                'shop': it.get('shop'), 'model_scores': it.get('old'), 'suits': suits,
+                                'not_suits': [x for x in STYLES6 if x not in suits], 'universal': 'универсальный' in c['suits'],
+                                'comment': c['comment'], 'comment_history': c['comment_history'],
+                                'legacy_comments': c['legacy_comments'], 'legacy_no': c['legacy_no']}, ensure_ascii=False) + '\n')
             n += 1
-    print(f'выгрузка: {path} ({n} товаров с отметками или комментарием)')
+            n_suits += len(suits) + ('универсальный' in c['suits'])
+    print(f'выгрузка: {path} (просмотрено карточек {n}, подошедших стилей у них {n_suits}, включая «универсальный»)')
     return 0
 
 
 def vote_report() -> int:
-    """Отметки владельца → доля «подходит» по корзинам балла (нынешний A и оси V2): где проходит черта."""
+    """Отметки владельца → доля «подходит» по корзинам балла (нынешний A и оси V2): где проходит черта.
+    Считаются только просмотренные карточки: нажатый стиль = подходит, ненажатый = не подходит."""
     import style_axes as SA
     axes_doc, formula = SA.load()
-    last = last_marks(review_rows('style'))
+    states = card_states(review_rows('style'), review_rows('style_note'))
     items = {f"{it['mid']}_{it['eid']}": it for it in json.load(open(SAMPLE, encoding='utf-8'))}
     answers = {json.loads(ln)['mkey']: json.loads(ln) for ln in open(ANSWERS, encoding='utf-8')} if os.path.exists(ANSWERS) else {}
     bins: dict = {}
-    for key, r in last.items():
-        sid, _, st = key.partition('|')
+    viewed = 0
+    for sid, c in states.items():
         it = items.get(sid)
-        if not it or st not in STYLES6:
+        if not it or not c['viewed']:
             continue
-        yes = r['verdict'] == 'yes'
-        a = float((it.get('old') or {}).get(st, 0))
+        viewed += 1
         ans = answers.get(it['mkey'])
-        v2 = SA.score_v2(ans['axes'], it['role'], axes_doc, formula)['scores'][st] if ans else None
-        for m, sc in (('A', a), ('V2', v2)):
-            if sc is None:
-                continue
-            b = bins.setdefault(m, {}).setdefault(int(sc * 2) / 2, [0, 0])
-            b[0] += yes
-            b[1] += 1
-    print(f'отметок {len(last)}')
+        v2 = SA.score_v2(ans['axes'], it['role'], axes_doc, formula)['scores'] if ans else None
+        for st in STYLES6:
+            yes = st in c['suits']
+            for m, sc in (('A', float((it.get('old') or {}).get(st, 0))), ('V2', v2[st] if v2 else None)):
+                if sc is None:
+                    continue
+                b = bins.setdefault(m, {}).setdefault(int(sc * 2) / 2, [0, 0])
+                b[0] += yes
+                b[1] += 1
+    print(f'просмотрено карточек {viewed}')
     for m, bb in bins.items():
         print(m, ' '.join(f'{k:.1f}:{v[0]}/{v[1]}' for k, v in sorted(bb.items())))
     return 0
@@ -439,6 +460,16 @@ def _selftest() -> int:
     lm = last_marks([{'itemKey': 'a|лофт', 'verdict': 'yes'}, {'itemKey': 'a|лофт', 'verdict': 'clear'},
                      {'itemKey': 'a|сканди', 'verdict': 'no'}, {'itemKey': 'a|сканди', 'verdict': 'yes'}])
     ok('clear снимает отметку, побеждает последняя', set(lm) == {'a|сканди'} and lm['a|сканди']['verdict'] == 'yes')
+    cs = card_states([{'itemKey': 'a|лофт', 'verdict': 'yes'}, {'itemKey': 'a|сканди', 'verdict': 'yes'},
+                      {'itemKey': 'a|сканди', 'verdict': 'clear'}, {'itemKey': 'b|лофт', 'verdict': 'no'},
+                      {'itemKey': 'c|джапанди', 'verdict': 'no'}, {'itemKey': 'd|универсальный', 'verdict': 'yes'}],
+                     [{'itemKey': 'c', 'comment': 'светлое дерево'}, {'itemKey': 'e', 'comment': 'x'}, {'itemKey': 'e', 'comment': None}])
+    ok('v3: yes→clear снимает стиль, несколько стилей вместе', cs['a']['suits'] == ['лофт'])
+    ok('v3: старое «не подходит» = не нажато, карточка без комментария не просмотрена',
+       cs['b']['suits'] == [] and cs['b']['legacy_no'] == ['лофт'] and not cs['b']['viewed'])
+    ok('v3: просмотрено — по нажатию или комментарию; стёртый комментарий не в счёт',
+       cs['a']['viewed'] and cs['c']['viewed'] and cs['d']['viewed'] and not cs['e']['viewed'])
+    ok('v3: в разметке страницы нет «не подходит»', 'data-v=no' not in VOTE_JS and '"yes"' in VOTE_JS)
     ok('методы V2, H, D считаются по ответам, A — из базы', m['A'] == {'лофт': 7} and all(m[k] for k in ('V2', 'H', 'D')))
     return 1 if bad else 0
 
