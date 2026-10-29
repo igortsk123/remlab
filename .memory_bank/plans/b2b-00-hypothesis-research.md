@@ -2,14 +2,17 @@
 workstream: product
 slug: b2b-00-hypothesis-research
 title: Исследования до запуска — проверить четыре ставки гипотезы продукта раздельно (причина отказов, финансовое обещание, менеджеры, права на фото и данные) и зарегистрировать метрику пилота
-status: in_progress
+status: partial
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-29
+pause_reason: агентская часть готова 13.10; интервью, запросы и утверждение метрики пилота делает владелец — фокус сейчас М5 (ADR-0187)
+resume_trigger: владелец берёт интервью или утверждает метрику пилота
+review_after: 2026-11-13
+owner_decision_required: true
 completed:
 plan_kind: sub
 parent_plan: MASTER-developer-product
 assignee: opus-5.5
-review_after: 2026-11-13
 ---
 
 ## Цель

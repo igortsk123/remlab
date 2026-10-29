@@ -2,7 +2,7 @@
 tier: 2
 topic: orchestration
 scope: Регламент двух сессий fable-lead ↔ opus-worker — роли, рукопожатие, цикл задачи, формат задания и отчёта, лимиты циклов, что выбрано и почему
-updated: 2026-10-20
+updated: 2026-10-29
 source: manual
 importance: med
 status: working
@@ -126,3 +126,26 @@ anti-rediscovery из `memory-discipline.md` относится и к брифа
 Первая задача так — T-20261019-01, PASS. Ветка исполнителя, пока его копия открыта, не перебазируется — вливать `cherry-pick`.
 20.10: двое тяжёлых рабочих на учётке Pro (algor) выбрали 5-часовой лимит примерно за 1,5 ч — встали посреди задач; незаконченную
 правку снимать патчем (`git diff > ~/remlab-logs/<T>-wip.patch`), если ночная цепочка берёт код из основной копии.
+
+## Учёт токенов, страж лимита, автоподъём, окна разрешений (21–24.10)
+- **Метки сообщений и учёт токенов** (владелец через tamara, 21.10; TG 143/150 у tamara) — формат в `.claude/rules/orchestration.md`
+  § «Узнавание»; скрипт общий с tamara: `tools/tokeny/{tokeny.py,faza}` (копия по SHA-256 от tamara). Журналы remlab — на algor
+  (ведущий и рабочие VS Code с 19.10) и pakardev; `tools/ops/tokstat.py` читает только машину, где запущен.
+- **Страж лимита учётки** (владелец через tamara, TG 237): `~/.local/bin/claude-strazh-limita` на algor — systemd user timer
+  `claude-strazh-limita.timer` (5 мин); при 90 % 5-часового лимита впечатывает в tmux `tg-remlab` «новых тяжёлых заданий не давай»,
+  после сброса — «продолжай» (рабочим во вкладках VS Code ведущий пишет сам). Проба `--proba`, журнал `~/.local/state/claude-strazh/zhurnal.log`.
+- **Автоподъём ведущих после перезагрузки algor** (TG 245 tamara): systemd user `claude-vedushchie.service` →
+  `~/.local/bin/claude-vedushchie-podnyat`: нет tmux `tg-remlab` → ждёт sshfs ≤ 5 мин и поднимает сессию `--resume <id>` (id пишет страж
+  в `~/.local/state/claude-strazh/<цель>.sessiya`), первое сообщение — «[автозапуск …] reply владельцу; ListAgents; CronList».
+- **`/limit` в Telegram** отвечает кодом, не моделью: патч плагина `~/.local/bin/tg-patch-limit` (команда → `~/.local/bin/limit-tekst` из
+  `~/.claude/usage-log.jsonl`); после обновления плагина патч запускать снова.
+- **Пауза по лимиту (22.10):** рабочие доводят шаг, коммитят на свою ветку и пишут «сделано/осталось» в лог плана; продолжающий ведущий
+  читает доску (`plans/README.md`) и записку передачи (`_intake/peredacha-glavnomu-2026-10-22.md`). С 22.10 ~19:30 Лондон ведение — на pakardev.
+- **Окно разрешения ≠ «waiting»:** статус «waiting» в ListAgents бывает у занятого фоновыми прогонами рабочего (ложная тревога владельцу
+  21.10); окно — только `~/.claude/sessions/*.json` → `waitingFor: "permission prompt"` (+`updatedAt`). Простои на окнах: 21.10 оба ~1 ч;
+  23→24.10 рабочий 1 ~13 ч на чтении `.env.example` — чтение `.env*` спрашивает всегда, подтверждает только владелец во вкладке.
+  В бриф: «`.env*` не читать — имена переменных из кода и `core/access-and-integrations.md`»; утром смотреть `waitingFor`.
+- **Сервисы pakardev не останавливать** (22.10): рабочий на время своих проб гасил `remlab-render` (кадры живого демо прода). В бриф:
+  сервисы DEV не трогать, тяжёлые пробы — по одной (память DEV на пределе: 2–2,7 ГБ свободно — «Target crashed» у Playwright на 1440).
+- **`gh` на pakardev:** токен `gh` на pakardev протух (401) — CI смотреть по `version` в `/api/health` или публичному API GitHub
+  (аннотации check-run читаются без токена).

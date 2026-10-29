@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-owner-audit
 scope: Приёмка мешей владельцем — /lab/mesh-audit
 tier2: "../completed_plans/mesh-owner-audit.md"
-updated: 2026-10-11
+updated: 2026-10-29
 importance: high
 source: manual
 status: working
@@ -24,22 +24,18 @@ review_after: 2026-12-05
 append-only лишь `mesh_audit_cancellations`; `mesh_audit_batches`): клик = транзакция
 (`lib/mesh-audit/repo-decisions.ts:58-66`); правила
 `lib/mesh-audit/rules.ts` — 409 устаревшей вкладке, лимит, `(sku, попытка)` уникален.
-Ручки `app/api/lab/mesh-audit/*`, страница `app/lab/mesh-audit/page.tsx`, карточка
-`components/lab/MeshAuditCard.tsx` (GLB — только по клику), model-viewer —
-`public/vendor/model-viewer.min.js`. Тесты — `tests/unit/mesh-audit.test.ts`.
+Ручки `app/api/lab/mesh-audit/*`, карточка `components/lab/MeshAuditCard.tsx` (GLB по клику); тесты `tests/unit/mesh-audit.test.ts`.
 
 **DEV-мост** `tools/scout/mesh_audit_sync.py --tick` (крон, минута, свой lock): решение →
-одной транзакцией вердикт поколению, ревизия `owner_reject`/`replace_needed` при CAS, отвязка
-товара, sidecar `owner_reject.json`, инбокс `mesh_rework_requests`; курсор — после успеха; ACK
-обратно (`applied → queued → done | blocked`); отмены — своим курсором.
+одной транзакцией вердикт поколению, ревизия `owner_reject`/`replace_needed` при CAS, отвязка товара, инбокс
+`mesh_rework_requests`; курсор — после успеха; ACK `applied → queued → done | blocked`; отмены — своим курсором.
 
-**Партии** — `tools/scout/mesh_audit_publish.py` (свой lock): 200 товаров ≈ 1,5 ГБ ≈ 12 мин
-(`rules.ts:BATCH_SIZE`); состав — с прода, sku партии → прод; жёсткие ссылки в `~/.cache` → `releases/<token>.staging` →
-манифест → `mv` → `active` → прежняя `retiring` → удаление через 10 мин ТОЛЬКО под
-`releases/`. Порог диска ≥ 7 ГБ. Кэш
-`/test/mesh-audit/*` — `caddy/Caddyfile`. Постеры — `tools/scout/mesh_audit_posters.py`.
+**Партии** — `tools/scout/mesh_audit_publish.py` (свой lock): 200 товаров ≈ 1,5 ГБ (`rules.ts:BATCH_SIZE`); `releases/<token>.staging` →
+`active`; удаление ТОЛЬКО под `releases/`. Порог диска ≥ 7 ГБ. Постеры — `tools/scout/mesh_audit_posters.py`.
 
-**Очередь:** «принято, ждёт сборки очереди» до `--build-queue` ([[mesh-pipeline]] § старт волны).
+**Комментарий к браку (23.10, ADR-0324):** необязательное поле после «Переделать»/«Нужна замена» (`components/lab/MeshAuditVerdict.tsx`,
+колонка `comment`, `db/init/021-mesh-audit-comment.sql`); мост пишет его в журнал `mesh_decisions`; недельный разбор ведущего —
+`tools/scout/mesh_decisions.py --comments`. Брак без модели и записи — снова в спрос (`bank_ready.classify`).
 
 **Приёмка освобождает диск (ADR-0233):** принято = просмотрено и не забраковано
 (`rules.ts:isAccepted`; `seen_at` сбрасывает новое поколение) → `?scope=accepted` → прополка

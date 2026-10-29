@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-10-18
+updated: 2026-10-29
 importance: high
 source: manual
 status: working
@@ -16,21 +16,19 @@ review_after: 2026-12-05
 
 > Секретов тут НЕТ — только где они. Детали — Tier 2.
 
-## Чужие ключи на машине
-Соседние проекты (sib, sing, sup2-repo) держат ключи в своих `.env` — не наши. Прежде чем сказать
-«у нас нет доступа», прогнать `node tools/access-inventory.mjs` (урок 57).
+**Чужие ключи** (sib, sing, sup2-repo) — не наши; прежде чем сказать «нет доступа» — `node tools/access-inventory.mjs` (урок 57).
 
 ## Ключевые факты
 - **Gemini:** приложение — через шлюз Vercel (`AI_PROVIDER=gateway` по умолчанию, `lib/providers/gateway.ts`, ADR-0277); прямой ключ отключён 14.10.
-- **OpenAI (ADR-0026):** фолбэк парсинга ссылок; `gpt-4o-mini` под картинки НЕ брать (ADR-0067) — Tier 2 § OpenAI.
+- **OpenAI:** прямой ключ без денег — не пополняем (ADR-0325); дочитка по ссылке — через шлюз (`lib/providers/index.ts:getExtractProvider`);
+  прямой OpenAI остался только в Python DEV (`judge.py`, `pipeline*.py`) — долг. `gpt-4o-mini` под картинки НЕ брать (ADR-0067).
 - **Яндекс:** Метрика `110599064`; кампанию `708745261` не трогать. [[marketing-acquisition]].
 
 **Tier 2:** `../domain/integrations.md` — эндпоинты, форматы, env, фиды, § Codex (сессия сломана
-15.10 → `--ephemeral`; профили `vercel*` запрещены, ADR-0301). Решения — ADR-0007/0011/0012/0013/0045.
+15.10 → `--ephemeral`; `vercel*` — только экономно `vercel-sol` при исчерпании подписки, ADR-0301/0327). Решения — ADR-0007/0011/0012/0013/0045.
 
-- **Vercel AI Gateway (26.08):** единственный рабочий путь к LLM (прямой OpenAI без кредитов); лимит, похоже,
-  суточный (13.10 исчерпан в 20:40, с 00:00 UTC снова работает). «Нет денег» — `tools/scout/llm_gateway.py:NoCredits`,
-  проверка каналов — дайджест DEV (`tools/ops/dev-checks.sh`). Детали — `../domain/integrations.md`.
+- **Vercel AI Gateway:** единственный путь к LLM; «нет денег» — `tools/scout/llm_gateway.py:NoCredits`,
+  баланс и траты — `GET /v1/credits` (`balance`, `total_used`, бесплатно), тревога `gateway_no_credits` в дайджесте DEV (`tools/ops/dev-checks.sh`).
 
 - **fal.ai:** клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131).
 
@@ -38,10 +36,9 @@ review_after: 2026-12-05
 - **Мост мешей DEV↔прод:** `MESH_REVIEW_SECRET` (кука владельца) + `MESH_REVIEW_MACHINE_TOKEN`
   (Bearer конвейера); общие для mesh-review/mesh-audit — Tier 2.
 - **SaladCloud + GHCR (31.08):** GPU под меши вместо fal; орг `prodstore`/`dmodel`, ключи в
-  `_secrets/`, образ только digest'ом. Грабли API — ADR-0137, [[mesh-pipeline]].
+  `_secrets/`, образ только digest'ом. События машин — `log-entries` (бесплатно, [[mesh-pool]] Tier 2 § 6). Грабли API — ADR-0137.
   **02.10:** GHCR — единственная копия образа (ADR-0232); вход — `GHCR_TOKEN` (`_secrets/`),
   не `gh auth token`: токену под пакеты `gh` требует ещё `read:org`.
 - **Гдеслон (03.09):** фиды первичны (`original_picture`, `article`, описание), API — комиссия;
   id округлён (связь по `article`), `available` бесполезен — ADR-0171.
 - **Telegram `@remlabservice_bot` (03.09):** токен и chat_id в `tools/scout/.env.alert` и `/opt/remlab/catalog-watchdog/.env`. С 14.10 — и клиентский бот; UptimeRobot — Tier 2.
-- **Sketchfab (01.09)** — Tier 2.

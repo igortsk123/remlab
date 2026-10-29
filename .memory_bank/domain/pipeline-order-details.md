@@ -3,7 +3,7 @@ tier: 2
 topic: pipeline-order-details
 scope: Порядок конвейера — обоснования этапов и незакрытые места
 tier1: "../core/pipeline-order.md"
-updated: 2026-10-14
+updated: 2026-10-29
 importance: med
 source: manual
 ---
@@ -51,3 +51,23 @@ source: manual
 
 ## «Сеты только с мешами» — неверно (перенесено из Tier 1, 14.10)
 Мягкий декор мешей не получает; у предмета есть представление ПО СПОСОБУ ОТРИСОВКИ — покрытие считать как `asset_ready(strategy)` (`tools/scout/render_strategy.py`).
+
+## Банк комплектов — ночная автоподмена (22–24.10, ADR-0318, планы conv-14/conv-14b)
+- **Ночной порядок** (`tools/scout/refresh_daily.sh`): обогащение и решения → `mesh_family_early` → чёрный список (текущие решения +
+  семейства, `bank_pending.policy_blocks`) → `bank_prepare` (сборка кандидата `sets3.next.json` в изолированной копии, инварианты,
+  сверка медиа `catalog_media.sync_sets` — сборщик пишет прямую ссылку фида, партнёрскую ставит только сверка) → `mesh_bind_early`
+  (до суждения: ворота сборки читают `mesh_required`) → `bank_pending` (ожидание по ячейке; спрос мешей `bank_candidate`) →
+  `bank_promote` (готовые ячейки, экзамен, manifest) → писатель `bank_refresh.py` (сейчас `write_enabled=false`).
+- **Готовность ячейки** — `tools/scout/bank_ready.classify` по роли слота: cutout-роль = в продаже + живое фото + текущая ссылка (вырезка
+  не требуется: вырезок мягкого 0, показ их не использует); ковёр — w,d; меш — гейт геометрии. Типы ожидания: `wait_asset`, `wait_catalog`,
+  `redo`, `blocked_policy`, `legacy_unknown`. Журнал решений по мешам — файлы (`tools/scout/rules/mesh-asset-decisions.json`,
+  `~/scout-scenes/mesh-asset-decisions.jsonl`), без БД.
+- **Удержание** (`tools/scout/bank_keep.py`): источник — прошлый кандидат (`BANK_KEEP_FROM`), состояние `sets3.next.keep.json`; три
+  сборки с разным `PYTHONHASHSEED` → 126/126 одинаковых `selection_hash`.
+- **Скрытый сет** — `tools/scout/rules/bank-candidate.json:hidden_roles` = [диван]; демо его не берёт ни вариантом, ни источником ленты
+  (`flat215_demo.hidden()`); при правиле «ушла любая ключевая роль» скрывалось 26 сетов и демо теряло полные варианты.
+- **Столовая по площади** — одна функция `compose2.dining_capacity(m2)` для окна подбора стульев и обрезки (было: окно на 4 стула, ставится
+  2 при m2 < 22 → пустое окно молча снимало стол); снятие стола пишет `coverage_gap`.
+- **Факты 22–23.10:** живой банк — 126 ячеек, идентичность цела, но 187 ушедших позиций в 103 сетах, контракты лечения каждую ночь
+  останавливает предохранитель `heal_policy` 25 %; ночь 23.10 — 0 подмен (кандидат пересобирался с нуля: совпадение 1109/2754 → keep).
+  Свежая сборка даёт 8–10 ячеек со сломанным порядком тиров — follow-up conv-14b.

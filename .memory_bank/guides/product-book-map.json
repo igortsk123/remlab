@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-20",
+ "generated": "2026-10-29",
  "paragraphs": [
   {
    "line": 85,
@@ -392,7 +392,7 @@
    "plans": [
     {
      "slug": "demo-05-scene-artifacts-3d",
-     "status": "in_progress"
+     "status": "partial"
     },
     {
      "slug": "demo-19-owner-live-test-2010",
@@ -416,7 +416,7 @@
     },
     {
      "slug": "demo-05-scene-artifacts-3d",
-     "status": "in_progress"
+     "status": "partial"
     }
    ],
    "verdict": "ok"

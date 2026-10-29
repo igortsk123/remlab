@@ -2,14 +2,17 @@
 workstream: demo
 slug: demo-05-scene-artifacts-3d
 title: Сцена без артефактов и 3D глазами покупателя, дизайнера и девелопера — наезды, чёрные модели, прогулка сквозь мебель, пустые режимы, чужая шапка
-status: in_progress
+status: partial
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-10-29
+pause_reason: камеры цикл 3 PASS 17.10; остался ⚑ владелец — замер скорости захвата двух кадров на iPhone
+resume_trigger: владелец делает замер на iPhone
+review_after: 2026-11-28
+owner_decision_required: true
 completed:
 plan_kind: sub
 parent_plan: MASTER-cost-first
 assignee: opus-5.5
-review_after: 2026-11-28
 ---
 
 ## Цель
@@ -451,4 +454,3 @@ review_after: 2026-11-28
   § «Кадр и камеры»); дополнение «камеры после пары» закрыто.
 - 2026-10-17 — перенесено из demo-10 при закрытии: ⚑ владелец — замер скорости захвата двух кадров на iPhone (headless без видеокарты 7–11 с;
   на устройстве с видеокартой ожидается ≤ 2 с) — `tools/ops/demo-walk/frames-real.cjs` с телефона / вручную по журналу DEV «наша часть».
-

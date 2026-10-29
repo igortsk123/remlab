@@ -2,14 +2,17 @@
 workstream: demo
 slug: demo-04-scene-look
 title: Вид сцены — белые стены красиво, аккуратные двери и окна везде, подставляемый вид из окна; одинаково в окне варианта, 3D и серверном кадре
-status: in_progress
+status: partial
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-10-29
+pause_reason: пункты 1–6 закрыты (d8, 15.10); остался только ⚑ владелец
+resume_trigger: владелец смотрит вид сцены и даёт вердикт
+review_after: 2026-11-28
+owner_decision_required: true
 completed:
 plan_kind: sub
 parent_plan: MASTER-cost-first
 assignee: opus-5.5
-review_after: 2026-11-28
 ---
 
 ## Цель

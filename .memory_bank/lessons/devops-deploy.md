@@ -3,7 +3,7 @@ tier: 2
 topic: lessons-devops-deploy
 scope: Уроки: devops — docker/buildkit, exit-fi, gitignore, деплой, CI, хуки, инструменты dev-машины — читать перед планом по этой теме
 tier1: ../core/lessons.md
-updated: 2026-10-19
+updated: 2026-10-29
 importance: med
 source: manual
 status: stable
@@ -379,3 +379,14 @@ systemd — крон-подъём раз в 10 минут (`tools/ops/dev-checks
 прода (`-g`, без записи данных): прод зелёный → дело в нагрузке CI (параллельные вкладки с программным WebGL) → e2e на CI в
 один поток, постоянный цикл кадров невидимой/неподвижной сцены — гасить.
 - **513 (18.10)** — выкладка стояла ~40 мин при зелёном CI: `playwright.live.config.ts` (корень, его видит `tsconfig`) импортировал `e2e/live/browser.ts`, а `e2e/` в `.dockerignore` → `next build` в Docker падал на типах (TS2307); у CI-гейта `e2e/` есть, поэтому он зелёный. Прод работал на прежней версии. Починка — `.dockerignore`: `playwright*.config.ts` (ef9c9d8f). Правила: (1) приёмка ведущего = коммит виден в `/api/health` (`version`), а не «влито и отправлено»; (2) корневой файл, видимый `tsconfig`, не импортирует из папок, исключённых `.dockerignore` (кандидат в CI-проверку).
+- **530 (23.10)** — CI ≠ локально, даже «в чистой копии»: `tools/scout/draft_render.py:31` вставляет АБСОЛЮТНЫЙ путь DEV к
+  planner-solver — тест проходил на этой машине (и в чистой копии на ней же), в CI нет; тест `test_demo_soft` стоял в задаче
+  `scout-orient` без shapely, а зеркало `tools/scout/salad/asset_strategy.py` не синхронизировали — две красные CI подряд. Правило: тест, импортирующий
+  модуль с машинным путём, сам добавляет относительный путь; новый тест — в задачу CI с нужными зависимостями; «как CI» — с другого пути.
+- **531 (23.10)** — автодеплой применяет ВСЕ `db/init/*.sql` (`deploy-remote.sh` → `tools/apply-db-init.sh`): влитие файла миграции в
+  `main` = её применение на проде. Правило: `pg_dump` прода — ДО влития (T-13: `/opt/remlab/backups/db-pre-t13-…sql.gz`), миграция —
+  отдельным шагом ведущего.
+- **532 (29.10)** — CI красный без единой правки: `ubuntu-latest` переехал на Ubuntu 26, Playwright 1.51.1 её не знает →
+  `playwright install --with-deps` падал, выкладка стояла с 28.10 21:00 UTC. Причина прочитана без токена — аннотация check-run
+  публичного API. Починка — `runs-on: ubuntu-24.04` у gate (`.github/workflows/ci.yml:12`, `438ef30f`). Правило: образ раннера CI —
+  закреплённой версией, не `latest`.
