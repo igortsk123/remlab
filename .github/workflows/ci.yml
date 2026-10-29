@@ -7,7 +7,9 @@ on:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    # 24.04 закреплён (29.10): ubuntu-latest переезжает на Ubuntu 26, Playwright 1.51 её не знает —
+    # `playwright install --with-deps` падал, выкладка стояла с 28.10
+    runs-on: ubuntu-24.04
     # Postgres+pgvector сервис — готов для integration-тестов Stage 1 (пока не используется).
     services:
       postgres:
