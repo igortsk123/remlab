@@ -3,7 +3,7 @@ tier: 1
 topic: styles
 scope: Стили — паспорта, скоринг, сеты
 tier2: ../domain/interior-styles.md
-updated: 2026-10-17
+updated: 2026-10-29
 last_verified: 2026-10-13
 importance: high
 source: manual
@@ -35,5 +35,7 @@ sets3.json; судья со style_grade, замены только ниже по
 CLIP) не согласны, порог «≥ 6» невалиден — детали Tier 2; решение: единый вектор (`conv-01`, `conv-02`).
 
 **14.10 (ADR-0269):** стенд по осям (`tools/scout/style_axes.py`) — главный пока нынешний метод; выбор — владелец.
+
+**29.10:** отметки стиля человеком — Tier 2.
 
 **Tier 2:** ../domain/interior-styles.md
