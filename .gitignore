@@ -75,6 +75,11 @@ tools/scout/*
 # типовые размеры и ПОРЯДОК напольных ролей солвера — правятся руками, писателей нет (T-20261023-10): вне git свежая копия
 # брала запасной список без ковра, и ковёр молча не ставился («adapter_excluded:not_floor_role»)
 !tools/scout/typical-dims.json
+# английские названия товаров витрины — ручной перевод и словарь (demo-31, T-20261030-01): без них английское демо
+# в ночной сборке получило бы транслитерацию вместо перевода
+!tools/scout/data/
+!tools/scout/data/names-en.json
+!tools/scout/data/names-en-dict.json
 
 # docker artifacts
 *.tar

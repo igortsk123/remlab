@@ -1730,6 +1730,14 @@ def main() -> None:
             print('WARN:feed_family_colour: в лентах модели семейства другого цвета — ' + ', '.join(f'{r} {n}' for r, n in sorted(bad.items())), flush=True)
     except Exception as e:  # noqa: BLE001 — замер не валит сборку
         print(f'  замер цвета семейств в лентах не удался: {repr(e)[:100]}', flush=True)
+    # АНГЛИЙСКИЕ НАЗВАНИЯ (план demo-31, владелец 30.10): `name_en`/`colour_en` каждому товару — для английского демо.
+    # Без кириллицы и магазина по построению (нет перевода — нейтральное по роли, строка WARN); публикацию не останавливает
+    try:
+        import names_en as _NE
+        for line in _NE.report_lines(_NE.annotate(data)):
+            print(line, flush=True)
+    except Exception as e:  # noqa: BLE001 — сломанный перевод не валит русскую витрину, но громко
+        print(f'WARN:names_en_error: английские названия не записались: {repr(e)[:160]}', flush=True)
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     # РАКУРСЫ ОКНА — В ДАННЫЕ (demo-05 п.8): тот же блок CAMFIT страницы считает пару ракурсов каждого варианта
