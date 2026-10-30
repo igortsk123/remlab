@@ -2607,12 +2607,12 @@ function decorRows(){
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
       // роль — без номера слота («подушка 2» → «подушка», ведущий 23.10); мягкое — без пометки (владелец 23.10: вариант и так
       // открывается улучшенным фото, подушки там видны; подсказка — только тостом при замене, `softSwapToast`)
-      `<div class="t"><b>${p.name}</b><span>`+(isSoft(x.role)?baseRole(x.role):`${baseRole(x.role)} · ${decorWhere(x)}`)+
-      (p.shop?' · '+p.shop:'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
+      `<div class="t"><b>${itemName(p,x.role)}</b><span>`+(isSoft(x.role)?baseRole(x.role):`${baseRole(x.role)} · ${decorWhere(x)}`)+
+      (itemShop(p)?' · '+itemShop(p):'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
       `</div><div class="p">${money(p.price)}</div>`+
       // действия — своей строкой под фото и текстом (`.row>.acts`, demo-26 Г)
       `<span class="acts"><button class="lnk swap">Заменить</button>`+
-      (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`;}).join('');
+      (itemUrl(p)?` · <a href="${itemUrl(p)}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`;}).join('');
   return {html:html, n:d.length, sum:sum};
 }
 // КУДА СТАВИТСЯ ДЕКОР. Правило одно со сценой (`decorSupport`): журнальный столик, если он есть,
@@ -2676,10 +2676,10 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
     const buy=n>1?` · ${n} комплекта`:'';
     return `<div class="row" data-i="${items.indexOf(i)}">`+
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
-      `<div class="t"><b>${p.name||i.role}</b><span>${roles} · ${dims}${p.shop?' · '+p.shop:''}${p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':''}${cnt}${buy}</span></div>`+
+      `<div class="t"><b>${itemName(p,i.role)||i.role}</b><span>${roles} · ${dims}${itemShop(p)?' · '+itemShop(p):''}${p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':''}${cnt}${buy}</span></div>`+
       `<div class="p">${money((p.price||0)*n)}</div>`+
       `<span class="acts"><button class="lnk swap">Заменить</button>`+
-      (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`;}).join('')
+      (itemUrl(p)?` · <a href="${itemUrl(p)}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`;}).join('')
     // ДЕКОР — ТАКОЙ ЖЕ КУПЛЕННЫЙ ТОВАР (владелец 02.09: «вазы должны в списке товаров появиться,
     // не вижу»). Он лежит отдельно от расстановки, потому что места на плане у него нет — модель
     // ставит его на стол или тумбу. Но платит за него человек так же, значит и в списке, и в
@@ -3009,8 +3009,8 @@ function listJpg(){
   txt((EN?'Furniture: ':'Мебель: ')+(st.charAt(0).toUpperCase()+st.slice(1)),56,184,'600 30px system-ui',null,W-112);
   groups.forEach((gr,k)=>{const p=gr.sku, n=buys(gr.slots.length,p), y=top+k*rowH+40;
     g.fillStyle='#e8e2db'; g.fillRect(56,y+46,W-112,1);
-    txt(p.name||T(gr.first.role),56,y,'500 25px system-ui',null,W-420);
-    txt(n+' × '+money(p.price||0)+(p.shop?' · '+p.shop:''),56,y+28,'400 21px system-ui','#7a716a',W-420);
+    txt(itemName(p,gr.first.role)||T(gr.first.role),56,y,'500 25px system-ui',null,W-420);
+    txt(n+' × '+money(p.price||0)+(itemShop(p)?' · '+itemShop(p):''),56,y+28,'400 21px system-ui','#7a716a',W-420);
     g.textAlign='right'; txt(money((p.price||0)*n),W-56,y,'700 26px system-ui'); g.textAlign='left';});
   const yb=top+groups.length*rowH+60;
   txt(EN?'Total':'Итого',56,yb,'700 32px system-ui');
@@ -3044,8 +3044,8 @@ function openList(){
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="pnoimg">нет фото</div>')+
       `<div class="pi"><b>${money((p.price||0)*n)}</b>`+
       `<span>${n} × ${money(p.price||0)}${p.price_at?' · цена на '+p.price_at.slice(8,10)+'.'+p.price_at.slice(5,7):''}</span>`+
-      `<div class="pname">${p.name||gr.first.role}</div></div>`+
-      (p.shop?`<div class="shop">${p.shop}</div>`:'')+`</div>`;}).join('');
+      `<div class="pname">${itemName(p,gr.first.role)||gr.first.role}</div></div>`+
+      (itemShop(p)?`<div class="shop">${itemShop(p)}</div>`:'')+`</div>`;}).join('');
   const plan=document.querySelector('#flatRooms svg');
   cardEl.innerHTML=
     (FLAT&&FLAT.number?`<div class="mark">${FLAT.number}</div>`:'')+
@@ -3065,12 +3065,12 @@ let peekTimer=null;
 function peek(e,it){const p=document.getElementById('peek');const s=skuOf(it)||{};
   clearTimeout(peekTimer);
   p.innerHTML=`<img src="${s.img}" alt="">`+
-    `<div class="pn">${s.name||it.role}</div>`+
+    `<div class="pn">${itemName(s,it.role)||it.role}</div>`+
     `<div class="pp">${money(s.price)}</div>`+
-    `<div class="pd">${dimsText(it)}${s.shop?' · '+s.shop:''}</div>`+
-    `<div class="pgo">Перейти к товару →</div>`;
+    `<div class="pd">${dimsText(it)}${itemShop(s)?' · '+itemShop(s):''}</div>`+
+    (itemUrl(s)?`<div class="pgo">Перейти к товару →</div>`:'');
   p.style.display='block';
-  p.onclick=()=>{if(s.url)window.open(s.url,'_blank','noopener');};
+  p.onclick=()=>{if(itemUrl(s))window.open(itemUrl(s),'_blank','noopener');};
   p.onpointerenter=()=>clearTimeout(peekTimer);
   p.onpointerleave=()=>hidePeek();
   const r=p.getBoundingClientRect();
@@ -3552,6 +3552,18 @@ function variantOf(s){
   return (allVariants()||[]).find(x=>((x.id||'')===(s&&s.vid))||((x.title||'')===(s&&s.variant)))
          ||allVariants()[cur]||{};
 }
+// «ОТПРАВИТЬ СЕБЕ» ПО МАСКЕ (demo-31): страницу подборки рисует `draft_service._share` тем, что ей прислали, — при маске шлём готовое:
+// английские название и роль, цену в валюте карточки, без магазина и ссылки, плюс валюту и язык; без маски — как было
+function shareItem(a){
+  if(!MASK())return {name:a.name,price:a.price,url:a.url,img:a.img,shop:a.shop,role:a.role,qty:a.qty||1};
+  return {name:itemName(a,a.role),price:toCard(a.price),img:a.img,role:maskRoleEn(a.role)||'item',qty:a.qty||1};}
+function shareMask(){return {currency:FLAT.currency, lang:LANG, mask:true};}
+// подпись кадра подборки при маске — по-английски; стиль без перевода не пишем (кириллицы на странице подборки нет)
+function shareLabel(s){
+  if(!MASK())return shotLabel(s);
+  const st=String((window.__trText&&window.__trText(String(styleOf(s)).toLowerCase()))||''), t=new Date(s.ts||Date.now());
+  const q={draft:'sketch',realistic:'photorealistic',preset:'ready-made'}[s.quality]||'';
+  return [/[А-Яа-яЁё]/.test(st)?'':st, q, t.getHours()+':'+String(t.getMinutes()).padStart(2,'0')].filter(Boolean).join(' · ');}
 function shotLabel(s){
   // СЛОВА ПОКУПАТЕЛЯ, А НЕ НАШИ (аудит 01.09, Г1): «черновое/улучшенное» — внутренние термины
   // конвейера; человеку важно, эскиз перед ним или фотография.
@@ -4198,7 +4210,45 @@ function escHtml(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt
 // ДЕНЬГИ В ВАЛЮТЕ КАРТОЧКИ (ADR-0298): цены витрины — рубли фидов; у британского демо-двойника карточка в £ с курсом `fx` —
 // пересчёт при показе, ОДНИМ местом (данные витрины не меняем: коллекции и сервер считают в рублях). `money` — для рублёвых
 // сумм витрины, `fmtCard` — для сумм, уже посчитанных в валюте карточки (сертификат, опции, итоги плашки)
-function fxRate(){return FLAT&&FLAT.fx&&FLAT.fx.from==='RUB'&&FLAT.currency===FLAT.fx.to?(+FLAT.fx.rate||0):0;}
+// DEMOMASK START — БРИТАНСКАЯ МАСКА АНГЛИЙСКОГО ДЕМО (demo-31, владелец 30.10; чистые функции — тест `tests/unit/demo-mask.test.ts`).
+// Пока нет британских фидов, у квартиры-двойника (`FLAT.demoMask`) товары витрины показываются как британские: цена × наценку (одним
+// множителем к курсу — только товары магазинов: опции застройщика, сертификат и цена квартиры курса не знают), английское название
+// из сборки (`name_en`), без магазина и ссылки «To shop». Это маска ПОКАЗА: данные товара в расстановке, корзине и подборках — как
+// были. Название ищется по `sid` (товар копируется в нескольких местах, подборки хранят только русское), без `sid` — по исходному
+// названию; не нашлось или осталась кириллица — нейтральное по роли («Sofa»). Ключ курса корзины включает наценку — кэш пересчитается
+function maskOf(f){return (f&&f.demoMask)||null;}
+function fxRateOf(f){
+  if(!(f&&f.fx&&f.fx.from==='RUB'&&f.currency===f.fx.to))return 0;
+  const r=+f.fx.rate||0, m=maskOf(f); return r&&m&&+m.priceMarkup>0?r*(+m.priceMarkup):r;}
+function fxKeyOf(f){
+  if(!(f&&f.fx))return '';
+  const m=maskOf(f); return f.fx.rate+'@'+f.fx.asOf+(m&&+m.priceMarkup>0&&+m.priceMarkup!==1?'x'+m.priceMarkup:'');}
+const MASK_GONE=/ — (сейчас нет в витрине|no longer in the showroom)$/;
+// sid → name_en и название → name_en по всем местам витрины (варианты, комплекты, ленты, диваны, спальня)
+function namesEnOf(d){
+  const by={sid:{}, name:{}};
+  const walk=x=>{ if(Array.isArray(x)){x.forEach(walk); return;} if(!x||typeof x!=='object')return;
+    if(typeof x.name==='string'&&typeof x.name_en==='string'&&x.name_en){
+      if(x.sid&&!by.sid[x.sid])by.sid[x.sid]=x.name_en; if(!by.name[x.name])by.name[x.name]=x.name_en;}
+    Object.values(x).forEach(walk);};
+  walk(d); return by;}
+// `roleEn(роль)` — английская роль без номера места («sofa») или пусто
+function maskName(p, role, m, names, roleEn){
+  if(!m||!m.englishNames)return (p&&p.name)||'';
+  const nm=String((p&&p.name)||'').replace(MASK_GONE,''), sid=p&&p.sid;
+  let n=(sid&&names.sid[sid])||(nm&&names.name[nm])||(p&&p.name_en)||'';
+  if(!n||/[А-Яа-яЁё]/.test(n)){const r=String((roleEn&&roleEn(role))||''); n=r&&!/[А-Яа-яЁё]/.test(r)?r.charAt(0).toUpperCase()+r.slice(1):'Item';}
+  return n+(p&&p.unavailable?' — no longer in the showroom':'');}
+// DEMOMASK END
+let NAMES_EN=null, NAMES_D=null;
+function namesEn(){ if(NAMES_D!==D){NAMES_D=D; NAMES_EN=namesEnOf(D||{});} return NAMES_EN; }
+function MASK(){return maskOf(FLAT);}
+function maskRoleEn(r){const b=String(r||'').replace(/\s+\d+$/,''); return (window.__trText&&window.__trText(b))||'';}
+// ПОМОЩНИКИ ПОКАЗА ТОВАРА — все места вывода названия, магазина и ссылки «В магазин» идут через них (demo-31)
+function itemName(p, role){return maskName(p, role, MASK(), namesEn(), maskRoleEn);}
+function itemShop(p){const m=MASK(); return m&&m.hideShops?'':String((p&&p.shop)||'');}
+function itemUrl(p){const m=MASK(); return m&&m.hideShops?'':String((p&&p.url)||'');}
+function fxRate(){return fxRateOf(FLAT);}
 function toCard(rub){const r=fxRate(); return r?Math.round((+rub||0)*r):Math.round(+rub||0);}
 function fmtCard(v){const n=Math.round(+v||0);
   if(FLAT&&FLAT.currency==='GBP')return '£'+n.toLocaleString('en-GB');
@@ -4206,7 +4256,7 @@ function fmtCard(v){const n=Math.round(+v||0);
   return n.toLocaleString('ru-RU')+' ₽';}
 function money(v){return fmtCard(toCard(v));}
 // пометка пересчёта: цены магазинов — в рублях, показаны по курсу из карточки застройщика на дату (честно, ADR-0298)
-function fxNote(){const r=fxRate(); if(!r)return '';
+function fxNote(){const r=fxRate(); if(!r||MASK())return '';      // при маске пометки о рублях нет (demo-31)
   const d=String(FLAT.fx.asOf||'').split('-').reverse().join('.'), EN=LANG==='en';
   return `<p class="fxnote">${EN?'≈ Prices converted from roubles at the rate of '+d:'≈ Цены пересчитаны из рублей по курсу на '+d}</p>`;}
 // КАРТОЧКА ТОВАРА У ЯКОРЯ (владелец 26.08: «навожу на цифру — не вижу карточки»): фото,
@@ -4215,16 +4265,16 @@ function fxNote(){const r=fxRate(); if(!r)return '';
 function pinCard(a,el){
   const p=document.getElementById('peek'); if(!p||!a)return;
   p.innerHTML=(a.img?`<img src="${a.img}" alt="">`:'<div class="noimg">фото недоступно</div>')+
-    `<div class="pn">${a.name||a.role}</div>`+
+    `<div class="pn">${itemName(a,a.role)||a.role}</div>`+
     `<div class="pp">${money(a.price)}</div>`+
-    `<div class="pd">${a.role}${a.shop?' · '+a.shop:''}</div>`+
-    (a.url?'<div class="pgo">Перейти к товару →</div>':'');
+    `<div class="pd">${a.role}${itemShop(a)?' · '+itemShop(a):''}</div>`+
+    (itemUrl(a)?'<div class="pgo">Перейти к товару →</div>':'');
   const r=el.getBoundingClientRect();
   p.style.display='block';
   const w=p.offsetWidth||240, h=p.offsetHeight||260;
   p.style.left=Math.min(Math.max(8,r.left+r.width/2-w/2),(window.innerWidth||1200)-w-8)+'px';
   p.style.top=(r.top-h-10>8?r.top-h-10:r.bottom+10)+'px';
-  p.onclick=()=>{if(a.url)window.open(a.url,'_blank','noopener');};
+  p.onclick=()=>{if(itemUrl(a))window.open(itemUrl(a),'_blank','noopener');};
 }
 
 // ——— СПИСОК ТОВАРОВ ПОД ФОТО. Вынесен из `viewShot` отдельно, потому что его нужно
@@ -4280,15 +4330,15 @@ function shotListHtml(s){
         return `<div class="row" style="cursor:default" data-k="${k}"${a.sid?` data-sid="${escHtml(a.sid)}"`:''}>`+
           // первые 10 строк — сразу, остальные — лениво; до загрузки — заглушка тона страницы (demo-21 п.5), загрузилась — белая плитка
           (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`:'<div class="noimg-sm">нет фото</div>')+
-          `<div class="t"><b>${a.name}</b>`+
+          `<div class="t"><b>${itemName(a,a.role)}</b>`+
           // мягкое (demo-24) — без пометки, роль без номера слота (владелец и ведущий 23.10)
-          `<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${a.shop?' · '+a.shop:''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
+          `<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${itemShop(a)?' · '+itemShop(a):''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
           swatchRow(own&&(own.sku&&own.sku.name?own.sku:skuOf(own)),a.role)+`</div>`+
           `<div class="p">${money(a.price)}</div>`+
           // действия — своей строкой под фото и текстом: цена их не сжимает (`.row>.acts`, demo-26 Г)
           `<span class="acts">`+
             (own?`<button class="lnk" data-rep="${k}">Заменить</button>`:'')+
-            (a.url?`${own?' · ':''}<a href="${a.url}" target="_blank" rel="noopener">В магазин</a>`:'')+
+            (itemUrl(a)?`${own?' · ':''}<a href="${itemUrl(a)}" target="_blank" rel="noopener">В магазин</a>`:'')+
           `</span></div>`;}).join('')+
       `</div>`;
 }
@@ -4350,7 +4400,7 @@ const IC={on:false, pushed:false, eat:false, swap:null, from:null, p:null, fam:n
 function icBig(src){ return D&&D._img_large&&/(^|\/)img\/[0-9a-f]{16}\.jpg$/.test(src||'')?src.replace(/\.jpg$/,'-l.jpg'):''; }
 // товар строки → поля карточки; у ковра высоты нет (плита), как в ленте замен
 function icItem(p, role){ const r=baseRole(role), rug=r==='ковёр';
-  return {name:p.name, img:p.img, url:p.url, shop:p.shop, price:p.price, qty:p.qty||1, role:r, w:p.w, d:p.d, h:rug?null:p.h,
+  return {name:itemName(p,r), img:p.img, url:itemUrl(p), shop:itemShop(p), price:p.price, qty:p.qty||1, role:r, w:p.w, d:p.d, h:rug?null:p.h,
     ...(p.in_stock===false?{in_stock:false}:{})}; }
 // ЦВЕТА МОДЕЛИ — товары ленты своей роли с той же моделью (`msid`; у цвета своего меша нет), только с фото; первым — сам товар.
 // Считаем по тому, что реально есть в ленте (лимит ленты — 30 товаров на подкатегорию×стиль), не по всему семейству магазина
@@ -4363,10 +4413,13 @@ function colourFam(sku, role){
   return out.length>1?out:[];
 }
 // имя цвета — хвост названия после общего начала всех цветов модели («… Викс Рогожка» + «Серый» / «Синий»)
+// маска (demo-31): английского названия у цветов ещё нет — у всех одно «Sofa»; тогда цвета различаем номером, а не одинаковым словом
+function maskSameNames(fam){ return !!MASK()&&new Set(fam.map(p=>itemName(p))).size<fam.length; }
 function colourName(fam, k){
-  const w=fam.map(p=>String(p.name||'').split(' ')); let i=0;
+  if(maskSameNames(fam))return 'Colour '+(k+1);
+  const w=fam.map(p=>String(itemName(p)||'').split(' ')); let i=0;
   while(w.every(x=>i<x.length-1&&x[i]===w[0][i]))i++;
-  return w[k].slice(i).join(' ')||fam[k].name;
+  return w[k].slice(i).join(' ')||itemName(fam[k]);
 }
 // кружок-образец: тон фото из сборки (`swatch`, `annotate_swatch`); нет — само фото в кружке
 function swatchBtn(p, attr, on, label){
@@ -4570,12 +4623,11 @@ function shareOpen(list){
     shotOpen('<div class="wait"><div class="spin"></div>Отправляем…</div>','');
     try{
       const r=await fetch('/api/share',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({title:flatTitle(),channel:chan,contact:chan==='telegram'?'':to,
+        body:JSON.stringify(Object.assign({title:flatTitle(),channel:chan,contact:chan==='telegram'?'':to,
           // В ПОДБОРКУ ИДУТ И ТОВАРЫ СО ССЫЛКАМИ (владелец 26.08: «человек должен получать
           // коллекции»): под каждым кадром — что на нём стоит, почём и где купить
-          shots:sel.map(s=>({url:s.url,label:shotLabel(s),
-            items:shotProducts(s).map(a=>({name:a.name,price:a.price,
-              url:a.url,img:a.img,shop:a.shop,role:a.role,qty:a.qty||1}))}))})});
+          shots:sel.map(s=>({url:s.url,label:shareLabel(s),
+            items:shotProducts(s).map(shareItem)}))}, MASK()?shareMask():{}))});
       const j=await r.json();
       if(j.error)throw new Error(j.error);
       reportAct('share');
@@ -4700,7 +4752,7 @@ stage.addEventListener('pointerdown',e=>{if(vwEditLock()){e.preventDefault(); re
         drag={dx:touchStart.pt.x-hit.x,dy:touchStart.pt.y-hit.y,t:Date.now(),moved:false};
         if(navigator.vibrate)navigator.vibrate(30);},450);
     }else{hideRotOvl();drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};}
-    document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d)} см`+(hit.sku&&hit.sku.name?` · ${hit.sku.name}`:'');
+    document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d)} см`+(hit.sku&&hit.sku.name?` · ${itemName(hit.sku,hit.role)}`:'');
     warmUp();draw();showTip(hit);}});
 stage.addEventListener('pointermove',e=>{
   if(touchTimer&&touchStart&&Math.hypot(e.clientX-touchStart.x,e.clientY-touchStart.y)>10){
@@ -4942,7 +4994,7 @@ function grid(){
     row.innerHTML='<b>Цвета этой модели</b>'; g.appendChild(row);
     // цена — только если у цвета она другая (demo-20 А1: два цвета в строку, карточка ниже — целиком на iPhone SE)
     colours.forEach(p=>{const on=sel.sku&&sel.sku.name===p.name, b=document.createElement('button'); b.className='colchip'+(on?' on':'');
-      b.innerHTML=`<img src="${p.img}" alt="" loading="lazy"><span>${tail(p.name,sel.sku.name)||p.name}</span>`+
+      b.innerHTML=`<img src="${p.img}" alt="" loading="lazy"><span>${maskSameNames(colours)?colourName(colours,colours.indexOf(p)):(tail(itemName(p,base),itemName(sel.sku,base))||itemName(p,base))}</span>`+
         ((p.price||0)!==(sel.sku.price||0)?`<small>${money(p.price)}</small>`:'');
       // тап — карточка с предпросмотром этого цвета, «Сохранить» — замена цвета (demo-28; раньше чип сразу применял)
       b.onclick=()=>{const k=colours.indexOf(p), c0=colours.findIndex(x=>sel.sku&&x.name===sel.sku.name);
@@ -4957,13 +5009,13 @@ function grid(){
     if(cur)c.classList.add('cur');
     c.innerHTML=`<img src="${p.img}" loading="lazy" alt="">`+
       (bg.txt?`<span class="badge ${bg.cls}">${bg.txt}</span>`:'')+
-      `<div class="nm">${p.name||''}</div>`+
+      `<div class="nm">${itemName(p,base)}</div>`+
       `<div class="pr">${money(p.price)}</div>`+
       // «ещё N цветов» — в строке размера, а не отдельной строкой (demo-20 А1: карточка ниже на iPhone SE)
-      `<div class="dim">${dims}${p.shop?' · '+p.shop:''}`+
+      `<div class="dim">${dims}${itemShop(p)?' · '+itemShop(p):''}`+
       (more.get(modelOf(p))?` · <span>${'ещё '+more.get(modelOf(p))+' '+(more.get(modelOf(p))===1?'цвет':more.get(modelOf(p))<5?'цвета':'цветов')}</span>`:'')+`</div>`+
       `<div class="acts"><button class="mini">${cur?'Выбрано':'Заменить'}</button>`+
-      `<a class="mini link" href="${p.url}" target="_blank" rel="noopener">В магазин</a></div>`;
+      (itemUrl(p)?`<a class="mini link" href="${itemUrl(p)}" target="_blank" rel="noopener">В магазин</a>`:'')+`</div>`;
     // ВЫБРАЛ — ОКНО ЗАКРЫВАЕТСЯ (владелец 02.09). Раньше лист подбора оставался открытым, и
     // человек не понимал, применилась замена или нет: результат-то виден на плане и в списке,
     // которые закрыты этим же листом. `sid` переносим тоже — иначе в сцене останется меш
@@ -4973,7 +5025,7 @@ function grid(){
     // а вторая замена того же предмета вообще не срабатывала — строка искалась по прежнему имени.
     const take=()=>{ if(typeof VW!=='undefined')VW.auto=null; tryOn(p); grid(); closePicker(); refreshShotList(); };
     c.querySelector('.mini').onclick=e=>{e.stopPropagation();take();};
-    c.querySelector('.link').onclick=e=>e.stopPropagation();
+    const lk=c.querySelector('.link'); if(lk)lk.onclick=e=>e.stopPropagation();
     // фото или название — карточка товара (demo-26 Д), остальная карточка ленты — замена, как была; у выбранного «Заменить» нет
     // у плитки — цвета её модели в ленте: «Заменить» ставит показанный цвет (demo-28)
     c.onclick=e=>{if(e.target.closest('img,.nm')){const fm=allL.filter(x=>modelOf(x)===modelOf(p)), f=[p,...fm.filter(x=>x!==p)];
@@ -5020,7 +5072,8 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
          ...(p.tint?{tint:p.tint}:{})};
   kin.forEach(it=>{it.w=s.w; it.d=s.d; it.h=s.h; it.sku=Object.assign({},s.sku);});
   sel=s;
-  document.getElementById('sel').innerHTML=`Примерено: <b>${p.name}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${money(p.price)} · <a href="${p.url}" target="_blank" rel="noopener">открыть в магазине</a>`;
+  document.getElementById('sel').innerHTML=`Примерено: <b>${itemName(p,s.role)}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${money(p.price)}`+
+    (itemUrl(p)?` · <a href="${itemUrl(p)}" target="_blank" rel="noopener">открыть в магазине</a>`:'');
   draw();}
 
 // ——— советчик по стандартам (лёгкое подмножество боевого валидатора)
@@ -6912,12 +6965,12 @@ async function liveShotTake(){
             roles[r].map(function(p){
               return '<div class="pc" style="border:1px solid var(--line,#E4E6E2);border-radius:12px;padding:10px;background:#fff">'+
                 '<img src="'+esc(p.img)+'" alt="" loading="lazy" style="width:100%;aspect-ratio:4/3;object-fit:contain;background:#F7F5F1;border-radius:8px">'+
-                '<div style="font-size:14px;line-height:1.3;margin-top:6px;max-height:36px;overflow:hidden">'+esc(p.name)+'</div>'+
-                '<div style="font-size:12px;color:var(--muted);margin-top:3px">'+esc(size(p))+' · '+esc(p.shop)+'</div>'+
+                '<div style="font-size:14px;line-height:1.3;margin-top:6px;max-height:36px;overflow:hidden">'+esc(itemName(p,r))+'</div>'+
+                '<div style="font-size:12px;color:var(--muted);margin-top:3px">'+esc(size(p))+(itemShop(p)?' · '+esc(itemShop(p)):'')+'</div>'+
                 '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">'+
                 '<b>'+esc(money(p.price))+'</b>'+
-                '<a class="btn" href="'+esc(p.url)+'" target="_blank" rel="sponsored noopener" style="padding:6px 10px;font-size:13px">'+
-                (en?'Shop':'В магазин')+'</a></div></div>';}).join('')+'</div>';}).join('')+'</div>';
+                (itemUrl(p)?'<a class="btn" href="'+esc(itemUrl(p))+'" target="_blank" rel="sponsored noopener" style="padding:6px 10px;font-size:13px">'+
+                (en?'Shop':'В магазин')+'</a>':'')+'</div></div>';}).join('')+'</div>';}).join('')+'</div>';
     }
     function show(on){
       sec.hidden=!on; tab.classList.toggle('on',on); tab.setAttribute('aria-selected',String(on));
@@ -7134,7 +7187,7 @@ async function liveShotTake(){
   function cardOptions(){return ((typeof FLAT!=='undefined'&&FLAT&&FLAT.options)||[]).map(function(g){return {id:g.id, roomKind:g.roomKind,
     roomId:g.roomId||null, title:g.title, settlement:g.settlement, defaultVariantId:g.defaultVariantId, kind:g.kind,
     variants:(g.variants||[]).map(function(x){return {id:x.id, name:x.name, price:{type:x.price.type, amount:x.price.amount}};})};});}
-  var fxKey=function(){return (typeof FLAT!=='undefined'&&FLAT&&FLAT.fx)?FLAT.fx.rate+'@'+FLAT.fx.asOf:'';};
+  var fxKey=function(){return typeof FLAT!=='undefined'?fxKeyOf(FLAT):'';};   // при маске — с наценкой (demo-31)
   function quoteFor(v,room,dev,live){ if(!BK.mod||typeof FLAT==='undefined'||!FLAT)return null;
     return BK.mod.quoteRoom({roomId:room.id, roomKind:room.kind, currency:FLAT.currency, fx:fxKey()||undefined, at:Date.now(), items:live?items:(v.items||[]),
       decor:variantDecor(v)||[], developerOptions:dev||{}, options:cardOptions(), toCard:function(r){return toCard(r);}});}
@@ -7342,7 +7395,8 @@ async function liveShotTake(){
   // ПОЧЕМУ ВАРИАНТ НЕ ВКЛЮЧАЕТСЯ (demo-19 А1): называем причину — товара нет в продаже, цену даёт менеджер, коллекции больше нет;
   // null — строки ещё не прочитаны с сервера (их перечитываем, а не просим «попробовать через минуту»)
   function pendingWhy(q){
-    var EF=EN(), clean=function(t){return String(t||'').replace(/ — (сейчас нет в витрине|no longer in the showroom)$/,'');};
+    var EF=EN(), clean=function(t){t=String(t||'').replace(/ — (сейчас нет в витрине|no longer in the showroom)$/,'');
+      return MASK()?itemName({name:t},t):t;};   // маска (demo-31): строка корзины хранит исходное название — показываем английское
     if(q&&q.status==='unavailable')return EF?'This layout is no longer available — choose another one':'Эта расстановка больше недоступна — выберите другую';
     if(!q||q.status!=='fresh')return null;
     var of=function(st){return q.lines.filter(function(l){return l.settlement==='allowance'&&l.priceStatus===st;}).map(function(l){return '«'+clean(l.label)+'»';});};

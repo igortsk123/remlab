@@ -5,7 +5,9 @@
 
 import type { CurrentPrice } from "@/contracts/collection";
 
-export type ShowcaseSku = { sid: string; msid?: string; name: string; url?: string; shop?: string; img?: string; price: number; priceAt: string | null; pack?: number };
+export type ShowcaseSku = { sid: string; msid?: string; name: string; url?: string; shop?: string; img?: string; price: number; priceAt: string | null; pack?: number;
+  /** Английское название сборки (`name_en`, demo-31) — для британской маски английского демо. */
+  nameEn?: string };
 
 // фото — путь витрины `img/…` или картинка магазина (`https:`/`//`); остальное не отдаём
 const IMG_RE = /^(img\/[\w.\/-]+|(https:)?\/\/[^\s"'<>]+)$/;
@@ -26,6 +28,7 @@ export function priceIndex(raw: unknown): Map<string, ShowcaseSku> {
         ...(typeof o.shop === "string" ? { shop: o.shop } : {}),
         ...(typeof o.img === "string" && IMG_RE.test(o.img) ? { img: o.img } : {}),
         ...(typeof o.pack === "number" && o.pack > 0 ? { pack: Math.round(o.pack) } : {}),
+        ...(typeof o.name_en === "string" && o.name_en ? { nameEn: o.name_en } : {}),
       });
     }
     Object.values(o).forEach(walk);

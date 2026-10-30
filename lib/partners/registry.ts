@@ -147,6 +147,7 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
       contentState: r.contentState })),
     options: optionsCard(p, a, lang),
     fx: p.fx ?? null,
+    demoMask: a.demoMask ? { priceMarkup: a.demoMask.priceMarkup, englishNames: a.demoMask.englishNames, hideShops: a.demoMask.hideShops } : null,
     incentive,
   };
 }

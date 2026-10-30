@@ -8,6 +8,7 @@
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import { loadFlat3d } from "@/lib/configurator/data";
+import { maskedRate } from "@/lib/configurator/demo-mask";
 import { collectionAsVariant, finishOptionId, fromDemoVariant, resolveVariantId, type DemoContext, type DemoData, type DemoFloorChoice } from "@/lib/configurator/fromDemo";
 import { settlementOf } from "@/lib/configurator/settlement";
 import { currentPrices, priceIndex } from "@/lib/collections/prices";
@@ -57,10 +58,14 @@ export function finishChoiceOf(hit: ApartmentHit, slot: "floor" | "wall"): DemoF
   return variants.length ? { groupId: ru.id, defaultVariantId: ru.defaultVariantId, settlement: ru.settlement, variants } : undefined;
 }
 
-/** Курс показа рублёвой витрины в валюте застройщика (британский демо-двойник, ADR-0298). */
-function fxOf(hit: ApartmentHit): { fxRate?: number } {
-  const fx = hit.partner.fx;
-  return fx && fx.from === "RUB" && fx.to === hit.partner.currency ? { fxRate: fx.rate } : {};
+/**
+ * Курс показа рублёвой витрины в валюте застройщика (британский демо-двойник, ADR-0298) и британская маска квартиры (demo-31):
+ * наценка маски — множителем к курсу (одно место для всех цен товаров; опции застройщика курса не знают), названия и магазин — в мост.
+ */
+export function fxOf(hit: ApartmentHit): Pick<DemoContext, "fxRate" | "mask"> {
+  const fx = hit.partner.fx, m = hit.apartment.demoMask;
+  const mask = m ? { mask: { englishNames: m.englishNames, hideShops: m.hideShops } } : {};
+  return fx && fx.from === "RUB" && fx.to === hit.partner.currency ? { fxRate: maskedRate(fx.rate, m), ...mask } : mask;
 }
 
 /** Выбор опций застройщика → выбор мест квартиры (пол, стены). Неизвестное молча не применяется (вариант по умолчанию). */
@@ -137,7 +142,9 @@ export async function resolveCollectionFlat(id: string, load: DemoLoader = loadD
   const raw = (await load(src)) as DemoData | null;
   if (!raw) return { ok: false, reason: "unavailable" };
   const sids = c.payload.items.map((i) => i.sku?.sid).filter((x): x is string => !!x);
-  const data = collectionAsVariant(raw, c.payload, currentPrices(sids, priceIndex(raw)));
+  // английское название — по артикулу из текущей витрины: коллекция хранит только русское (demo-31)
+  const idx = priceIndex(raw), namesEn = new Map([...idx].filter(([, s]) => s.nameEn).map(([sid, s]) => [sid, s.nameEn!]));
+  const data = collectionAsVariant(raw, c.payload, currentPrices(sids, idx), namesEn);
   const fc = floorChoiceOf(hit), wc = finishChoiceOf(hit, "wall");
   const ctx: DemoContext = { apartmentId: hit.apartment.id, partnerId: hit.partner.id, currency: hit.partner.currency,
     basePrice: hit.apartment.price, assetBase: src, ...(fc ? { floorChoice: fc } : {}), ...(wc ? { wallChoice: wc } : {}), ...fxOf(hit) };

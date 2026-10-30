@@ -256,6 +256,49 @@ test("1.6 английский: конструктор и ожидание бе�
   expect(t.join(" ")).not.toMatch(/[А-Яа-яЁё]/);
 });
 
+// 1.7 БРИТАНСКАЯ МАСКА (demo-31, владелец 30.10): у английского двойника — английские названия, цена товара × 1.5, ни магазина, ни
+// ссылки «в магазин»; русское демо — как было. Смотрим окно гостиной (список под кадром) и ленту замены
+const SHOPS = /divan\.ru|tvoydom\.ru|mnogomebeli\.com|ormatek\.com|divanboss\.ru|gdeslon/i;
+async function windowTexts(page: Page): Promise<{ list: string; sheet: string; hrefs: string[] }> {
+  await page.locator("#hmRooms .hm-room [data-swap]").first().click();
+  await expect(page.locator("#shot")).toBeVisible();
+  const list = await page.locator("#shotbody").innerText();
+  await page.locator("#shotbody [data-rep]").first().click();
+  await expect(page.locator("#sheet")).toBeVisible();
+  await expect(page.locator("#sheet .nm").first()).toBeVisible();
+  const sheet = await page.locator("#sheet").innerText();
+  const hrefs = await page.locator("#shotbody a[href], #sheet a[href]").evaluateAll((els) => els.map((e) => (e as HTMLAnchorElement).href));
+  return { list, sheet, hrefs };
+}
+test("1.7 английский: британская маска — английские названия, цена × 1.5, без магазинов; русский — магазины на месте (demo-31)", async ({ page }) => {
+  const errors = await openDemo(page, "?lang=en");
+  await page.waitForFunction("typeof FLAT !== 'undefined' && !!FLAT");
+  const fx = await page.evaluate("({ id: FLAT.id, mask: FLAT.demoMask, base: FLAT.fx && FLAT.fx.rate, shown: fxRate() })") as
+    { id: string; mask: { priceMarkup: number } | null; base: number; shown: number };
+  say("квартира", fx.id, "маска", JSON.stringify(fx.mask), "курс", fx.base, "→", fx.shown);
+  expect(fx.mask?.priceMarkup).toBe(1.5);
+  expect(fx.shown).toBeCloseTo(fx.base * 1.5, 10);
+  const en = await windowTexts(page);
+  const names = await page.locator("#shotbody .row .t b, #sheet .nm").allInnerTexts();
+  say("названия:", names.slice(0, 4).join(" | "), "… всего", names.length, "· ссылок", en.hrefs.length);
+  expect(names.length).toBeGreaterThan(3);
+  for (const n of names) expect(n).not.toMatch(/[А-Яа-яЁё]/);
+  expect(en.list + en.sheet).not.toMatch(SHOPS);
+  expect(en.list + en.sheet).not.toMatch(/to shop|view in shop|в магазин/i);
+  expect(en.hrefs.filter((h) => SHOPS.test(h))).toEqual([]);
+  expect(errors).toEqual([]);
+});
+test("1.7 русский: магазины и «В магазин» на месте, курса и маски нет (demo-31)", async ({ page }) => {
+  await openDemo(page);
+  await page.waitForFunction("typeof FLAT !== 'undefined' && !!FLAT");
+  expect(await page.evaluate("FLAT.demoMask")).toBeNull();
+  const ru = await windowTexts(page);
+  say("ссылок в магазин:", ru.hrefs.filter((h) => SHOPS.test(h)).length);
+  expect(ru.list + ru.sheet).toMatch(SHOPS);
+  expect(ru.sheet).toMatch(/В магазин/);
+  expect(ru.hrefs.some((h) => SHOPS.test(h))).toBe(true);
+});
+
 test("2.18 телефон: без горизонтальной прокрутки, план во всю ширину", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "ru-RU" });
   const page = await ctx.newPage();

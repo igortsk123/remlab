@@ -145,6 +145,20 @@ export const apartmentRoom = z.object({
 });
 export type ApartmentRoom = z.infer<typeof apartmentRoom>;
 
+/**
+ * БРИТАНСКАЯ МАСКА АНГЛИЙСКОГО ДЕМО (demo-31, владелец 30.10): пока нет британских фидов, товары российской витрины на квартире-двойнике
+ * показываются как британские — цена × `priceMarkup` (только товары магазинов: опции застройщика, сертификат и цена квартиры — как
+ * есть), английские названия, без магазина и ссылки «To shop». Это маска ПОКАЗА: данные витрины (название, магазин, ссылка) не меняются.
+ */
+export const demoMask = z.object({
+  priceMarkup: z.number().min(1).max(5),
+  englishNames: z.boolean().default(true),
+  hideShops: z.boolean().default(true),
+  /** Пояснение для людей: зачем и до каких пор; программа его не читает. */
+  note: z.string().optional(),
+}).strict();
+export type DemoMask = z.infer<typeof demoMask>;
+
 export const apartmentRef = z.object({
   id: z.string().regex(/^[a-z0-9-]{2,40}$/),
   complexId: z.string(),
@@ -190,6 +204,8 @@ export const apartmentRef = z.object({
   enTwin: z.string().regex(/^[a-z0-9-]{2,40}$/).optional(),
   /** Пакет поощрения этой квартиры — ближайший уровень, заменяет пакеты ЖК и партнёра целиком. */
   incentive: incentive.optional(),
+  /** Временная «британская маска» показа товаров витрины (demo-31): у английского двойника; убрать поле — показ как без неё. */
+  demoMask: demoMask.optional(),
 })
   .refine((a) => new Set(a.rooms.map((r) => r.id)).size === a.rooms.length, "id комнат повторяются")
   .refine((a) => a.rooms.every((r, k) => r.ordinal === k + 1), "ordinal комнат — по порядку плана с 1")
@@ -268,6 +284,8 @@ export type ApartmentCard = {
   incentive: ResolvedIncentive | null;
   /** Курс показа рублёвых цен витрины (у британского демо-двойника); нет — цены в валюте витрины. */
   fx: { from: "RUB"; to: Currency; rate: number; asOf: string; source: string } | null;
+  /** Британская маска показа товаров витрины (demo-31); нет — товары как в витрине. */
+  demoMask: { priceMarkup: number; englishNames: boolean; hideShops: boolean } | null;
   /** Помещения в порядке плана, подписи на языке страницы (demo-16). */
   rooms: { id: string; kind: RoomKind; ordinal: number; title: string; areaM2: number; contentState: "ready" | "soon" }[];
   /** Опции квартиры в публичном виде: подписи на языке, цена уже текстом. */

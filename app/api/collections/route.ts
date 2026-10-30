@@ -60,7 +60,7 @@ export async function POST(req: Request): Promise<Response> {
     if (!sk) return { ok: true as const, sku: undefined };
     const e = idx.get(sk.sid);
     if (!e) return { ok: false as const, sku: undefined };
-    const { priceAt: _p, ...rest } = e;
+    const { priceAt: _p, nameEn: _n, ...rest } = e;   // английское название — только для показа маски (demo-31), в снимок не пишем
     return { ok: true as const, sku: rest };
   };
   // КОМНАТА И СТИЛЬ (v3, demo-16 шаг 2): корзина считает сертификат по комнатам — комната должна быть у квартиры, а стиль и

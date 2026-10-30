@@ -14,6 +14,7 @@
 // Поворот витрины — градусы по часовой, 0 — «лицом на +y», тоже как у нас.
 
 import { alternatives, feedForStyle, placeOf, type FeedItem } from "@/lib/configurator/demo-feeds";
+import { maskedName, roleEn, styleEn } from "@/lib/configurator/demo-mask";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { DEFAULT_CEILING_CM, apartment as apartmentSchema, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
@@ -37,6 +38,11 @@ export type DemoContext = {
   fxRate?: number;
   /** Стены на выбор (demo-07) — тем же видом, что пол. */
   wallChoice?: DemoFloorChoice;
+  /**
+   * Британская маска квартиры (demo-31, `apartmentRef.demoMask`): английские названия товаров (`name_en` сборки, нет — по роли),
+   * без магазина и ссылки. Наценка маски уже в `fxRate` (`source.ts:fxOf`).
+   */
+  mask?: { englishNames: boolean; hideShops: boolean };
   /** Стены живой сцены окна (выбранный вариант): материал и акцент. */
   wallMaterial?: { material: Record<string, unknown> & { id: string }; accent?: { material: Record<string, unknown> & { id: string }; anchor: "behind-sofa" } };
 };
@@ -105,7 +111,7 @@ type DemoItem = {
   elev?: number;
   corner?: boolean;
   corner_left?: boolean;
-  sku?: { name?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number; img?: string;
+  sku?: { name?: string; name_en?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number; img?: string;
     /** Подкраска цветового варианта на модели семейства (`flat215_demo.annotate_tint`): множитель цвета по каналу. */
     tint?: number[] };
 };
@@ -196,8 +202,14 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   const rub = (v?: number): number => Math.max(0, Math.round((v ?? 0) * (ctx.fxRate ?? 1)));
   const packOf = (pack?: number): object => (Math.round(pack ?? 1) > 1 ? { pack: Math.round(pack!) } : {});
   if (!items.length) return null;
+  // БРИТАНСКАЯ МАСКА (demo-31): английское название товара, магазин и ссылка не передаются — «view in shop» пропадает сам
+  const nameEnOf = (sku: { name?: string; name_en?: string } | undefined, role: string | undefined, plain: string): string =>
+    ctx.mask?.englishNames ? maskedName(sku, role) : (sku?.name ?? plain);
+  const shopOf = (sku: { url?: string; shop?: string } | undefined): object =>
+    ctx.mask?.hideShops || !sku ? {} : { ...(sku.url ? { shopUrl: sku.url } : {}), ...(sku.shop ? { shopName: sku.shop } : {}) };
 
   const title = v.style ? v.style.charAt(0).toUpperCase() + v.style.slice(1) : (v.title ?? "Вариант");
+  const titleEn = styleEn(v.style) || title;   // английские подписи — без кириллицы стиля (demo-31)
   const ids = stableSlotIds(items);
   const baseOf = (role?: string): string => String(role ?? "").replace(/\s+\d+$/, "").trim();
   const keyOf = (it: DemoItem): string => `${it.sku?.url ?? ""}|${it.sku?.name ?? ""}`;
@@ -217,13 +229,13 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     return alternatives(feed, placeOf(it, items), new Set([it.sku?.sid ?? "", it.sku?.name ?? ""])).map((p) => {
       const id = `feed:${base}:${p.sid ?? p.name}`;
       if (!feedOptions.has(id)) {
-        feedOptions.set(id, { id, category: "furniture", titleRu: p.name ?? base, titleEn: p.name ?? base,
+        feedOptions.set(id, { id, category: "furniture", titleRu: p.name ?? base, titleEn: nameEnOf(p, base, p.name ?? base),
           descRu: `${Math.round(p.w!)}×${Math.round(p.d!)}×${Math.round(p.h!)} см${(p.pack ?? 1) > 1 ? ` · ${p.pack} шт. в упаковке` : ""}`,
           tier: "standard", price: rub(p.price), ...packOf(p.pack), packKey: id,
           listPrice: rub(p.price), availability: "available", roomKinds: ["living"],
           asset: { kind: "mesh", meshId: p.msid, yawDeg: p.yaw ?? 0, wCm: p.w, dCm: p.d, hCm: p.h, ...tintOf(p.tint) },
           ...(assetUrl(p.img, ctx.assetBase) ? { previewUrl: assetUrl(p.img, ctx.assetBase) } : {}),
-          ...(p.url ? { shopUrl: p.url } : {}), ...(p.shop ? { shopName: p.shop } : {}) });
+          ...shopOf(p) });
       }
       return id;
     });
@@ -234,7 +246,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     category: "furniture" as const,
     kind: "furniture" as const,
     titleRu: it.role ?? "Предмет",
-    titleEn: it.role ?? "Item",
+    titleEn: roleEn(it.role),
     photoRole: it.role,
     defaultOptionId: defaultOf(i),
     optionIds: [defaultOf(i), ...feedIdsOf(inGroup.has(i) ? chairGroup[0]! : i)],
@@ -260,16 +272,16 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   const extraOptions: unknown[] = [];
   const extraMaterials: unknown[] = [];
   // плита ковра: материал с фото товара (повтор — один на ковёр) и опция-кит с размером товара вдоль длинной стороны места
-  const rugOption = (id: string, mat: string, sku: { name?: string; price?: number; url?: string; shop?: string; img?: string },
+  const rugOption = (id: string, mat: string, sku: { name?: string; name_en?: string; price?: number; url?: string; shop?: string; img?: string },
     w: number, d: number): void => {
     const img = assetUrl(sku.img, ctx.assetBase);
     extraMaterials.push({ id: mat, titleRu: "Ковёр", titleEn: "Rug", colorHex: "#b8b0a4", roughness: 0.95, tileCm: [w, d],
       surfaces: ["rug"], ...(img ? { baseColorUrl: img } : {}) });
-    extraOptions.push({ id, category: "furniture", titleRu: sku.name ?? "Ковёр", titleEn: sku.name ?? "Rug",
+    extraOptions.push({ id, category: "furniture", titleRu: sku.name ?? "Ковёр", titleEn: nameEnOf(sku, "ковёр", sku.name ?? "Rug"),
       descRu: `${Math.round(Math.max(w, d))}×${Math.round(Math.min(w, d))} см`,
       tier: "standard", price: rub(sku.price), availability: "available", roomKinds: ["living"],
       asset: { kind: "kit", kit: "rug", materials: { body: mat }, wCm: w, dCm: d },
-      ...(img ? { previewUrl: img } : {}), ...(sku.url ? { shopUrl: sku.url } : {}), ...(sku.shop ? { shopName: sku.shop } : {}) });
+      ...(img ? { previewUrl: img } : {}), ...shopOf(sku) });
   };
   const rugFeed = new Set<string>();
   rugs.forEach((it, k) => {
@@ -301,14 +313,14 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   decor.forEach((x, k) => {
     const id = `decor:${decorIds[k]}`;
     const sk = x.sku!;
-    extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: sk.name ?? x.role ?? "Декор", titleEn: sk.name ?? "Decor",
+    extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: sk.name ?? x.role ?? "Декор", titleEn: nameEnOf(sk, x.role, sk.name ?? "Decor"),
       descRu: `${Math.round(sk.w!)}×${Math.round(sk.d!)}×${Math.round(sk.h!)} см`, tier: "standard",
       price: rub(sk.price), availability: "available", roomKinds: ["living"],
       asset: { kind: "mesh", meshId: sk.msid, yawDeg: sk.yaw ?? 0, wCm: sk.w, dCm: sk.d, hCm: sk.h, ...tintOf((sk as { tint?: unknown }).tint) },
-      ...(sk.url ? { shopUrl: sk.url } : {}), ...(sk.shop ? { shopName: sk.shop } : {}) });
+      ...shopOf(sk) });
     // место — заглушка: настоящее считает `resolve.placeTabletop` от текущей опоры при каждом расчёте сцены
     slots.push({ id, roomId: "living", category: "furniture" as const, kind: "furniture" as const, titleRu: x.role ?? "декор",
-      titleEn: "decor", photoRole: x.role, tabletop: true, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
+      titleEn: roleEn(x.role ?? "декор"), photoRole: x.role, tabletop: true, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
       placement: { x: 0, y: 0, rot: 0, wCm: sk.w!, dCm: sk.d!, hCm: sk.h!, elevCm: 0 } });
   });
 
@@ -355,7 +367,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     baseVariant: variantId,
     ...(v.style ? { style: v.style } : {}),
     titleRu: `${title} — ${room.title ?? "гостиная"}`,
-    titleEn: `${title} — living room`,
+    titleEn: `${titleEn} — living room`,
     areaM2: Math.round(((room.w * room.d) / 10000) * 10) / 10,
     developerId: ctx.partnerId,
     basePrice: ctx.basePrice,
@@ -386,14 +398,14 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   const catalogue = catalogueSchema.parse({
     developerId: ctx.partnerId,
     titleRu: `Набор «${title}»`,
-    titleEn: `${title} set`,
+    titleEn: `${titleEn} set`,
     currency: ctx.currency,
     materials: extraMaterials,
     options: [...items.map((it, i) => ({ it, i })).filter(({ i }) => !inGroup.has(i) || i === chairGroup[0]).map(({ it, i }) => ({
       id: defaultOf(i),
       category: "furniture" as const,
       titleRu: it.sku?.name ?? it.role ?? "Предмет",
-      titleEn: it.sku?.name ?? it.role ?? "Item",
+      titleEn: nameEnOf(it.sku, it.role, it.sku?.name ?? it.role ?? "Item"),
       descRu: `${Math.round(it.w as number)}×${Math.round(it.d as number)}×${Math.round(it.h as number)} см`,
       // Мебель витрины в цену квартиры не входит: это покупка за счёт сертификата/доплаты, поэтому
       // ступень «стандарт» и настоящая цена товара — иначе «выбрано на» в 3D было бы всегда 0.
@@ -418,8 +430,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
         ...tintOf(it.sku?.tint),
       },
       // Ссылка в магазин — ПАРТНЁРСКАЯ, прямо как на витрине: иначе теряется комиссия (ADR-0016).
-      ...(it.sku?.url ? { shopUrl: it.sku.url } : {}),
-      ...(it.sku?.shop ? { shopName: it.sku.shop } : {}),
+      ...shopOf(it.sku),
     })), ...extraOptions, ...feedOptions.values()],
   });
 
@@ -435,6 +446,8 @@ export function collectionAsVariant(
   data: DemoData,
   coll: { baseVariant: string; style?: string; items: DemoItem[] },
   prices: Record<string, { price: number | null; unavailable: boolean }>,
+  /** sid → английское название текущей витрины (`priceIndex` → `nameEn`): коллекция хранит только русское (demo-31). */
+  namesEn?: ReadonlyMap<string, string>,
 ): DemoData {
   const yaw = new Map<string, number>();
   for (const v of data.variants ?? []) for (const it of v.items ?? []) if (it.sku?.msid && it.sku.yaw !== undefined) yaw.set(it.sku.msid, it.sku.yaw);
@@ -443,7 +456,8 @@ export function collectionAsVariant(
     const cur = it.sku.sid ? prices[it.sku.sid] : undefined;
     const price = cur && !cur.unavailable && cur.price !== null ? cur.price : cur?.unavailable ? 0 : it.sku.price;
     const y = it.sku.msid ? yaw.get(it.sku.msid) : undefined;
-    return { ...it, sku: { ...it.sku, price, ...(y !== undefined ? { yaw: y } : {}) } };
+    const en = it.sku.sid ? namesEn?.get(it.sku.sid) : undefined;
+    return { ...it, sku: { ...it.sku, price, ...(y !== undefined ? { yaw: y } : {}), ...(en ? { name_en: en } : {}) } };
   });
   return { ...data, variants: [{ id: coll.baseVariant, title: coll.style, style: coll.style, items }] };
 }

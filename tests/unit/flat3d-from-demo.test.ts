@@ -237,8 +237,13 @@ describe("курс показа в мосту", () => {
     expect(f.ok).toBe(true);
     if (!f.ok) return;
     expect(f.catalogue.currency).toBe("GBP");
-    expect(f.catalogue.options.find((o) => o.id === "opt:диван#0")!.price).toBe(Math.round(54990 * 0.0089));
-    expect(f.catalogue.options.filter((o) => o.id.startsWith("opt:floor:")).every((o) => o.settlement === "allowance")).toBe(true);
+    // у двойника британская маска (demo-31): товар витрины × 1.5 к курсу; пол застройщика — в своей валюте, без курса и наценки
+    expect(f.catalogue.options.find((o) => o.id === "opt:диван#0")!.price).toBe(Math.round(54990 * 0.0089 * 1.5));
+    const floors = f.catalogue.options.filter((o) => o.id.startsWith("opt:floor:"));
+    expect(floors.every((o) => o.settlement === "allowance")).toBe(true);
+    const { floorChoiceOf } = await import("@/lib/configurator/source");
+    const { findApartment } = await import("@/lib/partners/registry");
+    expect(floors.map((o) => o.price)).toEqual(floorChoiceOf(findApartment("demo-uk-215")!)!.variants.map((v) => v.price));
   });
 });
 

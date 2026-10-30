@@ -114,6 +114,12 @@
       "price": 425000,
       "demoPrice": true,
       "priceAsOf": "2026-10-16",
+      "demoMask": {
+        "priceMarkup": 1.5,
+        "englishNames": true,
+        "hideShops": true,
+        "note": "Временно до британских фидов (владелец 30.10, demo-31): товары витрины — английские названия, цена ×1.5, без магазина и ссылки. Убрать поле — показ как без маски (карточка кэшируется 5 мин)."
+      },
       "sources": {
         "demoData": "/demo/demo-data.json"
       },

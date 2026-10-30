@@ -7,6 +7,8 @@
 /** Товар ленты витрины (`flat215_demo.py`: feeds[роль]). */
 export type FeedItem = {
   name?: string;
+  /** Английское название сборки (demo-31) — для британской маски английского демо. */
+  name_en?: string;
   w?: number;
   d?: number;
   h?: number;

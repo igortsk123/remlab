@@ -71,6 +71,61 @@ figcaption{font-size:14px;color:#5C655E;margin-top:6px}
 <div class="foot">Сделано в планировщике remont-lab.online. Фотографии сгенерированы по вашей
 расстановке; товары — из каталогов магазинов-партнёров.</div>
 </div></body></html>"""
+# английская страница подборки при маске (demo-31): без слов о магазинах и ссылках
+SHARE_PAGE_EN = (SHARE_PAGE.replace('<html lang="ru">', '<html lang="en">').replace('— подборка</title>', '— collection</title>')
+                 .replace('''<div class="sub">Ваша коллекция · фотографий: {{COUNT}}. Под каждым кадром — товары с ценами и
+ссылками в магазин.</div>''', '<div class="sub">Your collection · photos: {{COUNT}}. Under each photo — the items with prices.</div>')
+                 .replace('''<div class="foot">Сделано в планировщике remont-lab.online. Фотографии сгенерированы по вашей
+расстановке; товары — из каталогов магазинов-партнёров.</div>''', '<div class="foot">Made in the remont-lab.online planner. '
+                          'The photos are generated from your layout.</div>'))
+# СТРАНИЦА ПОДБОРКИ «отправить себе». КОЛЛЕКЦИЯ = ФОТО + ТОВАРЫ СО ССЫЛКАМИ (владелец 26.08: «человек должен получать
+# коллекции»): под каждым кадром — что на нём стоит, почём и где купить. БРИТАНСКАЯ МАСКА АНГЛИЙСКОГО ДЕМО (demo-31, владелец 30.10):
+# страница демо при маске шлёт уже готовое — английские название и роль, цену в валюте карточки, без магазина и ссылки — и
+# `mask: true`, `currency`, `lang`; тогда страница по-английски, в £ и без ссылок в магазин. Без маски — как было (₽, магазин, ссылка).
+# Тест — `tools/scout/tests/test_share_mask.py`.
+def _share_opts(payload):
+    mask = payload.get('mask') is True
+    return {'mask': mask, 'gbp': mask and str(payload.get('currency') or '') == 'GBP', 'en': mask and payload.get('lang') == 'en'}
+
+
+def _share_money(v, o):
+    n = int(v or 0)
+    return f'\u00a3{n:,}' if o['gbp'] else f'{n:,}'.replace(',', ' ') + ' \u20bd'
+
+
+def _share_prod(p, o):
+    img, href = safe_url(p.get('img')), ('' if o['mask'] else safe_url(p.get('url')))
+    pic = (f'<img src="{esc(img)}" alt="" loading="lazy">'
+           if img else f'<div class="noimg">{"no photo" if o["en"] else "фото нет"}</div>')
+    shop = '' if o['mask'] else p.get('shop')
+    inner = (pic + f'<div class="pn">{esc(p.get("name") or "")}</div>'
+             f'<div class="pp">{_share_money(p.get("price"), o)}</div>'
+             f'<div class="ps">{esc(p.get("role") or "")}'
+             + (f' \u00b7 {esc(shop)}' if shop else '') + '</div>')
+    return (f'<a class="p" href="{esc(href)}" target="_blank" rel="noopener">{inner}</a>'
+            if href else f'<div class="p">{inner}</div>')
+
+
+def _share_block(sh, o):
+    items = [p for p in (sh.get('items') or []) if isinstance(p, dict) and p.get('name')]
+    total = sum(int(p.get('price') or 0) for p in items)
+    head = (f'<div class="sum"><span>{"Items in the photo" if o["en"] else "Товары на фото"} \u00b7 {len(items)}</span>'
+            f'<span>{_share_money(total, o)}</span></div>' if items else '')
+    grid = ('<div class="ps-grid">' + ''.join(_share_prod(p, o) for p in items) + '</div>') if items else ''
+    return (f'<figure><img src="{esc(safe_url(sh["url"]))}" alt="{esc(sh.get("label") or "")}" '
+            f'loading="lazy"><figcaption>{esc(sh.get("label") or "")}</figcaption>'
+            f'{head}{grid}</figure>')
+
+
+def _share_page(payload, shots):
+    o = _share_opts(payload)
+    cards = '\n'.join(_share_block(sh, o) for sh in shots)
+    page = SHARE_PAGE_EN if o['en'] else SHARE_PAGE
+    return (page.replace('{{TITLE}}', esc(payload.get('title') or ('Your room' if o['en'] else 'Ваша комната')))
+                .replace('{{CARDS}}', cards)
+                .replace('{{COUNT}}', str(len(shots))))
+
+
 _LOCK = threading.Semaphore(2)          # два одновременных рендера: больше не нужно, ключ общий
 _LAST_WARM = [0.0]
 # ПРЕДОХРАНИТЕЛЬ РАСХОДА (26.08): эндпоинт публичный, а каждый рендер — деньги на fal. Больше
@@ -650,34 +705,7 @@ class H(BaseHTTPRequestHandler):
         d = os.path.join(SHARE_DIR, sid)
         try:
             os.makedirs(d, exist_ok=True)
-            # КОЛЛЕКЦИЯ = ФОТО + ТОВАРЫ СО ССЫЛКАМИ (владелец 26.08: «человек должен получать
-            # коллекции»): под каждым кадром — что на нём стоит, почём и где купить.
-            def prod(p):
-                img, href = safe_url(p.get('img')), safe_url(p.get('url'))
-                pic = (f'<img src="{esc(img)}" alt="" loading="lazy">'
-                       if img else '<div class="noimg">фото нет</div>')
-                price = f'{int(p.get("price") or 0):,}'.replace(',', ' ') + ' \u20bd'
-                inner = (pic + f'<div class="pn">{esc(p.get("name") or "")}</div>'
-                         f'<div class="pp">{price}</div>'
-                         f'<div class="ps">{esc(p.get("role") or "")}'
-                         + (f' \u00b7 {esc(p.get("shop"))}' if p.get('shop') else '') + '</div>')
-                return (f'<a class="p" href="{esc(href)}" target="_blank" rel="noopener">{inner}</a>'
-                        if href else f'<div class="p">{inner}</div>')
-
-            def block(sh):
-                items = [p for p in (sh.get('items') or []) if isinstance(p, dict) and p.get('name')]
-                total = sum(int(p.get('price') or 0) for p in items)
-                head = (f'<div class="sum"><span>Товары на фото \u00b7 {len(items)}</span>'
-                        f'<span>{f"{total:,}".replace(",", " ")} \u20bd</span></div>' if items else '')
-                grid = ('<div class="ps-grid">' + ''.join(prod(p) for p in items) + '</div>') if items else ''
-                return (f'<figure><img src="{esc(safe_url(sh["url"]))}" alt="{esc(sh.get("label") or "")}" '
-                        f'loading="lazy"><figcaption>{esc(sh.get("label") or "")}</figcaption>'
-                        f'{head}{grid}</figure>')
-            cards = '\n'.join(block(sh) for sh in shots)
-            open(os.path.join(d, 'index.html'), 'w', encoding='utf-8').write(
-                SHARE_PAGE.replace('{{TITLE}}', esc(payload.get('title') or 'Ваша комната'))
-                          .replace('{{CARDS}}', cards)
-                          .replace('{{COUNT}}', str(len(shots))))
+            open(os.path.join(d, 'index.html'), 'w', encoding='utf-8').write(_share_page(payload, shots))
         except Exception as e:                       # noqa: BLE001
             return self._send(500, {'error': f'не удалось сохранить подборку: {str(e)[:120]}'})
         url = f'{PUBLIC_BASE}/test/share/{sid}/'
