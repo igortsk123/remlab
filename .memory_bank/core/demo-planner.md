@@ -3,12 +3,12 @@ tier: 1
 topic: demo-planner
 scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
-updated: 2026-10-29
+updated: 2026-10-30
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-18
+last_verified: 2026-10-30
 review_after: 2026-12-05
 ---
 
@@ -23,7 +23,7 @@ review_after: 2026-12-05
 - **Окно варианта (demo-09/02):** «Фото» — только реалистичный снимок этой расстановки, иначе 3D с ценниками;
   изменение → 3D (`index.html:vwRealShots/vwAfterChange`, ADR-0300).
 - **Состав (20.10):** банкетка «уголком» — `tools/scout/flat215_demo.py:drop_lonely_nook`; обеденный стол — `tools/scout/unfit.py:unfit`.
-- **EN-демо = британский двойник** `demo-uk-215` (£ по курсу, ADR-0298); пересчёт — одна функция `toCard()` (через неё `money()`).
+- **EN-демо** = двойник `demo-uk-215` (£ через `toCard()`, ADR-0298) + временная маска товаров `demoMask` (ADR-0328).
 - **Замена мебели (ADR-0203/0245/0271/0277):** пул `tools/scout/demo_swap_pool.py`, правила `tools/scout/rules/demo-swap.json`;
   проверка `tests_chain.py:live_swap_feeds`. Правила ленты — Tier 2.
 - **Ключ модели — `msid`** (ADR-0204, GLB по представителю семейства); вариант — `/demo/#v=<id>` (ADR-0205).
@@ -31,7 +31,7 @@ review_after: 2026-12-05
 - **Декор, управление, наличие** (ADR-0206/0140/0144) — Tier 2. Шапка квартиры — [[partners]].
 - **Русский = протокол логики:** данные не переводить, только показ.
 
-**Вариант = стиль (13.10, ADR-0244):** `pick_banks` — по набору на стиль (самый собираемый);
+**Вариант = стиль (13.10, ADR-0244):** `choose_banks`/`fill_banks` (ADR-0259) — по набору на стиль (самый собираемый);
 ссылки на `/flat` из демо сняты 22.10 (страница осталась); встраивание на сайт застройщика —
 `/embed/<партнёр>/<квартира>` (ADR-0283).
 - **Кадры (ADR-0280/0291/0304/0320):** прогрев `tools/ops/demo-warm.mjs`; пара точек `index.html:camPair`.

@@ -3,12 +3,12 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-10-29
+updated: 2026-10-30
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-11
+last_verified: 2026-10-30
 review_after: 2026-12-05
 ---
 
@@ -21,14 +21,14 @@ review_after: 2026-12-05
 ## Ключевые факты
 - **Gemini:** приложение — через шлюз Vercel (`AI_PROVIDER=gateway` по умолчанию, `lib/providers/gateway.ts`, ADR-0277); прямой ключ отключён 14.10.
 - **OpenAI:** прямой ключ без денег — не пополняем (ADR-0325); дочитка по ссылке — через шлюз (`lib/providers/index.ts:getExtractProvider`);
-  прямой OpenAI остался только в Python DEV (`judge.py`, `pipeline*.py`) — долг. `gpt-4o-mini` под картинки НЕ брать (ADR-0067).
+  прямой OpenAI — ~18 скриптов DEV (`judge*.py`, `pipeline*.py`) — долг. `gpt-4o-mini` под картинки НЕ брать (ADR-0067).
 - **Яндекс:** Метрика `110599064`; кампанию `708745261` не трогать. [[marketing-acquisition]].
 
 **Tier 2:** `../domain/integrations.md` — эндпоинты, форматы, env, фиды, § Codex (сессия сломана
 15.10 → `--ephemeral`; `vercel*` — только экономно `vercel-sol` при исчерпании подписки, ADR-0301/0327). Решения — ADR-0007/0011/0012/0013/0045.
 
-- **Vercel AI Gateway:** единственный путь к LLM; «нет денег» — `tools/scout/llm_gateway.py:NoCredits`,
-  баланс и траты — `GET /v1/credits` (`balance`, `total_used`, бесплатно), тревога `gateway_no_credits` в дайджесте DEV (`tools/ops/dev-checks.sh`).
+- **Vercel AI Gateway:** основной путь к LLM (запасной в `llm_gateway.chat` — прямой OpenAI); «нет денег» — `tools/scout/llm_gateway.py:NoCredits`,
+  баланс — `GET /v1/credits` (бесплатно), тревога `gateway_no_credits` в дайджесте DEV (`tools/ops/dev-checks.sh`).
 
 - **fal.ai:** клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131).
 

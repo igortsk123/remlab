@@ -3,12 +3,12 @@ tier: 1
 topic: partners
 scope: Застройщик, ЖК, квартира, цена и сертификат — данные; реестр и карточка квартиры
 tier2: "../completed_plans/b2b-06-apartment-as-data.md"
-updated: 2026-10-29
+updated: 2026-10-30
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-13
+last_verified: 2026-10-30
 review_after: 2026-12-13
 ---
 
@@ -31,7 +31,7 @@ review_after: 2026-12-13
 
 **Комнаты (ADR-0307):** `rooms[]` — `contracts/partner.ts:apartmentRoom`; остаток пакета — по корзине (`lib/basket/basket.ts`, вариант на комнату).
 
-**Сегодня:** `demo` — РФ, `flat215` (6 комнат, готова гостиная); `demo-uk` — UK, `demo-uk-1` и двойник EN-демо `demo-uk-215` (ADR-0298).
+**Сегодня:** `demo` — РФ, `flat215` (7 комнат, готова гостиная); `demo-uk` — UK, `demo-uk-1` и двойник EN-демо `demo-uk-215` (ADR-0298) с временной британской маской товаров `demoMask` (ADR-0328).
 Площади — истина реестр (`data/partners/demo.json`: комнаты + `loggiaM2`, сторож суммы в `contracts/partner.ts`); чертёж плана демо — абстракция
 (снят с квартиры №180, владелец 22.10: оставить). Контур комнаты (`contracts/apartment.ts:room.contour`) движки не читают.
 - **Встраивание (ADR-0283):** `/embed/<партнёр>/<квартира>` — рамкой с доменов `frameDomains`; `docs/embed.md`.

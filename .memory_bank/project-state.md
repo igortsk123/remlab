@@ -3,7 +3,7 @@ tier: 1
 topic: project-state
 scope: Снимок «где проект сейчас» — точка ресинхронизации при /clear и resume
 tier2: "changelog/project-history.md"
-updated: 2026-10-29
+updated: 2026-10-30
 importance: high
 source: manual
 status: working
@@ -46,7 +46,7 @@ review_after: 2026-11-10
   [[observability-tracing]].
 - **Демо для застройщика** `/demo` (ADR-0201) — [[demo-planner]], [[apartment-configurator]]: живая 3D-сцена (ADR-0288), фото —
   сервис `remlab-draft` + ускоритель DEV через туннель (ADR-0139/0267), кадр на телефоне горизонтальный (ADR-0320), два бюджета
-  (ADR-0308), EN = британский двойник (ADR-0298); живые проверки `e2e/live/*.live.ts`.
+  (ADR-0308), EN = британский двойник (ADR-0298) с временной маской товаров — англ. названия, ×1.5, без магазинов (ADR-0328); живые проверки `e2e/live/*.live.ts`.
 - **Каталог** (дев-БД, утренний крон): фид = истина полей, API Гдеслона = комиссия (ADR-0171);
   честность наличия/размеров (ADR-0186), недельная проверка (ADR-0147), дайджест в Telegram —
   [[catalog]], [[stock-and-dims]]. Отчёты — хаб `/test/` (адрес БЕЗ слэша = 404, см. `deployment.md`).

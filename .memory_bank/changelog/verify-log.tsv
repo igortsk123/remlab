@@ -109,3 +109,9 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-19	.memory_bank/core/goals.md	rotation	13	4	4	
 2026-10-23	advertising/autopilot.md	rotation	34	5	5	
 2026-10-29	core/knowledge-db.md	drift	44	3	3	
+2026-10-30	.memory_bank/core/partners.md	code	18	1	1	
+2026-10-30	.memory_bank/core/demo-planner.md	code	21	1	1	
+2026-10-30	.memory_bank/core/apartment-configurator.md	code	22	3	3	
+2026-10-30	.memory_bank/core/access-and-integrations.md	rotation	18	2	2	
+2026-10-30	.memory_bank/domain/flat3d-configurator.md	code	8	5	5	
+2026-10-30	.memory_bank/domain/demo-planner-ui.md	code	16	6	6	
