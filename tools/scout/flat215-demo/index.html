@@ -4224,12 +4224,12 @@ function fxKeyOf(f){
   if(!(f&&f.fx))return '';
   const m=maskOf(f); return f.fx.rate+'@'+f.fx.asOf+(m&&+m.priceMarkup>0&&+m.priceMarkup!==1?'x'+m.priceMarkup:'');}
 const MASK_GONE=/ — (сейчас нет в витрине|no longer in the showroom)$/;
-// sid → name_en и название → name_en по всем местам витрины (варианты, комплекты, ленты, диваны, спальня)
+// sid → name_en и название → name_en по всем местам витрины (варианты, комплекты, ленты, диваны, спальня); так же цвет `colour_en`
 function namesEnOf(d){
-  const by={sid:{}, name:{}};
+  const by={sid:{}, name:{}, colSid:{}, colName:{}};
+  const put=(x,f,bs,bn)=>{ if(typeof x[f]==='string'&&x[f]){ if(x.sid&&!bs[x.sid])bs[x.sid]=x[f]; if(!bn[x.name])bn[x.name]=x[f]; } };
   const walk=x=>{ if(Array.isArray(x)){x.forEach(walk); return;} if(!x||typeof x!=='object')return;
-    if(typeof x.name==='string'&&typeof x.name_en==='string'&&x.name_en){
-      if(x.sid&&!by.sid[x.sid])by.sid[x.sid]=x.name_en; if(!by.name[x.name])by.name[x.name]=x.name_en;}
+    if(typeof x.name==='string'){put(x,'name_en',by.sid,by.name); put(x,'colour_en',by.colSid,by.colName);}
     Object.values(x).forEach(walk);};
   walk(d); return by;}
 // `roleEn(роль)` — английская роль без номера места («sofa») или пусто
@@ -4239,6 +4239,11 @@ function maskName(p, role, m, names, roleEn){
   let n=(sid&&names.sid[sid])||(nm&&names.name[nm])||(p&&p.name_en)||'';
   if(!n||/[А-Яа-яЁё]/.test(n)){const r=String((roleEn&&roleEn(role))||''); n=r&&!/[А-Яа-яЁё]/.test(r)?r.charAt(0).toUpperCase()+r.slice(1):'Item';}
   return n+(p&&p.unavailable?' — no longer in the showroom':'');}
+// цвет товара по-английски — готовое поле сборки `colour_en` (по `sid`, затем по названию, затем свой); нет — пусто, подпись разберут из названия
+function maskColour(p, m, names){
+  if(!m||!m.englishNames||!p)return '';
+  const nm=String(p.name||'').replace(MASK_GONE,''), c=(p.sid&&names.colSid[p.sid])||(nm&&names.colName[nm])||p.colour_en||'';
+  return c&&!/[А-Яа-яЁё]/.test(c)?c:'';}
 // DEMOMASK END
 let NAMES_EN=null, NAMES_D=null;
 function namesEn(){ if(NAMES_D!==D){NAMES_D=D; NAMES_EN=namesEnOf(D||{});} return NAMES_EN; }
@@ -4413,9 +4418,10 @@ function colourFam(sku, role){
   return out.length>1?out:[];
 }
 // имя цвета — хвост названия после общего начала всех цветов модели («… Викс Рогожка» + «Серый» / «Синий»)
-// маска (demo-31): английского названия у цветов ещё нет — у всех одно «Sofa»; тогда цвета различаем номером, а не одинаковым словом
+// маска (demo-31): цвет — из `colour_en` сборки; его нет и английские названия совпали («Sofa») — различаем номером
 function maskSameNames(fam){ return !!MASK()&&new Set(fam.map(p=>itemName(p))).size<fam.length; }
 function colourName(fam, k){
+  const c=maskColour(fam[k], MASK(), namesEn()); if(c)return c;
   if(maskSameNames(fam))return 'Colour '+(k+1);
   const w=fam.map(p=>String(itemName(p)||'').split(' ')); let i=0;
   while(w.every(x=>i<x.length-1&&x[i]===w[0][i]))i++;
@@ -4992,9 +4998,10 @@ function grid(){
   head(byM.size+(colours.length>1?1:0));
   if(colours.length>1){const row=document.createElement('div'); row.className='colrow';
     row.innerHTML='<b>Цвета этой модели</b>'; g.appendChild(row);
-    // цена — только если у цвета она другая (demo-20 А1: два цвета в строку, карточка ниже — целиком на iPhone SE)
+    // цена — только если у цвета она другая (demo-20 А1: два цвета в строку, карточка ниже — целиком на iPhone SE);
+    // при маске подпись — как в карточке и кружках (`colourName`: `colour_en`), хвост от текущего съедал общее слово цвета (demo-31)
     colours.forEach(p=>{const on=sel.sku&&sel.sku.name===p.name, b=document.createElement('button'); b.className='colchip'+(on?' on':'');
-      b.innerHTML=`<img src="${p.img}" alt="" loading="lazy"><span>${maskSameNames(colours)?colourName(colours,colours.indexOf(p)):(tail(itemName(p,base),itemName(sel.sku,base))||itemName(p,base))}</span>`+
+      b.innerHTML=`<img src="${p.img}" alt="" loading="lazy"><span>${MASK()?colourName(colours,colours.indexOf(p)):(tail(itemName(p,base),itemName(sel.sku,base))||itemName(p,base))}</span>`+
         ((p.price||0)!==(sel.sku.price||0)?`<small>${money(p.price)}</small>`:'');
       // тап — карточка с предпросмотром этого цвета, «Сохранить» — замена цвета (demo-28; раньше чип сразу применял)
       b.onclick=()=>{const k=colours.indexOf(p), c0=colours.findIndex(x=>sel.sku&&x.name===sel.sku.name);

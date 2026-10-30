@@ -11,15 +11,16 @@ import { apartmentCard, findApartment } from "@/lib/partners/registry";
 // названия, без магазина. Функции страницы берём прямо из неё (блок DEMOMASK), мост /flat и карточку — из кода приложения.
 type Flat = { currency: string; fx?: { from: string; to: string; rate: number; asOf: string } | null; demoMask?: { priceMarkup: number; englishNames: boolean; hideShops: boolean } | null };
 type Names = { sid: Record<string, string>; name: Record<string, string> };
-type Sku = { name?: string; name_en?: string; sid?: string; unavailable?: boolean };
+type Sku = { name?: string; name_en?: string; colour_en?: string; sid?: string; unavailable?: boolean };
 const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
 const block = html.slice(html.indexOf("// DEMOMASK START"), html.indexOf("// DEMOMASK END"));
-const page = new Function(`${block};return {maskOf,fxRateOf,fxKeyOf,namesEnOf,maskName};`)() as {
+const page = new Function(`${block};return {maskOf,fxRateOf,fxKeyOf,namesEnOf,maskName,maskColour};`)() as {
   maskOf: (f: Flat | null) => Flat["demoMask"];
   fxRateOf: (f: Flat | null) => number;
   fxKeyOf: (f: Flat | null) => string;
   namesEnOf: (d: unknown) => Names;
   maskName: (p: Sku, role: string, m: Flat["demoMask"], names: Names, roleEn: (r: string) => string) => string;
+  maskColour: (p: Sku, m: Flat["demoMask"], names: Names) => string;
 };
 
 const FX = { from: "RUB", to: "GBP", rate: 0.0089, asOf: "2026-10-16" };
@@ -77,6 +78,21 @@ describe("маска: названия страницы", () => {
     expect(page.maskName({ name: "Y" }, "роль-неизвестна", MASK, names, () => "")).toBe("Item");
     expect(page.maskName({ name: "Ваза Х — сейчас нет в витрине", unavailable: true }, "ваза", MASK, names, pageRoleEn))
       .toBe("Vase X — no longer in the showroom");
+  });
+
+  // цвет (T-20261030-02/2): готовое поле сборки, а не хвост названия — разбор от текущего товара съедал «grey» у «grey woven fabric»
+  it("цвет — из colour_en: по sid, по названию, свой; нет или кириллица — пусто; без маски — пусто", () => {
+    const d = { feeds: { "диван": [
+      { name: "Диван Викс Рогожка Серый", sid: "v1", name_en: "Viks straight sofa, grey woven fabric", colour_en: "grey woven fabric" },
+      { name: "Диван Викс Велюр Серый", sid: "v2", name_en: "Viks straight sofa, grey velour", colour_en: "grey velour" },
+      { name: "Диван Без цвета", sid: "v3", name_en: "Plain sofa" }] } };
+    const n = page.namesEnOf(d);
+    expect(page.maskColour({ name: "старое", sid: "v1" }, MASK, n)).toBe("grey woven fabric");     // копия без поля — по sid
+    expect(page.maskColour({ name: "Диван Викс Велюр Серый" }, MASK, n)).toBe("grey velour");     // без sid — по названию
+    expect(page.maskColour({ name: "x", colour_en: "oak" }, MASK, n)).toBe("oak");
+    expect(page.maskColour({ name: "Диван Без цвета", sid: "v3" }, MASK, n)).toBe("");
+    expect(page.maskColour({ name: "y", colour_en: "серый" }, MASK, n)).toBe("");
+    expect(page.maskColour({ name: "z", sid: "v1" }, null, n)).toBe("");
   });
 
   it("без маски — исходное название как было", () => {
