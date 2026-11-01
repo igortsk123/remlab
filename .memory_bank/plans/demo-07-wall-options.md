@@ -2,9 +2,12 @@
 workstream: demo
 slug: demo-07-wall-options
 title: Стены от застройщика — выбор отделки стен по образцу пола: 5 вариантов (краска/обои/декоративная штукатурка), доплата, видно в окне, 3D и на кадре
-status: in_progress
+status: partial
+pause_reason: без движения с 2026-10-16 (гейт PLAN-STUCK); кто вёл и что дальше — не записано, ждёт решения владельца
+resume_trigger: слово владельца — доделать, отложить в архив или отменить
+owner_decision_required: true
 created: 2026-10-16
-updated: 2026-10-16
+updated: 2026-11-01
 completed:
 plan_kind: sub
 parent_plan: MASTER-cost-first
