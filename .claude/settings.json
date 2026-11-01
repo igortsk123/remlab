@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-freshness.mjs ]; then node tools/session-freshness.mjs . || true; fi; if command -v node >/dev/null 2>&1 && [ -f tools/memory-project-audit.mjs ]; then node tools/memory-project-audit.mjs . --brief || true; fi"
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-freshness.mjs ]; then node tools/session-freshness.mjs . || true; elif command -v r >/dev/null 2>&1 && [ -f tools/session-freshness.mjs ]; then r node tools/session-freshness.mjs . || true; fi; if command -v node >/dev/null 2>&1 && [ -f tools/memory-project-audit.mjs ]; then node tools/memory-project-audit.mjs . --brief || true; elif command -v r >/dev/null 2>&1 && [ -f tools/memory-project-audit.mjs ]; then r node tools/memory-project-audit.mjs . --brief || true; fi"
           }
         ]
       }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then node tools/session-reminder.mjs . --block --scratch-fresh-days 2; elif [ -n \"$(git status --porcelain 2>/dev/null | grep -v '^.. \\.memory_bank/')\" ]; then echo 'Внимание: изменения сессии не зафиксированы в памяти — перед /clear запусти /memory-check (.memory_bank/)'; fi"
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then node tools/session-reminder.mjs . --block --scratch-fresh-days 2; elif command -v r >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then r node tools/session-reminder.mjs . --block --scratch-fresh-days 2; elif [ -n \"$(git status --porcelain 2>/dev/null | grep -v '^.. \\.memory_bank/')\" ]; then echo 'Внимание: изменения сессии не зафиксированы в памяти — перед /clear запусти /memory-check (.memory_bank/)'; fi"
           }
         ]
       }
@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/precompact-guard.mjs ]; then node tools/precompact-guard.mjs .; fi"
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/precompact-guard.mjs ]; then node tools/precompact-guard.mjs .; elif command -v r >/dev/null 2>&1 && [ -f tools/precompact-guard.mjs ]; then r node tools/precompact-guard.mjs .; fi"
           }
         ]
       }
@@ -52,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/read-logger.mjs ]; then node tools/read-logger.mjs . || true; fi"
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/read-logger.mjs ]; then node tools/read-logger.mjs . || true; elif command -v r >/dev/null 2>&1 && [ -f tools/read-logger.mjs ]; then r node tools/read-logger.mjs . || true; fi"
           }
         ]
       },
@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/code-touch-hint.mjs ]; then node tools/code-touch-hint.mjs || true; fi"
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/code-touch-hint.mjs ]; then node tools/code-touch-hint.mjs || true; elif command -v r >/dev/null 2>&1 && [ -f tools/code-touch-hint.mjs ]; then r node tools/code-touch-hint.mjs || true; fi"
           }
         ]
       }
