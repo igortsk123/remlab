@@ -26,6 +26,10 @@ OUT = os.path.expanduser(os.environ.get('FLAT215_DEMO_OUT') or '~/scout-scenes/f
 sys.path.insert(0, HERE)
 import bank_paths as _BP  # noqa: E402
 BANK = _BP.demo_plan(os.environ, OUT)
+# ОДНА РАССТАНОВКА НА ВСЕ СТИЛИ (demo-31, `demo_one_layout.py`): включено — солвер берёт только гипотезы опорной подписи
+# (`rules/demo-layout.json`), раскладки — со своим суффиксом `-one` (общие `v3set{n}-layout.json` пересчитывают другие прогоны)
+import demo_one_layout as _ONE  # noqa: E402
+ONE_LAYOUT = _ONE.enabled()
 # ВАРИАНТЫ РАССТАНОВКИ и КОМПЛЕКТЫ ТОВАРОВ — РАЗНЫЕ СУЩНОСТИ (владелец 26.08):
 # «шаблоны не называть стилями, а просто варианты; далее под любой из шаблонов показываем наши
 # сеты; люди могут смешать разные товары из разных стилей». Поэтому: вариант = геометрия
@@ -403,7 +407,9 @@ def solve_layouts(flat: dict, only: list | None = None) -> None:
     такой артефакт для комнаты 439×325, мебель окажется за стеной. Поэтому демо само вызывает
     солвер с реальными габаритами и проёмами квартиры, а не надеется на ранее посчитанный файл."""
     liv = flat['rooms'][0]
-    env = dict(os.environ, SETS_SNAPSHOT=DEMO_SETS, **({'LAYOUT_SUFFIX': BANK['layout_sfx']} if not BANK['live'] else {}),
+    sfx = BANK['layout_sfx'] + ('-one' if ONE_LAYOUT else '')
+    env = dict(os.environ, SETS_SNAPSHOT=DEMO_SETS, **({'LAYOUT_SUFFIX': sfx} if sfx else {}),
+               **({'LAYOUT_SIGNATURE_FILE': _ONE.RULES_PATH} if ONE_LAYOUT else {}),
                SCENE_OPENINGS=json.dumps([{k: v for k, v in o.items() if not k.startswith('_')}
                                           for o in liv['openings']], ensure_ascii=False),
                SCENE_RADIATORS=json.dumps([{k: v for k, v in r.items() if not k.startswith('_')}
@@ -413,7 +419,11 @@ def solve_layouts(flat: dict, only: list | None = None) -> None:
         art = layout_path(n)
         fresh = (os.path.exists(art)
                  and (json.load(open(art, encoding='utf-8')).get('_room') or {}).get('w') == liv['w']
-                 and os.path.getmtime(art) > os.path.getmtime(DEMO_SETS))
+                 and os.path.getmtime(art) > os.path.getmtime(DEMO_SETS)
+                 # подпись правила сменилась или расстановка не та — пересчитать
+                 and (not ONE_LAYOUT or (os.path.getmtime(art) > os.path.getmtime(_ONE.RULES_PATH)
+                                         and _ONE.signature(json.load(open(art, encoding='utf-8')))
+                                         == _ONE.rules()['signature'])))
         if fresh:
             continue
         r = subprocess.run([py, 'solver_run.py', str(n), '--v3', str(liv['w']), str(liv['d'])],
@@ -519,8 +529,9 @@ DEMO_SETS = BANK['demo_sets']     # банк, по которому считае
 
 
 def layout_path(n: int) -> str:
-    """Раскладка набора `n` в комнате демо: `v3set{n}-layout.json`, у копии банка — со своим суффиксом."""
-    return os.path.join(HERE, f"v3set{n}-layout{BANK['layout_sfx']}.json")
+    """Раскладка набора `n` в комнате демо: `v3set{n}-layout.json`, у копии банка — со своим суффиксом, у одной
+    расстановки на все стили — ещё `-one`."""
+    return os.path.join(HERE, f"v3set{n}-layout{BANK['layout_sfx']}{'-one' if ONE_LAYOUT else ''}.json")
 # Конверт слотов ЭТОЙ комнаты (гостиная 439×325): для ленты замен и для дозаполнения вариантов.
 # Правило — `rules/demo-swap.json → room_fit_envelope_cm` (conv-03, ADR-0271): «что физически встаёт в комнату»,
 # шире идеала слота сборки (`slot_rules`), иначе ленты сократились бы в разы.
@@ -910,6 +921,28 @@ def layout_ok(n: int, core: tuple = ()) -> bool:
     return bool(placed) and not art.get('_infeasible_reason') and all(c in placed for c in core)
 
 
+ONE_INFO: dict = {}     # подпись и ось одной расстановки — в данные (`one_layout`), если ворота прошли
+
+
+def one_layout(arts: dict) -> dict:
+    """Ворота и выравнивание одной расстановки (demo-31): подпись каждого варианта = опорной, затем центры дивана/столика/
+    ТВ/ковра — на общую ось (`demo_one_layout.align`). Не сошлось — варианты как были, громко `WARN:one_layout` (сборка не
+    падает: показать разные расстановки лучше, чем пустую страницу)."""
+    ref = _ONE.rules()['signature']
+    off = {f'set{n}': _ONE.signature(a) for n, a in arts.items() if _ONE.signature(a) != ref}
+    if off:
+        print(f'WARN:one_layout: подпись не {ref}: {off} — выравнивание не делаю', flush=True)
+        return arts
+    out, rep = _ONE.align(arts)
+    if not rep['ok']:
+        print(f'WARN:one_layout: ось не нашлась без новых жёстких нарушений: {json.dumps(rep, ensure_ascii=False)}', flush=True)
+        return arts
+    ONE_INFO.update(signature=ref, axis={rep['dim']: rep['axis']}, max_shift_cm=rep['max_shift_cm'])
+    print(f"one_layout: OK — вариантов {len(arts)}, подпись {ref}, ось {rep['dim']}={rep['axis']}, "
+          f"наибольший сдвиг {rep['max_shift_cm']} см", flush=True)
+    return out
+
+
 def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list]:
     """По стилю — первый набор, у которого полное ядро И сошлась расстановка в ЭТОЙ комнате (conv-09).
 
@@ -1036,15 +1069,17 @@ def build() -> dict:
     fill_report(fill_journal, gone)
     print('банки демо:', BANKS)
     liv = flat['rooms'][0]
+    arts = {n: json.load(open(layout_path(n), encoding='utf-8')) for n in BANKS if os.path.exists(layout_path(n))}
+    if ONE_LAYOUT:
+        arts = one_layout(arts)
     variants = []
     for k, n in enumerate(BANKS, 1):
         # ПОДПИСЬ — СТИЛЬ, А НЕ НОМЕР (13.10). «Вариант 1…6» ничего не говорит, и два набора
         # одного стиля выглядели как дубль. Номер остаётся только запасным именем.
         style = (sets[n - 1].get('style') or f'Вариант {k}').capitalize()
-        fs = glob.glob(layout_path(n))
-        if not fs:
+        art = arts.get(n)
+        if not art:
             continue
-        art = json.load(open(fs[0], encoding='utf-8'))
         items = sets[n - 1].get('items') or {}
         objs = []
         dims_unknown = []      # напольные без размера — не в сцене, а в честном списке (Р1)
@@ -1326,6 +1361,8 @@ def build() -> dict:
             'bedroom_catalog': bedroom_catalog(),
             # стили, где после дозаполнения нет ядра: вариант не публикуется, страница честно пишет почему
             'incomplete_styles': incomplete,
+            # ОДНА РАССТАНОВКА НА ВСЕ СТИЛИ (demo-31): есть — `demo-cams.mjs` подбирает одну пару точек на все варианты
+            **({'one_layout': ONE_INFO} if ONE_INFO else {}),
             # КВАРТИРА, ЖК, ЦЕНА И СЕРТИФИКАТ — В РЕЕСТРЕ ЗАСТРОЙЩИКОВ (`data/partners/*.json`,
             # план b2b-06): страница берёт их карточкой `/api/apartments/<apartment_id>`. Сумму
             # сертификата здесь не пишем — её считает сервер одной формулой для демо, 3D и отчёта.

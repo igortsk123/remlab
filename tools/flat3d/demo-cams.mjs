@@ -5,6 +5,10 @@
 // одна функция — один выбор для окна и для /flat. Зовёт сборка демо (`flat215_demo.py`) перед записью данных.
 // С demo-22 у каждого вида — окно превью `crop[<пропорция>] = {x,y,w,h,keep}` (доли кадра) и у варианта — отчёт покрытия
 // `cam_cover` (что из мебели не видно ни в одном виде и почему); тот же отчёт печатается в лог сборки.
+// ОДНА ПАРА НА ВСЕ СТИЛИ (demo-31, владелец 02.11): данные с одной расстановкой на все варианты (`D.one_layout`, ставит
+// `flat215_demo.py`) — пара подбирается ОДИН раз по мебели всех вариантов (`camPairAll`: точка годна, если чиста в каждом, ключ —
+// худший), у всех вариантов те же точки (x, y, rot, fov); окно превью и сдвиг телефона — по мебели своего варианта. Ставит
+// `D.cams_shared` — страница по нему не пересчитывает точки после замены товара (`index.html:defaultCams`).
 //   node tools/flat3d/demo-cams.mjs <demo-data.json>        дописать ракурсы на месте
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -20,15 +24,20 @@ if (!file) {
 }
 const D = JSON.parse(readFileSync(file, "utf8"));
 // блок страницы читает D.room (двери для правила «не у двери») — отдаём те же данные
-const api = new Function("D", `${block}\n;return {camPair};`)(D);
+const api = new Function("D", `${block}\n;return {camPair, camPairAll};`)(D);
 const W = D.room.w;
 const H = D.room.d;
 const p = 3; // как `camPad()` страницы и клэмп сервера
 const corners = [{ x: p, y: p }, { x: W - p, y: p }, { x: W - p, y: H - p }, { x: p, y: H - p }];
 let n = 0;
-for (const v of D.variants ?? []) {
-  const its = (v.items ?? []).map((it) => ({ ...it, x: +it.x, y: +it.y, w: +it.w, d: +it.d, rot: +it.rot || 0 }));
-  const pr = api.camPair(its, W, H, corners);
+const vars = D.variants ?? [];
+const itsOf = (v) => (v.items ?? []).map((it) => ({ ...it, x: +it.x, y: +it.y, w: +it.w, d: +it.d, rot: +it.rot || 0 }));
+const shared = !!D.one_layout && vars.length > 1;
+const all = shared ? api.camPairAll(vars.map(itsOf), W, H, corners) : null;
+if (shared) console.log(`одна пара на ${vars.length} вариантов: ${all.how}`);
+D.cams_shared = shared;
+for (const [vi, v] of vars.entries()) {
+  const pr = shared ? { ...all, ...(all.per?.[vi] ?? {}) } : api.camPair(itsOf(v), W, H, corners);
   v.cams = pr.cams.map((c) => ({ name: c.name, x: Math.round(c.x), y: Math.round(c.y), rot: Math.round(c.rot || 0), fov: c.fov || 72, pose: 2,
     // подбор парой (demo-12, ADR-0304, по умолчанию с 17.10) несёт сдвиг вертикального кадра телефона
     ...(typeof c.pshift === "number" ? { pshift: c.pshift } : {}), ...(c.crop ? { crop: c.crop } : {}) }));

@@ -1990,27 +1990,32 @@ function camCands(its,W,H,cs,door){
   for(const q of pos.values()){
     const r0=aimAt(q.x,q.y,W/2,H/2), rots=[aimAt(q.x,q.y,kx,ky)]; for(let k=-35;k<=35;k+=5)rots.push(r0+k);
     for(const rot of rots)for(const fov of [72,78]){
-      const c={x:q.x,y:q.y,rot:rot,fov:fov,k:q.k,door:!!door};
-      // ЖЁСТКО ОТСЕКАЕТСЯ ТОЛЬКО ФИЗИКА (demo-22, Codex 22.10): предмет перед объективом, ТВ со спины, стена/наличник в упор.
-      // Высокое, срезанное краем (`camTallCut`), раньше тоже отсекало точку — и подбору было выгоднее выкинуть стеллаж из кадра
-      // целиком; теперь это штраф пары (`CAM_TALL_PEN`), а «стеллаж виден» — обязательство покрытия
-      const b=camBlock(c,its), soft=Math.max(b.cov/CAM_BLOCK,camTvBack(c,its)?2:0,camGraze(c,W,H));
-      // ракурсу 2 — физический зазор CAM_B_CLEAR (человек там стоит), а «предмет перед объективом» меряет маска (`fore`);
-      // ракурсу 1 — прежнее строгое «ни одного предмета ближе CAM_MIN_DIST» (demo-12: в комнате 439×325 у «современного» и
-      // «минимализма» с 80 см оставался один угол у двери, а горшок у ног в кадр не попадает)
-      if(soft>1||camHard(c,its,0,CAM_B_CLEAR))continue;
-      c.far=!camHard(c,its,0);
-      const lo=camBlock(c,its,-1);
-      c.key=camKey(c,its);
-      c.cut=camSideCut(c,its);
-      c.tall=camTallCut(c,its);
-      c.score=6*c.key+4*camCore(c,its)-1.5*Math.min(1,Math.max(0,(lo.cov-CAM_LOW)/0.3))-(fov>72?0.3:0)-CAM_CUT_PEN*c.cut;
-      c.lv=c.far?([3,2,1].find(lv=>!camHard(c,its,lv))||0):-1;
-      c.keyCut=camKeyCut(c,its);
-      out.push(c);
+      const c=camCandEval({x:q.x,y:q.y,rot:rot,fov:fov,k:q.k,door:!!door},its,W,H);
+      if(c)out.push(c);
     }
   }
   return out;
+}
+// ОЦЕНКА ТОЧКИ ПРИ ЭТОЙ МЕБЕЛИ: null — точка негодна (физика), иначе та же точка с полями балла. Отдельно от перебора — её же
+// зовёт подбор одной пары на все варианты (`camPairAll`): точка годна, только если годна при мебели КАЖДОГО варианта
+function camCandEval(c,its,W,H){
+  // ЖЁСТКО ОТСЕКАЕТСЯ ТОЛЬКО ФИЗИКА (demo-22, Codex 22.10): предмет перед объективом, ТВ со спины, стена/наличник в упор.
+  // Высокое, срезанное краем (`camTallCut`), раньше тоже отсекало точку — и подбору было выгоднее выкинуть стеллаж из кадра
+  // целиком; теперь это штраф пары (`CAM_TALL_PEN`), а «стеллаж виден» — обязательство покрытия
+  const b=camBlock(c,its), soft=Math.max(b.cov/CAM_BLOCK,camTvBack(c,its)?2:0,camGraze(c,W,H));
+  // ракурсу 2 — физический зазор CAM_B_CLEAR (человек там стоит), а «предмет перед объективом» меряет маска (`fore`);
+  // ракурсу 1 — прежнее строгое «ни одного предмета ближе CAM_MIN_DIST» (demo-12: в комнате 439×325 у «современного» и
+  // «минимализма» с 80 см оставался один угол у двери, а горшок у ног в кадр не попадает)
+  if(soft>1||camHard(c,its,0,CAM_B_CLEAR))return null;
+  c.far=!camHard(c,its,0);
+  const lo=camBlock(c,its,-1);
+  c.key=camKey(c,its);
+  c.cut=camSideCut(c,its);
+  c.tall=camTallCut(c,its);
+  c.score=6*c.key+4*camCore(c,its)-1.5*Math.min(1,Math.max(0,(lo.cov-CAM_LOW)/0.3))-(c.fov>72?0.3:0)-CAM_CUT_PEN*c.cut;
+  c.lv=c.far?([3,2,1].find(lv=>!camHard(c,its,lv))||0):-1;
+  c.keyCut=camKeyCut(c,its);
+  return c;
 }
 // ВЕС НАРУШЕНИЯ ПОРОГА (за каждые 0.1 сверх порога; для `close`/`pclose` — за каждые 10 см недостачи; `nearWall` — за 0.01):
 // стена у края и срез главного — почти запрет, лишний пол или потолок — мелочь
@@ -2059,34 +2064,52 @@ const camBits=n=>{let k=0; while(n){n&=n-1;k++;} return k;};
 // Объектив — стадиями: 72+72 → 72+78 → 78+78 → точка в дверном проёме; первая стадия, где покрыто всё обязательное, — ответ;
 // иначе лучшая пара всех стадий с пометкой «недобор» и списком непокрытого. Перебор — ВСЕ пары кандидатов (битовые маски
 // покрытия); точная мерка кадра — у не больше CAM_EVAL кандидатов из лучших по покрытию пар (сначала с лучшим баллом).
-function camPair(its,W,H,cs){
-  if(!CAM_PAIR_ON)return camPairCorner(its,W,H,cs);
-  const units=camUnits(its), U=units.length, mustM=units.reduce((a,u,k)=>u.must&&k<31?a|(1<<k):a,0), optM=units.reduce((a,u,k)=>!u.must&&k<31?a|(1<<k):a,0);
-  const base=camCands(its,W,H,cs), door=camCands(its,W,H,cs,true);
-  if(!base.length&&!door.length){const r=camPairCorner(its,W,H,cs); r.how='углы (годных точек нет)'; return r;}
-  const all=base.concat(door), N=all.length, Q=new Float32Array(N*U), bits=new Int32Array(N), covs=[];
-  all.forEach((c,n)=>{const cv=camCover(c,its,W,H); covs.push(cv); let b=0;
-    units.forEach((u,k)=>{const q=camUnitQ(cv,u); Q[n*U+k]=q; if(q>=1-1e-9&&k<31)b|=(1<<k);}); bits[n]=b;});
+// ОДНА ПАРА НА ВСЕ ВАРИАНТЫ (demo-31, владелец 02.11 TG 55/58: «всегда один и тот же ракурс, но разный стиль»): `L` — список
+// мебели вариантов одной расстановки. Точка-кандидат — из точек любого варианта, годна, только если чиста (`camCandEval`) при мебели
+// КАЖДОГО; ключ пары — ХУДШИЙ по вариантам `pairKey`, нарушения и загромождение — худшие, балл кадра — наименьший. Один вариант —
+// ровно прежний подбор (`camPair`). Точка (x, y, rot, fov) у всех одна; окно превью и сдвиг телефона — по мебели варианта (`per`)
+function camPair(its,W,H,cs){return camPairAll([its],W,H,cs);}
+function camPairAll(L,W,H,cs){
+  if(!CAM_PAIR_ON)return camPairCorner(L[0],W,H,cs);
+  const V=L.length, UN=L.map(camUnits), U=UN.map(u=>u.length);
+  const mustM=UN.map(us=>us.reduce((a,u,k)=>u.must&&k<31?a|(1<<k):a,0)), optM=UN.map(us=>us.reduce((a,u,k)=>!u.must&&k<31?a|(1<<k):a,0));
+  const gen=door=>{
+    if(V===1)return camCands(L[0],W,H,cs,door).map(c=>{c.per=[c]; return c;});
+    const pool=new Map();
+    L.forEach(its=>camCands(its,W,H,cs,door).forEach(c=>{const k=[c.x,c.y,c.rot,c.fov].join(',');
+      if(!pool.has(k))pool.set(k,{x:c.x,y:c.y,rot:c.rot,fov:c.fov,k:c.k,door:c.door});}));
+    const out=[];
+    for(const c of pool.values()){const per=L.map(its=>camCandEval(Object.assign({},c),its,W,H)); if(per.some(p=>!p))continue;
+      out.push(Object.assign(c,{per,far:per.every(p=>p.far),lv:Math.min(...per.map(p=>p.lv)),score:Math.min(...per.map(p=>p.score)),
+        cut:Math.max(...per.map(p=>p.cut)),tall:per.map(p=>p.tall).find(Boolean)||''}));}
+    return out;};
+  const base=gen(false), door=gen(true);
+  if(!base.length&&!door.length){const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; return r;}
+  const all=base.concat(door), N=all.length, Q=U.map(u=>new Float32Array(N*u)), bits=L.map(()=>new Int32Array(N));
+  all.forEach((c,n)=>L.forEach((its,v)=>{const cv=camCover(c,its,W,H); let b=0;
+    UN[v].forEach((u,k)=>{const q=camUnitQ(cv,u); Q[v][n*U[v]+k]=q; if(q>=1-1e-9&&k<31)b|=(1<<k);}); bits[v][n]=b;}));
   const level=Math.max(0,...all.map(c=>c.lv));
-  const st=new Map(), stat=c=>{if(!st.has(c)){const s0=camStats(c,its,W,H); s0.keyVis=camKeyVis(c,its,s0);
+  const st=L.map(()=>new Map()), stat=(c,v)=>{v=v||0; const its=L[v]; if(!st[v].has(c)){const s0=camStats(c,its,W,H); s0.keyVis=camKeyVis(c,its,s0);
     s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L-s0.nearest)/100; s0.close2=Math.max(0,100-s0.nearest)/100;
     s0.keyMiss=Math.max(0,CAM_KEY_SHOW_MIN-camKeyShow(c,its,s0));
     s0.pNear=camStats(c,its,W,H,{w:48,h:66,sn:CAM_P_SN}).nearest; s0.pclose=Math.max(0,CAM_NEAR_P-s0.pNear)/100;
-    s0.bad1=camBad(s0); s0.bad2=camBad(s0,true); st.set(c,s0);} return st.get(c);};
+    s0.bad1=camBad(s0); s0.bad2=camBad(s0,true); st[v].set(c,s0);} return st[v].get(c);};
+  const vmax=f=>{let m=-Infinity; for(let v=0;v<V;v++)m=Math.max(m,f(v)); return m;};
   // штраф ракурсу 1: точка у мебели ближе CAM_MIN_DIST и ступень строгих правил ниже лучшей достижимой
   const c1pen=c=>(c.far?0:3)+2*(level-Math.max(c.lv,0)), tallPen=c=>c.tall?CAM_TALL_PEN:0;
   const clutter=s=>Math.max(0,s.empty-0.2)+s.fore+Math.max(0,s.floor-0.3)+Math.max(0,s.ceil-0.25);
   // недобор — шагом CAM_DEF_STEP: при недоборе двух видов (лофт 22.10: ТВ, диван и обеденную зону вместе не видит ни одна точка)
   // разница в сотые доли не должна перевешивать кадр с ТВ, срезанным краем на 3/4
-  const defOf=(a,b)=>{let d=0; units.forEach((u,k)=>{if(u.must)d+=1-Math.max(Q[a*U+k],Q[b*U+k]);}); return Math.round(d/CAM_DEF_STEP)*CAM_DEF_STEP;};
-  const pairKey=(a,b)=>{const m=bits[a]|bits[b]; return [camBits(mustM&~m),defOf(a,b),camBits(optM&~m)];};
+  const defOf=(v,a,b)=>{let d=0; UN[v].forEach((u,k)=>{if(u.must)d+=1-Math.max(Q[v][a*U[v]+k],Q[v][b*U[v]+k]);}); return Math.round(d/CAM_DEF_STEP)*CAM_DEF_STEP;};
   const cmp=(x,y)=>{for(let i=0;i<x.length;i++){if(x[i]<y[i]-1e-9)return -1; if(x[i]>y[i]+1e-9)return 1;} return 0;};
+  const pairKey=(a,b)=>{let w=null; for(let v=0;v<V;v++){const m=bits[v][a]|bits[v][b], k=[camBits(mustM[v]&~m),defOf(v,a,b),camBits(optM[v]&~m)];
+    if(!w||cmp(k,w)>0)w=k;} return w;};
   // лучшая пара среди разрешённых кандидатов: сначала покрытие по всем парам, потом точная мерка
   const best=ok=>{
     let bk=null, list=[];
     for(let a=0;a<N;a++){if(!ok(a,-1))continue;
       for(let b=a+1;b<N;b++){if(!ok(a,b)||all[a].k===all[b].k)continue;
-        const m=bits[a]|bits[b], mm=camBits(mustM&~m);
+        const mm=vmax(v=>camBits(mustM[v]&~(bits[v][a]|bits[v][b])));
         if(bk&&mm>bk[0])continue;
         const key=pairKey(a,b), c=bk?cmp(key,bk):-1;
         if(c<0){bk=key; list=[[a,b]];} else if(c===0)list.push([a,b]);}}
@@ -2096,11 +2119,11 @@ function camPair(its,W,H,cs){
     const ev=new Set([...seen].sort((x,y)=>all[y].score-all[x].score).slice(0,CAM_EVAL));
     let pick=null;
     for(const [a,b] of list){if(!ev.has(a)||!ev.has(b))continue;
-      const A=all[a], B=all[b], sa=stat(A), sb=stat(B);
-      // кто ракурс 1: где меньше штраф пары
-      const p1=sa.bad1+sb.bad2+c1pen(A), p2=sb.bad1+sa.bad2+c1pen(B), swap=p2<p1-1e-9, C1=swap?B:A, C2=swap?A:B;
+      const A=all[a], B=all[b];
+      // кто ракурс 1: где меньше штраф пары (у нескольких вариантов — худший по ним)
+      const p1=vmax(v=>stat(A,v).bad1+stat(B,v).bad2)+c1pen(A), p2=vmax(v=>stat(B,v).bad1+stat(A,v).bad2)+c1pen(B), swap=p2<p1-1e-9, C1=swap?B:A, C2=swap?A:B;
       const q={a:swap?b:a,b:swap?a:b,c1:C1,c2:C2,pen:Math.min(p1,p2)+tallPen(A)+tallPen(B),worst:Math.min(A.score,B.score),
-        clut:clutter(sa)+clutter(sb),div:camAng(A.rot,B.rot),key:bk};
+        clut:vmax(v=>clutter(stat(A,v))+clutter(stat(B,v))),div:camAng(A.rot,B.rot),key:bk};
       if(!pick){pick=q; continue;}
       // нарушения — с допуском CAM_BAD_TOL: внутри него решают худший кадр, загромождение, разнообразие
       if(q.pen<pick.pen-CAM_BAD_TOL){pick=q; continue;} if(q.pen>pick.pen+CAM_BAD_TOL)continue;
@@ -2121,35 +2144,40 @@ function camPair(its,W,H,cs){
   if(!pick){const full=res.filter(([,p])=>p.key[0]===0);
     const pool=full.length?full.sort((x,y)=>x[1].pen-y[1].pen):res.sort((x,y)=>cmp(x[1].key,y[1].key)||(x[1].pen-y[1].pen));
     if(pool.length)[stage,pick]=pool[0];}
-  if(!pick){const r=camPairCorner(its,W,H,cs); r.how='углы (пары нет)'; return r;}
+  if(!pick){const r=camPairCorner(L[0],W,H,cs); r.how='углы (пары нет)'; return r;}
   // ДОВОРОТ ±CAM_NUDGE° (d8 17.10: в сканди ТВ срезан краем вида 2): шаг перебора 5°, поэтому после выбора каждый вид пробует
   // повернуться на 1…6°, если так меньше крупной мебели срезано краем, правила кадра держатся, а покрытие пары не теряет ни одной единицы
-  const covBits=cv=>{let b=0; units.forEach((u,k)=>{if(camUnitQ(cv,u)>=1-1e-9&&k<31)b|=(1<<k);}); return b;};
-  const nudge=(c,otherBits,first)=>{let bestC=c, bc=camSideCut(c,its), cb=covBits(camCover(c,its,W,H));
-    const need=(cb|otherBits);
+  // (у нескольких вариантов — во всех)
+  const covBits=(cv,v)=>{let b=0; UN[v].forEach((u,k)=>{if(camUnitQ(cv,u)>=1-1e-9&&k<31)b|=(1<<k);}); return b;};
+  const sideCut=c=>vmax(v=>camSideCut(c,L[v]));
+  const nudge=(c,otherBits,first)=>{let bestC=c, bc=sideCut(c);
+    const need=L.map((its,v)=>covBits(camCover(c,its,W,H),v)|otherBits[v]);
     for(let d=-CAM_NUDGE; d<=CAM_NUDGE; d++){if(!d)continue; const q=Object.assign({},c,{rot:c.rot+d});
-      const k=camSideCut(q,its); if(k>bc||(k===bc&&Math.abs(d)>=Math.abs(bestC.rot-c.rot)))continue;
-      const b0=camBlock(q,its);
-      if(Math.max(b0.cov/CAM_BLOCK,camTvBack(q,its)?2:0,camGraze(q,W,H))>1||camHard(q,its,0,CAM_B_CLEAR))continue;
-      if(camTallCut(q,its)&&!c.tall)continue;
-      const sq=stat(q); if(camBad(sq,!first)>camBad(stat(c),!first)+1e-9)continue;
-      if(((covBits(camCover(q,its,W,H))|otherBits)&need)!==need)continue;
-      if(first&&sq.keyVis<stat(c).keyVis)continue;
+      const k=sideCut(q); if(k>bc||(k===bc&&Math.abs(d)>=Math.abs(bestC.rot-c.rot)))continue;
+      let ok=true;
+      for(let v=0;v<V&&ok;v++){const its=L[v], b0=camBlock(q,its);
+        if(Math.max(b0.cov/CAM_BLOCK,camTvBack(q,its)?2:0,camGraze(q,W,H))>1||camHard(q,its,0,CAM_B_CLEAR)){ok=false; break;}
+        if(camTallCut(q,its)&&!c.per[v].tall){ok=false; break;}
+        const sq=stat(q,v); if(camBad(sq,!first)>camBad(stat(c,v),!first)+1e-9){ok=false; break;}
+        if(((covBits(camCover(q,its,W,H),v)|otherBits[v])&need[v])!==need[v]){ok=false; break;}
+        if(first&&sq.keyVis<stat(c,v).keyVis)ok=false;}
+      if(!ok)continue;
       bestC=q; bc=k;}
     return bestC;};
-  const a2=nudge(pick.c1,bits[pick.b],true), b2=nudge(pick.c2,covBits(camCover(a2,its,W,H)),false);
+  const a2=nudge(pick.c1,L.map((_,v)=>bits[v][pick.b]),true), b2=nudge(pick.c2,L.map((its,v)=>covBits(camCover(a2,its,W,H),v)),false);
   // ОТЧЁТ ПОКРЫТИЯ: что покрыто, что нет и почему (по лучшему из двух видов: мало в кадре → «вне кадра», иначе «заслонён»)
-  const cv=[camCover(a2,its,W,H),camCover(b2,its,W,H)], covered=[], missing=[];
-  units.forEach(u=>u.ids.forEach(i=>{const r=cv.map(x=>x[i]), q=r.map(x=>Math.min(x.inF,x.vis));
-    const k=q[0]>=q[1]?0:1, id=camId(its[i],i);
-    if(q[k]>=CAM_COVER-1e-9)covered.push(id);
-    else missing.push({id,role:camRole(its[i]),must:u.must,inFrame:Math.round(r[k].inF*100)/100,visible:Math.round(r[k].vis*100)/100,
-      reason:r[k].inF<CAM_COVER?'вне кадра':'заслонён'});}));
-  const mk=(n,c)=>({name:n,x:c.x,y:c.y,rot:c.rot,fov:c.fov||72,pshift:camPortraitShift(c,its,W,H),crop:camCrops(stat(c),its,camCover(c,its,W,H))});
+  const mk=(n,c,v)=>({name:n,x:c.x,y:c.y,rot:c.rot,fov:c.fov||72,pshift:camPortraitShift(c,L[v],W,H),crop:camCrops(stat(c,v),L[v],camCover(c,L[v],W,H))});
+  const per=L.map((its,v)=>{const cv=[camCover(a2,its,W,H),camCover(b2,its,W,H)], covered=[], missing=[];
+    UN[v].forEach(u=>u.ids.forEach(i=>{const r=cv.map(x=>x[i]), q=r.map(x=>Math.min(x.inF,x.vis));
+      const k=q[0]>=q[1]?0:1, id=camId(its[i],i);
+      if(q[k]>=CAM_COVER-1e-9)covered.push(id);
+      else missing.push({id,role:camRole(its[i]),must:u.must,inFrame:Math.round(r[k].inF*100)/100,visible:Math.round(r[k].vis*100)/100,
+        reason:r[k].inF<CAM_COVER?'вне кадра':'заслонён'});}));
+    return {cams:[mk('C1',a2,v),mk('C2',b2,v)],covered,missing,stats:[stat(a2,v),stat(b2,v)]};});
   const [mm,dm,mo]=pick.key;
-  return {level, cams:[mk('C1',a2),mk('C2',b2)],
-    how:`${mm?'недобор':'пара'}: стадия ${stage}, не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.size}`,
-    covered, missing, stats:[stat(a2),stat(b2)]};
+  return {level, cams:per[0].cams,
+    how:`${mm?'недобор':'пара'}: стадия ${stage}, не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}`,
+    covered:per[0].covered, missing:per[0].missing, stats:per[0].stats, per};
 }
 // ОКНО ПРЕВЬЮ (demo-22 п.2) — для каждого вида и пропорции окна заранее, по маске той же расстановки (`camStats().ext` — рамки
 // видимых пикселей предметов). Окно уже кадра по одной оси и скользит по ней; лучшее — где больше веса мебели целиком (с запасом
@@ -2326,7 +2354,11 @@ function defaultCams(){
   // ГОТОВАЯ ПАРА ИЗ ДАННЫХ (demo-22): сборка уже подобрала ракурсы и окна превью этой расстановки (`tools/flat3d/demo-cams.mjs`) —
   // пока мебель как в данных, берём их: тот же выбор, что у фото сервера, и без секунды перебора в браузере; двигали — подбор заново
   const v=allVariants()[cur]||{};
-  if(Array.isArray(v.cams)&&v.cams.length===2&&camSameItems(items,v.items)){CAM_LEVEL=v.cam_level||0; return v.cams.map(c=>clone(c));}
+  // ОДНА ПАРА НА ВСЕ СТИЛИ (demo-31): точки постоянные — после замены товара не пересчитываются (иначе фото другого стиля
+  // и этого сняты бы с разных мест); `D.cams_shared` ставит сборка (`demo-cams.mjs`) при одной расстановке на все варианты.
+  // Мебель передвинули на точку (физика `camHard`) — подбор заново, камера внутри дивана хуже сдвинутого ракурса
+  const keep=D.cams_shared&&Array.isArray(v.cams)&&v.cams.every(c=>!camHard(c,items,0,CAM_B_CLEAR));
+  if(Array.isArray(v.cams)&&v.cams.length===2&&(keep||camSameItems(items,v.items))){CAM_LEVEL=v.cam_level||0; return v.cams.map(c=>clone(c));}
   const pr=camPair(items,D.room.w,D.room.d,cornerList());
   CAM_LEVEL=pr.level;
   return pr.cams;
@@ -2393,7 +2425,7 @@ function cycleCams(){
 // значения продолжали бы жить: после перевода камер вплотную в угол сохранённые с прежним
 // отступом так и стояли бы в 10 см от стены. Меняем правило — меняем версию, и каждый
 // получает новые углы по умолчанию (владелец 01.09).
-const CAMS_VER='v12-cover';   // v12 (22.10, demo-22): покрытие каждого предмета первым, пара из данных витрины;   // v11 (17.10, demo-12): пара подбирается вместе (маска кадра, охват вдвоём);   // v10 (17.10, demo-11): ракурс 2 — не ближе 60 см к стенам угла;   // v9 (16.10): высокое (торшер, стеллаж) — целиком или вне кадра; v7 (14.10): ракурс 1 — лучший из четырёх углов, главное целиком; при смене правил сохранённые углы пересчитываются
+const CAMS_VER='v13-shared';   // v13 (02.11, demo-31): одна пара точек на все стили, после замены товара не пересчитывается;   // v12 (22.10, demo-22): покрытие каждого предмета первым, пара из данных витрины;   // v11 (17.10, demo-12): пара подбирается вместе (маска кадра, охват вдвоём);   // v10 (17.10, demo-11): ракурс 2 — не ближе 60 см к стенам угла;   // v9 (16.10): высокое (торшер, стеллаж) — целиком или вне кадра; v7 (14.10): ракурс 1 — лучший из четырёх углов, главное целиком; при смене правил сохранённые углы пересчитываются
 function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VER+(CAM_PAIR_ON?'-pair':'')+'-'+(v.id||cur);}
 // ПОЗА КАМЕРЫ ДЛЯ 3D И СНИМКА: при подборе парой (demo-12) — со сдвигом вертикального кадра телефона, пересчитанным под
 // текущее положение камеры и мебели (камеру двигали руками — прежний сдвиг устарел)

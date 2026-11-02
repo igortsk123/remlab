@@ -13,8 +13,10 @@ const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
 const block = html.slice(html.indexOf("// CAMFIT START"), html.indexOf("// CAMFIT END"));
 const load = (f: string) => JSON.parse(readFileSync(f, "utf8")) as Fx;
 const apiOf = (fx: Fx) =>
-  new Function("D", `${block};return {camPair,camPairCorner,camStats,camCover,camMask,camAtWindow,camNear,camRole,CAM_B_CLEAR,CAM_MUST,CAM_COVER,CAM_ASPECT};`)({ room: fx.room }) as {
+  new Function("D", `${block};return {camPair,camPairAll,camHard,camPairCorner,camStats,camCover,camMask,camAtWindow,camNear,camRole,CAM_B_CLEAR,CAM_MUST,CAM_COVER,CAM_ASPECT};`)({ room: fx.room }) as {
     camPair: (its: It[], W: number, H: number, cs: { x: number; y: number }[]) => Pair;
+    camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[]) => Pair & { per: (Omit<Pair, "level" | "how">)[] };
+    camHard: (c: Cam, its: It[], strict: number, minDist?: number) => string | false | undefined;
     camPairCorner: (its: It[], W: number, H: number, cs: { x: number; y: number }[]) => { level: number; cams: Cam[] };
     camStats: (c: Cam, its: It[], W: number, H: number, o?: { w?: number; h?: number; sn?: number }) => Stats;
     camCover: (c: Cam, its: It[], W: number, H: number) => { inF: number; vis: number }[];
@@ -156,5 +158,39 @@ describe("камеры демо: пара", () => {
   it("подбор парой — по умолчанию (владелец «включай» 17.10), и без флага окружения", () => {
     const { w: W, d: H } = fx17.room, list = its(fx17.variants[0]!);
     expect(api17.camPair(list, W, H, corners(W, H)).how).toMatch(/^(пара|недобор)/);
+  });
+});
+
+// ОДНА РАССТАНОВКА И ОДНА ПАРА ТОЧЕК НА ВСЕ СТИЛИ (план demo-31, владелец 02.11: «всегда один и тот же ракурс, но разный стиль»).
+// Слепок — сборка рядом 02.11 с `DEMO_ONE_LAYOUT=1` (`tools/scout/demo_one_layout.py`, подбор — `camPairAll`)
+type FxOne = Fx & { variants: { id: string; style: string; items: It[]; cams_shared: Cam[] }[] };
+const fxOne = load("tests/fixtures/demo-layouts-one-0211.json") as FxOne, apiOne = apiOf(fxOne);
+
+describe("демо: одна расстановка, одна пара точек", () => {
+  const { w: W, d: H } = fxOne.room;
+  const L = fxOne.variants.map(its);
+  it("диван, столик, ТВ-тумба и ковёр — у тех же стен и на одной оси во всех стилях", () => {
+    const at = (list: It[], role: string) => list.find((it) => it.role === role);
+    for (const [i, list] of L.entries()) {
+      const id = fxOne.variants[i]!.id, sofa = at(list, "диван")!, tv = at(list, "тв-тумба")!;
+      expect(sofa.y, `${id}: диван у южной стены`).toBeGreaterThan(H / 2);
+      expect(tv.y, `${id}: ТВ у северной стены`).toBeLessThan(H / 2);
+      for (const r of ["диван", "столик", "тв-тумба", "ковёр"]) {
+        const it = at(list, r);
+        if (it) expect(it.x, `${id}: ${r} на оси`).toBeCloseTo(L[0]!.find((x) => x.role === "диван")!.x, 1);
+      }
+    }
+  });
+  it("одна пара на все варианты: точки (x, y, направление, объектив) одни, у каждого варианта без нарушений camHard", { timeout: 120_000 }, () => {
+    const all = apiOne.camPairAll(L, W, H, corners(W, H));
+    expect(all.how).toMatch(/вариантов 5/);
+    expect(all.per).toHaveLength(L.length);
+    const pts = (cams: Cam[]) => cams.map((c) => [c.x, c.y, c.rot, c.fov]);
+    for (const [i, p] of all.per.entries()) {
+      expect(pts(p.cams), fxOne.variants[i]!.id).toEqual(pts(all.cams));
+      for (const c of p.cams) expect(apiOne.camHard(c, L[i]!, 0, apiOne.CAM_B_CLEAR), `${fxOne.variants[i]!.id} ${c.name}`).toBeFalsy();
+    }
+    // слепок записан той же функцией при сборке — подбор и сборка не разошлись
+    expect(pts(all.cams)).toEqual(pts(fxOne.variants[0]!.cams_shared));
   });
 });

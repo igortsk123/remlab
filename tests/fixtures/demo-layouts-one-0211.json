@@ -1,0 +1,618 @@
+{
+ "_note": "слепок сборки «одна расстановка» 02.11 (T-20261102-01, demo-31: подпись диван:S|тв:N|обед:NE, оси выровнены) — регрессия «одна пара точек на все варианты»; cams_shared — общая пара сборки",
+ "room": {
+  "w": 439,
+  "d": 325,
+  "openings": [
+   {
+    "kind": "window",
+    "wall": "west",
+    "offset_cm": 70,
+    "width_cm": 150,
+    "sill_cm": 85,
+    "_why": "панорамное окно на наружной стене (штриховка слева на чертеже)",
+    "height_cm": 150
+   },
+   {
+    "kind": "door",
+    "wall": "east",
+    "offset_cm": 205,
+    "width_cm": 90,
+    "swing_cm": 90,
+    "_why": "дверь из холла 9.3 (дуга открывания на чертеже справа снизу)"
+   }
+  ]
+ },
+ "one_layout": {
+  "signature": "диван:S|тв:N|обед:NE",
+  "axis": {
+   "x": 155.3
+  },
+  "max_shift_cm": 11.4
+ },
+ "variants": [
+  {
+   "id": "set1",
+   "style": "сканди",
+   "items": [
+    {
+     "role": "диван",
+     "x": 155.3,
+     "y": 280,
+     "w": 198,
+     "d": 90,
+     "h": 83,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "столик",
+     "x": 155.3,
+     "y": 163.5,
+     "w": 120,
+     "d": 58,
+     "h": 38,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "торшер",
+     "x": 33.3,
+     "y": 300,
+     "w": 22,
+     "d": 38,
+     "h": 145,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "ковёр",
+     "x": 155.3,
+     "y": 180,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "тв-тумба",
+     "x": 155.3,
+     "y": 25,
+     "w": 139,
+     "d": 50,
+     "h": 62,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стол обеденный",
+     "x": 394,
+     "y": 50,
+     "w": 90,
+     "d": 90,
+     "h": 75,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стул",
+     "x": 324.5,
+     "y": 50,
+     "w": 45,
+     "d": 45,
+     "h": 84,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стул 2",
+     "x": 394,
+     "y": 119.5,
+     "w": 45,
+     "d": 45,
+     "h": 84,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    }
+   ],
+   "cams_shared": [
+    {
+     "name": "C1",
+     "x": 436,
+     "y": 232,
+     "rot": -87,
+     "fov": 78
+    },
+    {
+     "name": "C2",
+     "x": 306,
+     "y": 322,
+     "rot": -8,
+     "fov": 78
+    }
+   ]
+  },
+  {
+   "id": "set6",
+   "style": "современный",
+   "items": [
+    {
+     "role": "диван",
+     "x": 155.3,
+     "y": 277,
+     "w": 177,
+     "d": 96,
+     "h": 86,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "столик",
+     "x": 155.3,
+     "y": 157.5,
+     "w": 120,
+     "d": 58,
+     "h": 38,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "торшер",
+     "x": 24.4,
+     "y": 300,
+     "w": 38,
+     "d": 38,
+     "h": 159,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "ковёр",
+     "x": 155.3,
+     "y": 174,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "тв-тумба",
+     "x": 155.3,
+     "y": 20,
+     "w": 140,
+     "d": 40,
+     "h": 45,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стол обеденный",
+     "x": 396.5,
+     "y": 47.5,
+     "w": 85,
+     "d": 85,
+     "h": 75,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стул",
+     "x": 326,
+     "y": 47.5,
+     "w": 46,
+     "d": 52,
+     "h": 80,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стул 2",
+     "x": 396.5,
+     "y": 118,
+     "w": 46,
+     "d": 52,
+     "h": 80,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    }
+   ],
+   "cams_shared": [
+    {
+     "name": "C1",
+     "x": 436,
+     "y": 232,
+     "rot": -87,
+     "fov": 78
+    },
+    {
+     "name": "C2",
+     "x": 306,
+     "y": 322,
+     "rot": -8,
+     "fov": 78
+    }
+   ]
+  },
+  {
+   "id": "set9",
+   "style": "минимализм",
+   "items": [
+    {
+     "role": "диван",
+     "x": 155.3,
+     "y": 271,
+     "w": 181,
+     "d": 108,
+     "h": 72,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "столик",
+     "x": 155.3,
+     "y": 145.5,
+     "w": 120,
+     "d": 58,
+     "h": 38,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "торшер",
+     "x": 29.1,
+     "y": 300,
+     "w": 38,
+     "d": 38,
+     "h": 163,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "ковёр",
+     "x": 155.3,
+     "y": 162,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "тв-тумба",
+     "x": 155.3,
+     "y": 20,
+     "w": 140,
+     "d": 40,
+     "h": 41,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стол обеденный",
+     "x": 396.5,
+     "y": 47.5,
+     "w": 85,
+     "d": 85,
+     "h": 75,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стул",
+     "x": 329.5,
+     "y": 47.5,
+     "w": 45,
+     "d": 45,
+     "h": 83,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стул 2",
+     "x": 396.5,
+     "y": 114.5,
+     "w": 45,
+     "d": 45,
+     "h": 83,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стеллаж",
+     "x": 42.5,
+     "y": 22.5,
+     "w": 75,
+     "d": 35,
+     "h": 75,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false
+    }
+   ],
+   "cams_shared": [
+    {
+     "name": "C1",
+     "x": 436,
+     "y": 232,
+     "rot": -87,
+     "fov": 78
+    },
+    {
+     "name": "C2",
+     "x": 306,
+     "y": 322,
+     "rot": -8,
+     "fov": 78
+    }
+   ]
+  },
+  {
+   "id": "set10",
+   "style": "лофт",
+   "items": [
+    {
+     "role": "диван",
+     "x": 155.3,
+     "y": 271,
+     "w": 158,
+     "d": 108,
+     "h": 87,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "столик",
+     "x": 155.3,
+     "y": 149.5,
+     "w": 120,
+     "d": 50,
+     "h": 37,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "торшер",
+     "x": 56.8,
+     "y": 306.8,
+     "w": 35,
+     "d": 24.5,
+     "h": 157,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "ковёр",
+     "x": 155.3,
+     "y": 162,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "тв-тумба",
+     "x": 155.3,
+     "y": 20,
+     "w": 140,
+     "d": 40,
+     "h": 41,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стол обеденный",
+     "x": 391.5,
+     "y": 42.5,
+     "w": 75,
+     "d": 95,
+     "h": 75,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стул",
+     "x": 314.5,
+     "y": 42.5,
+     "w": 55,
+     "d": 55,
+     "h": 75,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стул 2",
+     "x": 391.5,
+     "y": 109.5,
+     "w": 55,
+     "d": 55,
+     "h": 75,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "кашпо",
+     "x": 13,
+     "y": 18,
+     "w": 26,
+     "d": 26,
+     "h": 50,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false
+    }
+   ],
+   "cams_shared": [
+    {
+     "name": "C1",
+     "x": 436,
+     "y": 232,
+     "rot": -87,
+     "fov": 78
+    },
+    {
+     "name": "C2",
+     "x": 306,
+     "y": 322,
+     "rot": -8,
+     "fov": 78
+    }
+   ]
+  },
+  {
+   "id": "set16",
+   "style": "джапанди",
+   "items": [
+    {
+     "role": "диван",
+     "x": 155.3,
+     "y": 281.5,
+     "w": 162,
+     "d": 87,
+     "h": 78,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "столик",
+     "x": 155.3,
+     "y": 166.5,
+     "w": 120,
+     "d": 58,
+     "h": 38,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "торшер",
+     "x": 62.1,
+     "y": 300,
+     "w": 22,
+     "d": 38,
+     "h": 145,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "ковёр",
+     "x": 155.3,
+     "y": 183,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "тв-тумба",
+     "x": 155.3,
+     "y": 25,
+     "w": 139,
+     "d": 50,
+     "h": 62,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стол обеденный",
+     "x": 399,
+     "y": 45,
+     "w": 80,
+     "d": 80,
+     "h": 75,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стул",
+     "x": 332.5,
+     "y": 45,
+     "w": 49,
+     "d": 49,
+     "h": 82,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стул 2",
+     "x": 399,
+     "y": 111.5,
+     "w": 49,
+     "d": 49,
+     "h": 82,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false
+    },
+    {
+     "role": "стеллаж",
+     "x": 45,
+     "y": 20,
+     "w": 80,
+     "d": 30,
+     "h": 118,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false
+    }
+   ],
+   "cams_shared": [
+    {
+     "name": "C1",
+     "x": 436,
+     "y": 232,
+     "rot": -87,
+     "fov": 78
+    },
+    {
+     "name": "C2",
+     "x": 306,
+     "y": 322,
+     "rot": -8,
+     "fov": 78
+    }
+   ]
+  }
+ ]
+}

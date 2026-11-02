@@ -1833,6 +1833,60 @@ def _prior_would_choose(room, cands, pp):
     return cands[best_i][0] if best_i != 0 else None
 
 
+def signature_xy(W: float, D: float, pos: dict) -> str:
+    """ПОДПИСЬ ГИПОТЕЗЫ (demo-31, T-20261102-01): стена дивана, стена носителя ТВ, угол обеденного стола.
+    `pos` — {базовая роль: (x, y)} центров, см. Стена — ближайшая к центру (N: y=0, S: y=D, W: x=0, E: x=W);
+    угол — четверть комнаты. Нет роли — «-». По ней демо держит ОДНУ расстановку на все стили (владелец 02.11, TG 55/58);
+    тот же расчёт — у ворот демо (`tools/scout/flat215_demo.py:one_layout_check`)."""
+    def wall(c):
+        d = {'N': c[1], 'S': D - c[1], 'W': c[0], 'E': W - c[0]}
+        return min(d, key=d.get)
+    sofa, din = pos.get('диван'), pos.get('стол обеденный')
+    tv = pos.get('тв-тумба') or pos.get('стенка')
+    corner = (('N' if din[1] < D / 2 else 'S') + ('W' if din[0] < W / 2 else 'E')) if din else '-'
+    return f"диван:{wall(sofa) if sofa else '-'}|тв:{wall(tv) if tv else '-'}|обед:{corner}"
+
+
+def layout_signature(room: Room, ps) -> str:
+    """Подпись расстановки `ps` (первый предмет каждой базовой роли) — `signature_xy`."""
+    from .geometry import base_role as _br
+    pos: dict = {}
+    for p in ps:
+        pos.setdefault(_br(p.role), (p.x, p.y))
+    return signature_xy(room.width_cm, room.depth_cm, pos)
+
+
+def _signature_widen() -> dict:
+    """Расширение перебора beam из файла подписи (`widen`: blocks_per_step, full_chain_cap); env не задан — {}."""
+    path = os.environ.get('LAYOUT_SIGNATURE_FILE')
+    if not path:
+        return {}
+    with open(path, encoding='utf-8') as fh:
+        return json.load(fh).get('widen') or {}
+
+
+def _signature_filter(room: Room, cands: list) -> list:
+    """Фильтр гипотез по опорной подписи — ТОЛЬКО по env, по умолчанию выключен (прочие расстановки не меняются).
+    LAYOUT_SIG_TRACE=1 — печать `SIGHYP {name, sig, key}` каждой гипотезы (замер сторон).
+    LAYOUT_SIGNATURE_FILE=<json {"signature": …}> — оставить гипотезы с этой подписью; совпадений нет —
+    выбор прежний и строка `SIGFILTER MISS` (ворота демо сверяют подпись итоговой расстановки)."""
+    trace = os.environ.get('LAYOUT_SIG_TRACE') == '1'
+    path = os.environ.get('LAYOUT_SIGNATURE_FILE')
+    if not (trace or path) or not cands:
+        return cands
+    sigs = [layout_signature(room, list(c[2][0].placements)) if c[2] else '-' for c in cands]
+    if trace:
+        for c, s in zip(cands, sigs):
+            print('SIGHYP ' + json.dumps({'name': c[0], 'sig': s, 'key': list(c[3])}, ensure_ascii=False), flush=True)
+    if not path:
+        return cands
+    with open(path, encoding='utf-8') as fh:
+        ref = json.load(fh).get('signature')
+    keep = [c for c, s in zip(cands, sigs) if s == ref]
+    print(f'SIGFILTER {"ok" if keep else "MISS"} ref={ref} keep={len(keep)}/{len(cands)}', flush=True)
+    return keep or cands
+
+
 def solve_zoned_beam(room: Room, items, **kw):
     """P2: драйвер beam. Возвращает (outs, gid) как solve_zoned; в meta лучшего —
     'beam': {hypotheses, chosen, keys, certificate}. Выключен в данных → solve_zoned.
@@ -1917,6 +1971,12 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
     if _mode_key not in (cfg.get('family_enabled_modes') or ['large', 'large_xl']):
         _fam_order = []                       # small/transitional — обычный beam
     _max_full = int((cfg.get('full_chain_cap') or {}).get(_mode_key, 4))   # ЕДИНЫЙ cap
+    # demo-31: при опорной подписи нужная сторона у части сетов — дальше 4-й позиции блока (set6/9: S-сторона
+    # sofa_lamp не перечислялась, только compact_sectional без торшера) → шире перебор, ТОЛЬКО с env подписи
+    _sig_widen = _signature_widen()
+    if _sig_widen:
+        K_blocks = max(K_blocks, int(_sig_widen.get('blocks_per_step', K_blocks)))
+        _max_full = max(_max_full, int(_sig_widen.get('full_chain_cap', _max_full)))
     _cert = {'families': {}, 'one_sided': {'allowed': None, 'reason': None},
              'budget': {'cap': _max_full, 'attempted': 0, 'exhausted': False}, 'mode': _mode_key}
     _step_by_id = {g['id']: g for g in steps_all}
@@ -2123,6 +2183,7 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
                 _cert['budget']['attempted'] = _full_attempts
                 cands.append((_nm, gid, outs,
                               plan_key(room, outs[0], needs, seat_rank=_rank.get(g['id'], 0))))
+    cands = _signature_filter(room, cands)
     if not cands:
         return base_outs, base_gid
     # детерминированный порядок: ключ, затем стабильный индекс (greedy первым при равенстве)
