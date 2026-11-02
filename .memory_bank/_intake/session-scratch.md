@@ -15,3 +15,4 @@
 <!-- SCRATCH START — /memory-check переносит обработанное в банк и усекает до этой метки -->
 - 2026-10-30 — свод выполнен (/memory-check, ведущий pakardev): demo-31 закрыт (ADR-0328, урок 546), блокнот чист
 - 2026-11-01 — хуки памяти в `.claude/settings.json` молчали на common (нет node): добавлен запасной путь `elif command -v r … r node tools/X.mjs` в 5 хуков (SessionStart, Stop --block, PreCompact, read-logger, code-touch-hint); guard-bash не трогал. Владелец TG 52 «А». Подсказка ведущего tamara.
+- 2026-11-02 — владелец TG 55/58: в демо одна расстановка на все стили и две постоянные точки съёмки (замысел 26.08; код считал расстановку на каждый сет — 2 из 5 зеркальные) → план demo-31 draft, Codex.
