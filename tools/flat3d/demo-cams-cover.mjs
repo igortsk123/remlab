@@ -16,10 +16,10 @@ const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : nu
 const file = args[0];
 if (!file || file.startsWith("--")) { console.error("нужен путь к demo-data.json"); process.exit(2); }
 
-const FOV_LOOP = "for(const rot of rots)for(const fov of [72,78])";
-if (!BLOCK.includes(FOV_LOOP)) { console.error("в CAMFIT не найден перебор объектива — скрипт устарел"); process.exit(2); }
+const FOV_LIST = "const CAM_FOVS=[72,78,84,90];";
+if (!BLOCK.includes(FOV_LIST)) { console.error("в CAMFIT не найден список объективов — скрипт устарел"); process.exit(2); }
 // блок с другим набором объективов (эксперимент `--explore`); по умолчанию — как на странице
-const load = (D, fovs) => new Function("D", `${fovs ? BLOCK.replace(FOV_LOOP, `for(const rot of rots)for(const fov of ${JSON.stringify(fovs)})`) : BLOCK}
+const load = (D, fovs) => new Function("D", `${fovs ? BLOCK.replace(FOV_LIST, `const CAM_FOVS=${JSON.stringify(fovs)};`) : BLOCK}
 ;return {camPair,camCands,camCover,camUnits,camUnitQ,camRole,camId,CAM_COVER};`)(D);
 
 const itemsOf = (v) => (v.items ?? []).map((it) => ({ ...it, x: +it.x, y: +it.y, w: +it.w, d: +it.d, rot: +it.rot || 0 }));

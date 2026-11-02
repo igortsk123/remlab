@@ -13,10 +13,12 @@ const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
 const block = html.slice(html.indexOf("// CAMFIT START"), html.indexOf("// CAMFIT END"));
 const load = (f: string) => JSON.parse(readFileSync(f, "utf8")) as Fx;
 const apiOf = (fx: Fx) =>
-  new Function("D", `${block};return {camPair,camPairAll,camHard,camPairCorner,camStats,camCover,camMask,camAtWindow,camNear,camRole,CAM_B_CLEAR,CAM_MUST,CAM_COVER,CAM_ASPECT};`)({ room: fx.room }) as {
+  new Function("D", `${block};return {camPair,camPairAll,camHard,camFrameState,CAM_KEY,camPairCorner,camStats,camCover,camMask,camAtWindow,camNear,camRole,CAM_B_CLEAR,CAM_MUST,CAM_COVER,CAM_ASPECT};`)({ room: fx.room }) as {
     camPair: (its: It[], W: number, H: number, cs: { x: number; y: number }[]) => Pair;
     camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[]) => Pair & { per: (Omit<Pair, "level" | "how">)[] };
     camHard: (c: Cam, its: It[], strict: number, minDist?: number) => string | false | undefined;
+    camFrameState: (c: Cam, it: It) => 0 | 1 | 2;
+    CAM_KEY: string[];
     camPairCorner: (its: It[], W: number, H: number, cs: { x: number; y: number }[]) => { level: number; cams: Cam[] };
     camStats: (c: Cam, its: It[], W: number, H: number, o?: { w?: number; h?: number; sn?: number }) => Stats;
     camCover: (c: Cam, its: It[], W: number, H: number) => { inF: number; vis: number }[];
@@ -181,8 +183,10 @@ describe("демо: одна расстановка, одна пара точе�
       }
     }
   });
+  let memo: ReturnType<typeof apiOne.camPairAll> | null = null;
+  const pairAll = () => (memo ??= apiOne.camPairAll(L, W, H, corners(W, H)));
   it("одна пара на все варианты: точки (x, y, направление, объектив) одни, у каждого варианта без нарушений camHard", { timeout: 120_000 }, () => {
-    const all = apiOne.camPairAll(L, W, H, corners(W, H));
+    const all = pairAll();
     expect(all.how).toMatch(/вариантов 5/);
     expect(all.per).toHaveLength(L.length);
     const pts = (cams: Cam[]) => cams.map((c) => [c.x, c.y, c.rot, c.fov]);
@@ -192,5 +196,34 @@ describe("демо: одна расстановка, одна пара точе�
     }
     // слепок записан той же функцией при сборке — подбор и сборка не разошлись
     expect(pts(all.cams)).toEqual(pts(fxOne.variants[0]!.cams_shared));
+  });
+  // правки ведущего 02.11 по эскизам: в C1 ТВ срезан правым краем у всех стилей, в C2 столик крупно и срезан, стулья — краем
+  it("главный вид C1 — диван, столик и ТВ-тумба целиком; крупная мебель ни в одном виде не срезана краем — у всех вариантов", { timeout: 120_000 }, () => {
+    const all = pairAll();
+    for (const [i, p] of all.per.entries()) {
+      const id = fxOne.variants[i]!.id, list = L[i]!, [c1, c2] = p.cams as [Cam, Cam];
+      for (const it of list.filter((x) => apiOne.CAM_KEY.includes(apiOne.camRole(x))))
+        expect(apiOne.camFrameState(c1, it), `${id} C1: ${it.role} целиком`).toBe(1);
+      for (const c of [c1, c2])
+        for (const it of list.filter((x) => apiOne.CAM_MUST.includes(apiOne.camRole(x)) || apiOne.camRole(x) === "стул"))
+          expect(apiOne.camFrameState(c, it), `${id} ${c.name}: ${it.role} не срезан краем`).not.toBe(2);
+    }
+  });
+});
+
+describe("кадр: крупное целиком или вне кадра", () => {
+  const list = its(fxOne.variants[0]!), at = (role: string) => list.find((it) => it.role === role)!;
+  // точки — из эскизов первого цикла (дефекты, которые ведущий увидел глазами), и выбранные после правки
+  it("C1 первого цикла: ТВ-тумба срезана правым краем; C1 после правки — целиком; вид в стену — вне кадра", () => {
+    const tv = at("тв-тумба");
+    expect(apiOne.camFrameState({ name: "C1", x: 436, y: 235, rot: -88, fov: 90 }, tv)).toBe(2);
+    expect(apiOne.camFrameState({ name: "C1", x: 436, y: 242, rot: -80, fov: 78 }, tv)).toBe(1);
+    expect(apiOne.camFrameState({ name: "t", x: 436, y: 242, rot: 100, fov: 78 }, tv)).toBe(0);
+  });
+  it("C2 первого цикла: столик крупно в углу — срезан; C2 после правки — столик вне кадра, обеденная зона целиком", () => {
+    const old = { name: "C2", x: 306, y: 322, rot: -8, fov: 78 }, now = { name: "C2", x: 319, y: 265, rot: 20, fov: 78 };
+    expect(apiOne.camFrameState(old, at("столик"))).toBe(2);
+    expect(apiOne.camFrameState(now, at("столик"))).toBe(0);
+    for (const it of list.filter((x) => x.role === "стол обеденный" || x.role.startsWith("стул"))) expect(apiOne.camFrameState(now, it), it.role).toBe(1);
   });
 });

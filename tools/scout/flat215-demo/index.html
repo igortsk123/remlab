@@ -1964,6 +1964,28 @@ function camSideCut(c,its){
     const bw=b.x1-b.x0, inw=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)); if(bw<=0)return; if(inw/2>=0.04&&inw/bw<0.85)n++;});
   return Math.min(n,2);
 }
+// КРУПНОЕ — ЦЕЛИКОМ ИЛИ ВНЕ КАДРА (demo-31 правки, ведущий 02.11 по эскизам: ТВ срезан правым краем вида 1, столик крупно и срезан
+// в углу вида 2, стулья обеда — краем). Состояние предмета в кадре: 0 — не виден (кусок меньше CAM_SLIVER кадра), 1 — целиком,
+// 2 — срезан: боковым краем, верхним (высокое), столешница — нижним, или часть за спиной камеры. Низ у пола ближней мебели при
+// камере на 135 см уходит за нижний край всегда (`camWhole`) — это не срез. Допуск CAM_CUT_TOL — доля размера предмета
+const CAM_CUT_TOL=0.02, CAM_SLIVER=0.004, camWholeRole=r=>CAM_MUST.includes(r)||r==='стул';   // обязательные покрытия + стулья
+function camFrameState(c,it){
+  const h=camItemH(it), b=camProj(c,it,0,h); if(!b)return 0;
+  const bw=b.x1-b.x0, bh=b.y1-b.y0, inw=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)), inh=Math.max(0,Math.min(b.y1,1)-Math.max(b.y0,-1));
+  if(inw/2<CAM_SLIVER||inh/2<CAM_SLIVER)return 0;
+  if(b.behind)return 2;
+  if(bw>0&&inw/bw<1-CAM_CUT_TOL)return 2;
+  if(bh>0&&(b.y1-1)/bh>CAM_CUT_TOL)return 2;
+  const t=camProj(c,it,h,h);
+  return t&&!t.behind&&t.y1>t.y0&&(-1-t.y0)/(t.y1-t.y0)>CAM_CUT_TOL?2:1;
+}
+// по виду: сколько крупного срезано краем (`cut`) и сколько главного (диван, столик, ТВ-тумба) не целиком (`key`)
+function camFrameCuts(c,its){
+  let cut=0, key=0;
+  (its||[]).forEach(it=>{const r=camRole(it), k=CAM_KEY.includes(r); if(!k&&!camWholeRole(r))return;
+    const s=camFrameState(c,it); if(s===2)cut++; if(k&&s!==1)key++;});
+  return {cut,key};
+}
 // ТОЧКИ В ДВЕРНОМ ПРОЁМЕ (demo-22, стадия 4 подбора; Realtor.com: «снимать из двери») — середина проёма, у стены и чуть в комнате
 function camDoorPts(W,H){
   const ops=((typeof D!=='undefined'&&D&&D.room&&D.room.openings)||[]).filter(o=>o.kind==='door'&&o.width_cm);
@@ -1973,8 +1995,12 @@ function camDoorPts(W,H){
       else if(o.wall==='south')out.push([u,n]); else out.push([u,H-n]);}});
   return out;
 }
+// ОБЪЕКТИВЫ ПЕРЕБОРА (горизонтальный угол). 84° и 90° — с demo-31 правок (ведущий 02.11: «угол обзора в пределах 72–90°»): из
+// точки у короткой стены гостиной 439×325 диван у одной длинной стены и ТВ у другой целиком входят только шире 78°; стадии
+// подбора берут их последними, балл кадра — минус 0.3 за каждые 6° сверх 72
+const CAM_FOVS=[72,78,84,90];
 function camCands(its,W,H,cs,door){
-  const p=3, core=(its||[]).filter(it=>CAM_CORE[camRole(it)]);
+  const p=3, core=(its||[]).filter(it=>CAM_CORE[camRole(it)]), must=(its||[]).filter(it=>CAM_MUST.includes(camRole(it)));
   const kx=core.length?core.reduce((a,it)=>a+it.x,0)/core.length:W/2, ky=core.length?core.reduce((a,it)=>a+it.y,0)/core.length:H/2;
   const aimAt=(x,y,tx,ty)=>Math.round(Math.atan2(tx-x, y-ty)*180/Math.PI);
   const pos=new Map(), add=(x,y)=>{x=Math.min(Math.max(x,p),W-p); y=Math.min(Math.max(y,p),H-p);
@@ -1989,7 +2015,10 @@ function camCands(its,W,H,cs,door){
   const out=[];
   for(const q of pos.values()){
     const r0=aimAt(q.x,q.y,W/2,H/2), rots=[aimAt(q.x,q.y,kx,ky)]; for(let k=-35;k<=35;k+=5)rots.push(r0+k);
-    for(const rot of rots)for(const fov of [72,78]){
+    // и на каждый обязательный предмет (demo-31 правки: вид на обеденную зону из угла, где диван — за кадром, а не разрезан краем;
+    // веер ±35° от центра комнаты его не содержал). Повтор направления (±2°) не добавляем
+    must.forEach(it=>{const r=aimAt(q.x,q.y,it.x,it.y); if(!rots.some(x=>camAng(x,r)<=2))rots.push(r);});
+    for(const rot of rots)for(const fov of CAM_FOVS){
       const c=camCandEval({x:q.x,y:q.y,rot:rot,fov:fov,k:q.k,door:!!door},its,W,H);
       if(c)out.push(c);
     }
@@ -2012,9 +2041,10 @@ function camCandEval(c,its,W,H){
   c.key=camKey(c,its);
   c.cut=camSideCut(c,its);
   c.tall=camTallCut(c,its);
-  c.score=6*c.key+4*camCore(c,its)-1.5*Math.min(1,Math.max(0,(lo.cov-CAM_LOW)/0.3))-(c.fov>72?0.3:0)-CAM_CUT_PEN*c.cut;
+  c.score=6*c.key+4*camCore(c,its)-1.5*Math.min(1,Math.max(0,(lo.cov-CAM_LOW)/0.3))-0.3*Math.max(0,(c.fov||72)-72)/6-CAM_CUT_PEN*c.cut;
   c.lv=c.far?([3,2,1].find(lv=>!camHard(c,its,lv))||0):-1;
   c.keyCut=camKeyCut(c,its);
+  c.fc=camFrameCuts(c,its);
   return c;
 }
 // ВЕС НАРУШЕНИЯ ПОРОГА (за каждые 0.1 сверх порога; для `close`/`pclose` — за каждые 10 см недостачи; `nearWall` — за 0.01):
@@ -2102,15 +2132,23 @@ function camPairAll(L,W,H,cs){
   // разница в сотые доли не должна перевешивать кадр с ТВ, срезанным краем на 3/4
   const defOf=(v,a,b)=>{let d=0; UN[v].forEach((u,k)=>{if(u.must)d+=1-Math.max(Q[v][a*U[v]+k],Q[v][b*U[v]+k]);}); return Math.round(d/CAM_DEF_STEP)*CAM_DEF_STEP;};
   const cmp=(x,y)=>{for(let i=0;i<x.length;i++){if(x[i]<y[i]-1e-9)return -1; if(x[i]>y[i]+1e-9)return 1;} return 0;};
+  // ГЛАВНЫЙ ВИД И КРУПНОЕ НЕ СРЕЗАНО (demo-31 правки, ведущий 02.11: «C1 — главный вид всей комнаты, диван в нём целиком
+  // обязателен»): (0) главное (диван, столик, ТВ-тумба) целиком в одном виде — ПЕРВЫМ, раньше покрытия: стеллаж, заслонённый ТВ,
+  // не стоит дивана или ТВ, срезанного краем; (1) не покрыто обязательных — как прежде (выкинуть предмет из кадра ради «без срезов»
+  // нельзя: урок demo-22); (2) сколько крупного срезано краем в обоих видах (целиком или вне кадра) — раньше недобора долей: стеллаж,
+  // виденный на 85 % вместо 80 %, не стоит дивана, разрезанного краем вида 2; (3) недобор, (4) необязательное. У нескольких вариантов
+  // каждое — по худшему варианту
+  const fKey=n=>vmax(v=>all[n].per[v].fc.key), fCut=(a,b)=>vmax(v=>all[a].per[v].fc.cut+all[b].per[v].fc.cut);
   const pairKey=(a,b)=>{let w=null; for(let v=0;v<V;v++){const m=bits[v][a]|bits[v][b], k=[camBits(mustM[v]&~m),defOf(v,a,b),camBits(optM[v]&~m)];
-    if(!w||cmp(k,w)>0)w=k;} return w;};
+    if(!w||cmp(k,w)>0)w=k;} return [Math.min(fKey(a),fKey(b)),w[0],fCut(a,b),w[1],w[2]];};
   // лучшая пара среди разрешённых кандидатов: сначала покрытие по всем парам, потом точная мерка
   const best=ok=>{
     let bk=null, list=[];
     for(let a=0;a<N;a++){if(!ok(a,-1))continue;
       for(let b=a+1;b<N;b++){if(!ok(a,b)||all[a].k===all[b].k)continue;
+        const kw=Math.min(fKey(a),fKey(b)); if(bk&&kw>bk[0])continue;
         const mm=vmax(v=>camBits(mustM[v]&~(bits[v][a]|bits[v][b])));
-        if(bk&&mm>bk[0])continue;
+        if(bk&&kw===bk[0]&&mm>bk[1])continue;
         const key=pairKey(a,b), c=bk?cmp(key,bk):-1;
         if(c<0){bk=key; list=[[a,b]];} else if(c===0)list.push([a,b]);}}
     if(!bk)return null;
@@ -2120,8 +2158,10 @@ function camPairAll(L,W,H,cs){
     let pick=null;
     for(const [a,b] of list){if(!ev.has(a)||!ev.has(b))continue;
       const A=all[a], B=all[b];
-      // кто ракурс 1: где меньше штраф пары (у нескольких вариантов — худший по ним)
-      const p1=vmax(v=>stat(A,v).bad1+stat(B,v).bad2)+c1pen(A), p2=vmax(v=>stat(B,v).bad1+stat(A,v).bad2)+c1pen(B), swap=p2<p1-1e-9, C1=swap?B:A, C2=swap?A:B;
+      // кто ракурс 1: вид, где главное целиком (demo-31 правки: вид 1 — главный вид комнаты); при равенстве — где меньше штраф пары
+      // (у нескольких вариантов — худший по ним)
+      const p1=vmax(v=>stat(A,v).bad1+stat(B,v).bad2)+c1pen(A), p2=vmax(v=>stat(B,v).bad1+stat(A,v).bad2)+c1pen(B), kA=fKey(a), kB=fKey(b);
+      const swap=kB<kA||(kB===kA&&p2<p1-1e-9), C1=swap?B:A, C2=swap?A:B;
       const q={a:swap?b:a,b:swap?a:b,c1:C1,c2:C2,pen:Math.min(p1,p2)+tallPen(A)+tallPen(B),worst:Math.min(A.score,B.score),
         clut:vmax(v=>clutter(stat(A,v))+clutter(stat(B,v))),div:camAng(A.rot,B.rot),key:bk};
       if(!pick){pick=q; continue;}
@@ -2130,19 +2170,22 @@ function camPairAll(L,W,H,cs){
       const d=(pick.worst-q.worst)||(q.clut-pick.clut)||(pick.div-q.div);
       if(d>1e-9||(Math.abs(d)<=1e-9&&q.pen<pick.pen))pick=q;}
     return pick;};
-  const F=n=>(all[n].fov||72)>72, isDoor=n=>all[n].door;
-  const stages=[['72+72',(a,b)=>!isDoor(a)&&!F(a)&&(b<0||(!isDoor(b)&&!F(b)))],
-    ['72+78',(a,b)=>!isDoor(a)&&(b<0||(!isDoor(b)&&!(F(a)&&F(b))))],
-    ['78+78',(a,b)=>!isDoor(a)&&(b<0||!isDoor(b))],
+  const F=n=>(all[n].fov||72)>72, Fw=n=>(all[n].fov||72)>78, isDoor=n=>all[n].door, mid=(a,b)=>!isDoor(a)&&!Fw(a)&&(b<0||(!isDoor(b)&&!Fw(b)));
+  const stages=[['72+72',(a,b)=>mid(a,b)&&!F(a)&&(b<0||!F(b))],
+    ['72+78',(a,b)=>mid(a,b)&&(b<0||!(F(a)&&F(b)))],
+    ['78+78',mid],
+    ['до 90',(a,b)=>!isDoor(a)&&(b<0||!isDoor(b))],
     ['дверь',()=>true]];
   // стадия принимается, если покрыто всё обязательное И кадры чистые (нарушений ≤ CAM_STAGE_OK): замер 22.10 — пара 72+72
   // джапанди покрывала всё, но с диваном, срезанным краем (нарушений 50), а 72+78 — без нарушений. Чистой стадии нет — из
   // покрывших обязательное берётся с наименьшими нарушениями (при равных — более ранняя), не покрыл никто — лучшая по покрытию
   let pick=null, stage='';
   const res=[];
-  for(const [nm,ok] of stages){const p=best(ok); if(!p)continue; res.push([nm,p]); if(p.key[0]===0&&p.pen<=CAM_STAGE_OK){pick=p; stage=nm; break;}}
-  if(!pick){const full=res.filter(([,p])=>p.key[0]===0);
-    const pool=full.length?full.sort((x,y)=>x[1].pen-y[1].pen):res.sort((x,y)=>cmp(x[1].key,y[1].key)||(x[1].pen-y[1].pen));
+  // (demo-31 правки: и главное целиком в одном виде, и крупное нигде не срезано краем — иначе следующая стадия, шире объектив)
+  for(const [nm,ok] of stages){const p=best(ok); if(!p)continue; res.push([nm,p]); if(!p.key[0]&&!p.key[1]&&!p.key[2]&&p.pen<=CAM_STAGE_OK){pick=p; stage=nm; break;}}
+  if(!pick){const full=res.filter(([,p])=>!p.key[0]&&!p.key[1]);
+    const pool=full.length?full.sort((x,y)=>(x[1].key[2]-y[1].key[2])||(x[1].pen-y[1].pen))
+      :res.sort((x,y)=>cmp(x[1].key,y[1].key)||(x[1].pen-y[1].pen));
     if(pool.length)[stage,pick]=pool[0];}
   if(!pick){const r=camPairCorner(L[0],W,H,cs); r.how='углы (пары нет)'; return r;}
   // ДОВОРОТ ±CAM_NUDGE° (d8 17.10: в сканди ТВ срезан краем вида 2): шаг перебора 5°, поэтому после выбора каждый вид пробует
@@ -2158,6 +2201,8 @@ function camPairAll(L,W,H,cs){
       for(let v=0;v<V&&ok;v++){const its=L[v], b0=camBlock(q,its);
         if(Math.max(b0.cov/CAM_BLOCK,camTvBack(q,its)?2:0,camGraze(q,W,H))>1||camHard(q,its,0,CAM_B_CLEAR)){ok=false; break;}
         if(camTallCut(q,its)&&!c.per[v].tall){ok=false; break;}
+        // главное целиком и крупное, не срезанное краем, — не хуже выбранного (demo-31 правки)
+        const f0=camFrameCuts(c,its), f1=camFrameCuts(q,its); if(f1.key>f0.key||f1.cut>f0.cut){ok=false; break;}
         const sq=stat(q,v); if(camBad(sq,!first)>camBad(stat(c,v),!first)+1e-9){ok=false; break;}
         if(((covBits(camCover(q,its,W,H),v)|otherBits[v])&need[v])!==need[v]){ok=false; break;}
         if(first&&sq.keyVis<stat(c,v).keyVis)ok=false;}
@@ -2174,9 +2219,9 @@ function camPairAll(L,W,H,cs){
       else missing.push({id,role:camRole(its[i]),must:u.must,inFrame:Math.round(r[k].inF*100)/100,visible:Math.round(r[k].vis*100)/100,
         reason:r[k].inF<CAM_COVER?'вне кадра':'заслонён'});}));
     return {cams:[mk('C1',a2,v),mk('C2',b2,v)],covered,missing,stats:[stat(a2,v),stat(b2,v)]};});
-  const [mm,dm,mo]=pick.key;
+  const [mk0,mm,mc,dm,mo]=pick.key;
   return {level, cams:per[0].cams,
-    how:`${mm?'недобор':'пара'}: стадия ${stage}, не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}`,
+    how:`${mm?'недобор':'пара'}: стадия ${stage}, не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}`,
     covered:per[0].covered, missing:per[0].missing, stats:per[0].stats, per};
 }
 // ОКНО ПРЕВЬЮ (demo-22 п.2) — для каждого вида и пропорции окна заранее, по маске той же расстановки (`camStats().ext` — рамки
