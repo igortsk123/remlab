@@ -1,0 +1,1302 @@
+{
+ "_about": "design-02 П4а (T-20261103-11), черновик для проверки ведущим. Таблица «старое → новое» для обеих книг: Mobile KeoB3huA9ce58swtNrDyrx, Desktop lFSqAHtIH4gb45d1zvIXEY. Образец — Ant Design 5. Выгрузка — tools/design/figma/shots/0311-1751-p4a/. Проверка — tools/design/figma/link/check-naming-p4a.py.",
+ "rules": {
+  "componentName": "По-английски, группа через « / »: первое слово — компонент Ant Design (Button, Tag, Progress, Tabs, Drawer, Modal…), дальше — уточнение словами с большой буквы. Наше сверх antd — тем же способом (Editor / Top Bar, Swatch / Color).",
+  "variantName": "Строка «prop=value, prop=value» в порядке свойств набора; пересчитать из properties/values (+ переопределения строки props/values и заполнение fill).",
+  "propertyOverride": "Поле props у строки компонента заменяет общее правило свойства только в этом наборе; поле values — общее правило значения только в этом наборе.",
+  "fill": "Поле fill (ключ — старое имя свойства, значение — уже НОВОЕ): значение, которое дописать вариантам, где этого свойства нет (план п.5 «у набора одинаковый список свойств во всех вариантах»). Ключ lang=ru/lang=en — значение зависит от языка варианта.",
+  "description": "Новое описание = строка jsx + перевод строки + ТЕКУЩЕЕ описание этого набора в этой книге (описания Mobile и Desktop местами разные — не затирать одно другим). Слова-имена свойств внутри старого описания («Текст», «Число», «Стрелка») заменить по properties — список в howto-renames.md § «Описания».",
+  "textAndBooleanIds": "TEXT/BOOLEAN-свойства в Фигме называются «Имя#id» — меняется только имя (editComponentProperty), id и привязки остаются.",
+  "ids": "Переименование не меняет id — экземпляры дизайнера (158:771, 158:806, 161:42, 85:100…) остаются связаны."
+ },
+ "pages": [
+  {
+   "mobile": "5:2",
+   "desktop": "7:98",
+   "old": "Кнопки",
+   "new": "Buttons"
+  },
+  {
+   "mobile": "11:2",
+   "desktop": "7:2",
+   "old": "Плашки",
+   "new": "Tags"
+  },
+  {
+   "mobile": "11:23",
+   "desktop": "7:23",
+   "old": "Бюджет",
+   "new": "Budget"
+  },
+  {
+   "mobile": "14:28",
+   "desktop": "8:28",
+   "old": "Конструктор",
+   "new": "Layout Editor"
+  },
+  {
+   "mobile": "14:34",
+   "desktop": "8:34",
+   "old": "Избранное",
+   "new": "Favorites"
+  },
+  {
+   "mobile": "14:47",
+   "desktop": "8:47",
+   "old": "Шапка",
+   "new": "Header"
+  },
+  {
+   "mobile": "14:72",
+   "desktop": "8:77",
+   "old": "Главная",
+   "new": "Home"
+  },
+  {
+   "mobile": "14:109",
+   "desktop": "9:2",
+   "old": "Подбор замены",
+   "new": "Replace Picker"
+  },
+  {
+   "mobile": "15:2",
+   "desktop": "9:20",
+   "old": "План квартиры",
+   "new": "Floor Plan"
+  },
+  {
+   "mobile": "15:10",
+   "desktop": "9:28",
+   "old": "Комната",
+   "new": "Room"
+  },
+  {
+   "mobile": "15:46",
+   "desktop": "9:64",
+   "old": "Шторка",
+   "new": "Drawer"
+  },
+  {
+   "mobile": "15:73",
+   "desktop": "9:77",
+   "old": "Образцы",
+   "new": "Swatches"
+  },
+  {
+   "mobile": "15:104",
+   "desktop": "9:108",
+   "old": "Вкладки стилей",
+   "new": "Tabs"
+  },
+  {
+   "mobile": "15:118",
+   "desktop": "9:122",
+   "old": "Уведомление",
+   "new": "Notification"
+  },
+  {
+   "mobile": "16:2",
+   "desktop": "9:134",
+   "old": "Окно расстановки",
+   "new": "Layout View"
+  },
+  {
+   "mobile": "16:116",
+   "desktop": "10:98",
+   "old": "Во весь экран",
+   "new": "Fullscreen"
+  },
+  {
+   "mobile": "17:38",
+   "desktop": "11:4",
+   "old": "Диалог",
+   "new": "Modal"
+  },
+  {
+   "mobile": "18:27",
+   "desktop": "11:204",
+   "old": "Карточка товара",
+   "new": "Product Detail"
+  }
+ ],
+ "pagesNotRenamed": "«Как пользоваться», «Счастливый путь», «Экраны RU», «Экраны EN» — не страницы элементов, остаются по-русски (вопрос — в «спорном»).",
+ "properties": [
+  {
+   "old": "Язык",
+   "new": "lang",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Состояние",
+   "new": "state",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Вид",
+   "new": "type",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Размер",
+   "new": "size",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Иконка",
+   "new": "icon",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Действие",
+   "new": "action",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Направление",
+   "new": "direction",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Бюджет",
+   "new": "budget",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Место",
+   "new": "placement",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Стиль",
+   "new": "interior",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Фото",
+   "new": "photo",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Цвета",
+   "new": "colorPicker",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Режим",
+   "new": "view",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Шторка",
+   "new": "drawer",
+   "type": "VARIANT"
+  },
+  {
+   "old": "Текст",
+   "new": "label",
+   "type": "TEXT"
+  },
+  {
+   "old": "Число",
+   "new": "count",
+   "type": "TEXT"
+  },
+  {
+   "old": "Подпись",
+   "new": "caption",
+   "type": "TEXT"
+  },
+  {
+   "old": "Значок",
+   "new": "showIcon",
+   "type": "BOOLEAN"
+  },
+  {
+   "old": "Стрелка",
+   "new": "showArrow",
+   "type": "BOOLEAN"
+  },
+  {
+   "old": "Поделиться",
+   "new": "showShare",
+   "type": "BOOLEAN"
+  },
+  {
+   "old": "Сердечко",
+   "new": "showHeart",
+   "type": "BOOLEAN"
+  },
+  {
+   "old": "Образцы цвета",
+   "new": "showSwatches",
+   "type": "BOOLEAN"
+  },
+  {
+   "old": "Счётчик +N",
+   "new": "showCount",
+   "type": "BOOLEAN"
+  },
+  {
+   "old": "Кружок 4",
+   "new": "showSwatch4",
+   "type": "BOOLEAN"
+  },
+  {
+   "old": "Кружок 5",
+   "new": "showSwatch5",
+   "type": "BOOLEAN"
+  },
+  {
+   "old": "Окно",
+   "new": "showModal",
+   "type": "BOOLEAN"
+  },
+  {
+   "old": "Во весь экран",
+   "new": "showFullscreen",
+   "type": "BOOLEAN"
+  },
+  {
+   "old": "Сделать реалистичнее",
+   "new": "showMakeRealistic",
+   "type": "BOOLEAN"
+  }
+ ],
+ "values": [
+  {
+   "old": "RU",
+   "new": "ru"
+  },
+  {
+   "old": "EN",
+   "new": "en"
+  },
+  {
+   "old": "Обычное",
+   "new": "default"
+  },
+  {
+   "old": "Контурная",
+   "new": "outlined"
+  },
+  {
+   "old": "выбрано",
+   "new": "selected"
+  },
+  {
+   "old": "не выбрано",
+   "new": "default"
+  },
+  {
+   "old": "отмечено",
+   "new": "checked"
+  },
+  {
+   "old": "не отмечено",
+   "new": "unchecked"
+  },
+  {
+   "old": "доступно",
+   "new": "default"
+  },
+  {
+   "old": "недоступно",
+   "new": "disabled"
+  },
+  {
+   "old": "Основная",
+   "new": "primary"
+  },
+  {
+   "old": "Обычная",
+   "new": "default"
+  },
+  {
+   "old": "Тихая",
+   "new": "text"
+  },
+  {
+   "old": "Заменить",
+   "new": "default"
+  },
+  {
+   "old": "ссылка «В магазин»",
+   "new": "link"
+  },
+  {
+   "old": "Полужирная",
+   "new": "semibold"
+  },
+  {
+   "old": "Жирная",
+   "new": "bold"
+  },
+  {
+   "old": "Мелкая со стрелкой",
+   "new": "small"
+  },
+  {
+   "old": "в окне расстановки",
+   "new": "layoutView"
+  },
+  {
+   "old": "в карточке товара",
+   "new": "productCard"
+  },
+  {
+   "old": "во весь экран",
+   "new": "fullscreen"
+  },
+  {
+   "old": "28 px",
+   "new": "28"
+  },
+  {
+   "old": "29 px",
+   "new": "29"
+  },
+  {
+   "old": "30 px",
+   "new": "30"
+  },
+  {
+   "old": "31 px",
+   "new": "31"
+  },
+  {
+   "old": "22 px",
+   "new": "small"
+  },
+  {
+   "old": "34 px",
+   "new": "large"
+  },
+  {
+   "old": "«Поделиться»",
+   "new": "share"
+  },
+  {
+   "old": "«В избранное»",
+   "new": "favorite"
+  },
+  {
+   "old": "Отменить",
+   "new": "undo"
+  },
+  {
+   "old": "Повторить",
+   "new": "redo"
+  },
+  {
+   "old": "влево",
+   "new": "left"
+  },
+  {
+   "old": "вправо",
+   "new": "right"
+  },
+  {
+   "old": "по размеру",
+   "new": "fit"
+  },
+  {
+   "old": "впритык",
+   "new": "tight"
+  },
+  {
+   "old": "изменено вами",
+   "new": "modified"
+  },
+  {
+   "old": "общий бюджет",
+   "new": "total"
+  },
+  {
+   "old": "бюджет по частям",
+   "new": "split"
+  },
+  {
+   "old": "ничего не выбрано",
+   "new": "empty"
+  },
+  {
+   "old": "закреплено при прокрутке",
+   "new": "sticky"
+  },
+  {
+   "old": "выбрана часть",
+   "new": "partial"
+  },
+  {
+   "old": "выбрана часть (закреплено)",
+   "new": "partialSticky"
+  },
+  {
+   "old": "выбрано больше сертификата",
+   "new": "over"
+  },
+  {
+   "old": "выбрано больше сертификата (закреплено)",
+   "new": "overSticky"
+  },
+  {
+   "old": "улучшения не входят",
+   "new": "upgradesExcluded"
+  },
+  {
+   "old": "с ценой этой расстановки",
+   "new": "withPrice"
+  },
+  {
+   "old": "главная",
+   "new": "home"
+  },
+  {
+   "old": "окно расстановки",
+   "new": "layoutView"
+  },
+  {
+   "old": "карточка избранного",
+   "new": "favoriteCard"
+  },
+  {
+   "old": "открыто",
+   "new": "open"
+  },
+  {
+   "old": "показана",
+   "new": "open"
+  },
+  {
+   "old": "входит в сертификат",
+   "new": "included"
+  },
+  {
+   "old": "не входит в сертификат",
+   "new": "excluded"
+  },
+  {
+   "old": "без фото",
+   "new": "false"
+  },
+  {
+   "old": "пусто",
+   "new": "empty"
+  },
+  {
+   "old": "с числом избранного",
+   "new": "withCount"
+  },
+  {
+   "old": "вверху страницы",
+   "new": "default"
+  },
+  {
+   "old": "свёрнуто",
+   "new": "collapsed"
+  },
+  {
+   "old": "развёрнуто",
+   "new": "expanded"
+  },
+  {
+   "old": "на половину экрана",
+   "new": "half"
+  },
+  {
+   "old": "на весь экран",
+   "new": "full"
+  },
+  {
+   "old": "без шторки",
+   "new": "none"
+  },
+  {
+   "old": "появится позже",
+   "new": "comingSoon"
+  },
+  {
+   "old": "другой стиль",
+   "new": "alt"
+  },
+  {
+   "old": "с выбором цвета",
+   "new": "true"
+  },
+  {
+   "old": "без выбора цвета",
+   "new": "false"
+  },
+  {
+   "old": "только текст",
+   "new": "default"
+  },
+  {
+   "old": "с кнопкой",
+   "new": "withAction"
+  },
+  {
+   "old": "3D",
+   "new": "3d"
+  },
+  {
+   "old": "фото",
+   "new": "photo"
+  },
+  {
+   "old": "план",
+   "new": "plan"
+  },
+  {
+   "old": "после замены",
+   "new": "afterReplace"
+  },
+  {
+   "old": "новое имя",
+   "new": "create"
+  },
+  {
+   "old": "переименование",
+   "new": "rename"
+  },
+  {
+   "old": "доплата",
+   "new": "surcharge"
+  }
+ ],
+ "components": [
+  {
+   "mobile": "107:10",
+   "desktop": "43:10",
+   "old": "Кнопки/Основная кнопка",
+   "new": "Button / CTA",
+   "antd": "Button",
+   "props": {
+    "Состояние": "variant"
+   },
+   "values": {
+    "Обычное": "solid",
+    "Контурная": "outlined"
+   },
+   "jsx": "<Button color=\"primary\" variant=\"solid\">Открыть</Button>"
+  },
+  {
+   "mobile": "107:21",
+   "desktop": "43:21",
+   "old": "Кнопки/Капсула с заливкой",
+   "new": "Button / Round Primary",
+   "antd": "Button",
+   "jsx": "<Button type=\"primary\" shape=\"round\">Консультация</Button>"
+  },
+  {
+   "mobile": "107:32",
+   "desktop": "43:32",
+   "old": "Кнопки/Капсула",
+   "new": "Button / Round",
+   "antd": "Button",
+   "jsx": "<Button shape=\"round\">Ипотека</Button>"
+  },
+  {
+   "mobile": "107:49",
+   "desktop": "43:49",
+   "old": "Кнопки/Кнопка-значок",
+   "new": "Button / Icon",
+   "antd": "Button",
+   "jsx": "<Button icon={<ShareAltOutlined />} />"
+  },
+  {
+   "mobile": "107:60",
+   "desktop": "43:60",
+   "old": "Кнопки/Ссылка",
+   "new": "Link",
+   "antd": "Typography.Link",
+   "props": {
+    "Состояние": "variant"
+   },
+   "jsx": "<Typography.Link underline>Заменить</Typography.Link>"
+  },
+  {
+   "mobile": "107:79",
+   "desktop": "43:79",
+   "old": "Кнопки/Маленькая кнопка",
+   "new": "Button / Small",
+   "antd": "Button",
+   "props": {
+    "Состояние": "type"
+   },
+   "jsx": "<Button size=\"small\">Заменить</Button>"
+  },
+  {
+   "mobile": "107:98",
+   "desktop": "43:98",
+   "old": "Кнопки/Чип-фильтр",
+   "new": "Tag / Checkable",
+   "antd": "Tag.CheckableTag",
+   "props": {
+    "Состояние": "checked"
+   },
+   "values": {
+    "выбрано": "true",
+    "Обычное": "false"
+   },
+   "jsx": "<Tag.CheckableTag checked>Подходящие по размеру</Tag.CheckableTag>"
+  },
+  {
+   "mobile": "107:117",
+   "desktop": "43:117",
+   "old": "Кнопки/Кнопка «Закрыть»",
+   "new": "Button / Close",
+   "antd": "Button",
+   "props": {
+    "Состояние": "placement"
+   },
+   "jsx": "<Button shape=\"circle\" icon={<CloseOutlined />} />"
+  },
+  {
+   "mobile": "107:150",
+   "desktop": "43:150",
+   "old": "Кнопки/Кнопки поверх 3D-кадра",
+   "new": "Button / Overlay",
+   "antd": "Button",
+   "jsx": "<Button shape=\"circle\" ghost icon={<HeartOutlined />} />"
+  },
+  {
+   "mobile": "221:15",
+   "desktop": "92:15",
+   "old": "Кнопки/Кнопка",
+   "new": "Button",
+   "antd": "Button",
+   "jsx": "<Button type=\"primary\">Сохранить</Button>"
+  },
+  {
+   "mobile": "221:48",
+   "desktop": "92:40",
+   "old": "Кнопки/Переключатель",
+   "new": "Segmented / Item",
+   "antd": "Segmented",
+   "jsx": "<Segmented options={['Со стороны двери', 'Со стороны окна']} />"
+  },
+  {
+   "mobile": "221:79",
+   "desktop": "92:67",
+   "old": "Кнопки/Отменить и повторить",
+   "new": "Button / Undo Redo",
+   "antd": "Button",
+   "props": {
+    "Состояние": "disabled"
+   },
+   "values": {
+    "доступно": "false",
+    "недоступно": "true"
+   },
+   "jsx": "<Button shape=\"circle\" icon={<UndoOutlined />} disabled={false} />"
+  },
+  {
+   "mobile": "221:94",
+   "desktop": "92:82",
+   "old": "Кнопки/Счётчик +N",
+   "new": "Badge / Count",
+   "antd": "Badge",
+   "jsx": "<Badge count=\"+4\" />"
+  },
+  {
+   "mobile": "221:107",
+   "desktop": "92:95",
+   "old": "Кнопки/Стрелка листания",
+   "new": "Button / Arrow",
+   "antd": "Button",
+   "jsx": "<Button shape=\"circle\" icon={<LeftOutlined />} />"
+  },
+  {
+   "mobile": "105:697",
+   "desktop": "43:169",
+   "old": "Плашки/Метка «по размеру»",
+   "new": "Tag / Fit",
+   "antd": "Tag",
+   "jsx": "<Tag color=\"success\">по размеру</Tag>"
+  },
+  {
+   "mobile": "105:708",
+   "desktop": "43:180",
+   "old": "Плашки/Метка состояния расстановки",
+   "new": "Tag / Status",
+   "antd": "Tag",
+   "jsx": "<Tag>Изменено вами</Tag>"
+  },
+  {
+   "mobile": "58:247",
+   "desktop": "29:241",
+   "old": "Бюджет/Шкала сертификата",
+   "new": "Progress Bar",
+   "antd": "Progress",
+   "jsx": "<Progress type=\"line\" percent={42} format={() => '600 000 ₽'} />"
+  },
+  {
+   "mobile": "58:329",
+   "desktop": "29:323",
+   "old": "Бюджет/Шкала в окне",
+   "new": "Progress Bar / Layout View",
+   "antd": "Progress",
+   "fill": {
+    "Бюджет": {
+     "lang=ru": "total",
+     "lang=en": "split"
+    }
+   },
+   "jsx": "<Progress percent={42} size=\"small\" />"
+  },
+  {
+   "mobile": "58:378",
+   "desktop": "29:372",
+   "old": "Бюджет/Полоса сертификата",
+   "new": "Progress Bar / Track",
+   "antd": "Progress",
+   "jsx": "<Progress percent={42} showInfo={false} />"
+  },
+  {
+   "mobile": "58:397",
+   "desktop": "29:391",
+   "old": "Бюджет/Строка доплаты",
+   "new": "Progress Bar / Surcharge",
+   "antd": "Typography.Text",
+   "jsx": "<Typography.Text type=\"danger\">Доплата 12 000 ₽</Typography.Text>"
+  },
+  {
+   "mobile": "58:426",
+   "desktop": "29:416",
+   "old": "Бюджет/Легенда",
+   "new": "Progress Bar / Legend",
+   "antd": "Badge",
+   "jsx": "<Badge color=\"#2f6f5e\" text=\"Furniture & appliances\" />"
+  },
+  {
+   "mobile": "58:437",
+   "desktop": "29:427",
+   "old": "Бюджет/Кнопка (i)",
+   "new": "Button / Info",
+   "antd": "Button",
+   "jsx": "<Button type=\"text\" shape=\"circle\" icon={<InfoCircleOutlined />} />"
+  },
+  {
+   "mobile": "58:527",
+   "desktop": "29:517",
+   "old": "Бюджет/Пузырь пояснения",
+   "new": "Popover / Info",
+   "antd": "Popover",
+   "jsx": "<Popover open content=\"…\"><InfoCircleOutlined /></Popover>"
+  },
+  {
+   "mobile": "83:69",
+   "desktop": "32:14",
+   "old": "Конструктор/Верхняя панель",
+   "new": "Editor / Top Bar",
+   "antd": null,
+   "jsx": "<EditorTopBar title=\"Сканди\" onDone={…} />"
+  },
+  {
+   "mobile": "83:80",
+   "desktop": "32:25",
+   "old": "Конструктор/Подсказка",
+   "new": "Editor / Hint",
+   "antd": "Alert",
+   "jsx": "<Alert type=\"info\" message=\"Двигайте и поворачивайте предметы\" />"
+  },
+  {
+   "mobile": "83:95",
+   "desktop": "32:40",
+   "old": "Конструктор/Нижняя панель",
+   "new": "Editor / Bottom Bar",
+   "antd": null,
+   "jsx": "<EditorBottomBar price={…} onDone={…} />"
+  },
+  {
+   "mobile": "127:16",
+   "desktop": "48:1540",
+   "old": "Избранное/Заголовок экрана",
+   "new": "Favorites / Header",
+   "antd": null,
+   "jsx": "<FavoritesHeader count={3} onBack={…} />"
+  },
+  {
+   "mobile": "127:27",
+   "desktop": "48:1551",
+   "old": "Избранное/Кнопка комнаты",
+   "new": "Tag / Room Filter",
+   "antd": "Tag.CheckableTag",
+   "props": {
+    "Состояние": "checked"
+   },
+   "values": {
+    "выбрано": "true"
+   },
+   "jsx": "<Tag.CheckableTag checked>Гостиная · 3</Tag.CheckableTag>"
+  },
+  {
+   "mobile": "127:184",
+   "desktop": "48:1708",
+   "old": "Избранное/Карточка расстановки",
+   "new": "Card / Layout",
+   "antd": "Card",
+   "fill": {
+    "Бюджет": "default",
+    "Фото": "true"
+   },
+   "jsx": "<Card cover={<img />} actions={[<Button>Открыть</Button>]}>Гостиная #1</Card>"
+  },
+  {
+   "mobile": "127:195",
+   "desktop": "48:1719",
+   "old": "Избранное/Пустой список",
+   "new": "Empty / Favorites",
+   "antd": "Empty",
+   "jsx": "<Empty description=\"В избранном пока пусто\" />"
+  },
+  {
+   "mobile": "126:34",
+   "desktop": "55:34",
+   "old": "Шапка/Строка квартиры",
+   "new": "Header / Apartment Bar",
+   "antd": "Affix",
+   "jsx": "<Affix><ApartmentBar /></Affix>"
+  },
+  {
+   "mobile": "126:65",
+   "desktop": "55:73",
+   "old": "Шапка/Строка ЖК",
+   "new": "Header / Complex Row",
+   "antd": null,
+   "jsx": "<ComplexRow expanded={false} />"
+  },
+  {
+   "mobile": "126:78",
+   "desktop": "55:86",
+   "old": "Шапка/Подробнее о квартире",
+   "new": "Descriptions / Apartment",
+   "antd": "Descriptions",
+   "jsx": "<Descriptions items={[{ label: 'Площадь', children: '58 м²' }]} />"
+  },
+  {
+   "mobile": "126:103",
+   "desktop": "55:111",
+   "old": "Шапка/Кнопка избранного",
+   "new": "Button / Favorites",
+   "antd": "Badge",
+   "jsx": "<Badge count={2}><Button shape=\"circle\" icon={<HeartOutlined />} /></Badge>"
+  },
+  {
+   "mobile": "126:120",
+   "desktop": "55:128",
+   "old": "Шапка/Кнопки «Ипотека» и «Консультация»",
+   "new": "Header / Actions",
+   "antd": "Space",
+   "jsx": "<Space><Button shape=\"round\">Ипотека</Button><Button type=\"primary\" shape=\"round\">Консультация</Button></Space>"
+  },
+  {
+   "mobile": null,
+   "desktop": "55:139",
+   "old": "Шапка/Ссылка «План квартиры»",
+   "new": "Link / Floor Plan",
+   "antd": "Typography.Link",
+   "jsx": "<Typography.Link>План квартиры</Typography.Link>"
+  },
+  {
+   "mobile": "105:417",
+   "desktop": "52:10",
+   "old": "Главная/Подсказка под шкалой",
+   "new": "Home / Hint",
+   "antd": "Typography.Text",
+   "jsx": "<Typography.Text type=\"secondary\">Мы подобрали…</Typography.Text>"
+  },
+  {
+   "mobile": "105:434",
+   "desktop": "52:27",
+   "old": "Главная/Строка «Избранное»",
+   "new": "Link / Favorites",
+   "antd": "Typography.Link",
+   "jsx": "<Typography.Link>Избранное · 3</Typography.Link>"
+  },
+  {
+   "mobile": "105:445",
+   "desktop": "52:38",
+   "old": "Главная/Ссылка «К стилям»",
+   "new": "Link / Back to Styles",
+   "antd": "Typography.Link",
+   "jsx": "<Typography.Link>← К стилям</Typography.Link>"
+  },
+  {
+   "mobile": "105:456",
+   "desktop": "52:49",
+   "old": "Главная/Переключатель языка",
+   "new": "Language Switch",
+   "antd": null,
+   "jsx": "<LanguageSwitch value=\"ru\" />"
+  },
+  {
+   "mobile": "105:406",
+   "desktop": "47:382",
+   "old": "Подбор замены/Окно подбора замены",
+   "new": "Drawer / Replace",
+   "antd": "Drawer",
+   "jsx": "<Drawer open title=\"Заменить диван\" placement=\"bottom\" />"
+  },
+  {
+   "mobile": "105:471",
+   "desktop": "47:397",
+   "old": "Подбор замены/Заголовок окна",
+   "new": "Drawer / Replace Header",
+   "antd": null,
+   "jsx": "<ReplaceHeader title=\"Диван\" count={24} onClose={…} />"
+  },
+  {
+   "mobile": "105:494",
+   "desktop": "47:420",
+   "old": "Подбор замены/Цвет модели",
+   "new": "Swatch / Model",
+   "antd": "Radio.Button",
+   "jsx": "<Radio.Button value=\"grey\" checked>Серый</Radio.Button>"
+  },
+  {
+   "mobile": "105:527",
+   "desktop": "47:451",
+   "old": "Подбор замены/Карточка товара",
+   "new": "Card / Product",
+   "antd": "Card",
+   "jsx": "<Card cover={<img />} actions={[<Button size=\"small\">Заменить</Button>]}>Диван</Card>"
+  },
+  {
+   "mobile": "86:146",
+   "desktop": "42:146",
+   "old": "План квартиры/План квартиры в карточке",
+   "new": "Card / Floor Plan",
+   "antd": "Card",
+   "jsx": "<Card title=\"Квартира 215 · 58 м²\"><FloorPlan /></Card>"
+  },
+  {
+   "mobile": "86:287",
+   "desktop": "42:287",
+   "old": "План квартиры/План квартиры",
+   "new": "Floor Plan / Apartment",
+   "antd": null,
+   "jsx": "<FloorPlan rooms={…} />"
+  },
+  {
+   "mobile": "64:86",
+   "desktop": "25:86",
+   "old": "Комната/Карточка комнаты",
+   "new": "Card / Room",
+   "antd": "Card",
+   "fill": {
+    "Стиль": "default"
+   },
+   "jsx": "<Card cover={<img />} actions={[<Button type=\"primary\">Открыть</Button>]}>Гостиная · 14,4 м²</Card>"
+  },
+  {
+   "mobile": "64:105",
+   "desktop": "25:105",
+   "old": "Комната/Сердечко на фото",
+   "new": "Icon / Heart",
+   "antd": "Icon",
+   "props": {
+    "Состояние": "checked"
+   },
+   "values": {
+    "не отмечено": "false",
+    "отмечено": "true"
+   },
+   "jsx": "<HeartOutlined /> · отмечено: <HeartFilled />"
+  },
+  {
+   "mobile": "64:118",
+   "desktop": "25:118",
+   "old": "Комната/Плитка «план»",
+   "new": "Card / Plan Tile",
+   "antd": "Card",
+   "jsx": "<Card hoverable>План квартиры</Card>"
+  },
+  {
+   "mobile": "64:131",
+   "desktop": "25:131",
+   "old": "Комната/Карточка «появится следующим шагом»",
+   "new": "Card / Coming Soon",
+   "antd": "Card",
+   "jsx": "<Card>Спальня — скоро</Card>"
+  },
+  {
+   "mobile": "76:12",
+   "desktop": null,
+   "old": "Шторка/Чип «N предметов»",
+   "new": "Drawer / Items Chip",
+   "antd": null,
+   "jsx": "<DrawerChip count={11} />"
+  },
+  {
+   "mobile": "76:57",
+   "desktop": "26:44",
+   "old": "Шторка/Выбор пола",
+   "new": "Drawer / Floor Picker",
+   "antd": null,
+   "jsx": "<FloorPicker options={…} />"
+  },
+  {
+   "mobile": "76:66",
+   "desktop": null,
+   "old": "Шторка/Ручка",
+   "new": "Drawer / Handle",
+   "antd": null,
+   "jsx": "<DrawerHandle />"
+  },
+  {
+   "mobile": "76:81",
+   "desktop": "26:59",
+   "old": "Шторка/Вход в группу",
+   "new": "List / Group Row",
+   "antd": "List.Item",
+   "jsx": "<List.Item extra={<RightOutlined />}>Отделка и ремонт</List.Item>"
+  },
+  {
+   "mobile": "76:96",
+   "desktop": "26:74",
+   "old": "Шторка/Заголовок группы",
+   "new": "List / Group Header",
+   "antd": "List",
+   "jsx": "<List header={<Typography.Link>← Назад</Typography.Link>} />"
+  },
+  {
+   "mobile": "76:187",
+   "desktop": "26:165",
+   "old": "Шторка/Строка предмета",
+   "new": "List / Item Row",
+   "antd": "List.Item",
+   "fill": {
+    "Цвета": "false"
+   },
+   "jsx": "<List.Item actions={[<Typography.Link>Заменить</Typography.Link>]}>Диван</List.Item>"
+  },
+  {
+   "mobile": "77:965",
+   "desktop": null,
+   "old": "Шторка/Шторка",
+   "new": "Drawer / Sheet",
+   "antd": "Drawer",
+   "jsx": "<Drawer open placement=\"bottom\" />"
+  },
+  {
+   "mobile": null,
+   "desktop": "48:1082",
+   "old": "Окно расстановки/Боковая панель",
+   "new": "Drawer / Side Panel",
+   "antd": "Drawer",
+   "jsx": "<Drawer open placement=\"right\" mask={false} />"
+  },
+  {
+   "mobile": "108:20",
+   "desktop": "39:20",
+   "old": "Образцы/Кружок цвета",
+   "new": "Swatch / Color",
+   "antd": null,
+   "jsx": "<ColorSwatch color=\"#c8b8a6\" size=\"small\" selected />"
+  },
+  {
+   "mobile": "108:43",
+   "desktop": "39:43",
+   "old": "Образцы/Образец пола",
+   "new": "Swatch / Floor",
+   "antd": null,
+   "jsx": "<FloorSwatch caption=\"в цене\" selected />"
+  },
+  {
+   "mobile": "94:85",
+   "desktop": "35:54",
+   "old": "Вкладки стилей/Лента стилей",
+   "new": "Tabs",
+   "antd": "Tabs",
+   "jsx": "<Tabs items={[{ key: 'scandi', label: 'Сканди' }]} />"
+  },
+  {
+   "mobile": "94:104",
+   "desktop": "35:73",
+   "old": "Вкладки стилей/Вкладка стиля",
+   "new": "Tabs / Tab",
+   "antd": "Tabs",
+   "jsx": "{ key: 'scandi', label: 'Сканди' } — одна вкладка в items у <Tabs>"
+  },
+  {
+   "mobile": "89:22",
+   "desktop": "36:22",
+   "old": "Уведомление/Уведомление",
+   "new": "Notification",
+   "antd": "notification",
+   "props": {
+    "Текст": "message"
+   },
+   "jsx": "notification.open({ message: 'Заменено: диван · +4 712 ₽' })"
+  },
+  {
+   "mobile": "95:972",
+   "desktop": "48:764",
+   "old": "Окно расстановки/Окно целиком",
+   "new": "Modal / Layout View",
+   "antd": "Modal",
+   "props": {
+    "Состояние": "view"
+   },
+   "jsx": "<Modal open footer={null} width=\"100%\"><LayoutView /></Modal>"
+  },
+  {
+   "mobile": "95:985",
+   "desktop": null,
+   "old": "Окно расстановки/Подсказка",
+   "new": "Tooltip / Onboarding",
+   "antd": "Tooltip",
+   "jsx": "<Tooltip open title=\"Нажмите на предмет, чтобы заменить\" />"
+  },
+  {
+   "mobile": "95:1042",
+   "desktop": "48:1139",
+   "old": "Окно расстановки/Фото · 3D · План",
+   "new": "Segmented / View",
+   "antd": "Segmented",
+   "props": {
+    "Состояние": "view"
+   },
+   "jsx": "<Segmented options={['Фото', '3D', 'План']} value=\"3D\" />"
+  },
+  {
+   "mobile": "95:1059",
+   "desktop": "48:1156",
+   "old": "Окно расстановки/Ракурс камеры",
+   "new": "Segmented / Camera",
+   "antd": "Segmented",
+   "jsx": "<Segmented options={['Со стороны окна', 'Со стороны двери']} />"
+  },
+  {
+   "mobile": "95:1076",
+   "desktop": "48:1173",
+   "old": "Окно расстановки/Отменить / вернуть",
+   "new": "Space / Undo Redo",
+   "antd": "Space.Compact",
+   "jsx": "<Space><Button shape=\"circle\" icon={<UndoOutlined />} /><Button shape=\"circle\" icon={<RedoOutlined />} /></Space>"
+  },
+  {
+   "mobile": "95:1087",
+   "desktop": "48:1184",
+   "old": "Окно расстановки/«Во весь экран»",
+   "new": "Button / Fullscreen",
+   "antd": "Button",
+   "jsx": "<Button shape=\"circle\" icon={<ExpandOutlined />} />"
+  },
+  {
+   "mobile": "95:1098",
+   "desktop": "48:1203",
+   "old": "Окно расстановки/Ценник",
+   "new": "Tag / Price",
+   "antd": "Tag",
+   "jsx": "<Tag bordered={false}>48 990 ₽</Tag>"
+  },
+  {
+   "mobile": "95:1109",
+   "desktop": "48:1214",
+   "old": "Окно расстановки/«Сделать реалистичнее»",
+   "new": "Button / Make Realistic",
+   "antd": "Button",
+   "jsx": "<Button type=\"primary\" size=\"large\" block>Сделать реалистичнее</Button>"
+  },
+  {
+   "mobile": "95:1222",
+   "desktop": "48:1327",
+   "old": "Окно расстановки/План комнаты",
+   "new": "Floor Plan / Room",
+   "antd": null,
+   "jsx": "<RoomPlan items={…} />"
+  },
+  {
+   "mobile": "87:36",
+   "desktop": "37:153",
+   "old": "Во весь экран/Экран",
+   "new": "Image / Fullscreen",
+   "antd": "Image",
+   "jsx": "<Image src=\"…\" preview={{ open: true }} />"
+  },
+  {
+   "mobile": "87:53",
+   "desktop": "37:170",
+   "old": "Во весь экран/Ракурс камеры",
+   "new": "Segmented / Camera Fullscreen",
+   "antd": "Segmented",
+   "jsx": "<Segmented block options={['Со стороны окна', 'Со стороны двери']} />"
+  },
+  {
+   "mobile": "85:62",
+   "desktop": "37:62",
+   "old": "Диалог/Ввод имени",
+   "new": "Modal / Name Input",
+   "antd": "Modal",
+   "jsx": "<Modal open title=\"Название\" okText=\"Сохранить\"><Input /></Modal>"
+  },
+  {
+   "mobile": "85:85",
+   "desktop": "37:85",
+   "old": "Диалог/Выбор из двух",
+   "new": "Modal / Confirm",
+   "antd": "Modal",
+   "jsx": "Modal.confirm({ title: 'Доплатить сверх сертификата?', okText: 'Подтвердить' })"
+  },
+  {
+   "mobile": "85:116",
+   "desktop": "37:116",
+   "old": "Диалог/Затемнение",
+   "new": "Modal / Mask",
+   "antd": "Modal",
+   "jsx": "<Modal open mask /> — затемнение под окном"
+  },
+  {
+   "mobile": "83:54",
+   "desktop": "37:225",
+   "old": "Карточка товара/Карточка товара",
+   "new": "Card / Product Detail",
+   "antd": "Card",
+   "fixVariantNames": {
+    "83:26": "Язык=RU, Состояние=Обычное"
+   },
+   "jsx": "<Card cover={<img />} actions={[<Button>Заменить</Button>, <Button type=\"link\">В магазин</Button>]}>Диван</Card>"
+  }
+ ],
+ "disputed": [
+  "1. Шкала сертификата 58:247/29:241 — «Progress / Allowance» (блок: суммы + полоса + доплата) или просто «Progress»; полоса 58:378/29:372 — «Progress / Bar» или «Progress». Советую как в таблице: Progress / Allowance + Progress / Bar.",
+  "2. Базовое имя совпадает с группой: «Button» и «Button / …», «Link» и «Link / …», «Tabs» и «Tabs / Tab» — в панели ассетов компонент рядом с папкой того же имени. Альтернатива: «Button / Base», «Link / Base», «Tabs / Bar».",
+  "3. «Button / Primary» (107:10 «Открыть», есть вариант outlined) пересекается с «Button» type=primary (221:15). Альтернатива: «Button / CTA».",
+  "4. Уведомление 89:22/36:22: antd notification (угол экрана) или message (короткий тост) — у нас внизу по центру, с кнопкой-ссылкой. Оставил Notification (бриф).",
+  "5. Пузырь пояснения 58:527: Popover (по нажатию, текст) или Tooltip.",
+  "6. Окно расстановки/Подсказка 95:985 (только Mobile): Tooltip или Tour (antd-онбординг).",
+  "7. Кнопки поверх 3D-кадра 107:150/43:150: Button shape=circle или FloatButton.",
+  "8. Окно подбора замены 105:406/47:382: Drawer (Mobile — лист снизу) или Modal (Desktop); одно имя на обе книги — выбрал Drawer / Replace.",
+  "9. Боковая панель 48:1082 (Desktop): «Drawer / Side Panel» по брифу, хотя панель постоянная — по antd это Layout.Sider.",
+  "10. Окно целиком 95:972/48:764: «Modal / Layout View» — на Mobile это полный экран, не диалог; альтернатива без antd — «Layout View».",
+  "11. Кнопка комнаты 127:27/48:1551 (фильтр в Избранном): Tag.CheckableTag или Radio.Button / Segmented.",
+  "12. Размер переключателя 221:48/92:40: числа 28/29/30/31 (как в книге, разница по 1 px) или small/middle/large (в antd это 24/32/40 — не совпадёт). Кружок цвета 22/34 → small/large.",
+  "13. Заполнение недостающих свойств (план п.5): Шкала в окне — budget по языку (RU total, EN split: EN-вариант 94 px = две полосы); Карточка расстановки — budget=default у варианта без бюджета (данные 26.10, не из сценария бюджета), photo=true. Значение «default» у budget — не идеально.",
+  "14. Сердечко на фото 64:105/25:105: «Icon / Heart» + checked (по брифу); по сути кнопка-переключатель — альтернатива «Button / Heart».",
+  "15. Наше сверх antd без antd-имени (antd=null): Editor / Top Bar, Editor / Bottom Bar, Favorites / Header, Header / Complex Row, Language Switch, Drawer / Items Chip, Drawer / Handle, Drawer / Floor Picker, Swatch / Color, Swatch / Floor, Floor Plan / Apartment, Floor Plan / Room — названы по нашим правилам; страницы «Как пользоваться», «Счастливый путь», «Экраны RU/EN» оставлены по-русски."
+ ],
+ "defects": [
+  "Mobile 83:26 (вариант «Карточки товара» 83:54) назван «RU, Обычное» без «=» — у варианта нет свойств; в П4б переименовать в lang=ru, state=default (fixVariantNames). Desktop 37:225 в порядке.",
+  "Без значения у части вариантов (закрывается полем fill): 58:329/29:323 budget, 127:184/48:1708 budget+photo, 64:86/25:86 interior, 76:187 colorPicker (только Mobile; Desktop 26:165 уже ровный)."
+ ],
+ "p6Screens": {
+  "_about": "Для П6 «экраны из компонентов»: все рамки на страницах «Экраны» — пустые FRAME с одной картинкой (0 экземпляров, 0 текста). Только перечень, ничего не делали.",
+  "mobile": {
+   "Экраны RU (22:2)": "41 рамка 375×812, 22:3…22:43",
+   "Экраны EN (22:44)": "44 рамки 375×812, 22:45…22:88 (+«Добавлено в избранное», +2 «без сертификата»)",
+   "Счастливый путь (123:2)": "19 рамок-картинок: 18 наших (x < 3900) + 1 её; её работу не трогаем"
+  },
+  "desktop": {
+   "Экраны RU (16:2)": "37 рамок 1440×900, 16:3…16:39",
+   "Экраны EN (16:40)": "40 рамок 1440×900, 16:41…16:80",
+   "Счастливый путь (53:2)": "16 рамок-картинок"
+  },
+  "total": "Экраны: 162 рамки-картинки (Mobile 85, Desktop 77); с «Счастливым путём» — 197. Список с названиями — shots/0311-1751-p4a/screens-and-howto.txt и выгрузка выше в отчёте."
+ },
+ "leadDecisions": [
+  "03.11 ведущий common: спорное п.1 — по слову владельца (TG 105 «progress bar») Шкала → «Progress Bar», полоса → «Progress Bar / Track»; п.3 → «Button / CTA»; п.2 — базовые имена = имя группы оставить (Button, Link, Tabs); п.4–15 — как предложил помощник; «Кнопки — 9 секций» в «Как пользоваться» — дописать 5 новых наборов (факт, не смысл)."
+ ]
+}
