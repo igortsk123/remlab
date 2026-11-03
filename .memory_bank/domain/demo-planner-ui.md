@@ -3,7 +3,7 @@ tier: 2
 topic: demo-planner-ui
 scope: Демо-планировщик — правила вёрстки и UX одностраничного демо
 tier1: "../core/demo-planner.md"
-updated: 2026-10-30
+updated: 2026-11-03
 importance: med
 source: manual
 status: working
@@ -609,6 +609,11 @@ SVG плана квартиры со вкладки «План квартиры�
 - **Для проверок:** `LIVE.scene.models()` (подпись модели по номеру предмета), `pose()`, `select()`, `accentSide()`.
 
 ## Ракурсы: поза v2 и подбор точки (14–15.10, demo-02, ADR-0291)
+- **С 03.11 (demo-31, ADR-0329) — одна расстановка и одна пара на все стили:** подпись гипотезы солвера `диван:S|тв:N|обед:NE`
+  (`services/planner-solver/planner/zones.py:_signature_filter`, только при env `LAYOUT_SIGNATURE_FILE`; правило `tools/scout/rules/demo-layout.json`),
+  ось x=155,3 (`tools/scout/demo_one_layout.py`); пара — `camPairAll` по всем вариантам (ключ: главное целиком → обязательное покрыто → крупное
+  не срезано → недобор), `tools/flat3d/demo-cams.mjs`, `D.cams_shared`, `CAMS_VER=v13-shared`. Описание ниже «ракурс 2 — противоположный»
+  относится к подбору одного варианта (вне демо и после передвигания мебели на точку).
 - Поза одна на живую сцену, окно и серверный кадр: глаз 135, камера горизонтальна, сдвиг объектива −0,10
   (`viewer.ts:photoRay`/`photoShift`/`applyPhotoShift`, `draft_render.photo_pose_heights`, страница `POSE_VER`). Версия позы — в
   каждой камере запроса и в реестре; эскиз прежней позы устарел (`poseStale`), ночной прогрев переснимает (`demo-warm.mjs`).
