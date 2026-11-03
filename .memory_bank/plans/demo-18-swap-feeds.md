@@ -2,9 +2,12 @@
 workstream: demo
 slug: demo-18-swap-feeds
 title: Замены предметов в окне и 3D — не меньше 5 настоящих альтернатив у дивана и ковра, разные модели раньше цветов, замена подходит месту
-status: in_progress
+status: partial
+pause_reason: без движения с 2026-10-19 (гейт PLAN-STUCK); кто вёл и что дальше — не записано, ждёт решения владельца
+resume_trigger: слово владельца — доделать, отложить в архив или отменить
+owner_decision_required: true
 created: 2026-10-18
-updated: 2026-10-19
+updated: 2026-11-03
 completed:
 plan_kind: sub
 parent_plan: demo-05-scene-artifacts-3d
