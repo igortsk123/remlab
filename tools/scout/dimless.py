@@ -26,6 +26,7 @@ Env: REMLAB_DEVDB_NAME — одноразовая база (как у mesh_queue
 """
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -38,8 +39,10 @@ ROLES_PATH = os.environ.get('SCOUT_ROLES_PATH') or os.path.join(HERE, 'category-
 ROLES = ('диван', 'кресло', 'стул', 'стол', 'стол обеденный', 'столик', 'тумба', 'тв-тумба', 'комод', 'стеллаж', 'шкаф',
          'стенка', 'пуф', 'банкетка', 'витрина', 'полка', 'камин', 'кашпо', 'ваза', 'торшер', 'растение', 'лампа',
          'статуэтка', 'люстра', 'бра', 'зеркало', 'часы')
-# Источники ВЫВЕДЕННОГО размера (не измерение): приор роли, пропорция меша, правило формы
-INFERRED_RX = '^(role_prior|mesh_ratio|shape_rule)'
+# Источники размера, на которых НЕ учимся (не эталон): выведенные — приор роли, пропорция меша, правило формы; и глубина
+# с чертежа (`drawing_dims.py`, conv-15) — пока ручная проверка не доказала точность. Одна константа на `dim_prior`
+# (калибровка), `mesh_dims` (калибровка меша) и здесь (измеренные Ш и В категории)
+NOT_REFERENCE_RX = '^(role_prior|mesh_ratio|shape_rule|drawing)'
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', os.environ.get('REMLAB_DEVDB_NAME', 'remlab'),
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
 
@@ -54,8 +57,8 @@ def _roles_sql() -> str:
 
 
 MEASURED_SQL = (f"w_cm is not null and h_cm is not null "
-                f"and coalesce(dims_evidence->'w'->>'source','') !~ '{INFERRED_RX}' "
-                f"and coalesce(dims_evidence->'h'->>'source','') !~ '{INFERRED_RX}'")
+                f"and coalesce(dims_evidence->'w'->>'source','') !~ '{NOT_REFERENCE_RX}' "
+                f"and coalesce(dims_evidence->'h'->>'source','') !~ '{NOT_REFERENCE_RX}'")
 
 
 def stats_sql() -> str:
@@ -167,7 +170,9 @@ def _selftest() -> int:
     ok('малая категория (n < 5) — решения нет', not is_dimless(4, 0))
     ok('хоть один измеренный — не карантин', not is_dimless(100, 1))
     sql = stats_sql()
-    ok('выведенные размеры не считаются измеренными', all(s in INFERRED_RX for s in ('role_prior', 'mesh_ratio', 'shape_rule')))
+    ok('выведенные размеры и чертёж не считаются измеренными',
+       all(re.match(NOT_REFERENCE_RX, s) for s in ('role_prior', 'mesh_ratio', 'shape_rule:sphere', 'drawing'))
+       and not re.match(NOT_REFERENCE_RX, 'param'))
     ok('текстиль вне правила (у подушки высоты нет по природе)', not {'подушка', 'плед', 'ковёр', 'шторы'} & set(ROLES))
     ok('роли мебели и света внутри', {'шкаф', 'стеллаж', 'стенка', 'люстра', 'ваза'} <= set(ROLES))
     ok('SQL — только активные и по категории', "status = 'active'" in sql and 'group by shop_mid, category_id' in sql)

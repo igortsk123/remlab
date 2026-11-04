@@ -261,5 +261,77 @@ finally:
 check(f'direct_fallback=False — только шлюз; по умолчанию фолбэк прежний: {seen}',
       seen == [llm_gateway.GATEWAY_URL, llm_gateway.GATEWAY_URL, llm_gateway.OPENAI_URL])
 
+# 6) Т6 — подмешивание в загрузчик (load3.assign → overlay), только кэш, без сети
+SHA_K = DD.hashlib.sha256(b'drawing-1').hexdigest()
+URL_K = 'https://mnogomebeli.com/upload/king.jpg'
+CK = {'reads': {DD.cache_key(SHA_K): {**KING, 'sha': SHA_K, 'model': DD.MODEL, 'prompt_ver': DD.PROMPT_VER, 'schema_ver': DD.SCHEMA_VER}},
+      'urls': {URL_K: {'sha': SHA_K, 'at': '2026-11-04'}}}
+PK = {DD.PARAM: '/upload/king.jpg', 'Конфигурация': 'Угловой'}
+DIMS = {'w': 291.0, 'd': None, 'h': 82.0, 'len': None, 'dia': None}
+dm, ev, src = DD.overlay(114667, 'Угловой диван Кинг', PK, 'диван', DIMS, {'w': {'source': 'param'}}, 'param:2', CK, today='2026-11-05')
+check(f'sha сверен и прочтение принято → d=160, evidence drawing, источник +drawing:1: {dm["d"]} {src}',
+      dm['d'] == 160 and ev['d']['source'] == 'drawing' and ev['d']['sha'] == SHA_K and ev['d']['view'] == ['top']
+      and ev['w'] == {'source': 'param'} and src == 'param:2 drawing:1' and DIMS['d'] is None)
+check('в evidence — модель, версии промпта/схемы/правил, ширины и Δ',
+      {'model', 'prompt_ver', 'schema_ver', 'policy_ver', 'w_read', 'w_card', 'dw', 'dw_pct', 'url', 'unit'} <= set(ev['d']))
+same = lambda r: r == (DIMS, None, 'x')  # noqa: E731
+CKX = {**CK, 'urls': {URL_K: {'sha': 'f' * 64, 'at': '2026-11-04'}}}
+check('по адресу сегодня другой sha (чертёж сменили) — ничего', same(DD.overlay(114667, 'Угловой диван Кинг', PK, 'диван', DIMS, None, 'x', CKX, today='2026-11-05')))
+check(f'сверка старше {DD.INDEX_MAX_AGE_DAYS} дней — ничего',
+      same(DD.overlay(114667, 'Угловой диван Кинг', PK, 'диван', DIMS, None, 'x', CK, today='2026-11-12')))
+check('адреса нет в индексе — ничего', same(DD.overlay(114667, 'Угловой диван Кинг', {**PK, DD.PARAM: '/upload/new.jpg'}, 'диван', DIMS, None, 'x', CK)))
+dd = {**DIMS, 'd': 150.0}
+check('глубина из карточки есть — карточка главнее, кэш не трогает',
+      DD.overlay(114667, 'Угловой диван Кинг', PK, 'диван', dd, None, 'x', CK, today='2026-11-05') == (dd, None, 'x'))
+check('другой магазин / не диван — ничего',
+      same(DD.overlay(5794, 'Угловой диван Кинг', PK, 'диван', DIMS, None, 'x', CK, today='2026-11-05'))
+      and same(DD.overlay(114667, 'Кресло Кинг', PK, 'кресло', DIMS, None, 'x', CK, today='2026-11-05')))
+check('ширина карточки не та (чертёж чужой) — decide отказал, ничего',
+      DD.overlay(114667, 'Угловой диван Кинг', PK, 'диван', {**DIMS, 'w': 300.0}, None, 'x', CK, today='2026-11-05')[0]['d'] is None)
+check('часть модуля — ничего', same(DD.overlay(114667, 'Кинг Модуль оттоманка', PK, 'диван', DIMS, None, 'x', CK, today='2026-11-05')))
+
+# cache-only: сверка адресов пишется, вызовов нет
+calls.clear(); saves.clear()
+c3 = {'reads': dict(cache['reads'])}
+res, cnt = DD.scan(ITEMS, c3, index=True, today='2026-11-04', fetch_fn=fake_fetch, ask_fn=fake_ask, save_fn=saves.append)
+check(f'только кэш: 0 вызовов, адрес → sha записан для скачанных; 404 и части модулей — без записи: {sorted(c3["urls"])}',
+      not calls and sorted(c3['urls']) == ['u1', 'u2'] and c3['urls']['u1']['at'] == '2026-11-04' and len(saves) == 1)
+check('только кэш: прочтения из кэша решают (hit), новых чертежей нет — pending не платится', cnt['hit'] == 2 and cnt['calls'] == 0)
+check('--paid и --cache-only вместе — стоп', DD.main(['--paid', '--max-calls', '1', '--cache-only']) == 2)
+
+# исключение чертежа из эталонов приоров — одна константа
+import re  # noqa: E402
+import dimless  # noqa: E402
+check('dimless.NOT_REFERENCE_RX: чертёж и выведенное — не эталон, параметр фида — эталон',
+      all(re.match(dimless.NOT_REFERENCE_RX, x) for x in ('drawing', 'role_prior', 'mesh_ratio', 'shape_rule:sphere'))
+      and not re.match(dimless.NOT_REFERENCE_RX, 'param'))
+srcs = {f: open(os.path.join(SCOUT, f), encoding='utf-8').read() for f in ('dim_prior.py', 'mesh_dims.py', 'dimless.py', 'load3.py')}
+old_lit = [f for f, t in srcs.items() if "^(role_prior|mesh_ratio|shape_rule)'" in t]
+check(f'старого списка без чертежа нигде нет: {old_lit}', not old_lit)
+check('dim_prior (калибровка) и mesh_dims (эталоны меша) берут общую константу',
+      "!~ '{DL.NOT_REFERENCE_RX}'" in srcs['dim_prior.py'] and "{DL.NOT_REFERENCE_RX}" in srcs['mesh_dims.py'])
+
+# load3: подключение после resolve_dims, версия хешей
+os.environ.setdefault('SCOUT_PRIORS_PATH', os.path.join(SCOUT, 'tests', 'fixtures', 'unit-priors-mini.json'))
+import load3  # noqa: E402 — лёгкий импорт: функции, без прогона
+DD._LOADER_CACHE = {**CK, 'urls': {URL_K: {'sha': SHA_K, 'at': DD._today()}}}
+prm = {'Ширина': '291', 'Высота': '82', DD.PARAM: '/upload/king.jpg', 'Конфигурация': 'Угловой'}
+dims0, ev0, src0 = load3.resolve_dims(114667, 'Угловой диван Кинг', prm, 'диван')
+dims1, ev1, src1 = load3._drawing_overlay({'mid': 114667, 'name': 'Угловой диван Кинг', 'params': prm}, 'диван', dims0, ev0, src0)
+check(f'load3: резолвер даёт 291×—×82, оверлей → d 160 с evidence drawing: {dims0["w"]}/{dims0["d"]} → {dims1["d"]}',
+      dims0['w'] == 291 and dims0['d'] is None and dims1['d'] == 160 and ev1['d']['source'] == 'drawing')
+DD._LOADER_CACHE = {}
+check('load3: пустой кэш — размеры как из карточки',
+      load3._drawing_overlay({'mid': 114667, 'name': 'Угловой диван Кинг', 'params': prm}, 'диван', dims0, ev0, src0) == (dims0, ev0, src0))
+src_l = srcs['load3.py']
+check('load3.assign: оверлей сразу после resolve_dims', re.search(r"resolve_dims\(o\['mid'\].*?\n(?:\s*#.*\n)*\s*dims, ev, dsrc = _drawing_overlay", src_l) is not None)
+check(f'HASH_VERSION поднят до 9 (один раз — baseline без stale): {load3.HASH_VERSION}', load3.HASH_VERSION == 9)
+import dim_resolver  # noqa: E402
+check('правила резолвера не менялись — отпечаток прежний', dim_resolver.rules_fingerprint() == load3.RULES_FINGERPRINT)
+rd_src = open(os.path.join(SCOUT, 'refresh_daily.sh'), encoding='utf-8').read()
+i_dd, i_l3 = rd_src.find('step drawing_dims "$PY" drawing_dims.py --cache-only'), rd_src.find('step load3 "$PY" load3.py')
+check('ночной шаг: drawing_dims --cache-only до load3, платного дочитывания в кроне нет',
+      0 < i_dd < i_l3 and 'drawing_dims.py --paid' not in rd_src)
+
 print(f'test_drawing_dims: ошибок {fails}')
 sys.exit(1 if fails else 0)

@@ -115,12 +115,12 @@ def calibrate() -> dict:
     # НАЗВАНИЕ — ПОСЛЕДНЕЙ КОЛОНКОЙ (11.10): в названиях товаров встречается табуляция, а вывод
     # psql разбирается по табам. Стояло бы `name` в середине — сдвинулась бы сама глубина, и
     # калибровка соврала бы молча (поймано падением на распаковке).
-    rows = db("""
+    rows = db(f"""
       select coalesce(cat_role,''), d_cm, replace(name, chr(9), ' ')
         from products
        where in_stock and d_cm is not null and cat_role is not null
          and dims_evidence->'d'->>'source' is not null
-         and dims_evidence->'d'->>'source' !~ '^(role_prior|mesh_ratio|shape_rule)'
+         and dims_evidence->'d'->>'source' !~ '{DL.NOT_REFERENCE_RX}'
     """)
     groups: dict[tuple[str, str], list[float]] = {}
     for r in rows:

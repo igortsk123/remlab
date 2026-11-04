@@ -12,7 +12,11 @@
 глубина; счётчики печатаются громко. В базу и в банк сетов этот шаг НЕ пишет (подмешивание в `load3` — шаг 6 плана).
 
     ~/venvs/scout/bin/python drawing_dims.py [--out f.jsonl]                    # сухо: скачать чертежи, счётчики, без вызовов
+    ~/venvs/scout/bin/python drawing_dims.py --cache-only                        # ночью до load3: сверить адрес → sha, без вызовов
     ~/venvs/scout/bin/python drawing_dims.py --paid --max-calls 20 [--only sha,…] # платно: прочитать не более N новых чертежей
+
+Загрузчик (`load3.assign` → `overlay`) подмешивает принятую d из кэша без сети — только когда sha чертежа по адресу из
+фида сверен этим шагом не раньше INDEX_MAX_AGE_DAYS назад и его прочтение в кэше прошло `decide`. Карточка главнее.
 """
 import base64
 import collections
@@ -34,6 +38,8 @@ PARAM = 'Изображение с размерами'
 SHOPS = {114667: 'mnogomebeli.com', 114082: 'divanboss.ru'}
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-At', '-F', '\x1f', '-q']
 MAX_CALLS_CAP = 400                     # потолок одного платного прогона, даже если попросили больше (уникальных чертежей ~106)
+INDEX_MAX_AGE_DAYS = 7                  # адрес → sha старше — для загрузчика «чертёж не сверен»: глубину не подмешиваем
+POLICY_VER = 1                          # версия правил выбора d (`decide`) — в evidence; смена = контролируемая миграция
 STOP_STREAK = 3                         # столько сбоев модели/разбора подряд — стоп прогона (шлюз лёг или ответ не по схеме)
 
 VIEWS, AXES = ('front', 'top', 'side'), ('horizontal', 'vertical')
@@ -146,8 +152,11 @@ def decide(read: dict, card_w: float, card_h: float | None, kind: str) -> dict:
     if read['configurations'] > 1:
         return res('multi-variant', f'вариантов на чертеже: {read["configurations"]}')
     by = collections.defaultdict(list)          # (ось товара, тип) → значения в см
+    d_views = set()
     for ln in read['lines']:
         ax = SEM[(ln['view'], ln['axis'])]
+        if ax == 'd' and ln['type'] == 'overall' and ln['unit'] is not None:
+            d_views.add(ln['view'])
         if ln['unit'] is None:
             if ln['type'] == 'overall':
                 return res('no-unit', f'{ln["view"]}/{ln["axis"]} {ln["value"]} без единицы')
@@ -180,7 +189,7 @@ def decide(read: dict, card_w: float, card_h: float | None, kind: str) -> dict:
     lo, hi = RANGE[kind]
     if not lo <= d <= hi:
         return res('implausible', f'{kind}: {d} вне {lo}–{hi}', **info)
-    return {'outcome': 'accepted', 'd': d, 'detail': '', **info}
+    return {'outcome': 'accepted', 'd': d, 'detail': '', 'd_view': sorted(d_views), **info}
 
 
 # --- сеть и данные ----------------------------------------------------------------------------------------------------
@@ -252,7 +261,9 @@ def eligible() -> list[dict]:
     """Диваны двух магазинов в продаже без глубины — из БД (только чтение)."""
     sql = ("select shop_mid, external_id, coalesce(w_cm::text,''), coalesce(h_cm::text,''), coalesce(params->>'" + PARAM + "',''), "
            "coalesce(params->>'Конфигурация',''), replace(name, chr(9), ' ') from products "
-           f"where shop_mid in ({','.join(map(str, SHOPS))}) and cat_role = 'диван' and status = 'active' and d_cm is null")
+           f"where shop_mid in ({','.join(map(str, SHOPS))}) and cat_role = 'диван' and status = 'active' "
+           # и те, кому глубину уже дал чертёж: иначе после включения их адреса перестанут сверяться и глубина «состарится»
+           "and (d_cm is null or dims_evidence->'d'->>'source' = 'drawing')")
     r = subprocess.run(PSQL, capture_output=True, text=True, input=sql)
     if r.returncode != 0:
         raise RuntimeError(r.stderr[:400])
@@ -269,7 +280,8 @@ def eligible() -> list[dict]:
 
 # --- прогон -----------------------------------------------------------------------------------------------------------
 def scan(items: list[dict], cache: dict, paid: bool = False, max_calls: int = 0, only: set | None = None,
-         fetch_fn=fetch, ask_fn=ask, save_fn=save_cache) -> tuple[list[dict], collections.Counter]:
+         fetch_fn=fetch, ask_fn=ask, save_fn=save_cache, index: bool = False,
+         today: str | None = None) -> tuple[list[dict], collections.Counter]:
     """→ (решение по каждому SKU, счётчики). Сухо (`paid=False`) — ни одного вызова модели: чертежи без прочтения в кэше
     — `pending`. Платно — не больше `max_calls` вызовов за прогон; каждое удачное прочтение сразу пишется в кэш."""
     cnt: collections.Counter = collections.Counter()
@@ -281,6 +293,8 @@ def scan(items: list[dict], cache: dict, paid: bool = False, max_calls: int = 0,
         try:
             b = fetch_fn(url)
             sha_of[url] = (hashlib.sha256(b).hexdigest(), b)
+            if index:                           # адрес → sha СЕГОДНЯ: загрузчик подмешивает d только при совпадении
+                cache.setdefault('urls', {})[url] = {'sha': sha_of[url][0], 'at': today or _today()}
         except Exception as e:  # noqa: BLE001 — не решено; громкий счётчик ниже
             fails[url] = str(e)[:120]
     by_sha: dict[str, bytes] = {s: b for s, b in sha_of.values()}
@@ -325,6 +339,8 @@ def scan(items: list[dict], cache: dict, paid: bool = False, max_calls: int = 0,
                     'meta': a.get('meta')}
         save_fn(cache)
     cnt['calls'] = calls
+    if index:
+        save_fn(cache)
     out = []
     for it in items:
         base = {k: it.get(k) for k in ('mid', 'eid', 'name', 'kind', 'side', 'w', 'h', 'url')}
@@ -352,8 +368,58 @@ def scan(items: list[dict], cache: dict, paid: bool = False, max_calls: int = 0,
     return out, cnt
 
 
+def _today() -> str:
+    import datetime
+    return datetime.date.today().isoformat()
+
+
+# --- загрузчик (load3.assign): только кэш, без сети ---------------------------------------------------------------------
+_LOADER_CACHE = None
+
+
+def loader_cache() -> dict:
+    global _LOADER_CACHE
+    if _LOADER_CACHE is None:
+        _LOADER_CACHE = load_cache()
+    return _LOADER_CACHE
+
+
+def overlay(mid: int, name: str, params: dict | None, role: str | None, dims: dict, ev: dict | None, dsrc: str | None,
+            cache: dict | None = None, today: str | None = None) -> tuple[dict, dict | None, str | None]:
+    """Принятая глубина с чертежа поверх разбора карточки (`load3.assign` после `resolve_dims`). Ничего не меняет, если:
+    не диван этих двух магазинов; глубина уже есть из карточки (карточка главнее); адреса чертежа нет в индексе или
+    сверка старше INDEX_MAX_AGE_DAYS; прочтения этого sha нет в кэше; `decide` не принял. Сети нет."""
+    if role != 'диван' or mid not in SHOPS or dims.get('d') is not None or not dims.get('w'):
+        return dims, ev, dsrc
+    c = loader_cache() if cache is None else cache
+    url = drawing_url(mid, (params or {}).get(PARAM))
+    ix = c.get('urls', {}).get(url) if url else None
+    if not ix or _age_days(ix.get('at'), today) > INDEX_MAX_AGE_DAYS:
+        return dims, ev, dsrc
+    rd = c.get('reads', {}).get(cache_key(ix['sha']))
+    if not rd:
+        return dims, ev, dsrc
+    r = decide(rd, dims['w'], dims.get('h'), kind_of(name, (params or {}).get('Конфигурация')))
+    if r['outcome'] != 'accepted':
+        return dims, ev, dsrc
+    ev_d = {'raw': r['d'], 'unit': 'cm', 'source': 'drawing', 'semantic': 'overall_depth', 'view': r['d_view'],
+            'sha': ix['sha'], 'url': url, 'model': rd['model'], 'prompt_ver': rd['prompt_ver'], 'schema_ver': rd['schema_ver'],
+            'policy_ver': POLICY_VER, 'w_read': r['w_read'], 'w_card': dims['w'], 'dw': r['dw'], 'dw_pct': r['dw_pct'],
+            'status': 'accepted', 'checked': ix.get('at')}
+    return {**dims, 'd': r['d']}, {**(ev or {}), 'd': ev_d}, ((dsrc or '') + ' drawing:1').strip()
+
+
+def _age_days(at: str | None, today: str | None = None) -> int:
+    import datetime
+    try:
+        return (datetime.date.fromisoformat(today or _today()) - datetime.date.fromisoformat(at)).days
+    except (TypeError, ValueError):
+        return 10 ** 6
+
+
 def main(a: list[str]) -> int:
     paid = '--paid' in a
+    cache_only = '--cache-only' in a
     max_calls = int(a[a.index('--max-calls') + 1]) if '--max-calls' in a else 0
     if paid and max_calls <= 0:
         print('СТОП: платный режим только с явным потолком --max-calls N', flush=True)
@@ -361,12 +427,15 @@ def main(a: list[str]) -> int:
     max_calls = min(max_calls, MAX_CALLS_CAP)
     only = set(a[a.index('--only') + 1].split(',')) if '--only' in a else None
     cache = load_cache()
-    res, cnt = scan(eligible(), cache, paid=paid, max_calls=max_calls, only=only)
+    if paid and cache_only:
+        print('СТОП: --paid и --cache-only вместе не бывают', flush=True)
+        return 2
+    res, cnt = scan(eligible(), cache, paid=paid, max_calls=max_calls, only=only, index=paid or cache_only)
     if '--out' in a:
         with open(a[a.index('--out') + 1], 'w', encoding='utf-8') as f:
             for r in res:
                 f.write(json.dumps(r, ensure_ascii=False) + '\n')
-    print(f'drawing_dims [{"ПЛАТНО" if paid else "сухо"}] модель {MODEL}, промпт {PROMPT_VER}/{PROMPT_SHA}, схема {SCHEMA_VER}', flush=True)
+    print(f'drawing_dims [{"ПЛАТНО" if paid else "только кэш" if cache_only else "сухо"}] модель {MODEL}, промпт {PROMPT_VER}/{PROMPT_SHA}, схема {SCHEMA_VER}', flush=True)
     print('  чертежи: ' + ', '.join(f'{k} {cnt[k]}' for k in ('eligible', 'unique', 'hit', 'miss', 'calls')), flush=True)
     if cnt['stopped']:
         print(f'WARN:drawing_dims_stopped: {STOP_STREAK} сбоя подряд', flush=True)

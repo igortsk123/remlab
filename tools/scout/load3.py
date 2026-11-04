@@ -44,7 +44,7 @@ ROLES_PATH = os.environ.get('SCOUT_ROLES_PATH') or os.path.join(HERE, 'category-
 FRESH_PATH = os.path.join(HERE, 'feed-freshness.json')
 PSQL = shlex.split(os.environ.get('SCOUT_PSQL_CMD') or '') or [
     "docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", "remlab", "-q", "-v", "ON_ERROR_STOP=1"]
-HASH_VERSION = 8          # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси по магазину/роли; 4 — tvoydom оси перевёрнуты по замеру + тройка в названии (03.09); 5 — пороги правдоподобия по роли: плоский свет, ваза-шар, роль света по «Тип» (catalog-holes-bank, 23.10); 6 — трансформеры Орматек: собранные Ш×Г×В по спальному месту (Н3, 23.10); 7 — поля вылета люстры drop_min/max/adj в evidence (Н2в этап 2, 23.10); 8 — глубина диванов/кресел divan.ru из «Размеры: Глубина габаритная» (conv-14, 04.11)
+HASH_VERSION = 9          # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси по магазину/роли; 4 — tvoydom оси перевёрнуты по замеру + тройка в названии (03.09); 5 — пороги правдоподобия по роли: плоский свет, ваза-шар, роль света по «Тип» (catalog-holes-bank, 23.10); 6 — трансформеры Орматек: собранные Ш×Г×В по спальному месту (Н3, 23.10); 7 — поля вылета люстры drop_min/max/adj в evidence (Н2в этап 2, 23.10); 8 — глубина диванов/кресел divan.ru из «Размеры: Глубина габаритная» (conv-14, 04.11); 9 — глубина диванов mnogomebeli/divanboss с чертежа из кэша `drawing_dims` (conv-15, 04.11)
 # Отпечаток правил разбора размеров (`dim_resolver.rules_fingerprint`), при котором действует HASH_VERSION.
 # Правила изменились → селфтест `dim_resolver` красный, пока не поднят HASH_VERSION и не записан новый
 # отпечаток (13.10: правила осей 11.10 без подъёма версии дали +3 761 ложных stale, сняты по снимку 05.10).
@@ -220,6 +220,21 @@ def _rug_kids(img: str | None) -> bool:
     return bool(img) and bool(_RUG_KIDS.get(image_hash(img), {}).get('kids'))
 
 
+_DRAWING_WARNED = False
+
+
+def _drawing_overlay(o: dict, role, dims, ev, dsrc):
+    global _DRAWING_WARNED
+    try:
+        import drawing_dims
+        return drawing_dims.overlay(o['mid'], o['name'], o.get('params'), role, dims, ev, dsrc)
+    except Exception as e:  # noqa: BLE001 — сбой кэша чертежей не роняет загрузку каталога: глубина остаётся как в карточке
+        if not _DRAWING_WARNED:                 # одна строка на прогон, а не на каждый из тысяч офферов
+            _DRAWING_WARNED = True
+            print(f'WARN:drawing_overlay: {str(e)[:160]}', flush=True)
+        return dims, ev, dsrc
+
+
 def assign(o: dict, catrole: dict, known: set) -> dict:
     """Роль и размеры. accepted=False — категория не нужна гостиной (или детское)."""
     key = (o['mid'], str(o['cid']))
@@ -244,6 +259,9 @@ def assign(o: dict, catrole: dict, known: set) -> dict:
     o['accepted'] = accepted
     if role:
         dims, ev, dsrc = resolve_dims(o['mid'], o['name'], o['params'], role)
+        # ГЛУБИНА С ЧЕРТЕЖА (conv-15): диваны mnogomebeli/divanboss без глубины в карточке — принятая `drawing_dims` d из
+        # кэша, без сети; только при сверенном sha чертежа, карточка главнее. Нет кэша — как раньше
+        dims, ev, dsrc = _drawing_overlay(o, role, dims, ev, dsrc)
         o['dims'], o['dims_evidence'], o['dims_source'] = dims, ev, dsrc
         if role == 'стол обеденный' and unfit(role, o['name'], None, dims.get('h'), dims.get('dia'), d=dims.get('d')):
             # КАРАНТИН ПО РАЗМЕРАМ (T-20261020-23): журнальный/барный/консоль без типа в названии («Стол divan.ru Олэн»

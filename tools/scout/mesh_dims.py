@@ -66,8 +66,11 @@ select p.shop_mid, p.external_id, p.cat_role, p.name, p.w_cm, p.d_cm, p.h_cm,
 """
 
 
+sys.path.insert(0, HERE)
+import dimless as DL  # noqa: E402 — одна константа «не эталон» (выведенное и чертёж, conv-15)
+
 MEASURED_D_SQL = ("and p.d_cm is not null and p.dims_evidence->'d'->>'source' is not null "
-                  "and p.dims_evidence->'d'->>'source' !~ '^(role_prior|mesh_ratio|shape_rule)'")
+                  f"and p.dims_evidence->'d'->>'source' !~ '{DL.NOT_REFERENCE_RX}'")
 
 
 def find_glb(sku: str, glb_sha: str) -> str | None:
