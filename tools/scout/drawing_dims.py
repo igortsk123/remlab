@@ -34,6 +34,7 @@ PARAM = 'Изображение с размерами'
 SHOPS = {114667: 'mnogomebeli.com', 114082: 'divanboss.ru'}
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-At', '-F', '\x1f', '-q']
 MAX_CALLS_CAP = 400                     # потолок одного платного прогона, даже если попросили больше (уникальных чертежей ~106)
+STOP_STREAK = 3                         # столько сбоев модели/разбора подряд — стоп прогона (шлюз лёг или ответ не по схеме)
 
 VIEWS, AXES = ('front', 'top', 'side'), ('horizontal', 'vertical')
 TYPES = ('overall', 'subdimension', 'seat', 'sleeping')
@@ -215,21 +216,33 @@ def fetch(url: str) -> bytes:
         return r.read()
 
 
-def ask(img: bytes) -> dict:
-    """Платный вызов: только шлюз Vercel (`llm_gateway.chat(direct_fallback=False)`) — прямой OpenAI для модели google/…
-    некорректен и тратит другие деньги (Codex 04.11)."""
+def prep_image(img: bytes) -> bytes:
+    """Чертёж → JPEG для модели. PNG с прозрачностью — на белый фон: простой `convert('RGB')` красит прозрачное в цвет
+    скрытых пикселей (у divanboss — чёрный), и чёрные линии с цифрами пропадают на чёрном (лист Т1, № 12 и 40)."""
     from PIL import Image
-    sys.path.insert(0, HERE)
-    import llm_gateway  # noqa: E402
-    im = Image.open(io.BytesIO(img)).convert('RGB')
+    im = Image.open(io.BytesIO(img))
+    if im.mode in ('RGBA', 'LA', 'PA') or (im.mode == 'P' and 'transparency' in im.info):
+        rgba = im.convert('RGBA')
+        bg = Image.new('RGBA', rgba.size, (255, 255, 255, 255))
+        im = Image.alpha_composite(bg, rgba)
+    im = im.convert('RGB')
     im.thumbnail((2048, 2048))                  # цифры чертежа мелкие — не ужимать сильнее
     buf = io.BytesIO()
     im.save(buf, 'JPEG', quality=90)
+    return buf.getvalue()
+
+
+def ask(img: bytes) -> dict:
+    """Платный вызов: только шлюз Vercel (`llm_gateway.chat(direct_fallback=False)`) — прямой OpenAI для модели google/…
+    некорректен и тратит другие деньги (Codex 04.11)."""
+    sys.path.insert(0, HERE)
+    import llm_gateway  # noqa: E402
     msg = [{'role': 'user', 'content': [
         {'type': 'text', 'text': PROMPT},
-        {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(buf.getvalue()).decode()}}]}]
-    out = llm_gateway.chat(MODEL, msg, timeout=180, tries=3, direct_fallback=False, temperature=0, max_tokens=2000)
-    return {'raw': out['choices'][0]['message']['content'] or '', 'usage': out.get('usage')}
+        {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(prep_image(img)).decode()}}]}]
+    out = llm_gateway.chat(MODEL, msg, timeout=180, tries=3, direct_fallback=False, temperature=0, max_tokens=4000)
+    return {'raw': out['choices'][0]['message']['content'] or '', 'usage': out.get('usage'),
+            'meta': {k: v for k, v in out.items() if k not in ('choices', 'usage')}}
 
 
 def eligible() -> list[dict]:
@@ -269,8 +282,12 @@ def scan(items: list[dict], cache: dict, paid: bool = False, max_calls: int = 0,
             fails[url] = str(e)[:120]
     by_sha: dict[str, bytes] = {s: b for s, b in sha_of.values()}
     cnt['unique'] = len(by_sha)
-    calls = 0
+    calls = streak = 0
     for sha, b in sorted(by_sha.items()):
+        if streak >= STOP_STREAK:
+            cnt['stopped'] = 1
+            print(f'  СТОП: {streak} сбоя подряд — дальше не зову', flush=True)
+            break
         k = cache_key(sha)
         if k in reads:
             cnt['hit'] += 1
@@ -283,16 +300,19 @@ def scan(items: list[dict], cache: dict, paid: bool = False, max_calls: int = 0,
             a = ask_fn(b)
         except Exception as e:  # noqa: BLE001 — сбой вызова ≠ вердикт
             fails[sha] = 'model: ' + str(e)[:120]
+            streak += 1
             print(f'  ОТКАЗ МОДЕЛИ {sha[:12]}: {str(e)[:120]}', flush=True)
             continue
         try:
             rd = parse(a['raw'])
         except (ValueError, TypeError) as e:
             fails[sha] = 'parse: ' + str(e)[:120]
-            print(f'  НЕ РАЗОБРАН {sha[:12]}: {str(e)[:120]}', flush=True)
+            streak += 1
+            print(f'  НЕ РАЗОБРАН {sha[:12]}: {str(e)[:120]} · ответ: {a["raw"][:200]!r}', flush=True)
             continue
+        streak = 0
         reads[k] = {**rd, 'sha': sha, 'model': MODEL, 'prompt_ver': PROMPT_VER, 'prompt_sha': PROMPT_SHA,
-                    'schema_ver': SCHEMA_VER, 'raw': a['raw'][:4000], 'usage': a.get('usage')}
+                    'schema_ver': SCHEMA_VER, 'raw': a['raw'][:8000], 'usage': a.get('usage'), 'meta': a.get('meta')}
         save_fn(cache)
     cnt['calls'] = calls
     out = []
@@ -338,6 +358,8 @@ def main(a: list[str]) -> int:
                 f.write(json.dumps(r, ensure_ascii=False) + '\n')
     print(f'drawing_dims [{"ПЛАТНО" if paid else "сухо"}] модель {MODEL}, промпт {PROMPT_VER}/{PROMPT_SHA}, схема {SCHEMA_VER}', flush=True)
     print('  чертежи: ' + ', '.join(f'{k} {cnt[k]}' for k in ('eligible', 'unique', 'hit', 'miss', 'calls')), flush=True)
+    if cnt['stopped']:
+        print(f'WARN:drawing_dims_stopped: {STOP_STREAK} сбоя подряд', flush=True)
     print('  исходы SKU: ' + ', '.join(f'{k} {cnt[k]}' for k in OUTCOMES if cnt[k]), flush=True)
     bad = cnt['download-fail'] + cnt['model-fail'] + cnt['parse-fail']
     if bad:

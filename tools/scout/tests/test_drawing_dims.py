@@ -212,6 +212,26 @@ def dead_ask(b):
 res, cnt = DD.scan(ITEMS[:3], {}, paid=True, max_calls=5, fetch_fn=fake_fetch, ask_fn=dead_ask, save_fn=saves.append)
 check('сбой вызова — model-fail, не отказ и не глубина', cnt['model-fail'] == 3 and not any(r['d'] for r in res))
 check('платно без --max-calls — стоп до любых действий', DD.main(['--paid']) == 2)
+IMG5 = {f'v{i}': f'drawing-v{i}'.encode() for i in range(5)}
+ITEMS5 = [{'mid': 114667, 'eid': f'v{i}', 'name': 'Диван Х', 'kind': 'прямой', 'side': None, 'w': 167.0, 'h': 88.0, 'url': f'v{i}'}
+          for i in range(5)]
+dead = []
+res, cnt = DD.scan(ITEMS5, {}, paid=True, max_calls=5, fetch_fn=IMG5.__getitem__,
+                   ask_fn=lambda b: dead.append(b) or (_ for _ in ()).throw(RuntimeError('502')), save_fn=saves.append)
+check(f'{DD.STOP_STREAK} сбоя подряд — стоп: вызовов {len(dead)} из 5, остальные pending',
+      len(dead) == DD.STOP_STREAK and cnt['stopped'] == 1 and cnt['pending'] == 5 - DD.STOP_STREAK)
+
+# подложка прозрачного PNG (лист Т1 № 12 и 40: на чёрном линии не видны)
+from PIL import Image  # noqa: E402
+png = Image.new('RGBA', (40, 20), (0, 0, 0, 0))
+for x in range(5, 35):
+    png.putpixel((x, 10), (0, 0, 0, 255))          # чёрная размерная линия на прозрачном (скрытый цвет — чёрный)
+buf = io.BytesIO(); png.save(buf, 'PNG')
+out = Image.open(io.BytesIO(DD.prep_image(buf.getvalue())))
+check(f'прозрачный PNG → JPEG на белом: фон {out.getpixel((1, 1))}, линия {out.getpixel((20, 10))}',
+      out.format == 'JPEG' and min(out.getpixel((1, 1))) > 240 and max(out.getpixel((20, 10))) < 80)
+buf = io.BytesIO(); Image.new('RGB', (3000, 1000), (255, 255, 255)).save(buf, 'JPEG')
+check('крупный JPEG ужимается до 2048 по длинной стороне', Image.open(io.BytesIO(DD.prep_image(buf.getvalue()))).size == (2048, 683))
 
 # 5) шлюз без прямого OpenAI
 seen = []
