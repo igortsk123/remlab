@@ -15,8 +15,11 @@
     ~/venvs/scout/bin/python drawing_dims.py --cache-only                        # ночью до load3: сверить адрес → sha, без вызовов
     ~/venvs/scout/bin/python drawing_dims.py --paid --max-calls 20 [--only sha,…] # платно: прочитать не более N новых чертежей
 
-Загрузчик (`load3.assign` → `overlay`) подмешивает принятую d из кэша без сети — только когда sha чертежа по адресу из
-фида сверен этим шагом не раньше INDEX_MAX_AGE_DAYS назад и его прочтение в кэше прошло `decide`. Карточка главнее.
+Загрузчик (`load3.assign` → `overlay`) подмешивает принятую d из кэша без сети: sha чертежа по адресу из фида (или,
+пока новый адрес не сверен, последний сверенный sha этого SKU) прочитан и прошёл `decide`. Карточка главнее. Старая сверка
+d НЕ снимает (держим последнее подтверждённое — вариант Б, T-20261104-06/4): снимает только свежее доказательство — адрес
+сверен на непрочитанный sha или `decide` отказал. Возраст сверки — громкий WARN загрузчика. Включён оверлей — `load3` до
+записи в БД проверяет кэш (`loader_preflight`) и долю подмешанных (`loader_gate`), иначе СТОП; `DRAWING_OVERLAY=0` — выключить.
 """
 import base64
 import collections
@@ -25,8 +28,10 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -38,7 +43,13 @@ PARAM = 'Изображение с размерами'
 SHOPS = {114667: 'mnogomebeli.com', 114082: 'divanboss.ru'}
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-At', '-F', '\x1f', '-q']
 MAX_CALLS_CAP = 400                     # потолок одного платного прогона, даже если попросили больше (уникальных чертежей ~106)
-INDEX_MAX_AGE_DAYS = 7                  # адрес → sha старше — для загрузчика «чертёж не сверен»: глубину не подмешиваем
+INDEX_MAX_AGE_DAYS = 7                  # адрес → sha старше — в счётчике загрузчика «сверка старая» (d держим — вариант Б)
+SCAN_WARN_DAYS = 1                      # последняя сверка шага старше — WARN загрузчика: ночной шаг drawing_dims не работает
+# доля подмешанных среди кандидатов (диван двух магазинов без d в карточке, с чертежом, не часть модуля) — ниже порога load3
+# стоит ДО записи в БД: кэш не тот, ключи прочтений не совпали (смена модели/промпта), сверка пустая. 04.11: 1 148 из 1 294
+# = 0,887; порог — 80 % от этого. Меньше GATE_MIN_CANDIDATES кандидатов (фикстуры, карантин фида) — доля не проверяется
+DRAWING_MIN_SHARE = 0.70
+GATE_MIN_CANDIDATES = 100
 POLICY_VER = 1                          # версия правил выбора d (`decide`) — в evidence; смена = контролируемая миграция
 STOP_STREAK = 3                         # столько сбоев модели/разбора подряд — стоп прогона (шлюз лёг или ответ не по схеме)
 
@@ -193,18 +204,41 @@ def decide(read: dict, card_w: float, card_h: float | None, kind: str) -> dict:
 
 
 # --- сеть и данные ----------------------------------------------------------------------------------------------------
-def load_cache() -> dict:
+class CacheError(RuntimeError):
+    """Кэш чертежей не читается: битый JSON, не объект, нет файла там, где он обязателен."""
+
+
+def load_cache(required: bool = False) -> dict:
+    """Нет файла — пустой кэш (первый прогон шага), кроме загрузчика (`required`). Битый JSON / не объект — ОШИБКА:
+    молча `{}` дал бы перезапись накопленных прочтений пустым кэшем (Codex T6)."""
+    if not os.path.exists(CACHE):
+        if required:
+            raise CacheError(f'кэш чертежей не найден: {CACHE}')
+        return {}
     try:
         c = json.load(open(CACHE, encoding='utf-8'))
-        return c if isinstance(c, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    except ValueError as e:
+        raise CacheError(f'кэш чертежей битый ({CACHE}): {e}') from e
+    if not isinstance(c, dict):
+        raise CacheError(f'кэш чертежей не объект ({CACHE})')
+    return c
+
+
+_BACKED_UP: set = set()
 
 
 def save_cache(c: dict) -> None:
+    """Атомарно: временный файл процесса → rename. Перед первой перезаписью в процессе — копия прежней версии рядом
+    с меткой времени (старые копии не удаляются)."""
     os.makedirs(os.path.dirname(CACHE) or '.', exist_ok=True)
-    tmp = CACHE + '.tmp'
-    json.dump(c, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    if os.path.exists(CACHE) and CACHE not in _BACKED_UP:
+        shutil.copy2(CACHE, f'{CACHE}.bak-{time.strftime("%Y%m%d-%H%M%S")}')
+        _BACKED_UP.add(CACHE)
+    tmp = f'{CACHE}.tmp-{os.getpid()}'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(c, f, ensure_ascii=False, indent=1)
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp, CACHE)
 
 
@@ -293,7 +327,7 @@ def scan(items: list[dict], cache: dict, paid: bool = False, max_calls: int = 0,
         try:
             b = fetch_fn(url)
             sha_of[url] = (hashlib.sha256(b).hexdigest(), b)
-            if index:                           # адрес → sha СЕГОДНЯ: загрузчик подмешивает d только при совпадении
+            if index:                           # адрес → sha СЕГОДНЯ: загрузчик берёт d по sha этого адреса
                 cache.setdefault('urls', {})[url] = {'sha': sha_of[url][0], 'at': today or _today()}
         except Exception as e:  # noqa: BLE001 — не решено; громкий счётчик ниже
             fails[url] = str(e)[:120]
@@ -340,6 +374,13 @@ def scan(items: list[dict], cache: dict, paid: bool = False, max_calls: int = 0,
         save_fn(cache)
     cnt['calls'] = calls
     if index:
+        # SKU → последний сверенный (адрес, sha): адрес в фиде сменился, а новый ещё не сверен (шаг смотрит вчерашнюю БД) или
+        # не скачался — загрузчик держит этот sha, а не снимает d (вариант Б). Время сверки шага — для WARN загрузчика
+        for it in todo:
+            if it['url'] in sha_of:
+                cache.setdefault('sku', {})[f"{it['mid']}:{it['eid']}"] = {'url': it['url'], 'sha': sha_of[it['url']][0],
+                                                                           'at': today or _today()}
+        cache['scan_at'] = today or _today()
         save_fn(cache)
     out = []
     for it in items:
@@ -375,38 +416,85 @@ def _today() -> str:
 
 # --- загрузчик (load3.assign): только кэш, без сети ---------------------------------------------------------------------
 _LOADER_CACHE = None
+STATS: collections.Counter = collections.Counter()      # счётчики оверлея за прогон загрузчика — для `loader_gate`
 
 
 def loader_cache() -> dict:
     global _LOADER_CACHE
     if _LOADER_CACHE is None:
-        _LOADER_CACHE = load_cache()
+        _LOADER_CACHE = load_cache(required=True)
     return _LOADER_CACHE
 
 
 def overlay(mid: int, name: str, params: dict | None, role: str | None, dims: dict, ev: dict | None, dsrc: str | None,
-            cache: dict | None = None, today: str | None = None) -> tuple[dict, dict | None, str | None]:
-    """Принятая глубина с чертежа поверх разбора карточки (`load3.assign` после `resolve_dims`). Ничего не меняет, если:
-    не диван этих двух магазинов; глубина уже есть из карточки (карточка главнее); адреса чертежа нет в индексе или
-    сверка старше INDEX_MAX_AGE_DAYS; прочтения этого sha нет в кэше; `decide` не принял. Сети нет."""
+            cache: dict | None = None, today: str | None = None, eid: str | None = None) -> tuple[dict, dict | None, str | None]:
+    """Принятая глубина с чертежа поверх разбора карточки (`load3.assign` после `resolve_dims`), сети нет. Ничего не меняет:
+    не диван этих двух магазинов; глубина уже есть из карточки (карточка главнее); нет чертежа или часть модуля; адрес
+    и SKU ни разу не сверялись (новинка — сверка следующей ночью); sha не прочитан (чертёж сменился); `decide` отказал.
+    Адрес не сверен (сменился или не скачался), а SKU сверялся — берётся последний сверенный sha SKU. Старая сверка d
+    не снимает — только счётчик."""
     if role != 'диван' or mid not in SHOPS or dims.get('d') is not None or not dims.get('w'):
         return dims, ev, dsrc
-    c = loader_cache() if cache is None else cache
-    url = drawing_url(mid, (params or {}).get(PARAM))
-    ix = c.get('urls', {}).get(url) if url else None
-    if not ix or _age_days(ix.get('at'), today) > INDEX_MAX_AGE_DAYS:
+    p = params or {}
+    url, kind = drawing_url(mid, p.get(PARAM)), kind_of(name, p.get('Конфигурация'))
+    if not url or kind not in RANGE:
         return dims, ev, dsrc
+    STATS['candidates'] += 1
+    c = loader_cache() if cache is None else cache
+    ix, basis = c.get('urls', {}).get(url), 'url'
+    if not ix:
+        ix, basis = ((c.get('sku') or {}).get(f'{mid}:{eid}') if eid is not None else None), 'sku_last'
+        if not ix:
+            STATS['no_index'] += 1
+            return dims, ev, dsrc
+        STATS['kept_unverified_url'] += 1
+    if _age_days(ix.get('at'), today) > INDEX_MAX_AGE_DAYS:
+        STATS['old_index'] += 1
     rd = c.get('reads', {}).get(cache_key(ix['sha']))
     if not rd:
+        STATS['new_sha'] += 1
         return dims, ev, dsrc
-    r = decide(rd, dims['w'], dims.get('h'), kind_of(name, (params or {}).get('Конфигурация')))
+    r = decide(rd, dims['w'], dims.get('h'), kind)
     if r['outcome'] != 'accepted':
+        STATS['rejected'] += 1
         return dims, ev, dsrc
+    STATS['applied'] += 1
     ev_d = {'raw': r['d'], 'unit': 'cm', 'source': 'drawing', 'semantic': 'overall_depth', 'view': r['d_view'],
-            'sha': ix['sha'], 'url': url, 'model': rd['model'], 'prompt_ver': rd['prompt_ver'], 'schema_ver': rd['schema_ver'],
-            'policy_ver': POLICY_VER, 'w_read': r['w_read'], 'w_card': dims['w'], 'dw': r['dw'], 'dw_pct': r['dw_pct'],
-            'status': 'accepted', 'checked': ix.get('at')}
+            'sha': ix['sha'], 'url': ix.get('url', url), 'basis': basis, 'model': rd['model'], 'prompt_ver': rd['prompt_ver'],
+            'schema_ver': rd['schema_ver'], 'policy_ver': POLICY_VER, 'w_read': r['w_read'], 'w_card': dims['w'],
+            'dw': r['dw'], 'dw_pct': r['dw_pct'], 'status': 'accepted', 'checked': ix.get('at')}
     return {**dims, 'd': r['d']}, {**(ev or {}), 'd': ev_d}, ((dsrc or '') + ' drawing:1').strip()
+
+
+def loader_preflight() -> str | None:
+    """`load3.main` ДО записи в БД: None — кэш годен; иначе причина СТОПа (нет/битый, пустая сверка, нет прочтений
+    текущей модели-промпта-схемы)."""
+    try:
+        c = loader_cache()
+    except (CacheError, OSError) as e:
+        return str(e)
+    if not c.get('urls') or not c.get('scan_at'):
+        return f'в кэше нет сверки адресов (шаг drawing_dims --cache-only не отработал ни разу): {CACHE}'
+    suffix = f'|{MODEL}|{PROMPT_VER}|s{SCHEMA_VER}'
+    if not any(k.endswith(suffix) for k in c.get('reads', {})):
+        return f'в кэше нет прочтений {MODEL}/{PROMPT_VER}/s{SCHEMA_VER} — модель или промпт сменились без дочитывания'
+    return None
+
+
+def loader_gate(today: str | None = None) -> tuple[list[str], str | None]:
+    """После разбора фидов, до записи в БД: строки для лога (сводка, WARN возраста сверки) и причина СТОПа или None."""
+    s, c = STATS, loader_cache()
+    out = [f"глубина с чертежа: кандидатов {s['candidates']}, подмешано {s['applied']} (из них по последней сверке SKU — "
+           f"адрес не сверен {s['kept_unverified_url']}), сверка старше {INDEX_MAX_AGE_DAYS} дн {s['old_index']}, "
+           f"чертёж сменился на непрочитанный {s['new_sha']}, отказ {s['rejected']}, не сверялись {s['no_index']}"]
+    age = _age_days(c.get('scan_at'), today)
+    if age > SCAN_WARN_DAYS:
+        out.append(f"WARN:drawing_index_old: последняя сверка адресов чертежей {c.get('scan_at')} ({age} дн назад) — ночной шаг "
+                   f"drawing_dims не работает; глубины держим последние подтверждённые")
+    if s['candidates'] >= GATE_MIN_CANDIDATES and s['applied'] / s['candidates'] < DRAWING_MIN_SHARE:
+        return out, (f"подмешано {s['applied']} из {s['candidates']} ({s['applied'] / s['candidates']:.0%}) < "
+                     f"{DRAWING_MIN_SHARE:.0%} — кэш или сверка не те")
+    return out, None
 
 
 def _age_days(at: str | None, today: str | None = None) -> int:
@@ -426,10 +514,10 @@ def main(a: list[str]) -> int:
         return 2
     max_calls = min(max_calls, MAX_CALLS_CAP)
     only = set(a[a.index('--only') + 1].split(',')) if '--only' in a else None
-    cache = load_cache()
     if paid and cache_only:
         print('СТОП: --paid и --cache-only вместе не бывают', flush=True)
         return 2
+    cache = load_cache()                 # битый — CacheError: шаг FAIL, кэш не перезаписан
     res, cnt = scan(eligible(), cache, paid=paid, max_calls=max_calls, only=only, index=paid or cache_only)
     if '--out' in a:
         with open(a[a.index('--out') + 1], 'w', encoding='utf-8') as f:

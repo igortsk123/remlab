@@ -1,0 +1,68 @@
+{
+ "reads": {
+  "c9386b164ccda4e8aaf881ff6b6887a61044d303a97dd9b47c71af85a794e893|google/gemini-3.8-flash|drawing-dims-v1|s1": {
+   "configurations": 1,
+   "lines": [
+    {
+     "view": "front",
+     "axis": "horizontal",
+     "type": "overall",
+     "value": 235,
+     "unit": "см",
+     "text": "235 см"
+    },
+    {
+     "view": "front",
+     "axis": "vertical",
+     "type": "overall",
+     "value": 95,
+     "unit": "см",
+     "text": "95 см"
+    },
+    {
+     "view": "top",
+     "axis": "horizontal",
+     "type": "subdimension",
+     "value": 200,
+     "unit": "см",
+     "text": "200 см"
+    },
+    {
+     "view": "top",
+     "axis": "vertical",
+     "type": "seat",
+     "value": 50,
+     "unit": "см",
+     "text": "50 см"
+    },
+    {
+     "view": "top",
+     "axis": "vertical",
+     "type": "overall",
+     "value": 165,
+     "unit": "см",
+     "text": "165 см"
+    }
+   ],
+   "sha": "c9386b164ccda4e8aaf881ff6b6887a61044d303a97dd9b47c71af85a794e893",
+   "model": "google/gemini-3.8-flash",
+   "prompt_ver": "drawing-dims-v1",
+   "prompt_sha": "0543485dcb50",
+   "schema_ver": 1
+  }
+ },
+ "urls": {
+  "https://mnogomebeli.com/upload/iblock/187/spo4nv4lb84s2icqj9y2xcbx530ntek2/uyut-ugol.jpg": {
+   "sha": "c9386b164ccda4e8aaf881ff6b6887a61044d303a97dd9b47c71af85a794e893",
+   "at": "2026-11-04"
+  }
+ },
+ "sku": {
+  "114667:11525086852511951558": {
+   "url": "https://mnogomebeli.com/upload/iblock/187/spo4nv4lb84s2icqj9y2xcbx530ntek2/uyut-ugol.jpg",
+   "sha": "c9386b164ccda4e8aaf881ff6b6887a61044d303a97dd9b47c71af85a794e893",
+   "at": "2026-11-04"
+  }
+ },
+ "scan_at": "2026-11-04"
+}

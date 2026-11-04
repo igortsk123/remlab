@@ -138,9 +138,12 @@ TRANSFORMER_SQL = (
     # «трансформер, не доказано» навсегда; catalog-holes-bank Н3, 23.10)
     " or coalesce(p.params->>'Механизм трансформации','') !~* '^\\s*(|нет|без механизма|отсутствует|не раскладывается)\\s*$'))")
 # Доказано: размеры сняты руками/скрейпом, в фиде есть спальное место отдельно от габаритов, или собранные Ш×Г×В достроены
-# правилом производителя (`dim_resolver.transformer_dims`, `shape_rule:transformer` — владелец 23.10, catalog-holes-bank Н3)
+# правилом производителя (`dim_resolver.transformer_dims`, `shape_rule:transformer` — владелец 23.10, catalog-holes-bank Н3),
+# или глубина снята с чертежа (`drawing_dims`, conv-15): `decide` принял её, только если общая ширина чертежа = карточке
+# и общая глубина — габарит, а не спальное место/сиденье (те отдельными типами линий) — это и есть собранные размеры
 PROVEN_SQL = (
     "(coalesce(p.dims_source,'') ~ '(scrape|manual)' or p.dims_evidence->'w'->>'source' = 'shape_rule:transformer'"
+    " or p.dims_evidence->'d'->>'source' = 'drawing'"
     " or exists (select 1 from jsonb_object_keys("
     " case when jsonb_typeof(p.params)='object' then p.params else '{}'::jsonb end) k where k ~* '(спальн|разложенн|габаритн)'))")
 
@@ -218,6 +221,8 @@ def _selftest() -> int:
        c('диван', 's:bed')[0] == 'wait_catalog' and 'трансформер' in c('диван', 's:bed')[1] and c('диван', 's:bed2')[0] == 'wait_asset')
     ok('Н3: собранные размеры по правилу трансформера — доказаны; «Не раскладывается» — не трансформер',
        "'shape_rule:transformer'" in PROVEN_SQL and 'не раскладывается' in TRANSFORMER_SQL)
+    ok('conv-15: глубина с чертежа (decide сверил общую ширину и габарит, не спальное) — собранные размеры доказаны',
+       "p.dims_evidence->'d'->>'source' = 'drawing'" in PROVEN_SQL)
     ok('Tubo — replace_needed журнала → blocked_policy', c('кашпо', 's:tubo') == ('blocked_policy', 'решение по мешу: replace_needed'))
     ok('брак без решения, поколения и модели — заново через обычный спрос (wait_asset/mesh)',
        classify('витрина', 's:leg', it('s:leg'), F) == ('wait_asset', LEGACY_REDO, 'mesh'))

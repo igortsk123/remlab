@@ -262,6 +262,14 @@ finally:
 check(f'direct_fallback=False — только шлюз; по умолчанию фолбэк прежний: {seen}',
       seen == [llm_gateway.GATEWAY_URL, llm_gateway.GATEWAY_URL, llm_gateway.OPENAI_URL])
 
+def _raises(f) -> bool:
+    try:
+        f()
+    except DD.CacheError:
+        return True
+    return False
+
+
 # 6) Т6 — подмешивание в загрузчик (load3.assign → overlay), только кэш, без сети
 SHA_K = DD.hashlib.sha256(b'drawing-1').hexdigest()
 URL_K = 'https://mnogomebeli.com/upload/king.jpg'
@@ -278,9 +286,21 @@ check('в evidence — модель, версии промпта/схемы/пр
 same = lambda r: r == (DIMS, None, 'x')  # noqa: E731
 CKX = {**CK, 'urls': {URL_K: {'sha': 'f' * 64, 'at': '2026-11-04'}}}
 check('по адресу сегодня другой sha (чертёж сменили) — ничего', same(DD.overlay(114667, 'Угловой диван Кинг', PK, 'диван', DIMS, None, 'x', CKX, today='2026-11-05')))
-check(f'сверка старше {DD.INDEX_MAX_AGE_DAYS} дней — ничего',
-      same(DD.overlay(114667, 'Угловой диван Кинг', PK, 'диван', DIMS, None, 'x', CK, today='2026-11-12')))
-check('адреса нет в индексе — ничего', same(DD.overlay(114667, 'Угловой диван Кинг', {**PK, DD.PARAM: '/upload/new.jpg'}, 'диван', DIMS, None, 'x', CK)))
+DD.STATS.clear()
+check(f'Б: сверка старше {DD.INDEX_MAX_AGE_DAYS} дней — d держим (последнее подтверждённое), счётчик «сверка старая»',
+      DD.overlay(114667, 'Угловой диван Кинг', PK, 'диван', DIMS, None, 'x', CK, today='2026-11-30')[0]['d'] == 160
+      and DD.STATS['old_index'] == 1)
+check('адрес и SKU ни разу не сверялись (новинка) — ничего',
+      same(DD.overlay(114667, 'Угловой диван Кинг', {**PK, DD.PARAM: '/upload/new.jpg'}, 'диван', DIMS, None, 'x', CK, eid='zz')))
+CKS = {**CK, 'sku': {'114667:a1': {'url': URL_K, 'sha': SHA_K, 'at': '2026-11-03'}}}
+dmS, evS, _ = DD.overlay(114667, 'Угловой диван Кинг', {**PK, DD.PARAM: '/upload/new.jpg'}, 'диван', DIMS, None, 'x', CKS,
+                         today='2026-11-05', eid='a1')
+check('Б: адрес в фиде сменился, новый ещё не сверен — держим последний сверенный sha SKU',
+      dmS['d'] == 160 and evS['d']['basis'] == 'sku_last' and evS['d']['url'] == URL_K)
+CKS2 = {**CKS, 'urls': {**CK['urls'], 'https://mnogomebeli.com/upload/new.jpg': {'sha': 'e' * 64, 'at': '2026-11-05'}}}
+check('Б: новый адрес сверен на непрочитанный sha — свежее доказательство, d снимается',
+      same(DD.overlay(114667, 'Угловой диван Кинг', {**PK, DD.PARAM: '/upload/new.jpg'}, 'диван', DIMS, None, 'x', CKS2,
+                      today='2026-11-05', eid='a1')))
 dd = {**DIMS, 'd': 150.0}
 check('глубина из карточки есть — карточка главнее, кэш не трогает',
       DD.overlay(114667, 'Угловой диван Кинг', PK, 'диван', dd, None, 'x', CK, today='2026-11-05') == (dd, None, 'x'))
@@ -305,6 +325,65 @@ check('cache-only: обвал ссылок (> 10 %) — WARN', any(x.startswith(
       for x in DD.warn_lines(C.Counter({'accepted': 100, 'download-fail': 900}), True)))
 check('платный/сухой прогон: любой сбой — WARN', DD.warn_lines(W, False) == ['WARN:drawing_dims_failed: 42'])
 check('--paid и --cache-only вместе — стоп', DD.main(['--paid', '--max-calls', '1', '--cache-only']) == 2)
+check('cache-only: SKU → последний сверенный (адрес, sha) и время сверки шага записаны',
+      c3['sku']['114667:a']['sha'] == DD.hashlib.sha256(b'drawing-1').hexdigest() and '114667:d' not in c3['sku']
+      and c3['scan_at'] == '2026-11-04')
+
+# кэш: битый — ошибка, запись атомарная с копией прежней версии
+import tempfile  # noqa: E402
+_cache0 = DD.CACHE
+with tempfile.TemporaryDirectory() as td:
+    DD.CACHE = os.path.join(td, 'dd.json')
+    check('нет файла: шагу — пустой кэш, загрузчику — ошибка', DD.load_cache() == {} and _raises(lambda: DD.load_cache(required=True)))
+    open(DD.CACHE, 'w').write('{"reads": {')
+    check('битый JSON — CacheError, не {}', _raises(lambda: DD.load_cache()))
+    open(DD.CACHE, 'w').write('[1]')
+    check('не объект — CacheError', _raises(lambda: DD.load_cache()))
+    open(DD.CACHE, 'w').write('{"reads": {"k": 1}}')
+    DD._BACKED_UP.discard(DD.CACHE)
+    DD.save_cache({'reads': {'k': 2}})
+    DD.save_cache({'reads': {'k': 3}})
+    baks = sorted(f for f in os.listdir(td) if '.bak-' in f)
+    check(f'запись: новая версия на месте, одна копия прежней на процесс, временных файлов нет: {sorted(os.listdir(td))}',
+          DD.load_cache() == {'reads': {'k': 3}} and len(baks) == 1
+          and json.load(open(os.path.join(td, baks[0]))) == {'reads': {'k': 1}} and not [f for f in os.listdir(td) if '.tmp' in f])
+
+    # загрузчик: проверка кэша до записи в БД и доля подмешанных
+    def pre(c):
+        json.dump(c, open(DD.CACHE, 'w'))
+        DD._LOADER_CACHE = None
+        return DD.loader_preflight()
+    check('preflight: годный кэш — можно', pre({**CK, 'scan_at': '2026-11-04'}) is None)
+    check('preflight: нет сверки шага — СТОП', 'сверки' in (pre({'reads': CK['reads']}) or ''))
+    check('preflight: прочтения другой модели — СТОП',
+          'прочтений' in (pre({**CK, 'scan_at': '2026-11-04', 'reads': {SHA_K + '|other/model|v0|s1': {}}}) or ''))
+    os.rename(DD.CACHE, DD.CACHE + '.x')
+    DD._LOADER_CACHE = None
+    check('preflight: кэша нет — СТОП с путём', DD.CACHE in (DD.loader_preflight() or ''))
+    json.dump({**CK, 'scan_at': '2026-11-01'}, open(DD.CACHE, 'w'))
+    DD._LOADER_CACHE = None
+    DD.STATS.clear(); DD.STATS.update(candidates=1294, applied=1148)
+    lines, why = DD.loader_gate(today='2026-11-04')
+    check(f'gate: 1 148 из 1 294 — можно; сверка 3 дня назад — WARN: {lines[-1][:60]}',
+          why is None and lines[-1].startswith('WARN:drawing_index_old'))
+    DD.STATS.clear(); DD.STATS.update(candidates=1294, applied=300)
+    check('gate: доля ниже порога — СТОП', DD.loader_gate(today='2026-11-01')[1] is not None)
+    DD.STATS.clear(); DD.STATS.update(candidates=3, applied=0)
+    check('gate: кандидатов мало (фикстура, карантин фида) — доля не проверяется', DD.loader_gate(today='2026-11-01')[1] is None)
+    DD.STATS.clear()
+
+    # load3.main: битый кэш — СТОП ДО первой записи в БД
+    os.environ.setdefault('SCOUT_PRIORS_PATH', os.path.join(SCOUT, 'tests', 'fixtures', 'unit-priors-mini.json'))
+    import load3  # noqa: E402 — лёгкий импорт: функции, без прогона
+    open(DD.CACHE, 'w').write('{битый')
+    DD._LOADER_CACHE = None
+    sql_calls = []
+    _sql0, load3.sql = load3.sql, (lambda q, inp=None: sql_calls.append(q))
+    _sr0, load3.sql_rows = load3.sql_rows, (lambda q: sql_calls.append(q) or [])
+    rc = load3.main()
+    load3.sql, load3.sql_rows = _sql0, _sr0
+    check(f'load3.main: битый кэш чертежей — rc 2, в БД ни одного запроса: rc={rc}, запросов {len(sql_calls)}', rc == 2 and not sql_calls)
+DD.CACHE = _cache0
 
 # исключение чертежа из эталонов приоров — одна константа
 import re  # noqa: E402
@@ -319,8 +398,6 @@ check('dim_prior (калибровка) и mesh_dims (эталоны меша) �
       "!~ '{DL.NOT_REFERENCE_RX}'" in srcs['dim_prior.py'] and "{DL.NOT_REFERENCE_RX}" in srcs['mesh_dims.py'])
 
 # load3: подключение после resolve_dims, версия хешей
-os.environ.setdefault('SCOUT_PRIORS_PATH', os.path.join(SCOUT, 'tests', 'fixtures', 'unit-priors-mini.json'))
-import load3  # noqa: E402 — лёгкий импорт: функции, без прогона
 DD._LOADER_CACHE = {**CK, 'urls': {URL_K: {'sha': SHA_K, 'at': DD._today()}}}
 prm = {'Ширина': '291', 'Высота': '82', DD.PARAM: '/upload/king.jpg', 'Конфигурация': 'Угловой'}
 dims0, ev0, src0 = load3.resolve_dims(114667, 'Угловой диван Кинг', prm, 'диван')
@@ -332,6 +409,20 @@ check('load3: пустой кэш — размеры как из карточк�
       load3._drawing_overlay({'mid': 114667, 'name': 'Угловой диван Кинг', 'params': prm}, 'диван', dims0, ev0, src0) == (dims0, ev0, src0))
 src_l = srcs['load3.py']
 check('load3.assign: оверлей сразу после resolve_dims', re.search(r"resolve_dims\(o\['mid'\].*?\n(?:\s*#.*\n)*\s*dims, ev, dsrc = _drawing_overlay", src_l) is not None)
+i_main = src_l.index('def main() -> int:')
+check('load3.main: проверка кэша до DDL, доля подмешанных — до первого чтения/записи товаров',
+      i_main < src_l.index('loader_preflight()') < src_l.index('    sql(DDL)', i_main)
+      and src_l.index('loader_gate()') < src_l.index('baseline = {int(r[0])', i_main))
+check('load3: ошибку оверлея не глотает (try/except вокруг overlay нет)', '_DRAWING_WARNED' not in src_l)
+load3.DRAWING_OVERLAY = False
+DD._LOADER_CACHE = None
+check('DRAWING_OVERLAY=0 — оверлея нет вовсе, кэш не читается',
+      load3._drawing_overlay({'mid': 114667, 'name': 'Угловой диван Кинг', 'params': prm}, 'диван', dims0, ev0, src0) == (dims0, ev0, src0)
+      and DD._LOADER_CACHE is None)
+load3.DRAWING_OVERLAY = True
+import bank_ready  # noqa: E402
+check('bank_ready: глубина с чертежа — доказательство собранных размеров трансформера',
+      "p.dims_evidence->'d'->>'source' = 'drawing'" in bank_ready.PROVEN_SQL)
 check(f'HASH_VERSION поднят до 9 (один раз — baseline без stale): {load3.HASH_VERSION}', load3.HASH_VERSION == 9)
 import dim_resolver  # noqa: E402
 check('правила резолвера не менялись — отпечаток прежний', dim_resolver.rules_fingerprint() == load3.RULES_FINGERPRINT)
@@ -339,6 +430,19 @@ rd_src = open(os.path.join(SCOUT, 'refresh_daily.sh'), encoding='utf-8').read()
 i_dd, i_l3 = rd_src.find('step drawing_dims "$PY" drawing_dims.py --cache-only'), rd_src.find('step load3 "$PY" load3.py')
 check('ночной шаг: drawing_dims --cache-only до load3, платного дочитывания в кроне нет',
       0 < i_dd < i_l3 and 'drawing_dims.py --paid' not in rd_src)
+
+# снимок до/после (drawing_snapshot.diff): что поменялось по SKU и в счётчиках
+import drawing_snapshot as SN  # noqa: E402
+row = {'sku': '114667:a', 'w': 291, 'd': None, 'h': 82, 'dims_source': 'prior:2', 'geometry_hash': 'g1', 'mesh_required': False,
+       'mesh_family': 'f1', 'rep': '114667:a', 'enrichment_status': 'current'}
+sa = {'skus': [row], 'totals': {'d_drawing': 0, 'mesh_required': 10}, 'candidates': {'total': 5, 'shops_keys': []}}
+sb = {'skus': [{**row, 'd': 160, 'dims_source': 'prior:2 drawing:1', 'geometry_hash': 'g2', 'mesh_required': True}],
+      'totals': {'d_drawing': 1, 'mesh_required': 11}, 'candidates': {'total': 6, 'shops_keys': ['114667:a']}}
+dfs = SN.diff(sa, sb)
+check(f'снимок: d пусто→есть, хеш, mesh_required, счётчики и кандидаты — в сводке: {dfs["skus"]}',
+      dfs['skus'] == {'d: пусто → есть': 1, 'dims_source изменился': 1, 'geometry_hash изменился': 1, 'mesh_required изменился': 1}
+      and dfs['enrichment_status'] == {} and dfs['totals'] == {'d_drawing': [0, 1], 'mesh_required': [10, 11]}
+      and dfs['candidates_shops'] == {'+': 1, '-': 0})
 
 print(f'test_drawing_dims: ошибок {fails}')
 sys.exit(1 if fails else 0)

@@ -231,7 +231,8 @@ step shops_check "$PY" gdeslon_api.py --retire
 
 # 1c. ГЛУБИНА С ЧЕРТЕЖА (conv-15): сверка «адрес чертежа → sha» диванов mnogomebeli/divanboss для загрузчика — ТОЛЬКО кэш,
 # без вызовов модели (новый чертёж — pending, без глубины). Платное дочитывание (`--paid --max-calls N`) здесь выключено.
-# Сбой — WARN/FAIL шага, load3 идёт как прежде: без свежей сверки глубина не подмешивается (INDEX_MAX_AGE_DAYS)
+# Сбой шага — FAIL, load3 идёт: держит последние подтверждённые глубины и пишет WARN:drawing_index_old. Кэш битый/пустой
+# или доля подмешанных ниже порога — load3 стоит ДО записи в БД (DRAWING_OVERLAY=0 — выключить оверлей явно)
 step drawing_dims "$PY" drawing_dims.py --cache-only
 
 # 2. База: upsert, хеши дельты, статусы жизненного цикла (ADR-0068)

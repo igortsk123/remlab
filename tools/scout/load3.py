@@ -220,19 +220,17 @@ def _rug_kids(img: str | None) -> bool:
     return bool(img) and bool(_RUG_KIDS.get(image_hash(img), {}).get('kids'))
 
 
-_DRAWING_WARNED = False
+# ГЛУБИНА С ЧЕРТЕЖА (conv-15): `DRAWING_OVERLAY=0` — оверлея нет вовсе (явное выключение). Откат — ВПЕРЁД: выключить и
+# поднять HASH_VERSION (10), чтобы снятие d стало baseline, а не массовым stale; возврат 9→8 baseline не даст
+DRAWING_OVERLAY = os.environ.get('DRAWING_OVERLAY', '1') != '0'
 
 
 def _drawing_overlay(o: dict, role, dims, ev, dsrc):
-    global _DRAWING_WARNED
-    try:
-        import drawing_dims
-        return drawing_dims.overlay(o['mid'], o['name'], o.get('params'), role, dims, ev, dsrc)
-    except Exception as e:  # noqa: BLE001 — сбой кэша чертежей не роняет загрузку каталога: глубина остаётся как в карточке
-        if not _DRAWING_WARNED:                 # одна строка на прогон, а не на каждый из тысяч офферов
-            _DRAWING_WARNED = True
-            print(f'WARN:drawing_overlay: {str(e)[:160]}', flush=True)
+    """Сбой кэша не глотается: `main` проверил кэш до записи в БД (`drawing_dims.loader_preflight`), ошибка здесь — СТОП."""
+    if not DRAWING_OVERLAY:
         return dims, ev, dsrc
+    import drawing_dims
+    return drawing_dims.overlay(o['mid'], o['name'], o.get('params'), role, dims, ev, dsrc, eid=o.get('eid'))
 
 
 def assign(o: dict, catrole: dict, known: set) -> dict:
@@ -380,6 +378,13 @@ create table if not exists catalog_import_runs (
 
 # --- прогон --------------------------------------------------------------------------------------
 def main() -> int:
+    if DRAWING_OVERLAY:                         # ДО любой записи в БД: битый/пустой кэш не должен дать baseline HASH 9 без d
+        import drawing_dims
+        why = drawing_dims.loader_preflight()
+        if why:
+            print(f'СТОП: глубина с чертежа — {why}. В БД ничего не записано. Выключить явно: DRAWING_OVERLAY=0 '
+                  '(откат — вперёд, новым HASH_VERSION)', flush=True)
+            return 2
     sql(DDL)
     catrole, known = load_roles()
     if not catrole:
@@ -437,6 +442,13 @@ def main() -> int:
     for o in accepted:
         per_shop[o['shop']] = per_shop.get(o['shop'], 0) + 1
     print('офферов в свежих фидах:', len(accepted), per_shop, flush=True)
+    if DRAWING_OVERLAY:                         # доля подмешанных — до записи товаров (кэш не тот → СТОП, а не baseline без d)
+        lines, why = drawing_dims.loader_gate()
+        for ln in lines:
+            print(ln, flush=True)
+        if why:
+            print(f'СТОП: глубина с чертежа — {why}. Товары в БД не записаны. Выключить явно: DRAWING_OVERLAY=0', flush=True)
+            return 2
     print('строк с description:', sum(1 for o in accepted if o['desc']), flush=True)
     for mid, n in dups.items():
         print(f'WARN:dedupe: mid={mid} повторов (mid, id) в фиде: {n} — взята первая строка', flush=True)
@@ -631,8 +643,11 @@ commit;
 
 # --- селфтест: чистый разбор фикстуры, без БД ---------------------------------------------------
 def selftest() -> int:
+    global DRAWING_OVERLAY
     fx = os.path.join(HERE, 'tests', 'fixtures')
     os.environ.setdefault('SCOUT_PRIORS_PATH', os.path.join(fx, 'unit-priors-mini.json'))
+    import drawing_dims                         # мини-кэш чертежей: диван mnogomebeli фикстуры получает d с чертежа
+    drawing_dims.CACHE, drawing_dims._LOADER_CACHE = os.path.join(fx, 'drawing-dims-mini.json'), None
     catrole, known = load_roles(os.path.join(fx, 'category-roles-mini.json'))
     offers, raw = parse_feed(os.path.join(fx, 'feed-mini.xml.zip'), catrole, known)
     by_id = {o['eid']: o for o in offers}
@@ -675,6 +690,14 @@ def selftest() -> int:
             check(f'{m["id"]}: пантограф → роль {expect}', o['role'] == expect, o['role'])
         if 'gipfel' in c:
             check(f'{m["id"]}: высота статуэтки в см (165 мм → 16.5)', o['dims']['h'] is not None and 10 < o['dims']['h'] < 20, o['dims'])
+        if 'диван без глубины, с «Изображение с размерами»' in c:
+            check(f'{m["id"]}: глубина 165 с чертежа (мини-кэш), источник drawing',
+                  o['dims']['d'] == 165 and o['dims_evidence']['d']['source'] == 'drawing'
+                  and o['dims_source'].endswith('drawing:1'), (o['dims'], o['dims_source']))
+            DRAWING_OVERLAY = False
+            o2 = assign({**o, 'dims': None}, catrole, known)
+            DRAWING_OVERLAY = True
+            check(f'{m["id"]}: DRAWING_OVERLAY=0 — оверлея нет, глубина пустая', o2['dims']['d'] is None, o2['dims'])
     # синтетика: два оффера с одной картинкой — оба приняты, у них разные id
     same = [o for o in offers if o['pic'] and sum(1 for x in offers if x['pic'] == o['pic']) > 1]
     check('две записи с одной картинкой обе приняты', len(same) == 2 and same[0]['eid'] != same[1]['eid'], len(same))
