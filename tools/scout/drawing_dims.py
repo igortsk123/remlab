@@ -440,10 +440,26 @@ def main(a: list[str]) -> int:
     if cnt['stopped']:
         print(f'WARN:drawing_dims_stopped: {STOP_STREAK} сбоя подряд', flush=True)
     print('  исходы SKU: ' + ', '.join(f'{k} {cnt[k]}' for k in OUTCOMES if cnt[k]), flush=True)
-    bad = cnt['download-fail'] + cnt['model-fail'] + cnt['parse-fail']
-    if bad:
-        print(f'WARN:drawing_dims_failed: {bad}', flush=True)
+    for line in warn_lines(cnt, cache_only):
+        print(line, flush=True)
     return 0
+
+
+DEAD_SHARE_WARN = 0.10   # ночной cache-only: мёртвые ссылки магазина (34–42 из 1 564 на 04.11) — фон, WARN только при обвале
+
+
+def warn_lines(cnt: dict, cache_only: bool) -> list[str]:
+    """Строки итога. Платный/сухой ручной прогон — WARN на любой сбой. Ночной cache-only — без вызовов модели: мёртвые ссылки
+    WARN только выше доли DEAD_SHARE_WARN от скачиваемых (иначе шаг жёлтый каждую ночь и прячет настоящие WARN дайджеста),
+    новые чертежи без прочтения — строкой-сводкой (глубины у них нет, пока не дочитаем платно)."""
+    dead, bad = cnt['download-fail'], cnt['download-fail'] + cnt['model-fail'] + cnt['parse-fail']
+    if not cache_only:
+        return [f'WARN:drawing_dims_failed: {bad}'] if bad else []
+    out = [f'  мёртвых ссылок {dead}, новых чертежей без прочтения (pending) {cnt["pending"]} SKU']
+    fetched = sum(cnt[o] for o in OUTCOMES if o not in ('no-drawing', 'skipped-part'))
+    if fetched and dead / fetched > DEAD_SHARE_WARN:
+        out.append(f'WARN:drawing_dims_dead_links: {dead} из {fetched} ({dead / fetched:.0%}) — сайт магазина или адреса чертежей сменились?')
+    return out
 
 
 if __name__ == '__main__':

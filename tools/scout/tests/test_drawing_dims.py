@@ -10,6 +10,7 @@
   5) шлюз без прямого OpenAI: `llm_gateway.chat(direct_fallback=False)` не ходит на api.openai.com.
     python3 tools/scout/tests/test_drawing_dims.py"""
 import copy
+import collections as C
 import io
 import json
 import os
@@ -297,6 +298,12 @@ res, cnt = DD.scan(ITEMS, c3, index=True, today='2026-11-04', fetch_fn=fake_fetc
 check(f'только кэш: 0 вызовов, адрес → sha записан для скачанных; 404 и части модулей — без записи: {sorted(c3["urls"])}',
       not calls and sorted(c3['urls']) == ['u1', 'u2'] and c3['urls']['u1']['at'] == '2026-11-04' and len(saves) == 1)
 check('только кэш: прочтения из кэша решают (hit), новых чертежей нет — pending не платится', cnt['hit'] == 2 and cnt['calls'] == 0)
+W = C.Counter({'accepted': 1145, 'download-fail': 42, 'skipped-part': 270, 'no-drawing': 77, 'pending': 0})
+check('cache-only: 42 мёртвых ссылки из 1 187 — не WARN (фон), сводка строкой',
+      [x for x in DD.warn_lines(W, True) if x.startswith('WARN')] == [] and 'мёртвых ссылок 42' in DD.warn_lines(W, True)[0])
+check('cache-only: обвал ссылок (> 10 %) — WARN', any(x.startswith('WARN:drawing_dims_dead_links')
+      for x in DD.warn_lines(C.Counter({'accepted': 100, 'download-fail': 900}), True)))
+check('платный/сухой прогон: любой сбой — WARN', DD.warn_lines(W, False) == ['WARN:drawing_dims_failed: 42'])
 check('--paid и --cache-only вместе — стоп', DD.main(['--paid', '--max-calls', '1', '--cache-only']) == 2)
 
 # исключение чертежа из эталонов приоров — одна константа
