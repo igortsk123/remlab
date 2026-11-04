@@ -44,11 +44,13 @@ def case_units() -> None:
 
 def case_demo() -> None:
     probe = ("import flat215_demo as D, json; print(json.dumps({'sets': D.DEMO_SETS, 'lay': D.layout_path(7), "
-             "'bank': D.BANK['bank'], 'live': D.BANK['live']}))")
+             "'bank': D.BANK['bank'], 'live': D.BANK['live'], 'one': D.ONE_LAYOUT}))")
     env0 = {k: '' for k in ('SETS_BANK', 'FLAT215_DEMO_OUT')}
     r = run_py(probe, env0)
     d = json.loads(r.stdout.strip().splitlines()[-1]) if r.returncode == 0 else {}
-    check(d.get('sets') == os.path.join(HERE, 'demo-sets.json') and d.get('lay') == os.path.join(HERE, 'v3set7-layout.json')
+    # Одна расстановка на все стили (demo-31, ADR-0329) добавляет к имени раскладки `-one`.
+    lay0 = os.path.join(HERE, f"v3set7-layout{'-one' if d.get('one') else ''}.json")
+    check(d.get('sets') == os.path.join(HERE, 'demo-sets.json') and d.get('lay') == lay0
           and d.get('live') is True, f'демо без env — как раньше ({r.stderr.strip()[-120:]})')
     with tempfile.TemporaryDirectory() as td:
         cp, out = os.path.join(td, 'sets3.next.json'), os.path.join(td, 'demo')
