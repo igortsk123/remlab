@@ -2,10 +2,14 @@
 workstream: conveyor
 slug: conv-12-bank-contracts-revival
 title: Банк комплектов снова под контрактами — честный статус шага, синхронизация пары, миграция под Р1, тесты расстановщика не молчат
-status: in_progress
+status: partial
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-11-04
 completed:
+pause_reason: без движения с 2026-10-20 (гейт PLAN-STUCK); кто вёл и что дальше — не записано, ждёт решения владельца; связано с разбором 04.11 «диваны без глубины» (contracts_fuse 105/126) — решение вместе с ним
+resume_trigger: слово владельца — доделать, отложить в архив или отменить
+owner_decision_required: true
+review_after: 2026-11-28
 plan_kind: sub
 parent_plan: MASTER-conveyor-gaps
 ---

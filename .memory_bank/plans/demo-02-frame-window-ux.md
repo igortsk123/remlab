@@ -2,10 +2,13 @@
 workstream: demo
 slug: demo-02-frame-window-ux
 title: Одно окно варианта — живая сцена, «В 3D», «Улучшить», история состояний и ракурсы раздельно; кадр и список всегда из одного состояния (stateId)
-status: in_progress
+status: partial
 created: 2026-10-14
-updated: 2026-10-20
+updated: 2026-11-04
 completed:
+pause_reason: без движения с 2026-10-20 (гейт PLAN-STUCK); кто вёл и что дальше — не записано, ждёт решения владельца
+resume_trigger: слово владельца — доделать, отложить в архив или отменить
+owner_decision_required: true
 plan_kind: sub
 parent_plan: MASTER-cost-first
 assignee: opus-5.5
