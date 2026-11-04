@@ -68,76 +68,35 @@ finish() {                     # статус пишем ВСЕГДА, даже 
   local rc=$?
   local res="$STEP_TMP.res"; : > "$res"
   for k in "${!RES[@]}"; do printf '%s\t%s\t%s\t%s\n' "$k" "${RES[$k]}" "${WARNN[$k]:-0}" "${WARNS[$k]:-}" >> "$res"; done
-  local digest_text
+  local digest_text err="$STEP_TMP.err" loud=0
+  # статус и текст сводки — refresh_digest.py (до 04.11 heredoc здесь же, молча падал на порванной букве WARN —
+  # пустые сводки 14.10 и с 18.10, T-20261104-11). Сбой сборки — громкий текст из самого python; не запустился
+  # вовсе (stdout пуст) — громкий текст отсюда: первая строка ошибки + FAIL-шаги, не «алерт без текста».
   digest_text="$(REFRESH_RC="$rc" STATUS_FILE="$STATUS" RES_FILE="$res" TODAY="$today" STARTED="$STARTED" FEEDS_OK="${ok:-0}" \
-    DL_OK="${dl_ok:-0}" DL_TOTAL="${dl_total:-0}" DEAD="${dead:-}" PRODUCTS="$(products_count)" LOG_FILE="$LOG" "$PY" - <<'PY'
-import json, os, socket, subprocess, datetime
-env = os.environ
-steps, warns = {}, {}
-for line in open(env['RES_FILE'], encoding='utf-8'):
-    parts = line.rstrip('\n').split('\t', 3)
-    if len(parts) < 2: continue
-    name, state = parts[0], parts[1]
-    steps[name] = state
-    if state == 'warn':
-        warns[name] = {'n': int(parts[2] or 0), 'first': (parts[3] if len(parts) > 3 else '')[:200]}
-fails = sorted(k for k, v in steps.items() if v == 'FAIL')
-skipped = sorted(k for k, v in steps.items() if v == 'skipped')
-rc = int(env.get('REFRESH_RC') or 0)
-overall = 'FAIL' if fails or rc != 0 else ('warn' if warns else 'ok')
-try:
-    sha = subprocess.run(['git', '-C', os.path.dirname(os.path.abspath(env['STATUS_FILE'])), 'rev-parse', '--short', 'HEAD'],
-                         capture_output=True, text=True, timeout=10).stdout.strip()
-except Exception:
-    sha = ''
-delta = ''
-info = []      # строки шагов `DIGEST:текст` (писатель банка: снято / добавлено / ждёт меш) — в дайджест как есть, статус не меняют
-try:
-    seen = False
-    for line in open(env['LOG_FILE'], encoding='utf-8', errors='ignore'):
-        if line.startswith('=== ' + env['TODAY']): seen = True
-        if seen and line.startswith('ДЕЛЬТА'): delta = line[len('ДЕЛЬТА'):].strip()[:200]
-        if seen and line.startswith('DIGEST:'): info.append(line[len('DIGEST:'):].strip()[:300])
-except Exception:
-    pass
-fresh = '?'
-try:
-    ff = json.load(open('feed-freshness.json'))
-    fresh = f"{sum(1 for v in ff.values() if v.get('state') == 'fresh')}/{len(ff)}"
-except Exception:
-    pass
-status = {'date': env['TODAY'], 'started_at': env['STARTED'], 'finished_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-          'finished': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),  # совместимость со старыми читателями
-          'overall': overall, 'exit_code': rc, 'host': socket.gethostname(), 'git_sha': sha,
-          'feeds_ok': int(env['FEEDS_OK'] or 0), 'feeds_downloaded': int(env['DL_OK'] or 0), 'feeds_total': int(env['DL_TOTAL'] or 0),
-          'feeds_dead': env['DEAD'].strip(), 'feeds_fresh': fresh, 'products': int(env['PRODUCTS'] or 0), 'delta': delta,
-          'steps': steps, 'warns': warns, 'fails': fails, 'skipped': skipped}
-status.update({k: v for k, v in steps.items() if k not in status})   # плоские ключи шагов — как раньше
-tmp = env['STATUS_FILE'] + '.tmp'
-json.dump(status, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False)
-os.replace(tmp, env['STATUS_FILE'])
-head = {'ok': 'ок', 'warn': 'с предупреждениями', 'FAIL': 'С ОШИБКАМИ'}[overall]
-msg = [f"remlab каталог {env['TODAY']}: прогон {head}, {status['finished_at'][11:16]} UTC",
-       f"фиды: скачано {status['feeds_downloaded']}/{status['feeds_total']}, свежих {fresh}; товаров в наличии: {status['products']}",
-       f"дельта: {delta or 'нет'}"] + info[-6:]
-if fails: msg.append('FAIL: ' + ', '.join(fails) + (f' (exit {rc})' if rc else ''))
-for k, w in sorted(warns.items()): msg.append(f"WARN {k}" + (f" ×{w['n']}" if w['n'] > 1 else '') + f": {w['first']}")
-if skipped: msg.append('пропущено (openai.off): ' + ', '.join(skipped))
-print('\n'.join(msg)[:3500])
-PY
-)"
+    DL_OK="${dl_ok:-0}" DL_TOTAL="${dl_total:-0}" DEAD="${dead:-}" PRODUCTS="$(products_count)" LOG_FILE="$LOG" \
+    "$PY" refresh_digest.py 2> "$err")"
+  [ -s "$err" ] && { echo "refresh_digest: stderr сборки сводки:"; cat "$err"; } >> "$LOG"
+  if [ -z "${digest_text//[[:space:]]/}" ]; then
+    local fl="" k first
+    for k in "${!RES[@]}"; do [ "${RES[$k]}" = FAIL ] && fl="$fl $k"; done
+    first="$(grep -v '^[[:space:]]*$' "$err" 2>/dev/null | tail -1 | cut -c1-300 | iconv -c -f UTF-8 -t UTF-8 2>/dev/null)"
+    digest_text="remlab каталог $today: СВОДКА НЕ СОБРАЛАСЬ — ${first:-refresh_digest.py ничего не вывел}
+FAIL шагов:${fl:- нет}
+подробности — tools/scout/refresh.log на DEV"
+    echo "WARN:digest: сводка не собралась — ушёл аварийный текст" >> "$LOG"; loud=1
+  fi
   echo "=== $(date '+%F %T') готово (фиды ok=${ok:-0}) ===" >> "$LOG"
   # статус — на прод, чтобы сторож на ДРУГОЙ машине увидел «прогон не состоялся» / overall=FAIL (П1.3)
   publish_status >> "$LOG" 2>&1 || echo "WARN:status_publish: статус не опубликован на прод" >> "$LOG"
   # дайджест — одно сообщение в день; успех можно заглушить (DIGEST_QUIET_OK=1 в .env.alert), сбои и
   # предупреждения уходят всегда. Отсутствие прогона ловит прод-сторож, не дайджест.
   local quiet_ok=0; [ -f .env.alert ] && quiet_ok="$(sed -n 's/^DIGEST_QUIET_OK=//p' .env.alert | head -1)"
-  if [ "${quiet_ok:-0}" = "1" ] && [ "$(sed -n 's/.*"overall": *"\([a-zA-Z]*\)".*/\1/p' "$STATUS")" = "ok" ]; then
+  if [ "$loud" = 0 ] && [ "${quiet_ok:-0}" = "1" ] && [ "$(sed -n 's/.*"overall": *"\([a-zA-Z]*\)".*/\1/p' "$STATUS")" = "ok" ]; then
     echo "дайджест: прогон ok, тихий режим" >> "$LOG"
   else
     bash alert.sh "$digest_text"
   fi
-  rm -f "$STEP_TMP" "$res"
+  rm -f "$STEP_TMP" "$res" "$err"
 }
 products_count() {
   docker exec -i remlab-devdb psql -U remlab -d remlab -tAc \

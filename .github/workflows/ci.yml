@@ -127,6 +127,7 @@ jobs:
       - run: python tools/assets/scene_extras_golden.py --check   # авто-ТВ и декор: сервер = эталон живой сцены (demo-05 п.9)
       - run: python tools/scout/tests/test_browser_sheet.py   # лист из кадров браузера: размер, полоса, порядок, ключ ответа (demo-10)
       - run: python tools/scout/tests/test_contracts_fuse.py   # шаги банка не молчат (WARN при отказе предохранителя), пара кресел — одна модель (conv-12)
+      - run: python tools/scout/tests/test_refresh_digest.py   # утренняя сводка ночного прогона не уходит пустой: порванная буква WARN, сломанный вход — громко (T-20261104-11)
       - run: python tools/scout/tests/test_demo_soft.py   # (нужен planner: draft_render) мягкое (подушки, шторы, плед) — в списке и в «Улучшить фото», не в 3D и без мешей (demo-24)
       - run: pip install scipy && python tools/scout/tests/test_demo_swatch.py   # кружок цвета — тон ткани без фона и теней, светлое не серит (demo-28)
 
