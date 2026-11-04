@@ -152,22 +152,38 @@ def todo(items: list[dict]) -> list[dict]:
     return out
 
 
-def bank_skus(paths: list[str] | None = None) -> set[str]:
+def _bank_sets(d) -> list[dict] | None:
+    """Комплекты из содержимого файла банка: список комплектов или обёртка `{"sets": [...]}`; иначе None — не банк."""
+    if isinstance(d, dict) and isinstance(d.get('sets'), list):
+        d = d['sets']
+    return [s for s in d if isinstance(s, dict)] if isinstance(d, list) else None
+
+
+def bank_skus(paths: list[str] | None = None, globbed: set[str] | None = None) -> set[str]:
     """SKU товаров живого банка `sets3.json`, банков-кандидатов рядом (`sets3.next*.json`) и банков из `ENRICH_BANKS`
-    (пути через «:»). Файла нет или он битый — WARN, его товары просто без приоритета."""
+    (пути через «:»). Файла нет, он битый или не банк — WARN, его товары просто без приоритета. Под маску попадают и
+    служебные файлы кандидата не в формате банка — с 24.10 `sets3.next.keep.json` (удержание ячеек `bank_keep`, словарь
+    `{cells, stats, …}`): шаг падал каждую ночь на `str.get` (T-20261104-10). Такой файл из маски — строка без WARN."""
     import glob
     if paths is None:
-        paths = ([os.path.join(HERE, 'sets3.json')] + sorted(glob.glob(os.path.join(HERE, 'sets3.next*.json')))
-                 + [p for p in os.environ.get('ENRICH_BANKS', '').split(':') if p])
+        found = sorted(glob.glob(os.path.join(HERE, 'sets3.next*.json')))
+        globbed = set(found)
+        paths = ([os.path.join(HERE, 'sets3.json')] + found + [p for p in os.environ.get('ENRICH_BANKS', '').split(':') if p])
     out: set[str] = set()
     for p in paths:
         try:
-            sets = json.load(open(p, encoding='utf-8'))
+            sets = _bank_sets(json.load(open(p, encoding='utf-8')))
         except (OSError, ValueError) as e:
             print(f'WARN:enrich: банк {p} не прочитан ({e}) — его товары идут без приоритета', flush=True)
             continue
+        if sets is None:
+            if p in (globbed or set()):
+                print(f'enrich: {os.path.basename(p)} — не банк комплектов (служебный файл рядом), пропущен', flush=True)
+            else:
+                print(f'WARN:enrich: {p} — не банк комплектов (не список) — его товары идут без приоритета', flush=True)
+            continue
         out |= {f"{it['mid']}:{it['eid']}" for s in sets for it in (s.get('items') or {}).values()
-                if it and it.get('mid')}
+                if isinstance(it, dict) and it.get('mid')}
     return out
 
 
@@ -708,6 +724,25 @@ def _selftest() -> int:
                   open(p, 'w'))
         ok('SKU банка читаются, пустые слоты пропускаются', bank_skus([p]) == {'5:x', '6:y'})
         ok('нет файла банка — WARN, не падение', bank_skus([os.path.join(d, 'nope.json'), p]) == {'5:x', '6:y'})
+        # T-20261104-10: `sets3.next.keep.json` (словарь удержания bank_keep) под маской `sets3.next*.json` ронял шаг 11 ночей
+        kp = os.path.join(d, 'sets3.next.keep.json')
+        json.dump({'cells': {'s1/sofa': {'selection_hash': 'h'}}, 'stats': {}, 'updated_at': 'x', 'version': 1}, open(kp, 'w'))
+        ok('служебный словарь рядом с кандидатом (keep) — пропущен, не падение', bank_skus([p, kp], globbed={kp}) == {'5:x', '6:y'})
+        ok('явный путь не в формате банка — тоже не падение (WARN)', bank_skus([kp, p]) == {'5:x', '6:y'})
+        wp = os.path.join(d, 'wrapped.json')
+        json.dump({'sets': [{'items': {'tv': {'mid': 7, 'eid': 'z'}, 'x': 'строка'}}, 'мусор']}, open(wp, 'w'))
+        ok('обёртка {"sets": [...]} читается; строки вместо комплекта/слота пропускаются', bank_skus([wp]) == {'7:z'})
+        sd = os.path.join(d, 'scan')
+        os.makedirs(sd)
+        for f, v in (('sets3.json', [{'items': {'a': {'mid': 1, 'eid': 'l'}}}]), ('sets3.next.json', [{'items': {'b': {'mid': 2, 'eid': 'n'}}}]),
+                     ('sets3.next.keep.json', {'cells': {}, 'stats': {}})):
+            json.dump(v, open(os.path.join(sd, f), 'w'))
+        global HERE
+        here0, HERE = HERE, sd
+        try:
+            ok('маска по папке: живой + кандидат, keep рядом не роняет', bank_skus() == {'1:l', '2:n'})
+        finally:
+            HERE = here0
     print('FAIL' if bad else 'OK')
     return 1 if bad else 0
 
