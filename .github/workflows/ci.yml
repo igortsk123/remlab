@@ -170,6 +170,7 @@ jobs:
       - run: python tools/scout/tests/test_demo_hidden.py   # скрытый банком сет (bank_status hidden) — не вариант демо и не источник ленты замен (conv-14)
       - run: python tools/scout/tests/test_demo_own_spare.py   # ушла роль ядра — сперва свой запасной набора; не расставился — тот же набор из пула (T-20261023-10)
       - run: python tools/scout/tests/test_typical_dims.py   # напольные роли солвера — один список в git, с ковром; без файла — отказ (T-20261023-10)
+      - run: python tools/scout/tests/test_dims_gabarit.py   # глубина диванов/кресел divan.ru из «Глубина габаритная»; у других магазинов разбор тот же (conv-14)
       - run: python tools/scout/tests/test_mesh_bind_args.py   # mesh_bind: неизвестный ключ (--selftest…) — отказ rc 2 до базы (T-20261023-10)
 
   scout-selftest:
