@@ -201,8 +201,13 @@ def broken_ask(b):
 
 c2: dict = {}
 res, cnt = DD.scan(ITEMS[:3], c2, paid=True, max_calls=5, fetch_fn=fake_fetch, ask_fn=broken_ask, save_fn=saves.append)
-check('ответ не по схеме — parse-fail, в кэш не пишется, глубины нет',
+check('ответ не по схеме — parse-fail, в прочтения не пишется, глубины нет',
       cnt['parse-fail'] == 3 and not c2['reads'] and not any(r['d'] for r in res))
+check('сбой разбора — в журнал failed с сырым ответом (цена и разбор), следующий прогон спросит снова',
+      len(c2['failed']) == 2 and all(v[0]['raw'] == 'не JSON' for v in c2['failed'].values()))
+res, cnt = DD.scan(ITEMS[:3], c2, paid=True, max_calls=5, fetch_fn=fake_fetch, ask_fn=fake_ask, save_fn=saves.append)
+check('удачное повторное прочтение пишется, журнал неудачной попытки остаётся (её цена в учёте)',
+      len(c2['reads']) == 2 and all(len(v) == 1 for v in c2['failed'].values()) and cnt['accepted'] == 3)
 
 
 def dead_ask(b):

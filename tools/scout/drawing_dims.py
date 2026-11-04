@@ -237,11 +237,14 @@ def ask(img: bytes) -> dict:
     некорректен и тратит другие деньги (Codex 04.11)."""
     sys.path.insert(0, HERE)
     import llm_gateway  # noqa: E402
+    # max_tokens с запасом: у думающих моделей рассуждение входит в ответ — пилот Т3: gemini-3.1-pro на П-образном съел
+    # 3 838 из 4 000 на рассуждение, JSON оборвался (finish=length)
     msg = [{'role': 'user', 'content': [
         {'type': 'text', 'text': PROMPT},
         {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(prep_image(img)).decode()}}]}]
-    out = llm_gateway.chat(MODEL, msg, timeout=180, tries=3, direct_fallback=False, temperature=0, max_tokens=4000)
-    return {'raw': out['choices'][0]['message']['content'] or '', 'usage': out.get('usage'),
+    out = llm_gateway.chat(MODEL, msg, timeout=180, tries=3, direct_fallback=False, temperature=0, max_tokens=16000)
+    ch = out['choices'][0]
+    return {'raw': ch['message']['content'] or '', 'usage': out.get('usage'), 'finish': ch.get('finish_reason'),
             'meta': {k: v for k, v in out.items() if k not in ('choices', 'usage')}}
 
 
@@ -308,11 +311,18 @@ def scan(items: list[dict], cache: dict, paid: bool = False, max_calls: int = 0,
         except (ValueError, TypeError) as e:
             fails[sha] = 'parse: ' + str(e)[:120]
             streak += 1
+            # журнал сбоев (не прочтение: следующий прогон спросит снова) — сырой ответ, причина обрыва и цена вызова
+            # история попыток по ключу: удачное прочтение потом её не стирает — цена неудачных вызовов остаётся в учёте
+            cache.setdefault('failed', {}).setdefault(k, []).append(
+                {'sha': sha, 'model': MODEL, 'prompt_ver': PROMPT_VER, 'error': str(e)[:200], 'raw': a['raw'][:8000],
+                 'finish': a.get('finish'), 'usage': a.get('usage')})
+            save_fn(cache)
             print(f'  НЕ РАЗОБРАН {sha[:12]}: {str(e)[:120]} · ответ: {a["raw"][:200]!r}', flush=True)
             continue
         streak = 0
         reads[k] = {**rd, 'sha': sha, 'model': MODEL, 'prompt_ver': PROMPT_VER, 'prompt_sha': PROMPT_SHA,
-                    'schema_ver': SCHEMA_VER, 'raw': a['raw'][:8000], 'usage': a.get('usage'), 'meta': a.get('meta')}
+                    'schema_ver': SCHEMA_VER, 'raw': a['raw'][:8000], 'usage': a.get('usage'), 'finish': a.get('finish'),
+                    'meta': a.get('meta')}
         save_fn(cache)
     cnt['calls'] = calls
     out = []
