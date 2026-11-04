@@ -42,21 +42,22 @@ def _env(name: str) -> str | None:
     return None
 
 
-def chat(model: str, messages: list, timeout: int = 240, tries: int = 6, **extra) -> dict:
+def chat(model: str, messages: list, timeout: int = 240, tries: int = 6, direct_fallback: bool = True, **extra) -> dict:
     """Один вызов chat/completions через канал по умолчанию, с повтором и фолбэком.
 
     Фолбэк на прямой OpenAI — только на ОШИБКИ КАНАЛА (нет ключа, 401/403 шлюза), не на 429:
-    лимит темпа лечится паузой, а не сменой канала с другим биллингом.
+    лимит темпа лечится паузой, а не сменой канала с другим биллингом. `direct_fallback=False` — только шлюз
+    (модели не OpenAI, `google/…`: прямой канал их не знает; деньги продукта — шлюз, ADR-0301; conv-15).
     """
     routes = []
     gk = _env('VERCEL_AI_GATEWAY_KEY')
     if gk:
         routes.append((GATEWAY_URL, gk, f'openai/{model}' if '/' not in model else model))
-    ok = _env('OPENAI_API_KEY')
+    ok = _env('OPENAI_API_KEY') if direct_fallback else None
     if ok:
         routes.append((OPENAI_URL, ok, model.split('/', 1)[-1]))
     if not routes:
-        raise SystemExit('нет ни VERCEL_AI_GATEWAY_KEY, ни OPENAI_API_KEY')
+        raise SystemExit('нет ни VERCEL_AI_GATEWAY_KEY, ни OPENAI_API_KEY' if direct_fallback else 'нет VERCEL_AI_GATEWAY_KEY')
     last = None
     broke = []                                # каналы без денег — в итоговую ошибку, чтобы её понял человек
     for url, key, mname in routes:

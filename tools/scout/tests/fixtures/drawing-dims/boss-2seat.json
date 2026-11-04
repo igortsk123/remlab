@@ -1,0 +1,9 @@
+```json
+{"configurations": 1, "lines": [
+ {"view": "front", "axis": "horizontal", "type": "overall", "value": 167, "unit": "см", "text": "167 см"},
+ {"view": "front", "axis": "vertical", "type": "overall", "value": 88, "unit": "см", "text": "88 см"},
+ {"view": "front", "axis": "vertical", "type": "seat", "value": 42, "unit": "см", "text": "42 см"},
+ {"view": "top", "axis": "horizontal", "type": "sleeping", "value": 135, "unit": "см", "text": "135 см"},
+ {"view": "top", "axis": "vertical", "type": "overall", "value": 112, "unit": "см", "text": "112 см"},
+ {"view": "top", "axis": "vertical", "type": "seat", "value": 58, "unit": "см", "text": "58 см"}]}
+```

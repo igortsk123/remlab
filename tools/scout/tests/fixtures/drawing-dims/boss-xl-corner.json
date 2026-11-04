@@ -1,0 +1,7 @@
+{"configurations": 1, "lines": [
+ {"view": "front", "axis": "horizontal", "type": "overall", "value": 285, "unit": "см", "text": "285 см"},
+ {"view": "front", "axis": "vertical", "type": "overall", "value": 96, "unit": "см", "text": "96 см"},
+ {"view": "front", "axis": "vertical", "type": "seat", "value": 45, "unit": "см", "text": "45 см"},
+ {"view": "top", "axis": "horizontal", "type": "subdimension", "value": 225, "unit": "см", "text": "225 см"},
+ {"view": "top", "axis": "vertical", "type": "overall", "value": 156, "unit": "см", "text": "156 см"},
+ {"view": "top", "axis": "vertical", "type": "seat", "value": 55, "unit": "см", "text": "55 см"}]}
