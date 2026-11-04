@@ -115,3 +115,8 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-30	.memory_bank/core/access-and-integrations.md	rotation	18	2	2	
 2026-10-30	.memory_bank/domain/flat3d-configurator.md	code	8	5	5	
 2026-10-30	.memory_bank/domain/demo-planner-ui.md	code	16	6	6	
+2026-11-04	.memory_bank/core/stock-and-dims.md	code	21	1	1	
+2026-11-04	.memory_bank/domain/stock-and-dims.md	code	48	5	5	
+2026-11-04	.memory_bank/core/catalog.md	code	22	3	3	
+2026-11-04	.memory_bank/core/pipeline-order.md	code	16	2	2	
+2026-11-04	.memory_bank/core/lr-composition.md	code	12	2	2	

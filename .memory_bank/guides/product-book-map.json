@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-30",
+ "generated": "2026-11-04",
  "paragraphs": [
   {
    "line": 85,
@@ -21,6 +21,10 @@
     },
     {
      "slug": "demo-31-en-demo-mask",
+     "status": "completed"
+    },
+    {
+     "slug": "demo-31-one-layout-fixed-cams",
      "status": "completed"
     }
    ],
@@ -141,7 +145,7 @@
     },
     {
      "slug": "demo-07-wall-options",
-     "status": "in_progress"
+     "status": "partial"
     }
    ],
    "verdict": "ok"
@@ -321,7 +325,7 @@
     },
     {
      "slug": "conv-12-bank-contracts-revival",
-     "status": "in_progress"
+     "status": "partial"
     }
    ],
    "verdict": "ok"
