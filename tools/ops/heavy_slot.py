@@ -63,10 +63,14 @@ def mem_available_gb() -> float:
 
 
 def log(label: str, msg: str) -> None:
-    p = log_path()
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, 'a', encoding='utf-8') as f:
-        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {label} pid={os.getpid()} {msg}\n")
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {label} pid={os.getpid()} {msg}\n"
+    try:                                          # журнал не должен ронять прогон (стенд паритета запрещает запись вне себя)
+        p = log_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'a', encoding='utf-8') as f:
+            f.write(line)
+    except OSError as e:
+        sys.stderr.write(f'heavy-slot: журнал недоступен ({e.__class__.__name__}): {line}')
 
 
 def _write_kv(path: str, d: dict) -> None:
