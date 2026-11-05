@@ -16,6 +16,7 @@ review_after: 2026-12-05
 
 > Секретов тут НЕТ — только где они. Детали — Tier 2.
 
+**Ключи из скриптов scout — один резолвер `tools/scout/env_keys.py`** (T-52, 05.11): окружение → своё дерево → основная копия (из worktree, через git common-dir) → mltest последним с WARN; `--where` — откуда возьмётся (только путь), `--ping` — бесплатная проверка; журнал трат `openai-spend.jsonl` — всегда основной копии (`openai_budget.SPEND_LOG`). 11 старых скриптов (judge.py, pipeline*.py, viz5–11…) ещё берут OpenAI-ключ из `v0-health-card/backend/.env` — вопрос владельцу.
 **Чужие ключи** (sib, sing, sup2-repo) — не наши; прежде чем сказать «нет доступа» — `node tools/access-inventory.mjs` (урок 57).
 
 ## Ключевые факты
