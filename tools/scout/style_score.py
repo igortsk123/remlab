@@ -148,8 +148,9 @@ def put_rules(p, prev, old):
 if SOURCE=='room_catalog':
     # товар спальни уже оценён как товар гостиной (комод, шкаф есть в обоих каталогах) — та же оценка, без платы и без
     # расхождения: берём её у любого близнеца модели из базы (только чтение)
-    have={(int(r[0]),r[1]):r for r in rows("select s.shop_mid, s.external_id, s.scores, s.universal, s.src from product_style_scores s"
-                                           " join room_catalog c using (shop_mid, external_id)")}
+    # только товары СВОЕЙ комнаты (`catalog_rules.twin_scores_sql`): строки прихожей сюда не попадают (T-20261105-34/2)
+    from catalog_rules import twin_scores_sql
+    have={(int(r[0]),r[1]):r for r in rows(twin_scores_sql(_RC.ROOM))}
     for p in prods:
         f=mfired(p); c=cache.get(key(p))
         if c is not None:

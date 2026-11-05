@@ -32,6 +32,20 @@ def photo_ok(photo_alive: bool | None) -> bool:
     return photo_alive is not False
 
 
+def twin_scores_sql(room: str) -> str:
+    """Оценки стиля, уже лежащие в базе у товаров ОДНОЙ комнаты `room_catalog` (T-20261105-34/2).
+
+    `product_style_scores` — одна строка на товар (общая у гостиной и комнат: спальня берёт оценку гостиной у
+    близнеца модели). Раньше выборка соединялась с `room_catalog` без комнаты: товар спальни и прихожей давал две
+    строки, а строки чужой комнаты попадали в словарь «уже оценено». Теперь — только товары своей комнаты, без дублей
+    (`exists`, а не `join` + distinct: строка оценки одна на товар, сколько бы комнат его ни показывали)."""
+    if not room.isascii() or not room.replace('_', '').isalpha():
+        raise ValueError(f'комната {room!r}: ожидается имя вида bedroom/hall')
+    return ("select s.shop_mid, s.external_id, s.scores, s.universal, s.src from product_style_scores s"
+            " where exists (select 1 from room_catalog c where c.shop_mid = s.shop_mid"
+            f" and c.external_id = s.external_id and c.room = '{room}')")
+
+
 def daily_todo(todo: list, limit: int | None) -> list:
     """Дневная добивка: потолок считается от НЕСОСЧИТАННЫХ, а не от начала списка.
 
