@@ -3,7 +3,7 @@ tier: 1
 topic: demo-planner
 scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
-updated: 2026-11-03
+updated: 2026-11-05
 importance: high
 source: manual
 status: working
@@ -23,7 +23,7 @@ review_after: 2026-12-05
 - **Окно варианта (demo-09/02):** «Фото» — только реалистичный снимок этой расстановки, иначе 3D с ценниками;
   изменение → 3D (`index.html:vwRealShots/vwAfterChange`, ADR-0300).
 - **Состав (20.10):** банкетка «уголком» — `tools/scout/flat215_demo.py:drop_lonely_nook`; обеденный стол — `tools/scout/unfit.py:unfit`.
-- **EN-демо** = двойник `demo-uk-215` (£ через `toCard()`, ADR-0298) + временная маска товаров `demoMask` (ADR-0328).
+- **EN-демо** = двойник `demo-uk-215` (£ через `toCard()`, ADR-0298) + временная маска товаров `demoMask` (`data/partners/demo-uk.json`; ADR-0328 — `decisions/adr-0301-0350.md`).
 - **Замена мебели (ADR-0203/0245/0271/0277):** пул `tools/scout/demo_swap_pool.py`, правила `tools/scout/rules/demo-swap.json`;
   проверка `tests_chain.py:live_swap_feeds`. Правила ленты — Tier 2.
 - **Ключ модели — `msid`** (ADR-0204, GLB по представителю семейства); вариант — `/demo/#v=<id>` (ADR-0205).

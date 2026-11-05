@@ -31,7 +31,7 @@ parent_plan: onb-00-quiz-master
   колонны дальше от двери (`columnsAt`); в сцену идёт через `lib/viewer3d/build-scene.ts` (ветка `asset.kit === "kitchen"`).
 - План кухни — схема №180 (`tools/scout/flat215.json` → `plan_example`): 4,50×3,11 м (реестр — 13,2 м²); окно на западной стене
   (y 0,55–2,65), дверь на восточной (y ≈ 1,6, створка 0,85); стояка вентиляции и воды на схеме нет.
-- В странице — выключенный код плиток кухни этапа 0 (`tools/scout/flat215-demo/index.html:6950`, `ROOM_PREVIEWS=false`).
+- В странице — выключенный код плиток кухни этапа 0 (`tools/scout/flat215-demo/index.html:ROOM_PREVIEWS`, `false`).
 - Обеденная группа — роли каталога гостиной (`tools/scout/category_map.py:76` «кухонный стол» → «стол обеденный»); площадь под
   2/4/6 мест — `services/planner-solver/rules/zones.json:dining_region_m2`.
 

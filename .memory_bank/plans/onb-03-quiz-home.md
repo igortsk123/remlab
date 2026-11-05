@@ -45,12 +45,17 @@ parent_plan: onb-00-quiz-master
   `QUIZPICK START/END`; `tests/unit/quiz-pick.test.ts` гоняет `tests/fixtures/quiz-golden.json` (способ — как `tests/unit/demo-mask.test.ts`).
 - [ ] **Т2. Имя.** Первый `<script>` в `<head>` (до `__collHash`, `index.html:2-3`): чистая `nameFromHash(hash)` → имя (≤ 30, только
   буквы/пробел/дефис, иначе отброс) и остаток адреса; сразу `history.replaceState` без `n=`; имя — только `sessionStorage`. Так оно не
-  попадёт в `location.href` WhatsApp-текста (`index.html` блок менеджера, `contactSheet`), строку адреса JPG (`index.html:3095`),
+  попадёт в `location.href` WhatsApp-текста (`index.html` блок менеджера, `contactSheet`), строку адреса JPG (`index.html:listJpg`),
   «поделиться» (`variantLink`). Бот (`modules/sends/bot.ts:handle`): под сообщением со ссылкой — «ответьте именем покупателя, чтобы
   страница поздоровалась»; ответ на него → проверка, что отправка его (`store.getSend`), → ссылка `sendUrl(id)#n=<имя>`; имя не хранится
   и не пишется в журнал (вебхук тело не логирует, `app/api/manager-bot/route.ts`). Страница менеджера: поле «Имя для приветствия» в
   `SendRow` (в браузере, как заметка `NOTE_KEY`), «Скопировать ссылку» добавляет `#n=`. Тесты: `quiz-name.test.ts`, `sends.test.ts`.
-- [ ] **Т3. Опрос.** Блок «ЗНАКОМСТВО» после блока менеджера (`index.html:6844`): `quizShouldOpen()` строго по матрице `onb-02`
+  **Сделано в части А (45fe63b4, 05.11):** правило имени — `lib/quiz/name.ts:cleanGreetName`, ссылка — `lib/quiz/name.ts:linkWithName`;
+  блок страницы — `tools/ops/quiz-name.mjs` (QUIZNAME: `nameFromHash`, `quizCleanName`), в `index.html` ещё НЕ перенесён; поле в
+  `components/manager/SendRow.tsx` есть, но выключено `QUIZ_NAME_FIELD = false` до флага `quiz.enabled` в `ManagerData`; имя — в
+  `sessionStorage` (`remlab-send-name:<id>`), не в `localStorage`, как заметка; тест — `tests/unit/quiz-name.test.ts`. **Осталось:**
+  перенос QUIZNAME в страницу, включить поле по флагу, бот (`modules/sends/bot.ts` имени пока не просит).
+- [ ] **Т3. Опрос.** Блок «ЗНАКОМСТВО» после блока менеджера (`index.html`, блок «ССЫЛКА ОТ МЕНЕДЖЕРА»): `quizShouldOpen()` строго по матрице `onb-02`
   (`demoAnon`, `__EMBED`, `applyHash`-ссылки, повтор, webdriver, флаг). Экраны по Ф2: 0 приветствие (имя или «Здравствуйте!», сертификат
   `FLAT.certificate`, [Начать] · [Сразу к стилям]); 1 фото гостиных — кадры `pubShot(v)` по стилям `homeModel().styles` (1–2); 2 «кто
   живёт» (мульти, дети → возраст); 3 палитры (≤ 2, по выводу аудита: перекраска через `colourFam` или только вес). Итог: 3 карточки
@@ -65,7 +70,7 @@ parent_plan: onb-00-quiz-master
   группы = готовая `exclude(b, roomId)`. «Убрать из выбора» у строки — предложение: необязательное поле `excluded: chargeKey[]` у
   `favoriteRef` + чистая `excludeLine`/`restoreLine`, `totalsOf` их пропускает (старые корзины читаются, `loadBasket`). ⚑ ведущему.
 - [ ] **Т6. Сигнал и счётчики** по черновику `onb-02` Т3: новый `buyerEventKind` и поля-перечисления (`contracts/send.ts`), ветка в
-  `recordBuyerEvent` с дедупом, текст `signals.ts`, `ACTION_LABEL`; счётчики `pageCounterKind` + `COUNT` (`index.html:6944`). Тест
+  `recordBuyerEvent` с дедупом, текст `signals.ts`, `ACTION_LABEL`; счётчики `pageCounterKind` + `COUNT` (`index.html`, блок «СЧЁТЧИКИ БЕЗ ССЫЛКИ МЕНЕДЖЕРА»). Тест
   `tests/unit/partner-report.test.ts` сам сверяет имена `ev(…)`/`hit(…)` со словарями. Миграции нет (`kind text`).
 - [ ] **Т7. EN и маска.** Все строки блока — парами RU/EN в блоке (не слоем `I18N`), стили — `STYLE_EN`, суммы — `money()`/`fmtCard`
   (учитывают `demoMask`); на двойнике `demo-uk-215` — £ и английские названия.
@@ -111,7 +116,7 @@ parent_plan: onb-00-quiz-master
 
 ## Лог выполнения
 - 2026-11-05 — часть А выдана (T-20261105-09): Т2 сторона менеджера, Т5 (`excluded` — ⚑ снят: да), Т6 серверная часть, Т9 подготовка проверок; страница демо (`index.html`) — часть Б после `onb-07` основы и Ф2.
-- 2026-11-05 — по отчёту onb-02 (T-20261105-02 PASS): правило подбора, эталоны и тест готовы (`tools/scout/rules/quiz.json`, `tests/fixtures/quiz-golden.json`, `tests/unit/quiz-pick.test.ts`, блок QUIZPICK — перенести дословно); вопрос 3 — подбор по цвету + перекраска только где у модели есть цвет семейства (сперва диван); возраст детей — 4 кнопки; `?quiz=0` через общую `demoUrl()` в 5 хелперах + ~17 прямых goto; тест 2.33 — проверка высоты > 0; пока опрос открыт, `?style=` в адрес не писать; заодно — EN-плашка «Ссылка недействительна» по-русски (`index.html:6922`). Детали — `domain/onboarding-quiz.md`.
+- 2026-11-05 — по отчёту onb-02 (T-20261105-02 PASS): правило подбора, эталоны и тест готовы (`tools/scout/rules/quiz.json`, `tests/fixtures/quiz-golden.json`, `tests/unit/quiz-pick.test.ts`, блок QUIZPICK — перенести дословно); вопрос 3 — подбор по цвету + перекраска только где у модели есть цвет семейства (сперва диван); возраст детей — 4 кнопки; `?quiz=0` через общую `demoUrl()` в 5 хелперах + ~17 прямых goto; тест 2.33 — проверка высоты > 0; пока опрос открыт, `?style=` в адрес не писать; заодно — EN-плашка «Ссылка недействительна» по-русски (`index.html`, блок «ССЫЛКА ОТ МЕНЕДЖЕРА»). Детали — `domain/onboarding-quiz.md`.
 - 2026-11-05 — решения ведущего по открытым вопросам черновика (на общую критику Codex): (1) имя — v1 только поле на странице
   менеджера в браузере, на сервер не уходит; через бота — позже отдельным ADR (имя прошло бы через вебхук); (2) «Убрать из выбора» —
   отметка `excluded` в корзине, предмет остаётся в расстановке; (3) «Выбрать «Сканди»» — корзина на устройстве (предпросмотр суммы),

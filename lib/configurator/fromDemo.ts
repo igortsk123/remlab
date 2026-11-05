@@ -194,8 +194,9 @@ type RoomPart = { slots: object[]; options: Mat[]; materials: Mat[]; cameras: ob
  * своими (того же стиля, нет — первым), по `room_id` (`demo-rooms.ts:planRooms`). Итог по комнатам и общий считает сцена
  * (`resolve.totals.byRoom`/`total`) — мосту достаточно разложить места по комнатам.
  *
- * Пока у витрины варианты только гостиной, квартира — ОДНОКОМНАТНАЯ, как раньше: остальные помещения чертежа — заглушки с
- * другого плана, обещать «та же квартира» было бы неправдой; других дверей не открываем.
+ * Комната без пригодного варианта в квартиру не попадает (помещения чертежа — заглушки с другого плана, обещать «та же квартира»
+ * было бы неправдой): пока у витрины варианты только гостиной, квартира однокомнатная, как раньше. Комнаты стоят лесенкой с зазором
+ * (`demo-rooms.ts:ROOM_GAP_CM`), общих стен нет — двери каждой рисуются закрытыми (`contracts/apartment.ts:isIsolatedRoom` → `viewer.ts`).
  */
 export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoContext): { apartment: Apartment; catalogue: Catalogue } | null {
   const v = (data.variants ?? []).find((x) => x.id === variantId);

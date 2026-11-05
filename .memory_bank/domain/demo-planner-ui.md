@@ -3,7 +3,7 @@ tier: 2
 topic: demo-planner-ui
 scope: Демо-планировщик — правила вёрстки и UX одностраничного демо
 tier1: "../core/demo-planner.md"
-updated: 2026-11-03
+updated: 2026-11-05
 importance: med
 source: manual
 status: working
@@ -698,4 +698,6 @@ Playwright «подвинул диван → сохранил → открыл �
 (`tools/scout/names_en.py`, перевод `tools/scout/data/names-en.json` по `sid`), цвет — `colour_en`; цена товара × `priceMarkup` одним
 множителем к курсу (`index.html:fxRateOf`, `/flat` — `lib/configurator/source.ts:fxOf`); магазин и ссылка скрыты помощниками
 `itemName/itemShop/itemUrl` (сразу после блока DEMOMASK в `tools/scout/flat215-demo/index.html`, ≈4213–4255), «отправить себе» — `tools/scout/draft_service.py`.
-Снять — удалить `demoMask`; `/flat` подхватывает новую витрину через ≤5 мин (урок 546).
+Снять — удалить `demoMask` в `data/partners/demo-uk.json`: реестр вшит в сборку (`lib/partners/registry.ts`), поэтому правка доходит
+выкладкой; карточку квартиры браузер держит до 5 мин (`app/api/apartments/[id]/route.ts`, `max-age=300`). Кэш 5 мин
+`lib/partners/demo-data.ts:loadDemoRaw` — это витрина `demo-data.json` для `/flat` (урок 546), к маске он не относится.
