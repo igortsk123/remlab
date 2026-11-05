@@ -230,17 +230,21 @@ describe("кадр: крупное целиком или вне кадра", () 
 
 // ЗОНА СПАЛЬНИ → ДВА ВИДА (T-20261105-32, владелец 05.11): правило — данными `CAM_ZONES.bedroom`; вид 1 — на кровать (от входа или из
 // ног кровати), вид 2 — вторая зона: шкаф/комод/столик ≥ 60 % рамки и кровать ≥ 75 % (T-32/2, ведущий: «встречный от изголовья» был
-// пустой стеной); виды расходятся ≥ `apart` градусов; кровать и хотя бы одна тумба покрыты в каждом варианте
+// пустой стеной); виды расходятся ≥ `apart` градусов (или ≥ `apartNear.deg` при точках дальше `apartNear.cm`, T-32/3); кровать и хотя
+// бы одна тумба покрыты в каждом варианте. T-32/3: вид 1 — изголовье ≥ 75 % и тумба ≥ 60 %, окно телефона — по ним; обложка — `poster`
 describe("камеры демо: спальня 1, виды зоны", () => {
   const fxB = load("tests/fixtures/demo-bedroom-1-1105.json");
-  type Cv = { inF: number; vis: number }[];
-  const apiB = new Function("D", `${block};return {camPairAll,camViewFit,camCover,camFixNear,camAng,CAM_ZONES};`)({ room: fxB.room }) as {
+  type Cv = { inF: number; vis: number }[] & { part?: Record<string, { inF: number; vis: number }> };
+  type Box = { x0: number; x1: number; y0: number; y1: number } | null;
+  const apiB = new Function("D", `${block};return {camPairAll,camViewFit,camCover,camCoverP,camHeadProj,camFixNear,camAng,CAM_ZONES};`)({ room: fxB.room }) as {
     camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[]) => Pair & { per: (Omit<Pair, "level" | "how">)[] };
     camViewFit: (vw: unknown, c: Cam, its: It[], cv: Cv) => boolean;
     camCover: (c: Cam, its: It[], W: number, H: number) => Cv;
+    camCoverP: (c: Cam, its: It[], W: number, H: number) => Cv;
+    camHeadProj: (c: Cam, its: It[], i: number) => Box;
     camFixNear: (c: Cam) => string;
     camAng: (a: number, b: number) => number;
-    CAM_ZONES: { bedroom: { views: unknown[]; apart: number }; living: { views?: unknown } };
+    CAM_ZONES: { bedroom: { views: unknown[]; apart: number; apartNear?: { deg: number; cm: number }; poster?: string }; living: { views?: unknown; poster?: unknown } };
   };
   const { w: W, d: H } = fxB.room, L = fxB.variants.map(its);
   let pr: (Pair & { per: (Omit<Pair, "level" | "how">)[] }) | undefined;
@@ -249,7 +253,7 @@ describe("камеры демо: спальня 1, виды зоны", () => {
   // какая из двух точек — вид 2 (вторая зона) в этом варианте; -1 — ни одна
   const v2Of = (list: It[]) => {
     const [, v2] = apiB.CAM_ZONES.bedroom.views;
-    return pair().cams.findIndex((c) => apiB.camViewFit(v2, c, list, apiB.camCover(c, list, W, H)));
+    return pair().cams.findIndex((c) => apiB.camViewFit(v2, c, list, apiB.camCoverP(c, list, W, H)));
   };
   it("гостиная без видов зоны (подбор как был), у спальни — два вида", () => {
     expect(apiB.CAM_ZONES.living.views).toBeUndefined();
@@ -260,7 +264,7 @@ describe("камеры демо: спальня 1, виды зоны", () => {
     expect(p0.how).toContain("виды зоны,");
     const [v1, v2] = apiB.CAM_ZONES.bedroom.views;
     for (const list of L) {
-      const cv = p0.cams.map((c) => apiB.camCover(c, list, W, H));
+      const cv = p0.cams.map((c) => apiB.camCoverP(c, list, W, H));
       const fit = (vw: unknown, k: number) => apiB.camViewFit(vw, p0.cams[k]!, list, cv[k]!);
       expect((fit(v1, 0) && fit(v2, 1)) || (fit(v1, 1) && fit(v2, 0))).toBe(true);
     }
@@ -283,10 +287,39 @@ describe("камеры демо: спальня 1, виды зоны", () => {
       if (z2.length) expect(Math.max(...z2), `${fxB.variants[vi]!.id}: шкаф/комод`).toBeGreaterThanOrEqual(0.6 - 1e-9);
     }
   }, 300_000);
-  it("виды смотрят в разные стороны: направления расходятся ≥ apart", () => {
-    const [a, b] = pair().cams;
-    expect(apiB.CAM_ZONES.bedroom.apart).toBeGreaterThan(0);
-    expect(apiB.camAng(a!.rot, b!.rot)).toBeGreaterThanOrEqual(apiB.CAM_ZONES.bedroom.apart);
+  it("виды смотрят в разные стороны: направления расходятся ≥ apart или ≥ apartNear.deg при точках дальше apartNear.cm", () => {
+    const [a, b] = pair().cams, Z = apiB.CAM_ZONES.bedroom, d = apiB.camAng(a!.rot, b!.rot);
+    expect(Z.apart).toBeGreaterThan(0);
+    const near = !!Z.apartNear && d >= Z.apartNear.deg && Math.hypot(a!.x - b!.x, a!.y - b!.y) >= Z.apartNear.cm;
+    expect(d >= Z.apart || near, `угол ${d}°`).toBe(true);
+  }, 300_000);
+  it("вид 1 — изголовье ≥ 75 % и тумба ≥ 60 % (T-32/3: «так снимают спальни», не середина кровати)", () => {
+    const c = pair().cams[0]!;
+    for (const [vi, list] of L.entries()) {
+      const cv = apiB.camCoverP(c, list, W, H), bed = list.findIndex((it) => it.role === "кровать");
+      const hb = cv.part?.[bed] ?? cv[bed]!;   // у низкой кровати изголовья нет — вся кровать
+      expect(Math.min(hb.inF, hb.vis), `${fxB.variants[vi]!.id}: изголовье`).toBeGreaterThanOrEqual(0.75 - 1e-9);
+      const tb = list.flatMap((it, i) => (/^тумба прикроватная/.test(it.role) ? [Math.min(cv[i]!.inF, cv[i]!.vis)] : []));
+      expect(Math.max(...tb), `${fxB.variants[vi]!.id}: тумба`).toBeGreaterThanOrEqual(0.6 - 1e-9);
+    }
+  }, 300_000);
+  it("узкое окно телефона вида 1 — изголовье целиком и тумба в окне (до — правая половина пустой стены)", () => {
+    const c = pair().cams[0]!;
+    for (const [vi, p] of pair().per.entries()) {
+      const list = L[vi]!, bed = list.findIndex((it) => it.role === "кровать"), hp = apiB.camHeadProj(c, list, bed)!;
+      const tbs = new Set(list.flatMap((it, i) => (/^тумба прикроватная/.test(it.role) ? [`item-${i}`] : [])));
+      for (const k of ["0.531", "0.673"]) {
+        const w = p.cams[0]!.crop![k] as { x: number; w: number; keep: string[] };
+        expect(w.keep.some((id) => tbs.has(id)), `${fxB.variants[vi]!.id} ${k}: ${w.keep.join(",")}`).toBe(true);
+        expect((Math.max(-1, hp.x0) + 1) / 2, `${fxB.variants[vi]!.id} ${k}: изголовье слева`).toBeGreaterThanOrEqual(w.x - 1e-9);
+        expect((Math.min(1, hp.x1) + 1) / 2, `${fxB.variants[vi]!.id} ${k}: изголовье справа`).toBeLessThanOrEqual(w.x + w.w + 1e-9);
+      }
+    }
+  }, 300_000);
+  it("обложка на главной — правило зоны `poster`: помечена ровно одна точка; у гостиной правила нет", () => {
+    expect(apiB.CAM_ZONES.bedroom.poster).toBe("more");
+    expect(apiB.CAM_ZONES.living.poster).toBeUndefined();
+    expect(pair().cams.filter((c) => (c as Cam & { poster?: boolean }).poster)).toHaveLength(1);
   }, 300_000);
   it("узкое окно телефона вида 2 — вокруг шкафа/комода (до — по кровати, шкаф срезан окном у лофта и джапанди)", () => {
     for (const [vi, p] of pair().per.entries()) {

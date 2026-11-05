@@ -220,6 +220,31 @@ def style_block(style: str | None) -> tuple[str, str, dict]:
     return (st if rec else ''), (rec.get('render_guide') or ''), (db.get('_decor_policy') or {})
 
 
+_ROOMS = None
+
+
+def room_rules(room: str | None) -> dict:
+    """Правила промпта по типу комнаты (`rules/improve-rooms.json`, T-32/3): {} у гостиной и без типа — промпт побайтно прежний.
+    Иначе запись типа + общее `_any` для любой не-гостиной: `name`, `no_add` (крупное, чего нет в наборе), `tv_placeholder`, `guide_note`,
+    `deny_swap` (замена запрета стилей)."""
+    global _ROOMS
+    kind = (room or '').strip().lower()
+    if not kind or kind == 'living':
+        return {}
+    if _ROOMS is None:
+        _ROOMS = json.load(open(os.path.join(HERE, 'rules', 'improve-rooms.json'), encoding='utf-8'))
+    rec, anyr = _ROOMS.get(kind) or {}, _ROOMS.get('_any') or {}
+    return {'name': rec.get('name') or kind, 'no_add': list(rec.get('no_add') or []) + list(anyr.get('no_add') or []),
+            'tv_placeholder': rec.get('tv_placeholder', True), 'guide_note': rec.get('guide_note') or '',
+            'deny_swap': dict(rec.get('deny_swap') or {})}
+
+
+def room_kind(payload: dict) -> str | None:
+    """Тип комнаты запроса: `room.kind` (геометрия комнаты варианта со страницы); нет — None (гостиная)."""
+    r = payload.get('room') if isinstance(payload, dict) else None
+    return r.get('kind') if isinstance(r, dict) else None
+
+
 SIZE_PORTRAIT = os.environ.get('IMPROVE_SIZE_PORTRAIT', '3072x2048')   # телефон (demo-10): два вертикальных вида бок о бок
 
 
@@ -229,7 +254,7 @@ def size_for(orient: str | None) -> str:
 
 
 def prompt_for(style: str | None, decor: list | None = None, floor: str | None = None, walls: str | None = None,
-               orient: str | None = None, products: list | None = None, soft: list | None = None) -> str:
+               orient: str | None = None, products: list | None = None, soft: list | None = None, room: str | None = None) -> str:
     """Промпт режима ремонта. СТРУКТУРА ВЛАДЕЛЬЦА (01.09): статические правила отдельно,
     STYLE GUIDE — единственный переменный блок, и он СОВЕТУЮЩИЙ, а не список обязательного.
 
@@ -240,7 +265,11 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
     одним решением (тёплый дневной), а не «дневной и одновременно вечерний».
     """
     st, guide, pol = style_block(style)
+    # КОМНАТА (T-32/3): у не-гостиной — её имя, «не добавлять» крупное сверх набора и поправка гайда; у гостиной `rr` пуст
+    rr = room_rules(room)
     deny = list((pol.get('deny_always') or [])) + list((pol.get('deny_now') or {}).keys())
+    if rr:
+        deny = [rr['deny_swap'].get(x, x) for x in deny]
     allow = list((pol.get('allow_now') or {}).keys())
     # `soft` — строки `soft_list` (номера на третьем листе после декора); шторы товаром — вместо «шторы под стиль»
     curt = [x for x in (soft or []) if x.get('item') == 'curtains']
@@ -263,6 +292,11 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         + (' besides the items of IMAGE 3 is' if third else ' is') + ' the '
         'single ceiling fixture that replaces the white ceiling placeholder (CEILING FIXTURE below).',
         '',
+    ] + ([
+        f'ROOM: this is a {rr["name"]}. Its furniture is exactly what IMAGE 1 shows. Do not add any large furniture or appliance '
+        'that is not in IMAGE 1, in particular:',
+        '',
+    ] + [f'* {x};' for x in rr['no_add']] + [''] if rr else []) + [
         'STATIC HARD RULES',
         '',
         'IMAGE 1 controls all geometry. Do not change:',
@@ -331,11 +365,13 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         'Turn these schematic elements into realistic objects while preserving their exact outer '
         'size, position and perspective:',
         '',
+    ] + ([] if rr and not rr['tv_placeholder'] else [
         '* The large grey rectangular plane at the TV console is a TELEVISION; seen edge-on from '
         'the side it is the same television. Render one modern flat TV with a thin bezel and a '
         'switched-off dark screen. Our code decides the mounting from the real console height, so '
         'keep it EXACTLY as rendered: if it stands on the console, do not wall-mount it; if it '
         'hangs on the wall, do not place it on the console. Same height and gap as in IMAGE 1.',
+    ]) + [
         '* A BLUE wall rectangle is a WINDOW. Render a typical white PVC window with frame, glass, '
         'sashes and windowsill. Keep the exact opening.',
         '* A BROWN rectangle is a DOOR. Render a real door leaf with frame, trim and handle, '
@@ -382,6 +418,7 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         '',
         guide_for(guide, floor, walls) or 'Choose finishes that suit the room and look ordinary, affordable and tasteful.',
         '',
+    ] + ([rr['guide_note'], ''] if rr and rr['guide_note'] else []) + [
         'Optional decor may be added sparingly, but it must not cover, touch or move existing '
         'objects and must appear consistently in both views. It must not read as new furniture.',
         '',
@@ -389,7 +426,7 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         '',
         'Never add, remove or replace:',
         '',
-    ] + [f'* {x};' for x in deny] + [
+    ] + [f'* {x};' for x in deny] + [f'* {x} (not part of this {rr["name"]});' for x in (rr or {}).get('no_add', [])] + [
         '',
         'Do not add text, labels, logos or watermarks. Do not change the camera, architecture or '
         'furniture arrangement.',
@@ -566,7 +603,7 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
         except Exception as e:  # noqa: BLE001
             print(f'  список товаров не собрался: {str(e)[:80]}')
     prompt = prompt_for(style, decor, fl.get('title') or fl.get('id') or None, wl.get('title') or wl.get('id') or None, orient, prods,
-                        soft_list(soft, len(decor) + 1, items))
+                        soft_list(soft, len(decor) + 1, items), room=room_kind(payload))
     stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'
     clay = [str(x) for x in (payload.get('clay') or []) if x][:20]
     meta = {'режим': 'улучшить фото — кадры из браузерной сцены (demo-10)', 'стиль': style or '—',
@@ -693,7 +730,7 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
         except Exception as e:  # noqa: BLE001
             print(f'  список товаров не собрался: {str(e)[:80]}')
     prompt = prompt_for(style, decor, (_ft.get('title') or _ft.get('id')) if _ft else None, (_wo.get('title') or _wo.get('id')) if _wo else None,
-                        None, prods, soft_list(soft, len(decor) + 1, payload.get('items')))
+                        None, prods, soft_list(soft, len(decor) + 1, payload.get('items')), room=room_kind(payload))
     # Метку может задать вызывающий: черновик заранее сообщает странице адрес исходника,
     # и папка обязана совпасть с этим адресом (иначе «Улучшить фото» не найдёт готовый лист).
     stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'

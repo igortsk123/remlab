@@ -103,4 +103,22 @@ _p4 = IM.prompt_for('сканди', products=_pl)
 check('список товаров — после правила эталонов, до заглушек', 'PRODUCT LIST' in _p4 and
       _p4.index('Ignore catalogue backgrounds') < _p4.index('PRODUCT LIST') < _p4.index('A grey schematic'))
 check('список товаров — тон как базовый, не точный RGB', 'not an exact RGB' in _p4)
+# КОМНАТА В ПРОМПТЕ (T-32/3, ведущий: в спальне «минимализм» дорисован ТВ): гостиная — побайтно прежний промпт (отпечаток 12 случаев снят
+# с кода до правки; сменился промпт гостиной намеренно — обнови отпечаток вместе с версией промпта), спальня — «не добавлять» из данных
+import hashlib  # noqa: E402
+_cases = lambda **kw: '\n\n'.join(x for st in ('сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди') for x in
+                                     (IM.prompt_for(st, **kw), IM.prompt_for(st, [{'role': 'ваза'}], 'Ламинат', 'Белая', 'portrait', **kw)))
+_h = lambda t: hashlib.sha256(t.encode()).hexdigest()[:12]
+check('гостиная: промпт побайтно прежний (без комнаты и с room=living)', _h(_cases()) == '447225d2bbec' and _cases(room='living') == _cases(),
+      _h(_cases()))
+_rr = json.load(open(os.path.join(HERE, '..', 'rules', 'improve-rooms.json'), encoding='utf-8'))
+_pb = IM.prompt_for('минимализм', room='bedroom')
+check('спальня: комната названа, каждый пункт «не добавлять» из данных в промпте',
+      'ROOM: this is a bedroom.' in _pb and all(x in _pb for x in _rr['bedroom']['no_add'] + _rr['_any']['no_add']), _pb[:300])
+check('спальня: телевизор в запретах, пункта-заглушки «TELEVISION» нет, гайд гостиной переведён на изголовье',
+      'a television, TV screen' in _pb and 'is a TELEVISION' not in _pb and 'wall behind the bed headboard' in _pb)
+check('спальня: запреты и в FORBIDDEN, «существующего телевизора» нет', '(not part of this bedroom)' in _pb.rsplit('FORBIDDEN', 1)[1]
+      and 'existing television' not in _pb)
+check('тип комнаты из запроса — room.kind', IM.room_kind({'room': {'kind': 'bedroom'}}) == 'bedroom' and IM.room_kind({'room': None}) is None
+      and IM.room_kind({}) is None)
 sys.exit(1 if fails else 0)

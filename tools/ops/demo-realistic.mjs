@@ -34,6 +34,8 @@ const GO = process.argv.includes("--go") || (NIGHT && !DRY), ALL = process.argv.
 const fi = process.argv.indexOf("--force"), FORCE = fi >= 0 ? (process.argv[fi + 1] || "all") : "";
 const EXPECT_MODEL = process.env.EXPECT_MODEL ?? "improve/openai/gpt-image-2.5-sunburst";
 const LOCAL = process.env.DEMO_LOCAL ?? "";
+// `REAL_ROOM=bedroom-1` — снимать только эту комнату (T-32/3: пробы спальни из проверочной сборки, не трогая гостиную; как WARM_ROOM прогрева)
+const ONLY_ROOM = process.env.REAL_ROOM ?? "";
 const EXPECT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v4.3";   // demo-14: + список товаров (ADR-0305); .1 — радиатор под окном (demo-20 Г3); .2 — люстра стиля (Г4); .3 — мягкое (demo-24)
 const RULES = new URL("../scout/rules/demo-realistic.json", import.meta.url);
 const CREDITS_URL = "https://ai-gateway.vercel.sh/v1/credits";
@@ -129,13 +131,14 @@ async function main() {
     // кому нужно фото: у варианта нет реалистичного снимка его нынешней расстановки (то же правило, что у вкладки «Фото»)
     // все комнаты витрины (onb-12): номер состояния `curStateId` считает страница по комнате открытого варианта (`curRoom`);
     // вариант, чьей комнаты нет в данных (`roomGeoOf` → null), главная не показывает — его не снимаем
-    const todo = await page.evaluate(`((force) => { const c0 = cur, out = [];
+    const todo = await page.evaluate(`((force, only) => { const c0 = cur, out = [];
       allVariants().forEach((v, i) => { if (typeof roomGeoOf === 'function' && !roomGeoOf(v)) return; pickVariant(i);
         // --force <стиль> — только он; --force all — все; без --force — у кого нет фото своей расстановки
         const want = force ? (force === "all" || force === v.style) : !vwRealShots().length;
-        if (want) out.push({ i, id: v.id, room: typeof roomIdOf === 'function' ? roomIdOf(v) : 'living', style: v.style, stateId: curStateId(),
+        const room = typeof roomIdOf === 'function' ? roomIdOf(v) : 'living';
+        if (want && (!only || room === only)) out.push({ i, id: v.id, room, style: v.style, stateId: curStateId(),
           cams: (cams || loadCams()).map((c) => [c.name, Math.round(c.x), Math.round(c.y), Math.round(c.rot || 0)].join(":")).join("|") }); });
-      pickVariant(c0); return out; })(${JSON.stringify(NIGHT ? "" : FORCE)})`);
+      pickVariant(c0); return out; })(${JSON.stringify(NIGHT ? "" : FORCE)}, ${JSON.stringify(ONLY_ROOM)})`);
     const before = new Set((await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json()).map((r) => r.id));
     console.log(`фото нейросети: ${FORCE && !NIGHT ? `переснять (--force ${FORCE})` : "без фото своей расстановки"} — ${todo.length}${todo.length ? ": " + todo.map((t) => t.style).join(", ") : ""}`);
     console.log(`улучшение сейчас: ${paid.available ? "доступно" : "НЕДОСТУПНО (" + (paid.code ?? "?") + ")"}`);

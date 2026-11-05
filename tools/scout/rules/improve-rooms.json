@@ -1,0 +1,24 @@
+{
+ "_about": "ПРОМПТ «СДЕЛАТЬ РЕАЛИСТИЧНЕЕ» ЗНАЕТ КОМНАТУ (T-20261105-32/3, ведущий 05.11: в спальне «минимализм» модель дорисовала телевизор). По типу комнаты (`room.kind` запроса) — что это за комната и какую крупную мебель и технику модель НЕ добавляет сверх набора на IMAGE 1. Гостиной записи нет — её промпт побайтно прежний (тест `tests/test_improve_prompt.py`). Читает `improve_mode.room_rules`; `_any` — для любой комнаты, кроме гостиной, складывается с записью типа.",
+ "_any": {
+  "no_add": [
+   "a wardrobe, cabinet, chest of drawers, shelving unit, desk or table that is not already in IMAGE 1"
+  ]
+ },
+ "bedroom": {
+  "name": "bedroom",
+  "no_add": [
+   "a television, TV screen, TV stand or media wall",
+   "a sofa, armchair or pouf",
+   "a dining table or chairs"
+  ],
+  "_tv": "в спальне нет ТВ-тумбы — пункт про серую плоскость-телевизор из заглушек не нужен и подсказывает модели телевизор",
+  "tv_placeholder": false,
+  "_guide": "гайды стилей писались для гостиной («стена за диваном или ТВ»): в спальне эта стена — за изголовьем",
+  "guide_note": "The STYLE GUIDE was written for a living room: wherever it mentions the wall behind the sofa or the TV, use the wall behind the bed headboard instead, and do not add a sofa or a TV.",
+  "_swap": "запрет стилей «electronics other than the existing television» подразумевает, что ТВ в комнате есть — в спальне его нет",
+  "deny_swap": {
+   "electronics other than the existing television": "electronics of any kind"
+  }
+ }
+}
