@@ -2,10 +2,13 @@
 workstream: mesh
 slug: mesh-14-photo-hash-one-truth
 title: Хеш фото — одна истина для подбора и мешей; граница качества 0.65 включительно; бэкфилл 405 и сторож «без хеша»
-status: in_progress
+status: partial
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-05
 completed:
+pause_reason: "код влит 21–22.10 (см. лог), закрытие не сделано — 14 дней без движения (аудит PLAN-STUCK 05.11)"
+resume_trigger: "ведущий сверяет остаток задач и критерии приёмки, затем /memory-check и completed — или новая задача рабочему"
+review_after: 2026-11-12
 ---
 
 ## Цель
@@ -55,6 +58,7 @@ completed:
 - [ ] `/memory-check`, audit «чисто»
 
 ## Лог выполнения
+- 2026-11-05 — переведён в partial (ведущий pakardev, гейт памяти PLAN-STUCK): код влит, закрытие — при пересмотре до 12.11.
 - 2026-10-21 — план создан по T-20261021-05 и сразу in_progress (владелец: порядок задач одобрен); реализация — T-20261021-06 (рабочий 1, worktree).
 - 2026-10-21 — T-20261021-06 принят (94e49f41 → main 73e51eac, push): `photo_hash.py` — единственный писатель, `pool_gate.py:quality_ok`
   (`round(q::numeric,2) >= 0.65`) в 7 местах, сторож `photo_hash_missing`/`photo_hash_age` в `pipeline_map`. Бэкфилл (ведущий, бэкап

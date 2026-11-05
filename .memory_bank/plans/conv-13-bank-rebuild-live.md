@@ -2,12 +2,15 @@
 workstream: conveyor
 slug: conv-13-bank-rebuild-live
 title: Банк комплектов заново из живого каталога — «новый банк рядом», экзамен, сравнение демо, подмена после ⚑ владельца
-status: in_progress
+status: partial
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-05
 completed:
 plan_kind: sub
 parent_plan: MASTER-conveyor-gaps
+pause_reason: "код влит 21–22.10 (см. лог), закрытие не сделано — 14 дней без движения (аудит PLAN-STUCK 05.11)"
+resume_trigger: "ведущий сверяет остаток задач и критерии приёмки, затем /memory-check и completed — или новая задача рабочему"
+review_after: 2026-11-12
 ---
 
 ## Цель
@@ -71,6 +74,7 @@ conv-12 п.4 (`plans/conv-12-bank-contracts-revival.md`). Разбивка T-202
 - [ ] `/memory-check`, audit «чисто»
 
 ## Лог выполнения
+- 2026-11-05 — переведён в partial (ведущий pakardev, гейт памяти PLAN-STUCK): код влит, закрытие — при пересмотре до 12.11.
 - 2026-10-21 — план создан (draft) по conv-12 п.3; на критику Codex.
 - 2026-10-21 — Codex: путь «ремонт слотов» неверен — полная сборка `compose2` + contracts как валидатор; экзамен и демо сейчас читают живой банк;
   «без фида нет реф-ссылки» — неверно (ссылка остаётся, товар отсекает формула наличия `feed_active`); стилей 6, не 5. Ведущий сверил
