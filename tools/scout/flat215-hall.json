@@ -1,0 +1,48 @@
+{
+ "_about": "ПРИХОЖАЯ flat215 для солвера прихожей (план onb-13 Т3, T-20261105-34). Геометрия — чертёж №180 (`flat215.json` plan_example: hall x 4,5 y 0, 1,53×6,2 м = 9,49 м²; реестр квартиры — 9,3 м²). Оси солвера: x — вправо (запад→восток), y — вглубь (юг→север), см; offset — от начала стены. Входной двери на чертеже НЕТ — варианты входа ниже гипотезы. Двери в кухню и гостиную (запад, 160 и 420, 85 см) открываются в комнаты (у прихожей дуги нет). Двери санузлов — внутрь прихожей (гипотеза: санузел мал, дверь наружу — частое решение; в РФ норм на сторону нет). Ванная-2 (6,05;6,2) и спальня-1 (7,4;6,2) на чертеже стоят ВНЕ прямоугольника прихожей (север x 155 и 290) — расхождение чертежа; вариант l-doors — гипотеза, что прихожая Г-образная и вдоль санузлов идёт полоса 80 см. Включение комнаты в демо — ведущий (enabled: false).",
+ "rooms": [
+  {
+   "id": "hall", "variant": "drawing-180", "title": "Прихожая · чертёж №180, вход с юга (гипотеза)", "enabled": false,
+   "w": 153, "d": 620,
+   "openings": [
+    {"kind": "door", "wall": "south", "offset_cm": 31, "width_cm": 90, "swing_cm": 0, "_why": "ВХОД — гипотеза: южная стена, как у просмотрщика (entranceWall = south); входная дверь открывается наружу"},
+    {"kind": "door", "wall": "west", "offset_cm": 160, "width_cm": 85, "swing_cm": 0, "_why": "кухня, чертёж (4,5;1,6) r0,85; дверь в кухню"},
+    {"kind": "door", "wall": "west", "offset_cm": 420, "width_cm": 85, "swing_cm": 0, "_why": "гостиная, чертёж (4,5;4,2) r0,85"},
+    {"kind": "door", "wall": "north", "offset_cm": 20, "width_cm": 70, "swing_cm": 70, "_why": "санузел-1, чертёж (4,7;6,2) r0,7; открывание в прихожую — гипотеза"}
+   ]
+  },
+  {
+   "id": "hall", "variant": "registry-93", "title": "Прихожая · 9,3 м² по реестру (150×620)", "enabled": false,
+   "w": 150, "d": 620,
+   "openings": [
+    {"kind": "door", "wall": "south", "offset_cm": 30, "width_cm": 90, "swing_cm": 0, "_why": "вход — гипотеза, как drawing-180"},
+    {"kind": "door", "wall": "west", "offset_cm": 160, "width_cm": 85, "swing_cm": 0, "_why": "кухня"},
+    {"kind": "door", "wall": "west", "offset_cm": 420, "width_cm": 85, "swing_cm": 0, "_why": "гостиная"},
+    {"kind": "door", "wall": "north", "offset_cm": 20, "width_cm": 70, "swing_cm": 70, "_why": "санузел-1"}
+   ]
+  },
+  {
+   "id": "hall", "variant": "entrance-east", "title": "Прихожая · вход с востока (гипотеза)", "enabled": false,
+   "w": 153, "d": 620,
+   "openings": [
+    {"kind": "door", "wall": "east", "offset_cm": 20, "width_cm": 90, "swing_cm": 0, "_why": "ВХОД — гипотеза: восточная стена прихожей — граница квартиры (контур x 6,03 при y 0–6,2), лестница может быть там; на юге двери нет → солвер берёт первую дверь"},
+    {"kind": "door", "wall": "west", "offset_cm": 160, "width_cm": 85, "swing_cm": 0, "_why": "кухня"},
+    {"kind": "door", "wall": "west", "offset_cm": 420, "width_cm": 85, "swing_cm": 0, "_why": "гостиная"},
+    {"kind": "door", "wall": "north", "offset_cm": 20, "width_cm": 70, "swing_cm": 70, "_why": "санузел-1"}
+   ]
+  },
+  {
+   "id": "hall", "variant": "l-doors", "title": "Прихожая · Г-образная к санузлам и спальне (гипотеза, 11,3 м²)", "enabled": false,
+   "w": 380, "d": 620,
+   "contour": [[0, 0], [153, 0], [153, 540], [380, 540], [380, 620], [0, 620]],
+   "openings": [
+    {"kind": "door", "wall": "south", "offset_cm": 31, "width_cm": 90, "swing_cm": 0, "_why": "вход — гипотеза, как drawing-180"},
+    {"kind": "door", "wall": "west", "offset_cm": 160, "width_cm": 85, "swing_cm": 0, "_why": "кухня"},
+    {"kind": "door", "wall": "west", "offset_cm": 420, "width_cm": 85, "swing_cm": 0, "_why": "гостиная"},
+    {"kind": "door", "wall": "north", "offset_cm": 20, "width_cm": 70, "swing_cm": 70, "_why": "санузел-1"},
+    {"kind": "door", "wall": "north", "offset_cm": 155, "width_cm": 70, "swing_cm": 70, "_why": "санузел-2, чертёж (6,05;6,2) — вне прямоугольника прихожей; полоса 80 см — гипотеза"},
+    {"kind": "door", "wall": "north", "offset_cm": 290, "width_cm": 90, "swing_cm": 0, "_why": "спальня-1, чертёж (7,4;6,2) r0,9 — в спальню"}
+   ]
+  }
+ ]
+}

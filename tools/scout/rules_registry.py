@@ -55,7 +55,8 @@ def _stage_for(code: str) -> str:
 def hard_rules() -> list[dict]:
     out = {}
     # спальня (onb-05) — свой файл проверок; её стадии вне дизайнерского порядка гостиной
-    for fname, stage in (('validate.py', None), ('bedroom_checks.py', 'спальня')):
+    # прихожая (onb-13, T-34) — так же свой файл
+    for fname, stage in (('validate.py', None), ('bedroom_checks.py', 'спальня'), ('hall_checks.py', 'прихожая')):
         path = os.path.join(PLANNER, fname)
         if not os.path.exists(path):
             continue

@@ -57,7 +57,8 @@ def registry_sync() -> int:
     solver = os.path.join(HERE, '..', '..', 'services', 'planner-solver')
     # спальня (onb-05): свои проверки в planner/bedroom_checks.py — правило ищется в файле из «где»
     srcs = {w: open(os.path.join(solver, w), encoding='utf-8').read()
-            for w in ('planner/validate.py', 'planner/bedroom_checks.py') if os.path.exists(os.path.join(solver, w))}
+            for w in ('planner/validate.py', 'planner/bedroom_checks.py', 'planner/hall_checks.py')
+            if os.path.exists(os.path.join(solver, w))}
     code = ''.join(srcs.values())
     n = 0
     for r in rules:
@@ -74,7 +75,7 @@ def registry_sync() -> int:
             print(f'  CODE-NOT-REG: {cid} — hard-код без записи в registry.json')
             n += 1
     if n == 0:
-        print('  реестр ↔ validate.py + bedroom_checks.py: синхронны')
+        print('  реестр ↔ validate.py + bedroom_checks.py + hall_checks.py: синхронны')
     return n
 
 

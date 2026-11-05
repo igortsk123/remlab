@@ -52,6 +52,9 @@ tools/scout/*
 !tools/scout/bedroom-scenes.json
 # кухня квартиры 215 — исходные данные посадки кухни (план onb-09, T-20261105-33)
 !tools/scout/flat215-kitchen.json
+# прихожая квартиры 215 (варианты обмера — гипотезы) и сцены экзамена прихожей (план onb-13 Т3, T-20261105-34)
+!tools/scout/flat215-hall.json
+!tools/scout/hall-scenes.json
 # Образ Hunyuan3D 2.1 для Salad — ИСХОДНИК инфраструктуры, а не данные: без него массовую
 # генерацию мешей не воспроизвести (28.08, уход с fal). Веса и результаты в git не едут.
 !tools/scout/salad/

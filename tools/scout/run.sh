@@ -15,6 +15,7 @@
 #   tools/scout/run.sh audit           # аудит правил (RULE-NO-PROOF)
 #   tools/scout/run.sh guards          # сторожа целостности (pytest)
 #   tools/scout/run.sh bedroom-exam    # экзамен спальни: 40 сцен, отчёт и PNG-галерея (план onb-05)
+#   tools/scout/run.sh hall-exam       # экзамен прихожей: 28 сцен (10 — прихожая flat215), отчёт и PNG-галерея (план onb-13)
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE="$(pwd)"
@@ -62,6 +63,9 @@ case "${1:-}" in
   bedroom-exam)
     # СПАЛЬНЯ (план onb-05): свой экзамен, банк гостиной и exam.flock не трогает — картинки в новую папку с меткой времени
     exec "$PY" bedroom_exam.py ;;
+  hall-exam)
+    # ПРИХОЖАЯ (план onb-13 Т3): свой экзамен, банк гостиной и exam.flock не трогает — картинки в новую папку с меткой времени
+    exec "$PY" hall_exam.py ;;
   *)
     grep '^#   tools' "$0" | sed 's/^#  //'; exit 1 ;;
 esac

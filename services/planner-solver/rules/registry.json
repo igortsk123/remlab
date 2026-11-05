@@ -826,6 +826,90 @@
    "стадия": "спальня",
    "сообщение": "к «{p.role}» нет прохода {need:.0f} см",
    "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "HALL_NOT_AT_WALL",
+   "вид": "hard",
+   "стадия": "прихожая",
+   "сообщение": "«{p.role}» не спинкой к стене",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_DOOR_FRONT",
+   "вид": "hard",
+   "стадия": "прихожая",
+   "сообщение": "«{p.role}» перекрывает подход к двери ({op.wall}, {op.offset_cm:.0f})",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_ACCESS_WALL",
+   "вид": "hard",
+   "стадия": "прихожая",
+   "сообщение": "перед «{a.role}» меньше {spec.front_cm:.0f} см до стены",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_ACCESS_BLOCKED",
+   "вид": "hard",
+   "стадия": "прихожая",
+   "сообщение": "«{b.role}» перекрывает подход к «{a.role}»",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_NO_PASSAGE",
+   "вид": "hard",
+   "стадия": "прихожая",
+   "сообщение": "от входной двери нет прохода {need:.0f} см",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_DOOR_UNREACHABLE",
+   "вид": "hard",
+   "стадия": "прихожая",
+   "сообщение": "от входа нет прохода {w:.0f} см к двери ({op.wall}, {op.offset_cm:.0f})",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_UNREACHABLE",
+   "вид": "hard",
+   "стадия": "прихожая",
+   "сообщение": "к «{p.role}» нет прохода {need:.0f} см",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_ROOM_NARROW",
+   "вид": "soft",
+   "стадия": "прихожая",
+   "сообщение": "комната уже нормы: к двери ({op.wall}, {op.offset_cm:.0f}) стены дают проход ",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_PASSAGE_TIGHT",
+   "вид": "soft",
+   "стадия": "прихожая",
+   "сообщение": "проход от входа уже {comfort:.0f} см",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_ENTRY_TIGHT",
+   "вид": "soft",
+   "стадия": "прихожая",
+   "сообщение": "у входной двери нет площадки {d:.0f} см: {', '.join(hit)}",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_SHOE_FAR",
+   "вид": "soft",
+   "стадия": "прихожая",
+   "сообщение": "«{p.role}» в {d:.0f} см от входной двери",
+   "где": "planner/hall_checks.py"
+  },
+  {
+   "id": "HALL_MIRROR_FAR",
+   "вид": "soft",
+   "стадия": "прихожая",
+   "сообщение": "«{p.role}» в {d:.0f} см от входной двери",
+   "где": "planner/hall_checks.py"
   }
  ],
  "_r5": "R5-замер: LAYOUT_RULE_STATS=<файл> на экзамене; отчёт мёртвых/редких — tools/scout при след. прогонах"
