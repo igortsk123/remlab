@@ -51,18 +51,6 @@ def front_by_detail(glb: str) -> tuple[float, float]:
     return float(order[0]), float(margin)
 
 
-if __name__ == '__main__':
-    if len(sys.argv) > 2 and sys.argv[1] == '--front-by-depth':
-        # Вызов из topview_render ДОЧЕРНИМ процессом (04.09): trimesh на плотных Hunyuan-мешах не
-        # отдаёт память (+100 МБ/меш), и второй полный load меша в родителе топ-вью был одной из
-        # двух причин 10 ГБ и earlyoom. Печатаем только [yaw, источник] — dbg наружу не нужен.
-        import json as _json
-        _yaw, _src, _ = front_by_depth(sys.argv[2])
-        print(_json.dumps([_yaw, _src]))
-    else:
-        print(front_by_detail(sys.argv[1]))
-
-
 def front_combo(glb: str, cutout_png: str | None) -> tuple[float | None, str]:
     """Два сигнала: детальность (ручки) + сходство с фото (фасад в кадре).
     Согласны → (yaw, 'cabinet_agree'); расходятся/слабо → (None, 'cabinet_unsure')."""
@@ -408,3 +396,18 @@ def upright_by_passport(glb: str, dims: dict | None) -> tuple[str | None, float]
         return upright_by_legs_score(out)[1]
     best = cands[0] if legs_of(cands[0]) >= legs_of(cands[1]) else cands[1]
     return (best, margin)
+
+
+# Точка входа — В КОНЦЕ файла (T-20261105-36): 04.09 блок стоял посреди модуля, выше `front_by_depth`, и вызов
+# `--front-by-depth` из topview_render два месяца падал NameError — фронт корпусных молча шёл по каскаду.
+# Стенд tests_topview_render.py проверяет, что после этого блока нет объявлений.
+if __name__ == '__main__':
+    if len(sys.argv) > 2 and sys.argv[1] == '--front-by-depth':
+        # Вызов из topview_render ДОЧЕРНИМ процессом (04.09): trimesh на плотных Hunyuan-мешах не
+        # отдаёт память (+100 МБ/меш), и второй полный load меша в родителе топ-вью был одной из
+        # двух причин 10 ГБ и earlyoom. Печатаем только [yaw, источник] — dbg наружу не нужен.
+        import json as _json
+        _yaw, _src, _ = front_by_depth(sys.argv[2])
+        print(_json.dumps([_yaw, _src]))
+    else:
+        print(front_by_detail(sys.argv[1]))

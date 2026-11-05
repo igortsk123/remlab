@@ -656,7 +656,9 @@ def post_steps() -> tuple:
             ('ориент-паблиш', f'{PY} {HERE}/publish_merge.py $HOME/scout-scenes/mesh-topview/topview.json https://remont-lab.online/test/mesh-pilot10/orient.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/demo/topsprites/ 2>/dev/null || true'))
 
 
-_post: dict = {'thread': None}
+# pending — разбор просили, пока шёл предыдущий, и он пропущен («подберёт следующий заход»). В середине волны его
+# подберёт таймер, а в КОНЦЕ следующего захода нет — хвост волны (wave_tail) обязан разобрать сам (T-20261105-36).
+_post: dict = {'thread': None, 'pending': False}
 
 
 def _run_post(tag) -> None:
@@ -683,7 +685,9 @@ def start_post(tag) -> None:
     th = _post['thread']
     if th is not None and th.is_alive():
         print(f'  разбор предыдущей пачки ещё идёт — {tag} подберёт следующий заход', flush=True)
+        _post['pending'] = True
         return
+    _post['pending'] = False          # новый разбор идёт от состояния — пропущенное он и подберёт
     th = threading.Thread(target=_run_post, args=(tag,), daemon=True)
     _post['thread'] = th
     th.start()
@@ -829,11 +833,18 @@ def wave_tail(PAUSE: str, guard_done: bool) -> None:
     приёмка уже записала; что приёмка забракует в этом последнем разборе — остаётся в `mesh-reseed.json` и уйдёт
     следующей волной (`WAVE_FIRST=1` или её же конец; и то и другое — только по слову `MESH_HEAL=1`). Держать все
     машины ради разбора нельзя.
-    `finale()` гасит ещё раз с проверкой `stopped` и тревогой — страховка, а не основной путь."""
+    `finale()` гасит ещё раз с проверкой `stopped` и тревогой — страховка, а не основной путь.
+    ПРОПУЩЕННЫЙ РАЗБОР (T-20261105-36): если разбор последней пачки не поставлен, потому что шёл разбор по таймеру
+    (`start_post` → pending), следующего захода в конце волны нет — разбираем здесь, после `wait_post`. 05.11 волна 2
+    спальни: «45 подберёт следующий заход», конвейер вышел, 17 мешей не попали в реестр до ручного разбора."""
     healed = heal_wave(PAUSE, guard_done=guard_done, post=False)
     stop_groups()
     wait_post()
-    if healed:          # разбор перегона — тот же список шагов, уже без машин
+    missed = _post.get('pending', False)
+    _post['pending'] = False
+    if missed and not healed:
+        print('разбор последней пачки был пропущен (шёл разбор по таймеру) — разбираю хвост сейчас', flush=True)
+    if healed or missed:   # разбор перегона и/или пропущенной пачки — тот же список шагов, уже без машин
         for step, cmd in post_steps():
             c, o = sh(cmd, timeout=2700)
             print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)

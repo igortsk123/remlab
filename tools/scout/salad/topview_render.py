@@ -18,8 +18,9 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
 
-SRC = os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2')
-OUT = os.path.expanduser('~/scout-scenes/mesh-topview')
+# TOPVIEW_SRC / TOPVIEW_OUT — только для стенда (tests_topview_render.py), боевой путь их не задаёт
+SRC = os.environ.get('TOPVIEW_SRC') or os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2')
+OUT = os.environ.get('TOPVIEW_OUT') or os.path.expanduser('~/scout-scenes/mesh-topview')
 PX = 420          # длинная сторона итогового спрайта
 
 
@@ -211,6 +212,35 @@ def _render_pair(job) -> str:
     return sku
 
 
+def render_pool(todo: list, workers: int, per_child: int, deadline: float) -> tuple[int, int, list, bool]:
+    """Рендер пачки: НОВЫЙ пул на каждые workers × per_child моделей → (готово, поставлено, сбойные sku, обрыв по бюджету).
+
+    Память: воркер копит +100 МБ на меш (trimesh, урок 391), поэтому живёт не дольше per_child моделей.
+    Раньше это делал `ProcessPoolExecutor(max_tasks_per_child=…)`, но на Python 3.14 пул ЗАВИСАЕТ на первой замене
+    воркера (T-20261105-36: воспроизводится на пустых заданиях, при fork/forkserver/spawn) — 05.11 волна 2 спальни:
+    8 моделей за 22 с, дальше стоял до таймаута шага, манифест не писался. Свежий пул на пачку даёт ту же границу
+    памяти без замены воркеров. Бюджет проверяем перед каждой пачкой."""
+    import concurrent.futures as _cf
+    chunk = max(1, workers * per_child)
+    done_ok, submitted, failed, stopped = 0, 0, [], False
+    for i in range(0, len(todo), chunk):
+        if time.time() > deadline:
+            stopped = True
+            break
+        part = todo[i:i + chunk]
+        with _cf.ProcessPoolExecutor(max_workers=workers) as ex:
+            futs = {ex.submit(_render_pair, job): job[4] for job in part}
+            submitted += len(part)
+            for f in _cf.as_completed(futs):
+                try:
+                    f.result()
+                    done_ok += 1
+                except Exception as e:  # noqa: BLE001 — битый меш не валит остальные
+                    print(f'  сбой {futs[f]}: {str(e)[:80]}', flush=True)
+                    failed.append(futs[f])
+    return done_ok, submitted, failed, stopped
+
+
 def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     manifest = {}
@@ -368,40 +398,31 @@ def main() -> None:
         # конвейеру, который работает параллельно.
         # 04.09: на 11 ГБ dev-VM держим ОДИН процесс рендера (Codex №8) и меняем его каждые
         # TOPVIEW_TASKS_PER_CHILD задач — воркер, живущий всю пачку, копит те же +100 МБ/меш.
+        # 05.11: «меняем» = новый пул на пачку (render_pool), не max_tasks_per_child — тот зависает на 3.14.
         workers = int(os.environ.get('TOPVIEW_WORKERS', 0)) or 1
-        per_child = int(os.environ.get('TOPVIEW_TASKS_PER_CHILD', 4))
+        per_child = int(os.environ.get('TOPVIEW_TASKS_PER_CHILD', 0)) or 4
         print(f'рендер: {len(todo)} моделей на {workers} процессах (смена каждые {per_child})', flush=True)
-        import concurrent.futures as _cf2
-        done_ok = 0
-        with _cf2.ProcessPoolExecutor(max_workers=workers, max_tasks_per_child=per_child) as ex:
-            futs = {}
-            for job in todo:
-                if time.time() - t0 > budget:
-                    stopped_early = True
-                    break
-                futs[ex.submit(_render_pair, job)] = job[4]
-            for f in _cf2.as_completed(futs):
-                sku_j = futs[f]
-                try:
-                    f.result()
-                    done_ok += 1
-                except Exception as e:  # noqa: BLE001 — битый меш не валит остальные
-                    print(f'  сбой {sku_j}: {str(e)[:80]}', flush=True)
-                    manifest.pop(sku_j, None)
+        done_ok, submitted, failed, cut = render_pool(todo, workers, per_child, t0 + budget)
+        for sku_j in failed:
+            manifest.pop(sku_j, None)
+        stopped_early = stopped_early or cut
         if stopped_early:
             print(f'бюджет {budget:.0f}с исчерпан — остальное в следующем цикле', flush=True)
-        print(f'отрендерено {done_ok} из {len(futs)}', flush=True)
-        for job in todo[len(futs):]:      # не поставленные в очередь — не в манифест
+        print(f'отрендерено {done_ok} из {submitted}', flush=True)
+        for job in todo[submitted:]:      # не поставленные в очередь — не в манифест
             manifest.pop(job[4], None)
     mpth = os.path.join(OUT, 'topview.json')
-    # частичный прогон (skip/limit ИЛИ выход по бюджету) ДОПОЛНЯЕТ манифест, а не затирает:
-    # иначе ранний break стёр бы записи предыдущих циклов
-    if os.path.exists(mpth) and (skip or lim or stopped_early):
+    # частичный прогон ДОПОЛНЯЕТ манифест, а не затирает: skip/limit, выход по бюджету и АДРЕСНЫЙ прогон
+    # (TOPVIEW_ONLY видит только свои SKU — 05.11 адресный прогон 49 SKU без обрыва переписал весь манифест,
+    # 236 КБ → 11 КБ, T-20261105-36). Целиком переписывает только полный обход каталога.
+    if os.path.exists(mpth) and (only or skip or lim or stopped_early):
         base = json.load(open(mpth, encoding='utf-8'))
         base.update(manifest)
         manifest = base
-    json.dump(manifest, open(mpth, 'w', encoding='utf-8'),
-              ensure_ascii=False, indent=1)
+    tmp_m = mpth + '.tmp'
+    with open(tmp_m, 'w', encoding='utf-8') as fh:   # целиком или никак: читатели (сборка демо) не видят полфайла
+        json.dump(manifest, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp_m, mpth)
     print(f'видов сверху: {n}{" (частично, бюджет)" if stopped_early else ""} → {OUT}')
     print(f'TOPVIEW_NEW {len(todo)}', flush=True)     # сколько НОВЫХ взял этот проход — читает обёртка
 

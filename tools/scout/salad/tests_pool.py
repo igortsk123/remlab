@@ -944,6 +944,7 @@ def case_hot_restart() -> None:
     экземпляр не получает замок и НЕ гасит группы работающего; курсор пишется атомарно."""
     import batch_show as B  # noqa: PLC0415
     stopped = []
+    real_wait_post = B.wait_post       # вернуть в конце: хвост волны (case_wave_tail_skipped_post) ждёт по-настоящему
     B.sh = lambda cmd, timeout=3600: (stopped.append(cmd), (0, ''))[1]
     B.wait_post = lambda: None
     tmp = tempfile.mkdtemp()
@@ -971,6 +972,7 @@ def case_hot_restart() -> None:
     # 5) курсор атомарно
     B.save_cursor(42)
     assert json.load(open(B.DONE))['done'] == 42 and not os.path.exists(B.DONE + '.tmp')
+    B.wait_post = real_wait_post
     print('  ✓ горячий перезапуск: draining не гасит, второй экземпляр не проходит, курсор атомарен')
 
 
@@ -1063,6 +1065,7 @@ def case_wave_tail_order() -> None:
         return 0, 'RUN_SUMMARY {"requested": 1, "terminal": 1, "terminal_prefix": 1, "unresolved": 0}'
 
     keep_heal = os.environ.pop('MESH_HEAL', None)
+    B._post['pending'] = False      # пропуск разбора из прошлых случаев стенда сюда не тянем (его случай — ниже)
     try:
         B.sh, B.RESEED = fake_sh, os.path.join(tmp, 'mesh-reseed.json')
         B.wait_post = lambda: ev.append('wait_post')
@@ -1115,6 +1118,62 @@ def case_wave_tail_order() -> None:
         else:
             os.environ['MESH_HEAL'] = keep_heal
     print('  ✓ конец волны: перегон только по слову MESH_HEAL=1, до гашения; гашение до разбора; битый файл не теряется')
+
+
+def case_wave_tail_skipped_post() -> None:
+    """Пропущенный разбор последней пачки (T-20261105-36). 05.11 волна 2 спальни: разбор по таймеру шёл, `start_post(45)`
+    сказал «45 подберёт следующий заход» и не встал, а `wave_tail` только ждал (join) — конвейер вышел, 17 мешей не попали
+    в реестр. Теперь хвост обязан разобрать сам — после ожидания фонового и гашения групп; без пропуска лишнего разбора нет.
+    Воспроизведение 05.11 — batch.log волны (~/remlab-logs/onb10-wave2-run-1105-1554/), строки 107–125."""
+    import batch_show as B  # noqa: PLC0415
+    import threading as _th  # noqa: PLC0415
+    ev = []
+    keep = {k: getattr(B, k) for k in ('sh', 'RESEED', 'post_steps', '_run_post', 'stop_groups', 'heal_wave')}
+    keep_post = dict(B._post)
+    release = _th.Event()
+
+    def slow_post(tag):          # «долгий» фоновый разбор по таймеру
+        ev.append(f'фон:{tag}')
+        release.wait(10)
+        ev.append(f'фон-конец:{tag}')
+
+    def fake_sh(cmd, timeout=3600):
+        ev.append('post:' + cmd)
+        return 0, ''
+
+    try:
+        B.sh, B._run_post = fake_sh, slow_post
+        B.post_steps = lambda: (('шаг', 'p'),)
+        B.stop_groups = lambda: ev.append('stop')
+        B.heal_wave = lambda *a, **k: False
+        B._post.update(thread=None, pending=False)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            B.start_post('по таймеру')
+            B.start_post(45)                       # последняя пачка — пока идёт разбор по таймеру
+            assert B._post['pending'] is True, 'пропуск не запомнен'
+            _th.Timer(0.3, release.set).start()   # фоновый доработает уже во время хвоста
+            B.wave_tail(os.path.join(tempfile.mkdtemp(), 'PAUSE'), guard_done=True)
+        assert '45 подберёт следующий заход' in out.getvalue(), out.getvalue()
+        assert ev == ['фон:по таймеру', 'stop', 'фон-конец:по таймеру', 'post:p'], ev
+        assert B._post['pending'] is False, 'флаг не снят'
+        assert 'разбираю хвост сейчас' in out.getvalue(), out.getvalue()
+        # без пропуска: разбор пачки встал сам → хвост только ждёт, лишнего разбора нет
+        ev.clear()
+        release.clear()
+        _th.Timer(0.3, release.set).start()
+        with contextlib.redirect_stdout(io.StringIO()):
+            B.start_post(46)
+            B.wave_tail(os.path.join(tempfile.mkdtemp(), 'PAUSE'), guard_done=True)
+        assert ev == ['фон:46', 'stop', 'фон-конец:46'], ev
+    finally:
+        release.set()
+        for k, v in keep.items():
+            setattr(B, k, v)
+        B._post.clear()
+        B._post.update(keep_post)
+        B._post['pending'] = False
+    print('  ✓ хвост волны: пропущенный разбор последней пачки делается после ожидания фонового; без пропуска — не дублируется')
 
 
 def case_budget_halt_ends_wave() -> None:
@@ -1621,7 +1680,7 @@ def main() -> None:
                    case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart,
                    case_stop_verified, case_low_ram_node, case_input_quarantine, case_forbidden_node,
                    case_taken_no_streak, case_realloc_404_returns_slot, case_ssh_addr, case_silent_machines,
-                   case_batch_show_silent, case_wave_tail_order, case_budget_halt_ends_wave, case_manual_cap):
+                   case_batch_show_silent, case_wave_tail_order, case_wave_tail_skipped_post, case_budget_halt_ends_wave, case_manual_cap):
             if fn not in pure:
                 setup(tmp)
             fn()
