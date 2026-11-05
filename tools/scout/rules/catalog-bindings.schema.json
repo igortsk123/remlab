@@ -1,0 +1,63 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "catalog-bindings.schema.json",
+ "title": "CatalogBindings",
+ "description": "Снимок привязки товар → меш (room-pipeline-01 В-1а, T-20261105-45): ~/scout-scenes/catalog-assets/v1/bindings-<content_sha16>.json + current.json. Генерируется tools/scout/room_bindings.py --build из БД и диска (только чтение), в git — схема и код. Ключ товара — (mid, eid), ассета — полный sha256 model.glb; комната и роль в ключ не входят (seen_in — справка). Семья — ссылкой: offers[x].family_id → families[f].representative_offer_id → offers[rep].asset_id. Проверка — room_profile.schema_errors.",
+ "type": "object",
+ "additionalProperties": false,
+ "required": ["schema_version", "policy_version", "content_sha", "built_at", "sources", "assets", "families", "offers", "counts"],
+ "properties": {
+  "schema_version": {"const": 1},
+  "policy_version": {"type": "string", "description": "rules/catalog-bindings.json policy_version"},
+  "content_sha": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 канонического JSON снимка без content_sha и built_at"},
+  "built_at": {"type": "string"},
+  "sources": {"type": "object", "description": "отпечатки входов: таблицы, политика, контракт ориентации, направленные роли, индекс прода"},
+  "assets": {"type": "object", "additionalProperties": false,
+   "patternProperties": {"^sha256:[0-9a-f]{64}$": {
+    "type": "object", "additionalProperties": false,
+    "required": ["owner_offer_id", "generation_key", "revision_key", "source_sha", "pipeline_version", "local_path", "glb_bytes",
+                 "passport", "orientation", "gate", "reasons", "published"],
+    "properties": {
+     "owner_offer_id": {"type": "string", "description": "товар, по фото которого сгенерирован меш (= mesh_id через «_»)"},
+     "generation_key": {"type": "string"},
+     "revision_key": {"type": "string"},
+     "source_sha": {"type": "string", "description": "хеш фото генерации (16 знаков, как в ключе ревизии)"},
+     "pipeline_version": {"type": "string"},
+     "local_path": {"type": "string"},
+     "glb_bytes": {"type": "integer"},
+     "passport": {"type": "object", "required": ["role", "dims_cm"]},
+     "orientation": {"type": ["object", "null"]},
+     "gate": {"type": "string", "enum": ["pass", "fail"]},
+     "reasons": {"type": "array", "items": {"type": "string"}},
+     "published": {"type": "object", "required": ["in_index", "size_match", "basis"]}
+    }}}},
+  "families": {"type": "object", "additionalProperties": {
+   "type": "object", "additionalProperties": false, "required": ["family", "representative_offer_id", "basis"],
+   "properties": {"family": {"type": "string"}, "representative_offer_id": {"type": "string"}, "basis": {"const": "products.mesh_family_rep"}}}},
+  "offers": {"type": "object", "additionalProperties": {
+   "type": "object", "additionalProperties": false,
+   "required": ["mid", "eid", "status", "asset_id", "mesh_id", "representative_offer_id", "via_family", "family_id", "generation_key",
+                "revision_key", "reasons", "warnings", "capabilities", "passport", "photo", "seen_in"],
+   "properties": {
+    "mid": {"type": "integer"},
+    "eid": {"type": "string"},
+    "generation_key": {"type": ["string", "null"], "description": "текущая попытка ревизии текущего фото (есть и без годного файла — для разбора)"},
+    "revision_key": {"type": ["string", "null"]},
+    "status": {"type": "string", "enum": ["ready", "blocked"]},
+    "asset_id": {"type": ["string", "null"]},
+    "mesh_id": {"type": ["string", "null"], "description": "mid_eid товара-владельца меша (представитель у варианта) — ключ mesh-index прода"},
+    "representative_offer_id": {"type": ["string", "null"]},
+    "via_family": {"type": "boolean"},
+    "family_id": {"type": ["string", "null"]},
+    "reasons": {"type": "array", "items": {"type": "string"}, "description": "почему не ready; пусто у ready"},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "capabilities": {"type": "object", "additionalProperties": false, "required": ["solver", "local_3d", "appearance", "published_3d"],
+                     "properties": {"solver": {"type": "boolean"}, "local_3d": {"type": "boolean"}, "appearance": {"type": "boolean"},
+                                    "published_3d": {"type": "boolean"}}},
+    "passport": {"type": "object", "required": ["status", "catalog_dims", "hash"]},
+    "photo": {"type": "object", "required": ["basis", "current_sha"]},
+    "seen_in": {"type": "array", "items": {"type": "array"}, "description": "[[комната, роль, origin], …] — справка, не ключ"}
+   }}},
+  "counts": {"type": "object"}
+ }
+}

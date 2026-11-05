@@ -274,8 +274,47 @@ def merge(items: list) -> list:
     return out
 
 
+BINDING_ORIGINS = ('room_catalog',)   # чьим товарам меш даёт привязка offer_asset_binding (T-20261105-45); products — свои поля
+BINDING_KEYS = ('ready', 'asset_id', 'mesh_id', 'representative_offer_id', 'via_family', 'generation_key', 'revision_key',
+                'source_sha', 'glb_sha', 'orientation', 'passport_status', 'gate_status', 'published', 'capabilities', 'reasons',
+                'warnings', 'binding_snapshot')
+
+
+def bound_asset(asset: dict, row: dict | None, why: str) -> dict:
+    """Наложение привязки на asset товара. row — строка offer_asset_binding (room_bindings.load_db) или None:
+    why пусто — товара в привязке нет (меша нет ни своего, ни семьи) → mesh_status none; иначе таблица не читается → unbound."""
+    if row is None:
+        st = 'unbound' if why else 'none'
+        return dict(asset, mesh_status=st, mesh_url=None, ready=False, asset_id=None, mesh_id=None, representative_offer_id=None,
+                    via_family=False, generation_key=None, revision_key=None, source_sha=None, glb_sha=None, orientation=None,
+                    passport_status=None, gate_status=None, published=False, capabilities=None,
+                    reasons=[why] if why else ['no_asset'], warnings=[], binding_snapshot=None)
+    ready = row['status'] == 'ready'
+    aid = row['asset_id']
+    return dict(asset, mesh_status=row['status'], mesh_url=('file://' + row['local_path']) if ready and row['local_path'] else None,
+                ready=ready, asset_id=aid, mesh_id=row['mesh_id'], representative_offer_id=row['representative_offer_id'],
+                via_family=row['via_family'], generation_key=row['generation_key'], revision_key=row['revision_key'],
+                source_sha=row['source_sha'], glb_sha=aid.split(':', 1)[1] if aid else None, orientation=row['orientation'],
+                passport_status=(row['passport'] or {}).get('status'), gate_status='pass' if row['local_3d'] else 'fail',
+                published=row['published_3d'],
+                capabilities={k: row[k] for k in ('solver', 'local_3d', 'appearance', 'published_3d')},
+                reasons=list(row['reasons'] or []), warnings=list(row['warnings'] or []), binding_snapshot=row['snapshot_id'][:16])
+
+
+def with_binding(items: list, room_type: str, get=None) -> list:
+    """Меши товаров room_catalog — из таблицы привязки ОДНИМ запросом на вызов. Гостиная и товары products — как были
+    (их меш — поля products, Codex: «living/product rows retain their current DB fields»). Нет таблицы / пусто / чужая
+    политика — каждому товару room_catalog mesh_status unbound с причиной, без исключения."""
+    if room_type == 'living' or not any(c.origin in BINDING_ORIGINS for c in items):
+        return items
+    import room_bindings as RB
+    rows, why = RB.load_db(get or fetch)
+    return [dataclasses.replace(c, asset=bound_asset(c.asset, (rows or {}).get(c.offer_id), why))
+            if c.origin in BINDING_ORIGINS else c for c in items]
+
+
 def items(room_type: str, roles=None, *, desc_flags: dict | None = None, with_assets: bool = False,
-          _fetch=None) -> list:
+          _fetch=None, _mesh=None, _bindings=None) -> list:
     """Товары комнаты. roles: None — все роли профиля; [] — пусто без запроса; роль вне закрытого списка профиля — ValueError.
     desc_flags {имя: регекс} — признаки по products.description (регекс пустой — False). with_assets — состояние меша."""
     srcs = _sources(room_type)
@@ -301,7 +340,9 @@ def items(room_type: str, roles=None, *, desc_flags: dict | None = None, with_as
             out += [product_item(_width(r, N_PRODUCT + len(names)), room_type, names)
                     for r in get(products_sql(preset, want, flags))]
     out = merge(out)
-    return with_mesh(out, mesh_state()) if with_assets else out
+    if not with_assets:
+        return out
+    return with_binding(with_mesh(out, _mesh or mesh_state()), room_type, _bindings)
 
 
 # ---------------------------------------------------------------- схема (без jsonschema: типы верхнего уровня и ключи)
@@ -323,6 +364,15 @@ def schema_errors(d: dict, schema: dict | None = None) -> list:
         for sub in p.get('required', []):
             if isinstance(v, dict) and sub not in v:
                 errs.append(f'{k}.{sub}: нет')
+        for sub, q in (p.get('properties') or {}).items():      # вложенные поля (asset привязки) — тип и enum
+            if not isinstance(v, dict) or sub not in v:
+                continue
+            qs = q['type'] if isinstance(q.get('type'), list) else [q.get('type', 'null')]
+            w = v[sub]
+            if q.get('type') and not any(isinstance(w, T[t]) and not (t in ('integer', 'number') and isinstance(w, bool)) for t in qs):
+                errs.append(f'{k}.{sub}: {type(w).__name__} не {qs}')
+            if 'enum' in q and w not in q['enum']:
+                errs.append(f'{k}.{sub}: {w!r} не из {q["enum"]}')
     return errs
 
 
@@ -400,6 +450,51 @@ def _selftest() -> int:
     m = with_mesh(got, ({'1:a'}, {'2:b'}, {'2:b'}))
     ok('меш: готов / сгенерирован, брак по ревизии', [(c.asset['revision'], c.asset['defect']) for c in m]
        == [('ready', False), ('generated', True)])
+    # привязка мешей комнат (T-20261105-45): тесты Codex «Adapter tests»
+    import room_bindings as RB
+    calls = []
+
+    def tab(rows_, err=None):
+        def get(q):
+            calls.append(q)
+            if err:
+                raise RuntimeError(err)
+            return rows_
+        return get
+    lv = items('living', ['лампа', 'торшер'], desc_flags={'task': 'офис'}, _fetch=lambda s: rows, with_assets=True,
+               _mesh=({'1:a'}, {'2:b'}, {'2:b'}), _bindings=tab([]))
+    ok('гостиная с with_assets — как была, к привязке не ходит', [c.to_dict() for c in lv] == [c.to_dict() for c in m] and not calls)
+    rc = [dataclasses.replace(c, origin='room_catalog', room_type='bedroom', asset=dict(c.asset)) for c in m]
+    rc.append(dataclasses.replace(got[0], offer_id='3:c', mid=3, eid='c', room_type='bedroom'))   # товар products — свои поля
+    snap_id = 'f' * 64
+    row = lambda oid, st, rep=None, why=(): [oid, rep, st, 'sha256:' + 'a' * 64, (rep or oid).replace(':', '_'),  # noqa: E731
+                                             '/g/x', 'G', 'R', 'ph', 't' if rep else 'f', 'mesh-family:v1:x' if rep else None,
+                                             json.dumps(list(why)), '[]', 't', 't' if st == 'ready' else 'f', 't', 'f',
+                                             '{"status": "ok"}', '{"status": "auto_resolved", "yaw_deg": 90}',
+                                             RB.policy()['policy_version'], snap_id]
+    calls.clear()
+    b = with_binding(rc, 'bedroom', tab([row('1:a', 'ready'), row('2:b', 'blocked', '5:r', ['rep:orientation_review_pending'])]))
+    a0, a1 = b[0].asset, b[1].asset
+    ok('спальня: asset_id, mesh_id, ориентация, представитель, причины; один запрос на вызов',
+       len(calls) == 1 and a0['mesh_status'] == 'ready' and a0['ready'] and a0['asset_id'] == 'sha256:' + 'a' * 64
+       and a0['mesh_url'] == 'file:///g/x' and a0['orientation']['yaw_deg'] == 90 and a0['revision'] == 'ready'
+       and a1['mesh_status'] == 'blocked' and a1['mesh_url'] is None and a1['representative_offer_id'] == '5:r'
+       and a1['via_family'] and a1['reasons'] == ['rep:orientation_review_pending'] and a1['gate_status'] == 'fail'
+       and b[2].asset == rc[2].asset)
+    ok('товара нет в привязке — none (меша нет)', with_binding(rc[:1], 'bedroom', tab([row('9:z', 'ready')]))[0].asset['mesh_status'] == 'none')
+    bad_rows = [row('1:a', 'ready')]
+    bad_rows[0][-2] = 'v0'
+    mixed = [row('1:a', 'ready'), row('2:b', 'ready')]
+    mixed[1][-1] = 'e' * 64
+    want = {'binding_missing': tab([], 'relation "offer_asset_binding" does not exist'), 'binding_empty': tab([]),
+            'binding_version': tab(bad_rows), 'binding_corrupt': tab(mixed)}
+    res = {k: with_binding(rc, 'bedroom', g) for k, g in want.items()}
+    ok('нет таблицы / пусто / чужая политика / смесь снимков — unbound с причиной, без исключения',
+       all(c.asset['mesh_status'] == 'unbound' and c.asset['reasons'] == [k] for k, cs in res.items() for c in cs[:2])
+       and all(cs[2].asset == rc[2].asset for cs in res.values()))
+    errs = [schema_errors(c.to_dict()) for c in b + res['binding_missing']]
+    ok('расширенная схема принимает объект привязки', all(not e for e in errs) or print(errs))
+    ok('схема ловит неверный тип в asset', schema_errors(dict(b[0].to_dict(), asset=dict(a0, ready='да'))) == ["asset.ready: str не ['boolean']"])
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0
 

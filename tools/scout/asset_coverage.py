@@ -9,6 +9,9 @@
   брак              — ревизия owner_reject (asset_revisions) или модель из `mesh_defect.names` правил состава комнаты;
   привязан          — у товара есть меш в карточке (`products.mesh_uri`, `mesh_bind`) и он годен (mesh_status ready);
   привязан_не_годен — меш в карточке есть, но mesh_status stale|rejected|quarantine;
+  заблокирован      — товар room_catalog: привязка `offer_asset_binding` (`room_bindings.py`, T-20261105-45) знает его меш,
+                      но он не готов (mesh_status blocked — причины в отчёте) или привязка не читается (unbound); готовый по
+                      привязке — «привязан» (mesh_url file://);
   сирота            — glb на диске есть, а привязки нет (`mesh_bind` читает только products: меши комнат из `room_catalog` —
                       все такие, `room_mesh_jobs.py` их делает, карточка не видит); цветовой вариант без своего файла
                       берёт файл представителя семьи (`products.mesh_family_rep`, как `mesh_ready`) — отметка via_family;
@@ -32,7 +35,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-STATUSES = ('привязан', 'привязан_не_годен', 'сирота', 'ревизия_без_файла', 'брак', 'нет')
+STATUSES = ('привязан', 'привязан_не_годен', 'заблокирован', 'сирота', 'ревизия_без_файла', 'брак', 'нет')
 PROD_IDX = 'https://remont-lab.online/test/mesh-pilot10/mesh-index.json'   # как mesh_publish.PROD_IDX (ADR-0243)
 NO_STYLE, NO_BUCKET = '—', 'вне корзин'
 
@@ -43,6 +46,8 @@ def status(c, glb: dict, defect_rx=None) -> str:
     a = c.asset
     if a.get('defect') or (defect_rx and defect_rx.search(c.name or '')):
         return 'брак'
+    if a.get('mesh_status') in ('blocked', 'unbound'):
+        return 'заблокирован'
     if a.get('mesh_url'):
         return 'привязан' if a.get('mesh_status') == 'ready' else 'привязан_не_годен'
     if glb.get(c.offer_id):
@@ -193,6 +198,9 @@ def audit_room(room: str, glb: dict, prod: set | None, bank_path: str | None, vi
         cat, decor = CB.to_dicts(got)
         dicts = {(f"{d['mid']}:{d['eid']}", d['role']): d for d in cat + decor}
     rows, skipped, orphans = [], {}, []
+    why1: dict = {}
+    why_any: dict = {}
+    snaps = set()
     for c in got:
         for role in c.roles:
             if AS.strategy(role) != 'hunyuan3d':
@@ -207,6 +215,14 @@ def audit_room(room: str, glb: dict, prod: set | None, bank_path: str | None, vi
             inp = None if prod is None else prod_key(c.offer_id) in prod
             inb = (bank or {}).get(c.offer_id)
             rows.append({'status': st, 'cells': cells, 'in_prod': inp, 'bank': inb})
+            if c.asset.get('binding_snapshot'):
+                snaps.add(c.asset['binding_snapshot'])
+            if st == 'заблокирован':
+                import room_bindings as RB
+                rs = [RB.reason_key(x) for x in c.asset.get('reasons') or ['?']]
+                why1[rs[0]] = why1.get(rs[0], 0) + 1
+                for x in set(rs):
+                    why_any[x] = why_any.get(x, 0) + 1
             if st == 'сирота':
                 orphans.append({'sku': c.offer_id, 'role': role, 'name': c.name, 'origin': c.origin, 'glb': glb[c.offer_id],
                                 'via_family': c.offer_id in via, 'ready': c.asset.get('revision') == 'ready',
@@ -224,7 +240,9 @@ def audit_room(room: str, glb: dict, prod: set | None, bank_path: str | None, vi
                       'not_in_catalog_items': sum(bank[k] == 'items' for k in gone), 'not_in_catalog_sample': gone[:20],
                       '_why': 'sku банка, которых нет в выдаче адаптера сейчас (нет в наличии, снят, вне ролей) — статус не считается'},
                 prod_checked=prod is not None, orphans_n=len(orphans), orphans_by_origin=by_origin,
-                orphans_via_family=sum(o['via_family'] for o in orphans), **t,
+                orphans_via_family=sum(o['via_family'] for o in orphans), binding_snapshots=sorted(snaps),
+                blocked_primary=dict(sorted(why1.items(), key=lambda kv: -kv[1])),
+                blocked_any=dict(sorted(why_any.items(), key=lambda kv: -kv[1])), **t,
                 orphans=sorted(orphans, key=lambda o: (o['bank'] is None, o['role'], o['sku'])))
 
 
@@ -237,11 +255,11 @@ def outside(glb: dict, rooms: list, skus_seen: set) -> dict:
 def md(rep: dict) -> str:
     L = [f"# Покрытие ассетов комнат — {rep['at']}", '',
          f"Прод: {'индекс прочитан' if rep['prod_ok'] else 'НЕ прочитан'} ({rep['prod_src']}); файлов мешей на диске: {rep['glb_files']}.", '',
-         '| комната | товаров (мешевые роли) | привязан | не годен | **сирота** | без файла | брак | нет | на проде |',
-         '|---|---|---|---|---|---|---|---|---|']
+         '| комната | товаров (мешевые роли) | привязан | не годен | заблокирован | **сирота** | без файла | брак | нет | на проде |',
+         '|---|---|---|---|---|---|---|---|---|---|']
     for r in rep['rooms']:
         b = r['by_status']
-        L.append(f"| {r['room']} | {r['mesh_roles_rows']} | {b['привязан']} | {b['привязан_не_годен']} | **{b['сирота']}** | "
+        L.append(f"| {r['room']} | {r['mesh_roles_rows']} | {b['привязан']} | {b['привязан_не_годен']} | {b['заблокирован']} | **{b['сирота']}** | "
                  f"{b['ревизия_без_файла']} | {b['брак']} | {b['нет']} | {sum(r['on_prod'].values()) if r['prod_checked'] else '—'} |")
     L += ['', 'Банки наборов (позиции / альтернативы), сирот:']
     for r in rep['rooms']:
@@ -259,6 +277,11 @@ def md(rep: dict) -> str:
             roles[o['role']] = roles.get(o['role'], 0) + 1
         L.append(f"- {r['room']}: " + (', '.join(f'{k} {v}' for k, v in sorted(roles.items(), key=lambda kv: -kv[1])) or 'нет')
                  + f" (семья {r['orphans_via_family']})")
+    L += ['', 'Заблокированы привязкой (`offer_asset_binding`; строки «товар × роль»; первая причина / любая):']
+    for r in rep['rooms']:
+        L.append(f"- {r['room']} (снимок {', '.join(r['binding_snapshots']) or '—'}): "
+                 + (', '.join(f'{k} {v}' for k, v in r['blocked_primary'].items()) or 'нет')
+                 + ' / ' + (', '.join(f'{k} {v}' for k, v in r['blocked_any'].items()) or 'нет'))
     L += ['', 'Ячейки «роль × стиль × корзина» и списки сирот — в JSON рядом.']
     return '\n'.join(L) + '\n'
 
@@ -327,6 +350,11 @@ def _selftest() -> int:
     bed = {'role': 'кровать', 'w': 176, 'd': 214, 'h': 100, 'footprint_ok': True, 'sleep_w': 160}
     ok('корзины спальни: кровать 160 — пара, не одиночная', buckets_slots(R, (0.8, 1.1), 'кровать', bed, CB) == ['couple'])
     ok('корзины спальни: без размеров — вне корзин', buckets_slots(R, (0.8, 1.1), 'шкаф', {'role': 'шкаф'}, CB) == [NO_BUCKET])
+    ok('привязка: blocked и unbound — заблокирован, ready с файлом — привязан, none — по диску',
+       status(it('1:a', mesh_status='blocked', reasons=['orientation_missing']), glb) == 'заблокирован'
+       and status(it('9:x', mesh_status='unbound', reasons=['binding_empty']), glb) == 'заблокирован'
+       and status(it('1:a', mesh_status='ready', mesh_url='file:///m/1_a/model.glb'), glb) == 'привязан'
+       and status(it('1:a', mesh_status='none'), glb) == 'сирота' and status(it('9:x', mesh_status='none'), glb) == 'нет')
     ok('прод: нет индекса — None с причиной', prod_index('/nonexistent/x.json')[0] is None)
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0

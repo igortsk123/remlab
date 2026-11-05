@@ -1,0 +1,28 @@
+{
+ "_about": "Политика привязки товар → меш (room-pipeline-01 В-1а, T-20261105-45; разбор Codex _intake/codex/room-bind-2026-11-05-answer.md). Читает tools/scout/room_bindings.py; смена любого числа — новая policy_version (снимок с другой версией адаптер не читает как свой).",
+ "policy_version": "v1",
+ "passport": {
+  "_why": "паспорт ассета — габарит Ш×Г×В, с которым меш генерировали (manifest.json input.dims_cm), против текущего габарита каталога. ГИПОТЕЗА v1 (ведущий 05.11): отклонение не больше 3 % или 2 см — что больше. Допуск слота −20/+10 % сюда не годится: он отвечает на другой вопрос (Codex).",
+  "keys": ["w", "d", "h"],
+  "rel": 0.03,
+  "abs_cm": 2.0
+ },
+ "photo": {
+  "_why": "текущее фото — product_photo_current (единственный писатель photo_hash.sync, тот же источник у mesh_bind). Товарам только из room_catalog хеш не считается: при url_fallback фото считается текущим, если адрес картинки генерации = текущий адрес каталога (отметка photo_by_url в предупреждениях). Слабее хеша — Codex п.5; выключить — false.",
+  "url_fallback": true
+ },
+ "generation": {
+  "machine_verdict_ok": [null, "generated", "geometry_valid"],
+  "revision_status_ok": ["accepted", "generated"],
+  "origin_bad": ["legacy-local"],
+  "product_mesh_status_bad": ["quarantine", "rejected"]
+ },
+ "orientation": {
+  "_why": "решена для ЭТОГО glb (полный sha в resolution.glb_sha), контракт = orient_worker.CONTRACT, не unusable. «Симметрична по роли» (source symmetric_by_role) годится, только пока роль не направленная по orient_worker.directed_role: расширили DIRECTED — старое решение отваливается само (Codex отказ 3).",
+  "status_ok": ["auto_resolved", "human_resolved"]
+ },
+ "appearance": {
+  "_why": "вариант семьи рисуется мешем представителя: геометрия годна, вид — только если цвет обоих известен и в одной группе mesh_dark.COLOUR_GROUPS (обогащение primary_color). Неизвестно — не годен (fail-closed; демо в flat215_demo.py судит fail-open). Перекраска (mesh_tint) — позже.",
+  "family_same_colour_group": true
+ }
+}
