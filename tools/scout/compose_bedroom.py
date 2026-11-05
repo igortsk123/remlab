@@ -178,74 +178,26 @@ def room_spec(room_id: str, variant: str) -> dict:
     raise SystemExit(f'{FLAT}: нет {room_id}/{variant}')
 
 
-def _key(mid, eid) -> str:
-    return f"{mid}-{re.sub(r'[^A-Za-z0-9]', '_', str(eid))[:40]}"
-
-
-def load_catalog() -> list:
-    """Мебель спальни: показ (`room_catalog.shown_where`), только включённые роли, без детского общих ролей; стиль — по
-    семейству из `style-scores-bedroom.json` (тот же дедуп, что у `style_score.py --source room_catalog`)."""
-    import room_catalog as RC
-    from mesh_queue import db
-    R = RC.rules()
-    path = os.environ.get('BEDROOM_STYLE_SCORES') or os.path.join(HERE, 'style-scores-bedroom.json')
-    if not os.path.exists(path):
-        raise SystemExit(f'нет {path} — стиль спальни (style_score.py --source room_catalog); в worktree задать BEDROOM_STYLE_SCORES')
-    ss = load_json(path)
-    rows = db(f"select role, shop_mid, external_id, name, shop, price_rub, w_cm, d_cm, h_cm, sleep_w_cm, footprint_ok, "
-              f"coalesce(image_url_hd, image_url), url from room_catalog where {RC.shown_where(R)} and {RC.enabled_sql(R)}"
-              f"{RC.kids_where(R)} order by shop_mid, external_id")
-    out, fams = [], {}
-    for r in rows:
-        if len(r) < 13 or RC.child_only(r[0], r[3], R):
-            continue
-        fam = f'{r[4]}|{RC.family(r[3])}'
-        it = dict(role=r[0], mid=int(r[1]), eid=r[2], name=r[3], shop=r[4], price=int(float(r[5])), w=num(r[6]),
-                  d=num(r[7]), h=num(r[8]), sleep_w=num(r[9]), footprint_ok=r[10] == 't', img=r[11], url=r[12], fam=fam)
-        fams.setdefault(fam, []).append(it)
-        out.append(it)
-    for members in fams.values():   # оценка семейства — у любого его члена в кэше
-        sc = next((ss[_key(m['mid'], m['eid'])] for m in members if _key(m['mid'], m['eid']) in ss), None)
-        for m in members:
-            m['styles'] = sc
-    return out
-
-
-def load_decor(roles: list, rules: dict | None = None) -> list:
-    """Декор из каталога гостиной: в наличии, фото живо, цена есть; стиль — `product_style_scores` (оценки гостиной как есть).
-    Признаки ламп по описанию товара (`lamp_task_desc` / `lamp_bed_desc` правил) — флагами из БД, сам текст не тянем."""
-    from mesh_queue import db
-    R = rules or {}
-    lit = ','.join("'" + r.replace("'", "''") + "'" for r in roles)
-
-    def rx(k):
-        v = (R.get(k) or '').replace("'", "''")
-        return f"(coalesce(p.description,'') ~* '{v}')::int" if v else '0'
-    rows = db(f"select l.role, l.shop_mid, l.external_id, l.name, l.shop, l.price_rub, l.w_cm, l.d_cm, l.h_cm, l.image_url, "
-              f"l.url, {rx('lamp_task_desc')}, {rx('lamp_bed_desc')}, ps.scores::text "
-              f"from lr_roles l join products p using (shop_mid, external_id) "
-              f"join product_style_scores ps using (shop_mid, external_id) where l.role in ({lit}) and l.price_rub is not null "
-              f"and l.image_url is not null and p.in_stock and coalesce(p.photo_alive, true) order by l.shop_mid, l.external_id")
-    out = []
-    for r in rows:
-        if len(r) < 14:
-            continue
-        out.append(dict(role=r[0], mid=int(r[1]), eid=r[2], name=r[3], shop=r[4], price=int(float(r[5])), w=num(r[6]),
-                        d=num(r[7]), h=num(r[8]), img=r[9], url=r[10], desc_task=r[11] == '1', desc_bed=r[12] == '1',
-                        styles=json.loads(r[13]), fam=f'{r[4]}|{r[3]}'))
-    return out
-
-
-def mesh_state() -> tuple:
-    """(готовые, сгенерированные): готов — `mesh_ready.mesh_ready_raw` (принят + ориентация решена); сгенерирован —
-    ревизия меша есть, ориентацию ещё не решили (волна 2 спальни идёт сейчас)."""
-    from mesh_queue import db
-    from mesh_ready import mesh_ready_raw
-    ready = mesh_ready_raw()
-    gen = {r[0] for r in db("select distinct sku from asset_revisions where status in ('accepted','generated') "
-                            "and origin <> 'legacy-local'") if r and r[0]}
-    rejected = {r[0] for r in db("select distinct sku from asset_revisions where status = 'owner_reject'") if r and r[0]}
-    return ready, gen, rejected
+def load_items(rules: dict) -> tuple:
+    """(мебель, декор) спальни из адаптера каталога (`catalog_items.items('bedroom')`, room-pipeline-01 Б-1). Мебель —
+    room_catalog (показ, включённые роли, без детского в общих ролях), стиль — по семейству из `style-scores-bedroom.json`;
+    декор — каталог гостиной (в наличии, фото живо, цена, есть `product_style_scores`). Признаки ламп по описанию товара
+    (`lamp_task_desc` / `lamp_bed_desc` правил) — флагами из БД, сам текст не тянем. Поля словарей и их порядок — прежние
+    (`load_catalog`/`load_decor` до T-20261105-39): банк до/после перевода побайтно равен; NULL текста — '' как раньше."""
+    import catalog_items as CI
+    got = CI.items('bedroom', desc_flags={'task': rules.get('lamp_task_desc'), 'bed': rules.get('lamp_bed_desc')})
+    cat, decor = [], []
+    for c in got:
+        for role in c.roles:
+            base = dict(role=role, mid=c.mid, eid=c.eid, name=c.name or '', shop=c.shop or '', price=int(c.price),
+                        w=num(c.dims['w']), d=num(c.dims['d']), h=num(c.dims['h']))
+            if c.origin == 'room_catalog':
+                cat.append(dict(base, sleep_w=num(c.dims['sleep_w']), footprint_ok=c.dims['footprint_ok'] is True,
+                                img=c.photo['best'] or '', url=c.url or '', fam=c.family, styles=c.style))
+            else:
+                decor.append(dict(base, img=c.photo['url'] or '', url=c.url or '', desc_task=c.flags['task'],
+                                  desc_bed=c.flags['bed'], styles=c.style, fam=f"{c.shop or ''}|{c.name or ''}"))
+    return cat, decor
 
 
 def palette(items: list) -> None:
@@ -750,9 +702,9 @@ def main(argv: list) -> int:
             return 0
     out = BP.room_bank_output(os.environ, 'bedroom')
     print(f'Каталог спальни, декор, меши... порог стиля {thr}, полоса {tol}', flush=True)
-    cat = load_catalog()
-    decor = load_decor(sorted({r for p in R['purposes'].values() for r in p.get('decor', {}) if not r.startswith('_')}), R)
-    ready, gen, rejected = mesh_state()
+    import catalog_items as CI
+    cat, decor = load_items(R)
+    ready, gen, rejected = CI.mesh_state()
     C = Composer(cat, decor, ready, gen, R, tol, thr, rejected)
     print(f'мебели {len(cat)}, декора {len(decor)}, мешей готово {len(ready)} / сгенерировано {len(gen)}', flush=True)
     bank, report = compose(rooms, C)
