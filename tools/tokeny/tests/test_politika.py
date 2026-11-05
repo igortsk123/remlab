@@ -110,7 +110,7 @@ def test_svoya_mashina_beret_zhivoy_zhurnal(tmp_path: Path, monkeypatch: pytest.
     zhurnal.write_text(zapis(0, "a", 7, resets=4_000_000_000, api_ms=1) + zapis(1, "a", 8, resets=4_000_000_000,
                                                                                     api_ms=2), encoding="utf-8")
     assert tokeny.main(["--proekt", "remlab", "--sobrat", put, "--svodka", "--data", DEN, "--ozhidaem", "algor",
-                        "--zamery", "", "--limit", str(zhurnal)]) == 0
+                        "--zamery", "", "--limit", str(zhurnal), "--koren", str(tmp_path / "net")]) == 0
     assert any(s.startswith("Неделя учёток (время по Лондону): algor 8 % (на 05.11 10:01")
                for s in capsys.readouterr().out.splitlines())
 
