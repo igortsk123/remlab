@@ -486,7 +486,7 @@ def kitchen_views(room: Room, kit: KitchenKit, wall: str, u0: float, doors: list
 
 
 ROLE_RUN, ROLE_BLIND, ROLE_TALL, ROLE_LEG, ROLE_FRIDGE, ROLE_TABLE = (
-    "кухня-ряд", "кухня-глухой-конец", "кухня-колонна", "кухня-плечо", "холодильник", "обеденный-стол")
+    "кухня-ряд", "кухня-глухой-конец", "кухня-колонна", "кухня-плечо", "холодильник", "стол обеденный")
 H_CM = {ROLE_RUN: 90, ROLE_BLIND: 90, ROLE_LEG: 90, ROLE_TALL: 220, ROLE_FRIDGE: 200, ROLE_TABLE: 75}
 
 
