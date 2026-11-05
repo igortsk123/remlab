@@ -27,7 +27,8 @@ export function run(room) {
   return [ru, uk].flatMap((f) => kitchenExamplesFile.parse(f).examples).map((e) => {
     const spec = kitchenSpecFromExample(e, { roomDepthCm: room });
     const lay = kitchenLayout(spec);
-    return { id: e.id, spec, report: checkKitchen(spec), fillers: lay.fillers, sinkW: lay.slots[lay.sink]?.w, hobW: lay.slots[lay.hob]?.w };
+    return { id: e.id, spec, report: checkKitchen(spec), fillers: lay.fillers, sinkW: lay.slots[lay.sink]?.w, hobW: lay.slots[lay.hob]?.w,
+      upper: lay.upperSlots && lay.upperSlots.map((u) => u.w).join("/") + (spec.features.includes("hood") ? " + вытяжка над варочной" : "") };
   });
 }`,
     resolveDir: ROOT, loader: "ts",
@@ -43,7 +44,7 @@ const where = { front: "перед", "behind-island": "за островом", "
 const lines = [
   `Глубина комнаты ${ROOM} см; холодильник без колонны — отдельный 70 см вплотную у свободного конца (допущение).`,
   "",
-  "| паспорт | модули (линия · плечо) | холодильник | треугольник: мойка–варочная / варочная–холод. / холод.–мойка, сумма | проходы | вентканал | итог |",
+  "| паспорт | модули низ (линия · плечо) / верх | холодильник | треугольник: мойка–варочная / варочная–холод. / холод.–мойка, сумма | проходы | вентканал | итог |",
   "|---|---|---|---|---|---|---|",
 ];
 for (const r of rows) {
@@ -52,11 +53,13 @@ for (const r of rows) {
     ? `${t.sides.sinkHob} / ${t.sides.hobFridge} / ${t.sides.fridgeSink}, Σ ${t.sumCm} — ${t.ok ? "проходит" : t.problems.join("; ")}`
     : t.problems.join("; ");
   const fill = r.fillers.length ? ` + добор ${r.fillers.map((f) => f.w).join("/")}` : "";
-  const mods = `${(r.spec.modulesCm ?? []).join("/")}${r.spec.legModulesCm ? ` · ${r.spec.legModulesCm.join("/")}` : ""}${fill}`;
-  const fridge = r.spec.features.includes("fridge") ? "в колонне" : r.spec.fridgeAtCm !== undefined ? `отдельный, s=${r.spec.fridgeAtCm}` : "—";
+  const up = r.upper ? ` / верх ${r.upper}` : " / верх поровну";
+  const mods = `${(r.spec.modulesCm ?? []).join("/")}${r.spec.legModulesCm ? ` · ${r.spec.legModulesCm.join("/")}` : ""}${fill}${up}`;
+  const fridge = r.spec.features.includes("fridge") ? "в колонне" : r.spec.fridgeAtCm !== undefined ? `отдельный, s=${r.spec.fridgeAtCm}${r.spec.fridgeAssumed ? " (допущение)" : ""}` : "—";
   const aisles = r.report.aisles.map((a) => `${where[a.where]} ${a.gapCm}/${a.needCm}${a.ok ? "" : " ✗"}`).join(", ");
   const vent = r.report.vent ? `${r.report.vent.distanceCm} см${r.report.vent.ok ? "" : " ⚠"}` : "не задан";
-  const verdict = r.report.ok ? (r.report.warnings.length ? "ОК, ⚠" : "ОК") : `нет: ${r.report.problems.join("; ")}`;
+  const warn = r.report.warnings.length ? ` · ⚠ ${r.report.warnings.join("; ")}` : "";
+  const verdict = `${r.report.ok ? "ОК" : `нет: ${r.report.problems.join("; ")}`}${warn}`;
   lines.push(`| ${r.id} | ${mods} | ${fridge} | ${tri} | ${aisles} | ${vent} | ${verdict} |`);
 }
 console.log(lines.join("\n"));

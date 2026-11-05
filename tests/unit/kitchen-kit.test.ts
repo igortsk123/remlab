@@ -242,27 +242,54 @@ describe("паспорт → KitchenSpec", () => {
   });
 
   it("в кухне глубиной 3,11 м (flat215): проходы у всех; треугольник с холодильником вплотную — где проходит, где честно нет", () => {
-    // Холодильник в колонне (METOD 304/287, Wickes) — из колонны; нет — допущение: отдельный 70 см вплотную у свободного конца.
-    // «Европа» и «Ева» — модули паспорта 60/80/60/40: варочной нужен модуль 60 (духовка), мойке ≥ 45, и в 2,4 м не хватает
-    // 15 см до холодильника (105 при норме 120). Лечит посадка: холодильник через модуль или напротив — не набор.
+    // Холодильник в колонне (METOD 304/287, Wickes) — из колонны; нет — ДОПУЩЕНИЕ (помечено в warnings): отдельный 70 см
+    // вплотную у свободного конца. «Европа» и «Ева» — модули паспорта 60/80/60/40: варочной нужен модуль 60 (духовка), мойке
+    // ≥ 45, и в 2,4 м не хватает 15 см до холодильника. Wickes — мойка у угла на линии (как на фото), холодильник в колонне:
+    // между ними 2,1 м, две стороны по 120 не встают. Лечит посадка (холодильник через модуль, напротив, вторая колонна) — не набор.
+    const expected: Record<string, string[]> = {
+      "ru-sima-evropa-240": ["варочная — холодильник 105 см — меньше 120"],
+      "ru-sima-eva-240": ["варочная — холодильник 105 см — меньше 120"],
+      "uk-wickes-milton-sage": ["мойка — варочная 113 см — меньше 120", "варочная — холодильник 105 см — меньше 120"],
+    };
+    const assumption = "треугольник — по допущению: холодильник отдельный, вплотную у свободного конца ряда (место задаст посадка)";
     const failed: string[] = [];
     for (const [e, s] of specs) {
       const r = checkKitchen(s);
       expect(r.aisles.every((a) => a.ok), e.id).toBe(true);
-      expect(r.warnings, e.id).toEqual([]);
       const lay = kitchenLayout(s);
+      expect(r.warnings, e.id).toEqual(s.fridgeAssumed && r.triangle.sides ? [assumption] : []);
+      expect(s.fridgeAssumed === true, e.id).toBe(!s.features.includes("fridge"));
       if (lay.points.hob) {
         expect(lay.points.fridge, e.id).not.toBeNull();
         expect(Math.abs(lay.sink - lay.hob), e.id).toBeGreaterThanOrEqual(2);
       }
       if (r.triangle.ok === false) {
         failed.push(e.id);
-        expect(r.problems, e.id).toEqual(["варочная — холодильник 105 см — меньше 120"]);
+        expect(r.problems, e.id).toEqual(expected[e.id]);
       }
     }
-    expect(failed.sort()).toEqual(["ru-sima-eva-240", "ru-sima-evropa-240"]);
+    expect(failed.sort()).toEqual(Object.keys(expected).sort());
     const ok = specs.filter(([, s]) => checkKitchen(s).triangle.ok === true).map(([e]) => e.id).sort();
-    expect(ok).toEqual(["ru-sima-antracit-280", "ru-sima-prestizh-300", "ru-sima-zhemchug-280", "uk-wickes-milton-sage"]);
+    expect(ok).toEqual(["ru-sima-antracit-280", "ru-sima-prestizh-300", "ru-sima-zhemchug-280"]);
+  });
+
+  it("верх по паспорту: вытяжка точно над варочной, модули по порядку слева и справа; не сходятся — поровну", () => {
+    const byId = Object.fromEntries(specs.map(([e, s]) => [e.id, s]));
+    for (const id of ["ru-sima-evropa-240", "ru-sima-eva-240", "ru-sima-zhemchug-280", "ru-sima-antracit-280"]) {
+      const s = byId[id] as KitchenSpec;
+      const lay = kitchenLayout(s);
+      const hobX = lay.slots[lay.hob]?.along ?? NaN;
+      expect(lay.upperSlots?.map((u) => u.w), id).toEqual(s.upperModulesCm);
+      const ups = lay.upperSlots ?? [];
+      const edges = ups.map((u) => [u.x - u.w / 2, u.x + u.w / 2] as const);
+      expect(edges.some(([, b]) => Math.abs(b - (hobX - 30)) < 0.01) || Math.abs(hobX - 30 - lay.runX0) < 0.01, id).toBe(true);
+      expect(edges.some(([a]) => Math.abs(a - (hobX + 30)) < 0.01) || Math.abs(hobX + 30 - (lay.runX0 + lay.uppersW)) < 0.01, id).toBe(true);
+    }
+    expect(kitchenLayout(byId["ru-sima-evropa-240"] as KitchenSpec).upperSlots?.map((u) => u.x)).toEqual([-90, -20, 100]); // 60 | 80 | вытяжка | 40
+    // Wickes: верх паспорта 100/30/30 = 160 при ряде 270 — поровну
+    expect(kitchenLayout(byId["uk-wickes-milton-sage"] as KitchenSpec).upperSlots).toBeNull();
+    // не сходится вокруг вытяжки — поровну
+    expect(kitchenLayout({ ...(byId["ru-sima-evropa-240"] as KitchenSpec), hobAtCm: 100, sinkAtCm: 220 }).upperSlots).toBeNull();
   });
 
   it("подбор модулей: наборы из ряда ровно в длину, остаток < 40 — добор; с холодильником 2,8 м треугольник проходит", () => {
@@ -324,7 +351,10 @@ describe("сборка three", () => {
     const s = kitchenSpecFromExample(e);
     const legOf = (spec: KitchenSpec): Object3D => buildKitchen(ctx, spec).children.find((c) => c.type === "Group") as Object3D;
     const height = (o: Object3D): number => new Box3().setFromObject(o).max.y / CM;
-    expect(height(legOf(s))).toBeLessThan(148); // на уровне верхних шкафов ничего (выше столешницы — только смеситель мойки)
+    expect(height(legOf(s))).toBeCloseTo(90, 0); // выше столешницы ничего: мойка у угла на линии, полуостров — чистая столешница
+    const lay = kitchenLayout(s);
+    const main = lay.slots.filter((x) => !x.leg);
+    expect(lay.slots[lay.sink]).toBe(main[main.length - 1]); // мойка — у угла, у стены
     expect(height(legOf({ ...s, peninsula: false }))).toBeGreaterThan(200); // у стены — верх до 215
     const depth = (o: Object3D): number => { const b = new Box3().setFromObject(o); return (b.max.x - b.min.x) / CM; };
     expect(depth(legOf(s))).toBeGreaterThan(60 + 25); // свес столешницы за спину

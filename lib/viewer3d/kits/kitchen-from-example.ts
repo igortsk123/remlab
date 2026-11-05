@@ -58,6 +58,7 @@ export function kitchenSpecFromExample(e: KitchenExample, opts: { roomDepthCm?: 
     shape: e.shape,
     ...(e.shape === "corner" && k.peninsula ? { peninsula: true } : {}),
     fullRun: true,
+    ...(e.modules.upper.length ? { upperModulesCm: [...e.modules.upper] } : {}),
   };
   // ширины из паспорта — только если складываются ровно в ряд основной линии (у Wickes это состав набора, не порядок)
   const lay = kitchenLayout(spec);
@@ -74,7 +75,7 @@ export function kitchenSpecFromExample(e: KitchenExample, opts: { roomDepthCm?: 
   const { pick, fridgeAtCm } = best;
   return {
     ...spec,
-    ...(fridgeAtCm !== undefined ? { fridgeAtCm } : {}),
+    ...(fridgeAtCm !== undefined ? { fridgeAtCm, ...(opts.fridgeAtCm === undefined ? { fridgeAssumed: true } : {}) } : {}),
     modulesCm: pick.modulesCm,
     ...(pick.legModulesCm ? { legModulesCm: pick.legModulesCm } : {}),
     sinkAtCm: pick.sinkAtCm,

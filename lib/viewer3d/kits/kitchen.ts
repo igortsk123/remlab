@@ -154,13 +154,17 @@ function worktopWithSink(g: THREE.Group, topMat: THREE.Material, x0: number, x1:
   g.add(cylinder(1.4, 1.4, 18, sink.x, top + 29, back + 7, rim, 12).rotateX(Math.PI / 2));
 }
 
-/** Верхние шкафы от x0 длиной len у стены (кадр ряда); `skipAt` — место под вытяжку. */
-function uppers(g: THREE.Group, m: Mats, x0: number, len: number, back: number, skipAt: number | null): void {
-  for (const s of splitUnitsWithX(x0, len)) {
-    if (skipAt !== null && Math.abs(s.x - skipAt) < 30) continue;
+/** Верхние шкафы по готовым местам (центр и ширина) у стены (кадр ряда). */
+function upperBoxes(g: THREE.Group, m: Mats, slots: { x: number; w: number }[], back: number): void {
+  for (const s of slots) {
     g.add(boxOn(s.w, UPPER_TOP - UPPER_BOTTOM, UPPER_D, s.x, UPPER_BOTTOM, back + UPPER_D / 2, m.body));
     frontPanel(g, m.doorUpper, s.x, UPPER_BOTTOM, UPPER_TOP - UPPER_BOTTOM, s.w, back + UPPER_D + 0.5, true);
   }
+}
+
+/** Верхние шкафы поровну от x0 длиной len (кадр ряда); `skipAt` — место под вытяжку. */
+function uppers(g: THREE.Group, m: Mats, x0: number, len: number, back: number, skipAt: number | null): void {
+  upperBoxes(g, m, splitUnitsWithX(x0, len).filter((s) => skipAt === null || Math.abs(s.x - skipAt) >= 30), back);
 }
 
 /** Доборы ряда (`lay.fillers`): узкая панель в цвет фасада без ручки — закрывает остаток, куда модуль из ряда не встал. */
@@ -271,7 +275,9 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   // ── верхние шкафы и вытяжка ─────────────────────────────────────────────
   if (lay.uppersW > 0) {
     const hoodX = hob ? hob.along : 0;
-    uppers(out, m, runX0, lay.uppersW, back, has("hood") ? hoodX : null);
+    // ширины из паспорта, если сошлись (вытяжка точно над варочной); иначе поровну, как у вариантов застройщика
+    if (lay.upperSlots) upperBoxes(out, m, lay.upperSlots, back);
+    else uppers(out, m, runX0, lay.uppersW, back, has("hood") ? hoodX : null);
     if (has("hood")) {
       out.add(boxOn(60, 14, 48, hoodX, UPPER_BOTTOM + 4, back + 24, METAL));
       out.add(boxOn(26, UPPER_TOP - UPPER_BOTTOM - 18, 26, hoodX, UPPER_BOTTOM + 18, back + 14, METAL));

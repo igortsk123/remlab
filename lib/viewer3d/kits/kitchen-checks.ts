@@ -43,7 +43,7 @@ export interface KitchenReport {
   /** `ok: false` — вытяжка дальше порога: это предупреждение, `ok` отчёта от него не зависит. */
   vent: { distanceCm: number; ok: boolean } | null;
   problems: string[];
-  /** Замечания без отказа: сейчас — далёкий вентканал (порог — гипотеза). */
+  /** Замечания без отказа: далёкий вентканал (порог — гипотеза), треугольник по допущению о месте холодильника. */
   warnings: string[];
 }
 
@@ -110,30 +110,41 @@ export function checkKitchen(spec: KitchenSpec, opts: { cooks?: 1 | 2 } = {}): K
     ...(triangle.ok === false ? triangle.problems : []),
     ...aisles.filter((a) => !a.ok).map((a) => `проход ${where[a.where]} ${a.gapCm} см — меньше ${a.needCm}`),
   ];
-  const warnings = vent && !vent.ok ? [`вытяжка в ${vent.distanceCm} см от вентканала — дальше ${KITCHEN_NORMS.ventMaxCm} (норма не подтверждена)`] : [];
+  const warnings = [
+    ...(vent && !vent.ok ? [`вытяжка в ${vent.distanceCm} см от вентканала — дальше ${KITCHEN_NORMS.ventMaxCm} (норма не подтверждена)`] : []),
+    ...(spec.fridgeAssumed && lay.points.fridge && triangle.sides
+      ? ["треугольник — по допущению: холодильник отдельный, вплотную у свободного конца ряда (место задаст посадка)"]
+      : []),
+  ];
   return { ok: problems.length === 0, triangle, aisles, vent, problems, warnings };
 }
 
+/** Штраф, если верх паспорта не встаёт вокруг вытяжки над этой варочной: меньше 1 см треугольника (10), больше «мойки в середине». */
+const UPPER_MISFIT = 5;
+/** Узкий модуль под мойку/варочную: как 100 см недобора треугольника — берётся, только если иначе никак. */
+const NARROW_MODULE = 1000;
+
 /**
  * Где поставить мойку и варочную, чтобы треугольник прошёл: перебор модулей (варочная — на основной линии, не в крайнем
- * модуле у колонны или стены; между ней и мойкой — хотя бы модуль; под варочной модуль ≥ 60, под мойкой ≥ 45 — если такие
- * есть). Холодильника нет — только эти правила и вентканал. `score` — штраф лучшей пары (0 — всё по нормам), им же
+ * модуле у колонны или стены; между ней и мойкой — хотя бы модуль; под варочной модуль ≥ 60, под мойкой ≥ 45 — штраф
+ * `NARROW_MODULE`; у полуострова мойка — у угла на основной линии). Холодильника нет — только эти правила и вентканал. `score` — штраф лучшей пары (0 — всё по нормам), им же
  * `kits/kitchen-modules.ts` сравнивает наборы ширин модулей.
  */
 export function scoreWorkPoints(spec: KitchenSpec): { score: number; sinkAtCm: number; hobAtCm: number } | null {
   const lay = kitchenLayout(spec);
   const main = lay.slots.map((s, i) => ({ s, i })).filter((x) => !x.s.leg);
+  // ПОЛУОСТРОВ — чистая столешница: мойка на основной линии у угла, у стены (как у Wickes на фото); варочная — на линии всегда
+  const atCorner = spec.peninsula && lay.leg ? (lay.leg.at === "end" ? main[main.length - 1] : main[0]) : undefined;
+  const sinks = atCorner ? [atCorner] : lay.slots.map((s, i) => ({ s, i }));
   if (main.length < 2) return null;
   const N = KITCHEN_NORMS;
   const withHob = spec.features.includes("hob"); // без варочной её место ничего не значит — штрафы только за мойку
   const roomy = (sink: KitchenSlot, hob: KitchenSlot): boolean => sink.w >= N.sinkModuleMinCm && (!withHob || hob.w >= N.hobModuleMinCm);
-  const anyRoomy = lay.slots.some((a) => main.some((b) => a !== b.s && roomy(a, b.s)));
   const mid = (main.length - 1) / 2;
   let best: { score: number; sinkAtCm: number; hobAtCm: number } | null = null;
-  for (const sink of lay.slots.map((s, i) => ({ s, i }))) {
+  for (const sink of sinks) {
     for (const hob of main) {
       if (hob.i === sink.i) continue;
-      if (anyRoomy && !roomy(sink.s, hob.s)) continue;
       const trial = kitchenLayout({ ...spec, sinkAtCm: sink.s.s, hobAtCm: hob.s.s });
       const tri = checkTriangle(trial.points);
       const vent = checkVent(trial);
@@ -148,7 +159,9 @@ export function scoreWorkPoints(spec: KitchenSpec): { score: number; sinkAtCm: n
       if (withHob && !sink.s.leg && Math.abs(sink.i - hob.i) < 2) score += 500; // нет рабочего места между мойкой и плитой
       const hobPos = main.findIndex((m) => m.i === hob.i);
       if (withHob && (hobPos === 0 || hobPos === main.length - 1)) score += 200; // варочная в крайнем модуле — у колонны/стены
+      if (!roomy(sink.s, hob.s)) score += NARROW_MODULE; // мойка в модуле < 45 или варочная < 60 — только если иначе никак
       if (vent) score += vent.distanceCm;
+      if (spec.upperModulesCm?.length && trial.uppersW > 0 && !trial.upperSlots) score += UPPER_MISFIT; // верх паспорта не встал
       if (!sink.s.leg) score += Math.abs(main.findIndex((m) => m.i === sink.i) - mid); // при равенстве — мойка ближе к середине
       if (!best || score < best.score) best = { score, sinkAtCm: sink.s.s, hobAtCm: hob.s.s };
     }

@@ -52,6 +52,13 @@ export interface KitchenSpec {
   modulesCm?: number[];
   /** То же для второго плеча Г — от угла к торцу. */
   legModulesCm?: number[];
+  /**
+   * Ширины верхних шкафов основной линии слева направо, см, БЕЗ места под вытяжку: вытяжка (60) — точно над варочной,
+   * модули по порядку слева и справа от неё. Не сходятся ровно — верх делится поровну, как без них.
+   */
+  upperModulesCm?: number[];
+  /** `fridgeAtCm` — допущение (холодильника нет в составе, место ещё не задала посадка): проверки помечают это. */
+  fridgeAssumed?: boolean;
   /** Плечо Г — полуостров: без верхних шкафов и фартука, торец и спина открыты в комнату (у Wickes на фото). */
   peninsula?: boolean;
 }
@@ -70,6 +77,8 @@ export const KITCHEN_LEVELS = {
 } as const;
 
 export const COLUMN_W = 60;
+/** Место под вытяжку в ряду верхних шкафов, см. */
+export const HOOD_W = 60;
 export const UPPER_D = 35;
 /** Второе плечо Г по умолчанию, см от задней стены — оценка (у паспортов магазина длины плеча нет). */
 export const CORNER_LEG_CM = 150;
@@ -137,6 +146,8 @@ export interface KitchenLayout {
   ovenInColumn: boolean;
   /** Верхние шкафы основной линии: ширина от `runX0`, см (0 — их нет). */
   uppersW: number;
+  /** Верхние шкафы по `upperModulesCm` (центр по X и ширина); null — паспортных нет или не сошлись: верх поровну. */
+  upperSlots: { x: number; w: number }[] | null;
   leg: KitchenLeg | null;
   island: { x: number; z: number; w: number; d: number } | null;
   /** Остров просили, но он не влезает — барная стойка на торце линии. */
@@ -165,6 +176,29 @@ function fitModules(len: number, given: number[] | undefined): { widths: number[
   const rest = len - sum;
   if (rest >= 40) return { widths: [...widths, ...splitUnits(rest, 60)], filler: 0 };
   return { widths, filler: rest > 0.5 ? rest : 0 };
+}
+
+/**
+ * Верх по ширинам: отрезки слева и справа от вытяжки (или весь ряд без неё) заполняются модулями по порядку; каждый отрезок
+ * должен закрыться ровно (±0,5 см), и все модули — встать. Иначе null.
+ */
+function fitUppers(x0: number, len: number, hoodX: number | null, widths: number[]): { x: number; w: number }[] | null {
+  const segs: [number, number][] = hoodX === null ? [[x0, x0 + len]] : [[x0, hoodX - HOOD_W / 2], [hoodX + HOOD_W / 2, x0 + len]];
+  if (segs.some(([a, b]) => b < a - 0.5)) return null;
+  const out: { x: number; w: number }[] = [];
+  let i = 0;
+  for (const [a, b] of segs) {
+    let cur = a;
+    while (cur < b - 0.5) {
+      const w = widths[i];
+      if (w === undefined) return null;
+      out.push({ x: cur + w / 2, w });
+      cur += w;
+      i += 1;
+    }
+    if (Math.abs(cur - b) > 0.5) return null;
+  }
+  return i === widths.length ? out : null;
 }
 
 function nearest(slots: KitchenSlot[], s: number, allowed: (i: number) => boolean): number {
@@ -269,6 +303,9 @@ export function kitchenLayout(spec: KitchenSpec): KitchenLayout {
 
   const wantUppers = level.uppers > 0 || has("uppers");
   const uppersW = !wantUppers ? 0 : full ? runW : runW * Math.max(level.uppers, has("uppers") ? 0.62 : 0);
+  const hobSlot = slots[hob];
+  const hoodX = has("hood") && hobSlot ? hobSlot.along : null;
+  const upperSlots = spec.upperModulesCm?.length && uppersW > 0 ? fitUppers(runX0, uppersW, hoodX, spec.upperModulesCm) : null;
 
   // ОСТРОВ ТОЛЬКО ЕСЛИ ВЛЕЗАЕТ: перед линией рабочий проход, за островом — проход (нормы ADR-0330 п.7).
   // В кухне глубиной 1,8 м он упирался в противоположную стену (кадр 29.09).
@@ -290,6 +327,6 @@ export function kitchenLayout(spec: KitchenSpec): KitchenLayout {
 
   return {
     W, D, front, back, level, columns, tallW, colX0, runX0, runW, corner: cornerBox, slots, fillers,
-    sink, hob, dish, oven, wine, ovenInColumn, uppersW, leg, island, bar: wantIsland && !islandFits, points,
+    sink, hob, dish, oven, wine, ovenInColumn, uppersW, upperSlots, leg, island, bar: wantIsland && !islandFits, points,
   };
 }
