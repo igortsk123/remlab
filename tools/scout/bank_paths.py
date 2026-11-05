@@ -84,6 +84,23 @@ def demo_plan(env, out: str) -> dict:
     return {'bank': bank, 'live': False, 'demo_sets': os.path.join(out, 'demo-sets.json'), 'layout_sfx': f'-demo-{h}'}
 
 
+# БАНКИ КОМНАТ КРОМЕ ГОСТИНОЙ (ADR-0330 п.3, план onb-06): свой файл на тип комнаты; сборщик пишет только `*.next`,
+# подмена `sets-bedroom.next.json → sets-bedroom.json` — отдельным шагом после двух чистых ночей (onb-12). В `sets3.json`
+# спальни не вливаются: его читатели считают каждый набор гостиной (`flat215_demo.py`, раскладки по номеру, ночное лечение).
+ROOM_BANKS = {'bedroom': 'sets-bedroom'}
+
+
+def room_bank_output(env, room: str = 'bedroom') -> str:
+    """Куда сборщик комнаты пишет банк: `ROOM_SETS_OUTPUT` или `<банк>.next.json` рядом. Живой банк комнаты и
+    `sets3.json` — отказ (подмена не делается сборщиком)."""
+    base = ROOM_BANKS[room]
+    out = env.get('ROOM_SETS_OUTPUT') or f'{base}.next.json'
+    out = out if os.path.isabs(out) else os.path.join(HERE, out)
+    if same(out, os.path.join(HERE, f'{base}.json')) or same(out, LIVE):
+        raise SystemExit(f'ROOM_SETS_OUTPUT={out} — живой банк; сборщик пишет только {base}.next.json, подмена — onb-12')
+    return out
+
+
 def _selftest() -> int:
     import tempfile
     bad = 0
@@ -100,6 +117,11 @@ def _selftest() -> int:
             return True
         return False
 
+    ok('банк спальни: по умолчанию *.next рядом; живой sets-bedroom.json и sets3.json — отказ',
+       room_bank_output({}) == os.path.join(HERE, 'sets-bedroom.next.json')
+       and refused(lambda: room_bank_output({'ROOM_SETS_OUTPUT': 'sets-bedroom.json'}))
+       and refused(lambda: room_bank_output({'ROOM_SETS_OUTPUT': LIVE}))
+       and room_bank_output({'ROOM_SETS_OUTPUT': '/x/b.json'}) == '/x/b.json')
     ok('compose2 без env пишет как раньше', compose_output({}, 'sets3.json') == LIVE
        and compose_output({}, 'sets2.json') == os.path.join(HERE, 'sets2.json'))
     ok('SETS_OUTPUT относительный — рядом', compose_output({'SETS_OUTPUT': 'sets3.next.json'}, 'sets3.json')
