@@ -29,6 +29,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import hashlib
 import json
@@ -43,6 +44,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 RULES_PATH = os.path.join(HERE, 'rules', 'parity-living.json')
 GUARD = os.path.join(HERE, 'parity_guard.py')
+sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))     # heavy_slot — общая очередь тяжёлых прогонов (T-57)
 VERSION = 2              # 2 — база тоже заморожена (копия на момент freeze)
 STEPS = ('catalog', 'smoke', 'demo', 'cams', 'bank', 'exam')   # cams — из того же прогона демо; шаги комнаты — rules.rooms
 
@@ -342,30 +344,19 @@ def stand_env(R: dict, S: dict, net: str) -> dict:
     return env
 
 
-def mem_available_gb() -> float:
-    for ln in open('/proc/meminfo', encoding='ascii'):
-        if ln.startswith('MemAvailable:'):
-            return int(ln.split()[1]) / 1048576
-    return 0.0
-
-
-def wait_memory(R: dict, S: dict, step: str, need_gb: float | None = None, _read=mem_available_gb, _sleep=time.sleep) -> float:
-    """СТОРОЖ ПАМЯТИ (ведущий 05.11: earlyoom 8 раз снимал `remlab-render` живого демо, пока стенд собирал банк рядом с чужим
-    прогоном): тяжёлый шаг ждёт, пока свободно ≥ `memory.min_gb`; опрос раз в `memory.poll_s`, строка ожидания — в журнал шага."""
+@contextlib.contextmanager
+def heavy(R: dict, S: dict, step: str, need_gb: float | None = None):
+    """ТЯЖЁЛЫЙ ШАГ — ЧЕРЕЗ ОБЩУЮ ОЧЕРЕДЬ МАШИНЫ (`tools/ops/heavy_slot.py`, T-20261105-57; до того — свой цикл ожидания, T-41):
+    одно тяжёлое за раз на DEV, взявший очередь ждёт MemAvailable ≥ `memory.min_gb` (банк — `bank_gb`) и держит слот, пока идёт
+    шаг (ведущий 05.11: earlyoom снимал `remlab-render` живого демо, когда два прогона стартовали разом). Строки ожидания —
+    в журнал шага и в `~/remlab-logs/heavy-slot.log`; кто держит — `tools/ops/heavy-slot.sh --status`. → свободно ГБ."""
+    import heavy_slot as HS
     M = R['memory']
     need = need_gb if need_gb is not None else M['min_gb']
     log = os.path.join(S['stand'], 'logs', f'{step}.log')
-    t0, last = time.time(), -1e9
-    while True:
-        free = _read()
-        if free >= need:
-            if time.time() - t0 > 1:
-                _say(log, f'память: свободно {free:.1f} ГБ ≥ {need} — шаг {step} начат после ожидания {round(time.time() - t0)} с')
-            return free
-        if time.time() - last >= M['report_s']:
-            _say(log, f'память: свободно {free:.1f} ГБ < {need} ГБ — шаг {step} ждёт (опрос раз в {M["poll_s"]} с; живое демо важнее)')
-            last = time.time()
-        _sleep(M['poll_s'])
+    with HS.heavy_slot(f"parity-{S.get('room', 'living')}-{step}", min_gb=need, poll=M['poll_s'], report=M['report_s'],
+                       say=lambda m: _say(log, m), cmd=f"parity_living {step} {S['stand']}") as info:
+        yield info['free_gb'] if info['free_gb'] is not None else HS.mem_available_gb()
 
 
 def _say(log: str, msg: str) -> None:
@@ -381,6 +372,11 @@ def smoke_workers(R: dict, free_gb: float) -> int:
     return max(1, min(R['acc_workers'], int((free_gb - M['min_gb']) // M['per_worker_gb']) + 1))
 
 
+def _held_env() -> dict:
+    """Слот очереди у стенда — потомкам (если они сами зовут слот, вложенный вызов не ждёт стенд)."""
+    return {'HEAVY_SLOT_HELD': os.environ['HEAVY_SLOT_HELD']} if 'HEAVY_SLOT_HELD' in os.environ else {}
+
+
 def _run(S: dict, env: dict, step: str, argv: list, extra_env: dict | None = None, cwd: str | None = None) -> dict:
     log = os.path.join(S['stand'], 'logs', f'{step}.log')
     t = time.time()
@@ -388,7 +384,7 @@ def _run(S: dict, env: dict, step: str, argv: list, extra_env: dict | None = Non
         fh.write(f"$ {' '.join(argv)}\n")
         fh.flush()
         r = subprocess.run(['nice', '-n', '10', *argv], cwd=cwd or os.path.join(S['repo'], 'tools', 'scout'),
-                           env={**env, **(extra_env or {})}, stdout=fh, stderr=subprocess.STDOUT)
+                           env={**env, **(extra_env or {}), **_held_env()}, stdout=fh, stderr=subprocess.STDOUT)
     return {'rc': r.returncode, 'seconds': round(time.time() - t, 1), 'log': log}
 
 
@@ -415,14 +411,14 @@ def step_catalog(R, S, env) -> tuple[dict, dict]:
 
 def step_smoke(R, S, env) -> tuple[dict, dict]:
     sc = os.path.join(S['repo'], 'tools', 'scout')
-    free = wait_memory(R, S, 'smoke')
-    workers = smoke_workers(R, free)
-    st = _run(S, env, 'smoke', [PY, 'smoke_manifest.py'])
-    if st['rc'] != 0:
-        return st, {}
     man = os.path.join(sc, 'smoke-manifest.json')
-    st2 = _run(S, env, 'smoke', [PY, 'acceptance_run.py', 'zoned'],
-               {'ACC_WORKERS': str(workers), 'ACC_MANIFEST': man, 'ACC_REPORT_SUFFIX': '-smoke'})
+    with heavy(R, S, 'smoke') as free:
+        workers = smoke_workers(R, free)
+        st = _run(S, env, 'smoke', [PY, 'smoke_manifest.py'])
+        if st['rc'] != 0:
+            return st, {}
+        st2 = _run(S, env, 'smoke', [PY, 'acceptance_run.py', 'zoned'],
+                   {'ACC_WORKERS': str(workers), 'ACC_MANIFEST': man, 'ACC_REPORT_SUFFIX': '-smoke'})
     st2['seconds'] += st['seconds']
     if st2['rc'] != 0:
         return st2, {}
@@ -455,8 +451,8 @@ def step_demo(R, S, env) -> tuple[dict, dict]:
                 o = os.path.join(out, os.path.relpath(s, seed))
                 os.makedirs(os.path.dirname(o), exist_ok=True)
                 shutil.copy2(s, o) if f.endswith('.json') else os.link(s, o)
-    wait_memory(R, S, 'demo')
-    st = _run(S, env, 'demo', [PY, 'flat215_demo.py'], {'FLAT215_DEMO_OUT': out, **extra})
+    with heavy(R, S, 'demo'):
+        st = _run(S, env, 'demo', [PY, 'flat215_demo.py'], {'FLAT215_DEMO_OUT': out, **extra})
     if st['rc'] != 0:
         return st, {}
     d = json.load(open(os.path.join(out, 'demo-data.json'), encoding='utf-8'))
@@ -479,8 +475,8 @@ def _compose(R, S, env) -> tuple[dict, str | None]:
         _say(probe['log'], f'сборщик {plugin!r} ({script}) стенд запускать не умеет — нет rules.composers[{plugin!r}]')
         return dict(probe, rc=2), None
     out = os.path.join(S['stand'], 'out', how.get('out') or f'bank-{room}.json')
-    wait_memory(R, S, 'bank', R['memory']['bank_gb'])     # сборщик — один процесс (compose2 --bands all ~2 ГБ, потоки)
-    st = _run(S, env, 'bank', [PY, os.path.join(S['repo'], script), *how['args']], {how['out_env']: out})
+    with heavy(R, S, 'bank', R['memory']['bank_gb']):     # сборщик — один процесс (compose2 --bands all ~2 ГБ, потоки)
+        st = _run(S, env, 'bank', [PY, os.path.join(S['repo'], script), *how['args']], {how['out_env']: out})
     st['seconds'] += probe['seconds']
     st['composer'] = plugin
     if st['rc'] != 0:
@@ -505,9 +501,9 @@ def step_exam(R, S, env) -> tuple[dict, dict]:
     готовой сводке) — результат, а не поломка: попадает в артефакт; поломка — нет сводки."""
     ex = R['rooms'][S['room']]['exam']
     sc = os.path.join(S['repo'], 'tools', 'scout')
-    wait_memory(R, S, 'exam')
-    st = _run(S, env, 'exam', [PY, ex['script']], {f"{ex['env']}_OUT": os.path.join(S['stand'], 'out', 'exam'),
-                                                  f"{ex['env']}_SUFFIX": '-parity'})
+    with heavy(R, S, 'exam'):
+        st = _run(S, env, 'exam', [PY, ex['script']], {f"{ex['env']}_OUT": os.path.join(S['stand'], 'out', 'exam'),
+                                                      f"{ex['env']}_SUFFIX": '-parity'})
     summ = os.path.join(sc, f"{ex['report']}-parity.json")
     rows_p = os.path.join(sc, f"{ex['report']}-parity.jsonl")
     if not os.path.exists(summ):
@@ -950,14 +946,26 @@ def selftest() -> int:
     ok('таблица сменилась — эталон устарел', [s['key'] for s in st] == ['products'])
     ok('файл пропал — эталон устарел', stale_inputs(ri, {'files': {}, 'db': ri['db']})[0]['key'] == 'tools/scout/sets3.json')
     with tempfile.TemporaryDirectory(dir=os.path.expanduser('~/.cache')) as td:
+        import threading
+        import heavy_slot as HS
         os.makedirs(os.path.join(td, 'logs'))
-        seq = iter([2.0, 3.5, 7.0])
-        naps = []
-        free = wait_memory({'memory': dict(R['memory'], report_s=0)}, {'stand': td}, 'bank', 6, _read=lambda: next(seq),
-                           _sleep=naps.append)
-        lines = open(os.path.join(td, 'logs', 'bank.log'), encoding='utf-8').read()
-        ok('память: тяжёлый шаг ждёт ≥ 6 ГБ (опрос по правилам), ожидание — в журнале шага',
-           free == 7.0 and naps == [R['memory']['poll_s']] * 2 and lines.count('ждёт') == 2)
+        mi = os.path.join(td, 'meminfo')
+        put = lambda gb: open(mi, 'w').write(f'MemAvailable: {int(gb * 1048576)} kB\n')  # noqa: E731
+        put(2.0)
+        keep = {k: os.environ.get(k) for k in ('HEAVY_SLOT_DIR', 'HEAVY_SLOT_LOG', 'HEAVY_SLOT_MEMINFO', 'HEAVY_SLOT_HELD')}
+        os.environ.update(HEAVY_SLOT_DIR=os.path.join(td, 'slot'), HEAVY_SLOT_LOG=os.path.join(td, 'slot.log'), HEAVY_SLOT_MEMINFO=mi)
+        os.environ.pop('HEAVY_SLOT_HELD', None)
+        try:
+            threading.Timer(0.3, put, (7.0,)).start()
+            with heavy({'memory': dict(R['memory'], poll_s=0.05, report_s=10)}, {'stand': td, 'room': 'hall'}, 'bank', 6) as free:
+                inside = HS.is_held() and _held_env() == {'HEAVY_SLOT_HELD': str(os.getpid())}
+            lines = open(os.path.join(td, 'logs', 'bank.log'), encoding='utf-8').read()
+            ok('память: тяжёлый шаг — через общую очередь (heavy_slot): ждёт ≥ 6 ГБ, держит слот на шаг, потомкам — HEAVY_SLOT_HELD',
+               free == 7.0 and inside and not HS.is_held() and 'ждёт память' in lines and 'взял' in lines
+               and 'parity-hall-bank' in open(os.path.join(td, 'slot.log'), encoding='utf-8').read())
+        finally:
+            for k, v in keep.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
     ok('память: солверов смоука — сколько помещается сверх порога, не меньше одного',
        smoke_workers(R, 6.0) == 1 and smoke_workers(R, 30.0) == R['acc_workers'])
     # комнаты (T-54): шаги из правил, сборщик — по профилю, у каждого плагина профиля есть «как звать»

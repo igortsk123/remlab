@@ -177,6 +177,7 @@ jobs:
       - run: python tools/scout/gallery_binding_shadow.py --selftest   # тень «галерея по привязке»: повтор правила mtime, классы расхождений (T-20261105-50)
       - run: python tools/scout/salad/gallery_build.py --selftest   # галерея: выбор файла «привязка, иначе mtime» за флагом GALLERY_FROM_BINDING (выкл/вкл/нет файла привязки), glb_sha (T-20261105-50/2)
       - run: python tools/scout/tests/test_parity_living.py   # стенд паритета гостиной: шум, подмешанное различие, устаревший эталон, сторож записи и сети (T-20261105-41)
+      - run: bash tools/ops/heavy-slot-selftest.sh   # общая очередь тяжёлых прогонов DEV: по одному, смерть держателя освобождает, порог памяти, rc, таймаут, вложенный (T-20261105-57)
       - run: python tools/scout/tests/test_improve_prompt.py   # промпт «реалистично» v2: фото-вид, каталожная форма, тёплые гайды (demo-11)
       - run: python tools/scout/tests/test_rug_kids.py   # детские ковры: слова только для текстиля, ответ VLM по форме, роль по кэшу (demo-05)
       - run: python tools/scout/tests/test_kids_textile.py   # словарь детского текстиля — только ковры и текстиль, общий KIDS — все роли (T-20261017-01)
