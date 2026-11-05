@@ -34,14 +34,24 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOLVER = os.path.join(HERE, '..', '..', 'services', 'planner-solver')
-RULES = os.path.join(HERE, 'rules', 'bedroom-composition.json')
 FLAT = os.path.join(HERE, 'flat215-bedrooms.json')
-ZONES = os.path.join(SOLVER, 'rules', 'zones.json')
-SWAP = os.path.join(HERE, 'rules', 'demo-swap.json')
-MAJOR = ('кровать', 'шкаф', 'комод', 'тумба прикроватная')
+# ПРОФИЛЬ КОМНАТЫ (room-pipeline-01 Б-2, T-20261105-40): правила состава, допуск полосы, порог стиля, крупное, веса стиля и
+# жёсткий минимум шкафа — из `rules/profiles/bedroom.json` (ссылки на bedroom-composition.json, zones.json, demo-swap.json)
+import room_profile as _RP  # noqa: E402
+PROFILE = _RP.load('bedroom')
+MAJOR = _RP.major(PROFILE)          # крупное: кровать, шкаф, комод, тумба (полоса Ш×Г×В, вес стиля)
 FLOOR = MAJOR                       # то, что ставит солвер и чему нужен меш под слот
-ROLE_W = {'кровать': 1.0, 'шкаф': 0.85, 'комод': 0.6, 'тумба прикроватная': 0.4}   # вес в стиле набора (styles.json — шкаф/комод)
-WARDROBE_MIN_W = 80                 # уже — не шкаф, а пенал (ведущий 05.11: «ни один шкаф ≥ 80 см не встаёт»)
+ROLE_W = dict(PROFILE['style']['role_weights'])   # вес в стиле набора (styles.json — шкаф/комод)
+WARDROBE_MIN_W = _RP.hard(PROFILE, 'шкаф', 'min_w')   # уже — не шкаф, а пенал (ведущий 05.11: «ни один шкаф ≥ 80 см не встаёт»)
+
+
+def rules() -> dict:
+    """Правила состава наборов (профиль → composer.rules); новая копия на вызов, как прежний load_json(RULES)."""
+    return _RP.load('bedroom')['composer']['rules']
+
+
+def tolerance() -> tuple:
+    return tuple(PROFILE['tolerance'] or (0.8, 1.1))
 MESH_RANK = {'ready': 0, 'generated': 1, None: 2}
 
 
@@ -690,9 +700,9 @@ def main(argv: list) -> int:
     sys.path.insert(0, SOLVER)
     sys.path.insert(0, HERE)
     import bank_paths as BP
-    R = load_json(RULES)
-    tol = tuple(load_json(ZONES)['template_slot_envelopes'].get('tolerance') or (0.8, 1.1))
-    thr = float(load_json(SWAP)['in_style_min'])
+    R = rules()
+    tol = tolerance()
+    thr = float(PROFILE['style']['in_style_min'])
     rooms = argv[argv.index('--rooms') + 1].split(',') if '--rooms' in argv else list(R['rooms'])
     if '--nightly' in argv:     # флаг ADR-0330 п.5: ночь собирает только включённые комнаты
         on = {r['id'] for r in load_json(FLAT)['rooms'] if r.get('enabled')}
@@ -735,14 +745,14 @@ def _selftest() -> int:
         nonlocal bad
         print(('OK   ' if cond else 'FAIL ') + name)
         bad += not cond
-    R = load_json(RULES)
+    R = rules()
     tol = (0.8, 1.1)
     bed = R['purposes']['couple']['slots'][0]
     b = band_of(bed, tol)
     ok('полоса кровати пары: 140–192,5 по ширине, 172–236,5 по глубине', b == {'w': [140.0, 192.5], 'd': [172.0, 236.5]})
     good = {'role': 'кровать', 'w': 176, 'd': 214, 'h': 100, 'footprint_ok': True, 'sleep_w': 160}
     ok('кровать 160 в полосе — годна', gate(good, bed, b) is None)
-    _R = load_json(RULES)
+    _R = rules()
     _lamps = [{'name': n} for n in ('Офисная настольная лампа Arte Lamp EDWARD A5126LT-1WH', 'Светильник настольный Arte Lamp A5126Lt-1Bk',
                                      'Светильник настольный Xiaomi Yeelight J1 YLTD10YL', 'Светильник настольный Gauss Qplus GT6011 белый диммируемый',
                                      'Светильник настольный Gauss Qplus GTL502 8W 500lm 3500-5500K 170-265V',
@@ -830,7 +840,7 @@ if __name__ == '__main__':
         sys.exit(1 if _selftest() else 0)
     if '--check' in sys.argv:
         _b = load_json(sys.argv[sys.argv.index('--check') + 1])
-        _p = check_bank(_b, load_json(RULES), tuple(load_json(ZONES)['template_slot_envelopes'].get('tolerance') or (0.8, 1.1)))
+        _p = check_bank(_b, rules(), tolerance())
         print(_check_text(_b, _p))
         sys.exit(1 if [x for x in _p if not x.startswith('~')] else 0)
     sys.exit(main(sys.argv[1:]))

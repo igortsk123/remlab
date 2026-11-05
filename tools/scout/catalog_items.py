@@ -222,7 +222,7 @@ def room_catalog_items(rows: list, room_type: str) -> list:
 
 
 def _skey(mid, eid) -> str:
-    """Ключ кэша оценок стиля (`style_score.py`, как `compose_bedroom._key`)."""
+    """Ключ кэша оценок стиля (`style_score.py`; прежний `compose_bedroom._key`)."""
     import re
     return f"{mid}-{re.sub(r'[^A-Za-z0-9]', '_', str(eid))[:40]}"
 

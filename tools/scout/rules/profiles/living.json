@@ -1,0 +1,177 @@
+{
+ "_about": "ГОСТИНАЯ — ОПИСАНИЕ того, что есть (room-pipeline-01 Б-2, T-20261105-40). Сборщик гостиной compose2.py этот профиль НЕ читает и не меняется: он на старом пути до доказанного паритета (тень каталога — catalog_items_shadow.py, стенд хешей — волна Б). Числа здесь — ссылки на те правила, что читает compose2 сегодня; роли — его ROLES (линтер сверяет с исходником).",
+ "schema_version": 1,
+ "profile_id": "living",
+ "profile_version": "2026-11-05.1",
+ "content_sha": "dd81b6816fc9",
+ "room_type": "living",
+ "composer": {
+  "plugin": "living_legacy",
+  "_why": "compose2.py — наборы sets3 (6 стилей × 3 тира); правила у него свои, по файлам ниже"
+ },
+ "solver_plugin": "living",
+ "catalog": {
+  "adapter": "catalog_items",
+  "shadow": "tools/scout/catalog_items_shadow.py"
+ },
+ "roles": {
+  "диван": {
+   "source": "products"
+  },
+  "кресло": {
+   "source": "products"
+  },
+  "пуф": {
+   "source": "products"
+  },
+  "столик": {
+   "source": "products"
+  },
+  "тв-тумба": {
+   "source": "products"
+  },
+  "комод": {
+   "source": "products"
+  },
+  "стеллаж": {
+   "source": "products"
+  },
+  "витрина": {
+   "source": "products"
+  },
+  "стенка": {
+   "source": "products"
+  },
+  "стол обеденный": {
+   "source": "products"
+  },
+  "стул": {
+   "source": "products"
+  },
+  "камин": {
+   "source": "products"
+  },
+  "кашпо": {
+   "source": "products"
+  },
+  "торшер": {
+   "source": "products"
+  },
+  "ковёр": {
+   "source": "products"
+  },
+  "лампа": {
+   "source": "products"
+  },
+  "люстра": {
+   "source": "products"
+  },
+  "ваза": {
+   "source": "products"
+  },
+  "статуэтка": {
+   "source": "products"
+  },
+  "плед": {
+   "source": "products"
+  },
+  "подушка": {
+   "source": "products"
+  },
+  "растение": {
+   "source": "products"
+  },
+  "зеркало": {
+   "source": "products"
+  },
+  "полка": {
+   "source": "products"
+  },
+  "часы": {
+   "source": "products"
+  },
+  "шторы": {
+   "source": "products"
+  },
+  "бра": {
+   "source": "products"
+  }
+ },
+ "_roles_why": "роль — категория фида products.cat_role (category_map.py); «диван 2», «подушка 2» — второй слот той же роли в наборе, не роль каталога",
+ "style": {
+  "ids": {
+   "$ref": "tools/scout/styles.json#/styles"
+  },
+  "role_weights": {
+   "$ref": "tools/scout/styles.json#/role_weight"
+  }
+ },
+ "slots": {
+  "$ref": "services/planner-solver/rules/zones.json#/template_slot_envelopes/slots"
+ },
+ "size_buckets": {
+  "$ref": "tools/scout/size-bands.json#/bands"
+ },
+ "tolerance": {
+  "$ref": "services/planner-solver/rules/zones.json#/template_slot_envelopes/tolerance"
+ },
+ "norms": [
+  {
+   "$ref": "services/planner-solver/rules/occupancy.json"
+  },
+  {
+   "$ref": "services/planner-solver/rules/zones.json"
+  },
+  {
+   "$ref": "services/planner-solver/rules/registry.json"
+  },
+  {
+   "$ref": "services/planner-solver/rules/severity.json"
+  }
+ ],
+ "camera": {
+  "zones": {
+   "living": {
+    "core": {
+     "диван": 3,
+     "тв-тумба": 2,
+     "столик": 1.5,
+     "кресло": 1.5,
+     "стол обеденный": 1.5,
+     "стеллаж": 1,
+     "комод": 1,
+     "витрина": 1,
+     "торшер": 0.5,
+     "пуф": 0.5,
+     "стул": 0.25
+    },
+    "key": [
+     "диван",
+     "столик",
+     "тв-тумба"
+    ],
+    "show": [
+     "диван",
+     "тв-тумба"
+    ],
+    "must": [
+     "диван",
+     "шкаф",
+     "стеллаж",
+     "комод",
+     "витрина",
+     "тв-тумба",
+     "столик",
+     "стол",
+     "стол обеденный",
+     "стол письменный",
+     "кресло"
+    ]
+   }
+  },
+  "_why": "запись CAM_ZONES.living демо (index.html, onb-07 Т4): у гостиной видов нет — пару кадров выбирает прежнее правило; демо читает профиль в волне Г, до того линтер сверяет копию"
+ },
+ "asset_strategies": {
+  "$ref": "tools/scout/rules/asset-strategies.json#/roles"
+ }
+}
