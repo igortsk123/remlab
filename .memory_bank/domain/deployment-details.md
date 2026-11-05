@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-10-20
+updated: 2026-11-05
 importance: med
 source: manual
 last_verified: 2026-10-18
@@ -51,6 +51,17 @@ remlab-app:prev` не срабатывала ни разу — сервер тя
 | Каталог | `tools/scout/NNN-*.sql` | `tools/scout/db_migrate.py` | дев-БД `remlab-devdb` |
 
 Таблиц каталога (`products`, `mesh_demand`, `asset_revisions`) на проде нет и не должно быть.
+
+**Миграция дев-БД под паузой кронов (05.11, onb-12 ч.2, ADR-0330 п.6)** — `tools/ops/db-migrate-safe.sh <файл.sql> [--check '<boolean>']`
+вместо голого `db_migrate.py` под работающими кронами. Шаги: `cron-pause.sh on` (ждёт конца тяжёлых задач, `--wait`; не дождались —
+код 3, ничего не тронуто) → `pg_dump --clean` затронутых таблиц в `~/backups/migrate/<метка>-<имя>/` (ПОСЛЕ паузы, чтобы крон не
+записал между копией и миграцией; вся БД — если в SQL функции/вью/DO-блоки или на таблицу опирается вью/внешний ключ, как
+`products` ← `lr_roles`, `catalog_ready`; только схема — если все таблицы новые) → SQL `--single-transaction`, проверка `--check`
+в той же транзакции (не прошла — откат всей миграции, код 7) → `\d` новых таблиц в `after.txt` → `cron-pause.sh off` всегда (trap),
+но чужую паузу не трогает (код 4). Журнал — `~/backups/migrate/journal.log` (когда, итог, путь дампа, `bash …/rollback.sh`).
+Отказ сразу: свои BEGIN/COMMIT, CONCURRENTLY/VACUUM, `--db` не dev. Сухой прогон `--dry-run` только читает базу (какие таблицы есть).
+Самопроверка на заглушках — `tools/ops/db-migrate-safe.sh selftest` (в `pnpm test`: `tests/unit/db-migrate-safe.test.ts`).
+Дампы не чистятся сами — ~800 МБ база, полный дамп сжатый заметно меньше; уборка руками.
 Гарда — CI-job `db-init`: чистый postgres → вся прод-схема → второй проход (идемпотентность) →
 проверка, что таблицы приложения на месте.
 

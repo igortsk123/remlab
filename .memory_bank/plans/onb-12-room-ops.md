@@ -52,3 +52,4 @@ parent_plan: onb-00-quiz-master
 ## Лог выполнения
 - 2026-11-05 — каркас (T-20261105-06) PASS, влит: флаги `rooms[].enabled`/`quiz.enabled` (`contracts/partner.ts`, `lib/partners/registry.ts:roomContentState`), `room_flags` в `flat215_demo.py` (пусто при выключенных — данные байт в байт), замок `tools/ops/maintenance.sh` + `tools/ops/cron-pause.sh` (refresh_daily, nightly_exam, sink_keeper; сторожа денег/пула паузу не слушают), заготовки `tests_chain.py`. Решения: `mesh_audit_sync` к паузе не подключаем; ожидание `enrich_wait` до тайм-аута — так и оставить; обёртка миграции — ч.2 (T-20261105-13).
 - 2026-11-05 — черновик (ведущий) по Codex.
+- 2026-11-05 — T-20261105-13/1 (рабочий 2, ветка worktree-onb-12b): `tools/ops/db-migrate-safe.sh` — пауза → дамп → SQL одной транзакцией с проверкой → снятие паузы всегда → журнал; selftest на заглушках (26 проверок, в `pnpm test`); боевых миграций не запускали; раздел — `domain/deployment-details.md`.
