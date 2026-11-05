@@ -8,9 +8,18 @@
 каждый съеденный пиксель и каждый прилипший кусок фона.
 
   ~/venvs/scout/bin/python gallery_build.py           # собрать в ~/scout-scenes/mesh-pilot-gallery
+  python3 gallery_build.py --selftest                 # выбор файла (mtime / привязка) на подставных данных
+
+КАКОЙ ФАЙЛ НА SKU (T-20261105-50/2). По умолчанию — как всегда: папка поколения с самым свежим `manifest.json`.
+`GALLERY_FROM_BINDING=1` — файл привязки товар→меш (`offer_asset_binding`, T-45: текущая попытка ревизии ТЕКУЩЕГО фото),
+если он есть, цел и его полный sha совпал с привязкой; иначе — прежнее правило (товары не в наличии привязки не имеют).
+Зачем флагом: ночная сборка не должна поменяться, пока ведущий не посмотрит результат на /test/. В `mesh-index.json` у
+каждой модели — `glb_sha` (первые 16 знаков sha256 файла): демо ставит `?v=`, чтобы смена байтов под тем же адресом дошла
+до браузера. `GALLERY_OUT` — другая папка вывода (стенд и доказательства; по умолчанию прежняя).
 """
 import base64
 import glob
+import hashlib
 import html
 import json
 import os
@@ -19,15 +28,106 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 SRC = os.environ.get('GALLERY_SRC', os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2'))
-OUT = os.path.expanduser('~/scout-scenes/mesh-pilot-gallery')
-# В ЭТОЙ ПАПКЕ НЕ ДОЛЖНО БЫТЬ ЧУЖИХ РЕЕСТРОВ (01.09). Папка публикуется на прод целиком,
-# и завалявшийся здесь `orient.json` уехал поверх серверного: 185 записей ориентации
-# схлопнулись до 12. Реестры публикуются ТОЛЬКО слиянием (`publish_merge.py`).
-for _stray in ('orient.json',):
-    _p = os.path.join(OUT, _stray)
-    if os.path.exists(_p):
-        os.remove(_p)
-        print(f'убран чужой реестр из папки публикации: {_stray}', flush=True)
+OUT = os.environ.get('GALLERY_OUT') or os.path.expanduser('~/scout-scenes/mesh-pilot-gallery')
+SHA_CACHE = os.path.expanduser('~/scout-scenes/catalog-assets/v1/glb-sha-cache.json')   # кэш room_bindings: только читаем
+
+
+def drop_strays() -> None:
+    """В ЭТОЙ ПАПКЕ НЕ ДОЛЖНО БЫТЬ ЧУЖИХ РЕЕСТРОВ (01.09). Папка публикуется на прод целиком,
+    и завалявшийся здесь `orient.json` уехал поверх серверного: 185 записей ориентации
+    схлопнулись до 12. Реестры публикуются ТОЛЬКО слиянием (`publish_merge.py`).
+    (Было на уровне модуля — срабатывало и при импорте/селфтесте; теперь — в начале сборки, T-50/2.)"""
+    for _stray in ('orient.json',):
+        _p = os.path.join(OUT, _stray)
+        if os.path.exists(_p):
+            os.remove(_p)
+            print(f'убран чужой реестр из папки публикации: {_stray}', flush=True)
+
+
+def select(entries: list, only: set | None, bound: dict, from_binding: bool) -> tuple:
+    """Какую папку поколения показывать на SKU. entries — папки в порядке обхода сборки (свежий manifest первым):
+    {dir, sku, owner_reject, role_mesh, has_glb}. Прежнее правило: первая папка SKU без брака владельца, из списка отбора,
+    с ролью-мешем и model.glb (папка без model.glb SKU не занимает). bound — sku → папка файла привязки (уже проверенного:
+    цел, sha совпал); с from_binding у такого SKU берётся ТОЛЬКО эта папка, если она проходит те же условия, иначе —
+    прежнее правило. → ({sku: dir}, {sku: 'binding'|'mtime'})."""
+    ok = lambda e: not e['owner_reject'] and (only is None or e['sku'] in only) and e['role_mesh'] and e['has_glb']  # noqa: E731
+    want = {}
+    if from_binding:
+        dirs = {os.path.normpath(e['dir']): e for e in entries}
+        for sku, d in bound.items():
+            e = dirs.get(os.path.normpath(d))
+            if e is not None and e['sku'] == sku and ok(e):
+                want[sku] = os.path.normpath(d)
+    chosen, how = {}, {}
+    for e in entries:
+        s = e['sku']
+        if s in chosen or not ok(e):
+            continue
+        if s in want:
+            if os.path.normpath(e['dir']) != want[s]:
+                continue
+            how[s] = 'binding'
+        else:
+            how[s] = 'mtime'
+        chosen[s] = e['dir']
+    return chosen, how
+
+
+def _load_binding() -> tuple:
+    import catalog_items as CI
+    import room_bindings as RB
+    return RB.load_db(CI.fetch)
+
+
+def binding_dirs(only: set | None = None, load=_load_binding) -> tuple:
+    """sku → папка файла привязки, у которого файл цел и полный sha = asset_id привязки (only — только эти sku).
+    → (dirs, счётчики отказов). Привязка не читается — ({}, {причина}): сборка идёт прежним правилом, громко."""
+    try:
+        rows, why = load()
+    except Exception as e:  # noqa: BLE001
+        rows, why = None, repr(e)[:120]
+    if rows is None:
+        print(f'WARN:gallery_build: привязка не читается ({why}) — выбор файла прежний (mtime)', flush=True)
+        return {}, {'binding_unreadable': 1}
+    out, bad = {}, {}
+    for sku, r in rows.items():
+        if only is not None and sku not in only:
+            continue
+        if not r.get('asset_id') or not r.get('local_path'):
+            bad['no_file'] = bad.get('no_file', 0) + 1
+            continue
+        sha = glb_sha(r['local_path'])
+        if sha is None or 'sha256:' + sha != r['asset_id']:
+            bad['sha_mismatch'] = bad.get('sha_mismatch', 0) + 1
+            continue
+        out[sku] = os.path.dirname(r['local_path'])
+    return out, bad
+
+
+_SHA: dict | None = None
+
+
+def glb_sha(path: str) -> str | None:
+    """Полный sha256 файла; кэш room_bindings (путь → [размер, mtime, sha]) только читаем, промах — считаем сами."""
+    global _SHA
+    if _SHA is None:
+        try:
+            _SHA = json.load(open(SHA_CACHE, encoding='utf-8'))
+        except Exception:  # noqa: BLE001
+            _SHA = {}
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    hit = _SHA.get(path)
+    if hit and hit[0] == st.st_size and abs(hit[1] - st.st_mtime) < 1e-6:
+        return hit[2]
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for ch in iter(lambda: f.read(1 << 20), b''):
+            h.update(ch)
+    _SHA[path] = [st.st_size, st.st_mtime, h.hexdigest()]
+    return _SHA[path][2]
 
 CHECKER = ('data:image/png;base64,' + base64.b64encode(bytes.fromhex(
     '89504e470d0a1a0a0000000d494844520000001000000010080200000090916836000000'
@@ -195,29 +295,35 @@ def build() -> str:
     if only_p and os.path.exists(only_p):
         only = {l.strip().replace('_', ':', 1) for l in open(only_p, encoding='utf-8') if l.strip()}
         print(f'[галерея] отбор по списку: {len(only)} SKU', flush=True)
-    best = {}                     # на SKU показываем ОДИН меш — самый свежий (перегон затирает брак)
+    drop_strays()
+    import asset_strategy as AS
+    # На SKU показываем ОДИН меш — самый свежий (перегон затирает брак): обход от свежего manifest к старому,
+    # забракованное владельцем (owner_reject.json — ждёт перегона) и не-меши пропускаем. Показ — ТОЛЬКО оригинал
+    # генератора (владелец 01.09 — «ремонт калечит, оставляй оригинальные модели»): model.repaired.glb не читается.
+    # Папка без model.glb (suspect-комплект, одна диагностика) SKU не занимает — показывается предыдущая версия.
+    entries, mans = [], {}
     for d in sorted(glob.glob(os.path.join(SRC, '*/*/')), key=lambda p: -os.path.getmtime(os.path.join(p,'manifest.json')) if os.path.exists(os.path.join(p,'manifest.json')) else 0):
         man_p = os.path.join(d, 'manifest.json')
         if not os.path.exists(man_p):
             continue
         man = json.load(open(man_p, encoding='utf-8'))
-        if os.path.exists(os.path.join(d, 'owner_reject.json')):
-            continue                  # забракован владельцем — не показываем, ждёт перегона
-        if man['sku'] in best:
-            continue
-        if only is not None and man['sku'] not in only:
-            continue
-        import asset_strategy as AS
-        if AS.strategy(man.get('role')) != 'hunyuan3d':
-            continue
-        # Показ: ТОЛЬКО оригинал генератора (владелец 01.09 — «ремонт калечит, оставляй
-        # оригинальные модели»). Копии model.repaired.glb выведены из конвейера и не
-        # читаются даже если лежат рядом.
+        mans[d] = man
+        entries.append({'dir': d, 'sku': man['sku'], 'owner_reject': os.path.exists(os.path.join(d, 'owner_reject.json')),
+                        'role_mesh': AS.strategy(man.get('role')) == 'hunyuan3d',
+                        'has_glb': os.path.exists(os.path.join(d, 'model.glb'))})
+    from_binding = os.environ.get('GALLERY_FROM_BINDING') == '1'
+    bound, bad = binding_dirs(only) if from_binding else ({}, {})
+    chosen, how = select(entries, only, bound, from_binding)
+    if from_binding:
+        n_b = sum(1 for v in how.values() if v == 'binding')
+        none = len(only - set(chosen)) if only is not None else 0
+        no_row = sum(1 for s, v in how.items() if v == 'mtime' and s not in bound)
+        print(f'[галерея] выбор файла: по привязке {n_b} / по mtime {len(how) - n_b} / нет ничего {none} '
+              f'(по mtime: нет строки привязки {no_row}, файл привязки не годен для показа {len(how) - n_b - no_row}; '
+              f'отказы привязки {bad or "—"})', flush=True)
+    for d in [e['dir'] for e in entries if chosen.get(e['sku']) == e['dir']]:
+        man = mans[d]
         model_src = os.path.join(d, 'model.glb')
-        if not os.path.exists(model_src):
-            continue                  # suspect-комплект (одна диагностика): SKU не занимаем,
-            # пусть показывается предыдущая версия с мешом
-        best[man['sku']] = True
         sku = man['sku'].replace(':', '_')
         item_dir = os.path.join(OUT, sku)
         os.makedirs(item_dir, exist_ok=True)
@@ -241,7 +347,7 @@ def build() -> str:
         except Exception:  # noqa: BLE001 — приёмки ещё не было: страница важнее статуса
             pbr = {'status': 'не принят', 'problems': []}
         rows.append({'sku': sku, 'man': man, 'pbr': pbr,
-                     'ver': int(os.path.getmtime(model_src))})
+                     'ver': int(os.path.getmtime(model_src)), 'glb_sha': (glb_sha(model_src) or '')[:16] or None})
 
     rows = collapse_variants(rows)
     cards = []
@@ -272,7 +378,9 @@ def build() -> str:
     PER_PAGE = 10
     os.makedirs(OUT, exist_ok=True)
     # индекс опубликованных мешей — 3D-сцене демо (какие sid брать моделью, а не заглушкой)
-    json.dump({r['sku']: {'ver': r['ver']} for r in rows},
+    # glb_sha (T-50/2) — 16 знаков sha256 показанного файла: демо ставит ?v=, чтобы новые байты под тем же адресом
+    # не залипали в кэше браузера (ver — mtime, при смене выбора файла может уйти назад).
+    json.dump({r['sku']: {'ver': r['ver'], 'glb_sha': r['glb_sha']} for r in rows},
               open(os.path.join(OUT, 'mesh-index.json'), 'w'), ensure_ascii=False)
     npages = max(1, (len(cards) + PER_PAGE - 1) // PER_PAGE)
     for pi in range(npages):
@@ -315,5 +423,59 @@ def build() -> str:
     return OUT
 
 
+def _selftest() -> int:
+    """Выбор файла на SKU без базы и сети: флаг выкл / вкл / нет файла привязки, sha и отказ чтения привязки."""
+    import tempfile
+    bad = 0
+
+    def ok(name: str, cond: bool) -> None:
+        nonlocal bad
+        print(('OK   ' if cond else 'FAIL ') + name)
+        bad += 0 if cond else 1
+
+    E = lambda d, s, **k: {'dir': d, 'sku': s, 'owner_reject': False, 'role_mesh': True, 'has_glb': True, **k}  # noqa: E731
+    ents = [E('/g/a/new/', 'm:a'), E('/g/a/old/', 'm:a'), E('/g/b/new/', 'm:b', has_glb=False), E('/g/b/old/', 'm:b'),
+            E('/g/c/new/', 'm:c', owner_reject=True), E('/g/c/old/', 'm:c'), E('/g/d/x/', 'm:d', role_mesh=False)]
+    off, how_off = select(ents, None, {'m:a': '/g/a/old'}, False)
+    ok('флаг выкл: свежий manifest, папка без glb и брак владельца пропущены, не-меш не показан, привязка не читается',
+       off == {'m:a': '/g/a/new/', 'm:b': '/g/b/old/', 'm:c': '/g/c/old/'} and set(how_off.values()) == {'mtime'})
+    on, how = select(ents, None, {'m:a': '/g/a/old', 'm:c': '/g/c/new'}, True)
+    ok('флаг вкл: у SKU с привязкой — файл привязки, хоть он и старше',
+       on['m:a'] == '/g/a/old/' and how['m:a'] == 'binding')
+    ok('флаг вкл: файл привязки забракован владельцем — прежнее правило',
+       on['m:c'] == '/g/c/old/' and how['m:c'] == 'mtime')
+    ok('флаг вкл: нет строки привязки (нет в наличии) — прежнее правило', on['m:b'] == '/g/b/old/' and how['m:b'] == 'mtime')
+    on2, how2 = select(ents, None, {'m:a': '/g/a/gone'}, True)
+    ok('флаг вкл: нет файла привязки среди папок — прежнее правило', on2['m:a'] == '/g/a/new/' and how2['m:a'] == 'mtime')
+    on3, _ = select(ents, None, {'m:a': '/g/b/old'}, True)
+    ok('флаг вкл: папка привязки чужого SKU — не берём', on3['m:a'] == '/g/a/new/')
+    on4, _ = select(ents, {'m:b'}, {'m:a': '/g/a/old'}, True)
+    ok('список отбора действует и с привязкой', set(on4) == {'m:b'})
+    with tempfile.TemporaryDirectory() as t:
+        good, wrong = os.path.join(t, 'g1'), os.path.join(t, 'g2')
+        for p in (good, wrong):
+            os.makedirs(p)
+            open(os.path.join(p, 'model.glb'), 'wb').write(b'glTF' + p.encode())
+        sha = hashlib.sha256(b'glTF' + good.encode()).hexdigest()
+        ok('glb_sha — полный sha256 файла', glb_sha(os.path.join(good, 'model.glb')) == sha)
+        rows = {'m:a': {'asset_id': 'sha256:' + sha, 'local_path': os.path.join(good, 'model.glb')},
+                'm:b': {'asset_id': 'sha256:' + sha, 'local_path': os.path.join(wrong, 'model.glb')},
+                'm:c': {'asset_id': 'sha256:' + sha, 'local_path': os.path.join(t, 'нет', 'model.glb')},
+                'm:d': {'asset_id': None, 'local_path': None}}
+        dirs, why = binding_dirs(None, lambda: (rows, None))
+        ok('привязка: берём только файл, чей sha совпал с asset_id; битый/пропавший/без файла — отказ со счётом',
+           dirs == {'m:a': good} and why == {'sha_mismatch': 2, 'no_file': 1})
+        ok('привязка по списку отбора', binding_dirs({'m:b'}, lambda: (rows, None))[0] == {})
+
+    def boom():
+        raise RuntimeError('нет базы')
+    ok('привязка не читается — пусто, сборка идёт прежним правилом', binding_dirs(None, boom) == ({}, {'binding_unreadable': 1})
+       and binding_dirs(None, lambda: (None, 'snapshot_mismatch'))[0] == {})
+    print(f'итог: {"OK" if not bad else f"FAIL {bad}"}')
+    return 1 if bad else 0
+
+
 if __name__ == '__main__':
+    if '--selftest' in sys.argv[1:]:
+        sys.exit(_selftest())
     build()
