@@ -40,7 +40,7 @@ done
 cel="$VYHOD/svodka-$DEN.txt"
 tmp="$cel.tmp"
 python3 -B "$(dirname "$0")/tokeny.py" --proekt "$PROEKT" --sobrat "${fayly[@]}" --svodka --data "$DEN" \
-    --ozhidaem "$MASHINY" --zamery "$ZAMERY" > "$tmp" 2> "$tmp.err"
+    --ozhidaem "$MASHINY" --zamery "$ZAMERY" --doska "$STATE/.memory_bank/plans/README.md" > "$tmp" 2> "$tmp.err"
 kod=$?
 if [ "$kod" != 0 ]; then
     { echo "Сводка токенов $PROEKT за $DEN не собрана: tokeny.py, код $kod."; tail -n 5 "$tmp.err"; } > "$tmp"

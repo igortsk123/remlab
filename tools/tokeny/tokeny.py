@@ -67,6 +67,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from nazvaniya import nazvaniya
 from pamyat import SIMVOLOV_NA_TOKEN, Pamyat, pamyat_fayla, tier0_simvolov
 
 SKHEMA = "tokeny/1"
@@ -1287,23 +1288,75 @@ def stroka_limita(d: list[Stroka], proekt: str) -> list[str]:
     return [f"Недельный лимит (оценка): {proekt} ≈ {pp(nash)} п.п. — {', '.join(chasti)}."]
 
 
-def stroka_za_pp(d: list[Stroka]) -> list[str]:
-    """«$ на 1 п.п. недели»: $ суток проекта / п.п. проекта из оценки лимита, по учётке машины.
+MALO_PP = 1.0  # п.п.: меньше — процент недели целый, оценка по такой доле — шум («мало данных»)
+PROCHEE = "прочее (без метки)"  # задача, которой нет на доске (и в её истории)
 
-    Без `--sobrat` машина одна (`mashina` пустая). В выгрузках с разных машин — у каждой машины
-    своя учётка: делится $ её строк на её п.п.; машина без оценки лимита не показывается.
-    """
+
+def vzveshennye(ss: list[Stroka]) -> float:
+    """Взвешенные токены = $ по прайсу ÷ цена входа Opus 5.5: вход ×1, запись кэша ×1,25/×2, чтение ×0,05,
+    ответ ×5 — токены разных моделей и видов складываются по цене, как доли в сводке."""
+    return stoimost(ss) / CENY[CENA_ZAPASNAYA][0] * 1e6
+
+
+DNEY_NA_PROCENT = 7
+
+
+def baza_na_procent(korni: Path, den: date, dney: int = DNEY_NA_PROCENT) -> list[Stroka]:
+    """Выгрузки ВСЕХ проектов папки `korni` за `dney` суток по `den`: 1 % — свойство учётки машины, а не проекта
+    (прирост лимита делится между ответами всех проектов машины по цене), за сутки одного проекта его почти не видно."""
+    out: list[Stroka] = []
+    for papka in sorted(korni.glob("*/data/logs/tokeny")):
+        puti = [p for n in range(dney) for p in sorted(papka.glob(f"*-{den - timedelta(days=n)}.json"))]
+        out += skleit(puti, papka.parents[2].name, [])[0]  # чужой или битый файл — мимо, без ошибки
+    return out
+
+
+def stroka_na_procent(d: list[Stroka], ozhidaem: list[str] | None = None, dney: int = 1) -> list[str]:
+    """«На 1 % недели»: сколько млн взвешенных токенов даёт 1 % недельного лимита учётки каждой машины.
+
+    У каждой машины своя учётка: её взвешенные токены ÷ её п.п. из оценки лимита (`d` — за `dney` суток, в сводке —
+    все проекты за неделю, `baza_na_procent`). Доля меньше `MALO_PP` — «мало данных» (процент целый). Без `--sobrat`
+    машина одна (`mashina` пустая)."""
     po_mashine: dict[str, list[Stroka]] = defaultdict(list)
     for x in d:
         po_mashine[x.mashina].append(x)
-    chasti = [(m, stoimost(ss) / p) for m, ss in sorted(po_mashine.items())
-              if (p := sum(x.limit for x in ss)) > 0]
-    if not chasti:
+    if not any(x.limit for x in d):
         return []
-    if len(po_mashine) == 1:
-        return [f"$ на 1 п.п. недели: {dollary(chasti[0][1])}."]
-    return ["$ на 1 п.п. недели (у машин разные учётки): "
-            + ", ".join(f"{m} {dollary(v)}" for m, v in chasti) + "."]
+    if set(po_mashine) == {""}:
+        p = sum(x.limit for x in d)
+        return [f"На 1 % недели: {mln(vzveshennye(d) / p)} токенов (взвешенных)."] if p >= MALO_PP else []
+    est: dict[str, float] = {}
+    chasti = []
+    for m in sorted(set(po_mashine) | set(ozhidaem or [])):
+        p = sum(x.limit for x in po_mashine.get(m, []))
+        if p < MALO_PP:
+            chasti.append(f"{m} — мало данных")
+            continue
+        est[m] = vzveshennye(po_mashine[m]) / p
+        chasti.append(f"{m} {mln(est[m])}")
+    luchshie = sorted(est.items(), key=lambda kv: -kv[1])
+    if len(luchshie) < 2:
+        itog = "сравнить пока не с чем"
+    elif luchshie[0][1] < luchshie[1][1] * 1.1:
+        itog = f"{luchshie[0][0]} и {luchshie[1][0]} примерно равны"
+    else:
+        itog = (f"выгоднее {luchshie[0][0]}: в {pp(luchshie[0][1] / luchshie[1][1])} раза больше, "
+                f"чем {luchshie[1][0]}")
+    za = f"за {dney} дн., все проекты; " if dney > 1 else ""
+    return [f"На 1 % недели ({za}токены взвешенные): {', '.join(chasti)}; {itog}."]
+
+
+def stroki_zadach(d: list[Stroka], nazv: dict[str, str] | None, vsego: float) -> list[str]:
+    """Три самые дорогие задачи — названием с доски (`nazvaniya.py`), без ID; нет доски — блока нет."""
+    if nazv is None:
+        return []
+    po_zadache: dict[str, float] = defaultdict(float)
+    for x in d:
+        if x.zadacha:
+            po_zadache[nazv.get(x.zadacha) or nazv.get(x.zadacha.split("/")[0]) or PROCHEE] += x.stoimost()
+    top = sorted(po_zadache.items(), key=lambda p: (-p[1], p[0]))[:3]
+    return (["Самые дорогие задачи:" if top else "Задач с ID за эти сутки нет."]
+            + [f"{i}. {z} — {dollary(v)}, {procent(v, vsego)} % суток" for i, (z, v) in enumerate(top, 1)])
 
 
 def data_po_russki(den: date) -> str:
@@ -1422,11 +1475,13 @@ def stroka_zamera(put: Path | None, den: date, srok: int = 14) -> list[str]:
 
 def svodka(stroki: list[Stroka], proekt: str, den: date, vygruzki: list[Vygruzka] | None = None,
            ozhidaem: list[str] | None = None, zamery: Path | None = None,
-           bitye: list[str] | None = None) -> str:
+           bitye: list[str] | None = None, nazv: dict[str, str] | None = None,
+           baza: list[Stroka] | None = None) -> str:
     """6–12 строк простым текстом для Telegram: сутки по Лондону; все доли — от $ по прайсу.
 
     Из выгрузок (`--sobrat`): строки по машинам и «нет данных» по ожидаемым машинам, цена памяти;
-    с журналом замеров памяти — напоминание о просроченном замере."""
+    с журналом замеров памяти — напоминание о просроченном замере; с доской (`nazv`) — дорогие задачи;
+    `baza` — строки для «На 1 % недели» (все проекты за неделю), без неё — сутки проекта."""
     d = za_period(stroki, den, den)
     vsego = stoimost(d)
     kletki = setka(d)
@@ -1446,15 +1501,9 @@ def svodka(stroki: list[Stroka], proekt: str, den: date, vygruzki: list[Vygruzka
              if vygruzki is not None else []),
            *bez_ceny(d),
            f"{VED}: {doli(VED)}.", f"{ISP}: {doli(ISP)}.", stroka_peredelok(kletki, vsego)]
-    out += stroka_limita(d, proekt) + stroka_za_pp(d)
-    po_zadache: dict[str, float] = defaultdict(float)
-    for x in d:
-        if x.zadacha:
-            po_zadache[x.zadacha] += x.stoimost()
-    top = sorted(po_zadache.items(), key=lambda p: (-p[1], p[0]))[:3]
-    out.append("Самые дорогие задачи:" if top else "Задач с ID за эти сутки нет.")
-    out += [f"{i}. {z} — {dollary(v)}, {procent(v, vsego)} % суток"
-            for i, (z, v) in enumerate(top, 1)]
+    out += stroka_limita(d, proekt) + (stroka_na_procent(za_period(baza, den - timedelta(days=DNEY_NA_PROCENT - 1), den),
+                                                     ozhidaem, DNEY_NA_PROCENT) if baza is not None
+                                   else stroka_na_procent(d, ozhidaem)) + stroki_zadach(d, nazv, vsego)
     out += stroka_pamyati(d, vygruzki or [], den) + stroka_zamera(zamery, den)
     return "\n".join(out) + "\n"
 
@@ -1482,6 +1531,8 @@ def argumenty(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--zamery", help="журнал замеров памяти для напоминания в --svodka ('' — без "
                    "него; по умолчанию <проект>/.memory_bank/changelog/memory-eval.log)")
     p.add_argument("--svodka", action="store_true", help="сводка за сутки для Telegram")
+    p.add_argument("--doska", help="доска задач для названий в --svodka ('' — без неё; по умолчанию "
+                   "<проект>/.memory_bank/plans/README.md; нет файла — блока задач нет)")
     p.add_argument("--data", type=date.fromisoformat,
                    help="сутки для --svodka (по умолчанию вчера)")
     p.add_argument("--vyhod", help="файл отчёта (по умолчанию data/otchety/tokeny/<дата>.md)")
@@ -1558,8 +1609,12 @@ def main(argv: list[str] | None = None) -> int:
                 if v.mashina == socket.gethostname() and svoya and (
                         v.nedelya is None or str(svoya["posledniy"]) > str(v.nedelya["posledniy"])):
                     v.nedelya = svoya
-        sys.stdout.write(svodka(stroki, a.proekt, a.data or segodnya - timedelta(days=1),
-                                vygruzki, ozhidaem, zamery, bitye))
+        den = a.data or segodnya - timedelta(days=1)
+        doska = (koren_proekta(a.proekt) / ".memory_bank" / "plans" / "README.md"
+                 if a.doska is None else Path(a.doska) if a.doska else None)
+        sys.stdout.write(svodka(stroki, a.proekt, den, vygruzki, ozhidaem, zamery, bitye,
+                                nazvaniya(doska, den) if doska else None,
+                                baza_na_procent(KORNI, den) if vygruzki is not None else None))
         return 0
 
     po = a.po or max(a.s or segodnya, segodnya)

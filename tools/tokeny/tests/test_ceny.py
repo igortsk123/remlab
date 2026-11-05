@@ -51,10 +51,10 @@ def test_doli_i_limit_ot_dollarov() -> None:
     """Дефект: доли и лимит делились по взвешенным токенам, их нельзя складывать между моделями."""
     d = dve_modeli()
     assert tokeny.stoimost(d) == pytest.approx(0.70)
-    s = tokeny.svodka(d, "tamara", T0.date()).strip().split("\n")
+    s = tokeny.svodka(d, "tamara", T0.date(), nazv={"b-b": "Проверка сводки"}).strip().split("\n")
     assert s[2].startswith("Ведущий: планирование 0,0 %, проверка 71,4 %,")
     assert s[3].startswith("Исполнители: реализация 28,6 %,")
-    assert s[-2:] == ["1. b-b — $0,5000, 71,4 % суток", "2. a-a — $0,2000, 28,6 % суток"]
+    assert s[-2:] == ["1. Проверка сводки — $0,5000, 71,4 % суток", "2. прочее (без метки) — $0,2000, 28,6 % суток"]
     tokeny.razdelit_limit(d, [(T0 - timedelta(minutes=1), T0 + timedelta(minutes=5), 7.0)])
     assert [round(x.limit, 9) for x in d] == [2.0, 5.0]
 
