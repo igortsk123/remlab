@@ -3,7 +3,7 @@ tier: 1
 topic: catalog
 scope: Каталог — загрузка из фидов/API, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-11-04
+updated: 2026-11-05
 importance: high
 source: manual
 status: working
@@ -16,7 +16,7 @@ review_after: 2026-12-05
 
 **Состав (11.10):** 20 552 товара, 7 магазинов (ВсеИнструменты НЕ подключён — ADR-0240); дев-БД `remlab-devdb`.
 **Цикл:** crontab `40 10 * * *` UTC (фиды в 12:35 МСК) + `@reboot`; `refresh_daily.sh` — шаги
-`ok|warn|FAIL|skipped`, статус на прод, дайджест в Telegram, прод-сторож (ADR-0172, [[deployment]]).
+`ok|warn|FAIL|skipped`, статус на прод, дайджест в Telegram (`alert.sh` с повтором), прод-сторож (ADR-0172, [[deployment]]).
 
 **Источник истины (ADR-0171, `tools/scout/load3.py`):** ФИД — ключ `(merchant_id, id)`, название, ссылка,
 фото, `original_picture → image_url_hd`, `article`, цена, категория, params, описание (пустое не затирает).

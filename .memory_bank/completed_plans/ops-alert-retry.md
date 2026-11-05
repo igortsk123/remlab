@@ -2,10 +2,10 @@
 workstream: conveyor
 slug: ops-alert-retry
 title: ops — алерт в Telegram с повтором: связь DEV → api.telegram.org рвётся, сводка 05.11 не дошла с одной попытки
-status: in_progress
+status: completed
 created: 2026-11-05
 updated: 2026-11-05
-completed:
+completed: 2026-11-05
 ---
 
 ## Цель
@@ -33,20 +33,29 @@ completed:
 - `.env.alert` не читать и не печатать (секреты); в тестах — свой временный файл с фиктивными значениями.
 
 ## Файлы к изменению
-- [ ] `tools/scout/alert.sh` — повтор, деление, честный журнал
-- [ ] `tools/scout/tests/test_alert_retry.*` — тест с подменой curl
-- [ ] CI-шаг (тот же workflow, что для `test_refresh_digest.py`)
+- [x] `tools/scout/alert.sh` — повтор, деление, честный журнал
+- [x] `tools/scout/tests/test_alert_retry.*` — тест с подменой curl
+- [x] CI-шаг (тот же workflow, что для `test_refresh_digest.py`)
 
 ## Задачи
-- [ ] Т1 (рабочий) код + тест в worktree → отчёт; ведущий — ревью, ff в main (кроны DEV берут `alert.sh` из основной копии)
+- [x] Т1 (рабочий) код + тест в worktree → отчёт; ведущий — ревью, ff в main (кроны DEV берут `alert.sh` из основной копии)
 
 ## Критерии приёмки
-- [ ] Тест зелёный; старое поведение `ALERT_DRY=1` и коды 0/1/2 не изменились
-- [ ] Токен не попадает ни в один журнал и вывод
-- [ ] Худшее время одного вызова ≤ ~2 мин (3 × 20 с + 60 с пауз)
+- [x] Тест зелёный; старое поведение `ALERT_DRY=1` и коды 0/1/2 не изменились
+- [x] Токен не попадает ни в один журнал и вывод
+- [x] Худшее время одного вызова ≤ ~2 мин (3 × 20 с + 60 с пауз)
 
 ## Definition of Done — память
-- [ ] `core/catalog.md` / `domain/integrations.md` — где сказано про алерты: «с повтором»; урок 551 — ссылка на коммит
+- [x] `core/catalog.md` / `domain/integrations.md` — где сказано про алерты: «с повтором»; урок 551 — ссылка на коммит
 
 ## Лог выполнения
 - 2026-11-05 — план, T-20261105-31 → рабочий 1 (common).
+- 2026-11-05 — /1 (alert.sh + тест 32 проверки, обратный прогон против main — 13 FAIL) принят по коду; /2 правки: вызывающие с таймаутом
+  30–60 с (feed_guard без try — ронял бы ночной шаг) → 180 + WARN; отступление принято — money_guard/sink_health шлют в фоне
+  (тревога идёт ДО гашения пула). Попутно: `salad/tests_pool.py` звал настоящий alert.sh — подменён. Влито ff 6ed162ec, fa0068db, push.
+
+## Completion summary
+- `tools/scout/alert.sh` — повтор (3 попытки, 15/45 с), деление > 4 000 знаков, честный журнал без токена; тест `tools/scout/tests/test_alert_retry.py` в CI.
+- Вызывающие: таймауты 180 (`feed_guard`, `openai_budget`, `salad/wave_guard`, `salad/batch_show`), `feed_guard._alert` не падает (WARN:alert_timeout),
+  `salad/money_guard.notify` и `sink_health.alert_throttled` — в фоне (`alert_detached`).
+- Уроки: 551. Проверка в бою — первая ночь после вливания: строка сводки в `alert-sent.log`, без нового `TG FAIL`.

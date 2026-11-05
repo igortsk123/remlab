@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-10-29
+updated: 2026-11-05
 importance: high
 source: manual
 status: working
@@ -349,7 +349,8 @@ Standard, `isDownloadable:false`, платная модель магазина.
   (precision 0 % на 1 486 false; 829/829 мёртвых = true). Покрывает 63 % каталога.
 - Служебный Telegram-бот `@remlabservice_bot` (владелец, 03.09): значения — `tools/scout/.env.alert` (DEV,
   `TG_BOT_TOKEN/TG_CHAT_ID/DIGEST_QUIET_OK`) и `/opt/remlab/catalog-watchdog/.env` (прод); chat_id получен 03.09
-  (`getUpdates`), тесты с DEV и прода дошли. Документация Гдеслона: gdeslon.ru/faq/20 и /faq/21 (формат id не описан).
+  (`getUpdates`), тесты с DEV и прода дошли. Отправка с DEV — только `tools/scout/alert.sh`: до 3 попыток с паузами 15/45 с, текст > 4 000 знаков частями,
+  4xx кроме 429 — без повтора (связь DEV → Telegram рвётся, урок 551); сторожа денег и приёмника шлют в фоне (`tools/scout/salad/sink_health.py:alert_detached`). Документация Гдеслона: gdeslon.ru/faq/20 и /faq/21 (формат id не описан).
 
 
 ## Мост DEV ↔ прод для мешей: `/lab/mesh-review` и `/lab/mesh-audit` (2026-09-05)
