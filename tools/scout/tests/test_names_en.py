@@ -65,9 +65,25 @@ def main():
                      ('Журнальный стол divan.ru Лори Ореx', 'Lori coffee table, walnut'),
                      ('Ковер divan.ru Котри Серый 140х200', 'Kotri rug 140x200, grey'),
                      ('Кровать Орматек Тест 160*200 Велюр Синий', 'Test bed 160x200, blue velour'),
-                     ('Ваза Glasar с ручками 16х16х18см', 'Glasar vase with handles 16x16x18 cm')]:
+                     ('Ваза Glasar с ручками 16х16х18см', 'Glasar vase with handles 16x16x18 cm'),
+                     # спальня и детская (onb-04 Т7)
+                     ('Детская кровать divan.ru Петти 80 Букле Серый', 'Petti 80 kids bed, grey bouclé'),
+                     ('Письменный стол divan.ru Хейден 120x60 Орех/Черный', 'Kheyden desk 120x60, walnut/black'),
+                     ('Офисное кресло divan.ru Фирес Рогожка Зеленый', 'Fires office chair, green woven fabric'),
+                     ('Стул детский divan.ru Плампи Белый/Древесный', 'Plampi kids chair, white/wood')]:
         got = N.translate(ru, '', D)['name']
         check(f'словарь: «{ru}» → «{want}»', got == want, got)
+    # новые роли спальни и детской (onb-04): размеченные карточки фидов — 0 кириллицы, тип переведён, не транслитерирован
+    fx = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures')
+    new_roles = {'кроватка', 'кровать детская', 'стол рабочий', 'стол детский', 'стул рабочий', 'стул детский'}
+    names = {c['name'] for f in ('onb04-role-cases.json', 'onb04-dims-cards.json')
+             for c in json.load(open(os.path.join(fx, f), encoding='utf-8')) if c.get('role') in new_roles}
+    got = {ru: N.translate(ru, '', D) for ru in names}
+    bad = {ru: r['name'] for ru, r in got.items() if r['how'] != 'dict' or clean_en(r['name'], ru)}
+    check(f'новые роли спальни и детской ({len(names)} названий): 0 кириллицы, 0 магазинов, без нейтральных', names and not bad,
+          list(bad.items())[:5])
+    tl = {ru: r['name'] for ru, r in got.items() if any(w in r['name'] for w in ('Detsk', 'Pismenn', 'Ofisn', 'Kompyutern'))}
+    check('новые роли: тип переведён словарём, не транслитерацией', not tl, list(tl.items())[:5])
     r = N.translate('Диван угловой divan.ru Зефирка Велюр Изумрудный', 'диван', D)
     check('новая модель и цвет вне словаря — транслитерация, без кириллицы', not N.CYR.search(r['name']) and
           r['translit'] == ['Зефирка', 'Изумрудный'], r)
