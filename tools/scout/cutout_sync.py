@@ -24,7 +24,8 @@
 товар без вырезки — это товар, о котором конвейер ничего не знает.
 
   ~/venvs/scout/bin/python cutout_sync.py            # досчитать недостающее
-  ~/venvs/scout/bin/python cutout_sync.py --report   # что посчитано, что ждёт
+  ~/venvs/scout/bin/python cutout_sync.py --report   # что посчитано, что ждёт (и отдельно по комнатам)
+  CUTOUT_DAILY_MAX=0 ~/venvs/scout/bin/python cutout_sync.py --rooms-limit 10   # только товары комнат (T-46), 10 штук
 """
 import base64
 import hashlib
@@ -236,6 +237,20 @@ def todo(limit: int) -> list[tuple[str, str, str, str]]:
     return [tuple(r[:4]) for r in rows if len(r) == 5]
 
 
+# ТОВАРЫ КОМНАТ (room-pipeline-01 В-2, T-46): спальня и прихожая живут в `room_catalog`, а `todo` знает только `products`.
+# Кого брать и с какой ролью — `photo_hash.pick_rooms` (одно правило на хеш и вырезку); `todo` гостиной не тронут.
+# Комнаты идут ПОСЛЕ гостиной и своим лимитом (`--rooms-limit N` / `CUTOUT_ROOMS_MAX`, по умолчанию 0 — ночь та же).
+ROOMS_MAX = int(os.environ.get('CUTOUT_ROOMS_MAX', '0'))
+
+
+def rooms_todo(limit: int, skip_shas: set) -> list[tuple[str, str, str, str]]:
+    """(sku, role, image_url, source_sha) товаров комнат без вырезки текущей версии; sha, уже стоящие у гостиной, — мимо."""
+    if limit <= 0:
+        return []
+    picked, _ = PH.pick_rooms(PH.parse_room_rows(db(PH.rooms_rows_sql(PRE.ASSESSOR_VERSION))))
+    return PH.room_cutout_jobs(picked, skip_shas, limit)
+
+
 def one(job) -> tuple[str, str | None]:
     sku, role, url, sha = job
     dst = os.path.join(CACHE, sha + '.png')
@@ -279,6 +294,21 @@ def report() -> None:
     print(f'  у скольких известен хеш фото: '
           f"{db('select count(*) from product_photo_current')[0][0]}")
     print(f'  ждут вырезки: {len(todo(100000))}')
+    PH.print_rooms_stats(PRE.ASSESSOR_VERSION)
+
+
+def run_jobs(jobs: list[tuple[str, str, str, str]], label: str = '') -> dict:
+    print(f'к вырезке{label}: {len(jobs)} (источник {BACKEND}, потоков {WORKERS})', flush=True)
+    stat, errs = {'ok': 0, 'fail': 0, 'moved': 0}, []
+    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        for st, err in ex.map(one, jobs):
+            stat[st] += 1
+            if err:
+                errs.append(err)
+    print(f"вырезано{label} {stat['ok']}, фото сменилось у {stat['moved']}, отказов {stat['fail']}")
+    for e in errs[:10]:
+        print('   ✗', e)
+    return stat
 
 
 def main() -> int:
@@ -288,23 +318,21 @@ def main() -> int:
     if BACKEND not in BACKENDS:
         print(f'неизвестный источник маски: {BACKEND}')
         return 1
+    rooms_max = int(sys.argv[sys.argv.index('--rooms-limit') + 1]) if '--rooms-limit' in sys.argv else ROOMS_MAX
     added = sync_photos(int(os.environ.get('CUTOUT_SHA_MAX', '400')))
     if added:
         print(f'посчитано хешей фото: {added}', flush=True)
     jobs = todo(DAILY_MAX)
     if not jobs:
         print('вырезки актуальны — считать нечего')
-        return 0
-    print(f'к вырезке: {len(jobs)} (источник {BACKEND}, потоков {WORKERS})', flush=True)
-    stat, errs = {'ok': 0, 'fail': 0, 'moved': 0}, []
-    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-        for st, err in ex.map(one, jobs):
-            stat[st] += 1
-            if err:
-                errs.append(err)
-    print(f"вырезано {stat['ok']}, фото сменилось у {stat['moved']}, отказов {stat['fail']}")
-    for e in errs[:10]:
-        print('   ✗', e)
+    else:
+        run_jobs(jobs)
+    # Комнаты — после гостиной, своим лимитом (T-46); при 0 шаг молчит, вывод гостиной прежний.
+    rjobs = rooms_todo(rooms_max, {j[3] for j in jobs})
+    if rjobs:
+        run_jobs(rjobs, ' (комнаты)')
+    elif rooms_max > 0:
+        print('вырезки комнат актуальны — считать нечего')
     # Отказы не валят ночную цепочку: товар без вырезки просто ждёт следующего прогона.
     return 0
 
