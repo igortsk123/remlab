@@ -1,0 +1,118 @@
+{
+ "_about": "КУХНЯ (room-pipeline-01 Б-2, T-20261105-44): не товары из фидов, а процедурный набор (владелец 05.11). Набор — пример кухни магазина (data/partners/kitchen-examples/{ru,uk}.json) → kitSpec → lib/viewer3d/kits/kitchen.ts; посадка на комнату — planner/kitchen.py:seat_kitchen (процедурная, без перебора каталога), проверки — planner/kitchen_checks.py:validate_kitchen (реестр solver «kitchen», солвера-перебора нет). Нормы — services/planner-solver/rules/kitchen.json по ссылке, не копией.",
+ "schema_version": 1,
+ "profile_id": "kitchen",
+ "profile_version": "2026-11-05.1",
+ "content_sha": "8aefc06f91dd",
+ "room_type": "kitchen",
+ "composer": {
+  "plugin": "kitchen_kit",
+  "rules": {
+   "$ref": "services/planner-solver/rules/kitchen.json#/shapes"
+  },
+  "_why": "состав набора — паспорт примера (модули, колонны, техника); формы и плечо угла — rules/kitchen.json shapes; посадку на стену даёт tools/scout/kitchen_fit.py → data/partners/kitchen-fit/<квартира>.json"
+ },
+ "solver_plugin": "kitchen",
+ "catalog": {
+  "adapter": "kit",
+  "_why": "товаров фида у кухни нет: вариант застройщика ссылается на пример (specRef), набор строится кодом; роли — константы ROLE_* planner/kitchen.py (линтер сверяет)"
+ },
+ "roles": {
+  "кухня-ряд": {
+   "source": "kit"
+  },
+  "кухня-глухой-конец": {
+   "source": "kit",
+   "_why": "последние 65 см ряда у угла, когда холодильник за углом — ни мойки, ни варочной"
+  },
+  "кухня-колонна": {
+   "source": "kit"
+  },
+  "кухня-плечо": {
+   "source": "kit"
+  },
+  "холодильник": {
+   "source": "kit"
+  },
+  "стол обеденный": {
+   "source": "kit",
+   "_why": "пока коробка по норме мест (rules/kitchen.json dining); стол и стулья из каталога — до включения комнаты (ведущий 05.11)"
+  }
+ },
+ "_roles_why": "major не ставим: у набора нет мешей под слот и полос Ш×Г×В — размеры даёт паспорт примера, место — посадка",
+ "style": {
+  "ids": [],
+  "role_weights": {},
+  "in_style_min": null,
+  "_why": "порога нет — нет стилей; стиль кухни — цвет фасадов и столешницы примера (lib/viewer3d/kits/kitchen-materials.ts), к стилям комнат не привязан; связь со стилями — волна В"
+ },
+ "slots": {
+  "$ref": "services/planner-solver/rules/kitchen.json#/dining"
+ },
+ "_slots_why": "свободный слот у кухни один — обеденный стол (места и глубина по норме); ряд, колонны и плечо — из паспорта примера",
+ "tolerance": {
+  "$ref": "services/planner-solver/rules/zones.json#/template_slot_envelopes/tolerance"
+ },
+ "norms": [
+  {
+   "$ref": "services/planner-solver/rules/occupancy.json"
+  },
+  {
+   "$ref": "services/planner-solver/rules/kitchen.json"
+  }
+ ],
+ "camera": {
+  "zones": {
+   "kitchen": {
+    "ready": false,
+    "core": {
+     "кухня-ряд": 3,
+     "кухня-колонна": 1.5,
+     "кухня-плечо": 2,
+     "холодильник": 1,
+     "стол обеденный": 1.5,
+     "стул": 0.25
+    },
+    "key": [
+     "кухня-ряд"
+    ],
+    "show": [
+     "кухня-ряд",
+     "стол обеденный"
+    ],
+    "must": [
+     "кухня-ряд",
+     "кухня-колонна",
+     "кухня-плечо",
+     "холодильник",
+     "стол обеденный"
+    ],
+    "views": [
+     [
+      {
+       "from": "foot",
+       "of": "кухня-ряд",
+       "look": "кухня-ряд",
+       "tol": 30
+      },
+      {
+       "from": "door",
+       "look": "кухня-ряд",
+       "tol": 30
+      }
+     ],
+     {
+      "from": "head",
+      "of": "кухня-ряд",
+      "look": "стол обеденный",
+      "tol": 35
+     }
+    ]
+   }
+  },
+  "_why": "запись CAM_ZONES.kitchen демо (T-33 → Работник 2, ветка onb-12c): вид 1 — из комнаты на ряд (вход — равноправный запасной), вид 2 — встречный от ряда на стол; точки-эталоны — data/partners/kitchen-fit/flat215.json fits.*.views"
+ },
+ "asset_strategies": {
+  "$ref": "tools/scout/rules/asset-strategies.json#/roles"
+ }
+}

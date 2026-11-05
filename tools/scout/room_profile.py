@@ -35,7 +35,14 @@ CAM_HTML = os.path.join(HERE, 'flat215-demo', 'index.html')
 REGISTRY = os.path.join(ROOT, 'services', 'planner-solver', 'planner', 'room_registry.py')
 MODELS = os.path.join(ROOT, 'services', 'planner-solver', 'planner', 'models.py')
 # реестр сборщиков наборов: имя плагина → файл (плагин — код, профиль только называет его)
-COMPOSERS = {'living_legacy': 'tools/scout/compose2.py', 'bedroom': 'tools/scout/compose_bedroom.py'}
+COMPOSERS = {'living_legacy': 'tools/scout/compose2.py', 'bedroom': 'tools/scout/compose_bedroom.py',
+             # кухня — не товары фидов, а процедурный набор по примеру (владелец 05.11, T-44); none — наборов комнаты ещё нет (волна В)
+             'kitchen_kit': 'lib/viewer3d/kits/kitchen-from-example.ts', 'none': None}
+# роли процедурного набора (catalog.adapter = kit): константы ROLE_* модуля посадки — роли профиля должны совпасть с ними
+KIT_ROLES = {'kitchen': 'services/planner-solver/planner/kitchen.py'}
+# TODO после T-43 / волна В: адаптер catalog_items пока не знает этих комнат — роли профиля сверяются с правилами каталога комнаты
+# (ЕДИНСТВЕННОЕ исключение из «роли — один источник»; комната попадёт в catalog_items.ROOM_TYPES — строку убрать)
+ADAPTER_PENDING = {'hall': 'tools/scout/rules/hall-roles.json#/roles_enabled'}
 UNVERSIONED = ('profile_version', 'content_sha')
 
 
@@ -184,6 +191,13 @@ def role_errors(room_type: str, P: dict) -> list:
     """Роли: источник один — профиль (T-20261105-43). Адаптер `catalog_items` выводит их из профиля; списки, которые ещё
     живут у потребителей, не читающих профиль (`role_lists`), обязаны с ним совпадать."""
     import catalog_items as CI
+    if P['catalog']['adapter'] == 'kit':
+        return kit_role_errors(room_type, P)
+    if room_type not in CI.ROOM_TYPES and room_type in ADAPTER_PENDING:
+        a, b = set(P['roles']), set(deref(ADAPTER_PENDING[room_type]))
+        bad = sorted({v['source'] for v in P['roles'].values()} - {'room_catalog'})
+        return ([f'роли: только в профиле {sorted(a - b)}, только в {ADAPTER_PENDING[room_type]} {sorted(b - a)}'] if a != b else []) + \
+               ([f'роли {room_type} до адаптера — только room_catalog, а есть {bad}'] if bad else [])
     if room_type not in CI.ROOM_TYPES:
         return [f'у адаптера catalog_items нет типа {room_type} ({CI.ROOM_TYPES})']
     E = []
@@ -200,6 +214,35 @@ def role_errors(room_type: str, P: dict) -> list:
         if a != b:
             E.append(f'роли {src}: профиль и {where} расходятся — только в профиле {sorted(a - b)}, только там {sorted(b - a)}')
     return E
+
+
+def kit_role_errors(room_type: str, P: dict) -> list:
+    """Процедурный набор (catalog.adapter = kit): все роли — source kit и совпадают с ROLE_* модуля посадки (`KIT_ROLES`)."""
+    E = []
+    srcs = {v['source'] for v in P['roles'].values()}
+    if srcs != {'kit'}:
+        E.append(f'catalog.adapter kit — у всех ролей source kit, а есть {sorted(srcs - {"kit"})}')
+    if room_type not in KIT_ROLES:
+        return E + [f'catalog.adapter kit: нет модуля ролей набора для {room_type} (KIT_ROLES)']
+    a, b = set(P['roles']), set(kit_roles(KIT_ROLES[room_type]))
+    if a != b:
+        E.append(f'роли kit: только в профиле {sorted(a - b)}, только в {KIT_ROLES[room_type]} {sorted(b - a)}')
+    return E
+
+
+def kit_roles(path: str) -> list:
+    """Роли процедурного набора: строковые константы ROLE_* модуля (`ROLE_A = "…"` или `ROLE_A, ROLE_B = ("…", "…")`), без импорта."""
+    out = []
+    for n in ast.walk(ast.parse(open(os.path.join(ROOT, path), encoding='utf-8').read())):
+        if not (isinstance(n, ast.Assign) and len(n.targets) == 1):
+            continue
+        t, v = n.targets[0], n.value
+        pairs = list(zip(t.elts, v.elts)) if isinstance(t, ast.Tuple) and isinstance(v, ast.Tuple) else [(t, v)]
+        out += [c.value for nm, c in pairs if isinstance(nm, ast.Name) and nm.id.startswith('ROLE_')
+                and isinstance(c, ast.Constant) and isinstance(c.value, str)]
+    if not out:
+        raise ValueError(f'{path}: нет констант ROLE_*')
+    return out
 
 
 def role_lists(room_type: str, P: dict) -> list:
@@ -288,7 +331,7 @@ def lint(room_type: str, cam_html: str = CAM_HTML) -> tuple:
         return E, W
     P = resolve(p)
     comp = P['composer']['plugin']
-    if not os.path.isfile(os.path.join(ROOT, COMPOSERS[comp])):
+    if COMPOSERS[comp] and not os.path.isfile(os.path.join(ROOT, COMPOSERS[comp])):
         E.append(f'composer {comp}: нет {COMPOSERS[comp]}')
     st, src = solver_types()
     if P['solver_plugin'] not in st:
@@ -296,6 +339,8 @@ def lint(room_type: str, cam_html: str = CAM_HTML) -> tuple:
     if src.endswith('RoomType'):
         W.append(f'реестр солвера T-37 не влит — solver_plugin сверен с {src}')
     E += role_errors(room_type, P)
+    if room_type in ADAPTER_PENDING:
+        W.append(f'адаптер catalog_items не знает {room_type} — роли сверены с {ADAPTER_PENDING[room_type]} (TODO после T-43 / волна В)')
     gstyles = set(deref('tools/scout/styles.json#/styles'))
     bad = [s for s in P['style']['ids'] if s not in gstyles]
     if bad:
@@ -332,14 +377,14 @@ def _selftest() -> int:
         nonlocal bad
         print(('OK   ' if cond else 'FAIL ') + name)
         bad += not cond
-    for t in ('kitchen', 'hall', 'garage', '', None, '../rules/x'):
+    for t in ('bathroom', 'garage', '', None, '../rules/x'):
         try:
             raw(t)
             ok(f'профиль {t!r} — ошибка', False)
         except ValueError:
             ok(f'профиль {t!r} — ошибка (не гостиная по умолчанию)', True)
-    ok('профили living и bedroom есть', {'living', 'bedroom'} <= set(types()))
-    for t in ('living', 'bedroom'):
+    ok('профили living, bedroom, kitchen, hall есть', {'living', 'bedroom', 'kitchen', 'hall'} <= set(types()))
+    for t in types():
         p = raw(t)
         ok(f'{t}: схема', not schema_errors(p, json.load(open(SCHEMA, encoding='utf-8'))))
         ok(f'{t}: content_sha совпадает', p['content_sha'] == content_sha(p))
@@ -381,6 +426,22 @@ def _selftest() -> int:
     st, src = solver_types()
     ok(f'типы солвера читаются ({src})', {'living', 'bedroom'} <= set(st))
     ok('роли гостиной compose2 читаются без импорта', 'диван' in compose2_roles() and len(compose2_roles()) == 27)
+    K = load('kitchen')
+    ok('роли набора кухни читаются без импорта', {'кухня-ряд', 'холодильник', 'стол обеденный'} <= set(kit_roles(KIT_ROLES['kitchen'])))
+    ok('кухня: источник — набор, сборщик — пример кухни, проверки — kitchen, роли чисты',
+       K['catalog']['adapter'] == 'kit' and COMPOSERS[K['composer']['plugin']].endswith('kitchen-from-example.ts')
+       and K['solver_plugin'] == 'kitchen' and not role_errors('kitchen', K))
+    K['roles']['кухня-ряд']['source'] = 'products'
+    K['roles']['мойка'] = {'source': 'kit'}
+    ok('кухня: чужой источник и роль не из набора — две ошибки', len(role_errors('kitchen', K)) == 2)
+    H = load('hall')
+    ok('прихожая: исключение адаптера одно, роли = правила каталога прихожей', set(ADAPTER_PENDING) == {'hall'}
+       and not role_errors('hall', H))
+    del H['roles']['зеркало']
+    ok('прихожая: роль каталога без профиля — ошибка', any('зеркало' in x for x in role_errors('hall', H)))
+    q = copy.deepcopy(raw('kitchen'))
+    ok('схема: kit — допустимый источник, неизвестный адаптер — нет',
+       not schema_errors(q, S) and len(schema_errors(dict(q, catalog={'adapter': 'feed'}), S)) == 1)
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0
 
