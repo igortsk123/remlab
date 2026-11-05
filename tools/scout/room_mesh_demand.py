@@ -19,8 +19,9 @@
   2. добор до K: жадно — товар, закрывающий больше всего дефицитных ячеек (балл стиля, цена, SKU — ничья), одно семейство
      на ячейку. Вариант семьи мешей (`products.mesh_family_rep`) — через представителя, один раз.
 Годен к генерации: фото текущей ревизии оценено и `ok` (`photo_assessment`, оценщик `preprocess.ASSESSOR_VERSION`:
-вырезка годна, не коллаж — оценка скачала фото, значит, оно живое), нет в `products` (меш ушёл бы в карточку гостиной —
-правило `room_mesh_jobs.job_of`), меша ещё нет, все условия `room_mesh_jobs.job_of`. Не оценённое фото — не в очередь,
+вырезка годна, не коллаж — оценка скачала фото, значит, оно живое), меша нет ни у товара, ни у представителя семьи, все
+условия `room_mesh_jobs.job_of`. Товар из `products` (шкафы, комоды спальни) — на тех же правах, если он кандидат слота
+(T-20261105-49/2: привязка ключуется товаром без комнаты, меш в карточке гостиной ничего не ломает). Не оценённое фото — не в очередь,
 а в отчёт («ждёт оценки фото»: досчитает вырезка, пересчитать).
 
 ДЕНЬГИ. Цена модели — по замеру T-11 (проба 10 = 13,8 ₽ → 1,4 ₽; волна 45 = 48,5 ₽ → 1,1 ₽): считаем по верхней 1,4 ₽.
@@ -83,16 +84,14 @@ def fits(it: dict, c: dict, tol: tuple, thr: float, gate, band_of) -> bool:
 
 # ---------------------------------------------------------------- состояние товара
 def state_of(sku: str, f: dict, bind: dict | None, defect: bool) -> str:
-    """covered | blocked | defect | job | photo_pending | photo_bad | in_products | has_mesh | not_job.
-    f — факты БД (in_products, has_mesh, verdict, footprint_ok, dims_ok, rep)."""
+    """covered | blocked | defect | job | photo_pending | photo_bad | has_mesh | not_job.
+    f — факты БД (has_mesh, rep_has_mesh, verdict). Товар из products — на общих правах (T-49/2)."""
     if bind is not None:
         if bind.get('status') == 'ready':
             return 'defect' if defect else 'covered'
         return 'blocked'
-    if f.get('in_products'):
-        return 'in_products'
-    if f.get('has_mesh'):
-        return 'has_mesh'           # меш есть, привязки нет (не текущее фото) — генерация не по этому правилу
+    if f.get('has_mesh') or f.get('rep_has_mesh'):
+        return 'has_mesh'           # меш есть (свой или у представителя семьи), привязки нет — генерация не по этому правилу
     v = f.get('verdict')
     if v is None:
         return 'photo_pending'
@@ -106,7 +105,8 @@ def job_row(it: dict, f: dict) -> dict:
     return {'shop_mid': int(it['mid']), 'external_id': str(it['eid']), 'role': it['role'], 'name': it.get('name') or '',
             'image_url': f.get('image_url') or it.get('img'), 'w_cm': it.get('w'), 'd_cm': it.get('d'), 'h_cm': it.get('h'),
             'footprint_ok': bool(f.get('footprint_ok')), 'shown': True, 'in_products': bool(f.get('in_products')),
-            'has_mesh': bool(f.get('has_mesh')), 'photo_alive': True if f.get('verdict') == 'ok' else None}
+            'has_mesh': bool(f.get('has_mesh')), 'rep': f.get('rep'), 'rep_has_mesh': bool(f.get('rep_has_mesh')),
+            'slot_candidate': bool(it.get('slot_candidate')), 'photo_alive': True if f.get('verdict') == 'ok' else None}
 
 
 # ---------------------------------------------------------------- выбор
@@ -166,7 +166,7 @@ def cut_budget(picked: list, budget: float, price: float) -> tuple:
 
 # ---------------------------------------------------------------- чтение БД (только SELECT)
 def facts(skus: list, fetch) -> dict:
-    """sku → {in_products, rep, has_mesh, verdict, image_url, footprint_ok}. Один SELECT."""
+    """sku → {in_products, rep, has_mesh, rep_has_mesh, verdict, image_url, footprint_ok}. Один SELECT."""
     import preprocess as PRE
     if not skus:
         return {}
@@ -175,14 +175,15 @@ def facts(skus: list, fetch) -> dict:
         exists(select 1 from mesh_generations g where g.sku = s.sku), a.verdict, pc.image_url,
         (select bool_or(coalesce(r.footprint_ok, false)) from room_catalog r where r.shop_mid || ':' || r.external_id = s.sku),
         (select coalesce(r.image_url_hd, r.image_url) from room_catalog r where r.shop_mid || ':' || r.external_id = s.sku
-           order by r.room limit 1)
+           order by r.room limit 1),
+        exists(select 1 from mesh_generations g where g.sku = p.mesh_family_rep)
       from unnest(array[{arr}]::text[]) s(sku)
       left join products p on p.shop_mid || ':' || p.external_id = s.sku
       left join product_photo_current pc on pc.sku = s.sku
       left join photo_assessment a on a.source_sha = pc.source_sha and a.assessor_version = '{PRE.ASSESSOR_VERSION}'""")
     t = lambda v: v in (True, 't')  # noqa: E731
     return {r[0]: {'in_products': t(r[1]), 'rep': r[2] or None, 'has_mesh': t(r[3]), 'verdict': r[4] or None,
-                   'image_url': r[7] or r[5], 'footprint_ok': t(r[6])} for r in rows}
+                   'image_url': r[7] or r[5], 'footprint_ok': t(r[6]), 'rep_has_mesh': t(r[8])} for r in rows}
 
 
 def bank_items(bank: list, roles: list) -> list:
@@ -223,7 +224,12 @@ def demand(room: str, bank_path: str, k: int, budget: float, price: float) -> di
     defect_re = re.compile(md, re.I) if md else None
     items_all = [dict(it, sku=f"{it['mid']}:{it['eid']}") for it in cat if it['role'] in roles]
     F = facts(sorted({it['sku'] for it in items_all}), CI.fetch)
-    # вариант семьи мешей → представитель (один меш на семью); товар одной роли берём один раз на sku
+    # Вариант семьи мешей (products.mesh_family_rep) → представитель: один меш на семью. Кандидатство слота — по варианту
+    # (его размеры в полосе), задание — по собственной карточке представителя (его размеры и фото: паспорт меша — его).
+    member = lambda it, c: fits(it, c, tol, thr, CB.gate, CB.band_of)  # noqa: E731
+    own = {}
+    for it in items_all:
+        own.setdefault((it['sku'], it['role']), it)
     states, items, seen = {}, [], set()
     for it in items_all:
         f = F.get(it['sku'], {})
@@ -232,19 +238,26 @@ def demand(room: str, bank_path: str, k: int, budget: float, price: float) -> di
             it = dict(it, sku=rep, via=it['sku'])
             f = F.get(rep) or facts([rep], CI.fetch).get(rep, {})
             F[rep] = f
-        key = (it['sku'], it['role'])
+        key = (it['sku'], it['role'], it.get('via'))
         if key in seen:
             continue
         seen.add(key)
-        states[it['sku']] = state_of(it['sku'], f, rows.get(it['sku']),
-                                     bool(defect_re and defect_re.search(it.get('name') or '')))
+        it['from_products'] = bool(f.get('in_products'))
+        if it['sku'] not in states:
+            states[it['sku']] = state_of(it['sku'], f, rows.get(it['sku']),
+                                         bool(defect_re and defect_re.search(it.get('name') or '')))
         items.append(it)
-    member = lambda it, c: fits(it, c, tol, thr, CB.gate, CB.band_of)  # noqa: E731
+    cand = {it['sku'] for it in items if any(member(it, c) for c in cells.values())}
     # годность к заданию — правилом room_mesh_jobs (одно место); отказ → состояние not_job
     jobs_of = {}
     for it in items:
-        if states[it['sku']] == 'job':
-            j, w = RMJ.job_of(job_row(it, F[it['sku']]), room)
+        if states[it['sku']] == 'job' and it['sku'] not in jobs_of:
+            base = own.get((it['sku'], it['role']))
+            if base is None:
+                states[it['sku']] = 'not_job'
+                it['not_job'] = 'представителя семьи нет в каталоге комнаты в этой роли'
+                continue
+            j, w = RMJ.job_of(job_row(dict(base, slot_candidate=it['sku'] in cand), F[it['sku']]), room)
             if j is None:
                 states[it['sku']] = 'not_job'
                 it['not_job'] = w
@@ -277,7 +290,7 @@ def demand(room: str, bank_path: str, k: int, budget: float, price: float) -> di
 # ---------------------------------------------------------------- отчёт
 STATE_RU = {'covered': 'меш готов (ready)', 'blocked': 'меш есть, ждёт разблокировки (blocked)', 'defect': 'брак меша',
             'job': 'годен в генерацию', 'photo_pending': 'фото не оценено (ждёт вырезки)', 'photo_bad': 'фото негодно (коллаж/мелко/брак)',
-            'in_products': 'лежит в products (меш — очередью гостиной)', 'has_mesh': 'меш есть, привязки нет',
+            'has_mesh': 'меш есть (свой или у представителя), привязки нет',
             'not_job': 'не годен к заданию (room_mesh_jobs)'}
 
 
@@ -285,17 +298,20 @@ def report(D: dict) -> dict:
     """Сводка по ролям: каталог роли → в полосе и стиле хоть одной ячейки → состояния → нужно → в очереди → цена."""
     roles = {}
     for role in D['roles']:
-        its = [it for it in D['items'] if it['role'] == role]
         rcells = {ck: c for ck, c in D['cells'].items() if c['role'] == role}
-        cand = [it for it in its if any(D['member'](it, c) for c in rcells.values())]
+        # счёт — по мешам (sku после замены варианта представителем), не по строкам каталога
+        its = {it['sku'] for it in D['items'] if it['role'] == role}
+        cand_it = [it for it in D['items'] if it['role'] == role and any(D['member'](it, c) for c in rcells.values())]
+        cand = {it['sku'] for it in cand_it}
         st = {}
-        for it in cand:
-            st[D['states'][it['sku']]] = st.get(D['states'][it['sku']], 0) + 1
+        for s in cand:
+            st[D['states'][s]] = st.get(D['states'][s], 0) + 1
+        from_products = len({it['sku'] for it in cand_it if it.get('from_products')})
         need = sum(max(0, D['k'] - D['before'][ck]) for ck in rcells)
         q = [p for p in D['in_budget'] if any(D['cells'][ck]['role'] == role for ck in D['cells']
                                                  if cell_name(D['cells'][ck]) in p[2])]
         short = sorted(cell_name(c) for ck, c in rcells.items() if D['final'][ck] < D['k'])
-        roles[role] = {'catalog': len(its), 'out_of_slots': len(its) - len(cand), 'candidates': len(cand), 'states': st,
+        roles[role] = {'catalog': len(its), 'out_of_slots': len(its) - len(cand), 'candidates': len(cand), 'from_products': from_products, 'states': st,
                        'cells': len(rcells), 'need_before': need, 'queued': len(q),
                        'queued_bank': sum(1 for p in q if p[1] == 'bank'), 'short_cells': short}
     return {'room': D['room'], 'bank': os.path.basename(D['bank']), 'purposes': D['purposes'], 'k': D['k'],
@@ -315,14 +331,14 @@ def report_md(S: dict) -> str:
          f"В очередь: **{S['queued']}** (из набора банка {S['queued_bank']}, добор {S['queued'] - S['queued_bank']}) ≈ "
          f"{S['cost_low_rub']}–{S['cost_rub']} ₽ (потолок {S['budget_rub']:g} ₽)"
          + (f"; не влезло в потолок: {S['over_budget']}" if S['over_budget'] else '') + '.', '',
-         '| роль | в каталоге | вне полос/стиля | кандидатов | готово | ждёт разблок. | фото не оценено | фото негодно | в products | годно | нужно до K | в очереди | ячеек < K |',
+         '| роль | в каталоге | вне полос/стиля | кандидатов (из products) | готово | ждёт разблок. | фото не оценено | фото негодно | меш без привязки | годно | нужно до K | в очереди | ячеек < K |',
          '|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for r, v in S['roles'].items():
         s = v['states']
-        L.append(f"| {r} | {v['catalog']} | {v['out_of_slots']} | {v['candidates']} | {s.get('covered', 0)} | {s.get('blocked', 0)} | "
-                 f"{s.get('photo_pending', 0)} | {s.get('photo_bad', 0)} | {s.get('in_products', 0)} | {s.get('job', 0)} | "
+        L.append(f"| {r} | {v['catalog']} | {v['out_of_slots']} | {v['candidates']} ({v['from_products']}) | {s.get('covered', 0)} | "
+                 f"{s.get('blocked', 0)} | {s.get('photo_pending', 0)} | {s.get('photo_bad', 0)} | {s.get('has_mesh', 0)} | {s.get('job', 0)} | "
                  f"{v['need_before']} | {v['queued']} | {len(v['short_cells'])} |")
-    L += ['', 'Счёт товаров — по артикулам в полосе и стиле хоть одной ячейки; покрытие ячеек — по семействам моделей (размеры одной '
+    L += ['', 'Счёт — по мешам (вариант семьи — представителем) в полосе и стиле хоть одной ячейки; покрытие ячеек — по семействам моделей (размеры одной '
           'модели — одна).', '']
     for r, v in S['roles'].items():
         if v['short_cells']:
@@ -381,10 +397,11 @@ def _selftest() -> int:
     ok('ready-привязка — покрыл; ready с браком — не покрыл; blocked — не в генерацию',
        state_of('s', base, {'status': 'ready'}, False) == 'covered' and state_of('s', base, {'status': 'ready'}, True) == 'defect'
        and state_of('s', base, {'status': 'blocked'}, False) == 'blocked')
-    ok('без привязки: фото ok → job; не оценено → ждёт; коллаж → негодно; в products → нет; меш есть → нет',
+    ok('без привязки: фото ok → job; не оценено → ждёт; коллаж → негодно; в products → job (T-49/2); меш свой/у представителя → нет',
        state_of('s', base, None, False) == 'job' and state_of('s', {**base, 'verdict': None}, None, False) == 'photo_pending'
        and state_of('s', {**base, 'verdict': 'collage'}, None, False) == 'photo_bad'
-       and state_of('s', {**base, 'in_products': True}, None, False) == 'in_products'
+       and state_of('s', {**base, 'in_products': True}, None, False) == 'job'
+       and state_of('s', {**base, 'rep_has_mesh': True}, None, False) == 'has_mesh'
        and state_of('s', {**base, 'has_mesh': True}, None, False) == 'has_mesh')
 
     # выбор: одна ячейка, K=2; семейство считается один раз; сначала банк
@@ -407,8 +424,8 @@ def _selftest() -> int:
     mem2 = lambda i, c: (i['styles'].get(c['style'], 0) >= 6.6)  # noqa: E731
     P, _, _ = choose(two, items2, {'m1': 'job', 'm2': 'job'}, [], 1, mem2)
     ok('жадно: товар, закрывающий две ячейки, раньше лучшего по стилю в одной', [p[0] for p in P] == ['m2'])
-    P, _, _ = choose(cell, items, {**states, 'j2': 'photo_pending', 'j3': 'blocked', 'j4': 'in_products'}, [], 3, member)
-    ok('в генерацию — только job (не оценено/blocked/products — нет)', [p[0] for p in P] == [])
+    P, _, _ = choose(cell, items, {**states, 'j2': 'photo_pending', 'j3': 'blocked', 'j4': 'has_mesh'}, [], 3, member)
+    ok('в генерацию — только job (не оценено/blocked/меш есть — нет)', [p[0] for p in P] == [])
 
     picked = [(f's{i}', 'bank' if i < 2 else 'topup', []) for i in range(10)]
     a, b = cut_budget(picked, 5.0, 1.4)
@@ -422,6 +439,13 @@ def _selftest() -> int:
     ok('строка задания проходит room_mesh_jobs.job_of (формат снимка тот же)', j is not None and j['sku'] == '1:2'
        and j['image_url'] == 'u1' and j['seeds'] == [0])
     ok('без честного габарита — job_of отказывает', RMJ.job_of(dict(row, footprint_ok=False), 'bedroom')[0] is None)
+    shk = {'mid': 1, 'eid': '3', 'role': 'шкаф', 'name': 'Ш', 'w': 150.0, 'd': 60.0, 'h': 220.0, 'img': 'u0'}
+    fp = {'verdict': 'ok', 'footprint_ok': True, 'in_products': True, 'rep': '1:3'}
+    ok('шкаф из products — кандидат слота, меша нет → задание (T-49/2)',
+       RMJ.job_of(job_row(dict(shk, slot_candidate=True), fp), 'bedroom')[0] is not None)
+    ok('шкаф из products не кандидат слота → нет; меш у представителя → нет',
+       RMJ.job_of(job_row(shk, fp), 'bedroom')[0] is None
+       and RMJ.job_of(job_row(dict(shk, slot_candidate=True), {**fp, 'rep': '1:4', 'rep_has_mesh': True}), 'bedroom')[0] is None)
     ok('банк: только items в ролях с мешем, без повторов',
        bank_items([{'items': {'кровать': {'mid': 1, 'eid': 'a'}, 'ковёр': {'mid': 1, 'eid': 'b'}}},
                    {'items': {'кровать': {'mid': 1, 'eid': 'a'}}, 'alternates': {'кровать': [{'mid': 1, 'eid': 'c'}]}}],

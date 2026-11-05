@@ -5,10 +5,16 @@
 не будет до переноса (ADR-0279, ADR-0330 п.2). Снимок отсюда подаётся в законный старт волны ключом `MESH_QUEUE_FILE`
 (`mesh_wave_start.sh`): подготовка, приёмник, потолок денег и сторожа — те же, меняется только источник списка.
 
-ЧТО НЕ СМЕШИВАЕТСЯ С ГОСТИНОЙ. Товар, который есть в `products`, сюда не берём: его меш привязал бы `mesh_bind` к карточке
-гостиной. Товар с уже сделанным мешем (`mesh_generations`) не берём: второй раз — деньги на ветер. Остальные пост-шаги
-конвейера (`mesh_bind`, `mesh_family`, `mesh_ready`) читают `products` и спальню не видят; реестр поколений пишет её как
-любой меш — по нему и считаем пробу.
+ТОВАР ИЗ `products` (поправка T-20261105-49/2, ведущий 05.11). Раньше не брали: меш «ушёл бы в карточку гостиной».
+Это правило времён до привязки: теперь привязка (`offer_asset_binding`, T-45) ключуется ТОВАРОМ без комнаты и видит меш
+из `mesh_generations` по sku в любом случае, а роли комнат (шкаф, комод) в гостиной не роли (T-43) — меш в карточке
+гостиной ничего не ломает. Поэтому товар из `products` берём, если он КАНДИДАТ СЛОТА комнаты (`slot_candidate` ставит
+`room_mesh_demand.py` — полоса и стиль слота) и меша нет ни у него, ни у представителя семьи (`mesh_family_rep`); вариант
+семьи сам не генерируем — меш делается представителю. В пробном пути `--skus` кандидатства слота никто не считал — товар
+из `products` там по-прежнему не берём.
+Товар с уже сделанным мешем (`mesh_generations`) не берём: второй раз — деньги на ветер. Пост-шаги конвейера
+(`mesh_bind`, `mesh_family`, `mesh_ready`) читают `products` и товары только из `room_catalog` не видят; реестр поколений
+пишет их как любой меш — по нему и считаем пробу.
 
   ~/venvs/scout/bin/python room_mesh_jobs.py --skus 112923:1,112923:2 --out FILE   # снимок по списку
   python3 room_mesh_jobs.py --selftest                                             # правила без базы и сети
@@ -27,10 +33,15 @@ MAX_JOBS = 50   # предохранитель: этот путь — для п�
 def job_of(row: dict, room: str) -> tuple[dict | None, str]:
     """Строка каталога → (задание, '') или (None, причина). Чистая функция (селфтест)."""
     import asset_strategy as AS
-    if row.get('in_products'):
-        return None, 'есть в products — меш ушёл бы в гостиную'
     if row.get('has_mesh'):
         return None, 'меш уже есть'
+    if row.get('rep_has_mesh'):
+        return None, 'меш есть у представителя семьи (mesh_family_rep)'
+    sku0 = f'{row["shop_mid"]}:{row["external_id"]}'
+    if row.get('rep') and row['rep'] != sku0:
+        return None, f'вариант семьи — меш делается представителю {row["rep"]}'
+    if row.get('in_products') and not row.get('slot_candidate'):
+        return None, 'есть в products и не кандидат слота комнаты (берём только через room_mesh_demand)'
     if not row.get('shown'):
         return None, 'не показывается (нет цены/фото или нет в свежем фиде)'
     if not row.get('footprint_ok'):
@@ -115,7 +126,17 @@ def _selftest() -> int:
     ok('годная кровать → задание с меткой комнаты и seed 0',
        j is not None and j['room'] == 'bedroom' and j['seeds'] == [0] and j['sku'] == '112923:1'
        and j['dims_cm'] == {'w': 151.0, 'd': 212.0, 'h': 126.0, 'dia': None})
-    ok('есть в products — не берём', job_of({**base, 'in_products': True}, 'bedroom')[0] is None)
+    ok('в products, кандидат слота, меша нет — берём (T-49/2)',
+       job_of({**base, 'in_products': True, 'slot_candidate': True}, 'bedroom')[0] is not None)
+    ok('в products, кандидат слота, но меш есть — не берём',
+       job_of({**base, 'in_products': True, 'slot_candidate': True, 'has_mesh': True}, 'bedroom')[0] is None)
+    ok('в products, меш есть у представителя семьи — не берём',
+       job_of({**base, 'in_products': True, 'slot_candidate': True, 'rep': '112923:9', 'rep_has_mesh': True}, 'bedroom')[0]
+       is None)
+    ok('вариант семьи без меша у представителя — сам не генерируется (меш делается представителю)',
+       job_of({**base, 'in_products': True, 'slot_candidate': True, 'rep': '112923:9'}, 'bedroom')[0] is None
+       and job_of({**base, 'in_products': True, 'slot_candidate': True, 'rep': '112923:1'}, 'bedroom')[0] is not None)
+    ok('в products без кандидатства слота (пробный --skus) — не берём', job_of({**base, 'in_products': True}, 'bedroom')[0] is None)
     ok('меш уже есть — не берём', job_of({**base, 'has_mesh': True}, 'bedroom')[0] is None)
     ok('не показывается — не берём', job_of({**base, 'shown': False}, 'bedroom')[0] is None)
     ok('габарит не сверен — не берём', job_of({**base, 'footprint_ok': False}, 'bedroom')[0] is None)
