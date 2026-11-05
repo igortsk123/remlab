@@ -54,7 +54,8 @@ def role_of(mid: int, cid, name: str, R: dict, is_kids) -> str | None:
     названию (новые смешанные ветки — только роли `mixed_roles`); запрет по названию — в любой ветке; кровать обязана
     называться кроватью. ДЕТСКОЕ (название по `is_kids` или детская категория) — ТОЛЬКО в детские роли (`kids_roles`):
     взрослая роль переходит в детскую по `kids_alias` («Кровать детская» в ветке кроватей → «кровать детская»), иначе
-    None. Так детское не протекает в спальню пары и гостевую (onb-04, ADR-0330), а старые роли видят его как раньше."""
+    None. Детские шкаф/комод/тумба (`kids_shared`) остаются в своей роли — с назначением только child:* (`child_only`).
+    Так детское не протекает в спальню пары и гостевую (onb-04, ADR-0330), а старые роли видят его как раньше."""
     key = f'{mid}:{cid}'
     nm = name or ''
     if re.search(R['name_deny'], nm, re.I):
@@ -68,7 +69,7 @@ def role_of(mid: int, cid, name: str, R: dict, is_kids) -> str | None:
                 break
     if role is None:
         return None
-    if kids and role not in R.get('kids_roles', ()):
+    if kids and role not in R.get('kids_roles', ()) and role not in R.get('kids_shared', ()):
         role = R.get('kids_alias', {}).get(role)
         if role is None:
             return None
@@ -94,13 +95,29 @@ def enabled_sql(R: dict | None = None) -> str:
     return 'role in (' + ','.join(_lit(r) for r in enabled(R)) + ')'
 
 
-def purposes_of(role: str, d: dict, R: dict) -> list:
+def child_only(role: str, name: str, R: dict) -> bool:
+    """Детский товар в общей роли (`kids_shared`: «Шкаф детский» в роли «шкаф») — только для детской: назначения
+    child:*, в спальню пары/гостевую (`flat215_demo.bedroom_catalog`) не идёт. Детское — тот же `category_map.is_kids`."""
+    import category_map
+    return role in R.get('kids_shared', ()) and bool(category_map.is_kids(name or ''))
+
+
+def hidden_purposes(good: dict, R: dict) -> set:
+    """Назначения, которые скрыты, пока у роли-опоры нет годных товаров (`purpose_requires`: child:0-3 — нет годной
+    кроватки → нет и шкафа «для малыша»). good — {роль: годных (показ + честный габарит)}."""
+    return {t for t, q in R.get('purpose_requires', {}).items() if good.get(q['role'], 0) < q.get('min', 1)}
+
+
+def purposes_of(role: str, d: dict, R: dict, kids: bool = False, hidden=()) -> list:
     """Назначения ADR-0330 для товара роли: couple|single|guest|office|child:<возраст>. Условие правила — диапазоны
     см по sw/sl (спальное место) и h (высота; растущая мебель — h_min..h, совпадение — пересечение). Нужного размера
-    нет — назначения нет: не обещаем подростку кровать, у которой спальное место не указано. Чистая функция."""
+    нет — назначения нет: не обещаем подростку кровать, у которой спальное место не указано. kids — детский товар общей
+    роли (`child_only`): только child:*; hidden — скрытые назначения (`hidden_purposes`). Чистая функция."""
     out = []
     trust = role in R.get('bed_roles', ()) or bool(d.get('ok'))     # неполные/неправдоподобные размеры — неизвестны
     for tag, cond in (R.get('purposes', {}).get(role) or {}).items():
+        if tag in hidden or (kids and not tag.startswith('child:')):
+            continue
         fit = True
         for k, (lo, hi) in cond.items():
             v = d.get(k) if trust or k in ('sw', 'sl') else None
@@ -350,10 +367,22 @@ def table(items: list, R: dict, photos: int = 0, seed: int = 5) -> list:
 
 
 def kids_leak(rows, R: dict) -> list:
-    """Детские названия вне детских ролей (должно быть 0): rows — (роль, название)."""
+    """Детские названия вне детских ролей (должно быть 0): rows — (роль, название). Детское в общей роли
+    (`kids_shared`) — не протечка: оно помечено `child_only` и идёт только в детскую."""
     import category_map
-    kr = set(R.get('kids_roles', ()))
+    kr = set(R.get('kids_roles', ())) | set(R.get('kids_shared', ()))
     return [(r, n) for r, n in rows if r not in kr and category_map.is_kids(n)]
+
+
+def label(role: str, name: str, R: dict) -> str:
+    """Строка отчёта: детское общей роли — отдельной строкой «шкаф · детское» (в демо пары его нет)."""
+    return role + ' · детское' if child_only(role, name, R) else role
+
+
+def requires_lines(good: dict, R: dict) -> list:
+    hid = hidden_purposes(good, R)
+    return [f"  назначение {t}: {'СКРЫТО' if t in hid else 'показываем'} — годных «{q['role']}» {good.get(q['role'], 0)} "
+            f"(нужно ≥ {q.get('min', 1)})" for t, q in R.get('purpose_requires', {}).items()]
 
 
 def report(photos: int = 0) -> int:
@@ -369,14 +398,17 @@ def report(photos: int = 0) -> int:
     on = set(enabled(R))
     by: dict = {}
     for r in rows:
-        by.setdefault(r[0], [0, 0])
-        by[r[0]][0] += 1
-        by[r[0]][1] += r[5] == 't'
+        k = label(r[0], r[6], R)
+        by.setdefault(k, [0, 0])
+        by[k][0] += 1
+        by[k][1] += r[5] == 't'
     for role, (n, h) in sorted(by.items(), key=lambda x: -x[1][0]):
-        print(f"  {role}: показываем {n}, с честным габаритом {h}{'' if role in on else ' (роль выключена — в демо нет)'}", flush=True)
+        print(f"  {role}: показываем {n}, с честным габаритом {h}{'' if role in on else ' (в демо пары нет)'}", flush=True)
+    for ln in requires_lines({r: h for r, (n, h) in by.items()}, R):
+        print(ln, flush=True)
     if '--by-shop' in sys.argv or photos:
-        items = [{'role': r[0], 'shop': r[1], 'price': r[2], 'img': r[3], 'full': r[4] == 't', 'honest': r[5] == 't',
-                  'name': r[6]} for r in rows]
+        items = [{'role': label(r[0], r[6], R), 'shop': r[1], 'price': r[2], 'img': r[3], 'full': r[4] == 't',
+                  'honest': r[5] == 't', 'name': r[6]} for r in rows]
         for ln in table(items, R, photos):
             print(ln, flush=True)
     leak = kids_leak([(r[0], r[6]) for r in rows], R)
@@ -390,11 +422,16 @@ def measure(photos: int = 0) -> int:
     R = rules()
     offers, _seen = collect(R)
     with_dims(offers, R)
-    items = [{'role': o['br_role'], 'shop': o['shop'], 'price': o['price'], 'img': o.get('pic_hd') or o.get('pic'),
+    items = [{'role': label(o['br_role'], o['name'], R), 'shop': o['shop'], 'price': o['price'], 'img': o.get('pic_hd') or o.get('pic'),
               'full': all(o['_d'].get(k) for k in ('w', 'd', 'h')) and (o['br_role'] in R.get('bed_roles', ()) or bool(o['_d']['ok'])),
               'honest': bool(o['_d'].get('ok')), 'name': o['name']}
              for o in offers]
     for ln in table(items, R, photos):
+        print(ln, flush=True)
+    good: dict = {}
+    for it in items:
+        good[it['role']] = good.get(it['role'], 0) + bool(it['price'] and it['img'] and it['honest'])
+    for ln in requires_lines(good, R):
         print(ln, flush=True)
     leak = kids_leak([(o['br_role'], o['name']) for o in offers], R)
     print(f'детское вне детских ролей: {len(leak)}' + (' — ' + '; '.join(f'{r}: {n[:40]}' for r, n in leak[:8]) if leak else ''))
@@ -431,7 +468,7 @@ def _selftest() -> int:
     line = line_dims([(1, 'кровать', {'w': 200, 'd': 200, 'sw': x}) for x in (80, 140, 160)] +
                      [(2, 'кровать', {'w': 173, 'd': 230, 'sw': 140}), (2, 'кровать', {'w': 193, 'd': 230, 'sw': 160})])
     ok('габарит линейки (один на 3 разных спальных места) — не кровати; у разных габаритов — честно', sorted(line) == [0, 1, 2])
-    bad += _selftest_onb04(R, ok)
+    _selftest_onb04(R, ok)     # провалы считает `ok` (nonlocal); «bad += …» затёр бы их старым значением bad
     return 1 if bad else 0
 
 
@@ -452,8 +489,21 @@ def _selftest_onb04(R: dict, ok) -> int:
     ok(f'роли новых и старых на {len(cases)} реальных названиях', before == 0)
     kids_roles, keys = set(R['kids_roles']), list(R['categories']) + R['mixed']
     leak = [(n, k, r) for n in load('onb04-kids30.json') for k in keys
-            for r in [rl(int(k.split(':')[0]), k.split(':')[1], n)] if r and r not in kids_roles]
-    ok(f'30 детских названий × {len(keys)} веток — ни одного вне детских ролей', not leak)
+            for r in [rl(int(k.split(':')[0]), k.split(':')[1], n)] if r and r not in kids_roles and not child_only(r, n, R)]
+    ok(f'30 детских названий × {len(keys)} веток — ни одного вне детских ролей (общие шкаф/комод/тумба — только child_only)',
+       not leak)
+    pa = lambda role, name, hid=(): purposes_of(role, {'ok': True, 'w': 80, 'd': 45, 'h': 190}, R,  # noqa: E731
+                                                child_only(role, name, R), hid)
+    ok('детский шкаф — в роли «шкаф», назначения только child:*, без пары и гостевой',
+       rl(112923, '42', 'Шкаф детский divan.ru Кейла 1-105x190 Белый') == 'шкаф'
+       and pa('шкаф', 'Шкаф детский divan.ru Кейла 1-105x190 Белый') == ['child:0-3', 'child:3-7', 'child:7-12', 'child:teen'])
+    ok('взрослый шкаф — назначения прежние (пара, один, гостевая, кабинет, дети)',
+       pa('шкаф', 'Распашной шкаф divan.ru Шелтон 2-91x212 Белый')[:4] == ['couple', 'single', 'guest', 'office'])
+    hid = hidden_purposes({'кроватка': 0}, R)
+    ok('нет годной кроватки — child:0-3 скрыто у всех ролей', hid == {'child:0-3'}
+       and 'child:0-3' not in pa('шкаф', 'Шкаф детский divan.ru Кейла', hid) and hidden_purposes({'кроватка': 1}, R) == set())
+    ok('отчёт: детское общей роли — своей строкой', label('комод', 'Комод детский divan.ru Милна 1-60x49 Белый', R)
+       == 'комод · детское' and label('комод', 'Комод divan.ru Дигарс 43x102', R) == 'комод')
     for x in leak[:5]:
         print('     ', x)
     cards = load('onb04-dims-cards.json')
