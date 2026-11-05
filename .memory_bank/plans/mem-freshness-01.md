@@ -2,7 +2,7 @@
 workstream: ops
 slug: mem-freshness-01
 title: Банк памяти обновляется сам — кит memory-bank-template + remlab, tamara, sup2
-status: draft
+status: in_progress
 created: 2026-11-05
 updated: 2026-11-05
 completed:
@@ -83,3 +83,4 @@ completed:
 
 ## Лог
 - 2026-11-05 — план (draft), ведущий pakardev tg-remlab; разбор ведущего + Codex. Ждёт «деплой».
+- 2026-11-05 — владелец «деплой» (Telegram 16:25). T-20261105-26/1 → Работник 5: пп. 1–3 в ките (ветка fresh-26 в отдельном worktree кита); ночная сверка — следующей задачей после.
