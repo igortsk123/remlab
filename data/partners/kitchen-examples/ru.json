@@ -32,7 +32,7 @@
         "worktop": { "measuredHex": "#dddee3", "materialId": "quartz-white", "deltaE": 5.8 },
         "splashback": { "measuredHex": "#586168", "materialId": "tile-graphite", "deltaE": 4.0, "note": "панель с надписями — в цену не входит" }
       },
-      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/sima-1322/evropa-1.jpg — медиана рамок (boxes-evropa-1.png)",
+      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/sima-1322/evropa-1.jpg — медиана рамок (координаты — colors.json)",
       "photo": {
         "url": "https://goods-photos.static1-sima-land.com/items/8000904/0/700.jpg",
         "license": "partner-feed",
@@ -84,7 +84,7 @@
         "worktop": { "measuredHex": "#d8d9dd", "materialId": "quartz-white", "deltaE": 5.6 },
         "splashback": { "measuredHex": "#ab9b8b", "materialId": "tile-stone-grey", "deltaE": 10.8, "proposed": { "id": "splashback-oak-light", "hex": "#ab9b8b" }, "note": "панель под дерево — в цену не входит" }
       },
-      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/sima-1322/eva-1.jpg — медиана рамок (boxes-eva-1.png)",
+      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/sima-1322/eva-1.jpg — медиана рамок (координаты — colors.json)",
       "photo": {
         "url": "https://goods-photos.static1-sima-land.com/items/8000905/0/700.jpg",
         "license": "partner-feed",
@@ -134,7 +134,7 @@
         "front": { "measuredHex": "#a9b5b5", "materialId": "front-white", "deltaE": 12.6, "note": "по названию белый; на рендере магазина холодный свет — новый материал не предлагаем" },
         "worktop": { "measuredHex": "#bfc8c5", "materialId": "quartz-white", "deltaE": 9.6, "note": "«мрамор марквина белый»" }
       },
-      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/sima-1322/zhemchug-0.jpg — медиана рамок (boxes-zhemchug-0.png)",
+      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/sima-1322/zhemchug-0.jpg — медиана рамок (координаты — colors.json)",
       "photo": {
         "url": "https://goods-photos.static1-sima-land.com/items/5048366/0/700.jpg",
         "license": "partner-feed",
@@ -183,7 +183,7 @@
         "front": { "measuredHex": "#3c4a4a", "materialId": "front-graphite", "deltaE": 17.0, "proposed": { "id": "front-anthracite", "hex": "#3c4a4a" }, "note": "«антрацит» — серо-зелёный, графит светлее и нейтральнее" },
         "worktop": { "measuredHex": "#7e694c", "materialId": "laminate-oak-top", "deltaE": 22.7, "proposed": { "id": "worktop-oak-votan", "hex": "#7e694c" }, "note": "«дуб вотан» темнее нашего дуба" }
       },
-      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/sima-1322/antracit-0.jpg — медиана рамок (boxes-antracit-0.png), столешница — коричневые пиксели полосы y 428–442",
+      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/sima-1322/antracit-0.jpg — медиана рамок (координаты — colors.json), столешница — коричневые пиксели полосы y 428–442",
       "photo": {
         "url": "https://goods-photos.static1-sima-land.com/items/5048367/0/700.jpg",
         "license": "partner-feed",
@@ -233,7 +233,7 @@
         "worktop": { "measuredHex": "#e3dcd6", "materialId": "quartz-white", "deltaE": 1.9 },
         "splashback": { "measuredHex": "#d5d1d0", "materialId": "splashback-glass", "deltaE": 4.0, "note": "на фото — белая объёмная плитка, в цену не входит" }
       },
-      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/sima-1322/prestizh-0.jpg — медиана рамок (boxes-prestizh-0.png)",
+      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/sima-1322/prestizh-0.jpg — медиана рамок (координаты — colors.json)",
       "photo": {
         "url": "https://goods-photos.static1-sima-land.com/items/7912012/0/700.jpg",
         "license": "partner-feed",
