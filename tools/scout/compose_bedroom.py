@@ -41,6 +41,7 @@ SWAP = os.path.join(HERE, 'rules', 'demo-swap.json')
 MAJOR = ('кровать', 'шкаф', 'комод', 'тумба прикроватная')
 FLOOR = MAJOR                       # то, что ставит солвер и чему нужен меш под слот
 ROLE_W = {'кровать': 1.0, 'шкаф': 0.85, 'комод': 0.6, 'тумба прикроватная': 0.4}   # вес в стиле набора (styles.json — шкаф/комод)
+WARDROBE_MIN_W = 80                 # уже — не шкаф, а пенал (ведущий 05.11: «ни один шкаф ≥ 80 см не встаёт»)
 MESH_RANK = {'ready': 0, 'generated': 1, None: 2}
 
 
@@ -108,9 +109,11 @@ def rank_key(it: dict) -> tuple:
     1) модель ещё не стоит в этом стиле (тиры одного стиля — разные вещи; «Монблан» в трёх наборах из четырёх — канарейка 05.11);
     2) меш: готов → сгенерирован → нет → брак меша (приоритет ведущего 05.11 — 3D собирается сразу; «брак не брать» —
        бракованный идёт последним: только если другого в полосе и стиле нет);
+    2б) декор: подходящий по названию (`prefer`: ночник, прикроватная, абажур — ведущий 05.11) — при прочих равных первым;
     3) модель ещё не стоит в других стилях комнаты (жёсткий предел ≤ 1 общей — `diversity_ok`, здесь — «лучше ноль»);
     4) балл (стиль + палитра), 5) цена, 6) SKU."""
-    return (bool(it.get('seen_style')), 3 if it.get('mesh_defect') else MESH_RANK.get(it.get('mesh'), 2), bool(it.get('seen_all')),
+    return (bool(it.get('seen_style')), 3 if it.get('mesh_defect') else MESH_RANK.get(it.get('mesh'), 2),
+            it.get('preferred') is False, bool(it.get('seen_all')),
             -round(it.get('score', 0.0), 4), it.get('price') or 0, int(it['mid']), str(it['eid']))
 
 
@@ -208,20 +211,28 @@ def load_catalog() -> list:
     return out
 
 
-def load_decor(roles: list) -> list:
-    """Декор из каталога гостиной: в наличии, фото живо, цена есть; стиль — `product_style_scores` (оценки гостиной как есть)."""
+def load_decor(roles: list, rules: dict | None = None) -> list:
+    """Декор из каталога гостиной: в наличии, фото живо, цена есть; стиль — `product_style_scores` (оценки гостиной как есть).
+    Признаки ламп по описанию товара (`lamp_task_desc` / `lamp_bed_desc` правил) — флагами из БД, сам текст не тянем."""
     from mesh_queue import db
+    R = rules or {}
     lit = ','.join("'" + r.replace("'", "''") + "'" for r in roles)
+
+    def rx(k):
+        v = (R.get(k) or '').replace("'", "''")
+        return f"(coalesce(p.description,'') ~* '{v}')::int" if v else '0'
     rows = db(f"select l.role, l.shop_mid, l.external_id, l.name, l.shop, l.price_rub, l.w_cm, l.d_cm, l.h_cm, l.image_url, "
-              f"l.url, ps.scores::text from lr_roles l join products p using (shop_mid, external_id) "
+              f"l.url, {rx('lamp_task_desc')}, {rx('lamp_bed_desc')}, ps.scores::text "
+              f"from lr_roles l join products p using (shop_mid, external_id) "
               f"join product_style_scores ps using (shop_mid, external_id) where l.role in ({lit}) and l.price_rub is not null "
               f"and l.image_url is not null and p.in_stock and coalesce(p.photo_alive, true) order by l.shop_mid, l.external_id")
     out = []
     for r in rows:
-        if len(r) < 12:
+        if len(r) < 14:
             continue
         out.append(dict(role=r[0], mid=int(r[1]), eid=r[2], name=r[3], shop=r[4], price=int(float(r[5])), w=num(r[6]),
-                        d=num(r[7]), h=num(r[8]), img=r[9], url=r[10], styles=json.loads(r[11]), fam=f'{r[4]}|{r[3]}'))
+                        d=num(r[7]), h=num(r[8]), img=r[9], url=r[10], desc_task=r[11] == '1', desc_bed=r[12] == '1',
+                        styles=json.loads(r[13]), fam=f'{r[4]}|{r[3]}'))
     return out
 
 
@@ -358,6 +369,15 @@ class Composer:
                 for r in storage:
                     banned |= dominated(chosen[r], lists[r])
                 continue
+            wardrobe = None
+            if 'шкаф' in slots and 'шкаф' not in placed:
+                wardrobe = self.narrow_wardrobe(room, purpose, style, tier, slots['шкаф'], chosen, lay, built, ctx)
+                if wardrobe.get('layout') is not None:
+                    chosen['шкаф'], lay = wardrobe['item'], wardrobe['layout']
+                    placed = {p.role for p in lay.placements}
+                    lists['шкаф'], bands['шкаф'] = wardrobe['cands'], wardrobe['band']
+                    slots['шкаф'] = wardrobe['slot']
+                    relaxed = [r for r in relaxed if r != 'шкаф'] + (['шкаф'] if wardrobe['relaxed'] else [])
             for r in list(chosen):          # опциональное без места — не в наборе (и не в цене)
                 if r not in placed:
                     chosen.pop(r)
@@ -365,8 +385,82 @@ class Composer:
                 chosen['тумба прикроватная']['qty'] = sum(1 for p in lay.placements if p.role.startswith('тумба прикроватная'))
             return {'chosen': chosen, 'layout': lay, 'room': room, 'lists': lists, 'bands': bands, 'slots': slots,
                     'attempts': attempt + 1, 'ctx': ctx, 'banned': sorted(banned),
-                    'relaxed': [r for r in relaxed if r in chosen]}
+                    'relaxed': [r for r in relaxed if r in chosen], 'wardrobe': wardrobe}
         return {'empty': 'NO_FIT_AFTER_TRIES', 'banned': sorted(banned)}
+
+    def free_wall(self, room, base: list, slot: dict, purpose: str) -> tuple | None:
+        """Шире какого шкафа эта комната при уже стоящих кровати и тумбах не примет → (Ш, Г) или None. Пробный шкаф
+        идеальной глубины (и −20 %) сужаем шагом 5 см до 80 (меньше — не шкаф), пока солвер не поставит его, не сняв
+        ни кровать, ни тумбу: шкаф важнее комода, но тумбы у кровати пары — норма (ведущий 05.11, T-31/2)."""
+        from planner.bedroom import solve_bedroom
+        from planner.models import Item
+        need = {i.role for i in base}
+        top = int(band_of(slot, self.tol)['w'][1] // 5 * 5)
+        ih = slot['ideal']['h']
+        for d in (slot['ideal']['d'], round(slot['ideal']['d'] * self.tol[0])):
+            for w in range(top, WARDROBE_MIN_W - 1, -5):
+                lay = solve_bedroom(room, base + [Item(role='шкаф', w_cm=w, d_cm=d, h_cm=ih)], purpose)
+                pl = {p.role for p in lay.placements}
+                if 'шкаф' in pl and need <= pl:
+                    return w, d
+        return None
+
+    def narrow_wardrobe(self, room, purpose: str, style: str, tier: str, slot: dict, chosen: dict, lay, built: list,
+                        ctx: dict) -> dict:
+        """Шкаф с общим идеалом не встал (спальня 2, 13,2 м²: 13 из 15 пар без шкафа — канарейка 05.11). Идеал слота —
+        от свободной стены ЭТОЙ комнаты, полоса 0,8–1,1 от него; кандидаты в стиле и тире (как обычно), не уже 80 см.
+        Верх полосы — не шире стены и не глубже пробы. Ставим по порядку ранжирования; не встал — отсекаем и всё не меньше. Ни один ≥ 80 — {'layout': None, 'why'}:
+        в наборе остаётся комод, пометка «без места: шкаф» честная."""
+        from planner.bedroom import solve_bedroom
+        from planner.models import Item
+        p_ = purpose.split(':')[0]
+        keep = [p for p in lay.placements if p.role.split(' ')[0] in ('кровать', 'тумба')]
+        base = [Item(role=p.role, w_cm=p.item.w_cm, d_cm=p.item.d_cm, h_cm=p.item.h_cm, name=p.item.name,
+                     item_id=p.item.item_id) for p in keep]
+        fw = self.free_wall(room, base, slot, p_)
+        if fw is None:
+            return {'layout': None, 'why': f'свободной стены под шкаф ≥ {WARDROBE_MIN_W} см нет'}
+        w, d = fw
+        nslot = dict(slot, ideal=dict(slot['ideal'], w=w, d=d), free_wall_cm=w)
+        k = ('шкаф', style, purpose)
+        saved = self.shortage.get(k)              # нехватка в отчёте — по общему идеалу слота, не по узкому
+        # верх полосы — сама стена: шире свободного места не встанет (лофт·комфорт 05.11: стена 130, полоса до 143,
+        # все 4 кандидата 137 — ячейка пустела)
+        cands, band, rx = self.pool(nslot, style, tier, self.cat,
+                                    lambda it: WARDROBE_MIN_W <= (num(it.get('w')) or 0) <= w and (num(it.get('d')) or 0) <= d)
+        band = dict(band, w=[band['w'][0], min(band['w'][1], w)], d=[band['d'][0], min(band['d'][1], d)])
+        if saved is not None:
+            self.shortage[k] = saved
+        palette(cands)
+        need = {p.role for p in keep}
+        cur = {r: c['fam'] for r, c in chosen.items() if r != 'шкаф'}
+        banned: set = set()
+        tried = 0
+        if os.environ.get('BEDROOM_DEBUG'):
+            print(f'    узкий шкаф: стена {w}×{d}, полоса {band}, кандидаты '
+                  + ', '.join(f'{c["sid"][-6:]} {c["w"]:g}×{c["d"]:g} {c["fam"][:30]} div={diversity_ok(c["fam"], "шкаф", cur, built, style)}'
+                              for c in cands), flush=True)
+        while tried < self.R['tries']['storage']:
+            rk = self.ranked([c for c in cands if c['sid'] not in banned], style, ctx)
+            pick = next((c for c in rk if diversity_ok(c['fam'], 'шкаф', cur, built, style)), None)
+            if pick is None:
+                break
+            tried += 1
+            items = base + [Item(role='шкаф', w_cm=pick['w'], d_cm=pick['d'], h_cm=pick['h'], name=pick['name'],
+                                 item_id=pick['sid'])]
+            if 'комод' in chosen:
+                c = chosen['комод']
+                items.append(Item(role='комод', w_cm=c['w'], d_cm=c['d'], h_cm=c['h'], name=c['name'], item_id=c['sid']))
+            nl = solve_bedroom(room, items, p_)
+            pl = {p.role for p in nl.placements}
+            if os.environ.get('BEDROOM_DEBUG'):
+                print(f'    узкий шкаф (стена {w}): {pick["sid"]} {pick["w"]:g}×{pick["d"]:g} → встали {sorted(pl)}', flush=True)
+            if 'шкаф' in pl and need <= pl:
+                return {'layout': nl, 'item': dict(pick, qty=1), 'cands': cands, 'band': band, 'slot': nslot,
+                        'relaxed': rx, 'free_wall_cm': w, 'tried': tried}
+            banned |= dominated(pick, cands)
+        return {'layout': None, 'why': f'свободная стена {w} см, шкафов в стиле и полосе {len(cands)}, '
+                                       f'не встал ни один из {tried}'}
 
     def decor_pick(self, purpose: str, style: str, tier: str, ctx: dict, lay, room, chosen: dict) -> tuple:
         cfg = self.R['purposes'][purpose].get('decor', {})
@@ -378,10 +472,15 @@ class Composer:
                 continue
             sl = dict(dc, role=role, need_dims=(('w', 'd') if role == 'ковёр' else ('w', 'd', 'h')) if dc.get('band') else None)
             sl.setdefault('ideal', {})
-            cands, band, rx = self.pool(sl, style, tier, self.decor, _decor_filter(dc, windows))
+            src = [it for it in self.decor if it['role'] == role]
+            cands, band, rx = self.pool(sl, style, tier, self.decor, _decor_filter(dc, windows, self.R, src))
             if not cands:
-                gaps.append(f'{role}: нет в стиле' + (' по размеру окна' if dc.get('min_w') == 'window' else ''))
+                gaps.append(dc.get('gap') or (f'{role}: нет в стиле' + (' по размеру окна' if dc.get('min_w') == 'window' else '')))
                 continue
+            if dc.get('prefer'):
+                pref = re.compile(dc['prefer'], re.I)
+                for c in cands:
+                    c['preferred'] = bool(pref.search(c.get('name') or '')) or bool(c.get('desc_bed'))
             if rx:
                 relaxed.append(role)
             palette(cands)
@@ -423,15 +522,34 @@ class Composer:
         return picks, alts, gaps, lay_extra, slots, relaxed
 
 
-def _decor_filter(dc: dict, windows: list):
-    """Доп. фильтр декора из правил: `deny` — по названию (рулонные шторы не закрывают окно 2,4 м), `min_w: window` —
-    ширина не меньше самого широкого окна комнаты (полотно 300 на окно 240; 55 см — нет)."""
-    deny = re.compile(dc['deny'], re.I) if dc.get('deny') else None
+MODEL_CODE = re.compile(r'\b([A-Z]{1,3}\d{4,6}[A-Z]{0,3})')
+
+
+def model_code(name: str) -> str | None:
+    """Артикул модели без цвета: «Arte Lamp A5126Lt-1Bk» → A5126LT (цвета одной модели — одна вещь)."""
+    m = MODEL_CODE.search((name or '').upper())
+    return m.group(1) if m else None
+
+
+def _decor_filter(dc: dict, windows: list, rules: dict | None = None, source: list = ()):
+    """Доп. фильтр декора из правил: `deny` — по названию (рулонные шторы не закрывают окно 2,4 м; `@ключ` — регэксп из
+    корня правил), `deny_model` — и братья по артикулу отсеянного, `min_w: window` — ширина не меньше самого широкого
+    окна комнаты (полотно 300 на окно 240; 55 см — нет)."""
+    pat = dc.get('deny')
+    if pat and pat.startswith('@'):
+        pat = (rules or {}).get(pat[1:])
+    deny = re.compile(pat, re.I) if pat else None
+    task = (lambda it: bool(deny and deny.search(it.get('name') or '')) or bool(it.get('desc_task'))) \
+        if dc.get('deny_model') else (lambda it: False)
+    codes = ({model_code(it.get('name')) for it in source if task(it)} | set((rules or {}).get('lamp_task_models') or ())) - {None} \
+        if dc.get('deny_model') else set()
     wmin = max((o.width_cm for o in windows), default=0) if dc.get('min_w') == 'window' else 0
 
     def ok(it):
         if deny and deny.search(it.get('name') or ''):
             return False
+        if dc.get('deny_model') and (it.get('desc_task') or model_code(it.get('name')) in codes):
+            return False   # рабочая по описанию, по фото (lamp_task_models) или брат по артикулу рабочей
         return not wmin or (num(it.get('w')) or 0) >= wmin
     return ok if (deny or wmin) else None
 
@@ -480,8 +598,10 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
     alts = {r: [_alt(c) for c in C.ranked([x for x in res['lists'][r] if x['sid'] != chosen[r]['sid']], style, res['ctx'])
                 ][:C.R['alternates']] for r in chosen}
     alts.update(alts_d)
-    slots = {r: {'ideal': res['slots'][r]['ideal'], 'band': res['bands'][r], 'tolerance': list(C.tol),
-                 'qty': chosen[r]['qty'], 'mesh': True} for r in chosen}
+    slots = {r: dict({'ideal': res['slots'][r]['ideal'], 'band': res['bands'][r], 'tolerance': list(C.tol),
+                      'qty': chosen[r]['qty'], 'mesh': True},
+                     **({'free_wall_cm': res['slots'][r]['free_wall_cm']} if 'free_wall_cm' in res['slots'][r] else {}))
+             for r in chosen}
     slots.update(dslots)
     layout = {p.role: {'x': p.x, 'z': p.y, 'rot': int(p.rot), 'w': p.item.w_cm, 'd': p.item.d_cm, 'h': p.item.h_cm,
                        'sid': p.item.item_id} for p in lay.placements}
@@ -492,6 +612,10 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
     layout['_meta'] = {'solver': lay.meta.get('solver'), 'template': lay.meta.get('template'), 'reason': lay.meta.get('reason'),
                        'soft': sorted({v.code for v in lay.violations}), 'skipped_optional': lay.skipped_optional,
                        'floor_used_pct': lay.floor_used_pct, 'attempts': res['attempts']}
+    wd = res.get('wardrobe')
+    if wd:      # шкаф не встал с общим идеалом: узкий по свободной стене или честное «без места»
+        layout['_meta']['wardrobe'] = ({'narrow': True, 'free_wall_cm': wd['free_wall_cm'], 'tried': wd['tried']}
+                                       if wd.get('layout') is not None else {'narrow': False, 'why': wd['why']})
     m2 = round(spec['w'] * spec['d'] / 10000, 1)
     rec = {'room_id': room_id, 'room_type': 'bedroom', 'purpose': purpose, 'band': f'{m2:g}', 'm2': m2, 'tier': tier,
            'style': style, 'style_fit': set_fit(items, style), 'pair': list(CC.STYLE_PAIR[style]), 'gaps': gaps,
@@ -535,10 +659,15 @@ def compose(rooms: list, C: Composer) -> tuple:
                     used_all |= fams
                     report['cells'].append(dict(cell, set_id=rec['set_id'], total=rec['total'], fit=rec['style_fit'],
                                                 mesh_need=len(rec['mesh_need']), gaps=rec['gaps'],
-                                                skipped=rec['layout']['_meta']['skipped_optional']))
+                                                skipped=rec['layout']['_meta']['skipped_optional'],
+                                                wardrobe=rec['layout']['_meta'].get('wardrobe')))
                     print(f"  {room_id} {purpose} {style} {tier}: {rec['set_id']} {rec['total']:,} ₽ фит {rec['style_fit']} "
                           f"меш нужен {len(rec['mesh_need'])} пробелы {rec['gaps']} без места {rec['layout']['_meta']['skipped_optional']}",
                           flush=True)
+    wd = [c for c in report['cells'] if c.get('wardrobe')]
+    report['wardrobe'] = {'narrow': sum(1 for c in wd if c['wardrobe'].get('narrow')),
+                          'no_room': [dict(cell=f"{c['room_id']}|{c['purpose']}|{c['style']}|{c['tier']}", why=c['wardrobe']['why'])
+                                      for c in wd if not c['wardrobe'].get('narrow')]}
     report['shortage'] = {f'{r} × {s} · {p}': {'кандидатов': n, 'с мешом': m}
                           for (r, s, p), (n, m) in sorted(C.shortage.items())}
     return bank, report
@@ -562,9 +691,9 @@ def check_bank(bank: list, R: dict, tol: tuple) -> list:
             bad.append(f'{sid}: ядро неполное (кровать + шкаф/комод)')
         slot_cfg = {sl['role']: sl for sl in R['purposes'][s['purpose']]['slots']}
         for r, x in it.items():
-            if r in MAJOR:
-                g = gate(dict(x, role=r, footprint_ok=True) if r != 'кровать' else dict(x, role=r, footprint_ok=True),
-                         slot_cfg[r], band_of(slot_cfg[r], tol))
+            if r in MAJOR:      # полоса — из записи: у узкого шкафа она от свободной стены комнаты, не общая
+                sc = dict(slot_cfg[r], ideal=s['slots'][r]['ideal'])
+                g = gate(dict(x, role=r, footprint_ok=True), sc, s['slots'][r]['band'])
                 if g:
                     bad.append(f'{sid}: {r} {x["sid"]} — {g}')
             if len(s['alternates'].get(r, [])) < 3:   # декор тоньше мебели — предупреждение (`~`), не нарушение
@@ -622,7 +751,7 @@ def main(argv: list) -> int:
     out = BP.room_bank_output(os.environ, 'bedroom')
     print(f'Каталог спальни, декор, меши... порог стиля {thr}, полоса {tol}', flush=True)
     cat = load_catalog()
-    decor = load_decor(sorted({r for p in R['purposes'].values() for r in p.get('decor', {}) if not r.startswith('_')}))
+    decor = load_decor(sorted({r for p in R['purposes'].values() for r in p.get('decor', {}) if not r.startswith('_')}), R)
     ready, gen, rejected = mesh_state()
     C = Composer(cat, decor, ready, gen, R, tol, thr, rejected)
     print(f'мебели {len(cat)}, декора {len(decor)}, мешей готово {len(ready)} / сгенерировано {len(gen)}', flush=True)
@@ -661,6 +790,28 @@ def _selftest() -> int:
     ok('полоса кровати пары: 140–192,5 по ширине, 172–236,5 по глубине', b == {'w': [140.0, 192.5], 'd': [172.0, 236.5]})
     good = {'role': 'кровать', 'w': 176, 'd': 214, 'h': 100, 'footprint_ok': True, 'sleep_w': 160}
     ok('кровать 160 в полосе — годна', gate(good, bed, b) is None)
+    _R = load_json(RULES)
+    _lamps = [{'name': n} for n in ('Офисная настольная лампа Arte Lamp EDWARD A5126LT-1WH', 'Светильник настольный Arte Lamp A5126Lt-1Bk',
+                                     'Светильник настольный Xiaomi Yeelight J1 YLTD10YL', 'Светильник настольный Gauss Qplus GT6011 белый диммируемый',
+                                     'Светильник настольный Gauss Qplus GTL502 8W 500lm 3500-5500K 170-265V',
+                                     'Декоративная настольная лампа Arte Lamp PADOVA A2404LT-1AM', 'Светильник Glasar с абажуром 36х30х59 см',
+                                     'Лампа настольная Citilux CL306831 Джейн')] + [
+        {'name': 'Светильник настольный Arte Lamp A5122LT-1BK', 'desc_task': True}, {'name': 'Настольная лампа Arte Lamp Cord A1210LT-1BK'}]
+    _f = _decor_filter(_R['purposes']['couple']['decor']['лампа'], [], _R, _lamps)
+    ok('лампы: рабочие (офисная, её брат по артикулу A5126LT, Yeelight, диммируемая LED, люмены, «рабочая» по описанию, '
+       'прищепка Cord по фото) — нет; декоративные — да',
+       [_f(x) for x in _lamps] == [False, False, False, False, False, True, True, True, False, False])
+    ok('артикул без цвета: A5126Lt-1Bk → A5126LT; цоколь E27 — не артикул',
+       model_code('Arte Lamp A5126Lt-1Bk') == 'A5126LT' and model_code('Лампа 1хE27 60 Вт') is None)
+    sys.path.insert(0, SOLVER)
+    from planner.models import Item as _It
+    _C = Composer([], [], set(), set(), _R, (0.8, 1.1), 6.6)
+    _room2 = _room_model(room_spec('bedroom-2', 'drawing-180'), 'couple')
+    _base = [_It(role='кровать', w_cm=175, d_cm=213, h_cm=110), _It(role='тумба прикроватная', w_cm=45, d_cm=40, h_cm=55),
+             _It(role='тумба прикроватная 2', w_cm=45, d_cm=40, h_cm=55)]
+    _shk = next(x for x in _R['purposes']['couple']['slots'] if x['role'] == 'шкаф')
+    ok('спальня 2 (450×293), кровать 175×213 + 2 тумбы: свободная стена под шкаф 110 см (общий идеал 150 не встаёт)',
+       _C.free_wall(_room2, _base, _shk, 'couple') == (110, 60))
     _cat = [{'mid': 1, 'eid': 'a', 'name': 'Кровать divan.ru Стелла 160'}, {'mid': 1, 'eid': 'b', 'name': 'Кровать Рио 160'},
             {'mid': 1, 'eid': 'c', 'name': 'Тумба Норд'}, {'mid': 1, 'eid': 'd', 'name': 'Комод Лайт'}]
     Composer(_cat, [], {'1:b'}, {'1:a', '1:c', '1:d'}, {'mesh_defect': {'names': 'Стелла'}}, (0.8, 1.1), 6.6, {'1:d'})
