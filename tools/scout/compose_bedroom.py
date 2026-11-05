@@ -195,7 +195,12 @@ def load_items(rules: dict) -> tuple:
     (`lamp_task_desc` / `lamp_bed_desc` правил) — флагами из БД, сам текст не тянем. Поля словарей и их порядок — прежние
     (`load_catalog`/`load_decor` до T-20261105-39): банк до/после перевода побайтно равен; NULL текста — '' как раньше."""
     import catalog_items as CI
-    got = CI.items('bedroom', desc_flags={'task': rules.get('lamp_task_desc'), 'bed': rules.get('lamp_bed_desc')})
+    return to_dicts(CI.items('bedroom', desc_flags={'task': rules.get('lamp_task_desc'), 'bed': rules.get('lamp_bed_desc')}))
+
+
+def to_dicts(got: list) -> tuple:
+    """CatalogItem спальни → (мебель, декор) — словари сборщика (их же берёт аудит покрытия `asset_coverage.py`).
+    Признаков описания нет (адаптер без desc_flags) — False."""
     cat, decor = [], []
     for c in got:
         for role in c.roles:
@@ -205,8 +210,8 @@ def load_items(rules: dict) -> tuple:
                 cat.append(dict(base, sleep_w=num(c.dims['sleep_w']), footprint_ok=c.dims['footprint_ok'] is True,
                                 img=c.photo['best'] or '', url=c.url or '', fam=c.family, styles=c.style))
             else:
-                decor.append(dict(base, img=c.photo['url'] or '', url=c.url or '', desc_task=c.flags['task'],
-                                  desc_bed=c.flags['bed'], styles=c.style, fam=f"{c.shop or ''}|{c.name or ''}"))
+                decor.append(dict(base, img=c.photo['url'] or '', url=c.url or '', desc_task=c.flags.get('task', False),
+                                  desc_bed=c.flags.get('bed', False), styles=c.style, fam=f"{c.shop or ''}|{c.name or ''}"))
     return cat, decor
 
 
