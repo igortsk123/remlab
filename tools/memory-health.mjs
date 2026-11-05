@@ -5,12 +5,15 @@
 //   node tools/memory-health.mjs --log-verify <док> --claims N --mismatch M --fixed F --reason code|drift|rotation|backtest|eval [--note "…"]
 //                                                              — строка в журнал сверок (зовёт /memory-check, этап 1.6)
 //
-// Источники: .memory_bank/changelog/verify-log.tsv (сверки, в git), code-touch-hint.log (подсказки хука, локально),
+// Источники: .memory_bank/changelog/verify-log.tsv (сверки, в git), code-touch-hint.log (подсказки хука, локально:
+// с v1.11 общий `<git-common-dir>/memory-bank/code-touch-hint.log` + старые `.memory_bank/changelog/` основной копии
+// и каждого worktree из `git worktree list`; одинаковые строки считаются один раз),
 // drift-report.log (эксперимент --drift-report, локально), memory-eval.log (замеры «с памятью / без», в git),
 // git-история строк `last_verified:` (механическая сверка: дату двигали без записи сверки?), шапки core/*.md.
-import { readFileSync, appendFileSync, existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, appendFileSync, existsSync, readdirSync, mkdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { editLogPath } from "./code-touch-hint.mjs";
 
 const root = process.cwd();
 const CH = join(root, ".memory_bank", "changelog");
@@ -35,7 +38,10 @@ if (args[0] === "--log-verify") {
     console.error("использование: --log-verify <док> --claims N --mismatch M --fixed F --reason code|drift|rotation|backtest|eval [--note …]\n  N, M, F — целые ≥ 0, F ≤ M ≤ N");
     process.exit(2);
   }
-  if (!existsSync(VLOG)) appendFileSync(VLOG, VHEAD);
+  if (!existsSync(VLOG)) {
+    mkdirSync(CH, { recursive: true }); // свежий банк без changelog/ — не падать молча посреди ночной сверки
+    appendFileSync(VLOG, VHEAD);
+  }
   const note = (arg("--note") || "").replace(/[\t\n]/g, " ");
   appendFileSync(VLOG, [today(), doc, reason, n("--claims"), n("--mismatch"), n("--fixed"), note].join("\t") + "\n");
   console.log(`записано: ${doc} — утверждений ${n("--claims")}, расхождений ${n("--mismatch")}, исправлено ${n("--fixed")} (${reason})`);
@@ -50,7 +56,23 @@ const out = [];
 out.push(`Точность памяти — сводка с ${since} (${days} дн.)`);
 
 // 1) Правки кода и подсказки хука (одна строка на первую правку файла в сессии; «-» — файл памятью не описан)
-const edits = lines(join(CH, "code-touch-hint.log")).map((l) => l.split("\t")).filter((c) => c[0] && inRange(c[0].slice(0, 10)));
+// Журналы правок: общий (git-dir) + старые по worktree. Ключ дедупликации — время, сессия, файл (без 5-й колонки).
+function editLogs() {
+  const files = new Set([editLogPath(root), join(CH, "code-touch-hint.log")]);
+  const r = spawnSync("git", ["-C", root, "worktree", "list", "--porcelain"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  for (const l of (r.status === 0 ? r.stdout : "").split("\n"))
+    if (l.startsWith("worktree ")) files.add(join(resolve(l.slice(9)), ".memory_bank", "changelog", "code-touch-hint.log"));
+  const seen = new Set();
+  const rows = [];
+  for (const f of files)
+    for (const l of lines(f)) {
+      const c = l.split("\t");
+      const k = c.slice(0, 3).join("\t");
+      if (!seen.has(k)) seen.add(k), rows.push(c);
+    }
+  return rows;
+}
+const edits = editLogs().filter((c) => c[0] && inRange(c[0].slice(0, 10)));
 const hints = edits.filter((c) => c[3] && c[3] !== "-");
 {
   const byDay = {};

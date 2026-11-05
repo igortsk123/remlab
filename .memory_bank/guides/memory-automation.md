@@ -4,7 +4,7 @@ topic: memory-automation
 scope: Как история проекта попадает в Memory Bank — слои, мост, хуки-напоминания, гейты
 tier1: ""
 last_verified: 2026-10-18
-updated: 2026-10-18
+updated: 2026-11-05
 importance: high
 source: manual
 ---
@@ -29,6 +29,10 @@ source: manual
    (`tools/read-logger.mjs`) логирует чтения доков в `changelog/reads.log`. PostToolUse(Edit|Write)-hook
    (`tools/code-touch-hint.mjs`, кит 1.9) подсказывает агенту, какие доки описывают правленый файл кода
    (раз на файл за сессию) — описание правится в том же изменении.
+   С кита 1.11 корень берётся по пути файла (правка рабочего в `.claude/worktrees/<имя>/` тоже видна), журнал правок —
+   один на репо: `<git-common-dir>/memory-bank/code-touch-hint.log`. При приёмке ветки — `node tools/memory-impact.mjs
+   --base main --head <ветка>`: какие доки описывают изменённый код (обновлён / сверен без правок / в очередь сверки).
+   Ночью — `tools/nightly-verify/nightly-verify.mjs` (план mem-freshness-01, конфиг `_kit/nightly-verify.conf`).
 3. **Конец сессии** — `/memory-check`: захват → мост → сверка затронутого (этап 1.6: доки изменённого кода +
    CODE-DRIFT + ротация одной давней сводки → `verify`; `last_verified` — только по таблице доказательств,
    каждая сверка — `node tools/memory-health.mjs --log-verify …`) → уровни → связи+INDEX+реестры → чистота.

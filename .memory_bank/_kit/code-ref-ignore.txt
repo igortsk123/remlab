@@ -43,3 +43,7 @@ hy3dshape/
 _secrets/
 .memory_bank/_secrets/
 _optional/
+# вне git, есть только на диске основной копии (05.11, ночная сверка в чистой копии)
+tools/scout/style-scores.json
+.claude/worktrees/
+.claude/tmp-chk/

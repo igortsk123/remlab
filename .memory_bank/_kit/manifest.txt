@@ -1,6 +1,7 @@
-35240e49dfdd8c2c79b19a4c8eed500b tools/memory-audit.mjs
-d98cf82a6df2f3d273a0f98236eac755 tools/code-touch-hint.mjs
-b75213842a5ad628b265be9bfb41ef1d tools/memory-health.mjs
+7bda8146be195384b1f5f7e5a043fc53 tools/memory-audit.mjs
+bf3713b21a777a36737db32e050cc80e tools/code-touch-hint.mjs
+93b58dbfc61569dd0d7f6c22e60d22f1 tools/memory-health.mjs
+e400e76c8620254d2ea5841b9d2f157d tools/memory-impact.mjs
 330624ddaa2589fbbb75936732903968 tools/merge-settings.py
 327b8f7ff25ba66cbd341711b971858f tools/merge-settings.ps1
 ae58e443113e3b8b344de957a1fdec68 tools/session-reminder.mjs
@@ -19,14 +20,14 @@ df42aba154fb776b4cf4b73098936c3d .claude/skills/memory-check/SKILL.md
 646f5268fe98101a7d01e72c1c258c9d .memory_bank/archive/README.md
 094cd72d57e20a577348d569075ec048 .memory_bank/decisions/README.md
 e20732998dbc6816872ce0bc2ad2f301 .memory_bank/_secrets/README.md
-owned 0f6b88d0103a69773b079c214f33ead4 .claude/rules/agent-workflow.md
+owned 66bea2490bdefa529e3bda7c1680b6e9 .claude/rules/agent-workflow.md
 owned 706ed1ea2156a462330f899b8f166978 .claude/rules/memory-discipline.md
 owned 55eac7d21515f4c952414c9c3aa2c7f3 .claude/rules/code-standards.md
 owned 75c1819c37283658aee3cc1415d400a7 .claude/rules/ui-rules.md
 owned f259f842adafc386388a567bfb186814 .memory_bank/guides/agent-workflow.md
 owned 0d29f1b5dbc67b9106be1bd75d94b866 .memory_bank/guides/code-standards.md
 owned f06d1c6035fd4f45bf397cc4507468d4 .memory_bank/guides/how-to-write-rules.md
-owned ee9d4d2ba8202a297d456f7428571940 .memory_bank/guides/memory-automation.md
+owned 9fee3e2b88833e940fee423a24f1e2dc .memory_bank/guides/memory-automation.md
 owned 4a6693c5d7f7a7d7b1f0b05d2971a847 .memory_bank/guides/review-rules.md
 owned 8589ae0966f08cce55328c6857b81c88 .memory_bank/plans/_template.md
 owned 7e78f85efce9bca345a78af04ad8b4fa .memory_bank/plans/README.md

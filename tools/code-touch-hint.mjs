@@ -17,17 +17,25 @@
 // репо уникально. Папки не считаются (слишком широко). Скан: .memory_bank (без archive/completed_plans/_intake/
 // changelog/plans/_secrets/_kit и без журналов: decisions, project-state, source-of-truth, anti-patterns, lessons) +
 // .claude/rules. Никогда не падает и не блокирует: любая ошибка → exit 0.
+//
+// Worktree (v1.11, план remlab mem-freshness-01): корень проекта берётся ПО ПУТИ изменённого файла, а не только
+// из CLAUDE_PROJECT_DIR/cwd — правка в `.claude/worktrees/<имя>/…` или в любом git worktree того же репо относится
+// к этому worktree (раньше путь отбрасывался как `.claude/` или лог писался внутрь worktree и терялся). Журнал
+// правок — один на репо: `<git-common-dir>/memory-bank/code-touch-hint.log` (вне рабочего дерева, общий для всех
+// worktree); без git — по-старому `.memory_bank/changelog/code-touch-hint.log`. 5-я колонка — имя worktree
+// («-» — основная копия). Функции экспортируются для tools/memory-impact.mjs.
 import { readFileSync, writeFileSync, appendFileSync, readdirSync, existsSync, mkdirSync, statSync, realpathSync } from "node:fs";
-import { join, relative, isAbsolute, basename } from "node:path";
+import { join, relative, isAbsolute, basename, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const CODE_EXT = new Set([
+export const CODE_EXT = new Set([
   "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "rb", "php", "java", "sql", "sh", "vue", "svelte",
   "css", "scss", "html", "yml", "yaml",
 ]);
 const SKIP_DIRS = new Set(["archive", "completed_plans", "_intake", "changelog", "plans", "_secrets", "_kit"]);
-const SKIP_PREFIX = [".memory_bank/", ".claude/", "node_modules/", ".git/", ".next/"];
+export const SKIP_PREFIX = [".memory_bank/", ".claude/", "node_modules/", ".git/", ".next/"];
 // Журналы, снимок и уроки — не описание текущего поведения, задним числом их не правят (аудит в CODE-DRIFT
 // исключает только decisions / project-state / source-of-truth; хук строже — уроки подсказками не шумят).
 const HISTORY_DOC = /^\.memory_bank\/(decisions(\.md|\/)|project-state\.md|source-of-truth\.md|anti-patterns\.md|core\/lessons\.md)/;
@@ -35,8 +43,79 @@ const MAX_DOCS = 3;
 
 const extOf = (p) => (p.split(".").pop() || "").toLowerCase();
 const norm = (p) => p.replace(/\\/g, "/").replace(/^\.\//, "");
+/** Файл кода, который имеет смысл сопоставлять с памятью (не банк, не .claude/, не зависимости). */
+export const isCodePath = (rel) => !!rel && !SKIP_PREFIX.some((p) => rel.startsWith(p)) && CODE_EXT.has(extOf(rel));
+/** Док, который хук считает описанием текущего поведения (та же выборка, что listDocs, но по пути). */
+export function isDescribingDoc(rel) {
+  if (!rel.endsWith(".md") || HISTORY_DOC.test(rel)) return false;
+  if (rel.startsWith(".claude/rules/")) return true;
+  const m = rel.match(/^\.memory_bank\/(?:([^/]+)\/)?/);
+  return !!m && !(m[1] && SKIP_DIRS.has(m[1]));
+}
 
-function listDocs(root) {
+function git(cwd, args) {
+  try {
+    const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return !r.error && r.status === 0 ? r.stdout.trim() : null;
+  } catch {
+    return null;
+  }
+}
+const real = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+};
+/** Общий git-dir репо (у всех worktree один) — абсолютный путь или null (не git). */
+export function gitCommonDir(dir) {
+  const out = git(dir, ["rev-parse", "--git-common-dir"]);
+  return out ? real(resolve(dir, out)) : null;
+}
+
+/**
+ * Корень рабочего дерева, которому принадлежит файл: git worktree того же репо (по `rev-parse --show-toplevel`
+ * от папки файла и совпадению общего git-dir) или, без git, папка `.claude/worktrees/<имя>/` с `.memory_bank`.
+ * Иначе — `fallback` (CLAUDE_PROJECT_DIR || cwd). Чужой репо (вложенный клон, подмодуль) — не наш: fallback.
+ */
+export function resolveRoot(filePath, fallback) {
+  if (!filePath) return fallback;
+  const abs = isAbsolute(filePath) ? filePath : join(fallback, filePath);
+  let dir = dirname(abs);
+  while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
+  const top = git(dir, ["rev-parse", "--show-toplevel"]);
+  if (top) {
+    const t = real(top);
+    const up = relative(t, real(fallback));
+    if (!up.startsWith("..") && !isAbsolute(up)) return fallback; // тот же корень или проект — подпапка репо
+    const fbCommon = gitCommonDir(fallback);
+    if (fbCommon) return gitCommonDir(top) === fbCommon && existsSync(join(top, ".memory_bank")) ? top : fallback;
+  }
+  const rel = norm(relative(fallback, abs));
+  const m = rel.match(/^\.claude\/worktrees\/([^/]+)\//);
+  if (m) {
+    const wt = join(fallback, ".claude", "worktrees", m[1]);
+    if (existsSync(join(wt, ".memory_bank"))) return wt;
+  }
+  return fallback;
+}
+
+/** Куда писать журнал правок: общий git-dir (`memory-bank/`) или, без git, changelog банка. */
+export function editLogPath(root) {
+  const common = gitCommonDir(root);
+  return common ? join(common, "memory-bank", "code-touch-hint.log") : join(root, ".memory_bank", "changelog", "code-touch-hint.log");
+}
+
+/** Имя worktree для журнала: «-» — основная копия (её .git и есть общий git-dir). */
+function worktreeName(root) {
+  const common = gitCommonDir(root);
+  const own = git(root, ["rev-parse", "--absolute-git-dir"]);
+  if (!common || !own || real(own) === common) return /\/\.claude\/worktrees\/[^/]+$/.test(norm(root)) ? basename(root) : "-";
+  return basename(root);
+}
+
+export function listDocs(root) {
   const out = [];
   const walk = (dir, rel) => {
     let ents = [];
@@ -60,6 +139,7 @@ function listDocs(root) {
 
 function bareUnique(root, name, cache) {
   if (!cache.byBase) {
+    // memory-impact передаёт свой byBase (файлы ревизии head), хук и --docs-for — из git ls-files
     cache.byBase = {};
     const r = spawnSync("git", ["-C", root, "ls-files"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 });
     if (!r.error && r.status === 0)
@@ -68,14 +148,18 @@ function bareUnique(root, name, cache) {
   return cache.byBase[name] === 1;
 }
 
-/** Доки, где упомянут файл `rel` (репо-относительный путь). → [{doc, line}] */
-function docsFor(root, rel, docs, cache) {
+/**
+ * Доки, где упомянут файл `rel` (репо-относительный путь). → [{doc, line}]
+ * `read(doc)` — текст дока (по умолчанию с диска от root; memory-impact читает ревизию через `git show`).
+ */
+export function docsFor(root, rel, docs, cache, read = (doc) => readFileSync(join(root, doc), "utf8")) {
   const name = basename(rel);
   const hits = [];
   for (const doc of docs) {
     let text;
     try {
-      text = readFileSync(join(root, doc), "utf8");
+      text = cache.text?.[doc] ?? read(doc);
+      if (cache.text) cache.text[doc] = text;
     } catch {
       continue;
     }
@@ -105,7 +189,7 @@ function docsFor(root, rel, docs, cache) {
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
-function toRel(root, p) {
+export function toRel(root, p) {
   if (!p) return null;
   const abs = isAbsolute(p) ? p : join(root, p);
   const rel = norm(relative(root, abs));
@@ -122,12 +206,14 @@ function toRel(root, p) {
 
 function main() {
   const args = process.argv.slice(2);
-  const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-  const cache = {};
+  const base = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
   if (args[0] === "--docs-for") {
-    const docs = listDocs(root);
+    const perRoot = new Map(); // корень → {docs, cache}
     for (const f of args.slice(1)) {
+      const root = resolveRoot(f, base);
+      if (!perRoot.has(root)) perRoot.set(root, { docs: listDocs(root), cache: {} });
+      const { docs, cache } = perRoot.get(root);
       const rel = toRel(root, f);
       if (!rel) continue;
       const hits = docsFor(root, rel, docs, cache);
@@ -143,8 +229,11 @@ function main() {
   } catch {
     return;
   }
-  const rel = toRel(root, input?.tool_input?.file_path);
-  if (!rel || SKIP_PREFIX.some((p) => rel.startsWith(p)) || !CODE_EXT.has(extOf(rel))) return;
+  const fp = input?.tool_input?.file_path;
+  const root = resolveRoot(fp, base);
+  const cache = {};
+  const rel = toRel(root, fp);
+  if (!isCodePath(rel)) return;
 
   // Один сигнал на (сессия, файл).
   const sid = String(input.session_id || "nosession").replace(/[^\w-]/g, "");
@@ -156,10 +245,11 @@ function main() {
   } catch {
     seen = [];
   }
-  if (seen.includes(rel)) return;
+  const key = root === base ? rel : `${root}\t${rel}`; // один файл в двух worktree — две правки
+  if (seen.includes(key)) return;
 
   const hits = docsFor(root, rel, listDocs(root), cache);
-  seen.push(rel);
+  seen.push(key);
   try {
     mkdirSync(stDir, { recursive: true });
     writeFileSync(stFile, JSON.stringify(seen));
@@ -169,10 +259,9 @@ function main() {
   // Телеметрия (v1.9): строка на КАЖДУЮ первую правку файла кода в сессии — и с подсказкой, и без
   // («-»): знаменатель «сколько правок кода описано в памяти». Сводка — `node tools/memory-health.mjs`.
   try {
-    appendFileSync(
-      join(root, ".memory_bank", "changelog", "code-touch-hint.log"),
-      `${new Date().toISOString()}\t${sid}\t${rel}\t${hits.map((h) => h.doc).join(",") || "-"}\n`
-    );
+    const log = editLogPath(root);
+    mkdirSync(dirname(log), { recursive: true });
+    appendFileSync(log, `${new Date().toISOString()}\t${sid}\t${rel}\t${hits.map((h) => h.doc).join(",") || "-"}\t${worktreeName(root)}\n`);
   } catch {
     /* журнал не обязателен */
   }
@@ -187,9 +276,19 @@ function main() {
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: text } }));
 }
 
-try {
-  main();
-} catch {
-  /* хук не должен мешать работе */
+// Запуск скриптом (хук/CLI); при import из memory-impact — только функции.
+const direct = (() => {
+  try {
+    return !!process.argv[1] && real(process.argv[1]) === real(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+})();
+if (direct) {
+  try {
+    main();
+  } catch {
+    /* хук не должен мешать работе */
+  }
+  process.exit(0);
 }
-process.exit(0);

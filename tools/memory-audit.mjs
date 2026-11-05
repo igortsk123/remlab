@@ -38,7 +38,8 @@
 //   BAD-FM          YAML-массив/вложенность в frontmatter (схема требует плоские строки)
 //   INDEX-REF       путь в ручной части INDEX.md указывает на несуществующий файл
 //   REGISTRY-STALE  GENERATED-блок устарел (в --check режиме)
-//   DIVERGENCE      найдена вторая .memory_bank (в предках до git-root или внутри проекта)
+//   DIVERGENCE      найдена вторая .memory_bank (в предках до git-root или внутри проекта; v1.11: банк основной
+//                   копии над связанным worktree того же репо — не второй)
 //   SECRET          _secrets/ без .gitignore при git-репо; похожее на значение секрета вне _secrets/
 //   CODE-REF        backtick-путь к файлу кода в памяти не найден в дереве репозитория (память отстала от кода)
 //   CODE-DRIFT      (warning) код, на который док ссылается, изменён после last_verified/updated дока
@@ -73,6 +74,10 @@
 //   PLAN-REVIEW-DUE (warning) review_after плана в прошлом (REVIEW кита планы не смотрит)
 //   PLAN-COMPLETED-NO-DATE (warning) completed-план без даты `completed:` (флот: 33 из 444)
 //   PLAN-CANCELLED-IN-PLANS (warning) cancelled лежит в plans/ — после уроков его место в archive/plans/
+//   PLAN-LAG        (warning, opt-in `--plan-lag N`, v1.11) план draft/in_progress/partial, а ПОСЛЕ последнего коммита,
+//                   тронувшего файл плана, ≥ N кодовых коммитов с его именем в теме (slug целиком или короткий
+//                   ключ `onb-03` из `onb-03-quiz-home`; без merge, без тем `docs…`/`memory…`, без коммитов только
+//                   в .memory_bank/) — работа ушла вперёд, план нет. ID задач проекта — `_kit/plan-ids.txt` (ниже)
 //   CANON-INTAKE-REF (warning) canonical-док ссылается в теле на _intake/ — истина опирается на сырьё,
 //                   которое аудит не проверяет. Allowlist — `_kit/intake-ref-ignore.txt`
 //   INTAKE-BLOAT    (warning) _intake/ больше --intake-max-mb — вход, не хранилище (remlab: 22 МБ логов)
@@ -97,12 +102,17 @@
 //             .git и git в PATH). --no-code-drift: отключить только CODE-DRIFT.
 //   --drift-report: ЭКСПЕРИМЕНТ (v1.9) — дрейф по предковости коммитов (коммит сверки дока → HEAD), отчёт и
 //             строка телеметрии в .memory_bank/changelog/drift-report.log; находки не добавляет.
+//   --plan-lag N: включить PLAN-LAG (порог — N коммитов; без флага проверка выключена: не все проекты пишут
+//             slug в тему коммита). Можно задать в _kit/audit-flags.txt.
+//   `.memory_bank/_kit/plan-ids.txt` (project-owned, необязательный) — хук «ID задачи → план» для PLAN-LAG: одна
+//             строка — регулярное выражение ID задачи (например `T-\d{8}-\d{2}`). ID из темы коммита относится к плану,
+//             если он есть в тексте плана ИЛИ в одной строке plans/README.md (доска задач) вместе с именем плана.
 //   --metrics: доп. строка `METRICS ...` (footprint Tier0/корпус + счётчик находок по категориям) —
 //              для пассивного сбора эмпирики (tools/metrics-append.sh, CI-summary).
 //
 // Exit code: 0 — чисто; 1 — найдены проблемы; 2 — ошибка запуска (нет .memory_bank).
 
-import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync, existsSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, dirname, relative, resolve, basename, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -118,10 +128,18 @@ const SKIP_FILES = new Set([
 ]);
 // always-on мета-доки: у них своя секция в INDEX, в авто-таблицу decision tree не дублируем
 const ALWAYS_ON_TOPICS = new Set(["source-of-truth", "project-state", "decisions"]);
-// каталоги, в которые не спускаемся при поиске вложенных .memory_bank (DIVERGENCE)
+// append-only плейбуки: растут по определению, и CLEANUP_POLICY запрещает их сжимать (COMPRESS
+// схлопывает детали провала, ради которых плейбук существует). Освобождены ТОЛЬКО от бюджета
+// размера (TIER1-BLOAT) — набор используется ровно в одном месте, в отличие от ALWAYS_ON_TOPICS.
+// Повод: tamara 2026-10-02 — при 14 уроках core/lessons.md дал 8.4KB против бюджета 4KB, то есть
+// два правила кита противоречили друг другу и аудит нельзя было довести до «чисто», не нарушив одно.
+const APPEND_ONLY_TOPICS = new Set(["lessons", "anti-patterns"]);
+// каталоги, в которые не спускаемся при поиске вложенных .memory_bank (DIVERGENCE).
+// `data` — данные и рабочие копии проекта (tamara: копия дерева для исполнителя в
+// data/rabochaya-kopiya/<задача>/ несёт и .memory_bank; это не второй канон, v1.9.4).
 const HEAVY_DIRS = new Set([
   "node_modules", ".git", ".next", "dist", "build", "out", "vendor",
-  ".venv", "venv", "__pycache__", "target", "coverage",
+  ".venv", "venv", "__pycache__", "target", "coverage", "data",
 ]);
 const GEN_NOTE =
   "\n<!-- Таблицу регенерирует tools/memory-audit.mjs из frontmatter. Не редактируй вручную. -->\n";
@@ -161,7 +179,12 @@ const stripFences = (s) => {
     .join("\n");
 };
 
+// «Сегодня» можно зафиксировать переменной MEMORY_AUDIT_TODAY=ГГГГ-ММ-ДД: тесты кита держат
+// свои фикстуры с датами и без этого стареют сами по себе (v1.9.3: через 90 дней после записи
+// фикстур LAST-VERIFIED-OLD начал срабатывать там, где тест его не ждёт).
 export function todayISO() {
+  const zadano = process.env.MEMORY_AUDIT_TODAY;
+  if (zadano && /^\d{4}-\d{2}-\d{2}$/.test(zadano)) return zadano;
   return new Date().toISOString().slice(0, 10);
 }
 
@@ -261,6 +284,7 @@ export const THRESHOLD_KEYS = {
   "--decisions-max-kb": "decisionsMaxKb",
   "--draft-stale-days": "draftStaleDays",
   "--intake-max-mb": "intakeMaxMb",
+  "--plan-lag": "planLag", // opt-in: нет в DEFAULT_THRESHOLDS → проверка выключена
 };
 export const DEFAULT_THRESHOLDS = {
   staleDays: 30,
@@ -312,6 +336,100 @@ export function readAuditFlags(mbDir) {
     i++;
   }
   return res;
+}
+
+// ---------- PLAN-LAG (v1.11) ----------
+// Короткий ключ плана: slug до первого «номерного» сегмента включительно (`onb-03-quiz-home` → `onb-03`,
+// `b2b-06-apartment-as-data` → `b2b-06`, `onb-0A-contracts` → `onb-0A`); нет номера — только slug целиком.
+export function planKeys(slug) {
+  const seg = slug.split("-");
+  const i = seg.findIndex((x, k) => k > 0 && /^\d[0-9A-Za-z]?[a-z]?$/.test(x));
+  return i > 0 && i < seg.length - 1 ? [slug, seg.slice(0, i + 1).join("-")] : [slug];
+}
+const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// имя — отдельным словом: `onb-03` не ловит `onb-03b`, `xonb-03`, но ловит `onb-03:`, `(onb-03)`, `onb-03/1`
+const wordRe = (k) => new RegExp(`(^|[^\\w-])${escRe(k)}(?![\\w-])`, "i");
+const LAG_SKIP_SUBJECT = /^(docs|memory)\b/i;
+
+/** → {warnings} — см. PLAN-LAG в шапке. Экспорт для тестов. */
+export function planLag(root, mbDir, planDocs, threshold) {
+  const warnings = [];
+  const git = (args) => {
+    const r = spawnSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 });
+    if (r.error || r.status !== 0) throw new Error("git");
+    return r.stdout;
+  };
+  const open = planDocs.filter((p) => ["draft", "in_progress", "partial"].includes(p.fm.status || ""));
+  if (!open.length) return { warnings };
+  // ID задач проекта (необязательный хук): регулярка из _kit/plan-ids.txt
+  let idRe = null;
+  const idsFile = join(mbDir, "_kit", "plan-ids.txt");
+  if (existsSync(idsFile)) {
+    const src = readDoc(idsFile).split(/\r?\n/).map((l) => l.replace(/(^|\s)#.*$/, "").trim()).find(Boolean);
+    try {
+      if (src) idRe = new RegExp(src, "g");
+    } catch {
+      warnings.push(`KIT-CONFIG _kit/plan-ids.txt — '${src}' не регулярное выражение — ID задач для PLAN-LAG не ищутся`);
+    }
+  }
+  const board = existsSync(join(mbDir, "plans", "README.md")) ? readDoc(join(mbDir, "plans", "README.md")).split(/\r?\n/) : [];
+  // Короткий ключ, общий для двух открытых планов, неоднозначен — для них только slug целиком.
+  const keyCount = {};
+  const keysOf = new Map();
+  for (const p of open) {
+    const ks = planKeys(basename(p.file, ".md"));
+    keysOf.set(p, ks);
+    for (const k of ks.slice(1)) keyCount[k.toLowerCase()] = (keyCount[k.toLowerCase()] || 0) + 1;
+  }
+  // Кодовые коммиты (без merge и без тех, что тронули только .memory_bank/), одним вызовом; темы docs/memory — мимо.
+  const log = git(["log", "--no-merges", "-n", "2000", "--format=%H%x09%ct%x09%s", "HEAD", "--", ".", ":(exclude).memory_bank"]);
+  const commits = log.split("\n").filter(Boolean).map((l) => {
+    const [sha, ct] = l.split("\t", 2);
+    return { sha, ct: Number(ct), subject: l.slice(sha.length + ct.length + 2) };
+  }).filter((c) => !LAG_SKIP_SUBJECT.test(c.subject));
+  if (!commits.length) return { warnings };
+  const dirty = new Set(
+    git(["status", "--porcelain", "-z", "--", ".memory_bank/plans"]).split("\0").filter(Boolean).map((l) => l.slice(3))
+  );
+  // Последний коммит каждого открытого плана — одним вызовом (по `git log -1` на план — секунды на 60 планах remlab).
+  const pathOf = (p) => relative(root, p.file).split(sep).join("/");
+  const lastTouch = new Map();
+  {
+    let sha = null;
+    for (const tok of git(["log", "--format=%x01%H %ct", "--name-only", "-z", "HEAD", "--", ...open.map(pathOf)]).split("\0")) {
+      const t = tok.replace(/^\n/, "");
+      if (t.startsWith("\x01")) {
+        const [h, ct] = t.slice(1).split(" ");
+        sha = { sha: h, ct: Number(ct) };
+      } else if (t && sha && !lastTouch.has(t)) lastTouch.set(t, sha);
+    }
+  }
+  for (const p of open) {
+    const slug = basename(p.file, ".md");
+    const planPath = pathOf(p);
+    if (dirty.has(planPath)) continue; // план правят прямо сейчас — не отстал
+    const res = [slug, ...keysOf.get(p).slice(1).filter((k) => keyCount[k.toLowerCase()] === 1)].map(wordRe);
+    const ownsId = (id) => p.text.includes(id) || board.some((l) => l.includes(id) && keysOf.get(p).some((k) => wordRe(k).test(l)));
+    const hits = commits.filter((c) => res.some((r) => r.test(c.subject)) || (idRe && [...c.subject.matchAll(idRe)].some((m) => ownsId(m[0]))));
+    if (hits.length < threshold) continue;
+    const lt = lastTouch.get(planPath);
+    if (!lt) continue; // план ещё не в git
+    // Дешёвый отсев по времени коммита (потомки почти всегда новее), точный ответ — предковость через rev-list.
+    const fresh = hits.filter((c) => c.ct >= lt.ct);
+    if (fresh.length < threshold) continue;
+    const last = lt.sha;
+    const after = new Set(git(["rev-list", `${last}..HEAD`]).split("\n").filter(Boolean));
+    const lagging = fresh.filter((c) => after.has(c.sha));
+    if (lagging.length >= threshold) {
+      const ex = lagging[lagging.length - 1]; // самый ранний (log — от новых к старым)
+      warnings.push(
+        `PLAN-LAG ${p.rel} — план отстал на ${lagging.length} коммит(ов): после его последней правки (${last.slice(0, 7)}) ` +
+          `код с его именем — ${ex.sha.slice(0, 7)} «${ex.subject.length > 70 ? ex.subject.slice(0, 69) + "…" : ex.subject}»` +
+          `${lagging.length > 1 ? " и др." : ""} — отметь сделанное в плане (статус, лог, чекбоксы)`
+      );
+    }
+  }
+  return { warnings };
 }
 
 // ЭКСПЕРИМЕНТ `--drift-report` (v1.9, пилот sup2 27.09; НЕ гейт — решение о гейте по телеметрии флота).
@@ -615,6 +733,8 @@ export function runChecks(root, opts = {}) {
   }
   for (const d of contentDocs) {
     if (String(d.fm.tier) !== "1" || ALWAYS_ON_TOPICS.has(d.fm.topic)) continue;
+    // append-only плейбук не обязан влезать в бюджет сводки: его нельзя сжимать по CLEANUP_POLICY
+    if (APPEND_ONLY_TOPICS.has(d.fm.topic)) continue;
     // v1.9: меряем тело без шапки — поля жизненного цикла (status, source_of_truth, last_verified, review_after,
     // tier1/tier2) растут и съедали ~350 байт бюджета содержания (remlab/sup2: сводки стояли на 97–100 %).
     const fmEnd = d.text.startsWith("---") ? d.text.indexOf("\n---", 3) : -1;
@@ -980,9 +1100,23 @@ export function runChecks(root, opts = {}) {
   // 14) DIVERGENCE — вторая .memory_bank: в предках (до git-root, ≤3 уровней) или внутри проекта
   {
     const others = [];
+    // v1.11: root — связанный git worktree, лежащий внутри основной копии того же репо (`.claude/worktrees/<имя>`,
+    // `.nightly-verify/wt`): банк основной копии над ним — тот же канон в другой копии, не второй банк.
+    let mainCopy = null;
+    if (!o.noGit && existsSync(join(root, ".git"))) {
+      const r = spawnSync("git", ["-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+      if (!r.error && r.status === 0 && basename(r.stdout.trim()) === ".git") mainCopy = dirname(r.stdout.trim());
+    }
     let cur = dirname(root);
     for (let i = 0; i < 3 && cur !== dirname(cur); i++) {
-      if (existsSync(join(cur, ".memory_bank"))) others.push(join(cur, ".memory_bank"));
+      const same = mainCopy && (() => {
+        try {
+          return realpathSync(cur) === realpathSync(mainCopy);
+        } catch {
+          return false;
+        }
+      })();
+      if (existsSync(join(cur, ".memory_bank")) && !same) others.push(join(cur, ".memory_bank"));
       if (existsSync(join(cur, ".git"))) break;
       cur = dirname(cur);
     }
@@ -1266,6 +1400,18 @@ export function runChecks(root, opts = {}) {
       }
     } catch {
       /* git недоступен — тихо пропускаем, это не ошибка банка */
+    }
+  }
+
+  // 17b) PLAN-LAG (v1.11, opt-in) — план отстал от кода. Случай remlab onb-03 (05.11): план правлен в 13:34, код
+  //      «onb-03 часть А» закоммичен в 13:51, план догнали в 16:05 — по датам `updated:` (тот же день) не видно,
+  //      поэтому якорь — последний КОММИТ файла плана, а не дата.
+  if (o.planLag > 0 && !o.noGit && existsSync(join(root, ".git"))) {
+    try {
+      const lag = planLag(root, mbDir, planDocs, o.planLag);
+      warnings.push(...lag.warnings);
+    } catch {
+      /* git недоступен — тихо пропускаем */
     }
   }
 
