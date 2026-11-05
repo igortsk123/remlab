@@ -2,9 +2,10 @@
 // рабочий треугольник «мойка — варочная — холодильник» и проходы. Причина отказа — словами, для отчёта посадки.
 // Нормы продуктовые (NKBA Kitchen Planning Guidelines 2022, https://kb.nkba.org/uploads/2022/05/Kitchen-Planning-Guidelines.pdf):
 // сторона треугольника 120–270 см, сумма ≤ 790 см; рабочий проход 107 см (один повар) / 122 см (двое), проход 91 см.
-// Вытяжка у вентканала — порог 150 см по стене: гипотеза до данных застройщика (вентканала на схеме №180 нет).
+// Вытяжка у вентканала — ПРЕДУПРЕЖДЕНИЕ, не отказ: порог 300 см по стене, НОРМА НЕ ПОДТВЕРЖДЕНА (ведущий 05.11, T-20261105-18) —
+// гипотеза до данных застройщика (вентканала на схеме №180 нет); длинный короб к каналу возможен, он только хуже тянет.
 
-import { WALKWAY_CM, kitchenLayout, type KitchenLayout, type KitchenSpec, type Pt } from "@/lib/viewer3d/kits/kitchen-layout";
+import { WALKWAY_CM, kitchenLayout, type KitchenLayout, type KitchenSlot, type KitchenSpec, type Pt } from "@/lib/viewer3d/kits/kitchen-layout";
 
 export const KITCHEN_NORMS = {
   triangleSideMinCm: 120,
@@ -13,7 +14,11 @@ export const KITCHEN_NORMS = {
   aisleOneCookCm: 107,
   aisleTwoCooksCm: 122,
   walkwayCm: WALKWAY_CM,
-  ventMaxCm: 150,
+  /** НОРМА НЕ ПОДТВЕРЖДЕНА: гипотеза, превышение — предупреждение (`warnings`), не причина отказа. */
+  ventMaxCm: 300,
+  /** Модуль под варочной — не уже 60 (под ней духовка 60), под мойкой — не уже 45 (чаша и сифон). */
+  hobModuleMinCm: 60,
+  sinkModuleMinCm: 45,
 } as const;
 
 export interface TriangleCheck {
@@ -35,8 +40,11 @@ export interface KitchenReport {
   ok: boolean;
   triangle: TriangleCheck;
   aisles: AisleCheck[];
+  /** `ok: false` — вытяжка дальше порога: это предупреждение, `ok` отчёта от него не зависит. */
   vent: { distanceCm: number; ok: boolean } | null;
   problems: string[];
+  /** Замечания без отказа: сейчас — далёкий вентканал (порог — гипотеза). */
+  warnings: string[];
 }
 
 const dist = (a: Pt, b: Pt): number => Math.round(Math.hypot(a.x - b.x, a.z - b.z));
@@ -101,43 +109,55 @@ export function checkKitchen(spec: KitchenSpec, opts: { cooks?: 1 | 2 } = {}): K
   const problems = [
     ...(triangle.ok === false ? triangle.problems : []),
     ...aisles.filter((a) => !a.ok).map((a) => `проход ${where[a.where]} ${a.gapCm} см — меньше ${a.needCm}`),
-    ...(vent && !vent.ok ? [`вытяжка в ${vent.distanceCm} см от вентканала — дальше ${KITCHEN_NORMS.ventMaxCm}`] : []),
   ];
-  return { ok: problems.length === 0, triangle, aisles, vent, problems };
+  const warnings = vent && !vent.ok ? [`вытяжка в ${vent.distanceCm} см от вентканала — дальше ${KITCHEN_NORMS.ventMaxCm} (норма не подтверждена)`] : [];
+  return { ok: problems.length === 0, triangle, aisles, vent, problems, warnings };
 }
 
 /**
  * Где поставить мойку и варочную, чтобы треугольник прошёл: перебор модулей (варочная — на основной линии, не в крайнем
- * модуле у колонны или стены; между ней и мойкой — хотя бы модуль). Холодильника нет — только эти правила и вентканал.
- * Возвращает точки пути (`sinkAtCm`, `hobAtCm`) — их кладут в `KitchenSpec`.
+ * модуле у колонны или стены; между ней и мойкой — хотя бы модуль; под варочной модуль ≥ 60, под мойкой ≥ 45 — если такие
+ * есть). Холодильника нет — только эти правила и вентканал. `score` — штраф лучшей пары (0 — всё по нормам), им же
+ * `kits/kitchen-modules.ts` сравнивает наборы ширин модулей.
  */
-export function pickWorkPoints(spec: KitchenSpec): { sinkAtCm: number; hobAtCm: number } | null {
+export function scoreWorkPoints(spec: KitchenSpec): { score: number; sinkAtCm: number; hobAtCm: number } | null {
   const lay = kitchenLayout(spec);
   const main = lay.slots.map((s, i) => ({ s, i })).filter((x) => !x.s.leg);
   if (main.length < 2) return null;
+  const N = KITCHEN_NORMS;
+  const withHob = spec.features.includes("hob"); // без варочной её место ничего не значит — штрафы только за мойку
+  const roomy = (sink: KitchenSlot, hob: KitchenSlot): boolean => sink.w >= N.sinkModuleMinCm && (!withHob || hob.w >= N.hobModuleMinCm);
+  const anyRoomy = lay.slots.some((a) => main.some((b) => a !== b.s && roomy(a, b.s)));
   const mid = (main.length - 1) / 2;
   let best: { score: number; sinkAtCm: number; hobAtCm: number } | null = null;
   for (const sink of lay.slots.map((s, i) => ({ s, i }))) {
     for (const hob of main) {
       if (hob.i === sink.i) continue;
+      if (anyRoomy && !roomy(sink.s, hob.s)) continue;
       const trial = kitchenLayout({ ...spec, sinkAtCm: sink.s.s, hobAtCm: hob.s.s });
       const tri = checkTriangle(trial.points);
       const vent = checkVent(trial);
       let score = 0;
       if (tri.sides) {
         for (const v of Object.values(tri.sides)) {
-          score += Math.max(0, KITCHEN_NORMS.triangleSideMinCm - v) + Math.max(0, v - KITCHEN_NORMS.triangleSideMaxCm);
+          score += Math.max(0, N.triangleSideMinCm - v) + Math.max(0, v - N.triangleSideMaxCm);
         }
-        score += Math.max(0, (tri.sumCm ?? 0) - KITCHEN_NORMS.triangleSumMaxCm);
+        score += Math.max(0, (tri.sumCm ?? 0) - N.triangleSumMaxCm);
         score *= 10;
       }
-      if (!sink.s.leg && Math.abs(sink.i - hob.i) < 2) score += 500; // нет рабочего места между мойкой и плитой
+      if (withHob && !sink.s.leg && Math.abs(sink.i - hob.i) < 2) score += 500; // нет рабочего места между мойкой и плитой
       const hobPos = main.findIndex((m) => m.i === hob.i);
-      if (hobPos === 0 || hobPos === main.length - 1) score += 200; // варочная в крайнем модуле — у колонны/стены
+      if (withHob && (hobPos === 0 || hobPos === main.length - 1)) score += 200; // варочная в крайнем модуле — у колонны/стены
       if (vent) score += vent.distanceCm;
       if (!sink.s.leg) score += Math.abs(main.findIndex((m) => m.i === sink.i) - mid); // при равенстве — мойка ближе к середине
       if (!best || score < best.score) best = { score, sinkAtCm: sink.s.s, hobAtCm: hob.s.s };
     }
   }
+  return best;
+}
+
+/** Точки мойки и варочной для `KitchenSpec` (см. `scoreWorkPoints`). */
+export function pickWorkPoints(spec: KitchenSpec): { sinkAtCm: number; hobAtCm: number } | null {
+  const best = scoreWorkPoints(spec);
   return best && { sinkAtCm: best.sinkAtCm, hobAtCm: best.hobAtCm };
 }

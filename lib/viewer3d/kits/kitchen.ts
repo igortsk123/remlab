@@ -35,6 +35,8 @@ const TALL_TOP = 215;
 const SINK_D = 40;
 const SINK_Z = 2;
 const LIP = 3;
+/** Свес столешницы полуострова за спину, см — под колени сидящего (у стойки — 25–30). */
+const PENINSULA_OVERHANG = 28;
 
 interface Mats {
   door: THREE.Material;
@@ -161,6 +163,13 @@ function uppers(g: THREE.Group, m: Mats, x0: number, len: number, back: number, 
   }
 }
 
+/** Доборы ряда (`lay.fillers`): узкая панель в цвет фасада без ручки — закрывает остаток, куда модуль из ряда не встал. */
+function fillerFronts(g: THREE.Group, m: Mats, lay: KitchenLayout, leg: boolean): void {
+  for (const f of lay.fillers) {
+    if (f.leg === leg) frontPanel(g, m.door, f.along, KICK_H, BASE_TOP - KICK_H, f.w, lay.front, false);
+  }
+}
+
 function roleOf(lay: KitchenLayout, i: number): "dish" | "wine" | "oven" | "plain" {
   if (i === lay.dish) return "dish";
   if (i === lay.wine) return "wine";
@@ -192,6 +201,14 @@ function buildLeg(
   const sink = lay.slots[lay.sink];
   const legSink = sink?.leg ? { x: sink.along, w: sink.w } : undefined;
   worktopWithSink(lg, mat(ctx, spec.worktopMaterialId, [len, D]), leg.x0, leg.x1, D, legSink);
+  fillerFronts(lg, m, lay, true);
+  if (spec.peninsula) {
+    // ПОЛУОСТРОВ: стены за плечом нет — спина в комнату закрыта панелью в цвет фасада, столешница свисает за спину
+    // (там садятся), верха и фартука нет (как у Wickes на фото)
+    lg.add(boxOn(len, BASE_TOP, 1.8, (leg.x0 + leg.x1) / 2, 0, lay.back - 0.9, m.door));
+    lg.add(boxOn(len + 1.8, WORKTOP_H, PENINSULA_OVERHANG, (leg.x0 + leg.x1) / 2 + (leg.at === "end" ? 0.9 : -0.9), BASE_TOP, lay.back - PENINSULA_OVERHANG / 2, mat(ctx, spec.worktopMaterialId, [len, PENINSULA_OVERHANG])));
+    return lg;
+  }
   // фартук и верх — по всей боковой стене, от задней стены линии; верх — за глубиной верхних шкафов линии
   const wallX0 = leg.at === "end" ? -D : leg.x0;
   const wallX1 = leg.at === "end" ? leg.x1 : D;
@@ -209,7 +226,7 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   const kctx: KitCtx = { ...ctx, byId: (id) => ctx.byId(id) ?? kitchenMaterial(id) };
   const lay = kitchenLayout(spec);
   const out = new THREE.Group();
-  const { W, D, front, back, runX0, runW, tallW } = lay;
+  const { W, D, front, back, runX0, runW } = lay;
   const has = (f: string): boolean => spec.features.includes(f);
 
   const door = mat(kctx, spec.doorMaterialId, [60, 76]);
@@ -231,7 +248,10 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   // ── столешница (с мойкой, если она на линии) и фартук ───────────────────
   const sinkSlot: KitchenSlot | undefined = lay.slots[lay.sink];
   const mainSink = sinkSlot && !sinkSlot.leg ? { x: sinkSlot.along, w: sinkSlot.w } : undefined;
-  worktopWithSink(out, mat(kctx, spec.worktopMaterialId, [W, D]), -W / 2, -W / 2 + runW + tallW, D, mainSink);
+  fillerFronts(out, m, lay, false);
+  // столешница — только над нижним рядом: сквозь колонну она торчала из её фасада светлой полосой на высоте 86–90 см
+  // (кадр Wickes 05.11, T-20261105-18; так было и у Comfort/Premium застройщика)
+  worktopWithSink(out, mat(kctx, spec.worktopMaterialId, [W, D]), runX0, runX0 + runW, D, mainSink);
   out.add(boxOn(W, splashH, 1.5, 0, BASE_TOP + WORKTOP_H, back + 0.5, splashMat(W)));
 
   // ВАРОЧНАЯ ПАНЕЛЬ: стекло плюс четыре конфорки — иначе это просто тёмный прямоугольник

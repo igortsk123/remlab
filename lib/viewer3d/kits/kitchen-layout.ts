@@ -44,6 +44,16 @@ export interface KitchenSpec {
   fridgeAtCm?: number;
   /** Вентканал на стене за рядом, см по пути. Вытяжка — к нему; варочная тоже, если `hobAtCm` не задан. */
   ventAtCm?: number;
+  /**
+   * Ширины нижних модулей основной линии слева направо, см (без углового квадрата Г): из паспорта или подбор из ряда
+   * `MODULE_SERIES_CM` (`kits/kitchen-modules.ts`). Нет — ряд делится поровну (~60 см), как у вариантов застройщика.
+   * Не хватило до длины ряда — остаток < 40 см закрывает добор (панель без ручки), ≥ 40 — делится поровну.
+   */
+  modulesCm?: number[];
+  /** То же для второго плеча Г — от угла к торцу. */
+  legModulesCm?: number[];
+  /** Плечо Г — полуостров: без верхних шкафов и фартука, торец и спина открыты в комнату (у Wickes на фото). */
+  peninsula?: boolean;
 }
 
 /**
@@ -115,6 +125,8 @@ export interface KitchenLayout {
   corner: { x0: number; x1: number } | null;
   /** Модули с фасадами: сначала основная линия, затем плечо. */
   slots: KitchenSlot[];
+  /** Доборы — узкие панели без ручки, где модули ряда не дошли до его длины (`along` — центр, как у модуля). */
+  fillers: { along: number; w: number; leg: boolean }[];
   /** Индексы в `slots`; −1 — нет. */
   sink: number;
   hob: number;
@@ -138,6 +150,21 @@ function pathPoint(lay: Pick<KitchenLayout, "W" | "D" | "front" | "back" | "leg"
   if (leg && leg.at === "end" && s > W) return { x: edge === "front" ? W / 2 - D : W / 2, z: front + (s - W) };
   if (leg && leg.at === "start" && s < 0) return { x: edge === "front" ? -W / 2 + D : -W / 2, z: front - s };
   return { x: -W / 2 + s, z: edge === "front" ? front : back };
+}
+
+/** Ширины модулей ряда длиной `len`: заданные (пока влезают), остаток < 40 — добор, ≥ 40 — поровну; не заданы — поровну. */
+function fitModules(len: number, given: number[] | undefined): { widths: number[]; filler: number } {
+  if (!given?.length) return { widths: splitUnits(len, 60), filler: 0 };
+  const widths: number[] = [];
+  let sum = 0;
+  for (const w of given) {
+    if (sum + w > len + 0.01) break;
+    widths.push(w);
+    sum += w;
+  }
+  const rest = len - sum;
+  if (rest >= 40) return { widths: [...widths, ...splitUnits(rest, 60)], filler: 0 };
+  return { widths, filler: rest > 0.5 ? rest : 0 };
 }
 
 function nearest(slots: KitchenSlot[], s: number, allowed: (i: number) => boolean): number {
@@ -183,22 +210,30 @@ export function kitchenLayout(spec: KitchenSpec): KitchenLayout {
 
   // модули основной линии (без углового квадрата), затем плеча
   const slots: KitchenSlot[] = [];
+  const fillers: KitchenLayout["fillers"] = [];
   const mainX0 = cornerBox && leg?.at === "start" ? runX0 + D : runX0;
   const mainW = cornerBox ? runW - D : runW;
   let cursor = mainX0;
-  for (const w of splitUnits(mainW, 60)) {
+  const mainRow = fitModules(mainW, spec.modulesCm);
+  for (const w of mainRow.widths) {
     const x = cursor + w / 2;
     slots.push({ along: x, w, s: x + W / 2, leg: false, front: { x, z: front } });
     cursor += w;
   }
+  if (mainRow.filler) fillers.push({ along: cursor + mainRow.filler / 2, w: mainRow.filler, leg: false });
   const mainN = slots.length;
   if (leg) {
     let u = 0;
-    for (const w of splitUnits(leg.runCm, 60)) {
+    const legRow = fitModules(leg.runCm, spec.legModulesCm);
+    for (const w of legRow.widths) {
       const c = u + w / 2;
       const s = leg.at === "end" ? W + c : -c;
       slots.push({ along: leg.at === "end" ? c : -c, w, s, leg: true, front: pathPoint({ W, D, front, back, leg }, s, "front") });
       u += w;
+    }
+    if (legRow.filler) {
+      const c = u + legRow.filler / 2;
+      fillers.push({ along: leg.at === "end" ? c : -c, w: legRow.filler, leg: true });
     }
   }
   const isMain = (i: number): boolean => i >= 0 && i < mainN;
@@ -254,7 +289,7 @@ export function kitchenLayout(spec: KitchenSpec): KitchenLayout {
   };
 
   return {
-    W, D, front, back, level, columns, tallW, colX0, runX0, runW, corner: cornerBox, slots,
+    W, D, front, back, level, columns, tallW, colX0, runX0, runW, corner: cornerBox, slots, fillers,
     sink, hob, dish, oven, wine, ovenInColumn, uppersW, leg, island, bar: wantIsland && !islandFits, points,
   };
 }

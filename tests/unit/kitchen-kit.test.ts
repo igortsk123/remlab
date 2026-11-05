@@ -7,10 +7,14 @@ import materials from "@/data/flat3d/materials.json";
 import ru from "@/data/partners/kitchen-examples/ru.json";
 import uk from "@/data/partners/kitchen-examples/uk.json";
 import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
+import { Box3, type Object3D } from "three";
+
+import { CM } from "@/lib/viewer3d/kits/common";
 import { KITCHEN_NORMS, checkAisles, checkKitchen, checkTriangle, pickWorkPoints } from "@/lib/viewer3d/kits/kitchen-checks";
 import { kitchenSpecFromExample } from "@/lib/viewer3d/kits/kitchen-from-example";
 import { WORK_AISLE_CM, kitchenLayout, type KitchenSpec } from "@/lib/viewer3d/kits/kitchen-layout";
 import { KITCHEN_MATERIALS, kitchenMaterial } from "@/lib/viewer3d/kits/kitchen-materials";
+import { MODULE_SERIES_CM, moduleRows, pickModules } from "@/lib/viewer3d/kits/kitchen-modules";
 import { createMaterialCtx } from "@/lib/viewer3d/materials";
 
 // НАБОР КУХНИ под примеры из магазина (план onb-09 часть А): точки треугольника, проходы, Г-форма, два цвета фасада, ряд во
@@ -68,13 +72,18 @@ describe("треугольник и проходы — числами", () => {
     expect(tight.bar).toBe(true);
   });
 
-  it("вытяжка у вентканала: расстояние по стене и порог", () => {
-    const spec: KitchenSpec = { ...legacy("practical", ["uppers", "hob", "hood"]), fullRun: true, ventAtCm: 40 };
+  it("вытяжка у вентканала: расстояние по стене; дальше 300 см — предупреждение, не отказ (норма не подтверждена)", () => {
+    expect(KITCHEN_NORMS.ventMaxCm).toBe(300);
+    const spec: KitchenSpec = { ...legacy("practical", ["uppers", "hob", "hood"]), widthCm: 420, fullRun: true, ventAtCm: 40 };
     const r = checkKitchen(spec);
     expect(r.vent?.ok).toBe(true);
-    const far = checkKitchen({ ...spec, hobAtCm: 300 });
+    expect(r.warnings).toEqual([]);
+    const far = checkKitchen({ ...spec, hobAtCm: 380 });
+    expect(far.vent?.distanceCm).toBeGreaterThan(300);
     expect(far.vent?.ok).toBe(false);
-    expect(far.problems.some((p) => p.startsWith("вытяжка в"))).toBe(true);
+    expect(far.ok).toBe(true);
+    expect(far.problems.some((p) => p.startsWith("вытяжка"))).toBe(false);
+    expect(far.warnings).toEqual([`вытяжка в ${far.vent?.distanceCm} см от вентканала — дальше 300 (норма не подтверждена)`]);
   });
 });
 
@@ -211,38 +220,63 @@ describe("паспорт → KitchenSpec", () => {
     }
   });
 
-  it("в кухне глубиной 3,11 м (flat215) каждый пример проходит проверки; где есть холодильник — и треугольник", () => {
+  it("модули: паспортные, если складываются в ряд, иначе из ряда 40/45/60/80; добор < 40; мойка ≥ 45, варочная ≥ 60", () => {
     for (const [e, s] of specs) {
-      const r = checkKitchen(s);
-      expect(r.problems, e.id).toEqual([]);
       const lay = kitchenLayout(s);
-      if (lay.points.fridge && lay.points.hob) expect(r.triangle.ok, e.id).toBe(true);
-      if (lay.points.hob) expect(Math.abs(lay.sink - lay.hob), e.id).toBeGreaterThanOrEqual(2);
+      const main = lay.slots.filter((x) => !x.leg);
+      const mainW = lay.corner ? lay.runW - lay.D : lay.runW;
+      const sum = (a: number[]): number => a.reduce((x, y) => x + y, 0);
+      expect(sum(main.map((x) => x.w)) + sum(lay.fillers.filter((f) => !f.leg).map((f) => f.w)), e.id).toBeCloseTo(mainW, 6);
+      expect(lay.fillers.every((f) => f.w < 40), e.id).toBe(true);
+      expect(main.map((x) => x.w), e.id).toEqual(s.modulesCm);
+      const passport = sum(e.modules.base) === mainW;
+      if (passport) expect(s.modulesCm, e.id).toEqual(e.modules.base);
+      else expect(s.modulesCm?.every((w) => (MODULE_SERIES_CM as readonly number[]).includes(w)), e.id).toBe(true);
+      if (lay.leg) expect(lay.slots.filter((x) => x.leg).map((x) => x.w), e.id).toEqual(s.legModulesCm);
+      expect(lay.slots[lay.sink]?.w ?? 0, e.id).toBeGreaterThanOrEqual(KITCHEN_NORMS.sinkModuleMinCm);
+      if (s.features.includes("hob")) expect(lay.slots[lay.hob]?.w ?? 0, e.id).toBeGreaterThanOrEqual(KITCHEN_NORMS.hobModuleMinCm);
     }
+    const byId = Object.fromEntries(specs.map(([e, s]) => [e.id, s]));
+    expect(byId["ru-sima-evropa-240"]?.modulesCm).toEqual([60, 80, 60, 40]);
+    expect(byId["uk-wickes-milton-sage"]).toMatchObject({ peninsula: true }); // плечо — полуостров, как на фото
   });
 
-  it("холодильник вплотную к линии (его место задаст посадка): где треугольник проходит, а где модули не дают", () => {
-    // В цену примеров холодильник не входит — ставим отдельно стоящий (70 см) у свободного конца линии (у Г — за торцом
-    // плеча) и подбираем точки заново. НАХОДКА: модули набора — равные доли ряда, и у «Жемчуга»/«Антрацита» (2,8 м,
-    // модули по 56 см) лучшая пара даёт стороны 112 и 119 см, у Wickes (плечо 150 см, модули по 52,5) — 105 при норме 120.
-    // Решение — посадке (холодильник через модуль, другое плечо) или модули разной ширины (onb-09 Т2).
-    const short: string[] = [];
-    let measured = 0;
-    for (const e of examples) {
-      const s0 = kitchenSpecFromExample(e);
-      if (!s0.features.includes("hob")) continue;
-      const leg = kitchenLayout(s0).leg;
-      const fridgeAtCm = leg ? s0.widthCm + leg.runCm + 35 : s0.columnsAt === "end" ? -35 : s0.widthCm + 35;
-      const s = { ...s0, fridgeAtCm, sinkAtCm: undefined, hobAtCm: undefined };
-      const t = checkKitchen({ ...s, ...pickWorkPoints(s) }).triangle;
-      measured += 1;
-      if (t.ok) continue;
-      short.push(e.id);
-      for (const v of Object.values(t.sides ?? {})) expect(v, e.id).toBeGreaterThanOrEqual(100);
-      expect(t.problems.every((p) => p.includes("меньше 120")), t.problems.join("; ")).toBe(true);
+  it("в кухне глубиной 3,11 м (flat215): проходы у всех; треугольник с холодильником вплотную — где проходит, где честно нет", () => {
+    // Холодильник в колонне (METOD 304/287, Wickes) — из колонны; нет — допущение: отдельный 70 см вплотную у свободного конца.
+    // «Европа» и «Ева» — модули паспорта 60/80/60/40: варочной нужен модуль 60 (духовка), мойке ≥ 45, и в 2,4 м не хватает
+    // 15 см до холодильника (105 при норме 120). Лечит посадка: холодильник через модуль или напротив — не набор.
+    const failed: string[] = [];
+    for (const [e, s] of specs) {
+      const r = checkKitchen(s);
+      expect(r.aisles.every((a) => a.ok), e.id).toBe(true);
+      expect(r.warnings, e.id).toEqual([]);
+      const lay = kitchenLayout(s);
+      if (lay.points.hob) {
+        expect(lay.points.fridge, e.id).not.toBeNull();
+        expect(Math.abs(lay.sink - lay.hob), e.id).toBeGreaterThanOrEqual(2);
+      }
+      if (r.triangle.ok === false) {
+        failed.push(e.id);
+        expect(r.problems, e.id).toEqual(["варочная — холодильник 105 см — меньше 120"]);
+      }
     }
-    expect(measured).toBe(6);
-    expect(short.sort()).toEqual(["ru-sima-antracit-280", "ru-sima-zhemchug-280", "uk-wickes-milton-sage"]);
+    expect(failed.sort()).toEqual(["ru-sima-eva-240", "ru-sima-evropa-240"]);
+    const ok = specs.filter(([, s]) => checkKitchen(s).triangle.ok === true).map(([e]) => e.id).sort();
+    expect(ok).toEqual(["ru-sima-antracit-280", "ru-sima-prestizh-300", "ru-sima-zhemchug-280", "uk-wickes-milton-sage"]);
+  });
+
+  it("подбор модулей: наборы из ряда ровно в длину, остаток < 40 — добор; с холодильником 2,8 м треугольник проходит", () => {
+    expect(moduleRows(120).map((r) => r.join("+")).sort()).toEqual(["40+40+40", "40+80", "60+60", "80+40"]);
+    expect(moduleRows(246).every((r) => r.reduce((a, w) => a + w, 0) === 245)).toBe(true);
+    expect(moduleRows(30)).toEqual([]);
+    const spec: KitchenSpec = { ...legacy("practical", ["uppers", "oven", "hob"]), widthCm: 280, fullRun: true, fridgeAtCm: -35 };
+    // равные доли (56 см) не дают: лучшая пара — с короткой стороной
+    expect(checkKitchen({ ...spec, ...pickWorkPoints(spec) }).triangle.ok).toBe(false);
+    const pick = pickModules(spec);
+    expect(pick).not.toBeNull();
+    expect(checkKitchen({ ...spec, ...pick }).triangle.ok).toBe(true);
+    // ширины из паспорта не меняются — подбираются только точки
+    expect(pickModules(spec, { modulesCm: [80, 60, 80, 60] })?.modulesCm).toEqual([80, 60, 80, 60]);
   });
 });
 
@@ -266,5 +300,33 @@ describe("сборка three", () => {
     const two = buildKitchen(ctx, { ...legacy("practical", ["uppers"]), doorMaterialId: "front-concrete", doorUpperMaterialId: "front-oak" });
     const colours = new Set(two.children.flatMap((c) => ("material" in c ? [(c.material as { color?: { getHexString(): string } }).color?.getHexString()] : [])));
     expect(colours.size).toBeGreaterThan(3);
+  });
+
+  it("столешница не проходит сквозь колонну (светлая полоса на её фасаде, кадр Wickes 05.11)", () => {
+    for (const spec of [legacy("comfort", ["uppers", "tall-unit"]), legacy("premium", ["uppers", "tall-unit"]), kitchenSpecFromExample(examples.find((e) => e.id === "uk-wickes-milton-sage") as KitchenExample)]) {
+      const lay = kitchenLayout(spec);
+      const g = buildKitchen(ctx, spec);
+      const col = { x0: lay.colX0 * CM, x1: (lay.colX0 + lay.tallW) * CM };
+      const slabs = g.children.filter((c) => {
+        const b = new Box3().setFromObject(c);
+        return c.type === "Mesh" && Math.abs(b.min.y - 86 * CM) < 1e-6 && Math.abs(b.max.y - 90 * CM) < 1e-6; // столешница 86–90 см
+      });
+      expect(slabs.length).toBeGreaterThan(0);
+      for (const c of slabs) {
+        const b = new Box3().setFromObject(c);
+        expect(Math.min(b.max.x, col.x1) - Math.max(b.min.x, col.x0), spec.level).toBeLessThanOrEqual(1e-6);
+      }
+    }
+  });
+
+  it("полуостров: у плеча нет верхних шкафов и фартука, спина закрыта, столешница со свесом", () => {
+    const e = examples.find((x) => x.id === "uk-wickes-milton-sage") as KitchenExample;
+    const s = kitchenSpecFromExample(e);
+    const legOf = (spec: KitchenSpec): Object3D => buildKitchen(ctx, spec).children.find((c) => c.type === "Group") as Object3D;
+    const height = (o: Object3D): number => new Box3().setFromObject(o).max.y / CM;
+    expect(height(legOf(s))).toBeLessThan(148); // на уровне верхних шкафов ничего (выше столешницы — только смеситель мойки)
+    expect(height(legOf({ ...s, peninsula: false }))).toBeGreaterThan(200); // у стены — верх до 215
+    const depth = (o: Object3D): number => { const b = new Box3().setFromObject(o); return (b.max.x - b.min.x) / CM; };
+    expect(depth(legOf(s))).toBeGreaterThan(60 + 25); // свес столешницы за спину
   });
 });

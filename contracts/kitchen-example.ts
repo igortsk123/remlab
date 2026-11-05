@@ -32,6 +32,8 @@ export const kitchenKitSpec = z.object({
   widthCm: z.number().int().min(240).max(330),
   depthCm: z.number().int().min(50).max(70),
   columnsAt: z.enum(["start", "end"]).optional(),
+  /** Плечо Г — полуостров (без верха и фартука, открыто в комнату); только у `shape: "corner"`. */
+  peninsula: z.boolean().optional(),
 }).strict();
 
 /** Цвет слота: замер по фото → ближайший наш материал; далеко (ΔE > 10) — предложение нового. */

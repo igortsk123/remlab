@@ -69,7 +69,7 @@ window.snap = async (c: SnapCase): Promise<void> => {
   const kit = buildKitchen(ctx, c.spec);
   scene.add(kit);
 
-  // задняя стена, боковая (для угловой) и пол — как в комнате, иначе кадр не сравнить с фото
+  // задняя стена, боковая (для угловой, кроме полуострова — он стоит в комнате) и пол — как в комнате, иначе кадр не сравнить с фото
   const box = new THREE.Box3().setFromObject(kit);
   const back = -c.spec.depthCm / 2;
   const span = (box.max.x - box.min.x) / CM + 80;
@@ -82,7 +82,7 @@ window.snap = async (c: SnapCase): Promise<void> => {
   floor.position.set(wall.position.x, 0, back * CM + 3);
   floor.receiveShadow = true;
   scene.add(floor);
-  if (c.spec.shape === "corner") {
+  if (c.spec.shape === "corner" && !c.spec.peninsula) {
     const side = new THREE.Mesh(new THREE.BoxGeometry(0.04, 2.6, 4), WALL);
     const atEnd = (c.spec.cornerAt ?? ((c.spec.columnsAt ?? "start") === "end" ? "start" : "end")) === "end";
     side.position.set((atEnd ? c.spec.widthCm / 2 : -c.spec.widthCm / 2) * CM + (atEnd ? 0.02 : -0.02), 1.3, back * CM + 2);
