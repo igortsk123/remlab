@@ -61,6 +61,16 @@ def bedroom_raw():
  order by shop_mid, external_id""")
     return [r for r in out if not RC.child_only(r[0], r[3], R)]
 
+# ПРАВИЛА ПО МАТЕРИАЛУ — только спальня (`rules/bedroom-roles.json` style_material_rules; гостиная их не читает)
+MRULES=[]
+if SOURCE=='room_catalog':
+    import room_catalog as _RC
+    MRULES=_RC.rules().get('style_material_rules',[])
+def mfired(p):
+    """id сработавших правил по материалу: материал из фида, цвет и название — чтобы золото/хром не ушли в лофт."""
+    return [r['id'] for r in MRULES if re.search(r['mat'],p['mat'],re.I) and not re.search(r['not'],p['mat'],re.I)
+            and not re.search(r['not_col'],p['col']+' '+p['name'],re.I) and re.search(r.get('col',''),p['col']+' '+p['name'],re.I)]
+
 if SOURCE=='room_catalog':
     print("Каталог спальни (room_catalog)...",flush=True)
     raw=bedroom_raw()
@@ -102,7 +112,9 @@ if SOURCE=='room_catalog':
     have={(int(r[0]),r[1]):r for r in rows("select s.shop_mid, s.external_id, s.scores, s.universal, s.src from product_style_scores s"
                                            " join room_catalog c using (shop_mid, external_id)")}
     for p in prods:
-        if key(p) in cache: continue
+        # сработало правило по материалу, а запись посчитана без него — пересчитать (и не брать оценку гостиной)
+        if mfired(p) and key(p) in cache and cache[key(p)].get('mrules')!=mfired(p): del cache[key(p)]
+        if key(p) in cache or mfired(p): continue
         hit=next((have[t] for t in twins[p['mkey']] if t in have), None)
         if hit:
             sc=json.loads(hit[2])
@@ -148,6 +160,9 @@ def rule_score(p):
         if t.get('style'):
             s+= 2.0 if t['style']==st else 0.0
         out[st]=s
+    for r in MRULES:
+        if r['id'] in mfired(p):
+            for st,v in r['add'].items(): out[st]+=v
     return out
 
 # ---------- ступень 2: CLIP zero-shot (бесплатно, по кэшу фото-векторов) ----------
@@ -290,6 +305,7 @@ for batch,llm in _pool.map(run_batch,batches):
             fin={st:max(0,min(10, 5 + rs[st] + cs.get(st,0)*1.5)) for st in SNAMES}
             fin['universal']=all(abs(v-5)<1.2 for k,v in fin.items() if k!='universal'); src='rules+clip'
         rec={**{st:round(fin[st],1) for st in SNAMES},'universal':fin['universal'],'src':src}
+        if mfired(p): rec['mrules']=mfired(p)
         cache[key(p)]=rec
         for tw_mid,tw_eid in twins.get(p['mkey'],[(p['mid'],p['eid'])]):
             scored_now.append((tw_mid,tw_eid,rec))
