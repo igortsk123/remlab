@@ -170,6 +170,7 @@ jobs:
       - run: python tools/scout/room_profile.py --selftest && python tools/scout/room_profile.py --lint   # профили комнат: схема, версия, ссылки, плагины, роли = адаптер, виды = CAM_ZONES демо (T-20261105-40)
       - run: python tools/scout/asset_coverage.py --selftest   # аудит покрытия мешей: статус товара (привязан/сирота/брак), вариант семьи, корзины, банк (T-20261105-42)
       - run: python tools/scout/room_bindings.py --selftest   # привязка товар→меш комнат: готовность (фото, поколение, sha, ориентация, паспорт), семья ссылкой, снимок и таблица (T-20261105-45)
+      - run: python tools/scout/room_publish.py --selftest && python tools/scout/mesh_publish.py --selftest   # публикация мешей комнат: файл привязки с проверкой sha, представитель один раз, без настройки — гостиная как прежде (T-20261105-47)
       - run: python tools/scout/tests/test_improve_prompt.py   # промпт «реалистично» v2: фото-вид, каталожная форма, тёплые гайды (demo-11)
       - run: python tools/scout/tests/test_rug_kids.py   # детские ковры: слова только для текстиля, ответ VLM по форме, роль по кэшу (demo-05)
       - run: python tools/scout/tests/test_kids_textile.py   # словарь детского текстиля — только ковры и текстиль, общий KIDS — все роли (T-20261017-01)

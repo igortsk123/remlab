@@ -23,6 +23,13 @@
   ~/venvs/scout/bin/python mesh_publish.py          # собрать, выложить, слить индекс
   ~/venvs/scout/bin/python mesh_publish.py --dry    # только показать числа
   SETS_BANK=<банк> ~/venvs/scout/bin/python mesh_publish.py   # живой банк + кандидат
+  ROOM_PUBLISH=bedroom[=next|=путь] [ROOM_PUBLISH_READY=1] ~/venvs/scout/bin/python mesh_publish.py [--rooms-only]
+
+КОМНАТЫ (T-20261105-47, `room_publish.py`). Без `ROOM_PUBLISH` — ровно как прежде (ни одной лишней команды). С ним — в ту же
+выкладку меши банка комнаты по таблице привязки `offer_asset_binding`: файл в галерею — ровно путь привязки с проверкой sha
+(не «самый свежий манифест»), сбой — комната отказ, гостиная как обычно. Перед пересборкой индекса — копия `mesh-index.json`
+на сервере, после — сверка sha выложенного и пересборка привязки (`published_3d`). `--rooms-only` — только комнаты: галерею
+гостиной не собирает, на прод везёт лишь папки комнатных мешей (rsync по списку, сверка по содержимому).
   ~/venvs/scout/bin/python mesh_publish.py --selftest
 """
 from __future__ import annotations
@@ -163,6 +170,16 @@ def main() -> int:
     missing = {s for s in skus if s.replace(':', '_') not in have}
     print(f'[публикация] с готовым мешем (комплекты + недобор ленты): {len(skus)}; '
           f'в локальной галерее уже {len(skus) - len(missing)}; добавить {len(missing)}', flush=True)
+    import room_publish as RP
+    rooms_only = '--rooms-only' in sys.argv
+    rplans, rerr = RP.plans()                 # без ROOM_PUBLISH — ([], []): ни базы, ни файлов
+    for e in rerr:
+        print(f'WARN:mesh_publish: комнаты не публикую: {e}', flush=True)
+    for P in rplans:
+        print(f'[публикация] комната {RP.summary(P)}', flush=True)
+    if rooms_only and not rplans:
+        print('WARN:mesh_publish: --rooms-only без годной настройки комнат — нечего делать', flush=True)
+        return 0
 
     free = prod_free_gb()
     if free < 0:
@@ -176,19 +193,24 @@ def main() -> int:
         print(f'[публикация] сухой заход: на проде свободно {free:.0f} ГБ, ничего не делаю', flush=True)
         return 0
 
-    lst = os.path.join(HERE, '.mesh-publish-only.txt')
-    with open(lst, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(sorted(skus)))
-    code, out = sh(f'GALLERY_ONLY={lst} GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 '
-                   f'{PY} {SALAD}/gallery_build.py', 3600)
-    print(f'[публикация] галерея: код {code}; {out.splitlines()[-1][:160] if out else ""}', flush=True)
-    if code:
-        print('WARN:mesh_publish: галерея не собралась — на прод ничего не везу', flush=True)
+    if not rooms_only:
+        lst = os.path.join(HERE, '.mesh-publish-only.txt')
+        with open(lst, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(sorted(skus)))
+        code, out = sh(f'GALLERY_ONLY={lst} GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 '
+                       f'{PY} {SALAD}/gallery_build.py', 3600)
+        print(f'[публикация] галерея: код {code}; {out.splitlines()[-1][:160] if out else ""}', flush=True)
+        if code:
+            print('WARN:mesh_publish: галерея не собралась — на прод ничего не везу', flush=True)
+            return 0
+    room_ids = rooms_stage(rplans, {s.replace(':', '_') for s in skus}) if rplans else []
+    if rooms_only and not room_ids:
+        print('[публикация] комнаты: выкладывать нечего', flush=True)
         return 0
 
     # МЕСТО — ПО РЕАЛЬНЫМ БАЙТАМ (Codex 22.10): rsync без удаления, склад на проде только растёт; выкладку, после которой
     # останется меньше порога, не начинаем вовсе. Старое не удаляем — это только по слову владельца
-    new_gb = bytes_to_send() / 2 ** 30
+    new_gb = (bytes_of(room_ids) if rooms_only else bytes_to_send()) / 2 ** 30
     if free - new_gb < MIN_FREE_GB:
         print(f'WARN:mesh_publish: выложить {new_gb:.2f} ГБ, на проде свободно {free:.0f} ГБ — останется меньше '
               f'{MIN_FREE_GB:.0f}; выкладку пропускаю', flush=True)
@@ -199,17 +221,28 @@ def main() -> int:
     # следом читало уже ПОДМЕНЁННЫЙ файл и «сохраняло с прода 0»: индекс витрины схлопнулся с 590
     # до 186 за один заход. Индекс теперь не копируется, а пересобирается по тому, что реально
     # лежит на сервере, — такой способ не умеет терять записи.
-    code, out = sh(f'rsync -a --info=stats1 --exclude=mesh-index.json '
-                   f'-e "ssh -p 22222 -o BatchMode=yes" '
-                   f'{GALLERY}/ {HOST}:{PROD_DIR}/', 3600)
+    if rooms_only:
+        code, out = rsync_rooms(room_ids)
+    else:
+        code, out = sh(f'rsync -a --info=stats1 --exclude=mesh-index.json '
+                       f'-e "ssh -p 22222 -o BatchMode=yes" '
+                       f'{GALLERY}/ {HOST}:{PROD_DIR}/', 3600)
     sent = [l for l in out.splitlines() if 'files transferred' in l or 'Number of' in l]
     print(f'[публикация] выложено: код {code}; {"; ".join(sent)[:200]}', flush=True)
     if code:
         print('WARN:mesh_publish: rsync на прод не прошёл', flush=True)
         return 0
 
+    if rplans:
+        code, out = backup_index()
+        print(f'[публикация] копия индекса на сервере: {out}', flush=True)
+        if code:
+            print('WARN:mesh_publish: копию индекса снять не удалось — индекс не пересобираю', flush=True)
+            return 0
     code, out = rebuild_index()
     print(f'[публикация] индекс пересобран по серверу: код {code}; {out[:160]}', flush=True)
+    if room_ids:
+        rooms_verify(room_ids, rplans)
 
     code, out = sh(f'curl -s -m 60 {PROD_IDX}', 120)
     try:
@@ -221,6 +254,61 @@ def main() -> int:
         print(f'WARN:mesh_publish: в индексе {n}, а показать можем {len(skus)} — слияние не доехало',
               flush=True)
     return 0
+
+
+def rooms_stage(rplans: list, living: set) -> list:
+    """Меши комнат — в галерею ровно файлами привязки (`room_publish.stage`). → mesh_id, которые надо видеть на проде."""
+    import room_publish as RP
+    ids = []
+    for P in rplans:
+        R = RP.stage(P, GALLERY, living)
+        P['stage'] = R
+        print(f"[публикация] комната {P['room']}: {R['status']}; новых файлов {len(R['staged'])} ({R['bytes'] / 2 ** 20:.0f} МБ), "
+              f"уже те же {len(R['same'])}, у гостиной {len(R['living_same'])}"
+              + (f", у гостиной ДРУГИЕ байты {R['living_other'][:5]}" if R['living_other'] else '')
+              + (f"; ОТКАЗ: {'; '.join(R['errors'][:3])}" if R['errors'] else ''), flush=True)
+        if R['status'] == 'ok':
+            ids += R['staged'] + R['same']
+    return sorted(set(ids))
+
+
+def bytes_of(ids: list, gallery: str = GALLERY) -> int:
+    return sum(os.path.getsize(os.path.join(gallery, i, 'model.glb')) for i in ids
+               if os.path.exists(os.path.join(gallery, i, 'model.glb')))
+
+
+def rsync_rooms(ids: list) -> tuple[int, str]:
+    """Только папки комнатных мешей, по списку; --checksum — выложенные руками не те байты того же размера тоже заменятся."""
+    lst = os.path.join(HERE, '.mesh-publish-rooms.txt')
+    with open(lst, 'w', encoding='utf-8') as f:
+        f.write(''.join(f'{i}/model.glb\n' for i in ids))
+    return sh(f'rsync -a -c --info=stats1 --files-from={lst} -e "ssh -p 22222 -o BatchMode=yes" '
+              f'{GALLERY}/ {HOST}:{PROD_DIR}/', 3600)
+
+
+def backup_index() -> tuple[int, str]:
+    """Копия `mesh-index.json` на сервере рядом (`.bak-<ммдд-ччммсс>`) перед пересборкой — откат одной командой cp."""
+    import time
+    dst = f'{PROD_DIR}/mesh-index.json.bak-{time.strftime("%m%d-%H%M%S")}'
+    code, out = sh(f'ssh -o BatchMode=yes -o ConnectTimeout=20 {HOST} "cp -p {PROD_DIR}/mesh-index.json {dst}"', 120)
+    return code, (out[:160] if code else dst)
+
+
+def rooms_verify(ids: list, rplans: list) -> None:
+    """После выкладки: каждый комнатный меш — в индексе прода и sha файла на сервере = привязке; затем пересборка привязки,
+    чтобы `published_3d` в таблице стал правдой (демо берёт msid только у опубликованных — `room_bindings.mesh_for`)."""
+    want = {mid: m['asset_id'].split(':', 1)[1] for P in rplans for mid, m in P['meshes'].items() if mid in ids}
+    idx = prod_keys() or set()
+    files = ' '.join(f'{PROD_DIR}/{i}/model.glb' for i in sorted(want))
+    code, out = sh(f'ssh -o BatchMode=yes -o ConnectTimeout=20 {HOST} "sha256sum {files}"', 600)
+    got = {ln.split()[1].split('/')[-2]: ln.split()[0] for ln in out.splitlines() if len(ln.split()) == 2}
+    bad = sorted(i for i in want if got.get(i) != want[i])
+    miss = sorted(i for i in want if i not in idx)
+    print(f'[публикация] комнаты на проде: {len(want) - len(bad)} из {len(want)} — sha совпал; нет в индексе {len(miss)}'
+          + (f'; НЕ СОШЛИСЬ {bad[:5]}' if bad else '') + (f'; НЕТ В ИНДЕКСЕ {miss[:5]}' if miss else ''), flush=True)
+    code, out = sh(f'cd {HERE} && {PY} room_bindings.py --build', 1800)
+    print(f'[публикация] привязка пересобрана (published_3d): код {code}; '
+          f'{[ln for ln in out.splitlines() if ln.startswith("снимок:")][-1:] or out[-160:]}', flush=True)
 
 
 def _selftest() -> int:
@@ -257,6 +345,23 @@ def _selftest() -> int:
         open(os.path.join(gal, 'index.html'), 'w').write('<html>')
         ok('байты к выкладке — только папки, которых нет в индексе прода', bytes_to_send(gal, {'1_a'}) == 500)
         ok('индекс прода не ответил (пустой) — считаем всю галерею', bytes_to_send(gal, set()) == 800)
+    # комнаты (T-20261105-47): без настройки — ни плана, ни команд; с настройкой — rsync только списком
+    import room_publish as RP
+    ok('без ROOM_PUBLISH — комнат нет (гостиная как прежде)', RP.plans({}, rows={}) == ([], []))
+    cmds = []
+    real_sh = globals()['sh']
+    globals()['sh'] = lambda c, t=0: (cmds.append(c), (0, ''))[1]
+    try:
+        rsync_rooms(['5_r', '1_a'])
+    finally:
+        globals()['sh'] = real_sh
+    ok('комнаты: rsync только папками комнатных мешей, со сверкой по содержимому, без --delete',
+       len(cmds) == 1 and '--files-from=' in cmds[0] and ' -c ' in cmds[0] and '--delete' not in cmds[0]
+       and open(os.path.join(HERE, '.mesh-publish-rooms.txt')).read() == '5_r/model.glb\n1_a/model.glb\n')
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, '5_r'))
+        open(os.path.join(tmp, '5_r', 'model.glb'), 'wb').write(b'x' * 70)
+        ok('комнаты: байты к выкладке — только свои папки', bytes_of(['5_r', 'нет'], tmp) == 70)
     print(f'mesh_publish selftest: ошибок {bad}')
     return 1 if bad else 0
 

@@ -507,6 +507,38 @@ def load_db(fetch, pol: dict | None = None) -> tuple:
         return None, 'binding_corrupt'
 
 
+# ---------------------------------------------------------------- точка входа для демо (T-20261105-47)
+_ROWS: dict = {}
+
+
+def mesh_for(offer_id: str, rows: dict | None = None, *, require_published: bool = True, require_ready: bool = True) -> dict | None:
+    """Меш товара комнаты для данных демо: {mesh_id, yaw, glb_sha, ver, asset_id, representative_offer_id, via_family, snapshot}
+    или None. msid даём ТОЛЬКО по привязке (не «есть в mesh-index», Codex): готов (ready; require_ready=False — хватит
+    local_3d ∧ appearance) и, по умолчанию, опубликован нужный файл (published_3d — после `mesh_publish` и пересборки).
+    yaw — разворот фронта ЭТОГО glb (orientation.yaw_deg = legacy_front_yaw, те же градусы, что `orient.json` прода);
+    ver — первые 12 знаков sha: меш перегенерирован → другой ver → клиент не берёт старый GLB из кэша (`?v=`).
+    rows — {offer_id: строка} (`load_db`); не дан — одно чтение таблицы на процесс."""
+    if rows is None:
+        if 'rows' not in _ROWS:
+            import catalog_items as CI
+            _ROWS['rows'] = load_db(CI.fetch)[0] or {}
+        rows = _ROWS['rows']
+    r = rows.get(offer_id)
+    if not r or not r.get('asset_id') or not r.get('mesh_id'):
+        return None
+    if require_ready and r['status'] != 'ready':
+        return None
+    if not require_ready and not (r['local_3d'] and r['appearance']):
+        return None
+    if require_published and not r['published_3d']:
+        return None
+    sha = r['asset_id'].split(':', 1)[1]
+    yaw = (r.get('orientation') or {}).get('yaw_deg')
+    return {'mesh_id': r['mesh_id'], 'yaw': float(yaw) if yaw is not None else None, 'glb_sha': sha, 'ver': sha[:12],
+            'asset_id': r['asset_id'], 'representative_offer_id': r.get('representative_offer_id'),
+            'via_family': bool(r.get('via_family')), 'snapshot': (r.get('snapshot_id') or '')[:16]}
+
+
 # ---------------------------------------------------------------- сборка из БД и диска (только чтение)
 def _rows(sql: str) -> list:
     import catalog_items as CI
@@ -953,6 +985,19 @@ def _selftest() -> int:
        and got['1:a']['local_3d'] is True and got['1:a']['snapshot_id'] == s1['content_sha'])
     ok('load_db: нет таблицы / пусто — причина', load_db(lambda qq: (_ for _ in ()).throw(RuntimeError('relation does not exist')), pol)[1]
        == 'binding_missing' and load_db(lambda qq: [], pol)[1] == 'binding_empty')
+    got['1:a']['published_3d'] = True
+    m = mesh_for('1:a', got)
+    ok('mesh_for: свой меш — mesh_id, разворот этого glb, sha и версия для кэша', m and m['mesh_id'] == '1_a' and m['yaw'] == 180.0
+       and m['glb_sha'] == full['/g/1old'] and m['ver'] == full['/g/1old'][:12] and not m['via_family'])
+    ok('mesh_for: вариант — меш представителя; не опубликован — нет msid', mesh_for('6:v', got) is None
+       and mesh_for('6:v', got, require_published=False)['mesh_id'] == '5_r'
+       and mesh_for('6:v', got, require_published=False)['yaw'] == 90.0)
+    g2 = {k: dict(v) for k, v in got.items()}
+    g2['1:a'].update(status='blocked', local_3d=True, appearance=True, reasons=['footprint_unverified'])
+    ok('mesh_for: не ready — нет; require_ready=False берёт годный к 3D; нет товара — нет',
+       mesh_for('1:a', g2) is None and mesh_for('1:a', g2, require_ready=False)['mesh_id'] == '1_a' and mesh_for('9:z', got) is None)
+    g2['1:a'].update(asset_id='sha256:' + 'b' * 64)
+    ok('mesh_for: перегенерирован (другой sha) — другая версия для кэша', mesh_for('1:a', g2, require_ready=False)['ver'] == 'b' * 12)
     rep = report(s1)
     ok('отчёт по комнатам', rep['rooms']['bedroom']['ready'] == 2 and rep['rooms']['bedroom']['offers'] == 2 and report_md(rep))
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
