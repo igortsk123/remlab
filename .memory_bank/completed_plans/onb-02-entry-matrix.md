@@ -2,10 +2,10 @@
 workstream: demo
 slug: onb-02-entry-matrix
 title: onb-02 — ступень 0 опроса без кода продукта — матрица входов, аудит цветов 5 стилей, черновик событий, эталоны подбора, список живых проверок
-status: in_progress
+status: completed
 created: 2026-11-05
 updated: 2026-11-05
-completed:
+completed: 2026-11-05
 plan_kind: sub
 parent_plan: onb-00-quiz-master
 ---
@@ -101,8 +101,9 @@ parent_plan: onb-00-quiz-master
 - Санузлы и прихожая — строки матрицы «не будет в треке, почему» (см. `onb-13`).
 
 ## Лог выполнения
+- 2026-11-05 — приёмка ведущим: PASS (тест подбора 32/32 повторно, влито ff). Решения по вопросам: 4 ступени возраста — да; ADR-0330 п.3 дополнен (`homeModel().styles`); матрица — вариант А (раздел `domain/onboarding-quiz.md`); EN-плашка — в onb-03.
 - 2026-11-05 — черновик (помощник ведущего), уточнения ведущего по Codex: ADR-0330, флаг `quiz.enabled`, матрица приёмки, 5↔6 стилей.
-- 2026-11-05 — рабочий 1, T-20261105-02/1, ветка `worktree-onb-02`. Сделаны Т1–Т7: `domain/onboarding-quiz.md`, `domain/onb-acceptance-matrix.md`,
+- 2026-11-05 — рабочий 1, T-20261105-02/1, ветка `worktree-onb-02`. Сделаны Т1–Т7: `domain/onboarding-quiz.md`, `domain/onboarding-quiz.md` § «Матрица приёмки»,
   `core/onboarding-quiz.md` (строку в INDEX добавляет ведущий), `tools/scout/rules/quiz.json`, `tools/ops/quiz-colour-audit.mjs`,
   `tests/fixtures/quiz-golden.json` (20 случаев), `tests/unit/quiz-pick.test.ts`. Допущения (обхода по webdriver нет, `?quiz=1` при
   выключенном флаге, `?quiz=0` = прежняя главная, `?style=` = обход, `#n=` стирать всегда, 4 возраста детей) — в `domain/onboarding-quiz.md`.

@@ -47,6 +47,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Спальня — каталог кроватей, тумб, шкафов, комодов (с показа в демо снят); что дальше | `core/bedroom.md` | `plans/b2b-10-rooms-beyond-living.md` |
 | Дизайн демо в Фигме для дизайнера — книги, страницы, как пересобрать, что правлено руками | `core/design-figma.md` | `completed_plans/design-01-figma-export.md` |
 | Состав гостиной — роли и пригодность | `core/lr-checklist.md` | `domain/living-room-checklist.md` |
+| Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат | `core/onboarding-quiz.md` | `domain/onboarding-quiz.md` |
 <!-- GENERATED:decision-tree END -->
 
 ## Always-on docs (Tier 0/1)
