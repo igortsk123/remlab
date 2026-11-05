@@ -1,0 +1,10 @@
+# @PROEKT@, tokeny-mashiny/1: ночная выгрузка токенов Claude этой машины (вчера по Лондону) в общую папку проекта.
+# Шаблон кита (`_optional/tokeny`); ставит tools/tokeny/postavit_taymer.sh как tokeny-vygruzka-@PROEKT@ — на каждой машине.
+[Unit]
+Description=@PROEKT@: выгрузка токенов Claude этой машины (tokeny-mashiny/1)
+
+[Service]
+Type=oneshot
+Nice=10
+TimeoutStartSec=30min
+ExecStart=@REPO@/tools/tokeny/vygruzit.sh

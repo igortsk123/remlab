@@ -1,0 +1,10 @@
+# Раньше сводки; время — по Лондону при любом часовом поясе машины (TOKENY_VREMYA при установке).
+[Unit]
+Description=@PROEKT@: выгрузка токенов Claude в @VREMYA@ по Лондону (tokeny-mashiny/1)
+
+[Timer]
+OnCalendar=*-*-* @VREMYA@:00 Europe/London
+Persistent=true
+
+[Install]
+WantedBy=timers.target

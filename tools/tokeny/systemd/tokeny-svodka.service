@@ -1,0 +1,10 @@
+# @PROEKT@, tokeny-mashiny/1: сводка токенов со всех машин в data/otchety/tokeny/svodka-<сутки>.txt — на одной машине,
+# откуда её отправляют (Telegram). Шаблон кита; ставит tools/tokeny/postavit_taymer.sh как tokeny-svodka-@PROEKT@.
+[Unit]
+Description=@PROEKT@: утренняя сводка токенов со всех машин (tokeny-mashiny/1)
+
+[Service]
+Type=oneshot
+Nice=10
+TimeoutStartSec=15min
+ExecStart=@REPO@/tools/tokeny/svodka.sh

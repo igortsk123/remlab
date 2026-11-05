@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Отметка фазы ведущего для учёта токенов (план uchet-tokenov): строка в data/logs/tokeny/fazy.tsv
-# «ISO-время UTC ⇥ проект ⇥ ID/цикл ⇥ фаза». Проект — по `pwd -P` (/home/pakar/igor/<проект>/…).
+# «ISO-время UTC ⇥ проект ⇥ ID/цикл ⇥ фаза». Проект — по `pwd -P` (<TOKENY_PROEKTY>/<проект>/…, по умолчанию /home/pakar/igor).
 #   faza <ID>[/<цикл>] план|проверка|доработка|прочее
 #   faza прочее
 # `доработка` — ведущий разбирает замечание владельца и ставит доработку по нему.
@@ -24,15 +24,16 @@ if ! [[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9_./-]*$ || "$id" = "-" ]]; then
     exit 2
 fi
 
+korni="${TOKENY_PROEKTY:-/home/pakar/igor}"
 proekt="${TOKENY_PROEKT:-}"
 if [ -z "$proekt" ]; then
     put="$(pwd -P)/"
     case "$put" in
-        /home/pakar/igor/?*/*) proekt="${put#/home/pakar/igor/}"; proekt="${proekt%%/*}" ;;
-        *) echo "не в папке проекта /home/pakar/igor/<проект>: $put" >&2; exit 2 ;;
+        "$korni"/?*/*) proekt="${put#"$korni"/}"; proekt="${proekt%%/*}" ;;
+        *) echo "не в папке проекта $korni/<проект>: $put" >&2; exit 2 ;;
     esac
 fi
-zhurnal="${TOKENY_FAZY:-/home/pakar/igor/$proekt/data/logs/tokeny/fazy.tsv}"
+zhurnal="${TOKENY_FAZY:-$korni/$proekt/data/logs/tokeny/fazy.tsv}"
 mkdir -p "$(dirname "$zhurnal")"
 printf '%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$proekt" "$id" "$faza" >> "$zhurnal"
 echo "отмечено: $proekt $id $faza"

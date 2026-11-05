@@ -24,16 +24,28 @@
 новому ID, доработка — правки цикла ≥2, когда после отчёта исполнителя писал владелец; такие
 строки помечены. Короткий ID («6a-f») дополняется до полного по хвосту, если кандидат один.
 
-Взвешенные токены — ценовой эквивалент API (ввод 1, кэш-запись 5 мин 1,25, 1 ч 2, кэш-чтение 0,1,
-вывод 5), не доля лимита подписки. Долю недельного лимита оценивает журнал statusline
+Стоимость ответа — $ по прайсу API его модели (`CENY`, модель по префиксу ID; неизвестная — по
+цене Opus 5.5 с предупреждением в отчёте). Это ценовой эквивалент, не деньги (подписка) и не доля
+лимита; все доли считаются от $. Долю недельного лимита оценивает журнал statusline
 `~/.claude/usage-log.jsonl` (только чтение): прирост `seven_day.used_percentage` между соседними
 точками делится между ответами всех сессий учётки на этой машине (все проекты) пропорционально
-взвешенным токенам; смена `resets_at` — новое окно. Сутки — по Лондону.
+стоимости по прайсу; смена `resets_at` — новое окно. Сутки — по Лондону.
 
     python3 tools/tokeny/tokeny.py --proekt tamara --s 2026-10-19 --po 2026-10-21 --priblizitelno
     python3 tools/tokeny/tokeny.py --proekt remlab --json /tmp/remlab-algor.json
     python3 tools/tokeny/tokeny.py --proekt remlab --sobrat a.json b.json --s 2026-10-21
     python3 tools/tokeny/tokeny.py --proekt tamara --svodka
+
+Со всех машин (`tokeny-mashiny/1`; модуль кита памяти `_optional/tokeny`, проект — параметр `--proekt`, папка
+проектов — `TOKENY_PROEKTY`, по умолчанию /home/pakar/igor): на каждой машине ночью `tools/tokeny/vygruzit.sh` (таймер
+`tokeny-vygruzka-<проект>`) кладёт `<проект>/data/logs/tokeny/<машина>-<сутки>.json` — строки, `period`, `sverka`,
+цену чтений памяти `pamyat` (`pamyat.py`) и последний замер недели учётки `nedelya` (`nedelya_seychas`);
+`tools/tokeny/svodka.sh [--proekt X]` на любой машине склеивает их в `data/otchety/tokeny/svodka-<сутки>.txt`
+(и в stdout): токены и $ по машинам, % недели каждой учётки, строка «Память». Машина без выгрузки — «нет данных»
+по `--ozhidaem`; замер пользы памяти старше 14 дней — напоминание (`--zamery`).
+
+    python3 tools/tokeny/tokeny.py --proekt tamara --sobrat data/logs/tokeny/*-2026-11-01.json \\
+        --svodka --data 2026-11-01 --ozhidaem common,algor,pakardev
 
 Вывод в stdout/stderr — результат командной строки (путь отчёта, сводка), а не отладка.
 """
@@ -42,8 +54,10 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import functools
 import itertools
 import json
+import os
 import re
 import socket
 import sys
@@ -53,10 +67,27 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from pamyat import SIMVOLOV_NA_TOKEN, Pamyat, pamyat_fayla, tier0_simvolov
+
 SKHEMA = "tokeny/1"
 CHISLA = ("vvod", "kesh_5m", "kesh_1h", "kesh_chtenie", "vyvod")
 SPRAVOCHNO = ("thinking", "web_search", "web_fetch", "iteracii")
-VESA = {"vvod": 1.0, "kesh_5m": 1.25, "kesh_1h": 2.0, "kesh_chtenie": 0.1, "vyvod": 5.0}
+Cena = tuple[float, float, float, float, float]  # $ за 1 млн, в порядке CHISLA
+# Прайс API за 1 млн токенов: вход, запись кэша 5 мин, 1 ч, чтение кэша, ответ.
+# Источник: прайс 2026-10, skill claude-api (Fable 5 и Haiku 5.5 — по таблице задания
+# `tokeny-ceny/1`; у Haiku цена для запроса до 100 тыс. токенов).
+CENY: dict[str, Cena] = {
+    "claude-opus-5-5": (4.0, 5.0, 8.0, 0.20, 20.0),
+    "claude-opus-5": (5.0, 6.25, 10.0, 0.50, 25.0),
+    "claude-fable-5-1": (10.0, 12.5, 20.0, 0.25, 50.0),
+    "claude-fable-5": (10.0, 12.5, 20.0, 0.25, 50.0),
+    "claude-sonnet-5-5": (2.0, 2.5, 4.0, 0.20, 10.0),
+    "claude-haiku-5-5": (0.10, 0.125, 0.20, 0.01, 0.50),
+}
+CENA_ZAPASNAYA = "claude-opus-5-5"  # цена модели, которой нет в прайсе
+# Хвост после префикса из прайса не продолжает номер версии: «claude-opus-5-5[1m]» и дата
+# «-20261001» — та же модель, а «claude-opus-5-7» — не «claude-opus-5».
+VERSIYA_DALSHE = re.compile(r"[-.]\d(?!\d{7}(?!\d))")
 SEGMENTY = ("planirovanie", "realizaciya", "proverka", "ispravleniya", "dorabotka", "prochee",
             "ne_razmecheno")
 NAZVANIE = {"planirovanie": "планирование", "realizaciya": "реализация", "proverka": "проверка",
@@ -67,7 +98,11 @@ FAZY = ("план", "проверка", "доработка", "прочее")  #
 OKNO = timedelta(hours=2)
 DOPUSK_OKNA = 3600  # с: `resets_at` одного окна лимита у разных сессий
 POROG_SBROSA = 5.0  # п.п.: падение больше разброса устаревших показаний (±2) — сброс лимита
+NOVOE_OKNO_DO = 10.0  # п.п.: после сброса процент мал; 60 при живых 65 — отставшая сессия, не сброс
 KOREN_REPO = Path(__file__).resolve().parents[2]
+# Папка, где лежат проекты владельца (на common и algor — те же пути через sshfs). Проект — имя папки в ней;
+# журналы Claude проекта — `~/.claude/projects/<путь с «-» вместо «/»>-<проект>*`.
+KORNI = Path(os.environ.get("TOKENY_PROEKTY") or "/home/pakar/igor")
 METKA = re.compile(r"^\[[^\]\n]{1,60}\]\s+"
                    r"([A-Za-z0-9][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)*)/(\d+)"
                    r"\s+·\s+(задание|отчёт|правки|доработка|принято|вопрос)(?!\w)")
@@ -111,6 +146,19 @@ def vremya_iz(v: object) -> datetime | None:
     except ValueError:
         return None
     return t if t.tzinfo else t.replace(tzinfo=UTC)
+
+
+@functools.cache
+def cena_iz_praysa(model: str) -> Cena | None:
+    """Цена модели по самому длинному префиксу ID из прайса; нет в прайсе — None."""
+    for prefiks in sorted(CENY, key=len, reverse=True):
+        if model.startswith(prefiks) and not VERSIYA_DALSHE.match(model, len(prefiks)):
+            return CENY[prefiks]
+    return None
+
+
+def cena(model: str) -> Cena:
+    return cena_iz_praysa(model) or CENY[CENA_ZAPASNAYA]
 
 
 def zapisi(put: Path) -> Iterator[dict[str, object]]:
@@ -165,9 +213,13 @@ class Stroka:
     priblizitelno: bool = False
     limit: float = 0.0  # оценка: п.п. недельного лимита учётки
     mashina: str = ""  # `istochnik` выгрузки при --sobrat: у машин разные учётки
+    usd: float | None = None  # $ из выгрузки `--json`; None — по прайсу модели
 
-    def vzveshennye(self) -> float:
-        return sum(self.chisla[k] * VESA[k] for k in CHISLA)
+    def stoimost(self) -> float:
+        """$ по прайсу API модели ответа (ценовой эквивалент, не деньги)."""
+        if self.usd is not None:
+            return self.usd
+        return sum(self.chisla[k] * c for k, c in zip(CHISLA, cena(self.model), strict=True)) / 1e6
 
     def razmetit(self, rol: str, m: Metka) -> None:
         self.rol = rol
@@ -560,14 +612,32 @@ def podtip(rodit: Metka, tip: str, stroka: str, rol: str, priblizitelno: bool,
 
 # ── сборка проекта ───────────────────────────────────────────────────────────────────────────
 
-PREFIKS = "-home-pakar-igor-"  # папки журналов проектов владельца
+def imya_papki(put: str) -> str:
+    """Имя папки журналов Claude Code для пути: всё, кроме латиницы и цифр, — «-»."""
+    return re.sub(r"[^A-Za-z0-9]", "-", put)
+
+
+PREFIKS = imya_papki(str(KORNI)) + "-"  # папки журналов проектов владельца: «-home-pakar-igor-»
+
+
+def koren_proekta(proekt: str) -> Path:
+    """Дерево проекта по имени: `KORNI/<проект>` (каноничная копия, не worktree)."""
+    return KORNI / proekt
 
 
 def papki_proekta(koren: Path, proekt: str) -> list[Path]:
-    """Папка проекта и его worktree (`-home-pakar-igor-<проект>-…`), без соседних проектов."""
-    baza = f"{PREFIKS}{proekt}"
+    """Папка проекта и его копии (`<префикс><проект>-…`: worktree, рабочие копии), без соседних
+    проектов: «sup2» не забирает журналы «sup2-repo», если такая папка есть рядом в `KORNI`."""
+    baza = f"{PREFIKS}{imya_papki(proekt)}"
+    try:
+        sosedi = [f"{PREFIKS}{imya_papki(d.name)}" for d in KORNI.iterdir()
+                  if d.is_dir() and d.name != proekt]
+    except OSError:
+        sosedi = []
+    chuzhie = [b for b in sosedi if b.startswith(baza + "-")]
     return sorted(p for p in koren.glob(baza + "*")
-                  if p.is_dir() and (p.name == baza or p.name.startswith(baza + "-")))
+                  if p.is_dir() and (p.name == baza or p.name.startswith(baza + "-"))
+                  and not any(p.name == b or p.name.startswith(b + "-") for b in chuzhie))
 
 
 def subagenty(papka: Path) -> list[Path]:
@@ -684,18 +754,38 @@ def razmetit_subagentov(papka: Path, glavnyy: Fayl, r: Razmetchik, rol: str,
     return stroki
 
 
+def vse_fayly(papki: list[Path]) -> list[tuple[Path, str]]:
+    """Файлы журналов папок (сессии, субагенты, субагенты без сессии) и их сессия."""
+    fayly: list[tuple[Path, str]] = []
+    for papka in papki:
+        for put in sorted(papka.glob("*.jsonl")):
+            fayly.append((put, put.stem))
+            fayly += [(sub, put.stem) for sub in subagenty(papka / put.stem / "subagents")]
+        for d in siroty(papka):
+            fayly += [(sub, d.parent.name) for sub in subagenty(d)]
+    return fayly
+
+
 def vse_otvety(papki: list[Path]) -> list[Stroka]:
     """Все ответы папок без разметки, в том же порядке и с той же склейкой, что `sobrat_proekt`."""
     stroki: list[Stroka] = []
-    for papka in papki:
-        for put in sorted(papka.glob("*.jsonl")):
-            stroki += prochitat(put, put.stem).otvety
-            for sub in subagenty(papka / put.stem / "subagents"):
-                stroki += prochitat(sub, put.stem).otvety
-        for d in siroty(papka):
-            for sub in subagenty(d):
-                stroki += prochitat(sub, d.parent.name).otvety
+    for put, sessiya in vse_fayly(papki):
+        stroki += prochitat(put, sessiya).otvety
     return bez_povtorov(stroki)
+
+
+def pamyat_papok(papki: list[Path], s: date, po: date) -> Pamyat:
+    """Цена чтений `.memory_bank/**` за период по всем файлам журналов (`pamyat.py`)."""
+
+    def v_okne(ts: object) -> bool:
+        t = vremya_iz(ts)
+        return t is not None and s <= london(t) <= po
+
+    itog = Pamyat()
+    otvety: set[tuple[str, str]] = set()  # ответ API, повторённый в другом файле, — один раз
+    for put, _ in vse_fayly(papki):
+        itog.dobavit(pamyat_fayla(zapisi(put), v_okne, cena, otvety))
+    return itog
 
 
 def kontrol(papki: list[Path], s: date, po: date) -> dict[str, int]:
@@ -733,10 +823,11 @@ def prirosty_limita(tochki: list[tuple[datetime, float, int]]) -> list[Prirost]:
     Процент целый: 1 п.п. копится всё время с прошлого прироста, а не за секунды от соседней
     точки (иначе прирост достаётся пустому интервалу между двумя сессиями). Новое окно — счёт с
     нуля, а не отрицательный прирост. Окно сменилось, если вырос `resets_at` (допуск — час) или
-    процент упал на `POROG_SBROSA` и больше: так выглядит и сброс без смены `resets_at`
-    (20.10.2026: 54 → 2). Малое падение — устаревшее показание другой сессии (у одной сессии
-    процент не падает): прироста нет, в окне берётся максимум. Точка старого окна после смены —
-    тоже устаревшее показание, пропускается.
+    процент упал на `POROG_SBROSA` и больше до малого (≤ `NOVOE_OKNO_DO`): так выглядит и сброс
+    без смены `resets_at` (20.10.2026: 54 → 2). Иное падение — устаревшее показание другой сессии
+    (у одной сессии процент не падает; 25.10: простаивающая — всегда 60 при живых 65+, ложный
+    сброс каждую минуту дал 579,8 п.п. вместо 25): прироста нет, в окне берётся максимум. Точка
+    старого окна после смены — тоже устаревшее показание, пропускается.
     """
     itog: list[Prirost] = []
     if not tochki:
@@ -746,7 +837,7 @@ def prirosty_limita(tochki: list[tuple[datetime, float, int]]) -> list[Prirost]:
     for t, p, r in tochki[1:]:
         if okno - r > DOPUSK_OKNA or (p >= staryy_maks - POROG_SBROSA > maks):
             continue
-        if r - okno > DOPUSK_OKNA or p <= maks - POROG_SBROSA:
+        if r - okno > DOPUSK_OKNA or p <= min(maks - POROG_SBROSA, NOVOE_OKNO_DO):
             staryy_maks = -1.0 if r - okno > DOPUSK_OKNA else maks
             if p > 0:
                 itog.append((pred, t, p))
@@ -759,17 +850,65 @@ def prirosty_limita(tochki: list[tuple[datetime, float, int]]) -> list[Prirost]:
 
 
 def razdelit_limit(vse: list[Stroka], prirosty: list[Prirost]) -> list[Rozdano]:
-    """Прирост интервала (начало, конец] — ответам в нём пропорционально взвешенным токенам."""
+    """Прирост интервала (начало, конец] — ответам в нём пропорционально стоимости по прайсу."""
     po_vremeni = sorted(vse, key=lambda s: s.vremya)
     vremena = [s.vremya for s in po_vremeni]
     itog: list[Rozdano] = []
     for a, b, d in prirosty:
         ss = po_vremeni[bisect.bisect_right(vremena, a):bisect.bisect_right(vremena, b)]
-        ves = sum(s.vzveshennye() for s in ss)
+        ves = stoimost(ss)
         for s in ss if ves > 0 else []:
-            s.limit += d * s.vzveshennye() / ves
+            s.limit += d * s.stoimost() / ves
         itog.append((b, d, d if ves > 0 else 0.0))
     return itog
+
+
+HVOST_LIMITA = 32 * 1024 * 1024  # байт: журнал statusline растёт на ~5 МБ в сутки, неделя — в хвосте
+
+
+def nedelya_seychas(put: Path, seychas: datetime) -> dict[str, object] | None:
+    """Последний известный процент недели учётки этой машины по журналу statusline.
+
+    Простаивающая сессия CLI перерисовывает строку раз в `refreshInterval`, но процент в ней — с её
+    последнего ответа модели (проверено 05.11 на algor и common: рядом 41, 57 и 85 % одного окна).
+    Поэтому: окно — самый поздний `resets_at` (допуск — час), процент — максимум по сессиям этого
+    окна, «замер» — когда этот максимум впервые пришёл; «ответ» — последний рост
+    `cost.total_api_duration_ms` любой сессии (тогда процент был свежим). Окно уже кончилось
+    (`resets_at` в прошлом) — процент неизвестен: `sbroshen`. Нет файла или точек — None."""
+    if not put.is_file():
+        return None
+    tochki: list[tuple[datetime, float, int]] = []
+    otvet: datetime | None = None
+    api: dict[str, int] = {}
+    with put.open("rb") as f:
+        f.seek(max(0, put.stat().st_size - HVOST_LIMITA))
+        dannye = f.read().decode("utf-8", errors="replace").splitlines()
+    for stroka in dannye[1:] if put.stat().st_size > HVOST_LIMITA else dannye:
+        try:
+            z = json.loads(stroka)
+        except ValueError:
+            continue
+        if not isinstance(z, dict) or (t := vremya_iz(z.get("t"))) is None:
+            continue
+        sd = slovar(slovar(z.get("rl")).get("seven_day"))
+        pr, r = sd.get("used_percentage"), sd.get("resets_at")
+        if isinstance(pr, int | float) and not isinstance(pr, bool) and isinstance(r, int):
+            tochki.append((t, float(pr), r))
+        ms, ses = slovar(z.get("cost")).get("total_api_duration_ms"), str(z.get("session") or "")
+        if isinstance(ms, int) and ms > api.get(ses, ms):
+            otvet = t if otvet is None else max(otvet, t)
+        if isinstance(ms, int):
+            api[ses] = max(ms, api.get(ses, 0))
+    if not tochki:
+        return None
+    okno = max(r for _, _, r in tochki)
+    svoi = sorted(x for x in tochki if okno - x[2] <= DOPUSK_OKNA)
+    maks = max(p for _, p, _ in svoi)
+    zamer = min(t for t, p, _ in svoi if p == maks)
+    iso = lambda t: t.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    return {"procent": maks, "sbros": iso(datetime.fromtimestamp(okno, UTC)), "zamer": iso(zamer),
+            "otvet": iso(otvet) if otvet else None, "posledniy": iso(max(t for t, _, _ in tochki)),
+            "sbroshen": okno < seychas.timestamp()}
 
 
 def pp(n: float) -> str:
@@ -790,7 +929,7 @@ def razdel_limita(d: list[Stroka], limit: Limit | None, s: date, po: date) -> li
     out = ["## Доля недельного лимита — оценка", "",
            "Журнал statusline `~/.claude/usage-log.jsonl` этой машины: прирост "
            "`seven_day.used_percentage` делится между ответами всех сессий машины (все папки "
-           "журналов) за время с прошлого прироста пропорционально взвешенным токенам; сброс "
+           "журналов) за время с прошлого прироста пропорционально стоимости по прайсу API; сброс "
            "окна — начало нового окна. Процент целый, шаг 1 п.п. Учётка у каждой машины своя: "
            "оценка только по журналу лимита той машины, где он есть.", ""]
     if limit is None:
@@ -841,51 +980,117 @@ def v_slovar(s: Stroka) -> dict[str, object]:
             "uuid": s.uuid, "vremya": s.vremya.astimezone(UTC).isoformat().replace("+00:00", "Z"),
             "model": s.model, "rol": s.rol, "zadacha": s.zadacha, "cikl": s.cikl,
             "segment": s.segment, "priblizitelno": s.priblizitelno,
-            "limit_7d": round(s.limit, 9), **{k: s.chisla[k] for k in CHISLA + SPRAVOCHNO}}
+            "limit_7d": round(s.limit, 9), "usd": round(s.stoimost(), 9),
+            **{k: s.chisla[k] for k in CHISLA + SPRAVOCHNO}}
 
 
 def stroka_ili_net(v: object) -> str | None:
     return v if isinstance(v, str) else None
 
 
+def drob_ili_net(v: object) -> float | None:
+    return float(v) if isinstance(v, int | float) and not isinstance(v, bool) else None
+
+
 def iz_slovarya(d: dict[str, object]) -> Stroka:
+    """Строка выгрузки; старая выгрузка без `usd` — $ по модели и числам строки."""
     t = vremya_iz(d.get("vremya"))
     if t is None or d.get("segment") not in SEGMENTY:
         raise ValueError(f"строка выгрузки не по схеме {SKHEMA}: {d.get('uuid')}")
-    cikl, limit = d.get("cikl"), d.get("limit_7d")
+    cikl = d.get("cikl")
     return Stroka(str(d.get("sessiya")), str(d.get("fayl")), stroka_ili_net(d.get("msg_id")),
                   stroka_ili_net(d.get("req_id")), str(d.get("uuid")), t, str(d.get("model")),
                   {k: chislo(d.get(k)) for k in CHISLA + SPRAVOCHNO}, str(d.get("rol")),
                   stroka_ili_net(d.get("zadacha")), cikl if isinstance(cikl, int) else None,
                   str(d.get("segment")), d.get("priblizitelno") is True,
-                  float(limit) if isinstance(limit, int | float) else 0.0)
+                  drob_ili_net(d.get("limit_7d")) or 0.0, usd=drob_ili_net(d.get("usd")))
 
 
 def poryadok(s: Stroka) -> tuple[datetime, str, str, str, str, str]:
     return (s.vremya, s.sessiya, s.fayl, s.uuid, s.msg_id or "", s.req_id or "")
 
 
-def vygruzka(stroki: list[Stroka], proekt: str) -> str:
+@dataclass(slots=True)
+class Vygruzka:
+    """Что известно о выгрузке, кроме строк: машина, период, сверка, цена памяти.
+
+    Поля `period`, `sverka`, `pamyat`, `tier0_simvolov` добавлены в `tokeny-mashiny/1` и
+    необязательны: в старой выгрузке их нет — период и сверка неизвестны, памяти нет."""
+
+    mashina: str
+    s: date | None = None
+    po: date | None = None
+    sverka: bool | None = None
+    pamyat: Pamyat | None = None
+    tier0_simvolov: int = 0
+    nedelya: dict[str, object] | None = None  # последний замер недели учётки машины (`nedelya_seychas`)
+
+    def za_den(self, den: date) -> bool:
+        return (self.s or date.min) <= den <= (self.po or date.max)
+
+
+def vygruzka(stroki: list[Stroka], proekt: str, meta: Vygruzka | None = None) -> str:
     """JSON по схеме `tokeny/1`; на тех же журналах — тот же текст."""
-    telo = {"skhema": SKHEMA, "proekt": proekt, "istochnik": socket.gethostname(),
-            "stroki": [v_slovar(s) for s in sorted(stroki, key=poryadok)]}
+    telo: dict[str, object] = {"skhema": SKHEMA, "proekt": proekt,
+                               "istochnik": socket.gethostname()}
+    if meta is not None:
+        telo["period"] = {"s": (meta.s or date.min).isoformat(),
+                          "po": (meta.po or date.max).isoformat()}
+        telo["sverka"] = meta.sverka
+        if meta.pamyat is not None:
+            telo["pamyat"] = meta.pamyat.v_slovar()
+            telo["tier0_simvolov"] = meta.tier0_simvolov
+        if meta.nedelya is not None:
+            telo["nedelya"] = meta.nedelya
+    telo["stroki"] = [v_slovar(s) for s in sorted(stroki, key=poryadok)]
     return json.dumps(telo, ensure_ascii=False, indent=1) + "\n"
 
 
-def skleit(puti: list[Path], proekt: str) -> list[Stroka]:
-    """Выгрузки с разных машин без двойного счёта: один ответ API считается один раз."""
+def data_ili_net(v: object) -> date | None:
+    try:
+        return date.fromisoformat(v) if isinstance(v, str) else None
+    except ValueError:
+        return None
+
+
+def prochitat_vygruzku(put: Path, proekt: str) -> tuple[list[Stroka], Vygruzka]:
+    d = slovar(json.loads(put.read_text(encoding="utf-8")))
+    if d.get("skhema") != SKHEMA or d.get("proekt") != proekt:
+        raise ValueError(f"{put}: схема {d.get('skhema')}, проект {d.get('proekt')}; "
+                         f"ждали {SKHEMA}, {proekt}")
+    mashina = str(d.get("istochnik") or "")
+    period, pam, sverka = slovar(d.get("period")), d.get("pamyat"), d.get("sverka")
+    ned = d.get("nedelya")
+    v = Vygruzka(mashina, data_ili_net(period.get("s")), data_ili_net(period.get("po")),
+                 sverka if isinstance(sverka, bool) else None,
+                 Pamyat.iz_slovarya(pam) if isinstance(pam, dict) else None,
+                 chislo(d.get("tier0_simvolov")), ned if isinstance(ned, dict) else None)
+    spisok = d.get("stroki")
+    stroki = [iz_slovarya(slovar(x)) for x in (spisok if isinstance(spisok, list) else [])]
+    for s in stroki:
+        s.mashina = mashina
+    return stroki, v
+
+
+def skleit(puti: list[Path], proekt: str,
+           bitye: list[str] | None = None) -> tuple[list[Stroka], list[Vygruzka]]:
+    """Выгрузки с разных машин без двойного счёта: один ответ API считается один раз.
+
+    С `bitye` нечитаемая выгрузка не роняет склейку: файл и причина — в список (сводка скажет),
+    остальные машины считаются; без него — ошибка, как раньше."""
     stroki: list[Stroka] = []
+    vygruzki: list[Vygruzka] = []
     for put in puti:
-        d = slovar(json.loads(put.read_text(encoding="utf-8")))
-        if d.get("skhema") != SKHEMA or d.get("proekt") != proekt:
-            raise ValueError(f"{put}: схема {d.get('skhema')}, проект {d.get('proekt')}; "
-                             f"ждали {SKHEMA}, {proekt}")
-        spisok = d.get("stroki")
-        for x in spisok if isinstance(spisok, list) else []:
-            s = iz_slovarya(slovar(x))
-            s.mashina = str(d.get("istochnik") or "")
-            stroki.append(s)
-    return sorted(bez_povtorov(stroki), key=poryadok)
+        try:
+            ss, v = prochitat_vygruzku(put, proekt)
+        except (OSError, ValueError) as e:  # JSONDecodeError — тоже ValueError
+            if bitye is None:
+                raise
+            bitye.append(f"{put.name} ({type(e).__name__})")
+            continue
+        stroki += ss
+        vygruzki.append(v)
+    return sorted(bez_povtorov(stroki), key=poryadok), vygruzki
 
 
 # ── отчёт и сводка ───────────────────────────────────────────────────────────────────────────
@@ -894,18 +1099,32 @@ def ch(n: float) -> str:
     return f"{round(n):,}".replace(",", " ")
 
 
-def mln(n: float) -> str:
-    if n >= 100_000:
-        return f"{n / 1e6:.1f} млн".replace(".", ",")
-    return f"{n / 1e3:.0f} тыс."
+def dollary(n: float) -> str:
+    """$ по прайсу: «$1 234», «$12,35», «$0,0056», «$0»."""
+    if n == 0:
+        return "$0"
+    if n >= 100:
+        return f"${ch(n)}"
+    return "$" + (f"{n:.2f}" if n >= 1 else f"{n:.4f}").replace(".", ",")
 
 
 def procent(chast: float, vsego: float) -> str:
     return pp(chast / vsego * 100) if vsego else "0"
 
 
-def vzv(stroki: list[Stroka]) -> float:
-    return sum(x.vzveshennye() for x in stroki)
+def stoimost(stroki: list[Stroka]) -> float:
+    """$ по прайсу API: основа всех долей (токены разных моделей не складываются)."""
+    return sum(x.stoimost() for x in stroki)
+
+
+def bez_ceny(d: list[Stroka]) -> list[str]:
+    """Строка-предупреждение: модели не из прайса (с ненулевыми числами) посчитаны по запасной."""
+    modeli = sorted({x.model or "—" for x in d if cena_iz_praysa(x.model) is None
+                     and any(x.chisla[k] for k in CHISLA)})
+    if not modeli:
+        return []
+    return [f"Внимание: нет цены в прайсе для модели {', '.join(modeli)} — посчитано по цене "
+            f"{CENA_ZAPASNAYA}."]
 
 
 def za_period(stroki: list[Stroka], s: date, po: date) -> list[Stroka]:
@@ -914,7 +1133,7 @@ def za_period(stroki: list[Stroka], s: date, po: date) -> list[Stroka]:
 
 def stroka_chisel(ss: list[Stroka]) -> str:
     sm = summa(ss)
-    return f"{len(ss)} | " + " | ".join(ch(sm[k]) for k in CHISLA) + f" | {ch(vzv(ss))}"
+    return f"{len(ss)} | " + " | ".join(ch(sm[k]) for k in CHISLA) + f" | {dollary(stoimost(ss))}"
 
 
 def otchet(stroki: list[Stroka], proekt: str, s: date, po: date, kontr: dict[str, int] | None,
@@ -922,31 +1141,33 @@ def otchet(stroki: list[Stroka], proekt: str, s: date, po: date, kontr: dict[str
            korotkie: dict[str, str] | None = None) -> tuple[str, bool]:
     """Markdown-отчёт за период и признак «сумма по сегментам = сумма по журналам»."""
     d = za_period(stroki, s, po)
-    vsego = vzv(d)
+    vsego = stoimost(d)
     period = s.isoformat() if s == po else f"{s.isoformat()} — {po.isoformat()}"
     pribl = sum(x.priblizitelno for x in d)
     out = [f"# Токены Claude Code — {proekt}, {period} (сутки по Лондону)", "",
-           f"Ответов модели: {len(d)}; взвешенно {ch(vsego)} — ценовой эквивалент API (ввод 1, "
-           "кэш-запись 5 мин 1,25, 1 ч 2, кэш-чтение 0,1, вывод 5), не доля лимита подписки.",
+           f"Ответов модели: {len(d)}; ≈ {dollary(vsego)} по прайсу API (не деньги, подписка) — "
+           "цена каждого ответа по его модели (`CENY` в `tools/tokeny/tokeny.py`), не доля лимита "
+           "подписки; все доли — от $.",
+           *bez_ceny(d),
            f"Приблизительная разметка (`--priblizitelno`, метка ≈): {pribl} ответов." if pribl
            else "Разметка только по точным меткам и журналу фаз.", ""]
 
     out += ["## Итоги по сегментам", "",
-            "| Сегмент | Вызовы | Ввод | Кэш 5 мин | Кэш 1 ч | Чтение кэша | Вывод | Взвешенно "
+            "| Сегмент | Вызовы | Ввод | Кэш 5 мин | Кэш 1 ч | Чтение кэша | Вывод | $ API "
             "| Доля |", "|---|--:|--:|--:|--:|--:|--:|--:|--:|"]
     po_seg = {seg: [x for x in d if x.segment == seg] for seg in SEGMENTY}
     for seg, ss in po_seg.items():
-        out.append(f"| {NAZVANIE[seg]} | {stroka_chisel(ss)} | {procent(vzv(ss), vsego)} % |")
+        out.append(f"| {NAZVANIE[seg]} | {stroka_chisel(ss)} | {procent(stoimost(ss), vsego)} % |")
     nr = po_seg["ne_razmecheno"]
-    out += ["", f"**Не размечено: {procent(vzv(nr), vsego)} % взвешенных, "
+    out += ["", f"**Не размечено: {procent(stoimost(nr), vsego)} % стоимости по прайсу, "
             f"{len(nr)} из {len(d)} ответов.**", ""]
 
     kletki = setka(d)
-    out += ["## Сетка сводки: кто и на что", "", "| Кто | На что | Вызовы | Взвешенно | Доля |",
+    out += ["## Сетка сводки: кто и на что", "", "| Кто | На что | Вызовы | $ API | Доля |",
             "|---|---|--:|--:|--:|"]
     for (kto, na_chto), ss in kletki.items():
-        out.append(f"| {kto} | {na_chto} | {len(ss)} | {ch(vzv(ss))} | "
-                   f"{procent(vzv(ss), vsego)} % |")
+        out.append(f"| {kto} | {na_chto} | {len(ss)} | {dollary(stoimost(ss))} | "
+                   f"{procent(stoimost(ss), vsego)} % |")
     out += ["", stroka_peredelok(kletki, vsego), ""]
 
     itog = summa(d)
@@ -1003,8 +1224,8 @@ def setka(d: list[Stroka]) -> dict[tuple[str, str], list[Stroka]]:
 
 
 def stroka_peredelok(kletki: dict[tuple[str, str], list[Stroka]], vsego: float) -> str:
-    vedushchiy = vzv(kletki[KLETKI[6]]) + vzv(kletki[KLETKI[2]])
-    vladelec = vzv(kletki[KLETKI[7]]) + vzv(kletki[KLETKI[3]])
+    vedushchiy = stoimost(kletki[KLETKI[6]]) + stoimost(kletki[KLETKI[2]])
+    vladelec = stoimost(kletki[KLETKI[7]]) + stoimost(kletki[KLETKI[3]])
     return (f"Переделки: по проверке ведущего {procent(vedushchiy, vsego)} % (исправления и "
             f"перепроверка после правок) · по слову владельца {procent(vladelec, vsego)} % "
             "(доработка, её постановка и проверка).")
@@ -1013,13 +1234,13 @@ def stroka_peredelok(kletki: dict[tuple[str, str], list[Stroka]], vsego: float) 
 def tablica_zadach(d: list[Stroka]) -> list[str]:
     out = ["## Задача × сегмент × цикл", "",
            "| Задача | Сегмент | Цикл | Вызовы | Ввод | Кэш 5 мин | Кэш 1 ч | Чтение кэша | Вывод "
-           "| Взвешенно | ≈ |", "|---|---|--:|--:|--:|--:|--:|--:|--:|--:|---|"]
+           "| $ API | ≈ |", "|---|---|--:|--:|--:|--:|--:|--:|--:|--:|---|"]
     gruppy: dict[tuple[str, str, int], list[Stroka]] = defaultdict(list)
     for x in d:
         gruppy[(x.zadacha or "—", x.segment, x.cikl or 0)].append(x)
     ves: dict[str, float] = defaultdict(float)
     for (z, _, _), ss in gruppy.items():
-        ves[z] += vzv(ss)
+        ves[z] += stoimost(ss)
     for z, seg, c in sorted(gruppy, key=lambda k: (k[0] == "—", -ves[k[0]], k[0], k[2],
                                                      SEGMENTY.index(k[1]))):
         ss = gruppy[(z, seg, c)]
@@ -1029,20 +1250,21 @@ def tablica_zadach(d: list[Stroka]) -> list[str]:
 
 
 def tablica_sessiy(d: list[Stroka], sessii: dict[str, tuple[str, str]]) -> list[str]:
-    out = ["", "## Сессии", "", "| Сессия | Роль | Признак роли | Ответов | Взвешенно |",
+    out = ["", "## Сессии", "", "| Сессия | Роль | Признак роли | Ответов | $ API |",
            "|---|---|---|--:|--:|"]
     po_sessii: dict[str, list[Stroka]] = defaultdict(list)
     for x in d:
         po_sessii[x.sessiya[:8]].append(x)
-    for sid, ss in sorted(po_sessii.items(), key=lambda p: (-vzv(p[1]), p[0])):
+    for sid, ss in sorted(po_sessii.items(), key=lambda p: (-stoimost(p[1]), p[0])):
         rol, priznak = sessii.get(sid, (ss[0].rol, "из выгрузки"))
-        out.append(f"| {sid} | {ROLI.get(rol, rol)} | {priznak} | {len(ss)} | {ch(vzv(ss))} |")
-    out += ["", "## Модели", "", "| Модель | Ответов | Взвешенно |", "|---|--:|--:|"]
+        out.append(f"| {sid} | {ROLI.get(rol, rol)} | {priznak} | {len(ss)} | "
+                   f"{dollary(stoimost(ss))} |")
+    out += ["", "## Модели", "", "| Модель | Ответов | $ API |", "|---|--:|--:|"]
     po_modeli: dict[str, list[Stroka]] = defaultdict(list)
     for x in d:
         po_modeli[x.model or "—"].append(x)
     for model, ss in sorted(po_modeli.items()):
-        out.append(f"| {model} | {len(ss)} | {ch(vzv(ss))} |")
+        out.append(f"| {model} | {len(ss)} | {dollary(stoimost(ss))} |")
     return out
 
 
@@ -1052,7 +1274,7 @@ def stroka_limita(d: list[Stroka], proekt: str) -> list[str]:
     for x in d:
         if x.limit:
             po_mashine[x.mashina].append(x)
-    if len(po_mashine) > 1:
+    if len({x.mashina for x in d}) > 1 and po_mashine:  # машин несколько — всегда с именем
         return ["Недельный лимит (оценка, у машин разные учётки): " + ", ".join(
             f"{m} ≈ {pp(sum(x.limit for x in ss))} п.п." for m, ss in sorted(po_mashine.items()))]
     if not po_mashine:
@@ -1063,31 +1285,175 @@ def stroka_limita(d: list[Stroka], proekt: str) -> list[str]:
     return [f"Недельный лимит (оценка): {proekt} ≈ {pp(nash)} п.п. — {', '.join(chasti)}."]
 
 
-def svodka(stroki: list[Stroka], proekt: str, den: date) -> str:
-    """6–10 строк простым текстом для Telegram: сутки по Лондону."""
+def stroka_za_pp(d: list[Stroka]) -> list[str]:
+    """«$ на 1 п.п. недели»: $ суток проекта / п.п. проекта из оценки лимита, по учётке машины.
+
+    Без `--sobrat` машина одна (`mashina` пустая). В выгрузках с разных машин — у каждой машины
+    своя учётка: делится $ её строк на её п.п.; машина без оценки лимита не показывается.
+    """
+    po_mashine: dict[str, list[Stroka]] = defaultdict(list)
+    for x in d:
+        po_mashine[x.mashina].append(x)
+    chasti = [(m, stoimost(ss) / p) for m, ss in sorted(po_mashine.items())
+              if (p := sum(x.limit for x in ss)) > 0]
+    if not chasti:
+        return []
+    if len(po_mashine) == 1:
+        return [f"$ на 1 п.п. недели: {dollary(chasti[0][1])}."]
+    return ["$ на 1 п.п. недели (у машин разные учётки): "
+            + ", ".join(f"{m} {dollary(v)}" for m, v in chasti) + "."]
+
+
+def data_po_russki(den: date) -> str:
+    return f"{den.day} {MESYACY[den.month - 1]}"
+
+
+def stroki_mashin(d: list[Stroka], vygruzki: list[Vygruzka], ozhidaem: list[str],
+                  den: date, bitye: list[str] | None = None) -> list[str]:
+    """$ по машинам и явное «нет данных»: машина без выгрузки за сутки не пропадает молча."""
+    est = {v.mashina for v in vygruzki if v.za_den(den)}
+    mashiny = sorted(est | set(ozhidaem))
+    out: list[str] = []
+    chasti = []
+    for m in (m for m in mashiny if m in est):
+        ss = [x for x in d if x.mashina == m]
+        chasti.append(f"{m} {dollary(stoimost(ss))} ({len(ss)} отв.)")
+    if chasti:
+        out.append(f"По машинам: {', '.join(chasti)}.")
+    if bitye:
+        out.append(f"Битые выгрузки, не учтены: {', '.join(bitye)}.")
+    if net := [m for m in mashiny if m not in est]:
+        out.append(f"Нет данных: {', '.join(net)} (выгрузки за {data_po_russki(den)} нет).")
+    if ne_soshlas := sorted({v.mashina for v in vygruzki if v.za_den(den) and v.sverka is False}):
+        out.append(f"Сверка с журналами не сошлась: {', '.join(ne_soshlas)}.")
+    return out
+
+
+def mln(n: float) -> str:
+    return f"{n / 1e6:.1f}".replace(".", ",") + " млн"
+
+
+def stroka_tokenov(d: list[Stroka], vygruzki: list[Vygruzka], den: date) -> list[str]:
+    """Токены по машинам: всего и из них чтение кэша (оно дешёвое — ×0,05 входа у Opus 5.5)."""
+    est = sorted({v.mashina for v in vygruzki if v.za_den(den)})
+    chasti = []
+    for m in est:
+        sm = summa([x for x in d if x.mashina == m])
+        chasti.append(f"{m} {mln(sum(sm[k] for k in CHISLA))} (чтение кэша "
+                      f"{mln(sm['kesh_chtenie'])}, ответ {mln(sm['vyvod'])})")
+    return [f"Токены по машинам: {', '.join(chasti)}."] if chasti else []
+
+
+def vremya_ldn(v: object) -> str:
+    t = vremya_iz(v)
+    if t is None:
+        return "?"
+    t = t.astimezone(UTC)
+    leto = posl_voskresenye(t.year, 3) <= t < posl_voskresenye(t.year, 10)
+    return (t + timedelta(hours=1 if leto else 0)).strftime("%d.%m %H:%M")
+
+
+def stroka_nedeli(vygruzki: list[Vygruzka], ozhidaem: list[str], den: date) -> list[str]:
+    """% недели каждой учётки (у каждой машины своя): последний замер журнала statusline машины."""
+    po_mashine: dict[str, Vygruzka] = {}
+    for v in vygruzki:
+        if v.za_den(den) and (v.mashina not in po_mashine or str(slovar(v.nedelya).get("posledniy"))
+                              > str(slovar(po_mashine[v.mashina].nedelya).get("posledniy"))):
+            po_mashine[v.mashina] = v
+    chasti = []
+    for m in sorted(set(po_mashine) | set(ozhidaem)):
+        if m not in po_mashine:
+            chasti.append(f"{m} — нет данных с {m}")
+            continue
+        n = po_mashine[m].nedelya
+        if not n:
+            chasti.append(f"{m} — нет замера (журнала statusline нет)")
+        elif n.get("sbroshen"):
+            chasti.append(f"{m} — нет свежего замера (последний {vremya_ldn(n.get('posledniy'))}, "
+                          f"окно сброшено {vremya_ldn(n.get('sbros'))}; нужна CLI-сессия со statusline)")
+        else:
+            otv = f", ответ модели {vremya_ldn(n.get('otvet'))}" if n.get("otvet") else ""
+            pr = float(n.get("procent") or 0)
+            chasti.append(f"{m} {round(pr) if pr == round(pr) else pp(pr)} % (на {vremya_ldn(n.get('zamer'))}"
+                          f"{otv}; сброс {vremya_ldn(n.get('sbros'))})")
+    return [f"Неделя учёток (время по Лондону): {'; '.join(chasti)}."] if chasti else []
+
+
+def stroka_pamyati(d: list[Stroka], vygruzki: list[Vygruzka], den: date) -> list[str]:
+    """Цена памяти за сутки по выгрузкам ровно этих суток (`pamyat.py`); без них — нет строки."""
+    za_den = [v for v in vygruzki if v.s == den == v.po]
+    est = [v for v in za_den if v.pamyat is not None]
+    if not est:
+        return ["Память: нет данных (в выгрузках за сутки нет блока pamyat)."] if za_den else []
+    p = Pamyat()
+    for v in est:
+        if v.pamyat is not None:
+            p.dobavit(v.pamyat)
+    tier0 = max(v.tier0_simvolov for v in est) / SIMVOLOV_NA_TOKEN
+    bez = sorted({v.mashina for v in za_den} - {v.mashina for v in est})
+    return [f"Память: прочитано ≈ {ch(p.tokeny / 1000)} тыс. токенов ({procent(p.tokeny, p.tokeny_vse)}"
+            f" % результатов инструментов, {p.chteniy} чтений); с переносом в контексте ≈ "
+            f"{dollary(p.usd)} = {procent(p.usd, stoimost(d))} % суток; Tier 0 ≈ "
+            f"{ch(tier0 / 1000)} тыс. токенов × {p.starty} стартов и сжатий"
+            + (f" (без {', '.join(bez)})" if bez else "") + "."]
+
+
+def stroka_zamera(put: Path | None, den: date, srok: int = 14) -> list[str]:
+    """Напоминание: замер пользы памяти (`tools/memory-eval/`) старше `srok` дней или его нет."""
+    if put is None:
+        return []
+    posledniy: list[str] = []
+    if put.is_file():
+        for stroka in put.read_text(encoding="utf-8").splitlines()[1:]:
+            chasti = stroka.split("\t")
+            if len(chasti) >= 9 and data_ili_net(chasti[0]) is not None:
+                posledniy = chasti
+    if not posledniy:
+        return ["Замер пользы памяти не проводился — просрочен (tools/memory-eval/)."]
+    kogda = data_ili_net(posledniy[0]) or den
+    if (den - kogda).days <= srok:
+        return []
+    cm, cn, km, kn = (x.replace(".", ",") for x in posledniy[3:7])
+    return [f"Замер пользы памяти просрочен: последний {data_po_russki(kogda)} (с памятью ${cm} "
+            f"/ без ${cn}; критичных {km} / {kn}) — {(den - kogda).days} дн. назад."]
+
+
+def svodka(stroki: list[Stroka], proekt: str, den: date, vygruzki: list[Vygruzka] | None = None,
+           ozhidaem: list[str] | None = None, zamery: Path | None = None,
+           bitye: list[str] | None = None) -> str:
+    """6–12 строк простым текстом для Telegram: сутки по Лондону; все доли — от $ по прайсу.
+
+    Из выгрузок (`--sobrat`): строки по машинам и «нет данных» по ожидаемым машинам, цена памяти;
+    с журналом замеров памяти — напоминание о просроченном замере."""
     d = za_period(stroki, den, den)
-    vsego = vzv(d)
+    vsego = stoimost(d)
     kletki = setka(d)
 
     def doli(kto: str) -> str:
-        return ", ".join(f"{na_chto} {procent(vzv(ss), vsego)} %"
+        return ", ".join(f"{na_chto} {procent(stoimost(ss), vsego)} %"
                          for (k, na_chto), ss in kletki.items() if k == kto)
 
     pribl = " Разметка приблизительная." if any(x.priblizitelno for x in d) else ""
-    bez_metki = vzv(kletki[KLETKI[8]])
+    bez_metki = stoimost(kletki[KLETKI[8]])
     out = [f"Токены Claude — {proekt}, {den.day} {MESYACY[den.month - 1]}, "
            f"{DNI[den.weekday()]} (сутки по Лондону).",
-           f"Всего {len(d)} ответов модели, взвешенно {mln(vsego)} — это цена по API, а не доля "
-           f"лимита; без метки задачи {procent(bez_metki, vsego)} %.{pribl}",
+           f"Всего {len(d)} ответов модели, ≈ {dollary(vsego)} по прайсу API (не деньги, "
+           f"подписка); без метки задачи {procent(bez_metki, vsego)} %.{pribl}",
+           *(stroki_mashin(d, vygruzki, ozhidaem or [], den, bitye)
+             + stroka_tokenov(d, vygruzki, den) + stroka_nedeli(vygruzki, ozhidaem or [], den)
+             if vygruzki is not None else []),
+           *bez_ceny(d),
            f"{VED}: {doli(VED)}.", f"{ISP}: {doli(ISP)}.", stroka_peredelok(kletki, vsego)]
-    out += stroka_limita(d, proekt)
+    out += stroka_limita(d, proekt) + stroka_za_pp(d)
     po_zadache: dict[str, float] = defaultdict(float)
     for x in d:
         if x.zadacha:
-            po_zadache[x.zadacha] += x.vzveshennye()
+            po_zadache[x.zadacha] += x.stoimost()
     top = sorted(po_zadache.items(), key=lambda p: (-p[1], p[0]))[:3]
     out.append("Самые дорогие задачи:" if top else "Задач с ID за эти сутки нет.")
-    out += [f"{i}. {z} — {mln(v)}, {procent(v, vsego)} % суток" for i, (z, v) in enumerate(top, 1)]
+    out += [f"{i}. {z} — {dollary(v)}, {procent(v, vsego)} % суток"
+            for i, (z, v) in enumerate(top, 1)]
+    out += stroka_pamyati(d, vygruzki or [], den) + stroka_zamera(zamery, den)
     return "\n".join(out) + "\n"
 
 
@@ -1100,14 +1466,19 @@ def argumenty(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--koren", default=str(Path.home() / ".claude" / "projects"),
                    help="корень журналов")
     p.add_argument("--fazy", help="журнал фаз (по умолчанию "
-                   "/home/pakar/igor/<проект>/data/logs/tokeny/fazy.tsv)")
+                   "<TOKENY_PROEKTY>/<проект>/data/logs/tokeny/fazy.tsv)")
     p.add_argument("--rol", action="append", default=[],
                    help="<id8>=vedushchiy|ispolnitel (повторяемый)")
     p.add_argument("--priblizitelno", action="store_true", help="разметка дней до меток")
     p.add_argument("--s", type=date.fromisoformat, help="первый день, ГГГГ-ММ-ДД (Лондон)")
     p.add_argument("--po", type=date.fromisoformat, help="последний день, ГГГГ-ММ-ДД (Лондон)")
     p.add_argument("--json", help="выгрузить строки в файл (`-` — в stdout)")
-    p.add_argument("--sobrat", nargs="+", help="собрать отчёт из выгрузок --json")
+    p.add_argument("--sobrat", nargs="*", help="собрать отчёт из выгрузок --json (пусто — "
+                   "выгрузок нет: сводка скажет «нет данных» по --ozhidaem)")
+    p.add_argument("--ozhidaem", default="",
+                   help="машины через запятую, чьи выгрузки ждём в --sobrat (common,algor,…)")
+    p.add_argument("--zamery", help="журнал замеров памяти для напоминания в --svodka ('' — без "
+                   "него; по умолчанию <проект>/.memory_bank/changelog/memory-eval.log)")
     p.add_argument("--svodka", action="store_true", help="сводка за сутки для Telegram")
     p.add_argument("--data", type=date.fromisoformat,
                    help="сутки для --svodka (по умолчанию вчера)")
@@ -1135,18 +1506,21 @@ def main(argv: list[str] | None = None) -> int:
     papki: list[Path] = []
     sessii: dict[str, tuple[str, str]] = {}
     korotkie: dict[str, str] = {}
-    if a.sobrat:
-        stroki = skleit([Path(x) for x in a.sobrat], a.proekt)
+    vygruzki: list[Vygruzka] | None = None
+    bitye: list[str] = []
+    if a.sobrat is not None:  # в сводке битая выгрузка — строкой, в отчёте — ошибка
+        stroki, vygruzki = skleit([Path(x) for x in a.sobrat], a.proekt,
+                                  bitye if a.svodka else None)
     else:
         papki = [Path(x) for x in a.papka] or papki_proekta(koren, a.proekt)
         if not papki:
             soobshit(f"нет журналов проекта {a.proekt} в {koren}", oshibka=True)
             return 2
-        fazy = Path(a.fazy or f"/home/pakar/igor/{a.proekt}/data/logs/tokeny/fazy.tsv")
+        fazy = Path(a.fazy or koren_proekta(a.proekt) / "data" / "logs" / "tokeny" / "fazy.tsv")
         sbor = sobrat_proekt(papki, a.proekt, fazy, karta, a.priblizitelno)
         stroki, sessii, korotkie = sbor.stroki, sbor.sessii, sbor.korotkie
     limit: Limit | None = None
-    if not a.sobrat and (put_limita := Path(a.limit).expanduser()).is_file():
+    if a.sobrat is None and (put_limita := Path(a.limit).expanduser()).is_file():
         prochie = [p for p in sorted(koren.iterdir())
                    if p.is_dir() and p not in papki] if koren.is_dir() else []
         limit = Limit([], vse_otvety([p for p in prochie if p.name.startswith(PREFIKS)]),
@@ -1157,18 +1531,33 @@ def main(argv: list[str] | None = None) -> int:
     if a.json:
         s, po = a.s or date.min, a.po or date.max
         vybor = za_period(stroki, s, po)
-        tekst = vygruzka(vybor, a.proekt)
+        sovpalo = not papki or summa(vybor) == kontrol(papki, s, po)
+        meta = Vygruzka(socket.gethostname(), s, po, sovpalo if papki else None,
+                        pamyat_papok(papki, s, po) if papki else None,
+                        tier0_simvolov(koren_proekta(a.proekt) if koren_proekta(a.proekt).is_dir()
+                                       else KOREN_REPO) if papki else 0,
+                        nedelya_seychas(Path(a.limit).expanduser(), datetime.now(UTC)) if papki else None)
+        tekst = vygruzka(vybor, a.proekt, meta)
         if a.json == "-":
             sys.stdout.write(tekst)
         else:
             Path(a.json).write_text(tekst, encoding="utf-8")
-        sovpalo = not papki or summa(vybor) == kontrol(papki, s, po)
         soobshit(f"выгружено строк: {len(vybor)}; сверка с журналами: "
                  f"{'совпадает' if sovpalo else 'РАСХОЖДЕНИЕ'}", oshibka=True)
         return 0 if sovpalo else 3
 
     if a.svodka:
-        sys.stdout.write(svodka(stroki, a.proekt, a.data or segodnya - timedelta(days=1)))
+        ozhidaem = [m for m in a.ozhidaem.split(",") if m]
+        zamery = (koren_proekta(a.proekt) / ".memory_bank" / "changelog" / "memory-eval.log"
+                  if a.zamery is None else Path(a.zamery) if a.zamery else None)
+        if vygruzki is not None and (put_limita := Path(a.limit).expanduser()).is_file():
+            svoya = nedelya_seychas(put_limita, datetime.now(UTC))  # своя машина — живой журнал
+            for v in vygruzki:
+                if v.mashina == socket.gethostname() and svoya and (
+                        v.nedelya is None or str(svoya["posledniy"]) > str(v.nedelya["posledniy"])):
+                    v.nedelya = svoya
+        sys.stdout.write(svodka(stroki, a.proekt, a.data or segodnya - timedelta(days=1),
+                                vygruzki, ozhidaem, zamery, bitye))
         return 0
 
     po = a.po or max(a.s or segodnya, segodnya)
