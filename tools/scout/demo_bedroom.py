@@ -97,6 +97,123 @@ def solve(geo: dict, dims: list, purpose: str | None) -> dict:
     return out
 
 
+# ОДНА РАССТАНОВКА СПАЛЬНИ НА ВСЕ СТИЛИ (T-20261105-32/4, решение ведущего «А»; как у гостиной demo-31 `demo_one_layout.py`):
+# при переключении стиля та же комната, меняются товары. Место роли — её ЗОНА тем же расчётом, что подпись гостиной
+# (`planner/zones.py:signature_xy`): ближайшая к центру стена + четверть комнаты. Опорный стиль — тот, с чьими зонами согласно
+# больше всего ролей других стилей (у гостиной — подпись, общая для всех сетов; здесь та же мера без зашитого стиля), при
+# равенстве — первый по порядку витрины. Роль другого стиля в чужой зоне встаёт на место опорной (та же стена вплотную,
+# тот же центр вдоль стены, поворот опорной; `ONE_FREE_ROLES` — по центру), если `planner.validate` спальни не даёт НОВЫХ жёстких
+# нарушений (наезды, проходы, подходы); не встала — своя позиция банка и строка в журнал. Роль в своей зоне не трогаем: размер
+# товара у стилей разный, и банк уже подогнал её к соседям (тумбы к своей кровати). Банк не переписывается. Правило — `rules/
+# demo-layout.json` → `bedroom`; выключатель общий с гостиной (`DEMO_ONE_LAYOUT=0`).
+ONE_FREE_ROLES = ('ковёр',)
+
+
+def one_rule() -> dict:
+    sys.path.insert(0, HERE)
+    import demo_one_layout as _ONE
+    return (_ONE.rules().get('bedroom') or {}) if _ONE.enabled() else {}
+
+
+def _placed(art: dict) -> dict:
+    return {k: v for k, v in (art or {}).items() if not k.startswith('_') and isinstance(v, dict) and v.get('x') is not None
+            and v.get('w') and v.get('d') and base_role(k) in PLACE_ROLES}
+
+
+def zone(W: float, D: float, x: float, z: float) -> str:
+    """Зона центра: ближайшая стена (N: z=0, S: z=D, W: x=0, E: x=W) и четверть комнаты — как `signature_xy`."""
+    d = {'N': z, 'S': D - z, 'W': x, 'E': W - x}
+    return f"{min(d, key=d.get)}:{'N' if z < D / 2 else 'S'}{'W' if x < W / 2 else 'E'}"
+
+
+def zones(art: dict) -> dict:
+    W, D = art['_room']['w'], art['_room']['d']
+    return {k: zone(W, D, v['x'], v['z']) for k, v in _placed(art).items()}
+
+
+def reference(arts: dict, order: list) -> str:
+    """Опорный стиль: больше всех совпадений зон своих ролей с ролями других стилей; равенство — порядок витрины."""
+    zs = {s: zones(a) for s, a in arts.items()}
+    score = {s: sum(zs[s][r] == zs[t].get(r) for t in zs if t != s for r in zs[s]) for s in zs}
+    return max(order, key=lambda s: (score.get(s, -1), -order.index(s)))
+
+
+def _ext(v: dict, rot: int) -> tuple[float, float]:
+    """Размах по x и z при повороте (0/180 — ширина по x)."""
+    return (v['w'], v['d']) if int(rot or 0) % 180 == 0 else (v['d'], v['w'])
+
+
+def on_ref_place(own: dict, ref: dict, W: float, D: float, free: bool) -> dict:
+    """Роль `own` на месте опорной `ref`: тот же поворот и центр вдоль стены, зазор до стены — как у опорной (свой габарит)."""
+    rot = int(ref.get('rot') or 0)
+    out = dict(own, rot=rot, x=ref['x'], z=ref['z'])
+    if free:
+        return out
+    wall = zone(W, D, ref['x'], ref['z']).split(':')[0]
+    (rx, rz), (ox, oz) = _ext(ref, rot), _ext(own, rot)
+    if wall == 'N':
+        out['z'] = round(ref['z'] - rz / 2 + oz / 2, 1)
+    elif wall == 'S':
+        out['z'] = round(ref['z'] + rz / 2 - oz / 2, 1)
+    elif wall == 'W':
+        out['x'] = round(ref['x'] - rx / 2 + ox / 2, 1)
+    else:
+        out['x'] = round(ref['x'] + rx / 2 - ox / 2, 1)
+    return out
+
+
+def hard_codes(art: dict, purpose: str | None) -> set:
+    """Жёсткие нарушения расстановки спальни по `planner.validate` (код|роли) — до и после переноса роли."""
+    sys.path.insert(0, os.path.join(HERE, '..', '..', 'services', 'planner-solver'))
+    from planner.models import Item, Opening, Placement, Radiator, Room
+    from planner.validate import validate
+    r = art['_room']
+    clean = lambda xs: [{k: v for k, v in x.items() if not k.startswith('_')} for x in xs or []]   # noqa: E731
+    room = Room(width_cm=r['w'], depth_cm=r['d'], openings=[Opening(**o) for o in clean(r.get('openings'))],
+                radiators=[Radiator(**o) for o in clean(r.get('radiators'))], room_type='bedroom', purpose=purpose)
+    ps = [Placement(role=k, x=v['x'], y=v['z'], rot=int(v.get('rot') or 0),
+                    item=Item(role=k, w_cm=v['w'], d_cm=v['d'], h_cm=v.get('h') or 60)) for k, v in _placed(art).items()]
+    return {f"{v.code}|{','.join(sorted(v.roles))}" for v in validate(room, ps).violations if v.severity.name == 'HARD'}
+
+
+def one_layout(arts: dict, order: list, purposes: dict | None = None, free=ONE_FREE_ROLES) -> tuple[dict, dict]:
+    """`arts` — {стиль: готовая расстановка банка с `_room`} одной комнаты → (расстановки, отчёт `{ref, moved, kept}`).
+    `moved` — [{style, role, from, to}], `kept` — [{style, role, why}] (роль не встала на место опорной). Комнаты разные
+    (`_room` не совпал) — стиль не трогаем (`kept`, why «другая комната»)."""
+    purposes = purposes or {}
+    order = [s for s in order if s in arts]
+    if len(order) < 2:
+        return arts, {'ref': order[0] if order else None, 'moved': [], 'kept': []}
+    ref = reference(arts, order)
+    ra = arts[ref]
+    W, D = ra['_room']['w'], ra['_room']['d']
+    rz = zones(ra)
+    out, moved, kept = dict(arts), [], []
+    for s in order:
+        if s == ref:
+            continue
+        a = arts[s]
+        if (a['_room'].get('w'), a['_room'].get('d')) != (W, D):
+            kept.append({'style': s, 'role': '*', 'why': 'другая комната'})
+            continue
+        cur = dict(a)
+        base = hard_codes(cur, purposes.get(s))
+        for role, z in zones(a).items():
+            if role not in rz or rz[role] == z:
+                continue
+            cand = dict(cur, **{role: on_ref_place(cur[role], ra[role], W, D, base_role(role) in free)})
+            new = hard_codes(cand, purposes.get(s)) - base
+            if new:
+                kept.append({'style': s, 'role': role, 'why': sorted(new)})
+                continue
+            p, q = cur[role], cand[role]
+            moved.append({'style': s, 'role': role, 'from': [p['x'], p['z'], int(p.get('rot') or 0), z],
+                          'to': [q['x'], q['z'], int(q.get('rot') or 0), rz[role]]})
+            cur = cand
+        out[s] = cur
+    return out, {'ref': ref, 'moved': moved, 'kept': kept}
+
+
 def variant_id(room_id: str, style_id: str) -> str:
     """Номер варианта спальни — `<комната>-<стиль>` (решение ведущего, onb-07 лог T-08): один на квартиру, ссылка `#v=` без комнаты."""
     return f'{room_id}-{style_id}'

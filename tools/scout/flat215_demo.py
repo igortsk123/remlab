@@ -1139,6 +1139,27 @@ def bedroom_bank_path(env, out: str) -> str:
     return _BP.room_bank_output({}, 'bedroom')
 
 
+def bedroom_one_layout(recs: list, styles: list) -> dict:
+    """Одна расстановка спальни на все стили (T-20261105-32/4, `demo_bedroom.one_layout`): по комнате — готовые расстановки банка
+    выравниваются по опорному стилю → {(комната, стиль): расстановка}. Правило выключено или у записи нет готовой расстановки —
+    пусто (вариант берёт свою расстановку банка, как раньше). Что переставилось и что не встало — в журнал сборки."""
+    import demo_bedroom as DB
+    if not DB.one_rule().get('enabled'):
+        return {}
+    out: dict = {}
+    for rid in dict.fromkeys(r['room_id'] for r in recs):
+        rs = [r for r in recs if r['room_id'] == rid and isinstance((r.get('layout') or {}).get('_room'), dict)]
+        arts, rep = DB.one_layout({r['style']: r['layout'] for r in rs}, styles, {r['style']: r.get('purpose') for r in rs})
+        out.update({(rid, s): a for s, a in arts.items()})
+        mv = '; '.join(f"{m['style']} «{m['role']}» {m['from'][3]}→{m['to'][3]} ({m['to'][0]}, {m['to'][1]}, {m['to'][2]}°)"
+                       for m in rep['moved']) or 'ничего'
+        print(f"bedroom_one_layout: {rid} — опорный стиль «{rep['ref']}», переставлено: {mv}", flush=True)
+        for k in rep['kept']:
+            print(f"WARN:bedroom_one_layout: {rid} {k['style']} «{k['role']}» не встаёт на место опорного "
+                  f"({', '.join(k['why']) if isinstance(k['why'], list) else k['why']}) — своя позиция банка", flush=True)
+    return out
+
+
 def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomplete: list, room: dict,
                      bcat: dict) -> tuple[dict, dict]:
     """СПАЛЬНИ В ВИТРИНЕ (onb-07 Т2): варианты включённых спален из банка (`demo_bedroom`) — в конец `variants`, ленты ролей
@@ -1160,9 +1181,12 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     geos = {rid: g for rid in on if (g := DB.room_geo(rid, reg.get(rid), shared, layout_room=DB.bank_room(bank, rid)))}
     styles = [v.get('style') for v in variants if (v.get('room_id') or 'living') == living_room_id()]
     made = 0
-    for rec in DB.pick_records(bank, list(geos), styles):
+    recs = DB.pick_records(bank, list(geos), styles)
+    lays = bedroom_one_layout(recs, styles)
+    for rec in recs:
         v, why = DB.build_variant(rec, geos[rec['room_id']], _sku, _dims_of, style_id, hung=_hung,
-                                  decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r))
+                                  decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r),
+                                  layout=lays.get((rec['room_id'], rec.get('style'))))
         if why:
             print(f'WARN:demo_style_dropped: {why["room_id"]} «{why["style"]}» без {", ".join(map(str, why["missing"]))} — '
                   'не публикуем', flush=True)

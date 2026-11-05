@@ -2471,7 +2471,9 @@ def _tv_parts(w_cm: float, h_cm: float, d_cm: float, hung: bool):
     pcy = foot / 2                            # центр панели относительно центра предмета
     zf = d_cm / 2 - panel_d / 2               # панель прижата к переднему краю
     box(0, pcy, zf, w_cm, ph, panel_d, CASE)                       # корпус панели
-    box(0, pcy, zf + panel_d / 2 - .35, w_cm - 2 * bez, ph - 2 * bez, .7, SCREEN)   # экран
+    # экран на 1 мм впереди корпуса: в одной плоскости с ним грани спорили за глубину полосами (T-20261105-32/4 — глубина
+    # в `scene_mesh` теперь точная, с перспективой; прежняя линейная случайно отдавала победу экрану)
+    box(0, pcy, zf + panel_d / 2 - .35 + .1, w_cm - 2 * bez, ph - 2 * bez, .7, SCREEN)   # экран
     if not hung:
         box(0, pcy - ph / 2 - foot / 2 + 1, zf - panel_d, 7.0, foot, d_cm * 0.5, STAND)  # шея
         box(0, -h_cm / 2 + 1.0, 0, w_cm * 0.34, 2.0, d_cm * 0.9, STAND)                   # опора
