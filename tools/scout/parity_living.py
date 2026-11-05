@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""СТЕНД ПАРИТЕТА ГОСТИНОЙ (room-pipeline-01 Б-3, T-20261105-41): одна команда до и после правки общего конвейера
-доказывает, что гостиная не изменилась.
+"""СТЕНД ПАРИТЕТА КОМНАТ (room-pipeline-01 Б-3, T-20261105-41 гостиная, T-20261105-54 спальня и прихожая): одна команда
+до и после правки общего конвейера доказывает, что комната не изменилась.
 
-ЧТО СРАВНИВАЕМ (артефакты гостиной, нормализованные; шум — явным списком в `rules/parity-living.json`):
-  catalog — выборка адаптера `catalog_items.items('living')` + его тень против compose2 (`catalog_items_shadow`, цель — 0);
-  smoke   — экзамен-смоук (сцены `smoke_manifest.py`, как `run.sh smoke`): отчёт по сценам + файлы раскладок солвера;
-  demo    — `demo-data.json` гостиной flat215 (`flat215_demo.py` в свою папку, без публикации);
+ЧТО СРАВНИВАЕМ (артефакты комнаты, нормализованные; шаги комнаты, шум — явным списком в `rules/parity-living.json`):
+  catalog — выборка адаптера `catalog_items.items(<комната>)`; у гостиной — и тень против compose2 (`catalog_items_shadow`, цель 0);
+  smoke   — (гостиная) экзамен-смоук (сцены `smoke_manifest.py`, как `run.sh smoke`): отчёт по сценам + раскладки солвера;
+  demo    — `demo-data.json` flat215 (`flat215_demo.py` в свою папку, без публикации); спальня — под флагом комнаты
+            (`FLAT215_ROOMS_ENABLED`, как T-32) на банке этого же стенда; у прихожей демо нет — шаг пропускается явно;
   cams    — ракурсы камер вариантов демо (`variants[].cams`, считает `tools/flat3d/demo-cams.mjs`);
-  bank    — банк комплектов, собранный `compose2.py --style --bands all` рядом (`SETS_OUTPUT`, живой банк не трогаем).
+  bank    — банк комплектов рядом (живой не трогаем); сборщик — по профилю комнаты (`composer.plugin` →
+            `room_profile.COMPOSERS`): гостиная — compose2 `--style --bands all`, спальня/прихожая — compose_bedroom/compose_hall;
+  exam    — экзамен комнаты (`bedroom_exam.py` / `hall_exam.py`): строки сцен + сводка.
 
 КАК (уроки 525–527). Каждый прогон — своя копия кода (ревизия git или рабочее дерево) в `~/remlab-scratch/parity/run-…`
 на ЗАМОРОЖЕННЫХ данных (`freeze`: git-игнорируемые входы основной копии, один раз; в копию — жёсткими ссылками, запись в
@@ -17,8 +20,9 @@
 прогон читал (по счётчикам `pg_stat_user_tables`). Сверка на других входах — отказ (код 3): «эталон старше данных».
 
   parity_living.py freeze                                   # заморозить данные (печатает папку)
-  parity_living.py snapshot [--rev main] [--data DIR] [--steps catalog,smoke,demo,cams,bank]   # эталон «до»
-  parity_living.py compare --ref FILE [--rev WORKTREE] [--steps …] [--inject REL=SRC]          # «после» против эталона
+  parity_living.py snapshot [--room living|bedroom|hall] [--rev main] [--data DIR] [--steps …] [--into REF]  # эталон «до»
+  parity_living.py compare --ref FILE [--rev WORKTREE] [--steps …] [--inject REL=SRC]   # «после»; комната — из эталона
+  parity_living.py diff --ref FILE --run STAND               # сверка уже прогнанного стенда без пересчёта
   parity_living.py --selftest                               # без базы и сети
 Коды: 0 — равно, 1 — есть различия, 2 — шаг упал / сторож поймал запись, 3 — эталон устарел (входы другие).
 Тяжёлое (смоук, демо, банк) идёт по шагам, по одному, с `nice` и `ACC_WORKERS` из правил (DEV обслуживает живое демо).
@@ -40,7 +44,7 @@ REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 RULES_PATH = os.path.join(HERE, 'rules', 'parity-living.json')
 GUARD = os.path.join(HERE, 'parity_guard.py')
 VERSION = 2              # 2 — база тоже заморожена (копия на момент freeze)
-STEPS = ('catalog', 'smoke', 'demo', 'cams', 'bank')   # cams — из того же прогона демо
+STEPS = ('catalog', 'smoke', 'demo', 'cams', 'bank', 'exam')   # cams — из того же прогона демо; шаги комнаты — rules.rooms
 
 
 def rules() -> dict:
@@ -92,7 +96,7 @@ def subs_for(R: dict, roots: dict) -> list:
 def items_of(name: str, obj) -> dict:
     """Артефакт → {id элемента: значение}: расхождение показываем по элементам (сцена, товар, вариант), а не «файл другой»."""
     if name == 'catalog':
-        return {c['offer_id']: c for c in obj['items']} | {'_shadow': obj['shadow']}   # merge: один offer_id — одна строка
+        return {c['offer_id']: c for c in obj['items']} | ({'_shadow': obj['shadow']} if 'shadow' in obj else {})   # тень — у гостиной
     if name == 'smoke':
         return {f"report/{r.get('scene')}": r for r in obj['report']} | {f'layout/{k}': v for k, v in obj['layouts'].items()} \
             | {'_manifest': obj['manifest']}
@@ -111,9 +115,14 @@ def items_of(name: str, obj) -> dict:
     if name == 'bank':
         sets = obj.get('sets', obj) if isinstance(obj, dict) else obj
         if isinstance(sets, list):
-            return {f"set/{s.get('id', s.get('set', i)) if isinstance(s, dict) else i}": s for i, s in enumerate(sets)} \
-                | ({k: v for k, v in obj.items() if k != 'sets'} if isinstance(obj, dict) else {})
+            out = {}
+            for i, s in enumerate(sets):         # гостиная — id; банки комнат — ячейка room|purpose|band|style|tier
+                k = f"set/{(s.get('id') or s.get('cell') or s.get('set', i)) if isinstance(s, dict) else i}"
+                out[k if k not in out else f'{k}#{i}'] = s
+            return out | ({k: v for k, v in obj.items() if k != 'sets'} if isinstance(obj, dict) else {})
         return dict(obj)
+    if name == 'exam':
+        return {f"row/{r.get('id')}": r for r in obj['rows']} | {'_summary': obj['summary']}
     raise ValueError(f'неизвестный артефакт {name}')
 
 
@@ -171,6 +180,22 @@ def _ignored(main: str, dirs: list) -> list:
     return [x[3:].decode() for x in r.stdout.split(b'\0') if x.startswith(b'!! ')]   # -z: имена по-русски без кавычек
 
 
+def is_key_file(rel: str) -> bool:
+    """`.env*` (ключи и их образцы) в стенд не попадают никогда — ни данными, ни кодом, ни затравкой: нет ключа — нет платного."""
+    return os.path.basename(rel).startswith('.env')
+
+
+def frozen_rel(F: dict, rel: str) -> bool:
+    """Берётся ли git-игнорируемый файл основной копии в заморозку (exclude/keep из правил + запрет ключей)."""
+    if is_key_file(rel):
+        return False
+    return not any(fnmatch.fnmatch(rel, g) for g in F['exclude']) or any(fnmatch.fnmatch(rel, g) for g in F['keep'])
+
+
+def key_files_in(root: str) -> list:
+    return sorted(os.path.relpath(os.path.join(d, f), root) for d, _sub, fs in os.walk(root) for f in fs if is_key_file(f))
+
+
 def freeze(R: dict) -> str:
     main = main_copy()
     F = R['freeze']
@@ -186,9 +211,7 @@ def freeze(R: dict) -> str:
         else:
             paths.append(rel)
         for p in paths:
-            if any(fnmatch.fnmatch(p, g) for g in F['exclude']) and not any(fnmatch.fnmatch(p, g) for g in F['keep']):
-                continue
-            if os.path.basename(p).startswith('.env'):     # ключи в стенд не попадают никогда: нет ключа — нет платного вызова
+            if not frozen_rel(F, p):
                 continue
             src = os.path.join(main, p)
             if not os.path.isfile(src) or os.path.islink(src):
@@ -203,6 +226,8 @@ def freeze(R: dict) -> str:
         if os.path.isdir(src):
             for d, _sub, fs in os.walk(src):
                 for f in fs:
+                    if is_key_file(f):
+                        continue
                     s = os.path.join(d, f)
                     rel = os.path.join(name, os.path.relpath(s, src))
                     o = os.path.join(dst, 'seed', rel)
@@ -218,6 +243,9 @@ def freeze(R: dict) -> str:
     man = {'version': VERSION, 'frozen_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'main': main, 'db': dbi,
            'main_head': subprocess.run(['git', '-C', main, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip(),
            'files': files, 'seed': seeds, 'size_mb': round(sum(os.path.getsize(os.path.join(dst, 'files', p)) for p in files) / 1e6, 1)}
+    leak = key_files_in(dst)
+    if leak:
+        raise SystemExit(f'заморозка: в папке файлы ключей {leak[:5]} — так быть не должно (is_key_file), остановлено')
     json.dump(man, open(os.path.join(dst, 'manifest.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     print(f'заморожено: {len(files)} файлов данных ({man["size_mb"]} МБ), затравок {len(seeds)}, база '
           + (f"{dbi['name']} ({dbi['size']}, {dbi['seconds']} с)" if dbi else 'живая (без копии)') + f' → {dst}')
@@ -233,7 +261,7 @@ def _copy_code(rev: str, dst: str, R: dict) -> str:
     if rev == 'WORKTREE':
         ls = subprocess.run(['git', '-C', REPO, 'ls-files', '-co', '--exclude-standard', '-z'], capture_output=True, check=True).stdout
         for rel in (x.decode() for x in ls.split(b'\0') if x):
-            if any(rel.startswith(s) for s in skip) or not os.path.isfile(os.path.join(REPO, rel)):
+            if any(rel.startswith(s) for s in skip) or is_key_file(rel) or not os.path.isfile(os.path.join(REPO, rel)):
                 continue
             o = os.path.join(dst, rel)
             os.makedirs(os.path.dirname(o), exist_ok=True)
@@ -243,7 +271,8 @@ def _copy_code(rev: str, dst: str, R: dict) -> str:
                                capture_output=True, text=True).stdout.strip()
         return f'{head}+worktree' if dirty else head
     sha = subprocess.run(['git', '-C', REPO, 'rev-parse', rev], capture_output=True, text=True, check=True).stdout.strip()
-    arch = subprocess.run(['git', '-C', REPO, 'archive', sha, '--', '.', *[f':(exclude){s}' for s in skip]],
+    arch = subprocess.run(['git', '-C', REPO, 'archive', sha, '--', '.', *[f':(exclude){s}' for s in skip],
+                           ':(exclude,glob)**/.env*'],
                           capture_output=True, check=True).stdout
     subprocess.run(['tar', '-x', '-C', dst], input=arch, check=True)
     return sha
@@ -285,6 +314,9 @@ def build_stand(R: dict, rev: str, data: str, tag: str, inject: list) -> dict:
     for d in ('out', 'tmp', 'logs', 'seed'):
         os.makedirs(os.path.join(stand, d), exist_ok=True)
     _link_tree(os.path.join(data, 'seed'), man['seed'], os.path.join(stand, 'seed'), skip_existing=False)
+    leak = key_files_in(stand)
+    if leak:
+        raise SystemExit(f'стенд: файлы ключей в копии {leak[:5]} — остановлено (is_key_file)')
     return {'stand': stand, 'repo': repo, 'rev': rev, 'sha': sha, 'data': data, 'manifest': man, 'clash': clash,
             'inject': inject}
 
@@ -296,7 +328,7 @@ def data_db(man: dict) -> str:
 def stand_env(R: dict, S: dict, net: str) -> dict:
     stand = S['stand']
     env = {k: v for k, v in os.environ.items() if not k.startswith(('PARITY_', 'SETS_', 'ACC_', 'FLAT215_', 'LAYOUT_', 'STYLE_',
-                                                                    'BEDROOM_', 'HALL_', 'MESH_LUMA', 'REMLAB_DEVDB'))}
+                                                                    'BEDROOM_', 'HALL_', 'ROOM_', 'MESH_LUMA', 'REMLAB_DEVDB'))}
     db = data_db(S['manifest'])
     if db != LIVE_DB:        # все вызовы psql кода — в замороженную копию (`parity_guard.route_db`; читатели с env — тоже)
         env.update(PARITY_DB=db, REMLAB_DEVDB_NAME=db)
@@ -364,14 +396,19 @@ PY = os.path.expanduser('~/venvs/scout/bin/python')
 
 
 def step_catalog(R, S, env) -> tuple[dict, dict]:
+    """Выборка адаптера `catalog_items.items(<комната>, with_assets=True)`; у комнат с тенью (гостиная) — и тень против compose2."""
+    room, rr = S['room'], R['rooms'][S['room']]
     out = os.path.join(S['stand'], 'out', 'catalog.json')
+    shadow = os.path.join(S['stand'], 'out', 'shadow')
     code = ('import json,sys; sys.path.insert(0,".")\n'
-            'import catalog_items as CI, catalog_items_shadow as SH\n'
-            'it=[c.to_dict() for c in CI.items("living", with_assets=True)]\n'
-            f'rc=SH.run("living", {os.path.join(S["stand"], "out", "shadow")!r})\n'
-            f'sh=json.load(open({os.path.join(S["stand"], "out", "shadow", "catalog-shadow-living.json")!r}))\n'
-            f'json.dump({{"items":sorted(it,key=lambda c:c["offer_id"]),"shadow":sh,"rc_shadow":rc}},'
-            f'open({out!r},"w"),ensure_ascii=False)\n')
+            'import catalog_items as CI\n'
+            f'it=[c.to_dict() for c in CI.items({room!r}, with_assets=True)]\n'
+            'res={"items":sorted(it,key=lambda c:c["offer_id"])}\n')
+    if rr.get('shadow'):
+        code += ('import catalog_items_shadow as SH\n'
+                 f'res["rc_shadow"]=SH.run({room!r}, {shadow!r})\n'
+                 f'res["shadow"]=json.load(open({os.path.join(shadow, f"catalog-shadow-{room}.json")!r}))\n')
+    code += f'json.dump(res,open({out!r},"w"),ensure_ascii=False)\n'
     st = _run(S, env, 'catalog', [PY, '-c', code])
     return st, ({'catalog': json.load(open(out, encoding='utf-8'))} if st['rc'] == 0 else {})
 
@@ -399,6 +436,15 @@ def step_smoke(R, S, env) -> tuple[dict, dict]:
 
 
 def step_demo(R, S, env) -> tuple[dict, dict]:
+    """Демо flat215 в свою папку стенда (без публикации). Комната кроме гостиной — проверочным флагом сборки рядом
+    (`FLAT215_ROOMS_ENABLED`, как T-32) на банке, собранном этим же стендом (живого банка комнаты может не быть)."""
+    dm = R['rooms'][S['room']].get('demo') or {}
+    extra = {}
+    if dm.get('rooms_enabled'):
+        bank = S.get('bank_out') or _compose(R, S, env)[1]
+        if not bank:
+            return {'rc': 2, 'seconds': 0, 'log': os.path.join(S['stand'], 'logs', 'bank.log')}, {}
+        extra = {'FLAT215_ROOMS_ENABLED': dm['rooms_enabled'], dm['bank_env']: bank}
     out = os.path.join(S['stand'], 'out', 'demo')
     os.makedirs(out, exist_ok=True)
     seed = os.path.join(S['stand'], 'seed', 'demo')
@@ -410,7 +456,7 @@ def step_demo(R, S, env) -> tuple[dict, dict]:
                 os.makedirs(os.path.dirname(o), exist_ok=True)
                 shutil.copy2(s, o) if f.endswith('.json') else os.link(s, o)
     wait_memory(R, S, 'demo')
-    st = _run(S, env, 'demo', [PY, 'flat215_demo.py'], {'FLAT215_DEMO_OUT': out})
+    st = _run(S, env, 'demo', [PY, 'flat215_demo.py'], {'FLAT215_DEMO_OUT': out, **extra})
     if st['rc'] != 0:
         return st, {}
     d = json.load(open(os.path.join(out, 'demo-data.json'), encoding='utf-8'))
@@ -418,16 +464,60 @@ def step_demo(R, S, env) -> tuple[dict, dict]:
     return st, {'demo': d, 'cams': cams}
 
 
-def step_bank(R, S, env) -> tuple[dict, dict]:
-    out = os.path.join(S['stand'], 'out', 'sets3.next.json')
-    wait_memory(R, S, 'bank', R['memory']['bank_gb'])     # compose2 --bands all — один процесс ~2 ГБ (потоки), но долгий
-    st = _run(S, env, 'bank', [PY, 'compose2.py', '--style', '--bands', 'all'], {'SETS_OUTPUT': out})
+def _compose(R, S, env) -> tuple[dict, str | None]:
+    """Сборщик наборов комнаты — по профилю (`composer.plugin` → `room_profile.COMPOSERS`, из кода ревизии в стенде, не
+    зашито); как его звать (ключи, куда пишет) — `rules.composers[<plugin>]`. Пишет рядом, в папку стенда."""
+    room = S['room']
+    probe = _run(S, env, 'bank', [PY, '-c', 'import json,room_profile as RP; P=RP.load(%r); c=P["composer"]["plugin"]; '
+                                          'print("COMPOSER", json.dumps([c, RP.COMPOSERS[c]]))' % room])
+    line = [x for x in open(probe['log'], encoding='utf-8').read().splitlines() if x.startswith('COMPOSER ')]
+    if probe['rc'] != 0 or not line:
+        return probe, None
+    plugin, script = json.loads(line[-1][9:])
+    how = R['composers'].get(plugin)
+    if not how or not script:
+        _say(probe['log'], f'сборщик {plugin!r} ({script}) стенд запускать не умеет — нет rules.composers[{plugin!r}]')
+        return dict(probe, rc=2), None
+    out = os.path.join(S['stand'], 'out', how.get('out') or f'bank-{room}.json')
+    wait_memory(R, S, 'bank', R['memory']['bank_gb'])     # сборщик — один процесс (compose2 --bands all ~2 ГБ, потоки)
+    st = _run(S, env, 'bank', [PY, os.path.join(S['repo'], script), *how['args']], {how['out_env']: out})
+    st['seconds'] += probe['seconds']
+    st['composer'] = plugin
     if st['rc'] != 0:
+        return st, None
+    S['bank_out'] = out
+    return st, out
+
+
+def step_bank(R, S, env) -> tuple[dict, dict]:
+    st, out = _compose(R, S, env)
+    if not out:
         return st, {}
-    return st, {'bank': json.load(open(out, encoding='utf-8'))}
+    bank = json.load(open(out, encoding='utf-8'))
+    rp = os.path.splitext(out)[0] + '.report.json'                      # отчёт сборщика комнаты (пустые назначения, меши)
+    if os.path.exists(rp):
+        bank = {'sets': bank if isinstance(bank, list) else bank.get('sets', bank), 'report': json.load(open(rp, encoding='utf-8'))}
+    return st, {'bank': bank}
 
 
-RUNNERS = {'catalog': step_catalog, 'smoke': step_smoke, 'demo': step_demo, 'bank': step_bank}
+def step_exam(R, S, env) -> tuple[dict, dict]:
+    """Экзамен комнаты (`bedroom_exam.py` / `hall_exam.py`): сцены → солвер → строки с раскладкой + сводка. Гейт FAIL (rc 1 при
+    готовой сводке) — результат, а не поломка: попадает в артефакт; поломка — нет сводки."""
+    ex = R['rooms'][S['room']]['exam']
+    sc = os.path.join(S['repo'], 'tools', 'scout')
+    wait_memory(R, S, 'exam')
+    st = _run(S, env, 'exam', [PY, ex['script']], {f"{ex['env']}_OUT": os.path.join(S['stand'], 'out', 'exam'),
+                                                  f"{ex['env']}_SUFFIX": '-parity'})
+    summ = os.path.join(sc, f"{ex['report']}-parity.json")
+    rows_p = os.path.join(sc, f"{ex['report']}-parity.jsonl")
+    if not os.path.exists(summ):
+        return dict(st, rc=st['rc'] or 2), {}
+    rows = [json.loads(ln) for ln in open(rows_p, encoding='utf-8') if ln.strip()]
+    st = dict(st, exam_rc=st['rc'], rc=0)
+    return st, {'exam': {'rows': sorted(rows, key=lambda r: str(r.get('id'))), 'summary': json.load(open(summ, encoding='utf-8'))}}
+
+
+RUNNERS = {'catalog': step_catalog, 'smoke': step_smoke, 'demo': step_demo, 'bank': step_bank, 'exam': step_exam}
 
 
 # ---------------------------------------------------------------- база: какие таблицы читали и их отпечаток
@@ -537,20 +627,26 @@ def net_inputs(S: dict, urls) -> dict:
 
 # ---------------------------------------------------------------- прогон
 
-def run_all(R: dict, rev: str, data: str, steps: list, tag: str, net: str, inject: list) -> dict:
-    S = build_stand(R, rev, data, tag, inject)
+def run_all(R: dict, room: str, rev: str, data: str, steps: list, tag: str, net: str, inject: list) -> dict:
+    S = build_stand(R, rev, data, f'{tag}-{room}', inject)
+    S['room'] = room
     env = stand_env(R, S, net)
-    print(f'стенд: {S["stand"]} · код {rev} ({S["sha"][:12]}) · данные {os.path.basename(data)} · сеть {net}', flush=True)
+    print(f'стенд: {S["stand"]} · комната {room} · код {rev} ({S["sha"][:12]}) · данные {os.path.basename(data)} · сеть {net}', flush=True)
     db = data_db(S['manifest'])
     scans0 = db_scans(db)
     roots = {'STAND': os.path.realpath(S['stand']), 'MAIN': S['manifest']['main'], 'HOME': os.path.expanduser('~')}
     noise = set(R['noise']['keys'])
     subs = subs_for(R, roots)
-    res = {'version': VERSION, 'at': time.strftime('%Y-%m-%d %H:%M:%S'), 'rev': rev, 'sha': S['sha'], 'data': data,
+    res = {'version': VERSION, 'room': room, 'at': time.strftime('%Y-%m-%d %H:%M:%S'), 'rev': rev, 'sha': S['sha'], 'data': data,
            'stand': S['stand'], 'steps': {}, 'artifacts': {}, 'inject': inject, 'clash': S['clash']}
     dumps = os.path.join(S['stand'], 'dumps')
     os.makedirs(dumps, exist_ok=True)
-    wanted = [s for s in ('catalog', 'smoke', 'demo', 'bank') if s in steps or (s == 'demo' and 'cams' in steps)]
+    rr = R['rooms'][room]
+    for s, why in rr.get('skip', {}).items():
+        if s in steps:
+            print(f'  шаг {s}: ПРОПУЩЕН — {why}', flush=True)
+            res.setdefault('skipped', {})[s] = why
+    wanted = [s for s in rr['steps'] if s in RUNNERS and (s in steps or (s == 'demo' and 'cams' in steps))]
     for s in wanted:
         print(f'  шаг {s}…', flush=True)
         st, arts = RUNNERS[s](R, S, env)
@@ -563,6 +659,8 @@ def run_all(R: dict, rev: str, data: str, steps: list, tag: str, net: str, injec
             dump = os.path.join(dumps, f'{name}.json')
             json.dump(norm, open(dump, 'w', encoding='utf-8'), ensure_ascii=False)
             its = items_of(name, norm)
+            if is_empty(name, norm):
+                res.setdefault('empty', []).append(name)
             res['artifacts'][name] = {'sha': sha_obj(norm), 'n': len(its), 'dump': dump,
                                       'items': {k: sha_obj(v) for k, v in its.items()}}
     scans1 = db_scans(db)
@@ -576,8 +674,20 @@ def run_all(R: dict, rev: str, data: str, steps: list, tag: str, net: str, injec
     return res
 
 
+def is_empty(name: str, obj) -> bool:
+    """Пустой каталог комнаты или банк без наборов: эталон на таких данных ничего не проверяет (T-54: заморозка раньше загрузки
+    прихожей в room_catalog — 0 товаров, 0 наборов, «равно» было бы враньём)."""
+    if name == 'catalog':
+        return not obj.get('items')
+    if name == 'bank':
+        sets = obj.get('sets', obj) if isinstance(obj, dict) else obj
+        return isinstance(sets, list) and not sets
+    return False
+
+
 def _problems(res: dict) -> list:
     out = [f"шаг {s} упал (rc {st['rc']}, {st['log']})" for s, st in res['steps'].items() if st['rc'] != 0]
+    out += [f'{n}: пусто — данных комнаты в заморозке нет (переморозить после загрузки)' for n in res.get('empty', [])]
     t = res['trace']
     out += [f'сторож: запрещённая запись {d}' for d in t['denied'][:10]]
     return out
@@ -616,8 +726,12 @@ def _print_stale(stale: list) -> None:
 
 def merge_ref(old: dict, new: dict) -> dict:
     """Эталон пачками (--into): шаги и артефакты дописываются, входы объединяются."""
+    if old.get('room', 'living') != new.get('room', 'living'):
+        raise SystemExit(f"--into: эталон комнаты {old.get('room', 'living')}, пачка — {new.get('room')}")
     out = dict(old)
     out['steps'] = {**old['steps'], **new['steps']}
+    out['skipped'] = {**old.get('skipped', {}), **new.get('skipped', {})}
+    out['empty'] = sorted(set(old.get('empty', [])) | set(new.get('empty', [])))
     out['artifacts'] = {**old['artifacts'], **new['artifacts']}
     out['stands'] = old.get('stands', [old['stand']]) + [new['stand']]
     t0, t1 = old['trace'], new['trace']
@@ -633,9 +747,10 @@ def merge_ref(old: dict, new: dict) -> dict:
 
 def cmd_snapshot(R: dict, argv: list) -> int:
     into = _arg(argv, '--into')
-    steps = _steps(argv)
+    old = json.load(open(into, encoding='utf-8')) if into else None
+    room = old.get('room', 'living') if old else _arg(argv, '--room', 'living')
+    steps = _steps(argv, R, room)
     if into:                                  # пачка к уже снятому эталону: те же данные и тот же код, входы не сменились
-        old = json.load(open(into, encoding='utf-8'))
         stale = check_stale(old)
         if stale:
             _print_stale(stale)
@@ -644,16 +759,17 @@ def cmd_snapshot(R: dict, argv: list) -> int:
     else:
         rev = _arg(argv, '--rev', 'main')
         data = _arg(argv, '--data') or freeze(R)
-    res = run_all(R, rev, data, steps, 'ref', 'record', [])
+    res = run_all(R, room, rev, data, steps, 'ref', 'record', [])
     if into:
         res = merge_ref(old, res)
     res['inputs']['db'] = db_fingerprint(res['inputs']['db_tables'], res['inputs']['db_name'])
     bad = _problems(res)
     _print_trace(res)
-    ref = into or os.path.join(home(R), f"living-{time.strftime('%Y%m%d-%H%M%S')}.json")
+    ref = into or os.path.join(home(R), f"{room}-{time.strftime('%Y%m%d-%H%M%S')}.json")
     res['ref_path'] = ref
     json.dump(res, open(ref, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    print(f"эталон: {ref} · артефакты: " + ', '.join(f"{k} {v['n']}" for k, v in res['artifacts'].items()))
+    print(f"эталон: {ref} · комната {room} · артефакты: " + ', '.join(f"{k} {v['n']}" for k, v in res['artifacts'].items())
+          + ''.join(f' · {s} пропущен' for s in res.get('skipped', {})))
     if bad:
         print('ЭТАЛОН НЕГОДЕН:\n  ' + '\n  '.join(bad))
         return 2
@@ -701,7 +817,7 @@ def cmd_diff(R: dict, argv: list) -> int:
     """Сверка уже прогнанного стенда (его `dumps/`) с эталоном без пересчёта — например, прерванной сверки: что успело."""
     ref_p, run = _arg(argv, '--ref'), _arg(argv, '--run')
     if not ref_p or not run:
-        raise SystemExit('diff --ref <living-….json> --run <папка стенда run-…>')
+        raise SystemExit('diff --ref <комната-….json> --run <папка стенда run-…>')
     ref = json.load(open(ref_p, encoding='utf-8'))
     now = {}
     for f in sorted(os.listdir(os.path.join(run, 'dumps'))):
@@ -725,12 +841,15 @@ def cmd_diff(R: dict, argv: list) -> int:
 def cmd_compare(R: dict, argv: list) -> int:
     ref_p = _arg(argv, '--ref')
     if not ref_p:
-        raise SystemExit('--ref <living-….json> обязателен')
+        raise SystemExit('--ref <комната-….json> обязателен')
     ref = json.load(open(ref_p, encoding='utf-8'))
     if ref.get('version') != VERSION:
         print(f"эталон версии {ref.get('version')}, стенд {VERSION} — переснимите snapshot")
         return 3
-    steps = [s for s in _steps(argv) if s in ref['artifacts']]
+    room = ref.get('room', 'living')                  # эталоны T-41 — без поля: гостиная
+    steps = [s for s in _steps(argv, R, room) if s in ref['artifacts']]
+    for s, why in R['rooms'][room].get('skip', {}).items():
+        print(f'  шаг {s}: ПРОПУЩЕН — {why}')
     data = ref['data']
     stale = check_stale(ref)
     if stale:
@@ -742,11 +861,11 @@ def cmd_compare(R: dict, argv: list) -> int:
         print(f"данные заморожены {frozen}; живая база с тех пор сменилась в {len(drift)} из {len(ref['inputs']['db_tables'])} "
               f"прочитанных таблиц" + (f" ({', '.join(d['key'] for d in drift[:6])}) — сверка честная (те же входы), "
                                       f"но эталон описывает не сегодняшний каталог" if drift else ''))
-    res = run_all(R, _arg(argv, '--rev', 'WORKTREE'), data, steps, 'cmp', 'replay', _args(argv, '--inject'))
+    res = run_all(R, room, _arg(argv, '--rev', 'WORKTREE'), data, steps, 'cmp', 'replay', _args(argv, '--inject'))
     _print_trace(res)
     bad = _problems(res)
     late = stale_inputs({'db': ref['inputs']['db']}, {'db': db_fingerprint(ref['inputs']['db_tables'], ref['inputs'].get('db_name', LIVE_DB))})
-    report = {'ref': ref_p, 'now': os.path.join(res['stand'], 'result.json'), 'rev': res['rev'], 'sha': res['sha'],
+    report = {'ref': ref_p, 'room': room, 'now': os.path.join(res['stand'], 'result.json'), 'rev': res['rev'], 'sha': res['sha'],
               'problems': bad, 'db_changed_during_run': late, 'artifacts': {}}
     report['artifacts'], total = diff_artifacts(ref, res['artifacts'], steps)
     out = os.path.join(res['stand'], 'parity-report.json')
@@ -771,16 +890,29 @@ def _args(argv, k) -> list:
     return [argv[i + 1] for i, a in enumerate(argv) if a == k and i + 1 < len(argv)]
 
 
-def _steps(argv) -> list:
+def _steps(argv, R: dict, room: str) -> list:
+    """Шаги комнаты (`rules.rooms.<комната>.steps` + явно пропускаемые `skip`); `--steps` — подмножество."""
+    if room not in R['rooms']:
+        raise SystemExit(f"комната {room!r}? стенд знает {', '.join(R['rooms'])} (rules.rooms)")
+    rr = R['rooms'][room]
+    known = list(rr['steps']) + list(rr.get('skip', {}))
     s = _arg(argv, '--steps')
-    out = list(STEPS) if not s else [x.strip() for x in s.split(',') if x.strip()]
-    bad = [x for x in out if x not in STEPS]
+    out = known if not s else [x.strip() for x in s.split(',') if x.strip()]
+    bad = [x for x in out if x not in known]
     if bad:
-        raise SystemExit(f'неизвестные шаги {bad}; есть {STEPS}')
+        raise SystemExit(f'шаги {bad} у комнаты {room} нет; есть {known}')
     return out
 
 
 # ---------------------------------------------------------------- самопроверка (без базы и сети)
+
+def _raises(f) -> bool:
+    try:
+        f()
+    except SystemExit:
+        return True
+    return False
+
 
 def selftest() -> int:
     import tempfile
@@ -827,8 +959,53 @@ def selftest() -> int:
            free == 7.0 and naps == [R['memory']['poll_s']] * 2 and lines.count('ждёт') == 2)
     ok('память: солверов смоука — сколько помещается сверх порога, не меньше одного',
        smoke_workers(R, 6.0) == 1 and smoke_workers(R, 30.0) == R['acc_workers'])
+    # комнаты (T-54): шаги из правил, сборщик — по профилю, у каждого плагина профиля есть «как звать»
+    import room_profile as RP
+    rooms_ok = True
+    for room, rr in R['rooms'].items():
+        plugin = RP.load(room)['composer']['plugin']
+        rooms_ok &= set(rr['steps']) <= set(STEPS) and not set(rr['steps']) & set(rr.get('skip', {})) \
+            and plugin in R['composers'] and bool(RP.COMPOSERS.get(plugin)) and ('bank' in rr['steps'])
+        if 'exam' in rr['steps']:
+            rooms_ok &= os.path.exists(os.path.join(HERE, rr['exam']['script']))
+    ok('комнаты: шаги известны, пропуски не пересекаются с шагами, сборщик профиля стенд звать умеет', rooms_ok)
+    ok('комнаты: у прихожей demo/cams — явный пропуск; у спальни — шаг; лишний шаг — отказ',
+       _steps([], R, 'hall')[-2:] == ['demo', 'cams'] and 'demo' in _steps([], R, 'bedroom')
+       and _steps(['--steps', 'bank,exam'], R, 'hall') == ['bank', 'exam']
+       and _raises(lambda: _steps(['--steps', 'smoke'], R, 'hall')) and _raises(lambda: _steps([], R, 'kitchen9')))
+    rb = {'sets': [{'cell': 'bedroom-1|master|eco|scandi|base', 'slots': [1]}, {'cell': 'bedroom-1|master|eco|scandi|base'},
+                   {'cell': 'b|x', 'slots': []}], 'report': {'empty': ['кабинет']}}
+    ok('банк комнаты: по ячейке (повтор — с номером) + отчёт сборщика', set(items_of('bank', rb)) == {
+        'set/bedroom-1|master|eco|scandi|base', 'set/bedroom-1|master|eco|scandi|base#1', 'set/b|x', 'report'})
+    ex = {'rows': [{'id': 's1', 'pass': True, 'seconds': 1.2}, {'id': 's2', 'pass': False}],
+          'summary': {'gate': 'PASS', 'slow': [], 'max_seconds': 1.2, 'solve': '1/1'}}
+    ex2 = json.loads(json.dumps(ex))
+    ex2['rows'][0]['seconds'], ex2['summary'].update(gate='FAIL', slow=['s1'], max_seconds=11.0)
+    nz = noise | set(R['noise']['exam'])
+    ok('пусто: каталог без товаров и банк без наборов — эталон негоден, отчёт сборщика без наборов — тоже',
+       is_empty('catalog', {'items': []}) and is_empty('bank', {'sets': [], 'report': {}}) and is_empty('bank', [])
+       and not is_empty('catalog', {'items': [1]}) and not is_empty('bank', rb) and not is_empty('exam', ex)
+       and _problems({'steps': {}, 'trace': {'denied': []}, 'empty': ['catalog']})[0].startswith('catalog: пусто'))
+    ok('экзамен: строки по сцене + сводка; время и производный гейт — шум',
+       set(items_of('exam', ex)) == {'row/s1', 'row/s2', '_summary'}
+       and normalize(ex, nz, subs) == normalize(ex2, nz, subs))
+    ex2['rows'][1]['pass'] = True
+    ok('экзамен: сцена сменила исход — различие', compare_items(items_of('exam', normalize(ex, nz, subs)),
+                                                             items_of('exam', normalize(ex2, nz, subs)))['diff'] == 1)
+    F = R['freeze']
+    ok('ключи: .env* не замораживаются и не копируются ни по какому пути (в т.ч. новые: экзамены, банки комнат)',
+       not any(frozen_rel(F, p) for p in ('tools/scout/.env', 'tools/scout/.env.local', 'services/planner-solver/.env',
+                                           'tools/scout/rooms/x/.env.bak', '.env.example', 'tools/scout/bedroom-exam-0105/.env'))
+       and not any(frozen_rel(F, p) for p in ('tools/scout/bedroom-exam-report.jsonl', 'tools/scout/hall-exam-1105-2100/a.png',
+                                               'tools/scout/sets-bedroom.next.json', 'tools/scout/sets-hall.next.report.json'))
+       and frozen_rel(F, 'tools/scout/style-scores-bedroom.json') and frozen_rel(F, 'tools/scout/sets3.json'))
+    with tempfile.TemporaryDirectory(dir=os.path.expanduser('~/.cache')) as td:
+        os.makedirs(os.path.join(td, 'a', 'b'))
+        open(os.path.join(td, 'a', 'b', '.env.x'), 'w').close()
+        open(os.path.join(td, 'a', 'ok.json'), 'w').close()
+        ok('ключи: проверка папки стенда находит .env* на любой глубине', key_files_in(td) == [os.path.join('a', 'b', '.env.x')])
     import parity_guard as PGr
-    live = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-tA']
+    live =['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-tA']
     ok('база: `-d remlab` → копия; без -d — копия; `-d postgres` — не трогаем; строка shell — тоже; не база — None',
        PGr.route_db(live, 'cp') == (live[:8] + ['cp', '-tA'], True)
        and PGr.route_db(live[:5] + ['-tA'], 'cp')[0][5:7] == ['-d', 'cp']
