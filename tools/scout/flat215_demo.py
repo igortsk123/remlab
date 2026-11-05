@@ -1035,8 +1035,9 @@ def bedroom_catalog() -> dict:
                    "to_char(max(last_seen) over (), 'YYYY-MM-DD') from room_catalog where " + RC.shown_where() +
                    # только включённые роли (флаг `roles_enabled`, onb-04 / ADR-0330): новые роли лежат в таблице,
                    # но демо их не берёт, пока ведущий не включит — выключено → данные байт в байт прежние
-                   ' and ' + RC.enabled_sql())
+                   ' and ' + RC.enabled_sql() + RC.kids_where())
         # детские шкаф/комод/тумба лежат в общих ролях с назначением только child:* — спальне пары они не нужны
+        # (по названию здесь, по детской категории — «and not kids» выше, когда столбец есть: kids_store после 015)
         R = RC.rules()
         rows = [r for r in rows if not RC.child_only(r[0], r[2], R)]
     except Exception as e:  # noqa: BLE001 — каталога спальни нет: вкладка остаётся «скоро»

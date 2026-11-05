@@ -46,7 +46,28 @@ def sql(q: str) -> list:
 
 
 def rules() -> dict:
-    return json.load(open(RULES, encoding='utf-8'))
+    return with_kids_store(json.load(open(RULES, encoding='utf-8')))
+
+
+def kids_store_on(R: dict) -> bool:
+    return bool((R.get('kids_store') or {}).get('enabled'))
+
+
+def with_kids_store(R: dict) -> dict:
+    """`kids_store.enabled` → детские категории хранения divan.ru входят в каталог как детские ПО КАТЕГОРИИ (линейки без
+    слова «детский»). Выключено — правила как есть: категории не грузятся, столбец `kids` (миграция 015) не трогаем."""
+    ks = R.get('kids_store') or {}
+    if not ks.get('enabled'):
+        return R
+    cats, mixed = ks.get('categories', {}), ks.get('mixed', {})
+    return {**R, 'categories': {**R['categories'], **cats}, 'mixed': R['mixed'] + [k for k in mixed if k not in R['mixed']],
+            'mixed_roles': {**R.get('mixed_roles', {}), **mixed},
+            'kids_categories': list(R.get('kids_categories', ())) + list(cats) + list(mixed)}
+
+
+def kids_of(mid: int, cid, name: str, R: dict, is_kids) -> bool:
+    """Детское: по названию (`category_map.is_kids`) или по детской категории (`kids_categories`)."""
+    return bool(is_kids(name or '')) or f'{mid}:{cid}' in R.get('kids_categories', ())
 
 
 def role_of(mid: int, cid, name: str, R: dict, is_kids) -> str | None:
@@ -60,7 +81,7 @@ def role_of(mid: int, cid, name: str, R: dict, is_kids) -> str | None:
     nm = name or ''
     if re.search(R['name_deny'], nm, re.I):
         return None
-    kids = bool(is_kids(nm)) or key in R.get('kids_categories', ())
+    kids = kids_of(mid, cid, nm, R, is_kids)
     role = R['categories'].get(key)
     if role is None and key in R['mixed']:
         for pat, r in R['name_rules']:
@@ -95,11 +116,17 @@ def enabled_sql(R: dict | None = None) -> str:
     return 'role in (' + ','.join(_lit(r) for r in enabled(R)) + ')'
 
 
-def child_only(role: str, name: str, R: dict) -> bool:
+def child_only(role: str, name: str, R: dict, kids: bool = False) -> bool:
     """Детский товар в общей роли (`kids_shared`: «Шкаф детский» в роли «шкаф») — только для детской: назначения
-    child:*, в спальню пары/гостевую (`flat215_demo.bedroom_catalog`) не идёт. Детское — тот же `category_map.is_kids`."""
+    child:*, в спальню пары/гостевую (`flat215_demo.bedroom_catalog`) не идёт. Детское — по названию (тот же
+    `category_map.is_kids`) или kids — столбец `room_catalog.kids` (детская категория, `kids_store`)."""
     import category_map
-    return role in R.get('kids_shared', ()) and bool(category_map.is_kids(name or ''))
+    return role in R.get('kids_shared', ()) and (bool(kids) or bool(category_map.is_kids(name or '')))
+
+
+def kids_where(R: dict | None = None) -> str:
+    """Условие «не детское» для показа пары — только когда столбец `kids` есть (`kids_store` включён после 015)."""
+    return ' and not kids' if kids_store_on(R or rules()) else ''
 
 
 def hidden_purposes(good: dict, R: dict) -> set:
@@ -221,6 +248,7 @@ def collect(R: dict) -> tuple:
             role = role_of(o['mid'], o['cid'], o['name'], R, category_map.is_kids)
             if role:
                 o['br_role'] = role
+                o['br_kids'] = kids_of(o['mid'], o['cid'], o['name'], R, category_map.is_kids)
                 offers.append(o)
     offers, _d = L.dedupe(offers)
     return offers, seen_mids
@@ -247,6 +275,10 @@ def run() -> int:
     skip = {m for m in seen_mids if prev.get(m) and by_mid.get(m, 0) < R['shrink_ratio'] * prev[m]}
     for m in skip:
         print(f'WARN:room_catalog: магазин {m} похудел ({by_mid.get(m, 0)} < {R["shrink_ratio"]}×{prev[m]}) — не трогаю', flush=True)
+    kc = kids_store_on(R)
+    if kc and not sql("select 1 from information_schema.columns where table_name='room_catalog' and column_name='kids'"):
+        print('ERROR:room_catalog: kids_store включён, а столбца kids нет — сначала миграция 015; прогон остановлен', flush=True)
+        return 1
     rows = []
     keep = with_dims([o for o in offers if o['mid'] not in skip], R)
     for o in keep:
@@ -254,20 +286,21 @@ def run() -> int:
         rows.append('(' + ','.join(_lit(x) for x in (
             o['mid'], str(o['eid']), ROOM, o['br_role'], o['shop'], o['name'], o['brand'], o['url'], o['pic'], o['pic_hd'],
             o['price'], d['w'], d['d'], d['h'], d['sw'], d['sl'], d['ok'], d['note'])) +
-            ',' + _lit(json.dumps(o['params'], ensure_ascii=False)) + '::jsonb, current_date, 0, now())')
+            ',' + _lit(json.dumps(o['params'], ensure_ascii=False)) + '::jsonb, current_date, 0, now()' +
+            (',' + _lit(bool(o.get('br_kids'))) if kc else '') + ')')
     done = [m for m in seen_mids if m not in skip]
     t0 = sql('select now()')[0][0]          # отметка прогона: всё, что не обновлено в этом прогоне, — пропало
     q = ['begin;']
     for i in range(0, len(rows), 500):
         q.append('insert into room_catalog (shop_mid, external_id, room, role, shop, name, brand, url, image_url, image_url_hd, '
                  'price_rub, w_cm, d_cm, h_cm, sleep_w_cm, sleep_l_cm, footprint_ok, dims_note, params, last_seen, missing_runs, '
-                 'updated_at) values ' + ','.join(rows[i:i + 500]) +
+                 'updated_at' + (', kids' if kc else '') + ') values ' + ','.join(rows[i:i + 500]) +
                  ' on conflict (shop_mid, external_id, room) do update set role=excluded.role, shop=excluded.shop, '
                  'name=excluded.name, brand=excluded.brand, url=excluded.url, image_url=excluded.image_url, '
                  'image_url_hd=excluded.image_url_hd, price_rub=excluded.price_rub, w_cm=excluded.w_cm, d_cm=excluded.d_cm, '
                  'h_cm=excluded.h_cm, sleep_w_cm=excluded.sleep_w_cm, sleep_l_cm=excluded.sleep_l_cm, '
                  'footprint_ok=excluded.footprint_ok, dims_note=excluded.dims_note, params=excluded.params, '
-                 'last_seen=excluded.last_seen, missing_runs=0, updated_at=now();')
+                 'last_seen=excluded.last_seen, missing_runs=0, updated_at=now()' + (', kids=excluded.kids' if kc else '') + ';')
     if done:   # пропавшие из СВЕЖЕГО фида своего магазина — не показываем, строку не удаляем
         q.append(f"update room_catalog set missing_runs = missing_runs + 1 where room='{ROOM}' and "
                  f"shop_mid in ({','.join(str(m) for m in done)}) and updated_at < '{t0}';")
@@ -374,9 +407,9 @@ def kids_leak(rows, R: dict) -> list:
     return [(r, n) for r, n in rows if r not in kr and category_map.is_kids(n)]
 
 
-def label(role: str, name: str, R: dict) -> str:
+def label(role: str, name: str, R: dict, kids: bool = False) -> str:
     """Строка отчёта: детское общей роли — отдельной строкой «шкаф · детское» (в демо пары его нет)."""
-    return role + ' · детское' if child_only(role, name, R) else role
+    return role + ' · детское' if child_only(role, name, R, kids) else role
 
 
 def requires_lines(good: dict, R: dict) -> list:
@@ -391,14 +424,14 @@ def report(photos: int = 0) -> int:
     # полные размеры: три оси; у не-кроватей ещё и `footprint_ok` (туда пишется проверка правдоподобия `dims_of`)
     rows = sql(f"select role, shop, price_rub, coalesce(image_url_hd, image_url), (w_cm is not null and d_cm is not null "
                f"and h_cm is not null and (role in ({beds}) or coalesce(footprint_ok, false))), coalesce(footprint_ok, false), "
-               f"name from room_catalog where {shown_where(R)}")
+               f"name, {'kids' if kids_store_on(R) else 'false'} from room_catalog where {shown_where(R)}")
     if not rows:
         print('WARN:room_catalog: каталог спальни пуст — вкладка демо покажет «скоро»', flush=True)
         return 0
     on = set(enabled(R))
     by: dict = {}
     for r in rows:
-        k = label(r[0], r[6], R)
+        k = label(r[0], r[6], R, r[7] == 't')
         by.setdefault(k, [0, 0])
         by[k][0] += 1
         by[k][1] += r[5] == 't'
@@ -407,7 +440,7 @@ def report(photos: int = 0) -> int:
     for ln in requires_lines({r: h for r, (n, h) in by.items()}, R):
         print(ln, flush=True)
     if '--by-shop' in sys.argv or photos:
-        items = [{'role': label(r[0], r[6], R), 'shop': r[1], 'price': r[2], 'img': r[3], 'full': r[4] == 't',
+        items = [{'role': label(r[0], r[6], R, r[7] == 't'), 'shop': r[1], 'price': r[2], 'img': r[3], 'full': r[4] == 't',
                   'honest': r[5] == 't', 'name': r[6]} for r in rows]
         for ln in table(items, R, photos):
             print(ln, flush=True)
@@ -422,7 +455,7 @@ def measure(photos: int = 0) -> int:
     R = rules()
     offers, _seen = collect(R)
     with_dims(offers, R)
-    items = [{'role': label(o['br_role'], o['name'], R), 'shop': o['shop'], 'price': o['price'], 'img': o.get('pic_hd') or o.get('pic'),
+    items = [{'role': label(o['br_role'], o['name'], R, o.get('br_kids')), 'shop': o['shop'], 'price': o['price'], 'img': o.get('pic_hd') or o.get('pic'),
               'full': all(o['_d'].get(k) for k in ('w', 'd', 'h')) and (o['br_role'] in R.get('bed_roles', ()) or bool(o['_d']['ok'])),
               'honest': bool(o['_d'].get('ok')), 'name': o['name']}
              for o in offers]
@@ -502,6 +535,25 @@ def _selftest_onb04(R: dict, ok) -> int:
     hid = hidden_purposes({'кроватка': 0}, R)
     ok('нет годной кроватки — child:0-3 скрыто у всех ролей', hid == {'child:0-3'}
        and 'child:0-3' not in pa('шкаф', 'Шкаф детский divan.ru Кейла', hid) and hidden_purposes({'кроватка': 1}, R) == set())
+    # детские категории хранения divan.ru (/3): детское ПО КАТЕГОРИИ, за флагом kids_store до миграции 015
+    anji = 'Распашной шкаф divan.ru Анджи 2-93x195 Белый'
+    ok('kids_store выключен: детские категории 448/714/4629 не грузятся, столбца kids нет в условиях',
+       rl(112923, '448', anji) is None and rl(112923, '714', 'Комод divan.ru Изи 80x86 Белый') is None and kids_where(R) == '')
+    R2 = with_kids_store({**R, 'kids_store': {**R['kids_store'], 'enabled': True}})
+    rl2 = lambda cid, nm: role_of(112923, cid, nm, R2, category_map.is_kids)  # noqa: E731
+    k2 = kids_of(112923, '448', anji, R2, category_map.is_kids)
+    ok('«Анджи» без слова «детский» в детской категории → шкаф, kids=true по категории',
+       rl2('448', anji) == 'шкаф' and k2 and not category_map.is_kids(anji))
+    ok('«Анджи» kids=true: только child:*, в спальню пары не попадает (child_only, «and not kids»)',
+       child_only('шкаф', anji, R2, k2) and kids_where(R2) == ' and not kids'
+       and all(t.startswith('child:') for t in purposes_of('шкаф', {'ok': True, 'w': 93, 'd': 55, 'h': 195}, R2, True)))
+    ok('детские тумбы 4629: только «прикроватная» по названию; ТВ-тумба, ящик для игрушек, «Тумба Анджи» — нет',
+       rl2('4629', 'Тумба прикроватная divan.ru Велди 40x45 Белый') == 'тумба прикроватная'
+       and rl2('4629', 'ТВ-тумба divan.ru Дикинс 130x54 Береза/Белый') is None
+       and rl2('4629', 'Ящик для игрушек divan.ru Трикси 60x40 Белый') is None and rl2('4629', 'Тумба divan.ru Анджи 60x45 Белый') is None)
+    ok('kids_store не трогает взрослые категории: «Распашной шкаф» в 112923:42 — не детский',
+       rl2('42', 'Распашной шкаф divan.ru Шелтон 2-91x212 Белый') == 'шкаф'
+       and not kids_of(112923, '42', 'Распашной шкаф divan.ru Шелтон 2-91x212 Белый', R2, category_map.is_kids))
     ok('отчёт: детское общей роли — своей строкой', label('комод', 'Комод детский divan.ru Милна 1-60x49 Белый', R)
        == 'комод · детское' and label('комод', 'Комод divan.ru Дигарс 43x102', R) == 'комод')
     for x in leak[:5]:

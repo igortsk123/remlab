@@ -15,3 +15,8 @@ create table if not exists upholstery (
   updated_at timestamptz default now(),
   primary key (source_table, shop_mid, external_id)
 );
+
+-- ДЕТСКОЕ ПО КАТЕГОРИИ (план onb-04 /3, ведущий 05.11): детские категории хранения divan.ru (шкафы 448, комоды 714, тумбы 4629)
+-- целиком детские, но линейки там бывают без слова «детский» («Распашной шкаф divan.ru Анджи») — по названию не узнать.
+-- Пишет `room_catalog.py --run` только при `rules/bedroom-roles.json` kids_store.enabled; демо пары отсекает `not kids`.
+alter table room_catalog add column if not exists kids boolean not null default false;
