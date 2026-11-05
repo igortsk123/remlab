@@ -267,6 +267,7 @@ class Composer:
         self.cat, self.decor = cat, decor
         self.need_mesh: dict = {}
         self.shortage: dict = {}
+        self.purpose = ''
 
     def pool(self, slot: dict, style: str, tier: str, source: list, extra=None) -> tuple:
         """(кандидаты слота в стиле и тире, полоса, тир ослаблен ли). Тир — квантили цены роли по всем годным в полосе
@@ -277,7 +278,7 @@ class Composer:
                and (extra is None or extra(it))]
         lo, hi = tier_range([it['price'] for it in fit], self.R['tiers'][tier])
         styled = [it for it in fit if it.get('styles') and (it['styles'].get(style) or 0) >= self.thr]
-        k = (slot['role'], style)
+        k = (slot['role'], style, self.purpose)    # у назначений разный идеал слота — считаем раздельно
         self.shortage[k] = (len(styled), sum(1 for it in styled if it['mesh']))
         out = [it for it in styled if lo <= it['price'] <= hi]
         if out or not styled:
@@ -309,6 +310,7 @@ class Composer:
         from planner.bedroom import solve_bedroom
         from planner.models import Item
         cfg = self.R['purposes'][purpose]
+        self.purpose = purpose
         room = _room_model(spec, purpose.split(':')[0])
         slots, lists, bands, relaxed = {}, {}, {}, []
         for sl in cfg['slots']:
@@ -368,6 +370,7 @@ class Composer:
 
     def decor_pick(self, purpose: str, style: str, tier: str, ctx: dict, lay, room, chosen: dict) -> tuple:
         cfg = self.R['purposes'][purpose].get('decor', {})
+        self.purpose = purpose
         picks, alts, gaps, lay_extra, slots, relaxed = {}, {}, [], {}, {}, []
         windows = [o for o in room.openings if o.kind == 'window']
         for role, dc in cfg.items():
@@ -536,7 +539,8 @@ def compose(rooms: list, C: Composer) -> tuple:
                     print(f"  {room_id} {purpose} {style} {tier}: {rec['set_id']} {rec['total']:,} ₽ фит {rec['style_fit']} "
                           f"меш нужен {len(rec['mesh_need'])} пробелы {rec['gaps']} без места {rec['layout']['_meta']['skipped_optional']}",
                           flush=True)
-    report['shortage'] = {f'{r} × {s}': {'кандидатов': n, 'с мешом': m} for (r, s), (n, m) in sorted(C.shortage.items())}
+    report['shortage'] = {f'{r} × {s} · {p}': {'кандидатов': n, 'с мешом': m}
+                          for (r, s, p), (n, m) in sorted(C.shortage.items())}
     return bank, report
 
 
