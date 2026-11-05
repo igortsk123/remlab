@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Визуалка сета: fal.ai FLUX schnell ($0.003/img). Текстовая опись сцены из sets.json.
 Запуск: python3 viz.py <номер сета 1..21> [вариантов=3]"""
-import json, os, sys, urllib.request, re
+import json, os, sys, urllib.request
 
 HERE=os.path.dirname(os.path.abspath(__file__))
 KEY=None
-for line in open('/home/pakar/mltest/.env'):
-    m=re.match(r'FAL_KEY=(.+)',line.strip())
-    if m: KEY=m.group(1).strip().strip('"')
+import env_keys  # ключ — одно место (T-20261105-52); раньше — только чужой /home/pakar/mltest/.env
+KEY=env_keys.need('FAL_KEY')
 assert KEY, 'FAL_KEY не найден'
 sets=json.load(open(os.path.join(HERE,'sets.json')))
 n=int(sys.argv[1]) if len(sys.argv)>1 else 1

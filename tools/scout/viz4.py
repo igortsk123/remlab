@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Seedream v4 edit (fal, $0.03): до 10 фото-референсов. python3 viz4.py <сет> [вариантов=2]"""
-import json, os, sys, re, io, base64, urllib.request
+import json, os, sys, io, base64, urllib.request
 from PIL import Image
 HERE=os.path.dirname(os.path.abspath(__file__))
 exec(open(os.path.join(HERE,'viz3.py')).read().split("HERE=")[0])  # clean_bg, NAME_COLORS, name_color
 KEY=None
-for line in open('/home/pakar/mltest/.env'):
-    m=re.match(r'FAL_KEY=(.+)',line.strip())
-    if m: KEY=m.group(1).strip().strip('"')
+import env_keys  # ключ — одно место (T-20261105-52); раньше — только чужой /home/pakar/mltest/.env
+KEY=env_keys.need('FAL_KEY')
 sets=json.load(open(os.path.join(HERE,'sets.json')))
 n=int(sys.argv[1]) if len(sys.argv)>1 else 1
 variants=int(sys.argv[2]) if len(sys.argv)>2 else 2

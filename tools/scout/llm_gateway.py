@@ -15,7 +15,6 @@ OpenAI». Причина дня: прямой ключ OpenAI кончился (
 """
 import json
 import os
-import re
 import time
 import urllib.error
 import urllib.request
@@ -27,19 +26,9 @@ OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
 
 
 def _env(name: str) -> str | None:
-    v = os.environ.get(name)
-    if v:
-        return v.strip()
-    for p in (os.path.join(HERE, '.env'), os.path.join(HERE, '..', '..', '.env.local'),
-              os.path.join(HERE, '..', '..', '.env'), '/home/pakar/mltest/.env'):
-        try:
-            for line in open(p, encoding='utf-8'):
-                m = re.match(rf'{name}=(.+)', line.strip())
-                if m:
-                    return m.group(1).strip().strip('"\'')
-        except OSError:
-            continue
-    return None
+    """Ключ — `env_keys.get` (T-20261105-52): окружение → своё дерево → основная копия из worktree → чужой mltest с WARN."""
+    import env_keys
+    return env_keys.get(name)
 
 
 def chat(model: str, messages: list, timeout: int = 240, tries: int = 6, direct_fallback: bool = True, **extra) -> dict:

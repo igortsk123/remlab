@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Nano Banana 2 (gemini-3.1-flash-image, НАШ ключ): 10 объектных референсов. python3 viz6.py <сет> [вар=1]"""
-import json, os, sys, re, io, base64, urllib.request
+import json, os, sys, io, base64, urllib.request
 from PIL import Image
 HERE=os.path.dirname(os.path.abspath(__file__))
 exec(open(os.path.join(HERE,'viz3.py')).read().split("HERE=")[0])
 KEY=None
-for line in open('/home/pakar/mltest/.env'):
-    m=re.match(r'FAL_KEY=(.+)',line.strip())
-    if m: KEY=m.group(1).strip().strip('"')
+import env_keys  # ключ — одно место (T-20261105-52); раньше — только чужой /home/pakar/mltest/.env
+KEY=env_keys.need('FAL_KEY')
 assert KEY
 sets=json.load(open(os.path.join(HERE,'sets.json')))
 n=int(sys.argv[1]) if len(sys.argv)>1 else 1

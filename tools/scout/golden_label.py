@@ -215,13 +215,9 @@ def prompt(it: dict) -> str:
 
 
 def _key() -> str:
-    # свой .env первым: зависимость от чужих проектов ломается при их переезде (А4)
-    for p in (os.path.join(HERE, '.env'), '/home/pakar/mltest/.env', os.path.join(HERE, '../../.env')):
-        if os.path.exists(p):
-            for line in open(p):
-                if line.startswith('OPENAI_API_KEY='):
-                    return line.split('=', 1)[1].strip()
-    raise SystemExit('нет OPENAI_API_KEY')
+    # одно место (`env_keys`, T-20261105-52): своё дерево → основная копия из worktree → чужой mltest последним с WARN
+    import env_keys
+    return env_keys.need('OPENAI_API_KEY')
 
 
 _IMG_CACHE: dict = {}

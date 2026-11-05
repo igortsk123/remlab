@@ -9,7 +9,6 @@ import base64
 import io
 import json
 import os
-import re
 import time
 import urllib.error
 import urllib.request
@@ -20,19 +19,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def fal_key() -> str:
-    k = os.environ.get('FAL_KEY')
-    if k:
-        return k
-    # свой .env первым (А4): зависимость от чужих проектов ломается при их переезде
-    for p in (os.path.join(HERE, '.env'), '/home/pakar/mltest/.env', os.path.join(HERE, '../../.env')):
-        try:
-            for line in open(p):
-                m = re.match(r'FAL_KEY=(.+)', line.strip())
-                if m:
-                    return m.group(1).strip().strip('"')
-        except OSError:
-            continue
-    raise SystemExit('нет FAL_KEY — см. .memory_bank/_secrets/ACCESS.md')
+    # одно место (`env_keys`, T-20261105-52): окружение → своё дерево → основная копия из worktree → чужой mltest с WARN
+    import env_keys
+    return env_keys.need('FAL_KEY')
 
 
 def uri_from_image(img: Image.Image) -> str:

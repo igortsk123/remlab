@@ -2,7 +2,7 @@
 """Визуалка сета: fal.ai FLUX.2 [pro] edit — до 8 ОТДЕЛЬНЫХ фото-референсов, $0.03/кадр.
 По гайду BFL: нумерованные референсы + точные цвета + preservation.
 Запуск: python3 viz3.py <номер сета> [вариантов=2]"""
-import json, os, sys, re, io, base64, urllib.request
+import json, os, sys, io, base64, urllib.request
 from PIL import Image
 def clean_bg(im):
     """Заменить фон (кластеры по рамке: белый/брендовый паттерн/лого) на белый."""
@@ -35,9 +35,8 @@ def name_color(name):
 
 HERE=os.path.dirname(os.path.abspath(__file__))
 KEY=None
-for line in open('/home/pakar/mltest/.env'):
-    m=re.match(r'FAL_KEY=(.+)',line.strip())
-    if m: KEY=m.group(1).strip().strip('"')
+import env_keys  # ключ — одно место (T-20261105-52); раньше — только чужой /home/pakar/mltest/.env
+KEY=env_keys.need('FAL_KEY')
 sets=json.load(open(os.path.join(HERE,'sets.json')))
 n=int(sys.argv[1]) if len(sys.argv)>1 else 1
 variants=int(sys.argv[2]) if len(sys.argv)>2 else 2

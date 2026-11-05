@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Визуалка сета ПО ФОТО товаров: коллаж-референс → fal.ai FLUX Kontext (image-to-image).
 Запуск: python3 viz2.py <номер сета> [вариантов=2]"""
-import json, os, sys, re, io, base64, urllib.request
+import json, os, sys, io, base64, urllib.request
 
 HERE=os.path.dirname(os.path.abspath(__file__))
 from PIL import Image, ImageDraw
@@ -23,9 +23,8 @@ def name_color(name):
         if ru in nl: return en
     return ''
 KEY=None
-for line in open('/home/pakar/mltest/.env'):
-    m=re.match(r'FAL_KEY=(.+)',line.strip())
-    if m: KEY=m.group(1).strip().strip('"')
+import env_keys  # ключ — одно место (T-20261105-52); раньше — только чужой /home/pakar/mltest/.env
+KEY=env_keys.need('FAL_KEY')
 sets=json.load(open(os.path.join(HERE,'sets.json')))
 n=int(sys.argv[1]) if len(sys.argv)>1 else 1
 variants=int(sys.argv[2]) if len(sys.argv)>2 else 2

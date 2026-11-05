@@ -11,6 +11,9 @@
 - CLI: `openai_budget.py --report [days]` (по дням/моделям), `--check <model> <n> [--batch]`.
 
 Файл-рубильник openai.off (refresh_daily/enrich_wait) — отдельный уровень: он вообще выключает платные шаги.
+
+Журнал — ОДИН, в tools/scout ОСНОВНОЙ копии (`env_keys.shared`, T-20261105-52): прогон из worktree пишет туда же, и дневной
+лимит видит его расход (раньше журнал ложился рядом со скриптом в worktree, лимит его не считал).
 """
 from __future__ import annotations
 
@@ -22,7 +25,9 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SPEND_LOG = os.path.join(HERE, 'openai-spend.jsonl')
+sys.path.insert(0, HERE)
+import env_keys  # noqa: E402
+SPEND_LOG = env_keys.shared('openai-spend.jsonl', HERE)
 PRICES = os.path.join(HERE, 'rules', 'openai_prices.json')
 
 
@@ -64,8 +69,8 @@ def log_spend(model: str, usage: dict | None, n_req: int = 1, note: str = '', ba
             f.write(json.dumps({'ts': time.strftime('%Y-%m-%d %H:%M'), 'model': model, 'n': n_req, 'batch': bool(batch),
                                 'prompt_tokens': pt, 'completion_tokens': ct, 'cost_usd': cost, 'est_usd': est,
                                 'note': note}, ensure_ascii=False) + '\n')
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 — учёт не роняет платный вызов, но и не молчит
+        print(f'WARN:openai_spend_log: расход не записан в {SPEND_LOG} — {type(e).__name__}: {e}', file=sys.stderr, flush=True)
 
 
 def _rows(days: int) -> list[dict]:
@@ -132,6 +137,7 @@ def report(days: int = 7) -> None:
         tot += d['usd'] + d['est']
         print(f"{dte} {m:16} {d['n']:>6} {d['pt']:>11} {d['ct']:>10}   {d['usd']:>10.3f}   {d['est']:>10.3f}")
     print(f'итого за {days} дн.: ≈ ${tot:.2f}; лимит в день: ${float(_cfg().get("daily_cap_usd") or 5):.2f}; сегодня: ${spent_today():.2f}')
+    print(f'журнал: {SPEND_LOG}')
 
 
 if __name__ == '__main__':

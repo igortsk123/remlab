@@ -166,6 +166,7 @@ jobs:
       - run: python tools/scout/opening_ir.py --selftest   # проёмы кадра из общего описания (demo-04)
       - run: python tools/scout/mesh_dark.py --selftest    # модель темнее товара — признак карантина (demo-05)
       - run: python tools/scout/unfit.py --selftest        # пригодность для гостиной: одно правило у подбора и лечения демо
+      - run: python tools/scout/env_keys.py --selftest     # ключи и журнал расходов из worktree — основной копии, чужой mltest последним с WARN (T-20261105-52)
       - run: python tools/scout/catalog_items.py --selftest   # адаптер каталога комнат: неизвестный тип/роль — ошибка, товар в двух ролях, схема (T-20261105-39)
       - run: python tools/scout/catalog_items_shadow.py --selftest   # тень гостиной: запрос берётся из compose2.py, устаревшая тень — отказ (T-20261105-39)
       - run: python tools/scout/room_profile.py --selftest && python tools/scout/room_profile.py --lint   # профили комнат: схема, версия, ссылки, плагины, роли = адаптер, виды = CAM_ZONES демо (T-20261105-40)

@@ -88,16 +88,8 @@ def main() -> None:
             print(f'{sh:24s} позиций {len(items)}')
         return
 
-    oai = os.environ.get('OPENAI_API_KEY') or ''
-    if not oai:
-        for p in ('/home/pakar/mltest/.env', os.path.join(HERE, '../../.env')):
-            try:
-                for line in open(p):
-                    m = re.match(r'OPENAI_API_KEY=(.+)', line.strip())
-                    if m:
-                        oai = m.group(1).strip().strip('"')
-            except OSError:
-                pass
+    import env_keys   # одно место (T-20261105-52); раньше — сначала чужой mltest
+    oai = env_keys.get('OPENAI_API_KEY') or ''
     got, angles = 0, []
     for role, it in by_shop.get(shop, []):
         if got >= limit:

@@ -30,18 +30,9 @@ SHIFTS = (-40, 0, 40)  # рендер смещает предметы на де�
 
 
 def _key() -> str:
-    k = os.environ.get('OPENAI_API_KEY')
-    if k:
-        return k
-    for p in (os.path.join(HERE, '.env'), '/home/pakar/mltest/.env'):
-        try:
-            for line in open(p):
-                m = re.match(r'OPENAI_API_KEY=(.+)', line.strip())
-                if m:
-                    return m.group(1).strip().strip('"')
-        except OSError:
-            continue
-    raise SystemExit('нет OPENAI_API_KEY')
+    # одно место (`env_keys`, T-20261105-52)
+    import env_keys
+    return env_keys.need('OPENAI_API_KEY')
 
 
 def _chroma(c):

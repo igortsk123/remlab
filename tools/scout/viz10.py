@@ -6,9 +6,8 @@ from PIL import Image
 HERE=os.path.dirname(os.path.abspath(__file__))
 exec(open(os.path.join(HERE,'viz3.py')).read().split("HERE=")[0])
 FAL=None; OAI=None
-for line in open('/home/pakar/mltest/.env'):
-    m=re.match(r'FAL_KEY=(.+)',line.strip())
-    if m: FAL=m.group(1).strip().strip('"')
+import env_keys  # ключ — одно место (T-20261105-52); раньше — только чужой /home/pakar/mltest/.env
+FAL=env_keys.need('FAL_KEY')
 for line in open('/home/pakar/igor/v0-health-card/backend/.env'):
     m=re.match(r'OPENAI_API_KEY=(.+)',line.strip())
     if m: OAI=m.group(1).strip().strip('"')

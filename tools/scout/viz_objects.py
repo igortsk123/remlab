@@ -317,17 +317,9 @@ def edit_gpt_raw(images: list, prompt: str, size: str = '1536x1024', mask=None) 
 
 
 def _dotenv(name: str) -> str:
-    # свой .env первым (А4): зависимость от чужих проектов ломается при их переезде
-    for p in (os.path.join(HERE, '.env'), '/home/pakar/mltest/.env',
-              os.path.join(HERE, '../../.env')):
-        try:
-            for line in open(p):
-                m = re.match(rf'{name}=(.+)', line.strip())
-                if m:
-                    return m.group(1).strip().strip('"')
-        except OSError:
-            continue
-    return ''
+    # одно место (`env_keys`, T-20261105-52): своё дерево → основная копия из worktree → чужой mltest с WARN
+    import env_keys
+    return env_keys.get(name) or ''
 
 
 def blend(base: Image.Image, new: Image.Image, mask: np.ndarray, feather: int = 7) -> Image.Image:
