@@ -6,7 +6,11 @@
   3) gpt-5-mini батчами по 25 — основной сигнал (текст товара, БЕЗ фото).
 Итог: style-scores.json {"mid-eid": {"сканди": 7.2, ..., "universal": true}}.
 Кэш: повторный прогон скорит только новые товары (детерминизм и ноль лишних трат).
-Запуск (venv!): ~/venvs/scout/bin/python style_score.py [--report] [--limit N]
+Запуск (venv!): ~/venvs/scout/bin/python style_score.py [--report] [--limit N] [--dry] [--source living|room_catalog]
+--source room_catalog (onb-06 Т1) — товары спальни (кровать, тумба, шкаф, комод) из `room_catalog`: та же логика оценки, свой
+пул, дедуп по семейству (без размера и цвета — `room_catalog.family`), файл ТОЛЬКО свой (`STYLE_OUT`, по умолчанию
+style-scores-bedroom.json; живой style-scores.json — отказ), в базу — только с `--db` и без перезаписи чужих строк.
+--dry — пул, сколько скорить и прикидка цены; без LLM и без записи.
 """
 import subprocess, sys, os, re, json, urllib.error, urllib.request
 import numpy as np
@@ -18,7 +22,11 @@ SNAMES=list(STYLES)  # порядок фиксирован
 # STYLE_OUT — отдельный файл оценок для опытов (сравнение моделей, пересчёт впрок): пока дневной
 # конвейер пишет свой style-scores.json, опыт считается рядом и подменяется одним mv, когда готов.
 # Без этого два прогона затирали друг друга — оценки терялись молча (11.10).
-OUT=os.path.join(HERE,os.environ.get('STYLE_OUT','style-scores.json'))
+SOURCE=sys.argv[sys.argv.index('--source')+1] if '--source' in sys.argv else 'living'
+assert SOURCE in ('living','room_catalog'), f"--source {SOURCE}: только living | room_catalog"
+OUT=os.path.join(HERE,os.environ.get('STYLE_OUT','style-scores.json' if SOURCE=='living' else 'style-scores-bedroom.json'))
+if SOURCE!='living' and os.path.basename(OUT)=='style-scores.json':
+    sys.exit("СТОП: спальня в живой style-scores.json гостиной — задай свой STYLE_OUT")
 cache=json.load(open(OUT)) if os.path.exists(OUT) else {}
 # Ключ — общим резолвером (свой .env первым): жёсткий путь в чужой проект умер молча,
 # и добивка 29.08 прошла с 401 — записи легли «правила+CLIP» без LLM вообще.
@@ -37,8 +45,29 @@ def model_key(name):
     n=STOP.sub(' ', name.lower()); n=re.sub(r'[^а-яa-z0-9 ]',' ',n)
     return ' '.join(re.sub(r'\s+',' ',n).strip().split()[:6])
 
-print("Каталог гостиной...",flush=True)
-raw=rows("""select l.role, l.shop_mid, l.external_id, l.name,
+def bedroom_raw():
+    """Показываемые товары спальни (`room_catalog`, те же условия показа и флаг ролей, что у демо) в раскладке строк
+    гостиной: роль, mid, eid, название, материал, цвет, обивка, стиль, описание (у room_catalog его нет), магазин.
+    Детское общих ролей (`child_only`) — не спальня пары, не скорим."""
+    import room_catalog as RC
+    R=RC.rules()
+    roles=[r for r in ('кровать','тумба прикроватная','шкаф','комод') if r in RC.enabled(R)]
+    pj=lambda *ks: "coalesce("+",".join(f"params->>'{k}'" for k in ks)+",'')"
+    out=rows(f"""select role, shop_mid, external_id, name,
+ concat_ws(' / ', nullif({pj('Материал','Материал корпуса','Материал каркаса')},''), nullif({pj('Материал фасада')},''),
+           nullif({pj('Материал ножек (опор)')},'')),
+ {pj('Цвет','Цвет основной')}, {pj('Материал обивки','Обивка: Ткань 1','Обивка')}, {pj('Стиль')}, '', shop
+ from room_catalog where {RC.shown_where(R)} and role in ({','.join(RC._lit(r) for r in roles)})
+ order by shop_mid, external_id""")
+    return [r for r in out if not RC.child_only(r[0], r[3], R)]
+
+if SOURCE=='room_catalog':
+    print("Каталог спальни (room_catalog)...",flush=True)
+    raw=bedroom_raw()
+    assert len(raw)>500, f"каталог спальни вернул {len(raw)} строк — SQL сломан, СТОП"
+else:
+  print("Каталог гостиной...",flush=True)
+  raw=rows("""select l.role, l.shop_mid, l.external_id, l.name,
  coalesce(p.params->>'Материал',''), coalesce(p.params->>'Цвет',''), coalesce(p.params->>'Обивка',''),
  coalesce(p.params->>'Стиль',''),
  case when count(*) over (partition by p.shop_mid, p.description) > 5 then ''  -- шаблонка (один текст у >5 товаров) — не сигнал, в LLM не подаём
@@ -47,7 +76,12 @@ raw=rows("""select l.role, l.shop_mid, l.external_id, l.name,
  where l.role is not null and l.price_rub is not null and l.image_url is not null and p.in_stock
    and coalesce(p.photo_alive, true)  -- фото реально скачивается (conv-05, catalog_rules.PHOTO_OK_SQL)
  order by l.shop_mid, l.external_id""")
-assert len(raw)>1000, f"каталог-запрос вернул {len(raw)} строк — SQL сломан, СТОП"
+  assert len(raw)>1000, f"каталог-запрос вернул {len(raw)} строк — SQL сломан, СТОП"
+if SOURCE=='room_catalog':
+    # модель спальни = семейство: «Кровать divan.ru Кейт 140 Велюр Серый» и «… Кейт 160 Букле Бежевый» — одна (размер и
+    # цвет стиля не меняют); model_key гостиной оставляет размер — платили бы за каждый
+    from room_catalog import family as _family
+    model_key=lambda name: _family(name)  # noqa: E731
 pool={}
 # БЛИЗНЕЦЫ МОДЕЛИ. Скорим один товар на модель (дедуп по model_key — цвета и обивки одной модели
 # стилистически одинаковы и платить за них отдельно незачем), но в БАЗУ оценка едет ВСЕМ товарам
@@ -61,6 +95,18 @@ for r in raw:
     pool[k]=dict(role=r[0],mid=int(r[1]),eid=r[2],name=r[3],mat=r[4],col=r[5],uph=r[6],stp=r[7],desc=r[8],mkey=k)
 prods=list(pool.values())
 key=lambda p: f"{p['mid']}-{re.sub(r'[^A-Za-z0-9]','_',p['eid'])[:40]}"
+reused=0
+if SOURCE=='room_catalog':
+    # товар спальни уже оценён как товар гостиной (комод, шкаф есть в обоих каталогах) — та же оценка, без платы и без
+    # расхождения: берём её у любого близнеца модели из базы (только чтение)
+    have={(int(r[0]),r[1]):r for r in rows("select s.shop_mid, s.external_id, s.scores, s.universal, s.src from product_style_scores s"
+                                           " join room_catalog c using (shop_mid, external_id)")}
+    for p in prods:
+        if key(p) in cache: continue
+        hit=next((have[t] for t in twins[p['mkey']] if t in have), None)
+        if hit:
+            sc=json.loads(hit[2])
+            cache[key(p)]={**{st:sc[st] for st in SNAMES},'universal':hit[3]=='t','src':'living:'+hit[4]}; reused+=1
 todo=[p for p in prods if key(p) not in cache]
 # --limit — ПОТОЛОК ДНЕВНОЙ ДОБИВКИ, а не обрезка пула (11.10). Раньше лимит резал начало `prods`,
 # а начало пула давно в кэше: `--limit 300` на полном кэше давало «скорить 0» — дневной шаг месяцами
@@ -74,6 +120,18 @@ if '--limit' in sys.argv:
         print(f"дневной потолок {LIMIT}: из {len(todo)} несосчитанных беру первые {LIMIT}",flush=True)
     todo=daily_todo(todo, LIMIT)
 print(f"пул {len(prods)} (дедуп из {len(raw)}), в кэше {len(prods)-len([p for p in prods if key(p) not in cache])}, скорить {len(todo)}",flush=True)
+if reused: print(f"из оценок гостиной (тот же товар): {reused}",flush=True)
+STYLE_MODEL=os.environ.get("STYLE_MODEL","gpt-6-luna")
+from openai_budget import allow as _budget_allow, estimate_request as _est, log_spend as _log_spend
+if '--dry' in sys.argv:
+    nb=-(-len(todo)//25)
+    print(f"СУХОЙ ПРОГОН: моделей {len(prods)}, скорить {len(todo)} — {nb} запросов {STYLE_MODEL} ≈ ${nb*_est(STYLE_MODEL):.3f} "
+          f"(оценка по типовым токенам rules/openai_prices.json); без LLM и без записи",flush=True)
+    if SOURCE=='room_catalog':
+        by={}
+        for p in prods: by[p['role']]=by.get(p['role'],0)+1
+        print("моделей по ролям:", by, flush=True)
+    sys.exit(0)
 
 # ---------- ступень 1: правила ----------
 def rule_score(p):
@@ -162,6 +220,7 @@ def llm_batch(batch):
     # «правила+CLIP» уже портила кэш.
     from llm_gateway import chat as _chat
     out=_chat(body["model"], body["messages"], reasoning_effort=body.get("reasoning_effort","low"))
+    _log_spend(body["model"], out.get('usage'), 1, f'style_score {SOURCE}')   # учёт: openai_budget (урок 462)
     m=re.search(r'\{.*\}',out['choices'][0]['message']['content'],re.S)
     items=json.loads(m.group(0))['items']
     res={}
@@ -175,7 +234,8 @@ def llm_batch(batch):
 # ОЦЕНКИ ЕДУТ И В БАЗУ (11.10). Файл — кэш прогона, но связать стиль с мешем одним запросом по
 # нему нельзя: ключ `mid-eid` теряет символы (`[^A-Za-z0-9]→_`). В базе ключ тот же, что у товара,
 # поэтому витрина `catalog_ready` показывает рядом роль, стиль, размеры и ссылку на меш.
-def save_to_db(rows):
+def save_to_db(rows, keep=False):
+    """keep — не перезаписывать уже записанные оценки (спальня: строки гостиной не трогаем)."""
     if not rows: return 0
     esc=lambda x: str(x).replace("'","''")
     model=os.environ.get("STYLE_MODEL","gpt-6-luna")
@@ -189,9 +249,10 @@ def save_to_db(rows):
                         f"{str(bool(rec['universal'])).lower()},'{esc(rec['src'])}','{esc(model)}',now())")
         sql=("insert into product_style_scores (shop_mid, external_id, scores, top_style, universal, src, model, scored_at)"
              " values "+",".join(vals)+
+             (" on conflict (shop_mid, external_id) do nothing" if keep else
              " on conflict (shop_mid, external_id) do update set scores=excluded.scores,"
              " top_style=excluded.top_style, universal=excluded.universal, src=excluded.src,"
-             " model=excluded.model, scored_at=excluded.scored_at")
+             " model=excluded.model, scored_at=excluded.scored_at"))
         r=subprocess.run(PSQL,input=sql,capture_output=True,text=True)
         if r.returncode:
             print(f"WARN:style_db: оценки не записаны в базу — {r.stderr[:160]}",flush=True); return n
@@ -201,6 +262,9 @@ def save_to_db(rows):
 import concurrent.futures as cf, threading
 B=25; done=0; fails=0; _lock=threading.Lock(); scored_now=[]
 batches=[todo[bi:bi+B] for bi in range(0,len(todo),B)]
+# ДНЕВНОЙ ЛИМИТ ДЕНЕГ (урок 462): до первого платного запроса; нет — ничего не отправляем, кэш как был
+if batches and not _budget_allow(STYLE_MODEL, len(batches), note=f'style_score {SOURCE} {len(todo)} моделей'):
+    print("СТОП: дневной лимит OpenAI — стили не считаю",flush=True); sys.exit(2)
 def run_batch(batch):
     try: return batch,llm_batch(batch)
     except Exception as e:
@@ -234,13 +298,19 @@ for batch,llm in _pool.map(run_batch,batches):
         with _lock: json.dump(cache,open(OUT,'w'),ensure_ascii=False)
         print(f"{done}/{len(todo)}...",flush=True)
 json.dump(cache,open(OUT,'w'),ensure_ascii=False)
-print(f"OK: style-scores.json — {len(cache)} товаров",flush=True)
-print(f"OK: в базу записано оценок — {save_to_db(scored_now)}",flush=True)
+print(f"OK: {os.path.basename(OUT)} — {len(cache)} товаров; отказов LLM (партий): {fails}",flush=True)
+if SOURCE=='living':
+    print(f"OK: в базу записано оценок — {save_to_db(scored_now)}",flush=True)
+elif '--db' in sys.argv:
+    print(f"OK: в базу записано оценок спальни (чужие строки не трогаем) — {save_to_db(scored_now, keep=True)}",flush=True)
+else:
+    print("база: спальня не пишется без --db",flush=True)
 
 # ---------- отчёт покрытия: товаров с фитом ≥6.5 на стиль × роль ----------
 if '--report' in sys.argv or True:
     CORE=['диван','столик','тв-тумба','ковёр','люстра','плед','подушка','кресло','торшер','лампа','кашпо','ваза','комод','стеллаж','пуф']
-    print("\nПокрытие (товаров со стиль-фитом ≥6.5), ядро гостиной:")
+    if SOURCE=='room_catalog': CORE=['кровать','тумба прикроватная','шкаф','комод']
+    print("\nПокрытие (товаров со стиль-фитом ≥6.5), ядро "+("гостиной:" if SOURCE=='living' else "спальни (моделей):"))
     hdr="роль".ljust(12)+"".join(st[:7].ljust(9) for st in SNAMES)
     print(hdr)
     gaps={st:[] for st in SNAMES}
