@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+import shapely
 from shapely.affinity import rotate, translate, scale
 from shapely.geometry import Point, Polygon, box
 from shapely.ops import unary_union
@@ -379,25 +381,26 @@ def largest_free_rectangles(poly: Polygon, min_side_cm: float = 50.0, limit: int
     # квантуем координаты: перебор пар по обеим осям квартичен, лишние вершины его убивают
     xs = sorted({round(v / 5) * 5 for v in xs})
     ys = sorted({round(v / 5) * 5 for v in ys})
-    # ПЕРФ (onb-05, 05.11): сжатие осевого прямоугольника на 0,5 см — сразу box, без buffer(-0.5): вершины те же
-    # (сверено на 20 000 случаев), а buffer здесь давал ~70 % всех вызовов buffer холодного прогона гостиной
-    rects: list[tuple[Polygon, Polygon]] = []
-    for i in range(len(xs) - 1):
-        for j in range(i + 1, len(xs)):
-            if xs[j] - xs[i] < min_side_cm:
-                continue
-            for a in range(len(ys) - 1):
-                for b in range(a + 1, len(ys)):
-                    if ys[b] - ys[a] < min_side_cm:
-                        continue
-                    inner = box(xs[i] + 0.5, ys[a] + 0.5, xs[j] - 0.5, ys[b] - 0.5)
-                    if poly.contains(inner):
-                        rects.append((box(xs[i], ys[a], xs[j], ys[b]), inner))
-    rects.sort(key=lambda t: -t[0].area)
+    # ПЕРФ (onb-05, 05.11; результат тот же, порядок тот же):
+    #  1) сжатие осевого прямоугольника на 0,5 см — сразу box, без buffer(-0.5): вершины те же (сверено на 20 000);
+    #  2) «внутри полигона» — одним пакетным shapely.contains по всем кандидатам, а не по одному;
+    #  3) «вложен в уже взятый» — сравнением границ: для двух осевых прямоугольников это ровно contains.
+    cand = [(xs[i], ys[a], xs[j], ys[b])
+            for i in range(len(xs) - 1) for j in range(i + 1, len(xs)) if xs[j] - xs[i] >= min_side_cm
+            for a in range(len(ys) - 1) for b in range(a + 1, len(ys)) if ys[b] - ys[a] >= min_side_cm]
+    rects: list[tuple[float, float, float, float]] = []
+    if cand:
+        c = np.asarray(cand, dtype=float)
+        inside = shapely.contains(poly, shapely.box(c[:, 0] + 0.5, c[:, 1] + 0.5, c[:, 2] - 0.5, c[:, 3] - 0.5))
+        rects = [t for t, ok in zip(cand, inside) if ok]
+    rects.sort(key=lambda t: -(t[2] - t[0]) * (t[3] - t[1]))   # площадь осевого прямоугольника; сетка целая — точно
     out: list[Polygon] = []
-    for r, inner in rects:  # выкидываем прямоугольники, вложенные в уже взятые (оставляем максимальные)
-        if not any(o.contains(inner) for o in out):
-            out.append(r)
+    kept: list[tuple[float, float, float, float]] = []
+    for x0, y0, x1, y1 in rects:  # выкидываем прямоугольники, вложенные в уже взятые (оставляем максимальные)
+        i0, j0, i1, j1 = x0 + 0.5, y0 + 0.5, x1 - 0.5, y1 - 0.5
+        if not any(k[0] <= i0 and k[1] <= j0 and k[2] >= i1 and k[3] >= j1 for k in kept):
+            kept.append((x0, y0, x1, y1))
+            out.append(box(x0, y0, x1, y1))
         if len(out) >= limit:
             break
     if _key is not None:
