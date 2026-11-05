@@ -2,7 +2,7 @@
 // перевести на TEXT-свойства title / area (раньше — переопределение куска текста 64:122, слоя больше нет).
 await figma.setCurrentPageAsync(await figma.getNodeByIdAsync('280:2'));
 await figma.loadFontAsync({ family: 'Inter', style: 'Bold' }); await figma.loadFontAsync({ family: 'Inter', style: 'Medium' });
-const AREA = { 'Кухня': '13,2', 'Спальня 1': '17,5', 'Спальня 2': '9,7', 'Санузел 1': '4,4', 'Санузел 2': '3,9', 'Прихожая': '9,3' };
+const AREA = { 'Кухня': '13,2', 'Спальня 1': '17,5', 'Спальня 2': '13,2', 'Санузел 1': '4,4', 'Санузел 2': '3,9', 'Прихожая': '9,3' };
 const out = [];
 for (const sid of ['281:155', '281:245']) {
   const s = await figma.getNodeByIdAsync(sid);

@@ -628,29 +628,29 @@
    "expect": "solve"
   },
   {
-   "id": "flat215-bedroom-2-registry-9.7-office",
-   "room": "flat215:bedroom-2:registry-9.7",
+   "id": "flat215-bedroom-2-small-9.7-office",
+   "room": "flat215:bedroom-2:small-9.7",
    "purpose": "office",
    "kit": "office",
    "expect": "solve"
   },
   {
-   "id": "flat215-bedroom-2-registry-9.7-guest",
-   "room": "flat215:bedroom-2:registry-9.7",
+   "id": "flat215-bedroom-2-small-9.7-guest",
+   "room": "flat215:bedroom-2:small-9.7",
    "purpose": "guest",
    "kit": "guest",
    "expect": "solve"
   },
   {
-   "id": "flat215-bedroom-2-registry-9.7-single",
-   "room": "flat215:bedroom-2:registry-9.7",
+   "id": "flat215-bedroom-2-small-9.7-single",
+   "room": "flat215:bedroom-2:small-9.7",
    "purpose": "single",
    "kit": "single",
    "expect": "solve"
   },
   {
-   "id": "flat215-bedroom-2-registry-9.7-couple",
-   "room": "flat215:bedroom-2:registry-9.7",
+   "id": "flat215-bedroom-2-small-9.7-couple",
+   "room": "flat215:bedroom-2:small-9.7",
    "purpose": "couple",
    "kit": "couple_std",
    "expect": "fail",
@@ -675,8 +675,8 @@
    "note": "детские роли и нормы — после onb-04 (каталог); сцена-заглушка ждёт перегонки"
   },
   {
-   "id": "flat215-bedroom-2-registry-9.7-child-7-12",
-   "room": "flat215:bedroom-2:registry-9.7",
+   "id": "flat215-bedroom-2-small-9.7-child-7-12",
+   "room": "flat215:bedroom-2:small-9.7",
    "purpose": "child",
    "childAge": "7-12",
    "kit": "single",
@@ -684,8 +684,8 @@
    "note": "детские роли и нормы — после onb-04 (каталог); сцена-заглушка ждёт перегонки"
   },
   {
-   "id": "flat215-bedroom-2-registry-9.7-child-teen",
-   "room": "flat215:bedroom-2:registry-9.7",
+   "id": "flat215-bedroom-2-small-9.7-child-teen",
+   "room": "flat215:bedroom-2:small-9.7",
    "purpose": "child",
    "childAge": "teen",
    "kit": "single",

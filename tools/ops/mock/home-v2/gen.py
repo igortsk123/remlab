@@ -10,7 +10,7 @@ ROOMS = '''<div class="rooms">
   </article>
   <div class="room stub" id="r-kitchen"><b>Кухня <small>· 13,2 м²</small></b><span>появится следующим шагом</span></div>
   <div class="room stub"><b>Спальня 1 <small>· 17,5 м²</small></b><span>появится следующим шагом</span></div>
-  <div class="room stub"><b>Спальня 2 <small>· 9,7 м²</small></b><span>появится следующим шагом</span></div>
+  <div class="room stub"><b>Спальня 2 <small>· 13,2 м²</small></b><span>появится следующим шагом</span></div>
   <div class="room stub"><b>Санузел <small>· 4,4 м²</small></b><span>появится следующим шагом</span></div>
   <div class="room stub"><b>Прихожая <small>· 9,3 м²</small></b><span>появится следующим шагом</span></div>
 </div>'''
@@ -39,15 +39,15 @@ def page(title, cls, head, ov=''):
 '''
 
 
-A = page('Главная · вариант A', 'vA', f'''<header class="hd1"><div class="fk">3-комн · 73,7 м²</div>{PRICE}{FAV}</header>
+A = page('Главная · вариант A', 'vA', f'''<header class="hd1"><div class="fk">3-комн · 77,2 м²</div>{PRICE}{FAV}</header>
 <div class="top-d"><div class="hd2">{META}</div>{ACTS}</div>
 {CERT % {'CLS': ''}}
 {HINT}''')
-B = page('Главная · вариант B', 'vB', f'''<header class="hd1"><div class="fk">3-комн · 73,7 м²</div>{PRICE}{FAV}
+B = page('Главная · вариант B', 'vB', f'''<header class="hd1"><div class="fk">3-комн · 77,2 м²</div>{PRICE}{FAV}
   <div class="pc"><span class="c">сертификат <b>470 000 ₽</b> · остаток <b>301 872 ₽</b></span><div class="bar"><i></i></div></div></header>
 <div class="row2"><div class="m"><span>ЖК «Ольховый квартал»</span><span>сдача 4 кв. 2026 · эт. 6/17</span></div><button class="btn">Ипотека</button><button class="btn cta">Консультация</button></div>
 {HINT}''')
-C = page('Главная · вариант C', 'vC', f'''<header class="hd1"><div class="fk">3-комн · 73,7 м²</div>{PRICE}{FAV}</header>
+C = page('Главная · вариант C', 'vC', f'''<header class="hd1"><div class="fk">3-комн · 77,2 м²</div>{PRICE}{FAV}</header>
 <p class="hint" style="margin-top:0">Ваша квартира в разных стилях — меняйте мебель и отделку.</p>''', ov=CERT % {'CLS': ' cert-ov'})
 for n, s in (('a', A), ('b', B), ('c', C)):
     open(os.path.join(OUT, n + '.html'), 'w').write(s)

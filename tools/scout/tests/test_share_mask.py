@@ -41,7 +41,7 @@ check('без маски: русская страница', '<html lang="ru">' i
 ru2 = page({'title': 'Квартира №215', 'currency': 'GBP', 'lang': 'en'}, [{'url': '/test/a.jpg', 'label': 'сканди · эскиз', 'items': RU_ITEMS}])
 check('валюта без маски — как было', ru2 == ru)
 
-en = page({'title': 'Apartment No. 215 · 73.7 m²', 'mask': True, 'currency': 'GBP', 'lang': 'en'},
+en = page({'title': 'Apartment No. 215 · 77.2 m²', 'mask': True, 'currency': 'GBP', 'lang': 'en'},
           [{'url': '/test/a.jpg', 'label': 'Scandi · sketch · 14:05', 'items': EN_ITEMS},
            {'url': '/test/b.jpg', 'label': '', 'items': [dict(RU_ITEMS[0], name='Sofa', role='sofa', price=347)]}])
 check('маска: цены в фунтах, итог — сумма строк', '£347' in en and '£390' in en and '₽' not in en)

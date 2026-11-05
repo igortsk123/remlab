@@ -68,7 +68,7 @@ def main() -> None:
              ".meta{font-size:15px;color:#3A423C;margin-top:8px}"
              ".head{margin:10px 0;padding:10px 12px;border-left:3px solid #3B76A2;"
              "background:#F4F7FA;font-size:15.5px}")
-    head = (f"<div class='head'>Квартира №215 (73.7 м²), <b>гостиная {liv['w']}×{liv['d']} см "
+    head = (f"<div class='head'>Квартира №215 (77.2 м²), <b>гостиная {liv['w']}×{liv['d']} см "
             f"({liv['w'] * liv['d'] / 10000:.1f} м²)</b>. Габариты сняты с чертежа по масштабу — "
             "точные ждём от застройщика. Окно на наружной стене, дверь из холла, радиатор под окном. "
             "Варианты <b>предпосчитаны офлайн</b>: страница ничего не считает. Остальные комнаты "

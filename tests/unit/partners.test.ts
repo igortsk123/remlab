@@ -39,7 +39,7 @@ describe("реестр застройщиков", () => {
     raw.apartments[0].id = "flat-copy";
     const list = partners([raw]);
     const card = apartmentCard(findApartment("flat-copy", list)!);
-    expect(card.kind).toBe("Трёхкомнатная 73,7\u00a0м²");
+    expect(card.kind).toBe("Трёхкомнатная 77,2\u00a0м²");
     expect(card.certificate?.amount).toBe(600_000);
   });
 
@@ -67,7 +67,7 @@ describe("комнаты квартиры", () => {
     const ru = apartmentCard(findApartment("flat215")!, "ru");
     expect(ru.kindShort).toBe("3-комн.");
     expect(ru.metaShort).toBe("ЖК «Ольховый квартал» · сдача 4 кв. 2026");
-    expect(ru.kind).toBe("Трёхкомнатная 73,7\u00a0м²");
+    expect(ru.kind).toBe("Трёхкомнатная 77,2\u00a0м²");
     expect(ru.meta).toBe("ЖК «Ольховый квартал» · сдача 4 кв. 2026 · эт. 6 из 17 · корп. 3");
     expect(apartmentCard(findApartment("flat215")!, "en").kindShort).toBe("2-bed");
   });
@@ -143,7 +143,7 @@ describe("комнаты квартиры", () => {
 
   it("площади: комнаты + лоджия = площадь квартиры (T-20261022-04), иначе карточка не грузится", () => {
     const a = findApartment("flat215")!.apartment;
-    expect(a.rooms.reduce((s, r) => s + r.areaM2, 0) + (a.loggiaM2 ?? 0)).toBeCloseTo(73.7, 1);
+    expect(a.rooms.reduce((s, r) => s + r.areaM2, 0) + (a.loggiaM2 ?? 0)).toBeCloseTo(77.2, 1);
     const base = () => JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
     const lost = base(); lost.apartments[0].rooms.splice(5, 1);
     lost.apartments[0].rooms.forEach((r: { ordinal: number }, k: number) => { r.ordinal = k + 1; });

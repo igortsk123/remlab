@@ -38,8 +38,12 @@ check('флаги: строка «true» не включает', F.room_flags(di
 import json  # noqa: E402
 apt = F.demo_apartment()
 flat = json.load(open(os.path.join(HERE, '..', 'flat215.json'), encoding='utf-8'))
-check('площади реестра: комнаты + лоджия = площадь квартиры (73,7)',
-      abs(sum(r['areaM2'] for r in rooms) + (apt.get('loggiaM2') or 0) - apt['areaM2']) <= 0.2 and apt['areaM2'] == 73.7)
+check('площади реестра: комнаты + лоджия = площадь квартиры (77,2)',
+      abs(sum(r['areaM2'] for r in rooms) + (apt.get('loggiaM2') or 0) - apt['areaM2']) <= 0.2 and apt['areaM2'] == 77.2)
+# СПАЛЬНЯ 2 = 13,2 ВЕЗДЕ (владелец 05.11, T-20261105-27): подпись из реестра и геометрия плана — одно число
+_br2 = next(r for r in flat['plan_example']['rooms'] if r['id'] == 'bedroom-2')
+check('спальня 2: реестр 13,2 = геометрия плана (4,50 × 2,93)',
+      next(r['areaM2'] for r in rooms if r['id'] == 'bedroom-2') == 13.2 and round(_br2['w'] * _br2['d'], 1) == 13.2)
 check('схема плана: комнаты с id реестра и без своих площадей/имён',
       {r['id'] for r in flat['plan_example']['rooms']} <= {r['id'] for r in rooms}
       and not any('m2' in r or 'name' in r for r in flat['plan_example']['rooms']))
