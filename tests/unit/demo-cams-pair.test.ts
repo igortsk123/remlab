@@ -227,3 +227,43 @@ describe("кадр: крупное целиком или вне кадра", () 
     for (const it of list.filter((x) => x.role === "стол обеденный" || x.role.startsWith("стул"))) expect(apiOne.camFrameState(now, it), it.role).toBe(1);
   });
 });
+
+// ЗОНА СПАЛЬНИ → ДВА ВИДА (T-20261105-32, владелец 05.11): правило — данными `CAM_ZONES.bedroom`; пара — вид на кровать (от входа или из ног
+// кровати: дверь спальни 1 на стене изголовья) и встречный от изголовья; кровать и хотя бы одна тумба покрыты в каждом варианте
+describe("камеры демо: спальня 1, виды зоны", () => {
+  const fxB = load("tests/fixtures/demo-bedroom-1-1105.json");
+  const apiB = new Function("D", `${block};return {camPairAll,camViewOk,CAM_ZONES};`)({ room: fxB.room }) as {
+    camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[]) => Pair & { per: (Omit<Pair, "level" | "how">)[] };
+    camViewOk: (vw: unknown, c: Cam, its: It[]) => boolean;
+    CAM_ZONES: { bedroom: { views: unknown[] }; living: { views?: unknown } };
+  };
+  it("гостиная без видов зоны (подбор как был), у спальни — два вида", () => {
+    expect(apiB.CAM_ZONES.living.views).toBeUndefined();
+    expect(apiB.CAM_ZONES.bedroom.views).toHaveLength(2);
+  });
+  it("одна пара на 5 вариантов: вид 1 и вид 2 зоны, кровать и ≥ 1 тумба в кадре, обязательное покрыто", () => {
+    const { w: W, d: H } = fxB.room, L = fxB.variants.map(its), pr = apiB.camPairAll(L, W, H, corners(W, H));
+    expect(pr.how).toContain("виды зоны,");
+    const [v1, v2] = apiB.CAM_ZONES.bedroom.views;
+    for (const list of L) {
+      const ab = apiB.camViewOk(v1, pr.cams[0]!, list) && apiB.camViewOk(v2, pr.cams[1]!, list);
+      const ba = apiB.camViewOk(v1, pr.cams[1]!, list) && apiB.camViewOk(v2, pr.cams[0]!, list);
+      expect(ab || ba).toBe(true);
+    }
+    for (const [vi, p] of pr.per.entries()) {
+      const miss = p.missing.map((m) => m.role);
+      expect(p.missing.filter((m) => m.must), fxB.variants[vi]!.id).toEqual([]);
+      expect(miss).not.toContain("кровать");
+      expect(p.covered.length).toBeGreaterThanOrEqual(4);
+    }
+  }, 300_000);
+  it("изголовье не у стены с окном", () => {
+    const wins = new Set((fxB.room.openings as { kind: string; wall: string }[]).filter((o) => o.kind === "window").map((o) => o.wall));
+    for (const v of fxB.variants) {
+      const bed = v.items.find((i) => i.role === "кровать")!;
+      // rot — куда кровать смотрит лицом (0 → север, 90 → восток, `planner/candidates.py:_rot_towards`); изголовье — у стены за спиной
+      const wall = ["south", "west", "north", "east"][((Math.round(bed.rot / 90) % 4) + 4) % 4]!;
+      expect(wins.has(wall), `${v.id}: изголовье у стены ${wall}`).toBe(false);
+    }
+  });
+});

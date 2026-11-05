@@ -1,0 +1,157 @@
+{
+ "_about": "ЗАГОТОВКА банка спальни (onb-07 Т2, T-20261105-32): две записи формата sets3 + room_id/room_type/purpose (ADR-0330 п.3, onb-06 п.5) из room_catalog 05.11 — для тестов и проверочной сборки до настоящего sets-bedroom.json (Работник 1, T-31). Не живой банк. Кровати и тумбы — с мешами волны T-11 (без брака: Стелла, Блест, Вита, Кейлет, Енссон).",
+ "sets": [
+  {
+   "set_id": "fixture-bedroom-1-сканди",
+   "room_id": "bedroom-1",
+   "room_type": "bedroom",
+   "purpose": "couple",
+   "style": "сканди",
+   "tier": "mid",
+   "items": {
+    "кровать": {
+     "mid": 112923,
+     "eid": "3185911961608383085",
+     "name": "Кровать divan.ru Дона 160 Береза Латте",
+     "price": 18990,
+     "w": 173.0,
+     "d": 203.0,
+     "h": 85.0,
+     "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+     "shop": "divan.ru",
+     "qty": 1
+    },
+    "тумба прикроватная": {
+     "mid": 112923,
+     "eid": "7592379597105668396",
+     "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+     "price": 9990,
+     "w": 47.0,
+     "d": 44.0,
+     "h": 54.0,
+     "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+     "shop": "divan.ru",
+     "qty": 1
+    },
+    "тумба прикроватная 2": {
+     "mid": 112923,
+     "eid": "7592379597105668396",
+     "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+     "price": 9990,
+     "w": 47.0,
+     "d": 44.0,
+     "h": 54.0,
+     "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+     "shop": "divan.ru",
+     "qty": 1
+    },
+    "шкаф": {
+     "mid": 112923,
+     "eid": "8090259834659266167",
+     "name": "Распашной шкаф divan.ru Стелла 3-130x200 Дуб Барбера",
+     "price": 22490,
+     "w": 130.0,
+     "d": 50.0,
+     "h": 200.0,
+     "img": "https://cdn0.divan.ru/img/v1/VtnwrmXqoxadr7w4DKvWK-2bCHHnIc9FYHBA66er2m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE3NDgucG5n.jpg",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-stella-3-130-200-oak&erid=2SDnjeSGLnX",
+     "shop": "divan.ru",
+     "qty": 1
+    },
+    "комод": {
+     "mid": 112923,
+     "eid": "11672424920201226922",
+     "name": "Комод divan.ru Монмарт 92x96 Дуб Сонома",
+     "price": 28990,
+     "w": 92.0,
+     "d": 44.0,
+     "h": 96.0,
+     "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomod-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+     "shop": "divan.ru",
+     "qty": 1
+    }
+   },
+   "alternates": {}
+  },
+  {
+   "set_id": "fixture-bedroom-1-современный",
+   "room_id": "bedroom-1",
+   "room_type": "bedroom",
+   "purpose": "couple",
+   "style": "современный",
+   "tier": "mid",
+   "items": {
+    "кровать": {
+     "mid": 112923,
+     "eid": "12656356095568777983",
+     "name": "Кровать divan.ru Кейси-Б 160 Велюр Серый",
+     "price": 44990,
+     "w": 176.0,
+     "d": 212.0,
+     "h": 91.0,
+     "img": "https://cdn0.divan.ru/img/v1/aSoB1S_PLKkXRszstgs4Bt_4EyzJBKEL4hJ05zrIah0/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYwMzkyODMucG5n.jpg",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-kejsi-b-160-velvet-grey&erid=2SDnjeSGLnX",
+     "shop": "divan.ru",
+     "qty": 1
+    },
+    "тумба прикроватная": {
+     "mid": 112923,
+     "eid": "8940289656155243206",
+     "name": "Тумба прикроватная divan.ru Моррис 47x55 Графитовый",
+     "price": 8990,
+     "w": 47.0,
+     "d": 40.0,
+     "h": 55.0,
+     "img": "https://cdn0.divan.ru/img/v1/MLzaEdhcRe4UBC4Uzdis_uCz01wMUsXq_Rq2AG-cQPk/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3Nzg3MTgucG5n.jpg",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-morris-1-grafit&erid=2SDnjeSGLnX",
+     "shop": "divan.ru",
+     "qty": 1
+    },
+    "тумба прикроватная 2": {
+     "mid": 112923,
+     "eid": "8940289656155243206",
+     "name": "Тумба прикроватная divan.ru Моррис 47x55 Графитовый",
+     "price": 8990,
+     "w": 47.0,
+     "d": 40.0,
+     "h": 55.0,
+     "img": "https://cdn0.divan.ru/img/v1/MLzaEdhcRe4UBC4Uzdis_uCz01wMUsXq_Rq2AG-cQPk/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3Nzg3MTgucG5n.jpg",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-morris-1-grafit&erid=2SDnjeSGLnX",
+     "shop": "divan.ru",
+     "qty": 1
+    },
+    "шкаф": {
+     "mid": 112923,
+     "eid": "7465991381233705338",
+     "name": "Распашной шкаф divan.ru Монблан 2-93x215 Линии Графитовый",
+     "price": 36990,
+     "w": 93.0,
+     "d": 50.0,
+     "h": 215.0,
+     "img": "https://cdn0.divan.ru/img/v1/mCkB5p89TrFMPAjJ3FWLTaExP2ywHoSmkOzrzgEK4rA/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5NjA5OTcucG5n.jpg",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-monblan-2-93x215-linii-grafitovyj&erid=2SDnjeSGLnX",
+     "shop": "divan.ru",
+     "qty": 1
+    },
+    "комод": {
+     "mid": 112923,
+     "eid": "11102532262959743722",
+     "name": "Комод divan.ru Енссон 91x96 Графитовый",
+     "price": 19790,
+     "w": 91.0,
+     "d": 42.0,
+     "h": 96.0,
+     "img": "https://cdn0.divan.ru/img/v1/uy6bHrXEbMEOOK3tZX-RFXPrBk0ElizxJP7sv0IAthI/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUxOTcyMDIucG5n.jpg",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomod-ensson-1-grafit-oak&erid=2SDnjeSGLnX",
+     "shop": "divan.ru",
+     "qty": 1
+    }
+   },
+   "alternates": {}
+  }
+ ]
+}

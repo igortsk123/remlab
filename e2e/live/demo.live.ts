@@ -38,7 +38,7 @@ test("1.1 стили опубликованы, у каждого есть кад
 test("замена предмета меняет сумму; ссылка на вариант открывает его", async ({ page }) => {
   await openDemo(page);
   await page.locator("#styleTabs [data-style]").nth(1).click();
-  await page.locator("#hmRooms .hm-room [data-swap]").click();
+  await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
   // переменные страницы (items, D, sel, tryOn, LAST_SUM, cur) — глобальные `let`, не свойства window: строкой
   const before = await page.evaluate("LAST_SUM");
   const changed = await page.evaluate(`(() => {

@@ -530,6 +530,29 @@ def room_flags(apt: dict) -> dict:
     return {**({'rooms_enabled': rooms} if rooms else {}), **({'quiz_enabled': True} if quiz else {})}
 
 
+ROOMS_ENV = 'FLAT215_ROOMS_ENABLED'
+
+
+def rooms_on(apt: dict, env=None, out: str | None = None) -> dict:
+    """Флаги комнат и опроса для этой сборки (onb-07 Т3): реестр (`room_flags`) + проверочное включение `FLAT215_ROOMS_ENABLED=
+    bedroom-1,…` — ТОЛЬКО у сборки рядом (`FLAT215_DEMO_OUT`, /test/): главная демо включается реестром и приёмкой ведущего,
+    переменной её не включить (отказ сборки). Комнаты — в порядке плана квартиры, неизвестный id — отказ (опечатка)."""
+    env = os.environ if env is None else env
+    flags = room_flags(apt)
+    want = [x.strip() for x in str(env.get(ROOMS_ENV) or '').split(',') if x.strip()]
+    if not want:
+        return flags
+    if _BP.same(out or OUT, _BP.DEMO_OUT_DEFAULT):
+        raise SystemExit(f'{ROOMS_ENV} у сборки в папку витрины: главная демо включает комнату только реестром — сборка рядом '
+                         f'(FLAT215_DEMO_OUT) для /test/')
+    order = [r['id'] for r in apt.get('rooms') or []]
+    bad = [x for x in want if x not in order]
+    if bad:
+        raise SystemExit(f'{ROOMS_ENV}: комнат {bad} нет в реестре квартиры')
+    on = set(flags.get('rooms_enabled') or []) | set(want)
+    return {**flags, 'rooms_enabled': [r for r in order if r in on]}
+
+
 def living_room_id() -> str:
     """Комната, которую обставляют варианты витрины: первая гостиная квартиры из реестра; реестра нет — `living`."""
     return next((r['id'] for r in demo_apartment().get('rooms') or [] if r.get('kind') == 'living'), 'living')
@@ -1100,6 +1123,51 @@ def bedroom_catalog() -> dict:
     return {'roles': out, 'updated': updated}
 
 
+BEDROOM_SETS_ENV = 'BEDROOM_SETS'
+FEED_ANY_MESH_ENV = 'FLAT215_FEED_ANY_MESH'
+
+
+def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomplete: list, room: dict,
+                     bcat: dict) -> tuple[dict, dict]:
+    """СПАЛЬНИ В ВИТРИНЕ (onb-07 Т2): варианты включённых спален из банка (`demo_bedroom`) — в конец `variants`, ленты ролей
+    спальни — в `feeds`, неполные — в `incomplete`; → (геометрии для `rooms_geo`, полосы размера для `rules.slot_band_cm`).
+    Ни одна спальня не включена — ничего не трогаем (данные гостиной байт в байт прежние). Банк — живой `sets-bedroom.json`,
+    у сборки рядом — `BEDROOM_SETS`; там же `FLAT215_FEED_ANY_MESH=1` пускает в ленту товары без модели (проверка ленты, пока
+    меши кроватей не выложены, onb-10) — у папки витрины это отказ."""
+    import demo_bedroom as DB
+    on = [r for r in flags.get('rooms_enabled') or [] if r.startswith('bedroom')]
+    if not on:
+        return {}, {}
+    test_env = [k for k in (BEDROOM_SETS_ENV, FEED_ANY_MESH_ENV) if os.environ.get(k)]
+    if test_env and _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
+        raise SystemExit(f'{", ".join(test_env)} у сборки в папку витрины — только сборка рядом (FLAT215_DEMO_OUT)')
+    bank = DB.load_bank(os.environ.get(BEDROOM_SETS_ENV) or DB.BANK_LIVE)
+    reg = {r['id']: r for r in apt.get('rooms') or []}
+    shared = {k: room[k] for k in ('window_view', 'height_cm') if k in room}
+    # геометрия — комната готовой расстановки банка (`layout._room`), иначе чертёж `flat215-bedrooms.json`
+    geos = {rid: g for rid in on if (g := DB.room_geo(rid, reg.get(rid), shared, layout_room=DB.bank_room(bank, rid)))}
+    styles = [v.get('style') for v in variants if (v.get('room_id') or 'living') == living_room_id()]
+    made = 0
+    for rec in DB.pick_records(bank, list(geos), styles):
+        v, why = DB.build_variant(rec, geos[rec['room_id']], _sku, _dims_of, style_id, hung=_hung,
+                                  decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r))
+        if why:
+            print(f'WARN:demo_style_dropped: {why["room_id"]} «{why["style"]}» без {", ".join(map(str, why["missing"]))} — '
+                  'не публикуем', flush=True)
+            incomplete.append(why)
+            continue
+        variants.append(v)
+        made += 1
+    any_mesh = os.environ.get(FEED_ANY_MESH_ENV) == '1'
+    bf = DB.feeds(bank, bcat, _msid, (lambda m: bool(m)) if any_mesh else (lambda m: m in _mesh_index()))
+    for role, rows in bf.items():
+        feeds.setdefault(role, rows)
+    print(f'спальни: включены {on}, банк {len(bank)} записей, вариантов {made}; ленты '
+          + (', '.join(f'{r} {len(x)}' for r, x in sorted(bf.items())) or 'пусто')
+          + (' (без проверки моделей — сборка рядом)' if any_mesh else ''), flush=True)
+    return geos, DB.bands([r.get('purpose') for r in bank if r.get('room_id') in geos])
+
+
 def build() -> dict:
     flat = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))
     sets = json.load(open(BANK['bank'], encoding='utf-8'))
@@ -1398,22 +1466,25 @@ def build() -> dict:
             **({'window_view': demo_apartment()['windowView']} if demo_apartment().get('windowView') else {}),
             # высота потолка квартиры (реестр) — 3D-комната и камера страницы (`room.height_cm ?? 270`)
             **({'height_cm': demo_ceiling()} if demo_ceiling() else {})}
+    flags = rooms_on(apt)
+    bcat = bedroom_catalog()
+    extra_geo, rules_extra = bedroom_variants(apt, flags, variants, feeds, incomplete, room, bcat)
     return {'room': room,
             # ГЕОМЕТРИЯ КАЖДОЙ КОМНАТЫ ВИТРИНЫ (onb-07 основа, ADR-0330 п.3): вариант обставляет `rooms_geo[v.room_id]`; `room` —
             # псевдоним гостиной для старых читателей (тот же объект: проёмы кадра и отделка ниже дописываются один раз)
-            'rooms_geo': rooms_geo(room),
+            'rooms_geo': rooms_geo(room, extra_geo),
             'apartment_id': demo_apartment_id(), 'plan': plan,
             # ПОМЕЩЕНИЯ КВАРТИРЫ ИЗ РЕЕСТРА (demo-16): порядок плана и площади — `data/partners/*.json`; страница берёт их
             # карточкой `/api/apartments`, а это — запасной путь, пока карточка не пришла (`rooms` выше — схема плана целиком)
             'apartment_rooms': apt.get('rooms') or [],
             # ФЛАГИ НОВЫХ КОМНАТ И ОПРОСА (ADR-0330 п.5): всё выключено — полей нет вовсе (данные гостиной прежние)
-            **room_flags(apt),
+            **flags,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             # ПОЛОСА «ПОДХОДЯЩИХ ПО РАЗМЕРУ» ленты замен (решение владельца 22.10, demo-20 А4; частично отменяет ADR-0271): ширина
             # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных
             # остаётся широкой (`DEMO_ENV`), страница фильтрует по полосе, пока включён чип «Подходящие по размеру»
-            'rules': {**_rules(), 'slot_band_cm': _slot_band(liv), 'soft_roles': soft_roles()},
-            'bedroom_catalog': bedroom_catalog(),
+            'rules': {**_rules(), 'slot_band_cm': {**_slot_band(liv), **rules_extra}, 'soft_roles': soft_roles()},
+            'bedroom_catalog': bcat,
             # стили, где после дозаполнения нет ядра: вариант не публикуется, страница честно пишет почему
             'incomplete_styles': incomplete,
             # ОДНА РАССТАНОВКА НА ВСЕ СТИЛИ (demo-31): есть — `demo-cams.mjs` подбирает одну пару точек на все варианты

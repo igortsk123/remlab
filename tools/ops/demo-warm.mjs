@@ -21,6 +21,13 @@ import { chromium } from "@playwright/test";
 
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const DRY = !!process.env.DRY;
+// ПАПКА ВИТРИНЫ НА САЙТЕ (onb-07, T-20261105-32): по умолчанию главная `/demo/`; проверочная сборка на `/test/<папка>/` прогревается
+// тем же путём (`DEMO_PATH=/test/<папка>/`) — кадры идут в общий реестр `/test/share/shots.json` с `room_id` варианта, на главную
+// не влияют: у её вариантов другая комната или номер состояния
+const PATH = (process.env.DEMO_PATH ?? "/demo/").replace(/\/?$/, "/");
+// `WARM_ROOM=bedroom-1` — снимать только эту комнату (проверочная сборка новее данных главной, и без фильтра прогрев переснял бы
+// черновики гостиной, у которой фото уже есть); итог «без фото» — тоже по ней
+const ONLY = process.env.WARM_ROOM ?? "";
 
 /** Предел кадров за прогон: `WARM_MAX` или 5 стилей на каждую комнату витрины, но не меньше прежних 8 (одна гостиная — как было). */
 export function warmMax(env, variants) {
@@ -77,7 +84,7 @@ export function needWarm(variants, shots, dataTs, poseVer, camOk) {
 }
 
 async function main() {
-  const head = await fetch(`${BASE}/demo/demo-data.json`, { method: "HEAD" });
+  const head = await fetch(`${BASE}${PATH}demo-data.json`, { method: "HEAD" });
   const dataTs = new Date(head.headers.get("last-modified") ?? 0).getTime();
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -85,7 +92,7 @@ async function main() {
   try {
     // `?live=0` — без живой 3D-сцены: после съёмки страница открывает окно варианта, и сборка сцены программным рендером
     // (у прогрева нет видеокарты) подвешивала следующий кадр (17.10: прогон снял 1 из 5 и встал по сроку)
-    await page.goto(`${BASE}/demo/?live=0&lang=ru`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${BASE}${PATH}?live=0&lang=ru`, { waitUntil: "domcontentloaded" });
     // данные витрины приходят после разметки: пока `D` пуст, `allVariants()` бросает — ждать надо `D`, иначе прогон падал
     // на первом же ожидании и ночью кадров не снимал вовсе (найдено 17.10: у трёх стилей не было кадра своей расстановки)
     await page.waitForFunction("typeof D !== 'undefined' && !!D && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });
@@ -102,7 +109,7 @@ async function main() {
       stateId: typeof pubStateOf === 'function' ? pubStateOf(v)
         : stateIdOf(v.items || [], (v.decor || []).filter(x => (x.sku || {}).name), D.room, v.dev || {}),
       cams: v.cams || null }))`;
-    const variants = await page.evaluate(pub);
+    const variants = (await page.evaluate(pub)).filter((v) => !ONLY || v.room === ONLY);
     const MAX = warmMax(process.env, variants);
     const shots = await page.evaluate("(Array.isArray(shots) ? shots : []).map(s => ({ vid: s.vid, svc: !!s.svc, ts: s.ts, stateId: s.stateId || '', quality: s.quality || '', pose: ((s.cams || [])[0] || {}).pose || 1, cams: s.cams || null, camera: s.camera || 'C1' }))");
     const poseVer = await page.evaluate("typeof POSE_VER === 'number' ? POSE_VER : 0");

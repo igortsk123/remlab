@@ -131,6 +131,7 @@ jobs:
       - run: python tools/scout/tests/test_refresh_digest.py   # утренняя сводка ночного прогона не уходит пустой: порванная буква WARN, сломанный вход — громко (T-20261104-11)
       - run: python tools/scout/tests/test_alert_retry.py   # alert.sh повторяет отправку в TG (обрывы связи), 4xx без повтора, длинное — частями, токен не в журналах (урок 551, T-20261105-31)
       - run: python tools/scout/tests/test_demo_soft.py   # (нужен planner: draft_render) мягкое (подушки, шторы, плед) — в списке и в «Улучшить фото», не в 3D и без мешей (demo-24)
+      - run: python tools/scout/tests/test_demo_bedroom.py   # (солвер спальни — shapely из planner) спальни витрины: банк → варианты с комнатой, флаг только у сборки рядом, ленты (onb-07)
       - run: pip install scipy && python tools/scout/tests/test_demo_swatch.py   # кружок цвета — тон ткани без фона и теней, светлое не серит (demo-28)
 
   draft-image:

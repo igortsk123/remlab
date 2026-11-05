@@ -1809,7 +1809,7 @@ function camShown(c,it,need){
 }
 function camCore(c,its){
   let got=0, all=0;
-  (its||[]).forEach(it=>{const w=CAM_CORE[String(it.role||'').replace(/\s+\d+$/,'')]; if(!w)return; all+=w;
+  const Z=camZ().core; (its||[]).forEach(it=>{const w=Z[String(it.role||'').replace(/\s+\d+$/,'')]; if(!w)return; all+=w;
     if(camShown(c,it,0.7))got+=w;});
   return all?got/all:1;
 }
@@ -1824,7 +1824,7 @@ function camWhole(c,it){
   return (Math.min(b.x1,1)-Math.max(b.x0,-1))/w>=0.9&&b.y1<=1&&b.y1>-1;
 }
 function camKey(c,its){
-  const key=(its||[]).filter(it=>CAM_KEY.includes(String(it.role||'').replace(/\s+\d+$/,'')));
+  const K=camZ().key, key=(its||[]).filter(it=>K.includes(String(it.role||'').replace(/\s+\d+$/,'')));
   return key.length?key.filter(it=>camWhole(c,it)).length/key.length:1;
 }
 // ТЕЛЕВИЗОР СО СПИНЫ ИЛИ СБОКУ (demo-05 п.2): ТВ на тумбе смотрит туда же, куда её лицо (sin rot, cos rot); камера не перед
@@ -1921,7 +1921,7 @@ function camHard(c,its,strict,minDist){
 function camFit(cx,cy,its,W,H,strict){
   const p=3, aimAt=(x,y,tx,ty)=>Math.round(Math.atan2(tx-x, y-ty)*180/Math.PI);
   const sx=cx<W/2?1:-1, sy=cy<H/2?1:-1, along=W>=H?[[1,0],[0,1]]:[[0,1],[1,0]];
-  const core=(its||[]).filter(it=>CAM_CORE[String(it.role||'').replace(/\s+\d+$/,'')]);
+  const core=(its||[]).filter(it=>camZ().core[String(it.role||'').replace(/\s+\d+$/,'')]);
   const kx=core.length?core.reduce((a,it)=>a+it.x,0)/core.length:W/2, ky=core.length?core.reduce((a,it)=>a+it.y,0)/core.length:H/2;
   let best=null, least=null;
   for(let d=0; d<=CAM_SLIDE; d+=CAM_STEP){
@@ -1959,7 +1959,7 @@ function camFit(cx,cy,its,W,H,strict){
 const CAM_GATE=[['floor',0.35],['empty',0.4],['ceil',0.3],['close',0],['close2',0],['pclose',0],['hog',0.28],['fore',0.12],['keyCut',0.4],['keyMiss',0],['nearWall',0.02]];
 const CAM_KEY_SHOW=['диван','тв-тумба'], CAM_KEY_SHOW_MIN=0.6;
 function camKeyShow(c,its,st){
-  let best=0; (its||[]).forEach((it,i)=>{if(!CAM_KEY_SHOW.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
+  let best=0; (its||[]).forEach((it,i)=>{if(!camZ().show.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
     const bw=b.x1-b.x0; if(bw<=0)return; let f=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1))/bw;
     const so=st.solo[i]||0; if(so&&(st.vis[i]||0)<0.4*so)f*=0.5;      // заслонён больше чем на 60 % — видна половина смысла
     best=Math.max(best,f);});
@@ -1967,7 +1967,7 @@ function camKeyShow(c,its,st){
 }
 const CAM_NEAR_L=120, CAM_NEAR_P=100, CAM_P_SN=0.3;   // телефон — с наибольшим сдвигом вниз (`CAM_PSHIFT[0]`): виден ближний пол
 function camKeyCut(c,its){
-  let worst=0; (its||[]).forEach(it=>{if(!CAM_KEY.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
+  let worst=0; (its||[]).forEach(it=>{if(!camZ().key.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
     // кусок у края от 0.2 % кадра — уже срез (нейросеть дорисовывает край предмета заметнее) (d8 17.10: у минимализма полоска ТВ у левого края проходила как «вне кадра»)
     const bw=b.x1-b.x0, inw=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)); if(bw<=0||inw/2<0.002)return; worst=Math.max(worst,1-inw/bw);
     // СТОЛИК — ЕЩЁ И НИЖНИМ КРАЕМ (d8 17.10: у современного вид 2 столик срезан снизу): столешница за нижней кромкой — тоже срез
@@ -1980,7 +1980,7 @@ const CAM_B_CLEAR=20, CAM_FORE_D=100, CAM_NUDGE=6;   // зазор ракурс�
 const CAM_PAIR_DEFAULT=true;
 const CAM_PAIR_ON=CAM_PAIR_DEFAULT||(typeof location!=='undefined'&&/[?&]cams=pair\b/.test(location.search||''))
   ||(typeof process!=='undefined'&&!!process.env&&process.env.CAMS_PAIR==='1');
-const camWeight=it=>camRole(it)==='ковёр'?0:(CAM_CORE[camRole(it)]||0.25);
+const camWeight=it=>camRole(it)==='ковёр'?0:(camZ().core[camRole(it)]||0.25);
 // у окна камера не стоит: шторы висят в 10–15 см от стены, радиатор под окном — точка ближе CAM_WIN_NEAR к проёму окна (с
 // запасом CAM_WIN_SIDE по бокам на шторы) оказывается в ткани
 const CAM_WIN_NEAR=40, CAM_WIN_SIDE=40;
@@ -1994,7 +1994,7 @@ function camAtWindow(x,y,W,H){
 // в пятую часть кадра — тоже срез, хоть это и 10 % самого дивана), — минус в балле кадра (до двух предметов)
 const CAM_CUT_PEN=1.5;
 function camSideCut(c,its){
-  let n=0; (its||[]).forEach(it=>{if((CAM_CORE[camRole(it)]||0)<1)return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
+  let n=0; (its||[]).forEach(it=>{if((camZ().core[camRole(it)]||0)<1)return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
     const bw=b.x1-b.x0, inw=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)); if(bw<=0)return; if(inw/2>=0.04&&inw/bw<0.85)n++;});
   return Math.min(n,2);
 }
@@ -2002,7 +2002,7 @@ function camSideCut(c,its){
 // в углу вида 2, стулья обеда — краем). Состояние предмета в кадре: 0 — не виден (кусок меньше CAM_SLIVER кадра), 1 — целиком,
 // 2 — срезан: боковым краем, верхним (высокое), столешница — нижним, или часть за спиной камеры. Низ у пола ближней мебели при
 // камере на 135 см уходит за нижний край всегда (`camWhole`) — это не срез. Допуск CAM_CUT_TOL — доля размера предмета
-const CAM_CUT_TOL=0.02, CAM_SLIVER=0.004, camWholeRole=r=>CAM_MUST.includes(r)||r==='стул';   // обязательные покрытия + стулья
+const CAM_CUT_TOL=0.02, CAM_SLIVER=0.004, camWholeRole=r=>camZ().must.includes(r)||r==='стул';   // обязательные покрытия + стулья
 function camFrameState(c,it){
   const h=camItemH(it), b=camProj(c,it,0,h); if(!b)return 0;
   const bw=b.x1-b.x0, bh=b.y1-b.y0, inw=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)), inh=Math.max(0,Math.min(b.y1,1)-Math.max(b.y0,-1));
@@ -2016,7 +2016,7 @@ function camFrameState(c,it){
 // по виду: сколько крупного срезано краем (`cut`) и сколько главного (диван, столик, ТВ-тумба) не целиком (`key`)
 function camFrameCuts(c,its){
   let cut=0, key=0;
-  (its||[]).forEach(it=>{const r=camRole(it), k=CAM_KEY.includes(r); if(!k&&!camWholeRole(r))return;
+  (its||[]).forEach(it=>{const r=camRole(it), k=camZ().key.includes(r); if(!k&&!camWholeRole(r))return;
     const s=camFrameState(c,it); if(s===2)cut++; if(k&&s!==1)key++;});
   return {cut,key};
 }
@@ -2034,7 +2034,7 @@ function camDoorPts(W,H){
 // подбора берут их последними, балл кадра — минус 0.3 за каждые 6° сверх 72
 const CAM_FOVS=[72,78,84,90];
 function camCands(its,W,H,cs,door){
-  const p=3, core=(its||[]).filter(it=>CAM_CORE[camRole(it)]), must=(its||[]).filter(it=>CAM_MUST.includes(camRole(it)));
+  const p=3, core=(its||[]).filter(it=>camZ().core[camRole(it)]), must=(its||[]).filter(it=>camZ().must.includes(camRole(it)));
   const kx=core.length?core.reduce((a,it)=>a+it.x,0)/core.length:W/2, ky=core.length?core.reduce((a,it)=>a+it.y,0)/core.length:H/2;
   const aimAt=(x,y,tx,ty)=>Math.round(Math.atan2(tx-x, y-ty)*180/Math.PI);
   const pos=new Map(), add=(x,y)=>{x=Math.min(Math.max(x,p),W-p); y=Math.min(Math.max(y,p),H-p);
@@ -2096,11 +2096,69 @@ function camBad(st,second){
 // Ковёр — по проекции (у пола своих «одиночных» лучей нет), заслонение у него не считается.
 const CAM_MUST=['диван','шкаф','стеллаж','комод','витрина','тв-тумба','столик','стол','стол обеденный','стол письменный','кресло'];
 const CAM_COVER=0.9, CAM_EXT=1.6, CAM_EXT_W=64, CAM_TALL_PEN=3, CAM_EVAL=240, CAM_STAGE_OK=5, CAM_DEF_STEP=0.05;
+// ЗОНА → ДВА ВИДА, ДАННЫМИ, ОДНО ПРАВИЛО ДЛЯ ВСЕХ КОМНАТ (onb-07 Т4, владелец 05.11: «чистовые фото с двух видов на зону»). Тип зоны —
+// `kind` геометрии комнаты (`flat215_demo` → `rooms_geo[room].kind`; у гостиной поля нет — `living`). На зону: `core` — вес роли в
+// кадре, `key` — главное целиком, `show` — что вид 2 обязан показать, `must` — покрыть хотя бы одним видом; `views` — откуда снимать
+// пару: [вид 1, вид 2] (вид — запись или список равноправных записей), `from` — 'door' (у входа, CAM_VIEW_DOOR см), 'head' (у изголовья/
+// фронта предмета `of`, CAM_VIEW_HEAD см) или 'foot' (за ногами предмета `of`: дальше его глубины от изголовья по оси),
+// `look` — на предмет (`роль`) или 'away' (от предмета, вдоль его фронта); допуск направления — `tol`°. Гостиная — прежние числа и
+// без `views` (диван и обеденная зона — подбор пары как был). `ready:false` — запись заготовлена, комнату включат T-33/T-34
+const CAM_ZONES={
+  living:{core:CAM_CORE, key:CAM_KEY, show:CAM_KEY_SHOW, must:CAM_MUST},
+  // спальня: вид 1 — от входа на кровать, вид 2 — встречный от изголовья к шкафу/окну; изголовье в окно не ставит солвер (onb-05)
+  bedroom:{core:{'кровать':3,'тумба прикроватная':1.5,'шкаф':1.5,'комод':1,'туалетный столик':1,'стол рабочий':1,'стул рабочий':0.25,
+      'торшер':0.5,'кресло':1},
+    key:['кровать'], show:['кровать','шкаф','комод','туалетный столик','стол рабочий'],
+    must:['кровать','тумба прикроватная','шкаф','комод','туалетный столик','стол рабочий','кресло'],
+    // вид 1 — от входа; дверь на стене изголовья (спальня 1: вход рядом с кроватью) — сбоку видна одна кровать, тумбы за ней, поэтому
+    // равноправен вид из ног кровати (из угла напротив изголовья); из годных пару выбирает обычное правило — покрытие первым
+    views:[[{from:'door', look:'кровать', tol:30}, {from:'foot', of:'кровать', look:'кровать', tol:35}],
+      {from:'head', of:'кровать', look:'away', tol:65}],
+    // спальня 2,93 м в глубину: от входа до кровати меньше 1,5 м, низ кровати у пола всегда уходит за нижний край кадра (поза 135 см)
+    cover:0.75, anyOf:['тумба прикроватная']},
+  // кухня (запись Работника 5, T-33; сверена с camViewOk/camRole/camItemH): вид 1 — «гарнитур» из комнаты на ряд, вход — запасной;
+  // вид 2 — «встречный» от ряда на стол. Эталон точек — `data/partners/kitchen-fit/flat215.json` → `fits.<id>.views` (после T-33)
+  kitchen:{ready:false,
+    core:{'кухня-ряд':3,'кухня-колонна':1.5,'кухня-плечо':2,'холодильник':1,'стол обеденный':1.5,'стул':0.25},
+    key:['кухня-ряд'], show:['кухня-ряд','стол обеденный'],
+    must:['кухня-ряд','кухня-колонна','кухня-плечо','холодильник','стол обеденный'],
+    views:[[{from:'foot', of:'кухня-ряд', look:'кухня-ряд', tol:30}, {from:'door', look:'кухня-ряд', tol:30}],
+      {from:'head', of:'кухня-ряд', look:'стол обеденный', tol:35}]},
+  hall:{ready:false, core:{'шкаф':3,'банкетка':1,'зеркало':0.5,'вешалка':1}, key:['шкаф'], show:['шкаф','вешалка','зеркало'],
+    must:['шкаф','банкетка','вешалка'], views:[{from:'door', look:'шкаф', tol:35}, {from:'head', of:'шкаф', look:'door', tol:45}]}};
+const CAM_VIEW_DOOR=170, CAM_VIEW_HEAD=160;
+function camZ(){ const R=camRoom(); return CAM_ZONES[(R&&R.kind)||'living']||CAM_ZONES.living; }
+// порог покрытия зоны: `cover` записи, иначе общий CAM_COVER (гостиная)
+function camCov(){ return camZ().cover||CAM_COVER; }
+// середины дверей комнаты кадра на полу, см
+function camDoorMids(){ const R=camRoom()||{}, W=R.w||0, H=R.d||0;
+  return (R.openings||[]).filter(o=>o.kind==='door'&&o.width_cm).map(o=>{const u=(+o.offset_cm||0)+(+o.width_cm)/2;
+    return o.wall==='west'?[0,u]:o.wall==='east'?[W,u]:o.wall==='south'?[u,0]:[u,H];}); }
+// точка годна для вида зоны: стоит у своего места и смотрит куда надо (по мебели этого варианта); нет предмета вида — не годна
+function camViewOk(vw,c,its){
+  if(Array.isArray(vw))return vw.some(x=>camViewOk(x,c,its));
+  const aim=(tx,ty)=>Math.round(Math.atan2(tx-c.x, c.y-ty)*180/Math.PI);
+  const it=(its||[]).find(x=>camRole(x)===(vw.of||vw.look)), tol=vw.tol||30;
+  if(vw.from==='door'){const dm=camDoorMids(); if(!dm.length||!it)return false;
+    if(Math.min(...dm.map(([x,y])=>Math.hypot(c.x-x,c.y-y)))>CAM_VIEW_DOOR)return false;
+    return camAng(c.rot,aim(it.x,it.y))<=tol;}
+  if(!it)return false;
+  const rr=(it.rot||0)*Math.PI/180, fx=Math.sin(rr), fy=Math.cos(rr), hx=it.x-fx*(it.d||0)/2, hy=it.y-fy*(it.d||0)/2;
+  if(vw.from==='foot'){if((c.x-hx)*fx+(c.y-hy)*fy<(it.d||0))return false;}
+  else if(Math.hypot(c.x-hx,c.y-hy)>CAM_VIEW_HEAD+(it.w||0)/2)return false;
+  if(vw.look==='away')return camAng(c.rot,(it.rot||0)+180)<=tol;
+  if(vw.look==='door'){const dm=camDoorMids(); return dm.some(([x,y])=>camAng(c.rot,aim(x,y))<=tol);}
+  const t=(its||[]).find(x=>camRole(x)===vw.look); return !!t&&camAng(c.rot,aim(t.x,t.y))<=tol;
+}
 const camId=(it,i)=>it&&it.id!=null?String(it.id):'item-'+i;
 function camUnits(its){
-  const u=[], chairs=[];
-  (its||[]).forEach((it,i)=>{const r=camRole(it); if(r==='стул'){chairs.push(i);return;} u.push({ids:[i],role:r,must:CAM_MUST.includes(r)});});
+  const u=[], chairs=[], Z=camZ(), any={};
+  (its||[]).forEach((it,i)=>{const r=camRole(it); if(r==='стул'){chairs.push(i);return;}
+    // «хотя бы один» зоны (`anyOf`): тумбы по бокам кровати — одна группа, покрыта, если видна любая (дальнюю закрывает кровать)
+    if((Z.anyOf||[]).includes(r)){(any[r]=any[r]||[]).push(i); return;}
+    u.push({ids:[i],role:r,must:Z.must.includes(r)});});
   if(chairs.length)u.push({ids:chairs,role:'стулья',must:false});
+  Object.keys(any).forEach(r=>u.push({ids:any[r],role:r,must:Z.must.includes(r),any:true}));
   return u;
 }
 // Сколько предмета в кадре и сколько не заслонено — по РАСШИРЕННОЙ маске (кадр шире в CAM_EXT раз, та же ось и тот же сдвиг):
@@ -2117,7 +2175,9 @@ function camCover(c,its,W,H){
     return {inF:(m.soloIn[i]||0)/so*box(b,E),vis:Math.min(1,(m.visG[i]||0)/so)};});
 }
 // качество единицы в виде: 1 — покрыта; меньше — доля до порога по худшему из двух (в кадре, не заслонён)
-function camUnitQ(cv,u){let q=1; for(const i of u.ids){const r=cv[i]; q=Math.min(q,Math.min(1,r.inF/CAM_COVER),Math.min(1,r.vis/CAM_COVER));} return q;}
+function camUnitQ(cv,u){const C=camCov(), qi=i=>Math.min(1,cv[i].inF/C,cv[i].vis/C);
+  if(u.any)return Math.max(...u.ids.map(qi));        // группа «хотя бы один» (`CAM_ZONES[..].anyOf`)
+  let q=1; for(const i of u.ids)q=Math.min(q,qi(i)); return q;}
 // CAMANG START — разница направлений; её же берёт ночной прогрев с блоком SHOTCAM (`tools/ops/demo-warm.mjs`)
 const camAng=(a,b)=>Math.abs(((a-b)%360+540)%360-180);   // циклическая разница направлений, 0…180°
 // CAMANG END
@@ -2153,6 +2213,9 @@ function camPairAll(L,W,H,cs){
   all.forEach((c,n)=>L.forEach((its,v)=>{const cv=camCover(c,its,W,H); let b=0;
     UN[v].forEach((u,k)=>{const q=camUnitQ(cv,u); Q[v][n*U[v]+k]=q; if(q>=1-1e-9&&k<31)b|=(1<<k);}); bits[v][n]=b;}));
   const level=Math.max(0,...all.map(c=>c.lv));
+  // ВИДЫ ЗОНЫ (`CAM_ZONES[..].views`): пара — вид 1 и вид 2 своей зоны (точка годна при мебели каждого варианта); у гостиной видов нет
+  const ZV=camZ().views; let vOk=ZV&&ZV.length===2?all.map(c=>ZV.map(vw=>L.every(its=>camViewOk(vw,c,its)))):null;
+  const okV=(a,b)=>!vOk||(b<0?(vOk[a][0]||vOk[a][1]):((vOk[a][0]&&vOk[b][1])||(vOk[b][0]&&vOk[a][1])));
   const st=L.map(()=>new Map()), stat=(c,v)=>{v=v||0; const its=L[v]; if(!st[v].has(c)){const s0=camStats(c,its,W,H); s0.keyVis=camKeyVis(c,its,s0);
     s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L-s0.nearest)/100; s0.close2=Math.max(0,100-s0.nearest)/100;
     s0.keyMiss=Math.max(0,CAM_KEY_SHOW_MIN-camKeyShow(c,its,s0));
@@ -2195,7 +2258,10 @@ function camPairAll(L,W,H,cs){
       // кто ракурс 1: вид, где главное целиком (demo-31 правки: вид 1 — главный вид комнаты); при равенстве — где меньше штраф пары
       // (у нескольких вариантов — худший по ним)
       const p1=vmax(v=>stat(A,v).bad1+stat(B,v).bad2)+c1pen(A), p2=vmax(v=>stat(B,v).bad1+stat(A,v).bad2)+c1pen(B), kA=fKey(a), kB=fKey(b);
-      const swap=kB<kA||(kB===kA&&p2<p1-1e-9), C1=swap?B:A, C2=swap?A:B;
+      let swap=kB<kA||(kB===kA&&p2<p1-1e-9);
+      // виды зоны: вид 1 — тот, что стоит у своего места (вход), даже если главное целиком видно из второго
+      if(vOk){const ab=vOk[a][0]&&vOk[b][1], ba=vOk[b][0]&&vOk[a][1]; if(ab!==ba)swap=ba;}
+      const C1=swap?B:A, C2=swap?A:B;
       const q={a:swap?b:a,b:swap?a:b,c1:C1,c2:C2,pen:Math.min(p1,p2)+tallPen(A)+tallPen(B),worst:Math.min(A.score,B.score),
         clut:vmax(v=>clutter(stat(A,v))+clutter(stat(B,v))),div:camAng(A.rot,B.rot),key:bk};
       if(!pick){pick=q; continue;}
@@ -2216,7 +2282,10 @@ function camPairAll(L,W,H,cs){
   let pick=null, stage='';
   const res=[];
   // (demo-31 правки: и главное целиком в одном виде, и крупное нигде не срезано краем — иначе следующая стадия, шире объектив)
-  for(const [nm,ok] of stages){const p=best(ok); if(!p)continue; res.push([nm,p]); if(!p.key[0]&&!p.key[1]&&!p.key[2]&&p.pen<=CAM_STAGE_OK){pick=p; stage=nm; break;}}
+  const runStages=()=>{for(const [nm,ok0] of stages){const ok=(a,b)=>ok0(a,b)&&okV(a,b), p=best(ok); if(!p)continue; res.push([nm,p]); if(!p.key[0]&&!p.key[1]&&!p.key[2]&&p.pen<=CAM_STAGE_OK){pick=p; stage=nm; break;}}};
+  runStages();
+  // ни одной пары «вход + встречный» — подбор без видов зоны, с пометкой в отчёте (не пустой кадр)
+  let zoneMiss=false; if(vOk&&!res.length){vOk=null; zoneMiss=true; runStages();}
   if(!pick){const full=res.filter(([,p])=>!p.key[0]&&!p.key[1]);
     const pool=full.length?full.sort((x,y)=>(x[1].key[2]-y[1].key[2])||(x[1].pen-y[1].pen))
       :res.sort((x,y)=>cmp(x[1].key,y[1].key)||(x[1].pen-y[1].pen));
@@ -2247,15 +2316,16 @@ function camPairAll(L,W,H,cs){
   // ОТЧЁТ ПОКРЫТИЯ: что покрыто, что нет и почему (по лучшему из двух видов: мало в кадре → «вне кадра», иначе «заслонён»)
   const mk=(n,c,v)=>({name:n,x:c.x,y:c.y,rot:c.rot,fov:c.fov||72,pshift:camPortraitShift(c,L[v],W,H),crop:camCrops(stat(c,v),L[v],camCover(c,L[v],W,H))});
   const per=L.map((its,v)=>{const cv=[camCover(a2,its,W,H),camCover(b2,its,W,H)], covered=[], missing=[];
-    UN[v].forEach(u=>u.ids.forEach(i=>{const r=cv.map(x=>x[i]), q=r.map(x=>Math.min(x.inF,x.vis));
+    UN[v].forEach(u=>{const grp=u.any&&Math.max(camUnitQ(cv[0],u),camUnitQ(cv[1],u))>=1-1e-9;   // группа «хотя бы один» покрыта
+      u.ids.forEach(i=>{const r=cv.map(x=>x[i]), q=r.map(x=>Math.min(x.inF,x.vis));
       const k=q[0]>=q[1]?0:1, id=camId(its[i],i);
-      if(q[k]>=CAM_COVER-1e-9)covered.push(id);
+      if(grp||q[k]>=camCov()-1e-9)covered.push(id);
       else missing.push({id,role:camRole(its[i]),must:u.must,inFrame:Math.round(r[k].inF*100)/100,visible:Math.round(r[k].vis*100)/100,
-        reason:r[k].inF<CAM_COVER?'вне кадра':'заслонён'});}));
+        reason:r[k].inF<camCov()?'вне кадра':'заслонён'});});});
     return {cams:[mk('C1',a2,v),mk('C2',b2,v)],covered,missing,stats:[stat(a2,v),stat(b2,v)]};});
   const [mk0,mm,mc,dm,mo]=pick.key;
   return {level, cams:per[0].cams,
-    how:`${mm?'недобор':'пара'}: стадия ${stage}, не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}`,
+    how:`${mm?'недобор':'пара'}: стадия ${stage},${ZV?(zoneMiss?' виды зоны: пары нет — без них,':' виды зоны,'):''} не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}`,
     covered:per[0].covered, missing:per[0].missing, stats:per[0].stats, per};
 }
 // ОКНО ПРЕВЬЮ (demo-22 п.2) — для каждого вида и пропорции окна заранее, по маске той же расстановки (`camStats().ext` — рамки
@@ -2271,7 +2341,7 @@ const CAM_CROP_MAIN=['диван','тв-тумба','стол обеденный
 function camCrop(st,its,A,cv){
   const horiz=A<CAM_ASPECT, L=horiz?A/CAM_ASPECT:CAM_ASPECT/A, items=[];
   (its||[]).forEach((it,i)=>{const e=st.ext[i], r=camRole(it); if(!e||r==='ковёр'||(st.vis[i]||0)<4)return;
-    items.push({i,w:Math.max(CAM_MUST.includes(r)?1:0,CAM_CORE[r]||0.25),a0:horiz?e.x0:e.y0,a1:horiz?e.x1:e.y1});});
+    items.push({i,w:Math.max(camZ().must.includes(r)?1:0,camZ().core[r]||0.25),a0:horiz?e.x0:e.y0,a1:horiz?e.x1:e.y1});});
   const pref=CAM_CROP_MAIN.map(r=>items.find(x=>camRole(its[x.i])===r&&(r!=='диван'||!cv||(cv[x.i]&&cv[x.i].inF>=0.5)))).find(Boolean);
   const main=pref||items.reduce((m,x)=>!m||x.w>m.w?x:m,null), steps=Math.max(1,Math.round((1-L)/0.005));
   let best=null;
@@ -2415,7 +2485,7 @@ function camSeen(c,its,st,part){
 }
 // ГЛАВНОЕ ЦЕЛИКОМ С УЧЁТОМ ЗАСЛОНЕНИЯ (Codex 17.10): `camKey` считает геометрию, а предмет может быть закрыт ближним
 function camKeyVis(c,its,st){
-  const key=(its||[]).map((it,i)=>[it,i]).filter(([it])=>CAM_KEY.includes(camRole(it)));
+  const key=(its||[]).map((it,i)=>[it,i]).filter(([it])=>camZ().key.includes(camRole(it)));
   return key.length?key.filter(([it,i])=>camWhole(c,it)&&(st.vis[i]||0)>=0.5*(st.solo[i]||1)).length/key.length:1;
 }
 // отрезок стены под проёмом — нужен правилу «не у двери» (`camGraze`); живёт в блоке, чтобы блок исполнялся и вне страницы
@@ -3854,11 +3924,15 @@ const STYLE_IDS={'сканди':'scandi','современный':'modern','ми
 const STYLE_EN={'scandi':'Scandi','modern':'Modern','minimal':'Minimalist','loft':'Loft','neoclassic':'Neoclassic','japandi':'Japandi'};
 const HOME={styleId:'', sig:'', ready:false, want:''};
 function styleIdOf(v){ return (v&&(v.style_id||STYLE_IDS[String(v.style||'').trim().toLowerCase()]))||''; }
+// ВКЛЮЧЕНИЕ КОМНАТЫ (onb-07 Т3, ADR-0330 п.4): сборка витрины пишет `D.rooms_enabled` — комнаты, чьи варианты в данных (флаг реестра
+// `apartments[].rooms[].enabled`, проверочная сборка — `FLAT215_ROOMS_ENABLED`, только не в папку витрины). Такая комната «готова»
+// и без смены `contentState` в карточке квартиры; нет поля — всё по карточке, как было
+function roomOn(r){ return r.contentState==='ready'||((D&&D.rooms_enabled)||[]).includes(r.id)?'ready':r.contentState; }
 function homeRooms(){
   const EN=LANG==='en', card=FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length?FLAT.rooms:null;
-  if(card)return card.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:r.title, areaM2:r.areaM2, contentState:r.contentState}));
+  if(card)return card.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:r.title, areaM2:r.areaM2, contentState:roomOn(r)}));
   const raw=(D&&D.apartment_rooms)||[];
-  if(raw.length)return raw.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:EN?r.titleEn:r.titleRu, areaM2:r.areaM2, contentState:r.contentState}));
+  if(raw.length)return raw.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:EN?r.titleEn:r.titleRu, areaM2:r.areaM2, contentState:roomOn(r)}));
   // реестр молчит (старая сборка без карточки) — честно только то, что обставлено: гостиная
   return [{id:'living', kind:'living', ordinal:1, title:EN?'Living room':'Гостиная', areaM2:null, contentState:'ready'}];
 }
@@ -5927,7 +6001,7 @@ function vwFocusByItems(s, fr){
   const cam=((s.cams||[]).find(c=>c.name===(s.camera||'C1')))||((cams||loadCams())[vwCamIndex(s.camera)]);
   // предметы ядра в долях ширины снимка (0…1) с весом роли: диван важнее столика (`CAM_CORE`)
   const boxes=[];
-  if(cam&&typeof camProj==='function')items.forEach(it=>{const wgt=CAM_CORE[String(it.role||'').replace(/\s+\d+$/,'')]; if(!wgt||!it.w||!it.d)return;
+  if(cam&&typeof camProj==='function')items.forEach(it=>{const wgt=camZ().core[String(it.role||'').replace(/\s+\d+$/,'')]; if(!wgt||!it.w||!it.d)return;
     const b=camProj(cam,it,0,+it.h>0?+it.h:60); if(!b||b.behind)return;
     // диван — главное (критерий владельца: «диван в кадре»): его вес решающий, остальное — добором
     const x0=(Math.max(-1,b.x0)+1)/2, x1=(Math.min(1,b.x1)+1)/2; if(x1>x0)boxes.push({x0,x1,w:camRole(it)==='диван'?wgt*4:wgt});});

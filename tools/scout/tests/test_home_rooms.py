@@ -85,6 +85,13 @@ try:
 except SystemExit as e:
     dup = str(e)
 check('rooms_check: один номер варианта в двух комнатах — сборка падает', dup.startswith('FAIL:rooms:'))
+# СПАЛЬНИ ВИТРИНЫ (onb-07 Т2, T-20261105-32): флаг выключен — вариантов, лент и геометрий спален нет, списки не тронуты
+vs0, fd0, inc0 = [{'id': 'set1', 'style': 'сканди'}], {'диван': []}, []
+check('спальни: флаг выключен — данные гостиной не тронуты',
+      F.bedroom_variants(F.demo_apartment(), {}, vs0, fd0, inc0, liv, {}) == ({}, {})
+      and vs0 == [{'id': 'set1', 'style': 'сканди'}] and fd0 == {'диван': []} and inc0 == [])
+check('спальни: включена только кухня — спальни не строятся', F.bedroom_variants(F.demo_apartment(), {'rooms_enabled': ['kitchen']},
+                                                                                vs0, fd0, inc0, liv, {}) == ({}, {}))
 
 print('итог:', 'FAIL' if fails else 'OK')
 sys.exit(1 if fails else 0)
