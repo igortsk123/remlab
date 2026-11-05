@@ -1,0 +1,2 @@
+date	commit	pairs	cost_mem	cost_nomem	crit_mem	crit_nomem	minor_mem	minor_nomem	questions	note
+2026-11-05	a619cd7c	2	2.00	2.10	1.2	2.5	6.8	0.5	questions-2026-11-05.json	remlab, 10 вопросов 29.10–05.11, algor (T-20261105-21); tools/ в копиях

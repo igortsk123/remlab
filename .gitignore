@@ -23,6 +23,8 @@ test-results/
 # os / editor
 .DS_Store
 *.log
+# журнал замеров memory-eval — в git (`tools/memory-eval/README.md`, сводка `tools/memory-health.mjs`)
+!.memory_bank/changelog/memory-eval.log
 
 _optional/
 
