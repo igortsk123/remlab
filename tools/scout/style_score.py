@@ -11,6 +11,10 @@
 пул, дедуп по семейству (без размера и цвета — `room_catalog.family`), файл ТОЛЬКО свой (`STYLE_OUT`, по умолчанию
 style-scores-bedroom.json; живой style-scores.json — отказ), в базу — только с `--db` и без перезаписи чужих строк.
 --dry — пул, сколько скорить и прикидка цены; без LLM и без записи.
+ШУМ (T-20261105-24, `style_noise.py`): новая модель — среднее двух прогонов нейросети (дробный балл); оценённая (кэш или
+база у близнеца модели) не пересчитывается — ни одного платного прогона ради старых; смена правил по материалу двигает итог
+без прогона. --rescore — явный платный пересчёт оценённых: тройка меняется, только если новый балл обходит прежний ≥ 1,0.
+--fresh — не брать оценки гостиной из базы (опыт с пересчётом впрок); STYLE_MODEL не по умолчанию — берём только свои.
 """
 import subprocess, sys, os, re, json, urllib.error, urllib.request
 import numpy as np
@@ -104,49 +108,14 @@ for r in raw:
     if k in pool: continue
     pool[k]=dict(role=r[0],mid=int(r[1]),eid=r[2],name=r[3],mat=r[4],col=r[5],uph=r[6],stp=r[7],desc=r[8],mkey=k)
 prods=list(pool.values())
-key=lambda p: f"{p['mid']}-{re.sub(r'[^A-Za-z0-9]','_',p['eid'])[:40]}"
-reused=0
-if SOURCE=='room_catalog':
-    # товар спальни уже оценён как товар гостиной (комод, шкаф есть в обоих каталогах) — та же оценка, без платы и без
-    # расхождения: берём её у любого близнеца модели из базы (только чтение)
-    have={(int(r[0]),r[1]):r for r in rows("select s.shop_mid, s.external_id, s.scores, s.universal, s.src from product_style_scores s"
-                                           " join room_catalog c using (shop_mid, external_id)")}
-    for p in prods:
-        # сработало правило по материалу, а запись посчитана без него — пересчитать (и не брать оценку гостиной)
-        if mfired(p) and key(p) in cache and cache[key(p)].get('mrules')!=mfired(p): del cache[key(p)]
-        if key(p) in cache or mfired(p): continue
-        hit=next((have[t] for t in twins[p['mkey']] if t in have), None)
-        if hit:
-            sc=json.loads(hit[2])
-            cache[key(p)]={**{st:sc[st] for st in SNAMES},'universal':hit[3]=='t','src':'living:'+hit[4]}; reused+=1
-todo=[p for p in prods if key(p) not in cache]
-# --limit — ПОТОЛОК ДНЕВНОЙ ДОБИВКИ, а не обрезка пула (11.10). Раньше лимит резал начало `prods`,
-# а начало пула давно в кэше: `--limit 300` на полном кэше давало «скорить 0» — дневной шаг месяцами
-# ничего не добивал, и это выглядело как «всё уже посчитано». Режем именно несосчитанные.
-if '--limit' in sys.argv:
-    LIMIT=int(sys.argv[sys.argv.index('--limit')+1])
-    # Само правило — в `catalog_rules.daily_todo`: оттуда его проверяет `tests_chain.py` тем же
-    # кодом, что работает в бою (13.10). Здесь остаётся только сообщение человеку.
-    from catalog_rules import daily_todo
-    if len(todo)>LIMIT:
-        print(f"дневной потолок {LIMIT}: из {len(todo)} несосчитанных беру первые {LIMIT}",flush=True)
-    todo=daily_todo(todo, LIMIT)
-print(f"пул {len(prods)} (дедуп из {len(raw)}), в кэше {len(prods)-len([p for p in prods if key(p) not in cache])}, скорить {len(todo)}",flush=True)
-if reused: print(f"из оценок гостиной (тот же товар): {reused}",flush=True)
 STYLE_MODEL=os.environ.get("STYLE_MODEL","gpt-6-luna")
-from openai_budget import allow as _budget_allow, estimate_request as _est, log_spend as _log_spend
-if '--dry' in sys.argv:
-    nb=-(-len(todo)//25)
-    print(f"СУХОЙ ПРОГОН: моделей {len(prods)}, скорить {len(todo)} — {nb} запросов {STYLE_MODEL} ≈ ${nb*_est(STYLE_MODEL):.3f} "
-          f"(оценка по типовым токенам rules/openai_prices.json); без LLM и без записи",flush=True)
-    if SOURCE=='room_catalog':
-        by={}
-        for p in prods: by[p['role']]=by.get(p['role'],0)+1
-        print("моделей по ролям:", by, flush=True)
-    sys.exit(0)
+RUNS=2   # прогонов нейросети на новую модель: среднее двух гасит скачок ±1 целого балла (T-20/2)
+from style_noise import avg_runs, settle, rule_shift
 
-# ---------- ступень 1: правила ----------
-def rule_score(p):
+# ---------- ступень 1: правила (выше переиспользования: смена правил по материалу считается без прогона) ----------
+def rule_score(p, fired=None):
+    """fired — id правил по материалу; по умолчанию сработавшие сейчас, прежний список — для сдвига без прогона."""
+    fired=mfired(p) if fired is None else fired
     txt=' '.join((p['name'],p['mat'],p['uph'],p['stp'],p['desc'])).lower()
     t=tag(p['name'])
     out={}
@@ -161,9 +130,85 @@ def rule_score(p):
             s+= 2.0 if t['style']==st else 0.0
         out[st]=s
     for r in MRULES:
-        if r['id'] in mfired(p):
+        if r['id'] in fired:
             for st,v in r['add'].items(): out[st]+=v
     return out
+
+key=lambda p: f"{p['mid']}-{re.sub(r'[^A-Za-z0-9]','_',p['eid'])[:40]}"
+reused=0; shifted=0; scored_now=[]
+def put_rules(p, prev, old):
+    """Правила по материалу сменились (old → сейчас): итог сдвигается на разницу правил, нейросеть не зовём (T-24;
+    раньше запись удалялась и модель шла на платный пересчёт — новый шум ±1 вместо старой оценки)."""
+    f=mfired(p)
+    rec=rule_shift(prev, rule_score(p, old), rule_score(p, f), SNAMES)
+    rec.pop('mrules',None)
+    if f: rec['mrules']=f
+    cache[key(p)]=rec
+    for tw in twins.get(p['mkey'],[(p['mid'],p['eid'])]): scored_now.append((*tw,rec))
+if SOURCE=='room_catalog':
+    # товар спальни уже оценён как товар гостиной (комод, шкаф есть в обоих каталогах) — та же оценка, без платы и без
+    # расхождения: берём её у любого близнеца модели из базы (только чтение)
+    have={(int(r[0]),r[1]):r for r in rows("select s.shop_mid, s.external_id, s.scores, s.universal, s.src from product_style_scores s"
+                                           " join room_catalog c using (shop_mid, external_id)")}
+    for p in prods:
+        f=mfired(p); c=cache.get(key(p))
+        if c is not None:
+            # сработало правило по материалу, а запись посчитана без него (или с другим) — сдвиг без прогона; правило
+            # перестало срабатывать — запись не трогаем, как и раньше
+            if f and c.get('mrules',[])!=f: put_rules(p, c, c.get('mrules',[])); shifted+=1
+            continue
+        hit=next((have[t] for t in twins[p['mkey']] if t in have), None)
+        if hit:
+            sc=json.loads(hit[2])
+            rec={**{st:sc[st] for st in SNAMES},'universal':hit[3]=='t','src':'living:'+hit[4]}
+            # у гостиной правил по материалу нет — сработало правило спальни: оценка гостиной + сдвиг на правило
+            if f: put_rules(p, rec, []); shifted+=1
+            else: cache[key(p)]=rec
+            reused+=1
+elif '--fresh' not in sys.argv:
+    # ГОСТИНАЯ: модель уже оценена в базе у близнеца (представитель модели сменился — первый товар ушёл из наличия, или
+    # кэш потерян) — та же оценка без платы. Опыт с другой моделью (STYLE_MODEL задан) берёт только строки своей модели.
+    miss=[p for p in prods if key(p) not in cache]
+    if miss:
+        own=" where model='"+STYLE_MODEL.replace("'","''")+"'" if os.environ.get('STYLE_MODEL') else ''
+        have={(int(r[0]),r[1]):r for r in rows("select shop_mid, external_id, scores, universal, src from product_style_scores"+own)}
+        for p in miss:
+            tws=twins[p['mkey']]
+            hit=next((have[t] for t in tws if t in have), None)
+            if not hit: continue
+            sc=json.loads(hit[2])
+            rec={**{st:sc[st] for st in SNAMES},'universal':hit[3]=='t','src':hit[4]}
+            cache[key(p)]=rec; reused+=1
+            # близнецы модели без строки в базе (новый цвет) получают ту же оценку
+            scored_now+=[(*t,rec) for t in tws if t not in have]
+# --rescore — явный платный пересчёт оценённых: прежняя оценка держит тройку (порог `style_noise.settle`)
+prev_of={key(p):cache[key(p)] for p in prods if key(p) in cache} if '--rescore' in sys.argv else {}
+todo=[p for p in prods if key(p) not in cache or key(p) in prev_of]
+# --limit — ПОТОЛОК ДНЕВНОЙ ДОБИВКИ, а не обрезка пула (11.10). Раньше лимит резал начало `prods`,
+# а начало пула давно в кэше: `--limit 300` на полном кэше давало «скорить 0» — дневной шаг месяцами
+# ничего не добивал, и это выглядело как «всё уже посчитано». Режем именно несосчитанные.
+if '--limit' in sys.argv:
+    LIMIT=int(sys.argv[sys.argv.index('--limit')+1])
+    # Само правило — в `catalog_rules.daily_todo`: оттуда его проверяет `tests_chain.py` тем же
+    # кодом, что работает в бою (13.10). Здесь остаётся только сообщение человеку.
+    from catalog_rules import daily_todo
+    if len(todo)>LIMIT:
+        print(f"дневной потолок {LIMIT}: из {len(todo)} несосчитанных беру первые {LIMIT}",flush=True)
+    todo=daily_todo(todo, LIMIT)
+print(f"пул {len(prods)} (дедуп из {len(raw)}), в кэше {len(prods)-len([p for p in prods if key(p) not in cache])}, скорить {len(todo)}"
+      +(f" (пересчёт оценённых: {len(prev_of)})" if prev_of else ""),flush=True)
+if reused: print(f"из базы (модель уже оценена у близнеца): {reused}",flush=True)
+if shifted: print(f"сменились правила по материалу — сдвиг без прогона: {shifted}",flush=True)
+from openai_budget import allow as _budget_allow, estimate_request as _est, log_spend as _log_spend
+if '--dry' in sys.argv:
+    nb=-(-len(todo)//25)*RUNS
+    print(f"СУХОЙ ПРОГОН: моделей {len(prods)}, скорить {len(todo)} — {nb} запросов ({RUNS} прогона на партию) {STYLE_MODEL} ≈ ${nb*_est(STYLE_MODEL):.3f} "
+          f"(оценка по типовым токенам rules/openai_prices.json); без LLM и без записи",flush=True)
+    if SOURCE=='room_catalog':
+        by={}
+        for p in prods: by[p['role']]=by.get(p['role'],0)+1
+        print("моделей по ролям:", by, flush=True)
+    sys.exit(0)
 
 # ---------- ступень 2: CLIP zero-shot (бесплатно, по кэшу фото-векторов) ----------
 EMB=os.path.join(HERE,'embeddings.npz')
@@ -275,18 +320,24 @@ def save_to_db(rows, keep=False):
     return n
 
 import concurrent.futures as cf, threading
-B=25; done=0; fails=0; _lock=threading.Lock(); scored_now=[]
+B=25; done=0; fails=0; half=0; held=0; _lock=threading.Lock()
 batches=[todo[bi:bi+B] for bi in range(0,len(todo),B)]
 # ДНЕВНОЙ ЛИМИТ ДЕНЕГ (урок 462): до первого платного запроса; нет — ничего не отправляем, кэш как был
-if batches and not _budget_allow(STYLE_MODEL, len(batches), note=f'style_score {SOURCE} {len(todo)} моделей'):
+if batches and not _budget_allow(STYLE_MODEL, len(batches)*RUNS, note=f'style_score {SOURCE} {len(todo)} моделей'):
     print("СТОП: дневной лимит OpenAI — стили не считаю",flush=True); sys.exit(2)
 def run_batch(batch):
-    try: return batch,llm_batch(batch)
-    except Exception as e:
-        # НЕТ ДЕНЕГ НА КАНАЛАХ LLM (13.10) — не «отказ партии»: фолбэк «правила+CLIP» лёг бы в кэш НАВСЕГДА
-        # (кэш не пересчитывается), и каждую ночь без кредитов портил бы оценки. Стоп без записи.
-        if type(e).__name__=='NoCredits': return batch,{'__nocredit':str(e)[:160]}
-        return batch,{'__err':str(e)[:80]}
+    """RUNS прогонов одной партии → среднее (`style_noise.avg_runs`); упал один — берём ответ второго (счёт `__single`)."""
+    outs=[]; err=''
+    for _ in range(RUNS):
+        try: outs.append(llm_batch(batch))
+        except Exception as e:
+            # НЕТ ДЕНЕГ НА КАНАЛАХ LLM (13.10) — не «отказ партии»: фолбэк «правила+CLIP» лёг бы в кэш НАВСЕГДА
+            # (кэш не пересчитывается), и каждую ночь без кредитов портил бы оценки. Стоп без записи.
+            if type(e).__name__=='NoCredits': return batch,{'__nocredit':str(e)[:160]}
+            outs.append({}); err=str(e)[:80]
+    if not any(outs): return batch,{'__err':err}
+    avg,single=avg_runs(outs,len(batch),SNAMES)
+    return batch,{**avg,'__single':single}
 _pool=cf.ThreadPoolExecutor(8)
 for batch,llm in _pool.map(run_batch,batches):
     if '__nocredit' in llm:
@@ -295,6 +346,7 @@ for batch,llm in _pool.map(run_batch,batches):
     if '__err' in llm:
         print(f"LLM fail {llm['__err']} — правила+CLIP",flush=True); llm={}; fails+=1
         if fails>15: print("слишком много отказов LLM — СТОП, кэш сохранён"); break
+    half+=llm.pop('__single',0)
     for i,p in enumerate(batch):
         rs=rule_score(p); cs=clip_score(p)
         base=llm.get(i)
@@ -306,6 +358,7 @@ for batch,llm in _pool.map(run_batch,batches):
             fin['universal']=all(abs(v-5)<1.2 for k,v in fin.items() if k!='universal'); src='rules+clip'
         rec={**{st:round(fin[st],1) for st in SNAMES},'universal':fin['universal'],'src':src}
         if mfired(p): rec['mrules']=mfired(p)
+        rec,h=settle(prev_of.get(key(p)), rec, SNAMES); held+=h
         cache[key(p)]=rec
         for tw_mid,tw_eid in twins.get(p['mkey'],[(p['mid'],p['eid'])]):
             scored_now.append((tw_mid,tw_eid,rec))
@@ -314,7 +367,8 @@ for batch,llm in _pool.map(run_batch,batches):
         with _lock: json.dump(cache,open(OUT,'w'),ensure_ascii=False)
         print(f"{done}/{len(todo)}...",flush=True)
 json.dump(cache,open(OUT,'w'),ensure_ascii=False)
-print(f"OK: {os.path.basename(OUT)} — {len(cache)} товаров; отказов LLM (партий): {fails}",flush=True)
+print(f"OK: {os.path.basename(OUT)} — {len(cache)} товаров; отказов LLM (партий): {fails}; с одним ответом из {RUNS}: {half}"
+      +(f"; пересчёт: тройка удержана порогом у {held}" if prev_of else ""),flush=True)
 if SOURCE=='living':
     print(f"OK: в базу записано оценок — {save_to_db(scored_now)}",flush=True)
 elif '--db' in sys.argv:
