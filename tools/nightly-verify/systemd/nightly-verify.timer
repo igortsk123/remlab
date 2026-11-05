@@ -1,0 +1,11 @@
+# @PROEKT@: ночная сверка в @VREMYA@ по Лондону. Persistent — пропущенная ночь догоняется при включении машины.
+[Unit]
+Description=@PROEKT@: ночная сверка памяти в @VREMYA@ по Лондону (nightly-verify)
+
+[Timer]
+OnCalendar=*-*-* @VREMYA@:00 Europe/London
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

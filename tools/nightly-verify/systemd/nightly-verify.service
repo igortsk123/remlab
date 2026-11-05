@@ -1,0 +1,13 @@
+# @PROEKT@: ночная сверка памяти с кодом (кит `_optional/nightly-verify`). Ставит tools/nightly-verify/postavit_taymer.sh
+# как nightly-verify-@PROEKT@. Результат — ветка memory/nightly-<дата>-<N> на утреннее ревью; push и влива нет.
+[Unit]
+Description=@PROEKT@: ночная сверка памяти (nightly-verify)
+
+[Service]
+Type=oneshot
+Nice=10
+TimeoutStartSec=4h
+WorkingDirectory=@REPO@
+# PATH снят при установке: node, git и claude (часто ~/.local/bin) должны находиться и без входа пользователя
+Environment=PATH=@PATH@
+ExecStart=@NODE@ @REPO@/tools/nightly-verify/nightly-verify.mjs --root @REPO@

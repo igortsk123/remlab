@@ -1,0 +1,14 @@
+# Ночная сверка памяти — конфиг проекта (project-owned): скопировать в .memory_bank/_kit/nightly-verify.conf.
+# `ключ=значение`, `#` — комментарий. Пусто — значения по умолчанию (в скобках).
+# model=                      # модель headless-сессии (по умолчанию — как у claude); агент verify — своей шапкой
+# max_docs=2                  # доков за ночь
+# max_claims=60               # утверждений за ночь (оценка: строки дока со ссылками в `коде`)
+# since_hours=24              # окно «код за сутки» (memory-impact)
+# remote=origin
+# branch=main
+# label=[nightly-verify]      # первая строка запроса — метка учёта токенов (tokeny)
+# worktree=.nightly-verify/wt # копия ВНЕ .claude/; относительная — от корня проекта, скрыта в .git/info/exclude
+# claude_bin=claude
+# max_budget_usd=             # предохранитель claude -p (--max-budget-usd), пусто — нет
+# audit_gate=clean            # clean — коммит, только если оба аудита чистые; new — если нет проблем сверх тех,
+#                             # что были в чистой копии ДО сверки (ссылки на файлы вне git и т. п.)
