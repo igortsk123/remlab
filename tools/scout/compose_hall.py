@@ -181,10 +181,11 @@ class Composer:
         self.unknown_roles = set((rules.get('style_unknown') or {}).get('roles') or ())
         self.shortage: dict = {}
 
-    def pool(self, slot: dict, style: str, tier: str, extra=None) -> tuple:
+    def pool(self, slot: dict, style: str, tier: str, extra=None, tag: str = '') -> tuple:
         """(кандидаты, полоса, ступень ослаблена, без оценки стиля). Ступень — квантили цены роли по всем годным в полосе;
         в стиле нет ни одного товара этой цены — квантили внутри стиля. В стиле пусто, а роль в `style_unknown` — товары
-        без оценки (их палитру отбирает `ranked`)."""
+        без оценки (их палитру отбирает `ranked`). extra — доп. отбор ДО квантилей (напольная вешалка-хранение: её цена
+        меряется среди напольных, а не среди дешёвых крючков); tag — подпись строки нехватки."""
         band = band_of(slot, self.tol) if slot.get('band') else {}
         fit = [it for it in self.cat if it['role'] == slot['role'] and gate(it, slot, band) is None
                and (extra is None or extra(it))]
@@ -194,7 +195,7 @@ class Composer:
         unknown = False
         if not styled and slot['role'] in self.unknown_roles:
             styled, unknown = [it for it in fit if not it.get('styles')], True
-        k = (slot['role'], style)
+        k = (slot['role'] + tag, style)
         self.shortage[k] = {'годных по размеру': len(fit), 'в стиле': 0 if unknown else len(styled),
                             'без оценки стиля': len(styled) if unknown else 0,
                             'с готовым мешом': sum(1 for it in styled if it.get('mesh') == 'ready')}
@@ -249,6 +250,16 @@ class Composer:
             if unk:
                 unknown.add(sl['role'])
         storage = list(cfg['storage'])
+        # вешалка-хранение — свой список: только напольные, ступень цены — среди напольных (T-48/2: 38-тысячная стойка
+        # Verda джапанди выпадала из «комфорта», посчитанного по крючкам за 1,6 тыс., и ячейка оставалась без хранения)
+        st_lists, st_rx, st_unk = {}, {}, {}
+        for r in storage:
+            if r == 'вешалка':
+                st_lists[r], _, st_rx[r], st_unk[r] = self.pool(slots[r], style, tier, lambda it: floor_hanger(it, self.R),
+                                                                ' (хранение)')
+                palette(st_lists[r])
+            else:
+                st_lists[r], st_rx[r], st_unk[r] = lists[r], r in relaxed, r in unknown
         banned: set = set()
         ctx = {'temp': 'mid', 'used_style': used['style'], 'used_all': used['all']}
         best, st_tries = None, 0
@@ -256,8 +267,8 @@ class Composer:
             chosen, cur = {}, {}
             st_role = None
             for r in storage:            # хранение: первое по порядку, у которого есть годный кандидат
-                src = [c for c in lists[r] if c['sid'] not in banned and (r != 'вешалка' or floor_hanger(c, self.R))]
-                pick = next((c for c in self.ranked(src, style, ctx, r in unknown)
+                src = [c for c in st_lists[r] if c['sid'] not in banned]
+                pick = next((c for c in self.ranked(src, style, ctx, st_unk[r])
                              if diversity_ok(c['fam'], r, cur, built, style)), None)
                 if pick is not None:
                     chosen[r], cur[r], st_role = pick, pick['fam'], r
@@ -282,15 +293,18 @@ class Composer:
                       + f' → встали {sorted(placed)}; {lay.meta.get("reason")}', flush=True)
             if st_role not in placed:     # хранение не встало — отсекаем его и всё не меньше, следующее хранение
                 st_tries += 1
-                banned |= dominated(chosen[st_role], lists[st_role])
+                banned |= dominated(chosen[st_role], st_lists[st_role])
                 if st_tries >= self.R['tries']['storage']:
                     return best or {'empty': 'STORAGE_NO_FIT', 'banned': sorted(banned)}
                 continue
             skipped = [r for r in chosen if r not in placed]
             kept = {r: c for r, c in chosen.items() if r in placed}
-            res = {'chosen': kept, 'layout': lay, 'room': room, 'lists': lists, 'bands': bands, 'slots': slots,
-                   'attempts': attempt + 1, 'ctx': ctx, 'storage': st_role, 'skipped': skipped,
-                   'relaxed': [r for r in relaxed if r in kept], 'unknown': sorted(r for r in unknown if r in kept)}
+            rx_now = (set(relaxed) - {st_role}) | ({st_role} if st_rx[st_role] else set())
+            unk_now = (unknown - {st_role}) | ({st_role} if st_unk[st_role] else set())
+            res = {'chosen': kept, 'layout': lay, 'room': room, 'lists': dict(lists, **{st_role: st_lists[st_role]}),
+                   'bands': bands, 'slots': slots, 'attempts': attempt + 1, 'ctx': ctx, 'storage': st_role,
+                   'skipped': skipped, 'relaxed': sorted(r for r in rx_now if r in kept),
+                   'unknown': sorted(r for r in unk_now if r in kept)}
             if best is None or len(kept) > len(best['chosen']):
                 best = res
             if not skipped:
@@ -603,6 +617,17 @@ def _selftest() -> int:
        unk and len(sh) >= 1 and not bn and not unk2)
     ok('ступень «комфорт» — квантили 0,2–0,85 цены роли: из 10 цен 1000…1009 — 1002…1008',
        sorted(x['price'] for x in sh) == list(range(1002, 1009)))
+    # вешалка-хранение: ступень цены — среди напольных; дорогая стойка в стиле не теряется за дешёвыми крючками
+    hang = [dict(role='вешалка', mid=3, eid=f'k{i}', name='Вешалка настенная', price=1500 + i, w=50, d=10, h=20,
+                 footprint_ok=True, img='', fam=f'k{i}', styles={'джапанди': 7.0}, mesh=None) for i in range(10)]
+    hang += [dict(role='вешалка', mid=3, eid='v', name='Вешалка напольная', price=38000, w=50, d=44, h=144, footprint_ok=True,
+                  img='', fam='v', styles={'джапанди': 7.4}, mesh=None)]
+    C2 = Composer(hang, R, tol, 6.6)
+    allh = C2.pool(S['вешалка'], 'джапанди', 'комфорт')[0]
+    floor = C2.pool(S['вешалка'], 'джапанди', 'комфорт', lambda it: floor_hanger(it, R), ' (хранение)')[0]
+    ok('вешалка-хранение: в общей ступени стойки за 38 тыс. нет, среди напольных — есть; нехватка — своей строкой',
+       'v' not in {x['eid'] for x in allh} and [x['eid'] for x in floor] == ['v']
+       and ('вешалка (хранение)', 'джапанди') in C2.shortage)
     # солвер на геометрии flat215 (первый вариант файла) — набор встаёт, повтор — та же раскладка
     spec = room_spec(ROOM, R['rooms'][ROOM].get('variant'))
     ok('вариант по умолчанию — первый в файле (drawing-180)', spec['variant'] == load_json(FLAT)['rooms'][0]['variant'] == 'drawing-180')

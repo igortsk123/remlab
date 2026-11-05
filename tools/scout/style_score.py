@@ -15,6 +15,9 @@ style-scores-bedroom.json; живой style-scores.json — отказ), в ба
 база у близнеца модели) не пересчитывается — ни одного платного прогона ради старых; смена правил по материалу двигает итог
 без прогона. --rescore — явный платный пересчёт оценённых: тройка меняется, только если новый балл обходит прежний ≥ 1,0.
 --fresh — не брать оценки гостиной из базы (опыт с пересчётом впрок); STYLE_MODEL не по умолчанию — берём только свои.
+--source hall (T-20261105-48/2) — товары ПРИХОЖЕЙ (`room_catalog` room='hall', условие показа `hall_catalog.shown_where`, все
+роли `rules/hall-roles.json` roles_enabled): всё как у спальни — дедуп по семейству, оценка из базы у близнеца своей комнаты
+без платы, файл только свой (`STYLE_OUT`, по умолчанию style-scores-hall.json), в базу — только `--db` без перезаписи чужих строк.
 """
 import subprocess, sys, os, re, json, urllib.error, urllib.request
 import numpy as np
@@ -27,8 +30,9 @@ SNAMES=list(STYLES)  # порядок фиксирован
 # конвейер пишет свой style-scores.json, опыт считается рядом и подменяется одним mv, когда готов.
 # Без этого два прогона затирали друг друга — оценки терялись молча (11.10).
 SOURCE=sys.argv[sys.argv.index('--source')+1] if '--source' in sys.argv else 'living'
-assert SOURCE in ('living','room_catalog'), f"--source {SOURCE}: только living | room_catalog"
-OUT=os.path.join(HERE,os.environ.get('STYLE_OUT','style-scores.json' if SOURCE=='living' else 'style-scores-bedroom.json'))
+assert SOURCE in ('living','room_catalog','hall'), f"--source {SOURCE}: только living | room_catalog | hall"
+ROOMS=('room_catalog','hall')   # источники комнат room_catalog: спальня и прихожая (одна логика, свой модуль правил)
+OUT=os.path.join(HERE,os.environ.get('STYLE_OUT',{'living':'style-scores.json','hall':'style-scores-hall.json'}.get(SOURCE,'style-scores-bedroom.json')))
 if SOURCE!='living' and os.path.basename(OUT)=='style-scores.json':
     sys.exit("СТОП: спальня в живой style-scores.json гостиной — задай свой STYLE_OUT")
 cache=json.load(open(OUT)) if os.path.exists(OUT) else {}
@@ -65,10 +69,27 @@ def bedroom_raw():
  order by shop_mid, external_id""")
     return [r for r in out if not RC.child_only(r[0], r[3], R)]
 
+def hall_raw():
+    """Показываемые товары прихожей (`room_catalog` room='hall', `hall_catalog.shown_where` — как адаптер `catalog_items`),
+    все роли `roles_enabled`, в раскладке строк спальни. Фильтра детского нет — адаптер прихожей его тоже не ставит."""
+    import room_catalog as RC, hall_catalog as HC
+    R=HC.rules()
+    roles=RC.enabled(R)
+    pj=lambda *ks: "coalesce("+",".join(f"params->>'{k}'" for k in ks)+",'')"
+    return rows(f"""select role, shop_mid, external_id, name,
+ concat_ws(' / ', nullif({pj('Материал','Материал корпуса','Материал каркаса')},''), nullif({pj('Материал фасада')},''),
+           nullif({pj('Материал ножек (опор)')},'')),
+ {pj('Цвет','Цвет основной')}, {pj('Материал обивки','Обивка: Ткань 1','Обивка')}, {pj('Стиль')}, '', shop
+ from room_catalog where {HC.shown_where(R)} and role in ({','.join(RC._lit(r) for r in roles)})
+ order by shop_mid, external_id""")
+
 # ПРАВИЛА ПО МАТЕРИАЛУ — только спальня (`rules/bedroom-roles.json` style_material_rules; гостиная их не читает)
 MRULES=[]
 if SOURCE=='room_catalog':
     import room_catalog as _RC
+    MRULES=_RC.rules().get('style_material_rules',[])
+elif SOURCE=='hall':   # у прихожей правил по материалу нет (rules/hall-roles.json) — список пуст, модуль нужен для ROOM
+    import hall_catalog as _RC
     MRULES=_RC.rules().get('style_material_rules',[])
 def mfired(p):
     """id сработавших правил по материалу: материал из фида, цвет и название — чтобы золото/хром не ушли в лофт."""
@@ -79,6 +100,10 @@ if SOURCE=='room_catalog':
     print("Каталог спальни (room_catalog)...",flush=True)
     raw=bedroom_raw()
     assert len(raw)>500, f"каталог спальни вернул {len(raw)} строк — SQL сломан, СТОП"
+elif SOURCE=='hall':
+    print("Каталог прихожей (room_catalog room='hall')...",flush=True)
+    raw=hall_raw()
+    assert len(raw)>300, f"каталог прихожей вернул {len(raw)} строк — SQL сломан, СТОП"
 else:
   print("Каталог гостиной...",flush=True)
   raw=rows("""select l.role, l.shop_mid, l.external_id, l.name,
@@ -91,7 +116,7 @@ else:
    and coalesce(p.photo_alive, true)  -- фото реально скачивается (conv-05, catalog_rules.PHOTO_OK_SQL)
  order by l.shop_mid, l.external_id""")
   assert len(raw)>1000, f"каталог-запрос вернул {len(raw)} строк — SQL сломан, СТОП"
-if SOURCE=='room_catalog':
+if SOURCE in ROOMS:
     # модель спальни = семейство: «Кровать divan.ru Кейт 140 Велюр Серый» и «… Кейт 160 Букле Бежевый» — одна (размер и
     # цвет стиля не меняют); model_key гостиной оставляет размер — платили бы за каждый
     from room_catalog import family as _family
@@ -145,7 +170,7 @@ def put_rules(p, prev, old):
     if f: rec['mrules']=f
     cache[key(p)]=rec
     for tw in twins.get(p['mkey'],[(p['mid'],p['eid'])]): scored_now.append((*tw,rec))
-if SOURCE=='room_catalog':
+if SOURCE in ROOMS:
     # товар спальни уже оценён как товар гостиной (комод, шкаф есть в обоих каталогах) — та же оценка, без платы и без
     # расхождения: берём её у любого близнеца модели из базы (только чтение)
     # только товары СВОЕЙ комнаты (`catalog_rules.twin_scores_sql`): строки прихожей сюда не попадают (T-20261105-34/2)
@@ -205,7 +230,7 @@ if '--dry' in sys.argv:
     nb=-(-len(todo)//25)*RUNS
     print(f"СУХОЙ ПРОГОН: моделей {len(prods)}, скорить {len(todo)} — {nb} запросов ({RUNS} прогона на партию) {STYLE_MODEL} ≈ ${nb*_est(STYLE_MODEL):.3f} "
           f"(оценка по типовым токенам rules/openai_prices.json); без LLM и без записи",flush=True)
-    if SOURCE=='room_catalog':
+    if SOURCE in ROOMS:
         by={}
         for p in prods: by[p['role']]=by.get(p['role'],0)+1
         print("моделей по ролям:", by, flush=True)
@@ -372,16 +397,22 @@ print(f"OK: {os.path.basename(OUT)} — {len(cache)} товаров; отказ�
       +(f"; пересчёт: тройка удержана порогом у {held}" if prev_of else ""),flush=True)
 if SOURCE=='living':
     print(f"OK: в базу записано оценок — {save_to_db(scored_now)}",flush=True)
+elif '--db' in sys.argv and SOURCE=='hall' and fails:
+    # запись в базу без перезаписи (keep): фолбэк «правила+CLIP» лёг бы туда навсегда — следующий прогон его не исправит
+    print(f"СТОП база: отказов LLM {fails} — оценки прихожей остались только в {os.path.basename(OUT)}, в базу не пишу",flush=True)
+elif '--db' in sys.argv and SOURCE=='hall':
+    print(f"OK: в базу записано оценок прихожей (чужие строки не трогаем) — {save_to_db(scored_now, keep=True)}",flush=True)
 elif '--db' in sys.argv:
     print(f"OK: в базу записано оценок спальни (чужие строки не трогаем) — {save_to_db(scored_now, keep=True)}",flush=True)
 else:
-    print("база: спальня не пишется без --db",flush=True)
+    print("база: "+("прихожая" if SOURCE=='hall' else "спальня")+" не пишется без --db",flush=True)
 
 # ---------- отчёт покрытия: товаров с фитом ≥6.5 на стиль × роль ----------
 if '--report' in sys.argv or True:
     CORE=['диван','столик','тв-тумба','ковёр','люстра','плед','подушка','кресло','торшер','лампа','кашпо','ваза','комод','стеллаж','пуф']
     if SOURCE=='room_catalog': CORE=['кровать','тумба прикроватная','шкаф','комод']
-    print("\nПокрытие (товаров со стиль-фитом ≥6.5), ядро "+("гостиной:" if SOURCE=='living' else "спальни (моделей):"))
+    if SOURCE=='hall': CORE=['шкаф-купе','прихожая','обувница','банкетка','консоль','вешалка','зеркало']
+    print("\nПокрытие (товаров со стиль-фитом ≥6.5), ядро "+{'living':"гостиной:",'hall':"прихожей (моделей):"}.get(SOURCE,"спальни (моделей):"))
     hdr="роль".ljust(12)+"".join(st[:7].ljust(9) for st in SNAMES)
     print(hdr)
     gaps={st:[] for st in SNAMES}
