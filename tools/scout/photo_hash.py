@@ -183,7 +183,10 @@ def hash_skus(skus: list[str], dry: bool = False) -> dict:
 # (`product_photo_current.sku = mid:eid`, `photo_assessment.source_sha`) — таблицы не меняются, добавляется только источник.
 # ПОРЯДОК: гостиная — первой и тем же SQL (`targets_sql` не тронут), комнаты — после, СВОИМ лимитом (`--rooms-limit`,
 # `PHOTO_ROOMS_LIMIT`; по умолчанию 0 = ночь гостиной та же, пока интегратор не включит).
-# КТО ВХОДИТ: товары `room_catalog`, которых нет в `products` (те ведёт гостиная — тот же ключ `sku`, второй раз не качаем).
+# КТО ВХОДИТ: все товары `room_catalog`. Товар, который есть и в `products` (шкафы и комоды спальни, зеркала и шкафы-купе
+# прихожей), тоже берём, если у него нет хеша/оценки (T-46/2: вырезка гостиной ночью выключена, без оценки спрос на меши
+# комнат их не видит). Адрес у него — АДРЕС ГОСТИНОЙ (`products`), чтобы оба прохода писали в `product_photo_current`
+# один и тот же адрес под одним `sku` и не перетирали друг друга; вырезка — по sha, дубля с гостиной нет.
 # ОДИН ТОВАР — ОДНА ЦЕЛЬ: в `room_catalog` ключ (mid, eid, room), роль одна на комнату; товар в нескольких комнатах
 # берёт строку с наименьшей парой (room, role) по алфавиту — детерминированно, от порядка строк в базе не зависит.
 # АДРЕС: тот же приоритет HD, что у гостиной (`image_url_hd`, иначе `image_url`); пустая строка = нет адреса → пропуск
@@ -191,20 +194,28 @@ def hash_skus(skus: list[str], dry: bool = False) -> dict:
 ROOMS_LIMIT = int(os.environ.get('PHOTO_ROOMS_LIMIT', '0'))
 RSKU = "r.shop_mid||':'||r.external_id"
 RURL = "coalesce(nullif(r.image_url_hd, ''), nullif(r.image_url, ''))"
-SKIP_IN_PRODUCTS = 'есть в products — ведёт гостиная'
+# адрес хеша комнатной цели: у товара из products с фото — его адрес в products (как у гостиной: HD, иначе обычный; пустых
+# там нет); у товара без фото в products (прихожая: 26 на 05.11) — адрес комнаты: гостиная такой не хеширует, спорить некому
+P_HAS = "coalesce(p.image_url_hd, p.image_url) is not null"
+PURL = (f"case when {P_HAS} then coalesce(nullif(p.image_url_hd, ''), nullif(p.image_url, '')) else {RURL} end")
+IN_PRODUCTS = 'из них в products'
 SKIP_NO_URL = 'нет адреса фото'
 
 
 def rooms_rows_sql(assessor: str = '') -> str:
-    """Все строки `room_catalog` со всем, что нужно чистому `pick_rooms`: hd, sd, комната, роль, есть ли в products, хеш по ЭТОМУ
-    адресу (sha, свежий ли) и вердикт вырезки текущей версии оценщика (`assessor`; пусто — не смотрим)."""
-    return (f"select {RSKU}, coalesce(r.image_url_hd, ''), coalesce(r.image_url, ''), r.room, r.role, "
-            "exists (select 1 from products p where p.shop_mid = r.shop_mid and p.external_id = r.external_id), "
+    """Все строки `room_catalog` со всем, что нужно чистому `pick_rooms`: hd, sd (у товара из products — его адреса в products),
+    комната, роль, есть ли в products, хеш по ЭТОМУ адресу (sha, свежий ли) и вердикт вырезки текущей версии оценщика
+    (`assessor`; пусто — не смотрим)."""
+    return (f"select {RSKU}, "
+            f"case when {P_HAS} then coalesce(p.image_url_hd, '') else coalesce(r.image_url_hd, '') end, "
+            f"case when {P_HAS} then coalesce(p.image_url, '') else coalesce(r.image_url, '') end, "
+            "r.room, r.role, p.shop_mid is not null, "
             "coalesce(c.source_sha, ''), "
             f"coalesce(c.observed_at > now() - interval '{SHA_MAX_AGE_DAYS} days', false), "
             "coalesce(a.verdict, case when a.source_sha is not null then '?' end, ''), '.' "
             "from room_catalog r "
-            f"left join product_photo_current c on c.sku = {RSKU} and c.image_url = {RURL} "
+            "left join products p on p.shop_mid = r.shop_mid and p.external_id = r.external_id "
+            f"left join product_photo_current c on c.sku = {RSKU} and c.image_url = {PURL} "
             f"left join photo_assessment a on a.source_sha = c.source_sha and a.assessor_version = {q(assessor)} "
             "order by 1, 4, 5")
 
@@ -225,19 +236,16 @@ def pick_rooms(rows: list[dict]) -> tuple[list[dict], dict[str, collections.Coun
     """Одна цель на товар комнат. Чистая функция (её и тестирует `--selftest`).
 
     Возвращает (цели по порядку room → sku, с полями url/room/role/sha/fresh/verdict; пропуски {причина: Counter(room)}).
-    Товар есть в products → весь пропуск (по комнате выбранной строки); в нескольких комнатах — строка с min (room, role);
-    адрес — hd, иначе sd; оба пусты → пропуск «нет адреса фото»."""
+    Товар и в products — тоже цель (адрес уже взят из products в `rooms_rows_sql`), счёт «из них в products» — справочно;
+    в нескольких комнатах — строка с min (room, role); адрес — hd, иначе sd; оба пусты → пропуск «нет адреса фото»."""
     best: dict[str, dict] = {}
     for r in rows:
         b = best.get(r['sku'])
         if b is None or (r['room'], r['role']) < (b['room'], b['role']):
             best[r['sku']] = r
-    out, skip = [], {SKIP_IN_PRODUCTS: collections.Counter(), SKIP_NO_URL: collections.Counter()}
+    out, skip = [], {SKIP_NO_URL: collections.Counter()}
     for sku in sorted(best, key=lambda s: (best[s]['room'], s)):
         r = best[sku]
-        if r['in_products']:
-            skip[SKIP_IN_PRODUCTS][r['room']] += 1
-            continue
         url = r['hd'] or r['sd']
         if not url:
             skip[SKIP_NO_URL][r['room']] += 1
@@ -278,12 +286,15 @@ def rooms_stats(assessor: str) -> dict[str, dict]:
     for t in picked:
         s = st[t['room']]
         s['целей'] += 1
+        s[IN_PRODUCTS] += t['in_products']
         if t['sha']:
             s['с хешем'] += 1
             if t['verdict']:
                 s['с вырезкой'] += 1
+                s['вырезано:' + t['role']] += 1
                 if t['verdict'] != 'ok':
                     s['брак маски'] += 1
+                    s['брак:' + t['role']] += 1
             else:
                 s['ждёт вырезки'] += 1
         else:
@@ -295,12 +306,16 @@ def rooms_stats(assessor: str) -> dict[str, dict]:
 
 
 def print_rooms_stats(assessor: str) -> None:
-    keys = ('целей', 'с хешем', 'с вырезкой', 'ждёт вырезки', 'брак маски', 'без хеша', SKIP_NO_URL, SKIP_IN_PRODUCTS)
+    keys = ('целей', IN_PRODUCTS, 'с хешем', 'с вырезкой', 'ждёт вырезки', 'брак маски', 'без хеша', SKIP_NO_URL)
     st = rooms_stats(assessor)
     print(f'товары комнат (room_catalog, оценщик {assessor or "—"}):')
     for room in sorted(set(st) | {'bedroom', 'hall'}):
         s = st.get(room, {})
         print(f'  {room:8} ' + ' · '.join(f'{k} {s.get(k, 0)}' for k in keys))
+        roles = sorted({k.split(':', 1)[1] for k in s if k.startswith('вырезано:')})
+        if roles:
+            print('           брак маски по ролям: ' + ', '.join(
+                f"{r} {s.get('брак:' + r, 0)}/{s['вырезано:' + r]}" for r in roles))
 
 
 # ------------------------------------------------------------------ самопроверка
@@ -353,14 +368,17 @@ def _selftest() -> int:
         return {'sku': sku, 'hd': hd, 'sd': sd, 'room': room, 'role': role, 'in_products': in_products,
                 'sha': sha, 'fresh': fresh and bool(sha), 'verdict': verdict}
     picked, skip = pick_rooms([
-        row('1:a', 'bedroom', 'кровать', hd='//a', in_products=True),            # есть в products → ведёт гостиная
+        row('1:a', 'bedroom', 'кровать', hd='//a', in_products=True),            # есть и в products → тоже цель, одна
         row('1:b', 'hall', 'обувница', sd='//b-hall'),                            # в двух комнатах → одна строка
         row('1:b', 'bedroom', 'комод', hd='//b-hd', sd='//b-sd'),
         row('1:c', 'bedroom', 'шкаф'),                                            # нет адреса → пропуск с причиной
         row('1:d', 'hall', 'зеркало', sd='//d'),
         row('1:e', 'bedroom', 'тумба прикроватная', hd='//e', sha='s', fresh=True)])
-    ok('товар и в products, и в room_catalog — целью комнат не становится, пропуск с причиной',
-       '1:a' not in [t['sku'] for t in picked] and skip[SKIP_IN_PRODUCTS] == {'bedroom': 1})
+    ok('товар и в products, и в room_catalog — одна цель (T-46/2: оценки у таких нет, гостиная их ночью не режет)',
+       [t['sku'] for t in picked].count('1:a') == 1 and [t['in_products'] for t in picked if t['sku'] == '1:a'] == [True])
+    ok('адрес товара из products — адрес гостиной (оба прохода пишут один адрес под одним sku)',
+       'coalesce(p.image_url_hd' in rooms_rows_sql() and f'c.image_url = {PURL}' in rooms_rows_sql()
+       and 'left join products p' in rooms_rows_sql())
     ok('товар в двух комнатах — одна цель: min(room, role) = bedroom/комод, адрес HD',
        [(t['room'], t['role'], t['url']) for t in picked if t['sku'] == '1:b'] == [('bedroom', 'комод', '//b-hd')])
     rev, _ = pick_rooms(list(reversed([row('1:b', 'hall', 'обувница', sd='//x'), row('1:b', 'bedroom', 'комод', sd='//y')])))
@@ -368,10 +386,10 @@ def _selftest() -> int:
     ok('пустой адрес — пропуск «нет адреса фото», не цель', '1:c' not in [t['sku'] for t in picked]
        and skip[SKIP_NO_URL] == {'bedroom': 1})
     ok('порядок целей — комната, потом sku; без HD берётся обычный адрес',
-       [t['sku'] for t in picked] == ['1:b', '1:e', '1:d'] and picked[-1]['url'] == '//d')
+       [t['sku'] for t in picked] == ['1:a', '1:b', '1:e', '1:d'] and picked[-1]['url'] == '//d')
     ok('адрес комнат — тот же приоритет HD, пустая строка = нет адреса',
        RURL == "coalesce(nullif(r.image_url_hd, ''), nullif(r.image_url, ''))" and RURL in rooms_rows_sql())
-    ok('хеш и вырезка комнат — по адресу и sha выбранной строки', f'c.image_url = {RURL}' in rooms_rows_sql()
+    ok('хеш и вырезка комнат — по адресу и sha выбранной строки', RURL in PURL and f'c.image_url = {PURL}' in rooms_rows_sql()
        and "a.assessor_version = 'a1'" in rooms_rows_sql('a1'))
     ok('лимит комнат по умолчанию 0 (ночь гостиной та же, пока не включат)',
        ROOMS_LIMIT == int(os.environ.get('PHOTO_ROOMS_LIMIT', '0')) and 'room_catalog' not in targets_sql(10))
