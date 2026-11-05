@@ -567,6 +567,9 @@ def _keep_check(p,tier):
         if it.get('_gone'): hard.append(f'{role}: ушёл из каталога'); continue
         why=_CG._blocked().get(k)
         if why: hard.append(f'{role}: {why}'); continue
+        # роль каталога сменилась после сборки («Босс пуф» в кресле, T-53/2) — та же функция, что у инвариантов и promote
+        why=_BI.catalog_role_bad(role,_CM.media(it.get('mid'),it.get('eid')))
+        if why: hard.append(f'{role}: {why}'); continue
         if not _SI._slot_ok(role,it,c): hard.append(f'{role}: вне контракта слота')
     for role,alts in list((c.get('alternates') or {}).items()):   # запасные ушедшие/повторы — вон, выбор не трогают
         ch=(c.get('items') or {}).get(role); seen=set(); keep=[]

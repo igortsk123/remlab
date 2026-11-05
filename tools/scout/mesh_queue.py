@@ -385,6 +385,9 @@ def run() -> None:
     for sku, v in demand_reserve().items():
         want.setdefault(sku, v)
 
+    # товар без роли (кровать, секция дивана, топпер — T-53) в спрос не идёт: колонка role NOT NULL, а выпавший из `want`
+    # уходит в not_required ниже; готовый меш при этом не трогаем
+    want = {k: v for k, v in want.items() if v.get('role')}
     for sku, v in want.items():
         db(f"""insert into mesh_demand (sku, role, priority, image_url, dims, name)
                values ({q(sku)}, {q(v['role'])}, {v['priority']}, {q(v['image_url'])},
@@ -394,6 +397,10 @@ def run() -> None:
                  -- и товар, однажды побывавший в сете, навсегда оставался приоритетом 1 даже
                  -- уйдя в резерв — очередь генерации выстраивалась по прошлому, а не по спросу.
                  priority=excluded.priority,
+                 -- роль — ТЕКУЩАЯ (T-20261105-53/2): каталог сменил «Босс пуф» с кресла на пуф, а спрос держал
+                 -- первую роль навсегда; по ней экспорт задания включает правки предобработки и ориентации
+                 -- (`export`). Ключей заданий и ревизий роль не задаёт — готовый меш не перегенерируется
+                 role=excluded.role,
                  image_url=excluded.image_url, last_seen=now(),
                  -- Смена картинки под тем же URL обязана сбросить хеш: `ingest()` считает его
                  -- только там, где он null, поэтому без сброса новые байты остаются незамеченными

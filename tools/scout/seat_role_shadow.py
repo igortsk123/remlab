@@ -152,10 +152,11 @@ def main() -> None:
     if mvals:
         back_sql += upd('mesh_demand', 'role', 'mesh_demand.sku', mvals, 'new_role', 'old_role')
     open(os.path.join(out_dir, 'seat-roles-rollback.sql'), 'w').write(back_sql)
-    # проверка «после» для --check: ни одного товара из списка в старой роли
+    # проверка «после» для --check: ни одного товара из списка в СВОЕЙ старой роли (T-53/2: переход диван → кресло законен,
+    # поэтому не «нет диванов/кресел», а «нет строки со старой ролью этого товара»)
     open(os.path.join(out_dir, 'check.sql'), 'w').write(
-        "not exists (select 1 from products p where p.cat_role in ('диван','кресло') and p.shop_mid||':'||p.external_id in ("
-        + ','.join(q(c['sku']) for c in changed) + "))")
+        "not exists (select 1 from products p join (values\n" + vals + ") as t(sku, old_role, new_role)\n"
+        "  on p.shop_mid||':'||p.external_id=t.sku where p.cat_role is not distinct from t.old_role)")
     print(json.dumps(summary, ensure_ascii=False, indent=1))
     print(f'→ {out_dir}/shadow.json, seat-roles-apply.sql, seat-roles-rollback.sql, check.sql')
 

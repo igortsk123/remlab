@@ -122,7 +122,8 @@ def strict(s: dict, media, slot_ok, sync_pairs, fits, groups: dict, region: dict
     """Строгая чистота продвигаемой ячейки → причины отказа (пусто — чиста)."""
     r = BI.check([s], None, media, slot_ok, sync_pairs, fits, cells=1)
     out = [f'{name} {r[k]}' for k, name in (('gone', 'ушедших'), ('url_stale', 'ссылок не текущих'),
-                                            ('contracts', 'вне контракта'), ('pair_mismatch', 'пар разошлось'),
+                                            ('contracts', 'вне контракта'),
+                                            ('role_mismatch', 'не той роли каталога'), ('pair_mismatch', 'пар разошлось'),
                                             ('alt_bad', 'запасных негодных')) if r.get(k)]
     if r.get('core_missing'):
         out.append('без ключевых ролей: ' + ', '.join(r['core_missing']))
