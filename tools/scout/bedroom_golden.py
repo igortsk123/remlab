@@ -14,6 +14,7 @@
   ~/venvs/scout/bin/python bedroom_golden.py --golden 30 --dry   # отбор и прикидка, без модели и денег
   ~/venvs/scout/bin/python bedroom_golden.py --golden 30         # гейт openai_budget + потолок $0,30, учёт трат, счётчик отказов
   ~/venvs/scout/bin/python bedroom_golden.py --style <папка>       # стиль сейчас / после поправки цвета (2 вызова скорера на 15)
+  ~/venvs/scout/bin/python bedroom_golden.py --recount <папка> [--marks <отметки.json>]  # новые правила, без модели
   ~/venvs/scout/bin/python bedroom_golden.py --sheet <папка>       # пересобрать лист из golden.jsonl, без модели
   python3 bedroom_golden.py --selftest                           # спор/приём/сопоставление, без сети и базы
 Выход — новая папка ~/remlab-logs/onb06-golden-<ММДД-ЧЧММ>/: golden.jsonl, meta.json, sheet.html (один файл, фото внутри), img/.
@@ -33,7 +34,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bedroom_enrich import _COL, COLOURS, NA, PALETTE, UNK, _cls, _first, rules_fields  # noqa: E402
+from bedroom_enrich import _COL, COLOURS, NA, PALETTE, UNK, _cls, _first, name_tail_colour, rules_fields  # noqa: E402
 
 MODEL = os.environ.get('GOLDEN_MODEL', 'gpt-6-luna')
 CAP_USD = 0.30                       # потолок всей пробы (ведущий 05.11: из прежнего лимита пробы)
@@ -51,8 +52,18 @@ def ckey(c):
     g = PALETTE.get(c)
     return c if g in ('акцент', 'многоцвет') else g
 
+
+# составной цвет совпадает с каждой своей частью: «Серо-зеленый» в названии = «серый» на фото = «Зеленый» в фиде
+COMPOSITE = {'серо-зелёный': ('серый', 'зелёный')}
+
+
+def ckeys(c) -> set:
+    if c in (UNK, None, ''):
+        return set()
+    return {ckey(x) for x in COMPOSITE.get(c, (c,))}
+
 def name_colour(name: str) -> str:
-    return _cls(' '.join(re.sub(r'[()]', ' ', name or '').split()[-3:]), _COL)
+    return name_tail_colour(name)
 
 
 def feed_colour(P: dict) -> tuple:
@@ -69,7 +80,7 @@ def disputes(role: str, name: str, P: dict) -> list:
     """Какие из трёх полей у карточки спорны: 'colour' | 'drawers' | 'headboard'."""
     out = []
     n, (f, _) = name_colour(name), feed_colour(P)
-    if n != UNK and f != UNK and ckey(n) != ckey(f):
+    if n != UNK and f != UNK and not ckeys(n) & ckeys(f):
         out.append('colour')
     if role != 'комод' and rules_fields(role, name, P)['drawers'] == UNK:
         out.append('drawers')
@@ -96,14 +107,15 @@ def match_colour(photo: str, by_name: str, by_feed: str, variants: bool) -> tupl
     """Шаг 2 — сопоставление цвета с фото и текстов, кодом. → (итог, откуда)."""
     if variants or photo in (UNK, None):
         return UNK, 'фото не решает (несколько исполнений или цвет не виден)'
-    g = ckey(photo)
-    gn, gf = ckey(by_name), ckey(by_feed)
-    if gn == g and gf == g:
-        return by_name, 'фото = название = фид'
-    if gn == g:
-        return by_name, 'фото = название' + (' (фид спорит)' if gf else '')
-    if gf == g:
-        return by_feed, 'фото = фид' + (' (название спорит)' if gn else '')
+    g = ckeys(photo)
+    hit_n, hit_f = bool(ckeys(by_name) & g), bool(ckeys(by_feed) & g)
+    # при совпадении с обоими — точный цвет фото важнее группы: фото белое, фид «Белый», название «Молочный» → белый (№6)
+    if hit_n and hit_f:
+        return (by_feed if by_feed == photo and by_name != photo else by_name), 'фото = название = фид'
+    if hit_n:
+        return by_name, 'фото = название' + (' (фид спорит)' if by_feed not in (UNK, None, '') else '')
+    if hit_f:
+        return by_feed, 'фото = фид' + (' (название спорит)' if by_name not in (UNK, None, '') else '')
     return UNK, 'фото не совпало ни с названием, ни с фидом — возможно, фото другого исполнения'
 
 
@@ -283,6 +295,59 @@ def run(n: int, dry: bool) -> int:
     return 0 if not fails and not photo_fail else 1
 
 
+# ---------- пересчёт 30 по сохранённым ответам и сверка с отметками ведущего (без модели и денег) ----------
+
+def truth_colour(rec: dict, marks: dict) -> str:
+    """Истинный цвет по фото: ответ модели, если ведущий отметил его верным, иначе — цвет из отметки."""
+    return marks.get('photo_wrong', {}).get(str(rec['n']), rec['model'].get('colour', UNK))
+
+
+def same_colour(a: str, b: str) -> bool:
+    """Принятое = истина: точно, кроме синонимов «коричневый ~ дерево тёмное» (белый ≠ бежевый — №6 ведущий отметил неверным)."""
+    return a == b or {a, b} == {'коричневый', 'дерево тёмное'}
+
+
+def recount(L: str, marks_path: str | None) -> int:
+    import room_catalog as RC
+    recs = [json.loads(x) for x in open(os.path.join(L, 'golden.jsonl'), encoding='utf-8') if x.strip()]
+    meta = json.load(open(os.path.join(L, 'meta.json'), encoding='utf-8'))
+    out = L + '-recount-' + time.strftime('%H%M%S')
+    os.makedirs(out, exist_ok=False)
+    for r in recs:
+        q = RC.sql(f"select params::text from room_catalog where shop_mid={int(r['mid'])} and external_id={RC._lit(r['eid'])} "
+                   f"and room='{RC.ROOM}'")
+        P = json.loads(q[0][0]) if q else {}
+        nc, (fc, fraw) = name_colour(r['name']), feed_colour(P)
+        rf = rules_fields(r['role'], r['name'], P)
+        m = r['model']
+        col, why = match_colour(m.get('colour'), nc, fc, bool(m.get('variants_shown'))) if m else (UNK, 'нет ответа')
+        r['disputes_v1'], r['disputes'] = r['disputes'], disputes(r['role'], r['name'], P)   # пусто — спор снят правилами
+        r['feed'] = {**r['feed'], 'colour_raw': fraw, 'colour': fc, 'colour_by_name': nc, 'colour_rules': rf['colour'],
+                     'drawers_rules': rf['drawers']}
+        r['accepted'] = {**(accept(r['role'], m) if m else {}), 'colour': col, 'colour_why': why}
+        if r.get('photo_file'):
+            r['photo_file'] = os.path.relpath(os.path.join(L, r['photo_file']), out)
+    marks = json.load(open(marks_path, encoding='utf-8')) if marks_path else {}
+    bad, unk = [], []
+    for r in recs:
+        a = r['accepted']['colour']
+        if a == UNK:
+            unk.append(r['n'])
+        elif marks and not same_colour(a, truth_colour(r, marks)):
+            bad.append((r['n'], a, truth_colour(r, marks)))
+    with open(os.path.join(out, 'golden.jsonl'), 'w', encoding='utf-8') as fh:
+        fh.write('\n'.join(json.dumps(r, ensure_ascii=False) for r in recs) + '\n')
+    meta['recount_of'] = L
+    meta['recount'] = {'colour_known': len(recs) - len(unk), 'colour_unknown': unk, 'colour_wrong': bad,
+                       'marks': marks_path}
+    json.dump(meta, open(os.path.join(out, 'meta.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    sheet(recs, out, meta)
+    print(f'цвет принят у {len(recs) - len(unk)} из {len(recs)}, неизвестно {len(unk)} {unk}; '
+          + (f'неверных по отметкам ведущего: {len(bad)} {bad}' if marks else 'отметок нет'), flush=True)
+    print('папка:', out, flush=True)
+    return 1 if bad else 0
+
+
 # ---------- стиль: сейчас и после поправки цвета (дополнение ведущего 05.11: «и чтоб стилям соответствовало») ----------
 # 5 показываемых стилей = homeModel().styles в порядке вкладок главной (quiz.json pick.tie = homeOrder; эталон
 # tests/fixtures/quiz-golden.json available: scandi, modern, minimal, loft, japandi); неоклассики в витрине нет.
@@ -359,7 +424,7 @@ def style(L: str) -> int:
         now = scores.get(k)
         p = dict(role=r[0], mid=int(r[1]), eid=r[2], name=r[3], mat=r[4], col=r[5], uph=r[6], stp=r[7], desc=r[8])
         acc, bel = g['accepted'].get('colour', UNK), believed_colour(r[5], r[3])
-        fix = acc not in (UNK, None) and (bel == UNK or ckey(acc) != ckey(bel))
+        fix = acc not in (UNK, None) and (bel == UNK or not ckeys(acc) & ckeys(bel))
         rows_.append({'n': g['n'], 'key': k, 'rep_name': rp[3], 'src': (now or {}).get('src'), 'now': now, 'fix': fix,
                       'col_before': bel, 'col_feed_raw': r[5], 'col_after': acc if fix else None})
         ctrl_in.append((g['n'], p))
@@ -575,6 +640,17 @@ def _selftest() -> int:
         believed_colour('', 'Тумба Латте')) == ('зелёный', 'серый', 'бежевый'))
     ns = _style_fns()
     ok('стиль: функции боевого скорера найдены по исходнику', all(k in ns for k in ('llm_batch', 'bedroom_raw', 'SNAMES')))
+    ok('цвет: «Серо-зеленый» — составной; фото «серый» и фид «Зеленый» с ним совпадают (эталон №26/29)',
+       name_colour('Комод divan.ru Лигес 93x87 Серо-зеленый') == 'серо-зелёный'
+       and match_colour('серый', 'серо-зелёный', 'зелёный', False)[0] == 'серо-зелёный'
+       and 'colour' not in disputes('комод', 'Комод Лигес 93x87 Серо-зеленый', {'Цвет основной': 'Зеленый'}))
+    ok('цвет: фото = фид точно, название той же группы — берём фид (№6: белый, «Молочный»)',
+       match_colour('белый', 'бежевый', 'белый', False)[0] == 'белый')
+    ok('цвет: «Розетта» — не розовый, «Графитовый» — серый',
+       (name_colour('Тумба Тайрон 51x48 Розетта'), name_colour('Комод Блест 200x87 Графитовый')) == (UNK, 'серый'))
+    ok('цвет: «А/Б» в названии — главный первый («Дуб Барбера/Черный», «Латте/Черный»)',
+       (name_colour('Шкаф Кимбол-1-50x210 Дуб Барбера/Черный'), name_colour('Шкаф Кимбол 3.1-170x280 Латте/Черный'))
+       == ('дерево светлое', 'бежевый'))
     ok('промпт: в системном тексте нет подсказок цвета из карточки', '{' not in SYS and len(PROMPT_HASH) == 12)
     print('FAILS', bad)
     return 1 if bad else 0
@@ -583,6 +659,9 @@ def _selftest() -> int:
 if __name__ == '__main__':
     if '--selftest' in sys.argv:
         sys.exit(_selftest())
+    if '--recount' in sys.argv:    # правила поменялись — пересчёт по сохранённым ответам, сверка с отметками ведущего
+        D = os.path.expanduser(sys.argv[sys.argv.index('--recount') + 1]).rstrip('/')
+        sys.exit(recount(D, sys.argv[sys.argv.index('--marks') + 1] if '--marks' in sys.argv else None))
     if '--sheet' in sys.argv:      # пересобрать лист из сохранённых ответов, без модели и денег
         D = os.path.expanduser(sys.argv[sys.argv.index('--sheet') + 1]).rstrip('/')
         sheet([json.loads(x) for x in open(os.path.join(D, 'golden.jsonl'), encoding='utf-8') if x.strip()], D,
