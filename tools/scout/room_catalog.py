@@ -202,6 +202,38 @@ def dims_of(o: dict, role: str, R: dict) -> dict:
     return out
 
 
+def role_guard(role: str, name: str, d: dict, R: dict) -> str | None:
+    """Почему товар не годится в роль (`role_guard`: платяной шкаф ≥ 150 см в высоту и ≥ 40 в глубину, не настенный,
+    не пенал, не шкафчик) или None. Неизвестный размер не отсекает — нет числа, нет и приговора. Чистая функция."""
+    g = R.get('role_guard', {}).get(role)
+    if not g:
+        return None
+    if g.get('name_deny') and re.search(g['name_deny'], name or '', re.I):
+        return 'название: ' + re.search(g['name_deny'], name, re.I).group(0)
+    low = [f'{k} {d[k]:g} < {lo}' for k, lo in g.get('min', {}).items() if d.get(k) and float(d[k]) < lo]
+    return 'габарит: ' + ', '.join(low) if low else None
+
+
+def guarded(offers: list, R: dict) -> tuple:
+    """Офферы с размерами (`with_dims`) → (годные, [(оффер, причина)]) по `role_guard`."""
+    keep, out = [], []
+    for o in offers:
+        why = role_guard(o['br_role'], o['name'], o['_d'], R)
+        if why:
+            out.append((o, why))
+        else:
+            keep.append(o)
+    return keep, out
+
+
+def guard_line(out: list) -> str:
+    by: dict = {}
+    for o, why in out:
+        k = (o['br_role'], why.split(':')[0])
+        by[k] = by.get(k, 0) + 1
+    return f'отсеяно габаритом: {len(out)}' + (' (' + ', '.join(f'{r} по {w} {n}' for (r, w), n in sorted(by.items())) + ')' if by else '')
+
+
 def line_dims(items: list) -> dict:
     """Габарит «линейки», а не кровати: в магазине один и тот же габарит (w×d) стоит у кроватей с ≥3 разными спальными
     местами (Орматек: 200×200 у 80, 140 и 160) — это общие числа серии. → {индекс: причина}. Правило по данным, не по
@@ -280,7 +312,8 @@ def run() -> int:
         print('ERROR:room_catalog: kids_store включён, а столбца kids нет — сначала миграция 015; прогон остановлен', flush=True)
         return 1
     rows = []
-    keep = with_dims([o for o in offers if o['mid'] not in skip], R)
+    keep, gone = guarded(with_dims([o for o in offers if o['mid'] not in skip], R), R)
+    print(guard_line(gone), flush=True)
     for o in keep:
         d = o['_d']
         rows.append('(' + ','.join(_lit(x) for x in (
@@ -454,7 +487,8 @@ def measure(photos: int = 0) -> int:
     """Замер БЕЗ базы (onb-04 Т1/Т5): те же фиды и правила, что у `--run`, таблица роль × магазин + детское вне детских."""
     R = rules()
     offers, _seen = collect(R)
-    with_dims(offers, R)
+    offers, gone = guarded(with_dims(offers, R), R)
+    print(guard_line(gone), flush=True)
     items = [{'role': label(o['br_role'], o['name'], R, o.get('br_kids')), 'shop': o['shop'], 'price': o['price'], 'img': o.get('pic_hd') or o.get('pic'),
               'full': all(o['_d'].get(k) for k in ('w', 'd', 'h')) and (o['br_role'] in R.get('bed_roles', ()) or bool(o['_d']['ok'])),
               'honest': bool(o['_d'].get('ok')), 'name': o['name']}
@@ -501,6 +535,15 @@ def _selftest() -> int:
     line = line_dims([(1, 'кровать', {'w': 200, 'd': 200, 'sw': x}) for x in (80, 140, 160)] +
                      [(2, 'кровать', {'w': 173, 'd': 230, 'sw': 140}), (2, 'кровать', {'w': 193, 'd': 230, 'sw': 160})])
     ok('габарит линейки (один на 3 разных спальных места) — не кровати; у разных габаритов — честно', sorted(line) == [0, 1, 2])
+    gl = 'Шкафчик настенный Glasar 2 дверцы 45x17x90 см'
+    ok('сторож шкафа: Glasar 45×17×90 — не шкаф (название и габарит)', rl(99272, '6980', gl) == 'шкаф'
+       and role_guard('шкаф', gl, {'w': 45, 'd': 17, 'h': 90}, R) == 'название: Шкафчик'
+       and role_guard('шкаф', 'Шкаф Glasar', {'w': 45, 'd': 17, 'h': 90}, R) == 'габарит: h 90 < 150, d 17 < 40')
+    ok('сторож шкафа: Босс Стандарт 120×236 (глубины нет) — шкаф', role_guard(
+        'шкаф', 'Босс Стандарт 120*236 шкаф распашной 3Д+ящики Белый', {'w': 120, 'd': None, 'h': 236}, R) is None)
+    ok('сторож шкафа: распашной 98×202 глубиной 35 — не платяной; комод не проверяется',
+       role_guard('шкаф', 'Распашной шкаф divan.ru Сайрис 2-98x202 Белый', {'w': 98, 'd': 35, 'h': 202}, R) == 'габарит: d 35 < 40'
+       and role_guard('комод', 'Комод навесной', {'w': 80, 'd': 30, 'h': 60}, R) is None)
     _selftest_onb04(R, ok)     # провалы считает `ok` (nonlocal); «bad += …» затёр бы их старым значением bad
     return 1 if bad else 0
 
