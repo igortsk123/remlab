@@ -1022,7 +1022,10 @@ def bedroom_catalog() -> dict:
         from mesh_queue import db as _db
         rows = _db("select role, shop_mid||':'||external_id, name, shop, url, coalesce(image_url_hd, image_url), price_rub, "
                    "w_cm, d_cm, h_cm, sleep_w_cm, sleep_l_cm, coalesce(footprint_ok,false), "
-                   "to_char(max(last_seen) over (), 'YYYY-MM-DD') from room_catalog where " + RC.shown_where())
+                   "to_char(max(last_seen) over (), 'YYYY-MM-DD') from room_catalog where " + RC.shown_where() +
+                   # только включённые роли (флаг `roles_enabled`, onb-04 / ADR-0330): новые роли лежат в таблице,
+                   # но демо их не берёт, пока ведущий не включит — выключено → данные байт в байт прежние
+                   ' and ' + RC.enabled_sql())
     except Exception as e:  # noqa: BLE001 — каталога спальни нет: вкладка остаётся «скоро»
         print(f'каталог спальни: недоступен ({str(e)[:80]})')
         return {}
