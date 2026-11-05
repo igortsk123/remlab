@@ -41,10 +41,11 @@ async function viewerReady(page: Page, want: number): Promise<void> {
 
 test("1д прогулка /flat: 4 с к каждому предмету ядра — в комнате и ≥ 25 см от мебели", async ({ browser, request }) => {
   test.setTimeout(20 * 60_000);
-  const data = (await (await request.get(process.env.LIVE_DEMO_DATA ?? "/demo/demo-data.json")).json()) as { variants: { id: string; style?: string; items: Item[] }[] };
+  const data = (await (await request.get(process.env.LIVE_DEMO_DATA ?? "/demo/demo-data.json")).json()) as { variants: { id: string; room_id?: string; style?: string; items: Item[] }[] };
   const report: string[] = [];
   const bad: string[] = [];
-  for (const v of data.variants) {
+  // ТОЛЬКО ГОСТИНАЯ (onb-12): ядро `CORE` — предметы гостиной, у спальни его нет. Обязательный набор по типу комнаты — после спальни
+  for (const v of data.variants.filter((x) => (x.room_id ?? "living") === "living")) {
     const page = await browser.newPage();
     page.on("crash", () => bad.push(`${v.id}: вкладка упала (память без видеокарты)`));
     await page.goto(`/flat?demo=${v.id}&flat=flat215`, { waitUntil: "load", timeout: 120_000 });

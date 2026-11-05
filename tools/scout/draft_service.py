@@ -36,7 +36,7 @@ MAX_BOT = os.environ.get('SHARE_MAX_BOT', '')
 SMS_GATE = os.environ.get('SHARE_SMS_GATE', '')   # шлюз СМС; пусто — канал не подключён
 esc = html.escape
 from draft_guard import (ALLOWED_ORIGINS, ip_allowed,  # noqa: E402
-                         queue_eta, registry_trim, safe_url, save_share_request)
+                         queue_eta, registry_room_fields, registry_trim, safe_url, save_share_request)
 from draft_jobs import JobStore, public_view  # noqa: E402
 SHARE_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -237,6 +237,8 @@ def _registry_add(payload: dict, out: dict) -> None:
         import uuid
         sid = str(payload.get('stateId') or '')
         rec = {'style': payload.get('style') or '', 'variant': payload.get('variant') or '',
+               # комната и вариант кадра (onb-12): страница их шлёт; нет — запись гостиной, как до onb-12
+               **registry_room_fields(payload),
                'quality': out.get('quality') or payload.get('quality') or 'draft',
                'model': out.get('model') or '', 'sources': out.get('sources') or '',
                # чем нарисовано фото нейросети (demo-11): качество модели, версия и отпечаток промпта
@@ -263,7 +265,7 @@ def _registry_add(payload: dict, out: dict) -> None:
                 data = []
             data = [x for x in data if x.get('id') != rec['id']]
             data.append(rec)
-            data = registry_trim(data)             # реестр не растёт бесконечно, свежий кадр каждого стиля не вытесняется
+            data = registry_trim(data)             # реестр не растёт бесконечно, свежий кадр каждого стиля в каждой комнате не вытесняется
             tmp = path + '.tmp'
             json.dump(data, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False)
             os.replace(tmp, path)

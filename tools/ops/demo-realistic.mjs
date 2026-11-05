@@ -26,6 +26,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { demoUrl } from "./demo-url.cjs";
+import { regOf } from "./demo-warm.mjs";
 
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const NIGHT = process.argv.includes("--night"), DRY = process.argv.includes("--dry");
@@ -126,11 +127,14 @@ async function main() {
     await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });
     await page.waitForTimeout(4000); // реестр кадров приезжает позже данных
     // кому нужно фото: у варианта нет реалистичного снимка его нынешней расстановки (то же правило, что у вкладки «Фото»)
+    // все комнаты витрины (onb-12): номер состояния `curStateId` считает страница по комнате открытого варианта (`curRoom`);
+    // вариант, чьей комнаты нет в данных (`roomGeoOf` → null), главная не показывает — его не снимаем
     const todo = await page.evaluate(`((force) => { const c0 = cur, out = [];
-      allVariants().forEach((v, i) => { pickVariant(i);
+      allVariants().forEach((v, i) => { if (typeof roomGeoOf === 'function' && !roomGeoOf(v)) return; pickVariant(i);
         // --force <стиль> — только он; --force all — все; без --force — у кого нет фото своей расстановки
         const want = force ? (force === "all" || force === v.style) : !vwRealShots().length;
-        if (want) out.push({ i, style: v.style, stateId: curStateId(), cams: (cams || loadCams()).map((c) => [c.name, Math.round(c.x), Math.round(c.y), Math.round(c.rot || 0)].join(":")).join("|") }); });
+        if (want) out.push({ i, id: v.id, room: typeof roomIdOf === 'function' ? roomIdOf(v) : 'living', style: v.style, stateId: curStateId(),
+          cams: (cams || loadCams()).map((c) => [c.name, Math.round(c.x), Math.round(c.y), Math.round(c.rot || 0)].join(":")).join("|") }); });
       pickVariant(c0); return out; })(${JSON.stringify(NIGHT ? "" : FORCE)})`);
     const before = new Set((await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json()).map((r) => r.id));
     console.log(`фото нейросети: ${FORCE && !NIGHT ? `переснять (--force ${FORCE})` : "без фото своей расстановки"} — ${todo.length}${todo.length ? ": " + todo.map((t) => t.style).join(", ") : ""}`);
@@ -181,10 +185,11 @@ async function shootOne(page, t, before) {
       done: (n0) => ok({ n: shots.length - n0, frames: (shots[n0] || {}).timing?.frames }) }));
   }, [t.i, FRAMES]);
   if (FRAMES && !res.error && res.frames !== "browser") res.error = `снято не из кадров браузера (${res.frames ?? "?"})`;
-  // проверка по реестру сервера, а не по странице: запись этого стиля с номером его состояния и обеими точками
+  // проверка по реестру сервера, а не по странице: запись этого варианта (комната и номер — `regOf`, как у прогрева и страницы)
+  // с номером его состояния и обеими точками
   const reg = await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json();
   const sig = (r) => (r.cams ?? []).map((c) => [c.name, Math.round(c.x), Math.round(c.y), Math.round(c.rot || 0)].join(":")).join("|");
-  const rec = reg.find((r) => !before.has(r.id) && r.style === t.style && r.quality === "realistic" && r.stateId === t.stateId);
+  const rec = reg.find((r) => !before.has(r.id) && regOf(r, t) && r.quality === "realistic" && r.stateId === t.stateId);
   const why = !rec ? "в реестре нет новой записи с номером состояния"
     : rec.model !== EXPECT_MODEL ? `модель ${rec.model}, ждали ${EXPECT_MODEL}`
     : rec.prompt_version !== EXPECT_PROMPT ? `промпт ${rec.prompt_version ?? "—"}, ждали ${EXPECT_PROMPT}`

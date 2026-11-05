@@ -132,6 +132,8 @@ main() {
   [ "$rc" = 0 ] || [ "$rc" = 3 ] && PAUSED=1
   if [ "$rc" = 3 ]; then RESULT="кроны не закончили за $wait с — миграцию не трогали"; exit 3; fi
   [ "$rc" = 0 ] || { RESULT="cron-pause on: код $rc"; exit 4; }
+  # пауза наша, копия будет до SQL: `db_migrate.py`, запущенный отсюда, без паузы не отказывает (его допуск — `db_migrate.py:gate`)
+  export REMLAB_MIGRATE_SAFE=1
 
   mkdir -p "$dir"
   cp "$file" "$dir/migration.sql"

@@ -90,17 +90,30 @@ def queue_eta(position: int, quality: str, durs: dict, slots: int = 2) -> int:
 REGISTRY_MAX = 120
 
 
+def registry_room_fields(payload: dict) -> dict:
+    """Комната и вариант кадра для записи реестра (onb-12): страница шлёт `room_id`/`variant_id` (`index.html:payload`); пришли —
+    пишем строкой до 64 знаков, нет (старая страница) — полей нет вовсе, запись читается как гостиная, как весь реестр до onb-12."""
+    out = {}
+    for k in ('room_id', 'variant_id'):
+        v = str(payload.get(k) or '').strip()
+        if v and len(v) <= 64:
+            out[k] = v
+    return out
+
+
 def registry_trim(data: list, cap: int = REGISTRY_MAX) -> list:
-    """Реестр кадров не растёт бесконечно, но свежайший кадр КАЖДОГО стиля остаётся: иначе кадры покупателей вытесняют
-    прогретые кадры карточек (b2b-08, verify 14.10). Порядок записей сохраняется."""
+    """Реестр кадров не растёт бесконечно, но свежайший кадр КАЖДОГО стиля В КАЖДОЙ КОМНАТЕ остаётся: иначе кадры покупателей
+    вытесняют прогретые кадры карточек (b2b-08, verify 14.10), а кадры спальни — кадр гостиной того же стиля (onb-12). Запись без
+    `room_id` — гостиная. Порядок записей сохраняется."""
     if len(data) <= cap:
         return data
     keep = set()
     seen = set()
     for i in range(len(data) - 1, -1, -1):
         st = data[i].get('style') or ''
-        if st and st not in seen:
-            seen.add(st)
+        key = (data[i].get('room_id') or 'living', st)
+        if st and key not in seen:
+            seen.add(key)
             keep.add(i)
     rest = [i for i in range(len(data) - 1, -1, -1) if i not in keep][:max(0, cap - len(keep))]
     return [data[i] for i in sorted(keep | set(rest))]
@@ -136,6 +149,19 @@ def _selftest() -> int:
     old = [{'style': 'лофт', 'ts': 0}] + [{'style': 'сканди', 'ts': i} for i in range(1, 200)]
     tr = registry_trim(old, 50)
     ok(len(tr) == 50 and tr[0]['style'] == 'лофт', 'реестр кадров: не больше предела, старый кадр редкого стиля сохранён')
+    # onb-12: свежий кадр — по паре (комната, стиль); запись без комнаты — гостиная, старые записи читаются
+    mix = ([{'style': 'сканди', 'ts': 0}, {'style': 'сканди', 'room_id': 'bedroom', 'variant_id': 'bed1', 'ts': 1}]
+           + [{'style': 'сканди', 'room_id': 'living', 'ts': i} for i in range(2, 200)])
+    tr = registry_trim(mix, 50)
+    ok(len(tr) == 50 and tr[0] == mix[1] and tr[-1] == mix[-1],
+       'реестр кадров: старый кадр спальни не вытесняют кадры гостиной того же стиля')
+    ok(mix[0] not in tr, 'реестр кадров: запись без комнаты — гостиная (её вытесняет свежий кадр гостиной того же стиля)')
+    tr = registry_trim([{'style': 'лофт', 'ts': 0}] + [{'style': 'сканди', 'ts': i} for i in range(1, 60)], 10)
+    ok(len(tr) == 10 and tr[0]['style'] == 'лофт', 'реестр кадров: старые записи без комнаты — как раньше, по стилю')
+    ok(registry_room_fields({'room_id': 'bedroom', 'variant_id': 'bed1', 'style': 'x'}) == {'room_id': 'bedroom', 'variant_id': 'bed1'},
+       'запись реестра: комната и вариант сохраняются, если пришли')
+    ok(registry_room_fields({'style': 'x'}) == {} and registry_room_fields({'room_id': '', 'variant_id': 'v' * 65}) == {},
+       'запись реестра: не пришли (старая страница) или мусор — полей нет, запись — гостиная')
     return 1 if bad else 0
 
 

@@ -22,7 +22,7 @@ type Viewer = {
 };
 type Item = { role?: string; x?: number; y?: number; w?: number; d?: number; corner?: boolean; corner_left?: boolean;
   sku?: { msid?: string; sid?: string; name?: string } };
-type Variant = { id: string; style?: string; items: Item[] };
+type Variant = { id: string; room_id?: string; style?: string; items: Item[] };
 type DemoData = { variants: Variant[]; feeds?: Record<string, FeedItem[]>; variant_aliases?: Record<string, string> };
 
 const CORE = ["диван", "столик", "тв-тумба", "стол обеденный"];
@@ -42,8 +42,11 @@ const FLAT = "flat215";
 // свои launchOptions заменяют аргументы конфига — блок Метрики (`LIVE_BROWSER_ARGS`, T-20261018-18) добавляем сами
 test.use({ launchOptions: { args: [...LIVE_BROWSER_ARGS, "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } });
 
+// ТОЛЬКО ГОСТИНАЯ (onb-12): проверки 2.19–2.21 меряют гостиную (ядро `CORE`, ТВ, ваза, комната `living`), варианты других комнат
+// в них не идут. Обязательный набор по типу комнаты — после спальни
 async function demoData(request: import("@playwright/test").APIRequestContext): Promise<DemoData> {
-  return (await (await request.get(process.env.LIVE_DEMO_DATA ?? "/demo/demo-data.json")).json()) as DemoData;
+  const data = (await (await request.get(process.env.LIVE_DEMO_DATA ?? "/demo/demo-data.json")).json()) as DemoData;
+  return { ...data, variants: data.variants.filter((v) => (v.room_id ?? "living") === "living") };
 }
 const variants = async (request: import("@playwright/test").APIRequestContext): Promise<Variant[]> => (await demoData(request)).variants;
 
