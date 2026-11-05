@@ -50,6 +50,17 @@ def test_nedelya_okno_konchilos_i_net_fayla(tmp_path: Path) -> None:
     assert tokeny.nedelya_seychas(tmp_path / "net.jsonl", T0) is None
 
 
+def test_nedelya_otvet_proshlogo_okna_ne_v_schet(tmp_path: Path) -> None:
+    """05.11 pakardev: ответ модели был 18.10 (прошлое окно), новая сессия без ответов дала 15 % нового окна —
+    «ответ модели» не показываем, а не «18.10»."""
+    put = tmp_path / "usage-log.jsonl"
+    staroe = OKNO - 7 * 86400
+    put.write_text(zapis(-20000, "staraya", 50, resets=staroe, api_ms=1) + zapis(-19999, "staraya", 51, resets=staroe,
+                   api_ms=2) + zapis(0, "novaya", 15), encoding="utf-8")
+    n = tokeny.nedelya_seychas(put, T0)
+    assert n is not None and n["procent"] == 15.0 and n["otvet"] is None
+
+
 def vygruzka(tmp_path: Path, mashina: str, nedelya: dict[str, object] | None, vvod: int = 1_000_000) -> str:
     chisla = dict.fromkeys(tokeny.CHISLA + tokeny.SPRAVOCHNO, 0) | {"vvod": vvod, "kesh_chtenie": 2 * vvod}
     s = tokeny.Stroka(f"s-{mashina}", "f.jsonl", f"m-{mashina}", "r", "u", datetime(2026, 11, 4, 10, tzinfo=UTC),

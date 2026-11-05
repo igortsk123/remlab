@@ -873,12 +873,13 @@ def nedelya_seychas(put: Path, seychas: datetime) -> dict[str, object] | None:
     последнего ответа модели (проверено 05.11 на algor и common: рядом 41, 57 и 85 % одного окна).
     Поэтому: окно — самый поздний `resets_at` (допуск — час), процент — максимум по сессиям этого
     окна, «замер» — когда этот максимум впервые пришёл; «ответ» — последний рост
-    `cost.total_api_duration_ms` любой сессии (тогда процент был свежим). Окно уже кончилось
-    (`resets_at` в прошлом) — процент неизвестен: `sbroshen`. Нет файла или точек — None."""
+    `cost.total_api_duration_ms` любой сессии внутри этого окна (тогда процент был свежим; ответ прошлого
+    окна не в счёт — 05.11 на pakardev новая сессия без ответов дала 15 %, а «ответ» был бы от 18.10).
+    Окно уже кончилось (`resets_at` в прошлом) — процент неизвестен: `sbroshen`. Нет файла или точек — None."""
     if not put.is_file():
         return None
     tochki: list[tuple[datetime, float, int]] = []
-    otvet: datetime | None = None
+    otvety: list[datetime] = []
     api: dict[str, int] = {}
     with put.open("rb") as f:
         f.seek(max(0, put.stat().st_size - HVOST_LIMITA))
@@ -896,7 +897,7 @@ def nedelya_seychas(put: Path, seychas: datetime) -> dict[str, object] | None:
             tochki.append((t, float(pr), r))
         ms, ses = slovar(z.get("cost")).get("total_api_duration_ms"), str(z.get("session") or "")
         if isinstance(ms, int) and ms > api.get(ses, ms):
-            otvet = t if otvet is None else max(otvet, t)
+            otvety.append(t)
         if isinstance(ms, int):
             api[ses] = max(ms, api.get(ses, 0))
     if not tochki:
@@ -905,7 +906,8 @@ def nedelya_seychas(put: Path, seychas: datetime) -> dict[str, object] | None:
     svoi = sorted(x for x in tochki if okno - x[2] <= DOPUSK_OKNA)
     maks = max(p for _, p, _ in svoi)
     zamer = min(t for t, p, _ in svoi if p == maks)
-    iso = lambda t: t.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    otvet = max((t for t in otvety if t.timestamp() >= okno - 7 * 86400 - DOPUSK_OKNA), default=None)
+    iso =lambda t: t.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
     return {"procent": maks, "sbros": iso(datetime.fromtimestamp(okno, UTC)), "zamer": iso(zamer),
             "otvet": iso(otvet) if otvet else None, "posledniy": iso(max(t for t, _, _ in tochki)),
             "sbroshen": okno < seychas.timestamp()}
