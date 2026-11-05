@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { safeParse } from "zod/mini";
 
 import {
-  addFavorite, basketTotals, basketV2, emptyBasket, evaluate, include, loadBasket, migrateV1, nextName, preview, quoteRoom,
-  removeFavorite, type BasketV2, type FavoriteRef, type QuoteOption, type RoomQuote,
+  addFavorite, basketTotals, basketV2, emptyBasket, evaluate, exclude, excludeLine, include, loadBasket, migrateV1, nextName, preview, quoteRoom,
+  removeFavorite, restoreLine, type BasketV2, type FavoriteRef, type QuoteOption, type RoomQuote,
 } from "@/lib/basket/basket";
 
 // КОРЗИНА СЕРТИФИКАТА (demo-16 шаг 2, «Решения владельца 18.10», критика Codex 18.10): 0 на старте, первый вариант комнаты
@@ -165,5 +165,56 @@ describe("хранилище и имена", () => {
     expect(b.includedByRoom).toEqual({});
     expect(b.favorites.every((f) => f.quote.status === "pending")).toBe(true);
     expect(migrateV1(b, old, { id: "living", kind: "living", title: "Гостиная" }, [], "RUB").favorites.length).toBe(4);   // повтор — без дублей
+  });
+});
+
+describe("«Убрать из выбора» у строки (onb-03 Т5)", () => {
+  const two = (sofa: number | null, lamp: number): RoomQuote => ({ status: "fresh", currency: "RUB", at: 1, lines: [
+    { chargeKey: "shop:1_sofa", roomId: "living", label: "диван", settlement: "allowance", amount: sofa, priceStatus: sofa == null ? "unavailable" : "known", source: "shop" },
+    { chargeKey: "shop:2_lamp", roomId: "living", label: "торшер", settlement: "allowance", amount: lamp, priceStatus: "known", source: "shop" },
+  ] });
+  const kitchen = fav(2, q(50_000), "kitchen");
+
+  it("убранная строка не в сумме; «Вернуть» — снова в сумме; поле исчезает, когда убранных нет", () => {
+    let b = include(include(with_(fav(1, two(100_000, 20_000)), kitchen), id(1), LIMIT).basket, id(2), LIMIT).basket;
+    expect(basketTotals(b, LIMIT).allowanceEligible).toBe(170_000);
+    b = excludeLine(b, id(1), "shop:2_lamp");
+    expect(basketTotals(b, LIMIT).allowanceEligible).toBe(150_000);
+    expect(b.favorites.find((f) => f.favoriteId === id(1))?.excluded).toEqual(["shop:2_lamp"]);
+    expect(b.includedByRoom).toEqual({ living: id(1), kitchen: id(2) });                       // вариант остаётся включённым
+    b = restoreLine(b, id(1), "shop:2_lamp");
+    expect(basketTotals(b, LIMIT).allowanceEligible).toBe(170_000);
+    expect(b.favorites.find((f) => f.favoriteId === id(1))).not.toHaveProperty("excluded");
+  });
+
+  it("повтор и чужая строка — без изменений; «Убрать всё» у комнаты — прежний exclude", () => {
+    const b = include(with_(fav(1, two(100_000, 20_000))), id(1), LIMIT).basket;
+    const once = excludeLine(b, id(1), "shop:2_lamp");
+    expect(excludeLine(once, id(1), "shop:2_lamp")).toEqual(once);
+    expect(excludeLine(b, id(1), "shop:нет_такой")).toEqual(b);
+    expect(restoreLine(b, id(1), "shop:2_lamp")).toEqual(b);
+    expect(basketTotals(exclude(once, "living"), LIMIT).allowanceEligible).toBe(0);
+  });
+
+  it("убранная строка с неизвестной ценой не делает итог неполным и не мешает включению", () => {
+    const b = with_(fav(1, two(null, 20_000)));
+    expect(include(b, id(1), LIMIT).result).toBe("price_pending");
+    const r = include(excludeLine(b, id(1), "shop:1_sofa"), id(1), LIMIT);
+    expect(r.result).toBe("included");
+    expect(basketTotals(r.basket, LIMIT)).toMatchObject({ allowanceEligible: 20_000, allowanceComplete: true });
+  });
+
+  it("убранное снимает перерасход: вариант сверх лимита после «Убрать» влезает", () => {
+    const b = with_(fav(1, two(460_000, 20_000)));
+    expect(include(b, id(1), LIMIT).result).toBe("over_limit");
+    expect(include(excludeLine(b, id(1), "shop:2_lamp"), id(1), LIMIT).result).toBe("included");
+  });
+
+  it("старая корзина без поля читается; поле проходит проверку хранилища", () => {
+    const b = include(with_(fav(1, two(100_000, 20_000))), id(1), LIMIT).basket;
+    expect(loadBasket(JSON.parse(JSON.stringify(b)), { apartmentId: "flat215", currency: "RUB" })).toEqual(b);
+    const ex = excludeLine(b, id(1), "shop:2_lamp");
+    expect(loadBasket(JSON.parse(JSON.stringify(ex)), { apartmentId: "flat215", currency: "RUB" })).toEqual(ex);
+    expect(safeParse(basketV2, { ...ex, favorites: [{ ...ex.favorites[0], excluded: "shop:2_lamp" }] }).success).toBe(false);
   });
 });

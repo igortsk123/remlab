@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { demoUrl } from "./browser";
+
 // КАРТА СЦЕНАРИЕВ ДЕМО НА ПРОДЕ (план demo-03, `.memory_bank/domain/demo-scenario-map.md`). Номера тестов = номера строк
 // карты. Каждая проверка печатает число (время, количество, сумму): «не упало» — не проверка. Платный путь не тратит
 // деньги: запрос «Улучшить» шлём, только когда сервер сам говорит, что улучшение сейчас недоступно.
@@ -11,7 +13,7 @@ async function openDemo(page: Page, q = ""): Promise<string[]> {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   const t = Date.now();
-  await page.goto(`/demo/${q}`, { waitUntil: "networkidle" });
+  await page.goto(demoUrl(`/demo/${q}`), { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
   say("загрузка", Date.now() - t, "мс");
   return errors;
@@ -108,7 +110,7 @@ test("2.24 без реалистичного фото — 3D с ценникам
   await expect(page.locator("#vCta")).toHaveText(/реалистичнее/);
   await expect.poll(() => page.locator("#vpins .vpin:not([hidden])").count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
   say("ценников в 3D:", await page.locator("#vpins .vpin:not([hidden])").count());
-  await page.goto("/demo/?live=0", { waitUntil: "networkidle" });
+  await page.goto(demoUrl("/demo/?live=0"), { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0 && !!FLAT");
   await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
   await expect(page.locator("#vStub")).toBeVisible();
@@ -360,7 +362,7 @@ async function phonePage(browser: import("@playwright/test").Browser, q = "", pk
     if (j.card?.certificate) { j.card.certificate.amount = total; j.card.incentive = { ...pkg, total }; }
     await r.fulfill({ response: res, body: JSON.stringify(j), headers: { ...res.headers(), "content-type": "application/json" } });
   });
-  await page.goto(`/demo/${q}`, { waitUntil: "load" });
+  await page.goto(demoUrl(`/demo/${q}`), { waitUntil: "load" });
   await page.waitForFunction(basketReady, null, { timeout: 90_000 });
   return { ctx, page };
 }
@@ -382,12 +384,13 @@ test("2.33 первый экран телефона: вкладки стилей
   for (const vp of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
     const ctx = await browser.newContext({ ...phone, viewport: vp });
     const page = await ctx.newPage();
-    await page.goto("/demo/", { waitUntil: "load" });
+    await page.goto(demoUrl("/demo/"), { waitUntil: "load" });
     await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 0 && !!FLAT");
     const m = await page.evaluate(() => { const ph = document.querySelector("#hmRooms .hm-room .hm-ph")!.getBoundingClientRect(), tb = document.getElementById("styleTabs")!.getBoundingClientRect();
-      return { tabsVisible: tb.top >= 0 && tb.bottom <= innerHeight, visiblePhotoHeight: Math.round(Math.max(0, Math.min(ph.bottom, innerHeight) - Math.max(ph.top, tb.bottom))) }; });
+      return { tabsVisible: tb.top >= 0 && tb.bottom <= innerHeight, tabsHeight: Math.round(tb.height), visiblePhotoHeight: Math.round(Math.max(0, Math.min(ph.bottom, innerHeight) - Math.max(ph.top, tb.bottom))) }; });
     say(`${vp.width}×${vp.height}:`, JSON.stringify(m));
     expect(m.tabsVisible).toBe(true);
+    expect(m.tabsHeight).toBeGreaterThan(0);   // свёрнутая лента (onb-03 Т4) — 0 px, «видна» была бы ложно (onb-02 Т7)
     expect(m.visiblePhotoHeight).toBeGreaterThanOrEqual(120);
     await ctx.close();
   }
@@ -399,7 +402,7 @@ test("2.34 липкая шапка после прокрутки ≤ 140 px (Р�
   for (const q of ["", "?lang=en"]) {
     const ctx = await browser.newContext(phone);
     const page = await ctx.newPage();
-    await page.goto(`/demo/${q}`, { waitUntil: "load" });
+    await page.goto(demoUrl(`/demo/${q}`), { waitUntil: "load" });
     await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 1 && !!FLAT");
     await page.evaluate("scrollTo(0, document.documentElement.scrollHeight)");
     await page.waitForTimeout(500);
@@ -565,7 +568,7 @@ test("2.37 свёрнутая шторка = плашка + чип + кнопк�
     const ctx = await browser.newContext({ ...phone, viewport: vp });
     const page = await ctx.newPage();
     await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
-    await page.goto("/demo/?live=force", { waitUntil: "load" });
+    await page.goto(demoUrl("/demo/?live=force"), { waitUntil: "load" });
     await page.waitForFunction(basketReady, null, { timeout: 90_000 });
     await page.locator("#hmRooms .hm-room [data-swap]").click();
     await expect(page.locator("#shot")).toHaveClass(/\bon\b/);
@@ -631,7 +634,7 @@ const pinsInFrame = (page: Page) => page.evaluate(() => {
 });
 async function pinsEveryStyle(page: Page, label: string): Promise<string[]> {
   await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
-  await page.goto("/demo/?live=force", { waitUntil: "load" });
+  await page.goto(demoUrl("/demo/?live=force"), { waitUntil: "load" });
   await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 0 && !!FLAT", null, { timeout: 90_000 });
   const n = await page.locator("#styleTabs [data-style]").count();
   const bad: string[] = [];

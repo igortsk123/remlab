@@ -10,3 +10,11 @@ export const LIVE_CHECK_HEADERS = { [LIVE_CHECK_HEADER]: "1" };
 
 /** Метрика не грузится вовсе: её домены для браузера не существуют — визиты проверок не попадают в отчёты Метрики. */
 export const LIVE_BROWSER_ARGS = ["--host-resolver-rules=MAP mc.yandex.ru ~NOTFOUND, MAP mc.yandex.com ~NOTFOUND"];
+
+/** Адрес демо для автоматики: `quiz=0` — без опроса-знакомства, прежняя главная (ADR-0330 п.5, план onb-03). Свой `quiz=` (тесты
+ *  опроса — `quiz=1`) не трогается; `#фрагмент` остаётся в конце. */
+export function demoUrl(path: string): string {
+  const i = path.indexOf("#"), base = i < 0 ? path : path.slice(0, i), frag = i < 0 ? "" : path.slice(i);
+  if (/[?&]quiz=/.test(base)) return path;
+  return `${base}${base.includes("?") ? (/[?&]$/.test(base) ? "" : "&") : "?"}quiz=0${frag}`;
+}

@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { demoUrl } from "./browser";
+
 // ПОЛ ОТ ЗАСТРОЙЩИКА — ЖИВАЯ ПРОВЕРКА (план demo-06). В окне варианта — вход «Отделка и ремонт», пять образцов пола с ценой;
 // выбор меняет номер состояния на s2 и `DEVOPT` (ссылки на /flat из окна нет — demo-20 Г6); /flat по прямой ссылке
 // (`opt=flooring:…`) показывает доплату отдельной строкой,
@@ -8,7 +10,7 @@ import { test, expect } from "@playwright/test";
 test("окно: «Отделка» → пять полов, выбор паркета — s2 и пол в состоянии", async ({ page }) => {
   test.setTimeout(120_000);
   await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
-  await page.goto("/demo/?live=0&lang=ru");
+  await page.goto(demoUrl("/demo/?live=0&lang=ru"));
   await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT", null, { timeout: 60_000 });
   await page.evaluate("openLiveWindow()");
   await page.locator("[data-opts]").click();
@@ -41,7 +43,7 @@ test("/flat с полом из ссылки: доплата застройщик
 test("2.23 окно: строки-входы по комнате — «Отделка» в гостиной, «Встраиваемое» с карточками кухни; «← Назад» — к списку", async ({ page }) => {
   test.setTimeout(150_000);
   await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
-  await page.goto("/demo/?live=0&lang=ru");
+  await page.goto(demoUrl("/demo/?live=0&lang=ru"));
   await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT", null, { timeout: 60_000 });
   await page.evaluate("openLiveWindow()");
   await expect(page.locator("#vGroups .vopts-row b")).toHaveText(["Отделка и ремонт"]);
@@ -52,7 +54,7 @@ test("2.23 окно: строки-входы по комнате — «Отде�
   await page.locator("#vOptsBack").click();
   await expect(page.locator("#vlist .vitems .row").first()).toBeVisible();
 
-  await page.goto("/demo/?live=0&lang=ru&debug=1&vroom=kitchen");
+  await page.goto(demoUrl("/demo/?live=0&lang=ru&debug=1&vroom=kitchen"));
   await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT", null, { timeout: 60_000 });
   await page.evaluate("openLiveWindow()");
   await page.locator('#vGroups [data-group="fitted"]').click();

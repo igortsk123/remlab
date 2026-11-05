@@ -8,6 +8,7 @@ import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
+import { demoUrl } from "../ops/demo-url.cjs";
 
 const [OUT, LANG, VP] = process.argv.slice(2);
 if (!OUT || !LANG || !VP) { console.error("usage: capture.mjs <OUT> <ru|en> <WxH>"); process.exit(2); }
@@ -107,7 +108,7 @@ const vis = (p, sel) => p.evaluate((s) => { const e = [...document.querySelector
 const clickJs = (p, sel) => p.evaluate((s) => { const e = [...document.querySelectorAll(s)].find((x) => x.getClientRects().length && getComputedStyle(x).visibility !== "hidden"); if (e) e.click(); return !!e; }, sel);
 
 async function openHome(p, extra = "") {
-  await p.goto(BASE + "?lang=" + LANG + extra, { waitUntil: "load", timeout: 120000 });
+  await p.goto(demoUrl(BASE + "?lang=" + LANG + extra), { waitUntil: "load", timeout: 120000 });
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!document.getElementById('hmCert').hidden", null, { timeout: 90000 });
   await wait(p, 1500);
   // ленивые картинки — прокрутить вниз и обратно
@@ -390,7 +391,7 @@ async function openHome(p, extra = "") {
     if (limits) await p.route(/\/api\/apartments\//, async (r) => { const res = await r.fetch(); const j = await res.json();
       if (j.card && j.card.incentive) { j.card.incentive.limits = limits; j.card.incentive.total = limits.furniture + limits.fitout; j.card.certificate.amount = j.card.incentive.total; }
       await r.fulfill({ response: res, body: JSON.stringify(j), headers: { ...res.headers(), "content-type": "application/json" } }); });
-    await p.goto(BASE + "?lang=" + LANG + "&live=0", { waitUntil: "load", timeout: 120000 });
+    await p.goto(demoUrl(BASE + "?lang=" + LANG + "&live=0"), { waitUntil: "load", timeout: 120000 });
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!!window.__basket&&!!window.__basket.totals()&&!document.getElementById('hmCert').hidden", null, { timeout: 90000 });
     await wait(p, 1200);
     const mode = await p.evaluate(() => document.getElementById("hmCert").dataset.mode);
@@ -426,7 +427,7 @@ async function openHome(p, extra = "") {
     const favs = EN ? [[1, "living", "living", [["furniture", 1200]]], [4, "living", "living", [["furniture", 5000]]], [2, "kitchen", "kitchen", [["fitout", 3000]]]]
       : [[1, "living", "living", [["furniture", 200000]]], [4, "living", "living", [["furniture", 520000]]], [2, "kitchen", "kitchen", [["fitout", 150000]]]];
     const p = await newPage(["remlab-basket:v2:" + apt, JSON.stringify(basket(apt, cur, fx, favs, [1, 2]))]);
-    await p.goto(BASE + "?lang=" + LANG + "&live=0", { waitUntil: "load", timeout: 120000 });
+    await p.goto(demoUrl(BASE + "?lang=" + LANG + "&live=0"), { waitUntil: "load", timeout: 120000 });
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!window.__basket&&!!window.__basket.totals()", null, { timeout: 90000 }); await wait(p, 1000);
     await p.evaluate(() => window.__basket.open("living")); await p.waitForSelector("#favGrid [data-finc]", { timeout: 30000 }); await wait(p, 600);
     await shoot(p, "fav-screen-cards", EN ? "Favourites — several cards" : "Избранное — несколько карточек");
@@ -437,7 +438,7 @@ async function openHome(p, extra = "") {
     await p.mouse.click(3, 3); await wait(p, 400);
     await p.context().close();
     const q = await newPage();
-    await q.goto(BASE + "?lang=" + LANG + "&live=0", { waitUntil: "load", timeout: 120000 });
+    await q.goto(demoUrl(BASE + "?lang=" + LANG + "&live=0"), { waitUntil: "load", timeout: 120000 });
     await q.waitForFunction("typeof D!=='undefined'&&!!D&&!!window.__basket", null, { timeout: 90000 }); await wait(q, 1000);
     await q.evaluate(() => window.__basket.open()); await wait(q, 1000);
     await shoot(q, "fav-empty", EN ? "Favourites — empty" : "Избранное — пусто");

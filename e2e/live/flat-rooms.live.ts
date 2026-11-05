@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 import { alternatives, feedForStyle, placeOf, type FeedItem } from "../../lib/configurator/demo-feeds";
-import { LIVE_BROWSER_ARGS } from "./browser";
+import { demoUrl, LIVE_BROWSER_ARGS } from "./browser";
 
 // КВАРТИРА В 3D (/flat) — СТРОКИ 2.19–2.22 КАРТЫ СЦЕНАРИЕВ (долг плана demo-03, T-20261018-11). Как и 1д (`flat-walk.live.ts`),
 // мерим числами по сцене, а не по снимку: у движка спрашиваем позу камеры (`debugWalk`), что видно (`projectSlot`) и где стоят
@@ -309,7 +309,7 @@ test("2.22 ссылка из окна и коллекция: строка зас
   console.log(`  ?demo=: «${await buyerHeader(`/flat?demo=set1&flat=${FLAT}`)}»`);
 
   // коллекция: ♡ в окне варианта → номер из корзины избранного (как 2.13: одна анонимная коллекция за прогон, без ПДн)
-  await page.goto("/demo/", { waitUntil: "networkidle" });
+  await page.goto(demoUrl("/demo/"), { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
   await page.locator("button[data-swap]").first().click();
   await page.locator("#vFav").click();

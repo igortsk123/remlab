@@ -7,6 +7,7 @@
 import { chromium } from "@playwright/test";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { demoUrl } from "./demo-url.cjs";
 
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const GO = process.argv.includes("--go");
@@ -30,7 +31,7 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
 let done = 0, failed = 0;
 try {
-  await page.goto(`${BASE}/demo/?live=force&lang=ru`, { waitUntil: "load", timeout: 120000 });
+  await page.goto(demoUrl(`${BASE}/demo/?live=force&lang=ru`), { waitUntil: "load", timeout: 120000 });
   await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT && shots.length > 0", null, { timeout: 90000 });
   await page.waitForTimeout(3000);
   for (const st of todo) {

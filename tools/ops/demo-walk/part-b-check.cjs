@@ -5,6 +5,7 @@
 //   node tools/ops/demo-walk/part-b-check.cjs https://remont-lab.online <outdir> [375|1440]
 // Локальная страница поверх прода — прокси (страница и `lib/` из рабочей копии, остальное с прода): база http://localhost:<порт>
 const path = require("path"), fs = require("fs");
+const { demoUrl } = require("../demo-url.cjs");
 const pw = require(path.resolve("node_modules/.pnpm/playwright@1.51.1/node_modules/playwright"));
 const BASE = process.argv[2] || "http://localhost:3106", OUT = process.argv[3], ONLY = +(process.argv[4] || 0);
 fs.mkdirSync(OUT, { recursive: true });
@@ -14,7 +15,7 @@ async function open(b, vp, q) {
   const ctx = await b.newContext({ viewport: { width: vp.w, height: vp.h }, deviceScaleFactor: 1, isMobile: vp.phone, hasTouch: vp.phone, locale: "ru-RU" });
   const p = await ctx.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(String(e).slice(0, 200)));
   await p.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
-  await p.goto(BASE + "/demo/" + (q || ""), { waitUntil: "load", timeout: 120000 });
+  await p.goto(demoUrl(BASE + "/demo/" + (q || "")), { waitUntil: "load", timeout: 120000 });
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&allVariants().length>0&&document.querySelectorAll('#styleTabs [data-style]').length>0", null, { timeout: 90000 });
   await p.waitForTimeout(2500);
   return p;

@@ -3,6 +3,7 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 // «Свайп — другой ракурс · шторку — товары и замены», в 3D — прежняя; сменили режим, пока видна, — уходит и «уже видел» не ставится.
 // Компьютер — подсказки окна нет. Платного нет (заказ фото подменён).
 //   DATA=<demo-data.json> FROZEN=1 BASE=https://remont-lab.online/demo/ OUT=<папка/> node tools/ops/demo-walk/window-hint-check.cjs 375x667
+const {demoUrl}=require('../demo-url.cjs');
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=process.env.OUT||require('os').tmpdir()+'/';
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number), PHONE=W<=700;
 const DATA=process.env.DATA?JSON.parse(fs.readFileSync(process.env.DATA,'utf8')):null;
@@ -21,7 +22,7 @@ const TIP=`(()=>{const t=document.querySelector('#shot .vtip'); if(!t)return nul
       const near=(a,c)=>Math.abs(a.x-c.x)<=2&&Math.abs(a.y-c.y)<=2;
       j.forEach(rec=>(rec.cams||[]).forEach(c=>{for(const v of DATA.variants){const d=(v.cams||[]).find(x=>x.name===c.name&&near(x,c)&&x.crop); if(d){c.crop=d.crop; break;}}}));
       await r.fulfill({response:res,body:JSON.stringify(j),headers:{...res.headers(),'content-type':'application/json'}});});
-    await p.goto(BASE+'?lang=ru&'+q,{waitUntil:'load',timeout:120000});
+    await p.goto(demoUrl(BASE+'?lang=ru&'+q),{waitUntil:'load',timeout:120000});
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&SHOTS_LOADED",null,{timeout:90000}).catch(()=>{});
     await p.evaluate(()=>{try{localStorage.removeItem('remlab-sheet-hint-v1');}catch(e){}}); return p;};
   const waitTip=p=>p.waitForFunction(()=>!!document.querySelector('#shot .vtip'),null,{timeout:30000}).then(()=>p.evaluate(TIP)).catch(()=>null);

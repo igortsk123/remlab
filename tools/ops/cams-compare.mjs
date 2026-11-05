@@ -8,6 +8,7 @@
 import { chromium } from "@playwright/test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { demoUrl } from "./demo-url.cjs";
 
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const OUT = "/tmp/cams-compare";
@@ -24,7 +25,7 @@ try {
   for (const [algo, q] of [[TAG, `&v=${Date.now()}`]]) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
-    await page.goto(`${BASE}/demo/?live=force&lang=ru${q}`, { waitUntil: "load", timeout: 120000 });
+    await page.goto(demoUrl(`${BASE}/demo/?live=force&lang=ru${q}`), { waitUntil: "load", timeout: 120000 });
     await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT && allVariants().length > 0", null, { timeout: 90000 });
     const n = await page.evaluate("allVariants().length");
     for (let i = 0; i < n; i++) {

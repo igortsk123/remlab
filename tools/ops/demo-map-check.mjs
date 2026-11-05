@@ -8,8 +8,12 @@ const root = new URL("../..", import.meta.url).pathname;
 const map = readFileSync(root + ".memory_bank/domain/demo-scenario-map.md", "utf8");
 const rows = [...map.matchAll(/^\| (\d+\.\d+) \|[^\n]*\| ([^|\n]*) \|\s*$/gm)].filter((m) => !/^\s*→/.test(m[2])).map((m) => m[1]);
 const covered = new Set();
+// Обход опроса (onb-03 Т9, ADR-0330 п.5): живая проверка открывает демо через `demoUrl()` (`?quiz=0`) или со своим `quiz=`;
+// голый `goto("/demo/…")` упрётся в окно опроса, когда у квартиры включат флаг.
+const bare = [];
 for (const f of readdirSync(root + "e2e/live").filter((f) => f.endsWith(".live.ts"))) {
   const src = readFileSync(root + "e2e/live/" + f, "utf8");
+  src.split("\n").forEach((ln, i) => { if (/\.goto\(\s*[`'"]\/demo\//.test(ln) && !/quiz=/.test(ln)) bare.push(`${f}:${i + 1}`); });
   for (const m of src.matchAll(/test\("((?:\d+\.\d+(?:–\d+\.\d+)?,?\s*)+)/g))
     for (const part of m[1].split(",")) {
       const [a, b] = part.trim().split("–");
@@ -21,3 +25,4 @@ for (const f of readdirSync(root + "e2e/live").filter((f) => f.endsWith(".live.t
 const miss = rows.filter((r) => !covered.has(r));
 console.log(`карта сценариев: строк ${rows.length}, под живой проверкой ${rows.length - miss.length}`);
 if (miss.length) console.log(`WARN:demo_map_uncovered: строки карты без живой проверки: ${miss.join(", ")}`);
+if (bare.length) console.log(`WARN:demo_quiz_bypass: демо открыто без quiz= (нужен demoUrl): ${bare.join(", ")}`);

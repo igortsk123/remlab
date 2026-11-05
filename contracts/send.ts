@@ -7,6 +7,8 @@
 
 import { z } from "zod";
 
+import { quizChildAge, quizColour, quizHousehold, quizStyle } from "@/contracts/quiz";
+
 /** События покупателя — единственное, что принимает публичная ручка. */
 export const buyerEventKind = z.enum([
   "designer_open", // открыл ссылку
@@ -19,6 +21,8 @@ export const buyerEventKind = z.enum([
   "share", // поделился: ссылка на вариант, «отправить себе» (владелец 14.10)
   "floor_pick", // выбрал пол из вариантов застройщика (demo-06)
   "walls_pick", // выбрал стены из вариантов застройщика (demo-07)
+  "quiz_done", // прошёл опрос-знакомство и выбрал стиль в итоге (onb-03)
+  "style_change", // «Выбрать другой» стиль после опроса (onb-03)
 ]);
 export type BuyerEventKind = z.infer<typeof buyerEventKind>;
 
@@ -34,6 +38,13 @@ export const buyerEvent = z.object({
   purpose: z.enum(["consult", "mortgage"]).optional(),
   channel: z.enum(["telegram", "whatsapp", "phone"]).optional(),
   reason: alternativeReason.optional(),
+  // Ответы опроса (onb-03, ADR-0330 п.4) — только перечисления из `contracts/quiz.ts`, без имени и свободного текста.
+  picked: z.array(quizStyle).max(2).optional(),
+  household: z.array(quizHousehold).max(5).optional(),
+  childAge: z.array(quizChildAge).max(4).optional(),
+  colours: z.array(quizColour).max(2).optional(),
+  result: z.array(quizStyle).max(3).optional(),
+  chosen: quizStyle.optional(),
 });
 export type BuyerEvent = z.infer<typeof buyerEvent>;
 

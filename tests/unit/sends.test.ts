@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { BuyerEvent } from "@/contracts/send";
 import { TOKEN_RE } from "@/lib/token";
 import type { TgFetch } from "@/lib/telegram/api";
 import { handleBotUpdate, NEW_LINK, NOTE_PROMPT } from "@/modules/sends/bot";
 import { flushSignals } from "@/modules/sends/dispatch";
 import { normalizePhone } from "@/modules/sends/phone";
-import { createSend, publicCard, recordBuyerEvent, revokeSend, setStatusByManager } from "@/modules/sends/service";
+import { createSend, publicCard, QUIZ_DEDUP_MS, recordBuyerEvent, revokeSend, setStatusByManager } from "@/modules/sends/service";
 import { MemorySendStore } from "@/modules/sends/store-memory";
 import type { Manager } from "@/modules/sends/types";
 
@@ -97,6 +98,45 @@ describe("события покупателя и антишум", () => {
     const sent = tg.calls.find((c) => c.method === "sendMessage")!;
     expect(String(sent.body.text)).toContain("Джапанди");
     expect(sent.body.reply_parameters).toEqual({ message_id: 42, allow_sending_without_reply: true }); // ответом на «Вася, после показа»
+  });
+});
+
+describe("опрос-знакомство (onb-03, ADR-0330 п.4)", () => {
+  const ev: BuyerEvent = { kind: "quiz_done", picked: ["scandi", "loft"], household: ["couple", "pet", "child"], childAge: ["3-7"],
+    colours: ["light"], result: ["scandi", "loft", "minimal"], chosen: "scandi" };
+
+  it("прошёл — сигнал сразу, словами словаря, без имени; статус «выбирает»", async () => {
+    const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
+    await recordBuyerEvent(s.id, ev, at(1), store);
+    expect(store.outbox.map((o) => o.kind)).toEqual(["quiz_done"]);
+    expect(store.outbox[0]!.text).toBe(`Ссылка ${s.id.slice(0, 4).toUpperCase()} · Клиент прошёл знакомство: понравились «Сканди», «Лофт»; `
+      + "живут: вдвоём, кошка или собака, с детьми (3–7 лет); цвета: светлые нейтральные. Показали: Сканди, Лофт, Минимализм — выбрал «Сканди».");
+    expect((await store.getSend(s.id))!.status).toBe("engaged");
+  });
+
+  it("«Изменить ответы» в течение 30 минут — без второго сигнала; позже — снова", async () => {
+    const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
+    await recordBuyerEvent(s.id, ev, at(1), store);
+    await recordBuyerEvent(s.id, { ...ev, chosen: "loft" }, at(20), store);
+    expect(store.outbox).toHaveLength(1);
+    await recordBuyerEvent(s.id, { ...ev, chosen: "loft" }, new Date(at(1).getTime() + QUIZ_DEDUP_MS), store);
+    expect(store.outbox.map((o) => o.text.endsWith("выбрал «Лофт».")).filter(Boolean)).toHaveLength(1);
+  });
+
+  it("пустые ответы — короткий текст без пустых скобок и двоеточий", async () => {
+    const s = (await createSend(mgr(), "flat215", "bot", { chatId: 501, messageId: 42 }, T0, store))!;
+    await recordBuyerEvent(s.id, { kind: "quiz_done", chosen: "japandi" }, at(1), store);
+    expect(store.outbox[0]!.text).toBe("Клиент прошёл знакомство. Выбрал «Джапанди».");
+  });
+
+  it("«Выбрать другой» стиль — в общей сводке через 30 минут, а не отдельным сигналом", async () => {
+    const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
+    await recordBuyerEvent(s.id, { kind: "style_change", chosen: "loft" }, at(1), store);
+    await recordBuyerEvent(s.id, { kind: "style_change", chosen: "minimal" }, at(3), store);
+    expect(store.outbox).toEqual([]);
+    const tg = fakeTg();
+    expect(await flushSignals(at(32), store, tg.f)).toMatchObject({ summaries: 1, sent: 1 });
+    expect(String(tg.calls.find((c) => c.method === "sendMessage")!.body.text)).toContain("сменил стиль на «Минимализм»");
   });
 });
 

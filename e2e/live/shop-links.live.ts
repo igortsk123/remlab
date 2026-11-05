@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { demoUrl } from "./browser";
+
 // «В МАГАЗИН» — ВСЕГДА В НОВОЙ ВКЛАДКЕ (владелец 16.10, план demo-02 § «Приёмка владельцем 16.10» п.7). Покупатель, ушедший в
 // магазин в той же вкладке, теряет свою расстановку. Инвариант: у каждой ссылки на магазин (чужой адрес или наш реф-переход
 // `/go/…`) — `target="_blank"` и `rel` с `noopener`. Проверяем там, где ссылки есть: витрина, окно варианта, лента замен, /flat.
@@ -22,7 +24,7 @@ async function badShopLinks(page: Page): Promise<{ n: number; bad: Bad[] }> {
 test("витрина, окно варианта и лента замен: ссылки в магазин — в новой вкладке", async ({ page }) => {
   test.setTimeout(180_000);
   await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
-  await page.goto("/demo/?live=0");
+  await page.goto(demoUrl("/demo/?live=0"));
   // данные витрины — переменная страницы (`let D`), не свойство window
   await page.waitForFunction("typeof D !== 'undefined' && !!D", null, { timeout: 60_000 });
   const seen: Record<string, number> = {};

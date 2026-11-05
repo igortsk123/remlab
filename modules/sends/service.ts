@@ -3,14 +3,15 @@
 // Антишум (разбор Codex 13.10): «открыл» — первый раз и снова не чаще раза в сутки; выбор
 // (вариант/замены) — одной сводкой через 30 минут после первого изменения, по сохранённому
 // сроку, даже если событий больше не будет; «консультация»/«другой вариант» — сразу, но повтор
-// того же клика в течение 2 минут не дублируется; общий бюджет — 20 сигналов в час на менеджера.
+// того же клика в течение 2 минут не дублируется; опрос-знакомство — сразу, повтор («Изменить ответы») не чаще раза в 30 минут
+// (ADR-0330 п.4); общий бюджет — 20 сигналов в час на менеджера.
 
 import { autoAdvanceAllowed, autoStatusFor, AUTO_STATUSES, type BuyerEvent, type ManagerStatus, type SendCard } from "@/contracts/send";
 import { randomToken } from "@/lib/token";
 import { demoNames, keepKnown, loadDemoRaw, type DemoNames } from "@/lib/partners/demo-data";
 import { findApartment as findApartmentHit } from "@/lib/partners/registry";
 import { findApartment } from "@/modules/sends/apartments";
-import { alternativeText, contactText, openText } from "@/modules/sends/signals";
+import { alternativeText, contactText, openText, quizText } from "@/modules/sends/signals";
 import { MemorySendStore } from "@/modules/sends/store-memory";
 import { PgSendStore } from "@/modules/sends/store-pg";
 import type { Manager, Send, SendStore } from "@/modules/sends/types";
@@ -19,6 +20,7 @@ const MIN = 60_000;
 export const REOPEN_SIGNAL_MS = 24 * 60 * MIN;
 export const SUMMARY_DELAY_MS = 30 * MIN;
 const CLICK_DEDUP_MS = 2 * MIN;
+export const QUIZ_DEDUP_MS = 30 * MIN;
 const MANAGER_BUDGET_PER_HOUR = 20;
 
 const g = globalThis as unknown as { __remlabSendStore?: SendStore };
@@ -88,13 +90,15 @@ export async function recordBuyerEvent(
   if (ev.kind === "designer_open") {
     if (await store.claimFirstOpen(id, now)) return signal(store, s, "open", openText(s, false), now).then(() => true);
     if (await store.claimReopen(id, now, REOPEN_SIGNAL_MS)) await signal(store, s, "reopen", openText(s, true), now);
-  } else if (ev.kind === "variant_view" || ev.kind === "item_swap" || ev.kind === "item_move" || ev.kind === "share" || ev.kind === "floor_pick" || ev.kind === "walls_pick") {
+  } else if (ev.kind === "variant_view" || ev.kind === "item_swap" || ev.kind === "item_move" || ev.kind === "share" || ev.kind === "floor_pick" || ev.kind === "walls_pick" || ev.kind === "style_change") {
     if (!s.summaryDueAt) await store.updateSend(id, { summaryDueAt: new Date(now.getTime() + SUMMARY_DELAY_MS) });
   } else if (ev.kind === "manager_contact_click" || ev.kind === "alternative_request") {
     // Дедуп одинаковых кликов — атомарной отметкой (`dedup_marks`), а не чтением событий: два
     // одновременных клика (sendBeacon + повтор) оба прошли бы проверку «не было» (verify 13.10).
     const key = `send-click:${id}:${ev.kind}:${ev.purpose ?? ""}:${ev.reason ?? ""}`;
     if (await store.claimDedup(key, now, CLICK_DEDUP_MS)) await signal(store, s, ev.kind, ev.kind === "alternative_request" ? alternativeText(s, ev) : contactText(s, ev), now);
+  } else if (ev.kind === "quiz_done") {
+    if (await store.claimDedup(`send-quiz:${id}:quiz_done`, now, QUIZ_DEDUP_MS)) await signal(store, s, ev.kind, quizText(s, ev), now);
   }
   return true;
 }

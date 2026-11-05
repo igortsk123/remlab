@@ -5,6 +5,7 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 // экран `#fav` с «← Назад»: пустой по ссылке; ♡ N, «Перейти →» и строка на главной ведут на него; «← Назад» — главная на той же
 // прокрутке; на главной раскрывающейся секции нет; поле имени — фокус и каретка в конце сразу после тапа по ♡. Платного пути нет.
 //   BASE=https://remont-lab.online/test/share/demo-stage/ OUT=~/scout-scenes/<сессия>/ node tools/ops/demo-walk/home-check.cjs
+const {demoUrl}=require('../demo-url.cjs');
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=(process.env.OUT||require('os').homedir()+'/scout-scenes/home-check/').replace(/\/?$/,'/');
 fs.mkdirSync(OUT,{recursive:true});
 const VPS=(process.argv[2]?[process.argv[2]]:['375x667','390x844','1440x900']).map(s=>s.split('x').map(Number));
@@ -17,7 +18,7 @@ async function page(b,[W,H],q,lang){
   const p=await ctx.newPage(); p.errs=[]; p.on('pageerror',e=>p.errs.push(String(e)));
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   await p.route(/\/api\/render(\?|$)/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({job:'fake-'+Date.now()})}));
-  await p.goto(BASE+(q||''),{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+(q||'')),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&allVariants().length>0&&document.querySelectorAll('#styleTabs [data-style]').length>0",null,{timeout:90000});
   await p.waitForFunction("!!FLAT",null,{timeout:30000}).catch(()=>{});
   await p.waitForFunction("(()=>{const i=document.querySelector('#hmRooms .hm-room img');return !i||i.complete;})()",null,{timeout:20000}).catch(()=>{});

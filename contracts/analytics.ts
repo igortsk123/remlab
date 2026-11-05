@@ -5,6 +5,8 @@
 
 import { z } from "zod";
 
+import { quizChildAge, quizColour, quizHousehold, quizStyle } from "@/contracts/quiz";
+
 export const pageCounterKind = z.enum([
   "designer_open", // открыл демо квартиры
   "variant_view", // посмотрел вариант
@@ -19,6 +21,15 @@ export const pageCounterKind = z.enum([
   "favourite_rename", // переименовал избранное (demo-15)
   "view_switch", // переключил ракурс подписью (demo-15)
   "style_tab", // переключил вкладку стиля на главной (demo-16)
+  "quiz_open", // показали приветствие опроса (onb-03)
+  "quiz_done", // прошёл опрос и выбрал стиль
+  "quiz_skip", // «Сразу к стилям»
+  "style_change", // «Выбрать другой» стиль после опроса
+  // Ответы опроса — по счётчику на значение словаря, без связки с человеком (ADR-0330 п.4)
+  ...quizStyle.options.flatMap((s) => [`quiz_photo:${s}`, `quiz_result:${s}`, `quiz_chosen:${s}`] as const),
+  ...quizHousehold.options.map((h) => `quiz_household:${h}` as const),
+  ...quizChildAge.options.map((a) => `quiz_child:${a}` as const),
+  ...quizColour.options.map((c) => `quiz_colour:${c}` as const),
 ]);
 export type PageCounterKind = z.infer<typeof pageCounterKind>;
 

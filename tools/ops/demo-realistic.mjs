@@ -25,6 +25,7 @@ import { chromium } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { demoUrl } from "./demo-url.cjs";
 
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const NIGHT = process.argv.includes("--night"), DRY = process.argv.includes("--dry");
@@ -121,7 +122,7 @@ async function main() {
   let done = 0, failed = 0;
   try {
     // без 3D-сцены (см. demo-warm.mjs); с --frames — со сценой: кадры снимает браузер
-    await page.goto(`${BASE}/demo/?live=${FRAMES ? "force" : "0"}&lang=ru`, { waitUntil: FRAMES ? "load" : "domcontentloaded", timeout: 120_000 });
+    await page.goto(demoUrl(`${BASE}/demo/?live=${FRAMES ? "force" : "0"}&lang=ru`), { waitUntil: FRAMES ? "load" : "domcontentloaded", timeout: 120_000 });
     await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });
     await page.waitForTimeout(4000); // реестр кадров приезжает позже данных
     // кому нужно фото: у варианта нет реалистичного снимка его нынешней расстановки (то же правило, что у вкладки «Фото»)

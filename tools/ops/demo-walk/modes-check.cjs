@@ -3,6 +3,7 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 // задания» — плюс «без 3D» и EN. Платный путь НЕ вызывается: ответы /api/render и /api/job подменяются (готовое фото = картинка товара).
 //   PROD=1 node tools/ops/demo-walk/modes-check.cjs 375x667          — прод как есть (платный путь подменён ВО ВСЕХ сценариях)
 //   SP=<папка с floorlib/> node … 375x667                            — локальная страница и движок поверх прода
+const {demoUrl}=require('../demo-url.cjs');
 const SP=process.env.SP, OUT=process.env.OUT||require('os').tmpdir()+'/', prod=!!process.env.PROD||!SP;
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number);
 const R=[]; const ok=(n,c,i)=>R.push((c?'OK  ':'FAIL')+' '+n+' '+(i||''));
@@ -29,7 +30,7 @@ async function page(b,q,lang){
   await p.route(/\/api\/render\/frame/,r=>{const buf=r.request().postDataBuffer()||Buffer.alloc(0); const id=require('crypto').createHash('sha256').update(buf).digest('hex');
     fs.writeFileSync(OUT+'frame-'+id.slice(0,8)+'.jpg',buf); p.frames.push({id,bytes:buf.length,w:buf.readUInt16BE?jpegSize(buf):null}); r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id,bytes:buf.length})});});
   p.on('request',rq=>{if(rq.method()==='POST'&&/\/api\/render(\?|$)/.test(rq.url())){try{p.renderBodies.push(JSON.parse(rq.postData()||'{}'));}catch(e){}}});
-  await p.goto('https://remont-lab.online/demo/'+q,{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl('https://remont-lab.online/demo/'+q),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
   await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){}});
   return p;

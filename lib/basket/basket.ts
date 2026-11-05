@@ -59,6 +59,9 @@ export const favoriteRef = object({
   createdAt: number(),
   shot: optional(string().check(maxLength(200))),
   quote: roomQuote,
+  /** «Убрать из выбора» (onb-03 Т5): строки комнаты (`chargeKey`), которые покупатель не берёт. Предмет остаётся в расстановке,
+   *  в сумму не идёт. Нет поля — всё берёт (корзины до onb-03). */
+  excluded: optional(array(string().check(maxLength(120))).check(maxLength(200))),
 });
 export type FavoriteRef = Infer<typeof favoriteRef>;
 
@@ -169,13 +172,16 @@ export type BasketTotals = SettlementTotals & {
 /** Пакет: политика двух бюджетов (demo-23) или число — прежний контракт (одна сумма, всё в мебели, перерасход — отказ). */
 export type Limit = number | BudgetPolicy;
 
-function totalsOf(quotes: { roomId: string; quote: RoomQuote }[], limit: Limit): BasketTotals {
+type RoomPart = { roomId: string; quote: RoomQuote; excluded?: string[] };
+
+function totalsOf(quotes: RoomPart[], limit: Limit): BasketTotals {
   const lines: SettlementLine[] = [];
   let allowanceComplete = true, complete = true;
   const pendingRooms: string[] = [];
-  for (const { roomId, quote } of quotes) {
+  for (const { roomId, quote, excluded } of quotes) {
     if (quote.status !== "fresh") { pendingRooms.push(roomId); allowanceComplete = false; complete = false; }
     for (const l of quote.lines) {
+      if (excluded?.includes(l.chargeKey)) continue;   // убрано из выбора — не в сумме и не делает итог неполным
       const unknown = l.priceStatus !== "known" || l.amount == null;
       if (unknown) { complete = false; if (l.settlement === "allowance") allowanceComplete = false; }
       lines.push({ amount: l.amount ?? 0, settlement: l.settlement, onRequest: unknown, label: l.label,
@@ -185,17 +191,18 @@ function totalsOf(quotes: { roomId: string; quote: RoomQuote }[], limit: Limit):
   return { ...settle(lines, limit), allowanceComplete, complete, pendingRooms, rooms: quotes.length };
 }
 
-const included = (b: BasketV2, exceptRoom?: string) => Object.entries(b.includedByRoom)
+const included = (b: BasketV2, exceptRoom?: string): RoomPart[] => Object.entries(b.includedByRoom)
   .filter(([room]) => room !== exceptRoom)
-  .map(([roomId, id]) => ({ roomId, quote: b.favorites.find((f) => f.favoriteId === id)!.quote }));
+  .map(([, id]) => b.favorites.find((f) => f.favoriteId === id)!)
+  .map((f) => ({ roomId: f.roomId, quote: f.quote, ...(f.excluded ? { excluded: f.excluded } : {}) }));
 
 /** Сумма сертификата по корзине: только включённые варианты комнат. */
 export const basketTotals = (b: BasketV2, limit: Limit): BasketTotals => totalsOf(included(b), limit);
 
 /** Плашка окна: корзина без этой комнаты и она же с черновиком окна вместо комнаты («с этой гостиной»). Замена, не сложение. */
-export function preview(b: BasketV2, roomId: string, draft: RoomQuote, limit: Limit): { base: BasketTotals; with: BasketTotals } {
+export function preview(b: BasketV2, roomId: string, draft: RoomQuote, limit: Limit, excluded?: string[]): { base: BasketTotals; with: BasketTotals } {
   const rest = included(b, roomId);
-  return { base: totalsOf(rest, limit), with: totalsOf([...rest, { roomId, quote: draft }], limit) };
+  return { base: totalsOf(rest, limit), with: totalsOf([...rest, { roomId, quote: draft, ...(excluded ? { excluded } : {}) }], limit) };
 }
 
 // ——— решения (ворота лимита — только здесь, UI `includedByRoom` руками не меняет; Codex п.4)
@@ -214,9 +221,10 @@ export type Decision =
   | { kind: "price_pending" };
 
 /** Что будет, если включить этот вариант комнаты: сперва цена и лимит, потом — пусто ли место (Codex п.5). */
-export function evaluate(b: BasketV2, roomId: string, candidate: RoomQuote, limit: Limit): Decision {
-  const t = preview(b, roomId, candidate, limit).with;
-  if (candidate.status !== "fresh" || !candidate.lines.every((l) => l.settlement !== "allowance" || l.priceStatus === "known")) return { kind: "price_pending" };
+export function evaluate(b: BasketV2, roomId: string, candidate: RoomQuote, limit: Limit, excluded?: string[]): Decision {
+  const t = preview(b, roomId, candidate, limit, excluded).with;
+  const counted = candidate.lines.filter((l) => !excluded?.includes(l.chargeKey));
+  if (candidate.status !== "fresh" || !counted.every((l) => l.settlement !== "allowance" || l.priceStatus === "known")) return { kind: "price_pending" };
   const cur = b.includedByRoom[roomId];
   if (t.allowanceOverage > 0) {
     if (typeof limit === "number") return { kind: "over_limit", overBy: t.allowanceOverage };
@@ -251,7 +259,7 @@ export type IncludeResult = { basket: BasketV2; result: "included" | "included_w
 export function include(b: BasketV2, favoriteId: string, limit: Limit, opts: { confirmTopup?: boolean } = {}): IncludeResult {
   const f = b.favorites.find((x) => x.favoriteId === favoriteId);
   if (!f) return { basket: b, result: "price_pending" };
-  const d = evaluate(b, f.roomId, f.quote, limit);
+  const d = evaluate(b, f.roomId, f.quote, limit, f.excluded);
   if (d.kind === "price_pending") return { basket: b, result: d.kind };
   if (d.kind === "over_limit") return { basket: b, result: d.kind, overBy: d.overBy };
   const topup = d.kind === "included_with_topup" || d.kind === "ask_replace" ? d.topup : undefined;
@@ -277,6 +285,24 @@ export function removeFavorite(b: BasketV2, favoriteId: string, limit: Limit): B
   next = exclude(next, f.roomId);
   const oldest = next.favorites.filter((x) => x.roomId === f.roomId).sort((a, c) => a.createdAt - c.createdAt)[0];
   return oldest ? include(next, oldest.favoriteId, limit).basket : next;
+}
+
+/** «Убрать из выбора» у строки варианта: только строка, что есть в его составе; повтор — без изменений. Лимит не проверяем —
+ *  сумма только уменьшается. «Убрать всё» у комнаты — `exclude`. */
+export function excludeLine(b: BasketV2, favoriteId: string, chargeKey: string): BasketV2 {
+  return { ...b, favorites: b.favorites.map((f) => f.favoriteId !== favoriteId || f.excluded?.includes(chargeKey)
+    || !f.quote.lines.some((l) => l.chargeKey === chargeKey) ? f : { ...f, excluded: [...(f.excluded ?? []), chargeKey].slice(0, 200) }) };
+}
+
+/** «Вернуть» строку. Сумма растёт — перерасход показывает итог (`basketTotals`), строку не блокируем: предмет и так в расстановке. */
+export function restoreLine(b: BasketV2, favoriteId: string, chargeKey: string): BasketV2 {
+  return { ...b, favorites: b.favorites.map((f) => {
+    if (f.favoriteId !== favoriteId || !f.excluded?.includes(chargeKey)) return f;
+    const rest = f.excluded.filter((k) => k !== chargeKey);
+    if (rest.length) return { ...f, excluded: rest };
+    const { excluded: _all, ...plain } = f;
+    return plain;
+  }) };
 }
 
 export function updateQuote(b: BasketV2, favoriteId: string, quote: RoomQuote): BasketV2 {

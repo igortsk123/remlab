@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { demoUrl } from "./browser";
+
 // Демо для застройщика на ПРОДЕ (план b2b-12): то, что гость заметит за первые две минуты. Данные — живые, поэтому
 // проверяем инварианты, а не конкретные товары: стили есть и у каждого есть кадр, замена меняет сумму, ссылка на
 // вариант открывает его, английский режим без русских надписей в шапке, ничего не падает в консоль.
@@ -9,7 +11,7 @@ type DemoWindow = Window & { allVariants: () => { id: string; style: string }[] 
 async function openDemo(page: Page, q = ""): Promise<string[]> {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
-  await page.goto(`/demo/${q}`, { waitUntil: "networkidle" });
+  await page.goto(demoUrl(`/demo/${q}`), { waitUntil: "networkidle" });
   await page.waitForFunction(() => typeof (window as unknown as DemoWindow).allVariants === "function" && (window as unknown as DemoWindow).allVariants().length > 0);
   return errors;
 }
@@ -51,7 +53,7 @@ test("замена предмета меняет сумму; ссылка на �
   // ссылка на вариант — в НОВОЙ вкладке: в этой вариант уже выбран нажатием, проверка ничего бы не доказала (verify)
   const vid = (await page.evaluate("allVariants()[allVariants().length - 1].id")) as string;
   const fresh = await page.context().newPage();
-  await fresh.goto(`/demo/#v=${vid}`, { waitUntil: "networkidle" });
+  await fresh.goto(demoUrl(`/demo/#v=${vid}`), { waitUntil: "networkidle" });
   await expect.poll(() => fresh.evaluate("(allVariants()[cur] || {}).id")).toBe(vid);
 });
 

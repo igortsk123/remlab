@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { demoUrl } from "./browser";
+
 // КАДРЫ ПО УМОЛЧАНИЮ НЕ ПУСТЫЕ (план demo-03, карта сценариев 2.7–2.8, 2.12). Живой прогон 14.10: второй ракурс сканди
 // был абажуром торшера изнутри — в окне это выглядело пустой стеной. Здесь для каждого опубликованного варианта
 // снимаем бесплатный черновик (наша 3D-сцена, без модели) теми камерами, что ставит страница, и меряем разброс
@@ -10,7 +12,7 @@ test.setTimeout(8 * 60_000);
 const MIN_STD = 25;   // у живой комнаты 55–70 (замер 14.10), у кадра «в абажур» — ниже 20
 
 test("2.7–2.8 оба ракурса каждого варианта не пустые", async ({ page }) => {
-  await page.goto("/demo/", { waitUntil: "networkidle" });
+  await page.goto(demoUrl("/demo/"), { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
   const n = await page.evaluate("D.variants.length") as number;
   for (let i = 0; i < n; i++) {
@@ -53,7 +55,7 @@ test("2.7–2.8 оба ракурса каждого варианта не пу�
 test("2.13 сохранённая коллекция получает картинку", async ({ page }) => {
   test.setTimeout(4 * 60_000);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto("/demo/", { waitUntil: "networkidle" });
+  await page.goto(demoUrl("/demo/"), { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
   await page.locator("button[data-swap]").first().click();
   await page.locator("#shotbody [data-rep]").first().click();
@@ -75,7 +77,7 @@ test("2.13 сохранённая коллекция получает карти
 // 2.7–2.8 и 2.13 — серверный черновик остаётся картинкой коллекции (demo-09 п.6), поэтому его ракурсы проверяем по-прежнему.
 test("2.12 фото с изменениями из конструктора", async ({ page }) => {
   test.setTimeout(4 * 60_000);
-  await page.goto("/demo/?live=force", { waitUntil: "networkidle" });
+  await page.goto(demoUrl("/demo/?live=force"), { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
   await page.locator("button[data-swap]").first().click();
   // «План» v3 — просмотр; редактор — по «Изменить план» (demo-02, ADR-0299)
