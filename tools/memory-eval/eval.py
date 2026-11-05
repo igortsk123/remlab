@@ -78,9 +78,10 @@ def working_tree_files():
     return files
 
 
-def build(rabochee=False):
+def build(rabochee=False, keep_tools=False):
     """Две копии кода из HEAD (или, с rabochee, из рабочего дерева); стенд и журналы замеров в копии не попадают
-    (иначе утечка эталонов)."""
+    (иначе утечка эталонов). keep_tools — `tools/` остаётся (вон только memory-eval и журнал сверок): у проекта, где в
+    `tools/` живой код (remlab: конвейер scout), без неё судья счёл бы верную ссылку туда ошибкой (проба remlab 05.11)."""
     commit = sh(["git", "-C", REPO, "rev-parse", "--short", "HEAD"]).stdout.strip()
     if rabochee:
         # Одна выгрузка рабочего дерева (репозиторий бывает сетевым) — вторая копия локально.
@@ -101,7 +102,7 @@ def build(rabochee=False):
             subprocess.run(["tar", "-x", "-C", f"{WORK}/{v}"], stdin=arch.stdout, check=True)
             arch.wait()
     for v in ("mem", "nomem"):
-        for p in ["tools", ".memory_bank/changelog/verify-log.tsv"]:
+        for p in ([] if keep_tools else ["tools"]) + [".memory_bank/changelog/verify-log.tsv"]:
             udalit(f"{WORK}/{v}/{p}")
         # Всё со словом memory-eval (журнал замеров, задания на замер с темами вопросов, сам стенд кита) — вон.
         for kor, dirs, fs in os.walk(f"{WORK}/{v}", topdown=True):
@@ -270,7 +271,8 @@ def canaries(limit=40):
 
 
 REDACT = [(r"`?\.?memory_bank/[^\s`),;]+`?", "[документ проекта]"), (r"`?\.claude/(rules|agents|skills)/[^\s`),;]+`?", "[документ проекта]"),
-          (r"`?(core|domain|decisions|reference|completed_plans|changelog)/[\w\-./]+\.md`?", "[документ проекта]"),
+          (r"`?(core|domain|decisions|reference|completed_plans|changelog|plans|lessons|guides|_intake)/[\w\-./]+\.md(:\d+(-\d+)?)?`?", "[документ проекта]"),
+          (r"`?\badr-\d{4}(-\d{4})?\.md(:\d+(-\d+)?)?`?", "[документ проекта]"),  # том ADR без папки («adr-0301-0350.md:430», проба 05.11)
           (r"`?CLAUDE\.md`?|`?MEMORY\.md`?", "[документ проекта]"), (r"(личн\w*|авто)[-\s]?памят\w*", "заметки"),
           (r"[^.\n]*в этой (копии|папке)[^.\n]*[.\n]", ""), (r"[^.\n]*(в репозитории|в проекте|в папке)[^.\n]*(нет|отсутств)[^.\n]*[.\n]", "")]
 
@@ -328,6 +330,8 @@ def main():
     ap.add_argument("--note", default="")
     ap.add_argument("--rabochee", action="store_true",
                     help="копии из рабочего дерева (отслеживаемые + неигнорируемые новые), а не из HEAD; в журнал — <коммит>+рабочее")
+    ap.add_argument("--keep-tools", action="store_true",
+                    help="оставить tools/ в обеих копиях (вон только memory-eval): когда в tools/ живой код проекта; в журнал — пометка")
     a = ap.parse_args()
     if not (a.dry or a.probe or a.run):
         ap.error("нужен режим: --dry (без трат), --probe (~0,05 $) или --run (полный прогон, ~15 $)")
@@ -335,7 +339,9 @@ def main():
     global WORK, PROJ
     WORK = tempfile.mkdtemp(prefix=f"memory-eval-{PROJECT}-", dir="/tmp" if os.path.isdir("/tmp") else None)
     PROJ = {v: f"{HOME}/.claude/projects/{SAN(f'{WORK}/{v}')}" for v in ("mem", "nomem")}
-    commit = build(a.rabochee)
+    commit = build(a.rabochee, a.keep_tools)
+    if a.keep_tools:
+        a.note = (a.note + "; tools/ в копиях").strip("; ")
     print(f"копии кода из {commit}: {WORK}/mem, {WORK}/nomem; вопросов {len(qs)} ({os.path.basename(a.questions)})")
     if a.dry:
         print(f"сухой прогон: копии и запреты готовы; полный прогон --run --pairs {a.pairs} ≈ {7 * a.pairs / 2:.0f} $ + судья ≈ 8 $")
