@@ -1,0 +1,54 @@
+{
+  "_doc": "Стенд паритета гостиной (tools/scout/parity_living.py, room-pipeline-01 Б-3). freeze — какие git-игнорируемые входы основной копии замораживаются (exclude — мусор, бэкапы и кэши, которые прогон должен пересчитать сам: раскладки солвера, отчёты экзамена — иначе он «продолжит» старый отчёт); seed — входы вне репо; noise — поля-шум, по имени ключа на любой глубине (keys — во всех артефактах, <артефакт> — только в нём), и замены в строках; db.ignore — таблицы, чьё чтение не делает эталон устаревшим (журналы); trace — что не считать «входом мимо копии» и «отсутствующим входом».",
+  "home": "~/remlab-scratch/parity",
+  "acc_workers": 3,
+  "memory": {"_doc": "сторож памяти перед тяжёлыми шагами (ведущий 05.11: стенд рядом с чужим прогоном выбивал remlab-render живого демо): ждать, пока MemAvailable ≥ min_gb (bank — bank_gb), опрос poll_s, строка в журнал раз в report_s; солверов смоука — 1 + (свободно − min_gb) / per_worker_gb, не больше acc_workers", "min_gb": 6, "bank_gb": 6, "per_worker_gb": 1.5, "poll_s": 30, "report_s": 300},
+  "code_skip": [".memory_bank", "docs", "remlab_knowledge_db_v1", ".claude"],
+  "freeze": {
+    "dirs": ["tools/scout", "services/planner-solver"],
+    "keep": ["tools/scout/thumbs/*"],
+    "exclude": [
+      "*/.env*", "*.env", "*/_secrets/*",
+      "*/__pycache__/*", "*/.pytest_cache/*", "*.pyc",
+      "tools/scout/imgcache/*", "tools/scout/refs/*", "tools/scout/xlsx/*", "tools/scout/feeds2/*", "tools/scout/feeds2-graveyard/*",
+      "tools/scout/logs/*", "tools/scout/big/*", "tools/scout/out/*", "tools/scout/style-bench/*", "tools/scout/gold-human/*",
+      "tools/scout/mesh-quarantine-page/*", "tools/scout/pipeline-page/*", "tools/scout/parity_site/*",
+      "tools/scout/enrich-batch-*", "tools/scout/mesh-queue-2026*", "tools/scout/golden*", "tools/scout/solver-check-*",
+      "tools/scout/*.pre-*", "tools/scout/*-pre-*", "tools/scout/*.before-*", "tools/scout/*.broken-*", "tools/scout/*.bak*",
+      "tools/scout/*.orig", "tools/scout/*.png", "tools/scout/*.jpg", "tools/scout/*.jpeg", "tools/scout/*.webp", "tools/scout/*.xlsx",
+      "tools/scout/*.html", "tools/scout/*.md", "tools/scout/*.log",
+      "tools/scout/v3set*-layout*.json", "tools/scout/set*-layout*.json", "tools/scout/*-bb-*.json", "tools/scout/*-bb.json",
+      "tools/scout/acceptance-report*", "tools/scout/smoke-manifest.json", "tools/scout/sets3.next*.json",
+      "tools/scout/sets3-*.json", "tools/scout/mesh-run-progress.jsonl", "tools/scout/openai-spend.jsonl",
+      "tools/scout/mesh-retry-queue.jsonl.inflight", "tools/scout/catalog-shadow-*.json", "tools/scout/hall-exam-report*"
+    ],
+    "seed": {
+      "demo/demo-data.json": "~/scout-scenes/flat215-demo/demo-data.json",
+      "demo/img": "~/scout-scenes/flat215-demo/img",
+      "mesh-luma-cache.json": "~/scout-scenes/mesh-luma-cache.json"
+    }
+  },
+  "noise": {
+    "keys": ["duration_s", "seconds", "elapsed_s", "at", "generated_at", "built_at", "created_at", "updated_at", "ts", "time",
+             "started", "finished", "wall_s"],
+    "catalog": [],
+    "smoke": [],
+    "demo": ["build", "built", "version_ts"],
+    "cams": [],
+    "bank": [],
+    "strings": [
+      {"re": "-demo-[0-9a-f]{8}", "to": "-demo-<hash>"},
+      {"re": "\\?v=[0-9]{9,}", "to": "?v=<ts>"}
+    ]
+  },
+  "db": {
+    "ignore": ["generation_runs", "generation_steps", "generation_assets", "events", "drizzle_migrations", "__drizzle_migrations",
+               "inngest_events", "leads", "analytics_events"]
+  },
+  "trace": {
+    "external_ok": ["~/venvs", "~/.cache", "~/.local", "~/.npm", "~/.nvm", "/usr", "/etc", "/lib", "/lib64", "/opt", "/snap",
+                    "/var/lib", "/run", "/tmp"],
+    "missing_ok": ["*/__pycache__/*", "*.pyc", "*.so", "*/pyvenv.cfg", "tools/scout/acceptance-report*", "tools/scout/v3set*-layout*",
+                   "tools/scout/smoke-manifest.json", "*.parity-cow-*"]
+  }
+}

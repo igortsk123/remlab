@@ -16,6 +16,7 @@
 #   tools/scout/run.sh guards          # сторожа целостности (pytest)
 #   tools/scout/run.sh bedroom-exam    # экзамен спальни: 40 сцен, отчёт и PNG-галерея (план onb-05)
 #   tools/scout/run.sh hall-exam       # экзамен прихожей: 28 сцен (10 — прихожая flat215), отчёт и PNG-галерея (план onb-13)
+#   tools/scout/run.sh parity snapshot|compare --ref F   # стенд паритета гостиной: эталон «до» / сверка «после» (Б-3, ~45 мин)
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE="$(pwd)"
@@ -66,6 +67,9 @@ case "${1:-}" in
   hall-exam)
     # ПРИХОЖАЯ (план onb-13 Т3): свой экзамен, банк гостиной и exam.flock не трогает — картинки в новую папку с меткой времени
     exec "$PY" hall_exam.py ;;
+  parity)
+    # СТЕНД ПАРИТЕТА ГОСТИНОЙ (room-pipeline-01 Б-3): своя копия кода на замороженных данных и копии базы, живое не трогает
+    shift; exec "$PY" parity_living.py "$@" ;;
   *)
     grep '^#   tools' "$0" | sed 's/^#  //'; exit 1 ;;
 esac
