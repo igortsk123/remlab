@@ -1,0 +1,48 @@
+{
+ "_meta": {
+  "source": "manual (план onb-05-bedroom-layout, ADR-0330 п.1/3/7)",
+  "about": "СОСТАВ И ШАБЛОНЫ спальни по назначению. Числа норм (проходы, фасады) — НЕ здесь, а в occupancy.json distances_cm (одно число — одно место, урок 194); здесь только ключи, по которым их читает planner/bedroom.py. У каждого правила — проверка (`_enforce`: код в planner/bedroom_checks.py или planner/validate.py) или `_enforce: none` с причиной (урок 199).",
+  "roles_note": "Имена ролей — из каталога спальни (tools/scout/rules/bedroom-roles.json: кровать, тумба прикроватная, комод, шкаф, туалетный столик). «стол рабочий» и «стул рабочий» — временные имена до ролей onb-04; ни одна не совпадает со «стул» по geometry.base_role (у «стул рабочий» последнее слово не число)."
+ },
+ "roles": {
+  "кровать": {"double_min_w_cm": 130, "_why": "двуспальная — от 140 по спальному месту (у рамы ≥ 130 по габариту каталога); уже — односпальная, её можно ставить длинной стороной к стене"},
+  "тумба прикроватная": {"_why": "у изголовья, спинкой к той же стене, вплотную к боку кровати"},
+  "шкаф": {"tall": true, "_why": "распашной; фасад — `wardrobe_hinged_front_min`"},
+  "комод": {"_why": "выдвижные ящики; фронт — `dresser_front`"},
+  "туалетный столик": {"_why": "место под пуф/стул — `desk_chair_clear`"},
+  "стол рабочий": {"_why": "место под стул — `desk_chair_clear` (Н9)"},
+  "стул рабочий": {"group": "стол рабочий", "_why": "стоит в зоне стола, свою зону не держит"}
+ },
+ "purposes": {
+  "couple": {"required": ["кровать"], "optional": ["тумба прикроватная", "тумба прикроватная 2", "шкаф", "комод", "туалетный столик"], "bed": "double", "_why": "пара: двуспальная, подход с двух сторон (Н1)"},
+  "single": {"required": ["кровать"], "optional": ["тумба прикроватная", "шкаф", "комод", "стол рабочий", "стул рабочий"], "bed": "any", "_why": "один взрослый: кровать можно в угол (Н3)"},
+  "guest": {"required": ["кровать"], "optional": ["тумба прикроватная", "тумба прикроватная 2", "комод", "шкаф"], "bed": "any", "_why": "гостевая: кровать 140 (диван-кровать — после ролей onb-04, Н11)"},
+  "office": {"required": ["стол рабочий", "стул рабочий"], "optional": ["шкаф", "комод", "кровать", "тумба прикроватная"], "bed": "any", "_why": "кабинет: стол + стул + хранение; спальное место — по месту (Н11)"},
+  "child": {"pending": "onb-04", "_why": "детские роли и нормы безопасности (ГОСТ 19301.3-2022) — после правил ролей onb-04; солвер отвечает кодом PURPOSE_PENDING"}
+ },
+ "templates": {
+  "bed_center_wall": {"for": ["couple", "guest", "single"], "_enforce": "planner/bedroom.py:_bed_candidates (центр стены) + BED_SIDE_PASSAGE", "_why": "двуспальная по центру сплошной стены, по тумбе с двух сторон"},
+  "bed_corner": {"for": ["single", "office", "guest"], "beds": "single", "_enforce": "planner/bedroom.py:_bed_candidates (угол) + BED_SIDE_PASSAGE", "_why": "односпальная в угол: изголовье и длинный бок к стенам"},
+  "storage_solid_wall": {"_enforce": "WINDOW_BLOCKED (planner/validate.py) + штраф окна в planner/bedroom.py:_score", "_why": "шкаф/комод — на стене без окна"},
+  "work_at_window": {"_enforce": "DESK_FAR_FROM_WINDOW", "_why": "стол у окна, свет сбоку или спереди (Н8)"},
+  "dressing_table": {"_enforce": "BR_ACCESS_BLOCKED / BR_ACCESS_WALL", "_why": "туалетный столик спинкой к стене, перед ним место под пуф"}
+ },
+ "rules": {
+  "bed_side_passage": {"_enforce": "BED_SIDE_PASSAGE", "num": "distances_cm.bed_side_passage"},
+  "bed_foot": {"_enforce": "BED_FOOT_PASSAGE", "num": "distances_cm.bed_foot_min"},
+  "bed_head_solid_wall": {"_enforce": "BED_HEAD_WALL"},
+  "bed_head_not_under_window": {"_enforce": "BED_HEAD_WINDOW"},
+  "bed_not_on_door_wall": {"_enforce": "BED_DOOR_WALL"},
+  "bed_radiator_soft": {"_enforce": "BED_NEAR_RADIATOR", "num": "distances_cm.bed_radiator_soft"},
+  "wardrobe_front": {"_enforce": "BR_ACCESS_BLOCKED / BR_ACCESS_WALL", "num": "distances_cm.wardrobe_hinged_front_min"},
+  "dresser_front": {"_enforce": "BR_ACCESS_BLOCKED / BR_ACCESS_WALL", "num": "distances_cm.dresser_front"},
+  "door_swing_and_passage": {"_enforce": "DOOR_SWING / DOOR_PASSAGE (planner/validate.py:check_openings)"},
+  "radiator_hard": {"_enforce": "RADIATOR (planner/validate.py:check_radiators)"},
+  "wardrobe_not_on_window": {"_enforce": "WINDOW_BLOCKED (planner/validate.py:check_openings)"},
+  "desk_at_window": {"_enforce": "DESK_FAR_FROM_WINDOW", "num": "distances_cm.desk_window_max"},
+  "desk_chair": {"_enforce": "BR_ACCESS_BLOCKED / BR_ACCESS_WALL", "num": "distances_cm.desk_chair_clear"},
+  "nightstand_at_head": {"_enforce": "NIGHTSTAND_DETACHED"},
+  "floor_occupancy": {"_enforce": "BEDROOM_FLOOR_OVERFILL", "num": "distances_cm.bedroom_floor_max_pct"},
+  "crib_child": {"_enforce": "none", "_why": "Н10 — после ролей onb-04 (кроватка, пеленальный комод)"}
+ }
+}

@@ -127,7 +127,8 @@ def test_severity_registry():
     import re
     root = os.path.join(os.path.dirname(__file__), '..')
     reg = json.load(open(os.path.join(root, 'rules', 'severity.json')))['codes']
-    src = open(os.path.join(root, 'planner', 'validate.py')).read()
+    # спальня (onb-05) — свой файл проверок, те же классы в том же реестре
+    src = ''.join(open(os.path.join(root, 'planner', f)).read() for f in ('validate.py', 'bedroom_checks.py'))
     actual = {}
     for m in re.finditer(r'_v\(\s*"([A-Z][A-Z_]{3,})"', src):
         depth, j = 0, m.start()

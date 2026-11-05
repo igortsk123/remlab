@@ -1,0 +1,848 @@
+{
+ "_about": "ЭКЗАМЕН СПАЛЬНИ (план onb-05 Т5): сцены «комната × назначение × набор». expect: solve — должна решаться (0 жёстких, обязательное стоит); fail — не должна (обязан быть код причины в meta.reason); pending — ждёт onb-04 (код PURPOSE_PENDING). Комнаты flat215:* — из flat215-bedrooms.json (id:variant). Запуск: tools/scout/run.sh bedroom-exam.",
+ "rooms": {
+  "r8": {
+   "w": 290,
+   "d": 276,
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "south",
+     "offset_cm": 20,
+     "width_cm": 90,
+     "swing_cm": 90,
+     "hinge": "left"
+    },
+    {
+     "kind": "window",
+     "wall": "north",
+     "offset_cm": 70,
+     "width_cm": 150,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "north",
+     "offset_cm": 85,
+     "width_cm": 120,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "8 м², дверь на длинной стене"
+  },
+  "r10": {
+   "w": 330,
+   "d": 300,
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "west",
+     "offset_cm": 20,
+     "width_cm": 90,
+     "swing_cm": 90,
+     "hinge": "left"
+    },
+    {
+     "kind": "window",
+     "wall": "east",
+     "offset_cm": 75,
+     "width_cm": 150,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "east",
+     "offset_cm": 90,
+     "width_cm": 120,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "10 м², дверь на короткой стене"
+  },
+  "r12": {
+   "w": 400,
+   "d": 300,
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "south",
+     "offset_cm": 290,
+     "width_cm": 90,
+     "swing_cm": 90,
+     "hinge": "left"
+    },
+    {
+     "kind": "window",
+     "wall": "north",
+     "offset_cm": 125,
+     "width_cm": 150,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "north",
+     "offset_cm": 140,
+     "width_cm": 120,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "12 м², дверь на длинной стене у угла"
+  },
+  "r14": {
+   "w": 420,
+   "d": 333,
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "east",
+     "offset_cm": 20,
+     "width_cm": 90,
+     "swing_cm": 90,
+     "hinge": "left"
+    },
+    {
+     "kind": "window",
+     "wall": "west",
+     "offset_cm": 90,
+     "width_cm": 150,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "west",
+     "offset_cm": 105,
+     "width_cm": 120,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "14 м², дверь на короткой стене"
+  },
+  "r16": {
+   "w": 450,
+   "d": 356,
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "south",
+     "offset_cm": 30,
+     "width_cm": 90,
+     "swing_cm": 90,
+     "hinge": "left"
+    },
+    {
+     "kind": "window",
+     "wall": "north",
+     "offset_cm": 150,
+     "width_cm": 150,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "north",
+     "offset_cm": 165,
+     "width_cm": 120,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "16 м²"
+  },
+  "r20": {
+   "w": 500,
+   "d": 400,
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "south",
+     "offset_cm": 380,
+     "width_cm": 90,
+     "swing_cm": 90,
+     "hinge": "left"
+    },
+    {
+     "kind": "window",
+     "wall": "north",
+     "offset_cm": 100,
+     "width_cm": 180,
+     "sill_cm": 85,
+     "height_cm": 150
+    },
+    {
+     "kind": "window",
+     "wall": "east",
+     "offset_cm": 120,
+     "width_cm": 150,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "north",
+     "offset_cm": 130,
+     "width_cm": 120,
+     "depth_cm": 12
+    },
+    {
+     "wall": "east",
+     "offset_cm": 135,
+     "width_cm": 120,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "20 м², угловая (два окна)"
+  },
+  "narrow270": {
+   "w": 270,
+   "d": 486,
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "south",
+     "offset_cm": 20,
+     "width_cm": 90,
+     "swing_cm": 90,
+     "hinge": "left"
+    },
+    {
+     "kind": "window",
+     "wall": "north",
+     "offset_cm": 60,
+     "width_cm": 150,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "north",
+     "offset_cm": 75,
+     "width_cm": 120,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "узкая 1:1,8 (13,1 м²), дверь и окно на коротких стенах"
+  },
+  "narrow240": {
+   "w": 240,
+   "d": 432,
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "east",
+     "offset_cm": 20,
+     "width_cm": 90,
+     "swing_cm": 90,
+     "hinge": "left"
+    },
+    {
+     "kind": "window",
+     "wall": "north",
+     "offset_cm": 45,
+     "width_cm": 150,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "north",
+     "offset_cm": 60,
+     "width_cm": 120,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "узкая 1:1,8 (10,4 м²), дверь на длинной стене"
+  },
+  "lshape": {
+   "w": 450,
+   "d": 400,
+   "contour": [
+    [
+     0,
+     0
+    ],
+    [
+     450,
+     0
+    ],
+    [
+     450,
+     250
+    ],
+    [
+     300,
+     250
+    ],
+    [
+     300,
+     400
+    ],
+    [
+     0,
+     400
+    ]
+   ],
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "south",
+     "offset_cm": 330,
+     "width_cm": 90,
+     "swing_cm": 90,
+     "hinge": "left"
+    },
+    {
+     "kind": "window",
+     "wall": "west",
+     "offset_cm": 125,
+     "width_cm": 150,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "west",
+     "offset_cm": 140,
+     "width_cm": 120,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "Г-контур 15,75 м² (вырез 150×150 — шахта/гардеробная)"
+  },
+  "balcony": {
+   "w": 380,
+   "d": 330,
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "south",
+     "offset_cm": 280,
+     "width_cm": 90,
+     "swing_cm": 90,
+     "hinge": "left"
+    },
+    {
+     "kind": "balcony",
+     "wall": "north",
+     "offset_cm": 40,
+     "width_cm": 80,
+     "swing_cm": 80,
+     "hinge": "right"
+    },
+    {
+     "kind": "window",
+     "wall": "north",
+     "offset_cm": 140,
+     "width_cm": 120,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "north",
+     "offset_cm": 140,
+     "width_cm": 120,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "выход на балкон рядом с окном (12,5 м²)"
+  },
+  "tiny": {
+   "w": 250,
+   "d": 280,
+   "openings": [
+    {
+     "kind": "door",
+     "wall": "south",
+     "offset_cm": 20,
+     "width_cm": 80,
+     "swing_cm": 80,
+     "hinge": "left"
+    },
+    {
+     "kind": "window",
+     "wall": "north",
+     "offset_cm": 60,
+     "width_cm": 120,
+     "sill_cm": 85,
+     "height_cm": 150
+    }
+   ],
+   "radiators": [
+    {
+     "wall": "north",
+     "offset_cm": 70,
+     "width_cm": 100,
+     "depth_cm": 12
+    }
+   ],
+   "_why": "7 м² — двуспальной с двумя проходами 75 не встать"
+  }
+ },
+ "kits": {
+  "_source": "габариты — живая выборка bedroom_catalog() 05.11 (tools/scout/flat215_demo.py:1011, только позиции с шириной, глубиной и высотой; у части комодов и шкафов глубины нет — их не берём, урок 548). Стол и стул рабочие — типовой габарит до ролей каталога onb-04 (в каталоге спальни их нет).",
+  "couple_std": [
+   [
+    "кровать",
+    170,
+    210,
+    94
+   ],
+   [
+    "тумба прикроватная",
+    45,
+    40,
+    55
+   ],
+   [
+    "тумба прикроватная 2",
+    45,
+    40,
+    55
+   ],
+   [
+    "шкаф",
+    120,
+    60,
+    210
+   ],
+   [
+    "комод",
+    91,
+    42,
+    96
+   ]
+  ],
+  "couple_big": [
+   [
+    "кровать",
+    184,
+    218,
+    102
+   ],
+   [
+    "тумба прикроватная",
+    50,
+    35,
+    50
+   ],
+   [
+    "тумба прикроватная 2",
+    50,
+    35,
+    50
+   ],
+   [
+    "шкаф",
+    100,
+    55,
+    250
+   ],
+   [
+    "комод",
+    150,
+    45,
+    74
+   ]
+  ],
+  "single": [
+   [
+    "кровать",
+    105,
+    212,
+    82
+   ],
+   [
+    "тумба прикроватная",
+    45,
+    40,
+    55
+   ],
+   [
+    "шкаф",
+    90,
+    54,
+    210
+   ],
+   [
+    "стол рабочий",
+    120,
+    60,
+    75
+   ],
+   [
+    "стул рабочий",
+    50,
+    55,
+    90
+   ]
+  ],
+  "guest": [
+   [
+    "кровать",
+    148,
+    207,
+    89
+   ],
+   [
+    "тумба прикроватная",
+    45,
+    40,
+    55
+   ],
+   [
+    "тумба прикроватная 2",
+    45,
+    40,
+    55
+   ],
+   [
+    "комод",
+    93,
+    45,
+    87
+   ]
+  ],
+  "office": [
+   [
+    "стол рабочий",
+    120,
+    60,
+    75
+   ],
+   [
+    "стул рабочий",
+    50,
+    55,
+    90
+   ],
+   [
+    "шкаф",
+    90,
+    54,
+    210
+   ],
+   [
+    "комод",
+    91,
+    42,
+    96
+   ],
+   [
+    "кровать",
+    101,
+    212,
+    91
+   ]
+  ]
+ },
+ "scenes": [
+  {
+   "id": "flat215-bedroom-1-drawing-180-couple",
+   "room": "flat215:bedroom-1:drawing-180",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "solve",
+   "note": "канарейка ADR-0330 п.8"
+  },
+  {
+   "id": "flat215-bedroom-1-drawing-180-couple-couple_big",
+   "room": "flat215:bedroom-1:drawing-180",
+   "purpose": "couple",
+   "kit": "couple_big",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-1-drawing-180-single",
+   "room": "flat215:bedroom-1:drawing-180",
+   "purpose": "single",
+   "kit": "single",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-1-drawing-180-guest",
+   "room": "flat215:bedroom-1:drawing-180",
+   "purpose": "guest",
+   "kit": "guest",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-1-registry-17.5-couple",
+   "room": "flat215:bedroom-1:registry-17.5",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-1-registry-17.5-single",
+   "room": "flat215:bedroom-1:registry-17.5",
+   "purpose": "single",
+   "kit": "single",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-1-registry-17.5-guest",
+   "room": "flat215:bedroom-1:registry-17.5",
+   "purpose": "guest",
+   "kit": "guest",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-2-drawing-180-office",
+   "room": "flat215:bedroom-2:drawing-180",
+   "purpose": "office",
+   "kit": "office",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-2-drawing-180-guest",
+   "room": "flat215:bedroom-2:drawing-180",
+   "purpose": "guest",
+   "kit": "guest",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-2-drawing-180-single",
+   "room": "flat215:bedroom-2:drawing-180",
+   "purpose": "single",
+   "kit": "single",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-2-drawing-180-couple",
+   "room": "flat215:bedroom-2:drawing-180",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-2-registry-9.7-office",
+   "room": "flat215:bedroom-2:registry-9.7",
+   "purpose": "office",
+   "kit": "office",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-2-registry-9.7-guest",
+   "room": "flat215:bedroom-2:registry-9.7",
+   "purpose": "guest",
+   "kit": "guest",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-2-registry-9.7-single",
+   "room": "flat215:bedroom-2:registry-9.7",
+   "purpose": "single",
+   "kit": "single",
+   "expect": "solve"
+  },
+  {
+   "id": "flat215-bedroom-2-registry-9.7-couple",
+   "room": "flat215:bedroom-2:registry-9.7",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "fail",
+   "note": "331×293: изголовье к глухой северной стене — изножье в 83 см от стены двери, дуга створки 85; к западной/восточной 170 + 2×75 = 320 > 293"
+  },
+  {
+   "id": "flat215-bedroom-2-drawing-180-child-3-7",
+   "room": "flat215:bedroom-2:drawing-180",
+   "purpose": "child",
+   "childAge": "3-7",
+   "kit": "single",
+   "expect": "pending",
+   "note": "детские роли и нормы — после onb-04 (каталог); сцена-заглушка ждёт перегонки"
+  },
+  {
+   "id": "flat215-bedroom-2-drawing-180-child-7-12",
+   "room": "flat215:bedroom-2:drawing-180",
+   "purpose": "child",
+   "childAge": "7-12",
+   "kit": "single",
+   "expect": "pending",
+   "note": "детские роли и нормы — после onb-04 (каталог); сцена-заглушка ждёт перегонки"
+  },
+  {
+   "id": "flat215-bedroom-2-registry-9.7-child-7-12",
+   "room": "flat215:bedroom-2:registry-9.7",
+   "purpose": "child",
+   "childAge": "7-12",
+   "kit": "single",
+   "expect": "pending",
+   "note": "детские роли и нормы — после onb-04 (каталог); сцена-заглушка ждёт перегонки"
+  },
+  {
+   "id": "flat215-bedroom-2-registry-9.7-child-teen",
+   "room": "flat215:bedroom-2:registry-9.7",
+   "purpose": "child",
+   "childAge": "teen",
+   "kit": "single",
+   "expect": "pending",
+   "note": "детские роли и нормы — после onb-04 (каталог); сцена-заглушка ждёт перегонки"
+  },
+  {
+   "id": "r8-single",
+   "room": "r8",
+   "purpose": "single",
+   "kit": "single",
+   "expect": "solve"
+  },
+  {
+   "id": "r8-couple",
+   "room": "r8",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "fail",
+   "note": "290×276: 170 + 2×75 = 320 не влезает ни на одну стену"
+  },
+  {
+   "id": "r10-couple",
+   "room": "r10",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "fail",
+   "note": "330 − радиатор 12 = 318 < 170 + 2×75; на стенах 300: 320 > 300"
+  },
+  {
+   "id": "r10-office",
+   "room": "r10",
+   "purpose": "office",
+   "kit": "office",
+   "expect": "solve"
+  },
+  {
+   "id": "r12-couple",
+   "room": "r12",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "solve"
+  },
+  {
+   "id": "r12-guest",
+   "room": "r12",
+   "purpose": "guest",
+   "kit": "guest",
+   "expect": "solve"
+  },
+  {
+   "id": "r12-single",
+   "room": "r12",
+   "purpose": "single",
+   "kit": "single",
+   "expect": "solve"
+  },
+  {
+   "id": "r14-couple-couple_big",
+   "room": "r14",
+   "purpose": "couple",
+   "kit": "couple_big",
+   "expect": "solve"
+  },
+  {
+   "id": "r14-office",
+   "room": "r14",
+   "purpose": "office",
+   "kit": "office",
+   "expect": "solve"
+  },
+  {
+   "id": "r16-couple-couple_big",
+   "room": "r16",
+   "purpose": "couple",
+   "kit": "couple_big",
+   "expect": "solve"
+  },
+  {
+   "id": "r20-couple-couple_big",
+   "room": "r20",
+   "purpose": "couple",
+   "kit": "couple_big",
+   "expect": "solve"
+  },
+  {
+   "id": "r20-guest",
+   "room": "r20",
+   "purpose": "guest",
+   "kit": "guest",
+   "expect": "solve"
+  },
+  {
+   "id": "narrow270-couple",
+   "room": "narrow270",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "solve",
+   "note": "изголовье к длинной стене: 210 + 60 = 270 впритык"
+  },
+  {
+   "id": "narrow270-single",
+   "room": "narrow270",
+   "purpose": "single",
+   "kit": "single",
+   "expect": "solve"
+  },
+  {
+   "id": "narrow240-couple",
+   "room": "narrow240",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "fail",
+   "note": "240: ни 210 + 60, ни 170 + 2×75 не влезают"
+  },
+  {
+   "id": "narrow240-single",
+   "room": "narrow240",
+   "purpose": "single",
+   "kit": "single",
+   "expect": "solve"
+  },
+  {
+   "id": "lshape-couple",
+   "room": "lshape",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "solve"
+  },
+  {
+   "id": "lshape-single",
+   "room": "lshape",
+   "purpose": "single",
+   "kit": "single",
+   "expect": "solve"
+  },
+  {
+   "id": "balcony-couple",
+   "room": "balcony",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "solve"
+  },
+  {
+   "id": "balcony-guest",
+   "room": "balcony",
+   "purpose": "guest",
+   "kit": "guest",
+   "expect": "solve"
+  },
+  {
+   "id": "tiny-couple",
+   "room": "tiny",
+   "purpose": "couple",
+   "kit": "couple_std",
+   "expect": "fail",
+   "note": "7 м²"
+  }
+ ]
+}

@@ -14,6 +14,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 Wall = Literal["south", "north", "west", "east"]
+# ТИП КОМНАТЫ (ADR-0330 п.1, план onb-05): единственный писатель поля — onb-05; kitchen — значение для onb-09
+RoomType = Literal["living", "bedroom", "kitchen"]
 
 
 class Severity(str, Enum):
@@ -69,6 +71,11 @@ class Room(BaseModel):
     fixtures_ir: list[dict] | None = Field(default=None)
     # паспорт отделки (`lib/viewer3d/finish-passport.ts`): {wall|floor|ceiling|skirting: {id, colorHex}} — им красится кадр
     finish: dict | None = Field(default=None)
+    # спальня — свой модуль правил (`planner/bedroom.py`, `bedroom_checks.py`); гостиная по умолчанию, её путь не меняется
+    room_type: RoomType = "living"
+    # назначение спальни и возраст ребёнка — словарь ADR-0330 п.3 (`rules/bedroom.json` purposes)
+    purpose: Literal["couple", "single", "child", "office", "guest"] | None = None
+    child_age: Literal["0-3", "3-7", "7-12", "teen"] | None = None
 
     @model_validator(mode="after")
     def _contour_bbox(self) -> "Room":

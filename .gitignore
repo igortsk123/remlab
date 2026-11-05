@@ -47,6 +47,9 @@ tools/scout/*
 !tools/scout/flat215-demo/
 !tools/scout/flat215-demo/**
 !tools/scout/flat215.json
+# спальни квартиры 215 и сцены экзамена спальни — исходные данные солвера (план onb-05)
+!tools/scout/flat215-bedrooms.json
+!tools/scout/bedroom-scenes.json
 # Образ Hunyuan3D 2.1 для Salad — ИСХОДНИК инфраструктуры, а не данные: без него массовую
 # генерацию мешей не воспроизвести (28.08, уход с fal). Веса и результаты в git не едут.
 !tools/scout/salad/

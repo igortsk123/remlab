@@ -2007,6 +2007,10 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     «есть ли hard» (профиль 17.08 set121: 155k validate на сцену, 45% времени — check_passages ×9 млн
     buffer). Итоговый план всегда проверяется полным путём (fast_hard=False) — эквивалентность по
     множеству hard-кодов держит тест test_validate_fast_hard_equivalence."""
+    if room.room_type == "bedroom":
+        # СПАЛЬНЯ (ADR-0330 п.1, план onb-05): свой набор проверок; путь гостиной ниже не меняется
+        from .bedroom_checks import validate_bedroom
+        return validate_bedroom(room, placements, passage=passage, fast_hard=fast_hard)
     _ROOM_BAND[0] = room.band
     checks = [
         lambda: check_media_cardinality(placements),

@@ -101,7 +101,21 @@
   "CIRCULATION_MISSING": "H0",
   "ANCHOR_SEMANTICS": "H1",
   "RUG_ZONE_UNDERSIZED": "H1",
-  "DRESSER_IN_SOFA_VIEW": "H1"
+  "DRESSER_IN_SOFA_VIEW": "H1",
+  "BED_SIDE_PASSAGE": "H1",
+  "BED_FOOT_PASSAGE": "H1",
+  "BED_HEAD_WALL": "H1",
+  "BED_HEAD_WINDOW": "S2",
+  "BED_DOOR_WALL": "S2",
+  "BED_NEAR_RADIATOR": "S1",
+  "NIGHTSTAND_DETACHED": "S2",
+  "BR_ACCESS_BLOCKED": "H0",
+  "BR_ACCESS_WALL": "H0",
+  "DESK_FAR_FROM_WINDOW": "S2",
+  "BEDROOM_FLOOR_OVERFILL": "S1",
+  "BR_NO_PASSAGE": "H0",
+  "BR_DOOR_UNREACHABLE": "H0",
+  "BR_UNREACHABLE": "H0"
  },
  "_notes": {
   "SOFA_BLOCKS_SOFA": "W2 kb-rules-merge 10.08: пара диванов легальна лицом-к-лицу или Г-стыком торец-к-торцу; фронт в бок/спинку соседа — блокировка",

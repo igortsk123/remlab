@@ -14,6 +14,7 @@
 #   tools/scout/run.sh scene <id>      # разбор сцены (напр. set7-bay)
 #   tools/scout/run.sh audit           # аудит правил (RULE-NO-PROOF)
 #   tools/scout/run.sh guards          # сторожа целостности (pytest)
+#   tools/scout/run.sh bedroom-exam    # экзамен спальни: 40 сцен, отчёт и PNG-галерея (план onb-05)
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE="$(pwd)"
@@ -58,6 +59,9 @@ case "${1:-}" in
     exec "$PY" rules_audit.py ;;
   guards)
     cd ../.. && exec "$PY" -m pytest services/planner-solver/tests/test_template_integrity.py -q ;;
+  bedroom-exam)
+    # СПАЛЬНЯ (план onb-05): свой экзамен, банк гостиной и exam.flock не трогает — картинки в новую папку с меткой времени
+    exec "$PY" bedroom_exam.py ;;
   *)
     grep '^#   tools' "$0" | sed 's/^#  //'; exit 1 ;;
 esac

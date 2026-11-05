@@ -728,6 +728,104 @@
    "сообщение": "медиа-зона обязательна (media_need=required), носитель в банке есть, в плане — нет",
    "где": "planner/validate.py",
    "пруф": "P1 свода №12 (владелец №177 «грубое нарушение» + Кодекс §2 п.2): status.media=required, но cardinality at_most_one делала ноль легальным; scenario_needs.media_need.cardinality_when_required=exactly_one_carrier; ноль при пустом банке — не вина плана"
+  },
+  {
+   "id": "BED_SIDE_PASSAGE",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "у «{b.role}» нет прохода {need:.0f} см сбоку ({s})",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BED_FOOT_PASSAGE",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "у изножья «{b.role}» меньше {foot:.0f} см",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BED_HEAD_WALL",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "изголовье «{b.role}» не у стены",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BED_HEAD_WINDOW",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "изголовье «{b.role}» под окном",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BED_DOOR_WALL",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "изголовье «{b.role}» на стене двери",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BED_NEAR_RADIATOR",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "«{b.role}» в {dist:.0f} см от радиатора",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "NIGHTSTAND_DETACHED",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "«{n.role}» не у изголовья кровати",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BR_ACCESS_WALL",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "перед «{a.role}» меньше {spec.front_cm:.0f} см до стены",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BR_ACCESS_BLOCKED",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "«{b.role}» перекрывает подход к «{a.role}»",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "DESK_FAR_FROM_WINDOW",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "«{d.role}» дальше {lim:.0f} см от окна",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BEDROOM_FLOOR_OVERFILL",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "мебель занимает {used:.0f} % пола спальни",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BR_NO_PASSAGE",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "в спальне не осталось прохода {need:.0f} см",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BR_DOOR_UNREACHABLE",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "от двери нет прохода в спальню",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BR_UNREACHABLE",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "к «{p.role}» нет прохода {need:.0f} см",
+   "где": "planner/bedroom_checks.py"
   }
  ],
  "_r5": "R5-замер: LAYOUT_RULE_STATS=<файл> на экзамене; отчёт мёртвых/редких — tools/scout при след. прогонах"

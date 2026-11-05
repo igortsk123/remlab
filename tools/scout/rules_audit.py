@@ -54,14 +54,19 @@ def registry_sync() -> int:
         return 0
     reg = json.load(open(reg_p, encoding='utf-8'))
     rules = reg.get('правила', [])
-    code = open(val_p, encoding='utf-8').read()
+    solver = os.path.join(HERE, '..', '..', 'services', 'planner-solver')
+    # спальня (onb-05): свои проверки в planner/bedroom_checks.py — правило ищется в файле из «где»
+    srcs = {w: open(os.path.join(solver, w), encoding='utf-8').read()
+            for w in ('planner/validate.py', 'planner/bedroom_checks.py') if os.path.exists(os.path.join(solver, w))}
+    code = ''.join(srcs.values())
     n = 0
     for r in rules:
         if r.get('вид') != 'hard':
             continue
         rid = r.get('id', '')
-        if rid and rid not in code:
-            print(f'  REG-CODE-GONE: {rid} — в validate.py не найдено (реестр отстал?)')
+        where = r.get('где', 'planner/validate.py')
+        if rid and rid not in srcs.get(where, srcs['planner/validate.py']):
+            print(f'  REG-CODE-GONE: {rid} — в {where} не найдено (реестр отстал?)')
             n += 1
     reg_ids = {r.get('id') for r in rules}
     for cid in sorted(set(re.findall(r'_v\(\s*"([A-Z][A-Z0-9_]{3,})"', code))):
@@ -69,7 +74,7 @@ def registry_sync() -> int:
             print(f'  CODE-NOT-REG: {cid} — hard-код без записи в registry.json')
             n += 1
     if n == 0:
-        print('  реестр ↔ validate.py: синхронны')
+        print('  реестр ↔ validate.py + bedroom_checks.py: синхронны')
     return n
 
 

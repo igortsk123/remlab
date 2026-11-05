@@ -53,14 +53,19 @@ def _stage_for(code: str) -> str:
 
 
 def hard_rules() -> list[dict]:
-    src = open(os.path.join(PLANNER, 'validate.py'), encoding='utf-8').read()
     out = {}
-    for m in re.finditer(r'_v\(\s*"([A-Z_]+)"\s*,\s*f?"([^"]*)"', src):
-        code, msg = m.group(1), m.group(2)
-        out.setdefault(code, {
-            'id': code, 'вид': 'hard', 'стадия': _stage_for(code),
-            'сообщение': msg[:80], 'где': 'planner/validate.py',
-        })
+    # спальня (onb-05) — свой файл проверок; её стадии вне дизайнерского порядка гостиной
+    for fname, stage in (('validate.py', None), ('bedroom_checks.py', 'спальня')):
+        path = os.path.join(PLANNER, fname)
+        if not os.path.exists(path):
+            continue
+        src = open(path, encoding='utf-8').read()
+        for m in re.finditer(r'_v\(\s*"([A-Z_]+)"\s*,\s*f?"([^"]*)"', src):
+            code, msg = m.group(1), m.group(2)
+            out.setdefault(code, {
+                'id': code, 'вид': 'hard', 'стадия': stage or _stage_for(code),
+                'сообщение': msg[:80], 'где': f'planner/{fname}',
+            })
     return list(out.values())
 
 
