@@ -40,6 +40,8 @@ def test_idy_diapazony_i_imena_zadach() -> None:
     assert nazvaniya.idy("T-20261104-02…04, -07") == {"T-20261104-02", "T-20261104-03", "T-20261104-04",
                                                        "T-20261104-07"}
     assert nazvaniya.idy(" tokeny-mashiny/1 ") == {"tokeny-mashiny"}
+    assert nazvaniya.idy("T-20261102-01/1") == {"T-20261102-01"}  # sup2: с циклом
+    assert nazvaniya.idy("T-20261104-02…05, -07…08") == {f"T-20261104-0{n}" for n in (2, 3, 4, 5, 7, 8)}
 
 
 def test_nazvaniya_s_doski_i_iz_istorii_git(tmp_path: Path) -> None:
