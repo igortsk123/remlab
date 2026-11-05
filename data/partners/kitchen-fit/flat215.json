@@ -1,0 +1,841 @@
+{
+ "_about": "Посадка примеров кухонь на кухню квартиры 215 (solver `planner/kitchen.py`); генерирует `tools/scout/kitchen_fit.py` — руками не править. Система координат — план кухни в см (x вправо, y вглубь, стены south/north/west/east), `pose` — центр набора и поворот как у предметов солвера.",
+ "room": {
+  "source": "tools/scout/flat215-kitchen.json",
+  "w": 450,
+  "d": 311,
+  "vent_assumed": true
+ },
+ "apartments": [
+  "flat215",
+  "demo-uk-215"
+ ],
+ "fits": {
+  "ru-sima-evropa-240": {
+   "market": "ru",
+   "ok": true,
+   "reason": [],
+   "wall": "south",
+   "u0_cm": 210.0,
+   "shape": "straight",
+   "shape_changed": false,
+   "length_cm": 240,
+   "columns_at": null,
+   "corner_at": null,
+   "leg_cm": null,
+   "room_depth_cm": 311.0,
+   "cooks": 1,
+   "vent_at_cm": 240.0,
+   "vent_distance_cm": 15.0,
+   "vent_assumed": true,
+   "fridge_at_cm": [
+    -35.0
+   ],
+   "fridge": [
+    {
+     "where": "end",
+     "wall": "south",
+     "offset_cm": 140.0,
+     "s": -35.0,
+     "out": 65.0,
+     "blind": null
+    }
+   ],
+   "blind_cm": [],
+   "no_hob_cm": [],
+   "checks": [
+    {
+     "code": "KITCHEN_AISLE",
+     "value": 251,
+     "need": 107.0,
+     "ok": true
+    }
+   ],
+   "pose": {
+    "x": 330.0,
+    "y": 30.0,
+    "rot": 0
+   },
+   "right": [
+    1.0,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0
+   ],
+   "kit": {
+    "length_cm": 240,
+    "depth_cm": 60,
+    "shape": "straight",
+    "tall_cm": 0,
+    "uppers": true,
+    "fridge_in_column": false,
+    "leg_cm": null,
+    "peninsula": false,
+    "upper_depth_cm": 35.0
+   },
+   "dining": {
+    "max_seats": 4,
+    "table_cm": [
+     122.0,
+     80.0
+    ],
+    "region_cm": [
+     122.0,
+     190.0
+    ],
+    "center_cm": [
+     91.0,
+     165.0
+    ]
+   },
+   "views": {
+    "kit": {
+     "eye": {
+      "x": 330.0,
+      "y": 281.0,
+      "h": 150
+     },
+     "target": {
+      "x": 330.0,
+      "y": 30.0,
+      "h": 100
+     }
+    },
+    "counter": {
+     "eye": {
+      "x": 420.0,
+      "y": 90.0,
+      "h": 155
+     },
+     "target": {
+      "x": 91.0,
+      "y": 165.0,
+      "h": 90
+     }
+    }
+   }
+  },
+  "ru-sima-eva-240": {
+   "market": "ru",
+   "ok": true,
+   "reason": [],
+   "wall": "south",
+   "u0_cm": 210.0,
+   "shape": "straight",
+   "shape_changed": false,
+   "length_cm": 240,
+   "columns_at": null,
+   "corner_at": null,
+   "leg_cm": null,
+   "room_depth_cm": 311.0,
+   "cooks": 1,
+   "vent_at_cm": 240.0,
+   "vent_distance_cm": 15.0,
+   "vent_assumed": true,
+   "fridge_at_cm": [
+    -35.0
+   ],
+   "fridge": [
+    {
+     "where": "end",
+     "wall": "south",
+     "offset_cm": 140.0,
+     "s": -35.0,
+     "out": 65.0,
+     "blind": null
+    }
+   ],
+   "blind_cm": [],
+   "no_hob_cm": [],
+   "checks": [
+    {
+     "code": "KITCHEN_AISLE",
+     "value": 251,
+     "need": 107.0,
+     "ok": true
+    }
+   ],
+   "pose": {
+    "x": 330.0,
+    "y": 30.0,
+    "rot": 0
+   },
+   "right": [
+    1.0,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0
+   ],
+   "kit": {
+    "length_cm": 240,
+    "depth_cm": 60,
+    "shape": "straight",
+    "tall_cm": 0,
+    "uppers": true,
+    "fridge_in_column": false,
+    "leg_cm": null,
+    "peninsula": false,
+    "upper_depth_cm": 35.0
+   },
+   "dining": {
+    "max_seats": 4,
+    "table_cm": [
+     122.0,
+     80.0
+    ],
+    "region_cm": [
+     122.0,
+     190.0
+    ],
+    "center_cm": [
+     91.0,
+     165.0
+    ]
+   },
+   "views": {
+    "kit": {
+     "eye": {
+      "x": 330.0,
+      "y": 281.0,
+      "h": 150
+     },
+     "target": {
+      "x": 330.0,
+      "y": 30.0,
+      "h": 100
+     }
+    },
+    "counter": {
+     "eye": {
+      "x": 420.0,
+      "y": 90.0,
+      "h": 155
+     },
+     "target": {
+      "x": 91.0,
+      "y": 165.0,
+      "h": 90
+     }
+    }
+   }
+  },
+  "ru-sima-zhemchug-280": {
+   "market": "ru",
+   "ok": true,
+   "reason": [],
+   "wall": "south",
+   "u0_cm": 170.0,
+   "shape": "straight",
+   "shape_changed": false,
+   "length_cm": 280,
+   "columns_at": null,
+   "corner_at": null,
+   "leg_cm": null,
+   "room_depth_cm": 311.0,
+   "cooks": 1,
+   "vent_at_cm": 280.0,
+   "vent_distance_cm": 15.0,
+   "vent_assumed": true,
+   "fridge_at_cm": [
+    -35.0
+   ],
+   "fridge": [
+    {
+     "where": "end",
+     "wall": "south",
+     "offset_cm": 100.0,
+     "s": -35.0,
+     "out": 65.0,
+     "blind": null
+    }
+   ],
+   "blind_cm": [],
+   "no_hob_cm": [],
+   "checks": [
+    {
+     "code": "KITCHEN_AISLE",
+     "value": 251,
+     "need": 107.0,
+     "ok": true
+    }
+   ],
+   "pose": {
+    "x": 310.0,
+    "y": 30.0,
+    "rot": 0
+   },
+   "right": [
+    1.0,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0
+   ],
+   "kit": {
+    "length_cm": 280,
+    "depth_cm": 60,
+    "shape": "straight",
+    "tall_cm": 0,
+    "uppers": true,
+    "fridge_in_column": false,
+    "leg_cm": null,
+    "peninsula": false,
+    "upper_depth_cm": 35.0
+   },
+   "dining": {
+    "max_seats": 4,
+    "table_cm": [
+     122.0,
+     80.0
+    ],
+    "region_cm": [
+     122.0,
+     190.0
+    ],
+    "center_cm": [
+     91.0,
+     165.0
+    ]
+   },
+   "views": {
+    "kit": {
+     "eye": {
+      "x": 310.0,
+      "y": 281.0,
+      "h": 150
+     },
+     "target": {
+      "x": 310.0,
+      "y": 30.0,
+      "h": 100
+     }
+    },
+    "counter": {
+     "eye": {
+      "x": 420.0,
+      "y": 90.0,
+      "h": 155
+     },
+     "target": {
+      "x": 91.0,
+      "y": 165.0,
+      "h": 90
+     }
+    }
+   }
+  },
+  "ru-sima-antracit-280": {
+   "market": "ru",
+   "ok": true,
+   "reason": [],
+   "wall": "south",
+   "u0_cm": 170.0,
+   "shape": "straight",
+   "shape_changed": false,
+   "length_cm": 280,
+   "columns_at": null,
+   "corner_at": null,
+   "leg_cm": null,
+   "room_depth_cm": 311.0,
+   "cooks": 1,
+   "vent_at_cm": 280.0,
+   "vent_distance_cm": 15.0,
+   "vent_assumed": true,
+   "fridge_at_cm": [
+    -35.0
+   ],
+   "fridge": [
+    {
+     "where": "end",
+     "wall": "south",
+     "offset_cm": 100.0,
+     "s": -35.0,
+     "out": 65.0,
+     "blind": null
+    }
+   ],
+   "blind_cm": [],
+   "no_hob_cm": [],
+   "checks": [
+    {
+     "code": "KITCHEN_AISLE",
+     "value": 251,
+     "need": 107.0,
+     "ok": true
+    }
+   ],
+   "pose": {
+    "x": 310.0,
+    "y": 30.0,
+    "rot": 0
+   },
+   "right": [
+    1.0,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0
+   ],
+   "kit": {
+    "length_cm": 280,
+    "depth_cm": 60,
+    "shape": "straight",
+    "tall_cm": 0,
+    "uppers": true,
+    "fridge_in_column": false,
+    "leg_cm": null,
+    "peninsula": false,
+    "upper_depth_cm": 35.0
+   },
+   "dining": {
+    "max_seats": 4,
+    "table_cm": [
+     122.0,
+     80.0
+    ],
+    "region_cm": [
+     122.0,
+     190.0
+    ],
+    "center_cm": [
+     91.0,
+     165.0
+    ]
+   },
+   "views": {
+    "kit": {
+     "eye": {
+      "x": 310.0,
+      "y": 281.0,
+      "h": 150
+     },
+     "target": {
+      "x": 310.0,
+      "y": 30.0,
+      "h": 100
+     }
+    },
+    "counter": {
+     "eye": {
+      "x": 420.0,
+      "y": 90.0,
+      "h": 155
+     },
+     "target": {
+      "x": 91.0,
+      "y": 165.0,
+      "h": 90
+     }
+    }
+   }
+  },
+  "ru-sima-prestizh-300": {
+   "market": "ru",
+   "ok": true,
+   "reason": [],
+   "wall": "south",
+   "u0_cm": 150.0,
+   "shape": "straight",
+   "shape_changed": false,
+   "length_cm": 300,
+   "columns_at": "end",
+   "corner_at": null,
+   "leg_cm": null,
+   "room_depth_cm": 311.0,
+   "cooks": 1,
+   "vent_at_cm": 300.0,
+   "vent_distance_cm": 15.0,
+   "vent_assumed": true,
+   "fridge_at_cm": [
+    -35.0
+   ],
+   "fridge": [
+    {
+     "where": "end",
+     "wall": "south",
+     "offset_cm": 80.0,
+     "s": -35.0,
+     "out": 65.0,
+     "blind": null
+    }
+   ],
+   "blind_cm": [],
+   "no_hob_cm": [],
+   "checks": [
+    {
+     "code": "KITCHEN_AISLE",
+     "value": 251,
+     "need": 107.0,
+     "ok": true
+    }
+   ],
+   "pose": {
+    "x": 300.0,
+    "y": 30.0,
+    "rot": 0
+   },
+   "right": [
+    1.0,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0
+   ],
+   "kit": {
+    "length_cm": 300,
+    "depth_cm": 60,
+    "shape": "straight",
+    "tall_cm": 60,
+    "uppers": true,
+    "fridge_in_column": false,
+    "leg_cm": null,
+    "peninsula": false,
+    "upper_depth_cm": 35.0
+   },
+   "dining": {
+    "max_seats": 4,
+    "table_cm": [
+     122.0,
+     80.0
+    ],
+    "region_cm": [
+     190.0,
+     122.0
+    ],
+    "center_cm": [
+     125.0,
+     231.0
+    ]
+   },
+   "views": {
+    "kit": {
+     "eye": {
+      "x": 300.0,
+      "y": 281.0,
+      "h": 150
+     },
+     "target": {
+      "x": 300.0,
+      "y": 30.0,
+      "h": 100
+     }
+    },
+    "counter": {
+     "eye": {
+      "x": 420.0,
+      "y": 90.0,
+      "h": 155
+     },
+     "target": {
+      "x": 125.0,
+      "y": 231.0,
+      "h": 90
+     }
+    }
+   }
+  },
+  "uk-ikea-metod-246": {
+   "market": "uk",
+   "ok": true,
+   "reason": [],
+   "wall": "south",
+   "u0_cm": 204.0,
+   "shape": "straight",
+   "shape_changed": false,
+   "length_cm": 246,
+   "columns_at": null,
+   "corner_at": null,
+   "leg_cm": null,
+   "room_depth_cm": 311.0,
+   "cooks": 1,
+   "vent_at_cm": 246.0,
+   "vent_distance_cm": 15.0,
+   "vent_assumed": true,
+   "fridge_at_cm": [
+    -35.0
+   ],
+   "fridge": [
+    {
+     "where": "end",
+     "wall": "south",
+     "offset_cm": 134.0,
+     "s": -35.0,
+     "out": 65.0,
+     "blind": null
+    }
+   ],
+   "blind_cm": [],
+   "no_hob_cm": [],
+   "checks": [
+    {
+     "code": "KITCHEN_AISLE",
+     "value": 251,
+     "need": 107.0,
+     "ok": true
+    }
+   ],
+   "pose": {
+    "x": 327.0,
+    "y": 30.0,
+    "rot": 0
+   },
+   "right": [
+    1.0,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0
+   ],
+   "kit": {
+    "length_cm": 246,
+    "depth_cm": 60,
+    "shape": "straight",
+    "tall_cm": 0,
+    "uppers": true,
+    "fridge_in_column": false,
+    "leg_cm": null,
+    "peninsula": false,
+    "upper_depth_cm": 35.0
+   },
+   "dining": {
+    "max_seats": 4,
+    "table_cm": [
+     122.0,
+     80.0
+    ],
+    "region_cm": [
+     122.0,
+     190.0
+    ],
+    "center_cm": [
+     91.0,
+     165.0
+    ]
+   },
+   "views": {
+    "kit": {
+     "eye": {
+      "x": 327.0,
+      "y": 281.0,
+      "h": 150
+     },
+     "target": {
+      "x": 327.0,
+      "y": 30.0,
+      "h": 100
+     }
+    },
+    "counter": {
+     "eye": {
+      "x": 420.0,
+      "y": 90.0,
+      "h": 155
+     },
+     "target": {
+      "x": 91.0,
+      "y": 165.0,
+      "h": 90
+     }
+    }
+   }
+  },
+  "uk-ikea-metod-304": {
+   "market": "uk",
+   "ok": true,
+   "reason": [],
+   "wall": "south",
+   "u0_cm": 146.0,
+   "shape": "straight",
+   "shape_changed": false,
+   "length_cm": 304,
+   "columns_at": "start",
+   "corner_at": null,
+   "leg_cm": null,
+   "room_depth_cm": 311.0,
+   "cooks": 1,
+   "vent_at_cm": 304.0,
+   "vent_distance_cm": 15.0,
+   "vent_assumed": true,
+   "fridge_at_cm": [],
+   "fridge": [],
+   "blind_cm": [],
+   "no_hob_cm": [],
+   "checks": [
+    {
+     "code": "KITCHEN_AISLE",
+     "value": 251,
+     "need": 107.0,
+     "ok": true
+    }
+   ],
+   "pose": {
+    "x": 298.0,
+    "y": 30.0,
+    "rot": 0
+   },
+   "right": [
+    1.0,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0
+   ],
+   "kit": {
+    "length_cm": 304,
+    "depth_cm": 60,
+    "shape": "straight",
+    "tall_cm": 60,
+    "uppers": true,
+    "fridge_in_column": true,
+    "leg_cm": null,
+    "peninsula": false,
+    "upper_depth_cm": 35.0
+   },
+   "dining": {
+    "max_seats": 4,
+    "table_cm": [
+     122.0,
+     80.0
+    ],
+    "region_cm": [
+     190.0,
+     122.0
+    ],
+    "center_cm": [
+     125.0,
+     231.0
+    ]
+   },
+   "views": {
+    "kit": {
+     "eye": {
+      "x": 298.0,
+      "y": 281.0,
+      "h": 150
+     },
+     "target": {
+      "x": 298.0,
+      "y": 30.0,
+      "h": 100
+     }
+    },
+    "counter": {
+     "eye": {
+      "x": 420.0,
+      "y": 90.0,
+      "h": 155
+     },
+     "target": {
+      "x": 125.0,
+      "y": 231.0,
+      "h": 90
+     }
+    }
+   }
+  },
+  "uk-ikea-metod-287": {
+   "market": "uk",
+   "ok": true,
+   "reason": [],
+   "wall": "south",
+   "u0_cm": 163.0,
+   "shape": "straight",
+   "shape_changed": false,
+   "length_cm": 287,
+   "columns_at": "start",
+   "corner_at": null,
+   "leg_cm": null,
+   "room_depth_cm": 311.0,
+   "cooks": 1,
+   "vent_at_cm": 287.0,
+   "vent_distance_cm": 15.0,
+   "vent_assumed": true,
+   "fridge_at_cm": [],
+   "fridge": [],
+   "blind_cm": [],
+   "no_hob_cm": [],
+   "checks": [
+    {
+     "code": "KITCHEN_AISLE",
+     "value": 251,
+     "need": 107.0,
+     "ok": true
+    }
+   ],
+   "pose": {
+    "x": 306.5,
+    "y": 30.0,
+    "rot": 0
+   },
+   "right": [
+    1.0,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0
+   ],
+   "kit": {
+    "length_cm": 287,
+    "depth_cm": 60,
+    "shape": "straight",
+    "tall_cm": 60,
+    "uppers": true,
+    "fridge_in_column": true,
+    "leg_cm": null,
+    "peninsula": false,
+    "upper_depth_cm": 35.0
+   },
+   "dining": {
+    "max_seats": 4,
+    "table_cm": [
+     122.0,
+     80.0
+    ],
+    "region_cm": [
+     122.0,
+     190.0
+    ],
+    "center_cm": [
+     91.0,
+     95.0
+    ]
+   },
+   "views": {
+    "kit": {
+     "eye": {
+      "x": 306.5,
+      "y": 281.0,
+      "h": 150
+     },
+     "target": {
+      "x": 306.5,
+      "y": 30.0,
+      "h": 100
+     }
+    },
+    "counter": {
+     "eye": {
+      "x": 420.0,
+      "y": 90.0,
+      "h": 155
+     },
+     "target": {
+      "x": 91.0,
+      "y": 95.0,
+      "h": 90
+     }
+    }
+   }
+  }
+ }
+}

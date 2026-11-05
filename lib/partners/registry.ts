@@ -97,15 +97,25 @@ function optionsCard(p: Partner, a: ApartmentRef, lang: Lang): ApartmentCard["op
   return (a.options ?? []).filter((g) => g.enabled).map((g) => ({
     id: g.id, kind: g.kind, roomKind: g.roomKind, roomId: g.roomId ?? null, title: en ? g.titleEn : g.titleRu, defaultVariantId: g.defaultVariantId,
     settlement: settlementOf(g.kind, p.market, g.settlement), slotIds: g.slotIds ?? [],
-    variants: g.variants.map((v) => ({
+    variants: g.variants.filter((v) => !v.specRef || roomReady(a, g)).map((v) => ({
       id: v.id, name: en ? v.nameEn : v.nameRu, desc: en ? v.descEn : v.descRu, image: v.image ?? null, demo: v.demo,
       price: optionPrice(p, v.pricing, v.configuratorOptionId, lang), configuratorOptionId: v.configuratorOptionId ?? null,
       materialId: v.materialId ?? null,
       // материал целиком (адреса карт от корня сайта): окно демо красит им пол живой сцены без второго запроса (demo-06)
       material: v.materialId ? materialOf(v.materialId) : null,
       accent: v.accent && materialOf(v.accent.materialId) ? { material: materialOf(v.accent.materialId)!, anchor: v.accent.anchor } : null,
+      specRef: v.specRef ?? null,
     })),
   }));
+}
+
+/**
+ * Комната группы готова к показу (`roomContentState`). Варианты с `specRef` — настоящие кухни из примеров с посадкой (onb-09,
+ * T-20261105-33): до включения комнаты их нет ни в окне, ни в корпе, ни в сумме — прежние демо-варианты остаются как были.
+ */
+function roomReady(a: ApartmentRef, g: OptionGroup): boolean {
+  const r = a.rooms.find((x) => (g.roomId ? x.id === g.roomId : x.kind === g.roomKind));
+  return !!r && roomContentState(r) === "ready";
 }
 
 /**

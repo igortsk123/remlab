@@ -244,6 +244,36 @@
               },
               "demo": true,
               "configuratorOptionId": "kitchen-premium"
+            },
+            {
+              "id": "ikea-metod-246",
+              "nameRu": "IKEA METOD 246 см, белый / Veddinge белый",
+              "nameEn": "IKEA METOD kitchen 246 cm, white / Veddinge white",
+              "descRu": "246 см, IKEA UK. Без мойки, смесителя, ручек, техники, подсветки, доставки и монтажа.",
+              "descEn": "246 cm, IKEA UK. Excludes sink, tap, handles, appliances, lighting, delivery and installation.",
+              "image": "/partners/demo-uk/options/kitchen-uk-ikea-metod-246.jpg",
+              "pricing": { "type": "surcharge", "amount": 917 },
+              "specRef": "uk-ikea-metod-246"
+            },
+            {
+              "id": "ikea-metod-287",
+              "nameRu": "IKEA METOD 287 см с колонной под холодильник, белый / Veddinge белый",
+              "nameEn": "IKEA METOD kitchen 287 cm with fridge housing, white / Veddinge white",
+              "descRu": "287 см, IKEA UK. Без мойки, смесителя, ручек, техники, подсветки, доставки и монтажа.",
+              "descEn": "287 cm, IKEA UK. Excludes sink, tap, handles, appliances, lighting, delivery and installation.",
+              "image": "/partners/demo-uk/options/kitchen-uk-ikea-metod-287.jpg",
+              "pricing": { "type": "surcharge", "amount": 1155 },
+              "specRef": "uk-ikea-metod-287"
+            },
+            {
+              "id": "ikea-metod-304",
+              "nameRu": "IKEA METOD 304 см с колонной под холодильник, белый / Veddinge белый",
+              "nameEn": "IKEA METOD kitchen 304 cm with fridge housing, white / Veddinge white",
+              "descRu": "304 см, IKEA UK. Без мойки, смесителя, ручек, техники, подсветки, доставки и монтажа.",
+              "descEn": "304 cm, IKEA UK. Excludes sink, tap, handles, appliances, lighting, delivery and installation.",
+              "image": "/partners/demo-uk/options/kitchen-uk-ikea-metod-304.jpg",
+              "pricing": { "type": "surcharge", "amount": 1370 },
+              "specRef": "uk-ikea-metod-304"
             }
           ],
           "settlement": "allowance",

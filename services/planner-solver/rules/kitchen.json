@@ -1,0 +1,71 @@
+{
+ "_meta": {
+  "source": "manual (план onb-09-kitchen-options Т1, ADR-0330 «Нормы»; черновик рабочего T-20261105-33 — сверка ведущим и Codex)",
+  "about": "НОРМЫ ПОСАДКИ КУХНИ (room_type=kitchen): одно число — одно место. Читают planner/kitchen.py (стены, проёмы, проходы, вентканал, обеденная группа) и lib/viewer3d/kits/kitchen-checks.ts (треугольник и проходы внутри набора). Проход 91 не здесь — occupancy.json distances_cm.passage_main[0], стулья — distances_cm.dining_chair_pullout[0]. У каждого числа — `src` (источник) и `status`: norm — норма из источника; product — продуктовое правило по источнику без жёсткой нормы; hypothesis — допущение до данных или проверки (ведущий/Codex).",
+  "sources": {
+   "nkba": "NKBA Kitchen Planning Guidelines (2022), https://kb.nkba.org/uploads/2022/05/Kitchen-Planning-Guidelines.pdf; пересказ чисел — https://www.crddesignbuild.com/blog/kitchen-dimensions-code-requirements-nkba-guidelines , https://www.thewcsupply.com/pages/kitchen-design-guidelines-standard-clearances",
+   "sp54": "СП 54.13330.2022 «Здания жилые многоквартирные»: п. 5.11 — площади кухни, п. 9.11 — удаление воздуха из кухни (вытяжной канал); раскладку мебели не нормирует (ADR-0330)",
+   "sp60": "СП 60.13330.2020 «Отопление, вентиляция и кондиционирование» — вытяжка кухни через канал дома",
+   "adr0330": "ADR-0330 п.7 (`.memory_bank/decisions/adr-0301-0350.md`): прямая по глухой стене, проходы 107/122/91, треугольник 120–270 / ≤ 790 (NKBA)"
+  }
+ },
+ "triangle": {
+  "side_min_cm": {"v": 120, "src": "nkba", "status": "norm", "_why": "сторона рабочего треугольника мойка — варочная — холодильник от 4 футов"},
+  "side_max_cm": {"v": 270, "src": "nkba", "status": "norm", "_why": "сторона до 9 футов"},
+  "sum_max_cm": {"v": 790, "src": "nkba", "status": "norm", "_why": "сумма сторон до 26 футов"}
+ },
+ "aisle": {
+  "work_one_cook_cm": {"v": 107, "src": "nkba", "status": "norm", "_why": "рабочий проход перед линией — один повар (42 дюйма); меряется до стены напротив, острова или мебели"},
+  "work_two_cooks_cm": {"v": 122, "src": "nkba", "status": "norm", "_why": "двое у плиты (48 дюймов) — ответ «часто готовим вдвоём»"},
+  "walkway_ref": {"num": "occupancy.json distances_cm.passage_main[0]", "src": "nkba", "status": "norm", "_why": "проход за островом и у торца плеча Г — 91 (36 дюймов), то же число, что магистраль гостиной"}
+ },
+ "landing": {
+  "hob_side_min_cm": {"v": 30, "src": "nkba", "status": "norm", "_why": "столешница сбоку варочной ≥ 12 дюймов с одной стороны (с другой — 15, `hob_other_side_min_cm`); набор ставит варочную не в крайний модуль — kitchen-checks.ts:scoreWorkPoints"},
+  "hob_other_side_min_cm": {"v": 38, "src": "nkba", "status": "norm", "_why": "15 дюймов со второй стороны"}
+ },
+ "openings": {
+  "door_passage_cm": {"v": 76, "src": "nkba", "status": "product", "_why": "полоса перед дверью без мебели (как у спальни, planner/bedroom.py:_Statics); дуга створки — planner/geometry.py:swing_polygon, по умолчанию ВНУТРЬ кухни (строже)"},
+  "door_jamb_gap_cm": {"v": 5, "src": "manual", "status": "product", "_why": "ряд не впритык к косяку — наличник"},
+  "window_clear_cm": {"v": 10, "src": "manual", "status": "hypothesis", "_why": "верхние шкафы и колонны не ближе 10 см к откосу окна — открыть створку и не закрыть свет; нормы нет"},
+  "base_under_window_min_sill_cm": {"v": 90, "src": "manual", "status": "hypothesis", "_why": "нижний ряд под окном — только если подоконник не ниже столешницы (86 + 4 см) и над этим местом нет верхних шкафов; варочная под окном — никогда (NKBA: не под открывающимся окном)"},
+  "radiator_gap_ref": {"num": "occupancy.json distances_cm.sofa_to_radiator_wall[0]", "src": "manual", "status": "product", "_why": "ряд и холодильник не ближе общего порога радиатора (15) — как у всей мебели (`planner/validate.py:check_radiators`)"}
+ },
+ "vent": {
+  "max_hood_to_vent_cm": {"v": 300, "src": "manual", "status": "hypothesis", "_why": "вытяжка не дальше 3 м по стене от вентканала (длинный короб хуже тянет) — ПРЕДУПРЕЖДЕНИЕ, не отказ (ведущий 05.11, T-20261105-18); СП 54 п.9.11 требует только сам канал"}
+ },
+ "fridge": {
+  "w_cm": {"v": 70, "src": "manual", "status": "product", "_why": "отдельно стоящий холодильник — типовой 60–70 см; берём 70 с запасом (kitchen-from-example.ts:FRIDGE_W)"},
+  "d_cm": {"v": 65, "src": "manual", "status": "product", "_why": "глубина с дверцей и зазором у стены"},
+  "around_corner": {"v": true, "src": "manual", "status": "hypothesis", "_why": "ряд впритык к углу и у конца нет 70 см — холодильник на соседней стене сразу за глубиной ряда; перед ним последние 65 см столешницы глухие (без мойки и варочной, `blind_cm`); только когда у конца на своей стене места нет"},
+  "anywhere": {"v": true, "src": "manual", "status": "hypothesis", "_why": "нет места ни у конца, ни за углом — холодильник у любой стены вне ряда, рабочего прохода перед ним и прохода у двери (ближайшее к ряду место); треугольник до него меряет набор"}
+ },
+ "dining": {
+  "edge_per_seat_cm": {"v": 61, "src": "nkba", "status": "norm", "_why": "кромка стола на едока 24 дюйма (то же в zones.json dining.why «61 см кромки стола на едока»)"},
+  "table_depth_cm": {"v": {"2": 70, "4": 80, "6": 90}, "src": "manual", "status": "product", "_why": "глубина стола по числу мест — каталожные столы 70/80/90"},
+  "chair_pullout_ref": {"num": "occupancy.json distances_cm.dining_chair_pullout[0]", "src": "nkba", "status": "norm", "_why": "отодвинутый стул — 55 см за кромкой"},
+  "seats": [2, 4, 6]
+ },
+ "shapes": {
+  "order": ["straight", "corner"],
+  "corner_leg_cm": {"v": 150, "src": "manual", "status": "product", "_why": "длина плеча Г от задней стены по умолчанию (kitchen-layout.ts:CORNER_LEG_CM)"},
+  "_why": "прямая по глухой стене (ADR-0330); угловая — паспортом примера или если прямая нигде не встала (тот же погонаж); остров и П-форма на flat215 не ставятся (план onb-09 «не входит»)"
+ },
+ "views": {
+  "_why": "два вида кухни для кадров (план room-pipeline-01: «2 вида на зону»): гарнитур от стены напротив и встречный — от ряда в комнату; продуктовые числа камеры, не нормы",
+  "kit": {"eye_from_wall_cm": 30, "eye_h_cm": 150, "target_h_cm": 100},
+  "counter": {"eye_from_run_cm": 30, "eye_from_end_cm": 30, "eye_h_cm": 155, "target_inset_cm": 40, "target_h_cm": 90}
+ },
+ "score": {
+  "_why": "выбор между годными посадками (меньше — лучше); веса — продуктовые, не нормы",
+  "wall_with_window": 300,
+  "wall_with_door": 150,
+  "vent_per_cm": 1,
+  "not_at_corner": 80,
+  "columns_near_door": 60,
+  "shape_changed": 1000,
+  "fridge_end": 0,
+  "fridge_leg": 0,
+  "fridge_corner": 200,
+  "fridge_wall": 400
+ }
+}

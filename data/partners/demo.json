@@ -163,6 +163,56 @@
               },
               "demo": true,
               "configuratorOptionId": "kitchen-premium"
+            },
+            {
+              "id": "sima-evropa-240",
+              "nameRu": "Кухня прямая «Европа» 2,4 м, бетон и дуб золотой крафт",
+              "nameEn": "Straight kitchen “Evropa” 2.4 m, concrete and golden craft oak",
+              "descRu": "240 см, Сима-ленд. Без мойки, смесителя, техники, фартука, доставки и монтажа.",
+              "descEn": "240 cm, Sima-land. Excludes sink, tap, appliances, splashback, delivery and installation.",
+              "image": "/partners/demo/options/kitchen-ru-sima-evropa-240.jpg",
+              "pricing": { "type": "surcharge", "amount": 21749 },
+              "specRef": "ru-sima-evropa-240"
+            },
+            {
+              "id": "sima-eva-240",
+              "nameRu": "Кухня прямая «Ева» 2,4 м, белый и графит софт МДФ",
+              "nameEn": "Straight kitchen “Eva” 2.4 m, soft white and graphite MDF",
+              "descRu": "240 см, Сима-ленд. Без мойки, смесителя, техники, фартука, доставки и монтажа.",
+              "descEn": "240 cm, Sima-land. Excludes sink, tap, appliances, splashback, delivery and installation.",
+              "image": "/partners/demo/options/kitchen-ru-sima-eva-240.jpg",
+              "pricing": { "type": "surcharge", "amount": 27129 },
+              "specRef": "ru-sima-eva-240"
+            },
+            {
+              "id": "sima-zhemchug-280",
+              "nameRu": "Кухня прямая «Жемчуг» 2,8 м со столешницей, белый и мрамор марквина",
+              "nameEn": "Straight kitchen “Zhemchug” 2.8 m with worktop, white and Marquina-white marble",
+              "descRu": "280 см, Сима-ленд. Без мойки, смесителя, техники, фартука, доставки и монтажа.",
+              "descEn": "280 cm, Sima-land. Excludes sink, tap, appliances, splashback, delivery and installation.",
+              "image": "/partners/demo/options/kitchen-ru-sima-zhemchug-280.jpg",
+              "pricing": { "type": "surcharge", "amount": 55665 },
+              "specRef": "ru-sima-zhemchug-280"
+            },
+            {
+              "id": "sima-antracit-280",
+              "nameRu": "Кухня прямая «Антрацит» 2,8 м со столешницей, антрацит и дуб вотан",
+              "nameEn": "Straight kitchen “Antratsit” 2.8 m with worktop, anthracite and Votan oak",
+              "descRu": "280 см, Сима-ленд. Без мойки, смесителя, техники, фартука, доставки и монтажа.",
+              "descEn": "280 cm, Sima-land. Excludes sink, tap, appliances, splashback, delivery and installation.",
+              "image": "/partners/demo/options/kitchen-ru-sima-antracit-280.jpg",
+              "pricing": { "type": "surcharge", "amount": 55665 },
+              "specRef": "ru-sima-antracit-280"
+            },
+            {
+              "id": "sima-prestizh-300",
+              "nameRu": "Кухня трёхуровневая в потолок «Престиж» 3 м, белый и мрамор золото",
+              "nameEn": "Three-tier ceiling-height kitchen “Prestizh” 3 m, white and gold marble",
+              "descRu": "300 см, Сима-ленд. Без мойки, смесителя, техники, фартука, подсветки, доставки и монтажа.",
+              "descEn": "300 cm, Sima-land. Excludes sink, tap, appliances, splashback, lighting, delivery and installation.",
+              "image": "/partners/demo/options/kitchen-ru-sima-prestizh-300.jpg",
+              "pricing": { "type": "surcharge", "amount": 67150 },
+              "specRef": "ru-sima-prestizh-300"
             }
           ],
           "roomId": "kitchen"

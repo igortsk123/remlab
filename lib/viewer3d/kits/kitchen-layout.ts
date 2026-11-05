@@ -6,6 +6,7 @@
 // ПУТЬ ВДОЛЬ РЯДА `s`, см: 0…W — основная линия слева направо. У Г путь продолжается по второму плечу от угла: больше W
 // (угол в конце линии) или меньше 0 (угол в начале), модуль за модулем вдоль боковой стены.
 
+import kitchenRules from "@/services/planner-solver/rules/kitchen.json";
 import { splitUnits } from "@/lib/viewer3d/kits/common";
 
 export interface KitchenSpec {
@@ -42,6 +43,15 @@ export interface KitchenSpec {
   hobAtCm?: number;
   /** Отдельно стоящий холодильник (не в колонне): центр на оси ряда, см; может быть за краем линии (< 0 или > W). */
   fridgeAtCm?: number;
+  /**
+   * Холодильник НЕ у ряда (посадка `planner/kitchen.py`: за углом или у другой стены) — точка его дверцы в осях набора:
+   * `s` — по пути от левого конца ряда, `out` — от задней стены в комнату, см. Главнее `fridgeAtCm`.
+   */
+  fridgePointCm?: { s: number; out: number };
+  /** Отрезки пути, над которыми окно (посадка `no_hob_cm`): варочную туда не ставят (NKBA — не под открывающимся окном). */
+  noHobCm?: [number, number][];
+  /** Глухие отрезки пути (перед ними стоит холодильник за углом, посадка `blind_cm`): ни мойки, ни варочной. */
+  blindCm?: [number, number][];
   /** Вентканал на стене за рядом, см по пути. Вытяжка — к нему; варочная тоже, если `hobAtCm` не задан. */
   ventAtCm?: number;
   /**
@@ -80,11 +90,14 @@ export const COLUMN_W = 60;
 /** Место под вытяжку в ряду верхних шкафов, см. */
 export const HOOD_W = 60;
 export const UPPER_D = 35;
-/** Второе плечо Г по умолчанию, см от задней стены — оценка (у паспортов магазина длины плеча нет). */
-export const CORNER_LEG_CM = 150;
-/** Рабочий проход перед линией (один повар), см — NKBA, ADR-0330 п.7; по нему ставится остров. */
-export const WORK_AISLE_CM = 107;
-/** Проход за островом, см — NKBA (walkway), ADR-0330 п.7. */
+/** Второе плечо Г по умолчанию, см от задней стены — оценка (у паспортов магазина длины плеча нет); число — `rules/kitchen.json`. */
+export const CORNER_LEG_CM: number = kitchenRules.shapes.corner_leg_cm.v;
+/** Рабочий проход перед линией (один повар), см — NKBA, ADR-0330 п.7; по нему ставится остров. Число — `rules/kitchen.json`. */
+export const WORK_AISLE_CM: number = kitchenRules.aisle.work_one_cook_cm.v;
+/**
+ * Проход за островом, см — NKBA (walkway), ADR-0330 п.7. Источник — `occupancy.json distances_cm.passage_main[0]`
+ * (общий файл солвера 39 КБ в сборку страницы не тянем): зеркало, сторож равенства — `tests/unit/kitchen-norms.test.ts`.
+ */
 export const WALKWAY_CM = 91;
 const ISLAND_D = 90;
 
@@ -321,7 +334,11 @@ export function kitchenLayout(spec: KitchenSpec): KitchenLayout {
   const points = {
     sink: at(sink),
     hob: has("hob") ? at(hob) : null,
-    fridge: fridgeCol ? { x: fridgeCol.x, z: front } : spec.fridgeAtCm !== undefined ? pathPoint(base, spec.fridgeAtCm, "front") : null,
+    fridge: fridgeCol
+      ? { x: fridgeCol.x, z: front }
+      : spec.fridgePointCm
+        ? { x: -W / 2 + spec.fridgePointCm.s, z: back + spec.fridgePointCm.out }
+        : spec.fridgeAtCm !== undefined ? pathPoint(base, spec.fridgeAtCm, "front") : null,
     vent: spec.ventAtCm !== undefined ? pathPoint(base, spec.ventAtCm, "wall") : null,
   };
 

@@ -2,20 +2,22 @@
 // рабочий треугольник «мойка — варочная — холодильник» и проходы. Причина отказа — словами, для отчёта посадки.
 // Нормы продуктовые (NKBA Kitchen Planning Guidelines 2022, https://kb.nkba.org/uploads/2022/05/Kitchen-Planning-Guidelines.pdf):
 // сторона треугольника 120–270 см, сумма ≤ 790 см; рабочий проход 107 см (один повар) / 122 см (двое), проход 91 см.
+// ЧИСЛА — из `services/planner-solver/rules/kitchen.json` (одно место с посадкой солвера `planner/kitchen.py`, план onb-09 Т1).
 // Вытяжка у вентканала — ПРЕДУПРЕЖДЕНИЕ, не отказ: порог 300 см по стене, НОРМА НЕ ПОДТВЕРЖДЕНА (ведущий 05.11, T-20261105-18) —
 // гипотеза до данных застройщика (вентканала на схеме №180 нет); длинный короб к каналу возможен, он только хуже тянет.
 
+import kitchenRules from "@/services/planner-solver/rules/kitchen.json";
 import { WALKWAY_CM, kitchenLayout, type KitchenLayout, type KitchenSlot, type KitchenSpec, type Pt } from "@/lib/viewer3d/kits/kitchen-layout";
 
 export const KITCHEN_NORMS = {
-  triangleSideMinCm: 120,
-  triangleSideMaxCm: 270,
-  triangleSumMaxCm: 790,
-  aisleOneCookCm: 107,
-  aisleTwoCooksCm: 122,
+  triangleSideMinCm: kitchenRules.triangle.side_min_cm.v,
+  triangleSideMaxCm: kitchenRules.triangle.side_max_cm.v,
+  triangleSumMaxCm: kitchenRules.triangle.sum_max_cm.v,
+  aisleOneCookCm: kitchenRules.aisle.work_one_cook_cm.v,
+  aisleTwoCooksCm: kitchenRules.aisle.work_two_cooks_cm.v,
   walkwayCm: WALKWAY_CM,
   /** НОРМА НЕ ПОДТВЕРЖДЕНА: гипотеза, превышение — предупреждение (`warnings`), не причина отказа. */
-  ventMaxCm: 300,
+  ventMaxCm: kitchenRules.vent.max_hood_to_vent_cm.v,
   /** Модуль под варочной — не уже 60 (под ней духовка 60), под мойкой — не уже 45 (чаша и сифон). */
   hobModuleMinCm: 60,
   sinkModuleMinCm: 45,
@@ -123,6 +125,13 @@ export function checkKitchen(spec: KitchenSpec, opts: { cooks?: 1 | 2 } = {}): K
 const UPPER_MISFIT = 5;
 /** Узкий модуль под мойку/варочную: как 100 см недобора треугольника — берётся, только если иначе никак. */
 const NARROW_MODULE = 1000;
+/** Варочная под окном или мойка/варочная на глухом конце (посадка: `noHobCm`, `blindCm`) — только если иначе никак. */
+const FORBIDDEN_SPOT = 5000;
+
+/** Модуль `slot` (центр `s`, ширина `w`, путь набора) заходит на один из отрезков больше чем на 1 см. */
+function overlaps(slot: KitchenSlot, spans: [number, number][]): boolean {
+  return spans.some(([a, b]) => Math.min(b, slot.s + slot.w / 2) - Math.max(a, slot.s - slot.w / 2) > 1);
+}
 
 /**
  * Где поставить мойку и варочную, чтобы треугольник прошёл: перебор модулей (варочная — на основной линии, не в крайнем
@@ -161,6 +170,8 @@ export function scoreWorkPoints(spec: KitchenSpec): { score: number; sinkAtCm: n
       if (withHob && (hobPos === 0 || hobPos === main.length - 1)) score += 200; // варочная в крайнем модуле — у колонны/стены
       if (!roomy(sink.s, hob.s)) score += NARROW_MODULE; // мойка в модуле < 45 или варочная < 60 — только если иначе никак
       if (vent) score += vent.distanceCm;
+      if (withHob && overlaps(hob.s, [...(spec.noHobCm ?? []), ...(spec.blindCm ?? [])])) score += FORBIDDEN_SPOT; // под окном / глухой
+      if (overlaps(sink.s, spec.blindCm ?? [])) score += FORBIDDEN_SPOT; // мойка перед холодильником за углом
       if (spec.upperModulesCm?.length && trial.uppersW > 0 && !trial.upperSlots) score += UPPER_MISFIT; // верх паспорта не встал
       if (!sink.s.leg) score += Math.abs(main.findIndex((m) => m.i === sink.i) - mid); // при равенстве — мойка ближе к середине
       if (!best || score < best.score) best = { score, sinkAtCm: sink.s.s, hobAtCm: hob.s.s };

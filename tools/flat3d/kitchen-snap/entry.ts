@@ -8,12 +8,16 @@ import { CM, type KitCtx } from "@/lib/viewer3d/kits/common";
 import { buildKitchen, type KitchenSpec } from "@/lib/viewer3d/kits/kitchen";
 import { createMaterialCtx } from "@/lib/viewer3d/materials";
 
+import { placeKit, roomCamera, roomShell, type SnapRoom } from "./room";
+
 interface SnapCase {
   spec: KitchenSpec;
   materials: Material[];
   /** Фото источника рядом с кадром (сравнение цвета и пропорций); нет — только кадр. */
   photo?: string;
   caption?: string;
+  /** Кухня на квартире: комната с проёмами, набор по посадке, камера сверху / из двери / два вида (`./room.ts`). */
+  room?: SnapRoom;
 }
 
 declare global {
@@ -68,6 +72,18 @@ window.snap = async (c: SnapCase): Promise<void> => {
   const ctx: KitCtx = { materials: mctx, byId: (id) => byId.get(id), fallback };
   const kit = buildKitchen(ctx, c.spec);
   scene.add(kit);
+  if (c.room) {
+    placeKit(kit, c.room);
+    scene.add(roomShell(c.room));
+    sun.position.set((c.room.w / 2) * CM + 1, 4, (c.room.d / 2) * CM + 1.5);
+    sun.target.position.set((c.room.w / 2) * CM, 0, (c.room.d / 2) * CM);
+    scene.add(sun.target);
+    kit.traverse((o) => { o.castShadow = true; });
+    await texturesReady(mctx.cache);
+    renderer.render(scene, roomCamera(c.room, w / h));
+    document.body.dataset.ready = String(Date.now());
+    return;
+  }
 
   // задняя стена, боковая (для угловой, кроме полуострова — он стоит в комнате) и пол — как в комнате, иначе кадр не сравнить с фото
   const box = new THREE.Box3().setFromObject(kit);

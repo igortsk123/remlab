@@ -94,7 +94,11 @@ export const optionVariant = z.object({
   materialId: z.string().regex(/^[a-z0-9-]{2,40}$/).optional(),
   /** Акцентная стена (demo-07): одна стена другим материалом; сторона — «за диваном», считает расчёт сцены. */
   accent: z.object({ materialId: z.string().regex(/^[a-z0-9-]{2,40}$/), anchor: z.literal("behind-sofa") }).optional(),
-  specRef: z.string().optional(),
+  /**
+   * Настоящая кухня (onb-09, T-20261105-33): id примера `data/partners/kitchen-examples/{ru,uk}.json` того же рынка, с посадкой на
+   * квартиру `data/partners/kitchen-fit/<квартира>.json`. Покупателю — только при включённой комнате (`registry.ts:roomReady`).
+   */
+  specRef: z.string().regex(/^[a-z0-9-]{2,60}$/).optional(),
 });
 
 export const optionGroup = z
@@ -313,7 +317,9 @@ export type ApartmentCard = {
     variants: { id: string; name: string; desc: string; image: string | null; demo: boolean;
       price: { type: OptionPricing["type"]; amount: number | null; text: string }; configuratorOptionId: string | null;
       materialId: string | null; material: Record<string, unknown> | null;
-      accent: { material: Record<string, unknown>; anchor: "behind-sofa" } | null }[];
+      accent: { material: Record<string, unknown>; anchor: "behind-sofa" } | null;
+      /** Пример кухни (`data/partners/kitchen-examples/*.json`) с посадкой `data/partners/kitchen-fit/*`; есть только у включённой комнаты. */
+      specRef: string | null }[];
   }[];
   sources: { demoData?: string; flat3d?: string };
 };
