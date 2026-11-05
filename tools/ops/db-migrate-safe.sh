@@ -25,15 +25,11 @@ usage() { sed -n '2,19p' "$0"; exit 2; }
 say() { echo "$*"; }
 
 # ---------------------------------------------------------------- разбор SQL
-# sql_scan <файл> — печатает «t <таблица>» на каждую таблицу, которую SQL трогает, и «full <причина>», если таблиц не определить
+# sql_scan <файл> — «t <таблица>» (SQL её пишет/меняет), «new <таблица>» (создаёт), «temp <таблица>» (временная),
+# «full <причина>» (не уверен → копия всей БД с данными). Разбор по операторам — `db-migrate-scan.pl` (T-20261105-55:
+# прежний grep не видел «update products p set», `with … update`, `merge into` и др.). Упал сам разбор — тоже «full».
 sql_scan() {
-  local body
-  body=$(sed 's/--.*$//' "$1" | tr '[:upper:]' '[:lower:]' | tr '\n' ' ')
-  local unknown='\bdo[[:space:]]+\$|create[[:space:]]+(or[[:space:]]+replace[[:space:]]+)?(function|procedure|trigger|view|materialized|type|schema|extension|rule)|drop[[:space:]]+(view|function|procedure|schema|type|extension|index|trigger|materialized)|alter[[:space:]]+(view|type|function|schema|materialized|index)|drop[[:space:]]+table[^;]*,'
-  if grep -qE "$unknown" <<<"$body"; then echo "full в SQL есть функции/вью/DO-блоки/DROP INDEX — затронутое не определить"; return; fi
-  local name='("?[a-z_][a-z0-9_$]*"?\.)?"?[a-z_][a-z0-9_$]*"?'
-  grep -oE "(create[[:space:]]+(unlogged[[:space:]]+)?table|alter[[:space:]]+table|drop[[:space:]]+table|insert[[:space:]]+into|delete[[:space:]]+from|truncate([[:space:]]+table)?|comment[[:space:]]+on[[:space:]]+table)[[:space:]]+((if[[:space:]]+(not[[:space:]]+)?exists|only)[[:space:]]+)*${name}|update[[:space:]]+(only[[:space:]]+)?${name}[[:space:]]+set|index[^;]*[[:space:]]on[[:space:]]+(only[[:space:]]+)?${name}" <<<"$body" \
-    | sed -E 's/[[:space:]]+set$//' | awk '{print $NF}' | tr -d '"' | sort -u | sed 's/^/t /'
+  perl "$ROOT/tools/ops/db-migrate-scan.pl" "$1" 2>&1 || echo "full разбор SQL упал — затронутое не определить"
 }
 
 # ---------------------------------------------------------------- основной путь
@@ -69,11 +65,14 @@ main() {
   read -ra DUMP <<<"${MIGRATE_PG_DUMP:-docker exec $container pg_dump -U remlab -d remlab}"
 
   # что трогает SQL и что из этого уже есть в базе (чтение, не запись)
-  local scan full_reason="" t names=() existing=() created=()
+  local scan full_reason="" warn="" t names=() existing=() created=() news temps
   scan=$(sql_scan "$file")
-  full_reason=$(sed -n 's/^full //p' <<<"$scan")
+  full_reason=$(sed -n 's/^full //p' <<<"$scan" | paste -sd ';' -)
+  news=$(sed -n 's/^new //p' <<<"$scan")
+  temps=$(sed -n 's/^temp //p' <<<"$scan" | paste -sd ' ' -)
   while read -r _ t; do [ -n "$t" ] && names+=("$t"); done < <(grep '^t ' <<<"$scan")
   if [ -z "$full_reason" ] && [ ${#names[@]} -eq 0 ]; then full_reason="таблиц в SQL не нашли"; fi
+  warn="$full_reason"
   if [ ${#names[@]} -gt 0 ]; then
     local list out
     list=$(printf "'%s'," "${names[@]}"); list="${list%,}"
@@ -84,6 +83,13 @@ main() {
       if grep -qx "$t" <<<"$out"; then existing+=("$t"); else created+=("$t"); fi
     done
   fi
+  # таблицы нет в базе, а SQL её не создаёт (опечатка, имя разобрано не так) — копия «только схема» потеряла бы данные
+  # того, что SQL на самом деле пишет; не гадаем: копия всей БД
+  if [ -z "$full_reason" ]; then
+    local stray=()
+    for t in "${created[@]}"; do grep -qx "$t" <<<"$news" || stray+=("$t"); done
+    [ ${#stray[@]} -gt 0 ] && { full_reason="таблиц ${stray[*]} нет в базе, и SQL их не создаёт"; warn="$full_reason"; }
+  fi
   # на таблицу опирается вью или чужой внешний ключ (products ← lr_roles, catalog_ready) — её DROP из дампа `--clean` упадёт,
   # и откат по таблицам не сработает; тогда копия всей БД
   if [ -z "$full_reason" ] && [ ${#existing[@]} -gt 0 ]; then
@@ -93,9 +99,12 @@ main() {
       select r.ev_class x from pg_depend d join pg_rewrite r on r.oid = d.objid
        where d.classid = 'pg_rewrite'::regclass and d.refobjid = any($arr) and r.ev_class <> d.refobjid
       union all
-      select conrelid from pg_constraint where contype = 'f' and confrelid = any($arr) and conrelid <> confrelid) s" 2>&1) \
+      select conrelid from pg_constraint where contype = 'f' and confrelid = any($arr) and conrelid <> confrelid
+      union all
+      select oid from pg_class where oid = any($arr) and relkind not in ('r', 'p')) s" 2>&1) \
       || { echo "база не отвечает: $deps"; exit 5; }
-    [ -n "$deps" ] && full_reason="на таблицы опираются $deps — откат по отдельным таблицам не сработает"
+    # последний union — цель сама не таблица (вью, matview): её копия -t — одно определение, без данных под ней
+    [ -n "$deps" ] && full_reason="на таблицы опираются $deps (или это не таблицы) — откат по отдельным таблицам не сработает"
   fi
   local mode
   if [ -n "$full_reason" ]; then mode="вся БД ($full_reason)"
@@ -104,6 +113,11 @@ main() {
 
   local stamp name dir
   stamp=$(date +%Y%m%d-%H%M%S); name=$(basename "$file" .sql); dir="$MIGRATE_DIR/$stamp-$name"
+  # тот же файл второй раз в ту же секунду — новая папка, не чужая: иначе дамп перезаписался бы, а журнал отказа
+  # сослался бы на rollback.sh прошлого запуска (селфтест ловил это через раз)
+  local n=1; while [ -e "$dir" ]; do dir="$MIGRATE_DIR/$stamp-$name-$n"; n=$((n + 1)); done
+  [ -n "$warn" ] && say "WARN: затронутые таблицы не определить ($warn) — копия ВСЕЙ БД с данными"
+  [ -n "$temps" ] && say "временные таблицы (в копию не идут): $temps"
   if [ "$dry" = 1 ]; then
     say "СУХОЙ ПРОГОН — ничего не делаем. Миграция $file → $db ($container)"
     say "  1. пауза кронов: $CRON_PAUSE on $hours \"миграция $name\" (ждать до $wait с)"

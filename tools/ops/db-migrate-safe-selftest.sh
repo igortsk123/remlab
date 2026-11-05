@@ -111,6 +111,50 @@ ok "DO-блок: дамп всей БД ($rc)" "$(yes_if "[ $rc = 0 ] && grep -q
 reset; rc=$(STUB_EXISTING=products STUB_DEPS=lr_roles run "$T/sql/010-mixed.sql")
 ok "на products опирается вью: дамп всей БД ($rc)" "$(yes_if "[ $rc = 0 ] && grep -q 'pg_dump --clean --if-exists$' '$T/calls.log' && journal_last | grep -q 'опираются lr_roles'")"
 
+# 10. разбор SQL (T-20261105-55): каждая форма записи → её таблица в копии С ДАННЫМИ, не «только схема». Прежний grep
+# не видел псевдоним («update products p set») — при temp-таблице рядом копия была одной схемой.
+form() {  # <имя> <SQL> <что ждём в плане сухого прогона>
+  printf '%b' "$2" > "$T/sql/$1.sql"
+  reset; local rc; rc=$(STUB_EXISTING="products mesh_demand old_t arch" run "$T/sql/$1.sql" --dry-run)
+  ok "форма $1 → «$3» ($rc)" "$(yes_if "[ $rc = 0 ] && grep -qF -- '$3' '$T/out.txt' && ! grep -q 'только схема' '$T/out.txt'")"
+}
+form 020-alias 'update products p set cat_role = null where p.id = 1;\n' 'таблицы: products'
+form 021-as 'UPDATE products AS p\n   SET cat_role = null;\n' 'таблицы: products'
+form 022-only 'update only products set cat_role = null;\n' 'таблицы: products'
+form 023-schema 'update public."products" set cat_role = null;\nupdate public . mesh_demand d set role = null;\n' 'таблицы: mesh_demand products'
+form 024-with-update 'with s as (select 1 as id)\nupdate products p set cat_role = null from s where p.id = s.id;\n' 'таблицы: products'
+form 025-upsert "insert into mesh_demand as m (sku, role) values ('a:1', 'пуф')\n on conflict (sku) do update set role = excluded.role;\n" 'таблицы: mesh_demand'
+form 026-delete-using 'delete from products p using mesh_demand d where d.sku = p.name;\n' 'таблицы: products'
+form 027-merge 'merge into products p using mesh_demand d on p.name = d.sku\n when matched then update set cat_role = d.role\n when not matched then insert (name) values (d.sku);\n' 'таблицы: products'
+form 028-case-comments "/* update ghost set x = 1; */ -- delete from ghost2\nUpDaTe\n  PRODUCTS\n  P\n  SeT name = 'update ghost3 set; delete from ghost4' -- хвост\n;\n" 'таблицы: products'
+form 029-with-delete 'with d as (delete from old_t where true returning *)\ninsert into arch select * from d;\n' 'таблицы: arch old_t'
+# форма T-53 (seat-roles-apply.sql, вариант с псевдонимом): temp-таблицы со значениями + update с псевдонимом
+t53="create temp table t53_seat (sku text primary key, old_role text, new_role text) on commit drop;
+insert into t53_seat values\n('1:a','диван','пуф'),\n('1:b','кресло',null);
+update products p set cat_role=t.new_role from t53_seat t\n where p.shop_mid||':'||p.external_id=t.sku and p.cat_role is not distinct from t.old_role;
+create temp table t53_mesh (sku text primary key, old_role text, new_role text) on commit drop;
+insert into t53_mesh values\n('1:a','диван','пуф');
+update mesh_demand d set role=t.new_role from t53_mesh t where d.sku=t.sku and d.role=t.old_role;\n"
+form 030-t53-alias "$t53" 'таблицы: mesh_demand products'
+ok "T-53: temp-таблицы названы и в копию не идут" "$(yes_if "grep -q 'временные таблицы (в копию не идут): t53_mesh t53_seat' '$T/out.txt' && ! grep -q 'таблицы:.*t53_' '$T/out.txt'")"
+reset; rc=$(STUB_EXISTING="products mesh_demand" run "$T/sql/030-t53-alias.sql")
+ok "T-53 применение: дамп -t mesh_demand -t products с данными ($rc)" "$(yes_if "[ $rc = 0 ] && grep -q 'pg_dump --clean --if-exists -t mesh_demand -t products$' '$T/calls.log'")"
+# не уверен → копия ВСЕЙ БД с данными и строка WARN (раньше: «только схема» или пропуск)
+unsure() {  # <имя> <SQL> [STUB_EXISTING]
+  printf '%b' "$2" > "$T/sql/$1.sql"
+  reset; local rc; rc=$(STUB_EXISTING="${3-products}" run "$T/sql/$1.sql")
+  ok "не уверен $1: WARN + дамп всей БД с данными ($rc)" "$(yes_if "[ $rc = 0 ] && grep -q '^WARN: ' '$T/out.txt' && grep -q 'pg_dump --clean --if-exists$' '$T/calls.log'")"
+}
+unsure 040-func-target 'update products set x = 1;\nupdate fn() set x = 1;\n'
+unsure 041-grant 'grant update on products to someone;\n'
+unsure 042-ghost 'update ghost set x = 1;\n' ''
+unsure 043-t53-nothing-exists "$t53" ''
+unsure 044-search-path 'set search_path = other;\nupdate products set x = 1;\n'
+unsure 045-select-into 'select * into products_copy from products;\n'
+unsure 046-quoted-upper 'update "Products" set x = 1;\n'
+unsure 047-truncate-cascade 'truncate products cascade;\n'
+unsure 048-unclosed "update products set name = 'oops;\n"
+
 # 9. отказы ввода — код 2, ничего не тронуто
 reset
 ok "свой BEGIN/COMMIT в файле — отказ" "$(yes_if "[ \$(run '$T/sql/013-tx.sql') = 2 ]")"
