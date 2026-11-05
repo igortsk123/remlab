@@ -1,0 +1,161 @@
+{
+ "weeks": [
+  {
+   "week": "2026-10-19",
+   "apartmentId": null,
+   "fresh": true,
+   "sent": 1,
+   "opened": 0,
+   "engaged": 0,
+   "saved": 0,
+   "contactClick": 0,
+   "flat3d": 0,
+   "moved": 0,
+   "shared": 0,
+   "status": {
+    "contacted": 0,
+    "meeting": 0,
+    "deal": 1,
+    "lost": 0
+   }
+  },
+  {
+   "week": "2026-10-12",
+   "apartmentId": null,
+   "fresh": false,
+   "sent": 2,
+   "opened": 2,
+   "engaged": 1,
+   "saved": 0,
+   "contactClick": 0,
+   "flat3d": 0,
+   "moved": 1,
+   "shared": 0,
+   "status": {
+    "contacted": 0,
+    "meeting": 1,
+    "deal": 0,
+    "lost": 0
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "apartmentId": null,
+   "fresh": false,
+   "sent": 2,
+   "opened": 2,
+   "engaged": 2,
+   "saved": 1,
+   "contactClick": 1,
+   "flat3d": 1,
+   "moved": 0,
+   "shared": 1,
+   "status": {
+    "contacted": 0,
+    "meeting": 0,
+    "deal": 0,
+    "lost": 0
+   }
+  }
+ ],
+ "byApartment": [
+  {
+   "week": "",
+   "apartmentId": "flat215",
+   "fresh": false,
+   "sent": 3,
+   "opened": 2,
+   "engaged": 2,
+   "saved": 0,
+   "contactClick": 0,
+   "flat3d": 1,
+   "moved": 1,
+   "shared": 1,
+   "status": {
+    "contacted": 0,
+    "meeting": 0,
+    "deal": 1,
+    "lost": 0
+   }
+  },
+  {
+   "week": "",
+   "apartmentId": "uk1",
+   "fresh": false,
+   "sent": 2,
+   "opened": 2,
+   "engaged": 1,
+   "saved": 1,
+   "contactClick": 1,
+   "flat3d": 0,
+   "moved": 0,
+   "shared": 0,
+   "status": {
+    "contacted": 0,
+    "meeting": 1,
+    "deal": 0,
+    "lost": 0
+   }
+  }
+ ],
+ "total": {
+  "week": "",
+  "apartmentId": null,
+  "fresh": false,
+  "sent": 5,
+  "opened": 4,
+  "engaged": 3,
+  "saved": 1,
+  "contactClick": 1,
+  "flat3d": 1,
+  "moved": 1,
+  "shared": 1,
+  "status": {
+   "contacted": 0,
+   "meeting": 1,
+   "deal": 1,
+   "lost": 0
+  }
+ },
+ "direct": [
+  {
+   "week": "2026-10-19",
+   "apartmentId": "flat215",
+   "designerOpen": 1,
+   "variantView": 0,
+   "itemSwap": 5,
+   "flat3dOpen": 0,
+   "itemMove": 9,
+   "share": 0,
+   "staleLink": 13,
+   "floorPick": 0,
+   "wallsPick": 17
+  },
+  {
+   "week": "2026-10-19",
+   "apartmentId": "uk1",
+   "designerOpen": 0,
+   "variantView": 3,
+   "itemSwap": 0,
+   "flat3dOpen": 7,
+   "itemMove": 0,
+   "share": 11,
+   "staleLink": 0,
+   "floorPick": 15,
+   "wallsPick": 0
+  },
+  {
+   "week": "2026-10-12",
+   "apartmentId": "flat215",
+   "designerOpen": 1,
+   "variantView": 2,
+   "itemSwap": 3,
+   "flat3dOpen": 4,
+   "itemMove": 5,
+   "share": 6,
+   "staleLink": 7,
+   "floorPick": 8,
+   "wallsPick": 9
+  }
+ ]
+}
