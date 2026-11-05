@@ -114,12 +114,14 @@ def check_openings(room: Room, ps: list[Placement]) -> list[Violation]:
         _pass = _wall_strip(room, op.wall, op.offset_cm, op.width_cm, 76.0) \
             if op.kind == 'door' else None
         if _pass is not None and not _pass.is_empty:
+            _pass_in = _pass.buffer(-EPS)     # перф (onb-05): один раз на дверь, не на каждый предмет
             for p in ps:
                 if is_flat_floor(p):
                     continue
-                if footprint(p).intersects(_pass.buffer(-EPS)):
+                if footprint(p).intersects(_pass_in):
                     out.append(_v("DOOR_PASSAGE", f"«{p.role}» перекрывает проход в дверь",
                                   [p.role], 76.0, "≥76 см прохода"))
+        swing_in = swing.buffer(-EPS)
         for p in ps:
             if is_flat_floor(p):
                 # ковёр проходит ПОД дугой двери, но не лезет в сам проём:
@@ -129,7 +131,7 @@ def check_openings(room: Room, ps: list[Placement]) -> list[Violation]:
                     out.append(_v("DOOR_THRESHOLD", f"«{p.role}» заходит в дверной проём",
                                   [p.role], 30.0, "≥30 см от проёма"))
                 continue
-            if footprint(p).intersects(swing.buffer(-EPS)):
+            if footprint(p).intersects(swing_in):
                 out.append(_v("DOOR_SWING", f"«{p.role}» стоит в зоне открывания двери", [p.role],
                               None, f"дуга {op.swing_cm:.0f} см свободна"))
         # окно не перекрываем высокой мебелью — проверка по высоте (h выше подоконника)
@@ -199,10 +201,11 @@ def check_radiators(room: Room, ps: list[Placement]) -> list[Violation]:
     out = []
     for rad in room.radiators:
         zone = radiator_polygon(room, rad).buffer(hard)
+        zone_in = zone.buffer(-EPS)           # перф (onb-05): один раз на батарею, не на каждый предмет
         for p in ps:
             if is_flat_floor(p):
                 continue                      # ковёр не мешает конвекции
-            if footprint(p).intersects(zone.buffer(-EPS)):
+            if footprint(p).intersects(zone_in):
                 out.append(_v("RADIATOR", f"«{p.role}» ближе {hard:.0f} см к радиатору", [p.role],
                               hard, f"≥{hard:.0f} см"))
     return out

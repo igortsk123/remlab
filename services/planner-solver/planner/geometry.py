@@ -379,7 +379,9 @@ def largest_free_rectangles(poly: Polygon, min_side_cm: float = 50.0, limit: int
     # квантуем координаты: перебор пар по обеим осям квартичен, лишние вершины его убивают
     xs = sorted({round(v / 5) * 5 for v in xs})
     ys = sorted({round(v / 5) * 5 for v in ys})
-    rects: list[Polygon] = []
+    # ПЕРФ (onb-05, 05.11): сжатие осевого прямоугольника на 0,5 см — сразу box, без buffer(-0.5): вершины те же
+    # (сверено на 20 000 случаев), а buffer здесь давал ~70 % всех вызовов buffer холодного прогона гостиной
+    rects: list[tuple[Polygon, Polygon]] = []
     for i in range(len(xs) - 1):
         for j in range(i + 1, len(xs)):
             if xs[j] - xs[i] < min_side_cm:
@@ -388,13 +390,13 @@ def largest_free_rectangles(poly: Polygon, min_side_cm: float = 50.0, limit: int
                 for b in range(a + 1, len(ys)):
                     if ys[b] - ys[a] < min_side_cm:
                         continue
-                    r = box(xs[i], ys[a], xs[j], ys[b])
-                    if poly.contains(r.buffer(-0.5)):
-                        rects.append(r)
-    rects.sort(key=lambda r: -r.area)
+                    inner = box(xs[i] + 0.5, ys[a] + 0.5, xs[j] - 0.5, ys[b] - 0.5)
+                    if poly.contains(inner):
+                        rects.append((box(xs[i], ys[a], xs[j], ys[b]), inner))
+    rects.sort(key=lambda t: -t[0].area)
     out: list[Polygon] = []
-    for r in rects:  # выкидываем прямоугольники, вложенные в уже взятые (оставляем максимальные)
-        if not any(o.contains(r.buffer(-0.5)) for o in out):
+    for r, inner in rects:  # выкидываем прямоугольники, вложенные в уже взятые (оставляем максимальные)
+        if not any(o.contains(inner) for o in out):
             out.append(r)
         if len(out) >= limit:
             break
