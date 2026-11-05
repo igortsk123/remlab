@@ -44,7 +44,7 @@ PLAGINY: dict[str, Plagin] = {
     "living": Plagin("planner.validate:validate_living"),
     "bedroom": Plagin("planner.bedroom_checks:validate_bedroom", "planner.bedroom:solve_bedroom"),
     "kitchen": Plagin("planner.kitchen_checks:validate_kitchen"),  # T-33: файл кухни
-    "hall": Plagin("planner.hall_checks:validate_hall"),  # T-34: файл прихожей
+    "hall": Plagin("planner.hall_checks:validate_hall", "planner.hall:solve_hall"),  # T-34: файлы прихожей
 }
 assert set(PLAGINY) == set(get_args(RoomType)), "реестр и models.RoomType разошлись"
 
