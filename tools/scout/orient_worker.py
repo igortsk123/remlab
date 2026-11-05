@@ -11,8 +11,12 @@
 Вердикт — resolution: raw_to_canonical quaternion (det=+1, w≥0) + версии методов + evidence.
 GLB не перезаписывается. Легаси-совместимость: front_yaw выводится из кватерниона.
 
-  ~/venvs/scout/bin/python orient_worker.py --run [--limit N] [--vlm]
+  ~/venvs/scout/bin/python orient_worker.py --run [--limit N] [--vlm] [--recheck-roles]
   ~/venvs/scout/bin/python orient_worker.py --report
+  ~/venvs/scout/bin/python orient_worker.py --dry-roles   # сколько «симметричных по роли» устарело и цена VLM
+--recheck-roles: в пачку идут и решения «симметрична по роли», принятые при ПРЕЖНЕЙ политике ролей, если роль
+теперь направленная или была неизвестна (отпечаток `role_policy()`; Codex T-36/3). Без флага не берутся: пересчёт
+платный по VLM, включается явно (ведущий — по цифре сухого прогона).
 Один воркер на машину (flock); тяжёлое — под nice.
 """
 import fcntl
@@ -45,6 +49,28 @@ def directed_role(role: str, name: str = '', subtype: str = '') -> bool:
             return 'спинк' in t     # без спинки — симметрична (q25: подтип, не роль)
         return True
     return False
+
+
+MANIFEST_ROLE_RULE = 1   # 05.11 (T-36/2): роль '?'/пустая → из manifest.json меша; смена правила роли → +1
+
+
+def role_policy() -> str:
+    """Отпечаток политики ролей: какие роли направленные и как роль находится. Ключ ревизии (`…|orient-v1`) его не
+    содержит, поэтому решение «симметрична по роли» несёт отпечаток в себе: сменился DIRECTED / SEAT_ROLES / правило
+    роли — такие решения видны как устаревшие (`stale_by_role_policy`), не нужно поднимать контракт всем мешам."""
+    blob = json.dumps([sorted(DIRECTED), sorted(SEAT_ROLES), MANIFEST_ROLE_RULE], ensure_ascii=False)
+    return 'roles-' + hashlib.sha1(blob.encode()).hexdigest()[:8]
+
+
+def stale_by_role_policy(status: str, res: dict) -> bool:
+    """Решение «симметрична по роли» принято при другой политике ролей, а роль теперь направленная (или была
+    неизвестна — её теперь может дать manifest). Решения человека не трогаем никогда."""
+    if str(status or '').startswith('human') or status == 'unusable':
+        return False
+    if (res or {}).get('source') != 'symmetric_by_role' or res.get('role_policy') == role_policy():
+        return False
+    role = (res.get('role') or '').strip()
+    return role in ('', '?') or directed_role(role)
 
 
 def front_yaw_from_R(R: list[list[float]]) -> tuple[int, float]:
@@ -171,6 +197,7 @@ def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
            'legacy_front_yaw': yaw, 'up_tilt_deg': tilt, 'role': role,
            'versions': {'orienter': 'cscarv/3d-orienter@main', 'front': 2,
                         'vlm': 'alibaba/qwen3-vl-instruct'},
+           'role_policy': role_policy(),
            'evidence': {'orienter': {'flip_prob': inf['flip_prob'],
                                      'pset_size': inf['pset_size']}}}
     if not directed_role(role, name, subtype):
@@ -255,20 +282,39 @@ def _sha_flush() -> None:
         _sha16.dirty = False
 
 
-def pending_meshes(limit: int) -> list[tuple[str, str, str]]:
-    """(rev_key, sku, glb) без записи в orientation_state по текущему контракту."""
+def state_index() -> tuple[set, set]:
+    """(все revision_key, устаревшие по политике ролей) — одним запросом."""
+    rows = db("select revision_key, status, coalesce(resolution->>'source',''), coalesce(resolution->>'role',''), "
+              "coalesce(resolution->>'role_policy','') from orientation_state")
+    have = {r[0] for r in rows if r and r[0]}
+    stale = {r[0] for r in rows if len(r) >= 5 and stale_by_role_policy(
+        r[1], {'source': r[2], 'role': r[3], 'role_policy': r[4]})}
+    return have, stale
+
+
+def all_meshes() -> list[str]:
+    return sorted(glob.glob(os.path.join(SCENE_DIR, 'meshes', '*.glb'))
+                  + glob.glob(os.path.join(SCENE_DIR, 'salad-assets', '*', 'model.glb'))
+                  # пилот Hunyuan (план orient-v2): sku на два уровня выше model.glb
+                  + glob.glob(os.path.join(SCENE_DIR, 'meshes-hunyuan', 'meshes', 'hunyuan21', 'v2', '*', '*',
+                                           'model.glb')))
+
+
+def sku_of_glb(glb: str) -> str:
+    return (sku_from_path(glb) or sku_from_path(os.path.basename(os.path.dirname(glb)))
+            or sku_from_path(os.path.basename(os.path.dirname(os.path.dirname(glb)))) or '?')
+
+
+def pending_meshes(limit: int, recheck_roles: bool = False) -> list[tuple[str, str, str]]:
+    """(rev_key, sku, glb) без записи в orientation_state по текущему контракту; с recheck_roles — ещё и решения
+    «симметрична по роли», устаревшие по политике ролей (`stale_by_role_policy`)."""
     out = []
-    have = {r[0] for r in db('select revision_key from orientation_state') if r and r[0]}
-    for glb in sorted(glob.glob(os.path.join(SCENE_DIR, 'meshes', '*.glb'))
-                      + glob.glob(os.path.join(SCENE_DIR, 'salad-assets', '*', 'model.glb'))
-                      # пилот Hunyuan (план orient-v2): sku на два уровня выше model.glb
-                      + glob.glob(os.path.join(SCENE_DIR, 'meshes-hunyuan', 'meshes',
-                                               'hunyuan21', 'v2', '*', '*', 'model.glb'))):
-        sku = (sku_from_path(glb) or sku_from_path(os.path.basename(os.path.dirname(glb)))
-               or sku_from_path(os.path.basename(os.path.dirname(os.path.dirname(glb)))) or '?')
+    have, stale = state_index()
+    for glb in all_meshes():
+        sku = sku_of_glb(glb)
         sha = _sha16(glb)
         rk = f'{sku}|{sha}|{CONTRACT}'
-        if rk not in have:
+        if rk not in have or (recheck_roles and rk in stale):
             out.append((rk, sku, glb))
         if len(out) >= limit:
             break
@@ -276,7 +322,38 @@ def pending_meshes(limit: int) -> list[tuple[str, str, str]]:
     return out
 
 
-def run(limit: int, use_vlm: bool) -> None:
+VLM_TOKENS_IN = 420 * 420 // (28 * 28) + 120    # один кадр 420² (патчи 28 px у qwen-vl) + текст промпта
+VLM_TOKENS_OUT = 60                               # max_tokens запроса vlm_side
+
+
+def dry_roles() -> dict:
+    """Сухой прогон --recheck-roles: какие устаревшие решения есть на диске, какая роль у них станет и сколько
+    вызовов VLM это даст (верхняя граница: сидячим VLM нужен, только если сиденье не уверено). Ничего не пишет."""
+    _, stale = state_index()
+    by_role: dict = {}
+    for glb in all_meshes():
+        sku = sku_of_glb(glb)
+        rk = f'{sku}|{_sha16(glb)}|{CONTRACT}'
+        if rk not in stale:
+            continue
+        role, name, subtype = role_of(sku)
+        if not (role or '').strip() or role == '?':
+            role, name = role_from_manifest(glb, name)
+        d = directed_role(role, name, subtype)
+        c = by_role.setdefault(role, {'meshes': 0, 'directed': 0, 'vlm_max': 0, 'seat_first': 0})
+        c['meshes'] += 1
+        if d:
+            c['directed'] += 1
+            c['vlm_max'] += 1
+            c['seat_first'] += role in SEAT_ROLES
+    tot = {k: sum(c[k] for c in by_role.values()) for k in ('meshes', 'directed', 'vlm_max', 'seat_first')}
+    out = {'role_policy': role_policy(), 'stale_in_db': len(stale), 'by_role': by_role, 'total': tot,
+           'vlm_tokens_in': tot['vlm_max'] * VLM_TOKENS_IN, 'vlm_tokens_out': tot['vlm_max'] * VLM_TOKENS_OUT}
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+    return out
+
+
+def run(limit: int, use_vlm: bool, recheck_roles: bool = False) -> None:
     os.makedirs(RES_DIR, exist_ok=True)
     lock = open(os.path.join(SCENE_DIR, 'orientation', 'worker.lock'), 'w')
     try:
@@ -284,7 +361,7 @@ def run(limit: int, use_vlm: bool) -> None:
     except BlockingIOError:
         print('[orient] другой воркер уже работает — выходим', flush=True)
         return
-    todo = pending_meshes(limit)
+    todo = pending_meshes(limit, recheck_roles)
     if not todo:
         print('[orient] нечего делать', flush=True)
         return
@@ -333,7 +410,9 @@ def report() -> None:
 if __name__ == '__main__':
     if '--run' in sys.argv:
         lim = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else 100
-        run(lim, '--vlm' in sys.argv)
+        run(lim, '--vlm' in sys.argv, '--recheck-roles' in sys.argv)
+    elif '--dry-roles' in sys.argv:
+        dry_roles()
     elif '--report' in sys.argv:
         report()
     else:
