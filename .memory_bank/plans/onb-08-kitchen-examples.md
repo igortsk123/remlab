@@ -106,3 +106,4 @@ id материала}, `photo` {путь, `license`, `licenseVersion`, `rightsN
   UK — только ссылка), `displayImage = our3d`. Набор: один фасад на кухню (двухцветные теряют верх), practical = 84 % стены, при колонне
   нет духовки внизу; предложены новые материалы front-concrete/-anthracite/-sage, worktop-oak-votan, splashback-oak-light (в `colors.*.proposed`).
   Сырьё — `_intake/kitchens-2026-11/README.md`.
+- 2026-11-05 — T-20261105-05/2 (рабочий 2): Wickes — образец угловой, `notFor: flat215`; добавлена прямая IKEA METOD 287 £1,155 → UK прямых с открытой ценой 3 (тест это держит).

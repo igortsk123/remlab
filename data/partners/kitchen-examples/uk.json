@@ -102,6 +102,56 @@
       "checkedAt": "2026-11-05"
     },
     {
+      "id": "uk-ikea-metod-287",
+      "market": "uk",
+      "nameRu": "IKEA METOD 287 см с колонной под холодильник, белый / Veddinge белый",
+      "nameEn": "IKEA METOD kitchen 287 cm with fridge housing, white / Veddinge white",
+      "sourceUrl": "https://www.ikea.com/gb/en/p/metod-kitchen-white-veddinge-white-s19614914/",
+      "seller": "IKEA UK",
+      "affiliate": null,
+      "price": 1155,
+      "currency": "GBP",
+      "priceKind": "fixed",
+      "priceAsOf": "2026-11-05",
+      "priceSource": "shop-page",
+      "priceIncludes": ["cabinets", "fronts", "worktop", "plinth"],
+      "priceExcludes": ["sink", "tap", "handles", "appliances", "lighting", "delivery", "installation"],
+      "priceNote": "Art. 196.149.14, 287.4×60×228 cm (depth with doors 63.5), 55 packages. Included: «Cabinet, kitchen doors, drawer fronts, drawers, worktop, legs, plinth, shelves, suspension rail, hinges and fittings». Sold separately: «Sink, water trap, tap, knobs or handles, appliances and lighting». Prepared space for integrated fridge/freezer and built-in oven.",
+      "lengthCm": 287,
+      "depthCm": 60,
+      "heightCm": 228,
+      "estimated": [],
+      "shape": "straight",
+      "island": false,
+      "modules": { "base": [], "upper": [], "tall": [60] },
+      "appliancesInPhoto": [],
+      "colors": {
+        "front": { "measuredHex": "#f1f0ec", "materialId": "front-white", "deltaE": 10.4, "note": "студийная съёмка на белом, пересвет — новый материал не предлагаем" },
+        "worktop": { "measuredHex": "#e0e1db", "materialId": "quartz-white", "deltaE": 1.4 }
+      },
+      "colorFrom": ".memory_bank/_intake/kitchens-2026-11/uk2-1337/metod287.jpg — медиана рамок (600,820)–(680,900) дверь низа и (900,775)–(1000,785) столешница",
+      "photo": {
+        "url": "https://www.ikea.com/gb/en/images/products/metod-kitchen-white-veddinge-white__1457739_pe992793_s5.jpg",
+        "license": "link-only",
+        "licenseVersion": null,
+        "rightsNote": "Фото магазина без партнёрки — только ссылка, без показа.",
+        "showAllowed": false
+      },
+      "displayImage": { "kind": "our3d" },
+      "model": { "kind": "none", "note": "готовой модели CC0/CC-BY этой кухни нет; кадр — наш набор" },
+      "kitSpec": {
+        "level": "comfort",
+        "features": ["tall-unit", "fridge", "uppers"],
+        "doorMaterialId": "front-white",
+        "worktopMaterialId": "quartz-white",
+        "widthCm": 287,
+        "depthCm": 60,
+        "columnsAt": "start"
+      },
+      "kitFit": "Колонна слева под холодильник — как на фото; ниша под духовку у товара в нижнем ряду, набор при колонне её не рисует. Comfort добавляет открытые полки и подсветку, которых у товара нет. Состав близок к METOD 304 — та же линейка, короче на 17 см.",
+      "checkedAt": "2026-11-05"
+    },
+    {
       "id": "uk-wickes-milton-sage",
       "market": "uk",
       "nameRu": "Wickes Milton, шалфей (шейкер), 8 модулей",
@@ -123,6 +173,7 @@
       "estimated": ["length", "height"],
       "shape": "corner",
       "island": false,
+      "notFor": { "flats": ["flat215"], "reason": "образец угловой кухни с ценой «от»; на квартире — только прямые с открытой ценой (ведущий 05.11, T-20261105-05/2)" },
       "modules": { "base": [100, 60, 60, 50], "upper": [100, 30, 30], "tall": [60] },
       "appliancesInPhoto": ["oven", "hob"],
       "colors": {

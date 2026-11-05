@@ -17,9 +17,9 @@ const all: KitchenExample[] = [...files.ru.examples, ...files.uk.examples];
 const surfacesOf = new Map(materials.materials.map((m) => [m.id, m.surfaces ?? []]));
 
 describe("примеры кухонь", () => {
-  it("РФ ≥ 3, UK 3; рынок и валюта записи совпадают с файлом; id уникальны", () => {
+  it("РФ ≥ 3, UK ≥ 3; рынок и валюта записи совпадают с файлом; id уникальны", () => {
     expect(files.ru.examples.length).toBeGreaterThanOrEqual(3);
-    expect(files.uk.examples.length).toBe(3);
+    expect(files.uk.examples.length).toBeGreaterThanOrEqual(3);
     for (const [m, f] of Object.entries(files)) {
       for (const e of f.examples) {
         expect(e.market).toBe(m);
@@ -27,6 +27,16 @@ describe("примеры кухонь", () => {
       }
     }
     expect(new Set(all.map((e) => e.id)).size).toBe(all.length);
+  });
+
+  it("на каждую квартиру рынка — минимум 3 прямые кухни с открытой ценой (flat215 — без углового образца)", () => {
+    for (const f of Object.values(files)) {
+      const fit = f.examples.filter(
+        (e) => e.shape === "straight" && e.priceKind === "fixed" && !e.notFor?.flats.includes("flat215"),
+      );
+      expect(fit.length, f.market).toBeGreaterThanOrEqual(3);
+    }
+    expect(files.uk.examples.find((e) => e.shape === "corner")?.notFor?.flats).toContain("flat215");
   });
 
   it("что входит в цену и что нет — не пересекается", () => {

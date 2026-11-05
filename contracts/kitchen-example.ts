@@ -90,6 +90,8 @@ export const kitchenExample = z.object({
   estimated: z.array(z.enum(["length", "depth", "height"])),
   shape: z.enum(["straight", "corner"]),
   island: z.boolean(),
+  /** Образец, который не ставим на эти квартиры (id квартиры, напр. `flat215`), и почему. */
+  notFor: z.object({ flats: z.array(z.string().min(1)).min(1), reason: z.string().min(1) }).strict().optional(),
   /** Ширины модулей, см; пусто — карточка ширин не даёт. */
   modules: z.object({ base: z.array(z.number()), upper: z.array(z.number()), tall: z.array(z.number()) }).strict(),
   /** Техника, видимая на фото источника (в цену не входит, если не сказано иное). */
