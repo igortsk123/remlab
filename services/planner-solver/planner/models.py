@@ -14,8 +14,9 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 Wall = Literal["south", "north", "west", "east"]
-# ТИП КОМНАТЫ (ADR-0330 п.1, план onb-05): единственный писатель поля — onb-05; kitchen — значение для onb-09
-RoomType = Literal["living", "bedroom", "kitchen"]
+# ТИП КОМНАТЫ (ADR-0330 п.1, план onb-05): единственный писатель поля — onb-05; kitchen — значение для onb-09, hall — прихожая.
+# Каждому значению — строка в реестре плагинов `planner/room_registry.py:PLAGINY` (T-37): тип без плагина — ошибка, не гостиная
+RoomType = Literal["living", "bedroom", "kitchen", "hall"]
 
 
 class Severity(str, Enum):
