@@ -1,0 +1,410 @@
+{
+ "_why": "Эталон моста /flat до onb-11 (T-20261105-12): sha256 JSON {apartment, catalogue, totals} по квартире и варианту на flat-bridge-live-0511.json при замороженных contexts (из реестра 05.11); снят кодом main 9a0701bd.",
+ "golden": {
+  "flat215/set1": {
+   "sha256": "2483ef68d6c86419920104239dd17e74f261ae0128b97408109a799f87db0d87",
+   "slots": 12,
+   "options": 35,
+   "total": 9707029,
+   "byRoom": {
+    "living": 128829
+   }
+  },
+  "flat215/set6": {
+   "sha256": "0a29a87108be21472d7fffa29fa3124dacadcd9cefff801cd450e5892896fd99",
+   "slots": 11,
+   "options": 36,
+   "total": 9804821,
+   "byRoom": {
+    "living": 226621
+   }
+  },
+  "flat215/set9": {
+   "sha256": "d38c0c9a0d278d2ba0ccdba8f466432a042c746ced9500b601ce12cdc8fdbe66",
+   "slots": 12,
+   "options": 34,
+   "total": 9806811,
+   "byRoom": {
+    "living": 228611
+   }
+  },
+  "flat215/set10": {
+   "sha256": "be0ddb14c56ef81d598917cc46301c74427099f2aec554c93463b6e3eb91e72e",
+   "slots": 11,
+   "options": 19,
+   "total": 9686736,
+   "byRoom": {
+    "living": 108536
+   }
+  },
+  "flat215/set16": {
+   "sha256": "3a215fe15919939c11e4296a0b68aa62948bb300f2ccaf7b568a7422c1d9c93c",
+   "slots": 12,
+   "options": 31,
+   "total": 9719922,
+   "byRoom": {
+    "living": 141722
+   }
+  },
+  "demo-uk-215/set1": {
+   "sha256": "8a0c998bba8b3cbd30452cecfe673720ead4091213a68188b05704853dd7134a",
+   "slots": 12,
+   "options": 35,
+   "total": 426719,
+   "byRoom": {
+    "living": 1719
+   }
+  },
+  "demo-uk-215/set6": {
+   "sha256": "8b225713aa766c51b38f4986082cc0da2680c8c606eca25b5bd35b77441c4519",
+   "slots": 11,
+   "options": 36,
+   "total": 428026,
+   "byRoom": {
+    "living": 3026
+   }
+  },
+  "demo-uk-215/set9": {
+   "sha256": "ce401f249917d09763362386b93a43933a68a3d29dd20e08533a5ff5daf20358",
+   "slots": 12,
+   "options": 34,
+   "total": 428053,
+   "byRoom": {
+    "living": 3053
+   }
+  },
+  "demo-uk-215/set10": {
+   "sha256": "1613360119572d87d9464aa5e5c5394355182942535ced5a43b815de55137e0f",
+   "slots": 11,
+   "options": 19,
+   "total": 426448,
+   "byRoom": {
+    "living": 1448
+   }
+  },
+  "demo-uk-215/set16": {
+   "sha256": "3aa08204ee426e8aaed863562a40f45ca33cb84df132389d17ed63edaf653b3c",
+   "slots": 12,
+   "options": 31,
+   "total": 426892,
+   "byRoom": {
+    "living": 1892
+   }
+  }
+ },
+ "contexts": {
+  "flat215": {
+   "apartmentId": "flat215",
+   "partnerId": "demo",
+   "currency": "RUB",
+   "basePrice": 9578200,
+   "floorChoice": {
+    "groupId": "flooring",
+    "defaultVariantId": "laminate-oak-light",
+    "settlement": "developer_surcharge",
+    "variants": [
+     {
+      "id": "laminate-oak-light",
+      "titleRu": "Ламинат «Дуб светлый»",
+      "titleEn": "Light oak laminate",
+      "price": 0,
+      "material": {
+       "id": "laminate-oak-light",
+       "titleRu": "Ламинат «Дуб светлый»",
+       "titleEn": "Light oak laminate",
+       "baseColorUrl": "/flat3d/materials/laminate-oak-light.webp",
+       "normalUrl": "/flat3d/materials/laminate-oak-light-n.webp",
+       "roughnessUrl": "/flat3d/materials/laminate-oak-light-r.webp",
+       "aoUrl": "/flat3d/materials/laminate-oak-light-ao.webp",
+       "colorHex": "#c2ad91",
+       "roughness": 0.58,
+       "metalness": 0,
+       "tileCm": [
+        120,
+        120
+       ],
+       "previewUrl": "/flat3d/materials/laminate-oak-light-preview.webp",
+       "surfaces": [
+        "floor"
+       ],
+       "source": {
+        "kind": "procedural"
+       }
+      }
+     },
+     {
+      "id": "laminate-oak-grey",
+      "titleRu": "Ламинат «Дуб серый»",
+      "titleEn": "Grey oak laminate",
+      "price": 18000,
+      "material": {
+       "id": "oak-grey",
+       "titleRu": "Ламинат «Дуб серый»",
+       "titleEn": "Grey oak laminate",
+       "baseColorUrl": "/flat3d/materials/oak-grey.webp",
+       "normalUrl": "/flat3d/materials/oak-grey-n.webp",
+       "roughnessUrl": "/flat3d/materials/oak-grey-r.webp",
+       "aoUrl": "/flat3d/materials/oak-grey-ao.webp",
+       "colorHex": "#9f988c",
+       "roughness": 0.56,
+       "metalness": 0,
+       "tileCm": [
+        120,
+        120
+       ],
+       "previewUrl": "/flat3d/materials/oak-grey-preview.webp",
+       "surfaces": [
+        "floor"
+       ],
+       "source": {
+        "kind": "procedural"
+       }
+      }
+     },
+     {
+      "id": "board-oak-natural",
+      "titleRu": "Инженерная доска «Дуб натуральный»",
+      "titleEn": "Natural oak engineered board",
+      "price": 54000,
+      "material": {
+       "id": "board-oak-natural",
+       "titleRu": "Инженерная доска «Дуб натуральный»",
+       "titleEn": "Natural oak engineered board",
+       "baseColorUrl": "/flat3d/materials/board-oak-natural.webp",
+       "normalUrl": "/flat3d/materials/board-oak-natural-n.webp",
+       "roughnessUrl": "/flat3d/materials/board-oak-natural-r.webp",
+       "aoUrl": "/flat3d/materials/board-oak-natural-ao.webp",
+       "colorHex": "#ae8d69",
+       "roughness": 0.5,
+       "metalness": 0,
+       "tileCm": [
+        120,
+        120
+       ],
+       "previewUrl": "/flat3d/materials/board-oak-natural-preview.webp",
+       "surfaces": [
+        "floor"
+       ],
+       "source": {
+        "kind": "procedural"
+       }
+      }
+     },
+     {
+      "id": "parquet-herringbone",
+      "titleRu": "Паркет «Ёлочка дуб»",
+      "titleEn": "Oak herringbone parquet",
+      "price": 86000,
+      "material": {
+       "id": "parquet-herringbone",
+       "titleRu": "Паркет «Ёлочка дуб»",
+       "titleEn": "Oak herringbone parquet",
+       "baseColorUrl": "/flat3d/materials/parquet-herringbone.webp",
+       "normalUrl": "/flat3d/materials/parquet-herringbone-n.webp",
+       "roughnessUrl": "/flat3d/materials/parquet-herringbone-r.webp",
+       "aoUrl": "/flat3d/materials/parquet-herringbone-ao.webp",
+       "colorHex": "#ae8b64",
+       "roughness": 0.48,
+       "metalness": 0,
+       "tileCm": [
+        169.7056274847714,
+        169.7056274847714
+       ],
+       "previewUrl": "/flat3d/materials/parquet-herringbone-preview.webp",
+       "surfaces": []
+      }
+     },
+     {
+      "id": "vinyl-stone-grey",
+      "titleRu": "Кварцвинил «Камень серый»",
+      "titleEn": "Grey stone SPC vinyl",
+      "price": 29000,
+      "material": {
+       "id": "vinyl-stone-grey",
+       "titleRu": "Кварцвинил «Камень серый»",
+       "titleEn": "Grey stone SPC vinyl",
+       "baseColorUrl": "/flat3d/materials/vinyl-stone-grey.webp",
+       "normalUrl": "/flat3d/materials/vinyl-stone-grey-n.webp",
+       "roughnessUrl": "/flat3d/materials/vinyl-stone-grey-r.webp",
+       "aoUrl": "/flat3d/materials/vinyl-stone-grey-ao.webp",
+       "colorHex": "#a9a7a3",
+       "roughness": 0.42,
+       "metalness": 0,
+       "tileCm": [
+        120,
+        120
+       ],
+       "previewUrl": "/flat3d/materials/vinyl-stone-grey-preview.webp",
+       "surfaces": [
+        "floor"
+       ],
+       "source": {
+        "kind": "procedural"
+       }
+      }
+     }
+    ]
+   },
+   "assetBase": "/demo/demo-data.json"
+  },
+  "demo-uk-215": {
+   "apartmentId": "demo-uk-215",
+   "partnerId": "demo-uk",
+   "currency": "GBP",
+   "basePrice": 425000,
+   "floorChoice": {
+    "groupId": "flooring",
+    "defaultVariantId": "laminate-oak-light",
+    "settlement": "allowance",
+    "variants": [
+     {
+      "id": "laminate-oak-light",
+      "titleRu": "Ламинат «Дуб светлый»",
+      "titleEn": "Light oak laminate",
+      "price": 0,
+      "material": {
+       "id": "laminate-oak-light",
+       "titleRu": "Ламинат «Дуб светлый»",
+       "titleEn": "Light oak laminate",
+       "baseColorUrl": "/flat3d/materials/laminate-oak-light.webp",
+       "normalUrl": "/flat3d/materials/laminate-oak-light-n.webp",
+       "roughnessUrl": "/flat3d/materials/laminate-oak-light-r.webp",
+       "aoUrl": "/flat3d/materials/laminate-oak-light-ao.webp",
+       "colorHex": "#c2ad91",
+       "roughness": 0.58,
+       "metalness": 0,
+       "tileCm": [
+        120,
+        120
+       ],
+       "previewUrl": "/flat3d/materials/laminate-oak-light-preview.webp",
+       "surfaces": [
+        "floor"
+       ],
+       "source": {
+        "kind": "procedural"
+       }
+      }
+     },
+     {
+      "id": "laminate-oak-grey",
+      "titleRu": "Ламинат «Дуб серый»",
+      "titleEn": "Grey oak laminate",
+      "price": 160,
+      "material": {
+       "id": "oak-grey",
+       "titleRu": "Ламинат «Дуб серый»",
+       "titleEn": "Grey oak laminate",
+       "baseColorUrl": "/flat3d/materials/oak-grey.webp",
+       "normalUrl": "/flat3d/materials/oak-grey-n.webp",
+       "roughnessUrl": "/flat3d/materials/oak-grey-r.webp",
+       "aoUrl": "/flat3d/materials/oak-grey-ao.webp",
+       "colorHex": "#9f988c",
+       "roughness": 0.56,
+       "metalness": 0,
+       "tileCm": [
+        120,
+        120
+       ],
+       "previewUrl": "/flat3d/materials/oak-grey-preview.webp",
+       "surfaces": [
+        "floor"
+       ],
+       "source": {
+        "kind": "procedural"
+       }
+      }
+     },
+     {
+      "id": "board-oak-natural",
+      "titleRu": "Инженерная доска «Дуб натуральный»",
+      "titleEn": "Natural oak engineered board",
+      "price": 480,
+      "material": {
+       "id": "board-oak-natural",
+       "titleRu": "Инженерная доска «Дуб натуральный»",
+       "titleEn": "Natural oak engineered board",
+       "baseColorUrl": "/flat3d/materials/board-oak-natural.webp",
+       "normalUrl": "/flat3d/materials/board-oak-natural-n.webp",
+       "roughnessUrl": "/flat3d/materials/board-oak-natural-r.webp",
+       "aoUrl": "/flat3d/materials/board-oak-natural-ao.webp",
+       "colorHex": "#ae8d69",
+       "roughness": 0.5,
+       "metalness": 0,
+       "tileCm": [
+        120,
+        120
+       ],
+       "previewUrl": "/flat3d/materials/board-oak-natural-preview.webp",
+       "surfaces": [
+        "floor"
+       ],
+       "source": {
+        "kind": "procedural"
+       }
+      }
+     },
+     {
+      "id": "parquet-herringbone",
+      "titleRu": "Паркет «Ёлочка дуб»",
+      "titleEn": "Oak herringbone parquet",
+      "price": 770,
+      "material": {
+       "id": "parquet-herringbone",
+       "titleRu": "Паркет «Ёлочка дуб»",
+       "titleEn": "Oak herringbone parquet",
+       "baseColorUrl": "/flat3d/materials/parquet-herringbone.webp",
+       "normalUrl": "/flat3d/materials/parquet-herringbone-n.webp",
+       "roughnessUrl": "/flat3d/materials/parquet-herringbone-r.webp",
+       "aoUrl": "/flat3d/materials/parquet-herringbone-ao.webp",
+       "colorHex": "#ae8b64",
+       "roughness": 0.48,
+       "metalness": 0,
+       "tileCm": [
+        169.7056274847714,
+        169.7056274847714
+       ],
+       "previewUrl": "/flat3d/materials/parquet-herringbone-preview.webp",
+       "surfaces": []
+      }
+     },
+     {
+      "id": "vinyl-stone-grey",
+      "titleRu": "Кварцвинил «Камень серый»",
+      "titleEn": "Grey stone SPC vinyl",
+      "price": 260,
+      "material": {
+       "id": "vinyl-stone-grey",
+       "titleRu": "Кварцвинил «Камень серый»",
+       "titleEn": "Grey stone SPC vinyl",
+       "baseColorUrl": "/flat3d/materials/vinyl-stone-grey.webp",
+       "normalUrl": "/flat3d/materials/vinyl-stone-grey-n.webp",
+       "roughnessUrl": "/flat3d/materials/vinyl-stone-grey-r.webp",
+       "aoUrl": "/flat3d/materials/vinyl-stone-grey-ao.webp",
+       "colorHex": "#a9a7a3",
+       "roughness": 0.42,
+       "metalness": 0,
+       "tileCm": [
+        120,
+        120
+       ],
+       "previewUrl": "/flat3d/materials/vinyl-stone-grey-preview.webp",
+       "surfaces": [
+        "floor"
+       ],
+       "source": {
+        "kind": "procedural"
+       }
+      }
+     }
+    ]
+   },
+   "fxRate": 0.01335,
+   "mask": {
+    "englishNames": true,
+    "hideShops": true
+   },
+   "assetBase": "/demo/demo-data.json"
+  }
+ }
+}

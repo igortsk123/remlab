@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { Apartment } from "@/contracts/apartment";
+import { roomAt, type Apartment } from "@/contracts/apartment";
 import type { Catalogue, Configuration } from "@/contracts/configurator";
 import { formatMoney, t, type Lang } from "@/lib/configurator/i18n";
 import { checkPlacement, type Box } from "@/lib/configurator/placement";
@@ -58,8 +58,11 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
   const [liveOk, setLiveOk] = useState(true);
   const [mobile, setMobile] = useState(false);
   const [barOpen, setBarOpen] = useState(true);
+  // квартира из варианта витрины (onb-11) открывается в комнате этого варианта — там старт прогулки; у квартиры 3D старт в
+  // прихожей, а первой показываем гостиную, как раньше
   const [roomId, setRoomId] = useState<string>(
-    apartment.rooms.find((r) => r.kind === "living")?.id ?? apartment.rooms[0]!.id,
+    (apartment.baseVariant ? roomAt(apartment, apartment.spawn.x, apartment.spawn.y)?.id : undefined)
+      ?? apartment.rooms.find((r) => r.kind === "living")?.id ?? apartment.rooms[0]!.id,
   );
   const [slotId, setSlotId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");

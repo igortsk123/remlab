@@ -206,6 +206,15 @@ export function isInsideRoom(r: Room, x: number, y: number): boolean {
   return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.d;
 }
 
+/**
+ * Комната ни с кем не граничит (зазор больше толщины стены): её двери ведут в несуществующее. Так стоят комнаты квартиры,
+ * собранной из вариантов витрины (`demo-rooms.ts:planRooms`, ряд с зазором); у квартиры 3D комнаты смежные.
+ */
+export function isIsolatedRoom(a: Apartment, r: Room, wallCm = 30): boolean {
+  return !a.rooms.some((o) => o !== r
+    && Math.min(r.x + r.w, o.x + o.w) - Math.max(r.x, o.x) > -wallCm && Math.min(r.y + r.d, o.y + o.d) - Math.max(r.y, o.y) > -wallCm);
+}
+
 /** Комната, в которой находится точка; null — коридор/за пределами. */
 export function roomAt(a: Apartment, x: number, y: number): Room | null {
   return a.rooms.find((r) => isInsideRoom(r, x, y)) ?? null;

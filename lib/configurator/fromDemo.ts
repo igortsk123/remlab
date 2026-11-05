@@ -14,6 +14,7 @@
 // Поворот витрины — градусы по часовой, 0 — «лицом на +y», тоже как у нас.
 
 import { alternatives, feedForStyle, placeOf, type FeedItem } from "@/lib/configurator/demo-feeds";
+import { planRooms, type RoomAt, type RoomGeo } from "@/lib/configurator/demo-rooms";
 import { maskedName, roleEn, styleEn } from "@/lib/configurator/demo-mask";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { DEFAULT_CEILING_CM, apartment as apartmentSchema, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
@@ -118,6 +119,8 @@ type DemoItem = {
 /** Настольный декор варианта (`flat215_demo`: ваза) — габариты в карточке товара, места нет: его даёт опора. */
 type DemoDecor = { role?: string; sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number } };
 type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[]; decor?: DemoDecor[];
+  /** Комната варианта (ADR-0330 п.3, `demo-rooms.ts:roomIdOf`); нет — гостиная. */
+  room_id?: string; room_type?: string;
   /** Ракурсы окна (`tools/flat3d/demo-cams.mjs`) — режим «Фото» в /flat снимает ими (demo-05 п.8). */
   cams?: { name?: string; x?: number; y?: number; rot?: number; fov?: number; pose?: number; pshift?: number; crop?: Record<string, CropWindow> }[] };
 
@@ -129,22 +132,18 @@ function assetUrl(img: string | undefined, base: string | undefined): string | u
   if (/^https?:/.test(base)) return new URL(img, base).toString();
   return base.replace(/[?#].*$/, "").replace(/[^/]*$/, "") + img;
 }
-type DemoRoom = {
-  w?: number;
-  d?: number;
-  title?: string;
-  height_cm?: number;
-  /** Вид из окна по карточке квартиры (`flat215_demo.py`: `windowView` застройщика). */
-  window_view?: string;
-  /** Паспорт отделки — готовый, из ночной сборки (`finish-passport.ts`). */
-  finish?: Record<string, { id?: string; colorHex?: string }>;
-  openings?: {
-    kind?: string; wall?: string; offset_cm?: number; width_cm?: number; sill_cm?: number; height_cm?: number;
-    swing_cm?: number; hinge?: string; into?: boolean;
-  }[];
-};
-/** `variant_aliases` — история номеров вариантов → стиль (`flat215_demo.merge_aliases`, demo-05 п.10). */
-export type DemoData = { room?: DemoRoom; variants?: DemoVariant[]; variant_aliases?: Record<string, string>; feeds?: Record<string, FeedItem[]> };
+/**
+ * Геометрия комнаты витрины: `window_view` — вид из окна по карточке квартиры (`flat215_demo.py`: `windowView` застройщика),
+ * `finish` — паспорт отделки из ночной сборки (`finish-passport.ts`).
+ */
+type DemoRoom = RoomGeo;
+/**
+ * `variant_aliases` — история номеров вариантов → стиль (`flat215_demo.merge_aliases`, demo-05 п.10); `rooms_geo` — геометрия
+ * комнат по `room_id` (onb-07; `room` — псевдоним гостиной); `apartment_rooms` — список комнат реестра (порядок, тип, подписи).
+ */
+export type DemoData = { room?: DemoRoom; rooms_geo?: Record<string, DemoRoom>;
+  apartment_rooms?: { id?: string; kind?: string; ordinal?: number; titleRu?: string; titleEn?: string }[];
+  variants?: DemoVariant[]; variant_aliases?: Record<string, string>; feeds?: Record<string, FeedItem[]> };
 
 /**
  * Какой вариант открыть по ссылке (demo-05 п.10): номер варианта меняется при пересборке витрины, а ссылки менеджеров
@@ -182,57 +181,122 @@ export function openings(room: DemoRoom): Opening[] {
     }));
 }
 
+/** Что ставит вариант: предметы с моделью и габаритами (без меша серая коробка хуже отсутствия). */
+const placeable = (v: DemoVariant): DemoItem[] => (v.items ?? []).filter((it) => it.w && it.d && it.h && it.sku?.msid);
+
+/** Запись каталога до проверки схемой (материал, опция): у всех есть id. */
+type Mat = Record<string, unknown> & { id: string };
+/** Одна комната квартиры: места (в координатах квартиры), опции, материалы и ракурсы её варианта. */
+type RoomPart = { slots: object[]; options: Mat[]; materials: Mat[]; cameras: object[] };
+
 /**
- * Квартира и каталог из одного варианта витрины.
+ * Квартира и каталог по варианту витрины (onb-11): комната варианта — с ним, остальные комнаты с вариантами в данных — со
+ * своими (того же стиля, нет — первым), по `room_id` (`demo-rooms.ts:planRooms`). Итог по комнатам и общий считает сцена
+ * (`resolve.totals.byRoom`/`total`) — мосту достаточно разложить места по комнатам.
  *
- * Квартира — ОДНОКОМНАТНАЯ: у витрины детально описана только гостиная (439×325), остальные
- * помещения на её чертеже — заглушки с другого плана. Обещать «та же квартира» было бы неправдой,
- * поэтому обещаем «та же комната и та же расстановка» и других дверей не открываем.
+ * Пока у витрины варианты только гостиной, квартира — ОДНОКОМНАТНАЯ, как раньше: остальные помещения чертежа — заглушки с
+ * другого плана, обещать «та же квартира» было бы неправдой; других дверей не открываем.
  */
 export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoContext): { apartment: Apartment; catalogue: Catalogue } | null {
-  const room = data.room;
   const v = (data.variants ?? []).find((x) => x.id === variantId);
-  if (!room?.w || !room?.d || !v) return null;
+  if (!v) return null;
+  const rooms = planRooms(data, v, (x) => placeable(x).length > 0);
+  const main = rooms.find((r) => r.variant === v);
+  if (!main) return null;
+  const parts = rooms.map((at) => roomPart(data, at, ctx));
+  // первая комната (гостиная) — как есть; у следующих повтор id (общий материал отделки) пропускается
+  const merge = <T>(lists: T[][], id: (x: T) => string): T[] => {
+    const seen = new Set((lists[0] ?? []).map(id));
+    return [...(lists[0] ?? []), ...lists.slice(1).flat().filter((x) => !seen.has(id(x)) && !!seen.add(id(x)))];
+  };
 
-  const items = (v.items ?? []).filter((it) => it.w && it.d && it.h && it.sku?.msid);
+  const title = v.style ? v.style.charAt(0).toUpperCase() + v.style.slice(1) : (v.title ?? "Вариант");
+  const titleEn = styleEn(v.style) || title;   // английские подписи — без кириллицы стиля (demo-31)
+  const living = main.prefix === "";
+  const apartment = apartmentSchema.parse({
+    id: ctx.apartmentId,
+    baseVariant: variantId,
+    ...(v.style ? { style: v.style } : {}),
+    titleRu: `${title} — ${living ? main.geo.title ?? "гостиная" : main.titleRu}`,
+    titleEn: `${titleEn} — ${living ? "living room" : main.titleEn}`,
+    areaM2: Math.round((rooms.reduce((s, r) => s + r.geo.w * r.geo.d, 0) / 10000) * 10) / 10,
+    developerId: ctx.partnerId,
+    basePrice: ctx.basePrice,
+    rooms: rooms.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      titleRu: r.titleRu,
+      titleEn: r.titleEn,
+      x: r.ox,
+      y: r.oy,
+      w: r.geo.w,
+      d: r.geo.d,
+      heightCm: r.geo.height_cm ?? DEFAULT_CEILING_CM,   // потолок квартиры из реестра (`apartmentRef.ceilingCm` → `flat215_demo`)
+      ...(r.geo.window_view && /^[a-z0-9-]{1,32}$/.test(r.geo.window_view) ? { windowView: r.geo.window_view } : {}),
+      ...(r.geo.finish ? { finish: finishPassport(r.geo.finish) } : {}),
+      openings: openings(r.geo),
+    })),
+    slots: parts.flatMap((x) => x.slots),
+    cameras: parts.flatMap((x) => x.cameras),
+    // Старт прогулки — у середины комнаты открытого варианта, лицом вглубь: так человек сразу видит расстановку.
+    spawn: { x: main.ox + main.geo.w / 2, y: main.oy + Math.min(120, main.geo.d / 3), rot: 0 },
+  });
+
+  const catalogue = catalogueSchema.parse({
+    developerId: ctx.partnerId,
+    titleRu: `Набор «${title}»`,
+    titleEn: `${titleEn} set`,
+    currency: ctx.currency,
+    materials: merge(parts.map((x) => x.materials), (m) => m.id),
+    options: merge(parts.map((x) => x.options), (o) => o.id),
+  });
+
+  return { apartment, catalogue };
+}
+
+/**
+ * Места, опции и материалы одной комнаты из её варианта. Id мест и опций — с приставкой комнаты (`bedroom-1/диван#0`), у
+ * гостиной приставки нет: сохранённые подборы, `?opt=` и группа пола застройщика (места `floor`/`wall`) остаются прежними.
+ */
+function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): RoomPart {
+  const v = at.variant, pre = at.prefix, ox = at.ox, oy = at.oy, kinds = [at.kind];
+  const items = placeable(v);
   // УПАКОВКА: «Стул АСТИ 2 шт.» на двух местах — ОДНА покупка (как в списке витрины, `index.html` `buys = ceil(мест/упаковку)`).
   // Считает её расчёт сцены по фактически выбранным местам (`resolve.packPrices`: опции с одним `packKey`), а не статическая
   // раскладка цены здесь — иначе замена, убранный стул или смешанный подбор давали бы неверную сумму (разбор Codex 15.10)
   // цена витрины (рубли) → валюта каталога: одно место для товаров, лент, ковров и декора (коллекции идут сюда же)
   const rub = (v?: number): number => Math.max(0, Math.round((v ?? 0) * (ctx.fxRate ?? 1)));
   const packOf = (pack?: number): object => (Math.round(pack ?? 1) > 1 ? { pack: Math.round(pack!) } : {});
-  if (!items.length) return null;
   // БРИТАНСКАЯ МАСКА (demo-31): английское название товара, магазин и ссылка не передаются — «view in shop» пропадает сам
   const nameEnOf = (sku: { name?: string; name_en?: string } | undefined, role: string | undefined, plain: string): string =>
     ctx.mask?.englishNames ? maskedName(sku, role) : (sku?.name ?? plain);
   const shopOf = (sku: { url?: string; shop?: string } | undefined): object =>
     ctx.mask?.hideShops || !sku ? {} : { ...(sku.url ? { shopUrl: sku.url } : {}), ...(sku.shop ? { shopName: sku.shop } : {}) };
 
-  const title = v.style ? v.style.charAt(0).toUpperCase() + v.style.slice(1) : (v.title ?? "Вариант");
-  const titleEn = styleEn(v.style) || title;   // английские подписи — без кириллицы стиля (demo-31)
-  const ids = stableSlotIds(items);
+  const ids = stableSlotIds(items).map((id) => pre + id);
   const baseOf = (role?: string): string => String(role ?? "").replace(/\s+\d+$/, "").trim();
-  const keyOf = (it: DemoItem): string => `${it.sku?.url ?? ""}|${it.sku?.name ?? ""}`;
+  // упаковка считается внутри комнаты: сумма комнаты не зависит от того, что стоит в соседней
+  const keyOf = (it: DemoItem): string => `${pre}${it.sku?.url ?? ""}|${it.sku?.name ?? ""}`;
   // СТУЛЬЯ ЗА ОДНИМ СТОЛОМ МЕНЯЮТСЯ ВСЕ РАЗОМ (владелец 30.09; клиент — `useFlatConfig.choose`, сервер — `resolve.sameInGroups`):
   // у группы одна общая опция; упаковки считает `resolve.packPrices`
   const chairIdx = items.map((it, i) => ({ it, i })).filter(({ it }) => baseOf(it.role) === "стул").map(({ i }) => i);
   const chairGroup = chairIdx.length >= 2 && chairIdx.every((i) => keyOf(items[i]!) === keyOf(items[chairIdx[0]!]!)) ? chairIdx : [];
   const inGroup = new Set(chairGroup);
-  const defaultOf = (i: number): string => (inGroup.has(i) ? "opt:стул" : `opt:${ids[i]}`);
+  const defaultOf = (i: number): string => (inGroup.has(i) ? `opt:${pre}стул` : `opt:${ids[i]}`);
   // ЛЕНТЫ ЗАМЕН (demo-05 п.9): варианты места из ленты витрины своей роли и стиля, ближайшие по размеру, разные модели раньше
   // цветов, диван — той же формы, что место (demo-18 п.1, `demo-feeds.ts`)
-  const feedOptions = new Map<string, unknown>();
+  const feedOptions = new Map<string, Mat>();
   const feedIdsOf = (i: number): string[] => {
     const it = items[i]!;
     const base = baseOf(it.role);
     const feed = feedForStyle(data.feeds?.[base] ?? [], v.style);
     return alternatives(feed, placeOf(it, items), new Set([it.sku?.sid ?? "", it.sku?.name ?? ""])).map((p) => {
-      const id = `feed:${base}:${p.sid ?? p.name}`;
+      const id = `feed:${pre}${base}:${p.sid ?? p.name}`;
       if (!feedOptions.has(id)) {
         feedOptions.set(id, { id, category: "furniture", titleRu: p.name ?? base, titleEn: nameEnOf(p, base, p.name ?? base),
           descRu: `${Math.round(p.w!)}×${Math.round(p.d!)}×${Math.round(p.h!)} см${(p.pack ?? 1) > 1 ? ` · ${p.pack} шт. в упаковке` : ""}`,
           tier: "standard", price: rub(p.price), ...packOf(p.pack), packKey: id,
-          listPrice: rub(p.price), availability: "available", roomKinds: ["living"],
+          listPrice: rub(p.price), availability: "available", roomKinds: kinds,
           asset: { kind: "mesh", meshId: p.msid, yawDeg: p.yaw ?? 0, wCm: p.w, dCm: p.d, hCm: p.h, ...tintOf(p.tint) },
           ...(assetUrl(p.img, ctx.assetBase) ? { previewUrl: assetUrl(p.img, ctx.assetBase) } : {}),
           ...shopOf(p) });
@@ -242,7 +306,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   };
   const slots: object[] = items.map((it, i) => ({
     id: ids[i]!,
-    roomId: "living",
+    roomId: at.id,
     category: "furniture" as const,
     kind: "furniture" as const,
     titleRu: it.role ?? "Предмет",
@@ -250,10 +314,10 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     photoRole: it.role,
     defaultOptionId: defaultOf(i),
     optionIds: [defaultOf(i), ...feedIdsOf(inGroup.has(i) ? chairGroup[0]! : i)],
-    ...(inGroup.has(i) ? { selectionGroup: "стул" } : {}),
+    ...(inGroup.has(i) ? { selectionGroup: `${pre}стул` } : {}),
     placement: {
-      x: it.x ?? 0,
-      y: it.y ?? 0,
+      x: (it.x ?? 0) + ox,
+      y: (it.y ?? 0) + oy,
       rot: it.rot ?? 0,
       wCm: it.w as number,
       dCm: it.d as number,
@@ -269,8 +333,8 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   // «фото-ковёр»), ваза — модель на опоре (место пересчитывает `resolve.placeTabletop`)
   const rugs = (v.items ?? []).filter((it) => isRugRole(it.role) && it.w && it.d);
   const decor = (v.decor ?? []).filter((x) => x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
-  const extraOptions: unknown[] = [];
-  const extraMaterials: unknown[] = [];
+  const extraOptions: Mat[] = [];
+  const extraMaterials: Mat[] = [];
   // плита ковра: материал с фото товара (повтор — один на ковёр) и опция-кит с размером товара вдоль длинной стороны места
   const rugOption = (id: string, mat: string, sku: { name?: string; name_en?: string; price?: number; url?: string; shop?: string; img?: string },
     w: number, d: number): void => {
@@ -279,16 +343,16 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       surfaces: ["rug"], ...(img ? { baseColorUrl: img } : {}) });
     extraOptions.push({ id, category: "furniture", titleRu: sku.name ?? "Ковёр", titleEn: nameEnOf(sku, "ковёр", sku.name ?? "Rug"),
       descRu: `${Math.round(Math.max(w, d))}×${Math.round(Math.min(w, d))} см`,
-      tier: "standard", price: rub(sku.price), availability: "available", roomKinds: ["living"],
+      tier: "standard", price: rub(sku.price), availability: "available", roomKinds: kinds,
       asset: { kind: "kit", kit: "rug", materials: { body: mat }, wCm: w, dCm: d },
       ...(img ? { previewUrl: img } : {}), ...shopOf(sku) });
   };
   const rugFeed = new Set<string>();
   rugs.forEach((it, k) => {
-    const id = `ковёр#${k}`;
+    const id = `${pre}ковёр#${k}`;
     // материал назван по ТОВАРУ: подпись ковра в движке — по материалу, и замена ковра того же размера иначе оставила бы
     // старое фото (verify 14.10)
-    rugOption(`opt:${id}`, `rug:${k}:${it.sku?.sid ?? it.sku?.img ?? ""}`, it.sku ?? {}, it.w as number, it.d as number);
+    rugOption(`opt:${id}`, `rug:${pre}${k}:${it.sku?.sid ?? it.sku?.img ?? ""}`, it.sku ?? {}, it.w as number, it.d as number);
     // ЗАМЕНЫ КОВРА (demo-18 п.2): лента ковров стиля, ближайшие по размеру, длинная сторона не короче дивана (`placeOf`);
     // размер плиты — товара, вдоль длинной стороны места (`resolve.fitPlacement`)
     const alts = alternatives(feedForStyle(data.feeds?.["ковёр"] ?? [], v.style), placeOf(it, v.items ?? []),
@@ -298,28 +362,28 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       return (it.w as number) >= (it.d as number) ? [a, b] : [b, a];
     };
     const feedIds = alts.map((p) => {
-      const fid = `feed:ковёр:${p.sid ?? p.name}`;
+      const fid = `feed:${pre}ковёр:${p.sid ?? p.name}`;
       if (!rugFeed.has(fid)) {
         rugFeed.add(fid);
-        rugOption(fid, `rug:feed:${p.sid ?? p.name}`, p, ...along(p));
+        rugOption(fid, `rug:feed:${pre}${p.sid ?? p.name}`, p, ...along(p));
       }
       return fid;
     });
-    slots.push({ id, roomId: "living", category: "furniture" as const, kind: "furniture" as const, titleRu: it.role ?? "ковёр",
+    slots.push({ id, roomId: at.id, category: "furniture" as const, kind: "furniture" as const, titleRu: it.role ?? "ковёр",
       titleEn: "rug", photoRole: it.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`, ...feedIds],
-      placement: { x: it.x ?? 0, y: it.y ?? 0, rot: it.rot ?? 0, wCm: it.w as number, dCm: it.d as number, hCm: 1, elevCm: 0 } });
+      placement: { x: (it.x ?? 0) + ox, y: (it.y ?? 0) + oy, rot: it.rot ?? 0, wCm: it.w as number, dCm: it.d as number, hCm: 1, elevCm: 0 } });
   });
   const decorIds = stableSlotIds(decor.map((x) => ({ role: x.role ?? "декор" })));
   decor.forEach((x, k) => {
-    const id = `decor:${decorIds[k]}`;
+    const id = `${pre}decor:${decorIds[k]}`;
     const sk = x.sku!;
     extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: sk.name ?? x.role ?? "Декор", titleEn: nameEnOf(sk, x.role, sk.name ?? "Decor"),
       descRu: `${Math.round(sk.w!)}×${Math.round(sk.d!)}×${Math.round(sk.h!)} см`, tier: "standard",
-      price: rub(sk.price), availability: "available", roomKinds: ["living"],
+      price: rub(sk.price), availability: "available", roomKinds: kinds,
       asset: { kind: "mesh", meshId: sk.msid, yawDeg: sk.yaw ?? 0, wCm: sk.w, dCm: sk.d, hCm: sk.h, ...tintOf((sk as { tint?: unknown }).tint) },
       ...shopOf(sk) });
     // место — заглушка: настоящее считает `resolve.placeTabletop` от текущей опоры при каждом расчёте сцены
-    slots.push({ id, roomId: "living", category: "furniture" as const, kind: "furniture" as const, titleRu: x.role ?? "декор",
+    slots.push({ id, roomId: at.id, category: "furniture" as const, kind: "furniture" as const, titleRu: x.role ?? "декор",
       titleEn: roleEn(x.role ?? "декор"), photoRole: x.role, tabletop: true, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
       placement: { x: 0, y: 0, rot: 0, wCm: sk.w!, dCm: sk.d!, hCm: sk.h!, elevCm: 0 } });
   });
@@ -327,17 +391,20 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   // СТЕНЫ И ПОЛ — СВОИ МАТЕРИАЛЫ (живая проверка 14.10, /flat 15.10): у набора витрины своей отделки нет, и движок брал на
   // оболочку первый материал каталога — фото ковра легло на стены, пол и потолок. Цвета — из паспорта отделки
   // (`finish-passport.ts`), тем же красится серверный кадр; материалы стен и пола — ПЕРВЫМИ в каталоге
-  const fp = finishPassport(room.finish);
+  const fp = finishPassport(at.geo.finish);
   // ПОЛ И СТЕНЫ НА ВЫБОР (demo-06/07): варианты группы застройщика — опциями своего места (`opt:floor:<в>`, `opt:wall:<в>`),
-  // доплата — по `settlement` группы; акцентная стена — составной частью опции стен (сторону считает `resolveScene`)
-  type Mat = Record<string, unknown> & { id: string };
-  const choiceOf = (c?: DemoFloorChoice) => (c?.variants.length ? c : undefined);
+  // доплата — по `settlement` группы; акцентная стена — составной частью опции стен (сторону считает `resolveScene`).
+  // Группа застройщика меняет места `floor`/`wall` (`partner.optionGroup.slotIds`) — это гостиная; у остальных комнат отделка
+  // — их паспорт, без доплаты (доплату за пол по комнатам застройщик пока не задаёт). Живая сцена окна — тоже только гостиная.
+  const mine = pre === "";
+  const choiceOf = (c?: DemoFloorChoice) => (mine && c?.variants.length ? c : undefined);
   const defOf = (c?: DemoFloorChoice) => c?.variants.find((x) => x.id === c.defaultVariantId) ?? c?.variants[0];
   const fc = choiceOf(ctx.floorChoice), wc = choiceOf(ctx.wallChoice);
-  const floorMat: Mat = defOf(fc)?.material ?? ctx.floorMaterial
-    ?? { id: fp.floor.id, titleRu: "Пол", titleEn: "Floor", colorHex: fp.floor.colorHex, roughness: 0.7 };
-  const wallMat: Mat = defOf(wc)?.material ?? ctx.wallMaterial?.material
-    ?? { id: fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 };
+  // материал паспорта соседней комнаты — со своим id: одинаковый id с другим цветом слился бы с гостиной при сборке каталога
+  const floorMat: Mat = defOf(fc)?.material ?? (mine ? ctx.floorMaterial : undefined)
+    ?? { id: pre + fp.floor.id, titleRu: "Пол", titleEn: "Floor", colorHex: fp.floor.colorHex, roughness: 0.7 };
+  const wallMat: Mat = defOf(wc)?.material ?? (mine ? ctx.wallMaterial?.material : undefined)
+    ?? { id: pre + fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 };
   extraMaterials.unshift(wallMat, floorMat);
   const seen = new Set([wallMat.id, floorMat.id]);
   const addMat = (m?: Mat) => { if (m && !seen.has(m.id)) { seen.add(m.id); extraMaterials.push(m); } };
@@ -347,61 +414,26 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       for (const v of choice.variants) {
         addMat(v.material);
         extraOptions.push({ id: finishOptionId(surface, v.id), category, titleRu: v.titleRu, titleEn: v.titleEn, tier: v.price > 0 ? "standard" : "base",
-          price: v.price, settlement: choice.settlement, availability: "available", roomKinds: ["living"],
+          price: v.price, settlement: choice.settlement, availability: "available", roomKinds: kinds,
           asset: { kind: "material", materialId: v.material.id, ...accentOf(v.accent) },
           ...(v.material.previewUrl ? { previewUrl: String(v.material.previewUrl) } : {}) });
       }
     } else {
-      const live = surface === "wall" ? accentOf(ctx.wallMaterial?.accent) : {};
-      extraOptions.push({ id: `opt:${surface}`, category, titleRu: surface, titleEn: surface, tier: "standard", price: 0,
-        availability: "available", roomKinds: ["living"], asset: { kind: "material", materialId: base.id, ...live } });
+      const live = mine && surface === "wall" ? accentOf(ctx.wallMaterial?.accent) : {};
+      extraOptions.push({ id: `opt:${pre}${surface}`, category, titleRu: surface, titleEn: surface, tier: "standard", price: 0,
+        availability: "available", roomKinds: kinds, asset: { kind: "material", materialId: base.id, ...live } });
     }
-    slots.push({ id: surface, roomId: "living", category, kind: "surface", surface, titleRu: surface === "wall" ? "Стены" : "Пол",
+    slots.push({ id: pre + surface, roomId: at.id, category, kind: "surface", surface, titleRu: surface === "wall" ? "Стены" : "Пол",
       titleEn: surface === "wall" ? "Walls" : "Floor",
-      defaultOptionId: choice ? finishOptionId(surface, defOf(choice)!.id) : `opt:${surface}`,
-      optionIds: choice ? choice.variants.map((v) => finishOptionId(surface, v.id)) : [`opt:${surface}`] });
+      defaultOptionId: choice ? finishOptionId(surface, defOf(choice)!.id) : `opt:${pre}${surface}`,
+      optionIds: choice ? choice.variants.map((v) => finishOptionId(surface, v.id)) : [`opt:${pre}${surface}`] });
   }
 
-  const apartment = apartmentSchema.parse({
-    id: ctx.apartmentId,
-    baseVariant: variantId,
-    ...(v.style ? { style: v.style } : {}),
-    titleRu: `${title} — ${room.title ?? "гостиная"}`,
-    titleEn: `${titleEn} — living room`,
-    areaM2: Math.round(((room.w * room.d) / 10000) * 10) / 10,
-    developerId: ctx.partnerId,
-    basePrice: ctx.basePrice,
-    rooms: [
-      {
-        id: "living",
-        kind: "living",
-        titleRu: room.title ?? "Гостиная",
-        titleEn: "Living room",
-        x: 0,
-        y: 0,
-        w: room.w,
-        d: room.d,
-        heightCm: room.height_cm ?? DEFAULT_CEILING_CM,   // потолок квартиры из реестра (`apartmentRef.ceilingCm` → `flat215_demo`)
-        ...(room.window_view && /^[a-z0-9-]{1,32}$/.test(room.window_view) ? { windowView: room.window_view } : {}),
-        ...(room.finish ? { finish: finishPassport(room.finish) } : {}),
-        openings: openings(room),
-      },
-    ],
-    slots,
-    cameras: (v.cams ?? []).filter((c) => c.x !== undefined && c.y !== undefined).map((c, k) => ({ id: `cam${k + 1}`, roomId: "living",
-      titleRu: `Ракурс ${k + 1}`, x: c.x as number, y: c.y as number, rot: c.rot ?? 0, fov: c.fov ?? 72, ...(c.pose ? { pose: c.pose } : {}),
-      ...(typeof c.pshift === "number" ? { pshift: c.pshift } : {}), ...(c.crop ? { crop: c.crop } : {}) })),
-    // Старт прогулки — у середины комнаты, лицом вглубь: так человек сразу видит расстановку.
-    spawn: { x: room.w / 2, y: Math.min(120, room.d / 3), rot: 0 },
-  });
+  const cameras = (v.cams ?? []).filter((c) => c.x !== undefined && c.y !== undefined).map((c, k) => ({ id: `${pre}cam${k + 1}`, roomId: at.id,
+    titleRu: `Ракурс ${k + 1}`, x: (c.x as number) + ox, y: (c.y as number) + oy, rot: c.rot ?? 0, fov: c.fov ?? 72, ...(c.pose ? { pose: c.pose } : {}),
+    ...(typeof c.pshift === "number" ? { pshift: c.pshift } : {}), ...(c.crop ? { crop: c.crop } : {}) }));
 
-  const catalogue = catalogueSchema.parse({
-    developerId: ctx.partnerId,
-    titleRu: `Набор «${title}»`,
-    titleEn: `${titleEn} set`,
-    currency: ctx.currency,
-    materials: extraMaterials,
-    options: [...items.map((it, i) => ({ it, i })).filter(({ i }) => !inGroup.has(i) || i === chairGroup[0]).map(({ it, i }) => ({
+  const itemOptions = items.map((it, i) => ({ it, i })).filter(({ i }) => !inGroup.has(i) || i === chairGroup[0]).map(({ it, i }) => ({
       id: defaultOf(i),
       category: "furniture" as const,
       titleRu: it.sku?.name ?? it.role ?? "Предмет",
@@ -415,7 +447,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       packKey: keyOf(it),
       ...(it.sku?.img ? { previewUrl: assetUrl(it.sku.img, ctx.assetBase) } : {}),
       availability: "available" as const,
-      roomKinds: ["living" as const],
+      roomKinds: kinds,
       asset: {
         kind: "mesh" as const,
         // Ссылку не кладём: `meshUrl()` сам возьмёт лёгкую runtime-копию, а её нет — исходник
@@ -431,10 +463,9 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       },
       // Ссылка в магазин — ПАРТНЁРСКАЯ, прямо как на витрине: иначе теряется комиссия (ADR-0016).
       ...shopOf(it.sku),
-    })), ...extraOptions, ...feedOptions.values()],
-  });
+  }));
 
-  return { apartment, catalogue };
+  return { slots, options: [...itemOptions, ...extraOptions, ...feedOptions.values()], materials: extraMaterials, cameras };
 }
 
 /**
