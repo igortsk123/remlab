@@ -1,0 +1,430 @@
+{
+ "evropa": {
+  "front": {
+   "hex": "#abb0b4",
+   "box": [
+    "evropa-1",
+    170,
+    420,
+    230,
+    500
+   ],
+   "nearest": [
+    [
+     3.8,
+     "fabric-photo-grey",
+     "#b6b6b6"
+    ],
+    [
+     5.9,
+     "fabric-photo-cream",
+     "#b6b3ae"
+    ]
+   ]
+  },
+  "frontUpper": {
+   "hex": "#c7b39a",
+   "box": [
+    "evropa-1",
+    165,
+    190,
+    230,
+    270
+   ],
+   "nearest": [
+    [
+     8.4,
+     "front-oak",
+     "#b1a191"
+    ],
+    [
+     12.9,
+     "fabric-photo-cream",
+     "#b6b3ae"
+    ]
+   ]
+  },
+  "worktop": {
+   "hex": "#dddee3",
+   "box": [
+    "evropa-1",
+    150,
+    397,
+    380,
+    400
+   ],
+   "nearest": [
+    [
+     5.8,
+     "quartz-white",
+     "#e0ded8"
+    ],
+    [
+     7.4,
+     "tile-marble",
+     "#eeebe5"
+    ]
+   ]
+  },
+  "splashback": {
+   "hex": "#586168",
+   "box": [
+    "evropa-1",
+    160,
+    300,
+    540,
+    390
+   ],
+   "nearest": [
+    [
+     4.0,
+     "tile-graphite",
+     "#585a5e"
+    ],
+    [
+     19.0,
+     "stone-grey",
+     "#8e8e90"
+    ]
+   ]
+  }
+ },
+ "eva": {
+  "front": {
+   "hex": "#606368",
+   "box": [
+    "eva-1",
+    160,
+    540,
+    230,
+    620
+   ],
+   "nearest": [
+    [
+     5.8,
+     "front-graphite",
+     "#6e6d6c"
+    ],
+    [
+     18.2,
+     "front-walnut",
+     "#8a7767"
+    ]
+   ]
+  },
+  "frontUpper": {
+   "hex": "#d4d8db",
+   "box": [
+    "eva-1",
+    160,
+    310,
+    230,
+    390
+   ],
+   "nearest": [
+    [
+     2.6,
+     "front-white",
+     "#d3d3d3"
+    ],
+    [
+     12.3,
+     "fabric-photo-grey",
+     "#b6b6b6"
+    ]
+   ]
+  },
+  "worktop": {
+   "hex": "#d8d9dd",
+   "box": [
+    "eva-1",
+    140,
+    512,
+    380,
+    515
+   ],
+   "nearest": [
+    [
+     5.6,
+     "quartz-white",
+     "#e0ded8"
+    ],
+    [
+     8.3,
+     "tile-marble",
+     "#eeebe5"
+    ]
+   ]
+  },
+  "splashback": {
+   "hex": "#ab9b8b",
+   "box": [
+    "eva-1",
+    160,
+    420,
+    540,
+    505
+   ],
+   "nearest": [
+    [
+     10.8,
+     "tile-stone-grey",
+     "#b0aeaa"
+    ],
+    [
+     12.4,
+     "tile-sand",
+     "#cabdaa"
+    ]
+   ]
+  }
+ },
+ "zhemchug": {
+  "front": {
+   "hex": "#a9b5b5",
+   "box": [
+    "zhemchug-0",
+    470,
+    470,
+    540,
+    600
+   ],
+   "nearest": [
+    [
+     4.6,
+     "fabric-photo-grey",
+     "#b6b6b6"
+    ],
+    [
+     6.1,
+     "fabric-photo-cream",
+     "#b6b3ae"
+    ]
+   ]
+  },
+  "frontUpper": {
+   "hex": "#aab3b0",
+   "box": [
+    "zhemchug-0",
+    360,
+    170,
+    460,
+    290
+   ],
+   "nearest": [
+    [
+     4.2,
+     "fabric-photo-grey",
+     "#b6b6b6"
+    ],
+    [
+     4.7,
+     "fabric-photo-cream",
+     "#b6b3ae"
+    ]
+   ]
+  },
+  "worktop": {
+   "hex": "#b7c0bf",
+   "box": [
+    "zhemchug-0",
+    250,
+    437,
+    480,
+    445
+   ],
+   "nearest": [
+    [
+     12.4,
+     "quartz-white",
+     "#e0ded8"
+    ],
+    [
+     16.9,
+     "tile-marble",
+     "#eeebe5"
+    ]
+   ]
+  }
+ },
+ "antracit": {
+  "front": {
+   "hex": "#3c4a4a",
+   "box": [
+    "antracit-0",
+    470,
+    470,
+    540,
+    600
+   ],
+   "nearest": [
+    [
+     17.0,
+     "front-graphite",
+     "#6e6d6c"
+    ],
+    [
+     27.0,
+     "front-walnut",
+     "#8a7767"
+    ]
+   ]
+  },
+  "frontUpper": {
+   "hex": "#404d46",
+   "box": [
+    "antracit-0",
+    360,
+    170,
+    460,
+    290
+   ],
+   "nearest": [
+    [
+     16.3,
+     "front-graphite",
+     "#6e6d6c"
+    ],
+    [
+     24.7,
+     "front-walnut",
+     "#8a7767"
+    ]
+   ]
+  },
+  "worktop": {
+   "hex": "#776f62",
+   "box": [
+    "antracit-0",
+    250,
+    437,
+    480,
+    445
+   ],
+   "nearest": [
+    [
+     15.2,
+     "stone-grey",
+     "#8e8e90"
+    ],
+    [
+     27.8,
+     "laminate-oak-top",
+     "#c09d73"
+    ]
+   ]
+  }
+ },
+ "prestizh": {
+  "front": {
+   "hex": "#d7dcdf",
+   "box": [
+    "prestizh-0",
+    400,
+    600,
+    480,
+    700
+   ],
+   "nearest": [
+    [
+     3.7,
+     "front-white",
+     "#d3d3d3"
+    ],
+    [
+     13.6,
+     "fabric-photo-grey",
+     "#b6b6b6"
+    ]
+   ]
+  },
+  "frontUpper": {
+   "hex": "#d1d3d2",
+   "box": [
+    "prestizh-0",
+    380,
+    200,
+    480,
+    270
+   ],
+   "nearest": [
+    [
+     0.9,
+     "front-white",
+     "#d3d3d3"
+    ],
+    [
+     10.4,
+     "fabric-photo-grey",
+     "#b6b6b6"
+    ]
+   ]
+  },
+  "worktop": {
+   "hex": "#e3dcd6",
+   "box": [
+    "prestizh-0",
+    160,
+    542,
+    280,
+    546
+   ],
+   "nearest": [
+    [
+     1.9,
+     "quartz-white",
+     "#e0ded8"
+    ],
+    [
+     5.2,
+     "tile-marble",
+     "#eeebe5"
+    ]
+   ]
+  },
+  "splashback": {
+   "hex": "#d5d1d0",
+   "box": [
+    "prestizh-0",
+    240,
+    440,
+    440,
+    530
+   ],
+   "nearest": [
+    [
+     4.0,
+     "splashback-glass",
+     "#d8dbd9"
+    ],
+    [
+     5.1,
+     "quartz-white",
+     "#e0ded8"
+    ]
+   ]
+  },
+  "frontAccent": {
+   "hex": "#cdcdcf",
+   "box": [
+    "prestizh-0",
+    420,
+    300,
+    640,
+    420
+   ],
+   "nearest": [
+    [
+     2.3,
+     "front-white",
+     "#d3d3d3"
+    ],
+    [
+     8.5,
+     "fabric-photo-grey",
+     "#b6b6b6"
+    ]
+   ]
+  }
+ }
+}
