@@ -6,7 +6,8 @@ ADR-0330). Только SELECT: представления БД нет (мигр
 читает `compose2.py` (сама гостиная на адаптер НЕ переведена до доказанного паритета, план room-pipeline-01). Перевод обрезки,
 спроса и привязки мешей — волна В.
 
-Тип комнаты — данные: `_sources(room_type)` говорит, из каких таблиц и какие роли берёт комната. Неизвестный тип (кухня,
+Тип комнаты — данные: `_sources(room_type)` говорит, из каких таблиц и какие роли берёт комната; роли — из профиля
+комнаты (`room_profile.load`, поле `source` у роли; T-20261105-43), своего списка у адаптера нет. Неизвестный тип (кухня,
 прихожая — пока нет профиля) и неизвестная роль закрытого списка — ошибка ValueError, а не «гостиная по умолчанию».
 Товар в двух ролях — один `CatalogItem` с `roles` в порядке появления (поля — первой строки).
 
@@ -23,7 +24,6 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCHEMA = os.path.join(HERE, 'rules', 'catalog-item.schema.json')
-COMPOSITION = {'bedroom': os.path.join(HERE, 'rules', 'bedroom-composition.json')}
 STYLE_SCORES = {'bedroom': ('BEDROOM_STYLE_SCORES', os.path.join(HERE, 'style-scores-bedroom.json'))}
 ROOM_TYPES = ('living', 'bedroom')   # профиль есть только у этих; kitchen/hall — после RoomProfile (волна Б)
 ORIGINS = ('products', 'room_catalog')
@@ -61,10 +61,9 @@ class CatalogItem:
 
 
 # ---------------------------------------------------------------- профиль комнаты (источники)
-def _composition_decor(room_type: str) -> list:
-    """Декор комнаты — ключи `decor` назначений правил состава (одно место; тот же список берёт сборщик)."""
-    R = json.load(open(COMPOSITION[room_type], encoding='utf-8'))
-    return sorted({r for p in R['purposes'].values() for r in p.get('decor', {}) if not r.startswith('_')})
+# Отбор и порядок источника по комнате (preset `products_sql` / `room_catalog_sql`); РОЛИ — только из профиля комнаты.
+PRESETS = {'living': (('products', 'living'),),
+           'bedroom': (('room_catalog', 'bedroom'), ('products', 'decor'))}   # декор спальни — каталог гостиной (onb-06 п.1)
 
 
 def check_room(room_type: str) -> None:
@@ -72,14 +71,28 @@ def check_room(room_type: str) -> None:
         raise ValueError(f'catalog_items: неизвестный тип комнаты {room_type!r}; профиль есть у {", ".join(ROOM_TYPES)}')
 
 
-def _sources(room_type: str) -> list:
-    """[(origin, preset, roles|None)]: roles None — открытый список (любая роль фида). Порядок источников = порядок выдачи."""
+def profile_roles(room_type: str, profile: dict | None = None) -> dict:
+    """{источник: [роли]} из `roles` профиля комнаты (`room_profile.load`, поле `source`), порядок профиля (T-20261105-43:
+    единственный список ролей комнаты — профиль; адаптер своего не держит)."""
+    if profile is None:
+        import room_profile as RP
+        profile = RP.load(room_type)
+    out: dict = {}
+    for r, v in profile['roles'].items():
+        out.setdefault(v['source'], []).append(r)
+    return out
+
+
+def _sources(room_type: str, profile: dict | None = None) -> list:
+    """[(origin, preset, roles)] — порядок источников = порядок выдачи; роли из профиля (`profile_roles`). Источник роли
+    профиля, которого у комнаты нет в PRESETS, — ошибка (иначе роль молча пропала бы из выдачи)."""
     check_room(room_type)
-    if room_type == 'living':
-        return [('products', 'living', None)]
-    import room_catalog as RC
-    return [('room_catalog', room_type, list(RC.enabled(RC.rules()))),
-            ('products', 'decor', _composition_decor(room_type))]   # декор гостиной как есть (план onb-06 п.1)
+    by = profile_roles(room_type, profile)
+    have = [o for o, _ in PRESETS[room_type]]
+    if set(by) - set(have):
+        raise ValueError(f'catalog_items: у комнаты {room_type!r} роли из источника {sorted(set(by) - set(have))}, '
+                         f'а читаются только {have}')
+    return [(o, preset, by.get(o, [])) for o, preset in PRESETS[room_type]]
 
 
 # ---------------------------------------------------------------- база
@@ -270,17 +283,16 @@ def items(room_type: str, roles=None, *, desc_flags: dict | None = None, with_as
         roles = list(roles)
         if not roles:
             return []
-        if all(rs is not None for _, _, rs in srcs):
-            known = {r for _, _, rs in srcs for r in rs}
-            bad = [r for r in roles if r not in known]
-            if bad:
-                raise ValueError(f'catalog_items: у комнаты {room_type!r} нет ролей {bad}; есть {sorted(known)}')
+        known = {r for _, _, rs in srcs for r in rs}
+        bad = [r for r in roles if r not in known]
+        if bad:
+            raise ValueError(f'catalog_items: у комнаты {room_type!r} нет ролей {bad}; есть {sorted(known)}')
     flags = dict(desc_flags or {})
     get = _fetch or fetch
     out = []
     for origin, preset, rs in srcs:
-        want = rs if roles is None else [r for r in roles if rs is None or r in rs]
-        if want is not None and not want:
+        want = rs if roles is None else [r for r in roles if r in rs]
+        if not want:
             continue
         if origin == 'room_catalog':
             out += room_catalog_items(get(room_catalog_sql(preset, want)), room_type)
@@ -337,6 +349,27 @@ def _selftest() -> int:
     except ValueError as e:
         ok('роль вне профиля спальни — ошибка', 'диван' in str(e))
     ok('роль профиля без товаров — пусто, не ошибка', items('bedroom', ['кровать'], _fetch=lambda s: []) == [])
+    try:
+        items('living', ['шкаф'], _fetch=lambda s: [])
+        ok('гостиная — закрытый список профиля: шкаф (есть в фиде, нет в профиле) — ошибка', False)
+    except ValueError:
+        ok('гостиная — закрытый список профиля: шкаф (есть в фиде, нет в профиле) — ошибка', True)
+    import room_profile as RP
+    Pb = RP.load('bedroom')
+    ok('роли адаптера = роли профиля (источник один)',
+       all({r for _, _, rs in _sources(t) for r in rs} == set(RP.load(t)['roles']) for t in ROOM_TYPES))
+    Pb['roles']['пуф'] = {'source': 'room_catalog'}
+    ok('правка профиля меняет выдачу адаптера', 'пуф' in dict((o, rs) for o, _, rs in _sources('bedroom', Pb))['room_catalog'])
+    sqls = []
+    items('living', _fetch=lambda s: sqls.append(s) or [])
+    ok('гостиная: запрос с ролями профиля (не весь фид)', len(sqls) == 1 and "p.cat_role in ('диван'" in sqls[0]
+       and "'шкаф'" not in sqls[0])
+    Pb['roles']['кухня'] = {'source': 'kitchen_catalog'}
+    try:
+        _sources('bedroom', Pb)
+        ok('источник роли, которого комната не читает, — ошибка', False)
+    except ValueError as e:
+        ok('источник роли, которого комната не читает, — ошибка', 'kitchen_catalog' in str(e))
 
     def prow(role, mid, eid, name='Лампа', desc=('f',)):
         r = [role, str(mid), eid, name, 'Магазин', None, '4990', 't', '20', '20', '45', None, None, 'feed', None, None, None,

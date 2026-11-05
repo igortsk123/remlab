@@ -4,6 +4,9 @@
 Запрос гостиной берётся ИЗ ИСХОДНИКА compose2.py (`raw=rows(\"\"\"…\"\"\")`, разбор ast, без импорта: импорт compose2 запускает
 полную сборку), с тем же условием `dimless.exclude_sql('p')` и тем же разбором вывода, что у `compose2.rows`. Поменялся
 запрос в compose2 так, что разбор его не понимает, — отказ (тень устарела), а не молчаливый «паритет».
+Адаптер берёт роли из профиля (T-20261105-43), а запрос compose2 — весь фид; первым шагом разбора compose2 отбрасывает
+роли вне своего ROLES (`if role not in ROLES: continue`) — тень делает то же по ROLES из его исходника (`by_roles`), счёт
+отброшенного — в отчёте `outside_roles`; шаг в compose2 изменился — отказ (`check_role_step`).
 
 Сверяем: множество offer_id (только там / только тут, дубли), порядок выдачи и поля, которые compose2 берёт из строки:
 роль, название, Ш/Г/длина/диаметр/В, цена, магазин, фото, прямая ссылка, текст «материал назначение тип», высота-улика
@@ -18,6 +21,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -65,6 +69,34 @@ def legacy_rows(sql: str) -> list:
     if r.returncode != 0:
         raise SystemExit(f'запрос compose2 упал: {r.stderr[:400]}')
     return [ln.split('\x1f') for ln in r.stdout.strip().split('\n') if ln]
+
+
+ROLE_STEP = re.compile(r'\nfor r in raw:\n\s+role=r\[0\]\n\s+if role not in ROLES: continue\n')
+
+
+def check_role_step(src: str) -> None:
+    """Тень отбрасывает роли вне ROLES до сверки, потому что compose2 делает это первым шагом разбора. Шаг изменился —
+    отказ (тень устарела), а не молчаливый «паритет»."""
+    if not ROLE_STEP.search(src):
+        raise SystemExit('тень устарела: в compose2.py нет первого шага разбора «for r in raw: role=r[0]; '
+                         'if role not in ROLES: continue»')
+
+
+def by_roles(raw: list, roles=None) -> tuple:
+    """Как первый шаг разбора compose2 (`if role not in ROLES: continue`): (строки с ролью из его ROLES, {роль: отброшено}).
+    ROLES — из ИСХОДНИКА compose2 (`room_profile.compose2_roles`), не из профиля: тень сверяет с живым compose2."""
+    if roles is None:
+        import room_profile as RP
+        roles = RP.compose2_roles()
+    roles = set(roles)
+    kept, dropped = [], {}
+    for r in raw:
+        if r and r[0] in roles:
+            kept.append(r)
+        else:
+            k = r[0] if r else ''
+            dropped[k] = dropped.get(k, 0) + 1
+    return kept, dropped
 
 
 def _n(v):
@@ -140,11 +172,18 @@ def run(room: str, out_dir: str) -> int:
         raise SystemExit(f'тень есть только у {ROOMS}, не {room!r}')
     import catalog_items as CI
     t = time.time()
-    raw = legacy_rows(legacy_sql(open(COMPOSE2, encoding='utf-8').read()))
-    legacy = [from_legacy(r) for r in raw]
+    src = open(COMPOSE2, encoding='utf-8').read()
+    check_role_step(src)
+    raw = legacy_rows(legacy_sql(src))
+    kept, dropped = by_roles(raw)
+    legacy = [from_legacy(r) for r in kept]
     adapter = [x for c in CI.items(room) for x in from_item(c)]
     rep = compare(legacy, adapter)
-    rep.update(room=room, short_tail_rows=sum(1 for r in raw if 14 <= len(r) < 18), stale_after_read=stale_info(legacy), seconds=round(time.time() - t, 1),
+    rep.update(room=room, short_tail_rows=sum(1 for r in raw if 14 <= len(r) < 18), stale_after_read=stale_info(legacy),
+               outside_roles={'n': sum(dropped.values()), 'by_role': dropped,
+                              '_why': 'строки запроса compose2 с ролью вне его ROLES — он их отбрасывает первым же шагом, адаптер '
+                                      '(роли профиля) их не читает'},
+               seconds=round(time.time() - t, 1),
                at=time.strftime('%Y-%m-%d %H:%M:%S'))
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f'catalog-shadow-{room}.json')
@@ -187,6 +226,15 @@ def _selftest() -> int:
     ok('сверка: только там/тут, поле, порядок', r['only_compose2']['n'] == 0 and r['only_adapter']['n'] == 1
        and r['fields']['w']['n'] == 1 and r['order_first_mismatch'] == 0 and r['diff'] == 3)
     ok('сверка: равные — 0', compare([(k, v)], [(k, dict(v))])['diff'] == 0)
+    kept, dropped = by_roles([row, ['шкаф'] + row[1:], ['шкаф'] + row[1:]], ['лампа'])
+    ok('роли вне ROLES compose2 отброшены, со счётом', kept == [row] and dropped == {'шкаф': 2})
+    check_role_step(open(COMPOSE2, encoding='utf-8').read())
+    ok('живой compose2.py: первый шаг разбора — роль из ROLES', True)
+    try:
+        check_role_step('for r in raw:\n    role=r[0]\n    pass\n')
+        ok('шаг ролей изменился — отказ', False)
+    except SystemExit:
+        ok('шаг ролей изменился — отказ', True)
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0
 

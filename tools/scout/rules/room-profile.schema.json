@@ -28,7 +28,7 @@
                                                     "hard": {"type": "object", "additionalProperties": {"type": "number"},
                                                              "description": "жёсткие пределы, см: min_w, max_w, min_d, …"},
                                                     "aliases": {"type": "array", "items": {"type": "string"}}}}},
-  "style": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["ids", "role_weights"],
+  "style": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["ids", "role_weights", "in_style_min"],
             "properties": {"ids": {"description": "стили комнаты — подмножество глобальных (tools/scout/styles.json)"},
                            "role_weights": {"description": "вес роли в стиле набора"},
                            "in_style_min": {"description": "порог «в стиле»"}}},

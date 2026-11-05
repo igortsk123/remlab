@@ -9,7 +9,7 @@
 в одном месте; `load()` подставляет ссылки. Гостиную профиль только ОПИСЫВАЕТ (compose2.py его не читает); спальня
 (`compose_bedroom.py`) читает из профиля.
 
-    python room_profile.py --lint [тип]        # схема, версия, ссылки, плагины, роли = адаптер, виды = CAM_ZONES демо (node)
+    python room_profile.py --lint [тип]        # схема, версия, ссылки, плагины, роли — один источник, виды = CAM_ZONES демо (node)
     python room_profile.py --lint --cam-html <index.html>   # виды сверить с другой копией демо (ветка до вливания)
     python room_profile.py --rehash <тип>      # пересчитать content_sha после правки (и поднять profile_version!)
     python room_profile.py --show <тип>        # профиль с подставленными ссылками
@@ -180,6 +180,43 @@ def solver_types() -> tuple:
     return [], 'нет реестра солвера'
 
 
+def role_errors(room_type: str, P: dict) -> list:
+    """Роли: источник один — профиль (T-20261105-43). Адаптер `catalog_items` выводит их из профиля; списки, которые ещё
+    живут у потребителей, не читающих профиль (`role_lists`), обязаны с ним совпадать."""
+    import catalog_items as CI
+    if room_type not in CI.ROOM_TYPES:
+        return [f'у адаптера catalog_items нет типа {room_type} ({CI.ROOM_TYPES})']
+    E = []
+    try:
+        got = {r for _, _, rs in CI._sources(room_type, P) for r in rs}
+        if got != set(P['roles']):
+            E.append(f'адаптер catalog_items берёт роли не из профиля: лишние {sorted(got - set(P["roles"]))}, '
+                     f'нет {sorted(set(P["roles"]) - got)}')
+    except ValueError as e:
+        E.append(str(e))
+    mine = CI.profile_roles(room_type, P)
+    for src, where, theirs in role_lists(room_type, P):
+        a, b = set(mine.get(src, [])), set(theirs)
+        if a != b:
+            E.append(f'роли {src}: профиль и {where} расходятся — только в профиле {sorted(a - b)}, только там {sorted(b - a)}')
+    return E
+
+
+def role_lists(room_type: str, P: dict) -> list:
+    """[(источник, где, роли)] — списки ролей у потребителей, которые профиль пока не читают: сверяются с профилем линтером.
+    living — `compose2.ROLES` (гостиная на старом пути); bedroom — `roles_enabled` показа (`room_catalog.enabled`: демо и
+    оценка стиля) и декор назначений правил состава (их читает сборщик)."""
+    if room_type == 'living':
+        return [('products', 'compose2.ROLES', compose2_roles())]
+    if room_type == 'bedroom':
+        import room_catalog as RC
+        R = (P.get('composer') or {}).get('rules') or {}
+        decor = {r for p in R.get('purposes', {}).values() for r in p.get('decor', {}) if not r.startswith('_')}
+        return [('room_catalog', 'rules/bedroom-roles.json roles_enabled', RC.enabled(RC.rules())),
+                ('products', 'декор назначений composer.rules', sorted(decor))]
+    return []
+
+
 def compose2_roles() -> list:
     src = open(os.path.join(HERE, 'compose2.py'), encoding='utf-8').read()
     for n in ast.walk(ast.parse(src)):
@@ -258,22 +295,7 @@ def lint(room_type: str, cam_html: str = CAM_HTML) -> tuple:
         E.append(f'solver_plugin {P["solver_plugin"]!r} нет в {src} ({st})')
     if src.endswith('RoomType'):
         W.append(f'реестр солвера T-37 не влит — solver_plugin сверен с {src}')
-    # роли профиля = роли адаптера каталога
-    import catalog_items as CI
-    if room_type not in CI.ROOM_TYPES:
-        E.append(f'у адаптера catalog_items нет типа {room_type} ({CI.ROOM_TYPES})')
-    else:
-        got = {}
-        for origin, _, rs in CI._sources(room_type):
-            got.setdefault(origin, []).extend(compose2_roles() if rs is None else rs)
-        mine = {}
-        for r, v in P['roles'].items():
-            mine.setdefault(v['source'], []).append(r)
-        for o in sorted(set(got) | set(mine)):
-            a, b = set(mine.get(o, [])), set(got.get(o, []))
-            if a != b:
-                E.append(f'роли {o}: в профиле, но не у адаптера {sorted(a - b)}; у адаптера, но не в профиле {sorted(b - a)}'
-                         + (' (living: открытый список адаптера сверен с compose2.ROLES)' if room_type == 'living' else ''))
+    E += role_errors(room_type, P)
     gstyles = set(deref('tools/scout/styles.json#/styles'))
     bad = [s for s in P['style']['ids'] if s not in gstyles]
     if bad:
@@ -344,6 +366,18 @@ def _selftest() -> int:
        hard(P, 'шкаф', 'min_w') == 80 and P['tolerance'] == [0.8, 1.1] and P['style']['in_style_min'] == 6.6)
     P['roles'].clear()
     ok('load — новая копия (правка не портит следующую загрузку)', load('bedroom')['roles'])
+    ok('роли: источник один — живые профили чисты', not role_errors('living', load('living'))
+       and not role_errors('bedroom', load('bedroom')))
+    P = load('bedroom')
+    P['roles']['пуф'] = {'source': 'room_catalog'}
+    e = role_errors('bedroom', P)
+    ok('роль в профиле, но не в roles_enabled показа — ошибка', any('roles_enabled' in x and 'пуф' in x for x in e))
+    P = load('living')
+    del P['roles']['бра']
+    ok('гостиная: роль compose2.ROLES без профиля — ошибка', any('compose2.ROLES' in x and 'бра' in x for x in role_errors('living', P)))
+    P = load('bedroom')
+    P['roles']['лампа']['source'] = 'room_catalog'
+    ok('спальня: декор состава не из products — ошибка', len(role_errors('bedroom', P)) == 2)
     st, src = solver_types()
     ok(f'типы солвера читаются ({src})', {'living', 'bedroom'} <= set(st))
     ok('роли гостиной compose2 читаются без импорта', 'диван' in compose2_roles() and len(compose2_roles()) == 27)

@@ -176,10 +176,7 @@ def audit_room(room: str, glb: dict, prod: set | None, bank_path: str | None, vi
     import catalog_items as CI
     import room_profile as RP
     P = RP.load(room)
-    thr = P['style'].get('in_style_min')
-    thr_src = 'профиль'
-    if thr is None:
-        thr, thr_src = RP.deref('tools/scout/rules/demo-swap.json#/in_style_min'), 'rules/demo-swap.json (в профиле нет)'
+    thr = float(P['style']['in_style_min'])   # обязателен по схеме профиля (T-20261105-43)
     ids = list(P['style']['ids'])
     rules = (P['composer'] or {}).get('rules')
     drx = (rules or {}).get('mesh_defect', {}).get('names')
@@ -221,7 +218,7 @@ def audit_room(room: str, glb: dict, prod: set | None, bank_path: str | None, vi
     for o in orphans:
         by_origin[o['origin']] = by_origin.get(o['origin'], 0) + 1
     return dict(room=room, profile_version=RP.raw(room)['profile_version'], items=len(got), mesh_roles_rows=len(rows),
-                no_mesh_by_strategy=skipped, in_style_min=thr, in_style_min_from=thr_src, styles=ids,
+                no_mesh_by_strategy=skipped, in_style_min=thr, styles=ids,
                 buckets='size_buckets профиля' if CB is None else 'назначения: годен в слот (compose_bedroom.gate)',
                 bank={'path': bank_path, 'found': bank is not None, 'skus': len(bank or {}), 'not_in_catalog': len(gone),
                       'not_in_catalog_items': sum(bank[k] == 'items' for k in gone), 'not_in_catalog_sample': gone[:20],
