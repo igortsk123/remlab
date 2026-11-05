@@ -43,8 +43,10 @@
 `tools/tokeny/svodka.sh [--proekt X]` на любой машине склеивает их в `data/otchety/tokeny/svodka-<сутки>.txt`
 (и в stdout): токены и $ по машинам, % недели каждой учётки, строка «Память». Машина без выгрузки — «нет данных»
 по `--ozhidaem`; замер пользы памяти старше 14 дней — напоминание (`--zamery`); самые дорогие задачи —
-названиями с доски задач проекта (`--doska`, `nazvaniya.py`); «На 1 % недели» — млн взвешенных токенов на 1 п.п. лимита
-учётки каждой машины по выгрузкам всех проектов за 7 суток.
+названиями с доски задач проекта (`--doska`, `nazvaniya.py`); «На 1 % недели» — млн взвешенных токенов НАШИХ ответов
+на 1 п.п. лимита учётки каждой машины, «Вне наших машин» — сколько % недели ушло на ту же учётку не с машины (Windows,
+claude.ai): ступеньки процента окна `resets_at` (выгрузка кладёт их в `otrezki`, своя машина — живым счётом) и
+разложение `п.п. = a·$ + b·часы` (`razlozhit`).
 
     python3 tools/tokeny/tokeny.py --proekt tamara --sobrat data/logs/tokeny/*-2026-11-01.json \\
         --svodka --data 2026-11-01 --ozhidaem common,algor,pakardev
@@ -820,8 +822,16 @@ def tochki_limita(put: Path) -> list[tuple[datetime, float, int]]:
     return sorted(tochki)
 
 
+NEDELYA = 7 * 86400  # с: окно недельного лимита — `resets_at` минус неделя
+
+
 def prirosty_limita(tochki: list[tuple[datetime, float, int]]) -> list[Prirost]:
-    """Приросты процента; интервал прироста — от прошлого прироста (или начала окна) до точки.
+    """Приросты процента без окна — `stupenki_limita`."""
+    return [(a, b, d) for a, b, d, _ in stupenki_limita(tochki)]
+
+
+def stupenki_limita(tochki: list[tuple[datetime, float, int]]) -> list[tuple[datetime, datetime, float, int]]:
+    """Приросты процента и окно (`resets_at`); интервал прироста — от прошлого прироста (или начала окна) до точки.
 
     Процент целый: 1 п.п. копится всё время с прошлого прироста, а не за секунды от соседней
     точки (иначе прирост достаётся пустому интервалу между двумя сессиями). Новое окно — счёт с
@@ -833,8 +843,10 @@ def prirosty_limita(tochki: list[tuple[datetime, float, int]]) -> list[Prirost]:
     старого окна после смены — тоже устаревшее показание, пропускается. Сброс по падению — только с
     максимума больше `NOVOE_OKNO_DO`: в начале недели (04.11 на algor: живые 6, простаивающая 1) падение
     6 → 1 — устаревшее показание, а не сброс (ложный сброс каждую минуту дал 124,7 п.п. за сутки).
+    Первый прирост нового окна — от его начала (`resets_at − 7 сут`), а не от прироста прошлого окна (T-30, по Codex:
+    05.11 pakardev — 15 п.п. «с 27.10», хотя окно началось 05.11 в 11:00).
     """
-    itog: list[Prirost] = []
+    itog: list[tuple[datetime, datetime, float, int]] = []
     if not tochki:
         return itog
     pred, maks, okno = tochki[0]  # pred — когда достигнут текущий максимум окна
@@ -842,16 +854,233 @@ def prirosty_limita(tochki: list[tuple[datetime, float, int]]) -> list[Prirost]:
     for t, p, r in tochki[1:]:
         if okno - r > DOPUSK_OKNA or (p >= staryy_maks - POROG_SBROSA > maks):
             continue
-        if r - okno > DOPUSK_OKNA or NOVOE_OKNO_DO < maks and p <= min(maks - POROG_SBROSA, NOVOE_OKNO_DO):
-            staryy_maks = -1.0 if r - okno > DOPUSK_OKNA else maks
+        novoe = r - okno > DOPUSK_OKNA
+        if novoe or NOVOE_OKNO_DO < maks and p <= min(maks - POROG_SBROSA, NOVOE_OKNO_DO):
+            staryy_maks = -1.0 if novoe else maks
+            nachalo = datetime.fromtimestamp(r - NEDELYA, UTC)
+            if novoe and pred < nachalo < t:
+                pred = nachalo
             if p > 0:
-                itog.append((pred, t, p))
+                itog.append((pred, t, p, r))
             maks, pred = p, t
         elif p > maks:
-            itog.append((pred, t, p - maks))
+            itog.append((pred, t, p - maks, max(okno, r)))
             maks, pred = p, t
         okno = max(okno, r)
     return itog
+
+
+# ── «На 1 % недели» без чужой работы учётки (T-30) ──────────────────────────────────────────
+
+@dataclass(slots=True)
+class Otrezok:
+    """Ступенька процента недели учётки машины: (начало, конец], прирост, $ всех ответов машины на нём, окно."""
+
+    t0: datetime
+    t1: datetime
+    dp: float
+    usd: float
+    okno: int  # `resets_at` окна
+
+    @property
+    def chasy(self) -> float:
+        return (self.t1 - self.t0).total_seconds() / 3600
+
+    def v_slovar(self) -> dict[str, object]:
+        iso = lambda t: t.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")  # noqa: E731
+        return {"t0": iso(self.t0), "t1": iso(self.t1), "dp": self.dp, "usd": round(self.usd, 6), "okno": self.okno}
+
+    @staticmethod
+    def iz_slovarya(d: dict[str, object]) -> Otrezok | None:
+        t0, t1, dp, usd, okno = (vremya_iz(d.get("t0")), vremya_iz(d.get("t1")), d.get("dp"), d.get("usd"),
+                                 d.get("okno"))
+        if t0 is None or t1 is None or not isinstance(okno, int) or isinstance(okno, bool):
+            return None
+        if any(isinstance(v, bool) or not isinstance(v, int | float) for v in (dp, usd)):
+            return None
+        return Otrezok(t0, t1, float(dp), float(usd), okno)  # type: ignore[arg-type]
+
+
+def otrezki_mashiny(tochki: list[tuple[datetime, float, int]], otvety: list[Stroka]) -> list[Otrezok]:
+    """Ступеньки журнала statusline и $ ответов машины (все папки журналов) на каждой."""
+    po_vremeni = sorted(otvety, key=lambda s: s.vremya)
+    vremena = [s.vremya for s in po_vremeni]
+    nakopleno = [0.0, *itertools.accumulate(s.stoimost() for s in po_vremeni)]
+    out = []
+    for a, b, d, r in stupenki_limita(tochki):
+        i, j = bisect.bisect_right(vremena, a), bisect.bisect_right(vremena, b)
+        out.append(Otrezok(a, b, d, nakopleno[j] - nakopleno[i], r))
+    return out
+
+
+OTREZKI_DNEY = 15  # выгрузка и живой счёт: ступеньки текущего и прошлого окна (окно — 7 суток)
+
+
+def otrezki_zhivye(koren: Path, put_limita: Path, seychas: datetime) -> list[Otrezok] | None:
+    """Ступеньки СВОЕЙ машины на момент запроса: журнал statusline и ответы всех папок журналов. Читаются только
+    файлы, менявшиеся после начала самой ранней ступеньки (в более старом файле ответов на ступеньках нет) — секунды.
+    Нет журнала statusline или папки журналов — None."""
+    if not put_limita.is_file() or not koren.is_dir():
+        return None
+    tochki = tochki_limita(put_limita)
+    granica = seychas - timedelta(days=OTREZKI_DNEY)
+    nuzhny = [x for x in stupenki_limita(tochki) if x[1] >= granica]
+    if not nuzhny:
+        return []
+    porog = min(x[0] for x in nuzhny).timestamp()
+    vse: list[Stroka] = []
+    for put, sessiya in vse_fayly([p for p in sorted(koren.iterdir()) if p.is_dir()]):
+        try:
+            if put.stat().st_mtime < porog:
+                continue
+        except OSError:
+            continue
+        vse += prochitat(put, sessiya).otvety
+    return [x for x in otrezki_mashiny(tochki, bez_povtorov(vse)) if x.t1 >= granica]
+
+
+IMYA_VYGRUZKI = re.compile(r"^(.+)-(\d{4}-\d{2}-\d{2})\.json$")
+
+
+def otrezki_po_mashinam(korni: Path, den: date, svoya: list[Otrezok] | None = None) -> dict[str, list[Otrezok]]:
+    """Ступеньки каждой машины по её последней выгрузке не позже `den` (все проекты папки `korni` — у машины они
+    одинаковые, повторы склеиваются); `svoya` — живой счёт своей машины, заменяет её выгрузки. Выгрузка старого
+    формата (без `otrezki`) — машина без ступенек."""
+    posledniy: dict[str, date] = {}
+    fayly: dict[tuple[str, date], list[Path]] = defaultdict(list)
+    for put in sorted(korni.glob("*/data/logs/tokeny/*.json")):
+        if (m := IMYA_VYGRUZKI.match(put.name)) and (d := data_ili_net(m[2])) is not None and d <= den:
+            fayly[(m[1], d)].append(put)
+            posledniy[m[1]] = max(d, posledniy.get(m[1], d))
+    out: dict[str, list[Otrezok]] = {}
+    for mashina, d in sorted(posledniy.items()):
+        po_klyuchu: dict[tuple[datetime, datetime], Otrezok] = {}
+        for put in fayly[(mashina, d)]:
+            try:
+                spisok = slovar(json.loads(put.read_text(encoding="utf-8"))).get("otrezki")
+            except (OSError, ValueError):
+                continue  # битая выгрузка — сводка скажет в строке машин
+            for x in spisok if isinstance(spisok, list) else []:
+                if (o := Otrezok.iz_slovarya(slovar(x))) is not None:
+                    po_klyuchu[(o.t0, o.t1)] = o
+        out[mashina] = sorted(po_klyuchu.values(), key=lambda o: o.t1)
+    if svoya is not None:
+        out[socket.gethostname()] = svoya
+    return out
+
+
+@dataclass(slots=True)
+class Razlozhenie:
+    """`п.п. = a·$ + b·часы` по ступенькам окна: a — наш расход (п.п. на $), b — фон (п.п. в час), «вне» — п.п. окна
+    не от ответов машины (фон за всё окно и остаток выкинутых пиков)."""
+
+    pp: float
+    n: int
+    chasy: float
+    a: float
+    b: float
+    vne: float
+    pikov: int
+
+    @property
+    def mln_na_procent(self) -> float:
+        return 1 / (self.a * CENY[CENA_ZAPASNAYA][0]) * 1e6  # взвешенные: $ ÷ цена входа Opus 5.5
+
+
+PIK_PP = 1.0  # п.п.: остаток ступеньки 1 п.п. не больше 1 — это округление процента, не чужая работа
+POROG_OKNA_PP, POROG_OKNA_N = 20.0, 10  # меньше — окно не годится (процент целый, шум)
+
+
+def mnk(otr: list[Otrezok]) -> tuple[float, float]:
+    """МНК без свободного члена `dp = a·usd + b·часы`, b ≥ 0 (отрицательный фон — 0 и пересчёт a)."""
+    uu = sum(o.usd ** 2 for o in otr)
+    hh = sum(o.chasy ** 2 for o in otr)
+    uh = sum(o.usd * o.chasy for o in otr)
+    pu = sum(o.dp * o.usd for o in otr)
+    ph = sum(o.dp * o.chasy for o in otr)
+    det = uu * hh - uh * uh
+    a, b = ((pu * hh - ph * uh) / det, (ph * uu - pu * uh) / det) if det > 1e-9 * uu * hh else (0.0, -1.0)
+    if b < 0:
+        a, b = (pu / uu if uu else 0.0), 0.0
+    return a, b
+
+
+def razlozhit(otr: list[Otrezok]) -> Razlozhenie | None:
+    """Разложение окна; пики — ступеньки с остатком выше p90 и больше `PIK_PP`: выкинуть, пересчитать один раз, их
+    остаток — «вне наших машин». Наш расход не определить (нет $) — None."""
+    if not otr:
+        return None
+    a, b = mnk(otr)
+    ostatki = [o.dp - a * o.usd - b * o.chasy for o in otr]
+    p90 = sorted(ostatki)[max(0, -(-9 * len(ostatki) // 10) - 1)]
+    piki = [o for o, r in zip(otr, ostatki, strict=True) if r > max(p90, PIK_PP)]
+    if piki:
+        a, b = mnk([o for o, r in zip(otr, ostatki, strict=True) if r <= max(p90, PIK_PP)])
+    if a <= 0:
+        return None
+    chasy = sum(o.chasy for o in otr)
+    vne = b * chasy + sum(max(0.0, o.dp - a * o.usd - b * o.chasy) for o in piki)
+    return Razlozhenie(sum(o.dp for o in otr), len(otr), chasy, a, b, vne, len(piki))
+
+
+def okna(otr: list[Otrezok]) -> list[list[Otrezok]]:
+    """Ступеньки по окнам `resets_at` (допуск — час), от последнего окна к раннему."""
+    out: list[list[Otrezok]] = []
+    for o in sorted(otr, key=lambda o: (o.okno, o.t1)):
+        if out and o.okno - out[-1][0].okno <= DOPUSK_OKNA:
+            out[-1].append(o)
+        else:
+            out.append([o])
+    return out[::-1]
+
+
+def ocenka_mashiny(otr: list[Otrezok]) -> tuple[Razlozhenie | None, bool, float]:
+    """Текущее окно, а если в нём меньше `POROG_OKNA_PP` п.п. или `POROG_OKNA_N` ступенек — прошлое (годное).
+    → (разложение или None, по прошлому окну, п.п. текущего окна)."""
+    vse = okna(otr)
+    tek = sum(o.dp for o in vse[0]) if vse else 0.0
+    for i, w in enumerate(vse[:2]):
+        if sum(o.dp for o in w) >= POROG_OKNA_PP and len(w) >= POROG_OKNA_N:
+            return razlozhit(w), i == 1, tek
+    return None, False, tek
+
+
+def procent_nedeli(n: float) -> str:
+    return str(round(n)) if n >= 10 else pp(n)
+
+
+def stroki_na_procent(otr: dict[str, list[Otrezok]], ozhidaem: list[str] | None = None) -> list[str]:
+    """«На 1 % недели» — млн взвешенных токенов НАШИХ ответов на 1 % лимита учётки каждой машины (без чужой работы
+    учётки: Windows, claude.ai) и строка «Вне наших машин» — сколько % недели ушло не с машины."""
+    if not otr and not ozhidaem:
+        return []
+    est: dict[str, float] = {}
+    chasti, vne = [], []
+    for m in sorted(set(otr) | set(ozhidaem or [])):
+        if not otr.get(m):
+            chasti.append(f"{m} — пока нет данных")
+            continue
+        r, proshloe, tek = ocenka_mashiny(otr[m])
+        if r is None:
+            chasti.append(f"{m} — мало данных ({pp(tek)} п.п.)")
+            continue
+        est[m] = r.mln_na_procent
+        chasti.append(f"{m} {mln(est[m])}" + (" (прошлая неделя)" if proshloe else ""))
+        vne.append(f"{m} ≈0" if r.vne < 1 else
+                   f"{m} ≈ {procent_nedeli(r.vne)} % недели (≈ {pp(r.vne / r.chasy if r.chasy else 0)} %/ч)")
+    if not est:
+        return [f"На 1 % недели (по неделе каждой учётки, все проекты; токены взвешенные): {', '.join(chasti)}; "
+                "сравнить пока не с чем."]
+    luchshie = sorted(est.items(), key=lambda kv: -kv[1])
+    if len(luchshie) < 2:
+        itog = "сравнить пока не с чем"
+    elif luchshie[0][1] < luchshie[1][1] * 1.1:
+        itog = f"{luchshie[0][0]} и {luchshie[1][0]} примерно равны"
+    else:
+        itog = (f"выгоднее {luchshie[0][0]}: в {pp(luchshie[0][1] / luchshie[1][1])} раза больше, "
+                f"чем {luchshie[1][0]}")
+    return [f"На 1 % недели (по неделе каждой учётки, все проекты; токены взвешенные): {', '.join(chasti)}; {itog}.",
+            f"Вне наших машин (та же учётка на Windows, в claude.ai и др.): {', '.join(vne)}."]
 
 
 def razdelit_limit(vse: list[Stroka], prirosty: list[Prirost]) -> list[Rozdano]:
@@ -1031,6 +1260,7 @@ class Vygruzka:
     pamyat: Pamyat | None = None
     tier0_simvolov: int = 0
     nedelya: dict[str, object] | None = None  # последний замер недели учётки машины (`nedelya_seychas`)
+    otrezki: list[Otrezok] | None = None  # ступеньки учётки машины за `OTREZKI_DNEY` суток по `po` (T-30)
 
     def za_den(self, den: date) -> bool:
         return (self.s or date.min) <= den <= (self.po or date.max)
@@ -1049,6 +1279,8 @@ def vygruzka(stroki: list[Stroka], proekt: str, meta: Vygruzka | None = None) ->
             telo["tier0_simvolov"] = meta.tier0_simvolov
         if meta.nedelya is not None:
             telo["nedelya"] = meta.nedelya
+        if meta.otrezki is not None:
+            telo["otrezki"] = [o.v_slovar() for o in sorted(meta.otrezki, key=lambda o: (o.t1, o.t0))]
     telo["stroki"] = [v_slovar(s) for s in sorted(stroki, key=poryadok)]
     return json.dumps(telo, ensure_ascii=False, indent=1) + "\n"
 
@@ -1067,11 +1299,13 @@ def prochitat_vygruzku(put: Path, proekt: str) -> tuple[list[Stroka], Vygruzka]:
                          f"ждали {SKHEMA}, {proekt}")
     mashina = str(d.get("istochnik") or "")
     period, pam, sverka = slovar(d.get("period")), d.get("pamyat"), d.get("sverka")
-    ned = d.get("nedelya")
+    ned, otr = d.get("nedelya"), d.get("otrezki")  # старая выгрузка — без ступенек
     v = Vygruzka(mashina, data_ili_net(period.get("s")), data_ili_net(period.get("po")),
                  sverka if isinstance(sverka, bool) else None,
                  Pamyat.iz_slovarya(pam) if isinstance(pam, dict) else None,
-                 chislo(d.get("tier0_simvolov")), ned if isinstance(ned, dict) else None)
+                 chislo(d.get("tier0_simvolov")), ned if isinstance(ned, dict) else None,
+                 [o for x in otr if (o := Otrezok.iz_slovarya(slovar(x))) is not None]
+                 if isinstance(otr, list) else None)
     spisok = d.get("stroki")
     stroki = [iz_slovarya(slovar(x)) for x in (spisok if isinstance(spisok, list) else [])]
     for s in stroki:
@@ -1292,113 +1526,7 @@ def stroka_limita(d: list[Stroka], proekt: str) -> list[str]:
     return [f"Недельный лимит (оценка): {proekt} ≈ {pp(nash)} п.п. — {', '.join(chasti)}."]
 
 
-MALO_PP = 1.0  # п.п.: меньше — процент недели целый, оценка по такой доле — шум («мало данных»)
 PROCHEE = "прочее (без метки)"  # задача, которой нет на доске (и в её истории)
-
-
-def vzveshennye(ss: list[Stroka]) -> float:
-    """Взвешенные токены = $ по прайсу ÷ цена входа Opus 5.5: вход ×1, запись кэша ×1,25/×2, чтение ×0,05,
-    ответ ×5 — токены разных моделей и видов складываются по цене, как доли в сводке."""
-    return stoimost(ss) / CENY[CENA_ZAPASNAYA][0] * 1e6
-
-
-DNEY_NA_PROCENT = 7
-
-
-ZHIVYE_DNEY = 2  # сегодня и вчера: выгрузка за вчера появляется только ночью (05.11: «pakardev — мало данных»)
-
-
-def zhivye_po_proektam(korni: Path, koren: Path, put_limita: Path, s: date) -> dict[str, list[Stroka]]:
-    """Свежий счёт СВОЕЙ машины из журналов на момент запроса — ответы с `s` по сегодня по проектам `korni`.
-
-    Доля лимита делится, как в ночной выгрузке: прирост — между ответами ВСЕХ папок журналов машины по цене.
-    Читаются только файлы, менявшиеся с `s` минус сутки (запас: прирост копится с прошлого прироста), — секунды,
-    не вся история; прирост, начавшийся раньше (05.11 pakardev: 15 п.п. с 27.10 — замеров не было неделю), отброшен,
-    его ответы остаются без доли и в «На 1 %» не идут. Нет журнала statusline — пусто."""
-    if not koren.is_dir() or not put_limita.is_file():
-        return {}
-    porog = datetime(s.year, s.month, s.day, tzinfo=UTC).timestamp() - 86400
-    papka_otveta: dict[int, Path] = {}
-    vse: list[Stroka] = []
-    for papka in sorted(p for p in koren.iterdir() if p.is_dir()):
-        for put, sessiya in vse_fayly([papka]):
-            try:
-                if put.stat().st_mtime < porog:
-                    continue
-            except OSError:
-                continue
-            for x in prochitat(put, sessiya).otvety:
-                papka_otveta[id(x)] = papka
-                vse.append(x)
-    vse = bez_povtorov(vse)
-    nachalo = datetime.fromtimestamp(porog, UTC)  # прирост с более раннего начала делился бы и на непрочитанные ответы
-    razdelit_limit(vse, [x for x in prirosty_limita(tochki_limita(put_limita)) if x[0] >= nachalo])
-    mashina = socket.gethostname()
-    out: dict[str, list[Stroka]] = {}
-    for proekt in sorted(p.parents[2].name for p in korni.glob("*/data/logs/tokeny")):
-        svoi = set(papki_proekta(koren, proekt))
-        out[proekt] = [x for x in vse if papka_otveta[id(x)] in svoi and s <= london(x.vremya)]
-        for x in out[proekt]:
-            x.mashina = mashina
-    return out
-
-
-def baza_na_procent(korni: Path, den: date, dney: int = DNEY_NA_PROCENT,
-                    zhivye: dict[str, list[Stroka]] | None = None) -> list[Stroka]:
-    """Выгрузки ВСЕХ проектов папки `korni` за `dney` суток по `den`: 1 % — свойство учётки машины, а не проекта
-    (прирост лимита делится между ответами всех проектов машины по цене), за сутки одного проекта его почти не видно.
-
-    `zhivye` — свежий счёт своей машины (`zhivye_po_proektam`): берётся только за сутки, по которым у проекта нет её
-    выгрузки `<машина>-<сутки>.json`; ночная выгрузка за вчера заменяет живой счёт — двойного счёта нет."""
-    mashina = socket.gethostname()
-    dni = [den - timedelta(days=n) for n in range(dney)]
-    out: list[Stroka] = []
-    for papka in sorted(korni.glob("*/data/logs/tokeny")):
-        proekt = papka.parents[2].name
-        puti = [p for d in dni for p in sorted(papka.glob(f"*-{d}.json"))]
-        out += skleit(puti, proekt, [])[0]  # чужой или битый файл — мимо, без ошибки
-        bez_vygruzki = {d for d in dni if not (papka / f"{mashina}-{d}.json").is_file()}
-        out += [x for x in (zhivye or {}).get(proekt, []) if london(x.vremya) in bez_vygruzki]
-    return out
-
-
-def stroka_na_procent(d: list[Stroka], ozhidaem: list[str] | None = None, dney: int = 1,
-                      po: date | None = None) -> list[str]:
-    """«На 1 % недели»: сколько млн взвешенных токенов даёт 1 % недельного лимита учётки каждой машины.
-
-    У каждой машины своя учётка: взвешенные токены её ответов с долей лимита ÷ её п.п. (`d` — за `dney` суток, в
-    сводке — все проекты за неделю, `baza_na_procent`). Доля меньше `MALO_PP` — «пока X п.п. (рано считать)»
-    (процент целый; владелец видит, что данные смотрели). Без `--sobrat` машина одна (`mashina` пустая)."""
-    po_mashine: dict[str, list[Stroka]] = defaultdict(list)
-    for x in d:  # без доли лимита — вне известного прироста (нет замеров, хвост до следующего 1 %): не в счёт
-        svoi = po_mashine[x.mashina]  # машина видна и без долей — «пока 0,0 п.п.»
-        if x.limit > 0:
-            svoi.append(x)
-    if not any(x.limit for x in d):
-        return []
-    d = [x for x in d if x.limit > 0]
-    if set(po_mashine) == {""}:
-        p = sum(x.limit for x in d)
-        return [f"На 1 % недели: {mln(vzveshennye(d) / p)} токенов (взвешенных)."] if p >= MALO_PP else []
-    est: dict[str, float] = {}
-    chasti = []
-    for m in sorted(set(po_mashine) | set(ozhidaem or [])):
-        p = sum(x.limit for x in po_mashine.get(m, []))
-        if p < MALO_PP:
-            chasti.append(f"{m} — пока {pp(p)} п.п. (рано считать)")
-            continue
-        est[m] = vzveshennye(po_mashine[m]) / p
-        chasti.append(f"{m} {mln(est[m])}")
-    luchshie = sorted(est.items(), key=lambda kv: -kv[1])
-    if len(luchshie) < 2:
-        itog = "сравнить пока не с чем"
-    elif luchshie[0][1] < luchshie[1][1] * 1.1:
-        itog = f"{luchshie[0][0]} и {luchshie[1][0]} примерно равны"
-    else:
-        itog = (f"выгоднее {luchshie[0][0]}: в {pp(luchshie[0][1] / luchshie[1][1])} раза больше, "
-                f"чем {luchshie[1][0]}")
-    za = f"за {dney} дн.{f' по {po:%d.%m}' if po else ''}, все проекты; " if dney > 1 else ""
-    return [f"На 1 % недели ({za}токены взвешенные): {', '.join(chasti)}; {itog}."]
 
 
 def stroki_zadach(d: list[Stroka], nazv: dict[str, str] | None, vsego: float) -> list[str]:
@@ -1531,14 +1659,12 @@ def stroka_zamera(put: Path | None, den: date, srok: int = 14) -> list[str]:
 def svodka(stroki: list[Stroka], proekt: str, den: date, vygruzki: list[Vygruzka] | None = None,
            ozhidaem: list[str] | None = None, zamery: Path | None = None,
            bitye: list[str] | None = None, nazv: dict[str, str] | None = None,
-           baza: list[Stroka] | None = None, konec: date | None = None) -> str:
+           otrezki: dict[str, list[Otrezok]] | None = None) -> str:
     """6–12 строк простым текстом для Telegram: сутки по Лондону; все доли — от $ по прайсу.
 
     Из выгрузок (`--sobrat`): строки по машинам и «нет данных» по ожидаемым машинам, цена памяти;
     с журналом замеров памяти — напоминание о просроченном замере; с доской (`nazv`) — дорогие задачи;
-    `baza` — строки для «На 1 % недели» (все проекты за 7 суток по `konec`, по умолчанию — по `den`), без неё —
-    сутки проекта."""
-    po = konec or den
+    `otrezki` — ступеньки учёток по машинам для «На 1 % недели» и «Вне наших машин» (`otrezki_po_mashinam`)."""
     d = za_period(stroki, den, den)
     vsego = stoimost(d)
     kletki = setka(d)
@@ -1558,9 +1684,8 @@ def svodka(stroki: list[Stroka], proekt: str, den: date, vygruzki: list[Vygruzka
              if vygruzki is not None else []),
            *bez_ceny(d),
            f"{VED}: {doli(VED)}.", f"{ISP}: {doli(ISP)}.", stroka_peredelok(kletki, vsego)]
-    out += stroka_limita(d, proekt) + (stroka_na_procent(za_period(baza, po - timedelta(days=DNEY_NA_PROCENT - 1), po),
-                                                     ozhidaem, DNEY_NA_PROCENT, po) if baza is not None
-                                   else stroka_na_procent(d, ozhidaem)) + stroki_zadach(d, nazv, vsego)
+    out += (stroka_limita(d, proekt) + (stroki_na_procent(otrezki, ozhidaem) if otrezki is not None else [])
+            + stroki_zadach(d, nazv, vsego))
     out += stroka_pamyati(d, vygruzki or [], den) + stroka_zamera(zamery, den)
     return "\n".join(out) + "\n"
 
@@ -1630,13 +1755,19 @@ def main(argv: list[str] | None = None) -> int:
         sbor = sobrat_proekt(papki, a.proekt, fazy, karta, a.priblizitelno)
         stroki, sessii, korotkie = sbor.stroki, sbor.sessii, sbor.korotkie
     limit: Limit | None = None
+    otrezki: list[Otrezok] | None = None
     if a.sobrat is None and (put_limita := Path(a.limit).expanduser()).is_file():
         prochie = [p for p in sorted(koren.iterdir())
                    if p.is_dir() and p not in papki] if koren.is_dir() else []
         limit = Limit([], vse_otvety([p for p in prochie if p.name.startswith(PREFIKS)]),
                       vse_otvety([p for p in prochie if not p.name.startswith(PREFIKS)]))
-        limit.rozdano = razdelit_limit(bez_povtorov(stroki + limit.drugie + limit.vne),
-                                       prirosty_limita(tochki_limita(put_limita)))
+        vse_mashiny = bez_povtorov(stroki + limit.drugie + limit.vne)
+        tochki = tochki_limita(put_limita)
+        limit.rozdano = razdelit_limit(vse_mashiny, prirosty_limita(tochki))
+        if a.json:  # ступеньки учётки за `OTREZKI_DNEY` суток по --po: $ — все ответы машины
+            po_ = a.po or segodnya
+            otrezki = [o for o in otrezki_mashiny(tochki, vse_mashiny)
+                       if po_ - timedelta(days=OTREZKI_DNEY) < london(o.t1) <= po_]
 
     if a.json:
         s, po = a.s or date.min, a.po or date.max
@@ -1646,7 +1777,8 @@ def main(argv: list[str] | None = None) -> int:
                         pamyat_papok(papki, s, po) if papki else None,
                         tier0_simvolov(koren_proekta(a.proekt) if koren_proekta(a.proekt).is_dir()
                                        else KOREN_REPO) if papki else 0,
-                        nedelya_seychas(Path(a.limit).expanduser(), datetime.now(UTC)) if papki else None)
+                        nedelya_seychas(Path(a.limit).expanduser(), datetime.now(UTC)) if papki else None,
+                        otrezki if papki else None)
         tekst = vygruzka(vybor, a.proekt, meta)
         if a.json == "-":
             sys.stdout.write(tekst)
@@ -1669,15 +1801,14 @@ def main(argv: list[str] | None = None) -> int:
         den = a.data or segodnya - timedelta(days=1)
         doska = (koren_proekta(a.proekt) / ".memory_bank" / "plans" / "README.md"
                  if a.doska is None else Path(a.doska) if a.doska else None)
-        # «На 1 % недели» — 7 суток по сегодня: свои сегодня и вчера (до ночной выгрузки) — живым счётом журналов
+        # «На 1 % недели» — по сегодня (за вчера и раньше — по выгрузкам того дня): своя машина — живым счётом
         konec = segodnya if den >= segodnya - timedelta(days=1) else den
-        zhivye = (zhivye_po_proektam(KORNI, koren, Path(a.limit).expanduser(),
-                                     segodnya - timedelta(days=ZHIVYE_DNEY - 1))
-                  if vygruzki is not None and konec == segodnya else None)
+        svoya = (otrezki_zhivye(koren, Path(a.limit).expanduser(), datetime.now(UTC))
+                 if konec == segodnya else None)
+        otr = (otrezki_po_mashinam(KORNI, konec, svoya) if vygruzki is not None
+               else {socket.gethostname(): svoya} if svoya is not None else None)
         sys.stdout.write(svodka(stroki, a.proekt, den, vygruzki, ozhidaem, zamery, bitye,
-                                nazvaniya(doska, den) if doska else None,
-                                baza_na_procent(KORNI, konec, zhivye=zhivye) if vygruzki is not None else None,
-                                konec))
+                                nazvaniya(doska, den) if doska else None, otr))
         return 0
 
     po = a.po or max(a.s or segodnya, segodnya)
