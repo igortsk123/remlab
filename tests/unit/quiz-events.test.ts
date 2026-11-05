@@ -2,9 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { pageCounterKind, pageEventIn } from "@/contracts/analytics";
-import { quizChildAge, quizColour, quizHousehold, quizStyle } from "@/contracts/quiz";
+import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_STYLE_RU, quizChildAge, quizColour, quizHousehold, quizStyle } from "@/contracts/quiz";
 import { buyerEvent } from "@/contracts/send";
-import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_STYLE_RU } from "@/modules/sends/signals";
 
 // СОБЫТИЯ ОПРОСА (onb-03 Т6, ADR-0330 п.4): менеджеру и застройщику — только перечисления. Словари сервера совпадают с правилом
 // опроса `quiz.json` и стилями страницы демо, иначе страница пришлёт значение, которое сервер отбросит целиком.

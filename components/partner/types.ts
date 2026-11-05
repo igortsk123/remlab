@@ -1,3 +1,4 @@
+import type { QuizRow } from "@/modules/partner-report/quiz";
 import type { DirectRow, FunnelRow } from "@/modules/partner-report/report";
 
 export type ReportData = {
@@ -7,6 +8,8 @@ export type ReportData = {
   byApartment: FunnelRow[];
   total: FunnelRow;
   direct: DirectRow[];
+  /** Блок «Знакомство» (onb-12): нет событий опроса — нет и поля. */
+  quiz?: QuizRow[];
   apartments: Record<string, string>;
   generatedAt: string;
 };

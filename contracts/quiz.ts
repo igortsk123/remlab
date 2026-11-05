@@ -19,3 +19,17 @@ export type QuizChildAge = z.infer<typeof quizChildAge>;
 /** Цвета (`quiz.json` вопрос `colours`, семейства `palettes.families`). */
 export const quizColour = z.enum(["light", "warm", "cool", "accent"]);
 export type QuizColour = z.infer<typeof quizColour>;
+
+// Слова опроса по-русски — один источник для сигнала менеджеру (`modules/sends/signals.ts:quizText`) и отчёта застройщику
+// (`components/partner/QuizBlock.tsx`): названия стилей — как на вкладках демо (`index.html:STYLE_IDS`), цвета — как в вопросе
+// (`tools/scout/rules/quiz.json`), состав — в форме «живут: …»; совпадение словарей сверяет `tests/unit/quiz-events.test.ts`.
+export const QUIZ_STYLE_RU: Record<QuizStyle, string> = {
+  scandi: "Сканди", modern: "Современный", minimal: "Минимализм", loft: "Лофт", neoclassic: "Неоклассика", japandi: "Джапанди",
+};
+export const QUIZ_HOUSEHOLD_RU: Record<QuizHousehold, string> = {
+  single: "один", couple: "вдвоём", child: "с детьми", pet: "кошка или собака", guest: "часто родители или гости",
+};
+export const QUIZ_CHILD_RU: Record<QuizChildAge, string> = { "0-3": "до 3 лет", "3-7": "3–7 лет", "7-12": "7–12 лет", teen: "подросток" };
+export const QUIZ_COLOUR_RU: Record<QuizColour, string> = {
+  light: "светлые нейтральные", warm: "тёплые природные", cool: "графит и холодные", accent: "с яркими акцентами",
+};

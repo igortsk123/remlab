@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/base/buttons/button";
 import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { ShortTable, StepList } from "@/components/partner/FunnelTable";
+import { QuizBlock } from "@/components/partner/QuizBlock";
 import type { ReportData } from "@/components/partner/types";
 
 // Отчёт застройщику (план b2b-03, ADR-0265). Ключ — во #фрагменте адреса: на сервер уходит только
@@ -80,6 +81,7 @@ export function ReportPage() {
           </ul>
         )}
       </div>
+      {data.quiz?.length ? <QuizBlock rows={data.quiz} apartment={apt} /> : null}
     </div>
   );
 }

@@ -21,6 +21,16 @@ export function variantKey(raw: Raw | null, variantId: string): { styleId: strin
   return a ? { styleId: sid(a), roomId: a.room_id || "living" } : null;
 }
 
+/** Стили витрины в порядке вкладок главной (`index.html:homeModel` — по первому варианту стиля); для порядка строк отчёта (onb-12). */
+export function showcaseStyles(raw: Raw | null): string[] {
+  const out: string[] = [];
+  for (const v of raw?.variants ?? []) {
+    const id = v.style_id || STYLE_IDS[String(v.style ?? "").trim().toLowerCase()] || "";
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
 const TTL_MS = 5 * 60_000;
 const cache = new Map<string, { at: number; data: Raw | null }>();
 

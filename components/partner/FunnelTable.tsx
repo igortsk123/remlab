@@ -23,9 +23,9 @@ const SHORT: [string, (r: FunnelRow) => number][] = [
   ["Обратились", (r) => r.contactClick], ["Сделка", (r) => r.status.deal],
 ];
 
-const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : "");
-const cell = { padding: "8px 10px", borderBottom: "1px solid var(--color-border-secondary)" };
-const num = { ...cell, textAlign: "right" as const, whiteSpace: "nowrap" as const };
+export const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : "");
+export const cell = { padding: "8px 10px", borderBottom: "1px solid var(--color-border-secondary)" };
+export const num = { ...cell, textAlign: "right" as const, whiteSpace: "nowrap" as const };
 
 export function StepList({ row }: { row: FunnelRow }) {
   return (

@@ -4,6 +4,7 @@
 // людям. Статус менеджера — текущий и взаимоисключающий (его можно исправлять), это не «дошли до».
 
 import type { ManagerStatus } from "@/contracts/send";
+import { buildQuiz, quizPart, type QuizRow } from "@/modules/partner-report/quiz";
 
 export type ReportSend = { id: string; apartmentId: string; createdAt: Date; openedAt: Date | null; status: string };
 export type ReportInput = {
@@ -15,9 +16,11 @@ export type ReportInput = {
   now: Date;
   /** Первая неделя окна (понедельник YYYY-MM-DD): более ранние отправки и счётчики не входят. */
   fromWeek?: string;
+  /** Стили витрины по квартирам в порядке вкладок — порядок строк блока «Знакомство» (onb-12). */
+  showcase?: Record<string, string[]>;
 };
 
-const ENGAGE = new Set(["variant_view", "item_swap", "item_move", "share", "manager_contact_click", "alternative_request", "flat3d_open", "floor_pick", "walls_pick"]);
+const ENGAGE = new Set(["variant_view", "item_swap", "item_move", "share", "manager_contact_click", "alternative_request", "flat3d_open", "floor_pick", "walls_pick", "quiz_done"]);
 const STATUSES: ManagerStatus[] = ["contacted", "meeting", "deal", "lost"];
 
 export type FunnelRow = {
@@ -52,7 +55,7 @@ const emptyRow = (week: string, apartmentId: string | null, fresh: boolean): Fun
   status: { contacted: 0, meeting: 0, deal: 0, lost: 0 },
 });
 
-export function buildReport(inp: ReportInput): { weeks: FunnelRow[]; byApartment: FunnelRow[]; total: FunnelRow; direct: DirectRow[] } {
+export function buildReport(inp: ReportInput): { weeks: FunnelRow[]; byApartment: FunnelRow[]; total: FunnelRow; direct: DirectRow[]; quiz?: QuizRow[] } {
   const kinds = new Map<string, Set<string>>();
   for (const e of inp.events) (kinds.get(e.sendId) ?? kinds.set(e.sendId, new Set()).get(e.sendId)!).add(e.kind);
   const saved = new Set(inp.savedSendIds);
@@ -84,9 +87,11 @@ export function buildReport(inp: ReportInput): { weeks: FunnelRow[]; byApartment
   }
 
   const direct = new Map<string, DirectRow>();
+  const quizCounters: ReportInput["counters"] = [];
   for (const c of inp.counters) {
     const w = mondayOf(c.day);
     if (inp.fromWeek && w < inp.fromWeek) continue;
+    if (quizPart(c.kind)) { quizCounters.push(c); continue; }   // опрос — своим блоком, строк «заходов» не создаёт
     const k = `${w}|${c.apartmentId}`;
     const r = direct.get(k) ?? direct.set(k, { week: w, apartmentId: c.apartmentId, designerOpen: 0, variantView: 0, itemSwap: 0, flat3dOpen: 0, itemMove: 0, share: 0, staleLink: 0, floorPick: 0, wallsPick: 0 }).get(k)!;
     if (c.kind === "designer_open") r.designerOpen += c.n;
@@ -101,10 +106,12 @@ export function buildReport(inp: ReportInput): { weeks: FunnelRow[]; byApartment
   }
 
   const desc = <T extends { week: string }>(a: T, b: T) => b.week.localeCompare(a.week);
+  const quiz = buildQuiz(quizCounters, inp.showcase);
   return {
     weeks: [...weeks.values()].sort(desc),
     byApartment: [...byApt.values()].sort((a, b) => b.sent - a.sent),
     total,
     direct: [...direct.values()].sort((a, b) => desc(a, b) || a.apartmentId.localeCompare(b.apartmentId)),
+    ...(quiz.length ? { quiz } : {}),   // нет событий опроса — нет и ключа: отчёт без опроса побайтно прежний
   };
 }
