@@ -119,7 +119,23 @@ say "собираю снимок $SNAP"
 # запуске волны, а сам регламент старта меняться не должен.
 PROF="${MESH_QUEUE_PROFILE:-}"
 [ -n "$PROF" ] && say "профиль очереди: $PROF"
-MESH_MAX_JOBS="${MESH_MAX_JOBS:-14000}" "$PY" "$HERE/mesh_priority.py" ${PROF:+--profile "$PROF"} --build-queue "$SNAP"
+# ГОТОВЫЙ СПИСОК (onb-10, 05.11): `MESH_QUEUE_FILE` — снимок, собранный не из `products` (комнаты кроме гостиной:
+# `room_mesh_jobs.py` из `room_catalog`). Копируется атомарно под имя волны, курсор — свой; остальные шаги те же.
+QF="${MESH_QUEUE_FILE:-}"
+if [ -n "$QF" ] && [ -n "$PROF" ]; then say "MESH_QUEUE_FILE и MESH_QUEUE_PROFILE вместе — выбери одно"; exit 64; fi
+if [ -n "$QF" ]; then
+  say "готовый список: $QF"
+  "$PY" -c "
+import json, os, sys
+s = json.load(open(sys.argv[1], encoding='utf-8'))
+assert isinstance(s.get('jobs'), list) and all(j.get('sku') and j.get('seeds') for j in s['jobs']), 'нет jobs/sku/seeds'
+tmp = sys.argv[2] + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(s, f, ensure_ascii=False, indent=1); f.flush(); os.fsync(f.fileno())
+os.replace(tmp, sys.argv[2])" "$QF" "$SNAP"
+else
+  MESH_MAX_JOBS="${MESH_MAX_JOBS:-14000}" "$PY" "$HERE/mesh_priority.py" ${PROF:+--profile "$PROF"} --build-queue "$SNAP"
+fi
 N=$("$PY" -c "import json,sys; print(len(json.load(open(sys.argv[1]))['jobs']))" "$SNAP")
 # мало заданий — волну не начинаем (порог задаёт автозапуск из разрешения владельца, `wave_guard.py`)
 if [ "$N" -lt "${MESH_MIN_JOBS:-1}" ]; then say "в снимке $N заданий — меньше порога ${MESH_MIN_JOBS:-1}, волну не запускаю"; exit 3; fi
