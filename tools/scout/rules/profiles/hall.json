@@ -1,21 +1,24 @@
 {
- "_about": "ПРИХОЖАЯ (room-pipeline-01 Б-2, T-20261105-44): каталог — room_catalog room='hall' (загрузчик tools/scout/hall_catalog.py, правила rules/hall-roles.json); расстановка — planner/hall.py:solve_hall, проверки — planner/hall_checks.py:validate_hall (реестр солвера «hall»). Наборов прихожей ещё нет (composer none — волна В). Состав, шаблоны и нормы — services/planner-solver/rules/hall.json и occupancy.json по ссылке, не копией.",
+ "_about": "ПРИХОЖАЯ (room-pipeline-01 Б-2, T-20261105-44): каталог — room_catalog room='hall' (загрузчик tools/scout/hall_catalog.py, правила rules/hall-roles.json); расстановка — planner/hall.py:solve_hall, проверки — planner/hall_checks.py:validate_hall (реестр солвера «hall»). Наборы по стилю — tools/scout/compose_hall.py (composer hall, правила rules/hall-composition.json, T-20261105-48). Состав, шаблоны и нормы — services/planner-solver/rules/hall.json и occupancy.json по ссылке, не копией.",
  "schema_version": 1,
  "profile_id": "hall",
- "profile_version": "2026-11-05.1",
- "content_sha": "f89d8bf4b9b4",
+ "profile_version": "2026-11-05.2",
+ "content_sha": "6365d02551f4",
  "room_type": "hall",
  "purposes": {
   "$ref": "tools/scout/rules/hall-roles.json#/purposes"
  },
  "composer": {
-  "plugin": "none",
-  "_why": "сборщика наборов прихожей нет: солвер расставляет то, что ему дали (tools/scout/hall_exam.py); наборы по стилю — волна В"
+  "plugin": "hall",
+  "rules": {
+   "$ref": "tools/scout/rules/hall-composition.json"
+  },
+  "_why": "сборщик наборов прихожей (T-20261105-48): 5 стилей × одна ступень цены, расстановка солвером прихожей на flat215-hall.json; банк — sets-hall.next.json (bank_paths.room_bank_output)"
  },
  "solver_plugin": "hall",
  "catalog": {
   "adapter": "catalog_items",
-  "_why": "цель — адаптер catalog_items (волна В); пока он не знает hall, каталог читает hall_catalog.py, а линтер сверяет роли с rules/hall-roles.json roles_enabled (room_profile.ADAPTER_PENDING, TODO после T-43)"
+  "_why": "адаптер catalog_items знает прихожую (T-20261105-48): room_catalog room='hall' по условию показа hall_catalog.shown_where; стиль — product_style_scores своих товаров (catalog_rules.twin_scores_sql)"
  },
  "roles": {
   "шкаф-купе": {
@@ -49,18 +52,26 @@
  "_roles_why": "роли — rules/hall-roles.json roles_enabled (те же имена у солвера, rules/hall.json roles_note). major — напольная мебель, которую ставит солвер, с полосой Ш×Г×В; вешалка (часто настенная) и зеркало (плоское) — без полосы. «шкаф» (распашной) солвер знает, но в каталоге прихожей его нет — в роли не входит",
  "style": {
   "ids": {
-   "$ref": "tools/scout/styles.json#/styles"
+   "$ref": "tools/scout/rules/hall-composition.json#/styles"
   },
-  "role_weights": {},
+  "role_weights": {
+   "шкаф-купе": 1.0,
+   "прихожая": 1.0,
+   "обувница": 0.6,
+   "банкетка": 0.6,
+   "консоль": 0.5,
+   "вешалка": 0.3,
+   "зеркало": 0.3
+  },
+  "_role_weights_why": "стиль набора — средневзвешенный балл товаров с оценкой: хранение — главное (как кровать спальни), обувная зона и консоль — середина, вешалка и зеркало — мелочь",
   "in_style_min": {
    "$ref": "tools/scout/rules/demo-swap.json#/in_style_min"
-  },
-  "_why": "стили — все глобальные; веса ролей заведёт сборщик наборов (волна В), сейчас стиль набора никто не считает"
+  }
  },
  "slots": {
-  "$ref": "services/planner-solver/rules/hall.json#/composition"
+  "$ref": "tools/scout/rules/hall-composition.json#/purposes"
  },
- "_slots_why": "слот обязателен один — хранение верхней одежды (storage_any); остальное — опционально (rules/hall.json composition)",
+ "_slots_why": "слоты сборщика с идеалом и полосой — rules/hall-composition.json purposes (идеалы — медианы каталога прихожей); обязательное хранение и опциональное у солвера — services/planner-solver/rules/hall.json composition (норма, по ссылке в norms)",
  "tolerance": {
   "$ref": "services/planner-solver/rules/zones.json#/template_slot_envelopes/tolerance"
  },

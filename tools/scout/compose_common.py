@@ -6,7 +6,9 @@
 поэтому сборщик спальни `compose_bedroom.py` берёт их отсюда, а не из `compose2`.
 """
 import colorsys
+import concurrent.futures as cf
 import io
+import math
 import os
 import re
 import urllib.request
@@ -90,3 +92,56 @@ def palette_score(cls1,cls2,pair,set_temp,rgb1):
         t=temperature(rgb1)
         s+= 0.8 if t==set_temp or t=='mid' else -1.2   # тёплые и холодные нейтрали не смешивать
     return s
+
+
+# ---------- общие чистые функции сборщиков комнат (вынесены из `compose_bedroom.py` без изменений, T-20261105-48) ----------
+def num(v):
+    try:
+        f = float(v)
+        return f if f > 0 and math.isfinite(f) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def side(it: dict, k: str):
+    """Сторона товара для полосы: w/d/h, у ковра — длинная (`long`; в фидах `w` бывает короткой)."""
+    if k == 'long':
+        a, b = num(it.get('w')), num(it.get('d'))
+        return max(a, b) if a and b else (a or b)
+    return num(it.get(k))
+
+
+def band_of(slot: dict, tol: tuple) -> dict:
+    """Полоса слота: {сторона: [lo, hi]} по `band` и идеалу, допуск tol = (0.8, 1.1)."""
+    lo, hi = tol
+    return {k: [round(slot['ideal'][k] * lo, 1), round(slot['ideal'][k] * hi, 1)] for k in slot.get('band', [])}
+
+
+def tier_range(prices: list, q: tuple) -> tuple:
+    """Квантили цены тира (как `compose2.tier_band`): q = (низ, верх) доли."""
+    ps = sorted(prices)
+    if not ps:
+        return (0, 10 ** 9)
+
+    def pc(p):
+        return ps[max(0, min(len(ps) - 1, int(p * len(ps))))]
+    return (pc(q[0]), pc(q[1]))
+
+
+def dominated(it: dict, cands: list) -> set:
+    """Не встал предмет Ш×Г — не встанут и все, что не меньше по обеим сторонам (спальня 2, 13,2 м²: 12 попыток подряд
+    на кроватях 220–230 в глубину, ячейка пустела, хотя 213 встаёт). Отсекаем их разом, а не по одной."""
+    return {c['sid'] for c in cands if c['w'] >= it['w'] and c['d'] >= it['d']} | {it['sid']}
+
+
+def palette(items: list) -> None:
+    """Цвет по фото (`compose_common`): маленькая картинка в кэш thumbs/, два доминанта и класс — в товар."""
+    os.makedirs(THUMBS, exist_ok=True)
+
+    def one(it):
+        p = get_thumb(it['img'], it['mid'], it['eid']) if it.get('img') else None
+        d1, d2 = dominant2(p) if p else (None, None)
+        return it, d1, d2
+    with cf.ThreadPoolExecutor(8) as ex:
+        for it, d1, d2 in ex.map(one, [i for i in items if 'cls' not in i]):
+            it['rgb'], it['cls'], it['cls2'] = (list(d1) if d1 else None), classify(d1), classify(d2)

@@ -2,13 +2,13 @@
 
 Единственное место, где сборщики комнат читают `products` (каталог гостиной и декор) и `room_catalog` (мебель прочих комнат,
 ADR-0330). Только SELECT: представления БД нет (миграция — слово владельца), поэтому два запроса живут здесь, в коде.
-Потребители сейчас: `compose_bedroom.py` (спальня) и тень гостиной `catalog_items_shadow.py --room living` — сверка с тем, что
+Потребители сейчас: `compose_bedroom.py` (спальня), `compose_hall.py` (прихожая, T-20261105-48) и тень гостиной `catalog_items_shadow.py --room living` — сверка с тем, что
 читает `compose2.py` (сама гостиная на адаптер НЕ переведена до доказанного паритета, план room-pipeline-01). Перевод обрезки,
 спроса и привязки мешей — волна В.
 
 Тип комнаты — данные: `_sources(room_type)` говорит, из каких таблиц и какие роли берёт комната; роли — из профиля
-комнаты (`room_profile.load`, поле `source` у роли; T-20261105-43), своего списка у адаптера нет. Неизвестный тип (кухня,
-прихожая — пока нет профиля) и неизвестная роль закрытого списка — ошибка ValueError, а не «гостиная по умолчанию».
+комнаты (`room_profile.load`, поле `source` у роли; T-20261105-43), своего списка у адаптера нет. Неизвестный тип (кухня —
+процедурный набор, не каталог) и неизвестная роль закрытого списка — ошибка ValueError, а не «гостиная по умолчанию».
 Товар в двух ролях — один `CatalogItem` с `roles` в порядке появления (поля — первой строки).
 
     python catalog_items.py --selftest          # без базы
@@ -25,7 +25,11 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCHEMA = os.path.join(HERE, 'rules', 'catalog-item.schema.json')
 STYLE_SCORES = {'bedroom': ('BEDROOM_STYLE_SCORES', os.path.join(HERE, 'style-scores-bedroom.json'))}
-ROOM_TYPES = ('living', 'bedroom')   # профиль есть только у этих; kitchen/hall — после RoomProfile (волна Б)
+# прихожая: оценки стиля — строки `product_style_scores` товаров СВОЕЙ комнаты (`catalog_rules.twin_scores_sql`, T-20261105-34/2);
+# файла у неё нет. Комната → модуль каталога (правила, условие показа, детское) — загрузчик комнаты (T-20261105-48)
+STYLE_DB = ('hall',)
+ROOM_CATALOG_MODULES = {'bedroom': 'room_catalog', 'hall': 'hall_catalog'}
+ROOM_TYPES = ('living', 'bedroom', 'hall')   # профиль + адаптер; kitchen — процедурный набор (catalog.adapter kit)
 ORIGINS = ('products', 'room_catalog')
 PARAM_KEYS = ('Материал', 'Назначение', 'Тип', 'Регулируемая высота')   # то, что подбор гостиной берёт из params
 FS, RS, NUL = '\x1f', '\x1e', '\x1d'   # поле, запись, NULL: перевод строки в названии не рвёт запись
@@ -63,7 +67,8 @@ class CatalogItem:
 # ---------------------------------------------------------------- профиль комнаты (источники)
 # Отбор и порядок источника по комнате (preset `products_sql` / `room_catalog_sql`); РОЛИ — только из профиля комнаты.
 PRESETS = {'living': (('products', 'living'),),
-           'bedroom': (('room_catalog', 'bedroom'), ('products', 'decor'))}   # декор спальни — каталог гостиной (onb-06 п.1)
+           'bedroom': (('room_catalog', 'bedroom'), ('products', 'decor')),   # декор спальни — каталог гостиной (onb-06 п.1)
+           'hall': (('room_catalog', 'hall'),)}          # все роли прихожей — room_catalog room='hall' (hall_catalog.py)
 
 
 def check_room(room_type: str) -> None:
@@ -188,29 +193,52 @@ ROOM_CATALOG_COLS = ("role, shop_mid, external_id, name, shop, brand, price_rub,
 N_ROOM = 18
 
 
+def _rc(room_type: str):
+    """Модуль каталога комнаты (`ROOM_CATALOG_MODULES`): его `ROOM`, `rules()`, `shown_where(R)`; детское — `room_catalog`
+    (у прихожей kids_shared пуст и столбца kids нет — условие пустое)."""
+    import importlib
+    if room_type not in ROOM_CATALOG_MODULES:
+        raise ValueError(f'catalog_items: room_catalog знает только {sorted(ROOM_CATALOG_MODULES)}, не {room_type!r}')
+    M = importlib.import_module(ROOM_CATALOG_MODULES[room_type])
+    assert M.ROOM == room_type, (M.__name__, M.ROOM, room_type)
+    return M
+
+
 def room_catalog_sql(room_type: str, roles: list) -> str:
-    """Мебель комнаты: показ (`room_catalog.shown_where`: цена, фото, оффер в свежем фиде) + роли профиля + не детское
+    """Мебель комнаты: показ (`<модуль>.shown_where`: цена, фото, оффер в свежем фиде) + роли профиля + не детское
     (когда есть столбец kids). Порядок — магазин → артикул (как прежний `compose_bedroom.load_catalog`)."""
     import room_catalog as RC
-    if room_type != RC.ROOM:
-        raise ValueError(f'catalog_items: room_catalog знает только {RC.ROOM!r}, не {room_type!r}')
-    R = RC.rules()
-    return (f"select {ROOM_CATALOG_COLS} from room_catalog where {RC.shown_where(R)} and role in ("
+    M = _rc(room_type)
+    R = M.rules()
+    return (f"select {ROOM_CATALOG_COLS} from room_catalog where {M.shown_where(R)} and role in ("
             + ','.join(_lit(r) for r in roles) + f"){RC.kids_where(R)} order by shop_mid, external_id")
 
 
-def room_catalog_items(rows: list, room_type: str) -> list:
+def style_scores(room_type: str, get=None) -> dict:
+    """{ключ `_skey`: баллы} стиля мебели комнаты. Спальня — файл `style-scores-bedroom.json` (env BEDROOM_STYLE_SCORES);
+    прихожая — строки `product_style_scores` своих товаров (`twin_scores_sql`): баллы + universal + src, как в файле спальни."""
+    if room_type in STYLE_DB:
+        from catalog_rules import twin_scores_sql
+        out = {}
+        for r in (get or fetch)(twin_scores_sql(room_type)):
+            mid, eid, sc, uni, src = _width(r, 5)
+            out[_skey(mid, eid)] = dict(json.loads(sc) if sc else {}, universal=uni == 't', src=src)
+        return out
+    env, default = STYLE_SCORES[room_type]
+    path = os.environ.get(env) or default
+    if not os.path.exists(path):
+        raise SystemExit(f'нет {path} — стиль спальни (style_score.py --source room_catalog); в worktree задать {env}')
+    return json.load(open(path, encoding='utf-8'))
+
+
+def room_catalog_items(rows: list, room_type: str, get=None) -> list:
     """Строки room_catalog → CatalogItem. Детское в общей роли (`kids_shared`) — вне показа взрослой спальни, как прежде;
     детская (child:*) — PURPOSE_PENDING, её отбор появится с её профилем. Стиль — оценка семейства у любого его члена."""
     import room_catalog as RC
     if not rows:
         return []
-    R = RC.rules()
-    env, default = STYLE_SCORES[room_type]
-    path = os.environ.get(env) or default
-    if not os.path.exists(path):
-        raise SystemExit(f'нет {path} — стиль спальни (style_score.py --source room_catalog); в worktree задать {env}')
-    ss = json.load(open(path, encoding='utf-8'))
+    R = _rc(room_type).rules()
+    ss = style_scores(room_type, get)
     out, fams = [], {}
     for r in rows:
         if RC.child_only(_width(r, N_ROOM)[0], r[3] or '', R):
@@ -334,7 +362,7 @@ def items(room_type: str, roles=None, *, desc_flags: dict | None = None, with_as
         if not want:
             continue
         if origin == 'room_catalog':
-            out += room_catalog_items(get(room_catalog_sql(preset, want)), room_type)
+            out += room_catalog_items(get(room_catalog_sql(preset, want)), room_type, get)
         else:
             names = list(flags)
             out += [product_item(_width(r, N_PRODUCT + len(names)), room_type, names)
@@ -385,7 +413,7 @@ def _selftest() -> int:
         print(('OK   ' if cond else 'FAIL ') + name)
         bad += not cond
 
-    for rt in ('kitchen', 'hall', 'garage', '', None):
+    for rt in ('kitchen', 'garage', '', None):
         try:
             items(rt, _fetch=lambda s: [])
             ok(f'тип комнаты {rt!r} — ошибка', False)
@@ -444,7 +472,30 @@ def _selftest() -> int:
         ok('неизвестный отбор products — ошибка', False)
     except ValueError:
         ok('неизвестный отбор products — ошибка', True)
-    errs = [schema_errors(c.to_dict()) for c in got]
+    # прихожая (T-20261105-48): room_catalog room='hall' по условию показа hall_catalog, стиль — product_style_scores своих
+    # товаров (twin_scores_sql('hall')) с общим баллом семейства, детского условия нет
+    hq = []
+
+    def hall_get(q):
+        hq.append(q)
+        if 'product_style_scores' in q:
+            return [['7', 'b1', '{"сканди": 8.1, "лофт": 3.0}', 't', 'llm+rules']]
+        return [['банкетка', '7', 'b1', 'Банкетка Нора 100 Букле Белый', 'Магазин', None, '9990', '100', '45', '46', None, None,
+                 't', '', 'http://i/b1.jpg', None, 'http://i/b1.jpg', 'http://u/b1'],
+                ['банкетка', '7', 'b2', 'Банкетка Нора 120 Букле Серый', 'Магазин', None, '11990', '120', '45', '46', None, None,
+                 't', '', 'http://i/b2.jpg', None, 'http://i/b2.jpg', 'http://u/b2'],
+                ['зеркало', '8', 'm1', 'Зеркало Линн 50x150', 'Магазин', None, '4990', '50', '3', '150', None, None,
+                 't', '', 'http://i/m1.jpg', None, 'http://i/m1.jpg', 'http://u/m1']]
+    hall = items('hall', _fetch=hall_get)
+    ok('прихожая: роли адаптера = роли профиля (room_catalog), запрос по условию показа прихожей без «kids»',
+       {r for _, _, rs in _sources('hall') for r in rs} == set(RP.load('hall')['roles'])
+       and "room='hall'" in hq[0] and 'kids' not in hq[0] and "role in ('шкаф-купе'" in hq[0])
+    ok('прихожая: стиль из product_style_scores своей комнаты, семейство делит балл, без оценки — None',
+       "c.room = 'hall'" in hq[1] and [c.style and c.style.get('сканди') for c in hall] == [8.1, 8.1, None]
+       and hall[0].style['universal'] is True and hall[0].family == hall[1].family and hall[2].dims['footprint_ok'] is True)
+    ok('спальня: стиль — по-прежнему файл (запроса product_style_scores нет)',
+       all('product_style_scores' not in q for q in [room_catalog_sql('bedroom', ['кровать'])]))
+    errs = [schema_errors(c.to_dict()) for c in got + hall]
     ok('CatalogItem соответствует схеме', all(not e for e in errs) or print(errs))
     ok('схема ловит лишнее и тип', schema_errors(dict(got[0].to_dict(), mid='1', x=1)) == ['лишнее поле x', "mid: str не ['integer']"])
     m = with_mesh(got, ({'1:a'}, {'2:b'}, {'2:b'}))

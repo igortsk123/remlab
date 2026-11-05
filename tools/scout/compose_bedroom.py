@@ -24,7 +24,6 @@
 Env: `ROOM_SETS_OUTPUT` — путь банка (живой — отказ); `BEDROOM_STYLE_SCORES` — файл стиля спальни (по умолчанию
 `style-scores-bedroom.json` рядом; в worktree его нет — указать путь основной копии).
 """
-import concurrent.futures as cf
 import hashlib
 import json
 import math
@@ -60,26 +59,9 @@ def load_json(p: str) -> dict:
 
 
 # ---------------------------------------------------------------- чистые функции (селфтест)
-def num(v):
-    try:
-        f = float(v)
-        return f if f > 0 and math.isfinite(f) else None
-    except (TypeError, ValueError):
-        return None
-
-
-def side(it: dict, k: str):
-    """Сторона товара для полосы: w/d/h, у ковра — длинная (`long`; в фидах `w` бывает короткой)."""
-    if k == 'long':
-        a, b = num(it.get('w')), num(it.get('d'))
-        return max(a, b) if a and b else (a or b)
-    return num(it.get(k))
-
-
-def band_of(slot: dict, tol: tuple) -> dict:
-    """Полоса слота: {сторона: [lo, hi]} по `band` и идеалу, допуск tol = (0.8, 1.1)."""
-    lo, hi = tol
-    return {k: [round(slot['ideal'][k] * lo, 1), round(slot['ideal'][k] * hi, 1)] for k in slot.get('band', [])}
+# общие со сборщиком прихожей (`compose_hall.py`, T-20261105-48) — в `compose_common`, тела без изменений; имена остаются
+# и здесь (их берут `asset_coverage.buckets_slots` и селфтест)
+from compose_common import band_of, dominated, num, palette, side, tier_range  # noqa: E402,F401
 
 
 def gate(it: dict, slot: dict, band: dict) -> str | None:
@@ -101,17 +83,6 @@ def gate(it: dict, slot: dict, band: dict) -> str | None:
         if not (lo <= v <= hi):
             return f'{k}={v:g} вне полосы {lo:g}–{hi:g}'
     return None
-
-
-def tier_range(prices: list, q: tuple) -> tuple:
-    """Квантили цены тира (как `compose2.tier_band`): q = (низ, верх) доли."""
-    ps = sorted(prices)
-    if not ps:
-        return (0, 10 ** 9)
-
-    def pc(p):
-        return ps[max(0, min(len(ps) - 1, int(p * len(ps))))]
-    return (pc(q[0]), pc(q[1]))
 
 
 def rank_key(it: dict) -> tuple:
@@ -141,12 +112,6 @@ def diversity_ok(fam: str, role: str, cur: dict, built: list, style: str) -> boo
                 and mine['шкаф'] == other.get('шкаф')):
             return False
     return True
-
-
-def dominated(it: dict, cands: list) -> set:
-    """Не встал предмет Ш×Г — не встанут и все, что не меньше по обеим сторонам (спальня 2, 13,2 м²: 12 попыток подряд
-    на кроватях 220–230 в глубину, ячейка пустела, хотя 213 встаёт). Отсекаем их разом, а не по одной."""
-    return {c['sid'] for c in cands if c['w'] >= it['w'] and c['d'] >= it['d']} | {it['sid']}
 
 
 def set_fit(items: dict, style: str) -> float:
@@ -213,20 +178,6 @@ def to_dicts(got: list) -> tuple:
                 decor.append(dict(base, img=c.photo['url'] or '', url=c.url or '', desc_task=c.flags.get('task', False),
                                   desc_bed=c.flags.get('bed', False), styles=c.style, fam=f"{c.shop or ''}|{c.name or ''}"))
     return cat, decor
-
-
-def palette(items: list) -> None:
-    """Цвет по фото (`compose_common`): маленькая картинка в кэш thumbs/, два доминанта и класс — в товар."""
-    import compose_common as CC
-    os.makedirs(CC.THUMBS, exist_ok=True)
-
-    def one(it):
-        p = CC.get_thumb(it['img'], it['mid'], it['eid']) if it.get('img') else None
-        d1, d2 = CC.dominant2(p) if p else (None, None)
-        return it, d1, d2
-    with cf.ThreadPoolExecutor(8) as ex:
-        for it, d1, d2 in ex.map(one, [i for i in items if 'cls' not in i]):
-            it['rgb'], it['cls'], it['cls2'] = (list(d1) if d1 else None), CC.classify(d1), CC.classify(d2)
 
 
 # ---------------------------------------------------------------- сборка

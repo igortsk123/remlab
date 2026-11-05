@@ -10,7 +10,7 @@
  "properties": {
   "offer_id": {"type": "string", "description": "shop_mid:external_id (= sku asset_revisions)"},
   "origin": {"type": "string", "enum": ["products", "room_catalog"]},
-  "room_type": {"type": "string", "enum": ["living", "bedroom"]},
+  "room_type": {"type": "string", "enum": ["living", "bedroom", "hall"]},
   "roles": {"type": "array", "description": "роли товара в комнате, порядок появления; товар в двух ролях — один элемент"},
   "mid": {"type": "integer"},
   "eid": {"type": "string"},

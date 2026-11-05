@@ -36,13 +36,14 @@ REGISTRY = os.path.join(ROOT, 'services', 'planner-solver', 'planner', 'room_reg
 MODELS = os.path.join(ROOT, 'services', 'planner-solver', 'planner', 'models.py')
 # реестр сборщиков наборов: имя плагина → файл (плагин — код, профиль только называет его)
 COMPOSERS = {'living_legacy': 'tools/scout/compose2.py', 'bedroom': 'tools/scout/compose_bedroom.py',
+             'hall': 'tools/scout/compose_hall.py',
              # кухня — не товары фидов, а процедурный набор по примеру (владелец 05.11, T-44); none — наборов комнаты ещё нет (волна В)
              'kitchen_kit': 'lib/viewer3d/kits/kitchen-from-example.ts', 'none': None}
 # роли процедурного набора (catalog.adapter = kit): константы ROLE_* модуля посадки — роли профиля должны совпасть с ними
 KIT_ROLES = {'kitchen': 'services/planner-solver/planner/kitchen.py'}
-# TODO после T-43 / волна В: адаптер catalog_items пока не знает этих комнат — роли профиля сверяются с правилами каталога комнаты
-# (ЕДИНСТВЕННОЕ исключение из «роли — один источник»; комната попадёт в catalog_items.ROOM_TYPES — строку убрать)
-ADAPTER_PENDING = {'hall': 'tools/scout/rules/hall-roles.json#/roles_enabled'}
+# комнаты, которых адаптер catalog_items ещё не знает: роли профиля сверяются с правилами каталога комнаты (исключение из
+# «роли — один источник»). Прихожая вошла в catalog_items.ROOM_TYPES (T-20261105-48) — исключений нет
+ADAPTER_PENDING: dict = {}
 UNVERSIONED = ('profile_version', 'content_sha')
 
 
@@ -257,6 +258,13 @@ def role_lists(room_type: str, P: dict) -> list:
         decor = {r for p in R.get('purposes', {}).values() for r in p.get('decor', {}) if not r.startswith('_')}
         return [('room_catalog', 'rules/bedroom-roles.json roles_enabled', RC.enabled(RC.rules())),
                 ('products', 'декор назначений composer.rules', sorted(decor))]
+    if room_type == 'hall':     # показ и загрузчик прихожей (hall_catalog.py) читают roles_enabled, не профиль
+        import hall_catalog as HC
+        import room_catalog as RC
+        R = (P.get('composer') or {}).get('rules') or {}
+        slots = sorted({sl['role'] for p in R.get('purposes', {}).values() for sl in p.get('slots', [])})
+        return [('room_catalog', 'rules/hall-roles.json roles_enabled', RC.enabled(HC.rules())),
+                ('room_catalog', 'слоты composer.rules (rules/hall-composition.json)', slots)]
     return []
 
 
@@ -435,8 +443,9 @@ def _selftest() -> int:
     K['roles']['мойка'] = {'source': 'kit'}
     ok('кухня: чужой источник и роль не из набора — две ошибки', len(role_errors('kitchen', K)) == 2)
     H = load('hall')
-    ok('прихожая: исключение адаптера одно, роли = правила каталога прихожей', set(ADAPTER_PENDING) == {'hall'}
-       and not role_errors('hall', H))
+    ok('прихожая: адаптер её знает (исключений нет), роли = правила каталога прихожей = слоты сборщика',
+       not ADAPTER_PENDING and 'hall' in __import__('catalog_items').ROOM_TYPES and not role_errors('hall', H)
+       and COMPOSERS[H['composer']['plugin']] == 'tools/scout/compose_hall.py')
     del H['roles']['зеркало']
     ok('прихожая: роль каталога без профиля — ошибка', any('зеркало' in x for x in role_errors('hall', H)))
     q = copy.deepcopy(raw('kitchen'))

@@ -171,6 +171,9 @@ def prod_index(src: str) -> tuple:
         return None, f'{src}: {str(e)[:200]}'
 
 
+COMPOSER_MODULES = {'bedroom': 'compose_bedroom', 'hall': 'compose_hall'}   # плагин профиля → модуль сборщика
+
+
 def default_bank(room: str) -> str:
     import bank_paths as BP
     return BP.LIVE if room == 'living' else os.path.join(HERE, BP.ROOM_BANKS.get(room, f'sets-{room}') + '.json')
@@ -194,7 +197,8 @@ def audit_room(room: str, glb: dict, prod: set | None, bank_path: str | None, vi
     CB = None
     dicts = {}
     if not P.get('size_buckets') and rules:
-        import compose_bedroom as CB
+        import importlib    # корзины — gate/band_of/to_dicts сборщика комнаты (спальня, прихожая — T-20261105-48)
+        CB = importlib.import_module(COMPOSER_MODULES[P['composer']['plugin']])
         cat, decor = CB.to_dicts(got)
         dicts = {(f"{d['mid']}:{d['eid']}", d['role']): d for d in cat + decor}
     rows, skipped, orphans = [], {}, []
