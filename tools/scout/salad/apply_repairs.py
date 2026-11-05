@@ -45,6 +45,18 @@ except Exception:  # noqa: BLE001 — на ноде модуля нет; лок�
 # геометрия/профиль/подложка). «geometry_valid» = форма годна, споткнулась отделка (PBR): у Hunyuan 2.1 карты одни и те же
 # при любом seed, перегон жёг GPU и возвращал то же (2599 строк очереди, из пула 1577 — такие).
 RESEED_STATUSES = ('generated',)
+# Без model.glb нода сама забраковала ФОРМУ (`worker.py`, gate shape-only): flat_shape, slab_suspect — тот же брак формы.
+NODE_SHAPE_FAIL = ('flat_shape', 'slab_suspect')
+# Версия правил вердикта (verdict.json → gate_version). Сменились правила — кэш вердиктов недействителен, меш
+# переоценивается БЕЗ перегона, бесплатно (Codex T-36/2: 3396 старых вердиктов по mtime так и остались бы прежними).
+#   2 — 05.11 T-20261105-36: «нет normal-карты» и «тонкая плита» — заметки, не брак.
+GATE_VERSION = 2
+FINISH = os.path.join(HERE, '..', 'mesh-finish.json')
+
+
+def shape_status(st: str) -> str:
+    """Статус ноды без модели → статус приёмки для решения о перегоне."""
+    return 'generated' if st in NODE_SHAPE_FAIL else st
 
 
 def wants_reseed(status: str, seed: int) -> bool:
@@ -55,6 +67,29 @@ def wants_reseed(status: str, seed: int) -> bool:
 def manual_repair(status: str, seed: int) -> bool:
     """Брак формы пережил перегон — вручную или замена товара."""
     return status in RESEED_STATUSES and seed >= 1
+
+
+def verdict_fresh(vj: str, glb: str) -> int:
+    """Свежесть вердикта для порядка и кэша: 0 — нет вердикта или он старше меша (новый меш, первым в очередь),
+    1 — вердикт по старым правилам (переоценка: после новых, чтобы 3396 старых не задержали приёмник),
+    2 — свежий, по текущим правилам."""
+    if not (os.path.exists(vj) and os.path.exists(glb)) or os.path.getmtime(vj) < os.path.getmtime(glb):
+        return 0
+    try:
+        return 2 if int(json.load(open(vj)).get('gate_version') or 0) == GATE_VERSION else 1
+    except Exception:  # noqa: BLE001 — битый вердикт = нет вердикта
+        return 0
+
+
+def prune_reseed(reseed: list, src_status: dict) -> tuple[list, int]:
+    """Из очереди перегона — записи, чей исходный меш (тот же SKU, seed − 1) по текущему вердикту не брак формы.
+    Исход неизвестен (вердикта нет) — запись остаётся: не решаем за приёмку."""
+    keep = []
+    for r in reseed:
+        st = src_status.get((r.get('sku'), int(r.get('seed') or 0) - 1))
+        if st is None or shape_status(st) in RESEED_STATUSES:
+            keep.append(r)
+    return keep, len(reseed) - len(keep)
 
 
 def slab_excess(glb: str, dims: dict | None, role: str | None) -> float | None:
@@ -149,7 +184,11 @@ def accept(d: str, man: dict) -> str:
         except Exception:  # noqa: BLE001
             pass
     st = PBR.status(glb, role=role, geometry_ok=geo_ok and prof_ok)
+    accept.last_pbr = (st.get('pbr') or {}).get('problems') or []      # для отчёта «отделка» (geometry_valid)
     return st['status']
+
+
+accept.last_pbr = []
 
 
 def main() -> None:
@@ -159,6 +198,8 @@ def main() -> None:
     Единственный результат прогона: `verdict.json` у каждого меша и очередь перегона.
     """
     verdicts = {}
+    src_status: dict = {}       # (sku, seed) → текущий вердикт: по нему чистится очередь перегона
+    finish: dict = {}           # «отделка» — geometry_valid, отчётом
     reseed = json.load(open(RESEED, encoding='utf-8')) if os.path.exists(RESEED) else []
     # РОЛИ БЕЗ МЕША ПО КАНОНУ В ПЕРЕГОН НЕ ИДУТ (владелец 05.09: «ковры мы вклеиваем — почему они
     # вообще проходят в меши»). Пилотные меши ковров лежали на диске с 30.08, и приёмка каждый
@@ -194,8 +235,7 @@ def main() -> None:
     def _order(mp: str) -> tuple:
         d = os.path.dirname(mp)
         glb, vj = os.path.join(d, 'model.glb'), os.path.join(d, 'verdict.json')
-        fresh = os.path.exists(vj) and os.path.exists(glb) and os.path.getmtime(vj) >= os.path.getmtime(glb)
-        return (1 if fresh else 0, os.path.getmtime(mp))
+        return (verdict_fresh(vj, glb), os.path.getmtime(mp))
     mans.sort(key=_order)
     for mp in mans:
         d = os.path.dirname(mp)
@@ -211,7 +251,8 @@ def main() -> None:
             st = (man.get('gpu') or {}).get('gate') or 'generated'
             seed = int(man.get('seed') or 0)
             verdicts[man['sku']] = st
-            if seed < 1:
+            src_status[(man['sku'], seed)] = st
+            if wants_reseed(shape_status(st), seed):    # тот же закон, что для мешей с моделью (Codex T-36/2)
                 key = (man['sku'], seed + 1)
                 if key not in seen:
                     seen.add(key)
@@ -224,20 +265,21 @@ def main() -> None:
         man = json.load(open(mp, encoding='utf-8'))
         role = man.get('role')
         vj = os.path.join(d, 'verdict.json')
-        if os.path.exists(vj) and os.path.getmtime(vj) >= os.path.getmtime(glb):
-            # приёмка кэширована: вердикт свежее меша — цикл не жуёт старое заново
-            # (45-минутные Terminated на 44 каталогах, 30.08)
+        seed = int(man.get('seed') or 0)
+        fresh = verdict_fresh(vj, glb)
+        if fresh == 2 or (fresh == 1 and (checked >= ACCEPT_CAP or _t.time() - _t0 > ACCEPT_BUDGET_S)):
+            # приёмка кэширована: вердикт свежее меша и по текущим правилам — цикл не жуёт старое заново
+            # (45-минутные Terminated на 44 каталогах, 30.08); старые правила при исчерпанном лимите — тоже из кэша
             try:
-                verdicts[man['sku']] = json.load(open(vj)).get('status') or 'generated'
+                v = json.load(open(vj))
+                verdicts[man['sku']] = src_status[(man['sku'], seed)] = v.get('status') or 'generated'
+                if v.get('status') == 'geometry_valid':
+                    finish[man['sku']] = {'seed': seed, 'problems': v.get('pbr_problems'), 'gate_version': v.get('gate_version')}
                 continue
             except Exception:  # noqa: BLE001
                 pass
         if checked >= ACCEPT_CAP or _t.time() - _t0 > ACCEPT_BUDGET_S:
-            try:                              # лимит цикла исчерпан — вердикт из кэша, если был
-                verdicts[man['sku']] = json.load(open(vj)).get('status') or 'generated'
-            except Exception:  # noqa: BLE001
-                pass
-            continue
+            continue                          # лимит цикла исчерпан, вердикта нет — следующим циклом
         checked += 1
         status = accept(d, man)
         # метрика владельца: модель шире паспорта >15% — лишняя подложка, статус капится
@@ -250,10 +292,13 @@ def main() -> None:
         # и возвращает тот же цвет. Решение по цвету — отдельной задачей, на входе покраски.
         cmis = color_mismatch(glb, os.path.join(d, 'cutout.png')) \
             if os.path.exists(os.path.join(d, 'cutout.png')) else None
-        verdicts[man['sku']] = status
-        seed = int(man.get('seed') or 0)
+        verdicts[man['sku']] = src_status[(man['sku'], seed)] = status
+        pbr_problems = list(accept.last_pbr)
+        if status == 'geometry_valid':
+            finish[man['sku']] = {'seed': seed, 'problems': pbr_problems, 'gate_version': GATE_VERSION}
         json.dump({'status': status, 'slab_excess': excess, 'color_mismatch': cmis,
-                   'manual_repair_candidate': manual_repair(status, seed)},
+                   'manual_repair_candidate': manual_repair(status, seed),
+                   'pbr_problems': pbr_problems, 'gate_version': GATE_VERSION},
                   open(os.path.join(d, 'verdict.json'), 'w'))
         # Codex q27: один reseed; повторилась та же сигнатура — вручную/замена, второй
         # перегон жжёт GPU без шансов (seed-стабильные дефекты: пара на фото, плита у цоколя).
@@ -265,10 +310,17 @@ def main() -> None:
                 reseed.append({'sku': man['sku'], 'role': role,
                                'image_url': inp.get('image_url'),
                                'dims_cm': inp.get('dims_cm'), 'seed': seed + 1, 'params': {}})
+    # Очередь перегона — только брак формы: записи от «geometry_valid» (отделка) копились с прежнего правила (05.11:
+    # 2599 строк). Убираем по ТЕКУЩЕМУ вердикту исходного меша; вердикта нет — оставляем.
+    reseed, dropped = prune_reseed(reseed, src_status)
+    if dropped:
+        print(f'  из перегона убрано не-брака формы: {dropped}', flush=True)
     json.dump(reseed, open(RESEED, 'w'), ensure_ascii=False, indent=1)
+    # «Отделка» (geometry_valid: форма годна, PBR нет) — отчёт без очереди: перегон не лечит, решение отдельно
+    json.dump(finish, open(FINISH, 'w'), ensure_ascii=False, indent=1)
     import collections
     print(f'приёмка (ремонт отменён 01.09): {dict(collections.Counter(verdicts.values()))} '
-          f'| на перегон: {len(reseed)} | проверено в этом процессе: {checked}')
+          f'| на перегон: {len(reseed)} | отделка (без очереди): {len(finish)} | проверено в этом процессе: {checked}')
     print(f'ACCEPT_CHECKED {checked}', flush=True)
 
 

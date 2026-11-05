@@ -86,5 +86,66 @@ check('5) тонкая плита у пола: geometry ok, плита — за�
       g.get('ok') and any('flat_component' in n for n in g.get('notes') or [])
       and not any('flat_component' in f for f in g.get('flags') or []), f'{g}')
 
+# 6) Сквозной main() на временной папке (T-20261105-36/3): версия правил в verdict.json, порядок «новые → старые
+#    правила», ветка без модели через wants_reseed, чистка очереди от не-брака формы, отчёт «отделка».
+import json  # noqa: E402
+import time  # noqa: E402
+
+with tempfile.TemporaryDirectory(prefix='accept-main-') as td:
+    src = os.path.join(td, 'src')
+
+    def mk(sku, seed, model=True, verdict=None, gate=None, age=0.0):
+        d = os.path.join(src, sku.replace(':', '_'), f'h{seed}')
+        os.makedirs(d)
+        man = {'sku': sku, 'role': 'кровать', 'seed': seed, 'input': {'image_url': 'u', 'dims_cm': {'w': 160}}}
+        if gate:
+            man['gpu'] = {'gate': gate}
+        json.dump(man, open(os.path.join(d, 'manifest.json'), 'w'), ensure_ascii=False)
+        os.utime(os.path.join(d, 'manifest.json'), (time.time() - age,) * 2)
+        if model:
+            open(os.path.join(d, 'model.glb'), 'wb').write(b'glb')
+            os.utime(os.path.join(d, 'model.glb'), (time.time() - 100,) * 2)
+        if verdict is not None:
+            json.dump(verdict, open(os.path.join(d, 'verdict.json'), 'w'))
+        return d
+
+    dA = mk('a:1', 0, verdict={'status': 'geometry_valid'}, age=50)              # старые правила (без gate_version)
+    mk('b:1', 0, verdict={'status': 'generated', 'gate_version': AR.GATE_VERSION}, age=40)  # свежий брак формы
+    mk('c:1', 0, model=False, gate='flat_shape', age=30)                       # нода: брак формы без модели
+    mk('d:1', 0, model=False, gate='что-то_новое', age=20)                     # неизвестный статус ноды — не перегон
+    dE = mk('e:1', 0, age=10)                                                  # новый меш без вердикта
+    AR.SRC = src
+    AR.RESEED, AR.FINISH = os.path.join(td, 'reseed.json'), os.path.join(td, 'finish.json')
+    json.dump([{'sku': 'a:1', 'role': 'кровать', 'seed': 1}, {'sku': 'b:1', 'role': 'кровать', 'seed': 1},
+               {'sku': 'z:9', 'role': 'кровать', 'seed': 1}], open(AR.RESEED, 'w'), ensure_ascii=False)
+    calls = []
+
+    def fake_accept(d, man):
+        calls.append(man['sku'])
+        fake_accept.last_pbr = ['нет карты metallicRoughness'] if man['sku'] == 'e:1' else []
+        return {'e:1': 'geometry_valid', 'a:1': 'web_ready'}.get(man['sku'], 'generated')
+    fake_accept.last_pbr = []
+    AR.accept, AR.slab_excess, AR.color_mismatch = fake_accept, lambda *a: None, lambda *a: None
+    os.environ['ACCEPT_CAP'] = '1'
+    AR.main()
+    rs = {(r['sku'], r['seed']) for r in json.load(open(AR.RESEED))}
+    fin = json.load(open(AR.FINISH))
+    vE = json.load(open(os.path.join(dE, 'verdict.json')))
+    check('6) лимит 1: первым — новый меш без вердикта, старые правила ждут', calls == ['e:1'], f'{calls}')
+    check('6) вердикт с версией правил и проблемами PBR', vE.get('gate_version') == AR.GATE_VERSION
+          and vE.get('pbr_problems') == ['нет карты metallicRoughness'], f'{vE}')
+    check('6) очередь: брак формы b и неизвестный z остались, a (geometry_valid) ушёл, c без модели добавлен, d — нет',
+          rs == {('b:1', 1), ('z:9', 1), ('c:1', 1)}, f'{sorted(rs)}')
+    check('6) отделка — отчётом, не очередью: e и a (geometry_valid)', set(fin) == {'e:1', 'a:1'}
+          and ('e:1', 1) not in rs, f'{sorted(fin)}')
+    calls.clear()
+    os.environ['ACCEPT_CAP'] = '5'
+    AR.main()
+    vA = json.load(open(os.path.join(dA, 'verdict.json')))
+    check('6) старый вердикт переоценён без перегона: a → web_ready по версии 2, свежие не трогаются',
+          calls == ['a:1'] and vA.get('status') == 'web_ready' and vA.get('gate_version') == AR.GATE_VERSION,
+          f'{calls} {vA}')
+    check('6) третий проход — всё из кэша', (calls.clear(), AR.main(), calls)[2] == [], f'{calls}')
+
 print('tests_accept_finish:', 'FAIL' if fails else 'OK')
 sys.exit(1 if fails else 0)

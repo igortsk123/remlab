@@ -2,8 +2,10 @@
 """Вид сверху из меша → лёгкий PNG-спрайт для планировщика (план topview-from-mesh).
 
 GLB в браузер не грузим: страница остаётся мгновенной, механика — как со спрайтами
-(поворот картинкой). Фронт берём из orientation_state (калибратор mesh_orient):
-confident → его yaw, symmetric/unobservable → 0. Рендер ортографический, сверху,
+(поворот картинкой). Фронт: решение каскада orient-v1 ИМЕННО для этого GLB (`orientation_state`, ключ
+`sku|sha16|orient-v1`) — берётся только скаляр legacy_front_yaw, снэпнутый к 90°, матрица R НЕ применяется
+(рендер — сырой меш под этим yaw); у комода/тв-тумбы/тумбы его перебивает фасад (`cabinet_front`); решения
+для этого GLB нет — фолбэк на пилотный калибратор (`yaw_for`, иначе 0). Рендер ортографический, сверху,
 текстура + мягкий свет, прозрачный фон; supersample ×2 и downscale — против зубцов.
 """
 import glob
@@ -21,26 +23,59 @@ sys.path.insert(0, os.path.join(HERE, '..'))
 # TOPVIEW_SRC / TOPVIEW_OUT — только для стенда (tests_topview_render.py), боевой путь их не задаёт
 SRC = os.environ.get('TOPVIEW_SRC') or os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2')
 OUT = os.environ.get('TOPVIEW_OUT') or os.path.expanduser('~/scout-scenes/mesh-topview')
+SHA_CACHE_PATH = os.path.join(OUT, '.sha16-cache.json')
 PX = 420          # длинная сторона итогового спрайта
 
 
-def orient_v1_for(sku: str):
-    """Вердикт БОЕВОГО каскада (contract orient-v1): полная матрица R (up+front) для меша.
-    Есть R → применяем её и рендерим в канонике (фронт = MR-yaw 180); нет — фолбэк на yaw
-    пилотного калибратора. Ваза 99272_180… (перевёрнутый меш) чинится именно этим."""
-    import subprocess as sp
-    r = sp.run(['docker', 'exec', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
-                '-t', '-A', '-c',
-                "SELECT resolution FROM orientation_state WHERE sku='" + sku + "' AND "
-                "revision_key LIKE '%|orient-v1' ORDER BY updated DESC LIMIT 1"],
-               capture_output=True, text=True).stdout.strip()
-    if not r:
-        return None
-    try:
-        res = json.loads(r)
-        return res if res.get('R') else None
-    except Exception:  # noqa: BLE001
-        return None
+ORIENT_CONTRACT = 'orient-v1'
+
+
+def orient_index() -> dict:
+    """Все решения боевого каскада одним запросом: revision_key → (status, source, legacy_front_yaw, md5 решения).
+    Ключ `sku|sha16 GLB|orient-v1` (как пишет `orient_worker.pending_meshes`) — решение берём ТОЧНО для этого GLB.
+    Прежнее «последнее по артикулу» (Codex T-36/2): у 318 SKU 375 ревизий наклонной ветки, пересчёт старой ревизии
+    делал её «последней» и её поворот ложился на другой GLB. md5 решения — для кэша: решение сменилось → перерисовать."""
+    if os.environ.get('TOPVIEW_ORIENT_INDEX'):      # стенд (tests_topview_render.py): готовый индекс из файла
+        return {k: tuple(v) for k, v in json.load(open(os.environ['TOPVIEW_ORIENT_INDEX'], encoding='utf-8')).items()}
+    r = subprocess.run(['docker', 'exec', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-t', '-A',
+                        '-F', '\x1f', '-c',
+                        "SELECT revision_key, status, coalesce(resolution->>'source',''), "
+                        "coalesce(resolution->>'legacy_front_yaw',''), md5(coalesce(resolution::text,'')) "
+                        f"FROM orientation_state WHERE revision_key LIKE '%|{ORIENT_CONTRACT}'"],
+                       capture_output=True, text=True, timeout=300)
+    out = {}
+    for ln in r.stdout.splitlines():
+        p = ln.split('\x1f')
+        if len(p) == 5 and p[3] != '':
+            out[p[0]] = (p[1], p[2], float(p[3]), p[4])
+    return out
+
+
+_SHA_CACHE: dict = {}
+
+
+def glb_sha16(glb: str) -> str:
+    """sha16 файла (тот же, что в ключе ревизии `orient_worker`) с кэшем по (mtime, size) в OUT — без него круг читал
+    бы каждый GLB целиком (>1 ГБ). Свой кэш, а не `orientation/sha-cache.json`: стенд не пишет в боевые файлы."""
+    import hashlib
+    st = os.stat(glb)
+    hit = _SHA_CACHE.get(glb)
+    if hit and hit[0] == int(st.st_mtime) and hit[1] == st.st_size:
+        return hit[2]
+    sha = hashlib.sha256(open(glb, 'rb').read()).hexdigest()[:16]
+    _SHA_CACHE[glb] = [int(st.st_mtime), st.st_size, sha]
+    return sha
+
+
+def orient_for(sku: str, glb: str, index: dict) -> tuple[str, tuple | None]:
+    """(revision_key, решение каскада для ИМЕННО этого GLB или None)."""
+    rk = f'{sku}|{glb_sha16(glb)}|{ORIENT_CONTRACT}'
+    return rk, index.get(rk)
+
+
+def orient_sig(rk: str, dec: tuple | None) -> str:
+    """Подпись решения для кэша вида сверху: GLB + md5 решения каскада."""
+    return f"{rk}|{dec[3] if dec else 'none'}"
 
 
 def yaw_for(key: str) -> tuple[float, str]:
@@ -276,6 +311,13 @@ def main() -> None:
             prev_man = json.load(open(_mp, encoding='utf-8'))
     except Exception:  # noqa: BLE001
         prev_man = {}
+    try:
+        if os.path.exists(SHA_CACHE_PATH):
+            _SHA_CACHE.update(json.load(open(SHA_CACHE_PATH, encoding='utf-8')))
+    except Exception:  # noqa: BLE001 — кэш необязателен, пересчитаем
+        pass
+    index = orient_index()
+    print(f'решений каскада ({ORIENT_CONTRACT}): {len(index)}', flush=True)
     stopped_early = False
     todo: list = []
     seen_i = 0
@@ -310,19 +352,28 @@ def main() -> None:
             print(f'  ...просмотрено {seen_i}, к рендеру {len(todo)}, {time.time() - t0:.0f}с',
                   flush=True)
         png_c = os.path.join(OUT, f'{sku}.png')
-        if (os.environ.get('TOPVIEW_FORCE') != '1' and sku in prev_man
+        rk, dec = orient_for(man['sku'], glb, index)
+        sig = orient_sig(rk, dec)
+        dec_yaw = float(round(dec[2] / 90.0) * 90 % 360) if dec else None
+        prev = prev_man.get(sku) or {}
+        # КЭШ = свежий png И то же решение каскада (Codex T-36/2: по одному mtime пересчитанное решение не доходило до
+        # вида сверху без TOPVIEW_FORCE). Записи до подписи (без orient_sig) — переход без массовой перерисовки:
+        # годны, если фронт корпусных взят по фасаду (решение каскада им не важно) или поворот совпадает с решением.
+        legacy_ok = ('orient_sig' not in prev and prev.get('yaw') is not None
+                     and (str(prev.get('orient', '')).startswith('orient-v1:cabinet_')
+                          or (dec_yaw is not None and float(prev['yaw']) == dec_yaw)))
+        if (os.environ.get('TOPVIEW_FORCE') != '1' and prev
+                and (prev.get('orient_sig') == sig or legacy_ok)
                 and os.path.exists(png_c) and os.path.getmtime(png_c) >= os.path.getmtime(glb)):
-            manifest[sku] = prev_man[sku]        # готово с прошлого цикла — не пересчитываем
+            manifest[sku] = {**prev, 'orient_sig': sig}   # готово с прошлого цикла — не пересчитываем
             n += 1
             continue
         key = f"{man['sku']}|{(man.get('input') or {}).get('sha') or man.get('source_sha') or ''}|v1"
-        res1 = orient_v1_for(man['sku'])
-        if res1 is not None:
-            # ТОЛЬКО снэпнутый фронт (владелец 31.08: полный R давал наклоны и «фронт под
-            # углом», а мой авто-переворот портил здоровые диваны — «до этого было лучше»)
-            raw_yaw = float(res1.get('legacy_front_yaw') or 0)
-            yaw = float(round(raw_yaw / 90.0) * 90 % 360)
-            st = f"orient-v1:{res1.get('status', '')}:{res1.get('source', '')}"
+        if dec is not None:
+            # ТОЛЬКО снэпнутый скаляр legacy_front_yaw, матрица R каскада здесь НЕ применяется (владелец 31.08:
+            # полный R давал наклоны и «фронт под углом», авто-переворот портил здоровые диваны)
+            yaw = dec_yaw
+            st = f'{ORIENT_CONTRACT}:{dec[0]}:{dec[1]}'
         else:
             yaw, st = yaw_for(key)
         png = os.path.join(OUT, f'{sku}.png')
@@ -366,9 +417,11 @@ def main() -> None:
                 print(f'  cabinet_front пропущен {sku}: {str(_e)[:60]}')
         try:
             # кэш: рендер заново, если png отсутствует/старее меша или TOPVIEW_FORCE=1
+            # …и если сменился поворот: png рисуется под yaw, свежий по mtime png со старым поворотом — ложь
             need = (os.environ.get('TOPVIEW_FORCE') == '1'
                     or not os.path.exists(png)
-                    or os.path.getmtime(png) < os.path.getmtime(glb))
+                    or os.path.getmtime(png) < os.path.getmtime(glb)
+                    or prev.get('yaw') is None or float(prev['yaw']) != float(yaw))
             if need:
                 # РЕНДЕР КОПИМ И ГОНИМ ПАРАЛЛЕЛЬНО (владелец 31.08 «не проще ли на ноду
                 # Salad?» — замер показал: узкое место не мощность, а один занятый поток
@@ -379,7 +432,7 @@ def main() -> None:
                     print(f'предел {new_cap} новых мешей на процесс — остальное следующим проходом',
                           flush=True)
                     dims = (man.get('input') or {}).get('dims_cm') or {}
-                    manifest[sku] = {'png': f'{sku}.png', 'yaw': yaw, 'orient': st,
+                    manifest[sku] = {'png': f'{sku}.png', 'yaw': yaw, 'orient': st, 'orient_sig': sig,
                                      'role': man.get('role'), 'w': dims.get('w'), 'd': dims.get('d')}
                     n += 1
                     break
@@ -387,7 +440,7 @@ def main() -> None:
             print(f'  сбой {sku}: {str(e)[:80]}')
             continue
         dims = (man.get('input') or {}).get('dims_cm') or {}
-        manifest[sku] = {'png': f'{sku}.png', 'yaw': yaw, 'orient': st,
+        manifest[sku] = {'png': f'{sku}.png', 'yaw': yaw, 'orient': st, 'orient_sig': sig,
                          'role': man.get('role'), 'w': dims.get('w'), 'd': dims.get('d')}
         n += 1
     if todo:
@@ -423,6 +476,12 @@ def main() -> None:
     with open(tmp_m, 'w', encoding='utf-8') as fh:   # целиком или никак: читатели (сборка демо) не видят полфайла
         json.dump(manifest, fh, ensure_ascii=False, indent=1)
     os.replace(tmp_m, mpth)
+    try:
+        tmp_s = SHA_CACHE_PATH + '.tmp'
+        json.dump(_SHA_CACHE, open(tmp_s, 'w', encoding='utf-8'))
+        os.replace(tmp_s, SHA_CACHE_PATH)
+    except OSError as e:
+        print(f'  кэш sha16 не записан: {e}', flush=True)
     print(f'видов сверху: {n}{" (частично, бюджет)" if stopped_early else ""} → {OUT}')
     print(f'TOPVIEW_NEW {len(todo)}', flush=True)     # сколько НОВЫХ взял этот проход — читает обёртка
 

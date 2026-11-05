@@ -84,6 +84,43 @@ def main() -> None:
         check(rc == 0 and 'чужой_sku' not in man3 and all(k in man3 for k in keys),
               f'полный обход: 6 своих, без чужой ({len(man3)})')
 
+        print('ориентация — решение каскада для ИМЕННО этого GLB, кэш помнит решение (T-20261105-36/3)')
+        import hashlib
+        glb1 = os.path.join(src, keys[1], 'h0001', 'model.glb')
+        sha1 = hashlib.sha256(open(glb1, 'rb').read()).hexdigest()[:16]
+        idx = os.path.join(tmp, 'orient-index.json')
+
+        def put_index(yaw_exact, md5):
+            # у того же SKU есть и ДРУГАЯ ревизия (другой GLB) — её поворот брать нельзя, даже если она «новее»
+            json.dump({f'{skus[1]}|{sha1}|orient-v1': ['auto_resolved', 'точный', yaw_exact, md5],
+                       f'{skus[1]}|deadbeefdeadbeef|orient-v1': ['auto_resolved', 'чужой', 180.0, 'zzz']},
+                      open(idx, 'w', encoding='utf-8'), ensure_ascii=False)
+
+        def new_count(log):
+            m = [ln for ln in log.splitlines() if ln.startswith('TOPVIEW_NEW ')]
+            return int(m[-1].split()[1]) if m else -1
+
+        put_index(90.0, 'md5a')
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx)
+        m4 = json.load(open(os.path.join(out, 'topview.json')))
+        check(rc == 0 and m4[keys[1]]['yaw'] == 90.0 and sha1 in m4[keys[1]].get('orient_sig', ''),
+              f"поворот из решения своего GLB: 90, не 180 чужой ревизии ({m4[keys[1]].get('yaw')})")
+        check(new_count(log) == 1, f'перерисован только он — поворот сменился с 0 (новых {new_count(log)})')
+        put_index(270.0, 'md5c')
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx)
+        m5 = json.load(open(os.path.join(out, 'topview.json')))
+        check(rc == 0 and m5[keys[1]]['yaw'] == 270.0 and new_count(log) == 1,
+              f"решение пересчитано → без TOPVIEW_FORCE новый поворот и рисунок ({m5[keys[1]].get('yaw')}, новых {new_count(log)})")
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx)
+        check(rc == 0 and new_count(log) == 0, f'то же решение — из кэша (новых {new_count(log)})')
+        for v in m5.values():
+            v.pop('orient_sig', None)
+        json.dump(m5, open(os.path.join(out, 'topview.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx)
+        m6 = json.load(open(os.path.join(out, 'topview.json')))
+        check(rc == 0 and new_count(log) == 0 and all('orient_sig' in m6[k] for k in keys),
+              f'старые записи без подписи — без массовой перерисовки, подпись проставлена (новых {new_count(log)})')
+
         print('фронт корпусных по глубине (cabinet_front --front-by-depth)')
         glb = os.path.join(src, keys[5], 'h0005', 'model.glb')
         r = subprocess.run([PY, os.path.join(HERE, 'cabinet_front.py'), '--front-by-depth', glb],

@@ -74,6 +74,13 @@ with tempfile.TemporaryDirectory(prefix='orient-fb-') as td:
     check('1) стоящий меш — поворот нейросети не тронут', r['legacy_front_yaw'] == W.front_yaw_from_R(UPRIGHT90['R'])[0] and r['R'] == UPRIGHT90['R'],
           f"yaw={r['legacy_front_yaw']}")
 
+    for empty in ('', None, '  '):
+        W.role_of = lambda sku, e=empty: (e, 'Кровать из mesh_demand', '')
+        r = W.decide('x:1b', os.path.join(bed_dir, 'model.glb'), UPRIGHT90, use_vlm=False)
+        check(f'1b) пустая роль ({empty!r}) в mesh_demand — тоже из manifest', r['role'] == 'кровать'
+              and r.get('source') == 'awaiting_vlm', f"role={r['role']!r} source={r.get('source')}")
+    W.role_of = lambda sku: ('?', '', '')
+
     r = W.decide('x:2', os.path.join(bare_dir, 'model.glb'), UPRIGHT90, use_vlm=False)
     check('2) без manifest роль «?» — симметричная, как раньше',
           r['role'] == '?' and r.get('source') == 'symmetric_by_role', f"role={r['role']} source={r.get('source')}")

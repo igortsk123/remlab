@@ -161,7 +161,7 @@ def vlm_side(parts, role: str) -> tuple[str | None, float]:
 def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
     """Каскад для одного меша → resolution dict (status + evidence)."""
     role, name, subtype = role_of(sku)
-    if role == '?':
+    if not (role or '').strip() or role == '?':          # NULL/пустая роль в mesh_demand — тоже «нет роли» (Codex T-36/2)
         role, name = role_from_manifest(glb, name)
     yaw, tilt = front_yaw_from_R(inf['R'])
     res = {'contract': CONTRACT, 'sku': sku, 'glb': os.path.basename(glb),
