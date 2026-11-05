@@ -5,7 +5,8 @@
   2) без metallicRoughness — по-прежнему брак отделки (geometry_valid): прочие правила PBR не ослаблены;
   3) геометрия не прошла — generated, как раньше;
   4) перегон: generated + seed 0 → да; geometry_valid / scene_ready / web_ready → нет; seed ≥ 1 → нет, а generated
-     с seed ≥ 1 — кандидат на ручной разбор (geometry_valid — нет).
+     с seed ≥ 1 — кандидат на ручной разбор (geometry_valid — нет);
+  5) крупная тонкая плита — заметка геометрии, а не брак (флаг пропал, notes есть).
 Без сети, GPU и мешей: разбор GLB и текстуры подменены.
 Запуск (DEV, нужен numpy): ~/venvs/scout/bin/python tools/scout/salad/tests_accept_finish.py"""
 import os
@@ -65,6 +66,25 @@ check('4) перегон: generated, seed 1 — нет (один reseed)', not A
 check('4) ручной разбор: generated, seed 1 — да', AR.manual_repair('generated', 1))
 check('4) ручной разбор: geometry_valid, seed 1 — нет', not AR.manual_repair('geometry_valid', 1))
 check('4) ручной разбор: generated, seed 0 — нет (сперва перегон)', not AR.manual_repair('generated', 0))
+
+# 5) «тонкая плита» — заметка, не брак (ведущий 05.11): корпус + широкая тонкая плита отдельным куском у пола,
+#    выступает за корпус — geometry_layer ok, плита в notes; пороги прежние (та же плита раньше давала flags).
+import tempfile  # noqa: E402
+
+import trimesh  # noqa: E402
+
+import mesh_gate as G  # noqa: E402
+
+body = trimesh.creation.box(extents=(1.0, 0.8, 0.6))
+plate = trimesh.creation.box(extents=(1.3, 0.01, 0.7))   # 1/3 площади — правило срабатывает (> 0.18)
+plate.apply_translation((0, -0.405, 0))
+with tempfile.TemporaryDirectory(prefix='accept-plate-') as td:
+    glb = os.path.join(td, 'model.glb')
+    trimesh.Scene([body, plate]).export(glb)
+    g = G.geometry_layer(glb)
+check('5) тонкая плита у пола: geometry ok, плита — заметка',
+      g.get('ok') and any('flat_component' in n for n in g.get('notes') or [])
+      and not any('flat_component' in f for f in g.get('flags') or []), f'{g}')
 
 print('tests_accept_finish:', 'FAIL' if fails else 'OK')
 sys.exit(1 if fails else 0)

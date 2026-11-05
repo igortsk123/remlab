@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Приёмка меша товара — двухслойная, с манифестом (план viz-mesh-orientation, q22).
 
-Слой 1 — геометрия GLB (без фото): связные компоненты (trimesh.split), «плавающий» и крупный
-плоский компонент, вырожденные треугольники.
+Слой 1 — геометрия GLB (без фото): связные компоненты (trimesh.split), вырожденные треугольники — брак;
+крупный плоский компонент — только заметка `notes` (05.11, T-20261105-36/2: на Hunyuan-спальне ложный брак 30 из 35).
 Слой 2 — видовой (против фото и ПАСПОРТНЫХ габаритов): ПРОФИЛЬНЫЙ аспект против Г/В
 (пруф 28.08: фронтальный силуэт брак с внутренней плитой НЕ ловит — 72% IoU у брака;
 профиль ловит: 1.02 против ожидаемых 0.47) + extra/missing к дилатированной маске фото.
@@ -104,7 +104,7 @@ def geometry_layer(glb_path: str) -> dict:
     # осколков split строит объект на каждый и висит часами). Метки связности — одним вызовом,
     # агрегаты (площадь/габариты) — numpy по меткам, объекты не создаются.
     import trimesh
-    flags = []
+    flags, notes = [], []
     comp_stats = []          # (area, bounds(3,2), extents)
     for m in meshes:
         F = np.asarray(m.faces)
@@ -135,7 +135,10 @@ def geometry_layer(glb_path: str) -> dict:
         flat = exts[0] / max(exts[2], 1e-6) < 0.03        # тонкая плита
         overhang = float(np.maximum(mlo - lo, hi - mhi).max() / max(mext, 1e-6))
         if flat and i != mi and (ar / total > 0.18 or overhang > 0.15):
-            flags.append({'flat_component': round(ar / total, 2),
+            # ЗАМЕТКА, не брак (ведущий 05.11, T-20261105-36/2): на волне 2 спальни правило бракует 30 из 35 годных —
+            # изголовье, матрас, панели корпуса тумб — и не отличает глазной брак. Лишнюю подложку ловит
+            # `salad/apply_repairs.slab_excess` по паспорту. Пороги прежние — заметка видна в отчёте приёмки.
+            notes.append({'flat_component': round(ar / total, 2),
                           'overhang': round(overhang, 2)})
     comps = meshes           # для деген-подсчёта ниже — по исходным частям
 
@@ -154,7 +157,7 @@ def geometry_layer(glb_path: str) -> dict:
     if deg_share > DEGENERATE_MAX:
         flags.append({'degenerate_faces': round(deg_share, 3)})
 
-    return {'ok': bool(not flags), 'components': len(comp_stats), 'flags': flags,
+    return {'ok': bool(not flags), 'components': len(comp_stats), 'flags': flags, 'notes': notes,
             'faces': faces, 'degenerate_share': round(deg_share, 4)}
 
 
