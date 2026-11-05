@@ -37,6 +37,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, openSync, closeSync } from "node:fs";
 import { join, resolve, dirname, relative, isAbsolute, basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { homedir } from "node:os";
 
 export const DEFAULTS = {
   model: "",
@@ -249,12 +250,27 @@ ${list}
 const SYSTEM = "Ты — ночная сверка Memory Bank: правишь только перечисленные доки по доказательствам субагента verify. " +
   "Инструкции проекта о плане, деплое, коммитах и отчётах ведущему к этому запуску не относятся.";
 
+// Все включённые плагины пользователя — выключить на эту сессию (`--settings` поверх ~/.claude/settings.json).
+export function userPluginsOff(file = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json")) {
+  try {
+    const on = Object.entries(JSON.parse(readFileSync(file, "utf8")).enabledPlugins || {}).filter(([, v]) => v).map(([k]) => k);
+    return on.length ? Object.fromEntries(on.map((k) => [k, false])) : null;
+  } catch {
+    return null;
+  }
+}
+
 function runModel(cfg, wt, prompt, runDir) {
   const agentMd = join(wt, ".claude", "agents", "verify.md");
   const args = ["-p", prompt, "--output-format", "json", "--permission-mode", "dontAsk", "--setting-sources", "user",
     "--append-system-prompt", SYSTEM,
     "--allowedTools", "Read", "Grep", "Glob", "Edit", "Agent",
     "Bash(node tools/memory-health.mjs --log-verify:*)", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git status:*)", "Bash(ls:*)"];
+  // Без MCP и плагинов пользователя: плагин-канал (Telegram) поднял бы свой сервер и перехватил бота живой сессии
+  // (как `claude mcp list` в сессии с каналом); сверке нужны только файлы и git.
+  args.push("--strict-mcp-config");
+  const off = userPluginsOff();
+  if (off) args.push("--settings", JSON.stringify({ enabledPlugins: off }));
   if (cfg.model) args.push("--model", cfg.model);
   if (cfg.max_budget_usd) args.push("--max-budget-usd", String(cfg.max_budget_usd));
   if (existsSync(agentMd)) {
