@@ -338,6 +338,27 @@ export function readAuditFlags(mbDir) {
   return res;
 }
 
+// ---------- бюджет размера дока (v1.11) ----------
+// Один источник для TIER1-BLOAT/BLOATED и для тех, кто правит док и должен уложиться (ночная сверка
+// `_optional/nightly-verify` называет бюджет модели до правок). rel — от .memory_bank/, o — пороги runChecks
+// (дефолты < _kit/audit-flags.txt < явные). Нет бюджета — null; иначе { check, limitKb, bytes, what }.
+export function sizeBudget(rel, fm, text, o = DEFAULT_THRESHOLDS) {
+  if (rel === "project-state.md") return { check: "BLOATED", limitKb: o.psMaxKb, bytes: Buffer.byteLength(text, "utf8"), what: "весь файл" };
+  if (String(fm.tier) !== "1" || ALWAYS_ON_TOPICS.has(fm.topic)) return null;
+  // append-only плейбук не обязан влезать в бюджет сводки: его нельзя сжимать по CLEANUP_POLICY
+  if (APPEND_ONLY_TOPICS.has(fm.topic)) return null;
+  // v1.9: меряем тело без шапки — поля жизненного цикла (status, source_of_truth, last_verified, review_after,
+  // tier1/tier2) растут и съедали ~350 байт бюджета содержания (remlab/sup2: сводки стояли на 97–100 %).
+  const fmEnd = text.startsWith("---") ? text.indexOf("\n---", 3) : -1;
+  const body = fmEnd > 0 ? text.slice(text.indexOf("\n", fmEnd + 1) + 1) : text;
+  return { check: "TIER1-BLOAT", limitKb: o.tier1MaxKb, bytes: Buffer.byteLength(body, "utf8"), what: "тело без шапки" };
+}
+
+// Пороги проекта так же, как их видит runChecks без явных opts: дефолты < _kit/audit-flags.txt.
+export function projectThresholds(root) {
+  return { ...DEFAULT_THRESHOLDS, ...readAuditFlags(join(root, ".memory_bank")).opts };
+}
+
 // ---------- PLAN-LAG (v1.11) ----------
 // Короткий ключ плана: slug до первого «номерного» сегмента включительно (`onb-03-quiz-home` → `onb-03`,
 // `b2b-06-apartment-as-data` → `b2b-06`, `onb-0A-contracts` → `onb-0A`); нет номера — только slug целиком.
@@ -725,21 +746,16 @@ export function runChecks(root, opts = {}) {
 
   // 8) BLOATED / TIER1-BLOAT / TIER0-BLOAT — бюджеты размеров
   if (ps) {
-    const size = Buffer.byteLength(ps.text, "utf8");
+    const size = sizeBudget("project-state.md", ps.fm || {}, ps.text, o).bytes;
     if (size > o.psMaxKb * 1024)
       problems.push(
         `BLOATED project-state.md — ${(size / 1024).toFixed(0)}KB > ${o.psMaxKb}KB. Это снимок, не журнал: вынеси хронологию в changelog/project-history.md`
       );
   }
   for (const d of contentDocs) {
-    if (String(d.fm.tier) !== "1" || ALWAYS_ON_TOPICS.has(d.fm.topic)) continue;
-    // append-only плейбук не обязан влезать в бюджет сводки: его нельзя сжимать по CLEANUP_POLICY
-    if (APPEND_ONLY_TOPICS.has(d.fm.topic)) continue;
-    // v1.9: меряем тело без шапки — поля жизненного цикла (status, source_of_truth, last_verified, review_after,
-    // tier1/tier2) растут и съедали ~350 байт бюджета содержания (remlab/sup2: сводки стояли на 97–100 %).
-    const fmEnd = d.text.startsWith("---") ? d.text.indexOf("\n---", 3) : -1;
-    const body = fmEnd > 0 ? d.text.slice(d.text.indexOf("\n", fmEnd + 1) + 1) : d.text;
-    const size = Buffer.byteLength(body, "utf8");
+    const b = d.rel === "project-state.md" ? null : sizeBudget(d.rel, d.fm, d.text, o);
+    if (!b) continue;
+    const size = b.bytes;
     if (size > o.tier1MaxKb * 1024)
       problems.push(
         `TIER1-BLOAT ${d.rel} — ${(size / 1024).toFixed(1)}KB (тело без шапки) > ${o.tier1MaxKb}KB. Сводка = вход в тему; детали унеси в Tier 2`

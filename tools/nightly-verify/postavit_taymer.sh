@@ -13,6 +13,14 @@ case "${1:-}" in
     "") ;;
     *) echo "использование: postavit_taymer.sh [--proba]" >&2; exit 2 ;;
 esac
+# systemctl --user ищет менеджер пользователя по XDG_RUNTIME_DIR; в сессии Claude/cron/ssh без логина его нет —
+# тогда «systemd --user недоступен», хотя он работает (linger). Подставляем стандартный путь.
+if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
 VREMYA="${NIGHTLY_VREMYA:-03:30}"
 [[ "$VREMYA" =~ ^[0-2][0-9]:[0-5][0-9]$ ]] || { echo "NIGHTLY_VREMYA — ЧЧ:ММ, а не «$VREMYA»" >&2; exit 2; }
 COMMON="$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || { echo "$REPO — не git" >&2; exit 1; }
@@ -87,3 +95,4 @@ systemctl --user daemon-reload
 systemctl --user enable --now "$IMYA.timer"
 systemctl --user list-timers "$IMYA.timer" --no-pager
 echo "поставлено: $IMYA.timer; прогон руками — systemctl --user start $IMYA.service; журнал — journalctl --user -u $IMYA.service"
+echo "(из сессии без XDG_RUNTIME_DIR — с префиксом XDG_RUNTIME_DIR=/run/user/$(id -u))"

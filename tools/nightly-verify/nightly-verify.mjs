@@ -225,8 +225,39 @@ function renderQueue(q, pick, cfg) {
 }
 
 // ---------- прогон ----------
-export function buildPrompt(cfg, picked, today) {
-  const list = picked.map((p) => `- .memory_bank/${p.doc} — причина: ${CLASS_RU[p.cls]} (--reason ${REASON[p.cls]})`).join("\n");
+/**
+ * Бюджеты размера выбранных доков — из аудита копии (`sizeBudget` + пороги `_kit/audit-flags.txt`), не хардкодом.
+ * Аудит старше v1.11 (нет `sizeBudget`) — бюджетов в запросе нет, ловит только аудит после прогона.
+ */
+export async function docBudgets(dir, tools, docs) {
+  let mod;
+  try {
+    mod = await import(pathToFileURL(join(tools, "memory-audit.mjs")).href);
+  } catch {
+    return {};
+  }
+  if (typeof mod.sizeBudget !== "function" || typeof mod.projectThresholds !== "function") return {};
+  const o = mod.projectThresholds(dir);
+  const out = {};
+  for (const d of docs) {
+    const f = join(dir, ".memory_bank", d);
+    if (!existsSync(f)) continue;
+    const text = readFileSync(f, "utf8");
+    const b = mod.sizeBudget(d, (mod.parseFrontmatter ? mod.parseFrontmatter(text).fm : frontmatter(text).fm) || {}, text, o);
+    if (b) out[d] = b;
+  }
+  return out;
+}
+
+const budgetText = (b) =>
+  `бюджет ${b.check}: ${b.what} ≤ ${b.limitKb} KB (${Math.floor(b.limitKb * 1024)} байт), сейчас ${b.bytes} байт` +
+  (b.bytes > b.limitKb * 1024 ? " — УЖЕ БОЛЬШЕ, сократи" : `, запас ${Math.floor(b.limitKb * 1024) - b.bytes}`);
+
+export function buildPrompt(cfg, picked, today, budgets = {}) {
+  const list = picked
+    .map((p) => `- .memory_bank/${p.doc} — причина: ${CLASS_RU[p.cls]} (--reason ${REASON[p.cls]})${budgets[p.doc] ? `; ${budgetText(budgets[p.doc])}` : ""}`)
+    .join("\n");
+  const anyBudget = picked.some((p) => budgets[p.doc]);
   return `${cfg.label}
 Ночная сверка памяти с кодом (без человека). Это не задача на код: код НЕ меняй, ничего не коммить, ничего не запускай,
 кроме команд ниже.
@@ -238,13 +269,19 @@ ${list}
 1. Запусти субагента verify (Agent, subagent_type "verify") в режиме «Б. По списку доков» с этим списком. Он вернёт таблицу
    «утверждение → файл:строка → OK / MISMATCH / не найдено» по каждому доку.
 2. Каждый MISMATCH — перепиши утверждение в доке по текущему коду (с условиями: флаги, роли, статусы). Править можно ТОЛЬКО
-   эти доки; другие файлы не трогай (иначе прогон отменят).
+   эти доки; другие файлы не трогай (иначе прогон отменят).${anyBudget ? `
+   Бюджет размера у дока в списке — жёсткий: аудит после прогона, превышение = отмена. Исправляя, не раздувай: новое —
+   вместо старого, а не рядом; формулируй короче, повторы и устаревшее убирай. Детали в Tier 2 не переноси (их правка
+   в этом прогоне запрещена) — сократи формулировки этого дока.` : ""}
 3. Док сверен ЦЕЛИКОМ и после правок всё OK — поставь в его шапке last_verified: ${today} и updated: ${today}. Сверен не весь —
    last_verified не трогай (updated: ${today}, если правил).
-4. На каждый док — одна строка журнала:
+4. Самопроверка: node tools/memory-audit.mjs --check .
+   Есть проблемы по твоим докам (их путь от .memory_bank/ стоит в строке проблемы) — исправь и прогони снова; не больше
+   2 попыток исправления. Проблемы других файлов не трогай.
+5. На каждый док — одна строка журнала:
    node tools/memory-health.mjs --log-verify <док от .memory_bank/> --claims N --mismatch M --fixed F --reason <причина из списка> --note "nightly"
    (N — утверждений в таблице verify, M — MISMATCH, F — исправлено сейчас).
-5. Ответ — короткий итог по каждому доку: утверждений, расхождений, исправлено, двигал ли last_verified.`;
+6. Ответ — короткий итог по каждому доку: утверждений, расхождений, исправлено, двигал ли last_verified, итог самопроверки.`;
 }
 
 const SYSTEM = "Ты — ночная сверка Memory Bank: правишь только перечисленные доки по доказательствам субагента verify. " +
@@ -265,7 +302,7 @@ function runModel(cfg, wt, prompt, runDir) {
   const args = ["-p", prompt, "--output-format", "json", "--permission-mode", "dontAsk", "--setting-sources", "user",
     "--append-system-prompt", SYSTEM,
     "--allowedTools", "Read", "Grep", "Glob", "Edit", "Agent",
-    "Bash(node tools/memory-health.mjs --log-verify:*)", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git status:*)", "Bash(ls:*)"];
+    "Bash(node tools/memory-health.mjs --log-verify:*)", "Bash(node tools/memory-audit.mjs --check .)", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git status:*)", "Bash(ls:*)"];
   // Без MCP и плагинов пользователя: плагин-канал (Telegram) поднял бы свой сервер и перехватил бота живой сессии
   // (как `claude mcp list` в сессии с каналом); сверке нужны только файлы и git.
   args.push("--strict-mcp-config");
@@ -325,13 +362,26 @@ function audits(wt, { write = true } = {}) {
 // Гейт аудитов: `clean` — оба чистые (по умолчанию); `new` — нет проблем, которых не было в копии ДО сверки
 // (для проектов, где чистая копия из git не чиста сама: ссылки на файлы вне git, `ROADMAP` #15 п. 5).
 function auditPass(a, base, gate) {
-  if (a.clean) return { ok: true };
-  if (gate !== "new") return { ok: false, why: "аудит не чист" };
+  if (a.clean) return { ok: true, fresh: [] };
   // упал без разборчивых строк (ошибка запуска и т. п.) — сравнить нечего, отмена
-  if (!a.problems.length) return { ok: false, why: "аудит не чист (проблемы не разобраны по строкам)" };
-  const old = new Set(base.problems);
+  if (!a.problems.length) return { ok: false, fresh: [], why: "аудит не чист (проблемы не разобраны по строкам)" };
+  const old = new Set(gate === "new" ? base.problems : []);
   const fresh = a.problems.filter((x) => !old.has(x));
-  return fresh.length ? { ok: false, why: `новые проблемы аудита: ${fresh.slice(0, 3).join("; ")}` } : { ok: true };
+  if (!fresh.length) return { ok: true, fresh };
+  return { ok: false, fresh, why: `${gate === "new" ? "новые проблемы аудита" : "аудит не чист"}: ${fresh.slice(0, 3).join("; ")}` };
+}
+
+// Проблема «своя» — про один из выбранных доков: строка аудита `<ПРОВЕРКА> <док от .memory_bank/> — …`
+// (с префиксом источника `audit: ` / `project: `). Все новые проблемы свои → работа модели сохраняется в ветке `…-otmena`.
+export function ownProblems(problems, docs) {
+  const set = new Set(docs);
+  const own = [];
+  const other = [];
+  for (const x of problems) {
+    const t = x.replace(/^(audit|project): /, "").split(/\s+/);
+    (set.has(t[1]) ? own : other).push(x);
+  }
+  return { own, other };
 }
 
 function changedPaths(wt) {
@@ -390,6 +440,8 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(`[сухой прогон] дерево ${root} как есть (HEAD ${git(root, ["rev-parse", "--short", "HEAD"])}), без модели, без fetch, без копии и ветки; ничего не пишется`);
     console.log(`модель: ${cfg.model || "по умолчанию claude"}; метка: ${cfg.label}`);
     console.log(renderQueue(q, pick, cfg));
+    const bud = await docBudgets(root, tools, pick.picked.map((p) => p.doc));
+    for (const p of pick.picked) if (bud[p.doc]) console.log(`  ${p.doc}: ${budgetText(bud[p.doc])}`);
     return 0;
   }
 
@@ -440,7 +492,8 @@ export async function main(argv = process.argv.slice(2)) {
   const runDir = join(common, "memory-bank", "nightly-verify", id);
   mkdirSync(runDir, { recursive: true });
   git(wt, ["switch", "-q", "-c", branchName]);
-  const prompt = buildPrompt(cfg, pick.picked, today);
+  const budgets = await docBudgets(wt, tools, pick.picked.map((p) => p.doc));
+  const prompt = buildPrompt(cfg, pick.picked, today, budgets);
   writeFileSync(join(runDir, "prompt.txt"), prompt);
   const m = runModel(cfg, wt, prompt, runDir);
   report.push("", `Модель: ${m.ok ? "ok" : `ошибка (exit ${m.status}${m.error ? `, ${m.error}` : ""})`}${m.cost !== undefined ? ` · $${m.cost}` : ""}${m.session ? ` · сессия ${m.session}` : ""}`, "", String(m.result).trim());
@@ -458,6 +511,29 @@ export async function main(argv = process.argv.slice(2)) {
     finish("отмена", why);
     return 1;
   };
+  // Аудит не пропустил только из-за выбранных доков (раздулась сводка и т. п.) — сверка сделана, терять её жалко:
+  // коммит в ветку `…-otmena` + patch в каталоге прогона, утром ведущий доводит руками. Main и origin не трогаются.
+  const committed = () => git(wt, ["rev-parse", "HEAD"]) !== baseSha;
+  const commitWork = (subject) =>
+    git(wt, ["-c", "user.name=nightly-verify", "-c", "user.email=nightly-verify@localhost", "commit", "-q", "-m",
+      `${subject} ${pick.picked.map((p) => basename(p.doc, ".md")).join(", ")} ${cfg.label}\n\nОчередь: ${pick.picked.map((p) => `${p.doc} (${CLASS_RU[p.cls]})`).join("; ")}.`]);
+  const failGate = (g, suffix = "") => {
+    const { own, other } = ownProblems(g.fresh, pick.picked.map((p) => p.doc));
+    if (!own.length || other.length) return cancel(`${g.why}${suffix}`);
+    if (!committed()) {
+      git(wt, ["add", "-A", "--", ".memory_bank"]);
+      commitWork("memory(nightly, НЕ ПРОШЛО АУДИТ): сверка");
+    }
+    const sha = git(wt, ["rev-parse", "--short", "HEAD"]);
+    const patch = join(runDir, "sverka.patch");
+    writeFileSync(patch, git(wt, ["format-patch", "-1", "--stdout", "HEAD"]) + "\n");
+    git(wt, ["checkout", "-q", "--force", "--detach", baseSha]);
+    git(wt, ["clean", "-q", "-fd"]);
+    git(root, ["branch", "-m", branchName, `${branchName}-otmena`]);
+    finish("отмена, работа сохранена", `${g.why}${suffix}. Правки — ветка ${branchName}-otmena (${sha}) и ${patch}; довести руками: ` +
+      `\`git cherry-pick ${sha}\`, сократить, аудит`);
+    return 1;
+  };
   if (!m.ok) return cancel("модель завершилась с ошибкой");
 
   const allowed = new Set([...pick.picked.map((p) => `.memory_bank/${p.doc}`), ".memory_bank/changelog/verify-log.tsv"]);
@@ -473,10 +549,9 @@ export async function main(argv = process.argv.slice(2)) {
   let a = audits(wt);
   report.push("", "Аудиты:", "```", a.text, "```");
   let gate = auditPass(a, base, cfg.audit_gate);
-  if (!gate.ok) return cancel(gate.why);
+  if (!gate.ok) return failGate(gate);
   git(wt, ["add", "-A", "--", ".memory_bank"]);
-  git(wt, ["-c", "user.name=nightly-verify", "-c", "user.email=nightly-verify@localhost", "commit", "-q", "-m",
-    `memory(nightly): сверка ${pick.picked.map((p) => basename(p.doc, ".md")).join(", ")} ${cfg.label}\n\nОчередь: ${pick.picked.map((p) => `${p.doc} (${CLASS_RU[p.cls]})`).join("; ")}.`]);
+  commitWork("memory(nightly): сверка");
 
   // main уехал за время прогона → rebase и повтор аудитов
   git(root, ["fetch", "-q", cfg.remote, cfg.branch]);
@@ -490,7 +565,7 @@ export async function main(argv = process.argv.slice(2)) {
     a = audits(wt);
     report.push("", `После rebase на ${fresh.slice(0, 7)}:`, "```", a.text, "```");
     gate = auditPass(a, base, cfg.audit_gate);
-    if (!gate.ok) return cancel(`${gate.why} (после rebase)`);
+    if (!gate.ok) return failGate(gate, " (после rebase)");
   }
   finish("ветка готова к ревью", `${branchName} (${git(wt, ["rev-parse", "--short", "HEAD"])}); push и влив — утром, руками`);
   return 0;
