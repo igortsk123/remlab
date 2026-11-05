@@ -535,6 +535,38 @@ def living_room_id() -> str:
     return next((r['id'] for r in demo_apartment().get('rooms') or [] if r.get('kind') == 'living'), 'living')
 
 
+def rooms_geo(living: dict, extra: dict | None = None) -> dict:
+    """Геометрия комнат витрины `{room_id: комната}` (onb-07 основа). Гостиная — ТОТ ЖЕ объект, что `data['room']` (псевдоним
+    для старых читателей: `demo-cams.mjs`, /flat, прогрев); `extra` — другие комнаты (спальни — onb-07 Т2), гостиную не подменяют."""
+    out = {living_room_id(): living}
+    for rid, geo in (extra or {}).items():
+        if rid not in out and isinstance(geo, dict) and geo.get('w') and geo.get('d'):
+            out[rid] = geo
+    return out
+
+
+def unique_rooms(data: dict) -> list:
+    """Каждая геометрия комнаты витрины один раз (гостиная в `room` и `rooms_geo` — один объект): проёмы кадра, отделка и
+    плинтусы считаются по всем комнатам, но по гостиной — один раз, как до onb-07."""
+    out = []
+    for geo in [data.get('room')] + list((data.get('rooms_geo') or {}).values()):
+        if isinstance(geo, dict) and not any(geo is g for g in out):
+            out.append(geo)
+    return out
+
+
+def rooms_check(data: dict) -> list:
+    """Сторож «вариант → комната» (onb-07 основа): номер варианта один на всю витрину (ссылка `#v=` не знает комнаты), комната
+    варианта есть в `rooms_geo`. Возвращает строки WARN; повтор номера — остановка сборки (ссылки открыли бы чужую комнату)."""
+    ids = [v.get('id') for v in data.get('variants') or []]
+    dup = sorted({i for i in ids if ids.count(i) > 1})
+    if dup:
+        raise SystemExit(f'FAIL:rooms: номер варианта повторяется в разных комнатах — {", ".join(map(str, dup))}')
+    geo = data.get('rooms_geo') or {}
+    return [f'WARN:rooms: вариант {v.get("id")} — комнаты {v.get("room_id")} нет в rooms_geo, главная его не покажет'
+            for v in data.get('variants') or [] if geo and (v.get('room_id') or 'living') not in geo]
+
+
 DEMO_SETS = BANK['demo_sets']     # банк, по которому считается расстановка демо (`HERE/demo-sets.json`; у копии — в OUT)
 
 
@@ -1360,12 +1392,16 @@ def build() -> dict:
     apt = demo_apartment()
     apartment_area_check(apt, flat.get('plan_example') or {})
     plan = flat.get('plan_example') or {}
-    return {'room': {'w': liv['w'], 'd': liv['d'], 'title': liv['title'],
-                     'openings': liv['openings'], 'radiators': liv.get('radiators') or [],
-                     # вид из окна — из карточки квартиры застройщика (demo-04 п.5); нет — страница и кадр берут вид по умолчанию
-                     **({'window_view': demo_apartment()['windowView']} if demo_apartment().get('windowView') else {}),
-                     # высота потолка квартиры (реестр) — 3D-комната и камера страницы (`room.height_cm ?? 270`)
-                     **({'height_cm': demo_ceiling()} if demo_ceiling() else {})},
+    room = {'w': liv['w'], 'd': liv['d'], 'title': liv['title'],
+            'openings': liv['openings'], 'radiators': liv.get('radiators') or [],
+            # вид из окна — из карточки квартиры застройщика (demo-04 п.5); нет — страница и кадр берут вид по умолчанию
+            **({'window_view': demo_apartment()['windowView']} if demo_apartment().get('windowView') else {}),
+            # высота потолка квартиры (реестр) — 3D-комната и камера страницы (`room.height_cm ?? 270`)
+            **({'height_cm': demo_ceiling()} if demo_ceiling() else {})}
+    return {'room': room,
+            # ГЕОМЕТРИЯ КАЖДОЙ КОМНАТЫ ВИТРИНЫ (onb-07 основа, ADR-0330 п.3): вариант обставляет `rooms_geo[v.room_id]`; `room` —
+            # псевдоним гостиной для старых читателей (тот же объект: проёмы кадра и отделка ниже дописываются один раз)
+            'rooms_geo': rooms_geo(room),
             'apartment_id': demo_apartment_id(), 'plan': plan,
             # ПОМЕЩЕНИЯ КВАРТИРЫ ИЗ РЕЕСТРА (demo-16): порядок плана и площади — `data/partners/*.json`; страница берёт их
             # карточкой `/api/apartments`, а это — запасной путь, пока карточка не пришла (`rooms` выше — схема плана целиком)
@@ -1686,6 +1722,52 @@ def merge_aliases(prev: dict | None, variants: list) -> dict:
     return out
 
 
+def room_ir(room: dict, root: str, tag: str = '') -> None:
+    """Проёмы кадра, паспорт отделки и плинтусы комнаты — на месте, в `room` (было — только `data['room']`, до onb-07).
+    `tag` — подпись комнаты в журнале; у гостиной пусто, строки журнала прежние."""
+    import tempfile
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
+        json.dump(room, tf, ensure_ascii=False)
+    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/opening-ir.mjs" "{tf.name}"'],
+                       capture_output=True, text=True, timeout=120)
+    os.unlink(tf.name)
+    try:
+        room['openings_ir'] = json.loads(r.stdout) if r.returncode == 0 else None
+    except ValueError:
+        room['openings_ir'] = None
+    if not room['openings_ir']:
+        room.pop('openings_ir', None)
+        print(f'WARN:opening_ir: {tag}описание проёмов не посчиталось (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
+    else:
+        print(f"{tag}проёмы кадра: {len(room['openings_ir'])} из общего описания")
+    # ПАСПОРТ ОТДЕЛКИ (demo-04): карточка квартиры (`finish`) поверх набора по умолчанию — готовым, им красят и страница, и кадр
+    if demo_apartment().get('finish'):
+        room['finish'] = demo_apartment()['finish']
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
+        json.dump(room, tf, ensure_ascii=False)
+    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/opening-ir.mjs" "{tf.name}" --finish'],
+                       capture_output=True, text=True, timeout=120)
+    os.unlink(tf.name)
+    try:
+        room['finish'] = json.loads(r.stdout) if r.returncode == 0 else room.get('finish')
+    except ValueError:
+        print(f'WARN:finish: {tag}паспорт отделки не посчитался (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
+    # плинтус, карниз, светильник — тем же генератором (demo-04 п.6, `lib/viewer3d/fixtures-ir.ts`)
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
+        json.dump(room, tf, ensure_ascii=False)
+    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/opening-ir.mjs" "{tf.name}" --fixtures'],
+                       capture_output=True, text=True, timeout=120)
+    os.unlink(tf.name)
+    try:
+        fx = json.loads(r.stdout) if r.returncode == 0 else None
+    except ValueError:
+        fx = None
+    if fx:
+        room['fixtures_ir'] = fx
+    else:
+        print(f'WARN:fixtures_ir: {tag}плинтус/карниз/светильник не посчитались (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
+
+
 def main() -> None:
     if '--publish' in sys.argv and not _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
         # publish_demo.sh публикует ПАПКУ ВИТРИНЫ, а не OUT: сборка рядом (копия банка, проверка) на прод не едет
@@ -1730,47 +1812,11 @@ def main() -> None:
     # ОКНА И ДВЕРИ СЕРВЕРНОГО КАДРА — ИЗ ТОГО ЖЕ ОПИСАНИЯ, ЧТО В ЖИВОЙ СЦЕНЕ (demo-04): генератор один
     # (`lib/viewer3d/opening-ir.ts`), страница шлёт `room.openings_ir` с запросом кадра. Не посчиталось — кадр строит
     # проёмы прежним путём, громко.
-    import tempfile
-    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
-        json.dump(data['room'], tf, ensure_ascii=False)
-    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/opening-ir.mjs" "{tf.name}"'],
-                       capture_output=True, text=True, timeout=120)
-    os.unlink(tf.name)
-    try:
-        data['room']['openings_ir'] = json.loads(r.stdout) if r.returncode == 0 else None
-    except ValueError:
-        data['room']['openings_ir'] = None
-    if not data['room']['openings_ir']:
-        data['room'].pop('openings_ir', None)
-        print(f'WARN:opening_ir: описание проёмов не посчиталось (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
-    else:
-        print(f"проёмы кадра: {len(data['room']['openings_ir'])} из общего описания")
-    # ПАСПОРТ ОТДЕЛКИ (demo-04): карточка квартиры (`finish`) поверх набора по умолчанию — готовым, им красят и страница, и кадр
-    if demo_apartment().get('finish'):
-        data['room']['finish'] = demo_apartment()['finish']
-    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
-        json.dump(data['room'], tf, ensure_ascii=False)
-    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/opening-ir.mjs" "{tf.name}" --finish'],
-                       capture_output=True, text=True, timeout=120)
-    os.unlink(tf.name)
-    try:
-        data['room']['finish'] = json.loads(r.stdout) if r.returncode == 0 else data['room'].get('finish')
-    except ValueError:
-        print(f'WARN:finish: паспорт отделки не посчитался (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
-    # плинтус, карниз, светильник — тем же генератором (demo-04 п.6, `lib/viewer3d/fixtures-ir.ts`)
-    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
-        json.dump(data['room'], tf, ensure_ascii=False)
-    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/opening-ir.mjs" "{tf.name}" --fixtures'],
-                       capture_output=True, text=True, timeout=120)
-    os.unlink(tf.name)
-    try:
-        fx = json.loads(r.stdout) if r.returncode == 0 else None
-    except ValueError:
-        fx = None
-    if fx:
-        data['room']['fixtures_ir'] = fx
-    else:
-        print(f'WARN:fixtures_ir: плинтус/карниз/светильник не посчитались (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
+    # КАЖДАЯ КОМНАТА ВИТРИНЫ (onb-07 основа): те же шаги по всем геометриям `rooms_geo`; гостиная (`room`) — один раз, как прежде
+    for geo in unique_rooms(data):
+        room_ir(geo, root, '' if geo is data['room'] else f"{geo.get('title') or '?'}: ")
+    for line in rooms_check(data):
+        print(line, flush=True)
     try:
         prev = json.load(open(os.path.join(OUT, 'demo-data.json'), encoding='utf-8'))
     except (OSError, ValueError):

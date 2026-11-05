@@ -60,5 +60,27 @@ check('сторож площадей: пропала комната — сбор
 check('сторож площадей: комната схемы не из реестра — сборка падает',
       'bath_44' in guard(apt, {'rooms': [{'id': 'bath_44'}]}))
 
+# ОСНОВА НЕСКОЛЬКИХ КОМНАТ (onb-07, ADR-0330 п.3): `rooms_geo` — гостиная тем же объектом, что `room`; другие комнаты рядом
+liv = {'w': 439, 'd': 325, 'title': 'Гостиная', 'openings': [], 'radiators': []}
+bed = {'w': 618, 'd': 293, 'title': 'Спальня 1', 'openings': [], 'radiators': []}
+g = F.rooms_geo(liv)
+check('rooms_geo: только гостиная, тот же объект, что room', list(g) == ['living'] and g['living'] is liv)
+g2 = F.rooms_geo(liv, {'bedroom-1': bed, 'living': bed, 'bad': {'w': 0}})
+check('rooms_geo: спальня рядом, гостиную не подменить, пустую геометрию не берём',
+      list(g2) == ['living', 'bedroom-1'] and g2['living'] is liv and g2['bedroom-1'] is bed)
+d = {'room': liv, 'rooms_geo': g2, 'variants': [{'id': 'set1', 'room_id': 'living'}, {'id': 'b1', 'room_id': 'bedroom-1'}]}
+check('unique_rooms: гостиная один раз (room и rooms_geo — один объект), спальня отдельно',
+      [r['title'] for r in F.unique_rooms(d)] == ['Гостиная', 'Спальня 1'])
+check('unique_rooms: старые данные без rooms_geo — одна гостиная', len(F.unique_rooms({'room': liv})) == 1)
+check('rooms_check: всё на месте — молчит', F.rooms_check(d) == [])
+warn = F.rooms_check(dict(d, variants=d['variants'] + [{'id': 'k1', 'room_id': 'kitchen'}]))
+check('rooms_check: комнаты варианта нет — WARN', len(warn) == 1 and 'kitchen' in warn[0])
+try:
+    F.rooms_check(dict(d, variants=[{'id': 'set1', 'room_id': 'living'}, {'id': 'set1', 'room_id': 'bedroom-1'}]))
+    dup = 'ok'
+except SystemExit as e:
+    dup = str(e)
+check('rooms_check: один номер варианта в двух комнатах — сборка падает', dup.startswith('FAIL:rooms:'))
+
 print('итог:', 'FAIL' if fails else 'OK')
 sys.exit(1 if fails else 0)

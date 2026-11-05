@@ -23,20 +23,35 @@ if (!file) {
   process.exit(2);
 }
 const D = JSON.parse(readFileSync(file, "utf8"));
-// блок страницы читает D.room (двери для правила «не у двери») — отдаём те же данные
-const api = new Function("D", `${block}\n;return {camPair, camPairAll};`)(D);
-const W = D.room.w;
-const H = D.room.d;
+// КОМНАТА ВАРИАНТА (onb-07 основа, ADR-0330 п.3): точки подбираются в геометрии комнаты варианта — `D.rooms_geo[v.room_id]`,
+// правило то же, что `index.html:roomGeoOf`: нет `rooms_geo` или вариант гостиной — `D.room`; комнаты нет в данных — вариант пропускаем
+const roomIdOf = (v) => String(v.room_id || "living");
+const geoOf = (v) => D.rooms_geo?.[roomIdOf(v)] ?? (roomIdOf(v) === "living" || !D.rooms_geo ? D.room : null);
 const p = 3; // как `camPad()` страницы и клэмп сервера
-const corners = [{ x: p, y: p }, { x: W - p, y: p }, { x: W - p, y: H - p }, { x: p, y: H - p }];
 let n = 0;
 const vars = D.variants ?? [];
 const itsOf = (v) => (v.items ?? []).map((it) => ({ ...it, x: +it.x, y: +it.y, w: +it.w, d: +it.d, rot: +it.rot || 0 }));
-const shared = !!D.one_layout && vars.length > 1;
-const all = shared ? api.camPairAll(vars.map(itsOf), W, H, corners) : null;
-if (shared) console.log(`одна пара на ${vars.length} вариантов: ${all.how}`);
-D.cams_shared = shared;
-for (const [vi, v] of vars.entries()) {
+// по комнатам в порядке вариантов; одна пара на все стили (demo-31) — внутри своей комнаты
+const groups = new Map();
+for (const v of vars) {
+  const geo = geoOf(v);
+  if (!geo) { console.log(`WARN:demo_cams: ${v.id} — комнаты ${roomIdOf(v)} нет в rooms_geo, ракурсы не подобраны`); continue; }
+  const k = roomIdOf(v);
+  if (!groups.has(k)) groups.set(k, { geo, list: [] });
+  groups.get(k).list.push(v);
+}
+D.cams_shared = false;
+for (const [rid, { geo, list }] of groups) {
+// блок страницы читает D.room (двери для правила «не у двери», высота потолка) — отдаём комнату этой группы вариантов
+const api = new Function("D", `${block}\n;return {camPair, camPairAll};`)({ ...D, room: geo });
+const W = geo.w;
+const H = geo.d;
+const corners = [{ x: p, y: p }, { x: W - p, y: p }, { x: W - p, y: H - p }, { x: p, y: H - p }];
+const shared = !!D.one_layout && list.length > 1;
+const all = shared ? api.camPairAll(list.map(itsOf), W, H, corners) : null;
+if (shared) console.log(`${rid === "living" ? "" : `${rid}: `}одна пара на ${list.length} вариантов: ${all.how}`);
+D.cams_shared = D.cams_shared || shared;
+for (const [vi, v] of list.entries()) {
   const pr = shared ? { ...all, ...(all.per?.[vi] ?? {}) } : api.camPair(itsOf(v), W, H, corners);
   v.cams = pr.cams.map((c) => ({ name: c.name, x: Math.round(c.x), y: Math.round(c.y), rot: Math.round(c.rot || 0), fov: c.fov || 72, pose: 2,
     // подбор парой (demo-12, ADR-0304, по умолчанию с 17.10) несёт сдвиг вертикального кадра телефона
@@ -45,6 +60,7 @@ for (const [vi, v] of vars.entries()) {
   v.cam_cover = { covered: (pr.covered ?? []).length, missing: (pr.missing ?? []).map((m) => ({ id: m.id, role: m.role, must: m.must, reason: m.reason })) };
   console.log(`${v.id}: ${pr.how ?? ""}${(pr.missing ?? []).length ? ` — не видно: ${pr.missing.map((m) => `${m.role} (${m.reason})`).join(", ")}` : ""}`);
   n += 1;
+}
 }
 writeFileSync(file, JSON.stringify(D, null, 1));
 console.log(`ракурсы окна в данных: вариантов ${n} (${(D.variants ?? []).map((v) => `${v.id} ступень ${v.cam_level}`).join(", ")})`);

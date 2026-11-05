@@ -1159,7 +1159,7 @@ window.addEventListener('error',e=>{                 // пустая стран�
   if(b)b.innerHTML='<b style="color:#B4552B">Ошибка на странице:</b> '+
     String((e.error&&e.error.message)||e.message||'').slice(0,180);
 });
-fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=d;init();})
+fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=roomsAlias(d);init();})
   .catch(e=>{const b=document.getElementById('sub');
     if(b)b.textContent='Не удалось загрузить данные: '+String(e.message||e).slice(0,140);});
 
@@ -1170,7 +1170,7 @@ function on(id, ev, fn){                     // узла может не быт�
 function init(){
   // строки «Гостиная 14,4 м² · 439×325 см» в шапке больше нет — комната видна во вкладках
   const sb=document.getElementById('sub');
-  if(sb)sb.textContent=`${D.room.title} · ${D.room.w}×${D.room.d} см`;
+  {const R=curRoom(); if(sb&&R)sb.textContent=`${R.title} · ${R.w}×${R.d} см`;}
   // тип квартиры и площадь — из данных плана, а не из строки в разметке
   loadFlatCard();
   // ВАРИАНТ = РАССТАНОВКА + ЕЁ КОМПЛЕКТ ТОВАРОВ, ОДНОЙ КНОПКОЙ С ЦЕНОЙ (владелец 26.08:
@@ -1230,7 +1230,9 @@ function init(){
   loadShots();
   load();
   // СТИЛЬ ИЗ АДРЕСА (demo-16): ссылка менеджера `?style=loft` открывает этот стиль; ссылка на вариант/коллекцию (`#v=`, `#c=`) важнее
-  {const st=HOME.want, m=homeModel(), rv=st&&!/^#(?:v|c)=/.test(location.hash)?m.roomVariants.find(x=>x.styleId===st&&x.roomId==='living'):null;
+  // комната — тоже из адреса (`?room=`, его пишет `syncStyleParam`; onb-07 основа): нет такого варианта — гостиная этого стиля
+  {const st=HOME.want, m=homeModel(), rq=(location.search.match(/[?&]room=([a-z0-9-]{2,40})(?:&|$)/)||[])[1]||'living',
+    rv=st&&!/^#(?:v|c)=/.test(location.hash)?(m.roomVariants.find(x=>x.styleId===st&&x.roomId===rq)||m.roomVariants.find(x=>x.styleId===st&&x.roomId==='living')):null;
     if(st)HOME.styleId=st; if(rv&&rv.index!==cur){cur=rv.index; load();}}
   applyHash();
   HOME.ready=true; drawHome(true);
@@ -1267,7 +1269,35 @@ function myVariants(){
 /* «сохранить как свой вариант» удалён 01.09 — свою расстановку делают через
    «Добавить новую расстановку»; `myVariants()` оставлен, чтобы прежние записи в браузере
    не мешали и могли быть прочитаны при разборе */
-function allVariants(){ return (D.variants||[]).slice(0,MAXV); }
+function allVariants(){ return catalogVariants().slice(); }
+// ROOMOF START — ВАРИАНТ → КОМНАТА (onb-07 основа, ADR-0330 п.3; чистые функции — тест `tests/unit/demo-roomof.test.ts`).
+// Варианты витрины обставляют разные комнаты квартиры: у варианта — `room_id` (у коллекции — `room`, строкой), геометрия комнаты —
+// `D.rooms_geo[room_id]` (сборка `flat215_demo.py:rooms_geo`). `D.room` остаётся псевдонимом гостиной: старые данные без
+// `rooms_geo`, внешние читатели (`demo-cams.mjs`, /flat) и вариант без комнаты берут его. Комнаты варианта нет в данных — `null`
+// у `roomGeoOf` (главная такой вариант не показывает), `roomOf` тогда отдаёт гостиную, чтобы старый код не падал
+function roomIdOf(v){ return String((v&&(v.room_id||(typeof v.room==='string'?v.room:'')))||'living'); }
+function roomGeoOf(v){ const id=roomIdOf(v), g=D&&D.rooms_geo;
+  return (g&&g[id])||(id==='living'||!g?((D&&D.room)||null):null); }
+function roomOf(v){ return roomGeoOf(v)||(D&&D.room)||null; }
+// ДО ШЕСТИ НА КОМНАТУ (onb-07 основа): прежний предел шёл на весь список и отрезал бы спальни за шестью гостиными; порядок — как в
+// данных. Список считается один раз на данные (зовётся тысячи раз), наружу — копия, как прежний `slice`
+let _catV=null;
+function catalogVariants(){ const vs=(D&&D.variants)||[];
+  if(!_catV||_catV.src!==vs||_catV.n!==vs.length){const per={};
+    _catV={src:vs, n:vs.length, list:vs.filter(v=>{const r=roomIdOf(v); per[r]=(per[r]||0)+1; return per[r]<=MAXV;})};}
+  return _catV.list; }
+// комната открытого варианта — её рисует план, по ней двигается мебель, ставятся камеры и строится 3D
+// (зовётся в переборе точек камеры тысячи раз: вариант каталога — прямо из списка каталога, без сборки списка с коллекциями)
+function curRoom(){ if(!D)return null; const cv=catalogVariants();
+  return roomOf(cur<cv.length?cv[cur]:(allVariants()[cur]||(D.variants||[])[0])); }
+// КЛЮЧ СОСТОЯНИЯ И ФОТО: комната + вариант + номер состояния (`stateIdOf`); номер включает размеры и проёмы комнаты, но две комнаты
+// одной формы дали бы один номер — ключ различает их явно (Codex 05.11)
+function roomStateKey(v, stateId){ return roomIdOf(v)+'|'+String((v&&v.id)||'')+'|'+String(stateId||''); }
+// ПСЕВДОНИМ — ОДИН ОБЪЕКТ: в файле гостиная лежит дважды (`room` и `rooms_geo[living]`, JSON не хранит ссылок), на странице — одна,
+// чтобы правка двери (`drawDoorCtl`) и любой оставшийся читатель `D.room` (прогрев читает его в странице) видели одно и то же
+function roomsAlias(d){ const g=d&&d.rooms_geo, r=d&&d.room; if(!g||!r)return d; const s=JSON.stringify(r);
+  Object.keys(g).forEach(k=>{ if(g[k]!==r&&JSON.stringify(g[k])===s)g[k]=r; }); return d; }
+// ROOMOF END
 function drawVariants(){
   // ВКЛАДОК ВАРИАНТОВ БОЛЬШЕ НЕТ — их роль взяли карточки коллекции (план demo-collection-flow).
   // Здесь остался блок про бюджет на обустройство: текст берём из данных, чтобы никакие суммы
@@ -1414,7 +1444,7 @@ function hmE2(){
   L.forEach(e=>e.classList.toggle('e2on',e===low));
 }
 addEventListener('scroll',hmE2,{passive:true});
-function theDoor(){ return (D.room.openings||[]).find(o=>o.kind==='door'); }
+function theDoor(){ return ((curRoom()||{}).openings||[]).find(o=>o.kind==='door'); }
 function drawDoorCtl(){
   const box=document.getElementById('doorCtl'); if(!box)return;
   const o=theDoor(); if(!o){box.innerHTML='';return;}
@@ -1666,8 +1696,9 @@ function load(){const v=allVariants()[cur]||D.variants[0];items=clone(v.items);s
 function size(){
   const w=stage.clientWidth||(stage.parentNode&&stage.parentNode.clientWidth)
           ||Math.min(window.innerWidth-28,1100)||900;
-  S=(Math.max(w,320)-2*PAD)/D.room.w;
-  stage.setAttribute('height',Math.round(D.room.d*S+2*PAD));
+  const R=curRoom();
+  S=(Math.max(w,320)-2*PAD)/R.w;
+  stage.setAttribute('height',Math.round(R.d*S+2*PAD));
 }
 const X=x=>PAD+x*S, Y=y=>PAD+y*S;
 // ГАБАРИТ ПОВЁРНУТОГО ПРЕДМЕТА (26.08): предметы вращаются на ЛЮБОЙ угол, поэтому прежняя
@@ -1699,9 +1730,9 @@ function camPad(){ return 3; }
 // стены 1.5 + 1 px запаса. В сантиметрах зависит от масштаба плана.
 function camIconR(){ return (11 + 1.25 + 1.5 + 1) / (S || 1); }
 function camIcon(c){
-  const r = camIconR();
-  return {x: Math.min(Math.max(c.x, r), D.room.w - r),
-          y: Math.min(Math.max(c.y, r), D.room.d - r)};
+  const r = camIconR(), R = curRoom();
+  return {x: Math.min(Math.max(c.x, r), R.w - r),
+          y: Math.min(Math.max(c.y, r), R.d - r)};
 }
 // CAMFIT START — КАМЕРА НЕ УПИРАЕТСЯ В БЛИЗКИЙ ПРЕДМЕТ (карта сценариев 2.8, 14.10; разбор Codex). В углу сканди
 // стоит торшер: глаз на 165 см в полуметре от абажура, и второй ракурс был «абажуром изнутри» — пустым кадром.
@@ -1715,6 +1746,9 @@ function camIcon(c){
 // опущен сдвигом объектива на 10 % высоты (в долях −1…1 — на 0,2). Версия уходит с каждой камерой (`pose`), чтобы сервер
 // и живая сцена снимали одинаково, а кадры старой позы считались устаревшими (`liveStale`).
 const POSE_VER=2, CAM_SHIFT_N=0.2;
+// КОМНАТА КАДРА (onb-07 основа): на странице — комната открытого варианта (`curRoom`, блок ROOMOF), вне страницы блок исполняют
+// с `D = {room}` той комнаты, где подбирают точки (`tools/flat3d/demo-cams.mjs` — по комнате каждого варианта, тесты) — тогда `D.room`
+function camRoom(){ return (typeof curRoom==='function'&&curRoom())||(typeof D!=='undefined'&&D&&D.room)||null; }
 // АСПЕКТ КАДРА — ФАКТИЧЕСКИЙ (demo-22, Codex 22.10): кадр сервера и браузера 2048×1489, а CAMFIT считал 3:2 — вертикальные метрики
 // и окно превью врали на 9 %
 const CAM_ASPECT=2048/1489;
@@ -1817,7 +1851,7 @@ function camGraze(c,W,H){
   // доля — угловая: (полкадра − угол к стене) / кадр, не больше CAM_WALL_SHARE
   const mid=[[c.x,sx],[W-c.x,sx],[c.y,sy],[H-c.y,sy]].filter(([d])=>d<=CAM_WALL_MID);
   if(mid.some(([,k])=>(half-deg(k))/(2*half)>CAM_WALL_SHARE))return 2;
-  const ops=((typeof D!=='undefined'&&D&&D.room&&D.room.openings)||[]).filter(o=>o.kind!=='window'&&o.width_cm);
+  const ops=((camRoom()||{}).openings||[]).filter(o=>o.kind!=='window'&&o.width_cm);
   return ops.some(o=>{const g=wallSeg(o.wall,o.offset_cm,o.width_cm);
     // наличники — на концах проёма и выступают в комнату: меряем до их лица (8 см от стены); камера в самом проёме, глядя
     // в комнату, их не видит — они по бокам и сзади
@@ -1951,7 +1985,7 @@ const camWeight=it=>camRole(it)==='ковёр'?0:(CAM_CORE[camRole(it)]||0.25);
 // запасом CAM_WIN_SIDE по бокам на шторы) оказывается в ткани
 const CAM_WIN_NEAR=40, CAM_WIN_SIDE=40;
 function camAtWindow(x,y,W,H){
-  const ops=((typeof D!=='undefined'&&D&&D.room&&D.room.openings)||[]).filter(o=>o.kind==='window');
+  const ops=((camRoom()||{}).openings||[]).filter(o=>o.kind==='window');
   return ops.some(o=>{const u=(o.wall==='south'||o.wall==='north')?x:y, n=o.wall==='south'?y:o.wall==='north'?H-y:o.wall==='west'?x:W-x;
     return n<CAM_WIN_NEAR&&u>=(+o.offset_cm||0)-CAM_WIN_SIDE&&u<=(+o.offset_cm||0)+(+o.width_cm||0)+CAM_WIN_SIDE;});
 }
@@ -1988,7 +2022,7 @@ function camFrameCuts(c,its){
 }
 // ТОЧКИ В ДВЕРНОМ ПРОЁМЕ (demo-22, стадия 4 подбора; Realtor.com: «снимать из двери») — середина проёма, у стены и чуть в комнате
 function camDoorPts(W,H){
-  const ops=((typeof D!=='undefined'&&D&&D.room&&D.room.openings)||[]).filter(o=>o.kind==='door'&&o.width_cm);
+  const ops=((camRoom()||{}).openings||[]).filter(o=>o.kind==='door'&&o.width_cm);
   const out=[];
   ops.forEach(o=>{const u=(+o.offset_cm||0)+(+o.width_cm)/2;
     for(const n of [3,25]){if(o.wall==='west')out.push([n,u]); else if(o.wall==='east')out.push([W-n,u]);
@@ -2283,14 +2317,14 @@ function camPairCorner(its,W,H,cs){
 }
 // МАСКА КАДРА ПО ПИКСЕЛЯМ (demo-12, 17.10; критика Codex: пустая стена, потолок и пол — по пикселям, не по клину в плане).
 // Маленький трассировщик лучей на чистом JS — одинаково в браузере и в Node (`tools/flat3d/demo-cams.mjs`), без видеокарты:
-// комната — коробка W×D×высота с проёмами окна и двери (`D.room.openings`), мебель — повёрнутые коробки footprint × camItemH,
+// комната — коробка W×D×высота с проёмами окна и двери (`camRoom().openings`), мебель — повёрнутые коробки footprint × camItemH,
 // у торшера и ТВ-тумбы — из частей (иначе торшер — непрозрачный шкаф, а экран — плита до пола), камера — ровно поза v2
 // (глаз CAM_EYE, горизонт, сдвиг кадра `sn` в долях −1…1 = −2·shift_y, горизонтальный угол). Классы пикселя: 1 пол, 2 ковёр,
 // 3 потолок, 4 стена, 5 окно, 6 дверь, 7 предмет (номер — в `item`); `dep` — расстояние по плану; `solo` — сколько лучей
 // попало бы в предмет, не будь других (знаменатель «заслонён»). `o.vr` — диапазон кадра по вертикали в долях (для подбора
 // портретного сдвига одним буфером), по умолчанию [−1−sn, 1−sn].
 const CAM_WALLS=['','south','east','north','west'];   // 1 — y=0, 2 — x=W, 3 — y=H, 4 — x=0 (как `wallSeg`)
-const camRoomH=()=>+((typeof D!=='undefined'&&D&&D.room&&D.room.height_cm)||270);   // как `lib/configurator/fromDemo.ts`: height_cm ?? 270
+const camRoomH=()=>+((camRoom()||{}).height_cm||270);   // как `lib/configurator/fromDemo.ts`: height_cm ?? 270
 // обеденная группа (стол и стулья) друг друга не «заслоняют»: стулья, задвинутые под стол, закрывают его при любом ракурсе
 // (замер 22.10: у сканди стол виден на 40–51 % из любой пары), а покупатель видит в этом обеденную зону целиком
 const CAM_DINE=['стол обеденный','стул'];
@@ -2307,7 +2341,7 @@ function camMask(c,its,W,H,o){
   const tx=Math.tan((c.fov||72)/2*Math.PI/180), ty=tx/(o.asp||w/h), ox=c.x, oy=c.y, oz=CAM_EYE;
   const bx=[].concat(...(its||[]).map(camParts)).map(b=>Object.assign(b,{lx:(ox-b.cx)*b.ca+(oy-b.cy)*b.sa, ly:-(ox-b.cx)*b.sa+(oy-b.cy)*b.ca}))
     .filter(b=>!(Math.abs(b.lx)<b.hw&&Math.abs(b.ly)<b.hd&&oz>=b.z0&&oz<=b.z1));   // глаз внутри коробки — её не видно
-  const ops=((typeof D!=='undefined'&&D&&D.room&&D.room.openings)||[]).map(p=>{const win=p.kind==='window', z0=win?(+p.sill_cm||85):0;
+  const ops=((camRoom()||{}).openings||[]).map(p=>{const win=p.kind==='window', z0=win?(+p.sill_cm||85):0;
     return {wi:CAM_WALLS.indexOf(p.wall), u0:+p.offset_cm||0, u1:(+p.offset_cm||0)+(+p.width_cm||0), z0, z1:z0+(+p.height_cm||(win?140:205)), cl:win?5:6};});
   const n=w*h, cls=new Uint8Array(n), item=new Int16Array(n).fill(-1), dep=new Float32Array(n), wall=new Uint8Array(n), wu=new Float32Array(n), solo={}, soloIn={}, visG={};
   const hi=[], ht=[], hg=[];   // попадания луча в предметы — для `visG` (видим, если ближе него только своя группа)
@@ -2385,7 +2419,7 @@ function camKeyVis(c,its,st){
   return key.length?key.filter(([it,i])=>camWhole(c,it)&&(st.vis[i]||0)>=0.5*(st.solo[i]||1)).length/key.length:1;
 }
 // отрезок стены под проёмом — нужен правилу «не у двери» (`camGraze`); живёт в блоке, чтобы блок исполнялся и вне страницы
-function wallSeg(w,off,len){const W=D.room.w,H=D.room.d;
+function wallSeg(w,off,len){const R=camRoom(),W=R.w,H=R.d;
   if(w==='south')return{x1:off,y1:0,x2:off+len,y2:0};if(w==='north')return{x1:off,y1:H,x2:off+len,y2:H};
   if(w==='west')return{x1:0,y1:off,x2:0,y2:off+len};return{x1:W,y1:off,x2:W,y2:off+len};}
 // CAMFIT END
@@ -2404,7 +2438,7 @@ function defaultCams(){
   // Мебель передвинули на точку (физика `camHard`) — подбор заново, камера внутри дивана хуже сдвинутого ракурса
   const keep=D.cams_shared&&Array.isArray(v.cams)&&v.cams.every(c=>!camHard(c,items,0,CAM_B_CLEAR));
   if(Array.isArray(v.cams)&&v.cams.length===2&&(keep||camSameItems(items,v.items))){CAM_LEVEL=v.cam_level||0; return v.cams.map(c=>clone(c));}
-  const pr=camPair(items,D.room.w,D.room.d,cornerList());
+  const R=curRoom(), pr=camPair(items,R.w,R.d,cornerList());
   CAM_LEVEL=pr.level;
   return pr.cams;
 }
@@ -2434,21 +2468,23 @@ function cornerList(){
   // В САМЫЙ УГОЛ (владелец 01.09: «камеры должны прям в углы заходить»). Отступ — только чтобы
   // глаз не оказался внутри стены; чем ближе к углу, тем БОЛЬШЕ комнаты попадает в кадр, а из
   // комнаты мы выйти не можем. Значение должно совпадать с клэмпом на сервере (CAM_PAD_CM).
-  const W=D.room.w, H=D.room.d, p=camPad();
+  const R=curRoom(), W=R.w, H=R.d, p=camPad();
   return [{x:p,y:p},{x:W-p,y:p},{x:W-p,y:H-p},{x:p,y:H-p}];   // по часовой с левого верхнего
 }
 function aimAtCentre(x,y){
-  return Math.round(Math.atan2(D.room.w/2-x, y-D.room.d/2)*180/Math.PI);
+  const R=curRoom();
+  return Math.round(Math.atan2(R.w/2-x, y-R.d/2)*180/Math.PI);
 }
 function clampCams(){
   // КАМЕРА НЕ ВЫХОДИТ ЗА ПРЕДЕЛЫ КОМНАТЫ (владелец 01.09) — проверяем при КАЖДОЙ отрисовке,
   // а не только при перетаскивании: положение хранится в браузере и могло быть записано, когда
   // в варианте была другая комната или другой отступ.
-  if(!cams||!D||!D.room)return;
+  const R=D&&curRoom();
+  if(!cams||!R)return;
   cams.forEach(c=>{
     const p=camPad();
-    c.x=Math.min(Math.max(c.x,p),D.room.w-p);
-    c.y=Math.min(Math.max(c.y,p),D.room.d-p);
+    c.x=Math.min(Math.max(c.x,p),R.w-p);
+    c.y=Math.min(Math.max(c.y,p),R.d-p);
   });
 }
 function cycleCams(){
@@ -2461,7 +2497,7 @@ function cycleCams(){
   const i0=(near(cams[0])+1)%4;                 // следующий угол по часовой
   const i1=(i0+2)%4;                            // второй — строго напротив
   [[i0,0],[i1,1]].forEach(([ci,k])=>{
-    const c=camFit(cs[ci].x,cs[ci].y,items,D.room.w,D.room.d);   // тот же отступ от близких предметов
+    const R=curRoom(), c=camFit(cs[ci].x,cs[ci].y,items,R.w,R.d);   // тот же отступ от близких предметов
     cams[k].x=c.x; cams[k].y=c.y; cams[k].rot=c.rot; cams[k].fov=c.fov||72;
   });
   saveCams();draw();
@@ -2476,7 +2512,8 @@ function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VE
 // текущее положение камеры и мебели (камеру двигали руками — прежний сдвиг устарел)
 function camPoseOf(c){
   const p={x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER};
-  if(CAM_PAIR_ON&&D&&D.room){try{p.pshift=camPortraitShift(c,items,D.room.w,D.room.d);}catch(e){}}
+  const R=D&&curRoom();
+  if(CAM_PAIR_ON&&R){try{p.pshift=camPortraitShift(c,items,R.w,R.d);}catch(e){}}
   return p;
 }
 function loadCams(){
@@ -2516,11 +2553,11 @@ function drawCams(){
     // треугольника — а он у камеры в углу наполовину снаружи, и надпись уезжала на поле.
     // Считаем центр по вершинам, ЗАГНАННЫМ в комнату, и держим текст целиком внутри:
     // половина слова ~42 px, строка ~11 px — в сантиметрах это зависит от масштаба.
-    const cl=tri.map(t=>({x:Math.min(Math.max(t.x,0),D.room.w),
-                          y:Math.min(Math.max(t.y,0),D.room.d)}));
+    const R=curRoom(), cl=tri.map(t=>({x:Math.min(Math.max(t.x,0),R.w),
+                          y:Math.min(Math.max(t.y,0),R.d)}));
     const mx=42/(S||1), my=9/(S||1);
-    const mid={x:Math.min(Math.max((cl[0].x+cl[1].x+cl[2].x)/3, mx), D.room.w-mx),
-               y:Math.min(Math.max((cl[0].y+cl[1].y+cl[2].y)/3, my), D.room.d-my)};
+    const mid={x:Math.min(Math.max((cl[0].x+cl[1].x+cl[2].x)/3, mx), R.w-mx),
+               y:Math.min(Math.max((cl[0].y+cl[1].y+cl[2].y)/3, my), R.d-my)};
     const lab=el('text',{x:X(mid.x),y:Y(mid.y),'text-anchor':'middle','font-size':11,
       fill:'#2F6FB5','font-weight':'600','pointer-events':'none',opacity:.85});
     lab.textContent='Камера ' + (i + 1);
@@ -2565,7 +2602,8 @@ function camCone(c){
           {x:c.x+Math.sin(a+half)*L, y:c.y-Math.cos(a+half)*L}];
 }
 function inRoom(p){
-  return p.x>=0&&p.y>=0&&p.x<=D.room.w&&p.y<=D.room.d;
+  const R=curRoom();
+  return p.x>=0&&p.y>=0&&p.x<=R.w&&p.y<=R.d;
 }
 function inTri(p,t){
   const s=(t[1].y-t[2].y)*(t[0].x-t[2].x)+(t[2].x-t[1].x)*(t[0].y-t[2].y);
@@ -2592,15 +2630,15 @@ function camAt(pt){
   return -1;
 }
 function draw(){
-  if(!D||!D.room)return;
+  const R=D&&curRoom(); if(!R)return;
   size();while(stage.firstChild)stage.removeChild(stage.firstChild);
   const defs=el('defs',{}), cp=el('clipPath',{id:'roomClip'});
-  cp.appendChild(el('rect',{x:X(0),y:Y(0),width:D.room.w*S,height:D.room.d*S}));
+  cp.appendChild(el('rect',{x:X(0),y:Y(0),width:R.w*S,height:R.d*S}));
   defs.appendChild(cp); stage.appendChild(defs);
-  stage.appendChild(el('rect',{x:X(0),y:Y(0),width:D.room.w*S,height:D.room.d*S,fill:'#FAF8F3',stroke:'#3A3A3A','stroke-width':3}));
-  D.room.radiators.forEach(r=>{const p=wallSeg(r.wall,r.offset_cm,r.width_cm);
+  stage.appendChild(el('rect',{x:X(0),y:Y(0),width:R.w*S,height:R.d*S,fill:'#FAF8F3',stroke:'#3A3A3A','stroke-width':3}));
+  (R.radiators||[]).forEach(r=>{const p=wallSeg(r.wall,r.offset_cm,r.width_cm);
     stage.appendChild(el('line',{x1:X(p.x1),y1:Y(p.y1),x2:X(p.x2),y2:Y(p.y2),stroke:'#C8622F','stroke-width':7,opacity:.5}));});
-  D.room.openings.forEach(o=>{const p=wallSeg(o.wall,o.offset_cm,o.width_cm);
+  (R.openings||[]).forEach(o=>{const p=wallSeg(o.wall,o.offset_cm,o.width_cm);
     stage.appendChild(el('line',{x1:X(p.x1),y1:Y(p.y1),x2:X(p.x2),y2:Y(p.y2),
       stroke:o.kind==='door'?'#C8783C':'#5A9BD4','stroke-width':8}));
     if(o.kind==='door'){const sw=swing(o);stage.appendChild(el('path',{d:sw,fill:'none',stroke:'#E0B389','stroke-width':1.5}));}
@@ -3102,7 +3140,7 @@ function listJpg(){
 function openList(){
   const cardEl=document.getElementById('mlCard'); if(!cardEl)return;
   const v=allVariants()[cur]||{}, st=v.style||v.title||'';
-  const room=(D.room&&D.room.title)||'Гостиная';
+  const room=(curRoom()||{}).title||'Гостиная';
   document.getElementById('mlTitle').textContent=flatKind();
   document.getElementById('mlLead').innerHTML=
     'Список мебели из вашей расстановки в стиле <b>'+st+'</b>. Сохраните его себе: по ссылкам '+
@@ -3375,7 +3413,7 @@ function labBox(x,y,s,sz){
   return {l:x-w/2,r:x+w/2,t:y-0.8*sz,b:y+0.25*sz};
 }
 function drawLabels(){
-  const sz=10.5, G=2, M=2, vw=D.room.w*S+2*PAD, vh=D.room.d*S+2*PAD;
+  const R=curRoom(), sz=10.5, G=2, M=2, vw=R.w*S+2*PAD, vh=R.d*S+2*PAD;
   labFam=getComputedStyle(stage).fontFamily||'system-ui';
   const hit=(a,b)=>a.l<b.r+G&&b.l<a.r+G&&a.t<b.b+G&&b.t<a.b+G;
   const area=(a,b)=>Math.max(0,Math.min(a.r,b.r)-Math.max(a.l,b.l))*Math.max(0,Math.min(a.b,b.b)-Math.max(a.t,b.t));
@@ -3402,7 +3440,7 @@ function drawLabels(){
   stage.dataset.labHidden=hidden;
 }
 function wallMid(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm);const cx=(p.x1+p.x2)/2,cy=(p.y1+p.y2)/2;
-  const dx=(D.room.w/2-cx),dy=(D.room.d/2-cy),n=Math.hypot(dx,dy)||1;return{x:cx+dx/n*22,y:cy+dy/n*22};}
+  const R=curRoom(), dx=(R.w/2-cx),dy=(R.d/2-cy),n=Math.hypot(dx,dy)||1;return{x:cx+dx/n*22,y:cy+dy/n*22};}
 // ДВЕРЬ ОТКРЫВАЕТСЯ ТУДА, КУДА СКАЖУТ (владелец 27.08): у проёма два переключателя — сторона
 // петель вдоль стены (`hinge`: 'start' | 'end') и направление створки (`into`: в комнату или из
 // неё). Дуга, зона открывания и подсказки считаются по ним, а не по одному жёсткому варианту.
@@ -3465,7 +3503,7 @@ function payload(){
   // пол и прочие опции застройщика (demo-06): выбор — парами, пол — id материала для кадра
   // фото декора и мягкого — из кэша сборки (`img/…`, demo-24): сервер берёт его по полному адресу, как фото предметов ниже
   const absImg=u=>u&&!/^(https?:)?\/\//.test(u)?base+u:u;
-  return {room:D.room, style:v.style||'', variant:v.title||'', developerOptions:clone(DEVOPT),
+  return {room:roomOf(v), room_id:roomIdOf(v), variant_id:v.id||'', style:v.style||'', variant:v.title||'', developerOptions:clone(DEVOPT),
     decor:(v.decor||[]).map(d=>d&&d.sku&&d.sku.img?Object.assign({},d,{sku:Object.assign({},d.sku,{img:absImg(d.sku.img)})}):d),
     floor:devFloorReq(), walls:devWallReq(),
     // окно превью вида (`crop`, demo-22) уходит вместе с позой: сервер замораживает его в записи кадра (`draft_service._cams_clean`)
@@ -3509,6 +3547,8 @@ async function loadServerShots(){
         products:(rec.items||[]).map(i=>
           ({name:i.name,price:i.price,url:i.url,img:i.img,role:i.role,qty:1})),
         variant:rec.variant||'',style:rec.style||'',vid:'',revision:'',ts:rec.ts,
+        // комната и вариант кадра (onb-07 основа): пишет страница в запрос (`payload`), реестр сервера — когда научится; нет — гостиная
+        room_id:rec.room_id||'',variant_id:rec.variant_id||'',
         stateId:rec.stateId||'',cams:rec.cams||null,engine:rec.backend||'',
         model:rec.model||'',sources:rec.sources||'',srv:true}));
     });
@@ -3524,14 +3564,21 @@ function loadShots(){
   // приходит с сервера (реестр пополняет `draft_service._registry_add`).
   shots=[];
   const list=allVariants(), byTitle={}, byStyle={};
-  list.forEach(v=>{byTitle[v.title||'']=v.id; if(v.style)byStyle[v.style]=v.id;});
+  // СТИЛЬ ОДИН НА ВСЕ КОМНАТЫ (onb-07 основа): кадр без комнаты в записи (весь нынешний реестр) — кадр гостиной, его ищем по стилю
+  // только среди вариантов гостиной (как было — и после того, как реестр начнёт писать комнату: номер `set2` после пересборки
+  // уходит, стиль остаётся); кадр другой комнаты — по номеру варианта, иначе по стилю среди вариантов этой комнаты
+  list.forEach(v=>{if(roomIdOf(v)!=='living')return; byTitle[v.title||'']=v.id; if(v.style)byStyle[v.style]=v.id;});
+  const shotVid=s=>{
+    if(!s.room_id||s.room_id==='living')return byStyle[s.style||'']||byTitle[s.variant||''];
+    const inRoom=list.filter(v=>roomIdOf(v)===s.room_id), byId=s.variant_id&&inRoom.find(v=>v.id===s.variant_id);
+    return (byId||inRoom.find(v=>v.style&&v.style===s.style)||inRoom.find(v=>(v.title||'')===s.variant)||{}).id;};
   loadServerShots().then(srv=>{
     let skipped=0;
     // СНЯТОЕ ВО ВКЛАДКЕ НЕ ТЕРЯЕМ (разбор Codex 14.10): реестр приходит позже, и присваивание `shots=srv` стирало кадр,
     // снятый, пока он грузился. Свои кадры, которых ещё нет в реестре, добавляем к нему по адресу картинки.
     const mine=shots.filter(x=>!x.srv), shown=shotAt>=0?shots[shotAt]:null;
     shots=srv.filter(s=>{
-      const vid=byStyle[s.style||'']||byTitle[s.variant||''];
+      const vid=shotVid(s);
       if(!vid){skipped++; return false;}   // кадр чужого стиля не сваливаем в первый вариант
       s.vid=vid; s.pick=false; s.orphan=false; return true;
     });
@@ -3675,7 +3722,7 @@ function thumbOf(s){
 // КАДР ЭТОЙ РАССТАНОВКИ (demo-09, дополнение 17.10, владелец: «если картинки от балды — убрать»): у нового кадра — номер состояния
 // варианта; у старого без номера — снимок списка товаров совпадает с нынешним (названия + количество). Фото прежних расстановок
 // остаются в хранилище (история), но ни карточка, ни вкладка «Фото» их не показывают
-function variantStateOf(v){ return stateIdOf(variantItems(v), variantDecor(v), D&&D.room, variantLive(v)?DEVOPT:((v&&v.dev)||{})); }
+function variantStateOf(v){ return stateIdOf(variantItems(v), variantDecor(v), D&&roomOf(v), variantLive(v)?DEVOPT:((v&&v.dev)||{})); }
 function productsSig(list){ const m={}; (list||[]).forEach(p=>{if(p&&p.name)m[p.name]=(m[p.name]||0)+(+p.qty||1);});
   return JSON.stringify(Object.keys(m).sort().map(k=>[k,m[k]])); }
 function shotFits(s, v){
@@ -3818,7 +3865,7 @@ function homeRooms(){
 // КАДР ОПУБЛИКОВАННОГО СОСТОЯНИЯ ВАРИАНТА (demo-20 Б2, владелец 22.10: «вариантов без фото быть не должно»): `bestShot` ищет кадр
 // ЖИВОЙ расстановки — у открытого варианта её сбивают правки и общая отделка `DEVOPT`, и карточка оставалась без фото. Здесь —
 // состояние из данных витрины (предметы, декор, своя отделка `v.dev`), как его снимает ночной прогрев (`tools/ops/demo-warm.mjs`)
-function pubStateOf(v){ return stateIdOf(v.items||[], (v.decor||[]).filter(x=>(x.sku||{}).name), D.room, v.dev||{}); }
+function pubStateOf(v){ return stateIdOf(v.items||[], (v.decor||[]).filter(x=>(x.sku||{}).name), roomOf(v), v.dev||{}); }
 function pubShot(v){
   if(!v||!D)return null;
   const st=pubStateOf(v);
@@ -3832,7 +3879,8 @@ function pubShot(v){
 // расстановки нет, а `pubShot` — фото ОПУБЛИКОВАННОЙ, не то, что человек видел в окне. Живая сцена снимает точку 1 после правки
 // (правка или показ 3D → `liveShotSoon`); карта «номер состояния → кадр» живёт до перезагрузки страницы; кадра нет — запасной путь `pubShot`
 const LIVE_SHOTS=new Map();
-function liveShot(v){ const u=v&&D&&LIVE_SHOTS.get(variantStateOf(v)); return u?{url:u, thumb:u, quality:'live'}:null; }
+// ключ — комната + вариант + номер состояния (`roomStateKey`, onb-07 основа)
+function liveShot(v){ const u=v&&D&&LIVE_SHOTS.get(roomStateKey(v,variantStateOf(v))); return u?{url:u, thumb:u, quality:'live'}:null; }
 function homeModel(){
   const vs=allVariants(), styles=[], seen=new Set(), roomVariants=[];
   // реестр кадров пришёл — вариант без кадра опубликованного состояния на главную не выводим (его стиль — тоже); реестр не пришёл
@@ -3842,8 +3890,9 @@ function homeModel(){
     if(v.mine||v.cid)return;                     // коллекция — не вариант каталога
     if(any&&!shown(v))return;
     const id=styleIdOf(v); if(!id)return;
+    if(!roomGeoOf(v))return;                     // комнаты варианта нет в данных (`rooms_geo`) — открыть его не в чем
     if(!seen.has(id)){seen.add(id); styles.push({id, title:LANG==='en'?(STYLE_EN[id]||v.title||id):(v.title||v.style||id)});}
-    roomVariants.push({styleId:id, roomId:v.room_id||'living', variantId:v.id, index:i});
+    roomVariants.push({styleId:id, roomId:roomIdOf(v), variantId:v.id, index:i});
   });
   return {styles, rooms:homeRooms(), roomVariants};
 }
@@ -3864,7 +3913,9 @@ function syncStyleParam(id,room){
   try{const u=new URL(location.href); u.searchParams.set('style',id); u.searchParams.set('room',room); history.replaceState(history.state,'',u.pathname+u.search+u.hash);}catch(e){}
 }
 function homeSelectStyle(id){
-  const m=homeModel(), rv=m.roomVariants.find(x=>x.styleId===id&&x.roomId==='living')||m.roomVariants.find(x=>x.styleId===id);
+  // вариант того же стиля В ТОЙ ЖЕ КОМНАТЕ, что открыта (onb-07 основа); нет — гостиная этого стиля, нет и её — любой этого стиля
+  const m=homeModel(), rid=roomIdOf(allVariants()[cur]);
+  const rv=m.roomVariants.find(x=>x.styleId===id&&x.roomId===rid)||m.roomVariants.find(x=>x.styleId===id&&x.roomId==='living')||m.roomVariants.find(x=>x.styleId===id);
   HOME.styleId=id;
   if(rv&&rv.index!==cur)pickVariant(rv.index);
   syncStyleParam(id,rv?rv.roomId:'living'); drawHome(true);
@@ -4742,10 +4793,11 @@ function rotate90(dir){if(!sel||vwEditLock())return;
   const prev=sel.rot, px=sel.x, py=sel.y;
   sel.rot=(((sel.rot||0)+dir*90)%360+360)%360;
   let b=box(sel);
-  sel.x=Math.max(b.w/2,Math.min(D.room.w-b.w/2,sel.x));
-  sel.y=Math.max(b.d/2,Math.min(D.room.d-b.d/2,sel.y));
+  const R=curRoom();
+  sel.x=Math.max(b.w/2,Math.min(R.w-b.w/2,sel.x));
+  sel.y=Math.max(b.d/2,Math.min(R.d-b.d/2,sel.y));
   b=box(sel);
-  if(b.x0<-0.5||b.y0<-0.5||b.x1>D.room.w+0.5||b.y1>D.room.d+0.5){sel.rot=prev;sel.x=px;sel.y=py;}
+  if(b.x0<-0.5||b.y0<-0.5||b.x1>R.w+0.5||b.y1>R.d+0.5){sel.rot=prev;sel.x=px;sel.y=py;}
   draw();showTip(sel);updateRotOvl();}
 function updateRotOvl(){if(!rotBtns||!sel){return;}
   // стрелки НА самом предмете, по центру (владелец 31.08), поменьше
@@ -4863,17 +4915,19 @@ stage.addEventListener('pointermove',e=>{
     // наезд на мебель при повороте РАЗРЕШЁН (владелец 31.08); у стены не запрещаем,
     // а заводим внутрь комнаты — как у стрелок ±90
     let bb=box(sel);
-    sel.x=Math.max(bb.w/2,Math.min(D.room.w-bb.w/2,sel.x));
-    sel.y=Math.max(bb.d/2,Math.min(D.room.d-bb.d/2,sel.y));
+    const R=curRoom();
+    sel.x=Math.max(bb.w/2,Math.min(R.w-bb.w/2,sel.x));
+    sel.y=Math.max(bb.d/2,Math.min(R.d-bb.d/2,sel.y));
     bb=box(sel);
-    if(bb.x0<-0.5||bb.y0<-0.5||bb.x1>D.room.w+0.5||bb.y1>D.room.d+0.5){sel.rot=prev;sel.x=px;sel.y=py;}
+    if(bb.x0<-0.5||bb.y0<-0.5||bb.x1>R.w+0.5||bb.y1>R.d+0.5){sel.rot=prev;sel.x=px;sel.y=py;}
     draw();showTip(sel);return;}
   if(!drag||!sel)return;const pt=loc(e);
   let nx=pt.x-drag.dx, ny=pt.y-drag.dy;const b=box(sel);
-  nx=Math.max(b.w/2,Math.min(D.room.w-b.w/2,nx));ny=Math.max(b.d/2,Math.min(D.room.d-b.d/2,ny));
+  const R=curRoom();
+  nx=Math.max(b.w/2,Math.min(R.w-b.w/2,nx));ny=Math.max(b.d/2,Math.min(R.d-b.d/2,ny));
   nx=Math.round(nx/5)*5;ny=Math.round(ny/5)*5;                       // сетка 5 см
-  if(Math.abs(nx-b.w/2)<12)nx=b.w/2; if(Math.abs(D.room.w-nx-b.w/2)<12)nx=D.room.w-b.w/2;  // прилипание к стенам
-  if(Math.abs(ny-b.d/2)<12)ny=b.d/2; if(Math.abs(D.room.d-ny-b.d/2)<12)ny=D.room.d-b.d/2;
+  if(Math.abs(nx-b.w/2)<12)nx=b.w/2; if(Math.abs(R.w-nx-b.w/2)<12)nx=R.w-b.w/2;  // прилипание к стенам
+  if(Math.abs(ny-b.d/2)<12)ny=b.d/2; if(Math.abs(R.d-ny-b.d/2)<12)ny=R.d-b.d/2;
   // ПРЕДМЕТЫ НЕ НАЕЗЖАЮТ ДРУГ НА ДРУГА (владелец 26.08: «чтоб на диван торшер не надвигался»):
   // пробуем полную позицию, потом только по X, потом только по Y — предмет скользит вдоль
   // препятствия вместо того, чтобы застревать
@@ -4919,7 +4973,7 @@ function loc(e){const r=stage.getBoundingClientRect();return{x:(e.clientX-r.left
 function freeSpan(me){
   const b=box(me), others=items.filter(o=>o!==me&&!o.role.startsWith('ковёр')).map(box);
   const lim=(dir)=>{                                    // сколько см можно прирастить в сторону dir
-    let room_=dir==='x'?D.room.w:D.room.d, edge0=dir==='x'?b.x0:b.y0, edge1=dir==='x'?b.x1:b.y1;
+    const R=curRoom(); let room_=dir==='x'?R.w:R.d, edge0=dir==='x'?b.x0:b.y0, edge1=dir==='x'?b.x1:b.y1;
     let lo=0, hi=room_;
     others.forEach(o=>{
       const cross=(dir==='x')?!(o.y1<=b.y0||o.y0>=b.y1):!(o.x1<=b.x0||o.x0>=b.x1);
@@ -5166,7 +5220,7 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
 // предмет — для общего показателя (главный проход) виновник определяется контрфактуально:
 // стало ли шире, если предмет убрать; (2) молчим, пока всё в порядке; (3) текст человеческий и
 // с числом: на сколько сантиметров сдвинуть, чтобы стало по стандарту.
-function inRoom(it){const b=box(it);return b.x0>=0&&b.y0>=0&&b.x1<=D.room.w&&b.y1<=D.room.d;}
+function inRoom(it){const b=box(it), R=curRoom();return b.x0>=0&&b.y0>=0&&b.x1<=R.w&&b.y1<=R.d;}
 function shiftFix(it,bad){                   // минимальный сдвиг, снимающий нарушение
   const ox=it.x,oy=it.y;let found=null;
   for(const st of [10,20,30,40,50,60,80,100]){
@@ -5190,7 +5244,7 @@ function hintFor(it){
       return Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0))*Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0))>400;});
     if(other)return `${name} наезжает на «${other.role}» — разведите предметы.`;
   }
-  const door=D.room.openings.find(o=>o.kind==='door');
+  const door=(curRoom().openings||[]).find(o=>o.kind==='door');
   if(door&&!isRug){                                               // 2) зона открывания двери
     const sw=doorBox(door);
     const bad=()=>{const c=box(it);
@@ -5206,7 +5260,7 @@ function hintFor(it){
       return `${name} сейчас перекрывает главный проход — там нужно ${floor} см, сейчас ${now}.`
         +(s?` Рекомендуем сдвинуть примерно на ${s} см.`:' Попробуйте поставить его вдоль стены.');}
   }
-  const rad=D.room.radiators[0];
+  const rad=(curRoom().radiators||[])[0];
   if(rad&&!isRug){                                                // 4) радиатор
     const rb=radBox(rad);
     const bad=()=>{const c=box(it);const g=gap(c,rb);
@@ -5272,12 +5326,13 @@ function doorBox(o){                       // прямоугольник, кот
   const xs=[h.x, h.x+g.along.x*r, h.x+g.open.x*r], ys=[h.y, h.y+g.along.y*r, h.y+g.open.y*r];
   return {x0:Math.min(...xs), y0:Math.min(...ys), x1:Math.max(...xs), y1:Math.max(...ys)};}
 function radBox(r){const p=wallSeg(r.wall,r.offset_cm,r.width_cm),dep=r.depth_cm||12;
-  if(r.wall==='south')return{x0:p.x1,y0:0,x1:p.x2,y1:dep};if(r.wall==='north')return{x0:p.x1,y0:D.room.d-dep,x1:p.x2,y1:D.room.d};
-  if(r.wall==='west')return{x0:0,y0:p.y1,x1:dep,y1:p.y2};return{x0:D.room.w-dep,y0:p.y1,x1:D.room.w,y1:p.y2};}
+  const R=curRoom();
+  if(r.wall==='south')return{x0:p.x1,y0:0,x1:p.x2,y1:dep};if(r.wall==='north')return{x0:p.x1,y0:R.d-dep,x1:p.x2,y1:R.d};
+  if(r.wall==='west')return{x0:0,y0:p.y1,x1:dep,y1:p.y2};return{x0:R.w-dep,y0:p.y1,x1:R.w,y1:p.y2};}
 // `skip` — посчитать проход БЕЗ этого предмета. Так проверяется, виноват ли он в узком проходе:
 // подсказка должна быть про то, что человек двигает, а не «в комнате где-то тесно» (26.08).
 function routeWidth(skip){                   // ширина коридора от двери вглубь комнаты (сетка 10 см)
-  const step=10,W=Math.ceil(D.room.w/step),H=Math.ceil(D.room.d/step);
+  const R=curRoom(), step=10,W=Math.ceil(R.w/step),H=Math.ceil(R.d/step);
   const blocked=[];for(let i=0;i<W;i++){blocked[i]=[];for(let j=0;j<H;j++){const x=i*step+step/2,y=j*step+step/2;
     blocked[i][j]=items.some(it=>{if(it===skip||it.role.startsWith('ковёр'))return false;const b=box(it);
       return x>=b.x0&&x<=b.x1&&y>=b.y0&&y<=b.y1;});}}
@@ -5288,7 +5343,7 @@ function routeWidth(skip){                   // ширина коридора о
   for(let it=0;it<3;it++){for(let i=0;i<W;i++)for(let j=0;j<H;j++){if(blocked[i][j]){dist[i][j]=0;continue;}
     const n=[[i-1,j],[i+1,j],[i,j-1],[i,j+1]];n.forEach(([a,b])=>{if(a<0||b<0||a>=W||b>=H)return;
       dist[i][j]=Math.min(dist[i][j],dist[a][b]+step);});}}
-  const door=D.room.openings.find(o=>o.kind==='door');if(!door)return 0;
+  const door=(R.openings||[]).find(o=>o.kind==='door');if(!door)return 0;
   const db=doorBox(door),si=Math.min(W-1,Math.max(0,Math.floor(((db.x0+db.x1)/2)/step))),
         sj=Math.min(H-1,Math.max(0,Math.floor(((db.y0+db.y1)/2)/step)));
   const ci=Math.floor(W/2),cj=Math.floor(H/2);
@@ -5338,7 +5393,7 @@ function stateIdOf(items, decor, room, opts){
   return (canon.startsWith('["v2"')?'s2-':'s1-')+fnv64(bytes, 0xcbf29ce484222325n)+fnv64(bytes, 0x84222325cbf29ce4n);
 }
 // STATEID END
-function curStateId(){ return stateIdOf(items, variantDecor(allVariants()[cur]||{}), D&&D.room, DEVOPT); }
+function curStateId(){ return stateIdOf(items, variantDecor(allVariants()[cur]||{}), D&&curRoom(), DEVOPT); }
 
 // ИСТОРИЯ — НА ВАРИАНТ, В ПАМЯТИ СТРАНИЦЫ: снимок после каждой правки (замена, отпускание перетаскивания, поворот), до 30
 // шагов; новая правка после «назад» стирает «вперёд»; одинаковые соседние состояния не дублируются (Codex 14.10).
@@ -6362,7 +6417,7 @@ function vwCamsUi(){
 // совпали — «Ракурс 1 / 2» в порядке C1/C2
 const CAM_NAME_NEAR=220;
 function vwCamNames(short){
-  const EN=LANG==='en', cs=((typeof cams!=='undefined'&&cams)||loadCams()).slice(0,2), R=(D&&D.room)||{};
+  const EN=LANG==='en', cs=((typeof cams!=='undefined'&&cams)||loadCams()).slice(0,2), R=(D&&curRoom())||{};
   const plain=cs.map((_,k)=>(EN?'View ':'Ракурс ')+(k+1));
   if(cs.length<2)return plain;
   const ops=(R.openings||[]).filter(o=>(o.kind==='window'||o.kind==='door')&&o.width_cm);
@@ -6531,7 +6586,7 @@ function vwPlanDraw(){
   // просмотр — без атрибутов редактора и кадра (прогон d8 16.10): камеры с конусами, ручки и значки замены у предметов
   c.querySelectorAll('[data-cam],[data-camrot],[data-camui],[data-ico]').forEach(e=>e.remove());
   // рамка — вся комната с полями (`size()`: ширина = комната·S + 2·PAD), а не размер элемента на странице
-  const w=Math.round(D.room.w*S+2*PAD), h=Math.round(D.room.d*S+2*PAD);
+  const R=curRoom(), w=Math.round(R.w*S+2*PAD), h=Math.round(R.d*S+2*PAD);
   c.setAttribute('viewBox',`0 0 ${w} ${h}`); c.removeAttribute('width'); c.removeAttribute('height');
   c.setAttribute('preserveAspectRatio','xMidYMid meet'); c.style.pointerEvents='none';
   box.innerHTML=''; box.appendChild(c);
@@ -6654,12 +6709,12 @@ function livePrefetchSoon(){
   PRE.t=setTimeout(()=>{ if(window.requestIdleCallback)requestIdleCallback(livePrefetch,{timeout:2000}); else livePrefetch(); },600);
 }
 async function livePrefetch(){
-  if(VW.mode!=='photo'||!document.getElementById('shot').classList.contains('on')||!D||!D.room)return;
+  if(VW.mode!=='photo'||!document.getElementById('shot').classList.contains('on')||!D||!curRoom())return;
   const soft=liveSoftGL(); if(soft&&!LIVE.force)return;   // без видеокарты 3D не будет — нечего качать
   let urls;
   // сперва оболочка комнаты (карты пола и стен, вид за окном, транскодер текстур) — без неё сцена не стартует; потом модели
   try{ const M=await sceneModule(); if(!M.sceneAssetUrls)return;
-    const a=M.sceneAssetUrls({room:D.room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:await rtMeshes(),
+    const a=M.sceneAssetUrls({room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:await rtMeshes(),
       lite:isTouchUI()||soft||!!(LIVE.probe&&LIVE.probe.lite), floor:devFloor()||undefined, wall:devWall()||undefined});
     urls=[...a.shell, ...a.meshes]; }
   catch(e){ return; }
@@ -6684,7 +6739,7 @@ function liveEngine(){
       await sceneModule();
       const rt=await rtMeshes();
       const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
-      const sc=window.RemlabScene.createDemoScene(cv,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href,
+      const sc=window.RemlabScene.createDemoScene(cv,{room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href,
         runtimeMeshes:rt, lite:isTouchUI(), walk:!isTouchUI(), floor:devFloor()||undefined, wall:devWall()||undefined});
       sc.on('contextlost',()=>liveOff('видеоконтекст потерян'));
       // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Загружаем модель…» при замене
@@ -6700,7 +6755,7 @@ function liveEngine(){
       if(!LIVE.force&&!pr.software&&!isTouchUI()&&pr.p95Ms>60&&pr.p95Ms<=120){
         sc.dispose();
         const cv2=document.createElement('canvas'); cv2.className='livecv'; cv2.width=896; cv2.height=597;
-        const sc2=window.RemlabScene.createDemoScene(cv2,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true, walk:!isTouchUI(),
+        const sc2=window.RemlabScene.createDemoScene(cv2,{room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true, walk:!isTouchUI(),
           floor:devFloor()||undefined, wall:devWall()||undefined});
         sc2.on('contextlost',()=>liveOff('видеоконтекст потерян'));
         sc2.setSize(896,597); await sc2.ready;
@@ -6829,14 +6884,14 @@ async function liveShotTake(){
   const v=allVariants()[cur], sc=LIVE.scene;
   if(LIVE.ok!==true||!sc||!sc.capture||!v||!D||!LIVE.canvas||!LIVE.canvas.isConnected||VJ.job)return;
   const st=variantStateOf(v);
-  if(LIVE_SHOTS.has(st)||bestShot(v)||st===pubStateOf(v))return;
+  if(LIVE_SHOTS.has(roomStateKey(v,st))||bestShot(v)||st===pubStateOf(v))return;
   const c=(cams||loadCams())[0]; if(!c)return;
   try{await sc.update(clone(items), liveDecor());
     if(st!==variantStateOf(allVariants()[cur]||{}))return;
     const r=await sc.capture([camPoseOf(c)],1024,723);
     if(VW.mode!=='walk'||!LIVE.canvas.isConnected)sc.stop();   // `capture` заново запускает цикл кадров — вне «3D» он не нужен
     if(!r||!r.frames||!r.frames[0]||st!==variantStateOf(allVariants()[cur]||{}))return;
-    LIVE_SHOTS.set(st,URL.createObjectURL(r.frames[0])); drawHome();
+    LIVE_SHOTS.set(roomStateKey(v,st),URL.createObjectURL(r.frames[0])); drawHome();
   }catch(e){}
 }
 </script>
@@ -7208,7 +7263,10 @@ async function liveShotTake(){
         rot:num(i.rot),w:num(i.w),d:num(i.d)}; if(i.h)o.h=num(i.h); if(i.elev)o.elev=num(i.elev); var s=pick(i.sku); if(s)o.sku=s; return o;}),
       decor:(variantDecor(v)||[]).filter(function(x){return x.sku&&x.sku.sid;}).slice(0,30).map(function(x){return {role:String(x.role).slice(0,40),sku:pick(x.sku)};}),
       cams:(Array.isArray(cams)?cams:[]).slice(0,4).map(function(c){return {x:num(c.x),y:num(c.y),rot:num(c.rot||c.a||0)};}),
-      shot:currentShotPath()||undefined, stateId:curStateId(), schemaVersion:2, developerOptions:clone(DEVOPT)};
+      shot:currentShotPath()||undefined, stateId:curStateId(), schemaVersion:2, developerOptions:clone(DEVOPT),
+      // комната расстановки (onb-07 основа): без неё коллекция спальни открылась бы в геометрии гостиной (`asVariant` → `room`);
+      // гостиная — то же значение, что сервер ставит по умолчанию (`contracts/collection.ts:collectionV12`)
+      roomId:roomIdOf(v)};
   }
   // ——— ИЗБРАННОЕ = КОРЗИНА СЕРТИФИКАТА (demo-16 шаг 2; правила — «Решения владельца 18.10», модель — критика Codex 18.10) ———
   // Источник истины — `BasketV2` модуля корзины (`lib/basket/basket.ts`) под ключом `remlab-basket:v2:<квартира>`: избранное
@@ -7313,7 +7371,7 @@ async function liveShotTake(){
       bkMigrate(); bkRefresh(); bkRedraw();}).catch(function(e){try{console.warn('модуль корзины не загрузился',e);}catch(_){}});}
   document.addEventListener('flatcard',bkOpen); if(typeof FLAT!=='undefined'&&FLAT)bkOpen();
   function baseState(v){if(!v)return '';
-    try{return v.mine&&v.stateId?v.stateId:stateIdOf(v.items||[], variantDecor(v), D&&D.room, v.dev||{});}catch(_){return '';}}
+    try{return v.mine&&v.stateId?v.stateId:stateIdOf(v.items||[], variantDecor(v), D&&roomOf(v), v.dev||{});}catch(_){return '';}}
   function ofState(sid){return sid?(favs().find(function(f){return f.stateId===sid;})||null):null;}
   function defaultName(){var r=roomOfV(allVariants()[cur]||{}); return BK.mod&&BK.b?BK.mod.nextName(BK.b,r.id,r.title):r.title+' #1';}
   function collUrl(id){var q=linkParams();
