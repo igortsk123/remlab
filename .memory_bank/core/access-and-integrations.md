@@ -16,7 +16,7 @@ review_after: 2026-12-05
 
 > Секретов тут НЕТ — только где они. Детали — Tier 2.
 
-**Ключи из скриптов scout — один резолвер `tools/scout/env_keys.py`** (T-52, 05.11): окружение → своё дерево → основная копия (из worktree, через git common-dir) → mltest последним с WARN; `--where` — откуда возьмётся (только путь), `--ping` — бесплатная проверка; журнал трат `openai-spend.jsonl` — всегда основной копии (`openai_budget.SPEND_LOG`). 11 старых скриптов (judge.py, pipeline*.py, viz5–11…) ещё берут OpenAI-ключ из `v0-health-card/backend/.env` — вопрос владельцу.
+**Ключи скриптов scout** — резолвер `tools/scout/env_keys.py` (`--where`, `--ping`; из worktree — основная копия) → Tier 2 § env_keys.
 **Чужие ключи** (sib, sing, sup2-repo) — не наши; прежде чем сказать «нет доступа» — `node tools/access-inventory.mjs` (урок 57).
 
 ## Ключевые факты
@@ -38,8 +38,7 @@ review_after: 2026-12-05
   (Bearer конвейера); общие для mesh-review/mesh-audit — Tier 2.
 - **SaladCloud + GHCR (31.08):** GPU под меши вместо fal; орг `prodstore`/`dmodel`, ключи в
   `_secrets/`, образ только digest'ом. События машин — `log-entries` (бесплатно, [[mesh-pool]] Tier 2 § 6). Грабли API — ADR-0137.
-  **02.10:** GHCR — единственная копия образа (ADR-0232); вход — `GHCR_TOKEN` (`_secrets/`),
-  не `gh auth token`: токену под пакеты `gh` требует ещё `read:org`.
+  GHCR — единственная копия образа (ADR-0232), вход `GHCR_TOKEN` (Tier 2).
 - **Гдеслон (03.09):** фиды первичны (`original_picture`, `article`, описание), API — комиссия;
   id округлён (связь по `article`), `available` бесполезен — ADR-0171.
 - **Telegram `@remlabservice_bot` (03.09):** токен и chat_id в `tools/scout/.env.alert` и `/opt/remlab/catalog-watchdog/.env`. С 14.10 — и клиентский бот; UptimeRobot — Tier 2.

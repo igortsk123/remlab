@@ -400,3 +400,7 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 ## UptimeRobot и клиентский бот (14.10)
 - **UptimeRobot:** аккаунт владельца (igortsk12345@gmail.com), ключ API — `_secrets/ACCESS.md`; мониторы: главная, `/api/health` (ключевое слово `"ok":true`, тревога при отсутствии), `/demo/`; интервал 5 мин (лимит бесплатного: 50 мониторов, 5 мин; только некоммерческое использование с конца 2024); тревога — письмом, Telegram подключается в интерфейсе.
 - **@remlabservice_bot как клиентский бот:** вебхук `https://remont-lab.online/api/leads/tg-client` с секретом `LEADS_TG_WEBHOOK_SECRET`; `/start sh_<10 hex>` → ссылка на подборку `/test/share/<id>/` (`app/api/leads/tg-client/route.ts`); сервис кадров отдаёт `tg_link` при `SHARE_TG_BOT` в `/opt/remlab/draft/.env`. Тот же бот шлёт алерты DEV/сервера (sendMessage, без getUpdates — вебхук им не мешает).
+
+## env_keys — откуда скрипты scout берут ключи (T-52, 05.11)
+Резолвер `tools/scout/env_keys.py`: окружение → своё дерево → основная копия (из worktree, через git common-dir) → mltest последним с WARN; `--where` — откуда возьмётся (только путь), `--ping` — бесплатная проверка; журнал трат `openai-spend.jsonl` — всегда основной копии (`openai_budget.SPEND_LOG`). 11 старых скриптов (judge.py, pipeline*.py, viz5–11…) ещё берут OpenAI-ключ из `v0-health-card/backend/.env` — вопрос владельцу.
+- GHCR (02.10): вход — `GHCR_TOKEN` (`_secrets/`), не `gh auth token`: токену под пакеты `gh` требует ещё `read:org` (ADR-0232).
