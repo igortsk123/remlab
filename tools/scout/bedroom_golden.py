@@ -14,6 +14,7 @@
   ~/venvs/scout/bin/python bedroom_golden.py --golden 30 --dry   # отбор и прикидка, без модели и денег
   ~/venvs/scout/bin/python bedroom_golden.py --golden 30         # гейт openai_budget + потолок $0,30, учёт трат, счётчик отказов
   ~/venvs/scout/bin/python bedroom_golden.py --style <папка>       # стиль сейчас / после поправки цвета (2 вызова скорера на 15)
+  ~/venvs/scout/bin/python bedroom_golden.py --full [--dry]          # все спорные офферы: цвет на вариант, ящики/изголовье на модель
   ~/venvs/scout/bin/python bedroom_golden.py --recount <папка> [--marks <отметки.json>]  # новые правила, без модели
   ~/venvs/scout/bin/python bedroom_golden.py --sheet <папка>       # пересобрать лист из golden.jsonl, без модели
   python3 bedroom_golden.py --selftest                           # спор/приём/сопоставление, без сети и базы
@@ -293,6 +294,185 @@ def run(n: int, dry: bool) -> int:
         print('  отказ:', nm, e, flush=True)
     print('папка:', L, flush=True)
     return 0 if not fails and not photo_fail else 1
+
+
+# ---------- полный прогон на всех спорных показываемых офферах (T-20261105-20/2) ----------
+FULL_CAP_USD = 1.50                  # ведущий 05.11: потолок полного прогона
+
+
+def disputed_offers() -> list:
+    """Все спорные показываемые офферы спальни (те же условия, что у отбора 30), без дедупа. fam — модель без магазина."""
+    import room_catalog as RC
+    R = RC.rules()
+    rows = RC.sql(f"select role, shop_mid, external_id, shop, name, params::text, coalesce(image_url_hd, image_url), url, "
+                  f"w_cm, d_cm, h_cm from room_catalog where {RC.shown_where(R)} and role in ("
+                  + ','.join(RC._lit(r) for r in QUOTA) + ") order by shop_mid, external_id")
+    f = lambda x: float(x) if x else None  # noqa: E731
+    out = []
+    for r in rows:
+        d = {'w': f(r[8]), 'd': f(r[9]), 'h': f(r[10])}
+        P = json.loads(r[5] or '{}')
+        if RC.child_only(r[0], r[4], R) or RC.role_guard(r[0], r[4], d, R):
+            continue
+        ds = disputes(r[0], r[4], P)
+        if ds:
+            out.append(dict(role=r[0], mid=int(r[1]), eid=r[2], shop=r[3], name=r[4], params=P, img=r[6], url=r[7], disputes=ds,
+                            fam=(r[0], RC.family(re.sub(r'^МП\s+', '', re.sub(r'\s+', ' ', r[4]))))))
+    return out
+
+
+def family_fields(role: str, answers: list) -> dict:
+    """Ящики и изголовье на модель по всем её фото: «есть» — если хоть одно фото показало; изголовье «нет» — только если все
+    фото кровати целиком и ни на одном нет изголовья. Приём — как у 30 (accept)."""
+    acc = [accept(role, a) for a in answers]
+    dr = 'есть' if any(a['drawers'] == 'есть' for a in acc) else UNK
+    if role != 'кровать':
+        hb = NA
+    elif any(a['headboard'] == 'есть' for a in acc):
+        hb = 'есть'
+    elif acc and all(a['headboard'] == 'нет' for a in acc):
+        hb = 'нет'
+    else:
+        hb = UNK
+    return {'drawers': dr, 'headboard': hb}
+
+
+def full(dry: bool) -> int:
+    from openai_budget import allow, estimate_request, price_of
+    offers = disputed_offers()
+    fams: dict = {}
+    for o in offers:
+        fams.setdefault(o['fam'], []).append(o)
+    # кому нужен вызов: цвет — каждому варианту со спором цвета; ящики/изголовье — модели (переиспользуем фото цвета)
+    need: dict = {}                                  # url фото → офферы, которым нужен ответ
+    for o in offers:
+        if 'colour' in o['disputes'] and o['img']:
+            need.setdefault(o['img'], []).append(o)
+    fam_need = {k: v for k, v in fams.items() if any(d in o['disputes'] for o in v for d in ('drawers', 'headboard'))}
+    for k, v in fam_need.items():
+        if not any(o['img'] in need for o in v):
+            o = next((o for o in v if o['img'] and ({'drawers', 'headboard'} & set(o['disputes']))), None)
+            if o:
+                need.setdefault(o['img'], []).append(o)
+    urls = list(need)
+    est1 = estimate_request(MODEL) * 3
+    by_role = {r: sum(1 for o in offers if o['role'] == r) for r in QUOTA}
+    print(f'спорных офферов {len(offers)} {by_role}; моделей {len(fams)}; со спором цвета {sum(1 for o in offers if "colour" in o["disputes"])}; '
+          f'моделей со спором ящиков/изголовья {len(fam_need)}', flush=True)
+    print(f'вызовов (уникальных фото) {len(urls)}; прикидка ≈ ${len(urls) * est1:.3f} (потолок ${FULL_CAP_USD}); '
+          f'по факту 30 — ${0.0044 / 30 * len(urls):.3f}', flush=True)
+    if dry:
+        return 0
+    if not allow(MODEL, len(urls), note=f'bedroom_golden full {len(urls)}'):
+        print('СТОП: дневной лимит OpenAI', flush=True)
+        return 2
+    L = os.path.expanduser('~/remlab-logs/onb06-golden-full-' + time.strftime('%m%d-%H%M'))
+    os.makedirs(L, exist_ok=False)
+    calls, photo_fail, fails, usage = {}, [], [], []
+    spent, CH = 0.0, 100
+
+    def one(u):
+        b = photo(u)
+        if b is None:
+            return u, None, {'err': 'фото не скачалось'}
+        return u, hashlib.sha256(b).hexdigest(), ask({'role': need[u][0]['role'], 'photo': b})
+    stop = ''
+    for i in range(0, len(urls), CH):
+        part = urls[i:i + CH]
+        if spent + len(part) * est1 > FULL_CAP_USD:
+            stop = f'потолок: потрачено ${spent:.4f}, следующая партия ≈ ${len(part) * est1:.3f}'
+            break
+        with cf.ThreadPoolExecutor(4) as ex:     # 4 потока: CDN режет параллельные скачивания
+            for u, sha, g in ex.map(one, part):
+                calls[u] = {'sha256': sha, **g}
+                if g.get('err') == 'фото не скачалось':
+                    photo_fail.append(u)
+                elif 'err' in g:
+                    fails.append((u, g['err']))
+                if g.get('usage'):
+                    usage.append(g['usage'])
+        pt, ct = sum(x.get('prompt_tokens', 0) for x in usage), sum(x.get('completion_tokens', 0) for x in usage)
+        spent = price_of(MODEL, pt, ct) or 0.0
+        print(f'{min(i + CH, len(urls))}/{len(urls)} · ${spent:.4f} · отказов модели {len(fails)}, фото {len(photo_fail)}', flush=True)
+        if len(fails) + len(photo_fail) > max(20, 0.1 * (i + len(part))):
+            stop = 'слишком много отказов'
+            break
+    ans = {u: c['fields'] for u, c in calls.items() if c.get('fields')}
+    fam_res = {}
+    for k, v in fam_need.items():
+        a = [ans[o['img']] for o in v if o['img'] in ans]
+        fam_res[k] = {**family_fields(k[0], list({json.dumps(x, sort_keys=True): x for x in a}.values())), 'photos': len(a)}
+    recs = []
+    for o in offers:
+        nc, (fc, fraw) = name_colour(o['name']), feed_colour(o['params'])
+        m = ans.get(o['img'])
+        rec = {k: o[k] for k in ('role', 'shop', 'mid', 'eid', 'name', 'img', 'url', 'disputes')}
+        rec['family'] = list(o['fam'])
+        rec['feed'] = {'colour_raw': fraw, 'colour': fc, 'colour_by_name': nc}
+        if 'colour' in o['disputes']:
+            col, why = match_colour(m.get('colour'), nc, fc, bool(m.get('variants_shown'))) if m else (UNK, 'нет ответа')
+            rec['colour'] = {'photo': (m or {}).get('colour'), 'accepted': col, 'why': why}
+        fr = fam_res.get(o['fam'])
+        if fr and 'drawers' in o['disputes']:
+            rec['drawers'] = fr['drawers']
+        if fr and 'headboard' in o['disputes']:
+            rec['headboard'] = fr['headboard']
+        c = calls.get(o['img']) or {}
+        rec.update({'photo_sha256': c.get('sha256'), 'model_alias': MODEL, 'model_id': c.get('model_id'),
+                    'prompt_ver': PROMPT_VER, 'prompt_hash': PROMPT_HASH})
+        recs.append(rec)
+    with open(os.path.join(L, 'offers.jsonl'), 'w', encoding='utf-8') as fh:
+        fh.write('\n'.join(json.dumps(r, ensure_ascii=False) for r in recs) + '\n')
+    with open(os.path.join(L, 'families.jsonl'), 'w', encoding='utf-8') as fh:
+        fh.write('\n'.join(json.dumps({'role': k[0], 'family': k[1], **v}, ensure_ascii=False) for k, v in fam_res.items()) + '\n')
+    with open(os.path.join(L, 'calls.jsonl'), 'w', encoding='utf-8') as fh:
+        fh.write('\n'.join(json.dumps({'img': u, **{k: v for k, v in c.items() if k != 'usage'}}, ensure_ascii=False)
+                            for u, c in calls.items()) + '\n')
+    pt, ct = sum(x.get('prompt_tokens', 0) for x in usage), sum(x.get('completion_tokens', 0) for x in usage)
+    meta = {'model_alias': MODEL, 'model_ids': sorted({c.get('model_id') for c in calls.values() if c.get('model_id')}),
+            'prompt_ver': PROMPT_VER, 'prompt_hash': PROMPT_HASH, 'offers': len(offers), 'families': len(fams),
+            'calls_planned': len(urls), 'calls_done': len(calls), 'llm_fails': fails, 'photo_fails': photo_fail, 'stop': stop,
+            'pt': pt, 'ct': ct, 'cost_usd': price_of(MODEL, pt, ct) or 0.0, 'cap_usd': FULL_CAP_USD}
+    json.dump(meta, open(os.path.join(L, 'meta.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    rep = full_report(recs, fam_res, meta)
+    open(os.path.join(L, 'report.md'), 'w', encoding='utf-8').write(rep)
+    print(rep, flush=True)
+    print('папка:', L, flush=True)
+    return 0 if not (fails or photo_fail or stop) else 1
+
+
+def full_report(recs: list, fam_res: dict, meta: dict) -> str:
+    from collections import Counter
+    col = [r for r in recs if 'colour' in r]
+    cc = Counter(r['colour']['why'].split(' (')[0] if r['colour']['accepted'] != UNK else 'неизвестно: ' + r['colour']['why']
+                 for r in col)
+    known = sum(1 for r in col if r['colour']['accepted'] != UNK)
+    lines = [f'# onb-06 — полный прогон по фото: {meta["offers"]} спорных офферов спальни, {meta["families"]} моделей', '',
+             f'Модель {meta["model_alias"]} ({", ".join(meta["model_ids"])}), промпт {meta["prompt_ver"]}/{meta["prompt_hash"]}. '
+             f'Вызовов {meta["calls_done"]} из {meta["calls_planned"]}, отказов модели {len(meta["llm_fails"])}, фото '
+             f'{len(meta["photo_fails"])}; ${meta["cost_usd"]:.4f} (потолок ${meta["cap_usd"]})'
+             + (f'; СТОП: {meta["stop"]}' if meta['stop'] else '') + '.', '',
+             '## Цвет (на вариант)', f'Спор цвета у {len(col)} офферов: принят {known} ({known * 100 // max(1, len(col))} %), '
+             f'неизвестно {len(col) - known}.'] + [f'- {k}: {v}' for k, v in cc.most_common()]
+    for f, ru in (('drawers', 'Ящики'), ('headboard', 'Изголовье')):
+        fr = [v for k, v in fam_res.items() if v[f] != NA and any(f in r['disputes'] and tuple(r['family']) == k for r in recs)]
+        c = Counter(v[f] for v in fr)
+        offs = [r for r in recs if f in r['disputes']]
+        oc = Counter(r.get(f, UNK) for r in offs)
+        lines += ['', f'## {ru} (на модель)', f'Моделей со спором {len(fr)}: ' + ', '.join(f'{k} {v}' for k, v in c.most_common())
+                  + f'. Офферов со спором {len(offs)}: ' + ', '.join(f'{k} {v}' for k, v in oc.most_common()) + '.']
+    by = {}
+    for r in recs:
+        for f in ('colour', 'drawers', 'headboard'):
+            if f in r['disputes']:
+                v = r['colour']['accepted'] if f == 'colour' else r.get(f, UNK)
+                b = by.setdefault((r['role'], f), [0, 0])
+                b[0 if v != UNK else 1] += 1
+    lines += ['', '## По ролям (офферы: заполнено / неизвестно)', '| роль | цвет | ящики | изголовье |', '|---|---|---|---|']
+    for role in QUOTA:
+        lines.append(f'| {role} | ' + ' | '.join(f'{by[(role, f)][0]} / {by[(role, f)][1]}' if (role, f) in by else '—'
+                                                for f in ('colour', 'drawers', 'headboard')) + ' |')
+    return '\n'.join(lines) + '\n'
 
 
 # ---------- пересчёт 30 по сохранённым ответам и сверка с отметками ведущего (без модели и денег) ----------
@@ -651,6 +831,11 @@ def _selftest() -> int:
     ok('цвет: «А/Б» в названии — главный первый («Дуб Барбера/Черный», «Латте/Черный»)',
        (name_colour('Шкаф Кимбол-1-50x210 Дуб Барбера/Черный'), name_colour('Шкаф Кимбол 3.1-170x280 Латте/Черный'))
        == ('дерево светлое', 'бежевый'))
+    ok('модель: ящики «есть» хоть на одном фото — есть; изголовье «нет» — только если все фото целиком и без изголовья',
+       family_fields('кровать', [{'drawers': 'нет', 'headboard': 'нет', 'bed_fully_visible': True},
+                                 {'drawers': 'есть', 'headboard': 'нет', 'bed_fully_visible': False}]) == {'drawers': 'есть', 'headboard': UNK}
+       and family_fields('кровать', [{'drawers': 'нет', 'headboard': 'нет', 'bed_fully_visible': True}]) == {'drawers': UNK, 'headboard': 'нет'}
+       and family_fields('шкаф', []) == {'drawers': UNK, 'headboard': NA})
     ok('промпт: в системном тексте нет подсказок цвета из карточки', '{' not in SYS and len(PROMPT_HASH) == 12)
     print('FAILS', bad)
     return 1 if bad else 0
@@ -669,6 +854,8 @@ if __name__ == '__main__':
         sys.exit(print('лист:', os.path.join(D, 'sheet.html')))
     if '--style' in sys.argv:      # стиль сейчас и после поправки цвета; лист пересобирается
         sys.exit(style(os.path.expanduser(sys.argv[sys.argv.index('--style') + 1]).rstrip('/')))
+    if '--full' in sys.argv:       # все спорные показываемые офферы; потолок FULL_CAP_USD
+        sys.exit(full('--dry' in sys.argv))
     if '--golden' in sys.argv:
         sys.exit(run(int(sys.argv[sys.argv.index('--golden') + 1]), '--dry' in sys.argv))
     print(__doc__)
