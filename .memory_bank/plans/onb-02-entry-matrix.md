@@ -27,13 +27,13 @@ parent_plan: onb-00-quiz-master
 Код продукта (страница, контракты, бот) — `onb-03`. Платное. Деплой. Решения за владельца — только вопросы.
 
 ## Файлы к изменению (все новые)
-- [ ] `.memory_bank/domain/onboarding-quiz.md` (Tier 2) + `.memory_bank/core/onboarding-quiz.md` (Tier 1, строка в INDEX) — матрицы, события, правило
-- [ ] `tools/ops/quiz-colour-audit.mjs` — аудит цветов и распределение итогов, только чтение `demo-data.json`
-- [ ] `tools/scout/rules/quiz.json` — правило подбора (черновик; читать его начнёт `onb-03`). **Только в worktree** (урок 516)
-- [ ] `tests/fixtures/quiz-golden.json` — эталоны «ответы → 3 стиля»
+- [x] `.memory_bank/domain/onboarding-quiz.md` (Tier 2) + `.memory_bank/core/onboarding-quiz.md` (Tier 1, строка в INDEX) — матрицы, события, правило
+- [x] `tools/ops/quiz-colour-audit.mjs` — аудит цветов и распределение итогов, только чтение `demo-data.json`
+- [x] `tools/scout/rules/quiz.json` — правило подбора (черновик; читать его начнёт `onb-03`). **Только в worktree** (урок 516)
+- [x] `tests/fixtures/quiz-golden.json` — эталоны «ответы → 3 стиля»
 
 ## Задачи
-- [ ] **Т1. Матрица входов** (`domain/onboarding-quiz.md` § Входы). Строки: аноним RU первый / повторный; аноним EN (двойник
+- [x] **Т1. Матрица входов** (`domain/onboarding-quiz.md` § Входы). Строки: аноним RU первый / повторный; аноним EN (двойник
   `demo-uk-215` с `demoMask`, `index.html:demoAnon`); `?s=` первый / повторный / отозван (`index.html` блок «ССЫЛКА ОТ МЕНЕДЖЕРА»,
   жёлтая плашка) / `&mgr=1`; `?s=…#n=Имя`; `#v=` (`index.html:applyHash`, в т.ч. устаревший — `variant_aliases`), `#c=`
   (`__collHash`, `index.html:3`), `#fav`, `#plan`; `?style=` (`index.html:styleParam`); `?lang=`; `/embed/<партнёр>/<кв>`
@@ -42,14 +42,14 @@ parent_plan: onb-00-quiz-master
   375×667, путь) · опрос: показать / обойти / по флагу · приветствие с именем? · куда после опроса · события. Решения по умолчанию
   (предложение): глубокие ссылки `#v/#c/#fav/#plan` и `/embed` — обход; повтор — обход (метка на устройстве без ответов);
   webdriver — обход, кроме `?quiz=1`.
-- [ ] **Т2. Аудит цветов** `node tools/ops/quiz-colour-audit.mjs --data ~/scout-scenes/flat215-demo/demo-data.json`. По 5 стилям:
+- [x] **Т2. Аудит цветов** `node tools/ops/quiz-colour-audit.mjs --data ~/scout-scenes/flat215-demo/demo-data.json`. По 5 стилям:
   предметы набора (`variants[].items/decor[].sku.swatch|colour_en`) → 4 семейства вопроса 3 (светлые нейтральные · тёплые природные ·
   графит и холодные · яркие акценты; пороги HSL и словарь `colour_en` — в `quiz.json` `palettes`), доля по стилю; для каждого предмета —
   в какие семейства его можно перекрасить цветами той же модели (`feeds[роль]` по `msid` — то же правило, что `index.html:colourFam`).
   Снимок 04.11 для ориентира: `swatch` есть у 21 из 43 предметов наборов, у торшера и ковра цветов почти нет; моделей с >1 цветом:
   стул 28, кресло 22, тв-тумба 19, диван 15. Вывод: вопрос 3 «перекрашивает» (сколько предметов/стиль) или только «весит» в подборе
   или убираем; какие 2–3 стиля «ближе» каждой палитре.
-- [ ] **Т3. Черновик событий** (§ События). Покупатель → менеджер: новый `buyerEventKind` (предложение `quiz_done`; имя — в ADR-0330),
+- [x] **Т3. Черновик событий** (§ События). Покупатель → менеджер: новый `buyerEventKind` (предложение `quiz_done`; имя — в ADR-0330),
   поля `contracts/send.ts:buyerEvent` только перечислениями: `picked` (≤2 стиля), `household` (один · вдвоём · дети <3/3–12/подросток ·
   питомец · родители/гости), `colours` (≤2), `result` (3 стиля), `chosen`; плюс `style_change` («Выбрать другой» после опроса).
   Текст сигнала (`modules/sends/signals.ts`, без имени): «Клиент прошёл знакомство: выбрал «Сканди»; живут: вдвоём, кошка или собака;
@@ -57,19 +57,19 @@ parent_plan: onb-00-quiz-master
   Застройщику — счётчики `contracts/analytics.ts:pageCounterKind` (`quiz_open`, `quiz_done`, `quiz_skip`, `style_change` + счётчики
   ответов без связки с человеком), поля отчёта `modules/partner-report/report.ts:buildReport`. Миграция не нужна: `kind text`
   (`db/init/014-sends.sql:50`, `db/init/017-analytics.sql`). Проверка «нет ПДн»: ни одного свободного текста.
-- [ ] **Т4. Правило и эталоны.** `tools/scout/rules/quiz.json`: `version`, вопросы и варианты (id, RU/EN), веса (фото 1-го вопроса —
+- [x] **Т4. Правило и эталоны.** `tools/scout/rules/quiz.json`: `version`, вопросы и варианты (id, RU/EN), веса (фото 1-го вопроса —
   главный; палитра — по долям из Т2; «кто живёт» — 0 для стиля), ничья — порядок стилей, запасной (нет ответа на 1-й — по палитре;
   нет ничего — первые 3 из `homeModel().styles`), только доступные стили (`incomplete_styles` исключены), всегда 3 разных (доступно <3 —
   все). `tests/fixtures/quiz-golden.json`: 15–20 случаев `{answers, available, expect[3]}` с причиной; обязательно: 1 и 2 фото, только
   цвета, ничего, ничья, неоклассика недоступна, доступно 2 стиля. Тот же скрипт Т2 `--dist` — перебор всех сочетаний (15 фото × 11 цветов):
   как часто стиль в тройке; стиль 0 % или > 80 % — правило переделать. Тест (пишет `onb-03`): чистая функция `quizPick` блоком
   `QUIZPICK START/END` в `index.html`, вытаскивается как в `tests/unit/demo-mask.test.ts` (блок `DEMOMASK`).
-- [ ] **Т5. 5 или 6 стилей.** `tools/scout/styles.json` — 6 (с неоклассикой), демо — 5 (`demo-data.json` `incomplete_styles`:
+- [x] **Т5. 5 или 6 стилей.** `tools/scout/styles.json` — 6 (с неоклассикой), демо — 5 (`demo-data.json` `incomplete_styles`:
   неоклассика без столика и ковра; `index.html:STYLE_IDS` — 6). Решить: вопрос 1 и итог берут стили из `homeModel().styles` (сколько
   опубликовано), не из справочника; фото неоклассики не показываем, пока её нет в витрине. Строка в ADR-0330 п.3.
-- [ ] **Т6. Матрица приёмки** (вход ADR-0330 п.6): комнаты `data/partners/demo.json`/`demo-uk.json` (гостиная `ready`, 6 `soon`) ×
+- [x] **Т6. Матрица приёмки** (вход ADR-0330 п.6): комнаты `data/partners/demo.json`/`demo-uk.json` (гостиная `ready`, 6 `soon`) ×
   RU/UK × `/demo`·`/flat` × фото·3D·замены·бюджет — факт сейчас с якорем (`index.html:homeRooms`, `drawHome`, `/flat` — `app/flat/page.tsx`).
-- [ ] **Т7. Живые проверки.** Что сломает новая главная/опрос: `e2e/live/demo-scenarios.live.ts` (`openDemo` и тесты 1.2–1.5, 2.33,
+- [x] **Т7. Живые проверки.** Что сломает новая главная/опрос: `e2e/live/demo-scenarios.live.ts` (`openDemo` и тесты 1.2–1.5, 2.33,
   2.34, 2.35 — первый экран, `#styleTabs`, корзина), `e2e/live/demo.live.ts`, `demo-frame.live.ts`, `floor.live.ts`, `e2e/embed.spec.ts`,
   ночной прогрев `tools/ops/demo-warm.mjs` и `tools/ops/demo-walk/*` (открывают `/demo/`). На каждую: сломается? почему? чем чинить
   (обход по webdriver / локатор). Новые проверки — номерами новой главы карты `domain/demo-scenario-map.md` («Знакомство»): имя
@@ -102,6 +102,11 @@ parent_plan: onb-00-quiz-master
 
 ## Лог выполнения
 - 2026-11-05 — черновик (помощник ведущего), уточнения ведущего по Codex: ADR-0330, флаг `quiz.enabled`, матрица приёмки, 5↔6 стилей.
+- 2026-11-05 — рабочий 1, T-20261105-02/1, ветка `worktree-onb-02`. Сделаны Т1–Т7: `domain/onboarding-quiz.md`, `domain/onb-acceptance-matrix.md`,
+  `core/onboarding-quiz.md` (строку в INDEX добавляет ведущий), `tools/scout/rules/quiz.json`, `tools/ops/quiz-colour-audit.mjs`,
+  `tests/fixtures/quiz-golden.json` (20 случаев), `tests/unit/quiz-pick.test.ts`. Допущения (обхода по webdriver нет, `?quiz=1` при
+  выключенном флаге, `?quiz=0` = прежняя главная, `?style=` = обход, `#n=` стирать всегда, 4 возраста детей) — в `domain/onboarding-quiz.md`.
+  Вопрос 3 весит в подборе, но не перекрашивает (0–4 предмета на стиль). Каждый стиль попадает в тройку в 53–70 % случаев.
 
 ## Completion summary
 _(при закрытии)_

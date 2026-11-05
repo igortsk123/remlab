@@ -1,0 +1,431 @@
+{
+ "_note": "ЭТАЛОНЫ ПОДБОРА опроса-знакомства (onb-02 Т4): ответы → 3 стиля. Правило — tools/scout/rules/quiz.json, функция — quizPick (блок QUIZPICK). styleColours — снимок долей семейств цвета 5 стилей витрины (quiz-colour-audit.mjs); у случая свои available/styleColours — только если указаны. Меняется правило или снимок → пересчитать и сверить причины глазами.",
+ "rule": "quiz-v1-draft",
+ "source": {
+  "data": "~/scout-scenes/flat215-demo/demo-data.json",
+  "mtime": "2026-11-04T12:06:40.945Z",
+  "sha256": "89e248832abb"
+ },
+ "available": [
+  "scandi",
+  "modern",
+  "minimal",
+  "loft",
+  "japandi"
+ ],
+ "styleColours": {
+  "scandi": {
+   "light": 0.296,
+   "warm": 0.338,
+   "cool": 0.204,
+   "accent": 0.163
+  },
+  "modern": {
+   "light": 0.35,
+   "warm": 0.325,
+   "cool": 0.285,
+   "accent": 0.041
+  },
+  "minimal": {
+   "light": 0.161,
+   "warm": 0.194,
+   "cool": 0.613,
+   "accent": 0.032
+  },
+  "loft": {
+   "light": 0.174,
+   "warm": 0.087,
+   "cool": 0.695,
+   "accent": 0.043
+  },
+  "japandi": {
+   "light": 0.419,
+   "warm": 0.29,
+   "cool": 0.129,
+   "accent": 0.161
+  }
+ },
+ "cases": [
+  {
+   "id": "one-photo-scandi",
+   "why": "1 фото: выбранный стиль первым, ещё два — самые похожие палитрой (джапанди 0,88, современный 0,87)",
+   "answers": {
+    "photos": [
+     "scandi"
+    ]
+   },
+   "expect": [
+    "scandi",
+    "japandi",
+    "modern"
+   ]
+  },
+  {
+   "id": "one-photo-loft",
+   "why": "1 фото лофт: похожие — минимализм (графит, 0,89) и современный; светлые сканди/джапанди не лезут",
+   "answers": {
+    "photos": [
+     "loft"
+    ]
+   },
+   "expect": [
+    "loft",
+    "minimal",
+    "modern"
+   ]
+  },
+  {
+   "id": "photo-and-colour-agree",
+   "why": "фото и цвет согласны (минимализм + графит): к нему лофт и современный — самые «графитовые» после него",
+   "answers": {
+    "photos": [
+     "minimal"
+    ],
+    "colours": [
+     "cool"
+    ]
+   },
+   "expect": [
+    "minimal",
+    "loft",
+    "modern"
+   ]
+  },
+  {
+   "id": "photo-light",
+   "why": "джапанди + светлые: к нему современный (35 % светлых) и сканди",
+   "answers": {
+    "photos": [
+     "japandi"
+    ],
+    "colours": [
+     "light"
+    ]
+   },
+   "expect": [
+    "japandi",
+    "modern",
+    "scandi"
+   ]
+  },
+  {
+   "id": "photo-vs-colour",
+   "why": "фото джапанди, но цвет «графит»: цвет перевешивает похожесть — лофт и минимализм, а не сканди",
+   "answers": {
+    "photos": [
+     "japandi"
+    ],
+    "colours": [
+     "cool"
+    ]
+   },
+   "expect": [
+    "japandi",
+    "loft",
+    "minimal"
+   ]
+  },
+  {
+   "id": "two-photos",
+   "why": "2 фото (сканди + лофт): оба в тройке, третий — ближайший к любому из них (минимализм к лофту 0,89)",
+   "answers": {
+    "photos": [
+     "scandi",
+     "loft"
+    ]
+   },
+   "expect": [
+    "scandi",
+    "loft",
+    "minimal"
+   ]
+  },
+  {
+   "id": "two-photos-colour",
+   "why": "2 фото + тёплые: оба выбранных (порядок — по доле тёплых), третий — сканди (34 % тёплых, близок к джапанди)",
+   "answers": {
+    "photos": [
+     "minimal",
+     "japandi"
+    ],
+    "colours": [
+     "warm"
+    ]
+   },
+   "expect": [
+    "japandi",
+    "minimal",
+    "scandi"
+   ]
+  },
+  {
+   "id": "two-photos-two-colours",
+   "why": "2 фото + 2 цвета: выбранные всегда в тройке (вес фото 10 > цвет 3 + похожесть 2)",
+   "answers": {
+    "photos": [
+     "loft",
+     "minimal"
+    ],
+    "colours": [
+     "cool",
+     "accent"
+    ]
+   },
+   "expect": [
+    "loft",
+    "minimal",
+    "modern"
+   ]
+  },
+  {
+   "id": "only-colour-cool",
+   "why": "фото не выбрано, только «графит»: стили по доле графитовых предметов",
+   "answers": {
+    "colours": [
+     "cool"
+    ]
+   },
+   "expect": [
+    "loft",
+    "minimal",
+    "modern"
+   ]
+  },
+  {
+   "id": "only-colours-light-warm",
+   "why": "только два цвета: среднее долей светлых и тёплых",
+   "answers": {
+    "colours": [
+     "light",
+     "warm"
+    ]
+   },
+   "expect": [
+    "japandi",
+    "modern",
+    "scandi"
+   ]
+  },
+  {
+   "id": "only-colour-accent",
+   "why": "только «яркие»: бирюзовые шторы и цветные подушки — сканди и джапанди; третий лофт (оранжевая подушка, 4,3 % против 4,1 % у современного — почти ничья)",
+   "answers": {
+    "colours": [
+     "accent"
+    ]
+   },
+   "expect": [
+    "scandi",
+    "japandi",
+    "loft"
+   ]
+  },
+  {
+   "id": "nothing",
+   "why": "ничего не ответил («Сразу к стилям» не то же — там опроса нет): первые 3 вкладки главной",
+   "answers": {},
+   "expect": [
+    "scandi",
+    "modern",
+    "minimal"
+   ]
+  },
+  {
+   "id": "household-only",
+   "why": "«Кто живёт» на стиль не влияет (вес 0) — как «ничего»",
+   "answers": {
+    "household": [
+     "couple",
+     "pet"
+    ]
+   },
+   "expect": [
+    "scandi",
+    "modern",
+    "minimal"
+   ]
+  },
+  {
+   "id": "household-with-photo",
+   "why": "«Кто живёт» с фото — итог как у одного фото",
+   "answers": {
+    "photos": [
+     "modern"
+    ],
+    "household": [
+     "child"
+    ]
+   },
+   "expect": [
+    "modern",
+    "scandi",
+    "japandi"
+   ]
+  },
+  {
+   "id": "neoclassic-unavailable",
+   "why": "фото неоклассики (её нет в витрине) пропускается; дальше — как «ничего»",
+   "answers": {
+    "photos": [
+     "neoclassic"
+    ]
+   },
+   "expect": [
+    "scandi",
+    "modern",
+    "minimal"
+   ]
+  },
+  {
+   "id": "neoclassic-unavailable-pair",
+   "why": "неоклассика пропускается, второй выбор остаётся",
+   "answers": {
+    "photos": [
+     "neoclassic",
+     "loft"
+    ]
+   },
+   "expect": [
+    "loft",
+    "minimal",
+    "modern"
+   ]
+  },
+  {
+   "id": "picked-unavailable",
+   "why": "выбранный стиль сняли с витрины между показом и итогом: его нет в тройке, итог — по порядку вкладок",
+   "answers": {
+    "photos": [
+     "loft"
+    ]
+   },
+   "available": [
+    "scandi",
+    "modern",
+    "minimal",
+    "japandi"
+   ],
+   "expect": [
+    "scandi",
+    "modern",
+    "minimal"
+   ]
+  },
+  {
+   "id": "only-two-available",
+   "why": "опубликовано 2 стиля: итог — оба (меньше 3 не добиваем)",
+   "answers": {
+    "photos": [
+     "loft"
+    ]
+   },
+   "available": [
+    "scandi",
+    "loft"
+   ],
+   "expect": [
+    "loft",
+    "scandi"
+   ]
+  },
+  {
+   "id": "tie",
+   "why": "ничья (палитры одинаковы): порядок вкладок главной",
+   "answers": {
+    "colours": [
+     "light"
+    ]
+   },
+   "available": [
+    "modern",
+    "scandi",
+    "japandi"
+   ],
+   "styleColours": {
+    "modern": {
+     "light": 0.25,
+     "warm": 0.25,
+     "cool": 0.25,
+     "accent": 0.25
+    },
+    "scandi": {
+     "light": 0.25,
+     "warm": 0.25,
+     "cool": 0.25,
+     "accent": 0.25
+    },
+    "japandi": {
+     "light": 0.25,
+     "warm": 0.25,
+     "cool": 0.25,
+     "accent": 0.25
+    }
+   },
+   "expect": [
+    "modern",
+    "scandi",
+    "japandi"
+   ]
+  },
+  {
+   "id": "neoclassic-published",
+   "why": "неоклассику опубликовали (6 стилей): её фото работает как любое",
+   "answers": {
+    "photos": [
+     "neoclassic"
+    ]
+   },
+   "available": [
+    "scandi",
+    "modern",
+    "minimal",
+    "loft",
+    "japandi",
+    "neoclassic"
+   ],
+   "styleColours": {
+    "scandi": {
+     "light": 0.296,
+     "warm": 0.338,
+     "cool": 0.204,
+     "accent": 0.163
+    },
+    "modern": {
+     "light": 0.35,
+     "warm": 0.325,
+     "cool": 0.285,
+     "accent": 0.041
+    },
+    "minimal": {
+     "light": 0.161,
+     "warm": 0.194,
+     "cool": 0.613,
+     "accent": 0.032
+    },
+    "loft": {
+     "light": 0.174,
+     "warm": 0.087,
+     "cool": 0.695,
+     "accent": 0.043
+    },
+    "japandi": {
+     "light": 0.419,
+     "warm": 0.29,
+     "cool": 0.129,
+     "accent": 0.161
+    },
+    "neoclassic": {
+     "light": 0.45,
+     "warm": 0.35,
+     "cool": 0.15,
+     "accent": 0.05
+    }
+   },
+   "expect": [
+    "neoclassic",
+    "japandi",
+    "modern"
+   ]
+  }
+ ]
+}
