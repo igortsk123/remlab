@@ -42,7 +42,9 @@
 цену чтений памяти `pamyat` (`pamyat.py`) и последний замер недели учётки `nedelya` (`nedelya_seychas`);
 `tools/tokeny/svodka.sh [--proekt X]` на любой машине склеивает их в `data/otchety/tokeny/svodka-<сутки>.txt`
 (и в stdout): токены и $ по машинам, % недели каждой учётки, строка «Память». Машина без выгрузки — «нет данных»
-по `--ozhidaem`; замер пользы памяти старше 14 дней — напоминание (`--zamery`).
+по `--ozhidaem`; замер пользы памяти старше 14 дней — напоминание (`--zamery`); самые дорогие задачи —
+названиями с доски задач проекта (`--doska`, `nazvaniya.py`); «На 1 % недели» — млн взвешенных токенов на 1 п.п. лимита
+учётки каждой машины по выгрузкам всех проектов за 7 суток.
 
     python3 tools/tokeny/tokeny.py --proekt tamara --sobrat data/logs/tokeny/*-2026-11-01.json \\
         --svodka --data 2026-11-01 --ozhidaem common,algor,pakardev
@@ -828,7 +830,9 @@ def prirosty_limita(tochki: list[tuple[datetime, float, int]]) -> list[Prirost]:
     без смены `resets_at` (20.10.2026: 54 → 2). Иное падение — устаревшее показание другой сессии
     (у одной сессии процент не падает; 25.10: простаивающая — всегда 60 при живых 65+, ложный
     сброс каждую минуту дал 579,8 п.п. вместо 25): прироста нет, в окне берётся максимум. Точка
-    старого окна после смены — тоже устаревшее показание, пропускается.
+    старого окна после смены — тоже устаревшее показание, пропускается. Сброс по падению — только с
+    максимума больше `NOVOE_OKNO_DO`: в начале недели (04.11 на algor: живые 6, простаивающая 1) падение
+    6 → 1 — устаревшее показание, а не сброс (ложный сброс каждую минуту дал 124,7 п.п. за сутки).
     """
     itog: list[Prirost] = []
     if not tochki:
@@ -838,7 +842,7 @@ def prirosty_limita(tochki: list[tuple[datetime, float, int]]) -> list[Prirost]:
     for t, p, r in tochki[1:]:
         if okno - r > DOPUSK_OKNA or (p >= staryy_maks - POROG_SBROSA > maks):
             continue
-        if r - okno > DOPUSK_OKNA or p <= min(maks - POROG_SBROSA, NOVOE_OKNO_DO):
+        if r - okno > DOPUSK_OKNA or NOVOE_OKNO_DO < maks and p <= min(maks - POROG_SBROSA, NOVOE_OKNO_DO):
             staryy_maks = -1.0 if r - okno > DOPUSK_OKNA else maks
             if p > 0:
                 itog.append((pred, t, p))
