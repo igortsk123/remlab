@@ -123,7 +123,7 @@ def pbr_layer(path: str, role: str | None = None) -> dict:
     tex = _load_textures(path, doc)
     stats = {k: _tex_stats(v) for k, v in tex.items()}
 
-    problems = []
+    problems, notes = [], []
     if not mats:
         problems.append('нет материалов')
     if not has_pbr:
@@ -137,8 +137,11 @@ def pbr_layer(path: str, role: str | None = None) -> dict:
     # а нам нужно различать ткань сиденья и металл ножек в пределах одного предмета.
     if 'metallicRoughness' not in tex:
         problems.append('нет карты metallicRoughness — текстура запечённая, не PBR')
+    # Normal-карта — отделка, не брак (T-20261105-36/2): Hunyuan 2.1 её не отдаёт НИКОГДА (только baseColor +
+    # metallicRoughness), и строка роняла в geometry_valid каждую модель — статус перестал различать годное и плохое.
+    # Остаётся заметкой: рельеф ткани/дерева дорисовывать на этапе отделки, а не перегоном.
     if 'normal' not in tex:
-        problems.append('нет normal-карты — рельеф будет плоским под любым светом')
+        notes.append('нет normal-карты — рельеф будет плоским под любым светом')
     # Константная metallicRoughness = материал не различает дерево, ткань и металл.
     for key in ('baseColor', 'metallicRoughness'):
         s = stats.get(key)
@@ -159,7 +162,7 @@ def pbr_layer(path: str, role: str | None = None) -> dict:
     if role in EMISSIVE_ROLES and not emissive:
         problems.append('светильник без emissive — в сцене будет куском пластика')
 
-    return {'ok': not problems, 'problems': problems, 'materials': len(mats),
+    return {'ok': not problems, 'problems': problems, 'notes': notes, 'materials': len(mats),
             'extensions': sorted(used_ext), 'maps': sorted(tex),
             'texture_stats': stats, 'baked_shadow': shadow,
             'transmission': transmission, 'emissive': emissive}

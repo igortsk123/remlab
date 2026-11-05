@@ -59,6 +59,21 @@ def front_yaw_from_R(R: list[list[float]]) -> tuple[int, float]:
     return yaw, round(max(t_front, t_up), 1)
 
 
+# Сырой меш стоймя и передом к камере фото → канон (фронт = MR-yaw 180): поворот на 180° вокруг +Y.
+RAW_UPRIGHT_R = [[-1, 0, 0], [0, 1, 0], [0, 0, -1]]
+RAW_UPRIGHT_QUAT = [0.0, 0.0, 1.0, 0.0]          # wxyz, det=+1, w ≥ 0
+
+
+def role_from_manifest(glb: str, name: str = '') -> tuple[str, str]:
+    """Роль меша из его manifest.json, когда SKU нет ни в mesh_demand, ни в products (T-20261105-36/2: спальня onb-10
+    шла заданиями из файлов, карточек в БД нет — роль «?» уводила кровати и тумбы в «симметричные»)."""
+    try:
+        man = json.load(open(os.path.join(os.path.dirname(glb), 'manifest.json'), encoding='utf-8'))
+        return (man.get('role') or '?'), (name or man.get('name') or '')
+    except (OSError, ValueError):
+        return '?', name
+
+
 def sku_from_path(p: str) -> str | None:
     m = re.match(r'(\d+)_(\d+)', os.path.basename(p))
     return f'{m.group(1)}:{m.group(2)}' if m else None
@@ -106,6 +121,9 @@ ROLE_HINTS = {
     'стенка': 'мебельная стенка. СПЕРЕДИ: фасады и ниша под ТВ. СЗАДИ: глухая стенка',
     'витрина': 'витрина. СПЕРЕДИ: стеклянные дверцы. СЗАДИ: глухая стенка',
     'камин': 'камин/биокамин. СПЕРЕДИ: очаг (топка). СЗАДИ: глухой корпус',
+    'кровать': 'кровать. СПЕРЕДИ: изножье, видна постель, изголовье ЗА ней. СЗАДИ: изголовье закрывает постель',
+    'тумба прикроватная': 'прикроватная тумба. СПЕРЕДИ: ящики, дверца или открытая ниша. СЗАДИ: глухая стенка',
+    'шкаф': 'шкаф. СПЕРЕДИ: дверцы с ручками или зеркало. СЗАДИ: глухая стенка',
 }
 
 
@@ -143,6 +161,8 @@ def vlm_side(parts, role: str) -> tuple[str | None, float]:
 def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
     """Каскад для одного меша → resolution dict (status + evidence)."""
     role, name, subtype = role_of(sku)
+    if role == '?':
+        role, name = role_from_manifest(glb, name)
     yaw, tilt = front_yaw_from_R(inf['R'])
     res = {'contract': CONTRACT, 'sku': sku, 'glb': os.path.basename(glb),
            'glb_sha': hashlib.sha256(open(glb, 'rb').read()).hexdigest(),
@@ -161,10 +181,15 @@ def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
         # Orienter завалил «верх» (владелец 28.08: комоды на спине). Генераторы отдают мебель
         # СТОЙМЯ — up из сырого GLB надёжнее нейросети. Её наклон отбрасываем целиком: меш
         # остаётся стоять, а перед решают следующие слои (сиденье/VLM) уже на сыром меше.
+        # ПЕРЕД — ТОЖЕ ИЗ СЫРОГО (T-20261105-36/2): меш по фото смотрит на камеру фото = MR-yaw 0 (у сидячих с
+        # уверенным сиденьем так 95–98 %: диваны 561/576, кресла 369/375, стулья 269/282). Канон «фронт = MR-yaw 180»
+        # значит R = поворот на 180° вокруг вертикали, а не единичная: прежняя единичная ставила перед на зад сырого
+        # меша — VLM у таких комодов в 49 из 67 сказал «зад», у тв-тумб 29 из 52.
         res['evidence']['orienter']['up_rejected'] = True
-        inf = dict(inf, R=[[1, 0, 0], [0, 1, 0], [0, 0, 1]], quat_wxyz=[1.0, 0.0, 0.0, 0.0])
+        inf = dict(inf, R=RAW_UPRIGHT_R, quat_wxyz=RAW_UPRIGHT_QUAT)
+        res['R'] = inf['R']
         res['raw_to_canonical_quat_wxyz'] = inf['quat_wxyz']
-        res['legacy_front_yaw'], res['up_tilt_deg'] = 180, 0.0
+        res['legacy_front_yaw'], res['up_tilt_deg'] = front_yaw_from_R(inf['R'])
 
     parts = canonical_parts(glb, inf['R'])
     if role in SEAT_ROLES:

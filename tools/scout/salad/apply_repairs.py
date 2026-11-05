@@ -41,6 +41,22 @@ except Exception:  # noqa: BLE001 — на ноде модуля нет; лок�
     SQUARE_ROLES = {'кашпо', 'ваза', 'торшер', 'лампа', 'пуф'}
 
 
+# Что лечит перегон (T-20261105-36/2). Новый seed меняет ФОРМУ — значит перегоняем только брак формы («generated»:
+# геометрия/профиль/подложка). «geometry_valid» = форма годна, споткнулась отделка (PBR): у Hunyuan 2.1 карты одни и те же
+# при любом seed, перегон жёг GPU и возвращал то же (2599 строк очереди, из пула 1577 — такие).
+RESEED_STATUSES = ('generated',)
+
+
+def wants_reseed(status: str, seed: int) -> bool:
+    """В очередь перегона: брак формы и перегона ещё не было (Codex q27: один reseed)."""
+    return status in RESEED_STATUSES and seed < 1
+
+
+def manual_repair(status: str, seed: int) -> bool:
+    """Брак формы пережил перегон — вручную или замена товара."""
+    return status in RESEED_STATUSES and seed >= 1
+
+
 def slab_excess(glb: str, dims: dict | None, role: str | None) -> float | None:
     """Идентификация лишней подложки метрикой владельца (30.08): footprint модели
     против паспортного W×D. Возвращает коэффициент превышения (>1 — модель шире
@@ -237,11 +253,11 @@ def main() -> None:
         verdicts[man['sku']] = status
         seed = int(man.get('seed') or 0)
         json.dump({'status': status, 'slab_excess': excess, 'color_mismatch': cmis,
-                   'manual_repair_candidate': bool(status in ('generated', 'geometry_valid') and seed >= 1)},
+                   'manual_repair_candidate': manual_repair(status, seed)},
                   open(os.path.join(d, 'verdict.json'), 'w'))
         # Codex q27: один reseed; повторилась та же сигнатура — вручную/замена, второй
         # перегон жжёт GPU без шансов (seed-стабильные дефекты: пара на фото, плита у цоколя).
-        if status in ('generated', 'geometry_valid') and seed < 1:
+        if wants_reseed(status, seed):
             key = (man['sku'], seed + 1)
             if key not in seen:
                 seen.add(key)
