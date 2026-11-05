@@ -293,30 +293,24 @@ def family(name: str) -> str:
     return ' '.join(out)
 
 
-def photo_alive(url: str, tries: int = 3) -> bool:
-    """Фото скачивается — как `flat215_demo.grab` (тот же User-Agent и Referer, три попытки: Гдеслон отвечает 403 через
-    раз, урок 468), но только первые 2 КБ: заголовок картинки, не файл."""
+def photo_alive(url: str, tries: int = 3):
+    """Фото скачивается → True / False / None («не смог проверить» — не приговор). Проверка — проектная
+    `img_alive._probe` (HEAD, затем первые 2 КБ и сигнатура; мертво — только 404/410 или не картинка), в её кэш
+    не пишем; «не смог» — до трёх попыток (Гдеслон отвечает 403 через раз, урок 468)."""
     import time
-    import urllib.request
-    full = ('https:' + url) if url.startswith('//') else url
+    import img_alive
     for k in range(tries):
-        try:
-            req = urllib.request.Request(full, headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://remont-lab.online/',
-                                                        'Range': 'bytes=0-2047'})
-            with urllib.request.urlopen(req, timeout=15) as f:
-                head = f.read(2048)
-            if head[:3] == b'\xff\xd8\xff' or head[:8] == b'\x89PNG\r\n\x1a\n' or head[8:12] == b'WEBP' or head[:4] == b'GIF8' \
-                    or (f.headers.get('Content-Type') or '').startswith('image/'):
-                return True
-        except Exception:  # noqa: BLE001 — сеть/403: следующая попытка
-            pass
+        r = img_alive._probe(url)
+        if r is not None:
+            return r
         if k < tries - 1:
             time.sleep(1.5)
-    return False
+    return None
 
 
 def table(items: list, R: dict, photos: int = 0, seed: int = 5) -> list:
-    """Роль × магазин: в продаже (свежий фид + цена) · с фото · с живым фото (выборка `photos` на клетку, доля → оценка)
+    """Роль × магазин: в продаже (свежий фид + цена) · с фото · с живым фото (выборка `photos` на клетку: живых/проверенных,
+    оценка на всю клетку; «не проверено» — CDN не ответил, не приговор)
     · с полными размерами · честный габарит (кровати) · моделей. items — {role, shop, price, img, full, honest, name}.
     → строки таблицы (markdown), первая — шапка."""
     import random
@@ -336,7 +330,8 @@ def table(items: list, R: dict, photos: int = 0, seed: int = 5) -> list:
         with ThreadPoolExecutor(max_workers=8) as ex:
             got = dict(zip(urls, ex.map(photo_alive, urls)))
         for k, v in todo.items():
-            alive[k] = (sum(got[x['img']] for x in v), len(v))
+            known = [got[x['img']] for x in v if got[x['img']] is not None]
+            alive[k] = (sum(known), len(known), len(v) - len(known))
     out = ['| роль | магазин | вкл | в продаже | с фото | живое фото | полные размеры | честный габарит | показ с размерами | моделей |',
            '|---|---|---|---|---|---|---|---|---|---|']
     order = sorted(cells, key=lambda k: (k[0] not in on, k[0], -len(cells[k])))
@@ -347,8 +342,8 @@ def table(items: list, R: dict, photos: int = 0, seed: int = 5) -> list:
         full = [x for x in foto if x['full']]
         bed = k[0] in R.get('bed_roles', ())
         hon = sum(1 for x in foto if x['honest']) if bed else None
-        a, n = alive.get(k, (None, 0))
-        live = f'{a}/{n} (≈{round(len(foto) * a / n)})' if n else '—'
+        a, n, unk = alive.get(k, (None, 0, 0))
+        live = (f'{a}/{n} (≈{round(len(foto) * a / n)})' if n else '—') + (f', не проверено {unk}' if unk else '')
         out.append(f"| {k[0]} | {k[1]} | {'да' if k[0] in on else 'нет'} | {len(sale)} | {len(foto)} | {live} | {len(full)} | "
                    f"{'—' if hon is None else hon} | {hon if bed else len(full)} | {len({family(x['name']) for x in foto})} |")
     return out
