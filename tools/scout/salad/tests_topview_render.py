@@ -37,14 +37,21 @@ def make_meshes(src: str, n: int) -> list[str]:
         # вытянутая коробка (не «квадратная»: иначе вид сверху помечает upright_unsure — нам не важно, но ближе к мебели)
         m = trimesh.creation.box(extents=(0.5 + 0.05 * i, 0.4, 0.3))
         m.export(os.path.join(d, 'model.glb'))
-        json.dump({'sku': sku, 'role': 'пуф', 'input': {'sha': f's{i}', 'dims_cm': {'w': 50, 'd': 30}}},
+        json.dump({'sku': sku, 'role': 'комод' if i == 3 else 'пуф', 'input': {'sha': f's{i}', 'dims_cm': {'w': 50, 'd': 30}}},
                   open(os.path.join(d, 'manifest.json'), 'w', encoding='utf-8'), ensure_ascii=False)
         skus.append(sku)
     return skus
 
 
+def glob_glb(src: str, key: str) -> str:
+    import glob
+    return glob.glob(os.path.join(src, key, '*', 'model.glb'))[0]
+
+
 def run(src: str, out: str, **env) -> tuple[int, str]:
-    e = dict(os.environ, TOPVIEW_SRC=src, TOPVIEW_OUT=out, TOPVIEW_BUDGET_S='600', **env)
+    # TOPVIEW_PUBLISHED='' — «на проде ничего не опубликовано», без сети (тест может задать свой файл)
+    e = dict(os.environ, TOPVIEW_SRC=src, TOPVIEW_OUT=out, TOPVIEW_BUDGET_S='600', TOPVIEW_PUBLISHED='')
+    e.update(env)
     r = subprocess.run([PY, os.path.join(HERE, 'topview_render.py')], capture_output=True, text=True,
                        timeout=240, env=e)
     return r.returncode, r.stdout + r.stderr
@@ -120,6 +127,76 @@ def main() -> None:
         m6 = json.load(open(os.path.join(out, 'topview.json')))
         check(rc == 0 and new_count(log) == 0 and all('orient_sig' in m6[k] for k in keys),
               f'старые записи без подписи — без массовой перерисовки, подпись проставлена (новых {new_count(log)})')
+
+        print('только решённые: yaw нерешённого не меняется, cabinet_front не перебивает (T-20261105-56)')
+        sys.path.insert(0, os.path.join(HERE, '..'))
+        import orient_policy as OP
+
+        def sha(k):
+            g = glob_glb(src, k)
+            return hashlib.sha256(open(g, 'rb').read()).hexdigest()[:16]
+        pub = os.path.join(tmp, 'published.json')
+        json.dump({keys[2]: {'yaw': 270.0, 'orient': 'orient-v1:auto_resolved:orienter+vlm_agree'}},
+                  open(pub, 'w', encoding='utf-8'))
+        json.dump({f'{skus[1]}|{sha1}|orient-v1': ['auto_resolved', 'orienter+vlm_agree', 270.0, 'md5c'],
+                   f'{skus[2]}|{sha(keys[2])}|orient-v1': ['vlm_pending', 'awaiting_vlm', 90.0, 'p1'],
+                   f'{skus[4]}|{sha(keys[4])}|orient-v1': ['review_pending', 'vlm_disagree', 180.0, 'r1'],
+                   f'{skus[3]}|{sha(keys[3])}|orient-v1': ['auto_resolved', 'orienter+vlm_agree', 90.0, 'c1']},
+                  open(idx, 'w', encoding='utf-8'), ensure_ascii=False)
+        # прежняя запись комода — перебивка фасадом (180) без подписи: legacy-исключения больше нет
+        m6[keys[3]].update({'yaw': 180.0, 'orient': 'orient-v1:cabinet_depth'})
+        m6[keys[3]].pop('orient_sig', None)
+        json.dump(m6, open(os.path.join(out, 'topview.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub)
+        m7 = json.load(open(os.path.join(out, 'topview.json')))
+        e2, e4, e3 = m7[keys[2]], m7[keys[4]], m7[keys[3]]
+        check(rc == 0 and e2['yaw'] == 270.0 and e2['orient'] == 'unresolved:vlm_pending' and e2['status'] == 'vlm_pending',
+              f"vlm_pending: опубликованный поворот 270, не 90 из решения ({e2.get('yaw')}, {e2.get('orient')})")
+        check(e4['yaw'] == 0.0 and e4['orient'] == 'unresolved:review_pending' and e4['status'] == 'review_pending',
+              f"review_pending, на проде нет: прежний поворот прошлого манифеста 0, не 180 ({e4.get('yaw')})")
+        check(e3['yaw'] == 90.0 and 'cabinet' not in e3['orient'] and e3['status'] == 'auto_resolved',
+              f"комод: yaw решения 90, cabinet_front не перебивает, старая запись cabinet_depth пересчитана ({e3.get('yaw')}, {e3.get('orient')})")
+        check('cabinet_front' not in open(os.path.join(HERE, 'topview_render.py'), encoding='utf-8').read().split('"""', 2)[2]
+              .replace('`cabinet_front`', ''), 'в коде вида сверху нет вызова cabinet_front')
+        check(all(OP.YAW_POLICY in m7[k]['orient_sig'] and m7[k]['status'] in m7[k]['orient_sig'] for k in keys),
+              'подпись кэша = версия правила + статус')
+
+        print('смена правила поворота инвалидирует кэш')
+        m7[keys[1]].update({'yaw': 0.0, 'orient': 'старое-правило',
+                            'orient_sig': m7[keys[1]]['orient_sig'].replace(OP.YAW_POLICY, 'yaw-p1')})
+        json.dump(m7, open(os.path.join(out, 'topview.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub)
+        m8 = json.load(open(os.path.join(out, 'topview.json')))
+        check(rc == 0 and m8[keys[1]]['yaw'] == 270.0 and m8[keys[1]]['orient'] != 'старое-правило'
+              and new_count(log) == 1,
+              f"подпись прежней версии правила — запись пересчитана и перерисована ({m8[keys[1]].get('yaw')}, новых {new_count(log)})")
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub)
+        check(rc == 0 and new_count(log) == 0, f'та же версия — из кэша (новых {new_count(log)})')
+
+        print('публикация orient.json: только решённые, прод нерешённым не затирается')
+        import publish_merge as PM
+        prod = {keys[2]: {'yaw': 270.0, 'orient': 'x'}, keys[4]: {'yaw': 90.0, 'orient': 'orient-v1:cabinet_depth'},
+                keys[1]: {'yaw': 0.0, 'orient': 'human:orient-review:cur'}, keys[3]: {'yaw': 180.0, 'orient': 'orient-v1:cabinet_depth'}}
+        merged, held = PM.merge(prod, m8, only_resolved=True)
+        check(merged[keys[2]] == prod[keys[2]] and merged[keys[4]] == prod[keys[4]],
+              'vlm_pending/review_pending — прод-значение без изменений')
+        check(keys[0] not in merged and keys[5] not in merged, 'без решения — в прод не добавляется')
+        check(merged[keys[3]]['yaw'] == 90.0 and merged[keys[3]]['status'] == 'auto_resolved',
+              'решённый комод заменяет прежний cabinet_depth, со status')
+        check(merged[keys[1]] == prod[keys[1]], 'ручное решение прода автоматическим не затирается')
+        check(held == 5, f'не пошло по фильтру: 5 ({held})')
+        merged_all, _ = PM.merge(prod, m8)
+        check(merged_all[keys[2]]['yaw'] == 270.0 and keys[0] in merged_all, 'без флага — прежнее слияние (mesh-index)')
+        bs = open(os.path.join(HERE, 'batch_show.py'), encoding='utf-8').read()
+        step = [ln for ln in bs.splitlines() if "'ориент-паблиш'" in ln]
+        check(len(step) == 1 and '--only-resolved' in step[0], 'шаг «ориент-паблиш» публикует с --only-resolved')
+
+        print('серверный 3D-кадр: «уверенный» по status, cabinet_* — нет')
+        dr = open(os.path.join(HERE, '..', 'draft_render.py'), encoding='utf-8').read()
+        check("'cabinet_'" not in dr and 'sure = _yaw_sure(oinfo)' in dr, 'draft_render: sure = orient_policy.yaw_sure')
+        check(not OP.yaw_sure({'yaw': 180, 'orient': 'orient-v1:review_pending:cabinet_conflict', 'status': 'review_pending'})
+              and not OP.yaw_sure({'yaw': 180, 'orient': 'orient-v1:cabinet_depth'})
+              and OP.yaw_sure(merged[keys[3]]), 'cabinet_conflict/cabinet_depth не уверенные, решённый — уверенный')
 
         print('фронт корпусных по глубине (cabinet_front --front-by-depth)')
         glb = os.path.join(src, keys[5], 'h0005', 'model.glb')

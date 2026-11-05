@@ -649,11 +649,12 @@ def post_steps() -> tuple:
             ('чистка болванок', f'{PY} {HERE}/prune_shapes.py --apply'),
             # ОРИЕНТАЦИЯ КАЖДОМУ НОВОМУ МЕШУ (владелец 31.08: «вся разметка должна быть
             # корректная»): боевой каскад по pending, затем виды сверху и публикация
-            # orient.json для 3D-сцены
+            # orient.json для 3D-сцены — ТОЛЬКО решённые (`--only-resolved`, T-20261105-56: прежде весь манифест
+            # вида сверху, и yaw vlm_pending/review_pending/фасада по глубине уходил в прод)
             ('ориентация', ORIENT_CMD),
             ('топ-вью', TOPVIEW_CMD),
             *SHOW_STEPS,
-            ('ориент-паблиш', f'{PY} {HERE}/publish_merge.py $HOME/scout-scenes/mesh-topview/topview.json https://remont-lab.online/test/mesh-pilot10/orient.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/demo/topsprites/ 2>/dev/null || true'))
+            ('ориент-паблиш', f'{PY} {HERE}/publish_merge.py $HOME/scout-scenes/mesh-topview/topview.json https://remont-lab.online/test/mesh-pilot10/orient.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json --only-resolved && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/demo/topsprites/ 2>/dev/null || true'))
 
 
 # pending — разбор просили, пока шёл предыдущий, и он пропущен («подберёт следующий заход»). В середине волны его

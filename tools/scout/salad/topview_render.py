@@ -4,9 +4,15 @@
 GLB в браузер не грузим: страница остаётся мгновенной, механика — как со спрайтами
 (поворот картинкой). Фронт: решение каскада orient-v1 ИМЕННО для этого GLB (`orientation_state`, ключ
 `sku|sha16|orient-v1`) — берётся только скаляр legacy_front_yaw, снэпнутый к 90°, матрица R НЕ применяется
-(рендер — сырой меш под этим yaw); у комода/тв-тумбы/тумбы его перебивает фасад (`cabinet_front`); решения
-для этого GLB нет — фолбэк на пилотный калибратор (`yaw_for`, иначе 0). Рендер ортографический, сверху,
-текстура + мягкий свет, прозрачный фон; supersample ×2 и downscale — против зубцов.
+(рендер — сырой меш под этим yaw). Рендер ортографический, сверху, текстура + мягкий свет, прозрачный фон;
+supersample ×2 и downscale — против зубцов.
+
+ТОЛЬКО РЕШЁННЫЕ (план orient-cabinet-01, этап 1; T-20261105-56). Манифест публикуется как прод `orient.json`
+(`batch_show` → `publish_merge --only-resolved`), поэтому yaw берётся лишь из `auto_resolved|human_resolved`
+(`orient_policy.RESOLVED`). Нерешённое (`vlm_pending`/`review_pending`/решения для этого GLB нет) — прежний
+ОПУБЛИКОВАННЫЙ поворот без изменений (прод `orient.json`; нет там — прошлый манифест; нет — 0), пометка
+`orient=unresolved:<статус>`, поле `status`. Фасад по глубине (`cabinet_front`) решение больше НЕ перебивает:
+на листах T-36/5 он выбирал утопленную заднюю стенку в рамке (решение 31.08 отменено; свидетелем — этап 2).
 """
 import glob
 import json
@@ -28,6 +34,8 @@ PX = 420          # длинная сторона итогового спрай�
 
 
 ORIENT_CONTRACT = 'orient-v1'
+VESSEL = {'ваза', 'кашпо', 'лампа', 'люстра', 'торшер'}
+import orient_policy as OP  # noqa: E402 — одно правило «решено» с публикацией и серверным кадром
 
 
 def orient_index() -> dict:
@@ -73,24 +81,51 @@ def orient_for(sku: str, glb: str, index: dict) -> tuple[str, tuple | None]:
     return rk, index.get(rk)
 
 
-def orient_sig(rk: str, dec: tuple | None) -> str:
-    """Подпись решения для кэша вида сверху: GLB + md5 решения каскада."""
-    return f"{rk}|{dec[3] if dec else 'none'}"
+def orient_sig(rk: str, dec: tuple | None, kept_yaw: float | None = None) -> str:
+    """Подпись для кэша вида сверху: GLB + md5 решения + СТАТУС + версия правила поворота (`orient_policy.YAW_POLICY`);
+    у нерешённого — ещё сохранённый опубликованный поворот (сменился на проде — пересчитать). Без версии правила
+    смена политики не доходила до записей с прежней подписью (Codex к orient-cabinet-01)."""
+    sig = f"{rk}|{dec[3] if dec else 'none'}|{dec[0] if dec else 'none'}|{OP.YAW_POLICY}"
+    return sig if kept_yaw is None else f'{sig}|pub{float(kept_yaw):g}'
 
 
-def yaw_for(key: str) -> tuple[float, str]:
-    r = subprocess.run(['docker', 'exec', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
-                        '-t', '-A', '-c',
-                        f"SELECT status, resolution FROM orientation_state WHERE revision_key='{key}'"],
-                       capture_output=True, text=True).stdout.strip()
-    if not r or '|' not in r:
-        return 0.0, 'unknown'
-    st, res = r.split('|', 1)
+PUBLISHED_URL = 'https://remont-lab.online/test/mesh-pilot10/orient.json'
+
+
+def published_index() -> dict | None:
+    """Прод `orient.json` — откуда нерешённому брать прежний поворот. TOPVIEW_PUBLISHED=<файл> — стенд/тень
+    (пустая строка — «опубликованного нет»). Сеть недоступна — None: тогда прошлый манифест."""
+    p = os.environ.get('TOPVIEW_PUBLISHED')
+    if p is not None:
+        return json.load(open(p, encoding='utf-8')) if p else {}
+    import urllib.request
     try:
-        yaw = float(json.loads(res).get('yaw') or 0)
-    except Exception:  # noqa: BLE001
-        yaw = 0.0
-    return (yaw if st == 'confident' else 0.0), st
+        return json.loads(urllib.request.urlopen(PUBLISHED_URL, timeout=30).read())
+    except Exception as e:  # noqa: BLE001 — без прода нерешённым остаётся поворот прошлого манифеста
+        print(f'  прод orient.json не прочитан ({type(e).__name__}) — нерешённым поворот прошлого манифеста', flush=True)
+        return None
+
+
+def kept_yaw(sku: str, published: dict | None, prev: dict) -> float:
+    """Поворот нерешённого «без изменений»: опубликованный → прошлый манифест → 0."""
+    pub = (published or {}).get(sku) or {}
+    if pub.get('yaw') is not None:
+        return float(pub['yaw'])
+    if prev.get('yaw') is not None:
+        return float(prev['yaw'])
+    return 0.0
+
+
+def prev_ext_ok(prev: dict, base_role: str) -> bool | None:
+    """Пропорции меша (не куб) из прошлой записи — чтобы смена подписи не гоняла загрузку КАЖДОГО меша заново
+    (дочерний trimesh, ~1700 мешей). Новое поле `ext_ok`; у старых записей без него — по пометке `upright_unsure`
+    (для не-сосудов она ставилась ровно при «куб»). Корпусные с `cabinet_*` пометку теряли — считаем заново."""
+    if 'ext_ok' in prev:
+        return bool(prev['ext_ok'])
+    o = str(prev.get('orient') or '')
+    if not o or o.startswith('orient-v1:cabinet_') or base_role in VESSEL:
+        return None
+    return 'upright_unsure' not in o
 
 
 def photo_upright_flip(glb: str, cutout_png: str, R=None) -> bool:
@@ -318,6 +353,7 @@ def main() -> None:
         pass
     index = orient_index()
     print(f'решений каскада ({ORIENT_CONTRACT}): {len(index)}', flush=True)
+    published = published_index()
     stopped_early = False
     todo: list = []
     seen_i = 0
@@ -353,68 +389,52 @@ def main() -> None:
                   flush=True)
         png_c = os.path.join(OUT, f'{sku}.png')
         rk, dec = orient_for(man['sku'], glb, index)
-        sig = orient_sig(rk, dec)
-        dec_yaw = float(round(dec[2] / 90.0) * 90 % 360) if dec else None
+        status = dec[0] if dec else 'none'
         prev = prev_man.get(sku) or {}
-        # КЭШ = свежий png И то же решение каскада (Codex T-36/2: по одному mtime пересчитанное решение не доходило до
-        # вида сверху без TOPVIEW_FORCE). Записи до подписи (без orient_sig) — переход без массовой перерисовки:
-        # годны, если фронт корпусных взят по фасаду (решение каскада им не важно) или поворот совпадает с решением.
-        legacy_ok = ('orient_sig' not in prev and prev.get('yaw') is not None
-                     and (str(prev.get('orient', '')).startswith('orient-v1:cabinet_')
-                          or (dec_yaw is not None and float(prev['yaw']) == dec_yaw)))
-        if (os.environ.get('TOPVIEW_FORCE') != '1' and prev
-                and (prev.get('orient_sig') == sig or legacy_ok)
-                and os.path.exists(png_c) and os.path.getmtime(png_c) >= os.path.getmtime(glb)):
-            manifest[sku] = {**prev, 'orient_sig': sig}   # готово с прошлого цикла — не пересчитываем
-            n += 1
-            continue
-        key = f"{man['sku']}|{(man.get('input') or {}).get('sha') or man.get('source_sha') or ''}|v1"
-        if dec is not None:
+        if OP.is_resolved(status):
             # ТОЛЬКО снэпнутый скаляр legacy_front_yaw, матрица R каскада здесь НЕ применяется (владелец 31.08:
             # полный R давал наклоны и «фронт под углом», авто-переворот портил здоровые диваны)
-            yaw = dec_yaw
+            yaw = float(round(dec[2] / 90.0) * 90 % 360)
             st = f'{ORIENT_CONTRACT}:{dec[0]}:{dec[1]}'
+            sig = orient_sig(rk, dec)
         else:
-            yaw, st = yaw_for(key)
+            # нерешённое — прежний опубликованный поворот без изменений; в прод не идёт (`publish_merge --only-resolved`)
+            yaw = kept_yaw(sku, published, prev)
+            st = f'unresolved:{status}'
+            sig = orient_sig(rk, dec, yaw)
+        # КЭШ = свежий png И та же подпись (GLB, решение, статус, версия правила). Прежнее исключение «записи без
+        # подписи с `cabinet_*` годны» снято: оно держало перебивку фасадом после смены правила.
+        if (os.environ.get('TOPVIEW_FORCE') != '1' and prev and prev.get('orient_sig') == sig
+                and os.path.exists(png_c) and os.path.getmtime(png_c) >= os.path.getmtime(glb)):
+            manifest[sku] = prev                          # готово с прошлого цикла — не пересчитываем
+            n += 1
+            continue
         png = os.path.join(OUT, f'{sku}.png')
         fpng = os.path.join(OUT, f'{sku}.front.png')
-        VESSEL = {'ваза', 'кашпо', 'лампа', 'люстра', 'торшер'}
         base_role = (man.get('role') or '').split()[0] if man.get('role') else ''
-        ext_ok = True
-        try:
-            # ДОЧЕРНИЙ ПРОЦЕСС, не `trimesh.load` здесь (04.09): trimesh на плотных Hunyuan-мешах
-            # не отдаёт память — +100 МБ на каждый меш в родителе, к сотому — 10 ГБ и earlyoom
-            # (урок 391; образец — `mesh_dims.extents`). Дочерний процесс умирает — память возвращается.
-            import subprocess as _sp
-            _r = _sp.run([sys.executable, '-c',
-                          'import sys,json,numpy as np,trimesh;m=trimesh.load(sys.argv[1],force="mesh");'
-                          'V=np.asarray(m.vertices);print(json.dumps([float(np.ptp(V[:,k])) for k in range(3)]))',
-                          glb], capture_output=True, text=True, timeout=300)
-            _e = json.loads(_r.stdout.strip()) if _r.returncode == 0 and _r.stdout.strip() else None
-            if _e:
-                ext_ok = max(_e) / max(min(_e), 1e-6) >= 1.10
-        except Exception:  # noqa: BLE001
-            pass
+        fresh = os.path.exists(png_c) and os.path.getmtime(png_c) >= os.path.getmtime(glb)
+        ext_ok = prev_ext_ok(prev, base_role) if (prev and fresh) else None
+        if ext_ok is None:
+            ext_ok = True
+            try:
+                # ДОЧЕРНИЙ ПРОЦЕСС, не `trimesh.load` здесь (04.09): trimesh на плотных Hunyuan-мешах
+                # не отдаёт память — +100 МБ на каждый меш в родителе, к сотому — 10 ГБ и earlyoom
+                # (урок 391; образец — `mesh_dims.extents`). Дочерний процесс умирает — память возвращается.
+                import subprocess as _sp
+                _r = _sp.run([sys.executable, '-c',
+                              'import sys,json,numpy as np,trimesh;m=trimesh.load(sys.argv[1],force="mesh");'
+                              'V=np.asarray(m.vertices);print(json.dumps([float(np.ptp(V[:,k])) for k in range(3)]))',
+                              glb], capture_output=True, text=True, timeout=300)
+                _e = json.loads(_r.stdout.strip()) if _r.returncode == 0 and _r.stdout.strip() else None
+                if _e:
+                    ext_ok = max(_e) / max(min(_e), 1e-6) >= 1.10
+            except Exception:  # noqa: BLE001
+                pass
         if base_role in VESSEL or not ext_ok:
             st += ':upright_unsure'
-        # корпусная мебель: фронт по деталям фасада (ручки/филёнки) — владелец 31.08
-        # «реальная проблема с тв-тумбами и комодами»; сильнее вердикта каскада
-        if base_role in {'комод', 'тв-тумба', 'тумба'}:
-            try:
-                # тоже дочерним процессом — второй полный load меша + карты глубины (04.09)
-                import subprocess as _sp
-                _r = _sp.run([sys.executable, os.path.join(HERE, 'cabinet_front.py'),
-                              '--front-by-depth', glb], capture_output=True, text=True, timeout=300)
-                if _r.returncode != 0:
-                    raise RuntimeError((_r.stderr or '')[-120:])
-                cyaw, csrc = json.loads(_r.stdout.strip().splitlines()[-1])
-                if cyaw is not None:
-                    yaw = cyaw
-                    st = f'orient-v1:{csrc}'
-                else:
-                    st += ':cabinet_unsure'
-            except Exception as _e:  # noqa: BLE001
-                print(f'  cabinet_front пропущен {sku}: {str(_e)[:60]}')
+        dims = (man.get('input') or {}).get('dims_cm') or {}
+        entry = {'png': f'{sku}.png', 'yaw': yaw, 'orient': st, 'status': status, 'orient_sig': sig,
+                 'role': man.get('role'), 'w': dims.get('w'), 'd': dims.get('d'), 'ext_ok': bool(ext_ok)}
         try:
             # кэш: рендер заново, если png отсутствует/старее меша или TOPVIEW_FORCE=1
             # …и если сменился поворот: png рисуется под yaw, свежий по mtime png со старым поворотом — ложь
@@ -431,17 +451,13 @@ def main() -> None:
                     stopped_early = True
                     print(f'предел {new_cap} новых мешей на процесс — остальное следующим проходом',
                           flush=True)
-                    dims = (man.get('input') or {}).get('dims_cm') or {}
-                    manifest[sku] = {'png': f'{sku}.png', 'yaw': yaw, 'orient': st, 'orient_sig': sig,
-                                     'role': man.get('role'), 'w': dims.get('w'), 'd': dims.get('d')}
+                    manifest[sku] = entry
                     n += 1
                     break
         except Exception as e:  # noqa: BLE001 — один битый меш не валит страницу
             print(f'  сбой {sku}: {str(e)[:80]}')
             continue
-        dims = (man.get('input') or {}).get('dims_cm') or {}
-        manifest[sku] = {'png': f'{sku}.png', 'yaw': yaw, 'orient': st, 'orient_sig': sig,
-                         'role': man.get('role'), 'w': dims.get('w'), 'd': dims.get('d')}
+        manifest[sku] = entry
         n += 1
     if todo:
         # ПАМЯТЬ, А НЕ ЯДРА (01.09): 10 процессов рендера на 8 ГБ машины съедали память, и

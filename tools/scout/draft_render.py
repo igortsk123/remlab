@@ -3245,12 +3245,12 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
         try:
             parts = _scene3d_parts(glb)
             oinfo = orient.get(sid) or {}
-            osrc = str(oinfo.get('orient') or '')
             # ПРАВИЛО ДЛЯ ВСЕХ МОДЕЛЕЙ (владелец 31.08): канонический разворот применяем
             # ТОЛЬКО при уверенном фронте; симметричным и спорным — 0 (стол «вставал криво»
             # от ненужного разворота симметрика)
-            sure = any(k in osrc for k in ('seat_agree', 'vlm_agree', 'cabinet_', 'confident',
-                                           'human'))
+            # «уверенный» — по status решённых (orient_policy, T-20261105-56), не подстрокой: cabinet_* не уверенный
+            from orient_policy import yaw_sure as _yaw_sure
+            sure = _yaw_sure(oinfo)
             yaw = float(oinfo.get('yaw') or 0) if sure else 0.0
             # КОНВЕНЦИЯ ПЛАННЕРА И ДЕМО (сверено по geometry.footprint и SVG демо 31.08):
             # (x,y) — ЦЕНТР предмета; знак rot — ПЛЮС (сверено с планом владельца 31.08:

@@ -11,9 +11,14 @@
 Правило: реестр на сервере — НАКОПИТЕЛЬНЫЙ. Публикуем объединение «что на проде» + «что
 посчитали сейчас», свежая запись побеждает. Удаление записи — только явным действием человека.
 
-    publish_merge.py <локальный json> <публичный url> <root@host:/путь> [-P порт]
+    publish_merge.py <локальный json> <публичный url> <root@host:/путь> [-P порт] [--only-resolved]
 
 Ключи, которых нет локально, сохраняются; ключи, посчитанные сейчас, перезаписывают старые.
+
+`--only-resolved` — для `orient.json` из манифеста вида сверху (план orient-cabinet-01, этап 1; T-20261105-56): идут
+только записи со статусом `auto_resolved|human_resolved` (`orient_policy.publishable`). Нерешённое
+(`vlm_pending`/`review_pending`/без статуса) прод-значение НЕ затирает; ручное решение прода (`human:*`) затирает
+только `human_resolved` из БД.
 """
 import json
 import os
@@ -42,12 +47,28 @@ def fetch(url: str) -> dict | None:
         return None
 
 
+def merge(remote_data: dict, local: dict, only_resolved: bool = False) -> tuple[dict, int]:
+    """Прод + посчитанное сейчас (свежее побеждает) → (итог, сколько локальных записей НЕ пошло по фильтру)."""
+    if only_resolved:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+        import orient_policy as OP
+        held = {k for k, v in local.items() if not OP.publishable(v, remote_data.get(k))}
+        local = {k: v for k, v in local.items() if k not in held}
+    else:
+        held = set()
+    merged = dict(remote_data)
+    merged.update(local)                      # посчитанное сейчас — свежее, оно и побеждает
+    return merged, len(held)
+
+
 def main() -> int:
-    if len(sys.argv) < 4:
+    argv = [a for a in sys.argv if a != '--only-resolved']
+    only_resolved = len(argv) != len(sys.argv)
+    if len(argv) < 4:
         print(__doc__)
         return 2
-    local_path, url, remote = sys.argv[1], sys.argv[2], sys.argv[3]
-    port = sys.argv[sys.argv.index('-P') + 1] if '-P' in sys.argv else '22222'
+    local_path, url, remote = argv[1], argv[2], argv[3]
+    port = argv[argv.index('-P') + 1] if '-P' in argv else '22222'
     if not os.path.exists(local_path):
         print(f'  локального реестра нет: {local_path} — публиковать нечего')
         return 0
@@ -58,11 +79,11 @@ def main() -> int:
     if not isinstance(remote_data, dict) or not isinstance(local, dict):
         print('  реестр не словарь — сливать нечем, публикацию отменяю')
         return 1
-    merged = dict(remote_data)
-    merged.update(local)                      # посчитанное сейчас — свежее, оно и побеждает
+    merged, held = merge(remote_data, local, only_resolved)
     kept = len(set(remote_data) - set(local))
     print(f'  реестр: на проде {len(remote_data)}, локально {len(local)}, '
-          f'публикую {len(merged)} (сохранено с прода {kept})', flush=True)
+          f'публикую {len(merged)} (сохранено с прода {kept}'
+          f'{f", не решено — прод не трогаю: {held}" if only_resolved else ""})', flush=True)
     with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False, encoding='utf-8') as t:
         json.dump(merged, t, ensure_ascii=False)
         tmp = t.name
