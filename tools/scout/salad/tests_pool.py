@@ -87,6 +87,9 @@ def patch(nodes: list[dict], job_fn) -> None:
     S.sink_preflight = lambda: True
     S.sink_poll = lambda force=False: True
     S._SINK.update(ok=True, why='', at=0.0)
+    # тревога о красном приёмнике — не в живой TG и не в живую отметку дросселя (до 05.11 случай «приёмник красный
+    # посреди пачки» звал настоящий alert.sh: из основной копии с .env.alert ушло бы сообщение, T-20261105-31/2)
+    S.SH.alert_throttled = lambda text: False
     S.run_job = job_fn
     S.jobs_from_file = lambda path: patch.jobs           # noqa: B010 — стенд
     S.stop_group = lambda: None
@@ -918,18 +921,22 @@ def case_alarm_before_halt() -> None:
 
 
 def case_notify_reports() -> None:
-    """notify() честно говорит, доставлено ли, и не роняет сторожа при сбое."""
+    """notify() не ждёт доставку (alert.sh с повтором — до ~2,5 мин, сторож держит замок и гасит пул ПОСЛЕ тревоги):
+    alert.sh — в фоне, своей сессией; не запустился — False, сторож не падает (T-20261105-31/2)."""
     import money_guard as G  # noqa: PLC0415
-    real = G.subprocess.run
+    real = G.SH.subprocess.Popen
+    calls = []
 
-    class R:
-        def __init__(self, rc):
-            self.returncode = rc
-    for rc, want in ((0, True), (1, False), (2, False)):
-        G.subprocess.run = lambda *a, rc=rc, **k: R(rc)
-        assert G.notify('тест') is want, rc
-    G.subprocess.run = real
-    print('  ✓ notify(): 0 → доставлено, 1/2 → нет')
+    def boom(*a, **k):
+        raise OSError('нет bash')
+    try:
+        G.SH.subprocess.Popen = lambda a, **k: calls.append((a, k))
+        assert G.notify('тест') is True and calls and calls[0][0][-1] == 'тест' and calls[0][1].get('start_new_session')
+        G.SH.subprocess.Popen = boom
+        assert G.notify('тест') is False
+    finally:
+        G.SH.subprocess.Popen = real
+    print('  ✓ notify(): alert.sh в фоне без ожидания; не запустился — False, без падения')
 
 
 def case_hot_restart() -> None:

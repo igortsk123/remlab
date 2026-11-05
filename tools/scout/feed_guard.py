@@ -69,7 +69,12 @@ def scan_stream(f, chunk_size: int = 1 << 20) -> tuple[int, set[int]]:
 
 
 def _alert(msg: str) -> None:
-    subprocess.run(['bash', os.path.join(HERE, 'alert.sh'), msg], timeout=60)
+    """alert.sh с повтором ждёт до ~2,5 мин (урок 551). Не дождались / не запустился — строка WARN (попадёт в дайджест),
+    шаг не падает: до 05.11 TimeoutExpired здесь не ловился и ронял бы ночной шаг до load3 (T-20261105-31/2)."""
+    try:
+        subprocess.run(['bash', os.path.join(HERE, 'alert.sh'), msg], timeout=180)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        print(f'WARN:alert_timeout: тревога не отправлена ({type(e).__name__}): {msg[:150]}', flush=True)
 
 
 # реестр «фид → mid магазина» (для broken-фидов, где mids из архива не прочитать):
@@ -172,6 +177,28 @@ def selftest() -> int:
     check('empty', state_for(2.0, 0), 'empty')
     # (4) порог «не сегодняшний» лежит между свежим (<2 ч) и деградированным (30 ч)
     check('not_today_bounds', 2 < NOT_TODAY_H < FRESH_H, True)
+    # (5) alert.sh с повтором не дождались (TimeoutExpired) или bash не запустился — WARN, шаг не падает (T-20261105-31/2)
+    import contextlib
+    real, seen = subprocess.run, []
+
+    def slow(args, **k):
+        seen.append(k.get('timeout'))
+        raise subprocess.TimeoutExpired(args, k.get('timeout'))
+
+    def gone(args, **k):
+        raise OSError('нет bash')
+    try:
+        for name, fake in (('timeout', slow), ('oserror', gone)):
+            subprocess.run, out = fake, io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    _alert('remlab: фид x протух')
+                check(f'alert_{name}_warn', out.getvalue().startswith('WARN:alert_timeout: '), True)
+            except Exception as e:  # noqa: BLE001
+                check(f'alert_{name}_no_raise', type(e).__name__, 'нет исключения')
+    finally:
+        subprocess.run = real
+    check('alert_timeout_180', seen, [180])
     print('feed_guard selftest:', 'FAIL' if bad else 'ok')
     return 1 if bad else 0
 

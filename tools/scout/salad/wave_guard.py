@@ -179,7 +179,7 @@ def close_wave(lease: dict, dry: bool) -> None:
     if halt and halt.get('kind') == 'budget' and halt.get('source', 'lease') == 'lease':   # потолок ручной волны снимает её finale
         os.remove(STOPS[0])
     subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'), wave_summary(w, spent, meshes, why, left_usd(lease))],
-                   check=False, timeout=60)
+                   check=False, timeout=180)
 
 
 def main() -> int:
@@ -211,7 +211,7 @@ def main() -> int:
         if note.get('day') != today and not dry:
             subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'),
                             'Меши: на Salad нет денег — волна ждёт пополнения (разрешение действует до '
-                            + str(lease.get('expires')) + '). Пополните баланс — старт сам в течение 2 ч.'], check=False, timeout=60)
+                            + str(lease.get('expires')) + '). Пополните баланс — старт сам в течение 2 ч.'], check=False, timeout=180)
             json.dump({'day': today}, open(NOTE, 'w'))
     if verdict != 'start' or dry:
         return 0
@@ -234,7 +234,7 @@ def main() -> int:
         subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'),
                         f"Меши: волна запущена по вашему разрешению — до {env['MESH_TAKE_JOBS']} моделей "
                         f"(потолок ${cap:.2f}). Конец очереди, денег или потолка — машины погаснут сами, итог пришлю."],
-                       check=False, timeout=60)
+                       check=False, timeout=180)
     return r.returncode
 
 

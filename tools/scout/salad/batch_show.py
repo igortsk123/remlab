@@ -1037,7 +1037,7 @@ def stop_groups() -> bool:
             print('!! ГРУППЫ ОСТАЛИСЬ ПОДНЯТЫМИ — гасить руками, идёт тарификация', flush=True)
             subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'),
                             'меши: конвейер завершился, а группы Salad НЕ погашены — '
-                            'идёт оплата, погасите вручную'], check=False, timeout=60)
+                            'идёт оплата, погасите вручную'], check=False, timeout=180)
     return c == 0
 
 

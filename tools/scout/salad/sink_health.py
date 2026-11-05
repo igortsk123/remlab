@@ -184,10 +184,20 @@ def alert_throttled(text: str) -> bool:
         return False
     try:
         open(ALERT_STAMP, 'w').write(str(time.time()))
-        subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'), text], timeout=30,
-                       capture_output=True, check=False)
-        return True
     except Exception:  # noqa: BLE001
+        return False
+    return alert_detached(text)
+
+
+def alert_detached(text: str) -> bool:
+    """alert.sh В ФОНЕ, без ожидания → запущен ли. С повтором (урок 551) он ждёт до ~2,5 мин, а зовут его сторожа и
+    конвейер ПЕРЕД защитным действием (`stop.set()` пачки, гашение пула в money_guard) — ждать доставку там значит
+    платить за ноды лишние минуты. Итог доставки — alert-sent.log / refresh-alert.log (T-20261105-31/2)."""
+    try:
+        subprocess.Popen(['bash', os.path.join(HERE, '..', 'alert.sh'), text], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        return True
+    except OSError:
         return False
 
 

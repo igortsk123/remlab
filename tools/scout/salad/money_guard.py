@@ -47,7 +47,6 @@ HALT = os.path.expanduser('~/scout-scenes/mesh-group-halt.json')
 # суток при разном числе реплик). Сторож и так опрашивает API каждые 5 минут — дописать
 # строку стоит ноль.
 CENSUS = os.path.join(HERE, '..', 'mesh-pool-census.jsonl')
-ALERT = os.path.join(HERE, '..', 'alert.sh')     # телеграм-бот remlab, ключи в `.env.alert`
 
 # ОБВАЛ СВЯЗИ — ОТДЕЛЬНОЕ ПРАВИЛО (владелец 04.09: «если обрывы то гасить ноды и сообщать»).
 # 03.09 в 20:31 у всех нод разом пошло `URLError: EOF occurred in violation of protocol` —
@@ -295,22 +294,15 @@ def notify(text: str) -> bool:
     """Сообщение владельцу в телеграм. Молчаливая остановка пула стоила 10 часов простоя в
     ночь на 04.09: сторож честно погасил группы в 21:22, а узнали мы об этом утром.
 
-    Возвращает, ДОСТАВЛЕНО ли (04.09): `alert.sh` теперь отдаёт 0 — TG принял, 1 — TG не ответил,
-    2 — TG не настроен (тогда текст лёг в `refresh-alert.log`). Защитное действие сторожа от
-    результата не зависит — гасим всё равно; но в логе должно быть видно, узнает ли человек.
+    Возвращает, ЗАПУЩЕНА ли отправка (05.11, T-20261105-31/2): alert.sh с повтором ждёт до ~2,5 мин (урок 551),
+    а сторож зовёт notify под замком и ПЕРЕД гашением пула — ждать доставку здесь значит платить за ноды. Поэтому
+    alert.sh уходит в фон (`SH.alert_detached`); доставлено ли — видно в `alert-sent.log` (TG ok) или
+    `refresh-alert.log` (TG FAIL / не настроен). Защитное действие сторожа от результата не зависит.
     """
-    try:
-        r = subprocess.run(['bash', ALERT, text], timeout=30, capture_output=True, check=False)
-        rc = r.returncode
-    except Exception as e:  # noqa: BLE001 — не доставили: не повод ронять сторожа
-        print(f'{time.strftime("%H:%M")} телеграм не отправлен ({type(e).__name__})', flush=True)
-        return False
-    if rc == 0:
-        print(f'{time.strftime("%H:%M")} телеграм: доставлено', flush=True)
+    if SH.alert_detached(text):
+        print(f'{time.strftime("%H:%M")} телеграм: отправка в фоне (итог — alert-sent.log / refresh-alert.log)', flush=True)
         return True
-    why = 'TG не ответил' if rc == 1 else 'TG не настроен (.env.alert)' if rc == 2 else f'rc={rc}'
-    print(f'{time.strftime("%H:%M")} телеграм: НЕ доставлено — {why}, текст в refresh-alert.log',
-          flush=True)
+    print(f'{time.strftime("%H:%M")} телеграм НЕ отправлен — alert.sh не запустился', flush=True)
     return False
 
 

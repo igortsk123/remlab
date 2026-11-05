@@ -98,7 +98,7 @@ def allow(model: str, n_req: int, batch: bool = False, note: str = '') -> bool:
                f'({n_req} запр., {model}{", batch" if batch else ""}) ≈ ${plan:.2f} — ОТПРАВКА ОТМЕНЕНА')
         print(msg)
         try:
-            subprocess.run(['bash', os.path.join(HERE, 'alert.sh'), 'remlab: ' + msg], timeout=30)
+            subprocess.run(['bash', os.path.join(HERE, 'alert.sh'), 'remlab: ' + msg], timeout=180)   # alert.sh с повтором — до ~2,5 мин
         except Exception:
             pass
         with open(SPEND_LOG, 'a', encoding='utf-8') as f:
