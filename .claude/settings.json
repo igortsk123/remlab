@@ -80,5 +80,9 @@
   "_plugins": "watermarks-remover выключен для проекта (владелец 18.10): его хук принимает поле `source:` в шапках доков банка памяти за метку ИИ и ругается на каждую правку; его чистилка вырезала бы поля, которые проверяет аудит памяти.",
   "enabledPlugins": {
     "watermarks-remover@watermarks-remover": false
+  },
+  "idleCompaction": true,
+  "env": {
+    "CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS": "120000"
   }
 }
