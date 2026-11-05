@@ -108,6 +108,14 @@ function optionsCard(p: Partner, a: ApartmentRef, lang: Lang): ApartmentCard["op
   }));
 }
 
+/**
+ * Готова ли комната к показу (ADR-0330 п.5, onb-12): гостиная — как раньше, по своему `contentState`; новая комната (спальня, кухня…)
+ * — только при `enabled` И готовых данных. Так флаг не прячет готовую гостиную, а данные без флага не выходят к покупателю раньше срока.
+ */
+export function roomContentState(r: Pick<ApartmentRef["rooms"][number], "kind" | "contentState" | "enabled">): "ready" | "soon" {
+  return r.contentState === "ready" && (r.kind === "living" || r.enabled) ? "ready" : "soon";
+}
+
 export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaultLang): ApartmentCard {
   const { partner: p, complex: c, apartment: a } = hit;
   const en = lang === "en";
@@ -144,7 +152,8 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
       : null,
     sources: a.sources,
     rooms: a.rooms.map((r) => ({ id: r.id, kind: r.kind, ordinal: r.ordinal, title: en ? r.titleEn : r.titleRu, areaM2: r.areaM2,
-      contentState: r.contentState })),
+      contentState: roomContentState(r), enabled: r.enabled })),
+    quiz: { enabled: a.quiz.enabled },
     options: optionsCard(p, a, lang),
     fx: p.fx ?? null,
     demoMask: a.demoMask ? { priceMarkup: a.demoMask.priceMarkup, englishNames: a.demoMask.englishNames, hideShops: a.demoMask.hideShops } : null,

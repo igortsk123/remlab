@@ -33,6 +33,11 @@ LOCK="$HOME/scout-scenes/.sink_keeper.lock"
 
 say() { printf '%s %s\n' "$(date -u '+%F %T')" "$*" >>"$LOG"; }
 
+# ПАУЗА ОБСЛУЖИВАНИЯ (onb-12, `tools/ops/cron-pause.sh`): сторож пишет в БД (ingest_registry/mesh_bind) — на миграцию выходим
+# строкой в лог. Сторожа денег и пула паузу НЕ слушают: группы гасятся как обычно, приёмник дождётся тика после паузы
+. "$HERE/../../ops/maintenance.sh"
+maint_gate sink_keeper "$LOG"
+
 # ОДИН СТОРОЖ НА МАШИНУ. Не ждём: следующий тик через 15 минут, копить очередь незачем.
 exec 9>"$LOCK"
 flock -n 9 || exit 0

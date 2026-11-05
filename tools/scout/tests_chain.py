@@ -44,6 +44,10 @@ class Report:
         if not cond:
             self.bad += 1
 
+    def skip(self, name: str, why: str) -> None:
+        """Проверка не применима СЕЙЧАС (комната не включена, эталонов ещё нет) — строка с причиной, не ошибка."""
+        print(f'  [skip] {name}: {why}', flush=True)
+
     def warn(self, name: str, cond: bool, got: str) -> None:
         """Живые данные: расхождение — не падение прогона, а `WARN:` в дайджест."""
         if cond:
@@ -297,13 +301,139 @@ def live_swap_feeds(r: Report) -> None:
           + (f" — {'; '.join(x['hungry'][:15])}" if x['hungry'] else ''), flush=True)
 
 
+# ---------------------------------------------------------------- новые комнаты и опрос (onb-12, ADR-0330 п.5/п.8)
+# ПРОЦЕСС-ТЕСТЫ: включённая флагом комната обязана иметь варианты, фото и цены; опрос обязан давать 3 стиля по эталонам onb-02.
+# Пока комнаты не включены и эталонов нет — [skip] с причиной (не ошибка). Форма данных новой комнаты в demo-data.json — заготовка
+# (`rooms_data.<id>.variants[].items[].sku`, как у гостиной); её окончательно задаёт onb-07, читатель один — `room_variants`.
+QUIZ_GOLDEN = os.path.join(HERE, '..', '..', 'tests', 'fixtures', 'quiz-golden.json')
+QUIZ_RULES = os.path.join(HERE, 'rules', 'quiz.json')
+DEMO_HTML = os.path.join(HERE, 'flat215-demo', 'index.html')
+LIVE_DEMO = '~/scout-scenes/flat215-demo'
+
+
+def room_variants(d: dict, room_id: str) -> list:
+    """Варианты комнаты в demo-data.json: гостиная — `variants`, новая комната — `rooms_data.<id>.variants`."""
+    if room_id == 'living':
+        return d.get('variants') or []
+    return ((d.get('rooms_data') or {}).get(room_id) or {}).get('variants') or []
+
+
+def room_problems(d: dict) -> tuple[int, list[str]]:
+    """(сколько включённых комнат проверено, что не так): у каждой — ≥ 1 вариант; у варианта — предметы, у каждого фото и цена > 0."""
+    rooms = d.get('rooms_enabled') or []
+    bad = []
+    for rid in rooms:
+        vs = room_variants(d, rid)
+        if not vs:
+            bad.append(f'{rid}: вариантов нет')
+        for v in vs:
+            items = v.get('items') or []
+            nophoto = [i.get('role') for i in items if not (i.get('sku') or {}).get('img')]
+            noprice = [i.get('role') for i in items if not ((i.get('sku') or {}).get('price') or 0) > 0]
+            if not items:
+                bad.append(f"{rid}/{v.get('id')}: пустой вариант")
+            if nophoto:
+                bad.append(f"{rid}/{v.get('id')}: без фото {', '.join(map(str, nophoto[:4]))}")
+            if noprice:
+                bad.append(f"{rid}/{v.get('id')}: без цены {', '.join(map(str, noprice[:4]))}")
+    return len(rooms), bad
+
+
+def link_rooms_enabled(r: Report) -> None:
+    """Правило на фикстурах: норма — зелёная; пустая спальня и предмет без фото — красные; ничего не включено — проверять нечего."""
+    it = {'role': 'кровать', 'sku': {'img': 'img/a.jpg', 'price': 41990}}
+    norm = {'rooms_enabled': ['bedroom-1'], 'rooms_data': {'bedroom-1': {'variants': [{'id': 'b1', 'items': [it]}]}}}
+    n, bad = room_problems(norm)
+    r.ok('комнаты: включённая спальня с вариантом, фото и ценой — норма', n == 1 and not bad, f'проверено {n}, замечаний {len(bad)}')
+    n, bad = room_problems({'rooms_enabled': ['bedroom-1']})
+    r.ok('комнаты: включённая пустая спальня — красная', bad == ['bedroom-1: вариантов нет'], f'замечаний {len(bad)}: {bad}')
+    nophoto = {**norm, 'rooms_data': {'bedroom-1': {'variants': [{'id': 'b1', 'items': [{'role': 'кровать', 'sku': {'price': 1}},
+                                                                                        {'role': 'тумба', 'sku': {'img': 'x'}}]}]}}}
+    n, bad = room_problems(nophoto)
+    r.ok('комнаты: предмет без фото и предмет без цены — красные', len(bad) == 2, f'замечаний {len(bad)}: {bad}')
+    n, bad = room_problems({'variants': [{'id': 'v1', 'items': []}]})
+    r.ok('комнаты: флагов нет — проверять нечего (гостиную ведут свои проверки)', n == 0 and not bad, f'проверено {n}')
+
+
+def live_rooms_enabled(r: Report) -> None:
+    """Живое демо: каждая включённая флагом комната имеет варианты, фото и цены."""
+    d = json.load(open(os.path.expanduser(os.path.join(LIVE_DEMO, 'demo-data.json')), encoding='utf-8'))
+    n, bad = room_problems(d)
+    if not n:
+        r.skip('rooms_enabled', 'новых комнат не включено (в demo-data.json нет rooms_enabled) — проверять нечего')
+        return
+    r.warn('rooms_enabled', not bad, f'включённых комнат {n}, замечаний {len(bad)}' + (f" ({'; '.join(bad[:6])})" if bad else ''))
+
+
+QUIZ_NODE = r"""
+const fs = require('fs');
+const [html, rulesPath, goldenPath] = process.argv.slice(1);
+const src = fs.readFileSync(html, 'utf8');
+const m = src.match(/QUIZPICK START[^\n]*\n([\s\S]*?)\n[^\n]*QUIZPICK END/);
+if (!m) { console.log(JSON.stringify({ skip: 'в странице нет блока QUIZPICK START/END (onb-03)' })); process.exit(0); }
+const quizPick = new Function(m[1] + '\nreturn quizPick;')();
+const rules = JSON.parse(fs.readFileSync(rulesPath, 'utf8'));
+const cases = JSON.parse(fs.readFileSync(goldenPath, 'utf8'));
+const list = Array.isArray(cases) ? cases : (cases.cases || []);
+const bad = [];
+list.forEach((c, k) => {
+  const got = quizPick(rules, c.answers, c.available);
+  const three = Math.min(3, (c.available || []).length);
+  if (JSON.stringify(got) !== JSON.stringify(c.expect) || new Set(got).size !== got.length || got.length !== three)
+    bad.push(`#${k + 1} ${c.why || ''}: ждали ${JSON.stringify(c.expect)}, вышло ${JSON.stringify(got)}`);
+});
+console.log(JSON.stringify({ n: list.length, bad }));
+"""
+
+
+def quiz_golden_run(html: str, rules: str) -> dict:
+    """Эталоны onb-02 (`tests/fixtures/quiz-golden.json`: `{answers, available, expect[3], why}`) через `quizPick(rules, answers,
+    available)` из блока QUIZPICK страницы (onb-03 Т1). Нет эталонов, правила, страницы или node — `{'skip': причина}`."""
+    for path, why in ((QUIZ_GOLDEN, 'эталонов опроса ещё нет (tests/fixtures/quiz-golden.json — onb-02)'),
+                      (rules, 'правила опроса ещё нет (rules/quiz.json — onb-02)'), (html, 'страницы демо нет')):
+        if not os.path.exists(path):
+            return {'skip': why}
+    try:
+        out = subprocess.run(['node', '-e', QUIZ_NODE, html, rules, QUIZ_GOLDEN], capture_output=True, text=True, timeout=60)
+    except FileNotFoundError:
+        return {'skip': 'нет node'}
+    if out.returncode:
+        return {'n': 0, 'bad': [f'прогон эталонов упал: {(out.stderr or out.stdout).strip()[-200:]}']}
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def link_quiz_golden(r: Report) -> None:
+    """Опрос даёт 3 стиля по эталонам — на исходнике страницы в репо."""
+    res = quiz_golden_run(DEMO_HTML, QUIZ_RULES)
+    if 'skip' in res:
+        r.skip('опрос: 3 стиля по эталонам', res['skip'])
+        return
+    r.ok('опрос: 3 стиля по эталонам', res['n'] > 0 and not res['bad'],
+         f"эталонов {res['n']}, расхождений {len(res['bad'])}" + (f" ({'; '.join(res['bad'][:3])})" if res['bad'] else ''))
+
+
+def live_quiz_golden(r: Report) -> None:
+    """Живое демо: опрос включён флагом — опубликованная страница даёт по эталонам те же 3 стиля."""
+    root = os.path.expanduser(LIVE_DEMO)
+    d = json.load(open(os.path.join(root, 'demo-data.json'), encoding='utf-8'))
+    if not d.get('quiz_enabled'):
+        r.skip('quiz_golden', 'опрос не включён (в demo-data.json нет quiz_enabled) — проверять нечего')
+        return
+    res = quiz_golden_run(os.path.join(root, 'index.html'), QUIZ_RULES)
+    if 'skip' in res:
+        r.warn('quiz_golden', False, f"опрос включён, а проверить нечем: {res['skip']}")
+        return
+    r.warn('quiz_golden', res['n'] > 0 and not res['bad'], f"эталонов {res['n']}, расхождений {len(res['bad'])}"
+           + (f" ({'; '.join(res['bad'][:3])})" if res['bad'] else ''))
+
+
 def main() -> int:
     live = '--live' in sys.argv
     r = Report()
     if live:
         print('проверки цепочки по ЖИВЫМ данным:', flush=True)
         for fn in (live_role_canon, live_dining_fit, live_mesh_required, live_queue_not_empty, live_guards_scheduled,
-                   live_demo_variants, live_photo_gate, live_swap_feeds):
+                   live_demo_variants, live_photo_gate, live_swap_feeds, live_rooms_enabled, live_quiz_golden):
             try:
                 fn(r)
             except Exception as e:  # noqa: BLE001 — одна проверка не должна ронять шаг
@@ -313,7 +443,7 @@ def main() -> int:
         print(f'цепочка (живые): расхождений {r.bad}', flush=True)
         return 0          # живые расхождения — предупреждение, а не падение конвейера
     print('проверки цепочки на фикстурах:', flush=True)
-    for fn in (link_feed_to_role, link_dining_table, link_daily_limit, link_pinned_first):
+    for fn in (link_feed_to_role, link_dining_table, link_daily_limit, link_pinned_first, link_rooms_enabled, link_quiz_golden):
         fn(r)
     print(f'tests_chain selftest: ошибок {r.bad}', flush=True)
     return 1 if r.bad else 0

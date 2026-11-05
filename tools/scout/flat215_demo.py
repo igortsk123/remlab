@@ -520,6 +520,16 @@ def style_id(style: str | None) -> str:
     return STYLE_IDS.get(str(style or '').strip().lower(), '')
 
 
+def room_flags(apt: dict) -> dict:
+    """ФЛАГИ НОВЫХ КОМНАТ И ОПРОСА (ADR-0330 п.5, onb-12): из реестра квартиры (`apartments[].rooms[].enabled`,
+    `apartments[].quiz.enabled`, по умолчанию выключены) — в `demo-data.json` полями `rooms_enabled` (id включённых комнат в порядке
+    плана) и `quiz_enabled`. Всё выключено — пусто: данные демо байт в байт прежние, страница читает «нет поля» как «выключено».
+    Включается только настоящее `true` (не строка «true»: опечатку ловит схема `contracts/partner.ts` в тестах)."""
+    rooms = [r['id'] for r in apt.get('rooms') or [] if r.get('enabled') is True]
+    quiz = (apt.get('quiz') or {}).get('enabled') is True
+    return {**({'rooms_enabled': rooms} if rooms else {}), **({'quiz_enabled': True} if quiz else {})}
+
+
 def living_room_id() -> str:
     """Комната, которую обставляют варианты витрины: первая гостиная квартиры из реестра; реестра нет — `living`."""
     return next((r['id'] for r in demo_apartment().get('rooms') or [] if r.get('kind') == 'living'), 'living')
@@ -1356,6 +1366,8 @@ def build() -> dict:
             # ПОМЕЩЕНИЯ КВАРТИРЫ ИЗ РЕЕСТРА (demo-16): порядок плана и площади — `data/partners/*.json`; страница берёт их
             # карточкой `/api/apartments`, а это — запасной путь, пока карточка не пришла (`rooms` выше — схема плана целиком)
             'apartment_rooms': apt.get('rooms') or [],
+            # ФЛАГИ НОВЫХ КОМНАТ И ОПРОСА (ADR-0330 п.5): всё выключено — полей нет вовсе (данные гостиной прежние)
+            **room_flags(apt),
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             # ПОЛОСА «ПОДХОДЯЩИХ ПО РАЗМЕРУ» ленты замен (решение владельца 22.10, demo-20 А4; частично отменяет ADR-0271): ширина
             # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных

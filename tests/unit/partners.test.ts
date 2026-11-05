@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { apartmentCard, certificateAmount, findApartment, partners } from "@/lib/partners/registry";
+import { apartmentCard, certificateAmount, findApartment, partners, roomContentState } from "@/lib/partners/registry";
 import { resolveFlat } from "@/lib/configurator/source";
 import { keepKnown, demoNames } from "@/lib/partners/demo-data";
 import { optionGroup } from "@/contracts/partner";
@@ -70,6 +70,52 @@ describe("комнаты квартиры", () => {
     expect(ru.kind).toBe("Трёхкомнатная 73,7\u00a0м²");
     expect(ru.meta).toBe("ЖК «Ольховый квартал» · сдача 4 кв. 2026 · эт. 6 из 17 · корп. 3");
     expect(apartmentCard(findApartment("flat215")!, "en").kindShort).toBe("2-bed");
+  });
+
+  // ФЛАГИ КОМНАТ И ОПРОСА (ADR-0330 п.5, onb-12): по умолчанию выключены; гостиная показывается как раньше
+  it("флаги: нет в данных — выключены, нынешние файлы проходят схему без правок, гостиная готова как раньше", () => {
+    const raw = JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
+    expect(raw.apartments[0].quiz).toBeUndefined();                       // файлы не правлены — работают умолчания схемы
+    expect(raw.apartments[0].rooms.some((r: Record<string, unknown>) => "enabled" in r)).toBe(false);
+    const a = findApartment("flat215")!.apartment;
+    expect(a.quiz.enabled).toBe(false);
+    expect(a.rooms.every((r) => r.enabled === false)).toBe(true);
+    const ru = apartmentCard(findApartment("flat215")!, "ru");
+    expect(ru.quiz).toEqual({ enabled: false });
+    expect(ru.rooms.filter((r) => r.contentState === "ready").map((r) => r.id)).toEqual(["living"]);
+    expect(apartmentCard(findApartment("demo-uk-215")!, "en").rooms.filter((r) => r.contentState === "ready").map((r) => r.id))
+      .toEqual(["living"]);
+  });
+
+  it("флаги: новая комната готова только при enabled И готовых данных; флаг гостиную не прячет", () => {
+    const L = { kind: "living" as const, enabled: false };
+    expect(roomContentState({ ...L, contentState: "ready" })).toBe("ready");
+    expect(roomContentState({ ...L, contentState: "soon" })).toBe("soon");
+    expect(roomContentState({ kind: "bedroom", contentState: "ready", enabled: false })).toBe("soon");  // данные есть, флаг выключен
+    expect(roomContentState({ kind: "bedroom", contentState: "soon", enabled: true })).toBe("soon");    // флаг есть, данных нет
+    expect(roomContentState({ kind: "bedroom", contentState: "ready", enabled: true })).toBe("ready");
+    // в карточке: спальня с данными, но без флага — «скоро»; с флагом — готова; опрос включается своим флагом
+    const raw = JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
+    const bed = raw.apartments[0].rooms.find((r: { id: string }) => r.id === "bedroom-1");
+    bed.contentState = "ready";
+    const off = apartmentCard(findApartment("flat215", partners([raw]))!, "ru");
+    expect(off.rooms.filter((r) => r.contentState === "ready").map((r) => r.id)).toEqual(["living"]);
+    bed.enabled = true;
+    raw.apartments[0].quiz = { enabled: true };
+    const on = apartmentCard(findApartment("flat215", partners([raw]))!, "ru");
+    expect(on.rooms.filter((r) => r.contentState === "ready").map((r) => r.id)).toEqual(["living", "bedroom-1"]);
+    expect(on.rooms.find((r) => r.id === "bedroom-1")?.enabled).toBe(true);
+    expect(on.quiz).toEqual({ enabled: true });
+  });
+
+  it("флаги: опечатка или не логическое значение — ошибка данных, а не тихое «выключено»", () => {
+    const base = () => JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
+    const typo = base(); typo.apartments[0].quiz = { enabeld: true };
+    expect(() => partners([typo])).toThrow();
+    const str = base(); str.apartments[0].rooms[1].enabled = "yes";
+    expect(() => partners([str])).toThrow();
+    const qs = base(); qs.apartments[0].quiz = { enabled: "true" };
+    expect(() => partners([qs])).toThrow();
   });
 
   it("квартира без комнат — пустой список, не ошибка", () => {

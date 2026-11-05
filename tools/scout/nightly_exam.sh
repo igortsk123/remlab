@@ -5,6 +5,9 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 LOG=nightly.log
+# пауза обслуживания (onb-12, `tools/ops/cron-pause.sh`): на паузе — строка в лог и выход
+. ../ops/maintenance.sh
+maint_gate nightly_exam "$LOG"
 echo "=== $(date '+%F %T') ночной экзамен старт ===" >> "$LOG"
 ./run.sh exam >> "$LOG" 2>&1; rc=$?
 echo "экзамен rc=$rc" >> "$LOG"

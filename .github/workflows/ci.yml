@@ -205,6 +205,7 @@ jobs:
           SALAD_GROUP: g
           SALAD_API_KEY: x
       - run: python tools/scout/salad/queue_run.py --selftest
+      - run: bash tools/ops/cron-pause.sh selftest   # пауза кронов на обслуживание: на паузе тяжёлые кроны выходят строкой в лог, on ждёт работающих (onb-12)
       - run: python tools/scout/tests_bank_isolation.py   # новый банк рядом: копия не пишет sets3.json и общие файлы, ворота сборщика fail-closed (план conv-13)
       - run: diff -q tools/scout/asset_strategy.py tools/scout/salad/asset_strategy.py
       - run: diff -q tools/scout/rules/asset-strategies.json tools/scout/salad/asset-strategies.json

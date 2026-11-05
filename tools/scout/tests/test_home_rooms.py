@@ -25,6 +25,14 @@ check('комнаты квартиры демо — из реестра, в по
       [r['id'] for r in rooms] == ['living', 'kitchen', 'bedroom-1', 'bedroom-2', 'bathroom-1', 'bathroom-2', 'hall'])
 check('готова только гостиная', [r['id'] for r in rooms if r['contentState'] == 'ready'] == ['living'])
 check('варианты обставляют гостиную реестра', F.living_room_id() == 'living')
+# ФЛАГИ НОВЫХ КОМНАТ И ОПРОСА (ADR-0330 п.5, onb-12): выключено — полей в demo-data.json нет (данные гостиной прежние)
+check('флаги: в реестре всё выключено — полей нет', F.room_flags(F.demo_apartment()) == {})
+on = dict(F.demo_apartment(), quiz={'enabled': True},
+          rooms=[dict(r, enabled=r['id'] in ('bedroom-1', 'kitchen')) for r in rooms])
+check('флаги: включённые комнаты — в порядке плана, опрос — true',
+      F.room_flags(on) == {'rooms_enabled': ['kitchen', 'bedroom-1'], 'quiz_enabled': True})
+check('флаги: строка «true» не включает', F.room_flags(dict(on, quiz={'enabled': 'true'},
+                                                             rooms=[dict(r, enabled='true') for r in rooms])) == {})
 
 # ОДНА ИСТИНА ПЛОЩАДЕЙ (T-20261022-04): реестр — комнаты + лоджия = площадь квартиры; схема плана — только геометрия с id реестра
 import json  # noqa: E402

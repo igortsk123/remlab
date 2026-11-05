@@ -142,8 +142,17 @@ export const apartmentRoom = z.object({
   titleEn: z.string().min(1),
   areaM2: z.number().positive(),
   contentState: z.enum(["ready", "soon"]),
+  /**
+   * Флаг включения комнаты (ADR-0330 п.5, onb-12): новая комната показывается готовой только при `enabled` И `contentState: ready`;
+   * гостиная — как раньше, по одному `contentState` (`lib/partners/registry.ts:roomContentState`). Нет поля — выключено.
+   */
+  enabled: z.boolean().default(false),
 });
 export type ApartmentRoom = z.infer<typeof apartmentRoom>;
+
+/** Опрос-знакомство квартиры (ADR-0330 п.5, onb-03): выключен по умолчанию; автоматика ходит с `?quiz=0`, тесты опроса — `?quiz=1`. */
+export const apartmentQuiz = z.object({ enabled: z.boolean().default(false) }).strict();
+export type ApartmentQuiz = z.infer<typeof apartmentQuiz>;
 
 /**
  * БРИТАНСКАЯ МАСКА АНГЛИЙСКОГО ДЕМО (demo-31, владелец 30.10): пока нет британских фидов, товары российской витрины на квартире-двойнике
@@ -196,6 +205,8 @@ export const apartmentRef = z.object({
   sources: apartmentSources,
   /** Помещения в порядке плана (demo-16); нет — главная показывает только комнаты, у которых есть варианты. */
   rooms: z.array(apartmentRoom).default([]),
+  /** Опрос-знакомство (ADR-0330 п.5); нет поля — выключен. */
+  quiz: apartmentQuiz.default({ enabled: false }),
   options: z.array(optionGroup).default([]),
   /**
    * Двойник для английского ДЕМО (владелец 16.10, ADR-0298): анонимное демо витрины на английском открывает квартиру-двойника
@@ -286,8 +297,13 @@ export type ApartmentCard = {
   fx: { from: "RUB"; to: Currency; rate: number; asOf: string; source: string } | null;
   /** Британская маска показа товаров витрины (demo-31); нет — товары как в витрине. */
   demoMask: { priceMarkup: number; englishNames: boolean; hideShops: boolean } | null;
-  /** Помещения в порядке плана, подписи на языке страницы (demo-16). */
-  rooms: { id: string; kind: RoomKind; ordinal: number; title: string; areaM2: number; contentState: "ready" | "soon" }[];
+  /**
+   * Помещения в порядке плана, подписи на языке страницы (demo-16). `contentState` — уже с флагом (ADR-0330 п.5): `ready` только у
+   * гостиной с готовыми данными и у включённой (`enabled`) комнаты с готовыми данными.
+   */
+  rooms: { id: string; kind: RoomKind; ordinal: number; title: string; areaM2: number; contentState: "ready" | "soon"; enabled: boolean }[];
+  /** Опрос-знакомство квартиры включён (ADR-0330 п.5). */
+  quiz: { enabled: boolean };
   /** Опции квартиры в публичном виде: подписи на языке, цена уже текстом. */
   options: {
     id: string; kind: string; roomKind: string; roomId: string | null; title: string; defaultVariantId: string;
