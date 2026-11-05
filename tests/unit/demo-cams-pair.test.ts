@@ -228,34 +228,79 @@ describe("кадр: крупное целиком или вне кадра", () 
   });
 });
 
-// ЗОНА СПАЛЬНИ → ДВА ВИДА (T-20261105-32, владелец 05.11): правило — данными `CAM_ZONES.bedroom`; пара — вид на кровать (от входа или из ног
-// кровати: дверь спальни 1 на стене изголовья) и встречный от изголовья; кровать и хотя бы одна тумба покрыты в каждом варианте
+// ЗОНА СПАЛЬНИ → ДВА ВИДА (T-20261105-32, владелец 05.11): правило — данными `CAM_ZONES.bedroom`; вид 1 — на кровать (от входа или из
+// ног кровати), вид 2 — вторая зона: шкаф/комод/столик ≥ 60 % рамки и кровать ≥ 75 % (T-32/2, ведущий: «встречный от изголовья» был
+// пустой стеной); виды расходятся ≥ `apart` градусов; кровать и хотя бы одна тумба покрыты в каждом варианте
 describe("камеры демо: спальня 1, виды зоны", () => {
   const fxB = load("tests/fixtures/demo-bedroom-1-1105.json");
-  const apiB = new Function("D", `${block};return {camPairAll,camViewOk,CAM_ZONES};`)({ room: fxB.room }) as {
+  type Cv = { inF: number; vis: number }[];
+  const apiB = new Function("D", `${block};return {camPairAll,camViewFit,camCover,camFixNear,camAng,CAM_ZONES};`)({ room: fxB.room }) as {
     camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[]) => Pair & { per: (Omit<Pair, "level" | "how">)[] };
-    camViewOk: (vw: unknown, c: Cam, its: It[]) => boolean;
-    CAM_ZONES: { bedroom: { views: unknown[] }; living: { views?: unknown } };
+    camViewFit: (vw: unknown, c: Cam, its: It[], cv: Cv) => boolean;
+    camCover: (c: Cam, its: It[], W: number, H: number) => Cv;
+    camFixNear: (c: Cam) => string;
+    camAng: (a: number, b: number) => number;
+    CAM_ZONES: { bedroom: { views: unknown[]; apart: number }; living: { views?: unknown } };
+  };
+  const { w: W, d: H } = fxB.room, L = fxB.variants.map(its);
+  let pr: (Pair & { per: (Omit<Pair, "level" | "how">)[] }) | undefined;
+  const pair = () => (pr ??= apiB.camPairAll(L, W, H, corners(W, H)));
+  const q = (c: Cam, list: It[], i: number) => { const r = apiB.camCover(c, list, W, H)[i]!; return Math.min(r.inF, r.vis); };
+  // какая из двух точек — вид 2 (вторая зона) в этом варианте; -1 — ни одна
+  const v2Of = (list: It[]) => {
+    const [, v2] = apiB.CAM_ZONES.bedroom.views;
+    return pair().cams.findIndex((c) => apiB.camViewFit(v2, c, list, apiB.camCover(c, list, W, H)));
   };
   it("гостиная без видов зоны (подбор как был), у спальни — два вида", () => {
     expect(apiB.CAM_ZONES.living.views).toBeUndefined();
     expect(apiB.CAM_ZONES.bedroom.views).toHaveLength(2);
   });
   it("одна пара на 5 вариантов: вид 1 и вид 2 зоны, кровать и ≥ 1 тумба в кадре, обязательное покрыто", () => {
-    const { w: W, d: H } = fxB.room, L = fxB.variants.map(its), pr = apiB.camPairAll(L, W, H, corners(W, H));
-    expect(pr.how).toContain("виды зоны,");
+    const p0 = pair();
+    expect(p0.how).toContain("виды зоны,");
     const [v1, v2] = apiB.CAM_ZONES.bedroom.views;
     for (const list of L) {
-      const ab = apiB.camViewOk(v1, pr.cams[0]!, list) && apiB.camViewOk(v2, pr.cams[1]!, list);
-      const ba = apiB.camViewOk(v1, pr.cams[1]!, list) && apiB.camViewOk(v2, pr.cams[0]!, list);
-      expect(ab || ba).toBe(true);
+      const cv = p0.cams.map((c) => apiB.camCover(c, list, W, H));
+      const fit = (vw: unknown, k: number) => apiB.camViewFit(vw, p0.cams[k]!, list, cv[k]!);
+      expect((fit(v1, 0) && fit(v2, 1)) || (fit(v1, 1) && fit(v2, 0))).toBe(true);
     }
-    for (const [vi, p] of pr.per.entries()) {
+    for (const [vi, p] of p0.per.entries()) {
       const miss = p.missing.map((m) => m.role);
       expect(p.missing.filter((m) => m.must), fxB.variants[vi]!.id).toEqual([]);
       expect(miss).not.toContain("кровать");
       expect(p.covered.length).toBeGreaterThanOrEqual(4);
     }
+  }, 300_000);
+  it("вид 2 — вторая зона: шкаф или комод видно ≥ 60 % рамки, кровать ≥ 75 % (до — пустая стена с окном, шкафа ни в одном)", () => {
+    const zone2 = ["шкаф", "комод", "туалетный столик", "стол рабочий"];
+    for (const [vi, list] of L.entries()) {
+      const k = v2Of(list);
+      expect(k, fxB.variants[vi]!.id).toBeGreaterThanOrEqual(0);
+      const c = pair().cams[k]!, ids = list.map((it, i) => [it, i] as const);
+      const bed = ids.find(([it]) => it.role === "кровать")![1];
+      expect(q(c, list, bed), `${fxB.variants[vi]!.id}: кровать`).toBeGreaterThanOrEqual(0.75 - 1e-9);
+      const z2 = ids.filter(([it]) => zone2.includes(it.role as string)).map(([, i]) => q(c, list, i));
+      if (z2.length) expect(Math.max(...z2), `${fxB.variants[vi]!.id}: шкаф/комод`).toBeGreaterThanOrEqual(0.6 - 1e-9);
+    }
+  }, 300_000);
+  it("виды смотрят в разные стороны: направления расходятся ≥ apart", () => {
+    const [a, b] = pair().cams;
+    expect(apiB.CAM_ZONES.bedroom.apart).toBeGreaterThan(0);
+    expect(apiB.camAng(a!.rot, b!.rot)).toBeGreaterThanOrEqual(apiB.CAM_ZONES.bedroom.apart);
+  }, 300_000);
+  it("узкое окно телефона вида 2 — вокруг шкафа/комода (до — по кровати, шкаф срезан окном у лофта и джапанди)", () => {
+    for (const [vi, p] of pair().per.entries()) {
+      const list = L[vi]!, ids = new Set(list.flatMap((it, i) => (["шкаф", "комод"].includes(it.role) ? [`item-${i}`] : [])));
+      for (const k of ["0.531", "0.673"]) {
+        const keep = (p.cams[1]!.crop![k] as { keep: string[] }).keep;
+        expect(keep.some((id) => ids.has(id)), `${fxB.variants[vi]!.id} ${k}: ${keep.join(",")}`).toBe(true);
+      }
+    }
+  }, 300_000);
+  it("вплотную к камере в кадре нет подоконника, шторы и радиатора: старая C1 у северного окна отсеяна, новые точки чистые", () => {
+    // C1 T-32/1: в 3 см от северной стены, подоконник в 112 см — белая плита у левого края во всех 5 черновиках
+    expect(apiB.camFixNear({ x: 554, y: 290, rot: -46, fov: 84 } as Cam)).toBe("подоконник");
+    for (const c of pair().cams) expect(apiB.camFixNear(c)).toBe("");
   }, 300_000);
   it("изголовье не у стены с окном", () => {
     const wins = new Set((fxB.room.openings as { kind: string; wall: string }[]).filter((o) => o.kind === "window").map((o) => o.wall));

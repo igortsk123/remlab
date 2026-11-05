@@ -42,7 +42,7 @@
                                                                "required": ["core", "key", "show", "must"],
                                                                "properties": {"core": {"type": "object"}, "key": {"type": "array"},
                                                                               "show": {"type": "array"}, "must": {"type": "array"},
-                                                                              "views": {"type": "array"}, "cover": {"type": "number"},
+                                                                              "views": {"type": "array"}, "apart": {"type": "number"}, "cover": {"type": "number"},
                                                                               "anyOf": {"type": "array"}, "ready": {"type": "boolean"}}}}}},
   "asset_strategies": {"description": "стратегия 3D-ассета по роли (канон rules/asset-strategies.json)"}
  }

@@ -1864,6 +1864,34 @@ function camGraze(c,W,H){
       const cos=(px*Math.sin(a)-py*Math.cos(a))/(d||1);   // в кадре ли наличник
       return d<5||Math.acos(Math.max(-1,Math.min(1,cos)))*180/Math.PI<half+2;});})?2:0;
 }
+// ПОДОКОННИК, ШТОРА, РАДИАТОР ВПЛОТНУЮ — НЕ В КАДРЕ (T-20261105-32/2, ведущий по черновикам спальни 1: у левого края вида 1 во всех
+// 5 кадрах белая плита). Это подоконник северного окна: камера в 3 см от стены смотрит почти вдоль неё, а подоконник (20 см от стены,
+// 85 см от пола) идёт от 112 см и дальше по краю кадра. В маске кадра (`camMask`) их нет — там коробка комнаты, проёмы и мебель;
+// поэтому правило отдельное: часть такого предмета ближе CAM_FIX_NEAR к глазу видна в кадре → точка негодна (как мебель ближе
+// CAM_B_CLEAR). Шторы — полосы по CAM_WIN_SIDE у краёв окна от пола до потолка (так их рисует фото нейросети, `improve_mode.py`:
+// «one panel at each side»); радиатор — из `radiators` комнаты, 10–70 см от пола. Меряем точками лица предмета (сторона в комнату)
+const CAM_FIX_NEAR=120, CAM_SILL_D=20, CAM_CURT_D=15;
+function camFixtures(){
+  const R=camRoom()||{}, W=R.w||0, H=R.d||0, RH=camRoomH(), out=[];
+  const seg=(wall,u0,u1,dep,z0,z1,what)=>{const ns=wall==='south'||wall==='north', n=wall==='south'?[0,1]:wall==='north'?[0,-1]:wall==='west'?[1,0]:[-1,0];
+    const p=wall==='south'?[u0,0]:wall==='north'?[u0,H]:wall==='west'?[0,u0]:[W,u0];
+    out.push({x0:p[0]+n[0]*dep, y0:p[1]+n[1]*dep, tx:ns?1:0, ty:ns?0:1, len:u1-u0, z0, z1, what});};
+  (R.openings||[]).filter(o=>o.kind==='window').forEach(o=>{const u0=+o.offset_cm||0, u1=u0+(+o.width_cm||0), s=+o.sill_cm||85;
+    seg(o.wall,u0-5,u1+5,CAM_SILL_D,s-4,s,'подоконник');
+    seg(o.wall,u0-CAM_WIN_SIDE,u0,CAM_CURT_D,0,RH,'штора'); seg(o.wall,u1,u1+CAM_WIN_SIDE,CAM_CURT_D,0,RH,'штора');});
+  (R.radiators||[]).forEach(r=>{const u0=+r.offset_cm||0; seg(r.wall,u0,u0+(+r.width_cm||0),+r.depth_cm||12,10,70,'радиатор');});
+  return out;
+}
+// что у стены ближе CAM_FIX_NEAR видно в кадре ('' — ничего); поза v2 горизонтальна (CAM_EYE = CAM_TGT), как в `camProj`
+function camFixNear(c){
+  const a=(c.rot||0)*Math.PI/180, fx=Math.sin(a), fy=-Math.cos(a), rx=Math.cos(a), ry=Math.sin(a), tx=Math.tan((c.fov||72)/2*Math.PI/180), ty=tx/CAM_ASPECT;
+  for(const f of camFixtures()){const n=Math.max(2,Math.ceil(f.len/5));
+    for(let k=0;k<=n;k++){const vx=f.x0+f.tx*f.len*k/n-c.x, vy=f.y0+f.ty*f.len*k/n-c.y;
+      if(Math.hypot(vx,vy)>=CAM_FIX_NEAR)continue;
+      const z=vx*fx+vy*fy; if(z<5||Math.abs((vx*rx+vy*ry)/z/tx)>1)continue;
+      if((f.z1-CAM_EYE)/z/ty+CAM_SHIFT_N>=-1&&(f.z0-CAM_EYE)/z/ty+CAM_SHIFT_N<=1)return f.what;}}
+  return '';
+}
 // ЖЁСТКИЕ ПРАВИЛА КАДРА (прогон d8 14.10, probe11: вес 6 не держал — диван срезан краем у 4 стилей из 5, торшер и кресло
 // перед объективом): (1) диван и столик целиком по ширине и сверху, запас 3 % кадра от края; (2) ни одного предмета ближе
 // CAM_MIN_DIST к камере (ковёр — пол); (3) высокий предмет (не столик) не стоит между камерой и диваном. `strict` — для
@@ -2069,7 +2097,8 @@ function camCandEval(c,its,W,H){
   // ракурсу 2 — физический зазор CAM_B_CLEAR (человек там стоит), а «предмет перед объективом» меряет маска (`fore`);
   // ракурсу 1 — прежнее строгое «ни одного предмета ближе CAM_MIN_DIST» (demo-12: в комнате 439×325 у «современного» и
   // «минимализма» с 80 см оставался один угол у двери, а горшок у ног в кадр не попадает)
-  if(soft>1||camHard(c,its,0,CAM_B_CLEAR))return null;
+  // и подоконник/штора/радиатор ближе CAM_FIX_NEAR в кадре (`camFixNear`, T-32/2)
+  if(soft>1||camHard(c,its,0,CAM_B_CLEAR)||camFixNear(c))return null;
   c.far=!camHard(c,its,0);
   const lo=camBlock(c,its,-1);
   c.key=camKey(c,its);
@@ -2102,18 +2131,29 @@ const CAM_COVER=0.9, CAM_EXT=1.6, CAM_EXT_W=64, CAM_TALL_PEN=3, CAM_EVAL=240, CA
 // пару: [вид 1, вид 2] (вид — запись или список равноправных записей), `from` — 'door' (у входа, CAM_VIEW_DOOR см), 'head' (у изголовья/
 // фронта предмета `of`, CAM_VIEW_HEAD см) или 'foot' (за ногами предмета `of`: дальше его глубины от изголовья по оси),
 // `look` — на предмет (`роль`) или 'away' (от предмета, вдоль его фронта); допуск направления — `tol`°. Гостиная — прежние числа и
-// без `views` (диван и обеденная зона — подбор пары как был). `ready:false` — запись заготовлена, комнату включат T-33/T-34
+// без `views` (диван и обеденная зона — подбор пары как был). `ready:false` — запись заготовлена, комнату включат T-33/T-34.
+// `need` вида (T-20261105-32/2, ведущий по черновикам: «вид 2 — пустая стена с окном, кровать срезана, шкафа нет ни в одном из 5») —
+// что вид обязан показать: группы {roles, min}: хотя бы один предмет группы виден не меньше чем на min (доля в кадре и доля не
+// заслонённого — обе, `camCover`); ролей группы в варианте нет — группа не требуется. Вид без `from` — точка любая, решает `need`.
+// `more` — из годных пар брать ту, где в этом виде больше мебели, показанной не меньше чем на CAM_SHOWN_MIN (сразу после нарушений кадра).
+// Числа — прямо в записи (профиль комнаты `rules/profiles/<тип>.json` сверяет её копию: `room_profile.py --lint`)
+const CAM_SHOWN_MIN=0.6;
 const CAM_ZONES={
   living:{core:CAM_CORE, key:CAM_KEY, show:CAM_KEY_SHOW, must:CAM_MUST},
-  // спальня: вид 1 — от входа на кровать, вид 2 — встречный от изголовья к шкафу/окну; изголовье в окно не ставит солвер (onb-05)
+  // спальня: вид 1 — от входа на кровать; вид 2 — вторая зона (шкаф, комод, столик) и кровать срезана не больше чем на четверть, точка
+  // любая (T-32/2: «от изголовья встречный» в спальне 1 смотрел в окно — кровать снизу срезана, шкаф за спиной); изголовье в окно не ставит солвер (onb-05)
   bedroom:{core:{'кровать':3,'тумба прикроватная':1.5,'шкаф':1.5,'комод':1,'туалетный столик':1,'стол рабочий':1,'стул рабочий':0.25,
       'торшер':0.5,'кресло':1},
     key:['кровать'], show:['кровать','шкаф','комод','туалетный столик','стол рабочий'],
     must:['кровать','тумба прикроватная','шкаф','комод','туалетный столик','стол рабочий','кресло'],
     // вид 1 — от входа; дверь на стене изголовья (спальня 1: вход рядом с кроватью) — сбоку видна одна кровать, тумбы за ней, поэтому
     // равноправен вид из ног кровати (из угла напротив изголовья); из годных пару выбирает обычное правило — покрытие первым
-    views:[[{from:'door', look:'кровать', tol:30}, {from:'foot', of:'кровать', look:'кровать', tol:35}],
-      {from:'head', of:'кровать', look:'away', tol:65}],
+    views:[[{from:'door', look:'кровать', tol:30, need:[{roles:['кровать'], min:0.75}]}, {from:'foot', of:'кровать', look:'кровать', tol:35, need:[{roles:['кровать'], min:0.75}]}],
+      {need:[{roles:['кровать'], min:0.75}, {roles:['шкаф','комод','туалетный столик','стол рабочий'], min:0.6}], more:true,
+       crop:['шкаф','комод','туалетный столик','стол рабочий']}],
+    // виды — разные стороны комнаты: направления расходятся не меньше чем на `apart`° (без этого «больше мебели» ставило вид 2
+    // в тот же угол, что вид 1, с поворотом на 19°)
+    apart:60,
     // спальня 2,93 м в глубину: от входа до кровати меньше 1,5 м, низ кровати у пола всегда уходит за нижний край кадра (поза 135 см)
     cover:0.75, anyOf:['тумба прикроватная']},
   // кухня (запись Работника 5, T-33; сверена с camViewOk/camRole/camItemH): вид 1 — «гарнитур» из комнаты на ряд, вход — запасной;
@@ -2124,8 +2164,14 @@ const CAM_ZONES={
     must:['кухня-ряд','кухня-колонна','кухня-плечо','холодильник','стол обеденный'],
     views:[[{from:'foot', of:'кухня-ряд', look:'кухня-ряд', tol:30}, {from:'door', look:'кухня-ряд', tol:30}],
       {from:'head', of:'кухня-ряд', look:'стол обеденный', tol:35}]},
-  hall:{ready:false, core:{'шкаф':3,'банкетка':1,'зеркало':0.5,'вешалка':1}, key:['шкаф'], show:['шкаф','вешалка','зеркало'],
-    must:['шкаф','банкетка','вешалка'], views:[{from:'door', look:'шкаф', tol:35}, {from:'head', of:'шкаф', look:'door', tol:45}]}};
+  // ПРИХОЖАЯ — запись профиля `rules/profiles/hall.json` (T-20261105-44): хранение — любая из ролей шкафа (в каталоге прихожей
+  // «шкаф» почти не встречается: шкаф-купе, прихожая, вешалка); вид 1 — от входа на хранение, вид 2 — от хранения на вход
+  hall:{ready:false,
+    core:{'шкаф-купе':3,'шкаф':3,'прихожая':3,'вешалка':1.5,'обувница':1,'банкетка':1,'консоль':1,'зеркало':0.5},
+    key:['шкаф-купе','шкаф','прихожая'], show:['вешалка','зеркало','консоль','обувница'],
+    must:['шкаф-купе','шкаф','прихожая','вешалка','обувница','банкетка','консоль'],
+    views:[[{from:'door', look:'шкаф-купе', tol:35}, {from:'door', look:'шкаф', tol:35}, {from:'door', look:'прихожая', tol:35}, {from:'door', look:'вешалка', tol:35}],
+      [{from:'head', of:'шкаф-купе', look:'door', tol:45}, {from:'head', of:'шкаф', look:'door', tol:45}, {from:'head', of:'прихожая', look:'door', tol:45}, {from:'head', of:'вешалка', look:'door', tol:45}]]}};
 const CAM_VIEW_DOOR=170, CAM_VIEW_HEAD=160;
 function camZ(){ const R=camRoom(); return CAM_ZONES[(R&&R.kind)||'living']||CAM_ZONES.living; }
 // порог покрытия зоны: `cover` записи, иначе общий CAM_COVER (гостиная)
@@ -2137,6 +2183,7 @@ function camDoorMids(){ const R=camRoom()||{}, W=R.w||0, H=R.d||0;
 // точка годна для вида зоны: стоит у своего места и смотрит куда надо (по мебели этого варианта); нет предмета вида — не годна
 function camViewOk(vw,c,its){
   if(Array.isArray(vw))return vw.some(x=>camViewOk(x,c,its));
+  if(!vw.from)return true;                              // точка любая — вид задаёт `need`
   const aim=(tx,ty)=>Math.round(Math.atan2(tx-c.x, c.y-ty)*180/Math.PI);
   const it=(its||[]).find(x=>camRole(x)===(vw.of||vw.look)), tol=vw.tol||30;
   if(vw.from==='door'){const dm=camDoorMids(); if(!dm.length||!it)return false;
@@ -2150,6 +2197,15 @@ function camViewOk(vw,c,its){
   if(vw.look==='door'){const dm=camDoorMids(); return dm.some(([x,y])=>camAng(c.rot,aim(x,y))<=tol);}
   const t=(its||[]).find(x=>camRole(x)===vw.look); return !!t&&camAng(c.rot,aim(t.x,t.y))<=tol;
 }
+// `need` вида по покрытию точки `cv` (`camCover`) и вид целиком: место и взгляд (`camViewOk`) и что обязан показать
+const camQ=r=>Math.min(r.inF,r.vis);
+function camNeedOk(vw,its,cv){
+  return (vw.need||[]).every(g=>{const ids=[]; (its||[]).forEach((it,i)=>{if(g.roles.includes(camRole(it)))ids.push(i);});
+    return !ids.length||ids.some(i=>camQ(cv[i])>=g.min-1e-9);});
+}
+function camViewFit(vw,c,its,cv){ return Array.isArray(vw)?vw.some(x=>camViewFit(x,c,its,cv)):camViewOk(vw,c,its)&&camNeedOk(vw,its,cv); }
+// сколько мебели показано в виде не меньше чем на CAM_SHOWN_MIN (ковёр — пол, не считаем)
+function camShownN(its,cv){ let n=0; (its||[]).forEach((it,i)=>{if(camItemH(it)>2&&camQ(cv[i])>=CAM_SHOWN_MIN-1e-9)n++;}); return n; }
 const camId=(it,i)=>it&&it.id!=null?String(it.id):'item-'+i;
 function camUnits(its){
   const u=[], chairs=[], Z=camZ(), any={};
@@ -2209,13 +2265,17 @@ function camPairAll(L,W,H,cs){
     return out;};
   const base=gen(false), door=gen(true);
   if(!base.length&&!door.length){const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; return r;}
-  const all=base.concat(door), N=all.length, Q=U.map(u=>new Float32Array(N*u)), bits=L.map(()=>new Int32Array(N));
-  all.forEach((c,n)=>L.forEach((its,v)=>{const cv=camCover(c,its,W,H); let b=0;
+  const all=base.concat(door), N=all.length, Q=U.map(u=>new Float32Array(N*u)), bits=L.map(()=>new Int32Array(N)), ZV=camZ().views;
+  const CV=ZV?L.map(()=>new Array(N)):null;   // покрытие точки — `need` и `more` видов зоны
+  all.forEach((c,n)=>L.forEach((its,v)=>{const cv=camCover(c,its,W,H); let b=0; if(CV)CV[v][n]=cv;
     UN[v].forEach((u,k)=>{const q=camUnitQ(cv,u); Q[v][n*U[v]+k]=q; if(q>=1-1e-9&&k<31)b|=(1<<k);}); bits[v][n]=b;}));
   const level=Math.max(0,...all.map(c=>c.lv));
   // ВИДЫ ЗОНЫ (`CAM_ZONES[..].views`): пара — вид 1 и вид 2 своей зоны (точка годна при мебели каждого варианта); у гостиной видов нет
-  const ZV=camZ().views; let vOk=ZV&&ZV.length===2?all.map(c=>ZV.map(vw=>L.every(its=>camViewOk(vw,c,its)))):null;
-  const okV=(a,b)=>!vOk||(b<0?(vOk[a][0]||vOk[a][1]):((vOk[a][0]&&vOk[b][1])||(vOk[b][0]&&vOk[a][1])));
+  let vOk=ZV&&ZV.length===2?all.map((c,n)=>ZV.map(vw=>L.every((its,v)=>camViewFit(vw,c,its,CV[v][n])))):null;
+  // `more` вида 2: мебель, показанная в нём, — по худшему варианту
+  const more2=n=>{if(!ZV||!ZV[1]||!ZV[1].more)return 0; let m=Infinity; for(let v=0;v<V;v++)m=Math.min(m,camShownN(L[v],CV[v][n])); return m;};
+  const APART=camZ().apart||0;
+  const okV=(a,b)=>!vOk||(b<0?(vOk[a][0]||vOk[a][1]):(((vOk[a][0]&&vOk[b][1])||(vOk[b][0]&&vOk[a][1]))&&camAng(all[a].rot,all[b].rot)>=APART));
   const st=L.map(()=>new Map()), stat=(c,v)=>{v=v||0; const its=L[v]; if(!st[v].has(c)){const s0=camStats(c,its,W,H); s0.keyVis=camKeyVis(c,its,s0);
     s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L-s0.nearest)/100; s0.close2=Math.max(0,100-s0.nearest)/100;
     s0.keyMiss=Math.max(0,CAM_KEY_SHOW_MIN-camKeyShow(c,its,s0));
@@ -2263,11 +2323,11 @@ function camPairAll(L,W,H,cs){
       if(vOk){const ab=vOk[a][0]&&vOk[b][1], ba=vOk[b][0]&&vOk[a][1]; if(ab!==ba)swap=ba;}
       const C1=swap?B:A, C2=swap?A:B;
       const q={a:swap?b:a,b:swap?a:b,c1:C1,c2:C2,pen:Math.min(p1,p2)+tallPen(A)+tallPen(B),worst:Math.min(A.score,B.score),
-        clut:vmax(v=>clutter(stat(A,v))+clutter(stat(B,v))),div:camAng(A.rot,B.rot),key:bk};
+        clut:vmax(v=>clutter(stat(A,v))+clutter(stat(B,v))),div:camAng(A.rot,B.rot),key:bk,more:vOk?more2(swap?a:b):0};
       if(!pick){pick=q; continue;}
-      // нарушения — с допуском CAM_BAD_TOL: внутри него решают худший кадр, загромождение, разнообразие
+      // нарушения — с допуском CAM_BAD_TOL: внутри него решают больше мебели в виде 2 (`more` вида зоны), худший кадр, загромождение, разнообразие
       if(q.pen<pick.pen-CAM_BAD_TOL){pick=q; continue;} if(q.pen>pick.pen+CAM_BAD_TOL)continue;
-      const d=(pick.worst-q.worst)||(q.clut-pick.clut)||(pick.div-q.div);
+      const d=(q.more-pick.more)||(pick.worst-q.worst)||(q.clut-pick.clut)||(pick.div-q.div);
       if(d>1e-9||(Math.abs(d)<=1e-9&&q.pen<pick.pen))pick=q;}
     return pick;};
   const F=n=>(all[n].fov||72)>72, Fw=n=>(all[n].fov||72)>78, isDoor=n=>all[n].door, mid=(a,b)=>!isDoor(a)&&!Fw(a)&&(b<0||(!isDoor(b)&&!Fw(b)));
@@ -2302,7 +2362,7 @@ function camPairAll(L,W,H,cs){
       const k=sideCut(q); if(k>bc||(k===bc&&Math.abs(d)>=Math.abs(bestC.rot-c.rot)))continue;
       let ok=true;
       for(let v=0;v<V&&ok;v++){const its=L[v], b0=camBlock(q,its);
-        if(Math.max(b0.cov/CAM_BLOCK,camTvBack(q,its)?2:0,camGraze(q,W,H))>1||camHard(q,its,0,CAM_B_CLEAR)){ok=false; break;}
+        if(Math.max(b0.cov/CAM_BLOCK,camTvBack(q,its)?2:0,camGraze(q,W,H))>1||camHard(q,its,0,CAM_B_CLEAR)||camFixNear(q)){ok=false; break;}
         if(camTallCut(q,its)&&!c.per[v].tall){ok=false; break;}
         // главное целиком и крупное, не срезанное краем, — не хуже выбранного (demo-31 правки)
         const f0=camFrameCuts(c,its), f1=camFrameCuts(q,its); if(f1.key>f0.key||f1.cut>f0.cut){ok=false; break;}
@@ -2314,7 +2374,9 @@ function camPairAll(L,W,H,cs){
     return bestC;};
   const a2=nudge(pick.c1,L.map((_,v)=>bits[v][pick.b]),true), b2=nudge(pick.c2,L.map((its,v)=>covBits(camCover(a2,its,W,H),v)),false);
   // ОТЧЁТ ПОКРЫТИЯ: что покрыто, что нет и почему (по лучшему из двух видов: мало в кадре → «вне кадра», иначе «заслонён»)
-  const mk=(n,c,v)=>({name:n,x:c.x,y:c.y,rot:c.rot,fov:c.fov||72,pshift:camPortraitShift(c,L[v],W,H),crop:camCrops(stat(c,v),L[v],camCover(c,L[v],W,H))});
+  // главное узкого окна — из вида зоны (`crop` вида; T-32/2: вид 2 спальни — шкаф/комод, а не кровать); C1 — вид 1, C2 — вид 2 (swap по vOk)
+  const cropOf=k=>vOk&&ZV[k]&&!Array.isArray(ZV[k])?ZV[k].crop:undefined;
+  const mk=(n,c,v,k)=>({name:n,x:c.x,y:c.y,rot:c.rot,fov:c.fov||72,pshift:camPortraitShift(c,L[v],W,H),crop:camCrops(stat(c,v),L[v],camCover(c,L[v],W,H),cropOf(k))});
   const per=L.map((its,v)=>{const cv=[camCover(a2,its,W,H),camCover(b2,its,W,H)], covered=[], missing=[];
     UN[v].forEach(u=>{const grp=u.any&&Math.max(camUnitQ(cv[0],u),camUnitQ(cv[1],u))>=1-1e-9;   // группа «хотя бы один» покрыта
       u.ids.forEach(i=>{const r=cv.map(x=>x[i]), q=r.map(x=>Math.min(x.inF,x.vis));
@@ -2322,7 +2384,7 @@ function camPairAll(L,W,H,cs){
       if(grp||q[k]>=camCov()-1e-9)covered.push(id);
       else missing.push({id,role:camRole(its[i]),must:u.must,inFrame:Math.round(r[k].inF*100)/100,visible:Math.round(r[k].vis*100)/100,
         reason:r[k].inF<camCov()?'вне кадра':'заслонён'});});});
-    return {cams:[mk('C1',a2,v),mk('C2',b2,v)],covered,missing,stats:[stat(a2,v),stat(b2,v)]};});
+    return {cams:[mk('C1',a2,v,0),mk('C2',b2,v,1)],covered,missing,stats:[stat(a2,v),stat(b2,v)]};});
   const [mk0,mm,mc,dm,mo]=pick.key;
   return {level, cams:per[0].cams,
     how:`${mm?'недобор':'пара'}: стадия ${stage},${ZV?(zoneMiss?' виды зоны: пары нет — без них,':' виды зоны,'):''} не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}`,
@@ -2332,17 +2394,18 @@ function camPairAll(L,W,H,cs){
 // видимых пикселей предметов). Окно уже кадра по одной оси и скользит по ней; лучшее — где больше веса мебели целиком (с запасом
 // CAM_CROP_PAD длины окна от его внутренних краёв: фото нейросети чуть сдвигает мебель), срезанное окном — минус половина веса.
 // ГЛАВНОЕ ВИДА — ПРЕЖДЕ ВСЕГО (ведущий 22.10, по кадрам demo-22: у минимализма окно 0.531 смотрело на стулья, диван — за краем):
-// диван, если он в кадре вида ≥ 50 %; иначе ТВ-тумба; иначе обеденный стол; иначе самое весомое. Помещается — оно в окне целиком;
+// диван, если он в кадре вида ≥ 50 %; иначе ТВ-тумба; иначе обеденный стол; иначе самое весомое (у вида зоны со списком `crop` — его роли
+// по порядку: вид 2 спальни — шкаф/комод, T-32/2). Помещается — оно в окне целиком;
 // не помещается — окно строится вокруг него (максимум его ширины, его середина — в средней трети окна), остальное досмотрят паном. Ответ в долях кадра (y — сверху) и `keep` — id предметов
 // целиком. Пропорции: карточка избранного 3:2, карточка главной 2048/1446 (`.hm-room .hm-ph`), окно «Фото» телефона 375×557
 // (замер 375×667 со свёрнутой шторкой) и 390×734 (390×844 — та же шторка)
 const CAM_CROPS={'1.500':1.5,'1.416':2048/1446,'0.673':375/557,'0.531':390/734}, CAM_CROP_PAD=0.06;
 const CAM_CROP_MAIN=['диван','тв-тумба','стол обеденный'];
-function camCrop(st,its,A,cv){
+function camCrop(st,its,A,cv,mainRoles){
   const horiz=A<CAM_ASPECT, L=horiz?A/CAM_ASPECT:CAM_ASPECT/A, items=[];
   (its||[]).forEach((it,i)=>{const e=st.ext[i], r=camRole(it); if(!e||r==='ковёр'||(st.vis[i]||0)<4)return;
     items.push({i,w:Math.max(camZ().must.includes(r)?1:0,camZ().core[r]||0.25),a0:horiz?e.x0:e.y0,a1:horiz?e.x1:e.y1});});
-  const pref=CAM_CROP_MAIN.map(r=>items.find(x=>camRole(its[x.i])===r&&(r!=='диван'||!cv||(cv[x.i]&&cv[x.i].inF>=0.5)))).find(Boolean);
+  const pref=(mainRoles||CAM_CROP_MAIN).map(r=>items.find(x=>camRole(its[x.i])===r&&(r!=='диван'||!cv||(cv[x.i]&&cv[x.i].inF>=0.5)))).find(Boolean);
   const main=pref||items.reduce((m,x)=>!m||x.w>m.w?x:m,null), steps=Math.max(1,Math.round((1-L)/0.005));
   let best=null;
   for(let n=0;n<=steps;n++){const p=(1-L)*n/steps, q=p+L, pad=CAM_CROP_PAD*L, lo=p>1e-6?p+pad:0, hi=q<1-1e-6?q-pad:1, keep=[];
@@ -2355,7 +2418,7 @@ function camCrop(st,its,A,cv){
   const r3=v=>Math.round(v*1000)/1000, keep=best.keep.map(i=>camId(its[i],i));
   return horiz?{x:r3(best.p),y:0,w:r3(L),h:1,keep}:{x:0,y:r3(best.p),w:1,h:r3(L),keep};
 }
-function camCrops(st,its,cv){const out={}; for(const k in CAM_CROPS)out[k]=camCrop(st,its,CAM_CROPS[k],cv); return out;}
+function camCrops(st,its,cv,mainRoles){const out={}; for(const k in CAM_CROPS)out[k]=camCrop(st,its,CAM_CROPS[k],cv,mainRoles); return out;}
 // ПОРТРЕТ ТЕЛЕФОНА — СДВИГОМ КАДРА, НЕ НАКЛОНОМ (demo-12, d8 17.10: в портрете нижняя половина — пустой пол). Горизонтальный
 // угол тот же, значит по вертикали кадр почти 90°; сдвиг подбираем так, чтобы пол и потолок в кадре были примерно поровну
 // (мебель — в средней полосе), вертикали остаются прямыми. Ответ — доля высоты кадра, как `photoShift` (минус — кадр ниже).
@@ -2398,11 +2461,17 @@ const camRoomH=()=>+((camRoom()||{}).height_cm||270);   // как `lib/configura
 // обеденная группа (стол и стулья) друг друга не «заслоняют»: стулья, задвинутые под стол, закрывают его при любом ракурсе
 // (замер 22.10: у сканди стол виден на 40–51 % из любой пары), а покупатель видит в этом обеденную зону целиком
 const CAM_DINE=['стол обеденный','стул'];
+const CAM_BED_TOP=55, CAM_BED_HB=10;
 function camParts(it,i){
   const r=(it.rot||0)*Math.PI/180, ca=Math.cos(r), sa=Math.sin(r), h=camItemH(it), role=camRole(it), g=CAM_DINE.includes(role)?-1:i,
     box=(hw,hd,z0,z1,ox,oy)=>({i,g,hw,hd,z0,z1,cx:it.x+(ox||0)*ca-(oy||0)*sa,cy:it.y+(ox||0)*sa+(oy||0)*ca,ca,sa,rug:role==='ковёр'});
   if(role==='торшер')return [box(4,4,0,h-40),box(it.w/2,it.d/2,h-40,h)];   // стойка и абажур
   if(role==='тв-тумба'){const sh=h-75; return [box(it.w/2,it.d/2,0,sh),box(Math.min(it.w*0.45,70),3,sh,h)];}   // тумба и экран над ней
+  // КРОВАТЬ — МАТРАС И ИЗГОЛОВЬЕ (T-32/2): высота товара — это изголовье; сплошная коробка 121 см «закрывала» комод и шкаф за
+  // кроватью из любой точки, кроме угла у ног. Матрас с бельём — до CAM_BED_TOP, изголовье — плита CAM_BED_HB у стены за спиной
+  // (лицо кровати — (sin rot, cos rot), как в `camViewOk`)
+  if(role==='кровать'&&h>CAM_BED_TOP){const fx=Math.sin(r), fy=Math.cos(r), o=it.d/2-CAM_BED_HB/2;
+    return [box(it.w/2,it.d/2,0,CAM_BED_TOP),Object.assign(box(it.w/2,CAM_BED_HB/2,CAM_BED_TOP,h),{cx:it.x-fx*o,cy:it.y-fy*o})];}
   return [box(it.w/2,it.d/2,0,h)];
 }
 function camMask(c,its,W,H,o){

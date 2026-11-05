@@ -114,5 +114,21 @@ def refuse(env, out):
 
 check('флаг: переменная у папки витрины — отказ', 'реестром' in refuse({F.ROOMS_ENV: 'bedroom-1'}, F._BP.DEMO_OUT_DEFAULT))
 check('флаг: опечатка в id комнаты — отказ', 'нет в реестре' in refuse({F.ROOMS_ENV: 'bedrom-1'}, '/tmp/x-demo'))
+
+# БАНК ПО УМОЛЧАНИЮ (T-20261105-32/2): сборке рядом не нужен BEDROOM_SETS — берёт кандидат `.next`; живой есть — живой; витрина — только живой
+_live = DB.BANK_LIVE
+try:
+    DB.BANK_LIVE = os.path.join(HERE, 'нет-такого-sets-bedroom.json')
+    nxt = F._BP.room_bank_output({}, 'bedroom')
+    check('банк: сборка рядом без переменной — кандидат sets-bedroom.next.json',
+          F.bedroom_bank_path({}, '/tmp/x-demo') == nxt and nxt.endswith('sets-bedroom.next.json'))
+    check('банк: ROOM_SETS_OUTPUT сборщика на выбор не влияет', F.bedroom_bank_path({'ROOM_SETS_OUTPUT': '/tmp/b.json'}, '/tmp/x-demo') == nxt)
+    check('банк: витрина без живого — живой путь (спальня «скоро»), не кандидат',
+          F.bedroom_bank_path({}, F._BP.DEMO_OUT_DEFAULT) == DB.BANK_LIVE)
+    check('банк: BEDROOM_SETS — главнее', F.bedroom_bank_path({F.BEDROOM_SETS_ENV: '/tmp/s.json'}, '/tmp/x-demo') == '/tmp/s.json')
+    DB.BANK_LIVE = os.path.abspath(__file__)  # «живой есть»
+    check('банк: живой есть — живой и у сборки рядом', F.bedroom_bank_path({}, '/tmp/x-demo') == DB.BANK_LIVE)
+finally:
+    DB.BANK_LIVE = _live
 print('итог:', 'FAIL' if fails else 'OK')
 sys.exit(1 if fails else 0)

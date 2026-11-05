@@ -1127,12 +1127,24 @@ BEDROOM_SETS_ENV = 'BEDROOM_SETS'
 FEED_ANY_MESH_ENV = 'FLAT215_FEED_ANY_MESH'
 
 
+def bedroom_bank_path(env, out: str) -> str:
+    """Банк спальни для сборки (T-20261105-32/2): `BEDROOM_SETS` → живой `sets-bedroom.json`, если есть → у сборки рядом —
+    кандидат сборщика `sets-bedroom.next.json` (`bank_paths.room_bank_output`), чтобы не задавать путь руками. Витрина без живого
+    банка — живой путь (пусто → спальня «скоро»): кандидат в публикуемую папку не идёт, подмена — onb-12."""
+    import demo_bedroom as DB
+    if env.get(BEDROOM_SETS_ENV):
+        return env[BEDROOM_SETS_ENV]
+    if os.path.exists(DB.BANK_LIVE) or _BP.same(out, _BP.DEMO_OUT_DEFAULT):
+        return DB.BANK_LIVE
+    return _BP.room_bank_output({}, 'bedroom')
+
+
 def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomplete: list, room: dict,
                      bcat: dict) -> tuple[dict, dict]:
     """СПАЛЬНИ В ВИТРИНЕ (onb-07 Т2): варианты включённых спален из банка (`demo_bedroom`) — в конец `variants`, ленты ролей
     спальни — в `feeds`, неполные — в `incomplete`; → (геометрии для `rooms_geo`, полосы размера для `rules.slot_band_cm`).
-    Ни одна спальня не включена — ничего не трогаем (данные гостиной байт в байт прежние). Банк — живой `sets-bedroom.json`,
-    у сборки рядом — `BEDROOM_SETS`; там же `FLAT215_FEED_ANY_MESH=1` пускает в ленту товары без модели (проверка ленты, пока
+    Ни одна спальня не включена — ничего не трогаем (данные гостиной байт в байт прежние). Банк — `bedroom_bank_path`
+    (живой `sets-bedroom.json`; у сборки рядом — `BEDROOM_SETS` или кандидат `.next`); там же `FLAT215_FEED_ANY_MESH=1` пускает в ленту товары без модели (проверка ленты, пока
     меши кроватей не выложены, onb-10) — у папки витрины это отказ."""
     import demo_bedroom as DB
     on = [r for r in flags.get('rooms_enabled') or [] if r.startswith('bedroom')]
@@ -1141,7 +1153,7 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     test_env = [k for k in (BEDROOM_SETS_ENV, FEED_ANY_MESH_ENV) if os.environ.get(k)]
     if test_env and _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
         raise SystemExit(f'{", ".join(test_env)} у сборки в папку витрины — только сборка рядом (FLAT215_DEMO_OUT)')
-    bank = DB.load_bank(os.environ.get(BEDROOM_SETS_ENV) or DB.BANK_LIVE)
+    bank = DB.load_bank(bedroom_bank_path(os.environ, OUT))
     reg = {r['id']: r for r in apt.get('rooms') or []}
     shared = {k: room[k] for k in ('window_view', 'height_cm') if k in room}
     # геометрия — комната готовой расстановки банка (`layout._room`), иначе чертёж `flat215-bedrooms.json`
