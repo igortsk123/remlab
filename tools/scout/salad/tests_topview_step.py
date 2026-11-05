@@ -49,9 +49,22 @@ def step(render: str, deadline_s: int = 60, pass_s: int = 2, kill_s: int = 1) ->
 def alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
-        return True
     except ProcessLookupError:
         return False
+    try:  # зомби (вышел, не собран) — не живой
+        return open(f'/proc/{pid}/stat').read().split(') ', 1)[1][0] != 'Z'
+    except OSError:
+        return False
+
+
+def gone(pid: int, wait_s: float = 10) -> bool:
+    """Процесс вышел — ждём ФАКТ (до wait_s), а не «sleep 0.5»: на загруженном раннере CI сигнал доходит позже (T-20261105-38)."""
+    t0 = time.time()
+    while alive(pid):
+        if time.time() - t0 > wait_s:
+            return False
+        time.sleep(0.05)
+    return True
 
 
 def main() -> None:
@@ -64,8 +77,7 @@ def main() -> None:
         check(sec < 10, f'снят по таймауту прохода 2 с, а не через 300 с ({sec:.1f} с)')
         check('проход снят по таймауту 2 с' in out and 'по таймауту 1' in out, 'причина и счётчик — в выводе шага')
         child = int(open(pidf).read().strip())
-        time.sleep(0.5)
-        check(not alive(child), f'потомок прохода (pid {child}) погашен вместе с ним — сирот нет')
+        check(gone(child), f'потомок прохода (pid {child}) погашен вместе с ним — сирот нет')
 
         print('таймаут после удачного прохода')
         cnt = os.path.join(tmp, 'n')

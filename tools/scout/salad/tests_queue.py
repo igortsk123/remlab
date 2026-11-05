@@ -78,7 +78,9 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_response(200 if ok else 503); self.end_headers()
 http.server.HTTPServer(('127.0.0.1', int(os.environ['APORT'])), H).serve_forever()
 '''
-QWORKER = '#!/bin/sh\necho $$ > "$MARK/qw.pid"; date +%s.%N > "$MARK/qw.at"; exec sleep 300\n'
+# qw.pid — метка «готово»: пишется ПОСЛЕДНЕЙ, когда qw.at уже записан (тест ждёт pid и сразу читает qw.at; в обратном порядке
+# на загруженном раннере qw.at читался пустым — T-20261105-38)
+QWORKER = '#!/bin/sh\ndate +%s.%N > "$MARK/qw.at"; echo $$ > "$MARK/qw.pid"; exec sleep 300\n'
 
 
 def fake_tgz(d: str) -> tuple[str, str]:
@@ -110,6 +112,17 @@ def alive(pid: int) -> bool:
         return open(f'/proc/{pid}/stat').read().split(') ', 1)[1][0] != 'Z'
     except OSError:
         return False
+
+
+def gone(*pids: int | None, wait_s: float = 10) -> bool:
+    """Все процессы вышли — ждём ФАКТ (до wait_s), а не «sleep 0.3»: на загруженном раннере CI сигнал детям доходит позже
+    (T-20261105-38). None пропускается — его проверяет сам вызов."""
+    t0 = time.time()
+    while any(x and alive(x) for x in pids):
+        if time.time() - t0 > wait_s:
+            return False
+        time.sleep(0.05)
+    return True
 
 
 def in_session(sid: int, comm: str) -> list[int]:
@@ -193,24 +206,21 @@ def wrapper_cases(real: bool) -> None:
         check(bool(ready_at and qw_at and qw_at >= ready_at), 'воркер очереди стартовал после /ready генерации')
         os.kill(apid, signal.SIGKILL)
         rc, out = finish(p)
-        time.sleep(0.3)
-        check(rc is not None and qpid is not None and not alive(qpid),
+        check(rc is not None and qpid is not None and gone(qpid),
               f'генерация упала — воркер очереди погашен, контейнер вышел (rc={rc})')
 
         p, mark = start(d, url, sha, 18303, READY_AFTER='0')
         qpid, apid = pid_of(mark, 'qw.pid'), pid_of(mark, 'app.pid')
         os.kill(qpid, signal.SIGKILL)
         rc, out = finish(p)
-        time.sleep(0.3)
-        check(rc is not None and apid is not None and not alive(apid),
+        check(rc is not None and apid is not None and gone(apid),
               f'воркер очереди упал — генерация погашена, контейнер вышел (rc={rc})')
 
         p, mark = start(d, url, sha, 18304, READY_AFTER='0')
         qpid, apid = pid_of(mark, 'qw.pid'), pid_of(mark, 'app.pid')
         p.send_signal(signal.SIGTERM)
         rc, out = finish(p)
-        time.sleep(0.3)
-        check(rc == 143 and qpid and apid and not alive(qpid) and not alive(apid),
+        check(rc == 143 and qpid and apid and gone(qpid, apid),
               f'SIGTERM контейнеру — оба остановлены, выход 143 (rc={rc})')
 
         p, mark = start(d, url, sha, 18305, DIE_EARLY='1')
@@ -232,8 +242,7 @@ def wrapper_cases(real: bool) -> None:
         if ppids:
             os.kill(ppids[0], signal.SIGKILL)
         rc, out = finish(p)
-        time.sleep(0.3)
-        check(rc is not None and apid and qpid and not alive(apid) and not alive(qpid),
+        check(rc is not None and apid and qpid and gone(apid, qpid),
               f'посредник упал — генерация и воркер очереди погашены, контейнер вышел (rc={rc})')
 
         p, mark = start(d, url, sha, 18308, cmd=pcmd, READY_AFTER='0', PX_PORT='18318',
@@ -243,8 +252,7 @@ def wrapper_cases(real: bool) -> None:
         ppids = [x for x in in_session(p.pid, 'python') if x != apid]
         p.send_signal(signal.SIGTERM)
         rc, out = finish(p)
-        time.sleep(0.3)
-        check(rc == 143 and apid and qpid and ppids and not any(alive(x) for x in [apid, qpid, *ppids]),
+        check(rc == 143 and apid and qpid and ppids and gone(apid, qpid, *ppids),
               f'SIGTERM — все три остановлены, выход 143 (rc={rc})')
 
         if real:
@@ -263,8 +271,7 @@ def wrapper_cases(real: bool) -> None:
                   f'настоящий воркер очереди работает рядом с генерацией (pid {qpids})')
             p.send_signal(signal.SIGTERM)
             rc, out = finish(p, 30)
-            time.sleep(0.5)
-            check(rc == 143 and not alive(apid) and not any(alive(x) for x in qpids),
+            check(rc == 143 and gone(apid, *qpids),
                   f'SIGTERM — оба остановлены, выход 143 (rc={rc})')
             print('    вывод обёртки (хвост):', ' | '.join(out.strip().splitlines()[-4:])[:400])
 

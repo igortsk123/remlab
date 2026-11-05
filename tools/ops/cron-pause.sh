@@ -116,14 +116,18 @@ cmd_selftest() {
   ok "на паузе: строка в логе sink_keeper" "$(grep -q 'sink_keeper: пауза обслуживания' "$MESH_KEEPER_LOG"; echo $?)"
   out=$(cmd_status); rc=$?; ok "status на паузе — код 10 ($rc)" "$([ "$rc" = 10 ] && echo 0 || echo 1)"
   cmd_off >/dev/null
-  # 3. задача работает → on ждёт её и честно говорит «ещё идут» (код 3), status — 11
-  ( . "$T/repo/tools/ops/maintenance.sh"; maint_gate долгая "$T/long.log"; sleep 4 ) &
+  # 3. задача работает → on ждёт её и честно говорит «ещё идут» (код 3), status — 11.
+  # Задача держит замок до «отпусти», а on пускаем после метки «замок взят» — не по «sleep 0.5 / sleep 4»: на загруженном
+  # раннере CI задача не успевала взять замок или отпускала его раньше проверки (T-20261105-38)
+  ( . "$T/repo/tools/ops/maintenance.sh"; maint_gate долгая "$T/long.log"; : > "$T/held"
+    for _ in $(seq 1 1200); do [ -e "$T/release" ] && exit 0; sleep 0.1; done ) &
   local bg=$!
-  sleep 0.5
+  for _ in $(seq 1 300); do [ -e "$T/held" ] || ! kill -0 "$bg" 2>/dev/null && break; sleep 0.1; done
+  ok "задача взяла замок до on" "$([ -e "$T/held" ] && echo 0 || echo 1)"
   out=$(MAINT_WAIT=1 cmd_on 1 "ждём" 2>&1); rc=$?
-  ok "on при работающей задаче: код 3 и список держателей" "$([ "$rc" = 3 ] && grep -q 'задачи ещё идут' <<<"$out" && { ! command -v fuser >/dev/null || grep -q 'sleep' <<<"$out"; } && echo 0 || echo 1)"
+  ok "on при работающей задаче: код 3 и список держателей" "$([ "$rc" = 3 ] && grep -q 'задачи ещё идут' <<<"$out" && { ! command -v fuser >/dev/null || grep -qw "$bg" <<<"$out"; } && echo 0 || echo 1)"
   out=$(cmd_status); rc=$?; ok "status: пауза, но задача идёт — код 11 ($rc)" "$([ "$rc" = 11 ] && echo 0 || echo 1)"
-  wait "$bg"
+  : > "$T/release"; wait "$bg"
   out=$(MAINT_WAIT=5 cmd_on 1 "ждём" 2>&1); rc=$?; ok "on после её конца — код 0 ($rc)" "$rc"
   cmd_off >/dev/null
   # 4. задача пришла, пока on держит исключительный замок (между меткой и проверкой) — выходит, а не работает

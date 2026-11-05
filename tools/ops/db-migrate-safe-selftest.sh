@@ -83,14 +83,19 @@ ok "проверка не прошла: код 7 ($rc), пауза снята, �
 reset; rc=$(STUB_EXISTING=products STUB_DUMP_FAIL=1 run "$T/sql/010-mixed.sql")
 ok "дамп упал: код 5 ($rc), SQL не применяли, пауза снята" "$(yes_if "[ $rc = 5 ] && [ ! -s '$T/applied.sql' ] && ! paused")"
 
-# 6. работающий тяжёлый крон держит замок — ждём --wait и выходим кодом 3, ничего не применив; пауза снята
+# 6. работающий тяжёлый крон держит замок — ждём --wait и выходим кодом 3, ничего не применив; пауза снята.
+# Фон держит замок до команды «отпусти», а не «sleep N»; миграцию пускаем после метки «замок взят», а не через 0.5 с:
+# на загруженном раннере CI фон не успевал взять замок, пауза брала его первой и миграция шла (T-20261105-38)
 reset
-( . "$ROOT/tools/ops/maintenance.sh"; maint_gate долгая "$T/long.log"; sleep 4 ) &
-bg=$!; sleep 0.5
+( . "$ROOT/tools/ops/maintenance.sh"; maint_gate долгая "$T/long.log"; : > "$T/held"
+  for _ in $(seq 1 1200); do [ -e "$T/release" ] && exit 0; sleep 0.1; done ) &
+bg=$!
+for _ in $(seq 1 300); do [ -e "$T/held" ] || ! kill -0 "$bg" 2>/dev/null && break; sleep 0.1; done
+ok "фон взял замок до миграции" "$(yes_if "[ -e '$T/held' ]")"
 rc=$(STUB_EXISTING=products run "$T/sql/010-mixed.sql" --wait 1)
 ok "кроны не закончили: код 3 ($rc), без дампа и SQL, пауза снята" "$(yes_if "[ $rc = 3 ] && ! grep -q pg_dump '$T/calls.log' && [ ! -s '$T/applied.sql' ] && ! paused")"
 ok "журнал: «кроны не закончили», отката не нужно" "$(yes_if "journal_last | grep -q 'кроны не закончили за 1 с.*| откат: не нужен'")"
-wait "$bg"
+: > "$T/release"; wait "$bg"
 
 # 7. чужая пауза уже стоит — не трогаем её, код 4
 reset; bash "$ROOT/tools/ops/cron-pause.sh" on 1 "чужое обслуживание" >/dev/null 2>&1
