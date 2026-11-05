@@ -3,12 +3,12 @@ tier: 1
 topic: partners
 scope: Застройщик, ЖК, квартира, цена и сертификат — данные; реестр и карточка квартиры
 tier2: "../completed_plans/b2b-06-apartment-as-data.md"
-updated: 2026-10-30
+updated: 2026-11-05
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-30
+last_verified: 2026-11-05
 review_after: 2026-12-13
 ---
 
@@ -27,7 +27,7 @@ review_after: 2026-12-13
 
 **Новая квартира:** запись в файле застройщика; новый застройщик — файл + импорт в `lib/partners/registry.ts`; тест `tests/unit/partners.test.ts`.
 
-**Опции** (ADR-0262/0297/0308): куда деньги — `lib/configurator/settlement.ts:settlementOf` (РФ: пол/стены/санузел — доплата застройщику, встроенное — в пакет; UK — все в пакет).
+**Опции** (ADR-0262/0297/0308): куда деньги — поле группы `settlement`, без него — `lib/configurator/settlement.ts:settlementOf` (РФ: пол/стены/санузел — доплата застройщику, прочее — в пакет; UK — всё в пакет).
 
 **Комнаты (ADR-0307):** `rooms[]` — `contracts/partner.ts:apartmentRoom`; остаток пакета — по корзине (`lib/basket/basket.ts`, вариант на комнату).
 

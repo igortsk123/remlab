@@ -3,12 +3,12 @@ tier: 1
 topic: manager-links
 scope: Ссылка от менеджера застройщика покупателю, сигналы менеджеру, его страница и бот
 tier2: "../domain/manager-links.md"
-updated: 2026-10-14
+updated: 2026-11-05
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-13
+last_verified: 2026-11-05
 review_after: 2026-12-13
 ---
 
@@ -16,16 +16,16 @@ review_after: 2026-12-13
 
 ## Что это
 Менеджер застройщика после показа делает ссылку покупателю на его квартиру — в Telegram-боте
-(«Новая ссылка» → заметка «Вася, после показа» → ссылка ответом) или на своей странице
+(«Новая ссылка» → заметка → ссылка ответом) или на своей странице
 `/manager#<ключ>`. Покупатель открывает `/demo/?s=<id>`, видит карточку менеджера, кнопки
 «консультация»/«ипотека» ведут к менеджеру в WhatsApp/Telegram/звонок с готовым текстом,
 «хочу другой вариант» — причина из списка. Менеджеру приходят сигналы, статусы ставит он.
 
 ## Главное
-- **Данных покупателя нет:** заметка менеджера живёт в его чате/браузере; храним только id сообщения
-  (`sends.origin_message_id`), сигналы идут ответом на него (`modules/sends/dispatch.ts`).
+- **Данных покупателя нет:** заметка менеджера живёт в его чате/браузере; храним id сообщения и чата
+  (`sends.origin_*`); сигнал — ответом на заметку, если чат тот же (`modules/sends/dispatch.ts`).
 - **Ключи — 128 бит** (`lib/token.ts`); ключ менеджера — во #фрагменте, Метрика на `/manager` выключена
-  (`app/layout.tsx`, `components/MetrikaPageviews.tsx`).
+  (`lib/metrika.ts:metrikaAllowed`).
 - **Статусы:** `sent→opened→engaged` ставит система, `contacted/meeting/deal/lost` — только менеджер
   (`contracts/send.ts:autoAdvanceAllowed`, `modules/sends/service.ts:setStatusByManager`).
 - **Антишум:** «открыл» раз в сутки, выбор — сводкой через 30 мин, дедуп кликов 2 мин, 20 сигналов/час
@@ -41,5 +41,5 @@ review_after: 2026-12-13
 `infra/server/manager-add.sh` · тесты `tests/unit/sends.test.ts`.
 
 ## Сегодня
-Бот не подключён — нет токена (⚑ владелец); заведён `demo-test`. Квартира одна (`flat215`, реестр
-`modules/sends/apartments.ts` до `b2b-06`). API для CRM — только описание `docs/partner-api.md`.
+Бот не подключён — нет токена (⚑ владелец); заведён `demo-test`. Квартиры — из реестра [[partners]];
+бот дает ссылку, лишь если у застройщика одна квартира. API для CRM — только описание `docs/partner-api.md`.
