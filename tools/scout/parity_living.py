@@ -572,7 +572,8 @@ def trace_summary(S: dict, R: dict) -> dict:
     stand = os.path.realpath(S['stand'])
     repo = os.path.realpath(S['repo'])
     ok_ext = [os.path.realpath(os.path.expanduser(p)) for p in R['trace']['external_ok']] \
-        + [os.path.realpath(os.path.join(S['manifest']['main'], 'node_modules'))]      # зависимости — ссылкой, только чтение
+        + [os.path.realpath(os.path.join(S['manifest']['main'], 'node_modules')),      # зависимости — ссылкой, только чтение
+           os.path.realpath(os.path.join(S['data'], 'net'))]      # записи сети — вход «сеть» (хеш ответа в inputs.net), не файл
     reads, missing, outside, denied, net, miss, sock = {}, set(), set(), [], {}, set(), set()
     db_routed, db_other = 0, set()
     tdir = os.path.join(stand, '_trace')
