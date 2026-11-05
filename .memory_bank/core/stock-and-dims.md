@@ -3,7 +3,7 @@ tier: 1
 topic: stock-and-dims
 scope: Наличие и честность размеров — состояния, парсер, footprint
 tier2: "../domain/stock-and-dims.md"
-updated: 2026-11-04
+updated: 2026-11-05
 importance: high
 source: manual
 status: working
@@ -29,7 +29,7 @@ review_after: 2026-12-05
 **Выведенные размеры — «чтобы влезло», с провенансом в `dims_evidence.<ось>.source` (ADR-0310):** `role_prior` — глубина по роли
 и форме (`dim_prior.py`); `shape_rule:sphere` — ваза-шар (`dim_resolver.py:sphere_height`); `shape_rule:transformer` — трансформер
 Орматека по спальному месту (`dim_resolver.py:transformer_dims`, доказано для `bank_ready.py`); `drawing` — глубина
-диванов mnogomebeli/divanboss с чертежа (`drawing_dims.py` → `load3.py:_drawing_overlay`, conv-15): доказано, в приоры не идёт. Свет: порог высоты 1 см у люстры и бра.
+диванов mnogomebeli/divanboss с чертежа (`drawing_dims.py` → `load3.py:_drawing_overlay`, ADR-0331): доказано, в приоры не идёт. Свет: порог высоты 1 см у люстры и бра.
 Категория без размеров — карантин, роль остаётся (ADR-0309, `dimless.py`).
 
 **Вылет люстры (ADR-0311):** подвеска ≤ потолок − 210 (`compose_gates.py:pendant_out`, `dim_resolver.py:pendant_drop`); потолок —

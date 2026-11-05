@@ -2,10 +2,10 @@
 workstream: conveyor
 slug: conv-15-drawing-depth
 title: conv-15 — глубина диванов mnogomebeli/divanboss с чертежа размеров (ИИ читает, сверка по ширине карточки); пилот 20
-status: in_progress
+status: completed
 created: 2026-11-04
-updated: 2026-11-04
-completed:
+updated: 2026-11-05
+completed: 2026-11-05
 plan_kind: sub
 parent_plan: MASTER-conveyor-gaps
 ---
@@ -50,10 +50,10 @@ Codex 04.11 — `.claude/tmp-chk/codex-drawing-dims-answer.md` (архитект
 - Предохранитель `heal_policy` 25 % не трогаем.
 
 ## Файлы к изменению
-- [ ] `tools/scout/drawing_dims.py` (новый) + `tools/scout/tests/test_drawing_dims.py` + фикстуры
-- [ ] `tools/scout/load3.py` — подмешивание из кэша, HASH_VERSION (только на шаге 6)
-- [ ] `tools/scout/dim_prior.py`, `tools/scout/mesh_dims.py` — исключить `drawing` из эталонов (шаг 6)
-- [ ] `tools/scout/refresh_daily.sh` — шаг `drawing_dims` cache-only до load3 (шаг 6)
+- [x] `tools/scout/drawing_dims.py` (новый) + `tools/scout/tests/test_drawing_dims.py` + фикстуры
+- [x] `tools/scout/load3.py` — подмешивание из кэша, HASH_VERSION (только на шаге 6)
+- [x] `tools/scout/dim_prior.py`, `tools/scout/mesh_dims.py` — исключить `drawing` из эталонов (шаг 6)
+- [x] `tools/scout/refresh_daily.sh` — шаг `drawing_dims` cache-only до load3 (шаг 6)
 
 ## Задачи
 - [x] Т1 (рабочий) п.1–3: инвентаризация, контакт-лист, модуль + тест разборщика, без платного → отчёт с цифрами и страницей
@@ -61,7 +61,7 @@ Codex 04.11 — `.claude/tmp-chk/codex-drawing-dims-answer.md` (архитект
 - [x] Т3 (рабочий) пилот 20 платно, cache-only → таблица «чертёж | ширина карточки | прочтено | вердикт»
 - [x] Т4 (ведущий) сверка; чисто → Т5 shadow + 50 глазами; нет → итог владельцу, блок остаётся
 - [x] Т5 shadow + все 43 принятых глазами — 0 ложных
-- [ ] Т6 включение (п.6–7) — после Т5; память
+- [x] Т6 включение (п.6–7) — после Т5; память
 
 ## Критерии приёмки
 - Пилот: 0 ложных принятий; доля принятых — как есть (низкая доля не провал, провал — ложное принятие).
@@ -81,6 +81,13 @@ Codex 04.11 — `.claude/tmp-chk/codex-drawing-dims-answer.md` (архитект
 `core/stock-and-dims.md` (источник `drawing`), ADR (новый источник размеров), урок по итогу пилота, `/memory-check`.
 
 ## Лог выполнения
+- 2026-11-05 — первая ночь включения (ведущий): `refresh_daily` 10:40–15:20 — `drawing_dims [только кэш]` 0 вызовов, accepted 1 153;
+  load3 «кандидатов 1294, подмешано 1153», сверка старше 7 дн 0, чертёж сменился 0, отказ 107, не сверялись 34; СТОП нет; дельта — baseline
+  (HASH 9), массового stale нет. Снимки `remlab-logs/t1104-06/snap-after-1247/` (после load3) и `snap-after-1526/` (после ночи), `diff.txt`:
+  d появилась у 1 153 SKU только двух магазинов (663/490), у других магазинов источника drawing нет; в продаже 647, из них после `mesh_bind`
+  580 мешепригодны (было 0), меш готов у 559; кандидат банка `sets3.next.json` — 29 таких диванов в 45 местах (живой банк — 3 в 8).
+  Глазами 4 угловых (Босс ХЛ 285×156×96, Денди 235×165×93, Босс Макс 338×183×93, Кинг 291×160×82) — совпали с чертежами.
+  Попутно: `chain_mesh_required` 811 в утренней проверке — проверка стоит до `mesh_bind` (`refresh_daily.sh:316` vs `:407`), к привязке пометки встали.
 - 2026-11-04 — Т5 PASS: shadow по всем уникальным чертежам; ведущий глазами проверил ВСЕ 43 принятых (сетки
   `remlab-logs/t1104-06/lead-shadow/s00..s10.jpg` + key.json) — у каждого d = общая глубина вида сверху (не сиденье, не спальное,
   не прямая часть угла), ложных 0. Высота карточки местами расходится на 2–3 см с чертежом (S41 82/84, S43 82/85) — в допуске.
@@ -106,3 +113,12 @@ Codex 04.11 — `.claude/tmp-chk/codex-drawing-dims-answer.md` (архитект
   Т2: ведущий разметил 40 глазами (`remlab-logs/t1104-06/lead-marks/marks.tsv`): у прямых сверху — спальное место, у угловых — прямая часть;
   №20/24 — спереди только части, сверху 303 ≠ 355 → ждём отказ. Т3 выдан: 36 чертежей × 2 модели (flash и pro), потолок 80.
 - 2026-11-04 — план после Codex; владелец TG 141/143 «попробуй А… если получится — разблокируешь» → in_progress, Т1 рабочему 1.
+
+## Completion summary
+- **Итог:** глубина с чертежа включена; 1 153 SKU mnogomebeli/divanboss получили d (источник `drawing`), 580 диванов в продаже стали
+  мешепригодны (559 с готовым мешем), 0 ложных принятий на пилоте (36), shadow (43) и выборке первой ночи (4 угловых).
+- **Код:** `tools/scout/drawing_dims.py`, `load3.py:_drawing_overlay`/`loader_preflight`/`loader_gate`, `bank_ready.py` (PROVEN_SQL),
+  `dim_prior.py`/`mesh_dims.py`/`dimless.py` (drawing не эталон), `drawing_snapshot.py`, `refresh_daily.sh` (шаг до load3); e08126e5, 37485af2.
+- **Решение:** ADR-0331. **Уроки:** 550 (ИИ перечисляет — код выбирает по якорю; выведенное снимать только по свежему доказательству).
+- **Не вошло / дальше:** 270 «диванов»-частей модулей (skipped-part) — роль отдельным планом; 34 мёртвые ссылки на чертёж; «Кинг Твин»
+  divan.ru — тем же модулем позже; пересчёт сцен при смене только геометрии (`set_changes`) — conv-14 п.6, отдельный план.
