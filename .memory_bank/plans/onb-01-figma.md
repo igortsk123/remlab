@@ -2,7 +2,7 @@
 workstream: design
 slug: onb-01-figma
 title: onb-01 — Фигма: компоненты опроса, экраны опроса и новой главной RU/EN телефон и компьютер, страница «Как внедряем»
-status: draft
+status: in_progress
 created: 2026-11-05
 updated: 2026-11-05
 completed:

@@ -2,7 +2,7 @@
 workstream: layout
 slug: onb-05-bedroom-layout
 title: Расстановка спальни — room_type=bedroom и назначения, нормы, шаблоны, экзамен 30+ сцен без регресса гостиной
-status: draft
+status: in_progress
 created: 2026-11-05
 updated: 2026-11-05
 completed:

@@ -2,7 +2,7 @@
 workstream: demo
 slug: onb-02-entry-matrix
 title: onb-02 — ступень 0 опроса без кода продукта — матрица входов, аудит цветов 5 стилей, черновик событий, эталоны подбора, список живых проверок
-status: draft
+status: in_progress
 created: 2026-11-05
 updated: 2026-11-05
 completed:

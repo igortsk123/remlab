@@ -2,7 +2,7 @@
 workstream: catalog
 slug: onb-04-bedroom-catalog
 title: Каталог спальни в изоляции room_catalog — назначения ролей, детские кровати по возрасту, рабочие столы и стулья, диван-кровать, размеры, признак ткани, замер
-status: draft
+status: in_progress
 created: 2026-11-05
 updated: 2026-11-05
 completed:

@@ -2,7 +2,7 @@
 workstream: catalog
 slug: onb-08-kitchen-examples
 title: onb-08 — примеры кухонь без владельца: источники RU/UK с фото и ценой, лицензии и атрибуция, паспорт и нормализация под наш набор kitchen.ts
-status: draft
+status: in_progress
 created: 2026-11-05
 updated: 2026-11-05
 completed:
