@@ -292,6 +292,8 @@ def _selftest() -> int:
         g = (L.skeleton_gate('x', {}, 'write_enabled'), B.skeleton_gate('x', {}, 'write_enabled'),
              B.skeleton_gate('x', {'write_enabled': True}, 'write_enabled'), B.skeleton_gate('x', {}, 'write_enabled', True))
     ok('каркас: гостиная идёт дальше; спальня выключена — 0, включена или --force — отказ 2', g == (None, 0, 2, 2), g)
+    ok('сборщик ночи гостиной: та же команда, что до этапа Б (compose2.py --style --bands all)',
+       [L.composer()[1], *L.compose_args] == [os.path.join(HERE, 'compose2.py'), '--style', '--bands', 'all'])
     ok('сборщик из профиля: гостиная compose2.py, спальня compose_bedroom.py',
        L.composer() == ('living_legacy', os.path.join(HERE, 'compose2.py'))
        and B.composer() == ('bedroom', os.path.join(HERE, 'compose_bedroom.py')), (L.composer(), B.composer()))
