@@ -3,8 +3,8 @@ tier: 2
 topic: stock-and-dims-details
 scope: Контроль наличия и честность размеров — модель, состояния, парсер, правило footprint
 tier1: ../core/stock-and-dims.md
-updated: 2026-11-04
-last_verified: 2026-10-18
+updated: 2026-11-06
+last_verified: 2026-11-06
 importance: high
 source: manual
 ---
@@ -22,7 +22,8 @@ source: manual
 (in_stock|out_of_stock|unknown), `page_state` (alive|gone|unknown), `availability_basis` (page|feed|none),
 `stock_evidence_at`; пишет только `stock_truth.reconcile()`; демо помечает «наличие не проверено» (замер 11.10: основание `page` — 20 002, `feed` — 1 389). Парсер v2
 (snake_case, `href=`, JSON-LD Product, inline-остаток tvoydom) включён по умолчанию с 03.09 после gold-замера в тени
-(`page_alive.py:PARSER_V2`, откат — `STOCK_PARSER_V2=0`); тень — `stock_check.py --shadow`, отчёт — `stock_shadow_report.py`. Со страницы берём цену/имя/canonical только как наблюдения (`product_page_facts`).
+(`page_alive.py:PARSER_V2`, откат — `STOCK_PARSER_V2=0`); тень — `stock_check.py --shadow`, отчёт — `stock_shadow_report.py`. Со страницы берём цену/имя/canonical как наблюдения (`product_page_facts`); цену со страницы показывает покупателю
+`tools/scout/price_truth.py` (`price_shown_rub`) у магазинов с основанием `page` по `tools/scout/rules/price-truth.json`.
 
 ## Размеры (`tools/scout/footprint.py`, `dim_resolver.py`)
  `footprint.py` — одно правило «Ш×Г или диаметр известны» для compose2, лечения, солвера,

@@ -3,19 +3,18 @@ tier: 1
 topic: pipeline-order
 scope: Порядок конвейера — от фида до расстановки
 tier2: "../domain/pipeline-order-details.md"
-updated: 2026-11-04
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-11
+last_verified: 2026-11-06
 review_after: 2026-12-05
 ---
 
 # Порядок конвейера — Tier 1 сводка
 
-Зафиксирован владельцем 29.08: **каждый этап зависит только от предыдущих** (раньше спрос на
-меши считался от сетов, а сеты ждали мешей — петля).
+**Каждый этап зависит только от предыдущих** (владелец 29.08; раньше спрос на меши ждал сетов, а сеты — мешей).
 
 | # | Этап | Чем | На выходе (замер 11.10) |
 |---|---|---|---|
@@ -25,21 +24,21 @@ review_after: 2026-12-05
 | 4 | **Обрезка фото** | `cutout_sync.py` | вердикт: ok · collage · bad_cutout · tiny_object · unknown |
 | 5 | **Очередь мешей** — годное после обрезки, минус мягкий декор | `mesh_queue.demand_from_cut_pool` | **4 669** |
 | 6 | Генерация → приёмка → ориентация → «меш есть»; прогон ПОСЛЕ стилей — [[mesh-run]] | `salad/*`, `mesh_ready.py` | — |
-| 7 | **Сборка сетов** по стилям; «меш готов» — только при `MESH_GATE_PHASE` `hard_new`/`rolling`/`full` (`slot_contract.py:61`) | `compose2.py` | 126 комплектов |
+| 7 | **Сборка сетов** по стилям; «меш готов» — только при `MESH_GATE_PHASE` `hard_new`/`rolling`/`full` (`mesh_ready.py:gate_active`) | `compose2.py` | 126 комплектов |
 | 8 | Судья: выбор лучших вариантов | `judge.py` | — |
 | 9 | Расстановка под планировку | солвер, `acceptance-scenes.json` | 272 сцены |
 
 **Стыки (ADR-0272):** пороги — `tools/scout/rules/pipeline-map.json`, расчёт — `tools/scout/pipeline_map.py`, страница `/test/pipeline/`;
 тревога при смене состояния, напоминание жёлтый/72 ч, красный/24 ч.
 
-**Этап 4 — ворота, а не косметика:** что срезано с фото, того не будет в меше; что прилипло от
-фона — станет геометрией. Мягкий декор режется тоже (нужен витрине), но на меши не идёт.
+**Этап 4 — ворота:** срезанного с фото не будет в меше, прилипшее станет геометрией; мягкий декор режется, но не на меши.
 
 **Очередь ≠ генерация:** генерим только под демо (ADR-0314).
 
-**Банк комплектов (ADR-0318):** ночью кандидат → ожидание по ячейке → `bank_promote` → писатель `bank_refresh.py` (выключен до готовых ячеек) — Tier 2.
+**Банк комплектов (ADR-0318):** `bank_prepare && bank_pending && bank_promote` с одним `BANK_RUN_ID`, писатель
+`bank_refresh.py` — только при целой цепочке (`tools/scout/refresh_daily.sh:bank_chain_ok`; `write_enabled` выключен) — Tier 2.
+**Демо:** `flat215_demo` → `publish_demo.sh` — копия прежней версии и `--rollback` (`tools/scout/publish_demo.sh`) — Tier 2.
 
 **13.10 (ADR-0247):** живость фото (`pool_photos`) — ДО стиля, стиль — ДО отбора и вырезки (`tools/scout/refresh_daily.sh`).
 
-**Tier 2:** `../domain/pipeline-order-details.md` · `tools/scout/refresh_daily.sh` ·
-ADR-0131/0133/0134 · [[mesh-pipeline]].
+**Tier 2:** `../domain/pipeline-order-details.md` · ADR-0131/0133/0134 · [[mesh-pipeline]].

@@ -219,10 +219,87 @@ def variant_id(room_id: str, style_id: str) -> str:
     return f'{room_id}-{style_id}'
 
 
+# СТОРОЖ МОДЕЛИ ПРЕДМЕТА (T-20261105-51/2): в вариант спальни идёт только товар, чья модель готова и выложена — иначе сцена
+# рисует серую «коробку» (404 → заглушка `lib/viewer3d/viewer.ts`) или чужой меш. Проверку даёт сборка (`mesh_ok(sku) → ''`
+# или причина); у ковра модели нет — его рисует своя отрисовка по фото, сторож его не трогает.
+MESH_FREE_ROLES = ('ковёр',)
+
+
+def _instances(role: str, art: dict | None) -> list:
+    """Места роли в расстановке: сама роль и пронумерованные экземпляры («тумба прикроватная 2»)."""
+    return [r for r in (art or {}) if not r.startswith('_') and isinstance(art[r], dict) and base_role(r) == role]
+
+
+def _fits(art: dict, role: str, dm: dict, purpose: str | None) -> tuple[dict | None, list]:
+    """Замена на месте прежнего товара: те же поворот, стена и центр вдоль стены, свой габарит (`on_ref_place`) → (новая
+    расстановка, []) или (None, новые жёсткие нарушения). Без комнаты в расстановке — расстановку не трогаем."""
+    if not isinstance((art or {}).get('_room'), dict):
+        return art, []
+    W, D = art['_room']['w'], art['_room']['d']
+    out = dict(art)
+    for r in _instances(role, art):
+        p = art[r]
+        if p.get('x') is None or not (p.get('w') and p.get('d')):
+            continue
+        out[r] = on_ref_place(dict(p, w=dm['w'], d=dm['d'], h=dm.get('h')), p, W, D, False)
+    new = hard_codes(out, purpose) - hard_codes(art, purpose)
+    return (None, sorted(new)) if new else (out, [])
+
+
+def gate_items(rec: dict, art: dict | None, sku, dims_of, mesh_ok) -> tuple[dict, dict | None, list, list, list]:
+    """Товары записи через сторож модели → (товары, расстановка, замены, пустые роли, пропущенные с нерешённым разворотом).
+    Роль без годной модели — следующий кандидат той же роли из `alternates` банка (по порядку банка), который встаёт на её
+    место без новых жёстких нарушений; нет такого — роль пустая с причиной. Замены — `{role, was, now, why}`, пустые —
+    `{role, why}`, нерешённые — `{role, msid, why}` (у сторожа есть `mesh_ok.note(sku)` → причина или ''; в журнал сборки)."""
+    items = dict(rec.get('items') or {})
+    swaps, empty, orient = [], [], []
+    alts = rec.get('alternates') or {}
+    note = getattr(mesh_ok, 'note', None)
+
+    def noted(role, x):
+        n = note(x) if note and x else ''
+        if n:
+            orient.append({'role': role, 'msid': x.get('msid'), 'why': n})
+    for role in [r for r in list(items) if base_role(r) == r and r in SOLVER_ROLES]:
+        s = sku(items, role)
+        why = mesh_ok(s) if s else 'нет товара'
+        if not why:
+            noted(role, s)
+            continue
+        tried = []
+        for alt in alts.get(role) or []:
+            t = sku({role: alt}, role)
+            w = mesh_ok(t) if t else 'нет товара'
+            if not w:
+                dm = dims_of({}, t, role)
+                if dm.get('dims_unknown'):
+                    w = 'размер не указан'
+                else:
+                    a2, bad = _fits(art, role, dm, rec.get('purpose'))
+                    w = ('не встаёт: ' + ', '.join(bad)) if bad else ''
+            if not w:
+                swaps.append({'role': role, 'was': [s and s.get('sid'), s and s.get('name')], 'now': [t.get('sid'), t.get('name')],
+                              'why': why})
+                art = a2
+                noted(role, t)
+                for k in [k for k in items if base_role(k) == role]:   # и пронумерованные строки банка («… 2») — тот же товар
+                    items[k] = alt
+                break
+            tried.append(w)
+        else:
+            empty.append({'role': role, 'why': f'модель не готова ({why}); кандидатов {len(tried)}'
+                                              + (f": {'; '.join(dict.fromkeys(tried))}" if tried else '')})
+            for k in [k for k in items if base_role(k) == role]:
+                items.pop(k)
+    return items, art, swaps, empty, orient
+
+
 def build_variant(rec: dict, geo: dict, sku, dims_of, style_id, hung=lambda n: False, decor_role=lambda r: False,
-                  layout=None) -> tuple[dict | None, dict | None]:
+                  layout=None, mesh_ok=None) -> tuple[dict | None, dict | None]:
     """Запись банка → (вариант витрины, None) или (None, строка `incomplete_styles`). `sku(items, role)` и `dims_of(v, sku, role)`
-    — функции сборки (`flat215_demo._sku`, `_dims_of`): товар и габарит из каталога, как у гостиной."""
+    — функции сборки (`flat215_demo._sku`, `_dims_of`): товар и габарит из каталога, как у гостиной. `mesh_ok(sku)` — сторож
+    модели (`gate_items`; None — без проверки): замены — в `mesh_swaps` варианта, пустые роли — в `missing_item` с причиной,
+    пропущенные с нерешённым разворотом — в `orient_unresolved` (сборка снимает поле в журнал)."""
     items = rec.get('items') or {}
     style = rec.get('style') or ''
     sid = style_id(style)
@@ -231,6 +308,9 @@ def build_variant(rec: dict, geo: dict, sku, dims_of, style_id, hung=lambda n: F
         return None, {**miss, 'missing': ['стиль вне витрины']}
     skus, dims, unknown = {}, [], []
     art = layout if layout is not None else rec.get('layout')
+    swaps, empty, orient = [], [], []
+    if mesh_ok is not None:
+        items, art, swaps, empty, orient = gate_items(rec, art, sku, dims_of, mesh_ok)
     # экземпляры ролей: товары записи и пронумерованные места готовой расстановки («тумба прикроватная 2» — товар базовой роли)
     roles = list(items) + [r for r in (art or {}) if not r.startswith('_') and r not in items and base_role(r) in items]
     for role in roles:
@@ -260,7 +340,9 @@ def build_variant(rec: dict, geo: dict, sku, dims_of, style_id, hung=lambda n: F
     have = {base_role(o['role']) for o in objs}
     lost = [c for c in CORE if c not in have]
     if lost:
-        return None, {**miss, 'missing': lost + list(art.get('_reason') or [])}
+        return None, {**miss, 'missing': lost + list(art.get('_reason') or []),
+                      **({'mesh': [e for e in empty if e['role'] in lost]} if empty else {}),
+                      **({'orient_unresolved': len(orient)} if orient else {})}
     decor = []
     lst = lambda r: decor_role(r) or base_role(r) in LIST_ROLES   # noqa: E731
     for role in list(items) + [r for r in art if not r.startswith('_') and r not in items and lst(base_role(r))]:
@@ -270,7 +352,8 @@ def build_variant(rec: dict, geo: dict, sku, dims_of, style_id, hung=lambda n: F
                 decor.append({'role': role, 'sku': s})
     return ({'id': variant_id(rec['room_id'], sid), 'title': (style or sid).capitalize(), 'style': style, 'style_id': sid,
              'room_id': rec['room_id'], 'purpose': rec.get('purpose'), 'fill_pct': art.get('_fill_pct'), 'items': objs,
-             'decor': decor, 'dims_unknown': unknown, 'missing_item': [], 'fill': []}, None)
+             'decor': decor, 'dims_unknown': unknown, 'missing_item': empty, 'fill': [],
+             **({'mesh_swaps': swaps} if swaps else {}), **({'orient_unresolved': orient} if orient else {})}, None)
 
 
 def pick_records(bank: list, rooms: list, styles: list) -> list:

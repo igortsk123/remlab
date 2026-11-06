@@ -30,7 +30,7 @@
 
   ~/venvs/scout/bin/python bank_pending.py --dry [--candidate sets3.next.json]   # что попало бы в спрос, без записи
   ~/venvs/scout/bin/python bank_pending.py --update                               # обновить состояние по кандидату
-  ~/venvs/scout/bin/python bank_pending.py --night                                # ночной шаг: --update, если bank_prepare этой ночи готов
+  ~/venvs/scout/bin/python bank_pending.py --night --run-id <номер>               # ночной шаг: --update по кандидату ЭТОЙ ночи
   python3 bank_pending.py --selftest
 """
 import hashlib
@@ -43,18 +43,22 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import bank_ready as BR  # noqa: E402
-import set_identity as SID  # noqa: E402
+import bank_run as RUN  # noqa: E402
+import room_bank_spec as RBS  # noqa: E402  (ключ ячейки — SPEC.key → set_identity.cell у гостиной)
 
-RULES_PATH = os.path.join(HERE, 'rules', 'bank-candidate.json')
-STATE = os.path.expanduser(os.environ.get('BANK_PENDING', '~/scout-scenes/bank-pending.json'))
-CANDIDATE = os.path.join(HERE, 'sets3.next.json')
-LIVE = os.path.join(HERE, 'sets3.json')
-DEMO_DATA = os.path.expanduser(os.environ.get('DEMO_DATA', '~/scout-scenes/flat215-demo/demo-data.json'))
+# пути, правила и ключ ячейки — из спецификации комнаты (room-bank-01 этап Б); без `--room` — гостиная, ровно прежнее
+# (кандидат здесь, как и раньше, без env BANK_CANDIDATE — `candidate_default`)
+SPEC = RBS.for_room(None)
+RULES_PATH = SPEC.rules_path
+STATE = SPEC.pending_state
+CANDIDATE = SPEC.candidate_default
+LIVE = SPEC.live
+DEMO_DATA = SPEC.demo_data
 
 
 def rules() -> dict:
     try:
-        return json.load(open(RULES_PATH, encoding='utf-8'))
+        return SPEC.view(json.load(open(RULES_PATH, encoding='utf-8')))
     except (OSError, ValueError):
         return {}
 
@@ -68,7 +72,7 @@ def sku_of(it: dict | None) -> str | None:
 
 
 def key(s: dict) -> str:
-    return '|'.join(str(x) for x in SID.cell(s))
+    return SPEC.key(s)
 
 
 def shown(s: dict) -> list[tuple[str, str]]:
@@ -278,7 +282,7 @@ def _queued() -> set:
 # ——— ввод-вывод (база, файлы) ———
 
 def load_facts() -> Facts:
-    return BR.load_facts()
+    return SPEC.load_facts()
 
 
 def load_state() -> dict:
@@ -324,13 +328,16 @@ def queue_skus() -> list:
     return [d['sku'] for d in demand(load_state(), gone, demo)]
 
 
-def run(cand_path: str, write: bool) -> int:
+def run(cand_path: str, write: bool, run_id: str | None = None, raw: bytes | None = None) -> int:
+    """`raw` — байты кандидата, уже сверенные с паспортом (ночь): судим ровно их, второго чтения файла нет."""
     import collections
-    cand = json.load(open(cand_path, encoding='utf-8'))
+    raw = open(cand_path, 'rb').read() if raw is None else raw
+    cand = json.loads(raw)
     live = json.load(open(LIVE, encoding='utf-8'))
     F = load_facts()
     prev = load_state()
     state, diff = update(prev, cand, F)
+    state['run_id'], state['candidate_sha'] = run_id, RUN.sha(raw)   # promote судит только состояние этой ночи
     gone, demo = live_context(live)
     dem = demand(state, gone, demo)
     cells = list(state['cells'].values())
@@ -354,7 +361,8 @@ def run(cand_path: str, write: bool) -> int:
     fam = {d['sku'] for d in dem}
     print(f'  спрос мешей bank_candidate: {len(dem)} заданий = {len(fam)} семейств (представителей); по причинам: '
           f'{dict(collections.Counter(d["why"].split(":")[0] for d in dem))}; чёрный список {len(state["blacklist"])}')
-    print(f'  включён в очередь demo: {"да" if enabled() else "нет (rules/bank-candidate.json:enabled=false)"}')
+    flag = SPEC.flag_ref('enabled')
+    print(f'  включён в очередь demo: {"да" if enabled() else f"нет (rules/bank-candidate.json:{flag}=false)"}')
     if write:
         save_state(state)
         print(f'[bank_pending] состояние → {STATE}')
@@ -362,28 +370,29 @@ def run(cand_path: str, write: bool) -> int:
     return 0
 
 
-PREPARE_REPORT = os.path.expanduser(os.environ.get('BANK_PREPARE_REPORT', '~/scout-scenes/bank-prepare.json'))
+PREPARE_REPORT = SPEC.prepare_report
 NIGHT_MAX_AGE_H = 12
 
 
-def night(report: str = PREPARE_REPORT, now: float | None = None, runner=None) -> int:
+def night(report: str = PREPARE_REPORT, now: float | None = None, runner=None, run_id: str | None = None) -> int:
     """ШАГ НОЧИ ПОСЛЕ РАННЕЙ ПРИВЯЗКИ МЕШЕЙ (T-20261023-08, Codex 23.10): `refresh_daily` → `bank_prepare` (сборка без ожидания) →
-    `bank_pending --night` → `bank_promote`. Судит кандидат, только если `bank_prepare` ЭТОЙ ночи довёл его до `pending_due`
-    (медиа сверены, идентичность цела) — иначе ожидание не трогаем, как прежде внутри `bank_prepare`. Флаг — `prepare_enabled`."""
+    `bank_pending --night` → `bank_promote`. Судит кандидат, только если `bank_prepare` ЭТОЙ ночи (`run_id`, room-bank-01 этап А)
+    довёл его до `pending_due` и файл кандидата — ровно тот (sha паспорта); иначе ожидание не трогаем и ОТКАЗ (код 1, строка в
+    дайджест). Флаг — `prepare_enabled`."""
     if not rules().get('prepare_enabled'):
-        print('bank_pending: выключено (rules/bank-candidate.json:prepare_enabled=false)', flush=True)
+        print(f'bank_pending: выключено (rules/bank-candidate.json:{SPEC.flag_ref("prepare_enabled")}=false)', flush=True)
         return 0
     try:
-        rep = json.load(open(report, encoding='utf-8'))
+        RUN.need(run_id)
+        rep = RUN.load_report(report, run_id)
         age_h = ((time.time() if now is None else now) - os.path.getmtime(report)) / 3600
-    except (OSError, ValueError) as e:
-        print(f'bank_pending: отчёта bank_prepare нет ({type(e).__name__}) — ожидание не обновляю', flush=True)
-        return 0
-    if age_h > NIGHT_MAX_AGE_H or not rep.get('pending_due'):
-        why = f'отчёт старше {NIGHT_MAX_AGE_H} ч' if age_h > NIGHT_MAX_AGE_H else 'кандидат этой ночи не прошёл bank_prepare'
-        print(f'bank_pending: {why} — ожидание не обновляю', flush=True)
-        return 0
-    return (runner or run)(rep.get('candidate') or CANDIDATE, True)
+        if age_h > NIGHT_MAX_AGE_H:
+            raise RUN.ChainError(f'отчёт bank_prepare старше {NIGHT_MAX_AGE_H} ч')
+        cand = rep.get('candidate') or CANDIDATE
+        raw, _ = RUN.candidate(rep, run_id, cand)
+    except RUN.ChainError as e:
+        return RUN.refuse('bank_pending', f'{e} — ожидание не обновляю', e.rc)
+    return (runner or run)(cand, True, run_id, raw)
 
 
 def _selftest() -> int:
@@ -563,19 +572,33 @@ def _selftest() -> int:
         R0 = globals()['rules']
         globals()['rules'] = lambda: {'prepare_enabled': True}
         try:
-            json.dump({'candidate': '/x/cand.json', 'pending_due': True}, open(rp, 'w'))
-            rc1 = night(rp, runner=lambda c, w: got.append((c, w)) or 0)
-            json.dump({'candidate': '/x/cand.json'}, open(rp, 'w'))
-            rc2 = night(rp, runner=lambda c, w: got.append('нельзя') or 0)
-            json.dump({'candidate': '/x/cand.json', 'pending_due': True}, open(rp, 'w'))
-            rc3 = night(rp, now=time.time() + 13 * 3600, runner=lambda c, w: got.append('старый') or 0)
-            rc4 = night(os.path.join(td, 'нет.json'), runner=lambda c, w: got.append('нет') or 0)
+            cp = os.path.join(td, 'cand.json')
+            open(cp, 'w').write('[]')
+            h = RUN.attest(cp, 'N1')
+
+            def rep_(**k):
+                json.dump({'run_id': 'N1', 'candidate': cp, 'candidate_sha': h, 'pending_due': True, **k}, open(rp, 'w'))
+            rep_()
+            q = lambda tag: (lambda c, w, r, raw: got.append((tag, c, w, r, raw)) or 0)  # noqa: E731
+            rc1 = night(rp, runner=q('ok'), run_id='N1')
+            rep_(pending_due=None)
+            rc2 = night(rp, runner=q('нельзя'), run_id='N1')
+            rep_()
+            rc3 = night(rp, now=time.time() + 13 * 3600, runner=q('старый'), run_id='N1')
+            rc4 = night(os.path.join(td, 'нет.json'), runner=q('нет'), run_id='N1')
+            rc6 = night(rp, runner=q('чужой'), run_id='N2')
+            rc7 = night(rp, runner=q('без номера'))
+            open(cp, 'w').write('[{}]')                          # кандидат подменён после prepare
+            rc8 = night(rp, runner=q('подменён'), run_id='N1')
             globals()['rules'] = lambda: {}
-            rc5 = night(rp, runner=lambda c, w: got.append('выкл') or 0)
+            rc5 = night(rp, runner=q('выкл'), run_id='N1')
         finally:
             globals()['rules'] = R0
-    ok('--night: судит кандидат этой ночи с записью; без pending_due, старый отчёт, нет отчёта, флаг выключен — не трогает',
-       got == [('/x/cand.json', True)] and (rc1, rc2, rc3, rc4, rc5) == (0,) * 5, got)
+    ok('--night: судит кандидат этой ночи с записью (байты сверенного файла, номер ночи)',
+       got == [('ok', cp, True, 'N1', b'[]')] and rc1 == 0, got)
+    ok('--night: без pending_due, старый отчёт, нет отчёта, чужой run_id, без --run-id, подменённый кандидат — отказ, не трогает',
+       (rc2, rc3, rc4, rc6, rc7, rc8) == (1, 1, 1, 1, 2, 1), (rc2, rc3, rc4, rc6, rc7, rc8))
+    ok('--night: флаг выключен — ok, не трогает', rc5 == 0)
     print(f'bank_pending selftest: ошибок {bad}')
     return 1 if bad else 0
 
@@ -583,9 +606,15 @@ def _selftest() -> int:
 if __name__ == '__main__':
     if '--selftest' in sys.argv:
         sys.exit(_selftest())
-    if '--night' in sys.argv:
-        sys.exit(night())
-    if '--dry' in sys.argv or '--update' in sys.argv:
-        cp = sys.argv[sys.argv.index('--candidate') + 1] if '--candidate' in sys.argv else CANDIDATE
-        sys.exit(run(cp, '--update' in sys.argv))
+    room, argv = RBS.room_arg(sys.argv)
+    if room and any(a in argv for a in ('--night', '--dry', '--update')):   # `--room X`: пути комнаты; каркас — ничего не пишем
+        RBS.bind(sys.modules[__name__], RBS.for_room(room), 'bank_pending')
+        gate = SPEC.skeleton_gate('bank_pending', rules(), 'prepare_enabled')
+        if gate is not None:
+            sys.exit(gate)
+    if '--night' in argv:
+        sys.exit(night(report=PREPARE_REPORT, run_id=RUN.arg(argv)))
+    if '--dry' in argv or '--update' in argv:
+        cp = argv[argv.index('--candidate') + 1] if '--candidate' in argv else CANDIDATE
+        sys.exit(run(cp, '--update' in argv))
     print(__doc__)

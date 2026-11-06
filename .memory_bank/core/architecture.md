@@ -3,12 +3,12 @@ tier: 1
 topic: architecture
 scope: Стек, модули, генерация, деплой — по коду
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-10-18
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-10-18
+last_verified: 2026-11-06
 review_after: 2026-12-05
 ---
 
@@ -17,7 +17,7 @@ review_after: 2026-12-05
 ## Стек (факт)
 TS strict, pnpm, Next.js 15 App Router. Drizzle — только schema+query (`db/schema.ts`); миграции — raw SQL
 `db/init/*.sql` + `tools/apply-db-init.sh` (drizzle-kit нет). Zod: `contracts/`. Провайдеры `lib/providers`
-(`Result<T,E>`): gemini/fake/traced. Аналитика `lib/analytics.ts` (PostHog); Sentry нет. Vitest + Playwright.
+(`Result<T,E>`): gateway (по умолчанию)/gemini/fake/traced. Аналитика `lib/analytics.ts` (PostHog); Sentry нет. Vitest + Playwright.
 CI: `.github/workflows/{ci,deploy,memory-audit}.yml`.
 
 ## UI-слой (ADR-0041)
@@ -33,7 +33,7 @@ Untitled UI React (Tailwind v4 + React Aria), `components/base|application`; б�
   owner-reviews, retention; legacy М5 — ideas, room-analysis, visual-generation, generation-job.
 - **Смета (v0.4):** `contracts/estimate.ts`, `lib/estimate/*`, `lib/pricing/works`; наружу только через `/go/`.
   **Калькулятор v2 (ADR-0018):** `contracts/calc.ts` + `lib/calc/*` + `components/calc/*` (localStorage).
-- `/db` (init 001–020 — `ls db/init`), `/contracts`, `/lib` (+ `configurator`, `viewer3d`, `basket`, `collections`,
+- `/db` (init 001–021 — `ls db/init`), `/contracts`, `/lib` (+ `configurator`, `viewer3d`, `basket`, `collections`,
   `partners`, `embed`, `legal`, `telegram`, `mesh-review`, `mesh-audit`), `/e2e`, `/docs`; `/tools` — в git, кроме данных
   scout (ADR-0055); каталог/меши — `tools/scout/` (Python, дев-БД).
 - Генерация AI (legacy М5): синхронно `app/api/p/[id]/generate` → `runGenerate`, `maxDuration=60`.

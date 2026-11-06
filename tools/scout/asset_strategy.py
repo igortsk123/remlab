@@ -69,3 +69,45 @@ def non_mesh_roles() -> set:
     молча не строил очередь (найдено разбором Codex 01.09).
     """
     return {r for r, s in _load()['roles'].items() if s != 'hunyuan3d'}
+
+
+# ---------------------------------------------------------------- перед меша (T-20261106-78)
+FRONT_KINDS = ('directed', 'by_back', 'none')
+
+
+def front(role: str | None) -> str:
+    """Есть ли у меша роли перед: `directed` | `by_back` (только со спинкой) | `none`. Канон — `front` в
+    `rules/asset-strategies.json`. Роли без меша (плоскость, вырезка) — `none`; роль с мешем без записи — `directed`
+    (безопаснее проверить ориентацию, чем поставить предмет задом: прихожая до T-78)."""
+    r = base_role(role)
+    if strategy(r) != 'hunyuan3d':
+        return 'none'
+    k = (_load().get('front') or {}).get(r, 'directed')
+    if k not in FRONT_KINDS:
+        raise ValueError(f'asset-strategies.json front[{r!r}] = {k!r}: допустимо {FRONT_KINDS}')
+    return k
+
+
+def is_directed(role: str | None, name: str = '', subtype: str = '') -> bool:
+    """Направлен ли этот предмет: по роли, а у `by_back` — по признаку спинки в названии/подтипе (q25)."""
+    k = front(role)
+    if k == 'by_back':
+        return 'спинк' in f'{name} {subtype or ""}'.lower()
+    return k == 'directed'
+
+
+def directed_roles(roles=()) -> set:
+    """Направленные роли из карты `front` и переданных ролей (роли комнат — из профилей, их собирает вызывающий:
+    нода Salad профилей не видит)."""
+    known = set(_load().get('front') or {}) | {base_role(r) for r in roles if r}
+    return {r for r in known if not r.startswith('_') and front(r) == 'directed'}
+
+
+def front_hint(role: str | None) -> str:
+    """Признаки сторон для VLM-свидетеля; нет подсказки — имя роли."""
+    return (_load().get('front_hints') or {}).get(base_role(role), role or '')
+
+
+def reserve_roles() -> set:
+    """Роли резерва спроса на меши (деньги — отдельное решение от переда; каждая обязана быть directed)."""
+    return set(_load().get('reserve_roles') or ())

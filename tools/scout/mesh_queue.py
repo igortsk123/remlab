@@ -49,12 +49,33 @@ def _mesh_needed(role: str | None) -> bool:
         return _AS.strategy(role) == 'hunyuan3d'
     except Exception:  # noqa: BLE001 — канон недоступен: не выдумываем, считаем что нужен
         return True
-# Направленные роли (фронт обязателен) — ADR-0131; банкетка решается ПРИЗНАКОМ спинки.
-# Спальня (ведущий 05.11, T-20261105-36/2): у кровати, прикроватной тумбы и шкафа явный перед — без них в списке
-# ориентация ставила им «symmetric_by_role» и поворот нейросети без проверки (волна 2: перед сбоку у 5 из 45).
-# Тот же список задаёт резерв спроса (`demand_reserve`, RESERVE_PER_ROLE на роль) — `--run` добавит их в mesh_demand.
-DIRECTED = {'диван', 'кресло', 'стул', 'тв-тумба', 'стеллаж', 'комод', 'стенка',
-            'витрина', 'камин', 'кровать', 'тумба прикроватная', 'шкаф'}
+# НАПРАВЛЕННЫЕ РОЛИ (фронт обязателен, ADR-0131) — ИЗ ДАННЫХ, не списком в коде (T-20261106-78): карта `front` канона
+# `rules/asset-strategies.json` + роли всех профилей комнат `rules/profiles/*.json`. Прежний литерал не знал прихожей —
+# обувницам и вешалкам ставилась «symmetric_by_role» без проверки (как спальне до T-36/2). Роль комнаты без записи в
+# `front` — направленная. Резерв спроса (`demand_reserve`) — отдельный список `reserve_roles` того же файла: новая
+# направленная роль платный спрос сама не заводит.
+def _room_roles() -> set:
+    try:
+        import room_profile as _RP
+        return {r for t in _RP.types() for r in (_RP.raw(t).get('roles') or {})}
+    except Exception as e:  # noqa: BLE001 — профили не прочитались: остаётся карта `front` (роль без записи — directed)
+        print(f'[mesh_queue] роли профилей не прочитаны ({type(e).__name__}) — направленность только по карте front',
+              file=sys.stderr, flush=True)
+        return set()
+
+
+def _directed_from_data() -> set:
+    import asset_strategy as _AS
+    return _AS.directed_roles(_room_roles())
+
+
+def _reserve_from_data() -> set:
+    import asset_strategy as _AS
+    return _AS.reserve_roles()
+
+
+DIRECTED = _directed_from_data()
+RESERVE_ROLES = _reserve_from_data()
 TOP_K_PER_BUCKET = int(os.environ.get('MESH_TOPK', '5'))
 RESERVE_PER_ROLE = int(os.environ.get('MESH_RESERVE', '30'))
 INGEST_MAX = int(os.environ.get('MESH_INGEST_MAX', '200'))   # скачиваний фото за прогон
@@ -148,12 +169,11 @@ def base_role(slot: str) -> str:
 
 
 def directed(role: str, name: str, subtype: str | None) -> bool:
+    """Направлен ли предмет — одно правило с ориентацией (`asset_strategy.is_directed`: банкетка/пуф — по спинке, q25)."""
     if role in DIRECTED:
         return True
-    if role in ('пуф', 'банкетка'):
-        t = f'{name} {subtype or ""}'.lower()
-        return 'спинк' in t          # банкетка со спинкой направлена (q25)
-    return False
+    import asset_strategy as _AS
+    return _AS.is_directed(role, name, subtype or '')
 
 
 # ---------------------------------------------------------------- источники спроса
@@ -196,8 +216,8 @@ def demand_from_candidates() -> dict[str, dict]:
 
 
 def demand_reserve() -> dict[str, dict]:
-    """Резерв направленных ролей прямо из БД — ворота методики (ADR-0131)."""
-    roles = ','.join(q(r) for r in sorted(DIRECTED))
+    """Резерв ролей `reserve_roles` (только направленные) прямо из БД — ворота методики (ADR-0131)."""
+    roles = ','.join(q(r) for r in sorted(RESERVE_ROLES & DIRECTED)) or "''"
     rows = db(f"""
       select p.shop_mid||':'||p.external_id, p.cat_role, p.image_url,
              regexp_replace(coalesce(p.name,''), E'[\\n\\r\\x1f]', ' ', 'g')
@@ -385,6 +405,9 @@ def run() -> None:
     for sku, v in demand_reserve().items():
         want.setdefault(sku, v)
 
+    # товар без роли (кровать, секция дивана, топпер — T-53) в спрос не идёт: колонка role NOT NULL, а выпавший из `want`
+    # уходит в not_required ниже; готовый меш при этом не трогаем
+    want = {k: v for k, v in want.items() if v.get('role')}
     for sku, v in want.items():
         db(f"""insert into mesh_demand (sku, role, priority, image_url, dims, name)
                values ({q(sku)}, {q(v['role'])}, {v['priority']}, {q(v['image_url'])},
@@ -394,6 +417,10 @@ def run() -> None:
                  -- и товар, однажды побывавший в сете, навсегда оставался приоритетом 1 даже
                  -- уйдя в резерв — очередь генерации выстраивалась по прошлому, а не по спросу.
                  priority=excluded.priority,
+                 -- роль — ТЕКУЩАЯ (T-20261105-53/2): каталог сменил «Босс пуф» с кресла на пуф, а спрос держал
+                 -- первую роль навсегда; по ней экспорт задания включает правки предобработки и ориентации
+                 -- (`export`). Ключей заданий и ревизий роль не задаёт — готовый меш не перегенерируется
+                 role=excluded.role,
                  image_url=excluded.image_url, last_seen=now(),
                  -- Смена картинки под тем же URL обязана сбросить хеш: `ingest()` считает его
                  -- только там, где он null, поэтому без сброса новые байты остаются незамеченными

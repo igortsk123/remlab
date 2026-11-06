@@ -407,20 +407,30 @@ step mesh_family_early "$PY" mesh_family.py --fill
 step mesh_bind_early "$PY" mesh_bind.py
 # КАНДИДАТ БАНКА (conv-14 шаг 2.2): сборка `sets3.next.json` (сырая сборка → медиа из каталога → только файл кандидата,
 # `set_identity.write_bank`; ~11 мин), инварианты против живого (идентичность — фатально). За флагом
-# `rules/bank-candidate.json:prepare_enabled` (выключен — ok «выключено»); сбой — FAIL в дайджест, прежний кандидат цел, ночь идёт дальше
-step bank_prepare "$PY" bank_prepare.py
+# `rules/bank-candidate.json:prepare_enabled` (выключен — ok «выключено»); сбой — FAIL в дайджест, прежний кандидат цел
 # ОЖИДАНИЕ ЯЧЕЕК (`bank_pending --night`): только если bank_prepare этой ночи довёл кандидат до суда (`pending_due` в отчёте) —
 # после привязки, перед promote; чёрный список состояния и спрос мешей кандидата — отсюда
-step bank_pending "$PY" bank_pending.py --night
 # ПОДМЕНА ГОТОВЫХ ЯЧЕЕК — ПОКА ТОЛЬКО ОТЧЁТ (conv-14 шаг 3): ready-ячейки кандидата ∩ строгая чистота, предел 25 %, смешанный
 # банк (номера и set_id на месте, связки крупной мебели, тиры), экзамен по сценам продвигаемых → manifest
 # ~/scout-scenes/bank-promote.json. sets3.json не пишет (писатель — bank_refresh ниже; тогда же reindex/set_ids — после него).
-# За флагом rules/bank-candidate.json:promote_enabled (выключен — ok «выключено»); сбой — FAIL в дайджест, ночь идёт дальше
-step bank_promote "$PY" bank_promote.py
-# ПИСАТЕЛЬ ЖИВОГО БАНКА (conv-14 шаг 4) — только при write_enabled: manifest этой ночи → снимок-поколение → атомарная запись;
+# За флагом rules/bank-candidate.json:promote_enabled (выключен — ok «выключено»); сбой — FAIL в дайджест
+# ЦЕПОЧКА НОЧИ (room-bank-01 этап А, Codex 06.11 § 4–5): один номер ночи `BANK_RUN_ID` на prepare → pending → promote → refresh;
+# каждый шаг принимает только свой номер и кандидата этой ночи (`bank_run.py`); шаги — через `&&`: упал один — следующие шаги
+# банка в эту ночь НЕ идут (строка в дайджест, живой банк не тронут), остальная ночь — как прежде.
+BANK_RUN_ID="night-$(date +%Y%m%dT%H%M%S)-$$"
+bank_chain_ok=0
+if step bank_prepare "$PY" bank_prepare.py --run-id "$BANK_RUN_ID" \
+   && step bank_pending "$PY" bank_pending.py --night --run-id "$BANK_RUN_ID" \
+   && step bank_promote "$PY" bank_promote.py --run-id "$BANK_RUN_ID"; then
+  bank_chain_ok=1
+else
+  echo "DIGEST:банк: цепочка ночи $BANK_RUN_ID остановлена на сбое (prepare → pending → promote → refresh) — дальше шаги банка не шли, живой банк не тронут" >> "$LOG"
+fi
+# ПИСАТЕЛЬ ЖИВОГО БАНКА (conv-14 шаг 4) — только при write_enabled и целой цепочке этой ночи: manifest этой ночи (тот же номер) →
+# снимок-поколение → намерение → атомарная запись → журнал; прерванная запись доводится/возвращается при следующем старте;
 # строки DIGEST: (снято / добавлено / ждёт меш) — в дайджест; откат — `bank_refresh.py rollback <поколение>`
 if [ "$BANK_WRITE" = 1 ]; then
-  step bank_refresh "$PY" bank_refresh.py
+  [ "$bank_chain_ok" = 1 ] && step bank_refresh "$PY" bank_refresh.py --run-id "$BANK_RUN_ID"
   bank_index_steps
 fi
 step demo_band "$PY" demo_band.py --report

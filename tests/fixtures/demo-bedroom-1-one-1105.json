@@ -1,0 +1,969 @@
+{
+ "_about": "Спальня 1 витрины демо 05.11, ОДНА РАССТАНОВКА на 5 стилей (T-20261105-32/4: комод джапанди перенесён на место эталона, `demo_bedroom.one_layout`; сборка t32-bedroom-1105-2232) — проверка кадра T-32/6: обязательное целиком с запасом кромки, без карниза над пустым углом. Геометрия комнаты — та же, что в demo-bedroom-1-1105.json.",
+ "room": {
+  "w": 597,
+  "d": 293,
+  "title": "Спальня 1 17.5 м²",
+  "kind": "bedroom",
+  "openings": [
+   {
+    "kind": "door",
+    "wall": "south",
+    "offset_cm": 24,
+    "width_cm": 90,
+    "swing_cm": 90,
+    "hinge": "left"
+   },
+   {
+    "kind": "window",
+    "wall": "east",
+    "offset_cm": 40,
+    "width_cm": 210,
+    "sill_cm": 85,
+    "height_cm": 150
+   },
+   {
+    "kind": "window",
+    "wall": "north",
+    "offset_cm": 197,
+    "width_cm": 240,
+    "sill_cm": 85,
+    "height_cm": 150
+   }
+  ],
+  "radiators": [
+   {
+    "wall": "east",
+    "offset_cm": 55,
+    "width_cm": 180,
+    "depth_cm": 12
+   },
+   {
+    "wall": "north",
+    "offset_cm": 227,
+    "width_cm": 180,
+    "depth_cm": 12
+   }
+  ],
+  "window_view": "yard",
+  "openings_ir": [
+   {
+    "wall": "south",
+    "ir": {
+     "schemaVersion": 2,
+     "kind": "door",
+     "cut": {
+      "u0": 24,
+      "u1": 114,
+      "bottom": 0,
+      "top": 205
+     },
+     "boxes": [
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 4,
+       "h": 211,
+       "d": 12,
+       "x": 22,
+       "y": 105.5,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 4,
+       "h": 211,
+       "d": 12,
+       "x": 116,
+       "y": 105.5,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 98,
+       "h": 4,
+       "d": 12,
+       "x": 69,
+       "y": 207,
+       "z": 0
+      },
+      {
+       "role": "casing",
+       "material": "frame",
+       "w": 5,
+       "h": 205,
+       "d": 12,
+       "x": 26.5,
+       "y": 102.5,
+       "z": 0
+      },
+      {
+       "role": "casing",
+       "material": "frame",
+       "w": 5,
+       "h": 205,
+       "d": 12,
+       "x": 111.5,
+       "y": 102.5,
+       "z": 0
+      },
+      {
+       "role": "casing",
+       "material": "frame",
+       "w": 90,
+       "h": 5,
+       "d": 12,
+       "x": 69,
+       "y": 202.5,
+       "z": 0
+      },
+      {
+       "role": "leaf",
+       "material": "leaf",
+       "w": 85,
+       "h": 202.5,
+       "d": 4,
+       "x": 42.5,
+       "y": 101.25,
+       "z": 0,
+       "group": "leaf"
+      },
+      {
+       "role": "panel",
+       "material": "panel",
+       "w": 52.7,
+       "h": 68.85000000000001,
+       "d": 1,
+       "x": 42.5,
+       "y": 56.7,
+       "z": 2.2,
+       "group": "leaf"
+      },
+      {
+       "role": "panel",
+       "material": "panel",
+       "w": 52.7,
+       "h": 68.85000000000001,
+       "d": 1,
+       "x": 42.5,
+       "y": 137.70000000000002,
+       "z": 2.2,
+       "group": "leaf"
+      },
+      {
+       "role": "handle",
+       "material": "handle",
+       "w": 12,
+       "h": 2.2,
+       "d": 2.2,
+       "x": 77,
+       "y": 105,
+       "z": 3.2,
+       "group": "leaf"
+      },
+      {
+       "role": "handle",
+       "material": "handle",
+       "w": 2.4,
+       "h": 2.4,
+       "d": 4,
+       "x": 81,
+       "y": 105,
+       "z": 2.6,
+       "group": "leaf"
+      }
+     ],
+     "groups": {
+      "leaf": {
+       "x": 26.5,
+       "y": 0,
+       "z": 0,
+       "rotYDeg": 0
+      }
+     }
+    }
+   },
+   {
+    "wall": "east",
+    "ir": {
+     "schemaVersion": 2,
+     "kind": "window",
+     "cut": {
+      "u0": 40,
+      "u1": 250,
+      "bottom": 85,
+      "top": 235
+     },
+     "boxes": [
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 212,
+       "h": 4,
+       "d": 12,
+       "x": 145,
+       "y": 237,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 212,
+       "h": 4,
+       "d": 12,
+       "x": 145,
+       "y": 83,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 4,
+       "h": 158,
+       "d": 12,
+       "x": 38,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 4,
+       "h": 158,
+       "d": 12,
+       "x": 252,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 210,
+       "h": 6,
+       "d": 12,
+       "x": 145,
+       "y": 232,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 210,
+       "h": 6,
+       "d": 12,
+       "x": 145,
+       "y": 88,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 6,
+       "h": 150,
+       "d": 12,
+       "x": 43,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 6,
+       "h": 150,
+       "d": 12,
+       "x": 247,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "mullion",
+       "material": "frame",
+       "w": 4.800000000000001,
+       "h": 138,
+       "d": 10.8,
+       "x": 145,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "glass",
+       "material": "glass",
+       "w": 198,
+       "h": 138,
+       "d": 1.2,
+       "x": 145,
+       "y": 160,
+       "z": -3
+      },
+      {
+       "role": "sill",
+       "material": "frame",
+       "w": 220,
+       "h": 3.5,
+       "d": 20,
+       "x": 145,
+       "y": 84,
+       "z": 9
+      }
+     ],
+     "groups": {},
+     "backdrop": {
+      "assetId": "yard",
+      "back": 30,
+      "u0": 0,
+      "u1": 293,
+      "bottom": 42.156,
+      "top": 277.844,
+      "uv": {
+       "u0": 0.223207,
+       "u1": 0.78252,
+       "v0": 0.328491,
+       "v1": 1
+      }
+     }
+    }
+   },
+   {
+    "wall": "north",
+    "ir": {
+     "schemaVersion": 2,
+     "kind": "window",
+     "cut": {
+      "u0": 160,
+      "u1": 400,
+      "bottom": 85,
+      "top": 235
+     },
+     "boxes": [
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 242,
+       "h": 4,
+       "d": 12,
+       "x": 280,
+       "y": 237,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 242,
+       "h": 4,
+       "d": 12,
+       "x": 280,
+       "y": 83,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 4,
+       "h": 158,
+       "d": 12,
+       "x": 158,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 4,
+       "h": 158,
+       "d": 12,
+       "x": 402,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 240,
+       "h": 6,
+       "d": 12,
+       "x": 280,
+       "y": 232,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 240,
+       "h": 6,
+       "d": 12,
+       "x": 280,
+       "y": 88,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 6,
+       "h": 150,
+       "d": 12,
+       "x": 163,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 6,
+       "h": 150,
+       "d": 12,
+       "x": 397,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "mullion",
+       "material": "frame",
+       "w": 4.800000000000001,
+       "h": 138,
+       "d": 10.8,
+       "x": 280,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "glass",
+       "material": "glass",
+       "w": 228,
+       "h": 138,
+       "d": 1.2,
+       "x": 280,
+       "y": 160,
+       "z": -3
+      },
+      {
+       "role": "sill",
+       "material": "frame",
+       "w": 250,
+       "h": 3.5,
+       "d": 20,
+       "x": 280,
+       "y": 84,
+       "z": 9
+      }
+     ],
+     "groups": {},
+     "backdrop": {
+      "assetId": "yard",
+      "back": 30,
+      "u0": 77.576,
+      "u1": 482.424,
+      "bottom": 42.156,
+      "top": 277.844,
+      "uv": {
+       "u0": 0.113589,
+       "u1": 0.886411,
+       "v0": 0.328491,
+       "v1": 1
+      }
+     }
+    }
+   }
+  ],
+  "finish": {
+   "wall": {
+    "id": "paint-white",
+    "colorHex": "#f2f0ed"
+   },
+   "floor": {
+    "id": "demo-floor",
+    "colorHex": "#dcc7a6"
+   },
+   "ceiling": {
+    "id": "ceiling-white",
+    "colorHex": "#f6f5f2"
+   },
+   "skirting": {
+    "id": "skirting-white",
+    "colorHex": "#f4f2ee"
+   }
+  },
+  "fixtures_ir": [
+   {
+    "wall": "south",
+    "boxes": [
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 24,
+      "h": 7,
+      "d": 1.6,
+      "x": 12,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 483,
+      "h": 7,
+      "d": 1.6,
+      "x": 355.5,
+      "y": 3.5,
+      "z": 0.8
+     }
+    ]
+   },
+   {
+    "wall": "north",
+    "boxes": [
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 160,
+      "h": 7,
+      "d": 1.6,
+      "x": 80,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 240,
+      "h": 7,
+      "d": 1.6,
+      "x": 280,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 197,
+      "h": 7,
+      "d": 1.6,
+      "x": 498.5,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "cornice",
+      "material": "cornice",
+      "w": 270,
+      "h": 2.2,
+      "d": 2.2,
+      "x": 280,
+      "y": 247,
+      "z": 10
+     },
+     {
+      "role": "cornice",
+      "material": "cornice",
+      "w": 2,
+      "h": 2,
+      "d": 10,
+      "x": 151,
+      "y": 247,
+      "z": 5
+     },
+     {
+      "role": "cornice",
+      "material": "cornice",
+      "w": 2,
+      "h": 2,
+      "d": 10,
+      "x": 409,
+      "y": 247,
+      "z": 5
+     }
+    ]
+   },
+   {
+    "wall": "west",
+    "boxes": [
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 293,
+      "h": 7,
+      "d": 1.6,
+      "x": 146.5,
+      "y": 3.5,
+      "z": 0.8
+     }
+    ]
+   },
+   {
+    "wall": "east",
+    "boxes": [
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 40,
+      "h": 7,
+      "d": 1.6,
+      "x": 20,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 210,
+      "h": 7,
+      "d": 1.6,
+      "x": 145,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 43,
+      "h": 7,
+      "d": 1.6,
+      "x": 271.5,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "cornice",
+      "material": "cornice",
+      "w": 240,
+      "h": 2.2,
+      "d": 2.2,
+      "x": 145,
+      "y": 247,
+      "z": 10
+     },
+     {
+      "role": "cornice",
+      "material": "cornice",
+      "w": 2,
+      "h": 2,
+      "d": 10,
+      "x": 31,
+      "y": 247,
+      "z": 5
+     },
+     {
+      "role": "cornice",
+      "material": "cornice",
+      "w": 2,
+      "h": 2,
+      "d": 10,
+      "x": 259,
+      "y": 247,
+      "z": 5
+     }
+    ]
+   },
+   {
+    "wall": "room",
+    "boxes": [
+     {
+      "role": "lamp",
+      "material": "lamp",
+      "w": 42,
+      "h": 3,
+      "d": 42,
+      "x": 298.5,
+      "y": 267.5,
+      "z": 146.5
+     },
+     {
+      "role": "lamp",
+      "material": "cornice",
+      "w": 10,
+      "h": 1,
+      "d": 10,
+      "x": 298.5,
+      "y": 269.5,
+      "z": 146.5
+     }
+    ]
+   }
+  ]
+ },
+ "variants": [
+  {
+   "id": "bedroom-1-scandi",
+   "style": "сканди",
+   "items": [
+    {
+     "role": "кровать",
+     "x": 298.5,
+     "y": 106,
+     "rot": 0,
+     "w": 171,
+     "d": 212,
+     "h": 121
+    },
+    {
+     "role": "тумба прикроватная",
+     "x": 190.5,
+     "y": 21,
+     "rot": 0,
+     "w": 43,
+     "d": 42,
+     "h": 45
+    },
+    {
+     "role": "тумба прикроватная 2",
+     "x": 406.5,
+     "y": 21,
+     "rot": 0,
+     "w": 43,
+     "d": 42,
+     "h": 45
+    },
+    {
+     "role": "шкаф",
+     "x": 25,
+     "y": 164.5,
+     "rot": 90,
+     "w": 137,
+     "d": 50,
+     "h": 240
+    },
+    {
+     "role": "комод",
+     "x": 97,
+     "y": 270,
+     "rot": 180,
+     "w": 80,
+     "d": 46,
+     "h": 90
+    },
+    {
+     "role": "ковёр",
+     "x": 298.5,
+     "y": 170.7,
+     "rot": 0,
+     "w": 300,
+     "d": 200,
+     "h": null
+    }
+   ]
+  },
+  {
+   "id": "bedroom-1-modern",
+   "style": "современный",
+   "items": [
+    {
+     "role": "кровать",
+     "x": 298.5,
+     "y": 106.5,
+     "rot": 0,
+     "w": 174,
+     "d": 213,
+     "h": 92
+    },
+    {
+     "role": "тумба прикроватная",
+     "x": 189,
+     "y": 21,
+     "rot": 0,
+     "w": 43,
+     "d": 42,
+     "h": 48
+    },
+    {
+     "role": "тумба прикроватная 2",
+     "x": 408,
+     "y": 21,
+     "rot": 0,
+     "w": 43,
+     "d": 42,
+     "h": 48
+    },
+    {
+     "role": "шкаф",
+     "x": 26,
+     "y": 165.5,
+     "rot": 90,
+     "w": 135,
+     "d": 52,
+     "h": 222
+    },
+    {
+     "role": "комод",
+     "x": 95.5,
+     "y": 273,
+     "rot": 180,
+     "w": 83,
+     "d": 40,
+     "h": 81
+    },
+    {
+     "role": "ковёр",
+     "x": 298.5,
+     "y": 171,
+     "rot": 0,
+     "w": 300,
+     "d": 200,
+     "h": null
+    }
+   ]
+  },
+  {
+   "id": "bedroom-1-minimal",
+   "style": "минимализм",
+   "items": [
+    {
+     "role": "кровать",
+     "x": 298.5,
+     "y": 106,
+     "rot": 0,
+     "w": 171,
+     "d": 212,
+     "h": 36
+    },
+    {
+     "role": "тумба прикроватная",
+     "x": 192,
+     "y": 17.5,
+     "rot": 0,
+     "w": 40,
+     "d": 35,
+     "h": 56
+    },
+    {
+     "role": "тумба прикроватная 2",
+     "x": 405,
+     "y": 17.5,
+     "rot": 0,
+     "w": 40,
+     "d": 35,
+     "h": 56
+    },
+    {
+     "role": "шкаф",
+     "x": 25,
+     "y": 163.5,
+     "rot": 90,
+     "w": 139,
+     "d": 50,
+     "h": 215
+    },
+    {
+     "role": "комод",
+     "x": 99,
+     "y": 273,
+     "rot": 180,
+     "w": 96,
+     "d": 40,
+     "h": 90
+    },
+    {
+     "role": "ковёр",
+     "x": 298.5,
+     "y": 170.7,
+     "rot": 0,
+     "w": 300,
+     "d": 200,
+     "h": null
+    }
+   ]
+  },
+  {
+   "id": "bedroom-1-loft",
+   "style": "лофт",
+   "items": [
+    {
+     "role": "кровать",
+     "x": 298.5,
+     "y": 104,
+     "rot": 0,
+     "w": 168,
+     "d": 208,
+     "h": 60
+    },
+    {
+     "role": "тумба прикроватная",
+     "x": 195,
+     "y": 18.5,
+     "rot": 0,
+     "w": 37,
+     "d": 37,
+     "h": 46
+    },
+    {
+     "role": "тумба прикроватная 2",
+     "x": 402,
+     "y": 18.5,
+     "rot": 0,
+     "w": 37,
+     "d": 37,
+     "h": 46
+    },
+    {
+     "role": "шкаф",
+     "x": 25,
+     "y": 168,
+     "rot": 90,
+     "w": 150,
+     "d": 50,
+     "h": 210
+    },
+    {
+     "role": "комод",
+     "x": 102,
+     "y": 273,
+     "rot": 180,
+     "w": 90,
+     "d": 40,
+     "h": 89.6
+    }
+   ]
+  },
+  {
+   "id": "bedroom-1-japandi",
+   "style": "джапанди",
+   "items": [
+    {
+     "role": "кровать",
+     "x": 298.5,
+     "y": 104.5,
+     "rot": 0,
+     "w": 191,
+     "d": 209,
+     "h": 97
+    },
+    {
+     "role": "тумба прикроватная",
+     "x": 180.5,
+     "y": 21,
+     "rot": 0,
+     "w": 43,
+     "d": 42,
+     "h": 45
+    },
+    {
+     "role": "тумба прикроватная 2",
+     "x": 416.5,
+     "y": 21,
+     "rot": 0,
+     "w": 43,
+     "d": 42,
+     "h": 45
+    },
+    {
+     "role": "шкаф",
+     "x": 25,
+     "y": 163.5,
+     "rot": 90,
+     "w": 139,
+     "d": 50,
+     "h": 215
+    },
+    {
+     "role": "комод",
+     "x": 97,
+     "y": 270,
+     "rot": 180,
+     "w": 90,
+     "d": 46,
+     "h": 90
+    }
+   ]
+  }
+ ]
+}

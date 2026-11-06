@@ -25,6 +25,7 @@ OUT = os.path.expanduser(os.environ.get('FLAT215_DEMO_OUT') or '~/scout-scenes/f
 # раскладки со своим суффиксом — общие `demo-sets.json` и `v3set{n}-layout.json` живого демо не трогает
 sys.path.insert(0, HERE)
 import bank_paths as _BP  # noqa: E402
+import atomic_io as _AIO  # noqa: E402 — выходные json сборки пишутся подменой, не обрезкой (T-20261105-59)
 BANK = _BP.demo_plan(os.environ, OUT)
 # ОДНА РАССТАНОВКА НА ВСЕ СТИЛИ (demo-31, `demo_one_layout.py`): включено — солвер берёт только гипотезы опорной подписи
 # (`rules/demo-layout.json`), раскладки — со своим суффиксом `-one` (общие `v3set{n}-layout.json` пересчитывают другие прогоны)
@@ -958,7 +959,7 @@ def _mesh_color_ok():
                 cache[key] = None
             dirty[0] = True
             if len(cache) % 25 == 0:
-                json.dump(cache, open(path, 'w'))
+                _AIO.write_json(path, cache)
         pkey = 'photo:' + key
         if pkey not in cache:
             try:
@@ -970,7 +971,7 @@ def _mesh_color_ok():
         return MDK.dark_flag(cache[key], name, cache[pkey]) is None
 
     import atexit
-    atexit.register(lambda: dirty[0] and json.dump(cache, open(path, 'w')))
+    atexit.register(lambda: dirty[0] and _AIO.write_json(path, cache))
     return ok
 
 
@@ -1055,7 +1056,7 @@ def _write_demo_sets(sets: list) -> None:
     """Банк для солвера; переписываем только при изменении — раскладки не пересчитываются зря."""
     blob = json.dumps(sets, ensure_ascii=False)
     if not os.path.exists(DEMO_SETS) or open(DEMO_SETS, encoding='utf-8').read() != blob:
-        open(DEMO_SETS, 'w', encoding='utf-8').write(blob)
+        _AIO.write_text(DEMO_SETS, blob)
 
 
 def fill_report(journal: dict, gone: int) -> dict:
@@ -1069,7 +1070,7 @@ def fill_report(journal: dict, gone: int) -> dict:
           f"не в продаже вне вариантов {gone}", flush=True)
     if not BANK['live']:
         os.makedirs(OUT, exist_ok=True)
-        json.dump(rep, open(os.path.join(OUT, 'demo-fill-report.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        _AIO.write_json(os.path.join(OUT, 'demo-fill-report.json'), rep, ensure_ascii=False, indent=1)
     return rep
 
 
@@ -1160,6 +1161,69 @@ def bedroom_one_layout(recs: list, styles: list) -> dict:
     return out
 
 
+BEDROOM_MESH_GATE_ENV = 'BEDROOM_MESH_GATE'   # orient (по умолчанию) | strict | 0 — сторож модели предметов спальни (T-20261105-51)
+BEDROOM_MESH_GATE_MODES = ('orient', 'strict', '0')
+
+
+def orient_only(reasons) -> bool:
+    """Привязка держит товар ТОЛЬКО из-за нерешённого разворота (`orientation_*`, в т.ч. представителя `rep:orientation_*`)."""
+    return bool(reasons) and all(str(r).split(':')[-1].startswith('orientation_') for r in reasons)
+
+
+def bedroom_mesh_gate(rows=None, why: str = '', mode: str | None = None):
+    """Сторож модели предмета варианта спальни (`demo_bedroom.gate_items`): sku → '' (годен) или причина. Основа — та же
+    проверка, что у выдачи каталога (`catalog_items.bound_asset` поверх `room_bindings.load_db`). Режимы (`BEDROOM_MESH_GATE`):
+      strict — привязка `ready` и модель выложена привязкой (`published`);
+      orient (по умолчанию, решение ведущего T-51/3) — `ready` ИЛИ `blocked` только по развороту (`orientation_*`): брака у
+               модели нет, не решён лишь фронт; такой предмет годен, а `note(sku)` даёт причину — сборка пишет его строкой
+               `WARN:bedroom_orient_unresolved` и счётчиком (видно, что не решено, когда спальню включат на главной);
+      0 — выключен (откат).
+    В обоих режимах: сцена грузит именно модель привязки (`msid` = `mesh_id` — иначе в кадре меш представителя, которого
+    привязка не проверяла) и она в индексе прода (`_mesh_index`, без карантина) — иначе серая коробка.
+    Привязка не читается — все предметы «unbound» с причиной (вариант честно пустеет, а не показывает заглушки)."""
+    mode = mode or os.environ.get(BEDROOM_MESH_GATE_ENV) or 'orient'
+    if mode not in BEDROOM_MESH_GATE_MODES:
+        raise SystemExit(f'{BEDROOM_MESH_GATE_ENV}={mode!r}? можно {", ".join(BEDROOM_MESH_GATE_MODES)}')
+    if mode == '0':
+        print('WARN:bedroom_mesh_gate: выключен (BEDROOM_MESH_GATE=0) — предметы спальни без проверки модели', flush=True)
+        return None
+    import catalog_items as CI
+    if rows is None:
+        import room_bindings as RB
+        rows, why = RB.load_db(CI.fetch)
+        if why:
+            print(f'WARN:bedroom_mesh_gate: привязка не читается ({why}) — у предметов спальни моделей нет', flush=True)
+    idx = _mesh_index()
+
+    def bound(s: dict) -> dict:
+        return CI.bound_asset({}, (rows or {}).get(str(s.get('sid') or '').replace('_', ':', 1)), why)
+
+    def loose(a: dict) -> bool:
+        return mode == 'orient' and not a['ready'] and a['mesh_status'] == 'blocked' and orient_only(a['reasons'])
+
+    def ok(s: dict) -> str:
+        sid, ms = s.get('sid'), s.get('msid')
+        if not sid:
+            return 'нет артикула'
+        a = bound(s)
+        if not (a['ready'] or loose(a)):
+            return f"привязка {a['mesh_status']}" + (f": {', '.join(a['reasons'][:2])}" if a['reasons'] else '')
+        if a['ready'] and not a['published']:
+            return 'модель не выложена'
+        if (a['mesh_id'] or '').replace(':', '_', 1) != ms:
+            return f"сцена грузит {ms}, привязка проверила {a['mesh_id']}"
+        if ms not in idx:
+            return 'нет в индексе прода'
+        return ''
+
+    def note(s: dict) -> str:
+        a = bound(s)
+        return ', '.join(a['reasons']) if loose(a) else ''
+    ok.note = note
+    ok.mode = mode
+    return ok
+
+
 def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomplete: list, room: dict,
                      bcat: dict) -> tuple[dict, dict]:
     """СПАЛЬНИ В ВИТРИНЕ (onb-07 Т2): варианты включённых спален из банка (`demo_bedroom`) — в конец `variants`, ленты ролей
@@ -1183,10 +1247,21 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     made = 0
     recs = DB.pick_records(bank, list(geos), styles)
     lays = bedroom_one_layout(recs, styles)
+    gate = bedroom_mesh_gate()
+    unresolved = 0
     for rec in recs:
         v, why = DB.build_variant(rec, geos[rec['room_id']], _sku, _dims_of, style_id, hung=_hung,
                                   decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r),
-                                  layout=lays.get((rec['room_id'], rec.get('style'))))
+                                  layout=lays.get((rec['room_id'], rec.get('style'))), mesh_ok=gate)
+        for e in (v or {}).get('mesh_swaps') or []:
+            print(f"bedroom_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']}: {e['was'][1]} ({e['why']}) → "
+                  f"{e['now'][1]}", flush=True)
+        for e in ((v or {}).get('missing_item') or []) + ((why or {}).get('mesh') or []):
+            print(f"WARN:bedroom_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']} пустая — {e['why']}", flush=True)
+        for e in (v or {}).pop('orient_unresolved', None) or []:
+            unresolved += 1
+            print(f"WARN:bedroom_orient_unresolved: {rec['room_id']} «{rec.get('style')}» {e['role']} {e['msid']} — {e['why']}",
+                  flush=True)
         if why:
             print(f'WARN:demo_style_dropped: {why["room_id"]} «{why["style"]}» без {", ".join(map(str, why["missing"]))} — '
                   'не публикуем', flush=True)
@@ -1200,7 +1275,8 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
         feeds.setdefault(role, rows)
     print(f'спальни: включены {on}, банк {len(bank)} записей, вариантов {made}; ленты '
           + (', '.join(f'{r} {len(x)}' for r, x in sorted(bf.items())) or 'пусто')
-          + (' (без проверки моделей — сборка рядом)' if any_mesh else ''), flush=True)
+          + (' (без проверки моделей — сборка рядом)' if any_mesh else '')
+          + (f"; сторож {gate.mode}, разворот не решён у {unresolved} предметов вариантов" if gate else ''), flush=True)
     return geos, DB.bands([r.get('purpose') for r in bank if r.get('room_id') in geos])
 
 
@@ -1546,6 +1622,62 @@ def _hung(name: str | None) -> bool:
     return any(k in n for k in ('подвесн', 'навесн', 'настенн'))
 
 
+# ПОДХВАТ ФОТО С ОПУБЛИКОВАННОЙ ГЛАВНОЙ (T-20261106-65): магазин режет массовое скачивание (403 «через раз»; пустая папка
+# T-59/2 — 14 из 936 не скачались, 5 из них — предметы комнат, на главной у всех фото есть). Имя файла — хеш адреса фида,
+# у главной тот же, поэтому не скачалось → берём её копию. Пустая строка в переменной — подхват выключен.
+IMG_FALLBACK = os.environ.get('FLAT215_IMG_FALLBACK', 'https://remont-lab.online/demo/')
+
+
+def _http_get(url: str):
+    """(код, тип, тело) или (0, '', b'') при сетевой ошибке; 4xx/5xx — тоже код, а не исключение."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (remlab demo build)'})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as f:
+            return f.status, f.headers.get('Content-Type') or '', f.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers.get('Content-Type') or '' if e.headers else '', b''
+    except Exception:
+        return 0, '', b''
+
+
+def published_img(name: str, dst: str, big: str, base: str = None, fetch=None) -> bool:
+    """Взять плитку `img/<name>` (и, если есть, крупную `-l.jpg`) с опубликованной главной. Только ответ 200 с типом
+    `image/*`, не меньше 500 байт и открывающийся как картинка — страницу ошибки или HTML не берём. Плитка записана → True."""
+    import io
+    from PIL import Image
+    base = IMG_FALLBACK if base is None else base
+    if not base:
+        return False
+    fetch = fetch or _http_get
+
+    def one(url: str, path: str, side: int) -> bool:
+        code, ctype, raw = fetch(url)
+        if code != 200 or not ctype.lower().startswith('image/') or len(raw) < 500:
+            return False
+        try:
+            im = Image.open(io.BytesIO(raw))
+            im.load()
+            im = im.convert('RGB')
+        except Exception:
+            return False
+        if min(im.size) < 32:
+            return False
+        im.thumbnail((side, side))
+        tmp = path + '.tmp'
+        im.save(tmp, 'JPEG', quality=82)
+        os.replace(tmp, path)
+        return True
+
+    root = base.rstrip('/') + '/img/'
+    if not (os.path.exists(dst) or one(root + name, dst, 400)):
+        return False
+    if not os.path.exists(big):
+        one(root + name[:-4] + '-l.jpg', big, 1200)   # крупной нет — карточка покажет плитку
+    return True
+
+
 def cache_images(data: dict) -> dict:
     """ФОТО КЛАДЁМ К СЕБЕ (владелец 26.08: «фотки не все прогружаются»). Причина — в фиде
     протокол-относительные ссылки на CDN Гдеслона, и примерно половина отдаёт 404: карточки
@@ -1612,8 +1744,23 @@ def cache_images(data: dict) -> dict:
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         got = dict(ex.map(grab, sorted(urls)))
+    # T-65: не скачавшиеся — ещё раз по одному после паузы (магазин режет поток), затем копия опубликованной главной
+    miss = sorted(u for u, v in got.items() if not v)
+    retried = rescued = 0
+    if miss:
+        time.sleep(5)
+        for u in miss:
+            got[u] = grab(u)[1]
+            retried += bool(got[u])
+        for u in (u for u in miss if not got[u]):
+            name = hashlib.md5(u.encode()).hexdigest()[:16] + '.jpg'
+            dst = os.path.join(imgdir, name)
+            if published_img(name, dst, dst[:-4] + '-l.jpg'):
+                got[u] = 'img/' + name
+                rescued += 1
     ok = sum(1 for v in got.values() if v)
-    print(f'фото: скачано {ok} из {len(urls)} (остальные — битые ссылки фида)')
+    print(f'фото: скачано {ok} из {len(urls)} (остальные — битые ссылки фида); со второй попытки: {retried}; '
+          f'подхвачено с прода: {rescued}')
 
     def fix(p):
         if p and p.get('img'):
@@ -1625,9 +1772,15 @@ def cache_images(data: dict) -> dict:
     for kit in (data.get('sets') or []):
         for p in kit['roles'].values():
             fix(p)
+    no_photo = []
     for v in data.get('variants') or []:
         for it in v['items']:
             fix(it.get('sku'))
+            # предмет комнаты без фото остаётся (он расставлен, у него меш, размеры, цена и ссылка): страница рисует плашку
+            # «нет фото» (T-65); замена другим товаром сдвинула бы расстановку и 3D
+            sk = it.get('sku') or {}
+            if sk and not sk.get('img'):
+                no_photo.append(f"{v.get('id')} {it.get('role')}: {sk.get('name')}")
         for x in v.get('decor') or []:              # не скачалось — остаётся адрес магазина: строка декора из списка не пропадает
             sk = x.get('sku') or {}
             if sk.get('img'):
@@ -1686,8 +1839,11 @@ def cache_images(data: dict) -> dict:
     print(f'из выборки убрано без фото: {dropped}; срезано капом 30/подкатегорию×стиль: {capped}; '
           'осталось по ролям: '
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items())))
+    print(f'предметов комнат без фото (плашка «нет фото»): {len(no_photo)}'
+          + (' — ' + '; '.join(no_photo) if no_photo else ''))
     data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped,
-                           'capped': capped}
+                           'capped': capped, 'retried': retried, 'from_published': rescued,
+                           'variant_items_no_photo': len(no_photo)}
     large = sum(1 for v in got.values() if v and os.path.exists(os.path.join(OUT, v[:-4] + '-l.jpg')))
     print(f'крупных копий для карточки товара: {large} из {ok}')
     data['_img_large'] = large > 0                 # страница пробует `<id>-l.jpg` только при этом флаге (нет файла — остаётся плитка)
@@ -1881,11 +2037,10 @@ def main() -> None:
         raise SystemExit(f'--publish со сборкой в {OUT}: публикуется только папка витрины — копия банка идёт в /test/')
     os.makedirs(OUT, exist_ok=True)
     # ИСХОДНИК СТРАНИЦЫ ЖИВЁТ В РЕПО (26.08): до этого index.html лежал только в ~/scout-scenes и
-    # не попадал в git — демо было невоспроизводимо и терялось при чистке
-    import shutil
+    # не попадал в git — демо было невоспроизводимо и терялось при чистке. Копия — подменой (T-20261105-59)
     src = os.path.join(HERE, 'flat215-demo', 'index.html')
     if os.path.exists(src):
-        shutil.copy(src, os.path.join(OUT, 'index.html'))
+        _AIO.write_text(os.path.join(OUT, 'index.html'), open(src, encoding='utf-8').read())
     # ДВИЖОК ЖИВОЙ СЦЕНЫ (demo-01): тот же исходник, что /flat (`lib/viewer3d`), собирается рядом со страницей
     # (`lib/scene.<версия>.js` + `lib/scene.json`). Не собрался — остаётся вчерашний файл, страница работает с ним
     # или уходит на серверный эскиз; громко, а не молча.
@@ -1947,8 +2102,9 @@ def main() -> None:
             print(line, flush=True)
     except Exception as e:  # noqa: BLE001 — сломанный перевод не валит русскую витрину, но громко
         print(f'WARN:names_en_error: английские названия не записались: {repr(e)[:160]}', flush=True)
-    json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
-              ensure_ascii=False, indent=1)
+    # АТОМАРНО (T-20261105-59): раньше файл обрезался и писался заново — упавшая посреди записи сборка оставляла
+    # обрывок, и публикация увозила его на прод. Теперь временный файл рядом + os.replace (`atomic_io.py`)
+    _AIO.write_json(os.path.join(OUT, 'demo-data.json'), data, ensure_ascii=False, indent=1)
     # РАКУРСЫ ОКНА — В ДАННЫЕ (demo-05 п.8): тот же блок CAMFIT страницы считает пару ракурсов каждого варианта
     # (`tools/flat3d/demo-cams.mjs` → `v.cams`), ими снимает «Фото» в /flat. Не посчиталось — /flat покажет прежний вид
     r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/demo-cams.mjs" '

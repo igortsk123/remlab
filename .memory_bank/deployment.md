@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi
 tier2: "domain/deployment-details.md"
-updated: 2026-11-05
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
@@ -38,6 +38,7 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 ## Откат / smoke
 - smoke = `ok=true` И `version == TARGET_SHA` (одного 200 мало). Откат — тег `prev` (Tier 2).
   Вручную: `/`=200, `/api/health` ok, remnanode Up.
+- Демо: `tools/scout/publish_demo.sh --rollback` (копии `demo.prev-*` ×3).
 
 ## Безопасность (ADR-0207, ADR-0256)
 Патчи с публичным RCE — сразу (инцидент 08.09: майнер на 15.5.4). Заслон `@nextrce` в Caddy не снимать.
@@ -45,6 +46,6 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 
 ## Сторожа
 Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), безопасность — `disk-watchdog.sh`. Правка сервера = бэкап + rollback. Ночная копия базы и список скриптов деплоя — Tier 2.
-Доступность — `health-watch.sh` → Telegram; копия дампа, репетиция восстановления, миграция дев-БД — DEV `tools/ops/`. Без DEV и DEV-рендер как юниты `systemctl --user` (`tools/scout/systemd/`, 18.10) — Tier 2 § «Прод без DEV», «DEV-рендер».
+Доступность — `health-watch.sh` → Telegram; дампы, миграция дев-БД — DEV `tools/ops/`. «Прод без DEV», «DEV-рендер» — Tier 2.
 
 **Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy и статик, сторожа.

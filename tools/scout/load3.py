@@ -252,6 +252,9 @@ def assign(o: dict, catrole: dict, known: set) -> dict:
     # СВЕТ ПО ТИПУ ТОВАРА (catalog-holes-bank Н2а): встраиваемый/трековый/подсветка/принадлежность — строка грузится БЕЗ
     # роли (как детское: не в архив), «Светильник настенный» в ветке люстр — бра. До разбора размеров: потолок высоты по роли
     role, o['role_note'] = category_map.light_role(role, o['name'], o.get('params'))
+    # СИДЕНЬЕ ПО НАЗВАНИЮ (T-20261105-53): пуф/банкетка/оттоманка из ветки диванов/кресел → пуф; кровать и секция модульного
+    # дивана — без роли (строка грузится, в архив не уходит). До разбора размеров: потолки габаритов берутся по роли
+    role, o['seat_note'] = category_map.seat_role(role, o['name'])
     o['role'] = role
     o['known'] = key in known
     o['accepted'] = accepted
@@ -422,6 +425,13 @@ def main() -> int:
             light[k] = light.get(k, 0) + 1
     if light:
         print('свет по типу товара (Н2а): ' + ', '.join(f'{k} — {v}' for k, v in sorted(light.items())), flush=True)
+    seat = {}
+    for o in accepted:
+        if o.get('seat_note'):
+            k = o['role'] or 'без роли'
+            seat[k] = seat.get(k, 0) + 1
+    if seat:       # не WARN — правило осознанное, срабатывает каждую ночь (как свет и детские линии)
+        print('сиденье по названию (T-53): ' + ', '.join(f'{k} — {v}' for k, v in sorted(seat.items())), flush=True)
     mismatch = sum(1 for o in offers if o['mid_mismatch'])
     if mismatch:
         print(f'WARN:mid_mismatch: у {mismatch} офферов merchant_id не совпадает с mid в ссылке (взят атрибут)', flush=True)
@@ -723,6 +733,11 @@ def selftest() -> int:
             ('112923', '334', 'Стол divan.ru Безразмерный', {}, 'стол обеденный')):
         o = assign({'mid': mid, 'cid': cid, 'name': nm, 'params': params, 'price': 1}, {}, set())
         check(f'стол «{nm[:24]}» → {want}', o['role'] == want and o['accepted'], f"{o['role']} {o['dims']}")
+    # сиденье по названию (T-20261105-53): ветка «Мягкая мебель» → диван, но пуф — пуф, кровать — без роли и принята
+    for nm, want in (('Пуф Glasar бежевый 40х40х40 см', 'пуф'), ('Кровать металлическая TC 91х164,5х210 см', None),
+                     ('Диван-кровать Glasar', 'диван')):
+        o = assign({'mid': 99272, 'cid': '6982', 'name': nm, 'params': {}, 'price': 1}, {(99272, '6982'): 'диван'}, set())
+        check(f'сиденье «{nm[:24]}» → {want}', o['role'] == want and o['accepted'], f"{o['role']} {o.get('seat_note')}")
     # мягкое детских линий (demo-24): подушка Вигге без роли по соседу-пуфу, обычная подушка — с ролью, строка принята
     offs = [assign({'mid': 112923, 'cid': '445', 'name': 'Пуф divan.ru Вигге Мех Зеленый', 'price': 1,
                     'params': {'Серия': 'Вигге', 'Назначение': 'Для детской'}}, {(112923, '445'): 'пуф'}, set()),

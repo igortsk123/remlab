@@ -62,6 +62,10 @@ jobs:
       - run: node tools/ops/demo-warm.mjs --selftest
       # ночная досъёмка фото нейросети: потолок 50 ₽, трата по счётчику шлюза, прерванное — потрачено, пропуск после неудачной публикации (demo-29)
       - run: node tools/ops/demo-realistic.mjs --selftest
+      # сводка прода: 5xx — по журналу доступа Caddy, без двойного счёта строк журнала ошибок (T-20261106-66)
+      - run: bash infra/server/prod-digest.sh --selftest
+      # выкладка только при изменении не-документов с выкатанной версии; белый список путей, сомнение → выкладка (T-20261106-66/2)
+      - run: bash tools/ops/deploy-need.sh --selftest
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
@@ -166,18 +170,25 @@ jobs:
       - run: python tools/scout/orient_policy.py --selftest   # разворот: публикуются только решённые, cabinet_* не «уверенный» в серверном кадре (T-20261105-56)
       - run: python tools/scout/opening_ir.py --selftest   # проёмы кадра из общего описания (demo-04)
       - run: python tools/scout/mesh_dark.py --selftest    # модель темнее товара — признак карантина (demo-05)
+      - run: pip install fast-simplification && python tools/scout/tests/test_mesh_lite.py   # эскиз меша: LITE_TEXTURE_SAFE — текстурный меш, который не ужать с границей, полным (T-20261105-51/2)
       - run: python tools/scout/unfit.py --selftest        # пригодность для гостиной: одно правило у подбора и лечения демо
       - run: python tools/scout/env_keys.py --selftest     # ключи и журнал расходов из worktree — основной копии, чужой mltest последним с WARN (T-20261105-52)
       - run: python tools/scout/catalog_items.py --selftest   # адаптер каталога комнат: неизвестный тип/роль — ошибка, товар в двух ролях, схема (T-20261105-39)
       - run: python tools/scout/catalog_items_shadow.py --selftest   # тень гостиной: запрос берётся из compose2.py, устаревшая тень — отказ (T-20261105-39)
       - run: python tools/scout/room_profile.py --selftest && python tools/scout/room_profile.py --lint   # профили комнат: схема, версия, ссылки, плагины, роли = адаптер, виды = CAM_ZONES демо (T-20261105-40)
       - run: python tools/scout/asset_coverage.py --selftest   # аудит покрытия мешей: статус товара (привязан/сирота/брак), вариант семьи, корзины, банк (T-20261105-42)
+      - run: python tools/scout/room_mesh_demand.py --selftest && python tools/scout/room_mesh_jobs.py --selftest   # спрос мешей комнат: общий остаток ≤ 500 ₽ на все комнаты и запуски (два запуска подряд), спрос по вариантам витрины (T-20261106-75)
+      - run: python tools/scout/tests/test_front_roles.py   # перед меша — свойство роли в данных (front в asset-strategies.json): гостиная и спальня как были, прихожая направленная, резерв спроса тот же (T-20261106-78)
       - run: python tools/scout/room_bindings.py --selftest   # привязка товар→меш комнат: готовность (фото, поколение, sha, ориентация, паспорт), семья ссылкой, снимок и таблица (T-20261105-45)
       - run: python tools/scout/room_publish.py --selftest && python tools/scout/mesh_publish.py --selftest   # публикация мешей комнат: файл привязки с проверкой sha, представитель один раз, без настройки — гостиная как прежде (T-20261105-47)
+      - run: python tools/scout/hall_catalog.py --selftest   # каталог прихожей: роли на 105 названиях, размеры зеркал; комплект из модулей — только фото, не в меши (T-20261106-71)
       - run: python tools/scout/room_mesh_demand.py --selftest   # спрос на меши комнат по слотам: ячейки стиль×роль×слот, покрытие по семействам, сначала банк, потолок денег (T-20261105-49)
       - run: python tools/scout/gallery_binding_shadow.py --selftest   # тень «галерея по привязке»: повтор правила mtime, классы расхождений (T-20261105-50)
       - run: python tools/scout/salad/gallery_build.py --selftest   # галерея: выбор файла «привязка, иначе mtime» за флагом GALLERY_FROM_BINDING (выкл/вкл/нет файла привязки), glb_sha (T-20261105-50/2)
       - run: python tools/scout/tests/test_parity_living.py   # стенд паритета гостиной: шум, подмешанное различие, устаревший эталон, сторож записи и сети (T-20261105-41)
+      - run: bash tools/ops/heavy-slot-selftest.sh   # общая очередь тяжёлых прогонов DEV: по одному, смерть держателя освобождает, порог памяти, rc, таймаут, вложенный (T-20261105-57)
+      - run: python tools/scout/atomic_io.py --selftest && python tools/scout/tests/test_publish_demo.py   # выходные json сборки демо — подменой; публикация: копия прежней версии, хранится 3, откат переносом без подмены каталога, проба на /test/ (T-20261105-59)
+      - run: python tools/scout/tests/test_img_fallback.py   # фото не скачалось → копия опубликованной главной (только 200 + картинка), иначе плашка «нет фото» без запроса …/null (T-20261106-65)
       - run: python tools/scout/tests/test_improve_prompt.py   # промпт «реалистично» v2: фото-вид, каталожная форма, тёплые гайды (demo-11)
       - run: python tools/scout/tests/test_rug_kids.py   # детские ковры: слова только для текстиля, ответ VLM по форме, роль по кэшу (demo-05)
       - run: python tools/scout/tests/test_kids_textile.py   # словарь детского текстиля — только ковры и текстиль, общий KIDS — все роли (T-20261017-01)
@@ -206,9 +217,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: |
-          for m in dim_resolver reflink stock_truth feed_guard load3 category_map page_alive stock_check footprint dim_audit dim_prior render_strategy salad/ingest_registry salad/prune_shapes salad/pool_ledger mesh_priority mesh_family tests_chain draft_guard draft_jobs demo_fill price_truth style_axes style_bench slot_rules pipeline_map salad/wave_guard mesh_quarantine bed_dims room_catalog upholstery orient_review heal_policy demo_swap_pool demo_band sofa_shape pool_gate photo_hash bank_paths compose_gates mesh_publish enrich set_identity bank_invariants bank_pending bank_ready mesh_decisions mesh_audit_sync bank_prepare bank_keep bank_promote tests_compose_dining bank_refresh tests_refresh_order dimless sets_incremental db_migrate; do
+          for m in dim_resolver reflink stock_truth feed_guard load3 category_map page_alive stock_check footprint dim_audit dim_prior render_strategy salad/ingest_registry salad/prune_shapes salad/pool_ledger mesh_priority mesh_family tests_chain draft_guard draft_jobs demo_fill price_truth style_axes style_bench slot_rules pipeline_map salad/wave_guard mesh_quarantine bed_dims room_catalog upholstery orient_review heal_policy demo_swap_pool demo_band sofa_shape pool_gate photo_hash bank_paths compose_gates mesh_publish enrich set_identity bank_invariants bank_pending bank_ready mesh_decisions mesh_audit_sync bank_run bank_prepare bank_keep bank_promote tests_compose_dining bank_refresh room_bank_spec tests_refresh_order dimless sets_incremental db_migrate; do
             echo "== $m --selftest"; python tools/scout/$m.py --selftest || exit 1
           done
+      - run: python tools/scout/tests/test_bank_spec_golden.py   # банк гостиной через RoomBankSpec: вывод и файлы всех bank_* побайтно как до этапа Б (room-bank-01, T-20261106-67)
+      - run: python tools/scout/tests/test_room_bank_flags.py   # флаги write_enabled гостиной и спальни раздельно (4 сочетания), BANK_WRITE — только гостиная, каркас спальни не пишет, чужой manifest — отказ (T-20261106-67)
       - run: python tools/scout/salad/tests_sink_gate.py   # ворота приёмника и чистка — одна мера с зазором, счётчик = диск (mesh-12)
       - run: python tools/scout/salad/tests_topview_step.py   # шаг топ-вью: проход под таймаутом, дедлайн в /bin/sh, таймаут = сбой (T-20261020-15)
       - run: python tools/scout/salad/tests_money_guard.py   # сторож денег: смена SALAD_GROUP посреди цикла, слепота, причина остановки — по фактам (T-20261020-24); потолок цены меша — гасит одну дорогую группу (mesh-15)

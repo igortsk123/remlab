@@ -1,0 +1,19 @@
+{
+ "about": "Спрос на меши по ФАКТИЧЕСКИМ вариантам витрины (ADR-0314, T-20261106-75): строки вручную, пока реестр комнат не делает это сам (T-72). why: empty — пустая роль показанного варианта; regen — брак меша, перегенерация другим фото; hall — из банка compose_hall (флаг --hall-bank, не здесь). Вариант семьи (другой цвет) спрос сам переносит на представителя (mesh_family_rep).",
+ "source": "empty: /home/pakar/onb06-out/t51g-0736/before-after.txt (T-20261105-51/3, ПУСТО), sku — из банка run-20261106-050858-ref-bedroom/out/bank-bedroom.json; regen: список ведущего T-49/3 (session-scratch 06.11, T-51/2)",
+ "items": [
+  {"room": "bedroom", "sku": "112923:7310161631160233437", "role": "комод", "why": "empty", "variants": ["bedroom-1 минимализм", "bedroom-2 минимализм"], "note": "Трейвис 93x90 Оливковый: привязка blocked family_colour_mismatch"},
+  {"room": "bedroom", "sku": "112923:9791072630994027414", "role": "шкаф", "why": "empty", "variants": ["bedroom-1 лофт"], "note": "Кимбол 3-150x210 Латте/Черный: привязка none (no_asset)"},
+  {"room": "bedroom", "sku": "112923:1040856729758645941", "role": "шкаф", "why": "empty", "variants": ["bedroom-2 сканди", "bedroom-2 современный"], "note": "Теджонс 2-93x224 Деко Графитовый: нет в индексе прода"},
+  {"room": "bedroom", "sku": "112923:12286616691637180352", "role": "шкаф", "why": "empty", "variants": ["bedroom-2 минимализм"], "note": "Монблан 2-93x215 Косы Мятный: привязка none (no_asset)"},
+  {"room": "bedroom", "sku": "112923:2763846743624459070", "role": "шкаф", "why": "empty", "variants": ["bedroom-2 лофт"], "note": "Шкаф-купе Тебар 2-120x230 Дуб Барбера: привязка none (no_asset)"},
+  {"room": "bedroom", "sku": "112923:11239866153546807017", "role": "шкаф", "why": "empty", "variants": ["bedroom-2 джапанди"], "note": "Шелтон 2-91x212 Графитовый: привязка none (no_asset)"},
+  {"room": "bedroom", "sku": "112923:4980398041955022687", "role": "шкаф", "why": "regen", "variants": [], "note": "Кимбол-представитель (брак, T-49/3)"},
+  {"room": "bedroom", "sku": "112923:15229308901784949221", "role": "тумба прикроватная", "why": "regen", "variants": [], "note": "Раума (брак, T-49/3)"},
+  {"room": "bedroom", "sku": "112923:1040856729758645941", "role": "шкаф", "why": "regen", "variants": [], "note": "Теджонс шкаф (брак, T-49/3)"},
+  {"room": "bedroom", "sku": "112923:12477767194212878389", "role": "комод", "why": "regen", "variants": [], "note": "Лигес (брак, T-49/3)"},
+  {"room": "bedroom", "sku": "112923:16598231926295983633", "role": "комод", "why": "regen", "variants": [], "note": "Теджонс комод (брак, T-49/3)"},
+  {"room": "bedroom", "sku": "112923:321183910010607839", "role": "комод", "why": "regen", "variants": [], "note": "Блест (брак, T-49/3)"},
+  {"room": "bedroom", "sku": "112923:7535875090715887796", "role": "комод", "why": "regen", "variants": [], "note": "Трейвис — все цвета одна модель 7535, карантин (брак, T-49/3)"}
+ ]
+}

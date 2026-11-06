@@ -123,3 +123,48 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-05	core/onboarding-quiz.md	code	35	3	3	
 2026-11-05	core/partners.md	code	25	1	1	nightly
 2026-11-05	core/manager-links.md	code	24	2	2	nightly
+2026-11-06	core/pipeline-order.md	code	18	0	0	T-62: якорь гейта уточнён на mesh_ready.py:gate_active
+2026-11-06	domain/pipeline-order-details.md	code	42	4	4	T-62: MESH_EXCLUDE, планировщик закрыт, порядок bind/prepare, fsync в JS
+2026-11-06	core/catalog.md	code	20	1	1	T-62: якорь load3.py:404
+2026-11-06	core/demo-planner.md	code	13	1	1	T-62: экран ожидания фото
+2026-11-06	domain/catalog-enrichment.md	code	15	0	0	T-62: только раздел T-53 (роль сиденья, сторож); док целиком не сверен, last_verified не двигали
+2026-11-06	.memory_bank/core/architecture.md	drift	41	2	2	
+2026-11-06	.memory_bank/core/data-model.md	drift	31	2	2	
+2026-11-06	.memory_bank/core/demo-scenarios.md	drift	21	0	0	
+2026-11-06	.memory_bank/core/bedroom.md	drift	19	4	2	T-63: 2 вопроса ведущему (чего нет; перенос в products), last_verified не двигаем
+2026-11-06	.memory_bank/core/design-figma.md	drift	16	1	1	T-63: вопрос ведущему (экраны design-02 в порядке страниц), last_verified не двигаем
+2026-11-06	.memory_bank/core/regression-net.md	drift	31	4	4	
+2026-11-06	.memory_bank/core/stock-and-dims.md	drift	24	0	0	
+2026-11-06	.memory_bank/core/styles.md	drift	18	1	1	
+2026-11-06	.memory_bank/core/user-flow.md	drift	26	2	2	
+2026-11-06	.memory_bank/core/estimate.md	drift	22	0	0	
+2026-11-06	.memory_bank/core/furniture.md	drift	20	2	2	
+2026-11-06	.memory_bank/core/knowledge-db.md	drift	21	2	2	
+2026-11-06	.memory_bank/core/layout.md	drift	18	2	2	
+2026-11-06	.memory_bank/core/lr-checklist.md	drift	17	0	0	
+2026-11-06	.memory_bank/core/mesh-color.md	drift	11	1	1	
+2026-11-06	.memory_bank/core/mesh-owner-audit.md	drift	24	2	2	
+2026-11-06	.memory_bank/core/mesh-pipeline.md	drift	24	0	0	
+2026-11-06	.memory_bank/core/mesh-pool.md	drift	25	1	1	
+2026-11-06	.memory_bank/core/mesh-run.md	drift	19	3	2	T-63: вопрос ведущему (комнаты через MESH_QUEUE_FILE в рабочем варианте), last_verified не двигаем
+2026-11-06	.memory_bank/core/bedroom.md	drift	2	2	2	T-63/2: досверка по ответам ведущего, док сверен целиком
+2026-11-06	.memory_bank/core/design-figma.md	drift	1	1	1	T-63/2: досверка по ответам ведущего, док сверен целиком
+2026-11-06	.memory_bank/core/mesh-run.md	drift	1	1	1	T-63/2: досверка по ответам ведущего, док сверен целиком
+2026-11-06	.memory_bank/domain/catalog-enrichment.md	drift	105	8	8	T-63/2: вопрос ведущему — номера строк в историческом блоке 31.08
+2026-11-06	.memory_bank/domain/demo-scenario-map.md	drift	84	14	14	T-63/2: вопрос ведущему — живые проверки для 2.8a, 2.30–2.32, 2.39–2.48
+2026-11-06	.memory_bank/domain/deployment-details.md	drift	96	2	2	
+2026-11-06	.memory_bank/domain/integrations.md	drift	147	11	11	T-63/2: вопрос ведущему — правило codex-adviser vs сломанная сессия
+2026-11-06	.memory_bank/domain/interior-styles.md	drift	32	5	5	
+2026-11-06	.memory_bank/domain/living-room-checklist.md	drift	24	0	0	
+2026-11-06	.memory_bank/domain/observability.md	drift	45	0	0	
+2026-11-06	.memory_bank/domain/occupancy-rules.md	drift	30	3	3	T-63/2: вопрос ведущему — заголовок §7 «текущие правила»; last_verified не двигаем
+2026-11-06	.memory_bank/domain/stock-and-dims.md	drift	55	1	1	
+2026-11-06	.memory_bank/domain/user-flow-details.md	drift	40	0	0	
+2026-11-06	.memory_bank/domain/viz-fidelity-playbook.md	drift	48	5	5	
+2026-11-06	.memory_bank/domain/mesh-pool-ops.md	drift	42	8	8	
+2026-11-06	.memory_bank/domain/mesh-run-playbook.md	drift	43	6	5	T-63/2: вопрос ведущему — §2-бис описывает профиль demo v1; last_verified не двигаем
+2026-11-06	.memory_bank/domain/demo-planner-ui.md	drift	220	26	25	T-63/2: вопрос ведущему — описание подбора пары (стр. 427–430); часть разделов сверена не до последнего числа; last_verified не двигаем
+2026-11-06	.memory_bank/domain/catalog-enrichment.md	drift	6	6	6	T-63/3: номера строк исторического блока 31.08 сняты (имена файлов оставлены)
+2026-11-06	.memory_bank/domain/occupancy-rules.md	drift	1	1	1	T-63/3: заголовок §7 — правила на 08.2026; док сверен целиком
+2026-11-06	.memory_bank/domain/demo-planner-ui.md	drift	9	4	4	T-63/3: досверка — подбор пары (ссылка на порядок), вес hog, #vsum = certScale, после замены без ценника; флик, ≤140, подгрузка, кнопки декора — ок; док сверен целиком
+2026-11-06	.memory_bank/domain/mesh-run-playbook.md	drift	10	5	5	T-63/3: §2-бис переписан под v2 demo_band со сверкой; док сверен целиком

@@ -36,7 +36,11 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RULES_PATH = os.path.join(HERE, 'rules', 'bank-candidate.json')
+sys.path.insert(0, HERE)
+import room_bank_spec as RBS  # noqa: E402
+
+SPEC = RBS.for_room(None)   # правила и ключ ячейки — спецификация комнаты (room-bank-01 этап Б); гостиная — ровно прежние
+RULES_PATH = SPEC.rules_path
 TIERS = ('эконом', 'комфорт', 'премиум')
 DAY = 86400
 SLACK_S = 6 * 3600          # ночь сдвигается на часы (шаг идёт не в одну минуту) — «прошла ночь» с допуском
@@ -47,7 +51,7 @@ DEFAULTS = {'enabled': True, 'wait_catalog_grace_nights': 2, 'wait_catalog_enric
 
 def rules(path: str = RULES_PATH) -> dict:
     try:
-        r = (json.load(open(path, encoding='utf-8')) or {}).get('keep') or {}
+        r = SPEC.view(json.load(open(path, encoding='utf-8')) or {}).get('keep') or {}
     except (OSError, ValueError):
         r = {}
     return {**DEFAULTS, **{k: v for k, v in r.items() if not k.startswith('_')}}
@@ -58,8 +62,8 @@ def sku(it: dict | None) -> str | None:
 
 
 def key(s: dict) -> str:
-    """Ключ ячейки — как `bank_pending.key` (`set_identity.cell`: band, style, tier)."""
-    return '|'.join(str(s.get(f)) for f in ('band', 'style', 'tier'))
+    """Ключ ячейки — как `bank_pending.key`: `RoomBankSpec.key` (гостиная — `set_identity.cell`: band, style, tier)."""
+    return SPEC.key(s)
 
 
 def selection_hash(s: dict) -> str:

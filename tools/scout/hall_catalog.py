@@ -73,15 +73,36 @@ def flat_dims(o: dict, cfg: dict, sane: dict | None, got: dict | None = None) ->
     return d
 
 
+def kit_of(o: dict, role: str, R: dict) -> str | None:
+    """Комплект из модулей (`kits` правил, T-20261106-71): стенка из нескольких модулей серии — только фото. Признаки
+    общие: название (`name_re`: «Модульная прихожая …») ИЛИ параметр-перечень (`param_re`: «Элементы системы») с
+    ≥ `min_modules` разными модулями «Серия-N». → причина или None. Чистая функция."""
+    K = R.get('kits') or {}
+    if role not in K.get('roles', ()):
+        return None
+    if re.search(K.get('name_re', '$^'), o.get('name') or '', re.I):
+        return 'комплект из модулей (название)'
+    for k, v in (o.get('params') or {}).items():
+        if re.search(K.get('param_re', '$^'), k, re.I):
+            mods = {(a.lower(), n) for a, n in re.findall(K.get('module_re', '$^'), str(v))}
+            if len(mods) >= int(K.get('min_modules', 2)):
+                return f'комплект из модулей ({k}: {len(mods)} модул.)'
+    return None
+
+
 def dims_of(o: dict, role: str, R: dict) -> dict:
     """Размеры прихожей: общий `room_catalog.dims_of` (dim_resolver + правдоподобие `dims_sane`), а плоским предметам,
-    у которых он не набрал трёх осей, — `flat_dims`."""
+    у которых он не набрал трёх осей, — `flat_dims`. Комплект из модулей (`kit_of`) — только фото: footprint_ok=false
+    даже при найденных размерах (размер модуля — не габарит стенки) → не в расстановку и не в меши (`room_mesh_jobs.job_of`)."""
     out = C.dims_of(o, role, R)
     cfg = R.get('dims_flat', {}).get(role)
     if not out['ok'] and cfg:
         from dim_resolver import resolve
         got, _ev, _src = resolve(o['mid'], o['name'], o['params'], R['dims_as'].get(role, role))
         out.update(flat_dims(o, cfg, R.get('dims_sane', {}).get(role), got) or {})
+    kit = kit_of(o, role, R)
+    if kit:
+        out.update(ok=False, note=f"{kit} — только фото" + (f"; {out['note']}" if out.get('note') else ''))
     return out
 
 
@@ -289,7 +310,43 @@ def _selftest() -> int:
         'Размеры: Длина габаритная': '80см', 'Размеры: Ширина габаритная': '35см', 'Размеры: Высота габаритная': '17см'}},
         'консоль', R)
     ok('настенная консоль-полка h 17 — неправдоподобна для консоли прихожей (только фото)', not cons['ok'])
+    bad += _selftest_kits(R, ok)
     return 1 if bad else 0
+
+
+def _selftest_kits(R: dict, ok) -> int:
+    """Правило `kits` (T-20261106-71) на 26 реальных товарах роли «прихожая» 06.11 (`tests/fixtures/hall-kits-20261106.json`):
+    сколько в 3D и сколько только фото — без правила и с правилом; признаки, а не список SKU; меши (`job_of`) — только 3D."""
+    import room_mesh_jobs as RMJ
+    fx = json.load(open(os.path.join(HERE, 'tests', 'fixtures', 'hall-kits-20261106.json'), encoding='utf-8'))['items']
+    R0 = {k: v for k, v in R.items() if k != 'kits'}
+    in3d = lambda RR: [o for o in fx if dims_of(o, 'прихожая', RR)['ok']]  # noqa: E731
+    was, now = in3d(R0), in3d(R)
+    kits = [o for o in fx if kit_of(o, 'прихожая', R)]
+    print(f'     роль «прихожая»: товаров {len(fx)}; без правила kits — в 3D {len(was)}, только фото {len(fx) - len(was)}; '
+          f'с правилом — в 3D {len(now)}, только фото {len(fx) - len(now)} (из них комплектов {len(kits)})')
+    ok('прихожая: в 3D только «Неста 77×190», 4 цвета', len(now) == 4 and all('Неста' in o['name'] for o in now))
+    ok('22 модульные (Сайрис, Кимбол, Авильтон) — комплекты, только фото',
+       len(kits) == 22 and {re.search(r'Сайрис|Кимбол|Авильтон', o['name']).group(0) for o in kits} == {'Сайрис', 'Кимбол', 'Авильтон'}
+       and all(not dims_of(o, 'прихожая', R)['ok'] and 'только фото' in dims_of(o, 'прихожая', R)['note'] for o in kits))
+    k0 = next(o for o in kits if 'Сайрис 2' in o['name'])
+    by_param = dict(k0, name='Прихожая divan.ru Сайрис 2 Белый')         # «модульная» из названия убрана — остался перечень модулей
+    ok('признак «перечень модулей» в параметрах: комплект и без слова «модульная»',
+       (kit_of(by_param, 'прихожая', R) or '').startswith('комплект из модулей (Элементы системы'))
+    one = dict(by_param, params={'Элементы системы': 'Сайрис-1 White'})
+    ok('один модуль в перечне — не комплект', kit_of(one, 'прихожая', R) is None)
+    sized = dict(k0, params={**k0['params'], 'Размеры: Длина габаритная': '200см', 'Размеры: Ширина габаритная': '40см',
+                             'Размеры: Высота габаритная': '210см'})
+    ok('комплект с найденными размерами — всё равно только фото (размер модуля — не габарит стенки)',
+       C.dims_of(sized, 'прихожая', R0)['ok'] and not dims_of(sized, 'прихожая', R)['ok'])
+    ok('правило — только для ролей kits.roles: шкаф-купе «модульный» не задет', kit_of(
+        {'name': 'Шкаф-купе модульный', 'params': {}}, 'шкаф-купе', R) is None)
+    job = lambda o: RMJ.job_of(dict(  # noqa: E731
+        shop_mid=o['mid'], external_id=o['eid'], role='прихожая', name=o['name'], image_url='u', shown=True,
+        footprint_ok=dims_of(o, 'прихожая', R)['ok'], **{k + '_cm': dims_of(o, 'прихожая', R)[k] or 0 for k in 'wdh'}), 'hall')
+    ok('меши: комплект (и с размерами) — job_of отказывает, Неста — задание',
+       all(job(o)[0] is None for o in kits + [sized]) and all(job(o)[0] is not None for o in now))
+    return 0
 
 
 if __name__ == '__main__':

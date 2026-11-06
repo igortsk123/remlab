@@ -1,9 +1,24 @@
 {
-  "_doc": "Стенд паритета гостиной (tools/scout/parity_living.py, room-pipeline-01 Б-3). freeze — какие git-игнорируемые входы основной копии замораживаются (exclude — мусор, бэкапы и кэши, которые прогон должен пересчитать сам: раскладки солвера, отчёты экзамена — иначе он «продолжит» старый отчёт); seed — входы вне репо; noise — поля-шум, по имени ключа на любой глубине (keys — во всех артефактах, <артефакт> — только в нём), и замены в строках; db.ignore — таблицы, чьё чтение не делает эталон устаревшим (журналы); trace — что не считать «входом мимо копии» и «отсутствующим входом».",
+  "_doc": "Стенд паритета комнат (tools/scout/parity_living.py, room-pipeline-01 Б-3; гостиная T-41, спальня и прихожая T-54). rooms — шаги каждой комнаты по порядку (skip — шага у комнаты нет, причина печатается явно), её экзамен и демо; composers — как звать сборщик плагина (сам сборщик — из профиля комнаты: composer.plugin → room_profile.COMPOSERS, не зашит). freeze — какие git-игнорируемые входы основной копии замораживаются (exclude — мусор, бэкапы и кэши, которые прогон должен пересчитать сам: раскладки солвера, отчёты экзамена — иначе он «продолжит» старый отчёт); seed — входы вне репо; noise — поля-шум, по имени ключа на любой глубине (keys — во всех артефактах, <артефакт> — только в нём), и замены в строках; db.ignore — таблицы, чьё чтение не делает эталон устаревшим (журналы); trace — что не считать «входом мимо копии» и «отсутствующим входом».",
   "home": "~/remlab-scratch/parity",
   "acc_workers": 3,
-  "memory": {"_doc": "сторож памяти перед тяжёлыми шагами (ведущий 05.11: стенд рядом с чужим прогоном выбивал remlab-render живого демо): ждать, пока MemAvailable ≥ min_gb (bank — bank_gb), опрос poll_s, строка в журнал раз в report_s; солверов смоука — 1 + (свободно − min_gb) / per_worker_gb, не больше acc_workers", "min_gb": 6, "bank_gb": 6, "per_worker_gb": 1.5, "poll_s": 30, "report_s": 300},
+  "memory": {"_doc": "сторож памяти перед тяжёлыми шагами (ведущий 05.11: стенд рядом с чужим прогоном выбивал remlab-render живого демо); с T-57 — общая очередь машины tools/ops/heavy_slot.py (одно тяжёлое за раз): взяв очередь, ждать MemAvailable ≥ min_gb (bank — bank_gb), опрос poll_s, строка в журнал раз в report_s; солверов смоука — 1 + (свободно − min_gb) / per_worker_gb, не больше acc_workers", "min_gb": 6, "bank_gb": 6, "per_worker_gb": 1.5, "poll_s": 30, "report_s": 300},
   "code_skip": [".memory_bank", "docs", "remlab_knowledge_db_v1", ".claude"],
+  "rooms": {
+    "living": {"steps": ["catalog", "smoke", "demo", "cams", "bank"], "shadow": true},
+    "bedroom": {"steps": ["catalog", "bank", "exam", "demo", "cams"],
+                "exam": {"script": "bedroom_exam.py", "env": "BEDROOM_EXAM", "report": "bedroom-exam-report"},
+                "demo": {"rooms_enabled": "bedroom-1,bedroom-2", "bank_env": "BEDROOM_SETS"}},
+    "hall": {"steps": ["catalog", "bank", "exam"],
+             "exam": {"script": "hall_exam.py", "env": "HALL_EXAM", "report": "hall-exam-report"},
+             "skip": {"demo": "у прихожей демо нет (flat215_demo.py её не собирает)", "cams": "у прихожей демо нет — нет и ракурсов"}}
+  },
+  "composers": {
+    "_doc": "плагин профиля → ключи запуска и переменная «куда писать банк» (в папку стенда; живой банк сборщики отвергают сами)",
+    "living_legacy": {"args": ["--style", "--bands", "all"], "out_env": "SETS_OUTPUT", "out": "sets3.next.json"},
+    "bedroom": {"args": [], "out_env": "ROOM_SETS_OUTPUT"},
+    "hall": {"args": [], "out_env": "ROOM_SETS_OUTPUT"}
+  },
   "freeze": {
     "dirs": ["tools/scout", "services/planner-solver"],
     "keep": ["tools/scout/thumbs/*"],
@@ -20,7 +35,8 @@
       "tools/scout/v3set*-layout*.json", "tools/scout/set*-layout*.json", "tools/scout/*-bb-*.json", "tools/scout/*-bb.json",
       "tools/scout/acceptance-report*", "tools/scout/smoke-manifest.json", "tools/scout/sets3.next*.json",
       "tools/scout/sets3-*.json", "tools/scout/mesh-run-progress.jsonl", "tools/scout/openai-spend.jsonl",
-      "tools/scout/mesh-retry-queue.jsonl.inflight", "tools/scout/catalog-shadow-*.json", "tools/scout/hall-exam-report*"
+      "tools/scout/mesh-retry-queue.jsonl.inflight", "tools/scout/catalog-shadow-*.json", "tools/scout/hall-exam-report*",
+      "tools/scout/hall-exam-*", "tools/scout/bedroom-exam-*", "tools/scout/sets-*.next*.json", "tools/scout/*.report.json"
     ],
     "seed": {
       "demo/demo-data.json": "~/scout-scenes/flat215-demo/demo-data.json",
@@ -36,6 +52,8 @@
     "demo": ["build", "built", "version_ts"],
     "cams": [],
     "bank": [],
+    "exam": ["slow", "max_seconds", "gate"],
+    "_doc_exam": "slow/max_seconds — время сцены (под нагрузкой DEV плавает); gate — производное от строк (pass/deterministic сверяются в каждой) и времени",
     "strings": [
       {"re": "-demo-[0-9a-f]{8}", "to": "-demo-<hash>"},
       {"re": "\\?v=[0-9]{9,}", "to": "?v=<ts>"}
@@ -49,6 +67,7 @@
     "external_ok": ["~/venvs", "~/.cache", "~/.local", "~/.npm", "~/.nvm", "/usr", "/etc", "/lib", "/lib64", "/opt", "/snap",
                     "/var/lib", "/run", "/tmp"],
     "missing_ok": ["*/__pycache__/*", "*.pyc", "*.so", "*/pyvenv.cfg", "tools/scout/acceptance-report*", "tools/scout/v3set*-layout*",
-                   "tools/scout/smoke-manifest.json", "*.parity-cow-*"]
+                   "tools/scout/smoke-manifest.json", "*.parity-cow-*",
+                   "tools/scout/bedroom-exam-report*", "tools/scout/hall-exam-report*"]
   }
 }

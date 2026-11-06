@@ -3,11 +3,12 @@ tier: 1
 topic: styles
 scope: Стили — паспорта, скоринг, сеты
 tier2: ../domain/interior-styles.md
-updated: 2026-10-29
-last_verified: 2026-10-13
+updated: 2026-11-06
+last_verified: 2026-11-06
 importance: high
 source: manual
 status: working
+source_of_truth: canonical
 review_after: 2026-12-05
 ---
 
@@ -27,7 +28,7 @@ sets3.json; судья со style_grade, замены только ниже по
 (ADR-0047/0048). Генерация: полный ремонт комнаты под стиль, товары с фото неизменны.
 
 **Как читать оценку (сверено 11.10).** Источник №1 — БАЗА (`enrich_bridge.style_scores`),
-`style-scores.json` — фолбэк, в таком порядке (`tools/scout/compose2.py:538`). В JSON ключ — МОДЕЛЬ,
+`style-scores.json` — фолбэк, в таком порядке (`tools/scout/compose2.py:437`). В JSON ключ — МОДЕЛЬ,
 не артикул: читать по артикулу в лоб = потерять 21% пула. Пул скоринга — `lr_roles`; `тв-тумба` там есть
 с 11.10 (418), `банкетка` отдельной роли нет — внутри `пуф`. Механика и замеры — Tier 2 § «Чтение оценок».
 

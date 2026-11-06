@@ -12,6 +12,8 @@
   gone           — позиций, которых нет в каталоге (`catalog_media.media` → None / state gone), = 0;
   pair_mismatch  — экземпляр пары ≠ основному (`sets_incremental.sync_pairs`, сухо), = 0;
   contracts      — позиций вне контракта слота (`sets_incremental._slot_ok` — те же ворота, что у ночного шага), = 0;
+  role_mismatch  — позиций, чья текущая роль каталога несовместима со слотом (`slot_catalog_compatible`: сиденья;
+                   «кресло 2» — по базовой роли; «банкетка» — из пуф/диван), = 0; запасной такой — `alt_bad` «не той роли каталога»;
   url_stale      — ссылка позиции ≠ текущей партнёрской из каталога (или пустая), = 0; сетью НЕ проверяем —
                    стучаться ботом в партнёрскую ссылку нельзя (накрутка кликов, `catalog_media`);
   alt_bad        — запасные (`alternates`): без SKU, ушедшие из каталога, равные выбранному, повтор в роли, не той роли
@@ -51,6 +53,34 @@ def core_missing(s: dict) -> list[str]:
     return out
 
 
+# СЛОТ ↔ РОЛЬ КАТАЛОГА (T-20261105-53/2, Codex 05.11): товар держит слот, только пока его текущая `products.cat_role`
+# совместима со слотом. Иначе после смены роли в каталоге («Босс пуф» был креслом → стал пуфом) удержание прошлого
+# кандидата (`compose2._keep_check`), инварианты и строгий promote (`bank_promote.strict`) его не замечали: сборка выбирает
+# по роли, а удержание и проверки роль не читали. Одна функция на все три места. Нумерованный слот («кресло 2») — по базовой
+# роли. Планировочный слот «банкетка» (не роль каталога) берёт пуф/диван (`compose2.py` Q6a, `capabilities.py`).
+# Сторожим только роли сидений: их трогает правило по названию (`category_map.seat_role`); у прочих слотов законные
+# расхождения есть (подушка без роли, витрина из стеллажа — замер живого банка 05.11), их сюда не включать без таблицы.
+SEAT_SLOT_ROLES = frozenset({'диван', 'кресло', 'пуф', 'стул'})
+PLANNING_SLOT_SOURCES = {'банкетка': frozenset({'пуф', 'диван'})}
+
+
+def slot_catalog_compatible(slot: str, cat_role: str | None) -> bool:
+    """Совместима ли роль каталога товара `cat_role` (None — без роли) со слотом банка `slot`."""
+    base = re.sub(r'\s+\d+$', '', slot or '')
+    if base in PLANNING_SLOT_SOURCES:
+        return cat_role in PLANNING_SLOT_SOURCES[base]
+    if base not in SEAT_SLOT_ROLES:
+        return True
+    return cat_role == base
+
+
+def catalog_role_bad(slot: str, m: dict | None) -> str | None:
+    """Причина «не той роли каталога» по записи `catalog_media.media` (без поля роли — не судим), иначе None."""
+    if not m or 'cat_role' not in m or slot_catalog_compatible(slot, m['cat_role']):
+        return None
+    return f"роль каталога «{m['cat_role'] or 'нет'}»"
+
+
 def _probe(m: dict | None) -> dict | None:
     return {k: m.get(k) for k in ('name', 'w', 'd', 'h', 'dia')} if m else None
 
@@ -64,6 +94,8 @@ def _alt_reason(role: str, a: dict, chosen: dict | None, m: dict | None, seen: s
         return 'нет SKU'
     if not m or m.get('state') == 'gone':
         return 'ушёл'
+    if catalog_role_bad(role, m):
+        return 'не той роли каталога'
     if sku(a) == sku(chosen):
         return 'равен выбранному'
     if sku(a) in seen:
@@ -96,7 +128,7 @@ def check(sets: list, ref: list | None, media, slot_ok, sync_pairs, fits=None, i
     if ref is not None or id_map:
         r['map_diff'] = diff[:20] + (['…'] if len(diff) > 20 else [])
         r['map_ok'] = not diff and len(sets) == n_ref == cells
-    gone, url_stale, contracts, alt_bad = [], [], [], []
+    gone, url_stale, contracts, alt_bad, role_bad = [], [], [], [], []
     for n, s in enumerate(sets, 1):
         items = s.get('items') or {}
         for role, it in items.items():
@@ -107,6 +139,9 @@ def check(sets: list, ref: list | None, media, slot_ok, sync_pairs, fits=None, i
                 gone.append((n, role, sku(it)))
             elif not it.get('url') or it.get('url') != m.get('url'):
                 url_stale.append((n, role, sku(it)))
+            why = catalog_role_bad(role, m)
+            if why:
+                role_bad.append((n, role, sku(it), why))
             if not slot_ok(role, it, s):
                 contracts.append((n, role, sku(it)))
         for role, alts in (s.get('alternates') or {}).items():
@@ -122,12 +157,13 @@ def check(sets: list, ref: list | None, media, slot_ok, sync_pairs, fits=None, i
     pairs = sync_pairs(json.loads(json.dumps(sets)), apply=False)
     miss = collections.Counter(x for s in sets for x in core_missing(s))
     r.update(gone=len(gone), gone_rows=gone[:30], url_stale=len(url_stale), url_rows=url_stale[:30],
-             contracts=len(contracts), contracts_rows=contracts[:30], pair_mismatch=len(pairs), pair_rows=pairs[:30],
+             contracts=len(contracts), contracts_rows=contracts[:30], role_mismatch=len(role_bad), role_rows=role_bad[:30],
+             pair_mismatch=len(pairs), pair_rows=pairs[:30],
              alt_bad=len(alt_bad), alt_why=dict(collections.Counter(x[3] for x in alt_bad)), alt_rows=alt_bad[:30],
              core_missing=dict(miss),
              gaps_declared=dict(collections.Counter(str(g).split(' — ')[0] for s in sets for g in (s.get('gaps') or []))))
-    r['ok'] = (not ident and r.get('map_ok', True) and not gone and not url_stale and not contracts and not pairs
-               and not alt_bad and not miss)
+    r['ok'] = (not ident and r.get('map_ok', True) and not gone and not url_stale and not contracts and not role_bad
+               and not pairs and not alt_bad and not miss)
     return r
 
 
@@ -159,6 +195,7 @@ def _line(side: str, r: dict) -> str:
             + (f", карта {'та же' if r['map_ok'] else 'РАЗНАЯ ' + str(r['map_diff'])}" if 'map_ok' in r else '')
             + f"; идентичность {'цела' if r['identity_ok'] else 'НАРУШЕНА: ' + '; '.join(r['identity'])}"
             + f"; ушедших {r['gone']}, ссылок не текущих {r['url_stale']}, вне контракта {r['contracts']}, "
+              f"не той роли каталога {r['role_mismatch']}, "
               f"пар разошлось {r['pair_mismatch']}, запасных негодных {r['alt_bad']} {r['alt_why'] or ''}; "
               f"без ключевых ролей {r['core_missing'] or 0}; итог {'OK' if r['ok'] else 'НЕ ГОДЕН'}")
 
@@ -245,6 +282,21 @@ def _selftest() -> int:
     nid = [dict(s) for s in bank]
     nid[5].pop('set_id')
     ok('сет без set_id — идентичность нарушена', not check(nid, None, media, yes, pairs0)['identity_ok'])
+    # слот ↔ роль каталога (T-53/2): «Босс пуф» в кресле после смены роли; банкетка из пуфа — законно; без поля — не судим
+    sc = slot_catalog_compatible
+    ok('совместимость: кресло 2←кресло, банкетка←пуф/диван, подушка←нет роли — да; кресло←пуф, диван←нет роли, '
+       'банкетка←кресло — нет',
+       sc('кресло 2', 'кресло') and sc('банкетка', 'пуф') and sc('банкетка', 'диван') and sc('подушка', None)
+       and sc('витрина', 'стеллаж') and not sc('кресло', 'пуф') and not sc('кресло 2', 'пуф') and not sc('диван', None)
+       and not sc('банкетка', 'кресло') and not sc('стул', 'пуф'))
+    cat.update({('1', 'p'): {'state': 'available', 'url': 'up', 'name': 'Босс пуф', 'cat_role': 'пуф'},
+                ('1', 'k'): {'state': 'available', 'url': 'uk', 'name': 'Кресло', 'cat_role': 'кресло'}})
+    boss = mk('s1', dict(core, **{'кресло': it('p'), 'кресло 2': it('k'), 'банкетка': it('p')}),
+              alts={'кресло': [it('k'), it('p')]})
+    r = check([boss], None, media, yes, pairs0, cells=1)
+    ok('пуф в слоте «кресло» — не той роли каталога (и запасной тоже); кресло 2 и банкетка — чисты',
+       r['role_mismatch'] == 1 and r['role_rows'][0][1] == 'кресло' and r['alt_why'] == {'не той роли каталога': 1}
+       and not r['ok'])
     d = delta([mk('s1', core), mk('s2', {'диван': it('a')}, style='лофт')],
               [mk('s1', {'диван': it('b'), 'столик': it('b'), 'ковёр': it('c')}), mk('s3', {}, style='лофт')])
     ok('дельта: SKU сменился, роль появилась/пропала, новый сет — по стилю',

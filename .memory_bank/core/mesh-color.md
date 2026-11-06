@@ -3,12 +3,12 @@ tier: 1
 topic: mesh-color
 scope: Цвет мешей — диагноз, мерка, рычаги
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-10-19
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-18
+last_verified: 2026-11-06
 review_after: 2026-12-05
 ---
 
@@ -25,7 +25,7 @@ review_after: 2026-12-05
 (`hy3dpaint/utils/multiview_utils.py`, вне репо), наш seed уходит только в форму (ADR-0143).
 
 **Мерка.** Рендер БЕЗ света (`UNLIT=1`, `tools/scout/mesh_render.py`) против фото, разница в
-стопах + гейт на коллапс. Сверена с 43 слепыми отметками владельца
+стопах + гейт на коллапс. Сверена с 43 слепыми отметками
 (`archive/evidence/owner-marks-mesh-color-0109.txt`): знак совпал в 89%, «темнее» — 22 из 22.
 
 **Опыт 01.09 — проведён, тема ОТЛОЖЕНА владельцем.** 4 «ок», 29 «нет»
@@ -36,7 +36,7 @@ review_after: 2026-12-05
 линейные (до 48/255, 1,89 EV вместо 0,79) — исправлено (`scene_mesh.py`, `SCENE3D_LIGHT_LINEAR=1`).
 Корпус 39 товаров демо: текстуры НЕ темнее фото магазина (темнее у 31 %, светлее у 54 %).
 
-Без текстуры — цвет товара/серый (`meshes.ts` `fallbackMeshColor`).
+Почти чёрный без карты — цвет товара/серый (`meshes.ts` `fallbackMeshColor`).
 
 **Рычаги.** Перепокраска готовой формы (paint = 42% задания, геометрия не меняется) — **болванка
 `shape.glb` живёт до приёмки владельцем (ADR-0233): рычаг есть у непросмотренных и забракованных;

@@ -3,7 +3,7 @@
 
   1) Меш без карточки в БД (роль «?») берёт роль из manifest.json рядом — кровать становится направленной
      (раньше «symmetric_by_role» и поворот нейросети без проверки: волна 2 спальни, перед сбоку у 5 из 45).
-  2) Без manifest роль «?» — по-прежнему симметричная (поведение для прочих не меняется).
+  2) Без manifest роль «?» — направленная (T-20261106-78: неизвестная роль — проверить, а не ставить «симметрична»).
   3) Наклон > 15° → поворот 180° вокруг вертикали: перед сырого меша (к камере фото, MR-yaw 0) уходит в перед канона
      (MR-yaw 180), legacy_front_yaw = 0, R и кватернион согласованы. Прежняя единичная матрица давала 180 = зад
      (VLM «зад» у 49 из 67 таких комодов; 46 сидячих — «конфликт сиденья» с передом на 0°).
@@ -82,8 +82,8 @@ with tempfile.TemporaryDirectory(prefix='orient-fb-') as td:
     W.role_of = lambda sku: ('?', '', '')
 
     r = W.decide('x:2', os.path.join(bare_dir, 'model.glb'), UPRIGHT90, use_vlm=False)
-    check('2) без manifest роль «?» — симметричная, как раньше',
-          r['role'] == '?' and r.get('source') == 'symmetric_by_role', f"role={r['role']} source={r.get('source')}")
+    check('2) без manifest роль «?» — направленная, ждёт проверки (T-78)',
+          r['role'] == '?' and r.get('source') == 'awaiting_vlm', f"role={r['role']} source={r.get('source')}")
 
     r = W.decide('x:3', os.path.join(bed_dir, 'model.glb'), TILTED, use_vlm=False)
     front_canon = matvec(r['R'], [0, 0, 1])

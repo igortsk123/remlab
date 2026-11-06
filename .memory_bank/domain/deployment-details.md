@@ -3,10 +3,10 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-11-05
+updated: 2026-11-06
 importance: med
 source: manual
-last_verified: 2026-10-18
+last_verified: 2026-11-06
 ---
 
 # Деплой — подробности
@@ -21,6 +21,13 @@ last_verified: 2026-10-18
    события `workflow_run` `github.sha` — HEAD ветки по умолчанию на момент запуска, а НЕ SHA
    прошедшего CI: пока деплой был красным, следующий пуш успевал обогнать проверенный коммит.
    Один и тот же `TARGET_SHA` идёт в checkout, тег образа, `APP_VERSION` и в smoke.
+1a. **Нужна ли выкладка** (T-20261106-66/2): `tools/ops/deploy-need.sh "$TARGET_SHA"` сравнивает дерево ВЫКАТАННОЙ
+   версии (`/api/health` → version) с целью; изменены только `.memory_bank/`, `docs/`, `.claude/`, `.vscode/`, корневые
+   `*.md` → `deploy=false`, сборка/выкат/smoke пропускаются (`::notice` + Step Summary). Любое сомнение (версия не
+   40-hex, `ok≠true`, draft ≠ сайт, коммит не найден, шаг упал) → выкладка; `workflow_dispatch` — всегда.
+   «Прод не позади main» — `bash tools/ops/deploy-need.sh --status` (rc 0 — разница только документы), не `version == HEAD`.
+   Caddy (`caddy/Caddyfile` сниппет `retry_restart`): app и draft — повтор до 15 с при пересоздании контейнера;
+   `request_buffers 1MB` обязателен — без него повтор POST падает «invalid Read on closed Body» (проба 06.11).
 2. **Сборка** — нативный arm64-раннер (`ubuntu-24.04-arm`), кэш слоёв `type=gha`, push в GHCR.
    Эмуляция arm64 через QEMU крашила Next-SWC-воркер (SIGILL) — не возвращать.
 3. **Синхронизация сервера.** `docker-compose.yml` — `scp`; `db/init` — `rsync -az --delete`
@@ -102,7 +109,7 @@ Compose передаёт app ЯВНЫЙ `environment:`-список — новы
   со снимком `Caddyfile.deployed` (не совпал — ручная правка, стоп), `validate` через stdin, подмена `cat >`
   (bind по inode), `reload`, при провале — возврат бэкапа. Руками на сервере не править.
 - Smoke: `deploy.yml` сверяет `ok=true` и `version == TARGET_SHA` на шаге `!cancelled()`; ручной
-  `deploy.sh:63-70` решает успех по одному HTTP 200, `ok` не проверяет и версию только печатает.
+  `deploy.sh:57-73` решает успех по одному HTTP 200, `ok` не проверяет и версию только печатает.
 - Очистка диска: `infra/server/cleanup.sh` + `infra/server/systemd/*.service`; таймеры — `infra/server/systemd/*.timer`.
 
 ## Откат прода вручную (перенесено из сводки 08.09)
@@ -134,7 +141,7 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
   `root`, а не переносом файлов: иначе ломаются генераторы и уже разосланные ссылки.
 
 ## Проверка .env после машинной правки (перенесено из Tier 1, 11.10)
-`infra/server/deploy-remote.sh` перезаписывает `/opt/remlab/.env` машинно (строка `REMLAB_IMAGE`).
+`infra/server/deploy-remote.sh` перезаписывает `/opt/remlab/.env` машинно (строки `REMLAB_IMAGE`, `APP_VERSION`, `REMLAB_DRAFT_IMAGE`).
 Правило: после такой правки прогнать `docker compose config --quiet` — он молча подтверждает, что
 файл разбирается. СТОРОЖА В СКРИПТАХ НЕТ: проверка процедурная, её делает человек (сверка 11.10).
 
@@ -159,16 +166,19 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 | С DEV зависит | DEV выключен — что видит покупатель/владелец | Через сколько | Что делать |
 |---|---|---|---|
 | Рендер кадров «Сделать фото» (`tools/scout/dev_render_backend.sh`, туннель `172.18.0.1:8601`) | прод сам падает на локальный рендер (`draft_service.py`, `backend`) — дольше, но работает | сразу | ничего; готовые кадры лежат на сервере |
-
-**DEV-рендер как юниты systemd пользователя (18.10, T-04):** `remlab-render` (draft_service, 127.0.0.1:8600, OOMScoreAdjust=200 — первая жертва earlyoom) и `remlab-render-tunnel` (ssh -R 172.18.0.1:8601, OOMScoreAdjust=100, RestartSec=3). Исходники — `tools/scout/systemd/*.service`; ставит и чинит `tools/scout/dev_render_backend.sh` (крон `*/10` — `infra/dev/crontab`; строки @reboot в копии crontab нет). Статус: `systemctl --user status remlab-render remlab-render-tunnel`; логи — `~/scout-scenes/dev-render.log`, `dev-tunnel.log`. Живой ли туннель — с сервера `curl 172.18.0.1:8601/health` (version "dev"); `/api/draft/paid` жив ли туннель прямо не показывает: без своего ключа шлюза прод берёт баланс у DEV `GET /credits` через туннель (кэш 30 с), туннель мёртв → `{available:false, code:"unavailable"}` — неотличимо от других причин (`tools/scout/draft_service.py`). Юнит пользователя не может получить OOMScoreAdjust ниже 100; защита ssh — `--avoid` в `/etc/default/earlyoom` (sudo).
-
-**Память DEV (18.10, по слову владельца):** RAM 9,8 ГБ; своп `/swap.img` 4 ГБ + `/swap2.img` 8 ГБ (в `/etc/fstab`, копия `/etc/fstab.bak-20261018-1805`); zram 4,8 ГБ zstd, приоритет 100 (`/etc/systemd/zram-generator.conf`, `dev-zram0.swap`). Зачем: earlyoom (`-m 10,5 -s 10,5`) при полном свопе убивал draft_service и браузеры проверок. Перед пробами браузера — урок 512.
 | Ночной прогон каталога `refresh_daily.sh` (10:40 по DEV): цены, наличие, сборка и публикация демо | демо и 3D живут на последнем опубликованном `demo-data.json` (лежит на сервере); цены стареют | сутки | сторож каталога на сервере (15:30 UTC) шлёт тревогу |
 | Конвейер мешей и сторож простоя Salad (`tools/scout/salad/idle_guard.sh`, cron DEV) | ноды Salad гасит сервер: нет отметки жизни конвейера 30 мин → `/stop` с проверкой (`infra/server/salad-deadman.py`, ADR-0274) | ≤ 40 мин | ничего |
 | Мост приёмки мешей (`mesh_review_sync.py`) | решения владельца на `/lab/mesh-*` копятся на сервере, не теряются | — | догонит при включении |
 | Копия бэкапа вне сервера (`tools/ops/backup-pull.sh`, 04:15) и репетиция (`restore-drill.sh`, вс 04:30) | копии нет за эти сутки; дампы на сервере остаются (7 шт.) | — | после включения — `backup-pull.sh` руками |
 | Публикация моделей/статики (scp с DEV) | новые модели не появляются | — | — |
+
 Не зависит от DEV: сайт, демо, 3D, коллекции, ссылки менеджеров и сигналы (таймер на сервере), отчёт застройщику.
+
+**DEV-рендер как юниты systemd пользователя (18.10, T-04):** `remlab-render` (draft_service, 127.0.0.1:8600, OOMScoreAdjust=200 — первая жертва earlyoom) и `remlab-render-tunnel` (ssh -R 172.18.0.1:8601, OOMScoreAdjust=100, RestartSec=3). Исходники — `tools/scout/systemd/*.service`; ставит и чинит `tools/scout/dev_render_backend.sh` (крон `*/10` — `infra/dev/crontab`; строки @reboot в копии crontab нет). Статус: `systemctl --user status remlab-render remlab-render-tunnel`; логи — `~/scout-scenes/dev-render.log`, `dev-tunnel.log`. Живой ли туннель — с сервера `curl 172.18.0.1:8601/health` (version "dev"); `/api/draft/paid` жив ли туннель прямо не показывает: без своего ключа шлюза прод берёт баланс у DEV `GET /credits` через туннель (кэш 30 с), туннель мёртв → `{available:false, code:"unavailable"}` — неотличимо от других причин (`tools/scout/draft_service.py`). Юнит пользователя не может получить OOMScoreAdjust ниже 100; защита ssh — `--avoid` в `/etc/default/earlyoom` (sudo).
+
+**Память DEV (18.10, по слову владельца):** RAM 9,8 ГБ; своп `/swap.img` 4 ГБ + `/swap2.img` 8 ГБ (в `/etc/fstab`, копия `/etc/fstab.bak-20261018-1805`); zram 4,8 ГБ zstd, приоритет 100 (`/etc/systemd/zram-generator.conf`, `dev-zram0.swap`). Зачем: earlyoom (`-m 10,5 -s 10,5`) при полном свопе убивал draft_service и браузеры проверок. Перед пробами браузера — урок 512.
+
+**Тяжёлые прогоны на DEV — только через общую очередь (05.11, T-20261105-57):** `tools/ops/heavy-slot.sh <метка> [--min-gb N] -- <команда>` или в питоне `with heavy_slot('<метка>', min_gb=6):` на шаг (`tools/ops/heavy_slot.py`). До трёх тяжёлых сразу (06.11, T-20261106-74; было два, T-57/3): дополнительный слот (`slot<k>.lock`) — только пока занят другой и свободно ≥ Σ по держателям max(порог − PSS дерева держателя, 0) + свой + запас max(1 ГБ, 10 % RAM — ниже начинается SIGTERM earlyoom) (до T-74 порог держателя вычитался дважды — очередь стояла при простое CPU); одиночный — свободно ≥ свой порог, без запаса; сторож: свободно < запаса — новых не пускать. Пик PSS пишется в `~/.cache/remlab-heavy-slot/peaks.tsv`; после ≥ 3 замеров метки порог = min(объявленный, max(1,5 × пик, 0,5)); `--stats` — сводка замеров; держание > 45 мин — WARN в журнал. `HEAVY_SLOT_SLOTS=1` — строго по одному (flock `~/.cache/remlab-heavy-slot/slot.lock`), затем ждёт MemAvailable ≥ N; `--status` — кто держит/ждёт; журнал `~/remlab-logs/heavy-slot.log`; обход — только явный `--no-slot`. Порядок — строго по приходу (билеты, T-57/2); держатель, ждущий память > 10 мин, уступает тому, кому памяти хватает сейчас, не больше 3 раз (защита от голодания). Порог по задаче: при эксклюзивной очереди 5 ГБ хватает (orient_infer ~3,2 ГБ); 6+ при фоне 5,3–5,8 ГБ стоит часами. Свои циклы `free -m` не писать: разные пороги стартуют разом, и earlyoom снимает `remlab-render`. Самопроверка `tools/ops/heavy-slot-selftest.sh` (CI).
 
 ## Сторож доступности и бэкапы вне сервера (13.10, ADR-0266)
 - `/api/health` (`lib/health.ts`): `select 1` к базе (2 с) и витрина `demo-data.json`; база не ответила → `ok:false` и 503

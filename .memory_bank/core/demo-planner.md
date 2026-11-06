@@ -3,12 +3,12 @@ tier: 1
 topic: demo-planner
 scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
-updated: 2026-11-05
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-30
+last_verified: 2026-11-06
 review_after: 2026-12-05
 ---
 
@@ -16,11 +16,12 @@ review_after: 2026-12-05
 
 **Что это:** демо `/demo` (ADR-0201). Квартира №215, 77,2 м².
 Витрина: сертификат → стили → комнаты → окно варианта; план — в конструкторе.
-Код: `tools/scout/flat215-demo/index.html`, сборка `flat215_demo.py`, публикация `publish_demo.sh`.
+Код: `tools/scout/flat215-demo/index.html`, сборка `flat215_demo.py`, публикация `publish_demo.sh` (копия, `--rollback`;
+[[pipeline-order]]).
 
 - **Главная «стили → комнаты» (ADR-0307):** `index.html:#styleTabs` → комнаты `#hmRooms` из реестра
   (`contracts/partner.ts:apartmentRoom`); избранное — `#screen-fav`, корзина — `lib/basket/basket.ts`.
-- **Окно варианта (demo-09/02):** «Фото» — только реалистичный снимок этой расстановки, иначе 3D с ценниками;
+- **Окно варианта:** «Фото» — реалистичный снимок этой расстановки (пока рисуется — ожидание), иначе 3D с ценниками;
   изменение → 3D (`index.html:vwRealShots/vwAfterChange`, ADR-0300).
 - **Состав (20.10):** банкетка «уголком» — `tools/scout/flat215_demo.py:drop_lonely_nook`; обеденный стол — `tools/scout/unfit.py:unfit`.
 - **EN-демо** = двойник `demo-uk-215` (£ через `toCard()`, ADR-0298) + временная маска товаров `demoMask` (`data/partners/demo-uk.json`; ADR-0328 — `decisions/adr-0301-0350.md`).
@@ -32,8 +33,8 @@ review_after: 2026-12-05
 - **Русский = протокол логики:** данные не переводить, только показ.
 
 **Вариант = стиль (13.10, ADR-0244):** `choose_banks`/`fill_banks` (ADR-0259) — по набору на стиль (самый собираемый);
-встраивание на сайт застройщика — `/embed/<партнёр>/<квартира>` (ADR-0283).
+встраивание — `/embed/<партнёр>/<квартира>` (ADR-0283).
 - **Кадры (ADR-0280/0291/0304/0320/0329):** прогрев `tools/ops/demo-warm.mjs`; одна расстановка и пара точек — `index.html:camPairAll`.
 - **22–24.10 (ADR-0319…0326):** мягкое — в списке и на фото, без 3D; цвета образцами; карточка товара; горизонтальный кадр GPT,
-  свайп = ракурс; ночная досъёмка фото ≤ 50 ₽; подгрузка 3D во время фото — Tier 2 § «Демо 22–24.10».
+  свайп = ракурс; ночная досъёмка фото ≤ 50 ₽ — Tier 2 § «Демо 22–24.10».
 - **Сценарии, дефекты, живые проверки, планы demo-01…03** — [[demo-scenarios]].

@@ -3,12 +3,12 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-10-20
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-10-14
+last_verified: 2026-11-06
 review_after: 2026-12-05
 ---
 
@@ -18,7 +18,7 @@ review_after: 2026-12-05
 
 ## Навигация (v0.4, сквозная шапка — ADR-0017)
 Одна шапка `SiteHeader.tsx`: логотип + «Моя лаборатория»; ряд материалы · ремонт · Дизайн ·
-Стили · Советы; адаптив ≤700/≤480 (урок 7 [[lessons]]); активный раздел — заливка.
+Стили · Советы; адаптив ≤700/≤480 (урок 7 [[lessons]]); активный раздел — заливка (кнопки расчёта) или жирный (остальные).
 Иконки — [[access-and-integrations]]. Главная = ХАБ из шести плиток и два CTA (не «о проекте»).
 - `/styles` (игра-карточки, `components/StyleQuiz.tsx`), `/sovety`, `/start`, `/calc/remont` — за заглушкой `ComingSoon`
   (`NEXT_PUBLIC_SHOW_WIP=1`); `/lab` — центр сохранений (ADR-0038, вкладки `?tab=`, «Мой стиль» → `style_results`).
@@ -31,7 +31,7 @@ review_after: 2026-12-05
 «Сгенерировать» → `runGenerate` (restyle+ideas). Free/Paid = уровень (owner 2026-07-02): «Освежить» бесплатно, один платный пакет
 490 ₽ (`app/p/[id]/paywall/page.tsx`), paywall-триггер = выбор 2/3. ⚠️ Код-долг: товары seed, вар.2/3 и YooKassa нет.
 
-**Избранное (18.10, ADR-0306/0307):** ♡ → коллекция «<Комната> #N» с секретом (`modules/collections/repository.ts`, v3 `roomId/styleId`);
+**Избранное (18.10, ADR-0306/0307):** ♡ → коллекция «<Комната> #N» с секретом (`modules/collections/repository.ts`; v3 `roomId/styleId` — `contracts/collection.ts`);
 корзина сертификата по комнатам (`lib/basket/basket.ts`); главная — стили → комнаты, липкая шапка, «назад» через `history.state`.
 Карта 1.1, 1.5, 2.13–2.15, 2.33–2.36.
 

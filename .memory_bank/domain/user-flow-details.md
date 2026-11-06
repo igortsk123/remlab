@@ -3,12 +3,12 @@ tier: 2
 topic: user-flow-details
 scope: Детальные сценарии и экраны Stage 1 — 7-экранный flow, free/paid варианты, сегменты, аналитика
 tier1: ../core/user-flow.md
-updated: 2026-10-20
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-10-18
+last_verified: 2026-11-06
 ---
 
 > ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
@@ -117,7 +117,8 @@ confidence (low/mid/high). Сумму считает движок, НЕ LLM.
 `components/flat3d/OpenBeacon.tsx`). Ключ выдаёт/отзывает `infra/server/partner-key-add.sh` (в базе — SHA-256).
 Тест сверяет имена событий в HTML демо со словарями (`tests/unit/partner-report.test.ts`). «Передвинул» (`item_move`,
 не чаще раза в 20 с) и «поделился» (`share`: ссылка на вариант, «отправить себе») — решение владельца 14.10; в демо
-оба идут через `reportAct` → событие `remlab:act` в оба счётчика.
+оба идут через `reportAct` → событие `remlab:act` в оба счётчика. Опрос-знакомство (onb-12): `quiz_done` входит в `ENGAGE`
+(шаг «выбирали»), счётчики опроса — отдельный блок «Знакомство» (`modules/partner-report/quiz.ts`, `ReportPage.tsx`), не строки заходов.
 
 ## /styles — детали (перенесено из Tier 1, 13.10)
 Сид карточек — `lib/styles/quiz.ts`; лайк/скип → стиль → кнопки `/start` (дизайн) и `/calc` (материалы)

@@ -41,8 +41,10 @@
 `tokeny-vygruzka-<проект>`) кладёт `<проект>/data/logs/tokeny/<машина>-<сутки>.json` — строки, `period`, `sverka`,
 цену чтений памяти `pamyat` (`pamyat.py`) и последний замер недели учётки `nedelya` (`nedelya_seychas`);
 `tools/tokeny/svodka.sh [--proekt X]` на любой машине склеивает их в `data/otchety/tokeny/svodka-<сутки>.txt`
-(и в stdout): токены и $ по машинам, % недели каждой учётки, строка «Память». Машина без выгрузки — «нет данных»
-по `--ozhidaem`; замер пользы памяти старше 14 дней — напоминание (`--zamery`); самые дорогие задачи —
+(и в stdout): токены и $ по машинам, % недели каждой учётки, строка «Память». Машина без выгрузки — по `--ozhidaem`:
+таймер её выгрузки ещё впереди — «выгрузка в ЧЧ:ММ (по Лондону)», прошёл — «выгрузка не пришла (ждали ЧЧ:ММ)»
+(время — поле `taymer` выгрузки машины, своя — живой systemd; `ozhidanie`), время неизвестно — «нет данных»;
+замер пользы памяти старше 14 дней — напоминание (`--zamery`); самые дорогие задачи —
 названиями с доски задач проекта (`--doska`, `nazvaniya.py`); «На 1 % недели» — млн взвешенных токенов НАШИХ ответов
 на 1 п.п. лимита учётки каждой машины, «Вне наших машин» — сколько % недели ушло на ту же учётку не с машины (Windows,
 claude.ai): ступеньки процента окна `resets_at` (выгрузка кладёт их в `otrezki`, своя машина — живым счётом) и
@@ -64,6 +66,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterator
@@ -1034,53 +1037,116 @@ def okna(otr: list[Otrezok]) -> list[list[Otrezok]]:
     return out[::-1]
 
 
-def ocenka_mashiny(otr: list[Otrezok]) -> tuple[Razlozhenie | None, bool, float]:
-    """Текущее окно, а если в нём меньше `POROG_OKNA_PP` п.п. или `POROG_OKNA_N` ступенек — прошлое (годное).
-    → (разложение или None, по прошлому окну, п.п. текущего окна)."""
+# Пометка окна (T-20261106-76, владелец 06.11): процент рос быстрее записи statusline — ступенька в несколько п.п. несёт
+# и нашу, и чужую работу учётки (Windows, claude.ai) разом, разложение их не разделит. Половина п.п. окна и больше
+# такими ступеньками — оценка завышена (прошлое окно pakardev 22–27.10: одна ступенька 100 п.п., «вне» = 0).
+KRUPNAYA_PP = 5.0
+RAZBROS_ZA = timedelta(hours=24)  # разброс оценки — по концам ступенек за последние сутки
+
+
+def zavysheno(w: list[Otrezok]) -> bool:
+    """Чужую работу в окне не отделить: ступеньками больше `KRUPNAYA_PP` пришла половина п.п. окна или больше."""
+    vsego = sum(o.dp for o in w)
+    return vsego > 0 and sum(o.dp for o in w if o.dp > KRUPNAYA_PP) >= vsego / 2
+
+
+def polno(w: list[Otrezok]) -> bool:
+    """`POROG_OKNA_PP` п.п. и `POROG_OKNA_N` ступенек — меньше процент целый, оценка — шум."""
+    return sum(o.dp for o in w) >= POROG_OKNA_PP and len(w) >= POROG_OKNA_N
+
+
+def godno(w: list[Otrezok]) -> bool:
+    """Окно годится для оценки: `polno`; завышенное — по одним п.п. (ступенек в нём мало как раз потому, что они
+    крупные), его оценка идёт с пометкой и в сравнение не входит."""
+    return polno(w) or (sum(o.dp for o in w) >= POROG_OKNA_PP and zavysheno(w))
+
+
+def okno_ocenki(otr: list[Otrezok]) -> tuple[list[Otrezok] | None, bool, float]:
+    """Текущее окно, а если оно не годно (`godno`) — прошлое. → (ступеньки окна по времени или None, по прошлому
+    окну, п.п. текущего окна)."""
     vse = okna(otr)
     tek = sum(o.dp for o in vse[0]) if vse else 0.0
     for i, w in enumerate(vse[:2]):
-        if sum(o.dp for o in w) >= POROG_OKNA_PP and len(w) >= POROG_OKNA_N:
-            return razlozhit(w), i == 1, tek
+        if godno(w):
+            return sorted(w, key=lambda o: o.t1), i == 1, tek
     return None, False, tek
+
+
+def ocenka_mashiny(otr: list[Otrezok]) -> tuple[Razlozhenie | None, bool, float]:
+    """Разложение окна оценки (`okno_ocenki`). → (разложение или None, по прошлому окну, п.п. текущего окна)."""
+    w, proshloe, tek = okno_ocenki(otr)
+    return (razlozhit(w) if w else None), proshloe, tek
+
+
+def razbros(w: list[Otrezok], seychas: datetime) -> tuple[float, float] | None:
+    """Min–max нарастающей оценки (млн на 1 %) по префиксам ступенек окна, у которых конец за `RAZBROS_ZA` до
+    `seychas` и префикс уже годен (`polno`); одна точка — None (без скобок). Оценка по ~30 ступенькам целого процента
+    ходит 3,5 ↔ 7,0 за сутки — число без разброса пугало скачками (владелец 06.11, TG 186)."""
+    tochki = []
+    for i, o in enumerate(w):
+        p = w[:i + 1]  # порог — обычный (п.п. и число ступенек), как у нарастающей оценки в разборе ведущего TG 188
+        if o.t1 >= seychas - RAZBROS_ZA and polno(p) and (r := razlozhit(p)) is not None:
+            tochki.append(r.mln_na_procent)
+    return (min(tochki), max(tochki)) if len(tochki) > 1 else None
+
+
+def chislo_mln(n: float) -> str:
+    return f"{n / 1e6:.1f}".replace(".", ",")
 
 
 def procent_nedeli(n: float) -> str:
     return str(round(n)) if n >= 10 else pp(n)
 
 
-def stroki_na_procent(otr: dict[str, list[Otrezok]], ozhidaem: list[str] | None = None) -> list[str]:
+def stroki_na_procent(otr: dict[str, list[Otrezok]], ozhidaem: list[str] | None = None,
+                      zhdem: dict[str, str] | None = None, seychas: datetime | None = None) -> list[str]:
     """«На 1 % недели» — млн взвешенных токенов НАШИХ ответов на 1 % лимита учётки каждой машины (без чужой работы
-    учётки: Windows, claude.ai) и строка «Вне наших машин» — сколько % недели ушло не с машины."""
+    учётки: Windows, claude.ai) и строка «Вне наших машин» — сколько % недели ушло не с машины. Машина без ступенек:
+    нет её положенной выгрузки — когда ждать (`zhdem`, `zhdem_na_procent`), иначе «пока нет данных». Рядом с числом —
+    разброс за сутки (`razbros`); окно, где чужую работу не отделить (`zavysheno`), — с пометкой и без сравнения."""
     if not otr and not ozhidaem:
         return []
+    seychas = seychas or datetime.now(UTC)
     est: dict[str, float] = {}
     chasti, vne = [], []
     for m in sorted(set(otr) | set(ozhidaem or [])):
         if not otr.get(m):
-            chasti.append(f"{m} — пока нет данных")
+            chasti.append(f"{m} — {(zhdem or {}).get(m) or 'пока нет данных'}")
             continue
-        r, proshloe, tek = ocenka_mashiny(otr[m])
-        if r is None:
+        w, proshloe, tek = okno_ocenki(otr[m])
+        r = razlozhit(w) if w else None
+        if w is None or r is None:
             chasti.append(f"{m} — мало данных ({pp(tek)} п.п.)")
             continue
+        pometki = ["прошлая неделя"] if proshloe else []
+        if zavysheno(w):  # « · » внутри скобок: «, » и «; » делят строку при разборе (`tokeny-tekst`)
+            pometki.append("Windows и др. не отделить — завышено")
+            chasti.append(f"{m} {mln(r.mln_na_procent)} ({' · '.join(pometki)})")
+            vne.append(f"{m} не отделить")
+            continue
         est[m] = r.mln_na_procent
-        chasti.append(f"{m} {mln(est[m])}" + (" (прошлая неделя)" if proshloe else ""))
+        if rz := razbros(w, seychas):
+            if chislo_mln(rz[0]) != chislo_mln(rz[1]):
+                pometki.append(f"за сутки {chislo_mln(rz[0])}–{chislo_mln(rz[1])}")
+        chasti.append(f"{m} {mln(est[m])}" + (f" ({' · '.join(pometki)})" if pometki else ""))
         vne.append(f"{m} ≈0" if r.vne < 1 else
                    f"{m} ≈ {procent_nedeli(r.vne)} % недели (≈ {pp(r.vne / r.chasy if r.chasy else 0)} %/ч)")
+    vne_stroka = [f"Вне наших машин (та же учётка на Windows, в claude.ai и др.): {', '.join(vne)}."] if vne else []
     if not est:
         return [f"На 1 % недели (по неделе каждой учётки, все проекты; токены взвешенные): {', '.join(chasti)}; "
-                "сравнить пока не с чем."]
+                "сравнить пока не с чем.", *vne_stroka]
     luchshie = sorted(est.items(), key=lambda kv: -kv[1])
     if len(luchshie) < 2:
         itog = "сравнить пока не с чем"
     elif luchshie[0][1] < luchshie[1][1] * 1.1:
         itog = f"{luchshie[0][0]} и {luchshie[1][0]} примерно равны"
     else:
-        itog = (f"выгоднее {luchshie[0][0]}: в {pp(luchshie[0][1] / luchshie[1][1])} раза больше, "
+        # До сотых (владелец 06.11, TG 1267): с одним знаком 7,0 / 3,8 давало «1,9» при точных 1,86 — не сходилось в уме.
+        raz = f"{luchshie[0][1] / luchshie[1][1]:.2f}".replace(".", ",")
+        itog = (f"выгоднее {luchshie[0][0]}: в {raz} раза больше, "
                 f"чем {luchshie[1][0]}")
     return [f"На 1 % недели (по неделе каждой учётки, все проекты; токены взвешенные): {', '.join(chasti)}; {itog}.",
-            f"Вне наших машин (та же учётка на Windows, в claude.ai и др.): {', '.join(vne)}."]
+            *vne_stroka]
 
 
 def razdelit_limit(vse: list[Stroka], prirosty: list[Prirost]) -> list[Rozdano]:
@@ -1211,6 +1277,111 @@ def london(t: datetime) -> date:
     return (t + timedelta(hours=1 if leto else 0)).date()
 
 
+# ── когда ждать выгрузку машины (T-20261106-68): «нет данных» до таймера выглядело поломкой ─────────────────
+
+ZAPAS_VYGRUZKI = timedelta(minutes=30)  # = TimeoutStartSec юнита выгрузки: дольше без файла — сбой
+TAYMER = re.compile(r"OnCalendar=\S+ (\d{1,2}):(\d{2})(?::\d{2})?(?: ([A-Za-z][A-Za-z0-9_/+-]*))?\s*[;}]")
+VREMYA_TAYMERA = re.compile(r"\d{2}:\d{2}")
+
+
+def iz_londona(den: date, chasy: int, minuty: int) -> datetime:
+    """Момент (UTC) для времени суток по Лондону — обратное к `london`."""
+    t = datetime(den.year, den.month, den.day, chasy, minuty, tzinfo=UTC) - timedelta(hours=1)
+    leto = posl_voskresenye(den.year, 3) <= t < posl_voskresenye(den.year, 10)
+    return t if leto else t + timedelta(hours=1)
+
+
+def systemd_svoystvo(yunit: str, svoystvo: str) -> str:
+    """Свойство юнита systemd --user (только чтение); нет systemd или юнита — пустая строка."""
+    try:
+        r = subprocess.run(["systemctl", "--user", "show", yunit, "-p", svoystvo, "--value"],
+                           capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout if r.returncode == 0 else ""
+
+
+def v_london(chasy: int, minuty: int, zona: str | None) -> str | None:
+    """«ЧЧ:ММ» по Лондону для времени таймера в его зоне (шаблон кита — всегда Europe/London)."""
+    if zona in (None, "Europe/London"):
+        return f"{chasy:02d}:{minuty:02d}"
+    try:
+        from zoneinfo import ZoneInfo
+        t = datetime.now(ZoneInfo(zona)).replace(hour=chasy, minute=minuty, second=0, microsecond=0)
+    except Exception:  # noqa: BLE001 — незнакомая зона: время неизвестно, сводка скажет «нет данных»
+        return None
+    u = t.astimezone(UTC)
+    leto = posl_voskresenye(u.year, 3) <= u < posl_voskresenye(u.year, 10)
+    return (u + timedelta(hours=1 if leto else 0)).strftime("%H:%M")
+
+
+def moy_taymer(proekt: str) -> str | None:
+    """«ЧЧ:ММ» по Лондону — расписание таймера выгрузки проекта на этой машине, None — таймера нет. Прежнее имя
+    без проекта (`tokeny-vygruzka`, так стояла tamara до кита) — если оно запускает `vygruzit.sh` этого проекта.
+    `TOKENY_TAYMER` — подмена для проверок («ЧЧ:ММ»; иное — таймера нет)."""
+    if (v := os.environ.get("TOKENY_TAYMER")) is not None:
+        return v if VREMYA_TAYMERA.fullmatch(v) else None
+    for imya in (f"tokeny-vygruzka-{proekt}", "tokeny-vygruzka"):
+        if imya == "tokeny-vygruzka" and \
+                f"/{proekt}/tools/tokeny/vygruzit.sh" not in systemd_svoystvo(f"{imya}.service", "ExecStart"):
+            continue
+        if m := TAYMER.search(systemd_svoystvo(f"{imya}.timer", "TimersCalendar")):
+            return v_london(int(m[1]), int(m[2]), m[3])
+    return None
+
+
+def vremena_vygruzok(papka: Path | None, proekt: str) -> dict[str, str]:
+    """Время таймера выгрузки каждой машины (по Лондону): поле `taymer` её последней выгрузки в общей папке
+    проекта; своя машина — живым systemd (свежее, и есть до первой выгрузки)."""
+    out: dict[str, str] = {}
+    posledniy: dict[str, tuple[date, Path]] = {}
+    for put in sorted(papka.glob("*.json")) if papka is not None and papka.is_dir() else []:
+        if (m := IMYA_VYGRUZKI.match(put.name)) and (d := data_ili_net(m[2])) is not None \
+                and d >= posledniy.get(m[1], (date.min, put))[0]:
+            posledniy[m[1]] = (d, put)
+    for mashina, (_, put) in posledniy.items():
+        try:
+            v = slovar(json.loads(put.read_text(encoding="utf-8"))).get("taymer")
+        except (OSError, ValueError):
+            continue
+        if isinstance(v, str) and VREMYA_TAYMERA.fullmatch(v):
+            out[mashina] = v
+    if (svoy := moy_taymer(proekt)) is not None:
+        out[socket.gethostname()] = svoy
+    return out
+
+
+def zhdem_na_procent(papka: Path, taymery: dict[str, str], segodnya: date, den: date,
+                     seychas: datetime) -> dict[str, str]:
+    """«На 1 % недели» считает по последней выгрузке машины не позже `konec`; положенная из них — за `den`, а за сегодня
+    и позже — за вчера (выгрузка суток бывает только утром следующих). Её файла нет — когда ждать (`ozhidanie`)."""
+    den = min(den, segodnya - timedelta(days=1))
+    return {m: z for m, t in taymery.items()
+            if not (papka / f"{m}-{den.isoformat()}.json").is_file() and (z := ozhidanie(den, t, seychas)) is not None}
+
+
+def ozhidanie(den: date, vremya: str | None, seychas: datetime) -> str | None:
+    """Почему нет выгрузки машины за `den` (её делает таймер утром следующих суток): таймер впереди —
+    «выгрузка в ЧЧ:ММ (по Лондону)»; идёт не дольше `ZAPAS_VYGRUZKI` — «выгрузка идёт с ЧЧ:ММ»; дольше —
+    «выгрузка не пришла (ждали ЧЧ:ММ)», это сбой. Время таймера неизвестно — None (прежнее «нет данных»)."""
+    if vremya is None or not VREMYA_TAYMERA.fullmatch(vremya):
+        return None
+    kogda = den + timedelta(days=1)
+    srok = iz_londona(kogda, int(vremya[:2]), int(vremya[3:]))
+    segodnya = london(seychas)
+    if kogda == segodnya:
+        v = vremya
+    elif kogda == segodnya + timedelta(days=1):
+        v = f"завтра в {vremya}"
+    else:
+        v = f"{data_po_russki(kogda)} в {vremya}"
+    if seychas < srok:
+        return f"выгрузка {'в ' if kogda == segodnya else ''}{v} (по Лондону)"
+    if seychas < srok + ZAPAS_VYGRUZKI:
+        return f"выгрузка идёт с {v} (по Лондону)"
+    return f"выгрузка не пришла (ждали {v})"
+
+
 def v_slovar(s: Stroka) -> dict[str, object]:
     return {"sessiya": s.sessiya, "fayl": s.fayl, "msg_id": s.msg_id, "req_id": s.req_id,
             "uuid": s.uuid, "vremya": s.vremya.astimezone(UTC).isoformat().replace("+00:00", "Z"),
@@ -1261,6 +1432,7 @@ class Vygruzka:
     tier0_simvolov: int = 0
     nedelya: dict[str, object] | None = None  # последний замер недели учётки машины (`nedelya_seychas`)
     otrezki: list[Otrezok] | None = None  # ступеньки учётки машины за `OTREZKI_DNEY` суток по `po` (T-30)
+    taymer: str | None = None  # «ЧЧ:ММ» по Лондону — таймер выгрузки машины (`moy_taymer`, T-20261106-68)
 
     def za_den(self, den: date) -> bool:
         return (self.s or date.min) <= den <= (self.po or date.max)
@@ -1281,6 +1453,8 @@ def vygruzka(stroki: list[Stroka], proekt: str, meta: Vygruzka | None = None) ->
             telo["nedelya"] = meta.nedelya
         if meta.otrezki is not None:
             telo["otrezki"] = [o.v_slovar() for o in sorted(meta.otrezki, key=lambda o: (o.t1, o.t0))]
+        if meta.taymer is not None:
+            telo["taymer"] = meta.taymer
     telo["stroki"] = [v_slovar(s) for s in sorted(stroki, key=poryadok)]
     return json.dumps(telo, ensure_ascii=False, indent=1) + "\n"
 
@@ -1547,8 +1721,9 @@ def data_po_russki(den: date) -> str:
 
 
 def stroki_mashin(d: list[Stroka], vygruzki: list[Vygruzka], ozhidaem: list[str],
-                  den: date, bitye: list[str] | None = None) -> list[str]:
-    """$ по машинам и явное «нет данных»: машина без выгрузки за сутки не пропадает молча."""
+                  den: date, bitye: list[str] | None = None, zhdem: dict[str, str] | None = None) -> list[str]:
+    """$ по машинам и явное «нет данных»: машина без выгрузки за сутки не пропадает молча. Известен таймер машины
+    (`zhdem`) — когда выгрузка будет или что она не пришла (T-20261106-68)."""
     est = {v.mashina for v in vygruzki if v.za_den(den)}
     mashiny = sorted(est | set(ozhidaem))
     out: list[str] = []
@@ -1560,7 +1735,10 @@ def stroki_mashin(d: list[Stroka], vygruzki: list[Vygruzka], ozhidaem: list[str]
         out.append(f"По машинам: {', '.join(chasti)}.")
     if bitye:
         out.append(f"Битые выгрузки, не учтены: {', '.join(bitye)}.")
-    if net := [m for m in mashiny if m not in est]:
+    zhdem = zhdem or {}
+    if net := [m for m in mashiny if m not in est and m in zhdem]:
+        out.append(f"Нет выгрузки за {data_po_russki(den)}: {'; '.join(f'{m} — {zhdem[m]}' for m in net)}.")
+    if net := [m for m in mashiny if m not in est and m not in zhdem]:
         out.append(f"Нет данных: {', '.join(net)} (выгрузки за {data_po_russki(den)} нет).")
     if ne_soshlas := sorted({v.mashina for v in vygruzki if v.za_den(den) and v.sverka is False}):
         out.append(f"Сверка с журналами не сошлась: {', '.join(ne_soshlas)}.")
@@ -1591,7 +1769,8 @@ def vremya_ldn(v: object) -> str:
     return (t + timedelta(hours=1 if leto else 0)).strftime("%d.%m %H:%M")
 
 
-def stroka_nedeli(vygruzki: list[Vygruzka], ozhidaem: list[str], den: date) -> list[str]:
+def stroka_nedeli(vygruzki: list[Vygruzka], ozhidaem: list[str], den: date,
+                  zhdem: dict[str, str] | None = None) -> list[str]:
     """% недели каждой учётки (у каждой машины своя): последний замер журнала statusline машины."""
     po_mashine: dict[str, Vygruzka] = {}
     for v in vygruzki:
@@ -1601,7 +1780,7 @@ def stroka_nedeli(vygruzki: list[Vygruzka], ozhidaem: list[str], den: date) -> l
     chasti = []
     for m in sorted(set(po_mashine) | set(ozhidaem)):
         if m not in po_mashine:
-            chasti.append(f"{m} — нет данных с {m}")
+            chasti.append(f"{m} — {(zhdem or {}).get(m) or f'нет данных с {m}'}")
             continue
         n = po_mashine[m].nedelya
         if not n:
@@ -1659,15 +1838,19 @@ def stroka_zamera(put: Path | None, den: date, srok: int = 14) -> list[str]:
 def svodka(stroki: list[Stroka], proekt: str, den: date, vygruzki: list[Vygruzka] | None = None,
            ozhidaem: list[str] | None = None, zamery: Path | None = None,
            bitye: list[str] | None = None, nazv: dict[str, str] | None = None,
-           otrezki: dict[str, list[Otrezok]] | None = None) -> str:
+           otrezki: dict[str, list[Otrezok]] | None = None, taymery: dict[str, str] | None = None,
+           seychas: datetime | None = None, zhdem_procent: dict[str, str] | None = None) -> str:
     """6–12 строк простым текстом для Telegram: сутки по Лондону; все доли — от $ по прайсу.
 
-    Из выгрузок (`--sobrat`): строки по машинам и «нет данных» по ожидаемым машинам, цена памяти;
+    Из выгрузок (`--sobrat`): строки по машинам и «нет данных» по ожидаемым машинам, цена памяти; известно время
+    таймера машины (`taymery`, `vremena_vygruzok`) — вместо «нет данных» когда выгрузка будет или что не пришла;
     с журналом замеров памяти — напоминание о просроченном замере; с доской (`nazv`) — дорогие задачи;
     `otrezki` — ступеньки учёток по машинам для «На 1 % недели» и «Вне наших машин» (`otrezki_po_mashinam`)."""
     d = za_period(stroki, den, den)
     vsego = stoimost(d)
     kletki = setka(d)
+    seychas = seychas or datetime.now(UTC)
+    zhdem = {m: z for m, t in (taymery or {}).items() if (z := ozhidanie(den, t, seychas)) is not None}
 
     def doli(kto: str) -> str:
         return ", ".join(f"{na_chto} {procent(stoimost(ss), vsego)} %"
@@ -1679,12 +1862,13 @@ def svodka(stroki: list[Stroka], proekt: str, den: date, vygruzki: list[Vygruzka
            f"{DNI[den.weekday()]} (сутки по Лондону).",
            f"Всего {len(d)} ответов модели, ≈ {dollary(vsego)} по прайсу API (не деньги, "
            f"подписка); без метки задачи {procent(bez_metki, vsego)} %.{pribl}",
-           *(stroki_mashin(d, vygruzki, ozhidaem or [], den, bitye)
-             + stroka_tokenov(d, vygruzki, den) + stroka_nedeli(vygruzki, ozhidaem or [], den)
+           *(stroki_mashin(d, vygruzki, ozhidaem or [], den, bitye, zhdem)
+             + stroka_tokenov(d, vygruzki, den) + stroka_nedeli(vygruzki, ozhidaem or [], den, zhdem)
              if vygruzki is not None else []),
            *bez_ceny(d),
            f"{VED}: {doli(VED)}.", f"{ISP}: {doli(ISP)}.", stroka_peredelok(kletki, vsego)]
-    out += (stroka_limita(d, proekt) + (stroki_na_procent(otrezki, ozhidaem) if otrezki is not None else [])
+    out += (stroka_limita(d, proekt)
+            + (stroki_na_procent(otrezki, ozhidaem, zhdem_procent, seychas) if otrezki is not None else [])
             + stroki_zadach(d, nazv, vsego))
     out += stroka_pamyati(d, vygruzki or [], den) + stroka_zamera(zamery, den)
     return "\n".join(out) + "\n"
@@ -1710,6 +1894,8 @@ def argumenty(argv: list[str] | None) -> argparse.Namespace:
                    "выгрузок нет: сводка скажет «нет данных» по --ozhidaem)")
     p.add_argument("--ozhidaem", default="",
                    help="машины через запятую, чьи выгрузки ждём в --sobrat (common,algor,…)")
+    p.add_argument("--papka-vygruzok", help="общая папка выгрузок машин для времени их таймеров в --svodka "
+                   "(по умолчанию <TOKENY_PROEKTY>/<проект>/data/logs/tokeny)")
     p.add_argument("--zamery", help="журнал замеров памяти для напоминания в --svodka ('' — без "
                    "него; по умолчанию <проект>/.memory_bank/changelog/memory-eval.log)")
     p.add_argument("--svodka", action="store_true", help="сводка за сутки для Telegram")
@@ -1778,7 +1964,7 @@ def main(argv: list[str] | None = None) -> int:
                         tier0_simvolov(koren_proekta(a.proekt) if koren_proekta(a.proekt).is_dir()
                                        else KOREN_REPO) if papki else 0,
                         nedelya_seychas(Path(a.limit).expanduser(), datetime.now(UTC)) if papki else None,
-                        otrezki if papki else None)
+                        otrezki if papki else None, moy_taymer(a.proekt) if papki else None)
         tekst = vygruzka(vybor, a.proekt, meta)
         if a.json == "-":
             sys.stdout.write(tekst)
@@ -1807,8 +1993,12 @@ def main(argv: list[str] | None = None) -> int:
                  if konec == segodnya else None)
         otr = (otrezki_po_mashinam(KORNI, konec, svoya) if vygruzki is not None
                else {socket.gethostname(): svoya} if svoya is not None else None)
+        papka_v = Path(a.papka_vygruzok) if a.papka_vygruzok else koren_proekta(a.proekt) / "data" / "logs" / "tokeny"
+        taymery = vremena_vygruzok(papka_v, a.proekt) if vygruzki is not None else None
+        seychas = datetime.now(UTC)
         sys.stdout.write(svodka(stroki, a.proekt, den, vygruzki, ozhidaem, zamery, bitye,
-                                nazvaniya(doska, den) if doska else None, otr))
+                                nazvaniya(doska, den) if doska else None, otr, taymery, seychas,
+                                zhdem_na_procent(papka_v, taymery, segodnya, den, seychas) if taymery else None))
         return 0
 
     po = a.po or max(a.s or segodnya, segodnya)

@@ -9,7 +9,7 @@
 //   node tools/flat3d/build-scene-bundle.mjs --print-id                                   только версия исходников
 import { build as esbuild, version as esbuildVersion } from "esbuild";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,10 +33,12 @@ h.update("esbuild@" + esbuildVersion).update(readFileSync(fileURLToPath(import.m
 const id = h.digest("hex").slice(0, 12);
 if (args.includes("--print-id")) { console.log(id); process.exit(0); }
 
+// подменой, не обрезкой (T-20261105-59): оборванная сборка не оставляет в папке витрины половину движка или scene.json
+const writeAtomic = (p, text) => { const t = `${p}.${process.pid}.tmp`; writeFileSync(t, text); renameSync(t, p); };
 const js = res.outputFiles[0].text.replaceAll(PLACEHOLDER, id);
 mkdirSync(OUT, { recursive: true });
 const file = `scene.${id}.js`;
-writeFileSync(join(OUT, file), js);
+writeAtomic(join(OUT, file), js);
 
 // МОДУЛЬ КОРЗИНЫ (demo-16 шаг 2): отдельная маленькая сборка со СВОИМ отпечатком — главная грузит её сразу, тяжёлый движок
 // остаётся ленивым, и правка корзины не меняет версию движка (Codex 18.10 п.16). В `scene.json` — поле `basket`.
@@ -49,9 +51,9 @@ const bh = createHash("sha256");
 for (const f of Object.keys(bres.metafile.inputs).sort()) bh.update(f + "\0").update(readFileSync(join(ROOT, f)));
 bh.update("esbuild@" + esbuildVersion);
 const bid = bh.digest("hex").slice(0, 12), bjs = bres.outputFiles[0].text, bfile = `basket.${bid}.js`;
-writeFileSync(join(OUT, bfile), bjs);
+writeAtomic(join(OUT, bfile), bjs);
 
-writeFileSync(join(OUT, "scene.json"), JSON.stringify({ file, build: id, bytes: js.length, inputs: Object.keys(res.metafile.inputs).length,
+writeAtomic(join(OUT, "scene.json"), JSON.stringify({ file, build: id, bytes: js.length, inputs: Object.keys(res.metafile.inputs).length,
   basket: { file: bfile, build: bid, bytes: bjs.length } }) + "\n");
 for (const re of [/^scene\.[0-9a-f]{12}\.js$/, /^basket\.[0-9a-f]{12}\.js$/]) {
   const keep = re.source.startsWith("^scene") ? file : bfile;

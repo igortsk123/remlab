@@ -166,5 +166,92 @@ check('не встаёт (наезд) — своя позиция банка и 
 check('другая комната — стиль не трогаем', DB.one_layout({'а': A['а'], 'б': dict(A['б'], _room=dict(R, w=618))},
                                                           ['а', 'б'])[1]['kept'][0]['why'] == 'другая комната')
 check('правило включено в данных (`rules/demo-layout.json` → bedroom)', DB.one_rule().get('enabled') is True)
+
+# СТОРОЖ МОДЕЛИ ПРЕДМЕТА (T-20261105-51/2): без готовой выложенной модели — следующий кандидат роли; нет — роль пустая с причиной
+it0 = bank[0]['items']
+alt = lambda base, eid, **kw: dict(it0[base], eid=eid, name=f'{base} {eid}', **kw)   # noqa: E731
+G = dict(art(dict(A['а']['комод'])), **{'тумба прикроватная 2': {'x': 298.5 + 87 + 24, 'z': 21, 'rot': 0, 'w': 43, 'd': 42, 'h': 55},
+                                         'ковёр': {'x': 298.5, 'z': 160, 'rot': 0, 'w': 200, 'd': 140, 'h': 1}})
+grec = dict(bank[0], items=dict(it0, ковёр=dict(it0['комод'], eid='rug', name='Ковёр', w=200, d=140, h=1)), layout=G,
+            alternates={'кровать': [alt('кровать', 'b1'), alt('кровать', 'b2')],
+                        'тумба прикроватная': [alt('тумба прикроватная', 't1'), alt('тумба прикроватная', 't2', w=40, d=40)],
+                        'комод': [alt('комод', 'k1', w=300)]})
+bad = {'112923_' + it0['кровать']['eid']: 'привязка blocked', '112923_b1': 'модель не выложена',
+       '112923_' + it0['тумба прикроватная']['eid']: 'нет в индексе прода', '112923_t1': 'привязка none',
+       '112923_' + it0['комод']['eid']: 'привязка blocked', '112923_k1': '', '112923_rug': 'привязка none'}
+gate = lambda s: bad.get(s['sid'], '')   # noqa: E731
+v6, why6 = DB.build_variant(grec, geo, sku, F._dims_of, F.style_id, mesh_ok=gate)
+by6 = {i['role']: i['sku']['sid'] for i in v6['items']}
+check('сторож: кровать без модели → второй кандидат (первый не выложен)', by6['кровать'] == '112923_b2' and why6 is None)
+check('сторож: тумба — второй кандидат в ОБОИХ местах (и строка банка «… 2»)',
+      by6['тумба прикроватная'] == by6['тумба прикроватная 2'] == '112923_t2')
+t2 = next(i for i in v6['items'] if i['role'] == 'тумба прикроватная')
+check('сторож: замена на месте прежней — та же стена вплотную, свой габарит', (t2['w'], t2['y']) == (40.0, 20.0))
+check('сторож: комод — единственный кандидат не встаёт (300 см) → роль пустая, причина в отчёте',
+      'комод' not in by6 and [e['role'] for e in v6['missing_item']] == ['комод']
+      and 'не встаёт' in v6['missing_item'][0]['why'] and 'привязка blocked' in v6['missing_item'][0]['why'])
+check('сторож: ковёр — своей отрисовкой, сторож не трогает; шкаф годен — тот же', by6['ковёр'] == '112923_rug'
+      and by6['шкаф'] == '112923_' + it0['шкаф']['eid'])
+check('сторож: замены — в отчёт сборки «было → стало»', [(e['role'], e['now'][0], e['why']) for e in v6['mesh_swaps']]
+      == [('кровать', '112923_b2', 'привязка blocked'), ('тумба прикроватная', '112923_t2', 'нет в индексе прода')])
+nob = dict(grec, alternates={})
+v7, why7 = DB.build_variant(nob, geo, sku, F._dims_of, F.style_id, mesh_ok=gate)
+check('сторож: у кровати нет годного кандидата → вариант не публикуется, причина «модель»', v7 is None
+      and 'кровать' in why7['missing'] and why7['mesh'][0]['why'].startswith('модель не готова (привязка blocked); кандидатов 0'))
+v8, _ = DB.build_variant(grec, geo, sku, F._dims_of, F.style_id)
+check('без сторожа — как было (товары записи, без замен)', {i['role']: i['sku']['sid'] for i in v8['items']}['кровать']
+      == '112923_' + it0['кровать']['eid'] and 'mesh_swaps' not in v8 and v8['missing_item'] == [])
+
+# сторож сборки: та же проверка, что выдача каталога (`catalog_items.bound_asset`), + сцена грузит модель привязки и она на проде
+row = lambda st, pub, mesh, why=('rep:orientation_review_pending',): {   # noqa: E731
+    'status': st, 'asset_id': 'sha256:' + 'a' * 64, 'mesh_id': mesh, 'representative_offer_id': None, 'via_family': False,
+    'generation_key': 'g', 'revision_key': 'r', 'source_sha': 's', 'local_path': '/x.glb', 'orientation': None, 'passport': None,
+    'local_3d': True, 'published_3d': pub, 'solver': True, 'appearance': True, 'reasons': list(why) if st != 'ready' else [],
+    'warnings': [], 'snapshot_id': 'z' * 16}
+_idx = F._MESH_IDX
+try:
+    F._MESH_IDX = {'1_a', '1_b', '1_c', '1_g', '1_h'}
+    rows = {'1:a': row('ready', True, '1:a'), '1:b': row('blocked', True, '1:b'), '1:c': row('ready', False, '1:c'),
+            '1:d': row('ready', True, '1:d'), '1:e': row('ready', True, '1:e'),
+            '1:g': row('blocked', False, '1:g', ('orientation_symmetric_by_role',)),
+            '1:h': row('blocked', True, '1:h', ('orientation_symmetric_by_role', 'family_colour_mismatch:зелёный→светлый')),
+            '1:i': row('blocked', False, '1:i', ('orientation_vlm_pending',))}
+    cases = (('a', '1_a'), ('b', '1_b'), ('c', '1_c'), ('d', '1_d'), ('e', '1_a'), ('f', '1_f'), ('g', '1_g'), ('h', '1_h'), ('i', '1_i'))
+    g = F.bedroom_mesh_gate(rows, mode='strict')
+    res = {k: g({'sid': f'1_{k}', 'msid': m}) for k, m in cases}
+    check('сторож strict: годен только ready + выложен + в индексе прода + сцена грузит модель привязки',
+          res['a'] == '' and res['b'].startswith('привязка blocked: rep:orientation') and res['c'] == 'модель не выложена'
+          and res['d'] == 'нет в индексе прода' and res['e'].startswith('сцена грузит 1_a') and res['f'].startswith('привязка none')
+          and res['g'].startswith('привязка blocked'))
+    g = F.bedroom_mesh_gate(rows)
+    res = {k: g({'sid': f'1_{k}', 'msid': m}) for k, m in cases}
+    check('сторож по умолчанию — orient (правило В, T-51/3)', g.mode == 'orient')
+    check('сторож orient: blocked ТОЛЬКО по развороту годен и без «выложена привязкой» (файл в индексе прода)',
+          res['b'] == '' and res['g'] == '' and g.note({'sid': '1_g'}) == 'orientation_symmetric_by_role'
+          and g.note({'sid': '1_a'}) == '')
+    check('сторож orient: разворот + цвет — нет; разворот, но файла на проде нет — нет; ready не выложен — нет',
+          res['h'].startswith('привязка blocked') and res['i'] == 'нет в индексе прода' and res['c'] == 'модель не выложена'
+          and res['e'].startswith('сцена грузит'))
+    check('разворот: и у представителя (`rep:orientation_*`), пустой список — не разворот',
+          F.orient_only(['rep:orientation_review_pending', 'orientation_vlm_pending']) and not F.orient_only([])
+          and not F.orient_only(['orientation_x', 'family_colour_mismatch:a→b']))
+    # нерешённый разворот — в вариант (сборка снимает поле в журнал WARN:bedroom_orient_unresolved), заменённый — по новому товару
+    og = lambda s: '' if s['sid'] != '112923_' + it0['кровать']['eid'] else 'привязка blocked'   # noqa: E731
+    og.note = lambda s: 'orientation_symmetric_by_role' if s['sid'] in ('112923_b1', '112923_' + it0['шкаф']['eid']) else ''
+    v9, _ = DB.build_variant(grec, geo, sku, F._dims_of, F.style_id, mesh_ok=og)
+    check('нерешённый разворот: роль, msid, причина — у оставленного и у замены',
+          sorted((e['role'], e['msid']) for e in v9['orient_unresolved'])
+          == [('кровать', '112923_b1'), ('шкаф', '112923_' + it0['шкаф']['eid'])])
+    try:
+        F.bedroom_mesh_gate(rows, mode='мягко')
+        bad_mode = False
+    except SystemExit:
+        bad_mode = True
+    check('сторож: неизвестный режим — отказ, а не молча строгий', bad_mode)
+    os.environ[F.BEDROOM_MESH_GATE_ENV] = '0'
+    check('сторож сборки: BEDROOM_MESH_GATE=0 — выключен (откат)', F.bedroom_mesh_gate({}) is None)
+finally:
+    F._MESH_IDX = _idx
+    os.environ.pop(F.BEDROOM_MESH_GATE_ENV, None)
 print('итог:', 'FAIL' if fails else 'OK')
 sys.exit(1 if fails else 0)
