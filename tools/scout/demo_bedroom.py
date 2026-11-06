@@ -51,14 +51,16 @@ def _key(it) -> str | None:
     return f"{it['mid']}:{it['eid']}" if it.get('mid') and it.get('eid') else it.get('sid')
 
 
-def lead_spares(bank: list, rec: dict, roles, neighbours=neighbour_styles) -> dict:
-    """Запас ведущих ролей сверх `alternates` своей записи: товары роли (состав и `alternates`) других записей банка — сперва
+def role_spares(bank: list, rec: dict, roles=None, neighbours=neighbour_styles) -> dict:
+    """Запас ролей солвера (None — все `SOLVER_ROLES`; одно правило для всех ролей, T-20261106-77/4 — было только у ведущих, и
+    комод минимализма оставался пустым при годных комодах банка) сверх `alternates` своей записи: товары роли (состав и
+    `alternates`) других записей банка — сперва
     своего стиля, потом соседних (`neighbour_styles`); внутри стиля — сначала та же комната и назначение, дальше порядок банка.
     → {роль: [(стиль, товар), …]} без повторов sid. Подходит ли товар (модель, размер, место) — решает `gate_items`."""
     style = rec.get('style') or ''
     order = [style] + [s for s in neighbours(style) if s != style]
     out = {}
-    for role in roles:
+    for role in SOLVER_ROLES if roles is None else roles:
         seen, rows = set(), []
         for st in order:
             cand = [r for r in bank if r is not rec and (r.get('style') or '') == st]
@@ -302,7 +304,7 @@ def gate_items(rec: dict, art: dict | None, sku, dims_of, mesh_ok, spares: dict 
                ) -> tuple[dict, dict | None, list, list, list]:
     """Товары записи через сторож модели → (товары, расстановка, замены, пустые роли, пропущенные с нерешённым разворотом).
     Роль без годной модели — следующий кандидат той же роли из `alternates` банка (по порядку банка), который встаёт на её
-    место без новых жёстких нарушений; у ведущей роли дальше — запас `spares` (`lead_spares`: свой стиль, потом соседний;
+    место без новых жёстких нарушений; дальше — запас `spares` (`role_spares`, любая роль солвера: свой стиль, потом соседний;
     чужой товар ещё и в полосе размера назначения `BAND_CM`); нет такого — роль пустая с причиной. Замены — `{role, was, now,
     why[, style]}` (style — у товара соседнего стиля), пустые — `{role, why}`, нерешённые — `{role, msid, why}` (у сторожа есть
     `mesh_ok.note(sku)` → причина или ''; в журнал сборки)."""
@@ -360,8 +362,8 @@ def build_variant(rec: dict, geo: dict, sku, dims_of, style_id, hung=lambda n: F
     """Запись банка → (вариант витрины, None) или (None, строка `incomplete_styles`). `sku(items, role)` и `dims_of(v, sku, role)`
     — функции сборки (`flat215_demo._sku`, `_dims_of`): товар и габарит из каталога, как у гостиной. `mesh_ok(sku)` — сторож
     модели (`gate_items`; None — без проверки): замены — в `mesh_swaps` варианта, пустые роли — в `missing_item` с причиной,
-    пропущенные с нерешённым разворотом — в `orient_unresolved` (сборка снимает поле в журнал). `spares` — запас ведущих ролей
-    (`lead_spares`), `lead` — ведущие роли (None — из профиля, `lead_roles`): нет хотя бы одной — вариант не публикуется."""
+    пропущенные с нерешённым разворотом — в `orient_unresolved` (сборка снимает поле в журнал). `spares` — запас ролей солвера
+    (`role_spares`), `lead` — ведущие роли (None — из профиля, `lead_roles`): нет хотя бы одной — вариант не публикуется."""
     lead = tuple(lead) if lead is not None else lead_roles(rec.get('room_type') or 'bedroom')
     items = rec.get('items') or {}
     style = rec.get('style') or ''

@@ -244,9 +244,9 @@ mine2 = dict(grec, room_id='bedroom-2', purpose='guest', alternates={'крова
 near = dict(grec, style='джапанди', alternates={'кровать': [alt('кровать', 'n1'), alt('кровать', 'n2', w=120)]})
 far = dict(grec, style='лофт', alternates={'кровать': [alt('кровать', 'f1')]})
 pool_bank = [far, near, nob, mine2]
-sp = DB.lead_spares(pool_bank, nob, DB.lead_roles())
-check('запас: только ведущие роли; свой стиль раньше соседнего; несоседний стиль (лофт) не берём; без повторов sid',
-      set(sp) == {'кровать', 'тумба прикроватная'} and [st for st, _ in sp['кровать']][:2] == ['сканди', 'сканди']
+sp = DB.role_spares(pool_bank, nob)
+check('запас: все роли солвера (одно правило, T-20261106-77/4); свой стиль раньше соседнего; несоседний стиль (лофт) не берём; без повторов sid',
+      set(sp) == set(DB.SOLVER_ROLES) and [st for st, _ in sp['кровать']][:2] == ['сканди', 'сканди']
       and 'лофт' not in {st for st, _ in sp['кровать']} and len({DB._key(it) for _, it in sp['кровать']}) == len(sp['кровать']))
 vA, whyA = DB.build_variant(nob, geo, sku, F._dims_of, F.style_id, mesh_ok=gate, spares=sp)
 byA = {i['role']: i['sku']['sid'] for i in vA['items']} if vA else {}
@@ -254,16 +254,32 @@ check('ведущий: своя запись без годной кровати 
       whyA is None and byA.get('кровать') == '112923_o1'
       and next(e for e in vA['mesh_swaps'] if e['role'] == 'кровать').get('style') is None)
 bad['112923_o1'] = 'привязка none'
-vB, whyB = DB.build_variant(nob, geo, sku, F._dims_of, F.style_id, mesh_ok=gate, spares=DB.lead_spares(pool_bank, nob, DB.lead_roles()))
+vB, whyB = DB.build_variant(nob, geo, sku, F._dims_of, F.style_id, mesh_ok=gate, spares=DB.role_spares(pool_bank, nob))
 eB = next((e for e in (vB or {}).get('mesh_swaps') or [] if e['role'] == 'кровать'), {})
 check('ведущий: в своём стиле годной нет → соседний стиль (джапанди), пометка стиля в замене для журнала',
       whyB is None and eB.get('now', [None])[0] == '112923_n1' and eB.get('style') == 'джапанди')
 bad['112923_n1'] = 'модель не выложена'
-vC, whyC = DB.build_variant(nob, geo, sku, F._dims_of, F.style_id, mesh_ok=gate, spares=DB.lead_spares(pool_bank, nob, DB.lead_roles()))
+vC, whyC = DB.build_variant(nob, geo, sku, F._dims_of, F.style_id, mesh_ok=gate, spares=DB.role_spares(pool_bank, nob))
 check('ведущий: у соседа только кровать вне полосы назначения (120 см у «пары») → вариант не публикуется, причина «модель»',
       vC is None and 'кровать' in whyC['missing'] and 'вне полосы размера' in whyC['mesh'][0]['why'])
 for k in ('112923_o1', '112923_n1'):
     bad.pop(k)
+
+# ЗАПАС — ВСЕМ РОЛЯМ СОЛВЕРА (T-20261106-77/4): комод минимализма без годной модели (цвет семьи не тот — привязка blocked), своих
+# запасных нет → годный комод другой записи своего стиля (на проде — Лигес серо-зелёный); раньше запас был только у ведущих
+mn = dict(nob, style='минимализм')
+mn_other = dict(grec, style='минимализм', room_id='bedroom-2', purpose='guest',
+                alternates={'кровать': [alt('кровать', 'o1')], 'тумба прикроватная': [alt('тумба прикроватная', 't2', w=40, d=40)],
+                            'комод': [alt('комод', 'lig')]})
+vK, whyK = DB.build_variant(mn, geo, sku, F._dims_of, F.style_id, mesh_ok=gate, spares=DB.role_spares([mn_other, mn], mn))
+byK = {i['role']: i['sku']['sid'] for i in vK['items']} if vK else {}
+check('запас всем ролям: комод минимализма встаёт из банка (другая запись своего стиля), пустых ролей нет',
+      whyK is None and byK.get('комод') == '112923_lig' and vK['missing_item'] == []
+      and next(e for e in vK['mesh_swaps'] if e['role'] == 'комод')['why'] == 'привязка blocked')
+vK0, _ = DB.build_variant(mn, geo, sku, F._dims_of, F.style_id, mesh_ok=gate,
+                          spares=DB.role_spares([mn_other, mn], mn, DB.lead_roles()))
+check('прежнее правило (запас только ведущим) оставляло комод пустым — тот же случай',
+      vK0 and 'комод' not in {i['role'] for i in vK0['items']} and [e['role'] for e in vK0['missing_item']] == ['комод'])
 
 # сторож сборки: та же проверка, что выдача каталога (`catalog_items.bound_asset`), + сцена грузит модель привязки и она на проде
 row = lambda st, pub, mesh, why=('rep:orientation_review_pending',): {   # noqa: E731

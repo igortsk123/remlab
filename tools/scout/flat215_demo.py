@@ -1205,11 +1205,12 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     lead = DB.lead_roles()
     unresolved = 0
     for rec in recs:
-        # ведущий предмет без модели (T-20261106-77): запас из других записей банка — свой стиль, потом соседний
+        # предмет без модели (T-20261106-77; с /4 — любая роль солвера, не только ведущая): запас из других записей банка — свой
+        # стиль, потом соседний
         v, why = DB.build_variant(rec, geos[rec['room_id']], _sku, _dims_of, style_id, hung=_hung,
                                   decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r),
                                   layout=lays.get((rec['room_id'], rec.get('style'))), mesh_ok=gate, lead=lead,
-                                  spares=DB.lead_spares(bank, rec, lead) if gate else None)
+                                  spares=DB.role_spares(bank, rec) if gate else None)
         for e in (v or {}).get('mesh_swaps') or []:
             print(f"bedroom_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']}: {e['was'][1]} ({e['why']}) → "
                   f"{e['now'][1]}" + (f" (соседний стиль «{e['style']}»)" if e.get('style') else ''), flush=True)

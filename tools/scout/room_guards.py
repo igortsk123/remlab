@@ -300,7 +300,7 @@ def demo_variants(bank: list, cat: dict, F, styles: list) -> dict:
         geo = DB.room_geo(rec['room_id'], layout_room=DB.bank_room(bank, rec['room_id']))
         v, why = DB.build_variant(rec, geo, sku, dims_of, lambda st: st or None, mesh_ok=gate, lead=lead,
                                   layout=lays.get((rec['room_id'], rec.get('style'))),
-                                  spares=DB.lead_spares(bank, rec, lead))
+                                  spares=DB.role_spares(bank, rec))
         out[(rec['room_id'], rec.get('style'))] = {'rec': rec, 'variant': v, 'incomplete': why}
     return out
 
