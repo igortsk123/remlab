@@ -5,7 +5,9 @@
 //
 // Стратегия ассета роли — из канона `tools/scout/rules/asset-strategies.json` (как поле `strategy` предмета, которое пишет
 // сборщик витрины). Мебели без модели стенд даёт метку модели `stand:<роль>`: файла нет, сеть закрыта, и движок рисует
-// честную серую коробку — видно, над чем висит зеркало. Два вида на набор: из глубины комнаты в 1,2 м и в 2,6 м вдоль стены зеркала (`facePose`).
+// честную серую коробку — видно, над чем висит зеркало. Два вида на набор — подбор по правилу `tools/scout/rules/hall-views.json`
+// (вид 1 — зеркало целиком и ближнее хранение, вид 2 — главное хранение целиком; `hall-snap/views.ts`): одни точки для 1440 и 375,
+// «целиком» проверяется по кадру компьютера. Точки и отчёт подбора — в `cases.json` (по ним снимает и сервер, `test_wall_plane.py`).
 // Выход — НОВАЯ папка (старые снимки не трогаем).
 //   node tools/flat3d/hall-snap.mjs --bank <bank-hall.json> --out <новая папка> [--only сканди,лофт]
 import { build as esbuild } from "esbuild";
@@ -48,23 +50,10 @@ function hallCase(set) {
   return { room, items };
 }
 
-/**
- * Взгляд на зеркало из глубины комнаты: от стены зеркала — к противоположной (не ближе 25 см к ней) и на `along` см вдоль
- * стены к середине комнаты. В узкой прихожей (153 см) отход по нормали упирается в стену, поэтому дальность даёт сдвиг вдоль.
- */
-function facePose(room, m, along) {
-  const a = (m.rot * Math.PI) / 180;
-  const [nx, ny] = [Math.sin(a), Math.cos(a)];
-  const [ux, uy] = [Math.cos(a), -Math.sin(a)];
-  const mid = (s) => (m.x + ux * s - room.w / 2) ** 2 + (m.y + uy * s - room.d / 2) ** 2;
-  const side = mid(along) < mid(-along) ? along : -along;
-  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
-  const x = clamp(m.x + nx * 400 + ux * side, 25, room.w - 25);
-  const y = clamp(m.y + ny * 400 + uy * side, 25, room.d - 25);
-  // поворот фото-позы: rot 0 смотрит на −y, 90 — на +x (`draft_render.cams_from_request`)
-  const rot = ((Math.atan2(m.x - x, -(m.y - y)) * 180) / Math.PI + 360) % 360;
-  return { x: Math.round(x), y: Math.round(y), rot: Math.round(rot), fov: 70, pose: 2 };
-}
+const html = readFileSync(join(ROOT, "tools/scout/flat215-demo/index.html"), "utf8");
+const CAMFIT = html.slice(html.indexOf("// CAMFIT START"), html.indexOf("// CAMFIT END"));
+const RULE = JSON.parse(readFileSync(join(ROOT, "tools/scout/rules/hall-views.json"), "utf8"));
+const ASPECT = 1440 / 900;
 
 const page = await esbuild({
   entryPoints: [join(ROOT, "tools/flat3d/hall-snap/entry.ts")],
@@ -92,34 +81,77 @@ const base = `http://127.0.0.1:${server.address().port}/`;
 
 const bank = JSON.parse(readFileSync(BANK, "utf8"));
 const sets = (Array.isArray(bank) ? bank : bank.sets).filter((s) => !ONLY || ONLY.has(s.style));
-const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const report = [];
 let fails = 0;
+let retries = 0;
+const SET_MS = 240_000;
+
+/** Один набор — в СВОЁМ браузере. Чёрный кадр 1440 (прогоны 10:23, 11:44, 14:39, 15:13) — браузеру не хватило общей памяти
+ *  (`CommandBufferHelper::AllocateRingBuffer() failed`, `ERR_INSUFFICIENT_RESOURCES`): Playwright по умолчанию запускает его с
+ *  `--disable-dev-shm-usage`, и общая память идёт в /tmp, а на DEV /tmp — tmpfs 788 МБ с квотой, забитый чужими файлами (урок 495).
+ *  Поэтому флаг снят — общая память в /dev/shm; после сбоя WebGL в этом браузере не встаёт, отсюда свежий браузер на попытку и
+ *  предел времени. Ответ страницы несёт `lost` (контекст WebGL отобран) и `dark` (кадр чёрный целиком) — сбой виден в отчёте,
+ *  а не сохраняется молча как снимок. */
+async function shoot(c, vp) {
+  const browser = await chromium.launch({ ignoreDefaultArgs: ["--disable-dev-shm-usage"],
+    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  const errs = [];
+  let timer;
+  try {
+    const tab = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
+    tab.on("pageerror", (e) => errs.push(`ошибка страницы: ${e.message}`));
+    tab.on("crash", () => errs.push("вкладка упала"));
+    // ошибки консоли — в журнал; 404 пропускаем: у мебели стенда модели нет нарочно (`stand:<роль>`)
+    tab.on("console", (m) => { if (m.type() === "error" && !/status of 404/.test(m.text())) console.error(`  [браузер] ${m.text()}`); });
+    // сеть наружу закрыта: картинки товаров и модели не качаются, кадр воспроизводим
+    await tab.route("**/*", (r) => (r.request().url().startsWith(base) ? r.continue() : r.abort()));
+    await tab.goto(base);
+    await tab.waitForFunction(() => typeof window.hallSnap === "function");
+    const run = tab.evaluate((x) => window.hallSnap(x), { ...c, pick: { camfit: CAMFIT, rule: RULE, aspect: ASPECT },
+      width: vp.width, height: vp.height, lite: vp.lite });
+    const late = new Promise((_, no) => { timer = setTimeout(() => no(new Error(`нет ответа за ${SET_MS / 1000} с`)), SET_MS); });
+    const got = await Promise.race([run, late]);
+    const why = [...errs, ...(got.lost ? ["контекст WebGL потерян"] : []),
+      ...got.dark.flatMap((d, i) => (d ? [`вид ${i + 1} — чёрный кадр`] : []))];
+    return { got, why };
+  } catch (e) {
+    return { got: null, why: [...errs, `страница: ${String(e.message ?? e).split("\n")[0]}`] };
+  } finally {
+    clearTimeout(timer);
+    await browser.close().catch(() => {});
+  }
+}
+
 for (const vp of [{ width: 1440, height: 900, lite: false }, { width: 375, height: 667, lite: true }]) {
-  const tab = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
-  tab.on("pageerror", (e) => { fails += 1; console.error(`ошибка страницы: ${e.message}`); });
-  // сеть наружу закрыта: картинки товаров и модели не качаются, кадр воспроизводим
-  await tab.route("**/*", (r) => (r.request().url().startsWith(base) ? r.continue() : r.abort()));
   for (const s of sets) {
     const c = hallCase(s);
     const m = c.items.find((it) => it.role.startsWith("зеркало"));
     if (!m) { console.log(`${s.style}: зеркала в наборе нет — пропуск`); continue; }
-    const poses = [facePose(c.room, m, 120), facePose(c.room, m, 260)];
-    await tab.goto(base);
-    await tab.waitForFunction(() => typeof window.hallSnap === "function");
-    const got = await tab.evaluate((x) => window.hallSnap(x), { ...c, poses, width: vp.width, height: vp.height, lite: vp.lite });
+    let { got, why } = await shoot(c, vp);
+    if (why.length) {
+      // один повтор в новой вкладке: сбой браузера, а не набора, — второй раз обычно проходит; оба раза — в отчёт
+      console.error(`${s.style} ${vp.width}: повтор — ${why.join("; ")}`);
+      retries += 1;
+      ({ got, why } = await shoot(c, vp));
+    }
+    if (why.length || !got) {
+      fails += 1;
+      console.error(`${s.style} ${vp.width}: НЕ СНЯТ — ${why.join("; ")}`);
+      report.push({ style: s.style, viewport: `${vp.width}x${vp.height}`, error: why });
+      continue;
+    }
+    const bad = got.views.filter((v) => !v.ok);
+    if (bad.length) { fails += bad.length; bad.forEach((v) => console.error(`${s.style}: вид ${v.id} не годен — ${v.why.join("; ")}`)); }
     got.frames.forEach((url, i) => {
       const file = join(OUT, `${s.style}.v${i + 1}.${vp.width}.jpg`);
       writeFileSync(file, Buffer.from(url.split(",")[1], "base64"));
     });
-    report.push({ style: s.style, viewport: `${vp.width}x${vp.height}`, poses, mirror: { x: m.x, y: m.y, rot: m.rot, w: m.w, h: m.h, elev: m.elev },
-      clay: got.clay });
-    console.log(`${s.style} ${vp.width}: ${got.frames.length} кадра · коробки: ${got.clay.join(", ") || "нет"}`);
+    report.push({ style: s.style, viewport: `${vp.width}x${vp.height}`, poses: got.views.map((v) => v.pose), views: got.views,
+      mirror: { x: m.x, y: m.y, rot: m.rot, w: m.w, h: m.h, elev: m.elev }, clay: got.clay });
+    console.log(`${s.style} ${vp.width}: ${got.views.map((v) => `${v.id} ${JSON.stringify(v.pose)} ${v.ok ? "годен" : "НЕ ГОДЕН"}`).join(" · ")} · коробки: ${got.clay.join(", ") || "нет"}`);
   }
-  await tab.close();
 }
-await browser.close();
 server.close();
 writeFileSync(join(OUT, "cases.json"), JSON.stringify(report, null, 1) + "\n");
-console.log(`→ ${OUT}${fails ? ` · ошибок страницы: ${fails}` : ""}`);
+console.log(`→ ${OUT} · повторов: ${retries}${fails ? ` · ошибок: ${fails}` : ""}`);
 process.exit(fails ? 1 : 0);

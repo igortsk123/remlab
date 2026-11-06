@@ -7,7 +7,7 @@ import { catalogue as catalogueSchema, kitAsset } from "@/contracts/configurator
 import { baseSnapshotOf, fromDemoVariant } from "@/lib/configurator/fromDemo";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { isFlatOnSurface, planObjects } from "@/lib/viewer3d/build-scene";
-import { canvasRect, frameCm, wallPlaneFace } from "@/lib/viewer3d/kits/wall-plane";
+import { MIRROR_SHADE, SHEET_DEPTH_BIAS, canvasRect, frameCm, mirrorSheetGeometry, mirrorSheetMaterial, wallPlaneFace } from "@/lib/viewer3d/kits/wall-plane";
 import catalogueBase from "@/data/flat3d/catalogue-base.json";
 
 const CTX = { apartmentId: "flat215", partnerId: "demo", currency: "RUB" as const, basePrice: 0 };
@@ -95,5 +95,23 @@ describe("старые сцены без нового вида — как ран
     expect(build([SHOE, plain]).specs.map((s) => s.slotId)).toEqual(["обувница#0"]);
     const withMesh = build([SHOE, { ...plain, sku: { name: "З", msid: "m1" } }]);
     expect(withMesh.specs.find((s) => s.slotId === "зеркало#0")!.kind).toBe("mesh");
+  });
+});
+
+describe("полотно зеркала", () => {
+  it("вертикальный градиент цветом вершин: верх светлее низа, синий канал не слабее красного", () => {
+    const geo = mirrorSheetGeometry(50, 64);
+    const pos = geo.getAttribute("position"), col = geo.getAttribute("color");
+    const at = (top: boolean) => [...Array(pos.count).keys()].filter((i) => (pos.getY(i) > 0) === top).map((i): [number, number, number] => [col.getX(i), col.getY(i), col.getZ(i)]);
+    for (const [r, , b] of [...at(true), ...at(false)]) expect(b).toBeGreaterThanOrEqual(r);
+    expect(Math.min(...at(true).map((c) => c[2]))).toBeCloseTo(MIRROR_SHADE.top);
+    expect(Math.max(...at(false).map((c) => c[2]))).toBeCloseTo(MIRROR_SHADE.bottom);
+  });
+  it("стекло сдвинуто по глубине к камере: рама в 0,2 см за ним не режет его «лесенкой» в живом 3D (T-81)", () => {
+    const m = mirrorSheetMaterial();
+    expect(m.polygonOffset).toBe(true);
+    expect(m.polygonOffsetFactor).toBeLessThan(0);
+    expect(m.polygonOffsetUnits).toBeLessThan(0);
+    expect(SHEET_DEPTH_BIAS.polygonOffsetFactor).toBe(m.polygonOffsetFactor);
   });
 });

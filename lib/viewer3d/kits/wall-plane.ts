@@ -48,10 +48,41 @@ export function wallPlaneFace(p: Placement): { corners: [number, number, number]
 const round = (v: number): number => Math.round(v * 100) / 100 || 0;
 
 /**
- * Полотно зеркала: светлое, холодноватое, гладкое — с небольшой долей металла для блика от карты окружения. Полный металл
- * (metalness 1) отражал только тёмную процедурную комнату окружения и читался выключенным экраном (снимки стенда 06.11).
+ * Полотно зеркала: светлое, холодноватое, гладкое — с небольшой долей металла для блика от карты окружения и лёгким
+ * собственным свечением, чтобы стекло было не темнее стены. Полный металл (metalness 1) отражал только тёмную процедурную
+ * комнату окружения и читался выключенным экраном; metalness 0,3 без свечения — серой панелью темнее стены (снимки стенда 06.11).
+ * Сверху светлее, снизу темнее — тот же намёк на отражённый потолок, что у серверного кадра (`draft_render._paint_wall_plane`).
  */
-const MIRROR = { color: 0xdfe7eb, metalness: 0.3, roughness: 0.12, envMapIntensity: 1 };
+const MIRROR = { color: 0xf3f7f9, metalness: 0.1, roughness: 0.06, envMapIntensity: 1.2, emissive: 0x3a4246, vertexColors: true };
+/** Доля яркости полотна внизу и вверху (вертикальный градиент цветом вершин). */
+export const MIRROR_SHADE = { bottom: 0.86, top: 1 } as const;
+
+/**
+ * Сдвиг глубины полотна к камере (как у наклеек). Полотно стоит в 0,2 см перед рамой, а в живом 3D без видеокарты (swiftshader)
+ * точности глубины на таком зазоре не хватает: с дальней точки под острым углом рама «режет» стекло ступенчатой диагональю
+ * (находка T-20261106-81, Работник 1: при 0,6 см срезано, с 1,6 см цело). Геометрию не сдвигаем — она общая с серверным кадром
+ * и `wallPlaneFace`; серверу сдвиг не нужен (своя проверка глубины с допуском).
+ */
+export const SHEET_DEPTH_BIAS = { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 } as const;
+
+/** Материал стекла зеркала: светлый металл со свечением и сдвигом глубины к камере. */
+export function mirrorSheetMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ ...MIRROR, ...SHEET_DEPTH_BIAS });
+}
+
+/** Геометрия полотна зеркала Ш×В (см) с вертикальным градиентом цветом вершин: верх светлее низа. */
+export function mirrorSheetGeometry(w: number, h: number): THREE.PlaneGeometry {
+  const geo = new THREE.PlaneGeometry(w * CM, h * CM);
+  const pos = geo.getAttribute("position");
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const t = pos.getY(i) / (h * CM) + 0.5;                       // 0 — низ, 1 — верх
+    const s = MIRROR_SHADE.bottom + (MIRROR_SHADE.top - MIRROR_SHADE.bottom) * t;
+    col.set([s * 0.97, s * 0.99, s], i * 3);                      // чуть холоднее к синему
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  return geo;
+}
 
 export function buildWallPlane(ctx: KitCtx, spec: WallPlaneSpec): THREE.Group {
   const g = new THREE.Group();
@@ -59,18 +90,18 @@ export function buildWallPlane(ctx: KitCtx, spec: WallPlaneSpec): THREE.Group {
   const r = canvasRect(spec);
   if (spec.mirror) {
     g.add(boxOn(spec.widthCm, spec.heightCm, spec.depthCm, 0, 0, 0, frame));
-    g.add(sheet(r.w, r.h, r.y, r.z, new THREE.MeshStandardMaterial(MIRROR)));
+    g.add(sheet(r.w, r.h, r.y, r.z, mirrorSheetMaterial(), mirrorSheetGeometry(r.w, r.h)));
   } else {
-    // картина: тонкий подрамник и фото товара на всё полотно
+    // картина: тонкий подрамник и фото товара на всё полотно (копия материала — общий материал товара не трогаем)
     g.add(boxOn(spec.widthCm, spec.heightCm, spec.depthCm, 0, 0, 0, new THREE.MeshStandardMaterial({ color: 0x8c857b, roughness: 0.8 })));
-    g.add(sheet(spec.widthCm, spec.heightCm, spec.heightCm / 2, r.z, frame));
+    g.add(sheet(spec.widthCm, spec.heightCm, spec.heightCm / 2, r.z, Object.assign(frame.clone(), SHEET_DEPTH_BIAS)));
   }
   return g;
 }
 
 /** Плоскость Ш×В (см) лицом в +Z, центр на высоте y и глубине z. */
-function sheet(w: number, h: number, y: number, z: number, material: THREE.Material): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w * CM, h * CM), material);
+function sheet(w: number, h: number, y: number, z: number, material: THREE.Material, geo = new THREE.PlaneGeometry(w * CM, h * CM)): THREE.Mesh {
+  const m = new THREE.Mesh(geo, material);
   m.position.set(0, y * CM, z * CM);
   return m;
 }

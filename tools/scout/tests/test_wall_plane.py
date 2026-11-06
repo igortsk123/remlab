@@ -8,8 +8,8 @@
   3) кадр `scene3d_frame` по набору `compose_hall` (банк стенда T-61, сканди): зеркало нарисовано плоскостью, в clay его нет,
      центр полотна в кадре — на проекции высоты солвера; шкаф перед зеркалом его закрывает (z-буфер честный).
     ~/venvs/scout/bin/python tools/scout/tests/test_wall_plane.py
-    ~/venvs/scout/bin/python tools/scout/tests/test_wall_plane.py --bank <bank-hall.json> --shots <новая папка>   # + кадры"""
-import math
+    ~/venvs/scout/bin/python tools/scout/tests/test_wall_plane.py --bank <bank-hall.json> --poses <cases.json стенда> --shots <новая папка>
+      # + кадры сервера в тех же точках, что подобрал стенд живой сцены (`tools/flat3d/hall-snap.mjs`, правило видов `rules/hall-views.json`)"""
 import os
 import sys
 
@@ -111,23 +111,25 @@ img2, diag2, _ = frame(block)
 check('шкаф перед зеркалом его закрывает', np.abs(img2[cy, cx] - px).max() > 12, f'{img2[cy, cx]} vs {px}')
 
 
-def shots(bank_path: str, out: str) -> None:
-    """Кадры сервера по наборам банка прихожей: те же два ракурса на зеркало, что у стенда живой сцены
-    (`tools/flat3d/hall-snap.mjs:facePose`), через `cams_from_request` (поза v2). Папка — новая."""
+def shots(bank_path: str, poses_path: str, out: str) -> None:
+    """Кадры сервера по наборам банка прихожей в точках, которые подобрал стенд живой сцены (`cases.json` его прогона,
+    кадр 1440: `tools/flat3d/hall-snap.mjs` → `hall-snap/views.ts`) — одни точки у живой сцены и сервера, своей формулы тут нет.
+    Через `cams_from_request` (поза v2). Папка — новая."""
     import json
     if os.path.exists(out):
         raise SystemExit(f'папка уже есть: {out} — кадры только в новую')
+    cases = {c['style']: c['poses'] for c in json.load(open(poses_path, encoding='utf-8')) if c['viewport'].startswith('1440') and 'poses' in c}
     os.makedirs(out)
     bank = json.load(open(bank_path, encoding='utf-8'))
     for s in (bank if isinstance(bank, list) else bank['sets']):
+        if s['style'] not in cases:
+            print(s['style'], 'точек стенда нет — пропуск')
+            continue
         lay = s['layout']
         r = lay['_room']
         items = [{'role': k, 'x': p['x'], 'y': p['z'], 'rot': p['rot'], 'w': p['w'], 'd': p['d'], 'h': p['h'],
                   'elev': p.get('elev') or 0} for k, p in lay.items() if not k.startswith('_')]
-        m = next((it for it in items if it['role'].startswith('зеркало')), None)
-        if m is None:
-            continue
-        cams = [face_pose(r, m, 120, 'C1'), face_pose(r, m, 260, 'C2')]
+        cams = [dict(p, name=f'C{i + 1}') for i, p in enumerate(cases[s['style']])]
         room, placements, _ = DR.scene_from_request({'room': {'w': r['w'], 'd': r['d'], 'openings': r['openings']}, 'items': items})
         for cam in DR.cams_from_request(room, placements, {'cams': cams}):
             img, diag = DR.scene3d_frame(room, placements, cam, {}, {})
@@ -135,20 +137,8 @@ def shots(bank_path: str, out: str) -> None:
             print(s['style'], cam.name, diag.get('мешей'), 'clay:', diag.get('clay'))
 
 
-def face_pose(r: dict, m: dict, along: float, name: str) -> dict:
-    """Как `hall-snap.mjs:facePose`: из глубины комнаты (к противоположной стене) и на `along` см вдоль стены к середине."""
-    a = math.radians(m['rot'])
-    nx, ny, ux, uy = math.sin(a), math.cos(a), math.cos(a), -math.sin(a)
-    d2 = lambda s: (m['x'] + ux * s - r['w'] / 2) ** 2 + (m['y'] + uy * s - r['d'] / 2) ** 2  # noqa: E731
-    side = along if d2(along) < d2(-along) else -along
-    x = min(max(m['x'] + nx * 400 + ux * side, 25), r['w'] - 25)
-    y = min(max(m['y'] + ny * 400 + uy * side, 25), r['d'] - 25)
-    rot = (math.degrees(math.atan2(m['x'] - x, -(m['y'] - y))) + 360) % 360
-    return {'name': name, 'x': round(x), 'y': round(y), 'rot': round(rot), 'fov': 70, 'pose': 2}
-
-
 if '--shots' in sys.argv:
-    shots(sys.argv[sys.argv.index('--bank') + 1], sys.argv[sys.argv.index('--shots') + 1])
+    shots(sys.argv[sys.argv.index('--bank') + 1], sys.argv[sys.argv.index('--poses') + 1], sys.argv[sys.argv.index('--shots') + 1])
 
 print('итого:', 'OK' if not fails else f'{fails} FAIL')
 sys.exit(1 if fails else 0)
