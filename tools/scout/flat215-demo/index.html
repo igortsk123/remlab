@@ -247,12 +247,13 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-room .rb .btn{flex:none;min-height:40px;height:40px;padding:0 18px;border-radius:var(--radius-sm)}
 /* узко (320 px, крупный шрифт): цена не касается «Поделиться» — плотнее кнопки, зазор не меньше 8 px (приёмка Б 20.10) */
 @media(max-width:340px){.hm-room .rb{gap:8px;padding:10px}.hm-room .rb .btn{padding:0 12px}.hm-room .rb .sum{font-size:14px}}
-.hm-stub{padding:10px 12px;display:flex;flex-direction:column;gap:1px;background:var(--wash);border-radius:var(--radius)}
-.hm-stub b{font-size:15px;white-space:nowrap}
-.hm-stub b small{font-weight:500;color:var(--muted)}
-.hm-stub span{font-size:12.5px;color:var(--muted);white-space:nowrap}
+.hm-stub,.hm-pick{padding:10px 12px;display:flex;flex-direction:column;gap:1px;background:var(--wash);border-radius:var(--radius)}
+.hm-stub b,.hm-pick b{font-size:15px;white-space:nowrap}
+.hm-stub b small,.hm-pick b small{font-weight:500;color:var(--muted)}
+.hm-stub span,.hm-pick span{font-size:12.5px;color:var(--muted);white-space:nowrap}
 /* плашка плана квартиры (demo-20 А7): как заглушки комнат, акцентным фоном и ссылкой */
 .hm-plan-tile{background:var(--accent-soft);color:var(--ink);text-decoration:none;cursor:pointer}
+.hm-pick{display:none}   /* плитка выбора комнаты — только на компьютере (Д5); телефон — карточки столбцом */
 .hm-plan-tile b{color:var(--accent-dark,var(--accent))}
 /* ИЗБРАННОЕ — строка-ссылка на главной (demo-16 шаг 2) и отдельный экран `#screen-fav` (demo-17) */
 .hm-fav-row{margin:6px 0 0}.hm-fav-row[hidden]{display:none}
@@ -317,8 +318,15 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
   .hm-tabs{margin-top:6px;height:54px}
   .hm-tab{height:38px;font-size:15px;padding:0 18px}
   .hm-rooms{grid-template-columns:repeat(3,1fr);margin-top:12px}
-  .hm-rooms .hm-room{grid-column:span 2;grid-row:span var(--hm-rows,6)}   /* справа столбец: комнаты + «План квартиры» (`--hm-rows` — drawHome) */
-  .hm-stub{justify-content:center}
+  /* слева — ОДНА карточка текущей комнаты (Д5), справа столбец: все комнаты + «План квартиры» (`--hm-rows` — drawHome) */
+  .hm-rooms .hm-room{grid-column:1/span 2;grid-row:1/span var(--hm-rows,6)}
+  .hm-rooms .hm-room:not(.on){display:none}
+  .hm-stub,.hm-pick{justify-content:center}
+  .hm-pick{display:flex;border:0;margin:0;text-align:left;font:inherit;color:var(--ink);cursor:pointer;background:var(--surface);
+    box-shadow:var(--e1);transition:background .15s,box-shadow .15s}   /* готовая — белая, как карточка; неготовая — серая плашка */
+  .hm-pick:hover{background:var(--wash-2)}
+  .hm-pick.on{background:var(--surface);box-shadow:inset 0 0 0 2px var(--accent),var(--e1);cursor:default}
+  .hm-pick:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .hm-plan-bot{display:none}
 }
 /* ГЛАВНАЯ НА БОЛЬШИХ ЭКРАНАХ (demo-21 п.6, 2K): колонка растёт с экраном (1100 → 1440 → 1600), шрифты главной — по ширине (`clamp`;
@@ -339,7 +347,7 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
   .hm-room .hm-ph .ttl{font-size:clamp(16px,.9vw,20px)}
   .hm-room .rb{padding:12px 16px}
   .hm-room .rb .sum{font-size:clamp(15px,.85vw,19px)}.hm-room .rb .sum small{font-size:clamp(12.5px,.68vw,15px)}
-  .hm-stub b{font-size:clamp(15px,.85vw,19px)}.hm-stub span{font-size:clamp(12.5px,.68vw,15px)}
+  .hm-stub b,.hm-pick b{font-size:clamp(15px,.85vw,19px)}.hm-stub span,.hm-pick span{font-size:clamp(12.5px,.68vw,15px)}
   .hm-fav-list{grid-template-columns:repeat(auto-fill,minmax(clamp(300px,22vw,440px),1fr));gap:16px}
   .fv-h b{font-size:clamp(17px,.95vw,21px)}.fv-h .s{font-size:clamp(12.5px,.7vw,15px)}
   .hm-fav-chip{height:clamp(32px,1.8vw,38px);font-size:clamp(13.5px,.72vw,16px)}
@@ -4210,11 +4218,18 @@ function drawHome(force){
   const on=tabs.querySelector('.hm-tab.on'); if(on&&on.scrollIntoView&&tabs.scrollWidth>tabs.clientWidth)
     tabs.scrollLeft=Math.max(0,on.offsetLeft-tabs.clientWidth/2+on.offsetWidth/2);
   const plural=n=>EN?(n===1?'item':'items'):(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
+  // КОМНАТЫ НА КОМПЬЮТЕРЕ (T-20261106-77 Д5, владелец 06.11: «кнопки комнат справа — по нажатию спальня должна открываться слева»):
+  // слева одна большая карточка текущей комнаты, справа список ВСЕХ комнат по плану — готовые нажимаются (`data-room-pick`) и меняют
+  // карточку слева без прокрутки, текущая выделена; неготовые неактивны. Телефон — как было: карточки и плашки одним столбцом
+  // (плитки выбора скрыты стилем). Текущая — комната открытого варианта (`homeActive`), нет такой карточки — первая готовая
+  const shown=cards.find(c=>!c.stub&&c.r.id===act.roomId)||cards.find(c=>!c.stub), shownId=shown?shown.r.id:'';
   box.innerHTML=cards.map(c=>{
     const t=`${escHtml(c.r.title)}${c.r.areaM2?` <small>· ${homeM2(c.r.areaM2)}</small>`:''}`;
-    if(c.stub)return `<div class="hm-stub" data-room="${c.r.id}"><b>${t}</b><span>${EN?'coming in the next step':'появится следующим шагом'}</span></div>`;
-    const alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===act.styleId)||{}).title);
-    return `<article class="hm-room" data-room="${c.r.id}" data-style="${act.styleId}" data-variant="${escHtml(c.v.id)}">`+
+    if(c.stub)return `<div class="hm-stub" data-room="${c.r.id}" aria-disabled="true"><b>${t}</b><span>${EN?'coming in the next step':'появится следующим шагом'}</span></div>`;
+    const alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===act.styleId)||{}).title), on=c.r.id===shownId;
+    return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b>`+
+      `<span>${money(c.sum)} · ${c.n} ${plural(c.n)}</span></button>`+
+      `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${act.styleId}" data-variant="${escHtml(c.v.id)}">`+
       `<div class="hm-ph" data-open="${c.i}">`+
       (c.img?`<img src="${escHtml(c.img)}" alt="${alt}" decoding="async" data-url="${escHtml(c.full)}" onerror="this.onerror=null;this.src=this.dataset.url">`
         :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
@@ -4231,7 +4246,7 @@ function drawHome(force){
     `<span>${EN?'all rooms':'все комнаты'}</span></a>`;
   // компьютер: карточка гостиной слева на столько рядов, сколько плашек справа (комнаты реестра + «План квартиры») — иначе лишние
   // уезжают строкой под неё (второй санузел, T-20261022-04)
-  box.style.setProperty('--hm-rows',String(Math.max(1,box.querySelectorAll(':scope > .hm-stub').length)));
+  box.style.setProperty('--hm-rows',String(Math.max(1,box.querySelectorAll(':scope > .hm-stub, :scope > .hm-pick').length)));
 }
 // ——— ВОЗВРАТ «НАЗАД» (demo-16 шаг 3, Codex 18.10 п.5 и п.14). Адрес держит стиль и комнату (`?style=&room=`) и вариант или
 // коллекцию (`#v=`/`#c=`), `lang` и `s` не трогаются; запись истории (`history.state`) — снимок вида: окно варианта (вариант, режим,
@@ -4312,6 +4327,9 @@ document.addEventListener('click',e=>{
   const t=e.target&&e.target.closest&&e.target.closest('#styleTabs [data-style]'); if(t){homeSelectStyle(t.dataset.style); return;}
   const box=e.target&&e.target.closest&&e.target.closest('#hmRooms'); if(!box)return;
   const pl=e.target.closest('[data-plan]'); if(pl){e.preventDefault(); showTab('plan'); pageScrollTo(0); return;}
+  // комната справа (компьютер, Д5): вариант этой комнаты в текущем стиле — в большую карточку слева; прокрутку не трогаем
+  const pk=e.target.closest('[data-room-pick]'); if(pk){const i=+pk.dataset.roomPick; if(!(i>=0))return;
+    if(i!==cur)pickVariant(i); syncStyleParam(HOME.styleId,roomIdOf(allVariants()[i])); drawHome(true); return;}
   const fav=e.target.closest('[data-favorite]'), sh=e.target.closest('[data-share]'), op=e.target.closest('[data-swap],[data-open]');
   if(fav){e.stopPropagation(); const i=+fav.dataset.favorite; if(!window.__fav)return; if(i!==cur)pickVariant(i); window.__fav.toggle(); return;}
   if(sh){e.stopPropagation(); const i=+sh.dataset.share, v=allVariants()[i]||{}; if(!window.__fav)return;
