@@ -114,6 +114,12 @@
       "queue": "mesh-q-color",
       "_why": "ТОЛЬКО ПРОБА T-20261106-85 (план mesh-color-03, О0): опытный образ color03 (перекраска готовой формы + промежуточные шаги покраски), env PIPELINE_VERSION=color03 — комплекты в meshes/hunyuan21/color03, реестр их не видит. Транспорт — своя очередь mesh-q-color (SSH с 24.10 не работает, mesh-low-10 под запретом цены). Создана queue_setup.py --donor mesh-q-low-1 --image <digest> --env PIPELINE_VERSION=color03, 1 реплика, остановленной. В SALAD_GROUP (salad.env) её нет и быть не должно: money_guard её не сторожит — гасит сторож пробы по сроку (45 мин) и «мёртвая рука» сервера. Задания — только queue_run --submit/--follow из worktree t85. После пробы — остановлена."
     },
+    "mesh-q-color2-canary": {
+      "tier": "low",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "queue": "mesh-q-color",
+      "_why": "ТОЛЬКО ПРОБА T-20261106-85/3 (О0), замена mesh-q-color-canary: ту recreate_group удалил 06.11 21:36 UTC, а Salad не отдал имя (name_conflict 52 попытки до 22:58 UTC) — ведущий: новое имя. Окончание -canary обязательно: по нему queue_setup пускает опытный образ, свой класс GPU и ≤2 реплик. Образ color03-37bba24f (d79a62fd…), env PIPELINE_VERSION=color03, класс 4060 Ti 16 GB. Создана queue_setup.py --donor mesh-q-low-1 --gpu-exact, 1 реплика, остановленной. В SALAD_GROUP её нет и быть не должно (как у первой): гасят сторож пробы и «мёртвая рука» сервера (она видит все группы проекта). После О0 — остановлена."
+    },
     "mesh-canary-1": {
       "tier": "low",
       "disabled": true,
