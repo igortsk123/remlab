@@ -21,6 +21,13 @@ last_verified: 2026-11-06
    события `workflow_run` `github.sha` — HEAD ветки по умолчанию на момент запуска, а НЕ SHA
    прошедшего CI: пока деплой был красным, следующий пуш успевал обогнать проверенный коммит.
    Один и тот же `TARGET_SHA` идёт в checkout, тег образа, `APP_VERSION` и в smoke.
+1a. **Нужна ли выкладка** (T-20261106-66/2): `tools/ops/deploy-need.sh "$TARGET_SHA"` сравнивает дерево ВЫКАТАННОЙ
+   версии (`/api/health` → version) с целью; изменены только `.memory_bank/`, `docs/`, `.claude/`, `.vscode/`, корневые
+   `*.md` → `deploy=false`, сборка/выкат/smoke пропускаются (`::notice` + Step Summary). Любое сомнение (версия не
+   40-hex, `ok≠true`, draft ≠ сайт, коммит не найден, шаг упал) → выкладка; `workflow_dispatch` — всегда.
+   «Прод не позади main» — `bash tools/ops/deploy-need.sh --status` (rc 0 — разница только документы), не `version == HEAD`.
+   Caddy (`caddy/Caddyfile` сниппет `retry_restart`): app и draft — повтор до 15 с при пересоздании контейнера;
+   `request_buffers 1MB` обязателен — без него повтор POST падает «invalid Read on closed Body» (проба 06.11).
 2. **Сборка** — нативный arm64-раннер (`ubuntu-24.04-arm`), кэш слоёв `type=gha`, push в GHCR.
    Эмуляция arm64 через QEMU крашила Next-SWC-воркер (SIGILL) — не возвращать.
 3. **Синхронизация сервера.** `docker-compose.yml` — `scp`; `db/init` — `rsync -az --delete`
