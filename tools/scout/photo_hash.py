@@ -410,6 +410,27 @@ def _selftest() -> int:
        jobs == [('2:a', 'кровать', '//a', 's1'), ('2:f', 'зеркало', '//f', 's4')])
     ok('вырезка комнат: лимит 0 — ничего', room_cutout_jobs([{**row('2:a', 'bedroom', 'кровать', sha='s1'), 'url': '//a'}],
                                                              set(), 0) == [])
+    # КЛЮЧ ВЕРДИКТА БЕЗ РОЛИ (критика Codex к room-conveyor-02, T-20261106-84): `photo_assessment` — (sha, версия оценщика), а
+    # цепочка вырезки `cutout_sync.chain` зависит от роли у ковра (рост маски) и вазы/кашпо/статуэтки (заливка силуэта); товар
+    # комнат берёт одну роль по алфавиту (`pick_rooms`). Пока ни одна роль комнат не из этих — замер от роли не зависит и чужого
+    # вердикта нет. Роль такая появилась в правилах комнаты — СТОП: сперва ключ `photo_assessment` с ролью (миграция), потом роль.
+    import ast
+    here = os.path.dirname(os.path.abspath(__file__))
+
+    def const(path: str, name: str) -> set:   # константа модуля без импорта (salad тянет numpy, селфтест — голый python3)
+        tree = ast.parse(open(os.path.join(here, path), encoding='utf-8').read())
+        return next(set(ast.literal_eval(n.value)) for n in tree.body
+                    if isinstance(n, ast.Assign) and any(getattr(t, 'id', '') == name for t in n.targets))
+    sens_roles = const('salad/hybrid_mask.py', 'GROW_ROLES') | const('salad/components.py', 'SOLID_SILHOUETTE_ROLES')
+    room_roles = set()
+    for f in ('bedroom-roles.json', 'hall-roles.json'):
+        Rr = json.load(open(os.path.join(here, 'rules', f), encoding='utf-8'))
+        room_roles |= (set(Rr.get('categories', {}).values()) | {r for _p, r in Rr.get('name_rules', [])}
+                       | set(Rr.get('purposes', {})) | set(Rr.get('roles_enabled', [])))
+    sens = room_roles & sens_roles
+    ok('вырезка комнат: роли, меняющие цепочку, найдены (ковёр, ваза…)', 'ковёр' in sens_roles and 'ваза' in sens_roles)
+    ok('вырезка комнат: ни одна роль комнат не меняет цепочку вырезки (ключ вердикта без роли верен)'
+       + (f' — ЕСТЬ {sorted(sens)}: сперва роль в ключ photo_assessment' if sens else ''), not sens)
     good = parse_room_rows([['3:a', '', '//sd', 'bedroom', 'кровать', 'f', '', 'f', '', '.']])
     try:
         parse_room_rows([['3:a', '', '//sd', 'bedroom', 'кровать', 'f', '', 'f']])   # хвост срезан strip() — не молчим
