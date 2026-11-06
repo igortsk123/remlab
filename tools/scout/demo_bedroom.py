@@ -412,7 +412,9 @@ def build_variant(rec: dict, geo: dict, sku, dims_of, style_id, hung=lambda n: F
         if lst(role) or lst(base_role(role)):
             s = sku(items, role)
             if s:
-                decor.append({'role': role, 'sku': s})
+                # ТОЛЬКО В СПИСКЕ (T-20261106-77/2): лампа на тумбе — строка списка и запрос фото, в 3D её нет (модели у ламп нет —
+                # окно ставило бы её на тумбу пустым местом, ворота копий моделей `demo_rt` ждали её копию и стопорили публикацию)
+                decor.append({'role': role, 'sku': s, **({'list_only': True} if base_role(role) in LIST_ROLES else {})})
     return ({'id': variant_id(rec['room_id'], sid), 'title': (style or sid).capitalize(), 'style': style, 'style_id': sid,
              'room_id': rec['room_id'], 'purpose': rec.get('purpose'), 'fill_pct': art.get('_fill_pct'), 'items': objs,
              'decor': decor, 'dims_unknown': unknown, 'missing_item': empty, 'fill': [],

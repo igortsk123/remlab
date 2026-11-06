@@ -18,6 +18,14 @@ const data = {
 };
 
 describe("мост витрина → конфигуратор", () => {
+  // T-20261106-77/2: лампа на тумбе спальни — строка списка, в 3D её нет (`list_only`, `demo_bedroom.LIST_ROLES`): модели у ламп нет
+  it("декор «только в списке» в сцену не ставится, даже с моделью и размерами", () => {
+    const lamp = { role: "лампа", list_only: true, sku: { name: "Лампа L", price: 1990, msid: "99272_7", w: 15, d: 15, h: 40 } };
+    const v = { ...data.variants[0]!, decor: [...data.variants[0]!.decor, lamp] };
+    const r = fromDemoVariant({ ...data, variants: [v] }, "set16", CTX);
+    expect(r!.apartment.slots.map((s) => s.id).filter((id) => id.startsWith("decor:"))).toEqual(["decor:ваза#0"]);
+  });
+
   it("собирает комнату и мебель того же варианта", () => {
     const r = fromDemoVariant(data, "set16", CTX);
     expect(r).not.toBeNull();

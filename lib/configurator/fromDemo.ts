@@ -117,7 +117,8 @@ type DemoItem = {
     tint?: number[] };
 };
 /** Настольный декор варианта (`flat215_demo`: ваза) — габариты в карточке товара, места нет: его даёт опора. */
-type DemoDecor = { role?: string; sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number } };
+/** `list_only` — строка списка без места в 3D (лампа на тумбе спальни, `demo_bedroom.LIST_ROLES`, T-20261106-77/2). */
+type DemoDecor = { role?: string; list_only?: boolean; sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number } };
 type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[]; decor?: DemoDecor[];
   /** Комната варианта (ADR-0330 п.3, `demo-rooms.ts:roomIdOf`); нет — гостиная. */
   room_id?: string; room_type?: string;
@@ -335,7 +336,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
   // высотой, и в /flat не было ни ковра, ни вазы, хотя в окне и в цене они были. Ковёр — плита с фото товара (как серверный
   // «фото-ковёр»), ваза — модель на опоре (место пересчитывает `resolve.placeTabletop`)
   const rugs = (v.items ?? []).filter((it) => isRugRole(it.role) && it.w && it.d);
-  const decor = (v.decor ?? []).filter((x) => x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
+  const decor = (v.decor ?? []).filter((x) => !x.list_only && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
   const extraOptions: Mat[] = [];
   const extraMaterials: Mat[] = [];
   // плита ковра: материал с фото товара (повтор — один на ковёр) и опция-кит с размером товара вдоль длинной стороны места

@@ -6978,7 +6978,7 @@ function liveOff(why){
 }
 // ДЕКОР В ЖИВУЮ СЦЕНУ — ТОТ ЖЕ, ЧТО УХОДИТ В СЕРВЕРНЫЙ КАДР (`payload().decor`, demo-05 п.9): ваза встаёт на столик
 // одним правилом с кадром (`scene-extras.decorLayout`) и приходит одним состоянием с расстановкой
-function liveDecor(){ return clone(((allVariants()[cur]||{}).decor||[]).filter(x=>!isSoft(x.role))); }   // мягкого в 3D нет (demo-24)
+function liveDecor(){ return clone(((allVariants()[cur]||{}).decor||[]).filter(x=>!isSoft(x.role)&&!x.list_only)); }   // мягкого (demo-24) и «только в списке» (лампа спальни, T-77) в 3D нет
 // модуль движка (~1,1 МБ) — один на страницу: его берут и сцена, и подгрузка заранее; ядро денег пришло — строки опций в сумме
 let _sceneMod=null;
 function sceneModule(){ if(!_sceneMod)_sceneMod=sceneManifest().then(m=>import(new URL('lib/'+m.file,document.baseURI).href))

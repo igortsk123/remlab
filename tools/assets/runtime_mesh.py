@@ -273,7 +273,8 @@ def feed_tops(d: dict, rule: dict | None = None, roles_of=profile_roles) -> dict
     for t, rs in roles.items():
         for b in rs:
             out[b] = top(t) if b not in out else wider(top(t), out[b])
-    return {b: out.get(base_role(b), top("_default")) for b in (d.get("feeds") or {})}
+    # ключ ленты комнаты «bedroom:кровать» (`demo_bedroom.room_key`, T-77/2) — правило своего типа комнаты; голый — как раньше
+    return {b: top(b.rpartition(":")[0]) if ":" in b else out.get(base_role(b), top("_default")) for b in (d.get("feeds") or {})}
 
 
 def demo_ids(path: str, feed_top: int | None = None, rule: dict | None = None,
@@ -297,7 +298,7 @@ def demo_ids(path: str, feed_top: int | None = None, rule: dict | None = None,
                 var.append(m)
     for v in d.get("variants") or []:                   # декор тоже на сцене (ваза на столике)
         for x in v.get("decor") or []:
-            if is_soft(x.get("role")):
+            if is_soft(x.get("role")) or x.get("list_only"):   # «только в списке» (лампа спальни, T-77/2) — в 3D нет
                 continue
             m = mid(x.get("sku") or {})
             if m and ":" not in m and m not in var:
@@ -305,7 +306,7 @@ def demo_ids(path: str, feed_top: int | None = None, rule: dict | None = None,
     tops = feed_tops(d, rule) if feed_top is None else {}
     feed: list[str] = []
     for role, lst in (d.get("feeds") or {}).items():
-        if not model(role):
+        if not model(role.rpartition(":")[2]):         # «bedroom:ковёр» — роль после двоеточия (ковёр — плоскость, не модель)
             continue
         n = tops.get(base_role(role), 0) if feed_top is None else feed_top
         for x in [mid(f) for f in lst][:n or None]:

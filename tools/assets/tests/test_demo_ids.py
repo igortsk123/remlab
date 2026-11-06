@@ -69,6 +69,17 @@ with tempfile.TemporaryDirectory() as tmp:
     ok('правило в rules/demo-swap.json читается', isinstance(json.load(open(os.path.join(RM.RULES, 'demo-swap.json'),
                                                                         encoding='utf-8'))['rt_feed_top']['_default'], int))
     ok('ковёр в каноне стратегий — не модель', not RM.mesh_role('ковёр') and RM.mesh_role('кровать'))
+    # T-77/2: ленты спальни под ключом комнаты («bedroom:роль»), лампа на тумбе — «только в списке» (в 3D нет, модели нет)
+    D2 = {**D, 'variants': [D['variants'][0], {**D['variants'][1], 'decor': [
+        {'role': 'лампа', 'list_only': True, 'sku': {'msid': 'LAMP'}}, {'role': 'ваза', 'sku': {'msid': 'V2'}}]}],
+        'feeds': {'диван': feed('d', 20), 'bedroom:кровать': feed('b', 20), 'bedroom:ковёр': feed('r', 8), 'ковёр': feed('q', 8)}}
+    p2 = os.path.join(tmp, 'demo-data-2.json')
+    json.dump(D2, open(p2, 'w', encoding='utf-8'), ensure_ascii=False)
+    var2, fd2 = RM.demo_ids(p2, rule=RULE, strategies=STRAT)
+    ok('декор «только в списке» (лампа) — без копии; ваза спальни — с копией', 'LAMP' not in var2 and 'V2' in var2, var2)
+    ok('ковёр спальни под ключом «bedroom:ковёр» — плоскость, без копий', not any(x[0] in 'rq' for x in fd2), fd2)
+    ok('кровать под ключом спальни — вся лента (правило типа комнаты)', sum(x.startswith('b') for x in fd2) == 20
+       and RM.feed_tops(D2, RULE)['bedroom:кровать'] == 0 and RM.feed_tops(D2, RULE)['диван'] == 6, RM.feed_tops(D2, RULE))
 
 print(f'\nитог: {"FAIL " + str(len(FAILS)) if FAILS else "всё OK"}')
 sys.exit(1 if FAILS else 0)

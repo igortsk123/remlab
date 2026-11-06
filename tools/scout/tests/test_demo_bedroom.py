@@ -76,6 +76,8 @@ v5, _ = DB.build_variant(rb, geo, sku, F._dims_of, F.style_id, decor_role=lambda
 check('банк onb-06: вторая тумба — по месту «… 2», ковёр — в сцене, шкаф и комод без места — не выдуманы',
       sorted(i['role'] for i in v5['items']) == ['ковёр', 'кровать', 'тумба прикроватная', 'тумба прикроватная 2'])
 check('банк onb-06: лампы на тумбах — две строки списка, не в 3D', [d['role'] for d in v5['decor']] == ['лампа', 'лампа 2'])
+check('лампы — «только в списке» (`list_only`): окно и ворота копий их в 3D не ставят (T-77/2)',
+      all(d.get('list_only') is True for d in v5['decor']))
 check('банк onb-06: геометрия — комната расстановки записи (597×293), не чертёж', DB.bank_room([rb], 'bedroom-1')['w'] == 597
       and DB.room_geo('bedroom-1', reg, layout_room=DB.bank_room([rb], 'bedroom-1'))['w'] == 597)
 tiers = [dict(bank[0], tier=t, set_id=t) for t in ('эконом', 'премиум', 'комфорт')]
