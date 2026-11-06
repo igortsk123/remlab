@@ -127,7 +127,7 @@ def shots(bank_path: str, out: str) -> None:
         m = next((it for it in items if it['role'].startswith('зеркало')), None)
         if m is None:
             continue
-        cams = [face_pose(r, m, 170, 'C1'), face_pose(r, m, 320, 'C2')]
+        cams = [face_pose(r, m, 120, 'C1'), face_pose(r, m, 260, 'C2')]
         room, placements, _ = DR.scene_from_request({'room': {'w': r['w'], 'd': r['d'], 'openings': r['openings']}, 'items': items})
         for cam in DR.cams_from_request(room, placements, {'cams': cams}):
             img, diag = DR.scene3d_frame(room, placements, cam, {}, {})
@@ -135,14 +135,14 @@ def shots(bank_path: str, out: str) -> None:
             print(s['style'], cam.name, diag.get('мешей'), 'clay:', diag.get('clay'))
 
 
-def face_pose(r: dict, m: dict, dist: float, name: str) -> dict:
-    """Как `hall-snap.mjs:facePose`: в `dist` по нормали и на 40 см вдоль стены к середине, лицом к зеркалу."""
+def face_pose(r: dict, m: dict, along: float, name: str) -> dict:
+    """Как `hall-snap.mjs:facePose`: из глубины комнаты (к противоположной стене) и на `along` см вдоль стены к середине."""
     a = math.radians(m['rot'])
     nx, ny, ux, uy = math.sin(a), math.cos(a), math.cos(a), -math.sin(a)
     d2 = lambda s: (m['x'] + ux * s - r['w'] / 2) ** 2 + (m['y'] + uy * s - r['d'] / 2) ** 2  # noqa: E731
-    side = 40 if d2(40) < d2(-40) else -40
-    x = min(max(m['x'] + nx * dist + ux * side, 25), r['w'] - 25)
-    y = min(max(m['y'] + ny * dist + uy * side, 25), r['d'] - 25)
+    side = along if d2(along) < d2(-along) else -along
+    x = min(max(m['x'] + nx * 400 + ux * side, 25), r['w'] - 25)
+    y = min(max(m['y'] + ny * 400 + uy * side, 25), r['d'] - 25)
     rot = (math.degrees(math.atan2(m['x'] - x, -(m['y'] - y))) + 360) % 360
     return {'name': name, 'x': round(x), 'y': round(y), 'rot': round(rot), 'fov': 70, 'pose': 2}
 

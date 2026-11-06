@@ -5,7 +5,7 @@
 //
 // Стратегия ассета роли — из канона `tools/scout/rules/asset-strategies.json` (как поле `strategy` предмета, которое пишет
 // сборщик витрины). Мебели без модели стенд даёт метку модели `stand:<роль>`: файла нет, сеть закрыта, и движок рисует
-// честную серую коробку — видно, над чем висит зеркало. Два вида на набор: в 1,7 м перед зеркалом и в 3,2 м (дальний).
+// честную серую коробку — видно, над чем висит зеркало. Два вида на набор: из глубины комнаты в 1,2 м и в 2,6 м вдоль стены зеркала (`facePose`).
 // Выход — НОВАЯ папка (старые снимки не трогаем).
 //   node tools/flat3d/hall-snap.mjs --bank <bank-hall.json> --out <новая папка> [--only сканди,лофт]
 import { build as esbuild } from "esbuild";
@@ -48,16 +48,19 @@ function hallCase(set) {
   return { room, items };
 }
 
-/** Взгляд на зеркало с расстояния `dist` по нормали (и на 40 см вдоль стены — к середине комнаты), внутри комнаты. */
-function facePose(room, m, dist) {
+/**
+ * Взгляд на зеркало из глубины комнаты: от стены зеркала — к противоположной (не ближе 25 см к ней) и на `along` см вдоль
+ * стены к середине комнаты. В узкой прихожей (153 см) отход по нормали упирается в стену, поэтому дальность даёт сдвиг вдоль.
+ */
+function facePose(room, m, along) {
   const a = (m.rot * Math.PI) / 180;
   const [nx, ny] = [Math.sin(a), Math.cos(a)];
   const [ux, uy] = [Math.cos(a), -Math.sin(a)];
-  const side = (m.x + ux * 40 - room.w / 2) ** 2 + (m.y + uy * 40 - room.d / 2) ** 2
-    < (m.x - ux * 40 - room.w / 2) ** 2 + (m.y - uy * 40 - room.d / 2) ** 2 ? 40 : -40;
+  const mid = (s) => (m.x + ux * s - room.w / 2) ** 2 + (m.y + uy * s - room.d / 2) ** 2;
+  const side = mid(along) < mid(-along) ? along : -along;
   const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
-  const x = clamp(m.x + nx * dist + ux * side, 25, room.w - 25);
-  const y = clamp(m.y + ny * dist + uy * side, 25, room.d - 25);
+  const x = clamp(m.x + nx * 400 + ux * side, 25, room.w - 25);
+  const y = clamp(m.y + ny * 400 + uy * side, 25, room.d - 25);
   // поворот фото-позы: rot 0 смотрит на −y, 90 — на +x (`draft_render.cams_from_request`)
   const rot = ((Math.atan2(m.x - x, -(m.y - y)) * 180) / Math.PI + 360) % 360;
   return { x: Math.round(x), y: Math.round(y), rot: Math.round(rot), fov: 70, pose: 2 };
@@ -101,7 +104,7 @@ for (const vp of [{ width: 1440, height: 900, lite: false }, { width: 375, heigh
     const c = hallCase(s);
     const m = c.items.find((it) => it.role.startsWith("зеркало"));
     if (!m) { console.log(`${s.style}: зеркала в наборе нет — пропуск`); continue; }
-    const poses = [facePose(c.room, m, 170), facePose(c.room, m, 320)];
+    const poses = [facePose(c.room, m, 120), facePose(c.room, m, 260)];
     await tab.goto(base);
     await tab.waitForFunction(() => typeof window.hallSnap === "function");
     const got = await tab.evaluate((x) => window.hallSnap(x), { ...c, poses, width: vp.width, height: vp.height, lite: vp.lite });

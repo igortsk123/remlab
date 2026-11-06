@@ -47,8 +47,11 @@ export function wallPlaneFace(p: Placement): { corners: [number, number, number]
 
 const round = (v: number): number => Math.round(v * 100) / 100 || 0;
 
-/** Цвет и блеск полотна зеркала: светлое, холодноватое, почти без шероховатости — блик от карты окружения сцены. */
-const MIRROR = { color: 0xe4e9ec, metalness: 1, roughness: 0.08, envMapIntensity: 1.1 };
+/**
+ * Полотно зеркала: светлое, холодноватое, гладкое — с небольшой долей металла для блика от карты окружения. Полный металл
+ * (metalness 1) отражал только тёмную процедурную комнату окружения и читался выключенным экраном (снимки стенда 06.11).
+ */
+const MIRROR = { color: 0xdfe7eb, metalness: 0.3, roughness: 0.12, envMapIntensity: 1 };
 
 export function buildWallPlane(ctx: KitCtx, spec: WallPlaneSpec): THREE.Group {
   const g = new THREE.Group();
