@@ -8003,7 +8003,11 @@ async function liveShotTake(){
   var ROLE={'диван':'sofa','кресло':'armchair','столик':'coffee table','тв-тумба':'TV unit','ковёр':'rug','торшер':'floor lamp',
     'стеллаж':'shelving','комод':'chest of drawers','пуф':'pouf','кашпо':'planter','ваза':'vase','стул':'chair','стол':'table',
     'стол обеденный':'dining table','банкетка':'bench','витрина':'display cabinet','камин':'fireplace','стенка':'wall unit',
-    'люстра':'chandelier','лампа':'lamp','подушка':'cushion','шторы':'curtains','плед':'throw','покрывало':'bedspread','полка':'shelf','приставной':'side table','окно':'window','дверь':'door'};
+    'люстра':'chandelier','лампа':'lamp','подушка':'cushion','шторы':'curtains','плед':'throw','покрывало':'bedspread','полка':'shelf','приставной':'side table','окно':'window','дверь':'door',
+    // спальня и прихожая (T-20261106-77 Д6: в EN шли «кровать», «шкаф»); полнота по профилям комнат — tests/test_demo_en_roles.py
+    'кровать':'bed','тумба прикроватная':'bedside table','шкаф':'wardrobe','туалетный столик':'dressing table','стол рабочий':'desk',
+    'стул рабочий':'desk chair','шкаф-купе':'sliding wardrobe','прихожая':'hallway unit','обувница':'shoe cabinet','консоль':'console table',
+    'вешалка':'coat rack','зеркало':'mirror'};
   var STYLE={'сканди':'Scandi','современный':'Modern','минимализм':'Minimalist','лофт':'Loft','неоклассика':'Neoclassic','джапанди':'Japandi'};
   var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom','Прихожая':'Hallway'};
   var EX={'Оплата 100%':'Full payment','Ипотека, рассрочка':'Mortgage, instalments','Ипотека':'Mortgage','Подробнее':'Details','Консультация':'Get advice','← К стилям':'← Back to styles',
