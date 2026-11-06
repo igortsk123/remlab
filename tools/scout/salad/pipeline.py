@@ -410,8 +410,12 @@ def cut_alien_debris(glb_path: str) -> dict:
     import numpy as np
     import trimesh
     try:
-        sc = trimesh.load(glb_path)
-        mesh = sc.to_mesh() if hasattr(sc, 'to_mesh') else sc
+        # Scene → один меш с текстурой. Было `sc.to_mesh() if hasattr(...) else sc`: в trimesh 4.4.7 образа
+        # (апстрим 82920d643c0d) у Scene нет `to_mesh`, функция судила Scene и падала «нет faces» — в 100 %
+        # паспортов v2 с 04.09 (T-20261106-85/3). `force='mesh'` текстуру сохраняет (4.4.7 и 5.0, тест).
+        mesh = trimesh.load(glb_path, force='mesh')
+        if not isinstance(mesh, trimesh.Trimesh):
+            return {'suspect': 0, 'skipped': f'не меш: {type(mesh).__name__}', 'error': None}
         if mesh.faces is None or len(mesh.faces) < 1000:
             return {'suspect': 0, 'skipped': 'мало граней', 'error': None}
         vis = getattr(mesh, 'visual', None)
