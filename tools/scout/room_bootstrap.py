@@ -21,7 +21,8 @@
 Восстановление (`recover`, его зовёт и `bank_refresh.recover` для этих видов): журнал уже есть — снять намерение; файл в состоянии
 «до» — запись не случилась (abort); в «после» — довести журнал; иначе — отказ, разбор руками (`--abandon`).
 
-  ~/venvs/scout/bin/python room_bootstrap.py --room bedroom check [--candidate ФАЙЛ]       # только проверка, ничего не пишет
+  ~/venvs/scout/bin/python room_bootstrap.py --room bedroom check [--candidate ФАЙЛ] [--night]   # только проверка, ничего не пишет
+                                                       # --night — отказ строкой WARN:room_check и код 0 (шаг ночи, T-89)
   ~/venvs/scout/bin/python room_bootstrap.py --room bedroom run --confirm-lead [--candidate ФАЙЛ]
   ~/venvs/scout/bin/python room_bootstrap.py --room bedroom rollback --confirm-lead
   ~/venvs/scout/bin/python room_bootstrap.py --room bedroom recover [--abandon]
@@ -246,6 +247,11 @@ def main(argv: list) -> int:
         _say(f'room_bootstrap check {room}: кандидат {cand}, записей {len(c)}, отказов {len(bad)}, предупреждений {len(warns)}'
              + ''.join(f"\n  ~ {w['set_id']} {w['role']} — замен {w['alternates']} < {w['min']}" for w in warns[:30])
              + ''.join(f'\n  ✗ {x}' for x in bad[:30]) + ('' if bad else ' — годен к поколению 0 (запись — `run --confirm-lead`)'))
+        if '--night' in argv:     # ночь (T-20261106-89): суд кандидата — сухой, отказ — WARN в сводку, а не сбой шага
+            if bad:
+                _say(f'WARN:room_check:{room}: кандидат не годен к банку — отказов {len(bad)} (первый: {bad[0][:160]}); '
+                     'живой банк не тронут')
+            return 0
         return 1 if bad else 0
     if argv[:1] == ['run']:
         return run(P, spec.rules(), room, cand, confirm='--confirm-lead' in argv)

@@ -305,9 +305,10 @@ def _selftest() -> int:
        not (hp & lp) and not (hp & bp) and H.live == os.path.join(HERE, 'sets-hall.json')
        and H.candidate == BPa.room_bank_output({}, 'hall') and H.generations == os.path.join(HERE, 'bank-generations-hall')
        and H.prepare_report == f'{home}/scout-scenes/bank-hall-prepare.json', (hp & lp, hp & bp))
-    ok('прихожая: каркас, ключ ячейки как у спальни, сборщик compose_hall.py, флаги в файле выключены',
+    ok('прихожая: каркас, ключ ячейки как у спальни, сборщик compose_hall.py; в файле суд, подготовка и запись выключены',
        H.skeleton and H.cell_fields == B.cell_fields and H.composer() == ('hall', os.path.join(HERE, 'compose_hall.py'))
-       and not any(H.rules().get(f) for f in FLAGS) and H.flag_ref('prepare_enabled') == 'rooms.hall.prepare_enabled',
+       and not any(H.rules().get(f) for f in FLAGS if f != 'enabled')
+       and H.flag_ref('prepare_enabled') == 'rooms.hall.prepare_enabled',
        (H.composer(), H.rules()))
     import io
     import contextlib
@@ -342,12 +343,57 @@ def _selftest() -> int:
         ok('bind: константы модуля — из спецификации комнаты (и у запущенного скриптом — по имени)',
            m.LIVE == B.live and m.MANIFEST == B.promote_manifest and m.CANDIDATE == B.candidate and m.SPEC is B
            and m2.STATE == B.pending_state and m2.CANDIDATE == B.candidate_default and td)
+    global RULES_PATH
+    with tempfile.TemporaryDirectory() as td:
+        saved, RULES_PATH = RULES_PATH, os.path.join(td, 'rules.json')
+        try:
+            json.dump({'enabled': True, 'rooms': {'bedroom': {'enabled': True, 'publish': 'live'},
+                                                  'hall': {'prepare_enabled': True, 'publish': 'next'}}}, open(RULES_PATH, 'w'))
+            ok('ночь (T-89): флаги комнаты 1/0 из своего раздела; ROOM_PUBLISH из rooms.*.publish (live → комната, next → =next)',
+               (night_flag('bedroom', 'enabled'), night_flag('bedroom', 'prepare_enabled'), night_flag('hall', 'enabled'),
+                night_flag('hall', 'prepare_enabled')) == (1, 0, 0, 1) and room_publish() == 'bedroom,hall=next')
+            json.dump({'rooms': {}}, open(RULES_PATH, 'w'))
+            ok('ночь: раздела комнаты нет — всё выключено, ROOM_PUBLISH пусто (публикация только гостиной)',
+               night_flag('hall', 'enabled') == 0 and room_publish() == '')
+        finally:
+            RULES_PATH = saved
+    try:
+        night_flag('bedroom', 'nope')
+        ok('неизвестный флаг — отказ', False)
+    except SystemExit:
+        ok('неизвестный флаг — отказ', True)
     print(f'room_bank_spec selftest: ошибок {bad}')
     return 1 if bad else 0
+
+
+def night_flag(room: str, flag: str) -> int:
+    """Флаг комнаты для ночи (`refresh_daily.sh`, T-20261106-89): 1/0. Ночные флаги комнаты — `FLAGS` и `publish`; неизвестный — отказ."""
+    if flag not in (*FLAGS, 'publish'):
+        raise SystemExit(f'--flag {flag}: такого флага комнаты нет (есть: {", ".join((*FLAGS, "publish"))})')
+    return 1 if for_room(room).rules().get(flag) else 0
+
+
+def room_publish(rooms=None) -> str:
+    """Значение `ROOM_PUBLISH` для ночного `mesh_publish` из правил: `rooms.<комната>.publish` = "live" → `<комната>`,
+    "next" → `<комната>=next` (кандидат); нет/false — комната не публикуется. Пусто — публикация как прежде (только гостиная)."""
+    out = []
+    for r in rooms or [x for x in ROOMS if x != LIVING]:
+        p = for_room(r).rules().get('publish')
+        if p in ('live', True):
+            out.append(r)
+        elif p == 'next':
+            out.append(f'{r}=next')
+    return ','.join(out)
 
 
 if __name__ == '__main__':
     if '--selftest' in sys.argv:
         sys.exit(_selftest())
-    r, _ = room_arg(sys.argv[1:])
+    r, rest = room_arg(sys.argv[1:])
+    if rest[:1] == ['--flag']:          # `--room X --flag F` → 1/0 (ночь; ошибка чтения — 0, ночь как при выключенном)
+        print(night_flag(r or LIVING, rest[1]) if r else 0)
+        sys.exit(0)
+    if rest[:1] == ['--publish']:       # значение ROOM_PUBLISH для ночного mesh_publish (пусто — только гостиная)
+        print(room_publish())
+        sys.exit(0)
     print(json.dumps(describe(for_room(r)), ensure_ascii=False, indent=1))

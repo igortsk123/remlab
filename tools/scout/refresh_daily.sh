@@ -464,8 +464,40 @@ if [ "$BANK_WRITE" = 1 ]; then
   [ "$bank_chain_ok" = 1 ] && step bank_refresh "$PY" bank_refresh.py --run-id "$BANK_RUN_ID"
   bank_index_steps
 fi
+# БАНКИ КОМНАТ НОЧЬЮ (room-bank-nightly-04 = К4 room-conveyor-02, T-20261106-89). Спальня и прихожая — свой кандидат каждую ночь:
+#   свежая привязка товар→меш (`room_bindings --build`: готовность мешей для сборщиков) → сборщик комнаты (`sets-<комната>.next.json`
+#   атомарно и ПОСЛЕ проверки; жёсткое нарушение — FAIL, прежний кандидат цел) → сухой суд `room_bootstrap check --night` (полнота
+#   матрицы, id от ячейки, происхождение, раскладка; не годен — WARN в сводку, живой банк не тронут) → цепочка банка комнаты
+#   prepare → pending → promote → refresh со своим номером ночи — только при `rooms.<комната>.prepare_enabled` (по умолчанию
+#   выключено: суд и писатель комнаты — этап Г room-bank-01, адаптер пока каркас и откажет). Сборщик — при `rooms.<комната>.enabled`
+#   (флаг БАНКА комнаты, не показа: `rooms[].enabled` витрины на сборку не влияет, room-bank-01 этап Д). Сбой комнаты гостиную,
+#   публикацию и витрину не трогает: шаги — `step`, строка комнаты — в дайджест. Живой банк комнаты — по слову ведущего
+#   (`room_bootstrap.py run --confirm-lead`).
+room_flag() { local v; v=$("$PY" room_bank_spec.py --room "$1" --flag "$2" 2>/dev/null) || v=0; [ "$v" = 1 ] && echo 1 || echo 0; }
+rooms_on=""
+for room in bedroom hall; do [ "$(room_flag "$room" enabled)" = 1 ] && rooms_on+="$room "; done
+[ -n "$rooms_on" ] && step room_bindings "$PY" room_bindings.py --build
+for room in bedroom hall; do
+  if [[ " $rooms_on " != *" $room "* ]]; then RES[compose_$room]=выключено; continue; fi
+  if step compose_$room "$PY" compose_$room.py; then
+    step room_check_$room "$PY" room_bootstrap.py --room "$room" check --night
+  fi
+  if [ "$(room_flag "$room" prepare_enabled)" != 1 ]; then RES[chain_$room]=выключено; continue; fi
+  if [ "${RES[compose_$room]:-}" != ok ]; then RES[chain_$room]="нет кандидата"; continue; fi
+  rid="$BANK_RUN_ID-$room"
+  if step bank_prepare_$room "$PY" bank_prepare.py --room "$room" --run-id "$rid" \
+    && step bank_pending_$room "$PY" bank_pending.py --room "$room" --night --run-id "$rid" \
+    && step bank_promote_$room "$PY" bank_promote.py --room "$room" --run-id "$rid" \
+    && step bank_refresh_$room "$PY" bank_refresh.py --room "$room" --run-id "$rid"; then RES[chain_$room]=ok
+  else RES[chain_$room]=FAIL; fi
+done
+room_digest "спальня (банк)" привязка=room_bindings сборка=compose_bedroom суд=room_check_bedroom цепочка=chain_bedroom
+room_digest "прихожая (банк)" привязка=room_bindings сборка=compose_hall суд=room_check_hall цепочка=chain_hall
 step demo_band "$PY" demo_band.py --report
-step mesh_publish "$PY" mesh_publish.py
+# меши комнат — на прод вместе с гостиной (`room_publish.py`), только комнаты с `rooms.<комната>.publish` (live|next); пусто — как прежде
+ROOM_PUB=$("$PY" room_bank_spec.py --publish 2>/dev/null || true)
+if [ -n "$ROOM_PUB" ]; then step mesh_publish env ROOM_PUBLISH="$ROOM_PUB" "$PY" mesh_publish.py
+else step mesh_publish "$PY" mesh_publish.py; fi
 # комментарии владельца к браку мешей за неделю (план mesh-audit-comments) — строкой DIGEST в утреннюю сводку; разбор — --comments
 step mesh_comments "$PY" mesh_decisions.py --comments --since 7d --digest
 # решения владельца по развороту моделей (/test/orient-review/) → orient.json прода слиянием (flat3d-sims-ux A1)
