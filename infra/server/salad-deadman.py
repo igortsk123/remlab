@@ -5,10 +5,16 @@
 волны — группы Salad крутятся и платятся, гасить некому (найдено 13.10, `domain/deployment-details.md` § «без DEV»).
 
 КАК. Пока конвейер держит свой замок, DEV раз в 3 минуты ставит отметку `/opt/remlab/mesh/heartbeat`
-(`tools/scout/salad/heartbeat.sh`). Сторож (таймер `remlab-salad-deadman`, раз в 10 мин): есть группы проекта не в
-`stopped`, а отметке больше 30 минут → `/stop` каждой, ждём `stopped` (до 4 мин), сообщение в Telegram. Ручная работа на
-Salad без конвейера — файл `/opt/remlab/mesh/deadman-off-until` с датой-временем окончания (ISO) — сторож молчит.
+(`tools/scout/salad/heartbeat.sh`). Сторож (таймер `remlab-salad-deadman`, раз в 10 мин): есть ЖИВЫЕ группы проекта, а
+отметке больше 30 минут → `/stop` каждой, ждём остановки (до 4 мин), сообщение в Telegram. Ручная работа на Salad без
+конвейера — файл `/opt/remlab/mesh/deadman-off-until` с датой-временем окончания (ISO) — сторож молчит.
 Ключ — отдельного участника команды Salad, `/etc/remlab/salad.key` (root, 600), не общий `.env`.
+
+ЖИВАЯ = ЕСТЬ МАШИНЫ (T-20261106-92). Платим только за машины: `current_state.instance_status_counts` —
+allocating + creating + running + stopping > 0. Группа не в `stopped`, но без машин (например `pending`, пока Salad
+кэширует образ) — денег нет: не гасим и не тревожим, только строка в журнал. `/stop` такой группе СБРАСЫВАЕТ кэш образа
+(06.11 18:44 `mesh-q-color-canary`: было 5 % → стало 1 %), группа не останавливается, и владельцу уходила ложная тревога
+«идёт оплата». Счётчиков в ответе нет — осторожно, как раньше: группа не в `stopped`/`failed` считается живой.
 
   /opt/remlab/scripts/salad-deadman.py            # обычный заход
   DRY=1 /opt/remlab/scripts/salad-deadman.py      # решение без /stop и без Telegram
@@ -18,6 +24,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -29,13 +36,34 @@ STATE = os.environ.get('MESH_DEADMAN_STATE', '/opt/remlab/mesh/deadman-state.jso
 TG_ENV = '/opt/remlab/catalog-watchdog/.env'
 STALE_S = int(os.environ.get('MESH_DEADMAN_STALE_MIN', '30')) * 60
 DOWN = ('stopped', 'failed')
+# машины, за которые платим: выделяется, создаётся, работает, останавливается
+PAID = ('allocating', 'creating', 'running', 'stopping')
+
+
+def machines(state: dict) -> int | None:
+    """Машин у группы по `current_state.instance_status_counts` (ключи `running_count` или `running`); нет счётчиков — None."""
+    counts = state.get('instance_status_counts')
+    if not isinstance(counts, dict):
+        return None
+    got = [counts.get(f'{k}_count', counts.get(k)) for k in PAID]
+    if all(v is None for v in got):
+        return None
+    return sum(int(v or 0) for v in got)
+
+
+def is_live(status: str | None, n: int | None) -> bool:
+    """Живая — платим: не в stopped/failed и есть машины; счётчиков нет — живая по статусу (осторожно, как раньше)."""
+    return status not in DOWN and (n is None or n > 0)
 
 
 def decide(groups: dict, hb_age_s: float | None, inhibit_until: float | None, now: float) -> tuple[str, list]:
-    """→ (решение, группы к остановке). Чистая функция: проверяется селфтестом."""
-    live = sorted(g for g, st in groups.items() if st not in DOWN)
+    """→ (решение, группы к остановке). Чистая функция: проверяется селфтестом.
+
+    `groups` — {имя: (статус, машин | None)}. Решения: `idle` — всё стоит; `no_machines` — группы не в stopped, но без машин
+    (денег нет, не трогаем); `inhibited` — ручная работа; `conveyor_alive` — конвейер жив; `stop` — гасим живые."""
+    live = sorted(g for g, (st, n) in groups.items() if is_live(st, n))
     if not live:
-        return 'idle', []
+        return ('no_machines' if any(st not in DOWN for st, _ in groups.values()) else 'idle'), []
     if inhibit_until and inhibit_until > now:
         return 'inhibited', []
     if hb_age_s is not None and hb_age_s < STALE_S:
@@ -52,7 +80,15 @@ def _req(path: str, key: str, method: str = 'GET') -> dict:
 
 
 def groups(key: str) -> dict:
-    return {i['name']: (i.get('current_state') or {}).get('status') for i in _req('', key).get('items', [])}
+    out = {}
+    for i in _req('', key).get('items', []):
+        st = i.get('current_state') or {}
+        out[i['name']] = (st.get('status'), machines(st))
+    return out
+
+
+def _txt(gs: dict) -> str:
+    return ', '.join(f"{g} {st}/{'?' if n is None else n} маш." for g, (st, n) in sorted(gs.items())) or 'нет'
 
 
 def tg(text: str) -> None:
@@ -69,7 +105,6 @@ def tg(text: str) -> None:
 
 
 def main() -> int:
-    import urllib.parse  # noqa: F401 — tg() кодирует форму
     now = time.time()
     key = open(KEY_FILE, encoding='utf-8').read().strip()
     gs = groups(key)
@@ -82,7 +117,10 @@ def main() -> int:
             inh = None
     verdict, todo = decide(gs, hb_age, inh, now)
     hb_txt = 'нет отметки' if hb_age is None else f'{hb_age / 60:.0f} мин назад'
-    print(f'{datetime.now(timezone.utc):%F %T} группы {gs}; конвейер: {hb_txt}; решение: {verdict}', flush=True)
+    print(f'{datetime.now(timezone.utc):%F %T} группы: {_txt(gs)}; конвейер: {hb_txt}; решение: {verdict}', flush=True)
+    empty = sorted(g for g, (st, n) in gs.items() if st not in DOWN and n == 0)
+    if empty:
+        print(f'  без машин (не гасим, денег нет): {", ".join(empty)}', flush=True)
     if verdict != 'stop' or os.environ.get('DRY'):
         return 0
     for g in todo:
@@ -91,10 +129,10 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             print(f'stop {g}: {type(e).__name__} {str(e)[:80]}', flush=True)
     left = list(todo)
-    for _ in range(16):                                   # до 4 минут ждём stopped
+    for _ in range(16):                                   # до 4 минут ждём остановки: stopped или ни одной машины
         time.sleep(15)
         cur = groups(key)
-        left = [g for g in todo if cur.get(g) != 'stopped']
+        left = [g for g in todo if g in cur and is_live(*cur[g])]
         if not left:
             break
     ok = not left
@@ -114,12 +152,21 @@ def _selftest() -> int:
         bad += 0 if cond else 1
 
     now = 1_000_000.0
-    ok('всё остановлено — делать нечего', decide({'a': 'stopped', 'b': 'failed'}, None, None, now) == ('idle', []))
-    ok('группа работает, конвейер жив (отметка 5 мин) — не трогаем', decide({'a': 'running'}, 300, None, now)[0] == 'conveyor_alive')
-    ok('группа работает, отметке 40 мин — гасим', decide({'a': 'running', 'b': 'stopped'}, 2400, None, now) == ('stop', ['a']))
-    ok('группа работает, отметки нет вовсе — гасим', decide({'a': 'deploying'}, None, None, now) == ('stop', ['a']))
-    ok('ручная работа (отсрочка) — молчим', decide({'a': 'running'}, None, now + 600, now)[0] == 'inhibited')
-    ok('просроченная отсрочка не мешает', decide({'a': 'running'}, None, now - 1, now)[0] == 'stop')
+    run1 = ('running', 1)
+    ok('всё остановлено — делать нечего', decide({'a': ('stopped', 0), 'b': ('failed', None)}, None, None, now) == ('idle', []))
+    ok('pending и 0 машин, отметки нет — не гасим (кэш образа, денег нет)',
+       decide({'a': ('pending', 0)}, None, None, now) == ('no_machines', []))
+    ok('running и 1 машина, отметки нет — гасим', decide({'a': run1}, None, None, now) == ('stop', ['a']))
+    ok('счётчиков нет — осторожно, как раньше: pending считается живой', decide({'a': ('pending', None)}, None, None, now) == ('stop', ['a']))
+    ok('смесь: живую гасим, пустую не трогаем', decide({'a': run1, 'b': ('pending', 0)}, 2400, None, now) == ('stop', ['a']))
+    ok('группа работает, конвейер жив (отметка 5 мин) — не трогаем', decide({'a': run1}, 300, None, now)[0] == 'conveyor_alive')
+    ok('группа работает, отметке 40 мин — гасим', decide({'a': run1, 'b': ('stopped', 0)}, 2400, None, now) == ('stop', ['a']))
+    ok('ручная работа (отсрочка) — молчим', decide({'a': run1}, None, now + 600, now)[0] == 'inhibited')
+    ok('просроченная отсрочка не мешает', decide({'a': run1}, None, now - 1, now)[0] == 'stop')
+    ok('машины считаются по allocating+creating+running+stopping (ключи с _count)',
+       machines({'instance_status_counts': {'allocating_count': 2, 'creating_count': 1, 'running_count': 0, 'stopping_count': 1}}) == 4)
+    ok('ключи без _count тоже понимаем', machines({'instance_status_counts': {'running': 3}}) == 3)
+    ok('нет счётчиков — None', machines({'status': 'pending'}) is None and machines({'instance_status_counts': {}}) is None)
     return 1 if bad else 0
 
 
