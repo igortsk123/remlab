@@ -108,6 +108,11 @@
   },
   "usd_rub": 86.89,
   "groups": {
+    "mesh-canary-1": {
+      "tier": "low",
+      "disabled": true,
+      "_why": "живая группа Salad без записи в правилах — найдена сверкой salad_groups.py --check-live (T-20261106-86): создана 22.10, priority low, 1 реплика, 8 классов GPU, без очереди, остановлена. Удалять не стали (необратимо, ведущий 06.11); disabled — не поднимает никто (allowed_now/--can-start), цена — по тарифу low; включение — слово владельца"
+    },
     "mesh-q-canary": {
       "tier": "low",
       "price_class": "RTX 4060 Ti (16 GB)",
