@@ -3918,6 +3918,9 @@ function loadShots(){
       // сцена, начатая до реестра, сверяет номер кадра после загрузки моделей и, увидев новый, бросает работу — запускаем заново
       if(shotAt!==was&&document.getElementById('shot').classList.contains('on')&&typeof liveShow==='function')setTimeout(()=>liveShow(),0);}
     Object.keys(COLL_SHOTS).forEach(cid=>attachCollShot(cid,COLL_SHOTS[cid]));
+    // ОКНО ОТКРЫТО ДО РЕЕСТРА (T-20261106-77/4): вкладка «Фото» считалась по пустому списку кадров и не появлялась, пока окно не
+    // перерисуют (спальня 1 × сканди при первом открытии) — пересчитываем вкладки открытого окна по пришедшим кадрам
+    const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('on')&&sh.classList.contains('v2')&&typeof vwModeUi==='function')vwModeUi();
     drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
     try{drawHome();}catch(e){}   // карточки главной — по кадрам опубликованного состояния (demo-20 Б2)
     openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
