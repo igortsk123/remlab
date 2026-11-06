@@ -184,6 +184,11 @@ def major(P: dict) -> tuple:
     return tuple(r for r, v in P['roles'].items() if v.get('major'))
 
 
+def lead(P: dict) -> tuple:
+    """Ведущие предметы витрины (`lead`): без них с годной моделью вариант не публикуется — в порядке ролей профиля."""
+    return tuple(r for r, v in P['roles'].items() if v.get('lead'))
+
+
 def hard(P: dict, role: str, key: str, default=None):
     return (P['roles'].get(role, {}).get('hard') or {}).get(key, default)
 
