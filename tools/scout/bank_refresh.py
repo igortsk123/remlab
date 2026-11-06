@@ -59,20 +59,21 @@ sys.path.insert(0, HERE)
 
 import bank_run as RUN  # noqa: E402
 import set_identity as SID  # noqa: E402
+import room_bank_spec as RBS  # noqa: E402
 
-RULES_PATH = os.path.join(HERE, 'rules', 'bank-candidate.json')
+# пути и флаг писателя — из спецификации комнаты (room-bank-01 этап Б); без `--room` — гостиная, ровно прежнее
+SPEC = RBS.for_room(None)
+RULES_PATH = SPEC.rules_path
 
 
 def paths() -> dict:
-    gen = os.path.expanduser(os.environ.get('BANK_GENERATIONS') or os.path.join(HERE, 'bank-generations'))
-    return {'live': os.path.join(HERE, 'sets3.json'), 'lock': os.path.join(HERE, 'exam.lock'),
-            'manifest': os.path.expanduser(os.environ.get('BANK_PROMOTE', '~/scout-scenes/bank-promote.json')),
-            'gen': gen, 'journal': os.path.join(gen, 'journal.jsonl'), 'hold': os.path.join(gen, 'hold.json'),
-            'intent': os.path.join(gen, 'intent.json')}
+    """Пути писателя комнаты; env — в момент вызова, как раньше. У гостиной — прежние 7 ключей, у другой комнаты ещё
+    `room` и `snap` (`RoomBankSpec.refresh_paths`)."""
+    return RBS.for_room(SPEC.room).refresh_paths()
 
 
 def rules() -> dict:
-    return json.load(open(RULES_PATH, encoding='utf-8'))
+    return SPEC.view(json.load(open(RULES_PATH, encoding='utf-8')))
 
 
 def sha(b: bytes) -> str:
@@ -129,12 +130,13 @@ def _hold_save(P: dict, cells: dict) -> None:
 def snapshot(P: dict, raw: bytes) -> tuple[str, str]:
     """Поколение = снимок банка ДО записи, байт в байт (gzip: банк 2,2 МБ → ~0,2 МБ — хранить без чистки)."""
     os.makedirs(P['gen'], exist_ok=True)
+    pre = P.get('snap', 'sets3')               # префикс снимка комнаты; у гостиной — прежний `sets3`
     base = time.strftime('%Y%m%d-%H%M%S')
     gen, i = base, 1
-    while os.path.exists(os.path.join(P['gen'], f'sets3-{gen}.json.gz')):
+    while os.path.exists(os.path.join(P['gen'], f'{pre}-{gen}.json.gz')):
         i += 1
         gen = f'{base}-{i}'
-    path = os.path.join(P['gen'], f'sets3-{gen}.json.gz')
+    path = os.path.join(P['gen'], f'{pre}-{gen}.json.gz')
     _atomic(path, gzip.compress(raw, mtime=0))
     return gen, path
 
@@ -257,7 +259,8 @@ def _skip(msg: str) -> int:
 
 def write(P: dict, R: dict, *, force: bool = False, media_fn=None, now: float | None = None, run_id: str | None = None) -> int:
     if not (R.get('write_enabled') or force):
-        print('bank_refresh: выключено (rules/bank-candidate.json:write_enabled=false) — живой банк пишут прежние шаги', flush=True)
+        print(f'bank_refresh: выключено (rules/bank-candidate.json:{SPEC.flag_ref("write_enabled")}=false) — живой банк пишут прежние '
+              'шаги', flush=True)
         return 0
     if os.path.exists(P['lock']):
         print('bank_refresh: exam.lock — идёт экзамен, запись отложена до следующей ночи', flush=True)
@@ -271,6 +274,9 @@ def write(P: dict, R: dict, *, force: bool = False, media_fn=None, now: float | 
         man = json.load(open(P['manifest'], encoding='utf-8'))
     except FileNotFoundError:
         return RUN.refuse('bank_refresh', f"manifest {P['manifest']} нет (bank_promote этой ночи не судил) — банк не тронут")
+    if man.get('room', RBS.LIVING) != P.get('room', RBS.LIVING):     # manifest гостиной поля `room` не несёт
+        return RUN.refuse('bank_refresh', f"manifest комнаты {man.get('room', RBS.LIVING)}, а писатель — "
+                          f"{P.get('room', RBS.LIVING)} — банк не тронут")
     if man.get('run_id') != run_id:
         return RUN.refuse('bank_refresh', f"manifest не этой ночи (run_id {man.get('run_id')} ≠ {run_id}) — банк не тронут")
     raw = open(P['live'], 'rb').read()
@@ -760,11 +766,17 @@ def main() -> int:
     a = sys.argv[1:]
     if '--selftest' in a:
         return _selftest()
+    room, a = RBS.room_arg(a)
+    if room:                                   # `--room X`: пути и флаг комнаты; `--enabled` без него — флаг гостиной (BANK_WRITE)
+        RBS.bind(sys.modules[__name__], RBS.for_room(room), 'bank_refresh')
     if '--enabled' in a:
         return _enabled()
     P = paths()
     if a[:1] == ['list']:
         return list_gens(P)
+    gate = SPEC.skeleton_gate('bank_refresh', rules(), 'write_enabled', '--force' in a) if SPEC.skeleton else None
+    if gate is not None:                       # каркас комнаты: ни записи, ни отката, ни снятия запрета
+        return gate
     if a[:1] == ['rollback']:
         if len(a) < 2:
             print('использование: bank_refresh.py rollback <поколение|last> [--force]')

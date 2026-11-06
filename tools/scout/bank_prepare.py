@@ -38,18 +38,21 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bank_run as RUN  # noqa: E402
+import room_bank_spec as RBS  # noqa: E402
 
-RULES_PATH = os.path.join(HERE, 'rules', 'bank-candidate.json')
-LIVE = os.path.join(HERE, 'sets3.json')
-CANDIDATE = os.path.abspath(os.environ.get('BANK_CANDIDATE') or os.path.join(HERE, 'sets3.next.json'))
-REPORT = os.path.expanduser(os.environ.get('BANK_PREPARE_REPORT', '~/scout-scenes/bank-prepare.json'))
+# пути и правила — из спецификации комнаты (room-bank-01 этап Б); без `--room` — гостиная, ровно прежние пути и env
+SPEC = RBS.for_room(None)
+RULES_PATH = SPEC.rules_path
+LIVE = SPEC.live
+CANDIDATE = SPEC.candidate
+REPORT = SPEC.prepare_report
 CONTENT = (('gone', 'ушедших'), ('url_stale', 'ссылок не текущих'), ('contracts', 'вне контракта'),
            ('pair_mismatch', 'пар разошлось'), ('alt_bad', 'запасных негодных'), ('core_missing', 'без ключевых ролей'))
 
 
 def rules() -> dict:
     try:
-        return json.load(open(RULES_PATH, encoding='utf-8'))
+        return SPEC.view(json.load(open(RULES_PATH, encoding='utf-8')))
     except (OSError, ValueError):
         return {}
 
@@ -71,7 +74,7 @@ def _compose(out: str, timeout_s: int) -> int:
     # УДЕРЖАНИЕ (conv-14b задача 3): источник — прошлый кандидат; сборщик копирует валидные ячейки, пересобирает только с причиной
     env = {**os.environ, 'SETS_OUTPUT': out, 'BANK_KEEP_FROM': candidate_of(out)}
     try:
-        p = subprocess.run([sys.executable, os.path.join(HERE, 'compose2.py'), '--style', '--bands', 'all'], cwd=HERE,
+        p = subprocess.run([sys.executable, SPEC.composer()[1], *SPEC.compose_args], cwd=HERE,
                            env=env, capture_output=True, text=True, timeout=timeout_s)
     except subprocess.TimeoutExpired:
         print(f'bank_prepare: сборка не уложилась в {timeout_s // 60} мин — кандидат прежний', flush=True)
@@ -146,7 +149,8 @@ def run(force: bool = False, R: dict | None = None, out: str = CANDIDATE, compos
     run_id = run_id or RUN.new_run_id('manual')
     print(f'bank_prepare: run_id {run_id}', flush=True)
     if not (R.get('prepare_enabled') or force):
-        print('bank_prepare: выключено (rules/bank-candidate.json:prepare_enabled=false) — кандидат не собирается', flush=True)
+        print(f'bank_prepare: выключено (rules/bank-candidate.json:{SPEC.flag_ref("prepare_enabled")}=false) — кандидат не собирается',
+              flush=True)
         save({'run_id': run_id, 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'candidate': out, 'disabled': True})
         return 0
     if os.path.realpath(LIVE) in (os.path.realpath(out), os.path.realpath(build_path(out))):
@@ -279,4 +283,10 @@ def _selftest() -> int:
 if __name__ == '__main__':
     if '--selftest' in sys.argv:
         sys.exit(_selftest())
-    sys.exit(run('--force' in sys.argv, run_id=RUN.arg(sys.argv)))
+    room, argv = RBS.room_arg(sys.argv)
+    if room:                                   # `--room X`: пути и флаги комнаты; каркас — ничего не пишем
+        RBS.bind(sys.modules[__name__], RBS.for_room(room), 'bank_prepare')
+        gate = SPEC.skeleton_gate('bank_prepare', rules(), 'prepare_enabled', '--force' in argv)
+        if gate is not None:
+            sys.exit(gate)
+    sys.exit(run('--force' in argv, out=CANDIDATE, run_id=RUN.arg(argv)))

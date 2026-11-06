@@ -62,12 +62,16 @@ import bank_invariants as BI  # noqa: E402
 import bank_pending as BP  # noqa: E402
 import bank_run as RUN  # noqa: E402
 import set_identity as SID  # noqa: E402
+import room_bank_spec as RBS  # noqa: E402
 
-RULES_PATH = os.path.join(HERE, 'rules', 'bank-candidate.json')
-LIVE = os.path.join(HERE, 'sets3.json')
-CANDIDATE = os.path.abspath(os.environ.get('BANK_CANDIDATE') or os.path.join(HERE, 'sets3.next.json'))
-MANIFEST = os.path.expanduser(os.environ.get('BANK_PROMOTE', '~/scout-scenes/bank-promote.json'))
-WORK = os.path.expanduser(os.environ.get('BANK_PROMOTE_DIR', '~/scout-scenes/bank-promote'))
+# пути и правила — из спецификации комнаты (room-bank-01 этап Б); без `--room` — гостиная, ровно прежние пути и env.
+# Экзамен (`make_exam`), сторож демо (`make_demo`) и строгая чистота (`strict`) ниже — адаптеры гостиной (SPEC.exam/demo/strict)
+SPEC = RBS.for_room(None)
+RULES_PATH = SPEC.rules_path
+LIVE = SPEC.live
+CANDIDATE = SPEC.candidate
+MANIFEST = SPEC.promote_manifest
+WORK = SPEC.promote_work
 ZONES = os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'rules', 'zones.json')
 SCENES = os.path.join(HERE, 'acceptance-scenes.json')
 TIERS = ('эконом', 'комфорт', 'премиум')
@@ -76,7 +80,7 @@ STAGE_LABEL = {'exam': 'экзамен', 'demo': 'демо'}
 
 def rules() -> dict:
     try:
-        return json.load(open(RULES_PATH, encoding='utf-8'))
+        return SPEC.view(json.load(open(RULES_PATH, encoding='utf-8')))
     except (OSError, ValueError):
         return {}
 
@@ -468,7 +472,7 @@ def make_demo(live_path: str, R: dict, work: str):
 
 def _held() -> dict:
     """Откаченные вручную ячейки (`bank_refresh.py rollback` → `bank-generations/hold.json`): {ячейка: candidate_hash}."""
-    p = os.path.join(os.path.expanduser(os.environ.get('BANK_GENERATIONS') or os.path.join(HERE, 'bank-generations')), 'hold.json')
+    p = os.path.join(RBS.for_room(SPEC.room).generations, 'hold.json')      # env — в момент вызова, как раньше
     try:
         return {k: v['candidate_hash'] for k, v in (json.load(open(p, encoding='utf-8')).get('cells') or {}).items()}
     except FileNotFoundError:
@@ -499,7 +503,8 @@ def chain(run_id: str | None, report: str, cand_path: str, state: dict) -> tuple
 def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset(), run_id: str | None = None) -> int:
     R = rules()
     if not (R.get('promote_enabled') or force):
-        print('bank_promote: выключено (rules/bank-candidate.json:promote_enabled=false) — ячейки не судятся', flush=True)
+        print(f'bank_promote: выключено (rules/bank-candidate.json:{SPEC.flag_ref("promote_enabled")}=false) — ячейки не судятся',
+              flush=True)
         return 0
     if os.path.realpath(CANDIDATE) == os.path.realpath(LIVE):
         print('ERROR:bank_promote: кандидат — это живой банк', flush=True)
@@ -545,7 +550,8 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
            'live_sha': hashlib.sha256(raw).hexdigest(), 'hybrid': None, 'hybrid_sha': None, 'cap': res['cap'], 'promoted': res['promoted'], 'decisions': dict(dec), 'fatal': res['fatal'],
            'exam': {k: v for k, v in (res['exam'] or {}).items() if k != 'cells'} or None,
            'demo': {k: v for k, v in (res['demo'] or {}).items() if k != 'cells'} or None,
-           'live_status': res['status'], 'cells': res['rows'], 'forced_ready': sorted(force_ready)}
+           'live_status': res['status'], 'cells': res['rows'], 'forced_ready': sorted(force_ready),
+           **({} if SPEC.room == RBS.LIVING else {'room': SPEC.room})}     # писатель другой комнаты чужой manifest не берёт
     rc = 0
     if res['fatal']:
         print(f"ERROR:bank_promote: {res['fatal']} — ничего не продвигаем", flush=True)
@@ -774,7 +780,14 @@ if __name__ == '__main__':
         sys.exit(_selftest())
     if '--demo-run' in sys.argv:
         sys.exit(_demo_runner(sys.argv[sys.argv.index('--demo-run') + 1]))
+    room, argv = RBS.room_arg(sys.argv)
+    if room:                                   # `--room X`: пути и флаги комнаты (и у ожидания); каркас — ничего не пишем
+        RBS.bind(sys.modules[__name__], RBS.for_room(room), 'bank_promote')
+        RBS.bind(BP, SPEC, 'bank_pending')
+        gate = SPEC.skeleton_gate('bank_promote', rules(), 'promote_enabled', '--force' in argv)
+        if gate is not None:
+            sys.exit(gate)
     fr = set()
-    if '--force-ready' in sys.argv:
-        fr = {int(x) for x in sys.argv[sys.argv.index('--force-ready') + 1].split(',') if x.strip()}
-    sys.exit(run('--force' in sys.argv, '--no-exam' in sys.argv, fr, RUN.arg(sys.argv)))
+    if '--force-ready' in argv:
+        fr = {int(x) for x in argv[argv.index('--force-ready') + 1].split(',') if x.strip()}
+    sys.exit(run('--force' in argv, '--no-exam' in argv, fr, RUN.arg(argv)))
