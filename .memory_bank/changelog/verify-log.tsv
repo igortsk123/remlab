@@ -123,3 +123,8 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-05	core/onboarding-quiz.md	code	35	3	3	
 2026-11-05	core/partners.md	code	25	1	1	nightly
 2026-11-05	core/manager-links.md	code	24	2	2	nightly
+2026-11-06	core/pipeline-order.md	code	18	0	0	T-62: якорь гейта уточнён на mesh_ready.py:gate_active
+2026-11-06	domain/pipeline-order-details.md	code	42	4	4	T-62: MESH_EXCLUDE, планировщик закрыт, порядок bind/prepare, fsync в JS
+2026-11-06	core/catalog.md	code	20	1	1	T-62: якорь load3.py:404
+2026-11-06	core/demo-planner.md	code	13	1	1	T-62: экран ожидания фото
+2026-11-06	domain/catalog-enrichment.md	code	15	0	0	T-62: только раздел T-53 (роль сиденья, сторож); док целиком не сверен, last_verified не двигали
