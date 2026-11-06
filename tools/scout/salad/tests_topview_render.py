@@ -37,14 +37,21 @@ def make_meshes(src: str, n: int) -> list[str]:
         # вытянутая коробка (не «квадратная»: иначе вид сверху помечает upright_unsure — нам не важно, но ближе к мебели)
         m = trimesh.creation.box(extents=(0.5 + 0.05 * i, 0.4, 0.3))
         m.export(os.path.join(d, 'model.glb'))
-        json.dump({'sku': sku, 'role': 'пуф', 'input': {'sha': f's{i}', 'dims_cm': {'w': 50, 'd': 30}}},
+        json.dump({'sku': sku, 'role': 'комод' if i == 3 else 'пуф', 'input': {'sha': f's{i}', 'dims_cm': {'w': 50, 'd': 30}}},
                   open(os.path.join(d, 'manifest.json'), 'w', encoding='utf-8'), ensure_ascii=False)
         skus.append(sku)
     return skus
 
 
+def glob_glb(src: str, key: str) -> str:
+    import glob
+    return glob.glob(os.path.join(src, key, '*', 'model.glb'))[0]
+
+
 def run(src: str, out: str, **env) -> tuple[int, str]:
-    e = dict(os.environ, TOPVIEW_SRC=src, TOPVIEW_OUT=out, TOPVIEW_BUDGET_S='600', **env)
+    # TOPVIEW_PUBLISHED='' — «на проде ничего не опубликовано», без сети (тест может задать свой файл)
+    e = dict(os.environ, TOPVIEW_SRC=src, TOPVIEW_OUT=out, TOPVIEW_BUDGET_S='600', TOPVIEW_PUBLISHED='')
+    e.update(env)
     r = subprocess.run([PY, os.path.join(HERE, 'topview_render.py')], capture_output=True, text=True,
                        timeout=240, env=e)
     return r.returncode, r.stdout + r.stderr
@@ -121,6 +128,103 @@ def main() -> None:
         check(rc == 0 and new_count(log) == 0 and all('orient_sig' in m6[k] for k in keys),
               f'старые записи без подписи — без массовой перерисовки, подпись проставлена (новых {new_count(log)})')
 
+        print('только решённые: yaw нерешённого не меняется, cabinet_front не перебивает (T-20261105-56)')
+        sys.path.insert(0, os.path.join(HERE, '..'))
+        import orient_policy as OP
+
+        def sha(k):
+            g = glob_glb(src, k)
+            return hashlib.sha256(open(g, 'rb').read()).hexdigest()[:16]
+        pub = os.path.join(tmp, 'published.json')
+        json.dump({keys[2]: {'yaw': 270.0, 'orient': 'orient-v1:auto_resolved:orienter+vlm_agree'}},
+                  open(pub, 'w', encoding='utf-8'))
+        json.dump({f'{skus[1]}|{sha1}|orient-v1': ['auto_resolved', 'orienter+vlm_agree', 270.0, 'md5c'],
+                   f'{skus[2]}|{sha(keys[2])}|orient-v1': ['vlm_pending', 'awaiting_vlm', 90.0, 'p1'],
+                   f'{skus[4]}|{sha(keys[4])}|orient-v1': ['review_pending', 'vlm_disagree', 180.0, 'r1'],
+                   f'{skus[3]}|{sha(keys[3])}|orient-v1': ['auto_resolved', 'orienter+vlm_agree', 90.0, 'c1']},
+                  open(idx, 'w', encoding='utf-8'), ensure_ascii=False)
+        # прежняя запись комода — перебивка фасадом (180) без подписи: legacy-исключения больше нет
+        m6[keys[3]].update({'yaw': 180.0, 'orient': 'orient-v1:cabinet_depth'})
+        m6[keys[3]].pop('orient_sig', None)
+        json.dump(m6, open(os.path.join(out, 'topview.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub)
+        m7 = json.load(open(os.path.join(out, 'topview.json')))
+        e2, e4, e3 = m7[keys[2]], m7[keys[4]], m7[keys[3]]
+        check(rc == 0 and e2['yaw'] == 270.0 and e2['orient'] == 'unresolved:vlm_pending:kept' and e2['status'] == 'vlm_pending',
+              f"vlm_pending: опубликованный поворот 270, не 90 из решения ({e2.get('yaw')}, {e2.get('orient')})")
+        check(e4['yaw'] == 0.0 and e4['orient'] == 'unresolved:review_pending:zero' and e4['status'] == 'review_pending',
+              f"review_pending, на проде нет: прежний поворот прошлого манифеста 0, не 180 ({e4.get('yaw')})")
+        check(e3['yaw'] == 90.0 and 'cabinet' not in e3['orient'] and e3['status'] == 'auto_resolved',
+              f"комод: yaw решения 90, cabinet_front не перебивает, старая запись cabinet_depth пересчитана ({e3.get('yaw')}, {e3.get('orient')})")
+        check('cabinet_front' not in open(os.path.join(HERE, 'topview_render.py'), encoding='utf-8').read().split('"""', 2)[2]
+              .replace('`cabinet_front`', ''), 'в коде вида сверху нет вызова cabinet_front')
+        check(all(OP.YAW_POLICY in m7[k]['orient_sig'] and m7[k]['status'] in m7[k]['orient_sig'] for k in keys),
+              'подпись кэша = версия правила + статус')
+
+        print('смена правила поворота инвалидирует кэш')
+        m7[keys[1]].update({'yaw': 0.0, 'orient': 'старое-правило',
+                            'orient_sig': m7[keys[1]]['orient_sig'].replace(OP.YAW_POLICY, 'yaw-p1')})
+        json.dump(m7, open(os.path.join(out, 'topview.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub)
+        m8 = json.load(open(os.path.join(out, 'topview.json')))
+        check(rc == 0 and m8[keys[1]]['yaw'] == 270.0 and m8[keys[1]]['orient'] != 'старое-правило'
+              and new_count(log) == 1,
+              f"подпись прежней версии правила — запись пересчитана и перерисована ({m8[keys[1]].get('yaw')}, новых {new_count(log)})")
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub)
+        check(rc == 0 and new_count(log) == 0, f'та же версия — из кэша (новых {new_count(log)})')
+
+        print('публикация orient.json: только решённые, прод нерешённым не затирается')
+        import publish_merge as PM
+        prod = {keys[2]: {'yaw': 270.0, 'orient': 'x'}, keys[4]: {'yaw': 90.0, 'orient': 'orient-v1:cabinet_depth'},
+                keys[1]: {'yaw': 0.0, 'orient': 'human:orient-review:cur'}, keys[3]: {'yaw': 180.0, 'orient': 'orient-v1:cabinet_depth'}}
+        merged, held = PM.merge(prod, m8, only_resolved=True)
+        check(merged[keys[2]] == prod[keys[2]] and merged[keys[4]] == prod[keys[4]],
+              'vlm_pending/review_pending — прод-значение без изменений')
+        check(keys[0] not in merged and keys[5] not in merged, 'без решения — в прод не добавляется')
+        check(merged[keys[3]]['yaw'] == 90.0 and merged[keys[3]]['status'] == 'auto_resolved',
+              'решённый комод заменяет прежний cabinet_depth, со status')
+        check(merged[keys[1]] == prod[keys[1]], 'ручное решение прода автоматическим не затирается')
+        check(held == 5, f'не пошло по фильтру: 5 ({held})')
+        merged_all, _ = PM.merge(prod, m8)
+        check(merged_all[keys[2]]['yaw'] == 270.0 and keys[0] in merged_all, 'без флага — прежнее слияние (mesh-index)')
+        bs = open(os.path.join(HERE, 'batch_show.py'), encoding='utf-8').read()
+        step = [ln for ln in bs.splitlines() if "'ориент-паблиш'" in ln]
+        check(len(step) == 1 and '--only-resolved' in step[0], 'шаг «ориент-паблиш» публикует с --only-resolved')
+
+        print('симметричные: случайный yaw БД нигде не всплывает (ведущий 06.11)')
+        ix = json.load(open(idx, encoding='utf-8'))
+        ix[f'{skus[0]}|{sha(keys[0])}|orient-v1'] = ['auto_resolved', 'symmetric_by_role', 90.0, 's0']
+        ix[f'{skus[5]}|{sha(keys[5])}|orient-v1'] = ['auto_resolved', 'symmetric_by_role:upright', 90.0, 's5']
+        json.dump(ix, open(idx, 'w', encoding='utf-8'), ensure_ascii=False)
+        pubd = json.load(open(pub, encoding='utf-8'))
+        pubd[keys[0]] = {'yaw': 270.0, 'orient': 'orient-v1:symmetric:sync'}
+        json.dump(pubd, open(pub, 'w', encoding='utf-8'))
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub)
+        m9 = json.load(open(os.path.join(out, 'topview.json')))
+        s0, s5 = m9[keys[0]], m9[keys[5]]
+        check(rc == 0 and s0['yaw'] == 270.0 and 'symmetric:kept' in s0['orient'],
+              f"симметричный с прод-значением: манифест держит прод 270, не 90 БД ({s0.get('yaw')}, {s0.get('orient')})")
+        check(s5['yaw'] == 0.0 and 'symmetric:zero' in s5['orient'],
+              f"новый симметричный: манифест 0, не 90 БД ({s5.get('yaw')}, {s5.get('orient')})")
+        prod9 = {**prod, keys[0]: pubd[keys[0]]}
+        merged9, _ = PM.merge(prod9, m9, only_resolved=True)
+        check(merged9[keys[0]] == prod9[keys[0]], 'симметричный с прод-значением — прод не меняется')
+        check(merged9[keys[5]]['yaw'] == 0.0 and 'symmetric:zero' in merged9[keys[5]]['orient']
+              and merged9[keys[5]]['status'] == 'auto_resolved', 'новый симметричный в прод: yaw 0, symmetric:zero, status')
+        forced = {**m9, keys[5]: {**s5, 'yaw': 90.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}}
+        check(PM.merge({}, forced, only_resolved=True)[0][keys[5]]['yaw'] == 0.0,
+              'даже если в манифест попал 90 — в прод уходит 0')
+        check(all(float(v['yaw']) != 90.0 for k, v in merged9.items() if k in (keys[0], keys[5]))
+              and all(float(m9[k]['yaw']) != 90.0 for k in (keys[0], keys[5])), 'yaw 90 из БД — ни в манифесте, ни в проде')
+        check(not OP.yaw_sure(merged9[keys[5]]), 'серверный кадр: симметричный не «уверенный» → 0, как прежде')
+
+        print('серверный 3D-кадр: «уверенный» по status, cabinet_* — нет')
+        dr = open(os.path.join(HERE, '..', 'draft_render.py'), encoding='utf-8').read()
+        check("'cabinet_'" not in dr and 'sure = _yaw_sure(oinfo)' in dr, 'draft_render: sure = orient_policy.yaw_sure')
+        check(not OP.yaw_sure({'yaw': 180, 'orient': 'orient-v1:review_pending:cabinet_conflict', 'status': 'review_pending'})
+              and not OP.yaw_sure({'yaw': 180, 'orient': 'orient-v1:cabinet_depth'})
+              and OP.yaw_sure(merged[keys[3]]), 'cabinet_conflict/cabinet_depth не уверенные, решённый — уверенный')
+
         print('фронт корпусных по глубине (cabinet_front --front-by-depth)')
         glb = os.path.join(src, keys[5], 'h0005', 'model.glb')
         r = subprocess.run([PY, os.path.join(HERE, 'cabinet_front.py'), '--front-by-depth', glb],
@@ -137,6 +241,50 @@ def main() -> None:
         later_defs = [n.name for n in tree.body[(mains[-1] + 1 if mains else 0):]
                       if isinstance(n, (ast.FunctionDef, ast.ClassDef))]
         check(bool(mains) and not later_defs, f'точка входа — в конце модуля (объявлений после неё: {later_defs})')
+
+        print('прод берём только у решённой записи и не symmetric у направленной роли (T-20261106-78)')
+        out_t = os.path.join(tmp, 'out-trust')
+        json.dump({f'{skus[2]}|{sha(keys[2])}|orient-v1': ['vlm_pending', 'awaiting_vlm', 90.0, 't2'],
+                   f'{skus[4]}|{sha(keys[4])}|orient-v1': ['review_pending', 'vlm_unsure', 180.0, 't4'],
+                   f'{skus[5]}|{sha(keys[5])}|orient-v1': ['vlm_pending', 'awaiting_vlm', 270.0, 't5'],
+                   f'{skus[3]}|{sha(keys[3])}|orient-v1': ['auto_resolved', 'symmetric_by_role', 90.0, 't3']},
+                  open(idx, 'w', encoding='utf-8'), ensure_ascii=False)
+        pub_t = os.path.join(tmp, 'published-trust.json')
+        json.dump({keys[2]: {'yaw': 270.0, 'orient': 'orient-v1:auto_resolved:orienter+vlm_agree'},
+                   keys[4]: {'yaw': 180.0, 'orient': 'orient-v1:review_pending:vlm_unsure'},   # Теджонс: опубликован нерешённым
+                   keys[5]: {'yaw': 90.0, 'orient': 'human:orient-review:cur'},
+                   keys[3]: {'yaw': 180.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role:symmetric:sync'}},
+                  open(pub_t, 'w', encoding='utf-8'))
+        rc, log = run(src, out_t, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub_t)
+        mt = json.load(open(os.path.join(out_t, 'topview.json')))
+        t2, t4, t5, t3 = mt[keys[2]], mt[keys[4]], mt[keys[5]], mt[keys[3]]
+        check(rc == 0 and t2['yaw'] == 270.0 and t2['orient'].endswith(':kept'), f"решённая прод-запись — поворот держится ({t2})")
+        check(t4['yaw'] == 0.0 and t4['orient'] == 'unresolved:review_pending:zero',
+              f"прод-запись нерешённая (review_pending 180) — не доверяем, 0 ({t4.get('yaw')}, {t4.get('orient')})")
+        check(t5['yaw'] == 90.0 and t5['orient'].endswith(':kept'), f"ручная прод-запись (human:) — держится 90 ({t5.get('yaw')})")
+        check(t3['yaw'] == 0.0 and t3['status'] == 'stale_by_role' and t3['orient'] == 'unresolved:stale_by_role:zero',
+              f"комод «симметричен по роли» — решение устарело, прод-поворот 180 не берём, 0 ({t3.get('yaw')}, {t3.get('orient')})")
+        prod_t = json.load(open(pub_t, encoding='utf-8'))
+        merged_t, _ = PM.merge(prod_t, mt, only_resolved=True)
+        check(merged_t[keys[3]] == prod_t[keys[3]] and merged_t[keys[4]] == prod_t[keys[4]],
+              'устаревшее и нерешённое в прод не уходят (прод не затирается до пересчёта)')
+        # роль манифеста «комод» (направленная), а каскад решал по роли БД «стол обеденный» — не устаревшее (30 столов
+        # с ролью «стул» в манифесте, замер T-78)
+        ixt = json.load(open(idx, encoding='utf-8'))
+        ixt[f'{skus[3]}|{sha(keys[3])}|orient-v1'] = ['auto_resolved', 'symmetric_by_role', 90.0, 't3b', 'стол обеденный']
+        json.dump(ixt, open(idx, 'w', encoding='utf-8'), ensure_ascii=False)
+        rc, log = run(src, out_t, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub_t)
+        t3b = json.load(open(os.path.join(out_t, 'topview.json')))[keys[3]]
+        check(rc == 0 and t3b['status'] == 'auto_resolved' and 'symmetric' in t3b['orient'] and t3b['yaw'] == 180.0,
+              f"роль каскада «стол обеденный» сильнее роли манифеста: симметричный, прод 180 держится ({t3b.get('yaw')}, {t3b.get('orient')})")
+        import topview_render as TR
+        check(TR.kept_yaw('x', None, {'yaw': 180.0, 'orient': 'unresolved:vlm_pending:kept'}) == (180.0, 'kept')
+              and TR.kept_yaw('x', None, {'yaw': 180.0, 'orient': 'unresolved:vlm_pending'}) == (0.0, 'zero')
+              and TR.kept_yaw('x', None, {'yaw': 90.0, 'orient': 'orient-v1:auto_resolved:orienter+vlm_agree'}) == (90.0, 'kept'),
+              'прод не прочитан: прошлый манифест — только с пометкой :kept или решённый')
+        check(TR.kept_yaw('x', {'x': {'yaw': 180.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}}, {}, True) == (0.0, 'zero')
+              and TR.kept_yaw('x', {'x': {'yaw': 180.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}}, {}, False)
+              == (180.0, 'kept'), 'symmetric прод-запись: у направленной роли — 0, у ненаправленной — держится')
 
     print('стенд вида сверху: ' + ('ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛЫ {len(FAILS)}: {FAILS}'))
     sys.exit(1 if FAILS else 0)
