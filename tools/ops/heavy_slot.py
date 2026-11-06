@@ -32,7 +32,7 @@
   * ДВА СЛОТА (T-57/3, HEAVY_SLOT_SLOTS, по умолчанию 2; `1` — один слот, как до T-57/3): первый слот (`slot.lock`, `holder` —
     общие со старой версией) берёт первый в очереди и, как прежде, ждёт в нём свой порог памяти. Второй (`slot2.lock`,
     `holder2`) — только пока первый занят и только если свободно ПО ФАКТУ (MemAvailable сейчас) ≥ порог держателя + свой
-    порог + запас (HEAVY_SLOT_RESERVE_GB, 1 ГБ, но не меньше 5 % MemTotal — earlyoom `-m 10,5` на 5 % убивает, render
+    порог + запас (HEAVY_SLOT_RESERVE_GB, 1 ГБ, но не меньше 10 % MemTotal — earlyoom `-m 10,5` на 10 % шлёт SIGTERM, render
     первым): второй стартует сразу, ждать память во втором слоте нельзя. Не хватает — строго по одному, как прежде;
     держатель первого слота, пока ждёт память, второго не пускает (свободно меньше его же порога).
 Переменные (для самопроверки и особых случаев): HEAVY_SLOT_DIR (замок и состояние, по умолчанию ~/.cache/remlab-heavy-slot —
@@ -90,9 +90,9 @@ def slots() -> int:
 
 
 def reserve_gb() -> float:
-    """Запас для второго держателя: HEAVY_SLOT_RESERVE_GB (1 ГБ), но не меньше 5 % памяти (порог SIGKILL earlyoom)."""
+    """Запас для второго держателя: HEAVY_SLOT_RESERVE_GB (1 ГБ), но не меньше 10 % памяти (порог SIGTERM earlyoom)."""
     try:
-        floor = 0.05 * _meminfo('MemTotal')
+        floor = 0.10 * _meminfo('MemTotal')
     except (OSError, RuntimeError):
         floor = 0.0
     return max(_env_f('HEAVY_SLOT_RESERVE_GB', 1.0), floor)
