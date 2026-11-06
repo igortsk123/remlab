@@ -48,11 +48,21 @@
   * ПОРОГ ПО ЗАМЕРУ (T-74): при ≥ 3 засчитанных замерах типа (держание ≥ HEAVY_SLOT_MEASURE_MIN_S, 30 с; последние 10)
     эффективный порог = min(объявленный, max(1,5 × наибольший пик, HEAVY_SLOT_EFF_FLOOR_GB 0,5)); замеров меньше —
     объявленный. Им же считается и своё ожидание, и доля держателя у следующих (`eff_gb` в записи держателя).
+  * ОБГОН (backfill, T-79): голова очереди не проходит по памяти в свободный дополнительный слот — его берёт СЛЕДУЮЩИЙ ПО
+    ПОРЯДКУ, кто проходит сейчас (тот же допуск, что у дополнительного слота: по факту, стартует сразу). Только слоты 2…N и
+    только пока слот 1 занят: свободный слот 1 берёт голова, как прежде (у старых версий общий только слот 1 — их не задевает).
+    Впереди проходящий (голова любой версии или ожидающий этой версии, `bf=1`) — его очередь, не моя; ожидающий старой версии не
+    в голове сам не обгоняет — его не ждём. ЗАЩИТА ГОЛОВЫ: обгон закрыт, пока голова ждёт дольше HEAVY_SLOT_BACKFILL_MIN (мин,
+    20; 0 — обгона нет): новые не стартуют, слоты стекают к ней. Ожидание головы — с момента, как она стала первой (метка
+    `head` под `queue.lock`; считать от прихода нельзя — задача, простоявшая в хвосте, закрывала бы обгон сразу, ровно в
+    заторе 06.11), а у держателя слота 1, ждущего память, — с начала ожидания памяти. Голова ждёт не дольше
+    HEAVY_SLOT_BACKFILL_MIN + оставшееся держание тех, кто уже идёт.
 Переменные (для самопроверки и особых случаев): HEAVY_SLOT_DIR (замок и состояние, по умолчанию ~/.cache/remlab-heavy-slot —
 одинаково в кроне и в сессии, не в репо), HEAVY_SLOT_LOG, HEAVY_SLOT_MEMINFO (подмена /proc/meminfo), HEAVY_SLOT_POLL (с, 30),
 HEAVY_SLOT_REPORT (строка «ждёт» в журнал раз в N с, 300), HEAVY_SLOT_YIELD, HEAVY_SLOT_MAX_YIELDS, HEAVY_SLOT_SLOTS,
 HEAVY_SLOT_RESERVE_GB, HEAVY_SLOT_HEAD_POLL, HEAVY_SLOT_SAMPLE, HEAVY_SLOT_LONG_S, HEAVY_SLOT_MEASURE_MIN_S,
-HEAVY_SLOT_EFF_FLOOR_GB, HEAVY_SLOT_MEM_STUB (файл «метка ГБ» — подмена замера памяти дерева для самопроверки).
+HEAVY_SLOT_EFF_FLOOR_GB, HEAVY_SLOT_MEM_STUB (файл «метка ГБ» — подмена замера памяти дерева для самопроверки),
+HEAVY_SLOT_BACKFILL_MIN.
 """
 from __future__ import annotations
 
@@ -138,6 +148,14 @@ def _read_kv(path: str) -> dict | None:
             return dict(ln.rstrip('\n').split('=', 1) for ln in f if '=' in ln)
     except OSError:
         return None
+
+
+def _num(x) -> str:
+    """Число из записи «как есть» без лишних нулей (6.0 → 6); не число — как есть."""
+    try:
+        return f'{float(x):g}'
+    except (TypeError, ValueError):
+        return str(x)
 
 
 def _sec(x: float) -> str:
@@ -274,7 +292,50 @@ def _tickets(d: str, clean: bool = False) -> list:
                                              stage='очередь').items()}
             _write_kv(p, rec)
             out.append((n, p, rec))
+        _mark_head(d, out)
     return out
+
+
+def _head_path(d: str) -> str:
+    return os.path.join(d, 'head')
+
+
+def _mark_head(d: str, live: list) -> None:
+    """Метка «кто первый и с какого момента» (T-79; вызывать под `_qlock`): сменился первый билет — новое время."""
+    hp = _head_path(d)
+    first = os.path.basename(live[0][1]) if live else ''
+    cur = _read_kv(hp) or {}
+    if cur.get('ticket') == first:
+        return
+    if first:
+        _write_kv(hp, {'ticket': first, 'since': f'{time.time():.3f}', 'label': live[0][2].get('label', '?')})
+    else:
+        _unlink(hp)
+
+
+def backfill_s() -> float:
+    """Сколько голова может ждать, пока её обгоняют (HEAVY_SLOT_BACKFILL_MIN, мин, 20) → с; ≤ 0 — обгона нет."""
+    return _env_f('HEAVY_SLOT_BACKFILL_MIN', 20) * 60
+
+
+def _head_wait(d: str, live: list, now: float | None = None) -> tuple[str, float]:
+    """Голова и сколько она ждёт головой → (метка, с); головы нет — ('', 0). Голова — первый живой билет (с момента, как
+    стал первым: метка `head`) и держатель слота 1, ждущий память (с начала ожидания памяти); из двух — кто ждёт дольше."""
+    now = time.time() if now is None else now
+    best = ('', 0.0)
+    h = _read_kv(_holder_file(d, 1)) or {}
+    if h.get('stage') == 'память' and is_held(1):
+        with contextlib.suppress(KeyError, ValueError):
+            best = (h.get('label', '?'), now - float(h['since']))
+    if live:
+        m = _read_kv(_head_path(d)) or {}
+        t = 0.0
+        if m.get('ticket') == os.path.basename(live[0][1]):
+            with contextlib.suppress(KeyError, ValueError):
+                t = max(now - float(m['since']), 0.0)
+        if not best[0] or t > best[1]:
+            best = (live[0][2].get('label', '?'), t)
+    return best
 
 
 def _my_turn(d: str, ticket: str) -> bool:
@@ -576,8 +637,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
     if eff_why:
         note(eff_why)
     me = {'label': label, 'pid': os.getpid(), 'since': int(t0), 'min_gb': min_gb, 'eff_gb': round(own, 3), 'type': typ,
-          'cmd': cmd[:300]}
-    got, ticket, yields, t_lock, extra_why = False, None, 0, 0.0, ''
+          'bf': 1, 'cmd': cmd[:300]}
+    got, ticket, yields, t_lock, extra_why, said_closed = False, None, 0, 0.0, '', False
 
     def grab(try_extra: bool) -> int:
         """Первый в очереди: занять слот 1, иначе (раз в step) — второй по памяти. → номер слота или 0."""
@@ -599,20 +660,78 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 return k
             fcntl.flock(fds[k], fcntl.LOCK_UN)
         return 0
+
+    def backfill(tk: str) -> int:
+        """ОБГОН (T-79): я не первый; все впереди, кто может взять дополнительный слот, не проходят по памяти, я — проходит:
+        беру свободный слот 2…N сразу (как `grab`, ждать память в нём нельзя). Закрыт, пока голова ждёт дольше
+        HEAVY_SLOT_BACKFILL_MIN, и пока свободен слот 1 (его берёт голова). → номер слота или 0."""
+        nonlocal extra_why, said_closed
+        lim = backfill_s()
+        if lim <= 0 or not is_held(1):
+            return 0
+        free_k = [k for k in range(2, n + 1) if not is_held(k)]
+        res = reserve_gb()
+        if not free_k or mem_available_gb() - res < own:      # дешёвые отсечки до разбора держателей
+            return 0
+        with _qlock(d):                               # решение и запись держателя — одним шагом против других обгоняющих
+            live = _tickets(d)
+            pos = next((i for i, x in enumerate(live) if x[1] == tk), -1)
+            if pos <= 0:
+                return 0
+            who, waited = _head_wait(d, live)
+            if waited >= lim:
+                if not said_closed:
+                    note(f'обгон закрыт: голова {who} ждёт {waited / 60:.0f} мин (≥ {lim / 60:g}) — новые не стартуют, '
+                         f'слоты стекают к ней; жду по очереди')
+                    said_closed = True
+                return 0
+            others = _holders_need(d, 0, n)[0]
+            room = mem_available_gb() - others - res
+            if own > room:
+                return 0
+            for i, (_, _, kv) in enumerate(live[:pos]):
+                if kv.get('proxy') == '1' or (i > 0 and kv.get('bf') != '1'):
+                    continue                          # старая версия не в голове сама не обгоняет — её не ждём
+                try:
+                    th = float(kv.get('eff_gb') or kv['min_gb'])
+                except (KeyError, ValueError):
+                    continue
+                if th <= room:
+                    return 0                          # впереди тот, кто проходит, — его очередь
+            hd = live[0][2]
+            for k in free_k:
+                try:
+                    fcntl.flock(fds[k], fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue
+                ok, why, free_k_gb = _admit(d, k, own, n)
+                if ok:
+                    extra_why = (f"обогнал голову {hd.get('label', '?')} (порог {_num(hd.get('eff_gb') or hd.get('min_gb'))} не "
+                                 f"проходит: место {room:.1f} ГБ; голова ждёт {waited / 60:.0f} мин из {lim / 60:g}); {why}")
+                    _write_kv(_holder_file(d, k), dict(me, since=int(time.time()), stage='работает',
+                                                       free_gb=round(free_k_gb, 1), yields=yields, slot=k, backfill=1,
+                                                       over=hd.get('label', '?')))
+                    return k
+                fcntl.flock(fds[k], fcntl.LOCK_UN)
+        return 0
     try:
         while True:                                   # круг: билет → очередь → слот → память (или уступка → новый билет)
             ticket = _take_ticket(d, dict(me, yields=yields))
-            said, head, t_chk, t_extra = False, False, -1e9, -1e9
+            said, head, t_chk, t_extra, t_bf = False, False, -1e9, -1e9, -1e9
             while True:
                 now = time.time()
                 if now - t_chk >= step:               # первого не сдвинуть (новые — в конец): сверка раз в step
                     head, t_chk = _my_turn(d, ticket), now
+                k = 0
                 if head:
                     k = grab(n > 1 and now - t_extra >= step)
                     if n > 1 and now - t_extra >= step:
                         t_extra = now
-                    if k:
-                        break
+                elif n > 1 and now - t_bf >= step:    # не первый — обгон в свободный дополнительный слот (T-79)
+                    t_bf = now
+                    k = backfill(ticket)
+                if k:
+                    break
                 if not said:
                     h = _read_kv(holder_p) or {}
                     note(f"ждёт очередь: держит {h.get('label', '?')} pid={h.get('pid', '?')}, билет {os.path.basename(ticket)}")
@@ -743,8 +862,9 @@ def _ago(since: str | None) -> str:
 def status(out=sys.stdout) -> int:
     n = slots()
     d = os.path.dirname(_lock_file())
+    live = _tickets(d)
     waiters = [dict(kv, ticket=f"{kv.get('ticket')} (за старую версию без билета)") if kv.get('proxy') == '1' else kv
-               for _, _, kv in _tickets(d)]                        # по порядку билетов: первый — следующий
+               for _, _, kv in live]                               # по порядку билетов: первый — следующий
     proxied = {w['pid'] for w in waiters if w.get('proxy') == '1'}
     names = [f for f in os.listdir(os.path.join(d, 'wait')) if '.tmp' not in f]
     dead = sum(1 for f in names if _is_ticket(f)) - len(waiters)
@@ -763,7 +883,8 @@ def status(out=sys.stdout) -> int:
             eff = h.get('eff_gb')
             eff_s = f" (по замеру {float(eff):.2f})" if eff and float(eff) < float(h.get('min_gb') or 0) else ''
             pr(f"ДЕРЖИТ: {h['label']} · pid {h['pid']} · {h.get('stage', '?')} {_ago(h.get('since'))} · порог {h.get('min_gb')} ГБ"
-               + eff_s + (f" · уступок {h['yields']}" if h.get('yields') not in (None, '0') else '') + tag)
+               + eff_s + (f" · уступок {h['yields']}" if h.get('yields') not in (None, '0') else '')
+               + (f" · обогнал голову {h.get('over', '?')}" if h.get('backfill') == '1' else '') + tag)
             a, b = tree_mem(int(h['pid']), h['label'])
             pr(f"  процесс: {_proc(int(h['pid']))}")
             pr(f"  память дерева сейчас: {a:.2f} ГБ (RSS {b:.2f})")
@@ -786,6 +907,15 @@ def status(out=sys.stdout) -> int:
                  + (f" · уступок {w['yields']}" if w.get('yields') not in (None, '0') else '')
                  for k, w in enumerate(waiters, 1))
        + (f'\n  (записей умерших ожидающих: {dead} — не считаются)' if dead else ''))
+    if n > 1:
+        lim, (who, w) = backfill_s(), _head_wait(d, live)
+        if lim <= 0:
+            pr('ОБГОН: выключен (HEAVY_SLOT_BACKFILL_MIN ≤ 0) — строго по порядку прихода')
+        elif who and w >= lim:
+            pr(f'ОБГОН: обгон закрыт: голова {who} ждёт {w / 60:.0f} мин (≥ {lim / 60:g}) — новые не стартуют, слоты стекают к ней')
+        elif who:
+            pr(f'ОБГОН: открыт — голова {who} ждёт {w / 60:.0f} мин из {lim / 60:g}; не проходит по памяти — свободный '
+               'дополнительный слот берёт следующий, кто проходит')
     try:
         pr(f'ПАМЯТЬ: свободно {mem_available_gb():.1f} ГБ')
     except (OSError, RuntimeError) as e:
