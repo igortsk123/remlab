@@ -18,7 +18,8 @@
 `--only-resolved` — для `orient.json` из манифеста вида сверху (план orient-cabinet-01, этап 1; T-20261105-56): идут
 только записи со статусом `auto_resolved|human_resolved` (`orient_policy.publishable`). Нерешённое
 (`vlm_pending`/`review_pending`/без статуса) прод-значение НЕ затирает; ручное решение прода (`human:*`) затирает
-только `human_resolved` из БД.
+только `human_resolved` из БД. Симметричный (`symmetric_by_role`) прод-значение не затирает, новый — yaw 0 с меткой
+`symmetric:zero`: yaw БД у симметричных — случайное наследие (ведущий 06.11, `orient_policy.publish_entry`).
 """
 import json
 import os
@@ -52,8 +53,9 @@ def merge(remote_data: dict, local: dict, only_resolved: bool = False) -> tuple[
     if only_resolved:
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
         import orient_policy as OP
-        held = {k for k, v in local.items() if not OP.publishable(v, remote_data.get(k))}
-        local = {k: v for k, v in local.items() if k not in held}
+        out = {k: OP.publish_entry(v, remote_data.get(k)) for k, v in local.items()}
+        held = {k for k, v in out.items() if v is None}
+        local = {k: v for k, v in out.items() if v is not None}
     else:
         held = set()
     merged = dict(remote_data)

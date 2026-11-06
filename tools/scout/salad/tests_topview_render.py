@@ -191,6 +191,33 @@ def main() -> None:
         step = [ln for ln in bs.splitlines() if "'ориент-паблиш'" in ln]
         check(len(step) == 1 and '--only-resolved' in step[0], 'шаг «ориент-паблиш» публикует с --only-resolved')
 
+        print('симметричные: случайный yaw БД нигде не всплывает (ведущий 06.11)')
+        ix = json.load(open(idx, encoding='utf-8'))
+        ix[f'{skus[0]}|{sha(keys[0])}|orient-v1'] = ['auto_resolved', 'symmetric_by_role', 90.0, 's0']
+        ix[f'{skus[5]}|{sha(keys[5])}|orient-v1'] = ['auto_resolved', 'symmetric_by_role:upright', 90.0, 's5']
+        json.dump(ix, open(idx, 'w', encoding='utf-8'), ensure_ascii=False)
+        pubd = json.load(open(pub, encoding='utf-8'))
+        pubd[keys[0]] = {'yaw': 270.0, 'orient': 'orient-v1:symmetric:sync'}
+        json.dump(pubd, open(pub, 'w', encoding='utf-8'))
+        rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub)
+        m9 = json.load(open(os.path.join(out, 'topview.json')))
+        s0, s5 = m9[keys[0]], m9[keys[5]]
+        check(rc == 0 and s0['yaw'] == 270.0 and 'symmetric:kept' in s0['orient'],
+              f"симметричный с прод-значением: манифест держит прод 270, не 90 БД ({s0.get('yaw')}, {s0.get('orient')})")
+        check(s5['yaw'] == 0.0 and 'symmetric:zero' in s5['orient'],
+              f"новый симметричный: манифест 0, не 90 БД ({s5.get('yaw')}, {s5.get('orient')})")
+        prod9 = {**prod, keys[0]: pubd[keys[0]]}
+        merged9, _ = PM.merge(prod9, m9, only_resolved=True)
+        check(merged9[keys[0]] == prod9[keys[0]], 'симметричный с прод-значением — прод не меняется')
+        check(merged9[keys[5]]['yaw'] == 0.0 and 'symmetric:zero' in merged9[keys[5]]['orient']
+              and merged9[keys[5]]['status'] == 'auto_resolved', 'новый симметричный в прод: yaw 0, symmetric:zero, status')
+        forced = {**m9, keys[5]: {**s5, 'yaw': 90.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}}
+        check(PM.merge({}, forced, only_resolved=True)[0][keys[5]]['yaw'] == 0.0,
+              'даже если в манифест попал 90 — в прод уходит 0')
+        check(all(float(v['yaw']) != 90.0 for k, v in merged9.items() if k in (keys[0], keys[5]))
+              and all(float(m9[k]['yaw']) != 90.0 for k in (keys[0], keys[5])), 'yaw 90 из БД — ни в манифесте, ни в проде')
+        check(not OP.yaw_sure(merged9[keys[5]]), 'серверный кадр: симметричный не «уверенный» → 0, как прежде')
+
         print('серверный 3D-кадр: «уверенный» по status, cabinet_* — нет')
         dr = open(os.path.join(HERE, '..', 'draft_render.py'), encoding='utf-8').read()
         check("'cabinet_'" not in dr and 'sure = _yaw_sure(oinfo)' in dr, 'draft_render: sure = orient_policy.yaw_sure')

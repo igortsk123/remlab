@@ -13,6 +13,8 @@ supersample ×2 и downscale — против зубцов.
 ОПУБЛИКОВАННЫЙ поворот без изменений (прод `orient.json`; нет там — прошлый манифест; нет — 0), пометка
 `orient=unresolved:<статус>`, поле `status`. Фасад по глубине (`cabinet_front`) решение больше НЕ перебивает:
 на листах T-36/5 он выбирал утопленную заднюю стенку в рамке (решение 31.08 отменено; свидетелем — этап 2).
+Симметричные (`symmetric_by_role`): yaw БД — случайное наследие, не берётся — опубликованный поворот, нет — 0
+(`orient_policy.symmetric_yaw`, пометка `symmetric:kept|zero`).
 """
 import glob
 import json
@@ -391,7 +393,17 @@ def main() -> None:
         rk, dec = orient_for(man['sku'], glb, index)
         status = dec[0] if dec else 'none'
         prev = prev_man.get(sku) or {}
-        if OP.is_resolved(status):
+        if OP.is_resolved(status) and OP.is_symmetric(dec[1]):
+            # симметричный (столик, люстра…): yaw БД — случайное наследие, не берём (ведущий 06.11). Тот же, что на
+            # проде (3D демо и пятно `flat215_demo._mesh_ext` не сдвигаются), нет на проде — 0, как `draft_render`.
+            # Прод не прочитан — поворот прошлого манифеста, только если его уже ставило это правило.
+            pub = (published or {}).get(sku)
+            if published is None and ':symmetric:' in str(prev.get('orient') or ''):
+                pub = {'yaw': prev.get('yaw')}
+            yaw, mark = OP.symmetric_yaw(pub)
+            st = f'{ORIENT_CONTRACT}:{dec[0]}:{dec[1]}:{mark}'
+            sig = orient_sig(rk, dec, yaw)
+        elif OP.is_resolved(status):
             # ТОЛЬКО снэпнутый скаляр legacy_front_yaw, матрица R каскада здесь НЕ применяется (владелец 31.08:
             # полный R давал наклоны и «фронт под углом», авто-переворот портил здоровые диваны)
             yaw = float(round(dec[2] / 90.0) * 90 % 360)

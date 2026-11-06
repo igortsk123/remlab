@@ -17,7 +17,9 @@ RESOLVED = frozenset({'auto_resolved', 'human_resolved'})
 # Версия правила поворота вида сверху: входит в подпись кэша (`topview_render.orient_sig`). Сменил правило — подними
 # версию, иначе записи с прежней подписью возьмутся из кэша и новое правило до них не дойдёт.
 #   p2 (05.11): yaw только из решённых, без перебивки cabinet_front, нерешённым — опубликованный поворот
-YAW_POLICY = 'yaw-p2'
+#   p3 (06.11): симметричным (`symmetric_by_role`) yaw БД не берём — он наследие и случайный (324 разных значения):
+#               есть на проде — тот же, нет — 0 (как ставит `draft_render`)
+YAW_POLICY = 'yaw-p3'
 # Старые записи прода (до поля status): «уверенные» по источнику. `cabinet_` убран — фасад по глубине не судья.
 _LEGACY_SURE = ('seat_agree', 'vlm_agree', 'confident', 'human')
 
@@ -37,14 +39,41 @@ def yaw_sure(oinfo: dict) -> bool:
     return any(k in src for k in _LEGACY_SURE)
 
 
+def is_symmetric(src) -> bool:
+    """Источник решения — «симметричный по роли» (столик, люстра, ваза…): фронта нет, yaw БД — случайное наследие."""
+    return 'symmetric' in str(src or '')
+
+
+def symmetric_yaw(pub: dict | None) -> tuple[float, str]:
+    """Поворот симметричного (ведущий 06.11, T-20261105-56): yaw БД не берём НИГДЕ. Есть на проде — тот же (3D демо и
+    пятно на полу не сдвигаются), нет — 0, как ставит `draft_render`. → (yaw, метка)."""
+    if pub and pub.get('yaw') is not None:
+        return float(pub['yaw']), 'symmetric:kept'
+    return 0.0, 'symmetric:zero'
+
+
 def publishable(local: dict, prod: dict | None) -> bool:
     """Идёт ли локальная запись вида сверху в прод `orient.json`. Только решённые; ручное решение прода
-    (`human:*` — `/test/orient-review/`, агент-визуал) не затирается автоматическим, только `human_resolved` из БД."""
+    (`human:*` — `/test/orient-review/`, агент-визуал) не затирается автоматическим, только `human_resolved` из БД;
+    симметричный прод-значение не затирает (ведущий 06.11)."""
     if not is_resolved((local or {}).get('status')):
         return False
     if str((prod or {}).get('orient') or '').startswith('human:') and local.get('status') != 'human_resolved':
         return False
+    if is_symmetric(local.get('orient')) and prod and prod.get('yaw') is not None:
+        return False
     return True
+
+
+def publish_entry(local: dict, prod: dict | None) -> dict | None:
+    """Запись для прод `orient.json` или None (прод не трогать). Новый симметричный — yaw 0 с меткой `symmetric:zero`,
+    даже если в манифест попал другой поворот: случайный yaw БД в прод не уходит."""
+    if not publishable(local, prod):
+        return None
+    if is_symmetric(local.get('orient')):
+        src = str(local.get('orient') or '')
+        return {**local, 'yaw': 0.0, 'orient': src if 'symmetric:zero' in src else f'{src}:symmetric:zero'}
+    return local
 
 
 def selftest() -> int:
@@ -79,6 +108,19 @@ def selftest() -> int:
        'ручное решение прода автоматическим не затирается')
     ok(publishable({'yaw': 0, 'status': 'human_resolved'}, {'yaw': 180, 'orient': 'human:orient-review:new'}),
        'human_resolved из БД заменяет ручное решение прода')
+    sym = {'yaw': 90.0, 'status': 'auto_resolved', 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}
+    ok(publish_entry(sym, {'yaw': 270.0, 'orient': 'orient-v1:symmetric:sync'}) is None,
+       'симметричный с прод-значением — прод не меняется')
+    e = publish_entry(sym, None) or {}
+    ok(e.get('yaw') == 0.0 and e.get('orient', '').endswith('symmetric:zero') and e.get('status') == 'auto_resolved',
+       'новый симметричный — yaw 0, метка symmetric:zero, со status (случайные 90 БД не уходят)')
+    ok(publish_entry({**sym, 'orient': 'x:symmetric:zero', 'yaw': 0.0}, None)['orient'] == 'x:symmetric:zero',
+       'метка symmetric:zero не дублируется')
+    ok(symmetric_yaw({'yaw': 180}) == (180.0, 'symmetric:kept') and symmetric_yaw(None) == (0.0, 'symmetric:zero')
+       and symmetric_yaw({'orient': 'x'}) == (0.0, 'symmetric:zero'), 'symmetric_yaw: прод → тот же, нет → 0')
+    nonsym = {'yaw': 90.0, 'status': 'auto_resolved', 'orient': 'orient-v1:auto_resolved:orienter+vlm_agree'}
+    ok(publish_entry(nonsym, {'yaw': 0.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}) == nonsym,
+       'несимметричное решение заменяет прежний symmetric на проде')
     print('политика разворота: ' + ('ВСЁ ЗЕЛЁНОЕ' if not fails else f'ПРОВАЛЫ {len(fails)}'))
     return 1 if fails else 0
 
