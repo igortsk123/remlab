@@ -107,10 +107,10 @@ parent_plan: room-pipeline-01
 
 - 2026-11-06 13:45 — этап 1 (T-20261106-72) влит e1fa6c38: `is_entrance` во всех вариантах, `entrance-east` из рабочих убран, реестр `CAPABILITIES`, спрос мешей из реестра (WANT_ROOMS bedroom+hall, по слотам — bedroom); селфтесты OK, CI — гейт
 - 2026-11-06 14:02 — этап 2 выдан T-20261106-81 (Работник 1)
+- 2026-11-06 23:20 — [lead] hall-demo-01 этап 3 выдан T-98 (рабочий 7)
 
 ## Completion summary
 
 ### Уроки
 
 ## Follow-up work
-- 2026-11-06 23:20 — [lead] hall-demo-01 этап 3 выдан T-98 (рабочий 7)
