@@ -92,6 +92,8 @@ parent_plan: room-pipeline-01
 
 - 2026-11-06 06:12 — владелец (TG 153): «да, продолжать» → этапы Б–Ж разрешены; этап А сделан (T-60, 360ccdcf)
 
+- 2026-11-06 08:05 — этап Б принят (T-67, ef6c44a5+98ef85ae): `tools/scout/room_bank_spec.py`, гостиная побайтно (golden), флаги `rooms.bedroom.*` в `rules/bank-candidate.json`; этап В выдан (T-70)
+
 ## Completion summary
 
 ### Уроки
