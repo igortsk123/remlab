@@ -14,11 +14,14 @@ import { demoUrl, LIVE_CHECK_HEADERS } from "./browser";
 // МУТАЦИЯ (доказать, что проверка ловит поломку): `LIVE_MUTATE='[["было","стало"],…]'` — подмена строк в HTML демо до загрузки
 // (страница та же, что на проде, но со сломанным условием). Пример: `LIVE_MUTATE='[["const PHOTO_EST_S=30;","const PHOTO_EST_S=60;"]]'`
 // → 2.43 красный. Не найденная строка — тест падает сразу (мутация не применилась — доказательства нет).
+// ЛОКАЛЬНАЯ СБОРКА (правка ещё не на проде): `LIVE_DEMO_HTML=tools/scout/flat215-demo/index.html` — вместо HTML демо с прода
+// отдаётся этот файл (API, каталог и картинки — по-прежнему прод); мутация, если задана, применяется уже к нему.
 
 const say = (...a: unknown[]) => console.log("  ·", ...a);
 const ROOT = process.cwd();                                      // прогон — из корня репозитория (как у конфига)
 const MUT = JSON.parse(process.env.LIVE_MUTATE || "[]") as [string, string][];
 const SHOTS = process.env.LIVE_SHOTS_DIR || "";                   // папка снимков прогона (новая, с меткой времени)
+const LOCAL_HTML = process.env.LIVE_DEMO_HTML ? readFileSync(process.env.LIVE_DEMO_HTML, "utf8") : "";
 const shoot = async (page: Page, name: string) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` }); };
 
 const phone: BrowserContextOptions = { viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: "ru-RU" };
@@ -39,12 +42,13 @@ async function demoPage(browser: Browser, ctxOpt: BrowserContextOptions, q = "",
   // глобалы страницы объявлены `let/const` (items, VW, LIVE, D…) — в `window` их нет; `__g("items")` читает их по имени
   await page.addInitScript("window.__g = (n) => eval(n)");
   await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
-  if (MUT.length) await page.route((u) => /^\/demo\/?(index\.html)?$/.test(u.pathname), async (r) => {
+  if (MUT.length || LOCAL_HTML) await page.route((u) => /^\/demo\/?(index\.html)?$/.test(u.pathname), async (r) => {
     if (r.request().resourceType() !== "document") return r.continue();
     const res = await r.fetch();
-    let body = await res.text();
+    let body = LOCAL_HTML || await res.text();
+    if (LOCAL_HTML) console.log("  ! ЛОКАЛЬНЫЙ HTML демо:", process.env.LIVE_DEMO_HTML);
     for (const [a, b] of MUT) { if (!body.includes(a)) throw new Error(`мутация не применилась: нет «${a}»`); body = body.split(a).join(b); }
-    console.log("  ! МУТАЦИЯ:", MUT.map(([a, b]) => `«${a}» → «${b}»`).join("; "));
+    if (MUT.length) console.log("  ! МУТАЦИЯ:", MUT.map(([a, b]) => `«${a}» → «${b}»`).join("; "));
     await r.fulfill({ response: res, body });
   });
   // сохранение коллекции — подменой: id и секрет как у сервера, чтение по id — «нет» (страница это переживает, см. afterSave)
@@ -315,14 +319,29 @@ test("2.40 под любым полноэкранным слоем страни�
         await page.evaluate("if (VW.mode === 'photo') vwMode('walk'); if (window.vwSheet) vwSheet(3)"); await page.waitForTimeout(500);
         await page.locator("#shotbody [data-rep]").first().click(); await expect(page.locator("#sheet")).toHaveClass(/\bopen\b/);
       }, async () => {
+        const st = async () => await page.evaluate("({ shot: document.getElementById('shot').classList.contains('on'), sheet: document.getElementById('sheet').classList.contains('open'), pos: document.body.style.position })") as { shot: boolean; sheet: boolean; pos: string };
+        await shoot(page, `2.40-sheet-0-open-${label}`);
         if (isDesk) {
-          // компьютер: Esc при открытой ленте замен — закрывается и лента, а не только окно под ней
+          // компьютер: Esc закрывает ВЕРХНИЙ слой, по одному за нажатие — сперва ленту замен (окно под ней остаётся), потом окно
           await page.keyboard.press("Escape"); await page.waitForTimeout(400);
-          const st = await page.evaluate("({ shot: document.getElementById('shot').classList.contains('on'), sheet: document.getElementById('sheet').classList.contains('open') })") as { shot: boolean; sheet: boolean };
-          if (!st.shot && st.sheet) { bad.push(`${label} лента замен: Esc закрыл окно, а лента замен осталась открытой поверх главной (страница заперта)`); await shoot(page, `2.40-esc-sheet-${label}`); }
+          const a = await st(); await shoot(page, `2.40-sheet-1-esc-${label}`);
+          if (!a.shot && a.sheet) bad.push(`${label} лента замен: Esc закрыл окно, а лента замен осталась открытой поверх главной (страница заперта)`);
+          else if (a.sheet) bad.push(`${label} лента замен: первый Esc ленту не закрыл`);
+          else if (!a.shot) bad.push(`${label} лента замен: первый Esc закрыл и ленту, и окно под ней — ждали по одному слою`);
+          await page.keyboard.press("Escape"); await page.waitForTimeout(400);
+          const b = await st(); await shoot(page, `2.40-sheet-2-esc-${label}`);
+          if (b.shot) bad.push(`${label} лента замен: второй Esc окно варианта не закрыл`);
+          if (!b.shot && !b.sheet && b.pos === "fixed") bad.push(`${label} лента замен: все слои закрыты, а body всё ещё fixed`);
+        } else {
+          // телефон: как раньше — «×» ленты, потом «×» окна
+          if (await page.locator("#sheet.open").count()) { await page.locator("#sh-close").click(); await page.waitForTimeout(400); }
+          const a = await st(); await shoot(page, `2.40-sheet-1-x-${label}`);
+          if (a.sheet) bad.push(`${label} лента замен: «×» ленту не закрыл`);
+          if (!a.shot) bad.push(`${label} лента замен: «×» ленты закрыл и окно варианта`);
         }
         if (await page.locator("#sheet.open").count()) { await page.locator("#sh-close").click(); await page.waitForTimeout(400); }
         await shutShot();
+        await shoot(page, `2.40-sheet-3-closed-${label}`);
       }],
       ["конструктор #cons", async () => {
         await page.locator(LIVING).click(); await page.locator('#shot [data-vm="plan"]').click(); await page.locator("#vCta").click();
@@ -330,6 +349,11 @@ test("2.40 под любым полноэкранным слоем страни�
       }, async () => {
         if (isDesk) await page.keyboard.press("Escape"); else await page.locator("#consDone").click();
         await page.waitForTimeout(400);
+        // не закрылся — запись в список и «Готово», чтобы прогон дошёл до конца и показал все находки разом
+        if (await page.locator("#cons.on").count()) {
+          bad.push(`${label} конструктор: ${isDesk ? "Esc" : "«Готово»"} его не закрыл`);
+          await page.locator("#consDone").click(); await page.waitForTimeout(400);
+        }
         await expect(page.locator("#cons")).not.toHaveClass(/\bon\b/);
         await shutShot();
       }],

@@ -1205,13 +1205,27 @@ function init(){
     if(!t.classList.contains('soon'))return;
     toast(/Кухня/.test(t.textContent)?'Кухня появится следующим шагом — варианты от партнёров застройщика.'
       :'Спальни появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.');}));
-  document.addEventListener('keydown',e=>{if(e.key==='Escape')ml.classList.remove('on');});
   on('shotclose','onclick',closeShot);
   // «×» ЗАКРЫВАЕТ ВЕРХНИЙ СЛОЙ (demo-02 v5.2 п.6, владелец 18.10: «закрывает не то — это путает»): на телефоне при полной шторке
   // окна варианта — сворачивает список (как чип «⌄ Свернуть»), иначе закрывает окно. Программный `click()` (переход в избранное,
   // «назад» браузера) закрывает окно всегда
   on('shotx','onclick',e=>{if(e&&e.isTrusted&&typeof vwXCollapses==='function'&&vwXCollapses()){vwSheet(0); return;} closeShot();});
-  window.addEventListener('keydown',e=>{if(e.key==='Escape')closeShot();});
+  // ESC ЗАКРЫВАЕТ ВЕРХНИЙ ОТКРЫТЫЙ СЛОЙ, ПО ОДНОМУ ЗА НАЖАТИЕ (T-20261106-69/2, живая проверка 2.40): раньше каждый слой слушал
+  // Esc сам, и окно варианта закрывалось из-под открытой ленты замен — лента с затемнением оставалась над главной, страница
+  // заперта. Теперь обработчик один: из открытых слоёв `PAGE_LAYERS` (+ окошко имени `#favPop`) — верхний по z-index (равные —
+  // кто ниже в разметке), и закрывается он тем же, что его крестик (лента — `pickerCancel`, как `#sh-close`). Свой Esc у «во весь
+  // экран» (там ещё стрелки) и у поля имени — они помечают событие (`preventDefault`), карточка товара ловит раньше (capture) —
+  // здесь их пропускаем, чтобы одно нажатие не закрыло два слоя.
+  const ESC_CLOSE={shot:closeShot, swapBox:()=>closeSwapFull(), cons:()=>closeCons(), mlist:()=>ml.classList.remove('on'),
+    sheet:()=>pickerCancel(), itemCard:()=>itemCardClose(), favPop:()=>{const p=document.getElementById('favPop'); if(p)p.remove();}};
+  const topLayer=()=>{let top=null, zt=-Infinity;
+    PAGE_LAYERS.concat([['favPop','']]).forEach(([id,c])=>{const el=document.getElementById(id);
+      if(!el||(c&&!el.classList.contains(c)))return;
+      const z=parseInt(getComputedStyle(el).zIndex,10)||0;
+      if(z>zt||(z===zt&&top&&(top.compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING))){top=el; zt=z;}});
+    return top;};
+  window.addEventListener('keydown',e=>{if(e.key!=='Escape'||e.defaultPrevented)return;
+    const t=topLayer(), f=t&&ESC_CLOSE[t.id]; if(f){f(); e.preventDefault();}});
   on('shot','onclick',e=>{if(e.target.id==='shot')e.currentTarget.classList.remove('on');});
   // кнопок «повернуть» и «подобрать товар» больше нет: поворот — за угловые ручки предмета,
   // товар — по значку на предмете или строке в списке справа (владелец 26.08)
@@ -1220,12 +1234,9 @@ function init(){
   on('shotNow','onclick',()=>makePhoto('draft'));
   on('consDone','onclick',closeCons);
   on('swapClose','onclick',closeSwapFull);
-  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSwapFull();});
   // ИЗ КОНСТРУКТОРА — В ОКНО С ЖИВОЙ СЦЕНОЙ (demo-02): серверный кадр нужен только на запасном пути (нет видеокарты)
   on('consShot','onclick',()=>openLiveWindow());   // без 3D окно покажет заглушку и «Сделать реалистичнее» (demo-09)
   on('swapShot','onclick',()=>makePhoto('draft'));
-  document.addEventListener('keydown',e=>{
-    if(e.key==='Escape'&&document.getElementById('cons').classList.contains('on'))closeCons();});
   // ПЛАН КВАРТИРЫ — ССЫЛКОЙ, НЕ ВКЛАДКОЙ (demo-16): вкладки теперь стили; назад — «← К стилям»
   document.querySelectorAll('[data-plan]').forEach(a=>a.onclick=e=>{e.preventDefault(); showTab('plan'); pageScrollTo(0);});
   on('planBack','onclick',e=>{e.preventDefault(); showTab('room');});
@@ -7890,7 +7901,7 @@ async function liveShotTake(){
     document.getElementById('favNo').onclick=close;
     var ok=document.getElementById('favOk');
     var busy=false, go=function(){if(busy)return; busy=true; ok.disabled=true; (isNew?save(inp.value):rename(f.favoriteId,inp.value)).then(close,close);};   // двойной Enter — одно сохранение
-    ok.onclick=go; inp.addEventListener('keydown',function(ev){if(ev.key==='Enter')go(); if(ev.key==='Escape')close();});
+    ok.onclick=go; inp.addEventListener('keydown',function(ev){if(ev.key==='Enter')go(); if(ev.key==='Escape'){ev.preventDefault(); close();}});   // помечено — общий Esc окно под ним не закроет
     var del=document.getElementById('favDel'); if(del)del.onclick=function(){removeFav(f.favoriteId); close();};
     var exc=document.getElementById('favExcl'); if(exc)exc.onclick=function(){excludeFav(f.favoriteId); close();};
   }
