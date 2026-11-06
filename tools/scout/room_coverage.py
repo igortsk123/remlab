@@ -22,14 +22,32 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 
-def _row(room, purpose, role, style, fit, styled, unknown, ready, tiers):
+def _row(room, purpose, role, style, fit, styled, unknown, ready, tiers, fam=None):
+    """Строка покрытия. Счёт SKU — ключи без приставки; второй счёт — модели (семейства): `fam` = (по размеру, в стиле,
+    без оценки) — владелец ещё решает, что считать товаром (T-20261106-90); какой из двух главный — `count_unit`."""
+    f = fam or (None, None, None)
     return {'room': room, 'purpose': purpose, 'role': role, 'style': style, 'по размеру': fit, 'в стиле': styled,
-            'без оценки стиля': unknown, 'меш готов': ready, 'ступени': tiers}
+            'без оценки стиля': unknown, 'меш готов': ready, 'ступени': tiers,
+            'семейств по размеру': f[0], 'семейств в стиле': f[1], 'семейств без оценки': f[2]}
+
+
+def count_unit(room: str) -> str:
+    """Главный счёт отчёта — тот же, что у квоты мешей (`rules/demo-swap.json → room_count_unit`, sku | family)."""
+    import room_mesh_demand as RMD
+    return RMD.room_count_unit(room)
+
+
+def main_count(r: dict, unit: str) -> int:
+    """«в стиле» + «без оценки» в главном счёте строки: sku — товары, family — модели (нет счёта семейств — SKU)."""
+    if unit == 'family' and r.get('семейств в стиле') is not None:
+        return r['семейств в стиле'] + (r.get('семейств без оценки') or 0)
+    return r['в стиле'] + r['без оценки стиля']
 
 
 def bedroom_rows() -> list[dict]:
     import catalog_items as CI
     import compose_bedroom as CB
+    import room_profile as RP
     R = CB.rules()
     thr = float(CB.PROFILE['style']['in_style_min'])
     cat, decor = CB.load_items(R)
@@ -44,11 +62,14 @@ def bedroom_rows() -> list[dict]:
             for style in R['styles']:
                 tiers = {t: len(C.pool(sl, style, t, C.cat)[0]) for t in R['tiers']}
                 styled, mesh = C.shortage[(sl['role'], style, purpose)]
-                fit = sum(1 for it in C.cat if it['role'] == sl['role'] and CB.gate(it, sl, CB.band_of(sl, C.tol)) is None)
+                fits = [it for it in C.cat if it['role'] == sl['role'] and CB.gate(it, sl, CB.band_of(sl, C.tol)) is None]
+                fit = len(fits)
+                fam = lambda L: len({it.get('fam') or it.get('sid') for it in L})  # noqa: E731
+                fam3 = (fam(fits), fam([it for it in fits if RP.in_style(it.get('styles'), style, thr)]), 0)
                 ready_n = sum(1 for it in C.cat if it['role'] == sl['role'] and it.get('mesh') == 'ready'
-                              and (it.get('styles') or {}).get(style, 0) >= thr
+                              and RP.in_style(it.get('styles'), style, thr)
                               and CB.gate(it, sl, CB.band_of(sl, C.tol)) is None)
-                rows.append(_row('bedroom', purpose, sl['role'], style, fit, styled, 0, ready_n, tiers))
+                rows.append(_row('bedroom', purpose, sl['role'], style, fit, styled, 0, ready_n, tiers, fam3))
     return rows
 
 
@@ -72,8 +93,11 @@ def hall_rows(extra_tiers: list[str]) -> list[dict]:
             for style in R['styles']:
                 per = {t: len(C.pool(sl, style, t, extra, tag)[0]) for t in tiers}
                 sh = C.shortage[(sl['role'] + tag, style)]
-                rows.append(_row('hall', 'hall', sl['role'] + tag, style, sh['годных по размеру'], sh['в стиле'],
-                                 sh['без оценки стиля'], sh['с готовым мешом'], per))
+                r = _row('hall', 'hall', sl['role'] + tag, style, sh['годных по размеру'], sh['в стиле'],
+                         sh['без оценки стиля'], sh['с готовым мешом'], per,
+                         (sh['семейств по размеру'], sh['семейств в стиле'], sh['семейств без оценки']))
+                r['по типоразмерам'] = sh.get('по типоразмерам')
+                rows.append(r)
     return rows
 
 
@@ -137,23 +161,34 @@ def skip_text(style: str, miss: list[str]) -> str:
     return f'спальня: {style} пропущена — нет {"/".join(miss)} в стиле'
 
 
-def markdown(rows: list[dict], styles_new: set) -> str:
+UNIT_RU = {'sku': 'товары (SKU, цвета — отдельно)', 'family': 'модели (семейства)'}
+
+
+def markdown(rows: list[dict], styles_new: set, units: dict | None = None) -> str:
+    units = units or {}
     out = ['# Покрытие каталога комнат по стилям', '',
-           f'«в стиле» — балл ≥ порога профиля; ступени — сколько из них в квантилях цены ступени (0 — сборщик ослабит ступень '
-           f'внутри стиля или роль пуста); тонко — «в стиле» < {THIN}. Новый стиль помечен ★.', '']
+           f'«в стиле» — балл ≥ порога профиля (`room_profile.in_style`: 6,6, universal не в счёт); два счёта — товары (SKU) / '
+           f'модели (семейства), «по размеру» — в полосе любого типоразмера слота; ступени — SKU в квантилях цены ступени '
+           f'(0 — сборщик ослабит ступень внутри стиля или роль пуста); тонко/ПУСТО — по главному счёту комнаты (как у квоты '
+           f'мешей) < {THIN}. Новый стиль помечен ★.', '']
     by = {}
     for r in rows:
         by.setdefault((r['room'], r['purpose']), []).append(r)
     for (room, purpose), rs in by.items():
         tiers = list(rs[0]['ступени'])
-        out += [f'## {room} · {purpose}', '',
-                '| роль | стиль | по размеру | в стиле | без оценки | меш готов | ' + ' | '.join(tiers) + ' | |',
+        unit = units.get(room, 'sku')
+        f = lambda a, b: f'{a} / {b}' if b is not None else f'{a}'  # noqa: E731
+        out += [f'## {room} · {purpose} — главный счёт: {UNIT_RU.get(unit, unit)}', '',
+                '| роль | стиль | по размеру SKU / сем. | в стиле SKU / сем. | без оценки SKU / сем. | меш готов | '
+                + ' | '.join(tiers) + ' | |',
                 '|---|---|---|---|---|---|' + '---|' * len(tiers) + '---|']
         for r in rs:
-            n = r['в стиле'] + r['без оценки стиля']
+            n = main_count(r, unit)
             mark = 'ПУСТО' if n == 0 else ('тонко' if n < THIN else '')
-            out.append(f"| {r['role']} | {r['style']}{' ★' if r['style'] in styles_new else ''} | {r['по размеру']} | {r['в стиле']} | "
-                       f"{r['без оценки стиля']} | {r['меш готов']} | " + ' | '.join(str(r['ступени'][t]) for t in tiers) + f' | {mark} |')
+            out.append(f"| {r['role']} | {r['style']}{' ★' if r['style'] in styles_new else ''} | "
+                       f"{f(r['по размеру'], r.get('семейств по размеру'))} | {f(r['в стиле'], r.get('семейств в стиле'))} | "
+                       f"{f(r['без оценки стиля'], r.get('семейств без оценки'))} | {r['меш готов']} | "
+                       + ' | '.join(str(r['ступени'][t]) for t in tiers) + f' | {mark} |')
         out.append('')
     return '\n'.join(out)
 
@@ -181,6 +216,14 @@ def _selftest() -> int:
                                                dict(R1, styles=['неоклассика'])) == {})
     ok('строка сводки', skip_text('неоклассика', ['шкафа/комода', 'тумбы'])
        == 'спальня: неоклассика пропущена — нет шкафа/комода/тумбы в стиле')
+    # два счёта (T-20261106-90): 3 цвета одной модели — 3 товара, 1 модель; «тонко» — по главному счёту комнаты
+    r = _row('hall', 'hall', 'обувница', 'лофт', 5, 3, 0, 0, {'комфорт': 2}, (2, 1, 0))
+    ok('главный счёт: sku — 3 товара, family — 1 модель', main_count(r, 'sku') == 3 and main_count(r, 'family') == 1)
+    md = markdown([r], set(), {'hall': 'family'})
+    ok('отчёт: обе колонки «SKU / сем.», главный счёт в заголовке, «тонко» по моделям',
+       '| 5 / 2 | 3 / 1 |' in md and 'главный счёт: модели' in md and md.rstrip().endswith('| тонко |'))
+    ok('без счёта семейств (старая строка) — главный счёт по SKU', main_count(_row('b', 'p', 'r', 's', 1, 4, 0, 0, {}), 'family') == 4)
+    ok('единица счёта отчёта = единица квоты (правила)', count_unit('hall') in ('sku', 'family'))
     print('ИТОГ:', 'OK' if not bad else f'FAIL {bad}')
     return 1 if bad else 0
 
@@ -197,8 +240,9 @@ def main(argv: list) -> int:
     rows = bedroom_rows() + hall_rows(extra)
     new = {'неоклассика'}
     json.dump(rows, open(os.path.join(out, 'room-coverage.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    open(os.path.join(out, 'room-coverage.md'), 'w', encoding='utf-8').write(markdown(rows, new))
-    empty = [r for r in rows if r['в стиле'] + r['без оценки стиля'] == 0]
+    units = {room: count_unit(room) for room in {r['room'] for r in rows}}
+    open(os.path.join(out, 'room-coverage.md'), 'w', encoding='utf-8').write(markdown(rows, new, units))
+    empty = [r for r in rows if main_count(r, units[r['room']]) == 0]
     print(f'покрытие: строк {len(rows)}, пустых ролей {len(empty)} (из них неоклассика {sum(r["style"] in new for r in empty)}); '
           f'{out}/room-coverage.md', flush=True)
     return 0

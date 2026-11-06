@@ -46,6 +46,7 @@ QUEUE_MAX = int(RULES['mesh_queue_max'])
 DEMO_DATA = os.path.expanduser(os.environ.get('DEMO_DATA', '~/scout-scenes/flat215-demo/demo-data.json'))
 REPORT = os.path.expanduser(os.environ.get('DEMO_BAND_REPORT', '~/scout-scenes/demo-band.json'))
 ROOMS = {k: v for k, v in (RULES.get('rooms') or {}).items() if not k.startswith('_')}
+RMD_UNIT_RU = {'sku': 'товары (SKU, цвета отдельно)', 'family': 'модели (семейства)'}   # = room_mesh_demand.UNIT_RU
 GEN_STATUS = ('none', 'stale')   # меш делать можно: нет его или фото сменилось; брак владельца и карантин — не наше решение
 SOFA = 'диван'
 
@@ -286,14 +287,15 @@ def rooms_report(R: dict) -> tuple:
             a['short'] += r['short']
         mine = [j['sku'] for j in Q['jobs'] if j['sku'] in taken]
         short = {k: a['short'] for k, a in sorted(agg.items()) if a['short']}
-        lines.append(f"[demo_band] комната {room}: квота {sum(Q['split'].values())} на (комната × стиль), в очередь мешей {len(mine)}"
+        lines.append(f"[demo_band] комната {room}: квота {sum(Q['split'].values())} на (комната × стиль), счёт — "
+                     f"{RMD_UNIT_RU.get(Q.get('unit'), Q.get('unit'))}, в очередь мешей {len(mine)}"
                      f" (банк {os.path.basename(Q['bank'])})")
         for k, a in sorted(agg.items()):
             lines.append(f"  {room} {k}: готово {a['have']} → {a['after']} из {a['target']}"
                          + (f"; не хватает каталога {a['short']}" if a['short'] else ''))
         if short:
             lines.append(f"DIGEST:меши {room}: не хватает каталога — " + ', '.join(f'{k} {v}' for k, v in short.items()))
-        rec[room] = {'bank': Q['bank'], 'split': Q['split'], 'generate': mine, 'short': short, 'places': agg}
+        rec[room] = {'bank': Q['bank'], 'split': Q['split'], 'unit': Q.get('unit'), 'generate': mine, 'short': short, 'places': agg}
     for n in R['notes']:
         lines.append(n if n.startswith('WARN:') else f'[demo_band] {n}')
     if R['cut_queue']:

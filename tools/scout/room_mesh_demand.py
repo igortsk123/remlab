@@ -109,7 +109,7 @@ def fits(it: dict, c: dict, tol: tuple, thr: float, gate, band_of) -> bool:
         return False
     if gate(it, c['slot'], band_of(c['slot'], tol)) is not None:
         return False
-    return (it.get('styles') or {}).get(c['style'], 0) >= thr
+    return _RP.in_style(it.get('styles'), c['style'], thr)
 
 
 # ---------------------------------------------------------------- состояние товара
@@ -712,10 +712,12 @@ STATE_RU = {'covered': 'меш готов (ready)', 'blocked': 'меш есть,
 # Добор — сперва товары наборов и альтернатив банка («в ленте»), потом по баллу стиля; один SKU засчитывается всем местам,
 # где он кандидат. Считает это `demo_band` (общий профиль очереди demo) — ручных снимков ночью нет.
 
-def quota_slots(bank: list, purposes: dict, band_of, tol: tuple, mesh_role) -> dict:
+def quota_slots(bank: list, purposes: dict, band_of, tol: tuple, mesh_role, sizes_of=None) -> dict:
     """{room_id: {роль: [слот{role, band, sleep_w?, need_dims?}]}} — все различные полосы комнаты из записей банка (ниши шкафа
     bedroom-2 — свои), плюс роли профиля, которых нет в записи (у прихожей — модуль «прихожая», хранение второго выбора).
-    `mesh_role(role)` — роль строится мешем."""
+    `mesh_role(role)` — роль строится мешем. `sizes_of(слот)` — типоразмеры слота (`compose_common.slot_sizes`)."""
+    if sizes_of is None:
+        from compose_common import slot_sizes as sizes_of
     out: dict = {}
     for s in bank:
         prof = {x['role']: x for x in (purposes.get(s.get('purpose')) or {}).get('slots') or []}
@@ -731,15 +733,18 @@ def quota_slots(bank: list, purposes: dict, band_of, tol: tuple, mesh_role) -> d
             if slot not in lst:
                 lst.append(slot)
         for role, p in prof.items():
-            if role in (s.get('slots') or {}) or not mesh_role(role):
+            # роль не в записи — полосы всех её типоразмеров; в записи — добавочно только типоразмеры правил (`sizes`, T-90):
+            # каждый проверен солвером flat215, «место на плане» — любой из них (у спальни `sizes` нет — как было)
+            if not mesh_role(role) or (role in (s.get('slots') or {}) and not p.get('sizes')):
                 continue
-            slot = {'role': role, 'band': band_of(p, tol) if p.get('band') else {}}
-            for k in ('sleep_w', 'need_dims'):
-                if p.get(k):
-                    slot[k] = p[k]
-            lst = out.setdefault(rid, {}).setdefault(role, [])
-            if slot not in lst:
-                lst.append(slot)
+            for sz in sizes_of(p):
+                slot = {'role': role, 'band': band_of(sz, tol) if sz.get('band') else {}}
+                for k in ('sleep_w', 'need_dims'):
+                    if p.get(k):
+                        slot[k] = p[k]
+                lst = out.setdefault(rid, {}).setdefault(role, [])
+                if slot not in lst:
+                    lst.append(slot)
     return out
 
 
@@ -757,48 +762,87 @@ def bank_shown(bank: list) -> set:
     return got
 
 
-def quota_table(slots: dict, styles: list, items: list, states: dict, shown: set, gate, thr: float) -> list:
-    """Строка на (room_id × стиль × роль): моделей влезает / кандидатов (фото ok) / готово / можно в меш (по порядку добора).
-    Счёт по семействам (`fam`); у семейства в очередь идёт лучший по порядку товар (в ленте → балл стиля → цена → SKU)."""
+COUNT_UNITS = ('sku', 'family')
+UNIT_RU = {'sku': 'товары (SKU, цвета отдельно)', 'family': 'модели (семейства)'}
+
+
+def room_count_unit(room: str, rules: dict | None = None) -> str:
+    """Единица счёта квоты комнаты из правил: `rules/demo-swap.json → rooms.<комната>.count_unit`, иначе общее
+    `room_count_unit`, иначе sku (решение владельца 06.11). Чужое значение — отказ, а не тихий счёт по умолчанию."""
+    R = rules if rules is not None else json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))
+    u = ((R.get('rooms') or {}).get(room) or {}).get('count_unit') or R.get('room_count_unit') or 'sku'
+    if u not in COUNT_UNITS:
+        raise DemandError(f'rules/demo-swap.json: единица счёта {room} {u!r} — только {"|".join(COUNT_UNITS)}')
+    return u
+
+
+def unit_of(it: dict, unit: str) -> str:
+    """Единица счёта квоты (T-20261106-90, владелец 06.11: «пока считай цвета одной модели отдельными товарами»):
+    sku — сам товар каталога (вариант, заменённый представителем семьи мешей, считается своим артикулом `via`);
+    family — модель (`fam`: магазин + название без размера и цвета)."""
+    return it['fam'] if unit == 'family' else (it.get('via') or it['sku'])
+
+
+def quota_table(slots: dict, styles: list, items: list, states: dict, shown: set, gate, thr: float,
+                unit: str = 'sku') -> list:
+    """Строка на (room_id × стиль × роль): единиц влезает / кандидатов (фото ok) / готово / можно в меш (по порядку добора).
+    Единица — `unit_of` (`rules/demo-swap.json → room_count_unit`, по умолчанию sku). Меш один на семейство мешей (ADR-0196):
+    задание ставится на представителя (`sku` после замены), и он закрывает ВСЕ единицы строки, что на него указывают
+    (`weights`: цвета одной модели — один меш, несколько единиц). family: у модели в очередь идёт лучший по порядку меш, модель
+    с готовым мешом в очередь не идёт. sku: каждый меш-представитель свой; порядок — в ленте → больше единиц на меш (дешевле)
+    → балл стиля → цена → SKU. В стиле — `room_profile.in_style` (одно правило со сборщиками и отчётом скорера)."""
+    if unit not in COUNT_UNITS:
+        raise DemandError(f'единица счёта квоты {unit!r}: только {"|".join(COUNT_UNITS)}')
     table = []
     for rid in sorted(slots):
         for st in styles:
             for role, sl in slots[rid].items():
                 c: dict = {}
                 best: dict = {}
+                per_mesh: dict = {}
                 for it in items:
-                    if it['role'] != role or (it.get('styles') or {}).get(st, 0) < thr:
+                    if it['role'] != role or not _RP.in_style(it.get('styles'), st, thr):
                         continue
                     if not any(gate(it, x, x['band']) is None for x in sl):
                         continue
-                    s = states[it['sku']]
-                    c.setdefault('fit', set()).add(it['fam'])
+                    s, u = states[it['sku']], unit_of(it, unit)
+                    c.setdefault('fit', set()).add(u)
                     if s in ('photo_pending', 'photo_bad'):
-                        c.setdefault('photo', set()).add(it['fam'])
+                        c.setdefault('photo', set()).add(u)
                         continue
-                    c.setdefault('cand', set()).add(it['fam'])
-                    c.setdefault(s, set()).add(it['fam'])
+                    c.setdefault('cand', set()).add(u)
+                    c.setdefault(s, set()).add(u)
                     if s == 'job':
+                        per_mesh.setdefault(it['sku'], set()).add(u)
                         key = (0 if (it['sku'] in shown or it.get('via') in shown) else 1,
                                -(it.get('styles') or {}).get(st, 0), it.get('price') or 0, it['sku'])
-                        if it['fam'] not in best or key < best[it['fam']][0]:
-                            best[it['fam']] = (key, it['sku'])
+                        bk = u if unit == 'family' else it['sku']
+                        if bk not in best or key < best[bk][0]:
+                            best[bk] = (key, it['sku'])
+                if unit == 'family':      # модель уже с готовым мешом — второй меш её не добавит
+                    best = {f: v for f, v in best.items() if f not in (c.get('covered') or ())}
+                    weights = {v[1]: 1 for v in best.values()}
+                else:
+                    weights = {sku: len(us) for sku, us in per_mesh.items()}
+                order = sorted(best.values(), key=lambda v: (v[0][0], -weights[v[1]]) + v[0][1:])
                 n = lambda k: len(c.get(k) or ())  # noqa: E731
-                table.append({'room_id': rid, 'style': st, 'role': role, 'fit': n('fit'), 'cand': n('cand'),
+                table.append({'room_id': rid, 'style': st, 'role': role, 'unit': unit, 'fit': n('fit'), 'cand': n('cand'),
                               'covered': n('covered'), 'job': n('job'), 'photo_wait': n('photo'),
                               'mesh_other': n('has_mesh') + n('blocked') + n('defect'), 'not_job': n('not_job'),
                               'shown_jobs': sum(1 for v in best.values() if v[0][0] == 0),
-                              'ranked': [v[1] for v in sorted(best.values())]})
+                              'ranked': [v[1] for v in order], 'weights': weights})
     return table
 
 
 def quota_plan(table: list, split: dict) -> list:
     """Добор до доли роли в каждом (room_id × стиль). Чистая функция. → выбранные SKU по порядку; в строки дописывает
-    target / after / short. Один SKU засчитывается всем строкам, где он в `ranked` (меш один на все расстановки)."""
+    target / after / short. Один SKU засчитывается всем строкам, где он в `ranked` (меш один на все расстановки), — столько
+    единиц, сколько у него в `weights` строки (нет `weights` — 1: счёт по семействам)."""
     where: dict = {}
     for i, r in enumerate(table):
         for s in r['ranked']:
             where.setdefault(s, []).append(i)
+    w = lambda i, s: int((table[i].get('weights') or {}).get(s, 1))  # noqa: E731
     order = list(split)
     picked: list = []
     took: set = set()
@@ -807,7 +851,7 @@ def quota_plan(table: list, split: dict) -> list:
     for i in idx:
         r = table[i]
         r['target'] = int(split.get(r['role'], 0))
-        have = r['covered'] + sum(1 for s in took if i in where[s])
+        have = r['covered'] + sum(w(i, s) for s in took if i in where[s])
         need = max(0, r['target'] - have)
         for s in r['ranked']:
             if need <= 0:
@@ -815,9 +859,9 @@ def quota_plan(table: list, split: dict) -> list:
             if s not in took:
                 took.add(s)
                 picked.append(s)
-                need -= 1
+                need -= w(i, s)
     for i, r in enumerate(table):
-        r['after'] = r['covered'] + sum(1 for s in took if i in where[s])
+        r['after'] = r['covered'] + sum(w(i, s) for s in took if i in where[s])
         r['short'] = max(0, r['target'] - r['after'])
     return picked
 
@@ -872,8 +916,9 @@ def room_states(room: str, cat: list, R: dict, rows: dict, fetch) -> tuple:
     return items, states, jobs_of
 
 
-def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None) -> dict:
-    """Квота мешей комнаты: таблица мест, выбранные задания по порядку, итоги. Только чтение БД и банка."""
+def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None, unit: str | None = None) -> dict:
+    """Квота мешей комнаты: таблица мест, выбранные задания по порядку, итоги. Только чтение БД и банка. unit — единица
+    счёта (sku | family); None — из правил (`room_count_unit`)."""
     import asset_strategy as AS
     import catalog_items as CI
     import room_bindings as RB
@@ -889,7 +934,8 @@ def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None) ->
     items, states, jobs_of = room_states(room, cat, R, rows, fetch)
     slots = quota_slots(bank, R['purposes'], mod.band_of, tol, lambda r: AS.strategy(r) == 'hunyuan3d')
     styles = sorted({s['style'] for s in bank if s.get('style')})
-    table = quota_table(slots, styles, items, states, bank_shown(bank), gate, thr)
+    unit = unit or room_count_unit(room)
+    table = quota_table(slots, styles, items, states, bank_shown(bank), gate, thr, unit)
     picked = quota_plan(table, split)
     jobs = []
     for s in picked:
@@ -898,7 +944,7 @@ def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None) ->
         j['strata'] = {'tier': 'room', 'reason': f'комната {room}: квота 30 на (комната × стиль), T-20261106-82',
                        'cells': cells}
         jobs.append(j)
-    return {'room': room, 'bank': bank_path, 'split': split, 'table': table, 'jobs': jobs, 'styles': styles}
+    return {'room': room, 'bank': bank_path, 'split': split, 'table': table, 'jobs': jobs, 'styles': styles, 'unit': unit}
 
 
 def quota_md(Q: dict) -> str:
@@ -908,7 +954,8 @@ def quota_md(Q: dict) -> str:
         a = agg.setdefault((r['room_id'], r['style']), {'covered': 0, 'cand': 0, 'target': 0, 'after': 0, 'short': 0})
         for k in a:
             a[k] += r[k]
-    L = [f"Квота мешей {Q['room']} (банк {os.path.basename(Q['bank'])}): в очередь {len(Q['jobs'])}", '',
+    L = [f"Квота мешей {Q['room']} (банк {os.path.basename(Q['bank'])}, счёт — {UNIT_RU[Q.get('unit', 'family')]}): "
+         f"в очередь {len(Q['jobs'])}", '',
          '| комната | стиль | готово | кандидатов | цель | после | не хватает каталога |', '|---|---|---|---|---|---|---|']
     for (rid, st), a in sorted(agg.items()):
         L.append(f"| {rid} | {st} | {a['covered']} | {a['cand']} | {a['target']} | {a['after']} | {a['short']} |")
@@ -1168,6 +1215,51 @@ def _selftest() -> int:
     ok('квота: добор по доле роли, SKU одной строки засчитан и другим (x закрыл тумбу, y — сканди), без доли — 0',
        P == ['x', 'y'] and [r['after'] for r in T] == [3, 1, 1, 5] and [r['short'] for r in T] == [0, 0, 2, 0]
        and T[3]['target'] == 0)
+
+    # ---- типоразмеры слота в квоте (T-20261106-90): запись банка несёт полосу своего типоразмера, остальные — из правил
+    def bo(slot, tol):
+        return {k: [slot['ideal'][k] * tol[0], slot['ideal'][k] * tol[1]] for k in slot.get('band', [])}
+    prof = {'hall': {'slots': [{'role': 'консоль', 'ideal': {'w': 90}, 'band': ['w'], 'sizes': [{'id': '120', 'ideal': {'w': 120}}]},
+                               {'role': 'тумба', 'ideal': {'w': 40}, 'band': ['w']}]}}
+    bank_ = [{'room_id': 'h', 'purpose': 'hall', 'slots': {'консоль': {'mesh': True, 'band': {'w': [96.0, 132.0]}},
+                                                         'тумба': {'mesh': True, 'band': {'w': [30.0, 50.0]}}}}]
+    QS = quota_slots(bank_, prof, bo, (0.8, 1.1), lambda r: True)
+    ok('квота: у роли с типоразмерами — полосы всех (запись 120 + основной 90), без типоразмеров — только полоса записи',
+       sorted(x['band']['w'][0] for x in QS['h']['консоль']) == [72.0, 96.0] and len(QS['h']['тумба']) == 1)
+
+    # ---- единица счёта (T-20261106-90): sku | family; меш один на семейство мешей, цвета — через представителя (via)
+    sl = {'h1': {'обувница': [{'role': 'обувница', 'band': {'w': [48, 66]}}]}}
+    g = lambda it, slot, band: None if all(lo <= it.get(k, 0) <= hi for k, (lo, hi) in band.items()) else 'вне'  # noqa: E731
+    sh = lambda sku, fam, w=60, sc=7.0, via=None: dict({'sku': sku, 'fam': fam, 'role': 'обувница', 'w': w, 'styles': {'лофт': sc},  # noqa: E731
+                                                        'price': 100}, **({'via': via} if via else {}))
+    its = [sh('1:a', 'A'), sh('1:a', 'A', via='1:a2'), sh('1:a', 'A', via='1:a3'),    # модель A: 3 цвета, меш у представителя 1:a
+           sh('1:b', 'A', w=64),                                                       # модель A другого размера — свой меш
+           sh('1:c', 'C'), sh('1:d', 'D', sc=6.5), sh('1:e', 'E', w=90)]               # D — ниже порога, E — вне полосы
+    stt = {'1:a': 'job', '1:b': 'job', '1:c': 'job', '1:d': 'job', '1:e': 'job'}
+    Ts = quota_table(sl, ['лофт'], its, stt, set(), g, 6.6, 'sku')
+    Tf = quota_table(sl, ['лофт'], its, stt, set(), g, 6.6, 'family')
+    ok('sku: 4 артикула в полосе и стиле (3 цвета A + размер A), C; меш 1:a закрывает 3 единицы и идёт первым',
+       Ts[0]['fit'] == 5 and Ts[0]['ranked'] == ['1:a', '1:b', '1:c'] and Ts[0]['weights'] == {'1:a': 3, '1:b': 1, '1:c': 1})
+    ok('family: моделей 2 (A, C), по мешу на модель', Tf[0]['fit'] == 2 and len(Tf[0]['ranked']) == 2
+       and set(Tf[0]['weights'].values()) == {1})
+    Ps, Pf = quota_plan(Ts, {'обувница': 4}), quota_plan(Tf, {'обувница': 4})
+    ok('доля 4: sku — 2 меша (1:a = 3 цвета + 1:b), family — 2 меша и недобор 2 (моделей нет)',
+       Ps == ['1:a', '1:b'] and Ts[0]['after'] == 4 and Ts[0]['short'] == 0 and len(Pf) == 2 and Tf[0]['short'] == 2)
+    stc = dict(stt, **{'1:a': 'covered'})
+    Tc = quota_table(sl, ['лофт'], its, stc, set(), g, 6.6, 'family')
+    ok('family: модель с готовым мешом второй меш не получает (размер 1:b той же модели не в очереди)',
+       Tc[0]['covered'] == 1 and Tc[0]['ranked'] == ['1:c'])
+    Tcs = quota_table(sl, ['лофт'], its, stc, set(), g, 6.6, 'sku')
+    ok('sku: готовый меш представителя засчитан всем трём цветам', Tcs[0]['covered'] == 3 and Tcs[0]['ranked'][0] in ('1:b', '1:c'))
+    ok('правила: room_count_unit по умолчанию sku, своё у комнаты, чужое — отказ',
+       room_count_unit('hall', {}) == 'sku' and room_count_unit('hall', {'room_count_unit': 'family'}) == 'family'
+       and room_count_unit('hall', {'room_count_unit': 'family', 'rooms': {'hall': {'count_unit': 'sku'}}}) == 'sku'
+       and room_count_unit('hall') in COUNT_UNITS)
+    try:
+        room_count_unit('hall', {'room_count_unit': 'штуки'})
+        ok('неизвестная единица — отказ', False)
+    except DemandError:
+        ok('неизвестная единица — отказ', True)
 
     # ---- спрос по вариантам витрины
     import asset_strategy as AS
