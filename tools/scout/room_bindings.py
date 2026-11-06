@@ -539,6 +539,95 @@ def mesh_for(offer_id: str, rows: dict | None = None, *, require_published: bool
             'via_family': bool(r.get('via_family')), 'snapshot': (r.get('snapshot_id') or '')[:16]}
 
 
+# ---------------------------------------------------------------- годность модели предмета: ОДНО правило банка и демо
+# (room-bank-01 этап В, T-20261106-70; правило сторожа T-20261105-51/3, ведущий 06.11: «одно на банк и демо»). Сторож варианта
+# спальни (`flat215_demo.bedroom_mesh_gate`) и готовность банка спальни (`room_ready.classify`) зовут `usable`; индекс прода и
+# модель представителя — тоже отсюда (`prod_index`, `mesh_rep`), источник один.
+MESH_GATE_MODES = ('orient', 'strict')
+
+
+def orient_only(reasons) -> bool:
+    """Привязка держит товар ТОЛЬКО из-за нерешённого разворота (`orientation_*`, в т.ч. представителя `rep:orientation_*`)."""
+    return bool(reasons) and all(str(r).split(':')[-1].startswith('orientation_') for r in reasons)
+
+
+def usable(a: dict, msid: str | None, idx, mode: str = 'orient') -> tuple[str, str]:
+    """Модель предмета годна для сцены? a — asset товара после привязки (`catalog_items.bound_asset`), msid — какую модель
+    грузит сцена (`mesh_rep`: представитель семейства или свой артикул, через `_`), idx — индекс прода (`prod_index`).
+    → (причина, заметка): причина '' — годен; заметка — нерешённый разворот у годного в режиме orient (в журнал).
+      strict — привязка `ready` и модель выложена привязкой (`published_3d`);
+      orient (по умолчанию, ведущий T-51/3) — `ready` ИЛИ `blocked` только по развороту (`orientation_*`): брака у модели нет,
+             не решён лишь фронт; у такого `published_3d` ложно всегда (замер Работника 1) — его не требуем.
+    В обоих: модель сцены = модель привязки (`mesh_id`; иначе в кадре меш, которого привязка не проверяла) и она в индексе
+    прода без карантина — иначе серая коробка."""
+    if mode not in MESH_GATE_MODES:
+        raise ValueError(f'режим сторожа {mode!r}? можно {", ".join(MESH_GATE_MODES)}')
+    loose = mode == 'orient' and not a['ready'] and a['mesh_status'] == 'blocked' and orient_only(a['reasons'])
+    if not (a['ready'] or loose):
+        return f"привязка {a['mesh_status']}" + (f": {', '.join(a['reasons'][:2])}" if a['reasons'] else ''), ''
+    if a['ready'] and not a['published']:
+        return 'модель не выложена', ''
+    if (a['mesh_id'] or '').replace(':', '_', 1) != msid:
+        return f"сцена грузит {msid}, привязка проверила {a['mesh_id']}", ''
+    if msid not in idx:
+        return 'нет в индексе прода', ''
+    return '', (', '.join(a['reasons']) if loose else '')
+
+
+def prod_index(fallback=lambda: set(), quarantine=None) -> set:
+    """SKU (через `_`), у которых меш реально ЛЕЖИТ НА СЕРВЕРЕ: свежий индекс прода (`?v=` — мимо кэша) минус карантин
+    (`mesh_quarantine` cut/reject: кривая по осям — для сцены её «нет»). Прод не ответил — fallback() (у демо — модели
+    вчерашнего демо) и WARN. Тело — прежнее `flat215_demo._mesh_index` (перенесено, T-70), печать та же."""
+    idx = set()
+    try:
+        import urllib.request
+        with urllib.request.urlopen(f'{PROD_IDX}?v={int(time.time())}', timeout=60) as f:
+            idx = set(json.load(f))
+    except Exception as e:  # noqa: BLE001 — прод недоступен: запасной список
+        idx = fallback()
+        print(f'WARN:mesh_index: каталог мешей прода недоступен ({repr(e)[:80]}) — беру модели вчерашнего демо: {len(idx)}')
+    try:
+        if quarantine is None:
+            from mesh_queue import db as _db
+            quarantine = lambda: {r[0].replace(':', '_', 1) for r in _db(  # noqa: E731
+                "select sku from mesh_quarantine where coalesce(decision,'cut') in ('cut','reject')") if r and r[0]}
+        quar = quarantine()
+        if quar & idx:
+            print(f'карантин: моделей убрано из демо {len(quar & idx)}')
+        idx -= quar
+    except Exception as e:  # noqa: BLE001 — нет таблицы: карантина нет
+        print('карантин не прочитан:', e)
+    return idx
+
+
+def demo_msids(path: str) -> set:
+    """Модели опубликованного демо (ленты и предметы вариантов) — запасная истина «на сервере», когда прод не ответил.
+    Тело — прежнее `flat215_demo._demo_msids` (перенесено, T-70)."""
+    try:
+        d = json.load(open(path, encoding='utf-8'))
+    except Exception:  # noqa: BLE001 — демо ещё не собиралось
+        return set()
+    out = {p['msid'] for lst in (d.get('feeds') or {}).values() for p in lst if p.get('msid')}
+    out |= {(i.get('sku') or {}).get('msid') for v in d.get('variants') or [] for i in v.get('items') or []}
+    return {m for m in out if m}
+
+
+def mesh_rep(db=None) -> dict:
+    """Артикул товара → артикул его МОДЕЛИ (представитель семейства, ADR-0196), оба через `_`. Нет БД — {} (модель у каждого
+    своя). Тело — прежнее `flat215_demo._mesh_rep` (перенесено, T-70)."""
+    out = {}
+    try:
+        if db is None:
+            from mesh_queue import db
+        for r in db("select shop_mid||'_'||external_id, replace(mesh_family_rep,':','_') "
+                    "from products where mesh_family_rep is not null"):
+            if len(r) == 2 and r[1]:
+                out[r[0]] = r[1]
+    except Exception:  # noqa: BLE001 — нет БД: считаем, что модель у каждого своя
+        out = {}
+    return out
+
+
 # ---------------------------------------------------------------- сборка из БД и диска (только чтение)
 def _rows(sql: str) -> list:
     import catalog_items as CI

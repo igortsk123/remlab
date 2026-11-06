@@ -167,6 +167,9 @@ def recover(P: dict, abandon: bool = False) -> int:
         if abandon:
             print('bank_refresh: незавершённой записи нет', flush=True)
         return 0
+    if it['record']['kind'] in ('bootstrap', 'unbootstrap'):     # поколение 0 комнаты (`room_bootstrap`, T-20261106-70)
+        import room_bootstrap as RBO
+        return RBO.recover_intent(P, it, abandon)
     gen, rec, now = it['gen'], it['record'], time.strftime('%Y-%m-%dT%H:%M:%S')
     if any(r.get('gen') == gen and r.get('kind') == rec['kind'] for r in journal(P)):
         if it.get('hold') is not None:         # сбой между журналом и запретом отката — запрет дописать (идемпотентно)
@@ -431,6 +434,10 @@ def list_gens(P: dict) -> int:
     for r in journal(P):
         if r['kind'] == 'recover':
             print(f"{r['gen']}  recover   {r['at']}  {r.get('action')} — запись {r.get('of')} ({r.get('of_kind')})")
+            continue
+        if r['kind'] in ('bootstrap', 'unbootstrap'):        # поколение 0 комнаты (`room_bootstrap`)
+            print(f"{r['gen']}  {r['kind']:8}  {r['at']}  " + (f"поколение 0, ячеек {r.get('cells')}" if r['kind'] == 'bootstrap'
+                  else f"снято поколение 0 {r.get('undone')}") + f"  {r['snapshot']}")
             continue
         print(f"{r['gen']}  {r['kind']:8}  {r['at']}  " + (f"подменено {len(r.get('promoted_cells') or [])}, снято "
               f"{r.get('removed')}, добавлено {r.get('added')}" + (' (доведена после сбоя)' if r.get('recovered') else '')

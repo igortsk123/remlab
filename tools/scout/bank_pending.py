@@ -109,7 +109,7 @@ Facts = BR.Facts
 
 def classify(role: str, sku: str, F: Facts, item: dict | None = None) -> tuple[str, str | None, str | None]:
     """→ (тип, причина, need) — `bank_ready.classify`: 'ready' или тип ожидания; need='mesh' — в спрос мешей."""
-    return BR.classify(role, sku, item, F)
+    return SPEC.classify(role, sku, item, F)   # адаптер комнаты; у гостиной — тот же `bank_ready.classify`
 
 
 def cell_status(missing: dict) -> str:

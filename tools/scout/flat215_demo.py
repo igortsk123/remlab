@@ -230,40 +230,17 @@ def _mesh_index() -> set:
     демо (они точно на сервере) и WARN: ленты не режем впустую, но и не обещаем непроверенного.
     """
     global _MESH_IDX
-    if _MESH_IDX is None:
-        idx = set()
-        try:
-            import urllib.request
-            with urllib.request.urlopen(
-                    f'https://remont-lab.online/test/mesh-pilot10/mesh-index.json?v={int(time.time())}', timeout=60) as f:
-                idx = set(json.load(f))
-        except Exception as e:  # noqa: BLE001 — прод недоступен: вчерашнее демо
-            idx = _demo_msids(os.path.join(OUT, 'demo-data.json'))
-            print(f'WARN:mesh_index: каталог мешей прода недоступен ({repr(e)[:80]}) — беру модели вчерашнего демо: {len(idx)}')
-        # КАРАНТИН (conv-04, ADR-0276): модель лежит на сервере, но кривая по осям — для демо её «нет»,
-        # предмет дозаполнится заменой из ленты; вернётся после «принять» владельца
-        try:
-            from mesh_queue import db as _db
-            quar = {r[0].replace(':', '_', 1) for r in _db(
-                "select sku from mesh_quarantine where coalesce(decision,'cut') in ('cut','reject')") if r and r[0]}
-            if quar & idx:
-                print(f'карантин: моделей убрано из демо {len(quar & idx)}')
-            idx -= quar
-        except Exception as e:  # noqa: BLE001 — нет таблицы: карантина нет
-            print('карантин не прочитан:', e)
-        _MESH_IDX = idx
+    if _MESH_IDX is None:     # чтение — общее с банком спальни (`room_bindings.prod_index`, T-20261106-70)
+        import room_bindings as _RB
+        _MESH_IDX = _RB.prod_index(lambda: _demo_msids(os.path.join(OUT, 'demo-data.json')))
     return _MESH_IDX
 
 
 def _demo_msids(path: str) -> set:
-    """Модели опубликованного демо (ленты и предметы вариантов) — запасная истина «на сервере», когда прод не ответил."""
-    try:
-        d = json.load(open(path, encoding='utf-8'))
-    except Exception:  # noqa: BLE001 — демо ещё не собиралось
-        return set()
-    out = {p['msid'] for lst in (d.get('feeds') or {}).values() for p in lst if p.get('msid')}
-    out |= {(i.get('sku') or {}).get('msid') for v in d.get('variants') or [] for i in v.get('items') or []}
-    return {m for m in out if m}
+    """Модели опубликованного демо (ленты и предметы вариантов) — запасная истина «на сервере», когда прод не ответил.
+    Общее с банком спальни (`room_bindings.demo_msids`, T-20261106-70)."""
+    import room_bindings as _RB
+    return _RB.demo_msids(path)
 
 
 _MESH_REP: dict | None = None
@@ -278,16 +255,9 @@ def _mesh_rep() -> dict:
     артикулом самого товара (карточка, ссылка в магазин).
     """
     global _MESH_REP
-    if _MESH_REP is None:
-        _MESH_REP = {}
-        try:
-            from mesh_queue import db
-            for r in db("select shop_mid||'_'||external_id, replace(mesh_family_rep,':','_') "
-                        "from products where mesh_family_rep is not null"):
-                if len(r) == 2 and r[1]:
-                    _MESH_REP[r[0]] = r[1]
-        except Exception:  # noqa: BLE001 — нет БД: считаем, что модель у каждого своя
-            _MESH_REP = {}
+    if _MESH_REP is None:     # общее с банком спальни (`room_bindings.mesh_rep`, T-20261106-70)
+        import room_bindings as _RB
+        _MESH_REP = _RB.mesh_rep()
     return _MESH_REP
 
 

@@ -54,7 +54,9 @@
    "enabled": false,
    "prepare_enabled": false,
    "promote_enabled": false,
-   "write_enabled": false
+   "write_enabled": false,
+   "mesh_gate": "orient",
+   "_mesh_gate_why": "готовность предмета банка спальни (room-bank-01 этап В, T-20261106-70) — ТО ЖЕ правило, что сторож витрины T-20261105-51/3 (`room_bindings.usable`): orient — привязка ready ИЛИ blocked только по развороту (orientation_*), модель сцены = модель привязки, в индексе прода без карантина; strict — только ready и выложена"
   }
  },
  "_rooms_why": "ФЛАГИ БАНКОВ ДРУГИХ КОМНАТ (план room-bank-01 этап Б, T-20261106-67; разбор Codex `_intake/codex/room-bank-2026-11-06-answer.md`): у комнаты — свои флаги шагов в rooms.<комната>, раздельно с гостиной; гостиная читает ключи верхнего уровня как прежде (её флаги выше — её). Нет раздела или ключа — выключено. Правила гостиной (доли, диван, экзамен, удержание) комнате не наследуются. Спальня на этапе Б — каркас (`room_bank_spec.py`: пути sets-bedroom*, ключ ячейки room_id|purpose|band|style|tier): шаги с --room bedroom ничего не пишут, флаг true или --force — отказ «адаптер каркас»; ночной BANK_WRITE (`bank_refresh.py --enabled` без --room) — только флаг гостиной. Включение — этапы В–Г, словом ведущего"
