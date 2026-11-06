@@ -497,3 +497,29 @@ def bands(purposes: list) -> dict:
         for k, v in (BAND_CM.get(p) or {}).items():
             out.setdefault(k, v)
     return out
+
+
+# КЛЮЧ ЛЕНТЫ И ПОЛОСЫ — КОМНАТА + РОЛЬ (T-20261106-77, Codex): ленты и полосы были общими на роль, и роль, что есть в двух комнатах
+# (ковёр), брала строки гостиной — спальня теряла свою ленту. Гостиная остаётся под голой ролью (данные побайтно прежние); другие
+# комнаты — «<тип>:<роль>» для ленты и «<комната>:<роль>» для полосы (у спален разное назначение — разная полоса кровати).
+# Страница ищет так же: `index.html:roomKeysOf` (блок ROOMKEY), /flat — `lib/configurator/demo-feeds.ts:roomFeedKey`
+def room_key(room: str, role: str) -> str:
+    return role if not room or room == 'living' else f'{room}:{role}'
+
+
+def merge_room_feeds(feeds: dict, room_type: str, room_feeds: dict) -> dict:
+    """Ленты комнаты — в общий словарь под её ключами; строки гостиной (голые роли) не трогаются. → `feeds`."""
+    for role, rows in room_feeds.items():
+        feeds[room_key(room_type, role)] = rows
+    return feeds
+
+
+def room_bands(bank: list, rooms) -> dict:
+    """Полосы размера по комнатам: «<комната>:<роль>» → полоса, по назначению своей спальни — тому, что берёт витрина
+    (`pick_records`: первое по `PURPOSE_ORDER` среди записей комнаты)."""
+    rank = lambda x: PURPOSE_ORDER.index(x) if x in PURPOSE_ORDER else len(PURPOSE_ORDER)   # noqa: E731
+    out: dict = {}
+    for rid in rooms:
+        purpose = min((r.get('purpose') for r in bank if r.get('room_id') == rid and r.get('purpose')), key=rank, default=None)
+        out.update({room_key(rid, k): v for k, v in bands([purpose] if purpose else []).items()})
+    return out

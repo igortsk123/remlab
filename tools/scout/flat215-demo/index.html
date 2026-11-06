@@ -4830,7 +4830,7 @@ function icItem(p, role){ const r=baseRole(role), rug=r==='ковёр';
 // Считаем по тому, что реально есть в ленте (лимит ленты — 30 товаров на подкатегорию×стиль), не по всему семейству магазина
 function colourFam(sku, role){
   if(!sku||!sku.name)return [];
-  const m=sku.msid||sku.sid||sku.name, feed=(D.feeds&&D.feeds[baseRole(role)])||[];
+  const m=sku.msid||sku.sid||sku.name, feed=byRoom(D.feeds,baseRole(role))||[];
   const same=feed.filter(p=>p.img&&(p.msid||p.sid||p.name)===m), seen=new Set([sku.name]);
   const out=[same.find(p=>p.name===sku.name)||sku];
   same.forEach(p=>{if(!seen.has(p.name)){seen.add(p.name); out.push(p);}});
@@ -5302,8 +5302,19 @@ const plainStyle=s=>String(s||'').replace(/^(моя коллекция|my collec
 // ПОЛОСА РАЗМЕРА (решение владельца 22.10, частично отменяет ADR-0271): «подходящий» = ширина в полосе 0.8–1.1 идеала слота
 // комнаты (`demo-data.json → rules.slot_band_cm`, генератор — `slot_rules.slot_band`) И на своё место встаёт (`fitBadge`≠b-no).
 // Роли без правила (ваза, банкетка) полосой не режутся; декор на столешнице — тоже.
+// ЛЕНТА И ПОЛОСА — ПО КЛЮЧУ КОМНАТЫ (T-20261106-77, Codex): у гостиной голая роль (как было), у других комнат — «<комната>:<роль>»
+// (полоса: у каждой спальни своё назначение), затем «<тип>:<роль>» (лента общая для спален). Ленту гостиной другая комната не берёт —
+// иначе ковёр спальни показывал ковры гостиной. Ключи пишет сборка (`demo_bedroom.room_key`), /flat — `demo-feeds.ts:roomFeedKey`
+// ROOMKEY START
+function roomKeysOf(v,base){
+  const id=roomIdOf(v), t=id.replace(/-\d+$/,'');
+  return t==='living'?[base]:[id+':'+base,t+':'+base];
+}
+function byRoomOf(v,dict,base){ if(!dict)return null; for(const k of roomKeysOf(v,base)) if(dict[k])return dict[k]; return null; }
+// ROOMKEY END
+function byRoom(dict,base){ return byRoomOf(allVariants()[cur]||{},dict,base); }
 function inBand(base,p){
-  const b=((D.rules||{}).slot_band_cm||{})[base]; if(!b||(sel&&sel.dec!==undefined))return true;
+  const b=byRoom((D.rules||{}).slot_band_cm,base); if(!b||(sel&&sel.dec!==undefined))return true;
   const v=b.side==='long'?Math.max(p.w||0,p.d||0):(p.w||0);
   return v>=b.lo&&v<=b.hi;
 }
@@ -5322,7 +5333,7 @@ function sameShape(p,place){
 // текущего, после его замены тоже; правило — как у /flat (`lib/configurator/demo-feeds.ts:placeOf`)
 function rugFitsSofa(p){const sofa=items.find(i=>i.role==='диван'); return !sofa||Math.max(p.w||0,p.d||0)>=(sofa.w||0);}
 function feedFor(base){
-  const all=((D.feeds&&D.feeds[base])||[]).filter(p=>(base!=='диван'||!sel||sameShape(p,sel))&&(base!=='ковёр'||rugFitsSofa(p)));
+  const all=(byRoom(D.feeds,base)||[]).filter(p=>(base!=='диван'||!sel||sameShape(p,sel))&&(base!=='ковёр'||rugFitsSofa(p)));
   const st=plainStyle((allVariants()[cur]||{}).style);
   // МЯГКОЕ — ЛЕНТА ВСЕХ СТИЛЕЙ (demo-24 правки): ленты подушек и штор собраны из наборов банка — по одной-две на стиль, и в своём
   // стиле заменить было не на что (сканди: одна «Удина» — она же текущая). Правило «чужие сеты не показываем» — про мебель

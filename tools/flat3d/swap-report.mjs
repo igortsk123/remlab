@@ -10,7 +10,7 @@
 //   node tools/flat3d/swap-report.mjs <demo-data.json> [--json]
 import { readFileSync } from "node:fs";
 
-import { alternatives, candidates, feedForStyle, placeOf } from "../../lib/configurator/demo-feeds.ts";
+import { alternatives, candidates, feedForStyle, placeOf, roomFeedKey } from "../../lib/configurator/demo-feeds.ts";
 
 // роли ядра, у которых /flat даёт ленту замен; ковёр — плита с фото, длинная сторона не короче дивана (demo-18 п.2, `placeOf`)
 const ROLES = ["диван", "столик", "тв-тумба", "торшер", "стол обеденный", "ковёр"];
@@ -22,7 +22,7 @@ export function swapReport(data) {
     for (const role of ROLES) {
       const it = (v.items ?? []).find((i) => i.role === role);
       if (!it) continue;
-      const feed = feedForStyle(data.feeds?.[role] ?? [], v.style);
+      const feed = feedForStyle(data.feeds?.[roomFeedKey(v.room_id, role)] ?? [], v.style);
       const place = placeOf(it, v.items ?? []);
       const exclude = new Set([it.sku?.sid ?? "", it.sku?.name ?? ""]);
       const all = candidates(feed, place, exclude);

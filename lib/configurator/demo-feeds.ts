@@ -62,6 +62,15 @@ export function placeOf(it: PlaceItem, items: readonly PlaceItem[]): FeedPlace {
   return { ...place, rug: true, ...(sofa ? { minLong: sofa } : {}) };
 }
 
+/**
+ * Ключ ленты комнаты (T-20261106-77, Codex): гостиная — голая роль, другие комнаты — «<тип>:<роль>» (`bedroom-2` → `bedroom:ковёр`).
+ * Иначе общая роль (ковёр) спальни брала ленту гостиной. Правило — как у сборки (`demo_bedroom.room_key`) и окна (`index.html:roomKeys`).
+ */
+export function roomFeedKey(roomId: string | undefined, role: string): string {
+  const type = String(roomId ?? "").replace(/-\d+$/, "");
+  return !type || type === "living" ? role : `${type}:${role}`;
+}
+
 /** Сколько вариантов на предмет (кроме текущего): полоса выбора в /flat — не каталог. */
 export const FEED_LIMIT = 11;
 

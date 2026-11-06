@@ -1173,7 +1173,8 @@ def bedroom_mesh_gate(rows=None, why: str = '', mode: str | None = None):
 def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomplete: list, room: dict,
                      bcat: dict) -> tuple[dict, dict]:
     """СПАЛЬНИ В ВИТРИНЕ (onb-07 Т2): варианты включённых спален из банка (`demo_bedroom`) — в конец `variants`, ленты ролей
-    спальни — в `feeds`, неполные — в `incomplete`; → (геометрии для `rooms_geo`, полосы размера для `rules.slot_band_cm`).
+    спальни — в `feeds` под ключом «bedroom:<роль>», неполные — в `incomplete`; → (геометрии для `rooms_geo`, полосы размера для
+    `rules.slot_band_cm` под ключом «<комната>:<роль>»; ключи — `demo_bedroom.room_key`).
     Ни одна спальня не включена — ничего не трогаем (данные гостиной байт в байт прежние). Банк — `bedroom_bank_path`
     (живой `sets-bedroom.json`; у сборки рядом — `BEDROOM_SETS` или кандидат `.next`); там же `FLAT215_FEED_ANY_MESH=1` пускает в ленту товары без модели (проверка ленты, пока
     меши кроватей не выложены, onb-10) — у папки витрины это отказ."""
@@ -1235,13 +1236,14 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     from img_alive import dead_room_photos
     dead = dead_room_photos()
     bf = DB.feeds(bank, bcat, _msid, feed_gate, alive=lambda u: u not in dead)
-    for role, rows in bf.items():
-        feeds.setdefault(role, rows)
+    # КЛЮЧ «ТИП КОМНАТЫ + РОЛЬ» (T-20261106-77, Codex): прежний `setdefault(role, rows)` отдавал общей роли (ковёр) ленту гостиной,
+    # а спальня свою теряла. Ленты гостиной не трогаем — у неё голая роль (`DB.room_key`)
+    DB.merge_room_feeds(feeds, 'bedroom', bf)
     print(f'спальни: включены {on}, банк {len(bank)} записей, вариантов {made}; ленты '
           + (', '.join(f'{r} {len(x)}' for r, x in sorted(bf.items())) or 'пусто')
           + (' (без проверки моделей — сборка рядом)' if any_mesh else '')
           + (f"; сторож {gate.mode}, разворот не решён у {unresolved} предметов вариантов" if gate else ''), flush=True)
-    return geos, DB.bands([r.get('purpose') for r in bank if r.get('room_id') in geos])
+    return geos, DB.room_bands(bank, geos)
 
 
 def build() -> dict:

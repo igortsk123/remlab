@@ -13,7 +13,7 @@
 // данных: диван 162 см шириной стоит в x=166 при комнате 439 см, то есть 85…247 — у стены.
 // Поворот витрины — градусы по часовой, 0 — «лицом на +y», тоже как у нас.
 
-import { alternatives, feedForStyle, placeOf, type FeedItem } from "@/lib/configurator/demo-feeds";
+import { alternatives, feedForStyle, placeOf, roomFeedKey, type FeedItem } from "@/lib/configurator/demo-feeds";
 import { planRooms, type RoomAt, type RoomGeo } from "@/lib/configurator/demo-rooms";
 import { maskedName, roleEn, styleEn } from "@/lib/configurator/demo-mask";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
@@ -292,7 +292,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
   const feedIdsOf = (i: number): string[] => {
     const it = items[i]!;
     const base = baseOf(it.role);
-    const feed = feedForStyle(data.feeds?.[base] ?? [], v.style);
+    const feed = feedForStyle(data.feeds?.[roomFeedKey(at.id, base)] ?? [], v.style);
     return alternatives(feed, placeOf(it, items), new Set([it.sku?.sid ?? "", it.sku?.name ?? ""])).map((p) => {
       const id = `feed:${pre}${base}:${p.sid ?? p.name}`;
       if (!feedOptions.has(id)) {
@@ -358,7 +358,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
     rugOption(`opt:${id}`, `rug:${pre}${k}:${it.sku?.sid ?? it.sku?.img ?? ""}`, it.sku ?? {}, it.w as number, it.d as number);
     // ЗАМЕНЫ КОВРА (demo-18 п.2): лента ковров стиля, ближайшие по размеру, длинная сторона не короче дивана (`placeOf`);
     // размер плиты — товара, вдоль длинной стороны места (`resolve.fitPlacement`)
-    const alts = alternatives(feedForStyle(data.feeds?.["ковёр"] ?? [], v.style), placeOf(it, v.items ?? []),
+    const alts = alternatives(feedForStyle(data.feeds?.[roomFeedKey(at.id, "ковёр")] ?? [], v.style), placeOf(it, v.items ?? []),
       new Set([it.sku?.sid ?? "", it.sku?.name ?? ""]));
     const along = (p: FeedItem): [number, number] => {
       const [a, b] = [Math.max(p.w!, p.d!), Math.min(p.w!, p.d!)];

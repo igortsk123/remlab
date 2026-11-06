@@ -185,8 +185,8 @@ def _walk(o, role, out):
         r = o.get('role') if isinstance(o.get('role'), str) else role
         for k, v in o.items():
             if k in ('feeds', 'roles') and isinstance(v, dict):
-                for rk, rv in v.items():
-                    _walk(rv, rk, out)
+                for rk, rv in v.items():            # ключ ленты комнаты «bedroom:ковёр» — роль после двоеточия (`demo_bedroom.room_key`)
+                    _walk(rv, rk.rsplit(':', 1)[-1], out)
             elif k == 'sofa_feed':
                 _walk(v, 'диван', out)
             elif isinstance(v, (dict, list)):

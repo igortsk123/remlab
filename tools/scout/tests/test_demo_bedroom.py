@@ -107,6 +107,18 @@ check('ленты спальни: сторож получает товар (sid 
 check('полоса размера кровати «вдвоём» 160–205 и тумб', DB.bands(['couple']) == {'тумба прикроватная': {'lo': 30, 'hi': 65},
                                                                               'кровать': {'lo': 160, 'hi': 205}})
 
+# ЛЕНТЫ И ПОЛОСЫ ПО КЛЮЧУ КОМНАТЫ (T-20261106-77, Codex): общая роль «ковёр» гостиной и спальни — разные ленты; гостиная побайтно та же
+_liv = {'ковёр': [{'sid': 'L1'}], 'диван': [{'sid': 'S1'}]}
+_liv_before = json.dumps(_liv, ensure_ascii=False, sort_keys=True)
+_m = DB.merge_room_feeds(json.loads(_liv_before), 'bedroom', {'ковёр': [{'sid': 'B1'}], 'кровать': [{'sid': 'K1'}]})
+check('ковёр гостиной и спальни — разные ленты', _m['ковёр'] == [{'sid': 'L1'}] and _m['bedroom:ковёр'] == [{'sid': 'B1'}])
+check('ленты гостиной побайтно прежние (голые роли)',
+      json.dumps({k: v for k, v in _m.items() if ':' not in k}, ensure_ascii=False, sort_keys=True) == _liv_before)
+check('роль только спальни — под ключом спальни', 'кровать' not in _m and _m['bedroom:кровать'] == [{'sid': 'K1'}])
+_rb = DB.room_bands([{'room_id': 'bedroom-1', 'purpose': 'couple'}, {'room_id': 'bedroom-2', 'purpose': 'guest'}], ['bedroom-1', 'bedroom-2'])
+check('полоса — своя у каждой спальни', _rb['bedroom-1:кровать'] == DB.bands(['couple'])['кровать']
+      and _rb['bedroom-2:кровать'] == DB.bands(['guest']).get('кровать') and not any(':' not in k for k in _rb))
+
 # ФЛАГ: проверочное включение — только у сборки рядом; главная демо — реестром
 apt = F.demo_apartment()
 check('флаг: без переменной — как реестр (всё выключено)', F.rooms_on(apt, {}) == {})
