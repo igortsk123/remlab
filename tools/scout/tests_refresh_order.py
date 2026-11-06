@@ -20,6 +20,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, 'refresh_daily.sh')
 START = 'step sets_index '
+HEAD = 'step load3 '        # вся ночь от загрузки фидов: каталоги комнат стоят в голове (T-20261106-84)
 
 PRELUDE = r'''set -u
 cd "$TD"
@@ -33,25 +34,26 @@ date() { case "${1:-}" in +%u) echo "$WEEKDAY" ;; +%s) echo 0 ;; *) command date
 PY_STUB = '#!/bin/bash\nif [ "${1:-}" = bank_refresh.py ] && [ "${2:-}" = --enabled ]; then echo "$BANK_WRITE_STUB"; fi\nexit 0\n'
 
 
-def tail(text: str) -> str:
-    i = text.index('\n' + START) + 1
+def tail(text: str, start: str = START) -> str:
+    i = text.index('\n' + start) + 1
     return text[i:]
 
 
-def night(text: str, write: int, weekday: int = 3, lock: bool = False, fail: str = '') -> list[str]:
-    """Шаги хвоста ночи по порядку: «имя :: команда»."""
-    return night_log(text, write, weekday, lock, fail)[0]
+def night(text: str, write: int, weekday: int = 3, lock: bool = False, fail: str = '', start: str = START) -> list[str]:
+    """Шаги хвоста ночи (или всей ночи от `start`) по порядку: «имя :: команда»."""
+    return night_log(text, write, weekday, lock, fail, start)[0]
 
 
-def night_log(text: str, write: int, weekday: int = 3, lock: bool = False, fail: str = '') -> tuple[list[str], str]:
-    """(шаги, лог ночи): `fail` — шаг, который заглушка роняет (код 1)."""
+def night_log(text: str, write: int, weekday: int = 3, lock: bool = False, fail: str = '',
+              start: str = START) -> tuple[list[str], str]:
+    """(шаги, лог ночи): `fail` — шаг, который заглушка роняет (код 1); `start` — с какого шага (HEAD — вся ночь)."""
     with tempfile.TemporaryDirectory(prefix='night-order-') as td:
         open(os.path.join(td, 'py'), 'w').write(PY_STUB)
         os.chmod(os.path.join(td, 'py'), 0o755)
         if lock:
             open(os.path.join(td, 'exam.lock'), 'w').close()
         sh = os.path.join(td, 'run.sh')
-        open(sh, 'w', encoding='utf-8').write(PRELUDE + tail(text))
+        open(sh, 'w', encoding='utf-8').write(PRELUDE + tail(text, start))
         p = subprocess.run(['bash', sh], env={**os.environ, 'TD': td, 'WEEKDAY': str(weekday), 'BANK_WRITE_STUB': str(write),
                                               'FAIL_STEP': fail}, capture_output=True, text=True, timeout=60)
         if p.returncode:
@@ -68,9 +70,12 @@ def names(steps: list[str]) -> list[str]:
 
 
 COMBOS = [(wd, lock) for wd in (1, 3) for lock in (False, True)]
-# ГОЛОВА КОНВЕЙЕРА КОМНАТ (room-conveyor-02 К1, T-20261106-84): новые шаги после `room_catalog`, до `flat215_demo`. В
-# `--against` их не считаем разницей — это сравнение остальной ночи с прежней.
+# ГОЛОВА КОНВЕЙЕРА КОМНАТ (room-conveyor-02 К1, T-20261106-84): каталоги комнат — сразу за load3, шаги комнат — рядом с такими же
+# шагами гостиной (`ROOM_AFTER`). В `--against` шаги комнат не считаем разницей — это сравнение остальной ночи с прежней.
 ROOM_STEPS = ('hall_catalog', 'rooms_alive', 'style_bedroom', 'style_hall', 'rooms_cutout')
+ROOM_ALL = ('room_catalog', *ROOM_STEPS)
+ROOM_AFTER = {'load3': ['room_catalog', 'hall_catalog'], 'pool_photos': ['rooms_alive'],
+              'style_score': ['style_bedroom', 'style_hall'], 'cutout': ['rooms_cutout']}
 
 
 def against(ref: str) -> int:
@@ -81,8 +86,8 @@ def against(ref: str) -> int:
     new = open(SCRIPT, encoding='utf-8').read()
     bad = 0
     for wd, lock in COMBOS:
-        a = night(old.stdout, 0, wd, lock)
-        b = [x for x in night(new, 0, wd, lock) if x.split(' :: ', 1)[0] not in ROOM_STEPS or x in a]
+        a = [x for x in night(old.stdout, 0, wd, lock, start=HEAD) if x.split(' :: ', 1)[0] not in ROOM_ALL]
+        b = [x for x in night(new, 0, wd, lock, start=HEAD) if x.split(' :: ', 1)[0] not in ROOM_ALL]
         same = a == b
         bad += 0 if same else 1
         print(f"  {'✓' if same else '✗'} write_enabled=false, {'понедельник' if wd == 1 else 'среда'}"
@@ -121,11 +126,12 @@ def _selftest() -> int:
         ok(f'[{tag}] false: медиа пишет банк (--apply)', all(s.endswith('catalog_media.py --apply') for s in f
                                                               if s.startswith('bank_media')))
         k = tn.index('bank_promote') + 1
-        ok(f'[{tag}] true: писатель сразу за bank_promote, за ним индекс, set_id, пересчёт сцен, страницы, затем каталог комнат и demo_band',
-           tn[k:k + len(IDX) + 3] == ['bank_refresh', *IDX, 'room_catalog', 'demo_band'], tn[k:k + len(IDX) + 3])
+        ok(f'[{tag}] true: писатель сразу за bank_promote, за ним индекс, set_id, пересчёт сцен, страницы, затем demo_band',
+           tn[k:k + len(IDX) + 2] == ['bank_refresh', *IDX, 'demo_band'], tn[k:k + len(IDX) + 2])
+        wn = names(night(text, 0, wd, lock, start=HEAD))
         ok(f'[{tag}] каталог комнат → demo_band → mesh_publish → витрина (T-20261106-82/2: места комнат — из свежего room_catalog)',
-           all(n.index('room_catalog') < n.index('demo_band') < n.index('mesh_publish') < n.index('flat215_demo') for n in (fn, tn)),
-           fn[fn.index('room_catalog'):fn.index('flat215_demo') + 1])
+           all(n.index('room_catalog') < n.index('demo_band') < n.index('mesh_publish') < n.index('flat215_demo')
+               for n in (wn, names(night(text, 1, wd, lock, start=HEAD)))), wn)
         ok(f'[{tag}] true: прежних --apply-писателей нет, медиа — сухим прогоном',
            not any(n in tn for n in OLD_WRITERS) and not any('--apply' in s for s in t if s.startswith('bank_media')))
         want = [n for n in fn if n not in OLD_WRITERS and n not in IDX]
@@ -153,14 +159,18 @@ def _selftest() -> int:
                'остальная ночь та же и тем же порядком, строка в дайджест',
                gn == want and all(n not in gn for n in BANK[k + 1:]) and 'DIGEST:банк: цепочка ночи' in log
                and (not write or all(n in gn for n in IDX)), (gn, want, log[-300:]))
-    full, log = night_log(text, 0)
+    full, log = night_log(text, 0, start=HEAD)
     fn = names(full)
     cmd = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in full}
-    ok('комнаты: каждый шаг один раз, после room_catalog и до flat215_demo, по порядку',
-       all(fn.count(n) == 1 for n in ROOM_STEPS) and fn[fn.index('room_catalog') + 1:fn.index('flat215_demo')] == list(ROOM_STEPS),
-       fn[fn.index('room_catalog'):fn.index('flat215_demo') + 1] if 'room_catalog' in fn and 'flat215_demo' in fn else fn)
-    ok('комнаты: команды — прихожая --run; фото --rooms; стиль с --limit 200, прихожая в базу; вырезка --rooms-only, по умолчанию 0',
-       cmd.get('hall_catalog') == '$PY hall_catalog.py --run'
+    ok('комнаты: каждый шаг ночи один раз', all(fn.count(n) == 1 for n in fn), [n for n in fn if fn.count(n) > 1])
+    ok('комнаты: каталоги — сразу за load3 (голова ночи), живость/стиль/вырезка — сразу за такими же шагами гостиной',
+       all(n in fn and fn[fn.index(n) + 1:fn.index(n) + 1 + len(v)] == v for n, v in ROOM_AFTER.items()),
+       {n: fn[fn.index(n):fn.index(n) + 1 + len(v)] for n, v in ROOM_AFTER.items() if n in fn})
+    ok('комнаты: каталог раньше всех шагов комнат, все шаги комнат — до demo_band и витрины',
+       max(fn.index(n) for n in ROOM_STEPS) < fn.index('demo_band') < fn.index('flat215_demo')
+       and all(fn.index('room_catalog') < fn.index(n) for n in ROOM_STEPS))
+    ok('комнаты: команды — каталоги --run; фото --rooms; стиль с --limit 200, прихожая в базу; вырезка --rooms-only, по умолчанию 0',
+       cmd.get('room_catalog') == '$PY room_catalog.py --run' and cmd.get('hall_catalog') == '$PY hall_catalog.py --run'
        and cmd.get('rooms_alive', '').startswith('$PY img_alive.py --rooms --minutes ')
        and cmd.get('style_bedroom') == '$PY style_score.py --source room_catalog --limit 200'
        and cmd.get('style_hall') == '$PY style_score.py --source hall --db --limit 200'
@@ -170,7 +180,7 @@ def _selftest() -> int:
        'DIGEST:спальня: каталог ok · фото ok · стиль ok · вырезка ok' in log
        and 'DIGEST:прихожая: каталог ok · фото ok · стиль ok · вырезка ok' in log, log[-400:])
     for failed in ('room_catalog', *ROOM_STEPS):
-        got, flog = night_log(text, 0, fail=failed)
+        got, flog = night_log(text, 0, fail=failed, start=HEAD)
         room = 'прихожая' if failed in ('hall_catalog', 'style_hall') else 'спальня'
         ok(f'комнаты: упал {failed} — остальная ночь та же (сборка витрины и всё после идут), в дайджесте {room} с FAIL',
            names(got) == fn and any(ln.startswith(f'DIGEST:{room}: ') and 'FAIL' in ln for ln in flog.splitlines()),

@@ -207,6 +207,13 @@ step drawing_dims "$PY" drawing_dims.py --cache-only
 # 2. База: upsert, хеши дельты, статусы жизненного цикла (ADR-0068)
 step load3 "$PY" load3.py
 [ "${RES[load3]}" = ok ] || { echo "загрузка упала — дальше по цепочке не идём" >> "$LOG"; exit 1; }
+# 2-к. КАТАЛОГИ КОМНАТ — В ГОЛОВЕ НОЧИ (план room-conveyor-02 К1, T-20261106-84; b2b-10 этап 2, ADR-0279): спальня и
+# прихожая — отдельная таблица `room_catalog`, гостиная её не видит. Сразу за загрузкой фидов: новинки ночи доходят до
+# живости фото, стиля, хешей и вырезки комнат (шаги рядом с такими же шагами гостиной ниже) и до `demo_band`
+# (T-20261106-82/2: места комнат берут кандидатов из свежего каталога). Сбой каталога — FAIL шага, ночь идёт дальше
+# (строка комнаты в дайджесте), последующие шаги комнат читают вчерашний каталог.
+step room_catalog "$PY" room_catalog.py --run
+step hall_catalog "$PY" hall_catalog.py --run
 # 2a. ДЕТСКИЕ КОВРЫ ПО КАРТИНКЕ (demo-05, 17.10): новые ковры — вопрос нейросети-зрителю, детским роль снимается сразу;
 # загрузчик читает решения из кэша (`rug_kids.py`). Копейки (ковров ~80, проверяются только новые); отказ сети — WARN, не отсев
 paid_step rug_kids "$PY" rug_kids.py --scan --limit 200
@@ -261,6 +268,8 @@ step price_truth "$PY" price_truth.py
 # ссылки и фотки»). ДО оценки стиля, обогащения и очереди моделей (conv-05): они читают
 # `products.photo_alive`, который пишет этот шаг (`--sync-db` в конце обхода). 16 потоков ≈ 14 ссылок/с.
 step pool_photos "$PY" img_alive.py --pool --minutes "${PHOTO_SWEEP_MIN:-25}"
+# фото товаров комнат — то же правило и кэш, писатель `room_catalog.photo_alive` (T-20261106-84); показ комнат его читает
+step rooms_alive "$PY" img_alive.py --rooms --minutes "${ROOMS_ALIVE_MIN:-10}"
 
 # 3. Отпечатки картинок по кэшу — бесплатно, ловит «URL сменился, картинка та же»
 step phash "$PY" phash.py --from-cache
@@ -282,6 +291,10 @@ paid_step enrich "$PY" enrich.py --pool --vision --limit "${ENRICH_DAILY_LIMIT:-
 # Потолок 1000/день (владелец 11.10): после перехода на gpt-6-luna тысяча товаров стоит ~$0.024,
 # то есть дневной максимум — около двух рублей; прежние 300 задерживали бы разбор завала новинок.
 step style_score "$PY" style_score.py --limit "${STYLE_DAILY_LIMIT:-1000}"
+# стиль комнат (T-20261106-84) — тот же скорер, дневной потолок шлюза общий, платим только за новые модели. Спальня — файл
+# `style-scores-bedroom.json` (его читают сборщики), прихожая — `--db` (её стиль читают из `product_style_scores`)
+paid_step style_bedroom "$PY" style_score.py --source room_catalog --limit "${STYLE_ROOMS_LIMIT:-200}"
+paid_step style_hall "$PY" style_score.py --source hall --db --limit "${STYLE_ROOMS_LIMIT:-200}"
 # 4c. СКОЛЬКО ПРЕДМЕТОВ В ОДНОЙ ПОКУПКЕ (владелец 01.09): стулья продаются комплектами по 2/4/6,
 # и в фиде этого нет — число берётся из названия, описания или с фото. Считается ОФЛАЙН и
 # ложится в `product_pack`; прод и демо читают готовое, модели на проде нет. Дельта: только
@@ -310,6 +323,17 @@ step candidates "$PY" candidates.py --build
 # (MODE=mask_only), когда освободится от пилота мешей. CUTOUT_DAILY_MAX=0 и есть этот режим;
 # включение масок = убрать переопределение и выбрать CUTOUT_BACKEND=salad.
 step cutout env CUTOUT_DAILY_MAX=0 CUTOUT_SHA_MAX=1000 "$PY" cutout_sync.py
+# хеши и вырезка товаров комнат (T-20261106-84) — своим лимитом, гостиную не трогает. Вырезка платная (fal ≈ $0.0008/фото):
+# потолок `CUTOUT_ROOMS_MAX`, 0 — только хеши (бесплатно). Учётка fal заблокирована — шаг стоит сразу, WARN в сводку.
+# Дальше — строка на комнату в дайджест: статусы её шагов одной строкой.
+step rooms_cutout env PHOTO_ROOMS_LIMIT="${PHOTO_ROOMS_LIMIT:-500}" CUTOUT_ROOMS_MAX="${CUTOUT_ROOMS_MAX:-0}" "$PY" cutout_sync.py --rooms-only
+room_digest() {                 # room_digest <комната> <метка=шаг…> — строка дайджеста: статусы шагов комнаты одной строкой
+  local room="$1"; shift; local s="" p
+  for p in "$@"; do s+="${s:+ · }${p%%=*} ${RES[${p#*=}]:-нет}"; done
+  echo "DIGEST:$room: $s" >> "$LOG"
+}
+room_digest спальня каталог=room_catalog фото=rooms_alive стиль=style_bedroom вырезка=rooms_cutout
+room_digest прихожая каталог=hall_catalog фото=rooms_alive стиль=style_hall вырезка=rooms_cutout
 step sets_index "$PY" sets_incremental.py --index
 step sets_check "$PY" sets_incremental.py --check
 # 6→5b. Отчёт по комплектам: что из показываемого пользователю мертво/ждёт подтверждения
@@ -439,26 +463,6 @@ if [ "$BANK_WRITE" = 1 ]; then
   [ "$bank_chain_ok" = 1 ] && step bank_refresh "$PY" bank_refresh.py --run-id "$BANK_RUN_ID"
   bank_index_steps
 fi
-# каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины И ДО
-# `demo_band` (T-20261106-82/2): места комнат кроме гостиной (квота 30 на комнату × стиль) берут кандидатов из свежего каталога
-step room_catalog "$PY" room_catalog.py --run
-# ГОЛОВА КОНВЕЙЕРА КОМНАТ (план room-conveyor-02 К1, T-20261106-84): прихожая, живость фото, стиль, хеши и вырезка комнат —
-# тем же путём, что гостиная. Каждый шаг отдельный: сбой комнаты не трогает гостиную и сборку витрины (строка на комнату — в
-# дайджест). Стиль — дневной потолок шлюза общий (`openai_budget`), платим только за новые модели; прихожая — в базу (`--db`:
-# её стиль читают из `product_style_scores`), спальня — файл `style-scores-bedroom.json`. Вырезка платная (fal ≈ $0.0008/фото):
-# потолок `CUTOUT_ROOMS_MAX` (0 — только хеши, бесплатно).
-step hall_catalog "$PY" hall_catalog.py --run
-step rooms_alive "$PY" img_alive.py --rooms --minutes "${ROOMS_ALIVE_MIN:-10}"
-paid_step style_bedroom "$PY" style_score.py --source room_catalog --limit "${STYLE_ROOMS_LIMIT:-200}"
-paid_step style_hall "$PY" style_score.py --source hall --db --limit "${STYLE_ROOMS_LIMIT:-200}"
-step rooms_cutout env PHOTO_ROOMS_LIMIT="${PHOTO_ROOMS_LIMIT:-500}" CUTOUT_ROOMS_MAX="${CUTOUT_ROOMS_MAX:-0}" "$PY" cutout_sync.py --rooms-only
-room_digest() {                 # room_digest <комната> <метка=шаг…> — строка дайджеста: статусы шагов комнаты одной строкой
-  local room="$1"; shift; local s="" p
-  for p in "$@"; do s+="${s:+ · }${p%%=*} ${RES[${p#*=}]:-нет}"; done
-  echo "DIGEST:$room: $s" >> "$LOG"
-}
-room_digest спальня каталог=room_catalog фото=rooms_alive стиль=style_bedroom вырезка=rooms_cutout
-room_digest прихожая каталог=hall_catalog фото=rooms_alive стиль=style_hall вырезка=rooms_cutout
 step demo_band "$PY" demo_band.py --report
 step mesh_publish "$PY" mesh_publish.py
 # комментарии владельца к браку мешей за неделю (план mesh-audit-comments) — строкой DIGEST в утреннюю сводку; разбор — --comments
