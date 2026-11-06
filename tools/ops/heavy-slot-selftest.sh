@@ -282,19 +282,34 @@ ok "без двойного счёта, обратная сторона: дер�
 
 mem 14
 printf 's3-a 3.5\ns3-b 3.5\ns3-c 3.5\n' >> "$HEAVY_SLOT_MEM_STUB"
+# детерминированно (T-74/3: на занятой машине снимок по sleep мигал): каждая команда ставит флаг «стартовала» и держит слот,
+# пока нет флага «отпускай»; снимок --status — когда трое стартовали и четвёртый стоит первым в очереди
+until_f() { for _ in $(seq 1 200); do eval "$1" && return 0; sleep 0.05; done; return 1; }
+hold3() { echo "echo s$1 >> $T/$2; touch $T/up-$2-$1; while [ ! -e $T/go-$2 ]; do sleep 0.05; done; echo e$1 >> $T/$2"; }
 for x in a b c d; do
-  "$S" "s3-$x" --min-gb 4 -- sh -c "echo s$x >> $T/three; sleep 1; echo e$x >> $T/three" & eval "p3_$x=$!"
-  if [ $x = a ]; then until_held; else sleep 0.3; fi
+  "$S" "s3-$x" --min-gb 4 -- sh -c "$(hold3 $x three)" & eval "p3_$x=$!"
+  [ $x = d ] || until_f "[ -e $T/up-three-$x ]"
 done
+until_f '"$S" --status | grep -q "^  1\. s3-d "'
 "$S" --status > "$T/three.st"
+d_early=$([ -e "$T/up-three-d" ] && echo 1 || echo 0)
+touch "$T/go-three"
 wait $p3_a $p3_b $p3_c $p3_d
 o=$(tr '\n' '|' < "$T/three")
 ok "три слота: 14 ≥ 0,5 + 0,5 + 4 + 1,5 — трое параллельно, четвёртый ждёт слот ($o)" \
-  "$(yes_if '[ "$(head -c 9 <<<"$o")" = "sa|sb|sc|" ] && [[ "$o" =~ ^sa\|sb\|sc\|e[abc]\|sd\| ]] && [ $(grep -c "^ДЕРЖИТ" "$T/three.st") = 3 ] && grep -q "^ДЕРЖИТ: s3-c .* · слот 3$" "$T/three.st" && grep -q "^  1\. s3-d " "$T/three.st"')"
-o=$(HEAVY_SLOT_SLOTS=2; export HEAVY_SLOT_SLOTS; : > "$T/three2"
-  for x in a b c; do "$S" "s3-$x" --min-gb 4 -- sh -c "echo s$x >> $T/three2; sleep 0.8; echo e$x >> $T/three2" & eval "q_$x=$!"; sleep 0.3; done
-  wait $q_a $q_b $q_c; tr '\n' '|' < "$T/three2")
-ok "HEAVY_SLOT_SLOTS=2: та же память — третий ждёт, пока не отпустит первый ($o)" "$(yes_if '[[ "$o" =~ ^sa\|sb\|e[ab]\|sc\| ]]')"
+  "$(yes_if '[ $d_early = 0 ] && [[ "$o" =~ ^sa\|sb\|sc\|(e[abc]\|)+sd\| ]] && [ $(grep -c "^ДЕРЖИТ" "$T/three.st") = 3 ] && grep -q "^ДЕРЖИТ: s3-c .* · слот 3$" "$T/three.st" && grep -q "^  1\. s3-d " "$T/three.st"')"
+export HEAVY_SLOT_SLOTS=2
+for x in a b c; do
+  "$S" "s3-$x" --min-gb 4 -- sh -c "$(hold3 $x two3)" & eval "q_$x=$!"
+  [ $x = c ] || until_f "[ -e $T/up-two3-$x ]"
+done
+until_f '"$S" --status | grep -q "^  1\. s3-c "'
+c_early=$([ -e "$T/up-two3-c" ] && echo 1 || echo 0)
+touch "$T/go-two3"
+wait $q_a $q_b $q_c
+unset HEAVY_SLOT_SLOTS
+o=$(tr '\n' '|' < "$T/two3")
+ok "HEAVY_SLOT_SLOTS=2: та же память — третий ждёт, пока не отпустит первый ($o)" "$(yes_if '[ $c_early = 0 ] && [[ "$o" =~ ^sa\|sb\|(e[ab]\|)+sc\| ]]')"
 
 mem 3
 "$S" m-old --min-gb 6 --timeout 1 -- true; rc=$?
