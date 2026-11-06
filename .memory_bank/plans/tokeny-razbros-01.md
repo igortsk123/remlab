@@ -2,7 +2,7 @@
 workstream: ops
 slug: tokeny-razbros-01
 title: Сводка токенов — разброс оценки «на 1 % недели» и пометка недели, где работу Windows не отделить
-status: draft
+status: in_progress
 created: 2026-11-06
 updated: 2026-11-06
 completed:
@@ -46,6 +46,7 @@ parent_plan: ops-token-policy-01
 
 ## Лог выполнения
 - 2026-11-06 — черновик по вопросу владельца (TG 186–191)
+- 2026-11-06 11:38 — владелец «да» (TG 193); T-20261106-76 → Работник 6
 
 ## Completion summary
 
