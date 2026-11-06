@@ -1,0 +1,3898 @@
+{
+ "bedroom": {
+  "records": [
+   {
+    "room_id": "bedroom-1",
+    "room_type": "bedroom",
+    "purpose": "couple",
+    "band": "17.5",
+    "m2": 17.5,
+    "tier": "эконом",
+    "style": "сканди",
+    "pair": [
+     "terra",
+     "green"
+    ],
+    "total": 120028,
+    "items": {
+     "кровать": {
+      "mid": 112923,
+      "eid": "3185911961608383085",
+      "sid": "112923:3185911961608383085",
+      "name": "Кровать divan.ru Дона 160 Береза Латте",
+      "price": 18990,
+      "w": 173.0,
+      "d": 203.0,
+      "h": 85.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+      "qty": 1,
+      "why": "стиль 7.6; палитра+1.0; меш сгенерирован",
+      "score": 8.6,
+      "style_score": 7.6,
+      "mesh": "generated",
+      "cls": "wood_light",
+      "cls2": "neutral_light",
+      "rgb": [
+       202,
+       186,
+       168
+      ],
+      "sleep_w": 160.0,
+      "fam": "divan.ru|кровать divan.ru дона",
+      "has_mesh": true,
+      "mesh_defect": false
+     },
+     "тумба прикроватная": {
+      "mid": 112923,
+      "eid": "10179754858995837853",
+      "sid": "112923:10179754858995837853",
+      "name": "Тумба прикроватная divan.ru Ивейн 1-42x52 Графитовый",
+      "price": 4990,
+      "w": 42.0,
+      "d": 35.0,
+      "h": 52.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/R9IHxua4EaaiS17Tb-jq3D83R3gyj5V--TqXqf1Uyas/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQxNzg5MjcucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-ivejn-open-grey&erid=2SDnjeSGLnX",
+      "qty": 2,
+      "why": "стиль 10; палитра+1.4; меш сгенерирован",
+      "score": 11.4,
+      "style_score": 10.0,
+      "mesh": "generated",
+      "cls": "neutral_grey",
+      "cls2": "neutral_dark",
+      "rgb": [
+       124,
+       119,
+       115
+      ],
+      "sleep_w": null,
+      "fam": "divan.ru|тумба прикроватная divan.ru ивейн",
+      "has_mesh": true,
+      "mesh_defect": false
+     },
+     "шкаф": {
+      "mid": 112923,
+      "eid": "14333601282202001834",
+      "sid": "112923:14333601282202001834",
+      "name": "Распашной шкаф divan.ru Тайрон 3-140x200 Монстера ​",
+      "price": 39992,
+      "w": 140.0,
+      "d": 50.0,
+      "h": 200.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/qIsG0gp9i5PI3cYe7XqK6rJuQ9_zj-BlhLEC_vV9EVg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUwNzE2NzAucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-tajron-3-monstera&erid=2SDnjeSGLnX",
+      "qty": 1,
+      "why": "стиль 8.2; палитра+1.6; меш готов",
+      "score": 9.8,
+      "style_score": 8.2,
+      "mesh": "ready",
+      "cls": "accent_green",
+      "cls2": "accent_green",
+      "rgb": [
+       173,
+       179,
+       146
+      ],
+      "sleep_w": null,
+      "fam": "divan.ru|распашной шкаф divan.ru тайрон",
+      "has_mesh": true,
+      "mesh_defect": false
+     },
+     "комод": {
+      "mid": 112923,
+      "eid": "13338109332180343015",
+      "sid": "112923:13338109332180343015",
+      "name": "Тумба divan.ru Ханна 105x80 Белый",
+      "price": 14990,
+      "w": 105.0,
+      "d": 42.0,
+      "h": 80.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/6epjicOJQkGTEbEoseIKPDqJjRjlQPvKckpq1CcBqnE/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ4ODY2OTUucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-hanna-2-white&erid=2SDnjeSGLnX",
+      "qty": 1,
+      "why": "стиль 9.2; палитра+1.4; меш готов",
+      "score": 10.6,
+      "style_score": 9.2,
+      "mesh": "ready",
+      "cls": "neutral_light",
+      "cls2": "neutral_light",
+      "rgb": [
+       219,
+       219,
+       217
+      ],
+      "sleep_w": null,
+      "fam": "divan.ru|тумба divan.ru ханна",
+      "has_mesh": true,
+      "mesh_defect": false
+     },
+     "лампа": {
+      "mid": 99272,
+      "eid": "5831242993011985711",
+      "sid": "99272:5831242993011985711",
+      "name": "Светильник настольный Arte Lamp A1616Lt-1Wh",
+      "price": 3599,
+      "w": 11.0,
+      "d": 11.0,
+      "h": 38.0,
+      "shop": "tvoydom.ru",
+      "img": "//imgng.gdeslon.ru/commodities/319249637/pictures/eaf4a13a5bf3d224badf6e1e9968ebdf/big.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002696239%2F&erid=Kra24Bdr7",
+      "qty": 2,
+      "why": "стиль 7.5; палитра+0.4",
+      "score": 7.9,
+      "style_score": 7.5,
+      "mesh": null,
+      "cls": "neutral_light",
+      "cls2": "neutral_light",
+      "rgb": [
+       223,
+       227,
+       234
+      ],
+      "fam": "tvoydom.ru|Светильник настольный Arte Lamp A1616Lt-1Wh",
+      "has_mesh": false,
+      "mesh_defect": false
+     },
+     "ковёр": {
+      "mid": 112923,
+      "eid": "7821131613918644865",
+      "sid": "112923:7821131613918644865",
+      "name": "Ковер divan.ru Флутон Серый 200x300",
+      "price": 12690,
+      "w": 300.0,
+      "d": 200.0,
+      "h": null,
+      "shop": "divan.ru",
+      "img": "//imgng.gdeslon.ru/commodities/422701698/pictures/a6b843582037ebdc6d685e19ed0a6e61/big.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkover-fluton-grey-200x300&erid=2SDnjeSGLnX",
+      "qty": 1,
+      "why": "стиль 8.8; палитра+1.4",
+      "score": 10.2,
+      "style_score": 8.8,
+      "mesh": null,
+      "cls": "neutral_light",
+      "cls2": "neutral_light",
+      "rgb": [
+       209,
+       204,
+       201
+      ],
+      "fam": "divan.ru|Ковер divan.ru Флутон Серый 200x300",
+      "has_mesh": false,
+      "mesh_defect": false
+     },
+     "шторы": {
+      "mid": 99272,
+      "eid": "8515925807324185779",
+      "sid": "99272:8515925807324185779",
+      "name": "Тюль Daily by Togas Кассандра экрю 300х280 см",
+      "price": 4599,
+      "w": 300.0,
+      "d": null,
+      "h": 280.0,
+      "shop": "tvoydom.ru",
+      "img": "//imgng.gdeslon.ru/commodities/429397062/pictures/0fcf7bea7d4fa1782554260dcd448cf1/big.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002801961%2F&erid=Kra24Bdr7",
+      "qty": 2,
+      "why": "стиль 8.3; палитра+1.4",
+      "score": 9.7,
+      "style_score": 8.3,
+      "mesh": null,
+      "cls": "neutral_light",
+      "cls2": "neutral_light",
+      "rgb": [
+       205,
+       202,
+       197
+      ],
+      "fam": "tvoydom.ru|Тюль Daily by Togas Кассандра экрю 300х280 см",
+      "has_mesh": false,
+      "mesh_defect": false
+     },
+     "плед": {
+      "mid": 112923,
+      "eid": "10743898462394654482",
+      "sid": "112923:10743898462394654482",
+      "name": "Плед divan.ru Монти Хоум Текстиль Серый 120x170",
+      "price": 6990,
+      "w": 170.0,
+      "d": 120.0,
+      "h": null,
+      "shop": "divan.ru",
+      "img": "//imgng.gdeslon.ru/commodities/417849304/pictures/38c20ec44c9305d11008f207a8d57e46/big.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpled-monti-home-textile-grey-120x170&erid=2SDnjeSGLnX",
+      "qty": 1,
+      "why": "стиль 7.9; палитра+1.0; меш сгенерирован",
+      "score": 8.9,
+      "style_score": 7.9,
+      "mesh": "generated",
+      "cls": "unknown",
+      "cls2": "unknown",
+      "rgb": null,
+      "fam": "divan.ru|Плед divan.ru Монти Хоум Текстиль Серый 120x170",
+      "has_mesh": true,
+      "mesh_defect": false
+     }
+    },
+    "alternates": {
+     "кровать": [
+      {
+       "mid": 112923,
+       "eid": "17326469223017176468",
+       "sid": "112923:17326469223017176468",
+       "name": "Кровать divan.ru Вилена 160 Велюр Синий",
+       "price": 23992,
+       "score": 4.8,
+       "w": 166.0,
+       "d": 210.0,
+       "h": 92.0,
+       "img": "https://cdn0.divan.ru/img/v1/mslo-2nMnhsEu8UkQzQw3jYD7B-TuJyEbPz7rzwmvPc/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU1MDc3MTEucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-vilena-160-velvet-navy-blue&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 7.0,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "3989998131928467167",
+       "sid": "112923:3989998131928467167",
+       "name": "Кровать divan.ru Нордик 160 Светло-бежевый",
+       "price": 18990,
+       "score": 11.4,
+       "w": 165.0,
+       "d": 203.0,
+       "h": 98.0,
+       "img": "https://cdn0.divan.ru/img/v1/09a9U9ShWdaD4nn0jLKMYnDCWE4G6CokZIyA1y9Mtp4/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQxNjE5ODEucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-nordik-160-light&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 10.0,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "10885118672544334143",
+       "sid": "112923:10885118672544334143",
+       "name": "Кровать divan.ru Нордик 160 Натуральный Молочный",
+       "price": 19990,
+       "score": 11.4,
+       "w": 165.0,
+       "d": 203.0,
+       "h": 98.0,
+       "img": "https://cdn0.divan.ru/img/v1/tu_Ht5T3E4PWiS5PWTiPu5VG387TiAh81C3CgwKKQZs/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ1ODU4ODYucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-nordik-160-wood-white&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 10.0,
+       "has_mesh": false,
+       "mesh_defect": false
+      }
+     ],
+     "тумба прикроватная": [
+      {
+       "mid": 112923,
+       "eid": "648108246909465122",
+       "sid": "112923:648108246909465122",
+       "name": "Тумба прикроватная divan.ru Рико 45x55 Древесный натуральный",
+       "price": 7192,
+       "score": 10.2,
+       "w": 45.0,
+       "d": 40.0,
+       "h": 55.0,
+       "img": "https://cdn0.divan.ru/img/v1/PusvFcbAUsiP5_8GgpB8lTwOJxRlTiWuj7gRjk4GuIQ/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ5NzM0OTEucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-riko-wood&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 9.2,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "17511413518849295620",
+       "sid": "112923:17511413518849295620",
+       "name": "Тумба прикроватная divan.ru Мостар 36x49 Латте",
+       "price": 4990,
+       "score": 8.4,
+       "w": 36.0,
+       "d": 38.0,
+       "h": 49.0,
+       "img": "https://cdn0.divan.ru/img/v1/ba9-06HjB3qn-tX8b6AzndOtXtZ1u7H_msFLQC5DnIU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQxNzg4MDUucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-mostar-latte&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 7.0,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "6511082105296040630",
+       "sid": "112923:6511082105296040630",
+       "name": "Тумба прикроватная divan.ru Ивейн 1-42x52 Белый",
+       "price": 4990,
+       "score": 11.4,
+       "w": 42.0,
+       "d": 35.0,
+       "h": 52.0,
+       "img": "https://cdn0.divan.ru/img/v1/CzpLnp9fw5n3LFn8B-qdXV_M-E4bySESOX-nn4NzDog/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQxNzg3MDgucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-ivejn-open-white&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 10.0,
+       "has_mesh": false,
+       "mesh_defect": false
+      }
+     ],
+     "шкаф": [
+      {
+       "mid": 112923,
+       "eid": "12008192011702380911",
+       "sid": "112923:12008192011702380911",
+       "name": "Распашной шкаф divan.ru Тайрон 3-140x200 Атом",
+       "price": 49990,
+       "score": 9.8,
+       "w": 140.0,
+       "d": 50.0,
+       "h": 200.0,
+       "img": "https://cdn0.divan.ru/img/v1/o0KSF_lIafI_qztcLeIpK9pF5OjalTbdtb2nEntPWgU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ4ODE4NTkucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-tajron-3-nucleus&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 8.2,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "14522730241385338296",
+       "sid": "112923:14522730241385338296",
+       "name": "Распашной шкаф divan.ru Тайрон 3-140x200 Звезда ​",
+       "price": 49990,
+       "score": 9.6,
+       "w": 140.0,
+       "d": 50.0,
+       "h": 200.0,
+       "img": "https://cdn0.divan.ru/img/v1/4XnYgUY8cVJC4OBG3YE2GP3xR8Nh13_K4AM7UUdnbZ4/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ5OTAxMTEucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-tajron-3-day-star&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 8.2,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "5233739352063466990",
+       "sid": "112923:5233739352063466990",
+       "name": "Распашной шкаф divan.ru Тайрон 3-140x200 Джунгли ​",
+       "price": 49990,
+       "score": 9.6,
+       "w": 140.0,
+       "d": 50.0,
+       "h": 200.0,
+       "img": "https://cdn0.divan.ru/img/v1/0HM9WekYqTJsY74oaScLFcq0lIa6df1FFEzKPTv51Kc/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ4ODE4MjgucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-tajron-3-jungle&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 8.2,
+       "has_mesh": true,
+       "mesh_defect": false
+      }
+     ],
+     "комод": [
+      {
+       "mid": 112923,
+       "eid": "17736893906656810861",
+       "sid": "112923:17736893906656810861",
+       "name": "Тумба divan.ru Ханна 105x80 Латте",
+       "price": 14990,
+       "score": 10.6,
+       "w": 105.0,
+       "d": 42.0,
+       "h": 80.0,
+       "img": "https://cdn0.divan.ru/img/v1/P8BwbDqTzzf7sqYxNCQfkCiuevVEFo-uB0QZetvMT9E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ4ODYwMjUucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-hanna-2-latte&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 9.2,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "3283721603911838983",
+       "sid": "112923:3283721603911838983",
+       "name": "Комод divan.ru Квелен 96x89 Белый",
+       "price": 22390,
+       "score": 8.2,
+       "w": 96.0,
+       "d": 45.0,
+       "h": 89.0,
+       "img": "https://cdn0.divan.ru/img/v1/SbzdGKrMqdAu4_N3p1ZjwIwg9tS6V-aAO3CfHz8_6TQ/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYxNDU1OTkucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomod-kvelen-96x89-belyj&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 6.8,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "15448617587257866916",
+       "sid": "112923:15448617587257866916",
+       "name": "Комод divan.ru Квелен 96x89 Светло-бежевый",
+       "price": 23190,
+       "score": 8.2,
+       "w": 96.0,
+       "d": 45.0,
+       "h": 89.0,
+       "img": "https://cdn0.divan.ru/img/v1/zNA1-KDz7qk2dNnDmYIp1pC4GjDinWskiA9LxwNEk6c/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU2MjIyNjYucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomod-kvelen-1-ivory&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 6.8,
+       "has_mesh": true,
+       "mesh_defect": false
+      }
+     ],
+     "лампа": [],
+     "ковёр": [
+      {
+       "mid": 112923,
+       "eid": "432643432931537714",
+       "sid": "112923:432643432931537714",
+       "name": "Ковер divan.ru Тут Рядом Легко Зеленый 200x300",
+       "price": 15990,
+       "score": 9.2,
+       "w": 300.0,
+       "d": 200.0,
+       "h": null,
+       "img": "//imgng.gdeslon.ru/commodities/460179676/pictures/70c292588517d21adb2059c3f5c8034d/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkover-tut-ryadom-legko-zelenyj-200x300&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 8.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "7064687560248829017",
+       "sid": "112923:7064687560248829017",
+       "name": "Ковер divan.ru Котри Серый 200x300",
+       "price": 16390,
+       "score": 8.6,
+       "w": 300.0,
+       "d": 200.0,
+       "h": null,
+       "img": "//imgng.gdeslon.ru/commodities/422701722/pictures/6a9a2d3464c7883a82dc3d1bd76bfbcd/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkover-kotri-grey-200x300&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 8.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      }
+     ],
+     "шторы": [
+      {
+       "mid": 99272,
+       "eid": "680043343935922056",
+       "sid": "99272:680043343935922056",
+       "name": "Вуаль-софт Togas сливочный экрю 280x300 см 2 предмета",
+       "price": 10999,
+       "score": 9.7,
+       "w": 280.0,
+       "d": null,
+       "h": 300.0,
+       "img": "//imgng.gdeslon.ru/commodities/306233014/pictures/69a66c70a0e6b6d41dc1cfd4deab771b/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002567402%2F&erid=Kra24Bdr7",
+       "mesh": null,
+       "style_score": 8.3,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 99272,
+       "eid": "11831646890514884061",
+       "sid": "99272:11831646890514884061",
+       "name": "Комплект штор Togas Алессио бежевые 260x300 см 2 предмета",
+       "price": 21599,
+       "score": 8.6,
+       "w": 260.0,
+       "d": null,
+       "h": 300.0,
+       "img": "//imgng.gdeslon.ru/commodities/289195967/pictures/2e48a9dfb247eb6c6400caadabc340b8/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002659977%2F&erid=Kra24Bdr7",
+       "mesh": null,
+       "style_score": 7.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 99272,
+       "eid": "12639309836243331961",
+       "sid": "99272:12639309836243331961",
+       "name": "Комплект штор Togas Алессио светло-серый 260x300 см 2 предмета",
+       "price": 21599,
+       "score": 8.6,
+       "w": 260.0,
+       "d": null,
+       "h": 300.0,
+       "img": "//imgng.gdeslon.ru/commodities/330435976/pictures/db478b4eaaea495dec459675c1e2b8b2/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002714027%2F&erid=Kra24Bdr7",
+       "mesh": null,
+       "style_score": 7.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      }
+     ],
+     "плед": [
+      {
+       "mid": 112923,
+       "eid": "16458221176007070762",
+       "sid": "112923:16458221176007070762",
+       "name": "Плед divan.ru Бэй Молочный 150x200",
+       "price": 2190,
+       "score": 10.2,
+       "w": 200.0,
+       "d": 150.0,
+       "h": null,
+       "img": "//imgng.gdeslon.ru/commodities/417849231/pictures/e712e67bb57418c9a464c41440e24f6d/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpled-bej-white-150x200&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 9.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "7252254948566647831",
+       "sid": "112923:7252254948566647831",
+       "name": "Плед divan.ru Бэй Бежевый 150x200",
+       "price": 2190,
+       "score": 10.2,
+       "w": 200.0,
+       "d": 150.0,
+       "h": null,
+       "img": "//imgng.gdeslon.ru/commodities/417847234/pictures/212328f5475f5e3c767daa06fb0d365c/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpled-bej-beige-150x200&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 9.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "5897779898120007971",
+       "sid": "112923:5897779898120007971",
+       "name": "Комплект плед и чехол на подушку divan.ru Бэй Серый 150x200",
+       "price": 2464,
+       "score": 10.2,
+       "w": null,
+       "d": null,
+       "h": null,
+       "img": "//imgng.gdeslon.ru/commodities/417847420/pictures/2e555ea137f9a82235596df260e48884/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomplekt-pled-i-chehol-na-podushku-bej-grey-150x200&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 9.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      }
+     ]
+    },
+    "slots": {
+     "кровать": {
+      "ideal": {
+       "w": 175,
+       "d": 215,
+       "h": 110
+      },
+      "band": {
+       "w": [
+        140.0,
+        192.5
+       ],
+       "d": [
+        172.0,
+        236.5
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true
+     },
+     "тумба прикроватная": {
+      "ideal": {
+       "w": 45,
+       "d": 40,
+       "h": 55
+      },
+      "band": {
+       "w": [
+        36.0,
+        49.5
+       ],
+       "d": [
+        32.0,
+        44.0
+       ],
+       "h": [
+        44.0,
+        60.5
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 2,
+      "mesh": true
+     },
+     "шкаф": {
+      "ideal": {
+       "w": 150,
+       "d": 60,
+       "h": 220
+      },
+      "band": {
+       "w": [
+        120.0,
+        165.0
+       ],
+       "d": [
+        48.0,
+        66.0
+       ],
+       "h": [
+        176.0,
+        242.0
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true
+     },
+     "комод": {
+      "ideal": {
+       "w": 100,
+       "d": 45,
+       "h": 85
+      },
+      "band": {
+       "w": [
+        80.0,
+        110.0
+       ],
+       "d": [
+        36.0,
+        49.5
+       ],
+       "h": [
+        68.0,
+        93.5
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true
+     },
+     "лампа": {
+      "ideal": {
+       "h": 45
+      },
+      "band": {
+       "h": [
+        36.0,
+        49.5
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 2,
+      "mesh": true
+     },
+     "ковёр": {
+      "ideal": {
+       "long": 300
+      },
+      "band": {
+       "long": [
+        240.0,
+        330.0
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": false
+     },
+     "шторы": {
+      "ideal": {},
+      "band": {},
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 2,
+      "mesh": false
+     },
+     "плед": {
+      "ideal": {},
+      "band": {},
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": false
+     }
+    },
+    "layout": {
+     "кровать": {
+      "x": 298.5,
+      "z": 101.5,
+      "rot": 0,
+      "w": 173.0,
+      "d": 203.0,
+      "h": 85.0,
+      "sid": "112923:3185911961608383085"
+     },
+     "тумба прикроватная": {
+      "x": 190.0,
+      "z": 17.5,
+      "rot": 0,
+      "w": 42.0,
+      "d": 35.0,
+      "h": 52.0,
+      "sid": "112923:10179754858995837853"
+     },
+     "тумба прикроватная 2": {
+      "x": 407.0,
+      "z": 17.5,
+      "rot": 0,
+      "w": 42.0,
+      "d": 35.0,
+      "h": 52.0,
+      "sid": "112923:10179754858995837853"
+     },
+     "шкаф": {
+      "x": 25.0,
+      "z": 163.0,
+      "rot": 90,
+      "w": 140.0,
+      "d": 50.0,
+      "h": 200.0,
+      "sid": "112923:14333601282202001834"
+     },
+     "комод": {
+      "x": 482.5,
+      "z": 21.0,
+      "rot": 0,
+      "w": 105.0,
+      "d": 42.0,
+      "h": 80.0,
+      "sid": "112923:13338109332180343015"
+     },
+     "ковёр": {
+      "x": 298.5,
+      "z": 167.7,
+      "rot": 0,
+      "w": 300.0,
+      "d": 200.0,
+      "h": 1,
+      "sid": "112923:7821131613918644865"
+     },
+     "лампа": {
+      "x": 190.0,
+      "z": 17.5,
+      "rot": 0,
+      "w": 11.0,
+      "d": 11.0,
+      "h": 38.0,
+      "elev": 52.0,
+      "on": "тумба прикроватная",
+      "sid": "99272:5831242993011985711"
+     },
+     "лампа 2": {
+      "x": 407.0,
+      "z": 17.5,
+      "rot": 0,
+      "w": 11.0,
+      "d": 11.0,
+      "h": 38.0,
+      "elev": 52.0,
+      "on": "тумба прикроватная 2",
+      "sid": "99272:5831242993011985711"
+     },
+     "плед": {
+      "on": "кровать",
+      "sid": "112923:10743898462394654482"
+     },
+     "шторы": {
+      "windows": [
+       {
+        "wall": "east",
+        "offset_cm": 40.0,
+        "width_cm": 210.0
+       },
+       {
+        "wall": "north",
+        "offset_cm": 197.0,
+        "width_cm": 240.0
+       }
+      ],
+      "sid": "99272:8515925807324185779"
+     },
+     "_room": {
+      "variant": "registry-17.5",
+      "w": 597,
+      "d": 293,
+      "openings": [
+       {
+        "kind": "door",
+        "wall": "south",
+        "offset_cm": 24,
+        "width_cm": 90,
+        "swing_cm": 90,
+        "hinge": "left"
+       },
+       {
+        "kind": "window",
+        "wall": "east",
+        "offset_cm": 40,
+        "width_cm": 210,
+        "sill_cm": 85,
+        "height_cm": 150
+       },
+       {
+        "kind": "window",
+        "wall": "north",
+        "offset_cm": 197,
+        "width_cm": 240,
+        "sill_cm": 85,
+        "height_cm": 150
+       }
+      ],
+      "radiators": [
+       {
+        "wall": "east",
+        "offset_cm": 55,
+        "width_cm": 180,
+        "depth_cm": 12
+       },
+       {
+        "wall": "north",
+        "offset_cm": 227,
+        "width_cm": 180,
+        "depth_cm": 12
+       }
+      ]
+     },
+     "_meta": {
+      "solver": "bedroom-v1",
+      "template": "bed_center_wall",
+      "reason": [],
+      "soft": [
+       "BED_DOOR_WALL"
+      ],
+      "skipped_optional": [],
+      "floor_used_pct": 28.3,
+      "attempts": 1
+     }
+    },
+    "tier_relaxed": [
+     "лампа"
+    ],
+    "cell": "bedroom-1|couple|17.5|сканди|эконом",
+    "set_id": "bed-0deafa0b",
+    "provenance": {
+     "room_type": "bedroom",
+     "profile_id": "bedroom",
+     "profile_version": "2026-11-06.1",
+     "content_sha": "df220a2a9070",
+     "composer_plugin": "bedroom",
+     "rules_sha": "8f466675d3a9",
+     "composer_sha": "78ecdc50e7b9"
+    }
+   },
+   {
+    "room_id": "bedroom-1",
+    "room_type": "bedroom",
+    "purpose": "couple",
+    "band": "17.5",
+    "m2": 17.5,
+    "tier": "комфорт",
+    "style": "сканди",
+    "pair": [
+     "terra",
+     "green"
+    ],
+    "total": 225326,
+    "items": {
+     "кровать": {
+      "mid": 112923,
+      "eid": "4977764635436857117",
+      "sid": "112923:4977764635436857117",
+      "name": "Кровать divan.ru Слипсон 160 Велюр Терракотовый",
+      "price": 45990,
+      "w": 171.0,
+      "d": 212.0,
+      "h": 121.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/rzTE8zfIw2pOUOIdAmTRfaonMbGFrCAqvqLlIVVFKzE/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5MjQ5ODYucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-slipson-160-velyur-terrakotovyj&erid=2SDnjeSGLnX",
+      "qty": 1,
+      "why": "стиль 9.6; палитра+1.6; меш сгенерирован",
+      "score": 11.2,
+      "style_score": 9.6,
+      "mesh": "generated",
+      "cls": "accent_terra",
+      "cls2": "accent_terra",
+      "rgb": [
+       142,
+       89,
+       73
+      ],
+      "sleep_w": 160.0,
+      "fam": "divan.ru|кровать divan.ru слипсон",
+      "has_mesh": true,
+      "mesh_defect": false
+     },
+     "тумба прикроватная": {
+      "mid": 112923,
+      "eid": "1665420581396065176",
+      "sid": "112923:1665420581396065176",
+      "name": "Тумба прикроватная divan.ru Рошаль 43x45 Ротанг",
+      "price": 10990,
+      "w": 43.0,
+      "d": 42.0,
+      "h": 45.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/2efolzNFPntwYUWF_LPPBy6eTqiSp8NxLfbt-bAkP9g/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQzODc1MjIucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-roshal-wood&erid=2SDnjeSGLnX",
+      "qty": 2,
+      "why": "стиль 10; палитра+1.0; меш сгенерирован",
+      "score": 11.0,
+      "style_score": 10.0,
+      "mesh": "generated",
+      "cls": "wood_light",
+      "cls2": "wood_light",
+      "rgb": [
+       185,
+       156,
+       124
+      ],
+      "sleep_w": null,
+      "fam": "divan.ru|тумба прикроватная divan.ru рошаль",
+      "has_mesh": true,
+      "mesh_defect": false
+     },
+     "шкаф": {
+      "mid": 112923,
+      "eid": "10812708065959899096",
+      "sid": "112923:10812708065959899096",
+      "name": "Распашной шкаф divan.ru Шелтон 3-137x240 Латте",
+      "price": 55990,
+      "w": 137.0,
+      "d": 50.0,
+      "h": 240.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/iv8dBbAJULUbsJrqmoCzxvACtCNQaeaufVcRAOBoVng/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU0Njg0MjUucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-shelton-3-2-latte&erid=2SDnjeSGLnX",
+      "qty": 1,
+      "why": "стиль 9.8; палитра+1.4; меш сгенерирован",
+      "score": 11.2,
+      "style_score": 9.8,
+      "mesh": "generated",
+      "cls": "neutral_grey",
+      "cls2": "neutral_grey",
+      "rgb": [
+       170,
+       161,
+       153
+      ],
+      "sleep_w": null,
+      "fam": "divan.ru|распашной шкаф divan.ru шелтон",
+      "has_mesh": true,
+      "mesh_defect": false
+     },
+     "комод": {
+      "mid": 112923,
+      "eid": "18360356195992135285",
+      "sid": "112923:18360356195992135285",
+      "name": "Тумба divan.ru Виклу 90x90 Розовый",
+      "price": 24290,
+      "w": 90.0,
+      "d": 46.0,
+      "h": 90.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/6P0fIxYPrY_qeMw8x7prpl-AkZw7ikvhEa6bp48Jr_Y/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUxODE4OTUucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-viklu-1-coral-oak&erid=2SDnjeSGLnX",
+      "qty": 1,
+      "why": "стиль 9.6; палитра+1.6; меш готов",
+      "score": 11.2,
+      "style_score": 9.6,
+      "mesh": "ready",
+      "cls": "accent_terra",
+      "cls2": "accent_terra",
+      "rgb": [
+       171,
+       127,
+       113
+      ],
+      "sleep_w": null,
+      "fam": "divan.ru|тумба divan.ru виклу",
+      "has_mesh": true,
+      "mesh_defect": false
+     },
+     "лампа": {
+      "mid": 99272,
+      "eid": "5831242993011985711",
+      "sid": "99272:5831242993011985711",
+      "name": "Светильник настольный Arte Lamp A1616Lt-1Wh",
+      "price": 3599,
+      "w": 11.0,
+      "d": 11.0,
+      "h": 38.0,
+      "shop": "tvoydom.ru",
+      "img": "//imgng.gdeslon.ru/commodities/319249637/pictures/eaf4a13a5bf3d224badf6e1e9968ebdf/big.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002696239%2F&erid=Kra24Bdr7",
+      "qty": 2,
+      "why": "стиль 7.5; палитра+0.4",
+      "score": 7.9,
+      "style_score": 7.5,
+      "mesh": null,
+      "cls": "neutral_light",
+      "cls2": "neutral_light",
+      "rgb": [
+       223,
+       227,
+       234
+      ],
+      "fam": "tvoydom.ru|Светильник настольный Arte Lamp A1616Lt-1Wh",
+      "has_mesh": false,
+      "mesh_defect": false
+     },
+     "ковёр": {
+      "mid": 112923,
+      "eid": "4758690191167625906",
+      "sid": "112923:4758690191167625906",
+      "name": "Ковер divan.ru Мирна 200x300",
+      "price": 18990,
+      "w": 300.0,
+      "d": 200.0,
+      "h": null,
+      "shop": "divan.ru",
+      "img": "//imgng.gdeslon.ru/commodities/417842970/pictures/f198d74a24273a13845af459d577e2ce/big.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkover-mirna-200300&erid=2SDnjeSGLnX",
+      "qty": 1,
+      "why": "стиль 9.2; палитра+1.4",
+      "score": 10.6,
+      "style_score": 9.2,
+      "mesh": null,
+      "cls": "neutral_light",
+      "cls2": "neutral_grey",
+      "rgb": [
+       216,
+       210,
+       198
+      ],
+      "fam": "divan.ru|Ковер divan.ru Мирна 200x300",
+      "has_mesh": false,
+      "mesh_defect": false
+     },
+     "шторы": {
+      "mid": 99272,
+      "eid": "11831646890514884061",
+      "sid": "99272:11831646890514884061",
+      "name": "Комплект штор Togas Алессио бежевые 260x300 см 2 предмета",
+      "price": 21599,
+      "w": 260.0,
+      "d": null,
+      "h": 300.0,
+      "shop": "tvoydom.ru",
+      "img": "//imgng.gdeslon.ru/commodities/289195967/pictures/2e48a9dfb247eb6c6400caadabc340b8/big.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002659977%2F&erid=Kra24Bdr7",
+      "qty": 2,
+      "why": "стиль 7.2; палитра+1.4",
+      "score": 8.6,
+      "style_score": 7.2,
+      "mesh": null,
+      "cls": "neutral_grey",
+      "cls2": "neutral_grey",
+      "rgb": [
+       151,
+       143,
+       132
+      ],
+      "fam": "tvoydom.ru|Комплект штор Togas Алессио бежевые 260x300 см 2 предмета",
+      "has_mesh": false,
+      "mesh_defect": false
+     },
+     "плед": {
+      "mid": 112923,
+      "eid": "16911901605748860083",
+      "sid": "112923:16911901605748860083",
+      "name": "Плед divan.ru Диалог 150x200",
+      "price": 7690,
+      "w": 200.0,
+      "d": 150.0,
+      "h": null,
+      "shop": "divan.ru",
+      "img": "//imgng.gdeslon.ru/commodities/455439190/pictures/eaf5e93302595a24a043ce2686e95a18/big.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpled-dialog-150x200&erid=2SDnjeSGLnX",
+      "qty": 1,
+      "why": "стиль 9.2; палитра+1.0",
+      "score": 10.2,
+      "style_score": 9.2,
+      "mesh": null,
+      "cls": "unknown",
+      "cls2": "unknown",
+      "rgb": null,
+      "fam": "divan.ru|Плед divan.ru Диалог 150x200",
+      "has_mesh": false,
+      "mesh_defect": false
+     }
+    },
+    "alternates": {
+     "кровать": [
+      {
+       "mid": 112923,
+       "eid": "12656356095568777983",
+       "sid": "112923:12656356095568777983",
+       "name": "Кровать divan.ru Кейси-Б 160 Велюр Серый",
+       "price": 44990,
+       "score": 11.2,
+       "w": 176.0,
+       "d": 212.0,
+       "h": 91.0,
+       "img": "https://cdn0.divan.ru/img/v1/aSoB1S_PLKkXRszstgs4Bt_4EyzJBKEL4hJ05zrIah0/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYwMzkyODMucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-kejsi-b-160-velvet-grey&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 9.8,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "11706580263167305250",
+       "sid": "112923:11706580263167305250",
+       "name": "Кровать divan.ru Шерона 160 Велюр Серый",
+       "price": 45990,
+       "score": 8.6,
+       "w": 171.0,
+       "d": 212.0,
+       "h": 121.0,
+       "img": "https://cdn0.divan.ru/img/v1/UaxmW7PYt0G32IZ6BcWxH-aP9hi9ORBWzBB3yWALnK4/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ0NzMxNDMucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-sherona-160-velvet-grey&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 7.2,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "17415829664615579684",
+       "sid": "112923:17415829664615579684",
+       "name": "Кровать divan.ru Юген 180 Натуральный",
+       "price": 44990,
+       "score": 8.0,
+       "w": 191.0,
+       "d": 209.0,
+       "h": 97.0,
+       "img": "https://cdn0.divan.ru/img/v1/9ZETObCW47plEf_mAjugbVyD2b8BLwzzH5AizpFphfI/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYwMzczMzcucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-yugen-180-natural&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 7.0,
+       "has_mesh": true,
+       "mesh_defect": false
+      }
+     ],
+     "тумба прикроватная": [
+      {
+       "mid": 112923,
+       "eid": "648108246909465122",
+       "sid": "112923:648108246909465122",
+       "name": "Тумба прикроватная divan.ru Рико 45x55 Древесный натуральный",
+       "price": 7192,
+       "score": 10.2,
+       "w": 45.0,
+       "d": 40.0,
+       "h": 55.0,
+       "img": "https://cdn0.divan.ru/img/v1/PusvFcbAUsiP5_8GgpB8lTwOJxRlTiWuj7gRjk4GuIQ/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ5NzM0OTEucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-riko-wood&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 9.2,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "5771892371225635950",
+       "sid": "112923:5771892371225635950",
+       "name": "Тумба прикроватная divan.ru Висмар 43x48 Темно-зеленый",
+       "price": 7992,
+       "score": 10.2,
+       "w": 43.0,
+       "d": 42.0,
+       "h": 48.0,
+       "img": "https://cdn0.divan.ru/img/v1/8Pby8I2qgqs-wgs1GYCSVxwj8UgZpR16VRwAfNig_eQ/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU2NTQxNDIucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-vismar-1-1-forest&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 8.8,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "8940289656155243206",
+       "sid": "112923:8940289656155243206",
+       "name": "Тумба прикроватная divan.ru Моррис 47x55 Графитовый",
+       "price": 8990,
+       "score": 8.4,
+       "w": 47.0,
+       "d": 40.0,
+       "h": 55.0,
+       "img": "https://cdn0.divan.ru/img/v1/MLzaEdhcRe4UBC4Uzdis_uCz01wMUsXq_Rq2AG-cQPk/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3Nzg3MTgucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-morris-1-grafit&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 7.0,
+       "has_mesh": true,
+       "mesh_defect": false
+      }
+     ],
+     "шкаф": [
+      {
+       "mid": 112923,
+       "eid": "10747007126909101851",
+       "sid": "112923:10747007126909101851",
+       "name": "Распашной шкаф divan.ru Монблан 3-139x215 Грань Белый",
+       "price": 49990,
+       "score": 8.0,
+       "w": 139.0,
+       "d": 50.0,
+       "h": 215.0,
+       "img": "https://cdn0.divan.ru/img/v1/q7uJEqbLketG8qwn2OoIM1n485gOvfURNl5y-1zwHPU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NDYzMTgucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-monblan-3-angle-milk-oak&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 7.0,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "1468443464562170420",
+       "sid": "112923:1468443464562170420",
+       "name": "Распашной шкаф divan.ru Пронто 3-150x220 Береза/Белый с зеркалом",
+       "price": 51990,
+       "score": 11.2,
+       "w": 150.0,
+       "d": 50.0,
+       "h": 220.0,
+       "img": "https://cdn0.divan.ru/img/v1/mJeNIUFS8uO2K90Iz1Eb_GrKfmf-L2375fVgFUpvQQo/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjMyMDUucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-pronto-3-150-220-plywood-white&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 9.8,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "11955763054426268812",
+       "sid": "112923:11955763054426268812",
+       "name": "Распашной шкаф divan.ru Шелтон 3-137x212 Белый",
+       "price": 54990,
+       "score": 11.2,
+       "w": 137.0,
+       "d": 50.0,
+       "h": 212.0,
+       "img": "https://cdn0.divan.ru/img/v1/FXDxU-wnI7LSrsZ7oxz_WJPoT70jaXOB0gmJfIpGExU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUxMDY0NDkucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-shelton-3-milk&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 9.8,
+       "has_mesh": false,
+       "mesh_defect": false
+      }
+     ],
+     "комод": [
+      {
+       "mid": 112923,
+       "eid": "5836980171751716534",
+       "sid": "112923:5836980171751716534",
+       "name": "Комод divan.ru Виклу 80x90 Розовый",
+       "price": 29690,
+       "score": 11.2,
+       "w": 80.0,
+       "d": 46.0,
+       "h": 90.0,
+       "img": "https://cdn0.divan.ru/img/v1/cYn8y1KWQiDdXMtKOJXWYwn8PpxzNN7VHixkcN6KwY0/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUxODE4NTcucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomod-viklu-1-coral-oak&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 9.6,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "11052652779447876540",
+       "sid": "112923:11052652779447876540",
+       "name": "Тумба divan.ru Виклу 90x90 Светло-бежевый",
+       "price": 24290,
+       "score": 11.0,
+       "w": 90.0,
+       "d": 46.0,
+       "h": 90.0,
+       "img": "https://cdn0.divan.ru/img/v1/gTD7EquR5dnQsZzyOX1dBq6AoyRVYOps8ZzvBbLzqOk/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5MDI2MzMucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-viklu-90-svetlo-bejevyj&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 9.6,
+       "has_mesh": true,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "2701204908509281439",
+       "sid": "112923:2701204908509281439",
+       "name": "Тумба divan.ru Виклу 90x90 Графитовый",
+       "price": 24290,
+       "score": 11.0,
+       "w": 90.0,
+       "d": 46.0,
+       "h": 90.0,
+       "img": "https://cdn0.divan.ru/img/v1/j-Xn5PacdufnrVVn65smhf5Ef9wunQgcKx_4HoMuGdM/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUxODE4ODkucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-viklu-1-grafit-oak&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 9.6,
+       "has_mesh": true,
+       "mesh_defect": false
+      }
+     ],
+     "лампа": [],
+     "ковёр": [
+      {
+       "mid": 112923,
+       "eid": "7064687560248829017",
+       "sid": "112923:7064687560248829017",
+       "name": "Ковер divan.ru Котри Серый 200x300",
+       "price": 16390,
+       "score": 8.6,
+       "w": 300.0,
+       "d": 200.0,
+       "h": null,
+       "img": "//imgng.gdeslon.ru/commodities/422701722/pictures/6a9a2d3464c7883a82dc3d1bd76bfbcd/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkover-kotri-grey-200x300&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 8.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      }
+     ],
+     "шторы": [
+      {
+       "mid": 99272,
+       "eid": "12639309836243331961",
+       "sid": "99272:12639309836243331961",
+       "name": "Комплект штор Togas Алессио светло-серый 260x300 см 2 предмета",
+       "price": 21599,
+       "score": 8.6,
+       "w": 260.0,
+       "d": null,
+       "h": 300.0,
+       "img": "//imgng.gdeslon.ru/commodities/330435976/pictures/db478b4eaaea495dec459675c1e2b8b2/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002714027%2F&erid=Kra24Bdr7",
+       "mesh": null,
+       "style_score": 7.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 99272,
+       "eid": "974449888814549547",
+       "sid": "99272:974449888814549547",
+       "name": "Комплект штор с подхватами Togas Нанти бежевый 260х275 см",
+       "price": 26899,
+       "score": 8.0,
+       "w": 260.0,
+       "d": null,
+       "h": 275.0,
+       "img": "//imgng.gdeslon.ru/commodities/258868593/pictures/62ddea9940ecfc94b82520d9ccda27c3/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002618908%2F&erid=Kra24Bdr7",
+       "mesh": null,
+       "style_score": 7.0,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 99272,
+       "eid": "5023147564399114021",
+       "sid": "99272:5023147564399114021",
+       "name": "Комплект штор с подхватами Togas Нанти бежевый 260х300 см",
+       "price": 27999,
+       "score": 8.0,
+       "w": 260.0,
+       "d": null,
+       "h": 300.0,
+       "img": "//imgng.gdeslon.ru/commodities/258868596/pictures/333e38606c959d6866d678c528cf8593/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002618909%2F&erid=Kra24Bdr7",
+       "mesh": null,
+       "style_score": 7.0,
+       "has_mesh": false,
+       "mesh_defect": false
+      }
+     ],
+     "плед": [
+      {
+       "mid": 112923,
+       "eid": "12908966281622388508",
+       "sid": "112923:12908966281622388508",
+       "name": "Покрывало divan.ru Самуэль Серый 160x220 комлект с наволочкой",
+       "price": 7990,
+       "score": 10.2,
+       "w": 220.0,
+       "d": 160.0,
+       "h": null,
+       "img": "//imgng.gdeslon.ru/commodities/506242110/pictures/2e3968df68b5ec8929fc1a8573aaeb38/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpokryvalo-samuel-grafit-160x220&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 9.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "14866778768718164579",
+       "sid": "112923:14866778768718164579",
+       "name": "Покрывало divan.ru Самуэль Латте 160x220 комлект с наволочкой",
+       "price": 7990,
+       "score": 10.2,
+       "w": 220.0,
+       "d": 160.0,
+       "h": null,
+       "img": "//imgng.gdeslon.ru/commodities/417851831/pictures/760844d98d7b08951cea8cfddf9016d2/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpokryvalo-samuel-latte-160x220&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 9.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      },
+      {
+       "mid": 112923,
+       "eid": "15015669353586786430",
+       "sid": "112923:15015669353586786430",
+       "name": "Покрывало divan.ru Самуэль Бежевый 160x220 комлект с наволочкой",
+       "price": 7990,
+       "score": 10.2,
+       "w": 220.0,
+       "d": 160.0,
+       "h": null,
+       "img": "//imgng.gdeslon.ru/commodities/417850235/pictures/84ea194436b6647e66ad3d39ad38c243/big.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpokryvalo-samuel-beige-160x220&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 9.2,
+       "has_mesh": false,
+       "mesh_defect": false
+      }
+     ]
+    },
+    "slots": {
+     "кровать": {
+      "ideal": {
+       "w": 175,
+       "d": 215,
+       "h": 110
+      },
+      "band": {
+       "w": [
+        140.0,
+        192.5
+       ],
+       "d": [
+        172.0,
+        236.5
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true
+     },
+     "тумба прикроватная": {
+      "ideal": {
+       "w": 45,
+       "d": 40,
+       "h": 55
+      },
+      "band": {
+       "w": [
+        36.0,
+        49.5
+       ],
+       "d": [
+        32.0,
+        44.0
+       ],
+       "h": [
+        44.0,
+        60.5
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 2,
+      "mesh": true
+     },
+     "шкаф": {
+      "ideal": {
+       "w": 150,
+       "d": 60,
+       "h": 220
+      },
+      "band": {
+       "w": [
+        120.0,
+        165.0
+       ],
+       "d": [
+        48.0,
+        66.0
+       ],
+       "h": [
+        176.0,
+        242.0
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true
+     },
+     "комод": {
+      "ideal": {
+       "w": 100,
+       "d": 45,
+       "h": 85
+      },
+      "band": {
+       "w": [
+        80.0,
+        110.0
+       ],
+       "d": [
+        36.0,
+        49.5
+       ],
+       "h": [
+        68.0,
+        93.5
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true
+     },
+     "лампа": {
+      "ideal": {
+       "h": 45
+      },
+      "band": {
+       "h": [
+        36.0,
+        49.5
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 2,
+      "mesh": true
+     },
+     "ковёр": {
+      "ideal": {
+       "long": 300
+      },
+      "band": {
+       "long": [
+        240.0,
+        330.0
+       ]
+      },
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": false
+     },
+     "шторы": {
+      "ideal": {},
+      "band": {},
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 2,
+      "mesh": false
+     },
+     "плед": {
+      "ideal": {},
+      "band": {},
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": false
+     }
+    },
+    "layout": {
+     "кровать": {
+      "x": 298.5,
+      "z": 106.0,
+      "rot": 0,
+      "w": 171.0,
+      "d": 212.0,
+      "h": 121.0,
+      "sid": "112923:4977764635436857117"
+     },
+     "тумба прикроватная": {
+      "x": 190.5,
+      "z": 21.0,
+      "rot": 0,
+      "w": 43.0,
+      "d": 42.0,
+      "h": 45.0,
+      "sid": "112923:1665420581396065176"
+     },
+     "тумба прикроватная 2": {
+      "x": 406.5,
+      "z": 21.0,
+      "rot": 0,
+      "w": 43.0,
+      "d": 42.0,
+      "h": 45.0,
+      "sid": "112923:1665420581396065176"
+     },
+     "шкаф": {
+      "x": 25.0,
+      "z": 164.5,
+      "rot": 90,
+      "w": 137.0,
+      "d": 50.0,
+      "h": 240.0,
+      "sid": "112923:10812708065959899096"
+     },
+     "комод": {
+      "x": 475.0,
+      "z": 23.0,
+      "rot": 0,
+      "w": 90.0,
+      "d": 46.0,
+      "h": 90.0,
+      "sid": "112923:18360356195992135285"
+     },
+     "ковёр": {
+      "x": 298.5,
+      "z": 170.7,
+      "rot": 0,
+      "w": 300.0,
+      "d": 200.0,
+      "h": 1,
+      "sid": "112923:4758690191167625906"
+     },
+     "лампа": {
+      "x": 190.5,
+      "z": 21.0,
+      "rot": 0,
+      "w": 11.0,
+      "d": 11.0,
+      "h": 38.0,
+      "elev": 45.0,
+      "on": "тумба прикроватная",
+      "sid": "99272:5831242993011985711"
+     },
+     "лампа 2": {
+      "x": 406.5,
+      "z": 21.0,
+      "rot": 0,
+      "w": 11.0,
+      "d": 11.0,
+      "h": 38.0,
+      "elev": 45.0,
+      "on": "тумба прикроватная 2",
+      "sid": "99272:5831242993011985711"
+     },
+     "плед": {
+      "on": "кровать",
+      "sid": "112923:16911901605748860083"
+     },
+     "шторы": {
+      "windows": [
+       {
+        "wall": "east",
+        "offset_cm": 40.0,
+        "width_cm": 210.0
+       },
+       {
+        "wall": "north",
+        "offset_cm": 197.0,
+        "width_cm": 240.0
+       }
+      ],
+      "sid": "99272:11831646890514884061"
+     },
+     "_room": {
+      "variant": "registry-17.5",
+      "w": 597,
+      "d": 293,
+      "openings": [
+       {
+        "kind": "door",
+        "wall": "south",
+        "offset_cm": 24,
+        "width_cm": 90,
+        "swing_cm": 90,
+        "hinge": "left"
+       },
+       {
+        "kind": "window",
+        "wall": "east",
+        "offset_cm": 40,
+        "width_cm": 210,
+        "sill_cm": 85,
+        "height_cm": 150
+       },
+       {
+        "kind": "window",
+        "wall": "north",
+        "offset_cm": 197,
+        "width_cm": 240,
+        "sill_cm": 85,
+        "height_cm": 150
+       }
+      ],
+      "radiators": [
+       {
+        "wall": "east",
+        "offset_cm": 55,
+        "width_cm": 180,
+        "depth_cm": 12
+       },
+       {
+        "wall": "north",
+        "offset_cm": 227,
+        "width_cm": 180,
+        "depth_cm": 12
+       }
+      ]
+     },
+     "_meta": {
+      "solver": "bedroom-v1",
+      "template": "bed_center_wall",
+      "reason": [],
+      "soft": [
+       "BED_DOOR_WALL"
+      ],
+      "skipped_optional": [],
+      "floor_used_pct": 29.1,
+      "attempts": 1
+     }
+    },
+    "tier_relaxed": [
+     "лампа"
+    ],
+    "cell": "bedroom-1|couple|17.5|сканди|комфорт",
+    "set_id": "bed-74508c58",
+    "provenance": {
+     "room_type": "bedroom",
+     "profile_id": "bedroom",
+     "profile_version": "2026-11-06.1",
+     "content_sha": "df220a2a9070",
+     "composer_plugin": "bedroom",
+     "rules_sha": "8f466675d3a9",
+     "composer_sha": "78ecdc50e7b9"
+    }
+   }
+  ],
+  "catalog": [
+   {
+    "offer_id": "112923:10179754858995837853",
+    "origin": "room_catalog",
+    "room_type": "bedroom",
+    "roles": [
+     "тумба прикроватная"
+    ],
+    "mid": 112923,
+    "eid": "10179754858995837853",
+    "name": "Тумба прикроватная divan.ru Ивейн 1-42x52 Графитовый",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 4990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-ivejn-open-grey&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 42.0,
+     "d": 35.0,
+     "h": 52.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/417845233/pictures/57bdf510b806d3bf4572360da97a8eea/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/R9IHxua4EaaiS17Tb-jq3D83R3gyj5V--TqXqf1Uyas/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQxNzg5MjcucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/R9IHxua4EaaiS17Tb-jq3D83R3gyj5V--TqXqf1Uyas/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQxNzg5MjcucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "сканди": 10,
+     "современный": 7.0,
+     "минимализм": 8.0,
+     "лофт": 3.0,
+     "неоклассика": 4.0,
+     "джапанди": 7.0,
+     "universal": false,
+     "src": "llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|тумба прикроватная divan.ru ивейн"
+   },
+   {
+    "offer_id": "112923:10743898462394654482",
+    "origin": "products",
+    "room_type": "bedroom",
+    "roles": [
+     "плед"
+    ],
+    "mid": 112923,
+    "eid": "10743898462394654482",
+    "name": "Плед divan.ru Монти Хоум Текстиль Серый 120x170",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 6990.0,
+    "in_stock": true,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpled-monti-home-textile-grey-120x170&erid=2SDnjeSGLnX",
+    "url_direct": "https://www.divan.ru/product/pled-monti-home-textile-grey-120x170?erid=2SDnjeSGLnX",
+    "dims": {
+     "w": 170.0,
+     "d": 120.0,
+     "h": null,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": "param:2",
+     "footprint_ok": null,
+     "note": null,
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/417849304/pictures/38c20ec44c9305d11008f207a8d57e46/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/5Zylkd6bIfL1O3o7Y5qIlzcqHJulO5OXRG1tW3Y7rHQ/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUwNjU2ODcucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/5Zylkd6bIfL1O3o7Y5qIlzcqHJulO5OXRG1tW3Y7rHQ/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUwNjU2ODcucG5n.jpg",
+     "alive": true,
+     "revision": null
+    },
+    "style": {
+     "лофт": 4.5,
+     "сканди": 7.9,
+     "джапанди": 6.1,
+     "минимализм": 8.5,
+     "неоклассика": 5.1,
+     "современный": 8.5
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {
+     "Материал": null,
+     "Назначение": null,
+     "Тип": null,
+     "Регулируемая высота": null
+    },
+    "flags": {},
+    "family": null
+   },
+   {
+    "offer_id": "112923:10812708065959899096",
+    "origin": "room_catalog",
+    "room_type": "bedroom",
+    "roles": [
+     "шкаф"
+    ],
+    "mid": 112923,
+    "eid": "10812708065959899096",
+    "name": "Распашной шкаф divan.ru Шелтон 3-137x240 Латте",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 55990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-shelton-3-2-latte&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 137.0,
+     "d": 50.0,
+     "h": 240.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/422935594/pictures/fe3d2c817b5cece7423fd52187404f03/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/iv8dBbAJULUbsJrqmoCzxvACtCNQaeaufVcRAOBoVng/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU0Njg0MjUucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/iv8dBbAJULUbsJrqmoCzxvACtCNQaeaufVcRAOBoVng/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU0Njg0MjUucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "сканди": 9.8,
+     "современный": 8.5,
+     "минимализм": 7.3,
+     "лофт": 2.9,
+     "неоклассика": 5.0,
+     "джапанди": 7.5,
+     "universal": false,
+     "src": "living:llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|распашной шкаф divan.ru шелтон"
+   },
+   {
+    "offer_id": "112923:13338109332180343015",
+    "origin": "room_catalog",
+    "room_type": "bedroom",
+    "roles": [
+     "комод"
+    ],
+    "mid": 112923,
+    "eid": "13338109332180343015",
+    "name": "Тумба divan.ru Ханна 105x80 Белый",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 14990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-hanna-2-white&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 105.0,
+     "d": 42.0,
+     "h": 80.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/417844271/pictures/fc6854f276e39be97325ddbdb28dfeb7/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/6epjicOJQkGTEbEoseIKPDqJjRjlQPvKckpq1CcBqnE/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ4ODY2OTUucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/6epjicOJQkGTEbEoseIKPDqJjRjlQPvKckpq1CcBqnE/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ4ODY2OTUucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "сканди": 9.2,
+     "современный": 6.0,
+     "минимализм": 7.0,
+     "лофт": 3.0,
+     "неоклассика": 4.0,
+     "джапанди": 6.0,
+     "universal": false,
+     "src": "living:llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|тумба divan.ru ханна"
+   },
+   {
+    "offer_id": "112923:14333601282202001834",
+    "origin": "room_catalog",
+    "room_type": "bedroom",
+    "roles": [
+     "шкаф"
+    ],
+    "mid": 112923,
+    "eid": "14333601282202001834",
+    "name": "Распашной шкаф divan.ru Тайрон 3-140x200 Монстера ​",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 39992.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-tajron-3-monstera&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 140.0,
+     "d": 50.0,
+     "h": 200.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/417847467/pictures/b8e26f41f23a7827f2b0f7f8ec3311af/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/qIsG0gp9i5PI3cYe7XqK6rJuQ9_zj-BlhLEC_vV9EVg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUwNzE2NzAucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/qIsG0gp9i5PI3cYe7XqK6rJuQ9_zj-BlhLEC_vV9EVg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUwNzE2NzAucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "сканди": 8.2,
+     "современный": 8.2,
+     "минимализм": 4.0,
+     "лофт": 2.0,
+     "неоклассика": 3.0,
+     "джапанди": 5.0,
+     "universal": false,
+     "src": "living:llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|распашной шкаф divan.ru тайрон"
+   },
+   {
+    "offer_id": "112923:1665420581396065176",
+    "origin": "room_catalog",
+    "room_type": "bedroom",
+    "roles": [
+     "тумба прикроватная"
+    ],
+    "mid": 112923,
+    "eid": "1665420581396065176",
+    "name": "Тумба прикроватная divan.ru Рошаль 43x45 Ротанг",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 10990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-roshal-wood&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 43.0,
+     "d": 42.0,
+     "h": 45.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/417849826/pictures/d6f474a1e9548e0b6bf05cd6ceb4fe63/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/2efolzNFPntwYUWF_LPPBy6eTqiSp8NxLfbt-bAkP9g/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQzODc1MjIucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/2efolzNFPntwYUWF_LPPBy6eTqiSp8NxLfbt-bAkP9g/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQzODc1MjIucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "сканди": 10,
+     "современный": 5.0,
+     "минимализм": 4.0,
+     "лофт": 1.0,
+     "неоклассика": 2.0,
+     "джапанди": 10,
+     "universal": false,
+     "src": "llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|тумба прикроватная divan.ru рошаль"
+   },
+   {
+    "offer_id": "112923:16911901605748860083",
+    "origin": "products",
+    "room_type": "bedroom",
+    "roles": [
+     "плед"
+    ],
+    "mid": 112923,
+    "eid": "16911901605748860083",
+    "name": "Плед divan.ru Диалог 150x200",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 7690.0,
+    "in_stock": true,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpled-dialog-150x200&erid=2SDnjeSGLnX",
+    "url_direct": "https://www.divan.ru/product/pled-dialog-150x200?erid=2SDnjeSGLnX",
+    "dims": {
+     "w": 200.0,
+     "d": 150.0,
+     "h": null,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": "param:2",
+     "footprint_ok": null,
+     "note": null,
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/455439190/pictures/eaf5e93302595a24a043ce2686e95a18/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/m0RHMnnTjbhDRDQPkEyZ5xo_KqlvzTk2rddVUHaRGu8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3MTk3ODAucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/m0RHMnnTjbhDRDQPkEyZ5xo_KqlvzTk2rddVUHaRGu8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3MTk3ODAucG5n.jpg",
+     "alive": true,
+     "revision": null
+    },
+    "style": {
+     "лофт": 4.0,
+     "сканди": 9.2,
+     "джапанди": 7.0,
+     "минимализм": 6.0,
+     "неоклассика": 3.0,
+     "современный": 8.2
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {
+     "Материал": null,
+     "Назначение": null,
+     "Тип": null,
+     "Регулируемая высота": null
+    },
+    "flags": {},
+    "family": null
+   },
+   {
+    "offer_id": "112923:18360356195992135285",
+    "origin": "room_catalog",
+    "room_type": "bedroom",
+    "roles": [
+     "комод"
+    ],
+    "mid": 112923,
+    "eid": "18360356195992135285",
+    "name": "Тумба divan.ru Виклу 90x90 Розовый",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 24290.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-viklu-1-coral-oak&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 90.0,
+     "d": 46.0,
+     "h": 90.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/425506573/pictures/fbf7de6480aff8d2fec0eda440c92bdb/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/6P0fIxYPrY_qeMw8x7prpl-AkZw7ikvhEa6bp48Jr_Y/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUxODE4OTUucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/6P0fIxYPrY_qeMw8x7prpl-AkZw7ikvhEa6bp48Jr_Y/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUxODE4OTUucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "сканди": 9.6,
+     "современный": 7.3,
+     "минимализм": 8.3,
+     "лофт": 2.5,
+     "неоклассика": 5.4,
+     "джапанди": 8.5,
+     "universal": false,
+     "src": "living:llm+rules+clip"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|тумба divan.ru виклу"
+   },
+   {
+    "offer_id": "112923:3185911961608383085",
+    "origin": "room_catalog",
+    "room_type": "bedroom",
+    "roles": [
+     "кровать"
+    ],
+    "mid": 112923,
+    "eid": "3185911961608383085",
+    "name": "Кровать divan.ru Дона 160 Береза Латте",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 18990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 173.0,
+     "d": 203.0,
+     "h": 85.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": 160.0,
+     "sleep_l": 200.0,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/445343371/pictures/234b5e4989e694abecb342dd25801081/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "сканди": 7.6,
+     "современный": 8.5,
+     "минимализм": 6.3,
+     "лофт": 2.9,
+     "неоклассика": 3.0,
+     "джапанди": 6.5,
+     "universal": false,
+     "src": "llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|кровать divan.ru дона"
+   },
+   {
+    "offer_id": "112923:4758690191167625906",
+    "origin": "products",
+    "room_type": "bedroom",
+    "roles": [
+     "ковёр"
+    ],
+    "mid": 112923,
+    "eid": "4758690191167625906",
+    "name": "Ковер divan.ru Мирна 200x300",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 18990.0,
+    "in_stock": true,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkover-mirna-200300&erid=2SDnjeSGLnX",
+    "url_direct": "https://www.divan.ru/product/kover-mirna-200300?erid=2SDnjeSGLnX",
+    "dims": {
+     "w": 300.0,
+     "d": 200.0,
+     "h": null,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": "param:2",
+     "footprint_ok": null,
+     "note": null,
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/417842970/pictures/f198d74a24273a13845af459d577e2ce/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/WwkCeJNGG3f64HTJFg9BzI7l-GxQE8lwKMDJ_JAn4GY/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ3MTUzNjAucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/WwkCeJNGG3f64HTJFg9BzI7l-GxQE8lwKMDJ_JAn4GY/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ3MTUzNjAucG5n.jpg",
+     "alive": true,
+     "revision": null
+    },
+    "style": {
+     "лофт": 4.0,
+     "сканди": 9.2,
+     "джапанди": 6.0,
+     "минимализм": 6.0,
+     "неоклассика": 4.0,
+     "современный": 9.2
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {
+     "Материал": "Акрил Джут Войлок Хлопок Вискоза Микрофибра Шерсть",
+     "Назначение": "Для прихожей Для спальни Для гостиной Для кухни Для детской",
+     "Тип": null,
+     "Регулируемая высота": null
+    },
+    "flags": {},
+    "family": null
+   },
+   {
+    "offer_id": "112923:4977764635436857117",
+    "origin": "room_catalog",
+    "room_type": "bedroom",
+    "roles": [
+     "кровать"
+    ],
+    "mid": 112923,
+    "eid": "4977764635436857117",
+    "name": "Кровать divan.ru Слипсон 160 Велюр Терракотовый",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 45990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-slipson-160-velyur-terrakotovyj&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 171.0,
+     "d": 212.0,
+     "h": 121.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": 160.0,
+     "sleep_l": 200.0,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/499433428/pictures/2ef0b2d66a0493796bff102211817dd6/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/rzTE8zfIw2pOUOIdAmTRfaonMbGFrCAqvqLlIVVFKzE/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5MjQ5ODYucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/rzTE8zfIw2pOUOIdAmTRfaonMbGFrCAqvqLlIVVFKzE/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5MjQ5ODYucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "сканди": 9.6,
+     "современный": 7.1,
+     "минимализм": 8.3,
+     "лофт": 2.0,
+     "неоклассика": 3.0,
+     "джапанди": 7.4,
+     "universal": false,
+     "src": "llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|кровать divan.ru слипсон"
+   },
+   {
+    "offer_id": "112923:7821131613918644865",
+    "origin": "products",
+    "room_type": "bedroom",
+    "roles": [
+     "ковёр"
+    ],
+    "mid": 112923,
+    "eid": "7821131613918644865",
+    "name": "Ковер divan.ru Флутон Серый 200x300",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 12690.0,
+    "in_stock": true,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkover-fluton-grey-200x300&erid=2SDnjeSGLnX",
+    "url_direct": "https://www.divan.ru/product/kover-fluton-grey-200x300?erid=2SDnjeSGLnX",
+    "dims": {
+     "w": 300.0,
+     "d": 200.0,
+     "h": null,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": "param:2",
+     "footprint_ok": null,
+     "note": null,
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/422701698/pictures/a6b843582037ebdc6d685e19ed0a6e61/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/qEM8Ts6N_L1bywDkNDUmMFnWp5SvGyffNvcb74wilAQ/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU0OTI5ODcucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/qEM8Ts6N_L1bywDkNDUmMFnWp5SvGyffNvcb74wilAQ/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU0OTI5ODcucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "лофт": 5.0,
+     "сканди": 8.8,
+     "джапанди": 6.5,
+     "минимализм": 8.0,
+     "неоклассика": 4.5,
+     "современный": 7.0
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {
+     "Материал": "Микрофибра",
+     "Назначение": "Для спальни Для гостиной",
+     "Тип": null,
+     "Регулируемая высота": null
+    },
+    "flags": {},
+    "family": null
+   },
+   {
+    "offer_id": "99272:11831646890514884061",
+    "origin": "products",
+    "room_type": "bedroom",
+    "roles": [
+     "шторы"
+    ],
+    "mid": 99272,
+    "eid": "11831646890514884061",
+    "name": "Комплект штор Togas Алессио бежевые 260x300 см 2 предмета",
+    "shop": "tvoydom.ru",
+    "brand": "Togas",
+    "price": 21599.0,
+    "in_stock": true,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002659977%2F&erid=Kra24Bdr7",
+    "url_direct": "https://tvoydom.ru/catalog/1002659977/?erid=Kra24Bdr7",
+    "dims": {
+     "w": 260.0,
+     "d": null,
+     "h": 300.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": "title:2",
+     "footprint_ok": null,
+     "note": null,
+     "h_evidence": {
+      "source": "title",
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/289195967/pictures/2e48a9dfb247eb6c6400caadabc340b8/big.jpg",
+     "url_hd": "https://tvoydom.ru/photos/100/265/1002659977/1002659977.jpg",
+     "best": "https://tvoydom.ru/photos/100/265/1002659977/1002659977.jpg",
+     "alive": true,
+     "revision": null
+    },
+    "style": {
+     "лофт": 2.5,
+     "сканди": 7.2,
+     "джапанди": 6.5,
+     "минимализм": 7.3,
+     "неоклассика": 7.2,
+     "современный": 7.1
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {
+     "Материал": null,
+     "Назначение": null,
+     "Тип": null,
+     "Регулируемая высота": null
+    },
+    "flags": {},
+    "family": null
+   },
+   {
+    "offer_id": "99272:5831242993011985711",
+    "origin": "products",
+    "room_type": "bedroom",
+    "roles": [
+     "лампа"
+    ],
+    "mid": 99272,
+    "eid": "5831242993011985711",
+    "name": "Светильник настольный Arte Lamp A1616Lt-1Wh",
+    "shop": "tvoydom.ru",
+    "brand": "Arte Lamp",
+    "price": 3599.0,
+    "in_stock": true,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002696239%2F&erid=Kra24Bdr7",
+    "url_direct": "https://tvoydom.ru/catalog/1002696239/?erid=Kra24Bdr7",
+    "dims": {
+     "w": 11.0,
+     "d": 11.0,
+     "h": 38.0,
+     "len": null,
+     "dia": 11.0,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": "prior:4",
+     "footprint_ok": null,
+     "note": null,
+     "h_evidence": {
+      "source": "prior",
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/319249637/pictures/eaf4a13a5bf3d224badf6e1e9968ebdf/big.jpg",
+     "url_hd": "https://tvoydom.ru/photos/100/269/1002696239/1002696239.jpg",
+     "best": "https://tvoydom.ru/photos/100/269/1002696239/1002696239.jpg",
+     "alive": true,
+     "revision": null
+    },
+    "style": {
+     "лофт": 3.5,
+     "сканди": 7.5,
+     "джапанди": 6.3,
+     "минимализм": 8.3,
+     "неоклассика": 3.2,
+     "современный": 7.2
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {
+     "Материал": null,
+     "Назначение": null,
+     "Тип": null,
+     "Регулируемая высота": null
+    },
+    "flags": {},
+    "family": null
+   },
+   {
+    "offer_id": "99272:8515925807324185779",
+    "origin": "products",
+    "room_type": "bedroom",
+    "roles": [
+     "шторы"
+    ],
+    "mid": 99272,
+    "eid": "8515925807324185779",
+    "name": "Тюль Daily by Togas Кассандра экрю 300х280 см",
+    "shop": "tvoydom.ru",
+    "brand": "Daily by Togas",
+    "price": 4599.0,
+    "in_stock": true,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002801961%2F&erid=Kra24Bdr7",
+    "url_direct": "https://tvoydom.ru/catalog/1002801961/?erid=Kra24Bdr7",
+    "dims": {
+     "w": 300.0,
+     "d": null,
+     "h": 280.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": "title-only:2",
+     "footprint_ok": null,
+     "note": null,
+     "h_evidence": {
+      "source": "title-only",
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/429397062/pictures/0fcf7bea7d4fa1782554260dcd448cf1/big.jpg",
+     "url_hd": "https://tvoydom.ru/photos/100/280/1002801961/1002801961.jpg",
+     "best": "https://tvoydom.ru/photos/100/280/1002801961/1002801961.jpg",
+     "alive": true,
+     "revision": null
+    },
+    "style": {
+     "лофт": 1.5,
+     "сканди": 8.3,
+     "джапанди": 7.3,
+     "минимализм": 8.2,
+     "неоклассика": 7.5,
+     "современный": 7.2
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {
+     "Материал": null,
+     "Назначение": null,
+     "Тип": null,
+     "Регулируемая высота": null
+    },
+    "flags": {},
+    "family": null
+   }
+  ],
+  "missing": []
+ },
+ "hall": {
+  "records": [
+   {
+    "room_id": "hall",
+    "room_type": "hall",
+    "purpose": "hall",
+    "band": "9.5",
+    "m2": 9.5,
+    "tier": "комфорт",
+    "style": "сканди",
+    "pair": [
+     "terra",
+     "green"
+    ],
+    "storage": "шкаф-купе",
+    "total": 126940,
+    "items": {
+     "шкаф-купе": {
+      "mid": 112923,
+      "eid": "10106919664002769611",
+      "sid": "112923:10106919664002769611",
+      "name": "Шкаф-купе divan.ru Бладвен 3-180x210 Белый",
+      "price": 62990,
+      "w": 180.0,
+      "d": 40.0,
+      "h": 210.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/Nyw1CY2cyhwazBKmgSbJnEurjrr9a526yrhdD4Gh3m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU1NTc3NzEucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fshkaf-kupe-bladven-180-210-white-oak&erid=2SDnjeSGLnX",
+      "why": "стиль 9.2; палитра+1.0; меш не годен",
+      "score": 10.2,
+      "style_score": 9.2,
+      "mesh": "blocked",
+      "cls": "neutral_grey",
+      "cls2": "wood_light",
+      "rgb": [
+       155,
+       148,
+       138
+      ],
+      "fam": "divan.ru|шкаф-купе divan.ru бладвен",
+      "size": "180x45",
+      "qty": 1,
+      "has_mesh": false,
+      "mesh_defect": false,
+      "style_unknown": false
+     },
+     "обувница": {
+      "mid": 112923,
+      "eid": "5650847027539188110",
+      "sid": "112923:5650847027539188110",
+      "name": "Обувница divan.ru Тайрон 60x113 Атом",
+      "price": 19990,
+      "w": 60.0,
+      "d": 35.0,
+      "h": 113.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/n2xgBmJfgZiJVAAyGhvbelPTsEchsxfb1N6CDZ9q2nU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ2MzQ1MzIucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fobuvnitsa-tajron-1-nucleus&erid=2SDnjeSGLnX",
+      "why": "стиль 9.2; палитра+1.6; меш сгенерирован",
+      "score": 10.8,
+      "style_score": 9.2,
+      "mesh": "generated",
+      "cls": "accent_green",
+      "cls2": "accent_green",
+      "rgb": [
+       95,
+       114,
+       92
+      ],
+      "fam": "divan.ru|обувница divan.ru тайрон",
+      "size": "60x35",
+      "qty": 1,
+      "has_mesh": false,
+      "mesh_defect": false,
+      "style_unknown": false
+     },
+     "банкетка": {
+      "mid": 112923,
+      "eid": "7507793485953301727",
+      "sid": "112923:7507793485953301727",
+      "name": "Банкетка divan.ru Хоши Шенилл Молочный",
+      "price": 14990,
+      "w": 90.0,
+      "d": 45.0,
+      "h": 45.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/lIX0A1WSVcMEQYDk_FhxlLlkgR_oGUvUcSfzrEmmHCM/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5MjAyNDgucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fbanketka-hoshi-soft-white&erid=2SDnjeSGLnX",
+      "why": "стиль 9.4; палитра+1.4; меш готов",
+      "score": 10.8,
+      "style_score": 9.4,
+      "mesh": "ready",
+      "cls": "neutral_light",
+      "cls2": "wood_light",
+      "rgb": [
+       212,
+       207,
+       202
+      ],
+      "fam": "divan.ru|банкетка divan.ru хоши",
+      "size": "110x45",
+      "qty": 1,
+      "has_mesh": true,
+      "mesh_defect": false,
+      "style_unknown": false
+     },
+     "консоль": {
+      "mid": 112923,
+      "eid": "2910410577896637113",
+      "sid": "112923:2910410577896637113",
+      "name": "Консоль divan.ru Смус 120x35 Древесный черный",
+      "price": 14990,
+      "w": 120.0,
+      "d": 35.0,
+      "h": 80.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/u3ydZUddYJggNmzas5mSpT0HjFsiGSKQkWI691i3Fsc/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ4Nzg0OTUucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkonsol-smus-black&erid=2SDnjeSGLnX",
+      "why": "стиль 7.2; палитра+1.0",
+      "score": 8.2,
+      "style_score": 7.2,
+      "mesh": null,
+      "cls": "neutral_dark",
+      "cls2": "neutral_grey",
+      "rgb": [
+       40,
+       40,
+       39
+      ],
+      "fam": "divan.ru|консоль divan.ru смус",
+      "size": "110x40",
+      "qty": 1,
+      "has_mesh": false,
+      "mesh_defect": false,
+      "style_unknown": false
+     },
+     "вешалка": {
+      "mid": 112923,
+      "eid": "10492069829290071458",
+      "sid": "112923:10492069829290071458",
+      "name": "Вешалка divan.ru Сайрис 46x92 Латте",
+      "price": 3990,
+      "w": 46.0,
+      "d": 17.0,
+      "h": 92.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/Sbvfrjm5xDtECkeqPTty5fOI2wpo5tHTTrY4KK87HTI/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUyMDE1NjAucG5n.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fveshalka-sajris-1-latte&erid=2SDnjeSGLnX",
+      "why": "стиль 10; палитра+1.4; меш сгенерирован",
+      "score": 11.4,
+      "style_score": 10.0,
+      "mesh": "generated",
+      "cls": "neutral_light",
+      "cls2": "neutral_light",
+      "rgb": [
+       186,
+       175,
+       166
+      ],
+      "fam": "divan.ru|вешалка divan.ru сайрис",
+      "size": "основной",
+      "qty": 1,
+      "has_mesh": false,
+      "mesh_defect": false,
+      "style_unknown": false
+     },
+     "зеркало": {
+      "mid": 112923,
+      "eid": "4956391049781899832",
+      "sid": "112923:4956391049781899832",
+      "name": "Зеркало настенное divan.ru Тило Древесный натуральный 56x72",
+      "price": 9990,
+      "w": 56.0,
+      "d": 3.0,
+      "h": 72.0,
+      "shop": "divan.ru",
+      "img": "https://cdn0.divan.ru/img/v1/jXSaJ_If90iHj9l5PM1e4ImJJSnke9aEq4lCAH1F35k/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUwODExMjUuanBn.jpg",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fzerkalo-nastennoe-tilo-wood&erid=2SDnjeSGLnX",
+      "why": "стиль 9.2; палитра+1.4",
+      "score": 10.6,
+      "style_score": 9.2,
+      "mesh": null,
+      "cls": "neutral_light",
+      "cls2": "neutral_light",
+      "rgb": [
+       223,
+       227,
+       230
+      ],
+      "fam": "divan.ru|зеркало настенное divan.ru тило",
+      "size": "основной",
+      "qty": 1,
+      "has_mesh": false,
+      "mesh_defect": false,
+      "style_unknown": false
+     }
+    },
+    "alternates": {
+     "шкаф-купе": [
+      {
+       "mid": 112923,
+       "eid": "13087414440845459556",
+       "sid": "112923:13087414440845459556",
+       "name": "Шкаф-купе divan.ru Бладвен 3-180x210 Графитовый",
+       "price": 62990,
+       "score": 10.6,
+       "w": 180.0,
+       "d": 40.0,
+       "h": 210.0,
+       "img": "https://cdn0.divan.ru/img/v1/boUlowMKJKSQRwaTmfIS-hKCJgi74Jf2w5pZykazTdg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU1NTc3MzkucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fshkaf-kupe-bladven-180-210-grey-oak&erid=2SDnjeSGLnX",
+       "mesh": "blocked",
+       "style_score": 9.2,
+       "size": "180x45",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      },
+      {
+       "mid": 112923,
+       "eid": "17347871599567302985",
+       "sid": "112923:17347871599567302985",
+       "name": "Шкаф-купе divan.ru Бладвен 3-180x210 Латте",
+       "price": 62990,
+       "score": 10.6,
+       "w": 180.0,
+       "d": 40.0,
+       "h": 210.0,
+       "img": "https://cdn0.divan.ru/img/v1/hiQ2G-O_mtCqwrwAAuYvmDqI9EcRmYZT7EM8mFAwUzA/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU1NTc3NjAucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fshkaf-kupe-bladven-180-210-latte-oak&erid=2SDnjeSGLnX",
+       "mesh": "blocked",
+       "style_score": 9.2,
+       "size": "180x45",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      },
+      {
+       "mid": 112923,
+       "eid": "12501150499417663731",
+       "sid": "112923:12501150499417663731",
+       "name": "Шкаф-купе divan.ru Беррингтон 2.1",
+       "price": 75590,
+       "score": 9.6,
+       "w": 180.0,
+       "d": 60.0,
+       "h": 220.0,
+       "img": "https://cdn0.divan.ru/img/v1/AAusBqyF-mmNiT3NtkdmziUpIfLxv-goc7WTHLkCwVM/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYyMzY2NDEucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fshkaf-kupe-berrington-2-1-art--2004370458&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 8.2,
+       "size": "180x60",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      }
+     ],
+     "обувница": [
+      {
+       "mid": 112923,
+       "eid": "3301633618859195092",
+       "sid": "112923:3301633618859195092",
+       "name": "Обувница подвесная divan.ru Сайрис 50x99 Латте",
+       "price": 9990,
+       "score": 9.0,
+       "w": 50.0,
+       "d": 31.0,
+       "h": 99.0,
+       "img": "https://cdn0.divan.ru/img/v1/sg8zeoAFadonS3noXLAE7SfjIsH9-DvyZbQxlQKdblc/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUyMTEyODIucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fobuvnitsa-podvesnaya-sajris-1-latte&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 7.6,
+       "size": "60x35",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      },
+      {
+       "mid": 112923,
+       "eid": "13078307032269411224",
+       "sid": "112923:13078307032269411224",
+       "name": "Обувница divan.ru Сайрис 98x53 Белый",
+       "price": 8990,
+       "score": 11.2,
+       "w": 98.0,
+       "d": 35.0,
+       "h": 53.0,
+       "img": "https://cdn0.divan.ru/img/v1/yr9_zVlDGuvcxe8ZdrLQBwGBgHq2zjdMynHxRYdNgvM/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU0NDYxNjcucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fobuvnitsa-sajris-3-white&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 9.8,
+       "size": "90x35",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      },
+      {
+       "mid": 112923,
+       "eid": "9430450563876675923",
+       "sid": "112923:9430450563876675923",
+       "name": "Обувница divan.ru Сайрис 98x53 Латте",
+       "price": 8990,
+       "score": 11.2,
+       "w": 98.0,
+       "d": 35.0,
+       "h": 53.0,
+       "img": "https://cdn0.divan.ru/img/v1/CvcE3mo9ewxnmZaciowLzceHv2h_cK8wuw1KB-0Nggs/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU0NDYzMjUucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fobuvnitsa-sajris-3-latte&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 9.8,
+       "size": "90x35",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      }
+     ],
+     "банкетка": [
+      {
+       "mid": 112923,
+       "eid": "8312377888602468327",
+       "sid": "112923:8312377888602468327",
+       "name": "Банкетка divan.ru Хоши-2 Шенилл Молочный",
+       "price": 19192,
+       "score": 10.8,
+       "w": 135.0,
+       "d": 45.0,
+       "h": 45.0,
+       "img": "https://cdn0.divan.ru/img/v1/O4fkn9iIgDx1zbkFwCYQfgZYBaJAZV3SGqCFyXmPgFE/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5MjAyNzYucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fbanketka-hoshi-2-soft-white&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 9.4,
+       "size": "130x48",
+       "has_mesh": true,
+       "mesh_defect": false,
+       "style_unknown": false
+      },
+      {
+       "mid": 112923,
+       "eid": "12540595169430119386",
+       "sid": "112923:12540595169430119386",
+       "name": "Банкетка divan.ru Аймо Рогожка Серый",
+       "price": 14990,
+       "score": 10.6,
+       "w": 80.0,
+       "d": 43.0,
+       "h": 49.0,
+       "img": "https://cdn0.divan.ru/img/v1/j1JbBn9_glR7RsnpyAiBmrMHr5xSBbto5Magzjr5dEs/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU0Njc2MTYucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fbanketka-ajmo-textile-grey&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 9.2,
+       "size": "80x45",
+       "has_mesh": true,
+       "mesh_defect": false,
+       "style_unknown": false
+      },
+      {
+       "mid": 112923,
+       "eid": "15669358274564748782",
+       "sid": "112923:15669358274564748782",
+       "name": "Банкетка divan.ru Аймо Велюр Бежевый",
+       "price": 14990,
+       "score": 10.6,
+       "w": 80.0,
+       "d": 43.0,
+       "h": 49.0,
+       "img": "https://cdn0.divan.ru/img/v1/PzoXGAYjWE-CGquraGl-aD1LvuWPwgVf_eitr0b-MLI/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYxMzEyMjUucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fbanketka-ajmo-velyur-bejevyj&erid=2SDnjeSGLnX",
+       "mesh": "ready",
+       "style_score": 9.2,
+       "size": "80x45",
+       "has_mesh": true,
+       "mesh_defect": false,
+       "style_unknown": false
+      }
+     ],
+     "консоль": [
+      {
+       "mid": 112923,
+       "eid": "1393647774916349715",
+       "sid": "112923:1393647774916349715",
+       "name": "Консоль divan.ru Вайнон 118x30 Древесный натуральный",
+       "price": 29990,
+       "score": 8.0,
+       "w": 118.0,
+       "d": 30.0,
+       "h": 74.0,
+       "img": "https://cdn0.divan.ru/img/v1/rNiiQuFvEEAqswlzHvfOWqZ6zMosjOmRqfZB1hr7s3o/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYwMTUzODAucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkonsol-vajnon-118x30-drevesnyj-naturalnyj&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 7.0,
+       "size": "120x30",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      }
+     ],
+     "вешалка": [
+      {
+       "mid": 112923,
+       "eid": "4451867430753111259",
+       "sid": "112923:4451867430753111259",
+       "name": "Вешалка divan.ru Монблан 62x166 Дуб Барбера",
+       "price": 5990,
+       "score": 9.0,
+       "w": 62.0,
+       "d": 23.0,
+       "h": 166.0,
+       "img": "https://cdn0.divan.ru/img/v1/XBPA3pUeDD5dQoYloFJbk-ZUXEfLndj1bgYbBOm5Rto/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUyMTY1MjgucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fveshalka-monblan-1-oak&erid=2SDnjeSGLnX",
+       "mesh": "generated",
+       "style_score": 8.0,
+       "size": "основной",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      },
+      {
+       "mid": 112923,
+       "eid": "7233736597033261588",
+       "sid": "112923:7233736597033261588",
+       "name": "Вешалка divan.ru Сайрис 46x92 Белый",
+       "price": 3990,
+       "score": 11.4,
+       "w": 46.0,
+       "d": 17.0,
+       "h": 92.0,
+       "img": "https://cdn0.divan.ru/img/v1/RoxNQ5FM8s5hdXMUCR18QQ6BCxHdbi1PAgTagGPvtnU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUyMDE1NjkucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fveshalka-sajris-1-white&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 10.0,
+       "size": "основной",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      },
+      {
+       "mid": 112923,
+       "eid": "14297744899715253898",
+       "sid": "112923:14297744899715253898",
+       "name": "Вешалка divan.ru Сайрис 46x92 Дуб Барбера",
+       "price": 3990,
+       "score": 11.0,
+       "w": 46.0,
+       "d": 17.0,
+       "h": 92.0,
+       "img": "https://cdn0.divan.ru/img/v1/hewvVUMvNTmCq1pzwZZklNww-lqIpJskqaX0u72wbc4/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUyMDE1NjMucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fveshalka-sajris-1-oak&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 10.0,
+       "size": "основной",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      }
+     ],
+     "зеркало": [
+      {
+       "mid": 112923,
+       "eid": "17647498566169243321",
+       "sid": "112923:17647498566169243321",
+       "name": "Зеркало настенное divan.ru Эйдис Темно-древесный 45x90",
+       "price": 16990,
+       "score": 9.6,
+       "w": 45.0,
+       "d": 3.0,
+       "h": 90.0,
+       "img": "https://cdn0.divan.ru/img/v1/7xA1ctPJt5vhxruVekyrhyfUuY9kc_KEGWI6Qmhfamw/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYxNDU1NTcucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fzerkalo-nastennoe-ejdis-temno-drevesnyj-45x90&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 8.2,
+       "size": "основной",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      },
+      {
+       "mid": 112923,
+       "eid": "17816136388128769852",
+       "sid": "112923:17816136388128769852",
+       "name": "Зеркало настенное divan.ru Эйдис Древесный натуральный 45x90",
+       "price": 16990,
+       "score": 9.2,
+       "w": 45.0,
+       "d": 3.0,
+       "h": 90.0,
+       "img": "https://cdn0.divan.ru/img/v1/cRzQq4OmhgIgrvtGj55cwX1pu1mrQWOGBg6S_-wZcEU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU0MjY4MTgucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fzerkalo-nastennoe-ejdis-wood&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 8.2,
+       "size": "основной",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      },
+      {
+       "mid": 112923,
+       "eid": "1809000441877885108",
+       "sid": "112923:1809000441877885108",
+       "name": "Зеркало настенное divan.ru Лейс Темно-древесный 60x120",
+       "price": 16990,
+       "score": 8.8,
+       "w": 60.0,
+       "d": 3.0,
+       "h": 120.0,
+       "img": "https://cdn0.divan.ru/img/v1/kGj1aW4sxhnzxUo6sn2a9HCFR8QIwd1vr84zpk8fFq4/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYxNDU1NjUucG5n.jpg",
+       "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fzerkalo-nastennoe-lejs-temno-drevesnyj-60x120&erid=2SDnjeSGLnX",
+       "mesh": null,
+       "style_score": 7.2,
+       "size": "основной",
+       "has_mesh": false,
+       "mesh_defect": false,
+       "style_unknown": false
+      }
+     ]
+    },
+    "slots": {
+     "шкаф-купе": {
+      "ideal": {
+       "w": 180,
+       "d": 45,
+       "h": 220
+      },
+      "band": {
+       "w": [
+        144.0,
+        198.0
+       ],
+       "d": [
+        36.0,
+        49.5
+       ],
+       "h": [
+        176.0,
+        242.0
+       ]
+      },
+      "size": "180x45",
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true,
+      "storage": true
+     },
+     "обувница": {
+      "ideal": {
+       "w": 60,
+       "d": 35,
+       "h": 100
+      },
+      "band": {
+       "w": [
+        48.0,
+        66.0
+       ],
+       "d": [
+        28.0,
+        38.5
+       ]
+      },
+      "size": "60x35",
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true,
+      "storage": false
+     },
+     "банкетка": {
+      "ideal": {
+       "w": 110,
+       "d": 45,
+       "h": 46
+      },
+      "band": {
+       "w": [
+        88.0,
+        121.0
+       ],
+       "d": [
+        36.0,
+        49.5
+       ]
+      },
+      "size": "110x45",
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true,
+      "storage": false
+     },
+     "консоль": {
+      "ideal": {
+       "w": 110,
+       "d": 40,
+       "h": 80
+      },
+      "band": {
+       "w": [
+        88.0,
+        121.0
+       ],
+       "d": [
+        32.0,
+        44.0
+       ]
+      },
+      "size": "110x40",
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true,
+      "storage": false
+     },
+     "вешалка": {
+      "ideal": {},
+      "band": {},
+      "size": "основной",
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true,
+      "storage": false
+     },
+     "зеркало": {
+      "ideal": {},
+      "band": {},
+      "size": "основной",
+      "tolerance": [
+       0.8,
+       1.1
+      ],
+      "qty": 1,
+      "mesh": true,
+      "storage": false
+     }
+    },
+    "layout": {
+     "шкаф-купе": {
+      "x": 133.0,
+      "z": 530.0,
+      "rot": 270,
+      "w": 180.0,
+      "d": 40.0,
+      "h": 210.0,
+      "elev": 0,
+      "sid": "112923:10106919664002769611"
+     },
+     "обувница": {
+      "x": 135.5,
+      "z": 110.0,
+      "rot": 270,
+      "w": 60.0,
+      "d": 35.0,
+      "h": 113.0,
+      "elev": 0,
+      "sid": "112923:5650847027539188110"
+     },
+     "банкетка": {
+      "x": 130.5,
+      "z": 185.0,
+      "rot": 270,
+      "w": 90.0,
+      "d": 45.0,
+      "h": 45.0,
+      "elev": 0,
+      "sid": "112923:7507793485953301727"
+     },
+     "консоль": {
+      "x": 135.5,
+      "z": 290.0,
+      "rot": 270,
+      "w": 120.0,
+      "d": 35.0,
+      "h": 80.0,
+      "elev": 0,
+      "sid": "112923:2910410577896637113"
+     },
+     "вешалка": {
+      "x": 144.5,
+      "z": 23.0,
+      "rot": 270,
+      "w": 46.0,
+      "d": 17.0,
+      "h": 92.0,
+      "elev": 0,
+      "sid": "112923:10492069829290071458"
+     },
+     "зеркало": {
+      "x": 1.5,
+      "z": 28.0,
+      "rot": 90,
+      "w": 56.0,
+      "d": 3.0,
+      "h": 72.0,
+      "elev": 114.0,
+      "sid": "112923:4956391049781899832"
+     },
+     "_room": {
+      "id": "hall",
+      "variant": "drawing-180",
+      "w": 153,
+      "d": 620,
+      "openings": [
+       {
+        "kind": "door",
+        "wall": "south",
+        "offset_cm": 31,
+        "width_cm": 90,
+        "swing_cm": 0,
+        "is_entrance": true
+       },
+       {
+        "kind": "door",
+        "wall": "west",
+        "offset_cm": 160,
+        "width_cm": 85,
+        "swing_cm": 0
+       },
+       {
+        "kind": "door",
+        "wall": "west",
+        "offset_cm": 420,
+        "width_cm": 85,
+        "swing_cm": 0
+       },
+       {
+        "kind": "door",
+        "wall": "north",
+        "offset_cm": 20,
+        "width_cm": 70,
+        "swing_cm": 70
+       }
+      ],
+      "radiators": [],
+      "entrance_note": "вход — юг, дверь 90 см с отступа 31 (ВХОД — юг (владелец 06.11, TG 153); входная дверь открывается наружу)"
+     },
+     "_meta": {
+      "solver": "hall-v1",
+      "template": "storage_solid_wall",
+      "reason": [],
+      "soft": [
+       "HALL_ENTRY_TIGHT"
+      ],
+      "skipped_optional": [],
+      "floor_used_pct": 19.3,
+      "attempts": 1
+     }
+    },
+    "tier_relaxed": [],
+    "style_unknown": [],
+    "cell": "hall|hall|9.5|сканди|комфорт",
+    "set_id": "hall-a07f6c6e",
+    "provenance": {
+     "room_type": "hall",
+     "profile_id": "hall",
+     "profile_version": "2026-11-05.2",
+     "content_sha": "6365d02551f4",
+     "composer_plugin": "hall",
+     "rules_sha": "b5f00fd5d823",
+     "composer_sha": "8aa01d4cbad6"
+    }
+   }
+  ],
+  "catalog": [
+   {
+    "offer_id": "112923:10106919664002769611",
+    "origin": "room_catalog",
+    "room_type": "hall",
+    "roles": [
+     "шкаф-купе"
+    ],
+    "mid": 112923,
+    "eid": "10106919664002769611",
+    "name": "Шкаф-купе divan.ru Бладвен 3-180x210 Белый",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 62990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fshkaf-kupe-bladven-180-210-white-oak&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 180.0,
+     "d": 40.0,
+     "h": 210.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/428964670/pictures/bc3002c11b592ad7874f99b5d98d9d54/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/Nyw1CY2cyhwazBKmgSbJnEurjrr9a526yrhdD4Gh3m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU1NTc3NzEucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/Nyw1CY2cyhwazBKmgSbJnEurjrr9a526yrhdD4Gh3m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU1NTc3NzEucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "лофт": 3.0,
+     "сканди": 9.2,
+     "джапанди": 6.0,
+     "минимализм": 8.0,
+     "неоклассика": 3.0,
+     "современный": 9.2,
+     "universal": false,
+     "src": "llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|шкаф-купе divan.ru бладвен"
+   },
+   {
+    "offer_id": "112923:10492069829290071458",
+    "origin": "room_catalog",
+    "room_type": "hall",
+    "roles": [
+     "вешалка"
+    ],
+    "mid": 112923,
+    "eid": "10492069829290071458",
+    "name": "Вешалка divan.ru Сайрис 46x92 Латте",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 3990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fveshalka-sajris-1-latte&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 46.0,
+     "d": 17.0,
+     "h": 92.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/424762393/pictures/ea737a6e1445910f02dc0924a66863ef/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/Sbvfrjm5xDtECkeqPTty5fOI2wpo5tHTTrY4KK87HTI/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUyMDE1NjAucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/Sbvfrjm5xDtECkeqPTty5fOI2wpo5tHTTrY4KK87HTI/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUyMDE1NjAucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "лофт": 0.9,
+     "сканди": 10,
+     "джапанди": 7.0,
+     "минимализм": 7.3,
+     "неоклассика": 2.0,
+     "современный": 6.2,
+     "universal": false,
+     "src": "llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|вешалка divan.ru сайрис"
+   },
+   {
+    "offer_id": "112923:2910410577896637113",
+    "origin": "room_catalog",
+    "room_type": "hall",
+    "roles": [
+     "консоль"
+    ],
+    "mid": 112923,
+    "eid": "2910410577896637113",
+    "name": "Консоль divan.ru Смус 120x35 Древесный черный",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 14990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkonsol-smus-black&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 120.0,
+     "d": 35.0,
+     "h": 80.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/448758719/pictures/b5664c7b5b3ed43f5a88c9847d1281cb/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/u3ydZUddYJggNmzas5mSpT0HjFsiGSKQkWI691i3Fsc/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ4Nzg0OTUucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/u3ydZUddYJggNmzas5mSpT0HjFsiGSKQkWI691i3Fsc/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ4Nzg0OTUucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "лофт": 8.5,
+     "сканди": 7.2,
+     "джапанди": 4.0,
+     "минимализм": 7.0,
+     "неоклассика": 3.0,
+     "современный": 9.2,
+     "universal": false,
+     "src": "llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|консоль divan.ru смус"
+   },
+   {
+    "offer_id": "112923:4956391049781899832",
+    "origin": "room_catalog",
+    "room_type": "hall",
+    "roles": [
+     "зеркало"
+    ],
+    "mid": 112923,
+    "eid": "4956391049781899832",
+    "name": "Зеркало настенное divan.ru Тило Древесный натуральный 56x72",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 9990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fzerkalo-nastennoe-tilo-wood&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 56.0,
+     "d": 3.0,
+     "h": 72.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "плоский настенный: w×h, толщина принята 3 см",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/491683976/pictures/8f5e2ab562eb4f2026d8f08b491365b5/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/jXSaJ_If90iHj9l5PM1e4ImJJSnke9aEq4lCAH1F35k/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUwODExMjUuanBn.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/jXSaJ_If90iHj9l5PM1e4ImJJSnke9aEq4lCAH1F35k/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUwODExMjUuanBn.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "лофт": 4.0,
+     "сканди": 9.2,
+     "джапанди": 8.0,
+     "минимализм": 7.0,
+     "неоклассика": 4.0,
+     "современный": 8.2,
+     "universal": false,
+     "src": "llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|зеркало настенное divan.ru тило"
+   },
+   {
+    "offer_id": "112923:5650847027539188110",
+    "origin": "room_catalog",
+    "room_type": "hall",
+    "roles": [
+     "обувница"
+    ],
+    "mid": 112923,
+    "eid": "5650847027539188110",
+    "name": "Обувница divan.ru Тайрон 60x113 Атом",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 19990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fobuvnitsa-tajron-1-nucleus&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 60.0,
+     "d": 35.0,
+     "h": 113.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/417847487/pictures/16164c0086c503382721fe72457a3ee2/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/n2xgBmJfgZiJVAAyGhvbelPTsEchsxfb1N6CDZ9q2nU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ2MzQ1MzIucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/n2xgBmJfgZiJVAAyGhvbelPTsEchsxfb1N6CDZ9q2nU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQ2MzQ1MzIucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "лофт": 2.0,
+     "сканди": 9.2,
+     "джапанди": 5.0,
+     "минимализм": 6.0,
+     "неоклассика": 2.0,
+     "современный": 8.2,
+     "universal": false,
+     "src": "llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|обувница divan.ru тайрон"
+   },
+   {
+    "offer_id": "112923:7507793485953301727",
+    "origin": "room_catalog",
+    "room_type": "hall",
+    "roles": [
+     "банкетка"
+    ],
+    "mid": 112923,
+    "eid": "7507793485953301727",
+    "name": "Банкетка divan.ru Хоши Шенилл Молочный",
+    "shop": "divan.ru",
+    "brand": "divan.ru",
+    "price": 14990.0,
+    "in_stock": null,
+    "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fbanketka-hoshi-soft-white&erid=2SDnjeSGLnX",
+    "url_direct": null,
+    "dims": {
+     "w": 90.0,
+     "d": 45.0,
+     "h": 45.0,
+     "len": null,
+     "dia": null,
+     "sleep_w": null,
+     "sleep_l": null,
+     "source": null,
+     "footprint_ok": true,
+     "note": "",
+     "h_evidence": {
+      "source": null,
+      "cm": null,
+      "drop_min": null
+     }
+    },
+    "photo": {
+     "url": "//imgng.gdeslon.ru/commodities/483874421/pictures/5a487cbb9c985038867f57540d7646a4/big.jpg",
+     "url_hd": "https://cdn0.divan.ru/img/v1/lIX0A1WSVcMEQYDk_FhxlLlkgR_oGUvUcSfzrEmmHCM/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5MjAyNDgucG5n.jpg",
+     "best": "https://cdn0.divan.ru/img/v1/lIX0A1WSVcMEQYDk_FhxlLlkgR_oGUvUcSfzrEmmHCM/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5MjAyNDgucG5n.jpg",
+     "alive": null,
+     "revision": null
+    },
+    "style": {
+     "лофт": 3.1,
+     "сканди": 9.4,
+     "джапанди": 7.2,
+     "минимализм": 9.2,
+     "неоклассика": 4.2,
+     "современный": 8.4,
+     "universal": false,
+     "src": "llm+rules"
+    },
+    "asset": {
+     "mesh_status": null,
+     "mesh_url": null,
+     "revision": null,
+     "defect": null
+    },
+    "params": {},
+    "flags": {},
+    "family": "divan.ru|банкетка divan.ru хоши"
+   }
+  ],
+  "missing": []
+ }
+}

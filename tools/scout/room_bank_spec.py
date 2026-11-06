@@ -178,7 +178,9 @@ def _room(room: str, env) -> RoomBankSpec:
         snap_prefix=base, rules_path=RULES_PATH,
         cell_fields=('room_id', 'purpose', 'band', 'style', 'tier'), profile=room, compose_args=(),
         catalog='room_catalog (catalog_items)', readiness='offer_asset_binding',
-        strict='этап Г', exam='этап Г', demo='этап Г', skeleton=True)
+        strict='room_guards.strict_cell (каталог сейчас)', exam='room_guards.exam_cell + bank_problems (смешанный банк)',
+        demo=('room_guards.demo_problems (old/hybrid)' if room == 'bedroom' else 'нет показа — пропуск строкой'),
+        skeleton=True)
 
 
 ROOMS = (LIVING, 'bedroom', 'hall')    # прихожая — T-20261106-89 шаг 2: каркас, как спальня (свои пути, флаги rooms.hall.*)

@@ -66,10 +66,9 @@ def skipped_of(cand_path: str) -> dict:
         return {}
 
 
-def verdict(room: str, cand: list, spare: str = SPARE, skipped: dict | None = None) -> list[str]:
-    """Отказы кандидата (пусто — годен к поколению 0): идентичность и происхождение, затем раскладка и состав
-    (`compose_bedroom.check_bank(spare=…)`; '~' — предупреждения, не отказ). `skipped` — стили, пропущенные по правилу ядра
-    (T-20261106-89/2): матрица без них; стиль живого банка среди пропущенных — отказ (суд защиту повторяет, не верит на слово)."""
+def identity(room: str, cand: list, skipped: dict | None = None) -> list[str]:
+    """Отказы идентичности кандидата: матрица профиля (без стилей, пропущенных по правилу ядра), set_id, происхождение. Общая
+    часть суда поколения 0 (`verdict`) и ночных сторожей (`room_guards`, этап Г): там — кандидат целиком не годен."""
     import room_identity as RI
     want = RI.expected(room)
     if skipped and room == 'bedroom':
@@ -80,7 +79,14 @@ def verdict(room: str, cand: list, spare: str = SPARE, skipped: dict | None = No
             return [f'стиль живого банка пропущен по правилу ядра: {", ".join(lost)}']
         R = CB.rules()
         want = RI.expected(room, dict(R, styles=[s for s in R['styles'] if s not in skipped]))
-    bad = RI.check(cand, want, RI.provenance(room), room)
+    return RI.check(cand, want, RI.provenance(room), room)
+
+
+def verdict(room: str, cand: list, spare: str = SPARE, skipped: dict | None = None) -> list[str]:
+    """Отказы кандидата (пусто — годен к поколению 0): идентичность и происхождение, затем раскладка и состав
+    (`compose_bedroom.check_bank(spare=…)`; '~' — предупреждения, не отказ). `skipped` — стили, пропущенные по правилу ядра
+    (T-20261106-89/2): матрица без них; стиль живого банка среди пропущенных — отказ (суд защиту повторяет, не верит на слово)."""
+    bad = identity(room, cand, skipped)
     if bad:
         return bad
     if room == 'bedroom':
@@ -246,6 +252,19 @@ def recover_intent(P: dict, it: dict, abandon: bool = False) -> int:
     return 1
 
 
+def guards(room: str, cand: str, argv: list) -> None:
+    """Сторожа этапа Г (`room_guards`, T-20261106-93) — сухо, после суда кандидата: strict по каталогу, готовность моделей,
+    экзамен ячеек, демо old/hybrid (спальня), доля замен. Печатают таблицу и ОДНУ строку `DIGEST:банк <комната> (сторожа, сухо)`.
+    Ничего не пишут; их падение — WARN и строка дайджеста, шаг ночи не роняет (код 0, как суд выше)."""
+    import room_guards as RG
+    live = argv[argv.index('--live') + 1] if '--live' in argv and argv.index('--live') + 1 < len(argv) else None
+    try:
+        RG.run_night(room, cand, live_path=live)
+    except Exception as e:  # noqa: BLE001 — сторож не судил: ночь идёт, в сводке видно
+        _say(f'WARN:room_check:{room}: сторожа этапа Г упали ({type(e).__name__}: {str(e)[:160]}) — не судили; живой не тронут')
+        _say(f'DIGEST:банк {RG.ROOM_RU.get(room, room)} (сторожа, сухо): упали — {type(e).__name__}; живой не тронут')
+
+
 def main(argv: list) -> int:
     room, argv = RBS.room_arg(argv)
     room = room or RBS.LIVING
@@ -273,6 +292,7 @@ def main(argv: list) -> int:
             if bad:
                 _say(f'WARN:room_check:{room}: кандидат не годен к банку — отказов {len(bad)} (первый: {bad[0][:160]}); '
                      'живой банк не тронут')
+            guards(room, cand, argv)
             return 0
         return 1 if bad else 0
     if argv[:1] == ['run']:
