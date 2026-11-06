@@ -1037,15 +1037,61 @@ def okna(otr: list[Otrezok]) -> list[list[Otrezok]]:
     return out[::-1]
 
 
-def ocenka_mashiny(otr: list[Otrezok]) -> tuple[Razlozhenie | None, bool, float]:
-    """Текущее окно, а если в нём меньше `POROG_OKNA_PP` п.п. или `POROG_OKNA_N` ступенек — прошлое (годное).
-    → (разложение или None, по прошлому окну, п.п. текущего окна)."""
+# Пометка окна (T-20261106-76, владелец 06.11): процент рос быстрее записи statusline — ступенька в несколько п.п. несёт
+# и нашу, и чужую работу учётки (Windows, claude.ai) разом, разложение их не разделит. Половина п.п. окна и больше
+# такими ступеньками — оценка завышена (прошлое окно pakardev 22–27.10: одна ступенька 100 п.п., «вне» = 0).
+KRUPNAYA_PP = 5.0
+RAZBROS_ZA = timedelta(hours=24)  # разброс оценки — по концам ступенек за последние сутки
+
+
+def zavysheno(w: list[Otrezok]) -> bool:
+    """Чужую работу в окне не отделить: ступеньками больше `KRUPNAYA_PP` пришла половина п.п. окна или больше."""
+    vsego = sum(o.dp for o in w)
+    return vsego > 0 and sum(o.dp for o in w if o.dp > KRUPNAYA_PP) >= vsego / 2
+
+
+def polno(w: list[Otrezok]) -> bool:
+    """`POROG_OKNA_PP` п.п. и `POROG_OKNA_N` ступенек — меньше процент целый, оценка — шум."""
+    return sum(o.dp for o in w) >= POROG_OKNA_PP and len(w) >= POROG_OKNA_N
+
+
+def godno(w: list[Otrezok]) -> bool:
+    """Окно годится для оценки: `polno`; завышенное — по одним п.п. (ступенек в нём мало как раз потому, что они
+    крупные), его оценка идёт с пометкой и в сравнение не входит."""
+    return polno(w) or (sum(o.dp for o in w) >= POROG_OKNA_PP and zavysheno(w))
+
+
+def okno_ocenki(otr: list[Otrezok]) -> tuple[list[Otrezok] | None, bool, float]:
+    """Текущее окно, а если оно не годно (`godno`) — прошлое. → (ступеньки окна по времени или None, по прошлому
+    окну, п.п. текущего окна)."""
     vse = okna(otr)
     tek = sum(o.dp for o in vse[0]) if vse else 0.0
     for i, w in enumerate(vse[:2]):
-        if sum(o.dp for o in w) >= POROG_OKNA_PP and len(w) >= POROG_OKNA_N:
-            return razlozhit(w), i == 1, tek
+        if godno(w):
+            return sorted(w, key=lambda o: o.t1), i == 1, tek
     return None, False, tek
+
+
+def ocenka_mashiny(otr: list[Otrezok]) -> tuple[Razlozhenie | None, bool, float]:
+    """Разложение окна оценки (`okno_ocenki`). → (разложение или None, по прошлому окну, п.п. текущего окна)."""
+    w, proshloe, tek = okno_ocenki(otr)
+    return (razlozhit(w) if w else None), proshloe, tek
+
+
+def razbros(w: list[Otrezok], seychas: datetime) -> tuple[float, float] | None:
+    """Min–max нарастающей оценки (млн на 1 %) по префиксам ступенек окна, у которых конец за `RAZBROS_ZA` до
+    `seychas` и префикс уже годен (`polno`); одна точка — None (без скобок). Оценка по ~30 ступенькам целого процента
+    ходит 3,5 ↔ 7,0 за сутки — число без разброса пугало скачками (владелец 06.11, TG 186)."""
+    tochki = []
+    for i, o in enumerate(w):
+        p = w[:i + 1]  # порог — обычный (п.п. и число ступенек), как у нарастающей оценки в разборе ведущего TG 188
+        if o.t1 >= seychas - RAZBROS_ZA and polno(p) and (r := razlozhit(p)) is not None:
+            tochki.append(r.mln_na_procent)
+    return (min(tochki), max(tochki)) if len(tochki) > 1 else None
+
+
+def chislo_mln(n: float) -> str:
+    return f"{n / 1e6:.1f}".replace(".", ",")
 
 
 def procent_nedeli(n: float) -> str:
@@ -1053,29 +1099,42 @@ def procent_nedeli(n: float) -> str:
 
 
 def stroki_na_procent(otr: dict[str, list[Otrezok]], ozhidaem: list[str] | None = None,
-                      zhdem: dict[str, str] | None = None) -> list[str]:
+                      zhdem: dict[str, str] | None = None, seychas: datetime | None = None) -> list[str]:
     """«На 1 % недели» — млн взвешенных токенов НАШИХ ответов на 1 % лимита учётки каждой машины (без чужой работы
     учётки: Windows, claude.ai) и строка «Вне наших машин» — сколько % недели ушло не с машины. Машина без ступенек:
-    нет её положенной выгрузки — когда ждать (`zhdem`, `zhdem_na_procent`), иначе «пока нет данных»."""
+    нет её положенной выгрузки — когда ждать (`zhdem`, `zhdem_na_procent`), иначе «пока нет данных». Рядом с числом —
+    разброс за сутки (`razbros`); окно, где чужую работу не отделить (`zavysheno`), — с пометкой и без сравнения."""
     if not otr and not ozhidaem:
         return []
+    seychas = seychas or datetime.now(UTC)
     est: dict[str, float] = {}
     chasti, vne = [], []
     for m in sorted(set(otr) | set(ozhidaem or [])):
         if not otr.get(m):
             chasti.append(f"{m} — {(zhdem or {}).get(m) or 'пока нет данных'}")
             continue
-        r, proshloe, tek = ocenka_mashiny(otr[m])
-        if r is None:
+        w, proshloe, tek = okno_ocenki(otr[m])
+        r = razlozhit(w) if w else None
+        if w is None or r is None:
             chasti.append(f"{m} — мало данных ({pp(tek)} п.п.)")
             continue
+        pometki = ["прошлая неделя"] if proshloe else []
+        if zavysheno(w):  # « · » внутри скобок: «, » и «; » делят строку при разборе (`tokeny-tekst`)
+            pometki.append("Windows и др. не отделить — завышено")
+            chasti.append(f"{m} {mln(r.mln_na_procent)} ({' · '.join(pometki)})")
+            vne.append(f"{m} не отделить")
+            continue
         est[m] = r.mln_na_procent
-        chasti.append(f"{m} {mln(est[m])}" + (" (прошлая неделя)" if proshloe else ""))
+        if rz := razbros(w, seychas):
+            if chislo_mln(rz[0]) != chislo_mln(rz[1]):
+                pometki.append(f"за сутки {chislo_mln(rz[0])}–{chislo_mln(rz[1])}")
+        chasti.append(f"{m} {mln(est[m])}" + (f" ({' · '.join(pometki)})" if pometki else ""))
         vne.append(f"{m} ≈0" if r.vne < 1 else
                    f"{m} ≈ {procent_nedeli(r.vne)} % недели (≈ {pp(r.vne / r.chasy if r.chasy else 0)} %/ч)")
+    vne_stroka = [f"Вне наших машин (та же учётка на Windows, в claude.ai и др.): {', '.join(vne)}."] if vne else []
     if not est:
         return [f"На 1 % недели (по неделе каждой учётки, все проекты; токены взвешенные): {', '.join(chasti)}; "
-                "сравнить пока не с чем."]
+                "сравнить пока не с чем.", *vne_stroka]
     luchshie = sorted(est.items(), key=lambda kv: -kv[1])
     if len(luchshie) < 2:
         itog = "сравнить пока не с чем"
@@ -1087,7 +1146,7 @@ def stroki_na_procent(otr: dict[str, list[Otrezok]], ozhidaem: list[str] | None 
         itog = (f"выгоднее {luchshie[0][0]}: в {raz} раза больше, "
                 f"чем {luchshie[1][0]}")
     return [f"На 1 % недели (по неделе каждой учётки, все проекты; токены взвешенные): {', '.join(chasti)}; {itog}.",
-            f"Вне наших машин (та же учётка на Windows, в claude.ai и др.): {', '.join(vne)}."]
+            *vne_stroka]
 
 
 def razdelit_limit(vse: list[Stroka], prirosty: list[Prirost]) -> list[Rozdano]:
@@ -1809,7 +1868,7 @@ def svodka(stroki: list[Stroka], proekt: str, den: date, vygruzki: list[Vygruzka
            *bez_ceny(d),
            f"{VED}: {doli(VED)}.", f"{ISP}: {doli(ISP)}.", stroka_peredelok(kletki, vsego)]
     out += (stroka_limita(d, proekt)
-            + (stroki_na_procent(otrezki, ozhidaem, zhdem_procent) if otrezki is not None else [])
+            + (stroki_na_procent(otrezki, ozhidaem, zhdem_procent, seychas) if otrezki is not None else [])
             + stroki_zadach(d, nazv, vsego))
     out += stroka_pamyati(d, vygruzki or [], den) + stroka_zamera(zamery, den)
     return "\n".join(out) + "\n"

@@ -134,3 +134,45 @@ def test_vygruzka_so_stupenkami_i_staraya(tmp_path: Path, monkeypatch: pytest.Mo
     assert tokeny.otrezki_po_mashinam(korni, den, [])["pakardev"] == []  # живой счёт заменяет выгрузку своей машины
     assert tokeny.otrezki_zhivye(koren, tmp_path / "net.jsonl", t) is None
 
+
+
+def okno_pakardev() -> tuple[list[tokeny.Otrezok], datetime]:
+    d = json.loads((DANNYE / "okno-pakardev-0506.json").read_text(encoding="utf-8"))
+    return [o for x in d["otrezki"] if (o := tokeny.Otrezok.iz_slovarya(x))], datetime.fromisoformat(d["seychas"])
+
+
+def test_razbros_za_sutki_pakardev_0506() -> None:
+    """Окно pakardev 05–06.11 (32 ступеньки, разбор ведущего TG 188): оценка шла 3,5 (чт 18:47) → 7,0 (чт 23:26) → 4,9 →
+    5,3 — рядом с числом разброс за сутки, а не одно число, скачущее без объяснения (T-20261106-76)."""
+    otr, seychas = okno_pakardev()
+    w, proshloe, _ = tokeny.okno_ocenki(otr)
+    assert w is not None and not proshloe and len(w) == 32 and not tokeny.zavysheno(w)
+    lo, hi = tokeny.razbros(w, seychas)
+    assert (round(lo / 1e6, 2), round(hi / 1e6, 2)) == (3.48, 7.0)
+    stroka = tokeny.stroki_na_procent({"pakardev": otr}, seychas=seychas)[0]
+    assert "pakardev 5,3 млн (за сутки 3,5–7,0); сравнить пока не с чем." in stroka
+    # через двое суток ступенек за последние сутки нет — без скобок
+    assert "pakardev 5,3 млн; " in tokeny.stroki_na_procent({"pakardev": otr}, seychas=seychas + timedelta(days=2))[0]
+    # одна годная точка за сутки (первые 10 ступенек, конец — чт 18:47) — тоже без скобок
+    assert tokeny.razbros(w[:10], w[9].t1) is None
+
+
+def test_okno_odnoy_stupenkoy_100_pp_pometka() -> None:
+    """Прошлое окно pakardev 22–27.10 — одна ступенька 100 п.п.: Windows засчитан нашим, «вне» = 0 (владелец TG 189).
+    Теперь — с пометкой, и в «выгоднее X в N раз» не входит; «вне» — «не отделить»."""
+    otr, seychas = okno_pakardev()
+    r1 = otr[0].okno - 14 * 86400
+    staroe = [tokeny.Otrezok(datetime(2026, 10, 22, 11, tzinfo=UTC), datetime(2026, 10, 27, 6, 20, tzinfo=UTC),
+                             100.0, 1333.0, r1)]
+    assert tokeny.zavysheno(staroe) and tokeny.godno(staroe)
+    algor = nedelya(3.3, 0.0)
+    assert tokeny.stroki_na_procent({"pakardev": staroe, "algor": algor}, seychas=seychas) == [
+        "На 1 % недели (по неделе каждой учётки, все проекты; токены взвешенные): algor 3,4 млн, pakardev 3,3 млн "
+        "(Windows и др. не отделить — завышено); сравнить пока не с чем.",
+        "Вне наших машин (та же учётка на Windows, в claude.ai и др.): algor ≈0, pakardev не отделить."]
+    # текущее окно мало (6 ступенек) — берётся прошлое из одной ступеньки, с обеими пометками
+    malo = [tokeny.Otrezok(o.t0, o.t1, o.dp, o.usd, otr[0].okno) for o in otr[1:7]]
+    stroka = tokeny.stroki_na_procent({"pakardev": staroe + malo}, seychas=seychas)[0]
+    assert "pakardev 3,3 млн (прошлая неделя · Windows и др. не отделить — завышено); сравнить" in stroka
+    # половина п.п. крупными — пометка; меньше половины (окно 05–06.11: 15 из 48) — нет
+    assert not tokeny.zavysheno(otr)
