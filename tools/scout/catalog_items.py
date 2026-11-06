@@ -413,6 +413,10 @@ def _selftest() -> int:
         print(('OK   ' if cond else 'FAIL ') + name)
         bad += not cond
 
+    # Список «категорий без размеров» гостиной (`dimless.categories`) живой — из БД; самопроверка без БД: подставляем
+    # фикстуру-категорию (кэш процесса), и запрос гостиной обязан её исключить (CI без docker — T-20261105-58).
+    import dimless
+    dimless._CATS = [{'mid': 9, 'cid': '77', 'n': 1, 'path': 'Фикстура', 'shop': 'Магазин', 'why': 'selftest'}]
     for rt in ('kitchen', 'garage', '', None):
         try:
             items(rt, _fetch=lambda s: [])
@@ -442,6 +446,7 @@ def _selftest() -> int:
     items('living', _fetch=lambda s: sqls.append(s) or [])
     ok('гостиная: запрос с ролями профиля (не весь фид)', len(sqls) == 1 and "p.cat_role in ('диван'" in sqls[0]
        and "'шкаф'" not in sqls[0])
+    ok('гостиная: категории без размеров исключены (как в подборе compose2)', len(sqls) == 1 and "<> all(array['9:77']" in sqls[0])
     Pb['roles']['кухня'] = {'source': 'kitchen_catalog'}
     try:
         _sources('bedroom', Pb)

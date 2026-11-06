@@ -914,6 +914,7 @@ def _raises(f) -> bool:
 def selftest() -> int:
     import tempfile
     bad = 0
+    os.makedirs(os.path.expanduser('~/.cache'), exist_ok=True)   # временные папки — не в /tmp (квота DEV, урок 528); в CI HOME пуст
 
     def ok(name, cond):
         nonlocal bad
@@ -1023,7 +1024,6 @@ def selftest() -> int:
        == ('docker exec -i remlab-devdb psql -U remlab -d cp -c x', True)
        and PGr.route_db(['ls', '-d', 'remlab'], 'cp') == (['ls', '-d', 'remlab'], None))
     # сторож: отдельный процесс со сторожем — запись мимо стенда, копия при записи в жёсткую ссылку, сеть
-    os.makedirs(os.path.expanduser('~/.cache'), exist_ok=True)       # не /tmp: на DEV он с квотой (урок 528)
     with tempfile.TemporaryDirectory(dir=os.path.expanduser('~/.cache')) as td:
         stand, outside, frozen = (os.path.join(td, x) for x in ('stand', 'outside', 'frozen'))
         for d in (stand, outside, frozen, os.path.join(stand, '_site')):
