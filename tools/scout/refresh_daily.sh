@@ -324,9 +324,10 @@ step candidates "$PY" candidates.py --build
 # включение масок = убрать переопределение и выбрать CUTOUT_BACKEND=salad.
 step cutout env CUTOUT_DAILY_MAX=0 CUTOUT_SHA_MAX=1000 "$PY" cutout_sync.py
 # хеши и вырезка товаров комнат (T-20261106-84) — своим лимитом, гостиную не трогает. Вырезка платная (fal ≈ $0.0008/фото):
-# потолок `CUTOUT_ROOMS_MAX`, 0 — только хеши (бесплатно). Стоп при блокировке fal — T-20261105-46/3 (WARN в сводку).
+# потолок `CUTOUT_ROOMS_MAX` — 300 фото за ночь (≈ $0.24; ведущий 06.11, T-20261105-46/3), 0 — только хеши (бесплатно).
+# Стоп при блокировке fal и после 10 отказов подряд — T-20261105-46/3 (WARN в сводку).
 # Дальше — строка на комнату в дайджест: статусы её шагов одной строкой.
-step rooms_cutout env PHOTO_ROOMS_LIMIT="${PHOTO_ROOMS_LIMIT:-500}" CUTOUT_ROOMS_MAX="${CUTOUT_ROOMS_MAX:-0}" "$PY" cutout_sync.py --rooms-only
+step rooms_cutout env PHOTO_ROOMS_LIMIT="${PHOTO_ROOMS_LIMIT:-500}" CUTOUT_ROOMS_MAX="${CUTOUT_ROOMS_MAX:-300}" "$PY" cutout_sync.py --rooms-only
 room_digest() {                 # room_digest <комната> <метка=шаг…> — строка дайджеста: статусы шагов комнаты одной строкой
   local room="$1"; shift; local s="" p
   for p in "$@"; do s+="${s:+ · }${p%%=*} ${RES[${p#*=}]:-нет}"; done

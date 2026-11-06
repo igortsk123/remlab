@@ -169,12 +169,12 @@ def _selftest() -> int:
     ok('комнаты: каталог раньше всех шагов комнат, все шаги комнат — до demo_band и витрины',
        max(fn.index(n) for n in ROOM_STEPS) < fn.index('demo_band') < fn.index('flat215_demo')
        and all(fn.index('room_catalog') < fn.index(n) for n in ROOM_STEPS))
-    ok('комнаты: команды — каталоги --run; фото --rooms; стиль с --limit 200, прихожая в базу; вырезка --rooms-only, по умолчанию 0',
+    ok('комнаты: команды — каталоги --run; фото --rooms; стиль с --limit 200, прихожая в базу; вырезка --rooms-only, по умолчанию 300 за ночь',
        cmd.get('room_catalog') == '$PY room_catalog.py --run' and cmd.get('hall_catalog') == '$PY hall_catalog.py --run'
        and cmd.get('rooms_alive', '').startswith('$PY img_alive.py --rooms --minutes ')
        and cmd.get('style_bedroom') == '$PY style_score.py --source room_catalog --limit 200'
        and cmd.get('style_hall') == '$PY style_score.py --source hall --db --limit 200'
-       and cmd.get('rooms_cutout') == 'env PHOTO_ROOMS_LIMIT=500 CUTOUT_ROOMS_MAX=0 $PY cutout_sync.py --rooms-only',
+       and cmd.get('rooms_cutout') == 'env PHOTO_ROOMS_LIMIT=500 CUTOUT_ROOMS_MAX=300 $PY cutout_sync.py --rooms-only',
        {k: cmd.get(k) for k in ROOM_STEPS})
     ok('комнаты: строка дайджеста на каждую комнату',
        'DIGEST:спальня: каталог ok · фото ok · стиль ok · вырезка ok' in log
