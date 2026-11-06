@@ -35,7 +35,7 @@ SOLVER = os.path.join(HERE, '..', '..', 'services', 'planner-solver')
 FLAT = os.path.join(HERE, 'flat215-hall.json')
 sys.path.insert(0, HERE)
 import room_profile as _RP  # noqa: E402
-from compose_common import band_of, dominated, num, palette, tier_range  # noqa: E402,F401
+from compose_common import band_of, dominated, num, palette, slot_sizes, tier_range  # noqa: E402,F401
 
 ROOM = 'hall'
 PROFILE = _RP.load(ROOM)
@@ -86,6 +86,26 @@ def gate(it: dict, slot: dict, band: dict) -> str | None:
         if not (lo <= v <= hi):
             return f'{k}={v:g} вне полосы {lo:g}–{hi:g}'
     return None
+
+
+def fit_size(it: dict, slot: dict, tol: tuple) -> tuple:
+    """Типоразмер слота, в который товар годен (T-20261106-90): (слот типоразмера с `size`, его полоса) — первый по порядку
+    правил (основной первым); ни в один — (None, причина по основному). Слот без полосы — один «основной» без полосы."""
+    why = None
+    for sz in slot_sizes(slot):
+        band = band_of(sz, tol) if sz.get('band') else {}
+        g = gate(it, sz, band)
+        if g is None:
+            return sz, band
+        why = why or g
+    return None, why
+
+
+def size_slot(slot: dict, size_id: str | None, tol: tuple) -> tuple:
+    """(слот типоразмера, полоса) по id типоразмера товара; нет такого id — основной."""
+    szs = slot_sizes(slot)
+    sz = next((x for x in szs if x['size'] == size_id), szs[0])
+    return sz, (band_of(sz, tol) if sz.get('band') else {})
 
 
 def floor_hanger(it: dict, R: dict) -> bool:
@@ -210,20 +230,34 @@ class Composer:
         """(кандидаты, полоса, ступень ослаблена, без оценки стиля). Ступень — квантили цены роли по всем годным в полосе;
         в стиле нет ни одного товара этой цены — квантили внутри стиля. В стиле пусто, а роль в `style_unknown` — товары
         без оценки (их палитру отбирает `ranked`). extra — доп. отбор ДО квантилей (напольная вешалка-хранение: её цена
-        меряется среди напольных, а не среди дешёвых крючков); tag — подпись строки нехватки."""
+        меряется среди напольных, а не среди дешёвых крючков); tag — подпись строки нехватки. Годен по размеру — в полосе
+        ЛЮБОГО типоразмера слота (`fit_size`, T-20261106-90); id типоразмера пишется в товар (`size`) — запись набора берёт
+        полосу именно его. Возвращаемая полоса — основного типоразмера."""
         band = band_of(slot, self.tol) if slot.get('band') else {}
-        fit = [it for it in self.cat if it['role'] == slot['role'] and gate(it, slot, band) is None
-               and (extra is None or extra(it))]
+        fit = []
+        for it in self.cat:
+            if it['role'] != slot['role'] or (extra is not None and not extra(it)):
+                continue
+            sz, _ = fit_size(it, slot, self.tol)
+            if sz is not None:
+                it['size'] = sz['size']
+                fit.append(it)
         q = self.R['tiers'][tier]
         lo, hi = tier_range([it['price'] for it in fit], q)
-        styled = [it for it in fit if it.get('styles') and (it['styles'].get(style) or 0) >= self.thr]
+        styled = [it for it in fit if _RP.in_style(it.get('styles'), style, self.thr)]
         unknown = False
         if not styled and slot['role'] in self.unknown_roles:
             styled, unknown = [it for it in fit if not it.get('styles')], True
         k = (slot['role'] + tag, style)
+        fams = lambda L: len({it.get('fam') or it.get('sid') or (it.get('mid'), it.get('eid')) for it in L})  # noqa: E731
         self.shortage[k] = {'годных по размеру': len(fit), 'в стиле': 0 if unknown else len(styled),
                             'без оценки стиля': len(styled) if unknown else 0,
-                            'с готовым мешом': sum(1 for it in styled if it.get('mesh') == 'ready')}
+                            'с готовым мешом': sum(1 for it in styled if it.get('mesh') == 'ready'),
+                            # второй счёт — модели (семейства): владелец ещё решает, что считать товаром (T-90)
+                            'семейств по размеру': fams(fit), 'семейств в стиле': 0 if unknown else fams(styled),
+                            'семейств без оценки': fams(styled) if unknown else 0,
+                            'по типоразмерам': {sz: sum(1 for it in fit if it.get('size') == sz)
+                                                for sz in [x['size'] for x in slot_sizes(slot)]}}
         out = [it for it in styled if lo <= it['price'] <= hi]
         if out or not styled:
             return out, band, False, unknown
@@ -341,13 +375,13 @@ class Composer:
 
 def _alt(c: dict) -> dict:
     return dict({k: c.get(k) for k in ('mid', 'eid', 'sid', 'name', 'price', 'score', 'w', 'd', 'h', 'img', 'url', 'mesh',
-                                       'style_score')}, has_mesh=c.get('mesh') == 'ready', mesh_defect=bool(c.get('mesh_defect')),
+                                       'style_score', 'size')}, has_mesh=c.get('mesh') == 'ready', mesh_defect=bool(c.get('mesh_defect')),
                 style_unknown=bool(c.get('style_unknown')))
 
 
 def _item(c: dict) -> dict:
     keep = ('mid', 'eid', 'sid', 'name', 'price', 'w', 'd', 'h', 'shop', 'img', 'url', 'qty', 'why', 'score', 'style_score',
-            'mesh', 'cls', 'cls2', 'rgb', 'fam')
+            'mesh', 'cls', 'cls2', 'rgb', 'fam', 'size')
     # «меш есть/нет» на позицию: has_mesh — готовый (его ставит 3D демо); нет — спрос на генерацию (mesh_need)
     return dict({k: c.get(k) for k in keep if k in c}, qty=1, has_mesh=c.get('mesh') == 'ready',
                 mesh_defect=bool(c.get('mesh_defect')), style_unknown=bool(c.get('style_unknown')))
@@ -360,8 +394,9 @@ def record(C: Composer, spec: dict, style: str, tier: str, res: dict) -> dict:
     alts = {r: [_alt(c) for c in C.ranked([x for x in res['lists'][r] if x['sid'] != chosen[r]['sid']
                                            and (r != res['storage'] or r != 'вешалка' or floor_hanger(x, C.R))],
                                           style, res['ctx'], r in res['unknown'])][:C.R['alternates']] for r in chosen}
-    slots = {r: {'ideal': res['slots'][r].get('ideal', {}), 'band': res['bands'][r], 'tolerance': list(C.tol), 'qty': 1,
-                 'mesh': True, 'storage': r == res['storage']} for r in chosen}
+    sizes = {r: size_slot(res['slots'][r], chosen[r].get('size'), C.tol) for r in chosen}   # типоразмер выбранного товара
+    slots = {r: {'ideal': sizes[r][0].get('ideal', {}), 'band': sizes[r][1], 'size': sizes[r][0]['size'],
+                 'tolerance': list(C.tol), 'qty': 1, 'mesh': True, 'storage': r == res['storage']} for r in chosen}
     layout = {p.role: {'x': p.x, 'z': p.y, 'rot': int(p.rot), 'w': p.item.w_cm, 'd': p.item.d_cm, 'h': p.item.h_cm,
                        'elev': p.elev_cm, 'sid': p.item.item_id} for p in lay.placements}
     layout['_room'] = {'id': spec['id'], 'variant': spec['variant'], 'w': spec['w'], 'd': spec['d'],
@@ -452,6 +487,10 @@ def check_bank(bank: list, R: dict, tol: tuple) -> list:
         if not storage_any & set(it):
             bad.append(f'{sid}: нет хранения верхней одежды ({sorted(storage_any)})')
         for r, x in it.items():
+            # полоса записи — обязана быть полосой одного из типоразмеров слота правил (T-90): иначе запись «расширила» слот
+            allowed = [band_of(sz, tol) for sz in slot_sizes(slot_cfg[r])] if slot_cfg[r].get('band') else [{}]
+            if s['slots'][r]['band'] not in allowed:
+                bad.append(f'{sid}: {r} — полоса {s["slots"][r]["band"]} не из типоразмеров слота')
             g = gate(dict(x, role=r, footprint_ok=True), dict(slot_cfg[r], ideal=s['slots'][r]['ideal']), s['slots'][r]['band'])
             if g:
                 bad.append(f'{sid}: {r} {x["sid"]} — {g}')
@@ -679,6 +718,54 @@ def _selftest() -> int:
     ok('id набора — от ячейки, не от состава (T-89 шаг 2): та же ячейка — тот же id, другая ступень — другой; префикс hall-',
        set_id('hall', '8.4', 'сканди', 'комфорт') == set_id('hall', '8.4', 'сканди', 'комфорт')
        != set_id('hall', '8.4', 'сканди', 'эконом') and set_id('hall', '8.4', 'сканди', 'комфорт').startswith('hall-'))
+    # ---- типоразмеры слота (T-20261106-90): допуск внутри каждого; суд — по типоразмеру товара
+    szs = {r: [x['size'] for x in slot_sizes(S[r])] for r in ('шкаф-купе', 'обувница', 'банкетка', 'консоль')}
+    ok('типоразмеры из правил: основной первым; шкаф-купе 2, обувница 5, банкетка 6, консоль 3',
+       szs['обувница'][0] == '60x35' and [len(v) for v in szs.values()] == [2, 5, 6, 3])
+    sz, bd = fit_size({'w': 90, 'd': 38, 'h': 50, 'footprint_ok': True}, S['обувница'], tol)
+    ok('обувница 90×38 — вне основной полосы, годна в 90x35; полоса — −20…+10 % от 90×35',
+       gate({'w': 90, 'd': 38, 'h': 50}, S['обувница'], band_of(S['обувница'], tol)) is not None
+       and sz['size'] == '90x35' and bd == {'w': [72.0, 99.0], 'd': [28.0, 38.5]})
+    ok('шкаф-купе 180×40×210 (неглубокий) — годен в 180x45 по Ш×Г×В; 100×60 — ни в один (причина по основному)',
+       fit_size({'w': 180, 'd': 40, 'h': 210, 'footprint_ok': True}, S['шкаф-купе'], tol)[0]['size'] == '180x45'
+       and fit_size({'w': 100, 'd': 60, 'h': 210, 'footprint_ok': True}, S['шкаф-купе'], tol)[0] is None
+       and 'вне полосы' in fit_size({'w': 100, 'd': 60, 'h': 210, 'footprint_ok': True}, S['шкаф-купе'], tol)[1])
+    ok('честность размеров не ослаблена: без глубины и с неправдоподобным габаритом — ни в один типоразмер',
+       fit_size({'w': 90, 'h': 50}, S['обувница'], tol)[0] is None
+       and fit_size({'w': 90, 'd': 35, 'h': 50, 'footprint_ok': False}, S['обувница'], tol)[0] is None)
+    C3 = Composer([dict(role='консоль', mid=4, eid=e, name='Консоль', price=9000, w=w, d=d, h=80, footprint_ok=True, img='',
+                        fam=f'c{e}', styles={'лофт': 7.0}, mesh=None) for e, w, d in (('a', 90, 35), ('b', 120, 30), ('c', 150, 30))],
+                  R, tol, 6.6)
+    C3.pool(S['консоль'], 'лофт', 'комфорт')
+    sh3 = C3.shortage[('консоль', 'лофт')]
+    ok('пул: 90×35 и 120×30 годны (основной и 120x30), 150×30 — нет; счёт по типоразмерам и семействам в отчёте',
+       sh3['годных по размеру'] == 2 and sh3['семейств по размеру'] == 2 and sh3['по типоразмерам']['120x30'] == 1
+       and sh3['по типоразмерам']['90x35'] == 1)
+
+    def one_set(role, x, size_id):
+        """Минимальный набор для суда: шкаф-купе основной + предмет роли в типоразмере size_id (раскладка — солвер)."""
+        wr_ = dict(mid=9, eid='w', sid='9:w', w=180, d=60, h=240)
+        chosen_ = {'шкаф-купе': wr_, role: x}
+        lay_ = solve_hall(room, [Item(role=r, w_cm=c['w'], d_cm=c['d'], h_cm=c['h'], item_id=c['sid']) for r, c in chosen_.items()])
+        sl_ = {r: dict(zip(('ideal', 'band'), (lambda z: (z[0]['ideal'], z[1]))(size_slot(S[r], sz_, tol))), size=sz_)
+               for r, sz_ in (('шкаф-купе', '180x60'), (role, size_id))}
+        layout_ = {p.role: {'x': p.x, 'z': p.y, 'rot': int(p.rot), 'w': p.item.w_cm, 'd': p.item.d_cm, 'h': p.item.h_cm,
+                            'elev': p.elev_cm, 'sid': p.item.item_id} for p in lay_.placements}
+        layout_['_room'] = {'id': spec['id'], 'variant': spec['variant'], 'w': spec['w'], 'd': spec['d'],
+                            'openings': [{k: v for k, v in o.items() if not k.startswith('_')} for o in spec.get('openings', [])],
+                            'radiators': []}
+        return [{'set_id': 'hall-t', 'room_id': 'hall', 'room_type': ROOM, 'purpose': ROOM, 'style': 'лофт', 'tier': 'комфорт',
+                 'cell': 'c', 'storage': 'шкаф-купе', 'items': chosen_, 'slots': sl_, 'layout': layout_,
+                 'alternates': {r: [{}] * 3 for r in chosen_}}]
+    cons = dict(mid=4, eid='b', sid='4:b', w=120, d=30, h=80)
+    good = one_set('консоль', cons, '120x30')
+    ok('суд: набор с консолью второго типоразмера (120×30) — без нарушений', check_bank(good, R, tol) == [])
+    wide = one_set('консоль', dict(cons, w=150), '120x30')
+    ok('суд: консоль 150×30 — вне всех полос → отказ', any('вне полосы' in p for p in check_bank(wide, R, tol)))
+    forged = one_set('консоль', dict(cons, w=150), '120x30')
+    forged[0]['slots']['консоль']['band'] = {'w': [100, 160], 'd': [24, 33]}
+    ok('суд: полоса записи не из типоразмеров (подделана под товар) → отказ',
+       any('не из типоразмеров' in p for p in check_bank(forged, R, tol)))
     want = cells(R, spec)
     ok(f'матрица прихожей: стили × ступени ({len(R["styles"])} × {len(R["tiers"])}), комната и полоса — из геометрии',
        len(want) == len(R['styles']) * len(R['tiers']) == len(set(want))

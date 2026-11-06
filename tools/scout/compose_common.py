@@ -117,6 +117,17 @@ def band_of(slot: dict, tol: tuple) -> dict:
     return {k: [round(slot['ideal'][k] * lo, 1), round(slot['ideal'][k] * hi, 1)] for k in slot.get('band', [])}
 
 
+def slot_sizes(slot: dict) -> list:
+    """Типоразмеры слота (T-20261106-90, К9): основной (сам `ideal` слота) + `sizes` правил — [{id, ideal}], ideal типоразмера
+    поверх основного (не заданная сторона — как у основного). Допуск полосы — тот же −20…+10 % внутри КАЖДОГО (`band_of`).
+    Без `sizes` — один основной (спальня и гостиная — как было). → список слотов с полем `size` (id типоразмера)."""
+    base = {k: v for k, v in slot.items() if k != 'sizes'}
+    out = [dict(base, size=slot.get('size') or 'основной')]
+    for s in slot.get('sizes') or ():
+        out.append(dict(base, ideal=dict(slot.get('ideal') or {}, **s['ideal']), size=s['id']))
+    return out
+
+
 def tier_range(prices: list, q: tuple) -> tuple:
     """Квантили цены тира (как `compose2.tier_band`): q = (низ, верх) доли."""
     ps = sorted(prices)

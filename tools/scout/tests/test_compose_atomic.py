@@ -161,6 +161,47 @@ def core_case(R: dict) -> None:
            and 'ни у одного стиля нет ядра' in txt and open(out, 'rb').read() == old, (rc, txt[-300:]))
 
 
+def _hall_body(cons: dict, size_id: str) -> dict:
+    """Состав прихожей для суда: шкаф-купе основного типоразмера + консоль в типоразмере size_id, раскладка — солвер flat215."""
+    sys.path.insert(0, CH.SOLVER)
+    from planner.hall import solve_hall
+    from planner.models import Item
+    R, tol = CH.rules(), CH.tolerance()
+    S = {sl['role']: sl for sl in R['purposes'][CH.ROOM]['slots']}
+    spec = CH.room_spec(CH.ROOM, R['rooms'][CH.ROOM].get('variant'))
+    room = CH._room_model(spec)
+    items = {'шкаф-купе': dict(mid=9, eid='w', sid='9:w', w=180, d=60, h=240), 'консоль': dict(cons, mid=4, eid='c', sid='4:c')}
+    lay = solve_hall(room, [Item(role=r, w_cm=c['w'], d_cm=c['d'], h_cm=c['h'], item_id=c['sid']) for r, c in items.items()])
+    slots = {}
+    for r, sz_id in (('шкаф-купе', '180x60'), ('консоль', size_id)):
+        sz, band = CH.size_slot(S[r], sz_id, tol)
+        slots[r] = {'ideal': sz['ideal'], 'band': band, 'size': sz['size']}
+    layout = {p.role: {'x': p.x, 'z': p.y, 'rot': int(p.rot), 'w': p.item.w_cm, 'd': p.item.d_cm, 'h': p.item.h_cm,
+                       'elev': p.elev_cm, 'sid': p.item.item_id} for p in lay.placements}
+    layout['_room'] = {'id': spec['id'], 'variant': spec['variant'], 'w': spec['w'], 'd': spec['d'], 'radiators': [],
+                       'openings': [{k: v for k, v in o.items() if not k.startswith('_')} for o in spec.get('openings', [])]}
+    return {'purpose': CH.ROOM, 'storage': 'шкаф-купе', 'items': items, 'slots': slots, 'layout': layout,
+            'alternates': {r: [{}] * 3 for r in items}}
+
+
+def sizes_case(want: list) -> None:
+    """Типоразмеры слота (T-20261106-90) через суд поколения 0 (`room_bootstrap.verdict('hall')` → `compose_hall.check_bank`):
+    набор с консолью второго типоразмера (120×30) — годен; консоль 150×30 — вне всех полос → отказ."""
+    def full(body: dict) -> list:
+        out = []
+        for i, s in enumerate(_bank_for('hall', CH.rules(), want, False)):
+            items = {r: dict(x, eid=f"{x['eid']}{i}", sid=f"{x['sid']}{i}") for r, x in body['items'].items()}   # разные модели в стилях
+            out.append(dict(s, cell='|'.join(RI.cell(s)), **dict(body, items=items)))
+        return out
+    good = full(_hall_body({'w': 120, 'd': 30, 'h': 80}, '120x30'))
+    v = RBo.verdict('hall', good)
+    ok('суд прихожей: консоль второго типоразмера 120×30 во всех ячейках — отказов 0', v == [], v[:2])
+    wide = full(_hall_body({'w': 150, 'd': 30, 'h': 80}, '120x30'))
+    v = RBo.verdict('hall', wide)
+    ok('суд прихожей: консоль 150×30 вне всех типоразмеров — отказ по каждой ячейке',
+       len(v) == len(want) and all('вне полосы' in x for x in v), v[:2])
+
+
 def main() -> int:
     Rb = CB.rules()
     case(CB, 'bedroom', Rb, CB.cells(Rb), [])
@@ -170,6 +211,7 @@ def main() -> int:
     ok('прихожая: матрица room_identity = compose_hall.cells (стили × ступени), без повторов',
        want == CH.cells(Rh) and len(want) == len(Rh['styles']) * len(Rh['tiers']) == len(set(want)), want[:2])
     case(CH, 'hall', Rh, want, [])
+    sizes_case(want)
     print(f'compose_atomic: ошибок {bad}')
     return 1 if bad else 0
 
