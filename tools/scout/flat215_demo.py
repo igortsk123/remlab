@@ -1563,6 +1563,9 @@ def build() -> dict:
             # остаётся широкой (`DEMO_ENV`), страница фильтрует по полосе, пока включён чип «Подходящие по размеру»
             'rules': {**_rules(), 'slot_band_cm': {**_slot_band(liv), **rules_extra}, 'soft_roles': soft_roles()},
             'bedroom_catalog': bcat,
+            # ОПРОС-ЗНАКОМСТВО (onb-03 Т1, ADR-0330): правило и тексты вопросов — `rules/quiz.json` целиком (страница: `D.quiz`, подбор —
+            # блок QUIZPICK). Показ решает флаг квартиры в карточке `/api/apartments` (`quiz.enabled`) или `?quiz=1`, не наличие правила
+            'quiz': json.load(open(os.path.join(HERE, 'rules', 'quiz.json'), encoding='utf-8')),
             # стили, где после дозаполнения нет ядра: вариант не публикуется, страница честно пишет почему
             'incomplete_styles': incomplete,
             # ОДНА РАССТАНОВКА НА ВСЕ СТИЛИ (demo-31): есть — `demo-cams.mjs` подбирает одну пару точек на все варианты

@@ -93,7 +93,8 @@ async function main() {
   try {
     // `?live=0` — без живой 3D-сцены: после съёмки страница открывает окно варианта, и сборка сцены программным рендером
     // (у прогрева нет видеокарты) подвешивала следующий кадр (17.10: прогон снял 1 из 5 и встал по сроку)
-    await page.goto(`${BASE}${PATH}?live=0&lang=ru`, { waitUntil: "domcontentloaded" });
+    // `quiz=0` — без опроса-знакомства (onb-03): окно опроса поверх витрины не нужно кадру и не держит страницу
+    await page.goto(`${BASE}${PATH}?live=0&quiz=0&lang=ru`, { waitUntil: "domcontentloaded" });
     // данные витрины приходят после разметки: пока `D` пуст, `allVariants()` бросает — ждать надо `D`, иначе прогон падал
     // на первом же ожидании и ночью кадров не снимал вовсе (найдено 17.10: у трёх стилей не было кадра своей расстановки)
     await page.waitForFunction("typeof D !== 'undefined' && !!D && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });

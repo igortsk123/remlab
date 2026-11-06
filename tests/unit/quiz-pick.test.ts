@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-// ПОДБОР ТРЁХ СТИЛЕЙ ОПРОСА-ЗНАКОМСТВА (onb-02 Т4, ADR-0330). Чистые функции — блок QUIZPICK; пока страницы опроса нет, блок живёт
-// в скрипте аудита цветов, onb-03 переносит его дословно в `index.html` и меняет здесь только SRC (как блок DEMOMASK в demo-mask.test.ts).
-const SRC = "tools/ops/quiz-colour-audit.mjs";
+// ПОДБОР ТРЁХ СТИЛЕЙ ОПРОСА-ЗНАКОМСТВА (onb-02 Т4, ADR-0330). Чистые функции — блок QUIZPICK страницы демо (onb-03 перенёс его
+// дословно из скрипта аудита цветов; тест читает блок из страницы, как DEMOMASK в demo-mask.test.ts).
+const SRC = "tools/scout/flat215-demo/index.html";
 type Shares = Record<string, number>;
 type Answers = { photos?: string[]; colours?: string[]; household?: string[] };
 type Rule = { version: string; weights: Record<string, number>; pick: { count: number }; palettes: { families: string[] } & Record<string, unknown> };

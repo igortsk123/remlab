@@ -377,8 +377,10 @@ const cases = JSON.parse(fs.readFileSync(goldenPath, 'utf8'));
 const list = Array.isArray(cases) ? cases : (cases.cases || []);
 const bad = [];
 list.forEach((c, k) => {
-  const got = quizPick(rules, c.answers, c.available);
-  const three = Math.min(3, (c.available || []).length);
+  // эталон: свои `available`/`styleColours` у случая — только если указаны, иначе общие (`tests/fixtures/quiz-golden.json`)
+  const av = c.available || cases.available || [], sc = c.styleColours || cases.styleColours || {};
+  const got = quizPick(rules, c.answers, av, sc);
+  const three = Math.min(3, av.length);
   if (JSON.stringify(got) !== JSON.stringify(c.expect) || new Set(got).size !== got.length || got.length !== three)
     bad.push(`#${k + 1} ${c.why || ''}: ждали ${JSON.stringify(c.expect)}, вышло ${JSON.stringify(got)}`);
 });

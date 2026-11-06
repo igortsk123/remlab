@@ -9,81 +9,13 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// QUIZPICK START — ЧИСТЫЕ ФУНКЦИИ ПОДБОРА (onb-02; onb-03 переносит блок дословно в `index.html`, тест `tests/unit/quiz-pick.test.ts`).
-// Ни DOM, ни сети: правило — `quiz.json` (`rule`), данные — сборка витрины. Цвет предмета: `colour_en` по словарю → цвет в
-// русском названии → тон фото `swatch` по порогам HSL; составной «beige/natural» — доли `partWeights` (первая часть — обивка).
-function quizFamOfWord(w, pal){
-  const d=pal.dictionary; if(d[w])return d[w];
-  const parts=w.split('-').filter(Boolean); for(const p of parts)if(d[p])return d[p];
-  return '';
-}
-function quizFamOfText(t, pal){
-  const words=String(t||'').toLowerCase().split(/\s+/).filter(Boolean);
-  const M=pal.modifiers||{}; let fam='', mod='';
-  for(const w of words){ if(M[w]){if(!mod)mod=w; continue;} const f=quizFamOfWord(w,pal); if(f&&!fam)fam=f; }
-  return fam&&mod&&M[mod][fam]?M[mod][fam]:fam;   // «light grey» → светлые, «dark beige» → тёплые
-}
-function quizFamOfHex(hex, pal){
-  const m=/^#?([0-9a-f]{6})$/i.exec(String(hex||'')); if(!m)return '';
-  const n=parseInt(m[1],16), r=(n>>16&255)/255, g=(n>>8&255)/255, b=(n&255)/255;
-  const mx=Math.max(r,g,b), mn=Math.min(r,g,b), l=(mx+mn)/2, dd=mx-mn;
-  let h=0; if(dd){ if(mx===r)h=60*(((g-b)/dd)%6); else if(mx===g)h=60*((b-r)/dd+2); else h=60*((r-g)/dd+4); } if(h<0)h+=360;
-  const T=pal.hsl;
-  const warmHue=h>=T.warmHue[0]&&h<=T.warmHue[1];
-  if(l>=T.lightMinL&&dd<=T.lightMaxC)return 'light';
-  if(dd>=T.accentMinC&&!warmHue)return 'accent';
-  if(warmHue&&dd>=T.warmMinC)return 'warm';
-  return 'cool';
-}
-// цвет предмета → {семейство: доля}; {} — цвета нет нигде (торшер, ваза без описания)
-function quizColourOf(sku, pal){
-  if(!sku)return {};
-  const ce=String(sku.colour_en||'').trim();
-  if(ce){
-    const parts=ce.split('/').map(p=>quizFamOfText(p,pal)), known=parts.map((f,i)=>[f,i]).filter(x=>x[0]);
-    if(known.length){
-      const out={}, w=pal.partWeights||[1];
-      if(known.length===1){out[known[0][0]]=1; return out;}
-      let tot=0; known.forEach(([f,i])=>{const k=i===0?w[0]:(w[1]||0)/Math.max(1,known.length-1); out[f]=(out[f]||0)+k; tot+=k;});
-      Object.keys(out).forEach(f=>{out[f]/=tot;}); return out;
-    }
-  }
-  const nm=String(sku.name||'').toLowerCase();
-  if(pal.dictionary_ru)for(const k of Object.keys(pal.dictionary_ru))if(nm.includes(k))return {[pal.dictionary_ru[k]]:1};
-  const f=quizFamOfHex(sku.swatch,pal); return f?{[f]:1}:{};
-}
-function quizMainFam(c){ let best='', v=0; for(const f of Object.keys(c))if(c[f]>v){v=c[f]; best=f;} return best; }
-// доли семейств по предметам варианта, с весом роли (видимая площадь); предметы без цвета не считаются
-function quizStyleColours(v, pal){
-  const acc={}; let tot=0; pal.families.forEach(f=>{acc[f]=0;});
-  [...(v.items||[]), ...(v.decor||[])].forEach(x=>{
-    const sku=x.sku; if(!sku||!sku.name)return;
-    const c=quizColourOf(sku,pal), role=String(x.role||'').replace(/\s+\d+$/,''), w=pal.roleWeight[role]??pal.roleWeight._default??1;
-    Object.keys(c).forEach(f=>{acc[f]+=w*c[f]; tot+=w*c[f];});
-  });
-  if(tot>0)pal.families.forEach(f=>{acc[f]=Math.round(acc[f]/tot*1000)/1000;});
-  return acc;
-}
-// похожесть палитр двух стилей: 1 − половина расстояния L1 (0 — ничего общего, 1 — одинаковые)
-function quizSim(a, b, fams){ let s=0; fams.forEach(f=>{s+=Math.abs((a[f]||0)-(b[f]||0));}); return 1-s/2; }
-// ПОДБОР ТРЁХ СТИЛЕЙ. answers = {photos:[styleId], colours:[fam], household:[…] (на стиль не влияет)}; available — опубликованные стили
-// в порядке вкладок главной; styleColours — {styleId: доли семейств} (quizStyleColours по варианту гостиной стиля). Возврат — styleId[].
-function quizPick(rule, answers, available, styleColours){
-  const W=rule.weights, fams=rule.palettes.families, n=rule.pick.count;
-  const av=(available||[]).filter((id,i,a)=>a.indexOf(id)===i);
-  const photos=((answers&&answers.photos)||[]).filter(id=>av.includes(id)).slice(0,2);
-  const cols=((answers&&answers.colours)||[]).filter(f=>fams.includes(f)).slice(0,2);
-  const pc=id=>styleColours[id]||{};
-  const score=id=>{
-    let s=photos.includes(id)?W.photo:0;
-    if(cols.length)s+=W.colour*cols.reduce((a,f)=>a+(pc(id)[f]||0),0)/cols.length;
-    if(photos.length&&!photos.includes(id))s+=W.near*Math.max(...photos.map(p=>quizSim(pc(id),pc(p),fams)));
-    return s;
-  };
-  const sc=new Map(av.map(id=>[id,score(id)]));
-  return av.slice().sort((a,b)=>(sc.get(b)-sc.get(a))||(av.indexOf(a)-av.indexOf(b))).slice(0,n);
-}
-// QUIZPICK END
+// QUIZPICK — чистые функции подбора живут в странице демо (onb-03 перенёс блок дословно): аудит берёт их оттуда же, что и тест
+// `tests/unit/quiz-pick.test.ts` и цепочка `tools/scout/tests_chain.py`, — одна копия правила на всех
+const QUIZ_PAGE = fileURLToPath(new URL("../scout/flat215-demo/index.html", import.meta.url));
+const QUIZ_SRC = readFileSync(QUIZ_PAGE, "utf8");
+const { quizColourOf, quizStyleColours, quizPick, quizSim, quizMainFam } = new Function(
+  `${QUIZ_SRC.slice(QUIZ_SRC.indexOf("// QUIZPICK START"), QUIZ_SRC.indexOf("// QUIZPICK END"))};return {quizColourOf,quizStyleColours,quizPick,quizSim,quizMainFam};`,
+)();
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const ROLE_FEED = (role) => String(role || "").replace(/\s+\d+$/, "");
