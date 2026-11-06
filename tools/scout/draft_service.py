@@ -679,6 +679,9 @@ class H(BaseHTTPRequestHandler):
         except DR.NoCreditsError as e:               # нет денег у шлюза — отдельный код, без запасного пути
             print(f'РЕНДЕР: шлюз без денег (402) — {e}', flush=True)
             self._send(402, {'error': str(e), 'code': 'no_credits'})
+        except DR.NoProductSheet as e:               # нет листа товаров — отказ ДО оплаты (room-photos-07 п.3); 4xx прод не
+            print(f'РЕНДЕР: {e}', flush=True)          # повторяет запасным рендером, а ночная досъёмка останавливается
+            self._send(422, {'error': str(e), 'code': 'no_product_sheet'})
         except SystemExit as e:                      # «ответ негоден» из рендера — тоже ответ, а не тишина
             print(f'РЕНДЕР НЕ УДАЛСЯ (SystemExit): {e}', flush=True)
             self._send(502, {'error': f'рендер не удался: {str(e)[:200]}'})

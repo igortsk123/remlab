@@ -20,5 +20,24 @@
   "deny_swap": {
    "electronics other than the existing television": "electronics of any kind"
   }
+ },
+ "hall": {
+  "_why": "ПРИХОЖАЯ (план room-photos-07 п.4, T-20261106-88; тип `hall` в реестре квартиры `data/partners/demo.json`): узкое проходное помещение — шкаф-купе вдоль длинной стены, зеркало, обувница, банкетка, вешалка. Модель по гайду гостиной дорисовала бы диван, ТВ и журнальный столик. По образцу спальни; общее `_any` (шкафы и столы сверх набора) складывается с этим списком",
+  "name": "narrow entrance hall",
+  "no_add": [
+   "a television, TV screen, TV stand or media wall",
+   "a sofa, armchair, bed or coffee table",
+   "a dining table or chairs",
+   "a rug or carpet wider than the passage",
+   "a second mirror, or a mirror where IMAGE 1 has none"
+  ],
+  "_tv": "в прихожей нет ТВ — пункт про серую плоскость-телевизор из заглушек не нужен",
+  "tv_placeholder": false,
+  "_guide": "гайды стилей писались для гостиной («стена за диваном или ТВ»): в прихожей акцентная стена — длинная, вдоль которой шкаф-купе или зеркало; проход к двери свободен",
+  "guide_note": "The STYLE GUIDE was written for a living room: wherever it mentions the wall behind the sofa or the TV, use the long wall along which the wardrobe or the mirror stands instead. This is a narrow walk-through space: keep the passage to the doors clear, keep the sliding wardrobe flush along its wall and the mirror exactly where IMAGE 1 shows them, and do not add a sofa or a TV.",
+  "_swap": "запрет стилей «electronics other than the existing television» подразумевает ТВ в комнате — в прихожей его нет",
+  "deny_swap": {
+   "electronics other than the existing television": "electronics of any kind"
+  }
  }
 }

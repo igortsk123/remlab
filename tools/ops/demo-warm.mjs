@@ -88,7 +88,8 @@ async function main() {
   const dataTs = new Date(head.headers.get("last-modified") ?? 0).getTime();
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  let done = 0, failed = 0, missing = [], camOk = null;
+  let done = 0, failed = 0, missing = [], camOk = null, variants = [];
+  const doneV = [], failedV = [];
   try {
     // `?live=0` — без живой 3D-сцены: после съёмки страница открывает окно варианта, и сборка сцены программным рендером
     // (у прогрева нет видеокарты) подвешивала следующий кадр (17.10: прогон снял 1 из 5 и встал по сроку)
@@ -109,7 +110,7 @@ async function main() {
       stateId: typeof pubStateOf === 'function' ? pubStateOf(v)
         : stateIdOf(v.items || [], (v.decor || []).filter(x => (x.sku || {}).name), D.room, v.dev || {}),
       cams: v.cams || null }))`;
-    const variants = (await page.evaluate(pub)).filter((v) => !ONLY || v.room === ONLY);
+    variants = (await page.evaluate(pub)).filter((v) => !ONLY || v.room === ONLY);
     const MAX = warmMax(process.env, variants);
     const shots = await page.evaluate("(Array.isArray(shots) ? shots : []).map(s => ({ vid: s.vid, svc: !!s.svc, ts: s.ts, stateId: s.stateId || '', quality: s.quality || '', pose: ((s.cams || [])[0] || {}).pose || 1, cams: s.cams || null, camera: s.camera || 'C1' }))");
     const poseVer = await page.evaluate("typeof POSE_VER === 'number' ? POSE_VER : 0");
@@ -122,7 +123,7 @@ async function main() {
       console.log("WARN:demo_warm: страница прода без сверки точки съёмки (shotCamOk) — сверяю, как она: только по состоянию");
     }
     const todo = needWarm(variants, shots, dataTs, poseVer, camOk).slice(0, MAX);
-    const label = (t) => (t.room === "living" ? t.style : `${t.room}/${t.style}`);
+    const label = pairLabel;
     const rooms = new Set(variants.map((v) => v.room)).size;
     console.log(`прогрев кадров: стилей ${variants.length}${rooms > 1 ? ` в ${rooms} комнатах` : ""}, нужен свежий кадр ${todo.length}${todo.length ? ": " + todo.map(label).join(", ") : ""}`);
     // проба (DRY) ничего не снимает, но итог по нынешнему реестру считает — что ночь сочла бы провалом
@@ -141,10 +142,10 @@ async function main() {
         const reg = await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json();
         const fresh = reg.some((r) => regOf(r, t) && r.ts >= dataTs && (r.shots ?? []).length
           && (!t.stateId || rowFits(r, t, camOk)));
-        if (fresh) done += 1;
-        else { failed += 1; console.log(`  ${label(t)}: кадр не появился в реестре`); }
+        if (fresh) { done += 1; doneV.push(t); }
+        else { failed += 1; failedV.push(t); console.log(`  ${label(t)}: кадр не появился в реестре`); }
       } catch (e) {
-        failed += 1;
+        failed += 1; failedV.push(t);
         console.log(`  ${label(t)}: ${String(e).slice(0, 160)}`);
       }
     }
@@ -155,12 +156,28 @@ async function main() {
     await browser.close();
   }
   if (!DRY) console.log(`прогрев кадров: снято ${done}, не вышло ${failed}`);
+  console.log(`по парам комната × стиль (${variants.length}):`);
+  for (const l of pairLines(variants, { done: doneV, failed: failedV, missing })) console.log(l);
   const list = missing.map((v) => (v.room && v.room !== "living" ? `${v.room}/${v.style}` : v.style)).join(", ");
   console.log(`${missing.length && !DRY ? "ERROR:demo_warm: " : ""}без фото своей расстановки и своих ракурсов — ${missing.length}`
     + (missing.length ? `: ${list} (на главной их нет)` : ""));
   if (DRY) return;
   if (failed) console.log(`ERROR:demo_warm: ${failed} кадр(ов) не снялось`);
   if (missing.length || failed) process.exitCode = 1;
+}
+
+/** Подпись пары: гостиная — стиль (как было), другая комната — «комната/стиль». */
+export const pairLabel = (v) => (!v.room || v.room === "living" ? v.style : `${v.room}/${v.style}`);
+
+/**
+ * СТРОКА НА ПАРУ «КОМНАТА × СТИЛЬ» (план room-photos-07 п.1, T-20261106-88): в отчёте прогрева видно каждую комнату витрины, а не
+ * только общее число. Порядок — комнаты в порядке витрины, внутри — стили. Исход: снят / не вышел / кадр был / без кадра (нет в главной).
+ */
+export function pairLines(variants, { done = [], failed = [], missing = [] } = {}) {
+  const has = (list, v) => list.some((x) => x.id === v.id && (x.room || "living") === (v.room || "living"));
+  const rooms = [...new Set(variants.map((v) => v.room || "living"))];
+  return rooms.flatMap((room) => variants.filter((v) => (v.room || "living") === room).map((v) => `  ${pairLabel(v)}: ${
+    has(failed, v) ? "кадр не снялся" : has(done, v) ? "кадр снят" : has(missing, v) ? "БЕЗ КАДРА (на главной нет)" : "кадр есть"}`));
 }
 
 /** Варианты без фото своей расстановки и своих ракурсов: в реестре нет записи их состояния со снимком с нынешней точки. */
@@ -221,6 +238,13 @@ if (DIRECT && process.argv.includes("--selftest")) {
   check(got === "bed1", "итог: кадр гостиной с тем же номером состояния спальню не закрывает", got);
   got = needWarm([{ id: "bed1", i: 7, room: "bedroom", style: "сканди", stateId: "s9" }], [], 100, 0, any).map((x) => `${x.i}:${x.room}`).join(",");
   check(got === "7:bedroom", "прогрев: номер варианта страницы и комната сохраняются", got);
+  // СТРОКА НА ПАРУ (room-photos-07 п.1): каждая комната витрины и каждый её стиль — своей строкой, исход по паре
+  const pv2 = [{ id: "set3", style: "сканди" }, { id: "bed1", room: "bedroom-1", style: "сканди" }, { id: "set4", room: "living", style: "лофт" },
+    { id: "bed2", room: "bedroom-1", style: "лофт" }, { id: "hal1", room: "hall", style: "сканди" }];
+  got = pairLines(pv2, { done: [{ id: "bed1", room: "bedroom-1" }], failed: [{ id: "hal1", room: "hall" }], missing: [{ id: "bed2", room: "bedroom-1" }, { id: "hal1", room: "hall" }] });
+  check(got.join("|") === "  сканди: кадр есть|  лофт: кадр есть|  bedroom-1/сканди: кадр снят|  bedroom-1/лофт: БЕЗ КАДРА (на главной нет)|  hall/сканди: кадр не снялся",
+    "пары: все комнаты витрины по порядку, внутри — стили; исход каждой пары (сбой съёмки важнее «без кадра»)", got);
+  check(pairLines(pv2, { done: [{ id: "bed1", room: "living" }] })[2] === "  bedroom-1/сканди: кадр есть", "пара — по комнате и номеру, чужая комната не засчитывается", null);
   const two = [lv, bv], one = [lv, { id: "set4", style: "лофт" }];
   check(warmMax({}, one) === 8 && warmMax({}, two) === 10 && warmMax({ WARM_MAX: "3" }, two) === 3,
     "предел: одна гостиная — прежние 8, две комнаты — 10, WARM_MAX перекрывает", [warmMax({}, one), warmMax({}, two)]);

@@ -905,6 +905,11 @@ GATEWAY = 'https://ai-gateway.vercel.sh/v1/images/edits'
 CREDITS_URL = 'https://ai-gateway.vercel.sh/v1/credits'
 
 
+class NoProductSheet(RuntimeError):
+    """Платное улучшение без листа товаров не делаем (room-photos-07 п.3): бросает `improve_mode.paid_gate` до вызова модели,
+    сервис кадров отвечает 422 `code: no_product_sheet` — прод не повторяет запасным рендером."""
+
+
 class NoCreditsError(RuntimeError):
     """Шлюз картинок отказал из-за денег (HTTP 402: баланс или бюджет). Отдельный тип — чтобы сервис кадров
     ответил странице `code: no_credits` сразу и НЕ уходил в запасной рендер, который упрётся в то же самое
@@ -3379,6 +3384,8 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             print(f'улучшение: наша часть {_t_our:.1f}с '
                   + ('(кадры из браузера)' if _bf else '(лист взят из исходника, пересборки нет)' if reused
                      else '(ИСХОДНИКА НЕ БЫЛО — пересобрал, это потеря)'), flush=True)
+            # без листа товаров — отказ ДО оплаты (room-photos-07 п.3): модель без эталонов рисует «не тот» набор
+            IM.paid_gate(built)
             sheet, ident, prompt = built['sheet'], built.get('ident'), built['prompt']
             imgs = [sheet] + ([ident] if ident is not None else [])
             # ТРЕТИЙ ЛИСТ — В МОДЕЛЬ (demo-24): промпт с 01.09 говорил «IMAGE 3: декор … MUST appear», а сама картинка не уходила.

@@ -9,6 +9,7 @@
 //   node tools/ops/demo-realistic.mjs --force all --go --all
 //   node tools/ops/demo-realistic.mjs --night [--cap-rub 50] [--dry]   # ночной шаг demo_real (demo-29), см. ниже
 //   node tools/ops/demo-realistic.mjs --selftest   # ночной учёт и потолок на заглушках — без браузера и денег
+//   REAL_STYLES=современный,лофт   только эти стили и в этом порядке (проба на 1–2 парах, T-20261106-88); комната — `REAL_ROOM`
 //   --frames   кадры из браузера (живая 3D-сцена, как у покупателя: `vwCaptureViews`), а не серверный эскиз; не снялись — СТОП без оплаты
 //   DEMO_LOCAL=<папка сборки>   страница и данные витрины — из локальной сборки (`FLAT215_DEMO_OUT`), сервер и реестр — прода: фото
 //              новых ракурсов снимаются ДО публикации (demo-22: опубликованная страница их сразу показывает — номер состояния тот же)
@@ -21,12 +22,16 @@
 // (GET /v1/credits, бесплатно) после задания; не пришёл за `bill_wait_s` или ключа нет — задание по оценке `est_rub_per_job`.
 // Прерванное («результат неизвестен») считается потраченным. Ошибка — стоп без повторов; улучшение недоступно — 0 ₽ и WARN.
 // Итог — строка `DIGEST:` в утреннюю сводку; сбой — `WARN:demo_real:`. Код выхода 0 у обработанных исходов (шаг — warn, не FAIL).
+// ВСЕ КОМНАТЫ, СНАЧАЛА ПУСТЫЕ (план room-photos-07 п.2, T-20261106-88): пары «комната × стиль» без единого фото нейросети (ни своей,
+// ни прежней расстановки) — первыми, затем те, у кого фото устарело; потолок ночи прежний, остаток — следующей ночью. `--dry` печатает
+// список «снял бы» с ценой по оценке. В конце (и в сухом ходе) — строка `DIGEST:пустые пары комната × стиль` (п.5): пара без кадра
+// опубликованного состояния или без фото своей расстановки; есть такие — ещё `WARN:demo_real:` со списком.
 import { chromium } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { demoUrl } from "./demo-url.cjs";
-import { regOf } from "./demo-warm.mjs";
+import { camOkFrom, pairLabel, regOf, withoutShot } from "./demo-warm.mjs";
 
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const NIGHT = process.argv.includes("--night"), DRY = process.argv.includes("--dry");
@@ -36,6 +41,7 @@ const EXPECT_MODEL = process.env.EXPECT_MODEL ?? "improve/openai/gpt-image-2.5-s
 const LOCAL = process.env.DEMO_LOCAL ?? "";
 // `REAL_ROOM=bedroom-1` — снимать только эту комнату (T-32/3: пробы спальни из проверочной сборки, не трогая гостиную; как WARM_ROOM прогрева)
 const ONLY_ROOM = process.env.REAL_ROOM ?? "";
+const ONLY_STYLES = (process.env.REAL_STYLES ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 const EXPECT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v4.3";   // demo-14: + список товаров (ADR-0305); .1 — радиатор под окном (demo-20 Г3); .2 — люстра стиля (Г4); .3 — мягкое (demo-24)
 const RULES = new URL("../scout/rules/demo-realistic.json", import.meta.url);
 const CREDITS_URL = "https://ai-gateway.vercel.sh/v1/credits";
@@ -48,6 +54,38 @@ export function nightRules(text, argv = []) {
   for (const [k, v] of Object.entries(out)) if (!(Number.isFinite(v) && v >= 0)) throw new Error(`rules/demo-realistic.json: ${k} = ${v}`);
   if (!out.cap || !out.est || !out.rate) throw new Error("rules/demo-realistic.json: потолок, оценка задания и курс обязаны быть больше нуля");
   return out;
+}
+
+/** Есть ли у пары хоть одно фото нейросети в реестре (любой расстановки): нет — пара «пустая», снимаем первой. */
+export function hasAnyReal(reg, t) {
+  return reg.some((r) => regOf(r, t) && r.quality === "realistic" && (r.shots ?? []).length > 0);
+}
+
+/** Очередь съёмки: `styles` (REAL_STYLES) — только они и в их порядке; иначе пары без единого фото первыми, порядок витрины внутри. */
+export function orderTodo(todo, reg, styles = []) {
+  if (styles.length) return styles.flatMap((st) => todo.filter((t) => t.style === st));
+  const bare = todo.filter((t) => !hasAnyReal(reg, t));
+  return [...bare, ...todo.filter((t) => !bare.includes(t))];
+}
+
+/** Сухой ход: строка на пару «комната/стиль — пусто|устарело — ≈N ₽», в пределах потолка помечена «снял бы». */
+export function dryLines(todo, reg, rules) {
+  const fit = Math.floor(rules.cap / rules.est);
+  return todo.map((t, k) => `  ${k < fit ? "снял бы" : "ждёт   "} ${pairLabel(t)} — ${hasAnyReal(reg, t) ? "фото устарело" : "фото нет совсем"} — ≈${rules.est} ₽`)
+    .concat([`  итого за ночь ≈${Math.min(todo.length, fit) * rules.est} ₽ по оценке (потолок ${rules.cap} ₽), ждут следующей ночи ${Math.max(0, todo.length - fit)}`]);
+}
+
+/**
+ * ПУСТЫЕ ПАРЫ (план room-photos-07 п.5): у каждого варианта каждой комнаты витрины должны быть кадр опубликованного состояния и фото
+ * нейросети своей расстановки. `all` — все пары витрины, `noFrame` / `noPhoto` — id пар без кадра / без фото (после съёмки ночи).
+ */
+export function emptyLines(all, noFrame, noPhoto) {
+  const key = (v) => `${v.room || "living"}|${v.id}`;
+  const nf = new Set(noFrame.map(key)), np = new Set(noPhoto.map(key));
+  const bad = all.filter((v) => nf.has(key(v)) || np.has(key(v)))
+    .map((v) => `${pairLabel(v)} (${nf.has(key(v)) && np.has(key(v)) ? "нет кадра и фото" : nf.has(key(v)) ? "нет кадра" : "нет фото"})`);
+  const head = `DIGEST:пустые пары комната × стиль: ${bad.length} из ${all.length}`;
+  return bad.length ? [`${head} — ${bad.join(", ")}`, `WARN:demo_real: пустые пары комната × стиль — ${bad.length}: ${bad.join(", ")}`] : [head];
 }
 
 /** Ключ шлюза картинок — из окружения или tools/scout/.env (как `draft_render.gw_key`); нет — null. Значение не печатается. */
@@ -74,7 +112,7 @@ async function gwUsed() {
  *  факт по приросту счётчика (ждём до `waitS`), не пришёл — оценка. Ошибка или прерванное — стоп, трата учтена.
  *  deps: shoot(t) → {ok, why}; used() → $|null; sleep(ms). → {done, failed, rub, byEst, stop, left, log[]} */
 export async function runNight(todo, deps, rules) {
-  const res = { done: 0, failed: 0, rub: 0, byEst: 0, stop: "", left: 0, log: [] };
+  const res = { done: 0, failed: 0, rub: 0, byEst: 0, stop: "", left: 0, log: [], ok: [] };
   let last = await deps.used();
   for (let k = 0; k < todo.length; k++) {
     const t = todo[k];
@@ -93,9 +131,9 @@ export async function runNight(todo, deps, rules) {
     const rub = delta !== null ? delta * rules.rate : rules.est;
     if (delta === null) res.byEst += 1;
     res.rub += rub;
-    res.log.push(`  ${t.style}: ${r.ok ? "снято" : "НЕ ВЫШЛО — " + r.why}, ${rub.toFixed(1)} ₽${delta === null ? " (оценка)" : ""}`);
-    if (r.ok) res.done += 1;
-    else { res.failed += 1; res.stop = "error"; res.why = `${t.style}: ${r.why}`; res.left = todo.length - k - 1; break; }
+    res.log.push(`  ${pairLabel(t)}: ${r.ok ? "снято" : "НЕ ВЫШЛО — " + r.why}, ${rub.toFixed(1)} ₽${delta === null ? " (оценка)" : ""}`);
+    if (r.ok) { res.done += 1; res.ok.push(t); }
+    else { res.failed += 1; res.stop = "error"; res.why = `${pairLabel(t)}: ${r.why}`; res.left = todo.length - k - 1; break; }
   }
   return res;
 }
@@ -131,28 +169,42 @@ async function main() {
     // кому нужно фото: у варианта нет реалистичного снимка его нынешней расстановки (то же правило, что у вкладки «Фото»)
     // все комнаты витрины (onb-12): номер состояния `curStateId` считает страница по комнате открытого варианта (`curRoom`);
     // вариант, чьей комнаты нет в данных (`roomGeoOf` → null), главная не показывает — его не снимаем
-    const todo = await page.evaluate(`((force, only) => { const c0 = cur, out = [];
-      allVariants().forEach((v, i) => { if (typeof roomGeoOf === 'function' && !roomGeoOf(v)) return; pickVariant(i);
+    // все пары витрины: `want` — нужно фото; `pub`/`vcams` — опубликованное состояние и точки варианта (проверка кадра, как у прогрева)
+    const all = await page.evaluate(`((force, only) => { const c0 = cur, out = [];
+      allVariants().forEach((v, i) => { if (typeof roomGeoOf === 'function' && !roomGeoOf(v)) return; if (v.mine || v.cid) return; pickVariant(i);
         // --force <стиль> — только он; --force all — все; без --force — у кого нет фото своей расстановки
         const want = force ? (force === "all" || force === v.style) : !vwRealShots().length;
         const room = typeof roomIdOf === 'function' ? roomIdOf(v) : 'living';
-        if (want && (!only || room === only)) out.push({ i, id: v.id, room, style: v.style, stateId: curStateId(),
+        if (!only || room === only) out.push({ i, id: v.id, room, style: v.style, stateId: curStateId(), want,
+          pub: typeof pubStateOf === 'function' ? pubStateOf(v) : curStateId(), vcams: v.cams || null,
           cams: (cams || loadCams()).map((c) => [c.name, Math.round(c.x), Math.round(c.y), Math.round(c.rot || 0)].join(":")).join("|") }); });
       pickVariant(c0); return out; })(${JSON.stringify(NIGHT ? "" : FORCE)}, ${JSON.stringify(ONLY_ROOM)})`);
-    const before = new Set((await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json()).map((r) => r.id));
-    console.log(`фото нейросети: ${FORCE && !NIGHT ? `переснять (--force ${FORCE})` : "без фото своей расстановки"} — ${todo.length}${todo.length ? ": " + todo.map((t) => t.style).join(", ") : ""}`);
+    const reg0 = await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json();
+    const before = new Set(reg0.map((r) => r.id));
+    const todo = orderTodo(all.filter((t) => t.want), reg0, ONLY_STYLES);
+    // кадр опубликованного состояния — предикатом точки самой страницы (как `demo-warm.mjs`); нет его на странице — только по состоянию
+    const camSrc = await page.evaluate("typeof shotCamOk === 'function' && typeof camAng === 'function' ? 'const camAng=' + camAng.toString() + ';const CAM_ID_TOL=' + JSON.stringify(CAM_ID_TOL) + ';' + shotCamOk.toString() : ''");
+    const camOk = camSrc ? camOkFrom(camSrc) : () => true;
+    const noFrame = withoutShot(all.map((t) => ({ ...t, stateId: t.pub, cams: t.vcams })), reg0, camOk);
+    const empty = (shot = []) => emptyLines(all, noFrame, all.filter((t) => t.want && !shot.some((x) => x.id === t.id && x.room === t.room)));
+    console.log(`фото нейросети: ${FORCE && !NIGHT ? `переснять (--force ${FORCE})` : "без фото своей расстановки"} — ${todo.length}${todo.length ? ": " + todo.map(pairLabel).join(", ") : ""}`
+      + `${ONLY_STYLES.length ? ` (только ${ONLY_STYLES.join(", ")})` : ""}`);
     console.log(`улучшение сейчас: ${paid.available ? "доступно" : "НЕДОСТУПНО (" + (paid.code ?? "?") + ")"}`);
     if (NIGHT) {
       const used = await gwUsed();
       console.log(`ночь: потолок ${rules.cap} ₽, оценка задания ${rules.est} ₽ — влезает до ${Math.floor(rules.cap / rules.est)} заданий; счётчик шлюза: ${used === null ? "не читается — трата по оценке" : "читается"}`);
       if (DRY || !todo.length || !paid.available) {
-        if (DRY) console.log(`сухой прогон ночи — ничего не снято, 0 ₽ (снял бы ${Math.min(todo.length, Math.floor(rules.cap / rules.est))})`);
-        else for (const l of nightLines(0, todo.length, paid, null, rules.cap)) console.log(l);
+        if (DRY) {
+          console.log(`сухой прогон ночи — ничего не снято, 0 ₽ (снял бы ${Math.min(todo.length, Math.floor(rules.cap / rules.est))}):`);
+          for (const l of dryLines(todo, reg0, rules)) console.log(l);
+        } else for (const l of nightLines(0, todo.length, paid, null, rules.cap)) console.log(l);
+        for (const l of empty()) console.log(l);
         return;
       }
       const res = await runNight(todo, { shoot: (t) => shootOne(page, t, before), used: gwUsed, sleep: (ms) => new Promise((ok) => setTimeout(ok, ms)) }, rules);
       for (const l of res.log) console.log(l);
       for (const l of nightLines(0, todo.length, paid, res, rules.cap)) console.log(l);
+      for (const l of empty(res.ok)) console.log(l);
       done = res.done; failed = res.failed;
       return;
     }
@@ -244,19 +296,45 @@ async function selftest() {
   // 7) потолок меньше оценки — ни одного задания
   r = await runNight(todo, { shoot: async () => { throw new Error("не должно звать"); }, used: async () => null, sleep: nap }, { ...R, cap: 5 });
   check(r.done === 0 && r.failed === 0 && r.stop === "cap" && r.rub === 0, "потолок меньше оценки — ничего не начато, 0 ₽", r);
+  // 7б) ВСЕ КОМНАТЫ, СНАЧАЛА ПУСТЫЕ (room-photos-07 п.2): пары без единого фото — первыми; REAL_STYLES — только они, их порядок
+  const P = [{ id: "s1", room: "living", style: "сканди" }, { id: "s2", room: "living", style: "современный" }, { id: "b1", room: "bedroom-1", style: "сканди" },
+    { id: "b2", room: "bedroom-1", style: "лофт" }];
+  const regP = [{ room_id: "living", style: "сканди", quality: "realistic", shots: [{}] }, { room_id: "bedroom-1", variant_id: "b2", quality: "draft", shots: [{}] }];
+  let ord = orderTodo(P, regP).map((t) => t.id).join(",");
+  check(ord === "s2,b1,b2,s1", "очередь: пары без единого фото нейросети первыми (черновик не в счёт), устаревшее — после", ord);
+  ord = orderTodo(P, regP, ["лофт", "современный"]).map((t) => t.id).join(",");
+  check(ord === "b2,s2", "REAL_STYLES: только эти стили и в их порядке", ord);
+  const dl = dryLines(orderTodo(P, regP), regP, { cap: 20, est: 10 });
+  check(dl[0] === "  снял бы современный — фото нет совсем — ≈10 ₽" && dl[1] === "  снял бы bedroom-1/сканди — фото нет совсем — ≈10 ₽"
+    && dl[2].startsWith("  ждёт    bedroom-1/лофт") && dl[3].startsWith("  ждёт    сканди — фото устарело")
+    && dl[4] === "  итого за ночь ≈20 ₽ по оценке (потолок 20 ₽), ждут следующей ночи 2", "--dry: список «комната/стиль» с ценой и пометкой «снял бы» в пределах потолка", dl);
+  let el = emptyLines(P, [P[2]], [P[1], P[2]]);
+  check(el[0] === "DIGEST:пустые пары комната × стиль: 2 из 4 — современный (нет фото), bedroom-1/сканди (нет кадра и фото)"
+    && el[1].startsWith("WARN:demo_real: пустые пары комната × стиль — 2:"), "пустые пары: строка дайджеста и WARN со списком", el);
+  el = emptyLines(P, [], []);
+  check(el.length === 1 && el[0] === "DIGEST:пустые пары комната × стиль: 0 из 4", "пустых пар нет — одна строка DIGEST, без WARN", el);
+  check(emptyLines(P, [{ id: "b1", room: "living" }], [])[0].endsWith("0 из 4"), "пара — по комнате и номеру: чужая комната не засчитывается", null);
+  m = meter(0.06);
+  r = await runNight(P, { shoot: async () => { m.bill(); return { ok: true }; }, used: m.used, sleep: nap }, R);
+  check(r.ok.map((t) => t.id).join(",") === "s1,s2,b1,b2" && r.log[2].startsWith("  bedroom-1/сканди: снято"), "ночь: снятые пары — в итог (для пустых пар), подпись «комната/стиль»", r.log);
   // 8) шаг ночи: публикация не прошла — demo_real пропущен (bash-ветка refresh_daily.sh)
   const sh = readFileSync(new URL("../scout/refresh_daily.sh", import.meta.url), "utf8");
   const bash = (pub) => {
     // ветка шага из самого refresh_daily.sh; запись в лог ночи — в вывод (сокет node не открыть заново как /dev/stdout)
     const body = sh.slice(sh.indexOf("# ДОСЪЁМКА ФОТО НЕЙРОСЕТИ"), sh.indexOf("# живая проверка демо на проде"));
     return import("node:child_process").then(({ spawnSync }) => spawnSync("bash", ["-c",
-      `declare -A RES; RES[flat215_publish]=${pub}; OPENAI_OFF=0; step(){ echo "STEP $1"; }; paid_step(){ step "$@"; }\n${body.replaceAll('>> "$LOG"', "")}\necho "RES=\${RES[demo_real]:-}"`],
+      `declare -A RES; RES[flat215_publish]=${pub}; OPENAI_OFF=0; step(){ echo "STEP $*"; }; paid_step(){ step "$@"; }\n${body.replaceAll('>> "$LOG"', "")}\necho "RES=\${RES[demo_real]:-}"`],
     { encoding: "utf8" }).stdout);
   };
   const okRun = await bash("ok"), warnRun = await bash("warn"), failRun = await bash("FAIL"), noRun = await bash("");
-  check(/STEP demo_real/.test(okRun) && /STEP demo_real/.test(warnRun) && !/STEP demo_real/.test(failRun) && !/STEP demo_real/.test(noRun)
+  const paidRe = /STEP demo_real bash \.\.\/ops\/demo-real\.sh\n/, checkRe = /STEP demo_real_check bash \.\.\/ops\/demo-real\.sh --dry\n/;
+  check(paidRe.test(okRun) && paidRe.test(warnRun) && !/STEP demo_real /.test(failRun) && !/STEP demo_real /.test(noRun)
     && /DIGEST:фото нейросети: пропущено/.test(failRun) && /RES=\n/.test(failRun + "\n"),
-    "публикация FAIL (или не было) — шаг demo_real пропущен со строкой DIGEST, без пометки openai.off; ok/warn — шаг идёт", { okRun, failRun, noRun });
+    "публикация FAIL (или не было) — платный demo_real пропущен со строкой DIGEST, без пометки openai.off; ok/warn — шаг идёт", { okRun, failRun, noRun });
+  check(checkRe.test(failRun) && checkRe.test(noRun) && !/demo_real_check/.test(okRun) && !/demo_real_check/.test(warnRun),
+    "публикация FAIL — вместо съёмки бесплатная проверка --dry (строка «пустые пары» каждую ночь); ok/warn — её нет", { okRun, failRun });
+  const wrap = readFileSync(new URL("./demo-real.sh", import.meta.url), "utf8");
+  check(/demo-realistic\.mjs --night "\$@"/.test(wrap), "demo-real.sh передаёт аргументы (--dry) в скрипт", null);
   process.exit(res.every(Boolean) ? 0 : 1);
 }
 

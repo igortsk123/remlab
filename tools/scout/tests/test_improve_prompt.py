@@ -119,6 +119,18 @@ check('спальня: телевизор в запретах, пункта-за
       'a television, TV screen' in _pb and 'is a TELEVISION' not in _pb and 'wall behind the bed headboard' in _pb)
 check('спальня: запреты и в FORBIDDEN, «существующего телевизора» нет', '(not part of this bedroom)' in _pb.rsplit('FORBIDDEN', 1)[1]
       and 'existing television' not in _pb)
+# ПРИХОЖАЯ (room-photos-07 п.4, T-20261106-88): тип `hall` реестра квартиры — узкий проход, шкаф-купе вдоль длинной стены, зеркало;
+# без «гостиной» мебели и ТВ; гайд гостиной переведён на длинную стену
+_ph = IM.prompt_for('минимализм', room='hall')
+check('прихожая: комната названа, каждый пункт «не добавлять» из данных в промпте',
+      'ROOM: this is a narrow entrance hall.' in _ph and all(x in _ph for x in _rr['hall']['no_add'] + _rr['_any']['no_add']), _ph[:300])
+check('прихожая: ТВ и диван в запретах, пункта-заглушки «TELEVISION» нет, гайд — длинная стена, проход свободен',
+      'a television, TV screen' in _ph and 'a sofa, armchair, bed or coffee table' in _ph and 'is a TELEVISION' not in _ph
+      and 'long wall along which the wardrobe or the mirror stands' in _ph and 'keep the passage to the doors clear' in _ph)
+check('прихожая: запреты и в FORBIDDEN, «существующего телевизора» нет',
+      '(not part of this narrow entrance hall)' in _ph.rsplit('FORBIDDEN', 1)[1] and 'existing television' not in _ph)
+check('прихожая не задевает спальню и гостиную', _pb == IM.prompt_for('минимализм', room='bedroom') and 'entrance hall' not in _pb
+      and 'entrance hall' not in _cases())
 check('тип комнаты из запроса — room.kind', IM.room_kind({'room': {'kind': 'bedroom'}}) == 'bedroom' and IM.room_kind({'room': None}) is None
       and IM.room_kind({}) is None)
 sys.exit(1 if fails else 0)

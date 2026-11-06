@@ -616,7 +616,7 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
     _th.Thread(target=lambda: DR._publish_sources(stamp, imgs, prompt, [], meta), daemon=True).start()
     url = (DR.PUBLIC_BASE + DR.SRC_URL + '/' + stamp + '/') if DR.PUBLIC_BASE else os.path.join(DR.SRC_DIR, stamp)
     return {'src_url': url, 'sheet': sheet, 'ident': ident, 'dsheet': dsheet, 'prompt': prompt, 'clay': clay, 'cams': [v.get('camera') for v in vs[:2]],
-            'size': size_for(orient), 'orient': orient or 'landscape'}
+            'size': size_for(orient), 'orient': orient or 'landscape', 'prods_failed': PROMPT_V4 and not prods}
 
 
 def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
@@ -755,7 +755,21 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
          'серые заглушки в кадре': ', '.join(sorted(set(clay))) or 'нет',
          'маска': 'не используется — замер показал, что она не соблюдается'})
     return {'src_url': url, 'sheet': sheet, 'ident': ident, 'dsheet': dsheet, 'prompt': prompt,
-            'clay': sorted(set(clay)), 'cams': [c.name for c in cams]}
+            'clay': sorted(set(clay)), 'cams': [c.name for c in cams], 'prods_failed': PROMPT_V4 and not prods}
+
+
+def paid_gate(built: dict) -> None:
+    """ЛИСТ ТОВАРОВ ОБЯЗАТЕЛЕН (план room-photos-07 п.3, T-20261106-88; Codex 06.11 К7). Раньше при сбое листа эталонов
+    (`_identity` упал, фото не скачались, товаров без названия) или списка товаров промпта v4 запрос молча уходил в модель БЕЗ
+    приложенных товаров — платили за фото «не того» набора. Теперь — ошибка ДО вызова модели: задание не оплачивается, страница
+    и ночная досъёмка видят отказ (`demo-realistic.mjs` останавливает ночь на ошибке). Один вход для всех трёх путей сборки
+    (`build_from_views`, `build`, `from_sources`) — зовёт `draft_render` прямо перед `gpt_edit`; тип ошибки —
+    `draft_render.NoProductSheet` (сервис кадров отвечает 422)."""
+    import draft_render as DR
+    if built.get('ident') is None:
+        raise DR.NoProductSheet('нет листа товаров (эталоны не собрались) — платный вызов не делаю')
+    if built.get('prods_failed'):
+        raise DR.NoProductSheet('список товаров для промпта не собрался — платный вызов не делаю')
 
 
 def main() -> int:
