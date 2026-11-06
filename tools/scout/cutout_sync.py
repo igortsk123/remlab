@@ -146,6 +146,11 @@ def mask_fal(raw: bytes, tries: int = 8) -> Image.Image:
 
 
 _LOCAL = None
+# РЕВИЗИЯ ВЕСОВ И КОДА BiRefNet ЗАКРЕПЛЕНА (T-46/3): модель грузится с trust_remote_code=True, а без ревизии transformers
+# тянет свежий birefnet.py из репозитория автора — чужой код исполняется у нас без проверки. Хеш — снимок, прошедший пробу
+# 3/3 и массовую добивку 06.11 (~/.cache/huggingface/hub/models--ZhengPeng7--BiRefNet/refs/main). Смена — только с пробой.
+BIREFNET_REPO = 'ZhengPeng7/BiRefNet'
+BIREFNET_REVISION = 'e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4'
 
 
 def mask_local(raw: bytes) -> Image.Image:
@@ -157,7 +162,7 @@ def mask_local(raw: bytes) -> Image.Image:
         from torchvision import transforms
         from transformers import AutoModelForImageSegmentation
         m = AutoModelForImageSegmentation.from_pretrained(
-            'ZhengPeng7/BiRefNet', trust_remote_code=True)
+            BIREFNET_REPO, trust_remote_code=True, revision=BIREFNET_REVISION)
         m.float().eval()
         torch.set_num_threads(int(os.environ.get('THREADS', '12')))
         _LOCAL = (torch, m, transforms.Compose([
@@ -429,6 +434,36 @@ def _selftest() -> int:
     ok('ход печатается каждые 50 фото, без стопа', buf.getvalue().count('ход (тест):') == 2 and st['stopped'] is None)
     globals()['WORKERS'], FAIL_STREAK_MAX, PROGRESS_EVERY = old_w, old_s, old_p
     STOP.clear()
+    # ревизия BiRefNet доходит до from_pretrained (заглушка transformers: ни сети, ни весов)
+    import types
+    got = {}
+
+    class _Stop(Exception):
+        pass
+
+    class _Auto:
+        @staticmethod
+        def from_pretrained(repo, **kw):
+            got.update(kw, repo=repo)
+            raise _Stop
+    global _LOCAL
+    saved, saved_local = sys.modules.get('transformers'), _LOCAL
+    sys.modules['transformers'], _LOCAL = types.SimpleNamespace(AutoModelForImageSegmentation=_Auto), None
+    try:
+        buf = io.BytesIO()
+        Image.new('RGB', (4, 4)).save(buf, 'PNG')
+        mask_local(buf.getvalue())
+    except _Stop:
+        pass
+    finally:
+        if saved is None:
+            sys.modules.pop('transformers', None)
+        else:
+            sys.modules['transformers'] = saved
+        _LOCAL = saved_local
+    ok('BiRefNet: ревизия закреплена полным хешем и передаётся в from_pretrained',
+       re.fullmatch(r'[0-9a-f]{40}', BIREFNET_REVISION) is not None and got.get('revision') == BIREFNET_REVISION
+       and got.get('repo') == BIREFNET_REPO and got.get('trust_remote_code') is True)
     print(f'cutout_sync selftest: ошибок {bad}')
     return 1 if bad else 0
 
