@@ -122,12 +122,18 @@ check('полоса — своя у каждой спальни', _rb['bedroom-1
       and _rb['bedroom-2:кровать'] == DB.bands(['guest']).get('кровать') and not any(':' not in k for k in _rb))
 
 # ФЛАГ: проверочное включение — только у сборки рядом; главная демо — реестром
+# комнаты и опрос — разные флаги одного словаря (`room_flags`): комнаты сверяются по `rooms_enabled`, опрос — отдельно по реестру
+# (T-77 и T-83 влиты параллельно: целым словарём сравнивать нельзя — опрос demo/flat215 включён, T-20261106-83/2)
 check('флаг: без переменной — как реестр (обе спальни включены, T-77)',
-      F.rooms_on(F.demo_apartment(), {}) == {'rooms_enabled': ['bedroom-1', 'bedroom-2']})
+      F.rooms_on(F.demo_apartment(), {}).get('rooms_enabled') == ['bedroom-1', 'bedroom-2'])
+check('флаг опроса: у demo/flat215 по реестру включён (T-83)', F.rooms_on(F.demo_apartment(), {}).get('quiz_enabled') is True)
 apt = dict(F.demo_apartment(), rooms=[{k: v for k, v in r.items() if k != 'enabled'} for r in F.demo_apartment()['rooms']])
-check('флаг: без переменной — как реестр (всё выключено)', F.rooms_on(apt, {}) == {})
-check('флаг: сборка рядом включает спальню 1', F.rooms_on(apt, {F.ROOMS_ENV: 'bedroom-1'}, '/tmp/x-demo')
-      == {'rooms_enabled': ['bedroom-1']})
+check('флаг: без переменной — как реестр (комнаты выключены)', F.rooms_on(apt, {}).get('rooms_enabled') is None)
+apt_noquiz = {k: v for k, v in apt.items() if k != 'quiz'}
+check('флаг опроса: квартира без ключа quiz — нет поля, всё выключено — пусто',
+      'quiz_enabled' not in F.rooms_on(apt_noquiz, {}) and F.rooms_on(apt_noquiz, {}) == {})
+check('флаг: сборка рядом включает спальню 1', F.rooms_on(apt, {F.ROOMS_ENV: 'bedroom-1'}, '/tmp/x-demo').get('rooms_enabled')
+      == ['bedroom-1'])
 
 
 def refuse(env, out):
