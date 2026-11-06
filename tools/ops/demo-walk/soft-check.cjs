@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // МЯГКОЕ — В СПИСКЕ, В СУММЕ И В ЗАПРОСЕ «УЛУЧШИТЬ», НО НЕ В 3D (план demo-24, владелец 23.10): подушки и шторы варианта — строками
 // списка окна с ценой и ссылкой, роль без номера слота, БЕЗ пометки (правки 23.10); сумма и полоса бюджета их учитывают; живая сцена их
@@ -15,7 +16,7 @@ async function page(b,lang){
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   await p.route(/\/api\/render(\?|$)/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({job:'fake-'+Date.now()})}));
   await p.route(/\/api\/job\?/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'running',eta:30})}));
-  await p.goto(BASE+(lang==='en'?'?lang=en&':'?')+'live=force',{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+(lang==='en'?'?lang=en&':'?')+'live=force'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
   await p.waitForTimeout(800);
   return p;

@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // МОДЕЛИ 3D ГРУЗЯТСЯ, ПОКА СМОТРЯТ ФОТО (demo-26, T-20261023-09/1). Замер «нажал 3D → сцена готова» и сколько моделей пошло по сети
 // на «Фото» и после нажатия; видеоконтекст до «3D» (на телефоне его быть не должно); смена варианта до конца подгрузки — отмена лишнего
@@ -40,7 +41,7 @@ const INIT=()=>{window.__gl=[]; window.__loads=[]; window.__lt=[];
   const net=(from,to)=>[...NET.values()].filter(r=>r.t>=from&&r.t<(to??1e12));
   const sum=l=>({req:l.length, network:l.filter(r=>!r.cache&&!r.cancel&&!r.fail).length, cache:l.filter(r=>r.cache).length,
     cancel:l.filter(r=>r.cancel).length, fail:l.filter(r=>r.fail&&!r.cancel).length, kb:Math.round(l.reduce((s,r)=>s+(r.cache?0:r.bytes),0)/1024)});
-  await p.goto(BASE+'?live=force&lang=ru',{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+'?live=force&lang=ru'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
   // вариант, у которого есть реалистичное фото этой расстановки (окно открывается в «Фото»)
   // (по реестру кадров, без открытия окна: окно варианта без фото открылось бы в «3D» и начало строить сцену до замера).

@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ОБХОД ИНТЕРФЕЙСА /demo ДЛЯ РЕВИЗИИ (demo-21 шаг 1): снимок каждого состояния + замер слоёв (липкие/плавающие/оверлейные элементы:
 // position, z-index, фон, тень, граница, место на экране) в каждом состоянии — `layers-<W>.json`. Платный путь подменён.
@@ -41,7 +42,7 @@ const METRICS_JS=`(()=>{const box=[], font={};
   const shot=async(name,layers)=>{await p.waitForTimeout(250); await p.screenshot({path:OUT+`${W}-${name}.png`}); if(layers)LAYERS[name]=await p.evaluate(LAYER_JS);};
   const settle=()=>p.waitForFunction(()=>document.getAnimations().filter(a=>a.playState==='running').length===0,null,{timeout:8000}).catch(()=>{});
   const step=async(name,fn)=>{try{await fn();}catch(e){note('FAIL '+name,String(e).split('\n')[0].slice(0,200));}};
-  await p.goto(BASE+'?live=force&lang=ru',{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+'?live=force&lang=ru'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!document.getElementById('hmCert').hidden",null,{timeout:90000});
   await p.waitForTimeout(2000);
   // ГЛАВНАЯ

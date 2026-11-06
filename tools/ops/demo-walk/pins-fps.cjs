@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ГЕЙТ ЦЕННИКОВ В 3D (demo-09, Codex 17.10): p95 кадра при повороте взгляда с ценниками не хуже, чем без них, более чем на 15 %.
 // Пары замеров чередуются (без, с, без, с…), чтобы нагрузка машины делилась поровну. SP=<папка с floorlib/> — локальный движок.
@@ -9,7 +10,7 @@ if(SP){const F=JSON.parse(fs.readFileSync(SP+'/floorlib/scene.json','utf8')).fil
   await p.route(/\/demo\/lib\/scene\.[0-9a-f]+\.js/,r=>r.fulfill({status:200,contentType:'text/javascript',body:fs.readFileSync(SP+'/floorlib/'+F,'utf8')}));
   await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));}
 await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
-await p.goto('https://remont-lab.online/demo/?live=force',{waitUntil:'load',timeout:120000});
+await p.goto(demoUrl('https://remont-lab.online/demo/?live=force'),{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
 await p.evaluate(()=>{shots=shots.filter(x=>x.quality!=='realistic'); openLiveWindow();});
 await p.waitForFunction(()=>LIVE.scene&&LIVE.state==='ready',null,{timeout:150000}); await p.waitForTimeout(2000);

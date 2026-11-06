@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ЦВЕТА ТОВАРА (demo-28, владелец 23.10): кружки цвета в строке окна — только у товаров, у модели которых в ленте ≥ 2 цветов; тап по
 // кружку — карточка с предпросмотром этого цвета (фото, название, цена, ссылка), ничего не применено; закрыли — как было; «Сохранить» —
@@ -20,7 +21,7 @@ const ST=`({card:!!document.querySelector('#itemCard.on'), sheet:document.getEle
     const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,isMobile:PHONE,hasTouch:PHONE,locale:lang==='en'?'en-GB':'ru-RU'});
     const p=await ctx.newPage(); p.on('pageerror',e=>errs.push(lang+': '+String(e)));
     await p.addInitScript(()=>{try{localStorage.setItem('remlab-sheet-hint-v1','1')}catch(e){}});
-    await p.goto(BASE+'?lang='+lang+'&live=0',{waitUntil:'load',timeout:120000});
+    await p.goto(demoUrl(BASE+'?lang='+lang+'&live=0'),{waitUntil:'load',timeout:120000});
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.waitForTimeout(1500);
     await p.evaluate(v=>vwOpenVariant(v),V);
     await p.waitForFunction(()=>document.querySelectorAll('#shotbody .pinlist .row').length>2,null,{timeout:60000}); await p.waitForTimeout(1200);

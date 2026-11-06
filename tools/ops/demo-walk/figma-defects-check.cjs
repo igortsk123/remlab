@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // НЕДОЧЁТЫ ИЗ ВЫГРУЗКИ В ФИГМУ (план demo-fix-figma-defects): EN без русских слов в сообщении замены, значке «изменено» и сообщении
 // избранного (без повтора «Living room “Living room #1”»); квадратики легенды бюджета 10 px, кружки цвета в строке 22 px и в карточке
@@ -25,7 +26,7 @@ const CYR=/[А-Яа-яЁё]/;
     const shot=async(n,o)=>{for(let i=0;i<4;i++){try{await p.screenshot({path:`${OUT}${tag}-${n}.png`,timeout:20000,animations:'disabled',...(o||{})});return;}catch(e){await p.waitForTimeout(1200);}}};
     const box=s=>p.evaluate(s=>{const e=document.querySelector(s); if(!e)return null; const r=e.getBoundingClientRect(), c=getComputedStyle(e);
       return {w:+r.width.toFixed(1),h:+r.height.toFixed(1),radius:c.borderRadius,display:c.display,cursor:c.cursor};},s);
-    await p.goto(BASE+'?lang='+lang+'&live=0&v='+Date.now(),{waitUntil:'load',timeout:120000});
+    await p.goto(demoUrl(BASE+'?lang='+lang+'&live=0&v='+Date.now()),{waitUntil:'load',timeout:120000});
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&allVariants().length>0",null,{timeout:90000}); await p.waitForTimeout(2000);
     // 1. главная: легенда бюджета (раздельный пакет) — квадратики 10 px со скруглением 3 px
     await p.evaluate(()=>{const c=document.getElementById('hmCert'); if(c&&!c.hidden)c.scrollIntoView({block:'center'});}); await p.waitForTimeout(500);

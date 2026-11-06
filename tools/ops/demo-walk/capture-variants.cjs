@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // КАДРЫ ИЗ БРАУЗЕРА ПО ВСЕМ ВАРИАНТАМ ПОДРЯД — БЕСПЛАТНО (demo-10, 17.10: после смены варианта снимок ловил мебель прежнего). Для каждого
 // варианта: открыть окно, сразу снять оба вида, сверить модели сцены с расстановкой (`LIVE.scene.models()` против `items`), кадры — на диск.
@@ -11,7 +12,7 @@ if(SP){const F=JSON.parse(fs.readFileSync(SP+'/floorlib/scene.json','utf8')).fil
   await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));}
 await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
 const got=[]; await p.route(/\/api\/render\/frame/,r=>{const buf=r.request().postDataBuffer()||Buffer.alloc(0); const id=require('crypto').createHash('sha256').update(buf).digest('hex'); got.push({id,buf}); r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id})});});
-await p.goto('https://remont-lab.online/demo/?live=force&lang=ru',{waitUntil:'load',timeout:120000});
+await p.goto(demoUrl('https://remont-lab.online/demo/?live=force&lang=ru'),{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.waitForTimeout(2000);
 const n=await p.evaluate('allVariants().length'); let bad=0;
 for(let i=0;i<n;i++){

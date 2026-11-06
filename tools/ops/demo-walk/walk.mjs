@@ -1,4 +1,5 @@
 // Живой прогон демо как пользователь: все кнопки, все сценарии, экраны и ошибки. Временный скрипт сессии d8.
+import { demoUrl } from "../demo-url.cjs";
 import { chromium } from "@playwright/test";
 const OUT = process.argv[2]; const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: "ru-RU" });
@@ -17,7 +18,7 @@ async function step(name, fn) { const t = Date.now(); try { await fn(); L(`✓ $
 const dumpC = async (label, scope) => { const c = await controls(scope); L(`  [${label}] ${c.length} controls: ` + c.map(x => `${x.text || x.href}${x.dis ? "(off)" : ""}`).join(" | ").slice(0, 900)); return c; };
 const visibleText = async (sel) => pg.locator(sel).first().innerText().catch(() => "");
 
-await step("S1 загрузка", async () => { await pg.goto(BASE + "/demo/", { waitUntil: "networkidle", timeout: 60000 }); await shot("01-load"); });
+await step("S1 загрузка", async () => { await pg.goto(demoUrl(BASE + "/demo/"), { waitUntil: "networkidle", timeout: 60000 }); await shot("01-load"); });
 await step("S2 открыть карточку (Открыть)", async () => {
   await pg.locator("button[data-swap]").first().click(); await pg.waitForTimeout(1500); await shot("02-open-card");
   for (const s of ["#sheet", "#swapBox", "#shot", "#stage"]) L(`  ${s} visible=`, await pg.locator(s).first().isVisible().catch(() => false));
@@ -77,6 +78,6 @@ await step("S15 EN", async () => { await pg.locator("[data-lang='en'], a:has-tex
 await step("S16 консультация / ипотека", async () => { await pg.locator("#pcCons").click(); await pg.waitForTimeout(900); await shot("16-cons"); await dumpC("консультация", "body"); await pg.keyboard.press("Escape"); await pg.locator("#pcMort").click(); await pg.waitForTimeout(900); await shot("16b-mort"); L("  текст:", JSON.stringify((await visibleText("body")).slice(0, 10))); await pg.keyboard.press("Escape"); });
 await step("S17 Добавить новую расстановку", async () => { await pg.locator("text=Добавить новую расстановку").first().click(); await pg.waitForTimeout(1500); await shot("17-new"); await dumpC("новая расстановка", "body"); await pg.keyboard.press("Escape"); });
 await step("S18 Посмотреть варианты интерьера", async () => { await pg.locator("#budgetGo").click(); await pg.waitForTimeout(800); await shot("18-budgetGo"); });
-await step("S19 мобильный экран", async () => { const m = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }); const mp = await m.newPage(); await mp.goto(BASE + "/demo/", { waitUntil: "networkidle", timeout: 60000 }); await mp.screenshot({ path: `${OUT}/19a-mobile.png`, fullPage: true }); await mp.locator("button[data-swap]").first().click(); await mp.waitForTimeout(1500); await mp.screenshot({ path: `${OUT}/19b-mobile-card.png` }); const sw = await mp.evaluate(() => document.documentElement.scrollWidth > window.innerWidth); L("  горизонтальный скролл на телефоне:", sw); await m.close(); });
+await step("S19 мобильный экран", async () => { const m = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }); const mp = await m.newPage(); await mp.goto(demoUrl(BASE + "/demo/"), { waitUntil: "networkidle", timeout: 60000 }); await mp.screenshot({ path: `${OUT}/19a-mobile.png`, fullPage: true }); await mp.locator("button[data-swap]").first().click(); await mp.waitForTimeout(1500); await mp.screenshot({ path: `${OUT}/19b-mobile-card.png` }); const sw = await mp.evaluate(() => document.documentElement.scrollWidth > window.innerWidth); L("  горизонтальный скролл на телефоне:", sw); await m.close(); });
 L("=== console errors", errs.length); errs.slice(0, 10).forEach(e => L("  " + e)); L("=== http fails", fails.length); fails.slice(0, 10).forEach(e => L("  " + e));
 await b.close();

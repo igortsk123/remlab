@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ПУЗЫРЬ «i» И ВЫДЕЛЕННАЯ СТРОКА (T-20261022-07, снимки владельца с iPhone SE 22.10): пузырь сертификата целиком виден поверх всего —
 // на главной (в покое и у прилипшей шкалы), в окне варианта и в карточке избранного; у выделенной строки списка картинка внутри
@@ -18,7 +19,7 @@ const bubSeen=sel=>`(()=>{const b=document.querySelector(${JSON.stringify(sel)})
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   await p.route(/\/api\/render(\?|$)/,r=>r.request().method()==='POST'?r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({job:'fake-'+Date.now()})}):r.continue());
   await p.route(/\/api\/job\?/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'running',eta:60})}));
-  await p.goto(BASE+'?lang=ru',{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+'?lang=ru'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!document.getElementById('hmCert').hidden",null,{timeout:90000});
   await p.waitForTimeout(1500);
   // 1. главная, в покое: пузырь шкалы вниз — поверх строки стилей

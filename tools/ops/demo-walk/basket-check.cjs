@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // КОРЗИНА СЕРТИФИКАТА (план demo-16 шаг 2, «Решения владельца 18.10»): 0 на старте; первый вариант комнаты включается сам; второй — вопрос
 // «вместо «Гостиная #1»? Да/Нет»; в избранном — группы по комнатам и переключатель «Включить в сертификат» с пересчётом шкалы; окно —
@@ -23,7 +24,7 @@ async function page(b,o={}){
     await r.fulfill({response:res,body:JSON.stringify(j),headers:{...res.headers(),'content-type':'application/json'}});});
   if(o.embed)await ctx.addInitScript(()=>{window.__EMBED={partner:'demo',flat:'flat215',lang:'ru'}; window.__sendFlat='flat215';});   // как `lib/embed/page.ts`
   if(o.seed)await ctx.addInitScript(s=>{try{if(!sessionStorage.getItem('seeded')){localStorage.clear(); Object.entries(s).forEach(([k,v])=>localStorage.setItem(k,v)); sessionStorage.setItem('seeded','1');}}catch(e){}},o.seed);
-  await p.goto(BASE+(o.lang==='en'?'?lang=en&':'?')+'live=force',{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+(o.lang==='en'?'?lang=en&':'?')+'live=force'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!!(window.__basket&&window.__basket.state())",null,{timeout:90000});
   if(!o.seed)await p.evaluate(()=>{Object.keys(localStorage).filter(k=>/^remlab-(basket|favorites|collections|fav-thumbs)/.test(k)).forEach(k=>localStorage.removeItem(k)); location.reload();});
   if(!o.seed)await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!!(window.__basket&&window.__basket.state())",null,{timeout:90000});

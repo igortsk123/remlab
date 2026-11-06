@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // «ФОТО» НА ТЕЛЕФОНЕ И ПРОСМОТР ВО ВЕСЬ ЭКРАН (план demo-09, дополнение 17.10): фото во всю область без размытых полос, кадрирование на
 // мебели; галерея — 10 одиночных тапов не сдвигают картинку ни на пиксель, двойной тап — ×2,5 в точку, повторный — назад, свайп вниз — закрыть.
@@ -8,7 +9,7 @@ const R=[]; const ok=(n,c,i)=>R.push((c?'OK  ':'FAIL')+' '+n+' '+(i||''));
 const p=await ctx.newPage(); const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
 await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
 if(LOCAL)await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));
-await p.goto('https://remont-lab.online/demo/?live=0&lang=ru',{waitUntil:'load',timeout:120000});
+await p.goto(demoUrl('https://remont-lab.online/demo/?live=0&lang=ru'),{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&shots.length>0",null,{timeout:90000}); await p.waitForTimeout(2500);
 // вариант с реалистичным снимком своей расстановки — окно в «Фото»
 const vi=await p.evaluate(()=>{const c0=cur; for(let i=0;i<allVariants().length;i++){pickVariant(i); if(vwRealShots().length)return i;} pickVariant(c0); return -1;});

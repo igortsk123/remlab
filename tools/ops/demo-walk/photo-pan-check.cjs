@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ФОТО И РАКУРСЫ (demo-22 п.2, T-20261022-12/1; свайп — demo-26 Б, T-20261023-09/1). Телефон: в «Фото» картинка во всю высоту области
 // и шире её, кадр — окно превью вида (`crop` ближайшей пропорции к фактической области, главная мебель в кадре) на ОБОИХ ракурсах;
@@ -40,7 +41,7 @@ const PAN=`(()=>{const p=document.querySelector('#shot .vpan'), im=p&&p.querySel
     const near=(a,c)=>Math.abs(a.x-c.x)<=2&&Math.abs(a.y-c.y)<=2;
     j.forEach(rec=>(rec.cams||[]).forEach(c=>{for(const v of DATA.variants){const d=(v.cams||[]).find(x=>x.name===c.name&&near(x,c)&&x.crop); if(d){c.crop=d.crop; break;}}}));
     await r.fulfill({response:res,body:JSON.stringify(j),headers:{...res.headers(),'content-type':'application/json'}});});
-  await p.goto(BASE+'?lang=ru&live=0',{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+'?lang=ru&live=0'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&SHOTS_LOADED",null,{timeout:90000}).catch(()=>{});
   await p.waitForTimeout(1500);
   if(!PHONE){await shot({path:OUT+`pan-${W}-0-home.png`});

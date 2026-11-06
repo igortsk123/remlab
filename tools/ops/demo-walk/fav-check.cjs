@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ОКНО ВАРИАНТА, ИЗБРАННОЕ И «ПОДЕЛИТЬСЯ» (план demo-15): тап по предмету → шторка до верха и строка в верхней трети; после замены
 // камера наведена на новый предмет; ракурсы подписями (ни стрелок, ни точек); сердечко и «поделиться» в шапке окна; окошко имени
@@ -15,7 +16,7 @@ async function page(b,lang){
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   await p.route(/\/api\/render(\?|$)/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({job:'fake-'+Date.now()})}));
   await p.route(/\/api\/job\?/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'running',eta:30})}));
-  await p.goto(BASE+(lang==='en'?'?lang=en&':'?')+'live=force&v='+Date.now(),{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+(lang==='en'?'?lang=en&':'?')+'live=force&v='+Date.now()),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&allVariants().length>0",null,{timeout:90000});
   await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos');Object.keys(localStorage).filter(k=>/^remlab-(basket|favorites|collections|fav-thumbs)/.test(k)).forEach(k=>localStorage.removeItem(k));}catch(e){}});
   return p;

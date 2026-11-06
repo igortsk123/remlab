@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ПРОВЕРКА ЖЕСТОВ ШТОРКИ v4 (план demo-02 § «Шторка v4» п.4): трасса, неизменный холст, резинка, флик, тап, передача из списка, пины.
 //   PROD=1 node tools/ops/demo-walk/sheet-gestures.cjs 375x667          — прод как есть
@@ -21,7 +22,7 @@ await p.route(/\/demo\/lib\/scene\.[0-9a-f]+\.js/,r=>r.fulfill({status:200,conte
 }
 if(!prod)await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));
 await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
-await p.goto('https://remont-lab.online/demo/?live=force'+(EN?'&lang=en':''),{waitUntil:'load',timeout:120000});
+await p.goto(demoUrl('https://remont-lab.online/demo/?live=force'+(EN?'&lang=en':'')),{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
 const R=global.__R=[]; const ok=(name,cond,info)=>{R.push((cond?'OK  ':'FAIL')+' '+name+' '+(info||'')); };
 const SFX=(EN?'-en':'')+'-'+W+'x'+H;
@@ -163,7 +164,7 @@ await p.evaluate(()=>vwSheet(0)); await p.waitForTimeout(700); await p.screensho
  await p.click('#shotx'); await p.waitForTimeout(500);
  ok('v5.2 «×» при свёрнутой → окно закрыто',!(await p.evaluate(()=>document.getElementById('shot').classList.contains('on'))),'');}
 // 9. v5: окно комнаты с группой кухни (`?debug=1&vroom=kitchen`) — строка «Встраиваемое», четыре карточки, выбор → s2 и ссылка
-await p.goto('https://remont-lab.online/demo/?live=0&debug=1&vroom=kitchen',{waitUntil:'load',timeout:120000});
+await p.goto(demoUrl('https://remont-lab.online/demo/?live=0&debug=1&vroom=kitchen'),{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.evaluate(()=>{openLiveWindow(); vwSheet(2);}); await p.waitForTimeout(2500);   // шторка с прошлого шага свёрнута — раскрыть, как человек
 await p.click('#vGroups [data-group="fitted"]'); await p.waitForTimeout(900);
 const fit=await p.evaluate(()=>({cards:[...document.querySelectorAll('#vfitted .vfit')].map(b=>b.querySelector('b').textContent+' · '+b.querySelector('.vfit-p').textContent), s:curStateId()}));

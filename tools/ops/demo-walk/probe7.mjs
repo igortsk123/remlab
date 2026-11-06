@@ -1,4 +1,5 @@
 // Проба 7: прогулка по 3D (/flat) глазами пользователя + живая сцена демо (?live=force). Экраны для разбора.
+import { demoUrl } from "../demo-url.cjs";
 import { chromium } from "@playwright/test";
 const OUT = process.argv[2]; const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const b = await chromium.launch();
@@ -29,7 +30,7 @@ await flat({ width: 1280, height: 900 }, "flat-desk");
 await flat({ width: 390, height: 844 }, "flat-phone");
 // живая сцена демо принудительно
 const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: "ru-RU" }); const pg = await ctx.newPage();
-await pg.goto(BASE + "/demo/?live=force", { waitUntil: "networkidle", timeout: 60000 }); await pg.locator("button[data-swap]").first().click(); await pg.waitForTimeout(12000); await snap(pg, "live-01-open");
+await pg.goto(demoUrl(BASE + "/demo/?live=force"), { waitUntil: "networkidle", timeout: 60000 }); await pg.locator("button[data-swap]").first().click(); await pg.waitForTimeout(12000); await snap(pg, "live-01-open");
 L("  canvas:", await pg.locator("#shot canvas").count(), "| бейдж:", JSON.stringify(await pg.locator(".livebadge").first().innerText().catch(() => "")));
 await pg.locator("#shotbody [data-rep]").first().click(); await pg.waitForTimeout(800); await pg.locator("#sheet .mini:has-text('Заменить')").nth(1).click(); await pg.waitForTimeout(12000); await snap(pg, "live-02-after-swap");
 for (const [m, n] of [["3D", "03-3d"], ["Ракурс", "04-angle"], ["План", "05-plan"]]) { try { await pg.locator(`#shot button:has-text("${m}")`).first().click({ timeout: 3000 }); await pg.waitForTimeout(6000); await snap(pg, `live-${n}`); } catch (e) { L("  нет переключателя", m); } }

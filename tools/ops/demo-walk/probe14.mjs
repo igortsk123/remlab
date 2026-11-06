@@ -1,13 +1,14 @@
 // d8: приёмка шторки v5 на проде глазами (телефон 375×667 и десктоп 1280): снимки начального вида, полной остановки,
 // раздела «Отделка», возврата, карточек кухни (?debug=1&vroom=kitchen), EN. Запуск: node tools/ops/demo-walk/probe14.mjs <OUT>
 import { chromium } from "@playwright/test";
+import { demoUrl } from "../demo-url.cjs";
 const OUT=process.argv[2]; const L=(...a)=>console.log(a.join(" "));
 const b=await chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 async function run(name,url,vp,mobile,locale){
   const ctx=await b.newContext({viewport:vp,deviceScaleFactor:mobile?2:1,isMobile:mobile,hasTouch:mobile,locale});
   const p=await ctx.newPage(); const errs=[]; p.on('pageerror',e=>errs.push(String(e).slice(0,120)));
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
-  await p.goto(url,{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(url),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
   await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){} openLiveWindow();});
   await p.waitForSelector('#vside',{timeout:60000}); try{await p.waitForFunction(()=>typeof LIVE!=="undefined"&&(LIVE.scene||LIVE.ok===false),null,{timeout:45000});}catch(e){} L('LIVE:',JSON.stringify(await p.evaluate(()=>({ok:LIVE.ok,why:LIVE.why,state:LIVE.state}))));  await p.waitForTimeout(5000);

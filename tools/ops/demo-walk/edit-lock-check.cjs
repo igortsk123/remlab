@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ЗАМОК ПРАВОК НА ВРЕМЯ «УЛУЧШАЮ…» И «ФОТО ГОТОВО» (demo-20 Г5, T-20261022-07/2): пока рисуется фото этой расстановки, замена, ↶,
 // отделка и «Изменить план» не применяются — подсказка; по готовности (ушёл в 3D) — сообщение «Фото готово · Смотреть» → вкладка «Фото»;
@@ -30,7 +31,7 @@ const geoOk=g=>g.shown&&!g.overCams&&!g.overPanel&&(g.gap==null||g.gap>=8)&&(PHO
   await p.route(/\/api\/render\/frame/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:'f'+Date.now()+Math.random().toString(36).slice(2,8)})}));
   await p.route(/\/api\/render(\?|$)/,r=>r.request().method()==='POST'?r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({job:'fake-'+Date.now()})}):r.continue());
   await p.route(/\/api\/job\?/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(done||{status:'running',eta:60})}));
-  await p.goto(BASE+'?lang=ru&live=force',{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+'?lang=ru&live=force'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
   await p.waitForTimeout(1500);
   const toastTxt=()=>p.evaluate(()=>{const t=document.getElementById('toast'); return t&&!t.hidden?t.textContent:'';});

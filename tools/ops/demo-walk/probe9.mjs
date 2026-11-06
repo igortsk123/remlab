@@ -1,4 +1,5 @@
 // Проба 9: окна и двери (demo-04 п.1–3) — живая сцена (ракурс 1/2, десктоп и телефон), серверный кадр, /flat.
+import { demoUrl } from "../demo-url.cjs";
 import { chromium } from "@playwright/test";
 const OUT = process.argv[2]; const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const b = await chromium.launch(); const L = (...a) => console.log(a.join(" "));
@@ -6,7 +7,7 @@ const snap = async (pg, n) => { await pg.screenshot({ path: `${OUT}/${n}.png` })
 const btn = (pg, t) => pg.locator(`#shot button:has-text("${t}")`).first();
 async function live(view, tag, idx) {
   const ctx = await b.newContext({ viewport: view, locale: "ru-RU", isMobile: view.width < 500, hasTouch: view.width < 500 }); const pg = await ctx.newPage();
-  await pg.goto(BASE + "/demo/?live=force", { waitUntil: "networkidle", timeout: 60000 });
+  await pg.goto(demoUrl(BASE + "/demo/?live=force"), { waitUntil: "networkidle", timeout: 60000 });
   await pg.locator("button[data-swap]").nth(idx).click(); await pg.waitForTimeout(10000); await snap(pg, `${tag}-angle1`);
   await btn(pg, "Ракурс 2").click(); await pg.waitForTimeout(7000); await snap(pg, `${tag}-angle2`);
   await ctx.close();
@@ -18,7 +19,7 @@ await live({ width: 390, height: 844 }, "live-phone-set2", 0);
 {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: "ru-RU" }); const pg = await ctx.newPage();
   let jobs = 0; pg.on("request", r => { if (r.url().includes("/api/render")) jobs++; });
-  await pg.goto(BASE + "/demo/", { waitUntil: "networkidle", timeout: 60000 }); await pg.locator("button[data-swap]").first().click(); await pg.waitForTimeout(3000);
+  await pg.goto(demoUrl(BASE + "/demo/"), { waitUntil: "networkidle", timeout: 60000 }); await pg.locator("button[data-swap]").first().click(); await pg.waitForTimeout(3000);
   await pg.locator("#shotbody [data-rep], #shot [data-rep]").first().click(); await pg.waitForTimeout(800); await pg.locator("#sheet .mini:has-text('Заменить')").nth(1).click(); await pg.waitForTimeout(2500);
   L("  запросов кадра после замены:", jobs); const t = Date.now();
   await pg.waitForFunction(() => { const s = document.querySelector("#shot"); const img = s && s.querySelector(".shotwrap img, img.frame, img"); const txt = (s && s.innerText) || ""; return img && img.naturalWidth > 300 && !/Собираем|очереди|осталось|Считаем/i.test(txt); }, null, { timeout: 240000 }).catch(() => L("  серверный кадр не дождался"));

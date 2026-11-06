@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // КАРТОЧКА ТОВАРА (demo-26 Д, снимок владельца 23.10): тап по названию или миниатюре строки окна варианта — карточка: полное название,
 // роль, магазин, цена, размеры, «Заменить» и «В магазин», плитка сразу и крупная копия поверх (`img/<id>-l.jpg` при `_img_large`).
@@ -24,7 +25,7 @@ const WIN=`({win:document.getElementById('shot').classList.contains('on'), card:
     const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,isMobile:PHONE,hasTouch:PHONE,locale:lang==='en'?'en-GB':'ru-RU'});
     const p=await ctx.newPage(); p.on('pageerror',e=>errs.push(lang+': '+String(e)));
     await p.addInitScript(()=>{try{localStorage.setItem('remlab-sheet-hint-v1','1')}catch(e){}});
-    await p.goto(BASE+'?lang='+lang+'&live=0',{waitUntil:'load',timeout:120000});
+    await p.goto(demoUrl(BASE+'?lang='+lang+'&live=0'),{waitUntil:'load',timeout:120000});
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.waitForTimeout(1500);
     await p.evaluate(v=>vwOpenVariant(v),V);
     await p.waitForFunction(()=>document.querySelectorAll('#shotbody .pinlist .row').length>2,null,{timeout:60000}); await p.waitForTimeout(1200);

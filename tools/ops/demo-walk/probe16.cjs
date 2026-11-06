@@ -1,10 +1,11 @@
 // d8: замена товара в окне на телефоне — сворачивается ли шторка (demo-09 п.4a); события remlab:hist и состояние пикера #sheet
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 const OUT=process.argv[2]||'/tmp/';
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const ctx=await b.newContext({viewport:{width:375,height:667},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'ru-RU'}); const p=await ctx.newPage();
 await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
-await p.goto('https://remont-lab.online/demo/?live=force',{waitUntil:'load',timeout:120000});
+await p.goto(demoUrl('https://remont-lab.online/demo/?live=force'),{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
 await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){} window.__hist=[]; document.addEventListener('remlab:hist',e=>window.__hist.push(JSON.stringify(e.detail||{}))); pickVariant(1); openLiveWindow();});
 await p.waitForFunction(()=>typeof LIVE!=='undefined'&&LIVE.scene&&LIVE.state==='ready',null,{timeout:300000}).catch(()=>{}); await p.waitForTimeout(4000);

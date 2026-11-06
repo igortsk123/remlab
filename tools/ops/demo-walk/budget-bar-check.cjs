@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ПОЛОСА ДВУХ БЮДЖЕТОВ (demo-23 шаг 3, ADR-0308, макет А владельца 22.10). Корзина задаётся заранее в хранилище браузера (выдуманные
 // варианты с готовыми строками цен — без коллекций на сервере), пакет — ответом карточки квартиры. Состояния: РФ общий бюджет — пусто,
@@ -48,7 +49,7 @@ const BUB=`(()=>{const b=document.querySelector('#hmCert .vpl-bub'); if(!b||b.hi
       await r.fulfill({response:res, body:JSON.stringify(j), headers:{...res.headers(),'content-type':'application/json'}});});
     await p.addInitScript(([k,v])=>{try{if(!sessionStorage.getItem('bbc')){localStorage.setItem(k,v); localStorage.setItem('remlab-sheet-hint-v1','1'); sessionStorage.setItem('bbc','1');}}catch(e){}},
       ['remlab-basket:v2:'+s.apt, JSON.stringify(s.b)]);
-    await p.goto(BASE+'?lang='+s.lang+'&live=0',{waitUntil:'load',timeout:120000});
+    await p.goto(demoUrl(BASE+'?lang='+s.lang+'&live=0'),{waitUntil:'load',timeout:120000});
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!!window.__basket&&!!window.__basket.totals()&&!document.getElementById('hmCert').hidden",null,{timeout:90000});
     await p.waitForTimeout(800); return p;}
   const shot=(p,n)=>p.screenshot({path:`${OUT}bar-${W}-${n}.png`});

@@ -1,4 +1,5 @@
 // Проба 8: новое окно варианта (demo-02) — Б на компьютере, В со шторкой на телефоне. Экраны для разбора тремя ролями.
+import { demoUrl } from "../demo-url.cjs";
 import { chromium } from "@playwright/test";
 const OUT = process.argv[2]; const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const b = await chromium.launch(); const L = (...a) => console.log(a.join(" "));
@@ -8,7 +9,7 @@ const shotBtn = (pg, t) => pg.locator(`#shot button:text-is("${t}"), #shot butto
 async function desk() {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: "ru-RU" }); const pg = await ctx.newPage();
   const errs = []; pg.on("pageerror", e => errs.push(String(e).slice(0, 120))); let renders = 0; pg.on("request", r => { if (r.url().includes("/api/render")) renders++; });
-  await pg.goto(BASE + "/demo/?live=force", { waitUntil: "networkidle", timeout: 60000 });
+  await pg.goto(demoUrl(BASE + "/demo/?live=force"), { waitUntil: "networkidle", timeout: 60000 });
   for (const [i, name] of [[0, "сканди"], [3, "лофт"]]) {
     await pg.locator("button[data-swap]").nth(i).click(); await pg.waitForTimeout(9000); await snap(pg, `D-${name}-01-open`);
     L(`  ${name} шапка окна:`, JSON.stringify(await txt(pg, "#shot .sidehead, #shot h3, #shot")));
@@ -28,7 +29,7 @@ async function desk() {
 }
 async function phone() {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "ru-RU" }); const pg = await ctx.newPage();
-  await pg.goto(BASE + "/demo/?live=force", { waitUntil: "networkidle", timeout: 60000 });
+  await pg.goto(demoUrl(BASE + "/demo/?live=force"), { waitUntil: "networkidle", timeout: 60000 });
   await pg.locator("button[data-swap]").first().tap(); await pg.waitForTimeout(9000); await snap(pg, "P-01-open-peek");
   L("  шторка (текст):", JSON.stringify(await txt(pg, "#shot [class*=sheet], #shot [class*=drawer], #shot")));
   const chip = pg.locator("#shot [class*=handle], #shot [class*=grab], #shot button:has-text('Товары')").first(); L("  ручка/чип:", await chip.count(), JSON.stringify(await chip.innerText().catch(() => "")));

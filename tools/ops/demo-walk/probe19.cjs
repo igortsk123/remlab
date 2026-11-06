@@ -1,4 +1,5 @@
 // fable-lead: приёмка demo-16 шаг 3 — липкая шапка, вкладка стиля снизу, возврат «назад» в окно, перезагрузка на избранном, EN
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 const OUT=process.argv[2]||'/tmp/'; const BASE='https://remont-lab.online/demo/';
 const R=e=>{if(!e)return null;const b=e.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)];};
@@ -8,7 +9,7 @@ for(const name of (process.argv[3]||'p375,p390,desk').split(',')){const [vp,mobi
   const ctx=await b.newContext({viewport:vp,deviceScaleFactor:mobile?2:1,isMobile:mobile,hasTouch:mobile,locale:'ru-RU'}); const p=await ctx.newPage();
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   const out={}; p.on('crash',()=>console.error('CRASH at',out._step)); const step=s=>{out._step=s; global.STEP=s; global.OUT=out;};
-  await p.goto(BASE+'?live=0',{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+'?live=0'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.waitForTimeout(3000);
   await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos');}catch(e){}});
   await p.screenshot({path:OUT+'/p19-'+name+'-1top.png'});
@@ -51,7 +52,7 @@ for(const name of (process.argv[3]||'p375,p390,desk').split(',')){const [vp,mobi
   await p.screenshot({path:OUT+'/p19-'+name+'-6reload.png'});
   step('reload');
   // 4. EN
-  await p.goto(BASE+'?live=0&lang=en',{waitUntil:'load',timeout:120000}); await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.waitForTimeout(3000);
+  await p.goto(demoUrl(BASE+'?live=0&lang=en'),{waitUntil:'load',timeout:120000}); await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.waitForTimeout(3000);
   out.en=await p.evaluate(()=>{const txt=[...document.querySelectorAll('.hm-hd, .hm-tabs, .hm-fav-row, .hm-fav-sec, #hmRooms, header, [role=dialog]')].map(e=>e.innerText||'').join('\n');
     const cyr=txt.match(/[^\n]*[А-Яа-яЁё]+[^\n]*/g)||[]; return {cyr:cyr.slice(0,8), favLabel:document.getElementById('hmFav')?.getAttribute('aria-label'), tabs:[...document.querySelectorAll('#styleTabs .hm-tab')].map(b=>b.textContent.trim())};});
   await p.evaluate(()=>{pickVariant(0); openLiveWindow();}); await p.waitForTimeout(5000);

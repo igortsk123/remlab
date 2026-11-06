@@ -1,3 +1,4 @@
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ПОДПИСИ ПЛАНА В ОКНЕ ВАРИАНТА (T-20261020-01): вкладка «План» каждого варианта — подписи (предметы, дверь, окно) не налезают
 // друг на друга и не выходят за рамку плана. Замер — прямоугольники `<text>` на странице (`getBoundingClientRect`).
@@ -10,7 +11,7 @@ const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,is
 const p=await ctx.newPage(); const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
 if(LOCAL)await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));
 await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
-await p.goto('https://remont-lab.online/demo/?live=0',{waitUntil:'load',timeout:120000});
+await p.goto(demoUrl('https://remont-lab.online/demo/?live=0'),{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.waitForTimeout(1500);
 const n=await p.evaluate(()=>allVariants().length); let bad=0; const tag=(LOCAL?'local':'prod')+'-'+W+'x'+H;
 for(let i=0;i<n;i++){

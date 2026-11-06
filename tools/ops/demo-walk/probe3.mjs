@@ -1,4 +1,5 @@
 // Проба 3: оба вида нового кадра + настоящее перетаскивание столика по подписи на плане.
+import { demoUrl } from "../demo-url.cjs";
 import { chromium } from "@playwright/test";
 const OUT = process.argv[2]; const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: "ru-RU" }); const pg = await ctx.newPage();
@@ -7,7 +8,7 @@ const shotState = async () => (await text("#shot")).replace(/\s+/g, " ").slice(0
 const waitPhoto = async (label, timeout = 240000) => { const t = Date.now(); const before = await pg.evaluate(() => document.querySelector("#shot img")?.getAttribute("src") || "");
   await pg.waitForFunction((b0) => { const s = document.querySelector("#shot"); if (!s) return false; const img = s.querySelector("img"); const txt = s.innerText || ""; return (img && img.naturalWidth > 50 && img.getAttribute("src") !== b0 && !/Собираем|очереди|осталось/i.test(txt)) || /ошиб|не удалось|позже|нет денег/i.test(txt); }, before, { timeout });
   L(`  ${label}: ${Math.round((Date.now() - t) / 1000)} с; src=${(await pg.evaluate(() => document.querySelector("#shot img")?.getAttribute("src") || "")).slice(-60)}`); };
-await pg.goto(BASE + "/demo/", { waitUntil: "networkidle", timeout: 60000 });
+await pg.goto(demoUrl(BASE + "/demo/"), { waitUntil: "networkidle", timeout: 60000 });
 await pg.locator("button[data-swap]").first().click(); await pg.waitForTimeout(1000);
 L("исходный кадр src:", (await pg.evaluate(() => document.querySelector("#shot img")?.getAttribute("src") || "")).slice(-70));
 await pg.locator("#shotPrev").click(); await pg.waitForTimeout(500); await pg.screenshot({ path: `${OUT}/P3-orig-view1.png` });

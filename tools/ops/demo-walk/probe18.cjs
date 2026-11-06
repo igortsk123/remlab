@@ -1,11 +1,12 @@
 // d8: приёмка demo-15 — миниатюры в списке (телефон), перекрытие кнопки плашкой и полосы холста (компьютер)
+const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 const OUT=process.argv[2]||'/tmp/';
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 for(const [name,vp,mobile] of [['phone',{width:375,height:667},true],['desk',{width:1440,height:900},false]]){
   const ctx=await b.newContext({viewport:vp,deviceScaleFactor:mobile?2:1,isMobile:mobile,hasTouch:mobile,locale:'ru-RU'}); const p=await ctx.newPage();
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
-  await p.goto('https://remont-lab.online/demo/?live=0',{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl('https://remont-lab.online/demo/?live=0'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.waitForTimeout(3000);
   await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){} pickVariant(0); openLiveWindow();}); await p.waitForTimeout(6000);
   if(mobile){ await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(1500); }

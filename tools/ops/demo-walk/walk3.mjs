@@ -1,4 +1,5 @@
 // Прогон 2: настоящий путь покупателя — карточка → кадр → заменить → изменить планировку → перетащить → новое фото → улучшить → 3D → коллекция.
+import { demoUrl } from "../demo-url.cjs";
 import { chromium } from "@playwright/test";
 const OUT = process.argv[2]; const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: "ru-RU" });
@@ -18,7 +19,7 @@ const waitPhoto = async (label, timeout = 240000) => { const t = Date.now(); con
   await pg.waitForFunction((b0) => { const s = document.querySelector("#shot"); if (!s) return false; const img = s.querySelector("img"); const txt = s.innerText || ""; return (img && img.naturalWidth > 50 && img.getAttribute("src") !== b0 && !/Собираем|очереди|осталось/i.test(txt)) || /ошиб|не удалось|позже|нет денег/i.test(txt); }, before, { timeout });
   L(`  ${label}: готово за ${Math.round((Date.now() - t) / 1000)} с; текст: ${JSON.stringify(await shotState())}`); };
 
-await step("A0 загрузка", async () => { await pg.goto(BASE + "/demo/", { waitUntil: "networkidle", timeout: 60000 }); });
+await step("A0 загрузка", async () => { await pg.goto(demoUrl(BASE + "/demo/"), { waitUntil: "networkidle", timeout: 60000 }); });
 await step("A11 ссылки 3D", async () => { await pg.locator("#shotclose, #shotx, .close:visible").first().click().catch(() => {}); await pg.waitForTimeout(400); L("  #swap3d:", await pg.locator("#swap3d").getAttribute("href"), "| #pc3d:", await pg.locator("#pc3d").getAttribute("href")); });
 await step("A12 Сохранить коллекцию → ссылка → 3D из коллекции", async () => { await pg.locator("button[data-swap]").first().click(); await pg.waitForTimeout(1000); await pg.locator("button:has-text('Сохранить коллекцию'):visible").first().click(); await pg.waitForTimeout(3000); await shot("A12-saved"); L("  url:", pg.url()); L("  текст:", JSON.stringify((await text("#shot")).replace(/\s+/g, " ").slice(0, 160)));
   await pg.keyboard.press("Escape"); await pg.waitForTimeout(600); await shot("A12b-cards"); L("  карточки после сохранения:", JSON.stringify((await pg.evaluate(() => [...document.querySelectorAll(".card h3, .card .ttl, .card b")].map(e => e.innerText.trim()).slice(0, 10))).join(" | ")));

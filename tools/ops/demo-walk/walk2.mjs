@@ -1,4 +1,5 @@
 // Прогон 2: настоящий путь покупателя — карточка → кадр → заменить → изменить планировку → перетащить → новое фото → улучшить → 3D → коллекция.
+import { demoUrl } from "../demo-url.cjs";
 import { chromium } from "@playwright/test";
 const OUT = process.argv[2]; const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: "ru-RU" });
@@ -18,7 +19,7 @@ const waitPhoto = async (label, timeout = 240000) => { const t = Date.now(); con
   await pg.waitForFunction((b0) => { const s = document.querySelector("#shot"); if (!s) return false; const img = s.querySelector("img"); const txt = s.innerText || ""; return (img && img.naturalWidth > 50 && img.getAttribute("src") !== b0 && !/Собираем|очереди|осталось/i.test(txt)) || /ошиб|не удалось|позже|нет денег/i.test(txt); }, before, { timeout });
   L(`  ${label}: готово за ${Math.round((Date.now() - t) / 1000)} с; текст: ${JSON.stringify(await shotState())}`); };
 
-await step("A0 загрузка", async () => { await pg.goto(BASE + "/demo/", { waitUntil: "networkidle", timeout: 60000 }); });
+await step("A0 загрузка", async () => { await pg.goto(demoUrl(BASE + "/demo/"), { waitUntil: "networkidle", timeout: 60000 }); });
 await step("A1 Открыть карточку → окно кадра", async () => { await pg.locator("button[data-swap]").first().click(); await pg.waitForTimeout(1200); await shot("A1-shot"); await dumpC("окно кадра", "#shot");
   const items = await pg.evaluate(() => [...document.querySelectorAll("#shotbody .pinlist .row, #shotbody [data-rep]")].length); L("  товаров в списке:", items);
   L("  подпись карточки vs окно:", JSON.stringify((await text(".card .meta, .card")).slice(0, 60)), "|", JSON.stringify((await text("#shotbody .sum, #shotbody")).slice(0, 60))); });
