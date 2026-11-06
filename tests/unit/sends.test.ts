@@ -102,7 +102,7 @@ describe("события покупателя и антишум", () => {
 });
 
 describe("опрос-знакомство (onb-03, ADR-0330 п.4)", () => {
-  const ev: BuyerEvent = { kind: "quiz_done", picked: ["scandi", "loft"], household: ["couple", "pet", "child"], childAge: ["3-7"],
+  const ev: BuyerEvent = { kind: "quiz_done", picked: ["scandi", "loft"], household: ["couple", "pet", "child"], childAge: ["3-7"], kids: "2",
     colours: ["light"], result: ["scandi", "loft", "minimal"], chosen: "scandi" };
 
   it("прошёл — сигнал сразу, словами словаря, без имени; статус «выбирает»", async () => {
@@ -110,7 +110,7 @@ describe("опрос-знакомство (onb-03, ADR-0330 п.4)", () => {
     await recordBuyerEvent(s.id, ev, at(1), store);
     expect(store.outbox.map((o) => o.kind)).toEqual(["quiz_done"]);
     expect(store.outbox[0]!.text).toBe(`Ссылка ${s.id.slice(0, 4).toUpperCase()} · Клиент прошёл знакомство: понравились «Сканди», «Лофт»; `
-      + "живут: вдвоём, кошка или собака, с детьми (3–7 лет); цвета: светлые нейтральные. Показали: Сканди, Лофт, Минимализм — выбрал «Сканди».");
+      + "живут: вдвоём, кошка или собака, с детьми (двое детей; 3–7 лет); цвета: светлые нейтральные. Показали: Сканди, Лофт, Минимализм — выбрал «Сканди».");
     expect((await store.getSend(s.id))!.status).toBe("engaged");
   });
 

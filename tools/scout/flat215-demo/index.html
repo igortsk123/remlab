@@ -7424,7 +7424,7 @@ function quizPick(rule, answers, available, styleColours){
 // QUIZPICK END
 (function(){
   var SS='remlab-quiz', LS='remlab-quiz-seen';
-  var Q={open:false, step:0, a:{photos:[], household:[], ages:[], colours:[]}, decided:false, at:0, pick:[]};
+  var Q={open:false, step:0, a:{photos:[], household:[], ages:[], kids:'', colours:[]}, decided:false, at:0, pick:[]};
   window.__quiz=Q;
   if(typeof PAGE_LAYERS!=='undefined')PAGE_LAYERS.push(['qzBox','on']);
   var EN=function(){return LANG==='en';};
@@ -7494,7 +7494,8 @@ function quizPick(rule, answers, available, styleColours){
         :'Three questions — and we will show ready-made designs for your apartment.')
       :(amt?'Застройщик дарит вам сертификат на обстановку <b>'+esc(amt)+'</b>. Три вопроса — и покажем готовые варианты вашей квартиры.'
         :'Три вопроса — и покажем готовые варианты вашей квартиры.');
-    return '<h2 class="qz-h" id="qzH">'+(EN()?'Hello!':'Здравствуйте!')+'</h2><p class="qz-txt">'+txt+'</p>'+
+    // заголовок — смысл «узнаем ваш стиль» (владелец 06.11, T-20261106-94): опрос про человека, а не «что понравилось»
+    return '<h2 class="qz-h" id="qzH">'+(EN()?'Let’s find your style':'Давайте узнаем ваш стиль')+'</h2><p class="qz-txt">'+txt+'</p>'+
       '<button class="btn primary qz-next" type="button" data-qz="next" style="min-height:48px;font-weight:600">'+(EN()?'Start':'Начать')+'</button>'+
       '<button class="qz-link" type="button" data-qz="skip">'+(EN()?'Go straight to the styles':'Сразу к стилям')+'</button>';
   }
@@ -7510,10 +7511,14 @@ function quizPick(rule, answers, available, styleColours){
     var q=question('household'), opts=(q&&q.options)||[], kid=opts.filter(function(o){return o.ages;})[0];
     var chip=function(o,list,attr){var on=list.indexOf(o.id)>=0;
       return '<button class="qz-opt" type="button" '+attr+'="'+esc(o.id)+'" aria-pressed="'+on+'">'+(on?TICK:'')+esc(tr(o,''))+'</button>';};
-    var ages=kid&&Q.a.household.indexOf(kid.id)>=0?'<div class="qz-lbl">'+(EN()?'Children’s age':'Возраст детей')+'</div><div class="qz-chips">'+
+    // «С детьми» → сколько детей (один ответ: 1 / 2 / 3 и больше, T-20261106-94) и возраст (несколько)
+    var withKid=kid&&Q.a.household.indexOf(kid.id)>=0;
+    var kids=withKid&&kid.kids?'<div class="qz-lbl">'+(EN()?'How many children':'Сколько детей')+'</div><div class="qz-chips">'+
+      kid.kids.map(function(o){return chip(o,Q.a.kids?[Q.a.kids]:[],'data-kids');}).join('')+'</div>':'';
+    var ages=withKid?'<div class="qz-lbl">'+(EN()?'Children’s age':'Возраст детей')+'</div><div class="qz-chips">'+
       kid.ages.map(function(o){return chip(o,Q.a.ages,'data-age');}).join('')+'</div>':'';
     return bar(2)+'<h2 class="qz-h" id="qzH">'+esc(tr(q,''))+'</h2><p class="qz-sub">'+esc(tr(q,'hint'))+'</p>'+
-      '<div class="qz-chips">'+opts.map(function(o){return chip(o,Q.a.household,'data-hh');}).join('')+'</div>'+ages+nav(true);
+      '<div class="qz-chips">'+opts.map(function(o){return chip(o,Q.a.household,'data-hh');}).join('')+'</div>'+kids+ages+nav(true);
   }
   function screen3(){
     var q=question('colours'), opts=(q&&q.options)||[];
@@ -7525,14 +7530,15 @@ function quizPick(rule, answers, available, styleColours){
   }
   function names(ids){var st=styles(); return ids.map(function(id){var s=st.filter(function(x){return x.id===id;})[0]; return '«'+(s?s.title:id)+'»';});}
   function screenR(){
-    var st=styles(), liked=Q.pick.filter(function(id){return Q.a.photos.indexOf(id)>=0;}), more=Q.pick.length-liked.length, L=names(liked);
+    // итог коротко — «Ваш стиль — …» (владелец 06.11, T-20261106-94), без «вам понравились»; похожие отмечены на карточках
+    var st=styles(), liked=Q.pick.filter(function(id){return Q.a.photos.indexOf(id)>=0;}), L=names(liked);
     if(EN())L=L.map(function(x){return x.replace(/[«»]/g,'');});
-    var sub=EN()?(liked.length?'You liked '+L.join(' and ')+(more?' — plus '+(more===1?'one similar style':more+' similar styles'):''):'Styles close to your colours')
-      :(liked.length?(liked.length>1?'Вам понравились ':'Вам понравился ')+L.join(' и ')+(more?' — и ещё '+(more===1?'один похожий':more===2?'два похожих':more+' похожих'):''):'Стили, близкие вашим цветам');
+    var sub=EN()?(liked.length?'Your style — '+L.join(' and '):'Styles close to your colours')
+      :(liked.length?'Ваш стиль — '+L.join(' и '):'Стили, близкие вашим цветам');
     var cards=Q.pick.map(function(id){var s=st.filter(function(x){return x.id===id;})[0]||{id:id,title:id}, mine=Q.a.photos.indexOf(id)>=0;
       var ps=s.v?variantProducts(s.v):[], n=ps.length, sum=s.v?money(variantPrice(s.v)):'';
       return '<div class="qz-res" data-res="'+esc(id)+'">'+(s.img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'<span class="qz-img"></span>')+
-        '<span class="qz-tag'+(mine?'':' near')+'">'+(mine?(EN()?'You liked it':'Вам понравилось'):(EN()?'Similar':'Похожий'))+'</span>'+
+        '<span class="qz-tag'+(mine?'':' near')+'">'+(mine?(EN()?'Your style':'Ваш стиль'):(EN()?'Similar':'Похожий'))+'</span>'+
         '<div class="qz-cap"><b>'+esc(s.title)+'</b><span>'+(n?n+' '+itemsWord(n)+' · '+esc(sum):'')+'</span></div></div>';}).join('');
     var dots=Q.pick.map(function(id,i){return '<button type="button" data-dot="'+i+'" aria-label="'+(i+1)+'" aria-current="'+(i===Q.at)+'"><i></i></button>';}).join('');
     var cur=(st.filter(function(x){return x.id===Q.pick[Q.at];})[0]||{}).title||'';
@@ -7582,8 +7588,9 @@ function quizPick(rule, answers, available, styleColours){
     if(t.dataset.hh){var id=t.dataset.hh, q=question('household'), ex=((q&&q.exclusive)||[]).filter(function(g){return g.indexOf(id)>=0;})[0]||[];
       var i=Q.a.household.indexOf(id); if(i>=0)Q.a.household.splice(i,1);
       else{Q.a.household=Q.a.household.filter(function(x){return ex.indexOf(x)<0||x===id;}); Q.a.household.push(id);}
-      var kid=((q&&q.options)||[]).filter(function(o){return o.ages;})[0]; if(kid&&Q.a.household.indexOf(kid.id)<0)Q.a.ages=[];
+      var kid=((q&&q.options)||[]).filter(function(o){return o.ages;})[0]; if(kid&&Q.a.household.indexOf(kid.id)<0){Q.a.ages=[]; Q.a.kids='';}
       save(); render(); return;}
+    if(t.dataset.kids){Q.a.kids=Q.a.kids===t.dataset.kids?'':t.dataset.kids; save(); render(); return;}   // один ответ; повторное нажатие снимает
     if(t.dataset.age){var j=Q.a.ages.indexOf(t.dataset.age); if(j>=0)Q.a.ages.splice(j,1); else Q.a.ages.push(t.dataset.age); save(); render(); return;}
     if(t.dataset.col){toggle(Q.a.colours,t.dataset.col,(question('colours')||{}).max||2); Q.pick=[]; save(); render(); return;}
     if(t.dataset.dot){go(+t.dataset.dot); return;}
@@ -7603,13 +7610,13 @@ function quizPick(rule, answers, available, styleColours){
     if(!rule()||!homeModel().styles.length){Q.decided=true; return;}
     Q.decided=true;
     var how=shouldOpen(); if(!how)return;
-    if(how!=='resume'){Q.step=0; Q.a={photos:[], household:[], ages:[], colours:[]};}   // новый заход — с приветствия, ответы прежней вкладки не тянем
+    if(how!=='resume'){Q.step=0; Q.a={photos:[], household:[], ages:[], kids:'', colours:[]};}   // новый заход — с приветствия, ответы прежней вкладки не тянем
     Q.pick=[]; Q.at=0; open();
     // страница до решения уже вписала `?style=`/`#v=` — возвращаем адрес захода, чтобы перезагрузка вернула в опрос, а не в просмотр
     try{if(!window.__EMBED)history.replaceState(history.state,'',location.pathname+(window.__search0||'')+(window.__hash0||''));}catch(e){}
   }
   document.addEventListener('flatcard',decide);
-  window.__quizOpen=function(){Q.step=0; Q.a={photos:[], household:[], ages:[], colours:[]}; Q.pick=[]; Q.at=0; open();};   // «Изменить ответы» (Т4) и проверки
+  window.__quizOpen=function(){Q.step=0; Q.a={photos:[], household:[], ages:[], kids:'', colours:[]}; Q.pick=[]; Q.at=0; open();};   // «Изменить ответы» (Т4) и проверки
 })();
 </script>
 <script>

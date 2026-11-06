@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 
-import { quizChildAge, quizColour, quizHousehold, quizStyle } from "@/contracts/quiz";
+import { quizChildAge, quizColour, quizHousehold, quizKids, quizStyle } from "@/contracts/quiz";
 
 export const pageCounterKind = z.enum([
   "designer_open", // открыл демо квартиры
@@ -29,6 +29,7 @@ export const pageCounterKind = z.enum([
   ...quizStyle.options.flatMap((s) => [`quiz_photo:${s}`, `quiz_result:${s}`, `quiz_chosen:${s}`] as const),
   ...quizHousehold.options.map((h) => `quiz_household:${h}` as const),
   ...quizChildAge.options.map((a) => `quiz_child:${a}` as const),
+  ...quizKids.options.map((k) => `quiz_kids:${k}` as const), // сколько детей (T-20261106-94)
   ...quizColour.options.map((c) => `quiz_colour:${c}` as const),
 ]);
 export type PageCounterKind = z.infer<typeof pageCounterKind>;

@@ -2,7 +2,7 @@
 // поэтому имя клиента в тексте не нужно и у нас не хранится. Для ссылок со страницы менеджера
 // (без исходного сообщения) — короткий номер ссылки: заметку менеджер держит у себя в браузере.
 
-import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_STYLE_RU, type QuizStyle } from "@/contracts/quiz";
+import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_KIDS_RU, QUIZ_STYLE_RU, type QuizStyle } from "@/contracts/quiz";
 import type { AlternativeReason, BuyerEvent } from "@/contracts/send";
 import type { Send, SendEventRow } from "@/modules/sends/types";
 
@@ -45,7 +45,9 @@ export function alternativeText(send: Send, ev: BuyerEvent): string {
 /** Прошёл опрос-знакомство: что понравилось, кто живёт, цвета, что показали и что выбрал. Без имени (ADR-0330 п.4). */
 export function quizText(send: Send, ev: BuyerEvent): string {
   const q = (id: QuizStyle) => `«${QUIZ_STYLE_RU[id]}»`;
-  const ages = ev.childAge?.length ? ` (${ev.childAge.map((a) => QUIZ_CHILD_RU[a]).join(", ")})` : "";
+  // при «с детьми» в скобках — сколько детей и возраст: «с детьми (двое детей; 3–7 лет)» (T-20261106-94)
+  const kid = [ev.kids ? QUIZ_KIDS_RU[ev.kids] : null, ev.childAge?.length ? ev.childAge.map((a) => QUIZ_CHILD_RU[a]).join(", ") : null].filter(Boolean);
+  const ages = kid.length ? ` (${kid.join("; ")})` : "";
   const parts = [
     ev.picked?.length ? `понравились ${ev.picked.map(q).join(", ")}` : null,
     ev.household?.length ? `живут: ${ev.household.map((h) => QUIZ_HOUSEHOLD_RU[h] + (h === "child" ? ages : "")).join(", ")}` : null,

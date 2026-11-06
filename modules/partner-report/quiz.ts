@@ -2,23 +2,24 @@
 // по квартире. Только числа по значениям словарей (`contracts/quiz.ts`) — без людей и ссылок. Квартира без событий опроса строки
 // не получает; нет ни одной — в отчёте нет и блока (`buildReport`).
 
-import { quizChildAge, quizColour, quizHousehold, quizStyle } from "@/contracts/quiz";
+import { quizChildAge, quizColour, quizHousehold, quizKids, quizStyle } from "@/contracts/quiz";
 
 export type QuizCount = { id: string; n: number };
 export type QuizRow = {
   apartmentId: string;
   open: number; done: number; skip: number; styleChange: number;
   photo: QuizCount[]; result: QuizCount[]; chosen: QuizCount[];
-  household: QuizCount[]; child: QuizCount[]; colour: QuizCount[];
+  household: QuizCount[]; child: QuizCount[]; kids: QuizCount[]; colour: QuizCount[];
 };
 
-type Group = "photo" | "result" | "chosen" | "household" | "child" | "colour";
+type Group = "photo" | "result" | "chosen" | "household" | "child" | "kids" | "colour";
 type Step = "open" | "done" | "skip" | "styleChange";
 const STEP: Record<string, Step> = { quiz_open: "open", quiz_done: "done", quiz_skip: "skip", style_change: "styleChange" };
 const GROUP: Record<string, { group: Group; ids: readonly string[] }> = {
   quiz_photo: { group: "photo", ids: quizStyle.options }, quiz_result: { group: "result", ids: quizStyle.options },
   quiz_chosen: { group: "chosen", ids: quizStyle.options }, quiz_household: { group: "household", ids: quizHousehold.options },
-  quiz_child: { group: "child", ids: quizChildAge.options }, quiz_colour: { group: "colour", ids: quizColour.options },
+  quiz_child: { group: "child", ids: quizChildAge.options }, quiz_kids: { group: "kids", ids: quizKids.options },
+  quiz_colour: { group: "colour", ids: quizColour.options },
 };
 
 /** Счётчик опроса — действие (`quiz_open` …) или ответ словаря (`quiz_photo:loft` …); незнакомое значение — не опрос. */
@@ -49,7 +50,7 @@ export function buildQuiz(counters: { apartmentId: string; kind: string; n: numb
     const p = quizPart(c.kind);
     if (!p) continue;
     const a = acc.get(c.apartmentId) ?? acc.set(c.apartmentId, { steps: {}, groups: { photo: new Map(), result: new Map(), chosen: new Map(),
-      household: new Map(), child: new Map(), colour: new Map() } }).get(c.apartmentId)!;
+      household: new Map(), child: new Map(), kids: new Map(), colour: new Map() } }).get(c.apartmentId)!;
     if ("step" in p) a.steps[p.step] = (a.steps[p.step] ?? 0) + c.n;
     else a.groups[p.group].set(p.id, (a.groups[p.group].get(p.id) ?? 0) + c.n);
   }
@@ -57,6 +58,6 @@ export function buildQuiz(counters: { apartmentId: string; kind: string; n: numb
     apartmentId, open: a.steps.open ?? 0, done: a.steps.done ?? 0, skip: a.steps.skip ?? 0, styleChange: a.steps.styleChange ?? 0,
     photo: ordered("photo", a.groups.photo, showcase[apartmentId]), result: ordered("result", a.groups.result, showcase[apartmentId]),
     chosen: ordered("chosen", a.groups.chosen, showcase[apartmentId]), household: ordered("household", a.groups.household),
-    child: ordered("child", a.groups.child), colour: ordered("colour", a.groups.colour),
+    child: ordered("child", a.groups.child), kids: ordered("kids", a.groups.kids), colour: ordered("colour", a.groups.colour),
   }));
 }

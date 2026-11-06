@@ -1,4 +1,4 @@
-import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_STYLE_RU } from "@/contracts/quiz";
+import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_KIDS_RU, QUIZ_STYLE_RU } from "@/contracts/quiz";
 import { cell, num, pct } from "@/components/partner/FunnelTable";
 import type { QuizCount, QuizRow } from "@/modules/partner-report/quiz";
 
@@ -10,6 +10,7 @@ const GROUPS: [string, (r: QuizRow) => QuizCount[], Record<string, string>][] = 
   ["Показали в итоге", (r) => r.result, QUIZ_STYLE_RU],
   ["Выбрали в итоге", (r) => r.chosen, QUIZ_STYLE_RU],
   ["Кто будет жить", (r) => r.household, QUIZ_HOUSEHOLD_RU],
+  ["Сколько детей", (r) => r.kids, QUIZ_KIDS_RU],
   ["Возраст детей", (r) => r.child, QUIZ_CHILD_RU],
   ["Цвета", (r) => r.colour, QUIZ_COLOUR_RU],
 ];

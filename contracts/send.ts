@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import { quizChildAge, quizColour, quizHousehold, quizStyle } from "@/contracts/quiz";
+import { quizChildAge, quizColour, quizHousehold, quizKids, quizStyle } from "@/contracts/quiz";
 
 /** События покупателя — единственное, что принимает публичная ручка. */
 export const buyerEventKind = z.enum([
@@ -42,6 +42,7 @@ export const buyerEvent = z.object({
   picked: z.array(quizStyle).max(2).optional(),
   household: z.array(quizHousehold).max(5).optional(),
   childAge: z.array(quizChildAge).max(4).optional(),
+  kids: quizKids.optional(),
   colours: z.array(quizColour).max(2).optional(),
   result: z.array(quizStyle).max(3).optional(),
   chosen: quizStyle.optional(),

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { pageCounterKind } from "@/contracts/analytics";
-import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_STYLE_RU } from "@/contracts/quiz";
+import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_KIDS_RU, QUIZ_STYLE_RU } from "@/contracts/quiz";
 import { buildQuiz, quizPart } from "@/modules/partner-report/quiz";
 import { buildReport, type ReportInput } from "@/modules/partner-report/report";
 
@@ -42,16 +42,16 @@ const c = (kind: string, n: number, apartmentId = "flat215", day = "2026-10-20")
 const withQuiz = (counters: ReportInput["counters"], over: Partial<ReportInput> = {}): ReportInput => ({ ...noQuiz, counters: [...noQuiz.counters, ...counters], ...over });
 
 describe("блок «Знакомство»", () => {
-  it("все 35 счётчиков опроса из словаря `pageCounterKind` узнаются блоком, прочие — нет", () => {
+  it("все 38 счётчиков опроса из словаря `pageCounterKind` узнаются блоком, прочие — нет", () => {
     const quiz = pageCounterKind.options.filter((k) => quizPart(k));
-    expect(quiz).toHaveLength(35);
+    expect(quiz).toHaveLength(38);
     expect(pageCounterKind.options.filter((k) => !quizPart(k))).toEqual(OLD_KINDS);
-    for (const k of ["quiz_photo:pink", "quiz_child:5", "quiz_household:", "quiz_x:loft", "quiz"]) expect(quizPart(k)).toBeNull();
+    for (const k of ["quiz_photo:pink", "quiz_child:5", "quiz_kids:4", "quiz_household:", "quiz_x:loft", "quiz"]) expect(quizPart(k)).toBeNull();
   });
 
   it("у каждого значения ответа есть русская подпись словаря", () => {
     const dict: Record<string, Record<string, string>> = { photo: QUIZ_STYLE_RU, result: QUIZ_STYLE_RU, chosen: QUIZ_STYLE_RU,
-      household: QUIZ_HOUSEHOLD_RU, child: QUIZ_CHILD_RU, colour: QUIZ_COLOUR_RU };
+      household: QUIZ_HOUSEHOLD_RU, child: QUIZ_CHILD_RU, kids: QUIZ_KIDS_RU, colour: QUIZ_COLOUR_RU };
     for (const k of pageCounterKind.options) {
       const p = quizPart(k);
       if (p && "group" in p) expect(dict[p.group]![p.id], k).toBeTruthy();
@@ -61,7 +61,7 @@ describe("блок «Знакомство»", () => {
   it("действия и ответы суммируются по квартире за окно; заходы без ссылки и воронка — прежние", () => {
     const r = buildReport(withQuiz([c("quiz_open", 10), c("quiz_open", 4, "flat215", "2026-10-13"), c("quiz_done", 6), c("quiz_skip", 3),
       c("style_change", 2), c("quiz_photo:loft", 4), c("quiz_photo:scandi", 3), c("quiz_result:loft", 6), c("quiz_chosen:loft", 5),
-      c("quiz_household:couple", 4), c("quiz_household:pet", 1), c("quiz_colour:light", 5), c("quiz_open", 2, "uk1"), c("quiz_photo:pink", 9)]));
+      c("quiz_household:couple", 4), c("quiz_household:pet", 1), c("quiz_kids:2", 2), c("quiz_colour:light", 5), c("quiz_open", 2, "uk1"), c("quiz_photo:pink", 9)]));
     const old = JSON.parse(readFileSync(GOLDEN, "utf8")) as ReturnType<typeof buildReport>;
     expect(r.direct).toEqual(old.direct);
     expect(r.weeks).toEqual(old.weeks);
@@ -72,6 +72,7 @@ describe("блок «Знакомство»", () => {
     expect(f.household.map((h) => h.id)).toEqual(["single", "couple", "child", "pet", "guest"]);   // по словарю, нули — тоже ответ
     expect(f.household.find((h) => h.id === "couple")?.n).toBe(4);
     expect(f.child.every((x) => x.n === 0)).toBe(true);
+    expect(f.kids).toEqual([{ id: "1", n: 0 }, { id: "2", n: 2 }, { id: "3plus", n: 0 }]);   // сколько детей (T-20261106-94)
     expect(r.quiz![1]).toMatchObject({ open: 2, done: 0 });
   });
 

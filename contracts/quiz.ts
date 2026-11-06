@@ -16,6 +16,10 @@ export type QuizHousehold = z.infer<typeof quizHousehold>;
 export const quizChildAge = z.enum(["0-3", "3-7", "7-12", "teen"]);
 export type QuizChildAge = z.infer<typeof quizChildAge>;
 
+/** Сколько детей — при «С детьми» (`quiz.json` household → child → kids; владелец 06.11, T-20261106-94), один ответ. */
+export const quizKids = z.enum(["1", "2", "3plus"]);
+export type QuizKids = z.infer<typeof quizKids>;
+
 /** Цвета (`quiz.json` вопрос `colours`, семейства `palettes.families`). */
 export const quizColour = z.enum(["light", "warm", "cool", "accent"]);
 export type QuizColour = z.infer<typeof quizColour>;
@@ -30,6 +34,7 @@ export const QUIZ_HOUSEHOLD_RU: Record<QuizHousehold, string> = {
   single: "один", couple: "вдвоём", child: "с детьми", pet: "кошка или собака", guest: "часто родители или гости",
 };
 export const QUIZ_CHILD_RU: Record<QuizChildAge, string> = { "0-3": "до 3 лет", "3-7": "3–7 лет", "7-12": "7–12 лет", teen: "подросток" };
+export const QUIZ_KIDS_RU: Record<QuizKids, string> = { "1": "один ребёнок", "2": "двое детей", "3plus": "трое и больше" };
 export const QUIZ_COLOUR_RU: Record<QuizColour, string> = {
   light: "светлые нейтральные", warm: "тёплые природные", cool: "графит и холодные", accent: "с яркими акцентами",
 };
