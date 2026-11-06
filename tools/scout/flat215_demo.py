@@ -1161,16 +1161,30 @@ def bedroom_one_layout(recs: list, styles: list) -> dict:
     return out
 
 
-BEDROOM_MESH_GATE_ENV = 'BEDROOM_MESH_GATE'   # '0' — сторож модели предметов спальни выключен (откат, T-20261105-51/2)
+BEDROOM_MESH_GATE_ENV = 'BEDROOM_MESH_GATE'   # orient (по умолчанию) | strict | 0 — сторож модели предметов спальни (T-20261105-51)
+BEDROOM_MESH_GATE_MODES = ('orient', 'strict', '0')
 
 
-def bedroom_mesh_gate(rows=None, why: str = ''):
-    """Сторож модели предмета варианта спальни (`demo_bedroom.gate_items`): sku → '' (годен) или причина. Та же проверка, что у
-    выдачи каталога (`catalog_items.bound_asset` поверх `room_bindings.load_db`): привязка `ready` и модель выложена
-    (`published`); плюс сцена грузит именно эту модель (`msid` = `mesh_id` привязки — иначе в кадре меш представителя, которого
-    привязка не проверяла) и она есть в индексе прода (`_mesh_index`, без карантина) — иначе серая коробка.
+def orient_only(reasons) -> bool:
+    """Привязка держит товар ТОЛЬКО из-за нерешённого разворота (`orientation_*`, в т.ч. представителя `rep:orientation_*`)."""
+    return bool(reasons) and all(str(r).split(':')[-1].startswith('orientation_') for r in reasons)
+
+
+def bedroom_mesh_gate(rows=None, why: str = '', mode: str | None = None):
+    """Сторож модели предмета варианта спальни (`demo_bedroom.gate_items`): sku → '' (годен) или причина. Основа — та же
+    проверка, что у выдачи каталога (`catalog_items.bound_asset` поверх `room_bindings.load_db`). Режимы (`BEDROOM_MESH_GATE`):
+      strict — привязка `ready` и модель выложена привязкой (`published`);
+      orient (по умолчанию, решение ведущего T-51/3) — `ready` ИЛИ `blocked` только по развороту (`orientation_*`): брака у
+               модели нет, не решён лишь фронт; такой предмет годен, а `note(sku)` даёт причину — сборка пишет его строкой
+               `WARN:bedroom_orient_unresolved` и счётчиком (видно, что не решено, когда спальню включат на главной);
+      0 — выключен (откат).
+    В обоих режимах: сцена грузит именно модель привязки (`msid` = `mesh_id` — иначе в кадре меш представителя, которого
+    привязка не проверяла) и она в индексе прода (`_mesh_index`, без карантина) — иначе серая коробка.
     Привязка не читается — все предметы «unbound» с причиной (вариант честно пустеет, а не показывает заглушки)."""
-    if os.environ.get(BEDROOM_MESH_GATE_ENV) == '0':
+    mode = mode or os.environ.get(BEDROOM_MESH_GATE_ENV) or 'orient'
+    if mode not in BEDROOM_MESH_GATE_MODES:
+        raise SystemExit(f'{BEDROOM_MESH_GATE_ENV}={mode!r}? можно {", ".join(BEDROOM_MESH_GATE_MODES)}')
+    if mode == '0':
         print('WARN:bedroom_mesh_gate: выключен (BEDROOM_MESH_GATE=0) — предметы спальни без проверки модели', flush=True)
         return None
     import catalog_items as CI
@@ -1181,20 +1195,32 @@ def bedroom_mesh_gate(rows=None, why: str = ''):
             print(f'WARN:bedroom_mesh_gate: привязка не читается ({why}) — у предметов спальни моделей нет', flush=True)
     idx = _mesh_index()
 
+    def bound(s: dict) -> dict:
+        return CI.bound_asset({}, (rows or {}).get(str(s.get('sid') or '').replace('_', ':', 1)), why)
+
+    def loose(a: dict) -> bool:
+        return mode == 'orient' and not a['ready'] and a['mesh_status'] == 'blocked' and orient_only(a['reasons'])
+
     def ok(s: dict) -> str:
         sid, ms = s.get('sid'), s.get('msid')
         if not sid:
             return 'нет артикула'
-        a = CI.bound_asset({}, (rows or {}).get(sid.replace('_', ':', 1)), why)
-        if not a['ready']:
+        a = bound(s)
+        if not (a['ready'] or loose(a)):
             return f"привязка {a['mesh_status']}" + (f": {', '.join(a['reasons'][:2])}" if a['reasons'] else '')
-        if not a['published']:
+        if a['ready'] and not a['published']:
             return 'модель не выложена'
         if (a['mesh_id'] or '').replace(':', '_', 1) != ms:
             return f"сцена грузит {ms}, привязка проверила {a['mesh_id']}"
         if ms not in idx:
             return 'нет в индексе прода'
         return ''
+
+    def note(s: dict) -> str:
+        a = bound(s)
+        return ', '.join(a['reasons']) if loose(a) else ''
+    ok.note = note
+    ok.mode = mode
     return ok
 
 
@@ -1222,6 +1248,7 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     recs = DB.pick_records(bank, list(geos), styles)
     lays = bedroom_one_layout(recs, styles)
     gate = bedroom_mesh_gate()
+    unresolved = 0
     for rec in recs:
         v, why = DB.build_variant(rec, geos[rec['room_id']], _sku, _dims_of, style_id, hung=_hung,
                                   decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r),
@@ -1231,6 +1258,10 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
                   f"{e['now'][1]}", flush=True)
         for e in ((v or {}).get('missing_item') or []) + ((why or {}).get('mesh') or []):
             print(f"WARN:bedroom_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']} пустая — {e['why']}", flush=True)
+        for e in (v or {}).pop('orient_unresolved', None) or []:
+            unresolved += 1
+            print(f"WARN:bedroom_orient_unresolved: {rec['room_id']} «{rec.get('style')}» {e['role']} {e['msid']} — {e['why']}",
+                  flush=True)
         if why:
             print(f'WARN:demo_style_dropped: {why["room_id"]} «{why["style"]}» без {", ".join(map(str, why["missing"]))} — '
                   'не публикуем', flush=True)
@@ -1244,7 +1275,8 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
         feeds.setdefault(role, rows)
     print(f'спальни: включены {on}, банк {len(bank)} записей, вариантов {made}; ленты '
           + (', '.join(f'{r} {len(x)}' for r, x in sorted(bf.items())) or 'пусто')
-          + (' (без проверки моделей — сборка рядом)' if any_mesh else ''), flush=True)
+          + (' (без проверки моделей — сборка рядом)' if any_mesh else '')
+          + (f"; сторож {gate.mode}, разворот не решён у {unresolved} предметов вариантов" if gate else ''), flush=True)
     return geos, DB.bands([r.get('purpose') for r in bank if r.get('room_id') in geos])
 
 

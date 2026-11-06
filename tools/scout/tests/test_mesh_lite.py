@@ -1,6 +1,6 @@
 """Эскизная копия меша (`mesh_render.lite_parts`, T-20261105-51/2): флаг LITE_TEXTURE_SAFE — меш с текстурой, который без
-защиты границы не ужать, рисуется полным (иначе UV тянутся через швы атласа — пятна чужого цвета); по умолчанию флаг выключен
-и поведение прежнее. Без сети и файлов: меш синтетический (20 тыс. отдельных треугольников — граница весь меш).
+защиты границы не ужать, рисуется полным (иначе UV тянутся через швы атласа — пятна чужого цвета); по умолчанию включён
+(T-51/3), `LITE_TEXTURE_SAFE=0` — прежнее поведение. Без сети и файлов: меш синтетический (20 тыс. отдельных треугольников — граница весь меш).
     ~/venvs/scout/bin/python tools/scout/tests/test_mesh_lite.py"""
 import os
 import sys
@@ -53,7 +53,7 @@ except ImportError:
     print('SKIP: нет fast_simplification')
     sys.exit(0)
 
-check('флаг по умолчанию выключен', os.environ.get('LITE_TEXTURE_SAFE', '0') != '0' or MR.LITE_TEXTURE_SAFE is False)
+check('флаг по умолчанию включён (T-51/3), =0 — выключен', os.environ.get('LITE_TEXTURE_SAFE', '1') != '1' or MR.LITE_TEXTURE_SAFE is True)
 out, m = lite(True, False)
 check('без флага: граница не даёт ужать → упрощаем без неё (как было)', len(out[0].faces) < len(m.faces) * 0.7)
 out, m = lite(True, True)
