@@ -14,7 +14,8 @@ supersample ×2 и downscale — против зубцов.
 (`orient_policy.pub_trusted`, T-20261106-78: до p2 в прод уходили повороты нерешённых — Теджонс шкаф задом); иначе 0
 (сырой меш смотрит на камеру фото); прод не прочитан — прошлый манифест с меткой `:kept`. Пометка
 `orient=unresolved:<статус>:kept|zero`, поле `status`. «Симметрична по роли» у роли, ставшей направленной, —
-нерешённое со статусом `stale_by_role`. Фасад по глубине (`cabinet_front`) решение больше НЕ перебивает:
+нерешённое со статусом `stale_by_role`; роль — та, по которой решал каскад (`resolution.role`), а не манифест меша
+(30 столов с ролью «стул» в манифесте были ложно «устаревшими»). Фасад по глубине (`cabinet_front`) решение больше НЕ перебивает:
 на листах T-36/5 он выбирал утопленную заднюю стенку в рамке (решение 31.08 отменено; свидетелем — этап 2).
 Симметричные (`symmetric_by_role`): yaw БД — случайное наследие, не берётся — опубликованный поворот, нет — 0
 (`orient_policy.symmetric_yaw`, пометка `symmetric:kept|zero`).
@@ -44,7 +45,8 @@ import orient_policy as OP  # noqa: E402 — одно правило «реше�
 
 
 def orient_index() -> dict:
-    """Все решения боевого каскада одним запросом: revision_key → (status, source, legacy_front_yaw, md5 решения).
+    """Все решения боевого каскада одним запросом: revision_key → (status, source, legacy_front_yaw, md5 решения, роль
+    каскада).
     Ключ `sku|sha16 GLB|orient-v1` (как пишет `orient_worker.pending_meshes`) — решение берём ТОЧНО для этого GLB.
     Прежнее «последнее по артикулу» (Codex T-36/2): у 318 SKU 375 ревизий наклонной ветки, пересчёт старой ревизии
     делал её «последней» и её поворот ложился на другой GLB. md5 решения — для кэша: решение сменилось → перерисовать."""
@@ -53,14 +55,15 @@ def orient_index() -> dict:
     r = subprocess.run(['docker', 'exec', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-t', '-A',
                         '-F', '\x1f', '-c',
                         "SELECT revision_key, status, coalesce(resolution->>'source',''), "
-                        "coalesce(resolution->>'legacy_front_yaw',''), md5(coalesce(resolution::text,'')) "
+                        "coalesce(resolution->>'legacy_front_yaw',''), md5(coalesce(resolution::text,'')), "
+                        "coalesce(resolution->>'role','') "
                         f"FROM orientation_state WHERE revision_key LIKE '%|{ORIENT_CONTRACT}'"],
                        capture_output=True, text=True, timeout=300)
     out = {}
     for ln in r.stdout.splitlines():
         p = ln.split('\x1f')
-        if len(p) == 5 and p[3] != '':
-            out[p[0]] = (p[1], p[2], float(p[3]), p[4])
+        if len(p) == 6 and p[3] != '':
+            out[p[0]] = (p[1], p[2], float(p[3]), p[4], p[5])
     return out
 
 
@@ -400,7 +403,10 @@ def main() -> None:
         rk, dec = orient_for(man['sku'], glb, index)
         status = dec[0] if dec else 'none'
         prev = prev_man.get(sku) or {}
-        directed = OP.role_directed(man.get('role') or '', man.get('name') or '')
+        # направленность — по роли, с которой решал каскад (`resolution.role`; в манифесте меша роль бывает чужой:
+        # столы с ролью «стул»), нет её — по манифесту
+        role = (dec[4] if dec and len(dec) > 4 and dec[4] else '') or man.get('role') or ''
+        directed = OP.role_directed(role, man.get('name') or '')
         if OP.is_resolved(status) and OP.is_symmetric(dec[1]) and directed:
             # «симметрична по роли», а роль теперь направленная (прихожая, T-20261106-78): решение устарело — как
             # нерешённое, в прод не идёт, пока каскад не пересчитает (`orient_worker --recheck-roles`)

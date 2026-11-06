@@ -268,6 +268,15 @@ def main() -> None:
         merged_t, _ = PM.merge(prod_t, mt, only_resolved=True)
         check(merged_t[keys[3]] == prod_t[keys[3]] and merged_t[keys[4]] == prod_t[keys[4]],
               'устаревшее и нерешённое в прод не уходят (прод не затирается до пересчёта)')
+        # роль манифеста «комод» (направленная), а каскад решал по роли БД «стол обеденный» — не устаревшее (30 столов
+        # с ролью «стул» в манифесте, замер T-78)
+        ixt = json.load(open(idx, encoding='utf-8'))
+        ixt[f'{skus[3]}|{sha(keys[3])}|orient-v1'] = ['auto_resolved', 'symmetric_by_role', 90.0, 't3b', 'стол обеденный']
+        json.dump(ixt, open(idx, 'w', encoding='utf-8'), ensure_ascii=False)
+        rc, log = run(src, out_t, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub_t)
+        t3b = json.load(open(os.path.join(out_t, 'topview.json')))[keys[3]]
+        check(rc == 0 and t3b['status'] == 'auto_resolved' and 'symmetric' in t3b['orient'] and t3b['yaw'] == 180.0,
+              f"роль каскада «стол обеденный» сильнее роли манифеста: симметричный, прод 180 держится ({t3b.get('yaw')}, {t3b.get('orient')})")
         import topview_render as TR
         check(TR.kept_yaw('x', None, {'yaw': 180.0, 'orient': 'unresolved:vlm_pending:kept'}) == (180.0, 'kept')
               and TR.kept_yaw('x', None, {'yaw': 180.0, 'orient': 'unresolved:vlm_pending'}) == (0.0, 'zero')
