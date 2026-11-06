@@ -64,6 +64,8 @@ jobs:
       - run: node tools/ops/demo-realistic.mjs --selftest
       # сводка прода: 5xx — по журналу доступа Caddy, без двойного счёта строк журнала ошибок (T-20261106-66)
       - run: bash infra/server/prod-digest.sh --selftest
+      # выкладка только при изменении не-документов с выкатанной версии; белый список путей, сомнение → выкладка (T-20261106-66/2)
+      - run: bash tools/ops/deploy-need.sh --selftest
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test

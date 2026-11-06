@@ -36,12 +36,24 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      # Только память/доки с прошлой ВЫКАТАННОЙ версии → app и draft не пересоздаём (T-20261106-66: 60 перезапусков
+      # с 502 за сутки). Белый список и проверки — tools/ops/deploy-need.sh; любое сомнение или сбой шага → выкладка.
+      # Ручной запуск (workflow_dispatch) выкладывает всегда. Прод «не позади main» — `tools/ops/deploy-need.sh --status`.
+      - name: Нужна ли выкладка
+        id: need
+        if: github.event_name != 'workflow_dispatch'
+        continue-on-error: true
+        run: bash tools/ops/deploy-need.sh "$TARGET_SHA"
+
       - name: Проверка секрета
         id: gate
         run: |
           if [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "::warning::DEPLOY_SSH_KEY не задан — деплой пропущен."
+          elif [ "${{ steps.need.outputs.deploy }}" = "false" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "выкладка не нужна — сборка, выкат и smoke пропущены (причина — в шаге «Нужна ли выкладка»)"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
