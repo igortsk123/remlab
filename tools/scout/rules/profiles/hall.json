@@ -2,8 +2,8 @@
  "_about": "ПРИХОЖАЯ (room-pipeline-01 Б-2, T-20261105-44): каталог — room_catalog room='hall' (загрузчик tools/scout/hall_catalog.py, правила rules/hall-roles.json); расстановка — planner/hall.py:solve_hall, проверки — planner/hall_checks.py:validate_hall (реестр солвера «hall»). Наборы по стилю — tools/scout/compose_hall.py (composer hall, правила rules/hall-composition.json, T-20261105-48). Состав, шаблоны и нормы — services/planner-solver/rules/hall.json и occupancy.json по ссылке, не копией.",
  "schema_version": 1,
  "profile_id": "hall",
- "profile_version": "2026-11-05.2",
- "content_sha": "6365d02551f4",
+ "profile_version": "2026-11-06.1",
+ "content_sha": "a1549081d7a5",
  "room_type": "hall",
  "purposes": {
   "$ref": "tools/scout/rules/hall-roles.json#/purposes"
@@ -20,15 +20,19 @@
   "adapter": "catalog_items",
   "_why": "адаптер catalog_items знает прихожую (T-20261105-48): room_catalog room='hall' по условию показа hall_catalog.shown_where; стиль — product_style_scores своих товаров (catalog_rules.twin_scores_sql)"
  },
+ "lead_rule": "any",
+ "_lead_rule_why": "достаточно ЛЮБОГО хранения (rules/hall.json composition.storage_any, rules/hall-composition.json purposes.hall.storage): шкаф-купе, модуль-прихожая или напольная вешалка",
  "roles": {
   "шкаф-купе": {
    "source": "room_catalog",
-   "major": true
+   "major": true,
+   "lead": true
   },
   "прихожая": {
    "source": "room_catalog",
    "major": true,
-   "_why": "модуль (шкаф + вешалка + обувница); без полных размеров — только фото, в расстановку не идёт (rules/hall-roles.json roles_enabled_about)"
+   "_why": "модуль (шкаф + вешалка + обувница); без полных размеров — только фото, в расстановку не идёт (rules/hall-roles.json roles_enabled_about)",
+   "lead": true
   },
   "обувница": {
    "source": "room_catalog",
@@ -43,7 +47,8 @@
    "major": true
   },
   "вешалка": {
-   "source": "room_catalog"
+   "source": "room_catalog",
+   "lead": true
   },
   "зеркало": {
    "source": "room_catalog"

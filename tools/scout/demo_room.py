@@ -32,8 +32,8 @@ STYLE_AXES = os.path.join(HERE, 'rules', 'style-axes.json')
 class Showcase:
     """Что у витрины комнаты своё. Роли — базовые имена (без номера экземпляра «… 2»).
     solver_roles — ставит солвер (и проверяет сторож модели, запас — `role_spares`); place_roles — в сцену и план (солвер + место
-    из готовой расстановки записи, напр. ковёр); list_roles — в списке набора, не в 3D (`list_only`); mesh_free_roles — модель не
-    нужна (своя отрисовка); one_free_roles — «одна расстановка»: по центру места опорной; band_cm — полоса «подходящих по размеру»
+    из готовой расстановки записи, напр. ковёр); list_roles — в списке набора, не в 3D (`list_only`); нужна ли роли модель — не
+    список, а стратегия ассета (`needs_mesh`); one_free_roles — «одна расстановка»: по центру места опорной; band_cm — полоса «подходящих по размеру»
     ленты: {назначение | '*': {роль: {lo, hi}}}; tier_order/purpose_order — ячейка витрины на комнату и стиль;
     solve(geo, dims, purpose) — солвер комнаты → `{роль: {x, z, rot}, '_fill_pct'[, '_reason']}`."""
     room_type: str
@@ -41,16 +41,34 @@ class Showcase:
     place_roles: tuple
     solve: Callable
     list_roles: tuple = ()
-    mesh_free_roles: tuple = ()
     one_free_roles: tuple = ()
     tier_order: tuple = ()
     purpose_order: tuple = ()
     band_cm: dict = field(default_factory=lambda: {'*': {}})
+    # назначения, которые знает модель комнаты солвера (`planner.models.Room.purpose`); None — все назначения записи как есть
+    # (спальня), () — ни одного (у прихожей назначение записи «hall» — не назначение солвера, проверка без него)
+    solver_purposes: tuple | None = None
 
 
 def lead_roles(room_type: str) -> tuple:
     import room_profile as RP
     return RP.lead(RP.load(room_type))
+
+
+def profile_rules(room_type: str) -> tuple[tuple, bool, tuple]:
+    """Правила витрины из профиля комнаты (данные, не код; hall-demo-01 этап 3): (ведущие роли, «достаточно любой ведущей» —
+    `lead_rule: any`, у спальни `all` — нужны все; парные роли — `pair: true`: пронумерованное место расстановки «… 2» берёт товар
+    своей роли, у спальни тумба и лампа)."""
+    import room_profile as RP
+    P = RP.load(room_type)
+    return RP.lead(P), RP.lead_rule(P) == 'any', RP.pairs(P)
+
+
+def needs_mesh(role: str) -> bool:
+    """Нужна ли роли модель — по канону стратегий ассета (`rules/asset-strategies.json`): `hunyuan3d` — да; ковёр и зеркало
+    (`procedural_plane`) рисуются плоскостью из фото — сторож модели и лента их не держат (Codex 06.11: от стратегии, не от списка)."""
+    import asset_strategy as AS
+    return AS.strategy(role) == 'hunyuan3d'
 
 
 def neighbour_styles(style: str, path: str = STYLE_AXES) -> list:
@@ -134,8 +152,11 @@ def room_geo(spec: Showcase, room_id: str, path: str, reg: dict | None = None, e
         return None
     reg = reg or {}
     title = f"{reg.get('titleRu') or room_id} {reg['areaM2']} м²" if reg.get('areaM2') else (reg.get('titleRu') or room_id)
+    # КОНТУР (hall-demo-01 этап 3): не прямоугольная комната (Г-образная прихожая) — вершины, см; без него витрина рисовала бы
+    # прямоугольник w×d. Нет контура — поля нет (спальни побайтно прежние)
     return {'w': rec['w'], 'd': rec['d'], 'title': title, 'kind': reg.get('kind') or spec.room_type,
-            'openings': _clean(rec.get('openings')), 'radiators': _clean(rec.get('radiators')), **(extra or {})}
+            'openings': _clean(rec.get('openings')), 'radiators': _clean(rec.get('radiators')),
+            **({'contour': rec['contour']} if rec.get('contour') else {}), **(extra or {})}
 
 
 # ОДНА РАССТАНОВКА НА ВСЕ СТИЛИ (T-20261105-32/4, решение ведущего «А»; как у гостиной demo-31 `demo_one_layout.py`):
@@ -204,9 +225,12 @@ def hard_codes(spec: Showcase, art: dict, purpose: str | None) -> set:
     from planner.models import Item, Opening, Placement, Radiator, Room
     from planner.validate import validate
     r = art['_room']
+    if spec.solver_purposes is not None and purpose not in spec.solver_purposes:
+        purpose = None
     room = Room(width_cm=r['w'], depth_cm=r['d'], openings=[Opening(**o) for o in _clean(r.get('openings'))],
-                radiators=[Radiator(**o) for o in _clean(r.get('radiators'))], room_type=spec.room_type, purpose=purpose)
-    ps = [Placement(role=k, x=v['x'], y=v['z'], rot=int(v.get('rot') or 0),
+                radiators=[Radiator(**o) for o in _clean(r.get('radiators'))], room_type=spec.room_type, purpose=purpose,
+                contour=r.get('contour'))
+    ps = [Placement(role=k, x=v['x'], y=v['z'], rot=int(v.get('rot') or 0), elev_cm=v.get('elev') or 0,
                     item=Item(role=k, w_cm=v['w'], d_cm=v['d'], h_cm=v.get('h') or 60)) for k, v in _placed(spec, art).items()]
     return {f"{v.code}|{','.join(sorted(v.roles))}" for v in validate(room, ps).violations if v.severity.name == 'HARD'}
 
@@ -257,7 +281,7 @@ def variant_id(room_id: str, style_id: str) -> str:
 
 # СТОРОЖ МОДЕЛИ ПРЕДМЕТА (T-20261105-51/2): в вариант идёт только товар, чья модель готова и выложена — иначе сцена рисует серую
 # «коробку» (404 → заглушка `lib/viewer3d/viewer.ts`) или чужой меш. Проверку даёт сборка (`mesh_ok(sku) → ''` или причина);
-# роли без модели (`mesh_free_roles`: ковёр — своя отрисовка по фото) сторож не трогает.
+# роли без модели по стратегии ассета (`needs_mesh`: ковёр, зеркало — плоскость по фото) сторож не трогает.
 def _instances(role: str, art: dict | None) -> list:
     """Места роли в расстановке: сама роль и пронумерованные экземпляры («тумба прикроватная 2»)."""
     return [r for r in (art or {}) if not r.startswith('_') and isinstance(art[r], dict) and base_role(r) == role]
@@ -302,7 +326,7 @@ def gate_items(spec: Showcase, rec: dict, art: dict | None, sku, dims_of, mesh_o
         n = note(x) if note and x else ''
         if n:
             orient.append({'role': role, 'msid': x.get('msid'), 'why': n})
-    for role in [r for r in list(items) if base_role(r) == r and r in spec.solver_roles]:
+    for role in [r for r in list(items) if base_role(r) == r and r in spec.solver_roles and needs_mesh(r)]:
         s = sku(items, role)
         why = mesh_ok(s) if s else 'нет товара'
         if not why:
@@ -342,13 +366,21 @@ def gate_items(spec: Showcase, rec: dict, art: dict | None, sku, dims_of, mesh_o
 
 
 def build_variant(spec: Showcase, rec: dict, geo: dict, sku, dims_of, style_id, hung=lambda n: False, decor_role=lambda r: False,
-                  layout=None, mesh_ok=None, spares: dict | None = None, lead=None) -> tuple[dict | None, dict | None]:
+                  layout=None, mesh_ok=None, spares: dict | None = None, lead=None, lead_any: bool | None = None,
+                  pairs=None) -> tuple[dict | None, dict | None]:
     """Запись банка → (вариант витрины, None) или (None, строка `incomplete_styles`). `sku(items, role)` и `dims_of(v, sku, role)`
     — функции сборки (`flat215_demo._sku`, `_dims_of`): товар и габарит из каталога, как у гостиной. `mesh_ok(sku)` — сторож
     модели (`gate_items`; None — без проверки): замены — в `mesh_swaps` варианта, пустые роли — в `missing_item` с причиной,
     пропущенные с нерешённым разворотом — в `orient_unresolved` (сборка снимает поле в журнал). `spares` — запас ролей солвера
-    (`role_spares`), `lead` — ведущие роли (None — из профиля, `lead_roles`): нет хотя бы одной — вариант не публикуется."""
-    lead = tuple(lead) if lead is not None else lead_roles(rec.get('room_type') or spec.room_type)
+    (`role_spares`), `lead` — ведущие роли, `lead_any` — достаточно любой из них, `pairs` — парные роли (None — из профиля,
+    `profile_rules`): правило ALL — нет хотя бы одной ведущей, ANY — нет ни одной → вариант не публикуется. Предмет с подъёмом над
+    полом (зеркало солвера прихожей, `elev`, см) несёт его в вариант — сцена вешает на стену (`fromDemo.ts`), не ставит на пол."""
+    if lead is None or lead_any is None or pairs is None:
+        p_lead, p_any, p_pairs = profile_rules(rec.get('room_type') or spec.room_type)
+        lead = p_lead if lead is None else lead
+        lead_any = p_any if lead_any is None else lead_any
+        pairs = p_pairs if pairs is None else pairs
+    lead, pairs = tuple(lead), tuple(pairs)
     items = rec.get('items') or {}
     style = rec.get('style') or ''
     sid = style_id(style)
@@ -360,8 +392,9 @@ def build_variant(spec: Showcase, rec: dict, geo: dict, sku, dims_of, style_id, 
     swaps, empty, orient = [], [], []
     if mesh_ok is not None:
         items, art, swaps, empty, orient = gate_items(spec, rec, art, sku, dims_of, mesh_ok, spares)
-    # экземпляры ролей: товары записи и пронумерованные места готовой расстановки («тумба прикроватная 2» — товар базовой роли)
-    roles = list(items) + [r for r in (art or {}) if not r.startswith('_') and r not in items and base_role(r) in items]
+    # экземпляры ролей: товары записи и пронумерованные места готовой расстановки парной роли («тумба прикроватная 2» — товар базовой)
+    roles = list(items) + [r for r in (art or {}) if not r.startswith('_') and r not in items and base_role(r) in items
+                           and base_role(r) in pairs]
     for role in roles:
         if base_role(role) not in spec.place_roles:
             continue
@@ -385,16 +418,19 @@ def build_variant(spec: Showcase, rec: dict, geo: dict, sku, dims_of, style_id, 
             s = dict(s, hung=True)
         objs.append({'role': role, 'x': round(p['x'], 1), 'y': round(p['z'], 1), 'rot': int(p.get('rot') or 0),
                      'w': dm['w'], 'd': dm['d'], 'h': dm['h'], 'dims_src': dm.get('dims_src'), 'sku': s,
-                     'corner': False, 'corner_left': False, 'section': None})
+                     'corner': False, 'corner_left': False, 'section': None, **({'elev': p['elev']} if p.get('elev') else {})})
     have = {base_role(o['role']) for o in objs}
     lost = [c for c in lead if c not in have]
+    if lead_any and len(lost) < len(lead):   # ANY (прихожая — «любое хранение», `hall-composition.json:storage`)
+        lost = []
     if lost:
         return None, {**miss, 'missing': lost + list(art.get('_reason') or []),
                       **({'mesh': [e for e in empty if e['role'] in lost]} if empty else {}),
                       **({'orient_unresolved': len(orient)} if orient else {})}
     decor = []
     lst = lambda r: decor_role(r) or base_role(r) in spec.list_roles   # noqa: E731
-    for role in list(items) + [r for r in art if not r.startswith('_') and r not in items and lst(base_role(r))]:
+    for role in list(items) + [r for r in art if not r.startswith('_') and r not in items and lst(base_role(r))
+                               and (base_role(r) == r or base_role(r) in pairs)]:
         if lst(role) or lst(base_role(role)):
             s = sku(items, role)
             if s:
@@ -428,9 +464,8 @@ def feed_row(role: str, it: dict, style: str | None, msid, mesh_ok, alive=lambda
     """Товар комнаты → строка ленты замен (поля как у ленты гостиной). Только с фото, габаритами и годной моделью (правило
     владельца 01.09: в замену — то, что видно в 3D). `mesh_ok(sku) → ''` (годен) или причина — ТОТ ЖЕ сторож, что у предметов
     варианта (`flat215_demo.bedroom_mesh_gate` → `room_bindings.usable`, T-20261106-77 Д1). Роли, которым модель по канону не
-    нужна (`asset_strategy`: ковёр — плоскость из фото, как в гостиной), сторожа не проходят и высоты не требуют."""
-    import asset_strategy as AS
-    needs = AS.strategy(role) == 'hunyuan3d'
+    нужна (`needs_mesh`: ковёр, зеркало — плоскость из фото), сторожа не проходят и высоты не требуют."""
+    needs = needs_mesh(role)
     if not it or not it.get('img') or not (it.get('w') and it.get('d') and (it.get('h') or not needs)):
         return None
     sid = f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else it.get('sid')

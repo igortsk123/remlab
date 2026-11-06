@@ -49,7 +49,7 @@ BAND_CM = {'couple': {'кровать': {'lo': 160, 'hi': 205}}, 'single': {'к�
            'guest': {'кровать': {'lo': 140, 'hi': 205}}, '*': {'тумба прикроватная': {'lo': 30, 'hi': 65}}}
 # одна расстановка на все стили: ковёр встаёт по центру места опорной (`demo_room.one_layout`)
 ONE_FREE_ROLES = ('ковёр',)
-# у ковра модели нет — его рисует своя отрисовка по фото, сторож модели его не трогает
+# у ковра модели нет — его рисует своя отрисовка по фото; ядро решает по стратегии ассета (`demo_room.needs_mesh`), имя — справка
 MESH_FREE_ROLES = ('ковёр',)
 
 
@@ -70,8 +70,7 @@ def solve(geo: dict, dims: list, purpose: str | None) -> dict:
 
 
 SPEC = R.Showcase(room_type='bedroom', solver_roles=SOLVER_ROLES, place_roles=PLACE_ROLES, solve=solve, list_roles=LIST_ROLES,
-                  mesh_free_roles=MESH_FREE_ROLES, one_free_roles=ONE_FREE_ROLES, tier_order=TIER_ORDER,
-                  purpose_order=PURPOSE_ORDER, band_cm=BAND_CM)
+                  one_free_roles=ONE_FREE_ROLES, tier_order=TIER_ORDER, purpose_order=PURPOSE_ORDER, band_cm=BAND_CM)
 
 
 # --- прежние имена спальни поверх ядра (подписи и значения по умолчанию — как до переноса) ---
@@ -126,8 +125,9 @@ def gate_items(rec: dict, art: dict | None, sku, dims_of, mesh_ok, spares: dict 
 
 
 def build_variant(rec: dict, geo: dict, sku, dims_of, style_id, hung=lambda n: False, decor_role=lambda r: False,
-                  layout=None, mesh_ok=None, spares: dict | None = None, lead=None) -> tuple[dict | None, dict | None]:
-    return R.build_variant(SPEC, rec, geo, sku, dims_of, style_id, hung, decor_role, layout, mesh_ok, spares, lead)
+                  layout=None, mesh_ok=None, spares: dict | None = None, lead=None, lead_any: bool | None = None,
+                  pairs=None) -> tuple[dict | None, dict | None]:
+    return R.build_variant(SPEC, rec, geo, sku, dims_of, style_id, hung, decor_role, layout, mesh_ok, spares, lead, lead_any, pairs)
 
 
 def pick_records(bank: list, rooms: list, styles: list) -> list:

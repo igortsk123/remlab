@@ -399,7 +399,9 @@ def record(C: Composer, spec: dict, style: str, tier: str, res: dict) -> dict:
                  'tolerance': list(C.tol), 'qty': 1, 'mesh': True, 'storage': r == res['storage']} for r in chosen}
     layout = {p.role: {'x': p.x, 'z': p.y, 'rot': int(p.rot), 'w': p.item.w_cm, 'd': p.item.d_cm, 'h': p.item.h_cm,
                        'elev': p.elev_cm, 'sid': p.item.item_id} for p in lay.placements}
+    # контур Г-образного варианта (l-doors) — в комнату записи: витрина и перепроверка (`_room_model`) берут её, не чертёж (hall-demo-01 этап 3)
     layout['_room'] = {'id': spec['id'], 'variant': spec['variant'], 'w': spec['w'], 'd': spec['d'],
+                       **({'contour': spec['contour']} if spec.get('contour') else {}),
                        'openings': [{k: v for k, v in o.items() if not k.startswith('_')} for o in spec.get('openings', [])],
                        'radiators': [{k: v for k, v in r.items() if not k.startswith('_')} for r in spec.get('radiators', [])],
                        'entrance_note': entrance_note(spec)}

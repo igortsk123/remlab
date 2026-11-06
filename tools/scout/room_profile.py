@@ -189,6 +189,17 @@ def lead(P: dict) -> tuple:
     return tuple(r for r, v in P['roles'].items() if v.get('lead'))
 
 
+def lead_rule(P: dict) -> str:
+    """Правило ведущих витрины: `all` — нужны все (спальня: кровать и тумба), `any` — достаточно любой (прихожая: любое хранение).
+    Нет поля — `all` (прежнее поведение)."""
+    return P.get('lead_rule') or 'all'
+
+
+def pairs(P: dict) -> tuple:
+    """Парные роли (`pair`): пронумерованное место расстановки («тумба прикроватная 2») берёт товар своей роли — в порядке ролей."""
+    return tuple(r for r, v in P['roles'].items() if v.get('pair'))
+
+
 def hard(P: dict, role: str, key: str, default=None):
     return (P['roles'].get(role, {}).get('hard') or {}).get(key, default)
 
