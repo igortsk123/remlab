@@ -41,6 +41,9 @@ class Opening(BaseModel):
     # прежняя модель съедала лишнее место у входа.
     hinge: Literal["left", "right"] = "left"
     height_cm: float | None = Field(default=None, gt=0, description="высота проёма (верх окна от подоконника, дверь — от пола)")
+    # ВХОД — ДАННЫЕ ЭКЗЕМПЛЯРА (hall-demo-01 этап 1, T-20261106-72; Codex 06.11 §1): входная дверь квартиры помечена флагом,
+    # а не угадывается «первая дверь на юге» (`hall_checks.entrance`; в TS — `contracts/apartment.ts:opening.isEntrance`)
+    is_entrance: bool = False
 
 
 class Radiator(BaseModel):

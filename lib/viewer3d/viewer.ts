@@ -12,7 +12,7 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 import type { Apartment, Placement, Room } from "@/contracts/apartment";
-import { findRoom, isIsolatedRoom, roomAt, roomCentre } from "@/contracts/apartment";
+import { entranceOf, findRoom, isIsolatedRoom, roomAt, roomCentre } from "@/contracts/apartment";
 import { material as materialSchema, type Catalogue, type Material } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
 import { isExtra, type ObjectSpec, planObjects, surfacesByRoom } from "@/lib/viewer3d/build-scene";
@@ -27,6 +27,14 @@ import { outlineFrame } from "@/lib/viewer3d/outline";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { boxPoints, livePitchDeg, liveSpot, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
+
+// ВХОД БЕЗ ФЛАГА (T-20261106-72): прихожая без проёма `isEntrance` — вход угадан стеной; говорим об этом один раз на комнату
+const entranceWarned = new Set<string>();
+function warnEntranceOnce(roomId: string, wall: string): void {
+  if (entranceWarned.has(roomId)) return;
+  entranceWarned.add(roomId);
+  console.warn(`прихожая ${roomId}: нет проёма с isEntrance — вход угадан по стене ${wall}`);
+}
 
 const CM = 0.01;
 // пределы «кукольного дома»: ближе 2,4 м камера влезает в мебель, дальше 30 м квартира — точка
@@ -341,10 +349,13 @@ export class FlatViewer {
       const s = surfaces.get(room.id) ?? {};
       const floorMat = s.floor?.material ?? this.kitCtx.fallback;
       const wallMat = s.wall?.material ?? this.kitCtx.fallback;
-      // прихожая: южная стена — вход в квартиру, там полотно закрыто. Комната без соседей (живая сцена демо, комнаты варианта
+      // вход в квартиру — проём с `isEntrance` (данные экземпляра, T-20261106-72), его полотно закрыто; флага нет — у прихожей
+      // прежняя эвристика «южная стена» с предупреждением (`entranceOf`). Комната без соседей (живая сцена демо, комнаты варианта
       // витрины в /flat — ряд с зазором, onb-11): двери ведут в несуществующее — полотно закрыто, как на интерьерном снимке и на
       // серверном кадре (`tools/flat3d/opening-ir.mjs`); распахнутое у угла закрывало четверть кадра (demo-04, 14.10)
-      const entranceWall = room.kind === "hall" ? "south" : undefined;
+      const ent = entranceOf(room);
+      if (!ent.flagged && ent.fallbackWall) warnEntranceOnce(room.id, ent.fallbackWall);
+      const entranceWall = ent.fallbackWall;
       const doorsClosed = isIsolatedRoom(this.apartment, room);
       const accent = s.wall?.accent;
       const { group, floor } = buildRoom(this.matCtx, room, floorMat, wallMat, { entranceWall, doorsClosed, ...(accent ? { accent } : {}) });

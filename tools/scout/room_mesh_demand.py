@@ -60,13 +60,17 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, 'salad'))
+import room_profile as _RP  # noqa: E402
 
 K_DEFAULT = 3
 BUDGET_RUB = 500.0          # ОБЩИЙ потолок владельца на меши всех комнат (план room-pipeline-01 § Деньги) — см. ledger
 BUDGET_SINCE = '2026-11-05T00:00:00+00:00'   # учёт с начала трека комнат (onb-10 создан 05.11; волны T-11 13,8 + 48,5 ₽ — в счёт, решение ведущего T-75/1)
 PRICE_RUB = 1.4             # верх замера T-11 (13,8 ₽ / 10); волна 45 моделей — 1,08 ₽
 PRICE_LOW_RUB = 1.1
-ROOMS = ('bedroom',)        # спрос по слотам: комнаты со сборщиком наборов и банком; прихожая — по `--hall-bank` (T-72 — реестр)
+# РЕЕСТР ВОЗМОЖНОСТЕЙ КОМНАТЫ (room_profile.CAPABILITIES, T-72): у кого шаг «спрос мешей» — этот модуль. По вариантам витрины
+# (`--want` / `--hall-bank`) — все они; по слотам (`demand`) — только комнаты со сборщиком compose_bedroom: `demand` читает его правила
+WANT_ROOMS = _RP.rooms_with('mesh_demand', 'room_mesh_demand')
+ROOMS = tuple(t for t in WANT_ROOMS if _RP.capability(t, 'bank') == 'compose_bedroom')
 WAVES_FILE = os.environ.get('MESH_WAVE_MANUAL') or os.path.expanduser('~/scout-scenes/wave-manual.json')   # = salad/wave_cap.PATH
 RESERVE_FILE = os.environ.get('ROOM_MESH_RESERVE') or os.path.expanduser('~/scout-scenes/room-mesh-reserve.jsonl')
 WANT_FILE = os.path.join(HERE, 'rules', 'room-mesh-want.json')
@@ -602,6 +606,8 @@ def want_demand(room: str, entries: list, price: float, fetch=None) -> dict:
     import room_catalog as RC
     import room_mesh_jobs as RMJ
     fetch = fetch or __import__('catalog_items').fetch
+    if room not in WANT_ROOMS:
+        raise DemandError(f'комната {room}: шага «спрос мешей» в реестре нет (есть: {", ".join(WANT_ROOMS)})')
     mh = int(RC.rules().get('missing_hide_after', 1))
     E0 = [e for e in entries if e['room'] == room]
     if not E0:
@@ -807,6 +813,22 @@ def _selftest() -> int:
         ok('комната без банка/сборщика — явная ошибка', False)
     except DemandError:
         ok('комната без банка/сборщика — явная ошибка', True)
+    wref = []
+    for t in ('living', 'kitchen'):          # спрос по вариантам — тоже по реестру: отказ до чтения каталога
+        try:
+            want_demand(t, [{'room': t, 'sku': '1:x', 'role': 'диван', 'why': 'empty'}], 1.4, fetch=lambda *_: [])
+        except DemandError as e:
+            wref.append('реестре нет' in str(e))
+    ok('спрос по вариантам: living и kitchen — отказ по реестру, прихожая и спальня — в реестре',
+       wref == [True, True] and WANT_ROOMS == ('bedroom', 'hall'))
+    refused = []
+    for t in ('living', 'kitchen'):          # реестр возможностей (T-20261106-72): адаптер спальни для них не запускается
+        try:
+            demand(t, __file__, 3, 500, 1.4)
+        except DemandError:
+            refused.append(t)
+    ok('living и kitchen — отказ до сборщика спальни (реестр возможностей)', refused == ['living', 'kitchen']
+       and 'compose_bedroom' not in sys.modules)
     try:
         demand('bedroom', '/нет/банка.json', 3, 500, 1.4)
         ok('нет файла банка — явная ошибка', False)

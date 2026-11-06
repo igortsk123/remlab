@@ -1232,7 +1232,14 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     (живой `sets-bedroom.json`; у сборки рядом — `BEDROOM_SETS` или кандидат `.next`); там же `FLAT215_FEED_ANY_MESH=1` пускает в ленту товары без модели (проверка ленты, пока
     меши кроватей не выложены, onb-10) — у папки витрины это отказ."""
     import demo_bedroom as DB
-    on = [r for r in flags.get('rooms_enabled') or [] if r.startswith('bedroom')]
+    import room_profile as RP
+    # комнаты, чья витрина — адаптер спальни: по реестру возможностей (`room_profile.CAPABILITIES`, T-20261106-72), не по префиксу
+    # id; включённая комната без строки реестра (тип неизвестен) — отказ сборки, а не молча мимо
+    try:
+        on = [rid for rid, _k in RP.enabled_rooms('demo', flags.get('rooms_enabled') or [], apt.get('rooms') or [],
+                                                  'demo_bedroom')]
+    except ValueError as e:
+        raise SystemExit(f'витрина: {e}') from None
     if not on:
         return {}, {}
     test_env = [k for k in (BEDROOM_SETS_ENV, FEED_ANY_MESH_ENV) if os.environ.get(k)]

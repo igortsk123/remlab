@@ -92,6 +92,18 @@ check('спальни: флаг выключен — данные гостино
       and vs0 == [{'id': 'set1', 'style': 'сканди'}] and fd0 == {'диван': []} and inc0 == [])
 check('спальни: включена только кухня — спальни не строятся', F.bedroom_variants(F.demo_apartment(), {'rooms_enabled': ['kitchen']},
                                                                                 vs0, fd0, inc0, liv, {}) == ({}, {}))
+# РЕЕСТР ВОЗМОЖНОСТЕЙ (T-20261106-72): гостиная, кухня и прихожая адаптер спальни не запускают (банк спальни не читается —
+# иначе без BEDROOM_SETS здесь был бы отказ «банка нет»); включённая комната неизвестного реестру типа — отказ сборки
+check('реестр: living + kitchen + hall — адаптер спальни не запускается',
+      F.bedroom_variants(F.demo_apartment(), {'rooms_enabled': ['living', 'kitchen', 'hall']}, vs0, fd0, inc0, liv, {}) == ({}, {})
+      and vs0 == [{'id': 'set1', 'style': 'сканди'}] and inc0 == [])
+for bad in (['bathroom-1'], ['bedroom-9']):
+    try:
+        F.bedroom_variants(F.demo_apartment(), {'rooms_enabled': bad}, vs0, fd0, inc0, liv, {})
+        why = 'ok'
+    except SystemExit as e:
+        why = str(e)
+    check(f'реестр: включена {bad[0]} (тип вне реестра / нет в квартире) — отказ сборки', why.startswith('витрина: room_profile'))
 
 print('итог:', 'FAIL' if fails else 'OK')
 sys.exit(1 if fails else 0)

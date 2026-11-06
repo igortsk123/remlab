@@ -27,7 +27,7 @@ export type RoomGeo = {
   finish?: Record<string, { id?: string; colorHex?: string }>;
   openings?: {
     kind?: string; wall?: string; offset_cm?: number; width_cm?: number; sill_cm?: number; height_cm?: number;
-    swing_cm?: number; hinge?: string; into?: boolean;
+    swing_cm?: number; hinge?: string; into?: boolean; is_entrance?: boolean;
   }[];
 };
 type Variant = { id?: string; style?: string; room_id?: string; room_type?: string };

@@ -1,70 +1,76 @@
 {
- "_about": "ЭКЗАМЕН ПРИХОЖЕЙ (план onb-13 Т3, T-20261105-34; по образцу bedroom-scenes.json). Комнаты: свои ниже + flat215 из flat215-hall.json (ключ flat215:hall:<variant>). Вход — первая дверь южной стены, иначе первая дверь (rules/hall.json _meta.entrance_note). Наборы — размеры НАСТОЯЩИХ товаров каталога прихожей (hall_catalog.py --measure, 05.11), кроме отмеченных. expect: solve — 0 жёстких, хранение одежды стоит; fail — отказ с кодом причины.",
+ "_about": "ЭКЗАМЕН ПРИХОЖЕЙ (план onb-13 Т3, T-20261105-34; по образцу bedroom-scenes.json). Комнаты: свои ниже + flat215 из flat215-hall.json (ключ flat215:hall:<variant>). Вход — проём с `is_entrance: true` у каждой комнаты (данные экземпляра, T-20261106-72; без флага солвер угадывает по rules/hall.json _meta.entrance_note и пишет WARN). Наборы — размеры НАСТОЯЩИХ товаров каталога прихожей (hall_catalog.py --measure, 05.11), кроме отмеченных. expect: solve — 0 жёстких, хранение одежды стоит; fail — отказ с кодом причины.",
  "rooms": {
   "c110x400": {"w": 110, "d": 400, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 10, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 10, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "east", "offset_cm": 250, "width_cm": 80, "swing_cm": 0}],
    "_why": "узкий коридор 1,1 м: вдоль стены помещается только мелкое (≤ 25 см), проход 85"},
   "c120x450": {"w": 120, "d": 450, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 15, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 15, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "west", "offset_cm": 200, "width_cm": 80, "swing_cm": 0},
    {"kind": "door", "wall": "north", "offset_cm": 20, "width_cm": 70, "swing_cm": 70}],
    "_why": "коридор 1,2 м, дверь санузла в торце открывается в коридор"},
   "c140x500": {"w": 140, "d": 500, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 25, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 25, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "west", "offset_cm": 150, "width_cm": 80, "swing_cm": 0},
    {"kind": "door", "wall": "east", "offset_cm": 330, "width_cm": 80, "swing_cm": 0}],
    "_why": "коридор 1,4 м, двери на обеих длинных стенах — купе глубиной 60 не встаёт (140−60 < 85), только мелкое"},
   "c160x600": {"w": 160, "d": 600, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 35, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 35, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "west", "offset_cm": 180, "width_cm": 80, "swing_cm": 0},
    {"kind": "door", "wall": "west", "offset_cm": 400, "width_cm": 80, "swing_cm": 0},
    {"kind": "door", "wall": "east", "offset_cm": 300, "width_cm": 80, "swing_cm": 0},
    {"kind": "door", "wall": "north", "offset_cm": 40, "width_cm": 70, "swing_cm": 70}],
    "_why": "длинный коридор 1,6 м, пять дверей по обе стороны"},
   "sq200": {"w": 200, "d": 200, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 20, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 20, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "east", "offset_cm": 100, "width_cm": 80, "swing_cm": 0},
    {"kind": "door", "wall": "north", "offset_cm": 110, "width_cm": 80, "swing_cm": 0}],
    "_why": "квадратная 2×2 — холл с тремя дверями"},
   "wide250x350": {"w": 250, "d": 350, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 80, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 80, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "west", "offset_cm": 200, "width_cm": 80, "swing_cm": 0},
    {"kind": "door", "wall": "north", "offset_cm": 30, "width_cm": 80, "swing_cm": 0},
    {"kind": "door", "wall": "east", "offset_cm": 150, "width_cm": 80, "swing_cm": 0}],
    "_why": "просторный холл 8,75 м²"},
   "entr_west180x300": {"w": 180, "d": 300, "openings": [
-   {"kind": "door", "wall": "west", "offset_cm": 30, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "west", "offset_cm": 30, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "east", "offset_cm": 150, "width_cm": 80, "swing_cm": 0},
    {"kind": "door", "wall": "north", "offset_cm": 50, "width_cm": 80, "swing_cm": 0}],
    "_why": "на юге двери нет — вход = первая дверь (запад)"},
   "corner150x400": {"w": 150, "d": 400, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 0, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 0, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "east", "offset_cm": 300, "width_cm": 80, "swing_cm": 0}],
    "_why": "входная дверь в углу (у западной стены)"},
   "rad140x450": {"w": 140, "d": 450, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 25, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 25, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "west", "offset_cm": 250, "width_cm": 80, "swing_cm": 0}],
    "radiators": [{"wall": "east", "offset_cm": 100, "width_cm": 80, "depth_cm": 10}],
    "_why": "радиатор на длинной стене — к нему мебель не ставим"},
   "bath150x400": {"w": 150, "d": 400, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 30, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 30, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "north", "offset_cm": 30, "width_cm": 70, "swing_cm": 70},
    {"kind": "door", "wall": "east", "offset_cm": 200, "width_cm": 70, "swing_cm": 70}],
    "_why": "две двери санузлов открываются в коридор — их дуги свободны"},
   "l250x300": {"w": 250, "d": 300, "contour": [[0, 0], [120, 0], [120, 180], [250, 180], [250, 300], [0, 300]], "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 15, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 15, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "east", "offset_cm": 200, "width_cm": 80, "swing_cm": 0},
    {"kind": "door", "wall": "north", "offset_cm": 150, "width_cm": 80, "swing_cm": 0}],
    "_why": "Г-образная: коридор 1,2 м от входа и поворот"},
   "c90x400": {"w": 90, "d": 400, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 0, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 0, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "north", "offset_cm": 10, "width_cm": 70, "swing_cm": 0}],
    "_why": "коридор 0,9 м — уже прохода 85 плюс любая мебель: хранению места нет"},
   "tiny100x120": {"w": 100, "d": 120, "openings": [
-   {"kind": "door", "wall": "south", "offset_cm": 5, "width_cm": 90, "swing_cm": 0},
+   {"kind": "door", "wall": "south", "offset_cm": 5, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
    {"kind": "door", "wall": "north", "offset_cm": 10, "width_cm": 80, "swing_cm": 0}],
-   "_why": "тамбур 1,2 м²"}
+   "_why": "тамбур 1,2 м²"},
+  "east153x620": {"w": 153, "d": 620, "openings": [
+   {"kind": "door", "wall": "east", "offset_cm": 20, "width_cm": 90, "is_entrance": true, "swing_cm": 0},
+   {"kind": "door", "wall": "west", "offset_cm": 160, "width_cm": 85, "swing_cm": 0},
+   {"kind": "door", "wall": "west", "offset_cm": 420, "width_cm": 85, "swing_cm": 0},
+   {"kind": "door", "wall": "north", "offset_cm": 20, "width_cm": 70, "swing_cm": 70}],
+   "_why": "геометрия бывшего варианта flat215 entrance-east (отклонён владельцем 06.11, архив `flat215-hall.json` archived_rooms): вход по флагу не на юге — солвер берёт его, а не эвристику"}
  },
  "kits": {
   "full": [["шкаф-купе", 150, 60, 240], ["обувница", 99, 39, 44], ["банкетка", 80, 43, 49], ["консоль", 90, 40, 81], ["вешалка", 46, 17, 92], ["зеркало", 50, 3, 150]],
@@ -84,7 +90,7 @@
   {"id": "flat215-drawing-module", "room": "flat215:hall:drawing-180", "kit": "module", "expect": "solve", "purpose": "flat215: модуль-прихожая"},
   {"id": "flat215-drawing-floorhanger", "room": "flat215:hall:drawing-180", "kit": "floor_hanger", "expect": "solve", "purpose": "flat215: напольная вешалка"},
   {"id": "flat215-registry-full", "room": "flat215:hall:registry-93", "kit": "full", "expect": "solve", "purpose": "flat215 9,3 м²: полный набор"},
-  {"id": "flat215-east-full", "room": "flat215:hall:entrance-east", "kit": "full", "expect": "solve", "purpose": "flat215, вход с востока: полный набор"},
+  {"id": "east-entry-full", "room": "east153x620", "kit": "full", "expect": "solve", "purpose": "вход с востока по флагу is_entrance (геометрия бывшего варианта flat215 entrance-east): полный набор"},
   {"id": "flat215-l-full", "room": "flat215:hall:l-doors", "kit": "full", "expect": "solve", "purpose": "flat215 Г-образная: полный набор"},
   {"id": "flat215-l-standard", "room": "flat215:hall:l-doors", "kit": "standard", "expect": "solve", "purpose": "flat215 Г-образная: стандарт"},
   {"id": "c110-slim", "room": "c110x400", "kit": "slim", "expect": "solve", "purpose": "узкий 1,1 м: узкие предметы"},

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -44,11 +45,33 @@ def role_cfg(role: str) -> dict:
     return hall_rules()["roles"].get(base_role(role), {})
 
 
+_WALL_ORDER = {"south": 0, "east": 1, "north": 2, "west": 3}
+_ENTRANCE_WARNED: set = set()
+
+
+def _warn_once(key, msg: str) -> None:
+    if key not in _ENTRANCE_WARNED:
+        _ENTRANCE_WARNED.add(key)
+        print(f"WARN:hall_entrance: {msg}", file=sys.stderr, flush=True)
+
+
 def entrance(room: Room) -> Opening | None:
-    """Входная дверь: первая дверь на южной стене (как `entranceWall` просмотрщика), иначе первая дверь комнаты."""
+    """Входная дверь — ДАННЫЕ ЭКЗЕМПЛЯРА: проём с `is_entrance` (T-20261106-72; flat215 — юг, владелец 06.11). Порядок проёмов
+    в файле на вход не влияет. Флага нет — прежняя эвристика (первая дверь на южной стене, иначе первая дверь комнаты) с WARN
+    один раз на комнату: молча угадывать вход нельзя. Несколько флагов — первый по (стена, отступ) с WARN."""
+    key = tuple((op.kind, op.wall, op.offset_cm, op.width_cm, op.is_entrance) for op in room.openings)
+    flagged = sorted((op for op in room.openings if op.is_entrance),
+                     key=lambda op: (_WALL_ORDER.get(op.wall, 9), op.offset_cm, op.width_cm))
+    if flagged:
+        if len(flagged) > 1:
+            _warn_once(key, f"входов с флагом is_entrance {len(flagged)} — беру {flagged[0].wall} {flagged[0].offset_cm:g}")
+        return flagged[0]
     doors = [op for op in room.openings if op.kind == "door"]
     south = sorted((op for op in doors if op.wall == "south"), key=lambda op: op.offset_cm)
-    return south[0] if south else (doors[0] if doors else None)
+    got = south[0] if south else (doors[0] if doors else None)
+    if got is not None:
+        _warn_once(key, f"у комнаты нет проёма с is_entrance — вход угадан эвристикой: {got.wall} {got.offset_cm:g}")
+    return got
 
 
 def is_wall_mirror(p: Placement) -> bool:
