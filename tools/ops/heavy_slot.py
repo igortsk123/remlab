@@ -391,6 +391,16 @@ def _nested() -> int | None:
     return pid if pid in _ancestors() and any(is_held(k) for k in range(1, slots() + 1)) else None
 
 
+def _noslot_parent() -> int | None:
+    """Предок пущен с `--no-slot` (исключение по слову ведущего, T-20261106-97) — вложенные шаги его команды тоже без очереди.
+    Признак — `HEAVY_SLOT_NOSLOT` = pid обхода; чужой процесс с тем же env, но не потомок, — ждёт как обычно."""
+    try:
+        pid = int(os.environ.get('HEAVY_SLOT_NOSLOT', ''))
+    except ValueError:
+        return None
+    return pid if pid in _ancestors() else None
+
+
 # ---------------------------------------------------------------- замер памяти дерева процессов и порог по замеру (T-74)
 
 _PAGE = os.sysconf('SC_PAGE_SIZE')
@@ -654,9 +664,23 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             say(msg)
     info = {'label': label, 'waited_s': 0.0, 'free_gb': None, 'fd': None, 'nested': None, 'no_slot': no_slot, 'yields': 0}
     said_starve = False
-    if no_slot:
-        note('БЕЗ ОЧЕРЕДИ (--no-slot): слот не берётся, порог памяти не ждётся')
-        yield info
+    free_by = None if no_slot else _noslot_parent()
+    if no_slot or free_by:
+        if no_slot:
+            note('БЕЗ ОЧЕРЕДИ (--no-slot): слот не берётся, порог памяти не ждётся')
+        else:
+            info['no_slot_parent'] = free_by
+            note(f'без очереди по предку pid={free_by} (--no-slot)')
+        # признак потомкам: их вложенные вызовы слота тоже идут мимо очереди (иначе шаги команды под --no-slot встают в очередь)
+        old = os.environ.get('HEAVY_SLOT_NOSLOT')
+        os.environ['HEAVY_SLOT_NOSLOT'] = str(free_by or os.getpid())
+        try:
+            yield info
+        finally:
+            if old is None:
+                os.environ.pop('HEAVY_SLOT_NOSLOT', None)
+            else:
+                os.environ['HEAVY_SLOT_NOSLOT'] = old
         return
     parent = _nested()
     if parent:

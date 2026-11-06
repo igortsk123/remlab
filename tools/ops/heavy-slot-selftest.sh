@@ -69,6 +69,32 @@ wait $ph $pw
 ok "вложенный вызов под слотом не ждёт сам себя (rc изнутри — 3)" \
   "$(yes_if '[ $rc = 3 ] && grep -q "inner .*вложенный вызов" "$HEAVY_SLOT_LOG"')"
 
+# T-97: --no-slot наследуется потомками — шаги команды, пущенной мимо очереди, сами в очередь не встают (очередь при этом занята)
+"$S" ns-hold -- sleep 5 &
+pnh=$!
+until_held
+t0=$(date +%s%N)
+"$S" ns-outer --no-slot -- "$S" ns-mid --timeout 2 -- "$S" ns-deep --timeout 2 -- sh -c 'exit 4'; rc=$?
+ok "вложенные под --no-slot (два уровня) не ждут занятую очередь (rc изнутри — 4), строка «без очереди по предку»" \
+  "$(yes_if '[ $rc = 4 ] && [ $(( ($(date +%s%N) - t0) / 1000000 )) -lt 1500 ] && grep -q "ns-mid .*без очереди по предку pid=" "$HEAVY_SLOT_LOG" && grep -q "ns-deep .*без очереди по предку pid=" "$HEAVY_SLOT_LOG"')"
+HEAVY_SLOT_NOSLOT=$pnh "$S" ns-fake --timeout 0.5 -- true; rc=$?
+ok "чужой HEAVY_SLOT_NOSLOT (pid — не предок) очередь не обходит" "$(yes_if '[ $rc = 124 ] && ! grep -q "ns-fake .*без очереди" "$HEAVY_SLOT_LOG"')"
+HEAVY_SLOT_NOSLOT=junk "$S" ns-junk --timeout 0.5 -- true; rc=$?
+ok "мусор в HEAVY_SLOT_NOSLOT — как без признака (ждёт)" "$(yes_if '[ $rc = 124 ]')"
+wait $pnh
+"$S" ns-outer2 --no-slot -- sh -c 'printf %s "${HEAVY_SLOT_NOSLOT:-}" > '"$T"'/ns-env'; rc=$?
+ok "признак потомкам выставлен на время команды и снят после (в env обёртки снаружи его нет)" \
+  "$(yes_if '[ $rc = 0 ] && [ -s $T/ns-env ] && [ -z "${HEAVY_SLOT_NOSLOT:-}" ]')"
+r=$(python3 -c "
+import os, sys; sys.path.insert(0, '$DIR'); import heavy_slot as H
+os.environ.pop('HEAVY_SLOT_NOSLOT', None)
+with H.heavy_slot('ns-py', no_slot=True) as a:
+    inside = os.environ.get('HEAVY_SLOT_NOSLOT') == str(os.getpid())
+    with H.heavy_slot('ns-py-in', timeout=0.5) as b:
+        nested = b.get('no_slot_parent') == os.getpid()
+print(int(inside and nested and 'HEAVY_SLOT_NOSLOT' not in os.environ))")
+ok "питон: with heavy_slot(no_slot=True) — вложенный with без очереди, после выхода признак снят" "$(yes_if '[ "$r" = 1 ]')"
+
 "$S" dying -- sleep 30 &
 pd=$!
 until_held
