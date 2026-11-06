@@ -163,3 +163,4 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-06	.memory_bank/domain/viz-fidelity-playbook.md	drift	48	5	5	
 2026-11-06	.memory_bank/domain/mesh-pool-ops.md	drift	42	8	8	
 2026-11-06	.memory_bank/domain/mesh-run-playbook.md	drift	43	6	5	T-63/2: вопрос ведущему — §2-бис описывает профиль demo v1; last_verified не двигаем
+2026-11-06	.memory_bank/domain/demo-planner-ui.md	drift	220	26	25	T-63/2: вопрос ведущему — описание подбора пары (стр. 427–430); часть разделов сверена не до последнего числа; last_verified не двигаем
