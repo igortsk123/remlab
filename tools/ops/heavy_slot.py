@@ -33,8 +33,9 @@
     (`slot.lock`, `holder` — общие со старой версией) берёт первый в очереди и ждёт в нём память. Слоты 2…N (`slot<k>.lock`,
     `holder<k>`) — только пока занят другой слот и только если память есть ПО ФАКТУ сейчас: стартует сразу, ждать память в
     дополнительном слоте нельзя. Не хватает — строго по одному, как прежде.
-  * ДОПУСК ПО ПАМЯТИ (T-74, один для всех слотов, без двойного счёта):
+  * ДОПУСК ПО ПАМЯТИ (T-74, без двойного счёта); параллельно с другими держателями:
         MemAvailable ≥ Σ по другим держателям max(порог_h − память_h, 0) + свой порог + запас
+    одиночный (других нет) — как до T-74: MemAvailable ≥ свой порог, без запаса (ведущий 06.11);
     память_h — PSS всего дерева процессов держателя сейчас (она уже вычтена из MemAvailable, поэтому из порога держателя
     вычитается — до T-74 порог держателя вычитался целиком второй раз); запас — HEAVY_SLOT_RESERVE_GB (1 ГБ), но не меньше
     10 % MemTotal (earlyoom `-m 10,5` на 10 % шлёт SIGTERM, render первым). СТОРОЖ: MemAvailable < запаса — новых не пускать,
@@ -282,10 +283,9 @@ def _my_turn(d: str, ticket: str) -> bool:
     return bool(live) and live[0][1] == ticket
 
 
-def _fits_now(d: str, ticket_pid: int, free: float, others: float = 0.0) -> dict | None:
-    """Ожидающий (не я), которому памяти хватает уже сейчас (его порог + доля других держателей + запас ≤ свободно; я —
-    держатель слота 1 — уступаю и не считаюсь), — ради него держатель уступает."""
-    room = free - others - reserve_gb()
+def _fits_now(d: str, ticket_pid: int, room: float) -> dict | None:
+    """Ожидающий (не я), которому памяти хватает уже сейчас (его порог ≤ room — свободно минус доля других держателей и
+    запас, без других — просто свободно; я — держатель слота 1 — уступаю и не считаюсь), — ради него держатель уступает."""
     for _, _, kv in _tickets(d):
         try:
             if int(kv['pid']) != ticket_pid and float(kv.get('eff_gb') or kv.get('min_gb', 1e9)) <= room:
@@ -514,15 +514,17 @@ def _holders_need(d: str, k: int, n: int) -> tuple[float, str, bool]:
 
 
 def _need(d: str, k: int, own: float, n: int) -> tuple[bool, str, float]:
-    """Допуск держателя слота k: MemAvailable ≥ Σ по другим max(порог_h − память_h, 0) + свой порог + запас.
-    Сторож: MemAvailable < запаса — нет при любом пороге (идущих не трогаем). → (да/нет, пояснение, свободно ГБ)."""
+    """Допуск держателя слота k. Параллельно с другими: MemAvailable ≥ Σ по другим max(порог_h − память_h, 0) + свой порог
+    + запас. Одиночный (других держателей нет) — как до T-74: MemAvailable ≥ свой порог, без запаса (ведущий 06.11: иначе
+    порог 7 при свободных 8 встаёт навсегда). Сторож для всех: MemAvailable < запаса — нового нет при любом пороге
+    (идущих не трогаем). → (да/нет, пояснение, свободно ГБ)."""
     free, res = mem_available_gb(), reserve_gb()
     if free < res:
         return False, f'сторож: свободно {free:.1f} ГБ < запаса {res:.1f} — новых не пускаю', free
-    others, why, _ = _holders_need(d, k, n)
-    ok = free >= others + own + res
-    return ok, (f"свободно {free:.1f} ГБ {'≥' if ok else '<'} свой {own:g}" + (f' + {why}' if why else '')
-                + f' + запас {res:.1f}'), free
+    others, why, any_h = _holders_need(d, k, n)
+    ok = free >= (others + own + res if any_h else own)
+    return ok, (f"свободно {free:.1f} ГБ {'≥' if ok else '<'} свой {own:g}"
+                + (f' + {why} + запас {res:.1f}' if any_h else ' (одиночный — без запаса)')), free
 
 
 def _admit(d: str, k: int, own: float, n: int) -> tuple[bool, str, float]:
@@ -641,7 +643,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     note(f'не дождался памяти за {round(time.time() - t0)} с (--timeout {timeout:g}) — не запускаю')
                     raise SlotTimeout(label)
                 if time.time() - t_mem >= yield_s:
-                    w = _fits_now(d, os.getpid(), free, _holders_need(d, 1, n)[0]) if yields < max_y else None
+                    oth, _, any_h = _holders_need(d, 1, n)
+                    w = _fits_now(d, os.getpid(), free - oth - reserve_gb() if any_h else free) if yields < max_y else None
                     if w:
                         yields += 1
                         note(f"уступил очередь: ждал память {_sec(time.time() - t_mem)} с, {why}; "
