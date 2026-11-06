@@ -193,6 +193,16 @@ def hard(P: dict, role: str, key: str, default=None):
     return (P['roles'].get(role, {}).get('hard') or {}).get(key, default)
 
 
+def in_style(styles: dict | None, style: str, thr: float) -> bool:
+    """ЕДИНОЕ правило «товар в стиле» (T-20261106-90, К9) — для сборщиков, квоты мешей (`room_mesh_demand.quota_table`),
+    покрытия (`room_coverage`) и отчёта скорера (`style_score.py`): балл стиля ≥ порога профиля (`in_style_min`, 6,6 из
+    `rules/demo-swap.json`). Флаг `universal` (нейтральный товар: баллы около 5) сам по себе в стиль НЕ пускает — как у всех
+    сборщиков (гостиная даёт ему лишь +0,3 к баллу, `compose2.py`); прежде отчёт скорера считал его подходящим ко всем стилям
+    при пороге 6,5, а квота — нет при 6,6. Нет оценки — не в стиле."""
+    v = (styles or {}).get(style)
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v >= thr
+
+
 def content_sha(p: dict) -> str:
     body = {k: v for k, v in p.items() if k not in UNVERSIONED}
     return hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()[:12]
@@ -486,6 +496,10 @@ def _selftest() -> int:
     ok('спальня: крупное и порядок как прежние MAJOR', major(P) == ('кровать', 'шкаф', 'комод', 'тумба прикроватная'))
     ok('спальня: шкаф ≥ 80, допуск 0,8–1,1, порог 6,6',
        hard(P, 'шкаф', 'min_w') == 80 and P['tolerance'] == [0.8, 1.1] and P['style']['in_style_min'] == 6.6)
+    ok('в стиле (T-90): балл ≥ порога; universal без балла — не в стиле; 6,5 при 6,6 — нет; нет оценки — нет',
+       in_style({'лофт': 6.6}, 'лофт', 6.6) and not in_style({'лофт': 6.5, 'universal': True}, 'лофт', 6.6)
+       and not in_style({'universal': True}, 'universal', 0) and not in_style(None, 'лофт', 6.6)
+       and not in_style({'лофт': None}, 'лофт', 6.6))
     P['roles'].clear()
     ok('load — новая копия (правка не портит следующую загрузку)', load('bedroom')['roles'])
     ok('роли: источник один — живые профили чисты', not role_errors('living', load('living'))

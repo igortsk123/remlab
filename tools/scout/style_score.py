@@ -407,12 +407,16 @@ elif '--db' in sys.argv:
 else:
     print("база: "+("прихожая" if SOURCE=='hall' else "спальня")+" не пишется без --db",flush=True)
 
-# ---------- отчёт покрытия: товаров с фитом ≥6.5 на стиль × роль ----------
+# ---------- отчёт покрытия: товаров «в стиле» на стиль × роль ----------
+# правило «в стиле» — ОДНО со сборщиками и квотой мешей (room_profile.in_style, T-20261106-90): балл ≥ in_style_min (6,6,
+# rules/demo-swap.json); universal сам по себе не засчитывается (раньше здесь было «≥ 6,5 или universal» — отчёт расходился с квотой)
 if '--report' in sys.argv or True:
+    import room_profile as _RP
+    THR=float(json.load(open(os.path.join(HERE,'rules','demo-swap.json')))['in_style_min'])
     CORE=['диван','столик','тв-тумба','ковёр','люстра','плед','подушка','кресло','торшер','лампа','кашпо','ваза','комод','стеллаж','пуф']
     if SOURCE=='room_catalog': CORE=['кровать','тумба прикроватная','шкаф','комод']
     if SOURCE=='hall': CORE=['шкаф-купе','прихожая','обувница','банкетка','консоль','вешалка','зеркало']
-    print("\nПокрытие (товаров со стиль-фитом ≥6.5), ядро "+{'living':"гостиной:",'hall':"прихожей (моделей):"}.get(SOURCE,"спальни (моделей):"))
+    print(f"\nПокрытие (товаров «в стиле»: балл ≥ {THR:g}, universal не в счёт), ядро "+{'living':"гостиной:",'hall':"прихожей (моделей):"}.get(SOURCE,"спальни (моделей):"))
     hdr="роль".ljust(12)+"".join(st[:7].ljust(9) for st in SNAMES)
     print(hdr)
     gaps={st:[] for st in SNAMES}
@@ -422,7 +426,7 @@ if '--report' in sys.argv or True:
             c=cache.get(key(p))
             if not c or p['role']!=role: continue
             for st in SNAMES:
-                if c[st]>=6.5 or c['universal']: cnt[st]+=1
+                if _RP.in_style(c, st, THR): cnt[st]+=1
         print(role.ljust(12)+"".join(str(cnt[st]).ljust(9) for st in SNAMES))
         for st in SNAMES:
             if cnt[st]==0: gaps[st].append(role)

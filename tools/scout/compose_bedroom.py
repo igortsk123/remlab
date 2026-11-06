@@ -225,7 +225,7 @@ class Composer:
         fit = [it for it in source if it['role'] == slot['role'] and gate(it, slot, band) is None
                and (extra is None or extra(it))]
         lo, hi = tier_range([it['price'] for it in fit], self.R['tiers'][tier])
-        styled = [it for it in fit if it.get('styles') and (it['styles'].get(style) or 0) >= self.thr]
+        styled = [it for it in fit if _RP.in_style(it.get('styles'), style, self.thr)]
         k = (slot['role'], style, self.purpose)    # у назначений разный идеал слота — считаем раздельно
         self.shortage[k] = (len(styled), sum(1 for it in styled if it['mesh']))
         out = [it for it in styled if lo <= it['price'] <= hi]
