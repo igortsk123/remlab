@@ -8,6 +8,10 @@
 временный смешанный банк и manifest продвижения; `sets3.json` пишет лишь атомарный писатель шага 4 (`bank_refresh.py`).
 
 ПОРЯДОК (за флагом `rules/bank-candidate.json:promote_enabled`, по умолчанию выключен — шаг `ok` со строкой «выключено»):
+  0. своя ночь (`bank_run`, room-bank-01 этап А): `--run-id` обязателен; отчёт `bank_prepare` — этой ночи и довёл кандидат до суда,
+     файл кандидата — те самые байты (sha отчёта = sha паспорта `<кандидат>.run.json`), состояние ожидания записано
+     `bank_pending --night` этой же ночи по этому же кандидату; иначе — отказ (код 1, строка в дайджест), manifest не пишется.
+     Prepare этой ночи выключен (`disabled`) — WARN «не сужу», вчерашний кандидат не судится;
   1. идентичность кандидата против живого (`set_identity.verify`) — фатально: ничего не продвигаем;
   2. ячейка-претендент: состояние ожидания `bank_pending` = `ready` ПО ЭТОМУ ЖЕ кандидату (`candidate_hash`) и строгая чистота
      (`strict`): ушедших 0, ссылок не текущих 0, контракты слотов, пары, запасные живые той же роли, ключевые роли
@@ -31,11 +35,12 @@
      (демо снимет позицию и дозаполнит, `flat215_demo.drop_unavailable` / `demo_fill`);
   7. смешанный банк → `<рабочая папка>/hybrid.json` (`set_identity.write_bank`), manifest → `~/scout-scenes/bank-promote.json`
      (ячейка, set_id, candidate_hash, решение и причины, итог экзамена, состояние ожидания и недостающие меши; отпечатки
-     живого `live_sha` и смешанного `hybrid_sha` — писатель пишет, только если живой с тех пор не менялся);
+     живого `live_sha` и смешанного `hybrid_sha` — писатель пишет, только если живой с тех пор не менялся; номер ночи `run_id`
+     и `candidate_sha` — писатель берёт только manifest своей ночи);
   ячейка, откаченная вручную (`bank_refresh.py rollback`, `bank-generations/hold.json`), с тем же кандидатом не идёт.
 
-  ~/venvs/scout/bin/python bank_promote.py                      # ночной шаг (флаг из правил)
-  ~/venvs/scout/bin/python bank_promote.py --force [--no-exam] [--force-ready 5,17,40]   # ручной прогон
+  ~/venvs/scout/bin/python bank_promote.py --run-id <номер>     # ночной шаг (флаг из правил; номер — из refresh_daily.sh)
+  ~/venvs/scout/bin/python bank_promote.py --run-id <номер> --force [--no-exam] [--force-ready 5,17,40]   # ручной прогон
   env BANK_CANDIDATE, BANK_PENDING, BANK_PROMOTE (manifest), BANK_PROMOTE_DIR (рабочая папка), BANK_MAX_PROMOTE_SHARE
   python3 bank_promote.py --selftest
 """
@@ -55,6 +60,7 @@ sys.path.insert(0, HERE)
 
 import bank_invariants as BI  # noqa: E402
 import bank_pending as BP  # noqa: E402
+import bank_run as RUN  # noqa: E402
 import set_identity as SID  # noqa: E402
 
 RULES_PATH = os.path.join(HERE, 'rules', 'bank-candidate.json')
@@ -477,7 +483,20 @@ def _save(path: str, obj) -> None:
     os.replace(tmp, path)
 
 
-def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset()) -> int:
+def chain(run_id: str | None, report: str, cand_path: str, state: dict) -> tuple[bytes, str] | None:
+    """Своя ночь (шаг 0): байты кандидата и их sha; None — prepare этой ночи выключен (судить нечего). Иначе `ChainError`."""
+    RUN.need(run_id)
+    rep = RUN.load_report(report, run_id)
+    if rep.get('disabled'):
+        return None
+    raw, h = RUN.candidate(rep, run_id, cand_path)
+    if state.get('run_id') != run_id or state.get('candidate_sha') != h:
+        raise RUN.ChainError(f"состояние ожидания не этой ночи или не по этому кандидату (run_id {state.get('run_id')}"
+                             f"{'' if state.get('candidate_sha') == h else ', sha кандидата другой'}) — bank_pending --night не прошёл")
+    return raw, h
+
+
+def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset(), run_id: str | None = None) -> int:
     R = rules()
     if not (R.get('promote_enabled') or force):
         print('bank_promote: выключено (rules/bank-candidate.json:promote_enabled=false) — ячейки не судятся', flush=True)
@@ -485,6 +504,16 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
     if os.path.realpath(CANDIDATE) == os.path.realpath(LIVE):
         print('ERROR:bank_promote: кандидат — это живой банк', flush=True)
         return 2
+    pstate = BP.load_state()
+    try:
+        got = chain(run_id, BP.PREPARE_REPORT, CANDIDATE, pstate)
+    except RUN.ChainError as e:
+        return RUN.refuse('bank_promote', f'{e} — ничего не сужу, manifest не пишу', e.rc)
+    if got is None:
+        print('WARN:bank_promote: bank_prepare этой ночи выключен — кандидат не собирался, не сужу', flush=True)
+        print('DIGEST:банк: кандидат этой ночью не собирался (prepare выключен) — подмены нет', flush=True)
+        return 0
+    craw, csha = got
     import collections
     import sets_incremental as SI
     from catalog_media import media
@@ -492,11 +521,7 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
     t0 = time.time()
     raw = open(LIVE, 'rb').read()
     live = json.loads(raw)
-    try:
-        cand = json.load(open(CANDIDATE, encoding='utf-8'))
-    except FileNotFoundError:
-        print(f'WARN:bank_promote: кандидата {CANDIDATE} нет — судить нечего (bank_prepare не собрал?)', flush=True)
-        return 0
+    cand = json.loads(craw)                    # ровно те байты, что сверены с паспортом
     z = json.load(open(ZONES, encoding='utf-8'))
     groups = {g['id']: g for g in z.get('seating_groups') or []}
     region = (z.get('dining_region_m2') or {}).get('by_seats') or {'2': 3.0, '4': 6.0, '6': 8.0}
@@ -507,7 +532,7 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
     _save(live_copy, live)
     exam = None if (no_exam or R.get('promote_exam') is False) else make_exam(live_copy, R, WORK)
     demo = None if (no_exam or R.get('promote_demo_check') is False) else make_demo(live_copy, R, WORK)
-    res = plan(live, cand, BP.load_state(), R, media=media, gone_cells=gone_cells, demo_cells=demo_cells,
+    res = plan(live, cand, pstate, R, media=media, gone_cells=gone_cells, demo_cells=demo_cells,
                major=_compose_const('MAJOR_ROLES'), exam_fn=exam, demo_fn=demo, force_ready=force_ready, held=_held(),
                strict_fn=lambda s: strict(s, media, SI._slot_ok, SI.sync_pairs, fits_role, groups, region,
                                           R.get('promote_dining_check', True)))
@@ -515,7 +540,8 @@ def run(force: bool = False, no_exam: bool = False, force_ready: set = frozenset
     why = collections.Counter(re.sub(r'\d+', 'N', x.split(':')[0]) for r in res['rows'] if r['decision'] in ('wait', 'blocked')
                               for x in r['reasons'])
     stc = collections.Counter(s['state'] for s in res['status'].values())
-    man = {'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'report_only': True, 'live': LIVE, 'candidate': CANDIDATE,
+    man = {'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'run_id': run_id, 'candidate_sha': csha, 'report_only': True, 'live': LIVE,
+           'candidate': CANDIDATE,
            'live_sha': hashlib.sha256(raw).hexdigest(), 'hybrid': None, 'hybrid_sha': None, 'cap': res['cap'], 'promoted': res['promoted'], 'decisions': dict(dec), 'fatal': res['fatal'],
            'exam': {k: v for k, v in (res['exam'] or {}).items() if k != 'cells'} or None,
            'demo': {k: v for k, v in (res['demo'] or {}).items() if k != 'cells'} or None,
@@ -717,6 +743,28 @@ def _selftest() -> int:
        dining_gap(s, g, {'2': 3.0}) and dining_gap({**s, 'usable_m2': 10}, g, {'2': 3.0}) is None
        and dining_gap({**s, 'items': {'стол обеденный': {}}}, g, {'2': 3.0}) is None)
     ok('константа сборщика разбором исходника: MAJOR_ROLES', 'диван' in _compose_const('MAJOR_ROLES'))
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='bank-promote-chain-') as td:     # шаг 0: своя ночь (room-bank-01 этап А)
+        cp, rp = os.path.join(td, 'sets3.next.json'), os.path.join(td, 'bank-prepare.json')
+        open(cp, 'w').write('[1]')
+        h = RUN.attest(cp, 'N1')
+        RUN._atomic_json(rp, {'run_id': 'N1', 'candidate': cp, 'candidate_sha': h, 'pending_due': True})
+        st_ok = {'run_id': 'N1', 'candidate_sha': h}
+
+        def why(*a):
+            try:
+                return chain(*a)
+            except RUN.ChainError as e:
+                return f'отказ {e.rc}: {e}'
+        ok('своя ночь: байты кандидата и sha', why('N1', rp, cp, st_ok) == (b'[1]', h))
+        ok('без --run-id — отказ (код 2)', str(why(None, rp, cp, st_ok)).startswith('отказ 2'))
+        ok('отчёт prepare другой ночи — отказ', 'не этой ночи' in str(why('N2', rp, cp, {**st_ok, 'run_id': 'N2'})))
+        ok('состояние ожидания другой ночи — отказ', 'состояние ожидания не этой ночи' in str(why('N1', rp, cp, {**st_ok, 'run_id': 'N0'})))
+        ok('состояние ожидания по другому кандидату — отказ', 'sha кандидата другой' in str(why('N1', rp, cp, {**st_ok, 'candidate_sha': 'x'})))
+        open(cp, 'w').write('[2]')                       # устаревший кандидат: файл не тот, что собран этой ночью
+        ok('кандидат не тот, что собрал prepare (sha) — отказ', 'изменился после bank_prepare' in str(why('N1', rp, cp, st_ok)))
+        RUN._atomic_json(rp, {'run_id': 'N1', 'candidate': cp, 'disabled': True})
+        ok('prepare этой ночи выключен — None (не сужу, вчерашний кандидат не берём)', why('N1', rp, cp, st_ok) is None)
     print(f'bank_promote selftest: ошибок {bad}')
     return 1 if bad else 0
 
@@ -729,4 +777,4 @@ if __name__ == '__main__':
     fr = set()
     if '--force-ready' in sys.argv:
         fr = {int(x) for x in sys.argv[sys.argv.index('--force-ready') + 1].split(',') if x.strip()}
-    sys.exit(run('--force' in sys.argv, '--no-exam' in sys.argv, fr))
+    sys.exit(run('--force' in sys.argv, '--no-exam' in sys.argv, fr, RUN.arg(sys.argv)))

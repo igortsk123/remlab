@@ -17,11 +17,15 @@
   3. состояние ожидания — НЕ здесь (T-20261023-08, Codex 23.10): отдельный шаг ночи `bank_pending.py --night` ПОСЛЕ ранней
      привязки мешей, иначе меш, привязанный этой ночью, promote увидел бы только завтра. Здесь — отметка `pending_due` в отчёте:
      кандидат этой ночи прошёл медиа и идентичность, его можно судить.
-Сбой сборки/медиа/идентичности — ненулевой код: `step` ночи пишет FAIL в дайджест и идёт дальше; прежний кандидат остаётся
-нетронутым (запись атомарная). Сам банк здесь не меняется — подмена только шагами 3–4.
+Сбой сборки/медиа/идентичности — ненулевой код: `step` ночи пишет FAIL в дайджест, остальная цепочка банка (pending, promote,
+refresh) в эту ночь НЕ идёт (`&&`, room-bank-01 этап А), прочая ночь — как прежде; прежний кандидат нетронут (запись атомарная).
+Сам банк здесь не меняется — подмена только шагами 3–4.
+НОМЕР НОЧИ `run_id` (`bank_run`): в отчёте с самого начала; кандидат, доведённый до суда, получает паспорт `<кандидат>.run.json`
+(номер + sha байт) — следующие шаги судят только кандидат этой ночи. Выключено — отчёт `{run_id, disabled}`: promote увидит,
+что этой ночью кандидат не собирался, а не возьмёт вчерашний.
 
-  ~/venvs/scout/bin/python bank_prepare.py            # ночной шаг (флаг из правил)
-  ~/venvs/scout/bin/python bank_prepare.py --force    # ручной прогон при выключенном флаге
+  ~/venvs/scout/bin/python bank_prepare.py --run-id <номер ночи>   # ночной шаг (флаг из правил; номер даёт refresh_daily.sh)
+  ~/venvs/scout/bin/python bank_prepare.py --force    # ручной прогон при выключенном флаге (номер — новый, печатается)
   env BANK_CANDIDATE=<путь> — куда собирать (ручная проверка во временный файл); BANK_PENDING — файл состояния
   python3 bank_prepare.py --selftest
 """
@@ -33,6 +37,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import bank_run as RUN  # noqa: E402
+
 RULES_PATH = os.path.join(HERE, 'rules', 'bank-candidate.json')
 LIVE = os.path.join(HERE, 'sets3.json')
 CANDIDATE = os.path.abspath(os.environ.get('BANK_CANDIDATE') or os.path.join(HERE, 'sets3.next.json'))
@@ -134,16 +140,19 @@ def digest_line(k: dict) -> str:
 
 
 def run(force: bool = False, R: dict | None = None, out: str = CANDIDATE, compose=_compose, media=_media,
-        invariants=_invariants, save=_save, keep=keep_stats) -> int:
-    """Шаг ночи. Зависимости подменяемые (селфтест без базы и сборки)."""
+        invariants=_invariants, save=_save, keep=keep_stats, run_id: str | None = None, attest=RUN.attest) -> int:
+    """Шаг ночи. Зависимости подменяемые (селфтест без базы и сборки). `run_id` нет — ручной прогон, номер новый."""
     R = rules() if R is None else R
+    run_id = run_id or RUN.new_run_id('manual')
+    print(f'bank_prepare: run_id {run_id}', flush=True)
     if not (R.get('prepare_enabled') or force):
         print('bank_prepare: выключено (rules/bank-candidate.json:prepare_enabled=false) — кандидат не собирается', flush=True)
+        save({'run_id': run_id, 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'candidate': out, 'disabled': True})
         return 0
     if os.path.realpath(LIVE) in (os.path.realpath(out), os.path.realpath(build_path(out))):
         print(f'bank_prepare: {out} — это живой банк; кандидат пишется только рядом', flush=True)
         return 2
-    t0, rep = time.time(), {'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'candidate': out}
+    t0, rep = time.time(), {'run_id': run_id, 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'candidate': out}
     rc = compose(build_path(out), int(R.get('prepare_timeout_min') or 40) * 60)
     rep['compose_rc'] = rc
     if rc:
@@ -171,6 +180,12 @@ def run(force: bool = False, R: dict | None = None, out: str = CANDIDATE, compos
         return 1
     if content:
         print(f'WARN:bank_prepare: кандидат: {", ".join(content)} — это отчёт, подмена судит ячейки отдельно (шаг 3)', flush=True)
+    try:
+        rep['candidate_sha'] = attest(out, run_id)   # паспорт: судить можно только эти байты и только этой ночью
+    except OSError as e:
+        print(f'ERROR:bank_prepare: паспорт кандидата не записан ({type(e).__name__}: {e}) — судить нельзя', flush=True)
+        save(rep)
+        return 1
     rep['pending_due'] = True          # суд ячеек — шаг `bank_pending --night` после ранней привязки мешей
     rep['seconds'] = round(time.time() - t0)
     save(rep)
@@ -190,39 +205,55 @@ def _selftest() -> int:
     calls = []
     good = {'sets': 126, 'identity_ok': True, 'identity': [], 'gone': 0, 'url_stale': 0}
 
-    def go(R, comp_rc=0, inv=good, out='/x/sets3.next.json', force=False, media_fn=lambda: {'ok': 1}):
+    def go(R, comp_rc=0, inv=good, out='/x/sets3.next.json', force=False, media_fn=lambda: {'ok': 1}, run_id='night-T',
+           attest_fn=lambda o, r: 'SHA'):
         calls.clear()
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = run(force, R, out, compose=lambda o, t: calls.append(('compose', t, o)) or comp_rc,
                      media=lambda b, o: calls.append(('media', b, o)) or media_fn(),
                      invariants=lambda o: calls.append(('inv',)) or inv,
-                     save=lambda rep: calls.append(('save', rep)))
+                     save=lambda rep: calls.append(('save', rep)), run_id=run_id,
+                     attest=lambda o, r: calls.append(('attest', o, r)) or attest_fn(o, r))
         return rc, buf.getvalue(), [c[0] for c in calls]
     rc, txt, cl = go({})
-    ok('флаг выключен — ok и «выключено», ничего не собирается', rc == 0 and 'выключено' in txt and cl == [], (rc, cl))
+    ok('флаг выключен — ok и «выключено», ничего не собирается; отчёт {run_id, disabled} — promote не возьмёт вчерашний',
+       rc == 0 and 'выключено' in txt and cl == ['save'] and calls[0][1].get('run_id') == 'night-T'
+       and calls[0][1].get('disabled') and not calls[0][1].get('pending_due'), (rc, calls))
     rc, txt, cl = go({}, force=True)
-    ok('--force при выключенном флаге — собирает', rc == 0 and cl == ['compose', 'media', 'inv', 'save'], cl)
+    ok('--force при выключенном флаге — собирает', rc == 0 and cl == ['compose', 'media', 'inv', 'attest', 'save'], cl)
+    rc, txt, cl = go({'prepare_enabled': True}, run_id=None)
+    ok('ручной прогон без --run-id — номер новый (manual-…), печатается и идёт в отчёт и паспорт',
+       rc == 0 and calls[-1][1]['run_id'].startswith('manual-') and calls[-2][2] == calls[-1][1]['run_id']
+       and f"run_id {calls[-1][1]['run_id']}" in txt, calls)
     rc, txt, cl = go({'prepare_enabled': True, 'prepare_timeout_min': 5})
-    ok('включено: сборка → медиа → инварианты → отчёт с pending_due (ожидание — отдельный шаг после привязки); предел из правил',
-       rc == 0 and cl == ['compose', 'media', 'inv', 'save'] and calls[0][1] == 300 and calls[-1][1].get('pending_due'),
-       (rc, calls))
+    ok('включено: сборка → медиа → инварианты → паспорт → отчёт с pending_due, run_id и sha кандидата; предел из правил',
+       rc == 0 and cl == ['compose', 'media', 'inv', 'attest', 'save'] and calls[0][1] == 300 and calls[-1][1].get('pending_due')
+       and calls[-1][1]['run_id'] == 'night-T' and calls[-1][1]['candidate_sha'] == 'SHA'
+       and calls[-2][1:] == ('/x/sets3.next.json', 'night-T'), (rc, calls))
     ok('сборка пишет сырой файл рядом, кандидат — только сверка медиа',
        calls[0][2] == '/x/sets3.next.build.json' and calls[1][1:] == ('/x/sets3.next.build.json', '/x/sets3.next.json'), calls)
 
     def boom():
         raise RuntimeError('база недоступна')
     rc, txt, cl = go({'prepare_enabled': True}, media_fn=boom)
-    ok('медиа упало — FAIL, кандидат не трогаем, судить нечего (нет pending_due)', rc == 1 and 'ERROR:bank_prepare' in txt
-       and cl == ['compose', 'media', 'save'] and not calls[-1][1].get('pending_due'), (rc, cl))
+    ok('медиа упало — FAIL, кандидат не трогаем, судить нечего (нет pending_due, нет паспорта; номер ночи в отчёте)',
+       rc == 1 and 'ERROR:bank_prepare' in txt and cl == ['compose', 'media', 'save'] and not calls[-1][1].get('pending_due')
+       and calls[-1][1]['run_id'] == 'night-T', (rc, cl))
+
+    def no_disk(o, r):
+        raise OSError('нет места')
+    rc, txt, cl = go({'prepare_enabled': True}, attest_fn=no_disk)
+    ok('паспорт не записан — FAIL, судить нельзя (нет pending_due)', rc == 1 and 'паспорт кандидата не записан' in txt
+       and not calls[-1][1].get('pending_due'), (rc, cl))
     rc, txt, cl = go({'prepare_enabled': True}, out=LIVE)
     ok('кандидат = живой банк — отказ до сборки', rc == 2 and cl == [], (rc, cl))
     rc, txt, cl = go({'prepare_enabled': True}, comp_rc=3)
     ok('сборка: идентичность нарушена (rc 3) — FAIL, ожидание не трогаем', rc == 3 and 'ERROR:bank_prepare' in txt
        and not calls[-1][1].get('pending_due') and 'inv' not in cl, (rc, cl))
     rc, txt, cl = go({'prepare_enabled': True}, inv={**good, 'identity_ok': False, 'identity': ['дубль']})
-    ok('инварианты: идентичность против живого — фатально, ожидание не обновляем', rc == 1 and not calls[-1][1].get('pending_due'),
-       (rc, cl))
+    ok('инварианты: идентичность против живого — фатально, ожидание не обновляем, паспорта нет',
+       rc == 1 and not calls[-1][1].get('pending_due') and 'attest' not in cl, (rc, cl))
     rc, txt, cl = go({'prepare_enabled': True}, inv={**good, 'map_ok': False})
     ok('инварианты: карта номеров разошлась — фатально', rc == 1)
     rc, txt, cl = go({'prepare_enabled': True}, inv={**good, 'gone': 3, 'contracts': 2})
@@ -236,7 +267,8 @@ def _selftest() -> int:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         rc = run(False, {'prepare_enabled': True}, '/x/sets3.next.json', compose=lambda o, t: 0, media=lambda b, o: {},
-                 invariants=lambda o: good, save=lambda rep: calls.append(('save', rep)), keep=lambda o: ks)
+                 invariants=lambda o: good, save=lambda rep: calls.append(('save', rep)), keep=lambda o: ks, run_id='R',
+                 attest=lambda o, r: 'SHA')
     ok('удержание: строка дайджеста и отчёт (держу / пересобрано с причинами / тот же выбор, роль→SKU)',
        rc == 0 and 'DIGEST:кандидат банка: удержано ячеек 120, пересобрано 6 (ушёл из каталога 4; вне контракта слота 2)'
        in buf.getvalue() and 'тот же выбор 96 %, роль→SKU 98 %' in buf.getvalue() and calls[-1][1]['keep'] == ks, buf.getvalue())
@@ -247,4 +279,4 @@ def _selftest() -> int:
 if __name__ == '__main__':
     if '--selftest' in sys.argv:
         sys.exit(_selftest())
-    sys.exit(run('--force' in sys.argv))
+    sys.exit(run('--force' in sys.argv, run_id=RUN.arg(sys.argv)))
