@@ -345,3 +345,40 @@ describe("камеры демо: спальня 1, виды зоны", () => {
     }
   });
 });
+
+// T-32/6 (ведущий: «комод срезан левым краем, в левом верхнем углу крючок карниза»): одна расстановка на 5 стилей (T-32/4) —
+// у всех комод у северной стены рядом с окном; запас кромки `edge` и правило карниза `rodHook` зоны спальни
+describe("камеры демо: спальня 1, одна расстановка — комод целиком, без «крючка» карниза", () => {
+  const fx1 = load("tests/fixtures/demo-bedroom-1-one-1105.json");
+  const api1 = new Function("D", `${block};return {camPairAll,camRodHook,camFrameState,camRole,CAM_ZONES};`)({ room: fx1.room }) as {
+    camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[]) => Pair;
+    camRodHook: (c: Cam) => string;
+    camFrameState: (c: Cam, it: It) => number;
+    camRole: (it: It) => string;
+    CAM_ZONES: { bedroom: { must: string[]; edge?: number }; living: { edge?: number; rodHook?: boolean; grid?: unknown; slide?: unknown } };
+  };
+  const { w: W, d: H } = fx1.room, L = fx1.variants.map(its);
+  let pr: Pair | undefined;
+  const pair = () => (pr ??= api1.camPairAll(L, W, H, corners(W, H)));
+  it("у гостиной полей T-32/6 нет — её подбор не меняется", () => {
+    const z = api1.CAM_ZONES.living;
+    expect([z.edge, z.rodHook, z.grid, z.slide]).toEqual([undefined, undefined, undefined, undefined]);
+  });
+  it("старая C1 (T-32/5) — «крючок»: конец карниза в кадре, окна под ним нет; в новой паре карниза без окна нет", () => {
+    expect(api1.camRodHook({ x: 537, y: 233, rot: -60, fov: 78 } as Cam)).toBe("карниз");
+    for (const c of pair().cams) expect(api1.camRodHook(c)).toBe("");
+  }, 300_000);
+  it("обязательное в обоих видах — целиком с запасом кромки или вне кадра (старая C1: комод у края, −0,98)", () => {
+    const old = { x: 537, y: 233, rot: -60, fov: 78 } as Cam, kom = L[0]!.find((it) => api1.camRole(it) === "комод")!;
+    expect(api1.camFrameState(old, kom)).toBe(2);
+    expect(pair().how).toContain("срезано краем 0");
+    for (const [vi, list] of L.entries())
+      for (const [k, c] of pair().cams.entries())
+        for (const it of list) {
+          if (!api1.CAM_ZONES.bedroom.must.includes(api1.camRole(it))) continue;
+          expect(api1.camFrameState(c, it), `${fx1.variants[vi]!.id} вид ${k + 1}: ${it.role}`).not.toBe(2);
+        }
+    const c1 = pair().cams[0]!;
+    for (const list of L) expect(api1.camFrameState(c1, list.find((it) => api1.camRole(it) === "комод")!)).toBe(1);
+  }, 300_000);
+});

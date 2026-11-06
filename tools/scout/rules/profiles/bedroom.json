@@ -2,8 +2,8 @@
  "_about": "СПАЛЬНЯ (room-pipeline-01 Б-2, T-20261105-40): профиль читает compose_bedroom.py — правила состава, допуск, порог стиля, крупное, веса стиля и жёсткий минимум шкафа. Состав по назначениям (слоты, идеалы, полосы, декор) — в bedroom-composition.json по ссылке, не копией.",
  "schema_version": 1,
  "profile_id": "bedroom",
- "profile_version": "2026-11-05.4",
- "content_sha": "fe3c56825bc3",
+ "profile_version": "2026-11-05.5",
+ "content_sha": "693027867c18",
  "room_type": "bedroom",
  "purposes": {
   "$ref": "tools/scout/rules/bedroom-roles.json#/purposes"
@@ -209,7 +209,22 @@
     "anyOf": [
      "тумба прикроватная"
     ],
-    "poster": "more"
+    "poster": "more",
+    "edge": 0.06,
+    "rodHook": true,
+    "grid": [
+     0,
+     20,
+     40,
+     60,
+     80,
+     100,
+     120
+    ],
+    "slide": {
+     "cm": 24,
+     "step": 6
+    }
    }
   },
   "_why": "запись CAM_ZONES.bedroom демо (Работник 2, T-32, ветка onb-12c): вид 1 — от входа или из ног кровати, вид 2 — от изголовья; демо читает профиль в волне Г. T-32/2: вид 2 — вторая зона (`need`: кровать ≥ 0.75, шкаф/комод/столик ≥ 0.6, `more`), виды расходятся на `apart`°; узкое окно телефона вида 2 — вокруг ролей `crop` (шкаф/комод), не кровати."

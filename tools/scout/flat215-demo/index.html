@@ -1882,6 +1882,26 @@ function camFixtures(){
   (R.radiators||[]).forEach(r=>{const u0=+r.offset_cm||0; seg(r.wall,u0,u0+(+r.width_cm||0),+r.depth_cm||12,10,70,'радиатор');});
   return out;
 }
+// КАРНИЗ БЕЗ ОКНА — «КРЮЧОК» (T-32/6, ведущий: «в левом верхнем углу крючок карниза»): штанга над окном/балконом
+// (`lib/viewer3d/fixtures-ir.ts:wallFixturesIR` — шире проёма на 15 см с боков, на 12 см над ним, не выше потолка без 6 см, в 10 см
+// от стены; проём — `lib/viewer3d/opening-ir.ts:openingIR`) видна в кадре, а самого проёма в кадре меньше CAM_ROD_WIN ширины кадра —
+// в углу висит голый конец штанги с кронштейном (спальня 1: конец карниза северного окна над комодом в 3 м от камеры). Полоса окна
+// под карнизом читается окном (черновики 05.11: 4 % — «крючок», 9 % — окно). Правило зоны `rodHook`; у гостиной поля нет
+const CAM_ROD_WIN=0.05;
+function camRodHook(c){
+  if(!camZ().rodHook)return '';
+  const R=camRoom()||{}, W=R.w||0, H=R.d||0, RH=camRoomH();
+  const at=(wall,u,dep)=>wall==='south'?[u,dep]:wall==='north'?[u,H-dep]:wall==='west'?[dep,u]:[W-dep,u];
+  for(const o of (R.openings||[]).filter(o=>(o.kind==='window'||o.kind==='balcony')&&o.width_cm)){
+    const bal=o.kind==='balcony', sill=bal?0:(o.sill_cm!=null?+o.sill_cm:90);
+    const top=Math.min(RH,bal?(o.height_cm!=null?+o.height_cm:220):sill+(o.height_cm!=null?+o.height_cm:140));
+    const u0=+o.offset_cm||0, u1=u0+(+o.width_cm), rot=o.wall==='south'||o.wall==='north'?0:90, z=Math.min(top+12,RH-6);
+    const rp=at(o.wall,(u0+u1)/2,10), rod=camProj(c,{x:rp[0],y:rp[1],w:u1-u0+30,d:2,rot},z-1.1,z+1.1);
+    if(!rod||rod.behind||Math.min(rod.x1,1)-Math.max(rod.x0,-1)<=0||Math.min(rod.y1,1)-Math.max(rod.y0,-1)<=0)continue;
+    const wp=at(o.wall,(u0+u1)/2,1), b=camProj(c,{x:wp[0],y:wp[1],w:u1-u0,d:2,rot},sill,top);
+    if(!b||Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1))/2<CAM_ROD_WIN)return 'карниз';}
+  return '';
+}
 // что у стены ближе CAM_FIX_NEAR видно в кадре ('' — ничего); поза v2 горизонтальна (CAM_EYE = CAM_TGT), как в `camProj`
 function camFixNear(c){
   const a=(c.rot||0)*Math.PI/180, fx=Math.sin(a), fy=-Math.cos(a), rx=Math.cos(a), ry=Math.sin(a), tx=Math.tan((c.fov||72)/2*Math.PI/180), ty=tx/CAM_ASPECT;
@@ -2037,6 +2057,9 @@ function camFrameState(c,it){
   if(inw/2<CAM_SLIVER||inh/2<CAM_SLIVER)return 0;
   if(b.behind)return 2;
   if(bw>0&&inw/bw<1-CAM_CUT_TOL)return 2;
+  // ЗАПАС КРОМКИ ЗОНЫ (`edge`, T-32/6, ведущий: «комод срезан левым краем»): коробка комода касалась края (−0,98), а меш шире
+  // коробки и кадр живой сцены чуть уже — на снимке срез. Предмет в кадре ближе `edge` к боковому краю — срезан; у гостиной поля нет
+  const ed=camZ().edge||0; if(ed&&(b.x0<-1+ed||b.x1>1-ed))return 2;
   if(bh>0&&(b.y1-1)/bh>CAM_CUT_TOL)return 2;
   const t=camProj(c,it,h,h);
   return t&&!t.behind&&t.y1>t.y0&&(-1-t.y0)/(t.y1-t.y0)>CAM_CUT_TOL?2:1;
@@ -2070,7 +2093,9 @@ function camCands(its,W,H,cs,door){
   if(door)camDoorPts(W,H).forEach(([x,y])=>add(x,y));
   else{
     cs.forEach(k=>{const sx=k.x<W/2?1:-1, sy=k.y<H/2?1:-1;
-      for(const ix of [0,27,57,87,117])for(const iy of [0,27,57,87,117])add(k.x+sx*ix,k.y+sy*iy);
+      // сетка от угла: общая [0,27,57,87,117]; у зоны — своя (`grid`, T-32/6: спальня 2,93 м — точка вида 1 у ног кровати
+      // между узлами общей сетки, остальное до сантиметров добирает доводка `slide`)
+      const g=camZ().grid||[0,27,57,87,117]; for(const ix of g)for(const iy of g)add(k.x+sx*ix,k.y+sy*iy);
       for(let d=CAM_STEP; d<=CAM_SLIDE; d+=CAM_STEP){add(k.x+sx*d,k.y); add(k.x,k.y+sy*d);}});
     for(const ins of [30,60,90]){add(W/2,ins); add(W/2,H-ins); add(ins,H/2); add(W-ins,H/2);}
   }
@@ -2097,8 +2122,8 @@ function camCandEval(c,its,W,H){
   // ракурсу 2 — физический зазор CAM_B_CLEAR (человек там стоит), а «предмет перед объективом» меряет маска (`fore`);
   // ракурсу 1 — прежнее строгое «ни одного предмета ближе CAM_MIN_DIST» (demo-12: в комнате 439×325 у «современного» и
   // «минимализма» с 80 см оставался один угол у двери, а горшок у ног в кадр не попадает)
-  // и подоконник/штора/радиатор ближе CAM_FIX_NEAR в кадре (`camFixNear`, T-32/2)
-  if(soft>1||camHard(c,its,0,CAM_B_CLEAR)||camFixNear(c))return null;
+  // и подоконник/штора/радиатор ближе CAM_FIX_NEAR в кадре (`camFixNear`, T-32/2), и карниз без окна (`camRodHook`, T-32/6)
+  if(soft>1||camHard(c,its,0,CAM_B_CLEAR)||camFixNear(c)||camRodHook(c))return null;
   c.far=!camHard(c,its,0);
   const lo=camBlock(c,its,-1);
   c.key=camKey(c,its);
@@ -2168,6 +2193,10 @@ const CAM_ZONES={
     apart:60, apartNear:{deg:30, cm:100},
     // спальня 2,93 м в глубину: от входа до кровати меньше 1,5 м, низ кровати у пола всегда уходит за нижний край кадра (поза 135 см)
     cover:0.75, anyOf:['тумба прикроватная'],
+    // T-32/6 (ведущий: «комод срезан левым краем, в левом верхнем углу крючок карниза»): крупное — с запасом кромки `edge` от бокового
+    // края (`camFrameState`), карниз без окна под ним не в кадре (`camRodHook`), сетка точек от угла чаще (`grid`) и доводка точки
+    // вида (`slide`, см) — точка вида 1 у ног кровати лежит между узлами общей сетки и веера поворотов
+    edge:0.06, rodHook:true, grid:[0,20,40,60,80,100,120], slide:{cm:24, step:6},
     // ОБЛОЖКА КОМНАТЫ НА ГЛАВНОЙ (T-32/3): вид с бо́льшим `more` (у равных — вид 1); камера пары помечается `poster`
     poster:'more'},
   // кухня (запись Работника 5, T-33; сверена с camViewOk/camRole/camItemH): вид 1 — «гарнитур» из комнаты на ряд, вход — запасной;
@@ -2402,7 +2431,7 @@ function camPairAll(L,W,H,cs){
       const k=sideCut(q); if(k>bc||(k===bc&&Math.abs(d)>=Math.abs(bestC.rot-c.rot)))continue;
       let ok=true;
       for(let v=0;v<V&&ok;v++){const its=L[v], b0=camBlock(q,its);
-        if(Math.max(b0.cov/CAM_BLOCK,camTvBack(q,its)?2:0,camGraze(q,W,H))>1||camHard(q,its,0,CAM_B_CLEAR)||camFixNear(q)){ok=false; break;}
+        if(Math.max(b0.cov/CAM_BLOCK,camTvBack(q,its)?2:0,camGraze(q,W,H))>1||camHard(q,its,0,CAM_B_CLEAR)||camFixNear(q)||camRodHook(q)){ok=false; break;}
         if(camTallCut(q,its)&&!c.per[v].tall){ok=false; break;}
         // главное целиком и крупное, не срезанное краем, — не хуже выбранного (demo-31 правки)
         const f0=camFrameCuts(c,its), f1=camFrameCuts(q,its); if(f1.key>f0.key||f1.cut>f0.cut){ok=false; break;}
@@ -2413,7 +2442,31 @@ function camPairAll(L,W,H,cs){
       if(!ok)continue;
       bestC=q; bc=k;}
     return bestC;};
-  const a2=nudge(pick.c1,L.map((_,v)=>bits[v][pick.b]),true), b2=nudge(pick.c2,L.map((its,v)=>covBits(camCover(a2,its,W,H),v)),false);
+  let a2=nudge(pick.c1,L.map((_,v)=>bits[v][pick.b]),true), b2=nudge(pick.c2,L.map((its,v)=>covBits(camCover(a2,its,W,H),v)),false);
+  // ДОВОДКА ТОЧКИ ВИДА ЗОНЫ (`slide` зоны, T-32/6): веер поворотов идёт шагом 5°, а у стены ближе CAM_WALL_MID лишний градус уже
+  // «стена вплотную» (`camGraze`) — в спальне 1 вид 1 с комодом целиком и окном под карнизом лежал между узлами. Каждый вид пробует
+  // сдвиг точки до `slide.cm` (шаг `slide.step`) и поворот до ±CAM_NUDGE°: те же сторожа, что у точки и доворота (физика, у окна, стена
+  // вплотную, подоконник/карниз, срезы краем не больше, вид зоны, покрытие пары, нарушения кадра, разные стороны `apart`), берётся
+  // бо́льшее `more` (мебель минус пустая стена и потолок, по худшему варианту). У гостиной видов зоны нет — не меняется
+  const zslide=(c,k,other)=>{const Z=camZ().slide; if(!vOk||!Z)return c;
+    const ob=L.map((its,v)=>covBits(camCover(other,its,W,H),v)), need=L.map((its,v)=>covBits(camCover(c,its,W,H),v)|ob[v]);
+    const val=q=>{let m=Infinity; for(let v=0;v<V;v++)m=Math.min(m,camShownN(L[v],camCoverP(q,L[v],W,H))-camMorePen(stat(q,v))); return m;};
+    const f0=L.map(its=>camFrameCuts(c,its)), sc0=sideCut(c);
+    let best=c, bv=val(c);
+    for(let dx=-Z.cm;dx<=Z.cm;dx+=Z.step)for(let dy=-Z.cm;dy<=Z.cm;dy+=Z.step)for(let dr=-CAM_NUDGE;dr<=CAM_NUDGE;dr++){
+      if(!dx&&!dy&&!dr)continue;
+      const q={x:c.x+dx,y:c.y+dy,rot:c.rot+dr,fov:c.fov,k:c.k,door:c.door};
+      if(q.x<3||q.y<3||q.x>W-3||q.y>H-3||camAtWindow(q.x,q.y,W,H)||camGraze(q,W,H)>1||camFixNear(q)||camRodHook(q)||!apartOk(q,other))continue;
+      if(sideCut(q)>sc0)continue;
+      let ok=true;
+      for(let v=0;v<V&&ok;v++){const its=L[v], f1=camFrameCuts(q,its);
+        if(f1.key>f0[v].key||f1.cut>f0[v].cut||!camCandEval(Object.assign({},q),its,W,H)||(camTallCut(q,its)&&!c.per[v].tall)){ok=false; break;}
+        const cv=camCoverP(q,its,W,H);
+        if(!camViewFit(ZV[k],q,its,cv)||((covBits(cv,v)|ob[v])&need[v])!==need[v]||camBad(stat(q,v),k===1)>camBad(stat(c,v),k===1)+1e-9)ok=false;}
+      if(!ok)continue;
+      const qv=val(q); if(qv>bv+1e-9){best=Object.assign({},c,{x:q.x,y:q.y,rot:q.rot}); bv=qv;}}
+    return best;};
+  a2=zslide(a2,0,b2); b2=zslide(b2,1,a2);
   // ОТЧЁТ ПОКРЫТИЯ: что покрыто, что нет и почему (по лучшему из двух видов: мало в кадре → «вне кадра», иначе «заслонён»)
   // главное узкого окна — из вида зоны (`crop` вида; T-32/2: вид 2 спальни — шкаф/комод, а не кровать); C1 — вид 1, C2 — вид 2 (swap по vOk)
   const cropOf=k=>vOk?camVw(ZV[k],'crop'):undefined;
