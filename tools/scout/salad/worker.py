@@ -190,6 +190,20 @@ def generate(job: dict):
         STATE['failed'] += 1
         return {'sku': sku, 'status': 'input_failed', 'error': str(e)[:300]}
 
+    # ТОЛЬКО ПОКРАСКА ГОТОВОЙ ФОРМЫ (план mesh-color-03, О1; T-20261106-85): `shape_url` → болванка `shape.glb` прошлого
+    # прогона, стадия формы пропускается (`pipeline.generate(shape_glb=…)`). Хеш болванки — в params ДО номера задания:
+    # иначе перекраска совпала бы номером с полной генерацией того же фото и приёмник отдал бы её как «уже сделано».
+    shape_bytes = None
+    if job.get('shape_url'):
+        try:
+            shape_bytes = PRE.fetch(job['shape_url'])
+        except Exception as e:  # noqa: BLE001 — мёртвая ссылка на болванку = брак входа, не ноды
+            STATE['failed'] += 1
+            return {'sku': sku, 'status': 'input_failed', 'error': f'shape_url: {str(e)[:280]}'}
+        if not shape_bytes or shape_bytes[:4] != b'glTF':
+            STATE['failed'] += 1
+            return {'sku': sku, 'status': 'input_failed', 'error': 'shape_url: не GLB (нет сигнатуры glTF)'}
+        params['_shape'] = M.sha(shape_bytes)
     jid = M.job_id(sku, input_hash, params, seed)
     prefix = M.prefix(sku, jid)
 
@@ -225,9 +239,14 @@ def generate(job: dict):
                 os.remove(_sp)
         params['_dims'] = job.get('dims_cm') or {}
         params['_square_role'] = job.get('role') in ('кашпо', 'ваза', 'торшер', 'лампа', 'пуф')
+        shape_in = None
+        if shape_bytes:
+            shape_in = os.path.join(work, 'shape.in.glb')
+            with open(shape_in, 'wb') as _f:
+                _f.write(shape_bytes)
         try:
             res = P.generate(shape_img, work, seed=seed, params=params, paint_image=paint_img,
-                             role=job.get('role'))
+                             role=job.get('role'), shape_glb=shape_in)
         except (P.FlatShape, P.SlabSuspect) as e:
             # Codex q28: paint не тратим; shape-диагностика УЕЗЖАЕТ на приёмник до очистки
             # каталога — иначе разбирать нечего. Дальше решает волна лечения (1 reseed).
@@ -250,16 +269,26 @@ def generate(job: dict):
             return {'sku': sku, 'status': status, 'job_id': jid, 'error': str(e)[:200]}
 
         files = {'model.glb': res['glb']}
-        for name in ('albedo.png', 'orm.png', 'normal.png', 'shape.glb', 'cutout.png', 'source.jpg'):
+        # у перекраски болванка — наш же вход (лежит у нас), второй раз её не возим
+        for name in ('albedo.png', 'orm.png', 'normal.png', *(() if shape_in else ('shape.glb',)), 'cutout.png',
+                     'source.jpg'):
             p = os.path.join(work, name)
             if os.path.exists(p):
                 files[name] = p
         files['input.png'] = os.path.join(work, 'input.png')
+        dd = res.get('dump_dir')
+        if dd and os.path.isdir(dd):                 # промежуточные шаги покраски — плоскими именами `dbg-*`
+            for name in sorted(os.listdir(dd)):
+                if name.startswith('dbg-'):
+                    files[name] = os.path.join(dd, name)
 
         man = M.asset_manifest({**job, 'seed': seed, 'params': params}, jid, input_hash,
                                res['timings'], res['gpu'])
         man['mask'] = mask_info      # отчёт вырезки в паспорт: по нему видно, сработал ли
                                      # гибрид и сколько тонких деталей он вернул
+        man['mode'] = res.get('mode', 'full')         # full | paint_only (T-20261106-85)
+        if shape_in:
+            man['shape_url'] = job['shape_url']
         mp = os.path.join(work, 'manifest.json')
         json.dump(man, open(mp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         files['manifest.json'] = mp

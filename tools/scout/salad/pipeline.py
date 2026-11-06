@@ -560,21 +560,213 @@ def _save_painted(painted, final_glb: str) -> None:
         painted.export(final_glb)
 
 
-def _paint_stage(raw_glb: str, paint_image, final_glb: str) -> dict:
+# ПРОМЕЖУТОЧНЫЕ ШАГИ ПОКРАСКИ (план mesh-color-03, О0; T-20261106-85). Цвет мешей врёт по светлоте, и неизвестно, на каком
+# шаге он уходит: нейросеть видов, увеличение RealESRGAN, запекание в UV или дорисовка невидимого. Апстрим ничего из этого
+# не отдаёт (`textureGenPipeline.Hunyuan3DPaintPipeline.__call__`, ревизия 82920d643c0d), поэтому по флагу задания
+# `params._dump` перехватываем его же объекты на время одного вызова — без правки апстрима:
+#   models['multiview_model'](images, conditions) → вход-картинка 512 (что видит сеть), карты нормалей/позиций, 6 видов
+#       альбедо и MR;
+#   models['super_model'](img) — зовётся попеременно альбедо/MR на каждый вид → вид после RealESRGAN;
+#   view_processor.bake_from_multiview(...) — дважды: альбедо, затем MR → UV и маска до дорисовки + выбранные ракурсы;
+#   view_processor.texture_inpaint(texture, mask) — дважды: альбедо, MR → UV после дорисовки.
+# Файлы `dbg-*.png` (длинная сторона ≤ DUMP_MAX) и журнал `dbg-log.json` (какие перехваты встали, размеры, мин/макс,
+# ошибки). Сбой записи НЕ валит задание: перехват — диагностика, меш важнее. Нет атрибута в апстриме — перехват не
+# встаёт и это видно в журнале (`hooks`), а не молча.
+DUMP_MAX = int(os.environ.get('DUMP_MAX', 1024))
+DUMP_UV_MAX = int(os.environ.get('DUMP_UV_MAX', 2048))
+
+
+def _to_image(x):
+    """PIL / numpy / тензор → PIL. Числа с плавающей точкой — доля 0..1 (так отдают запекание и дорисовка), маска → 0/255."""
+    import numpy as np
+    from PIL import Image
+    if isinstance(x, Image.Image):
+        return x, {}
+    a = x.detach().float().cpu().numpy() if hasattr(x, 'detach') else np.asarray(x)
+    info = {'shape': list(a.shape), 'dtype': str(a.dtype)}
+    if a.dtype == bool:
+        a = a.astype(np.uint8) * 255
+    elif a.dtype != np.uint8:
+        info['min'], info['max'] = round(float(a.min()), 4), round(float(a.max()), 4)
+        scale = 1.0 if info['max'] > 1.5 else 255.0          # вдруг уже 0..255
+        a = np.clip(a * scale, 0, 255).round().astype(np.uint8)
+    while a.ndim > 2 and a.shape[0] == 1:                      # (1, H, W, C) → (H, W, C)
+        a = a[0]
+    if a.ndim == 3 and a.shape[-1] == 1:
+        a = a[..., 0]
+    return Image.fromarray(a), info
+
+
+class _Dump:
+    """Перехват шагов покраски на время одного вызова (`with _Dump(pipe, d):`). Восстанавливает всё в `__exit__`."""
+
+    def __init__(self, pipe, d: str):
+        self.pipe, self.d = pipe, d
+        self.log = {'hooks': [], 'files': {}, 'errors': [], 'cams': []}
+        self.undo = []
+        self.n = {'sr': 0, 'bake': 0, 'inpaint': 0}
+
+    def save(self, x, name: str, side: int | None = None) -> None:
+        try:
+            im, info = _to_image(x)
+            info['size'] = list(im.size)
+            side = side or DUMP_MAX
+            if max(im.size) > side:
+                im = im.copy()
+                im.thumbnail((side, side))
+            im.save(os.path.join(self.d, name))
+            self.log['files'][name] = info
+        except Exception as e:  # noqa: BLE001 — диагностика не валит задание
+            self.log['errors'].append(f'{name}: {type(e).__name__}: {str(e)[:160]}')
+
+    def __enter__(self):
+        os.makedirs(self.d, exist_ok=True)
+        models = getattr(self.pipe, 'models', None)
+        vp = getattr(self.pipe, 'view_processor', None)
+        if isinstance(models, dict) and 'multiview_model' in models:
+            mv = models['multiview_model']
+
+            def mv_hook(images, conditions, *a, **k):
+                for i, im in enumerate(images or []):
+                    self.save(im, f'dbg-in-{i}.png')
+                half = len(conditions or []) // 2
+                for i, c in enumerate(conditions or []):
+                    self.save(c, f'dbg-cond-{"normal" if i < half else "pos"}-{i % max(half, 1)}.png')
+                out = mv(images, conditions, *a, **k)
+                for kind, lst in (out or {}).items():
+                    for i, im in enumerate(lst):
+                        self.save(im, f'dbg-mv-{kind}-{i}.png')
+                return out
+            models['multiview_model'] = mv_hook
+            self.undo.append(lambda: models.__setitem__('multiview_model', mv))
+            self.log['hooks'].append('multiview')
+        if isinstance(models, dict) and 'super_model' in models:
+            sr = models['super_model']
+
+            def sr_hook(img, *a, **k):
+                out = sr(img, *a, **k)
+                c = self.n['sr']
+                self.n['sr'] += 1
+                self.save(out, f'dbg-sr-{"albedo" if c % 2 == 0 else "mr"}-{c // 2}.png')
+                return out
+            models['super_model'] = sr_hook
+            self.undo.append(lambda: models.__setitem__('super_model', sr))
+            self.log['hooks'].append('super')
+        for meth, hook in (('bake_from_multiview', self._bake), ('texture_inpaint', self._inpaint)):
+            orig = getattr(vp, meth, None) if vp is not None else None
+            if orig is None:
+                continue
+            setattr(vp, meth, hook(orig))
+            self.undo.append(lambda m=meth: vp.__dict__.pop(m, None))
+            self.log['hooks'].append(meth)
+        return self
+
+    def _bake(self, orig):
+        def f(views, elevs, azims, weights, *a, **k):
+            c = self.n['bake']
+            self.n['bake'] += 1
+            kind = 'albedo' if c == 0 else 'mr' if c == 1 else f'x{c}'
+            try:
+                self.log['cams'].append({'kind': kind, 'elevs': list(map(float, elevs)), 'azims': list(map(float, azims)),
+                                         'weights': list(map(float, weights)),
+                                         'view_sizes': [list(getattr(v, 'size', ())) for v in views]})
+            except Exception as e:  # noqa: BLE001
+                self.log['errors'].append(f'cams: {e}')
+            tex, mask = orig(views, elevs, azims, weights, *a, **k)
+            self.save(tex, f'dbg-uv-{kind}-baked.png', DUMP_UV_MAX)
+            self.save(mask, f'dbg-uv-{kind}-mask.png', DUMP_UV_MAX)
+            return tex, mask
+        return f
+
+    def _inpaint(self, orig):
+        def f(texture, mask, *a, **k):
+            c = self.n['inpaint']
+            self.n['inpaint'] += 1
+            out = orig(texture, mask, *a, **k)
+            self.save(out, f'dbg-uv-{"albedo" if c == 0 else "mr" if c == 1 else f"x{c}"}-inpainted.png', DUMP_UV_MAX)
+            return out
+        return f
+
+    def __exit__(self, *exc):
+        for u in reversed(self.undo):
+            try:
+                u()
+            except Exception as e:  # noqa: BLE001
+                self.log['errors'].append(f'undo: {e}')
+        import json
+        try:
+            json.dump(self.log, open(os.path.join(self.d, 'dbg-log.json'), 'w', encoding='utf-8'),
+                      ensure_ascii=False, indent=1)
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+
+def _paint_stage(raw_glb: str, paint_image, final_glb: str, dump_dir: str | None = None) -> dict:
     """Стадия покраски: форма с диска → итоговый GLB. Сохранение — здесь же: при `STAGE_PROC` результат покраски
-    (OBJ рядом с картами или объект) не должен пересекать границу процесса."""
+    (OBJ рядом с картами или объект) не должен пересекать границу процесса. `dump_dir` — промежуточные шаги (`_Dump`)."""
+    import contextlib
     _ram_mark()
     t = time.time()
-    painted = paint_pipeline()(mesh_path=raw_glb, image_path=paint_image)
+    pipe = paint_pipeline()
+    if dump_dir:
+        os.makedirs(dump_dir, exist_ok=True)
+        try:
+            pi = paint_image
+            if isinstance(pi, str):
+                from PIL import Image
+                pi = Image.open(pi)
+            pi.save(os.path.join(dump_dir, 'dbg-paint-input.png'))      # что мы отдали покраске (до её 512)
+        except Exception:  # noqa: BLE001
+            pass
+    with (_Dump(pipe, dump_dir) if dump_dir else contextlib.nullcontext()):
+        painted = pipe(mesh_path=raw_glb, image_path=paint_image)
     s, vram = round(time.time() - t, 1), _peak_gb()
     t2 = time.time()
     _save_painted(painted, final_glb)
     del painted
-    return {'s': s, 'vram_gb': vram, 'ram_gb': _ram_peak_gb(), 'save_s': round(time.time() - t2, 1)}
+    return {'s': s, 'vram_gb': vram, 'ram_gb': _ram_peak_gb(), 'save_s': round(time.time() - t2, 1),
+            'gpu': torch.cuda.get_device_name(0)}
 
 
 def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
-             paint_image=None, role: str | None = None) -> dict:
+             paint_image=None, role: str | None = None, shape_glb: str | None = None) -> dict:
+    """`shape_glb` — ТОЛЬКО ПОКРАСКА готовой формы (план mesh-color-03, О1; T-20261106-85): стадия формы, ножи и диагнозы
+    пропускаются — болванка `shape.glb` в комплекте пишется ПОСЛЕ ножей (см. ниже), повторять их не нужно. Около 42 %
+    времени задания вместо 100 %. `params._dump` — промежуточные шаги покраски в `<out_dir>/dbg` (`_Dump`)."""
+    if shape_glb:
+        return _paint_only(image, out_dir, shape_glb, params, paint_image)
+    return _generate_full(image, out_dir, seed, params, paint_image, role)
+
+
+def _paint_only(image, out_dir: str, shape_glb: str, params: dict | None, paint_image) -> dict:
+    import shutil
+    os.makedirs(out_dir, exist_ok=True)
+    raw_glb = os.path.join(out_dir, 'shape.glb')
+    final_glb = os.path.join(out_dir, 'model.glb')
+    if os.path.abspath(shape_glb) != os.path.abspath(raw_glb):
+        shutil.copy(shape_glb, raw_glb)
+    dump = os.path.join(out_dir, 'dbg') if (params or {}).get('_dump') else None
+    t0 = time.time()
+    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb, dump) if STAGE_PROC else \
+        _paint_stage(raw_glb, paint_image or image, final_glb, dump)
+    t2 = time.time()
+    alien = cut_alien_debris(final_glb)
+    timings = {'shape': 0.0, 'paint': pt['s'], 'export': round(pt['save_s'] + time.time() - t2, 1),
+               'total': round(time.time() - t0, 1)}
+    if STAGED and not STAGE_PROC:
+        _unload('paint')
+    else:
+        gc.collect()
+        _trim()
+    return {'glb': final_glb, 'shape_glb': raw_glb, 'timings': timings, 'mode': 'paint_only', 'dump_dir': dump,
+            'gpu': {'name': pt['gpu'], 'staged': STAGED, 'stage_proc': STAGE_PROC, 'alien': alien, 'shape_gb': 0.0,
+                    'ram_shape_gb': 0.0, 'paint_gb': pt['vram_gb'], 'ram_paint_gb': pt['ram_gb'],
+                    'ram_left_gb': _ram_anon_gb()}}
+
+
+def _generate_full(image, out_dir: str, seed: int = 0, params: dict | None = None,
+                   paint_image=None, role: str | None = None) -> dict:
     """Одно задание: картинка → GLB с PBR-картами. Возвращает пути, времена и пики памяти.
 
     `image` — RGBA на полном холсте: альфа и есть маска товара, `ImageProcessorV2` сам кропает
@@ -632,8 +824,9 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
     if STAGED and not STAGE_PROC:
         _unload('shape')          # ← ради этой строки вся конструкция и затевалась
 
-    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb) if STAGE_PROC else \
-        _paint_stage(raw_glb, paint_image or image, final_glb)
+    dump = os.path.join(out_dir, 'dbg') if (params or {}).get('_dump') else None
+    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb, dump) if STAGE_PROC else \
+        _paint_stage(raw_glb, paint_image or image, final_glb, dump)
     timings['paint'] = pt['s']
     peaks['paint_gb'], peaks['ram_paint_gb'] = pt['vram_gb'], pt['ram_gb']
 
@@ -651,5 +844,5 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
         _trim()
     peaks['ram_left_gb'] = _ram_anon_gb()
 
-    return {'glb': final_glb, 'shape_glb': raw_glb, 'timings': timings,
+    return {'glb': final_glb, 'shape_glb': raw_glb, 'timings': timings, 'mode': 'full', 'dump_dir': dump,
             'gpu': {'name': sh['gpu'], 'staged': STAGED, 'stage_proc': STAGE_PROC, 'alien': alien, **peaks}}
