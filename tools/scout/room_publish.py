@@ -35,6 +35,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 ENV = 'ROOM_PUBLISH'
 ENV_READY = 'ROOM_PUBLISH_READY'
+# ОТЛОЖЕННЫЕ МОДЕЛИ (T-20261106-77/5, ведущий): mesh_id через запятую — в этой выкладке не едут (пропуск `held`). Зачем: файл
+# привязки заменил бы на проде модель, которую сейчас грузит живая сцена (другие байты), — сперва смотрят глазами
+ENV_HOLD = 'ROOM_PUBLISH_HOLD'
 LIVING = 'living'
 
 
@@ -131,7 +134,7 @@ def eligible(row: dict, ready_only: bool) -> bool:
     return row['status'] == 'ready' if ready_only else bool(row['local_3d'] and row['appearance'])
 
 
-def plan(room: str, offers: list, rows: dict, ready_only: bool) -> dict:
+def plan(room: str, offers: list, rows: dict, ready_only: bool, hold=frozenset()) -> dict:
     """→ {room, offers, meshes {mesh_id: {asset_id, local_path, offers[]}}, skipped {причина: n}, conflicts[]}.
     Вариант семьи → mesh_id представителя, один раз; разные байты под одним mesh_id — конфликт (комната отказ)."""
     meshes: dict = {}
@@ -143,6 +146,8 @@ def plan(room: str, offers: list, rows: dict, ready_only: bool) -> dict:
             why = 'no_binding'
         elif not eligible(r, ready_only):
             why = r['status'] if r['status'] != 'ready' else 'not_eligible'
+        elif str(r.get('mesh_id') or '').replace(':', '_', 1) in hold:
+            why = 'held'
         else:
             why = None
         if why:
@@ -228,6 +233,7 @@ def plans(env=os.environ, rows=None, ready_only=None, demo=None) -> tuple:
         if rows is None:
             return [], [f'привязка не читается ({why}) — комнаты не публикую']
     ro = (env.get(ENV_READY) == '1') if ready_only is None else ready_only
+    hold = frozenset(x.strip().replace(':', '_', 1) for x in (env.get(ENV_HOLD) or '').split(',') if x.strip())
     out = []
     for room, path in cfg:
         try:
@@ -238,7 +244,7 @@ def plans(env=os.environ, rows=None, ready_only=None, demo=None) -> tuple:
         if room == LIVING:              # ленты демо в добавку к комплектам; у гостиной — ТОЛЬКО ready (место в комнате проверено)
             have = set(offers)
             offers += [o for o in demo_offers(demo_data_path() if demo is None else demo) if o not in have]
-        P = plan(room, offers, rows, True if room == LIVING else ro)
+        P = plan(room, offers, rows, True if room == LIVING else ro, hold)
         P['bank'] = path
         P['snapshot'] = next(iter({r['snapshot_id'][:16] for r in rows.values()}), None)
         out.append(P)
@@ -344,6 +350,9 @@ def _selftest() -> int:
         R = stage(P, os.path.join(t, 'g6'), living={'5_r', '1_a'})
         ok('гостиная: модели, выбранные её отбором (представители), не трогаем — едет только своя модель варианта',
            R['status'] == 'ok' and R['staged'] == ['3_o'])
+        pl, err = plans({ENV: f'living={bp}', ENV_HOLD: '3:o, 9_9'}, rows=lrows, demo=dd)
+        ok('ROOM_PUBLISH_HOLD: отложенная модель не едет (пропуск held), остальные — как были',
+           not err and sorted(pl[0]['meshes']) == ['1_a', '5_r'] and pl[0]['skipped'].get('held') == 1)
         pl, err = plans({ENV: 'living=next'}, rows=lrows, demo=dd)
         ok('гостиная: «next» — отказ (кандидат только явным файлом)', pl == [] and 'явным файлом' in err[0])
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
