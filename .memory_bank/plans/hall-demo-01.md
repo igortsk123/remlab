@@ -113,3 +113,4 @@ parent_plan: room-pipeline-01
 ### Уроки
 
 ## Follow-up work
+- 2026-11-06 23:20 — [lead] hall-demo-01 этап 3 выдан T-98 (рабочий 7)
