@@ -5,7 +5,10 @@
 # порог памяти ждёт; rc пробрасывается; --timeout → 124; вложенный вызов не ждёт сам себя; --no-slot обходит; питон и shell —
 # одна очередь; чужой HEAVY_SLOT_HELD не пропускает. T-57/2: три ожидающих — строго по порядку прихода (и так же в --status);
 # отпустивший и тут же вернувшийся не обгоняет ждущего; умерший ожидающий выбывает сам; уступка по памяти маленькой задаче
-# и защита большой от голодания (после K уступок ждёт, держа очередь). Временная папка остаётся (несколько КБ) — путь в конце.
+# и защита большой от голодания (после K уступок ждёт, держа очередь). T-57/3: ожидающий старой версии (без билета) получает
+# билет-заместитель по времени прихода и никого не обгоняет; два слота — второй только при памяти (порог держателя + свой +
+# запас, запас ≥ 5 % MemTotal), при нехватке — по одному; освободился первый при идущем втором — ждёт память на обоих;
+# HEAVY_SLOT_SLOTS=1 — по одному при любой памяти, --status как прежде. Временная папка остаётся (несколько КБ) — путь в конце.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 S="$DIR/heavy-slot.sh"
@@ -16,6 +19,7 @@ fails=0
 ok() { if [ "$2" = 0 ]; then echo "  [ ok ] $1"; else echo "  [FAIL] $1"; fails=$((fails + 1)); fi; }
 yes_if() { if eval "$1"; then echo 0; else echo 1; fi; }
 mem() { printf 'MemTotal:       16000000 kB\nMemAvailable:   %d kB\n' "$(( $1 * 1048576 ))" > "$HEAVY_SLOT_MEMINFO"; }
+memt() { awk -v t="$1" -v a="$2" 'BEGIN{printf "MemTotal: %d kB\nMemAvailable: %d kB\n", t*1048576, a*1048576}' > "$HEAVY_SLOT_MEMINFO"; }
 until_held() { for _ in $(seq 1 50); do "$S" --status | grep -q '^ДЕРЖИТ' && return 0; sleep 0.1; done; return 1; }
 mem 8
 
@@ -95,8 +99,8 @@ try:
 except SlotTimeout:
     print('short-timeout')
 t = time.time()
-with heavy_slot('py-step', min_gb=1, timeout=10) as i:
-    print('step-ran', round(time.time() - t, 1) >= 0.3, i['free_gb'] >= 1)
+with heavy_slot('py-step', min_gb=2, timeout=10) as i:   # 6 + 2 + запас 1 > 8 — второй слот не дают, ждёт
+    print('step-ran', round(time.time() - t, 1) >= 0.3, i['free_gb'] >= 2)
 EOF
 )
 wait $ps1
@@ -126,7 +130,7 @@ for i in range(2):                      # длинный цикл берёт с�
 EOF
 pl=$!
 sleep 0.3
-"$S" w-regrab -- sh -c "echo w >> $T/regrab"
+"$S" w-regrab --min-gb 7 -- sh -c "echo w >> $T/regrab"   # 1 + 7 + запас 1 > 8 — не вторым слотом
 wait $pl
 o=$(tr '\n' '|' < "$T/regrab")
 ok "отпустивший и тут же вернувшийся не обгоняет ждущего ($o)" "$(yes_if '[ "$o" = "loop0|w|loop1|" ]')"
@@ -163,6 +167,94 @@ mem 5
 wait $pbig $ps2
 o=$(tr '\n' '|' < "$T/yield")
 ok "память пришла: большая, затем вторая маленькая ($o)" "$(yes_if '[ "$o" = "small1|big|small2|" ]')"
+mem 8
+
+# --- T-57/3: ожидающий без билета (процесс старой версии: `wait/<pid>`, опрос замка раз в 1 с, билетов не знает)
+cat > "$T/old_waiter.py" <<'OLDW'
+import fcntl, os, sys, time
+d, lab, out = os.environ['HEAVY_SLOT_DIR'], sys.argv[1], sys.argv[2]
+def kv(p, x):
+    t = f'{p}.tmp-{os.getpid()}'
+    open(t, 'w').write(''.join(f'{k}={v}\n' for k, v in x.items()))
+    os.replace(t, p)
+me = dict(label=lab, pid=os.getpid(), since=int(time.time()), min_gb=6, cmd='old')
+w = os.path.join(d, 'wait', str(os.getpid()))
+kv(w, dict(me, stage='очередь'))
+fd = os.open(os.path.join(d, 'slot.lock'), os.O_RDWR | os.O_CREAT, 0o644)
+while True:
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        break
+    except BlockingIOError:
+        time.sleep(1.0)
+os.unlink(w)
+kv(os.path.join(d, 'holder'), dict(me, stage='работает'))
+open(out, 'a').write(lab + '\n')
+time.sleep(0.2)
+os.unlink(os.path.join(d, 'holder'))
+OLDW
+export HEAVY_SLOT_HEAD_POLL=0.005
+# (двое старых между собой порядок не держат — билетов не читают; поэтому в каждом случае старый один)
+"$S" o-hold -- sleep 1.5 &
+poh=$!
+until_held
+"$S" n1 -- sh -c "echo n1 >> $T/order4" & pn1=$!; sleep 0.3
+python3 "$T/old_waiter.py" o1 "$T/order4" & po1=$!; sleep 0.3
+"$S" n2 -- sh -c "echo n2 >> $T/order4" & pn2=$!; sleep 0.3
+st=$("$S" --status)
+ok "--status: пришедший без билета получил билет по времени прихода (n1, o1, n2)" \
+  "$(yes_if 'grep -q "^ЖДУТ: 3 " <<<"$st" && grep -q "^  1\. n1 " <<<"$st" && grep -q "^  2\. o1 .*за старую версию" <<<"$st" && grep -q "^  3\. n2 " <<<"$st" && ! grep -q "без билета$" <<<"$st"')"
+wait $poh $pn1 $po1 $pn2
+o=$(tr '\n' '|' < "$T/order4")
+ok "без билета не обгоняет пришедшего раньше и не голодает: строго по приходу ($o)" "$(yes_if '[ "$o" = "n1|o1|n2|" ]')"
+"$S" o-hold2 -- sleep 1 &
+poh=$!
+until_held
+python3 "$T/old_waiter.py" o0 "$T/order5" & po0=$!; sleep 0.3
+"$S" n3 -- sh -c "echo n3 >> $T/order5" & pn3=$!
+wait $poh $po0 $pn3
+o=$(tr '\n' '|' < "$T/order5")
+ok "без билета, пришедший раньше, получает билет до нового и идёт первым ($o)" \
+  "$(yes_if '[ "$o" = "o0|n3|" ] && [ -z "$(ls $HEAVY_SLOT_DIR/wait)" ]')"
+unset HEAVY_SLOT_HEAD_POLL
+
+pair() {   # <файл> <метка1> <порог1> <метка2> <порог2> → порядок start/end двух задач по 0,8 с; --status — в <файл>.st
+  local f="$T/$1"
+  "$S" "$2" --min-gb "$3" -- sh -c "echo s$2 >> $f; sleep 0.8; echo e$2 >> $f" & local p1=$!
+  until_held
+  "$S" "$4" --min-gb "$5" -- sh -c "echo s$4 >> $f; sleep 0.8; echo e$4 >> $f" & local p2=$!
+  sleep 0.4
+  "$S" --status > "$f.st"
+  wait $p1 $p2
+  tr '\n' '|' < "$f"
+}
+mem 14
+o=$(pair two c1 4 c2 4)
+ok "два слота: памяти хватает (14 ≥ 4 + 4 + запас 1) — второй идёт параллельно ($o)" \
+  "$(yes_if '[ "$o" = "sc1|sc2|ec1|ec2|" ] && grep -q "c2 .*взял: .*второй слот 2: свободно 14.0 ГБ ≥ порог держателя 4 + запас 1.0 + свой 4" "$HEAVY_SLOT_LOG"')"
+ok "--status: оба держателя (второй — «слот 2») и число слотов" \
+  "$(yes_if 'grep -q "^ДЕРЖИТ: c1 · pid .* работает с " "$T/two.st" && grep -q "^ДЕРЖИТ: c2 · pid .* работает с .* · слот 2$" "$T/two.st" && grep -q "^СЛОТОВ: 2 .*запас 1.0 ГБ" "$T/two.st" && ! grep -q "^СВОБОДНО" "$T/two.st"')"
+mem 8
+o=$(pair short c3 4 c4 4)
+ok "два слота: памяти мало (8 < 4 + 4 + 1) — строго по одному ($o)" "$(yes_if '[ "$o" = "sc3|ec3|sc4|ec4|" ]')"
+memt 40 9.5
+o=$(pair res c5 4 c6 4)
+ok "запас не меньше 5 % памяти: при 40 ГБ запас 2 — 9,5 < 4 + 4 + 2, по одному ($o)" \
+  "$(yes_if '[ "$o" = "sc5|ec5|sc6|ec6|" ] && grep -q "^СЛОТОВ: 2 .*запас 2.0 ГБ" "$T/res.st"')"
+mem 14
+o=$(HEAVY_SLOT_SLOTS=1; export HEAVY_SLOT_SLOTS; pair one c7 4 c8 4)
+ok "HEAVY_SLOT_SLOTS=1: по одному даже при лишней памяти, --status без строки слотов ($o)" \
+  "$(yes_if '[ "$o" = "sc7|ec7|sc8|ec8|" ] && ! grep -q "СЛОТОВ\|слот 2" "$T/one.st" && [ $(grep -c "^ДЕРЖИТ" "$T/one.st") = 1 ]')"
+
+"$S" f1 --min-gb 4 -- sh -c "echo sf1 >> $T/free1; sleep 0.5; echo ef1 >> $T/free1" & pf1=$!
+until_held
+"$S" f2 --min-gb 4 -- sh -c "echo sf2 >> $T/free1; sleep 2; echo ef2 >> $T/free1" & pf2=$!
+sleep 0.3
+"$S" f3 --min-gb 10 -- sh -c "echo sf3 >> $T/free1" & pf3=$!
+wait $pf1 $pf2 $pf3
+o=$(tr '\n' '|' < "$T/free1")
+ok "первый слот освободился при идущем втором — следующий ждёт память на обоих (14 < 10 + 4 + 1), идёт после ($o)" \
+  "$(yes_if '[ "$o" = "sf1|sf2|ef1|ef2|sf3|" ] && grep -q "f3 .*ждёт память: свободно 14.0 ГБ < 10 + порог держателя 4 + запас 1.0 (идёт второй слот)" "$HEAVY_SLOT_LOG"')"
 mem 8
 
 st=$("$S" --status)
