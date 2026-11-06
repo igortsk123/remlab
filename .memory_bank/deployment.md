@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi
 tier2: "domain/deployment-details.md"
-updated: 2026-11-05
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
@@ -38,6 +38,8 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 ## Откат / smoke
 - smoke = `ok=true` И `version == TARGET_SHA` (одного 200 мало). Откат — тег `prev` (Tier 2).
   Вручную: `/`=200, `/api/health` ok, remnanode Up.
+- Демо `/demo`: перед каждой публикацией копия `/opt/remlab/demo.prev-<UTC>` ×3; откат — `tools/scout/publish_demo.sh --rollback [метка]` (`--list`), T-59.
+- Тяжёлые прогоны на DEV — только через `tools/ops/heavy-slot.sh` (до двух по памяти; Tier 2 § «Тяжёлые прогоны»).
 
 ## Безопасность (ADR-0207, ADR-0256)
 Патчи с публичным RCE — сразу (инцидент 08.09: майнер на 15.5.4). Заслон `@nextrce` в Caddy не снимать.
