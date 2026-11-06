@@ -17,10 +17,16 @@
   * команда обёртки наследует открытый замок: обёртку убили, а команда работает — очередь занята, пока жива команда;
   * вложенный вызов (команда под слотом сама зовёт слот) не ждёт сам себя: `HEAVY_SLOT_HELD` = pid держателя, и он — предок;
   * обойти очередь — только явный `--no-slot` / `no_slot=True` (для отладки; строка в журнал);
-  * ожидание сверх `--timeout` — код 124 (как у `timeout`), команда не запускается.
+  * ожидание сверх `--timeout` — код 124 (как у `timeout`), команда не запускается;
+  * СТРОГИЙ ПОРЯДОК ПРИХОДА (T-57/2): каждый ожидающий берёт билет (номер под отдельным замком `queue.lock`), слот берёт
+    только первый ЖИВОЙ билет; умерший ожидающий выбывает сам (pid + время старта процесса); отпустивший и тут же
+    вернувшийся (длинный цикл по шагам) получает новый билет в конец — ждущих не обгоняет;
+  * УСТУПКА ПО ПАМЯТИ: держатель, ждущий память дольше HEAVY_SLOT_YIELD (с, 600), отпускает слот и встаёт в конец, если в
+    очереди есть тот, кому памяти хватает уже сейчас (меньший порог); не больше HEAVY_SLOT_MAX_YIELDS (3) раз — дальше ждёт
+    память, держа очередь (защита большой задачи от голодания: её обгоняют не больше K раз).
 Переменные (для самопроверки и особых случаев): HEAVY_SLOT_DIR (замок и состояние, по умолчанию ~/.cache/remlab-heavy-slot —
 одинаково в кроне и в сессии, не в репо), HEAVY_SLOT_LOG, HEAVY_SLOT_MEMINFO (подмена /proc/meminfo), HEAVY_SLOT_POLL (с, 30),
-HEAVY_SLOT_REPORT (строка «ждёт» в журнал раз в N с, 300).
+HEAVY_SLOT_REPORT (строка «ждёт» в журнал раз в N с, 300), HEAVY_SLOT_YIELD, HEAVY_SLOT_MAX_YIELDS.
 """
 from __future__ import annotations
 
@@ -123,6 +129,80 @@ def _ancestors(pid: int | None = None) -> list:
     return out
 
 
+def _starttime(pid: int) -> str:
+    """Время старта процесса (поле 22 /proc/pid/stat) — чтобы чужой процесс с тем же pid не «оживил» умерший билет."""
+    try:
+        with open(f'/proc/{pid}/stat', encoding='utf-8', errors='replace') as f:
+            return f.read().rsplit(')', 1)[1].split()[19]
+    except (OSError, IndexError):
+        return ''
+
+
+@contextlib.contextmanager
+def _qlock(d: str):
+    """Отдельный короткий замок на выдачу и разбор билетов (слот — `slot.lock`, его держат долго)."""
+    fd = os.open(os.path.join(d, 'queue.lock'), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _take_ticket(d: str, me: dict) -> str:
+    """Билет в конец очереди: следующий номер из `seq`, файл `wait/<номер>-<pid>`."""
+    with _qlock(d):
+        try:
+            with open(os.path.join(d, 'seq'), encoding='ascii') as f:
+                n = int(f.read().strip() or 0) + 1
+        except (OSError, ValueError):
+            n = 1
+        with open(os.path.join(d, 'seq.tmp'), 'w', encoding='ascii') as f:
+            f.write(str(n))
+        os.replace(os.path.join(d, 'seq.tmp'), os.path.join(d, 'seq'))
+        p = os.path.join(d, 'wait', f'{n:08d}-{os.getpid()}')
+        _write_kv(p, dict(me, ticket=n, start=_starttime(os.getpid()), stage='очередь'))
+    return p
+
+
+def _tickets(d: str, clean: bool = False) -> list:
+    """Живые билеты по порядку: [(номер, путь, запись)]. clean — убрать билеты умерших (вызывать под `_qlock`).
+    Файлы без номера (`wait/<pid>`, версия до T-57/2) в порядок не входят — их процессы идут по старым правилам."""
+    out = []
+    w = os.path.join(d, 'wait')
+    for f in sorted(os.listdir(w)):
+        if '-' not in f or f.endswith(('.tmp', )) or '.tmp-' in f:
+            continue
+        p = os.path.join(w, f)
+        kv = _read_kv(p)
+        try:
+            pid = int((kv or {}).get('pid', ''))
+        except ValueError:
+            pid = 0
+        if kv and pid and _alive(pid) and kv.get('start', '') == _starttime(pid):
+            out.append((int(f.split('-', 1)[0]), p, kv))
+        elif clean and kv is not None:
+            _unlink(p)
+    return out
+
+
+def _my_turn(d: str, ticket: str) -> bool:
+    with _qlock(d):
+        live = _tickets(d, clean=True)
+    return bool(live) and live[0][1] == ticket
+
+
+def _fits_now(d: str, ticket_pid: int, free: float) -> dict | None:
+    """Ожидающий (не я), которому свободной памяти хватает уже сейчас, — ради него держатель уступает."""
+    for _, _, kv in _tickets(d):
+        try:
+            if int(kv['pid']) != ticket_pid and float(kv.get('min_gb', 1e9)) <= free:
+                return kv
+        except (KeyError, ValueError):
+            continue
+    return None
+
+
 def _lock_file() -> str:
     d = slot_dir()
     os.makedirs(os.path.join(d, 'wait'), exist_ok=True)
@@ -152,7 +232,8 @@ def _nested() -> int | None:
 
 @contextlib.contextmanager
 def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no_slot: bool = False,
-               poll: float | None = None, report: float | None = None, say=None, cmd: str = ''):
+               poll: float | None = None, report: float | None = None, say=None, cmd: str = '',
+               yield_after: float | None = None, max_yields: int | None = None):
     """Взять общую очередь, дождаться MemAvailable ≥ min_gb, выполнить тело, отпустить. → info: waited_s, free_gb, fd.
     Таймаут (очередь + память) — SlotTimeout. `say(msg)` — дублировать строки ожидания в свой журнал."""
     poll = _env_f('HEAVY_SLOT_POLL', 30) if poll is None else poll
@@ -162,7 +243,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         log(label, msg)
         if say:
             say(msg)
-    info = {'label': label, 'waited_s': 0.0, 'free_gb': None, 'fd': None, 'nested': None, 'no_slot': no_slot}
+    info = {'label': label, 'waited_s': 0.0, 'free_gb': None, 'fd': None, 'nested': None, 'no_slot': no_slot, 'yields': 0}
+    said_starve = False
     if no_slot:
         note('БЕЗ ОЧЕРЕДИ (--no-slot): слот не берётся, порог памяти не ждётся')
         yield info
@@ -175,45 +257,71 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         return
     lock = _lock_file()
     d = os.path.dirname(lock)
-    holder_p, wait_p = os.path.join(d, 'holder'), os.path.join(d, 'wait', str(os.getpid()))
+    holder_p = os.path.join(d, 'holder')
+    yield_s = _env_f('HEAVY_SLOT_YIELD', 600) if yield_after is None else yield_after
+    max_y = int(_env_f('HEAVY_SLOT_MAX_YIELDS', 3)) if max_yields is None else max_yields
     fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644)
     t0 = time.time()
     me = {'label': label, 'pid': os.getpid(), 'since': int(t0), 'min_gb': min_gb, 'cmd': cmd[:300]}
-    got = False
+    got, ticket, yields, t_lock = False, None, 0, 0.0
     try:
-        _write_kv(wait_p, dict(me, stage='очередь'))
-        said = False
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
+        while True:                                   # круг: билет → очередь → слот → память (или уступка → новый билет)
+            ticket = _take_ticket(d, dict(me, yields=yields))
+            said = False
+            while True:
+                if _my_turn(d, ticket):
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        pass
                 if not said:
                     h = _read_kv(holder_p) or {}
-                    note(f"ждёт очередь: держит {h.get('label', '?')} pid={h.get('pid', '?')}")
+                    note(f"ждёт очередь: держит {h.get('label', '?')} pid={h.get('pid', '?')}, билет {os.path.basename(ticket)}")
                     said = True
                 if timeout is not None and time.time() - t0 >= timeout:
                     note(f'не дождался очереди за {round(time.time() - t0)} с (--timeout {timeout:g}) — не запускаю')
                     raise SlotTimeout(label) from None
                 time.sleep(min(1.0, poll) if poll > 0 else 0.05)
-        got = True
-        t_lock = time.time() - t0
-        _unlink(wait_p)
-        _write_kv(holder_p, dict(me, since=int(time.time()), stage='память'))
-        free, last = mem_available_gb(), -1e9
-        while free < min_gb:
-            if time.time() - last >= report:
-                note(f'держит очередь, ждёт память: свободно {free:.1f} ГБ < {min_gb:g} (опрос раз в {poll:g} с; живое демо важнее)')
-                last = time.time()
-            if timeout is not None and time.time() - t0 >= timeout:
-                note(f'не дождался памяти за {round(time.time() - t0)} с (--timeout {timeout:g}) — не запускаю')
-                raise SlotTimeout(label)
-            time.sleep(poll)
-            free = mem_available_gb()
+            got = True
+            t_lock = time.time() - t0
+            _unlink(ticket)
+            ticket = None
+            t_mem = time.time()
+            _write_kv(holder_p, dict(me, since=int(t_mem), stage='память', yields=yields))
+            free, last, yielded = mem_available_gb(), -1e9, False
+            while free < min_gb:
+                if time.time() - last >= report:
+                    note(f'держит очередь, ждёт память: свободно {free:.1f} ГБ < {min_gb:g} (опрос раз в {poll:g} с; живое демо важнее)')
+                    last = time.time()
+                if timeout is not None and time.time() - t0 >= timeout:
+                    note(f'не дождался памяти за {round(time.time() - t0)} с (--timeout {timeout:g}) — не запускаю')
+                    raise SlotTimeout(label)
+                if time.time() - t_mem >= yield_s:
+                    w = _fits_now(d, os.getpid(), free) if yields < max_y else None
+                    if w:
+                        yields += 1
+                        note(f"уступил очередь: ждал память {_sec(time.time() - t_mem)} с, свободно {free:.1f} ГБ < {min_gb:g}; "
+                             f"{w.get('label')} pid={w.get('pid')} (порог {w.get('min_gb')}) проходит — встаю в конец "
+                             f"(уступка {yields} из {max_y})")
+                        h = _read_kv(holder_p) or {}
+                        if h.get('pid') == str(os.getpid()):
+                            _unlink(holder_p)
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                        got, yielded = False, True
+                        break
+                    if yields >= max_y and yields > 0 and not said_starve:
+                        note(f'уступок {yields} из {max_y} — дальше жду память, держа очередь (защита от голодания)')
+                        said_starve = True
+                time.sleep(poll)
+                free = mem_available_gb()
+            if not yielded:
+                break
         waited = time.time() - t0
-        _write_kv(holder_p, dict(me, since=int(time.time()), stage='работает', free_gb=round(free, 1)))
-        note(f'взял: ждал {_sec(waited)} с (очередь {_sec(t_lock)}, память {_sec(waited - t_lock)}), свободно {free:.1f} ГБ')
-        info.update(waited_s=round(waited, 1), free_gb=free, fd=fd)
+        _write_kv(holder_p, dict(me, since=int(time.time()), stage='работает', free_gb=round(free, 1), yields=yields))
+        note(f'взял: ждал {_sec(waited)} с (очередь {_sec(t_lock)}, память {_sec(waited - t_lock)}), свободно {free:.1f} ГБ'
+             + (f', уступок {yields}' if yields else ''))
+        info.update(waited_s=round(waited, 1), free_gb=free, fd=fd, yields=yields)
         old = os.environ.get('HEAVY_SLOT_HELD')
         os.environ['HEAVY_SLOT_HELD'] = str(os.getpid())
         t_run = time.time()
@@ -226,7 +334,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 os.environ['HEAVY_SLOT_HELD'] = old
             log(label, f'отпустил: держал {_sec(time.time() - t_run)} с')
     finally:
-        _unlink(wait_p)
+        if ticket:
+            _unlink(ticket)
         if got:
             h = _read_kv(holder_p) or {}
             if h.get('pid') == str(os.getpid()):
@@ -280,16 +389,17 @@ def status(out=sys.stdout) -> int:
     d = os.path.dirname(lock)
     held = is_held()
     h = _read_kv(os.path.join(d, 'holder'))
-    waiters, dead = [], 0
-    for f in sorted(os.listdir(os.path.join(d, 'wait'))):
+    waiters = [kv for _, _, kv in _tickets(d)]                     # по порядку билетов: первый — следующий
+    names = [f for f in os.listdir(os.path.join(d, 'wait')) if '.tmp' not in f]
+    dead = sum(1 for f in names if '-' in f) - len(waiters)
+    for f in sorted(f for f in names if '-' not in f):             # ожидающие старой версии (до билетов T-57/2)
         w = _read_kv(os.path.join(d, 'wait', f))
         if w and w.get('pid', '').isdigit() and _alive(int(w['pid'])):
-            waiters.append(w)
-        elif w is not None:
-            dead += 1
+            waiters.append(dict(w, ticket='без билета'))
     pr = lambda s: print(s, file=out)  # noqa: E731
     if held and h and _alive(int(h.get('pid', 0) or 0)):
-        pr(f"ДЕРЖИТ: {h['label']} · pid {h['pid']} · {h.get('stage', '?')} {_ago(h.get('since'))} · порог {h.get('min_gb')} ГБ")
+        pr(f"ДЕРЖИТ: {h['label']} · pid {h['pid']} · {h.get('stage', '?')} {_ago(h.get('since'))} · порог {h.get('min_gb')} ГБ"
+           + (f" · уступок {h['yields']}" if h.get('yields') not in (None, '0') else ''))
         pr(f"  процесс: {_proc(int(h['pid']))}")
         if h.get('cmd'):
             pr(f"  команда: {h['cmd']}")
@@ -301,8 +411,11 @@ def status(out=sys.stdout) -> int:
            + ('; '.join(f'pid {p} {_proc(p)}' for p in owners) or 'не видно (чужой пользователь?)'))
     else:
         pr('СВОБОДНО: очередь никто не держит' + (' (запись держателя устарела — процесс умер)' if h else ''))
-    pr(f'ЖДУТ: {len(waiters)}' + ''.join(f"\n  {w['label']} · pid {w['pid']} · {w.get('stage')} {_ago(w.get('since'))}"
-                                           f" · порог {w.get('min_gb')} ГБ" for w in waiters)
+    pr(f'ЖДУТ: {len(waiters)}' + (' (по порядку прихода)' if waiters else '')
+       + ''.join(f"\n  {k}. {w['label']} · pid {w['pid']} · {w.get('stage')} {_ago(w.get('since'))}"
+                 f" · порог {w.get('min_gb')} ГБ · билет {w.get('ticket')}"
+                 + (f" · уступок {w['yields']}" if w.get('yields') not in (None, '0') else '')
+                 for k, w in enumerate(waiters, 1))
        + (f'\n  (записей умерших ожидающих: {dead} — не считаются)' if dead else ''))
     try:
         pr(f'ПАМЯТЬ: свободно {mem_available_gb():.1f} ГБ')

@@ -3,7 +3,9 @@
 # папке (свой замок, свой журнал, подменённый /proc/meminfo) — настоящую очередь машины и чужие процессы не трогает.
 # Проверяет: два держателя идут по очереди; смерть держателя освобождает (и пока жива команда-потомок — нет);
 # порог памяти ждёт; rc пробрасывается; --timeout → 124; вложенный вызов не ждёт сам себя; --no-slot обходит; питон и shell —
-# одна очередь; чужой HEAVY_SLOT_HELD не пропускает. Временная папка остаётся (несколько КБ) — путь в конце.
+# одна очередь; чужой HEAVY_SLOT_HELD не пропускает. T-57/2: три ожидающих — строго по порядку прихода (и так же в --status);
+# отпустивший и тут же вернувшийся не обгоняет ждущего; умерший ожидающий выбывает сам; уступка по памяти маленькой задаче
+# и защита большой от голодания (после K уступок ждёт, держа очередь). Временная папка остаётся (несколько КБ) — путь в конце.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 S="$DIR/heavy-slot.sh"
@@ -101,6 +103,68 @@ wait $ps1
 ok "питон и shell — одна очередь: with heavy_slot ждёт держателя shell, таймаут — SlotTimeout" \
   "$(yes_if '[ "$out" = "short-timeout
 step-ran True True" ]')"
+# --- T-57/2: строгий порядок прихода (билеты), повторный захват, умерший ожидающий, уступка по памяти
+"$S" q-hold -- sleep 1.5 &
+pq=$!
+until_held
+for w in w1 w2 w3; do "$S" "$w" -- sh -c "echo $w >> $T/order3" & eval "p_$w=$!"; sleep 0.3; done
+st=$("$S" --status)
+ok "--status: очередь по порядку прихода (1. w1, 2. w2, 3. w3)" \
+  "$(yes_if 'grep -q "^ЖДУТ: 3 (по порядку прихода)" <<<"$st" && grep -q "^  1\. w1 " <<<"$st" && grep -q "^  2\. w2 " <<<"$st" && grep -q "^  3\. w3 " <<<"$st"')"
+wait $pq $p_w1 $p_w2 $p_w3
+o=$(tr '\n' '|' < "$T/order3")
+ok "три ожидающих проходят строго по порядку прихода ($o)" "$(yes_if '[ "$o" = "w1|w2|w3|" ]')"
+
+python3 - "$DIR" "$T/regrab" <<'EOF' &
+import sys, time
+sys.path.insert(0, sys.argv[1])
+from heavy_slot import heavy_slot
+for i in range(2):                      # длинный цикл берёт слот на шаг и сразу просит снова
+    with heavy_slot('loop', min_gb=1):
+        open(sys.argv[2], 'a').write(f'loop{i}\n')
+        time.sleep(0.8)
+EOF
+pl=$!
+sleep 0.3
+"$S" w-regrab -- sh -c "echo w >> $T/regrab"
+wait $pl
+o=$(tr '\n' '|' < "$T/regrab")
+ok "отпустивший и тут же вернувшийся не обгоняет ждущего ($o)" "$(yes_if '[ "$o" = "loop0|w|loop1|" ]')"
+
+"$S" d-hold -- sleep 1.2 &
+pdh=$!
+until_held
+"$S" d-dead -- sh -c "echo dead >> $T/dead" &
+pdd=$!
+sleep 0.3
+"$S" d-next --timeout 5 -- sh -c "echo next >> $T/dead" &
+pdn=$!
+sleep 0.2
+kill -9 "$pdd"; wait "$pdd" 2>/dev/null
+wait $pdh $pdn; rc=$?
+ok "умерший ожидающий выбывает сам: следующий за ним прошёл (rc $rc)" "$(yes_if '[ $rc = 0 ] && [ "$(cat $T/dead)" = next ]')"
+
+mem 3
+HEAVY_SLOT_YIELD=0.5 HEAVY_SLOT_MAX_YIELDS=1 "$S" big --min-gb 4 -- sh -c "echo big >> $T/yield" &
+pbig=$!
+until_held
+"$S" small1 --min-gb 2 -- sh -c "echo small1 >> $T/yield" &
+ps1=$!
+wait $ps1
+ok "уступка: большая ждёт память дольше HEAVY_SLOT_YIELD — маленькая с меньшим порогом прошла" \
+  "$(yes_if '[ "$(cat $T/yield)" = small1 ] && grep -q "big .*уступил очередь: .* small1 .* встаю в конец (уступка 1 из 1)" "$HEAVY_SLOT_LOG"')"
+for _ in $(seq 1 50); do "$S" --status | grep -q '^ДЕРЖИТ: big .*уступок 1' && break; sleep 0.1; done
+"$S" small2 --min-gb 2 -- sh -c "echo small2 >> $T/yield" &
+ps2=$!
+sleep 1.5
+ok "защита от голодания: после K уступок большая ждёт память, держа очередь — вторая маленькая не прошла" \
+  "$(yes_if '[ "$(tr "\n" "|" < $T/yield)" = "small1|" ] && grep -q "big .*уступок 1 из 1 — дальше жду память, держа очередь" "$HEAVY_SLOT_LOG"')"
+mem 5
+wait $pbig $ps2
+o=$(tr '\n' '|' < "$T/yield")
+ok "память пришла: большая, затем вторая маленькая ($o)" "$(yes_if '[ "$o" = "small1|big|small2|" ]')"
+mem 8
+
 st=$("$S" --status)
 ok "после всех: очередь свободна, ожидающих нет" "$(yes_if 'grep -q "^СВОБОДНО" <<<"$st" && grep -q "^ЖДУТ: 0" <<<"$st"')"
 
