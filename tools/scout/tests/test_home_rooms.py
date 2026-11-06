@@ -26,10 +26,15 @@ check('комнаты квартиры демо — из реестра, в по
 check('готова только гостиная', [r['id'] for r in rooms if r['contentState'] == 'ready'] == ['living'])
 check('варианты обставляют гостиную реестра', F.living_room_id() == 'living')
 # ФЛАГИ НОВЫХ КОМНАТ И ОПРОСА (ADR-0330 п.5, onb-12): выключено — полей в demo-data.json нет (данные гостиной прежние)
-_off = dict(F.demo_apartment(), rooms=[{k: v for k, v in r.items() if k != 'enabled'} for r in F.demo_apartment()['rooms']])
-check('флаги: в реестре всё выключено — полей нет', F.room_flags(_off) == {})
-# спальни включены флагом реестра (T-20261106-77, ведущий) — RU и UK
-check('флаги: реестр включает обе спальни', F.room_flags(F.demo_apartment()) == {'rooms_enabled': ['bedroom-1', 'bedroom-2']})
+_off = {k: v for k, v in F.demo_apartment().items() if k != 'quiz'}
+_off['rooms'] = [{k: v for k, v in r.items() if k != 'enabled'} for r in F.demo_apartment()['rooms']]
+check('флаги: в реестре всё выключено (комнаты и опрос) — полей нет', F.room_flags(_off) == {})
+# спальни включены флагом реестра (T-20261106-77, ведущий) — RU и UK; опрос — свой флаг квартиры (T-20261106-83), сверяем раздельно
+_on = F.room_flags(F.demo_apartment())
+check('флаги: реестр включает обе спальни', _on.get('rooms_enabled') == ['bedroom-1', 'bedroom-2'])
+check('флаги: опрос — по своему флагу квартиры, не по комнатам',
+      _on.get('quiz_enabled') is ((F.demo_apartment().get('quiz') or {}).get('enabled') is True)
+      and set(_on) <= {'rooms_enabled', 'quiz_enabled'})
 on = dict(F.demo_apartment(), quiz={'enabled': True},
           rooms=[dict(r, enabled=r['id'] in ('bedroom-1', 'kitchen')) for r in rooms])
 check('флаги: включённые комнаты — в порядке плана, опрос — true',

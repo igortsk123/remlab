@@ -152,7 +152,9 @@ wait $pl
 o=$(tr '\n' '|' < "$T/regrab")
 ok "отпустивший и тут же вернувшийся не обгоняет ждущего ($o)" "$(yes_if '[ "$o" = "loop0|w|loop1|" ]')"
 
-"$S" d-hold -- sleep 1.2 &
+# держатель отпускает слот только ПОСЛЕ убийства ожидающего (файл-сигнал), а не через фиксированную паузу: под нагрузкой
+# старт питона ожидающих дольше 1,2 с — держатель уходил раньше, «умерший» успевал взять слот и выполниться (T-20261106-95)
+"$S" d-hold -- sh -c "while [ ! -e $T/dead-killed ]; do sleep 0.05; done" &
 pdh=$!
 until_held
 "$S" d-dead -- sh -c "echo dead >> $T/dead" &
@@ -161,7 +163,7 @@ sleep 0.3
 "$S" d-next --timeout 5 -- sh -c "echo next >> $T/dead" &
 pdn=$!
 sleep 0.2
-kill -9 "$pdd"; wait "$pdd" 2>/dev/null
+kill -9 "$pdd"; wait "$pdd" 2>/dev/null; touch "$T/dead-killed"
 wait $pdh $pdn; rc=$?
 ok "умерший ожидающий выбывает сам: следующий за ним прошёл (rc $rc)" "$(yes_if '[ $rc = 0 ] && [ "$(cat $T/dead)" = next ]')"
 
