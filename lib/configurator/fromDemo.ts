@@ -91,6 +91,8 @@ export function baseSnapshotOf(a: Apartment, c: Catalogue): Record<string, strin
     if (o?.asset.kind === "mesh") out[s.id] = o.asset.meshId;
     // ковёр — фото товара в материале: смена ковра тоже «набор обновился» (Codex 15.10)
     else if (o?.asset.kind === "kit" && o.asset.kit === "rug") out[s.id] = `rug:${o.asset.materials.body ?? ""}`;
+    // настенная плоскость (зеркало, картина) — товар в имени материала, как у ковра (T-20261106-73)
+    else if (o?.asset.kind === "kit" && o.asset.kit === "wall-plane") out[s.id] = `plane:${o.asset.materials.body ?? ""}`;
   }
   return out;
 }
@@ -112,6 +114,12 @@ type DemoItem = {
   elev?: number;
   corner?: boolean;
   corner_left?: boolean;
+  /**
+   * Стратегия 3D-ассета роли из канона (`tools/scout/rules/asset-strategies.json` через `asset_strategy.strategy`) — пишет
+   * сборщик витрины (T-20261106-73). Канон лежит в `tools/`, которых нет в образе приложения, поэтому решение идёт ДАННЫМИ, а
+   * не копией таблицы ролей. Нет поля — как раньше (меш по `msid`, ковёр по роли).
+   */
+  strategy?: string;
   sku?: { name?: string; name_en?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number; img?: string;
     /** Подкраска цветового варианта на модели семейства (`flat215_demo.annotate_tint`): множитель цвета по каналу. */
     tint?: number[] };
@@ -184,8 +192,52 @@ export function openings(room: DemoRoom): Opening[] {
     }));
 }
 
+/**
+ * НАСТЕННАЯ ПЛОСКОСТЬ (T-20261106-73, план hall-demo-01 этап 2): предмет стратегии `procedural_plane`, который выше своей
+ * глубины, — зеркало или картина на стене. Признак — стратегия и геометрия, не список ролей: ковёр той же стратегии лежит
+ * (высота ≤ глубины) и идёт своим путём ниже. Модели у такого предмета нет никогда — даже если в карточке нашёлся `msid`.
+ */
+export const isWallPlane = (it: { strategy?: string; w?: number; d?: number; h?: number }): boolean =>
+  it.strategy === "procedural_plane" && !!it.w && !!it.d && !!it.h && it.h > it.d;
+
+/**
+ * Места настенных плоскостей варианта: место — след товара от солвера (`x`, `y`, `rot`, `w`×`d`) и высота подвеса `elev`
+ * (солвер прихожей поднимает зеркало к уровню глаз, `planner/hall.py:_place`); опция — набор `wall-plane` с материалом рамы
+ * (зеркало) или фото товара (картина). Материал назван по товару: смена товара — «набор обновился» (`baseSnapshotOf`).
+ * Ленты замен у плоскостей пока нет (план hall-demo-01 этап 3).
+ */
+function wallPlanes(items: DemoItem[], at: RoomAt<DemoVariant>, kinds: string[], ctx: DemoContext, rub: (v?: number) => number,
+  shopOf: (sku: DemoItem["sku"]) => object): { material: Mat; option: Mat; slot: object }[] {
+  const planes = items.filter(isWallPlane);
+  const ids = stableSlotIds(planes);
+  return planes.map((it, k) => {
+    const id = `${at.prefix}${ids[k]}`;
+    const mirror = baseRoleOf(it.role) === "зеркало";
+    const img = assetUrl(it.sku?.img, ctx.assetBase);
+    const [w, d, h] = [it.w as number, it.d as number, it.h as number];
+    const mat = `plane:${at.prefix}${k}:${it.sku?.sid ?? it.sku?.img ?? ""}`;
+    return {
+      // рама зеркала — светлый нейтральный цвет; у картины полотно — фото товара
+      material: { id: mat, titleRu: mirror ? "Рама зеркала" : "Картина", titleEn: mirror ? "Mirror frame" : "Picture",
+        colorHex: mirror ? "#d8d2c8" : "#cfc8bd", roughness: 0.6, tileCm: [w, h], ...(!mirror && img ? { baseColorUrl: img } : {}) },
+      option: { id: `opt:${id}`, category: "furniture", titleRu: it.sku?.name ?? it.role ?? "Зеркало",
+        titleEn: it.sku?.name_en ?? it.sku?.name ?? roleEn(it.role), descRu: `${Math.round(w)}×${Math.round(h)} см`,
+        tier: "standard", price: rub(it.sku?.price), availability: "available", roomKinds: kinds,
+        asset: { kind: "kit", kit: "wall-plane", materials: { body: mat }, features: mirror ? ["mirror"] : [] },
+        ...(img ? { previewUrl: img } : {}), ...shopOf(it.sku) },
+      slot: { id, roomId: at.id, category: "furniture" as const, kind: "furniture" as const, titleRu: it.role ?? "зеркало",
+        titleEn: roleEn(it.role), photoRole: it.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
+        placement: { x: (it.x ?? 0) + at.ox, y: (it.y ?? 0) + at.oy, rot: it.rot ?? 0, wCm: w, dCm: d, hCm: h,
+          elevCm: Math.max(0, it.elev ?? 0) } },
+    };
+  });
+}
+
+const baseRoleOf = (role?: string): string => String(role ?? "").replace(/\s+\d+$/, "").trim();
+
 /** Что ставит вариант: предметы с моделью и габаритами (без меша серая коробка хуже отсутствия). */
-const placeable = (v: DemoVariant): DemoItem[] => (v.items ?? []).filter((it) => it.w && it.d && it.h && it.sku?.msid);
+const placeable = (v: DemoVariant): DemoItem[] =>
+  (v.items ?? []).filter((it) => it.w && it.d && it.h && it.sku?.msid && !isWallPlane(it));
 
 /** Запись каталога до проверки схемой (материал, опция): у всех есть id. */
 type Mat = Record<string, unknown> & { id: string };
@@ -376,6 +428,11 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
     slots.push({ id, roomId: at.id, category: "furniture" as const, kind: "furniture" as const, titleRu: it.role ?? "ковёр",
       titleEn: "rug", photoRole: it.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`, ...feedIds],
       placement: { x: (it.x ?? 0) + ox, y: (it.y ?? 0) + oy, rot: it.rot ?? 0, wCm: it.w as number, dCm: it.d as number, hCm: 1, elevCm: 0 } });
+  });
+  wallPlanes(v.items ?? [], at, kinds, ctx, rub, shopOf).forEach((x) => {
+    extraMaterials.push(x.material);
+    extraOptions.push(x.option);
+    slots.push(x.slot);
   });
   const decorIds = stableSlotIds(decor.map((x) => ({ role: x.role ?? "декор" })));
   decor.forEach((x, k) => {

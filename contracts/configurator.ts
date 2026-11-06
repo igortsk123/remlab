@@ -64,10 +64,14 @@ export const material = z.object({
 });
 export type Material = z.infer<typeof material>;
 
-/** Параметрический комплект: кухня/санузел/кровать/шкаф собираются кодом, а не мешем. */
+/**
+ * Параметрический комплект: кухня/санузел/кровать/шкаф собираются кодом, а не мешем.
+ * `wall-plane` (T-20261106-73) — настенная плоскость стратегии `procedural_plane` (`tools/scout/rules/asset-strategies.json`):
+ * зеркало (признак `mirror`) или картина (фото товара). Добавлен РАСШИРЕНИЕМ: каталоги без него разбираются как раньше.
+ */
 export const kitAsset = z.object({
   kind: z.literal("kit"),
-  kit: z.enum(["kitchen", "bathroom", "bed", "wardrobe", "rug"]),
+  kit: z.enum(["kitchen", "bathroom", "bed", "wardrobe", "rug", "wall-plane"]),
   /** Уровень исполнения — им кит решает, что показать (например, встроенную технику). */
   level: z.enum(["base", "practical", "comfort", "premium"]).default("base"),
   materials: z.record(z.string(), z.string()).default({}), // слот кита → id материала

@@ -61,6 +61,19 @@ export type ObjectSpec =
       materialId?: string;
     }
   | {
+      /**
+       * Настенная плоскость стратегии `procedural_plane` (зеркало, картина; T-20261106-73): рама по габаритам товара и полотно
+       * на лицевой стороне, высота подвеса — `placement.elevCm`. Не препятствие для прогулки и старта камеры (`viewer.ts`).
+       */
+      kind: "wall-plane";
+      slotId: string;
+      roomId: string;
+      titleRu: string;
+      placement: Placement;
+      mirror: boolean;
+      materialId?: string;
+    }
+  | {
       /** Телевизор над тумбой — производный объект, не слот: не выбирается, не препятствие (`sceneExtras`). */
       kind: "tv";
       slotId: string;
@@ -161,6 +174,12 @@ export function planObjects(
       continue;
     }
 
+    if (asset.kit === "wall-plane") {
+      out.push({ kind: "wall-plane", slotId: item.slotId, roomId: item.roomId, titleRu: item.titleRu, placement: item.placement,
+        mirror: asset.features.includes("mirror"), materialId: asset.materials.body });
+      continue;
+    }
+
     out.push({
       kind: asset.kit === "bed" ? "bed" : asset.kit === "rug" ? "rug" : "wardrobe",
       slotId: item.slotId,
@@ -173,6 +192,14 @@ export function planObjects(
     });
   }
   return [...out, ...sceneExtras(scene, out)];
+}
+
+/**
+ * Плоское на полу или стене — ковёр и настенная плоскость (зеркало, картина; T-20261106-73): ни прогулке, ни старту камеры не
+ * мешает. Зеркало висит над обувницей — препятствие там уже обувница.
+ */
+export function isFlatOnSurface(spec: ObjectSpec): boolean {
+  return spec.kind === "rug" || spec.kind === "wall-plane";
 }
 
 /**

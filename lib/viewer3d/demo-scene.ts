@@ -10,7 +10,7 @@
 
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
-import { fromDemoVariant, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
+import { fromDemoVariant, isWallPlane, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
 import { type DecorIn } from "@/lib/viewer3d/scene-extras";
 import { meshUrl, RUNTIME_BASE, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
 import { windowView } from "@/lib/viewer3d/window-views";
@@ -154,7 +154,8 @@ export function sceneAssetUrls(opts: PrefetchOptions): { meshes: string[]; shell
   const sc = resolveScene(apartment, catalogue, defaultConfiguration(apartment, catalogue));
   const specs = planObjects(apartment, catalogue, sc, { lite });
   const meshes = [...new Set(specs.flatMap((s) => (s.kind === "mesh" ? [s.url] : [])))];
-  const rugIds = new Set(specs.flatMap((s) => (s.kind === "rug" && s.materialId ? [s.materialId] : [])));
+  // ковёр и картина — фото товара в материале (у зеркала материал рамы — сплошной цвет, адреса нет и качать нечего)
+  const rugIds = new Set(specs.flatMap((s) => ((s.kind === "rug" || s.kind === "wall-plane") && s.materialId ? [s.materialId] : [])));
   const mats = [...sc.surfaces.flatMap((s) => (s.accent ? [s.material, s.accent.material] : [s.material])),
     ...catalogue.materials.filter((m) => rugIds.has(m.id))];
   const maps = mats.flatMap((m) => [m.baseColorUrl, ...(lite ? [] : [m.normalUrl, m.roughnessUrl])]);
@@ -191,7 +192,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   // номер места в движке («диван#0») ↔ номер предмета в расстановке страницы — тем же счётом, что у моста
   let current: DemoItem[] = opts.items;
   const slotIndex = (): Map<string, number> => {
-    const idx = current.map((it, i) => ({ it, i })).filter(({ it }) => !isRug(it) && it.w && it.d && it.h && it.sku?.msid);
+    const idx = current.map((it, i) => ({ it, i })).filter(({ it }) => !isRug(it) && it.w && it.d && it.h && it.sku?.msid && !isWallPlane(it));
     const ids = stableSlotIds(idx.map(({ it }) => it));
     return new Map(ids.map((id, k) => [id, idx[k]!.i]));
   };

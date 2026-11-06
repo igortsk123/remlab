@@ -2994,6 +2994,132 @@ def _paste_rug(canvas, zbuf, place, cam, W, H, ph) -> bool:
     return True
 
 
+def is_wall_plane(role: str | None, it) -> bool:
+    """НАСТЕННАЯ ПЛОСКОСТЬ (T-20261106-73, план hall-demo-01 этап 2) — то же правило, что у живой сцены
+    (`lib/configurator/fromDemo.ts:isWallPlane`): стратегия ассета роли `procedural_plane` и предмет выше своей глубины.
+    Ковёр той же стратегии лежит (высота ≤ глубины) и идёт своим путём (`_paste_rug`); зеркало и картина висят."""
+    import asset_strategy as AS
+    if it is None or AS.strategy(role) != 'procedural_plane':
+        return False
+    w, d, h = (float(getattr(it, k, 0) or 0) for k in ('w_cm', 'd_cm', 'h_cm'))
+    return w > 0 and d > 0 and h > d
+
+
+def wall_plane_frame_cm(w: float, h: float) -> float:
+    """Ширина рамы — как `lib/viewer3d/kits/wall-plane.ts:frameCm`: 6 % меньшей стороны, 1,5…4 см."""
+    return min(4.0, max(1.5, min(w, h) * 0.06))
+
+
+def wall_plane_quads(place) -> dict:
+    """Лицевая сторона плоскости в координатах сцены (x, высота, y-план): `outer` — рама целиком, `inner` — полотно, углы
+    низ-лево, низ-право, верх-право, верх-лево; `normal` — куда смотрит (план). Конвенция — как у `_paste_rug` и живой сцены
+    (`wall-plane.ts:wallPlaneFace`): (x, y) — центр следа, rot 0 — лицом на +y, 90 — на +x; низ — высота подвеса `elev_cm`."""
+    import math
+    it = place.item
+    w, d, h = float(it.w_cm), float(it.d_cm), float(it.h_cm)
+    elev = float(getattr(place, 'elev_cm', 0) or 0)
+    a = math.radians(float(place.rot or 0))
+    nx, ny = math.sin(a), math.cos(a)
+    ux, uy = math.cos(a), -math.sin(a)
+    off = d / 2 + 0.2                          # лицевая сторона + зазор от мерцания, как у браузера
+    cx, cy = place.x + nx * off, place.y + ny * off
+    f = wall_plane_frame_cm(w, h)
+
+    def quad(hw: float, z0: float, z1: float) -> list:
+        return [(cx - ux * hw, z0, cy - uy * hw), (cx + ux * hw, z0, cy + uy * hw),
+                (cx + ux * hw, z1, cy + uy * hw), (cx - ux * hw, z1, cy - uy * hw)]
+    return {'outer': quad(w / 2, elev, elev + h), 'inner': quad(max(0.5, w / 2 - f), elev + f, elev + h - f),
+            'normal': (round(nx, 6) + 0.0, round(ny, 6) + 0.0)}
+
+
+def _raster_quad(cam, W, H, corners):
+    """Перспективная проекция прямоугольника сцены: окно кадра, (u, v) пикселя (гомография экран → квадрат) и честная
+    глубина плоскости по лучу (как у `_paste_rug`). Не в кадре — None."""
+    import scene_mesh as SM
+    pts = SM.project_pts(cam, corners, W, H)
+    if pts is None:
+        return None
+    P = [(float(p[0]), float(p[1])) for p in pts]
+    A, B = [], []
+    for (x, y), (u, v) in zip(P, ((0, 0), (1, 0), (1, 1), (0, 1))):
+        A.append([x, y, 1, 0, 0, 0, -u * x, -u * y]); B.append(u)
+        A.append([0, 0, 0, x, y, 1, -v * x, -v * y]); B.append(v)
+    try:
+        hcf = np.linalg.solve(np.array(A, np.float64), np.array(B, np.float64))
+    except np.linalg.LinAlgError:
+        return None
+    x0 = int(max(0, min(p[0] for p in P))); x1 = int(min(W - 1, max(p[0] for p in P)) + 1)
+    y0 = int(max(0, min(p[1] for p in P))); y1 = int(min(H - 1, max(p[1] for p in P)) + 1)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    gy, gx = np.mgrid[y0:y1, x0:x1]
+    den = hcf[6] * gx + hcf[7] * gy + 1.0
+    den[np.abs(den) < 1e-9] = 1e-9
+    uu = (hcf[0] * gx + hcf[1] * gy + hcf[2]) / den
+    vv = (hcf[3] * gx + hcf[4] * gy + hcf[5]) / den
+    eye, fwd, _, _ = cam.basis()
+    C = np.array(corners, np.float32)
+    Pw = (C[0][None, None, :] + uu[..., None] * (C[1] - C[0])[None, None, :]
+          + vv[..., None] * (C[3] - C[0])[None, None, :])
+    zt = ((Pw - np.array(eye, np.float32)) @ np.array(fwd, np.float32)).astype(np.float32)
+    return (x0, x1, y0, y1), uu, vv, zt
+
+
+# цвета плоскости кадра: рама — светлый нейтральный (как материал рамы в мосту), полотно — светлый холодный градиент
+# (сверху светлее, без отражений — скоуп плана), картина — фото товара
+_FRAME_RGB = np.array([216, 210, 200], np.float32)
+_GLASS_TOP = np.array([236, 240, 242], np.float32)
+_GLASS_BOTTOM = np.array([196, 204, 210], np.float32)
+
+
+def _paint_wall_plane(canvas, zbuf, place, cam, W, H, mirror: bool, ph=None) -> bool:
+    """ЗЕРКАЛО / КАРТИНА — ПЛОСКОСТЬ НА СТЕНЕ (T-20261106-73): не clay-коробка и не меш. Рама и полотно проецируются в кадр
+    по месту солвера (стена, разворот, высота подвеса); глубина плоскости пишется в z-буфер — мебель перед зеркалом
+    (обувница под ним) перекрывает его честно, а стена за ним — нет."""
+    q = wall_plane_quads(place)
+    got = _raster_quad(cam, W, H, q['outer'])
+    if got is None:
+        return False
+    (x0, x1, y0, y1), uu, vv, zt = got
+    inside = (uu >= -0.002) & (uu <= 1.002) & (vv >= -0.002) & (vv <= 1.002)
+    sub = zbuf[y0:y1, x0:x1]
+    # глубина clay-стены смещена от честного луча (разные растеризаторы, как у пола под ковром) — сдвиг медианой по пикселям
+    # рядом со стеной; плоскость в 3 см от стены не должна уйти «за» неё
+    near = inside & np.isfinite(sub) & (np.abs(zt - sub) < 20.0)
+    shift = max(0.0, float(np.median((zt - sub)[near]))) if near.sum() > 50 else 0.0
+    ztc = zt - shift
+    upd = inside & (ztc <= sub + 1.0)
+    if not upd.any():
+        return False
+    it = place.item
+    w, h = float(it.w_cm), float(it.h_cm)
+    f = wall_plane_frame_cm(w, h)
+    fu, fv = f / w, f / h
+    glass = (uu > fu) & (uu < 1 - fu) & (vv > fv) & (vv < 1 - fv)
+    out = canvas[y0:y1, x0:x1]
+    if mirror:
+        t = np.clip((vv - fv) / max(1e-6, 1 - 2 * fv), 0, 1)[..., None]            # 0 — низ, 1 — верх
+        col = _GLASS_BOTTOM[None, None, :] * (1 - t) + _GLASS_TOP[None, None, :] * t
+        # мягкая диагональная полоса блика — знак «стекло», не отражение
+        band = np.exp(-((uu + 0.6 * vv - 0.75) / 0.12) ** 2)[..., None]
+        col = np.clip(col + band * 14.0, 0, 255)
+        m = upd & glass
+        out[m] = col[m]
+        m = upd & ~glass
+        out[m] = _FRAME_RGB
+    else:
+        if ph is None:
+            out[upd] = _FRAME_RGB
+        else:
+            src = np.asarray(ph.convert('RGB'), np.float32)
+            sh, sw = src.shape[:2]
+            tx = np.clip(uu * (sw - 1), 0, sw - 1).astype(int)
+            ty = np.clip((1 - vv) * (sh - 1), 0, sh - 1).astype(int)
+            out[upd] = src[ty, tx][upd]
+    sub[upd] = ztc[upd] - 0.1
+    return True
+
+
 _S3_JOB = None
 
 
@@ -3186,12 +3312,15 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
         import asset_strategy as AS
     except Exception:  # noqa: BLE001
         AS = None
-    rug_places = []
+    rug_places, plane_places = [], []
     for place in placements:
         sid = sid_by_role.get(place.role)
         base = place.role.split(' ')[0]
         if base == 'ковёр':
             rug_places.append(place)           # фото на пол, не clay и не меш
+            continue
+        if is_wall_plane(place.role, place.item):
+            plane_places.append(place)         # зеркало, картина — плоскость на стене (T-73), не clay и не меш
             continue
         # канон стратегий: не-hunyuan НЕ ставятся мешом; нет файла канона (контейнер!) —
         # жёсткий фолбэк по ролям, чтобы ковёр НИКОГДА не оказался мешом
@@ -3246,6 +3375,11 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
             used.append(place.role + ' (фото-ковёр)')
         else:
             missing.append(place.role)
+    for place in plane_places:
+        mirror = place.role.split(' ')[0] == 'зеркало'
+        ph = None if mirror or not photos_by_role else photos_by_role.get(place.role)
+        if _paint_wall_plane(canvas, zbuf, place, cam, W, H, mirror, ph):
+            used.append(place.role + (' (зеркало-плоскость)' if mirror else ' (плоскость)'))
     for place, sid, glb in mesh_places:
         try:
             parts = _scene3d_parts(glb)

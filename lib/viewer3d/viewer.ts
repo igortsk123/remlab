@@ -15,11 +15,12 @@ import type { Apartment, Placement, Room } from "@/contracts/apartment";
 import { entranceOf, findRoom, isIsolatedRoom, roomAt, roomCentre } from "@/contracts/apartment";
 import { material as materialSchema, type Catalogue, type Material } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
-import { isExtra, type ObjectSpec, planObjects, surfacesByRoom } from "@/lib/viewer3d/build-scene";
+import { isExtra, isFlatOnSurface, type ObjectSpec, planObjects, surfacesByRoom } from "@/lib/viewer3d/build-scene";
 import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
 import { buildTv } from "@/lib/viewer3d/kits/tv";
+import { buildWallPlane } from "@/lib/viewer3d/kits/wall-plane";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
@@ -391,7 +392,7 @@ export class FlatViewer {
     // набор санузла описан коробкой на всю комнату (сантехника внутри расставляется кодом) — его след не препятствие;
     // производное (ТВ над тумбой) стоит на тумбе или висит на стене — препятствие уже тумба
     this.area = walkArea(this.apartment, 28, all
-      .filter((sp) => sp.kind !== "rug" && sp.kind !== "bathroom" && !isExtra(sp.slotId) && sp.placement.hCm > 10)
+      .filter((sp) => !isFlatOnSurface(sp) && sp.kind !== "bathroom" && !isExtra(sp.slotId) && sp.placement.hCm > 10)
       .map((sp) => ({ x: sp.placement.x, y: sp.placement.y, w: sp.placement.wCm, d: sp.placement.dCm, rot: sp.placement.rot, h: sp.placement.hCm })));
     // счётчик считаем ЗАНОВО на каждой синхронизации: раньше он копился между вызовами и
     // «загружено» обгоняло «всего» — процент прыгал выше 100 (находка советника 30.09)
@@ -537,6 +538,8 @@ export class FlatViewer {
       });
     } else if (spec.kind === "tv") {
       group = buildTv(this.kitCtx, { widthCm: p.wCm, heightCm: p.hCm, depthCm: p.dCm, hung: spec.hung });
+    } else if (spec.kind === "wall-plane") {
+      group = buildWallPlane(this.kitCtx, { widthCm: p.wCm, heightCm: p.hCm, depthCm: p.dCm, mirror: spec.mirror, materialId: spec.materialId });
     } else if (spec.kind === "rug") {
       group = buildRug(this.kitCtx, {
         materialId: spec.materialId,
@@ -985,7 +988,7 @@ export class FlatViewer {
     const inRoom = [...this.placed.values()].filter((p) => p.spec.roomId === roomId);
     // ковёр и плоское — пол, а не препятствие (как у прогулки): с ковром из витрины в /flat (demo-05 п.9) середина комнаты и
     // середины стен считались «занятыми», и старт оставался у торца ТВ-тумбы
-    const obstacles = inRoom.filter((p) => p.spec.kind !== "rug" && p.spec.placement.hCm > 10).map((p) => p.spec.placement);
+    const obstacles = inRoom.filter((p) => !isFlatOnSurface(p.spec) && p.spec.placement.hCm > 10).map((p) => p.spec.placement);
     // Расстояние до ПРЯМОУГОЛЬНИКА предмета, а не до круга вокруг него: кухонная линия
     // 340×60 «кругом» занимала всю комнату, и любая точка считалась занятой (кадр 29.09).
     // ВЫСОКОЕ — ДАЛЬШЕ (demo-05 п.5: /flat стартовал вплотную к торшеру, абажур на уровне глаз закрывал треть кадра): от
@@ -1816,5 +1819,6 @@ function signatureOf(spec: ObjectSpec): string {
   }
   if (spec.kind === "bathroom") return `bath|${spec.level}|${spec.features.join(",")}|${spec.vanityMaterialId}|${geom}|${at}`;
   if (spec.kind === "tv") return `tv|${spec.hung}|${geom}`;
+  if (spec.kind === "wall-plane") return `plane|${spec.mirror}|${spec.materialId}|${geom}`;
   return `${spec.kind}|${spec.level}|${spec.features.join(",")}|${spec.materialId}|${geom}|${at}`;
 }

@@ -145,6 +145,7 @@ jobs:
       - run: python tools/scout/room_candidate.py --selftest && python tools/scout/compose_hall.py --selftest && python tools/scout/room_coverage.py --selftest && python tools/scout/tests/test_compose_atomic.py   # сборщики спальни и прихожей: кандидат — после проверки и атомарно, отказ — код 1 и прежний цел; прихожая — id от ячейки и матрица; правило ядра спальни — стиль без ядра пропущен (WARN), стиль живого банка — FAIL (room-bank-nightly-04, T-20261106-89)
       - run: python tools/scout/tests/test_demo_en_roles.py   # EN-страница витрины: роли спальни и прихожей переведены (по профилям комнат, T-20261106-77 Д6)
       - run: pip install scipy && python tools/scout/tests/test_demo_swatch.py   # кружок цвета — тон ткани без фона и теней, светлое не серит (demo-28)
+      - run: python tools/scout/tests/test_wall_plane.py   # (нужен planner: draft_render) зеркало прихожей на серверном кадре — плоскость на стене по стене/развороту/высоте солвера, не clay и не меш, закрывается мебелью (T-20261106-73)
 
   draft-image:
     # Образ сервиса кадров собирается ИЗ РЕПОЗИТОРИЯ (b2b-08, ADR-0267): сборка проверяет импорты HTTP-рендера —
