@@ -10,7 +10,7 @@
 `usd_cap` и отметкой книги расходов сторожа денег `usd_mark`; сторож денег гасит пул, когда потолок выбран
 (`money_guard.budget_breach`). Конвейер вышел → волна закрывается: факт денег и моделей, итог владельцу в Telegram,
 потраченное копится в `spent_usd`.
-Волна запускается ТЕМ ЖЕ законным путём (`mesh_wave_start.sh --launch`) с `MESH_TAKE_JOBS` = остаток (верх очереди по приоритету; `MESH_MAX_JOBS` — отдельный предохранитель снимка) и
+Волна запускается ТЕМ ЖЕ законным путём (`mesh_wave_start.sh --launch`) с `MESH_TAKE_JOBS` = остаток (с профилем — не больше заданий профиля, T-20261106-82/3; верх очереди по приоритету; `MESH_MAX_JOBS` — отдельный предохранитель снимка) и
 `MESH_MIN_JOBS`. Конец очереди, нет денег, предел — гасит сам конвейер (`finale()` с проверкой `stopped`), DEV пропал —
 мёртвая рука на сервере.
 
@@ -128,7 +128,10 @@ def decide(lease: dict | None, today: str, busy: bool, stops: list, no_credit_ag
         return 'profile_unknown', {'MESH_QUEUE_PROFILE': profile}
     if profile and jobs < min_jobs:
         return 'nothing_to_do', {'MESH_QUEUE_PROFILE': profile, 'jobs': jobs}
-    return 'start', {'MESH_TAKE_JOBS': str(left), 'MESH_MIN_JOBS': str(min_jobs),
+    # ПОТОЛОК ПО ОЧЕРЕДИ (T-20261106-82/3, ведущий): с профилем берём min(деньги, задания профиля) — иначе `MESH_TAKE_JOBS`
+    # считался от денег (373 при очереди 105), и потолок волны (`take × usd_per_mesh × 1,5`) становился всем остатком разрешения
+    take = min(left, jobs) if profile and jobs is not None else left
+    return 'start', {'MESH_TAKE_JOBS': str(take), 'MESH_MIN_JOBS': str(min_jobs),
                      **({'MESH_QUEUE_PROFILE': profile} if profile else {})}
 
 
@@ -309,13 +312,16 @@ def _selftest() -> int:
     D = {**L, 'profile': 'demo', 'profile_min_jobs': 1}
     ok('lease без profile — боевой: в env старта профиля нет', 'MESH_QUEUE_PROFILE' not in d()[1])
     ok('profile=demo: без счёта заданий не стартуем', d(lease=D)[0] == 'profile_unknown')
-    ok('profile=demo доходит до env старта, порог — свой (1), не боевой 200',
-       d(lease=D, jobs=9) == ('start', {'MESH_TAKE_JOBS': '1000', 'MESH_MIN_JOBS': '1', 'MESH_QUEUE_PROFILE': 'demo'}))
+    ok('profile=demo доходит до env старта, порог — свой (1), не боевой 200; берём min(деньги 1000, очередь 9)',
+       d(lease=D, jobs=9) == ('start', {'MESH_TAKE_JOBS': '9', 'MESH_MIN_JOBS': '1', 'MESH_QUEUE_PROFILE': 'demo'}))
+    ok('profile=demo: очередь больше денег — берём по деньгам (1000 из 5000)',
+       d(lease=D, jobs=5000)[1].get('MESH_TAKE_JOBS') == '1000')
     ok('пустая demo-очередь — «нечего делать», не старт', d(lease=D, jobs=0)[0] == 'nothing_to_do')
     ok('profile_min_jobs по умолчанию 1', profile_of({'profile': 'demo', 'min_jobs': 50}) == ('demo', 1))
     ok('пустая demo-очередь: mesh_wave_start не зовётся, в журнале одна строка за два тика', _quiet_test())
     ok('ручная волна с потолком не продлевает разрешение: истёкший lease — по-прежнему lease_expired', _manual_cap_test())
-    ok('лечение автоволны — только по "heal": true в разрешении (MESH_HEAL 0/1, запись волны)', _heal_word_test())
+    ok('лечение автоволны — только по "heal": true в разрешении (MESH_HEAL 0/1, запись волны); потолок волны — по очереди профиля',
+       _heal_word_test())
     ok('нет разрешённой группы: mesh_wave_start не зовётся, волна не открыта, в журнале «no_group» одной строкой за два тика',
        _no_group_test())
     return 1 if bad else 0
@@ -420,8 +426,12 @@ def _heal_word_test() -> bool:
             json.dump({'expires': '2999-01-01', 'max_usd': 13, 'profile': 'demo', 'waves': [], **extra}, open(LEASE, 'w'))
             with contextlib.redirect_stdout(io.StringIO()):
                 main()
-            res.append(json.load(open(LEASE))['waves'][-1].get('heal'))
-        return got == ['0', '1'] and res == [False, True]
+            w = json.load(open(LEASE))['waves'][-1]
+            res.append((w.get('heal'), w.get('max_jobs'), w.get('usd_cap')))
+        # потолок волны — от очереди профиля (100 × 0,013 × 1,5 = $1,95), не от всего разрешения $13 (T-20261106-82/3)
+        upm = float((json.load(open(RULES, encoding='utf-8')).get('wave') or {}).get('usd_per_mesh', 0.013))
+        cap = round(100 * upm * 1.5, 2)
+        return got == ['0', '1'] and res == [(False, 100, cap), (True, 100, cap)]
     finally:
         g.update(keep)
         subprocess.run, shutil.disk_usage = keep_run, keep_du
