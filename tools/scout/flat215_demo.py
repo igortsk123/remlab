@@ -1167,6 +1167,9 @@ def bedroom_mesh_gate(rows=None, why: str = '', mode: str | None = None):
         return _RB.usable(bound(s), s.get('msid'), idx, mode)[0] if s.get('sid') else 'нет артикула'
     ok.note = lambda s: _RB.orient_note(bound(s), mode)
     ok.mode = mode
+    # МОДЕЛЬ СЦЕНЫ СПАЛЬНИ = МОДЕЛЬ ПРИВЯЗКИ (T-20261106-77/4, вариант А): `msid` предметов и ленты спальни — `mesh_id` той же
+    # строки привязки, которую проверяет сторож; представитель семьи — только если записи нет (`room_bindings.scene_msid`)
+    ok.msid = lambda sid: _RB.scene_msid((rows or {}).get(str(sid).replace('_', ':', 1)), sid, _mesh_rep()) if sid else None
     return ok
 
 
@@ -1204,10 +1207,17 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     gate = bedroom_mesh_gate()
     lead = DB.lead_roles()
     unresolved = 0
+    # модель сцены спальни — модель привязки (сторож выключен — прежний представитель семьи); ГОСТИНАЯ — БЕЗ ИЗМЕНЕНИЙ (`_msid`):
+    # у 59 готовых товаров её лент своя модель не выложена, правило убрало бы их из лент (сухой прогон T-20261106-77/4 в)
+    bed_msid = getattr(gate, 'msid', None) or _msid
+
+    def bed_sku(items: dict, role: str) -> dict | None:
+        s = _sku(items, role)
+        return dict(s, msid=bed_msid(s['sid'])) if s and s.get('sid') else s
     for rec in recs:
         # предмет без модели (T-20261106-77; с /4 — любая роль солвера, не только ведущая): запас из других записей банка — свой
         # стиль, потом соседний
-        v, why = DB.build_variant(rec, geos[rec['room_id']], _sku, _dims_of, style_id, hung=_hung,
+        v, why = DB.build_variant(rec, geos[rec['room_id']], bed_sku, _dims_of, style_id, hung=_hung,
                                   decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r),
                                   layout=lays.get((rec['room_id'], rec.get('style'))), mesh_ok=gate, lead=lead,
                                   spares=DB.role_spares(bank, rec) if gate else None)
@@ -1236,7 +1246,7 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     # умолчанию»: мёртвая ссылка CDN давала пустую карточку в ленте замен (T-20261106-84)
     from img_alive import dead_room_photos
     dead = dead_room_photos()
-    bf = DB.feeds(bank, bcat, _msid, feed_gate, alive=lambda u: u not in dead)
+    bf = DB.feeds(bank, bcat, bed_msid, feed_gate, alive=lambda u: u not in dead)
     # КЛЮЧ «ТИП КОМНАТЫ + РОЛЬ» (T-20261106-77, Codex): прежний `setdefault(role, rows)` отдавал общей роли (ковёр) ленту гостиной,
     # а спальня свою теряла. Ленты гостиной не трогаем — у неё голая роль (`DB.room_key`)
     DB.merge_room_feeds(feeds, 'bedroom', bf)

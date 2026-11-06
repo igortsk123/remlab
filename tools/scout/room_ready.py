@@ -59,8 +59,8 @@ class Facts:
         return CI.bound_asset({}, self.rows.get(sku), self.why)
 
     def msid(self, sku: str) -> str:
-        sid = sku.replace(':', '_', 1)
-        return self.rep_map.get(sid, sid)
+        """Модель сцены = модель привязки, представитель — запасной путь (`room_bindings.scene_msid`, T-20261106-77/4)."""
+        return RB.scene_msid(self.rows.get(sku), sku.replace(':', '_', 1), self.rep_map)
 
 
 def load_facts(mode: str | None = None, fetch=None, idx: set | None = None, rep: dict | None = None,
@@ -132,8 +132,14 @@ def _selftest() -> int:
     ok('представитель: сцена грузит 5_r = модель привязки — готов', c('7:g') == ('ready', None, None))
     ok('нет в индексе прода — ждёт публикации', c('8:h') == ('wait_asset', 'нет в индексе прода', 'publish'))
     ok('товара нет в привязке — ждёт меш (спрос мешей)', c('0:z')[2] == 'mesh' and c('0:z')[0] == 'wait_asset')
-    ok('сцена грузит не модель привязки — ждёт', Facts(rows, '', idx, {'1_a': '9_9'}).msid('1:a') == '9_9'
-       and classify('кровать', '1:a', None, Facts(rows, '', idx, {'1_a': '9_9'}))[1].startswith('сцена грузит 9_9'))
+    ok('модель сцены = модель привязки, представитель семьи её не перебивает (T-20261106-77/4)',
+       Facts(rows, '', idx, {'1_a': '9_9'}).msid('1:a') == '1_a' and c('1:a', FF=Facts(rows, '', idx, {'1_a': '9_9'}))[0] == 'ready')
+    ok('записи привязки нет — представитель семьи (запасной путь)', Facts(rows, '', idx, {'0_z': '9_9'}).msid('0:z') == '9_9'
+       and Facts(rows, '', idx, {}).msid('0:z') == '0_z')
+    ok('у записи нет модели — представитель; сторож ловит расхождение', Facts({'1:a': _row('ready', None, True)}, '', idx,
+                                                                              {'1_a': '9_9'}).msid('1:a') == '9_9'
+       and classify('кровать', '1:a', None, Facts({'1:a': _row('ready', None, True)}, '', idx, {'1_a': '9_9'}))[1]
+       .startswith('сцена грузит 9_9'))
     ok('лампа, ковёр, шторы — моделью не проверяются (как у витрины)', all(c('0:z', r)[0] == 'ready' for r in ('лампа', 'ковёр', 'шторы')))
     ok('пронумерованный экземпляр «тумба прикроватная 2» — проверяется как тумба', c('0:z', 'тумба прикроватная 2')[0] == 'wait_asset')
     U = Facts(None, 'binding_missing', idx, {})
