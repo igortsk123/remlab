@@ -8,7 +8,10 @@
 # и защита большой от голодания (после K уступок ждёт, держа очередь). T-57/3: ожидающий старой версии (без билета) получает
 # билет-заместитель по времени прихода и никого не обгоняет; два слота — второй только при памяти (порог держателя + свой +
 # запас, запас ≥ 10 % MemTotal), при нехватке — по одному; освободился первый при идущем втором — ждёт память на обоих;
-# HEAVY_SLOT_SLOTS=1 — по одному при любой памяти, --status как прежде. Временная папка остаётся (несколько КБ) — путь в конце.
+# HEAVY_SLOT_SLOTS=1 — по одному при любой памяти, --status как прежде. T-74: допуск без двойного счёта (Σ max(порог − память
+# дерева, 0) + свой + запас, запас — и для одиночного), три слота, порог по замеру (≥ 3 замера типа → min(объявл., 1,5 × пик)),
+# сторож (свободно < запаса — никого нового, идущий доживает), замер пика памяти дерева и WARN долгого держания, --stats.
+# Временная папка остаётся (несколько КБ) — путь в конце.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 S="$DIR/heavy-slot.sh"
@@ -81,9 +84,12 @@ st=$("$S" --status)
 ok "порог: при 1 ГБ < 2 команда не стартует, держатель — «память»" \
   "$(yes_if '[ ! -e $T/mem-ran ] && grep -q "^ДЕРЖИТ: t-mem .* память с " <<<"$st"')"
 mem 3
+sleep 0.5
+ok "порог с запасом и для одиночного: 3 ГБ < 2 + запас 1,5 — всё ещё ждёт" "$(yes_if '[ ! -e $T/mem-ran ]')"
+mem 4
 wait $pm; rc=$?
-ok "порог: память освободилась (3 ГБ) — команда пошла, ожидание в журнале" \
-  "$(yes_if '[ $rc = 0 ] && [ -e $T/mem-ran ] && grep -q "t-mem .*ждёт память: свободно 1.0 ГБ < 2" "$HEAVY_SLOT_LOG"')"
+ok "порог: память освободилась (4 ГБ ≥ 2 + 1,5) — команда пошла; в журнале сторож (1 < запаса) и ожидание (3 < 2 + 1,5)" \
+  "$(yes_if '[ $rc = 0 ] && [ -e $T/mem-ran ] && grep -q "t-mem .*ждёт память: сторож: свободно 1.0 ГБ < запаса 1.5" "$HEAVY_SLOT_LOG" && grep -q "t-mem .*ждёт память: свободно 3.0 ГБ < свой 2 + запас 1.5" "$HEAVY_SLOT_LOG"')"
 mem 8
 
 "$S" sh-holder -- sleep 1 &
@@ -130,7 +136,7 @@ for i in range(2):                      # длинный цикл берёт с�
 EOF
 pl=$!
 sleep 0.3
-"$S" w-regrab --min-gb 7 -- sh -c "echo w >> $T/regrab"   # 1 + 7 + запас 1,5 > 8 — не вторым слотом
+"$S" w-regrab --min-gb 6 -- sh -c "echo w >> $T/regrab"   # 6 + (1 − память loop) + запас 1,5 > 8 — не вторым слотом
 wait $pl
 o=$(tr '\n' '|' < "$T/regrab")
 ok "отпустивший и тут же вернувшийся не обгоняет ждущего ($o)" "$(yes_if '[ "$o" = "loop0|w|loop1|" ]')"
@@ -148,7 +154,7 @@ kill -9 "$pdd"; wait "$pdd" 2>/dev/null
 wait $pdh $pdn; rc=$?
 ok "умерший ожидающий выбывает сам: следующий за ним прошёл (rc $rc)" "$(yes_if '[ $rc = 0 ] && [ "$(cat $T/dead)" = next ]')"
 
-mem 3
+mem 4
 HEAVY_SLOT_YIELD=0.5 HEAVY_SLOT_MAX_YIELDS=1 "$S" big --min-gb 4 -- sh -c "echo big >> $T/yield" &
 pbig=$!
 until_held
@@ -163,7 +169,7 @@ ps2=$!
 sleep 1.5
 ok "защита от голодания: после K уступок большая ждёт память, держа очередь — вторая маленькая не прошла" \
   "$(yes_if '[ "$(tr "\n" "|" < $T/yield)" = "small1|" ] && grep -q "big .*уступок 1 из 1 — дальше жду память, держа очередь" "$HEAVY_SLOT_LOG"')"
-mem 5
+mem 6
 wait $pbig $ps2
 o=$(tr '\n' '|' < "$T/yield")
 ok "память пришла: большая, затем вторая маленькая ($o)" "$(yes_if '[ "$o" = "small1|big|small2|" ]')"
@@ -230,17 +236,17 @@ pair() {   # <файл> <метка1> <порог1> <метка2> <порог2> 
 }
 mem 14
 o=$(pair two c1 4 c2 4)
-ok "два слота: памяти хватает (14 ≥ 4 + 4 + запас 1,5 — 10 % от 15,3 ГБ) — второй идёт параллельно ($o)" \
-  "$(yes_if '[ "$o" = "sc1|sc2|ec1|ec2|" ] && grep -q "c2 .*взял: .*второй слот 2: свободно 14.0 ГБ ≥ порог держателя 4 + запас 1.5 + свой 4" "$HEAVY_SLOT_LOG"')"
+ok "два слота: памяти хватает (14 ≥ 4 + (4 − память c1) + запас 1,5 — 10 % от 15,3 ГБ) — второй идёт параллельно ($o)" \
+  "$(yes_if '[ "$o" = "sc1|sc2|ec1|ec2|" ] && grep -q "c2 .*взял: .*слот 2: свободно 14.0 ГБ ≥ свой 4 + держатели c1 4−0.0=4.0 + запас 1.5" "$HEAVY_SLOT_LOG"')"
 ok "--status: оба держателя (второй — «слот 2») и число слотов" \
-  "$(yes_if 'grep -q "^ДЕРЖИТ: c1 · pid .* работает с " "$T/two.st" && grep -q "^ДЕРЖИТ: c2 · pid .* работает с .* · слот 2$" "$T/two.st" && grep -q "^СЛОТОВ: 2 .*запас 1.5 ГБ" "$T/two.st" && ! grep -q "^СВОБОДНО" "$T/two.st"')"
+  "$(yes_if 'grep -q "^ДЕРЖИТ: c1 · pid .* работает с " "$T/two.st" && grep -q "^ДЕРЖИТ: c2 · pid .* работает с .* · слот 2$" "$T/two.st" && grep -q "^СЛОТОВ: 3 .*запас 1.5 ГБ" "$T/two.st" && ! grep -q "^СВОБОДНО" "$T/two.st"')"
 mem 8
 o=$(pair short c3 4 c4 4)
 ok "два слота: памяти мало (8 < 4 + 4 + 1,5) — строго по одному ($o)" "$(yes_if '[ "$o" = "sc3|ec3|sc4|ec4|" ]')"
 memt 40 11
 o=$(pair res c5 4 c6 4)
 ok "запас не меньше 10 % памяти: при 40 ГБ запас 4 — 11 < 4 + 4 + 4, по одному (при 5 % пошли бы вдвоём) ($o)" \
-  "$(yes_if '[ "$o" = "sc5|ec5|sc6|ec6|" ] && grep -q "^СЛОТОВ: 2 .*запас 4.0 ГБ" "$T/res.st"')"
+  "$(yes_if '[ "$o" = "sc5|ec5|sc6|ec6|" ] && grep -q "^СЛОТОВ: 3 .*запас 4.0 ГБ" "$T/res.st"')"
 mem 14
 o=$(HEAVY_SLOT_SLOTS=1; export HEAVY_SLOT_SLOTS; pair one c7 4 c8 4)
 ok "HEAVY_SLOT_SLOTS=1: по одному даже при лишней памяти, --status без строки слотов ($o)" \
@@ -254,8 +260,81 @@ sleep 0.3
 wait $pf1 $pf2 $pf3
 o=$(tr '\n' '|' < "$T/free1")
 ok "первый слот освободился при идущем втором — следующий ждёт память на обоих (14 < 10 + 4 + 1,5), идёт после ($o)" \
-  "$(yes_if '[ "$o" = "sf1|sf2|ef1|ef2|sf3|" ] && grep -q "f3 .*ждёт память: свободно 14.0 ГБ < 10 + порог держателя 4 + запас 1.5 (идёт второй слот)" "$HEAVY_SLOT_LOG"')"
+  "$(yes_if '[ "$o" = "sf1|sf2|ef1|ef2|sf3|" ] && grep -q "f3 .*ждёт память: свободно 14.0 ГБ < свой 10 + держатели f2 4−0.0=4.0 + запас 1.5" "$HEAVY_SLOT_LOG"')"
 mem 8
+
+# --- T-74: допуск без двойного счёта, три слота, порог по замеру, сторож, замер пика, долгое держание, --stats
+export HEAVY_SLOT_MEM_STUB="$T/memstub"
+: > "$HEAVY_SLOT_MEM_STUB"
+mem 8
+echo "dc-h 5" >> "$HEAVY_SLOT_MEM_STUB"           # держатель уже занял 5 из своих 6 — они уже вычтены из свободных 8
+o=$(pair dbl dc-h 6 dc-x 4)
+ok "без двойного счёта: держатель 6 ГБ уже взял 5 → 8 ≥ (6 − 5) + 4 + 1,5 — второй идёт параллельно ($o)" \
+  "$(yes_if '[ "$o" = "sdc-h|sdc-x|edc-h|edc-x|" ] && grep -q "dc-x .*взял: .*слот 2: свободно 8.0 ГБ ≥ свой 4 + держатели dc-h 6−5.0=1.0 + запас 1.5" "$HEAVY_SLOT_LOG"')"
+echo "dc-h2 1" >> "$HEAVY_SLOT_MEM_STUB"          # взял только 1 из 6 — ещё 5 может взять: 5 + 4 + 1,5 > 8
+o=$(pair dbl2 dc-h2 6 dc-y 4)
+ok "без двойного счёта, обратная сторона: держатель взял 1 из 6 — 8 < 5 + 4 + 1,5, по одному ($o)" "$(yes_if '[ "$o" = "sdc-h2|edc-h2|sdc-y|edc-y|" ]')"
+
+mem 14
+printf 's3-a 3.5\ns3-b 3.5\ns3-c 3.5\n' >> "$HEAVY_SLOT_MEM_STUB"
+for x in a b c d; do
+  "$S" "s3-$x" --min-gb 4 -- sh -c "echo s$x >> $T/three; sleep 1; echo e$x >> $T/three" & eval "p3_$x=$!"
+  if [ $x = a ]; then until_held; else sleep 0.3; fi
+done
+"$S" --status > "$T/three.st"
+wait $p3_a $p3_b $p3_c $p3_d
+o=$(tr '\n' '|' < "$T/three")
+ok "три слота: 14 ≥ 0,5 + 0,5 + 4 + 1,5 — трое параллельно, четвёртый ждёт слот ($o)" \
+  "$(yes_if '[ "$(head -c 9 <<<"$o")" = "sa|sb|sc|" ] && [[ "$o" =~ ^sa\|sb\|sc\|e[abc]\|sd\| ]] && [ $(grep -c "^ДЕРЖИТ" "$T/three.st") = 3 ] && grep -q "^ДЕРЖИТ: s3-c .* · слот 3$" "$T/three.st" && grep -q "^  1\. s3-d " "$T/three.st"')"
+o=$(HEAVY_SLOT_SLOTS=2; export HEAVY_SLOT_SLOTS; : > "$T/three2"
+  for x in a b c; do "$S" "s3-$x" --min-gb 4 -- sh -c "echo s$x >> $T/three2; sleep 0.8; echo e$x >> $T/three2" & eval "q_$x=$!"; sleep 0.3; done
+  wait $q_a $q_b $q_c; tr '\n' '|' < "$T/three2")
+ok "HEAVY_SLOT_SLOTS=2: та же память — третий ждёт, пока не отпустит первый ($o)" "$(yes_if '[[ "$o" =~ ^sa\|sb\|e[ab]\|sc\| ]]')"
+
+mem 3
+"$S" m-old --min-gb 6 --timeout 1 -- true; rc=$?
+ok "без замеров — объявленный порог: 3 < 6 + 1,5, не дождался (124)" "$(yes_if '[ $rc = 124 ]')"
+P="$HEAVY_SLOT_DIR/peaks.tsv"
+for v in 0.3 0.5; do printf '2026-11-06 10:00:00\tparity\tparity-x\t%s\t%s\t100.0\t6\t6\n' $v $v >> "$P"; done
+"$S" parity-a --min-gb 6 --timeout 1 -- true; rc=$?
+ok "два замера — мало: порог объявленный, 124" "$(yes_if '[ $rc = 124 ] && ! grep -q "parity-a .*порог по замеру" "$HEAVY_SLOT_LOG"')"
+printf '2026-11-06 10:00:00\tparity\tparity-y\t0.4\t0.4\t5.0\t6\t6\n' >> "$P"   # держал 5 с < 30 — не засчитан
+"$S" parity-b --min-gb 6 --timeout 1 -- true; rc=$?
+ok "короткое держание (< 30 с) в замеры не идёт: по-прежнему 124" "$(yes_if '[ $rc = 124 ]')"
+printf '2026-11-06 10:00:00\tparity\tparity-z\t0.4\t0.4\t200.0\t6\t6\n' >> "$P"
+"$S" parity-c --min-gb 6 --timeout 3 -- true; rc=$?
+ok "три замера parity, пик 0,5 → порог min(6, 0,75): 3 ≥ 0,75 + 1,5 — пошла" \
+  "$(yes_if '[ $rc = 0 ] && grep -q "parity-c .*порог по замеру: объявлен 6, тип parity, замеров 3, наибольший пик 0.50 ГБ → 0.75" "$HEAVY_SLOT_LOG"')"
+mem 8
+echo "parity-h 0.2" >> "$HEAVY_SLOT_MEM_STUB"
+o=$(pair eff parity-h 6 e-x 5.5)
+ok "доля держателя — по ЕГО эффективному порогу: 8 ≥ (0,75 − 0,2) + 5,5 + 1,5 — параллельно; --status: «по замеру 0.75» ($o)" \
+  "$(yes_if '[ "$o" = "sparity-h|se-x|eparity-h|ee-x|" ] && grep -q "^ДЕРЖИТ: parity-h .*порог 6.0 ГБ (по замеру 0.75)" "$T/eff.st"')"
+for v in 0.01 0.02 0.01; do printf '2026-11-06 10:00:00\tcutout\tt9-cutout\t%s\t%s\t100.0\t4\t4\n' $v $v >> "$P"; done
+"$S" cutout-f --min-gb 4 -- true
+ok "пол порога по замеру 0,5 ГБ (дерево не видит память контейнеров)" "$(yes_if 'grep -q "cutout-f .*порог по замеру: .* → 0.50" "$HEAVY_SLOT_LOG"')"
+
+mem 8
+"$S" g-run --min-gb 2 -- sh -c "sleep 0.8; echo done >> $T/guard" & pg=$!
+until_held
+mem 1
+"$S" g-new --min-gb 0 --timeout 1 -- sh -c "echo new >> $T/guard"; rc=$?
+wait $pg; rcg=$?
+ok "сторож: свободно 1 < запаса 1,5 — новый (даже с порогом 0) не пущен, идущий доработал" \
+  "$(yes_if '[ $rc = 124 ] && [ $rcg = 0 ] && [ "$(cat $T/guard)" = done ] && grep -q "g-new .*сторож: свободно 1.0 ГБ < запаса 1.5" "$HEAVY_SLOT_LOG"')"
+mem 8
+
+unset HEAVY_SLOT_MEM_STUB
+HEAVY_SLOT_SAMPLE=0.1 HEAVY_SLOT_LONG_S=0.4 HEAVY_SLOT_MEASURE_MIN_S=0 \
+  "$S" t74-build-real --min-gb 1 -- python3 -c "import time; b = bytearray(300 << 20); b[::4096] = b'x' * len(b[::4096]); time.sleep(0.9)"
+ln=$(grep "t74-build-real .*отпустил" "$HEAVY_SLOT_LOG")
+pk=$(sed -n 's/.*пик памяти дерева \([0-9.]*\) ГБ.*/\1/p' <<<"$ln")
+ok "замер: пик памяти дерева с потомком (300 МБ) — ${pk} ГБ, тип build; WARN долгого держания в журнале; строка в peaks.tsv" \
+  "$(yes_if 'awk -v p="$pk" "BEGIN{exit !(p >= 0.28 && p < 1)}" && grep -q "тип build" <<<"$ln" && grep -q "WARN: держание дольше" <<<"$ln" && grep -q "t74-build-real .*WARN: держит слот дольше" "$HEAVY_SLOT_LOG" && grep -q "	build	t74-build-real	" "$P"')"
+st=$(HEAVY_SLOT_LONG_S=0.4 "$S" --stats)
+ok "--stats: строка на тип (parity — 6 записей, засчитано 3 по ≥ 30 с, 6 → 0.75), build, долгие" \
+  "$(yes_if 'grep -q "^parity .* 6 ( 3) .*6 → 0.75" <<<"$st" && grep -q "^build " <<<"$st" && grep -q "^ДОЛГИЕ" <<<"$st"')"
+ok "тип задачи по метке" "$(yes_if '[ "$(python3 -c "import sys; sys.path.insert(0, \"$DIR\"); from heavy_slot import task_type as t; print(\" \".join(t(x) for x in [\"parity-72\", \"parity-hall-exam\", \"t73-build\", \"t69-live\", \"parity-living-demo\", \"t51-look\", \"t73-hall-snap2\"]))")" = "parity exam build live parity look hall-snap" ]')"
 
 st=$("$S" --status)
 ok "после всех: очередь свободна, ожидающих нет" "$(yes_if 'grep -q "^СВОБОДНО" <<<"$st" && grep -q "^ЖДУТ: 0" <<<"$st"')"

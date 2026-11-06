@@ -5,6 +5,7 @@
 #
 #   tools/ops/heavy-slot.sh <метка> [--min-gb N] [--timeout S] [--no-slot] -- <команда…>   rc команды; 124 — не дождался
 #   tools/ops/heavy-slot.sh --status                                                       кто держит, кто ждёт, память
+#   tools/ops/heavy-slot.sh --stats                                                        замеры: пик памяти и держание по типу задачи
 #   tools/ops/heavy-slot-selftest.sh                                                       самопроверка (во временной папке)
 # Пример: tools/ops/heavy-slot.sh t36-vlm --min-gb 7 -- ~/venvs/scout/bin/python launch.py keys.txt 8
 # Журнал «взял/отпустил/сколько ждал» — ~/remlab-logs/heavy-slot.log.
