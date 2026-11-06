@@ -1,0 +1,3178 @@
+{
+ "_": "эталон tests/test_demo_room_golden.py: витрина спальни до переноса ядра в demo_room.py (T-20261106-98)",
+ "out": {
+  "bands": {
+   "couple": {
+    "кровать": {
+     "hi": 205,
+     "lo": 160
+    },
+    "тумба прикроватная": {
+     "hi": 65,
+     "lo": 30
+    }
+   },
+   "guest": {
+    "кровать": {
+     "hi": 205,
+     "lo": 140
+    },
+    "тумба прикроватная": {
+     "hi": 65,
+     "lo": 30
+    }
+   },
+   "office": {
+    "тумба прикроватная": {
+     "hi": 65,
+     "lo": 30
+    }
+   },
+   "single": {
+    "кровать": {
+     "hi": 165,
+     "lo": 120
+    },
+    "тумба прикроватная": {
+     "hi": 65,
+     "lo": 30
+    }
+   }
+  },
+  "bank_room": {
+   "d": 293,
+   "openings": [
+    {
+     "hinge": "left",
+     "kind": "door",
+     "offset_cm": 24,
+     "swing_cm": 90,
+     "wall": "south",
+     "width_cm": 90
+    },
+    {
+     "height_cm": 150,
+     "kind": "window",
+     "offset_cm": 40,
+     "sill_cm": 85,
+     "wall": "east",
+     "width_cm": 210
+    },
+    {
+     "height_cm": 150,
+     "kind": "window",
+     "offset_cm": 204,
+     "sill_cm": 85,
+     "wall": "north",
+     "width_cm": 240
+    }
+   ],
+   "radiators": [
+    {
+     "depth_cm": 12,
+     "offset_cm": 55,
+     "wall": "east",
+     "width_cm": 180
+    },
+    {
+     "depth_cm": 12,
+     "offset_cm": 234,
+     "wall": "north",
+     "width_cm": 180
+    }
+   ],
+   "variant": "registry-17.5",
+   "w": 597
+  },
+  "consts": {
+   "BAND_CM": {
+    "*": {
+     "тумба прикроватная": {
+      "hi": 65,
+      "lo": 30
+     }
+    },
+    "couple": {
+     "кровать": {
+      "hi": 205,
+      "lo": 160
+     }
+    },
+    "guest": {
+     "кровать": {
+      "hi": 205,
+      "lo": 140
+     }
+    },
+    "single": {
+     "кровать": {
+      "hi": 165,
+      "lo": 120
+     }
+    }
+   },
+   "BANK_LIVE": "sets-bedroom.json",
+   "GEO_FILE": "flat215-bedrooms.json",
+   "LIST_ROLES": [
+    "лампа"
+   ],
+   "MESH_FREE_ROLES": [
+    "ковёр"
+   ],
+   "ONE_FREE_ROLES": [
+    "ковёр"
+   ],
+   "PLACE_ROLES": [
+    "кровать",
+    "тумба прикроватная",
+    "шкаф",
+    "комод",
+    "туалетный столик",
+    "стол рабочий",
+    "стул рабочий",
+    "ковёр"
+   ],
+   "PURPOSE_ORDER": [
+    "couple",
+    "guest",
+    "single",
+    "office"
+   ],
+   "SOLVER_ROLES": [
+    "кровать",
+    "тумба прикроватная",
+    "шкаф",
+    "комод",
+    "туалетный столик",
+    "стол рабочий",
+    "стул рабочий"
+   ],
+   "TIER_ORDER": [
+    "комфорт",
+    "mid",
+    "эконом",
+    "премиум"
+   ],
+   "lead": [
+    "кровать",
+    "тумба прикроватная"
+   ],
+   "neighbours": {
+    "бохо": [],
+    "джапанди": [
+     "сканди",
+     "минимализм",
+     "лофт"
+    ],
+    "лофт": [
+     "джапанди",
+     "современный"
+    ],
+    "сканди": [
+     "джапанди",
+     "минимализм"
+    ]
+   },
+   "one_rule": {
+    "_why": "T-20261105-32/4 (решение ведущего «А», 05.11): одна расстановка спальни на все стили, как у гостиной. Зона роли — ближайшая стена + четверть комнаты (тот же расчёт, что подпись гостиной); опорный стиль — с чьими зонами согласно больше ролей других стилей, при равенстве — первый по порядку витрины. Роль в чужой зоне встаёт на место опорной, если `planner.validate` спальни не даёт новых жёстких нарушений; иначе — своя позиция банка и строка WARN в журнал сборки. Код — `tools/scout/demo_bedroom.py:one_layout`. Повод: в джапанди комод у кровати (NE) вместо стены у двери (SW), и пара камер не могла взять диагональ на всех стилях — вид 1 упирался в голую стену.",
+    "enabled": true
+   },
+   "variant_id": "bedroom-2-loft"
+  },
+  "feeds": {
+   "ковёр": [
+    {
+     "d": 300,
+     "h": null,
+     "img": "r.jpg",
+     "msid": "1_9",
+     "name": "Ковёр Y 200x300",
+     "price": 5,
+     "shop": null,
+     "sid": "1_9",
+     "src": "set",
+     "style": "",
+     "styles": [],
+     "url": null,
+     "w": 200
+    }
+   ],
+   "комод": [
+    {
+     "d": 42.0,
+     "h": 96.0,
+     "img": "https://cdn0.divan.ru/img/v1/uy6bHrXEbMEOOK3tZX-RFXPrBk0ElizxJP7sv0IAthI/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUxOTcyMDIucG5n.jpg",
+     "msid": "112923_11102532262959743722",
+     "name": "Комод divan.ru Енссон 91x96 Графитовый",
+     "price": 19790,
+     "shop": "divan.ru",
+     "sid": "112923_11102532262959743722",
+     "src": "set",
+     "style": "современный",
+     "styles": [
+      "современный"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomod-ensson-1-grafit-oak&erid=2SDnjeSGLnX",
+     "w": 91.0
+    }
+   ],
+   "кровать": [
+    {
+     "d": 210,
+     "h": 90,
+     "img": "x.jpg",
+     "msid": "1_2",
+     "name": "Кровать Х 160",
+     "price": 9,
+     "shop": null,
+     "sid": "1_2",
+     "src": "set",
+     "style": "",
+     "styles": [],
+     "url": null,
+     "w": 170
+    },
+    {
+     "d": 203.0,
+     "h": 85.0,
+     "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+     "msid": "112923_3185911961608383085",
+     "name": "Кровать divan.ru Дона 160 Береза Латте",
+     "price": 18990,
+     "shop": "divan.ru",
+     "sid": "112923_3185911961608383085",
+     "src": "set",
+     "style": "сканди",
+     "styles": [
+      "сканди"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+     "w": 173.0
+    },
+    {
+     "d": 212.0,
+     "h": 91.0,
+     "img": "https://cdn0.divan.ru/img/v1/aSoB1S_PLKkXRszstgs4Bt_4EyzJBKEL4hJ05zrIah0/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYwMzkyODMucG5n.jpg",
+     "msid": "112923_12656356095568777983",
+     "name": "Кровать divan.ru Кейси-Б 160 Велюр Серый",
+     "price": 44990,
+     "shop": "divan.ru",
+     "sid": "112923_12656356095568777983",
+     "src": "set",
+     "style": "современный",
+     "styles": [
+      "современный"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-kejsi-b-160-velvet-grey&erid=2SDnjeSGLnX",
+     "w": 176.0
+    }
+   ],
+   "тумба прикроватная": [
+    {
+     "d": 40.0,
+     "h": 55.0,
+     "img": "https://cdn0.divan.ru/img/v1/MLzaEdhcRe4UBC4Uzdis_uCz01wMUsXq_Rq2AG-cQPk/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3Nzg3MTgucG5n.jpg",
+     "msid": "112923_8940289656155243206",
+     "name": "Тумба прикроватная divan.ru Моррис 47x55 Графитовый",
+     "price": 8990,
+     "shop": "divan.ru",
+     "sid": "112923_8940289656155243206",
+     "src": "set",
+     "style": "современный",
+     "styles": [
+      "современный"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-morris-1-grafit&erid=2SDnjeSGLnX",
+     "w": 47.0
+    },
+    {
+     "d": 44.0,
+     "h": 54.0,
+     "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+     "msid": "112923_7592379597105668396",
+     "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+     "price": 9990,
+     "shop": "divan.ru",
+     "sid": "112923_7592379597105668396",
+     "src": "set",
+     "style": "сканди",
+     "styles": [
+      "сканди"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+     "w": 47.0
+    }
+   ],
+   "шкаф": [
+    {
+     "d": 50.0,
+     "h": 200.0,
+     "img": "https://cdn0.divan.ru/img/v1/VtnwrmXqoxadr7w4DKvWK-2bCHHnIc9FYHBA66er2m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE3NDgucG5n.jpg",
+     "msid": "112923_8090259834659266167",
+     "name": "Распашной шкаф divan.ru Стелла 3-130x200 Дуб Барбера",
+     "price": 22490,
+     "shop": "divan.ru",
+     "sid": "112923_8090259834659266167",
+     "src": "set",
+     "style": "сканди",
+     "styles": [
+      "сканди"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-stella-3-130-200-oak&erid=2SDnjeSGLnX",
+     "w": 130.0
+    },
+    {
+     "d": 50.0,
+     "h": 215.0,
+     "img": "https://cdn0.divan.ru/img/v1/mCkB5p89TrFMPAjJ3FWLTaExP2ywHoSmkOzrzgEK4rA/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5NjA5OTcucG5n.jpg",
+     "msid": "112923_7465991381233705338",
+     "name": "Распашной шкаф divan.ru Монблан 2-93x215 Линии Графитовый",
+     "price": 36990,
+     "shop": "divan.ru",
+     "sid": "112923_7465991381233705338",
+     "src": "set",
+     "style": "современный",
+     "styles": [
+      "современный"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-monblan-2-93x215-linii-grafitovyj&erid=2SDnjeSGLnX",
+     "w": 93.0
+    }
+   ]
+  },
+  "feeds_dead": {
+   "ковёр": [
+    {
+     "d": 300,
+     "h": null,
+     "img": "r.jpg",
+     "msid": "1_9",
+     "name": "Ковёр Y 200x300",
+     "price": 5,
+     "shop": null,
+     "sid": "1_9",
+     "src": "set",
+     "style": "",
+     "styles": [],
+     "url": null,
+     "w": 200
+    }
+   ],
+   "комод": [
+    {
+     "d": 42.0,
+     "h": 96.0,
+     "img": "https://cdn0.divan.ru/img/v1/uy6bHrXEbMEOOK3tZX-RFXPrBk0ElizxJP7sv0IAthI/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUxOTcyMDIucG5n.jpg",
+     "msid": "112923_11102532262959743722",
+     "name": "Комод divan.ru Енссон 91x96 Графитовый",
+     "price": 19790,
+     "shop": "divan.ru",
+     "sid": "112923_11102532262959743722",
+     "src": "set",
+     "style": "современный",
+     "styles": [
+      "современный"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomod-ensson-1-grafit-oak&erid=2SDnjeSGLnX",
+     "w": 91.0
+    },
+    {
+     "d": 44.0,
+     "h": 96.0,
+     "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+     "msid": "112923_11672424920201226922",
+     "name": "Комод divan.ru Монмарт 92x96 Дуб Сонома",
+     "price": 28990,
+     "shop": "divan.ru",
+     "sid": "112923_11672424920201226922",
+     "src": "set",
+     "style": "сканди",
+     "styles": [
+      "сканди"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomod-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+     "w": 92.0
+    }
+   ],
+   "кровать": [
+    {
+     "d": 203.0,
+     "h": 85.0,
+     "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+     "msid": "112923_3185911961608383085",
+     "name": "Кровать divan.ru Дона 160 Береза Латте",
+     "price": 18990,
+     "shop": "divan.ru",
+     "sid": "112923_3185911961608383085",
+     "src": "set",
+     "style": "сканди",
+     "styles": [
+      "сканди"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+     "w": 173.0
+    },
+    {
+     "d": 212.0,
+     "h": 91.0,
+     "img": "https://cdn0.divan.ru/img/v1/aSoB1S_PLKkXRszstgs4Bt_4EyzJBKEL4hJ05zrIah0/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYwMzkyODMucG5n.jpg",
+     "msid": "112923_12656356095568777983",
+     "name": "Кровать divan.ru Кейси-Б 160 Велюр Серый",
+     "price": 44990,
+     "shop": "divan.ru",
+     "sid": "112923_12656356095568777983",
+     "src": "set",
+     "style": "современный",
+     "styles": [
+      "современный"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-kejsi-b-160-velvet-grey&erid=2SDnjeSGLnX",
+     "w": 176.0
+    }
+   ],
+   "тумба прикроватная": [
+    {
+     "d": 40.0,
+     "h": 55.0,
+     "img": "https://cdn0.divan.ru/img/v1/MLzaEdhcRe4UBC4Uzdis_uCz01wMUsXq_Rq2AG-cQPk/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3Nzg3MTgucG5n.jpg",
+     "msid": "112923_8940289656155243206",
+     "name": "Тумба прикроватная divan.ru Моррис 47x55 Графитовый",
+     "price": 8990,
+     "shop": "divan.ru",
+     "sid": "112923_8940289656155243206",
+     "src": "set",
+     "style": "современный",
+     "styles": [
+      "современный"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-morris-1-grafit&erid=2SDnjeSGLnX",
+     "w": 47.0
+    },
+    {
+     "d": 44.0,
+     "h": 54.0,
+     "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+     "msid": "112923_7592379597105668396",
+     "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+     "price": 9990,
+     "shop": "divan.ru",
+     "sid": "112923_7592379597105668396",
+     "src": "set",
+     "style": "сканди",
+     "styles": [
+      "сканди"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+     "w": 47.0
+    }
+   ],
+   "шкаф": [
+    {
+     "d": 50.0,
+     "h": 200.0,
+     "img": "https://cdn0.divan.ru/img/v1/VtnwrmXqoxadr7w4DKvWK-2bCHHnIc9FYHBA66er2m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE3NDgucG5n.jpg",
+     "msid": "112923_8090259834659266167",
+     "name": "Распашной шкаф divan.ru Стелла 3-130x200 Дуб Барбера",
+     "price": 22490,
+     "shop": "divan.ru",
+     "sid": "112923_8090259834659266167",
+     "src": "set",
+     "style": "сканди",
+     "styles": [
+      "сканди"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-stella-3-130-200-oak&erid=2SDnjeSGLnX",
+     "w": 130.0
+    },
+    {
+     "d": 50.0,
+     "h": 215.0,
+     "img": "https://cdn0.divan.ru/img/v1/mCkB5p89TrFMPAjJ3FWLTaExP2ywHoSmkOzrzgEK4rA/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5NjA5OTcucG5n.jpg",
+     "msid": "112923_7465991381233705338",
+     "name": "Распашной шкаф divan.ru Монблан 2-93x215 Линии Графитовый",
+     "price": 36990,
+     "shop": "divan.ru",
+     "sid": "112923_7465991381233705338",
+     "src": "set",
+     "style": "современный",
+     "styles": [
+      "современный"
+     ],
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-monblan-2-93x215-linii-grafitovyj&erid=2SDnjeSGLnX",
+     "w": 93.0
+    }
+   ]
+  },
+  "gate": [
+   {
+    "decor": [],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "id": "bedroom-1-scandi",
+    "items": [
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 203.0,
+      "dims_src": "каталог",
+      "h": 85.0,
+      "role": "кровать",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 203.0,
+       "h": 85.0,
+       "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+       "msid": "112923_b2",
+       "name": "кровать b2",
+       "price": 18990,
+       "sid": "112923_b2",
+       "w": 173.0
+      },
+      "w": 173.0,
+      "x": 298.5,
+      "y": 101.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 40,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 40,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_t2",
+       "name": "тумба прикроватная t2",
+       "price": 9990,
+       "sid": "112923_t2",
+       "w": 40
+      },
+      "w": 40,
+      "x": 187.5,
+      "y": 20.0
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 50.0,
+      "dims_src": "каталог",
+      "h": 200.0,
+      "role": "шкаф",
+      "rot": 90,
+      "section": null,
+      "sku": {
+       "d": 50.0,
+       "h": 200.0,
+       "img": "https://cdn0.divan.ru/img/v1/VtnwrmXqoxadr7w4DKvWK-2bCHHnIc9FYHBA66er2m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE3NDgucG5n.jpg",
+       "msid": "112923_8090259834659266167",
+       "name": "Распашной шкаф divan.ru Стелла 3-130x200 Дуб Барбера",
+       "price": 22490,
+       "sid": "112923_8090259834659266167",
+       "w": 130.0
+      },
+      "w": 130.0,
+      "x": 26,
+      "y": 165.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 40,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная 2",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 40,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_t2",
+       "name": "тумба прикроватная t2",
+       "price": 9990,
+       "sid": "112923_t2",
+       "w": 40
+      },
+      "w": 40,
+      "x": 409.5,
+      "y": 20.0
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 140,
+      "dims_src": "каталог",
+      "h": 1,
+      "role": "ковёр",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 140,
+       "h": 1,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_rug",
+       "name": "Ковёр",
+       "price": 28990,
+       "sid": "112923_rug",
+       "w": 200
+      },
+      "w": 200,
+      "x": 298.5,
+      "y": 160
+     }
+    ],
+    "mesh_swaps": [
+     {
+      "now": [
+       "112923_b2",
+       "кровать b2"
+      ],
+      "role": "кровать",
+      "was": [
+       "112923_3185911961608383085",
+       "Кровать divan.ru Дона 160 Береза Латте"
+      ],
+      "why": "привязка blocked"
+     },
+     {
+      "now": [
+       "112923_t2",
+       "тумба прикроватная t2"
+      ],
+      "role": "тумба прикроватная",
+      "was": [
+       "112923_7592379597105668396",
+       "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома"
+      ],
+      "why": "нет в индексе прода"
+     }
+    ],
+    "missing_item": [
+     {
+      "role": "комод",
+      "why": "модель не готова (привязка blocked); кандидатов 1: не встаёт: BED_FOOT_PASSAGE|кровать, BR_ACCESS_BLOCKED|комод,кровать, BR_ACCESS_BLOCKED|комод,шкаф, BR_ACCESS_WALL|комод, OUT_OF_ROOM|комод, RADIATOR|комод, WINDOW_BLOCKED|комод"
+     }
+    ],
+    "purpose": "couple",
+    "room_id": "bedroom-1",
+    "style": "сканди",
+    "style_id": "scandi",
+    "title": "Сканди"
+   },
+   null
+  ],
+  "gate_lead_pair": [
+   null,
+   {
+    "mesh": [
+     {
+      "role": "кровать",
+      "why": "модель не готова (привязка blocked); кандидатов 3: привязка none; модель не выложена; вне полосы размера"
+     }
+    ],
+    "missing": [
+     "кровать"
+    ],
+    "room_id": "bedroom-1",
+    "style": "сканди"
+   }
+  ],
+  "gate_near": [
+   {
+    "decor": [],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "id": "bedroom-1-scandi",
+    "items": [
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 203.0,
+      "dims_src": "каталог",
+      "h": 85.0,
+      "role": "кровать",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 203.0,
+       "h": 85.0,
+       "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+       "msid": "112923_n1",
+       "name": "кровать n1",
+       "price": 18990,
+       "sid": "112923_n1",
+       "w": 173.0
+      },
+      "w": 173.0,
+      "x": 298.5,
+      "y": 101.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 40,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 40,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_t2",
+       "name": "тумба прикроватная t2",
+       "price": 9990,
+       "sid": "112923_t2",
+       "w": 40
+      },
+      "w": 40,
+      "x": 187.5,
+      "y": 20.0
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 50.0,
+      "dims_src": "каталог",
+      "h": 200.0,
+      "role": "шкаф",
+      "rot": 90,
+      "section": null,
+      "sku": {
+       "d": 50.0,
+       "h": 200.0,
+       "img": "https://cdn0.divan.ru/img/v1/VtnwrmXqoxadr7w4DKvWK-2bCHHnIc9FYHBA66er2m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE3NDgucG5n.jpg",
+       "msid": "112923_8090259834659266167",
+       "name": "Распашной шкаф divan.ru Стелла 3-130x200 Дуб Барбера",
+       "price": 22490,
+       "sid": "112923_8090259834659266167",
+       "w": 130.0
+      },
+      "w": 130.0,
+      "x": 26,
+      "y": 165.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 40,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная 2",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 40,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_t2",
+       "name": "тумба прикроватная t2",
+       "price": 9990,
+       "sid": "112923_t2",
+       "w": 40
+      },
+      "w": 40,
+      "x": 409.5,
+      "y": 20.0
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 140,
+      "dims_src": "каталог",
+      "h": 1,
+      "role": "ковёр",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 140,
+       "h": 1,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_rug",
+       "name": "Ковёр",
+       "price": 28990,
+       "sid": "112923_rug",
+       "w": 200
+      },
+      "w": 200,
+      "x": 298.5,
+      "y": 160
+     }
+    ],
+    "mesh_swaps": [
+     {
+      "now": [
+       "112923_n1",
+       "кровать n1"
+      ],
+      "role": "кровать",
+      "style": "джапанди",
+      "was": [
+       "112923_3185911961608383085",
+       "Кровать divan.ru Дона 160 Береза Латте"
+      ],
+      "why": "привязка blocked"
+     },
+     {
+      "now": [
+       "112923_t2",
+       "тумба прикроватная t2"
+      ],
+      "role": "тумба прикроватная",
+      "was": [
+       "112923_7592379597105668396",
+       "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома"
+      ],
+      "why": "нет в индексе прода"
+     }
+    ],
+    "missing_item": [
+     {
+      "role": "комод",
+      "why": "модель не готова (привязка blocked); кандидатов 0"
+     }
+    ],
+    "purpose": "couple",
+    "room_id": "bedroom-1",
+    "style": "сканди",
+    "style_id": "scandi",
+    "title": "Сканди"
+   },
+   null
+  ],
+  "gate_nob": [
+   null,
+   {
+    "mesh": [
+     {
+      "role": "кровать",
+      "why": "модель не готова (привязка blocked); кандидатов 0"
+     },
+     {
+      "role": "тумба прикроватная",
+      "why": "модель не готова (нет в индексе прода); кандидатов 0"
+     }
+    ],
+    "missing": [
+     "кровать",
+     "тумба прикроватная"
+    ],
+    "room_id": "bedroom-1",
+    "style": "сканди"
+   }
+  ],
+  "gate_none": [
+   null,
+   {
+    "mesh": [
+     {
+      "role": "кровать",
+      "why": "модель не готова (привязка blocked); кандидатов 3: привязка none; модель не выложена; вне полосы размера"
+     }
+    ],
+    "missing": [
+     "кровать"
+    ],
+    "room_id": "bedroom-1",
+    "style": "сканди"
+   }
+  ],
+  "gate_spares": [
+   {
+    "decor": [],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "id": "bedroom-1-scandi",
+    "items": [
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 203.0,
+      "dims_src": "каталог",
+      "h": 85.0,
+      "role": "кровать",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 203.0,
+       "h": 85.0,
+       "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+       "msid": "112923_o1",
+       "name": "кровать o1",
+       "price": 18990,
+       "sid": "112923_o1",
+       "w": 173.0
+      },
+      "w": 173.0,
+      "x": 298.5,
+      "y": 101.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 40,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 40,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_t2",
+       "name": "тумба прикроватная t2",
+       "price": 9990,
+       "sid": "112923_t2",
+       "w": 40
+      },
+      "w": 40,
+      "x": 187.5,
+      "y": 20.0
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 50.0,
+      "dims_src": "каталог",
+      "h": 200.0,
+      "role": "шкаф",
+      "rot": 90,
+      "section": null,
+      "sku": {
+       "d": 50.0,
+       "h": 200.0,
+       "img": "https://cdn0.divan.ru/img/v1/VtnwrmXqoxadr7w4DKvWK-2bCHHnIc9FYHBA66er2m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE3NDgucG5n.jpg",
+       "msid": "112923_8090259834659266167",
+       "name": "Распашной шкаф divan.ru Стелла 3-130x200 Дуб Барбера",
+       "price": 22490,
+       "sid": "112923_8090259834659266167",
+       "w": 130.0
+      },
+      "w": 130.0,
+      "x": 26,
+      "y": 165.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 40,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная 2",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 40,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_t2",
+       "name": "тумба прикроватная t2",
+       "price": 9990,
+       "sid": "112923_t2",
+       "w": 40
+      },
+      "w": 40,
+      "x": 409.5,
+      "y": 20.0
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 140,
+      "dims_src": "каталог",
+      "h": 1,
+      "role": "ковёр",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 140,
+       "h": 1,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_rug",
+       "name": "Ковёр",
+       "price": 28990,
+       "sid": "112923_rug",
+       "w": 200
+      },
+      "w": 200,
+      "x": 298.5,
+      "y": 160
+     }
+    ],
+    "mesh_swaps": [
+     {
+      "now": [
+       "112923_o1",
+       "кровать o1"
+      ],
+      "role": "кровать",
+      "was": [
+       "112923_3185911961608383085",
+       "Кровать divan.ru Дона 160 Береза Латте"
+      ],
+      "why": "привязка blocked"
+     },
+     {
+      "now": [
+       "112923_t2",
+       "тумба прикроватная t2"
+      ],
+      "role": "тумба прикроватная",
+      "was": [
+       "112923_7592379597105668396",
+       "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома"
+      ],
+      "why": "нет в индексе прода"
+     }
+    ],
+    "missing_item": [
+     {
+      "role": "комод",
+      "why": "модель не готова (привязка blocked); кандидатов 0"
+     }
+    ],
+    "purpose": "couple",
+    "room_id": "bedroom-1",
+    "style": "сканди",
+    "style_id": "scandi",
+    "title": "Сканди"
+   },
+   null
+  ],
+  "geo": {
+   "d": 293,
+   "height_cm": 270,
+   "kind": "bedroom",
+   "openings": [
+    {
+     "hinge": "left",
+     "kind": "door",
+     "offset_cm": 24,
+     "swing_cm": 90,
+     "wall": "south",
+     "width_cm": 90
+    },
+    {
+     "height_cm": 150,
+     "kind": "window",
+     "offset_cm": 40,
+     "sill_cm": 85,
+     "wall": "east",
+     "width_cm": 210
+    },
+    {
+     "height_cm": 150,
+     "kind": "window",
+     "offset_cm": 204,
+     "sill_cm": 85,
+     "wall": "north",
+     "width_cm": 240
+    }
+   ],
+   "radiators": [
+    {
+     "depth_cm": 12,
+     "offset_cm": 55,
+     "wall": "east",
+     "width_cm": 180
+    },
+    {
+     "depth_cm": 12,
+     "offset_cm": 234,
+     "wall": "north",
+     "width_cm": 180
+    }
+   ],
+   "title": "Спальня 1 17.5 м²",
+   "w": 618
+  },
+  "geo2": {
+   "d": 293,
+   "kind": "bedroom",
+   "openings": [
+    {
+     "hinge": "left",
+     "kind": "door",
+     "offset_cm": 130,
+     "swing_cm": 85,
+     "wall": "south",
+     "width_cm": 85
+    },
+    {
+     "height_cm": 150,
+     "kind": "window",
+     "offset_cm": 40,
+     "sill_cm": 85,
+     "wall": "west",
+     "width_cm": 210
+    }
+   ],
+   "radiators": [
+    {
+     "depth_cm": 12,
+     "offset_cm": 55,
+     "wall": "west",
+     "width_cm": 180
+    }
+   ],
+   "title": "Спальня 2 11.2 м²",
+   "w": 450
+  },
+  "hard": [
+   "BR_ACCESS_BLOCKED|комод,кровать",
+   "BR_UNREACHABLE|комод",
+   "COLLISION|комод,кровать",
+   "NOT_AT_WALL|комод"
+  ],
+  "items": [
+   {
+    "ковёр": {
+     "d": 140,
+     "eid": "rug",
+     "h": 1,
+     "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+     "mid": 112923,
+     "name": "Ковёр",
+     "price": 28990,
+     "qty": 1,
+     "shop": "divan.ru",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomod-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+     "w": 200
+    },
+    "кровать": {
+     "d": 203.0,
+     "eid": "b2",
+     "h": 85.0,
+     "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+     "mid": 112923,
+     "name": "кровать b2",
+     "price": 18990,
+     "qty": 1,
+     "shop": "divan.ru",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+     "w": 173.0
+    },
+    "тумба прикроватная": {
+     "d": 40,
+     "eid": "t2",
+     "h": 54.0,
+     "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+     "mid": 112923,
+     "name": "тумба прикроватная t2",
+     "price": 9990,
+     "qty": 1,
+     "shop": "divan.ru",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+     "w": 40
+    },
+    "тумба прикроватная 2": {
+     "d": 40,
+     "eid": "t2",
+     "h": 54.0,
+     "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+     "mid": 112923,
+     "name": "тумба прикроватная t2",
+     "price": 9990,
+     "qty": 1,
+     "shop": "divan.ru",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+     "w": 40
+    },
+    "шкаф": {
+     "d": 50.0,
+     "eid": "8090259834659266167",
+     "h": 200.0,
+     "img": "https://cdn0.divan.ru/img/v1/VtnwrmXqoxadr7w4DKvWK-2bCHHnIc9FYHBA66er2m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE3NDgucG5n.jpg",
+     "mid": 112923,
+     "name": "Распашной шкаф divan.ru Стелла 3-130x200 Дуб Барбера",
+     "price": 22490,
+     "qty": 1,
+     "shop": "divan.ru",
+     "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-stella-3-130-200-oak&erid=2SDnjeSGLnX",
+     "w": 130.0
+    }
+   },
+   {
+    "_room": {
+     "d": 293,
+     "openings": [
+      {
+       "hinge": "left",
+       "kind": "door",
+       "offset_cm": 24,
+       "swing_cm": 90,
+       "wall": "south",
+       "width_cm": 90
+      },
+      {
+       "height_cm": 150,
+       "kind": "window",
+       "offset_cm": 40,
+       "sill_cm": 85,
+       "wall": "east",
+       "width_cm": 210
+      },
+      {
+       "height_cm": 150,
+       "kind": "window",
+       "offset_cm": 204,
+       "sill_cm": 85,
+       "wall": "north",
+       "width_cm": 240
+      }
+     ],
+     "radiators": [
+      {
+       "depth_cm": 12,
+       "offset_cm": 55,
+       "wall": "east",
+       "width_cm": 180
+      },
+      {
+       "depth_cm": 12,
+       "offset_cm": 234,
+       "wall": "north",
+       "width_cm": 180
+      }
+     ],
+     "w": 597
+    },
+    "ковёр": {
+     "d": 140,
+     "h": 1,
+     "rot": 0,
+     "w": 200,
+     "x": 298.5,
+     "z": 160
+    },
+    "комод": {
+     "d": 46,
+     "h": 80,
+     "rot": 180,
+     "w": 90,
+     "x": 97,
+     "z": 270
+    },
+    "кровать": {
+     "d": 203.0,
+     "h": 85.0,
+     "rot": 0,
+     "w": 173.0,
+     "x": 298.5,
+     "z": 101.5
+    },
+    "тумба прикроватная": {
+     "d": 40,
+     "h": 54.0,
+     "rot": 0,
+     "w": 40,
+     "x": 187.5,
+     "z": 20.0
+    },
+    "тумба прикроватная 2": {
+     "d": 40,
+     "h": 54.0,
+     "rot": 0,
+     "w": 40,
+     "x": 409.5,
+     "z": 20.0
+    },
+    "шкаф": {
+     "d": 52,
+     "h": 200,
+     "rot": 90,
+     "w": 135,
+     "x": 26,
+     "z": 165.5
+    }
+   },
+   [
+    {
+     "now": [
+      "112923_b2",
+      "кровать b2"
+     ],
+     "role": "кровать",
+     "was": [
+      "112923_3185911961608383085",
+      "Кровать divan.ru Дона 160 Береза Латте"
+     ],
+     "why": "привязка blocked"
+    },
+    {
+     "now": [
+      "112923_t2",
+      "тумба прикроватная t2"
+     ],
+     "role": "тумба прикроватная",
+     "was": [
+      "112923_7592379597105668396",
+      "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома"
+     ],
+     "why": "нет в индексе прода"
+    }
+   ],
+   [
+    {
+     "role": "комод",
+     "why": "модель не готова (привязка blocked); кандидатов 1: не встаёт: BED_FOOT_PASSAGE|кровать, BR_ACCESS_BLOCKED|комод,кровать, BR_ACCESS_BLOCKED|комод,шкаф, BR_ACCESS_WALL|комод, OUT_OF_ROOM|комод, RADIATOR|комод, WINDOW_BLOCKED|комод"
+    }
+   ],
+   []
+  ],
+  "keys": [
+   "ковёр",
+   "ковёр",
+   "bedroom:ковёр",
+   "bedroom-2:кровать"
+  ],
+  "layout": [
+   {
+    "decor": [],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "id": "bedroom-1-scandi",
+    "items": [
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 203.0,
+      "dims_src": "каталог",
+      "h": 85.0,
+      "role": "кровать",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 203.0,
+       "h": 85.0,
+       "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+       "msid": "112923_3185911961608383085",
+       "name": "Кровать divan.ru Дона 160 Береза Латте",
+       "price": 18990,
+       "sid": "112923_3185911961608383085",
+       "w": 173.0
+      },
+      "w": 173.0,
+      "x": 300,
+      "y": 102
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 44.0,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 44.0,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_7592379597105668396",
+       "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+       "price": 9990,
+       "sid": "112923_7592379597105668396",
+       "w": 47.0
+      },
+      "w": 47.0,
+      "x": 200,
+      "y": 21
+     }
+    ],
+    "missing_item": [],
+    "purpose": "couple",
+    "room_id": "bedroom-1",
+    "style": "сканди",
+    "style_id": "scandi",
+    "title": "Сканди"
+   },
+   null
+  ],
+  "merge": {
+   "bedroom:ковёр": [
+    {
+     "sid": "B1"
+    }
+   ],
+   "bedroom:кровать": [
+    {
+     "sid": "K1"
+    }
+   ],
+   "ковёр": [
+    {
+     "sid": "L1"
+    }
+   ]
+  },
+  "no_bed": [
+   null,
+   {
+    "missing": [
+     "кровать",
+     "тумба прикроватная"
+    ],
+    "room_id": "bedroom-1",
+    "style": "сканди"
+   }
+  ],
+  "off_style": [
+   null,
+   {
+    "missing": [
+     "стиль вне витрины"
+    ],
+    "room_id": "bedroom-1",
+    "style": "бохо"
+   }
+  ],
+  "onb06": [
+   {
+    "decor": [
+     {
+      "list_only": true,
+      "role": "лампа",
+      "sku": {
+       "d": 11,
+       "h": 38,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_11672424920201226922",
+       "name": "Светильник настольный",
+       "price": 28990,
+       "sid": "112923_11672424920201226922",
+       "w": 11
+      }
+     },
+     {
+      "list_only": true,
+      "role": "лампа 2",
+      "sku": {
+       "d": 11,
+       "h": 38,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_11672424920201226922",
+       "name": "Светильник настольный",
+       "price": 28990,
+       "sid": "112923_11672424920201226922",
+       "w": 11
+      }
+     }
+    ],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "id": "bedroom-1-scandi",
+    "items": [
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 203.0,
+      "dims_src": "каталог",
+      "h": 85.0,
+      "role": "кровать",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 203.0,
+       "h": 85.0,
+       "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+       "msid": "112923_3185911961608383085",
+       "name": "Кровать divan.ru Дона 160 Береза Латте",
+       "price": 18990,
+       "sid": "112923_3185911961608383085",
+       "w": 173.0
+      },
+      "w": 173.0,
+      "x": 298.5,
+      "y": 101.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 44.0,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 44.0,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_7592379597105668396",
+       "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+       "price": 9990,
+       "sid": "112923_7592379597105668396",
+       "w": 47.0
+      },
+      "w": 47.0,
+      "x": 190,
+      "y": 17.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 44.0,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная 2",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 44.0,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_7592379597105668396",
+       "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+       "price": 9990,
+       "sid": "112923_7592379597105668396",
+       "w": 47.0
+      },
+      "w": 47.0,
+      "x": 407,
+      "y": 17.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 200,
+      "dims_src": "каталог",
+      "h": 1,
+      "role": "ковёр",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 200,
+       "h": 1,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_11672424920201226922",
+       "name": "Ковер Мирна 200x300",
+       "price": 28990,
+       "sid": "112923_11672424920201226922",
+       "w": 300
+      },
+      "w": 300,
+      "x": 298.5,
+      "y": 167.7
+     }
+    ],
+    "missing_item": [],
+    "purpose": "couple",
+    "room_id": "bedroom-1",
+    "style": "сканди",
+    "style_id": "scandi",
+    "title": "Сканди"
+   },
+   null
+  ],
+  "onb06_decor": [
+   {
+    "decor": [
+     {
+      "role": "ковёр",
+      "sku": {
+       "d": 200,
+       "h": 1,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_11672424920201226922",
+       "name": "Ковер Мирна 200x300",
+       "price": 28990,
+       "sid": "112923_11672424920201226922",
+       "w": 300
+      }
+     },
+     {
+      "list_only": true,
+      "role": "лампа",
+      "sku": {
+       "d": 11,
+       "h": 38,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_11672424920201226922",
+       "name": "Светильник настольный",
+       "price": 28990,
+       "sid": "112923_11672424920201226922",
+       "w": 11
+      }
+     },
+     {
+      "list_only": true,
+      "role": "лампа 2",
+      "sku": {
+       "d": 11,
+       "h": 38,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_11672424920201226922",
+       "name": "Светильник настольный",
+       "price": 28990,
+       "sid": "112923_11672424920201226922",
+       "w": 11
+      }
+     }
+    ],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "id": "bedroom-1-scandi",
+    "items": [
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 203.0,
+      "dims_src": "каталог",
+      "h": 85.0,
+      "role": "кровать",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 203.0,
+       "h": 85.0,
+       "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+       "msid": "112923_3185911961608383085",
+       "name": "Кровать divan.ru Дона 160 Береза Латте",
+       "price": 18990,
+       "sid": "112923_3185911961608383085",
+       "w": 173.0
+      },
+      "w": 173.0,
+      "x": 298.5,
+      "y": 101.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 44.0,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 44.0,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_7592379597105668396",
+       "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+       "price": 9990,
+       "sid": "112923_7592379597105668396",
+       "w": 47.0
+      },
+      "w": 47.0,
+      "x": 190,
+      "y": 17.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 44.0,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная 2",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 44.0,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_7592379597105668396",
+       "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+       "price": 9990,
+       "sid": "112923_7592379597105668396",
+       "w": 47.0
+      },
+      "w": 47.0,
+      "x": 407,
+      "y": 17.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 200,
+      "dims_src": "каталог",
+      "h": 1,
+      "role": "ковёр",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 200,
+       "h": 1,
+       "hung": true,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_11672424920201226922",
+       "name": "Ковер Мирна 200x300",
+       "price": 28990,
+       "sid": "112923_11672424920201226922",
+       "w": 300
+      },
+      "w": 300,
+      "x": 298.5,
+      "y": 167.7
+     }
+    ],
+    "missing_item": [],
+    "purpose": "couple",
+    "room_id": "bedroom-1",
+    "style": "сканди",
+    "style_id": "scandi",
+    "title": "Сканди"
+   },
+   null
+  ],
+  "one": [
+   {
+    "а": {
+     "_room": {
+      "d": 293,
+      "openings": [
+       {
+        "hinge": "left",
+        "kind": "door",
+        "offset_cm": 24,
+        "swing_cm": 90,
+        "wall": "south",
+        "width_cm": 90
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 40,
+        "sill_cm": 85,
+        "wall": "east",
+        "width_cm": 210
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 204,
+        "sill_cm": 85,
+        "wall": "north",
+        "width_cm": 240
+       }
+      ],
+      "radiators": [
+       {
+        "depth_cm": 12,
+        "offset_cm": 55,
+        "wall": "east",
+        "width_cm": 180
+       },
+       {
+        "depth_cm": 12,
+        "offset_cm": 234,
+        "wall": "north",
+        "width_cm": 180
+       }
+      ],
+      "w": 597
+     },
+     "комод": {
+      "d": 46,
+      "h": 80,
+      "rot": 180,
+      "w": 90,
+      "x": 97,
+      "z": 270
+     },
+     "кровать": {
+      "d": 213,
+      "h": 100,
+      "rot": 0,
+      "w": 174,
+      "x": 298.5,
+      "z": 106.5
+     },
+     "тумба прикроватная": {
+      "d": 42,
+      "h": 55,
+      "rot": 0,
+      "w": 43,
+      "x": 187.5,
+      "z": 21
+     },
+     "шкаф": {
+      "d": 52,
+      "h": 200,
+      "rot": 90,
+      "w": 135,
+      "x": 26,
+      "z": 165.5
+     }
+    },
+    "б": {
+     "_room": {
+      "d": 293,
+      "openings": [
+       {
+        "hinge": "left",
+        "kind": "door",
+        "offset_cm": 24,
+        "swing_cm": 90,
+        "wall": "south",
+        "width_cm": 90
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 40,
+        "sill_cm": 85,
+        "wall": "east",
+        "width_cm": 210
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 204,
+        "sill_cm": 85,
+        "wall": "north",
+        "width_cm": 240
+       }
+      ],
+      "radiators": [
+       {
+        "depth_cm": 12,
+        "offset_cm": 55,
+        "wall": "east",
+        "width_cm": 180
+       },
+       {
+        "depth_cm": 12,
+        "offset_cm": 234,
+        "wall": "north",
+        "width_cm": 180
+       }
+      ],
+      "w": 597
+     },
+     "комод": {
+      "d": 46,
+      "h": 80,
+      "rot": 180,
+      "w": 90,
+      "x": 97,
+      "z": 270.0
+     },
+     "кровать": {
+      "d": 213,
+      "h": 100,
+      "rot": 0,
+      "w": 174,
+      "x": 298.5,
+      "z": 106.5
+     },
+     "тумба прикроватная": {
+      "d": 42,
+      "h": 55,
+      "rot": 0,
+      "w": 43,
+      "x": 187.5,
+      "z": 21
+     },
+     "шкаф": {
+      "d": 52,
+      "h": 200,
+      "rot": 90,
+      "w": 135,
+      "x": 26,
+      "z": 165.5
+     }
+    },
+    "в": {
+     "_room": {
+      "d": 293,
+      "openings": [
+       {
+        "hinge": "left",
+        "kind": "door",
+        "offset_cm": 24,
+        "swing_cm": 90,
+        "wall": "south",
+        "width_cm": 90
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 40,
+        "sill_cm": 85,
+        "wall": "east",
+        "width_cm": 210
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 204,
+        "sill_cm": 85,
+        "wall": "north",
+        "width_cm": 240
+       }
+      ],
+      "radiators": [
+       {
+        "depth_cm": 12,
+        "offset_cm": 55,
+        "wall": "east",
+        "width_cm": 180
+       },
+       {
+        "depth_cm": 12,
+        "offset_cm": 234,
+        "wall": "north",
+        "width_cm": 180
+       }
+      ],
+      "w": 597
+     },
+     "комод": {
+      "d": 40,
+      "h": 80,
+      "rot": 180,
+      "w": 83,
+      "x": 95.5,
+      "z": 273
+     },
+     "кровать": {
+      "d": 213,
+      "h": 100,
+      "rot": 0,
+      "w": 174,
+      "x": 298.5,
+      "z": 106.5
+     },
+     "тумба прикроватная": {
+      "d": 42,
+      "h": 55,
+      "rot": 0,
+      "w": 43,
+      "x": 187.5,
+      "z": 21
+     },
+     "шкаф": {
+      "d": 52,
+      "h": 200,
+      "rot": 90,
+      "w": 135,
+      "x": 26,
+      "z": 165.5
+     }
+    }
+   },
+   {
+    "kept": [],
+    "moved": [
+     {
+      "from": [
+       485,
+       23,
+       0,
+       "N:NE"
+      ],
+      "role": "комод",
+      "style": "б",
+      "to": [
+       97,
+       270.0,
+       180,
+       "S:SW"
+      ]
+     }
+    ],
+    "ref": "а"
+   }
+  ],
+  "one_blk": [
+   {
+    "а": {
+     "_room": {
+      "d": 293,
+      "openings": [
+       {
+        "hinge": "left",
+        "kind": "door",
+        "offset_cm": 24,
+        "swing_cm": 90,
+        "wall": "south",
+        "width_cm": 90
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 40,
+        "sill_cm": 85,
+        "wall": "east",
+        "width_cm": 210
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 204,
+        "sill_cm": 85,
+        "wall": "north",
+        "width_cm": 240
+       }
+      ],
+      "radiators": [
+       {
+        "depth_cm": 12,
+        "offset_cm": 55,
+        "wall": "east",
+        "width_cm": 180
+       },
+       {
+        "depth_cm": 12,
+        "offset_cm": 234,
+        "wall": "north",
+        "width_cm": 180
+       }
+      ],
+      "w": 597
+     },
+     "комод": {
+      "d": 46,
+      "h": 80,
+      "rot": 180,
+      "w": 90,
+      "x": 97,
+      "z": 270
+     },
+     "кровать": {
+      "d": 213,
+      "h": 100,
+      "rot": 0,
+      "w": 174,
+      "x": 298.5,
+      "z": 106.5
+     },
+     "тумба прикроватная": {
+      "d": 42,
+      "h": 55,
+      "rot": 0,
+      "w": 43,
+      "x": 187.5,
+      "z": 21
+     },
+     "шкаф": {
+      "d": 52,
+      "h": 200,
+      "rot": 90,
+      "w": 135,
+      "x": 26,
+      "z": 165.5
+     }
+    },
+    "б": {
+     "_room": {
+      "d": 293,
+      "openings": [
+       {
+        "hinge": "left",
+        "kind": "door",
+        "offset_cm": 24,
+        "swing_cm": 90,
+        "wall": "south",
+        "width_cm": 90
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 40,
+        "sill_cm": 85,
+        "wall": "east",
+        "width_cm": 210
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 204,
+        "sill_cm": 85,
+        "wall": "north",
+        "width_cm": 240
+       }
+      ],
+      "radiators": [
+       {
+        "depth_cm": 12,
+        "offset_cm": 55,
+        "wall": "east",
+        "width_cm": 180
+       },
+       {
+        "depth_cm": 12,
+        "offset_cm": 234,
+        "wall": "north",
+        "width_cm": 180
+       }
+      ],
+      "w": 597
+     },
+     "комод": {
+      "d": 46,
+      "h": 80,
+      "rot": 0,
+      "w": 90,
+      "x": 485,
+      "z": 23
+     },
+     "кровать": {
+      "d": 213,
+      "h": 100,
+      "rot": 0,
+      "w": 174,
+      "x": 298.5,
+      "z": 106.5
+     },
+     "стол рабочий": {
+      "d": 60,
+      "h": 75,
+      "rot": 180,
+      "w": 100,
+      "x": 100,
+      "z": 263
+     },
+     "тумба прикроватная": {
+      "d": 42,
+      "h": 55,
+      "rot": 0,
+      "w": 43,
+      "x": 187.5,
+      "z": 21
+     },
+     "шкаф": {
+      "d": 52,
+      "h": 200,
+      "rot": 90,
+      "w": 135,
+      "x": 26,
+      "z": 165.5
+     }
+    },
+    "в": {
+     "_room": {
+      "d": 293,
+      "openings": [
+       {
+        "hinge": "left",
+        "kind": "door",
+        "offset_cm": 24,
+        "swing_cm": 90,
+        "wall": "south",
+        "width_cm": 90
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 40,
+        "sill_cm": 85,
+        "wall": "east",
+        "width_cm": 210
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 204,
+        "sill_cm": 85,
+        "wall": "north",
+        "width_cm": 240
+       }
+      ],
+      "radiators": [
+       {
+        "depth_cm": 12,
+        "offset_cm": 55,
+        "wall": "east",
+        "width_cm": 180
+       },
+       {
+        "depth_cm": 12,
+        "offset_cm": 234,
+        "wall": "north",
+        "width_cm": 180
+       }
+      ],
+      "w": 597
+     },
+     "комод": {
+      "d": 40,
+      "h": 80,
+      "rot": 180,
+      "w": 83,
+      "x": 95.5,
+      "z": 273
+     },
+     "кровать": {
+      "d": 213,
+      "h": 100,
+      "rot": 0,
+      "w": 174,
+      "x": 298.5,
+      "z": 106.5
+     },
+     "тумба прикроватная": {
+      "d": 42,
+      "h": 55,
+      "rot": 0,
+      "w": 43,
+      "x": 187.5,
+      "z": 21
+     },
+     "шкаф": {
+      "d": 52,
+      "h": 200,
+      "rot": 90,
+      "w": 135,
+      "x": 26,
+      "z": 165.5
+     }
+    }
+   },
+   {
+    "kept": [
+     {
+      "role": "комод",
+      "style": "б",
+      "why": [
+       "BR_ACCESS_BLOCKED|комод,стол рабочий",
+       "BR_UNREACHABLE|комод",
+       "COLLISION|комод,стол рабочий"
+      ]
+     }
+    ],
+    "moved": [],
+    "ref": "а"
+   }
+  ],
+  "one_other": [
+   {
+    "а": {
+     "_room": {
+      "d": 293,
+      "openings": [
+       {
+        "hinge": "left",
+        "kind": "door",
+        "offset_cm": 24,
+        "swing_cm": 90,
+        "wall": "south",
+        "width_cm": 90
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 40,
+        "sill_cm": 85,
+        "wall": "east",
+        "width_cm": 210
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 204,
+        "sill_cm": 85,
+        "wall": "north",
+        "width_cm": 240
+       }
+      ],
+      "radiators": [
+       {
+        "depth_cm": 12,
+        "offset_cm": 55,
+        "wall": "east",
+        "width_cm": 180
+       },
+       {
+        "depth_cm": 12,
+        "offset_cm": 234,
+        "wall": "north",
+        "width_cm": 180
+       }
+      ],
+      "w": 597
+     },
+     "комод": {
+      "d": 46,
+      "h": 80,
+      "rot": 180,
+      "w": 90,
+      "x": 97,
+      "z": 270
+     },
+     "кровать": {
+      "d": 213,
+      "h": 100,
+      "rot": 0,
+      "w": 174,
+      "x": 298.5,
+      "z": 106.5
+     },
+     "тумба прикроватная": {
+      "d": 42,
+      "h": 55,
+      "rot": 0,
+      "w": 43,
+      "x": 187.5,
+      "z": 21
+     },
+     "шкаф": {
+      "d": 52,
+      "h": 200,
+      "rot": 90,
+      "w": 135,
+      "x": 26,
+      "z": 165.5
+     }
+    },
+    "б": {
+     "_room": {
+      "d": 293,
+      "openings": [
+       {
+        "hinge": "left",
+        "kind": "door",
+        "offset_cm": 24,
+        "swing_cm": 90,
+        "wall": "south",
+        "width_cm": 90
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 40,
+        "sill_cm": 85,
+        "wall": "east",
+        "width_cm": 210
+       },
+       {
+        "height_cm": 150,
+        "kind": "window",
+        "offset_cm": 204,
+        "sill_cm": 85,
+        "wall": "north",
+        "width_cm": 240
+       }
+      ],
+      "radiators": [
+       {
+        "depth_cm": 12,
+        "offset_cm": 55,
+        "wall": "east",
+        "width_cm": 180
+       },
+       {
+        "depth_cm": 12,
+        "offset_cm": 234,
+        "wall": "north",
+        "width_cm": 180
+       }
+      ],
+      "w": 618
+     },
+     "комод": {
+      "d": 46,
+      "h": 80,
+      "rot": 0,
+      "w": 90,
+      "x": 485,
+      "z": 23
+     },
+     "кровать": {
+      "d": 213,
+      "h": 100,
+      "rot": 0,
+      "w": 174,
+      "x": 298.5,
+      "z": 106.5
+     },
+     "тумба прикроватная": {
+      "d": 42,
+      "h": 55,
+      "rot": 0,
+      "w": 43,
+      "x": 187.5,
+      "z": 21
+     },
+     "шкаф": {
+      "d": 52,
+      "h": 200,
+      "rot": 90,
+      "w": 135,
+      "x": 26,
+      "z": 165.5
+     }
+    }
+   },
+   {
+    "kept": [
+     {
+      "role": "*",
+      "style": "б",
+      "why": "другая комната"
+     }
+    ],
+    "moved": [],
+    "ref": "а"
+   }
+  ],
+  "orient": [
+   {
+    "decor": [],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "id": "bedroom-1-scandi",
+    "items": [
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 203.0,
+      "dims_src": "каталог",
+      "h": 85.0,
+      "role": "кровать",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 203.0,
+       "h": 85.0,
+       "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+       "msid": "112923_b1",
+       "name": "кровать b1",
+       "price": 18990,
+       "sid": "112923_b1",
+       "w": 173.0
+      },
+      "w": 173.0,
+      "x": 298.5,
+      "y": 101.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 44.0,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 44.0,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_7592379597105668396",
+       "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+       "price": 9990,
+       "sid": "112923_7592379597105668396",
+       "w": 47.0
+      },
+      "w": 47.0,
+      "x": 187.5,
+      "y": 21
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 50.0,
+      "dims_src": "каталог",
+      "h": 200.0,
+      "role": "шкаф",
+      "rot": 90,
+      "section": null,
+      "sku": {
+       "d": 50.0,
+       "h": 200.0,
+       "img": "https://cdn0.divan.ru/img/v1/VtnwrmXqoxadr7w4DKvWK-2bCHHnIc9FYHBA66er2m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE3NDgucG5n.jpg",
+       "msid": "112923_8090259834659266167",
+       "name": "Распашной шкаф divan.ru Стелла 3-130x200 Дуб Барбера",
+       "price": 22490,
+       "sid": "112923_8090259834659266167",
+       "w": 130.0
+      },
+      "w": 130.0,
+      "x": 26,
+      "y": 165.5
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 44.0,
+      "dims_src": "каталог",
+      "h": 96.0,
+      "role": "комод",
+      "rot": 180,
+      "section": null,
+      "sku": {
+       "d": 44.0,
+       "h": 96.0,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_11672424920201226922",
+       "name": "Комод divan.ru Монмарт 92x96 Дуб Сонома",
+       "price": 28990,
+       "sid": "112923_11672424920201226922",
+       "w": 92.0
+      },
+      "w": 92.0,
+      "x": 97,
+      "y": 270
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 44.0,
+      "dims_src": "каталог",
+      "h": 54.0,
+      "role": "тумба прикроватная 2",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 44.0,
+       "h": 54.0,
+       "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+       "msid": "112923_7592379597105668396",
+       "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+       "price": 9990,
+       "sid": "112923_7592379597105668396",
+       "w": 47.0
+      },
+      "w": 47.0,
+      "x": 409.5,
+      "y": 21
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 140,
+      "dims_src": "каталог",
+      "h": 1,
+      "role": "ковёр",
+      "rot": 0,
+      "section": null,
+      "sku": {
+       "d": 140,
+       "h": 1,
+       "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+       "msid": "112923_rug",
+       "name": "Ковёр",
+       "price": 28990,
+       "sid": "112923_rug",
+       "w": 200
+      },
+      "w": 200,
+      "x": 298.5,
+      "y": 160
+     }
+    ],
+    "mesh_swaps": [
+     {
+      "now": [
+       "112923_b1",
+       "кровать b1"
+      ],
+      "role": "кровать",
+      "was": [
+       "112923_3185911961608383085",
+       "Кровать divan.ru Дона 160 Береза Латте"
+      ],
+      "why": "привязка blocked"
+     }
+    ],
+    "missing_item": [],
+    "orient_unresolved": [
+     {
+      "msid": "112923_b1",
+      "role": "кровать",
+      "why": "orientation_symmetric_by_role"
+     },
+     {
+      "msid": "112923_8090259834659266167",
+      "role": "шкаф",
+      "why": "orientation_symmetric_by_role"
+     }
+    ],
+    "purpose": "couple",
+    "room_id": "bedroom-1",
+    "style": "сканди",
+    "style_id": "scandi",
+    "title": "Сканди"
+   },
+   null
+  ],
+  "pick": [
+   [
+    "комфорт",
+    "couple"
+   ]
+  ],
+  "pick2": [
+   [
+    "bedroom-2",
+    "сканди"
+   ],
+   [
+    "bedroom-1",
+    "современный"
+   ],
+   [
+    "bedroom-1",
+    "сканди"
+   ]
+  ],
+  "room_bands": {
+   "bedroom-1:кровать": {
+    "hi": 205,
+    "lo": 160
+   },
+   "bedroom-1:тумба прикроватная": {
+    "hi": 65,
+    "lo": 30
+   },
+   "bedroom-2:кровать": {
+    "hi": 205,
+    "lo": 140
+   },
+   "bedroom-2:тумба прикроватная": {
+    "hi": 65,
+    "lo": 30
+   }
+  },
+  "solver": [
+   [
+    {
+     "decor": [],
+     "dims_unknown": [],
+     "fill": [],
+     "fill_pct": 27.5,
+     "id": "bedroom-1-scandi",
+     "items": [
+      {
+       "corner": false,
+       "corner_left": false,
+       "d": 203.0,
+       "dims_src": "каталог",
+       "h": 85.0,
+       "role": "кровать",
+       "rot": 0,
+       "section": null,
+       "sku": {
+        "d": 203.0,
+        "h": 85.0,
+        "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+        "msid": "112923_3185911961608383085",
+        "name": "Кровать divan.ru Дона 160 Береза Латте",
+        "price": 18990,
+        "sid": "112923_3185911961608383085",
+        "w": 173.0
+       },
+       "w": 173.0,
+       "x": 309.0,
+       "y": 101.5
+      },
+      {
+       "corner": false,
+       "corner_left": false,
+       "d": 44.0,
+       "dims_src": "каталог",
+       "h": 54.0,
+       "role": "тумба прикроватная",
+       "rot": 0,
+       "section": null,
+       "sku": {
+        "d": 44.0,
+        "h": 54.0,
+        "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+        "msid": "112923_7592379597105668396",
+        "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+        "price": 9990,
+        "sid": "112923_7592379597105668396",
+        "w": 47.0
+       },
+       "w": 47.0,
+       "x": 198.0,
+       "y": 22.0
+      },
+      {
+       "corner": false,
+       "corner_left": false,
+       "d": 44.0,
+       "dims_src": "каталог",
+       "h": 54.0,
+       "role": "тумба прикроватная 2",
+       "rot": 0,
+       "section": null,
+       "sku": {
+        "d": 44.0,
+        "h": 54.0,
+        "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+        "msid": "112923_7592379597105668396",
+        "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+        "price": 9990,
+        "sid": "112923_7592379597105668396",
+        "w": 47.0
+       },
+       "w": 47.0,
+       "x": 420.0,
+       "y": 22.0
+      },
+      {
+       "corner": false,
+       "corner_left": false,
+       "d": 50.0,
+       "dims_src": "каталог",
+       "h": 200.0,
+       "role": "шкаф",
+       "rot": 90,
+       "section": null,
+       "sku": {
+        "d": 50.0,
+        "h": 200.0,
+        "img": "https://cdn0.divan.ru/img/v1/VtnwrmXqoxadr7w4DKvWK-2bCHHnIc9FYHBA66er2m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE3NDgucG5n.jpg",
+        "msid": "112923_8090259834659266167",
+        "name": "Распашной шкаф divan.ru Стелла 3-130x200 Дуб Барбера",
+        "price": 22490,
+        "sid": "112923_8090259834659266167",
+        "w": 130.0
+       },
+       "w": 130.0,
+       "x": 25.0,
+       "y": 158.0
+      },
+      {
+       "corner": false,
+       "corner_left": false,
+       "d": 44.0,
+       "dims_src": "каталог",
+       "h": 96.0,
+       "role": "комод",
+       "rot": 180,
+       "section": null,
+       "sku": {
+        "d": 44.0,
+        "h": 96.0,
+        "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+        "msid": "112923_11672424920201226922",
+        "name": "Комод divan.ru Монмарт 92x96 Дуб Сонома",
+        "price": 28990,
+        "sid": "112923_11672424920201226922",
+        "w": 92.0
+       },
+       "w": 92.0,
+       "x": 102.0,
+       "y": 271.0
+      }
+     ],
+     "missing_item": [],
+     "purpose": "couple",
+     "room_id": "bedroom-1",
+     "style": "сканди",
+     "style_id": "scandi",
+     "title": "Сканди"
+    },
+    null
+   ],
+   [
+    {
+     "decor": [],
+     "dims_unknown": [],
+     "fill": [],
+     "fill_pct": 27.4,
+     "id": "bedroom-1-modern",
+     "items": [
+      {
+       "corner": false,
+       "corner_left": false,
+       "d": 212.0,
+       "dims_src": "каталог",
+       "h": 91.0,
+       "role": "кровать",
+       "rot": 0,
+       "section": null,
+       "sku": {
+        "d": 212.0,
+        "h": 91.0,
+        "img": "https://cdn0.divan.ru/img/v1/aSoB1S_PLKkXRszstgs4Bt_4EyzJBKEL4hJ05zrIah0/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYwMzkyODMucG5n.jpg",
+        "msid": "112923_12656356095568777983",
+        "name": "Кровать divan.ru Кейси-Б 160 Велюр Серый",
+        "price": 44990,
+        "sid": "112923_12656356095568777983",
+        "w": 176.0
+       },
+       "w": 176.0,
+       "x": 309.0,
+       "y": 106.0
+      },
+      {
+       "corner": false,
+       "corner_left": false,
+       "d": 40.0,
+       "dims_src": "каталог",
+       "h": 55.0,
+       "role": "тумба прикроватная",
+       "rot": 0,
+       "section": null,
+       "sku": {
+        "d": 40.0,
+        "h": 55.0,
+        "img": "https://cdn0.divan.ru/img/v1/MLzaEdhcRe4UBC4Uzdis_uCz01wMUsXq_Rq2AG-cQPk/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3Nzg3MTgucG5n.jpg",
+        "msid": "112923_8940289656155243206",
+        "name": "Тумба прикроватная divan.ru Моррис 47x55 Графитовый",
+        "price": 8990,
+        "sid": "112923_8940289656155243206",
+        "w": 47.0
+       },
+       "w": 47.0,
+       "x": 196.5,
+       "y": 20.0
+      },
+      {
+       "corner": false,
+       "corner_left": false,
+       "d": 40.0,
+       "dims_src": "каталог",
+       "h": 55.0,
+       "role": "тумба прикроватная 2",
+       "rot": 0,
+       "section": null,
+       "sku": {
+        "d": 40.0,
+        "h": 55.0,
+        "img": "https://cdn0.divan.ru/img/v1/MLzaEdhcRe4UBC4Uzdis_uCz01wMUsXq_Rq2AG-cQPk/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3Nzg3MTgucG5n.jpg",
+        "msid": "112923_8940289656155243206",
+        "name": "Тумба прикроватная divan.ru Моррис 47x55 Графитовый",
+        "price": 8990,
+        "sid": "112923_8940289656155243206",
+        "w": 47.0
+       },
+       "w": 47.0,
+       "x": 421.5,
+       "y": 20.0
+      },
+      {
+       "corner": false,
+       "corner_left": false,
+       "d": 50.0,
+       "dims_src": "каталог",
+       "h": 215.0,
+       "role": "шкаф",
+       "rot": 90,
+       "section": null,
+       "sku": {
+        "d": 50.0,
+        "h": 215.0,
+        "img": "https://cdn0.divan.ru/img/v1/mCkB5p89TrFMPAjJ3FWLTaExP2ywHoSmkOzrzgEK4rA/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5NjA5OTcucG5n.jpg",
+        "msid": "112923_7465991381233705338",
+        "name": "Распашной шкаф divan.ru Монблан 2-93x215 Линии Графитовый",
+        "price": 36990,
+        "sid": "112923_7465991381233705338",
+        "w": 93.0
+       },
+       "w": 93.0,
+       "x": 25.0,
+       "y": 146.5
+      },
+      {
+       "corner": false,
+       "corner_left": false,
+       "d": 42.0,
+       "dims_src": "каталог",
+       "h": 96.0,
+       "role": "комод",
+       "rot": 90,
+       "section": null,
+       "sku": {
+        "d": 42.0,
+        "h": 96.0,
+        "img": "https://cdn0.divan.ru/img/v1/uy6bHrXEbMEOOK3tZX-RFXPrBk0ElizxJP7sv0IAthI/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUxOTcyMDIucG5n.jpg",
+        "msid": "112923_11102532262959743722",
+        "name": "Комод divan.ru Енссон 91x96 Графитовый",
+        "price": 19790,
+        "sid": "112923_11102532262959743722",
+        "w": 91.0
+       },
+       "w": 91.0,
+       "x": 21.0,
+       "y": 247.5
+      }
+     ],
+     "missing_item": [],
+     "purpose": "couple",
+     "room_id": "bedroom-1",
+     "style": "современный",
+     "style_id": "modern",
+     "title": "Современный"
+    },
+    null
+   ]
+  ],
+  "spares": {
+   "комод": [
+    [
+     "сканди",
+     {
+      "d": 44.0,
+      "eid": "11672424920201226922",
+      "h": 96.0,
+      "img": "https://cdn0.divan.ru/img/v1/0NOhpfNzx8uyU1kD4AHLeipbb-IuhgoQZrhLJdGDUEg/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkwNTIucG5n.jpg",
+      "mid": 112923,
+      "name": "Комод divan.ru Монмарт 92x96 Дуб Сонома",
+      "price": 28990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkomod-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+      "w": 92.0
+     }
+    ]
+   ],
+   "кровать": [
+    [
+     "сканди",
+     {
+      "d": 203.0,
+      "eid": "3185911961608383085",
+      "h": 85.0,
+      "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+      "mid": 112923,
+      "name": "Кровать divan.ru Дона 160 Береза Латте",
+      "price": 18990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+      "w": 173.0
+     }
+    ],
+    [
+     "сканди",
+     {
+      "d": 203.0,
+      "eid": "o1",
+      "h": 85.0,
+      "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+      "mid": 112923,
+      "name": "кровать o1",
+      "price": 18990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+      "w": 173.0
+     }
+    ],
+    [
+     "джапанди",
+     {
+      "d": 203.0,
+      "eid": "n1",
+      "h": 85.0,
+      "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+      "mid": 112923,
+      "name": "кровать n1",
+      "price": 18990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+      "w": 173.0
+     }
+    ],
+    [
+     "джапанди",
+     {
+      "d": 203.0,
+      "eid": "n2",
+      "h": 85.0,
+      "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+      "mid": 112923,
+      "name": "кровать n2",
+      "price": 18990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+      "w": 120
+     }
+    ]
+   ],
+   "стол рабочий": [],
+   "стул рабочий": [],
+   "туалетный столик": [],
+   "тумба прикроватная": [
+    [
+     "сканди",
+     {
+      "d": 44.0,
+      "eid": "7592379597105668396",
+      "h": 54.0,
+      "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+      "mid": 112923,
+      "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+      "price": 9990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+      "w": 47.0
+     }
+    ],
+    [
+     "сканди",
+     {
+      "d": 40,
+      "eid": "t2",
+      "h": 54.0,
+      "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+      "mid": 112923,
+      "name": "тумба прикроватная t2",
+      "price": 9990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+      "w": 40
+     }
+    ]
+   ],
+   "шкаф": [
+    [
+     "сканди",
+     {
+      "d": 50.0,
+      "eid": "8090259834659266167",
+      "h": 200.0,
+      "img": "https://cdn0.divan.ru/img/v1/VtnwrmXqoxadr7w4DKvWK-2bCHHnIc9FYHBA66er2m8/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE3NDgucG5n.jpg",
+      "mid": 112923,
+      "name": "Распашной шкаф divan.ru Стелла 3-130x200 Дуб Барбера",
+      "price": 22490,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fraspashnoj-shkaf-stella-3-130-200-oak&erid=2SDnjeSGLnX",
+      "w": 130.0
+     }
+    ]
+   ]
+  },
+  "spares_lead": {
+   "кровать": [
+    [
+     "сканди",
+     {
+      "d": 203.0,
+      "eid": "3185911961608383085",
+      "h": 85.0,
+      "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+      "mid": 112923,
+      "name": "Кровать divan.ru Дона 160 Береза Латте",
+      "price": 18990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+      "w": 173.0
+     }
+    ],
+    [
+     "сканди",
+     {
+      "d": 203.0,
+      "eid": "o1",
+      "h": 85.0,
+      "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+      "mid": 112923,
+      "name": "кровать o1",
+      "price": 18990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+      "w": 173.0
+     }
+    ],
+    [
+     "джапанди",
+     {
+      "d": 203.0,
+      "eid": "n1",
+      "h": 85.0,
+      "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+      "mid": 112923,
+      "name": "кровать n1",
+      "price": 18990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+      "w": 173.0
+     }
+    ],
+    [
+     "джапанди",
+     {
+      "d": 203.0,
+      "eid": "n2",
+      "h": 85.0,
+      "img": "https://cdn0.divan.ru/img/v1/iQ-yyBFAOJ32fxCgm-HMI1sSD3CJgTM4VsQtQ5y8O5E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUzNzU4NTQucG5n.jpg",
+      "mid": 112923,
+      "name": "кровать n2",
+      "price": 18990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkrovat-dona-160-plywood-latte&erid=2SDnjeSGLnX",
+      "w": 120
+     }
+    ]
+   ],
+   "тумба прикроватная": [
+    [
+     "сканди",
+     {
+      "d": 44.0,
+      "eid": "7592379597105668396",
+      "h": 54.0,
+      "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+      "mid": 112923,
+      "name": "Тумба прикроватная divan.ru Монмарт 47x54 Дуб Сонома",
+      "price": 9990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+      "w": 47.0
+     }
+    ],
+    [
+     "сканди",
+     {
+      "d": 40,
+      "eid": "t2",
+      "h": 54.0,
+      "img": "https://cdn0.divan.ru/img/v1/naOdiQ5y9A447kVgCbnjwTy_GY2INWA8IimK4mnwOFU/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQyMDkyMjMucG5n.jpg",
+      "mid": 112923,
+      "name": "тумба прикроватная t2",
+      "price": 9990,
+      "qty": 1,
+      "shop": "divan.ru",
+      "url": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-prikrovatnaya-monmart-dub-sonoma&erid=2SDnjeSGLnX",
+      "w": 40
+     }
+    ]
+   ]
+  },
+  "zones": {
+   "а": {
+    "комод": "S:SW",
+    "кровать": "N:NE",
+    "тумба прикроватная": "N:NW",
+    "шкаф": "W:SW"
+   },
+   "б": {
+    "комод": "N:NE",
+    "кровать": "N:NE",
+    "тумба прикроватная": "N:NW",
+    "шкаф": "W:SW"
+   },
+   "в": {
+    "комод": "S:SW",
+    "кровать": "N:NE",
+    "тумба прикроватная": "N:NW",
+    "шкаф": "W:SW"
+   }
+  }
+ },
+ "rev": "62a8e0dd"
+}
