@@ -8,8 +8,8 @@ importance: med
 source: manual
 status: working
 source_of_truth: canonical
-review_after: 2026-12-14
-last_verified: 2026-10-14
+review_after: 2026-12-05
+last_verified: 2026-11-06
 ---
 
 # Спальня — Tier 1 сводка
@@ -31,6 +31,6 @@ last_verified: 2026-10-14
   неготовых комнат (`tools/scout/flat215-demo/index.html:homeRooms`, флаг `ROOM_PREVIEWS=false`); данные каталога остаются в
   сборке (`tools/scout/flat215_demo.py:bedroom_catalog` → `D.bedroom_catalog`) для `b2b-10` этапа 2.
 
-## Чего нет (план `b2b-10` этап 2)
-Стиля, мешей, расстановки (`room_type=bedroom`, нормы 75 см по M4(2) — разбор Codex 14.10), комплектов и ленты
-замен. Когда понадобятся — перенос в `products` с ролями по комнатам (проект Codex в логе плана), не раньше.
+## Дальше (план `b2b-10` этап 2)
+Есть: стиль, меши, расстановка, комплект и лента замен (`tools/scout/demo_bedroom.py`; под флагом `rooms[].enabled`);
+в показ на главной не включено — [[b2b-10-rooms-beyond-living]]. Перенос в `products` не нужен, пока сборщики читают `room_catalog`.

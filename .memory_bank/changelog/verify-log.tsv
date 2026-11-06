@@ -147,3 +147,6 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-06	.memory_bank/core/mesh-pipeline.md	drift	24	0	0	
 2026-11-06	.memory_bank/core/mesh-pool.md	drift	25	1	1	
 2026-11-06	.memory_bank/core/mesh-run.md	drift	19	3	2	T-63: вопрос ведущему (комнаты через MESH_QUEUE_FILE в рабочем варианте), last_verified не двигаем
+2026-11-06	.memory_bank/core/bedroom.md	drift	2	2	2	T-63/2: досверка по ответам ведущего, док сверен целиком
+2026-11-06	.memory_bank/core/design-figma.md	drift	1	1	1	T-63/2: досверка по ответам ведущего, док сверен целиком
+2026-11-06	.memory_bank/core/mesh-run.md	drift	1	1	1	T-63/2: досверка по ответам ведущего, док сверен целиком
