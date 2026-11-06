@@ -374,13 +374,18 @@ def pick_records(bank: list, rooms: list, styles: list) -> list:
 
 
 def feed_row(role: str, it: dict, style: str | None, msid, mesh_ok, alive=lambda u: True) -> dict | None:
-    """Товар спальни → строка ленты замен (поля как у ленты гостиной). Только с фото, тремя габаритами и моделью на сервере
-    (правило владельца 01.09: в замену — то, что видно в 3D); `mesh_ok` — проверка индекса мешей прода."""
-    if not it or not it.get('img') or not (it.get('w') and it.get('d') and it.get('h')):
+    """Товар спальни → строка ленты замен (поля как у ленты гостиной). Только с фото, габаритами и годной моделью (правило
+    владельца 01.09: в замену — то, что видно в 3D). `mesh_ok(sku) → ''` (годен) или причина — ТОТ ЖЕ сторож, что у предметов
+    варианта (`flat215_demo.bedroom_mesh_gate` → `room_bindings.usable`, T-20261106-77 Д1: лента пускала товары без модели, и
+    замена ставила коробку). Роли, которым модель по канону не нужна (`asset_strategy`: ковёр — плоскость из фото, как в
+    гостиной), сторожа не проходят и высоты не требуют."""
+    import asset_strategy as AS
+    needs = AS.strategy(role) == 'hunyuan3d'
+    if not it or not it.get('img') or not (it.get('w') and it.get('d') and (it.get('h') or not needs)):
         return None
     sid = f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else it.get('sid')
     m = msid(sid)
-    if not sid or not mesh_ok(m) or not alive(it.get('img')):
+    if not sid or (needs and mesh_ok({'sid': sid, 'msid': m})) or not alive(it.get('img')):
         return None
     return {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'), 'price': it.get('price'),
             'img': it.get('img'), 'url': it.get('url'), 'shop': it.get('shop'), 'style': style or '',

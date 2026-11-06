@@ -239,8 +239,11 @@ def mesh_role(role, strategies: dict | None = None) -> bool:
     """Нужна ли роли 3D-модель — по канону стратегий ассета (`rules/asset-strategies.json`, Codex q27): `hunyuan3d` — модель;
     ковёр и картина — плоскость из вырезки, плед и шторы — спрайт: им лёгкая копия модели не нужна (T-20261106-77 Д1/Д3 —
     вместо особого случая «ковёр» в коде)."""
-    s = strategies if strategies is not None else json.load(open(os.path.join(RULES, "asset-strategies.json"), encoding="utf-8"))["roles"]
-    return s.get(base_role(role), s.get("_default")) == "hunyuan3d"
+    if strategies is None:                              # единственный загрузчик канона — `tools/scout/asset_strategy.py`
+        sys.path.insert(0, os.path.join(os.path.dirname(RULES)))
+        import asset_strategy as AS
+        return AS.strategy(role) == "hunyuan3d"
+    return strategies.get(base_role(role), strategies.get("_default")) == "hunyuan3d"
 
 
 def room_type(room_id) -> str:

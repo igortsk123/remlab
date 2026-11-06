@@ -1223,7 +1223,11 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
         variants.append(v)
         made += 1
     any_mesh = os.environ.get(FEED_ANY_MESH_ENV) == '1'
-    bf = DB.feeds(bank, bcat, _msid, (lambda m: bool(m)) if any_mesh else (lambda m: m in _mesh_index()))
+    # ЛЕНТА — ТЕМ ЖЕ СТОРОЖЕМ, ЧТО ВАРИАНТ (T-20261106-77 Д1): замена на товар без годной модели ставила на место кровати коробку
+    # (/test/t32f). Сторож выключен (`BEDROOM_MESH_GATE=0`) — прежняя проверка индекса прода
+    feed_gate = ((lambda s: '' if s.get('msid') else 'нет модели') if any_mesh
+                 else gate or (lambda s: '' if s.get('msid') in _mesh_index() else 'нет в индексе прода'))
+    bf = DB.feeds(bank, bcat, _msid, feed_gate)
     for role, rows in bf.items():
         feeds.setdefault(role, rows)
     print(f'спальни: включены {on}, банк {len(bank)} записей, вариантов {made}; ленты '
