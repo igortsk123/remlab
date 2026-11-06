@@ -37,7 +37,11 @@ STARTED="$(date -u '+%FT%TZ')"
 # значения по умолчанию для finish(): при выходе ДО цикла скачивания (например, база не поднялась,
 # шаг 0) переменные фидов ещё не заданы, и `set -u` ронял бы сам finish — статус и тревога терялись
 ok=1; dl_ok=0; dl_total=0; dead=""
-STEP_TMP="$(mktemp -t remlab-step.XXXXXX)"
+# ВЫВОД ШАГА — НА ДИСК, НЕ В /tmp (T-20261106-87): /tmp на DEV — tmpfs ~788 МБ, его забивают чужие папки и снимки
+# сессий. 06.11 при /tmp ≈ 77 % публикация упала `tar` (код 2), а её сообщение «No space left» не записалось в этот же
+# файл в /tmp — в логе осталась одна строка `flat215_publish FAIL (rc=2)` без причины.
+mkdir -p "$HOME/.cache/remlab-refresh"
+STEP_TMP="$(mktemp -p "$HOME/.cache/remlab-refresh" remlab-step.XXXXXX)"
 # Три состояния шага (план catalog-load-hardening П1.2): ok | warn | FAIL (+ skipped у платных).
 # Контракт предупреждения: строка вывода шага `WARN:<код>: текст` (код — латиница/цифры/подчёркивание,
 # необязателен); шаг вернул 0. В статус идут число таких строк и первая; в дайджест — первая.
@@ -54,6 +58,8 @@ step() {                       # step <имя> <команда...>
       RES[$name]=warn; WARNN[$name]=$n; WARNS[$name]="$(grep -m1 '^WARN:' "$STEP_TMP" | sed 's/^WARN:[[:space:]]*//' | cut -c1-200)"
     else RES[$name]=ok; fi
   else
+    # упал молча — подсказка с местом во временной папке (частая немая причина: забитый /tmp, T-20261106-87)
+    [ -s "$STEP_TMP" ] || echo "$name: вывода нет; /tmp свободно $(df -Pm /tmp 2>/dev/null | awk 'NR==2{print $4}') МБ" >> "$STEP_TMP"
     RES[$name]=FAIL; echo "$name FAIL (rc=$rc)" >> "$STEP_TMP"
   fi
   cat "$STEP_TMP" >> "$LOG"

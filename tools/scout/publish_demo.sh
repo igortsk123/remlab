@@ -8,7 +8,8 @@
 #                                        то, что было до отката, ложится в `<папка>.prev-<метка>-undo` — отмена отката —
 #                                        `--rollback <метка>-undo`, он её напечатает
 # Настройки (окружение): PUB_DIR — папка на сервере, `demo` (по умолчанию) или `test/<имя>` для пробы; PUB_SRC — что
-# публиковать (по умолчанию ~/scout-scenes/flat215-demo); PUB_KEEP — сколько копий хранить (3). Для самопроверки —
+# публиковать (по умолчанию ~/scout-scenes/flat215-demo); PUB_KEEP — сколько копий хранить (3); PUB_TMP — где собрать архив
+# (по умолчанию ~/.cache/remlab-publish, на диске). Для самопроверки —
 # PUB_ROOT, PUB_RTMP, PUB_CHOWN, PUB_URL (`tests/test_publish_demo.py`, ssh/scp/curl подменены).
 #
 # ТОП-СПРАЙТЫ ПЕРЕЖИВАЮТ ПУБЛИКАЦИЮ (01.09). `rm -rf flat215-demo` чистил и `topsprites/`,
@@ -35,7 +36,14 @@
 # rename (атомарно, без мгновения «файла нет»); живой перед этим уходит жёсткой ссылкой в новую копию «до отката»;
 # подпапки — двумя rename. Данные не копируются, откат занимает доли секунды и сам обратим.
 # Публикация и откат одной папки не идут одновременно — flock на сервере.
-set -euo pipefail
+#
+# НЕ МОЛЧАТЬ И НЕ ЖИТЬ В /tmp (T-20261106-87). 06.11 ночная публикация упала с кодом 2 без единой строки: /tmp DEV —
+# tmpfs ~788 МБ, занятый на ~77 % чужими папками; архив сборки (~87 МБ) в /tmp не влез, `tar` вернул 2, а его «No space
+# left» ушло в журнал шага — тоже в /tmp. Теперь архив — на диск (PUB_TMP, по умолчанию ~/.cache/remlab-publish), до
+# упаковки сверяется место, и любой сбой печатает строку, команду и код (ловушка ERR; `set -E` — и внутри функций).
+set -Eeuo pipefail
+on_err() { echo "publish_demo.sh: сбой в строке $2 (код $1): $3" >&2; }
+trap 'on_err $? $LINENO "$BASH_COMMAND"' ERR
 HOST=root@89.167.127.0
 PORT=22222
 PUB_DIR=${PUB_DIR:-demo}
@@ -44,6 +52,7 @@ PUB_KEEP=${PUB_KEEP:-3}
 PUB_ROOT=${PUB_ROOT:-/opt/remlab}
 PUB_RTMP=${PUB_RTMP:-/tmp}
 PUB_CHOWN=${PUB_CHOWN-1000:1000}
+PUB_TMP=${PUB_TMP:-$HOME/.cache/remlab-publish}
 # куда можно: главная витрина или папка проб под /test/ — ничего другого скрипт не трогает (Caddy, приложение, VPN-нода)
 [[ "$PUB_DIR" =~ ^(demo|test/[A-Za-z0-9][A-Za-z0-9._-]*)$ ]] && [[ "$PUB_DIR" != *..* ]] \
   || { echo "PUB_DIR=$PUB_DIR: можно только demo или test/<имя>"; exit 2; }
@@ -186,7 +195,12 @@ case "${1:-}" in
 esac
 
 [ -f "$PUB_SRC/index.html" ] || { echo "нет $PUB_SRC/index.html — сборка не выполнялась"; exit 1; }
-TGZ=$(mktemp "${TMPDIR:-/tmp}/flat215-demo.XXXX.tgz")
+mkdir -p "$PUB_TMP"
+# место под архив: сборка в основном картинки — сжатие почти не уменьшает, берём её размер + 20 МБ запаса
+need=$(( $(du -sm "$PUB_SRC" | cut -f1) + 20 ))
+free=$(df -Pm "$PUB_TMP" | awk 'NR==2{print $4}')
+[ "${free:-0}" -ge "$need" ] || { echo "мало места под архив в $PUB_TMP: свободно ${free:-?} МБ, нужно ~$need МБ — не публикуем"; exit 1; }
+TGZ=$(mktemp "$PUB_TMP/flat215-demo.XXXX.tgz")
 trap 'rm -f "$TGZ"' EXIT
 tar czf "$TGZ" -C "$(dirname "$PUB_SRC")" "$(basename "$PUB_SRC")"
 scp -P "$PORT" -o StrictHostKeyChecking=no "$TGZ" "$HOST:$PUB_RTMP/remlab-pub-$(basename "$PUB_DIR").tgz"
