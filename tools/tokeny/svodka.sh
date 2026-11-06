@@ -4,7 +4,8 @@
 # common и algor — sshfs с pakardev, выгрузки общие):
 #   tools/tokeny/svodka.sh [--proekt X] [ГГГГ-ММ-ДД]      # по умолчанию — свой проект и вчера по Лондону
 # В сводке: токены и $ по прайсу API по машинам, % недели учётки каждой машины, строка «Память», напоминание о замере пользы.
-# Машина без выгрузки — явно «нет данных с <машина>» (список — TOKENY_MASHINY). Сбой tokeny.py — файл всё равно есть, с кодом
+# Машина без выгрузки (список — TOKENY_MASHINY) — когда её таймер («выгрузка в ЧЧ:ММ») или «выгрузка не пришла (ждали ЧЧ:ММ)»;
+# время таймера неизвестно — «нет данных с <машина>». Сбой tokeny.py — файл всё равно есть, с кодом
 # и ошибкой (отправка в Telegram не промолчит). Путь файла и число выгрузок — в stderr.
 # Переменные: TOKENY_PROEKTY (папка проектов, /home/pakar/igor), TOKENY_PROEKT, TOKENY_PAPKA (выгрузки), TOKENY_VYHOD
 # (папка сводки), TOKENY_MASHINY (через запятую), TOKENY_ZAMERY (журнал замеров памяти), STATE_ROOT (данные своего проекта).
@@ -40,7 +41,7 @@ done
 cel="$VYHOD/svodka-$DEN.txt"
 tmp="$cel.tmp"
 python3 -B "$(dirname "$0")/tokeny.py" --proekt "$PROEKT" --sobrat "${fayly[@]}" --svodka --data "$DEN" \
-    --ozhidaem "$MASHINY" --zamery "$ZAMERY" --doska "$STATE/.memory_bank/plans/README.md" > "$tmp" 2> "$tmp.err"
+    --ozhidaem "$MASHINY" --papka-vygruzok "$PAPKA" --zamery "$ZAMERY" --doska "$STATE/.memory_bank/plans/README.md" > "$tmp" 2> "$tmp.err"
 kod=$?
 if [ "$kod" != 0 ]; then
     { echo "Сводка токенов $PROEKT за $DEN не собрана: tokeny.py, код $kod."; tail -n 5 "$tmp.err"; } > "$tmp"
