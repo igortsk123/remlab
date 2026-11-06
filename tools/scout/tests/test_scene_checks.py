@@ -95,6 +95,33 @@ check('ковёр без фото и цены, нет вазы — три нах
 
 check('фото ковра на диске: нет файла — не видно', not A.photo_exists('/nonexistent-dir', 'img/x.jpg'))
 
+# ——— T-77/3: обязательный декор — по типу комнаты из данных (rules/scene-artifacts.json), не по имени
+R = A.load_rules()
+KINDS = {'living': 'living', 'bedroom-1': 'bedroom', 'hall': 'hall'}
+check('правило: гостиная — ковёр и ваза', A.required_decor({'room_id': None}, KINDS, R) == ('ковёр', 'ваза'))
+check('правило: спальня — только ковёр', A.required_decor({'room_id': 'bedroom-1'}, KINDS, R) == ('ковёр',))
+check('правило: прихожая — ничего', A.required_decor({'room_id': 'hall'}, KINDS, R) == ())
+check('правило: тип по данным, не по имени — комната «bedroom-9» без записи → по умолчанию',
+      A.required_decor({'room_id': 'bedroom-9'}, KINDS, R) == tuple(R['required_default']))
+bed_ok = {'room_id': 'bedroom-1', 'items': [it('ковёр', 1, 1, 2, 2, sku={'img': 'https://x/y.jpg', 'price': 9990})], 'decor': []}
+check('спальня без вазы — чисто', A.check_rug_decor(bed_ok, '', A.required_decor(bed_ok, KINDS, R)) == [])
+check('гостиная без вазы — по-прежнему находка',
+      {x['problem'] for x in A.check_rug_decor({**bed_ok, 'room_id': None}, '', ('ковёр', 'ваза'))} == {'нет вазы в декоре'})
+check('спальня без ковра — находка остаётся (ковёр в составе спальни)',
+      {x['problem'] for x in A.check_rug_decor({**bed_ok, 'items': []}, '', ('ковёр',))} == {'нет ковра в варианте'})
+
+# list_only (лампа спальни) — в 3D не ставится: модель и лёгкие копии не ищем, «без текстуры» не пишем
+data = {'apartment_rooms': [{'id': 'bedroom-1', 'kind': 'bedroom'}],
+        'variants': [{'id': 'b1', 'style': 'сканди', 'room_id': 'bedroom-1', 'items': bed_ok['items'],
+                      'decor': [{'role': 'лампа', 'list_only': True, 'sku': {'msid': '99272_1', 'price': 3599}}]}]}
+rep = A.run(data, '/nonexistent-rt', '', rules=R)
+s = rep['summary'][0]
+check(f'лампа list_only — моделей 0, без текстуры 0, находок (ж) 0: {s}',
+      s['models'] == 0 and s['models_without_texture'] == 0 and s['rug_decor_problems'] == 0 and rep['rows'] == [])
+data['variants'][0]['decor'][0].pop('list_only')
+s = A.run(data, '/nonexistent-rt', '', rules=R)['summary'][0]
+check('та же лампа без list_only — модель считается и без копии краснеет', s['models'] == 1 and s['models_without_texture'] == 1)
+
 # ——— вердикт ночного шага: красное — одна WARN-строка с названиями вариантов, зелёное — одна строка OK с числами
 def summ(vid, title, **kw):
     return {'variant': vid, 'style': title.lower(), 'title': title, 'overlaps_gt_thr': 0, 'max_overlap_cm': 0.0,

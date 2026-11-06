@@ -218,10 +218,26 @@ def photo_exists(data_dir: str, img: str) -> bool:
         return False
 
 
-def check_rug_decor(v: dict, data_dir: str) -> list[dict]:
+RULES = os.path.join(HERE, 'rules', 'scene-artifacts.json')
+
+
+def load_rules(path: str = RULES) -> dict:
+    with open(path, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def required_decor(v: dict, kinds: dict, rules: dict) -> tuple[str, ...]:
+    """Обязательный декор варианта — по типу комнаты из данных (`apartment_rooms[].kind`), правило — `rules/scene-artifacts.json`.
+    Гостиная без room_id — комната `living`; тип не найден — `required_default`."""
+    kind = kinds.get(v.get('room_id') or 'living')
+    by_kind = rules.get('required_by_kind') or {}
+    return tuple(by_kind[kind] if kind in by_kind else rules.get('required_default') or ())
+
+
+def check_rug_decor(v: dict, data_dir: str, required: tuple[str, ...] = ('ковёр', 'ваза')) -> list[dict]:
     out = []
     rugs = [it for it in v.get('items') or [] if SC._base(it['role']) == 'ковёр']
-    if not rugs:
+    if not rugs and 'ковёр' in required:
         out.append({'item': 'ковёр', 'problem': 'нет ковра в варианте', 'value': ''})
     for it in rugs:
         sku = it.get('sku') or {}
@@ -233,7 +249,7 @@ def check_rug_decor(v: dict, data_dir: str) -> list[dict]:
         if not (sku.get('price') or 0) > 0:
             out.append({'item': it['role'], 'problem': 'ковёр без цены', 'value': sku.get('name', '')})
     vases = [x for x in v.get('decor') or [] if SC._base(x.get('role', '')) == 'ваза']
-    if not vases:
+    if not vases and 'ваза' in required:
         out.append({'item': 'ваза', 'problem': 'нет вазы в декоре', 'value': ''})
     for x in vases:
         sku = x.get('sku') or {}
@@ -246,8 +262,10 @@ def check_rug_decor(v: dict, data_dir: str) -> list[dict]:
 
 # ——— сборка отчёта ————————————————————————————————————————————————————————————
 
-def run(data: dict, rt_dir: str, data_dir: str, thr: float = SC.OVERLAP_CM) -> dict:
+def run(data: dict, rt_dir: str, data_dir: str, thr: float = SC.OVERLAP_CM, rules: dict | None = None) -> dict:
     rows, summary = [], []
+    rules = load_rules() if rules is None else rules
+    kinds = {r['id']: r.get('kind') for r in data.get('apartment_rooms') or [] if r.get('id')}
     for v in data.get('variants') or []:
         vid, style, items = v.get('id'), v.get('style'), v.get('items') or []
         base = {'variant': vid, 'style': style}
@@ -259,7 +277,9 @@ def run(data: dict, rt_dir: str, data_dir: str, thr: float = SC.OVERLAP_CM) -> d
         models: dict[str, str] = {}
         import asset_strategy as _AS
         soft = _AS.soft_roles()          # мягкое (demo-24) — без модели по канону: проверять у него текстуры нечего
-        for it in list(items) + [x for x in v.get('decor') or [] if SC._base(x.get('role', '')) not in soft]:
+        # декор «только в списке» (`list_only`, лампы спальни — demo_bedroom.LIST_ROLES) в 3D не ставится — модель и копия не нужны
+        for it in list(items) + [x for x in v.get('decor') or []
+                                 if SC._base(x.get('role', '')) not in soft and not x.get('list_only')]:
             m = model_id(it.get('sku'))
             if m and SC._base(it.get('role', '')) != 'ковёр':
                 models.setdefault(m, it['role'])
@@ -269,7 +289,7 @@ def run(data: dict, rt_dir: str, data_dir: str, thr: float = SC.OVERLAP_CM) -> d
                 no_tex.add(m)
                 rows.append({**base, 'check': 'в', 'item': f'{role} ({m})', 'problem': f"{t['problem']} [{t['copy']}]",
                              'value': t['value']})
-        rd = check_rug_decor(v, data_dir)
+        rd = check_rug_decor(v, data_dir, required_decor(v, kinds, rules))
         rows += [{**base, 'check': 'ж', **r} for r in rd]
         summary.append({**base, 'title': v.get('title') or style, 'overlaps_gt_thr': len(ovs), 'max_overlap_cm': max([o['depth_cm'] for o in ovs], default=0.0),
                         'models': len(models), 'models_without_texture': len(no_tex), 'chaise_notes': len(notes),
