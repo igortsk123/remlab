@@ -71,6 +71,56 @@ def main() -> None:
     check('совпадений 2' in exact_refused(['RTX 3090 Ti (24 GB)'], dict(CLASSES, dup='RTX 3090 Ti (24 GB)')),
           'два класса с одним полным именем — отказ')
 
+    # опытная группа (T-20261106-85): --image только наш репозиторий по digest, --env поверх образца, секреты не трогаем
+    dig = 'ghcr.io/igortsk123/mesh-hunyuan@sha256:' + 'ab' * 32
+
+    def body() -> dict:
+        return {'container': {'image': 'BOEVOY', 'environment_variables': {'RECEIVER_TOKEN': 's', 'PIPELINE_VERSION': 'v2'}}}
+
+    def ov_refused(image, env) -> str:
+        try:
+            R.apply_overrides(body(), image, env)
+        except ValueError as e:
+            return str(e)
+        return ''
+    b = R.apply_overrides(body(), None, [])
+    check(b['container']['image'] == 'BOEVOY' and b['container']['environment_variables']['PIPELINE_VERSION'] == 'v2',
+          'без --image/--env — образ и переменные образца (боевой по умолчанию)')
+    b = R.apply_overrides(body(), dig, ['PIPELINE_VERSION=color03', 'DUMP_MAX=512'])
+    check(b['container']['image'] == dig and b['container']['environment_variables'] ==
+          {'RECEIVER_TOKEN': 's', 'PIPELINE_VERSION': 'color03', 'DUMP_MAX': '512'},
+          '--image по digest и --env поверх образца, секрет образца цел')
+    check(bool(ov_refused('ghcr.io/igortsk123/mesh-hunyuan:color03-x', [])), 'образ по тегу — отказ (только digest)')
+    check(bool(ov_refused('ghcr.io/other/mesh-hunyuan@sha256:' + 'ab' * 32, [])), 'чужой репозиторий — отказ')
+    check('секреты' in ov_refused(None, ['RECEIVER_TOKEN=x']), 'переопределить секрет — отказ')
+    check(bool(ov_refused(None, ['pipeline_version=x'])) and bool(ov_refused(None, ['NOEQ'])), 'кривой ключ или без = — отказ')
+
+    # queue_setup.build: опытный образ — только у канарейки, боевой по умолчанию; переменные поверх образца
+    import migrate_groups as MG
+    import queue_setup as QS
+    MG.ghcr_auth = lambda: {}
+    donor = {'container': {'image': MG.IMAGE, 'resources': {'cpu': 8, 'memory': 24576, 'gpu_classes': ['x'],
+                                                            'storage_amount': 1, 'shm_size': 1},
+                           'environment_variables': {'RECEIVER_TOKEN': 's', 'PIPELINE_VERSION': 'v2'}, 'command': []}}
+
+    def qs_refused(group, queue, image) -> str:
+        try:
+            QS.build(donor, group, queue, 1, QS.PROXY_PORT, image, ['PIPELINE_VERSION=color03'])
+        except SystemExit as e:
+            return str(e)
+        return ''
+    qb = QS.build(donor, 'mesh-q-color-canary', 'mesh-q-color', 1, QS.PROXY_PORT, dig, ['PIPELINE_VERSION=color03'])
+    check(qb['container']['image'] == dig and qb['container']['environment_variables']['PIPELINE_VERSION'] == 'color03'
+          and qb['container']['environment_variables']['RECEIVER_TOKEN'] == 's' and qb['autostart_policy'] is False
+          and qb['queue_connection']['queue_name'] == 'mesh-q-color',
+          'queue_setup: канарейка color на опытном образе, PIPELINE_VERSION=color03, остановлена, своя очередь')
+    check(QS.build(donor, 'mesh-q-color-canary', 'mesh-q-color', 1)['container']['image'] == MG.IMAGE,
+          'queue_setup без --image — боевой образ')
+    check('только у канарейки' in qs_refused('mesh-q-low-1', 'mesh-q-low', dig), 'опытный образ у боевой группы — отказ')
+    check('digest' in qs_refused('mesh-q-color-canary', 'mesh-q-color', 'ghcr.io/igortsk123/mesh-hunyuan:latest')
+          or 'sha256' in qs_refused('mesh-q-color-canary', 'mesh-q-color', 'ghcr.io/igortsk123/mesh-hunyuan:latest'),
+          'queue_setup: образ по тегу — отказ')
+
     if FAILS:
         print(f'\nПРОВАЛ: {len(FAILS)}')
         sys.exit(1)

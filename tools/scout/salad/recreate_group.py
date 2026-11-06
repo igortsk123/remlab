@@ -95,6 +95,32 @@ def pick_gpu_exact(classes: dict[str, str], wanted: list[str]) -> list[str]:
     return out
 
 
+IMAGE_RE = r'^ghcr\.io/igortsk123/mesh-hunyuan@sha256:[0-9a-f]{64}$'
+ENV_KEY_RE = r'^[A-Z_][A-Z0-9_]*$'
+
+
+def apply_overrides(body: dict, image: str | None, env_pairs: list[str] | None) -> dict:
+    """ОПЫТНАЯ ГРУППА НА ДРУГОМ ОБРАЗЕ (T-20261106-85: `mesh-color-1`, слой color03). По умолчанию образ — боевой
+    (`MG.IMAGE`, ADR-0154), и так остаётся. `--image` — только наш репозиторий и только по digest: тег можно
+    перевесить, и группа молча уехала бы на другой код. `--env K=V` — переменные поверх образца (например
+    `PIPELINE_VERSION=color03`: комплекты опыта ложатся в свою папку, а не в боевую v2). Ключи с TOKEN/KEY/SECRET
+    не переопределяются: секреты группы приходят с образца, перебить их опечаткой — сломать приёмник. Отказ — ValueError."""
+    import re
+    if image:
+        if not re.match(IMAGE_RE, image):
+            raise ValueError(f'--image {image!r}: только ghcr.io/igortsk123/mesh-hunyuan@sha256:<64 hex>')
+        body['container']['image'] = image
+    env = body['container']['environment_variables']
+    for pair in env_pairs or []:
+        k, sep, v = pair.partition('=')
+        if not sep or not re.match(ENV_KEY_RE, k):
+            raise ValueError(f'--env {pair!r}: нужно KEY=значение, ключ латиницей в верхнем регистре')
+        if any(s in k for s in ('TOKEN', 'KEY', 'SECRET', 'PASSWORD')):
+            raise ValueError(f'--env {k}: секреты группы не переопределяются (приходят с образца)')
+        env[k] = v
+    return body
+
+
 def summary(body: dict) -> str:
     c = body['container']
     r = c['resources']
@@ -116,6 +142,9 @@ def main() -> int:
     ap.add_argument('--gpu', default=None, help='оставить только эти GPU образца, через запятую: "RTX A5000"')
     ap.add_argument('--gpu-exact', default=None,
                     help='классы GPU организации по точному полному имени, через запятую: "RTX 3090 Ti (24 GB)"')
+    ap.add_argument('--image', default=None,
+                    help='опытная группа: другой образ, только ghcr.io/igortsk123/mesh-hunyuan@sha256:… (по умолчанию боевой)')
+    ap.add_argument('--env', action='append', default=[], help='переменная поверх образца KEY=значение, можно несколько')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--create-only', action='store_true', help='группа уже удалена (прошлый запуск упёрся в name_conflict)')
     a = ap.parse_args()
@@ -136,6 +165,14 @@ def main() -> int:
     body['container']['resources']['memory'] = a.memory
     body['container']['environment_variables']['DEPLOYMENT_EPOCH'] = f'{time.strftime("%Y%m%d")}-{a.group}'
     body['autostart_policy'] = not a.no_autostart
+    try:
+        apply_overrides(body, a.image, a.env)
+    except ValueError as e:
+        return print(e) or 2
+    if a.image:
+        print(f'!! ОПЫТНЫЙ образ {a.image} вместо боевого (--image)')
+    if a.env:
+        print(f'переменные поверх образца: {", ".join(p.split("=", 1)[0] + "=" + p.split("=", 1)[1] for p in a.env)}')
     if a.gpu or a.gpu_exact:
         classes = gpu_classes()
         if not classes:
@@ -173,7 +210,10 @@ def main() -> int:
         return print(f'!! {a.group} НЕ создана — пул без группы, верни руками') or 1
     code, got = MG.api(f'/{a.group}')
     r = (got.get('container') or {}).get('resources') or {}
-    ok = (code == 200 and r.get('memory') == a.memory and (got.get('container') or {}).get('image') == MG.IMAGE)
+    genv = (got.get('container') or {}).get('environment_variables') or {}
+    ok = (code == 200 and r.get('memory') == a.memory
+          and (got.get('container') or {}).get('image') == body['container']['image']
+          and all(genv.get(p.split('=', 1)[0]) == p.split('=', 1)[1] for p in a.env))
     print(f'создана {a.group}: HTTP {code}, memory {r.get("memory")}, образ …{(got.get("container") or {}).get("image", "")[-12:]}, '
           f'реплик {got.get("replicas")}, autostart {got.get("autostart_policy")}, версия {got.get("version")}, '
           f'статус {(got.get("current_state") or {}).get("status")}')

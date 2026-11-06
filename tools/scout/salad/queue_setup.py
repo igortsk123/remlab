@@ -26,6 +26,8 @@
     ~/venvs/scout/bin/python queue_setup.py --queue mesh-q --group mesh-q-canary --donor mesh-low-10 --apply
     ~/venvs/scout/bin/python queue_setup.py --queue mesh-q --group mesh-q-canary --check [--test-job]
     ~/venvs/scout/bin/python queue_setup.py --queue mesh-q-low --group mesh-q-low-1 --donor mesh-low-10 --replicas 30 --apply
+    ~/venvs/scout/bin/python queue_setup.py --queue mesh-q-color --group mesh-q-color-canary --donor mesh-q-low-1 \\
+        --image ghcr.io/igortsk123/mesh-hunyuan@sha256:<digest> --env PIPELINE_VERSION=color03   # опытный образ (T-85)
 """
 from __future__ import annotations
 
@@ -39,6 +41,7 @@ sys.path.insert(0, HERE)
 import migrate_groups as MG  # noqa: E402 — API контейнеров, доступ к реестру, боевой образ
 import queue_run as QR       # noqa: E402 — API очереди
 import salad_groups as SG    # noqa: E402
+import recreate_group as RG  # noqa: E402 — переопределение образа/переменных опытной группы
 
 ENTRY = os.path.join(HERE, 'queue_entry.sh')
 PROXY = os.path.join(HERE, 'queue_proxy.py')
@@ -77,7 +80,10 @@ def command(port: int) -> list[str]:
     raise SystemExit(f'порт {port}: только {PROXY_PORT} (с посредником) или 8000 (без)')
 
 
-def build(donor: dict, group: str, queue: str, replicas: int, port: int = PROXY_PORT) -> dict:
+def build(donor: dict, group: str, queue: str, replicas: int, port: int = PROXY_PORT,
+          image: str | None = None, env: list[str] | None = None) -> dict:
+    """`image`/`env` — опытная канарейка на другом образе (T-20261106-85, `recreate_group.apply_overrides`: только наш
+    репозиторий по digest, секреты образца не перебиваются). По умолчанию — боевой образ, как было."""
     tier = SG.tier(group)
     if tier == '?':
         raise SystemExit(f'{group}: нет тарифа в rules/salad-groups.json — не создаю')
@@ -85,6 +91,8 @@ def build(donor: dict, group: str, queue: str, replicas: int, port: int = PROXY_
         raise SystemExit(f'{group}: в rules/salad-groups.json очередь {SG.queue_of(group)!r}, а не {queue!r} — не создаю')
     if not group.endswith('-canary') and not SG.info(group).get('disabled'):
         raise SystemExit(f'{group}: боевая группа должна быть в rules выключенной (`disabled`) до слова владельца — не создаю')
+    if image and not group.endswith('-canary'):
+        raise SystemExit(f'{group}: опытный образ — только у канарейки (*-canary), не у боевой группы — не создаю')
     if donor['container'].get('image') != MG.IMAGE:
         raise SystemExit(f'образ образца …{donor["container"].get("image", "")[-12:]} ≠ боевого …{MG.IMAGE[-12:]} — не создаю')
     body = MG.build_body(donor, {'name': group, 'tier': tier, 'replicas': replicas})
@@ -92,6 +100,10 @@ def build(donor: dict, group: str, queue: str, replicas: int, port: int = PROXY_
     c['resources'] = {k: v for k, v in donor['container']['resources'].items()
                       if k in ('cpu', 'memory', 'gpu_classes', 'storage_amount', 'shm_size')}
     c['environment_variables']['DEPLOYMENT_EPOCH'] = f'{time.strftime("%Y%m%d")}-{group}'
+    try:
+        RG.apply_overrides(body, image, env)
+    except ValueError as e:
+        raise SystemExit(str(e)) from e
     c['command'] = command(port)
     body['autostart_policy'] = False
     body['queue_connection'] = {'path': '/generate', 'port': port, 'queue_name': queue}
@@ -151,6 +163,8 @@ def main() -> int:
     ap.add_argument('--donor', default=None)
     ap.add_argument('--replicas', type=int, default=1)
     ap.add_argument('--port', type=int, default=PROXY_PORT, help='8001 — с посредником (машина в ответе), 8000 — без')
+    ap.add_argument('--image', default=None, help='опытная канарейка: ghcr.io/igortsk123/mesh-hunyuan@sha256:… (по умолчанию боевой)')
+    ap.add_argument('--env', action='append', default=[], help='переменная поверх образца KEY=значение, можно несколько')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--check', action='store_true')
     ap.add_argument('--test-job', action='store_true')
@@ -167,7 +181,7 @@ def main() -> int:
     code, donor = MG.api(f'/{a.donor}')
     if code != 200 or 'container' not in donor:
         return print(f'образец не прочитан: HTTP {code} {str(donor)[:150]}') or 1
-    body = build(donor, a.group, a.queue, a.replicas, a.port)
+    body = build(donor, a.group, a.queue, a.replicas, a.port, a.image, a.env)
     print('создам:', summary(body))
     if not a.apply:
         return print('\nэто разбор без действий. Выполнить: --apply') or 0
