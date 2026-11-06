@@ -430,8 +430,8 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
         fb=it.get('fabric')
         if fb and fb in ctx['fabrics']: s+=1.5; why.append(f"фактура {fb} повтор+1.5")
         # Ф2 v3: стиль-фит — ПЕРВЫМ идёт обогащение (attrs, ADR-0071): полное покрытие пула,
-        # признаки с фото, честный «нейтральный». Старый style-scores.json — текстовый (16%
-        # совпадения с фото), заморожен (style_score.py убран из крона 06.08) — только фолбэк.
+        # признаки с фото, честный «нейтральный». style-scores.json пишет style_score.py (ночной шаг
+        # `style_score` в refresh_daily.sh: правила паспортов → CLIP → LLM, только дельта) — здесь только фолбэк.
         # Прежний обратный порядок опирался на замер 05.08, сделанный ДО vision-прогона.
         if ctx.get('style_name'):
             sf=EB.style_scores(it['mid'],it['eid']) or SS.get(emb_key(it['mid'],it['eid']))
