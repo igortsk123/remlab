@@ -58,7 +58,9 @@ _NODE_MARKS = ('network is unreachable', 'errno 101',
                'no route to host', 'errno 113',
                'temporary failure in name resolution', 'errno -3',
                'name or service not known', 'errno -2',
-               'connection refused', 'errno 111')
+               'connection refused', 'errno 111',
+               # воркер сам проверил: вход упал сетью И приёмник с машины недоступен (`worker.CUT_OFF`, T-85 06.11)
+               'node/cut_off')
 # 404/410 = сервер ответил. Значит DNS, TCP и HTTP у ноды работают — это мёртвое фото.
 _JOB_MARKS = ('http error 404', 'http error 410', 'error 404', 'error 410')
 # `input_quarantined` — товар в карантине входа (`input_quarantine.py`): магазин не отдаёт фото, машину не винить
@@ -137,7 +139,7 @@ def error_class(res: dict) -> str:
     err = str((res or {}).get('error') or '').lower()
     # подклассы транспорта/инфры пишутся префиксом в саму ошибку (`ssh/container_id rc=…`):
     # три ноды с `container_id` за пять минут — это шлюз Salad, а не три плохие машины
-    if err.startswith('ssh/') or err.startswith('infra/'):
+    if err.startswith(('ssh/', 'infra/', 'node/')):
         return err.split(' ', 1)[0].split(':', 1)[0]
     for m in _NODE_MARKS + _JOB_MARKS:
         if m in err:

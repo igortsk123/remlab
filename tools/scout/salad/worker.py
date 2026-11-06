@@ -17,10 +17,14 @@
 import json
 import os
 import shutil
+import socket
+import ssl
 import tempfile
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 
 from fastapi import FastAPI, HTTPException
 from PIL import Image
@@ -44,6 +48,53 @@ STATE = {'warm': False, 'phase': 'warming', 'done': 0, 'failed': 0, 'skipped': 0
 # получает 409, пока первый не закончил.
 _INFLIGHT: set = set()
 _INFLIGHT_LOCK = threading.Lock()
+
+# МАШИНА ОТРЕЗАНА ОТ НАШЕГО СЕРВЕРА (06.11, T-20261106-85): машина 9a144255 прогрелась, а вход с `remont-lab.online/test/`
+# рвался `Connection reset by peer` 4 раза из 4 и на повторе задания; до Caddy запросы не дошли (журнал пуст, fail2ban
+# режет только ssh). Так же 05.09 машина mesh-low-4 не выгрузила меш в `/mesh-sink`. С такой машины не уйдёт и
+# результат, поэтому: (1) прогрев кончается проверкой приёмника — не достаёт, машина не `ready` и заданий не берёт;
+# (2) вход упал сетью (не HTTP-ответом) — тот же опрос приёмника; не достаёт — виновата машина (`CUT_OFF` в ошибке →
+# `node_health.classify` = node: повтор на другой, товар не винить), и машина снимается с готовности.
+CUT_OFF = 'node/cut_off'
+SINK_HEALTH_PAUSES = (0, 5, 10)        # три попытки за ~15 с: разовый сбой сети не выводит машину из строя
+_NET_ERRORS = (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout, ssl.SSLError)
+
+
+def sink_reachable(timeout: float = 15) -> tuple[bool, str]:
+    """Достаёт ли машина до НАШЕГО приёмника: GET `MESH_SINK_URL/health` (без ключа). Любой HTTP-ответ — сеть есть.
+    Приёмник не наш (`STORAGE_BACKEND` не http) или адреса нет (локальная отладка) — проверять нечего, True."""
+    base = os.environ.get('MESH_SINK_URL', '').rstrip('/')
+    if not base or S.BACKEND != 'http':
+        return True, ''
+    last = ''
+    for pause in SINK_HEALTH_PAUSES:
+        if pause:
+            time.sleep(pause)
+        try:
+            req = urllib.request.Request(base + '/health', headers={'User-Agent': 'remlab-mesh/1.0'})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                r.read()
+            return True, ''
+        except urllib.error.HTTPError:
+            return True, ''                # сервер ответил: TCP и TLS до него у машины работают
+        except Exception as e:  # noqa: BLE001 — сеть, TLS, таймаут: следующая попытка
+            last = f'{type(e).__name__}: {str(e)[:160]}'
+    return False, last
+
+
+def input_failed(sku, e: Exception, label: str = '') -> dict:
+    """Ответ `input_failed`. Сбой входа СЕТЬЮ (не HTTP-ответ сервера) — опрос приёмника: не достаёт и до него — машина
+    отрезана: ошибка с `CUT_OFF`, машина снимается с готовности (`/ready` 503, `/generate` 503 — очередь отдаст задания
+    другим, раздатчик пересадит её по потере готовности)."""
+    msg = f'{label}{str(e)[:280]}'
+    if isinstance(e, _NET_ERRORS) and not isinstance(e, urllib.error.HTTPError):
+        ok, why = sink_reachable()
+        if not ok:
+            STATE['warm'] = False
+            STATE['phase'] = 'failed'
+            STATE['warmup_error'] = f'{CUT_OFF}: приёмник недоступен ({why})'
+            return {'sku': sku, 'status': 'input_failed', 'error': f'{CUT_OFF}: {msg} · приёмник: {why}'[:400]}
+    return {'sku': sku, 'status': 'input_failed', 'error': msg}
 
 
 @app.get('/health')
@@ -121,6 +172,9 @@ def warmup():
         with tempfile.TemporaryDirectory() as d:
             P.generate(img, d, seed=0, params={'num_inference_steps': 5,
                                                'octree_resolution': 128})
+        ok, why = sink_reachable()          # отрезанная от приёмника машина не сдаст ни одного меша — не берём задания
+        if not ok:
+            raise RuntimeError(f'{CUT_OFF}: приёмник недоступен с машины ({why})')
         STATE['warmup_s'] = round(time.time() - t0, 1)
         STATE['warm'] = True
         STATE['phase'] = 'ready'
@@ -188,7 +242,7 @@ def generate(job: dict):
         return {'sku': sku, 'status': 'bad_cutout', 'error': str(e)[:300]}
     except Exception as e:  # noqa: BLE001 — мёртвое фото не должно ронять ноду
         STATE['failed'] += 1
-        return {'sku': sku, 'status': 'input_failed', 'error': str(e)[:300]}
+        return input_failed(sku, e)
 
     # ТОЛЬКО ПОКРАСКА ГОТОВОЙ ФОРМЫ (план mesh-color-03, О1; T-20261106-85): `shape_url` → болванка `shape.glb` прошлого
     # прогона, стадия формы пропускается (`pipeline.generate(shape_glb=…)`). Хеш болванки — в params ДО номера задания:
@@ -197,9 +251,9 @@ def generate(job: dict):
     if job.get('shape_url'):
         try:
             shape_bytes = PRE.fetch(job['shape_url'])
-        except Exception as e:  # noqa: BLE001 — мёртвая ссылка на болванку = брак входа, не ноды
+        except Exception as e:  # noqa: BLE001 — мёртвая ссылка на болванку = брак входа (или отрезанная машина)
             STATE['failed'] += 1
-            return {'sku': sku, 'status': 'input_failed', 'error': f'shape_url: {str(e)[:280]}'}
+            return input_failed(sku, e, 'shape_url: ')
         if not shape_bytes or shape_bytes[:4] != b'glTF':
             STATE['failed'] += 1
             return {'sku': sku, 'status': 'input_failed', 'error': 'shape_url: не GLB (нет сигнатуры glTF)'}

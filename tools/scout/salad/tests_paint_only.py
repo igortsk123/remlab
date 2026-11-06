@@ -228,6 +228,79 @@ def main() -> int:
         r_bad = W.generate({**job, 'params': {}, 'shape_url': 'https://x/bad.glb'})
         ok('воркер: по ссылке не GLB — input_failed, покраска не запускалась',
            r_bad.get('status') == 'input_failed' and 'не GLB' in r_bad.get('error', '') and len(pub) == 2, r_bad)
+
+        # 6: машина отрезана от нашего сервера (T-85 06.11: Connection reset на входе и у приёмника)
+        import urllib.error  # noqa: PLC0415
+        import urllib.request  # noqa: PLC0415
+        import node_health as NH  # noqa: PLC0415
+        W.SINK_HEALTH_PAUSES = (0,)
+        os.environ['MESH_SINK_URL'] = 'https://sink.test/mesh-sink'
+        S.BACKEND = 'http'
+        orig_open = urllib.request.urlopen
+        reset = urllib.error.URLError(ConnectionResetError(104, 'Connection reset by peer'))
+        sink = {'mode': 'reset', 'calls': 0}
+
+        def fake_open(req, timeout=None):
+            sink['calls'] += 1
+            if sink['mode'] == 'reset':
+                raise reset
+            if sink['mode'] == 'http503':
+                raise urllib.error.HTTPError(req.full_url, 503, 'busy', {}, None)
+            return io.BytesIO(b'{"ok":true}')
+        urllib.request.urlopen = fake_open
+
+        def raise_(e):
+            raise e
+        try:
+            W.STATE.update({'warm': True, 'phase': 'ready'})
+            PRE.prepare = lambda url, role=None: raise_(reset)
+            r_cut = W.generate({**job, 'params': {}})
+            ok('воркер: вход оборван сетью и приёмник недоступен — node/cut_off, машина снята с готовности',
+               r_cut.get('status') == 'input_failed' and r_cut['error'].startswith(W.CUT_OFF)
+               and W.STATE['phase'] == 'failed' and W.STATE['warm'] is False, (r_cut, W.STATE.get('phase')))
+            ok('node_health: node/cut_off — вина машины (повтор на другой, товар не винить), класс node/cut_off',
+               NH.classify(r_cut) == NH.FAULT_NODE and NH.error_class(r_cut) == 'node/cut_off',
+               (NH.classify(r_cut), NH.error_class(r_cut)))
+
+            for mode in ('ok', 'http503'):
+                sink['mode'] = mode
+                W.STATE.update({'warm': True, 'phase': 'ready'})
+                r_net = W.generate({**job, 'params': {}})
+                ok(f'воркер: вход оборван, приёмник отвечает ({mode}) — обычный input_failed, машина остаётся готовой',
+                   r_net.get('status') == 'input_failed' and W.CUT_OFF not in r_net['error']
+                   and W.STATE['phase'] == 'ready' and NH.classify(r_net) == NH.FAULT_UNKNOWN, (r_net, W.STATE.get('phase')))
+
+            sink['mode'], sink['calls'] = 'reset', 0
+            PRE.prepare = lambda url, role=None: raise_(urllib.error.HTTPError(url, 404, 'nf', {}, None))
+            W.STATE.update({'warm': True, 'phase': 'ready'})
+            r_404 = W.generate({**job, 'params': {}})
+            ok('воркер: 404 на входе — вина товара, приёмник даже не опрашивается',
+               r_404.get('status') == 'input_failed' and sink['calls'] == 0 and W.STATE['phase'] == 'ready'
+               and NH.classify(r_404) == NH.FAULT_JOB, (r_404, sink['calls']))
+
+            PRE.prepare = lambda url, role=None: (img, img, img, 'inputhash0001', {'hybrid': False})
+            net['https://x/gone.glb'] = None
+            PRE.fetch = lambda url, timeout=120: net[url] if net.get(url) else raise_(reset)
+            r_sh = W.generate({**job, 'params': {}, 'shape_url': 'https://x/gone.glb'})
+            ok('воркер: болванка оборвана сетью при недоступном приёмнике — тоже node/cut_off',
+               r_sh.get('error', '').startswith(W.CUT_OFF) and 'shape_url' in r_sh['error'], r_sh)
+
+            import fetch_weights  # noqa: PLC0415
+            fetch_weights.ensure = lambda: {}          # веса в тесте не качаем
+            W.STATE.update({'warm': False, 'phase': 'warming'})
+            W.warmup()
+            ok('воркер: прогрев кончается проверкой приёмника — недоступен, машина не ready (phase failed, cut_off)',
+               W.STATE['phase'] == 'failed' and W.CUT_OFF in (W.STATE.get('warmup_error') or ''), W.STATE.get('warmup_error'))
+            sink['mode'] = 'ok'
+            W.STATE.update({'warm': False, 'phase': 'warming'})
+            W.warmup()
+            ok('воркер: приёмник отвечает — прогрев как раньше, ready', W.STATE['phase'] == 'ready' and W.STATE['warm'],
+               W.STATE.get('warmup_error'))
+            del os.environ['MESH_SINK_URL']
+            ok('воркер: без MESH_SINK_URL (локальная отладка) проверять нечего', W.sink_reachable() == (True, ''))
+        finally:
+            urllib.request.urlopen = orig_open
+            os.environ.pop('MESH_SINK_URL', None)
     print(f'tests_paint_only: ошибок {bad}')
     return 1 if bad else 0
 

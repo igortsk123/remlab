@@ -234,6 +234,8 @@ def hold_lock(path: str | None = None):
 
 _LOCK_FH = None
 WARM_MAX_S = float(os.environ.get('MESH_QUEUE_WARM_MAX_S', '2700'))   # running без ready дольше — прогрев мёртв
+# была ready и потеряла дольше — воркер снял готовность сам (машина отрезана от приёмника, `worker.CUT_OFF`)
+LOST_READY_S = float(os.environ.get('MESH_QUEUE_LOST_READY_S', '180'))
 
 
 def instances_of(groups: list[str]) -> dict:
@@ -283,6 +285,7 @@ class Side:
         self.slots.update(self._ready())
         self.reuse = ledger_open()
         self.run_since: dict = {}                                 # инстанс → когда впервые увидели running без ready
+        self.was_ready: set = set()                               # инстансы, которые уже бывали ready
         self.only = False                                          # SSH-групп нет: пропали машины — остаток закрываем
 
     def _ready(self) -> dict:
@@ -376,7 +379,9 @@ class Side:
 
     def cull_warmups(self, now: float) -> None:
         """Машина в running, а `/ready` не наступил дольше WARM_MAX_S — прогрев мёртв (у SSH это `cull_dead_warmups` по
-        `/health`; здесь — по `ready` из API, без SSH). Одинаково у половины группы — беда наша, машины не трогаем."""
+        `/health`; здесь — по `ready` из API, без SSH). Одинаково у половины группы — беда наша, машины не трогаем.
+        Была `ready` и потеряла дольше LOST_READY_S — воркер сам снял готовность (`worker.CUT_OFF`: машина отрезана от
+        приёмника, T-85 06.11); ждать WARM_MAX_S незачем: здоровый воркер готовность не теряет."""
         S = self.S
         for g, ins in self.insts.items():
             if ins is None:
@@ -386,11 +391,17 @@ class Side:
             for i in run:
                 if i.get('ready'):
                     self.run_since.pop((g, i['id']), None)
+                    self.was_ready.add((g, i['id']))
                 else:
                     self.run_since.setdefault((g, i['id']), now)
             for k in [x for x in self.run_since if x[0] == g and x not in ids]:   # ушла или пересажена — забываем
                 self.run_since.pop(k, None)
-            dead = [i for i in run if not i.get('ready') and now - self.run_since.get((g, i['id']), now) > WARM_MAX_S]
+            for k in [x for x in self.was_ready if x[0] == g and x not in ids]:
+                self.was_ready.discard(k)
+
+            def limit(i: dict) -> float:
+                return LOST_READY_S if (g, i['id']) in self.was_ready else WARM_MAX_S
+            dead = [i for i in run if not i.get('ready') and now - self.run_since.get((g, i['id']), now) > limit(i)]
             if not dead:
                 continue
             if len(dead) >= max(2, len(run) * 0.5):
@@ -400,10 +411,13 @@ class Side:
             for i in dead:
                 if not S.NH.take_cull_slot():
                     break
-                why = f'running без /ready {int((now - self.run_since[(g, i["id"])]) / 60)} мин'
+                lost = (g, i['id']) in self.was_ready
+                why = (f'{"потеряла /ready" if lost else "running без /ready"} '
+                       f'{int((now - self.run_since[(g, i["id"])]) / 60)} мин')
                 print(f'  [очередь] нода {i["id"][:8]} ({g}): {why} — ПЕРЕСАЖИВАЮ', flush=True)
                 if S.NH.reallocate(g, i['id'], f'warmup: {why}'):
                     self.run_since.pop((g, i['id']), None)
+                    self.was_ready.discard((g, i['id']))
 
     def watch(self) -> None:
         """Раз в READY_POLL_S: готовые машины (место в очереди), мёртвый прогрев, медленная закачка (`S.cull_slow` —

@@ -576,6 +576,19 @@ def stage2_cases() -> None:
                 side.insts = {'g': [{'id': 'k' * 8, 'state': 'running', 'ready': True}] + ins[1:]}
                 side.cull_warmups(9000.0 + QR.WARM_MAX_S + 1)
             check(not TP.culled, 'прогрелась вовремя — не трогаем')
+            # 20b) T-85: была ready и потеряла (воркер снял готовность — машина отрезана от приёмника) → быстро
+            side.insts = {'g': [{'id': 'm' * 8, 'state': 'running', 'ready': True}] + ins[1:]}
+            with contextlib.redirect_stdout(buf):
+                side.cull_warmups(20000.0)
+                side.insts = {'g': [{'id': 'm' * 8, 'state': 'running', 'ready': False}] + ins[1:]}
+                side.cull_warmups(20010.0)
+                side.cull_warmups(20010.0 + QR.LOST_READY_S - 5)
+            check(not TP.culled, 'потеряла /ready меньше LOST_READY_S — ещё не трогаем')
+            with contextlib.redirect_stdout(buf):
+                side.cull_warmups(20010.0 + QR.LOST_READY_S + 1)
+            check(TP.culled == ['m' * 8] and 'потеряла /ready' in buf.getvalue() and QR.LOST_READY_S < QR.WARM_MAX_S,
+                  f'потеряла /ready дольше LOST_READY_S — пересажена, не ждём WARM_MAX_S ({TP.culled})')
+            TP.culled.clear()
 
             # 21) disabled
             S.SG.price_halted = lambda g: ''
