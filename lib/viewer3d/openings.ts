@@ -170,7 +170,7 @@ export function meshesFromIR(ir: OpeningIR): THREE.Group {
 }
 
 export interface OpeningVisualOpts {
-  /** Входная дверь квартиры: полотно закрыто. */
+  /** Стена входа по прежней эвристике (флага `isEntrance` у проёмов нет, `entranceOf`): все её полотна закрыты. */
   entranceWall?: string;
   /** Все полотна закрыты (квартира из одной комнаты — двери ведут в несуществующее). */
   doorsClosed?: boolean;
@@ -181,6 +181,12 @@ export interface OpeningVisualOpts {
   lengthCm?: number;
 }
 
+/** Полотно закрыто: все двери закрыты (комната без соседей), проём — вход по флагу `isEntrance`, или стена входа по прежней
+ *  эвристике (`entranceOf` → `entranceWall`). */
+export function closedLeaf(o: Opening, side: string, opts: Pick<OpeningVisualOpts, "entranceWall" | "doorsClosed">): boolean {
+  return !!opts.doorsClosed || o.isEntrance === true || opts.entranceWall === side;
+}
+
 /** Все проёмы одной стены. `openings` уже в координатах «вдоль стены от её начала». */
 export function buildOpenings(openings: Opening[], side: string, opts: OpeningVisualOpts): THREE.Group {
   const g = new THREE.Group();
@@ -188,7 +194,7 @@ export function buildOpenings(openings: Opening[], side: string, opts: OpeningVi
   const rooms = viewRooms(openings, opts.lengthCm ?? 1e6);
   openings.forEach((o, i) => {
     const ir = openingIR(o, {
-      wallHeightCm: opts.heightCm, entrance: !!opts.doorsClosed || opts.entranceWall === side,
+      wallHeightCm: opts.heightCm, entrance: closedLeaf(o, side, opts),
       view: { assetId: id, horizon01: view.horizon01, aspect: view.aspect }, viewRoomLo: rooms[i]!.lo, viewRoomHi: rooms[i]!.hi,
     });
     const m = meshesFromIR(ir);

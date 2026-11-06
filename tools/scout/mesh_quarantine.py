@@ -175,11 +175,20 @@ def page(publish: bool) -> int:
     подпись — настоящая причина. Сверху — ждущие решения; решённые владельцем — ниже, с его отметкой."""
     import mesh_dims as MD
     from mesh_queue import db
+    # ТОВАРЫ КОМНАТ (T-20261106-82/2): меши спальни и прихожей лежат в `room_catalog`, не в `products` — прежний `join products`
+    # прятал их брак от владельца. Карточка — из `products`, иначе из `room_catalog` (первая комната по имени); нет ни там, ни там —
+    # не показываем, как раньше.
     rows = db("""select mq.sku, mq.glb_sha, coalesce(mq.reasons,''), coalesce(mq.decision,''), coalesce(mq.mask,''),
-                        coalesce(mq.dev::text,''), p.name, p.cat_role, coalesce(p.image_url_hd, p.image_url, ''),
-                        coalesce(p.w_cm::text,''), coalesce(p.d_cm::text,''), coalesce(p.h_cm::text,'')
-                   from mesh_quarantine mq join products p on p.shop_mid||':'||p.external_id = mq.sku
+                        coalesce(mq.dev::text,''), coalesce(p.name, rc.name), coalesce(p.cat_role, rc.role),
+                        coalesce(p.image_url_hd, p.image_url, rc.img, ''),
+                        coalesce(p.w_cm, rc.w_cm)::text, coalesce(p.d_cm, rc.d_cm)::text, coalesce(p.h_cm, rc.h_cm)::text
+                   from mesh_quarantine mq
+                   left join products p on p.shop_mid||':'||p.external_id = mq.sku
+                   left join lateral (select r.name, r.role, coalesce(r.image_url_hd, r.image_url) as img, r.w_cm, r.d_cm, r.h_cm
+                                        from room_catalog r where r.shop_mid||':'||r.external_id = mq.sku
+                                       order by r.room limit 1) rc on p.external_id is null
                   where coalesce(mq.decision,'') not in ('auto_release_v2')
+                    and (p.external_id is not null or rc.name is not null)
                   order by (mq.decision is null) desc, mq.reasons""")
     os.makedirs(IMGDIR, exist_ok=True)
     cache = json.load(open(CACHE)) if os.path.exists(CACHE) else {}

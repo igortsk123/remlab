@@ -44,7 +44,18 @@ MAJOR = _RP.major(PROFILE)                         # шкаф-купе, прих
 ROLE_W = dict(PROFILE['style']['role_weights'])
 # меш: готов → есть, но не годен (blocked) / сгенерирован без привязки → нет; брак — последним (как спальня: «брак не брать»)
 MESH_RANK = {'ready': 0, 'blocked': 1, 'generated': 1, None: 2}
-ENTRANCE_NOTE = 'вход — гипотеза чертежа (входной двери на чертеже №180 нет); выбор входа — открытый вопрос владельцу'
+WALL_RU = {'south': 'юг', 'north': 'север', 'east': 'восток', 'west': 'запад'}
+
+
+def entrance_note(spec: dict) -> str:
+    """Вход комнаты — ФАКТ из данных экземпляра (`is_entrance` у проёма, T-20261106-72; flat215 — юг, владелец 06.11, TG 153) с
+    источником из `_why` проёма. Флага нет — так и говорим (солвер угадает вход эвристикой и напишет WARN), а не молчим."""
+    ent = [o for o in spec.get('openings', []) if o.get('is_entrance')]
+    if not ent:
+        return 'вход не помечен (нет is_entrance) — солвер угадывает эвристикой, WARN'
+    o = ent[0]
+    return (f"вход — {WALL_RU.get(o['wall'], o['wall'])}, дверь {o['width_cm']:g} см с отступа {o['offset_cm']:g}"
+            + (f" ({o['_why']})" if o.get('_why') else ''))
 
 
 def rules() -> dict:
@@ -142,7 +153,7 @@ def _room_model(spec: dict):
 
 
 def room_spec(room_id: str, variant: str | None) -> dict:
-    """Комната из `flat215-hall.json`; variant None — ПЕРВЫЙ вариант этой комнаты в файле (вход — вопрос владельцу)."""
+    """Комната из `flat215-hall.json` (рабочие `rooms`, не `archived_rooms`); variant None — ПЕРВЫЙ вариант этой комнаты в файле."""
     for r in load_json(FLAT)['rooms']:
         if r['id'] == room_id and (variant is None or r['variant'] == variant):
             return r
@@ -342,7 +353,7 @@ def record(C: Composer, spec: dict, style: str, tier: str, res: dict) -> dict:
     layout['_room'] = {'id': spec['id'], 'variant': spec['variant'], 'w': spec['w'], 'd': spec['d'],
                        'openings': [{k: v for k, v in o.items() if not k.startswith('_')} for o in spec.get('openings', [])],
                        'radiators': [{k: v for k, v in r.items() if not k.startswith('_')} for r in spec.get('radiators', [])],
-                       'entrance_note': ENTRANCE_NOTE}
+                       'entrance_note': entrance_note(spec)}
     layout['_meta'] = {'solver': lay.meta.get('solver'), 'template': lay.meta.get('template'), 'reason': lay.meta.get('reason'),
                        'soft': sorted({v.code for v in lay.violations}), 'skipped_optional': sorted(res['skipped']),
                        'floor_used_pct': lay.floor_used_pct, 'attempts': res['attempts']}
@@ -524,7 +535,7 @@ def main(argv: list) -> int:
     variant = argv[argv.index('--variant') + 1] if '--variant' in argv else rc.get('variant')
     spec = room_spec(ROOM, variant)
     out = BP.room_bank_output(os.environ, ROOM)
-    print(f'Прихожая {spec["id"]}/{spec["variant"]} {spec["w"]}×{spec["d"]}; {ENTRANCE_NOTE}', flush=True)
+    print(f'Прихожая {spec["id"]}/{spec["variant"]} {spec["w"]}×{spec["d"]}; {entrance_note(spec)}', flush=True)
     print(f'Каталог прихожей, стиль, меши... порог стиля {thr}, полоса {tol}', flush=True)
     cat = load_items()
     C = Composer(cat, R, tol, thr)
@@ -536,7 +547,7 @@ def main(argv: list) -> int:
         b[2] += it.get('mesh') == 'ready'
     print('товаров: ' + ', '.join(f'{r} {n} (оценка стиля {s}, меш готов {m})' for r, (n, s, m) in sorted(by.items())), flush=True)
     bank, report = compose(spec, C)
-    report['room'] = {'id': spec['id'], 'variant': spec['variant'], 'title': spec.get('title'), 'entrance_note': ENTRANCE_NOTE}
+    report['room'] = {'id': spec['id'], 'variant': spec['variant'], 'title': spec.get('title'), 'entrance_note': entrance_note(spec)}
     json.dump(bank, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     rp = os.path.splitext(out)[0] + '.report.json'
     need: dict = {}

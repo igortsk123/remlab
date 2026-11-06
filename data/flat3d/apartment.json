@@ -28,7 +28,8 @@
      "wall": "south",
      "offsetCm": 85,
      "widthCm": 90,
-     "heightCm": 205
+     "heightCm": 205,
+     "isEntrance": true
     },
     {
      "kind": "door",

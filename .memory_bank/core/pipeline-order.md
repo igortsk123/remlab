@@ -28,8 +28,7 @@ review_after: 2026-12-05
 | 8 | Судья: выбор лучших вариантов | `judge.py` | — |
 | 9 | Расстановка под планировку | солвер, `acceptance-scenes.json` | 272 сцены |
 
-**Стыки (ADR-0272):** пороги — `tools/scout/rules/pipeline-map.json`, расчёт — `tools/scout/pipeline_map.py`, страница `/test/pipeline/`;
-тревога при смене состояния, напоминание жёлтый/72 ч, красный/24 ч.
+**Стыки (ADR-0272):** `tools/scout/rules/pipeline-map.json` → `tools/scout/pipeline_map.py` → `/test/pipeline/` — Tier 2.
 
 **Этап 4 — ворота:** срезанного с фото не будет в меше, прилипшее станет геометрией; мягкий декор режется, но не на меши.
 
@@ -38,6 +37,8 @@ review_after: 2026-12-05
 **Банк комплектов (ADR-0318):** `bank_prepare && bank_pending && bank_promote` с одним `BANK_RUN_ID`, писатель
 `bank_refresh.py` — только при целой цепочке (`tools/scout/refresh_daily.sh:bank_chain_ok`; `write_enabled` выключен) — Tier 2.
 **Демо:** `flat215_demo` → `publish_demo.sh` — копия прежней версии и `--rollback` (`tools/scout/publish_demo.sh`) — Tier 2.
+
+**Комнаты:** шаги по типу — `tools/scout/room_profile.py:CAPABILITIES` (T-72) — Tier 2.
 
 **13.10 (ADR-0247):** живость фото (`pool_photos`) — ДО стиля, стиль — ДО отбора и вырезки (`tools/scout/refresh_daily.sh`).
 

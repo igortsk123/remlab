@@ -9,7 +9,7 @@
  "alternates": 5,
  "rooms": {
   "hall": {"variant": null, "purposes": ["hall"],
-           "_why": "variant null — ПЕРВЫЙ вариант комнаты hall в tools/scout/flat215-hall.json (drawing-180, вход с юга). Входной двери на чертеже нет — вход открытый вопрос владельцу; другой вариант — --variant"}
+           "_why": "variant null — ПЕРВЫЙ вариант комнаты hall в tools/scout/flat215-hall.json (drawing-180, вход с юга). вход — юг, флаг is_entrance у двери (владелец 06.11, T-20261106-72); другой вариант — --variant"}
  },
  "purposes": {
   "hall": {

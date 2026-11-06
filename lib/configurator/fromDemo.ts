@@ -178,6 +178,8 @@ export function openings(room: DemoRoom): Opening[] {
       // петли и створка с плана витрины (`index.html:doorGeom`: hinge start|end, into) — та же дверь в 3D и на кадре
       ...(o.hinge === "end" || o.hinge === "right" ? { hinge: "right" as const } : {}),
       ...(o.into === false || o.swing_cm === 0 ? { swingCm: 0 } : o.swing_cm !== undefined ? { swingCm: o.swing_cm } : {}),
+      // входная дверь — флаг данных экземпляра (`flat215-hall.json` is_entrance, T-20261106-72)
+      ...(o.is_entrance === true ? { isEntrance: true } : {}),
     }));
 }
 

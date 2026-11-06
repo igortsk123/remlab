@@ -2,8 +2,8 @@
  "_about": "СПАЛЬНЯ (room-pipeline-01 Б-2, T-20261105-40): профиль читает compose_bedroom.py — правила состава, допуск, порог стиля, крупное, веса стиля и жёсткий минимум шкафа. Состав по назначениям (слоты, идеалы, полосы, декор) — в bedroom-composition.json по ссылке, не копией.",
  "schema_version": 1,
  "profile_id": "bedroom",
- "profile_version": "2026-11-05.5",
- "content_sha": "693027867c18",
+ "profile_version": "2026-11-06.1",
+ "content_sha": "df220a2a9070",
  "room_type": "bedroom",
  "purposes": {
   "$ref": "tools/scout/rules/bedroom-roles.json#/purposes"
@@ -21,7 +21,9 @@
  "roles": {
   "кровать": {
    "source": "room_catalog",
-   "major": true
+   "major": true,
+   "lead": true,
+   "_lead_why": "ведущий предмет (ведущий 06.11, T-77): без модели кровати вариант витрины не публикуется — замена из своего стиля, потом из соседнего"
   },
   "шкаф": {
    "source": "room_catalog",
@@ -37,7 +39,9 @@
   },
   "тумба прикроватная": {
    "source": "room_catalog",
-   "major": true
+   "major": true,
+   "lead": true,
+   "_lead_why": "критерий onb-07: в кадре кровать и ≥ 1 тумба (было списком CORE в demo_bedroom.py)"
   },
   "туалетный столик": {
    "source": "room_catalog",

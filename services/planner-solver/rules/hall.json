@@ -3,7 +3,7 @@
   "source": "manual (план onb-13-bath-hall Т3+, T-20261105-34; по образцу rules/bedroom.json, ADR-0330 п.1)",
   "about": "СОСТАВ И ШАБЛОНЫ прихожей. Числа норм — НЕ здесь, а в occupancy.json distances_cm (одно число — одно место, урок 194); здесь только ключи, по которым их читает planner/hall_checks.py. У каждого правила — проверка (`_enforce`: код в planner/hall_checks.py или planner/validate.py) или `_enforce: none` с причиной (урок 199).",
   "roles_note": "Имена ролей — из каталога прихожей (tools/scout/rules/hall-roles.json): шкаф-купе, шкаф, прихожая (модуль), обувница, банкетка, консоль, вешалка, зеркало. Ни одна не совпадает с ролями гостиной по geometry.base_role, кроме «шкаф» и «зеркало» — их правила здесь свои (validate гостиной до прихожей не доходит).",
-  "entrance_note": "ВХОДНАЯ ДВЕРЬ — дверь на южной стене (первая по offset), как у просмотрщика (`lib/viewer3d/viewer.ts`: у прихожей entranceWall = south); на юге двери нет — первая дверь комнаты. Отдельного поля в Opening нет (models.py — минимально)."
+  "entrance_note": "ВХОДНАЯ ДВЕРЬ — данные экземпляра: проём с `is_entrance: true` (`models.py:Opening`, T-20261106-72; flat215 — юг, владелец 06.11); тот же флаг читает просмотрщик (`contracts/apartment.ts:opening.isEntrance`). Флага нет — прежняя эвристика с WARN: дверь на южной стене (первая по offset), иначе первая дверь комнаты (`planner/hall_checks.py:entrance`)."
  },
  "roles": {
   "шкаф-купе": {"tall": true, "storage": true, "front": "wardrobe_sliding_front", "_why": "раздвижные двери: фронт — нижняя граница вилки купе"},

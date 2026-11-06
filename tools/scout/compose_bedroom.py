@@ -24,7 +24,6 @@
 Env: `ROOM_SETS_OUTPUT` — путь банка (живой — отказ); `BEDROOM_STYLE_SCORES` — файл стиля спальни (по умолчанию
 `style-scores-bedroom.json` рядом; в worktree его нет — указать путь основной копии).
 """
-import hashlib
 import json
 import math
 import os
@@ -131,9 +130,29 @@ def local_to_world(px: float, py: float, rot: float, lx: float, ly: float) -> tu
     return (round(px + lx * math.cos(a) - ly * math.sin(a), 1), round(py + lx * math.sin(a) + ly * math.cos(a), 1))
 
 
-def set_id(room_id: str, purpose: str, style: str, tier: str, items: dict) -> str:
-    sig = '|'.join([room_id, purpose, style, tier] + [f"{r}={it['mid']}:{it['eid']}" for r, it in sorted(items.items())])
-    return 'bed-' + hashlib.sha1(sig.encode()).hexdigest()[:8]
+def set_id(room_id: str, purpose: str, band: str, style: str, tier: str) -> str:
+    """id набора — от ЯЧЕЙКИ `room_id|purpose|band|style|tier`, без состава (room-bank-01 этап В, T-20261106-70): замена
+    предмета — то же set_id, новое поколение ячейки. До этапа В id считался и от SKU — замена давала «новый набор»."""
+    import room_identity as RI
+    return RI.set_id_of('bedroom', (room_id, purpose, band, style, tier))
+
+
+def cell_band(spec: dict) -> str:
+    """Полоса ячейки спальни — площадь комнаты по геометрии, м² до десятых (`'10.6'`)."""
+    return f"{round(spec['w'] * spec['d'] / 10000, 1):g}"
+
+
+def cells(R: dict) -> list:
+    """ОЖИДАЕМАЯ МАТРИЦА ячеек из правил профиля — в порядке сборки (`compose`): комнаты → непустые назначения → стили → тиры;
+    полоса — площадь комнаты. Её обязан дать полный кандидат банка (`room_identity.check`)."""
+    out = []
+    for room_id, rc in R['rooms'].items():
+        band = cell_band(room_spec(room_id, rc['variant']))
+        for purpose in rc['purposes']:
+            if R['purposes'][purpose].get('empty'):
+                continue
+            out += [(room_id, purpose, band, style, tier) for style in R['styles'] for tier in R['tiers']]
+    return out
 
 
 # ---------------------------------------------------------------- данные
@@ -535,14 +554,16 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
         layout['_meta']['wardrobe'] = ({'narrow': True, 'free_wall_cm': wd['free_wall_cm'], 'tried': wd['tried']}
                                        if wd.get('layout') is not None else {'narrow': False, 'why': wd['why']})
     m2 = round(spec['w'] * spec['d'] / 10000, 1)
-    rec = {'room_id': room_id, 'room_type': 'bedroom', 'purpose': purpose, 'band': f'{m2:g}', 'm2': m2, 'tier': tier,
+    rec = {'room_id': room_id, 'room_type': 'bedroom', 'purpose': purpose, 'band': cell_band(spec), 'm2': m2, 'tier': tier,
            'style': style, 'style_fit': set_fit(items, style), 'pair': list(CC.STYLE_PAIR[style]), 'gaps': gaps,
            'total': sum((it.get('price') or 0) * (it.get('qty') or 1) for it in items.values()),
            'items': items, 'alternates': alts, 'slots': slots, 'layout': layout,
            'tier_relaxed': sorted(res.get('relaxed', []) + relaxed_d),
            'mesh_need': sorted(it['sid'] for r, it in items.items() if r in FLOOR + ('лампа',) and not it.get('mesh'))}
     rec['cell'] = '|'.join([room_id, purpose, rec['band'], style, tier])
-    rec['set_id'] = set_id(room_id, purpose, style, tier, items)
+    rec['set_id'] = set_id(room_id, purpose, rec['band'], style, tier)
+    if getattr(C, 'prov', None):     # происхождение (этап В): профиль, версия, content_sha, плагин, дайджест правил и кода
+        rec['provenance'] = dict(C.prov)
     return rec
 
 
@@ -591,9 +612,22 @@ def compose(rooms: list, C: Composer) -> tuple:
     return bank, report
 
 
-def check_bank(bank: list, R: dict, tol: tuple) -> list:
+SPARE_MIN = 3                  # запас замен у роли набора (onb-06): меньше — у мебели нарушение, у декора предупреждение
+SPARE_MODES = ('hard', 'warn')
+
+
+def spare_short(s: dict) -> list[tuple[str, int, bool]]:
+    """Роли набора с запасом замен меньше `SPARE_MIN` → [(роль, сколько замен, мебель ли)] в порядке предметов."""
+    alts = s.get('alternates') or {}
+    return [(r, len(alts.get(r, [])), r in MAJOR) for r in s['items'] if len(alts.get(r, [])) < SPARE_MIN]
+
+
+def check_bank(bank: list, R: dict, tol: tuple, spare: str = 'hard') -> list:
     """Критерии плана onb-06 по готовому банку → список нарушений (пусто — чисто). Раскладку перепроверяет `validate`
-    (диспетчер по room_type): жёстких 0."""
+    (диспетчер по room_type): жёстких 0. `spare` — нехватка запаса замен у мебели: 'hard' — нарушение (ночная замена,
+    этап Г), 'warn' — предупреждение `~` (поколение 0: набор полный, не хватает лишь запаса — `room_bootstrap`, T-70/2)."""
+    if spare not in SPARE_MODES:
+        raise ValueError(f'spare={spare!r}? можно {", ".join(SPARE_MODES)}')
     sys.path.insert(0, SOLVER)
     from planner.models import Item, Placement, Severity
     from planner.validate import validate
@@ -608,14 +642,16 @@ def check_bank(bank: list, R: dict, tol: tuple) -> list:
         if 'кровать' not in it or not any(r in it for r in ('шкаф', 'комод')):
             bad.append(f'{sid}: ядро неполное (кровать + шкаф/комод)')
         slot_cfg = {sl['role']: sl for sl in R['purposes'][s['purpose']]['slots']}
+        short = {r: (n, major) for r, n, major in spare_short(s)}
         for r, x in it.items():
             if r in MAJOR:      # полоса — из записи: у узкого шкафа она от свободной стены комнаты, не общая
                 sc = dict(slot_cfg[r], ideal=s['slots'][r]['ideal'])
                 g = gate(dict(x, role=r, footprint_ok=True), sc, s['slots'][r]['band'])
                 if g:
                     bad.append(f'{sid}: {r} {x["sid"]} — {g}')
-            if len(s['alternates'].get(r, [])) < 3:   # декор тоньше мебели — предупреждение (`~`), не нарушение
-                bad.append(('' if r in MAJOR else '~ ') + f'{sid}: {r} — альтернатив {len(s["alternates"].get(r, []))} < 3')
+            if r in short:      # декор тоньше мебели — предупреждение (`~`), не нарушение
+                n, major = short[r]
+                bad.append(('' if major and spare == 'hard' else '~ ') + f'{sid}: {r} — альтернатив {n} < {SPARE_MIN}')
         if s['purpose'] == 'couple' and (it.get('тумба прикроватная') or {}).get('qty') != 2:
             bad.append(f'{sid}: пара без двух тумб')
         lay = s['layout']
@@ -672,6 +708,8 @@ def main(argv: list) -> int:
     cat, decor = load_items(R)
     ready, gen, rejected = CI.mesh_state()
     C = Composer(cat, decor, ready, gen, R, tol, thr, rejected)
+    import room_identity as RI
+    C.prov = RI.provenance('bedroom')
     print(f'мебели {len(cat)}, декора {len(decor)}, мешей готово {len(ready)} / сгенерировано {len(gen)}', flush=True)
     bank, report = compose(rooms, C)
     json.dump(bank, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
@@ -687,6 +725,9 @@ def main(argv: list) -> int:
     print(f'БАНК: {out} — наборов {len(bank)}; отчёт {rp}; нужен меш: {len(need)} товаров', flush=True)
     problems = check_bank(bank, R, tol)
     print(_check_text(bank, problems), flush=True)
+    ident = RI.check(bank, cells(R), C.prov)    # матрица профиля и id (этап В): кандидат с отказом банк не примет
+    print(f'ИДЕНТИЧНОСТЬ кандидата: ячеек {len(bank)} из {len(cells(R))}, отказов {len(ident)}'
+          + ''.join(f'\n  ✗ {x}' for x in ident), flush=True)
     if '--sheet' in argv:
         import bedroom_sheet
         print('лист:', bedroom_sheet.write(bank, report, argv[argv.index('--sheet') + 1]))
@@ -771,8 +812,10 @@ def _selftest() -> int:
     ok('оси предмета → комната: rot 0 — изножье к +y', local_to_world(100, 100, 0, 0, 50) == (100, 150))
     ok('rot 180 — изножье к −y', local_to_world(100, 100, 180, 0, 50) == (100, 50))
     ok('rot 90 — изножье к +x (как тумбы солвера)', local_to_world(100, 100, 90, 0, 50) == (150, 100))
-    ok('id набора — от состава', set_id('r', 'p', 's', 't', {'кровать': {'mid': 1, 'eid': 'x'}})
-       != set_id('r', 'p', 's', 't', {'кровать': {'mid': 1, 'eid': 'y'}}))
+    ok('id набора — от ячейки, не от состава (этап В)', set_id('r', 'p', '10.6', 's', 't') == set_id('r', 'p', '10.6', 's', 't')
+       != set_id('r', 'p', '10.6', 's', 'u') and set_id('r', 'p', '10.6', 's', 't').startswith('bed-'))
+    ok('матрица профиля: 60 ячеек (спальня 1 — пара, спальня 2 — пара, один, гость; × 5 стилей × 3 тира)',
+       len(cells(R)) == 60 and cells(R)[0][:3] == ('bedroom-1', 'couple', cell_band(room_spec('bedroom-1', R['rooms']['bedroom-1']['variant']))))
     ok('пустые назначения объявлены с причиной', all(R['purposes'][p].get('empty') for p in
                                                      ('office', 'child:0-3', 'child:3-7', 'child:7-12', 'child:teen')))
     ok('спальня 2 — все назначения словаря ADR-0330', set(R['rooms']['bedroom-2']['purposes']) ==

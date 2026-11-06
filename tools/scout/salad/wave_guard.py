@@ -10,12 +10,13 @@
 `usd_cap` и отметкой книги расходов сторожа денег `usd_mark`; сторож денег гасит пул, когда потолок выбран
 (`money_guard.budget_breach`). Конвейер вышел → волна закрывается: факт денег и моделей, итог владельцу в Telegram,
 потраченное копится в `spent_usd`.
-Волна запускается ТЕМ ЖЕ законным путём (`mesh_wave_start.sh --launch`) с `MESH_TAKE_JOBS` = остаток (верх очереди по приоритету; `MESH_MAX_JOBS` — отдельный предохранитель снимка) и
+Волна запускается ТЕМ ЖЕ законным путём (`mesh_wave_start.sh --launch`) с `MESH_TAKE_JOBS` = остаток (с профилем — не больше заданий профиля, T-20261106-82/3; верх очереди по приоритету; `MESH_MAX_JOBS` — отдельный предохранитель снимка) и
 `MESH_MIN_JOBS`. Конец очереди, нет денег, предел — гасит сам конвейер (`finale()` с проверкой `stopped`), DEV пропал —
 мёртвая рука на сервере.
 
 НЕ СТАРТУЕМ, если: нет разрешения/истекло/потолок выбран; конвейер или другой старт идёт; стоп-файлы владельца
-(`mesh-group-halt.json`, `mesh-batch.PAUSE`); «нет денег» было меньше 2 ч назад; диск DEV ≥ 85 % или < 20 ГБ.
+(`mesh-group-halt.json`, `mesh-batch.PAUSE`); «нет денег» было меньше 2 ч назад; диск DEV ≥ 85 % или < 20 ГБ; ни одну группу
+из `SALAD_GROUP` нельзя поднять сейчас (запрет цены, `disabled`, окно — `salad_groups.allowed_now`; T-20261106-82/2).
 «Жду денег» — одно сообщение в сутки. Крон DEV: */15.
 
 ПРОФИЛЬ ОЧЕРЕДИ — ИЗ РАЗРЕШЕНИЯ (владелец 21.10: «меши не на весь каталог, а сколько нужно для демо»; T-20261021-10/2).
@@ -89,10 +90,22 @@ def profile_jobs(profile: str) -> int | None:
             return None
 
 
+def groups_now() -> list:
+    """[(группа, можно поднять сейчас)] по строке `SALAD_GROUP` из salad.env — тем же чтением, что у сторожа денег
+    (`money_guard.env_groups`), и тем же правилом, что у конвейера (`salad_groups.allowed_now`: запрет цены, `disabled`, окно).
+    Строки нет — пустой список (→ 'no_group'): конвейеру `mesh_wave_start.sh` поднимать было бы нечего."""
+    import money_guard as MG  # noqa: PLC0415
+    import salad_groups as SG  # noqa: PLC0415
+    return [(g, bool(SG.allowed_now(g))) for g in (MG.env_groups() or [])]
+
+
 def decide(lease: dict | None, today: str, busy: bool, stops: list, no_credit_age_h: float | None,
-           disk_pct: float, free_gb: float, usd_per_mesh: float, jobs: int | None = None) -> tuple[str, dict]:
+           disk_pct: float, free_gb: float, usd_per_mesh: float, jobs: int | None = None,
+           groups: list | None = None) -> tuple[str, dict]:
     """→ (решение, параметры старта). Чистая функция — проверяется селфтестом. `jobs` — сколько заданий у профиля
-    (считает `main` только для профиля и только когда иначе был бы старт): меньше порога → 'nothing_to_do'."""
+    (считает `main` только для профиля и только когда иначе был бы старт): меньше порога → 'nothing_to_do'.
+    `groups` — [(группа, можно ли поднять сейчас)] из `SALAD_GROUP` (None — не проверяли, как раньше): ни одной разрешённой →
+    'no_group' (T-20261106-82/2: с разрешением, но без годной группы конвейер стартовал бы впустую)."""
     if busy:
         return 'busy', {}
     if stops:
@@ -109,11 +122,16 @@ def decide(lease: dict | None, today: str, busy: bool, stops: list, no_credit_ag
         return 'waiting_money', {}
     if disk_pct >= 85 or free_gb < 20:
         return 'disk', {}
+    if groups is not None and not any(ok for _g, ok in groups):
+        return 'no_group', {'groups': ','.join(g for g, _ok in groups) or '—'}
     if profile and jobs is None:
         return 'profile_unknown', {'MESH_QUEUE_PROFILE': profile}
     if profile and jobs < min_jobs:
         return 'nothing_to_do', {'MESH_QUEUE_PROFILE': profile, 'jobs': jobs}
-    return 'start', {'MESH_TAKE_JOBS': str(left), 'MESH_MIN_JOBS': str(min_jobs),
+    # ПОТОЛОК ПО ОЧЕРЕДИ (T-20261106-82/3, ведущий): с профилем берём min(деньги, задания профиля) — иначе `MESH_TAKE_JOBS`
+    # считался от денег (373 при очереди 105), и потолок волны (`take × usd_per_mesh × 1,5`) становился всем остатком разрешения
+    take = min(left, jobs) if profile and jobs is not None else left
+    return 'start', {'MESH_TAKE_JOBS': str(take), 'MESH_MIN_JOBS': str(min_jobs),
                      **({'MESH_QUEUE_PROFILE': profile} if profile else {})}
 
 
@@ -197,11 +215,12 @@ def main() -> int:
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     args = (lease, today, busy or open_wave and not lease['waves'][-1].get('closed'),
             [p for p in STOPS if os.path.exists(p)], nc_age, du.used / du.total * 100, du.free / 2**30, usd_per_mesh)
-    verdict, env = decide(*args)
+    groups = groups_now()
+    verdict, env = decide(*args, groups=groups)
     if verdict == 'profile_unknown':                    # профиль: задания считаем, только когда иначе был бы старт
-        verdict, env = decide(*args, jobs=profile_jobs(env['MESH_QUEUE_PROFILE']))
+        verdict, env = decide(*args, jobs=profile_jobs(env['MESH_QUEUE_PROFILE']), groups=groups)
     rec = {'at': time.time(), 'verdict': verdict, **env}
-    if verdict in ('nothing_to_do', 'profile_unknown') and last_verdict() == verdict:
+    if verdict in ('nothing_to_do', 'profile_unknown', 'no_group') and last_verdict() == verdict:
         return 0                                        # то же «нечего делать» — молчим: одна строка на смену состояния
     with open(JOURNAL, 'a', encoding='utf-8') as f:
         f.write(json.dumps(rec, ensure_ascii=False) + '\n')
@@ -284,17 +303,27 @@ def _selftest() -> int:
     ok('конвейер идёт — не мешаем', d(busy=True)[0] == 'busy')
     ok('стоп-файл владельца сильнее разрешения', d(stops=['halt'])[0] == 'stopped_by_owner')
     ok('диск DEV почти полон — не стартуем', d(disk_pct=90)[0] == 'disk')
+    ok('нет разрешённой группы (запрет цены / disabled) — не стартуем, группы в журнал',
+       d(groups=[('mesh-low-10', False), ('mesh-q-low-1', False)]) == ('no_group', {'groups': 'mesh-low-10,mesh-q-low-1'}))
+    ok('SALAD_GROUP пуст — не стартуем', d(groups=[]) == ('no_group', {'groups': '—'}))
+    ok('хоть одна группа разрешена — старт', d(groups=[('a', False), ('b', True)])[0] == 'start')
+    ok('без проверки групп (None) — прежнее решение', d(groups=None)[0] == 'start')
     # ПРОФИЛЬ ОЧЕРЕДИ (T-20261021-10/2)
     D = {**L, 'profile': 'demo', 'profile_min_jobs': 1}
     ok('lease без profile — боевой: в env старта профиля нет', 'MESH_QUEUE_PROFILE' not in d()[1])
     ok('profile=demo: без счёта заданий не стартуем', d(lease=D)[0] == 'profile_unknown')
-    ok('profile=demo доходит до env старта, порог — свой (1), не боевой 200',
-       d(lease=D, jobs=9) == ('start', {'MESH_TAKE_JOBS': '1000', 'MESH_MIN_JOBS': '1', 'MESH_QUEUE_PROFILE': 'demo'}))
+    ok('profile=demo доходит до env старта, порог — свой (1), не боевой 200; берём min(деньги 1000, очередь 9)',
+       d(lease=D, jobs=9) == ('start', {'MESH_TAKE_JOBS': '9', 'MESH_MIN_JOBS': '1', 'MESH_QUEUE_PROFILE': 'demo'}))
+    ok('profile=demo: очередь больше денег — берём по деньгам (1000 из 5000)',
+       d(lease=D, jobs=5000)[1].get('MESH_TAKE_JOBS') == '1000')
     ok('пустая demo-очередь — «нечего делать», не старт', d(lease=D, jobs=0)[0] == 'nothing_to_do')
     ok('profile_min_jobs по умолчанию 1', profile_of({'profile': 'demo', 'min_jobs': 50}) == ('demo', 1))
     ok('пустая demo-очередь: mesh_wave_start не зовётся, в журнале одна строка за два тика', _quiet_test())
     ok('ручная волна с потолком не продлевает разрешение: истёкший lease — по-прежнему lease_expired', _manual_cap_test())
-    ok('лечение автоволны — только по "heal": true в разрешении (MESH_HEAL 0/1, запись волны)', _heal_word_test())
+    ok('лечение автоволны — только по "heal": true в разрешении (MESH_HEAL 0/1, запись волны); потолок волны — по очереди профиля',
+       _heal_word_test())
+    ok('нет разрешённой группы: mesh_wave_start не зовётся, волна не открыта, в журнале «no_group» одной строкой за два тика',
+       _no_group_test())
     return 1 if bad else 0
 
 
@@ -321,14 +350,14 @@ def _quiet_test() -> bool:
     import collections  # noqa: PLC0415
     import tempfile  # noqa: PLC0415
     g = globals()
-    keep = {k: g[k] for k in ('LEASE', 'JOURNAL', 'NOTE', 'NO_CREDITS', 'LOCKS', 'STOPS', 'profile_jobs')}
+    keep = {k: g[k] for k in ('LEASE', 'JOURNAL', 'NOTE', 'NO_CREDITS', 'LOCKS', 'STOPS', 'profile_jobs', 'groups_now')}
     keep_run, keep_du = subprocess.run, shutil.disk_usage
     calls = []
     tmp = tempfile.mkdtemp()
     try:
         g.update(LEASE=os.path.join(tmp, 'lease.json'), JOURNAL=os.path.join(tmp, 'j.jsonl'), NOTE=os.path.join(tmp, 'n.json'),
                  NO_CREDITS=os.path.join(tmp, 'nc.json'), LOCKS=[os.path.join(tmp, 'l')], STOPS=[os.path.join(tmp, 's')],
-                 profile_jobs=lambda p: calls.append(('count', p)) or 0)
+                 profile_jobs=lambda p: calls.append(('count', p)) or 0, groups_now=lambda: [('g', True)])
         json.dump({'expires': '2999-01-01', 'max_usd': 13, 'profile': 'demo', 'waves': []}, open(LEASE, 'w'))
         subprocess.run = lambda *a, **k: calls.append(('run', a[0])) or subprocess.CompletedProcess(a[0], 0, '', '')
         shutil.disk_usage = lambda p: collections.namedtuple('du', 'total used free')(100, 10, 90 * 2**30)
@@ -343,6 +372,32 @@ def _quiet_test() -> bool:
         subprocess.run, shutil.disk_usage = keep_run, keep_du
 
 
+def _no_group_test() -> bool:
+    """T-20261106-82/2: разрешение и задания есть, но ни одна группа `SALAD_GROUP` не разрешена — main() не стартует."""
+    import collections  # noqa: PLC0415
+    import io, contextlib, tempfile  # noqa: E401,PLC0415
+    g = globals()
+    keep = {k: g[k] for k in ('LEASE', 'JOURNAL', 'NOTE', 'NO_CREDITS', 'LOCKS', 'STOPS', 'profile_jobs', 'groups_now')}
+    keep_run, keep_du = subprocess.run, shutil.disk_usage
+    calls = []
+    tmp = tempfile.mkdtemp()
+    try:
+        g.update(LEASE=os.path.join(tmp, 'lease.json'), JOURNAL=os.path.join(tmp, 'j.jsonl'), NOTE=os.path.join(tmp, 'n.json'),
+                 NO_CREDITS=os.path.join(tmp, 'nc.json'), LOCKS=[os.path.join(tmp, 'l')], STOPS=[os.path.join(tmp, 's')],
+                 profile_jobs=lambda p: 100, groups_now=lambda: [('mesh-q-low-1', False)])
+        json.dump({'expires': '2999-01-01', 'max_usd': 13, 'profile': 'demo', 'waves': []}, open(LEASE, 'w'))
+        subprocess.run = lambda *a, **k: calls.append(a[0]) or subprocess.CompletedProcess(a[0], 0, '', '')
+        shutil.disk_usage = lambda p: collections.namedtuple('du', 'total used free')(100, 10, 90 * 2**30)
+        with contextlib.redirect_stdout(io.StringIO()):
+            main(); main()
+        lines = open(JOURNAL).read().splitlines()
+        return (not calls and json.load(open(LEASE))['waves'] == [] and len(lines) == 1
+                and json.loads(lines[0]) | {'at': 0} == {'at': 0, 'verdict': 'no_group', 'groups': 'mesh-q-low-1'})
+    finally:
+        g.update(keep)
+        subprocess.run, shutil.disk_usage = keep_run, keep_du
+
+
 def _heal_word_test() -> bool:
     """T-20261027-02/2: лечение волны автозапуска — только по `"heal": true` в разрешении. Без поля старт идёт с
     MESH_HEAL=0 и записью `heal: false`, с полем — MESH_HEAL=1 и `heal: true`. Подпроцессы и книга денег подменены."""
@@ -350,14 +405,14 @@ def _heal_word_test() -> bool:
     import io, contextlib, tempfile  # noqa: E401,PLC0415
     import money_guard as MG  # noqa: PLC0415
     g = globals()
-    keep = {k: g[k] for k in ('LEASE', 'JOURNAL', 'NOTE', 'NO_CREDITS', 'LOCKS', 'STOPS', 'profile_jobs')}
+    keep = {k: g[k] for k in ('LEASE', 'JOURNAL', 'NOTE', 'NO_CREDITS', 'LOCKS', 'STOPS', 'profile_jobs', 'groups_now')}
     keep_run, keep_du, keep_mg = subprocess.run, shutil.disk_usage, (MG.load, MG.paid_usd)
     tmp = tempfile.mkdtemp()
     got = []
     try:
         g.update(LEASE=os.path.join(tmp, 'lease.json'), JOURNAL=os.path.join(tmp, 'j.jsonl'), NOTE=os.path.join(tmp, 'n.json'),
                  NO_CREDITS=os.path.join(tmp, 'nc.json'), LOCKS=[os.path.join(tmp, 'l')], STOPS=[os.path.join(tmp, 's')],
-                 profile_jobs=lambda p: 100)
+                 profile_jobs=lambda p: 100, groups_now=lambda: [('g', True)])
         MG.load, MG.paid_usd = (lambda: {}), (lambda st: 0.0)
         shutil.disk_usage = lambda p: collections.namedtuple('du', 'total used free')(100, 10, 90 * 2**30)
 
@@ -371,8 +426,12 @@ def _heal_word_test() -> bool:
             json.dump({'expires': '2999-01-01', 'max_usd': 13, 'profile': 'demo', 'waves': [], **extra}, open(LEASE, 'w'))
             with contextlib.redirect_stdout(io.StringIO()):
                 main()
-            res.append(json.load(open(LEASE))['waves'][-1].get('heal'))
-        return got == ['0', '1'] and res == [False, True]
+            w = json.load(open(LEASE))['waves'][-1]
+            res.append((w.get('heal'), w.get('max_jobs'), w.get('usd_cap')))
+        # потолок волны — от очереди профиля (100 × 0,013 × 1,5 = $1,95), не от всего разрешения $13 (T-20261106-82/3)
+        upm = float((json.load(open(RULES, encoding='utf-8')).get('wave') or {}).get('usd_per_mesh', 0.013))
+        cap = round(100 * upm * 1.5, 2)
+        return got == ['0', '1'] and res == [(False, 100, cap), (True, 100, cap)]
     finally:
         g.update(keep)
         subprocess.run, shutil.disk_usage = keep_run, keep_du

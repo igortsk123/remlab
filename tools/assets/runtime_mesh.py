@@ -19,8 +19,8 @@
 Идемпотентно: готовая копия пропускается, только если она собрана из ТОГО ЖЕ исходника (`src_sha` в манифесте —
 отпечаток исходного GLB, план demo-01 п.5): исходник перегенерировали — копия пересобирается сама; --force — всё заново.
 
-Демо (план demo-01): `--ids-from-demo ~/scout-scenes/flat215-demo/demo-data.json` — модели всех вариантов и первых
-`--feed-top` кандидатов каждой ленты; `--check` — ничего не собирать, только сказать, чего нет или что устарело
+Демо (план demo-01): `--ids-from-demo ~/scout-scenes/flat215-demo/demo-data.json` — модели всех вариантов всех комнат витрины
+и кандидаты лент: сколько — по типу комнаты (`rules/demo-swap.json:rt_feed_top`, T-20261106-77) или `--feed-top`; `--check` — ничего не собирать, только сказать, чего нет или что устарело
 (код 1 — ворота публикации демо: без лёгких копий браузер тянул бы исходники по 4–10 МБ).
 """
 from __future__ import annotations
@@ -228,19 +228,70 @@ def src_sha(data: bytes, recipe: str = "") -> str:
     return hashlib.sha256(data + recipe.encode()).hexdigest()[:16]
 
 
-def demo_ids(path: str, feed_top: int) -> tuple[list[str], list[str]]:
-    """Модели демо: (варианты, первые feed_top кандидатов каждой ленты). Заглушки с «:» — не модели."""
+RULES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scout", "rules")
+
+
+def base_role(role) -> str:
+    return re.sub(r"\s+\d+$", "", str(role or ""))
+
+
+def mesh_role(role, strategies: dict | None = None) -> bool:
+    """Нужна ли роли 3D-модель — по канону стратегий ассета (`rules/asset-strategies.json`, Codex q27): `hunyuan3d` — модель;
+    ковёр и картина — плоскость из вырезки, плед и шторы — спрайт: им лёгкая копия модели не нужна (T-20261106-77 Д1/Д3 —
+    вместо особого случая «ковёр» в коде)."""
+    if strategies is None:                              # единственный загрузчик канона — `tools/scout/asset_strategy.py`
+        sys.path.insert(0, os.path.join(os.path.dirname(RULES)))
+        import asset_strategy as AS
+        return AS.strategy(role) == "hunyuan3d"
+    return strategies.get(base_role(role), strategies.get("_default")) == "hunyuan3d"
+
+
+def room_type(room_id) -> str:
+    """Тип комнаты витрины по её id: `living` → living, `bedroom-1` → bedroom (реестр комнат квартиры, `flat215_demo`)."""
+    return re.sub(r"-\d+$", "", str(room_id or "living"))
+
+
+def profile_roles(t: str) -> list:
+    """Роли профиля типа комнаты (`rules/profiles/<тип>.json:roles`); профиля нет — пусто."""
+    p = os.path.join(RULES, "profiles", f"{t}.json")
+    return list(json.load(open(p, encoding="utf-8")).get("roles") or {}) if os.path.exists(p) else []
+
+
+def feed_tops(d: dict, rule: dict | None = None, roles_of=profile_roles) -> dict:
+    """Сколько первых товаров ленты роли держать с лёгкой копией (T-20261106-77 Д3): по типам комнат витрины — тех, чьи варианты
+    есть в данных (`rules/demo-swap.json:rt_feed_top`, 0 — вся лента). Роль комнаты — из профиля её типа и из её вариантов.
+    Роль в нескольких комнатах (комод — гостиная и спальня; лента общая) — больший охват. Ничья роль — правило `_default`."""
+    r = rule if rule is not None else json.load(open(os.path.join(RULES, "demo-swap.json"), encoding="utf-8"))["rt_feed_top"]
+    top = lambda t: int(r.get(t, r["_default"]))  # noqa: E731
+    wider = lambda a, b: 0 if 0 in (a, b) else max(a, b)  # noqa: E731
+    roles: dict = {}
+    for v in d.get("variants") or []:
+        t = room_type(v.get("room_id"))
+        roles.setdefault(t, set(map(base_role, roles_of(t))))
+        roles[t].update(base_role(it.get("role")) for it in v.get("items") or [])
+    out: dict = {}
+    for t, rs in roles.items():
+        for b in rs:
+            out[b] = top(t) if b not in out else wider(top(t), out[b])
+    return {b: out.get(base_role(b), top("_default")) for b in (d.get("feeds") or {})}
+
+
+def demo_ids(path: str, feed_top: int | None = None, rule: dict | None = None,
+             strategies: dict | None = None) -> tuple[list[str], list[str]]:
+    """Модели демо: (варианты всех комнат витрины, кандидаты лент замен). Сколько кандидатов ленты — `feed_top` (число, 0 — вся
+    лента) или, по умолчанию, правило по комнатам (`feed_tops`). Заглушки с «:» — не модели."""
     d = json.load(open(os.path.expanduser(path), encoding="utf-8"))
     mid = lambda x: (x.get("msid") or x.get("sid") or "") if isinstance(x, dict) else ""  # noqa: E731
     # МЯГКОЕ БЕЗ МОДЕЛИ (demo-24): подушки, шторы, плед — в списке и на фото нейросети, в 3D их нет и меша у них нет;
     # без этого ворота требовали копии несуществующих моделей и останавливали публикацию (23.10)
     soft = set(((d.get("rules") or {}).get("soft_roles")) or [])
-    is_soft = lambda r: re.sub(r"\s+\d+$", "", str(r or "")) in soft  # noqa: E731
+    is_soft = lambda r: base_role(r) in soft  # noqa: E731
+    model = lambda r: mesh_role(r, strategies) and not is_soft(r)  # noqa: E731
     var: list[str] = []
     for v in d.get("variants") or []:
         for it in v.get("items") or []:
-            if str(it.get("role") or "").startswith("ковёр"):
-                continue                                # ковёр — фото на полу, 3D-модели у него нет
+            if not model(it.get("role")):
+                continue                                # ковёр — плоскость из фото на полу, 3D-модели у него нет
             m = mid(it.get("sku") or {})
             if m and ":" not in m and m not in var:
                 var.append(m)
@@ -251,11 +302,13 @@ def demo_ids(path: str, feed_top: int) -> tuple[list[str], list[str]]:
             m = mid(x.get("sku") or {})
             if m and ":" not in m and m not in var:
                 var.append(m)
+    tops = feed_tops(d, rule) if feed_top is None else {}
     feed: list[str] = []
     for role, lst in (d.get("feeds") or {}).items():
-        if str(role).startswith("ковёр") or is_soft(role):
+        if not model(role):
             continue
-        for x in [mid(f) for f in lst][:feed_top]:
+        n = tops.get(base_role(role), 0) if feed_top is None else feed_top
+        for x in [mid(f) for f in lst][:n or None]:
             if x and ":" not in x and x not in var and x not in feed:
                 feed.append(x)
     return var, feed
@@ -283,8 +336,9 @@ def main() -> int:
     ap.add_argument("--manifest", default="data/flat3d/runtime-meshes.json")
     ap.add_argument("--simplify", type=float, default=0.0, help="доля оставляемых треугольников, напр. 0.6")
     ap.add_argument("--no-ktx2", action="store_true", help="оставить JPEG вместо KTX2")
-    ap.add_argument("--ids-from-demo", default="", help="demo-data.json: модели вариантов + первые --feed-top каждой ленты")
-    ap.add_argument("--feed-top", type=int, default=6)
+    ap.add_argument("--ids-from-demo", default="", help="demo-data.json: модели вариантов всех комнат + кандидаты лент")
+    ap.add_argument("--feed-top", type=int, default=None,
+                    help="сколько кандидатов каждой ленты (0 — вся); по умолчанию — по комнатам, rules/demo-swap.json:rt_feed_top")
     ap.add_argument("--check", action="store_true", help="только проверить наличие и свежесть (код 1 — нет/устарело у вариантов)")
     a = ap.parse_args()
 

@@ -113,7 +113,16 @@ class RoomBankSpec:
         if self.readiness == 'bank_ready':
             import bank_ready as BR
             return BR.load_facts()
-        raise NotImplementedError(f'{self.room}: готовность из {self.readiness} — этап В плана room-bank-01')
+        import room_ready as RR       # этап В (T-20261106-70): правило одно с витриной — `room_bindings.usable`
+        return RR.load_facts(mode=self.rules().get('mesh_gate') or 'orient', demo_data=self.demo_data)
+
+    def classify(self, role: str, sku: str, item, F) -> tuple:
+        """Готов ли показываемый товар → (тип, причина, need). Гостиная — `bank_ready.classify`; спальня — `room_ready.classify`."""
+        if self.readiness == 'bank_ready':
+            import bank_ready as BR
+            return BR.classify(role, sku, item, F)
+        import room_ready as RR
+        return RR.classify(role, sku, item, F)
 
     def skeleton_gate(self, step: str, R: dict, flag: str, force: bool = False) -> int | None:
         """Шаг комнаты-каркаса: None — адаптер настоящий, идти дальше; иначе код выхода (ничего не пишем).
@@ -124,8 +133,9 @@ class RoomBankSpec:
             print(f'{step}: выключено (rules/bank-candidate.json:{self.flag_ref(flag)}=false) — {self.room}: каркас этапа Б, '
                   f'ничего не пишу', flush=True)
             return 0
-        print(f'ERROR:{step}: {self.room} — адаптер каркас (этап Б room-bank-01: пути и ключ ячейки); идентичность и bootstrap — '
-              f'этап В, суд и писатель — Г. Флаг {self.flag_ref(flag)} или --force не включают его — отказ, ничего не пишу',
+        print(f'ERROR:{step}: {self.room} — адаптер каркас (room-bank-01: пути, ключ ячейки и готовность — этапы Б–В; первый живой '
+              f'банк — `room_bootstrap.py`); суд и писатель — этап Г. Флаг {self.flag_ref(flag)} или --force не включают его — '
+              f'отказ, ничего не пишу',
               flush=True)
         return 2
 
@@ -297,11 +307,11 @@ def _selftest() -> int:
     ok('сборщик из профиля: гостиная compose2.py, спальня compose_bedroom.py',
        L.composer() == ('living_legacy', os.path.join(HERE, 'compose2.py'))
        and B.composer() == ('bedroom', os.path.join(HERE, 'compose_bedroom.py')), (L.composer(), B.composer()))
-    try:
-        B.load_facts()
-        ok('готовность спальни — не из products (этап В)', False)
-    except NotImplementedError:
-        ok('готовность спальни — не из products (этап В): NotImplementedError', True)
+    import room_ready as RR
+    Fb = RR.Facts({}, '', set(), {})
+    ok('готовность спальни — из привязки (`room_ready`, этап В): кровать без привязки ждёт меш, лампа готова',
+       B.classify('кровать', '1:a', None, Fb) == ('wait_asset', 'привязка none: no_asset', 'mesh')
+       and B.classify('лампа', '1:a', None, Fb)[0] == 'ready')
     ok('room_arg: без --room — None и argv как есть; с ним — пара вынута',
        room_arg(['list']) == (None, ['list']) and room_arg(['--room', 'bedroom', 'list', '-x']) == ('bedroom', ['list', '-x']))
     try:

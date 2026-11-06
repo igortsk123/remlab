@@ -46,6 +46,69 @@ KIT_ROLES = {'kitchen': 'services/planner-solver/planner/kitchen.py'}
 ADAPTER_PENDING: dict = {}
 UNVERSIONED = ('profile_version', 'content_sha')
 
+# ---------------------------------------------------------------- РЕЕСТР ВОЗМОЖНОСТЕЙ КОМНАТЫ
+# (hall-demo-01 этап 1, T-20261106-72; Codex 06.11 §1): какие шаги конвейера КОМНАТ есть у типа — явная таблица, а НЕ «все JSON-
+# профили»: legacy-гостиная (products → compose2 → flat215_demo.build) и процедурная кухня (kitchen_kit) в чужие шаги не попадают.
+# Значение — модуль `tools/scout/<имя>.py`, который делает шаг; None — шага у типа нет. Списки комнат шагов берутся отсюда
+# (`rooms_with`, `enabled_rooms`), не кортежами в коде; неизвестный тип или шаг — ValueError (отказ, не «пусто»).
+STEPS = ('catalog', 'demo', 'mesh_demand', 'bank')
+CAPABILITIES = {
+    'living': {'catalog': None, 'demo': None, 'mesh_demand': None, 'bank': None,
+               '_why': 'legacy: products (load3) → compose2 → flat215_demo.build; шаги конвейера комнат к ней не применяются'},
+    'bedroom': {'catalog': 'room_catalog', 'demo': 'demo_bedroom', 'mesh_demand': 'room_mesh_demand', 'bank': 'compose_bedroom'},
+    'hall': {'catalog': 'hall_catalog', 'demo': None, 'mesh_demand': 'room_mesh_demand', 'bank': 'compose_hall',
+             '_why': 'витрина — этап 4 hall-demo-01 (вариантов enabled нет); спрос мешей — по вариантам из банка compose_hall '
+                     '(`--hall-bank`, T-75), не по слотам (room_mesh_demand.demand читает правила compose_bedroom); '
+                     'банк — кандидат sets-hall.next.json, живого нет'},
+    'kitchen': {'catalog': None, 'demo': None, 'mesh_demand': None, 'bank': None,
+                '_why': 'процедурный набор (composer kitchen_kit, catalog kit) — не товары фидов'},
+}
+
+
+def capability(room_type: str, step: str) -> str | None:
+    """Модуль шага `step` у типа комнаты или None (шага нет). Неизвестный тип/шаг — ValueError."""
+    if step not in STEPS:
+        raise ValueError(f'room_profile: неизвестный шаг {step!r}; есть: {", ".join(STEPS)}')
+    if room_type not in CAPABILITIES:
+        raise ValueError(f'room_profile: тип комнаты {room_type!r} не в реестре возможностей; есть: {", ".join(CAPABILITIES)}')
+    return CAPABILITIES[room_type][step]
+
+
+def rooms_with(step: str, module: str | None = None) -> tuple:
+    """Типы комнат, у которых шаг есть (и делается модулем `module`, если задан), в порядке реестра."""
+    return tuple(t for t in CAPABILITIES if capability(t, step) and (module is None or capability(t, step) == module))
+
+
+def enabled_rooms(step: str, ids, apt_rooms, module: str | None = None) -> list:
+    """Включённые комнаты квартиры (id по порядку `ids`), у типа которых (`apartments[].rooms[].kind`) шаг есть [и делается
+    модулем `module`] → [(id, тип)]. Комнаты нет в реестре квартиры или её тип неизвестен реестру — ValueError (отказ)."""
+    kind = {r.get('id'): r.get('kind') for r in apt_rooms or []}
+    out = []
+    for rid in ids or []:
+        if rid not in kind:
+            raise ValueError(f'room_profile: комнаты {rid!r} нет в реестре квартиры')
+        m = capability(kind[rid], step)
+        if m and (module is None or m == module):
+            out.append((rid, kind[rid]))
+    return out
+
+
+def capability_errors(only: str | None = None) -> list:
+    """Реестр ↔ профили и файлы: тип реестра без профиля и профиль без строки реестра, шаг без файла модуля; only — один тип."""
+    want = lambda t: only is None or t == only  # noqa: E731
+    E = [f'реестр возможностей: нет профиля {t}' for t in CAPABILITIES if t not in types() and want(t)]
+    E += [f'профиль {t}: нет строки в CAPABILITIES' for t in types() if t not in CAPABILITIES and want(t)]
+    for t, row in CAPABILITIES.items():
+        if not want(t):
+            continue
+        if set(k for k in row if not k.startswith('_')) != set(STEPS):
+            E.append(f'реестр возможностей {t}: шаги {sorted(row)} ≠ {list(STEPS)}')
+        for st in STEPS:
+            m = row.get(st)
+            if m and not os.path.isfile(os.path.join(HERE, m + '.py')):
+                E.append(f'реестр возможностей {t}.{st}: нет tools/scout/{m}.py')
+    return E
+
 
 # ---------------------------------------------------------------- загрузка и ссылки
 def path_of(room_type: str) -> str:
@@ -119,6 +182,11 @@ def load(room_type: str) -> dict:
 def major(P: dict) -> tuple:
     """Крупное (ставит солвер, полоса Ш×Г×В, меш под слот) — в порядке ролей профиля."""
     return tuple(r for r, v in P['roles'].items() if v.get('major'))
+
+
+def lead(P: dict) -> tuple:
+    """Ведущие предметы витрины (`lead`): без них с годной моделью вариант не публикуется — в порядке ролей профиля."""
+    return tuple(r for r, v in P['roles'].items() if v.get('lead'))
 
 
 def hard(P: dict, role: str, key: str, default=None):
@@ -324,6 +392,7 @@ def lint(room_type: str, cam_html: str = CAM_HTML) -> tuple:
     """(ошибки, предупреждения) профиля."""
     E, W = [], []
     p = raw(room_type)
+    E += capability_errors(room_type)
     E += schema_errors(p, json.load(open(SCHEMA, encoding='utf-8')))
     if p.get('profile_id') != room_type or p.get('room_type') != room_type:
         E.append(f'profile_id/room_type ≠ имени файла {room_type}')
@@ -451,8 +520,40 @@ def _selftest() -> int:
     q = copy.deepcopy(raw('kitchen'))
     ok('схема: kit — допустимый источник, неизвестный адаптер — нет',
        not schema_errors(q, S) and len(schema_errors(dict(q, catalog={'adapter': 'feed'}), S)) == 1)
+    bad += _selftest_caps(ok)
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0
+
+
+def _selftest_caps(ok) -> int:
+    """Реестр возможностей комнаты (T-20261106-72): матрица, отказ на неизвестном, living/kitchen не в шагах комнат."""
+    import room_mesh_demand as RMD
+    ok('реестр возможностей: строки = профили, модули на месте', not capability_errors())
+    ok('матрица: каталог — спальня и прихожая; витрина и спрос мешей — спальня; банк — спальня и прихожая',
+       (rooms_with('catalog'), rooms_with('demo'), rooms_with('mesh_demand'), rooms_with('bank'))
+       == (('bedroom', 'hall'), ('bedroom',), ('bedroom', 'hall'), ('bedroom', 'hall')))
+    ok('living и kitchen — ни в одном шаге комнат', all(capability(t, st) is None for t in ('living', 'kitchen') for st in STEPS))
+    ok('спрос мешей из реестра: по вариантам (WANT_ROOMS) — спальня и прихожая, по слотам (ROOMS) — только спальня (сборщик '
+       'compose_bedroom)', RMD.WANT_ROOMS == rooms_with('mesh_demand') == ('bedroom', 'hall') and RMD.ROOMS == ('bedroom',))
+    for t, st in (('bathroom', 'demo'), ('garage', 'catalog'), ('bedroom', 'render')):
+        try:
+            capability(t, st)
+            ok(f'{t}.{st} — отказ', False)
+        except ValueError:
+            ok(f'{t}.{st} — отказ (ValueError)', True)
+    apt = [{'id': 'living', 'kind': 'living'}, {'id': 'kitchen', 'kind': 'kitchen'}, {'id': 'bedroom-1', 'kind': 'bedroom'},
+           {'id': 'bedroom-2', 'kind': 'bedroom'}, {'id': 'hall', 'kind': 'hall'}, {'id': 'bathroom-1', 'kind': 'bathroom'}]
+    ok('витрина: из включённых living, kitchen, hall, bedroom-2, bedroom-1 — только спальни, в порядке включения',
+       enabled_rooms('demo', ['living', 'kitchen', 'hall', 'bedroom-2', 'bedroom-1'], apt, 'demo_bedroom')
+       == [('bedroom-2', 'bedroom'), ('bedroom-1', 'bedroom')])
+    ok('витрина: включены только living и kitchen — адаптер спальни не запускается', enabled_rooms('demo', ['living', 'kitchen'], apt) == [])
+    for ids in (['bathroom-1'], ['bedroom-9']):
+        try:
+            enabled_rooms('demo', ids, apt)
+            ok(f'включена {ids[0]} — отказ', False)
+        except ValueError:
+            ok(f'включена {ids[0]} — отказ (тип не в реестре / комнаты нет)', True)
+    return 0
 
 
 def main(argv: list) -> int:

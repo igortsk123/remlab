@@ -88,12 +88,22 @@ check('отбор записей: только включённые комнат
 
 msid = lambda s: s  # noqa: E731
 fd = DB.feeds(bank, {'roles': {'кровать': [{'sid': '1:2', 'name': 'Кровать Х 160', 'img': 'x.jpg', 'price': 9, 'w': 170, 'd': 210,
-                                            'h': 90}]}}, msid, lambda m: m != '112923_11672424920201226922')
+                                            'h': 90}],
+                                'ковёр': [{'sid': '1:9', 'name': 'Ковёр Y 200x300', 'img': 'r.jpg', 'price': 5, 'w': 200,
+                                           'd': 300}]}},
+               msid, lambda s: 'нет в индексе прода' if s['msid'] == '112923_11672424920201226922' else '')
 check('ленты спальни: товары наборов со стилем, каталог — без стиля, дешевле сначала',
       [(p['name'][:7], p['styles']) for p in fd['кровать']] == [('Кровать', []), ('Кровать', ['сканди']), ('Кровать', ['современный'])])
 check('ленты спальни: товар без модели на сервере в ленту не идёт', all(p['sid'] != '112923_11672424920201226922'
                                                                        for p in fd.get('комод', [])))
 check('ленты спальни: тумба двух слотов — одна строка', len(fd['тумба прикроватная']) == 2)
+check('ленты спальни: ковёр — плоскость по канону стратегий, модели и высоты не требует (T-77 Д1)',
+      '1_9' in [p['sid'] for p in fd.get('ковёр', [])])
+seen = []
+DB.feeds(bank, {}, msid, lambda s: seen.append(s) or 'нет')
+check('ленты спальни: сторож получает товар (sid и msid), как у варианта; отказ — товара в ленте нет',
+      seen and all(set(x) == {'sid', 'msid'} for x in seen)
+      and not DB.feeds(bank, {}, msid, lambda s: 'нет').get('кровать'))
 check('полоса размера кровати «вдвоём» 160–205 и тумб', DB.bands(['couple']) == {'тумба прикроватная': {'lo': 30, 'hi': 65},
                                                                               'кровать': {'lo': 160, 'hi': 205}})
 
@@ -201,6 +211,37 @@ check('сторож: у кровати нет годного кандидата 
 v8, _ = DB.build_variant(grec, geo, sku, F._dims_of, F.style_id)
 check('без сторожа — как было (товары записи, без замен)', {i['role']: i['sku']['sid'] for i in v8['items']}['кровать']
       == '112923_' + it0['кровать']['eid'] and 'mesh_swaps' not in v8 and v8['missing_item'] == [])
+
+# ВЕДУЩИЙ ПРЕДМЕТ (T-20261106-77): роли — данными профиля; без модели — свой стиль (другие записи), потом соседний; нет — не публикуем
+check('ведущие роли — из профиля спальни (`lead: true`), не списком в коде',
+      DB.lead_roles() == ('кровать', 'тумба прикроватная') and not hasattr(DB, 'CORE'))
+check('соседние стили — пары «легко спутать» паспорта осей (сканди → джапанди, минимализм)',
+      DB.neighbour_styles('сканди') == ['джапанди', 'минимализм'] and DB.neighbour_styles('бохо') == [])
+mine2 = dict(grec, room_id='bedroom-2', purpose='guest', alternates={'кровать': [alt('кровать', 'o1')],
+                                                                 'тумба прикроватная': [alt('тумба прикроватная', 't2', w=40, d=40)]})
+near = dict(grec, style='джапанди', alternates={'кровать': [alt('кровать', 'n1'), alt('кровать', 'n2', w=120)]})
+far = dict(grec, style='лофт', alternates={'кровать': [alt('кровать', 'f1')]})
+pool_bank = [far, near, nob, mine2]
+sp = DB.lead_spares(pool_bank, nob, DB.lead_roles())
+check('запас: только ведущие роли; свой стиль раньше соседнего; несоседний стиль (лофт) не берём; без повторов sid',
+      set(sp) == {'кровать', 'тумба прикроватная'} and [st for st, _ in sp['кровать']][:2] == ['сканди', 'сканди']
+      and 'лофт' not in {st for st, _ in sp['кровать']} and len({DB._key(it) for _, it in sp['кровать']}) == len(sp['кровать']))
+vA, whyA = DB.build_variant(nob, geo, sku, F._dims_of, F.style_id, mesh_ok=gate, spares=sp)
+byA = {i['role']: i['sku']['sid'] for i in vA['items']} if vA else {}
+check('ведущий: своя запись без годной кровати → кровать своего стиля из другой записи банка, без пометки стиля',
+      whyA is None and byA.get('кровать') == '112923_o1'
+      and next(e for e in vA['mesh_swaps'] if e['role'] == 'кровать').get('style') is None)
+bad['112923_o1'] = 'привязка none'
+vB, whyB = DB.build_variant(nob, geo, sku, F._dims_of, F.style_id, mesh_ok=gate, spares=DB.lead_spares(pool_bank, nob, DB.lead_roles()))
+eB = next((e for e in (vB or {}).get('mesh_swaps') or [] if e['role'] == 'кровать'), {})
+check('ведущий: в своём стиле годной нет → соседний стиль (джапанди), пометка стиля в замене для журнала',
+      whyB is None and eB.get('now', [None])[0] == '112923_n1' and eB.get('style') == 'джапанди')
+bad['112923_n1'] = 'модель не выложена'
+vC, whyC = DB.build_variant(nob, geo, sku, F._dims_of, F.style_id, mesh_ok=gate, spares=DB.lead_spares(pool_bank, nob, DB.lead_roles()))
+check('ведущий: у соседа только кровать вне полосы назначения (120 см у «пары») → вариант не публикуется, причина «модель»',
+      vC is None and 'кровать' in whyC['missing'] and 'вне полосы размера' in whyC['mesh'][0]['why'])
+for k in ('112923_o1', '112923_n1'):
+    bad.pop(k)
 
 # сторож сборки: та же проверка, что выдача каталога (`catalog_items.bound_asset`), + сцена грузит модель привязки и она на проде
 row = lambda st, pub, mesh, why=('rep:orientation_review_pending',): {   # noqa: E731

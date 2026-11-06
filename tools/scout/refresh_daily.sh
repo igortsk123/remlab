@@ -37,7 +37,11 @@ STARTED="$(date -u '+%FT%TZ')"
 # значения по умолчанию для finish(): при выходе ДО цикла скачивания (например, база не поднялась,
 # шаг 0) переменные фидов ещё не заданы, и `set -u` ронял бы сам finish — статус и тревога терялись
 ok=1; dl_ok=0; dl_total=0; dead=""
-STEP_TMP="$(mktemp -t remlab-step.XXXXXX)"
+# ВЫВОД ШАГА — НА ДИСК, НЕ В /tmp (T-20261106-87): /tmp на DEV — tmpfs ~788 МБ, его забивают чужие папки и снимки
+# сессий. 06.11 при /tmp ≈ 77 % публикация упала `tar` (код 2), а её сообщение «No space left» не записалось в этот же
+# файл в /tmp — в логе осталась одна строка `flat215_publish FAIL (rc=2)` без причины.
+mkdir -p "$HOME/.cache/remlab-refresh"
+STEP_TMP="$(mktemp -p "$HOME/.cache/remlab-refresh" remlab-step.XXXXXX)"
 # Три состояния шага (план catalog-load-hardening П1.2): ok | warn | FAIL (+ skipped у платных).
 # Контракт предупреждения: строка вывода шага `WARN:<код>: текст` (код — латиница/цифры/подчёркивание,
 # необязателен); шаг вернул 0. В статус идут число таких строк и первая; в дайджест — первая.
@@ -54,6 +58,8 @@ step() {                       # step <имя> <команда...>
       RES[$name]=warn; WARNN[$name]=$n; WARNS[$name]="$(grep -m1 '^WARN:' "$STEP_TMP" | sed 's/^WARN:[[:space:]]*//' | cut -c1-200)"
     else RES[$name]=ok; fi
   else
+    # упал молча — подсказка с местом во временной папке (частая немая причина: забитый /tmp, T-20261106-87)
+    [ -s "$STEP_TMP" ] || echo "$name: вывода нет; /tmp свободно $(df -Pm /tmp 2>/dev/null | awk 'NR==2{print $4}') МБ" >> "$STEP_TMP"
     RES[$name]=FAIL; echo "$name FAIL (rc=$rc)" >> "$STEP_TMP"
   fi
   cat "$STEP_TMP" >> "$LOG"
@@ -433,16 +439,17 @@ if [ "$BANK_WRITE" = 1 ]; then
   [ "$bank_chain_ok" = 1 ] && step bank_refresh "$PY" bank_refresh.py --run-id "$BANK_RUN_ID"
   bank_index_steps
 fi
+# каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины И ДО
+# `demo_band` (T-20261106-82/2): места комнат кроме гостиной (квота 30 на комнату × стиль) берут кандидатов из свежего каталога
+step room_catalog "$PY" room_catalog.py --run
 step demo_band "$PY" demo_band.py --report
 step mesh_publish "$PY" mesh_publish.py
 # комментарии владельца к браку мешей за неделю (план mesh-audit-comments) — строкой DIGEST в утреннюю сводку; разбор — --comments
 step mesh_comments "$PY" mesh_decisions.py --comments --since 7d --digest
-# каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины
 # решения владельца по развороту моделей (/test/orient-review/) → orient.json прода слиянием (flat3d-sims-ux A1)
 step orient_pull "$PY" orient_review.py --pull
 # записи разворота, которые ничего не меняют на экране (решение = текущий вид, симметричные) — на прод слиянием
 step orient_sync "$PY" orient_review.py --sync
-step room_catalog "$PY" room_catalog.py --run
 step flat215_demo "$PY" flat215_demo.py
 # лёгкие копии моделей демо — ворота публикации (demo-01): нет копий у моделей вариантов — демо не публикуется
 if step demo_rt bash ../assets/demo_rt.sh; then

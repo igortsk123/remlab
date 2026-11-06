@@ -8,7 +8,9 @@
   то, что было до отката, — в `…-undo`; второй откат — ещё на шаг назад; откат на `…-undo` — отмена отката;
   смена «файл ↔ папка» между версиями переживается;
 - запреты: PUB_DIR не demo/test/<имя>, кривая метка, сборка без index.html (витрина не тронута), страница не ответила
-  после публикации — код 1 с подсказкой про откат.
+  после публикации — код 1 с подсказкой про откат;
+- не молчит и не живёт в /tmp (T-20261106-87): архив — в PUB_TMP; упаковка упала без вывода (`tar` подменён) — код 2 и строка
+  «сбой в строке … tar czf … (код 2)»; места мало (`df` подменён) — отказ до упаковки с цифрами; отказы-проверки строку сбоя не печатают.
 Папка случая не удаляется: PUB_TEST_DIR (иначе новая во временной).
     python3 tools/scout/tests/test_publish_demo.py"""
 import hashlib
@@ -58,6 +60,14 @@ def shims(bin_dir):
         'scp': '#!/usr/bin/env bash\necho "scp $*" >> "$SHIM_LOG"\nargs=("$@"); n=${#args[@]}\n'
                'cp "${args[$((n-2))]}" "${args[$((n-1))]#*:}"\n',
         'curl': '#!/usr/bin/env bash\necho "curl $*" >> "$SHIM_LOG"\nprintf %s "${FAKE_HTTP:-200}"\n',
+        # FAKE_TAR_FAIL=1 — упаковка (czf) падает молча с кодом 2, как `tar` при забитом /tmp, когда и его сообщение
+        # некуда записать (T-20261106-87); иначе — настоящий tar (распаковка на «сервере» тоже идёт через него)
+        'tar': '#!/usr/bin/env bash\nif [ -n "${FAKE_TAR_FAIL:-}" ] && [ "${1:-}" = czf ]; then exit 2; fi\n'
+               'exec "$(PATH=${PATH#*:} command -v tar)" "$@"\n',
+        # FAKE_DF_FREE=N — «свободно N МБ» в любой папке; иначе — настоящий df
+        'df': '#!/usr/bin/env bash\nif [ -n "${FAKE_DF_FREE:-}" ]; then\n'
+              '  echo "Filesystem 1048576-blocks Used Available Capacity Mounted on"; echo "fake 1000 0 $FAKE_DF_FREE 0% /"; exit 0\nfi\n'
+              'exec "$(PATH=${PATH#*:} command -v df)" "$@"\n',
     }
     for name, body in files.items():
         p = os.path.join(bin_dir, name)
@@ -80,7 +90,8 @@ def main():
     def env(**kw):
         e = {k: v for k, v in os.environ.items() if not k.startswith('PUB_')}
         e.update(PATH=bin_dir + os.pathsep + os.environ['PATH'], PUB_ROOT=srv, PUB_RTMP=rtmp, PUB_CHOWN='',
-                 PUB_SRC=src, PUB_KEEP='3', SHIM_LOG=os.path.join(base, 'shim.log'), TMPDIR=base)
+                 PUB_SRC=src, PUB_KEEP='3', SHIM_LOG=os.path.join(base, 'shim.log'), TMPDIR=base,
+                 PUB_TMP=os.path.join(base, 'pubtmp'))
         e.update(kw)
         return e
 
@@ -220,6 +231,31 @@ def main():
     ok(tree(live) == main_before, 'главная витрина при пробе не тронута')
     ok(any('remont-lab.online/test/pubsafe-probe/' in ln for ln in open(os.path.join(base, 'shim.log'))),
        'проверка страницы — по адресу пробы')
+
+    # 11. архив — в PUB_TMP (на диске), не в /tmp (T-20261106-87)
+    pubtmp = os.path.join(base, 'pubtmp')
+    scps = [ln for ln in open(os.path.join(base, 'shim.log')) if ln.startswith('scp ')]
+    ok(scps and all(pubtmp + '/flat215-demo.' in ln for ln in scps), 'архив сборки создаётся в PUB_TMP, не в /tmp')
+    ok(os.path.isdir(pubtmp) and not os.listdir(pubtmp), 'после публикаций в PUB_TMP архивов не осталось')
+
+    # 12. упаковка упала молча (код 2, без вывода — забитый /tmp 06.11): код не 0 и названа причина; витрина цела
+    before = tree(live)
+    build(8)
+    r = run(FAKE_TAR_FAIL='1')
+    out = r.stdout + r.stderr
+    ok(r.returncode == 2, f'tar упал: код скрипта 2, как у tar ({r.returncode})')
+    ok('сбой в строке' in out and 'tar czf' in out and '(код 2)' in out, f'причина напечатана: {out.strip()[-200:]!r}')
+    ok(tree(live) == before and not os.listdir(pubtmp), 'витрина цела, недописанный архив убран')
+
+    # 13. места под архив мало — отказ до упаковки, с цифрами
+    r = run(FAKE_DF_FREE='5')
+    out = r.stdout + r.stderr
+    ok(r.returncode == 1 and 'мало места под архив' in out and 'свободно 5 МБ' in out, f'мало места: код 1 и цифры ({out.strip()[-160:]!r})')
+    ok(tree(live) == before, 'при нехватке места витрина цела')
+
+    # 14. запреты (код 2 из проверок) не печатают ложный «сбой в строке»
+    r = run(PUB_DIR='caddy')
+    ok(r.returncode == 2 and 'сбой в строке' not in r.stdout + r.stderr, 'отказ по PUB_DIR — без строки «сбой»')
 
     print('итог:', 'OK' if not BAD else f'FAIL ({len(BAD)})')
     return 1 if BAD else 0

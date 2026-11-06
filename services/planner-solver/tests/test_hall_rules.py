@@ -157,3 +157,62 @@ def test_room_narrower_than_norm_is_soft_and_furniture_may_not_narrow_it():
 def test_fast_hard_stops_early():
     lay = validate_hall(hall_room(), BREAKS["HALL_NOT_AT_WALL"], fast_hard=True)
     assert hard(lay)
+
+
+# ---- ВХОД — ДАННЫЕ ЭКЗЕМПЛЯРА (hall-demo-01 этап 1, T-20261106-72; Codex 06.11 §4 А)
+def _flat215_rooms() -> dict:
+    return json.load(open(os.path.join(SCOUT, "flat215-hall.json"), encoding="utf-8"))
+
+
+def _room_of(spec: dict) -> Room:
+    return Room(width_cm=spec["w"], depth_cm=spec["d"], contour=spec.get("contour"),
+                openings=[Opening(**{k: v for k, v in o.items() if not k.startswith("_")}) for o in spec["openings"]])
+
+
+def test_flat215_every_variant_has_one_south_entrance():
+    for spec in _flat215_rooms()["rooms"]:
+        ent = [o for o in spec["openings"] if o.get("is_entrance")]
+        assert len(ent) == 1 and ent[0]["wall"] == "south" and ent[0]["kind"] == "door", spec["variant"]
+        got = entrance(_room_of(spec))
+        assert (got.wall, got.offset_cm, got.is_entrance) == ("south", ent[0]["offset_cm"], True)
+
+
+def test_flat215_east_variant_rejected():
+    d = _flat215_rooms()
+    assert "entrance-east" not in {r["variant"] for r in d["rooms"]}
+    assert [r["variant"] for r in d["archived_rooms"]] == ["entrance-east"]
+    assert "ОТКЛОНЁН" in d["archived_rooms"][0]["_why"]
+
+
+def test_entrance_flag_independent_of_opening_order():
+    """Перестановка проёмов не меняет вход: флаг, а не «первая дверь»; и вход не на юге берётся по флагу."""
+    import itertools
+    ops = [Opening(kind="door", wall="west", offset_cm=160, width_cm=85),
+           Opening(kind="door", wall="south", offset_cm=31, width_cm=90),
+           Opening(kind="door", wall="east", offset_cm=20, width_cm=90, is_entrance=True),
+           Opening(kind="door", wall="north", offset_cm=20, width_cm=70, swing_cm=70)]
+    for perm in itertools.permutations(ops):
+        got = entrance(hall_room(openings=list(perm)))
+        assert (got.wall, got.offset_cm) == ("east", 20)
+    for spec in _flat215_rooms()["rooms"]:
+        want = entrance(_room_of(spec))
+        for perm in itertools.permutations(spec["openings"]):
+            got = entrance(_room_of(dict(spec, openings=list(perm))))
+            assert (got.wall, got.offset_cm) == (want.wall, want.offset_cm), spec["variant"]
+
+
+def test_entrance_without_flag_heuristic_warns(capsys):
+    r = hall_room(openings=[Opening(kind="door", wall="west", offset_cm=30, width_cm=85),
+                            Opening(kind="door", wall="south", offset_cm=77, width_cm=90)])
+    assert entrance(r).wall == "south"
+    assert "WARN:hall_entrance" in capsys.readouterr().err
+    flagged = hall_room(openings=[Opening(kind="door", wall="south", offset_cm=31, width_cm=90, is_entrance=True)])
+    entrance(flagged)
+    assert "WARN" not in capsys.readouterr().err
+
+
+def test_exam_rooms_flag_entrance():
+    sc = json.load(open(os.path.join(SCOUT, "hall-scenes.json"), encoding="utf-8"))
+    rooms = {k: v for k, v in sc["rooms"].items() if not k.startswith("_")}
+    assert all(sum(bool(o.get("is_entrance")) for o in r["openings"]) == 1 for r in rooms.values())
+    assert all(not s["room"].endswith(":entrance-east") for s in sc["scenes"])

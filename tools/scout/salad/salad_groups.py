@@ -11,6 +11,15 @@
     SG.allowed_now('mesh-batch-1')      # False вечером — поднимать нельзя
     SG.price('mesh-low-2')              # 0.143 $/ч
     SG.groups_from_env()                # ['mesh-batch-1', ...] из SALAD_GROUP, без умолчания
+
+УДАЛЁННЫЕ В SALAD ГРУППЫ (T-20261106-86). Запись группы в правилах не стираем — по ней считаются цена и тариф старых
+нодо-минут (книга сторожа денег, `tier_compare`). Удалённую помечаем `"deleted": "<дата>"` (+ `_deleted_why`): её не отдают
+`windowed()` (расписание `batch_window.sh`), `allowed_now()` и `--can-start`. Ложная тревога 06.11 15:00 «НЕ УДАЛОСЬ
+погасить mesh-batch-6 (HTTP 404)» — группы в Salad не было с пересборки, а расписание гасило её по списку правил.
+Сверка «правила ↔ Salad» — `reconcile()` (чистая, селфтест без сети) и `--check-live` (одним GET списка групп).
+
+    python3 salad/salad_groups.py --selftest     # без сети: удалённые, окно, сверка, живые правила
+    set -a; . ~/scout-scenes/salad.env; set +a; python3 salad/salad_groups.py --check-live   # 0 — сходится, 1 — расхождение
 """
 from __future__ import annotations
 
@@ -88,6 +97,11 @@ def price_halted(group: str) -> str:
     return str((d.get(group) or {}).get('why') or '') if isinstance(d, dict) else ''
 
 
+def deleted(group: str) -> str:
+    """Дата удаления группы в Salad (`deleted` в правилах); '' — группа живая."""
+    return str(info(group).get('deleted') or '')
+
+
 def allowed_now(group: str, now: float | None = None) -> bool:
     """Можно ли ПОДНИМАТЬ группу сейчас. Нет окна — всегда (low работает круглосуточно). Запрет цены — никогда.
 
@@ -95,6 +109,8 @@ def allowed_now(group: str, now: float | None = None) -> bool:
     09–14ч 51–81%, 15–19ч 0–9% — вечером хозяева забирают домашние компьютеры, задание рвётся.
     """
     if price_halted(group):
+        return False
+    if deleted(group):                  # группы нет в Salad — поднимать нечего (T-20261106-86)
         return False
     if info(group).get('disabled'):
         # ВЫКЛЮЧЕНА В ПРАВИЛАХ (mesh-18 этап 2): новая группа заведена заранее и ждёт слова владельца — не поднимает никто,
@@ -125,21 +141,107 @@ def groups_or_empty() -> list[str]:
 
 
 def windowed() -> list[str]:
-    """Группы с окном (их поднимает и гасит расписание `batch_window.sh`)."""
-    return [g for g, i in (load().get('groups') or {}).items() if i.get('window_utc')]
+    """Группы с окном (их поднимает и гасит расписание `batch_window.sh`); удалённые в Salad — нет."""
+    return [g for g, i in (load().get('groups') or {}).items() if i.get('window_utc') and not i.get('deleted')]
+
+
+def reconcile(rules_groups: dict, salad: list) -> dict:
+    """Сверка правил с составом групп в Salad. Чистая. → {'gone': в правилах живая, в Salad нет — пометить `deleted`;
+    'zombie': помечена удалённой, а в Salad есть — снять пометку; 'unknown': в Salad есть, в правилах нет — тариф и цена
+    неизвестны}. Пустые списки — сходится."""
+    have = set(salad)
+    live = {g for g, i in rules_groups.items() if not (i or {}).get('deleted')}
+    dead = set(rules_groups) - live
+    return {'gone': sorted(live - have), 'zombie': sorted(dead & have), 'unknown': sorted(have - set(rules_groups))}
+
+
+def salad_names(base: str = 'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers') -> list:
+    """Имена групп проекта в Salad — одним GET списка (бесплатно). Через curl: WAF Salad режет python-UA (ADR-0137).
+    Не вышло — исключение (молча пустой список дал бы «все группы удалены»)."""
+    import subprocess  # noqa: PLC0415
+    r = subprocess.run(['curl', '-sS', '--fail', '--max-time', '30', '-H', f"Salad-Api-Key: {os.environ['SALAD_API_KEY']}", base],
+                       capture_output=True, text=True, timeout=45)
+    if r.returncode != 0:
+        raise RuntimeError(f'список групп Salad не получен: curl rc={r.returncode} {r.stderr.strip()[:120]}')
+    return [str(x.get('name')) for x in (json.loads(r.stdout).get('items') or [])]
+
+
+def reconcile_text(R: dict) -> list:
+    out = []
+    if R['gone']:
+        out.append('в правилах живые, в Salad их нет — пометить "deleted": ' + ', '.join(R['gone']))
+    if R['zombie']:
+        out.append('помечены удалёнными, а в Salad есть — снять "deleted": ' + ', '.join(R['zombie']))
+    if R['unknown']:
+        out.append('в Salad есть, в правилах нет (тариф и цена неизвестны): ' + ', '.join(R['unknown']))
+    return out
+
+
+def _selftest() -> int:
+    import tempfile  # noqa: PLC0415
+    global RULES, _CACHE, PRICE_HALT
+    bad = 0
+
+    def ok(name: str, cond: bool) -> None:
+        nonlocal bad
+        print(('OK   ' if cond else 'FAIL ') + name)
+        bad += 0 if cond else 1
+    keep = (RULES, _CACHE, PRICE_HALT)
+    tmp = tempfile.mkdtemp(prefix='sg-selftest-')
+    try:
+        RULES, _CACHE, PRICE_HALT = os.path.join(tmp, 'r.json'), None, os.path.join(tmp, 'нет-запрета.json')
+        json.dump({'groups': {'b-live': {'tier': 'batch', 'window_utc': [0, 24]}, 'b-dead': {'tier': 'batch', 'window_utc': [0, 24],
+                                                                                         'deleted': '2026-10-23'},
+                              'l-live': {'tier': 'low'}, 'l-dead': {'tier': 'low', 'deleted': '2026-10-23'}},
+                   'prices_usd_h': {'batch': 0.1, 'low': 0.2}}, open(RULES, 'w', encoding='utf-8'))
+        ok('окно: удалённая в Salad группа не отдаётся расписанию', windowed() == ['b-live'])
+        ok('поднимать удалённую нельзя, живую — можно', not allowed_now('b-dead') and not allowed_now('l-dead')
+           and allowed_now('b-live') and allowed_now('l-live'))
+        ok('цена и тариф удалённой остаются (книга старых нодо-минут)', price('l-dead') == 0.2 and tier('b-dead') == 'batch')
+        R = reconcile(load()['groups'], ['b-live', 'l-live'])
+        ok('сверка: правила = Salad (удалённых там нет) — расхождений нет', R == {'gone': [], 'zombie': [], 'unknown': []}
+           and reconcile_text(R) == [])
+        R = reconcile(load()['groups'], ['b-live', 'l-dead', 'x-new'])
+        ok('сверка: живая пропала → gone; удалённая есть → zombie; чужая → unknown',
+           R == {'gone': ['l-live'], 'zombie': ['l-dead'], 'unknown': ['x-new']} and len(reconcile_text(R)) == 3)
+        env = dict(os.environ, MESH_GROUPS_RULES=RULES, MESH_PRICE_HALT=PRICE_HALT)
+        import subprocess  # noqa: PLC0415
+        import sys  # noqa: PLC0415
+        me = os.path.abspath(__file__)
+        r = subprocess.run([sys.executable, me, '--can-start', 'b-dead'], env=env, capture_output=True, text=True)
+        w = subprocess.run([sys.executable, me, '--windowed'], env=env, capture_output=True, text=True)
+        ok('--can-start удалённой: 1 с причиной; --windowed без неё', r.returncode == 1 and 'удалена в Salad' in r.stdout
+           and w.stdout.split() == ['b-live'])
+        # живые правила репозитория: у каждой группы тариф и цена; дата удаления — ГГГГ-ММ-ДД
+        RULES, _CACHE = keep[0], None
+        G = load().get('groups') or {}
+        ok('правила репо: у каждой группы тариф с ценой', all(price(g) is not None for g in G))
+        ok('правила репо: deleted — дата ГГГГ-ММ-ДД', all(len(deleted(g)) == 10 and deleted(g)[4] == '-' for g in G if deleted(g)))
+    finally:
+        RULES, _CACHE, PRICE_HALT = keep
+    print(f'salad_groups selftest: ошибок {bad}')
+    return 1 if bad else 0
 
 
 if __name__ == '__main__':
     import sys
-    if '--windowed' in sys.argv:
+    if '--selftest' in sys.argv:
+        sys.exit(_selftest())
+    elif '--check-live' in sys.argv:           # сверка правил с Salad (сеть, GET списка); 0 — сходится, 1 — расхождение
+        _R = reconcile(load().get('groups') or {}, salad_names())
+        _t = reconcile_text(_R)
+        print('\n'.join(_t) if _t else 'правила групп = Salad')
+        sys.exit(1 if _t else 0)
+    elif '--windowed' in sys.argv:
         print(' '.join(windowed()))
     elif '--can-start' in sys.argv:          # batch_window.sh up: 0 — можно поднимать, 1 — запрет цены или disabled (окно — cron)
         _g = sys.argv[sys.argv.index('--can-start') + 1]
-        _why = price_halted(_g) or ('выключена в rules (disabled)' if info(_g).get('disabled') else '')
+        _why = (price_halted(_g) or (f'удалена в Salad {deleted(_g)} (rules: deleted)' if deleted(_g) else '')
+                or ('выключена в rules (disabled)' if info(_g).get('disabled') else ''))
         if _why:
-            print(f'запрет цены: {_why}')
+            print(_why if _why.startswith(('удалена', 'выключена')) else f'запрет цены: {_why}')
         sys.exit(1 if _why else 0)
     else:
         for g, i in (load().get('groups') or {}).items():
             print(f"{g:14s} {i.get('tier'):6s} {price(g)} $/ч  окно {i.get('window_utc') or '—'}  "
-                  f"сейчас {'можно' if allowed_now(g) else 'НЕЛЬЗЯ'}")
+                  f"сейчас {'можно' if allowed_now(g) else 'НЕЛЬЗЯ'}" + (f'  УДАЛЕНА в Salad {deleted(g)}' if deleted(g) else ''))

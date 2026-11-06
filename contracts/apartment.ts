@@ -26,6 +26,8 @@ export const opening = z.object({
   heightCm: z.number().positive().optional(),
   swingCm: z.number().nonnegative().optional(), // глубина зоны открывания внутрь комнаты; 0 — дверь открывается наружу
   hinge: z.enum(["left", "right"]).optional(), // петли у начала отступа (left, по умолчанию) или у конца — как у расстановщика
+  // входная дверь квартиры — данные экземпляра (T-20261106-72), тот же флаг, что `planner/models.py:Opening.is_entrance`
+  isEntrance: z.boolean().optional(),
 });
 export type Opening = z.infer<typeof opening>;
 
@@ -213,6 +215,16 @@ export function isInsideRoom(r: Room, x: number, y: number): boolean {
 export function isIsolatedRoom(a: Apartment, r: Room, wallCm = 30): boolean {
   return !a.rooms.some((o) => o !== r
     && Math.min(r.x + r.w, o.x + o.w) - Math.max(r.x, o.x) > -wallCm && Math.min(r.y + r.d, o.y + o.d) - Math.max(r.y, o.y) > -wallCm);
+}
+
+/**
+ * Вход в квартиру у комнаты — ДАННЫЕ ЭКЗЕМПЛЯРА: проёмы с `isEntrance` (T-20261106-72; flat215 — юг, владелец 06.11), их полотно
+ * закрыто. Флага нет — прежняя эвристика: у прихожей вход — вся южная стена (`fallbackWall`, вызывающий пишет предупреждение),
+ * у остальных комнат входа нет. Порядок проёмов роли не играет.
+ */
+export function entranceOf(r: Pick<Room, "kind" | "openings">): { flagged: boolean; fallbackWall?: WallSide } {
+  if (r.openings.some((o) => o.isEntrance === true)) return { flagged: true };
+  return r.kind === "hall" ? { flagged: false, fallbackWall: "south" } : { flagged: false };
 }
 
 /** Комната, в которой находится точка; null — коридор/за пределами. */

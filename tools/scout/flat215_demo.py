@@ -26,6 +26,7 @@ OUT = os.path.expanduser(os.environ.get('FLAT215_DEMO_OUT') or '~/scout-scenes/f
 sys.path.insert(0, HERE)
 import bank_paths as _BP  # noqa: E402
 import atomic_io as _AIO  # noqa: E402 — выходные json сборки пишутся подменой, не обрезкой (T-20261105-59)
+import room_bindings as _RB  # noqa: E402 — привязка, индекс прода и правило годности модели (одно с банком, T-20261106-70)
 BANK = _BP.demo_plan(os.environ, OUT)
 # ОДНА РАССТАНОВКА НА ВСЕ СТИЛИ (demo-31, `demo_one_layout.py`): включено — солвер берёт только гипотезы опорной подписи
 # (`rules/demo-layout.json`), раскладки — со своим суффиксом `-one` (общие `v3set{n}-layout.json` пересчитывают другие прогоны)
@@ -230,40 +231,15 @@ def _mesh_index() -> set:
     демо (они точно на сервере) и WARN: ленты не режем впустую, но и не обещаем непроверенного.
     """
     global _MESH_IDX
-    if _MESH_IDX is None:
-        idx = set()
-        try:
-            import urllib.request
-            with urllib.request.urlopen(
-                    f'https://remont-lab.online/test/mesh-pilot10/mesh-index.json?v={int(time.time())}', timeout=60) as f:
-                idx = set(json.load(f))
-        except Exception as e:  # noqa: BLE001 — прод недоступен: вчерашнее демо
-            idx = _demo_msids(os.path.join(OUT, 'demo-data.json'))
-            print(f'WARN:mesh_index: каталог мешей прода недоступен ({repr(e)[:80]}) — беру модели вчерашнего демо: {len(idx)}')
-        # КАРАНТИН (conv-04, ADR-0276): модель лежит на сервере, но кривая по осям — для демо её «нет»,
-        # предмет дозаполнится заменой из ленты; вернётся после «принять» владельца
-        try:
-            from mesh_queue import db as _db
-            quar = {r[0].replace(':', '_', 1) for r in _db(
-                "select sku from mesh_quarantine where coalesce(decision,'cut') in ('cut','reject')") if r and r[0]}
-            if quar & idx:
-                print(f'карантин: моделей убрано из демо {len(quar & idx)}')
-            idx -= quar
-        except Exception as e:  # noqa: BLE001 — нет таблицы: карантина нет
-            print('карантин не прочитан:', e)
-        _MESH_IDX = idx
+    if _MESH_IDX is None:     # чтение — общее с банком спальни (`room_bindings.prod_index`, T-20261106-70)
+        _MESH_IDX = _RB.prod_index(lambda: _demo_msids(os.path.join(OUT, 'demo-data.json')))
     return _MESH_IDX
 
 
 def _demo_msids(path: str) -> set:
-    """Модели опубликованного демо (ленты и предметы вариантов) — запасная истина «на сервере», когда прод не ответил."""
-    try:
-        d = json.load(open(path, encoding='utf-8'))
-    except Exception:  # noqa: BLE001 — демо ещё не собиралось
-        return set()
-    out = {p['msid'] for lst in (d.get('feeds') or {}).values() for p in lst if p.get('msid')}
-    out |= {(i.get('sku') or {}).get('msid') for v in d.get('variants') or [] for i in v.get('items') or []}
-    return {m for m in out if m}
+    """Модели опубликованного демо (ленты и предметы вариантов) — запасная истина «на сервере», когда прод не ответил.
+    Общее с банком спальни (`room_bindings.demo_msids`, T-20261106-70)."""
+    return _RB.demo_msids(path)
 
 
 _MESH_REP: dict | None = None
@@ -278,16 +254,8 @@ def _mesh_rep() -> dict:
     артикулом самого товара (карточка, ссылка в магазин).
     """
     global _MESH_REP
-    if _MESH_REP is None:
-        _MESH_REP = {}
-        try:
-            from mesh_queue import db
-            for r in db("select shop_mid||'_'||external_id, replace(mesh_family_rep,':','_') "
-                        "from products where mesh_family_rep is not null"):
-                if len(r) == 2 and r[1]:
-                    _MESH_REP[r[0]] = r[1]
-        except Exception:  # noqa: BLE001 — нет БД: считаем, что модель у каждого своя
-            _MESH_REP = {}
+    if _MESH_REP is None:     # общее с банком спальни (`room_bindings.mesh_rep`, T-20261106-70)
+        _MESH_REP = _RB.mesh_rep()
     return _MESH_REP
 
 
@@ -1162,12 +1130,8 @@ def bedroom_one_layout(recs: list, styles: list) -> dict:
 
 
 BEDROOM_MESH_GATE_ENV = 'BEDROOM_MESH_GATE'   # orient (по умолчанию) | strict | 0 — сторож модели предметов спальни (T-20261105-51)
-BEDROOM_MESH_GATE_MODES = ('orient', 'strict', '0')
-
-
-def orient_only(reasons) -> bool:
-    """Привязка держит товар ТОЛЬКО из-за нерешённого разворота (`orientation_*`, в т.ч. представителя `rep:orientation_*`)."""
-    return bool(reasons) and all(str(r).split(':')[-1].startswith('orientation_') for r in reasons)
+BEDROOM_MESH_GATE_MODES = _RB.MESH_GATE_MODES + ('0',)
+orient_only = _RB.orient_only        # правило одно с банком спальни (`room_bindings`, T-20261106-70)
 
 
 def bedroom_mesh_gate(rows=None, why: str = '', mode: str | None = None):
@@ -1180,7 +1144,9 @@ def bedroom_mesh_gate(rows=None, why: str = '', mode: str | None = None):
       0 — выключен (откат).
     В обоих режимах: сцена грузит именно модель привязки (`msid` = `mesh_id` — иначе в кадре меш представителя, которого
     привязка не проверяла) и она в индексе прода (`_mesh_index`, без карантина) — иначе серая коробка.
-    Привязка не читается — все предметы «unbound» с причиной (вариант честно пустеет, а не показывает заглушки)."""
+    Привязка не читается — все предметы «unbound» с причиной (вариант честно пустеет, а не показывает заглушки).
+    Само правило — `room_bindings.usable` (одно с готовностью банка спальни `room_ready`, T-20261106-70); здесь — режим 0,
+    чтение привязки и индекса прода."""
     mode = mode or os.environ.get(BEDROOM_MESH_GATE_ENV) or 'orient'
     if mode not in BEDROOM_MESH_GATE_MODES:
         raise SystemExit(f'{BEDROOM_MESH_GATE_ENV}={mode!r}? можно {", ".join(BEDROOM_MESH_GATE_MODES)}')
@@ -1189,8 +1155,7 @@ def bedroom_mesh_gate(rows=None, why: str = '', mode: str | None = None):
         return None
     import catalog_items as CI
     if rows is None:
-        import room_bindings as RB
-        rows, why = RB.load_db(CI.fetch)
+        rows, why = _RB.load_db(CI.fetch)
         if why:
             print(f'WARN:bedroom_mesh_gate: привязка не читается ({why}) — у предметов спальни моделей нет', flush=True)
     idx = _mesh_index()
@@ -1198,28 +1163,9 @@ def bedroom_mesh_gate(rows=None, why: str = '', mode: str | None = None):
     def bound(s: dict) -> dict:
         return CI.bound_asset({}, (rows or {}).get(str(s.get('sid') or '').replace('_', ':', 1)), why)
 
-    def loose(a: dict) -> bool:
-        return mode == 'orient' and not a['ready'] and a['mesh_status'] == 'blocked' and orient_only(a['reasons'])
-
     def ok(s: dict) -> str:
-        sid, ms = s.get('sid'), s.get('msid')
-        if not sid:
-            return 'нет артикула'
-        a = bound(s)
-        if not (a['ready'] or loose(a)):
-            return f"привязка {a['mesh_status']}" + (f": {', '.join(a['reasons'][:2])}" if a['reasons'] else '')
-        if a['ready'] and not a['published']:
-            return 'модель не выложена'
-        if (a['mesh_id'] or '').replace(':', '_', 1) != ms:
-            return f"сцена грузит {ms}, привязка проверила {a['mesh_id']}"
-        if ms not in idx:
-            return 'нет в индексе прода'
-        return ''
-
-    def note(s: dict) -> str:
-        a = bound(s)
-        return ', '.join(a['reasons']) if loose(a) else ''
-    ok.note = note
+        return _RB.usable(bound(s), s.get('msid'), idx, mode)[0] if s.get('sid') else 'нет артикула'
+    ok.note = lambda s: _RB.orient_note(bound(s), mode)
     ok.mode = mode
     return ok
 
@@ -1232,7 +1178,14 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     (живой `sets-bedroom.json`; у сборки рядом — `BEDROOM_SETS` или кандидат `.next`); там же `FLAT215_FEED_ANY_MESH=1` пускает в ленту товары без модели (проверка ленты, пока
     меши кроватей не выложены, onb-10) — у папки витрины это отказ."""
     import demo_bedroom as DB
-    on = [r for r in flags.get('rooms_enabled') or [] if r.startswith('bedroom')]
+    import room_profile as RP
+    # комнаты, чья витрина — адаптер спальни: по реестру возможностей (`room_profile.CAPABILITIES`, T-20261106-72), не по префиксу
+    # id; включённая комната без строки реестра (тип неизвестен) — отказ сборки, а не молча мимо
+    try:
+        on = [rid for rid, _k in RP.enabled_rooms('demo', flags.get('rooms_enabled') or [], apt.get('rooms') or [],
+                                                  'demo_bedroom')]
+    except ValueError as e:
+        raise SystemExit(f'витрина: {e}') from None
     if not on:
         return {}, {}
     test_env = [k for k in (BEDROOM_SETS_ENV, FEED_ANY_MESH_ENV) if os.environ.get(k)]
@@ -1248,14 +1201,17 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     recs = DB.pick_records(bank, list(geos), styles)
     lays = bedroom_one_layout(recs, styles)
     gate = bedroom_mesh_gate()
+    lead = DB.lead_roles()
     unresolved = 0
     for rec in recs:
+        # ведущий предмет без модели (T-20261106-77): запас из других записей банка — свой стиль, потом соседний
         v, why = DB.build_variant(rec, geos[rec['room_id']], _sku, _dims_of, style_id, hung=_hung,
                                   decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r),
-                                  layout=lays.get((rec['room_id'], rec.get('style'))), mesh_ok=gate)
+                                  layout=lays.get((rec['room_id'], rec.get('style'))), mesh_ok=gate, lead=lead,
+                                  spares=DB.lead_spares(bank, rec, lead) if gate else None)
         for e in (v or {}).get('mesh_swaps') or []:
             print(f"bedroom_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']}: {e['was'][1]} ({e['why']}) → "
-                  f"{e['now'][1]}", flush=True)
+                  f"{e['now'][1]}" + (f" (соседний стиль «{e['style']}»)" if e.get('style') else ''), flush=True)
         for e in ((v or {}).get('missing_item') or []) + ((why or {}).get('mesh') or []):
             print(f"WARN:bedroom_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']} пустая — {e['why']}", flush=True)
         for e in (v or {}).pop('orient_unresolved', None) or []:
@@ -1270,7 +1226,11 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
         variants.append(v)
         made += 1
     any_mesh = os.environ.get(FEED_ANY_MESH_ENV) == '1'
-    bf = DB.feeds(bank, bcat, _msid, (lambda m: bool(m)) if any_mesh else (lambda m: m in _mesh_index()))
+    # ЛЕНТА — ТЕМ ЖЕ СТОРОЖЕМ, ЧТО ВАРИАНТ (T-20261106-77 Д1): замена на товар без годной модели ставила на место кровати коробку
+    # (/test/t32f). Сторож выключен (`BEDROOM_MESH_GATE=0`) — прежняя проверка индекса прода
+    feed_gate = ((lambda s: '' if s.get('msid') else 'нет модели') if any_mesh
+                 else gate or (lambda s: '' if s.get('msid') in _mesh_index() else 'нет в индексе прода'))
+    bf = DB.feeds(bank, bcat, _msid, feed_gate)
     for role, rows in bf.items():
         feeds.setdefault(role, rows)
     print(f'спальни: включены {on}, банк {len(bank)} записей, вариантов {made}; ленты '

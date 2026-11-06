@@ -11,6 +11,8 @@
 # HEAVY_SLOT_SLOTS=1 — по одному при любой памяти, --status как прежде. T-74: допуск без двойного счёта (Σ max(порог − память
 # дерева, 0) + свой + запас; одиночный — свой порог без запаса), три слота, порог по замеру (≥ 3 замера типа → min(объявл., 1,5 × пик)),
 # сторож (свободно < запаса — никого нового, идущий доживает), замер пика памяти дерева и WARN долгого держания, --stats.
+# T-79: обгон — голова не проходит по памяти, следующий проходящий берёт свободный слот; голова ждёт дольше
+# HEAVY_SLOT_BACKFILL_MIN — обгон закрыт; одиночный — как прежде.
 # Временная папка остаётся (несколько КБ) — путь в конце.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,9 +23,12 @@ unset HEAVY_SLOT_HELD
 fails=0
 ok() { if [ "$2" = 0 ]; then echo "  [ ok ] $1"; else echo "  [FAIL] $1"; fails=$((fails + 1)); fi; }
 yes_if() { if eval "$1"; then echo 0; else echo 1; fi; }
-mem() { printf 'MemTotal:       16000000 kB\nMemAvailable:   %d kB\n' "$(( $1 * 1048576 ))" > "$HEAVY_SLOT_MEMINFO"; }
-memt() { awk -v t="$1" -v a="$2" 'BEGIN{printf "MemTotal: %d kB\nMemAvailable: %d kB\n", t*1048576, a*1048576}' > "$HEAVY_SLOT_MEMINFO"; }
+# подмена /proc/meminfo — подменой файла (T-80): `>` сперва обнуляет, и ожидающий под нагрузкой читал пустой файл → «нет MemAvailable»
+mem() { printf 'MemTotal:       16000000 kB\nMemAvailable:   %d kB\n' "$(( $1 * 1048576 ))" > "$HEAVY_SLOT_MEMINFO.tmp" && mv -f "$HEAVY_SLOT_MEMINFO.tmp" "$HEAVY_SLOT_MEMINFO"; }
+memt() { awk -v t="$1" -v a="$2" 'BEGIN{printf "MemTotal: %d kB\nMemAvailable: %d kB\n", t*1048576, a*1048576}' > "$HEAVY_SLOT_MEMINFO.tmp" && mv -f "$HEAVY_SLOT_MEMINFO.tmp" "$HEAVY_SLOT_MEMINFO"; }
 until_held() { for _ in $(seq 1 50); do "$S" --status | grep -q '^ДЕРЖИТ' && return 0; sleep 0.1; done; return 1; }
+until_f() { for _ in $(seq 1 200); do eval "$1" && return 0; sleep 0.05; done; return 1; }
+holdp() { echo "echo s$1 >> $T/$2; touch $T/$2.up-$1; while [ ! -e $T/$2.go-$1 ]; do sleep 0.05; done; echo e$1 >> $T/$2"; }
 mem 8
 
 "$S" t-rc -- sh -c 'exit 7'; rc=$?
@@ -229,13 +234,19 @@ ok "без билета, пришедший раньше, получает би�
   "$(yes_if '[ "$o" = "o0|n3|" ] && [ -z "$(ls $HEAVY_SLOT_DIR/wait)" ]')"
 unset HEAVY_SLOT_HEAD_POLL
 
-pair() {   # <файл> <метка1> <порог1> <метка2> <порог2> → порядок start/end двух задач по 0,8 с; --status — в <файл>.st
+pair() {   # <файл> <метка1> <порог1> <метка2> <порог2> → порядок start/end двух задач; --status — в <файл>.st
+  # детерминированно (T-80; было sleep 0,4 / 0,8 — мигало под нагрузкой): команда держит слот до своего флага «отпускай»;
+  # снимок --status — когда второй стартовал или, попробовав допуск, встал ждать («ждёт очередь» пишется после первой
+  # неудачной попытки; память подменена и не меняется — дальше так же); отпускаем по одному: сперва первый, потом второй
   local f="$T/$1"
-  "$S" "$2" --min-gb "$3" -- sh -c "echo s$2 >> $f; sleep 0.8; echo e$2 >> $f" & local p1=$!
-  until_held
-  "$S" "$4" --min-gb "$5" -- sh -c "echo s$4 >> $f; sleep 0.8; echo e$4 >> $f" & local p2=$!
-  sleep 0.4
+  "$S" "$2" --min-gb "$3" -- sh -c "$(holdp "$2" "$1")" & local p1=$!
+  until_f "[ -e $f.up-$2 ]"
+  "$S" "$4" --min-gb "$5" -- sh -c "$(holdp "$4" "$1")" & local p2=$!
+  until_f "[ -e $f.up-$4 ] || grep -q ' $4 pid=[0-9]* ждёт очередь' '$HEAVY_SLOT_LOG'"
   "$S" --status > "$f.st"
+  touch "$f.go-$2"
+  until_f "grep -qx 'e$2' '$f'"
+  touch "$f.go-$4"
   wait $p1 $p2
   tr '\n' '|' < "$f"
 }
@@ -284,7 +295,6 @@ mem 14
 printf 's3-a 3.5\ns3-b 3.5\ns3-c 3.5\n' >> "$HEAVY_SLOT_MEM_STUB"
 # детерминированно (T-74/3: на занятой машине снимок по sleep мигал): каждая команда ставит флаг «стартовала» и держит слот,
 # пока нет флага «отпускай»; снимок --status — когда трое стартовали и четвёртый стоит первым в очереди
-until_f() { for _ in $(seq 1 200); do eval "$1" && return 0; sleep 0.05; done; return 1; }
 hold3() { echo "echo s$1 >> $T/$2; touch $T/up-$2-$1; while [ ! -e $T/go-$2 ]; do sleep 0.05; done; echo e$1 >> $T/$2"; }
 for x in a b c d; do
   "$S" "s3-$x" --min-gb 4 -- sh -c "$(hold3 $x three)" & eval "p3_$x=$!"
@@ -344,6 +354,44 @@ ok "сторож: свободно 1 < запаса 1,5 — новый (даже
   "$(yes_if '[ $rc = 124 ] && [ $rcg = 0 ] && [ "$(cat $T/guard)" = done ] && grep -q "g-new .*сторож: свободно 1.0 ГБ < запаса 1.5" "$HEAVY_SLOT_LOG"')"
 "$S" g-lone --min-gb 0.5 --timeout 0.5 -- true; rc=$?
 ok "сторож и для одиночного: 1 ≥ порога 0,5, но < запаса 1,5 — не пущен" "$(yes_if '[ $rc = 124 ] && grep -q "g-lone .*сторож" "$HEAVY_SLOT_LOG"')"
+mem 8
+
+# --- T-79: обгон головы (backfill) и защита головы от голодания; детерминированно — флаги «стартовал»/«отпускай», без sleep
+mem 7
+echo "bf-h 2" >> "$HEAVY_SLOT_MEM_STUB"          # держатель 4 ГБ уже взял 2: место следующим 7 − (4 − 2) − 1,5 = 3,5
+bf_case() {   # <имя>: bf-h (порог 4) держит до флага go-<имя>; голова <имя>-a (6) встала первой; хвост <имя>-b (2) — за ней
+  local f=$1
+  "$S" bf-h --min-gb 4 -- sh -c "$(hold3 h "$f")" & eval "pbh_$f=$!"
+  until_f "[ -e $T/up-$f-h ]"
+  "$S" "$f-a" --min-gb 6 -- sh -c "echo sa >> $T/$f" & eval "pba_$f=$!"
+  until_f '"$S" --status | grep -q "^  1\. '"$f"'-a "'
+  "$S" "$f-b" --min-gb 2 -- sh -c "$(hold3 b "$f")" & eval "pbb_$f=$!"
+}
+bf_case bfo
+until_f "[ -e $T/up-bfo-b ]"; tail_up=$?
+"$S" --status > "$T/bfo.st"
+a_early=$(grep -q '^sa$' "$T/bfo" && echo 1 || echo 0)
+touch "$T/go-bfo"
+wait $pbh_bfo $pba_bfo $pbb_bfo
+o=$(tr '\n' '|' < "$T/bfo")
+ok "обгон: голова 6 не проходит (7 < 2 + 6 + 1,5), хвост 2 проходит (место 3,5) — идёт при держателе, голова после ($o)" \
+  "$(yes_if '[ $tail_up = 0 ] && [ $a_early = 0 ] && [[ "$o" =~ ^sh\|sb\|e[hb]\|e[hb]\|sa\|$ ]] && grep -q "bfo-b .*взял: .*слот 2: обогнал голову bfo-a (порог 6 не проходит: место 3.5 ГБ" "$HEAVY_SLOT_LOG"')"
+ok "--status: у обогнавшего «обогнал голову», строка «ОБГОН: открыт»" \
+  "$(yes_if 'grep -q "^ДЕРЖИТ: bfo-b · .* · обогнал голову bfo-a · слот 2$" "$T/bfo.st" && grep -q "^ОБГОН: открыт — голова bfo-a ждёт 0 мин из 20" "$T/bfo.st"')"
+export HEAVY_SLOT_BACKFILL_MIN=0.0002             # 12 мс: голова ждёт дольше ещё до прихода хвоста
+bf_case bfc
+until_f 'grep -q "bfc-b .*обгон закрыт: голова bfc-a ждёт" "$HEAVY_SLOT_LOG"'; closed=$?
+"$S" --status > "$T/bfc.st"
+b_early=$([ -e "$T/up-bfc-b" ] && echo 1 || echo 0)
+touch "$T/go-bfc"
+wait $pbh_bfc $pba_bfc $pbb_bfc
+unset HEAVY_SLOT_BACKFILL_MIN
+o=$(tr '\n' '|' < "$T/bfc")
+ok "защита головы: голова ждёт дольше HEAVY_SLOT_BACKFILL_MIN — хвост не обгоняет, идёт после неё ($o)" \
+  "$(yes_if '[ $closed = 0 ] && [ $b_early = 0 ] && [ "$o" = "sh|eh|sa|sb|eb|" ] && grep -q "^ОБГОН: обгон закрыт: голова bfc-a ждёт 0 мин (≥ 0.0002)" "$T/bfc.st" && ! grep -q "обогнал голову" "$T/bfc.st"')"
+"$S" bf-solo --min-gb 6 -- true; rc=$?
+ok "одиночный — как раньше: 7 ≥ 6 сразу, без обгона" \
+  "$(yes_if '[ $rc = 0 ] && grep -q "bf-solo .*взял: ждал 0" "$HEAVY_SLOT_LOG" && ! grep -q "bf-solo .*обг" "$HEAVY_SLOT_LOG"')"
 mem 8
 
 unset HEAVY_SLOT_MEM_STUB

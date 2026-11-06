@@ -25,6 +25,7 @@
             "additionalProperties": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["source"],
                                      "properties": {"source": {"type": "string", "enum": ["products", "room_catalog", "kit"]},
                                                     "major": {"type": "boolean", "description": "крупное: ставит солвер, полоса Ш×Г×В, меш под слот"},
+                                                    "lead": {"type": "boolean", "description": "ведущий предмет витрины: без него (с годной моделью) вариант не публикуется (demo_bedroom.lead_roles)"},
                                                     "hard": {"type": "object", "additionalProperties": {"type": "number"},
                                                              "description": "жёсткие пределы, см: min_w, max_w, min_d, …"},
                                                     "aliases": {"type": "array", "items": {"type": "string"}}}}},
