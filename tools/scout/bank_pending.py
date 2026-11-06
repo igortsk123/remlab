@@ -306,13 +306,20 @@ def save_state(state: dict) -> None:
     os.replace(tmp, STATE)
 
 
-def live_context(live: list) -> tuple[set, set]:
-    """(ячейки живого банка с ушедшим товаром, ячейки вариантов опубликованного демо `setN`)."""
+def demo_set_no(vid) -> int:
+    """Номер варианта гостиной `setN` в демо → N; чужой id (спальня `bedroom-1-scandi`, T-20261106-96) — 0, не ошибка:
+    раньше int() падал на первом же варианте спальни, и весь ярус «ячейка демо» пропадал."""
+    s = str(vid or '')
+    return int(s[3:]) if s.startswith('set') and s[3:].isdigit() else 0
+
+
+def live_context(live: list, demo_data: str | None = None) -> tuple[set, set]:
+    """(ячейки живого банка с ушедшим товаром, ячейки вариантов опубликованного демо `setN`; варианты других комнат — мимо)."""
     gone = {key(s) for s in live if any((it or {}).get('_gone') for it in (s.get('items') or {}).values())}
     demo = set()
     try:
-        for v in json.load(open(DEMO_DATA, encoding='utf-8')).get('variants') or []:
-            n = int(str(v.get('id', '')).removeprefix('set') or 0)
+        for v in json.load(open(demo_data or DEMO_DATA, encoding='utf-8')).get('variants') or []:
+            n = demo_set_no(v.get('id'))
             if 1 <= n <= len(live):
                 demo.add(key(live[n - 1]))
     except (OSError, ValueError) as e:
@@ -599,6 +606,16 @@ def _selftest() -> int:
     ok('--night: без pending_due, старый отчёт, нет отчёта, чужой run_id, без --run-id, подменённый кандидат — отказ, не трогает',
        (rc2, rc3, rc4, rc6, rc7, rc8) == (1, 1, 1, 1, 2, 1), (rc2, rc3, rc4, rc6, rc7, rc8))
     ok('--night: флаг выключен — ok, не трогает', rc5 == 0)
+    # варианты спальни в демо (T-20261106-96): id не вида setN — мимо, ячейки гостиной считаются
+    ok('demo_set_no: set3 → 3, bedroom-1-scandi/set/setx/None → 0',
+       [demo_set_no(x) for x in ('set3', 'bedroom-1-scandi', 'set', 'setx', None)] == [3, 0, 0, 0, 0])
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        dp = os.path.join(td, 'demo-data.json')
+        json.dump({'variants': [{'id': 'set2'}, {'id': 'bedroom-1-scandi'}, {'id': 'set1'}, {'id': 'set9'}]}, open(dp, 'w'))
+        lv = [S('b1', 'сканди', {'диван': 'd1'}, sid='s1'), S('b2', 'лофт', {'диван': 'd2'}, sid='s2')]
+        _g, dm = live_context(lv, dp)
+    ok('live_context: вариант спальни в демо не роняет ярус — ячейки set1 и set2 на месте', dm == {key(lv[0]), key(lv[1])}, dm)
     print(f'bank_pending selftest: ошибок {bad}')
     return 1 if bad else 0
 
