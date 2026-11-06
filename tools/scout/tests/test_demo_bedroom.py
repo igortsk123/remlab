@@ -120,7 +120,9 @@ check('полоса — своя у каждой спальни', _rb['bedroom-1
       and _rb['bedroom-2:кровать'] == DB.bands(['guest']).get('кровать') and not any(':' not in k for k in _rb))
 
 # ФЛАГ: проверочное включение — только у сборки рядом; главная демо — реестром
-apt = F.demo_apartment()
+check('флаг: без переменной — как реестр (обе спальни включены, T-77)',
+      F.rooms_on(F.demo_apartment(), {}) == {'rooms_enabled': ['bedroom-1', 'bedroom-2']})
+apt = dict(F.demo_apartment(), rooms=[{k: v for k, v in r.items() if k != 'enabled'} for r in F.demo_apartment()['rooms']])
 check('флаг: без переменной — как реестр (всё выключено)', F.rooms_on(apt, {}) == {})
 check('флаг: сборка рядом включает спальню 1', F.rooms_on(apt, {F.ROOMS_ENV: 'bedroom-1'}, '/tmp/x-demo')
       == {'rooms_enabled': ['bedroom-1']})

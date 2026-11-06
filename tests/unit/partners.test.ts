@@ -73,13 +73,16 @@ describe("комнаты квартиры", () => {
   });
 
   // ФЛАГИ КОМНАТ И ОПРОСА (ADR-0330 п.5, onb-12): по умолчанию выключены; гостиная показывается как раньше
-  it("флаги: нет в данных — выключены, нынешние файлы проходят схему без правок, гостиная готова как раньше", () => {
+  // спальни включены флагом реестра (T-20261106-77, ведущий): у остальных комнат флага нет — работают умолчания схемы
+  it("флаги: нет в данных — выключены; в файлах включены только спальни; гостиная готова как раньше", () => {
     const raw = JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
-    expect(raw.apartments[0].quiz).toBeUndefined();                       // файлы не правлены — работают умолчания схемы
-    expect(raw.apartments[0].rooms.some((r: Record<string, unknown>) => "enabled" in r)).toBe(false);
+    expect(raw.apartments[0].quiz).toBeUndefined();
+    expect(raw.apartments[0].rooms.filter((r: Record<string, unknown>) => "enabled" in r).map((r: { id: string }) => r.id))
+      .toEqual(["bedroom-1", "bedroom-2"]);
     const a = findApartment("flat215")!.apartment;
     expect(a.quiz.enabled).toBe(false);
-    expect(a.rooms.every((r) => r.enabled === false)).toBe(true);
+    expect(a.rooms.filter((r) => r.enabled).map((r) => r.id)).toEqual(["bedroom-1", "bedroom-2"]);
+    expect(findApartment("demo-uk-215")!.apartment.rooms.filter((r) => r.enabled).map((r) => r.id)).toEqual(["bedroom-1", "bedroom-2"]);
     const ru = apartmentCard(findApartment("flat215")!, "ru");
     expect(ru.quiz).toEqual({ enabled: false });
     expect(ru.rooms.filter((r) => r.contentState === "ready").map((r) => r.id)).toEqual(["living"]);
@@ -98,6 +101,7 @@ describe("комнаты квартиры", () => {
     const raw = JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
     const bed = raw.apartments[0].rooms.find((r: { id: string }) => r.id === "bedroom-1");
     bed.contentState = "ready";
+    delete bed.enabled;                                                    // флаг выключен (в файле спальня уже включена)
     const off = apartmentCard(findApartment("flat215", partners([raw]))!, "ru");
     expect(off.rooms.filter((r) => r.contentState === "ready").map((r) => r.id)).toEqual(["living"]);
     bed.enabled = true;

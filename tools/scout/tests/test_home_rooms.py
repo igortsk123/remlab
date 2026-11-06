@@ -26,7 +26,10 @@ check('комнаты квартиры демо — из реестра, в по
 check('готова только гостиная', [r['id'] for r in rooms if r['contentState'] == 'ready'] == ['living'])
 check('варианты обставляют гостиную реестра', F.living_room_id() == 'living')
 # ФЛАГИ НОВЫХ КОМНАТ И ОПРОСА (ADR-0330 п.5, onb-12): выключено — полей в demo-data.json нет (данные гостиной прежние)
-check('флаги: в реестре всё выключено — полей нет', F.room_flags(F.demo_apartment()) == {})
+_off = dict(F.demo_apartment(), rooms=[{k: v for k, v in r.items() if k != 'enabled'} for r in F.demo_apartment()['rooms']])
+check('флаги: в реестре всё выключено — полей нет', F.room_flags(_off) == {})
+# спальни включены флагом реестра (T-20261106-77, ведущий) — RU и UK
+check('флаги: реестр включает обе спальни', F.room_flags(F.demo_apartment()) == {'rooms_enabled': ['bedroom-1', 'bedroom-2']})
 on = dict(F.demo_apartment(), quiz={'enabled': True},
           rooms=[dict(r, enabled=r['id'] in ('bedroom-1', 'kitchen')) for r in rooms])
 check('флаги: включённые комнаты — в порядке плана, опрос — true',

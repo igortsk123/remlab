@@ -54,7 +54,7 @@
    "enabled": false,
    "prepare_enabled": false,
    "promote_enabled": false,
-   "write_enabled": false,
+   "write_enabled": true,
    "mesh_gate": "orient",
    "_mesh_gate_why": "готовность предмета банка спальни (room-bank-01 этап В, T-20261106-70) — ТО ЖЕ правило, что сторож витрины T-20261105-51/3 (`room_bindings.usable`): orient — привязка ready ИЛИ blocked только по развороту (orientation_*), модель сцены = модель привязки, в индексе прода без карантина; strict — только ready и выложена"
   }
