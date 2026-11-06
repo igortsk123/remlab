@@ -9,7 +9,8 @@
 # билет-заместитель по времени прихода и никого не обгоняет; два слота — второй только при памяти (порог держателя + свой +
 # запас, запас ≥ 10 % MemTotal), при нехватке — по одному; освободился первый при идущем втором — ждёт память на обоих;
 # HEAVY_SLOT_SLOTS=1 — по одному при любой памяти, --status как прежде. T-74: допуск без двойного счёта (Σ max(порог − память
-# дерева, 0) + свой + запас; одиночный — свой порог без запаса), три слота, порог по замеру (≥ 3 замера типа → min(объявл., 1,5 × пик)),
+# дерева, 0) + свой + запас; одиночный — свой порог без запаса), три слота, порог по замеру (T-91: с 1 замера типа →
+# min(объявл., k × пик), k = 2 при 1–2 замерах, 1,5 при 3+; превысивший порог держатель — доля max(объявл., пик) − память),
 # сторож (свободно < запаса — никого нового, идущий доживает), замер пика памяти дерева и WARN долгого держания, --stats.
 # T-79: обгон — голова не проходит по памяти, следующий проходящий берёт свободный слот; голова ждёт дольше
 # HEAVY_SLOT_BACKFILL_MIN — обгон закрыт; одиночный — как прежде.
@@ -325,21 +326,60 @@ mem 3
 "$S" m-old --min-gb 6 --timeout 1 -- true; rc=$?
 ok "без замеров — объявленный порог: 3 < 6, не дождался (124)" "$(yes_if '[ $rc = 124 ]')"
 P="$HEAVY_SLOT_DIR/peaks.tsv"
-for v in 0.3 0.5; do printf '2026-11-06 10:00:00\tparity\tparity-x\t%s\t%s\t100.0\t6\t6\n' $v $v >> "$P"; done
-"$S" parity-a --min-gb 6 --timeout 1 -- true; rc=$?
-ok "два замера — мало: порог объявленный, 124" "$(yes_if '[ $rc = 124 ] && ! grep -q "parity-a .*порог по замеру" "$HEAVY_SLOT_LOG"')"
+# T-91: порог по замеру — с 1 засчитанного замера; множитель 2 при 1–2 замерах, 1,5 при 3+
+printf '2026-11-06 10:00:00\tparity\tparity-x\t0.3\t0.3\t100.0\t6\t6\n' >> "$P"
+"$S" parity-a --min-gb 6 --timeout 3 -- true; rc=$?
+ok "один замер parity (пик 0,3) → порог min(6, 2 × 0,3) = 0,6: 3 ≥ 0,6 — пошла" \
+  "$(yes_if '[ $rc = 0 ] && grep -q "parity-a .*порог по замеру: объявлен 6, тип parity, замеров 1, наибольший пик 0.30 ГБ × 2 → 0.60" "$HEAVY_SLOT_LOG"')"
+printf '2026-11-06 10:00:00\tparity\tparity-x\t0.5\t0.5\t100.0\t6\t6\n' >> "$P"
 printf '2026-11-06 10:00:00\tparity\tparity-y\t0.4\t0.4\t5.0\t6\t6\n' >> "$P"   # держал 5 с < 30 — не засчитан
-"$S" parity-b --min-gb 6 --timeout 1 -- true; rc=$?
-ok "короткое держание (< 30 с) в замеры не идёт: по-прежнему 124" "$(yes_if '[ $rc = 124 ]')"
+"$S" parity-b --min-gb 6 --timeout 3 -- true; rc=$?
+ok "два замера (короткое держание < 30 с не в счёт) → 2 × 0,5 = 1,0" \
+  "$(yes_if '[ $rc = 0 ] && grep -q "parity-b .*порог по замеру: объявлен 6, тип parity, замеров 2, наибольший пик 0.50 ГБ × 2 → 1.00" "$HEAVY_SLOT_LOG"')"
 printf '2026-11-06 10:00:00\tparity\tparity-z\t0.4\t0.4\t200.0\t6\t6\n' >> "$P"
 "$S" parity-c --min-gb 6 --timeout 3 -- true; rc=$?
-ok "три замера parity, пик 0,5 → порог min(6, 0,75): 3 ≥ 0,75 — пошла" \
-  "$(yes_if '[ $rc = 0 ] && grep -q "parity-c .*порог по замеру: объявлен 6, тип parity, замеров 3, наибольший пик 0.50 ГБ → 0.75" "$HEAVY_SLOT_LOG"')"
+ok "три замера parity, пик 0,5 → множитель 1,5: порог min(6, 0,75): 3 ≥ 0,75 — пошла" \
+  "$(yes_if '[ $rc = 0 ] && grep -q "parity-c .*порог по замеру: объявлен 6, тип parity, замеров 3, наибольший пик 0.50 ГБ × 1.5 → 0.75" "$HEAVY_SLOT_LOG"')"
+# множитель решает допуск: gates, пик 1,0 — при 2 замерах порог 2,0 (> 1,8 свободных — 124), при 3 — 1,5 (пошла)
+memt 15.26 1.8                                     # запас — 10 % от 15,26 = 1,53 < 1,8: сторож пускает
+for v in 0.6 1.0; do printf '2026-11-06 10:00:00\tgates\tt9-gates\t%s\t%s\t100.0\t3\t3\n' $v $v >> "$P"; done
+"$S" t91-gates --min-gb 3 --timeout 1 -- true; rc=$?
+ok "два замера gates (пик 1,0) → 2 × 1,0 = 2,0 > 1,8 свободных — не дождался (124)" \
+  "$(yes_if '[ $rc = 124 ] && grep -q "t91-gates .*замеров 2, наибольший пик 1.00 ГБ × 2 → 2.00" "$HEAVY_SLOT_LOG"')"
+printf '2026-11-06 10:00:00\tgates\tt9-gates\t0.9\t0.9\t100.0\t3\t3\n' >> "$P"
+HEAVY_SLOT_LOG="$T/gates-b.log" "$S" t91-gates --min-gb 3 --timeout 3 -- true; rc=$?
+ok "третий замер gates → 1,5 × 1,0 = 1,5 ≤ 1,8 — пошла" \
+  "$(yes_if '[ $rc = 0 ] && grep -q "t91-gates .*замеров 3, наибольший пик 1.00 ГБ × 1.5 → 1.50" "$T/gates-b.log"')"
+ok "eff_threshold напрямую: 0 замеров — объявленный; 1 → ×2; 2 → ×2; 3+ → ×1,5; пол 0,5; не выше объявленного" \
+  "$(yes_if '[ "$(python3 -c "
+import sys; sys.path.insert(0, \"$DIR\"); import heavy_slot as H
+r = lambda *p: [dict(type=\"t\", peak_gb=x, hold_s=100.0) for x in p]
+print(*[round(H.eff_threshold(\"\", \"t\", 6, x)[0], 2) for x in (r(), r(1), r(1, 1.2), r(1, 1.2, 0.8), r(0.1), r(5))], *[H.eff_mult(n) for n in (0, 1, 2, 3, 10)])
+")" = "6 2.0 2.4 1.8 0.5 6 0.0 2.0 2.0 1.5 1.5" ]')"
 mem 8
 echo "parity-h 0.2" >> "$HEAVY_SLOT_MEM_STUB"
 o=$(pair eff parity-h 6 e-x 5.5)
 ok "доля держателя — по ЕГО эффективному порогу: 8 ≥ (0,75 − 0,2) + 5,5 + 1,5 — параллельно; --status: «по замеру 0.75» ($o)" \
   "$(yes_if '[ "$o" = "sparity-h|se-x|eparity-h|ee-x|" ] && grep -q "^ДЕРЖИТ: parity-h .*порог 6.0 ГБ (по замеру 0.75)" "$T/eff.st"')"
+# T-91: превышение — держатель взял больше своего порога по замеру; без защиты его доля 0 (память уже вычтена) — пустили бы
+echo "parity-ov 2" >> "$HEAVY_SLOT_MEM_STUB"
+o=$(pair ovr parity-ov 6 ov-x 4)
+ok "превышение: parity (порог по замеру 0,75) взял 2 → доля max(6, 2) − 2 = 4: 8 < 4 + 4 + 1,5 — по одному (без защиты 0 + 4 + 1,5 ≤ 8 — пустили бы) ($o)" \
+  "$(yes_if '[ "$o" = "sparity-ov|eparity-ov|sov-x|eov-x|" ] && grep -q "держатели могут взять ещё 4.0 ГБ" "$T/ovr.st" && grep -q "parity-ov .*WARN: превысил свой порог 0.75 ГБ (пик 2.00)" "$HEAVY_SLOT_LOG"')"
+# пик прогона выше, чем память сейчас (память скачет): доля — от пика, который замер записал в запись держателя
+echo "parity-pk 2" >> "$HEAVY_SLOT_MEM_STUB"
+"$S" parity-pk --min-gb 6 -- sh -c "$(holdp parity-pk pk)" & ppk=$!
+until_f "[ -e $T/pk.up-parity-pk ]"
+until_f 'grep -q "^peak_gb=2" "$HEAVY_SLOT_DIR/holder"'; pk_w=$?
+echo "parity-pk 0.3" >> "$HEAVY_SLOT_MEM_STUB"     # сейчас 0,3 — по старому правилу доля 0,75 − 0,3 = 0,45, пустили бы 4
+"$S" pk-x --min-gb 4 -- sh -c "$(holdp pk-x pk)" & ppx=$!
+until_f "[ -e $T/pk.up-pk-x ] || grep -q ' pk-x pid=[0-9]* ждёт очередь' '$HEAVY_SLOT_LOG'"
+"$S" --status > "$T/pk.st"
+touch "$T/pk.go-parity-pk"; until_f "grep -qx 'eparity-pk' '$T/pk'"; touch "$T/pk.go-pk-x"
+wait $ppk $ppx
+o=$(tr '\n' '|' < "$T/pk")
+ok "превышение по пику: пик прогона 2 записан, сейчас 0,3 → доля max(6, 2) − 0,3 = 5,7 — по одному; --status: «превысил порог: пик 2.00» ($o)" \
+  "$(yes_if '[ $pk_w = 0 ] && [ "$o" = "sparity-pk|eparity-pk|spk-x|epk-x|" ] && grep -q "держатели могут взять ещё 5.7 ГБ" "$T/pk.st" && grep -q "^ДЕРЖИТ: parity-pk .*(по замеру 0.75) · превысил порог: пик 2.00 ГБ — доля по факту" "$T/pk.st"')"
 for v in 0.01 0.02 0.01; do printf '2026-11-06 10:00:00\tcutout\tt9-cutout\t%s\t%s\t100.0\t4\t4\n' $v $v >> "$P"; done
 "$S" cutout-f --min-gb 4 -- true
 ok "пол порога по замеру 0,5 ГБ (дерево не видит память контейнеров)" "$(yes_if 'grep -q "cutout-f .*порог по замеру: .* → 0.50" "$HEAVY_SLOT_LOG"')"
@@ -401,9 +441,10 @@ ln=$(grep "t74-build-real .*отпустил" "$HEAVY_SLOT_LOG")
 pk=$(sed -n 's/.*пик памяти дерева \([0-9.]*\) ГБ.*/\1/p' <<<"$ln")
 ok "замер: пик памяти дерева с потомком (300 МБ) — ${pk} ГБ, тип build; WARN долгого держания в журнале; строка в peaks.tsv" \
   "$(yes_if 'awk -v p="$pk" "BEGIN{exit !(p >= 0.28 && p < 1)}" && grep -q "тип build" <<<"$ln" && grep -q "WARN: держание дольше" <<<"$ln" && grep -q "t74-build-real .*WARN: держит слот дольше" "$HEAVY_SLOT_LOG" && grep -q "	build	t74-build-real	" "$P"')"
+printf '2026-11-06 10:00:00\tshadow\tt56-shadow\t0.78\t0.78\t900.0\t5\t5\n' >> "$P"
 st=$(HEAVY_SLOT_LONG_S=0.4 "$S" --stats)
-ok "--stats: строка на тип (parity — 6 записей, засчитано 3 по ≥ 30 с, 6 → 0.75), build, долгие" \
-  "$(yes_if 'grep -q "^parity .* 6 ( 3) .*6 → 0.75" <<<"$st" && grep -q "^build " <<<"$st" && grep -q "^ДОЛГИЕ" <<<"$st"')"
+ok "--stats: множитель на тип — parity 3 засчитано: 6 → 0.75 (× 1,5); shadow 1 замер: 5 → 1.56 (× 2); build (держал < 30 с) — нет засчитанных; долгие" \
+  "$(yes_if 'grep -q "^parity .* ( 3) .*6 → 0.75  (× 1.5)" <<<"$st" && grep -q "^shadow .* 1 ( 1) .*5 → 1.56  (× 2 — 1–2 замера)" <<<"$st" && grep -q "^build .*(нет засчитанных)" <<<"$st" && grep -q "^ДОЛГИЕ" <<<"$st"')"
 ok "тип задачи по метке" "$(yes_if '[ "$(python3 -c "import sys; sys.path.insert(0, \"$DIR\"); from heavy_slot import task_type as t; print(\" \".join(t(x) for x in [\"parity-72\", \"parity-hall-exam\", \"t73-build\", \"t69-live\", \"parity-living-demo\", \"t51-look\", \"t73-hall-snap2\"]))")" = "parity exam build live parity look hall-snap" ]')"
 
 st=$("$S" --status)

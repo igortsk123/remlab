@@ -45,9 +45,12 @@
     держания в журнал и в `<HEAVY_SLOT_DIR>/peaks.tsv`; сводка — `--stats` (по типу задачи: build, live, cutout, exam,
     parity, иначе метка без номера задачи). Держание дольше HEAVY_SLOT_LONG_S (2700 с = 45 мин) — WARN в журнал.
     Чего замер НЕ видит: память чужих процессов, которые команда только просит (docker exec → postgres в контейнере).
-  * ПОРОГ ПО ЗАМЕРУ (T-74): при ≥ 3 засчитанных замерах типа (держание ≥ HEAVY_SLOT_MEASURE_MIN_S, 30 с; последние 10)
-    эффективный порог = min(объявленный, max(1,5 × наибольший пик, HEAVY_SLOT_EFF_FLOOR_GB 0,5)); замеров меньше —
-    объявленный. Им же считается и своё ожидание, и доля держателя у следующих (`eff_gb` в записи держателя).
+  * ПОРОГ ПО ЗАМЕРУ (T-74; с 1 замера — T-91): есть хоть один засчитанный замер типа (держание ≥ HEAVY_SLOT_MEASURE_MIN_S,
+    30 с; последние 10) — эффективный порог = min(объявленный, max(k × наибольший пик, HEAVY_SLOT_EFF_FLOOR_GB 0,5)),
+    k = 2,0 при 1–2 замерах (запас на разброс: следующий прогон типа доходил до 1,8× первого пика), 1,5 при 3+; замеров
+    нет — объявленный. Им же считается и своё ожидание, и доля держателя у следующих (`eff_gb` в записи держателя).
+    ПРЕВЫШЕНИЕ (T-91): держатель в этом прогоне превысил свой порог (замер пишет `peak_gb` в запись держателя) — его доля
+    у следующих = max(объявленный, пик прогона) − память сейчас: оценка не сработала, не верим ей до конца прогона.
   * ОБГОН (backfill, T-79): голова очереди не проходит по памяти в свободный дополнительный слот — его берёт СЛЕДУЮЩИЙ ПО
     ПОРЯДКУ, кто проходит сейчас (тот же допуск, что у дополнительного слота: по факту, стартует сразу). Только слоты 2…N и
     только пока слот 1 занят: свободный слот 1 берёт голова, как прежде (у старых версий общий только слот 1 — их не задевает).
@@ -490,17 +493,25 @@ def _counted(rows: list, typ: str) -> list:
     return [r for r in rows if r['type'] == typ and r['hold_s'] >= min_s][-10:]
 
 
+def eff_mult(n: int) -> float:
+    """Множитель к наибольшему пику по числу засчитанных замеров (T-91): 0 — нет замера; 1–2 — 2,0 (запас на разброс:
+    по peaks.tsv 06.11 следующий прогон типа доходил до 1,80× первого пика — gates, 1,53× — build); 3+ — 1,5."""
+    return 0.0 if n < 1 else (2.0 if n < 3 else 1.5)
+
+
 def eff_threshold(d: str, typ: str, declared: float, rows: list | None = None) -> tuple[float, str]:
-    """Эффективный порог: ≥ 3 засчитанных замеров типа → min(объявленный, max(1,5 × наибольший пик, пол)); иначе
-    объявленный. → (ГБ, пояснение — пусто, если порог не изменился)."""
+    """Эффективный порог (T-91: с 1 засчитанного замера типа): min(объявленный, max(k × наибольший пик, пол)), k — `eff_mult`
+    (1–2 замера — 2,0; 3+ — 1,5); замеров нет — объявленный. → (ГБ, пояснение — пусто, если порог не изменился)."""
     c = _counted(_peaks(d) if rows is None else rows, typ)
-    if len(c) < 3:
+    k = eff_mult(len(c))
+    if not k:
         return declared, ''
     peak = max(r['peak_gb'] for r in c)
-    eff = min(declared, max(1.5 * peak, _env_f('HEAVY_SLOT_EFF_FLOOR_GB', 0.5)))
+    eff = min(declared, max(k * peak, _env_f('HEAVY_SLOT_EFF_FLOOR_GB', 0.5)))
     if eff >= declared:
         return declared, ''
-    return eff, f'порог по замеру: объявлен {declared:g}, тип {typ}, замеров {len(c)}, наибольший пик {peak:.2f} ГБ → {eff:.2f}'
+    return eff, (f'порог по замеру: объявлен {declared:g}, тип {typ}, замеров {len(c)}, наибольший пик {peak:.2f} ГБ × {k:g} '
+                 f'→ {eff:.2f}')
 
 
 def _record(d: str, typ: str, label: str, peak: float, peak_rss: float, hold: float, declared: float, eff: float) -> None:
@@ -519,16 +530,33 @@ def _record(d: str, typ: str, label: str, peak: float, peak_rss: float, hold: fl
 class _Meter(threading.Thread):
     """Замер памяти дерева держателя раз в `every` с; WARN в журнал при держании дольше `long_s`."""
 
-    def __init__(self, label: str, pid: int, every: float, long_s: float):
+    def __init__(self, label: str, pid: int, every: float, long_s: float, holder: str = '', eff: float = 0.0):
         super().__init__(daemon=True)
         self.label, self.pid, self.every, self.long_s = label, pid, every, long_s
         self.peak, self.peak_rss, self.t0, self.warned = 0.0, 0.0, time.time(), False
+        self.holder, self.eff, self.told = holder, eff, 0.0
         self._stop_ev = threading.Event()
 
     def sample(self) -> None:
         with contextlib.suppress(Exception):          # замер не должен ронять прогон
             a, b = tree_mem(self.pid, self.label)
             self.peak, self.peak_rss = max(self.peak, a), max(self.peak_rss, b)
+            self.tell()
+
+    def tell(self) -> None:
+        """ПРЕВЫШЕНИЕ (T-91): пик прогона выше своего порога — пишу его в запись держателя (`peak_gb`), чтобы другие считали
+        мою долю по факту (`_holders_need`). Пишу только при превышении и росте на ≥ 0,05 ГБ — запись редкая."""
+        if not self.holder or not self.eff or self.peak <= self.eff or self.peak < self.told + 0.05:
+            return
+        h = _read_kv(self.holder) or {}
+        if h.get('pid') != str(os.getpid()):
+            return
+        h['peak_gb'] = f'{self.peak:.3f}'
+        _write_kv(self.holder, h)
+        if not self.told:
+            log(self.label, f'WARN: превысил свой порог {self.eff:.2f} ГБ (пик {self.peak:.2f}) — другие считают мою долю '
+                            f'по факту, не ниже объявленного')
+        self.told = self.peak
 
     def run(self) -> None:
         while True:
@@ -553,7 +581,10 @@ class _Meter(threading.Thread):
 def _holders_need(d: str, k: int, n: int) -> tuple[float, str, bool]:
     """Сколько ещё памяти могут взять ДРУГИЕ держатели (кроме слота k): Σ max(порог_h − память_h, 0) → (ГБ, пояснение,
     есть ли держатели). Порог — эффективный (`eff_gb`, у старой версии — `min_gb`); память — PSS дерева держателя сейчас:
-    она уже вычтена из MemAvailable, второй раз не считается. Порог не прочитан — бесконечность (ждать тот слот)."""
+    она уже вычтена из MemAvailable, второй раз не считается. Порог не прочитан — бесконечность (ждать тот слот).
+    ПРЕВЫШЕНИЕ (T-91): пик держателя в этом прогоне (`peak_gb` из записи — пишет его замер, — или память сейчас) выше его
+    порога — оценка по замерам для него не сработала: доля считается по факту, не ниже объявленного —
+    max(объявленный, пик прогона) − память сейчас (пик выше сейчас — значит, память у него скачет и может вернуться)."""
     total, parts = 0.0, []
     for j in range(1, n + 1):
         if j == k or not is_held(j):
@@ -568,9 +599,20 @@ def _holders_need(d: str, k: int, n: int) -> tuple[float, str, bool]:
         except ValueError:
             pid = 0
         used = tree_mem(pid, h.get('label', ''))[0] if h.get('stage') == 'работает' else 0.0
+        try:
+            peak = max(float(h.get('peak_gb') or 0), used)
+        except ValueError:
+            peak = used
+        over = ''
+        if peak > th:
+            try:
+                decl = float(h.get('min_gb') or th)
+            except ValueError:
+                decl = th
+            th, over = max(decl, peak), f'(превысил: пик {peak:.1f})'
         part = max(th - used, 0.0)
         total += part
-        parts.append(f"{h.get('label', '?')} {th:g}−{used:.1f}={part:.1f}")
+        parts.append(f"{h.get('label', '?')}{over} {th:g}−{used:.1f}={part:.1f}")
     return total, ('держатели ' + ' + '.join(parts)) if parts else '', bool(parts)
 
 
@@ -791,7 +833,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         old = os.environ.get('HEAVY_SLOT_HELD')
         os.environ['HEAVY_SLOT_HELD'] = str(os.getpid())
         long_s = _env_f('HEAVY_SLOT_LONG_S', 2700)
-        meter = _Meter(label, os.getpid(), max(0.05, _env_f('HEAVY_SLOT_SAMPLE', 5)), long_s)
+        meter = _Meter(label, os.getpid(), max(0.05, _env_f('HEAVY_SLOT_SAMPLE', 5)), long_s, holder_p, own)
         meter.start()
         t_run = time.time()
         try:
@@ -882,6 +924,9 @@ def status(out=sys.stdout) -> int:
         if held and h and _alive(int(h.get('pid', 0) or 0)):
             eff = h.get('eff_gb')
             eff_s = f" (по замеру {float(eff):.2f})" if eff and float(eff) < float(h.get('min_gb') or 0) else ''
+            if h.get('peak_gb'):
+                with contextlib.suppress(ValueError):
+                    eff_s += f" · превысил порог: пик {float(h['peak_gb']):.2f} ГБ — доля по факту"
             pr(f"ДЕРЖИТ: {h['label']} · pid {h['pid']} · {h.get('stage', '?')} {_ago(h.get('since'))} · порог {h.get('min_gb')} ГБ"
                + eff_s + (f" · уступок {h['yields']}" if h.get('yields') not in (None, '0') else '')
                + (f" · обогнал голову {h.get('over', '?')}" if h.get('backfill') == '1' else '') + tag)
@@ -944,17 +989,20 @@ def stats(out=sys.stdout) -> int:
         return 0
     long_s = _env_f('HEAVY_SLOT_LONG_S', 2700)
     pr(f'ЗАМЕРЫ: {len(rows)} ({rows[0]["ts"]} … {rows[-1]["ts"]}) · {_peaks_path(d)}')
-    pr('тип        замеров(засч.)  пик ГБ  RSS ГБ  держание сред/макс, мин  порог объявл. → эфф.  метки')
+    pr('тип        замеров(засч.)  пик ГБ  RSS ГБ  держание сред/макс, мин  порог объявл. → эфф. (множитель)  метки')
     for typ in sorted({r['type'] for r in rows}):
         rs = [r for r in rows if r['type'] == typ]
         c = _counted(rows, typ)
         holds = sorted(r['hold_s'] for r in rs)
         decl = rs[-1]['min_gb']
         eff, _ = eff_threshold(d, typ, decl, rows)
+        k = eff_mult(len(c))
+        how = ('нет засчитанных' if not k else f'× {k:g}' + (' — 1–2 замера' if k == 2.0 else '')
+               + (' ≥ объявл.' if eff >= decl else ''))
         labels = sorted({r['label'] for r in rs})
         pr(f"{typ:<10} {len(rs):>4} ({len(c):>2})     {max(r['peak_gb'] for r in rs):>6.2f}  "
            f"{max(r['peak_rss_gb'] for r in rs):>6.2f}  {holds[len(holds) // 2] / 60:>8.1f} / {holds[-1] / 60:<6.1f}"
-           f"        {decl:>5g} → {eff:<5.2f}{'' if len(c) >= 3 else ' (мало замеров)'}  "
+           f"        {decl:>5g} → {eff:<5.2f} ({how})  "
            f"{', '.join(labels[:4])}{' …' if len(labels) > 4 else ''}")
     lg = [r for r in rows if r['hold_s'] > long_s]
     if lg:
