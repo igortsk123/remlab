@@ -150,3 +150,16 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-06	.memory_bank/core/bedroom.md	drift	2	2	2	T-63/2: досверка по ответам ведущего, док сверен целиком
 2026-11-06	.memory_bank/core/design-figma.md	drift	1	1	1	T-63/2: досверка по ответам ведущего, док сверен целиком
 2026-11-06	.memory_bank/core/mesh-run.md	drift	1	1	1	T-63/2: досверка по ответам ведущего, док сверен целиком
+2026-11-06	.memory_bank/domain/catalog-enrichment.md	drift	105	8	8	T-63/2: вопрос ведущему — номера строк в историческом блоке 31.08
+2026-11-06	.memory_bank/domain/demo-scenario-map.md	drift	84	14	14	T-63/2: вопрос ведущему — живые проверки для 2.8a, 2.30–2.32, 2.39–2.48
+2026-11-06	.memory_bank/domain/deployment-details.md	drift	96	2	2	
+2026-11-06	.memory_bank/domain/integrations.md	drift	147	11	11	T-63/2: вопрос ведущему — правило codex-adviser vs сломанная сессия
+2026-11-06	.memory_bank/domain/interior-styles.md	drift	32	5	5	
+2026-11-06	.memory_bank/domain/living-room-checklist.md	drift	24	0	0	
+2026-11-06	.memory_bank/domain/observability.md	drift	45	0	0	
+2026-11-06	.memory_bank/domain/occupancy-rules.md	drift	30	3	3	T-63/2: вопрос ведущему — заголовок §7 «текущие правила»; last_verified не двигаем
+2026-11-06	.memory_bank/domain/stock-and-dims.md	drift	55	1	1	
+2026-11-06	.memory_bank/domain/user-flow-details.md	drift	40	0	0	
+2026-11-06	.memory_bank/domain/viz-fidelity-playbook.md	drift	48	5	5	
+2026-11-06	.memory_bank/domain/mesh-pool-ops.md	drift	42	8	8	
+2026-11-06	.memory_bank/domain/mesh-run-playbook.md	drift	43	6	5	T-63/2: вопрос ведущему — §2-бис описывает профиль demo v1; last_verified не двигаем

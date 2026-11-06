@@ -24,7 +24,7 @@ API (`catalog_api_sync.py`, ежедневно, ADR-0239) — `charge`, пуст
 комиссия — по `article`, HD и описание — по картинке/названию. Вычисляем: размеры (`dim_resolver.py`; глубина с чертежа — [[stock-and-dims]]),
 роль (`category_map.py` → `products.cat_role` → витрина `lr_roles`, ADR-0236; детское — `rug_kids.py`, `category_map.py:soft_kids`; свет —
 `category_map.py:light_role`; диван/кресло — по типу в названии, `category_map.py:seat_role`),
-`in_stock` (`stock_truth.reconcile()`, единственный писатель).
+`in_stock` (`stock_truth.reconcile()`; `load3` новым строкам ставит лишь заглушку).
 
 **Дельта (`load3.py:HASH_VERSION` = 9; смена правил `dim_resolver` — подъём, сторож `RULES_FINGERPRINT`):** text/geometry/image/attrs → `stale`
 (commercial и image_hd — только счётчики), смена контракта → baseline. Исчез → `missing`, 3 дня → `archived`; не удаляем.

@@ -3,12 +3,12 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-11-05
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-18
+last_verified: 2026-11-06
 ---
 
 # Интеграции — детали (Tier 2)
@@ -60,9 +60,10 @@ last_verified: 2026-10-18
   gpt-4.1/gpt-5/5.1) — прежняя запись «ключа НЕТ» от 2026-07-01 неверна. Значение —
   `_secrets/ACCESS.md`; на сервере — `/opt/remlab/ads-watchdog/.env`.
 - Используется: ads-watchdog `common.llm_for_ads` — тексты объявлений на `gpt-5.1-chat-latest`
-  (бенч 2026-07-11: RU лучше Gemini), фолбэк Gemini. Приложение: `OPENAI_API_KEY` (из `/opt/remlab/.env` через
-  `docker-compose.yml`) — ИИ-фолбэк разбора ссылок `lib/calc/link-parse-ai.ts` (прямой `api.openai.com`, модель
-  `OPENAI_EXTRACT_MODEL`, по умолчанию `gpt-4o-mini`; ADR-0026). Vision-розетка `lib/providers/` OpenAI не использует.
+  (бенч 2026-07-11: RU лучше Gemini), фолбэк Gemini. Приложение: ИИ-фолбэк разбора ссылок
+  `lib/calc/link-parse-ai.ts` — модель OpenAI через шлюз Vercel (`lib/providers/index.ts:getExtractProvider`, ключ
+  `VERCEL_AI_GATEWAY_KEY`, модель `EXTRACT_MODEL`, по умолчанию `openai/gpt-4o-mini`, ответ строго JSON, срок 12 с; ADR-0026).
+  Прямого ключа OpenAI у приложения нет.
 - Гоча GPT-5.x: reasoning-токены съедают `max_completion_tokens` — ставить с запасом (≥2000).
 
 ## Observability — PostHog (ADR-0012)
@@ -199,7 +200,7 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 | Интеграция | Статус | Задача | Ключи (где) | Код |
 |---|---|---|---|---|
 | Google Gemini | через шлюз Vercel по умолчанию (ADR-0277); прямой ключ отключён 14.10 | картинки+анализ | `VERCEL_AI_GATEWAY_KEY`; `GEMINI_API_KEY` (обязателен для деплоя) | `lib/providers/gateway.ts`, `lib/providers/gemini.ts` (`AI_PROVIDER=gemini`) |
-| OpenAI | ✅ соседский | GPT-5.1 тексты; gpt-image-2 витрина; фолбэк разбора ссылок | `_secrets/ACCESS.md`; `OPENAI_API_KEY` | ads-watchdog; scout; `lib/calc/link-parse-ai.ts` |
+| OpenAI | ✅ соседский | GPT-5.1 тексты; gpt-image-2 витрина; фолбэк разбора ссылок | `_secrets/ACCESS.md`; `OPENAI_API_KEY` (ads-watchdog, scout); фолбэк ссылок — `VERCEL_AI_GATEWAY_KEY` | ads-watchdog; scout; `lib/calc/link-parse-ai.ts` (через шлюз) |
 | PostHog | код есть, прод no-op (ADR-0012) | аналитика+ошибки | `POSTHOG_KEY` не задан | `lib/analytics.ts` |
 | Гдеслон | доступ ✅ 14 магазинов (ADR-0042) | фиды→каталог, /go/ реф | `GDESLON_*` в `.env` | app-интеграции нет; scout-разведка живёт (`tools/scout/*`); план `gdeslon-catalog` |
 | imagor | активен (ADR-0013) | сжатие картинок, internal | ключей НЕТ (unsafe) | `lib/images/compress.ts` |
@@ -272,9 +273,10 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 `televisionModern` (72 грани), `doorway`/`doorwayFront` (188/156 — отдельная дверь с коробкой).
 Окно `wallWindow`/`wallWindowSlide` и `wallDoorway` идут КУСКОМ СТЕНЫ 10×12.9 — поверх нашей
 стены такую панель не поставить, нужен обрез до рамы или своя параметрическая рама.
-Встроен телевизор: `kit_fixtures.py` печёт цвет материала в грани и выкладывает GLB в галерею
-мешей (`/test/mesh-pilot10/kit-tv-modern/`), сцена достаёт его обычным `_scene3d_glb`;
-соответствие роли и разворот — `draft_render.FIXTURE_MESH`.
+Встроена дверь: `tools/scout/kit_fixtures.py` печёт цвет материала в грани и выкладывает GLB в галерею
+мешей (/test/mesh-pilot10/kit-door/), сцена достаёт его обычным `_scene3d_glb`; соответствие роли и разворот —
+`draft_render.FIXTURE_MESH` (только «дверь»). Телевизор из набора снят: собирается по размеру (`draft_render._tv_parts`) —
+у готовой модели стойка пересекала экран.
 
 **БЛОКЕР (историческое):** скачивание со Sketchfab требует входа в аккаунт — у агента его нет. Дверь, выбранная
 владельцем (`4fc22c8c214444bd84be13c52bbdb538`, «Door 001»), НЕ СКАЧИВАЕТСЯ вовсе: лицензия
@@ -299,8 +301,7 @@ Standard, `isDownloadable:false`, платная модель магазина.
 
 
 ## fal.ai (2026-08-05 → 28.08)
-Клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131). Модели и маски —
-`../domain/integrations.md` §fal.
+Клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131). Клиент и модели — § «fal.ai — inference-API» выше.
 
 ## Рендер-сервис: фоновые задания, реестр кадров, миниатюры (02.09)
 - **Фоновые задания.** `POST /api/render` с `async:1` возвращает `{job:<id>}` сразу; состояние —
@@ -367,7 +368,7 @@ Standard, `isDownloadable:false`, платная модель магазина.
 
 ## OpenAI — реестры цен и запрет mini под картинки (ротационная сверка 11.10)
 **Реестров цен два, и код читает НЕ тот, на который раньше указывала сводка.** Операционный —
-`tools/scout/rules/openai_prices.json`, его читает гейт бюджета (`tools/scout/openai_budget.py:26`),
+`tools/scout/rules/openai_prices.json`, его читает гейт бюджета (`tools/scout/openai_budget.py:31`),
 там же `daily_cap_usd`. Второй — таблица, сверенная человеком по официальной странице
 (`catalog-enrichment.md`, ADR-0067). Состав моделей у них разный, взаимных ссылок нет: перед
 платным прогоном смотреть ОБА, иначе «сверено» относится не к тому файлу, который влияет на деньги.
@@ -380,7 +381,7 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 при подключении — переставить модель, а не «он же дешёвый».
 
 **«Vercel AI Gateway — единственный путь к платным картинкам» верно как намерение, не как факт
-кода.** Шлюз по умолчанию — `tools/scout/llm_gateway.py:25-59`, картинки через него —
+кода.** Шлюз по умолчанию — `tools/scout/llm_gateway.py:24-80`, картинки через него —
 `tools/scout/draft_render.py` (константа `GATEWAY` — `/images/edits` для gpt-image; Google-модели — `_chat_edit`; сверено 18.10). Но прямые вызовы `api.openai.com/v1/images/edits` живы и
 достижимы: `tools/scout/pipeline2.py:396` (зовётся из `tools/scout/set_report.py:88`),
 `tools/scout/viz_frame.py:217`, `tools/scout/viz_plan.py:202`, а также ранние A/B-рецепты
@@ -392,15 +393,15 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 `_secrets/ACCESS.md`) + setWebhook обоих ботов на `/api/leads/tg-{admin,client}`.
 
 ## Перенесено из `core/access-and-integrations.md` (14.10)
-- OpenAI: `OPENAI_EXTRACT_MODEL` (деф. `gpt-4o-mini`) — фолбэк парсинга ссылок; реестров цен ДВА и не связаны; в коде
+- OpenAI: `EXTRACT_MODEL` (деф. `openai/gpt-4o-mini`, через шлюз Vercel) — фолбэк парсинга ссылок; реестров цен ДВА и не связаны; в коде
   есть нарушение ADR-0067 (§ OpenAI выше).
 - Sketchfab (01.09): заглушки ТВ/окно/дверь отобраны, все CC-BY (нужен кредит); блокер — скачивание требует аккаунта,
   которого у агента нет.
 
 ## UptimeRobot и клиентский бот (14.10)
 - **UptimeRobot:** аккаунт владельца (igortsk12345@gmail.com), ключ API — `_secrets/ACCESS.md`; мониторы: главная, `/api/health` (ключевое слово `"ok":true`, тревога при отсутствии), `/demo/`; интервал 5 мин (лимит бесплатного: 50 мониторов, 5 мин; только некоммерческое использование с конца 2024); тревога — письмом, Telegram подключается в интерфейсе.
-- **@remlabservice_bot как клиентский бот:** вебхук `https://remont-lab.online/api/leads/tg-client` с секретом `LEADS_TG_WEBHOOK_SECRET`; `/start sh_<10 hex>` → ссылка на подборку `/test/share/<id>/` (`app/api/leads/tg-client/route.ts`); сервис кадров отдаёт `tg_link` при `SHARE_TG_BOT` в `/opt/remlab/draft/.env`. Тот же бот шлёт алерты DEV/сервера (sendMessage, без getUpdates — вебхук им не мешает).
+- **@remlabservice_bot как клиентский бот:** вебхук `https://remont-lab.online/api/leads/tg-client` с секретом `LEADS_TG_WEBHOOK_SECRET`; `/start sh_<10 hex>` → ссылка на подборку `/test/share/<id>/` (`app/api/leads/tg-client/route.ts`); сервис кадров отдаёт `tg_link` при `SHARE_TG_BOT` в /opt/remlab/draft/.env и только для канала `telegram` (`tools/scout/draft_service.py:732`). Тот же бот шлёт алерты DEV/сервера (sendMessage, без getUpdates — вебхук им не мешает).
 
 ## env_keys — откуда скрипты scout берут ключи (T-52, 05.11)
-Резолвер `tools/scout/env_keys.py`: окружение → своё дерево → основная копия (из worktree, через git common-dir) → mltest последним с WARN; `--where` — откуда возьмётся (только путь), `--ping` — бесплатная проверка; журнал трат `openai-spend.jsonl` — всегда основной копии (`openai_budget.SPEND_LOG`). 11 старых скриптов (judge.py, pipeline*.py, viz5–11…) ещё берут OpenAI-ключ из `v0-health-card/backend/.env` — вопрос владельцу.
+Резолвер `tools/scout/env_keys.py`: окружение → своё дерево → основная копия (из worktree, через git common-dir) → mltest последним с WARN; `--where` — откуда возьмётся (только путь), `--ping` — бесплатная проверка; журнал трат `openai-spend.jsonl` — всегда основной копии (`openai_budget.SPEND_LOG`). 12 старых скриптов (fixone.py, judge.py, pipeline.py, pipeline2.py, viz5/7/8/9/10/11.py, viz_frame.py, viz_plan.py; у pipeline2 и viz_frame сперва свой `.env`) ещё берут OpenAI-ключ из `v0-health-card/backend/.env` — вопрос владельцу.
 - GHCR (02.10): вход — `GHCR_TOKEN` (`_secrets/`), не `gh auth token`: токену под пакеты `gh` требует ещё `read:org` (ADR-0232).

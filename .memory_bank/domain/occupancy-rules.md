@@ -3,7 +3,7 @@ tier: 2
 topic: occupancy-rules
 scope: Свод количественных правил гостиной — наполняемость, пропорции, количества, клиренсы, высоты (мульти-джоб ресёрч)
 tier1: ../core/layout.md
-updated: 2026-11-05
+updated: 2026-11-06
 last_verified: 2026-10-18
 importance: high
 source: external:web (~35 источников, 4 research-джоба; workflow wf_882a3ed0)
@@ -64,7 +64,7 @@ status: working
 - **Диван ↔ ТВ**: 1,5–2,5 диагонали ([reimaginehome](https://www.reimaginehome.ai/blogs/does-my-couch-even-fit-sofa-size-vs-living-room-layout), [inch-to-cm](https://inch-to-cm.online/blogs/tv-size-vs-viewing-distance)); THX-минимум 1,2 диагонали для 4K, 65″ → 2,5 м ([skdesign](https://skdesign.ru/blog/rasstoyanie-ot-divana-do-televizora)); RU-практика: 1,8–3 м, не дальше 3 м ([inmyroom](https://www.inmyroom.ru/posts/10640-soblyudaem-distantsiyu-5-pravil-rasstanovki-mebeli-v-gostinoy)).
 - **Разговорная зона**: диван↔кресла напротив 110 см ([ivd.ru](https://www.ivd.ru/dizajn-i-dekor/kvartira/matematika-v-interere-70-vazhnyh-razmerov-rasstoyanij-i-vysot-kotorye-nuzhno-znat-44271)); RU-максимум между собеседниками 200 см ([inmyroom](https://www.inmyroom.ru/posts/11655-ergonomika-gostinoy-chto-nuzhno-uchest-pri-rasstanovke-mebeli)); EN: лицом к лицу 120–240 см, максимум между головами 210–280 см ([houseplanshelper](https://www.houseplanshelper.com/conversation-area.html), [povison](https://www.povison.com/blog/design/conversational-living-room.html)).
 - **Диван у стены**: зазор 8–10 см (вентиляция/кабели) ([couchhaus](https://www.couchhaus.com/blogs/news/how-to-space-out-living-room-furniture)); у радиатора — 15–20 см ([instylewood](https://instylewood.ru/blog/kuda-i-kak-pravilno-postavit-divan/)); до стены для прохода — 70 см ([ivd.ru](https://www.ivd.ru/dizajn-i-dekor/kvartira/matematika-v-interere-70-vazhnyh-razmerov-rasstoyanij-i-vysot-kotorye-nuzhno-znat-44271)).
-- **Шкафы/комоды**: перед распашным шкафом в ядре ≥90 см — одна норма для всех комнат (ADR-0330 п.7, `services/planner-solver/planner/validate.py`; источники дают от 80) ([ivd.ru](https://www.ivd.ru/dizajn-i-dekor/kvartira/matematika-v-interere-70-vazhnyh-razmerov-rasstoyanij-i-vysot-kotorye-nuzhno-znat-44271), [dom.mail.ru](https://dom.mail.ru/articles/64031-ergonomika-spalni-chto-nuzhno-uchest-pri/)); купе 50–70 см; перед комодом 76–91 см (ящик 40 + человек 45) ([rocabudesigns](https://rocabudesigns.com/en-us/blogs/storage-closets/dresser-and-wardrobe-spacing-guide)).
+- **Шкафы/комоды**: перед распашным шкафом в ядре ≥90 см — одна норма для всех комнат (ADR-0330 п.7; число — `services/planner-solver/rules/occupancy.json` `distances_cm.wardrobe_hinged_front_min`, читают `services/planner-solver/planner/clearances.py` (гостиная, через `validate.py:check_access`), `services/planner-solver/planner/bedroom_checks.py`, `services/planner-solver/rules/hall.json`; источники дают от 80) ([ivd.ru](https://www.ivd.ru/dizajn-i-dekor/kvartira/matematika-v-interere-70-vazhnyh-razmerov-rasstoyanij-i-vysot-kotorye-nuzhno-znat-44271), [dom.mail.ru](https://dom.mail.ru/articles/64031-ergonomika-spalni-chto-nuzhno-uchest-pri/)); купе 50–70 см; перед комодом 76–91 см (ящик 40 + человек 45) ([rocabudesigns](https://rocabudesigns.com/en-us/blogs/storage-closets/dresser-and-wardrobe-spacing-guide)).
 - **Обеденный стол**: стул с отодвиганием +55–71 см; до стены 91 см (без прохода) / 112 см (с проходом, NKBA) ([thewcsupply](https://www.thewcsupply.com/pages/kitchen-design-guidelines-standard-clearances), [dimensions.com](https://www.dimensions.com/element/dining-room-clearances)).
 - **Прочее**: перед камином 100–150 см ([inmyroom](https://www.inmyroom.ru/posts/10640-soblyudaem-distantsiyu-5-pravil-rasstanovki-mebeli-v-gostinoy)); от входа до мебели 150–200 см ([d4u](https://d4u.ru/m/ideas/pravila-ehrgonomiki-v-gostinoj)); перед сидящим 46 см для ног / 92 см если там проход ([flatica](https://flatica.ru/statyi/schitaem-santimetry-pravila-ergonomichnogo-raspolozheniya-mebeli-stsetivw-vs~58651842)); приставной столик в 5–10 см от подлокотника ([rocabudesigns](https://rocabudesigns.com/en-us/blogs/living-room-design/living-room-furniture-spacing-rules)); смещение дивана от стены задаёт зону: <50 см консоль / 1–1,5 м рабочая / >1 м обеденная ([design-homes](https://design-homes.ru/komnaty/gostinaya/rasstanovka-mebeli-v-gostinoj)).
 
@@ -205,7 +205,8 @@ status: working
   (`template.py:place_window_reading`). ⚠️ В коде 15 берётся запасным значением: ключа `window_sofa` в `zones.json`
   нет, а `occupancy.dynamic.window_sofa.back_gap_policy.air_cm` этот плейсер не читает (сверка 18.10).
   Прежние 8 см читались как «вплотную», штора не помещалась. Блок центрируется по ПРОЁМУ, а не
-  по якорю (иначе пара кресел уезжает вбок); то же для эркера.
+  по якорю (иначе пара кресел уезжает вбок): позиции от проёма — центр, трети и по бокам окна (`template.py:place_window_reading`);
+  в эркере — 50/25/75 % пролёта (`services/planner-solver/rules/templates.json`, geometry.bay_positions_pct).
 - **Камин и ТВ.** Вредна композиция КАМИН НАПРОТИВ ТВ — отражение пламени в экране;
   side-by-side на одной стене как раз рекомендуется. Мягкое правило `FIRE_REFLECTION_ON_TV` (S2),
   `services/planner-solver/planner/validate.py:check_fire_reflection_on_tv`.
@@ -244,7 +245,8 @@ status: working
 - **Секционал только угловой**: `compact_sectional` требует `Item.corner`; «прямой диван без
   компаньонов» понижается в `sofa_solo` (ярлык перестал врать) — `services/planner-solver/planner/template.py`, `services/planner-solver/planner/zones.py`.
 - **ТВ-референс на канонах**: экран — служебная часть шаблона (§14), на карточках рисуется
-  оверлеем `canon_gallery.add_tv_overlay` (диагональ = дистанция/1.6, clamp 0.70–0.90 ширины
+  оверлеем `canon_gallery.add_tv_overlay` (диагональ = дистанция до ближайшего дивана/1.6, без дивана — середина вилки; clamp 0.70–0.90
+  ширины тумбы или камина, у стенки — ниша `tv_niche_screen_cm`, не больше ½ ширины
   носителя, `services/planner-solver/planner/tv.py`); в ps и валидацию не входит.
 
 ## Своды №10–13 и пакеты Q6b–Q10 (перенос из core/layout.md 26.08)
