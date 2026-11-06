@@ -19,6 +19,13 @@
 «Есть» — вчерашняя лента (`demo-data.json → feeds`), полоса и места — оттуда же, то есть ровно то, что видит страница. Стили —
 опубликованных вариантов (новый подхватится сам, со сдвигом на сутки).
 
+КОМНАТЫ КРОМЕ ГОСТИНОЙ (T-20261106-82/2, владелец 06.11 TG 215/218: «в каждом стиле, в каждой комнате 30 товаров с мешами… меши —
+конвейером»). Места — (комната × стиль) банка комнаты, доли ролей — `rules/demo-swap.json → rooms.<комната>.roles` (сумма 30),
+полосы — слоты записей банка (−20…+10 %); кандидаты, «есть» (привязка ready) и добор — `room_mesh_demand.room_quota`. Задания
+комнат идут в ТОТ ЖЕ профиль demo (`mesh_priority.demo_rank`, ярус 3 — после недобора ленты гостиной и кандидата банка), под
+общий потолок `mesh_queue_max` и остаток денег трека комнат (`room_mesh_demand.ledger`, цена `PRICE_RUB`). Гостиная считается
+как прежде; сбой комнаты — строка WARN, гостиную не останавливает. Недобор каталога — строкой «не хватает каталога», не ошибкой.
+
   ~/venvs/scout/bin/python demo_band.py --report          # таблица пар → ~/scout-scenes/demo-band.json (шаг ночной цепочки)
   ~/venvs/scout/bin/python demo_band.py --report --dry    # то же без записи файла
   python3 demo_band.py --selftest
@@ -38,6 +45,7 @@ TARGET = int(RULES['mesh_target'])
 QUEUE_MAX = int(RULES['mesh_queue_max'])
 DEMO_DATA = os.path.expanduser(os.environ.get('DEMO_DATA', '~/scout-scenes/flat215-demo/demo-data.json'))
 REPORT = os.path.expanduser(os.environ.get('DEMO_BAND_REPORT', '~/scout-scenes/demo-band.json'))
+ROOMS = {k: v for k, v in (RULES.get('rooms') or {}).items() if not k.startswith('_')}
 GEN_STATUS = ('none', 'stale')   # меш делать можно: нет его или фото сменилось; брак владельца и карантин — не наше решение
 SOFA = 'диван'
 
@@ -198,6 +206,103 @@ def queue_skus() -> list:
     return [_sku(m) for m in compute()['generate']]
 
 
+# ---------------------------------------------------------------- комнаты кроме гостиной (T-20261106-82/2)
+def room_bank(room: str, cfg: dict, env=None) -> str | None:
+    """Банк комнаты: `DEMO_BAND_BANK_<КОМНАТА>` (проба, worktree), иначе первый существующий из `rooms.<комната>.bank`
+    (пути от tools/scout: живой, затем кандидат). Нет ни одного — None (места комнаты не считаем, строка в отчёт)."""
+    env = os.environ if env is None else env
+    p = env.get(f'DEMO_BAND_BANK_{room.upper()}')
+    paths = [p] if p else [x if os.path.isabs(x) else os.path.join(HERE, x) for x in cfg.get('bank') or []]
+    return next((x for x in paths if x and os.path.exists(x)), None)
+
+
+def rooms_merge(per_room: list, qmax_left: int, money_jobs: int) -> dict:
+    """Чистое ядро: задания комнат по порядку комнат в правилах, без повторов SKU (меш один на все комнаты), срез потолком
+    очереди (остаток после гостиной) и деньгами трека комнат. → {'jobs', 'cut_queue', 'cut_money'}."""
+    jobs, seen = [], set()
+    for _room, js in per_room:
+        for j in js:
+            if j['sku'] not in seen:
+                seen.add(j['sku'])
+                jobs.append(j)
+    lim_q, lim_m = max(0, qmax_left), max(0, money_jobs)
+    keep = jobs[:min(lim_q, lim_m)]
+    return {'jobs': keep, 'cut_queue': max(0, len(jobs) - lim_q),
+            'cut_money': max(0, min(len(jobs), lim_q) - lim_m)}
+
+
+def rooms_compute(living_generate: int) -> dict:
+    """Квоты комнат из правил → задания под общий профиль demo. Ошибка одной комнаты — в `notes`, остальные считаются."""
+    import math
+    import room_mesh_demand as RMD
+    out = {'rooms': {}, 'notes': [], 'jobs': [], 'cut_queue': 0, 'cut_money': 0, 'left_rub': None}
+    per_room = []
+    for room, cfg in ROOMS.items():
+        if not cfg.get('enabled'):
+            out['notes'].append(f'{room}: выключено (rules/demo-swap.json rooms.{room}.enabled)')
+            continue
+        bank = room_bank(room, cfg)
+        if not bank:
+            out['notes'].append(f"{room}: банка нет ({', '.join(cfg.get('bank') or []) or 'пути не заданы'}) — места не считаю")
+            continue
+        try:
+            Q = RMD.room_quota(room, bank, cfg['roles'])
+        except Exception as e:  # noqa: BLE001 — сбой комнаты не останавливает гостиную и другие комнаты
+            out['notes'].append(f'WARN:demo_band: комната {room}: {type(e).__name__}: {e}')
+            continue
+        out['rooms'][room] = Q
+        per_room.append((room, Q['jobs']))
+    if per_room:
+        try:
+            L = RMD.ledger()
+        except Exception as e:  # noqa: BLE001 — денег не знаем — заданий комнат нет (деньги важнее)
+            out['notes'].append(f'WARN:demo_band: остаток денег комнат не читается ({type(e).__name__}: {e}) — задания комнат не ставлю')
+            return out
+        out['left_rub'] = L['left']
+        M = rooms_merge(per_room, QUEUE_MAX - living_generate, int(math.floor(L['left'] / RMD.PRICE_RUB + 1e-9)))
+        out.update(M)
+    return out
+
+
+def room_jobs(living_generate: int) -> list:
+    """Задания мешей комнат (формат `room_mesh_jobs.job_of`) — для профиля demo (`mesh_priority.demo_rank`), по порядку."""
+    R = rooms_compute(living_generate)
+    for n in R['notes']:
+        print(n if n.startswith('WARN:') else f'[demo_band] {n}', flush=True)
+    return R['jobs']
+
+
+def rooms_report(R: dict) -> tuple:
+    """Строки отчёта по комнатам и запись для demo-band.json → (строки, {комната: {...}})."""
+    lines, rec = [], {}
+    taken = {j['sku'] for j in R['jobs']}
+    for room, Q in R['rooms'].items():
+        agg: dict = {}
+        for r in Q['table']:
+            a = agg.setdefault(f"{r['room_id']}/{r['style']}", {'have': 0, 'target': 0, 'after': 0, 'short': 0})
+            a['have'] += r['covered']
+            a['target'] += r['target']
+            a['after'] += r['after']
+            a['short'] += r['short']
+        mine = [j['sku'] for j in Q['jobs'] if j['sku'] in taken]
+        short = {k: a['short'] for k, a in sorted(agg.items()) if a['short']}
+        lines.append(f"[demo_band] комната {room}: квота {sum(Q['split'].values())} на (комната × стиль), в очередь мешей {len(mine)}"
+                     f" (банк {os.path.basename(Q['bank'])})")
+        for k, a in sorted(agg.items()):
+            lines.append(f"  {room} {k}: готово {a['have']} → {a['after']} из {a['target']}"
+                         + (f"; не хватает каталога {a['short']}" if a['short'] else ''))
+        if short:
+            lines.append(f"DIGEST:меши {room}: не хватает каталога — " + ', '.join(f'{k} {v}' for k, v in short.items()))
+        rec[room] = {'bank': Q['bank'], 'split': Q['split'], 'generate': mine, 'short': short, 'places': agg}
+    for n in R['notes']:
+        lines.append(n if n.startswith('WARN:') else f'[demo_band] {n}')
+    if R['cut_queue']:
+        lines.append(f"WARN:demo_band: задания комнат упёрлись в потолок очереди {QUEUE_MAX} — {R['cut_queue']} ждут следующего раза")
+    if R['cut_money']:
+        lines.append(f"WARN:demo_band: остаток денег комнат {R['left_rub']:g} ₽ — {R['cut_money']} заданий комнат не влезли")
+    return lines, rec
+
+
 def report(dry: bool = False) -> int:
     res = compute()
     print(f"[demo_band] цель — {res['target']} альтернатив на место «роль × стиль» в полосе; потолок очереди {res['queue_max']}; "
@@ -228,10 +333,19 @@ def report(dry: bool = False) -> int:
     new = sorted(set(short) - old) if old is not None else []
     if new:
         print(f"WARN:demo_band: новые пары без 10 моделей и всем каталогом: {', '.join(new)}")
+    rooms_rec = None
+    if ROOMS:
+        R = rooms_compute(len(res['generate']))
+        lines, rooms_rec = rooms_report(R)
+        print('\n'.join(lines))
+        print(f"[demo_band] комнаты: в очередь мешей demo {len(R['jobs'])}"
+              + (f", остаток денег трека комнат {R['left_rub']:g} ₽" if R['left_rub'] is not None else ''))
     if not dry:
         out = {'target': res['target'], 'queue_max': res['queue_max'], 'cut': res['cut'], 'sets': res['sets'], 'short': short,
                'publish': res['publish'], 'generate': res['generate'],
                'pairs': {f'{r}/{s}': v for (r, s), v in sorted(res['pairs'].items())}}
+        if rooms_rec is not None:
+            out['rooms'] = rooms_rec
         tmp = REPORT + '.tmp'
         json.dump(out, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         os.replace(tmp, REPORT)
@@ -289,6 +403,21 @@ def _selftest() -> int:
     ok('потолок очереди: первые по вкладу, остаток срезан и недобор за ним вернулся',
        cut['generate'] == ['g1'] and cut['cut'] == 2 and cut['pairs'][('столик', 'лофт')]['after'] == 2, cut['pairs'][('столик', 'лофт')])
     ok('правило — из rules/demo-swap.json', TARGET == int(RULES['mesh_target']) and QUEUE_MAX == int(RULES['mesh_queue_max']))
+    # КОМНАТЫ (T-20261106-82/2)
+    J = lambda *ss: [{'sku': x} for x in ss]  # noqa: E731
+    m = rooms_merge([('bedroom', J('a', 'b', 'c')), ('hall', J('b', 'd'))], qmax_left=10, money_jobs=10)
+    ok('комнаты: меш один на обе комнаты — SKU без повторов, порядок комнат из правил',
+       [j['sku'] for j in m['jobs']] == ['a', 'b', 'c', 'd'] and m['cut_queue'] == m['cut_money'] == 0, m)
+    m = rooms_merge([('bedroom', J('a', 'b', 'c')), ('hall', J('d'))], qmax_left=3, money_jobs=2)
+    ok('комнаты: срез — остатком потолка очереди после гостиной и деньгами трека комнат, оба числа видны',
+       [j['sku'] for j in m['jobs']] == ['a', 'b'] and m['cut_queue'] == 1 and m['cut_money'] == 1, m)
+    ok('комнаты: потолок очереди уже выбран гостиной — заданий комнат нет', rooms_merge([('x', J('a'))], 0, 5)['jobs'] == [])
+    ok('комнаты: банк из env пробы, иначе первый существующий из правил, иначе None',
+       room_bank('bedroom', {'bank': ['/nope.json', __file__]}, env={}) == __file__
+       and room_bank('bedroom', {'bank': [__file__]}, env={'DEMO_BAND_BANK_BEDROOM': '/nope'}) is None
+       and room_bank('hall', {'bank': ['/nope.json']}, env={}) is None)
+    ok('комнаты: доли ролей в правилах — сумма 30 на (комната × стиль)',
+       all(sum(v['roles'].values()) == 30 for v in ROOMS.values()), {k: sum(v['roles'].values()) for k, v in ROOMS.items()})
     print(f'demo_band selftest: ошибок {bad}')
     return 1 if bad else 0
 

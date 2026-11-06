@@ -433,16 +433,17 @@ if [ "$BANK_WRITE" = 1 ]; then
   [ "$bank_chain_ok" = 1 ] && step bank_refresh "$PY" bank_refresh.py --run-id "$BANK_RUN_ID"
   bank_index_steps
 fi
+# каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины И ДО
+# `demo_band` (T-20261106-82/2): места комнат кроме гостиной (квота 30 на комнату × стиль) берут кандидатов из свежего каталога
+step room_catalog "$PY" room_catalog.py --run
 step demo_band "$PY" demo_band.py --report
 step mesh_publish "$PY" mesh_publish.py
 # комментарии владельца к браку мешей за неделю (план mesh-audit-comments) — строкой DIGEST в утреннюю сводку; разбор — --comments
 step mesh_comments "$PY" mesh_decisions.py --comments --since 7d --digest
-# каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины
 # решения владельца по развороту моделей (/test/orient-review/) → orient.json прода слиянием (flat3d-sims-ux A1)
 step orient_pull "$PY" orient_review.py --pull
 # записи разворота, которые ничего не меняют на экране (решение = текущий вид, симметричные) — на прод слиянием
 step orient_sync "$PY" orient_review.py --sync
-step room_catalog "$PY" room_catalog.py --run
 step flat215_demo "$PY" flat215_demo.py
 # лёгкие копии моделей демо — ворота публикации (demo-01): нет копий у моделей вариантов — демо не публикуется
 if step demo_rt bash ../assets/demo_rt.sh; then

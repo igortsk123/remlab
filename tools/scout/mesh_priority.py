@@ -162,12 +162,23 @@ def demo_rank() -> list[dict]:
     bank = bank_pending.queue_skus()
     if bank:
         band, bank = bank_pending.combine(band, bank, demo_band.QUEUE_MAX, int(bank_pending.rules().get('reserve') or 0))
-    return demo_pick(pinned, band, prod, f"demo-v{prof.get('policy_version', 2)}", bank)
+    ver = f"demo-v{prof.get('policy_version', 2)}"
+    base = demo_pick(pinned, band, prod, ver, bank)
+    if not demo_band.ROOMS:
+        return base
+    # КОМНАТЫ КРОМЕ ГОСТИНОЙ (T-20261106-82/2): квота 30 на (комната × стиль) — `demo_band.room_jobs`; потолок очереди — остаток
+    # после того, что гостиная и кандидат банка РЕАЛЬНО ставят в очередь (строки без готового меша; в списках `band`/`bank`
+    # есть готовые и товары вне `products` — по длине списков комнатам доставалось 10 мест из 150 вместо ~109, сухой прогон
+    # 06.11), деньги — остаток трека комнат. Задание — готовое (`room_mesh_jobs.job_of`): товаров `room_catalog` в `products()` нет
+    rooms = demo_band.room_jobs(sum(1 for r in base if r['status'] != 'ready'))
+    return demo_pick(pinned, band, prod, ver, bank, rooms) if rooms else base
 
 
-def demo_pick(pinned: tuple, band: list, prod: dict, ver: str, bank: list | tuple = ()) -> list[dict]:
+def demo_pick(pinned: tuple, band: list, prod: dict, ver: str, bank: list | tuple = (), rooms: list | tuple = ()) -> list[dict]:
     """Чистый отбор: закреплённые (ярус 0), затем недобор ленты (ярус 1) по порядку `demo_band`, затем кандидат банка (ярус 2,
-    `bank_pending`; общий потолок уже посчитан `bank_pending.combine`), без повторов; товар вне
+    `bank_pending`; общий потолок уже посчитан `bank_pending.combine`), затем квота комнат (ярус 3, `demo_band.room_jobs`:
+    готовые задания `room_mesh_jobs.job_of` — их товары живут в `room_catalog`, не в `products`; SKU, уже взятый выше, второй
+    раз не ставится), без повторов; товар вне
     `products()` (нет пометки «требуется меш» или не представитель семейства) пропускается. Готовые отбрасывает `main()` тем же
     фильтром, что у боевой очереди. Потолок очереди считает `demo_band` по незавершённым — закреплённые его не съедают.
 
@@ -186,6 +197,13 @@ def demo_pick(pinned: tuple, band: list, prod: dict, ver: str, bank: list | tupl
             # Форма ряда — ТА ЖЕ, что у боевого ранжира: `build_queue` читает `key` и `policy_version`
             rows.append({'tier': tier, 'sku': sku, 'role': p['role'], 'status': p['status'],
                          'key': f'{tier:02d}|{len(rows):06d}|{sku}', 'reason': why, 'policy_version': ver})
+    for j in rooms:
+        if j['sku'] in seen:
+            continue
+        seen.add(j['sku'])
+        rows.append({'tier': 3, 'sku': j['sku'], 'role': j['role'], 'status': 'none', 'room': j.get('room'),
+                     'key': f"03|{len(rows):06d}|{j['sku']}", 'policy_version': ver, 'job': j,
+                     'reason': f"демо: квота мешей комнаты {j.get('room')} (30 на комнату × стиль, T-20261106-82)"})
     return rows
 
 
@@ -338,6 +356,14 @@ def build_queue(path: str, todo: list, prod: dict) -> None:
     suppressed = 0
     jobs, queued, seen = [], [], set()
     for x in todo:
+        if x.get('job'):                 # задание комнаты (ярус 3 профиля demo) — готовое, товара в `products` нет
+            if (x['sku'], 0) in seen:
+                sys.exit(f'дубль (sku, seed) в снимке: {x["sku"]} seed 0 — сборка отменена')
+            seen.add((x['sku'], 0))
+            j = dict(x['job'], seeds=[0])
+            j['strata'] = {**(j.get('strata') or {}), 'tier': x['tier'], 'reason': x['reason'], 'room': x.get('room')}
+            jobs.append(j)
+            continue
         p = prod[x['sku']]
         mid, eid = x['sku'].split(':', 1)
         seeds, strata = [0], {'tier': x['tier'], 'reason': x['reason']}
@@ -438,6 +464,15 @@ def _selftest() -> int:
     rows = demo_pick(('m:8',), ['m:1'], prod, 'test', ['m:1', 'm:2', 'm:8', 'm:4'])
     if [(r['sku'], r['tier']) for r in rows] != [('m:8', 0), ('m:1', 1), ('m:2', 2)] or 'bank_candidate' not in rows[-1]['reason']:
         bad_demo += 1; print(f'  FAIL кандидат банка — ярус 2 после ленты, без повторов: {[(r["sku"], r["tier"]) for r in rows]}')
+    # квота комнат (T-20261106-82/2): ярус 3 после банка, готовое задание, без повтора уже взятого SKU
+    RJ = [{'sku': 'm:1', 'role': 'кровать', 'room': 'bedroom'}, {'sku': 'r:7', 'role': 'кровать', 'room': 'bedroom'},
+          {'sku': 'r:8', 'role': 'шкаф-купе', 'room': 'hall'}, {'sku': 'r:7', 'role': 'кровать', 'room': 'bedroom'}]
+    rows = demo_pick(('m:8',), ['m:1'], prod, 'test', ['m:3'], RJ)
+    got = [(r['sku'], r['tier']) for r in rows]
+    if got != [('m:8', 0), ('m:1', 1), ('m:3', 2), ('r:7', 3), ('r:8', 3)]:
+        bad_demo += 1; print(f'  FAIL квота комнат — ярус 3 после банка, без повторов и без уже взятого из ленты: {got}')
+    if not all(r.get('job') is RJ[1] for r in rows if r['sku'] == 'r:7') or rows[-1]['status'] != 'none':
+        bad_demo += 1; print('  FAIL ряд комнаты несёт готовое задание и статус «нет меша»')
     print('профиль демо: ' + ('ОК' if not bad_demo else f'ПРОВАЛОВ {bad_demo}'))
 
     bad = 0
@@ -502,7 +537,7 @@ def _selftest() -> int:
         bad += 1
         print('  FAIL build_queue: переделка без хеша ставится, без переделки подавлена, другой хеш — seed 0',
               got, buf.getvalue()[-120:])
-    print(f'mesh_priority selftest: случаев 6 + профиль демо 4, ошибок {bad + bad_demo}')
+    print(f'mesh_priority selftest: случаев 6 + профиль демо 6, ошибок {bad + bad_demo}')
     return 1 if bad or bad_demo else 0
 
 

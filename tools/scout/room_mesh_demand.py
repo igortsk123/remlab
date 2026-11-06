@@ -73,6 +73,7 @@ WANT_ROOMS = _RP.rooms_with('mesh_demand', 'room_mesh_demand')
 ROOMS = tuple(t for t in WANT_ROOMS if _RP.capability(t, 'bank') == 'compose_bedroom')
 WAVES_FILE = os.environ.get('MESH_WAVE_MANUAL') or os.path.expanduser('~/scout-scenes/wave-manual.json')   # = salad/wave_cap.PATH
 RESERVE_FILE = os.environ.get('ROOM_MESH_RESERVE') or os.path.expanduser('~/scout-scenes/room-mesh-reserve.jsonl')
+LEASE_FILE = os.environ.get('ROOM_MESH_LEASE') or os.path.expanduser('~/scout-scenes/wave-lease.json')   # = salad/wave_guard.LEASE
 WANT_FILE = os.path.join(HERE, 'rules', 'room-mesh-want.json')
 LIVING = ('living', 'living_room', 'гостиная')
 
@@ -359,12 +360,47 @@ def _read_reserve(path: str) -> list:
     return out
 
 
+def _read_lease(path: str) -> list:
+    try:
+        d = json.load(open(path, encoding='utf-8'))
+    except FileNotFoundError:
+        return []
+    except ValueError as e:
+        raise DemandError(f'разрешение {path} битое ({e}) — без него остаток не знаю')
+    return list((d or {}).get('waves') or [])
+
+
+def _usd_rub() -> float:
+    import salad_groups as SG
+    return float(SG.usd_rub())
+
+
 def ledger(total: float = BUDGET_RUB, since: str = BUDGET_SINCE, waves_path: str = WAVES_FILE,
-           reserve_path: str = RESERVE_FILE, load=snap_info) -> dict:
+           reserve_path: str = RESERVE_FILE, load=snap_info, lease_path: str | None = None, usd_rub=None) -> dict:
     """Остаток денег мешей комнат = total − факт закрытых волн комнат − потолок открытых − резерв снимков вне волны.
-    Волны гостиной (снимок без `room` или `room` гостиной) не в счёт; нечитаемый снимок — в счёт (деньги важнее)."""
+    Волны гостиной (снимок без `room` или `room` гостиной) не в счёт; нечитаемый снимок — в счёт (деньги важнее).
+    ВОЛНЫ АВТОЗАПУСКА (`wave_guard`, разрешение `wave-lease.json`; T-20261106-82/2): с комнатами в профиле demo волна
+    смешанная (гостиная + комнаты), снимок у неё общий — поэтому ВСЕ волны разрешения с начала учёта идут в счёт трека
+    комнат целиком (в сторону осторожности: доля гостиной — единицы мешей): закрытая — `spent_usd` × курс, открытая —
+    потолок `usd_cap` × курс. Отпечаток снимка волны (если записан) гасит резерв, как у ручной волны."""
     t0 = _ts(since)
     rows, spent, held, reserved, fps = [], 0.0, 0.0, 0.0, set()
+    lw = [w for w in _read_lease(LEASE_FILE if lease_path is None else lease_path) if float(w.get('started') or 0) >= t0]
+    if lw:
+        rate = float(usd_rub if usd_rub is not None else _usd_rub())
+        for w in lw:
+            if w.get('snapshot'):
+                info = load(w['snapshot'])
+                if info:
+                    fps.add(info['fp'])
+            if w.get('closed'):
+                rub, kind = float(w.get('spent_usd') or 0) * rate, 'факт автоволны (разрешение)'
+                spent += rub
+            else:
+                rub, kind = float(w.get('usd_cap') or 0) * rate, 'открытая автоволна — держим потолок'
+                held += rub
+            rows.append({'kind': kind, 'room': 'общая', 'rub': round(rub, 2), 'snapshot': w.get('snapshot'),
+                         'at': w.get('at')})
     for w in _read_waves(waves_path):
         info = load(w.get('snapshot') or '')
         room = (info or {}).get('room')
@@ -667,6 +703,218 @@ STATE_RU = {'covered': 'меш готов (ready)', 'blocked': 'меш есть,
             'not_job': 'не годен к заданию (room_mesh_jobs)'}
 
 
+# ---------------------------------------------------------------- квота мешей комнаты (T-20261106-82/2)
+# ВЛАДЕЛЕЦ 06.11 (TG 215/218): «в каждом стиле в каждой комнате 30 товаров с мешами… только влезающие (−20…+10 % к месту на
+# плане); меш один на все расстановки; меши — конвейером». Место квоты = (комната × стиль); доли ролей — `rules/demo-swap.json →
+# rooms.<комната>.roles` (ведущий 06.11: спальня 10/7/8/5, прихожая 8/3/4/6/5/4). Кандидат — тот же отбор, что у сборщика
+# комнаты (`compose_*.gate` по полосе слота записи банка, у кровати — спальное место; балл стиля ≥ `in_style_min`), фото
+# текущей ревизии оценено ok, задание проходит `room_mesh_jobs.job_of`. «Есть» — привязка `ready` (`offer_asset_binding`).
+# Добор — сперва товары наборов и альтернатив банка («в ленте»), потом по баллу стиля; один SKU засчитывается всем местам,
+# где он кандидат. Считает это `demo_band` (общий профиль очереди demo) — ручных снимков ночью нет.
+
+def quota_slots(bank: list, purposes: dict, band_of, tol: tuple, mesh_role) -> dict:
+    """{room_id: {роль: [слот{role, band, sleep_w?, need_dims?}]}} — все различные полосы комнаты из записей банка (ниши шкафа
+    bedroom-2 — свои), плюс роли профиля, которых нет в записи (у прихожей — модуль «прихожая», хранение второго выбора).
+    `mesh_role(role)` — роль строится мешем."""
+    out: dict = {}
+    for s in bank:
+        prof = {x['role']: x for x in (purposes.get(s.get('purpose')) or {}).get('slots') or []}
+        rid = s.get('room_id')
+        for role, sl in (s.get('slots') or {}).items():
+            if not sl.get('mesh') or not mesh_role(role):
+                continue
+            slot = {'role': role, 'band': {k: list(v) for k, v in (sl.get('band') or {}).items()}}
+            for k in ('sleep_w', 'need_dims'):
+                if (prof.get(role) or {}).get(k):
+                    slot[k] = prof[role][k]
+            lst = out.setdefault(rid, {}).setdefault(role, [])
+            if slot not in lst:
+                lst.append(slot)
+        for role, p in prof.items():
+            if role in (s.get('slots') or {}) or not mesh_role(role):
+                continue
+            slot = {'role': role, 'band': band_of(p, tol) if p.get('band') else {}}
+            for k in ('sleep_w', 'need_dims'):
+                if p.get(k):
+                    slot[k] = p[k]
+            lst = out.setdefault(rid, {}).setdefault(role, [])
+            if slot not in lst:
+                lst.append(slot)
+    return out
+
+
+def bank_shown(bank: list) -> set:
+    """SKU наборов и альтернатив банка — «в ленте» (приоритет добора)."""
+    got = set()
+    for s in bank:
+        for it in (s.get('items') or {}).values():
+            if isinstance(it, dict) and it.get('mid') is not None:
+                got.add(f"{it['mid']}:{it['eid']}")
+        for alts in (s.get('alternates') or {}).values():
+            for x in alts or []:
+                if isinstance(x, dict) and x.get('mid') is not None:
+                    got.add(f"{x['mid']}:{x['eid']}")
+    return got
+
+
+def quota_table(slots: dict, styles: list, items: list, states: dict, shown: set, gate, thr: float) -> list:
+    """Строка на (room_id × стиль × роль): моделей влезает / кандидатов (фото ok) / готово / можно в меш (по порядку добора).
+    Счёт по семействам (`fam`); у семейства в очередь идёт лучший по порядку товар (в ленте → балл стиля → цена → SKU)."""
+    table = []
+    for rid in sorted(slots):
+        for st in styles:
+            for role, sl in slots[rid].items():
+                c: dict = {}
+                best: dict = {}
+                for it in items:
+                    if it['role'] != role or (it.get('styles') or {}).get(st, 0) < thr:
+                        continue
+                    if not any(gate(it, x, x['band']) is None for x in sl):
+                        continue
+                    s = states[it['sku']]
+                    c.setdefault('fit', set()).add(it['fam'])
+                    if s in ('photo_pending', 'photo_bad'):
+                        c.setdefault('photo', set()).add(it['fam'])
+                        continue
+                    c.setdefault('cand', set()).add(it['fam'])
+                    c.setdefault(s, set()).add(it['fam'])
+                    if s == 'job':
+                        key = (0 if (it['sku'] in shown or it.get('via') in shown) else 1,
+                               -(it.get('styles') or {}).get(st, 0), it.get('price') or 0, it['sku'])
+                        if it['fam'] not in best or key < best[it['fam']][0]:
+                            best[it['fam']] = (key, it['sku'])
+                n = lambda k: len(c.get(k) or ())  # noqa: E731
+                table.append({'room_id': rid, 'style': st, 'role': role, 'fit': n('fit'), 'cand': n('cand'),
+                              'covered': n('covered'), 'job': n('job'), 'photo_wait': n('photo'),
+                              'mesh_other': n('has_mesh') + n('blocked') + n('defect'), 'not_job': n('not_job'),
+                              'shown_jobs': sum(1 for v in best.values() if v[0][0] == 0),
+                              'ranked': [v[1] for v in sorted(best.values())]})
+    return table
+
+
+def quota_plan(table: list, split: dict) -> list:
+    """Добор до доли роли в каждом (room_id × стиль). Чистая функция. → выбранные SKU по порядку; в строки дописывает
+    target / after / short. Один SKU засчитывается всем строкам, где он в `ranked` (меш один на все расстановки)."""
+    where: dict = {}
+    for i, r in enumerate(table):
+        for s in r['ranked']:
+            where.setdefault(s, []).append(i)
+    order = list(split)
+    picked: list = []
+    took: set = set()
+    idx = sorted(range(len(table)), key=lambda i: (table[i]['room_id'], table[i]['style'],
+                                                    order.index(table[i]['role']) if table[i]['role'] in order else 99))
+    for i in idx:
+        r = table[i]
+        r['target'] = int(split.get(r['role'], 0))
+        have = r['covered'] + sum(1 for s in took if i in where[s])
+        need = max(0, r['target'] - have)
+        for s in r['ranked']:
+            if need <= 0:
+                break
+            if s not in took:
+                took.add(s)
+                picked.append(s)
+                need -= 1
+    for i, r in enumerate(table):
+        r['after'] = r['covered'] + sum(1 for s in took if i in where[s])
+        r['short'] = max(0, r['target'] - r['after'])
+    return picked
+
+
+def _room_adapter(room: str):
+    """(сборщик, правила, каталог, gate, порог стиля, допуск) комнаты — по реестру возможностей (`room_profile`, T-72)."""
+    import importlib
+    mod = importlib.import_module(_RP.capability(room, 'bank'))
+    R = mod.rules()
+    cat = mod.load_items(R)[0] if mod.__name__ == 'compose_bedroom' else mod.load_items()
+    return mod, R, cat, mod.gate, float(mod.PROFILE['style']['in_style_min']), tuple(mod.tolerance())
+
+
+def room_states(room: str, cat: list, R: dict, rows: dict, fetch) -> tuple:
+    """Как `demand`: вариант семьи → представитель, состояние товара, годность задания (`room_mesh_jobs.job_of`).
+    → (items, states, jobs_of)."""
+    import asset_strategy as AS
+    import re
+    import room_mesh_jobs as RMJ
+    md = (R.get('mesh_defect') or {}).get('names')
+    defect_re = re.compile(md, re.I) if md else None
+    items_all = [dict(it, sku=f"{it['mid']}:{it['eid']}") for it in cat if AS.strategy(it['role']) == 'hunyuan3d']
+    F = facts(sorted({it['sku'] for it in items_all}), fetch)
+    reps = sorted({f['rep'] for f in F.values() if f.get('rep') and f['rep'] not in F})
+    F.update(facts(reps, fetch))
+    own = {}
+    for it in items_all:
+        own.setdefault((it['sku'], it['role']), it)
+    states, items, seen, jobs_of = {}, [], set(), {}
+    for it in items_all:
+        f = F.get(it['sku'], {})
+        rep = f.get('rep')
+        if rep and rep != it['sku'] and it['sku'] not in rows:
+            it = dict(it, sku=rep, via=it['sku'])
+            f = F.get(rep, {})
+        key = (it['sku'], it['role'], it.get('via'))
+        if key in seen:
+            continue
+        seen.add(key)
+        if it['sku'] not in states:
+            st = state_of(it['sku'], f, rows.get(it['sku']), bool(defect_re and defect_re.search(it.get('name') or '')))
+            if st == 'job':
+                base = own.get((it['sku'], it['role']))
+                j, w = (None, 'представителя семьи нет в каталоге комнаты в этой роли') if base is None else \
+                    RMJ.job_of(job_row(dict(base, slot_candidate=True), f), room)
+                if j is None:
+                    st, it['not_job'] = 'not_job', w
+                else:
+                    jobs_of[it['sku']] = j
+            states[it['sku']] = st
+        items.append(it)
+    return items, states, jobs_of
+
+
+def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None) -> dict:
+    """Квота мешей комнаты: таблица мест, выбранные задания по порядку, итоги. Только чтение БД и банка."""
+    import asset_strategy as AS
+    import catalog_items as CI
+    import room_bindings as RB
+    fetch = fetch or CI.fetch
+    if not bank_path or not os.path.exists(bank_path):
+        raise DemandError(f'банк {room} не найден: {bank_path!r}')
+    bank = json.load(open(bank_path, encoding='utf-8'))
+    mod, R, cat, gate, thr, tol = _room_adapter(room)
+    if rows is None:
+        rows, why = RB.load_db(fetch)
+        if rows is None:
+            raise DemandError(f'привязка не читается ({why}) — без неё не знаю, у кого меш уже есть')
+    items, states, jobs_of = room_states(room, cat, R, rows, fetch)
+    slots = quota_slots(bank, R['purposes'], mod.band_of, tol, lambda r: AS.strategy(r) == 'hunyuan3d')
+    styles = sorted({s['style'] for s in bank if s.get('style')})
+    table = quota_table(slots, styles, items, states, bank_shown(bank), gate, thr)
+    picked = quota_plan(table, split)
+    jobs = []
+    for s in picked:
+        j = dict(jobs_of[s])
+        cells = [f"{r['room_id']} × {r['style']} × {r['role']}" for r in table if s in r['ranked']]
+        j['strata'] = {'tier': 'room', 'reason': f'комната {room}: квота 30 на (комната × стиль), T-20261106-82',
+                       'cells': cells}
+        jobs.append(j)
+    return {'room': room, 'bank': bank_path, 'split': split, 'table': table, 'jobs': jobs, 'styles': styles}
+
+
+def quota_md(Q: dict) -> str:
+    """Короткая сводка квоты для отчёта: строка на (room_id × стиль) + задания; недобор — «не хватает каталога»."""
+    agg: dict = {}
+    for r in Q['table']:
+        a = agg.setdefault((r['room_id'], r['style']), {'covered': 0, 'cand': 0, 'target': 0, 'after': 0, 'short': 0})
+        for k in a:
+            a[k] += r[k]
+    L = [f"Квота мешей {Q['room']} (банк {os.path.basename(Q['bank'])}): в очередь {len(Q['jobs'])}", '',
+         '| комната | стиль | готово | кандидатов | цель | после | не хватает каталога |', '|---|---|---|---|---|---|---|']
+    for (rid, st), a in sorted(agg.items()):
+        L.append(f"| {rid} | {st} | {a['covered']} | {a['cand']} | {a['target']} | {a['after']} | {a['short']} |")
+    return '\n'.join(L)
+
+
 def report(D: dict) -> dict:
     """Сводка по ролям: каталог роли → в полосе и стиле хоть одной ячейки → состояния → нужно → в очереди → цена."""
     roles = {}
@@ -842,6 +1090,8 @@ def _selftest() -> int:
     tmpd = tempfile.mkdtemp(prefix='rmd-selftest-')
     since = '2026-11-05T18:56:00+00:00'
     t0 = _ts(since)
+    lease_keep = LEASE_FILE
+    globals()['LEASE_FILE'] = os.path.join(tmpd, 'нет-разрешения.json')   # герметично: живое разрешение машины не читаем
 
     def snapf(name, room, jobs):
         p = os.path.join(tmpd, name)
@@ -891,7 +1141,33 @@ def _selftest() -> int:
         ok('битый журнал волн — отказ, а не «остаток 500»', False)
     except DemandError:
         ok('битый журнал волн — отказ, а не «остаток 500»', True)
+    # волны автозапуска (разрешение wave_guard, T-20261106-82/2): все с начала учёта — в счёт комнат
+    lp, wp2, rp2 = (os.path.join(tmpd, n) for n in ('lease.json', 'wm2.json', 'res2.jsonl'))
+    json.dump({'waves': [{'started': t0 - 60, 'closed': t0 - 10, 'spent_usd': 9.0},
+                         {'started': t0 + 10, 'closed': t0 + 20, 'spent_usd': 0.5},
+                         {'started': t0 + 30, 'usd_cap': 0.2}]}, open(lp, 'w', encoding='utf-8'))
+    L5 = ledger(500.0, since, wp2, rp2, lease_path=lp, usd_rub=100.0)
+    ok('автоволны: до начала учёта не в счёт, закрытая — факт $ × курс, открытая держит потолок (500 − 50 − 20 = 430)',
+       L5['spent'] == 50.0 and L5['held'] == 20.0 and L5['left'] == 430.0)
+    ok('нет файла разрешения — автоволн нет (остаток 500)', ledger(500.0, since, wp2, rp2)['left'] == 500.0)
+    open(lp, 'w').write('{битый')
+    try:
+        ledger(500.0, since, wp2, rp2, lease_path=lp, usd_rub=100.0)
+        ok('битое разрешение — отказ, а не «остаток 500»', False)
+    except DemandError:
+        ok('битое разрешение — отказ, а не «остаток 500»', True)
+    globals()['LEASE_FILE'] = lease_keep
     shutil.rmtree(tmpd, ignore_errors=True)
+
+    # ---- квота 30 на (комната × стиль) с долями ролей (T-20261106-82/2): один меш — всем строкам, где он кандидат
+    T = [{'room_id': 'b1', 'style': 'лофт', 'role': 'кровать', 'covered': 1, 'ranked': ['x', 'y', 'z']},
+         {'room_id': 'b1', 'style': 'лофт', 'role': 'тумба', 'covered': 0, 'ranked': ['x']},
+         {'room_id': 'b1', 'style': 'сканди', 'role': 'кровать', 'covered': 0, 'ranked': ['y']},
+         {'room_id': 'b1', 'style': 'сканди', 'role': 'шкаф', 'covered': 5, 'ranked': ['w']}]
+    P = quota_plan(T, {'кровать': 3, 'тумба': 1})
+    ok('квота: добор по доле роли, SKU одной строки засчитан и другим (x закрыл тумбу, y — сканди), без доли — 0',
+       P == ['x', 'y'] and [r['after'] for r in T] == [3, 1, 1, 5] and [r['short'] for r in T] == [0, 0, 2, 0]
+       and T[3]['target'] == 0)
 
     # ---- спрос по вариантам витрины
     import asset_strategy as AS

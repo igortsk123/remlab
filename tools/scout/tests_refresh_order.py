@@ -117,8 +117,11 @@ def _selftest() -> int:
         ok(f'[{tag}] false: медиа пишет банк (--apply)', all(s.endswith('catalog_media.py --apply') for s in f
                                                               if s.startswith('bank_media')))
         k = tn.index('bank_promote') + 1
-        ok(f'[{tag}] true: писатель сразу за bank_promote, за ним индекс, set_id, пересчёт сцен, страницы, затем demo_band',
-           tn[k:k + len(IDX) + 2] == ['bank_refresh', *IDX, 'demo_band'], tn[k:k + len(IDX) + 2])
+        ok(f'[{tag}] true: писатель сразу за bank_promote, за ним индекс, set_id, пересчёт сцен, страницы, затем каталог комнат и demo_band',
+           tn[k:k + len(IDX) + 3] == ['bank_refresh', *IDX, 'room_catalog', 'demo_band'], tn[k:k + len(IDX) + 3])
+        ok(f'[{tag}] каталог комнат → demo_band → mesh_publish → витрина (T-20261106-82/2: места комнат — из свежего room_catalog)',
+           all(n.index('room_catalog') < n.index('demo_band') < n.index('mesh_publish') < n.index('flat215_demo') for n in (fn, tn)),
+           fn[fn.index('room_catalog'):fn.index('flat215_demo') + 1])
         ok(f'[{tag}] true: прежних --apply-писателей нет, медиа — сухим прогоном',
            not any(n in tn for n in OLD_WRITERS) and not any('--apply' in s for s in t if s.startswith('bank_media')))
         want = [n for n in fn if n not in OLD_WRITERS and n not in IDX]
