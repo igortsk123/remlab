@@ -81,9 +81,11 @@ def command(port: int) -> list[str]:
 
 
 def build(donor: dict, group: str, queue: str, replicas: int, port: int = PROXY_PORT,
-          image: str | None = None, env: list[str] | None = None) -> dict:
+          image: str | None = None, env: list[str] | None = None, gpu_ids: list[str] | None = None) -> dict:
     """`image`/`env` — опытная канарейка на другом образе (T-20261106-85, `recreate_group.apply_overrides`: только наш
-    репозиторий по digest, секреты образца не перебиваются). По умолчанию — боевой образ, как было."""
+    репозиторий по digest, секреты образца не перебиваются). По умолчанию — боевой образ, как было.
+    `gpu_ids` — классы GPU вместо классов образца (T-20261106-85/3, `--gpu-exact`: канарейка на 4060 Ti 16 GB) —
+    только у канарейки: классы боевой группы-очереди задаёт образец."""
     tier = SG.tier(group)
     if tier == '?':
         raise SystemExit(f'{group}: нет тарифа в rules/salad-groups.json — не создаю')
@@ -104,6 +106,10 @@ def build(donor: dict, group: str, queue: str, replicas: int, port: int = PROXY_
         RG.apply_overrides(body, image, env)
     except ValueError as e:
         raise SystemExit(str(e)) from e
+    if gpu_ids:
+        if not group.endswith('-canary'):
+            raise SystemExit(f'{group}: свои классы GPU — только у канарейки (*-canary), боевой задаёт образец — не создаю')
+        c['resources']['gpu_classes'] = list(gpu_ids)
     c['command'] = command(port)
     body['autostart_policy'] = False
     body['queue_connection'] = {'path': '/generate', 'port': port, 'queue_name': queue}
@@ -165,6 +171,8 @@ def main() -> int:
     ap.add_argument('--port', type=int, default=PROXY_PORT, help='8001 — с посредником (машина в ответе), 8000 — без')
     ap.add_argument('--image', default=None, help='опытная канарейка: ghcr.io/igortsk123/mesh-hunyuan@sha256:… (по умолчанию боевой)')
     ap.add_argument('--env', action='append', default=[], help='переменная поверх образца KEY=значение, можно несколько')
+    ap.add_argument('--gpu-exact', default=None,
+                    help='канарейка: классы GPU организации по полному имени через запятую, "RTX 4060 Ti (16 GB)"')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--check', action='store_true')
     ap.add_argument('--test-job', action='store_true')
@@ -181,7 +189,17 @@ def main() -> int:
     code, donor = MG.api(f'/{a.donor}')
     if code != 200 or 'container' not in donor:
         return print(f'образец не прочитан: HTTP {code} {str(donor)[:150]}') or 1
-    body = build(donor, a.group, a.queue, a.replicas, a.port, a.image, a.env)
+    gpu_ids = None
+    if a.gpu_exact:
+        classes = RG.gpu_classes()
+        if not classes:
+            return print('классы GPU организации не прочитаны — не создаю') or 1
+        try:
+            gpu_ids = RG.pick_gpu_exact(classes, a.gpu_exact.split(','))
+        except ValueError as e:
+            return print(e) or 2
+        print('GPU:', ', '.join(classes[i] for i in gpu_ids))
+    body = build(donor, a.group, a.queue, a.replicas, a.port, a.image, a.env, gpu_ids)
     print('создам:', summary(body))
     if not a.apply:
         return print('\nэто разбор без действий. Выполнить: --apply') or 0

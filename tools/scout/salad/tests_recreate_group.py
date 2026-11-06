@@ -121,6 +121,18 @@ def main() -> None:
           or 'sha256' in qs_refused('mesh-q-color-canary', 'mesh-q-color', 'ghcr.io/igortsk123/mesh-hunyuan:latest'),
           'queue_setup: образ по тегу — отказ')
 
+    # queue_setup --gpu-exact (T-20261106-85/3): свои классы GPU — только у канарейки
+    gb = QS.build(donor, 'mesh-q-color-canary', 'mesh-q-color', 1, QS.PROXY_PORT, dig, [], ['g4060'])
+    check(gb['container']['resources']['gpu_classes'] == ['g4060'], 'queue_setup: канарейка на заданном классе GPU')
+    check(QS.build(donor, 'mesh-q-color-canary', 'mesh-q-color', 1)['container']['resources']['gpu_classes'] == ['x'],
+          'queue_setup без --gpu-exact — классы образца')
+    try:
+        QS.build(donor, 'mesh-q-low-1', 'mesh-q-low', 1, QS.PROXY_PORT, None, [], ['g4060'])
+        gpu_err = ''
+    except SystemExit as e:
+        gpu_err = str(e)
+    check('только у канарейки' in gpu_err, 'queue_setup: свои классы GPU у боевой группы-очереди — отказ')
+
     # recreate_group.keep_queue (T-20261106-85/3): группа-очередь пересоздаётся со своей связью, прочие — без неё
     qc = {'path': '/generate', 'port': 8001, 'queue_name': 'mesh-q-color'}
 
