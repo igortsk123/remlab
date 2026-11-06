@@ -10,7 +10,7 @@
 // худший), у всех вариантов те же точки (x, y, rot, fov); окно превью и сдвиг телефона — по мебели своего варианта. Ставит
 // `D.cams_shared` — страница по нему не пересчитывает точки после замены товара (`index.html:defaultCams`).
 //   node tools/flat3d/demo-cams.mjs <demo-data.json>        дописать ракурсы на месте
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -64,5 +64,8 @@ for (const [vi, v] of list.entries()) {
   n += 1;
 }
 }
-writeFileSync(file, JSON.stringify(D, null, 1));
+// подменой, не обрезкой (T-20261105-59): оборвался процесс посреди записи — demo-data.json остаётся вчерашним целиком
+const tmp = `${file}.cams-${process.pid}.tmp`;
+writeFileSync(tmp, JSON.stringify(D, null, 1));
+renameSync(tmp, file);
 console.log(`ракурсы окна в данных: вариантов ${n} (${(D.variants ?? []).map((v) => `${v.id} ступень ${v.cam_level}`).join(", ")})`);

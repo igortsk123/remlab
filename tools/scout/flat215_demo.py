@@ -25,6 +25,7 @@ OUT = os.path.expanduser(os.environ.get('FLAT215_DEMO_OUT') or '~/scout-scenes/f
 # раскладки со своим суффиксом — общие `demo-sets.json` и `v3set{n}-layout.json` живого демо не трогает
 sys.path.insert(0, HERE)
 import bank_paths as _BP  # noqa: E402
+import atomic_io as _AIO  # noqa: E402 — выходные json сборки пишутся подменой, не обрезкой (T-20261105-59)
 BANK = _BP.demo_plan(os.environ, OUT)
 # ОДНА РАССТАНОВКА НА ВСЕ СТИЛИ (demo-31, `demo_one_layout.py`): включено — солвер берёт только гипотезы опорной подписи
 # (`rules/demo-layout.json`), раскладки — со своим суффиксом `-one` (общие `v3set{n}-layout.json` пересчитывают другие прогоны)
@@ -958,7 +959,7 @@ def _mesh_color_ok():
                 cache[key] = None
             dirty[0] = True
             if len(cache) % 25 == 0:
-                json.dump(cache, open(path, 'w'))
+                _AIO.write_json(path, cache)
         pkey = 'photo:' + key
         if pkey not in cache:
             try:
@@ -970,7 +971,7 @@ def _mesh_color_ok():
         return MDK.dark_flag(cache[key], name, cache[pkey]) is None
 
     import atexit
-    atexit.register(lambda: dirty[0] and json.dump(cache, open(path, 'w')))
+    atexit.register(lambda: dirty[0] and _AIO.write_json(path, cache))
     return ok
 
 
@@ -1055,7 +1056,7 @@ def _write_demo_sets(sets: list) -> None:
     """Банк для солвера; переписываем только при изменении — раскладки не пересчитываются зря."""
     blob = json.dumps(sets, ensure_ascii=False)
     if not os.path.exists(DEMO_SETS) or open(DEMO_SETS, encoding='utf-8').read() != blob:
-        open(DEMO_SETS, 'w', encoding='utf-8').write(blob)
+        _AIO.write_text(DEMO_SETS, blob)
 
 
 def fill_report(journal: dict, gone: int) -> dict:
@@ -1069,7 +1070,7 @@ def fill_report(journal: dict, gone: int) -> dict:
           f"не в продаже вне вариантов {gone}", flush=True)
     if not BANK['live']:
         os.makedirs(OUT, exist_ok=True)
-        json.dump(rep, open(os.path.join(OUT, 'demo-fill-report.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        _AIO.write_json(os.path.join(OUT, 'demo-fill-report.json'), rep, ensure_ascii=False, indent=1)
     return rep
 
 
@@ -1881,11 +1882,10 @@ def main() -> None:
         raise SystemExit(f'--publish со сборкой в {OUT}: публикуется только папка витрины — копия банка идёт в /test/')
     os.makedirs(OUT, exist_ok=True)
     # ИСХОДНИК СТРАНИЦЫ ЖИВЁТ В РЕПО (26.08): до этого index.html лежал только в ~/scout-scenes и
-    # не попадал в git — демо было невоспроизводимо и терялось при чистке
-    import shutil
+    # не попадал в git — демо было невоспроизводимо и терялось при чистке. Копия — подменой (T-20261105-59)
     src = os.path.join(HERE, 'flat215-demo', 'index.html')
     if os.path.exists(src):
-        shutil.copy(src, os.path.join(OUT, 'index.html'))
+        _AIO.write_text(os.path.join(OUT, 'index.html'), open(src, encoding='utf-8').read())
     # ДВИЖОК ЖИВОЙ СЦЕНЫ (demo-01): тот же исходник, что /flat (`lib/viewer3d`), собирается рядом со страницей
     # (`lib/scene.<версия>.js` + `lib/scene.json`). Не собрался — остаётся вчерашний файл, страница работает с ним
     # или уходит на серверный эскиз; громко, а не молча.
@@ -1947,8 +1947,9 @@ def main() -> None:
             print(line, flush=True)
     except Exception as e:  # noqa: BLE001 — сломанный перевод не валит русскую витрину, но громко
         print(f'WARN:names_en_error: английские названия не записались: {repr(e)[:160]}', flush=True)
-    json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
-              ensure_ascii=False, indent=1)
+    # АТОМАРНО (T-20261105-59): раньше файл обрезался и писался заново — упавшая посреди записи сборка оставляла
+    # обрывок, и публикация увозила его на прод. Теперь временный файл рядом + os.replace (`atomic_io.py`)
+    _AIO.write_json(os.path.join(OUT, 'demo-data.json'), data, ensure_ascii=False, indent=1)
     # РАКУРСЫ ОКНА — В ДАННЫЕ (demo-05 п.8): тот же блок CAMFIT страницы считает пару ракурсов каждого варианта
     # (`tools/flat3d/demo-cams.mjs` → `v.cams`), ими снимает «Фото» в /flat. Не посчиталось — /flat покажет прежний вид
     r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/demo-cams.mjs" '
