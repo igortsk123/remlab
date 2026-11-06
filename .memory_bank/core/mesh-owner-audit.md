@@ -3,12 +3,12 @@ tier: 1
 topic: mesh-owner-audit
 scope: Приёмка мешей владельцем — /lab/mesh-audit
 tier2: "../completed_plans/mesh-owner-audit.md"
-updated: 2026-10-29
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-11
+last_verified: 2026-11-06
 review_after: 2026-12-05
 ---
 
@@ -22,7 +22,7 @@ review_after: 2026-12-05
 
 **Прод** (`db/schema.ts`: `mesh_audit_items`, `mesh_audit_decisions` — отмена УДАЛЯЕТ строку,
 append-only лишь `mesh_audit_cancellations`; `mesh_audit_batches`): клик = транзакция
-(`lib/mesh-audit/repo-decisions.ts:58-66`); правила
+(`lib/mesh-audit/repo-decisions.ts:decide`); правила
 `lib/mesh-audit/rules.ts` — 409 устаревшей вкладке, лимит, `(sku, попытка)` уникален.
 Ручки `app/api/lab/mesh-audit/*`, карточка `components/lab/MeshAuditCard.tsx` (GLB по клику); тесты `tests/unit/mesh-audit.test.ts`.
 
@@ -35,7 +35,7 @@ append-only лишь `mesh_audit_cancellations`; `mesh_audit_batches`): клик
 
 **Комментарий к браку (23.10, ADR-0324):** необязательное поле после «Переделать»/«Нужна замена» (`components/lab/MeshAuditVerdict.tsx`,
 колонка `comment`, `db/init/021-mesh-audit-comment.sql`); мост пишет его в журнал `mesh_decisions`; недельный разбор ведущего —
-`tools/scout/mesh_decisions.py --comments`. Брак без модели и записи — снова в спрос (`bank_ready.classify`).
+`tools/scout/mesh_decisions.py --comments`. Брак без модели и записи — снова в спрос, если мешепригоден (`bank_ready.classify`).
 
 **Приёмка освобождает диск (ADR-0233):** принято = просмотрено и не забраковано
 (`rules.ts:isAccepted`; `seen_at` сбрасывает новое поколение) → `?scope=accepted` → прополка

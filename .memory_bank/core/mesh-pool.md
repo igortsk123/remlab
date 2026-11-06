@@ -3,13 +3,13 @@ tier: 1
 topic: mesh-pool
 scope: Пул нод Salad — группы, тарифы, деньги, стопоры
 tier2: "../domain/mesh-pool-ops.md"
-updated: 2026-10-29
+updated: 2026-11-06
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-10-11
-review_after: 2027-01-09
+last_verified: 2026-11-06
+review_after: 2026-12-05
 ---
 
 # Пул нод Salad — Tier 1 (деньги и эксплуатация)
@@ -38,6 +38,6 @@ Interrupted (Priority)`), не OOM. Квота 50 реплик общая; ре�
 раздачи; кредиты кончились — только по `no_credits_available` (урок 404); слепой опрос ≠ «не платим» (урок 519); ручной старт — с
 `--rub-cap` (ADR-0317). **ADR-0198:** `/start` — только лежащим группам
 
-**Чистка приёмника** — только через API `DELETE /prefix/...` (ADR-0178), сторож `sink_keeper.sh`, порог 6 ГБ (ADR-0199).
+**Чистка приёмника** — только через API `DELETE /prefix/...` (ADR-0178), сторож `sink_keeper.sh`, порог — `sink_health.tight` (предел−2 ГБ; ADR-0199).
 
-**Tier 2:** `../domain/mesh-pool-ops.md` (регламент, замеры, разбор остановок) · ADR-0135, 0154, 0174–0178, 0198–0200, 0313–0317.
+**Tier 2:** `../domain/mesh-pool-ops.md` (регламент, замеры, остановки) · ADR-0135, 0154, 0174–0178, 0198–0200, 0313–0317.

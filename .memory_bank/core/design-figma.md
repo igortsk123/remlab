@@ -3,7 +3,7 @@ tier: 1
 topic: design-figma
 scope: Дизайн демо в Фигме для дизайнера — книги, страницы, как пересобрать, что правлено руками
 tier2: "../completed_plans/design-01-figma-export.md"
-updated: 2026-10-28
+updated: 2026-11-06
 importance: med
 source: manual
 status: working
@@ -26,7 +26,8 @@ Mobile 375 — `KeoB3huA9ce58swtNrDyrx`, Desktop 1440 — `lFSqAHtIH4gb45d1zvIXE
 `build-spec.mjs`) → `gen2.py` (данные + нарезка частями) → `use_figma` по `ПОРЯДОК.txt` → картинки (`upload_assets`, WebP → PNG)
 → `check.js` (все счётчики 0) → снимки. Сборщик, распаковщик и проверка лежат в самих книгах (`figma.root` sharedPluginData
 `remlab/builder2|inflate|check`). Скрипты страниц «Как пользоваться» (`howto.js`, затем `nyuansy.js`), «Счастливого пути» и
-структурной проверки — в `tools/design/figma/shots/*/` (пути — README).
+структурной проверки — в `tools/design/figma/shots/*/` (howto/nyuansy — README; путь — 1930-h4-d/happy-*.js,
+структура — 1941-h1-final/audit-structure.js).
 
 **Не переживёт пересборку из данных** (доведено руками, перечислено в «Нюансах»): кольцо выбранного цвета («Образцы», «Карточка
 товара», списки окна), план квартиры по комнатам (`plan-rooms.js`), фото в средней карточке «Избранного», «Изменить расстановку» в

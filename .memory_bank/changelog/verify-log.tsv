@@ -128,3 +128,22 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-06	core/catalog.md	code	20	1	1	T-62: якорь load3.py:404
 2026-11-06	core/demo-planner.md	code	13	1	1	T-62: экран ожидания фото
 2026-11-06	domain/catalog-enrichment.md	code	15	0	0	T-62: только раздел T-53 (роль сиденья, сторож); док целиком не сверен, last_verified не двигали
+2026-11-06	.memory_bank/core/architecture.md	drift	41	2	2	
+2026-11-06	.memory_bank/core/data-model.md	drift	31	2	2	
+2026-11-06	.memory_bank/core/demo-scenarios.md	drift	21	0	0	
+2026-11-06	.memory_bank/core/bedroom.md	drift	19	4	2	T-63: 2 вопроса ведущему (чего нет; перенос в products), last_verified не двигаем
+2026-11-06	.memory_bank/core/design-figma.md	drift	16	1	1	T-63: вопрос ведущему (экраны design-02 в порядке страниц), last_verified не двигаем
+2026-11-06	.memory_bank/core/regression-net.md	drift	31	4	4	
+2026-11-06	.memory_bank/core/stock-and-dims.md	drift	24	0	0	
+2026-11-06	.memory_bank/core/styles.md	drift	18	1	1	
+2026-11-06	.memory_bank/core/user-flow.md	drift	26	2	2	
+2026-11-06	.memory_bank/core/estimate.md	drift	22	0	0	
+2026-11-06	.memory_bank/core/furniture.md	drift	20	2	2	
+2026-11-06	.memory_bank/core/knowledge-db.md	drift	21	2	2	
+2026-11-06	.memory_bank/core/layout.md	drift	18	2	2	
+2026-11-06	.memory_bank/core/lr-checklist.md	drift	17	0	0	
+2026-11-06	.memory_bank/core/mesh-color.md	drift	11	1	1	
+2026-11-06	.memory_bank/core/mesh-owner-audit.md	drift	24	2	2	
+2026-11-06	.memory_bank/core/mesh-pipeline.md	drift	24	0	0	
+2026-11-06	.memory_bank/core/mesh-pool.md	drift	25	1	1	
+2026-11-06	.memory_bank/core/mesh-run.md	drift	19	3	2	T-63: вопрос ведущему (комнаты через MESH_QUEUE_FILE в рабочем варианте), last_verified не двигаем
