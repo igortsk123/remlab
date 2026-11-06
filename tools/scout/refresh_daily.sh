@@ -483,7 +483,8 @@ for room in bedroom hall; do
     step room_check_$room "$PY" room_bootstrap.py --room "$room" check --night
   fi
   if [ "$(room_flag "$room" prepare_enabled)" != 1 ]; then RES[chain_$room]=выключено; continue; fi
-  if [ "${RES[compose_$room]:-}" != ok ]; then RES[chain_$room]="нет кандидата"; continue; fi
+  # warn сборки (стиль пропущен по правилу ядра, T-89/2) — кандидат записан, цепочка идёт; FAIL — кандидата нет
+  case "${RES[compose_$room]:-}" in ok|warn) ;; *) RES[chain_$room]="нет кандидата"; continue ;; esac
   rid="$BANK_RUN_ID-$room"
   if step bank_prepare_$room "$PY" bank_prepare.py --room "$room" --run-id "$rid" \
     && step bank_pending_$room "$PY" bank_pending.py --room "$room" --night --run-id "$rid" \

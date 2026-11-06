@@ -57,11 +57,30 @@ def _sha_file(path: str) -> str | None:
 SPARE = 'warn'      # суд поколения 0: нехватка запаса замен у мебели — предупреждение в журнал (ведущий T-70/2)
 
 
-def verdict(room: str, cand: list, spare: str = SPARE) -> list[str]:
+def skipped_of(cand_path: str) -> dict:
+    """Стили, пропущенные сборщиком по правилу ядра (`compose_bedroom.core_skip`) — из отчёта рядом с кандидатом; нет — {}."""
+    import room_candidate as RC
+    try:
+        return dict(json.load(open(RC.report_path(cand_path), encoding='utf-8')).get('skipped_styles') or {})
+    except (FileNotFoundError, ValueError, TypeError):
+        return {}
+
+
+def verdict(room: str, cand: list, spare: str = SPARE, skipped: dict | None = None) -> list[str]:
     """Отказы кандидата (пусто — годен к поколению 0): идентичность и происхождение, затем раскладка и состав
-    (`compose_bedroom.check_bank(spare=…)`; '~' — предупреждения, не отказ)."""
+    (`compose_bedroom.check_bank(spare=…)`; '~' — предупреждения, не отказ). `skipped` — стили, пропущенные по правилу ядра
+    (T-20261106-89/2): матрица без них; стиль живого банка среди пропущенных — отказ (суд защиту повторяет, не верит на слово)."""
     import room_identity as RI
-    bad = RI.check(cand, RI.expected(room), RI.provenance(room), room)
+    want = RI.expected(room)
+    if skipped and room == 'bedroom':
+        import compose_bedroom as CB
+        import room_coverage as RCov
+        lost = sorted(set(skipped) & (RCov.live_styles(room) or set()))
+        if lost:
+            return [f'стиль живого банка пропущен по правилу ядра: {", ".join(lost)}']
+        R = CB.rules()
+        want = RI.expected(room, dict(R, styles=[s for s in R['styles'] if s not in skipped]))
+    bad = RI.check(cand, want, RI.provenance(room), room)
     if bad:
         return bad
     if room == 'bedroom':
@@ -115,7 +134,7 @@ def run(P: dict, R: dict, room: str, cand_path: str, *, confirm: bool, verdict_f
     except (FileNotFoundError, ValueError) as e:
         _say(f'ERROR:room_bootstrap: кандидат {cand_path} не читается ({type(e).__name__}) — живой банк не создан')
         return 1
-    bad = (verdict_fn or verdict)(room, cand)
+    bad = verdict_fn(room, cand) if verdict_fn else verdict(room, cand, skipped=skipped_of(cand_path))
     if bad:
         _say(f'ERROR:room_bootstrap: кандидат не прошёл проверку ({len(bad)}) — живой банк не создан'
              + ''.join(f'\n  ✗ {x}' for x in bad[:20]))
@@ -242,8 +261,11 @@ def main(argv: list) -> int:
         except (FileNotFoundError, ValueError) as e:
             _say(f'ERROR:room_bootstrap: кандидат {cand} не читается ({type(e).__name__})')
             return 1
-        bad = verdict(room, c)
+        skipped = skipped_of(cand)
+        bad = verdict(room, c, skipped=skipped)
         warns = [] if bad else spare_warnings(room, c)
+        if skipped:
+            _say('пропущены по правилу ядра: ' + '; '.join(f'{s} (нет ' + '/'.join(m) + ')' for s, m in skipped.items()))
         _say(f'room_bootstrap check {room}: кандидат {cand}, записей {len(c)}, отказов {len(bad)}, предупреждений {len(warns)}'
              + ''.join(f"\n  ~ {w['set_id']} {w['role']} — замен {w['alternates']} < {w['min']}" for w in warns[:30])
              + ''.join(f'\n  ✗ {x}' for x in bad[:30]) + ('' if bad else ' — годен к поколению 0 (запись — `run --confirm-lead`)'))

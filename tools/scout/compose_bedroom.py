@@ -688,6 +688,33 @@ def _check_text(bank: list, problems: list) -> str:
             + ''.join(f'\n  ✗ {p}' for p in hard) + ''.join(f'\n  ~ {p}' for p in warn))
 
 
+def core_skip(C: 'Composer', R: dict) -> tuple[dict, int]:
+    """Правило `style_requires_core` (T-20261106-89/2, ведущий 06.11): стиль без хотя бы одной группы ядра (кровать, шкаф/комод,
+    у пары тумба) ни в одном назначении ночью не собирается — {стиль: [чего нет]}, WARN и строка сводки; товары появились —
+    стиль вернулся сам (счёт каждую ночь). Суд не ослаблен: собранная ячейка с жёстким нарушением по-прежнему роняет кандидата.
+    Защита: стиль ЖИВОГО банка (`room_coverage.live_styles`) так исключаться не вправе — это поломка каталога, а не тонкий стиль:
+    ERROR, код 1, кандидат не пишется (сводка — FAIL). → (пропущенные, код)."""
+    if not R.get('style_requires_core'):
+        return {}, 0
+    import room_coverage as RCov
+    gaps = RCov.core_gaps(RCov.bedroom_core_counts(C, R), R)
+    live = RCov.live_styles('bedroom') or set()
+    lost = [s for s in gaps if s in live]
+    for s, miss in gaps.items():
+        print(f'DIGEST:{RCov.skip_text(s, miss)}' + (' — СТИЛЬ ЖИВОГО БАНКА' if s in live else ''), flush=True)
+    if lost:
+        what = ', '.join(f'{s} (нет ' + '/'.join(gaps[s]) + ')' for s in lost)
+        print(f'ERROR:compose_bedroom: стиль живого банка без ядра — {what}; '
+              'похоже на поломку каталога, а не тонкий стиль — кандидат НЕ записан, прежний не тронут', flush=True)
+        return gaps, 1
+    for s, miss in gaps.items():
+        print(f'WARN:compose_bedroom: {RCov.skip_text(s, miss)}; стиль вернётся сам, когда товары появятся', flush=True)
+    if len(gaps) == len(R['styles']):
+        print('ERROR:compose_bedroom: ни у одного стиля нет ядра — собирать нечего, кандидат НЕ записан', flush=True)
+        return gaps, 1
+    return gaps, 0
+
+
 def main(argv: list) -> int:
     sys.path.insert(0, SOLVER)
     sys.path.insert(0, HERE)
@@ -711,7 +738,12 @@ def main(argv: list) -> int:
     import room_identity as RI
     C.prov = RI.provenance('bedroom')
     print(f'мебели {len(cat)}, декора {len(decor)}, мешей готово {len(ready)} / сгенерировано {len(gen)}', flush=True)
+    skipped, rc = core_skip(C, R)
+    if rc:
+        return rc
+    R = C.R = dict(R, styles=[s for s in R['styles'] if s not in skipped])
     bank, report = compose(rooms, C)
+    report['skipped_styles'] = skipped
     need: dict = {}
     for s in bank:
         for r, it in s['items'].items():

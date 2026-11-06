@@ -79,6 +79,63 @@ def hall_rows(extra_tiers: list[str]) -> list[dict]:
 
 THIN = 3
 
+# ЯДРО СПАЛЬНИ (T-20261106-89/2, ведущий 06.11): стиль без хотя бы одной группы ядра ни в одном назначении ночью не собирается —
+# группы те же, что у суда `compose_bedroom.check_bank` («ядро неполное (кровать + шкаф/комод)», «пара без двух тумб»)
+CORE = (('кровати', ('кровать',), None), ('шкафа/комода', ('шкаф', 'комод'), None),
+        ('тумбы', ('тумба прикроватная',), 'couple'))
+
+
+def core_gaps(counts: dict, R: dict) -> dict[str, list[str]]:
+    """{стиль: [группы ядра без единого товара в стиле]} по счёту `counts[(роль, стиль, назначение)]` → «в стиле».
+    Группа с назначением (тумба — у пары) считается только по таким назначениям; назначений этого вида нет — группа не нужна.
+    Чистая функция: ни БД, ни каталога (тест и селфтест — на словаре)."""
+    live = [p for p, pc in R['purposes'].items() if not pc.get('empty')]
+    out = {}
+    for style in R['styles']:
+        miss = []
+        for label, roles, kind in CORE:
+            ps = [p for p in live if kind is None or p.split(':')[0] == kind]
+            if ps and not any(counts.get((r, style, p), 0) for p in ps for r in roles):
+                miss.append(label)
+        if miss:
+            out[style] = miss
+    return out
+
+
+def bedroom_core_counts(C, R: dict) -> dict:
+    """Счёт «в стиле» у ролей ядра по назначениям — тем же `Composer.pool`, что у сборщика (первая ступень: число «в стиле»
+    от ступени не зависит). Состояние сборщика (`purpose`) возвращается как было."""
+    roles = {r for _, rs, _ in CORE for r in rs}
+    tier = next(iter(R['tiers']))
+    was, out = C.purpose, {}
+    try:
+        for purpose, pc in R['purposes'].items():
+            if pc.get('empty'):
+                continue
+            C.purpose = purpose
+            for sl in pc['slots']:
+                if sl['role'] in roles:
+                    for style in R['styles']:
+                        C.pool(sl, style, tier, C.cat)
+                        out[(sl['role'], style, purpose)] = C.shortage[(sl['role'], style, purpose)][0]
+    finally:
+        C.purpose = was
+    return out
+
+
+def live_styles(room: str) -> set[str] | None:
+    """Стили живого банка комнаты — их правило ядра исключать не вправе (исключился — FAIL, не WARN). Нет банка — None."""
+    import room_bank_spec as RBS
+    try:
+        bank = json.load(open(RBS.for_room(room).live, encoding='utf-8'))
+    except (FileNotFoundError, ValueError):
+        return None
+    return {s.get('style') for s in (bank['sets'] if isinstance(bank, dict) else bank) if s.get('style')}
+
+
+def skip_text(style: str, miss: list[str]) -> str:
+    return f'спальня: {style} пропущена — нет {"/".join(miss)} в стиле'
+
 
 def markdown(rows: list[dict], styles_new: set) -> str:
     out = ['# Покрытие каталога комнат по стилям', '',
@@ -101,7 +158,36 @@ def markdown(rows: list[dict], styles_new: set) -> str:
     return '\n'.join(out)
 
 
+def _selftest() -> int:
+    bad = 0
+
+    def ok(name, cond):
+        nonlocal bad
+        print(('OK   ' if cond else 'FAIL ') + name)
+        bad += not cond
+    R = {'styles': ['сканди', 'неоклассика'], 'purposes': {'couple': {}, 'single': {}, 'child:0-3': {'empty': 'PENDING'}}}
+    full = {(r, 'сканди', p): 3 for p in ('couple', 'single') for r in ('кровать', 'шкаф', 'тумба прикроватная')}
+    neo = {('кровать', 'неоклассика', 'couple'): 46}
+    ok('сканди с ядром — не пропускается', 'сканди' not in core_gaps(full, R))
+    ok('неоклассика без шкафа/комода и тумбы — пропуск с обеими группами',
+       core_gaps({**full, **neo}, R).get('неоклассика') == ['шкафа/комода', 'тумбы'])
+    ok('комод вместо шкафа — ядро есть', 'неоклассика' not in core_gaps(
+        {**full, **neo, ('комод', 'неоклассика', 'single'): 1, ('тумба прикроватная', 'неоклассика', 'couple'): 2}, R))
+    ok('тумба только у одиночной — паре не хватает', core_gaps(
+        {**full, **neo, ('шкаф', 'неоклассика', 'couple'): 1, ('тумба прикроватная', 'неоклассика', 'single'): 5}, R)
+       .get('неоклассика') == ['тумбы'])
+    R1 = dict(R, purposes={'single': {}})
+    ok('пар нет — тумба не нужна', core_gaps({('кровать', 'неоклассика', 'single'): 1, ('шкаф', 'неоклассика', 'single'): 1},
+                                               dict(R1, styles=['неоклассика'])) == {})
+    ok('строка сводки', skip_text('неоклассика', ['шкафа/комода', 'тумбы'])
+       == 'спальня: неоклассика пропущена — нет шкафа/комода/тумбы в стиле')
+    print('ИТОГ:', 'OK' if not bad else f'FAIL {bad}')
+    return 1 if bad else 0
+
+
 def main(argv: list) -> int:
+    if '--selftest' in argv:
+        return _selftest()
     if '--out' not in argv:
         print(__doc__)
         return 2

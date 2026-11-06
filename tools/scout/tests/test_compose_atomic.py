@@ -7,7 +7,9 @@
   • жёсткое нарушение → код 1, строка `ERROR:compose_<комната>:`, прежний кандидат и его отчёт байт в байт, отказ — рядом;
   • годный → код 0, кандидат и отчёт подменены, временных файлов нет;
   • «пропали ячейки» (включена не вся комната / ячейка пуста по каталогу) — предупреждение, не отказ;
-  • прихожая: id набора — от ячейки, происхождение в записи, матрица — стили × ступени (`room_identity.expected('hall')`).
+  • прихожая: id набора — от ячейки, происхождение в записи, матрица — стили × ступени (`room_identity.expected('hall')`);
+  • спальня, правило ядра (T-20261106-89/2): стиль без ядра в каталоге пропускается — WARN + строка сводки, матрица без него,
+    суд поколения 0 знает о пропуске из отчёта; стиль ЖИВОГО банка так исключиться не может — код 1, кандидат не тронут.
 
   python3 tests/test_compose_atomic.py
 """
@@ -25,7 +27,9 @@ sys.path.insert(0, SCOUT)
 
 import compose_bedroom as CB  # noqa: E402
 import compose_hall as CH  # noqa: E402
+import room_bootstrap as RBo  # noqa: E402
 import room_candidate as RC  # noqa: E402
+import room_coverage as RCov  # noqa: E402
 import room_identity as RI  # noqa: E402
 
 bad = 0
@@ -48,15 +52,28 @@ def _bank_for(room: str, R: dict, cells: list, broken: bool) -> list:
     return out
 
 
-def _run(mod, room: str, td: str, bank: list, problems: list, argv: list) -> tuple[int, str]:
-    """`main` сборщика без базы: каталог пустой, сборка и проверка состава — подставные; кандидат — в песочницу."""
+SEEN: dict = {}
+
+
+def _run(mod, room: str, td: str, bank: list, problems: list, argv: list, gaps: dict | None = None,
+         live: set | None = None) -> tuple[int, str]:
+    """`main` сборщика без базы: каталог пустой, сборка и проверка состава — подставные; кандидат — в песочницу.
+    `gaps` — что «нашёл» счёт ядра спальни (по умолчанию ядро есть у всех стилей), `live` — стили живого банка."""
     saved = {k: getattr(mod, k) for k in ('compose', 'check_bank')}
+    cov = {k: getattr(RCov, k) for k in ('bedroom_core_counts', 'core_gaps', 'live_styles')}
+    RCov.bedroom_core_counts = lambda *a, **k: {}
+    RCov.core_gaps = lambda *a, **k: dict(gaps or {})
+    RCov.live_styles = lambda *a, **k: live
+    SEEN.clear()
     extra = {'load_items': lambda *a, **k: ([], []) if mod is CB else []}
     saved.update({k: getattr(mod, k) for k in extra})
     out = os.path.join(td, f'sets-{room}.next.json')
     os.environ['ROOM_SETS_OUTPUT'] = out
     rep = {'cells': [], 'shortage': {}, 'by_role': {}}
-    mod.compose = lambda *a, **k: (json.loads(json.dumps(bank)), dict(rep))
+    def compose(rooms, C, *a, **k):
+        SEEN['styles'] = list(C.R['styles']) if hasattr(C, 'R') else None
+        return json.loads(json.dumps(bank)), dict(rep)
+    mod.compose = compose
     mod.check_bank = lambda *a, **k: list(problems)
     for k, v in extra.items():
         setattr(mod, k, v)
@@ -70,6 +87,8 @@ def _run(mod, room: str, td: str, bank: list, problems: list, argv: list) -> tup
     finally:
         for k, v in saved.items():
             setattr(mod, k, v)
+        for k, v in cov.items():
+            setattr(RCov, k, v)
         CI.mesh_state = ms
         os.environ.pop('ROOM_SETS_OUTPUT', None)
     return rc, buf.getvalue()
@@ -99,9 +118,53 @@ def case(mod, room: str, R: dict, want: list, argv: list) -> None:
            and any(w.startswith(RC.LOST) for w in json.load(open(RC.report_path(out)))['check']['warn']), (rc, txt[-400:]))
 
 
+def core_case(R: dict) -> None:
+    """Правило ядра спальни: пропуск нового стиля — WARN; исключение стиля живого банка — FAIL; суд знает о пропуске."""
+    old5 = [s for s in R['styles'] if s != 'неоклассика']
+    R5 = dict(R, styles=old5)
+    miss = ['шкафа/комода', 'тумбы']
+    ok('спальня: правило ядра включено в составе (style_requires_core)', R.get('style_requires_core') is True)
+    with tempfile.TemporaryDirectory() as td:
+        out = os.path.join(td, 'sets-bedroom.next.json')
+        bank5 = _bank_for('bedroom', R5, CB.cells(R5), broken=False)
+        rc, txt = _run(CB, 'bedroom', td, bank5, [], [], gaps={'неоклассика': miss}, live=set(old5))
+        rep = json.load(open(RC.report_path(out)))
+        line = RCov.skip_text('неоклассика', miss)
+        ok('спальня: неоклассика без ядра — пропущена: код 0, кандидат из 5 стилей записан, сборщик её не собирал, '
+           'WARN и строка сводки «спальня: неоклассика пропущена — нет шкафа/комода/тумбы в стиле», «пропали ячейки» нет',
+           rc == 0 and json.load(open(out)) == bank5 and SEEN.get('styles') == old5
+           and f'WARN:compose_bedroom: {line}' in txt and f'DIGEST:{line}' in txt
+           and line == 'спальня: неоклассика пропущена — нет шкафа/комода/тумбы в стиле'
+           and rep.get('skipped_styles') == {'неоклассика': miss} and not any(w.startswith(RC.LOST) for w in rep['check']['warn']),
+           (rc, SEEN, txt[-500:]))
+        chk = CB.check_bank
+        CB.check_bank = lambda *a, **k: []
+        lv = RCov.live_styles
+        RCov.live_styles = lambda *a, **k: set(old5)
+        try:
+            sk = RBo.skipped_of(out)
+            ok('суд поколения 0: пропуск читает из отчёта кандидата, матрица без неоклассики — отказов 0',
+               sk == {'неоклассика': miss} and RBo.verdict('bedroom', bank5, skipped=sk) == [], RBo.verdict('bedroom', bank5, skipped=sk)[:2])
+            ok('суд поколения 0: без отчёта о пропуске те же 5 стилей — «пропали ячейки» (полная матрица)',
+               any(x.startswith(RC.LOST) for x in RBo.verdict('bedroom', bank5)))
+            v = RBo.verdict('bedroom', bank5, skipped={'сканди': miss})
+            ok('суд поколения 0: в отчёте пропущен стиль живого банка — отказ', len(v) == 1 and 'сканди' in v[0], v)
+        finally:
+            CB.check_bank, RCov.live_styles = chk, lv
+        old = open(out, 'rb').read()
+        rc, txt = _run(CB, 'bedroom', td, bank5, [], [], gaps={'сканди': ['шкафа/комода'], 'неоклассика': miss}, live=set(old5))
+        ok('спальня: стиль живого банка (сканди) остался без ядра — код 1 (сводка FAIL), ERROR, сборки не было, кандидат цел',
+           rc == 1 and 'ERROR:compose_bedroom: стиль живого банка без ядра — сканди' in txt and 'WARN:' not in txt
+           and 'styles' not in SEEN and open(out, 'rb').read() == old, (rc, txt[-400:]))
+        rc, txt = _run(CB, 'bedroom', td, bank5, [], [], gaps={s: miss for s in R['styles']}, live=None)
+        ok('спальня: живого банка нет, ядра нет ни у одного стиля — код 1, собирать нечего', rc == 1
+           and 'ни у одного стиля нет ядра' in txt and open(out, 'rb').read() == old, (rc, txt[-300:]))
+
+
 def main() -> int:
     Rb = CB.rules()
     case(CB, 'bedroom', Rb, CB.cells(Rb), [])
+    core_case(Rb)
     Rh = CH.rules()
     want = RI.expected('hall')
     ok('прихожая: матрица room_identity = compose_hall.cells (стили × ступени), без повторов',

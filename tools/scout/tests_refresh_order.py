@@ -27,7 +27,8 @@ cd "$TD"
 LOG="$TD/log"; STAMP="$TD/stamp"; today=x; PY="$TD/py"
 declare -A RES; RES[candidates]=ok; RES[sets_index]=ok
 step() { local n="$1"; shift; local c="$*"; local id="${BANK_RUN_ID:-}"; c="${c//$PY/\$PY}"; [ -n "$id" ] && c="${c//$id/\$BANK_RUN_ID}"
-  echo "$n :: $c" >> "$TD/steps"; if [ "$n" = "${FAIL_STEP:-}" ]; then RES[$n]=FAIL; return 1; fi; RES[$n]=ok; return 0; }
+  echo "$n :: $c" >> "$TD/steps"; if [ "$n" = "${FAIL_STEP:-}" ]; then RES[$n]=FAIL; return 1; fi
+  if [ "$n" = "${WARN_STEP:-}" ]; then RES[$n]=warn; return 0; fi; RES[$n]=ok; return 0; }
 paid_step() { step "$@"; }
 date() { case "${1:-}" in +%u) echo "$WEEKDAY" ;; +%s) echo 0 ;; *) command date "$@" ;; esac; }   # +%s — метка в адресе, шаги сравнимы
 '''
@@ -52,8 +53,9 @@ def night(text: str, write: int, weekday: int = 3, lock: bool = False, fail: str
 
 
 def night_log(text: str, write: int, weekday: int = 3, lock: bool = False, fail: str = '',
-              start: str = START, flags: str = '', publish: str = '') -> tuple[list[str], str]:
-    """(шаги, лог ночи): `fail` — шаг, который заглушка роняет (код 1); `start` — с какого шага (HEAD — вся ночь)."""
+              start: str = START, flags: str = '', publish: str = '', warn: str = '') -> tuple[list[str], str]:
+    """(шаги, лог ночи): `fail` — шаг, который заглушка роняет (код 1); `warn` — шаг с WARN (код 0, статус warn);
+    `start` — с какого шага (HEAD — вся ночь)."""
     with tempfile.TemporaryDirectory(prefix='night-order-') as td:
         open(os.path.join(td, 'py'), 'w').write(PY_STUB)
         os.chmod(os.path.join(td, 'py'), 0o755)
@@ -62,7 +64,7 @@ def night_log(text: str, write: int, weekday: int = 3, lock: bool = False, fail:
         sh = os.path.join(td, 'run.sh')
         open(sh, 'w', encoding='utf-8').write(PRELUDE + tail(text, start))
         p = subprocess.run(['bash', sh], env={**os.environ, 'TD': td, 'WEEKDAY': str(weekday), 'BANK_WRITE_STUB': str(write),
-                                              'FAIL_STEP': fail, 'ROOMFLAGS_STUB': flags, 'ROOM_PUBLISH_STUB': publish},
+                                              'FAIL_STEP': fail, 'WARN_STEP': warn, 'ROOMFLAGS_STUB': flags, 'ROOM_PUBLISH_STUB': publish},
                            capture_output=True, text=True, timeout=60)
         if p.returncode:
             raise RuntimeError(f'bash rc={p.returncode}: {p.stderr[-400:]}')
@@ -253,6 +255,10 @@ def _rooms_bank(text: str, ok) -> int:
            'ночь (витрина, публикация) — те же; в дайджесте спальни FAIL',
            gn == [n for n in fn if n not in gone] and 'compose_hall' in gn and 'flat215_publish' in gn
            and any(ln.startswith('DIGEST:спальня (банк): ') and 'FAIL' in ln for ln in flog.splitlines()), (gn[-8:], flog[-300:]))
+    got, wlog = night_log(text, 0, start=HEAD, flags=chain, warn='compose_bedroom')
+    ok('банки комнат: сборка спальни с WARN (стиль пропущен по правилу ядра, T-89/2) — кандидат есть: суд и цепочка идут, '
+       'в дайджесте «сборка warn»', names(got) == fn and any(ln.startswith('DIGEST:спальня (банк): ') and 'сборка warn' in ln
+                                                            for ln in wlog.splitlines()), (names(got)[-8:], wlog[-300:]))
     full, _ = night_log(text, 0, start=HEAD, publish='bedroom,hall=next')
     cmd = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in full}
     plain = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in night(text, 0, start=HEAD)}
