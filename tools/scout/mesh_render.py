@@ -62,13 +62,17 @@ LITE_MIN = 2500
 # после этого добирают единицы пикселей, а не тысячи.
 LITE_BORDER = os.environ.get('MESH_LITE_BORDER', '1') == '1'
 LITE_CAP = float(os.environ.get('MESH_LITE_CAP', '1.6'))   # во сколько раз выше цели ещё терпим                                              # мельче не трогаем — нечего экономить
+# ТЕКСТУРА ВАЖНЕЕ СКОРОСТИ (T-20261105-51/2, флаг; по умолчанию выкл — включает ведущий после листа «было/стало»):
+# у меша с текстурой упрощение без защиты границы тянет UV через швы атласа — на эскизе пятна чужого цвета (кровати
+# спальни Барроу и Юген: полный GLB чистый, пятна только в эскизной копии). Такой меш рисуем полным: дольше, но верно.
+LITE_TEXTURE_SAFE = os.environ.get('LITE_TEXTURE_SAFE', '0') == '1'
 _LITE_CACHE: dict = {}
 
 
 def lite_parts(path: str, target: int | None = None) -> list:
     """Части меша, упрощённые под эскиз, с сохранением текстуры."""
     target = int(target or LITE_FACES)
-    key = (path, target, LITE_BORDER)   # флаг границы обязан быть в ключе (нашёл Codex 02.09)
+    key = (path, target, LITE_BORDER, LITE_TEXTURE_SAFE)   # флаги обязаны быть в ключе (нашёл Codex 02.09)
     if key in _LITE_CACHE:
         return _LITE_CACHE[key]
     parts = load_parts(path)
@@ -101,6 +105,11 @@ def lite_parts(path: str, target: int | None = None) -> list:
                 # зато обещание «5 секунд на кадр» остаётся честным.
                 probe = _fs.simplify(V, F, target_reduction=red, preserve_border=True)[1]
                 if len(probe) > LITE_CAP * max(target, 1):
+                    if LITE_TEXTURE_SAFE and uv is not None and mat is not None:
+                        print(f'  {os.path.basename(path)}: граница не даёт ужать ({len(probe)} граней), '
+                              f'у меша текстура — рисую полный ({n} граней)')
+                        out.append(m)
+                        continue
                     border = False
                     print(f'  {os.path.basename(path)}: граница не даёт ужать '
                           f'({len(probe)} граней) — упрощаю без неё')

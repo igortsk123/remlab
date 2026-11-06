@@ -1161,6 +1161,43 @@ def bedroom_one_layout(recs: list, styles: list) -> dict:
     return out
 
 
+BEDROOM_MESH_GATE_ENV = 'BEDROOM_MESH_GATE'   # '0' — сторож модели предметов спальни выключен (откат, T-20261105-51/2)
+
+
+def bedroom_mesh_gate(rows=None, why: str = ''):
+    """Сторож модели предмета варианта спальни (`demo_bedroom.gate_items`): sku → '' (годен) или причина. Та же проверка, что у
+    выдачи каталога (`catalog_items.bound_asset` поверх `room_bindings.load_db`): привязка `ready` и модель выложена
+    (`published`); плюс сцена грузит именно эту модель (`msid` = `mesh_id` привязки — иначе в кадре меш представителя, которого
+    привязка не проверяла) и она есть в индексе прода (`_mesh_index`, без карантина) — иначе серая коробка.
+    Привязка не читается — все предметы «unbound» с причиной (вариант честно пустеет, а не показывает заглушки)."""
+    if os.environ.get(BEDROOM_MESH_GATE_ENV) == '0':
+        print('WARN:bedroom_mesh_gate: выключен (BEDROOM_MESH_GATE=0) — предметы спальни без проверки модели', flush=True)
+        return None
+    import catalog_items as CI
+    if rows is None:
+        import room_bindings as RB
+        rows, why = RB.load_db(CI.fetch)
+        if why:
+            print(f'WARN:bedroom_mesh_gate: привязка не читается ({why}) — у предметов спальни моделей нет', flush=True)
+    idx = _mesh_index()
+
+    def ok(s: dict) -> str:
+        sid, ms = s.get('sid'), s.get('msid')
+        if not sid:
+            return 'нет артикула'
+        a = CI.bound_asset({}, (rows or {}).get(sid.replace('_', ':', 1)), why)
+        if not a['ready']:
+            return f"привязка {a['mesh_status']}" + (f": {', '.join(a['reasons'][:2])}" if a['reasons'] else '')
+        if not a['published']:
+            return 'модель не выложена'
+        if (a['mesh_id'] or '').replace(':', '_', 1) != ms:
+            return f"сцена грузит {ms}, привязка проверила {a['mesh_id']}"
+        if ms not in idx:
+            return 'нет в индексе прода'
+        return ''
+    return ok
+
+
 def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomplete: list, room: dict,
                      bcat: dict) -> tuple[dict, dict]:
     """СПАЛЬНИ В ВИТРИНЕ (onb-07 Т2): варианты включённых спален из банка (`demo_bedroom`) — в конец `variants`, ленты ролей
@@ -1184,10 +1221,16 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     made = 0
     recs = DB.pick_records(bank, list(geos), styles)
     lays = bedroom_one_layout(recs, styles)
+    gate = bedroom_mesh_gate()
     for rec in recs:
         v, why = DB.build_variant(rec, geos[rec['room_id']], _sku, _dims_of, style_id, hung=_hung,
                                   decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r),
-                                  layout=lays.get((rec['room_id'], rec.get('style'))))
+                                  layout=lays.get((rec['room_id'], rec.get('style'))), mesh_ok=gate)
+        for e in (v or {}).get('mesh_swaps') or []:
+            print(f"bedroom_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']}: {e['was'][1]} ({e['why']}) → "
+                  f"{e['now'][1]}", flush=True)
+        for e in ((v or {}).get('missing_item') or []) + ((why or {}).get('mesh') or []):
+            print(f"WARN:bedroom_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']} пустая — {e['why']}", flush=True)
         if why:
             print(f'WARN:demo_style_dropped: {why["room_id"]} «{why["style"]}» без {", ".join(map(str, why["missing"]))} — '
                   'не публикуем', flush=True)
