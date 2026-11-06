@@ -1014,7 +1014,9 @@ def main_want(a: list, arg, room: str, total: float, since: str, price: float, o
     entries = []
     try:
         if '--want' in a:
-            p = arg('--want') or WANT_FILE
+            p = arg('--want')
+            if not p or p.startswith('--'):     # `--want` без пути — файл по умолчанию, следующий ключ не съедаем
+                p = WANT_FILE
             entries += json.load(open(p, encoding='utf-8'))['items']
         if '--hall-bank' in a:
             hb = arg('--hall-bank')
