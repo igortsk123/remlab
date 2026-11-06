@@ -39,6 +39,30 @@ def yaw_sure(oinfo: dict) -> bool:
     return any(k in src for k in _LEGACY_SURE)
 
 
+def role_directed(role, name: str = '') -> bool:
+    """Есть ли у роли перед — канон `front` в `rules/asset-strategies.json` (T-20261106-78); роль с мешем без записи —
+    направленная. Канон недоступен — направленная (безопаснее не доверять «симметричному» повороту)."""
+    try:
+        import asset_strategy as AS
+        return AS.is_directed(role, name or '')
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def pub_trusted(pub: dict | None, directed: bool) -> bool:
+    """Можно ли нерешённому взять поворот прода «без изменений» (T-20261106-78, ведущий 06.11): только если сама
+    прод-запись РЕШЁННАЯ (`…:auto_resolved:…`, `…:human_resolved:…`, ручная `human:…`) и не «symmetric» у
+    направленной роли. До p2 в прод уходил поворот любого решения: `review_pending` (Теджонс шкаф 180 — задом),
+    «симметрична по роли» у вешалок и обувниц (180/270/90), фасад по глубине `cabinet_depth` — такие повороты
+    случайны, держать их нельзя; вместо них 0 (сырой меш смотрит на камеру фото)."""
+    o = str((pub or {}).get('orient') or '')
+    if (pub or {}).get('yaw') is None:
+        return False
+    if not (':auto_resolved:' in o or ':human_resolved:' in o or o.startswith('human:')):
+        return False
+    return not (is_symmetric(o) and directed)
+
+
 def is_symmetric(src) -> bool:
     """Источник решения — «симметричный по роли» (столик, люстра, ваза…): фронта нет, yaw БД — случайное наследие."""
     return 'symmetric' in str(src or '')
@@ -121,6 +145,21 @@ def selftest() -> int:
     nonsym = {'yaw': 90.0, 'status': 'auto_resolved', 'orient': 'orient-v1:auto_resolved:orienter+vlm_agree'}
     ok(publish_entry(nonsym, {'yaw': 0.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}) == nonsym,
        'несимметричное решение заменяет прежний symmetric на проде')
+    R = 'orient-v1:auto_resolved:orienter+vlm_agree'
+    ok(pub_trusted({'yaw': 90, 'orient': R}, True), 'решённая прод-запись — доверяем')
+    ok(pub_trusted({'yaw': 270, 'orient': 'human:agent-visual:y270'}, True), 'ручная прод-запись — доверяем')
+    ok(pub_trusted({'yaw': 90, 'orient': 'orient-v1:human_resolved:human:front_90'}, True), 'human_resolved — доверяем')
+    ok(not pub_trusted({'yaw': 180, 'orient': 'orient-v1:review_pending:vlm_unsure'}, True),
+       'нерешённая прод-запись (Теджонс 180) — не доверяем')
+    ok(not pub_trusted({'yaw': 90, 'orient': 'orient-v1:vlm_pending:awaiting_vlm'}, True), 'vlm_pending — не доверяем')
+    ok(not pub_trusted({'yaw': 180, 'orient': 'orient-v1:cabinet_depth'}, True), 'фасад по глубине — не доверяем')
+    ok(not pub_trusted({'yaw': 180, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}, True),
+       'symmetric у направленной роли (вешалка 180) — не доверяем')
+    ok(pub_trusted({'yaw': 90, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}, False),
+       'symmetric у ненаправленной (столик 90) — доверяем, длинная сторона не крутится')
+    ok(not pub_trusted({'orient': R}, True) and not pub_trusted(None, False), 'нет поворота / нет записи — не доверяем')
+    ok(role_directed('обувница') and role_directed('шкаф') and not role_directed('столик')
+       and not role_directed('стол') and role_directed('банкетка', 'Банкетка со спинкой'), 'направленность — из канона')
     print('политика разворота: ' + ('ВСЁ ЗЕЛЁНОЕ' if not fails else f'ПРОВАЛЫ {len(fails)}'))
     return 1 if fails else 0
 

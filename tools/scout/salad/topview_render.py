@@ -10,8 +10,11 @@ supersample ×2 и downscale — против зубцов.
 ТОЛЬКО РЕШЁННЫЕ (план orient-cabinet-01, этап 1; T-20261105-56). Манифест публикуется как прод `orient.json`
 (`batch_show` → `publish_merge --only-resolved`), поэтому yaw берётся лишь из `auto_resolved|human_resolved`
 (`orient_policy.RESOLVED`). Нерешённое (`vlm_pending`/`review_pending`/решения для этого GLB нет) — прежний
-ОПУБЛИКОВАННЫЙ поворот без изменений (прод `orient.json`; нет там — прошлый манифест; нет — 0), пометка
-`orient=unresolved:<статус>`, поле `status`. Фасад по глубине (`cabinet_front`) решение больше НЕ перебивает:
+ОПУБЛИКОВАННЫЙ поворот без изменений, но только если сама прод-запись решённая и не «symmetric» у направленной роли
+(`orient_policy.pub_trusted`, T-20261106-78: до p2 в прод уходили повороты нерешённых — Теджонс шкаф задом); иначе 0
+(сырой меш смотрит на камеру фото); прод не прочитан — прошлый манифест с меткой `:kept`. Пометка
+`orient=unresolved:<статус>:kept|zero`, поле `status`. «Симметрична по роли» у роли, ставшей направленной, —
+нерешённое со статусом `stale_by_role`. Фасад по глубине (`cabinet_front`) решение больше НЕ перебивает:
 на листах T-36/5 он выбирал утопленную заднюю стенку в рамке (решение 31.08 отменено; свидетелем — этап 2).
 Симметричные (`symmetric_by_role`): yaw БД — случайное наследие, не берётся — опубликованный поворот, нет — 0
 (`orient_policy.symmetric_yaw`, пометка `symmetric:kept|zero`).
@@ -108,14 +111,18 @@ def published_index() -> dict | None:
         return None
 
 
-def kept_yaw(sku: str, published: dict | None, prev: dict) -> float:
-    """Поворот нерешённого «без изменений»: опубликованный → прошлый манифест → 0."""
-    pub = (published or {}).get(sku) or {}
-    if pub.get('yaw') is not None:
-        return float(pub['yaw'])
-    if prev.get('yaw') is not None:
-        return float(prev['yaw'])
-    return 0.0
+def kept_yaw(sku: str, published: dict | None, prev: dict, directed: bool = True) -> tuple[float, str]:
+    """Поворот нерешённого «без изменений» → (yaw, метка `kept|zero`). Опубликованный — только если сама прод-запись
+    решённая и не «symmetric» у направленной роли (`orient_policy.pub_trusted`, T-20261106-78); прод не прочитан —
+    прошлый манифест, если его поворот уже был «доверенным» (метка `:kept`) или решённым; иначе 0 — сырой меш смотрит
+    на камеру фото."""
+    if published is not None:
+        pub = published.get(sku) or {}
+        return (float(pub['yaw']), 'kept') if OP.pub_trusted(pub, directed) else (0.0, 'zero')
+    o = str(prev.get('orient') or '')
+    if prev.get('yaw') is not None and (o.endswith(':kept') or OP.pub_trusted(prev, directed)):
+        return float(prev['yaw']), 'kept'
+    return 0.0, 'zero'
 
 
 def prev_ext_ok(prev: dict, base_role: str) -> bool | None:
@@ -393,6 +400,11 @@ def main() -> None:
         rk, dec = orient_for(man['sku'], glb, index)
         status = dec[0] if dec else 'none'
         prev = prev_man.get(sku) or {}
+        directed = OP.role_directed(man.get('role') or '', man.get('name') or '')
+        if OP.is_resolved(status) and OP.is_symmetric(dec[1]) and directed:
+            # «симметрична по роли», а роль теперь направленная (прихожая, T-20261106-78): решение устарело — как
+            # нерешённое, в прод не идёт, пока каскад не пересчитает (`orient_worker --recheck-roles`)
+            status = 'stale_by_role'
         if OP.is_resolved(status) and OP.is_symmetric(dec[1]):
             # симметричный (столик, люстра…): yaw БД — случайное наследие, не берём (ведущий 06.11). Тот же, что на
             # проде (3D демо и пятно `flat215_demo._mesh_ext` не сдвигаются), нет на проде — 0, как `draft_render`.
@@ -411,9 +423,9 @@ def main() -> None:
             sig = orient_sig(rk, dec)
         else:
             # нерешённое — прежний опубликованный поворот без изменений; в прод не идёт (`publish_merge --only-resolved`)
-            yaw = kept_yaw(sku, published, prev)
-            st = f'unresolved:{status}'
-            sig = orient_sig(rk, dec, yaw)
+            yaw, mark = kept_yaw(sku, published, prev, directed)
+            st = f'unresolved:{status}:{mark}'
+            sig = orient_sig(rk, dec, yaw) + f'|{status}:{mark}'   # правило доверия — в подписи (кэш p3 не годится)
         # КЭШ = свежий png И та же подпись (GLB, решение, статус, версия правила). Прежнее исключение «записи без
         # подписи с `cabinet_*` годны» снято: оно держало перебивку фасадом после смены правила.
         if (os.environ.get('TOPVIEW_FORCE') != '1' and prev and prev.get('orient_sig') == sig

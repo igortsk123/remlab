@@ -150,9 +150,9 @@ def main() -> None:
         rc, log = run(src, out, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub)
         m7 = json.load(open(os.path.join(out, 'topview.json')))
         e2, e4, e3 = m7[keys[2]], m7[keys[4]], m7[keys[3]]
-        check(rc == 0 and e2['yaw'] == 270.0 and e2['orient'] == 'unresolved:vlm_pending' and e2['status'] == 'vlm_pending',
+        check(rc == 0 and e2['yaw'] == 270.0 and e2['orient'] == 'unresolved:vlm_pending:kept' and e2['status'] == 'vlm_pending',
               f"vlm_pending: опубликованный поворот 270, не 90 из решения ({e2.get('yaw')}, {e2.get('orient')})")
-        check(e4['yaw'] == 0.0 and e4['orient'] == 'unresolved:review_pending' and e4['status'] == 'review_pending',
+        check(e4['yaw'] == 0.0 and e4['orient'] == 'unresolved:review_pending:zero' and e4['status'] == 'review_pending',
               f"review_pending, на проде нет: прежний поворот прошлого манифеста 0, не 180 ({e4.get('yaw')})")
         check(e3['yaw'] == 90.0 and 'cabinet' not in e3['orient'] and e3['status'] == 'auto_resolved',
               f"комод: yaw решения 90, cabinet_front не перебивает, старая запись cabinet_depth пересчитана ({e3.get('yaw')}, {e3.get('orient')})")
@@ -241,6 +241,41 @@ def main() -> None:
         later_defs = [n.name for n in tree.body[(mains[-1] + 1 if mains else 0):]
                       if isinstance(n, (ast.FunctionDef, ast.ClassDef))]
         check(bool(mains) and not later_defs, f'точка входа — в конце модуля (объявлений после неё: {later_defs})')
+
+        print('прод берём только у решённой записи и не symmetric у направленной роли (T-20261106-78)')
+        out_t = os.path.join(tmp, 'out-trust')
+        json.dump({f'{skus[2]}|{sha(keys[2])}|orient-v1': ['vlm_pending', 'awaiting_vlm', 90.0, 't2'],
+                   f'{skus[4]}|{sha(keys[4])}|orient-v1': ['review_pending', 'vlm_unsure', 180.0, 't4'],
+                   f'{skus[5]}|{sha(keys[5])}|orient-v1': ['vlm_pending', 'awaiting_vlm', 270.0, 't5'],
+                   f'{skus[3]}|{sha(keys[3])}|orient-v1': ['auto_resolved', 'symmetric_by_role', 90.0, 't3']},
+                  open(idx, 'w', encoding='utf-8'), ensure_ascii=False)
+        pub_t = os.path.join(tmp, 'published-trust.json')
+        json.dump({keys[2]: {'yaw': 270.0, 'orient': 'orient-v1:auto_resolved:orienter+vlm_agree'},
+                   keys[4]: {'yaw': 180.0, 'orient': 'orient-v1:review_pending:vlm_unsure'},   # Теджонс: опубликован нерешённым
+                   keys[5]: {'yaw': 90.0, 'orient': 'human:orient-review:cur'},
+                   keys[3]: {'yaw': 180.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role:symmetric:sync'}},
+                  open(pub_t, 'w', encoding='utf-8'))
+        rc, log = run(src, out_t, TOPVIEW_ORIENT_INDEX=idx, TOPVIEW_PUBLISHED=pub_t)
+        mt = json.load(open(os.path.join(out_t, 'topview.json')))
+        t2, t4, t5, t3 = mt[keys[2]], mt[keys[4]], mt[keys[5]], mt[keys[3]]
+        check(rc == 0 and t2['yaw'] == 270.0 and t2['orient'].endswith(':kept'), f"решённая прод-запись — поворот держится ({t2})")
+        check(t4['yaw'] == 0.0 and t4['orient'] == 'unresolved:review_pending:zero',
+              f"прод-запись нерешённая (review_pending 180) — не доверяем, 0 ({t4.get('yaw')}, {t4.get('orient')})")
+        check(t5['yaw'] == 90.0 and t5['orient'].endswith(':kept'), f"ручная прод-запись (human:) — держится 90 ({t5.get('yaw')})")
+        check(t3['yaw'] == 0.0 and t3['status'] == 'stale_by_role' and t3['orient'] == 'unresolved:stale_by_role:zero',
+              f"комод «симметричен по роли» — решение устарело, прод-поворот 180 не берём, 0 ({t3.get('yaw')}, {t3.get('orient')})")
+        prod_t = json.load(open(pub_t, encoding='utf-8'))
+        merged_t, _ = PM.merge(prod_t, mt, only_resolved=True)
+        check(merged_t[keys[3]] == prod_t[keys[3]] and merged_t[keys[4]] == prod_t[keys[4]],
+              'устаревшее и нерешённое в прод не уходят (прод не затирается до пересчёта)')
+        import topview_render as TR
+        check(TR.kept_yaw('x', None, {'yaw': 180.0, 'orient': 'unresolved:vlm_pending:kept'}) == (180.0, 'kept')
+              and TR.kept_yaw('x', None, {'yaw': 180.0, 'orient': 'unresolved:vlm_pending'}) == (0.0, 'zero')
+              and TR.kept_yaw('x', None, {'yaw': 90.0, 'orient': 'orient-v1:auto_resolved:orienter+vlm_agree'}) == (90.0, 'kept'),
+              'прод не прочитан: прошлый манифест — только с пометкой :kept или решённый')
+        check(TR.kept_yaw('x', {'x': {'yaw': 180.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}}, {}, True) == (0.0, 'zero')
+              and TR.kept_yaw('x', {'x': {'yaw': 180.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}}, {}, False)
+              == (180.0, 'kept'), 'symmetric прод-запись: у направленной роли — 0, у ненаправленной — держится')
 
     print('стенд вида сверху: ' + ('ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛЫ {len(FAILS)}: {FAILS}'))
     sys.exit(1 if FAILS else 0)
