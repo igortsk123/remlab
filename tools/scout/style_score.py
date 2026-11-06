@@ -3,7 +3,7 @@
 Три ступени, от бесплатной к дешёвой:
   1) правила — style_tags + pos/neg-regex паспортов по name+params+description;
   2) CLIP zero-shot (fastembed, бесплатно) — косинус фото товара к текст-фразам стиля;
-  3) gpt-5-mini батчами по 25 — основной сигнал (текст товара, БЕЗ фото).
+  3) LLM батчами по 25 (`STYLE_MODEL`, по умолчанию gpt-6-luna через шлюз) — основной сигнал (текст товара, БЕЗ фото).
 Итог: style-scores.json {"mid-eid": {"сканди": 7.2, ..., "universal": true}}.
 Кэш: повторный прогон скорит только новые товары (детерминизм и ноль лишних трат).
 Запуск (venv!): ~/venvs/scout/bin/python style_score.py [--report] [--limit N] [--dry] [--source living|room_catalog]
@@ -270,7 +270,7 @@ def clip_score(p):
     if hi-lo<1e-6: return {}
     return {st:(c-lo)/(hi-lo)*2-1 for st,c in cs.items()}  # относительная шкала −1..+1
 
-# ---------- ступень 3: gpt-5-mini батчами (основной сигнал) ----------
+# ---------- ступень 3: LLM (`STYLE_MODEL`) батчами (основной сигнал) ----------
 SH={'сканди':'sk','современный':'sv','минимализм':'mn','лофт':'lf','неоклассика':'nk','джапанди':'jp'}
 RSH={v:k for k,v in SH.items()}
 def llm_batch(batch):

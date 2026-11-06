@@ -7844,7 +7844,7 @@ async function liveShotTake(){
   function share(){var v=allVariants()[cur]||{}, f=ofState(curStateId());
     shareUrl().then(function(u){shareOpenUrl(u,(f&&f.displayName)||styleOfV(v));})
       .catch(function(){toast(EN()?'Could not make a link, please try again.':'Не получилось сделать ссылку, попробуйте ещё раз.');});}
-  // ОКОШКО ИМЕНИ (demo-15 п.4): новое — «<Стиль> #N», можно дописать; в избранном — переименовать или убрать
+  // ОКОШКО ИМЕНИ (demo-15 п.4): новое — «<Комната> #N» (`BK.mod.nextName`), можно дописать; в избранном — переименовать или убрать
   function pop(f){
     var old=document.getElementById('favPop'); if(old)old.remove();
     var isNew=!f, nm=f?(f.displayName||''):defaultName();
