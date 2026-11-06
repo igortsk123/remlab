@@ -133,6 +133,12 @@ def main() -> None:
         gpu_err = str(e)
     check('только у канарейки' in gpu_err, 'queue_setup: свои классы GPU у боевой группы-очереди — отказ')
 
+    # recreate_group.self_donor_refusal (T-20261106-85/3): группа-очередь по самой себе — отказ с подсказкой
+    check('queue_setup' in R.self_donor_refusal('mesh-q-color-canary', None), 'группа-очередь без --donor (по себе) — отказ')
+    check('queue_setup' in R.self_donor_refusal('mesh-q-color-canary', 'mesh-q-color-canary'), '--donor = сама группа — отказ')
+    check(R.self_donor_refusal('mesh-q-color-canary', 'mesh-q-low-1') == '', 'группа-очередь по другому образцу — можно')
+    check(R.self_donor_refusal('mesh-low-4', None) == '', 'обычная группа по себе — как раньше, можно')
+
     # recreate_group.keep_queue (T-20261106-85/3): группа-очередь пересоздаётся со своей связью, прочие — без неё
     qc = {'path': '/generate', 'port': 8001, 'queue_name': 'mesh-q-color'}
 

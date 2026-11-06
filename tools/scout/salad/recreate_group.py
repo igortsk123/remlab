@@ -121,6 +121,17 @@ def apply_overrides(body: dict, image: str | None, env_pairs: list[str] | None) 
     return body
 
 
+def self_donor_refusal(group: str, donor: str | None) -> str:
+    """Группа-очередь по САМОЙ СЕБЕ не пересоздаётся (T-20261106-85/3, 06.11 21:36): образец удаляется вместе с
+    группой, а Salad держит имя удалённой группы долго (`name_conflict` больше 50 мин при наших 20 мин попыток).
+    Создание срывается — и ни группы, ни образца для `--create-only`. Группу-очередь создаёт `queue_setup.py` по
+    живому образцу (`--donor`), для своего класса GPU — `--gpu-exact`. '' — можно; иначе текст отказа."""
+    if SG.queue_of(group) and (donor or group) == group:
+        return (f'{group}: группа очереди по самой себе не пересоздаётся (образец удалится вместе с ней, а имя Salad '
+                f'держит долго) — удали её и создай через queue_setup.py --donor <живая группа-очередь>')
+    return ''
+
+
 def keep_queue(body: dict, donor: dict, group: str) -> dict:
     """Связь с очередью Salad при пересоздании (T-20261106-85/3). `MG.build_body` её не переносит: пересозданная
     группа-очередь (`queue` в rules/salad-groups.json, например `mesh-q-color-canary`) вышла бы без `queue_connection`,
@@ -171,6 +182,9 @@ def main() -> int:
         return print('--gpu и --gpu-exact вместе не задаются') or 2
     if not a.group.startswith('mesh-') or not 1024 <= a.memory <= 61440:
         return print('группа не mesh-* или память вне 1024–61440 МБ') or 2
+    why = self_donor_refusal(a.group, a.donor)
+    if why:
+        return print(why) or 2
     MG.env_from_file()
     code, donor = MG.api(f'/{a.donor or a.group}')
     if code != 200 or 'container' not in donor:
