@@ -3,7 +3,7 @@ tier: 2
 topic: onboarding-quiz-details
 scope: Опрос-знакомство на /demo — матрица входов, аудит цветов 5 стилей, события и сигнал менеджеру, правило подбора 3 стилей, 5↔6 стилей, живые проверки
 tier1: ../core/onboarding-quiz.md
-updated: 2026-11-05
+updated: 2026-11-06
 importance: med
 source: manual
 ---
@@ -141,6 +141,7 @@ source: manual
 |---|---|---|
 | `picked` | `z.array(styleId).max(2)` | `scandi · modern · minimal · loft · neoclassic · japandi` (`index.html:STYLE_IDS`) |
 | `household` | `z.array(z.enum([...])).max(5)` | `single · couple · child · pet · guest` (`quiz.json` вопрос `household`) |
+| `kids` | `z.enum([...]).optional()` | `1 · 2 · 3plus` — «Сколько детей» при «С детьми» (владелец 06.11 TG 280; `quiz.json` child.kids, `contracts/quiz.ts:quizKids`; счётчики застройщику `quiz_kids:*`, всего видов 38; T-94) |
 | `childAge` | `z.array(z.enum([...])).max(4)` | `0-3 · 3-7 · 7-12 · teen` (ADR-0330 п.3) |
 | `colours` | `z.array(z.enum([...])).max(2)` | `light · warm · cool · accent` |
 | `result` | `z.array(styleId).max(3)` | три стиля итога |
