@@ -66,6 +66,11 @@ def verdict(room: str, cand: list, spare: str = SPARE) -> list[str]:
     if room == 'bedroom':
         import compose_bedroom as CB
         bad += [p for p in CB.check_bank(cand, CB.rules(), CB.tolerance(), spare=spare) if not p.startswith('~')]
+    elif room == 'hall':             # прихожая (T-20261106-89 шаг 2): запас замен у неё всегда «~» — `spare` не нужен
+        import compose_hall as CH
+        bad += [p for p in CH.check_bank(cand, CH.rules(), CH.tolerance()) if not p.startswith('~')]
+    else:
+        bad.append(f'проверки состава для {room} нет — кандидат не годен')
     return bad
 
 

@@ -181,7 +181,7 @@ def _room(room: str, env) -> RoomBankSpec:
         strict='этап Г', exam='этап Г', demo='этап Г', skeleton=True)
 
 
-ROOMS = (LIVING, 'bedroom')
+ROOMS = (LIVING, 'bedroom', 'hall')    # прихожая — T-20261106-89 шаг 2: каркас, как спальня (свои пути, флаги rooms.hall.*)
 
 
 def for_room(room: str | None = None, env=None) -> RoomBankSpec:
@@ -294,7 +294,21 @@ def _selftest() -> int:
                                               'write_enabled': True} and B.view({'write_enabled': True})['write_enabled'] is False)
     ok('ссылка на флаг: гостиная — прежний ключ, спальня — rooms.bedroom.*',
        L.flag_ref('write_enabled') == 'write_enabled' and B.flag_ref('write_enabled') == 'rooms.bedroom.write_enabled')
-    ok('правила в файле: у спальни все флаги выключены', not any(B.rules().get(f) for f in FLAGS), B.rules())
+    # запись спальни включена ведущим (T-77/2, поколение 0 через room_bootstrap); суд и подготовка — этап Г, выключены
+    ok('правила в файле: у спальни prepare/promote выключены; write — как в файле (bool)',
+       not B.rules().get('prepare_enabled') and not B.rules().get('promote_enabled')
+       and isinstance(B.rules().get('write_enabled'), bool), B.rules())
+    H = for_room('hall', {})
+    hp = {v for k, v in H.refresh_paths().items() if k not in ('lock', 'room', 'snap')} | {
+        H.candidate, H.prepare_report, H.pending_state, H.promote_manifest, H.promote_work}
+    ok('прихожая (T-89): свои пути, ни одного общего с гостиной и спальней (кроме замка экзамена)',
+       not (hp & lp) and not (hp & bp) and H.live == os.path.join(HERE, 'sets-hall.json')
+       and H.candidate == BPa.room_bank_output({}, 'hall') and H.generations == os.path.join(HERE, 'bank-generations-hall')
+       and H.prepare_report == f'{home}/scout-scenes/bank-hall-prepare.json', (hp & lp, hp & bp))
+    ok('прихожая: каркас, ключ ячейки как у спальни, сборщик compose_hall.py, флаги в файле выключены',
+       H.skeleton and H.cell_fields == B.cell_fields and H.composer() == ('hall', os.path.join(HERE, 'compose_hall.py'))
+       and not any(H.rules().get(f) for f in FLAGS) and H.flag_ref('prepare_enabled') == 'rooms.hall.prepare_enabled',
+       (H.composer(), H.rules()))
     import io
     import contextlib
     out = io.StringIO()

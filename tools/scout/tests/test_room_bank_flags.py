@@ -101,8 +101,12 @@ def main() -> int:
 
         sh = open(os.path.join(SCOUT, 'refresh_daily.sh'), encoding='utf-8').read()
         bw_line = [ln for ln in sh.splitlines() if re.match(r'\s*BANK_WRITE=', ln)]
-        ok('refresh_daily.sh: BANK_WRITE — `bank_refresh.py --enabled` без --room (флаг спальни ночь не меняет)',
-           len(bw_line) == 1 and 'bank_refresh.py --enabled' in bw_line[0] and '--room' not in sh, bw_line)
+        # шаги комнат в ночи с `--room X` (T-20261106-89) — свои строки; гостиную они не трогают: ни BANK_WRITE, ни её bank_refresh
+        room_refresh = [ln for ln in sh.splitlines() if re.search(r'bank_refresh\.py\b', ln) and not ln.lstrip().startswith('#')]
+        ok('refresh_daily.sh: BANK_WRITE — `bank_refresh.py --enabled` без --room (флаг спальни ночь не меняет); '
+           'писатель гостиной — без --room',
+           len(bw_line) == 1 and 'bank_refresh.py --enabled' in bw_line[0] and not re.search(r'--room\b', bw_line[0])
+           and any(not re.search(r'--room\b', ln) and '--run-id' in ln for ln in room_refresh), (bw_line, room_refresh))
 
         # писатель: manifest чужой комнаты — отказ
         P = {k: os.path.join(td, 'w', v) for k, v in (('live', 'sets3.json'), ('lock', 'exam.lock'), ('manifest', 'prom.json'),
@@ -137,7 +141,10 @@ def main() -> int:
            k_living == 'S|сканди|эконом' and k_bed == 'r1|double|S|сканди|эконом' and st_bed == B.pending_state
            and BP.key(s) == k_living)
 
-        # CLI шагов с --room bedroom (флаги спальни в правилах — выключены): ничего не пишут
+        # CLI шагов с --room bedroom: prepare/promote в правилах выключены — «выключено», 0; write — как в файле (включён ведущим
+        # T-77/2 для поколения 0): включён — каркас писателя отказывает 2 (суд и писатель — этап Г). Ничего не пишут.
+        wflag = bool(RBS.for_room('bedroom').rules().get('write_enabled'))
+        refresh_want = (2, 'адаптер каркас') if wflag else (0, 'rooms.bedroom.write_enabled=false')
         env = {**os.environ, 'HOME': home}
         before = set(os.listdir(SCOUT))
         for argv, want_rc, want in ((['bank_prepare.py', '--room', 'bedroom'], 0, 'rooms.bedroom.prepare_enabled=false'),
@@ -148,8 +155,7 @@ def main() -> int:
                                     (['bank_promote.py', '--room', 'bedroom', '--run-id', 'N1'], 0,
                                      'rooms.bedroom.promote_enabled=false'),
                                     (['bank_promote.py', '--room', 'bedroom', '--force'], 2, 'адаптер каркас'),
-                                    (['bank_refresh.py', '--room', 'bedroom', '--run-id', 'N1'], 0,
-                                     'rooms.bedroom.write_enabled=false'),
+                                    (['bank_refresh.py', '--room', 'bedroom', '--run-id', 'N1'], *refresh_want),
                                     (['bank_refresh.py', '--room', 'bedroom', 'list'], 0, ''),
                                     (['bank_prepare.py', '--room', 'kitchen'], 1, 'банка такой комнаты нет')):
             p = subprocess.run([sys.executable, os.path.join(SCOUT, argv[0]), *argv[1:]], cwd=SCOUT, env=env,

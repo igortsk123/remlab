@@ -712,8 +712,6 @@ def main(argv: list) -> int:
     C.prov = RI.provenance('bedroom')
     print(f'мебели {len(cat)}, декора {len(decor)}, мешей готово {len(ready)} / сгенерировано {len(gen)}', flush=True)
     bank, report = compose(rooms, C)
-    json.dump(bank, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    rp = os.path.splitext(out)[0] + '.report.json'
     need: dict = {}
     for s in bank:
         for r, it in s['items'].items():
@@ -721,17 +719,23 @@ def main(argv: list) -> int:
                 need.setdefault(it['sid'], {'role': r, 'name': it['name'], 'sets': 0, 'w': it['w'], 'd': it['d'], 'h': it['h']})
                 need[it['sid']]['sets'] += 1
     report['mesh_need'] = sorted(need.items(), key=lambda kv: (-kv[1]['sets'], kv[0]))
-    json.dump(report, open(rp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    print(f'БАНК: {out} — наборов {len(bank)}; отчёт {rp}; нужен меш: {len(need)} товаров', flush=True)
-    problems = check_bank(bank, R, tol)
+    # проверка ДО записи (T-20261106-89, шаг 1): запас замен — как у суда поколения 0 (`room_bootstrap.SPARE`), жёсткое правило
+    # ночной замены — этап Г; «пропали ячейки» — предупреждение (полноту судит банк), остальное — отказ, прежний кандидат цел
+    import room_bootstrap as RB
+    import room_candidate as RC
+    problems = check_bank(bank, R, tol, spare=RB.SPARE)
     print(_check_text(bank, problems), flush=True)
     ident = RI.check(bank, cells(R), C.prov)    # матрица профиля и id (этап В): кандидат с отказом банк не примет
     print(f'ИДЕНТИЧНОСТЬ кандидата: ячеек {len(bank)} из {len(cells(R))}, отказов {len(ident)}'
           + ''.join(f'\n  ✗ {x}' for x in ident), flush=True)
+    hard, warn = RC.split(problems, ident)
+    rc = RC.commit('compose_bedroom', out, bank, report, hard, warn)
+    if rc == 0:
+        print(f'БАНК: {out} — наборов {len(bank)}; отчёт {RC.report_path(out)}; нужен меш: {len(need)} товаров', flush=True)
     if '--sheet' in argv:
         import bedroom_sheet
         print('лист:', bedroom_sheet.write(bank, report, argv[argv.index('--sheet') + 1]))
-    return 0
+    return rc
 
 
 # ---------------------------------------------------------------- селфтест

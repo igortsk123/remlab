@@ -63,8 +63,11 @@ def provenance(room_type: str, profile: dict | None = None) -> dict:
 
 def expected(room_type: str, R: dict | None = None) -> list[tuple]:
     """Ожидаемая матрица ячеек из профиля — через сборщик комнаты (он один знает, как профиль разворачивается в ячейки)."""
+    if room_type == 'hall':          # прихожая (T-20261106-89 шаг 2): стили × ступени на геометрии варианта из правил
+        import compose_hall as CH
+        return CH.cells(R if R is not None else CH.rules())
     if room_type != 'bedroom':
-        raise ValueError(f'матрица ячеек для {room_type!r} не описана (есть: bedroom)')
+        raise ValueError(f'матрица ячеек для {room_type!r} не описана (есть: bedroom, hall)')
     import compose_bedroom as CB
     return CB.cells(R if R is not None else CB.rules())
 

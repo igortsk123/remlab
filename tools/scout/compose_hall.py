@@ -25,7 +25,6 @@
   ~/venvs/scout/bin/python compose_hall.py --selftest                              # чистые функции и солвер, без базы и сети
 Env: `ROOM_SETS_OUTPUT` — путь банка (живой — отказ).
 """
-import hashlib
 import json
 import os
 import re
@@ -137,9 +136,24 @@ def set_fit(items: dict, style: str) -> float:
     return round(num_ / den, 1) if den else 0.0
 
 
-def set_id(room_id: str, style: str, tier: str, items: dict) -> str:
-    sig = '|'.join([room_id, style, tier] + [f"{r}={it['mid']}:{it['eid']}" for r, it in sorted(items.items())])
-    return 'hall-' + hashlib.sha1(sig.encode()).hexdigest()[:8]
+def set_id(room_id: str, band: str, style: str, tier: str) -> str:
+    """id набора — от ЯЧЕЙКИ `room_id|hall|band|style|tier`, без состава (как спальня этапа В, T-20261106-89 шаг 2): замена
+    предмета — то же set_id, новое поколение ячейки. Живого банка прихожей не было — старые id (от состава) никто не хранит."""
+    import room_identity as RI
+    return RI.set_id_of(ROOM, (room_id, ROOM, band, style, tier))
+
+
+def cell_band(spec: dict) -> str:
+    """Полоса ячейки — площадь прихожей по геометрии, м² до десятых (как `record`: `'8.4'`)."""
+    return f"{round(spec['w'] * spec['d'] / 10000, 1):g}"
+
+
+def cells(R: dict, spec: dict | None = None) -> list:
+    """ОЖИДАЕМАЯ МАТРИЦА ячеек прихожей из правил профиля в порядке сборки (`compose`): стили → ступени; комната и полоса — из
+    геометрии варианта (по умолчанию — `rooms.hall.variant` правил). Её обязан дать полный кандидат (`room_identity.check`)."""
+    spec = spec or room_spec(ROOM, R['rooms'][ROOM].get('variant'))
+    band = cell_band(spec)
+    return [(spec['id'], ROOM, band, style, tier) for style in R['styles'] for tier in R['tiers']]
 
 
 # ---------------------------------------------------------------- данные
@@ -358,7 +372,7 @@ def record(C: Composer, spec: dict, style: str, tier: str, res: dict) -> dict:
                        'soft': sorted({v.code for v in lay.violations}), 'skipped_optional': sorted(res['skipped']),
                        'floor_used_pct': lay.floor_used_pct, 'attempts': res['attempts']}
     m2 = round(spec['w'] * spec['d'] / 10000, 1)
-    rec = {'room_id': spec['id'], 'room_type': ROOM, 'purpose': ROOM, 'band': f'{m2:g}', 'm2': m2, 'tier': tier, 'style': style,
+    rec = {'room_id': spec['id'], 'room_type': ROOM, 'purpose': ROOM, 'band': cell_band(spec), 'm2': m2, 'tier': tier, 'style': style,
            'style_fit': set_fit(items, style), 'pair': list(CC.STYLE_PAIR[style]), 'storage': res['storage'],
            'gaps': [f'{r}: не встал ни один кандидат' for r in sorted(res['skipped'])],
            'total': sum((it.get('price') or 0) for it in items.values()),
@@ -367,7 +381,9 @@ def record(C: Composer, spec: dict, style: str, tier: str, res: dict) -> dict:
            'mesh_need': sorted(it['sid'] for it in items.values() if not it.get('mesh')),
            'mesh_blocked': sorted(it['sid'] for it in items.values() if it.get('mesh') in ('blocked', 'generated'))}
     rec['cell'] = '|'.join([spec['id'], ROOM, rec['band'], style, tier])
-    rec['set_id'] = set_id(spec['id'], style, tier, items)
+    rec['set_id'] = set_id(spec['id'], rec['band'], style, tier)
+    if getattr(C, 'prov', None):     # происхождение (как спальня этапа В): профиль, версия, content_sha, плагин, дайджест правил и кода
+        rec['provenance'] = dict(C.prov)
     return rec
 
 
@@ -546,10 +562,10 @@ def main(argv: list) -> int:
         b[1] += bool(it.get('styles'))
         b[2] += it.get('mesh') == 'ready'
     print('товаров: ' + ', '.join(f'{r} {n} (оценка стиля {s}, меш готов {m})' for r, (n, s, m) in sorted(by.items())), flush=True)
+    import room_identity as RI
+    C.prov = RI.provenance(ROOM)
     bank, report = compose(spec, C)
     report['room'] = {'id': spec['id'], 'variant': spec['variant'], 'title': spec.get('title'), 'entrance_note': entrance_note(spec)}
-    json.dump(bank, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    rp = os.path.splitext(out)[0] + '.report.json'
     need: dict = {}
     for s in bank:
         for r, it in s['items'].items():
@@ -557,15 +573,22 @@ def main(argv: list) -> int:
                 need.setdefault(it['sid'], {'role': r, 'name': it['name'], 'sets': 0, 'w': it['w'], 'd': it['d'], 'h': it['h']})
                 need[it['sid']]['sets'] += 1
     report['mesh_need'] = sorted(need.items(), key=lambda kv: (-kv[1]['sets'], kv[0]))
+    # проверка ДО записи (T-20261106-89, шаг 1): жёсткое нарушение — прежний кандидат цел, отказ рядом, код 1
+    import room_candidate as RC
     problems = check_bank(bank, R, tol)
-    report['check'] = problems
-    json.dump(report, open(rp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    print(f'БАНК: {out} — наборов {len(bank)}; отчёт {rp}; нужен меш: {len(need)} товаров', flush=True)
     print('по ролям: ' + json.dumps(report['by_role'], ensure_ascii=False), flush=True)
     print(_check_text(bank, problems), flush=True)
+    want = cells(R, spec)
+    ident = RI.check(bank, want, C.prov, ROOM)
+    print(f'ИДЕНТИЧНОСТЬ кандидата: ячеек {len(bank)} из {len(want)}, отказов {len(ident)}'
+          + ''.join(f'\n  ✗ {x}' for x in ident), flush=True)
+    hard, warn = RC.split(problems, ident)
+    rc = RC.commit('compose_hall', out, bank, report, hard, warn)
+    if rc == 0:
+        print(f'БАНК: {out} — наборов {len(bank)}; отчёт {RC.report_path(out)}; нужен меш: {len(need)} товаров', flush=True)
     if '--sheet' in argv:
         print('лист:', sheet(bank, argv[argv.index('--sheet') + 1]))
-    return 1 if [p for p in problems if not p.startswith('~')] else 0
+    return rc
 
 
 # ---------------------------------------------------------------- селфтест
@@ -652,8 +675,13 @@ def _selftest() -> int:
     sig = lambda L: [(p.role, p.x, p.y, p.rot) for p in L.placements]  # noqa: E731
     ok('солвер прихожей ставит шкаф-купе 180 на flat215 и повтор детерминирован',
        'шкаф-купе' in {p.role for p in lay.placements} and sig(lay) == sig(solve_hall(room, kit)))
-    ok('id набора — от состава', set_id('h', 's', 't', {'шкаф-купе': {'mid': 1, 'eid': 'x'}})
-       != set_id('h', 's', 't', {'шкаф-купе': {'mid': 1, 'eid': 'y'}}))
+    ok('id набора — от ячейки, не от состава (T-89 шаг 2): та же ячейка — тот же id, другая ступень — другой; префикс hall-',
+       set_id('hall', '8.4', 'сканди', 'комфорт') == set_id('hall', '8.4', 'сканди', 'комфорт')
+       != set_id('hall', '8.4', 'сканди', 'эконом') and set_id('hall', '8.4', 'сканди', 'комфорт').startswith('hall-'))
+    want = cells(R, spec)
+    ok(f'матрица прихожей: стили × ступени ({len(R["styles"])} × {len(R["tiers"])}), комната и полоса — из геометрии',
+       len(want) == len(R['styles']) * len(R['tiers']) == len(set(want))
+       and want[0] == (spec['id'], ROOM, cell_band(spec), R['styles'][0], next(iter(R['tiers']))))
     print(f'FAILS {bad}')
     return bad
 

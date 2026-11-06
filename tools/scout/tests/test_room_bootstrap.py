@@ -255,18 +255,23 @@ def main() -> int:
         # CLI: только пути отказа, ничего не пишут
         home = os.path.join(td, 'home')
         os.makedirs(home)
-        env = {**os.environ, 'HOME': home}
+        # кандидат и поколения — в песочнице: флаг записи спальни в файле правил включён ведущим (T-77/2), и `run --confirm-lead`
+        # дойдёт до чтения кандидата — его нет, отказ 1 (или «живой уже есть» / exam.lock — тоже 1), ничего не пишется
+        env = {**os.environ, 'HOME': home, 'BANK_BEDROOM_CANDIDATE': os.path.join(td, 'нет.json'),
+               'BANK_BEDROOM_GENERATIONS': os.path.join(td, 'gens-cli')}
+        wflag = bool(RBS.for_room('bedroom').rules().get('write_enabled'))
+        run_want = ((1, ('не читается', 'уже есть', 'exam.lock')) if wflag else (2, ('rooms.bedroom.write_enabled=false',)))
         before = set(os.listdir(SCOUT))
-        for argv, want_rc, want in ((['--room', 'bedroom', 'run'], 2, 'confirm-lead'),
-                                    (['--room', 'bedroom', 'run', '--confirm-lead'], 2, 'rooms.bedroom.write_enabled=false'),
-                                    (['--room', 'bedroom', 'rollback'], 2, 'confirm-lead'),
-                                    (['run', '--confirm-lead'], 2, 'у гостиной'),
-                                    (['--room', 'kitchen', 'run'], 1, 'банка такой комнаты нет')):
+        for argv, want_rc, want in ((['--room', 'bedroom', 'run'], 2, ('confirm-lead',)),
+                                    (['--room', 'bedroom', 'run', '--confirm-lead'], *run_want),
+                                    (['--room', 'bedroom', 'rollback'], 2, ('confirm-lead',)),
+                                    (['run', '--confirm-lead'], 2, ('у гостиной',)),
+                                    (['--room', 'kitchen', 'run'], 1, ('банка такой комнаты нет',))):
             p = subprocess.run([sys.executable, os.path.join(SCOUT, 'room_bootstrap.py'), *argv], cwd=SCOUT, env=env,
                                capture_output=True, text=True, timeout=120)
             txt = p.stdout + p.stderr
-            ok(f'`room_bootstrap.py {" ".join(argv)}` — код {want_rc}, «{want}»', p.returncode == want_rc and want in txt,
-               (p.returncode, txt[-300:]))
+            ok(f'`room_bootstrap.py {" ".join(argv)}` — код {want_rc}, «{" | ".join(want)}»',
+               p.returncode == want_rc and any(w in txt for w in want), (p.returncode, txt[-300:]))
         made = set(os.listdir(SCOUT)) - before
         ok('CLI отказов не создал файлов рядом и в HOME', not made and not os.listdir(home), (made, os.listdir(home)))
     print(f'room_bootstrap: ошибок {bad}')
