@@ -253,7 +253,9 @@ export class FlatViewer {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.name === "desktop", powerPreference: "high-performance" });
     canvas.addEventListener("webglcontextlost", (e) => {
       e.preventDefault();
-      this.events.onContextLost?.();
+      // освобождённая сцена своё «контекст потерян» не сообщает (T-20261106-77/3): демо пересоздаёт сцену при смене комнаты,
+      // и браузер, закрывая старый контекст, выключал 3D у новой
+      if (!this.disposed) this.events.onContextLost?.();
     });
     // Без видеокарты (виртуалки, старые офисные машины, CI) браузер рисует силами процессора.
     // Полноэкранная сцена с тенями там не тянет — вкладка падает. Переходим на облегчённый
@@ -1769,6 +1771,9 @@ export class FlatViewer {
     this.meshes.dispose();
     disposeMaterialCtx(this.matCtx);
     this.renderer.dispose();
+    // контекст отдаём браузеру сразу, а не ждём сборщика мусора: у вкладки их не больше 16, после — гаснет самый старый
+    // (демо пересоздаёт сцену при смене комнаты — без этого 16-й переход выключал 3D, проба T-20261106-77/3)
+    this.renderer.forceContextLoss();
   }
 }
 

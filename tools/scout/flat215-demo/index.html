@@ -7086,16 +7086,30 @@ async function livePrefetch(){
   await Promise.all(Array.from({length:Math.min(isTouchUI()?2:3,q.length)},one));
   if(PRE.ctl===ctl){PRE.ctl=null; PRE.key='';}
 }
+// СЦЕНА — ОДНОЙ КОМНАТЫ (T-20261106-77/3): движок строит стены по комнате, переданной при создании (`createDemoScene({room})`), и
+// заменой расстановки их не меняет. Окно другой комнаты в той же сцене ставило мебель спальни 2 в стены спальни 1 (подоконник чужого
+// окна поперёк изголовья, глаз в 3 см от стены). Комната сменилась — сцену освобождаем и строим заново, как при первом открытии;
+// правка двери той же комнаты меняет объект на месте (`drawDoorCtl`) — сцена остаётся
+function liveDrop(){
+  const sc=LIVE.scene; LIVE.scene=null; LIVE.loading=null; LIVE.room=null; LIVE.lastMode=null;
+  if(LIVE.canvas&&LIVE.canvas.parentNode)LIVE.canvas.remove();
+  if(LIVE.badge&&LIVE.badge.parentNode)LIVE.badge.remove();
+  LIVE.canvas=null;
+  try{if(sc)sc.dispose();}catch(e){}
+}
 function liveEngine(){
   if(LIVE.ok===false)return Promise.resolve(null);
+  const room=curRoom();
+  if(LIVE.scene&&LIVE.room!==room)liveDrop();
   if(LIVE.scene)return Promise.resolve(LIVE.scene);
-  if(LIVE.loading)return LIVE.loading;
+  if(LIVE.loading)return LIVE.loadingRoom===room?LIVE.loading:LIVE.loading.then(()=>liveEngine());   // строилась прежняя комната
+  LIVE.loadingRoom=room;
   LIVE.loading=(async()=>{
     try{
       await sceneModule();
       const rt=await rtMeshes();
       const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
-      const sc=window.RemlabScene.createDemoScene(cv,{room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href,
+      const sc=window.RemlabScene.createDemoScene(cv,{room, items:clone(items), decor:liveDecor(), base:location.href,
         runtimeMeshes:rt, lite:isTouchUI(), walk:!isTouchUI(), floor:devFloor()||undefined, wall:devWall()||undefined});
       sc.on('contextlost',()=>liveOff('видеоконтекст потерян'));
       // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Загружаем модель…» при замене
@@ -7111,19 +7125,19 @@ function liveEngine(){
       if(!LIVE.force&&!pr.software&&!isTouchUI()&&pr.p95Ms>60&&pr.p95Ms<=120){
         sc.dispose();
         const cv2=document.createElement('canvas'); cv2.className='livecv'; cv2.width=896; cv2.height=597;
-        const sc2=window.RemlabScene.createDemoScene(cv2,{room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true, walk:!isTouchUI(),
+        const sc2=window.RemlabScene.createDemoScene(cv2,{room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true, walk:!isTouchUI(),
           floor:devFloor()||undefined, wall:devWall()||undefined});
         sc2.on('contextlost',()=>liveOff('видеоконтекст потерян'));
         sc2.setSize(896,597); await sc2.ready;
         if(LIVE.ok===false){sc2.dispose(); return null;}
         pr=Object.assign(sc2.probe(10),{lite:true}); LIVE.probe=pr;
         if(pr.p95Ms>120){sc2.dispose(); liveOff('медленный кадр '+Math.round(pr.p95Ms)+' мс (лёгкий режим)'); return null;}
-        LIVE.ok=true; LIVE.scene=sc2; LIVE.canvas=cv2;
+        LIVE.ok=true; LIVE.scene=sc2; LIVE.canvas=cv2; LIVE.room=room;
         const b2=document.createElement('div'); b2.className='livebadge'; b2.textContent='Живая сцена: так стоит сейчас'; LIVE.badge=b2;
         return sc2;
       }
       if(!LIVE.force&&(pr.software||pr.p95Ms>120)){sc.dispose(); liveOff(pr.software?'программный рендер':'медленный кадр '+Math.round(pr.p95Ms)+' мс'); return null;}
-      LIVE.ok=true; LIVE.scene=sc; LIVE.canvas=cv;
+      LIVE.ok=true; LIVE.scene=sc; LIVE.canvas=cv; LIVE.room=room;
       const b=document.createElement('div'); b.className='livebadge';
       b.textContent='Живая сцена: так стоит сейчас'; LIVE.badge=b;
       return sc;
