@@ -177,6 +177,7 @@ jobs:
       - run: python tools/scout/room_profile.py --selftest && python tools/scout/room_profile.py --lint   # профили комнат: схема, версия, ссылки, плагины, роли = адаптер, виды = CAM_ZONES демо (T-20261105-40)
       - run: python tools/scout/asset_coverage.py --selftest   # аудит покрытия мешей: статус товара (привязан/сирота/брак), вариант семьи, корзины, банк (T-20261105-42)
       - run: python tools/scout/room_mesh_demand.py --selftest && python tools/scout/room_mesh_jobs.py --selftest   # спрос мешей комнат: общий остаток ≤ 500 ₽ на все комнаты и запуски (два запуска подряд), спрос по вариантам витрины (T-20261106-75)
+      - run: python tools/scout/tests/test_front_roles.py   # перед меша — свойство роли в данных (front в asset-strategies.json): гостиная и спальня как были, прихожая направленная, резерв спроса тот же (T-20261106-78)
       - run: python tools/scout/room_bindings.py --selftest   # привязка товар→меш комнат: готовность (фото, поколение, sha, ориентация, паспорт), семья ссылкой, снимок и таблица (T-20261105-45)
       - run: python tools/scout/room_publish.py --selftest && python tools/scout/mesh_publish.py --selftest   # публикация мешей комнат: файл привязки с проверкой sha, представитель один раз, без настройки — гостиная как прежде (T-20261105-47)
       - run: python tools/scout/hall_catalog.py --selftest   # каталог прихожей: роли на 105 названиях, размеры зеркал; комплект из модулей — только фото, не в меши (T-20261106-71)
