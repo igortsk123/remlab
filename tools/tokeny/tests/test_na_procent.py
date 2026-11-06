@@ -71,7 +71,7 @@ def test_fon_algor_common_nol() -> None:
         assert r.vne < 1
     assert tokeny.stroki_na_procent(otr, ["algor", "common", "pakardev"]) == [
         "На 1 % недели (по неделе каждой учётки, все проекты; токены взвешенные): algor 3,2 млн (прошлая неделя), "
-        "common 3,7 млн, pakardev — пока нет данных; выгоднее common: в 1,1 раза больше, чем algor.",
+        "common 3,7 млн, pakardev — пока нет данных; выгоднее common: в 1,15 раза больше, чем algor.",
         "Вне наших машин (та же учётка на Windows, в claude.ai и др.): algor ≈0, common ≈0."]
 
 

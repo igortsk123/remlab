@@ -1082,7 +1082,9 @@ def stroki_na_procent(otr: dict[str, list[Otrezok]], ozhidaem: list[str] | None 
     elif luchshie[0][1] < luchshie[1][1] * 1.1:
         itog = f"{luchshie[0][0]} и {luchshie[1][0]} примерно равны"
     else:
-        itog = (f"выгоднее {luchshie[0][0]}: в {pp(luchshie[0][1] / luchshie[1][1])} раза больше, "
+        # До сотых (владелец 06.11, TG 1267): с одним знаком 7,0 / 3,8 давало «1,9» при точных 1,86 — не сходилось в уме.
+        raz = f"{luchshie[0][1] / luchshie[1][1]:.2f}".replace(".", ",")
+        itog = (f"выгоднее {luchshie[0][0]}: в {raz} раза больше, "
                 f"чем {luchshie[1][0]}")
     return [f"На 1 % недели (по неделе каждой учётки, все проекты; токены взвешенные): {', '.join(chasti)}; {itog}.",
             f"Вне наших машин (та же учётка на Windows, в claude.ai и др.): {', '.join(vne)}."]
