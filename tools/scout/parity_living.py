@@ -1034,17 +1034,30 @@ def selftest() -> int:
         open(os.path.join(stand, '_site', 'sitecustomize.py'), 'w').write(PGd.SITECUSTOMIZE)
         page = os.path.join(td, 'page.txt')
         open(page, 'w').write('ответ')
+        # «сеть» — свой http-сервер на 127.0.0.1 (без внешней сети): `file://…?v=` питон 3.12 ищет как файл с «?v=» в имени,
+        # 3.14 параметр отбрасывает — на 3.12 (CI) запись падала (T-20261105-58/2); http одинаков во всех версиях и как в жизни
+        import functools
+        import http.server
+        import threading
+
+        class _Quiet(http.server.SimpleHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+        srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(_Quiet, directory=td))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f'http://127.0.0.1:{srv.server_address[1]}'
         env = dict(os.environ, PARITY_ROOT=stand, PARITY_GUARD=GUARD, PARITY_DENY=frozen + os.pathsep + outside,
                    PARITY_ALLOW='', PYTHONPATH=os.path.join(stand, '_site'), PARITY_NET='record',
-                   PARITY_NET_DIR=os.path.join(frozen, 'net'))    # как на стенде: запись сети внутри замороженных данных
+                   PARITY_NET_DIR=os.path.join(frozen, 'net'),    # как на стенде: запись сети внутри замороженных данных
+                   no_proxy='127.0.0.1,localhost', NO_PROXY='127.0.0.1,localhost')
         code = ('import json,os,urllib.request\n'
                 'r={}\n'
                 'try:\n open(%r,"w").write("x"); r["outside"]="written"\n'
                 'except PermissionError: r["outside"]="denied"\n'
                 'open("f.json","w").write(\'{"v": 2}\')\n'
                 'r["read"]=open("nope.json").read() if os.path.exists("nope.json") else "none"\n'
-                'r["net"]=urllib.request.urlopen("file://%s?v=123").read().decode()\n'
-                'print(json.dumps(r))\n') % (os.path.join(outside, 'leak.txt'), page)
+                'r["net"]=urllib.request.urlopen("%s/page.txt?v=123").read().decode()\n'
+                'print(json.dumps(r))\n') % (os.path.join(outside, 'leak.txt'), base)
         p = subprocess.run([sys.executable, '-c', code], cwd=stand, env=env, capture_output=True, text=True)
         r = json.loads(p.stdout or '{}') if p.returncode == 0 else {}
         ok('сторож: запись вне стенда — отказ', r.get('outside') == 'denied' and not os.path.exists(os.path.join(outside, 'leak.txt')))
@@ -1054,14 +1067,16 @@ def selftest() -> int:
         open(page, 'w').write('другой ответ')
         env['PARITY_NET'] = 'replay'
         code2 = ('import urllib.request,urllib.error\n'
-                 'print(urllib.request.urlopen("file://%s?v=999").read().decode())\n'
-                 'try:\n urllib.request.urlopen("file://%s/none")\nexcept urllib.error.URLError: print("miss")\n') % (page, td)
+                 'print(urllib.request.urlopen("%s/page.txt?v=999").read().decode())\n'
+                 'try:\n urllib.request.urlopen("%s/none")\nexcept urllib.error.URLError: print("miss")\n') % (base, base)
         p2 = subprocess.run([sys.executable, '-c', code2], cwd=stand, env=env, capture_output=True, text=True)
         ok('сеть: воспроизведение — ответ эталона, «мимо кэша» v= не мешает; нет записи — отказ',
            p2.stdout.split() == ['ответ', 'miss'])
         tr = ''.join(open(os.path.join(stand, '_trace', f)).read() for f in os.listdir(os.path.join(stand, '_trace')))
         ok('журнал: запрет, чтение отсутствующего входа нет (exists-проверка), промах сети',
            '"deny"' in tr and '"net_miss"' in tr)
+        srv.shutdown()
+        srv.server_close()
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0
 
