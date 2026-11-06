@@ -10,7 +10,9 @@
   2. `exam.lock` — отказ; незавершённая запись комнаты (намерение) — сперва восстановление (`bank_refresh.recover`);
   3. живой банк уже есть — отказ (bootstrap только для первого; дальше — ночной писатель); после `rollback` — можно снова;
   4. проверка кандидата (`verdict`): полная матрица профиля и id от ячейки, происхождение = текущие профиль/правила/сборщик
-     (`room_identity.check`), раскладка и состав без нарушений (`compose_bedroom.check_bank`, предупреждения декора `~` — не отказ);
+     (`room_identity.check`), раскладка и состав без нарушений (`compose_bedroom.check_bank` с `spare='warn'`: у поколения 0 нехватка
+     запаса замен — `~`, как у декора; набор полный, не хватает лишь замен — ведущий T-70/2; у ночной замены этапа Г правило
+     жёсткое, `spare='hard'` по умолчанию); нехватка запаса у мебели — строками в журнал поколения (`warnings`: ячейка, роль, замен);
   5. снимок поколения 0 — САМ кандидат байт в байт (`bank-generations-<комната>/<префикс>-<поколение>.json.gz`; «до» нет), затем
      намерение (sha «до» = нет файла, sha «после»), затем атомарная запись живого (временный + fsync + rename), сверка sha, журнал
      (`kind: bootstrap`, `generation: 0`), намерение снимается последним.
@@ -51,16 +53,30 @@ def _sha_file(path: str) -> str | None:
         return None
 
 
-def verdict(room: str, cand: list) -> list[str]:
-    """Отказы кандидата (пусто — годен к поколению 0): идентичность и происхождение, затем раскладка и состав."""
+SPARE = 'warn'      # суд поколения 0: нехватка запаса замен у мебели — предупреждение в журнал (ведущий T-70/2)
+
+
+def verdict(room: str, cand: list, spare: str = SPARE) -> list[str]:
+    """Отказы кандидата (пусто — годен к поколению 0): идентичность и происхождение, затем раскладка и состав
+    (`compose_bedroom.check_bank(spare=…)`; '~' — предупреждения, не отказ)."""
     import room_identity as RI
     bad = RI.check(cand, RI.expected(room), RI.provenance(room), room)
     if bad:
         return bad
     if room == 'bedroom':
         import compose_bedroom as CB
-        bad += [p for p in CB.check_bank(cand, CB.rules(), CB.tolerance()) if not p.startswith('~')]
+        bad += [p for p in CB.check_bank(cand, CB.rules(), CB.tolerance(), spare=spare) if not p.startswith('~')]
     return bad
+
+
+def spare_warnings(room: str, cand: list) -> list[dict]:
+    """Нехватка запаса замен у мебели (`compose_bedroom.spare_short`) → строки журнала поколения: ячейка, роль, сколько замен."""
+    if room != 'bedroom':
+        return []
+    import compose_bedroom as CB
+    import room_identity as RI
+    return [{'set_id': s.get('set_id'), 'cell': '|'.join(RI.cell(s)), 'role': r, 'alternates': n, 'min': CB.SPARE_MIN}
+            for s in cand if s.get('items') for r, n, major in CB.spare_short(s) if major]
 
 
 def _say(msg: str) -> None:
@@ -98,13 +114,14 @@ def run(P: dict, R: dict, room: str, cand_path: str, *, confirm: bool, verdict_f
         _say(f'ERROR:room_bootstrap: кандидат не прошёл проверку ({len(bad)}) — живой банк не создан'
              + ''.join(f'\n  ✗ {x}' for x in bad[:20]))
         return 1
+    warns = spare_warnings(room, cand)
     after = RF.sha(raw)
     gen, spath = RF.snapshot(P, raw)
     rec = {'gen': gen, 'kind': 'bootstrap', 'generation': 0, 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'snapshot': spath,
            'snapshot_is': 'после (поколение 0 — сам кандидат; «до» — живого не было)', 'room': room,
            'live_sha_before': None, 'live_sha_after': after, 'candidate': os.path.abspath(cand_path), 'cells': len(cand),
            'provenance': (cand[0].get('provenance') if cand else None), 'by': 'confirm-lead',
-           'repeat': any(r.get('kind') == 'bootstrap' for r in RF.journal(P))}
+           'repeat': any(r.get('kind') == 'bootstrap' for r in RF.journal(P)), 'warnings': warns}
     RF._intent_save(P, {'gen': gen, 'snapshot': spath, 'live_sha_before': None, 'live_sha_after': after, 'hold': None,
                         'record': rec})
     try:
@@ -120,8 +137,10 @@ def run(P: dict, R: dict, room: str, cand_path: str, *, confirm: bool, verdict_f
         return 1
     RF._journal_add(P, rec)
     RF._intent_clear(P)
+    for w in warns:
+        _say(f"WARN:room_bootstrap: {w['set_id']} {w['cell']} {w['role']} — замен {w['alternates']} < {w['min']} (в журнале поколения)")
     _say(f"room_bootstrap: {room} — живой банк создан, поколение 0 ({gen}), ячеек {len(cand)}; снимок {spath}"
-         + (' (повторный — после отката)' if rec['repeat'] else ''))
+         + (' (повторный — после отката)' if rec['repeat'] else '') + (f'; предупреждений {len(warns)}' if warns else ''))
     _say(f'DIGEST:банк {room}: создан из кандидата — поколение 0, ячеек {len(cand)} (слово ведущего)')
     return 0
 
@@ -218,7 +237,9 @@ def main(argv: list) -> int:
             _say(f'ERROR:room_bootstrap: кандидат {cand} не читается ({type(e).__name__})')
             return 1
         bad = verdict(room, c)
-        _say(f'room_bootstrap check {room}: кандидат {cand}, записей {len(c)}, отказов {len(bad)}'
+        warns = [] if bad else spare_warnings(room, c)
+        _say(f'room_bootstrap check {room}: кандидат {cand}, записей {len(c)}, отказов {len(bad)}, предупреждений {len(warns)}'
+             + ''.join(f"\n  ~ {w['set_id']} {w['role']} — замен {w['alternates']} < {w['min']}" for w in warns[:30])
              + ''.join(f'\n  ✗ {x}' for x in bad[:30]) + ('' if bad else ' — годен к поколению 0 (запись — `run --confirm-lead`)'))
         return 1 if bad else 0
     if argv[:1] == ['run']:

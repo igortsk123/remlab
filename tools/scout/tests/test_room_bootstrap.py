@@ -22,6 +22,7 @@ SCOUT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SCOUT)
 
 import bank_pending as BP  # noqa: E402
+import compose_bedroom as CB  # noqa: E402
 import bank_refresh as RF  # noqa: E402
 import room_bank_spec as RBS  # noqa: E402
 import room_bootstrap as RBO  # noqa: E402
@@ -52,7 +53,7 @@ def candidate(**over) -> list:
     out = []
     for c in WANT:
         s = dict(zip(RI.CELL, c), room_type='bedroom', items={'кровать': {'mid': 1, 'eid': 'a', 'sid': '1_a'}},
-                 set_id=RI.set_id_of('bedroom', c), provenance=dict(PROV))
+                 alternates={'кровать': ['x', 'y', 'z']}, set_id=RI.set_id_of('bedroom', c), provenance=dict(PROV))
         out.append(s)
     return out
 
@@ -185,6 +186,49 @@ def main() -> int:
         rc, out = quiet(RBO.recover, P4, True)
         ok('`recover --abandon` — намерение снято, живой как есть', rc == 0 and not os.path.exists(P4['intent'])
            and open(P4['live']).read() == '[]', out)
+
+        # запас замен: у поколения 0 — предупреждение в журнал (ячейка, роль, сколько), у ночной замены (этап Г) — отказ (T-70/2)
+        rec0 = dict(candidate()[0], items={'кровать': {}, 'шкаф': {}, 'лампа': {}, 'тумба прикроватная': {}},
+                    alternates={'кровать': ['x'], 'шкаф': ['x', 'y', 'z'], 'лампа': [], 'тумба прикроватная': ['x', 'y']})
+        ok('spare_short: роли с заменами < 3 по порядку предметов, мебель помечена',
+           CB.spare_short(rec0) == [('кровать', 1, True), ('лампа', 0, False), ('тумба прикроватная', 2, True)],
+           CB.spare_short(rec0))
+        try:
+            CB.check_bank([], {}, (), spare='мягко')
+            ok('check_bank: неизвестный режим запаса — отказ', False)
+        except ValueError:
+            ok('check_bank: неизвестный режим запаса — отказ (не молча жёсткий)', True)
+        ok('по умолчанию у check_bank запас жёсткий (ночная замена), у bootstrap — предупреждение',
+           CB.check_bank.__defaults__ == ('hard',) and RBO.SPARE == 'warn')
+        seen = []
+        keep_cb = CB.check_bank
+
+        def fake_cb(bank, R, tol, spare='hard'):
+            seen.append(spare)
+            return [('' if spare == 'hard' else '~ ') + f"{b['set_id']}: {r} — альтернатив {n} < 3"
+                    for b in bank for r, n, major in CB.spare_short(b) if major]
+        CB.check_bank = fake_cb
+        try:
+            c5 = candidate()
+            c5[3] = dict(c5[3], items={'кровать': {}, 'шкаф': {}}, alternates={'кровать': ['x'], 'шкаф': []})
+            c5[7] = dict(c5[7], items={'кровать': {}, 'лампа': {}}, alternates={'кровать': ['x', 'y', 'z'], 'лампа': []})
+            ok('суд: spare=hard — нехватка замен мебели — отказ', len(RBO.verdict('bedroom', c5, spare='hard')) == 2)
+            ok('суд: по умолчанию (поколение 0) — не отказ', RBO.verdict('bedroom', c5) == [] and seen[-1] == 'warn')
+            P5, cp5 = sandbox(td, 'spare')
+            json.dump(c5, open(cp5, 'w', encoding='utf-8'), ensure_ascii=False)
+            rc, out = quiet(RBO.run, P5, ON, 'bedroom', cp5, confirm=True)
+            W = (RF.journal(P5) or [{}])[-1].get('warnings')
+            ok('bootstrap с нехваткой замен мебели: код 0, в журнале поколения 2 предупреждения (ячейка, роль, замен), WARN в выводе',
+               rc == 0 and W == [{'set_id': c5[3]['set_id'], 'cell': '|'.join(RI.cell(c5[3])), 'role': 'кровать', 'alternates': 1,
+                                  'min': 3},
+                                 {'set_id': c5[3]['set_id'], 'cell': '|'.join(RI.cell(c5[3])), 'role': 'шкаф', 'alternates': 0,
+                                  'min': 3}]
+               and out.count('WARN:room_bootstrap:') == 2 and 'предупреждений 2' in out, (rc, W, out))
+            P6, cp6 = sandbox(td, 'spare0')
+            rc, out = quiet(RBO.run, P6, ON, 'bedroom', cp6, confirm=True)
+            ok('без нехватки — warnings пуст', rc == 0 and RF.journal(P6)[-1]['warnings'] == [], out)
+        finally:
+            CB.check_bank = keep_cb
 
         # готовность спальни в bank_pending: ключ ячейки и привязка
         saved = {k: getattr(BP, k) for k in ('SPEC', 'RULES_PATH', 'STATE', 'CANDIDATE', 'LIVE', 'DEMO_DATA', 'PREPARE_REPORT')}

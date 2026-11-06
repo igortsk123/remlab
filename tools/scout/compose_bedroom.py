@@ -612,9 +612,22 @@ def compose(rooms: list, C: Composer) -> tuple:
     return bank, report
 
 
-def check_bank(bank: list, R: dict, tol: tuple) -> list:
+SPARE_MIN = 3                  # запас замен у роли набора (onb-06): меньше — у мебели нарушение, у декора предупреждение
+SPARE_MODES = ('hard', 'warn')
+
+
+def spare_short(s: dict) -> list[tuple[str, int, bool]]:
+    """Роли набора с запасом замен меньше `SPARE_MIN` → [(роль, сколько замен, мебель ли)] в порядке предметов."""
+    alts = s.get('alternates') or {}
+    return [(r, len(alts.get(r, [])), r in MAJOR) for r in s['items'] if len(alts.get(r, [])) < SPARE_MIN]
+
+
+def check_bank(bank: list, R: dict, tol: tuple, spare: str = 'hard') -> list:
     """Критерии плана onb-06 по готовому банку → список нарушений (пусто — чисто). Раскладку перепроверяет `validate`
-    (диспетчер по room_type): жёстких 0."""
+    (диспетчер по room_type): жёстких 0. `spare` — нехватка запаса замен у мебели: 'hard' — нарушение (ночная замена,
+    этап Г), 'warn' — предупреждение `~` (поколение 0: набор полный, не хватает лишь запаса — `room_bootstrap`, T-70/2)."""
+    if spare not in SPARE_MODES:
+        raise ValueError(f'spare={spare!r}? можно {", ".join(SPARE_MODES)}')
     sys.path.insert(0, SOLVER)
     from planner.models import Item, Placement, Severity
     from planner.validate import validate
@@ -629,14 +642,16 @@ def check_bank(bank: list, R: dict, tol: tuple) -> list:
         if 'кровать' not in it or not any(r in it for r in ('шкаф', 'комод')):
             bad.append(f'{sid}: ядро неполное (кровать + шкаф/комод)')
         slot_cfg = {sl['role']: sl for sl in R['purposes'][s['purpose']]['slots']}
+        short = {r: (n, major) for r, n, major in spare_short(s)}
         for r, x in it.items():
             if r in MAJOR:      # полоса — из записи: у узкого шкафа она от свободной стены комнаты, не общая
                 sc = dict(slot_cfg[r], ideal=s['slots'][r]['ideal'])
                 g = gate(dict(x, role=r, footprint_ok=True), sc, s['slots'][r]['band'])
                 if g:
                     bad.append(f'{sid}: {r} {x["sid"]} — {g}')
-            if len(s['alternates'].get(r, [])) < 3:   # декор тоньше мебели — предупреждение (`~`), не нарушение
-                bad.append(('' if r in MAJOR else '~ ') + f'{sid}: {r} — альтернатив {len(s["alternates"].get(r, []))} < 3')
+            if r in short:      # декор тоньше мебели — предупреждение (`~`), не нарушение
+                n, major = short[r]
+                bad.append(('' if major and spare == 'hard' else '~ ') + f'{sid}: {r} — альтернатив {n} < {SPARE_MIN}')
         if s['purpose'] == 'couple' and (it.get('тумба прикроватная') or {}).get('qty') != 2:
             bad.append(f'{sid}: пара без двух тумб')
         lay = s['layout']

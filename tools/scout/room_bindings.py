@@ -551,6 +551,16 @@ def orient_only(reasons) -> bool:
     return bool(reasons) and all(str(r).split(':')[-1].startswith('orientation_') for r in reasons)
 
 
+def orient_loose(a: dict, mode: str = 'orient') -> bool:
+    """Режим orient пускает этот asset, хотя привязка не `ready`: `blocked` только по развороту (`orientation_*`)."""
+    return mode == 'orient' and not a['ready'] and a['mesh_status'] == 'blocked' and orient_only(a['reasons'])
+
+
+def orient_note(a: dict, mode: str = 'orient') -> str:
+    """Нерешённый разворот у asset, который режим orient пускает, — причины строкой (в журнал), иначе ''."""
+    return ', '.join(a['reasons']) if orient_loose(a, mode) else ''
+
+
 def usable(a: dict, msid: str | None, idx, mode: str = 'orient') -> tuple[str, str]:
     """Модель предмета годна для сцены? a — asset товара после привязки (`catalog_items.bound_asset`), msid — какую модель
     грузит сцена (`mesh_rep`: представитель семейства или свой артикул, через `_`), idx — индекс прода (`prod_index`).
@@ -562,7 +572,7 @@ def usable(a: dict, msid: str | None, idx, mode: str = 'orient') -> tuple[str, s
     прода без карантина — иначе серая коробка."""
     if mode not in MESH_GATE_MODES:
         raise ValueError(f'режим сторожа {mode!r}? можно {", ".join(MESH_GATE_MODES)}')
-    loose = mode == 'orient' and not a['ready'] and a['mesh_status'] == 'blocked' and orient_only(a['reasons'])
+    loose = orient_loose(a, mode)
     if not (a['ready'] or loose):
         return f"привязка {a['mesh_status']}" + (f": {', '.join(a['reasons'][:2])}" if a['reasons'] else ''), ''
     if a['ready'] and not a['published']:
@@ -571,7 +581,7 @@ def usable(a: dict, msid: str | None, idx, mode: str = 'orient') -> tuple[str, s
         return f"сцена грузит {msid}, привязка проверила {a['mesh_id']}", ''
     if msid not in idx:
         return 'нет в индексе прода', ''
-    return '', (', '.join(a['reasons']) if loose else '')
+    return '', orient_note(a, mode)
 
 
 def prod_index(fallback=lambda: set(), quarantine=None) -> set:
