@@ -121,6 +121,21 @@ def main() -> None:
           or 'sha256' in qs_refused('mesh-q-color-canary', 'mesh-q-color', 'ghcr.io/igortsk123/mesh-hunyuan:latest'),
           'queue_setup: образ по тегу — отказ')
 
+    # recreate_group.keep_queue (T-20261106-85/3): группа-очередь пересоздаётся со своей связью, прочие — без неё
+    qc = {'path': '/generate', 'port': 8001, 'queue_name': 'mesh-q-color'}
+
+    def kq(group, donor_qc) -> str | dict:
+        try:
+            return R.keep_queue({'name': group, 'queue_connection': {'stale': 1}}, {'queue_connection': donor_qc}, group)
+        except ValueError as e:
+            return str(e)
+    got = kq('mesh-q-color-canary', qc)
+    check(isinstance(got, dict) and got['queue_connection'] == qc, 'канарейка-очередь: связь образца перенесена')
+    check('не пересоздаю' in kq('mesh-q-color-canary', None), 'группа-очередь, у образца связи нет — отказ (не pending-сирота)')
+    check('не пересоздаю' in kq('mesh-q-color-canary', dict(qc, queue_name='mesh-q-low')), 'связь на чужую очередь — отказ')
+    got = kq('mesh-low-4', qc)
+    check(isinstance(got, dict) and 'queue_connection' not in got, 'группа без очереди в правилах — связи нет, даже если у образца есть')
+
     if FAILS:
         print(f'\nПРОВАЛ: {len(FAILS)}')
         sys.exit(1)

@@ -121,6 +121,24 @@ def apply_overrides(body: dict, image: str | None, env_pairs: list[str] | None) 
     return body
 
 
+def keep_queue(body: dict, donor: dict, group: str) -> dict:
+    """Связь с очередью Salad при пересоздании (T-20261106-85/3). `MG.build_body` её не переносит: пересозданная
+    группа-очередь (`queue` в rules/salad-groups.json, например `mesh-q-color-canary`) вышла бы без `queue_connection`,
+    и задания висели бы `pending` — машина есть, а очередь её не видит (тот же случай описан в `queue_setup.py`).
+    Связь задаётся только при создании, поэтому берём её у образца, но только если она указывает на очередь из правил.
+    Группа без очереди в правилах — связи не будет, даже если у образца она есть. Отказ — ValueError."""
+    want = SG.queue_of(group)
+    if not want:
+        body.pop('queue_connection', None)
+        return body
+    qc = donor.get('queue_connection') or {}
+    if qc.get('queue_name') != want:
+        raise ValueError(f'{group}: по правилам очередь {want!r}, а у образца queue_connection {qc or "нет"} — '
+                         f'не пересоздаю (без связи задания висят pending; новую группу-очередь создаёт queue_setup.py)')
+    body['queue_connection'] = {k: qc[k] for k in ('path', 'port', 'queue_name') if k in qc}
+    return body
+
+
 def summary(body: dict) -> str:
     c = body['container']
     r = c['resources']
@@ -129,7 +147,8 @@ def summary(body: dict) -> str:
             f"диск {r.get('storage_amount')}, GPU-классов {len(r.get('gpu_classes') or [])}, "
             f"env {sorted(k for k in c['environment_variables'] if 'TOKEN' not in k and 'KEY' not in k)}, "
             f"сеть {'да' if body.get('networking') else 'нет'}, пробы "
-            f"{[k for k in ('readiness_probe', 'startup_probe', 'liveness_probe') if body.get(k)]}")
+            f"{[k for k in ('readiness_probe', 'startup_probe', 'liveness_probe') if body.get(k)]}, "
+            f"очередь {(body.get('queue_connection') or {}).get('queue_name') or 'нет'}")
 
 
 def main() -> int:
@@ -167,6 +186,7 @@ def main() -> int:
     body['autostart_policy'] = not a.no_autostart
     try:
         apply_overrides(body, a.image, a.env)
+        keep_queue(body, donor, a.group)
     except ValueError as e:
         return print(e) or 2
     if a.image:
@@ -213,7 +233,8 @@ def main() -> int:
     genv = (got.get('container') or {}).get('environment_variables') or {}
     ok = (code == 200 and r.get('memory') == a.memory
           and (got.get('container') or {}).get('image') == body['container']['image']
-          and all(genv.get(p.split('=', 1)[0]) == p.split('=', 1)[1] for p in a.env))
+          and all(genv.get(p.split('=', 1)[0]) == p.split('=', 1)[1] for p in a.env)
+          and (got.get('queue_connection') or {}).get('queue_name') == (body.get('queue_connection') or {}).get('queue_name'))
     print(f'создана {a.group}: HTTP {code}, memory {r.get("memory")}, образ …{(got.get("container") or {}).get("image", "")[-12:]}, '
           f'реплик {got.get("replicas")}, autostart {got.get("autostart_policy")}, версия {got.get("version")}, '
           f'статус {(got.get("current_state") or {}).get("status")}')
