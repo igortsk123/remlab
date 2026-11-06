@@ -319,11 +319,12 @@ def rooms_only(rooms_max: int) -> int:
     h = PH.sync_rooms(PH.ROOMS_LIMIT)
     print(f"хеши фото комнат: целей {h['targets']}, посчитано {h['hashed']}, отказов {h['failed']}", flush=True)
     rjobs = rooms_todo(rooms_max, set())
-    st = run_jobs(rjobs, ' (комнаты)') if rjobs else {'ok': 0, 'fail': 0, 'moved': 0}
+    # итог `run_jobs` читаем через .get: стоп источника маски (баланс fal, отказы подряд — T-20261105-46/3) печатает свой WARN
+    st = run_jobs(rjobs, ' (комнаты)') if rjobs else {}
     if not rjobs:
         print('вырезка комнат: ' + ('актуальна — считать нечего' if rooms_max > 0 else 'выключена (CUTOUT_ROOMS_MAX=0)'))
-    if h['failed'] or st['fail']:
-        print(f"WARN:rooms_cutout: отказов — хеш {h['failed']} из {h['targets']}, вырезка {st['fail']} из {len(rjobs)} "
+    if h['failed'] or st.get('fail'):
+        print(f"WARN:rooms_cutout: отказов — хеш {h['failed']} из {h['targets']}, вырезка {st.get('fail', 0)} из {len(rjobs)} "
               '(ждут следующей ночи)', flush=True)
     return 0
 
