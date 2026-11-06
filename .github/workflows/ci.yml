@@ -130,6 +130,7 @@ jobs:
       - run: python tools/scout/scene_checks.py --selftest   # ворота артефактов сцены демо (demo-05 п.1)
       - run: pip install numpy pillow
       - run: python tools/assets/scene_extras_golden.py --check   # авто-ТВ и декор: сервер = эталон живой сцены (demo-05 п.9)
+      - run: python tools/assets/tests/test_demo_ids.py   # лёгкие копии /rt/: все комнаты витрины, лента по типу комнаты, ковёр по стратегии (T-20261106-77)
       - run: python tools/scout/tests/test_browser_sheet.py   # лист из кадров браузера: размер, полоса, порядок, ключ ответа (demo-10)
       - run: python tools/scout/tests/test_contracts_fuse.py   # шаги банка не молчат (WARN при отказе предохранителя), пара кресел — одна модель (conv-12)
       - run: python tools/scout/tests/test_refresh_digest.py   # утренняя сводка ночного прогона не уходит пустой: порванная буква WARN, сломанный вход — громко (T-20261104-11)

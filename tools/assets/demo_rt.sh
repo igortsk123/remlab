@@ -9,11 +9,16 @@ cd "$(dirname "$0")/../.." || exit 1
 PY=${PY:-$HOME/venvs/scout/bin/python}
 DATA=${DEMO_DATA:-$HOME/scout-scenes/flat215-demo/demo-data.json}
 M=${RT_MANIFEST:-$HOME/scout-scenes/flat3d-rt/runtime-meshes.json}
+OUT=${RT_OUT:-$HOME/scout-scenes/flat3d-rt}
+# ВСЕ КОМНАТЫ ВИТРИНЫ (T-20261106-77): модели вариантов каждой комнаты из DEMO_DATA и кандидаты лент по типу комнаты
+# (`rules/demo-swap.json:rt_feed_top`). Сборка рядом (/test/<папка>): DEMO_DATA, RT_MANIFEST — копия таблицы, RT_ADD_ONLY=1;
+# таблица копий ложится рядом с её demo-data.json (RT_TABLE_OUT), витрина /demo не трогается.
+export RT_TABLE_OUT=${RT_TABLE_OUT:-$(dirname "$DATA")/rt-meshes.json}
 [ -f "$M" ] || cp data/flat3d/runtime-meshes.json "$M"
-"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --size 1024 2>&1 | tail -2
-"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --size 512 --suffix=-lite 2>&1 | tail -2
+"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 1024 2>&1 | tail -2
+"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite 2>&1 | tail -2
 bad=0
-if ! RT_MANIFEST="$M" bash tools/assets/publish_rt.sh > /tmp/demo_rt_pub.$$ 2>&1; then
+if ! RT_MANIFEST="$M" bash tools/assets/publish_rt.sh "$OUT" > /tmp/demo_rt_pub.$$ 2>&1; then
   tail -3 /tmp/demo_rt_pub.$$; bad=1; echo "выкладка копий на /rt/ не прошла"
 else tail -2 /tmp/demo_rt_pub.$$; fi
 rm -f /tmp/demo_rt_pub.$$
@@ -22,7 +27,7 @@ miss=$("$PY" - "$DATA" <<'PYEOF'
 import json, sys, urllib.request
 sys.path.insert(0, "tools/assets")
 from runtime_mesh import demo_ids
-var, _ = demo_ids(sys.argv[1], 6)
+var, _ = demo_ids(sys.argv[1])
 bad = []
 for m in var:
     for suf in ("", "-lite"):
@@ -36,8 +41,8 @@ PYEOF
 )
 echo "копии моделей вариантов на проде: не хватает ${miss:-?}"
 case "$miss" in 0*) ;; *) bad=1;; esac
-"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --size 1024 --check || bad=1
-"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --size 512 --suffix=-lite --check || bad=1
+"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 1024 --check || bad=1
+"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite --check || bad=1
 if [ "$bad" = 1 ]; then
   echo "WARN:demo_rt_missing: у моделей вариантов демо нет свежих лёгких копий — демо этой ночью не публикуется (вчерашнее остаётся)"
   exit 1
