@@ -68,6 +68,9 @@ def names(steps: list[str]) -> list[str]:
 
 
 COMBOS = [(wd, lock) for wd in (1, 3) for lock in (False, True)]
+# ГОЛОВА КОНВЕЙЕРА КОМНАТ (room-conveyor-02 К1, T-20261106-84): новые шаги после `room_catalog`, до `flat215_demo`. В
+# `--against` их не считаем разницей — это сравнение остальной ночи с прежней.
+ROOM_STEPS = ('hall_catalog', 'rooms_alive', 'style_bedroom', 'style_hall', 'rooms_cutout')
 
 
 def against(ref: str) -> int:
@@ -78,7 +81,8 @@ def against(ref: str) -> int:
     new = open(SCRIPT, encoding='utf-8').read()
     bad = 0
     for wd, lock in COMBOS:
-        a, b = night(old.stdout, 0, wd, lock), night(new, 0, wd, lock)
+        a = night(old.stdout, 0, wd, lock)
+        b = [x for x in night(new, 0, wd, lock) if x.split(' :: ', 1)[0] not in ROOM_STEPS or x in a]
         same = a == b
         bad += 0 if same else 1
         print(f"  {'✓' if same else '✗'} write_enabled=false, {'понедельник' if wd == 1 else 'среда'}"
@@ -149,6 +153,28 @@ def _selftest() -> int:
                'остальная ночь та же и тем же порядком, строка в дайджест',
                gn == want and all(n not in gn for n in BANK[k + 1:]) and 'DIGEST:банк: цепочка ночи' in log
                and (not write or all(n in gn for n in IDX)), (gn, want, log[-300:]))
+    full, log = night_log(text, 0)
+    fn = names(full)
+    cmd = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in full}
+    ok('комнаты: каждый шаг один раз, после room_catalog и до flat215_demo, по порядку',
+       all(fn.count(n) == 1 for n in ROOM_STEPS) and fn[fn.index('room_catalog') + 1:fn.index('flat215_demo')] == list(ROOM_STEPS),
+       fn[fn.index('room_catalog'):fn.index('flat215_demo') + 1] if 'room_catalog' in fn and 'flat215_demo' in fn else fn)
+    ok('комнаты: команды — прихожая --run; фото --rooms; стиль с --limit 200, прихожая в базу; вырезка --rooms-only, по умолчанию 0',
+       cmd.get('hall_catalog') == '$PY hall_catalog.py --run'
+       and cmd.get('rooms_alive', '').startswith('$PY img_alive.py --rooms --minutes ')
+       and cmd.get('style_bedroom') == '$PY style_score.py --source room_catalog --limit 200'
+       and cmd.get('style_hall') == '$PY style_score.py --source hall --db --limit 200'
+       and cmd.get('rooms_cutout') == 'env PHOTO_ROOMS_LIMIT=500 CUTOUT_ROOMS_MAX=0 $PY cutout_sync.py --rooms-only',
+       {k: cmd.get(k) for k in ROOM_STEPS})
+    ok('комнаты: строка дайджеста на каждую комнату',
+       'DIGEST:спальня: каталог ok · фото ok · стиль ok · вырезка ok' in log
+       and 'DIGEST:прихожая: каталог ok · фото ok · стиль ok · вырезка ok' in log, log[-400:])
+    for failed in ('room_catalog', *ROOM_STEPS):
+        got, flog = night_log(text, 0, fail=failed)
+        room = 'прихожая' if failed in ('hall_catalog', 'style_hall') else 'спальня'
+        ok(f'комнаты: упал {failed} — остальная ночь та же (сборка витрины и всё после идут), в дайджесте {room} с FAIL',
+           names(got) == fn and any(ln.startswith(f'DIGEST:{room}: ') and 'FAIL' in ln for ln in flog.splitlines()),
+           (names(got)[-5:], flog[-300:]))
     ok('флаг не прочитан (заглушка молчит) — ночь как при false', names(night(text, 0)) == names(night(text.replace(
         'BANK_WRITE=$("$PY" bank_refresh.py --enabled 2>/dev/null || echo 0)', 'BANK_WRITE=""'), 1)))
     print(f'tests_refresh_order selftest: ошибок {bad}')

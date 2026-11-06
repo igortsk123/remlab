@@ -160,12 +160,18 @@ def sync(limit: int, only_mesh: bool = False, dry: bool = False, rooms_limit: in
     if not dry:
         _save_missing(track_missing(_load_missing(), {r[0] for r in db(missing_sql()) if r}, time.time()))
     rl = ROOMS_LIMIT if rooms_limit is None else rooms_limit
-    st['rooms'] = {'targets': 0, 'hashed': 0, 'failed': 0}
-    if rl > 0 and not only_mesh:
-        rows, skip = rooms_targets(rl)
-        print(f'  комнаты: к хешированию {len(rows)} (лимит {rl}); пропуск — {_skip_line(skip)}', flush=True)
-        st['rooms'] = _hash_rows(rows, dry)
+    st['rooms'] = sync_rooms(rl, dry) if not only_mesh else {'targets': 0, 'hashed': 0, 'failed': 0}
     return st
+
+
+def sync_rooms(limit: int, dry: bool = False) -> dict:
+    """Только товары комнат (`rooms_targets`) своим лимитом — ночной шаг комнат (`cutout_sync.py --rooms-only`, T-20261106-84):
+    гостиную не трогает. 0 = не трогать."""
+    if limit <= 0:
+        return {'targets': 0, 'hashed': 0, 'failed': 0}
+    rows, skip = rooms_targets(limit)
+    print(f'  комнаты: к хешированию {len(rows)} (лимит {limit}); пропуск — {_skip_line(skip)}', flush=True)
+    return _hash_rows(rows, dry)
 
 
 def hash_skus(skus: list[str], dry: bool = False) -> dict:

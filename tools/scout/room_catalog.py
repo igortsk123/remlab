@@ -346,10 +346,15 @@ def run() -> int:
     return report()
 
 
+# ФОТО ЖИВОЕ (T-20261106-84, как `catalog_rules.PHOTO_OK_SQL` у гостиной): вердикт `img_alive.py --rooms` в поле
+# `room_catalog.photo_alive` (миграция 017); NULL — не проверяли, показываем. Один предикат на обе комнаты.
+PHOTO_OK_SQL = "coalesce(photo_alive, true)"
+
+
 def shown_where(R: dict | None = None) -> str:
-    """Что показываем: есть цена, есть фото, оффер в последнем свежем фиде (один предикат для отчёта и экспорта)."""
+    """Что показываем: есть цена, есть ЖИВОЕ фото, оффер в последнем свежем фиде (один предикат для отчёта и экспорта)."""
     R = R or rules()
-    return (f"room='{ROOM}' and price_rub is not null and coalesce(image_url_hd, image_url) is not null "
+    return (f"room='{ROOM}' and price_rub is not null and coalesce(image_url_hd, image_url) is not null and {PHOTO_OK_SQL} "
             f"and missing_runs < {int(R.get('missing_hide_after', 1))}")
 
 
@@ -638,6 +643,8 @@ def _selftest_onb04(R: dict, ok) -> int:
                                                      {r for _p, r in R['name_rules']}))
     ok('диван-кровать в room_catalog не грузится (ADR-0330 п.2)', 'диван-кровать' not in R['purposes'] and
        rl(93965, '615', 'Диван-кровать Ормео') is None)
+    ok('показ: мёртвое фото не показываем, непроверенное — показываем (T-20261106-84, поле img_alive.py --rooms)',
+       'coalesce(photo_alive, true)' in shown_where(R))
     return 0
 
 

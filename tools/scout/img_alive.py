@@ -12,6 +12,7 @@
   img_alive.py --all             # фото всех товаров каталога (~32 тыс., ≈45 мин при 16 потоках)
   img_alive.py --stats           # что в кэше
   img_alive.py --sync-db         # вердикты кэша → products.photo_alive (единственный писатель, conv-05)
+  img_alive.py --rooms [--minutes N]   # фото товаров комнат (room_catalog) → room_catalog.photo_alive (T-20261106-84)
 
 Обход идёт от САМЫХ ДАВНО НЕ ПРОВЕРЕННЫХ: если бюджет времени кончился, завтрашний прогон
 продолжит с того места, и за 2–3 дня пул обходится целиком даже при жёстком лимите.
@@ -162,15 +163,21 @@ def scan(urls: list[str], workers: int = 8) -> tuple[int, int]:
     return ok, len(uniq)
 
 
+def _verdict_rows() -> list:
+    """Строки COPY «адрес \\t t|f \\t ts» — вердикты кэша текущей версии проверки не старше TTL (общее правило товаров
+    гостиной и комнат)."""
+    now = time.time()
+    return [f"{u}\t{'t' if r.get('ok') else 'f'}\t{int(r.get('ts', 0))}" for u, r in _load().items()
+            if u and '\t' not in u and '\n' not in u and r.get('v', 1) >= PROBE_V and now - r.get('ts', 0) <= TTL_DAYS * 86400]
+
+
 def sync_db() -> dict:
     """ЕДИНСТВЕННЫЙ ПИСАТЕЛЬ `products.photo_alive` (план conv-05, ADR-0261): вердикт из кэша проверок.
 
     Вердикт — только у записей текущей версии проверки и не старше TTL; остальное — NULL («не проверяли»),
     как и у `alive(unknown=True)`: старые записи версии 2 на 81 % были ложными приговорами троттлинга."""
     import subprocess as _sp
-    now = time.time()
-    rows = [f"{u}\t{'t' if r.get('ok') else 'f'}\t{int(r.get('ts', 0))}" for u, r in _load().items()
-            if u and '\t' not in u and '\n' not in u and r.get('v', 1) >= PROBE_V and now - r.get('ts', 0) <= TTL_DAYS * 86400]
+    rows = _verdict_rows()
     sql = ("create temp table pa (url text primary key, ok boolean, ts bigint);\n"
            "copy pa from stdin;\n" + ''.join(r + '\n' for r in rows) + "\\.\n"
            "update products p set photo_alive = null, photo_alive_at = null where p.photo_alive is not null "
@@ -188,6 +195,77 @@ def sync_db() -> dict:
     print(f"фото → база (товары в наличии): живых {stats.get('true', 0)}, мёртвых {stats.get('false', 0)}, "
           f"не проверено {stats.get('null', 0)}; вердиктов в кэше {len(rows)}", flush=True)
     return stats
+
+
+# ------------------------------------------------------------------ товары комнат (room_catalog: спальня, прихожая; T-20261106-84)
+# ЗАЧЕМ. Ленты и подбор комнат брали фото как живое по умолчанию: мёртвая ссылка CDN давала пустую карточку в «Спальне».
+# Правило то же, что у гостиной: та же проверка `_probe`, тот же кэш и TTL, вердикт в ОДНО поле `room_catalog.photo_alive`
+# (миграция `017-room-photo-alive.sql`), NULL = «не проверяли» = показываем. Писатель поля — только `sync_rooms_db`; показ читает его через
+# `room_catalog.PHOTO_OK_SQL` (в `shown_where` обеих комнат), ленты — через `dead_room_photos`.
+# АДРЕС — показываемый: HD, иначе обычный (как `photo_hash.RURL` и `bedroom_catalog`); пустая строка = нет адреса.
+ROOM_URL_SQL = "coalesce(nullif(image_url_hd, ''), nullif(image_url, ''))"
+ROOM_URL_R = "coalesce(nullif(r.image_url_hd, ''), nullif(r.image_url, ''))"
+
+
+def _psql(sql: str):
+    import subprocess as _sp
+    return _sp.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-q', '-v',
+                    'ON_ERROR_STOP=1', '-t', '-A', '-F', '|'], input=sql, capture_output=True, text=True)
+
+
+def _room_urls() -> list:
+    """Адреса фото всех товаров комнат, кроме давно пропавших из фида (`missing_runs` < 3: показ прячет с 1, но товар
+    может вернуться завтра — вердикт пусть будет готов)."""
+    r = _psql(f"select distinct {ROOM_URL_SQL} from room_catalog where {ROOM_URL_SQL} is not null and missing_runs < 3;\n")
+    if r.returncode != 0:
+        raise RuntimeError(f'адреса фото комнат: {r.stderr[:300]}')
+    return [u.strip() for u in r.stdout.splitlines() if u.strip()]
+
+
+def sync_rooms_db() -> dict:
+    """ЕДИНСТВЕННЫЙ ПИСАТЕЛЬ `room_catalog.photo_alive` — то же правило, что `sync_db` для `products`: вердикт текущей версии
+    проверки не старше TTL, остальное — NULL. → {(комната, 'true'|'false'|'null'): число} показываемых строк."""
+    rows = _verdict_rows()
+    sql = ("create temp table pa (url text primary key, ok boolean, ts bigint);\n"
+           "copy pa from stdin;\n" + ''.join(r + '\n' for r in rows) + "\\.\n"
+           f"update room_catalog r set photo_alive = null, photo_alive_at = null where r.photo_alive is not null "
+           f"and not exists (select 1 from pa where pa.url = {ROOM_URL_R});\n"
+           f"update room_catalog r set photo_alive = pa.ok, photo_alive_at = to_timestamp(pa.ts) from pa "
+           f"where pa.url = {ROOM_URL_R} "
+           "and (r.photo_alive is distinct from pa.ok or r.photo_alive_at is distinct from to_timestamp(pa.ts));\n"
+           "select room, coalesce(photo_alive::text,'null'), count(*) from room_catalog "
+           "where price_rub is not null and missing_runs < 1 group by 1, 2;\n")
+    r = _psql(sql)
+    if r.returncode != 0:
+        raise RuntimeError(f'фото комнат → база: {r.stderr[:300]}')
+    stats = {}
+    for ln in r.stdout.split():
+        p = ln.split('|')
+        if len(p) == 3:
+            stats[(p[0], p[1])] = int(p[2])
+    for room in sorted({k[0] for k in stats}):
+        print(f"фото комнат → база ({room}, в показе): живых {stats.get((room, 'true'), 0)}, мёртвых "
+              f"{stats.get((room, 'false'), 0)}, не проверено {stats.get((room, 'null'), 0)}", flush=True)
+    return stats
+
+
+def dead_room_photos() -> set:
+    """Адреса фото, которые `room_catalog` и `products` знают мёртвыми (`photo_alive = false`) — для лент замен комнат:
+    в ленте и товары комнат, и декор гостиной. Только поле базы, без своих проверок (тот же вердикт, что у показа)."""
+    r = _psql(f"select {ROOM_URL_SQL} from room_catalog where photo_alive = false and {ROOM_URL_SQL} is not null\n"
+              "union select image_url from products where photo_alive = false and image_url is not null\n"
+              "union select image_url_hd from products where photo_alive = false and image_url_hd is not null;\n")
+    if r.returncode != 0:
+        raise RuntimeError(f'мёртвые фото комнат: {r.stderr[:300]}')
+    return {u.strip() for u in r.stdout.splitlines() if u.strip()}
+
+
+def _cli_rooms() -> None:
+    mins = float(sys.argv[sys.argv.index('--minutes') + 1]) if '--minutes' in sys.argv else 10.0
+    done, live, known, total = sweep(_room_urls(), minutes=mins)
+    print(f'фото комнат: всего {total}, проверено за прогон {done}, известно {known}, '
+          f'живых {live} ({live * 100 // max(known, 1)}% от проверенных)', flush=True)
+    sync_rooms_db()
 
 
 def _bank_urls() -> list[str]:
@@ -261,6 +339,8 @@ if __name__ == '__main__':
     elif '--pool' in sys.argv or '--all' in sys.argv:
         _cli_pool('--all' in sys.argv)
         sync_db()
+    elif '--rooms' in sys.argv:
+        _cli_rooms()
     elif '--sync-db' in sys.argv:
         sync_db()
     elif '--stats' in sys.argv:

@@ -113,9 +113,9 @@ def with_dims(offers: list, R: dict) -> list:
 
 
 def shown_where(R: dict | None = None) -> str:
-    """Что показываем: есть цена, есть фото, оффер в последнем свежем фиде (как `room_catalog.shown_where`, комната — hall)."""
+    """Что показываем: есть цена, есть живое фото, оффер в последнем свежем фиде (как `room_catalog.shown_where`, комната — hall)."""
     R = R or rules()
-    return (f"room='{ROOM}' and price_rub is not null and coalesce(image_url_hd, image_url) is not null "
+    return (f"room='{ROOM}' and price_rub is not null and coalesce(image_url_hd, image_url) is not null and {C.PHOTO_OK_SQL} "
             f"and missing_runs < {int(R.get('missing_hide_after', 1))}")
 
 
@@ -278,6 +278,7 @@ def _selftest() -> int:
 
     R = rules()
     rl = lambda mid, cid, nm: C.role_of(mid, cid, nm, R, category_map.is_kids)  # noqa: E731
+    ok('показ: мёртвое фото не показываем — то же поле, что у спальни (T-20261106-84)', C.PHOTO_OK_SQL in shown_where(R))
     cases = json.load(open(os.path.join(HERE, 'tests', 'fixtures', 'hall-role-cases.json'), encoding='utf-8'))
     miss = 0
     for c in cases:

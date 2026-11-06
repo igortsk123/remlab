@@ -442,6 +442,23 @@ fi
 # каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины И ДО
 # `demo_band` (T-20261106-82/2): места комнат кроме гостиной (квота 30 на комнату × стиль) берут кандидатов из свежего каталога
 step room_catalog "$PY" room_catalog.py --run
+# ГОЛОВА КОНВЕЙЕРА КОМНАТ (план room-conveyor-02 К1, T-20261106-84): прихожая, живость фото, стиль, хеши и вырезка комнат —
+# тем же путём, что гостиная. Каждый шаг отдельный: сбой комнаты не трогает гостиную и сборку витрины (строка на комнату — в
+# дайджест). Стиль — дневной потолок шлюза общий (`openai_budget`), платим только за новые модели; прихожая — в базу (`--db`:
+# её стиль читают из `product_style_scores`), спальня — файл `style-scores-bedroom.json`. Вырезка платная (fal ≈ $0.0008/фото):
+# потолок `CUTOUT_ROOMS_MAX` (0 — только хеши, бесплатно).
+step hall_catalog "$PY" hall_catalog.py --run
+step rooms_alive "$PY" img_alive.py --rooms --minutes "${ROOMS_ALIVE_MIN:-10}"
+paid_step style_bedroom "$PY" style_score.py --source room_catalog --limit "${STYLE_ROOMS_LIMIT:-200}"
+paid_step style_hall "$PY" style_score.py --source hall --db --limit "${STYLE_ROOMS_LIMIT:-200}"
+step rooms_cutout env PHOTO_ROOMS_LIMIT="${PHOTO_ROOMS_LIMIT:-500}" CUTOUT_ROOMS_MAX="${CUTOUT_ROOMS_MAX:-0}" "$PY" cutout_sync.py --rooms-only
+room_digest() {                 # room_digest <комната> <метка=шаг…> — строка дайджеста: статусы шагов комнаты одной строкой
+  local room="$1"; shift; local s="" p
+  for p in "$@"; do s+="${s:+ · }${p%%=*} ${RES[${p#*=}]:-нет}"; done
+  echo "DIGEST:$room: $s" >> "$LOG"
+}
+room_digest спальня каталог=room_catalog фото=rooms_alive стиль=style_bedroom вырезка=rooms_cutout
+room_digest прихожая каталог=hall_catalog фото=rooms_alive стиль=style_hall вырезка=rooms_cutout
 step demo_band "$PY" demo_band.py --report
 step mesh_publish "$PY" mesh_publish.py
 # комментарии владельца к браку мешей за неделю (план mesh-audit-comments) — строкой DIGEST в утреннюю сводку; разбор — --comments

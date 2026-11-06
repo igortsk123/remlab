@@ -1230,7 +1230,11 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     # (/test/t32f). Сторож выключен (`BEDROOM_MESH_GATE=0`) — прежняя проверка индекса прода
     feed_gate = ((lambda s: '' if s.get('msid') else 'нет модели') if any_mesh
                  else gate or (lambda s: '' if s.get('msid') in _mesh_index() else 'нет в индексе прода'))
-    bf = DB.feeds(bank, bcat, _msid, feed_gate)
+    # фото живое — поле базы (`room_catalog.photo_alive` / `products.photo_alive`, писатель `img_alive.py`), не «живо по
+    # умолчанию»: мёртвая ссылка CDN давала пустую карточку в ленте замен (T-20261106-84)
+    from img_alive import dead_room_photos
+    dead = dead_room_photos()
+    bf = DB.feeds(bank, bcat, _msid, feed_gate, alive=lambda u: u not in dead)
     for role, rows in bf.items():
         feeds.setdefault(role, rows)
     print(f'спальни: включены {on}, банк {len(bank)} записей, вариантов {made}; ленты '

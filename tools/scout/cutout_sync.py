@@ -26,6 +26,7 @@
   ~/venvs/scout/bin/python cutout_sync.py            # досчитать недостающее
   ~/venvs/scout/bin/python cutout_sync.py --report   # что посчитано, что ждёт (и отдельно по комнатам)
   CUTOUT_DAILY_MAX=0 ~/venvs/scout/bin/python cutout_sync.py --rooms-limit 10   # только товары комнат (T-46), 10 штук
+  PHOTO_ROOMS_LIMIT=500 CUTOUT_ROOMS_MAX=300 ~/venvs/scout/bin/python cutout_sync.py --rooms-only   # ночной шаг комнат (T-84)
 """
 import base64
 import hashlib
@@ -311,6 +312,22 @@ def run_jobs(jobs: list[tuple[str, str, str, str]], label: str = '') -> dict:
     return stat
 
 
+def rooms_only(rooms_max: int) -> int:
+    """НОЧНОЙ ШАГ КОМНАТ (план room-conveyor-02 К1, T-20261106-84): хеши фото товаров комнат (`PHOTO_ROOMS_LIMIT`) и вырезка
+    (`CUTOUT_ROOMS_MAX` / `--rooms-limit`, 0 = только хеши) — после каталогов комнат, гостиную не трогает (её хеши и вырезка —
+    шаг `cutout`). Отказы считаются; есть отказы — строка WARN (шаг warn, ночь идёт дальше), товар ждёт следующей ночи."""
+    h = PH.sync_rooms(PH.ROOMS_LIMIT)
+    print(f"хеши фото комнат: целей {h['targets']}, посчитано {h['hashed']}, отказов {h['failed']}", flush=True)
+    rjobs = rooms_todo(rooms_max, set())
+    st = run_jobs(rjobs, ' (комнаты)') if rjobs else {'ok': 0, 'fail': 0, 'moved': 0}
+    if not rjobs:
+        print('вырезка комнат: ' + ('актуальна — считать нечего' if rooms_max > 0 else 'выключена (CUTOUT_ROOMS_MAX=0)'))
+    if h['failed'] or st['fail']:
+        print(f"WARN:rooms_cutout: отказов — хеш {h['failed']} из {h['targets']}, вырезка {st['fail']} из {len(rjobs)} "
+              '(ждут следующей ночи)', flush=True)
+    return 0
+
+
 def main() -> int:
     if '--report' in sys.argv:
         report()
@@ -319,6 +336,8 @@ def main() -> int:
         print(f'неизвестный источник маски: {BACKEND}')
         return 1
     rooms_max = int(sys.argv[sys.argv.index('--rooms-limit') + 1]) if '--rooms-limit' in sys.argv else ROOMS_MAX
+    if '--rooms-only' in sys.argv:
+        return rooms_only(rooms_max)
     added = sync_photos(int(os.environ.get('CUTOUT_SHA_MAX', '400')))
     if added:
         print(f'посчитано хешей фото: {added}', flush=True)
