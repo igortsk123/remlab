@@ -1,78 +1,37 @@
-"""СПАЛЬНИ ВИТРИНЫ ДЕМО (план onb-07 Т2, T-20261105-32; контракты ADR-0330). Чистые функции: банк спальни → варианты витрины
-`demo-data.json` с комнатой, назначением и своей геометрией (`rooms_geo[room_id]`), ленты замен по ролям спальни.
-
-Почему отдельным модулем: `flat215_demo.py` тяжёлый (база, сеть, меши), а здесь — правила, которые проверяются без них
-(`tools/scout/tests/test_demo_bedroom.py`); товар, габариты и модель берутся функциями сборки, переданными параметрами.
+"""СПАЛЬНИ ВИТРИНЫ ДЕМО (план onb-07 Т2, T-20261105-32; контракты ADR-0330) — АДАПТЕР общего ядра `demo_room.py`
+(hall-demo-01 этап 3, T-20261106-98: ядро переехало побайтно, эталон — `tests/test_demo_room_golden.py`). Здесь — только своё
+спальни: роли, полосы размера, порядок ячейки, солвер, пути банка и чертежа; имена и подписи прежние (сборка
+`flat215_demo.py:bedroom_*`, сторожа `room_guards.py`, `room_ready.py`, тесты).
 
 - Комната включается флагом реестра (`apartments[].rooms[].enabled`, `flat215_demo.room_flags`); выключено — ни одной строки
   спальни в данных, гостиная байт в байт прежняя.
 - Банк — живой `sets-bedroom.json` (правки Codex 05.11 к onb-07: демо не читает `*.next`); проверочная сборка — `BEDROOM_SETS`.
-  Запись = формат `sets3` + `room_id`, `room_type`, `purpose` (onb-06 п.5). Файл — список записей или `{"sets": [...]}`.
-- Геометрия — комната готовой расстановки банка (`layout._room`, `bank_room`), нет её — `flat215-bedrooms.json`, первая запись
-  комнаты (основной вариант чертежа; `registry-*`/`small-*` — проверочные).
-- Расстановка: готовая в записи (`layout` — `{роль: {x, z, rot}}`, как `v3set{n}-layout.json`), иначе солвер спальни
-  (`services/planner-solver/planner/bedroom.py:solve_bedroom`) по габаритам товаров. Солвер не расставил кровать — вариант
-  не публикуется (строка в `incomplete_styles` с комнатой).
+  Файл — список записей или `{"sets": [...]}`.
+- Геометрия — комната готовой расстановки банка, нет её — `flat215-bedrooms.json`, первая запись комнаты (основной вариант
+  чертежа; `registry-*`/`small-*` — проверочные).
+- Расстановка: готовая в записи (`layout`, как `v3set{n}-layout.json`), иначе солвер спальни
+  (`services/planner-solver/planner/bedroom.py:solve_bedroom`). Солвер не расставил кровать — вариант не публикуется.
 """
-import json
 import os
-import re
 import sys
+
+import demo_room as R
+from demo_room import (STYLE_AXES, _ext, _instances, _key, base_role, bank_room, feed_row, load_bank, neighbour_styles,
+                       on_ref_place, room_key, merge_room_feeds, variant_id, zone)
+
+# прежний открытый набор имён модуля (сборка, сторожа и тесты зовут их как `demo_bedroom.<имя>`)
+__all__ = ['HERE', 'GEO_FILE', 'BANK_LIVE', 'STYLE_AXES', 'SOLVER_ROLES', 'PLACE_ROLES', 'LIST_ROLES', 'TIER_ORDER', 'PURPOSE_ORDER',
+           'BAND_CM', 'ONE_FREE_ROLES', 'MESH_FREE_ROLES', 'SPEC', 'lead_roles', 'neighbour_styles', '_key', 'role_spares',
+           'base_role', 'load_bank', 'bank_room', 'room_geo', 'solve', 'one_rule', '_placed', 'zone', 'zones', 'reference', '_ext',
+           'on_ref_place', 'hard_codes', 'one_layout', 'variant_id', '_instances', '_fits', '_in_band', 'gate_items',
+           'build_variant', 'pick_records', 'feed_row', 'feeds', 'bands', 'room_key', 'merge_room_feeds', 'room_bands']
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GEO_FILE = os.path.join(HERE, 'flat215-bedrooms.json')
 BANK_LIVE = os.path.join(HERE, 'sets-bedroom.json')
 # ВЕДУЩИЕ ПРЕДМЕТЫ — данные профиля комнаты (`rules/profiles/bedroom.json`, роль `lead: true`; T-20261106-77, ведущий 06.11 — было
 # списком CORE здесь): без ведущего с годной моделью вариант не публикуется (критерий onb-07: «в кадре кровать и ≥ 1 тумба»)
-STYLE_AXES = os.path.join(HERE, 'rules', 'style-axes.json')
 
-
-def lead_roles(room_type: str = 'bedroom') -> tuple:
-    import room_profile as RP
-    return RP.lead(RP.load(room_type))
-
-
-def neighbour_styles(style: str, path: str = STYLE_AXES) -> list:
-    """Соседние стили — пары «легко спутать» паспорта осей стиля (`style-axes.json:confusable_pairs`, с источниками): запас
-    ведущего предмета, когда в своём стиле товара с моделью нет. Порядок — порядок пар в файле."""
-    doc = json.load(open(path, encoding='utf-8'))
-    out = []
-    for p in doc.get('confusable_pairs') or []:
-        pair = p.get('pair') or []
-        if style in pair:
-            out += [x for x in pair if x != style and x not in out]
-    return out
-
-
-def _key(it) -> str | None:
-    """Товар записи банка: `mid:eid` (как `sid` сборщика), иначе `sid`."""
-    if not isinstance(it, dict):
-        return None
-    return f"{it['mid']}:{it['eid']}" if it.get('mid') and it.get('eid') else it.get('sid')
-
-
-def role_spares(bank: list, rec: dict, roles=None, neighbours=neighbour_styles) -> dict:
-    """Запас ролей солвера (None — все `SOLVER_ROLES`; одно правило для всех ролей, T-20261106-77/4 — было только у ведущих, и
-    комод минимализма оставался пустым при годных комодах банка) сверх `alternates` своей записи: товары роли (состав и
-    `alternates`) других записей банка — сперва
-    своего стиля, потом соседних (`neighbour_styles`); внутри стиля — сначала та же комната и назначение, дальше порядок банка.
-    → {роль: [(стиль, товар), …]} без повторов sid. Подходит ли товар (модель, размер, место) — решает `gate_items`."""
-    style = rec.get('style') or ''
-    order = [style] + [s for s in neighbours(style) if s != style]
-    out = {}
-    for role in SOLVER_ROLES if roles is None else roles:
-        seen, rows = set(), []
-        for st in order:
-            cand = [r for r in bank if r is not rec and (r.get('style') or '') == st]
-            cand.sort(key=lambda r: (r.get('room_id') != rec.get('room_id'), r.get('purpose') != rec.get('purpose')))
-            for r in cand:
-                for it in [v for k, v in (r.get('items') or {}).items() if base_role(k) == role] + list((r.get('alternates') or {}).get(role) or []):
-                    sid = _key(it)
-                    if sid and sid not in seen:
-                        seen.add(sid)
-                        rows.append((st, it))
-        out[role] = rows
-    return out
 # роли спальни, которые ставит солвер (`planner/bedroom.py:ORDER`); остальное из набора — в списке, если это декор/мягкое
 SOLVER_ROLES = ('кровать', 'тумба прикроватная', 'шкаф', 'комод', 'туалетный столик', 'стол рабочий', 'стул рабочий')
 # в сцену и план идут ещё ковёр (место — из готовой расстановки записи, солвер ковёр не ставит; рисуется как у гостиной)
@@ -88,52 +47,16 @@ PURPOSE_ORDER = ('couple', 'guest', 'single', 'office')
 # (встаёт ли на место — решает `fitBadge` страницы по месту в комнате)
 BAND_CM = {'couple': {'кровать': {'lo': 160, 'hi': 205}}, 'single': {'кровать': {'lo': 120, 'hi': 165}},
            'guest': {'кровать': {'lo': 140, 'hi': 205}}, '*': {'тумба прикроватная': {'lo': 30, 'hi': 65}}}
-
-
-def base_role(role: str) -> str:
-    return re.sub(r'\s+\d+$', '', role or '')
-
-
-def load_bank(path: str) -> list:
-    """Записи банка спальни; нет файла — пусто (комната остаётся «скоро»), битый файл — громко."""
-    if not path or not os.path.exists(path):
-        return []
-    doc = json.load(open(path, encoding='utf-8'))
-    rows = doc.get('sets') if isinstance(doc, dict) else doc
-    return [r for r in rows or [] if isinstance(r, dict) and r.get('room_id') and isinstance(r.get('items'), dict)]
-
-
-def bank_room(bank: list, room_id: str) -> dict | None:
-    """Комната, в которой сборщик наборов расставил мебель (`layout._room` записи: w, d, проёмы, радиаторы) — первая запись
-    комнаты. Готовая расстановка годна только в своей геометрии: витрина берёт её, а не чертёж (onb-06 → onb-07)."""
-    for r in bank:
-        rm = (r.get('layout') or {}).get('_room') if r.get('room_id') == room_id else None
-        if isinstance(rm, dict) and rm.get('w') and rm.get('d'):
-            return rm
-    return None
-
-
-def room_geo(room_id: str, reg: dict | None = None, extra: dict | None = None, path: str = GEO_FILE,
-             layout_room: dict | None = None) -> dict | None:
-    """Геометрия комнаты витрины в форме `data['room']` гостиной: w, d, title, проёмы, радиаторы (служебные `_why` сняты) и `kind`
-    — тип зоны кадра (`CAM_ZONES` страницы). Подпись — имя и площадь реестра (как у гостиной «Гостиная 14.4 м²»).
-    `extra` — общее с гостиной (вид из окна, потолок). `layout_room` — комната готовой расстановки банка (`bank_room`): есть —
-    она вместо записи чертежа."""
-    rec = layout_room or next((r for r in json.load(open(path, encoding='utf-8')).get('rooms') or []
-                               if r.get('id') == room_id), None)
-    if not rec or not rec.get('w') or not rec.get('d'):
-        return None
-    clean = lambda xs: [{k: v for k, v in x.items() if not k.startswith('_')} for x in xs or []]   # noqa: E731
-    reg = reg or {}
-    title = f"{reg.get('titleRu') or room_id} {reg['areaM2']} м²" if reg.get('areaM2') else (reg.get('titleRu') or room_id)
-    return {'w': rec['w'], 'd': rec['d'], 'title': title, 'kind': reg.get('kind') or 'bedroom',
-            'openings': clean(rec.get('openings')), 'radiators': clean(rec.get('radiators')), **(extra or {})}
+# одна расстановка на все стили: ковёр встаёт по центру места опорной (`demo_room.one_layout`)
+ONE_FREE_ROLES = ('ковёр',)
+# у ковра модели нет — его рисует своя отрисовка по фото, сторож модели его не трогает
+MESH_FREE_ROLES = ('ковёр',)
 
 
 def solve(geo: dict, dims: list, purpose: str | None) -> dict:
     """Расстановка солвером спальни → `{роль: {x, z, rot}, '_fill_pct', '_reason'}` (форма файла раскладки гостиной).
     `dims` — `[(роль, w, d, h)]` только с известным габаритом (Р1: размер не придумываем)."""
-    sys.path.insert(0, os.path.join(HERE, '..', '..', 'services', 'planner-solver'))
+    sys.path.insert(0, R.PLANNER)
     from planner.bedroom import solve_bedroom
     from planner.models import Item, Opening, Radiator, Room
     room = Room(width_cm=geo['w'], depth_cm=geo['d'], openings=[Opening(**o) for o in geo.get('openings') or []],
@@ -146,384 +69,78 @@ def solve(geo: dict, dims: list, purpose: str | None) -> dict:
     return out
 
 
-# ОДНА РАССТАНОВКА СПАЛЬНИ НА ВСЕ СТИЛИ (T-20261105-32/4, решение ведущего «А»; как у гостиной demo-31 `demo_one_layout.py`):
-# при переключении стиля та же комната, меняются товары. Место роли — её ЗОНА тем же расчётом, что подпись гостиной
-# (`planner/zones.py:signature_xy`): ближайшая к центру стена + четверть комнаты. Опорный стиль — тот, с чьими зонами согласно
-# больше всего ролей других стилей (у гостиной — подпись, общая для всех сетов; здесь та же мера без зашитого стиля), при
-# равенстве — первый по порядку витрины. Роль другого стиля в чужой зоне встаёт на место опорной (та же стена вплотную,
-# тот же центр вдоль стены, поворот опорной; `ONE_FREE_ROLES` — по центру), если `planner.validate` спальни не даёт НОВЫХ жёстких
-# нарушений (наезды, проходы, подходы); не встала — своя позиция банка и строка в журнал. Роль в своей зоне не трогаем: размер
-# товара у стилей разный, и банк уже подогнал её к соседям (тумбы к своей кровати). Банк не переписывается. Правило — `rules/
-# demo-layout.json` → `bedroom`; выключатель общий с гостиной (`DEMO_ONE_LAYOUT=0`).
-ONE_FREE_ROLES = ('ковёр',)
+SPEC = R.Showcase(room_type='bedroom', solver_roles=SOLVER_ROLES, place_roles=PLACE_ROLES, solve=solve, list_roles=LIST_ROLES,
+                  mesh_free_roles=MESH_FREE_ROLES, one_free_roles=ONE_FREE_ROLES, tier_order=TIER_ORDER,
+                  purpose_order=PURPOSE_ORDER, band_cm=BAND_CM)
+
+
+# --- прежние имена спальни поверх ядра (подписи и значения по умолчанию — как до переноса) ---
+def lead_roles(room_type: str = 'bedroom') -> tuple:
+    return R.lead_roles(room_type)
+
+
+def role_spares(bank: list, rec: dict, roles=None, neighbours=neighbour_styles) -> dict:
+    return R.role_spares(SPEC, bank, rec, roles, neighbours)
+
+
+def room_geo(room_id: str, reg: dict | None = None, extra: dict | None = None, path: str = GEO_FILE,
+             layout_room: dict | None = None) -> dict | None:
+    return R.room_geo(SPEC, room_id, path, reg, extra, layout_room)
 
 
 def one_rule() -> dict:
-    sys.path.insert(0, HERE)
-    import demo_one_layout as _ONE
-    return (_ONE.rules().get('bedroom') or {}) if _ONE.enabled() else {}
+    return R.one_rule(SPEC)
 
 
 def _placed(art: dict) -> dict:
-    return {k: v for k, v in (art or {}).items() if not k.startswith('_') and isinstance(v, dict) and v.get('x') is not None
-            and v.get('w') and v.get('d') and base_role(k) in PLACE_ROLES}
-
-
-def zone(W: float, D: float, x: float, z: float) -> str:
-    """Зона центра: ближайшая стена (N: z=0, S: z=D, W: x=0, E: x=W) и четверть комнаты — как `signature_xy`."""
-    d = {'N': z, 'S': D - z, 'W': x, 'E': W - x}
-    return f"{min(d, key=d.get)}:{'N' if z < D / 2 else 'S'}{'W' if x < W / 2 else 'E'}"
+    return R._placed(SPEC, art)
 
 
 def zones(art: dict) -> dict:
-    W, D = art['_room']['w'], art['_room']['d']
-    return {k: zone(W, D, v['x'], v['z']) for k, v in _placed(art).items()}
+    return R.zones(SPEC, art)
 
 
 def reference(arts: dict, order: list) -> str:
-    """Опорный стиль: больше всех совпадений зон своих ролей с ролями других стилей; равенство — порядок витрины."""
-    zs = {s: zones(a) for s, a in arts.items()}
-    score = {s: sum(zs[s][r] == zs[t].get(r) for t in zs if t != s for r in zs[s]) for s in zs}
-    return max(order, key=lambda s: (score.get(s, -1), -order.index(s)))
-
-
-def _ext(v: dict, rot: int) -> tuple[float, float]:
-    """Размах по x и z при повороте (0/180 — ширина по x)."""
-    return (v['w'], v['d']) if int(rot or 0) % 180 == 0 else (v['d'], v['w'])
-
-
-def on_ref_place(own: dict, ref: dict, W: float, D: float, free: bool) -> dict:
-    """Роль `own` на месте опорной `ref`: тот же поворот и центр вдоль стены, зазор до стены — как у опорной (свой габарит)."""
-    rot = int(ref.get('rot') or 0)
-    out = dict(own, rot=rot, x=ref['x'], z=ref['z'])
-    if free:
-        return out
-    wall = zone(W, D, ref['x'], ref['z']).split(':')[0]
-    (rx, rz), (ox, oz) = _ext(ref, rot), _ext(own, rot)
-    if wall == 'N':
-        out['z'] = round(ref['z'] - rz / 2 + oz / 2, 1)
-    elif wall == 'S':
-        out['z'] = round(ref['z'] + rz / 2 - oz / 2, 1)
-    elif wall == 'W':
-        out['x'] = round(ref['x'] - rx / 2 + ox / 2, 1)
-    else:
-        out['x'] = round(ref['x'] + rx / 2 - ox / 2, 1)
-    return out
+    return R.reference(SPEC, arts, order)
 
 
 def hard_codes(art: dict, purpose: str | None) -> set:
-    """Жёсткие нарушения расстановки спальни по `planner.validate` (код|роли) — до и после переноса роли."""
-    sys.path.insert(0, os.path.join(HERE, '..', '..', 'services', 'planner-solver'))
-    from planner.models import Item, Opening, Placement, Radiator, Room
-    from planner.validate import validate
-    r = art['_room']
-    clean = lambda xs: [{k: v for k, v in x.items() if not k.startswith('_')} for x in xs or []]   # noqa: E731
-    room = Room(width_cm=r['w'], depth_cm=r['d'], openings=[Opening(**o) for o in clean(r.get('openings'))],
-                radiators=[Radiator(**o) for o in clean(r.get('radiators'))], room_type='bedroom', purpose=purpose)
-    ps = [Placement(role=k, x=v['x'], y=v['z'], rot=int(v.get('rot') or 0),
-                    item=Item(role=k, w_cm=v['w'], d_cm=v['d'], h_cm=v.get('h') or 60)) for k, v in _placed(art).items()]
-    return {f"{v.code}|{','.join(sorted(v.roles))}" for v in validate(room, ps).violations if v.severity.name == 'HARD'}
+    return R.hard_codes(SPEC, art, purpose)
 
 
 def one_layout(arts: dict, order: list, purposes: dict | None = None, free=ONE_FREE_ROLES) -> tuple[dict, dict]:
-    """`arts` — {стиль: готовая расстановка банка с `_room`} одной комнаты → (расстановки, отчёт `{ref, moved, kept}`).
-    `moved` — [{style, role, from, to}], `kept` — [{style, role, why}] (роль не встала на место опорной). Комнаты разные
-    (`_room` не совпал) — стиль не трогаем (`kept`, why «другая комната»)."""
-    purposes = purposes or {}
-    order = [s for s in order if s in arts]
-    if len(order) < 2:
-        return arts, {'ref': order[0] if order else None, 'moved': [], 'kept': []}
-    ref = reference(arts, order)
-    ra = arts[ref]
-    W, D = ra['_room']['w'], ra['_room']['d']
-    rz = zones(ra)
-    out, moved, kept = dict(arts), [], []
-    for s in order:
-        if s == ref:
-            continue
-        a = arts[s]
-        if (a['_room'].get('w'), a['_room'].get('d')) != (W, D):
-            kept.append({'style': s, 'role': '*', 'why': 'другая комната'})
-            continue
-        cur = dict(a)
-        base = hard_codes(cur, purposes.get(s))
-        for role, z in zones(a).items():
-            if role not in rz or rz[role] == z:
-                continue
-            cand = dict(cur, **{role: on_ref_place(cur[role], ra[role], W, D, base_role(role) in free)})
-            new = hard_codes(cand, purposes.get(s)) - base
-            if new:
-                kept.append({'style': s, 'role': role, 'why': sorted(new)})
-                continue
-            p, q = cur[role], cand[role]
-            moved.append({'style': s, 'role': role, 'from': [p['x'], p['z'], int(p.get('rot') or 0), z],
-                          'to': [q['x'], q['z'], int(q.get('rot') or 0), rz[role]]})
-            cur = cand
-        out[s] = cur
-    return out, {'ref': ref, 'moved': moved, 'kept': kept}
-
-
-def variant_id(room_id: str, style_id: str) -> str:
-    """Номер варианта спальни — `<комната>-<стиль>` (решение ведущего, onb-07 лог T-08): один на квартиру, ссылка `#v=` без комнаты."""
-    return f'{room_id}-{style_id}'
-
-
-# СТОРОЖ МОДЕЛИ ПРЕДМЕТА (T-20261105-51/2): в вариант спальни идёт только товар, чья модель готова и выложена — иначе сцена
-# рисует серую «коробку» (404 → заглушка `lib/viewer3d/viewer.ts`) или чужой меш. Проверку даёт сборка (`mesh_ok(sku) → ''`
-# или причина); у ковра модели нет — его рисует своя отрисовка по фото, сторож его не трогает.
-MESH_FREE_ROLES = ('ковёр',)
-
-
-def _instances(role: str, art: dict | None) -> list:
-    """Места роли в расстановке: сама роль и пронумерованные экземпляры («тумба прикроватная 2»)."""
-    return [r for r in (art or {}) if not r.startswith('_') and isinstance(art[r], dict) and base_role(r) == role]
+    return R.one_layout(SPEC, arts, order, purposes, free)
 
 
 def _fits(art: dict, role: str, dm: dict, purpose: str | None) -> tuple[dict | None, list]:
-    """Замена на месте прежнего товара: те же поворот, стена и центр вдоль стены, свой габарит (`on_ref_place`) → (новая
-    расстановка, []) или (None, новые жёсткие нарушения). Без комнаты в расстановке — расстановку не трогаем."""
-    if not isinstance((art or {}).get('_room'), dict):
-        return art, []
-    W, D = art['_room']['w'], art['_room']['d']
-    out = dict(art)
-    for r in _instances(role, art):
-        p = art[r]
-        if p.get('x') is None or not (p.get('w') and p.get('d')):
-            continue
-        out[r] = on_ref_place(dict(p, w=dm['w'], d=dm['d'], h=dm.get('h')), p, W, D, False)
-    new = hard_codes(out, purpose) - hard_codes(art, purpose)
-    return (None, sorted(new)) if new else (out, [])
+    return R._fits(SPEC, art, role, dm, purpose)
 
 
 def _in_band(role: str, dm: dict, purpose: str | None) -> bool:
-    b = (BAND_CM.get(purpose) or {}).get(role) or BAND_CM['*'].get(role)
-    return not b or b['lo'] <= (dm.get('w') or 0) <= b['hi']
+    return R._in_band(SPEC, role, dm, purpose)
 
 
 def gate_items(rec: dict, art: dict | None, sku, dims_of, mesh_ok, spares: dict | None = None
                ) -> tuple[dict, dict | None, list, list, list]:
-    """Товары записи через сторож модели → (товары, расстановка, замены, пустые роли, пропущенные с нерешённым разворотом).
-    Роль без годной модели — следующий кандидат той же роли из `alternates` банка (по порядку банка), который встаёт на её
-    место без новых жёстких нарушений; дальше — запас `spares` (`role_spares`, любая роль солвера: свой стиль, потом соседний;
-    чужой товар ещё и в полосе размера назначения `BAND_CM`); нет такого — роль пустая с причиной. Замены — `{role, was, now,
-    why[, style]}` (style — у товара соседнего стиля), пустые — `{role, why}`, нерешённые — `{role, msid, why}` (у сторожа есть
-    `mesh_ok.note(sku)` → причина или ''; в журнал сборки)."""
-    items = dict(rec.get('items') or {})
-    swaps, empty, orient = [], [], []
-    alts = rec.get('alternates') or {}
-    own = rec.get('style') or ''
-    note = getattr(mesh_ok, 'note', None)
-
-    def noted(role, x):
-        n = note(x) if note and x else ''
-        if n:
-            orient.append({'role': role, 'msid': x.get('msid'), 'why': n})
-    for role in [r for r in list(items) if base_role(r) == r and r in SOLVER_ROLES]:
-        s = sku(items, role)
-        why = mesh_ok(s) if s else 'нет товара'
-        if not why:
-            noted(role, s)
-            continue
-        tried = []
-        own_sids = {_key(a) for a in alts.get(role) or []} | {_key(items.get(role))}
-        pool = [(own, a, False) for a in alts.get(role) or []] + [
-            (st, a, True) for st, a in (spares or {}).get(role) or [] if _key(a) not in own_sids]
-        for st, alt, far in pool:
-            t = sku({role: alt}, role)
-            w = mesh_ok(t) if t else 'нет товара'
-            if not w:
-                dm = dims_of({}, t, role)
-                if dm.get('dims_unknown'):
-                    w = 'размер не указан'
-                elif far and not _in_band(role, dm, rec.get('purpose')):
-                    w = 'вне полосы размера'
-                else:
-                    a2, bad = _fits(art, role, dm, rec.get('purpose'))
-                    w = ('не встаёт: ' + ', '.join(bad)) if bad else ''
-            if not w:
-                swaps.append({'role': role, 'was': [s and s.get('sid'), s and s.get('name')], 'now': [t.get('sid'), t.get('name')],
-                              'why': why, **({'style': st} if st != own else {})})
-                art = a2
-                noted(role, t)
-                for k in [k for k in items if base_role(k) == role]:   # и пронумерованные строки банка («… 2») — тот же товар
-                    items[k] = alt
-                break
-            tried.append(w)
-        else:
-            empty.append({'role': role, 'why': f'модель не готова ({why}); кандидатов {len(tried)}'
-                                              + (f": {'; '.join(dict.fromkeys(tried))}" if tried else '')})
-            for k in [k for k in items if base_role(k) == role]:
-                items.pop(k)
-    return items, art, swaps, empty, orient
+    return R.gate_items(SPEC, rec, art, sku, dims_of, mesh_ok, spares)
 
 
 def build_variant(rec: dict, geo: dict, sku, dims_of, style_id, hung=lambda n: False, decor_role=lambda r: False,
                   layout=None, mesh_ok=None, spares: dict | None = None, lead=None) -> tuple[dict | None, dict | None]:
-    """Запись банка → (вариант витрины, None) или (None, строка `incomplete_styles`). `sku(items, role)` и `dims_of(v, sku, role)`
-    — функции сборки (`flat215_demo._sku`, `_dims_of`): товар и габарит из каталога, как у гостиной. `mesh_ok(sku)` — сторож
-    модели (`gate_items`; None — без проверки): замены — в `mesh_swaps` варианта, пустые роли — в `missing_item` с причиной,
-    пропущенные с нерешённым разворотом — в `orient_unresolved` (сборка снимает поле в журнал). `spares` — запас ролей солвера
-    (`role_spares`), `lead` — ведущие роли (None — из профиля, `lead_roles`): нет хотя бы одной — вариант не публикуется."""
-    lead = tuple(lead) if lead is not None else lead_roles(rec.get('room_type') or 'bedroom')
-    items = rec.get('items') or {}
-    style = rec.get('style') or ''
-    sid = style_id(style)
-    miss = {'style': style, 'room_id': rec.get('room_id')}
-    if not sid:
-        return None, {**miss, 'missing': ['стиль вне витрины']}
-    skus, dims, unknown = {}, [], []
-    art = layout if layout is not None else rec.get('layout')
-    swaps, empty, orient = [], [], []
-    if mesh_ok is not None:
-        items, art, swaps, empty, orient = gate_items(rec, art, sku, dims_of, mesh_ok, spares)
-    # экземпляры ролей: товары записи и пронумерованные места готовой расстановки («тумба прикроватная 2» — товар базовой роли)
-    roles = list(items) + [r for r in (art or {}) if not r.startswith('_') and r not in items and base_role(r) in items]
-    for role in roles:
-        if base_role(role) not in PLACE_ROLES:
-            continue
-        s = sku(items, role)
-        if not s:
-            continue
-        dm = dims_of({}, s, role)
-        if dm.get('dims_unknown'):
-            unknown.append({'role': role, 'name': s.get('name')})
-            continue
-        skus[role] = (s, dm)
-        if base_role(role) in SOLVER_ROLES:
-            dims.append((role, dm['w'], dm['d'], dm['h']))
-    art = art or solve(geo, dims, rec.get('purpose'))
-    objs = []
-    for role, p in art.items():
-        if role.startswith('_') or not isinstance(p, dict) or 'x' not in p or role not in skus:
-            continue
-        s, dm = skus[role]
-        if hung(s.get('name')):
-            s = dict(s, hung=True)
-        objs.append({'role': role, 'x': round(p['x'], 1), 'y': round(p['z'], 1), 'rot': int(p.get('rot') or 0),
-                     'w': dm['w'], 'd': dm['d'], 'h': dm['h'], 'dims_src': dm.get('dims_src'), 'sku': s,
-                     'corner': False, 'corner_left': False, 'section': None})
-    have = {base_role(o['role']) for o in objs}
-    lost = [c for c in lead if c not in have]
-    if lost:
-        return None, {**miss, 'missing': lost + list(art.get('_reason') or []),
-                      **({'mesh': [e for e in empty if e['role'] in lost]} if empty else {}),
-                      **({'orient_unresolved': len(orient)} if orient else {})}
-    decor = []
-    lst = lambda r: decor_role(r) or base_role(r) in LIST_ROLES   # noqa: E731
-    for role in list(items) + [r for r in art if not r.startswith('_') and r not in items and lst(base_role(r))]:
-        if lst(role) or lst(base_role(role)):
-            s = sku(items, role)
-            if s:
-                # ТОЛЬКО В СПИСКЕ (T-20261106-77/2): лампа на тумбе — строка списка и запрос фото, в 3D её нет (модели у ламп нет —
-                # окно ставило бы её на тумбу пустым местом, ворота копий моделей `demo_rt` ждали её копию и стопорили публикацию)
-                decor.append({'role': role, 'sku': s, **({'list_only': True} if base_role(role) in LIST_ROLES else {})})
-    return ({'id': variant_id(rec['room_id'], sid), 'title': (style or sid).capitalize(), 'style': style, 'style_id': sid,
-             'room_id': rec['room_id'], 'purpose': rec.get('purpose'), 'fill_pct': art.get('_fill_pct'), 'items': objs,
-             'decor': decor, 'dims_unknown': unknown, 'missing_item': empty, 'fill': [],
-             **({'mesh_swaps': swaps} if swaps else {}), **({'orient_unresolved': orient} if orient else {})}, None)
+    return R.build_variant(SPEC, rec, geo, sku, dims_of, style_id, hung, decor_role, layout, mesh_ok, spares, lead)
 
 
 def pick_records(bank: list, rooms: list, styles: list) -> list:
-    """Одна запись на (комнату, стиль): только включённые комнаты, стили — опубликованные гостиной (ключ стиля — витрина, ADR-0330
-    п.3), порядок — как у гостиной. Несколько записей одной ячейки — первая (банк упорядочивает сборщик)."""
-    rank = lambda xs, x: xs.index(x) if x in xs else len(xs)   # noqa: E731
-    out, seen = [], set()
-    for st in styles:
-        cand = [r for r in bank if r.get('room_id') in rooms and (r.get('style') or '') == st]
-        # ячейка витрины: назначение и ступень цены по порядку (`PURPOSE_ORDER`, `TIER_ORDER`), при равных — порядок банка
-        cand.sort(key=lambda r: (rank(PURPOSE_ORDER, r.get('purpose')), rank(TIER_ORDER, r.get('tier'))))
-        for r in cand:
-            key = (r.get('room_id'), st)
-            if key not in seen:
-                seen.add(key)
-                out.append(r)
-    return sorted(out, key=lambda r: rooms.index(r['room_id']))
-
-
-def feed_row(role: str, it: dict, style: str | None, msid, mesh_ok, alive=lambda u: True) -> dict | None:
-    """Товар спальни → строка ленты замен (поля как у ленты гостиной). Только с фото, габаритами и годной моделью (правило
-    владельца 01.09: в замену — то, что видно в 3D). `mesh_ok(sku) → ''` (годен) или причина — ТОТ ЖЕ сторож, что у предметов
-    варианта (`flat215_demo.bedroom_mesh_gate` → `room_bindings.usable`, T-20261106-77 Д1: лента пускала товары без модели, и
-    замена ставила коробку). Роли, которым модель по канону не нужна (`asset_strategy`: ковёр — плоскость из фото, как в
-    гостиной), сторожа не проходят и высоты не требуют."""
-    import asset_strategy as AS
-    needs = AS.strategy(role) == 'hunyuan3d'
-    if not it or not it.get('img') or not (it.get('w') and it.get('d') and (it.get('h') or not needs)):
-        return None
-    sid = f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else it.get('sid')
-    m = msid(sid)
-    if not sid or (needs and mesh_ok({'sid': sid, 'msid': m})) or not alive(it.get('img')):
-        return None
-    return {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'), 'price': it.get('price'),
-            'img': it.get('img'), 'url': it.get('url'), 'shop': it.get('shop'), 'style': style or '',
-            'styles': [style] if style else [], 'sid': sid, 'msid': m, 'src': 'set'}
+    return R.pick_records(SPEC, bank, rooms, styles)
 
 
 def feeds(bank: list, catalog: dict, msid, mesh_ok, alive=lambda u: True) -> dict:
-    """Ленты замен ролей спальни: товары записей банка (со стилем записи) и их `alternates`, затем фото-каталог спальни
-    (`flat215_demo.bedroom_catalog`, без стиля — виден при снятом чипе «Только стиль»). Один товар — одна строка, стили копятся."""
-    out: dict = {}
-    have: dict = {}
-
-    def put(role, it, style):
-        b = base_role(role)
-        if b not in PLACE_ROLES:
-            return
-        row = feed_row(b, it, style, msid, mesh_ok, alive)
-        if not row:
-            return
-        old = have.get((b, row['sid']))
-        if old:
-            if style and style not in old['styles']:
-                old['styles'].append(style)
-            return
-        have[(b, row['sid'])] = row
-        out.setdefault(b, []).append(row)
-    for r in bank:
-        for role, it in (r.get('items') or {}).items():
-            put(role, it, r.get('style'))
-        for role, alts in (r.get('alternates') or {}).items():
-            for it in alts or []:
-                put(role, it, r.get('style'))
-    for role, rows in ((catalog or {}).get('roles') or {}).items():
-        for p in rows:
-            mid, _, eid = str(p.get('sid') or '').partition(':')
-            put(role, {**p, 'mid': mid, 'eid': eid, 'src': 'catalog'}, None)
-    for lst in out.values():
-        lst.sort(key=lambda x: x['price'] or 0)
-    return out
+    return R.feeds(SPEC, bank, catalog, msid, mesh_ok, alive)
 
 
 def bands(purposes: list) -> dict:
-    """Полосы размера ролей спальни для `rules.slot_band_cm` (ключ — роль): по назначению первой включённой спальни."""
-    out = dict(BAND_CM['*'])
-    for p in purposes:
-        for k, v in (BAND_CM.get(p) or {}).items():
-            out.setdefault(k, v)
-    return out
-
-
-# КЛЮЧ ЛЕНТЫ И ПОЛОСЫ — КОМНАТА + РОЛЬ (T-20261106-77, Codex): ленты и полосы были общими на роль, и роль, что есть в двух комнатах
-# (ковёр), брала строки гостиной — спальня теряла свою ленту. Гостиная остаётся под голой ролью (данные побайтно прежние); другие
-# комнаты — «<тип>:<роль>» для ленты и «<комната>:<роль>» для полосы (у спален разное назначение — разная полоса кровати).
-# Страница ищет так же: `index.html:roomKeysOf` (блок ROOMKEY), /flat — `lib/configurator/demo-feeds.ts:roomFeedKey`
-def room_key(room: str, role: str) -> str:
-    return role if not room or room == 'living' else f'{room}:{role}'
-
-
-def merge_room_feeds(feeds: dict, room_type: str, room_feeds: dict) -> dict:
-    """Ленты комнаты — в общий словарь под её ключами; строки гостиной (голые роли) не трогаются. → `feeds`."""
-    for role, rows in room_feeds.items():
-        feeds[room_key(room_type, role)] = rows
-    return feeds
+    return R.bands(SPEC, purposes)
 
 
 def room_bands(bank: list, rooms) -> dict:
-    """Полосы размера по комнатам: «<комната>:<роль>» → полоса, по назначению своей спальни — тому, что берёт витрина
-    (`pick_records`: первое по `PURPOSE_ORDER` среди записей комнаты)."""
-    rank = lambda x: PURPOSE_ORDER.index(x) if x in PURPOSE_ORDER else len(PURPOSE_ORDER)   # noqa: E731
-    out: dict = {}
-    for rid in rooms:
-        purpose = min((r.get('purpose') for r in bank if r.get('room_id') == rid and r.get('purpose')), key=rank, default=None)
-        out.update({room_key(rid, k): v for k, v in bands([purpose] if purpose else []).items()})
-    return out
+    return R.room_bands(SPEC, bank, rooms)
