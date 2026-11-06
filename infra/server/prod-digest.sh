@@ -6,6 +6,22 @@ set -uo pipefail
 ENVF=/opt/remlab/catalog-watchdog/.env
 SITE=${SITE:-https://remont-lab.online}
 psqlq() { docker exec -i remlab-db psql -U remlab -d remlab -qtA -c "$1" 2>/dev/null; }
+access_5xx() { grep '"logger":"http.log.access' | grep '"status":5[0-9][0-9]' || true; }
+top_uris() { sed -n 's/.*"uri":"\([^"?]*\).*/\1/p' | sort | uniq -c | sort -rn | head -3 | awk '{printf "%s%s ×%s", (NR>1?", ":""), $2, $1}'; }
+
+# Самопроверка счёта 5xx на образце журнала Caddy (CI): bash prod-digest.sh --selftest
+if [ "${1:-}" = "--selftest" ]; then
+  sample='{"level":"error","logger":"http.log.error.log0","msg":"dial tcp: lookup remlab-app","request":{"uri":"/api/lab/mesh-audit/batch"},"status":502}
+{"level":"error","logger":"http.log.access.log0","msg":"handled request","request":{"uri":"/api/lab/mesh-audit/batch"},"status":502}
+{"level":"error","logger":"http.log.access.log0","msg":"handled request","request":{"uri":"/api/health?x=1"},"status":503}
+{"level":"info","logger":"http.log.access.log0","msg":"handled request","request":{"uri":"/api/health"},"status":200}'
+  got=$(printf '%s\n' "$sample" | access_5xx)
+  n=$(printf '%s' "$got" | grep -c . || true); t=$(printf '%s' "$got" | top_uris)
+  none=$(printf '' | access_5xx); n0=$(printf '%s' "$none" | grep -c . || true)
+  [ "$n" = 2 ] && [ "$n0" = 0 ] && case "$t" in *"/api/lab/mesh-audit/batch ×1"*"/api/health ×1"*|*"/api/health ×1"*"/api/lab/mesh-audit/batch ×1"*) true;; *) false;; esac \
+    && { echo "prod-digest selftest ok (5xx=$n; $t)"; exit 0; }
+  echo "prod-digest selftest FAIL: 5xx=$n (ждали 2), пусто=$n0, top='$t'" >&2; exit 1
+fi
 
 h=$(curl -s --max-time 15 "$SITE/api/health" || true)
 ok=$(printf '%s' "$h" | grep -q '"ok":true' && echo "работает" || echo "НЕ ОТВЕЧАЕТ")
@@ -19,8 +35,11 @@ sends=$(psqlq "select count(*) from sends where created_at > now() - interval '1
 opened=$(psqlq "select count(*) from sends where opened_at > now() - interval '1 day'")
 sig=$(psqlq "select coalesce(string_agg(status || ' ' || n, ', '), 'нет') from (select status, count(*) n from signal_outbox where created_at > now() - interval '1 day' group by 1) x")
 cols=$(psqlq "select count(*) from collections where created_at > now() - interval '1 day'")
-e5=$(docker logs --since 24h remlab-caddy 2>&1 | grep -c '"status":5[0-9][0-9]' || true)
-top5=$(docker logs --since 24h remlab-caddy 2>&1 | grep '"status":5[0-9][0-9]' | sed -n 's/.*"uri":"\([^"?]*\).*/\1/p' | sort | uniq -c | sort -rn | head -3 | awk '{printf "%s%s ×%s", (NR>1?", ":""), $2, $1}')
+# 5xx — только строки журнала доступа: на каждый 502 Caddy пишет ещё строку в журнал ошибок с тем же
+# "status":502, и прежний счёт по всему журналу удваивал число (T-20261106-66: 72 строки = 36 запросов).
+caddy5=$(docker logs --since 24h remlab-caddy 2>&1 | access_5xx)
+e5=$(printf '%s' "$caddy5" | grep -c . || true)
+top5=$(printf '%s' "$caddy5" | top_uris)
 
 warn=""
 [ "$ok" = "работает" ] || warn+="⚠ сайт не отвечает. "
