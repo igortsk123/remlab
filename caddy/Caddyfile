@@ -4,6 +4,18 @@
 	acme_ca https://acme-v02.api.letsencrypt.org/directory
 }
 
+# ПЕРЕЗАПУСК ПРИ ВЫКЛАДКЕ (T-20261106-66): каждая выкладка пересоздаёт контейнеры app/draft — 5–10 с имени в сети нет
+# или порт ещё не слушает, и Caddy отвечал 502 (60 окон за сутки 05–06.11). Теперь запрос ждёт новый контейнер до 15 с.
+# Caddy 2.8 повторяет при ошибке соединения (запрос не ушёл) любой метод, после отправки — только GET. Но тело POST
+# транспорт Go закрывает уже на неудачной попытке: без буфера повтор POST падает «invalid Read on closed Body» (проба
+# 06.11). Поэтому request_buffers 1MB — тело до 1 МБ держится в памяти и уходит заново целым; больше 1 МБ — без
+# повтора, как раньше (POST к app/draft за 72 ч — до 0,3 МБ; крупные загрузки — /mesh-sink, там повтора нет).
+(retry_restart) {
+	lb_try_duration 15s
+	lb_try_interval 250ms
+	request_buffers 1MB
+}
+
 remont-lab.online {
 	encode zstd gzip
 
@@ -154,21 +166,33 @@ remont-lab.online {
 	# Черновой рендер комнаты (26.08): ключ fal только на сервере, поэтому страница ходит сюда.
 	# Наружу отдаём лишь два метода; сервис сам держит лимит расхода.
 	handle /api/draft* {
-		reverse_proxy draft:8099
+		reverse_proxy draft:8099 {
+			import retry_restart
+		}
 	}
 	handle /api/warm* {
-		reverse_proxy draft:8099
+		reverse_proxy draft:8099 {
+			import retry_restart
+		}
 	}
 	handle /api/render* {
-		reverse_proxy draft:8099
+		reverse_proxy draft:8099 {
+			import retry_restart
+		}
 	}
 	# опрос фоновых заданий рендера (01.09): длинный запрос больше не держит соединение
 	handle /api/job* {
-		reverse_proxy draft:8099
+		reverse_proxy draft:8099 {
+			import retry_restart
+		}
 	}
 	handle /api/share* {
-		reverse_proxy draft:8099
+		reverse_proxy draft:8099 {
+			import retry_restart
+		}
 	}
 
-	reverse_proxy remlab-app:3000
+	reverse_proxy remlab-app:3000 {
+		import retry_restart
+	}
 }
