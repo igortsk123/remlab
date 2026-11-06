@@ -23,9 +23,12 @@ unset HEAVY_SLOT_HELD
 fails=0
 ok() { if [ "$2" = 0 ]; then echo "  [ ok ] $1"; else echo "  [FAIL] $1"; fails=$((fails + 1)); fi; }
 yes_if() { if eval "$1"; then echo 0; else echo 1; fi; }
-mem() { printf 'MemTotal:       16000000 kB\nMemAvailable:   %d kB\n' "$(( $1 * 1048576 ))" > "$HEAVY_SLOT_MEMINFO"; }
-memt() { awk -v t="$1" -v a="$2" 'BEGIN{printf "MemTotal: %d kB\nMemAvailable: %d kB\n", t*1048576, a*1048576}' > "$HEAVY_SLOT_MEMINFO"; }
+# подмена /proc/meminfo — подменой файла (T-80): `>` сперва обнуляет, и ожидающий под нагрузкой читал пустой файл → «нет MemAvailable»
+mem() { printf 'MemTotal:       16000000 kB\nMemAvailable:   %d kB\n' "$(( $1 * 1048576 ))" > "$HEAVY_SLOT_MEMINFO.tmp" && mv -f "$HEAVY_SLOT_MEMINFO.tmp" "$HEAVY_SLOT_MEMINFO"; }
+memt() { awk -v t="$1" -v a="$2" 'BEGIN{printf "MemTotal: %d kB\nMemAvailable: %d kB\n", t*1048576, a*1048576}' > "$HEAVY_SLOT_MEMINFO.tmp" && mv -f "$HEAVY_SLOT_MEMINFO.tmp" "$HEAVY_SLOT_MEMINFO"; }
 until_held() { for _ in $(seq 1 50); do "$S" --status | grep -q '^ДЕРЖИТ' && return 0; sleep 0.1; done; return 1; }
+until_f() { for _ in $(seq 1 200); do eval "$1" && return 0; sleep 0.05; done; return 1; }
+holdp() { echo "echo s$1 >> $T/$2; touch $T/$2.up-$1; while [ ! -e $T/$2.go-$1 ]; do sleep 0.05; done; echo e$1 >> $T/$2"; }
 mem 8
 
 "$S" t-rc -- sh -c 'exit 7'; rc=$?
@@ -231,13 +234,19 @@ ok "без билета, пришедший раньше, получает би�
   "$(yes_if '[ "$o" = "o0|n3|" ] && [ -z "$(ls $HEAVY_SLOT_DIR/wait)" ]')"
 unset HEAVY_SLOT_HEAD_POLL
 
-pair() {   # <файл> <метка1> <порог1> <метка2> <порог2> → порядок start/end двух задач по 0,8 с; --status — в <файл>.st
+pair() {   # <файл> <метка1> <порог1> <метка2> <порог2> → порядок start/end двух задач; --status — в <файл>.st
+  # детерминированно (T-80; было sleep 0,4 / 0,8 — мигало под нагрузкой): команда держит слот до своего флага «отпускай»;
+  # снимок --status — когда второй стартовал или, попробовав допуск, встал ждать («ждёт очередь» пишется после первой
+  # неудачной попытки; память подменена и не меняется — дальше так же); отпускаем по одному: сперва первый, потом второй
   local f="$T/$1"
-  "$S" "$2" --min-gb "$3" -- sh -c "echo s$2 >> $f; sleep 0.8; echo e$2 >> $f" & local p1=$!
-  until_held
-  "$S" "$4" --min-gb "$5" -- sh -c "echo s$4 >> $f; sleep 0.8; echo e$4 >> $f" & local p2=$!
-  sleep 0.4
+  "$S" "$2" --min-gb "$3" -- sh -c "$(holdp "$2" "$1")" & local p1=$!
+  until_f "[ -e $f.up-$2 ]"
+  "$S" "$4" --min-gb "$5" -- sh -c "$(holdp "$4" "$1")" & local p2=$!
+  until_f "[ -e $f.up-$4 ] || grep -q ' $4 pid=[0-9]* ждёт очередь' '$HEAVY_SLOT_LOG'"
   "$S" --status > "$f.st"
+  touch "$f.go-$2"
+  until_f "grep -qx 'e$2' '$f'"
+  touch "$f.go-$4"
   wait $p1 $p2
   tr '\n' '|' < "$f"
 }
@@ -286,7 +295,6 @@ mem 14
 printf 's3-a 3.5\ns3-b 3.5\ns3-c 3.5\n' >> "$HEAVY_SLOT_MEM_STUB"
 # детерминированно (T-74/3: на занятой машине снимок по sleep мигал): каждая команда ставит флаг «стартовала» и держит слот,
 # пока нет флага «отпускай»; снимок --status — когда трое стартовали и четвёртый стоит первым в очереди
-until_f() { for _ in $(seq 1 200); do eval "$1" && return 0; sleep 0.05; done; return 1; }
 hold3() { echo "echo s$1 >> $T/$2; touch $T/up-$2-$1; while [ ! -e $T/go-$2 ]; do sleep 0.05; done; echo e$1 >> $T/$2"; }
 for x in a b c d; do
   "$S" "s3-$x" --min-gb 4 -- sh -c "$(hold3 $x three)" & eval "p3_$x=$!"
