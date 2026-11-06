@@ -259,8 +259,29 @@ def _mesh_rep() -> dict:
     return _MESH_REP
 
 
+_BIND_ROWS: dict | None = None
+
+
+def _bind_rows() -> dict:
+    """Строки привязки `offer_asset_binding` (артикул через `:` → строка), один раз на сборку. Не читается — {} и WARN: сцена
+    берёт представителя семьи, как до T-20261106-77/5 (не серые коробки)."""
+    global _BIND_ROWS
+    if _BIND_ROWS is None:
+        try:
+            import catalog_items as CI
+            rows, why = _RB.load_db(CI.fetch)
+        except Exception as e:  # noqa: BLE001
+            rows, why = {}, repr(e)[:160]
+        if why:
+            print(f'WARN:scene_msid: привязка не читается ({why}) — модели сцены по представителю семьи', flush=True)
+        _BIND_ROWS = rows or {}
+    return _BIND_ROWS
+
+
 def _msid(sid: str | None) -> str | None:
-    return _mesh_rep().get(sid, sid) if sid else None
+    """Какую модель грузит сцена — ОДНО ПРАВИЛО ДЛЯ ВСЕХ КОМНАТ (`room_bindings.scene_msid`, T-20261106-77/5 шаг 3): модель
+    привязки (`mesh_id` строки, ту, что проверила привязка), записи нет — представитель семьи (`mesh_rep`)."""
+    return _RB.scene_msid(_bind_rows().get(sid.replace('_', ':', 1)), sid, _mesh_rep()) if sid else None
 
 
 DECOR_ROLES = {'ваза', 'статуэтка', 'свеча', 'книги', 'поднос', 'шкатулка', 'часы'}
@@ -1207,8 +1228,8 @@ def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomp
     gate = bedroom_mesh_gate()
     lead = DB.lead_roles()
     unresolved = 0
-    # модель сцены спальни — модель привязки (сторож выключен — прежний представитель семьи); ГОСТИНАЯ — БЕЗ ИЗМЕНЕНИЙ (`_msid`):
-    # у 59 готовых товаров её лент своя модель не выложена, правило убрало бы их из лент (сухой прогон T-20261106-77/4 в)
+    # модель сцены спальни — модель привязки, то же правило, что `_msid` гостиной (`room_bindings.scene_msid`); у сторожа — строки
+    # той привязки, которую он проверяет
     bed_msid = getattr(gate, 'msid', None) or _msid
 
     def bed_sku(items: dict, role: str) -> dict | None:

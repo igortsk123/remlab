@@ -41,6 +41,13 @@ ENV_HOLD = 'ROOM_PUBLISH_HOLD'
 LIVING = 'living'
 
 
+def rules_hold(room: str) -> frozenset:
+    """Отложенные модели из ПРАВИЛ комнаты (`publish_hold`, room_bank_spec) — ночь их соблюдает без переменной окружения
+    (T-77/5: пуф 9134… — на проде цвет ближе к фото, чем у модели привязки; решение ведущего)."""
+    import room_bank_spec as RBS
+    return frozenset(str(x).strip().replace(':', '_', 1) for x in (RBS.for_room(room).rules().get('publish_hold') or []))
+
+
 class RoomConfigError(Exception):
     """Настройка комнаты есть, а банка нет или он не читается — комнату не публикуем (и не публикуем «всё подряд»)."""
 
@@ -240,11 +247,15 @@ def plans(env=os.environ, rows=None, ready_only=None, demo=None) -> tuple:
             bank = json.load(open(path, encoding='utf-8'))
         except Exception as e:  # noqa: BLE001
             return [], [f'банк {room} не читается ({path}): {str(e)[:120]}']
+        try:                            # отложенное правилами комнаты; правила не читаются — комнату не публикуем
+            room_hold = hold | rules_hold(room)
+        except Exception as e:  # noqa: BLE001
+            return [], [f'правила {room} не читаются (publish_hold): {str(e)[:120]}']
         offers = bank_offers(bank)
         if room == LIVING:              # ленты демо в добавку к комплектам; у гостиной — ТОЛЬКО ready (место в комнате проверено)
             have = set(offers)
             offers += [o for o in demo_offers(demo_data_path() if demo is None else demo) if o not in have]
-        P = plan(room, offers, rows, True if room == LIVING else ro, hold)
+        P = plan(room, offers, rows, True if room == LIVING else ro, room_hold)
         P['bank'] = path
         P['snapshot'] = next(iter({r['snapshot_id'][:16] for r in rows.values()}), None)
         out.append(P)
@@ -353,6 +364,19 @@ def _selftest() -> int:
         pl, err = plans({ENV: f'living={bp}', ENV_HOLD: '3:o, 9_9'}, rows=lrows, demo=dd)
         ok('ROOM_PUBLISH_HOLD: отложенная модель не едет (пропуск held), остальные — как были',
            not err and sorted(pl[0]['meshes']) == ['1_a', '5_r'] and pl[0]['skipped'].get('held') == 1)
+        global rules_hold
+        _rh = rules_hold
+        try:
+            rules_hold = lambda room: frozenset({'3_o'}) if room == LIVING else frozenset()  # noqa: E731
+            pl, err = plans({ENV: f'living={bp}'}, rows=lrows, demo=dd)
+            ok('publish_hold в правилах комнаты — та же отсрочка без переменной окружения (ночь)',
+               not err and sorted(pl[0]['meshes']) == ['1_a', '5_r'] and pl[0]['skipped'].get('held') == 1)
+            rules_hold = lambda room: (_ for _ in ()).throw(ValueError('битые правила'))  # noqa: E731
+            pl, err = plans({ENV: f'living={bp}'}, rows=lrows, demo=dd)
+            ok('правила не читаются — комнату не публикуем (отказ, а не «всё подряд»)', pl == [] and 'publish_hold' in err[0])
+        finally:
+            rules_hold = _rh
+        ok('правила гостиной: publish_hold читается', isinstance(rules_hold(LIVING), frozenset))
         pl, err = plans({ENV: 'living=next'}, rows=lrows, demo=dd)
         ok('гостиная: «next» — отказ (кандидат только явным файлом)', pl == [] and 'явным файлом' in err[0])
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
