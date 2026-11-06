@@ -36,6 +36,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -92,6 +93,19 @@ def _fal_key() -> str:
     raise SystemExit('нет FAL_KEY — см. .memory_bank/_secrets/ACCESS.md')
 
 
+class FatalBackend(RuntimeError):
+    """Источник маски не ответит ни на одно фото (баланс, блок учётки) — повторять и идти дальше бессмысленно."""
+
+
+def fal_fatal(code: int, body: str) -> str | None:
+    """Причина остановки ВСЕГО прогона по ответу fal или None. 403 у fal бывает и за темп (тогда повторяем), и за
+    исчерпанный баланс — «User is locked. Reason: Exhausted balance» (05→06.11: 7 ч молча шли по отказам, T-46). Чистая."""
+    low = (body or '').lower()
+    if code in (401, 403) and ('locked' in low or 'exhausted balance' in low or ('balance' in low and 'top up' in low)):
+        return f'fal: учётка заблокирована — {body.strip()[:160]} (пополнить баланс: fal.ai/dashboard/billing)'
+    return None
+
+
 def mask_fal(raw: bytes, tries: int = 8) -> Image.Image:
     key = _fal_key()
     uri = 'data:image/jpeg;base64,' + base64.b64encode(raw).decode()
@@ -105,6 +119,13 @@ def mask_fal(raw: bytes, tries: int = 8) -> Image.Image:
             r = json.loads(urllib.request.urlopen(req, timeout=60).read())
             break
         except urllib.error.HTTPError as e:
+            try:
+                body = e.read().decode('utf-8', 'replace')
+            except Exception:  # noqa: BLE001 — тело ответа только для причины
+                body = ''
+            fatal = fal_fatal(e.code, body)
+            if fatal:
+                raise FatalBackend(fatal) from e
             if e.code not in (403, 429, 500, 502, 503) or attempt == tries - 1:
                 raise
             time.sleep(min(60, 3 * 2 ** attempt))
@@ -252,9 +273,16 @@ def rooms_todo(limit: int, skip_shas: set) -> list[tuple[str, str, str, str]]:
     return PH.room_cutout_jobs(picked, skip_shas, limit)
 
 
+STOP = threading.Event()   # поднят — оставшиеся работы прогона не начинаются (баланс, N отказов подряд)
+FAIL_STREAK_MAX = int(os.environ.get('CUTOUT_FAIL_STREAK', '10'))
+PROGRESS_EVERY = 50
+
+
 def one(job) -> tuple[str, str | None]:
     sku, role, url, sha = job
     dst = os.path.join(CACHE, sha + '.png')
+    if STOP.is_set():
+        return 'skipped', None
     try:
         raw = fetch(url)
         got = hashlib.sha256(raw).hexdigest()
@@ -279,6 +307,9 @@ def one(job) -> tuple[str, str | None]:
            "on conflict (source_sha, assessor_version) do update set "
            "metrics=excluded.metrics, verdict=excluded.verdict")
         return 'ok', None
+    except FatalBackend as e:
+        STOP.set()
+        return 'fatal', str(e)
     except Exception as e:  # noqa: BLE001 — считаем отказы, молчать нельзя
         return 'fail', f'{sku}: {type(e).__name__}: {str(e)[:110]}'
 
@@ -298,17 +329,37 @@ def report() -> None:
     PH.print_rooms_stats(PRE.ASSESSOR_VERSION)
 
 
-def run_jobs(jobs: list[tuple[str, str, str, str]], label: str = '') -> dict:
+def run_jobs(jobs: list[tuple[str, str, str, str]], label: str = '', fn=None) -> dict:
+    """Прогон работ с предохранителями (T-46/3): источник маски сказал «баланс исчерпан» — стоп сразу; FAIL_STREAK_MAX
+    отказов подряд — стоп; ход — каждые PROGRESS_EVERY фото. Остановленный прогон печатает `WARN:cutout:` (дайджест) и
+    не валит ночную цепочку: оставшиеся просто ждут следующего раза. `fn` — подмена `one` для теста."""
+    fn = fn or one
+    STOP.clear()
     print(f'к вырезке{label}: {len(jobs)} (источник {BACKEND}, потоков {WORKERS})', flush=True)
-    stat, errs = {'ok': 0, 'fail': 0, 'moved': 0}, []
+    stat, errs = {'ok': 0, 'fail': 0, 'moved': 0, 'skipped': 0, 'fatal': 0}, []
+    streak, why, done = 0, None, 0
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-        for st, err in ex.map(one, jobs):
+        for st, err in ex.map(fn, jobs):
             stat[st] += 1
+            done += 1
             if err:
                 errs.append(err)
-    print(f"вырезано{label} {stat['ok']}, фото сменилось у {stat['moved']}, отказов {stat['fail']}")
+            if st == 'fatal' and not why:
+                why = err
+            streak = streak + 1 if st == 'fail' else 0 if st == 'ok' else streak
+            if streak >= FAIL_STREAK_MAX and not why:
+                why = f'{streak} отказов подряд — последний: {err}'
+                STOP.set()
+            if done % PROGRESS_EVERY == 0 and st != 'skipped':
+                print(f"  ход{label}: {done}/{len(jobs)} · вырезано {stat['ok']} · отказов {stat['fail']} · "
+                      f"фото сменилось {stat['moved']}", flush=True)
+    print(f"вырезано{label} {stat['ok']}, фото сменилось у {stat['moved']}, отказов {stat['fail']}"
+          + (f", не начато {stat['skipped']}" if stat['skipped'] else ''))
+    if why:
+        print(f'WARN:cutout: прогон остановлен — {why}', flush=True)
     for e in errs[:10]:
         print('   ✗', e)
+    stat['stopped'] = why
     return stat
 
 
@@ -329,7 +380,62 @@ def rooms_only(rooms_max: int) -> int:
     return 0
 
 
+def _selftest() -> int:
+    """Предохранители прогона на заглушке (без сети и базы). Не в CI: модуль тянет torch через preprocess."""
+    global FAIL_STREAK_MAX, PROGRESS_EVERY
+    bad = 0
+
+    def ok(name: str, cond: bool) -> None:
+        nonlocal bad
+        print(('  ✓ ' if cond else '  ✗ ') + name)
+        bad += 0 if cond else 1
+
+    body = '{"detail":"User is locked. Reason: Exhausted balance. Top up your balance at fal.ai/dashboard/billing."}'
+    ok('403 «Exhausted balance» — стоп всего прогона', bool(fal_fatal(403, body)))
+    ok('403 за темп и 429 — не стоп (повторяем)', fal_fatal(403, 'Forbidden') is None and fal_fatal(429, body) is None)
+    jobs = [(f'1:{i}', 'кровать', '//u', f's{i}') for i in range(200)]
+    seen = []
+
+    def stub_fatal(job):            # как `one`: стоп поднят — работа не начинается
+        if STOP.is_set():
+            return 'skipped', None
+        seen.append(job[0])
+        if job[0] == '1:3':
+            STOP.set()
+            return 'fatal', 'fal: учётка заблокирована'
+        return 'ok', None
+    old_w, old_s, old_p = globals()['WORKERS'], FAIL_STREAK_MAX, PROGRESS_EVERY
+    globals()['WORKERS'], PROGRESS_EVERY = 1, 1000
+    st = run_jobs(jobs, ' (тест)', fn=stub_fatal)
+    ok('баланс: остановились на 4-м фото, остальные 196 не начаты, причина в итоге',
+       len(seen) == 4 and st['ok'] == 3 and st['skipped'] == 196 and 'заблокирована' in (st['stopped'] or ''))
+    FAIL_STREAK_MAX, calls = 10, []
+
+    def stub_fail(job):
+        if STOP.is_set():
+            return 'skipped', None
+        calls.append(job[0])
+        time.sleep(0.005)               # фото режется не мгновенно — иначе поток убегает от счёта главного на все 200
+        return ('ok', None) if job[0] in ('1:0', '1:5') else ('fail', f'{job[0]}: HTTPError 500')
+    st = run_jobs(jobs, ' (тест)', fn=stub_fail)
+    # счёт ведёт главный поток, поэтому заглушка без пауз успевает «перебежать» на несколько работ — в жизни это фото в полёте
+    ok('10 отказов подряд — стоп; удачный сбрасывает счёт (1:5): стоп не раньше 16-го, почти всё не начато',
+       16 <= len(calls) < 40 and st['skipped'] > 150 and (st['stopped'] or '').startswith('10 отказов подряд'))
+    PROGRESS_EVERY = 50
+    import contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        st = run_jobs(jobs[:120], ' (тест)', fn=lambda j: ('ok', None))
+    ok('ход печатается каждые 50 фото, без стопа', buf.getvalue().count('ход (тест):') == 2 and st['stopped'] is None)
+    globals()['WORKERS'], FAIL_STREAK_MAX, PROGRESS_EVERY = old_w, old_s, old_p
+    STOP.clear()
+    print(f'cutout_sync selftest: ошибок {bad}')
+    return 1 if bad else 0
+
+
 def main() -> int:
+    if '--selftest' in sys.argv:
+        return _selftest()
     if '--report' in sys.argv:
         report()
         return 0
@@ -345,8 +451,8 @@ def main() -> int:
     jobs = todo(DAILY_MAX)
     if not jobs:
         print('вырезки актуальны — считать нечего')
-    else:
-        run_jobs(jobs)
+    elif run_jobs(jobs).get('stopped'):
+        return 0   # источник маски встал (баланс, отказы подряд) — комнатам идти некуда; причина уже в WARN
     # Комнаты — после гостиной, своим лимитом (T-46); при 0 шаг молчит, вывод гостиной прежний.
     rjobs = rooms_todo(rooms_max, {j[3] for j in jobs})
     if rjobs:
