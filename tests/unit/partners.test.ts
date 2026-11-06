@@ -72,19 +72,25 @@ describe("комнаты квартиры", () => {
     expect(apartmentCard(findApartment("flat215")!, "en").kindShort).toBe("2-bed");
   });
 
-  // ФЛАГИ КОМНАТ И ОПРОСА (ADR-0330 п.5, onb-12): по умолчанию выключены; гостиная показывается как раньше
-  // спальни включены флагом реестра (T-20261106-77, ведущий): у остальных комнат флага нет — работают умолчания схемы
-  it("флаги: нет в данных — выключены; в файлах включены только спальни; гостиная готова как раньше", () => {
+  // ФЛАГИ КОМНАТ И ОПРОСА (ADR-0330 п.5, onb-12): по умолчанию выключены; гостиная показывается как раньше.
+  // Спальни включены флагом реестра (T-20261106-77, ведущий): у остальных комнат флага нет — работают умолчания схемы.
+  // Опрос включён явно только у русской демо-квартиры (onb-03, T-20261106-83: показ на главной /demo); британский двойник — без флага.
+  it("флаги: нет в данных — выключены; в файлах включены только спальни и опрос русской демо; гостиная готова как раньше", () => {
     const raw = JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
-    expect(raw.apartments[0].quiz).toBeUndefined();
+    expect(raw.apartments[0].quiz).toEqual({ enabled: true });            // включён явно (T-83), остальное — умолчания схемы
     expect(raw.apartments[0].rooms.filter((r: Record<string, unknown>) => "enabled" in r).map((r: { id: string }) => r.id))
       .toEqual(["bedroom-1", "bedroom-2"]);
     const a = findApartment("flat215")!.apartment;
-    expect(a.quiz.enabled).toBe(false);
+    expect(a.quiz.enabled).toBe(true);
     expect(a.rooms.filter((r) => r.enabled).map((r) => r.id)).toEqual(["bedroom-1", "bedroom-2"]);
     expect(findApartment("demo-uk-215")!.apartment.rooms.filter((r) => r.enabled).map((r) => r.id)).toEqual(["bedroom-1", "bedroom-2"]);
     const ru = apartmentCard(findApartment("flat215")!, "ru");
-    expect(ru.quiz).toEqual({ enabled: false });
+    expect(ru.quiz).toEqual({ enabled: true });
+    // нет поля — выключено: британский двойник и та же квартира без ключа `quiz`
+    expect(JSON.parse(readFileSync("data/partners/demo-uk.json", "utf8")).apartments[0].quiz).toBeUndefined();
+    expect(apartmentCard(findApartment("demo-uk-215")!, "en").quiz).toEqual({ enabled: false });
+    delete raw.apartments[0].quiz;
+    expect(apartmentCard(findApartment("flat215", partners([raw]))!, "ru").quiz).toEqual({ enabled: false });
     expect(ru.rooms.filter((r) => r.contentState === "ready").map((r) => r.id)).toEqual(["living"]);
     expect(apartmentCard(findApartment("demo-uk-215")!, "en").rooms.filter((r) => r.contentState === "ready").map((r) => r.id))
       .toEqual(["living"]);
