@@ -357,6 +357,11 @@ def _selftest() -> int:
             json.dump({'rooms': {}}, open(RULES_PATH, 'w'))
             ok('ночь: раздела комнаты нет — всё выключено, ROOM_PUBLISH пусто (публикация только гостиной)',
                night_flag('hall', 'enabled') == 0 and room_publish() == '')
+            json.dump({'publish': 'live', 'rooms': {'bedroom': {'publish': 'live'}}}, open(RULES_PATH, 'w'))
+            ok('гостиная по привязке (T-20261106-77/5): ключ верхнего уровня publish=live → living первой',
+               room_publish() == 'living,bedroom')
+            json.dump({'publish': 'next', 'rooms': {}}, open(RULES_PATH, 'w'))
+            ok('гостиная: publish=next — не публикуется (кандидат гостиной — только явным файлом)', room_publish() == '')
         finally:
             RULES_PATH = saved
     try:
@@ -377,13 +382,15 @@ def night_flag(room: str, flag: str) -> int:
 
 def room_publish(rooms=None) -> str:
     """Значение `ROOM_PUBLISH` для ночного `mesh_publish` из правил: `rooms.<комната>.publish` = "live" → `<комната>`,
-    "next" → `<комната>=next` (кандидат); нет/false — комната не публикуется. Пусто — публикация как прежде (только гостиная)."""
+    "next" → `<комната>=next` (кандидат); нет/false — комната не публикуется. Пусто — публикация как прежде (только гостиная).
+    Гостиная — тот же ключ верхнего уровня (`publish`: "live" → `living`, её модели ещё и ПО ПРИВЯЗКЕ, `room_publish`,
+    T-20261106-77/5); кандидата у гостиной здесь нет — "next" у неё не публикуется."""
     out = []
-    for r in rooms or [x for x in ROOMS if x != LIVING]:
+    for r in rooms or list(ROOMS):
         p = for_room(r).rules().get('publish')
         if p in ('live', True):
             out.append(r)
-        elif p == 'next':
+        elif p == 'next' and r != LIVING:
             out.append(f'{r}=next')
     return ','.join(out)
 

@@ -16,6 +16,11 @@
     ROOM_PUBLISH=bedroom                    — живой банк `sets-bedroom.json` (`bank_paths.ROOM_BANKS`); нет — явный отказ
     ROOM_PUBLISH=bedroom=next               — кандидат `sets-bedroom.next.json` рядом (только по явному ключу)
     ROOM_PUBLISH=bedroom=/путь/банк.json    — явный файл
+    ROOM_PUBLISH=living                     — ГОСТИНАЯ ПО ПРИВЯЗКЕ (T-20261106-77/5): товары живого банка `sets3.json` и лент
+                                              опубликованного демо (`demo-data.json`), только ready. Зачем: отбор гостиной
+                                              (`mesh_publish.ready_skus`, `demo_band`) кладёт модель ПРЕДСТАВИТЕЛЯ семьи, и своя
+                                              модель цветового варианта (59 готовых товаров лент, ~240 МБ) на прод не попадала
+    ROOM_PUBLISH=living=/путь/банк.json     — гостиная: явный банк вместо живого (ленты — те же)
     python room_publish.py --plan [--ready-only]   # что уехало бы: меши, МБ, отказы — без копий и сети
     python room_publish.py --selftest
 """
@@ -30,6 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 ENV = 'ROOM_PUBLISH'
 ENV_READY = 'ROOM_PUBLISH_READY'
+LIVING = 'living'
 
 
 class RoomConfigError(Exception):
@@ -45,6 +51,14 @@ def config(env=os.environ) -> list:
     out = []
     for part in [p.strip() for p in raw.split(',') if p.strip()]:
         room, _, src = part.partition('=')
+        if room == LIVING:                                       # гостиная: живой банк (кандидат — только явным файлом)
+            if src == 'next':
+                raise RoomConfigError(f'{ENV}: у гостиной кандидат — только явным файлом (living=/путь/банк.json)')
+            path = BP.LIVE if not src else (src if os.path.isabs(src) else os.path.join(HERE, src))
+            if not os.path.isfile(path):
+                raise RoomConfigError(f'{ENV}: банка гостиной нет ({path}) — гостиную по привязке не публикую')
+            out.append((room, path))
+            continue
         if room not in BP.ROOM_BANKS:
             raise RoomConfigError(f'{ENV}: комнаты {room!r} нет в bank_paths.ROOM_BANKS {sorted(BP.ROOM_BANKS)}')
         base = BP.ROOM_BANKS[room]
@@ -78,6 +92,36 @@ def bank_offers(bank: list) -> list:
             for v in lst or []:
                 add(v)
     return out
+
+
+def demo_offers(path: str) -> list:
+    """offer_id лент и предметов вариантов ГОСТИНОЙ опубликованного демо (ключи лент без «комната:»; предметы вариантов без
+    `room_id` или с `living`), порядок появления, без повторов. Нет файла — [] (публикуем по банку)."""
+    try:
+        d = json.load(open(path, encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    out, seen = [], set()
+
+    def add(sid):
+        k = str(sid or '').replace('_', ':', 1)
+        if k and k not in seen:
+            seen.add(k)
+            out.append(k)
+    for v in d.get('variants') or []:
+        if (v.get('room_id') or LIVING) == LIVING:
+            for it in v.get('items') or []:
+                add((it.get('sku') or {}).get('sid'))
+    for key, rows in (d.get('feeds') or {}).items():
+        if ':' not in key:
+            for r in rows or []:
+                add(r.get('sid'))
+    return out
+
+
+def demo_data_path() -> str:
+    import bank_paths as BP
+    return os.path.join(BP.DEMO_OUT_DEFAULT, 'demo-data.json')
 
 
 def eligible(row: dict, ready_only: bool) -> bool:
@@ -170,8 +214,9 @@ def load_rows() -> tuple:
     return RB.load_db(CI.fetch)
 
 
-def plans(env=os.environ, rows=None, ready_only=None) -> tuple:
-    """([план по комнате], ошибки настройки). Без настройки — ([], [])."""
+def plans(env=os.environ, rows=None, ready_only=None, demo=None) -> tuple:
+    """([план по комнате], ошибки настройки). Без настройки — ([], []). demo — путь `demo-data.json` (лент гостиной; None —
+    опубликованное демо)."""
     try:
         cfg = config(env)
     except RoomConfigError as e:
@@ -189,7 +234,11 @@ def plans(env=os.environ, rows=None, ready_only=None) -> tuple:
             bank = json.load(open(path, encoding='utf-8'))
         except Exception as e:  # noqa: BLE001
             return [], [f'банк {room} не читается ({path}): {str(e)[:120]}']
-        P = plan(room, bank_offers(bank), rows, ro)
+        offers = bank_offers(bank)
+        if room == LIVING:              # ленты демо в добавку к комплектам; у гостиной — ТОЛЬКО ready (место в комнате проверено)
+            have = set(offers)
+            offers += [o for o in demo_offers(demo_data_path() if demo is None else demo) if o not in have]
+        P = plan(room, offers, rows, True if room == LIVING else ro)
         P['bank'] = path
         P['snapshot'] = next(iter({r['snapshot_id'][:16] for r in rows.values()}), None)
         out.append(P)
@@ -277,6 +326,26 @@ def _selftest() -> int:
         pl, err = plans({ENV: f'bedroom={bp}', ENV_READY: '1'}, rows=rows)
         ok('явный банк + ROOM_PUBLISH_READY=1', not err and sorted(pl[0]['meshes']) == ['1_a', '5_r'] and pl[0]['snapshot'] == 'a' * 16
            and 'только ready' in summary(pl[0]))
+        # ГОСТИНАЯ ПО ПРИВЯЗКЕ (T-20261106-77/5): банк + ленты и предметы гостиной опубликованного демо, всегда только ready
+        own = glb('gen/3own/model.glb', b'OWN-COLOUR')
+        lrows = dict(rows, **{'3:o': row('ready', sha(b'OWN-COLOUR'), own, '3_o'),       # вариант цвета со своей моделью
+                              '4:x': row('ready', sha(b'REP-GEN'), rep, '5_r')})          # вариант на модели представителя
+        dd = os.path.join(t, 'demo-data.json')
+        json.dump({'variants': [{'id': 'set1', 'items': [{'sku': {'sid': '1_a'}}]},
+                                {'id': 'bedroom-1-x', 'room_id': 'bedroom-1', 'items': [{'sku': {'sid': '8_b'}}]}],
+                   'feeds': {'кресло': [{'sid': '3_o'}, {'sid': '4_x'}], 'bedroom:комод': [{'sid': '9_s'}]}}, open(dd, 'w'))
+        ok('ленты и предметы гостиной демо → offer_id; спальня демо — мимо', demo_offers(dd) == ['1:a', '3:o', '4:x']
+           and demo_offers(os.path.join(t, 'нет.json')) == [])
+        pl, err = plans({ENV: f'living={bp}'}, rows=lrows, demo=dd)
+        P = pl[0] if pl else {}
+        ok('гостиная: банк + ленты, только ready (не-ready «годный к 3D» мимо); своя модель варианта — к публикации',
+           not err and P.get('room') == 'living' and P.get('ready_only') is True and sorted(P['meshes']) == ['1_a', '3_o', '5_r']
+           and P['meshes']['5_r']['offers'] == ['6:v', '7:w', '4:x'])
+        R = stage(P, os.path.join(t, 'g6'), living={'5_r', '1_a'})
+        ok('гостиная: модели, выбранные её отбором (представители), не трогаем — едет только своя модель варианта',
+           R['status'] == 'ok' and R['staged'] == ['3_o'])
+        pl, err = plans({ENV: 'living=next'}, rows=lrows, demo=dd)
+        ok('гостиная: «next» — отказ (кандидат только явным файлом)', pl == [] and 'явным файлом' in err[0])
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0
 
