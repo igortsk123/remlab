@@ -1547,6 +1547,62 @@ def _hung(name: str | None) -> bool:
     return any(k in n for k in ('подвесн', 'навесн', 'настенн'))
 
 
+# ПОДХВАТ ФОТО С ОПУБЛИКОВАННОЙ ГЛАВНОЙ (T-20261106-65): магазин режет массовое скачивание (403 «через раз»; пустая папка
+# T-59/2 — 14 из 936 не скачались, 5 из них — предметы комнат, на главной у всех фото есть). Имя файла — хеш адреса фида,
+# у главной тот же, поэтому не скачалось → берём её копию. Пустая строка в переменной — подхват выключен.
+IMG_FALLBACK = os.environ.get('FLAT215_IMG_FALLBACK', 'https://remont-lab.online/demo/')
+
+
+def _http_get(url: str):
+    """(код, тип, тело) или (0, '', b'') при сетевой ошибке; 4xx/5xx — тоже код, а не исключение."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (remlab demo build)'})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as f:
+            return f.status, f.headers.get('Content-Type') or '', f.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers.get('Content-Type') or '' if e.headers else '', b''
+    except Exception:
+        return 0, '', b''
+
+
+def published_img(name: str, dst: str, big: str, base: str = None, fetch=None) -> bool:
+    """Взять плитку `img/<name>` (и, если есть, крупную `-l.jpg`) с опубликованной главной. Только ответ 200 с типом
+    `image/*`, не меньше 500 байт и открывающийся как картинка — страницу ошибки или HTML не берём. Плитка записана → True."""
+    import io
+    from PIL import Image
+    base = IMG_FALLBACK if base is None else base
+    if not base:
+        return False
+    fetch = fetch or _http_get
+
+    def one(url: str, path: str, side: int) -> bool:
+        code, ctype, raw = fetch(url)
+        if code != 200 or not ctype.lower().startswith('image/') or len(raw) < 500:
+            return False
+        try:
+            im = Image.open(io.BytesIO(raw))
+            im.load()
+            im = im.convert('RGB')
+        except Exception:
+            return False
+        if min(im.size) < 32:
+            return False
+        im.thumbnail((side, side))
+        tmp = path + '.tmp'
+        im.save(tmp, 'JPEG', quality=82)
+        os.replace(tmp, path)
+        return True
+
+    root = base.rstrip('/') + '/img/'
+    if not (os.path.exists(dst) or one(root + name, dst, 400)):
+        return False
+    if not os.path.exists(big):
+        one(root + name[:-4] + '-l.jpg', big, 1200)   # крупной нет — карточка покажет плитку
+    return True
+
+
 def cache_images(data: dict) -> dict:
     """ФОТО КЛАДЁМ К СЕБЕ (владелец 26.08: «фотки не все прогружаются»). Причина — в фиде
     протокол-относительные ссылки на CDN Гдеслона, и примерно половина отдаёт 404: карточки
@@ -1613,8 +1669,23 @@ def cache_images(data: dict) -> dict:
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         got = dict(ex.map(grab, sorted(urls)))
+    # T-65: не скачавшиеся — ещё раз по одному после паузы (магазин режет поток), затем копия опубликованной главной
+    miss = sorted(u for u, v in got.items() if not v)
+    retried = rescued = 0
+    if miss:
+        time.sleep(5)
+        for u in miss:
+            got[u] = grab(u)[1]
+            retried += bool(got[u])
+        for u in (u for u in miss if not got[u]):
+            name = hashlib.md5(u.encode()).hexdigest()[:16] + '.jpg'
+            dst = os.path.join(imgdir, name)
+            if published_img(name, dst, dst[:-4] + '-l.jpg'):
+                got[u] = 'img/' + name
+                rescued += 1
     ok = sum(1 for v in got.values() if v)
-    print(f'фото: скачано {ok} из {len(urls)} (остальные — битые ссылки фида)')
+    print(f'фото: скачано {ok} из {len(urls)} (остальные — битые ссылки фида); со второй попытки: {retried}; '
+          f'подхвачено с прода: {rescued}')
 
     def fix(p):
         if p and p.get('img'):
@@ -1626,9 +1697,15 @@ def cache_images(data: dict) -> dict:
     for kit in (data.get('sets') or []):
         for p in kit['roles'].values():
             fix(p)
+    no_photo = []
     for v in data.get('variants') or []:
         for it in v['items']:
             fix(it.get('sku'))
+            # предмет комнаты без фото остаётся (он расставлен, у него меш, размеры, цена и ссылка): страница рисует плашку
+            # «нет фото» (T-65); замена другим товаром сдвинула бы расстановку и 3D
+            sk = it.get('sku') or {}
+            if sk and not sk.get('img'):
+                no_photo.append(f"{v.get('id')} {it.get('role')}: {sk.get('name')}")
         for x in v.get('decor') or []:              # не скачалось — остаётся адрес магазина: строка декора из списка не пропадает
             sk = x.get('sku') or {}
             if sk.get('img'):
@@ -1687,8 +1764,11 @@ def cache_images(data: dict) -> dict:
     print(f'из выборки убрано без фото: {dropped}; срезано капом 30/подкатегорию×стиль: {capped}; '
           'осталось по ролям: '
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items())))
+    print(f'предметов комнат без фото (плашка «нет фото»): {len(no_photo)}'
+          + (' — ' + '; '.join(no_photo) if no_photo else ''))
     data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped,
-                           'capped': capped}
+                           'capped': capped, 'retried': retried, 'from_published': rescued,
+                           'variant_items_no_photo': len(no_photo)}
     large = sum(1 for v in got.values() if v and os.path.exists(os.path.join(OUT, v[:-4] + '-l.jpg')))
     print(f'крупных копий для карточки товара: {large} из {ok}')
     data['_img_large'] = large > 0                 # страница пробует `<id>-l.jpg` только при этом флаге (нет файла — остаётся плитка)
