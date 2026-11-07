@@ -993,6 +993,15 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .qz-opt[aria-pressed=true]{border-color:var(--accent);color:var(--accent);font-weight:600}
 .qz-opt .qz-tick{position:static;width:20px;height:20px;font-size:12px;flex:0 0 20px}
 .qz-lbl{font-size:13.5px;color:var(--muted);margin:2px 0 -4px}
+/* «С детьми» → сколько и возраст: панель сразу под плашкой, уголок указывает на неё (`kidTip`), раскрытие ~0,25 с (T-20261107-64) */
+.qz-kid{flex:1 0 100%;padding-top:7px;overflow:hidden}
+.qz-kid-p{position:relative;display:flex;flex-direction:column;gap:10px;padding:10px 12px 12px;border-radius:14px;background:var(--surface);
+ box-shadow:inset 0 0 0 1.5px var(--line);width:fit-content;min-width:calc(var(--tip,40px) + 28px);max-width:100%;box-sizing:border-box}   /* по содержимому: на компьютере не тянется на весь экран */
+.qz-kid-p::before{content:"";position:absolute;top:-6px;left:calc(var(--tip,40px) - 6px);width:12px;height:12px;transform:rotate(45deg);
+ background:var(--surface);border-radius:2px 0 0 0;box-shadow:-1.5px -1.5px 0 0 var(--line)}
+.qz-kid-p .qz-lbl{margin:0 0 -4px}
+@media (prefers-reduced-motion:no-preference){.qz-kid-in{animation:qzKidIn .26s ease-out both}}
+@keyframes qzKidIn{from{max-height:0;opacity:0}to{max-height:420px;opacity:1}}
 .qz-cols{display:flex;flex-direction:column;gap:8px}.qz-cols .qz-opt{width:100%;min-height:52px}
 .qz-dots{display:inline-flex;gap:5px;flex:0 0 auto}.qz-dots i{width:22px;height:22px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
 .qz-cols .qz-opt .qz-ol{flex:1 1 auto;text-align:left}
@@ -8420,6 +8429,9 @@ function quizPick(rule, answers, available, styleColours){
       kid.kids.map(function(o){return chip(o,Q.a.kids?[Q.a.kids]:[],'data-kids');}).join('')+'</div>':'';
     var ages=withKid?'<div class="qz-lbl">'+(EN()?'Children’s age':'Возраст детей')+'</div><div class="qz-chips">'+
       kid.ages.map(function(o){return chip(o,Q.a.ages,'data-age');}).join('')+'</div>':'';
+    // блок «сколько и возраст» — СРАЗУ за плашкой «С детьми», в том же ряду плашек на всю ширину (владелец, голос TG 520, T-20261107-64):
+    // следующие плашки переносятся под него, порядок в правиле любой. Раскрытие — только в момент выбора (`Q._kidIn`), не при каждой отметке
+    var kidBox=withKid?'<div class="qz-kid'+(Q._kidIn?' qz-kid-in':'')+'"><div class="qz-kid-p">'+kids+ages+'</div></div>':''; Q._kidIn=false;
     var qc=question('colours'), co=(qc&&qc.options)||[];
     var colsH=!colOn()?'':'<h3 class="qz-h3">'+esc(tr(qc,''))+'</h3><p class="qz-sub">'+esc(tr(qc,'hint'))+'</p><div class="qz-cols">'+
       co.map(function(o){var on=Q.a.colours.indexOf(o.id)>=0;
@@ -8427,7 +8439,7 @@ function quizPick(rule, answers, available, styleColours){
           (o.dots||[]).map(function(d){return '<i style="background:'+esc(d)+'"></i>';}).join('')+'</span><span class="qz-ol">'+esc(tr(o,''))+'</span>'+(on?TICK:'')+'</button>';}).join('')+'</div>';
     var last=!stepOn('b1')&&!stepOn('b2');   // экранов спальни нет (пар с фото спален не хватает) — дальше сразу итог
     return page(bar('about')+'<h2 class="qz-h" id="qzH">'+esc(tr(q,''))+'</h2><p class="qz-sub">'+esc(tr(q,'hint'))+'</p>'+
-      '<div class="qz-chips">'+opts.map(function(o){return chip(o,Q.a.household,'data-hh');}).join('')+'</div>'+kids+ages+colsH,
+      '<div class="qz-chips">'+opts.map(function(o){return chip(o,Q.a.household,'data-hh')+(o===kid?kidBox:'');}).join('')+'</div>'+colsH,
       nav(true, last?(EN()?'Show the designs':'Показать варианты'):''));
   }
   // ПОДПИСЬ ВАРИАНТА НА ИТОГЕ — «Вариант N», тот же номер, что на шаге гостиной (владелец, голос TG 368, T-20261107-28/2): название
@@ -8516,7 +8528,7 @@ function quizPick(rule, answers, available, styleColours){
     var bd=c.querySelector('.qz-body'), keep=bd&&c.dataset.step===Q.step?bd.scrollTop:0;
     c.classList.remove('qz-done');
     c.innerHTML=SCREENS[Q.step](); c.dataset.step=Q.step; c.dataset.n=String(total());
-    b.setAttribute('aria-labelledby','qzH'); bd=c.querySelector('.qz-body'); if(bd)bd.scrollTop=keep;
+    b.setAttribute('aria-labelledby','qzH'); bd=c.querySelector('.qz-body'); if(bd)bd.scrollTop=keep; kidTip(c);
     if(Q.step==='result')finRun(c);
     if(focus)try{c.focus({preventScroll:true});}catch(e){}
     // кадры ещё в пути (реестр кадров приходит отдельно) — перерисовать, когда придут
@@ -8524,6 +8536,10 @@ function quizPick(rule, answers, available, styleColours){
     var wait=function(){return Q.step!=='about';};
     if(wait()&&!SHOTS_LOADED&&!Q._wait){Q._wait=setTimeout(function(){Q._wait=0; if(Q.open&&wait())render();},500);}
   }
+  // уголок блока возраста — под серединой плашки «С детьми» (она стоит прямо перед блоком); ширина окна меняется — пересчитать
+  function kidTip(c){var kp=c.querySelector('.qz-kid'), ch=kp&&kp.previousElementSibling; if(!ch)return;
+    kp.style.setProperty('--tip',Math.round(ch.offsetLeft+ch.offsetWidth/2-kp.offsetLeft)+'px');}
+  addEventListener('resize',function(){if(Q.open&&Q.step==='about')kidTip(box());});
   function close(how){
     Q.open=false; box().classList.remove('on'); save();
     if(how)markSeen(how);
@@ -8566,6 +8582,7 @@ function quizPick(rule, answers, available, styleColours){
       var i=Q.a.household.indexOf(id); if(i>=0)Q.a.household.splice(i,1);
       else{Q.a.household=Q.a.household.filter(function(x){return ex.indexOf(x)<0||x===id;}); Q.a.household.push(id);}
       var kid=((q&&q.options)||[]).filter(function(o){return o.ages;})[0]; if(kid&&Q.a.household.indexOf(kid.id)<0){Q.a.ages=[]; Q.a.kids='';}
+      Q._kidIn=!!kid&&id===kid.id&&i<0;   // только что выбрали «С детьми» — блок возраста раскрывается
       save(); render(); return;}
     if(t.dataset.kids){Q.a.kids=Q.a.kids===t.dataset.kids?'':t.dataset.kids; save(); render(); return;}   // один ответ; повторное нажатие снимает
     if(t.dataset.age){var j=Q.a.ages.indexOf(t.dataset.age); if(j>=0)Q.a.ages.splice(j,1); else Q.a.ages.push(t.dataset.age); save(); render(); return;}
