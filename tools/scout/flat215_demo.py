@@ -1952,19 +1952,28 @@ def _swatch_tone(path: str):
 def annotate_swatch(data: dict, out_dir: str = OUT) -> int:
     """ОБРАЗЕЦ ЦВЕТА (demo-28, владелец 23.10): у товара, чья модель (`msid`) есть в данных хотя бы в двух цветах (разные `sid`), —
     `sku.swatch` = '#rrggbb', цвет ткани по фото (`_swatch_tone`: главная группа цвета без фона, её освещённая часть). Это кружки
-    цвета в строке списка и в карточке товара. Нет фото — без образца: страница рисует кружок из самого фото."""
+    цвета в строке списка и в карточке товара. Нет фото — без образца: страница рисует кружок из самого фото.
+    СЕМЬЯ ЦВЕТОВ — по представителю семьи (`_mesh_rep`), а не по модели сцены (T-20261106-77/5): с правилом привязки у цвета бывает
+    своя 3D-модель (`scene_msid`), и группировка по `msid` разбивала семью — кружки пропадали у 34 товаров лент. Где семья
+    отличается от `msid`, она пишется в `sku.fam` — по ней же страница собирает «Цвета этой модели» (`famKey`)."""
     skus = [it.get('sku') or {} for v in data.get('variants') or [] for it in (v.get('items') or []) + (v.get('decor') or [])]
     skus += [f for lst in (data.get('feeds') or {}).values() for f in lst if isinstance(f, dict)]
+    rep = _mesh_rep()
     fam: dict = {}
     for sk in skus:
+        sk.pop('fam', None)
         if sk.get('msid') and sk.get('sid'):
-            fam.setdefault(sk['msid'], set()).add(sk['sid'])
+            key = rep.get(sk['sid']) or sk['msid']      # семьи не знаем — как раньше, по модели
+            fam.setdefault(key, set()).add(sk['sid'])
+            if key != sk['msid']:
+                sk['fam'] = key
     tone: dict = {}
     n = 0
     for sk in skus:
         sk.pop('swatch', None)
         sid, img = sk.get('sid'), sk.get('img')
-        if not sid or len(fam.get(sk.get('msid'), ())) < 2 or not img or str(img).startswith('http'):
+        key = sk.get('fam') or sk.get('msid')
+        if not sid or len(fam.get(key, ())) < 2 or not img or str(img).startswith('http'):
             continue
         if sid not in tone:
             tone[sid] = _swatch_tone(os.path.join(out_dir, img))

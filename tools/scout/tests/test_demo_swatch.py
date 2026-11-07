@@ -63,6 +63,21 @@ def main():
     feed = data['feeds']['f']
     check('annotate_swatch: образец у двух цветов одной модели, у одиночки нет', n == 2 and 'swatch' not in feed[1]
           and feed[0]['swatch'].startswith('#') and data['variants'][0]['items'][0]['sku']['swatch'] > '#d0', (n, data))
+    check('annotate_swatch: семья не та, что у модели, — поля fam нет', all('fam' not in p for p in feed), feed)
+    # T-20261106-77/5: у цвета своя 3D-модель (правило привязки) — семья та же, по представителю; кружки не пропадают
+    keep = F._MESH_REP
+    F._MESH_REP = {'x1': 'x1', 'x2': 'x1', 'x3': 'x1'}
+    try:
+        data = {'variants': [], 'feeds': {'f': [{'sid': 'x1', 'msid': 'x1', 'img': 'milk.jpg'},
+                                                {'sid': 'x2', 'msid': 'x2', 'img': 'dark.jpg'},
+                                                {'sid': 'x3', 'msid': 'x1', 'img': 'red.jpg'}]}}
+        n = F.annotate_swatch(data, tmp)
+        f = data['feeds']['f']
+    finally:
+        F._MESH_REP = keep
+    check('своя модель у цвета: образец у всех трёх цветов семьи', n == 3 and all(p.get('swatch') for p in f), (n, f))
+    check('своя модель у цвета: fam = представитель только там, где msid другой',
+          f[1].get('fam') == 'x1' and 'fam' not in f[0] and 'fam' not in f[2], f)
     print('fails', fails)
     sys.exit(1 if fails else 0)
 

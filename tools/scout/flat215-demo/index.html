@@ -4883,12 +4883,14 @@ function icBig(src){ return D&&D._img_large&&/(^|\/)img\/[0-9a-f]{16}\.jpg$/.tes
 function icItem(p, role){ const r=baseRole(role), rug=r==='ковёр';
   return {name:itemName(p,r), img:p.img, url:itemUrl(p), shop:itemShop(p), price:p.price, qty:p.qty||1, role:r, w:p.w, d:p.d, h:rug?null:p.h,
     ...(p.in_stock===false?{in_stock:false}:{})}; }
-// ЦВЕТА МОДЕЛИ — товары ленты своей роли с той же моделью (`msid`; у цвета своего меша нет), только с фото; первым — сам товар.
+// ЦВЕТА МОДЕЛИ — товары ленты своей роли из той же семьи цветов, только с фото; первым — сам товар. Семья — `fam` сборки
+// (`annotate_swatch`: у цвета со своей 3D-моделью `msid` свой, а семья общая, T-20261106-77/5), иначе — модель `msid`.
 // Считаем по тому, что реально есть в ленте (лимит ленты — 30 товаров на подкатегорию×стиль), не по всему семейству магазина
+function famKey(p){ return p.fam||p.msid||p.sid||p.name; }
 function colourFam(sku, role){
   if(!sku||!sku.name)return [];
-  const m=sku.msid||sku.sid||sku.name, feed=byRoom(D.feeds,baseRole(role))||[];
-  const same=feed.filter(p=>p.img&&(p.msid||p.sid||p.name)===m), seen=new Set([sku.name]);
+  const m=famKey(sku), feed=byRoom(D.feeds,baseRole(role))||[];
+  const same=feed.filter(p=>p.img&&famKey(p)===m), seen=new Set([sku.name]);
   const out=[same.find(p=>p.name===sku.name)||sku];
   same.forEach(p=>{if(!seen.has(p.name)){seen.add(p.name); out.push(p);}});
   return out.length>1?out:[];
@@ -5478,7 +5480,7 @@ function grid(){
   // ЦВЕТА ОДНОЙ МОДЕЛИ — ЧИПАМИ, ПЕРВЫМИ — ДРУГИЕ МОДЕЛИ (приёмка владельцем 16.10 п.11а): первые три кандидата сканди-дивана были
   // цветами того же «Викс» — одна модель, и замена выглядела несработавшей. Цвета текущей модели — строкой чипов сверху, другие
   // модели — по одной карточке с пометкой «ещё N цветов»; цвет на сцене — подкраской (`sku.tint`)
-  const modelOf=p=>p.msid||p.sid||p.name, curM=sel&&sel.sku?modelOf(sel.sku):'';
+  const modelOf=famKey, curM=sel&&sel.sku?modelOf(sel.sku):'';
   // цвета текущей — тем же правилом, что кружки строки (`colourFam`, все цвета модели в ленте роли, текущий первым): фильтры ленты
   // и стиль их не прячут — меняем от текущего (demo-28; раньше выпадал текущий, если его цвет не из стиля ленты)
   const colours=sel&&sel.sku?colourFam(sel.sku,base):[], byM=new Map(), more=new Map();
