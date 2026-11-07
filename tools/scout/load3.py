@@ -256,6 +256,8 @@ def assign(o: dict, catrole: dict, known: set) -> dict:
     # СИДЕНЬЕ ПО НАЗВАНИЮ (T-20261105-53): пуф/банкетка/оттоманка из ветки диванов/кресел → пуф; кровать и секция модульного
     # дивана — без роли (строка грузится, в архив не уходит). До разбора размеров: потолки габаритов берутся по роли
     role, o['seat_note'] = category_map.seat_role(role, o['name'])
+    # КОВЁР ПО НАЗВАНИЮ (T-20261107-22/5): подложка/крепёж из ветки ковров — без роли (строка грузится, в архив не уходит)
+    role, o['rug_note'] = category_map.rug_role(role, o['name'])
     o['role'] = role
     o['known'] = key in known
     o['accepted'] = accepted
@@ -433,6 +435,9 @@ def main() -> int:
             seat[k] = seat.get(k, 0) + 1
     if seat:       # не WARN — правило осознанное, срабатывает каждую ночь (как свет и детские линии)
         print('сиденье по названию (T-53): ' + ', '.join(f'{k} — {v}' for k, v in sorted(seat.items())), flush=True)
+    rug_acc = sum(1 for o in accepted if o.get('rug_note'))
+    if rug_acc:
+        print(f'ковёр по названию (T-22/5): без роли — {rug_acc}', flush=True)
     mismatch = sum(1 for o in offers if o['mid_mismatch'])
     if mismatch:
         print(f'WARN:mid_mismatch: у {mismatch} офферов merchant_id не совпадает с mid в ссылке (взят атрибут)', flush=True)
@@ -739,6 +744,12 @@ def selftest() -> int:
                      ('Диван-кровать Glasar', 'диван')):
         o = assign({'mid': 99272, 'cid': '6982', 'name': nm, 'params': {}, 'price': 1}, {(99272, '6982'): 'диван'}, set())
         check(f'сиденье «{nm[:24]}» → {want}', o['role'] == want and o['accepted'], f"{o['role']} {o.get('seat_note')}")
+    # ковёр по названию (T-20261107-22/5): подложка Velcoc из ветки ковров — без роли и принята, ковёр — ковёр
+    for nm, want in (('Подложка противоскользящая под ковер Velcoc 180х120 см', None),
+                     ('Ковер Kimberley 160x230 бежевый', 'ковёр')):
+        o = assign({'mid': 99272, 'cid': '7001', 'name': nm, 'params': {'Ширина': '120', 'Длина': '180'}, 'price': 1},
+                   {(99272, '7001'): 'ковёр'}, set())
+        check(f'ковёр «{nm[:24]}» → {want}', o['role'] == want and o['accepted'], f"{o['role']} {o.get('rug_note')}")
     # мягкое детских линий (demo-24): подушка Вигге без роли по соседу-пуфу, обычная подушка — с ролью, строка принята
     offs = [assign({'mid': 112923, 'cid': '445', 'name': 'Пуф divan.ru Вигге Мех Зеленый', 'price': 1,
                     'params': {'Серия': 'Вигге', 'Назначение': 'Для детской'}}, {(112923, '445'): 'пуф'}, set()),
