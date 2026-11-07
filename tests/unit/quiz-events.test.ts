@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { pageCounterKind, pageEventIn } from "@/contracts/analytics";
-import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_KIDS_RU, QUIZ_STYLE_RU, quizChildAge, quizColour, quizHousehold, quizKids, quizStyle } from "@/contracts/quiz";
+import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_KIDS_RU, QUIZ_STYLE_RU, quizChildAge, quizColour, quizHousehold, quizKids, quizRoomRu, quizStyle } from "@/contracts/quiz";
 import { buyerEvent } from "@/contracts/send";
 import { contactText } from "@/modules/sends/signals";
 import type { Send } from "@/modules/sends/types";
@@ -60,14 +60,27 @@ describe("сервер принимает только перечисления"
     expect(buyerEvent.safeParse({ kind: "manager_contact_click", shown_style: "Неоклассика" }).success).toBe(false);
   });
 
+  it("выбор квартиры (home-mix-01): стили и комнаты — только перечисления; комната — вид и номер, не текст", () => {
+    const ok = { kind: "quiz_done", pickedBedroom: ["loft"], styles: ["scandi", "loft"], rooms: [{ room: "bedroom-2", requested: "loft", shown: "loft" }] };
+    expect(buyerEvent.safeParse(ok).success).toBe(true);
+    expect(buyerEvent.safeParse({ ...ok, styles: ["scandi", "loft", "modern"] }).success).toBe(false);   // выбранных — не больше двух
+    expect(buyerEvent.safeParse({ ...ok, styles: [] }).success).toBe(false);
+    expect(buyerEvent.safeParse({ ...ok, rooms: [{ room: "Анна +7 913", requested: "loft", shown: "loft" }] }).success).toBe(false);
+    expect(buyerEvent.safeParse({ ...ok, rooms: [{ room: "bedroom-1", requested: "Лофт", shown: "loft" }] }).success).toBe(false);
+    expect(buyerEvent.safeParse({ ...ok, pickedBedroom: ["pink"] }).success).toBe(false);
+    expect(quizRoomRu("bedroom-2")).toBe("спальня 2");
+    expect(quizRoomRu("living")).toBe("гостиная");
+  });
+
   it("лишнее поле (имя) отбрасывается, а не доходит до сервера", () => {
     const r = buyerEvent.safeParse({ kind: "quiz_done", chosen: "loft", name: "Анна" });
     expect(r.success && JSON.stringify(r.data)).not.toContain("Анна");
   });
 
-  it("счётчики застройщику: 4 действия + по одному на значение словаря — 38 видов", () => {
+  it("счётчики застройщику: 4 действия + по одному на значение словаря — 44 вида (с шагом спальни)", () => {
     const quiz = pageCounterKind.options.filter((k) => k.startsWith("quiz_") || k === "style_change");
-    expect(quiz).toHaveLength(38);
+    expect(quiz).toHaveLength(44);
+    expect(pageEventIn.safeParse({ apartmentId: "flat215", kind: "quiz_bedroom:loft" }).success).toBe(true);
     expect(new Set(pageCounterKind.options).size).toBe(pageCounterKind.options.length);
     expect(pageEventIn.safeParse({ apartmentId: "flat215", kind: "quiz_photo:loft" }).success).toBe(true);
     expect(pageEventIn.safeParse({ apartmentId: "flat215", kind: "quiz_child:5" }).success).toBe(false);

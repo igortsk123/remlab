@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import { quizChildAge, quizColour, quizHousehold, quizKids, quizStyle } from "@/contracts/quiz";
+import { quizChildAge, quizColour, quizHousehold, quizKids, quizRoom, quizStyle } from "@/contracts/quiz";
 
 /** События покупателя — единственное, что принимает публичная ручка. */
 export const buyerEventKind = z.enum([
@@ -48,6 +48,11 @@ export const buyerEvent = z.object({
   chosen: quizStyle.optional(),
   // Комната без выбранного стиля показала похожий (план style-fallback-01): `chosen` — стиль вкладки, здесь — стиль показанного варианта.
   shown_style: quizStyle.optional(),
+  // Выбор квартиры (план home-mix-01, T-20261107-35): ответ шага «Какая спальня вам ближе?», выбранные стили (первый — основной) и
+  // раскладка «комната → запрошено / показано» (показано отличается — в комнате нет запрошенного, показан похожий). `chosen` не трогаем.
+  pickedBedroom: z.array(quizStyle).max(2).optional(),
+  styles: z.array(quizStyle).min(1).max(2).optional(),
+  rooms: z.array(z.object({ room: quizRoom, requested: quizStyle, shown: quizStyle })).max(10).optional(),
 });
 export type BuyerEvent = z.infer<typeof buyerEvent>;
 

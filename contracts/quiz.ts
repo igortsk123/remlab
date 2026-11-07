@@ -8,6 +8,20 @@ import { z } from "zod";
 export const quizStyle = z.enum(["scandi", "modern", "minimal", "loft", "neoclassic", "japandi"]);
 export type QuizStyle = z.infer<typeof quizStyle>;
 
+/**
+ * Комната квартиры в событиях выбора (план home-mix-01): только вид комнаты из реестра и номер — без свободного текста,
+ * чтобы со страницы нельзя было прислать менеджеру имя или телефон.
+ */
+export const quizRoom = z.string().regex(/^(living|hall|kitchen|bedroom|nursery|kids|bathroom)(-[1-9])?$/);
+const ROOM_RU: Record<string, string> = {
+  living: "гостиная", hall: "прихожая", kitchen: "кухня", bedroom: "спальня", nursery: "детская", kids: "детская", bathroom: "санузел",
+};
+/** «bedroom-2» → «спальня 2». */
+export function quizRoomRu(id: string): string {
+  const [kind = "", n] = id.split("-");
+  return `${ROOM_RU[kind] ?? kind}${n ? ` ${n}` : ""}`;
+}
+
 /** «Кто будет жить» (`quiz.json` вопрос `household`). */
 export const quizHousehold = z.enum(["single", "couple", "child", "pet", "guest"]);
 export type QuizHousehold = z.infer<typeof quizHousehold>;

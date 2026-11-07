@@ -138,6 +138,28 @@ describe("опрос-знакомство (onb-03, ADR-0330 п.4)", () => {
     expect(await flushSignals(at(32), store, tg.f)).toMatchObject({ summaries: 1, sent: 1 });
     expect(String(tg.calls.find((c) => c.method === "sendMessage")!.body.text)).toContain("сменил стиль на «Минимализм»");
   });
+
+  // опрос по комнатам и раскладка квартиры (план home-mix-01, T-20261107-35): новые поля, `chosen` прежний
+  const rooms: BuyerEvent["rooms"] = [{ room: "living", requested: "scandi", shown: "scandi" }, { room: "bedroom-1", requested: "neoclassic", shown: "modern" },
+    { room: "bedroom-2", requested: "loft", shown: "loft" }];
+
+  it("опрос по комнатам: ответ спальни и квартира по комнатам; подменённая комната — правдой", async () => {
+    const s = (await createSend(mgr(), "flat215", "bot", { chatId: 501, messageId: 42 }, T0, store))!;
+    await recordBuyerEvent(s.id, { kind: "quiz_done", picked: ["scandi"], pickedBedroom: ["loft"], result: ["scandi"], chosen: "scandi",
+      styles: ["scandi", "loft"], rooms }, at(1), store);
+    expect(store.outbox[0]!.text).toBe("Клиент прошёл знакомство: понравились «Сканди»; спальни — «Лофт». Показали: Сканди — выбрал «Сканди». "
+      + "Квартира: гостиная — «Сканди»; спальня 1 — «Неоклассика» (такой нет, показан похожий «Современный»); спальня 2 — «Лофт».");
+  });
+
+  it("«Выбрать другой» нового вида — в сводке стили и квартира по комнатам", async () => {
+    const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
+    await recordBuyerEvent(s.id, { kind: "style_change", styles: ["scandi", "loft"], rooms: rooms.filter((r) => r.room !== "bedroom-1") }, at(1), store);
+    const tg = fakeTg();
+    await flushSignals(at(32), store, tg.f);
+    const text = String(tg.calls.find((c) => c.method === "sendMessage")!.body.text);
+    expect(text).toContain("сменил выбор на «Сканди» и «Лофт»");
+    expect(text).toContain("Квартира: гостиная — «Сканди»; спальня 2 — «Лофт».");
+  });
 });
 
 describe("текст со страницы не доверяем", () => {

@@ -2,7 +2,7 @@
 // поэтому имя клиента в тексте не нужно и у нас не хранится. Для ссылок со страницы менеджера
 // (без исходного сообщения) — короткий номер ссылки: заметку менеджер держит у себя в браузере.
 
-import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_KIDS_RU, QUIZ_STYLE_RU, type QuizStyle } from "@/contracts/quiz";
+import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_KIDS_RU, QUIZ_STYLE_RU, quizRoomRu, type QuizStyle } from "@/contracts/quiz";
 import type { AlternativeReason, BuyerEvent } from "@/contracts/send";
 import type { Send, SendEventRow } from "@/modules/sends/types";
 
@@ -45,31 +45,50 @@ export function alternativeText(send: Send, ev: BuyerEvent): string {
   return `${head(send)}Клиент просит другой вариант: ${REASON[ev.reason ?? "other"]}.`;
 }
 
+const q = (id: QuizStyle) => `«${QUIZ_STYLE_RU[id]}»`;
+
+/**
+ * Квартира по комнатам (план home-mix-01): «гостиная — «Сканди»; спальня 1, спальня 2 — «Лофт»». Комната, где запрошенного стиля нет, —
+ * правдой: «спальня 1 — «Неоклассика» (такой нет, показан похожий «Современный»)». Нет раскладки — пусто.
+ */
+export function layoutText(ev: BuyerEvent): string {
+  if (!ev.rooms?.length) return "";
+  const groups = new Map<string, string[]>();
+  for (const r of ev.rooms) {
+    const k = r.requested === r.shown ? q(r.shown) : `${q(r.requested)} (такой нет, показан похожий ${q(r.shown)})`;
+    groups.set(k, [...(groups.get(k) ?? []), quizRoomRu(r.room)]);
+  }
+  return ` Квартира: ${[...groups].map(([k, rooms]) => `${rooms.join(", ")} — ${k}`).join("; ")}.`;
+}
+
 /** Прошёл опрос-знакомство: что понравилось, кто живёт, цвета, что показали и что выбрал. Без имени (ADR-0330 п.4). */
 export function quizText(send: Send, ev: BuyerEvent): string {
-  const q = (id: QuizStyle) => `«${QUIZ_STYLE_RU[id]}»`;
   // при «с детьми» в скобках — сколько детей и возраст: «с детьми (двое детей; 3–7 лет)» (T-20261106-94)
   const kid = [ev.kids ? QUIZ_KIDS_RU[ev.kids] : null, ev.childAge?.length ? ev.childAge.map((a) => QUIZ_CHILD_RU[a]).join(", ") : null].filter(Boolean);
   const ages = kid.length ? ` (${kid.join("; ")})` : "";
   const parts = [
     ev.picked?.length ? `понравились ${ev.picked.map(q).join(", ")}` : null,
+    ev.pickedBedroom?.length ? `спальни — ${ev.pickedBedroom.map(q).join(", ")}` : null,
     ev.household?.length ? `живут: ${ev.household.map((h) => QUIZ_HOUSEHOLD_RU[h] + (h === "child" ? ages : "")).join(", ")}` : null,
     ev.colours?.length ? `цвета: ${ev.colours.map((c) => QUIZ_COLOUR_RU[c]).join(", ")}` : null,
   ].filter(Boolean);
   const shown = ev.result?.length ? ` Показали: ${ev.result.map((id) => QUIZ_STYLE_RU[id]).join(", ")}` : "";
   const chosen = ev.chosen ? `${shown ? " — в" : " В"}ыбрал ${q(ev.chosen)}` : "";
-  return `${head(send)}Клиент прошёл знакомство${parts.length ? `: ${parts.join("; ")}` : ""}.${shown}${chosen}${shown || chosen ? "." : ""}`;
+  return `${head(send)}Клиент прошёл знакомство${parts.length ? `: ${parts.join("; ")}` : ""}.${shown}${chosen}${shown || chosen ? "." : ""}${layoutText(ev)}`;
 }
 
-/** Сводка выбора: последнее состояние по событиям «смотрел вариант / заменил предмет» и последний стиль после опроса. */
+/**
+ * Сводка выбора: последнее состояние по событиям «смотрел вариант / заменил предмет» и последний выбор после опроса. Выбор нового вида
+ * («Выбрать другой», home-mix-01) — стили и квартира по комнатам; прежнего — один стиль `chosen`.
+ */
 export function summaryText(send: Send, recent: SendEventRow[]): string | null {
   const last = recent.find((e) => e.kind === "variant_view" || e.kind === "item_swap");
-  const style = (recent.find((e) => e.kind === "style_change")?.payload as BuyerEvent | undefined)?.chosen;
-  if (!last && !style) return null;
+  const sc = recent.find((e) => e.kind === "style_change")?.payload as BuyerEvent | undefined;
+  const pick = sc?.styles?.length ? `сменил выбор на ${sc.styles.map(q).join(" и ")}` : sc?.chosen ? `сменил стиль на ${q(sc.chosen)}` : null;
+  if (!last && !pick) return null;
   const p = (last?.payload ?? {}) as BuyerEvent;
   const swaps = recent.filter((e) => e.kind === "item_swap").length;
-  const parts = [style ? `сменил стиль на «${QUIZ_STYLE_RU[style]}»` : null, p.variant ? `вариант «${p.variant}»` : null, swaps ? `замен: ${swaps}` : null,
-    p.sum ? `на ${money(p.sum, send.market)}` : null];
+  const parts = [pick, p.variant ? `вариант «${p.variant}»` : null, swaps ? `замен: ${swaps}` : null, p.sum ? `на ${money(p.sum, send.market)}` : null];
   const items = (p.items ?? []).slice(0, 5).join(", ");
-  return `${head(send)}Клиент выбирает: ${parts.filter(Boolean).join(", ")}${items ? `. Сейчас в комнате: ${items}` : ""}.`;
+  return `${head(send)}Клиент выбирает: ${parts.filter(Boolean).join(", ")}${items ? `. Сейчас в комнате: ${items}` : ""}.${sc ? layoutText(sc) : ""}`;
 }

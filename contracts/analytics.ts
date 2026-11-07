@@ -26,7 +26,8 @@ export const pageCounterKind = z.enum([
   "quiz_skip", // «Сразу к стилям»
   "style_change", // «Выбрать другой» стиль после опроса
   // Ответы опроса — по счётчику на значение словаря, без связки с человеком (ADR-0330 п.4)
-  ...quizStyle.options.flatMap((s) => [`quiz_photo:${s}`, `quiz_result:${s}`, `quiz_chosen:${s}`] as const),
+  // `quiz_photo` — шаг гостиной, `quiz_bedroom` — шаг спальни (опрос по комнатам, home-mix-01)
+  ...quizStyle.options.flatMap((s) => [`quiz_photo:${s}`, `quiz_bedroom:${s}`, `quiz_result:${s}`, `quiz_chosen:${s}`] as const),
   ...quizHousehold.options.map((h) => `quiz_household:${h}` as const),
   ...quizChildAge.options.map((a) => `quiz_child:${a}` as const),
   ...quizKids.options.map((k) => `quiz_kids:${k}` as const), // сколько детей (T-20261106-94)

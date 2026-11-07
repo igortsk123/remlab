@@ -12,7 +12,7 @@ type Parsed = { open: "" | "v" | "c"; src: "" | "mix" | "style"; sel: Sel | null
 
 const src = readFileSync(SRC, "utf8");
 const block = src.slice(src.indexOf("// HOMEMIX START"), src.indexOf("// HOMEMIX END"));
-const page = new Function(`${block};return {mixSel,mixEff,mixZone,mixWant,mixShown,mixEncode,mixDecode,mixFromUrl,mixParams};`)() as {
+const page = new Function(`${block};return {mixSel,mixEff,mixZone,mixWant,mixShown,mixEncode,mixDecode,mixFromUrl,mixParams,mixFromQuiz};`)() as {
   mixSel: (selected: unknown[], requested: Record<string, unknown>) => Sel;
   mixEff: (sel: Sel | null, ids: string[]) => Sel;
   mixZone: (kind: string) => number;
@@ -22,6 +22,7 @@ const page = new Function(`${block};return {mixSel,mixEff,mixZone,mixWant,mixSho
   mixDecode: (s: string | null) => Sel | null;
   mixFromUrl: (search: string, hash: string) => Parsed;
   mixParams: (sel: Sel, room: string) => { style: string | null; mix: string | null; room: string };
+  mixFromQuiz: (main: string, ans: Record<string, string[]>, rooms: Room[]) => Sel | null;
 };
 
 // витрина 07.11: гостиные шести стилей, спальни — пяти (у неоклассики спален нет, карта сборки подставляет похожие), прихожих нет
@@ -119,6 +120,42 @@ describe("ссылки", () => {
     expect(page.mixParams(S(["loft"]), "living")).toEqual({ style: "loft", mix: null, room: "living" });
     expect(page.mixParams(S(["loft", "scandi"]), "")).toEqual({ style: "loft", mix: "1.loft.scandi", room: "living" });
     expect(page.mixParams(S(["loft"], { living: "modern" }), "bedroom-1")).toEqual({ style: "loft", mix: "1.loft.living_modern", room: "bedroom-1" });
+  });
+});
+
+// ОПРОС ПО КОМНАТАМ → ВЫБОР (владелец TG 370, T-35 шаг 4): ответ шага — стиль комнат этого вида
+describe("опрос по комнатам", () => {
+  const Q = (main: string, ans: Record<string, string[]>) => page.mixFromQuiz(main, ans, ROOMS);
+  it("гостиная — вариант итога (основной), спальни — ответ шага спальни (второй выбранный)", () => {
+    const sel = Q("scandi", { living: ["scandi"], bedroom: ["loft"] });
+    expect(sel).toEqual(S(["scandi", "loft"]));
+    expect(shown(sel!)).toMatchObject({ living: "scandi", "bedroom-1": "loft", "bedroom-2": "loft" });
+  });
+  it("два ответа спальни — по одному в каждую спальню; совпадающее с правилом зон не пишется", () => {
+    const sel = Q("scandi", { living: ["scandi"], bedroom: ["loft", "japandi"] });
+    expect(sel).toEqual(S(["scandi", "loft"], { "bedroom-2": "japandi" }));
+    expect(shown(sel!)).toMatchObject({ living: "scandi", "bedroom-1": "loft", "bedroom-2": "japandi" });
+  });
+  it("спальня как гостиная — один выбранный стиль, ссылка без mix=", () => {
+    const sel = Q("loft", { living: ["loft"], bedroom: ["loft"] });
+    expect(sel).toEqual(S(["loft"]));
+    expect(page.mixParams(sel!, "living").mix).toBeNull();
+  });
+  it("шага спальни не было (мало фото) — второй выбранный из ответа гостиной, как правило зон", () => {
+    expect(Q("scandi", { living: ["scandi", "modern"], bedroom: [] })).toEqual(S(["scandi", "modern"]));
+    expect(Q("modern", { living: ["scandi"], bedroom: [] })).toEqual(S(["modern", "scandi"]));   // на итоге выбран похожий — гостиная в нём
+  });
+  it("ответ спальни совпал с основным, второго нет — второй ответ спальни идёт в спальню 2", () => {
+    expect(Q("scandi", { living: ["scandi"], bedroom: ["scandi", "loft"] })).toEqual(S(["scandi", "loft"], { "bedroom-1": "scandi" }));
+  });
+  it("детская: с ответом своего шага — в детскую; без него — по зоне спален (ответ спальни)", () => {
+    const rooms: Room[] = [{ id: "living", kind: "living" }, { id: "bedroom-1", kind: "bedroom" }, { id: "nursery-1", kind: "nursery" }];
+    expect(page.mixFromQuiz("scandi", { bedroom: ["loft"], nursery: ["japandi"] }, rooms)).toEqual(S(["scandi", "loft"], { "nursery-1": "japandi" }));
+    expect(page.mixFromQuiz("scandi", { bedroom: ["loft"], nursery: [] }, rooms)).toEqual(S(["scandi", "loft"]));
+  });
+  it("без варианта итога — первый ответ; ответов нет — null", () => {
+    expect(Q("", { living: ["minimal"] })).toEqual(S(["minimal"]));
+    expect(Q("", {})).toBeNull();
   });
 });
 

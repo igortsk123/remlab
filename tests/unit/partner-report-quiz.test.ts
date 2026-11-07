@@ -42,15 +42,15 @@ const c = (kind: string, n: number, apartmentId = "flat215", day = "2026-10-20")
 const withQuiz = (counters: ReportInput["counters"], over: Partial<ReportInput> = {}): ReportInput => ({ ...noQuiz, counters: [...noQuiz.counters, ...counters], ...over });
 
 describe("блок «Знакомство»", () => {
-  it("все 38 счётчиков опроса из словаря `pageCounterKind` узнаются блоком, прочие — нет", () => {
+  it("все 44 счётчика опроса из словаря `pageCounterKind` узнаются блоком, прочие — нет", () => {
     const quiz = pageCounterKind.options.filter((k) => quizPart(k));
-    expect(quiz).toHaveLength(38);
+    expect(quiz).toHaveLength(44);   // 38 + шаг спальни `quiz_bedroom:<стиль>` (опрос по комнатам, home-mix-01)
     expect(pageCounterKind.options.filter((k) => !quizPart(k))).toEqual(OLD_KINDS);
     for (const k of ["quiz_photo:pink", "quiz_child:5", "quiz_kids:4", "quiz_household:", "quiz_x:loft", "quiz"]) expect(quizPart(k)).toBeNull();
   });
 
   it("у каждого значения ответа есть русская подпись словаря", () => {
-    const dict: Record<string, Record<string, string>> = { photo: QUIZ_STYLE_RU, result: QUIZ_STYLE_RU, chosen: QUIZ_STYLE_RU,
+    const dict: Record<string, Record<string, string>> = { photo: QUIZ_STYLE_RU, bedroom: QUIZ_STYLE_RU, result: QUIZ_STYLE_RU, chosen: QUIZ_STYLE_RU,
       household: QUIZ_HOUSEHOLD_RU, child: QUIZ_CHILD_RU, kids: QUIZ_KIDS_RU, colour: QUIZ_COLOUR_RU };
     for (const k of pageCounterKind.options) {
       const p = quizPart(k);
@@ -81,6 +81,13 @@ describe("блок «Знакомство»", () => {
     const [f] = buildQuiz([c("quiz_photo:scandi", 3), c("quiz_photo:neoclassic", 1), c("quiz_chosen:loft", 2)], showcase);
     expect(f!.photo.map((x) => x.id)).toEqual(["loft", "scandi", "modern", "minimal", "japandi", "neoclassic"]);
     expect(f!.chosen.map((x) => [x.id, x.n])).toEqual([["loft", 2], ["scandi", 0], ["modern", 0], ["minimal", 0], ["japandi", 0]]);
+  });
+
+  it("шаг спальни — своя группа, в порядке витрины; гостиные не смешиваются со спальнями", () => {
+    const showcase = { flat215: ["loft", "scandi", "modern", "minimal", "japandi"] };
+    const [f] = buildQuiz([c("quiz_photo:scandi", 3), c("quiz_bedroom:loft", 2), c("quiz_bedroom:japandi", 1)], showcase);
+    expect(f!.bedroom.map((x) => [x.id, x.n])).toEqual([["loft", 2], ["scandi", 0], ["modern", 0], ["minimal", 0], ["japandi", 1]]);
+    expect(f!.photo.find((x) => x.id === "loft")?.n).toBe(0);
   });
 
   it("окно отчёта отсекает старые счётчики опроса; одни старые — блока нет", () => {

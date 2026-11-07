@@ -6,7 +6,8 @@ import type { QuizCount, QuizRow } from "@/modules/partner-report/quiz";
 // Подписи — словари `contracts/quiz.ts` (те же, что в сигнале менеджеру). Доля ответа — от прошедших опрос.
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const GROUPS: [string, (r: QuizRow) => QuizCount[], Record<string, string>][] = [
-  ["Понравились на фото", (r) => r.photo, QUIZ_STYLE_RU],
+  ["Понравились гостиные", (r) => r.photo, QUIZ_STYLE_RU],
+  ["Понравились спальни", (r) => r.bedroom, QUIZ_STYLE_RU],   // опрос по комнатам (home-mix-01)
   ["Показали в итоге", (r) => r.result, QUIZ_STYLE_RU],
   ["Выбрали в итоге", (r) => r.chosen, QUIZ_STYLE_RU],
   ["Кто будет жить", (r) => r.household, QUIZ_HOUSEHOLD_RU],
