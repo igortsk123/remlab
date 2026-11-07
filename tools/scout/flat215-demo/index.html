@@ -7607,11 +7607,14 @@ function quizPick(rule, answers, available, styleColours){
           (o.dots||[]).map(function(d){return '<i style="background:'+esc(d)+'"></i>';}).join('')+'</span><span class="qz-ol">'+esc(tr(o,''))+'</span>'+(on?TICK:'')+'</button>';}).join('')+
       '</div>'+nav(true,EN()?'Show the designs':'Показать варианты');
   }
-  function names(ids){var st=styles(); return ids.map(function(id){var s=st.filter(function(x){return x.id===id;})[0]; return '«'+(s?s.title:id)+'»';});}
+  // ПОДПИСЬ ВАРИАНТА НА ИТОГЕ — «Вариант N», тот же номер, что на шаге 1 (владелец, голос TG 368, T-20261107-28/2): название стиля
+  // покупателю не показываем. Номер — место в списке шага 1 (стили с фото нейросети); фото нет ни у одного — место во вкладках главной
+  // (тот же список, из которого подбирает `pick`). В ответах и событиях — id стиля
+  function optNo(id){var ph=photoStyles(), L=(ph.length?ph:styles()).map(function(s){return s.id;}), i=L.indexOf(id); return i<0?'':String(i+1);}
+  function optName(id){return (EN()?'Option ':'Вариант ')+optNo(id);}
   function screenR(){
-    // итог коротко — «Ваш стиль — …» (владелец 06.11, T-20261106-94), без «вам понравились»; похожие отмечены на карточках
-    var st=styles(), liked=Q.pick.filter(function(id){return Q.a.photos.indexOf(id)>=0;}), L=names(liked);
-    if(EN())L=L.map(function(x){return x.replace(/[«»]/g,'');});
+    // итог коротко — «Ваш стиль — Вариант N» (владелец 06.11, T-20261106-94; подпись — TG 368), похожие отмечены на карточках
+    var st=styles(), liked=Q.pick.filter(function(id){return Q.a.photos.indexOf(id)>=0;}), L=liked.map(optName);
     var sub=EN()?(liked.length?'Your style — '+L.join(' and '):'Styles close to your colours')
       :(liked.length?'Ваш стиль — '+L.join(' и '):'Стили, близкие вашим цветам');
     var cards=Q.pick.map(function(id){var s=st.filter(function(x){return x.id===id;})[0]||{id:id,title:id}, mine=Q.a.photos.indexOf(id)>=0;
@@ -7619,16 +7622,14 @@ function quizPick(rule, answers, available, styleColours){
       var img=s.real&&s.img;   // черновой 3D-кадр и пустую плашку не показываем — карточка без картинки, только текст
       return '<div class="qz-res'+(img?'':' qz-noimg')+'" data-res="'+esc(id)+'">'+(img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'')+
         '<span class="qz-tag'+(mine?'':' near')+'">'+(mine?(EN()?'Your style':'Ваш стиль'):(EN()?'Similar':'Похожий'))+'</span>'+
-        '<div class="qz-cap"><b>'+esc(s.title)+'</b><span>'+(n?n+' '+itemsWord(n)+' · '+esc(sum):'')+'</span></div></div>';}).join('');
+        '<div class="qz-cap"><b>'+esc(optName(id))+'</b><span>'+(n?n+' '+itemsWord(n)+' · '+esc(sum):'')+'</span></div></div>';}).join('');
     var dots=Q.pick.map(function(id,i){return '<button type="button" data-dot="'+i+'" aria-label="'+(i+1)+'" aria-current="'+(i===Q.at)+'"><i></i></button>';}).join('');
-    var cur=(st.filter(function(x){return x.id===Q.pick[Q.at];})[0]||{}).title||'';
     var k=Q.pick.length;   // стилей с фото может быть меньше трёх (T-28/2)
     return '<h2 class="qz-h" id="qzH">'+(EN()?'We picked '+k+' design'+(k===1?'':'s')+' for you':'Подобрали для вас '+k+' вариант'+(k===1?'':'а'))+'</h2><p class="qz-sub">'+esc(sub)+'</p>'+
       '<div class="qz-car">'+cards+'</div>'+
       '<div class="qz-pager"><button type="button" class="qz-arr" data-qz="prev" aria-label="'+(EN()?'Previous':'Назад')+'">‹</button>'+dots+
       '<button type="button" class="qz-arr" data-qz="nxt" aria-label="'+(EN()?'Next':'Дальше')+'">›</button></div>'+
-      '<button class="btn primary qz-next" type="button" data-qz="choose" style="min-height:48px;font-weight:600">'+
-        esc(EN()?'Choose “'+cur+'”':'Выбрать «'+cur+'»')+'</button>'+
+      '<button class="btn primary qz-next" type="button" data-qz="choose" style="min-height:48px;font-weight:600">'+esc(chooseText())+'</button>'+
       '<button class="qz-link" type="button" data-qz="all">'+(EN()?'All styles':'Все стили')+'</button>';
   }
   var SCREENS=[screen0,screen1,screen2,screen3,screenR];
@@ -7650,10 +7651,11 @@ function quizPick(rule, answers, available, styleColours){
   }
   // шаг ленты итога — ширина карточки + промежуток из стилей (телефон 10, компьютер 24 — там соседняя карточка не выглядывает)
   function stepOf(car,w){return w.offsetWidth+(parseFloat(getComputedStyle(car).columnGap)||0);}
+  function chooseText(){var n=optNo(Q.pick[Q.at]); return EN()?'Choose option '+n:'Выбрать вариант '+n;}
   function sync(){   // листание итога: точки и надпись кнопки — за видимой карточкой
-    var c=box().querySelector('.qz-card'), st=styles(), cur=(st.filter(function(x){return x.id===Q.pick[Q.at];})[0]||{}).title||'';
+    var c=box().querySelector('.qz-card');
     c.querySelectorAll('[data-dot]').forEach(function(d){d.setAttribute('aria-current',String(+d.dataset.dot===Q.at));});
-    var ch=c.querySelector('[data-qz=choose]'); if(ch)ch.textContent=EN()?'Choose “'+cur+'”':'Выбрать «'+cur+'»';
+    var ch=c.querySelector('[data-qz=choose]'); if(ch)ch.textContent=chooseText();
   }
   function go(k){var car=box().querySelector('.qz-car'), w=car&&car.querySelector('.qz-res'); if(!w)return;
     Q.at=Math.max(0,Math.min(Q.pick.length-1,k)); car.scrollTo({left:Q.at*stepOf(car,w),behavior:VW_SLOW()?'auto':'smooth'}); sync();}
