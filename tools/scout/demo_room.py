@@ -401,16 +401,83 @@ def gate_items(spec: Showcase, rec: dict, art: dict | None, sku, dims_of, mesh_o
     return items, art, swaps, empty, orient
 
 
+# РАЗНЫЕ ТОВАРЫ В КОМНАТАХ ОДНОГО НАЗНАЧЕНИЯ (bedroom-distinct-01, владелец 07.11 голос TG 348: «даже в одном стиле наполняемость
+# двух разных помещений одного назначения должна быть разными товарами»). Сборщик банка берёт лучшее по роли для каждой комнаты
+# независимо — спальня 1 и 2 одного стиля совпадали в 3–5 товарах из 5–6. Вторая (и дальше) комната того же типа и стиля по
+# каждой роли берёт лучший товар, которого нет в предыдущих: сперва `alternates` своей записи (порядок сборщика — лучшее
+# первым), потом запас того же стиля из других записей банка (`role_spares`, соседние стили сюда не идут). Те же правила, что
+# у сторожа модели (`gate_items`): годная модель, известный размер, полоса размера назначения у чужого товара, место без новых
+# жёстких нарушений. Пара (тумба 1 = тумба 2) остаётся парой: замена — во все пронумерованные строки роли. Замены нет — товар
+# повторяется, строка в `dup` (сборка печатает WARN demo_room_dup), не молча.
+def distinct_items(spec: Showcase, rec: dict, items: dict, art: dict | None, sku, dims_of, mesh_ok, spares: dict | None,
+                   used: set) -> tuple[dict, dict | None, list, list]:
+    """Товары записи без повторов с предыдущими комнатами → (товары, расстановка, замены `{role, was, now}`, повторы
+    `{role, sid, name, why}`). `used` — sid товаров (как у `sku`) уже собранных комнат того же типа и стиля."""
+    items = dict(items)
+    own = rec.get('style') or ''
+    alts = rec.get('alternates') or {}
+    swaps, dups = [], []
+    for role in [r for r in list(items) if base_role(r) == r]:
+        s = sku(items, role)
+        if not s or s.get('sid') not in used:
+            continue
+        own_sids = {_key(a) for a in alts.get(role) or []} | {_key(items.get(role))}
+        pool = [(a, False) for a in alts.get(role) or []] + [
+            (a, True) for st, a in (spares or {}).get(role) or [] if st == own and _key(a) not in own_sids]
+        tried = []
+        for alt, far in pool:
+            t = sku({role: alt}, role)
+            if not t or not t.get('sid') or t['sid'] in used or t['sid'] == s.get('sid'):
+                continue
+            w = mesh_ok(t) if mesh_ok is not None and needs_mesh(role) else ''
+            a2 = art
+            if not w and role in spec.place_roles:
+                dm = dims_of({}, t, role)
+                if dm.get('dims_unknown'):
+                    w = 'размер не указан'
+                elif far and not _in_band(spec, role, dm, rec.get('purpose')):
+                    w = 'вне полосы размера'
+                else:
+                    a2, bad = _fits(spec, art, role, dm, rec.get('purpose'))
+                    w = ('не встаёт: ' + ', '.join(bad)) if bad else ''
+            if not w:
+                swaps.append({'role': role, 'was': [s.get('sid'), s.get('name')], 'now': [t.get('sid'), t.get('name')]})
+                art = a2
+                for k in [k for k in items if base_role(k) == role]:   # пара и пронумерованные строки — тот же товар
+                    items[k] = alt
+                break
+            tried.append(w)
+        else:
+            dups.append({'role': role, 'sid': s.get('sid'), 'name': s.get('name'),
+                         'why': f'пул роли исчерпан: кандидатов без повтора {len(tried)}'
+                                + (f" ({'; '.join(dict.fromkeys(tried))})" if tried else '')})
+    return items, art, swaps, dups
+
+
+def by_registry(recs: list, apt_rooms: list) -> list:
+    """Записи в порядке реестра квартиры (спальня 1 первой; комнаты вне реестра — в конце, по прежнему порядку): кто первым
+    берёт лучшее в `distinct_items`, не зависит от порядка флага `rooms_enabled` и от пересборки."""
+    rank = {r.get('id'): i for i, r in enumerate(apt_rooms or [])}
+    return sorted(recs, key=lambda r: rank.get(r.get('room_id'), len(rank)))
+
+
+def variant_sids(v: dict | None) -> set:
+    """sid товаров варианта (предметы 3D и строки списка) — то, что следующая комната того же типа и стиля не повторяет."""
+    return {(o.get('sku') or {}).get('sid') for o in ((v or {}).get('items') or []) + ((v or {}).get('decor') or [])} - {None}
+
+
 def build_variant(spec: Showcase, rec: dict, geo: dict, sku, dims_of, style_id, hung=lambda n: False, decor_role=lambda r: False,
                   layout=None, mesh_ok=None, spares: dict | None = None, lead=None, lead_any: bool | None = None,
-                  pairs=None) -> tuple[dict | None, dict | None]:
+                  pairs=None, used: set | None = None, distinct_spares: dict | None = None) -> tuple[dict | None, dict | None]:
     """Запись банка → (вариант витрины, None) или (None, строка `incomplete_styles`). `sku(items, role)` и `dims_of(v, sku, role)`
     — функции сборки (`flat215_demo._sku`, `_dims_of`): товар и габарит из каталога, как у гостиной. `mesh_ok(sku)` — сторож
     модели (`gate_items`; None — без проверки): замены — в `mesh_swaps` варианта, пустые роли — в `missing_item` с причиной,
     пропущенные с нерешённым разворотом — в `orient_unresolved` (сборка снимает поле в журнал). `spares` — запас ролей солвера
     (`role_spares`), `lead` — ведущие роли, `lead_any` — достаточно любой из них, `pairs` — парные роли (None — из профиля,
     `profile_rules`): правило ALL — нет хотя бы одной ведущей, ANY — нет ни одной → вариант не публикуется. Предмет с подъёмом над
-    полом (зеркало солвера прихожей, `elev`, см) несёт его в вариант — сцена вешает на стену (`fromDemo.ts`), не ставит на пол."""
+    полом (зеркало солвера прихожей, `elev`, см) несёт его в вариант — сцена вешает на стену (`fromDemo.ts`), не ставит на пол.
+    `used` — sid товаров предыдущих комнат того же типа и стиля (`distinct_items`; None/пусто — как прежде), `distinct_spares` —
+    запас того же стиля для замены повтора: замены — `distinct_swaps` варианта, неустранимые повторы — `dup`."""
     if lead is None or lead_any is None or pairs is None:
         p_lead, p_any, p_pairs = profile_rules(rec.get('room_type') or spec.room_type)
         lead = p_lead if lead is None else lead
@@ -428,6 +495,9 @@ def build_variant(spec: Showcase, rec: dict, geo: dict, sku, dims_of, style_id, 
     swaps, empty, orient = [], [], []
     if mesh_ok is not None:
         items, art, swaps, empty, orient = gate_items(spec, rec, art, sku, dims_of, mesh_ok, spares)
+    dswaps, dups = [], []
+    if used:
+        items, art, dswaps, dups = distinct_items(spec, rec, items, art, sku, dims_of, mesh_ok, distinct_spares, used)
     # экземпляры ролей: товары записи и пронумерованные места готовой расстановки парной роли («тумба прикроватная 2» — товар базовой)
     roles = list(items) + [r for r in (art or {}) if not r.startswith('_') and r not in items and base_role(r) in items
                            and base_role(r) in pairs]
@@ -480,7 +550,8 @@ def build_variant(spec: Showcase, rec: dict, geo: dict, sku, dims_of, style_id, 
              'room_id': rec['room_id'], 'purpose': rec.get('purpose'), 'fill_pct': art.get('_fill_pct'), 'items': objs,
              'decor': decor, 'dims_unknown': unknown, 'missing_item': empty, 'fill': [],
              **({'mesh_swaps': swaps} if swaps else {}), **({'orient_unresolved': orient} if orient else {}),
-             **({'unpaired': unpaired} if unpaired else {})}, None)
+             **({'unpaired': unpaired} if unpaired else {}), **({'distinct_swaps': dswaps} if dswaps else {}),
+             **({'dup': dups} if dups else {})}, None)
 
 
 def unpaired_places(art: dict | None, items: dict, pairs) -> list:
