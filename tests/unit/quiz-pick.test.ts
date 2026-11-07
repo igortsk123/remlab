@@ -49,6 +49,21 @@ describe("quizPick — эталоны «ответы → 3 стиля»", () => 
     expect(page.quizPick(rule, { photos: [a0, a1, a2] }, av, sc).slice(0, 2).sort()).toEqual([a0, a1].sort());
     expect(page.quizPick(rule, { colours: ["pink"] }, av, sc)).toEqual(av.slice(0, 3));
   });
+
+  // экран цветов выключен флагом правила (владелец TG 492, T-20261107-49/1): страница шлёт в подбор `colours: []` —
+  // итог не пустой, 3 разных стиля, ответы фото в тройке; без ответов вовсе — первые три по порядку вкладок
+  it("без вопроса цветов (`colours.enabled:false`) подбор работает: вклад цвета 0, итог не пустой", () => {
+    const q = (rule as unknown as { questions: { id: string; enabled?: boolean }[] }).questions.find((x) => x.id === "colours");
+    expect(q?.enabled).toBe(false);
+    const av = golden.available, sc = golden.styleColours, [a0, a1] = av as [string, string];
+    for (const p of [[], [a0], [a1, a0]]) {
+      const r = page.quizPick(rule, { photos: p, colours: [] }, av, sc);
+      expect(r).toEqual(page.quizPick(rule, { photos: p }, av, sc));
+      expect(new Set(r).size).toBe(3);
+      p.forEach((id) => expect(r).toContain(id));
+    }
+    expect(page.quizPick(rule, { colours: [] }, av, sc)).toEqual(av.slice(0, 3));
+  });
 });
 
 describe("quizColourOf — цвет предмета → семейство вопроса 3", () => {
