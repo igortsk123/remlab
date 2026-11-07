@@ -168,6 +168,36 @@ def candidates(role: str, old: dict | None, style: str | None, pool: list[dict],
     return out
 
 
+NB_TIERS = ('preferred', 'allowed')
+
+
+def neighbour_fill(role: str, old: dict | None, s: dict, pool: list[dict], used: set, env, avoid, ok, card, items: dict,
+                   neighbours=None) -> tuple:
+    """РОЛЬ ЯДРА У СОСЕДНЕГО СТИЛЯ (T-20261107-11/6, ведущий: общее правило вместо «для одной ситуации»). В своём стиле годного
+    товара роли ядра нет (неоклассика 07.11: единственный столик в конверте — Gatwick, его модель в карантине) — дыра снимала
+    вариант целиком (`incomplete_styles`). Берём товар роли у соседа по `style-axes.json:confusable_pairs`
+    (`demo_room.neighbour_styles`, порядок пар; у неоклассики — современный): те же ворота комнаты (`ok`) и порядок кандидатов
+    (`candidates`), плюс цвет ДЛЯ СТИЛЯ-ПОЛУЧАТЕЛЯ (`compose_common.color_eval`) — только preferred/allowed: чужой товар не
+    должен спорить со стилем ещё и цветом. Зовётся только при дыре в ядре — у стилей с полным ядром ничего не меняется.
+    → (карточка | None, имя соседа | None)"""
+    import compose_common as CC
+    style = s.get('style') or ''
+    if neighbours is None:
+        import demo_room
+        neighbours = demo_room.neighbour_styles
+    b = base_role(role)
+    rest = {r: v for r, v in items.items() if r != role}
+    for nb in neighbours(style):
+        for c in candidates(role, old, nb, pool, used, env, avoid):
+            if CC.color_eval(c, COLOR_ROLE.get(b, b), style)['tier'] not in NB_TIERS:
+                continue
+            if ok(role, c, s, rest):
+                repl = card(c, old or {})
+                repl['style_from'] = nb
+                return repl, nb
+    return None, None
+
+
 def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | None = None,
              avoid: set | None = None, own: bool = True) -> list[dict]:
     """Заменить негодные и добавить недостающие роли ядра. Меняет `s['items']`; → журнал замен.
@@ -198,10 +228,14 @@ def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | N
                 if uni:                  # запасной нейтральный ковёр стиля (`demo_swap_pool.universal_rugs`) — с отметкой
                     repl['rug_universal'] = True
                 break
+        nb = None
+        if repl is None and core:
+            repl, nb = neighbour_fill(role, old, s, pool, used, env, avoid, ok, card, items)
         sku = lambda it: f"{it.get('mid')}:{it.get('eid')}" if it else None  # noqa: E731
         journal.append({'role': role, 'from': (old or {}).get('name'), 'from_sku': sku(old),
                         'to': (repl or {}).get('name'), 'to_sku': sku(repl), 'reason': why,
                         **({'source': 'запасной набора'} if spare else {}),
+                        **({'source': f'соседний стиль: {nb}'} if nb else {}),
                         **({'rug_universal': True} if uni else {})})
         if repl:
             items[role] = repl
@@ -347,6 +381,30 @@ def _selftest() -> int:
     ok('приглушённый discouraged (оливковый стул джапанди) — не отсев, только яркий',
        color_refused('стул', {'name': 'Стул Марти-2 Велюр Оливковый/Натуральный'}, 'джапанди') is None)
     ok('ядро по цвету не режем: жёлтый диван — не причина', color_refused('диван', {'name': 'Диван желтый'}, 'неоклассика') is None)
+    # роль ядра у соседнего стиля (T-20261107-11/6): своего столика нет — берём у соседа (неоклассика → современный), цвет —
+    # по правилам получателя; у полного ядра и у стиля без соседа с товаром — как было
+    alive |= {('6', 'tyel'), ('6', 'tnut'), ('6', 'tloft')}
+    tables = [{'mid': '6', 'eid': 'tyel', 'role': 'столик', 'style': 'современный', 'name': 'Столик жёлтый', 'w': 90, 'd': 60},
+              {'mid': '6', 'eid': 'tnut', 'role': 'столик', 'style': 'современный', 'name': 'Столик орех', 'w': 95, 'd': 60},
+              {'mid': '6', 'eid': 'tloft', 'role': 'столик', 'style': 'лофт', 'name': 'Столик серый лофт', 'w': 90, 'd': 60}]
+    neo = lambda: {'style': 'неоклассика', 'items': {'диван': {'mid': '1', 'eid': 'sofa', 'name': 'Диван', 'w': 200}}}  # noqa: E731
+    s12 = neo()
+    j12 = fill_set(s12, tables, gate, card, media, has_mesh)
+    t12 = s12['items'].get('столик') or {}
+    x12 = next((x for x in j12 if x['role'] == 'столик'), {})
+    ok('нет своего столика — у соседа (современный), жёлтый пропущен цветом получателя, взят орех; отметки в журнале и у товара',
+       t12.get('name') == 'Столик орех' and t12.get('style_from') == 'современный' and x12.get('source') == 'соседний стиль: современный')
+    s13 = neo()
+    fill_set(s13, tables[:1] + tables[2:], gate, card, media, has_mesh)
+    ok('у соседа только яркий, лофт не сосед неоклассики — дыра честная', 'столик' not in s13['items'])
+    s14 = {'style': 'неоклассика', 'items': {'диван': {'mid': '1', 'eid': 'sofa', 'name': 'Диван', 'w': 200},
+                                             'столик': {'mid': '2', 'eid': 'table', 'name': 'Свой столик', 'w': 90}}}
+    j14 = fill_set(s14, tables, gate, card, media, has_mesh)
+    ok('свой годный столик есть — соседа не зовём, ключей style_from/«соседний» нет',
+       s14['items']['столик']['name'] == 'Свой столик' and 'style_from' not in s14['items']['столик']
+       and not any('соседний' in str(x.get('source', '')) for x in j14))
+    got = neighbour_fill('столик', None, {'style': 'x'}, tables, set(), None, None, gate, card, {}, neighbours=lambda st: [])
+    ok('у стиля нет соседей — (None, None)', got == (None, None))
     return 1 if bad else 0
 
 
