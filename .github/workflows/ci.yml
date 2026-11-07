@@ -201,6 +201,7 @@ jobs:
       - run: bash tools/ops/heavy-slot-selftest.sh   # общая очередь тяжёлых прогонов DEV: по одному, смерть держателя освобождает, порог памяти, rc, таймаут, вложенный (T-20261105-57)
       - run: python tools/scout/atomic_io.py --selftest && python tools/scout/tests/test_publish_demo.py   # выходные json сборки демо — подменой; публикация: копия прежней версии, хранится 3, откат переносом без подмены каталога, проба на /test/ (T-20261105-59)
       - run: python tools/scout/tests/test_no_hard_tmp.py   # ночной путь демо без жёсткого /tmp: временное в REMLAB_TMP, TMPDIR в refresh_daily, demo_rt убирает свой файл (T-20261107-02)
+      - run: python tools/scout/tests/test_draft_image_rules.py   # образ запасного рендера несёт все rules/*, которые читает его код (improve-rooms.json 07.11), COPY ↔ белый список (T-20261107-03)
       - run: python tools/scout/tests/test_img_fallback.py   # фото не скачалось → копия опубликованной главной (только 200 + картинка), иначе плашка «нет фото» без запроса …/null (T-20261106-65)
       - run: python tools/scout/tests/test_improve_prompt.py   # промпт «реалистично» v2: фото-вид, каталожная форма, тёплые гайды (demo-11)
       - run: python tools/scout/tests/test_rug_kids.py   # детские ковры: слова только для текстиля, ответ VLM по форме, роль по кэшу (demo-05)

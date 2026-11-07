@@ -6,6 +6,7 @@
 !tools/scout/rules/capabilities.json
 !tools/scout/rules/openai_prices.json
 !tools/scout/rules/practice_priors.json
+!tools/scout/rules/improve-rooms.json
 !tools/scout/draft_service.py
 !tools/scout/draft_guard.py
 !tools/scout/draft_jobs.py

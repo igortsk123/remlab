@@ -29,7 +29,7 @@
 import { chromium } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { demoUrl } from "./demo-url.cjs";
 import { camOkFrom, pairLabel, regOf, withoutShot } from "./demo-warm.mjs";
 
@@ -335,8 +335,40 @@ async function selftest() {
     "публикация FAIL — вместо съёмки бесплатная проверка --dry (строка «пустые пары» каждую ночь); ok/warn — её нет", { okRun, failRun });
   const wrap = readFileSync(new URL("./demo-real.sh", import.meta.url), "utf8");
   check(/demo-realistic\.mjs --night "\$@"/.test(wrap), "demo-real.sh передаёт аргументы (--dry) в скрипт", null);
+  // 9) очередь тяжёлых прогонов (T-20261107-03): вне слота — перезапуск себя под heavy-slot с теми же аргументами; в слоте — нет
+  const sNight = underSlot({}, ["--night", "--cap-rub", "10"], "/n", "/s.mjs"), sGo = underSlot({}, ["--go"], "/n", "/s.mjs");
+  check(sNight && sNight[0].endsWith("/heavy-slot.sh") && sNight[1].join(" ") === "demo-real-night --min-gb 2 --timeout 1800 -- /n /s.mjs --night --cap-rub 10"
+    && sGo && sGo[1].join(" ") === "demo-real --min-gb 2 --timeout 3600 -- /n /s.mjs --go"
+    && underSlot({ HEAVY_SLOT_HELD: "123" }, ["--go"], "/n", "/s.mjs") === null && underSlot({ REAL_NO_SLOT: "1" }, [], "/n", "/s.mjs") === null
+    && underSlot({ REAL_SLOT_GB: "3" }, [], "/n", "/s.mjs")[1][2] === "3",
+    "вне очереди — себя под heavy-slot (ночь ждёт 30 мин, ручной — час), аргументы те же; в слоте (HEAVY_SLOT_HELD) и REAL_NO_SLOT=1 — без", { sNight, sGo });
   process.exit(res.every(Boolean) ? 0 : 1);
 }
 
+/** ТЯЖЁЛОЕ — ПОД ОБЩЕЙ ОЧЕРЕДЬЮ DEV (T-20261107-03). Съёмка держит браузер и нагружает DEV-рендер (draft_service ~2,5 ГБ); 07.11
+ * в 05:02 она шла вне очереди рядом с прогоном, превысившим свой порог, earlyoom снял DEV-рендер, а задание ушло на запасной рендер
+ * прода. Теперь и ночной шаг (`demo-real.sh`), и ручной запуск сами встают в `tools/ops/heavy-slot.sh`: вне слота → [команда, аргументы]
+ * перезапуска себя с теми же аргументами; уже в слоте (HEAVY_SLOT_HELD — его ставит держатель) или REAL_NO_SLOT=1 → null.
+ * Порог памяти — REAL_SLOT_GB (2 ГБ; дальше heavy-slot уточняет по замерам); ожидание — ночью 30 мин, вручную час. */
+export function underSlot(env, argv, node, self) {
+  if (env.HEAVY_SLOT_HELD || env.REAL_NO_SLOT === "1") return null;
+  const night = argv.includes("--night");
+  return [fileURLToPath(new URL("./heavy-slot.sh", import.meta.url)),
+    [night ? "demo-real-night" : "demo-real", "--min-gb", env.REAL_SLOT_GB ?? "2", "--timeout", night ? "1800" : "3600", "--", node, self, ...argv]];
+}
+
 if (process.argv.includes("--selftest")) await selftest();
-else if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) await main();
+else if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  const slot = underSlot(process.env, process.argv.slice(2), process.execPath, process.argv[1]);
+  if (!slot) await main();
+  else {
+    const { spawnSync } = await import("node:child_process");
+    const r = spawnSync("bash", [slot[0], ...slot[1]], { stdio: "inherit" });
+    if (r.status === 124 && NIGHT) {
+      // ночь: не дождались очереди — обработанный исход (шаг warn, не FAIL), пары дождутся следующей ночи
+      console.log("WARN:demo_real: очередь тяжёлых прогонов DEV занята дольше 30 мин — досъёмка фото нейросети перенесена на следующую ночь");
+      process.exit(0);
+    }
+    process.exit(r.status ?? 1);
+  }
+}
