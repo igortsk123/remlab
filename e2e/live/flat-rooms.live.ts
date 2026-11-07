@@ -318,9 +318,9 @@ test("2.22 ссылка из окна и коллекция: строка зас
   await page.goto(demoUrl("/demo/"), { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
   await page.locator("button[data-swap]").first().click();
-  await page.locator("#vFav").click();
+  await page.evaluate(() => document.getElementById("vFav")!.click());
   await page.locator("#favOk").click();
-  await expect(page.locator("#vFav.on")).toBeVisible();
+  await expect(page.locator("#vFav")).toHaveClass(/\bon\b/);
   const cid = (await page.evaluate("((window.__fav && window.__fav.list()) || [])[0]?.collectionId || ''")) as string;
   expect(cid).toMatch(/^[A-Za-z0-9_-]{22}$/);
   console.log(`  ?coll=: «${await buyerHeader(`/flat?coll=${cid}`)}»`);

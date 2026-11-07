@@ -24,8 +24,10 @@ test("1.1 стили опубликованы, у каждого есть кад
   const styles = (await page.evaluate("allVariants().filter((v) => roomIdOf(v) === 'living').map((v) => v.style)")) as string[];
   expect(styles.length).toBeGreaterThanOrEqual(4);
   expect(new Set(styles).size).toBe(styles.length);
-  // вместо вкладок стилей — строка выбранного интерьера «Вариант N» (home-mix-01 шаг 5)
-  await expect(page.locator("#hmMixName")).toHaveText(/^Вариант(ы)?\s\d/);
+  // вместо вкладок стилей — строка выбранного интерьера: название стиля, у рекомендуемого — «· рекомендуем» (владелец TG 447–448)
+  const titles = await page.evaluate(() => (window as unknown as { homeModel: () => { styles: { title: string }[] } }).homeModel().styles.map((t) => t.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const one = `(?:${titles.join("|")})`;
+  await expect(page.locator("#hmMixName")).toHaveText(new RegExp(`^${one}(?: \\+ ${one})*(?: · рекомендуем)?$`));
   const res = await request.get("/demo/demo-data.json");
   const age = (Date.now() - new Date(res.headers()["last-modified"] ?? 0).getTime()) / 86_400_000;
   expect(age, "витрина демо старше 2 суток").toBeLessThan(2);

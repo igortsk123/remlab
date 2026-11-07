@@ -200,7 +200,10 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-bot{position:fixed;left:0;right:0;bottom:0;z-index:calc(var(--z-sticky) + 3);background:var(--surface);box-shadow:0 -1px 0 var(--line),0 -6px 16px rgba(0,0,0,.06);
   padding:8px var(--hm-gut) calc(8px + env(safe-area-inset-bottom,0px))}
 .hm-bot[hidden]{display:none}
-.hm-bot-in{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
+/* ширина — как у содержимого колонки (`.wrap` 1100/1440/1600 минус поля 2×14): на 1440 низ был на 14 px шире карточек */
+.hm-bot-in{max-width:1072px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
+@media(min-width:1600px){.hm-bot-in{max-width:1412px}}
+@media(min-width:2200px){.hm-bot-in{max-width:1572px}}
 .hm-bot .cs{background:none;padding:0}
 .hm-bot .lab-r{display:none}
 .hm-bot .vpl-bub{top:auto;bottom:calc(100% + 6px)}
@@ -244,6 +247,12 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 /* квадратик легенды бюджета — свой класс `.lsw`: общий `.sw` с кружком цвета (demo-28) раздувал его до кружка 22 px */
 .lsw{flex:none;display:inline-block;width:10px;height:10px;border-radius:3px}
 .lsw.f{background:var(--accent)}.lsw.u{background:var(--up)}.lsw.x{background:var(--hatch);box-shadow:inset 0 0 0 1px var(--bad-ink)}
+/* ЭТА КОМНАТА / ДРУГИЕ КОМНАТЫ (окно, макет 373:7035): отрезок комнаты — тёмно-зелёный, легенда — кружками, столбиком; в раздельном
+   бюджете зелёный занят «Улучшениями» — там комната тёмной терракотой */
+.sg .s.rmseg,.lsw.r{background:var(--up)}.lsw.o{background:var(--accent)}
+.cs.two .sg .s.rmseg,.cs.two .lsw.r{background:rgb(122 62 38)}
+.cs-lg.cs-room{display:block;margin-top:5px}.cs-lg.cs-room .li{display:flex}.cs-lg.cs-room .lsw{width:8px;height:8px;border-radius:50%}
+.cs-lg.cs-room .nv{color:var(--ink)}
 .cs .dop,.vpl-bub .dop{color:var(--bad-ink);font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
 /* легенда под полосой: имя и цифры каждой части — смысл не держится на одном цвете; на компьютере в строку, узко — две строки-таблички */
 .cs-lg{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 10px;margin-top:4px;font-size:12.5px;color:var(--muted);line-height:1.35}
@@ -289,6 +298,18 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 #mixBox .qz-card{position:relative}
 #mixBox .qz-h{padding:0 34px}
 #mixBox .qz-tick{font-weight:700}
+/* «рекомендуем» (владелец TG 447–448): у названия выбора на главной — тихим словом через «·», в окне выбора — маленькой меткой */
+.hm-rec{font-weight:400;font-size:.82em;color:var(--muted)}
+.mx-rec{display:inline-block;margin-left:4px;padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent);
+  font-size:12px;font-weight:600;line-height:1.5;vertical-align:1px;white-space:nowrap}
+/* СТРОКА ШТОРКИ ОКНА (макет 373:7035): «Сканди» слева, «Другой стиль для комнаты» — ссылкой справа; на компьютере — над шкалой колонки */
+.vrow{display:flex;align-items:baseline;gap:0;margin:14px 64px 0 18px;flex:none;min-height:24px}
+.vrow-n{font-size:16px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vrow-s{flex:none;color:var(--muted);margin:0 7px;font-size:16px}
+.vrow-o{flex:none;border:0;background:none;padding:6px 0;color:var(--accent);font:inherit;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap}
+.vrow+.vplate{margin-top:8px}
+@media(hover:hover){.vrow-o:hover{text-decoration:underline}}
+@media(max-width:700px){.vrow{margin:0 14px 4px}.vside[data-pos="3"] .vrow{margin-right:58px}}
 .mx-x{position:absolute;top:8px;right:8px;width:40px;height:40px;border:0;border-radius:50%;background:none;color:var(--muted);font-size:26px;line-height:1;cursor:pointer}
 .mx-x:hover{background:var(--wash-2)}
 .hm-rooms{display:grid;gap:12px;margin:8px 0 18px}
@@ -1642,16 +1663,22 @@ function certScale(o){
   const topTxt=n=>`${EN?'top-up':'доплата'} ${fmtCard(n)}`;
   const ovLine=over?`<div class="cs-ov"><span class="dop"><span class="lsw x"></span>`+[real?topTxt(real):'',
       soon?`${EN?'goes over the limit by':'выйдет за лимит на'} ${fmtCard(soon)}`:''].filter(Boolean).join(' · ')+`</span></div>`:'';
+  // ЭТА КОМНАТА (окно, макет 373:7035): `o.room` — её доля в «выбрано» мебели; в полосе — первым отрезком своего цвета (`.s.rmseg`)
+  const rm=o.room!=null?Math.max(0,+o.room||0):null;
   const seg=([k,Lm,c,p])=>{const t=c+p, s=Math.max(Lm,t)||1, w=x=>(x/s*100).toFixed(3)+'%';
     const pv=Math.max(0,Math.min(t,Lm)-c), x=Math.max(0,c-Lm), xp=Math.max(0,t-Math.max(c,Lm));
+    const r0=rm!=null&&k==='furniture'?Math.min(rm,c,Lm):0;
     const vt=(EN?`${fmtCard(c)} of ${fmtCard(Lm)}`:`${fmtCard(c)} из ${fmtCard(Lm)}`)+(p?(EN?`, this layout adds ${fmtCard(p)}`:`, расстановка добавит ${fmtCard(p)}`):'')+
       (t>Lm?(EN?`, top-up ${fmtCard(t-Lm)}`:`, доплата ${fmtCard(t-Lm)}`):(EN?`, ${fmtCard(Lm-t)} left`:`, осталось ${fmtCard(Lm-t)}`));
     return `<div class="sg ${cls[k]}" style="flex:${Lm} 1 0" role="meter" aria-label="${two?NM[k]:(EN?'Allowance':'Сертификат')}" `+
       `aria-valuemin="0" aria-valuemax="${Lm}" aria-valuenow="${Math.min(c,Lm)}" aria-valuetext="${vt}">`+
-      `<i class="s" style="width:${w(Math.min(c,Lm))}"></i><i class="pv" style="width:${w(pv)}"></i><i class="x" style="width:${w(x)}"></i>`+
+      (r0?`<i class="s rmseg" style="width:${w(r0)}"></i>`:'')+
+      `<i class="s" style="width:${w(Math.min(c,Lm)-r0)}"></i><i class="pv" style="width:${w(pv)}"></i><i class="x" style="width:${w(x)}"></i>`+
       `<i class="xp" style="width:${w(xp)}"></i>${t>Lm?`<b class="lim" style="left:${w(Lm)}"></b>`:''}</div>`;};
   const chosen=inc.furniture+inc.fitout;
-  const legend=(two?`<div class="cs-lg two">`+parts.map(([k,Lm,c])=>`<span class="li"><span class="lsw ${cls[k]}"></span>`+
+  const rmLg=rm!=null?`<div class="cs-lg cs-room"><span class="li"><span class="lsw r"></span>${EN?'This room':'Эта комната'} <span class="nv">${fmtCard(rm)}</span></span>`+
+    `<span class="li"><span class="lsw o"></span>${EN?'Other rooms':'Другие комнаты'}</span></div>`:'';
+  const legend=rmLg+(two?`<div class="cs-lg two">`+parts.map(([k,Lm,c])=>`<span class="li"><span class="lsw ${cls[k]}"></span>`+
       `<span class="lf">${NM[k]}</span><span class="sh">${BUD_SHORT()[k]}</span> <span class="nv"><b>${fmtNum(c)}</b> / ${fmtNum(Lm)}</span></span>`).join('')+`</div>`:'')+ovLine;
   return `<div class="cs${over?' over':''}${two?' two':''}"><div class="cs-t"><span class="cs-l">${EN?'Chosen':'Выбрано'} `+
       `<b data-k="inc" data-to="${chosen}">${fmtCard(chosen)}</b></span>`+
@@ -4734,8 +4761,10 @@ function syncHomeParam(){
     const to=u.pathname+u.search+u.hash; if(to!==location.pathname+location.search+location.hash)history.replaceState(history.state,'',to);}catch(e){}
 }
 // НОВЫЙ ВЫБОР КВАРТИРЫ (вкладка, итог опроса, окно «Выбрать другой»): раскладка заново, в нижний список — вариант комнаты на главной
-function homeSetSel(sel){
+// `own` — выбрал сам покупатель («Выбрать другой»); без него (итог опроса) основной стиль — рекомендуемый (`homeRec`)
+function homeSetSel(sel, own){
   HOME.sel=mixSel(sel&&sel.selected, sel&&sel.requested);
+  if(!own&&HOME.sel.selected[0]){HOME.rec={id:HOME.sel.selected[0], sig:mixSig(HOME.sel)}; const r=lsJson(REC_KEY,{}); r[flatId()||'-']=HOME.rec; lsPut(REC_KEY,r);}
   const m=homeModel(), L=homeLayout(m), c=L.find(x=>x.rv&&x.r.id===HOME.room)||L.find(x=>x.rv);
   if(c){HOME.room=c.r.id; if(c.rv.index!==cur)pickVariant(c.rv.index);}
   syncHomeParam(); drawHome(true);
@@ -4759,12 +4788,14 @@ function homeVarList(){
   const ph=L.filter(x=>x.img); return ph.length?ph:L;
 }
 function homeVarNo(id){ const i=homeVarList().findIndex(x=>x.id===id); return i<0?'':String(i+1); }
-// «Вариант 2» / «Варианты 2 и 5» (неразрывный пробел перед номером — не расходятся по строкам); стиля нет в списке — его название
+// НАЗВАНИЕ ВЫБОРА (владелец TG 447–448, вместо «Вариант N»): стиль — «Сканди», смешанный (два стиля или стиль комнаты) — «Сканди + Лофт»; `rec` — основной стиль
+// выбора рекомендуемый (`homeRec`: итог опроса, без опроса — стиль по умолчанию), тогда за названием метка «рекомендуем»
 function homeMixName(m){
-  const EN=LANG==='en', ids=homeSel(m).selected, L=homeVarList(), no=ids.map(id=>{const i=L.findIndex(x=>x.id===id); return i<0?'':String(i+1);});
-  if(!ids.length)return '';
-  if(no.some(x=>!x))return ids.map(id=>(m.styles.find(s=>s.id===id)||{}).title||id).join(' + ');
-  return no.length===1?(EN?'Option ':'Вариант ')+no[0]:(EN?'Options ':'Варианты ')+no[0]+(EN?' and ':' и ')+no[1];
+  const e=homeSel(m), all=[...e.selected]; for(const r of Object.values(e.requested))if(!all.includes(r))all.push(r);
+  // рекомендуемый — выбор ровно как подобран опросом; без опроса — стиль по умолчанию во всей квартире; поменял покупатель — без метки
+  const R=homeRecStored(), def=m.styles[0]&&m.styles[0].id;
+  const rec=R&&R.sig?mixSig(e)===R.sig:(e.selected.length===1&&e.selected[0]===def&&!Object.keys(e.requested).length);
+  return {name:all.map(id=>homeStyleTitle(m,id)).join(' + '), rec:!!all.length&&rec};
 }
 // НОВЫЙ ВЫБОР ИЗ ЛЮБОГО МЕСТА СТРАНИЦЫ (строка липкая, шаг 3): комнаты нового выбора ушли выше — к ним, под липкую шапку
 function homeToRooms(){
@@ -4772,11 +4803,14 @@ function homeToRooms(){
   if(rm&&tb){const top=rm.getBoundingClientRect().top, lim=tb.getBoundingClientRect().bottom;
     if(top<lim)scrollTo({top:Math.max(0,scrollY+top-lim-8),behavior:VW_SLOW()?'auto':'smooth'});}
 }
-// ОКНО «ВЫБРАТЬ ДРУГОЙ» (home-mix-01 шаг 5, макет 158:452): фото гостиной каждого варианта (строго фото нейросети — `homeVarList`),
-// подписи «Вариант N» — те же номера, что в опросе; один или два, после двух остальные серые (как в опросе, T-28). Порядок нажатия —
-// номер на галочке: первый — основной (гостиная, прихожая), второй — спальни (`mixZone`). «Показать» — новый выбор квартиры, правки
-// комнат из опроса (`requested`) сбрасываются. Менеджеру — `style_change` с раскладкой, застройщику — счётчик (`remlab:quiz`, как опрос)
-const MIX={open:false, pick:[], wait:0};
+// ОКНО «ВЫБРАТЬ ДРУГОЙ» (home-mix-01 шаг 5, макет 158:452): фото гостиной каждого стиля (строго фото нейросети — `homeVarList`),
+// подписи — названия стилей, у рекомендуемого — метка (владелец TG 447–448). ОДИН выбор (владелец TG 451): нажатие на стиль закрывает
+// окно и даёт квартиру в этом стиле (`mixApply`, правки комнат `requested` сбрасываются); галочка — нынешний основной стиль; смешивание
+// комнат — выбором стиля в самой комнате (ниже). Менеджеру — `style_change` с раскладкой, застройщику — счётчик (`remlab:quiz`, как опрос)
+// «ДРУГОЙ СТИЛЬ ДЛЯ КОМНАТЫ» (окно комнаты, макет 373:7035, home-figma-02) — то же окно с `MIX.room`: плитки — фото ЭТОЙ комнаты в
+// каждом стиле, где её вариант есть (`mixRoomList`); нажатие — `requested[комната]` (остальные комнаты не меняются), окно комнаты
+// переходит на новый вариант; менеджеру — тот же `style_change` с раскладкой
+const MIX={open:false, pick:[], wait:0, room:null};
 function mixBox(){
   let b=document.getElementById('mixBox'); if(b)return b;
   b=document.createElement('div'); b.id='mixBox'; b.setAttribute('role','dialog'); b.setAttribute('aria-modal','true'); b.setAttribute('aria-labelledby','mixH');
@@ -4784,43 +4818,80 @@ function mixBox(){
   b.addEventListener('click',e=>{
     if(e.target===b){mixClose(); return;}   // мимо окна
     const t=e.target.closest('button'); if(!t||t.disabled)return;
-    if(t.dataset.mxPh){const id=t.dataset.mxPh, i=MIX.pick.indexOf(id); if(i>=0)MIX.pick.splice(i,1); else if(MIX.pick.length<2)MIX.pick.push(id); mixRender(); return;}
+    // ОДИН ВЫБОР (владелец TG 451): нажал на стиль — окно закрывается, выбор применяется сразу
+    if(t.dataset.mxPh){const id=t.dataset.mxPh, room=MIX.room; mixClose(); if(room)mixRoomApply(room,id); else mixApply([id]); return;}
     const a=t.dataset.mx;
     if(a==='close'){mixClose(); return;}
-    if(a==='apply'){const ids=MIX.pick.slice(); mixClose(); mixApply(ids); return;}
     if(a==='quiz'){mixClose(); if(window.__quizOpen)window.__quizOpen(); return;}
   });
   return b;
 }
 function mixRender(){
-  const c=mixBox().querySelector('.qz-card'), EN=LANG==='en', ready=!!SHOTS_LOADED, L=homeVarList(), full=MIX.pick.length>=2;
+  // подписи — названия стилей (владелец TG 447–448: «стиль напиши как рекомендуемый, другие называй как есть»); у рекомендуемого — метка
+  const c=mixBox().querySelector('.qz-card'), EN=LANG==='en', ready=!!SHOTS_LOADED, one=!!MIX.room;
+  const L=one?mixRoomList(MIX.room):homeVarList(), rec=D?homeRec(homeModel()):'';
   if(ready)MIX.pick=MIX.pick.filter(id=>L.some(x=>x.id===id));   // вариант без фото гостиной не предлагаем — и отмеченным его не держим
-  const quiz=typeof window.__quizCan==='function'&&window.__quizCan();
+  const quiz=!one&&typeof window.__quizCan==='function'&&window.__quizCan();
   c.innerHTML=`<button class="mx-x" type="button" data-mx="close" aria-label="${EN?'Close':'Закрыть'}">×</button>`+
-    `<h2 class="qz-h" id="mixH">${EN?'Choose a design':'Выберите вариант'}</h2>`+
-    `<p class="qz-sub">${EN?'One or two. With two, the living room comes from the first and the bedrooms from the second':'Один или два. Если два — гостиная из первого, спальни из второго'}</p>`+
-    `<div class="qz-photos">${L.map((s,i)=>{const k=MIX.pick.indexOf(s.id), on=k>=0, off=!ready||(full&&!on);
+    `<h2 class="qz-h" id="mixH">${one?(EN?'Another style for this room':'Другой стиль для комнаты'):(EN?'Choose a style':'Выберите стиль')}</h2>`+
+    (one?`<p class="qz-sub">${EN?'Only this room changes — the other rooms stay as they are':'Меняется только эта комната, остальные — как были'}</p>`:'')+
+    `<div class="qz-photos">${L.map(s=>{const on=MIX.pick.includes(s.id), off=!ready;
       return `<button class="qz-ph" type="button" data-mx-ph="${escHtml(s.id)}" aria-pressed="${on}"${off?' disabled':''}>`+
         (ready&&s.img?`<img class="qz-img" alt="" src="${escHtml(s.img)}">`:'<span class="qz-img"></span>')+
-        `<span class="qz-tick" aria-hidden="true">${on?k+1:''}</span><b>${EN?'Option':'Вариант'} ${i+1}</b></button>`;}).join('')}</div>`+
-    `<button class="btn primary qz-next" type="button" data-mx="apply"${MIX.pick.length?'':' disabled'} style="min-height:48px;font-weight:600">${EN?'Show':'Показать'}</button>`+
+        `<span class="qz-tick" aria-hidden="true">${on?'✓':''}</span><b>${escHtml(s.title)}`+
+        (s.id===rec?` <span class="mx-rec">${EN?'recommended':'рекомендуем'}</span>`:'')+`</b></button>`;}).join('')}</div>`+
     (quiz?`<button class="qz-link" type="button" data-mx="quiz">${EN?'Take the quiz again':'Пройти опрос заново'}</button>`:'');
   // кадры ещё в пути — плитки пустые и не нажимаются; перерисовать, когда придут
   if(!ready&&!MIX.wait)MIX.wait=setTimeout(()=>{MIX.wait=0; if(MIX.open)mixRender();},500);
 }
-function mixOpen(){
+// `room` — id комнаты: окно «Другой стиль для комнаты»; без него — выбор квартиры
+function mixOpen(room){
   if(!D)return;
-  MIX.pick=homeSel(homeModel()).selected.slice(0,2); MIX.open=true; mixRender();
+  MIX.room=typeof room==='string'&&room?room:null;
+  MIX.pick=(MIX.room?[styleIdOf(allVariants()[cur]||{})]:homeSel(homeModel()).selected.slice(0,1)).filter(Boolean); MIX.open=true; mixRender();   // галочка — нынешний стиль
   const b=mixBox(); b.classList.add('on'); try{b.querySelector('.qz-card').focus({preventScroll:true});}catch(e){}
 }
 function mixClose(){
-  const b=document.getElementById('mixBox'); MIX.open=false; if(!b||!b.classList.contains('on'))return;
-  b.classList.remove('on'); const p=document.getElementById('hmMixPick'); if(p&&p.offsetParent)try{p.focus({preventScroll:true});}catch(e){}
+  const b=document.getElementById('mixBox'), was=MIX.room; MIX.open=false; MIX.room=null; if(!b||!b.classList.contains('on'))return;
+  b.classList.remove('on'); const p=document.getElementById(was?'vOther':'hmMixPick'); if(p&&p.offsetParent)try{p.focus({preventScroll:true});}catch(e){}
+}
+// стили, в которых у комнаты есть вариант на главной: фото её точки съёмки (только фото нейросети), подпись — название стиля; порядок —
+// как в окне выбора квартиры (`homeVarList`), стили не из него — в конце
+function mixRoomList(room){
+  if(!D||!room)return [];
+  const m=homeModel(), out=[], VL=homeVarList();
+  for(const x of m.roomVariants){
+    if(x.roomId!==room||out.some(o=>o.id===x.styleId))continue;
+    const v=allVariants()[x.index], p=realisticPublishedShot(v,posterCam(v)), no=VL.findIndex(s=>s.id===x.styleId);
+    out.push({id:x.styleId, no:no<0?99:no, title:homeStyleTitle(m,x.styleId), img:p&&p.quality==='realistic'?(p.thumb||p.url):''});
+  }
+  return out.sort((a,b)=>a.no-b.no);
+}
+const homeStyleTitle=(m,id)=>(m.styles.find(s=>s.id===id)||{}).title||id;
+// РЕКОМЕНДУЕМЫЙ СТИЛЬ (владелец TG 447–448): подобранный опросом (основной стиль его выбора — `homeSetSel` без `own`, пишет только
+// итог опроса; хранится по квартире, переживает перезагрузку), нет опроса — стиль по умолчанию (первый, правило `mixEff`)
+const REC_KEY='flat215-rec';
+const mixSig=x=>{const q=mixSel(x&&x.selected, x&&x.requested); return JSON.stringify([q.selected, q.requested]);};
+function homeRecStored(){ const r=HOME.rec||lsJson(REC_KEY,{})[flatId()||'-']; return r&&typeof r==='object'&&r.id?r:null; }
+function homeRec(m){
+  const ids=m.styles.map(s=>s.id), R=homeRecStored(), r=R&&R.id;
+  return r&&ids.includes(r)?r:(ids[0]||'');
+}
+function mixRoomApply(room, id){
+  if(!room||!id)return;
+  const m=homeModel(), e=homeSel(m), was=JSON.stringify([e.selected,e.requested]), now=homeLayout(m).find(x=>x.r.id===room);
+  if(now&&now.want===id)return;   // тот же стиль комнаты — не правка
+  HOME.room=room; homeSetSel({selected:e.selected, requested:Object.assign({}, e.requested, {[room]:id})}, true);
+  const x=homeLayout(homeModel()).find(r=>r.r.id===room&&r.rv);
+  if(x)vwOpenVariant(x.rv.index);   // окно комнаты — заново на варианте нового стиля (первая точка, «Фото», если есть)
+  if(JSON.stringify([HOME.sel.selected,HOME.sel.requested])===was)return;
+  const r=homeMixReport();
+  try{document.dispatchEvent(new CustomEvent('remlab:quiz',{detail:{ev:{kind:'style_change', styles:r.styles, rooms:r.rooms.length?r.rooms:undefined}, counters:['style_change']}}));}catch(e){}
 }
 function mixApply(ids){
   ids=(ids||[]).slice(0,2); if(!ids.length)return;
   const was=HOME.sel?JSON.stringify([HOME.sel.selected,HOME.sel.requested]):'';
-  homeSetSel({selected:ids, requested:{}}); homeToRooms();
+  homeSetSel({selected:ids, requested:{}}, true); homeToRooms();
   if(JSON.stringify([HOME.sel.selected,HOME.sel.requested])===was)return;   // тот же выбор — не событие
   const r=homeMixReport();
   try{document.dispatchEvent(new CustomEvent('remlab:quiz',{detail:{ev:{kind:'style_change', styles:r.styles, rooms:r.rooms.length?r.rooms:undefined}, counters:['style_change']}}));}catch(e){}
@@ -4832,8 +4903,9 @@ function drawHome(force){
   const m=homeModel(), EN=LANG==='en';
   // раскладка — по выбору квартиры (`HOME.sel`); открытое окно (`cur`) её не меняет и в выбор не пишет (home-mix-01)
   const L=homeLayout(m);
-  // «Вариант N» — до проверки «не изменилось»: номер зависит от реестра кадров (фото гостиной), а не только от раскладки
-  if(nm){const t=homeMixName(m)||' '; if(nm.textContent!==t)nm.textContent=t;}
+  // название выбора — до проверки «не изменилось»: список стилей зависит от реестра кадров, рекомендуемый — от опроса
+  if(nm){const x=homeMixName(m), h=(escHtml(x.name)||'&nbsp;')+(x.rec?`<span class="hm-rec"> · ${EN?'recommended':'рекомендуем'}</span>`:'');
+    if(nm._h!==h){nm._h=h; nm.innerHTML=h;}}
   const seen=homeSeenSet();
   const cards=L.map(({r,rv,want})=>{
     const v=rv?allVariants()[rv.index]:null;
@@ -6690,29 +6762,17 @@ function vwSum(){
   // ПЛАШКА СЕРТИФИКАТА (demo-02 v3, владелец 16.10: «явно и ярко: сертификат на N, выбрано столько-то, остаток такой-то»):
   // отдельный элемент над шторкой (телефон) / шапкой колонки (компьютер), вне прокрутки — сумма видна при замене из глубины списка
   if(!cert)return `<div class="vpl-h"><span>${n} ${word}</span><b data-k="sum" data-to="${sumC}">${money(sumC)}</b></div>${extra}`;
-  // ШКАЛА ОКНА = ШКАЛА ГЛАВНОЙ (demo-19 Б2, владелец 20.10): сплошная часть — набрано по корзине, светлая — сколько добавит эта
-  // расстановка, если её включить (вместо включённого варианта этой комнаты); в «i» — «Вам доступно … Эта расстановка … как включить»
-  const P=window.__basket&&window.__basket.preview&&window.__basket.preview(), T=window.__basket&&window.__basket.totals&&window.__basket.totals();
-  // по бюджетам (demo-23): выбрано — корзина; светлое — сколько добавит эта расстановка вместо включённого варианта комнаты (не меньше 0)
-  const z={furniture:0,fitout:0}, incB=T?T.budget.eligible:z, withB=P?P.with.budget.eligible:(t?t.budget.eligible:{furniture:sumC,fitout:0});
-  const baseB=P?P.base.budget.eligible:z, addB={furniture:Math.max(0,withB.furniture-incB.furniture), fitout:Math.max(0,withB.fitout-incB.fitout)};
-  const inc=incB.furniture+incB.fitout, base=baseB.furniture+baseB.fitout, withE=withB.furniture+withB.fitout;
-  const ov=P?P.with.allowanceOverage:over, left=Math.max(0,cert-inc);
-  const fav=window.__fav&&window.__fav.ofState&&window.__fav.ofState(curStateId());
-  const pdev=P?(P.with.developerSurcharge||0)+(P.with.propertyPriceDelta||0):(t?(t.developerSurcharge||0)+(t.propertyPriceDelta||0):0);
-  // перерасход — не отказ, а доплата покупателя с подтверждением (ADR-0308): «выйдет за лимит на N», включить можно
-  const how=ov&&!(P&&P.included)?(EN?`Goes over the limit by ${money(ov)} — you pay the difference`:`Выйдет за лимит на ${money(ov)} — разницу доплачиваете вы`)+'. '
-    :'';
-  const next=fav?(EN?'Include it in the allowance in Favourites':'Включить её в сертификат — в избранном')
-    :(EN?'To include it in the allowance, add it to favourites':'Чтобы включить её в сертификат, добавьте в избранное');
-  const head=P&&P.included
-      ?(pkg.mode==='split'?(EN?'This layout is in the allowance.':'Эта расстановка — в сертификате.')
-        :`${EN?'This layout is in the allowance.':'Эта расстановка — в сертификате.'} ${EN?'Chosen':'Выбрано'} ${money(inc)}, ${EN?'left':'остаток'} <b>${money(left)}</b>`)
-      :pkg.mode==='split'?next          // перерасход по бюджету — строкой бюджета ниже (`certBub`), без повтора
-      :`${EN?'You have':'Вам доступно'} <b>${money(Math.max(0,cert-base))}</b>. ${EN?'This layout':'Эта расстановка'} <b>${money(Math.max(0,withE-base))}</b>. ${how}${next}`;
-  // «часть цен уточняется» в «i» окна снята вместе с той же строкой главной (владелец 23.10, demo-26 В)
-  const lines=[pdev?`${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}`:''];
-  return certScale({pkg, inc:incB, add:addB, head, lines, bubId:'vplBub'});
+  // ШКАЛА ОКНА = ШКАЛА НИЗА ГЛАВНОЙ (макет 373:7035, home-figma-02; прежде — корзина избранного и «светлая часть — что добавит»):
+  // «Выбрано» — все комнаты главной, эта — своей нынешней расстановкой (замена видна сразу); полоса двумя цветами — эта комната и
+  // другие, легенда «Эта комната X / Другие комнаты»; в «i» — доступно/выбрано/осталось, как на главной
+  const others=homeOthers(roomIdOf(v)), pdev=t?(t.developerSurcharge||0)+(t.propertyPriceDelta||0):0;
+  const lines=[pdev?`${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}`:'', fxNote()];
+  return certScale({pkg, inc:{furniture:sumC+others, fitout:0}, room:sumC, lines, bubId:'vplBub'});
+}
+// сумма вариантов ДРУГИХ комнат главной (валюта карточки) — для шкалы окна; открытая комната в неё не входит
+function homeOthers(roomId){
+  if(!D)return 0;
+  return toCard(homeLayout(homeModel()).reduce((s,x)=>s+(x.rv&&x.r.id!==roomId?variantPrice(allVariants()[x.rv.index]):0),0));
 }
 // ЦИФРЫ ПЛАШКИ МЕНЯЮТСЯ ПЛАВНО (v3): прежнее значение → новое за 0,45 с, плашка коротко подсвечивается — замена видна сразу
 function vwSumUpdate(){
@@ -6726,10 +6786,23 @@ function vwSumUpdate(){
     requestAnimationFrame(step);});
   el._vals=now; if(changed){el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');}
   const sd=document.getElementById('vside'), c=document.getElementById('vchip'); if(c&&sd&&sd.dataset.pos!=='3')c.textContent=vwChipText();
+  const rw=document.getElementById('vrow'); if(rw){const h=vwRowHtml(); if(rw._h!==h){rw._h=h; rw.innerHTML=h;}}
   vwGroupsDraw();          // сводки строк-входов — после смены пола или кухни, без перезагрузки
 }
+// чип «⌃ Мебель и отделка · 11 (X ₽)» (макет 373:7035): X — сумма этой комнаты, та же, что «Эта комната» в легенде шкалы
 function vwChipText(){ const v=allVariants()[cur]||{}, n=variantCount(v), EN=LANG==='en';
-  return (EN?'⌃ Furniture & finishes · ':'⌃ Мебель и отделка · ')+n; }
+  return (EN?'⌃ Furniture & finishes · ':'⌃ Мебель и отделка · ')+n+' ('+fmtCard(toCard(variantPrice(v)))+')'; }
+// СТРОКА ШТОРКИ (макет 373:7035, владелец TG 447–448, 451): «Сканди · Другой стиль для комнаты ›» — видна сразу, в свёрнутой шторке; название стиля этой комнаты, у сохранённой расстановки — её имя;
+// «Другой стиль для комнаты» — окно выбора только для этой комнаты (`mixOpen(комната)`), если у комнаты есть другой стиль
+function vwRowHtml(){
+  const v=allVariants()[cur]||{}, EN=LANG==='en', id=styleIdOf(v);
+  const nm=v.cid||v.mine?(v.title||''):(D&&id?homeStyleTitle(homeModel(),id):(v.title||''));
+  const can=!!D&&!v.cid&&!v.mine&&mixRoomList(roomIdOf(v)).length>1;
+  return `<b class="vrow-n">${escHtml(nm)}</b>`+
+    (can?`<span class="vrow-s" aria-hidden="true">·</span><button class="vrow-o" id="vOther" type="button" aria-haspopup="dialog">${EN?'Another style for this room':'Другой стиль для комнаты'} ›</button>`:'');
+}
+document.addEventListener('click',e=>{const b=e.target&&e.target.closest&&e.target.closest('#vOther'); if(!b)return;
+  e.preventDefault(); mixOpen(roomIdOf(allVariants()[cur]||{}));});
 function vwHtml(s, navs, list){
   const EN=LANG==='en';
   // старое фото без номера состояния — честная пометка (Codex 14.10: «состояние неизвестно», а не «точно другое»)
@@ -6740,7 +6813,8 @@ function vwHtml(s, navs, list){
     `<button class="vzbtn" id="vzBtn">${EN?'⤢ full screen':'⤢ во весь экран'}</button>`:'';
   return `<div class="vw"><div class="vstage"><div class="shotwrap">${img}${navs}${old}</div>`+
     `<div class="vmodes" role="tablist"><button data-vm="photo" class="${VW.mode==='photo'?'on':''}">Фото</button>`+
-    `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button><button data-vm="plan" class="${VW.mode==='plan'?'on':''}">План</button></div>`+
+    // «Фото | 3D» без «План» (макет 373:7035, home-figma-02): план квартиры — на главной; режим `plan` в коде остаётся
+    `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button></div>`+
     // РАКУРСЫ СЛОВАМИ (владелец 18.10, demo-15 п.3: «стрелочки непонятно что значат»): один переключатель для «Фото» и 3D,
     // подписи — по месту камеры (`vwCamNames`); ← → на компьютере остаются (`vwPhoto`), свайп по фото ракурс не листает (demo-22)
     `<div class="vcams" id="vCams" role="tablist">${vwCamLabels().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
@@ -6753,6 +6827,8 @@ function vwHtml(s, navs, list){
     `</div>`+
     // ШТОРКА v3: плашка денег — отдельно и вне прокрутки; ручка с подписью — вне прокрутки; ниже — прокручиваемое содержимое
     `<div class="vside${VW.group?' g-any g-'+VW.group:''}" id="vside" data-pos="1"><i class="vpill" id="vpill" aria-hidden="true"></i>`+
+    // строка «Вариант N · Другой стиль для комнаты» (макет 373:7035) — над шкалой, в шапке шторки (вне прокрутки)
+    `<div class="vrow" id="vrow">${vwRowHtml()}</div>`+
     `<div class="vplate" id="vsum">${vwSum()}</div>`+
     `<button class="vgrip" id="vgrip" aria-expanded="false" type="button"><span class="vchip" id="vchip">${vwChipText()}</span></button>`+
     // ШТОРКА v5.2 (владелец 18.10): кнопка — в шапке шторки под чипом, вне прокрутки: видна при любой высоте, свёрнутая
@@ -9001,7 +9077,8 @@ function quizPick(rule, answers, available, styleColours){
   function favUi(){
     var shot=document.getElementById('shot'), on=shot&&shot.classList.contains('v2');
     var h=document.getElementById('vFav'), sh=document.getElementById('vShare'); if(!h||!sh)return;
-    h.hidden=sh.hidden=!on; if(!on)return;
+    // в шапке окна только «×» (макет 373:7035, home-figma-02): сердечко и «поделиться» скрыты всегда; код избранного и ссылки остаётся
+    h.hidden=sh.hidden=true; if(!on)return;
     var f=ofState(curStateId()); h.textContent=f?'♥':'♡'; h.classList.toggle('on',!!f); h.setAttribute('aria-pressed',f?'true':'false');
     h.setAttribute('aria-label',f?(EN()?'In favourites: ':'В избранном: ')+(f.displayName||''):(EN()?'Add to favourites':'В избранное'));
     sh.setAttribute('aria-label',EN()?'Share':'Поделиться');

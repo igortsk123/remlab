@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 
 // ГЛАВНАЯ ДЕМО БЕЗ ВКЛАДОК СТИЛЕЙ (план home-mix-01 шаг 5, T-20261107-35): вместо ленты `#styleTabs` — переключатель
-// «Интерьер / План квартиры» (`#hmView`), строка «Вариант N · Выбрать другой» (`#hmMix`) и окно выбора `#mixBox`
+// «Интерьер / План квартиры» (`#hmView`), строка «<стиль> · рекомендуем · Выбрать другой» (`#hmMix`) и окно выбора `#mixBox`
 // (`tools/scout/flat215-demo/index.html:mixOpen`). Проверкам «по каждому стилю» нужны список стилей и смена выбора — здесь.
 
 /** Главная готова: данные, карточка квартиры, стили и строка выбранного варианта. */
@@ -21,7 +21,7 @@ export async function homeMain(page: Page): Promise<string> {
 }
 
 /**
- * Квартира в одном стиле — путь кнопки «Показать» окна «Выбрать другой» (`mixApply`: раскладка, адрес, прокрутка к комнатам,
+ * Квартира в одном стиле — путь нажатия на стиль в окне «Выбрать другой» (`mixApply`: раскладка, адрес, прокрутка к комнатам,
  * событие). Для обхода КАЖДОГО стиля: в окне есть только варианты с фото нейросети гостиной.
  */
 export async function pickStyle(page: Page, id: string): Promise<void> {
@@ -30,23 +30,17 @@ export async function pickStyle(page: Page, id: string): Promise<void> {
 }
 
 /**
- * То же руками через окно: «Выбрать другой» → снять отмеченные → отметить плитки `at` (номера по порядку в окне, с 0) → «Показать».
- * Возвращает id выбранных стилей в порядке нажатия.
+ * То же руками через окно: «Выбрать другой» → нажать плитку `at` (номер по порядку в окне, с 0) — окно закрывается, выбор сразу
+ * (один выбор, владелец TG 451). Возвращает id выбранного стиля.
  */
-export async function pickInWindow(page: Page, at: number[]): Promise<string[]> {
+export async function pickInWindow(page: Page, at: number): Promise<string> {
   await page.locator("#hmMixPick").click();
   const box = page.locator("#mixBox");
   await expect(box).toHaveClass(/\bon\b/);
   await expect(box.locator(".qz-ph").first()).toBeEnabled({ timeout: 20_000 });   // кадры пришли — плитки нажимаются
-  const on = box.locator('.qz-ph[aria-pressed="true"]');   // плитки перерисовываются после каждого нажатия — снимаем по первой
-  for (let k = 0; k < 2 && (await on.count()) > 0; k++) await on.first().click();
-  const ids: string[] = [];
-  for (const i of at) {
-    const t = box.locator(".qz-ph").nth(i);
-    ids.push((await t.getAttribute("data-mx-ph")) ?? "");
-    await t.click();
-  }
-  await box.locator('[data-mx="apply"]').click();
+  const t = box.locator(".qz-ph").nth(at);
+  const id = (await t.getAttribute("data-mx-ph")) ?? "";
+  await t.click();
   await expect(box).not.toHaveClass(/\bon\b/);
-  return ids;
+  return id;
 }

@@ -1,6 +1,6 @@
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ПЕРВЫЙ ЭКРАН ГЛАВНОЙ (план demo-16 шаг 1; с home-mix-01 шаг 5 — макет дизайнера 158:452): до сгиба — строка квартиры, переключатель
-// «Интерьер / План квартиры», сертификат, строка «Вариант N · Выбрать другой» и ≥ 120 px фото первой комнаты (метрика
+// «Интерьер / План квартиры», сертификат, строка «<стиль> · рекомендуем · Выбрать другой» и ≥ 120 px фото первой комнаты (метрика
 // `tools/ops/mock/home-v2/check.cjs`); внутри — комнаты в порядке плана, неготовые — заглушкой; окно «Выбрать другой»: фото гостиных,
 // 1–2, после двух остальные серые, два — гостиная из первого, спальни из второго (`mix=`); стиль в адресе (`?style=`, `lang`/`s`
 // сохраняются); план квартиры — переключателем и обратно; EN без кириллицы. Избранное (demo-17) — отдельный экран `#fav` с «← Назад»:
@@ -35,16 +35,14 @@ const fold=p=>p.evaluate(()=>{const R=s=>{const e=document.querySelector(s);retu
   return {photoTop:ph&&Math.round(ph.top), visiblePhotoHeight:ph&&tabs?Math.round(Math.max(0,Math.min(ph.bottom,vh)-Math.max(ph.top,tabs.bottom))):0,
     tabsVisible:!!tabs&&tabs.height>0&&tabs.top>=0&&tabs.bottom<=vh, tabsBottom:tabs&&Math.round(tabs.bottom), hdH:hd&&Math.round(hd.height),
     viewVisible:!!vw&&vw.height>0&&vw.bottom<=vh, hScroll:document.documentElement.scrollWidth>innerWidth, cut};});
-// окно «Выбрать другой»: открыть строкой, снять отмеченные, отметить плитки `at` по порядку; `apply` — «Показать». Возвращает id
-async function pickWin(p,at,{apply=true,shot=''}={}){
+// окно «Выбрать другой»: открыть строкой, нажать плитку `at[0]` — окно закрывается, выбор сразу (один выбор, владелец TG 451). Возвращает [id]
+async function pickWin(p,at,{shot=''}={}){
   await p.click('#hmMixPick'); await p.waitForSelector('#mixBox.on',{timeout:5000});
   await p.waitForFunction("!!document.querySelector('#mixBox .qz-ph:not([disabled])')",null,{timeout:20000});
-  for(let k=0;k<2&&await p.$('#mixBox .qz-ph[aria-pressed="true"]');k++){await p.click('#mixBox .qz-ph[aria-pressed="true"] >> nth=0'); await p.waitForTimeout(150);}
-  const ids=[];
-  for(const i of at){const t=p.locator('#mixBox .qz-ph').nth(i); ids.push(await t.getAttribute('data-mx-ph')); await t.click(); await p.waitForTimeout(150);}
   if(shot)await p.screenshot({path:shot});
-  if(apply){await p.click('#mixBox [data-mx="apply"]'); await p.waitForTimeout(700);}
-  return ids;
+  const t=p.locator('#mixBox .qz-ph').nth(at[0]), id=await t.getAttribute('data-mx-ph');
+  await t.click(); await p.waitForSelector('#mixBox.on',{state:'detached',timeout:5000}).catch(()=>{}); await p.waitForTimeout(700);
+  return [id];
 }
 const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeModel());
   return {sel:e.selected, name:document.getElementById('hmMixName').textContent, want:Object.fromEntries(L.map(x=>[x.r.id,x.want])),
@@ -54,58 +52,68 @@ const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeMode
     for(const vp of VPS){const [W,H]=vp, phone=W<=700, tag=W+'x'+H;
       const p=await page(b,vp,'');
       const f=await fold(p);
-      if(phone)ok(`${tag}: до сгиба переключатель, строка «Вариант N» и ≥ 120 px фото первой комнаты`,f.viewVisible&&f.tabsVisible&&f.visiblePhotoHeight>=120,JSON.stringify({photoTop:f.photoTop,visible:f.visiblePhotoHeight,tabsBottom:f.tabsBottom}));
+      if(phone)ok(`${tag}: до сгиба переключатель, строка стиля и ≥ 120 px фото первой комнаты`,f.viewVisible&&f.tabsVisible&&f.visiblePhotoHeight>=120,JSON.stringify({photoTop:f.photoTop,visible:f.visiblePhotoHeight,tabsBottom:f.tabsBottom}));
       else ok(`${tag}: переключатель, строка варианта и фото комнаты на первом экране`,f.viewVisible&&f.tabsVisible&&f.visiblePhotoHeight>=120,JSON.stringify({photoTop:f.photoTop,visible:f.visiblePhotoHeight}));
       ok(`${tag}: без горизонтальной прокрутки, подписи не обрезаны`,!f.hScroll&&!f.cut.length,f.cut.join(' | '));
       await p.screenshot({path:OUT+`home-${tag}-1-top.png`});
       if(phone)await p.screenshot({path:OUT+`home-${tag}-3-full.png`,fullPage:true});
       if(!phone&&vp!==VPS[VPS.length-1]){await p.context().close(); continue;}
-      const st=await p.evaluate(()=>({tabs:homeModel().styles.map(s=>s.id), on:homeSel(homeModel()).selected[0], name:document.getElementById('hmMixName').textContent,
+      const st=await p.evaluate(()=>({tabs:homeModel().styles.map(s=>s.id), titles:Object.fromEntries(homeModel().styles.map(s=>[s.id,s.title])), on:homeSel(homeModel()).selected[0], name:document.getElementById('hmMixName').textContent,
         view:[...document.querySelectorAll('#hmView [data-view]')].map(b=>b.dataset.view+':'+b.getAttribute('aria-selected')),
         rooms:[...document.querySelectorAll('#hmRooms [data-room]')].map(e=>e.dataset.room), ready:[...document.querySelectorAll('#hmRooms .hm-room')].map(e=>e.dataset.room),
         stubs:[...document.querySelectorAll('#hmRooms .hm-stub:not(.hm-plan-tile) span')].map(e=>e.textContent), card:!!FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length,
         cert:(document.getElementById('hmCert')||{}).dataset||{}, styleUrl:new URLSearchParams(location.search).get('style'),
         oldTabs:document.querySelectorAll('#styleTabs,.hm-tab,#planLink,#planBack,#tab-plan,#tab-room,[data-soon],#screen-soon,#feedShare,#budgetGo').length,
         collBase:[...document.querySelectorAll('#coll .lay')].length}));
-      ok('стили главной (≥ 4) — строкой «Вариант N», переключатель на «Интерьер»',st.tabs.length>=4&&/^Вариант \d$/.test(st.name)&&st.view.join()==='room:true,plan:false',st.name+' · '+st.view.join());
+      const nm=x=>String(x).replace(/ · (рекомендуем|recommended)$/,'');   // имя стиля, у рекомендуемого — метка (владелец TG 447–448)
+      ok('стили главной (≥ 4) — строкой «<стиль> · рекомендуем», переключатель на «Интерьер»',st.tabs.length>=4&&nm(st.name)===st.titles[st.on]&&/ · рекомендуем$/.test(st.name)&&st.view.join()==='room:true,plan:false',st.name+' · '+st.view.join());
       ok('комнаты в порядке плана: гостиная, кухня, спальня 1, спальня 2, санузел 1, санузел 2, прихожая',JSON.stringify(st.rooms)===JSON.stringify(ORDER),st.rooms.join(',')+(st.card?' (из карточки)':' (запасной путь витрины)'));
       ok('гостиная готова; неготовые — единая заглушка',st.ready[0]==='living'&&st.ready.length+st.stubs.length===ORDER.length&&new Set(st.stubs).size<=1,st.ready.join(',')+' | '+st.stubs[0]);
       ok('сертификат: 0 включено, остаток = весь сертификат',+st.cert.included===0&&+st.cert.amount>0,JSON.stringify(st.cert));
       ok('стиль в адресе',st.styleUrl===st.on,st.styleUrl);
       ok('вкладок стилей, ссылки плана, старых вкладок-комнат, «бюджета» и feedShare нет; варианты не дублируются сеткой',st.oldTabs===0&&st.collBase===0,st.oldTabs+'/'+st.collBase);
-      // ОКНО «ВЫБРАТЬ ДРУГОЙ»: фото гостиной каждого варианта, «Вариант N» по порядку, отмечен нынешний; после двух — остальные серые
+      // ОКНО «ВЫБРАТЬ ДРУГОЙ»: фото гостиной каждого варианта, названия стилей, у рекомендуемого метка, отмечен нынешний; после двух — остальные серые
       await p.click('#hmMixPick'); await p.waitForSelector('#mixBox.on',{timeout:5000});
       await p.waitForFunction("!!document.querySelector('#mixBox .qz-ph:not([disabled])')",null,{timeout:20000});
       const w0=await p.evaluate(()=>({tiles:[...document.querySelectorAll('#mixBox .qz-ph')].map(b=>({id:b.dataset.mxPh, cap:b.querySelector('b').textContent, img:!!b.querySelector('img'), on:b.getAttribute('aria-pressed')==='true'})),
-        quiz:!!document.querySelector('#mixBox [data-mx="quiz"]'), locked:document.body.style.position==='fixed'}));
-      ok('окно «Выбрать другой»: у каждой плитки фото, подписи «Вариант 1…N», отмечен нынешний, страница под окном стоит',w0.tiles.length>=2&&w0.tiles.every((t,i)=>t.img&&t.cap==='Вариант '+(i+1))&&
-        w0.tiles.filter(t=>t.on).map(t=>t.id).join()===st.on&&w0.locked,JSON.stringify(w0.tiles.map(t=>t.cap+(t.on?'*':''))));
+        quiz:!!document.querySelector('#mixBox [data-mx="quiz"]'), apply:!!document.querySelector('#mixBox [data-mx="apply"]'), locked:document.body.style.position==='fixed'}));
+      ok('окно «Выбрать другой» (один выбор, без «Показать»): у каждой плитки фото, подписи — названия стилей, «рекомендуем» у одного, отмечен нынешний, страница под окном стоит',w0.tiles.length>=2&&w0.tiles.every(t=>t.img&&t.cap.replace(/ (рекомендуем|recommended)$/,'')===st.titles[t.id])&&w0.tiles.filter(t=>/ рекомендуем$/.test(t.cap)).length===1&&
+        w0.tiles.filter(t=>t.on).map(t=>t.id).join()===st.on&&w0.locked&&!w0.apply,JSON.stringify(w0.tiles.map(t=>t.cap+(t.on?'*':''))));
       ok('окно: «Пройти опрос заново»',w0.quiz);
       await p.screenshot({path:OUT+`home-${tag}-2a-window.png`});
       await p.keyboard.press('Escape'); await p.waitForTimeout(300);
       ok('Esc закрывает окно, выбор прежний',!(await p.$('#mixBox.on'))&&(await sel(p)).sel.join()===st.on);
-      // переключение: окно → третий вариант → «Показать»: гостиная этого стиля, открытый вариант, адрес, «Вариант 3»
+      // переключение: окно → третий вариант → «Показать»: гостиная этого стиля, открытый вариант, адрес, строка — имя стиля
       const k=Math.min(2,w0.tiles.length-1), [id]=await pickWin(p,[k]);
       const s2=await p.evaluate(()=>{const c=document.querySelector('#hmRooms .hm-room'); const v=allVariants()[cur];
         return {name:document.getElementById('hmMixName').textContent, card:c&&c.dataset.style, variant:c&&c.dataset.variant, cur:v&&v.id,
           url:location.search, sum:c&&c.querySelector('.sum b').textContent};});
-      ok('«Выбрать другой» → гостиная этого варианта, открытый вариант и адрес совпадают, строка «Вариант N»',s2.card===id&&s2.variant===s2.cur&&new URLSearchParams(s2.url).get('style')===id&&
-        s2.name==='Вариант '+(k+1),JSON.stringify(s2));
+      ok('«Выбрать другой» → гостиная этого варианта, открытый вариант и адрес совпадают, строка — имя стиля без метки',s2.card===id&&s2.variant===s2.cur&&new URLSearchParams(s2.url).get('style')===id&&
+        s2.name===st.titles[id],JSON.stringify(s2));
       await p.screenshot({path:OUT+`home-${tag}-2-style.png`});
       await p.click('#hmRooms .hm-room [data-swap]'); await p.waitForTimeout(800);
       const win=await p.evaluate(()=>({open:document.getElementById('shot').classList.contains('on'), sum:+document.getElementById('vsum').getAttribute('data-sum'), money:money(+document.getElementById('vsum').getAttribute('data-sum'))}));
       ok('«Открыть» → окно варианта, сумма как на карточке',win.open&&win.money===s2.sum,win.money+' / '+s2.sum);
       await p.keyboard.press('Escape'); await p.evaluate(()=>{const x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();}); await p.waitForTimeout(400);
-      // ДВА ВАРИАНТА: после двух отмеченных остальные серые; гостиная — из первого, спальни — из второго; в адресе `mix=`
-      const two=await pickWin(p,[0,1],{apply:false,shot:OUT+`home-${tag}-2b-two-window.png`});
-      const grey=await p.evaluate(()=>[...document.querySelectorAll('#mixBox .qz-ph')].map(b=>b.getAttribute('aria-pressed')==='true'?'on':b.disabled?'off':'-'));
-      ok('окно: выбрано 2 — остальные серые, на галочках порядок 1 и 2',grey.filter(x=>x==='on').length===2&&grey.filter(x=>x!=='on').every(x=>x==='off')&&
-        (await p.evaluate(()=>[...document.querySelectorAll('#mixBox .qz-ph[aria-pressed="true"] .qz-tick')].map(t=>t.textContent).join()))==='1,2',grey.join(','));
-      await p.click('#mixBox [data-mx="apply"]'); await p.waitForTimeout(800);
-      const s5=await sel(p);
-      ok('два варианта: «Варианты 1 и 2», гостиная и прихожая — первый, спальни — второй, адрес mix=',s5.sel.join()===two.join()&&s5.name==='Варианты 1 и 2'&&
-        s5.want.living===two[0]&&s5.want.hall===two[0]&&s5.want['bedroom-1']===two[1]&&s5.want['bedroom-2']===two[1]&&/[?&]mix=1\./.test(s5.url),JSON.stringify(s5));
-      await p.screenshot({path:OUT+`home-${tag}-2c-two.png`});
+      // СМЕШИВАНИЕ — ВЫБОРОМ СТИЛЯ В КОМНАТЕ (владелец TG 451): окно гостиной → «Другой стиль для комнаты ›» → один стиль: окно комнаты
+      // на новом варианте, меняется только гостиная (`requested`), строка главной — прежний основной стиль, в адресе `mix=`
+      const s5a=await sel(p);
+      await p.click('#hmRooms .hm-room[data-room=living] [data-swap]'); await p.waitForSelector('#shot.on #vOther',{timeout:15000});
+      const row=await p.evaluate(()=>document.getElementById('vrow').innerText.replace(/\s+/g,' ').trim());
+      ok('окно комнаты: строка «<стиль> · Другой стиль для комнаты ›»',row===st.titles[s5a.want.living||st.on]+' · Другой стиль для комнаты ›',row);
+      await p.evaluate(()=>document.getElementById('vOther').click()); await p.waitForSelector('#mixBox.on',{timeout:5000});
+      await p.waitForFunction("!!document.querySelector('#mixBox .qz-ph:not([disabled])')",null,{timeout:20000});
+      const rw=await p.evaluate(()=>({h:document.getElementById('mixH').textContent, tiles:[...document.querySelectorAll('#mixBox .qz-ph')].map(b=>({id:b.dataset.mxPh, on:b.getAttribute('aria-pressed')==='true'})),
+        apply:!!document.querySelector('#mixBox [data-mx="apply"]'), nums:[...document.querySelectorAll('#mixBox .qz-tick')].some(t=>/\d/.test(t.textContent))}));
+      ok('«Другой стиль для комнаты»: отмечен стиль комнаты, без «Показать» и номеров',rw.tiles.length>=2&&rw.tiles.filter(t=>t.on).length===1&&!rw.apply&&!rw.nums,JSON.stringify(rw));
+      await p.screenshot({path:OUT+`home-${tag}-2b-room-window.png`});
+      const to=rw.tiles.find(t=>!t.on).id;
+      await p.click(`#mixBox .qz-ph[data-mx-ph="${to}"]`); await p.waitForTimeout(900);
+      const s5=await sel(p), w5=await p.evaluate(()=>({open:document.getElementById('shot').classList.contains('on'), box:!!document.querySelector('#mixBox.on'), st:styleIdOf(allVariants()[cur]||{})}));
+      ok('один выбор: окно стилей закрылось, комната на новом стиле, остальные комнаты как были, строка главной «<основной> + <стиль комнаты>» без «рекомендуем», адрес mix=',
+        !w5.box&&w5.open&&w5.st===to&&s5.want.living===to&&Object.keys(s5a.want).every(k=>k==='living'||s5.want[k]===s5a.want[k])&&s5.name===nm(s5a.name)+' + '+st.titles[to]&&/[?&]mix=1\./.test(s5.url),JSON.stringify({w5,s5}));
+      await p.screenshot({path:OUT+`home-${tag}-2c-room-style.png`});
+      await p.evaluate(()=>{const x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();}); await p.waitForTimeout(400);
       // ЛИПКАЯ ШАПКА (шаг 3; demo-19 Б3 — шкала сертификата тоже липкая, сразу под строкой квартиры): после прокрутки — строка квартиры,
       // шкала и строка варианта (≤ 140 px на телефоне), остальное уехало; «Выбрать другой» снизу страницы — комнаты нового выбора под шапкой
       await p.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight)); await p.waitForTimeout(500);
@@ -140,7 +148,7 @@ const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeMode
       // ссылка менеджера со стилем: ?style= открывает его, прочие параметры не теряются
       const q=await page(b,vp,'?lang=ru&style='+id);
       const s3=await q.evaluate(()=>({on:homeSel(homeModel()).selected.join(), name:document.getElementById('hmMixName').textContent, url:location.search}));
-      ok('старая ссылка ?style= открывает этот стиль во всей квартире, lang сохраняется',s3.on===id&&/lang=ru/.test(s3.url)&&s3.name==='Вариант '+(k+1),JSON.stringify(s3));
+      ok('старая ссылка ?style= открывает этот стиль во всей квартире, lang сохраняется',s3.on===id&&/lang=ru/.test(s3.url)&&nm(s3.name)===st.titles[id],JSON.stringify(s3));
       await q.screenshot({path:OUT+`home-${tag}-9-old-style.png`});
       await q.context().close();
     }
@@ -199,7 +207,7 @@ const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeMode
     await e.click('#hmMixPick'); await e.waitForSelector('#mixBox.on',{timeout:5000}); await e.waitForTimeout(600);
     const enw=await e.evaluate(()=>document.querySelector('#mixBox .qz-card').innerText);
     const cyw=enw.match(/[А-Яа-яЁё][^ ]*/g)||[];
-    ok('EN: окно «Выбрать другой» без кириллицы',!cyw.length&&/Option 1/.test(enw),cyw.slice(0,6).join(' ')||enw.slice(0,60));
+    ok('EN: окно «Выбрать другой» без кириллицы',!cyw.length&&/recommended/.test(enw),cyw.slice(0,6).join(' ')||enw.slice(0,60));
     await e.screenshot({path:OUT+'home-390x844-en-window.png'});
     ok('EN: без ошибок страницы',!e.errs.length,e.errs.slice(0,2).join(' | '));
     await e.context().close();

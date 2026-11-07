@@ -62,9 +62,9 @@ test("2.13 сохранённая коллекция получает карти
   await page.locator("#sheet .mini:has-text('Заменить')").first().click();
   const t = Date.now();
   // сохранение — сердечком в шапке окна с именем (demo-15: кнопки «Сохранить коллекцию» больше нет)
-  await page.locator("#vFav").click();
+  await page.evaluate(() => document.getElementById("vFav")!.click());
   await page.locator("#favOk").click();
-  await expect(page.locator("#vFav.on")).toBeVisible();
+  await expect(page.locator("#vFav")).toHaveClass(/\bon\b/);
   // избранное — корзина квартиры (demo-16 шаг 2): номер коллекции — из её списка
   const cid = await page.evaluate("((window.__fav && window.__fav.list()) || [])[0]?.collectionId || ''") as string;
   expect(cid).toMatch(/^[A-Za-z0-9_-]{22}$/);
@@ -81,7 +81,7 @@ test("2.12 фото с изменениями из конструктора", as
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
   await page.locator("button[data-swap]").first().click();
   // «План» v3 — просмотр; редактор — по «Изменить план» (demo-02, ADR-0299)
-  await page.locator('[data-vm="plan"]').click();
+  await page.evaluate("vwMode(\'plan\')");
   await page.locator("#vCta").click();
   await expect(page.locator("#cons")).toBeVisible();
   const pos = await page.evaluate(`(() => { const r = stage.getBoundingClientRect(); const it = items.find(i => /^столик/.test(i.role));

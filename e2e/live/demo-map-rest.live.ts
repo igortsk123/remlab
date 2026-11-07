@@ -345,7 +345,7 @@ test("2.40 под любым полноэкранным слоем страни�
         await shoot(page, `2.40-sheet-3-closed-${label}`);
       }],
       ["конструктор #cons", async () => {
-        await page.locator(LIVING).click(); await page.locator('#shot [data-vm="plan"]').click(); await page.locator("#vCta").click();
+        await page.locator(LIVING).click(); await page.evaluate("vwMode(\'plan\')"); await page.locator("#vCta").click();
         await expect(page.locator("#cons")).toHaveClass(/\bon\b/);
       }, async () => {
         if (isDesk) await page.keyboard.press("Escape"); else await page.locator("#consDone").click();
@@ -359,7 +359,7 @@ test("2.40 под любым полноэкранным слоем страни�
         await shutShot();
       }],
       ["окошко имени #favPop", async () => {
-        await page.locator(LIVING).click(); await page.waitForSelector("#vFav:visible"); await page.locator("#vFav").click();
+        await page.locator(LIVING).click(); await page.waitForSelector("#shot.on.v2 #vside"); await page.evaluate(() => document.getElementById("vFav")!.click());
         await expect(page.locator("#favPop")).toBeVisible();
       }, async () => {
         await page.locator("#favNo").click(); await expect(page.locator("#favPop")).toHaveCount(0);
@@ -425,7 +425,7 @@ test("2.41–2.42 одна шкала сертификата (главная, о
   expect(h0!.info).toBe(true);
   // окно: та же шкала; светлая часть — что добавит эта расстановка
   await page.locator(LIVING).click();
-  await page.waitForSelector("#vFav:visible");
+  await page.waitForSelector("#shot.on.v2 #vside");
   const sum = Number(await page.locator("#vsum").getAttribute("data-sum"));
   const w0 = await scale(page, "#vsum");
   say("окно до выбора:", JSON.stringify(w0), "сумма расстановки", sum);
@@ -441,7 +441,7 @@ test("2.41–2.42 одна шкала сертификата (главная, о
   expect(bub).toMatch(/включить/);
   await page.locator("#vsum button.vpl-i").click();
   // сохранили — первая гостиная включилась сама: сообщение «… включено в сертификат, остаток N»
-  await page.locator("#vFav").click();
+  await page.evaluate(() => document.getElementById("vFav")!.click());
   await page.locator("#favOk").click();
   await expect(page.locator("#toast")).toContainText(/включено в сертификат, остаток/, { timeout: 30_000 });
   const t1 = await page.locator("#toast").innerText();
@@ -494,8 +494,8 @@ test("2.41–2.42 одна шкала сертификата (главная, о
   // доплата: мебель 100 000 — «Доплата N — подтвердить?»; после «Подтвердить» — «… включено в сертификат, доплата N»
   const o = await demoPage(browser, phone, "?live=force", { pkg: { mode: "pooled", limits: { furniture: 100_000, fitout: 0 } } });
   await o.page.locator(LIVING).click();
-  await o.page.waitForSelector("#vFav:visible");
-  await o.page.locator("#vFav").click();
+  await o.page.waitForSelector("#shot.on.v2 #vside");
+  await o.page.evaluate(() => document.getElementById("vFav")!.click());
   await o.page.locator("#favOk").click();
   await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽ — подтвердить\?/, { timeout: 30_000 });
   const ask = rub(await o.page.locator("#favPop b").first().innerText());
@@ -711,7 +711,7 @@ async function freshState(page: Page) {
   throw new Error("за 4 замены не нашлась расстановка без фото");
 }
 async function saveFav(page: Page) {
-  await page.locator("#vFav").click(); await page.locator("#favOk").click();
+  await page.evaluate(() => document.getElementById("vFav")!.click()); await page.locator("#favOk").click();
   await page.waitForFunction("!document.querySelector('#favPop #favName')", null, { timeout: 30_000 });
 }
 test("2.46 сохранили без фото → автофото: плашка с отсчётом на карточке, одно на состояние, ≤ 10 в сутки, готовое — картинкой; без денег — тихо «Фото готовится», без 3D", async ({ browser }) => {

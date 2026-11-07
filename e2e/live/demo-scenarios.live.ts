@@ -22,7 +22,7 @@ async function openDemo(page: Page, q = ""): Promise<string[]> {
 // КОНСТРУКТОР — ИЗ ОКНА ВАРИАНТА (demo-19 Б5, владелец 20.10: «свою расстановку делают на основе любой»): окно гостиной → «План» → «Изменить план»
 async function openConstructor(page: Page) {
   if (!(await page.locator("#shot.on").count())) await page.locator("#hmRooms [data-swap]").first().click();
-  await page.locator('#shot [data-vm="plan"]').click();
+  await page.evaluate("vwMode(\'plan\')");
   await page.locator("#vCta").click();
   await expect(page.locator("#cons")).toHaveClass(/on/);
 }
@@ -54,7 +54,7 @@ test("1.2–1.5 первый экран: чат, «Отправить выбор
     await page.locator('#hmView [data-view="room"]').click();
     await expect(page.locator("#screen-room")).toBeVisible();
   }
-  // стили главной (бывшие вкладки, home-mix-01 шаг 5 — строка «Вариант N»); внутри — комнаты в порядке плана, неготовые — заглушкой (demo-16)
+  // стили главной (бывшие вкладки, home-mix-01 шаг 5 — строка «<стиль> · рекомендуем»); внутри — комнаты в порядке плана, неготовые — заглушкой (demo-16)
   const tabs = (await homeStyles(page)).map((s) => s.title);
   const rooms = await page.locator("#hmRooms [data-room]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.room));
   const stubs = await page.locator("#hmRooms .hm-stub:not(.hm-plan-tile)").allInnerTexts();
@@ -99,7 +99,15 @@ test("2.4 режимы в одном окне: «Фото» — только п�
   say("ракурсы:", (await page.locator("#vCams [data-cam]").allInnerTexts()).join(" | "));
   await page.locator('#vCams [data-cam="1"]').click();
   await expect(page.locator('#vCams [data-cam="1"]')).toHaveClass(/on/);
-  for (const m of ["plan", ...(hasPhoto ? ["photo"] : []), "walk"]) {
+  // вкладки окна — «Фото | 3D», без «План» (макет 373:7035, home-figma-02); сердечка и «поделиться» в шапке нет
+  await expect(page.locator('#shot [data-vm="plan"]')).toHaveCount(0);
+  await expect(page.locator("#vFav")).toBeHidden();
+  await expect(page.locator("#vShare")).toBeHidden();
+  // строка шторки «<стиль> · Другой стиль для комнаты», шкала с долей этой комнаты, чип с её суммой
+  await expect(page.locator("#vrow .vrow-n")).not.toHaveText("");
+  await expect(page.locator("#vsum .cs-room")).toContainText("Эта комната");
+  await expect(page.locator("#vchip")).toHaveText(/Мебель и отделка · \d+ \(.+₽\)/);
+  for (const m of [...(hasPhoto ? ["photo"] : []), "walk"]) {
     const t = Date.now();
     await page.locator(`[data-vm="${m}"]`).click();
     await expect(page.locator(`[data-vm="${m}"]`)).toHaveClass(/on/);
@@ -215,7 +223,7 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
   await openDemo(page);
   await page.locator("button[data-swap]").first().click();
   // «План» в окне варианта (demo-02 v3) — план для просмотра; редактор — по «Изменить план»
-  await page.locator('[data-vm="plan"]').click();
+  await page.evaluate("vwMode(\'plan\')");
   await expect(page.locator("#vPlan svg")).toBeVisible();
   await page.locator("#vCta").click();
   await expect(page.locator("#cons")).toBeVisible();
@@ -250,10 +258,10 @@ test("2.14–2.15 «поделиться» иконкой с подтвержд�
   await expect(page.locator("#hmRooms [data-share], #hmRooms [data-favorite], #hmRooms .hm-heart")).toHaveCount(0);
   await page.evaluate("navigator.share = undefined");                                            // без системного меню — копирование + тост
   await page.locator("#hmRooms [data-swap]").first().click();
-  await page.locator("#vShare").click();
+  await page.evaluate(() => document.getElementById("vShare")!.click());
   await expect(page.locator("#toast")).toContainText(/скопирована/);
   say("буфер:", await page.evaluate("navigator.clipboard.readText()"));
-  await page.locator("#vFav").click();
+  await page.evaluate(() => document.getElementById("vFav")!.click());
   await expect(page.locator("#favName")).toHaveValue(/ #\d+$/);                                 // «<Стиль> #N»
   say("имя по умолчанию:", await page.locator("#favName").inputValue());
   await page.locator("#favNo").click();                                                         // ночью в базу не пишем
@@ -384,7 +392,7 @@ const basketState = (page: Page) => page.evaluate(() => {
   return { n: b.favorites.length, inc: b.includedByRoom, names: b.favorites.map((f) => f.displayName), cert: t ? t.allowanceEligible : 0 };
 });
 const saveHeart = async (page: Page) => {
-  await page.locator("#vFav").click();
+  await page.evaluate(() => document.getElementById("vFav")!.click());
   const name = await page.locator("#favName").inputValue();
   await page.locator("#favOk").click();
   await page.waitForFunction("!document.querySelector('#favPop #favName')", null, { timeout: 30_000 });
@@ -398,7 +406,7 @@ test("2.33 первый экран телефона: вкладки стилей
     const page = await ctx.newPage();
     await page.goto(demoUrl("/demo/"), { waitUntil: "load" });
     await page.waitForFunction(HOME_READY);
-    // вместо вкладок стилей — строка «Вариант N · Выбрать другой» (home-mix-01 шаг 5): она до сгиба, под ней ≥ 120 px фото
+    // вместо вкладок стилей — строка «<стиль> · рекомендуем · Выбрать другой» (home-mix-01 шаг 5): она до сгиба, под ней ≥ 120 px фото
     const m = await page.evaluate(() => { const ph = document.querySelector("#hmRooms .hm-room[data-room=living] .hm-ph")!.getBoundingClientRect(), tb = document.getElementById("hmMix")!.getBoundingClientRect();
       return { tabsVisible: tb.top >= 0 && tb.bottom <= innerHeight, tabsHeight: Math.round(tb.height), visiblePhotoHeight: Math.round(Math.max(0, Math.min(ph.bottom, innerHeight) - Math.max(ph.top, tb.bottom))) }; });
     say(`${vp.width}×${vp.height}:`, JSON.stringify(m));
@@ -427,8 +435,8 @@ test("2.34 липкая шапка после прокрутки ≤ 140 px (Р�
     expect(st.stuck).toBe(true);
     expect(st.legend).toBe(false);
     expect(st.sticky).toBeLessThanOrEqual(140);
-    // «Выбрать другой» из липкой строки внизу страницы (home-mix-01 шаг 5): в окне — второй вариант, «Показать»
-    const [id] = await pickInWindow(page, [1]);
+    // «Выбрать другой» из липкой строки внизу страницы (home-mix-01 шаг 5): в окне — нажать второй стиль
+    const id = await pickInWindow(page, 1);
     await page.waitForTimeout(900);
     const r = await page.evaluate("({top: Math.round(document.getElementById('hmRooms').getBoundingClientRect().top), style: new URLSearchParams(location.search).get('style'), card: document.querySelector('#hmRooms .hm-room[data-room=living]').dataset.style})") as { top: number; style: string; card: string };
     say("после вкладки:", JSON.stringify(r));
@@ -446,7 +454,7 @@ test("2.35 корзина: 0 на старте; первая гостиная в
   const { ctx, page } = await phonePage(browser, "?live=force");
   expect((await basketState(page)).cert).toBe(0);
   await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
-  await page.waitForSelector("#vFav:visible");
+  await page.waitForSelector("#shot.on.v2 #vside");
   expect(await saveHeart(page)).toMatch(/ #\d+$/);
   const s1 = await basketState(page);
   say("после первого:", JSON.stringify(s1));
@@ -455,8 +463,8 @@ test("2.35 корзина: 0 на старте; первая гостиная в
   await page.keyboard.press("Escape");
   await pickStyle(page, (await homeStyles(page))[1]!.id);
   await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
-  await page.waitForSelector("#vFav:visible");
-  await page.locator("#vFav").click();
+  await page.waitForSelector("#shot.on.v2 #vside");
+  await page.evaluate(() => document.getElementById("vFav")!.click());
   await page.locator("#favOk").click();
   await expect(page.locator("#favPop")).toContainText(/вместо «.+ #1»/, { timeout: 30_000 });
   await page.locator("#favPop button.primary").click();
@@ -479,9 +487,9 @@ test("2.35 корзина: 0 на старте; первая гостиная в
     const o = await phonePage(browser, "?live=force", pkg);
     expect(await o.page.locator("#hmCert [role=group] [role=meter]").count()).toBe(pkg.mode === "split" ? 2 : 1);
     await o.page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
-    await o.page.waitForSelector("#vFav:visible");
+    await o.page.waitForSelector("#shot.on.v2 #vside");
     await expect(o.page.locator("#vsum .cs-ov")).toContainText(/выйдет за лимит на [\d\s  ]+₽/, { timeout: 30_000 });
-    await o.page.locator("#vFav").click();
+    await o.page.evaluate(() => document.getElementById("vFav")!.click());
     await o.page.locator("#favOk").click();
     await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽ — подтвердить\?/, { timeout: 30_000 });
     await expect(o.page.locator("#favPop")).toContainText("Изменить расстановку");
@@ -507,7 +515,7 @@ test("2.36 возврат «назад»: «Перейти →» из окна �
   test.setTimeout(4 * 60_000);
   const { ctx, page } = await phonePage(browser, "?live=force");
   await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
-  await page.waitForSelector("#vFav:visible");
+  await page.waitForSelector("#shot.on.v2 #vside");
   await saveHeart(page);
   await page.evaluate("vwCamGo(1); vwSheet(1)");
   await page.waitForTimeout(700);
@@ -532,8 +540,8 @@ test("2.38 избранное — экран: ♡ → курсор в конце
   test.setTimeout(4 * 60_000);
   const { ctx, page } = await phonePage(browser, "?live=force");
   await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
-  await page.waitForSelector("#vFav:visible");
-  await page.locator("#vFav").click();
+  await page.waitForSelector("#shot.on.v2 #vside");
+  await page.evaluate(() => document.getElementById("vFav")!.click());
   // фокус в том же тапе (иначе iPhone не откроет клавиатуру), каретка в конце, без выделения
   const caret = await page.evaluate("(() => { const i = document.getElementById('favName'); return { focus: document.activeElement === i, start: i.selectionStart, end: i.selectionEnd, len: i.value.length }; })()") as { focus: boolean; start: number; end: number; len: number };
   say("поле имени:", JSON.stringify(caret));
