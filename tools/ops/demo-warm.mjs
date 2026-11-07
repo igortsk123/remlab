@@ -21,9 +21,17 @@
 // кадра нет в реестре — браузер закрывается, ещё одна попытка (`WARM_TRIES`, по умолчанию 2). Общий бюджет `WARM_BUDGET_SEC`
 // (1500 с, меньше 1800 обёртки): не хватает на попытку — кадр «не успели», итог печатается всегда. Итог — строкой
 // `DIGEST:прогрев кадров: снято X из Y…` в сводку ночи, со временем на кадр. Цикл съёмки — `warmLoop`, проверяется селфтестом.
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+// СПИСОК КАДРОВ ГЛАВНОЙ (T-20261107-17): реестр полон (120), и ночной черновик того же стиля вытеснял бы фото нейросети, которое
+// показывает главная. Прогрев тем же кодом страницы (`rowFits` + `shotCamOk`, как `index.html:pubShot`) выбирает для каждого
+// опубликованного варианта последнее годное фото нейросети (нет его — последнюю годную запись) и кладёт их ключи файлом
+// `pub-shots.json` рядом с реестром (scp во временный файл + mv, как `refresh_daily.sh:publish_status`) — сразу после разведки и
+// после съёмки; сервер кадров при обрезке их не трогает (`draft_guard.registry_trim`). Только главная `/demo/` прода, не DRY, не
+// проба, не `WARM_ROOM`; не опубликовалось — ошибка шага. Итог обрезки — строкой `DIGEST:реестр кадров: защищено N, выкинуто M`
+// из счётчиков сервера (`shots-trim.json`) минус своя отметка прошлой ночи (`WARM_TRIM_CURSOR`).
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
 
@@ -40,6 +48,72 @@ const ONLY = process.env.WARM_ROOM ?? "";
 // а в реестр не пишет. Реестр полон (предел 120, `draft_guard.registry_trim`), и лишний черновик вытеснил бы старую запись — так
 // замеряем время на кадр без следа на проде. Снимать нечего (все с кадром) — проба берёт все варианты витрины.
 const PROBE = !!process.env.WARM_PROBE;
+const PROD = "https://remont-lab.online";
+const PUB_TARGET = process.env.WARM_PUB_TARGET ?? "root@89.167.127.0:/opt/remlab/test/share/pub-shots.json";
+// список кадров главной — только про главную прода (чужой DEMO_BASE — только с явным WARM_PUB_TARGET)
+const PUB_ON = PATH === "/demo/" && !DRY && !PROBE && !ONLY && (BASE === PROD || !!process.env.WARM_PUB_TARGET);
+const CURSOR = process.env.WARM_TRIM_CURSOR ?? join(homedir(), ".cache", "remlab-warm", "trim-cursor.json");
+const PUB_MAX_KEYS = 400;   // тот же предел, что у сервера (`draft_guard.PUB_MAX_KEYS`): больше — сервер файл не примет
+
+/** Ключ записи реестра — как у сервера (`draft_guard.shot_key`): `id`, у старых без него — комната|стиль|время. */
+export function shotKey(r) {
+  return String(r.id || `${r.room_id || "living"}|${r.style || ""}|${r.ts || 0}`);
+}
+
+/**
+ * Ключи записей, которые показывает главная: для каждого варианта среди годных записей (`rowFits`) — фото нейросети, нет их —
+ * все годные (как `pubShot`); из них последняя, и последняя с каждой точкой съёмки (`pubShot(v, cam)` выбирает по точке).
+ */
+export function pubKeys(variants, reg, camOk) {
+  if (typeof camOk !== "function") throw new Error("pubKeys: нужен предикат точки съёмки (camOk)");
+  const keys = new Set();
+  for (const v of variants) {
+    if (!v.stateId) continue;
+    const fit = reg.filter((r) => rowFits(r, v, camOk));
+    const real = fit.filter((r) => r.quality === "realistic"), pool = real.length ? real : fit;
+    if (!pool.length) continue;
+    keys.add(shotKey(pool[pool.length - 1]));
+    const camsOf = (r) => (r.shots ?? []).map((sh) => sh.camera || "C1").filter((c) => camOk({ cams: r.cams, camera: c }, v.cams));
+    for (const c of new Set(pool.flatMap(camsOf))) keys.add(shotKey(pool.findLast((r) => camsOf(r).includes(c))));
+  }
+  return [...keys];
+}
+
+/** Положить список рядом с реестром целиком: локальный файл → scp во временный → mv (без `:` в цели — копия + rename). */
+export function publishPub(keys, { target = PUB_TARGET, dir, now = Date.now() } = {}) {
+  if (keys.length > PUB_MAX_KEYS) throw new Error(`ключей ${keys.length} > ${PUB_MAX_KEYS} — сервер такой список не примет`);
+  mkdirSync(dir, { recursive: true });
+  const f = join(dir, `pub-shots-${process.pid}.json`);
+  writeFileSync(f, JSON.stringify({ ts: now, path: "/demo/", keys }));
+  if (target.includes(":")) {
+    const host = target.slice(0, target.indexOf(":")), path = target.slice(target.indexOf(":") + 1);
+    execFileSync("scp", ["-q", f, `${host}:${path}.tmp`], { timeout: 60_000, stdio: ["ignore", "ignore", "pipe"] });
+    execFileSync("ssh", [host, `mv -f '${path}.tmp' '${path}'`], { timeout: 30_000, stdio: ["ignore", "ignore", "pipe"] });
+  } else {
+    copyFileSync(f, `${target}.tmp`);
+    renameSync(`${target}.tmp`, target);
+  }
+  renameSync(f, join(dir, "pub-shots-last.json"));   // последний отправленный — для разбора; не копится
+}
+
+/**
+ * Строка сводки по обрезке реестра: итоги сервера (`shots-trim.json`, растут монотонно в своём `epoch`) минус отметка прошлой
+ * ночи. Другой `epoch` (файл пересоздан) или итоги меньше отметки — счёт с запуска счётчиков. Возвращает строку и новую отметку.
+ */
+export function trimDigest(stats, cursor) {
+  if (!stats || typeof stats !== "object" || !stats.epoch || !Number.isFinite(stats.dropped_total)) {
+    return { line: "DIGEST:реестр кадров: счётчиков обрезки нет (сервер кадров до T-17?)", next: cursor ?? null };
+  }
+  const same = !!cursor && cursor.epoch === stats.epoch && cursor.dropped_total <= stats.dropped_total;
+  const m = stats.dropped_total - (same ? cursor.dropped_total : 0);
+  const k = (stats.dropped_realistic_total ?? 0) - (same ? (cursor.dropped_realistic_total ?? 0) : 0);
+  const over = stats.overflow_current ?? 0;
+  const line = `DIGEST:${over ? "!" : ""}реестр кадров: защищено ${stats.protected_current ?? 0}, выкинуто ${m} (фото нейросети ${k})`
+    + (same ? "" : cursor ? "; счётчики сервера начаты заново — счёт с их начала" : "; первый замер — счёт с начала счётчиков")
+    + (stats.pub_status && stats.pub_status !== "ok" ? `; список кадров главной у сервера: ${stats.pub_status}` : "")
+    + (over ? `; ПЕРЕПОЛНЕНИЕ: обязательных кадров на ${over} больше предела` : "");
+  return { line, next: { epoch: stats.epoch, dropped_total: stats.dropped_total, dropped_realistic_total: stats.dropped_realistic_total ?? 0 } };
+}
 
 /**
  * Временная папка браузера — на диске (T-20261107-16): Playwright кладёт профиль и кэш Chromium в `os.tmpdir()`, а /tmp на DEV —
@@ -231,6 +305,20 @@ async function main() {
     return true;
   }
   const registry = async () => (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json();
+  let pubFail = 0;
+  const pubStep = async (when, reg) => {
+    if (!PUB_ON) return;
+    try {
+      const keys = pubKeys(variants, reg ?? await registry(), camOk);
+      publishPub(keys, { dir: dirname(CURSOR) });
+      console.log(`список кадров главной (${when}): ${keys.length} → ${PUB_TARGET}`);
+    } catch (e) {
+      pubFail += 1;
+      console.log(`ERROR:demo_warm: список кадров главной не опубликован (${when}) — ${String(e.message || e).split("\n")[0].slice(0, 200)}`);
+    }
+  };
+  // сразу после разведки: витрина уже новая, а реестр защищал бы кадры вчерашней
+  await pubStep("после разведки");
   // проба (DRY) ничего не снимает, но итог по нынешнему реестру считает — что ночь сочла бы провалом
   if (!DRY && todo.length) {
     console.log(`съёмка: каждый кадр в новом браузере, срок ${SHOT_MS / 1000} с, попыток ${TRIES}, бюджет ${BUDGET_MS / 1000} с`);
@@ -267,7 +355,9 @@ async function main() {
     });
   }
   // итог — по реестру: у каждого варианта есть кадр опубликованного состояния (снятый когда угодно — главной этого хватает)
-  missing = withoutShot(variants, await registry(), camOk);
+  const regEnd = await registry();
+  missing = withoutShot(variants, regEnd, camOk);
+  await pubStep("после съёмки", regEnd);
   const failedV = [...res.failed, ...res.skipped], nFail = failedV.length;
   if (!DRY) console.log(`прогрев кадров: снято ${res.done.length}, не вышло ${nFail}`);
   console.log(`по парам комната × стиль (${variants.length}):`);
@@ -278,7 +368,31 @@ async function main() {
   if (DRY) return;
   console.log(digestLine({ todo, ...res, missing, variants }));
   if (nFail) console.log(`ERROR:demo_warm: ${nFail} кадр(ов) не снялось`);
-  if (missing.length || nFail) process.exitCode = 1;
+  if (PUB_ON) await trimStep();
+  if (missing.length || nFail || pubFail) process.exitCode = 1;
+}
+
+/** Строка сводки по обрезке реестра и новая отметка ночи (пишется целиком: временный файл + rename). Сбой чтения — не ошибка шага. */
+async function trimStep() {
+  let stats = null, cursor = null;
+  try {
+    const r = await fetch(`${BASE}/test/share/shots-trim.json?v=${Date.now()}`);
+    stats = r.ok ? await r.json() : null;
+  } catch (e) {
+    console.log(`DIGEST:реестр кадров: счётчики не прочитаны — ${String(e.message || e).slice(0, 120)}`);
+    return;
+  }
+  try { cursor = JSON.parse(readFileSync(CURSOR, "utf8")); } catch { cursor = null; }
+  const { line, next } = trimDigest(stats, cursor);
+  console.log(line);
+  if (!next || next === cursor) return;
+  try {
+    mkdirSync(dirname(CURSOR), { recursive: true });
+    writeFileSync(`${CURSOR}.tmp`, JSON.stringify(next));
+    renameSync(`${CURSOR}.tmp`, CURSOR);
+  } catch (e) {
+    console.log(`WARN:demo_warm: отметка счётчиков не записана — ${String(e.message || e).slice(0, 120)}`);
+  }
 }
 
 /** Закрыть браузер, не повиснув на нём: зависшая вкладка может держать и закрытие — ждём 15 с и идём дальше. */
@@ -407,6 +521,45 @@ if (DIRECT && process.argv.includes("--selftest")) {
   check(browserTmp({ TMPDIR: "/x" }) === "" && browserTmp({ REMLAB_TMP: "/r" }) === "/r"
     && browserTmp({}, () => true, "/h") === "/h/remlab-scratch/tmp" && browserTmp({}, () => false, "/h") === "",
   "папка браузера: заданный TMPDIR — его; иначе REMLAB_TMP, иначе ~/remlab-scratch/tmp; нет его — системная", null);
+  // СПИСОК КАДРОВ ГЛАВНОЙ (T-20261107-17): ключ — как у сервера (те же примеры, что в tests/test_registry_protect.py)
+  check(shotKey({ room_id: "bedroom-1", style: "лофт", ts: 12345 }) === "bedroom-1|лофт|12345" && shotKey({ style: "x", ts: 7 }) === "living|x|7"
+    && shotKey({ id: "abc", style: "x" }) === "abc", "ключ записи — как у сервера (draft_guard.shot_key)", null);
+  const R = (id, extra = {}) => ({ id, style: "сканди", stateId: "s2-p", ts: 300, cams: C(10, 10, 45), shots: [{ url: "u", camera: "C1" }], ...extra });
+  const regP = [R("r1", { quality: "realistic" }), R("d1"), R("r2", { quality: "realistic", cams: C(120, 10, 45) }),
+    R("r3", { quality: "realistic", style: "лофт" }), R("r4", { quality: "realistic", room_id: "bedroom-1", variant_id: "p" }),
+    R("r5", { quality: "realistic", stateId: "s1-old" })];
+  got = pubKeys(pv, regP, camOk).join(",");
+  check(got === "r1", "список: фото нейросети варианта; свежий черновик, чужая точка, чужой стиль, чужая комната, старое состояние — нет", got);
+  got = pubKeys(pv, [R("d1"), R("d2"), R("r2", { quality: "realistic", cams: C(120, 10, 45) })], camOk).join(",");
+  check(got === "d2", "список: фото нейросети нет — последняя годная запись (вариант не пропадёт с главной)", got);
+  got = pubKeys(pv, [R("r1", { quality: "realistic", shots: [{ url: "a", camera: "C1" }, { url: "b", camera: "C2" }] }),
+    R("r6", { quality: "realistic", shots: [{ url: "c", camera: "C2" }] })], camOk).sort().join(",");
+  check(got === "r1,r6", "список: последняя запись и последняя с каждой точкой (главная выбирает кадр по точке)", got);
+  check(pubKeys([{ ...pv[0], stateId: "" }], regP, camOk).length === 0, "список: вариант без номера состояния — ничего", null);
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const td = mkdtempSync(join(tmpdir(), "warm-pub-"));
+  publishPub(["r1", "d2"], { target: join(td, "pub-shots.json"), dir: join(td, "w"), now: 5 });
+  const pj = JSON.parse(readFileSync(join(td, "pub-shots.json"), "utf8"));
+  check(pj.keys.join(",") === "r1,d2" && pj.path === "/demo/" && pj.ts === 5 && !existsSync(join(td, "pub-shots.json.tmp")),
+    "публикация списка: целый файл на месте, временного не осталось", JSON.stringify(pj));
+  threw = false;
+  try { publishPub(Array.from({ length: 401 }, (_, i) => `k${i}`), { target: join(td, "x.json"), dir: join(td, "w") }); } catch { threw = true; }
+  check(threw && !existsSync(join(td, "x.json")), "публикация списка: больше 400 ключей — отказ, сервер такой не примет", threw);
+  rmSync(td, { recursive: true, force: true });
+  const S = (o = {}) => ({ epoch: "e1", dropped_total: 30, dropped_realistic_total: 4, protected_current: 15, overflow_current: 0, pub_status: "ok", ...o });
+  let td2 = trimDigest(null, null);
+  check(td2.line === "DIGEST:реестр кадров: счётчиков обрезки нет (сервер кадров до T-17?)", "сводка обрезки: у сервера счётчиков нет — так и пишем", td2.line);
+  td2 = trimDigest(S(), null);
+  check(td2.line === "DIGEST:реестр кадров: защищено 15, выкинуто 30 (фото нейросети 4); первый замер — счёт с начала счётчиков"
+    && td2.next.dropped_total === 30, "сводка обрезки: первый замер — итоги сервера", td2.line);
+  td2 = trimDigest(S({ dropped_total: 42, dropped_realistic_total: 5 }), td2.next);
+  check(td2.line === "DIGEST:реестр кадров: защищено 15, выкинуто 12 (фото нейросети 1)", "сводка обрезки: за ночь — разница с прошлой отметкой", td2.line);
+  check(trimDigest(S({ dropped_total: 42, dropped_realistic_total: 5 }), td2.next).line.includes("выкинуто 0 (фото нейросети 0)"),
+    "сводка обрезки: повтор ночи — второй раз не считается", null);
+  td2 = trimDigest(S({ epoch: "e2", dropped_total: 3, dropped_realistic_total: 0, pub_status: "stale", overflow_current: 2 }), td2.next);
+  check(td2.line === "DIGEST:!реестр кадров: защищено 15, выкинуто 3 (фото нейросети 0); счётчики сервера начаты заново — счёт с их начала; список кадров главной у сервера: stale; ПЕРЕПОЛНЕНИЕ: обязательных кадров на 2 больше предела",
+    "сводка обрезки: счётчики пересозданы, список устарел, переполнение — закреплённой строкой", td2.line);
   const dl = await withDeadline(new Promise(() => {}), 10);
   check(dl.timeout === true, "срок: вечное обещание отпускает", JSON.stringify(dl));
   process.exit(res.every(Boolean) ? 0 : 1);
