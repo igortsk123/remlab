@@ -337,11 +337,17 @@ async function selftest() {
   check(/demo-realistic\.mjs --night "\$@"/.test(wrap), "demo-real.sh передаёт аргументы (--dry) в скрипт", null);
   // 9) очередь тяжёлых прогонов (T-20261107-03): вне слота — перезапуск себя под heavy-slot с теми же аргументами; в слоте — нет
   const sNight = underSlot({}, ["--night", "--cap-rub", "10"], "/n", "/s.mjs"), sGo = underSlot({}, ["--go"], "/n", "/s.mjs");
-  check(sNight && sNight[0].endsWith("/heavy-slot.sh") && sNight[1].join(" ") === "demo-real-night --min-gb 2 --timeout 1800 -- /n /s.mjs --night --cap-rub 10"
+  check(sNight && sNight[0].endsWith("/heavy-slot.sh") && sNight[1].join(" ") === "demo-real-night --min-gb 2 --timeout 7200 -- /n /s.mjs --night --cap-rub 10"
     && sGo && sGo[1].join(" ") === "demo-real --min-gb 2 --timeout 3600 -- /n /s.mjs --go"
     && underSlot({ HEAVY_SLOT_HELD: "123" }, ["--go"], "/n", "/s.mjs") === null && underSlot({ REAL_NO_SLOT: "1" }, [], "/n", "/s.mjs") === null
     && underSlot({ REAL_SLOT_GB: "3" }, [], "/n", "/s.mjs")[1][2] === "3",
-    "вне очереди — себя под heavy-slot (ночь ждёт 30 мин, ручной — час), аргументы те же; в слоте (HEAVY_SLOT_HELD) и REAL_NO_SLOT=1 — без", { sNight, sGo });
+    "вне очереди — себя под heavy-slot (ночь ждёт 2 ч, ручной — час), аргументы те же; в слоте (HEAVY_SLOT_HELD) и REAL_NO_SLOT=1 — без", { sNight, sGo });
+  const outer = Number((/timeout (\d+) node tools\/ops\/demo-realistic\.mjs --night/.exec(wrap) || [])[1] || 0);
+  check(outer >= NIGHT_WAIT_S + 3600, "demo-real.sh: внешний timeout ≥ ожидание очереди ночью + час съёмки (иначе он оборвал бы ожидание)", { outer });
+  const miss3 = slotMissedLine("фото нейросети: без фото своей расстановки — 3: bedroom-2/лофт …\nDIGEST:…"), missQ = slotMissedLine("");
+  check(miss3 === "WARN:demo_real: очередь тяжёлых прогонов DEV занята дольше 120 мин — фото нейросети этой ночью не сняты, вариантов без фото: 3"
+    && missQ.endsWith("вариантов без фото: ? (сухой проход не ответил)"),
+    "ночь не дождалась очереди — WARN с числом вариантов без фото из сухого прохода; нет ответа — «?»", { miss3, missQ });
   process.exit(res.every(Boolean) ? 0 : 1);
 }
 
@@ -349,12 +355,22 @@ async function selftest() {
  * в 05:02 она шла вне очереди рядом с прогоном, превысившим свой порог, earlyoom снял DEV-рендер, а задание ушло на запасной рендер
  * прода. Теперь и ночной шаг (`demo-real.sh`), и ручной запуск сами встают в `tools/ops/heavy-slot.sh`: вне слота → [команда, аргументы]
  * перезапуска себя с теми же аргументами; уже в слоте (HEAVY_SLOT_HELD — его ставит держатель) или REAL_NO_SLOT=1 → null.
- * Порог памяти — REAL_SLOT_GB (2 ГБ; дальше heavy-slot уточняет по замерам); ожидание — ночью 30 мин, вручную час. */
+ * Порог памяти — REAL_SLOT_GB (2 ГБ; дальше heavy-slot уточняет по замерам). Ожидание — ночью 2 ч (владелец: голых обложек не бывает,
+ * перенос на сутки = голая обложка у сменивших состояние; за ночь очередь освобождается), вручную час; внешний `timeout` в
+ * `demo-real.sh` — больше ожидания и съёмки (NIGHT_WAIT_S + 3600). */
+export const NIGHT_WAIT_S = 7200;
 export function underSlot(env, argv, node, self) {
   if (env.HEAVY_SLOT_HELD || env.REAL_NO_SLOT === "1") return null;
   const night = argv.includes("--night");
   return [fileURLToPath(new URL("./heavy-slot.sh", import.meta.url)),
-    [night ? "demo-real-night" : "demo-real", "--min-gb", env.REAL_SLOT_GB ?? "2", "--timeout", night ? "1800" : "3600", "--", node, self, ...argv]];
+    [night ? "demo-real-night" : "demo-real", "--min-gb", env.REAL_SLOT_GB ?? "2",
+      "--timeout", env.REAL_SLOT_WAIT_S ?? String(night ? NIGHT_WAIT_S : 3600), "--", node, self, ...argv]];
+}
+
+/** Ночь не дождалась очереди: строка WARN с числом вариантов без фото своей расстановки — из вывода сухого прохода (`--dry`). */
+export function slotMissedLine(dryOut) {
+  const m = /без фото своей расстановки — (\d+)/.exec(dryOut);
+  return `WARN:demo_real: очередь тяжёлых прогонов DEV занята дольше ${NIGHT_WAIT_S / 60} мин — фото нейросети этой ночью не сняты, вариантов без фото: ${m ? m[1] : "? (сухой проход не ответил)"}`;
 }
 
 if (process.argv.includes("--selftest")) await selftest();
@@ -365,8 +381,12 @@ else if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     const { spawnSync } = await import("node:child_process");
     const r = spawnSync("bash", [slot[0], ...slot[1]], { stdio: "inherit" });
     if (r.status === 124 && NIGHT) {
-      // ночь: не дождались очереди — обработанный исход (шаг warn, не FAIL), пары дождутся следующей ночи
-      console.log("WARN:demo_real: очередь тяжёлых прогонов DEV занята дольше 30 мин — досъёмка фото нейросети перенесена на следующую ночь");
+      // ночь не дождалась очереди за 2 ч (обработанный исход: шаг warn, не FAIL). Вариант, сменивший состояние, до следующей ночи
+      // остаётся без фото своей расстановки — утром должно быть видно, сколько таких: бесплатный сухой проход (браузер, без съёмки)
+      const d = spawnSync(process.execPath, [process.argv[1], ...process.argv.slice(2).filter((a) => a !== "--dry"), "--dry"],
+        { encoding: "utf8", env: { ...process.env, REAL_NO_SLOT: "1" }, timeout: 600_000 });
+      process.stdout.write(d.stdout ?? "");
+      console.log(slotMissedLine(d.stdout ?? ""));
       process.exit(0);
     }
     process.exit(r.status ?? 1);
