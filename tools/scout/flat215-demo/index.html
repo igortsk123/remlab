@@ -236,6 +236,7 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-room{background:var(--surface);border-radius:var(--radius);box-shadow:var(--e1);overflow:hidden}
 .hm-room .hm-ph{position:relative;aspect-ratio:2048/1446;background:var(--wash-2);cursor:pointer;display:block}
 .hm-room .hm-ph img{display:block;width:100%;height:100%;object-fit:cover}
+.hm-room .hm-ph picture{display:contents}
 .hm-room .hm-ph .nopv{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:14px}
 .hm-room .hm-ph .ttl{position:absolute;left:0;right:0;bottom:0;padding:22px 12px 9px;color:#fff;font-weight:700;font-size:16px;
   background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none}
@@ -1312,6 +1313,7 @@ function init(){
   // ссылки, где он нужен, остаются рабочими.
   window.addEventListener('hashchange',applyHash);
   flatPlan();
+  if(typeof editsBoot==='function')editsBoot();   // сохранённые правки комнат (photo-sharp-keep-01) — до первой загрузки и кадров
   loadShots();
   load();
   // СТИЛЬ ИЗ АДРЕСА (demo-16): ссылка менеджера `?style=loft` открывает этот стиль; ссылка на вариант/коллекцию (`#v=`, `#c=`) важнее
@@ -1333,7 +1335,8 @@ const MAXV=6;
 function variantLive(v){
   return !!(v&&allVariants()[cur]===v&&typeof items!=='undefined'&&items&&items.length);
 }
-function variantItems(v){ return variantLive(v)?items:((v&&v.items)||[]); }
+// не открытый вариант — его последняя расстановка (правки комнаты, photo-sharp-keep-01), правок нет — витрина
+function variantItems(v){ return variantLive(v)?items:((typeof editedItemsOf==='function'&&v&&editedItemsOf(v))||(v&&v.items)||[]); }
 function variantDecor(v){ return variantLive(v)?decorList():(((v&&v.decor)||[]).filter(x=>(x.sku||{}).name)); }
 function dimsText(o){ // размеры показываем только известные; иначе — честно (Р1)
   if(!o||!o.w||!o.d)return 'размеры не указаны магазином';
@@ -1775,7 +1778,9 @@ function load(){const v=allVariants()[cur]||D.variants[0];items=clone(v.items);s
   // следующая отрисовка прочитает камеры уже этого варианта.
   cams=null; camSel=-1; hideCamOvl();
   document.getElementById('sel').textContent='Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.';
-  baseRev=revision();draw();}
+  baseRev=revision();
+  if(typeof editRestore==='function')editRestore(v);   // правки этой комнаты — назад (photo-sharp-keep-01); `baseRev` — по витрине
+  draw();}
 
 // РАЗМЕР ХОЛСТА (26.08): вкладка «Расстановка» стартует СКРЫТОЙ, и ширина элемента там 0 —
 // масштаб уходил в бесконечность, а SVG получал height=NaN и страница оставалась пустой.
@@ -4234,7 +4239,12 @@ function homeRooms(){
 // КАДР ОПУБЛИКОВАННОГО СОСТОЯНИЯ ВАРИАНТА (demo-20 Б2, владелец 22.10: «вариантов без фото быть не должно»): `bestShot` ищет кадр
 // ЖИВОЙ расстановки — у открытого варианта её сбивают правки и общая отделка `DEVOPT`, и карточка оставалась без фото. Здесь —
 // состояние из данных витрины (предметы, декор, своя отделка `v.dev`), как его снимает ночной прогрев (`tools/ops/demo-warm.mjs`)
-function pubStateOf(v){ return stateIdOf(v.items||[], (v.decor||[]).filter(x=>(x.sku||{}).name), roomOf(v), v.dev||{}); }
+// у варианта витрины номер считается один раз (photo-sharp-keep-01): замена декора правит `v.decor` на месте, и без запоминания
+// «опубликованный» номер уезжал бы вслед за правкой — карточка теряла фото витрины, а сохранённые правки — свою опору
+const PUB_ST=new WeakMap();
+function pubStateOf(v){ if(PUB_ST.has(v))return PUB_ST.get(v);
+  const s=stateIdOf(v.items||[], (v.decor||[]).filter(x=>(x.sku||{}).name), roomOf(v), v.dev||{});
+  if(v&&v.id&&!v.mine&&!v.cid&&D&&roomOf(v))PUB_ST.set(v,s); return s; }
 function pubShot(v,cam){
   if(!v||!D)return null;
   const st=pubStateOf(v);
@@ -4267,10 +4277,13 @@ function realisticPublishedShot(v,cam){
 }
 // КАРТОЧКА ПРАВЛЕНОГО ВАРИАНТА — КАДР 3D ЕГО НЫНЕШНЕЙ РАССТАНОВКИ (demo-20 Г5, сценарий владельца 22.10): своего кадра у правленой
 // расстановки нет, а `pubShot` — фото ОПУБЛИКОВАННОЙ, не то, что человек видел в окне. Живая сцена снимает точку 1 после правки
-// (правка или показ 3D → `liveShotSoon`); карта «номер состояния → кадр» живёт до перезагрузки страницы; кадра нет — запасной путь `pubShot`
+// (правка или показ 3D → `liveShotSoon`); карта «номер состояния → кадр» живёт до перезагрузки страницы; кадра нет — запасной путь `pubShot`.
+// С 07.11 карточки главной его не берут (T-35 часть 0), съёмка `liveShotSoon` выключена (photo-sharp-keep-01)
 const LIVE_SHOTS=new Map();
 // ключ — комната + вариант + номер состояния (`roomStateKey`, onb-07 основа)
 function liveShot(v){ const u=v&&D&&LIVE_SHOTS.get(roomStateKey(v,variantStateOf(v))); return u?{url:u, thumb:u, quality:'live'}:null; }
+// ШИРИНА КАРТОЧКИ КОМНАТЫ НА КОМПЬЮТЕРЕ (для `sizes`): две трети `.wrap` за вычетом полей и щелей сетки (стили `.hm-rooms` ≥900 px)
+const HM_SIZES='(min-width:2200px) 1045px, (min-width:1600px) 940px, (min-width:1100px) 712px, 65vw';
 function homeModel(){
   const vs=allVariants(), styles=[], seen=new Set(), roomVariants=[];
   // реестр кадров пришёл — вариант без ФОТО НЕЙРОСЕТИ (`realisticPublishedShot`, черновик не в счёт — TG 341) на главную не выводим
@@ -4340,8 +4353,9 @@ function drawHome(force){
   const cards=m.rooms.map(r=>{
     const rv=r.contentState==='ready'?roomVariantFor(m,act.styleId,r.id):null, v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
-    // ТОЛЬКО ФОТО НЕЙРОСЕТИ (TG 341, часть 0 T-35): фото нынешней расстановки (правленый вариант, если его сняли), иначе
-    // `realisticPublishedShot`. Кадр 3D правленой расстановки (`liveShot`, demo-20 Г5) и черновик `pubShot` на карточку больше не идут
+    // ТОЛЬКО ФОТО НЕЙРОСЕТИ (TG 341, часть 0 T-35): фото нынешней расстановки (правленый вариант, если его сняли; правки комнаты
+    // живут в `editRestore`/`variantItems`, photo-sharp-keep-01), иначе `realisticPublishedShot`. Кадр 3D (`liveShot`) и черновик
+    // `pubShot` на карточку не идут
     const pc=posterCam(v), bs=bestShot(v,pc), sh=bs&&bs.quality==='realistic'?bs:realisticPublishedShot(v,pc), fav=F&&F.ofState(F.baseState(v));
     return {r, i:rv.index, v, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), fav:fav?(fav.displayName||''):null};
   });
@@ -4368,7 +4382,12 @@ function drawHome(force){
       `<span>${money(c.sum)} · ${c.n} ${plural(c.n)}</span></button>`+
       `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${act.styleId}"${vs!==act.styleId?` data-shown="${vs}"`:''} data-variant="${escHtml(c.v.id)}">`+
       `<div class="hm-ph" data-open="${c.i}">`+
-      (c.img?`<img src="${escHtml(c.img)}" alt="${alt}" decoding="async" data-url="${escHtml(c.full)}" onerror="this.onerror=null;this.src=this.dataset.url">`
+      // ЧЁТКО НА КОМПЬЮТЕРЕ (photo-sharp-keep-01, владелец 07.11 TG 349: «фото сжимается, пока не увеличишь»): миниатюра — 640 px,
+      // карточка на 1440 — ~712 px (на экране ×2 — 1424): от 900 px браузер берёт по `sizes` миниатюру или полный кадр 2048, телефон —
+      // миниатюру, как было (вес не растёт). Скрытые карточки (на компьютере видна одна) — `lazy`: полные кадры не тянутся впустую
+      (c.img?`<picture>${c.full&&c.full!==c.img?`<source media="(min-width:900px)" srcset="${escHtml(c.img)} 640w, ${escHtml(c.full)} 2048w" sizes="${HM_SIZES}">`:''}`+
+        `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?'':' loading="lazy"'} data-url="${escHtml(c.full)}" `+
+        `onerror="this.onerror=null;var s=this.parentNode.querySelector('source');if(s)s.remove();this.src=this.dataset.url"></picture>`
         :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
       `<button class="hm-heart${c.fav!=null?' on':''}" type="button" data-favorite="${c.i}" aria-pressed="${c.fav!=null}" `+
         `aria-label="${c.fav!=null?(EN?'In favourites':'В избранном'):(EN?'Add to favourites':'В избранное')}">${c.fav!=null?'♥':'♡'}</button>`+
@@ -5839,7 +5858,7 @@ function histPush(){
   if(h.at>=0&&h.stack[h.at].stateId===s.stateId)return;
   h.stack=h.stack.slice(0,h.at+1); h.stack.push(s);
   if(h.stack.length>HIST_MAX)h.stack.shift();
-  h.at=h.stack.length-1;
+  h.at=h.stack.length-1; editKeep();
   document.dispatchEvent(new CustomEvent('remlab:hist',{detail:{at:h.at,n:h.stack.length,stateId:s.stateId}}));
 }
 function histGo(step){
@@ -5850,12 +5869,52 @@ function histGo(step){
   (v.decor||[]).forEach((x,i)=>{if(s.decor[i]!==undefined)x.sku=clone(s.decor[i]);});
   // пол — часть состояния: сцена, блок образцов и ссылка в 3D — из шага истории (прогон d8 16.10: блок оставался прежним)
   if(s.dev&&JSON.stringify(s.dev)!==JSON.stringify(DEVOPT)){DEVOPT=clone(s.dev); devApply(); devDraw();}
+  editKeep();
   draw(); try{basket(); showSwap(); refreshShotList();}catch(e){}
   document.dispatchEvent(new CustomEvent('remlab:hist',{detail:{at:h.at,n:h.stack.length,stateId:s.stateId}}));
   return true;
 }
 function histBack(){return histGo(-1);}
 function histFwd(){return histGo(1);}
+// ПРАВКИ КОМНАТЫ НЕ ТЕРЯЮТСЯ (photo-sharp-keep-01, владелец 07.11 TG 351: «сделал визуалку, вернулся в спальню — пропала»): `load()` при
+// каждой смене варианта брал витринные `v.items` — замены выбрасывались, а с ними и фото нейросети (оно привязано к номеру состояния).
+// Теперь вариант открывается в последнем шаге своей истории (`HIST`); варианты витрины ещё и запоминаются в браузере (`EDITS_KEY`:
+// вариант → номер ОПУБЛИКОВАННОГО состояния + предметы и декор, последние `EDITS_MAX`), чтобы после перезагрузки вернулась та же
+// расстановка и её фото с сервера. Пересборка витрины меняет номер опубликованного — запись устарела и отбрасывается. Нет хранилища
+// (приватное окно) — правки живут до перезагрузки. Назад к витрине — «‹» истории: её первый шаг — опубликованная расстановка
+const EDITS_KEY='flat215-edits-v1', EDITS_MAX=12, DECOR0=new WeakMap();
+let EDITS=null;
+function editsAll(){ if(EDITS)return EDITS; try{EDITS=JSON.parse(localStorage.getItem(EDITS_KEY)||'{}');}catch(e){EDITS=null;}
+  if(!EDITS||typeof EDITS!=='object'||Array.isArray(EDITS))EDITS={}; return EDITS; }
+function editsSave(){ try{localStorage.setItem(EDITS_KEY,JSON.stringify(EDITS||{}));}catch(e){} }
+function editShelf(v){ return !!(v&&v.id&&!v.mine&&!v.cid); }   // только варианты витрины: коллекции хранит сервер, их не трогаем
+function editVid(v){ return (v&&v.id)||('v'+allVariants().indexOf(v)); }
+function decorSet(v,list){ (v.decor||[]).forEach((x,i)=>{if(list&&list[i]!==undefined)x.sku=clone(list[i]);}); }
+function editStored(v){ if(!editShelf(v))return null; const e=editsAll()[v.id];
+  return e&&e.base===pubStateOf(v)&&Array.isArray(e.items)&&e.items.length?e:null; }
+// предметы НЕ открытого варианта: шаг истории этой вкладки, иначе сохранённое в браузере; правок нет — null (витрина)
+function editedItemsOf(v){ if(!editShelf(v))return null;
+  const h=HIST[editVid(v)]; if(h&&h.at>=0)return h.stack[h.at].items; const e=editStored(v); return e?e.items:null; }
+// до первой загрузки: номер опубликованного состояния — по нетронутому декору; сохранённый декор — в данные варианта (как правка в вкладке)
+function editsBoot(){ const all=editsAll(); let drop=0;
+  allVariants().forEach(v=>{ if(!editShelf(v))return; pubStateOf(v); DECOR0.set(v,clone((v.decor||[]).map(x=>x.sku||null)));
+    if(!all[v.id])return; const e=editStored(v); if(!e){delete all[v.id]; drop++; return;} decorSet(v,e.decor); });
+  if(drop)editsSave(); }
+// `load()`: открыть вариант в его последней расстановке
+function editRestore(v){ if(!editShelf(v))return; const h=HIST[editVid(v)];
+  if(h&&h.at>=0){items=clone(h.stack[h.at].items); return;}
+  const e=editStored(v); if(!e)return;
+  const d=clone(e.decor);
+  if(DECOR0.has(v))decorSet(v,DECOR0.get(v));
+  histPush();                                   // шаг 1 — опубликованная расстановка
+  decorSet(v,d); items=clone(e.items); histPush(); }
+// после каждого шага истории: правленая расстановка — в браузер, вернулись к опубликованной — запись снимаем
+function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!items.length)return;
+  const all=editsAll(), base=pubStateOf(v), now=stateIdOf(items, (v.decor||[]).filter(x=>(x.sku||{}).name), roomOf(v), v.dev||{});
+  if(now===base){ if(all[v.id]){delete all[v.id]; editsSave();} return; }
+  all[v.id]={base, items:clone(items), decor:clone((v.decor||[]).map(x=>x.sku||null)), ts:Date.now()};
+  Object.keys(all).sort((a,b)=>(all[b].ts||0)-(all[a].ts||0)).slice(EDITS_MAX).forEach(k=>delete all[k]);
+  editsSave(); }
 // точки записи: замена товара, поворот кнопками, отпускание перетаскивания (pointerup — в обработчике плана)
 (function(){
   const _try=tryOn; tryOn=function(){const r=_try.apply(this,arguments); histPush(); return r;};
@@ -7324,7 +7383,8 @@ async function liveShow(){
 // Повод — любая правка (`remlab:hist`: замена, пол/стены, ↶/↷) и показ 3D; сцену перед съёмкой ставим в эту расстановку (`update` —
 // последняя побеждает, повтор того же без перезагрузки моделей): пол меняет сцену своим путём, не через `liveShow`
 let _liveShotT=0;
-function liveShotSoon(){ clearTimeout(_liveShotT); _liveShotT=setTimeout(liveShotTake,1200); }
+// СНЯТО (photo-sharp-keep-01, ведущий 07.11): живой 3D-кадр на карточки главной не идёт (`drawHome`, TG 341) — фоновую съёмку не запускаем
+function liveShotSoon(){ clearTimeout(_liveShotT); }
 document.addEventListener('remlab:hist',liveShotSoon);
 async function liveShotTake(){
   const v=allVariants()[cur], sc=LIVE.scene;
