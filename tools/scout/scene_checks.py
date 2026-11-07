@@ -38,12 +38,24 @@ def overlaps(items: list[dict]) -> list[str]:
     return [f"наезд {p['a']} × {p['b']}: {p['len_cm']:.0f}×{p['depth_cm']:.0f} см" for p in overlap_pairs(items)]
 
 
+def _apart_in_height(a: dict, b: dict) -> bool:
+    """Предметы разнесены по высоте (T-20261107-05): настенный предмет с подъёмом `elev` (зеркало прихожей висит над консолью,
+    банкеткой, обувницей) не наезжает на стоящий под ним. Высота [elev, elev + h]; предмет без `elev` стоит на полу (гостиная —
+    как раньше). Нет высоты у висящего — проверяем по следу, как раньше."""
+    if not (a.get('elev') or b.get('elev')):
+        return False
+    if not (a.get('h') and b.get('h')):
+        return False
+    a0, b0 = float(a.get('elev') or 0), float(b.get('elev') or 0)
+    return a0 >= b0 + float(b['h']) or b0 >= a0 + float(a['h'])
+
+
 def overlap_pairs(items: list[dict], thr: float = OVERLAP_CM) -> list[dict]:
     """Те же наезды числами — {a, b, depth_cm, len_cm, area_cm2}: ворота и ночной отчёт (`scene_artifacts.py`) считают
     по ОДНОМУ Г-следу. Глубина — короткая сторона наименьшего прямоугольника вокруг общей площади, длина — длинная."""
     from planner.geometry import footprint
     from planner.models import Item, Placement
-    fps = []
+    fps, items_by = [], {it.get('role'): it for it in items}
     for it in items:
         if _base(it.get('role')) == 'ковёр' or not it.get('w') or not it.get('d'):
             continue
@@ -56,7 +68,7 @@ def overlap_pairs(items: list[dict], thr: float = OVERLAP_CM) -> list[dict]:
     for i in range(len(fps)):
         for j in range(i + 1, len(fps)):
             (ra, fa), (rb, fb) = fps[i], fps[j]
-            if {_base(ra), _base(rb)} in _EXEMPT:
+            if {_base(ra), _base(rb)} in _EXEMPT or _apart_in_height(items_by[ra], items_by[rb]):
                 continue
             inter = fa.intersection(fb)
             if inter.is_empty or inter.area <= 0:
@@ -121,6 +133,11 @@ def _selftest() -> int:
     corner = {'role': 'диван', 'x': 200, 'y': 230, 'rot': 180, 'w': 240, 'd': 160, 'h': 85, 'corner': True, 'corner_left': True, 'section': 95}
     t_free = {'role': 'столик', 'x': 160, 'y': 120, 'rot': 0, 'w': 60, 'd': 40, 'h': 40}
     ok(overlaps([corner, t_free]) == [], 'Г-диван: столик в выемке Г — не наезд (прямоугольник дал бы ложный)')
+    cons = {'role': 'консоль', 'x': 100, 'y': 17.5, 'rot': 0, 'w': 100, 'd': 35, 'h': 80}
+    mirror = {'role': 'зеркало', 'x': 100, 'y': 2, 'rot': 0, 'w': 60, 'd': 3, 'h': 60, 'elev': 115}
+    ok(overlaps([cons, mirror]) == [], 'зеркало висит над консолью (elev 115 > 80) — не наезд')
+    ok(len(overlaps([cons, dict(mirror, elev=50)])) == 1, 'зеркало на 50 см врезается в консоль высотой 80 — наезд')
+    ok(len(overlaps([cons, dict(mirror, elev=None, h=None)])) == 1, 'без высоты — по следу, как раньше')
     print('итог:', 'чисто' if not fails else f'{fails} провал(ов)')
     return 1 if fails else 0
 

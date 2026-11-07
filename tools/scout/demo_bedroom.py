@@ -24,11 +24,20 @@ __all__ = ['HERE', 'GEO_FILE', 'BANK_LIVE', 'STYLE_AXES', 'SOLVER_ROLES', 'PLACE
            'BAND_CM', 'ONE_FREE_ROLES', 'MESH_FREE_ROLES', 'SPEC', 'lead_roles', 'neighbour_styles', '_key', 'role_spares',
            'base_role', 'load_bank', 'bank_room', 'room_geo', 'solve', 'one_rule', '_placed', 'zone', 'zones', 'reference', '_ext',
            'on_ref_place', 'hard_codes', 'one_layout', 'variant_id', '_instances', '_fits', '_in_band', 'gate_items',
-           'build_variant', 'pick_records', 'feed_row', 'feeds', 'bands', 'room_key', 'merge_room_feeds', 'room_bands']
+           'build_variant', 'pick_records', 'feed_row', 'feeds', 'bands', 'room_key', 'merge_room_feeds', 'room_bands',
+           'TITLE', 'TITLE_OF', 'GATE_OFF_MAIN', 'CATALOG_ALWAYS', 'CATALOG_SHOW']
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GEO_FILE = os.path.join(HERE, 'flat215-bedrooms.json')
 BANK_LIVE = os.path.join(HERE, 'sets-bedroom.json')
+# подписи журнала сборки (`flat215_demo.room_variants`, `room_photo_catalog`): «спальни: включены …», «каталог спальни: …»
+TITLE = TITLE_OF = 'спальни'
+# `BEDROOM_MESH_GATE=0` — откат сторожа, в том числе у папки витрины (T-51)
+GATE_OFF_MAIN = True
+# фото-каталог спальни — в данных витрины всегда, даже когда спальни выключены (вкладка b2b-10, ADR-0279)
+CATALOG_ALWAYS = True
+# сколько товаров роли в фото-каталоге (выборка по цене через равные шаги; роль вне списка — 8)
+CATALOG_SHOW = {'кровать': 24, 'тумба прикроватная': 12, 'комод': 12, 'шкаф': 12, 'туалетный столик': 8}
 # ВЕДУЩИЕ ПРЕДМЕТЫ — данные профиля комнаты (`rules/profiles/bedroom.json`, роль `lead: true`; T-20261106-77, ведущий 06.11 — было
 # списком CORE здесь): без ведущего с годной моделью вариант не публикуется (критерий onb-07: «в кадре кровать и ≥ 1 тумба»)
 

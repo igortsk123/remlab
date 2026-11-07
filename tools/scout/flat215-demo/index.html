@@ -7746,16 +7746,28 @@ function quizPick(rule, answers, available, styleColours){
 })();
 </script>
 <script>
-/* ——— СПАЛЬНЯ: ФОТО-КАТАЛОГ (b2b-10 этап 2, v1; ADR-0279). Вкладка «Спальня 1» оживает, если в данных витрины есть
-   `bedroom_catalog` (таблица `room_catalog`, ночной `room_catalog.py`): кровати, тумбы, комоды, шкафы — фото, размер,
-   цена по каталогу и партнёрская ссылка в магазин. Расстановки и 3D пока нет — так и пишем. «Спальня 2» остаётся
-   серой: план второй спальни взят от другой квартиры, обещать по нему нельзя (разбор Codex 14.10). */
+/* ——— КОМНАТА: ФОТО-КАТАЛОГ (b2b-10 этап 2, v1; ADR-0279; общий для комнат — hall-demo-01 этап 4, T-20261107-05). Вкладка
+   комнаты (`tab-<тип>-soon`) оживает, если в данных витрины есть `<тип>_catalog` (`flat215_demo.room_photo_catalog`, таблица
+   `room_catalog`): фото, размер, цена по каталогу и партнёрская ссылка в магазин. Спальня — кровати, тумбы, комоды, шкафы;
+   прихожая — шкафы-купе, прихожие, обувницы, банкетки, консоли, вешалки, зеркала. Показ выключен (`ROOM_PREVIEWS`), каталоги — в
+   данных. «Спальня 2» остаётся серой: план второй спальни взят от другой квартиры, обещать по нему нельзя (разбор Codex 14.10). */
 (function(){
   var esc=function(t){return String(t==null?'':t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
   var EN=function(){return window.__LANG==='en';};
-  var TITLES={'кровать':['Кровати','Beds'],'тумба прикроватная':['Прикроватные тумбы','Bedside tables'],
-    'комод':['Комоды','Chests of drawers'],'шкаф':['Шкафы','Wardrobes'],'туалетный столик':['Туалетные столики','Dressing tables']};
-  var ORDER=['кровать','тумба прикроватная','шкаф','комод','туалетный столик'];
+  // тип комнаты → подписи и порядок ролей каталога (роли — профили `tools/scout/rules/profiles/<тип>.json`)
+  var ROOMS={
+    bedroom:{head:['Спальня — каталог','Bedroom — catalogue'],
+      sub:['Кровати, тумбы, шкафы и комоды магазинов-партнёров. Расстановка спальни в 3D — позже.',
+        'Beds, bedside tables, wardrobes and chests from partner shops. The 3D layout of the bedroom is coming later.'],
+      titles:{'кровать':['Кровати','Beds'],'тумба прикроватная':['Прикроватные тумбы','Bedside tables'],
+        'комод':['Комоды','Chests of drawers'],'шкаф':['Шкафы','Wardrobes'],'туалетный столик':['Туалетные столики','Dressing tables']},
+      order:['кровать','тумба прикроватная','шкаф','комод','туалетный столик']},
+    hall:{head:['Прихожая — каталог','Hallway — catalogue'],
+      sub:['Шкафы, обувницы, банкетки, вешалки и зеркала магазинов-партнёров.',
+        'Wardrobes, shoe cabinets, benches, coat racks and mirrors from partner shops.'],
+      titles:{'шкаф-купе':['Шкафы-купе','Sliding wardrobes'],'прихожая':['Прихожие','Hallway units'],'обувница':['Обувницы','Shoe cabinets'],
+        'банкетка':['Банкетки','Benches'],'консоль':['Консоли','Console tables'],'вешалка':['Вешалки','Coat racks'],'зеркало':['Зеркала','Mirrors']},
+      order:['шкаф-купе','прихожая','обувница','банкетка','консоль','вешалка','зеркало']}};
   var cm=function(v){return v?Math.round(v):'?';};
   function size(p){
     if(p.sleep){var s=cm(p.sleep[0])+'×'+cm(p.sleep[1]);
@@ -7763,20 +7775,23 @@ function quizPick(rule, answers, available, styleColours){
     return p.w?(cm(p.w)+'×'+cm(p.d)+'×'+cm(p.h)+' см'):(EN()?'sizes not provided by the shop':'размеры не указаны магазином');
   }
   function mount(){
-    if(!ROOM_PREVIEWS)return;          // показ снят (владелец 16.10): спальни — общая заглушка, каталог — в данных для b2b-10
+    if(!ROOM_PREVIEWS)return;          // показ снят (владелец 16.10): комнаты — общая заглушка, каталоги — в данных для b2b-10
     if(typeof D==='undefined'||!D){setTimeout(mount,300);return;}
-    var bc=D.bedroom_catalog||{}, roles=bc.roles||{};
-    var soon=document.getElementById('tab-bedroom-soon');
+    Object.keys(ROOMS).forEach(mountRoom);
+  }
+  function mountRoom(type){
+    var RC=ROOMS[type], ORDER=RC.order, TITLES=RC.titles;
+    var bc=D[type+'_catalog']||{}, roles=bc.roles||{};
+    var soon=document.getElementById('tab-'+type+'-soon');
     if(!soon||!ORDER.some(function(r){return (roles[r]||[]).length;}))return;
-    var tab=document.createElement('button');tab.className='tab';tab.id='tab-bedroom';tab.setAttribute('role','tab');
+    var tab=document.createElement('button');tab.className='tab';tab.id='tab-'+type;tab.setAttribute('role','tab');
     tab.setAttribute('aria-selected','false');tab.textContent=soon.textContent;soon.replaceWith(tab);
-    var sec=document.createElement('section');sec.id='screen-bedroom';sec.hidden=true;
+    var sec=document.createElement('section');sec.id='screen-'+type;sec.hidden=true;
     var room=document.getElementById('screen-room');room.parentNode.insertBefore(sec,room.nextSibling);
     function draw(){
       var en=EN(), money=function(v){return v.toLocaleString(en?'en-GB':'ru-RU')+' ₽';};
-      sec.innerHTML='<div class="panel"><h2 style="margin:0 0 4px">'+(en?'Bedroom — catalogue':'Спальня — каталог')+'</h2>'+
-        '<div class="sub" style="margin-bottom:14px">'+(en?'Beds, bedside tables, wardrobes and chests from partner shops. The 3D layout of the bedroom is coming later.'
-          :'Кровати, тумбы, шкафы и комоды магазинов-партнёров. Расстановка спальни в 3D — позже.')+
+      sec.innerHTML='<div class="panel"><h2 style="margin:0 0 4px">'+esc(RC.head[en?1:0])+'</h2>'+
+        '<div class="sub" style="margin-bottom:14px">'+esc(RC.sub[en?1:0])+
         (bc.updated?' '+(en?'Prices from the catalogue of ':'Цены по каталогу на ')+esc(bc.updated)+(en?', check with the shop.':', уточняйте у продавца.'):'')+'</div>'+
         ORDER.filter(function(r){return (roles[r]||[]).length;}).map(function(r){
           return '<h3 style="margin:18px 0 8px">'+esc(TITLES[r][en?1:0])+'</h3>'+

@@ -123,12 +123,14 @@ lay = {'_room': geo, 'шкаф-купе': {'x': 123, 'z': 300, 'rot': 270}, 'о�
        'обувница 2': {'x': 18, 'z': 480, 'rot': 90}}
 r2 = rec({'шкаф-купе': WARD, 'обувница': SHOE})
 v, _ = R.build_variant(HALL, r2, geo, sku, dims_of, style_id, layout=lay)
-check('пары по профилю (у прихожей нет): «обувница 2» расстановки в вариант не идёт',
-      sorted(i['role'] for i in v['items']) == ['обувница', 'шкаф-купе'])
+check('пары по профилю (у прихожей нет): «обувница 2» расстановки в вариант не идёт, но не молча — в поле unpaired',
+      sorted(i['role'] for i in v['items']) == ['обувница', 'шкаф-купе'] and v.get('unpaired') == ['обувница 2'])
 v, _ = R.build_variant(HALL, r2, geo, sku, dims_of, style_id, layout=lay, pairs=('обувница',))
-check('парная роль: «обувница 2» — тот же товар на втором месте',
+check('парная роль: «обувница 2» — тот же товар на втором месте, поля unpaired нет',
       sorted(i['role'] for i in v['items']) == ['обувница', 'обувница 2', 'шкаф-купе']
-      and len({i['sku']['sid'] for i in v['items'] if i['role'].startswith('обувница')}) == 1)
+      and len({i['sku']['sid'] for i in v['items'] if i['role'].startswith('обувница')}) == 1 and 'unpaired' not in v)
+check('сторож пары: номер без товара базовой роли и служебные ключи — не в списке',
+      R.unpaired_places({'_room': {}, 'банкетка 2': {}, 'обувница 2': {}, 'обувница': {}}, {'обувница': {}}, ()) == ['обувница 2'])
 
 # --- ленты: зеркало без модели — в ленте, ключ комнаты
 f = R.feeds(HALL, [rec(full)], None, msid=lambda s: s, mesh_ok=lambda s: 'модели нет')

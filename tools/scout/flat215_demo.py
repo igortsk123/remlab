@@ -1078,30 +1078,61 @@ def fill_report(journal: dict, gone: int) -> dict:
     return rep
 
 
-BEDROOM_SHOW = {'кровать': 24, 'тумба прикроватная': 12, 'комод': 12, 'шкаф': 12, 'туалетный столик': 8}
+def showcase(room_type: str):
+    """Адаптер витрины типа комнаты — модуль шага `demo` реестра возможностей (`room_profile.CAPABILITIES`: `demo_bedroom`,
+    `demo_hall`); у него `SPEC` (ядро `demo_room.Showcase`), `GEO_FILE`, `BANK_LIVE`, подписи и `GATE_OFF_MAIN`. Шага нет — None."""
+    import importlib
+    import room_profile as RP
+    m = RP.capability(room_type, 'demo')
+    return importlib.import_module(m) if m else None
+
+
+def room_env(room_type: str, what: str) -> str:
+    """Имя переключателя сборки комнаты: `BEDROOM_SETS`, `HALL_MESH_GATE`, … (тип комнаты заглавными + что)."""
+    return f'{room_type.upper()}_{what}'
+
+
+def catalog_key(room_type: str) -> str:
+    """Ключ фото-каталога комнаты в `demo-data.json`: `bedroom_catalog`, `hall_catalog` (страница — блок ROOMCAT)."""
+    return f'{room_type}_catalog'
+
+
+def room_catalogs(data: dict) -> list:
+    """Фото-каталоги комнат в данных витрины (`<тип>_catalog` типов с шагом demo реестра), что есть."""
+    import room_profile as RP
+    return [data[k] for k in map(catalog_key, RP.rooms_with('demo')) if isinstance(data.get(k), dict)]
 
 
 def bedroom_catalog() -> dict:
-    """Фото-каталог спальни для вкладки «Спальня 1» (план b2b-10 этап 2, v1; ADR-0279) из `room_catalog`.
+    """Фото-каталог спальни для вкладки «Спальня 1» (план b2b-10 этап 2, v1; ADR-0279) из `room_catalog` — `room_photo_catalog`."""
+    return room_photo_catalog('bedroom')
+
+
+def room_photo_catalog(room_type: str) -> dict:
+    """Фото-каталог комнаты (спальня — b2b-10 этап 2, ADR-0279; прихожая — hall-demo-01 этап 4) из `room_catalog`.
 
     Выборка на роль — по одной модели из семейства (без десяти цветов одной кровати) и ровно по цене: от дешёвых
-    к дорогим через равные шаги, чтобы видно было весь диапазон. Показываем только с ценой, фото и из свежего фида
-    (`room_catalog.shown_where`). Кровати — с честным габаритом впереди. Нет таблицы/базы — пусто, вкладка «скоро»."""
+    к дорогим через равные шаги, чтобы видно было весь диапазон (сколько на роль — `CATALOG_SHOW` адаптера). Показываем только с
+    ценой, фото и из свежего фида (`shown_where` модуля каталога комнаты, `catalog_items._rc`). Кровати — с честным габаритом
+    впереди. Нет таблицы/базы — пусто, вкладка «скоро»."""
+    A = showcase(room_type)
     try:
+        import catalog_items as CI
         import room_catalog as RC
         from mesh_queue import db as _db
+        M = CI._rc(room_type)
+        R = M.rules()
         rows = _db("select role, shop_mid||':'||external_id, name, shop, url, coalesce(image_url_hd, image_url), price_rub, "
                    "w_cm, d_cm, h_cm, sleep_w_cm, sleep_l_cm, coalesce(footprint_ok,false), "
-                   "to_char(max(last_seen) over (), 'YYYY-MM-DD') from room_catalog where " + RC.shown_where() +
+                   "to_char(max(last_seen) over (), 'YYYY-MM-DD') from room_catalog where " + M.shown_where(R) +
                    # только включённые роли (флаг `roles_enabled`, onb-04 / ADR-0330): новые роли лежат в таблице,
                    # но демо их не берёт, пока ведущий не включит — выключено → данные байт в байт прежние
-                   ' and ' + RC.enabled_sql() + RC.kids_where())
+                   ' and ' + RC.enabled_sql(R) + RC.kids_where(R))
         # детские шкаф/комод/тумба лежат в общих ролях с назначением только child:* — спальне пары они не нужны
         # (по названию здесь, по детской категории — «and not kids» выше, когда столбец есть: kids_store после 015)
-        R = RC.rules()
         rows = [r for r in rows if not RC.child_only(r[0], r[2], R)]
-    except Exception as e:  # noqa: BLE001 — каталога спальни нет: вкладка остаётся «скоро»
-        print(f'каталог спальни: недоступен ({str(e)[:80]})')
+    except Exception as e:  # noqa: BLE001 — каталога комнаты нет: вкладка остаётся «скоро»
+        print(f'каталог {A.TITLE_OF}: недоступен ({str(e)[:80]})')
         return {}
     by: dict = {}
     updated = ''
@@ -1121,79 +1152,99 @@ def bedroom_catalog() -> dict:
             items.sort(key=lambda x: (not x['fits'], x['price']))
             reps.append(items[0])
         reps.sort(key=lambda x: x['price'])
-        k = BEDROOM_SHOW.get(role, 8)
+        k = A.CATALOG_SHOW.get(role, 8)
         pick = reps if len(reps) <= k else [reps[round(i * (len(reps) - 1) / (k - 1))] for i in range(k)]
         out[role] = pick
-    print('каталог спальни: ' + ', '.join(f'{r} {len(v)} (моделей {len(by[r])})' for r, v in out.items()))
+    print(f'каталог {A.TITLE_OF}: ' + ', '.join(f'{r} {len(v)} (моделей {len(by[r])})' for r, v in out.items()))
     return {'roles': out, 'updated': updated}
 
 
-BEDROOM_SETS_ENV = 'BEDROOM_SETS'
+BEDROOM_SETS_ENV = room_env('bedroom', 'SETS')
 FEED_ANY_MESH_ENV = 'FLAT215_FEED_ANY_MESH'
 
 
 def bedroom_bank_path(env, out: str) -> str:
-    """Банк спальни для сборки (T-20261105-32/2): `BEDROOM_SETS` → живой `sets-bedroom.json`, если есть → у сборки рядом —
-    кандидат сборщика `sets-bedroom.next.json` (`bank_paths.room_bank_output`), чтобы не задавать путь руками. Витрина без живого
-    банка — живой путь (пусто → спальня «скоро»): кандидат в публикуемую папку не идёт, подмена — onb-12."""
-    import demo_bedroom as DB
-    if env.get(BEDROOM_SETS_ENV):
-        return env[BEDROOM_SETS_ENV]
-    if os.path.exists(DB.BANK_LIVE) or _BP.same(out, _BP.DEMO_OUT_DEFAULT):
-        return DB.BANK_LIVE
-    return _BP.room_bank_output({}, 'bedroom')
+    return room_bank_path('bedroom', env, out)
+
+
+def room_bank_path(room_type: str, env, out: str) -> str:
+    """Банк комнаты для сборки (T-20261105-32/2): `<ТИП>_SETS` (`BEDROOM_SETS`, `HALL_SETS`) → живой `sets-<тип>.json`, если
+    есть → у сборки рядом — кандидат сборщика `sets-<тип>.next.json` (`bank_paths.room_bank_output`), чтобы не задавать путь руками.
+    Витрина без живого банка — живой путь (пусто → комната «скоро»): кандидат в публикуемую папку не идёт, подмена — onb-12."""
+    A = showcase(room_type)
+    if env.get(room_env(room_type, 'SETS')):
+        return env[room_env(room_type, 'SETS')]
+    if os.path.exists(A.BANK_LIVE) or _BP.same(out, _BP.DEMO_OUT_DEFAULT):
+        return A.BANK_LIVE
+    return _BP.room_bank_output({}, room_type)
 
 
 def bedroom_one_layout(recs: list, styles: list) -> dict:
-    """Одна расстановка спальни на все стили (T-20261105-32/4, `demo_bedroom.one_layout`): по комнате — готовые расстановки банка
-    выравниваются по опорному стилю → {(комната, стиль): расстановка}. Правило выключено или у записи нет готовой расстановки —
-    пусто (вариант берёт свою расстановку банка, как раньше). Что переставилось и что не встало — в журнал сборки."""
-    import demo_bedroom as DB
-    if not DB.one_rule().get('enabled'):
+    return room_one_layout('bedroom', recs, styles)
+
+
+def room_one_layout(room_type: str, recs: list, styles: list) -> dict:
+    """Одна расстановка комнаты на все стили (T-20261105-32/4, `demo_room.one_layout`): по комнате — готовые расстановки банка
+    выравниваются по опорному стилю → {(комната, стиль): расстановка}. Правило выключено (`rules/demo-layout.json` → тип комнаты;
+    у прихожей записи нет) или у записи нет готовой расстановки — пусто (вариант берёт свою расстановку банка, как раньше). Что
+    переставилось и что не встало — в журнал сборки."""
+    import demo_room as R
+    spec = showcase(room_type).SPEC
+    if not R.one_rule(spec).get('enabled'):
         return {}
     out: dict = {}
     for rid in dict.fromkeys(r['room_id'] for r in recs):
         rs = [r for r in recs if r['room_id'] == rid and isinstance((r.get('layout') or {}).get('_room'), dict)]
-        arts, rep = DB.one_layout({r['style']: r['layout'] for r in rs}, styles, {r['style']: r.get('purpose') for r in rs})
+        arts, rep = R.one_layout(spec, {r['style']: r['layout'] for r in rs}, styles, {r['style']: r.get('purpose') for r in rs})
         out.update({(rid, s): a for s, a in arts.items()})
         mv = '; '.join(f"{m['style']} «{m['role']}» {m['from'][3]}→{m['to'][3]} ({m['to'][0]}, {m['to'][1]}, {m['to'][2]}°)"
                        for m in rep['moved']) or 'ничего'
-        print(f"bedroom_one_layout: {rid} — опорный стиль «{rep['ref']}», переставлено: {mv}", flush=True)
+        print(f"{room_type}_one_layout: {rid} — опорный стиль «{rep['ref']}», переставлено: {mv}", flush=True)
         for k in rep['kept']:
-            print(f"WARN:bedroom_one_layout: {rid} {k['style']} «{k['role']}» не встаёт на место опорного "
+            print(f"WARN:{room_type}_one_layout: {rid} {k['style']} «{k['role']}» не встаёт на место опорного "
                   f"({', '.join(k['why']) if isinstance(k['why'], list) else k['why']}) — своя позиция банка", flush=True)
     return out
 
 
-BEDROOM_MESH_GATE_ENV = 'BEDROOM_MESH_GATE'   # orient (по умолчанию) | strict | 0 — сторож модели предметов спальни (T-20261105-51)
+BEDROOM_MESH_GATE_ENV = room_env('bedroom', 'MESH_GATE')   # orient (по умолчанию) | strict | 0 — сторож модели (T-20261105-51)
 BEDROOM_MESH_GATE_MODES = _RB.MESH_GATE_MODES + ('0',)
 orient_only = _RB.orient_only        # правило одно с банком спальни (`room_bindings`, T-20261106-70)
 
 
 def bedroom_mesh_gate(rows=None, why: str = '', mode: str | None = None):
-    """Сторож модели предмета варианта спальни (`demo_bedroom.gate_items`): sku → '' (годен) или причина. Основа — та же
-    проверка, что у выдачи каталога (`catalog_items.bound_asset` поверх `room_bindings.load_db`). Режимы (`BEDROOM_MESH_GATE`):
+    return room_mesh_gate('bedroom', rows, why, mode)
+
+
+def room_mesh_gate(room_type: str, rows=None, why: str = '', mode: str | None = None):
+    """Сторож модели предмета варианта комнаты (`demo_room.gate_items`): sku → '' (годен) или причина. Основа — та же
+    проверка, что у выдачи каталога (`catalog_items.bound_asset` поверх `room_bindings.load_db`). Режимы (`<ТИП>_MESH_GATE`:
+    `BEDROOM_MESH_GATE`, `HALL_MESH_GATE`):
       strict — привязка `ready` и модель выложена привязкой (`published`);
       orient (по умолчанию, решение ведущего T-51/3) — `ready` ИЛИ `blocked` только по развороту (`orientation_*`): брака у
                модели нет, не решён лишь фронт; такой предмет годен, а `note(sku)` даёт причину — сборка пишет его строкой
-               `WARN:bedroom_orient_unresolved` и счётчиком (видно, что не решено, когда спальню включат на главной);
-      0 — выключен (откат).
+               `WARN:<тип>_orient_unresolved` и счётчиком (видно, что не решено, когда комнату включат на главной);
+      0 — выключен (откат спальни; у прихожей — только сборка рядом, `GATE_OFF_MAIN` адаптера: у папки витрины отказ).
     В обоих режимах: сцена грузит именно модель привязки (`msid` = `mesh_id` — иначе в кадре меш представителя, которого
     привязка не проверяла) и она в индексе прода (`_mesh_index`, без карантина) — иначе серая коробка.
     Привязка не читается — все предметы «unbound» с причиной (вариант честно пустеет, а не показывает заглушки).
     Само правило — `room_bindings.usable` (одно с готовностью банка спальни `room_ready`, T-20261106-70); здесь — режим 0,
     чтение привязки и индекса прода."""
-    mode = mode or os.environ.get(BEDROOM_MESH_GATE_ENV) or 'orient'
+    A = showcase(room_type)
+    env = room_env(room_type, 'MESH_GATE')
+    mode = mode or os.environ.get(env) or 'orient'
     if mode not in BEDROOM_MESH_GATE_MODES:
-        raise SystemExit(f'{BEDROOM_MESH_GATE_ENV}={mode!r}? можно {", ".join(BEDROOM_MESH_GATE_MODES)}')
+        raise SystemExit(f'{env}={mode!r}? можно {", ".join(BEDROOM_MESH_GATE_MODES)}')
     if mode == '0':
-        print('WARN:bedroom_mesh_gate: выключен (BEDROOM_MESH_GATE=0) — предметы спальни без проверки модели', flush=True)
+        if not A.GATE_OFF_MAIN and _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
+            raise SystemExit(f'{env}=0 у сборки в папку витрины — только сборка рядом (FLAT215_DEMO_OUT): на главной предмета '
+                             f'без модели не бывает')
+        print(f'WARN:{room_type}_mesh_gate: выключен ({env}=0) — предметы {A.TITLE_OF} без проверки модели', flush=True)
         return None
     import catalog_items as CI
     if rows is None:
         rows, why = _RB.load_db(CI.fetch)
         if why:
-            print(f'WARN:bedroom_mesh_gate: привязка не читается ({why}) — у предметов спальни моделей нет', flush=True)
+            print(f'WARN:{room_type}_mesh_gate: привязка не читается ({why}) — у предметов {A.TITLE_OF} моделей нет', flush=True)
     idx = _mesh_index()
 
     def bound(s: dict) -> dict:
@@ -1209,88 +1260,150 @@ def bedroom_mesh_gate(rows=None, why: str = '', mode: str | None = None):
     return ok
 
 
+def room_showcases(apt: dict, flags: dict, variants: list, feeds: dict, incomplete: list, room: dict) -> tuple[dict, dict, dict]:
+    """ВИТРИНЫ КОМНАТ — ПО РЕЕСТРУ (`room_profile.CAPABILITIES`, шаг demo; hall-demo-01 этап 4): тип за типом в порядке реестра
+    (спальни, потом прихожая) → (геометрии `rooms_geo`, полосы `slot_band_cm`, фото-каталоги `{<тип>_catalog: …}`). Каталог типа —
+    всегда у типа с `CATALOG_ALWAYS` адаптера (спальня — данные b2b-10, как было), у остальных — только когда комната типа
+    включена: выключено — ни ключа, ни варианта, данные витрины прежние (`tests/test_demo_room_build.py`)."""
+    import room_profile as RP
+    extra_geo, rules_extra, cats = {}, {}, {}
+    for rt in RP.rooms_with('demo'):
+        A = showcase(rt)
+        try:
+            on = RP.enabled_rooms('demo', flags.get('rooms_enabled') or [], apt.get('rooms') or [], RP.capability(rt, 'demo'))
+        except ValueError as e:
+            raise SystemExit(f'витрина: {e}') from None
+        if not (on or A.CATALOG_ALWAYS):
+            continue
+        cats[catalog_key(rt)] = room_photo_catalog(rt)
+        g, b = room_variants(rt, apt, flags, variants, feeds, incomplete, room, cats[catalog_key(rt)])
+        extra_geo.update(g)
+        rules_extra.update(b)
+    return extra_geo, rules_extra, cats
+
+
 def bedroom_variants(apt: dict, flags: dict, variants: list, feeds: dict, incomplete: list, room: dict,
                      bcat: dict) -> tuple[dict, dict]:
-    """СПАЛЬНИ В ВИТРИНЕ (onb-07 Т2): варианты включённых спален из банка (`demo_bedroom`) — в конец `variants`, ленты ролей
-    спальни — в `feeds` под ключом «bedroom:<роль>», неполные — в `incomplete`; → (геометрии для `rooms_geo`, полосы размера для
-    `rules.slot_band_cm` под ключом «<комната>:<роль>»; ключи — `demo_bedroom.room_key`).
-    Ни одна спальня не включена — ничего не трогаем (данные гостиной байт в байт прежние). Банк — `bedroom_bank_path`
-    (живой `sets-bedroom.json`; у сборки рядом — `BEDROOM_SETS` или кандидат `.next`); там же `FLAT215_FEED_ANY_MESH=1` пускает в ленту товары без модели (проверка ленты, пока
-    меши кроватей не выложены, onb-10) — у папки витрины это отказ."""
-    import demo_bedroom as DB
+    return room_variants('bedroom', apt, flags, variants, feeds, incomplete, room, bcat)
+
+
+def room_variants(room_type: str, apt: dict, flags: dict, variants: list, feeds: dict, incomplete: list, room: dict,
+                  cat: dict) -> tuple[dict, dict]:
+    """КОМНАТЫ ТИПА В ВИТРИНЕ (спальни — onb-07 Т2; прихожая — hall-demo-01 этап 4): варианты включённых комнат типа из банка
+    (адаптер `showcase(тип)` поверх ядра `demo_room`) — в конец `variants`, ленты ролей — в `feeds` под ключом «<тип>:<роль>»,
+    неполные — в `incomplete`; → (геометрии для `rooms_geo`, полосы размера для `rules.slot_band_cm` под ключом «<комната>:<роль>»;
+    ключи — `demo_room.room_key`).
+    Ни одна комната типа не включена — ничего не трогаем (данные гостиной байт в байт прежние). Банк — `room_bank_path`
+    (живой `sets-<тип>.json`; у сборки рядом — `<ТИП>_SETS` или кандидат `.next`); там же `FLAT215_FEED_ANY_MESH=1` пускает в ленту
+    товары без модели (проверка ленты, пока меши не выложены, onb-10) — у папки витрины это отказ.
+    Сторож выключен (`<ТИП>_MESH_GATE=0`) или лента без проверки — предмет варианта и строка ленты без годной модели несут метку
+    `no_mesh` (причина того же сторожа, режим orient): следующий шаг (спрос мешей) её видит, а не теряет (ведущий 07.11, T-05/1)."""
+    import demo_room as R
     import room_profile as RP
-    # комнаты, чья витрина — адаптер спальни: по реестру возможностей (`room_profile.CAPABILITIES`, T-20261106-72), не по префиксу
+    A = showcase(room_type)
+    # комнаты, чья витрина — адаптер типа: по реестру возможностей (`room_profile.CAPABILITIES`, T-20261106-72), не по префиксу
     # id; включённая комната без строки реестра (тип неизвестен) — отказ сборки, а не молча мимо
     try:
         on = [rid for rid, _k in RP.enabled_rooms('demo', flags.get('rooms_enabled') or [], apt.get('rooms') or [],
-                                                  'demo_bedroom')]
+                                                  RP.capability(room_type, 'demo'))]
     except ValueError as e:
         raise SystemExit(f'витрина: {e}') from None
     if not on:
         return {}, {}
-    test_env = [k for k in (BEDROOM_SETS_ENV, FEED_ANY_MESH_ENV) if os.environ.get(k)]
+    test_env = [k for k in (room_env(room_type, 'SETS'), FEED_ANY_MESH_ENV) if os.environ.get(k)]
     if test_env and _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
         raise SystemExit(f'{", ".join(test_env)} у сборки в папку витрины — только сборка рядом (FLAT215_DEMO_OUT)')
-    bank = DB.load_bank(bedroom_bank_path(os.environ, OUT))
+    spec = A.SPEC
+    bank = R.load_bank(room_bank_path(room_type, os.environ, OUT))
     reg = {r['id']: r for r in apt.get('rooms') or []}
     shared = {k: room[k] for k in ('window_view', 'height_cm') if k in room}
-    # геометрия — комната готовой расстановки банка (`layout._room`), иначе чертёж `flat215-bedrooms.json`
-    geos = {rid: g for rid in on if (g := DB.room_geo(rid, reg.get(rid), shared, layout_room=DB.bank_room(bank, rid)))}
+    # геометрия — комната готовой расстановки банка (`layout._room`), иначе чертёж адаптера (`GEO_FILE`)
+    geos = {rid: g for rid in on if (g := R.room_geo(spec, rid, A.GEO_FILE, reg.get(rid), shared, R.bank_room(bank, rid)))}
     styles = [v.get('style') for v in variants if (v.get('room_id') or 'living') == living_room_id()]
     made = 0
-    recs = DB.pick_records(bank, list(geos), styles)
-    lays = bedroom_one_layout(recs, styles)
-    gate = bedroom_mesh_gate()
-    lead = DB.lead_roles()
+    recs = R.pick_records(spec, bank, list(geos), styles)
+    lays = room_one_layout(room_type, recs, styles)
+    gate = room_mesh_gate(room_type)
+    # сторож выключен — та же проверка только для метки «нет модели» (`no_mesh`), предметы не снимаются
+    mark = gate or room_mesh_gate(room_type, mode='orient')
+    lead = R.lead_roles(room_type)
     unresolved = 0
-    # модель сцены спальни — модель привязки, то же правило, что `_msid` гостиной (`room_bindings.scene_msid`); у сторожа — строки
+    # модель сцены — модель привязки, то же правило, что `_msid` гостиной (`room_bindings.scene_msid`); у сторожа — строки
     # той привязки, которую он проверяет
-    bed_msid = getattr(gate, 'msid', None) or _msid
+    bed_msid = getattr(mark, 'msid', None) or _msid
+    # РАЗМЕР ПРЕДМЕТА КОМНАТЫ — ИЗ КАТАЛОГА КОМНАТЫ (T-20261107-05): у роли с источником `room_catalog` (профиль комнаты) габарит —
+    # тот, что сборщик банка взял из `room_catalog` (с толщиной плоских — зеркало 3 см, `hall_catalog.flat_dims`), а не из каталога
+    # гостиной (`products` через `_cat_dims`): там у настенного зеркала глубины нет (предмет выпадал в `dims_unknown`), а «диаметр»
+    # круглого зеркала давал коробку 60×60 на полу (OUT_OF_ROOM). Нет габарита в записи — прежний путь
+    own_dims = {r for r, p in RP.load(room_type)['roles'].items() if p.get('source') == 'room_catalog'}
 
     def bed_sku(items: dict, role: str) -> dict | None:
         s = _sku(items, role)
+        it = items.get(role) or items.get(R.base_role(role)) or {}
+        if s and R.base_role(role) in own_dims and it.get('w') and it.get('d'):
+            s = dict(s, w=it['w'], d=it['d'], h=it.get('h'), dia=it.get('dia'))
         return dict(s, msid=bed_msid(s['sid'])) if s and s.get('sid') else s
+
+    def no_mesh(role: str, s: dict) -> str:
+        return mark(s) if mark and R.needs_mesh(R.base_role(role)) and s else ''
     for rec in recs:
         # предмет без модели (T-20261106-77; с /4 — любая роль солвера, не только ведущая): запас из других записей банка — свой
         # стиль, потом соседний
-        v, why = DB.build_variant(rec, geos[rec['room_id']], bed_sku, _dims_of, style_id, hung=_hung,
-                                  decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r),
-                                  layout=lays.get((rec['room_id'], rec.get('style'))), mesh_ok=gate, lead=lead,
-                                  spares=DB.role_spares(bank, rec) if gate else None)
+        v, why = R.build_variant(spec, rec, geos[rec['room_id']], bed_sku, _dims_of, style_id, hung=_hung,
+                                 decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r),
+                                 layout=lays.get((rec['room_id'], rec.get('style'))), mesh_ok=gate, lead=lead,
+                                 spares=R.role_spares(spec, bank, rec) if gate else None)
         for e in (v or {}).get('mesh_swaps') or []:
-            print(f"bedroom_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']}: {e['was'][1]} ({e['why']}) → "
+            print(f"{room_type}_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']}: {e['was'][1]} ({e['why']}) → "
                   f"{e['now'][1]}" + (f" (соседний стиль «{e['style']}»)" if e.get('style') else ''), flush=True)
         for e in ((v or {}).get('missing_item') or []) + ((why or {}).get('mesh') or []):
-            print(f"WARN:bedroom_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']} пустая — {e['why']}", flush=True)
+            print(f"WARN:{room_type}_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']} пустая — {e['why']}", flush=True)
         for e in (v or {}).pop('orient_unresolved', None) or []:
             unresolved += 1
-            print(f"WARN:bedroom_orient_unresolved: {rec['room_id']} «{rec.get('style')}» {e['role']} {e['msid']} — {e['why']}",
+            print(f"WARN:{room_type}_orient_unresolved: {rec['room_id']} «{rec.get('style')}» {e['role']} {e['msid']} — {e['why']}",
                   flush=True)
+        for r in (v or {}).pop('unpaired', None) or []:   # сторож пары (T-20261107-05): место «… 2» без `pair` в профиле
+            print(f"WARN:{room_type}_unpaired: {rec['room_id']} «{rec.get('style')}» место «{r}» не поставлено — у роли "
+                  f"«{R.base_role(r)}» нет pair в профиле (tools/scout/rules/profiles/{room_type}.json)", flush=True)
         if why:
             print(f'WARN:demo_style_dropped: {why["room_id"]} «{why["style"]}» без {", ".join(map(str, why["missing"]))} — '
                   'не публикуем', flush=True)
             incomplete.append(why)
             continue
+        if not gate:
+            for it in v['items']:
+                if (w := no_mesh(it['role'], it.get('sku'))):
+                    it['no_mesh'] = w
+                    print(f"WARN:{room_type}_no_mesh: {rec['room_id']} «{rec.get('style')}» {it['role']} "
+                          f"{(it.get('sku') or {}).get('sid')} — {w} (сторож выключен, предмет в варианте)", flush=True)
         variants.append(v)
         made += 1
     any_mesh = os.environ.get(FEED_ANY_MESH_ENV) == '1'
     # ЛЕНТА — ТЕМ ЖЕ СТОРОЖЕМ, ЧТО ВАРИАНТ (T-20261106-77 Д1): замена на товар без годной модели ставила на место кровати коробку
-    # (/test/t32f). Сторож выключен (`BEDROOM_MESH_GATE=0`) — прежняя проверка индекса прода
+    # (/test/t32f). Сторож выключен (`<ТИП>_MESH_GATE=0`) — прежняя проверка индекса прода
     feed_gate = ((lambda s: '' if s.get('msid') else 'нет модели') if any_mesh
                  else gate or (lambda s: '' if s.get('msid') in _mesh_index() else 'нет в индексе прода'))
     # фото живое — поле базы (`room_catalog.photo_alive` / `products.photo_alive`, писатель `img_alive.py`), не «живо по
     # умолчанию»: мёртвая ссылка CDN давала пустую карточку в ленте замен (T-20261106-84)
     from img_alive import dead_room_photos
     dead = dead_room_photos()
-    bf = DB.feeds(bank, bcat, bed_msid, feed_gate, alive=lambda u: u not in dead)
+    bf = R.feeds(spec, bank, cat, bed_msid, feed_gate, alive=lambda u: u not in dead)
+    marked = 0
+    if any_mesh or not gate:
+        for role, rows in bf.items():
+            for row in rows:
+                if (w := no_mesh(role, row)):
+                    row['no_mesh'] = w
+                    marked += 1
     # КЛЮЧ «ТИП КОМНАТЫ + РОЛЬ» (T-20261106-77, Codex): прежний `setdefault(role, rows)` отдавал общей роли (ковёр) ленту гостиной,
-    # а спальня свою теряла. Ленты гостиной не трогаем — у неё голая роль (`DB.room_key`)
-    DB.merge_room_feeds(feeds, 'bedroom', bf)
-    print(f'спальни: включены {on}, банк {len(bank)} записей, вариантов {made}; ленты '
+    # а спальня свою теряла. Ленты гостиной не трогаем — у неё голая роль (`demo_room.room_key`)
+    R.merge_room_feeds(feeds, room_type, bf)
+    print(f'{A.TITLE}: включены {on}, банк {len(bank)} записей, вариантов {made}; ленты '
           + (', '.join(f'{r} {len(x)}' for r, x in sorted(bf.items())) or 'пусто')
           + (' (без проверки моделей — сборка рядом)' if any_mesh else '')
+          + (f', без модели (метка no_mesh) {marked}' if marked else '')
           + (f"; сторож {gate.mode}, разворот не решён у {unresolved} предметов вариантов" if gate else ''), flush=True)
-    return geos, DB.room_bands(bank, geos)
+    return geos, R.room_bands(spec, bank, geos)
 
 
 def build() -> dict:
@@ -1601,8 +1714,7 @@ def build() -> dict:
             # высота потолка квартиры (реестр) — 3D-комната и камера страницы (`room.height_cm ?? 270`)
             **({'height_cm': demo_ceiling()} if demo_ceiling() else {})}
     flags = rooms_on(apt)
-    bcat = bedroom_catalog()
-    extra_geo, rules_extra = bedroom_variants(apt, flags, variants, feeds, incomplete, room, bcat)
+    extra_geo, rules_extra, cats = room_showcases(apt, flags, variants, feeds, incomplete, room)
     return {'room': room,
             # ГЕОМЕТРИЯ КАЖДОЙ КОМНАТЫ ВИТРИНЫ (onb-07 основа, ADR-0330 п.3): вариант обставляет `rooms_geo[v.room_id]`; `room` —
             # псевдоним гостиной для старых читателей (тот же объект: проёмы кадра и отделка ниже дописываются один раз)
@@ -1618,7 +1730,7 @@ def build() -> dict:
             # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных
             # остаётся широкой (`DEMO_ENV`), страница фильтрует по полосе, пока включён чип «Подходящие по размеру»
             'rules': {**_rules(), 'slot_band_cm': {**_slot_band(liv), **rules_extra}, 'soft_roles': soft_roles()},
-            'bedroom_catalog': bcat,
+            **cats,
             # ОПРОС-ЗНАКОМСТВО (onb-03 Т1, ADR-0330): правило и тексты вопросов — `rules/quiz.json` целиком (страница: `D.quiz`, подбор —
             # блок QUIZPICK). Показ решает флаг квартиры в карточке `/api/apartments` (`quiz.enabled`) или `?quiz=1`, не наличие правила
             'quiz': json.load(open(os.path.join(HERE, 'rules', 'quiz.json'), encoding='utf-8')),
@@ -1730,7 +1842,7 @@ def cache_images(data: dict) -> dict:
         for it in v['items'] + (v.get('decor') or []):
             if (it.get('sku') or {}).get('img'):
                 urls.add(it['sku']['img'])
-    for lst in ((data.get('bedroom_catalog') or {}).get('roles') or {}).values():
+    for lst in [x for c in room_catalogs(data) for x in (c.get('roles') or {}).values()]:
         for p in lst:
             if p.get('img'):
                 urls.add(p['img'])
@@ -1810,11 +1922,11 @@ def cache_images(data: dict) -> dict:
             sk = x.get('sku') or {}
             if sk.get('img'):
                 sk['img'] = got.get(sk['img']) or sk['img']
-    bc = (data.get('bedroom_catalog') or {}).get('roles') or {}
-    for role in list(bc):                       # спальня: товар без живого фото не показываем
-        for p in bc[role]:
-            fix(p)
-        bc[role] = [p for p in bc[role] if p.get('img')]
+    for bc in [c.get('roles') or {} for c in room_catalogs(data)]:
+        for role in list(bc):                   # каталог комнаты: товар без живого фото не показываем
+            for p in bc[role]:
+                fix(p)
+            bc[role] = [p for p in bc[role] if p.get('img')]
     # ТОВАР БЕЗ ФОТО В ВЫБОРКЕ НЕ УЧАСТВУЕТ (владелец 26.08): выборку пересчитываем ПОСЛЕ
     # проверки картинок, иначе половина ленты — пустые карточки.
     dropped = capped = 0
@@ -2080,6 +2192,24 @@ def room_ir(room: dict, root: str, tag: str = '') -> None:
         print(f'WARN:fixtures_ir: {tag}плинтус/карниз/светильник не посчитались (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
 
 
+def rt_table_side() -> str:
+    """ТАБЛИЦА ЛЁГКИХ КОПИЙ У СБОРКИ РЯДОМ (T-20261107-05/2). `rt-meshes.json` кладёт в папку витрины не эта сборка, а публикация
+    копий (`tools/assets/publish_rt.sh`). У сборки для /test/ её не было — страница (`rtMeshes`) получала 404, сцена брала тяжёлые
+    исходники галереи `/test/mesh-pilot10/<id>/model.glb` вместо `/rt/`, а у товаров без модели — ещё и 404 на каждый. Копия таблицы
+    витрины — только когда своей нет; папку витрины не трогает. Что сделано — строкой (для журнала)."""
+    if _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
+        return ''
+    dst, src = os.path.join(OUT, 'rt-meshes.json'), os.path.join(_BP.DEMO_OUT_DEFAULT, 'rt-meshes.json')
+    if os.path.exists(dst):
+        return 'своя'
+    if not os.path.exists(src):
+        print(f'WARN:rt_table: у витрины нет {src} — сцена /test/ возьмёт исходники галереи', flush=True)
+        return 'нет'
+    _AIO.write_text(dst, open(src, encoding='utf-8').read())
+    print(f'таблица лёгких копий: копия витрины → {dst}', flush=True)
+    return 'копия'
+
+
 def main() -> None:
     if '--publish' in sys.argv and not _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
         # publish_demo.sh публикует ПАПКУ ВИТРИНЫ, а не OUT: сборка рядом (копия банка, проверка) на прод не едет
@@ -2090,6 +2220,7 @@ def main() -> None:
     src = os.path.join(HERE, 'flat215-demo', 'index.html')
     if os.path.exists(src):
         _AIO.write_text(os.path.join(OUT, 'index.html'), open(src, encoding='utf-8').read())
+    rt_table_side()
     # ДВИЖОК ЖИВОЙ СЦЕНЫ (demo-01): тот же исходник, что /flat (`lib/viewer3d`), собирается рядом со страницей
     # (`lib/scene.<версия>.js` + `lib/scene.json`). Не собрался — остаётся вчерашний файл, страница работает с ним
     # или уходит на серверный эскиз; громко, а не молча.
