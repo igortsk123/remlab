@@ -79,6 +79,18 @@ if (shared && list.some(onSpare) && list.some((v) => !onSpare(v))) {
 }
 // обложка без главной вещи комнаты (T-20261107-01, `camPairAll`: ни в одном виде пары она не видна на 2/3) — громко в лог сборки
 if (shared && all.posterMiss) console.log(`WARN:demo_cams: ${rid} — обложка без главной вещи комнаты (${all.how.split(", главное ")[1] ?? ""})`);
+// ВИДЫ С ДВУХ КОНЦОВ КОМНАТЫ (`ends` зоны, T-20261107-30, владелец TG 345; ведущий: вариант А): одной пары «с двух концов» на все стили
+// нет (`camPairAll` вернул прежнюю с `endsMiss`) — у каждого стиля своя пара с двух концов; сравнение стилей с одной точки уступает
+// требованию «с 2 разных сторон, чтоб разглядывать». Стиль, у которого и своей нет, — прежняя пара (`endsMiss`) и громкое WARN с его именем.
+// Общая пара остаётся, где она с двух концов (спальня 2 07.11)
+if (shared && all.endsMiss) {
+  const own = list.map((v) => api.camPairAll([itsOf(v)], W, H, corners));
+  const shPer = perOf;
+  perOf = (vi) => (own[vi] ? { ...own[vi], ...own[vi].per[0] } : shPer(vi));
+  console.log(`${rid}: одной пары с двух концов комнаты на ${list.length} стилей нет — своя пара у каждого стиля`);
+  const miss = list.filter((_, vi) => !own[vi] || own[vi].endsMiss).map((v) => v.style || v.id);
+  if (miss.length) console.log(`WARN:demo_cams: ${rid} — виды с двух концов комнаты не вышли у стилей ${miss.join(", ")}: прежняя пара`);
+}
 D.cams_shared = D.cams_shared || shared;
 for (const [vi, v] of list.entries()) {
   const pr = shared ? { ...all, ...(perOf(vi) ?? {}) } : api.camPair(itsOf(v), W, H, corners);
@@ -90,6 +102,7 @@ for (const [vi, v] of list.entries()) {
   v.cam_level = pr.level;
   v.cam_cover = { covered: (pr.covered ?? []).length, missing: (pr.missing ?? []).map((m) => ({ id: m.id, role: m.role, must: m.must, reason: m.reason })) };
   console.log(`${v.id}: ${pr.how ?? ""}${(pr.missing ?? []).length ? ` — не видно: ${pr.missing.map((m) => `${m.role} (${m.reason})`).join(", ")}` : ""}`);
+  if (!shared && pr.endsMiss) console.log(`WARN:demo_cams: ${v.id} — виды с двух концов комнаты не вышли, взята прежняя пара`);
   n += 1;
 }
 }

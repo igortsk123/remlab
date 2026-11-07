@@ -2342,6 +2342,9 @@ const CAM_ZONES={
     // виды — разные стороны комнаты: направления расходятся не меньше чем на `apart`° (без этого «больше мебели» ставило вид 2
     // в тот же угол, что вид 1, с поворотом на 19°) — или на `apartNear.deg`°, если точки дальше `apartNear.cm` (T-32/3)
     apart:60, apartNear:{deg:30, cm:100},
+    // и с ДВУХ КОНЦОВ комнаты (`camEndsOk`, T-20261107-30, владелец 07.11 TG 345): взгляды расходятся ≥ `deg`°, точки по разные стороны
+    // середины длинной оси, каждая не ближе `mid` см к ней
+    ends:{deg:120, mid:0},
     // спальня 2,93 м в глубину: от входа до кровати меньше 1,5 м, низ кровати у пола всегда уходит за нижний край кадра (поза 135 см)
     cover:0.75, anyOf:['тумба прикроватная'],
     // T-32/6 (ведущий: «комод срезан левым краем, в левом верхнем углу крючок карниза»): крупное — с запасом кромки `edge` от бокового
@@ -2471,11 +2474,33 @@ const camBits=n=>{let k=0; while(n){n&=n-1;k++;} return k;};
 // КАЖДОГО; ключ пары — ХУДШИЙ по вариантам `pairKey`, нарушения и загромождение — худшие, балл кадра — наименьший. Один вариант —
 // ровно прежний подбор (`camPair`). Точка (x, y, rot, fov) у всех одна; окно превью и сдвиг телефона — по мебели варианта (`per`)
 function camPair(its,W,H,cs){return camPairAll([its],W,H,cs);}
-// `opt.keep[v]` — маска единиц варианта v, которые пара обязана покрыть (T-20261107-11/3: стиль на запасном не ухудшает покрытие
-// остальных — `demo-cams.mjs`); такой пары нет — null, а не углы
+// ВИДЫ С ДВУХ КОНЦОВ КОМНАТЫ (`ends` зоны, T-20261107-30, владелец 07.11 TG 345: «виды в спальнях должны быть с 2 разных сторон спальни,
+// чтоб разглядывать её»; до — оба вида спальни 1 у восточного окна, 31° друг от друга, кнопки «Со стороны окна, слева / справа»):
+// направления расходятся не меньше чем на `ends.deg`° И точки по разные стороны середины длинной оси комнаты, каждая не ближе `ends.mid` см
+// к середине. Пары с этим правилом нет или она хуже прежней по видам зоны / обязательному — прежняя пара (`apart`) с пометкой `endsMiss`
+// (`demo-cams.mjs` пишет громкое WARN в лог сборки), не молча. Зона без `ends` (гостиная, прихожая, кухня) — подбор как был
+function camEndsOk(A,B,W,H,E){
+  if(!E)return true;
+  const lx=W>=H, m=(lx?W:H)/2, a=(lx?A.x:A.y)-m, b=(lx?B.x:B.y)-m;
+  return camAng(A.rot,B.rot)>=E.deg&&a*b<0&&Math.min(Math.abs(a),Math.abs(b))>=(E.mid||0);
+}
 function camPairAll(L,W,H,cs,opt){
+  const E=camZ().ends;
+  if(!E||!CAM_PAIR_ON||(opt&&opt.noEnds))return camPairAll0(L,W,H,cs,opt);
+  const r=camPairAll0(L,W,H,cs,opt), bad=p=>!p||p.corner||p.zoneMiss||p.mm>0;
+  if(!bad(r))return r;
+  const old=camPairAll0(L,W,H,cs,Object.assign({},opt,{noEnds:true}));
+  // прежняя пара лучше: у новой нет пары вовсе / углы, у прежней есть виды зоны, а у новой нет, или у новой больше непокрытого обязательного
+  const worse=old&&!old.corner&&(!r||r.corner||(r.zoneMiss&&!old.zoneMiss)||(!!r.zoneMiss===!!old.zoneMiss&&r.mm>old.mm));
+  if(!worse)return r;
+  old.endsMiss=true; old.how=`разные концы комнаты (≥${E.deg}°, по обе стороны середины) — без потери покрытия нет, прежняя пара: ${old.how}`;
+  return old;
+}
+// `opt.keep[v]` — маска единиц варианта v, которые пара обязана покрыть (T-20261107-11/3: стиль на запасном не ухудшает покрытие
+// остальных — `demo-cams.mjs`); такой пары нет — null, а не углы. `opt.noEnds` — без правила `ends` зоны (запасной ход `camPairAll`)
+function camPairAll0(L,W,H,cs,opt){
   if(!CAM_PAIR_ON)return camPairCorner(L[0],W,H,cs);
-  const KEEP=(opt&&opt.keep)||null;
+  const KEEP=(opt&&opt.keep)||null, ENDS=(opt&&opt.noEnds)?null:camZ().ends;
   const V=L.length, UN=L.map(camUnits), U=UN.map(u=>u.length);
   const mustM=UN.map(us=>us.reduce((a,u,k)=>u.must&&k<31?a|(1<<k):a,0)), optM=UN.map(us=>us.reduce((a,u,k)=>!u.must&&k<31?a|(1<<k):a,0));
   const gen=door=>{
@@ -2489,7 +2514,7 @@ function camPairAll(L,W,H,cs,opt){
         cut:Math.max(...per.map(p=>p.cut)),tall:per.map(p=>p.tall).find(Boolean)||''}));}
     return out;};
   const base=gen(false), door=gen(true);
-  if(!base.length&&!door.length){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; return r;}
+  if(!base.length&&!door.length){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; r.corner=true; return r;}
   const all=base.concat(door), N=all.length, Q=U.map(u=>new Float32Array(N*u)), bits=L.map(()=>new Int32Array(N)), ZV=camZ().views;
   const CV=ZV?L.map(()=>new Array(N)):null;   // покрытие точки — `need` и `more` видов зоны
   all.forEach((c,n)=>L.forEach((its,v)=>{const cv=CV?camCoverP(c,its,W,H):camCover(c,its,W,H); let b=0; if(CV)CV[v][n]=cv;
@@ -2502,9 +2527,11 @@ function camPairAll(L,W,H,cs,opt){
   // РАЗНЫЕ СТОРОНЫ (`apart` зоны): направления расходятся на `apart`°, ИЛИ на `apartNear.deg`° при точках дальше `apartNear.cm`
   // (T-32/3, ведущий: разные точки съёмки тоже дают разный вид)
   const APART=camZ().apart||0, AN=camZ().apartNear;
-  const apartOk=(A,B)=>{const d=camAng(A.rot,B.rot); return d>=APART||(!!AN&&d>=AN.deg&&Math.hypot(A.x-B.x,A.y-B.y)>=AN.cm);};
+  // `ends` зоны (`camEndsOk`) — ещё и с двух концов комнаты; держится и без видов зоны (пары «вход + встречный» нет — концы те же)
+  const endsOk=(A,B)=>camEndsOk(A,B,W,H,ENDS);
+  const apartOk=(A,B)=>{const d=camAng(A.rot,B.rot); return endsOk(A,B)&&(d>=APART||(!!AN&&d>=AN.deg&&Math.hypot(A.x-B.x,A.y-B.y)>=AN.cm));};
   const keepOk=(a,b)=>!KEEP||b<0||L.every((_,v)=>!KEEP[v]||((bits[v][a]|bits[v][b])&KEEP[v])===KEEP[v]);
-  const okV=(a,b)=>!vOk||(b<0?(vOk[a][0]||vOk[a][1]):(((vOk[a][0]&&vOk[b][1])||(vOk[b][0]&&vOk[a][1]))&&apartOk(all[a],all[b])));
+  const okV=(a,b)=>!vOk?(b<0||endsOk(all[a],all[b])):(b<0?(vOk[a][0]||vOk[a][1]):(((vOk[a][0]&&vOk[b][1])||(vOk[b][0]&&vOk[a][1]))&&apartOk(all[a],all[b])));
   const st=L.map(()=>new Map()), stat=(c,v)=>{v=v||0; const its=L[v]; if(!st[v].has(c)){const s0=camStats(c,its,W,H); s0.keyVis=camKeyVis(c,its,s0);
     s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L-s0.nearest)/100; s0.close2=Math.max(0,100-s0.nearest)/100;
     s0.keyMiss=Math.max(0,CAM_KEY_SHOW_MIN-camKeyShow(c,its,s0));
@@ -2579,16 +2606,18 @@ function camPairAll(L,W,H,cs,opt){
     const pool=full.length?full.sort((x,y)=>(x[1].key[2]-y[1].key[2])||(x[1].pen-y[1].pen))
       :res.sort((x,y)=>cmp(x[1].key,y[1].key)||(x[1].pen-y[1].pen));
     if(pool.length)[stage,pick]=pool[0];}
-  if(!pick){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (пары нет)'; return r;}
+  if(!pick){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (пары нет)'; r.corner=true; return r;}
   // ДОВОРОТ ±CAM_NUDGE° (d8 17.10: в сканди ТВ срезан краем вида 2): шаг перебора 5°, поэтому после выбора каждый вид пробует
   // повернуться на 1…6°, если так меньше крупной мебели срезано краем, правила кадра держатся, а покрытие пары не теряет ни одной единицы
   // (у нескольких вариантов — во всех)
   const covBits=(cv,v)=>{let b=0; UN[v].forEach((u,k)=>{if(camUnitQ(cv,u)>=1-1e-9&&k<31)b|=(1<<k);}); return b;};
   const sideCut=c=>vmax(v=>camSideCut(c,L[v]));
-  const nudge=(c,otherBits,first)=>{let bestC=c, bc=sideCut(c);
+  // `other` — вторая точка пары: доворот не сводит виды с двух концов комнаты ближе `ends` зоны (T-20261107-30)
+  const nudge=(c,otherBits,first,other)=>{let bestC=c, bc=sideCut(c);
     const need=L.map((its,v)=>covBits(camCover(c,its,W,H),v)|otherBits[v]);
     for(let d=-CAM_NUDGE; d<=CAM_NUDGE; d++){if(!d)continue; const q=Object.assign({},c,{rot:c.rot+d});
       const k=sideCut(q); if(k>bc||(k===bc&&Math.abs(d)>=Math.abs(bestC.rot-c.rot)))continue;
+      if(!endsOk(q,other))continue;
       let ok=true;
       for(let v=0;v<V&&ok;v++){const its=L[v], b0=camBlock(q,its);
         if(Math.max(b0.cov/CAM_BLOCK,camTvBack(q,its)?2:0,camGraze(q,W,H))>1||camHard(q,its,0,CAM_B_CLEAR)||camFixNear(q)||camRodHook(q)){ok=false; break;}
@@ -2602,7 +2631,7 @@ function camPairAll(L,W,H,cs,opt){
       if(!ok)continue;
       bestC=q; bc=k;}
     return bestC;};
-  let a2=nudge(pick.c1,L.map((_,v)=>bits[v][pick.b]),true), b2=nudge(pick.c2,L.map((its,v)=>covBits(camCover(a2,its,W,H),v)),false);
+  let a2=nudge(pick.c1,L.map((_,v)=>bits[v][pick.b]),true,pick.c2), b2=nudge(pick.c2,L.map((its,v)=>covBits(camCover(a2,its,W,H),v)),false,a2);
   // ДОВОДКА ТОЧКИ ВИДА ЗОНЫ (`slide` зоны, T-32/6): веер поворотов идёт шагом 5°, а у стены ближе CAM_WALL_MID лишний градус уже
   // «стена вплотную» (`camGraze`) — в спальне 1 вид 1 с комодом целиком и окном под карнизом лежал между узлами. Каждый вид пробует
   // сдвиг точки до `slide.cm` (шаг `slide.step`) и поворот до ±CAM_NUDGE°: те же сторожа, что у точки и доворота (физика, у окна, стена
@@ -2653,7 +2682,7 @@ function camPairAll(L,W,H,cs,opt){
   const [mk0,mm,mc,dm,mo]=pick.key;
   return {level, cams:per[0].cams,
     how:`${mm?'недобор':'пара'}: стадия ${stage},${ZV?(zoneMiss?' виды зоны: пары нет — без них,':' виды зоны,'):''} не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}${MQ[0]===null?'':`, главное в C1 ${Math.round(MQ[0]*100)/100} / C2 ${Math.round(MQ[1]*100)/100}${posterMiss?' — ОБЛОЖКА БЕЗ ГЛАВНОГО':''}`}`,
-    posterMiss,
+    posterMiss, zoneMiss, mm,
     covered:per[0].covered, missing:per[0].missing, stats:per[0].stats, per};
 }
 // ОКНО ПРЕВЬЮ (demo-22 п.2) — для каждого вида и пропорции окна заранее, по маске той же расстановки (`camStats().ext` — рамки
@@ -7124,7 +7153,14 @@ function vwCamNames(short){
   const ops=(R.openings||[]).filter(o=>(o.kind==='window'||o.kind==='door')&&o.width_cm);
   const seg=(px,py,g)=>{const vx=g.x2-g.x1, vy=g.y2-g.y1, L=vx*vx+vy*vy||1, t=Math.max(0,Math.min(1,((px-g.x1)*vx+(py-g.y1)*vy)/L));
     return Math.hypot(px-(g.x1+t*vx),py-(g.y1+t*vy));};
-  const bind=c=>{let b=null; ops.forEach(o=>{const g=wallSeg(o.wall,+o.offset_cm||0,+o.width_cm), d=seg(c.x,c.y,g); if(d<=CAM_NAME_NEAR&&(!b||d<b.d))b={o,g,d};}); return b;};
+  // ВИДЫ С ДВУХ КОНЦОВ (`ends` зоны, T-20261107-30): точки по разные стороны середины длинной оси — имя вида даёт ближайший проём
+  // СВОЕЙ половины (по центру проёма), без порога CAM_NAME_NEAR. Иначе точка у двери в 224 см (спальня 1, современный) звалась по
+  // северному окну чужой половины, обе кнопки выходили «окном» и падали в «Ракурс 1 / 2». В своей половине проёма нет — прежнее правило
+  const lx=(+R.w||0)>=(+R.d||0), mid=(lx?+R.w:+R.d)/2, half=(x,y)=>Math.sign((lx?x:y)-mid);
+  const own=!!camZ().ends&&half(cs[0].x,cs[0].y)*half(cs[1].x,cs[1].y)<0;
+  const near=(c,ok,lim)=>{let b=null; ops.forEach(o=>{const g=wallSeg(o.wall,+o.offset_cm||0,+o.width_cm), d=seg(c.x,c.y,g);
+    if(d<=lim&&ok(g)&&(!b||d<b.d))b={o,g,d};}); return b;};
+  const bind=c=>(own&&near(c,g=>half((g.x1+g.x2)/2,(g.y1+g.y2)/2)===half(c.x,c.y),Infinity))||near(c,()=>true,CAM_NAME_NEAR);
   const nm=o=>o.kind==='window'?(short?(EN?'Window':'От окна'):(EN?'From the window':'Со стороны окна'))
     :(short?(EN?'Door':'От двери'):(EN?'From the door':'Со стороны двери'));
   const b=cs.map(bind);

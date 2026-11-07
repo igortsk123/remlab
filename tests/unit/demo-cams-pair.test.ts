@@ -456,3 +456,94 @@ describe("одна пара: стиль на запасном не ухудша�
     }
   }, 300_000);
 });
+
+// ВИДЫ СПАЛЬНИ С ДВУХ КОНЦОВ КОМНАТЫ (T-20261107-30, владелец 07.11 TG 345: «эти виды в спальнях должны быть с 2 разных сторон спальни,
+// чтоб разглядывать её»). Слепки — живой /demo 07.11 (одна расстановка на 5 стилей). До правила спальня 1: C1 (530,250,−59°) и
+// C2 (554,109,−90°) — обе у восточного окна, 31°, кнопки «Со стороны окна, слева / справа». Правило — `ends` зоны (`camEndsOk`)
+describe("камеры демо: спальни — виды с двух концов комнаты", () => {
+  type Z = { deg: number; mid?: number };
+  type PairE = Pair & { per: (Omit<Pair, "level" | "how">)[]; endsMiss?: boolean; zoneMiss?: boolean; mm?: number };
+  const mk = (fx: Fx) => new Function("D", `${block};return {camPairAll,camPairAll0,camEndsOk,camViewFit,camCoverP,camAng,CAM_ZONES};`)({ room: fx.room }) as {
+    camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[]) => PairE;
+    camPairAll0: (L: It[][], W: number, H: number, cs: { x: number; y: number }[], opt?: { noEnds?: boolean }) => PairE;
+    camEndsOk: (A: Cam, B: Cam, W: number, H: number, E: Z | null) => boolean;
+    camViewFit: (vw: unknown, c: Cam, its: It[], cv: unknown) => boolean;
+    camCoverP: (c: Cam, its: It[], W: number, H: number) => unknown;
+    camAng: (a: number, b: number) => number;
+    CAM_ZONES: Record<string, { views?: unknown[]; ends?: Z }>;
+  };
+  const ROOMS = [["спальня 1", "tests/fixtures/demo-bedroom-1-one-1107.json"], ["спальня 2", "tests/fixtures/demo-bedroom-2-one-1107.json"]] as const;
+  it("правило — только у спальни: у гостиной, прихожей и кухни `ends` нет (их пары не меняются)", () => {
+    const api = mk(load(ROOMS[0][1]));
+    expect(api.CAM_ZONES.bedroom!.ends!.deg).toBeGreaterThanOrEqual(120);
+    for (const k of ["living", "hall", "kitchen"]) expect(api.CAM_ZONES[k]!.ends, k).toBeUndefined();
+  });
+  it("мера концов: по разные стороны середины длинной оси, угол ≥ deg, отступ от середины ≥ mid", () => {
+    const api = mk(load(ROOMS[0][1])), E = { deg: 120, mid: 50 };
+    const at = (x: number, y: number, rot: number) => ({ name: "C", x, y, rot, fov: 72 }) as Cam;
+    // прежняя пара спальни 1: обе точки у восточного торца, 31°
+    expect(api.camEndsOk(at(530, 250, -59), at(554, 109, -90), 597, 293, E)).toBe(false);
+    expect(api.camEndsOk(at(80, 250, 60), at(530, 60, -120), 597, 293, E)).toBe(true);
+    expect(api.camEndsOk(at(280, 250, 60), at(530, 60, -120), 597, 293, E)).toBe(false);   // у середины ближе mid
+    expect(api.camEndsOk(at(80, 250, 60), at(530, 60, 100), 597, 293, E)).toBe(false);     // 40° — не встречные
+    expect(api.camEndsOk(at(80, 250, 60), at(530, 60, 100), 597, 293, null)).toBe(true);   // зона без правила
+  });
+  // пара с двух концов не хуже прежней: те же виды зоны (есть/нет), обязательного не покрыто не больше; виды зоны — в каждом варианте
+  const check = (api: ReturnType<typeof mk>, fx: Fx, L: It[][], p: PairE, old: PairE, tag: string) => {
+    const { w: W, d: H } = fx.room, E = api.CAM_ZONES.bedroom!.ends!, [a, b] = p.cams as [Cam, Cam];
+    expect(p.endsMiss, `${tag}: ${p.how}`).toBeFalsy();
+    expect(api.camEndsOk(a, b, W, H, E), `${tag}: C1 (${a.x},${a.y},${a.rot}) C2 (${b.x},${b.y},${b.rot})`).toBe(true);
+    expect(api.camAng(a.rot, b.rot)).toBeGreaterThanOrEqual(E.deg);
+    expect(p.zoneMiss ?? false, tag).toBe(old.zoneMiss ?? false);
+    expect(p.mm ?? 0, tag).toBeLessThanOrEqual(old.mm ?? 0);
+    if (!p.zoneMiss) {
+      const [v1, v2] = api.CAM_ZONES.bedroom!.views!;
+      for (const list of L) {
+        const fit = (vw: unknown, k: number) => api.camViewFit(vw, p.cams[k]!, list, api.camCoverP(p.cams[k]!, list, W, H));
+        expect((fit(v1, 0) && fit(v2, 1)) || (fit(v1, 1) && fit(v2, 0)), tag).toBe(true);
+      }
+    }
+    for (const [vi, pv] of p.per.entries())
+      expect(pv.missing.filter((m) => m.must).length, `${tag} ${vi}`).toBeLessThanOrEqual(old.per[vi]!.missing.filter((m) => m.must).length);
+  };
+  it("спальня 2: одна пара на 5 стилей — с двух концов, покрытие не хуже прежней пары", () => {
+    const fx = load(ROOMS[1][1]), api = mk(fx), { w: W, d: H } = fx.room, L = fx.variants.map(its);
+    check(api, fx, L, api.camPairAll(L, W, H, corners(W, H)), api.camPairAll0(L, W, H, corners(W, H), { noEnds: true }), "спальня 2");
+  }, 900_000);
+  // спальня 1: шкаф и комод у западного торца — вид 2 возможен только с востока; вид 1 с запада не годен во всех 5 стилях одной точкой
+  // (минимализм — низкая кровать, сбоку видна на 21 %; у сканди и джапанди точка «из ног» в 17 см от комода) — у каждого стиля своя пара
+  // (`demo-cams.mjs`, ведущий: вариант А). Здесь — самые трудные стили: сканди (2 годные западные точки) и минимализм (4)
+  for (const style of ["сканди", "минимализм"]) {
+    it(`спальня 1, ${style}: своя пара — с двух концов, вид 1 и вид 2 зоны, покрытие не хуже прежней`, () => {
+      const fx = load(ROOMS[0][1]), api = mk(fx), { w: W, d: H } = fx.room, L = [its(fx.variants.find((v) => v.style === style)!)];
+      check(api, fx, L, api.camPairAll(L, W, H, corners(W, H)), api.camPairAll0(L, W, H, corners(W, H), { noEnds: true }), `спальня 1 ${style}`);
+    }, 900_000);
+  }
+  it("пары с двух концов без потери покрытия нет — прежняя пара с пометкой endsMiss (demo-cams пишет WARN), не молча", () => {
+    const fx = load(ROOMS[0][1]), api = mk(fx), { w: W, d: H } = fx.room, L = [its(fx.variants[0]!)];
+    api.CAM_ZONES.bedroom!.ends = { deg: 179, mid: 290 };   // недостижимо: точки у самых торцов и строго встречные
+    const p = api.camPairAll(L, W, H, corners(W, H)), old = api.camPairAll0(L, W, H, corners(W, H), { noEnds: true });
+    expect(p.endsMiss).toBe(true);
+    expect(p.how).toMatch(/разные концы комнаты .* прежняя пара/);
+    expect(p.cams.map((c) => [c.x, c.y, c.rot, c.fov])).toEqual(old.cams.map((c) => [c.x, c.y, c.rot, c.fov]));
+  }, 900_000);
+  // ПОДПИСИ КНОПОК (`vwCamNames`): у видов с двух концов имя даёт проём своей половины. Без этого у 4 стилей спальни 1 из 5 точка C1 у двери
+  // (224 см — за порогом CAM_NAME_NEAR 220) звалась по северному окну, обе кнопки — «окно», и страница ставила «Ракурс 1 / 2».
+  // Пары — из сборки с правилом 07.11 (`demo-cams.mjs` на живых данных)
+  const namesSrc = html.slice(html.indexOf("const CAM_NAME_NEAR="), html.indexOf("// ПОДПИСИ КНОПОК РАКУРСА ЦЕЛИКОМ"));
+  const namesOf = (room: Fx["room"]) => {
+    const f = new Function("D", `${block};const LANG='ru';let cams=null,CS=[];const loadCams=()=>CS;function curRoom(){return D.room;}
+${namesSrc};return (cs)=>{CS=cs;return vwCamNames();};`)({ room: room }) as (cs: Cam[]) => string[];
+    return (...xy: [number, number][]) => f(xy.map(([x, y], k) => ({ name: `C${k + 1}`, x, y, rot: 0, fov: 72 })));
+  };
+  it("подписи: спальня 1 — у всех 5 стилей «Со стороны двери / окна»; прежняя пара — прежние «окна, слева / справа»", () => {
+    const nm = namesOf(load(ROOMS[0][1]).room);
+    const pairs: [number, number][][] = [[[78, 165], [554, 190]], [[77, 224], [554, 190]], [[77, 230], [554, 117]], [[71, 218], [548, 170]], [[71, 222], [554, 129]]];
+    for (const [a, b] of pairs) expect(nm(a!, b!), `C1 (${a})`).toEqual(["Со стороны двери", "Со стороны окна"]);
+    expect(nm([530, 250], [554, 109])).toEqual(["Со стороны окна, слева", "Со стороны окна, справа"]);
+  });
+  it("подписи: спальня 2 и гостиная — как до правила", () => {
+    expect(namesOf(load(ROOMS[1][1]).room)([43, 83], [387, 103])).toEqual(["Со стороны окна", "Со стороны двери"]);
+    expect(namesOf(load("tests/fixtures/demo-layouts-neo-0711.json").room)([409, 205], [346, 322])).toEqual(["Со стороны двери, справа", "Со стороны двери, слева"]);
+  });
+});

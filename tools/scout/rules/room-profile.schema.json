@@ -45,7 +45,7 @@
                                                                "required": ["core", "key", "show", "must"],
                                                                "properties": {"core": {"type": "object"}, "key": {"type": "array"},
                                                                               "show": {"type": "array"}, "must": {"type": "array"},
-                                                                              "views": {"type": "array"}, "apart": {"type": "number"}, "apartNear": {"type": "object"}, "poster": {"type": "string", "enum": ["more"]}, "cover": {"type": "number"},
+                                                                              "views": {"type": "array"}, "apart": {"type": "number"}, "apartNear": {"type": "object"}, "ends": {"type": "object"}, "poster": {"type": "string", "enum": ["more"]}, "cover": {"type": "number"},
                                                                               "anyOf": {"type": "array"}, "ready": {"type": "boolean"},
                                                                               "edge": {"type": "number"}, "rodHook": {"type": "boolean"}, "grid": {"type": "array"}, "slide": {"type": "object"}}}}}},
   "asset_strategies": {"description": "стратегия 3D-ассета по роли (канон rules/asset-strategies.json)"}
