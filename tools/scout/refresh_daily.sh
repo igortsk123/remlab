@@ -565,8 +565,13 @@ step demo_warm bash ../ops/demo-warm.sh
 # вчерашнюю расстановку. Платный шаг — под openai.off. Итог — строка DIGEST, сбой — WARN:demo_real (шаг warn, не FAIL)
 # Публикация не прошла — платной съёмки нет, но бесплатная проверка `--dry` идёт (room-photos-07 п.5, T-20261106-88): строка
 # «пустые пары комната × стиль» по ОПУБЛИКОВАННОМУ (что видит покупатель) — в дайджесте каждую ночь, а не только после публикации
+# Платные шаги выключены (openai.off) — та же бесплатная проверка (T-20261107-20): иначе строки «пустые пары» в такую ночь не было бы
 case "${RES[flat215_publish]:-}" in
-  ok|warn) paid_step demo_real bash ../ops/demo-real.sh ;;
+  ok|warn) paid_step demo_real bash ../ops/demo-real.sh
+     if [ "${OPENAI_OFF:-0}" = "1" ]; then
+       echo "DIGEST:фото нейросети: пропущено — платные шаги выключены (openai.off)" >> "$LOG"
+       step demo_real_check bash ../ops/demo-real.sh --dry
+     fi ;;
   *) echo "DIGEST:фото нейросети: пропущено — публикация демо не прошла" >> "$LOG"
      step demo_real_check bash ../ops/demo-real.sh --dry ;;
 esac
