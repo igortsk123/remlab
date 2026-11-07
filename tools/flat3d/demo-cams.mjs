@@ -48,13 +48,40 @@ const W = geo.w;
 const H = geo.d;
 const corners = [{ x: p, y: p }, { x: W - p, y: p }, { x: W - p, y: H - p }, { x: p, y: H - p }];
 const shared = !!D.one_layout && list.length > 1;
-const all = shared ? api.camPairAll(list.map(itsOf), W, H, corners) : null;
+let all = shared ? api.camPairAll(list.map(itsOf), W, H, corners) : null;
 if (shared) console.log(`${rid === "living" ? "" : `${rid}: `}одна пара на ${list.length} вариантов: ${all.how}`);
+// СТИЛЬ НА ЗАПАСНОМ НЕ ПОРТИТ ПОКРЫТИЕ ОСТАЛЬНЫХ (T-20261107-11/3, ведущий): неоклассика на запасном нейтральном ковре
+// (`fill[].rug_universal`, T-11/2) сдвинула общую пару, и сканди, современный и минимализм потеряли торшер. Ключ пары — худший по
+// вариантам, поэтому новый стиль с заслонённым торшером тянул всех. Правило: покрытие каждого стиля со своим набором — не хуже, чем у
+// пары без стилей на запасном. Хуже — ищем одну пару с этим условием (`camPairAll` `opt.keep`); нет такой — стили на запасном
+// получают свою пару (одна точка на все стили, demo-31, у них нарушается — громко WARN). Стилей на запасном нет или общая пара
+// никого не ухудшила — как было
+const onSpare = (v) => (v.fill ?? []).some((x) => x.rug_universal);
+let perOf = (vi) => all?.per?.[vi];
+if (shared && list.some(onSpare) && list.some((v) => !onSpare(v))) {
+  const P = list.filter((v) => !onSpare(v)), S = list.filter(onSpare);
+  const base = api.camPairAll(P.map(itsOf), W, H, corners);
+  const keep = list.map((v) => (onSpare(v) ? 0 : base.per[P.indexOf(v)].bits));
+  const worse = list.filter((v, vi) => keep[vi] && (all.per[vi].bits & keep[vi]) !== keep[vi]).map((v) => v.style || v.id);
+  if (worse.length) {
+    const kept = api.camPairAll(list.map(itsOf), W, H, corners, { keep });
+    if (kept) {
+      all = kept;
+      perOf = (vi) => all.per[vi];
+      console.log(`одна пара хуже для ${worse.join(", ")} — взята пара, где их покрытие не хуже, чем без стилей на запасном: ${all.how}`);
+    } else {
+      const own = api.camPairAll(S.map(itsOf), W, H, corners);
+      all = base;
+      perOf = (vi) => (onSpare(list[vi]) ? { ...own, ...own.per[S.indexOf(list[vi])] } : base.per[P.indexOf(list[vi])]);
+      console.log(`WARN:demo_cams: ${rid} — одной пары без ухудшения ${worse.join(", ")} нет: стили на запасном (${S.map((v) => v.style || v.id).join(", ")}) со своей парой: ${own.how}`);
+    }
+  }
+}
 // обложка без главной вещи комнаты (T-20261107-01, `camPairAll`: ни в одном виде пары она не видна на 2/3) — громко в лог сборки
 if (shared && all.posterMiss) console.log(`WARN:demo_cams: ${rid} — обложка без главной вещи комнаты (${all.how.split(", главное ")[1] ?? ""})`);
 D.cams_shared = D.cams_shared || shared;
 for (const [vi, v] of list.entries()) {
-  const pr = shared ? { ...all, ...(all.per?.[vi] ?? {}) } : api.camPair(itsOf(v), W, H, corners);
+  const pr = shared ? { ...all, ...(perOf(vi) ?? {}) } : api.camPair(itsOf(v), W, H, corners);
   v.cams = pr.cams.map((c) => ({ name: c.name, x: Math.round(c.x), y: Math.round(c.y), rot: Math.round(c.rot || 0), fov: c.fov || 72, pose: 2,
     // подбор парой (demo-12, ADR-0304, по умолчанию с 17.10) несёт сдвиг вертикального кадра телефона
     ...(typeof c.pshift === "number" ? { pshift: c.pshift } : {}), ...(c.crop ? { crop: c.crop } : {}),

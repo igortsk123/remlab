@@ -67,7 +67,11 @@ def same_shape(p: dict, place: dict | None) -> bool:
 
 
 def styles_of(demo: dict) -> list[str]:
-    return sorted({v['style'] for v in demo.get('variants') or [] if v.get('style')})
+    """Стили ленты: опубликованных вариантов И снятых сборкой как неполные (`incomplete_styles`, T-20261107-11/2). Иначе
+    круг: стиль не вышел — модели под него не выкладываются и не заказываются — стиль не выйдет и завтра (неоклассика 07.11:
+    журнальный стол с готовым мешем лежал невыложенным). У неполного стиля мест нет — каждая роль ленты одним «местом»."""
+    return sorted({v['style'] for v in demo.get('variants') or [] if v.get('style')}
+                  | {s['style'] for s in demo.get('incomplete_styles') or [] if isinstance(s, dict) and s.get('style')})
 
 
 def places(demo: dict, roles=DSP.ROLES) -> list[dict]:
@@ -181,6 +185,23 @@ def own_gen_ok(st: dict, own_gen: set):
     return lambda m: m in st and st[m][2] and m not in own_gen
 
 
+def core_publish(demo: dict, rows: list, published: set, ready: set) -> list[str]:
+    """ЯДРО НЕПОЛНОГО СТИЛЯ (T-20261107-11/2). Стиль снят сборкой как неполный (`incomplete_styles` → `missing` — роли ядра,
+    которых не хватило), а годный кандидат дозаполнения есть, но его модели нет на сервере: ворота сборки (`has_mesh` — индекс
+    прода) его не пускают, и круг не размыкается (неоклассика 07.11: столик Gatwick — меш готов, не выложен). Здесь — модели
+    кандидатов дозаполнения этих ролей и стиля (`rows` — пул дозаполнения `DSP.pool_top`, по его порядку) в конверте комнаты
+    (`DSP.fits`) с готовым мешем, которых нет на сервере. Полоса ленты здесь не нужна: дозаполнение берёт весь конверт."""
+    need = {(r, s['style']) for s in demo.get('incomplete_styles') or [] if isinstance(s, dict) and s.get('style')
+            for r in s.get('missing') or []}
+    out: list = []
+    for p in rows:
+        m = p.get('msid')
+        if ((p.get('role'), p.get('style')) in need and m in ready and m not in published and m not in out
+                and DSP.fits(p)):
+            out.append(m)
+    return out
+
+
 def load() -> dict:
     """Факты для `plan`: вчерашняя лента, места и полоса; годные в полосе из базы (ворота ленты, но и без меша) с формой
     дивана (`sofa_shape` — как у ленты); модели на сервере (`flat215_demo._mesh_index`); готовность мешей по базе.
@@ -211,6 +232,7 @@ def load() -> dict:
         own_gen = {r[0].replace(':', '_', 1) for r in db(f"select distinct sku from mesh_generations where sku in ({lit})") if r}
     own_ok = own_gen_ok(st, own_gen)
     return {'demo': demo, 'cands': cands, 'published': set(F._mesh_index()),
+            'core_rows': DSP.pool_top() if demo.get('incomplete_styles') else [],
             'ready': {k for k, (s, uri, _q) in st.items() if s == 'ready' and uri and k not in own},
             'eligible': {p['msid'] for p in cands}, 'own': own,
             'gen_ok': lambda m: own_ok(m) if m in own else (m in st and st[m][0] in GEN_STATUS and st[m][2])}
@@ -223,6 +245,7 @@ def compute() -> dict:
     res['sets'] = {'eligible': len(el), 'ready': len(el & f['ready']), 'published': len(el & f['published']),
                    'colour_own': len(f['own'])}
     res['own'] = [m for m in res['generate'] if m in f['own']]
+    res['core'] = [m for m in core_publish(f['demo'], f['core_rows'], f['published'], f['ready']) if m not in res['publish']]
     return res
 
 
@@ -231,8 +254,10 @@ def _sku(msid: str) -> str:
 
 
 def publish_skus() -> set:
-    """Модели (`mid:eid` представителя) выложить под недобор ленты — для `mesh_publish`."""
-    return {_sku(m) for m in compute()['publish']}
+    """Модели (`mid:eid` представителя) выложить под недобор ленты и под ядро неполного стиля (`core_publish`) — для
+    `mesh_publish`."""
+    res = compute()
+    return {_sku(m) for m in res['publish'] + res.get('core', [])}
 
 
 def queue() -> dict:
@@ -364,6 +389,9 @@ def report(dry: bool = False) -> int:
     print(f"[demo_band] выложить {len(res['publish'])} моделей, в очередь мешей demo {len(res['generate'])}"
           + (f" (срезано потолком {res['cut']})" if res['cut'] else '') + f"; пар без 10 и всем каталогом: {len(short)}"
           + f"; в очереди своих мешей вариантам по сторожу цвета {len(res['own'])} (отмечено в полосе {res['sets']['colour_own']})")
+    if res.get('core'):
+        print(f"[demo_band] ядро неполных стилей: выложить ещё {len(res['core'])} моделей кандидатов дозаполнения: "
+              + ', '.join(res['core'][:10]))
     if res['cut']:
         print(f"WARN:demo_band: очередь мешей demo упёрлась в потолок {res['queue_max']} — {res['cut']} моделей ждут следующего раза")
     # нехватка каталога — известное состояние, а не поломка: тревога только на НОВЫЕ такие пары (иначе строка каждую ночь,
@@ -384,7 +412,7 @@ def report(dry: bool = False) -> int:
               + (f", остаток денег трека комнат {R['left_rub']:g} ₽" if R['left_rub'] is not None else ''))
     if not dry:
         out = {'target': res['target'], 'queue_max': res['queue_max'], 'cut': res['cut'], 'sets': res['sets'], 'short': short,
-               'publish': res['publish'], 'generate': res['generate'], 'colour_own': res['own'],
+               'publish': res['publish'], 'generate': res['generate'], 'colour_own': res['own'], 'core': res.get('core', []),
                'pairs': {f'{r}/{s}': v for (r, s), v in sorted(res['pairs'].items())}}
         if rooms_rec is not None:
             out['rooms'] = rooms_rec
@@ -416,6 +444,11 @@ def _selftest() -> int:
                                 {'msid': 'S3', 'corner': True, 'styles': ['сканди']}],     # сторона не названа — годится
                       'ковёр': [{'msid': 'r', 'w': 230, 'styles': ['сканди']}]}}
     ok('стили — опубликованных вариантов', styles_of(demo) == ['лофт', 'сканди'])
+    inc = dict(demo, incomplete_styles=[{'style': 'неоклассика', 'missing': ['столик', 'ковёр']}])
+    ok('стиль, снятый как неполный, — тоже в ленте (круг размыкается)', styles_of(inc) == ['лофт', 'неоклассика', 'сканди'])
+    ok('неполный стиль: каждая роль ленты — одно место без текущей модели',
+       {'pair': ('столик', 'неоклассика'), 'model': None, 'place': None} in places(inc)
+       and not any(u['pair'][1] == 'неоклассика' and u['model'] for u in places(inc)))
     us = places(demo)
     ok('места: «стул 2» → стул, роль без места — одно место без текущей',
        {'pair': ('стул', 'лофт'), 'model': 'z', 'place': None} in us and {'pair': ('пуф', 'лофт'), 'model': None, 'place': None} in us)
@@ -467,6 +500,13 @@ def _selftest() -> int:
     ok('лента сыта (≥ цели на место) — вариант не берём, очередь пуста', rf['generate'] == [] and rf['publish'] == [], rf['generate'])
     rc = plan(dm, vc, published={'a', 'c'}, ready=set(), gen_ok=lambda m: g(m) if m in own else True, target=4, qmax=1)
     ok('потолок очереди общий: вариант стоит за моделями выше по ленте', rc['generate'] == ['h1'] and rc['cut'] == 2, rc)
+    # ЯДРО НЕПОЛНОГО СТИЛЯ (T-20261107-11/2): кандидаты дозаполнения недостающих ролей — готовые, не на сервере, в конверте
+    R = lambda m, w=80, st='неоклассика', role='столик': {'msid': m, 'role': role, 'style': st, 'w': w, 'd': w, 'img': 'i'}  # noqa: E731
+    rows_c = [R('G'), R('pub'), R('noready'), R('wide', w=200), R('L', st='лофт'), R('T', role='торшер'), R('G')]
+    got = core_publish(inc, rows_c, published={'pub'}, ready={'G', 'pub', 'wide', 'L', 'T'})
+    ok('ядро неполного стиля: только недостающая роль стиля, готовая, не на сервере, в конверте, без повторов',
+       got == ['G'], got)
+    ok('нет неполных стилей — выкладывать нечего', core_publish(demo, rows_c, set(), {'G'}) == [])
     # КОМНАТЫ (T-20261106-82/2)
     J = lambda *ss: [{'sku': x} for x in ss]  # noqa: E731
     m = rooms_merge([('bedroom', J('a', 'b', 'c')), ('hall', J('b', 'd'))], qmax_left=10, money_jobs=10)

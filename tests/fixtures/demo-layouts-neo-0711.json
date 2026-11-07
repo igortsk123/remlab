@@ -1,0 +1,1138 @@
+{
+ "_why": "T-20261107-11/3: гостиная сборки 07.11 с неоклассикой на запасном нейтральном ковре (fill[].rug_universal) — правило «стиль на запасном не ухудшает покрытие остальных» (`tools/flat3d/demo-cams.mjs`)",
+ "room": {
+  "w": 439,
+  "d": 325,
+  "title": "Гостиная 14.4 м²",
+  "openings": [
+   {
+    "kind": "window",
+    "wall": "west",
+    "offset_cm": 70,
+    "width_cm": 150,
+    "sill_cm": 85,
+    "_why": "панорамное окно на наружной стене (штриховка слева на чертеже)",
+    "height_cm": 150
+   },
+   {
+    "kind": "door",
+    "wall": "east",
+    "offset_cm": 205,
+    "width_cm": 90,
+    "swing_cm": 90,
+    "_why": "дверь из холла 9.3 (дуга открывания на чертеже справа снизу)"
+   }
+  ],
+  "radiators": [
+   {
+    "wall": "west",
+    "offset_cm": 70,
+    "width_cm": 180,
+    "depth_cm": 12,
+    "_why": "радиатор под окном — типовое решение; уточнить у застройщика"
+   }
+  ],
+  "window_view": "yard",
+  "openings_ir": [
+   {
+    "wall": "west",
+    "ir": {
+     "schemaVersion": 2,
+     "kind": "window",
+     "cut": {
+      "u0": 105,
+      "u1": 255,
+      "bottom": 85,
+      "top": 235
+     },
+     "boxes": [
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 152,
+       "h": 4,
+       "d": 12,
+       "x": 180,
+       "y": 237,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 152,
+       "h": 4,
+       "d": 12,
+       "x": 180,
+       "y": 83,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 4,
+       "h": 158,
+       "d": 12,
+       "x": 103,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 4,
+       "h": 158,
+       "d": 12,
+       "x": 257,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 150,
+       "h": 6,
+       "d": 12,
+       "x": 180,
+       "y": 232,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 150,
+       "h": 6,
+       "d": 12,
+       "x": 180,
+       "y": 88,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 6,
+       "h": 150,
+       "d": 12,
+       "x": 108,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "frame",
+       "material": "frame",
+       "w": 6,
+       "h": 150,
+       "d": 12,
+       "x": 252,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "mullion",
+       "material": "frame",
+       "w": 4.800000000000001,
+       "h": 138,
+       "d": 10.8,
+       "x": 180,
+       "y": 160,
+       "z": 0
+      },
+      {
+       "role": "glass",
+       "material": "glass",
+       "w": 138,
+       "h": 138,
+       "d": 1.2,
+       "x": 180,
+       "y": 160,
+       "z": -3
+      },
+      {
+       "role": "sill",
+       "material": "frame",
+       "w": 160,
+       "h": 3.5,
+       "d": 20,
+       "x": 180,
+       "y": 84,
+       "z": 9
+      }
+     ],
+     "groups": {},
+     "backdrop": {
+      "assetId": "yard",
+      "back": 30,
+      "u0": 22.576,
+      "u1": 325,
+      "bottom": 42.156,
+      "top": 277.844,
+      "uv": {
+       "u0": 0.19949,
+       "u1": 0.776793,
+       "v0": 0.328491,
+       "v1": 1
+      }
+     }
+    }
+   },
+   {
+    "wall": "east",
+    "ir": {
+     "schemaVersion": 2,
+     "kind": "door",
+     "cut": {
+      "u0": 205,
+      "u1": 295,
+      "bottom": 0,
+      "top": 205
+     },
+     "boxes": [
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 4,
+       "h": 211,
+       "d": 12,
+       "x": 203,
+       "y": 105.5,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 4,
+       "h": 211,
+       "d": 12,
+       "x": 297,
+       "y": 105.5,
+       "z": 0
+      },
+      {
+       "role": "reveal",
+       "material": "reveal",
+       "w": 98,
+       "h": 4,
+       "d": 12,
+       "x": 250,
+       "y": 207,
+       "z": 0
+      },
+      {
+       "role": "casing",
+       "material": "frame",
+       "w": 5,
+       "h": 205,
+       "d": 12,
+       "x": 207.5,
+       "y": 102.5,
+       "z": 0
+      },
+      {
+       "role": "casing",
+       "material": "frame",
+       "w": 5,
+       "h": 205,
+       "d": 12,
+       "x": 292.5,
+       "y": 102.5,
+       "z": 0
+      },
+      {
+       "role": "casing",
+       "material": "frame",
+       "w": 90,
+       "h": 5,
+       "d": 12,
+       "x": 250,
+       "y": 202.5,
+       "z": 0
+      },
+      {
+       "role": "leaf",
+       "material": "leaf",
+       "w": 85,
+       "h": 202.5,
+       "d": 4,
+       "x": 42.5,
+       "y": 101.25,
+       "z": 0,
+       "group": "leaf"
+      },
+      {
+       "role": "panel",
+       "material": "panel",
+       "w": 52.7,
+       "h": 68.85000000000001,
+       "d": 1,
+       "x": 42.5,
+       "y": 56.7,
+       "z": 2.2,
+       "group": "leaf"
+      },
+      {
+       "role": "panel",
+       "material": "panel",
+       "w": 52.7,
+       "h": 68.85000000000001,
+       "d": 1,
+       "x": 42.5,
+       "y": 137.70000000000002,
+       "z": 2.2,
+       "group": "leaf"
+      },
+      {
+       "role": "handle",
+       "material": "handle",
+       "w": 12,
+       "h": 2.2,
+       "d": 2.2,
+       "x": 77,
+       "y": 105,
+       "z": 3.2,
+       "group": "leaf"
+      },
+      {
+       "role": "handle",
+       "material": "handle",
+       "w": 2.4,
+       "h": 2.4,
+       "d": 4,
+       "x": 81,
+       "y": 105,
+       "z": 2.6,
+       "group": "leaf"
+      }
+     ],
+     "groups": {
+      "leaf": {
+       "x": 207.5,
+       "y": 0,
+       "z": 0,
+       "rotYDeg": 0
+      }
+     }
+    }
+   }
+  ],
+  "finish": {
+   "wall": {
+    "id": "paint-white",
+    "colorHex": "#f2f0ed"
+   },
+   "floor": {
+    "id": "demo-floor",
+    "colorHex": "#dcc7a6"
+   },
+   "ceiling": {
+    "id": "ceiling-white",
+    "colorHex": "#f6f5f2"
+   },
+   "skirting": {
+    "id": "skirting-white",
+    "colorHex": "#f4f2ee"
+   }
+  },
+  "fixtures_ir": [
+   {
+    "wall": "south",
+    "boxes": [
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 439,
+      "h": 7,
+      "d": 1.6,
+      "x": 219.5,
+      "y": 3.5,
+      "z": 0.8
+     }
+    ]
+   },
+   {
+    "wall": "north",
+    "boxes": [
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 439,
+      "h": 7,
+      "d": 1.6,
+      "x": 219.5,
+      "y": 3.5,
+      "z": 0.8
+     }
+    ]
+   },
+   {
+    "wall": "west",
+    "boxes": [
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 105,
+      "h": 7,
+      "d": 1.6,
+      "x": 52.5,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 150,
+      "h": 7,
+      "d": 1.6,
+      "x": 180,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 70,
+      "h": 7,
+      "d": 1.6,
+      "x": 290,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "cornice",
+      "material": "cornice",
+      "w": 180,
+      "h": 2.2,
+      "d": 2.2,
+      "x": 180,
+      "y": 247,
+      "z": 10
+     },
+     {
+      "role": "cornice",
+      "material": "cornice",
+      "w": 2,
+      "h": 2,
+      "d": 10,
+      "x": 96,
+      "y": 247,
+      "z": 5
+     },
+     {
+      "role": "cornice",
+      "material": "cornice",
+      "w": 2,
+      "h": 2,
+      "d": 10,
+      "x": 264,
+      "y": 247,
+      "z": 5
+     }
+    ]
+   },
+   {
+    "wall": "east",
+    "boxes": [
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 205,
+      "h": 7,
+      "d": 1.6,
+      "x": 102.5,
+      "y": 3.5,
+      "z": 0.8
+     },
+     {
+      "role": "skirting",
+      "material": "skirting",
+      "w": 30,
+      "h": 7,
+      "d": 1.6,
+      "x": 310,
+      "y": 3.5,
+      "z": 0.8
+     }
+    ]
+   },
+   {
+    "wall": "room",
+    "boxes": [
+     {
+      "role": "lamp",
+      "material": "lamp",
+      "w": 42,
+      "h": 3,
+      "d": 42,
+      "x": 219.5,
+      "y": 267.5,
+      "z": 162.5
+     },
+     {
+      "role": "lamp",
+      "material": "cornice",
+      "w": 10,
+      "h": 1,
+      "d": 10,
+      "x": 219.5,
+      "y": 269.5,
+      "z": 162.5
+     }
+    ]
+   }
+  ]
+ },
+ "one_layout": {
+  "signature": "диван:S|тв:N|обед:NE",
+  "axis": {
+   "x": 150.6
+  },
+  "max_shift_cm": 9.7
+ },
+ "variants": [
+  {
+   "id": "set1",
+   "style": "сканди",
+   "items": [
+    {
+     "role": "диван",
+     "x": 150.6,
+     "y": 280,
+     "w": 198,
+     "d": 90,
+     "h": 83,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "столик",
+     "x": 150.6,
+     "y": 162.5,
+     "w": 110,
+     "d": 60,
+     "h": 36,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "пуф",
+     "x": 57.8,
+     "y": 162.5,
+     "w": 35,
+     "d": 35,
+     "h": 42,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "торшер",
+     "x": 33.3,
+     "y": 300,
+     "w": 22,
+     "d": 38,
+     "h": 145,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "ковёр",
+     "x": 150.6,
+     "y": 180,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "тв-тумба",
+     "x": 150.6,
+     "y": 25,
+     "w": 139,
+     "d": 50,
+     "h": 62,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стол обеденный",
+     "x": 394,
+     "y": 50,
+     "w": 90,
+     "d": 90,
+     "h": 75,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул",
+     "x": 324.5,
+     "y": 50,
+     "w": 45,
+     "d": 45,
+     "h": 84,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул 2",
+     "x": 394,
+     "y": 119.5,
+     "w": 45,
+     "d": 45,
+     "h": 84,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    }
+   ],
+   "fill": []
+  },
+  {
+   "id": "set6",
+   "style": "современный",
+   "items": [
+    {
+     "role": "диван",
+     "x": 150.6,
+     "y": 277,
+     "w": 177,
+     "d": 96,
+     "h": 86,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "столик",
+     "x": 150.6,
+     "y": 156.5,
+     "w": 120,
+     "d": 60,
+     "h": 42,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "торшер",
+     "x": 24.4,
+     "y": 300,
+     "w": 38,
+     "d": 38,
+     "h": 159,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "ковёр",
+     "x": 150.6,
+     "y": 174,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "тв-тумба",
+     "x": 150.6,
+     "y": 20,
+     "w": 140,
+     "d": 40,
+     "h": 45,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стол обеденный",
+     "x": 396.5,
+     "y": 47.5,
+     "w": 85,
+     "d": 85,
+     "h": 75,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул",
+     "x": 326,
+     "y": 47.5,
+     "w": 46,
+     "d": 52,
+     "h": 80,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул 2",
+     "x": 396.5,
+     "y": 118,
+     "w": 46,
+     "d": 52,
+     "h": 80,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    }
+   ],
+   "fill": []
+  },
+  {
+   "id": "set9",
+   "style": "минимализм",
+   "items": [
+    {
+     "role": "диван",
+     "x": 150.6,
+     "y": 271,
+     "w": 181,
+     "d": 108,
+     "h": 72,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "столик",
+     "x": 150.6,
+     "y": 149.5,
+     "w": 120,
+     "d": 50,
+     "h": 37,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "торшер",
+     "x": 29.1,
+     "y": 300,
+     "w": 38,
+     "d": 38,
+     "h": 163,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "ковёр",
+     "x": 150.6,
+     "y": 162,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "тв-тумба",
+     "x": 150.6,
+     "y": 20,
+     "w": 140,
+     "d": 40,
+     "h": 41,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стол обеденный",
+     "x": 396.5,
+     "y": 47.5,
+     "w": 85,
+     "d": 85,
+     "h": 75,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул",
+     "x": 327.5,
+     "y": 47.5,
+     "w": 47,
+     "d": 49,
+     "h": 80,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул 2",
+     "x": 396.5,
+     "y": 116.5,
+     "w": 47,
+     "d": 49,
+     "h": 80,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стеллаж",
+     "x": 42.5,
+     "y": 22.5,
+     "w": 75,
+     "d": 35,
+     "h": 75,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    }
+   ],
+   "fill": []
+  },
+  {
+   "id": "set10",
+   "style": "лофт",
+   "items": [
+    {
+     "role": "диван",
+     "x": 150.6,
+     "y": 269,
+     "w": 167,
+     "d": 112,
+     "h": 88,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "столик",
+     "x": 150.6,
+     "y": 145.5,
+     "w": 120,
+     "d": 50,
+     "h": 37,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "торшер",
+     "x": 27.9,
+     "y": 306.8,
+     "w": 35,
+     "d": 24.5,
+     "h": 157,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "ковёр",
+     "x": 150.6,
+     "y": 158,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "тв-тумба",
+     "x": 150.6,
+     "y": 20,
+     "w": 140,
+     "d": 40,
+     "h": 41,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стол обеденный",
+     "x": 391.5,
+     "y": 42.5,
+     "w": 75,
+     "d": 95,
+     "h": 75,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул",
+     "x": 314.5,
+     "y": 42.5,
+     "w": 55,
+     "d": 55,
+     "h": 75,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул 2",
+     "x": 391.5,
+     "y": 109.5,
+     "w": 55,
+     "d": 55,
+     "h": 75,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    }
+   ],
+   "fill": []
+  },
+  {
+   "id": "set15",
+   "style": "неоклассика",
+   "items": [
+    {
+     "role": "диван",
+     "x": 150.6,
+     "y": 277,
+     "w": 177,
+     "d": 96,
+     "h": 86,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "столик",
+     "x": 150.6,
+     "y": 146.5,
+     "w": 80,
+     "d": 80,
+     "h": 33,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "торшер",
+     "x": 24.4,
+     "y": 300,
+     "w": 38,
+     "d": 38,
+     "h": 159,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "ковёр",
+     "x": 150.6,
+     "y": 174,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "тв-тумба",
+     "x": 150.6,
+     "y": 25,
+     "w": 139,
+     "d": 50,
+     "h": 53,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стол обеденный",
+     "x": 389.5,
+     "y": 54.5,
+     "w": 99,
+     "d": 99,
+     "h": 73,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул",
+     "x": 315,
+     "y": 54.5,
+     "w": 48,
+     "d": 46,
+     "h": 96,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул 2",
+     "x": 389.5,
+     "y": 129,
+     "w": 48,
+     "d": 46,
+     "h": 96,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    }
+   ],
+   "fill": [
+    {
+     "role": "ковёр",
+     "rug_universal": true
+    }
+   ]
+  },
+  {
+   "id": "set16",
+   "style": "джапанди",
+   "items": [
+    {
+     "role": "диван",
+     "x": 150.6,
+     "y": 271,
+     "w": 181,
+     "d": 108,
+     "h": 72,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "столик",
+     "x": 150.6,
+     "y": 144.5,
+     "w": 110,
+     "d": 60,
+     "h": 36,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "торшер",
+     "x": 37.1,
+     "y": 300,
+     "w": 22,
+     "d": 38,
+     "h": 145,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "ковёр",
+     "x": 150.6,
+     "y": 162,
+     "w": 230,
+     "d": 160,
+     "h": null,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "тв-тумба",
+     "x": 150.6,
+     "y": 25,
+     "w": 139,
+     "d": 50,
+     "h": 62,
+     "rot": 0,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стол обеденный",
+     "x": 401.5,
+     "y": 42.5,
+     "w": 75,
+     "d": 75,
+     "h": 75,
+     "rot": 270,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул",
+     "x": 337.5,
+     "y": 42.5,
+     "w": 49,
+     "d": 49,
+     "h": 82,
+     "rot": 90,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    },
+    {
+     "role": "стул 2",
+     "x": 401.5,
+     "y": 106.5,
+     "w": 49,
+     "d": 49,
+     "h": 82,
+     "rot": 180,
+     "corner": false,
+     "corner_left": false,
+     "section": null
+    }
+   ],
+   "fill": []
+  }
+ ]
+}

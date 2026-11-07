@@ -178,6 +178,8 @@ def _sku(items: dict, role: str) -> dict | None:
             # штук в покупке: сперва разметка каталога (`product_pack`, размечает pack_qty.py
             # по названию/описанию/фото), и только если её нет — разбор названия
             'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name')),
+            # запасной нейтральный ковёр стиля без своих (`demo_swap_pool.universal_rugs`) — только когда он; иначе ключа нет
+            **({'rug_universal': True} if it.get('rug_universal') else {}),
             **_cat_dims(it)}
 
 
@@ -687,7 +689,9 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
                 cands.append(filled(_k[2], False))
         if cands:
             ranked[style] = sorted(cands, key=lambda c: c[0])
-            taken |= {x['to_sku'] for x in ranked[style][0][3] if x.get('to_sku')}
+            # запасной нейтральный ковёр (`demo_swap_pool.universal_rugs`) — не «занят»: стиль на запасном не отнимает его у
+            # стилей, для которых он свой (T-20261107-11/2: неоклассика взяла «Котри Серый» — джапанди сменил бы свой ковёр)
+            taken |= {x['to_sku'] for x in ranked[style][0][3] if x.get('to_sku') and not x.get('rug_universal')}
     return ranked
 
 
@@ -1443,6 +1447,8 @@ def build() -> dict:
             if old is not None:
                 if p['style'] not in old['styles']:
                     old['styles'].append(p['style'])
+                    if p.get('rug_universal'):   # запасной нейтральный этому стилю (`universal_rugs`) — список таких стилей
+                        old.setdefault('rug_universal', []).append(p['style'])
                 continue
             why = pool_feed_check(p)
             if why == 'off_env':
@@ -1455,7 +1461,8 @@ def build() -> dict:
                   'style': p['style'], 'styles': [p['style']],
                   'sid': p['sid'], 'msid': p['msid'], 'sub': p['sub'], 'src': 'pool',
                   'basis': _basis(mid, eid), 'hung': _hung(p['name']),
-                  'pack': _pack_of(mid, eid, p['name'])}
+                  'pack': _pack_of(mid, eid, p['name']),
+                  **({'rug_universal': [p['style']]} if p.get('rug_universal') else {})}
             have[(base, p['sid'])] = it
             n[0] += 1
             target.setdefault(base, []).append(it)
@@ -1506,8 +1513,12 @@ def build() -> dict:
         from img_alive import alive_now as _alive
     except Exception:  # noqa: BLE001
         _alive = lambda u: True  # noqa: E731
+    import demo_fill as DF
     soft_fixed, soft_dropped, soft_used = [], [], set()
-    for v in variants:
+    # ВАРИАНТ НА ЗАПАСНОМ — ПОСЛЕДНИМ В РАЗНООБРАЗИИ (T-20261107-11/2): стиль, собранный с запасным нейтральным ковром, берёт
+    # мягкое после остальных — разнообразие только переставляет выбор (взятое другим берётся, если больше нечего), поэтому
+    # полноты он не теряет, а у стилей со своими ничего не меняется. Порядок вариантов в данных — прежний (сортировка устойчивая)
+    for v in sorted(variants, key=lambda v: any(x.get('rug_universal') for x in v.get('fill') or [])):
         st = v.get('style') or ''
         keep = []
         for d in (v.get('decor') or []):
@@ -1522,6 +1533,8 @@ def build() -> dict:
             base = re.sub(r'\s+\d+$', '', d.get('role') or '')
             taken = {(x.get('sku') or {}).get('sid') for x in v.get('decor') or []}
             cand = [p for p in dec_feeds.get(base, []) if p.get('soft') and p.get('sid') not in taken]
+            # цвет — общим оценщиком (`demo_fill.color_refused`, T-20261107-11/3): яркое не в стиле не берём; нечем — снимаем
+            cand = [p for p in cand if not DF.color_refused(base, p, st)]
             if not cand:
                 soft_dropped.append((v.get('id'), d.get('role'), sk.get('name'), why))
                 continue

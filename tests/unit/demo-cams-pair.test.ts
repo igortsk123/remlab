@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // ДВЕ ТОЧКИ СЪЁМКИ ПОДБИРАЮТСЯ ПАРОЙ (план demo-12), ПОКРЫТИЕ КАЖДОГО ПРЕДМЕТА — ПЕРВЫМ (план demo-22). Функции — прямо из блока
@@ -417,5 +420,39 @@ describe("камеры демо: спальня 2 — обложка с кров
     expect(p.posterMiss).toBe(false);
     expect(p.how).toContain("главное в C1");
     expect(p.level).toBe(3);
+  }, 300_000);
+});
+
+// СТИЛЬ НА ЗАПАСНОМ НЕ УХУДШАЕТ ПОКРЫТИЕ ОСТАЛЬНЫХ (T-20261107-11/3): слепок — гостиная сборки 07.11, неоклассика на запасном нейтральном
+// ковре (`fill[].rug_universal`). Общая пара по худшему варианту отнимала торшер у сканди, современного и минимализма; `demo-cams.mjs`
+// берёт пару с условием `opt.keep` — покрытое без стилей на запасном остаётся покрытым
+describe("одна пара: стиль на запасном не ухудшает покрытие остальных", () => {
+  type FxN = Omit<Fx, "variants"> & { variants: { id: string; style: string; items: It[]; fill?: { rug_universal?: boolean }[] }[] };
+  const fxN = load("tests/fixtures/demo-layouts-neo-0711.json") as unknown as FxN;
+  const apiN = new Function("D", `${block};return {camPairAll};`)({ room: fxN.room }) as {
+    camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[], opt?: { keep: number[] }) =>
+      (Pair & { per: (Omit<Pair, "level" | "how"> & { bits: number })[] }) | null;
+  };
+  const { w: W, d: H } = fxN.room;
+  it("условие keep недостижимо — null, а не углы", () => {
+    const list = its(fxN.variants[0]!);
+    expect(apiN.camPairAll([list], W, H, corners(W, H), { keep: [1 << 30] })).toBeNull();
+  }, 120_000);
+  it("demo-cams: одна пара на 6 стилей, покрытие 5 стилей со своим набором не хуже пары без неоклассики", () => {
+    const own = fxN.variants.filter((v) => !(v.fill ?? []).some((x) => x.rug_universal));
+    expect(own).toHaveLength(5);
+    const base = apiN.camPairAll(own.map(its), W, H, corners(W, H))!;
+    const dir = mkdtempSync(join(process.env.REMLAB_TMP || tmpdir(), "cams-neo-")), f = join(dir, "demo-data.json");
+    writeFileSync(f, readFileSync("tests/fixtures/demo-layouts-neo-0711.json"));
+    const log = execFileSync("node", ["tools/flat3d/demo-cams.mjs", f], { encoding: "utf8" });
+    expect(log).toMatch(/взята пара, где их покрытие не хуже/);
+    const out = JSON.parse(readFileSync(f, "utf8")) as { variants: { id: string; cams: Cam[]; cam_cover: { missing: { id: string }[] } }[] };
+    const pts = (cams: Cam[]) => cams.map((c) => [c.x, c.y, c.rot, c.fov]);
+    for (const v of out.variants) expect(pts(v.cams), v.id).toEqual(pts(out.variants[0]!.cams));
+    for (const [i, v] of own.entries()) {
+      const was = new Set(base.per[i]!.covered), now = out.variants.find((x) => x.id === v.id)!;
+      const lost = now.cam_cover.missing.map((m) => m.id).filter((id) => was.has(id));
+      expect(lost, `${v.style}: потеряно покрытие`).toEqual([]);
+    }
   }, 300_000);
 });

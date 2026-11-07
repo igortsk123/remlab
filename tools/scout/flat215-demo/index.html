@@ -2399,8 +2399,11 @@ const camBits=n=>{let k=0; while(n){n&=n-1;k++;} return k;};
 // КАЖДОГО; ключ пары — ХУДШИЙ по вариантам `pairKey`, нарушения и загромождение — худшие, балл кадра — наименьший. Один вариант —
 // ровно прежний подбор (`camPair`). Точка (x, y, rot, fov) у всех одна; окно превью и сдвиг телефона — по мебели варианта (`per`)
 function camPair(its,W,H,cs){return camPairAll([its],W,H,cs);}
-function camPairAll(L,W,H,cs){
+// `opt.keep[v]` — маска единиц варианта v, которые пара обязана покрыть (T-20261107-11/3: стиль на запасном не ухудшает покрытие
+// остальных — `demo-cams.mjs`); такой пары нет — null, а не углы
+function camPairAll(L,W,H,cs,opt){
   if(!CAM_PAIR_ON)return camPairCorner(L[0],W,H,cs);
+  const KEEP=(opt&&opt.keep)||null;
   const V=L.length, UN=L.map(camUnits), U=UN.map(u=>u.length);
   const mustM=UN.map(us=>us.reduce((a,u,k)=>u.must&&k<31?a|(1<<k):a,0)), optM=UN.map(us=>us.reduce((a,u,k)=>!u.must&&k<31?a|(1<<k):a,0));
   const gen=door=>{
@@ -2414,7 +2417,7 @@ function camPairAll(L,W,H,cs){
         cut:Math.max(...per.map(p=>p.cut)),tall:per.map(p=>p.tall).find(Boolean)||''}));}
     return out;};
   const base=gen(false), door=gen(true);
-  if(!base.length&&!door.length){const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; return r;}
+  if(!base.length&&!door.length){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; return r;}
   const all=base.concat(door), N=all.length, Q=U.map(u=>new Float32Array(N*u)), bits=L.map(()=>new Int32Array(N)), ZV=camZ().views;
   const CV=ZV?L.map(()=>new Array(N)):null;   // покрытие точки — `need` и `more` видов зоны
   all.forEach((c,n)=>L.forEach((its,v)=>{const cv=CV?camCoverP(c,its,W,H):camCover(c,its,W,H); let b=0; if(CV)CV[v][n]=cv;
@@ -2428,6 +2431,7 @@ function camPairAll(L,W,H,cs){
   // (T-32/3, ведущий: разные точки съёмки тоже дают разный вид)
   const APART=camZ().apart||0, AN=camZ().apartNear;
   const apartOk=(A,B)=>{const d=camAng(A.rot,B.rot); return d>=APART||(!!AN&&d>=AN.deg&&Math.hypot(A.x-B.x,A.y-B.y)>=AN.cm);};
+  const keepOk=(a,b)=>!KEEP||b<0||L.every((_,v)=>!KEEP[v]||((bits[v][a]|bits[v][b])&KEEP[v])===KEEP[v]);
   const okV=(a,b)=>!vOk||(b<0?(vOk[a][0]||vOk[a][1]):(((vOk[a][0]&&vOk[b][1])||(vOk[b][0]&&vOk[a][1]))&&apartOk(all[a],all[b])));
   const st=L.map(()=>new Map()), stat=(c,v)=>{v=v||0; const its=L[v]; if(!st[v].has(c)){const s0=camStats(c,its,W,H); s0.keyVis=camKeyVis(c,its,s0);
     s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L-s0.nearest)/100; s0.close2=Math.max(0,100-s0.nearest)/100;
@@ -2495,7 +2499,7 @@ function camPairAll(L,W,H,cs){
   let pick=null, stage='';
   const res=[];
   // (demo-31 правки: и главное целиком в одном виде, и крупное нигде не срезано краем — иначе следующая стадия, шире объектив)
-  const runStages=()=>{for(const [nm,ok0] of stages){const ok=(a,b)=>ok0(a,b)&&okV(a,b), p=best(ok); if(!p)continue; res.push([nm,p]); if(!p.key[0]&&!p.key[1]&&!p.key[2]&&p.pen<=CAM_STAGE_OK){pick=p; stage=nm; break;}}};
+  const runStages=()=>{for(const [nm,ok0] of stages){const ok=(a,b)=>ok0(a,b)&&okV(a,b)&&keepOk(a,b), p=best(ok); if(!p)continue; res.push([nm,p]); if(!p.key[0]&&!p.key[1]&&!p.key[2]&&p.pen<=CAM_STAGE_OK){pick=p; stage=nm; break;}}};
   runStages();
   // ни одной пары «вход + встречный» — подбор без видов зоны, с пометкой в отчёте (не пустой кадр)
   let zoneMiss=false; if(vOk&&!res.length){vOk=null; zoneMiss=true; runStages();}
@@ -2503,7 +2507,7 @@ function camPairAll(L,W,H,cs){
     const pool=full.length?full.sort((x,y)=>(x[1].key[2]-y[1].key[2])||(x[1].pen-y[1].pen))
       :res.sort((x,y)=>cmp(x[1].key,y[1].key)||(x[1].pen-y[1].pen));
     if(pool.length)[stage,pick]=pool[0];}
-  if(!pick){const r=camPairCorner(L[0],W,H,cs); r.how='углы (пары нет)'; return r;}
+  if(!pick){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (пары нет)'; return r;}
   // ДОВОРОТ ±CAM_NUDGE° (d8 17.10: в сканди ТВ срезан краем вида 2): шаг перебора 5°, поэтому после выбора каждый вид пробует
   // повернуться на 1…6°, если так меньше крупной мебели срезано краем, правила кадра держатся, а покрытие пары не теряет ни одной единицы
   // (у нескольких вариантов — во всех)
@@ -2573,7 +2577,7 @@ function camPairAll(L,W,H,cs){
       if(grp||q[k]>=camCov()-1e-9)covered.push(id);
       else missing.push({id,role:camRole(its[i]),must:u.must,inFrame:Math.round(r[k].inF*100)/100,visible:Math.round(r[k].vis*100)/100,
         reason:r[k].inF<camCov()?'вне кадра':'заслонён'});});});
-    return {cams:[mk('C1',a2,v,0),mk('C2',b2,v,1)],covered,missing,stats:[stat(a2,v),stat(b2,v)]};});
+    return {cams:[mk('C1',a2,v,0),mk('C2',b2,v,1)],covered,missing,stats:[stat(a2,v),stat(b2,v)],bits:covBits(cv[0],v)|covBits(cv[1],v)};});
   const [mk0,mm,mc,dm,mo]=pick.key;
   return {level, cams:per[0].cams,
     how:`${mm?'недобор':'пара'}: стадия ${stage},${ZV?(zoneMiss?' виды зоны: пары нет — без них,':' виды зоны,'):''} не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}${MQ[0]===null?'':`, главное в C1 ${Math.round(MQ[0]*100)/100} / C2 ${Math.round(MQ[1]*100)/100}${posterMiss?' — ОБЛОЖКА БЕЗ ГЛАВНОГО':''}`}`,
