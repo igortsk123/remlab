@@ -154,8 +154,52 @@ lane = [{'sid': 'olive', 'name': OLIVE, 'style': 'джапанди', 'styles': [
 out, cut, low = DF.lane_color('стул', lane)
 ok('лента: discouraged — пометка `color_low` своего стиля, без отсева; годный товар — тот же объект',
    out[0].get('color_low') == ['джапанди'] and out[0]['styles'] == ['джапанди', 'сканди'] and out[1] is lane[1] and (cut, low) == (0, 1))
+# --- шаг 2б (T-20261107-25/3): подушки и шторы — тем же ярусом soft_textile
+ALES = 'Комплект штор Togas Алессио бирюзовые 260x275 см 2 предмета'
+BLUE_P = 'Подушка Линкс Велюр Синий'
+lane = [{'sid': 'ales', 'name': ALES, 'style': 'сканди', 'styles': ['сканди', 'современный']},
+        {'sid': 'mint', 'name': 'Комплект штор Togas Роверо мятный 280x275 см', 'style': 'минимализм', 'styles': ['минимализм']},
+        {'sid': 'beige', 'name': 'Комплект штор Togas Алессио бежевые 260x300 см', 'style': 'сканди', 'styles': ['сканди', 'джапанди']}]
+out, cut, low = DF.lane_color('шторы', lane)
+ok('лента штор: бирюзовые (яркое) снимаются со сканди, у современного остаются; мятные минимализма — в конец; бежевые — тот же объект',
+   [(p['sid'], p.get('styles'), p.get('color_low')) for p in out]
+   == [('ales', ['современный'], None), ('mint', ['минимализм'], ['минимализм']), ('beige', ['сканди', 'джапанди'], None)]
+   and out[2] is lane[2] and (cut, low) == (1, 1))
+out, cut, low = DF.lane_color('шторы', lane[:1], {('сканди', 'ales')})
+ok('лента штор: шторы, стоящие в варианте стиля, не трогаем', out[0] is lane[0] and (cut, low) == (0, 0))
 out, cut, low = DF.lane_color('подушка', [{'sid': 'x', 'name': 'Подушка Саона Велюр Оранжевый/Синий', 'style': 'минимализм'}])
-ok('лента мягкого — как была (подушки, шторы — шаг 2б)', out[0].get('color_low') is None and (cut, low) == (0, 0))
+ok('лента подушек: яркое не в стиле уходит (минимализм, оранжевая)', not out and (cut, low) == (1, 0))
+out, cut, low = DF.lane_color('ваза', [{'sid': 'v', 'name': 'Ваза оранжевая', 'style': 'минимализм'}])
+ok('лента декора — как была', out[0].get('color_low') is None and (cut, low) == (0, 0))
+ok('мягкое варианта: синяя подушка минимализма — замена по цвету, у современного — годна',
+   (DF.soft_color_need('подушка 2', {'name': BLUE_P}, 'минимализм') or '').startswith(DF.COLOUR_REASON)
+   and DF.soft_color_need('подушка', {'name': BLUE_P}, 'современный') is None)
+ok('мягкое варианта: бирюзовые шторы — замена у сканди и джапанди, у современного нет; ваза и стул — не мягкое',
+   bool(DF.soft_color_need('шторы', {'name': ALES}, 'сканди')) and bool(DF.soft_color_need('шторы', {'name': ALES}, 'джапанди'))
+   and DF.soft_color_need('шторы', {'name': ALES}, 'современный') is None
+   and DF.soft_color_need('ваза', {'name': 'Ваза оранжевая'}, 'минимализм') is None
+   and DF.soft_color_need('стул', {'name': OLIVE}, 'джапанди') is None)
+ok('пара подушек — из политики: минимализм и джапанди без пары, сканди green/yellow, лофт одна, стиль без правил — прежняя',
+   CC.pillow_pair('минимализм') == () and CC.pillow_pair('джапанди') == () and CC.pillow_pair('сканди') == ('green', 'yellow')
+   and CC.pillow_pair('лофт') == ('terra',) and CC.pillow_pair(None, ('terra', 'green')) == ('terra', 'green'))
+sc = [(9.0, {'name': BLUE_P}), (5.0, {'name': 'Подушка Линкс Ваби Бежевый'}), (4.0, {'name': 'Подушка Скай Линии'})]
+soft_g = tuple(P['major_groups']) + ('soft_textile',)
+ok('подбор подушки минимализма (soft_textile): синяя — после нейтральных; без групп мягкого — порядок прежний',
+   [[x[1]['name'] for x in g] for g in CC.color_split(sc, 'подушка', 'минимализм', groups=soft_g)]
+   == [['Подушка Линкс Ваби Бежевый', 'Подушка Скай Линии'], [BLUE_P]]
+   and CC.color_split(sc, 'подушка', 'минимализм') == [sc])
+import demo_swap_pool as SP  # noqa: E402
+ok('шторы из каталога: до пола и ткани ≥ 250 (комплект 2 шт — вдвое), рулонные/римские — нет, без размера — нет',
+   SP.curtain_fits({'name': 'Комплект штор Алессио', 'w': 260, 'h': 275})
+   and SP.curtain_fits({'name': 'Штора Бланш 2 шт', 'w': 150, 'h': 270})
+   and not SP.curtain_fits({'name': 'Штора Бланш', 'w': 150, 'h': 270})
+   and not SP.curtain_fits({'name': 'Рулонная штора FixLine белая 260х270 см', 'w': 260, 'h': 270})
+   and not SP.curtain_fits({'name': 'Римская штора', 'w': 300, 'h': 300})
+   and not SP.curtain_fits({'name': 'Тюль Кассандра', 'w': 300, 'h': 0}))
+ok('шторы из каталога: одна строка на модель и цвет — размер из названия не различает',
+   SP.model_key('Комплект штор Togas Пайнон экрю 260x275 см') == SP.model_key('Комплект штор Togas Пайнон экрю 260x300 см')
+   != SP.model_key('Комплект штор Togas Пайнон бежевый 260x275 см')
+   and SP.model_key('Тюль Daily Кассандра серый 300х280 см') == SP.model_key('Тюль Daily Кассандра серый 300х275 см'))
 
 print('итог:', 'провалов ' + str(bad) if bad else 'всё ок')
 sys.exit(1 if bad else 0)

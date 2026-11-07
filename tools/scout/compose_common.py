@@ -299,23 +299,35 @@ def color_anchors(chosen: dict, style: str, P: dict | None = None) -> int:
     return sum(1 for r, c in chosen.items() if color_eval(c, r, style, P)['anchor'])
 
 
-def color_split(scored: list, role: str, style: str | None, chosen: dict | None = None, P: dict | None = None) -> list:
+def pillow_pair(style: str | None, fallback=None, P: dict | None = None) -> tuple:
+    """Цель-цвет подушек гостиной (шаг 2б, T-20261107-25/3): `pillow_pair` стиля правил, нет — `pair`; стиля нет в правилах —
+    `fallback` (прежняя пара сборщика). Пустой кортеж — подушки без цели-цвета (минимализм, джапанди)."""
+    P = P or color_policy()
+    S = P['styles'].get(style or '')
+    if S is None:
+        return tuple(fallback or ())
+    return tuple(S.get('pillow_pair', S.get('pair') or ()))
+
+
+def color_split(scored: list, role: str, style: str | None, chosen: dict | None = None, P: dict | None = None,
+                groups: tuple | None = None) -> list:
     """ЯРУС ЦВЕТА ДО МЕША В ГОСТИНОЙ (style-color-01 шаг 2а, T-20261107-25/2): [(балл, товар)] уже отсортирован → группы по
     рангу яруса (preferred → allowed → discouraged), forbidden выбывает, порядок внутри группы прежний. Бонус готовому мешу
     (`bank_keep.mesh_tiebreak`) сборщик применяет внутри группы — меш не поднимает товар через ярус (как у спальни).
     Роль не из крупных групп или стиль без правил — одна группа, как было. `chosen` — уже выбранное набора (предел цветных
-    якорей `max_chromatic_anchors`); у товара — name, cls, rgb (как у `color_eval`)."""
+    якорей `max_chromatic_anchors`); у товара — name, cls, rgb (как у `color_eval`). `groups` — группы ролей, которые делим
+    (по умолчанию `major_groups`; мягкое гостиной — шаг 2б, сборщик добавляет soft_textile)."""
     P = P or color_policy()
-    if not style or style not in P['styles'] or color_group(role, P) not in P['major_groups']:
+    if not style or style not in P['styles'] or color_group(role, P) not in (groups or P['major_groups']):
         return [list(scored)] if scored else []
     ctx = {'chroma': color_anchors({r: c for r, c in (chosen or {}).items() if c}, style, P)}
-    groups: dict = {}
+    out: dict = {}
     for x in scored:
         e = color_eval(x[1], role, style, P, ctx)
         if e['tier'] == 'forbidden':
             continue
-        groups.setdefault(e['rank'], []).append(x)
-    return [groups[k] for k in sorted(groups)]
+        out.setdefault(e['rank'], []).append(x)
+    return [out[k] for k in sorted(out)]
 
 
 def palette(items: list) -> None:

@@ -50,6 +50,7 @@ BUILT=[]  # [(style, {keys}, {major_keys})] — уже собранные сет
 #     дефицитных стилей (лофт/неоклассика/джапанди), где жёсткий лимит порвал бы составы.
 # Ёмкость снята 07.08: лофт-кресло 6, неокл-стол 0 … — жёсткость там физически невыполнима.
 MAJOR_ROLES={'диван','диван 2','кресло','столик','тв-тумба','стеллаж','витрина','стенка','комод','стол обеденный','камин'}
+SOFT_TIER_ROLES={'подушка','шторы'}   # мягкое с ярусом цвета в подборе (шаг 2б, T-20261107-25/3)
 FACE_ROLES={'диван','диван 2','кресло','столик','стол обеденный'}
 ASSURED_STYLES={'сканди','современный','минимализм'}
 _TIER_BAND_SQL={'эконом':'p.price_rub<=30000','комфорт':'p.price_rub between 20000 and 90000','премиум':'p.price_rub>=60000'}
@@ -470,7 +471,10 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
     # ЯРУС ЦВЕТА — КЛЮЧ ДО МЕША (style-color-01 шаг 2а, T-20261107-25/2): у крупных ролей гостиной тот же оценщик, что у спальни и
     # прихожей (`compose_common.color_split` → `color_eval`): forbidden выбывает, preferred → allowed → discouraged; бонус готовому
     # мешу — внутри яруса. Не крупная роль или стиль без правил — одна группа, порядок прежний
-    _grp=_CC.color_split(scored,role,ctx.get('style_name'),ctx.get('chosen_ref'))
+    # Подушки и шторы — тем же ярусом группы soft_textile (шаг 2б, T-20261107-25/3): синяя подушка минимализма и бирюзовые шторы
+    # сканди — discouraged, после годных; прочее мягкое (плед, ковёр) — как было
+    _grp=_CC.color_split(scored,role,ctx.get('style_name'),ctx.get('chosen_ref'),
+                         groups=(tuple(_CC.color_policy()['major_groups'])+('soft_textile',)) if role in SOFT_TIER_ROLES else None)
     # БОНУС ГОТОВОМУ МЕШУ — последний разрыв ничьей в узком окне баллов (задача 4, `bank_keep.mesh_tiebreak`)
     scored=[x for g in _grp for x in _BK.mesh_tiebreak(g,lambda it: _CG.mesh_ready(f"{it['mid']}:{it['eid']}"),float(_KR['mesh_tie_window']))]
     return [dict(it,score=round(s,2),**({'size_relaxed':True} if relaxed else {})) for s,it in scored[:topn]]
@@ -978,9 +982,13 @@ for bi,band in enumerate(COMP['bands']):
         if _art:
             chosen['картина']=dict(_art[len(_art)//2],qty=1)
         # Ф3: подушки — ДВЕ РАЗНЫЕ (акцент №1 и акцент №2/нейтраль); плед/ваза/лампа/растение
-        p1=pick2('подушка',m2,(0.1,3),tier,pair,ctx,soft=True,color_goal='accent_'+pair[0])
+        # ЦЕЛЬ-ЦВЕТ ПОДУШЕК — ИЗ ПОЛИТИКИ ЦВЕТА (шаг 2б, T-20261107-25/3), не `STYLE_PAIR`: у минимализма и джапанди пары нет —
+        # подушки без цели-цвета, порядок решает ярус soft_textile; у стиля с одной парой вторая подушка — без цели
+        _pp=_CC.pillow_pair(style_name,pair)
+        _goal=lambda k: ('accent_'+_pp[k]) if len(_pp)>k else None  # noqa: E731
+        p1=pick2('подушка',m2,(0.1,3),tier,pair,ctx,soft=True,color_goal=_goal(0))
         if p1: chosen['подушка']=dict(p1[0],qty=1)  # СРАЗУ в сет: иначе п2 не видит п1 в лимите разнообразия
-        p2=pick2('подушка',m2,(0.1,3),tier,pair,ctx,soft=True,color_goal='accent_'+pair[1])
+        p2=pick2('подушка',m2,(0.1,3),tier,pair,ctx,soft=True,color_goal=_goal(1))
         if p2:
             it2=next((t for t in p2 if t['eid']!=(p1[0]['eid'] if p1 else '')),None)
             if it2: chosen['подушка 2']=dict(it2,qty=1)

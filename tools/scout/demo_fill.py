@@ -109,6 +109,17 @@ def color_need(role: str, it: dict | None, style: str | None) -> str | None:
 COLOUR_REASON = 'цвет не в стиле'
 
 
+# МЯГКОЕ ВАРИАНТА ПО ЦВЕТУ (style-color-01 шаг 2б, T-20261107-25/3). Подушки гостиной сборщик брал парой акцентов `STYLE_PAIR`
+# (`compose2`, цель-цвет +2.5), а политика у минимализма акцентов не знает: «Линкс Велюр Синий» — приглушённый синий,
+# discouraged. Банк держит ячейки (`bank_keep`), поэтому в опубликованном варианте — та же замена, что у крупного: подушка, шторы,
+# плед с ярусом discouraged/forbidden (группа soft_textile) меняются на мягкое той же роли с ярусом лучше; нечем — остаётся.
+def soft_color_need(role: str, it: dict | None, style: str | None) -> str | None:
+    if not it or not style:
+        return None
+    e = color_eval_role(role, it, style)
+    return f"{COLOUR_REASON} ({e['why']})" if e['group'] == 'soft_textile' and e['tier'] in BAD_TIERS else None
+
+
 def is_colour_swap(x: dict) -> bool:
     """Строка журнала `fill_set` — состоявшаяся замена по цвету (у неё есть `to`)."""
     return bool(x.get('to')) and str(x.get('reason') or '').startswith(COLOUR_REASON)
@@ -141,7 +152,8 @@ def lane_color(role: str, lane: list[dict], keep: set | None = None) -> tuple[li
     """ЛЕНТА ЗАМЕН КРУПНОЙ РОЛИ (шаг 2а): стиль, где у товара цвет forbidden, снимается из его `styles` (не осталось стилей —
     товар из ленты уходит); стиль с discouraged — в `color_low`, страница ставит такие в конец ленты этого стиля, не отсевая.
     Товары, стоящие сейчас в варианте этого стиля (`keep`: (стиль, sid)), не трогаем (правило владельца «изначальный набор
-    остаётся»). Не крупная роль — лента как была. → (лента, снято стилей, помечено стилей)."""
+    остаётся»). Мягкое (шаг 2б) — яркое discouraged/forbidden снимается, прочее discouraged — в конец. Декор — лента как была.
+    → (лента, снято стилей, помечено стилей)."""
     out, cut, low = [], 0, 0
     for p in lane:
         styles = list(p.get('styles') or ([p['style']] if p.get('style') else []))
@@ -150,9 +162,12 @@ def lane_color(role: str, lane: list[dict], keep: set | None = None) -> tuple[li
             if (st, p.get('sid')) in (keep or ()):
                 continue
             e = color_eval_role(role, {'name': p.get('name')}, st)
-            if not e['major']:
+            soft = e['group'] == 'soft_textile'
+            if not e['major'] and not soft:
                 break
-            if e['tier'] == 'forbidden':
+            # МЯГКОЕ (шаг 2б, T-20261107-25/3): яркое не в стиле (`color_refused` — бирюзовые шторы у сканди) снимается, как
+            # forbidden у крупного; приглушённое discouraged — в конец ленты стиля
+            if e['tier'] == 'forbidden' or (soft and e['tier'] in BAD_TIERS and e['cat'] == 'vivid'):
                 drop.append(st)
             elif e['tier'] == 'discouraged':
                 lows.append(st)
