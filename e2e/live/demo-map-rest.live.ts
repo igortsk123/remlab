@@ -586,7 +586,8 @@ test("2.44 «во весь экран»: свайп вбок — соседни�
     await expect.poll(() => page.evaluate("VW.mode")).toBe("photo");
     const camLabels = (await page.locator("#vCams [data-cam]").allInnerTexts()).map((t) => t.trim());
     const photo0 = await page.evaluate("VW.photo") as number;
-    if (label === "компьютер") await page.locator("#vzBtn").click();
+    // кнопки «⤢ во весь экран» над фото нет с 07.11 (владелец TG 522, T-65): во весь экран — клик (тап) по самому фото
+    if (label === "компьютер") await page.locator("#shot .shotwrap img.vmain").click();
     else await page.locator("#shot .shotwrap img.vmain").tap();
     await expect(page.locator("#vzoom")).toHaveClass(/\bon\b/);
     const st = () => page.evaluate(() => {

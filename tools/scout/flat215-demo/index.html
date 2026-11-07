@@ -6572,7 +6572,7 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 .vstage .shotwrap{position:absolute;inset:0}
 .vstage .shotwrap .vpan{position:absolute;inset:0;overflow:hidden}
 /* КАРТИНКА ЦЕЛИКОМ (demo-02 п.9, владелец 14.10: «на телефоне обрезает по краям»): кадр по пропорции (`contain`), поля —
-   размытая копия той же картинки; увеличить — тап или «⤢» (просмотр во весь экран со щипком). */
+   размытая копия той же картинки; увеличить — тап по фото (просмотр во весь экран со щипком; кнопки «⤢» нет с 07.11, T-65). */
 #shot.v2 .vstage .shotwrap img{width:100%;height:100%;max-height:none;object-fit:contain;border-radius:0;background:transparent;position:relative}
 #shot.v2 .vstage .shotwrap img.vblur{position:absolute;inset:0;object-fit:cover;filter:blur(22px) brightness(.92);transform:scale(1.15)}
 .vzbtn{position:absolute;right:12px;bottom:12px;z-index:var(--zl-float);border:0;border-radius:999px;background:var(--veil);color:#fff;
@@ -6796,7 +6796,8 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
   /* «Сменить стиль» — тёмная плашка как «Фото | 3D», в один ряд с ними и ×(right 12 + 40 + 8); строки стиля в шторке нет */
   .vstyle{display:inline-flex;align-items:center;position:absolute;top:11px;right:60px;height:36px;padding:0 14px;border:0;border-radius:999px;
    background:var(--veil);color:#fff;font:inherit;font-size:14px;font-weight:600;white-space:nowrap;cursor:pointer;z-index:var(--zl-float);box-shadow:var(--e3)}
-  .vstyle[hidden],#shot.vsheetfull .vstyle{display:none}
+  /* в «3D» плашки нет — только в «Фото» (владелец TG 523, 07.11, T-65) */
+  .vstyle[hidden],#shot.vsheetfull .vstyle,#shot.vwalk .vstyle{display:none}
   #shot.v2 .vrow{display:none}
   .vhist{top:58px;bottom:auto;left:10px}
   /* сцена — только над шторкой: под полуоткрытой шторкой мебель иначе пряталась, а видно было потолок */
@@ -6902,8 +6903,8 @@ function vwHtml(s, navs, list){
   const old=s.url&&!s.stateId&&s.quality==='realistic'?`<span class="vold">${EN?'AI photo · the layout may differ':'Фото нейросети · расстановка могла отличаться'}</span>`
     :s.sketch?`<span class="vold">${EN?'Server sketch · your device has no graphics card':'Эскиз с сервера · у устройства нет видеокарты'}</span>`:'';
   // `.vpan` — полоса прокрутки фото: на телефоне фото двигается пальцем влево-вправо (demo-22 п.3), на компьютере — просто рамка
-  const img=s.url?`<img class="vblur" src="${s.url}" alt="" aria-hidden="true"><div class="vpan"><img class="vmain" src="${s.url}" alt="${styleOf(s)}" draggable="false"></div>`+
-    `<button class="vzbtn" id="vzBtn">${EN?'⤢ full screen':'⤢ во весь экран'}</button>`:'';
+  // плашки «⤢ во весь экран» поверх фото нет (владелец TG 522, 07.11): во весь экран — тапом (кликом) по фото, `vwTapZoom`
+  const img=s.url?`<img class="vblur" src="${s.url}" alt="" aria-hidden="true"><div class="vpan"><img class="vmain" src="${s.url}" alt="${styleOf(s)}" draggable="false"></div>`:'';
   return `<div class="vw"><div class="vstage"><div class="shotwrap">${img}${navs}${old}</div>`+
     `<div class="vmodes" role="tablist"><button data-vm="photo" class="${VW.mode==='photo'?'on':''}">Фото</button>`+
     // «Фото | 3D» без «План» (макет 373:7035, home-figma-02): план квартиры — на главной; режим `plan` в коде остаётся
@@ -7471,13 +7472,13 @@ function vwMount(s){
           if(Date.now()-t0>=3000){t.remove(); try{localStorage.setItem('remlab-sheet-hint-v1','1');}catch(e){} return;}
           setTimeout(watch,150);})();
       })();}}
-  // увеличить картинку: «⤢» или тап по ней. РАКУРС — КНОПКАМИ И СВАЙПОМ ПО ФОТО (demo-26 Б, владелец 23.10: «влево-вправо можно было
-  // свайпать»): тот же переход, что у переключателя (`vwPhoto`)
-  const zb=document.getElementById('vzBtn'), mi=shot.querySelector('.shotwrap img.vmain');
+  // увеличить картинку: тап (клик) по ней — плашки «⤢ во весь экран» поверх фото нет (владелец TG 522, 07.11, T-65). РАКУРС — КНОПКАМИ
+  // И СВАЙПОМ ПО ФОТО (demo-26 Б, владелец 23.10: «влево-вправо можно было свайпать»): тот же переход, что у переключателя (`vwPhoto`)
+  const mi=shot.querySelector('.shotwrap img.vmain');
   if(mi&&VW_PHONE())vwPhotoFocus(mi,s);
   if(mi)vwSwipeWire(mi.parentNode);
   const zoom=()=>vwZoom(s.url, vwRealShots(), x=>{if(VW.mode==='photo')vwCamGo(vwCamIndex(x.camera));});
-  if(zb)zb.onclick=zoom;
+  window.__vwZoomOpen=zoom;   // проверкам — тот же вход, что тап по фото (кнопки «⤢» нет с 07.11, T-65)
   if(mi)vwTapZoom(mi.parentNode, zoom);
   vwPins();
 }
