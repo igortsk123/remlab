@@ -118,12 +118,14 @@ def role_spares(spec: Showcase, bank: list, rec: dict, roles=None, neighbours=ne
 
 
 def load_bank(path: str) -> list:
-    """Записи банка комнаты; нет файла — пусто (комната остаётся «скоро»), битый файл — громко."""
+    """Записи банка комнаты; нет файла — пусто (комната остаётся «скоро»), битый файл — громко. Ячейка с пометкой `retired`
+    (её нет в матрице профиля; писатель не удаляет, этап Ж) в витрину не идёт."""
     if not path or not os.path.exists(path):
         return []
     doc = json.load(open(path, encoding='utf-8'))
     rows = doc.get('sets') if isinstance(doc, dict) else doc
-    return [r for r in rows or [] if isinstance(r, dict) and r.get('room_id') and isinstance(r.get('items'), dict)]
+    return [r for r in rows or [] if isinstance(r, dict) and r.get('room_id') and isinstance(r.get('items'), dict)
+            and not r.get('retired')]
 
 
 def bank_room(bank: list, room_id: str) -> dict | None:

@@ -100,15 +100,21 @@ def sandbox(d: str, live: list | None) -> tuple[str, str]:
     return lp, g
 
 
-def run(d: str, live, cand, take=(), pre=None) -> tuple[dict, str, str, dict]:
+def run(d: str, live, cand, take=(), pre=None, want=None) -> tuple[dict, str, str, dict]:
+    """Репетиция на стенде. want — ключи матрицы профиля (кому `retired`); None — все ячейки живого и кандидата (снимать нечего;
+    настоящая матрица профиля тестом не читается — стенд не зависит от файлов профиля)."""
     lp, g = sandbox(os.path.join(d, 'real'), live)
     if pre:
         pre(lp, g)
     before = (BR._sha_file(lp), BR.listing(g))
-    rep = {'take': [RG.cell_key(s) for s in cand if RG.cell_key(s) in take] if take else [], 'cap': 15}
+    rows = [{'cell': RG.cell_key(s), 'set_id': s.get('set_id'), 'decision': 'promote', 'new': RG.cell_key(s) not in
+             {RG.cell_key(x) for x in live or []}} for s in cand if RG.cell_key(s) in take]
+    rep = {'take': [r['cell'] for r in rows], 'rows': rows, 'cap': 15,
+           'new_cells': [RG.cell_key(s) for s in cand if RG.cell_key(s) not in {RG.cell_key(x) for x in live or []}]}
     sb = os.path.join(d, 'sb')
     os.makedirs(sb)
-    out = BR.rehearse('bedroom', sb, live_path=lp, gen_dir=g, run_id='R1',
+    w = want if want is not None else {RG.cell_key(s) for s in (live or []) + cand}
+    out = BR.rehearse('bedroom', sb, live_path=lp, gen_dir=g, run_id='R1', want_fn=lambda r: set(w),
                       verdict_fn=lambda r: (rep, [], cand, json.load(open(lp)) if os.path.exists(lp) else None))
     untouched = (BR._sha_file(lp), BR.listing(g)) == before
     return out, lp, g, {'untouched': untouched}
@@ -177,10 +183,26 @@ def main() -> int:
         newc.update(style='джапанди', set_id=RI.set_id_of('bedroom', ('bedroom-1', 'couple', '13.2', 'джапанди', 'эконом')))
         cand = copy.deepcopy(B) + [newc]
         cand[5] = other(cand[5])
-        out, _, _, _ = run(os.path.join(d, 'n'), B, cand, take={RG.cell_key(newc), RG.cell_key(cand[5])})
-        ok('новая ячейка (нет в живом) — писатель ячеек не добавляет: в отчёт строкой, в копию идёт только живая',
-           out['ok'] and out['new_cells'] == [RG.cell_key(newc)] and out['promoted'] == [6]
-           and 'писатель их не добавляет' in BR.digest(out), (out.get('new_cells'), out.get('problems')))
+        out, _, _, x = run(os.path.join(d, 'n'), B, cand, take={RG.cell_key(newc), RG.cell_key(cand[5])})
+        sbj = RF.journal(BR.sandbox_paths(os.path.join(d, 'n', 'sb'), SPEC))
+        # этап Ж (вариант А): писатель ДОБАВЛЯЕТ — новая ячейка в хвост (номер 61) со своим id, прежние номера и id не тронуты,
+        # журнал `add`; откат по SHA — копия = живой «до»
+        ok('новая ячейка (нет в живом): в хвост номером 61, вид журнала add, прежние номера не тронуты, откат = живой',
+           out['ok'] and out['new_cells'] == [RG.cell_key(newc)] and out['promoted'] == [6, 61] and out['added'] == [61]
+           and out['grown'] == [61] and out['changed'] == [6] and out['sha_after_rollback'] == out['sha_before']
+           and [r['kind'] for r in sbj] == ['bootstrap', 'add', 'rollback'] and x['untouched']
+           and 'новых ячеек в хвост 1 [61]' in BR.digest(out), (out.get('problems'), [r['kind'] for r in sbj], BR.digest(out)))
+        rec = next(r for r in sbj if r['kind'] == 'add')
+        ok('журнал add: added_cells — номер, ячейка и id новой (id = set_id_of ячейки)',
+           rec.get('added_cells') == [{'n': 61, 'cell': RG.cell_key(newc), 'set_id': newc['set_id']}], rec.get('added_cells'))
+
+        # ячейка живого вне матрицы профиля — НЕ удаляется: пометка retired, номер и id прежние; откат = живой
+        cand = [s for s in copy.deepcopy(B) if RG.cell_key(s) != RG.cell_key(B[9])]
+        out, _, _, x = run(os.path.join(d, 'r'), B, cand, want={RG.cell_key(s) for s in cand})
+        ok('ячейка вне матрицы: retired (номер 10), не удалена, длина 60, откат = живой',
+           out['ok'] and out['mode'] == 'сторожа' and out['retired'] == [10] and out['changed'] == [10] and out['grown'] == []
+           and out['sha_after_rollback'] == out['sha_before'] and x['untouched']
+           and 'снято с витрины (retired) 1' in BR.digest(out), (out.get('problems'), out.get('changed'), BR.digest(out)))
 
         out, _, _, x = run(os.path.join(d, 'e'), B, copy.deepcopy(B))
         ok('кандидат равен живому — «записывать нечего», ок, ничего не писали', out['ok'] and out['mode'] == 'нечего' and x['untouched'])

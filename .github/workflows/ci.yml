@@ -239,13 +239,14 @@ jobs:
             echo "== $m --selftest"; python tools/scout/$m.py --selftest || exit 1
           done
       - run: python tools/scout/tests/test_bank_spec_golden.py   # банк гостиной через RoomBankSpec: вывод и файлы всех bank_* побайтно как до этапа Б (room-bank-01, T-20261106-67)
-      - run: python tools/scout/tests/test_room_bank_flags.py   # флаги write_enabled гостиной и спальни раздельно (4 сочетания), BANK_WRITE — только гостиная, каркас спальни не пишет, чужой manifest — отказ (T-20261106-67)
+      - run: python tools/scout/tests/test_room_bank_flags.py   # флаги write_enabled гостиной и спальни раздельно (4 сочетания), BANK_WRITE — только гостиная, каркас (прихожая) не пишет, чужой manifest — отказ (T-20261106-67; этап Ж — спальня настоящая)
       - run: python tools/scout/tests/test_room_bootstrap.py   # банк спальни: поколение 0 только со словом ведущего и флагом, повтор и откат, сбой в каждом окне, готовность из привязки (room-bank-01 этап В, T-20261106-70)
       - run: python tools/scout/tests/test_bank_state.py   # состояние живого банка комнаты (живой = журнал, намерения нет) — ворота публикации демо ночью (room-bank-01 этап Д, T-20261107-04)
       # экзамен ячейки в test_room_guards ставит набор солвером (`planner.models` → pydantic, shapely) — пакеты солвера здесь (T-20261106-95)
       - run: pip install -r services/planner-solver/requirements.txt
       - run: python tools/scout/tests/test_room_guards.py   # сторожа кандидата банка спальни и прихожей: strict по каталогу, готовность моделей, экзамен ячейки, демо old/hybrid, доля ≤ 25 % целыми ячейками, строка DIGEST (room-bank-01 этап Г, T-20261106-93)
       - run: python tools/scout/tests/test_bank_rehearsal.py   # тень банка комнаты: писатель спальни по ключу ячейки (60 записей → 60 id, повтор — те же), запись в копию → откат по SHA, живой и поколения не тронуты, внешних записей 0 (room-bank-01 этап Е, T-20261107-04)
+      - run: python tools/scout/tests/test_room_bank_chain.py   # настоящие шаги спальни: prepare (паспорт, проверки) → promote (manifest, новые в хвост, retired) → писатель add → откат по SHA, hold; витрина без retired (room-bank-01 этап Ж, T-20261107-04/3)
       - run: python tools/scout/salad/tests_sink_gate.py   # ворота приёмника и чистка — одна мера с зазором, счётчик = диск (mesh-12)
       - run: python tools/scout/salad/tests_topview_step.py   # шаг топ-вью: проход под таймаутом, дедлайн в /bin/sh, таймаут = сбой (T-20261020-15)
       - run: python tools/scout/salad/salad_groups.py --selftest && python tools/scout/salad/tests_batch_window.py   # группы Salad: удалённая (deleted) не отдаётся расписанию и не поднимается, сверка правила ↔ Salad без сети; расписание: 404 на стопе — «гасить нечего», 404 на старте — тревога (T-20261106-86)

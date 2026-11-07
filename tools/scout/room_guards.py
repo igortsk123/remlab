@@ -18,7 +18,7 @@
            лампа спальни (в витрине только строкой списка) модели не требуют — у них фото и ссылка из strict;
   exam   — экзамен на ФАКТИЧЕСКОЙ ячейке: готовая расстановка записи с размерами ТЕКУЩЕГО каталога → `planner.validate`
            HARD = 0; каждый предмет солвера записи стоит в расстановке; против живой ячейки — не меньше расставленных.
-СМЕШАННЫЙ БАНК (живой + подменённые ячейки, порядок — матрица профиля):
+СМЕШАННЫЙ БАНК (живой + подменённые ячейки; порядок — живой на своих номерах, новые ячейки кандидата — в хвост, `bank_order`, этап Ж):
   `<сборщик>.check_bank` (ядро, тумбы пары, полосы, разнообразие внутри (room_id, purpose), раскладка HARD) и порядок ступеней цены
   в (room_id, purpose, band, style) — НОВОЕ нарушение с участием подменяемой ячейки → она не идёт;
   demo (только спальня; у прихожей показа нет — пропуск строкой): варианты витрины (`demo_bedroom.pick_records` → `build_variant`
@@ -268,9 +268,11 @@ def mesh_gate(F):
 
 
 def demo_variants(bank: list, cat: dict, F, styles: list) -> dict:
-    """{(room_id, стиль): {'rec', 'variant' | 'incomplete'}} — витрина спальни по банку тем же кодом, что сборка демо."""
+    """{(room_id, стиль): {'rec', 'variant' | 'incomplete'}} — витрина спальни по банку тем же кодом, что сборка демо.
+    Ячейки `retired` в витрину не идут — как `demo_room.load_bank`."""
     import demo_bedroom as DB
     import footprint as FP
+    bank = [s for s in bank if not s.get('retired')]
 
     def sku(items: dict, role: str):
         it = items.get(role) or items.get(base_role(role))
@@ -351,14 +353,31 @@ def sig(s: dict) -> str:
     """Содержимое ячейки для «изменилась ли»: состав (артикул, штук, цена), запас замен, расстановка."""
     lay = {r: [p.get('x'), p.get('z'), p.get('rot'), p.get('sid')] for r, p in (s.get('layout') or {}).items()
            if not r.startswith('_') and isinstance(p, dict)}
-    return json.dumps({'items': {r: [sku_of(it), it.get('qty'), it.get('price')] for r, it in (s.get('items') or {}).items()},
-                       'alts': {r: [sku_of(a) for a in xs] for r, xs in (s.get('alternates') or {}).items()},
-                       'layout': lay, 'total': s.get('total')}, ensure_ascii=False, sort_keys=True)
+    body = {'items': {r: [sku_of(it), it.get('qty'), it.get('price')] for r, it in (s.get('items') or {}).items()},
+            'alts': {r: [sku_of(a) for a in xs] for r, xs in (s.get('alternates') or {}).items()},
+            'layout': lay, 'total': s.get('total')}
+    if s.get('retired'):                # снятая с витрины ячейка (этап Ж) вернулась в кандидат — это изменение, её судят заново
+        body['retired'] = True
+    return json.dumps(body, ensure_ascii=False, sort_keys=True)
+
+
+def bank_order(live: list, cand: list) -> list:
+    """Порядок смешанного банка комнаты (этап Ж): номер массива — идентичность, поэтому сперва живые ячейки на своих номерах,
+    затем новые ячейки кандидата в ХВОСТ в порядке кандидата (матрицы профиля). Порядок матрицы сдвинул бы прежние номера."""
+    have = {cell_key(s) for s in live}
+    return [cell_key(s) for s in live] + [cell_key(s) for s in cand if cell_key(s) not in have]
+
+
+def retire_of(live: list, want: set) -> list[str]:
+    """Живые ячейки, которых больше нет в матрице профиля (`want` — ключи ячеек `cell_key`), ещё без пометки: их НЕ удаляют —
+    пометка `retired`, в витрину не идут (этап Ж, ведущий 07.11). Ячейку, которую лишь ЭТОЙ ночью не собрал сборщик (стиль
+    пропущен по правилу ядра), не трогаем: она в матрице, вернётся следующей сборкой."""
+    return [cell_key(s) for s in live if cell_key(s) not in want and not s.get('retired')]
 
 
 def hybrid_of(live: list, cand: list, take: set, order: list | None = None) -> list:
-    """Смешанный банк: ячейки `take` — запись кандидата ЦЕЛИКОМ, остальные — живая ЦЕЛИКОМ; порядок — `order` (матрица
-    профиля), затем живые ячейки вне матрицы на своих местах."""
+    """Смешанный банк: ячейки `take` — запись кандидата ЦЕЛИКОМ, остальные — живая ЦЕЛИКОМ; порядок — `order` (у ночи —
+    `bank_order`: живые на своих номерах, новые в хвост), затем живые ячейки вне `order`. Новая ячейка не из `take` — не входит."""
     L = {cell_key(s): s for s in live}
     C = {cell_key(s): s for s in cand}
     order = order or [cell_key(s) for s in cand]
@@ -373,9 +392,10 @@ def hybrid_of(live: list, cand: list, take: set, order: list | None = None) -> l
 
 
 def plan(live: list, cand: list, *, strict_fn, ready_fn, exam_fn, bank_fn, demo_fn=None, share: float = SHARE_DEFAULT,
-         order: list | None = None, demo_cells: set = frozenset()) -> dict:
+         order: list | None = None, demo_cells: set = frozenset(), held_fn=None) -> dict:
     """Решение по ячейкам кандидата против живого банка → {'rows': [...], 'take': [ячейки], 'hybrid': [...], 'cap': N}.
-    Решения: same (не изменилась), rejected (strict/exam/связи/демо — причины), waiting (ждёт модели), promote, deferred (предел)."""
+    Решения: same (не изменилась), rejected (strict/exam/связи/демо/held — причины), waiting (ждёт модели), promote, deferred (предел).
+    held_fn(запись) — тот же кандидат ячейки, что откатили вручную (`bank_refresh rollback` → hold.json): не идёт (этап Ж)."""
     L = {cell_key(s): s for s in live}
     rows, cand_by = [], {}
     for i, s in enumerate(cand):
@@ -385,6 +405,10 @@ def plan(live: list, cand: list, *, strict_fn, ready_fn, exam_fn, bank_fn, demo_
         row = {'cell': c, 'set_id': s.get('set_id'), 'index': i, 'new': old is None}
         if old is not None and sig(old) == sig(s):
             rows.append(dict(row, decision='same'))
+            continue
+        if held_fn is not None and held_fn(s):
+            rows.append(dict(row, decision='rejected', kind='held',
+                             reasons=['тот же кандидат откачен вручную (hold.json) — ждёт нового кандидата или release']))
             continue
         st, ex = strict_fn(s), exam_fn(s, old)
         wait = ready_fn(s)
@@ -458,7 +482,7 @@ def _wait_lines(rows: list) -> list[str]:
 
 def night(room: str, cand: list, live: list | None, *, cat: dict, F, R: dict, tol: tuple, dead=frozenset(),
           share: float = SHARE_DEFAULT, identity_fn=None, gen0_verdict=None, F_strict=None,
-          assume_ready: bool = False) -> tuple[dict, list[str]]:
+          assume_ready: bool = False, held_fn=None) -> tuple[dict, list[str]]:
     """Сухой вердикт ночи → (отчёт, строки вывода; последняя — DIGEST одной строкой на комнату).
     identity_fn(комната, кандидат) — отказы идентичности (`room_bootstrap.identity`): есть — кандидат не годен целиком.
     gen0_verdict — суд поколения 0 (`room_bootstrap.verdict`), когда живого банка нет. F_strict — те же факты в режиме
@@ -504,7 +528,8 @@ def night(room: str, cand: list, live: list | None, *, cat: dict, F, R: dict, to
     if room == 'bedroom':
         import demo_bedroom as DB
         styles = [s for s in R['styles'] if any(x.get('style') == s for x in live + cand)]
-        demo_cells = {cell_key(r) for r in DB.pick_records(live, list(dict.fromkeys(x['room_id'] for x in live)), styles)}
+        shown = [s for s in live if not s.get('retired')]
+        demo_cells = {cell_key(r) for r in DB.pick_records(shown, list(dict.fromkeys(x['room_id'] for x in shown)), styles)}
         memo: dict = {}
 
         def bedroom_demo(lv, hyb, take):
@@ -514,9 +539,10 @@ def night(room: str, cand: list, live: list | None, *, cat: dict, F, R: dict, to
         demo_fn = bedroom_demo
     bank_fn = lambda b: bank_problems(room, b, R, tol)          # noqa: E731
     rep = plan(live, cand, strict_fn=strict_fn, ready_fn=ready_fn, exam_fn=exam_fn, bank_fn=bank_fn, demo_fn=demo_fn,
-               share=share, order=[cell_key(s) for s in cand], demo_cells=demo_cells)
+               share=share, order=bank_order(live, cand), demo_cells=demo_cells, held_fn=held_fn)
     rep.update(room=room, mode='replace', fatal=[])
     rep.pop('hybrid', None)
+    rep['new_cells'] = [r['cell'] for r in rep['rows'] if r.get('new')]
     sm = summary(rep)
     L.append(f"room_guards {room}: живой {len(live)} ячеек, кандидат {len(cand)}; предел {rep['cap']} ({share:.0%})")
     for r in rep['rows']:
@@ -553,9 +579,11 @@ def run_night(room: str, cand_path: str | None = None, json_out: str | None = No
     return 0
 
 
-def verdict(room: str, cand_path: str | None = None, live_path: str | None = None, assume_ready: bool = False):
+def verdict(room: str, cand_path: str | None = None, live_path: str | None = None, assume_ready: bool = False,
+            cand_raw: bytes | None = None, held_fn=None):
     """Сухой вердикт ночи по файлам комнаты → (отчёт, строки, кандидат, живой) или None — кандидат не читается (строки WARN и
-    DIGEST напечатаны). Общий для `run_night` и репетиции записи (`bank_rehearsal`, этап Е): решение то же, что видит ночь."""
+    DIGEST напечатаны). Общий для `run_night`, репетиции записи (`bank_rehearsal`, этап Е) и подмены (`room_promote`, этап Ж):
+    решение то же, что видит ночь. `cand_raw` — байты кандидата, уже сверенные с паспортом ночи (второго чтения файла нет)."""
     import room_bank_spec as RBS
     import room_bootstrap as RBo
     import room_ready as RR
@@ -564,7 +592,7 @@ def verdict(room: str, cand_path: str | None = None, live_path: str | None = Non
     cand_path = cand_path or spec.candidate
     live_path = live_path or spec.live
     try:
-        cand = json.load(open(cand_path, encoding='utf-8'))
+        cand = json.loads(cand_raw) if cand_raw is not None else json.load(open(cand_path, encoding='utf-8'))
     except (FileNotFoundError, ValueError) as e:
         print(f'WARN:room_guards:{room}: кандидат {cand_path} не читается ({type(e).__name__}) — сторожа не судили', flush=True)
         print(f'DIGEST:банк {ROOM_RU.get(room, room)} (сторожа, сухо): кандидата нет — не судили; живой не тронут', flush=True)
@@ -585,7 +613,8 @@ def verdict(room: str, cand_path: str | None = None, live_path: str | None = Non
     skipped = RBo.skipped_of(cand_path)
     rep, lines = night(room, cand, live, cat=cat, F=F, R=R, tol=M.tolerance(), dead=dead, share=share, F_strict=F_strict,
                        identity_fn=lambda rm, c: RBo.identity(rm, c, skipped),
-                       gen0_verdict=lambda rm, c: RBo.verdict(rm, c, skipped=skipped), assume_ready=assume_ready)
+                       gen0_verdict=lambda rm, c: RBo.verdict(rm, c, skipped=skipped), assume_ready=assume_ready,
+                       held_fn=held_fn)
     return rep, lines, cand, live
 
 

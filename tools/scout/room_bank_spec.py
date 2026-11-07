@@ -12,11 +12,12 @@
 `BANK_PROMOTE`, `BANK_PROMOTE_DIR`, `BANK_GENERATIONS`), флаги — верхний уровень `rules/bank-candidate.json` (прежний ключ —
 её ключ). Вывод всех `bank_*` побайтно прежний — `tests/test_bank_spec_golden.py`.
 
-СПАЛЬНЯ (`--room bedroom`) — на этапе Б только КАРКАС: пути (`sets-bedroom*.json`, `~/scout-scenes/bank-bedroom-*.json`,
+СПАЛЬНЯ (`--room bedroom`): пути (`sets-bedroom*.json`, `~/scout-scenes/bank-bedroom-*.json`,
 `bank-generations-bedroom/sets-bedroom-*.json.gz`; env с префиксом `BANK_BEDROOM_`), флаги — раздел
-`rooms.bedroom` правил (все выключены; нет раздела — выключено), ключ ячейки `(room_id, purpose, band, style, tier)`.
-Шаги цепочки с `--room bedroom` ничего не пишут: флаг выключен — строка «выключено», включён или `--force` — отказ (код 2,
-«адаптер — каркас»). Идентичность и bootstrap — этап В, суд и писатель — Г.
+`rooms.bedroom` правил (нет раздела — выключено), ключ ячейки `(room_id, purpose, band, style, tier)`. С этапа Ж
+(T-20261107-04/3) шаги настоящие: prepare и promote — `room_bank_chain.py`, ожидание и писатель — общие `bank_pending` /
+`bank_refresh` (писатель добавляет новые ячейки в хвост, вид журнала `add`). ПРИХОЖАЯ — по-прежнему каркас (`REAL_ROOMS`):
+флаг выключен — строка «выключено», включён или `--force` — отказ (код 2, «адаптер — каркас»).
 
   python3 room_bank_spec.py --selftest
   python3 room_bank_spec.py [--room bedroom]      # пути, флаги и адаптеры комнаты — для разбора
@@ -180,10 +181,12 @@ def _room(room: str, env) -> RoomBankSpec:
         catalog='room_catalog (catalog_items)', readiness='offer_asset_binding',
         strict='room_guards.strict_cell (каталог сейчас)', exam='room_guards.exam_cell + bank_problems (смешанный банк)',
         demo=('room_guards.demo_problems (old/hybrid)' if room == 'bedroom' else 'нет показа — пропуск строкой'),
-        skeleton=True)
+        # этап Ж (T-20261107-04/3): у спальни шаги настоящие (`room_bank_chain` + общие bank_pending/bank_refresh); прихожая — каркас
+        skeleton=room not in REAL_ROOMS)
 
 
-ROOMS = (LIVING, 'bedroom', 'hall')    # прихожая — T-20261106-89 шаг 2: каркас, как спальня (свои пути, флаги rooms.hall.*)
+ROOMS = (LIVING, 'bedroom', 'hall')    # прихожая — T-20261106-89 шаг 2: каркас (свои пути, флаги rooms.hall.*)
+REAL_ROOMS = ('bedroom',)              # комнаты с настоящими шагами цепочки (этап Ж); остальные — каркас `skeleton_gate`
 
 
 def for_room(room: str | None = None, env=None) -> RoomBankSpec:
@@ -317,8 +320,10 @@ def _selftest() -> int:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         g = (L.skeleton_gate('x', {}, 'write_enabled'), B.skeleton_gate('x', {}, 'write_enabled'),
-             B.skeleton_gate('x', {'write_enabled': True}, 'write_enabled'), B.skeleton_gate('x', {}, 'write_enabled', True))
-    ok('каркас: гостиная идёт дальше; спальня выключена — 0, включена или --force — отказ 2', g == (None, 0, 2, 2), g)
+             H.skeleton_gate('x', {}, 'write_enabled'), H.skeleton_gate('x', {'write_enabled': True}, 'write_enabled'),
+             H.skeleton_gate('x', {}, 'write_enabled', True))
+    ok('каркас: гостиная и спальня (этап Ж) идут дальше; прихожая выключена — 0, включена или --force — отказ 2',
+       g == (None, None, 0, 2, 2) and not B.skeleton, g)
     ok('сборщик ночи гостиной: та же команда, что до этапа Б (compose2.py --style --bands all)',
        [L.composer()[1], *L.compose_args] == [os.path.join(HERE, 'compose2.py'), '--style', '--bands', 'all'])
     ok('сборщик из профиля: гостиная compose2.py, спальня compose_bedroom.py',

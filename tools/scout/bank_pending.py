@@ -629,6 +629,11 @@ if __name__ == '__main__':
         gate = SPEC.skeleton_gate('bank_pending', rules(), 'prepare_enabled')
         if gate is not None:
             sys.exit(gate)
+        if SPEC.room != RBS.LIVING and '--night' not in argv and not rules().get('prepare_enabled') and '--force' not in argv:
+            # комната (этап Ж): ручной --dry/--update — за тем же флагом, что ночь (ночь проверяет его сама, `night`)
+            print(f'bank_pending: выключено (rules/bank-candidate.json:{SPEC.flag_ref("prepare_enabled")}=false) — {room}: '
+                  'ожидание не считаю (--force — вручную)', flush=True)
+            sys.exit(0)
     if '--night' in argv:
         sys.exit(night(report=PREPARE_REPORT, run_id=RUN.arg(argv)))
     if '--dry' in argv or '--update' in argv:

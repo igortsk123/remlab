@@ -787,6 +787,9 @@ if __name__ == '__main__':
         gate = SPEC.skeleton_gate('bank_promote', rules(), 'promote_enabled', '--force' in argv)
         if gate is not None:
             sys.exit(gate)
+        if SPEC.room != RBS.LIVING:            # комната (этап Ж): сторожа комнаты `room_guards` → manifest писателя
+            import room_bank_chain as RBC
+            sys.exit(RBC.promote(SPEC, RUN.arg(argv), '--force' in argv))
     fr = set()
     if '--force-ready' in argv:
         fr = {int(x) for x in argv[argv.index('--force-ready') + 1].split(',') if x.strip()}

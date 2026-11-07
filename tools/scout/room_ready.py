@@ -58,6 +58,14 @@ class Facts:
         import catalog_items as CI
         return CI.bound_asset({}, self.rows.get(sku), self.why)
 
+    @property
+    def mesh_ok(self) -> set:
+        """Товары с годной моделью по правилу витрины (как `bank_ready.Facts.mesh_ok`) — метрика ночи `bank_pending`
+        («доделано за ночь»; этап Ж: без поля шаг ожидания комнаты падал на записи)."""
+        if not hasattr(self, '_mesh_ok'):
+            self._mesh_ok = {s for s in self.rows if not RB.usable(self.asset(s), self.msid(s), self.idx, self.mode)[0]}
+        return self._mesh_ok
+
     def msid(self, sku: str) -> str:
         """Модель сцены = модель привязки, представитель — запасной путь (`room_bindings.scene_msid`, T-20261106-77/4)."""
         return RB.scene_msid(self.rows.get(sku), sku.replace(':', '_', 1), self.rep_map)

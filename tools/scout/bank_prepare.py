@@ -289,4 +289,7 @@ if __name__ == '__main__':
         gate = SPEC.skeleton_gate('bank_prepare', rules(), 'prepare_enabled', '--force' in argv)
         if gate is not None:
             sys.exit(gate)
+        if SPEC.room != RBS.LIVING:            # комната (этап Ж): кандидат уже собран шагом compose_<комната> — проверка и паспорт
+            import room_bank_chain as RBC
+            sys.exit(RBC.prepare(SPEC, RUN.arg(argv), '--force' in argv))
     sys.exit(run('--force' in argv, out=CANDIDATE, run_id=RUN.arg(argv)))

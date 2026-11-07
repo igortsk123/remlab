@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Флаги писателя гостиной и спальни — раздельно; каркас спальни ничего не пишет (room-bank-01 этап Б, T-20261106-67).
+"""Флаги писателя гостиной и спальни — раздельно; каркас (прихожая) ничего не пишет (room-bank-01 этап Б, T-20261106-67; этап Ж — спальня настоящая).
 
 ЗАЧЕМ. С этапа Б у банка спальни свои флаги шагов (`rules/bank-candidate.json:rooms.bedroom.*`), а гостиная читает прежние
 ключи верхнего уровня. Разбор Codex (`_intake/codex/room-bank-2026-11-06-answer.md`): включение писателя спальни не должно
@@ -15,7 +15,6 @@ import io
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 
@@ -67,6 +66,40 @@ def call_main(argv: list, rules: str, home: str) -> tuple[int, str, list]:
             os.environ['HOME'] = h
 
 
+def run_cli(argv: list, rules: str, home: str) -> tuple[int, str]:
+    """Скрипт шага как `python X.py …`, но в процессе (`runpy`): правила — временный файл (`room_bank_spec.RULES_PATH`), HOME —
+    временная папка; модули, которые шаг меняет через `bind`, возвращаются. → (код, вывод целиком; при исключении — traceback)."""
+    import runpy
+    import traceback
+    names = ('bank_pending', 'bank_promote', 'bank_prepare', 'bank_refresh')
+    saved_mods = {n: dict(vars(sys.modules[n])) for n in names if n in sys.modules}
+    saved = (RBS.RULES_PATH, sys.argv, os.environ.get('HOME'))
+    buf = io.StringIO()
+    rc = None
+    try:
+        RBS.RULES_PATH = rules
+        sys.argv = [os.path.join(SCOUT, argv[0]), *argv[1:]]
+        os.environ['HOME'] = home
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            try:
+                runpy.run_path(sys.argv[0], run_name='__main__')
+                rc = 0
+            except SystemExit as e:
+                rc = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+                if not isinstance(e.code, (int, type(None))):
+                    print(e.code)
+            except BaseException:  # noqa: BLE001 — тест печатает исключение целиком
+                traceback.print_exc()
+                rc = 'исключение'
+    finally:
+        RBS.RULES_PATH, sys.argv, h = saved
+        if h is not None:
+            os.environ['HOME'] = h
+        for n, d in saved_mods.items():
+            vars(sys.modules[n]).update(d)
+    return rc, buf.getvalue()
+
+
 def main() -> int:
     B = RBS.for_room('bedroom')
     L = RBS.for_room(None)
@@ -85,13 +118,20 @@ def main() -> int:
                 rc, out, calls = call_main(['--run-id', 'N1'], rp, home)
                 ok(f'[{tag}] писатель гостиной без --room: идёт к записи своего sets3.json, флаг спальни не влияет',
                    rc == 0 and calls == [('write', L.live, None)], (rc, calls))
+                # этап Ж (T-20261107-04/3): писатель спальни настоящий — идёт к записи СВОЕГО банка (флаг решает `write` сам)
                 rc, out, calls = call_main(['--room', 'bedroom', '--run-id', 'N1'], rp, home)
-                want = (2, 'адаптер каркас') if bw else (0, 'rooms.bedroom.write_enabled=false')
-                ok(f'[{tag}] писатель спальни: ' + ('включён — отказ «каркас» (код 2)' if bw else 'выключен — «выключено»')
-                   + '; ни записи, ни писателя гостиной', rc == want[0] and want[1] in out and calls == [], (rc, out, calls))
+                ok(f'[{tag}] писатель спальни: к записи sets-bedroom.json со своей комнатой; писателя гостиной нет',
+                   rc == 0 and calls == [('write', B.live, 'bedroom')], (rc, out, calls))
                 for sub in (['rollback', 'last'], ['release'], ['recover']):
                     rc, out, calls = call_main(['--room', 'bedroom', *sub], rp, home)
-                    ok(f'[{tag}] спальня `{sub[0]}` — каркас, ничего не трогает', rc in (0, 2) and calls == [], (rc, calls))
+                    ok(f'[{tag}] спальня `{sub[0]}` — свой банк', rc == 0 and calls == [(sub[0], B.live)], (rc, calls))
+                # прихожая — по-прежнему каркас: флаг в файле выключен — «выключено», ничего не зовёт
+                rc, out, calls = call_main(['--room', 'hall', '--run-id', 'N1'], rp, home)
+                ok(f'[{tag}] писатель прихожей (каркас): «выключено», ни записи, ни писателя гостиной',
+                   rc == 0 and 'rooms.hall.write_enabled=false' in out and calls == [], (rc, out, calls))
+                for sub in (['rollback', 'last'], ['release'], ['recover']):
+                    rc, out, calls = call_main(['--room', 'hall', *sub], rp, home)
+                    ok(f'[{tag}] прихожая `{sub[0]}` — каркас, ничего не трогает', rc in (0, 2) and calls == [], (rc, calls))
                 with open(rp, encoding='utf-8') as f:
                     R = json.load(f)
                 RL = L.view(R)
@@ -141,31 +181,41 @@ def main() -> int:
            k_living == 'S|сканди|эконом' and k_bed == 'r1|double|S|сканди|эконом' and st_bed == B.pending_state
            and BP.key(s) == k_living)
 
-        # CLI шагов с --room bedroom: prepare/promote в правилах выключены — «выключено», 0; write — как в файле (включён ведущим
-        # T-77/2 для поколения 0): включён — каркас писателя отказывает 2 (суд и писатель — этап Г). Ничего не пишут.
-        wflag = bool(RBS.for_room('bedroom').rules().get('write_enabled'))
-        refresh_want = (2, 'адаптер каркас') if wflag else (0, 'rooms.bedroom.write_enabled=false')
-        env = {**os.environ, 'HOME': home}
+        # CLI шагов с --room в процессе, правила — ВРЕМЕННЫЕ (флаги в файле репо ведущий включает — тест от них не зависит,
+        # урок CI T-04/2): спальня — настоящие шаги, флаги выключены — «выключено», 0 (prepare кладёт отчёт {disabled} — по нему
+        # подмена этой ночи знает, что судить нечего); прихожая — каркас: флаг выключен — 0, --force — отказ 2. Рядом ничего.
+        R = json.load(open(RBS.RULES_PATH, encoding='utf-8'))
+        for room in ('bedroom', 'hall'):
+            R.setdefault('rooms', {}).setdefault(room, {}).update(prepare_enabled=False, promote_enabled=False,
+                                                                  write_enabled=False)
+        off = os.path.join(td, 'rules-off.json')
+        json.dump(R, open(off, 'w', encoding='utf-8'), ensure_ascii=False)
+        home2 = os.path.join(td, 'home2')
+        os.makedirs(home2)
         before = set(os.listdir(SCOUT))
-        for argv, want_rc, want in ((['bank_prepare.py', '--room', 'bedroom'], 0, 'rooms.bedroom.prepare_enabled=false'),
-                                    (['bank_prepare.py', '--room', 'bedroom', '--force'], 2, 'адаптер каркас'),
+        for argv, want_rc, want in ((['bank_prepare.py', '--room', 'bedroom', '--run-id', 'N1'], 0,
+                                     'rooms.bedroom.prepare_enabled=false'),
                                     (['bank_pending.py', '--room', 'bedroom', '--night', '--run-id', 'N1'], 0,
                                      'rooms.bedroom.prepare_enabled=false'),
                                     (['bank_pending.py', '--room', 'bedroom', '--update'], 0, 'rooms.bedroom.prepare_enabled=false'),
                                     (['bank_promote.py', '--room', 'bedroom', '--run-id', 'N1'], 0,
                                      'rooms.bedroom.promote_enabled=false'),
-                                    (['bank_promote.py', '--room', 'bedroom', '--force'], 2, 'адаптер каркас'),
-                                    (['bank_refresh.py', '--room', 'bedroom', '--run-id', 'N1'], *refresh_want),
-                                    (['bank_refresh.py', '--room', 'bedroom', 'list'], 0, ''),
+                                    (['bank_refresh.py', '--room', 'bedroom', '--run-id', 'N1'], 0,
+                                     'rooms.bedroom.write_enabled=false'),
+                                    (['bank_prepare.py', '--room', 'hall'], 0, 'rooms.hall.prepare_enabled=false'),
+                                    (['bank_prepare.py', '--room', 'hall', '--force'], 2, 'адаптер каркас'),
+                                    (['bank_promote.py', '--room', 'hall', '--force'], 2, 'адаптер каркас'),
+                                    (['bank_pending.py', '--room', 'hall', '--update'], 0, 'rooms.hall.prepare_enabled=false'),
                                     (['bank_prepare.py', '--room', 'kitchen'], 1, 'банка такой комнаты нет')):
-            p = subprocess.run([sys.executable, os.path.join(SCOUT, argv[0]), *argv[1:]], cwd=SCOUT, env=env,
-                               capture_output=True, text=True, timeout=120)
-            txt = p.stdout + p.stderr
-            ok(f'`{" ".join(argv)}` — код {want_rc}' + (f', «{want}»' if want else ''), p.returncode == want_rc and want in txt,
-               (p.returncode, txt[-300:]))
+            rc, txt = run_cli(argv, off, home2)
+            ok(f'`{" ".join(argv)}` — код {want_rc}' + (f', «{want}»' if want else ''), rc == want_rc and want in txt,
+               (rc, txt[-600:]))
         made = set(os.listdir(SCOUT)) - before
-        ok('шаги спальни не создали файлов рядом (sets-bedroom*, bank-generations-bedroom) и в HOME',
-           not made and not os.listdir(home), (made, os.listdir(home)))
+        rep = os.path.join(home2, 'scout-scenes', 'bank-bedroom-prepare.json')
+        got = sorted(os.path.relpath(os.path.join(d, f), home2) for d, _, fs in os.walk(home2) for f in fs)
+        ok('шаги комнат не создали файлов рядом (sets-*, bank-generations-*); в HOME — только отчёт prepare спальни {disabled}',
+           not made and got == ['scout-scenes/bank-bedroom-prepare.json'] and json.load(open(rep)).get('disabled') is True,
+           (made, got))
     print(f'room_bank_flags: ошибок {bad}')
     return 1 if bad else 0
 

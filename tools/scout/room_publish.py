@@ -85,7 +85,8 @@ def config(env=os.environ) -> list:
 
 
 def bank_offers(bank: list) -> list:
-    """offer_id позиций и альтернатив наборов, порядок появления, без повторов."""
+    """offer_id позиций и альтернатив наборов, порядок появления, без повторов. Ячейки `retired` (этап Ж: вне матрицы профиля,
+    в витрину не идут) — мимо."""
     out, seen = [], set()
 
     def add(v):
@@ -96,6 +97,8 @@ def bank_offers(bank: list) -> list:
             seen.add(k)
             out.append(k)
     for s in bank:
+        if isinstance(s, dict) and s.get('retired'):
+            continue
         for v in (s.get('items') or {}).values():
             add(v)
         for lst in (s.get('alternates') or {}).values():

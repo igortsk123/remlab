@@ -84,6 +84,17 @@ def _key():
     return None if SPEC.room == RBS.LIVING else SPEC.cell
 
 
+def _grow() -> bool:
+    """ДОБАВЛЕНИЕ ЯЧЕЕК (room-bank-01 этап Ж, ведущий 07.11 — вариант А): только у комнаты. Новая ячейка — в хвост живого со своим
+    id (от ячейки), номера и id прежних не меняются; запись с новыми — вид журнала `add`; откат по SHA — как у `write` (снимок
+    короче живого ровно на хвост). Гостиная — False: длина банка 126, всё побайтно прежнее."""
+    return SPEC.room != RBS.LIVING
+
+
+# виды журнала «писатель заменил живой банк» (откат и «уже записано» ищут по ним); `add` — запись с новыми ячейками в хвосте
+WRITES = ('write', 'add')
+
+
 def sha(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
@@ -198,7 +209,8 @@ def recover(P: dict, abandon: bool = False) -> int:
     if cur == it['live_sha_after']:
         snap = gzip.decompress(open(it['snapshot'], 'rb').read())
         bad = (['снимок повреждён'] if sha(snap) != it['live_sha_before']
-               else SID.verify(json.loads(raw), json.loads(snap), cells=len(json.loads(snap)), key=_key()))
+               else SID.verify(json.loads(raw), json.loads(snap), cells=None if _grow() else len(json.loads(snap)), key=_key(),
+                               **({'grow': True} if _grow() else {})))
         if not bad:
             if it.get('hold') is not None:
                 _hold_save(P, it['hold'])
@@ -227,7 +239,7 @@ def recover(P: dict, abandon: bool = False) -> int:
 
 
 # виды записей журнала, после которых живой банк ОБЯЗАН иметь их `live_sha_after` (None — живого файла нет)
-CHANGES = ('write', 'rollback', 'bootstrap', 'unbootstrap')
+CHANGES = ('write', 'add', 'rollback', 'bootstrap', 'unbootstrap')
 
 
 def expected(J: list[dict]) -> tuple[str | None, str | None]:
@@ -293,7 +305,8 @@ def summary(live: list, out: list, promoted: list, rows: dict) -> dict:
     """Снято / добавлено по позициям продвинутых ячеек, ожидание мешей, статусы нетронутых — для журнала и дайджеста."""
     removed, added = [], []
     for n in promoted:
-        a = {r: _sku(it) for r, it in (live[n - 1].get('items') or {}).items() if _sku(it)}
+        old = live[n - 1] if n <= len(live) else {}          # новая ячейка в хвосте (этап Ж): снимать нечего
+        a = {r: _sku(it) for r, it in (old.get('items') or {}).items() if _sku(it)}
         b = {r: _sku(it) for r, it in (out[n - 1].get('items') or {}).items() if _sku(it)}
         removed += [(n, r, s) for r, s in a.items() if b.get(r) != s]
         added += [(n, r, s) for r, s in b.items() if a.get(r) != s]
@@ -314,6 +327,8 @@ def summary(live: list, out: list, promoted: list, rows: dict) -> dict:
 def digest_lines(d: dict, gen: str | None) -> list[str]:
     head = (f"DIGEST:банк (поколение {gen}): подменено ячеек {len(d['promoted'])} {d['promoted'][:12]}; снято товаров "
             f"{d['removed']}, добавлено {d['added']}" + (f" ({', '.join(d['removed_roles'][:6])})" if d['removed_roles'] else '')
+            + (f"; новых ячеек {len(d['new_cells'])} {d['new_cells'][:12]}" if d.get('new_cells') else '')
+            + (f"; снято с витрины (retired) {len(d['retired'])} {d['retired'][:12]}" if d.get('retired') else '')
             if gen else "DIGEST:банк: без изменений (подменено 0)")
     tail = (f"DIGEST:банк: ждёт меш ячеек {d['wait_mesh_cells']} (мешей недостаёт {d['wait_mesh']}), ждёт прочего "
             f"{d['wait_other']}, заблокировано {d['blocked']}, до следующей ночи {d['deferred']}; скрыто "
@@ -357,7 +372,7 @@ def write(P: dict, R: dict, *, force: bool = False, media_fn=None, now: float | 
     live, lsha = json.loads(raw), sha(raw)
     rows = {r['n']: r for r in man.get('cells') or []}
     promoted = sorted(man.get('promoted') or [])
-    J = [r for r in journal(P) if r.get('kind') == 'write']
+    J = [r for r in journal(P) if r.get('kind') in WRITES]
     if J and J[-1].get('manifest_at') == man.get('at') and J[-1].get('hybrid_sha') == man.get('hybrid_sha') \
             and J[-1].get('live_sha_after') == lsha:
         print(f"bank_refresh: этот manifest уже записан (поколение {J[-1]['gen']}) — без изменений", flush=True)
@@ -380,10 +395,21 @@ def write(P: dict, R: dict, *, force: bool = False, media_fn=None, now: float | 
     if sha(hraw) != man.get('hybrid_sha'):
         return _fail('смешанный банк не тот, что судили (hybrid_sha другой)')
     hybrid = json.loads(hraw)
-    ident = SID.verify(hybrid, live, cells=len(live), key=_key())
+    grow = _grow()
+    ident = SID.verify(hybrid, live, cells=None if grow else len(live), key=_key(), **({'grow': True} if grow else {}))
     if ident:
         return _fail('идентичность смешанного против живого: ' + '; '.join(ident))
-    worse = [n for n in range(1, len(live) + 1) if n not in promoted and _strip(hybrid[n - 1]) != _strip(live[n - 1])]
+    added = list(range(len(live) + 1, len(hybrid) + 1))      # этап Ж: новые ячейки в хвосте (у гостиной пусто — verify)
+    unjudged = [n for n in added if n not in promoted]
+    if unjudged:
+        return _fail(f'новые ячейки без суда (не в promoted): {unjudged[:5]}')
+    retired = sorted(man.get('retired') or [])
+    bad_ret = [n for n in retired if not grow or n > len(live) or n in promoted
+               or hybrid[n - 1] != {**live[n - 1], 'retired': True}]
+    if bad_ret:
+        return _fail(f'retired: ячейки {bad_ret[:5]} — не живые, продвигаются или изменено что-то кроме пометки')
+    worse = [n for n in range(1, len(live) + 1) if n not in promoted and n not in retired
+             and _strip(hybrid[n - 1]) != _strip(live[n - 1])]
     if worse:
         return _fail(f'изменились не продвинутые ячейки: {worse[:5]}')
     drift = [n for n in promoted if n not in rows or _cand_hash(hybrid[n - 1]) != rows[n].get('candidate_hash')]
@@ -396,6 +422,8 @@ def write(P: dict, R: dict, *, force: bool = False, media_fn=None, now: float | 
     out = copy.deepcopy(hybrid)
     mstat = media_fn(out) if media_fn else None
     d = summary(live, out, promoted, rows)
+    if grow:
+        d.update(new_cells=added, retired=retired)
     if mstat:
         print('медиа из каталога: ' + ', '.join(f'{k} {v}' for k, v in mstat.items() if v), flush=True)
     if out == live:
@@ -404,28 +432,33 @@ def write(P: dict, R: dict, *, force: bool = False, media_fn=None, now: float | 
             print(x, flush=True)
         return 0
     try:                                       # байты, которые запишет write_bank (тот же dump) — sha «после» для намерения
-        target = json.dumps(SID.assign_ids(copy.deepcopy(out), live, _key()), ensure_ascii=False, indent=1).encode('utf-8')
+        target = json.dumps(SID.assign_ids(copy.deepcopy(out), live, _key(), **({'grow': True} if grow else {})),
+                            ensure_ascii=False, indent=1).encode('utf-8')
     except SID.IdentityError as e:
         return _fail(f'идентичность записи: {e}')
     # запрет отката снимается сам, когда у ячейки новый кандидат
     keep = {k: v for k, v in hold.items()
             if not any(r['cell'] == k and r['candidate_hash'] != v['candidate_hash'] for r in rows.values())}
     gen, spath = snapshot(P, raw)
-    rec = {'gen': gen, 'kind': 'write', 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'snapshot': spath, 'run_id': run_id,
-           'live_sha_before': lsha, 'live_sha_after': sha(target), 'manifest_at': man.get('at'),
+    rec = {'gen': gen, 'kind': 'add' if added else 'write', 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'snapshot': spath,
+           'run_id': run_id, 'live_sha_before': lsha, 'live_sha_after': sha(target), 'manifest_at': man.get('at'),
            'hybrid_sha': man.get('hybrid_sha'), 'media': mstat,
            'promoted_cells': [{'n': n, 'cell': rows[n]['cell'], 'candidate_hash': rows[n]['candidate_hash']}
-                              for n in promoted], **{k: v for k, v in d.items() if k != 'promoted'}}
+                              for n in promoted], **{k: v for k, v in d.items() if k not in ('promoted', 'new_cells', 'retired')}}
+    if grow:                                   # этап Ж: какие ячейки добавлены в хвост и какие сняты с витрины
+        rec['added_cells'] = [{'n': n, 'cell': rows[n]['cell'], 'set_id': out[n - 1].get('set_id')} for n in added]
+        rec['retired_cells'] = [{'n': n, 'cell': (rows.get(n) or {}).get('cell') or SPEC.key(live[n - 1]),
+                                 'set_id': live[n - 1].get('set_id')} for n in retired]
     _intent_save(P, {'gen': gen, 'run_id': run_id, 'snapshot': spath, 'live_sha_before': lsha, 'live_sha_after': sha(target),
                      'hold': keep if keep != hold else None, 'record': rec})
     try:
-        SID.write_bank(out, P['live'], P['live'], **({'key': _key()} if _key() else {}))
+        SID.write_bank(out, P['live'], P['live'], **({'key': _key()} if _key() else {}), **({'grow': True} if grow else {}))
     except Exception as e:                     # noqa: BLE001 — любой сбой до rename: банк прежний (атомарная запись)
         _intent_clear(P)
         return _fail(f'запись не удалась ({type(e).__name__}: {e}); снимок {spath}')
     nraw = open(P['live'], 'rb').read()
     new = json.loads(nraw)
-    left = SID.verify(new, live, cells=len(live), key=_key())
+    left = SID.verify(new, live, cells=None if grow else len(live), key=_key(), **({'grow': True} if grow else {}))
     if left or new != out or sha(nraw) != sha(target):
         _atomic(P['live'], raw)
         _intent_clear(P)
@@ -447,7 +480,7 @@ def rollback(P: dict, gen: str, force: bool = False) -> int:
     if recover(P):                             # прерванная запись — сперва довести/вернуть, иначе «last» не тот
         return 1
     J = journal(P)
-    writes = [i for i, r in enumerate(J) if r.get('kind') == 'write']
+    writes = [i for i, r in enumerate(J) if r.get('kind') in WRITES]
     if not writes:
         print('ERROR:bank_refresh: поколений записи нет — откатывать некуда', flush=True)
         return 1
@@ -461,7 +494,9 @@ def rollback(P: dict, gen: str, force: bool = False) -> int:
         return _fail(f"снимок {rec['snapshot']} повреждён (sha не тот)")
     raw = open(P['live'], 'rb').read()
     old, live = json.loads(snap), json.loads(raw)
-    ident = SID.verify(old, live, cells=len(live), key=_key())
+    # комната (этап Ж): снимок до `add` короче живого ровно на хвост — карта его номеров должна быть началом живой
+    ident = (SID.verify(live, old, cells=None, key=_key(), grow=True) if _grow()
+             else SID.verify(old, live, cells=len(live), key=_key()))
     if ident:
         return _fail('карта «номер → ячейка, set_id» снимка не совпала с живой: ' + '; '.join(ident))
     if raw == snap:
@@ -511,8 +546,11 @@ def list_gens(P: dict) -> int:
                   else f"снято поколение 0 {r.get('undone')}") + f"  {r['snapshot']}")
             continue
         print(f"{r['gen']}  {r['kind']:8}  {r['at']}  " + (f"подменено {len(r.get('promoted_cells') or [])}, снято "
-              f"{r.get('removed')}, добавлено {r.get('added')}" + (' (доведена после сбоя)' if r.get('recovered') else '')
-              if r['kind'] == 'write' else f"к банку до {r.get('to')}") + f"  {r['snapshot']}")
+              f"{r.get('removed')}, добавлено {r.get('added')}"
+              + (f", новых ячеек {len(r['added_cells'])}" if r.get('added_cells') else '')
+              + (f", retired {len(r['retired_cells'])}" if r.get('retired_cells') else '')
+              + (' (доведена после сбоя)' if r.get('recovered') else '')
+              if r['kind'] in WRITES else f"к банку до {r.get('to')}") + f"  {r['snapshot']}")
     it = _intent_load(P)
     if it:
         print(f"НЕЗАВЕРШЁННАЯ запись {it['gen']} ({it['record']['kind']}) — `bank_refresh.py recover`")
