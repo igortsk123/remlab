@@ -23,7 +23,8 @@ type Viewer = {
 type Item = { role?: string; x?: number; y?: number; w?: number; d?: number; corner?: boolean; corner_left?: boolean;
   sku?: { msid?: string; sid?: string; name?: string } };
 type Variant = { id: string; room_id?: string; style?: string; items: Item[] };
-type DemoData = { variants: Variant[]; feeds?: Record<string, FeedItem[]>; variant_aliases?: Record<string, string> };
+// `allIds` — номера ВСЕХ вариантов витрины (и спален): устаревший номер ищется среди них, не среди одной гостиной (T-20261107-04/5)
+type DemoData = { variants: Variant[]; allIds: string[]; feeds?: Record<string, FeedItem[]>; variant_aliases?: Record<string, string> };
 
 const CORE = ["диван", "столик", "тв-тумба", "стол обеденный"];
 // ИЗВЕСТНАЯ НЕХВАТКА ЗАМЕН — единственное место исключений из «≥ 5 альтернатив» теста 2.20 (решение владельца, вопрос 41).
@@ -46,7 +47,7 @@ test.use({ launchOptions: { args: [...LIVE_BROWSER_ARGS, "--use-gl=angle", "--us
 // в них не идут. Обязательный набор по типу комнаты — после спальни
 async function demoData(request: import("@playwright/test").APIRequestContext): Promise<DemoData> {
   const data = (await (await request.get(process.env.LIVE_DEMO_DATA ?? "/demo/demo-data.json")).json()) as DemoData;
-  return { ...data, variants: data.variants.filter((v) => (v.room_id ?? "living") === "living") };
+  return { ...data, variants: data.variants.filter((v) => (v.room_id ?? "living") === "living"), allIds: data.variants.map((v) => v.id) };
 }
 const variants = async (request: import("@playwright/test").APIRequestContext): Promise<Variant[]> => (await demoData(request)).variants;
 
@@ -261,7 +262,9 @@ test("2.20 ковёр с фото и ценой, ваза на столике, �
 // опубликованных: номер вариантов меняет ночная пересборка (set18 был устаревшим до 18.10, после demo-18 снова живой джапанди)
 // Устаревший номер берём того стиля, что опубликован этой ночью: ночь 23.10 сняла лофт (диван ушёл из продажи), и первый по алфавиту
 // устаревший set11 = лофт — «того же стиля» быть не могло, проверка краснела при верном продукте (T-20261023-08). Снятый стиль — 2.21б.
-const staleAliases = (data: DemoData) => Object.keys(data.variant_aliases ?? {}).sort().filter((id) => !data.variants.some((v) => v.id === id));
+// Живой вариант спальни (`bedroom-1-japandi`) устаревшим не считается: псевдонимы витрины держат и номера спален, а `variants` здесь —
+// только гостиная (T-20261107-04/5: тест открывал живую спальню и не находил пометки «обновилась»)
+const staleAliases = (data: DemoData) => Object.keys(data.variant_aliases ?? {}).sort().filter((id) => !data.allIds.includes(id));
 test("2.21 старая ссылка ?demo=<устаревший номер> — 200, текущий вариант того же стиля с пометкой «обновилась»", async ({ page, request }) => {
   const data = await demoData(request);
   const published = new Set(data.variants.map((v) => v.style));
