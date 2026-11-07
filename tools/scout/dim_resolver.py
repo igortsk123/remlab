@@ -546,8 +546,10 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
                     break
         if dim == 'h':
             h_str = val_str
+        value_source = 'param'
         if raw is None and dim in comp:
             raw, key_used, val_str = comp[dim][0], comp[dim][1], params.get(comp[dim][1], '')
+            value_source = 'composite'
         if raw is None and dim in tdims:
             # название — единственный источник; числа в нём считаем сантиметрами (см. title_numbers)
             dims[dim] = tdims[dim] if role_min(role, dim) <= tdims[dim] <= role_max(role, dim) * 1.15 else None
@@ -598,9 +600,13 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
             elif raw > mx and mn <= raw / 10 <= mx:
                 unit, source = 'mm', 'plaus'
 
+        # ПРОИСХОЖДЕНИЕ ЗНАЧЕНИЯ (T-20261107-25/7, Codex): `source` — как определена ЕДИНИЦА (param/title/prior/plaus),
+        # а не откуда число; число — из ключа фида `param_key` (`value_source` param | composite). Числа и `source` прежние,
+        # хеш геометрии их не видит (HASH_VERSION не поднимаем) — поля только для читателей (привязка: «d — копия ширины»)
+        prov = {'param_key': key_used, 'value_source': value_source}
         if unit is None:
             dims[dim] = None
-            evidence[dim] = {'raw': raw, 'unit': None, 'source': 'unresolved'}
+            evidence[dim] = {'raw': raw, 'unit': None, 'source': 'unresolved', **prov}
             counts['unresolved'] = counts.get('unresolved', 0) + 1
             continue
         val = round(raw / 10, 1) if unit == 'mm' else raw
@@ -609,14 +615,14 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
         if not (role_min(role, dim) <= val <= role_max(role, dim) * 1.15):
             dims[dim] = None
             if role == 'люстра' and dim == 'h' and role_max(role, dim) * 1.15 < val <= PENDANT_MAX_CM:
-                evidence[dim] = {'raw': raw, 'unit': unit, 'source': f'{source}-suspension', 'cm': val}
+                evidence[dim] = {'raw': raw, 'unit': unit, 'source': f'{source}-suspension', 'cm': val, **prov}
                 counts['suspension'] = counts.get('suspension', 0) + 1
                 continue
-            evidence[dim] = {'raw': raw, 'unit': unit, 'source': f'{source}-insane'}
+            evidence[dim] = {'raw': raw, 'unit': unit, 'source': f'{source}-insane', **prov}
             counts['unresolved'] = counts.get('unresolved', 0) + 1
             continue
         dims[dim] = val
-        evidence[dim] = {'raw': raw, 'unit': unit, 'source': source}
+        evidence[dim] = {'raw': raw, 'unit': unit, 'source': source, 'unit_source': source, **prov}
         tag = source if unit == 'cm' else f'{source}-mm'
         counts[tag] = counts.get(tag, 0) + 1
 
@@ -914,6 +920,16 @@ def selftest() -> None:
     ok = ok and ev2['h']['source'].endswith('-insane') and ev3['h']['source'].endswith('-insane')
     bad += 0 if ok else 1
     print(f'{"ok " if ok else "FAIL"} подвес 230 см → suspension с числом; 900 см и бра 230 — мусор')
+    # T-25/7: происхождение значения — ключ фида рядом с источником единицы; числа и `source` прежние
+    dm, ev, _ = resolve(112923, 'Стул divan.ru Марти-2 Велюр', {'Размеры: Длина габаритная': '49см',
+                        'Размеры: Ширина габаритная': '49см', 'Размеры: Высота габаритная': '82см'}, 'стул')
+    ok = (dm['w'], dm['d'], dm['h']) == (49.0, 49.0, 82.0) and ev['d']['source'] == 'param' \
+        and ev['w']['param_key'] == 'Размеры: Длина габаритная' and ev['d']['param_key'] == 'Размеры: Ширина габаритная' \
+        and ev['d']['value_source'] == 'param' and ev['d']['unit_source'] == 'param'
+    _, evt, _ = resolve(99272, 'Стул Glasar Олень 48х46х96 см', {'Длина': '48', 'Ширина': '46'}, 'стул')
+    ok = ok and 'param_key' not in evt['d']                       # тройка в названии — значение не из ключа
+    bad += 0 if ok else 1
+    print(f'{"ok " if ok else "FAIL"} происхождение: param_key «Ширина габаритная» у d стула divan.ru; тройка в названии — без ключа')
     # Н2в этап 2: поля вылета люстры — (params) → (drop_min, drop_max, drop_adj, drop_from); None — полей нет
     drop_cases = [
         ({'Высота': '36/136'}, 'люстра', (36.0, 136.0, True, 'range')),          # диапазон = регулировка

@@ -119,6 +119,65 @@ def plan_depth(gen_dims: dict | None, cat_dims_list: list, name: str | None, pol
     return dict(gen_dims, d=side), True
 
 
+def copied_d(mid, name: str, params: dict, role: str, cat_dims_list: list, pol: dict) -> bool:
+    """Глубина в каталоге — КОПИЯ ширины (T-20261107-25/7, Codex «узкий К2»): магазин и роль из `passport.d_by_mesh`, разборщик
+    взял w ровно из `w_key` и d ровно из `d_key` (значения фида, не составные и не из названия), более сильного ключа глубины
+    в карточке нет, и w == d у разбора и у КАЖДОГО габарита каталога. У стульев divan.ru «Размеры: Ширина габаритная» = «Длине»
+    (сайт показывает только «Ширина 49 см, Высота 82 см») — глубины фид не знает, а каталог пишет квадрат."""
+    P = (pol.get('passport') or {}).get('d_by_mesh') or {}
+    if not P.get('enabled') or int(mid) not in set(P.get('shops') or ()) or role not in set(P.get('roles') or ()):
+        return False
+    import dim_resolver as DR
+    d_keys = DR.dim_keys_for(int(mid), role).get('d') or []
+    if P['d_key'] not in d_keys or any(params.get(k) for k in d_keys[:d_keys.index(P['d_key'])]):
+        return False                       # сильнее ключа глубины в карточке есть — глубина измерена
+    dims, ev, _ = DR.resolve(int(mid), name, params, role)
+    ew, ed = ev.get('w') or {}, ev.get('d') or {}
+    if (ew.get('param_key'), ed.get('param_key')) != (P['w_key'], P['d_key']) \
+            or ew.get('value_source') != 'param' or ed.get('value_source') != 'param':
+        return False
+    w, d = dims.get('w'), dims.get('d')
+    if w is None or d is None or abs(w - d) > 0.01 or not cat_dims_list:
+        return False
+    return all(cd.get('w') is not None and cd.get('d') is not None and abs(float(cd['w']) - w) <= 0.01
+               and abs(float(cd['d']) - d) <= 0.01 for cd in cat_dims_list)
+
+
+def d_by_mesh(path: str, full_sha: str, gen_d, cat_dims_list: list, F, pol: dict) -> dict:
+    """Глубину паспорта сверить с ОТНОШЕНИЕМ сторон своего меша (T-20261107-25/7), когда глубина каталога — копия ширины.
+    Мерка — `mesh_dims.raw_measure` (сырой фрейм, Y вверх, след — стороны минимального прямоугольника; подложка снята),
+    кэш по (версия замера, полный sha glb) → только отношение сторон; сантиметры — от ТЕКУЩЕЙ ширины каталога. Сторона
+    ширины — та, что ближе к ширине каталога при масштабе по высоте; масштабы по ширине и высоте расходятся больше
+    `scale_tol` — не выводим. Ошибка одна и симметричная: |паспорт − меш| / min(паспорт, меш) ≤ `tol`.
+    → {ok, why, passport_d, mesh_d, err, measurement}; why ∈ no_passport_d | mask | measure | slab | scale | err."""
+    P = pol['passport']['d_by_mesh']
+    out = {'ok': False, 'why': '', 'passport_d': gen_d, 'mesh_d': None, 'err': None, 'measurement': None}
+    if gen_d is None:
+        return dict(out, why='no_passport_d')
+    m = F.aspect(path, full_sha)
+    if m and m.get('mask'):
+        return dict(out, why='mask', measurement=m.get('version'))
+    if not m or not m.get('h') or not m.get('long') or not m.get('short'):
+        return dict(out, why='measure', measurement=(m or {}).get('version'))
+    out['measurement'] = m.get('version')
+    if m.get('slab'):
+        return dict(out, why='slab')
+    worst = None
+    for cd in cat_dims_list:
+        w, h = float(cd['w']), float(cd['h'])
+        s_h = h / float(m['h'])
+        a, b = float(m['long']), float(m['short'])
+        w_side, d_side = (a, b) if abs(a * s_h - w) <= abs(b * s_h - w) else (b, a)
+        if abs((w / w_side) / s_h - 1) > float(P['scale_tol']):
+            return dict(out, why='scale')
+        dm = w * d_side / w_side
+        err = abs(float(gen_d) - dm) / min(float(gen_d), dm)
+        if worst is None or err > worst[1]:
+            worst = (dm, err)
+    out.update(mesh_d=round(worst[0], 1), err=round(worst[1], 3))
+    return dict(out, ok=worst[1] <= float(P['tol']), why='' if worst[1] <= float(P['tol']) else 'err')
+
+
 def dims_hash(dims_list: list, keys: list) -> str:
     return hashlib.sha256(json.dumps([[d.get(k) for k in keys] for d in dims_list], sort_keys=True).encode()).hexdigest()[:16]
 
@@ -153,6 +212,8 @@ class Facts:
         self.mesh_colour = {}                # {sku: вердикт сторожа цвета} — `mesh_color_check.load_table` (T-20261107-14/2)
         self.quar = {}                       # {sku: {glb_sha16: решение}} — карантин моделей (`mesh_quarantine` cut/reject)
         self.roles = {}                      # {sku: (роль, имя, подтип)} — `orient_worker.role_index` (`effective_role`)
+        self.copy_d = set()                  # товары с глубиной-копией ширины (`copied_d`, T-20261107-25/7)
+        self.aspect = lambda path, full_sha: None   # мерка меша {h, long, short, slab, mask, version} (`make_aspect`)
         self.__dict__.update(kw)
         self.gen_skus = {g.get('sku') for g in self.gens.values()}
 
@@ -382,16 +443,28 @@ def _offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, asset
         local = [f'rep:{x}' for x in local] + fam_why
         families.setdefault(fid, {'family': (F.products.get(sku) or {}).get('family') or '', 'representative_offer_id': rep,
                                   'basis': 'products.mesh_family_rep'})
-    pp = []
-    if rec:
-        gdims, from_plan = plan_depth(rec['passport']['dims_cm'], cat['dims'], cat.get('name'), pol)
-        pp = passport_check(gdims, cat['dims'], pol, 'family_passport' if via else 'passport')
-        if from_plan:
-            warn.append('passport_d_from_plan')
-    local += pp
     # перед нужен? — по ОДНОЙ роли (`effective_role`); паспорт другой роли — предупреждение, не блок
     prole = ((rec or {}).get('passport') or {}).get('role')
     role, role_src = effective_role(sku, cat, prole, F)
+    pp, dbm = [], None
+    if rec:
+        gd0 = rec['passport']['dims_cm']
+        # глубина каталога — копия ширины (`copied_d`): паспорт сверяем ДО plan_depth — тот достроил бы d = w при w == d,
+        # ровно ложный квадрат каталога (T-20261107-25/7, Codex)
+        cp = sku in F.copy_d and not via and role in set((pol['passport'].get('d_by_mesh') or {}).get('roles') or ())
+        gdims, from_plan = (gd0, False) if cp else plan_depth(gd0, cat['dims'], cat.get('name'), pol)
+        pp = passport_check(gdims, cat['dims'], pol, 'family_passport' if via else 'passport')
+        if from_plan:
+            warn.append('passport_d_from_plan')
+        # своя модель, держит ТОЛЬКО глубина паспорта, других причин нет (карантин, файл, разворот — в rec.reasons)
+        if cp and pp == ['passport_mismatch:d'] and not local and aid:
+            dbm = d_by_mesh(rec['local_path'], aid.removeprefix('sha256:'), (gd0 or {}).get('d'), cat['dims'], F, pol)
+            if dbm['ok']:
+                pp = []
+                warn.append('passport_d_by_mesh')
+            else:
+                warn.append(f"passport_d_by_mesh_rejected:{dbm['why']}")
+    local += pp
     nm = cat.get('name') or ''
     mism = role_src == 'catalog' and bool(prole) and str(prole).strip() not in ('', '?') and str(prole).strip() != role
     if mism:
@@ -423,7 +496,8 @@ def _offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, asset
             'generation_key': rec['generation_key'] if rec else None, 'revision_key': rec['revision_key'] if rec else None,
             'reasons': all_why, 'warnings': sorted(set(warn)), 'capabilities': caps,
             'passport': {'status': 'ok' if not pp and rec is not None else ('mismatch' if pp else 'unknown'),
-                         'catalog_dims': cat['dims'], 'hash': dims_hash(cat['dims'], pol['passport']['keys'])},
+                         'catalog_dims': cat['dims'], 'hash': dims_hash(cat['dims'], pol['passport']['keys']),
+                         **({'d_by_mesh': dbm} if dbm else {})},
             'photo': photo, 'seen_in': sorted(cat['seen_in'])}
 
 
@@ -924,6 +998,51 @@ def load_quarantine(rows) -> dict:
     return out
 
 
+def aspect_cache_path(out_dir: str) -> str:
+    return os.path.join(out_dir, 'mesh-aspect-cache.json')
+
+
+def make_aspect(cache: dict, pol: dict):
+    """(путь glb, полный sha) → мерка `mesh_dims.raw_measure` + метка вырезки `mask_flag` | None. Кэш — по (версия замера:
+    политика `measurement_version` + отпечаток кода замера, полный sha): только стороны следа и высота в единицах меша,
+    сантиметры считает `d_by_mesh` от текущей ширины каталога (Codex: кэш готовой глубины по sha устарел бы со сменой ширины)."""
+    import mesh_dims as MD
+    ver = f"{pol['passport']['d_by_mesh']['measurement_version']}:{hashlib.sha256(MD._RAW2_CHILD.encode()).hexdigest()[:12]}"
+
+    def aspect(path, full_sha):
+        k = f'{ver}|{full_sha}'
+        if k not in cache:
+            m = MD.raw_measure(path) if os.path.exists(path) else None
+            cache[k] = {x: m.get(x) for x in ('h', 'long', 'short', 'slab')} if m else {'fail': True}
+        r = cache[k]
+        return None if r.get('fail') else dict(r, mask=MD.mask_flag(path), version=ver)
+    return aspect
+
+
+def copy_d_index(cats: dict, pol: dict, rows=None) -> set:
+    """Товары каталога с глубиной-копией ширины (`copied_d`): карточки магазинов и ролей `passport.d_by_mesh` из БД, разбор —
+    тем же `dim_resolver.resolve`, что пишет каталог (роль — products.cat_role, как у load3)."""
+    P = (pol.get('passport') or {}).get('d_by_mesh') or {}
+    shops = {int(x) for x in P.get('shops') or ()}
+    cand = {k for k, c in cats.items() if int(c['mid']) in shops}
+    if not P.get('enabled') or not cand:
+        return set()
+    rows = rows or _rows
+    lit = ','.join("'" + r.replace("'", "''") + "'" for r in P.get('roles') or ())
+    out = set()
+    for r in rows(f"select shop_mid||':'||external_id, name, cat_role, coalesce(params::text,'{{}}') from products "
+                  f"where shop_mid in ({','.join(str(s) for s in sorted(shops))}) and cat_role in ({lit})"):
+        if len(r) < 4 or r[0] not in cand:
+            continue
+        try:
+            params = json.loads(r[3]) or {}
+        except ValueError:
+            continue
+        if copied_d(cats[r[0]]['mid'], r[1], params, r[2], cats[r[0]]['dims'], pol):
+            out.add(r[0])
+    return out
+
+
 def load_facts(prod_src: str, ssh: bool, out_dir: str) -> tuple:
     import mesh_dark as MDK
     pol = policy()
@@ -1001,8 +1120,15 @@ def build(out_dir: str, prod_src: str, ssh: bool, dry: bool = False) -> tuple:
     import orient_worker as OW
     F.roles = OW.role_index(cats)          # роль «нужен ли перед» — тем же резолвером, что разворот (`effective_role`)
     sources['roles'] = _digest(sorted(F.roles.items()))
+    # глубина-копия ширины → сверка паспорта по мерке своего меша (T-20261107-25/7); кэш мерки — один на машину, как хеши
+    F.copy_d = copy_d_index(cats, pol)
+    acache_p = aspect_cache_path(OUT_DIR)
+    acache = json.load(open(acache_p, encoding='utf-8')) if os.path.exists(acache_p) else {}
+    F.aspect = make_aspect(acache, pol)
+    sources['copy_d'] = _digest(sorted(F.copy_d))
     snap = assemble(cats, F, pol, groups, sources)
     _atomic_write(cache_p, json.dumps(cache, sort_keys=True).encode())
+    _atomic_write(acache_p, json.dumps(acache, sort_keys=True).encode())
     path = write_snapshot(snap, out_dir)          # сперва файл: откат и разбор есть, даже если запись в таблицу упадёт
     n = None if dry else write_db(snap)
     return snap, path, round(time.time() - t, 1), n
@@ -1519,6 +1645,109 @@ def _selftest() -> int:
        not validate(snap) and cnt['family_fallback'] == 1 and cnt['implicit_family_fallback'] == 1
        and cnt['fallback_rejected']['color'] == 1 and digest_line(snap).startswith('DIGEST:привязка мешей:')) \
         or print(validate(snap), cnt)
+
+    # ---- К2 узко (T-20261107-25/7): глубина каталога — копия ширины → паспорт по мерке своего меша
+    MP = {'Размеры: Длина габаритная': '49см', 'Размеры: Ширина габаритная': '49см', 'Размеры: Высота габаритная': '82см'}
+    sq = [{'w': 49.0, 'd': 49.0, 'h': 82.0}]
+    ok('К2 copied_d: стул divan.ru «Длина = Ширина габаритная», каталог квадрат — копия',
+       copied_d(112923, 'Стул divan.ru Марти-2 Велюр', MP, 'стул', sq, pol))
+    ok('К2 copied_d: ключ «Глубина габаритная» в карточке есть — глубина измерена, не копия',
+       not copied_d(112923, 'Стул Марти-2', dict(MP, **{'Размеры: Глубина габаритная': '54см'}), 'стул', sq, pol))
+    ok('К2 copied_d: пуф и столик с честным w == d, кресло divan.ru — роли вне правила',
+       not copied_d(112923, 'Пуф Круг', MP, 'пуф', sq, pol) and not copied_d(112923, 'Столик', MP, 'столик', sq, pol)
+       and not copied_d(112923, 'Кресло-кровать', MP, 'кресло', sq, pol))
+    ok('К2 copied_d: чужой магазин (Glasar 99272, измеренная d) и другой магазин с теми же ключами — не трогаем',
+       not copied_d(99272, 'Стул Glasar Олень 48х46х96 см', {'Длина': '48', 'Ширина': '46', 'Высота': '96'}, 'стул',
+                    [{'w': 48.0, 'd': 46.0, 'h': 96.0}], pol)
+       and not copied_d(114082, 'Стул Марти', MP, 'стул', sq, pol))
+    ok('К2 copied_d: каталог не квадрат (габарит из другого источника) — не копия',
+       not copied_d(112923, 'Стул Марти-2', MP, 'стул', [{'w': 49.0, 'd': 54.0, 'h': 82.0}], pol))
+    poff = json.loads(json.dumps(pol))
+    poff['passport']['d_by_mesh']['enabled'] = False
+    ok('К2 copied_d: правило выключено — не копия', not copied_d(112923, 'Стул Марти-2', MP, 'стул', sq, poff))
+
+    def chair(pass_dims, asp, role='стул', marked=True, **kw):
+        Fk = Facts(**dict(F.__dict__))
+        Fk.manifest = lambda g: ({'role': role, 'input': {'dims_cm': pass_dims, 'image_url': 'u2'}} if g.get('path') == '/g/2'
+                                 else F.manifest(g))
+        Fk.copy_d = {'2:b'} if marked else set()
+        calls = []
+        Fk.aspect = lambda path, sha: (calls.append((path, sha)), asp and dict(asp, version='raw2:t'))[1]
+        Fk.__dict__.update(kw)
+        return bind('2:b', cat(2, 'b', 49, 49, 82, role=role, urls=('u2',)), Fk), calls
+    A = {'h': 0.82, 'long': 0.54, 'short': 0.49, 'slab': None, 'mask': None}
+    r, calls = chair({'w': 49, 'd': 54, 'h': 82}, A)
+    ok('К2 Марти-2: паспорт d 54, каталог 49 (копия w), меш 54 — ready, passport_d_by_mesh, разбор в passport.d_by_mesh, '
+       'мерка по полному sha своего glb', r['status'] == 'ready' and 'passport_d_by_mesh' in r['warnings']
+       and r['passport']['d_by_mesh']['mesh_d'] == 54.0 and r['passport']['d_by_mesh']['err'] == 0.0
+       and calls == [('/g/2/model.glb', full['/g/2'])]) or print(r)
+    r, _ = chair({"w": 49, "d": 54, "h": 82}, A, marked=False)
+    ok('К2: без отметки «копия» — по-прежнему passport_mismatch:d', r['reasons'] == ['passport_mismatch:d'])
+    r, _ = chair({'w': 49, 'd': 83, 'h': 82}, dict(A, long=0.49, short=0.48))
+    ok('К2 Маргарита: паспорт d 83, меш 48 — блок остаётся, passport_d_by_mesh_rejected:err',
+       r['reasons'] == ['passport_mismatch:d'] and 'passport_d_by_mesh_rejected:err' in r['warnings']
+       and r['passport']['d_by_mesh']['mesh_d'] == 48.0) or print(r)
+    r, _ = chair({'w': 49, 'd': 55, 'h': 82}, dict(A, long=0.60))      # 60.0 против 55: 9 % — в допуске; 62 против 55 — нет
+    r2, _ = chair({'w': 49, 'd': 55, 'h': 82}, dict(A, long=0.62))
+    ok('К2 допуск 12 % симметричный |п − м| / min: 55 против 60 — да, против 62 — нет',
+       r['status'] == 'ready' and r2['status'] == 'blocked' and r2['passport']['d_by_mesh']['err'] == 0.127) or print(r2)
+    r, _ = chair({'w': 49, 'd': None, 'h': 82}, A)
+    ok('К2: паспорт без d у стула с глубиной-копией — plan_depth НЕ достраивает квадрат: passport_dim_missing:d, мерки нет',
+       r['reasons'] == ['passport_dim_missing:d'] and 'passport_d_from_plan' not in r['warnings']
+       and 'd_by_mesh' not in r['passport']) or print(r)
+    r, _ = chair({"w": 49, "d": None, "h": 82}, A, marked=False)
+    ok('К2: то же без отметки «копия» (прежнее правило) — квадрат из плана, ready', r['status'] == 'ready'
+       and 'passport_d_from_plan' in r['warnings'])
+    r, calls = chair({'w': 49, 'd': 110, 'h': 82}, A, role='кресло')
+    ok('К2 кресло-кровать Босс (роль вне правила) — блок по d остаётся, меш не меряем',
+       r['reasons'] == ['passport_mismatch:d'] and not calls and 'd_by_mesh' not in r['passport']) or print(r)
+    for why, asp in (('mask', dict(A, mask='коллаж')), ('slab', dict(A, slab='merged')), ('measure', None),
+                     ('scale', dict(A, h=0.60))):
+        r, _ = chair({'w': 49, 'd': 54, 'h': 82}, asp)
+        ok(f'К2: {why} — блок остаётся, passport_d_by_mesh_rejected:{why}',
+           r['status'] == 'blocked' and f'passport_d_by_mesh_rejected:{why}' in r['warnings']) or print(r)
+    r, calls = chair({'w': 56, 'd': 54, 'h': 82}, A)
+    ok('К2: держит не только d (w тоже мимо) — не меряем', 'passport_mismatch:w' in r['reasons'] and not calls)
+    Fq = {'quar': {'2:b': {full['/g/2'][:16]: 'cut'}}}
+    r, calls = chair({'w': 49, 'd': 54, 'h': 82}, A, **Fq)
+    ok('К2: модель в карантине — не меряем, блок', 'mesh_quarantine:cut' in r['reasons'] and 'passport_mismatch:d' in r['reasons']
+       and not calls)
+    Fo2 = {'orient': {k: (dict(v, status='review_pending') if k[0] == '2:b' else v) for k, v in F.orient.items()}}
+    r, calls = chair({'w': 49, 'd': 54, 'h': 82}, A, **Fo2)
+    ok('К2: другая причина (разворот не решён) — не меряем, d остаётся в причинах', not calls
+       and 'passport_mismatch:d' in r['reasons'])
+    # вариант семьи — глубину по мешу представителя не выводим (Codex: никогда по представителю)
+    Fv = Facts(**{k: v for k, v in F.__dict__.items()})
+    Fv.copy_d, Fv.aspect = {'6:v'}, (lambda p, s: dict(A, version='t'))
+    v = bind('6:v', cat(6, 'v', 93, 93, 76, role='стул', origin='products', urls=('uv',)), Fv)
+    ok('К2: вариант семьи (меш представителя) — правило не применяется', v['via_family']
+       and 'family_passport_mismatch:d' in v['reasons'] and 'd_by_mesh' not in v['passport']) or print(v)
+    # сантиметры — от ТЕКУЩЕЙ ширины каталога, кэш — только отношение сторон
+    d1 = d_by_mesh('/x', 's', 54, [{'w': 49, 'd': 49, 'h': 82}], Facts(aspect=lambda p, s: dict(A, version='t')), pol)
+    d2 = d_by_mesh('/x', 's', 54, [{'w': 45, 'd': 45, 'h': 82}], Facts(aspect=lambda p, s: dict(A, version='t')), pol)
+    ok('К2: ширина каталога сменилась — глубина меша пересчитана от неё (54.0 → 49.6)',
+       d1['mesh_d'] == 54.0 and d2['mesh_d'] == 49.6) or print(d1, d2)
+    ac = {}
+    asp_fn = make_aspect(ac, pol)
+    ok('К2 make_aspect: нет файла — None, отказ в кэше по (версия замера, полный sha)',
+       asp_fn('/нет/model.glb', 'f' * 64) is None and len(ac) == 1
+       and next(iter(ac)).startswith(pol['passport']['d_by_mesh']['measurement_version'] + ':')
+       and next(iter(ac)).endswith('|' + 'f' * 64))
+    rows = [['112923:m2', 'Стул divan.ru Марти-2', 'стул', json.dumps(MP, ensure_ascii=False)],
+            ['112923:gl', 'Стул Марти-3', 'стул', json.dumps(dict(MP, **{'Размеры: Глубина габаритная': '54см'}), ensure_ascii=False)],
+            ['112923:nx', 'Стул вне каталога', 'стул', json.dumps(MP, ensure_ascii=False)]]
+    cats_k = {'112923:m2': {'mid': 112923, 'dims': sq}, '112923:gl': {'mid': 112923, 'dims': sq},
+              '99272:g': {'mid': 99272, 'dims': sq}}
+    seen_q = []
+    idx = copy_d_index(cats_k, pol, lambda qq: (seen_q.append(qq), rows)[1])
+    ok('К2 copy_d_index: только товары каталога, ключ глубины в карточке — не копия; запрос по магазину и роли',
+       idx == {'112923:m2'} and 'shop_mid in (112923)' in seen_q[0] and "cat_role in ('стул')" in seen_q[0]) or print(idx, seen_q)
+    snap = assemble({'2:b': cat(2, 'b', 49, 49, 82, role='стул', urls=('u2',))},
+                    Facts(**dict(F.__dict__, copy_d={'2:b'}, aspect=lambda p, s: dict(A, version='t'),
+                                 manifest=lambda g: {'role': 'стул', 'input': {'dims_cm': {'w': 49, 'd': 54, 'h': 82}, 'image_url': 'u2'}}
+                                 if g.get('path') == '/g/2' else F.manifest(g))), pol, G, {})
+    ok('К2: снимок с разбором d_by_mesh проходит схему, политика v4', not validate(snap) and snap['policy_version'] == 'v4'
+       and snap['offers']['2:b']['status'] == 'ready') or print(validate(snap))
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0
 
