@@ -4,10 +4,6 @@
 (зеркало перебирал только поштучный candidates.py). Сцена: 280×430, дверь на
 востоке — влезает ТОЛЬКО corner_left=False.
 """
-import os
-
-import pytest
-
 from planner.models import Item, Opening, Room
 from planner.template import place_template
 from planner.zones import usable_polygon
@@ -54,14 +50,34 @@ def test_fixed_side_respected():
     assert sofa.item.corner_left is False
 
 
+# СЦЕНА №272 — СОСТАВ СЕТА 21 ЗАМОРОЖЕН (T-20261107-24): раньше брался из живого банка `sets3.json`, и тест ломался, когда
+# банк менял сет, а не механизм. С 19.10 в сете 21 модульный «Брера 2» 198×124: в комнате 360×450 солвер честно отказывает
+# MEDIA_MISSING (ТВ обязателен, №177), зеркал нет — тест красный при верном коде. Состав — банк 29.08 (`sets3.json.bak-nonton`):
+# прямой «Риббл-10» 215×108, на нём обе стороны зеркала годны. (роль, w, d, h, название)
+_SET21 = (
+    ('диван', 215.0, 108.0, 72.0, 'Диван прямой divan.ru Риббл-10 Букле Мятный'),
+    ('кресло', 85.0, 82.0, 81.0, 'Кресло поворотное divan.ru Теоп Букле Светло-серый'),
+    ('стол обеденный', 90.0, 90.0, 75.0, 'Стол обеденный TC 90х90х75 см'),
+    ('стул', 50.5, None, 79.5, 'Стул ТС Wishbone темный орех 57х50,5х79,5 см'),
+    ('стеллаж', 80.0, 35.0, 205.0, 'Стеллаж divan.ru Моррис 80x205 Светло-бежевый'),
+    ('комод', 102.0, 40.0, 87.0, 'Комод divan.ru Блест 102x87 Графитовый'),
+    ('тв-тумба', 160.0, 52.0, 47.0, 'ТВ-тумба divan.ru Энзо 160x47 Светло-бежевый/Терракотовый'),
+    ('столик', 110.0, 60.0, 36.0, 'Журнальный стол divan.ru Хостер-1 Светло-бежевая керамика/Яс'),
+    ('кашпо', 50.0, 35.0, 35.0, 'Кашпо для цветов Crocus высокое серое 35х35х50 см'),
+    ('ковёр', 300.0, 200.0, None, 'Ковер divan.ru Рэдми 200x300'),
+    ('люстра', 60.0, 60.0, 45.0, 'Подвесная люстра Divinare TENERIFE 7136/02 LM-6'),
+    ('подушка', 45.0, 45.0, 11.0, 'Подушка декоративная Ad trend xmas stripes 45х45см в ассорти'),
+    ('плед', 180.0, 220.0, None, 'Набор Tissagio покрывало 180х220 наволочка 50х70 см'),
+    ('ваза', 21.0, 21.0, 20.0, 'Ваза San miguel Montana медный 20 см'),
+    ('лампа', 23.0, 23.0, None, 'Настольная лампа Arti Lampadari  Gaeta E 4.1.T1 GY'),
+    ('ваза 2', 22.0, 22.0, None, 'Ваза-шар Неман Гладь 100/1 22 см'),
+)
+
+
 def _set21_items(fixed_cl=None):
-    import json
-    import os
-    sets = json.load(open(_SETS3, encoding='utf-8'))
     out = []
-    for r, d in (sets[20].get('items') or {}).items():
-        if not isinstance(d, dict):
-            continue
+    for r, w, dd, h, name in _SET21:
+        d = {'w': w, 'd': dd, 'h': h, 'name': name}
         kw = {}
         if r == 'диван':
             kw = dict(corner=True, corner_section_cm=95)
@@ -73,13 +89,6 @@ def _set21_items(fixed_cl=None):
     return out
 
 
-# Банк — из env `SETS_BANK` (кандидат `sets3.next.json`, план conv-13); по умолчанию — живой банк
-_SETS3 = (os.environ.get('SETS_BANK')
-          or os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout', 'sets3.json'))
-
-
-@pytest.mark.skipif(not os.path.exists(_SETS3),
-                    reason=f'нет {_SETS3} (артефакт дневного прогона, вне git)')
 def test_mirror_quality_pick_beats_first_clean():
     """V3-H (поправка рефери №3): оба зеркала hard-valid — победитель выбирается
     по существующему quality-ключу, а не first-clean. Сцена №272: побеждает LEFT,
