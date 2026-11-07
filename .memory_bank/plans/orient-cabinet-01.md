@@ -130,3 +130,7 @@ T-20261105-36/5, Работник 6 + критика Codex (`_intake/codex/orien
 
 ## Follow-up work
 - [ ] T-50 включение `GALLERY_FROM_BINDING` — входит в 2.9
+- 2026-11-07 03:45 — T-56/5 PASS: тень 2 перерешила 183 (auto 164, vlm_pending 18, review 1); db-migrate-safe записал 164 (md5-условие,
+  human не трогает), publish --only-resolved 2999 → 3033, смен yaw на проде 0, parity гостиной 0. Откаты: `~/remlab-logs/t56-5/pub/rollback-prod.sh`,
+  `/home/pakar/backups/migrate/20261107-011931-apply/rollback.sql`. Тень на 150+ мешах в одном процессе — 6,5 ГБ (earlyoom), считать порциями.
+  Дальше T-56/6: `--recheck-roles` в ночной шаг refresh_daily (дорешит 18 vlm_pending) со сторожем «смена yaw опубликованной → review».
