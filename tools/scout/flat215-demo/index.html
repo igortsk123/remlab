@@ -6,7 +6,9 @@ window.__hash0=String(location.hash); window.__search0=String(location.search);<
 <meta charset="utf-8"><!-- ЗУМ РАЗРЕШЁН (аудит 01.09, Б1): запрет масштабирования на странице с планом и мелкими
      подписями — прямой вред. Жесты на самом плане изолированы `touch-action:none` у #stage,
      поэтому перетаскивание предметов от зума страницы не страдает. -->
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- `viewport-fit=cover` (T-20261107-35/4, владелец TG 435): без него `env(safe-area-inset-*)` на iPhone = 0, и прилепленные снизу
+     полосы (опрос, подпись окна, шторка) уходили под полосу «домой». Боковые вырезы (телефон боком) — поле у `body` -->
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta http-equiv="cache-control" content="no-store">
 <title>Квартира — гостиная (демо)</title>
 <style>
@@ -90,7 +92,8 @@ window.__hash0=String(location.hash); window.__search0=String(location.search);<
 *::-webkit-scrollbar-button{display:none;width:0;height:0}
 *::-webkit-scrollbar-corner{background:transparent}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
- font:clamp(17px,1.25vw,20px)/1.5 system-ui,-apple-system,Segoe UI,Roboto}
+ font:clamp(17px,1.25vw,20px)/1.5 system-ui,-apple-system,Segoe UI,Roboto;
+ padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}   /* телефон боком — не под вырезом (viewport-fit=cover) */
 .wrap{max-width:1100px;margin:0 auto;padding:14px 14px 40px}
 h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .sub{color:var(--muted);font-size:clamp(15px,2vw,17px);margin-bottom:12px}
@@ -984,8 +987,8 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 @media (min-width:700px){.qz-card{padding:24px 24px 20px;gap:14px}.qz-res{flex-basis:100%}.qz-car{margin:0 -24px;padding:0 24px;gap:24px}}
 /* ОПРОС НА ВЕСЬ ЭКРАН (план quiz-pairs-01, владелец TG 408–409: «на iPhone кнопки срезаны… не модалкой, или на весь экран, и кнопки
    внизу всегда прилеплены»). Окно — во всю высоту видимой области (`100dvh`; без поддержки — `100vh` выше), тело `.qz-body` листается
-   само, низ `.qz-foot` вне листания — всегда виден: `100dvh` не заходит под панель Safari, `safe-area-inset-*` добавит поле, если
-   страница когда-нибудь объявит `viewport-fit=cover` (сейчас 0). Компьютер — тот же экран, колонка по центру. «Выбрать другой» не трогаем */
+   само, низ `.qz-foot` вне листания — всегда виден: `100dvh` не заходит под панель Safari, поле `safe-area-inset-bottom` держит кнопки
+   над полосой «домой» (страница объявляет `viewport-fit=cover`, T-35/4). Компьютер — тот же экран. «Выбрать другой» не трогаем */
 #qzBox{padding:0;align-items:stretch}
 #qzBox .qz-card{width:100%;max-width:none;height:100vh;height:100dvh;max-height:none;border-radius:0;box-shadow:none;padding:0;gap:0;overflow:hidden;background:var(--qz-bg)}
 #qzBox .qz-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:12px;
@@ -999,14 +1002,27 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
    на широком экране — рядом. Отметка выбора — рамка терракоты и галочка, как у прежних фото опроса */
 .qz-pair{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:10px}
 .qz-pair .qz-ph{flex:1 1 0;min-height:120px}
-.qz-pair .qz-ph .qz-img{flex:1 1 auto;min-height:0;height:0;aspect-ratio:auto;border-width:3px}
+.qz-pair .qz-fr{position:relative;display:block;flex:1 1 0;min-height:0}
+.qz-pair .qz-ph .qz-img{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto;border-width:3px}
 .qz-pair .qz-ph b{font-size:15.5px}
-.qz-pair .qz-tick{top:10px;right:10px;width:28px;height:28px;font-size:15px}
+/* сердечко (TG 435): белый полупрозрачный круг 44 px, контур сердца; выбрано — заливка акцентом, лёгкий «толчок» */
+.qz-heart{position:absolute;right:10px;bottom:10px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;pointer-events:none;
+  background:rgba(255,255,255,.55);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);box-shadow:0 1px 4px rgba(0,0,0,.18);transition:background .15s,transform .15s}
+.qz-heart svg{fill:none;stroke:var(--ink);stroke-width:1.9;stroke-linejoin:round;transition:fill .15s,stroke .15s}
+.qz-ph[aria-pressed=true] .qz-heart{background:rgba(255,255,255,.92);transform:scale(1.08)}
+.qz-ph[aria-pressed=true] .qz-heart svg{fill:var(--accent);stroke:var(--accent)}
+@media (prefers-reduced-motion:reduce){.qz-heart,.qz-heart svg{transition:none}.qz-ph[aria-pressed=true] .qz-heart{transform:none}}
+/* компьютер (TG 435: «много пустого места»): колонка во всю ширину экрана, два фото рядом. Ширина плитки ограничена ДОСТУПНОЙ
+   ВЫСОТОЙ (экран минус заголовок, подпись и низ ≈ 260 px); высота кадра — меньшее из «доступная высота» и «0,82 ширины плитки»
+   (на широком экране кадр чуть выше 4:3, бока срезаются на ~8 %), так пара занимает место между заголовком и низом без прокрутки */
 @media (min-width:700px) and (min-aspect-ratio:1/1){
-  #qzBox .qz-body,#qzBox .qz-foot{max-width:1040px}
-  .qz-pair{flex-direction:row;align-items:stretch;gap:20px}
-  .qz-pair .qz-ph .qz-img{height:auto;flex:0 0 auto;aspect-ratio:4/3}
-  .qz-pair .qz-ph{justify-content:center}
+  #qzBox .qz-body,#qzBox .qz-foot{max-width:none;padding-left:max(32px,env(safe-area-inset-left,0px));padding-right:max(32px,env(safe-area-inset-right,0px))}
+  #qzBox .qz-foot .qz-nav{width:100%;max-width:640px;margin:0 auto}
+  .qz-pair{flex-direction:row;align-items:center;justify-content:center;gap:24px}
+  .qz-pair .qz-ph{flex:1 1 0;min-width:0;min-height:0;max-width:calc((100dvh - 260px) * 4 / 3)}
+  .qz-pair .qz-fr{flex:0 0 auto;width:100%;height:min(calc(100dvh - 280px),calc((100vw - 88px) * .41))}
+  .qz-pair .qz-ph b{font-size:17px}
+  .qz-heart{width:52px;height:52px;right:14px;bottom:14px}.qz-heart svg{width:28px;height:28px}
 }
 /* КАРТОЧКА ТОВАРА (demo-26 Д, `itemCardOpen`): телефон — лист снизу на всю ширину (свайп вниз закрывает), компьютер — окно по центру.
    Фото — плитка строки сразу, крупная копия проявляется поверх в той же рамке (`object-fit:contain` у обеих — без скачка) */
@@ -8175,6 +8191,7 @@ function quizPick(rule, answers, available, styleColours){
       '<button class="btn primary qz-next" type="button" data-qz="next"'+(canNext?'':' disabled')+'>'+esc(nextText||(EN()?'Next':'Далее'))+'</button></div>';
   }
   var TICK='<span class="qz-tick" aria-hidden="true">✓</span>';
+  var HEART_SVG='<svg viewBox="0 0 24 24" width="24" height="24" focusable="false"><path d="M12 20.3s-7.4-4.5-9.4-9C1.2 8.1 3.1 4.5 6.6 4.5c2.1 0 3.6 1.2 5.4 3.3 1.8-2.1 3.3-3.3 5.4-3.3 3.5 0 5.4 3.6 4 6.8-2 4.5-9.4 9-9.4 9z"/></svg>';
   // выбор «до двух»: третий вытесняет самый ранний — так не надо снимать галочку руками
   function toggle(list,id,max){var i=list.indexOf(id); if(i>=0)list.splice(i,1); else{list.push(id); while(list.length>max)list.shift();} }
   function screen0(){
@@ -8203,10 +8220,14 @@ function quizPick(rule, answers, available, styleColours){
     var qid=key==='sp'?'style':(stp==='b2'&&hasKid()?'nursery_style':'bedroom_style'), qt=question(qid)||QTXT[qid];
     var pr=pairsOf(kind)[P[1]]||[], ready=shotsReady(), L=ready?roomPhotos(kind):roomStyles(kind), cur=Q.a[key][P[1]]||'';
     if(pr.indexOf(cur)<0)cur='';
-    var tiles=pr.map(function(id){var s=L.filter(function(x){return x.id===id;})[0]||{id:id, img:''}, on=cur===id;
-      return '<button class="qz-ph" type="button" data-pp="'+esc(id)+'" aria-pressed="'+on+'"'+(ready&&s.img?'':' disabled')+'>'+
-        (ready&&s.img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'<span class="qz-img"></span>')+(on?TICK:'')+
-        '<b>'+esc(optName(id))+'</b></button>';}).join('');
+    // СЕРДЕЧКО НА ФОТО (владелец TG 435: «чтобы человек понимал, что надо кликнуть, полупрозрачное»): круг в правом нижнем углу фото,
+    // контур; выбрано — залито цветом акцента (видно до перехода, ~300 мс) и после «Назад». Нажимается всё фото (одна кнопка:
+    // кнопка в кнопке недопустима), подпись для чтения с экрана — «Нравится — Вариант N»
+    var tiles=pr.map(function(id){var s=L.filter(function(x){return x.id===id;})[0]||{id:id, img:''}, on=cur===id, nm=optName(id);
+      return '<button class="qz-ph" type="button" data-pp="'+esc(id)+'" aria-pressed="'+on+'" aria-label="'+esc((EN()?'Like — ':'Нравится — ')+nm)+'"'+
+        (ready&&s.img?'':' disabled')+'><span class="qz-fr">'+
+        (ready&&s.img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'<span class="qz-img"></span>')+
+        '<span class="qz-heart" aria-hidden="true">'+HEART_SVG+'</span></span><b>'+esc(nm)+'</b></button>';}).join('');
     return page(bar(stp)+'<h2 class="qz-h" id="qzH">'+esc(tr(qt,''))+'</h2><p class="qz-sub">'+esc(tr(qt,'hint'))+'</p><div class="qz-pair">'+tiles+'</div>',
       nav(true, cur?'':(EN()?'Skip':'Пропустить')));
   }
@@ -8322,8 +8343,10 @@ function quizPick(rule, answers, available, styleColours){
     var b=document.getElementById('qzBox'); if(!b||!Q.open||!b.contains(e.target))return;
     var t=e.target.closest('button'); if(!t)return;
     var a=t.dataset.qz;
-    // фото пары: выбор одного (повторное нажатие — тот же выбор) → отметка видна ~300 мс → следующий экран; два быстрых нажатия — один переход
-    if(t.dataset.pp){var P=PAIRQ[Q.step]; if(!P||t.disabled)return; Q.a[P[0]][P[1]]=t.dataset.pp; if(P[0]==='sp')Q.pick=[]; save(); render();
+    // фото пары: выбор одного (повторное нажатие — тот же выбор) → сердечко залито ~300 мс → следующий экран; два быстрых нажатия — один переход.
+    // Отметка — на месте (aria-pressed), без перерисовки: новые <img> не успевали отрисоваться, и фото на эти 300 мс пустели (T-35/4)
+    if(t.dataset.pp){var P=PAIRQ[Q.step]; if(!P||t.disabled)return; Q.a[P[0]][P[1]]=t.dataset.pp; if(P[0]==='sp')Q.pick=[]; save();
+      [].forEach.call(b.querySelectorAll('.qz-pair .qz-ph'),function(x){x.setAttribute('aria-pressed',String(x===t));});
       var at=Q.step; clearTimeout(Q._adv); Q._adv=setTimeout(function(){Q._adv=0; if(!Q.open||Q.step!==at)return;
         Q._dir=1; Q.step=move(Q.step,1); if(Q.step==='result'){Q.pick=pick(); Q.at=0;} save(); render(true);},300); return;}
     if(t.dataset.hh){var id=t.dataset.hh, q=question('household'), ex=((q&&q.exclusive)||[]).filter(function(g){return g.indexOf(id)>=0;})[0]||[];
