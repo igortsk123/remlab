@@ -84,6 +84,63 @@ def color_refused(role: str, c: dict, style: str | None) -> str | None:
     return None
 
 
+# ЦВЕТ КРУПНОГО В ОПУБЛИКОВАННОМ ВАРИАНТЕ (style-color-01 шаг 2а, T-20261107-25/2). Банк гостиной держит ячейки между ночами
+# (`bank_keep`), поэтому ярус цвета в `compose2.pick2` до витрины дойдёт только при пересборке ячейки. Здесь — та же замена, что
+# «нет модели»: крупная вещь (группы `major_groups` правил) с ярусом forbidden/discouraged заменяется из того же пула, но только
+# кандидатом с ярусом лучше (preferred/allowed) и через те же ворота; заменить нечем — вещь остаётся (дыры в наборе цвет не
+# делает). Минимализм: стеллаж «Кейн Серо-зеленый» → нейтральный; джапанди: оливковые стулья «Марти-2» → нейтральные.
+BAD_TIERS = ('forbidden', 'discouraged')
+
+
+def color_eval_role(role: str, c: dict, style: str | None) -> dict:
+    import compose_common as CC
+    b = base_role(role or '')
+    return CC.color_eval(c, COLOR_ROLE.get(b, b), style or '')
+
+
+def color_need(role: str, it: dict | None, style: str | None) -> str | None:
+    """Причина заменить СТОЯЩУЮ крупную вещь по цвету (ярус forbidden/discouraged); None — цвет годен или роль не крупная."""
+    if not it or not style:
+        return None
+    e = color_eval_role(role, it, style)
+    return f"цвет не в стиле ({e['why']})" if e['major'] and e['tier'] in BAD_TIERS else None
+
+
+def lane_color(role: str, lane: list[dict], keep: set | None = None) -> tuple[list[dict], int, int]:
+    """ЛЕНТА ЗАМЕН КРУПНОЙ РОЛИ (шаг 2а): стиль, где у товара цвет forbidden, снимается из его `styles` (не осталось стилей —
+    товар из ленты уходит); стиль с discouraged — в `color_low`, страница ставит такие в конец ленты этого стиля, не отсевая.
+    Товары, стоящие сейчас в варианте этого стиля (`keep`: (стиль, sid)), не трогаем (правило владельца «изначальный набор
+    остаётся»). Не крупная роль — лента как была. → (лента, снято стилей, помечено стилей)."""
+    out, cut, low = [], 0, 0
+    for p in lane:
+        styles = list(p.get('styles') or ([p['style']] if p.get('style') else []))
+        drop, lows = [], []
+        for st in styles:
+            if (st, p.get('sid')) in (keep or ()):
+                continue
+            e = color_eval_role(role, {'name': p.get('name')}, st)
+            if not e['major']:
+                break
+            if e['tier'] == 'forbidden':
+                drop.append(st)
+            elif e['tier'] == 'discouraged':
+                lows.append(st)
+        if not drop and not lows:
+            out.append(p)
+            continue
+        q = dict(p)
+        if drop:
+            q['styles'] = [s for s in styles if s not in drop]
+            cut += len(drop)
+            if not q['styles']:
+                continue
+        if lows:
+            q['color_low'] = lows
+            low += len(lows)
+        out.append(q)
+    return out, cut, low
+
+
 def load_pool() -> list[dict]:
     """Пул кандидатов: объёмные — `demo_swap_pool.pool_top()` (прежний отбор 30, demo-18), ковры — плоский запрос."""
     from demo_swap_pool import pool_top
@@ -209,29 +266,41 @@ def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | N
     roles = [r for r in items if base_role(r) in FILL_ROLES] + [r for r in CORE if r not in items]
     # диван первым: от его ширины зависит контракт ковра
     roles.sort(key=lambda r: (base_role(r) != 'диван', base_role(r) == 'ковёр'))
+    sku = lambda it: f"{it.get('mid')}:{it.get('eid')}" if it else None  # noqa: E731
+    by_colour = {}                       # замена по цвету: тот же товар второй роли («стул 2») — той же заменой (пара)
     for role in roles:
         old = items.get(role)
         why = need_reason(role, old, media, has_mesh)
+        colour = False
         if not why:
-            continue
+            why = color_need(role, old, s.get('style'))      # крупное цвета не в стиле (шаг 2а)
+            if not why:
+                continue
+            colour = True
         repl = spare = uni = None
         own_c = own_spares(s, role, media, used) if own and base_role(role) in CORE else []
         # уже взятый в другой вариант запасной — после пула (разнообразие между стилями, как у `candidates`), но до дыры
         k = lambda c: f"{c['mid']}:{c['eid']}" in (avoid or ())  # noqa: E731
         core = base_role(role) in CORE
-        for c in ([c for c in own_c if not k(c)] + candidates(role, old, s.get('style'), pool, used, env, avoid)
+        pair = [by_colour[sku(old)]] if colour and sku(old) in by_colour else []
+        for c in (pair + [c for c in own_c if not k(c)] + candidates(role, old, s.get('style'), pool, used, env, avoid)
                   + [c for c in own_c if k(c)]):
             if not core and color_refused(role, c, s.get('style')):
                 continue                 # необязательное яркое не в стиле — не берём (T-20261107-11/3)
+            if colour and color_eval_role(role, c, s.get('style'))['tier'] in BAD_TIERS:
+                continue                 # замена по цвету — только кандидатом с ярусом лучше
             if ok(role, c, s, {r: v for r, v in items.items() if r != role}):
                 repl, spare, uni = card(c, old or {}), c.get('spare'), c.get('rug_universal')
                 if uni:                  # запасной нейтральный ковёр стиля (`demo_swap_pool.universal_rugs`) — с отметкой
                     repl['rug_universal'] = True
+                if colour:
+                    by_colour[sku(old)] = c
                 break
+        if colour and not repl:
+            continue                     # цвет — не дыра: заменить нечем — вещь остаётся, журнал не пишем; к соседу не идём
         nb = None
         if repl is None and core:
             repl, nb = neighbour_fill(role, old, s, pool, used, env, avoid, ok, card, items)
-        sku = lambda it: f"{it.get('mid')}:{it.get('eid')}" if it else None  # noqa: E731
         journal.append({'role': role, 'from': (old or {}).get('name'), 'from_sku': sku(old),
                         'to': (repl or {}).get('name'), 'to_sku': sku(repl), 'reason': why,
                         **({'source': 'запасной набора'} if spare else {}),

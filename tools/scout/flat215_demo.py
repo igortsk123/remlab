@@ -1989,7 +1989,10 @@ def cache_images(data: dict) -> dict:
             bc[role] = [p for p in bc[role] if p.get('img')]
     # ТОВАР БЕЗ ФОТО В ВЫБОРКЕ НЕ УЧАСТВУЕТ (владелец 26.08): выборку пересчитываем ПОСЛЕ
     # проверки картинок, иначе половина ленты — пустые карточки.
-    dropped = capped = 0
+    dropped = capped = color_cut = color_low = 0
+    import demo_fill as _DFC
+    cur_items = {(v.get('style'), (x.get('sku') or {}).get('sid')) for v in data.get('variants') or []
+                 if (v.get('room_id') or 'living') == 'living' for x in v.get('items') or []}
     for role, lst in list((data.get('feeds') or {}).items()):
         live = [p for p in lst if p.get('img')]
         dropped += len(lst) - len(live)
@@ -2011,6 +2014,12 @@ def cache_images(data: dict) -> dict:
                 per[k] = per.get(k, 0) + 1
             keep.append(p)
         capped += len(live) - len(keep)
+        # ЦВЕТ ЛЕНТЫ ГОСТИНОЙ (style-color-01 шаг 2а, T-20261107-25/2): forbidden — стиль снимается с товара, discouraged — в конец
+        # ленты этого стиля (`color_low`, страница `feedFor`); товары вариантов не трогаем. Ленты других комнат (`bedroom:…`) — как были
+        if ':' not in role:
+            keep, _cut, _low = _DFC.lane_color(role, keep, cur_items)
+            color_cut += _cut
+            color_low += _low
         data['feeds'][role] = keep
         if not data['feeds'][role]:
             data['feeds'].pop(role)
@@ -2036,6 +2045,7 @@ def cache_images(data: dict) -> dict:
     print(f'из выборки убрано без фото: {dropped}; срезано капом 30/подкатегорию×стиль: {capped}; '
           'осталось по ролям: '
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items())))
+    print(f'ленты гостиной по цвету: снято стилей у товаров (forbidden) {color_cut}, в конец ленты стиля (discouraged) {color_low}')
     print(f'предметов комнат без фото (плашка «нет фото»): {len(no_photo)}'
           + (' — ' + '; '.join(no_photo) if no_photo else ''))
     data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped,

@@ -29,6 +29,8 @@ export type FeedItem = {
   corner?: boolean;
   /** Угловой диван: оттоманка слева/справа названа в имени; нет поля — сторона любая (сцена зеркалит модель). */
   corner_left?: boolean;
+  /** Стили, где цвет товара нежелателен (`demo_fill.lane_color`, style-color-01 шаг 2а): в ленте этого стиля — в конце. */
+  color_low?: string[];
 };
 
 /**
@@ -76,12 +78,14 @@ export const FEED_LIMIT = 11;
 
 /**
  * Лента роли для стиля варианта — правило окна (`feedFor`): товары, подходящие стилю (`styles`: стиль своего набора и стили, где
- * товар прошёл отбор пула — `flat215_demo.glue`); товар чужого набора без балла этого стиля не виден; пусто — вся.
+ * товар прошёл отбор пула — `flat215_demo.glue`); товар чужого набора без балла этого стиля не виден; пусто — вся. Цвет не в стиле
+ * (`color_low`) — в конце ленты этого стиля, порядок остальных прежний.
  */
 export function feedForStyle(all: readonly FeedItem[], style: string | undefined): FeedItem[] {
   if (!style) return [...all];
   const mine = all.filter((p) => (p.styles ? p.styles.includes(style) : !p.style || p.style === style));
-  return mine.length ? mine : [...all];
+  const low = (p: FeedItem) => !!p.color_low?.includes(style);
+  return mine.length ? [...mine.filter((p) => !low(p)), ...mine.filter(low)] : [...all];
 }
 
 /**
