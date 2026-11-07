@@ -19,6 +19,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_registry_protect')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 from draft_guard import (PUB_MAX_AGE_SEC, PUB_MAX_KEYS, REGISTRY_MAX, load_pub, registry_trim, shot_key,  # noqa: E402
                          trim_stats_update)
 

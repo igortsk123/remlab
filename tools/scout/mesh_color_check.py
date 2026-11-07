@@ -554,6 +554,8 @@ def digest_line(counts: dict) -> str:
 # ---------- самопроверка ----------
 def _selftest() -> int:
     import tempfile
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('mesh_color_check-selftest')
     from PIL import Image
     bad = 0
 

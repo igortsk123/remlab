@@ -28,6 +28,8 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_demo_room_build')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 FIX = os.path.join(HERE, 'fixtures')
 fails = 0
 

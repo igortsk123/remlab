@@ -12,6 +12,9 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
+sys.path.append(os.path.join(HERE, '..', '..', 'scout'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_rt_texture_guard')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 import runtime_mesh as RM  # noqa: E402
 
 FAILS = []
