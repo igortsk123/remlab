@@ -46,5 +46,26 @@ out = load3.assign(dict(o), {(1, '7'): 'ковёр'}, set())
 check('загрузчик: детский по картинке ковёр — без роли, но строка принята', out['role'] is None and out['accepted'] and out.get('kids_visual'))
 out2 = load3.assign(dict(o, pic='https://example.com/plain.jpg'), {(1, '7'): 'ковёр'}, set())
 check('загрузчик: обычный ковёр — с ролью', out2['role'] == 'ковёр')
+
+# трата VLM — в общий журнал openai-spend.jsonl (`openai_budget.log_spend`) по цене шлюза (T-20261105-56/7); журнал — временный
+import io  # noqa: E402
+import urllib.request as UR  # noqa: E402
+
+import openai_budget as OB  # noqa: E402
+from PIL import Image  # noqa: E402
+
+OB.SPEND_LOG = os.path.join(tempfile.mkdtemp(), 'spend.jsonl')
+R.gw_key = lambda: 'test'
+UR.urlopen = lambda req, timeout=0: io.BytesIO(json.dumps({
+    'choices': [{'message': {'content': '{"kids": false, "why": "ромбы"}'}}],
+    'usage': {'prompt_tokens': 900, 'completion_tokens': 20}}).encode())
+buf = io.BytesIO()
+Image.new('RGB', (32, 32), 'white').save(buf, 'JPEG')
+v = R.ask(buf.getvalue())
+rows = [json.loads(x) for x in open(OB.SPEND_LOG, encoding='utf-8')]
+check('ответ разобран и трата записана: модель шлюза, токены ответа, цена по таблице (не запасная)',
+      v == {'kids': False, 'motifs': ['ромбы']} and len(rows) == 1 and rows[0]['model'] == R.MODEL
+      and rows[0]['note'] == 'rug_kids' and rows[0]['prompt_tokens'] == 900
+      and rows[0]['cost_usd'] == OB.price_of(R.MODEL, 900, 20) is not None)
 print(f'{"всё зелёное" if not fails else f"красных: {fails}"}')
 sys.exit(1 if fails else 0)

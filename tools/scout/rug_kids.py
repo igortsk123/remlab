@@ -95,8 +95,10 @@ def ask(img: bytes) -> dict:
     req = urllib.request.Request(CHAT_URL, json.dumps(body).encode(),
                                  {'Authorization': 'Bearer ' + gw_key(), 'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=120) as r:
-        txt = json.loads(r.read())['choices'][0]['message']['content'] or ''
-    return parse(txt)
+        out = json.loads(r.read())
+    from openai_budget import log_spend   # учёт в общем журнале openai-spend.jsonl, цена шлюза в таблице (T-20261105-56/7)
+    log_spend(MODEL, out.get('usage'), 1, 'rug_kids')
+    return parse(out['choices'][0]['message']['content'] or '')
 
 
 def parse(txt: str) -> dict:
