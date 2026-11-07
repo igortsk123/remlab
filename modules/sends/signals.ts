@@ -41,6 +41,12 @@ export function contactText(send: Send, ev: BuyerEvent): string {
   return `${head(send)}Клиент нажал «${what}»${via ? ` (${via})` : ""}${sum}.${variant}${sub}${items} Это клик, не звонок: если не написал — напишите ему сами.`;
 }
 
+/** «Отправить выбор риелтору» (home-figma-02): сумма всех комнат главной и раскладка квартиры по стилям. */
+export function selectionText(send: Send, ev: BuyerEvent): string {
+  const sum = ev.sum ? ` на ${money(ev.sum, send.market)}` : "";
+  return `${head(send)}Клиент отправил вам свой выбор${sum}.${layoutText(ev)} Напишите ему — он ждёт ответа.`;
+}
+
 export function alternativeText(send: Send, ev: BuyerEvent): string {
   return `${head(send)}Клиент просит другой вариант: ${REASON[ev.reason ?? "other"]}.`;
 }

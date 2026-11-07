@@ -20,7 +20,7 @@ export type ReportInput = {
   showcase?: Record<string, string[]>;
 };
 
-const ENGAGE = new Set(["variant_view", "item_swap", "item_move", "share", "manager_contact_click", "alternative_request", "flat3d_open", "floor_pick", "walls_pick", "quiz_done"]);
+const ENGAGE = new Set(["variant_view", "item_swap", "item_move", "share", "manager_contact_click", "alternative_request", "flat3d_open", "floor_pick", "walls_pick", "quiz_done", "selection_send"]);
 const STATUSES: ManagerStatus[] = ["contacted", "meeting", "deal", "lost"];
 
 export type FunnelRow = {

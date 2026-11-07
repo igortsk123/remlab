@@ -28,16 +28,19 @@ async function openConstructor(page: Page) {
 }
 const num = (t: string) => Number((t.match(/([\d\s ]+)\s*₽/)?.[1] ?? "").replace(/\D/g, ""));
 
-test("1.2–1.5 первый экран: консультация, ипотека, «Подробнее», план квартиры ссылкой, комнаты стиля и заглушки (demo-16)", async ({ page }) => {
+test("1.2–1.5 первый экран: чат, «Отправить выбор», подробности по строке ЖК, план квартиры ссылкой, комнаты стиля и заглушки (home-figma-02)", async ({ page }) => {
   const errors = await openDemo(page);
-  for (const id of ["#pcCons", "#pcMort"]) {
+  // макет 07.11: «Ипотека», «Консультация» и ♡ из шапки убраны; чат = прежняя консультация, внизу — «Отправить выбор риелтору»
+  await expect(page.locator("#pcCons, #pcMort, #hmFav")).toHaveCount(3);
+  for (const id of ["#pcCons", "#pcMort", "#hmFav"]) await expect(page.locator(id)).toBeHidden();
+  for (const id of ["#hmChat", "#hmSend"]) {
     await page.locator(id).click();
     await expect(page.locator("#shot")).toBeVisible();
     say(id, JSON.stringify((await page.locator("#shotbody").innerText()).slice(0, 60)));
     await page.keyboard.press("Escape");
   }
-  // условия цены — в «Подробнее» под строкой дома (demo-19 Б1), значка «i» у цены нет
-  await page.locator("#flatMoreBtn").click();
+  // условия цены — в подробностях: нажатие на строку ЖК (макет 07.11 — без «Подробнее ⌄»)
+  await page.locator("#flatMeta").click();
   await expect(page.locator("#flatMore")).toBeVisible();
   await expect(page.locator("#flatMore")).toContainText("оплате 100");
   // кнопки «Пройтись по квартире в 3D» в шапке нет (владелец 16.10, demo-02 п.8) — 3D внутри окна варианта
@@ -240,14 +243,17 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
   say("подсказка:", (await page.locator("#consHint").innerText()).slice(0, 50));
 });
 
-test("2.14–2.15 «поделиться» иконкой с подтверждением и избранное сердечком с именем коллекции (demo-15)", async ({ page }) => {
+test("2.14–2.15 «поделиться» иконкой с подтверждением и избранное сердечком с именем коллекции (demo-15; в окне — карточки главной без них)", async ({ page }) => {
   await openDemo(page);
   await expect(page.locator("#coll button[data-link], #feedShare, #collSave")).toHaveCount(0);   // текстовой «Ссылки» и «Избранное» внизу нет
+  // макет 07.11 (home-figma-02): на карточке комнаты сердечка, «Поделиться» и «Открыть» нет — они в окне комнаты
+  await expect(page.locator("#hmRooms [data-share], #hmRooms [data-favorite], #hmRooms .hm-heart")).toHaveCount(0);
   await page.evaluate("navigator.share = undefined");                                            // без системного меню — копирование + тост
-  await page.locator("#hmRooms button[data-share]").first().click();                             // карточка комнаты стиля (demo-16)
+  await page.locator("#hmRooms [data-swap]").first().click();
+  await page.locator("#vShare").click();
   await expect(page.locator("#toast")).toContainText(/скопирована/);
   say("буфер:", await page.evaluate("navigator.clipboard.readText()"));
-  await page.locator("#hmRooms button[data-favorite]").first().click();
+  await page.locator("#vFav").click();
   await expect(page.locator("#favName")).toHaveValue(/ #\d+$/);                                 // «<Стиль> #N»
   say("имя по умолчанию:", await page.locator("#favName").inputValue());
   await page.locator("#favNo").click();                                                         // ночью в базу не пишем
@@ -373,7 +379,9 @@ async function phonePage(browser: import("@playwright/test").Browser, q = "", pk
 const basketState = (page: Page) => page.evaluate(() => {
   const w = window as unknown as { __basket: { state: () => { favorites: { favoriteId: string; displayName: string }[]; includedByRoom: Record<string, string> } } };
   const b = w.__basket.state();
-  return { n: b.favorites.length, inc: b.includedByRoom, names: b.favorites.map((f) => f.displayName), cert: Number((document.getElementById("hmCert") as HTMLElement).dataset.included) };
+  // сумма в сертификате — итог корзины (шкала главной с home-figma-02 показывает выбор комнат главной, не корзину)
+  const t = (w.__basket as unknown as { totals: () => { allowanceEligible: number } | null }).totals();
+  return { n: b.favorites.length, inc: b.includedByRoom, names: b.favorites.map((f) => f.displayName), cert: t ? t.allowanceEligible : 0 };
 });
 const saveHeart = async (page: Page) => {
   await page.locator("#vFav").click();
@@ -490,7 +498,7 @@ test("2.35 корзина: 0 на старте; первая гостиная в
     await o.page.locator("#favPop button.primary").click();
     const s5 = await basketState(o.page);
     expect(Object.keys(s5.inc).length).toBe(1);
-    await expect(o.page.locator("#hmCert .cs-ov")).toContainText(/доплата [\d\s  ]+₽/);
+    expect(await o.page.evaluate("window.__basket.totals().allowanceOverage")).toBeGreaterThan(0);   // доплата — в итоге корзины
     await o.ctx.close();
   }
 });

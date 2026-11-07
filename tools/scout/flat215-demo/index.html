@@ -147,14 +147,23 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
    цена · ♡ (липкая), ЖК · сдача · этаж и две короткие кнопки в строку, сертификат одной строкой с полосой, подсказка, вкладки-стили
    (липкие под строкой квартиры), ниже — комнаты стиля. Бюджет до начала фото ≈ 260–300 px (Codex 18.10 (б)), метрика —
    `tools/ops/mock/home-v2/check.cjs` и `tools/ops/demo-walk/home-check.cjs` (≥ 120 px фото до сгиба на 375×667 и 390×844) */
-:root{--hm-hd:44px;--hm-gut:14px}                 /* поле = поле `.wrap` (14 px, телефон 12) */
+:root{--hm-hd:60px;--hm-gut:14px;--hm-bot:0px}     /* поле = поле `.wrap` (14 px, телефон 12); `--hm-bot` — высота липкого низа (`certStick`) */
 @media(max-width:700px){:root{--hm-gut:12px}}
 .wrap{padding-top:0}                              /* строка квартиры — от самого верха, липкая */
-.hm-hd{position:sticky;top:0;z-index:calc(var(--z-sticky) + 2);height:var(--hm-hd);display:flex;align-items:center;gap:8px;
+/* ШАПКА ОДНОЙ СТРОКОЙ (home-figma-02, макет 158:452): круг 44 · «3-комн. цена» над «ЖК … · сдача …» (многоточием) · значок чата 44 */
+.hm-hd{position:sticky;top:0;z-index:calc(var(--z-sticky) + 2);height:var(--hm-hd);display:flex;align-items:center;gap:10px;
   background:var(--bg);margin:0 calc(-1*var(--hm-gut));padding:0 var(--hm-gut)}
-.hm-fk{font-weight:700;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
-/* цена — просто число (demo-19 Б1, владелец 20.10: «не надо лепить значок i»); условия цены — в «Подробнее» */
-.hm-price{display:flex;align-items:center;font-weight:700;font-size:16px;white-space:nowrap;padding:0 2px;color:var(--ink)}
+.hm-ava{flex:none;width:44px;height:44px;border-radius:50%;background:#4E7468;color:#fff;display:grid;place-items:center;
+  font-weight:700;font-size:18px;line-height:1;overflow:hidden;user-select:none}
+.hm-ava img{width:100%;height:100%;object-fit:cover;display:block}
+.hm-id{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px}
+.hm-l1{display:flex;align-items:baseline;gap:8px;min-width:0;white-space:nowrap}
+.hm-fk{font-weight:700;font-size:16px;white-space:nowrap;flex:none}
+/* цена — просто число (demo-19 Б1, владелец 20.10: «не надо лепить значок i»); условия цены — в «Подробнее» (нажатие на строку ЖК) */
+.hm-price{display:flex;align-items:center;font-weight:500;font-size:16px;white-space:nowrap;min-width:0;overflow:hidden;color:var(--ink)}
+.hm-chat{flex:none;width:44px;height:44px;border:0;border-radius:50%;background:none;color:var(--ink);display:grid;place-items:center;padding:0;cursor:pointer}
+@media(hover:hover){.hm-chat:hover{background:var(--wash-2)}}
+.hm-chat:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .hm-fav{position:relative;flex:none;width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface);
   display:grid;place-items:center;font-size:17px;color:var(--accent);padding:0;cursor:pointer}
 .hm-fav b{position:absolute;top:-3px;right:-3px;min-width:17px;height:17px;border-radius:999px;background:var(--accent);color:#fff;
@@ -162,8 +171,10 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-fav b[hidden]{display:none}
 /* ВТОРАЯ СТРОКА ШАПКИ (demo-19 Б1): «ЖК · сдача» и «Подробнее ⌄» — раскрывашка: тип и площадь, дом целиком (этаж, корпус), условия цены.
    Не влезает слово — остаётся галочка (`fitMeta`), строка дома не обрезается */
-.hm-meta{display:flex;align-items:baseline;gap:8px;font-size:12.5px;color:var(--muted);min-width:0;margin-top:-4px}
-.hm-meta>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;cursor:pointer}
+.hm-meta{display:flex;align-items:baseline;gap:8px;font-size:12.5px;color:var(--muted);min-width:0}
+.hm-meta>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;cursor:pointer;
+  text-decoration:underline dotted;text-decoration-color:var(--line);text-underline-offset:3px}
+.hm-hd .hm-more{display:none}                   /* макет 07.11: без «Подробнее ⌄» — строка обрезается многоточием, нажатие раскрывает */
 .hm-more{flex:none;margin-right:auto;display:inline-flex;align-items:baseline;gap:3px;background:none;border:0;padding:0;min-height:28px;
   font:inherit;font-weight:600;color:var(--accent);cursor:pointer;white-space:nowrap}
 .hm-more .chev{display:inline-block;transition:transform .2s ease}.hm-more[aria-expanded="true"] .chev{transform:rotate(180deg)}
@@ -178,8 +189,31 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 /* ШКАЛА СЕРТИФИКАТА (demo-19 Б2–Б3, владелец 20.10): ОДНА разметка для главной и окна варианта (`certScale`) — полоса = набрано;
    над ней слева «Выбрано N», справа в конце — сумма сертификата; остаток и пояснения — в «i». На главной и в избранном шкала липкая
    под строкой квартиры (тот же элемент `#hmCert`, не копия): остаток виден при любой прокрутке */
-.hm-cert{position:sticky;top:var(--hm-hd);z-index:var(--z-sticky);margin:6px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut) 6px;background:var(--bg)}
+.hm-cert{position:relative}
 .hm-cert[hidden]{display:none}
+/* ЛИПКИЙ НИЗ ГЛАВНОЙ (home-figma-02, макет 158:452): шкала «Выбрано X (i) … 600 000 ₽» (без слова «сертификат») и большая кнопка
+   «Отправить выбор риелтору». Выбрано — сумма вариантов всех комнат на главной (`homeChosen`). Высота — в `--hm-bot` (`certStick`):
+   на столько поднят низ страницы, и над ним встаёт вторая подсказка. Шкала сверху страницы убрана */
+.hm-bot{position:fixed;left:0;right:0;bottom:0;z-index:calc(var(--z-sticky) + 3);background:var(--surface);box-shadow:0 -1px 0 var(--line),0 -6px 16px rgba(0,0,0,.06);
+  padding:8px var(--hm-gut) calc(8px + env(safe-area-inset-bottom,0px))}
+.hm-bot[hidden]{display:none}
+.hm-bot-in{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
+.hm-bot .cs{background:none;padding:0}
+.hm-bot .lab-r{display:none}
+.hm-bot .vpl-bub{top:auto;bottom:calc(100% + 6px)}
+.hm-send{width:100%;min-height:48px;border-radius:var(--radius-sm);font-size:16px;font-weight:600}
+body.hm-bot-on{padding-bottom:var(--hm-bot)}
+/* ПОДСКАЗКИ С «×» (макет 158:452 и 376:8149) — по одному разу (`homeTips`): первая — поверх верха первой карточки, пока ни одна комната не
+   открыта; вторая — над липким низом, когда человек вернулся из комнаты */
+.hm-tipw{position:relative;height:0;z-index:3}
+.hm-tip{display:flex;align-items:flex-start;gap:8px;padding:10px 6px 10px 12px;border-radius:var(--radius-sm);background:rgba(255,255,255,.94);
+  box-shadow:0 2px 10px rgba(0,0,0,.14);color:var(--ink);font-size:14px;line-height:1.35;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.hm-tip[hidden]{display:none}
+.hm-tip>span{flex:1;min-width:0;padding-top:1px}
+.hm-tip-x{flex:none;width:28px;height:28px;margin:-4px 0 -4px;border:0;border-radius:50%;background:none;color:var(--ink);font-size:22px;line-height:1;padding:0;cursor:pointer}
+@media(hover:hover){.hm-tip-x:hover{background:var(--wash-2)}}
+#hmTip1{position:absolute;left:0;right:0;top:8px}
+#hmTip2{position:fixed;left:var(--hm-gut);right:var(--hm-gut);bottom:calc(var(--hm-bot) + 8px);z-index:calc(var(--z-sticky) + 3);max-width:560px;margin:0 auto}
 /* ЛИПКИЙ БЛОК ГЛАВНОЙ — ОДНИМ СЛОЕМ (demo-21 п.3): строка квартиры, шкала и вкладки стилей прилипают встык, фон общий; линия и тень
    `--e2` — только у НИЖНЕГО прилипшего (`certStuck` ставит `.e2on`), и только когда под ним есть прокрученное. Прежняя кромка-градиент
    под шкалой (приёмка Б 20.10) заменена этой тенью. Открытый пузырь «i» шкалы — над всеми липкими (слой пузырей) */
@@ -225,7 +259,6 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .vpl-bub .bub-row{display:flex;gap:8px;align-items:baseline}
 .vpl-bub .bub-row .lsw{transform:translateY(-1px)}
 .vpl-bub .bub-note{color:var(--muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
-.hm-hint{margin:8px 0 0;font-size:13px;color:var(--muted);line-height:1.3}
 /* ПЕРЕКЛЮЧАТЕЛЬ «ИНТЕРЬЕР / ПЛАН КВАРТИРЫ» (home-mix-01 шаг 5, макет 158:452): две равные кнопки, выбранная — тёмная */
 .hm-view{display:flex;gap:8px;margin:10px 0 0;max-width:440px}
 .hm-view[hidden]{display:none}
@@ -238,7 +271,9 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
   background:var(--bg);margin:2px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut)}
 .hm-mix[hidden]{display:none}
 .hm-mix-n{min-width:0;font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hm-mix-pick{flex:none;margin-left:auto;min-height:44px;padding:0 2px;border:0;background:none;font:inherit;font-size:15px;color:var(--accent);cursor:pointer;white-space:nowrap}
+/* «Выбрать другой ›» — сразу за названием, цветом текста (макет 07.11) */
+.hm-mix-pick{flex:none;min-height:44px;padding:0 2px;border:0;background:none;font:inherit;font-size:15px;color:var(--ink);cursor:pointer;white-space:nowrap}
+.hm-mix-pick::after{content:"›";display:inline-block;margin-left:6px;font-size:18px;line-height:1;transform:translateY(1px)}
 /* «ПОДЕЛИТЬСЯ ИНТЕРЬЕРОМ» (home-mix-01 п.3) — вся квартира, не комната (`interiorLink`); значком в строке варианта, на компьютере — со словом */
 .hm-share-mix{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;min-width:40px;margin:0;padding:0 2px;border:0;background:none;
   color:var(--accent);font:inherit;font-size:15px;font-weight:600;cursor:pointer}
@@ -262,15 +297,18 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-room .hm-ph .ttl{position:absolute;left:0;right:0;bottom:0;padding:22px 12px 9px;color:#fff;font-weight:700;font-size:16px;
   background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none}
 .hm-room .hm-ph .ttl small{font-weight:500;opacity:.9}
-.hm-room .hm-ph .hm-heart{position:absolute;top:10px;right:10px;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.92);
-  color:var(--accent);font-size:19px;padding:0;cursor:pointer;min-height:40px}
-.hm-room .rb{display:flex;align-items:center;gap:8px;padding:10px 12px}
-.hm-room .rb .sum{flex:1;min-width:0;font-size:15px;white-space:nowrap}
-.hm-room .rb .sum small{display:block;color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis}
-.hm-room .rb .iconbtn{flex:none}
-.hm-room .rb .btn{flex:none;min-height:40px;height:40px;padding:0 18px;border-radius:var(--radius-sm)}
-/* узко (320 px, крупный шрифт): цена не касается «Поделиться» — плотнее кнопки, зазор не меньше 8 px (приёмка Б 20.10) */
-@media(max-width:340px){.hm-room .rb{gap:8px;padding:10px}.hm-room .rb .btn{padding:0 12px}.hm-room .rb .sum{font-size:14px}}
+/* КАРТОЧКА КОМНАТЫ ПО МАКЕТУ 07.11: вся карточка открывает комнату; на фото — чип «✓ Просмотрено» (комнату открывали, `homeSeen`);
+   ниже цена и «N товаров», справа маленькая квадратная «›». Сердечка, «Поделиться» и «Открыть» нет */
+.hm-room{cursor:pointer}
+.hm-room .hm-seen{position:absolute;top:12px;left:12px;display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border-radius:999px;
+  background:rgba(40,36,33,.62);color:#fff;font-size:13.5px;font-weight:500;pointer-events:none;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+.hm-room .rb{display:flex;align-items:center;gap:8px;padding:12px}
+.hm-room .rb .sum{flex:1;min-width:0;font-size:16px;white-space:nowrap}
+.hm-room .rb .sum small{display:block;color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.hm-go{flex:none;width:40px;height:40px;min-height:40px;border:0;border-radius:var(--radius-sm);background:var(--accent-soft);color:var(--accent);
+  font-size:20px;line-height:1;padding:0;cursor:pointer;display:grid;place-items:center}
+@media(hover:hover){.hm-go:hover{background:var(--wash-2)}}
+@media(max-width:340px){.hm-room .rb{padding:10px}.hm-room .rb .sum{font-size:14px}}
 .hm-stub,.hm-pick{padding:10px 12px;display:flex;flex-direction:column;gap:1px;background:var(--wash);border-radius:var(--radius)}
 .hm-stub b,.hm-pick b{font-size:15px;white-space:nowrap}
 .hm-stub b small,.hm-pick b small{font-weight:500;color:var(--muted)}
@@ -328,16 +366,18 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
 .hm-plan-bot{display:block;margin:-6px 0 18px}
 .hm-back{display:inline-block;margin:4px 0 10px;color:var(--accent);font-weight:600;text-decoration:none}
 @media(min-width:900px){
-  :root{--hm-hd:60px}
-  .hm-hd{gap:16px}
+  :root{--hm-hd:68px}
+  .hm-hd{gap:14px}
   .hm-fk,.hm-price{font-size:20px}
+  .hm-ava,.hm-chat{width:48px;height:48px}
+  /* первая подсказка — над большой карточкой слева (справа столбец комнат) */
+  #hmTip1{right:calc((100% - 24px)/3 + 12px)}
   .hm-top{display:flex;flex-wrap:wrap;align-items:center;gap:0 16px;margin-top:4px}
   .hm-more-box{order:3;flex-basis:100%;font-size:14px}
   .hm-meta{flex:1;margin:0;font-size:14px}
   .hm-acts{margin:0;flex-wrap:nowrap}
   .hm-acts .btn{flex:none;padding:0 16px}
   /* шкала — на всю ширину шапки (demo-21 п.6): при 560 px справа от неё зияла пустота */
-  .hm-hint{font-size:15px}
   .hm-view{margin-top:12px}
   .hm-mix{margin-top:6px;min-height:54px;gap:16px}
   .hm-mix-n{font-size:19px}
@@ -358,14 +398,13 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
    до 1600 px — прежние размеры), карточки избранного — крупнее и по нескольку в ряд. Окно варианта не трогаем */
 @media(min-width:1600px){
   .wrap{max-width:1440px}
-  :root{--hm-hd:clamp(60px,3.3vw,72px)}
+  :root{--hm-hd:clamp(68px,3.6vw,80px)}
   .hm-fk,.hm-price{font-size:clamp(20px,1.05vw,26px)}
   .hm-fav{width:clamp(38px,2.2vw,46px);height:clamp(38px,2.2vw,46px);font-size:clamp(17px,.95vw,21px)}
   .hm-meta,.hm-more-box{font-size:clamp(14px,.75vw,17px)}
   .hm-acts .btn{height:clamp(40px,2.2vw,48px);font-size:clamp(14px,.75vw,17px);padding:0 clamp(16px,1vw,22px)}
   .hm-cert .cs-t{font-size:clamp(13px,.72vw,16px)}
   .hm-cert .cs{padding:clamp(6px,.4vw,9px) 14px}
-  .hm-hint{font-size:clamp(15px,.8vw,18px)}
   .hm-mix{min-height:clamp(54px,2.9vw,64px)}
   .hm-mix-n{font-size:clamp(19px,1vw,23px)}
   .hm-mix-pick,.hm-share-mix{font-size:clamp(16px,.82vw,18px)}
@@ -1120,19 +1159,26 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 <!-- ПЕРВЫЙ ЭКРАН — МАКЕТ A (demo-16, владелец 18.10): «человек уже видел квартиру» — коротко что это, цена и сертификат, а главное —
      вкладки стилей и начало фото без прокрутки. Прежняя высокая шапка (две колонки, кнопки столбиком) и вкладки-комнаты сняты:
      вкладки теперь — стили, внутри стиля — комнаты в порядке плана; план квартиры — ссылкой. «Оплата 100 %» — в пояснении к цене. -->
+<!-- ШАПКА ОДНОЙ СТРОКОЙ ПО ЖИВОМУ МАКЕТУ ДИЗАЙНЕРА (home-figma-02, Фигма 158:452 от 07.11): круг ЖК · «3-комн.» + цена, под ними
+     «ЖК … · сдача …» с многоточием (нажатие — подробности, `toggleFlatMore`) · справа значок чата. Чат = прежняя «Консультация»
+     (`pcCons` — тот же обработчик и событие; по ссылке менеджера — его контакты). «Ипотека», «Консультация» и ♡ из шапки убраны:
+     кнопки остаются в разметке скрытыми — к ним привязаны обработчики ссылки менеджера и встройки -->
 <header class="hm-hd" id="hmHd">
-  <div class="hm-fk" id="flatKind">&nbsp;</div>
-  <span class="hm-price" id="flatPriceSum"><span id="flatSum">—</span></span>
-  <button class="hm-fav" id="hmFav" type="button" aria-label="Избранное">♡<b id="hmFavN" hidden>0</b></button>
+  <span class="hm-ava" id="hmAva" aria-hidden="true"></span>
+  <div class="hm-id">
+    <div class="hm-l1"><b class="hm-fk" id="flatKind">&nbsp;</b><span class="hm-price" id="flatPriceSum"><span id="flatSum">—</span></span></div>
+    <div class="hm-meta" id="flatMetaRow"><span id="flatMeta">&nbsp;</span><button class="hm-more" id="flatMoreBtn" type="button" aria-expanded="false"
+      aria-controls="flatMore"><span class="w">Подробнее</span><span class="chev" aria-hidden="true">⌄</span></button></div>
+  </div>
+  <button class="hm-chat" id="hmChat" type="button" aria-label="Написать менеджеру" title="Написать менеджеру"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5c-4.7 0-8.5 3.4-8.5 7.6 0 2.2 1 4.1 2.7 5.5L5.6 20.5l4.1-2.2c.7.2 1.5.3 2.3.3 4.7 0 8.5-3.4 8.5-7.6S16.7 3.5 12 3.5z"/>
+    <circle cx="8.3" cy="11.2" r=".6" fill="currentColor"/><circle cx="12" cy="11.2" r=".6" fill="currentColor"/><circle cx="15.7" cy="11.2" r=".6" fill="currentColor"/></svg></button>
+  <button class="hm-fav" id="hmFav" type="button" aria-label="Избранное" hidden>♡<b id="hmFavN" hidden>0</b></button>
 </header>
-<!-- ШАПКА В ДВЕ СТРОКИ (demo-19 Б1, владелец 20.10): 1) комнаты · цена · ♡; 2) ЖК · сдача · «Подробнее» — в раскрывашке тип с площадью,
-     дом целиком (этаж, корпус) и условия цены (бывший значок «i» у цены) -->
 <div class="hm-top" id="flatPrice">
-  <div class="hm-meta" id="flatMetaRow"><span id="flatMeta">&nbsp;</span><button class="hm-more" id="flatMoreBtn" type="button" aria-expanded="false"
-    aria-controls="flatMore"><span class="w">Подробнее</span><span class="chev" aria-hidden="true">⌄</span></button></div>
   <div class="hm-more-box" id="flatMore" hidden></div>
-  <!-- `fh-acts` — точка встраивания строки «Ваш менеджер» по ссылке менеджера (`mount`, блок b2b-02) -->
-  <div class="hm-acts fh-acts">
+  <!-- `fh-acts` — точка встраивания строки «Ваш менеджер» по ссылке менеджера (`mount`, блок b2b-02); в макете 07.11 ряда нет — скрыт -->
+  <div class="hm-acts fh-acts" hidden>
     <button class="btn round" id="pcMort" type="button">Ипотека</button>
     <button class="btn cta round" id="pcCons" type="button">Консультация</button>
   </div>
@@ -1143,9 +1189,12 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   <button class="hm-vw on" type="button" role="tab" data-view="room" aria-selected="true">Интерьер</button>
   <button class="hm-vw" type="button" role="tab" data-view="plan" aria-selected="false">План квартиры</button>
 </div>
-<!-- СЕРТИФИКАТ ОДНОЙ СТРОКОЙ (владелец 18.10: шкала — только здесь, не в липкой шапке и не на карточке комнаты). Пока корзины нет
-     (demo-16 шаг 2) — «0 включено»: остаток = весь сертификат -->
-<div class="hm-cert" id="hmCert" hidden></div>
+<!-- ЛИПКИЙ НИЗ (home-figma-02, макет 158:452): шкала «Выбрано … 600 000 ₽» — сумма вариантов всех комнат главной — и «Отправить
+     выбор риелтору» (`homeSend`: по ссылке менеджера — ему событием, иначе окно консультации с выбором в тексте) -->
+<div class="hm-bot" id="hmBot" hidden><div class="hm-bot-in">
+  <div class="hm-cert stuck" id="hmCert" hidden></div>
+  <button class="btn cta hm-send" id="hmSend" type="button">Отправить выбор риелтору</button>
+</div></div>
 <!-- ИЗБРАННОЕ = КОРЗИНА СЕРТИФИКАТА (demo-16 шаг 2, план §3): строкой под сертификатом — глобальное, через все стили. Строка — ссылка
      на ОТДЕЛЬНЫЙ ЭКРАН `#screen-fav` (demo-17, владелец 18.10: «подразделом, а не развёртывать — это может попутать человека»).
      Пусто — строки нет, первый экран как в макете A -->
@@ -1157,9 +1206,11 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 <div class="hm-mix" id="hmMix">
   <b class="hm-mix-n" id="hmMixName">&nbsp;</b>
   <button class="hm-mix-pick" id="hmMixPick" type="button" aria-haspopup="dialog">Выбрать другой</button>
-  <button class="hm-share-mix" id="hmShareMix" type="button" aria-label="Поделиться интерьером" title="Поделиться интерьером"><span>Поделиться</span></button>
+  <!-- в макете 07.11 «Поделиться» нет — кнопка скрыта (обработчик остаётся) -->
+  <button class="hm-share-mix" id="hmShareMix" type="button" aria-label="Поделиться интерьером" title="Поделиться интерьером" hidden><span>Поделиться</span></button>
 </div>
-<p class="hm-hint" id="hmHint">Вы можете менять мебель, отделку и встраиваемое</p>
+<!-- вторая подсказка — над липким низом, когда человек вернулся из комнаты (`homeTips`) -->
+<div class="hm-tip" id="hmTip2" role="status" hidden><span>Когда закончите, отправьте выбор риелтору</span><button class="hm-tip-x" type="button" data-tip="t2" aria-label="Закрыть подсказку">×</button></div>
 
 <!-- ЭКРАН «ИЗБРАННОЕ» (demo-17): «← Назад» возвращает туда, откуда пришли (окно варианта в том же виде или главную на той же
      прокрутке — запись истории demo-16 шаг 3); комнаты (группы) → варианты с «Включить в сертификат» (ровно один на комнату) -->
@@ -1185,6 +1236,8 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
      Плана на витрине нет вовсе, ни на телефоне, ни на десктопе. -->
 <section id="screen-room">
   <!-- КОМНАТЫ ВЫБРАННОГО СТИЛЯ (demo-16): гостиная — карточкой варианта, остальные — единой заглушкой «появится следующим шагом» -->
+  <!-- первая подсказка — поверх верха первой карточки, пока ни одна комната не открыта (`homeTips`; на месте прежней строки-пояснения) -->
+  <div class="hm-tipw"><div class="hm-tip" id="hmTip1" role="status" hidden><span>Меняйте мебель, отделку и стиль любой комнаты</span><button class="hm-tip-x" type="button" data-tip="t1" aria-label="Закрыть подсказку">×</button></div></div>
   <div class="hm-rooms" id="hmRooms"></div>
   <div class="budget" id="budget" hidden></div>
 
@@ -1366,6 +1419,10 @@ function init(){
   document.querySelectorAll('[data-plan]').forEach(a=>a.onclick=e=>{e.preventDefault(); showTab('plan'); pageScrollTo(0);});
   document.querySelectorAll('#hmView [data-view]').forEach(b=>b.onclick=()=>{const w=b.dataset.view; if(curScreen()===w)return; showTab(w); pageScrollTo(0);});
   on('hmMixPick','onclick',()=>mixOpen());
+  // ЧАТ В ШАПКЕ (home-figma-02) = прежняя «Консультация»: тот же обработчик и событие (по ссылке менеджера `mount` ставит на `pcCons` его контакты)
+  on('hmChat','onclick',()=>{const c=document.getElementById('pcCons'); if(c)c.click();});
+  on('hmSend','onclick',()=>homeSend());
+  document.querySelectorAll('[data-tip]').forEach(b=>b.onclick=e=>{e.stopPropagation(); homeTipClose(b.dataset.tip);});
   on('favBack','onclick',e=>{e.preventDefault(); favBack();});
   // «Поделиться интерьером» — вся квартира (home-mix-01 п.3); значок — как у «Поделиться» комнаты
   {const b=document.getElementById('hmShareMix'); if(b){b.insertAdjacentHTML('afterbegin',SHARE_SVG); b.onclick=shareInterior;}}
@@ -1469,30 +1526,78 @@ function drawVariants(){
   // → `budget`), чтобы партнёр мог подставить свои, не трогая вёрстку.
   // Без данных о сертификате блок не показываем: сумму не выдумываем (b2b-06).
   b.hidden=true;                         // прежний блок «сертификат + кнопка к вариантам» заменила строка первого экрана (demo-16)
-  // СЕРТИФИКАТ ОДНОЙ СТРОКОЙ С ПОЛОСОЙ (макет A): «включено» — сумма корзины; корзины пока нет (demo-16 шаг 2) — 0, остаток = вся сумма
-  const c=document.getElementById('hmCert');
-  if(c){
-    if(!t.amount){c.hidden=true;}
-    else{
-      // КОРЗИНА (demo-16 шаг 2): «набрано» — варианты комнат, помеченные «Включить в сертификат»; пусто — 0, остаток = вся сумма.
-      // Доплаты застройщику (RF пол) и прибавка к цене квартиры (UK) — в «i»: в остаток не входят (как `settle`)
-      const EN=LANG==='en', bt=window.__basket&&window.__basket.totals(), inc=bt?bt.allowanceEligible:0, over=bt?bt.allowanceOverage:0;
-      c.hidden=false;
-      c.dataset.amount=String(t.amount); c.dataset.included=String(inc); c.dataset.complete=String(!bt||bt.allowanceComplete);
-      c.dataset.mode=pkgOf().mode; c.dataset.over=String(over);
-      // ПУЗЫРЬ «i» (владелец 22.10, demo-20 А6; demo-23 — по бюджетам, `certBub`); доплаты вне пакета и курс — строками ниже.
-      // «Часть цен уточняется — итог может измениться» снята (владелец 23.10, demo-26 В): цена «по запросу» видна в строке опции
-      const lines=[
-        bt&&bt.developerSurcharge?`+${fmtCard(bt.developerSurcharge)} — ${EN?'paid to the developer, not from the allowance':'доплата застройщику, не из сертификата'}`:'',
-        bt&&bt.propertyPriceDelta?`+${fmtCard(bt.propertyPriceDelta)} — ${EN?'added to the property price':'к цене квартиры'}`:'',
-        fxNote()];
-      // перерисовка — только когда шкала изменилась: `drawVariants` зовётся часто, открытый пузырь «i» не должен закрываться сам
-      const html=certScale({pkg:pkgOf(), inc:bt?bt.budget.eligible:null, lines});
-      if(c._html!==html){c._html=html; c.innerHTML=html;}
-    }
-  }
-  certStick();
+  homeCertDraw();
   drawColl();
+}
+// «ВЫБРАНО» ЛИПКОГО НИЗА (home-figma-02, ведущий 07.11): сумма вариантов ВСЕХ комнат, что сейчас на главной (то, что уйдёт риелтору), в
+// валюте карточки; прежде — корзина избранного («Включить в сертификат»), её экран остаётся, вход с главной снят
+function homeChosen(){
+  if(!D)return 0;
+  return toCard(homeLayout(homeModel()).reduce((s,x)=>s+(x.rv?variantPrice(allVariants()[x.rv.index]):0),0));
+}
+// ШКАЛА ЛИПКОГО НИЗА: полоса = выбрано на главной; нет пакета у квартиры — шкалы нет, кнопка остаётся. Перерисовка — только когда
+// шкала изменилась (зовётся часто, открытый пузырь «i» не должен закрываться сам)
+function homeCertDraw(){
+  const c=document.getElementById('hmCert'); if(!c)return;
+  const t=(FLAT&&FLAT.certificate)||{};
+  if(!t.amount){c.hidden=true;}
+  else{
+    const P=pkgOf(), inc=Math.round(homeChosen());
+    c.hidden=false;
+    c.dataset.amount=String(t.amount); c.dataset.included=String(inc); c.dataset.complete='true';
+    c.dataset.mode=P.mode; c.dataset.over=String(Math.max(0,inc-P.total));
+    // ПУЗЫРЬ «i» (demo-20 А6; demo-23 — по бюджетам, `certBub`); курс — строкой ниже. Вся мебель комнат — бюджет «мебель и техника»
+    const html=certScale({pkg:P, inc:{furniture:inc, fitout:0}, lines:[fxNote()]});
+    if(c._html!==html){c._html=html; c.innerHTML=html;}
+  }
+  homeBotShow();
+}
+// липкий низ — на витрине и плане квартиры (экран главной); в избранном нет
+function homeBotShow(){
+  const b=document.getElementById('hmBot'); if(!b)return;
+  const on=!!D&&curScreen()!=='fav';
+  if(b.hidden===on)b.hidden=!on;
+  document.body.classList.toggle('hm-bot-on',on);
+  certStick();
+}
+// «ОТПРАВИТЬ ВЫБОР РИЕЛТОРУ» (home-figma-02): по ссылке менеджера (`?s=`) — ему событием `selection_send` с раскладкой квартиры и суммой
+// (блок ссылки менеджера, `__mgrSend`), «Отправлено»; встроено на сайт застройщика — его форма (событие `contact`); иначе — окно
+// консультации, выбор — в тексте заявки
+function homeSelText(){
+  const EN=LANG==='en', m=homeModel(), L=homeLayout(m).filter(x=>x.rv);
+  return L.map(x=>{const v=allVariants()[x.rv.index], st=(m.styles.find(s=>s.id===styleIdOf(v))||{}).title||v.style||'';
+    return `${x.r.title} — ${st}, ${money(variantPrice(v))}`;})
+    .concat([`${EN?'Total':'Итого'}: ${fmtCard(homeChosen())}`]);
+}
+function homeSend(){
+  homeTipClose('t2');
+  const EN=LANG==='en', r=homeMixReport(), sum=Math.round(homeChosen());
+  if(window.__mgrSend&&window.__mgrSend({sum, styles:r.styles, rooms:r.rooms}))return;
+  if(window.__EMBED){if(window.__embedEvent)window.__embedEvent('contact');
+    shotOpen('<div class="wait">'+(EN?'The developer will contact you — use the contact form on this page.':'Застройщик свяжется с вами — оставьте заявку в форме на этой странице.')+'</div>',''); return;}
+  shotOpen('<div class="wait"><b>'+(EN?'Your selection':'Ваш выбор')+'</b><div style="font-size:15px;line-height:1.5;margin:8px 0 12px">'+
+    homeSelText().map(t=>`<div>${escHtml(t)}</div>`).join('')+'</div><span style="font-size:15px;color:var(--muted)">'+
+    (EN?'This button opens the developer’s consultation form — your selection goes into the request.':'Эта кнопка ведёт на форму консультации застройщика — выбор уйдёт в тексте заявки.')+'</span></div>','');
+}
+// ПОДСКАЗКИ (макет 158:452 / 376:8149) — по одному разу: закрыли «×» — больше не показываем (`localStorage`, в try). Открытые комнаты —
+// там же, по квартире (`flat215-seen`): чип «✓ Просмотрено» на карточке и вторая подсказка вместо первой
+const TIP_KEY='flat215-tips', SEEN_KEY='flat215-seen';
+function lsJson(k,d){try{const v=JSON.parse(localStorage.getItem(k)||'null'); return v&&typeof v==='object'?v:d;}catch(e){return d;}}
+function lsPut(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+function homeSeenSet(){const a=lsJson(SEEN_KEY,{})[flatId()||'-']; return new Set(Array.isArray(a)?a:[]);}
+function homeSeen(roomId){
+  if(!roomId)return; const all=lsJson(SEEN_KEY,{}), k=flatId()||'-', s=new Set(Array.isArray(all[k])?all[k]:[]);
+  if(s.has(roomId))return; s.add(roomId); all[k]=[...s]; lsPut(SEEN_KEY,all); drawHome(); homeTips();
+}
+function homeTipClose(id){const t=lsJson(TIP_KEY,{}); if(t[id])return; t[id]=1; lsPut(TIP_KEY,t); homeTips();}
+function homeTips(){
+  const t1=document.getElementById('hmTip1'), t2=document.getElementById('hmTip2'); if(!t1||!t2)return;
+  const on=!!D&&curScreen()==='room', T=lsJson(TIP_KEY,{}), seen=homeSeenSet().size>0, EN=LANG==='en';
+  t1.hidden=!(on&&!seen&&!T.t1); t2.hidden=!(on&&seen&&!T.t2);
+  t1.querySelector('span').textContent=EN?'Change the furniture, finishes and style of any room':'Меняйте мебель, отделку и стиль любой комнаты';
+  t2.querySelector('span').textContent=EN?'When you are done, send your selection to the agent':'Когда закончите, отправьте выбор риелтору';
+  t1.querySelector('button').setAttribute('aria-label',EN?'Close the tip':'Закрыть подсказку');
+  t2.querySelector('button').setAttribute('aria-label',EN?'Close the tip':'Закрыть подсказку');
 }
 // ШКАЛА СЕРТИФИКАТА — ОДНА ДЛЯ ГЛАВНОЙ И ОКНА (demo-19 Б2, владелец 20.10: «шкала показывает, сколько набрано, и общую сумму в конце —
 // иначе диссонанс: заполнена на треть, а над ней „доступно 470 тыс.“»). Полоса = набрано; светлая часть — что добавит эта расстановка
@@ -1570,32 +1675,21 @@ function certBub(P,inc,add,head){
   return (head?`<div>${head}</div>`:'')+rows.join('')+
     `<div class="bub-note">${EN?'No transfer between the budgets':'Перенос между бюджетами недоступен'}${anyOver?(EN?' — you pay the difference':' — разницу оплачиваете вы'):''}.</div>`;
 }
-// ЛИПКАЯ ШКАЛА (demo-19 Б3): вкладки стилей встают под шкалу — её высота в `--hm-cert` (крупный шрифт, перенос пузыря не влияет: он поверх)
+// ЛИПКИЙ НИЗ (home-figma-02): шкала ушла из липкой шапки в низ — `--hm-cert` = 0 (строка варианта встаёт сразу под шапкой), высота низа —
+// в `--hm-bot` (поле страницы снизу и место второй подсказки). Шкала в низу всегда компактная (класс `stuck`: легенда и перерасход — в «i»)
 function certStick(){
-  const c=document.getElementById('hmCert'); if(!c)return;
-  const h=c.hidden?0:Math.round(c.getBoundingClientRect().height);
-  document.documentElement.style.setProperty('--hm-cert',h+'px');
-  if(!c._ro&&window.ResizeObserver){c._ro=new ResizeObserver(()=>certStick()); c._ro.observe(c);}
+  const b=document.getElementById('hmBot'), c=document.getElementById('hmCert'); if(!b)return;
+  document.documentElement.style.setProperty('--hm-cert','0px');
+  document.documentElement.style.setProperty('--hm-bot',(b.hidden?0:Math.round(b.getBoundingClientRect().height))+'px');
+  if(!b._ro&&window.ResizeObserver){b._ro=new ResizeObserver(()=>certStick()); b._ro.observe(b);}
+  if(c&&!c._sc){c._sc=1; addEventListener('scroll',certStuck,{passive:true});}
   certStuck();
-  if(!c._sc){c._sc=1; addEventListener('scroll',certStuck,{passive:true});}
 }
-// липкая — компакт (T-19/2): легенда прячется, а отданная ею высота остаётся полем снизу — поток под шапкой не сдвигается (не прыгает
-// содержимое и не дёргается прилипание: условие — верх шкалы, а не её высота)
-function certStuck(){const c=document.getElementById('hmCert'); if(c&&!c.hidden){
-  const st=scrollY>0&&c.getBoundingClientRect().top<=parseFloat(getComputedStyle(c).top)+0.5;
-  if(st!==c.classList.contains('stuck')){
-    // поле — по факту: сколько сдвинулся первый видимый блок под шкалой (поле шкалы схлопывается с верхним полем соседа); в координатах
-    // страницы — браузер при сдвиге сам подкручивает прокрутку (scroll anchoring), и в координатах экрана сдвиг не виден
-    if(st){let n=c.nextElementSibling; while(n&&!n.getClientRects().length)n=n.nextElementSibling;
-      const at=()=>n?n.getBoundingClientRect().top+scrollY:0, t0=at(), h0=c.getBoundingClientRect().height; c.classList.add('stuck');
-      let mb=Math.max(0,h0-c.getBoundingClientRect().height); c.style.marginBottom=mb+'px';
-      const dt=t0-at(); if(dt>0.5){mb+=dt; c.style.marginBottom=mb+'px';}}
-    else{c.classList.remove('stuck'); c.style.marginBottom='';}}}
-  hmE2();}
+function certStuck(){ hmE2(); }
 // ОДНА ТЕНЬ У ЛИПКОГО БЛОКА ГЛАВНОЙ (demo-21 п.3): строка квартиры, шкала и вкладки стилей — один слой; линию и тень `--e2` получает
 // НИЖНИЙ из прилипших (стоит ровно на своём `top`), и только когда страница прокручена — под ним есть уехавшее содержимое
 function hmE2(){
-  const L=[document.getElementById('hmHd'),document.getElementById('hmCert'),document.getElementById('hmMix')].filter(e=>e&&!e.hidden&&e.offsetParent);
+  const L=[document.getElementById('hmHd'),document.getElementById('hmMix')].filter(e=>e&&!e.hidden&&e.offsetParent);
   let low=null;
   if(scrollY>0)for(const e of L)if(Math.abs(e.getBoundingClientRect().top-parseFloat(getComputedStyle(e).top))<=0.5)low=e;
   L.forEach(e=>e.classList.toggle('e2on',e===low));
@@ -1630,7 +1724,8 @@ function showTab(which){
   document.getElementById('screen-fav').hidden=!fav;
   // строка варианта и подсказка — только на витрине; на плане квартиры и в избранном их нет (план — про всю квартиру, не про вариант).
   // Переключатель «Интерьер / План квартиры» — на витрине и на плане, в избранном нет (там своё «← Назад»)
-  ['hmMix','hmHint'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=!room;});
+  {const e=document.getElementById('hmMix'); if(e)e.hidden=!room;}
+  homeTips(); homeBotShow();
   {const v=document.getElementById('hmView'); if(v){v.hidden=fav;
     v.querySelectorAll('[data-view]').forEach(b=>{const on=b.dataset.view===which; b.classList.toggle('on',on); b.setAttribute('aria-selected',String(on));});}}
   document.body.classList.toggle('on-fav',fav);   // экран избранного: строка ЖК, кнопки и строка «Избранное» скрыты (CSS)
@@ -3466,6 +3561,9 @@ function loadFlatCard(){const id=flatId(); if(!id)return;
     // переносить строку дома (узкий экран, крупный шрифт) — только между частями «ЖК · сдача», не внутри «4 кв. 2026»
     const fm=document.getElementById('flatMeta'); if(fm){fm.textContent=String(FLAT.metaShort||FLAT.meta).split(' · ').map(x=>x.replace(/ /g,'\u00a0')).join(' · '); fm.title=FLAT.meta;}
     const fs=document.getElementById('flatSum'); if(fs)fs.textContent=fmtCard(FLAT.price);
+    // круг в шапке (макет 07.11): логотипа ЖК в карточке нет — первая буква названия ЖК на спокойном круге
+    const av=document.getElementById('hmAva'); if(av){const nm=String(FLAT.complex||'').replace(/^\s*(ЖК|Residential complex|RC)\s*/i,'').replace(/^[«"'“„\s]+/,'');
+      av.textContent=(nm[0]||'').toUpperCase(); av.title=FLAT.complex||'';}
     drawFlatMore();
     const ft=document.getElementById('flatTitle'); if(ft)ft.textContent=flatTitle();
     document.title=FLAT.kind+(LANG==='en'?' — living room (demo)':' — гостиная (демо)');
@@ -3489,18 +3587,9 @@ function drawFlatMore(){
   if(mb)mb.onclick=toggleFlatMore; if(mr)mr.onclick=toggleFlatMore;   // строка дома — тоже раскрывает
   fitMeta();
 }
-// СТРОКА ДОМА НЕ ОБРЕЗАЕТСЯ (владелец 20.10 — про «три точки»): подпись раскрывашки по месту — «Подробнее», «ещё», одна «⌄»;
-// узкий экран или крупный шрифт — строка чуть мельче (до 11 px), и только потом переносится, но без многоточия
-function fitMeta(){
-  const row=document.getElementById('flatMetaRow'), m=document.getElementById('flatMeta'), w=row&&row.querySelector('.hm-more .w'); if(!row||!m||!w)return;
-  if(!row.getBoundingClientRect().width)return;     // строка скрыта (экран избранного) — мерить нечего, подгонка при возврате
-  const EN=LANG==='en', fits=()=>m.scrollWidth<=m.clientWidth+1;
-  row.classList.remove('tight','fold'); m.style.fontSize=''; w.textContent=EN?'Details':'Подробнее'; if(fits())return;
-  w.textContent=EN?'more':'ещё'; if(fits())return;
-  row.classList.add('tight'); if(fits())return;
-  for(let fs=12;fs>=11;fs-=0.5){m.style.fontSize=fs+'px'; if(fits())return;}
-  m.style.fontSize=''; row.classList.add('fold');
-}
+// было (20.10): строка дома без многоточия, подпись «Подробнее/ещё/⌄» по месту. СНЯТО макетом дизайнера 07.11 (home-figma-02): строка ЖК обрезается многоточием, «Подробнее/ещё ⌄» не показываем — подгонять нечего; функция оставлена
+// пустой, её зовут перерисовки шапки
+function fitMeta(){}
 function toggleFlatMore(){
   const b=document.getElementById('flatMoreBtn'), box=document.getElementById('flatMore'); if(!b||!box)return;
   box.hidden=!box.hidden; b.setAttribute('aria-expanded',String(!box.hidden));
@@ -4617,23 +4706,24 @@ window.__mixOpen=mixOpen; window.__mixApply=mixApply;   // итог опроса
 function homeM2(a){ return a?String(a).replace('.',LANG==='en'?'.':',')+(LANG==='en'?' m²':' м²'):''; }
 function drawHome(force){
   const nm=document.getElementById('hmMixName'), box=document.getElementById('hmRooms'); if(!box||!D)return;
-  const m=homeModel(), EN=LANG==='en', F=window.__fav;
+  const m=homeModel(), EN=LANG==='en';
   // раскладка — по выбору квартиры (`HOME.sel`); открытое окно (`cur`) её не меняет и в выбор не пишет (home-mix-01)
   const L=homeLayout(m);
   // «Вариант N» — до проверки «не изменилось»: номер зависит от реестра кадров (фото гостиной), а не только от раскладки
   if(nm){const t=homeMixName(m)||' '; if(nm.textContent!==t)nm.textContent=t;}
+  const seen=homeSeenSet();
   const cards=L.map(({r,rv,want})=>{
     const v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
     // ТОЛЬКО ФОТО НЕЙРОСЕТИ (TG 341, часть 0 T-35): фото нынешней расстановки (правленый вариант, если его сняли; правки комнаты
     // живут в `editRestore`/`variantItems`, photo-sharp-keep-01), иначе `realisticPublishedShot`. Кадр 3D (`liveShot`) и черновик
     // `pubShot` на карточку не идут
-    const pc=posterCam(v), bs=bestShot(v,pc), sh=bs&&bs.quality==='realistic'?bs:realisticPublishedShot(v,pc), fav=F&&F.ofState(F.baseState(v));
-    return {r, i:rv.index, v, want, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), fav:fav?(fav.displayName||''):null};
+    const pc=posterCam(v), bs=bestShot(v,pc), sh=bs&&bs.quality==='realistic'?bs:realisticPublishedShot(v,pc);
+    return {r, i:rv.index, v, want, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), seen:seen.has(r.id)};
   });
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
-  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.n,c.sum,c.fav]), m.rooms.map(r=>[r.title,r.areaM2])]);
-  homeFavUi();
+  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.n,c.sum,c.seen]), m.rooms.map(r=>[r.title,r.areaM2])]);
+  homeFavUi(); homeCertDraw(); homeTips();
   if(!force&&sig===HOME.sig)return; HOME.sig=sig;
   const plural=n=>EN?(n===1?'item':'items'):(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
   // КОМНАТЫ НА КОМПЬЮТЕРЕ (T-20261106-77 Д5, владелец 06.11: «кнопки комнат справа — по нажатию спальня должна открываться слева»):
@@ -4649,7 +4739,7 @@ function drawHome(force){
     const vs=styleIdOf(c.v), alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===vs)||{}).title), on=c.r.id===shownId;
     return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b>`+
       `<span>${money(c.sum)} · ${c.n} ${plural(c.n)}</span></button>`+
-      `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}"${vs!==c.want?` data-shown="${vs}"`:''} data-variant="${escHtml(c.v.id)}">`+
+      `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}"${vs!==c.want?` data-shown="${vs}"`:''} data-variant="${escHtml(c.v.id)}" data-open="${c.i}">`+
       `<div class="hm-ph" data-open="${c.i}">`+
       // ЧЁТКО НА КОМПЬЮТЕРЕ (photo-sharp-keep-01, владелец 07.11 TG 349: «фото сжимается, пока не увеличишь»): миниатюра — 640 px,
       // карточка на 1440 — ~712 px (на экране ×2 — 1424): от 900 px браузер берёт по `sizes` миниатюру или полный кадр 2048, телефон —
@@ -4658,12 +4748,11 @@ function drawHome(force){
         `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?'':' loading="lazy"'} data-url="${escHtml(c.full)}" `+
         `onerror="this.onerror=null;var s=this.parentNode.querySelector('source');if(s)s.remove();this.src=this.dataset.url"></picture>`
         :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
-      `<button class="hm-heart${c.fav!=null?' on':''}" type="button" data-favorite="${c.i}" aria-pressed="${c.fav!=null}" `+
-        `aria-label="${c.fav!=null?(EN?'In favourites':'В избранном'):(EN?'Add to favourites':'В избранное')}">${c.fav!=null?'♥':'♡'}</button>`+
+      // макет 07.11: сердечка и «Поделиться» на карточке нет; открывали комнату — чип «✓ Просмотрено» слева вверху
+      (c.seen?`<span class="hm-seen">✓ ${EN?'Viewed':'Просмотрено'}</span>`:'')+
       `<div class="ttl">${t}</div></div>`+
-      `<div class="rb"><div class="sum"><b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}${c.fav?' · ♥ '+escHtml(c.fav):''}</small></div>`+
-      `<button class="iconbtn" type="button" data-share="${c.i}" aria-label="${EN?'Share':'Поделиться'}" title="${EN?'Share':'Поделиться'}">${SHARE_SVG}</button>`+
-      `<button class="btn cta" type="button" data-swap="${c.i}">${EN?'Open':'Открыть'}</button></div></article>`;
+      `<div class="rb"><div class="sum"><b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}</small></div>`+
+      `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;
   }).join('')+
   // «ПЛАН КВАРТИРЫ» — ПЛАШКОЙ В РЯД С КОМНАТАМИ, ЧУТЬ ВЫДЕЛЕН ЦВЕТОМ (владелец 22.10, demo-20 А7); прежняя ссылка под комнатами убрана.
   // Клик — делегатом `#hmRooms` (ниже): плашка рисуется заново, разовая привязка `[data-plan]` её бы не увидела
@@ -4754,11 +4843,8 @@ document.addEventListener('click',e=>{
   // комната справа (компьютер, Д5): вариант этой комнаты в текущем стиле — в большую карточку слева; прокрутку не трогаем
   const pk=e.target.closest('[data-room-pick]'); if(pk){const i=+pk.dataset.roomPick; if(!(i>=0))return;
     HOME.room=roomIdOf(allVariants()[i]); if(i!==cur)pickVariant(i); syncHomeParam(); drawHome(true); return;}
-  const fav=e.target.closest('[data-favorite]'), sh=e.target.closest('[data-share]'), op=e.target.closest('[data-swap],[data-open]');
-  if(fav){e.stopPropagation(); const i=+fav.dataset.favorite; if(!window.__fav)return; if(i!==cur)pickVariant(i); window.__fav.toggle(); return;}
-  if(sh){e.stopPropagation(); const i=+sh.dataset.share, v=allVariants()[i]||{}; if(!window.__fav)return;
-    // открытый вариант — как «поделиться» окна (demo-15): изменённая расстановка уходит снимком, а не исходным вариантом (Codex 18.10)
-    if(i===cur)window.__fav.share(); else window.__fav.shareUrlOpen(variantLink(v.id||''), v.style||''); return;}
+  // вся карточка открывает комнату (макет 07.11); сердечко и «Поделиться» с карточек сняты — их обработчиков здесь больше нет
+  const op=e.target.closest('[data-swap],[data-open]');
   if(op){const i=+(op.dataset.swap||op.dataset.open); if(i>=0)vwOpenVariant(i);}
 });
 // СПИСОК МЕБЕЛИ ВСЕГДА ПОКАЗАН ДЛЯ ВЫБРАННОЙ РАССТАНОВКИ (владелец 01.09: «нажимаю на
@@ -6572,7 +6658,8 @@ function vwHist(){
 // и её фото в окне не найдётся (demo-20 Б3)
 function vwOpenVariant(i){ const v=allVariants()[i];
   if(i>=0&&i!==cur){ if(v&&v.cid&&v.dev){DEVOPT=devCanon(v.dev); devApply(); devDraw();} pickVariant(i); }
-  openLiveWindow(); }
+  openLiveWindow();
+  if(v)try{homeSeen(roomIdOf(v));}catch(e){} }   // комнату открывали — «✓ Просмотрено» на карточке и вторая подсказка (home-figma-02)
 function openLiveWindow(){
   if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
   VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null; VW.sheetVis=0; VW.auto=null;   // новое окно варианта — первая точка съёмки
@@ -7755,6 +7842,16 @@ async function liveShotTake(){
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);ev('variant_view',state());return r;};
   var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);if(r!==false)ev('item_swap',state());return r;};   // false — замок «Улучшаю…»
   document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share'||e.detail==='floor_pick'||e.detail==='walls_pick')ev(e.detail,state());});
+  // «ОТПРАВИТЬ ВЫБОР РИЕЛТОРУ» (home-figma-02): выбор квартиры — менеджеру событием `selection_send` (сумма всех комнат главной, стили и
+  // раскладка «комната → запрошено / показано»); ссылка недействительна (`CARD` нет) — false, главная откроет окно консультации
+  window.__mgrSend=function(sel){
+    if(!CARD)return false; sel=sel||{};
+    ev('selection_send',{sum:sel.sum||undefined, styles:sel.styles&&sel.styles.length?sel.styles:undefined, rooms:sel.rooms&&sel.rooms.length?sel.rooms:undefined});
+    if(window.__embedEvent)window.__embedEvent('contact');
+    var EN=window.__LANG==='en';
+    shotOpen('<div class="wait"><b>'+(EN?'Sent':'Отправлено')+'</b><br><span style="font-size:15px;color:var(--muted)">'+
+      (EN?esc(CARD.manager.name)+' will see your selection and get in touch.':esc(CARD.manager.name)+' увидит ваш выбор и свяжется с вами.')+'</span></div>','');
+    return true;};
   // опрос и «Выбрать другой» (home-mix-01): ответы и раскладка квартиры — событием `quiz_done` / `style_change` (блок опроса шлёт `remlab:quiz`)
   document.addEventListener('remlab:quiz',function(e){var d=e.detail||{}; if(d.ev&&d.ev.kind)ev(d.ev.kind,d.ev);});
   fetch('/api/sends/'+SEND,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(j){
@@ -8835,7 +8932,7 @@ function quizPick(rule, answers, available, styleColours){
     try{if(curScreen()==='plan')flatPlan();}catch(_){}   // сертификат поменялся, пока открыт план (окно поверх плана) — подписи комнат
     var head=document.getElementById('favHead'), grid=document.getElementById('favGrid'), chips=document.getElementById('favChips');
     if(!head||!grid||!chips)return;
-    var l=favs(); head.hidden=!l.length;
+    var l=favs(); head.hidden=true;   // вход в избранное с главной снят (home-figma-02, ведущий 07.11); экран и корзина остаются
     document.getElementById('favRowBtn').onclick=function(){histGoFavs(BK.sel||'');};
     document.getElementById('favTitle').textContent=(EN()?'Favourites':'Избранное')+(l.length?' · '+l.length:'');
     document.getElementById('favBack').textContent=EN()?'← Back':'← Назад';
@@ -8945,7 +9042,8 @@ function quizPick(rule, answers, available, styleColours){
     'вешалка':'coat rack','зеркало':'mirror'};
   var STYLE={'сканди':'Scandi','современный':'Modern','минимализм':'Minimalist','лофт':'Loft','неоклассика':'Neoclassic','джапанди':'Japandi'};
   var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom','Прихожая':'Hallway'};
-  var EX={'Оплата 100%':'Full payment','Ипотека, рассрочка':'Mortgage, instalments','Ипотека':'Mortgage','Подробнее':'Details','Консультация':'Get advice','← К стилям':'← Back to styles',
+  var EX={'Отправить выбор риелтору':'Send my selection to the agent','Написать менеджеру':'Message the manager','Закрыть подсказку':'Close the tip',
+    'Оплата 100%':'Full payment','Ипотека, рассрочка':'Mortgage, instalments','Ипотека':'Mortgage','Подробнее':'Details','Консультация':'Get advice','← К стилям':'← Back to styles',
     'Оплата 100 %: сумма при условии оплаты наличными, без ипотеки и рассрочки':'Full payment: the price when paying in full, without a mortgage or instalments',
     'Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.':'We have furnished your apartment in different styles. You can change the furniture, finishes and fitted items.',
     'Своя расстановка':'Your own layout','План квартиры →':'Apartment plan →','Выбрать условия ипотеки или рассрочки':'Mortgage or instalment options','Получить консультацию':'Get advice',

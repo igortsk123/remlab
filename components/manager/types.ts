@@ -23,5 +23,5 @@ export const STATUS_LABEL: Record<string, string> = {
 export const ACTION_LABEL: Record<string, string> = {
   designer_open: "открыл", variant_view: "смотрел вариант", item_swap: "менял мебель", item_move: "передвигал мебель", share: "поделился", floor_pick: "выбирал пол", walls_pick: "выбирал стены",
   manager_contact_click: "нажал «связаться»", alternative_request: "просил другой вариант",
-  quiz_done: "прошёл знакомство", style_change: "сменил стиль",
+  quiz_done: "прошёл знакомство", style_change: "сменил стиль", selection_send: "отправил выбор",
 };

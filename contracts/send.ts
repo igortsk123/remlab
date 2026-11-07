@@ -23,6 +23,9 @@ export const buyerEventKind = z.enum([
   "walls_pick", // выбрал стены из вариантов застройщика (demo-07)
   "quiz_done", // прошёл опрос-знакомство и выбрал стиль в итоге (onb-03)
   "style_change", // «Выбрать другой» стиль после опроса (onb-03)
+  // «Отправить выбор риелтору» на главной (home-figma-02): сумма комнат главной (`sum`), стили и раскладка (`styles`, `rooms`).
+  // Тип хранится текстом (`send_events.kind`, `signal_outbox.kind`) — миграции не нужно
+  "selection_send",
 ]);
 export type BuyerEventKind = z.infer<typeof buyerEventKind>;
 

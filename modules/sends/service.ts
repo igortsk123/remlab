@@ -11,7 +11,7 @@ import { randomToken } from "@/lib/token";
 import { demoNames, keepKnown, loadDemoRaw, type DemoNames } from "@/lib/partners/demo-data";
 import { findApartment as findApartmentHit } from "@/lib/partners/registry";
 import { findApartment } from "@/modules/sends/apartments";
-import { alternativeText, contactText, openText, quizText } from "@/modules/sends/signals";
+import { alternativeText, contactText, openText, quizText, selectionText } from "@/modules/sends/signals";
 import { MemorySendStore } from "@/modules/sends/store-memory";
 import { PgSendStore } from "@/modules/sends/store-pg";
 import type { Manager, Send, SendStore } from "@/modules/sends/types";
@@ -92,11 +92,12 @@ export async function recordBuyerEvent(
     if (await store.claimReopen(id, now, REOPEN_SIGNAL_MS)) await signal(store, s, "reopen", openText(s, true), now);
   } else if (ev.kind === "variant_view" || ev.kind === "item_swap" || ev.kind === "item_move" || ev.kind === "share" || ev.kind === "floor_pick" || ev.kind === "walls_pick" || ev.kind === "style_change") {
     if (!s.summaryDueAt) await store.updateSend(id, { summaryDueAt: new Date(now.getTime() + SUMMARY_DELAY_MS) });
-  } else if (ev.kind === "manager_contact_click" || ev.kind === "alternative_request") {
+  } else if (ev.kind === "manager_contact_click" || ev.kind === "alternative_request" || ev.kind === "selection_send") {
     // Дедуп одинаковых кликов — атомарной отметкой (`dedup_marks`), а не чтением событий: два
     // одновременных клика (sendBeacon + повтор) оба прошли бы проверку «не было» (verify 13.10).
     const key = `send-click:${id}:${ev.kind}:${ev.purpose ?? ""}:${ev.reason ?? ""}`;
-    if (await store.claimDedup(key, now, CLICK_DEDUP_MS)) await signal(store, s, ev.kind, ev.kind === "alternative_request" ? alternativeText(s, ev) : contactText(s, ev), now);
+    const text = ev.kind === "alternative_request" ? alternativeText(s, ev) : ev.kind === "selection_send" ? selectionText(s, ev) : contactText(s, ev);
+    if (await store.claimDedup(key, now, CLICK_DEDUP_MS)) await signal(store, s, ev.kind, text, now);
   } else if (ev.kind === "quiz_done") {
     if (await store.claimDedup(`send-quiz:${id}:quiz_done`, now, QUIZ_DEDUP_MS)) await signal(store, s, ev.kind, quizText(s, ev), now);
   }
