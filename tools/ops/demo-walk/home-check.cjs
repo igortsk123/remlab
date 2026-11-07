@@ -98,10 +98,17 @@ const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeMode
       // СМЕШИВАНИЕ — ВЫБОРОМ СТИЛЯ В КОМНАТЕ (владелец TG 451): окно гостиной → «Другой стиль для комнаты ›» → один стиль: окно комнаты
       // на новом варианте, меняется только гостиная (`requested`), строка главной — прежний основной стиль, в адресе `mix=`
       const s5a=await sel(p);
-      await p.click('#hmRooms .hm-room[data-room=living] [data-swap]'); await p.waitForSelector('#shot.on #vOther',{timeout:15000});
-      const row=await p.evaluate(()=>document.getElementById('vrow').innerText.replace(/\s+/g,' ').trim());
-      ok('окно комнаты: строка «<стиль> · Другой стиль для комнаты ›»',row===st.titles[s5a.want.living||st.on]+' · Другой стиль для комнаты ›',row);
-      await p.evaluate(()=>document.getElementById('vOther').click()); await p.waitForSelector('#mixBox.on',{timeout:5000});
+      await p.click('#hmRooms .hm-room[data-room=living] [data-swap]'); await p.waitForSelector('#shot.on.v2 #vside',{timeout:15000}); await p.waitForTimeout(600);
+      // телефон — плашка «Сменить стиль» поверх фото, строки в шторке нет (владелец TG 472–477); компьютер — строка вверху правой панели
+      const row=await p.evaluate(()=>{const t=document.getElementById('vOtherTop'), r=document.getElementById('vrow'), m=document.querySelector('#shot .vmodes').getBoundingClientRect(),
+        b=t.getBoundingClientRect(), x=document.getElementById('shotx'); const xb=x&&x.getBoundingClientRect();
+        return {top:!!t.offsetParent&&t.textContent, row:r.offsetParent?r.innerText.replace(/\s+/g,' ').trim():'',
+          sameRow:Math.abs((b.top+b.bottom)/2-(m.top+m.bottom)/2)<=4, clear:b.left>=m.right+8&&(!xb||b.right<=xb.left-4)&&b.right<=innerWidth};});
+      if(phone)ok('окно комнаты (телефон): «Сменить стиль» поверх фото в ряд с «Фото | 3D» и ×, не наезжает; строки стиля в шторке нет',
+        row.top==='Сменить стиль'&&!row.row&&row.sameRow&&row.clear,JSON.stringify(row));
+      else ok('окно комнаты (компьютер): строка «<стиль> · Другой стиль для комнаты ›», плашки над фото нет',
+        !row.top&&row.row===st.titles[s5a.want.living||st.on]+' · Другой стиль для комнаты ›',JSON.stringify(row));
+      await p.evaluate(()=>{const t=document.getElementById('vOtherTop'); (t&&t.offsetParent?t:document.getElementById('vOther')).click();}); await p.waitForSelector('#mixBox.on',{timeout:5000});
       await p.waitForFunction("!!document.querySelector('#mixBox .qz-ph:not([disabled])')",null,{timeout:20000});
       const rw=await p.evaluate(()=>({h:document.getElementById('mixH').textContent, tiles:[...document.querySelectorAll('#mixBox .qz-ph')].map(b=>({id:b.dataset.mxPh, on:b.getAttribute('aria-pressed')==='true'})),
         apply:!!document.querySelector('#mixBox [data-mx="apply"]'), nums:[...document.querySelectorAll('#mixBox .qz-tick')].some(t=>/\d/.test(t.textContent))}));

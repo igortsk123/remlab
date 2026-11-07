@@ -4868,7 +4868,7 @@ function mixOpen(room){
 }
 function mixClose(){
   const b=document.getElementById('mixBox'), was=MIX.room; MIX.open=false; MIX.room=null; if(!b||!b.classList.contains('on'))return;
-  b.classList.remove('on'); const p=document.getElementById(was?'vOther':'hmMixPick'); if(p&&p.offsetParent)try{p.focus({preventScroll:true});}catch(e){}
+  b.classList.remove('on'); const t=document.getElementById('vOtherTop'), p=was?(t&&t.offsetParent?t:document.getElementById('vOther')):document.getElementById('hmMixPick'); if(p&&p.offsetParent)try{p.focus({preventScroll:true});}catch(e){}
 }
 // стили, в которых у комнаты есть вариант на главной: фото её точки съёмки (только фото нейросети), подпись — название стиля; порядок —
 // как в окне выбора квартиры (`homeVarList`), стили не из него — в конце
@@ -6539,6 +6539,8 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
  background:var(--veil);z-index:var(--zl-float);box-shadow:var(--e3)}
 .vmodes button{border:0;background:transparent;color:#fff;font-size:15px;padding:7px 14px;border-radius:999px;cursor:pointer}
 .vmodes button.on{background:var(--surface);color:var(--ink);font-weight:600}
+/* «Сменить стиль» поверх фото — только телефон (владелец TG 475–477); на компьютере — строка вверху правой панели (`.vrow`) */
+.vstyle{display:none}
 .vhist[hidden]{display:none!important}.vhist span:empty{display:none}
 .vhist{position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:6px;background:var(--veil);color:#fff;
  border-radius:999px;padding:5px;font-size:14px;z-index:var(--zl-float);box-shadow:var(--e3)}
@@ -6722,6 +6724,11 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
   /* рамка выделенной строки — внутри поля списка 14 px (обход 1808: при −12 px она доходила до края экрана на 2 px) */
   #shot.v2 .pinlist .row.hl{margin:0 -8px;padding-left:8px;padding-right:8px}
   .vmodes{top:10px;left:10px;transform:none}.vmodes button{padding:6px 10px;font-size:14px;white-space:nowrap}
+  /* «Сменить стиль» — тёмная плашка как «Фото | 3D», в один ряд с ними и ×(right 12 + 40 + 8); строки стиля в шторке нет */
+  .vstyle{display:inline-flex;align-items:center;position:absolute;top:11px;right:60px;height:36px;padding:0 14px;border:0;border-radius:999px;
+   background:var(--veil);color:#fff;font:inherit;font-size:14px;font-weight:600;white-space:nowrap;cursor:pointer;z-index:var(--zl-float);box-shadow:var(--e3)}
+  .vstyle[hidden],#shot.vsheetfull .vstyle{display:none}
+  #shot.v2 .vrow{display:none}
   .vhist{top:58px;bottom:auto;left:10px}
   /* сцена — только над шторкой: под полуоткрытой шторкой мебель иначе пряталась, а видно было потолок */
   .vstage .shotwrap{bottom:var(--vsh,320px)}
@@ -6802,6 +6809,7 @@ function vwSumUpdate(){
   el._vals=now; if(changed){el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');}
   const sd=document.getElementById('vside'), c=document.getElementById('vchip'); if(c&&sd&&sd.dataset.pos!=='3')c.textContent=vwChipText();
   const rw=document.getElementById('vrow'); if(rw){const h=vwRowHtml(); if(rw._h!==h){rw._h=h; rw.innerHTML=h;}}
+  const vt=document.getElementById('vOtherTop'); if(vt)vt.hidden=!vwCanStyle();
   vwGroupsDraw();          // сводки строк-входов — после смены пола или кухни, без перезагрузки
 }
 // чип «⌃ Мебель и отделка · 11 (X ₽)» (макет 373:7035): X — сумма этой комнаты, та же, что «Эта комната» в легенде шкалы
@@ -6809,14 +6817,15 @@ function vwChipText(){ const v=allVariants()[cur]||{}, n=variantCount(v), EN=LAN
   return (EN?'⌃ Furniture & finishes · ':'⌃ Мебель и отделка · ')+n+' ('+fmtCard(toCard(variantPrice(v)))+')'; }
 // СТРОКА ШТОРКИ (макет 373:7035, владелец TG 447–448, 451): «Сканди · Другой стиль для комнаты ›» — видна сразу, в свёрнутой шторке; название стиля этой комнаты, у сохранённой расстановки — её имя;
 // «Другой стиль для комнаты» — окно выбора только для этой комнаты (`mixOpen(комната)`), если у комнаты есть другой стиль
+function vwCanStyle(){ const v=allVariants()[cur]||{}; return !!D&&!v.cid&&!v.mine&&mixRoomList(roomIdOf(v)).length>1; }
 function vwRowHtml(){
   const v=allVariants()[cur]||{}, EN=LANG==='en', id=styleIdOf(v);
   const nm=v.cid||v.mine?(v.title||''):(D&&id?homeStyleTitle(homeModel(),id):(v.title||''));
-  const can=!!D&&!v.cid&&!v.mine&&mixRoomList(roomIdOf(v)).length>1;
+  const can=vwCanStyle();
   return `<b class="vrow-n">${escHtml(nm)}</b>`+
     (can?`<span class="vrow-s" aria-hidden="true">·</span><button class="vrow-o" id="vOther" type="button" aria-haspopup="dialog">${EN?'Another style for this room':'Другой стиль для комнаты'} ›</button>`:'');
 }
-document.addEventListener('click',e=>{const b=e.target&&e.target.closest&&e.target.closest('#vOther'); if(!b)return;
+document.addEventListener('click',e=>{const b=e.target&&e.target.closest&&e.target.closest('#vOther,#vOtherTop'); if(!b)return;
   e.preventDefault(); mixOpen(roomIdOf(allVariants()[cur]||{}));});
 function vwHtml(s, navs, list){
   const EN=LANG==='en';
@@ -6830,6 +6839,7 @@ function vwHtml(s, navs, list){
     `<div class="vmodes" role="tablist"><button data-vm="photo" class="${VW.mode==='photo'?'on':''}">Фото</button>`+
     // «Фото | 3D» без «План» (макет 373:7035, home-figma-02): план квартиры — на главной; режим `plan` в коде остаётся
     `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button></div>`+
+    `<button class="vstyle" id="vOtherTop" type="button" aria-haspopup="dialog"${vwCanStyle()?'':' hidden'}>${EN?'Change style':'Сменить стиль'}</button>`+
     // РАКУРСЫ СЛОВАМИ (владелец 18.10, demo-15 п.3: «стрелочки непонятно что значат»): один переключатель для «Фото» и 3D,
     // подписи — по месту камеры (`vwCamNames`); ← → на компьютере остаются (`vwPhoto`), свайп по фото ракурс не листает (demo-22)
     `<div class="vcams" id="vCams" role="tablist">${vwCamLabels().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
@@ -7307,7 +7317,7 @@ function vwPinsTick(now){
   const on=shot.classList.contains('on')&&VW.mode==='walk'&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
   if(!on){if(box.childElementCount)box.innerHTML=''; PINS.map.clear(); return;}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
-    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready')]
+    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready')]
       .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);}
   const fr=PINS.fr, pad=4, seen=new Set(), cand=[];
   const hit=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
