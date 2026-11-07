@@ -11,11 +11,13 @@ type Cam = { name: string; x: number; y: number; rot: number; fov: number; poste
 type Pair = { cams: Cam[]; how: string };
 type Fx = { room: { w: number; d: number; kind: string; openings: unknown[]; cams_own?: boolean }; variants: { id: string; items: It[] }[] };
 type Cv = { inF: number; vis: number }[];
+// окно показа живого «3D»: пропорция холста, видимая полоса, низ над шторкой (`live-eye.ts`, `viewer.ts`)
+type Frame = { asp: number; top: number; bot: number; vis: number };
 const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
 const block = html.slice(html.indexOf("// CAMFIT START"), html.indexOf("// CAMFIT END"));
 const fx = JSON.parse(readFileSync("tests/fixtures/demo-hall-1107.json", "utf8")) as Fx;
-const api = new Function("D", `${block};return {camPair,camCover,camShownN,camViewFit,camCoverP,camBlock,camNear,camRole,camIsMain,camNearK,camElev,camCutFrame,CAM_ZONES,CAM_NEAR};`)({ room: fx.room }) as {
-  camCutFrame: (c: Cam, it: It, asp?: number) => number;
+const api = new Function("D", `${block};return {camPair,camCover,camShownN,camViewFit,camCoverP,camBlock,camNear,camRole,camIsMain,camNearK,camElev,camCutLive,CAM_ZONES,CAM_NEAR};`)({ room: fx.room }) as {
+  camCutLive: (c: Cam, it: It, its: It[], fr: Frame, W: number, H: number) => { frame: number; own: number; near: number };
   camPair: (its: It[], W: number, H: number, cs: { x: number; y: number }[]) => Pair;
   camCover: (c: Cam, its: It[], W: number, H: number) => Cv;
   camShownN: (its: It[], cv: Cv) => number;
@@ -38,7 +40,7 @@ const its = (v: { items: It[] }) => v.items.map((it) => ({ ...it, x: +it.x, y: +
 // обувница и зеркало). Вид на хранение — потолок 2 при любой точке (всё хранение у входа, шкаф в дальнем конце; разбор расстановки —
 // отчёт T-20261107-05/6). Пороги — фиксация, не цель.
 const MIN1: Record<string, number> = { "hall-scandi": 4, "hall-modern": 4, "hall-loft": 4, "hall-minimal": 3, "hall-japandi": 5 };
-type Cut = { cm: number; frame: number; hi: number; asp: number };
+type Cut = { cm: number; frame: number; hi: number; live: Frame[] };
 const pairs = new Map<string, Pair>();
 const pairOf = (v: { id: string; items: It[] }) => {
   if (!pairs.has(v.id)) pairs.set(v.id, api.camPair(its(v), W, H, corners));
@@ -60,19 +62,24 @@ describe("камеры демо: прихожая, виды зоны", () => {
     }
   });
 
-  // T-20261107-05/7 (лист 07.11: на виде 2 в углу кадра крупным планом кусок банкетки или обувницы в метре от глаза): вид на хранение
-  // не берёт точку, где ближняя мебель срезана краем кадра телефона (`cutNear`, рамка `asp`). На свежем банке такая точка нашлась
-  // у всех пяти стилей; нет её — подбор без условия с пометкой «без cutNear» в отчёте пары (здесь — провал теста)
+  // T-20261107-05/7 (лист 07.11: на виде 2 в углу кадра крупным планом кусок банкетки, консоли или вешалки в метре от глаза): вид на
+  // хранение не берёт точку, где ближняя мебель срезана краем ЖИВОГО «3D» — на телефоне и на компьютере (`cutNear.live`: глаз «3D»
+  // отходит от стен и наклонён к мебели, лист 1627 — мера по камере фото консоль модерна не видела). Узкий коридор: глаз посередине,
+  // строгой точки нет у 4 стилей из 5 — допуск ступенями (`CAM_CUT_LADDER`, пометка «обрезана до N % кадра»); достигнуто — не выше
+  // 10 % кадра, без отката «без cutNear». Пороги — фиксация, не цель.
   for (const v of fx.variants) {
-    it(`${v.id}: вид на хранение — ближняя мебель не обрезана краем (или пометка «без cutNear»)`, () => {
+    it(`${v.id}: вид на хранение — ближняя мебель в живом «3D» не обрезана краем сверх допуска`, () => {
       const pr = pairOf(v), list = its(v), c2 = pr.cams[1]!;
       const g = (api.CAM_ZONES.hall!.views![1] as { cutNear: Cut }).cutNear;
       expect(g.cm).toBeGreaterThanOrEqual(100);
-      expect(g.asp).toBeLessThan(1);   // рамка — телефон (окно выше расчётного кадра)
-      const cv = api.camCoverP(c2, list, W, H);
-      const cut = list.filter((it, i) => (it.h ?? 0) > 2 && cv[i]!.inF < g.hi && api.camNear(c2, it) <= g.cm && api.camCutFrame(c2, it, g.asp) >= g.frame);
+      expect(g.live.some((f) => f.asp < 1 && f.vis < 1)).toBe(true);   // телефон: холст выше ширины, низ под шторкой
+      expect(g.live.some((f) => f.asp > 1)).toBe(true);                // компьютер
       expect(pr.how).not.toMatch(/без cutNear/);
-      expect(cut.map((it) => it.role)).toEqual([]);
+      const m = pr.how.match(/обрезана до (\d+) % кадра/), lim = Math.max(g.frame, m ? +m[1]! / 100 : 0);
+      expect(lim).toBeLessThanOrEqual(0.1);
+      const cut = g.live.flatMap((fr) => list.filter((it) => (it.h ?? 0) > 2).map((it) => ({ it, q: api.camCutLive(c2, it, list, fr, W, H) }))
+        .filter(({ q }) => q.near <= g.cm && q.own < g.hi && q.frame >= lim).map(({ it, q }) => `${it.role} ${fr.asp} ${q.frame.toFixed(3)}`));
+      expect(cut).toEqual([]);
     });
   }
 
