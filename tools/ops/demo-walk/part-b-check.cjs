@@ -132,9 +132,11 @@ async function replace(p, role) {
         const pre = await p.evaluate(() => ({ mode: VW.mode, photoTab: !document.querySelector('#shot [data-vm="photo"]').hidden }));
         await p.click("#vCta"); await p.waitForTimeout(2500);
         const mid = await p.evaluate(() => { const o = document.querySelector("#shot .vphwait"), ph = document.querySelector('#shot [data-vm="photo"]');
-          const r = o && o.getBoundingClientRect(); return { mode: VW.mode, photoTab: !!ph && !ph.hidden, overlay: o ? o.querySelector("b").textContent : "", ow: r ? Math.round(r.width) : 0, oh: r ? Math.round(r.height) : 0 }; });
+          const r = o && o.getBoundingClientRect(); return { mode: VW.mode, photoTab: !!ph && !ph.hidden, overlay: o ? o.querySelector("b").textContent : "", ow: r ? Math.round(r.width) : 0, oh: r ? Math.round(r.height) : 0,
+            stale: !!document.querySelector("#shot .vstale") }; });
         await p.screenshot({ path: `${OUT}/${tag}-b3-wait.png` });
-        ok(`${tag} Б3: старт фото — сразу вкладка «Фото» и «Улучшаю… N %» на весь кадр`, !pre.photoTab && mid.photoTab && mid.mode === "photo" && /^Улучшаю… \d+ %$/.test(mid.overlay) && mid.ow > vp.w * 0.5,
+        // до нажатия — 3D; вкладка «Фото» после правки есть (прежнее фото затемнённым, T-20261107-66 Б); во время съёмки — ход работы, без затемнения
+        ok(`${tag} Б3: старт фото — сразу «Фото» и «Улучшаю… N %» на весь кадр`, pre.mode === "walk" && mid.photoTab && mid.mode === "photo" && !mid.stale && /^Улучшаю… \d+ %$/.test(mid.overlay) && mid.ow > vp.w * 0.5,
           JSON.stringify({ pre, mid }));
         await p.waitForFunction("!VJ.job", null, { timeout: 60000 });
         await p.waitForTimeout(1500);

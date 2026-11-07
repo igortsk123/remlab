@@ -85,8 +85,14 @@ await p.screenshot({path:OUT+`m09-${W}-photo.png`});
 // 4. изменение → 3D и шторка вниз (телефон)
 await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(800);
 await p.evaluate(()=>{const g=devGroups().find(x=>x.kind==='flooring'); if(g)devSet(g.id,g.variants[1].id);}); await p.waitForTimeout(1500); s=await st(p);
-ok('4 смена пола → 3D, вкладки «Фото» нет',s.mode==='walk'&&!s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));
+// после правки вкладка «Фото» остаётся: на ней прежнее фото затемнённым, «Вы изменили комнату» и две кнопки (T-20261107-66 Б)
+ok('4 смена пола → 3D, вкладка «Фото» есть',s.mode==='walk'&&s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));
 if(W<=700)ok('4a шторка свернулась сама',s.pos==='0','pos '+s.pos);
+await p.evaluate(()=>vwMode('photo')); await p.waitForTimeout(800);
+const stl=await p.evaluate(()=>{const o=document.querySelector('#shot .vstale'); return {mode:VW.mode, txt:o?o.innerText.replace(/\n+/g,' / '):'', back:!!(o&&o.querySelector('[data-st="back"]'))};});
+ok('4б «Фото» после правки — затемнено, «Вы изменили комнату», «Показать изменения» и «Вернуть как было»',
+  stl.mode==='photo'&&/Вы изменили комнату/.test(stl.txt)&&/Показать изменения/.test(stl.txt)&&stl.back,JSON.stringify(stl));
+await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(600);
 await p.evaluate(()=>histBack()); await p.waitForTimeout(1200); s=await st(p);
 ok('4 ↶ вернул расстановку со снимком → «Фото» снова доступно (в 3D)',s.mode==='walk'&&s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));
 // 3. ПРАВКА ВО ВРЕМЯ «УЛУЧШАЮ…» НЕ ПРИМЕНЯЕТСЯ (demo-20 Г5, владелец 22.10 TG 867): ушёл в 3D, пробует сменить пол — подсказка, расстановка
