@@ -1494,13 +1494,31 @@ def room_variants(room_type: str, apt: dict, flags: dict, variants: list, feeds:
 
     def no_mesh(role: str, s: dict) -> str:
         return mark(s) if mark and R.needs_mesh(R.base_role(role)) and s else ''
-    for rec in recs:
+    # РАЗНЫЕ ТОВАРЫ В КОМНАТАХ ТИПА (bedroom-distinct-01, владелец 07.11 TG 348): по стилю — sid товаров уже собранных комнат;
+    # следующая комната того же стиля их не повторяет (`demo_room.distinct_items`). Порядок комнат — порядок РЕЕСТРА квартиры
+    # (спальня 1 первой), не порядок флага `rooms_enabled`: ночные пересборки и правка флага их местами не меняют
+    used_by_style: dict = {}
+    dups = 0
+    for rec in R.by_registry(recs, apt.get('rooms')):
         # предмет без модели (T-20261106-77; с /4 — любая роль солвера, не только ведущая): запас из других записей банка — свой
         # стиль, потом соседний
+        used = used_by_style.setdefault(rec.get('style') or '', set())
         v, why = R.build_variant(spec, rec, geos[rec['room_id']], bed_sku, _dims_of, style_id, hung=_hung,
                                  decor_role=lambda r: r.split(' ')[0] in DECOR_ROLES or soft_role(r),
                                  layout=lays.get((rec['room_id'], rec.get('style'))), mesh_ok=gate, lead=lead,
-                                 spares=R.role_spares(spec, bank, rec) if gate else None)
+                                 spares=R.role_spares(spec, bank, rec) if gate else None, used=used,
+                                 distinct_spares=R.role_spares(spec, bank, rec, roles=[k for k in rec.get('items') or {}
+                                                                                        if R.base_role(k) == k],
+                                                               neighbours=lambda s: []) if used else None)
+        for e in (v or {}).pop('distinct_swaps', None) or []:
+            print(f"{room_type}_distinct: {rec['room_id']} «{rec.get('style')}» {e['role']}: {e['was'][1]} (уже в другой комнате) → "
+                  f"{e['now'][1]}", flush=True)
+        for e in (v or {}).pop('dup', None) or []:
+            dups += 1
+            print(f"WARN:demo_room_dup: {rec['room_id']} «{rec.get('style')}» {e['role']} {e['sid']} «{e['name']}» — тот же товар, "
+                  f"что в другой комнате этого стиля: {e['why']}", flush=True)
+        if v:
+            used |= R.variant_sids(v)
         for e in (v or {}).get('mesh_swaps') or []:
             print(f"{room_type}_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']}: {e['was'][1]} ({e['why']}) → "
                   f"{e['now'][1]}" + (f" (соседний стиль «{e['style']}»)" if e.get('style') else ''), flush=True)
@@ -1550,6 +1568,7 @@ def room_variants(room_type: str, apt: dict, flags: dict, variants: list, feeds:
           + (', '.join(f'{r} {len(x)}' for r, x in sorted(bf.items())) or 'пусто')
           + (' (без проверки моделей — сборка рядом)' if any_mesh else '')
           + (f', без модели (метка no_mesh) {marked}' if marked else '')
+          + (f', повторов товара между комнатами (demo_room_dup) {dups}' if dups else '')
           + (f"; сторож {gate.mode}, разворот не решён у {unresolved} предметов вариантов" if gate else ''), flush=True)
     return geos, R.room_bands(spec, bank, geos)
 
