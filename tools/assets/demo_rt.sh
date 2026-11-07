@@ -18,10 +18,14 @@ export RT_TABLE_OUT=${RT_TABLE_OUT:-$(dirname "$DATA")/rt-meshes.json}
 "$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 1024 2>&1 | tail -2
 "$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite 2>&1 | tail -2
 bad=0
-if ! RT_MANIFEST="$M" bash tools/assets/publish_rt.sh "$OUT" > /tmp/demo_rt_pub.$$ 2>&1; then
-  tail -3 /tmp/demo_rt_pub.$$; bad=1; echo "выкладка копий на /rt/ не прошла"
-else tail -2 /tmp/demo_rt_pub.$$; fi
-rm -f /tmp/demo_rt_pub.$$
+# вывод выкладки — в REMLAB_TMP на диске, не в /tmp (T-20261107-02: ночью 07.11 запись сюда упала на квоте tmpfs — EDQUOT,
+# и демо не опубликовалось); свой файл убираем при любом выходе
+. tools/ops/remlab-tmp.sh
+PUB_LOG=$(mktemp -p "$REMLAB_TMP" demo_rt_pub.XXXXXX) || { echo "WARN:demo_rt_missing: нет места под временный файл в $REMLAB_TMP"; exit 1; }
+trap 'rm -f "$PUB_LOG"' EXIT
+if ! RT_MANIFEST="$M" bash tools/assets/publish_rt.sh "$OUT" > "$PUB_LOG" 2>&1; then
+  tail -3 "$PUB_LOG"; bad=1; echo "выкладка копий на /rt/ не прошла"
+else tail -2 "$PUB_LOG"; fi
 # копии моделей вариантов — НА ПРОДЕ, обе (verify 14.10: локальная проверка не видела сбой выкладки)
 miss=$("$PY" - "$DATA" <<'PYEOF'
 import json, sys, urllib.request

@@ -31,6 +31,12 @@ maint_gate refresh_daily "$LOG" alert
 # это и лишние запросы к магазинам, и «подтверждение» смерти товара собственным вторым прогоном.
 exec 9>"$HOME/.remlab-refresh.lock"
 if ! flock -n 9; then echo "$(date '+%F %T') другой прогон уже идёт — выходим" >> "$LOG"; exit 0; fi
+# ВРЕМЕННОЕ ВСЕГО ПРОГОНА — НА ДИСК (T-20261107-02): ночью 07.11 демо не опубликовалось — шаг demo_rt упал на квоте /tmp
+# (tmpfs ~788 МБ на пользователя, забит чужим: EDQUOT). TMPDIR → REMLAB_TMP, чтобы python (tempfile), node (os.tmpdir),
+# Chromium/Playwright и mktemp без пути тоже писали не в /tmp; строка в лог — чтобы причина «нет места» была видна сразу.
+. ../ops/remlab-tmp.sh
+export TMPDIR="$REMLAB_TMP"
+echo "$(date '+%F %T') старт: свободно в /tmp $(remlab_tmp_free /tmp) МБ, в REMLAB_TMP ($REMLAB_TMP) $(remlab_tmp_free "$REMLAB_TMP") МБ" >> "$LOG"
 
 declare -A RES; declare -A WARNS; declare -A WARNN
 STARTED="$(date -u '+%FT%TZ')"
@@ -59,7 +65,7 @@ step() {                       # step <имя> <команда...>
     else RES[$name]=ok; fi
   else
     # упал молча — подсказка с местом во временной папке (частая немая причина: забитый /tmp, T-20261106-87)
-    [ -s "$STEP_TMP" ] || echo "$name: вывода нет; /tmp свободно $(df -Pm /tmp 2>/dev/null | awk 'NR==2{print $4}') МБ" >> "$STEP_TMP"
+    [ -s "$STEP_TMP" ] || echo "$name: вывода нет; свободно в /tmp $(remlab_tmp_free /tmp) МБ, в REMLAB_TMP $(remlab_tmp_free "$REMLAB_TMP") МБ" >> "$STEP_TMP"
     RES[$name]=FAIL; echo "$name FAIL (rc=$rc)" >> "$STEP_TMP"
   fi
   cat "$STEP_TMP" >> "$LOG"
