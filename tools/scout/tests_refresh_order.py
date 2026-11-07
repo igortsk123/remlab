@@ -88,8 +88,9 @@ ROOM_STEPS = ('hall_catalog', 'rooms_alive', 'style_bedroom', 'style_hall', 'roo
 # → refresh [write_enabled]) → проверка состояния (всегда) — после писателя гостиной, до demo_band
 ROOMS = ('bedroom', 'hall')
 CHAIN = ('bank_prepare', 'mesh_cand', 'room_bindings', 'bank_pending', 'bank_promote', 'bank_refresh')
-ROOM_BANK = ('room_bindings', *(f'{s}_{r}' for r in ROOMS for s in ('compose', 'room_check', *CHAIN, 'bank_rehearse',
-                                                                     'bank_state')))
+# сторож цвета мешей (T-20261107-14/2) — сразу перед первой привязкой комнат: его таблицу читает room_bindings --build
+ROOM_BANK = ('mesh_color_guard', 'room_bindings', *(f'{s}_{r}' for r in ROOMS for s in ('compose', 'room_check', *CHAIN,
+                                                                                         'bank_rehearse', 'bank_state')))
 DEMO = ('flat215_demo', 'demo_rt', 'flat215_publish')
 
 

@@ -284,6 +284,13 @@ def _msid(sid: str | None) -> str | None:
     return _RB.scene_msid(_bind_rows().get(sid.replace('_', ':', 1)), sid, _mesh_rep()) if sid else None
 
 
+def colour_flagged(sid: str | None) -> bool:
+    """Сторож «меш не того цвета» (T-20261107-14/2): привязка варианта семьи отмечена `mesh_color_mismatch` — видимый цвет
+    модели представителя (даже с подкраской) далеко от фото товара (оранжевый «Аронт» вместо серого). Такой товар не идёт ни в
+    ленту замен, ни в вариант; правило и порог — `room_bindings.measured_colour`, замер — `mesh_color_check`."""
+    return bool(sid) and _RB.colour_flagged(_bind_rows().get(sid.replace('_', ':', 1)))
+
+
 DECOR_ROLES = {'ваза', 'статуэтка', 'свеча', 'книги', 'поднос', 'шкатулка', 'часы'}
 
 
@@ -620,7 +627,8 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     has_mesh = lambda it: (_msid(f"{it.get('mid')}_{it.get('eid')}") in idx  # noqa: E731
                            and color_ok(_msid(f"{it.get('mid')}_{it.get('eid')}"), it.get('name') or '')
                            and _MDK.family_colour_mismatch(f"{it.get('mid')}_{it.get('eid')}",
-                                                           _msid(f"{it.get('mid')}_{it.get('eid')}")) is None)
+                                                           _msid(f"{it.get('mid')}_{it.get('eid')}")) is None
+                           and not colour_flagged(f"{it.get('mid')}_{it.get('eid')}"))
     _gate0 = gate
     # ПРИГОДНОСТЬ ДЛЯ ГОСТИНОЙ — то же правило, что у подбора наборов (`unfit.py`): 15.10 лечение подставило к обеденному
     # столу барный стул «Эрин»
@@ -781,8 +789,9 @@ def set_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
     # человеку значит обещать то, чего не будет в кадре. `sid` кладём рядом: страница по нему берёт модель.
     _sid = f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else None
     _msd = _msid(_sid)
-    if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_index() or not color_ok(_msd, it.get('name'))):
-        return None          # нет модели или модель семейства другого цвета (demo-05: бежевый товар — чёрный меш)
+    if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_index() or not color_ok(_msd, it.get('name'))
+                                     or colour_flagged(_sid)):
+        return None          # нет модели или модель семейства другого цвета (demo-05: бежевый товар — чёрный меш; замер T-14)
     from unfit import unfit as _unfit
     if _unfit(base, it.get('name'), None, it.get('h'), d=it.get('d')):
         return None          # барный/офисный стул, уличное, резиновый ковёр — не для гостиной (`unfit.py`)
@@ -860,6 +869,8 @@ def pool_feed_check(p: dict) -> str:
         return 'dims'
     if base not in NOMESH_ROLES and (not p.get('msid') or p['msid'] not in _mesh_index() or not color_ok(p['msid'], p.get('name'))):
         return 'mesh'        # модели на сервере нет (серая коробка) или она другого цвета, чем товар; ковёр — плита с фото
+    if base not in NOMESH_ROLES and colour_flagged(p.get('sid')):
+        return 'mesh_colour'  # видимый цвет модели семьи далеко от фото товара (сторож T-20261107-14) — кандидат на свой меш
     from unfit import unfit as _unfit
     if _unfit(base, p.get('name'), None, p.get('h'), d=p.get('d')):
         return 'unfit'       # не для гостиной (`unfit.py`): барный стул в ленте обеденных и т.п.
@@ -1883,24 +1894,36 @@ def annotate_yaw(data: dict) -> int:
 
 
 def _tone(path: str):
-    """Средний цвет товара по фото без белого фона — то же правило, что у кадра (`draft_render._photo_hex`), в долях 0..1."""
+    """Средний цвет товара по фото без белого фона — то же правило, что у кадра (`draft_render._photo_hex`), в долях 0..1.
+    Тело — `mesh_color_check.tone` (одно правило со сторожем цвета мешей, T-20261107-14/2)."""
+    import mesh_color_check as _MCC
+    return _MCC.tone(path)
+
+
+def _rep_tones(msids: set) -> dict:
+    """Тон фото ПРЕДСТАВИТЕЛЯ, которого нет среди товаров демо (T-20261107-14/2: у 182 вариантов лент подкраски не было —
+    представитель не в ленте, и тона «основы» взять было неоткуда; «Босс» жёлтый рисовался синей моделью без поправки).
+    Текущее фото представителя (`product_photo_current`) → малая копия `thumbs/`. Нет базы или фото — без подкраски, как прежде."""
+    if not msids:
+        return {}
     try:
-        import numpy as _np
-        from PIL import Image as _Im
-        a = _np.asarray(_Im.open(path).convert('RGB').resize((64, 64)), _np.float32)
-        m = a.sum(axis=2) < 720
-        if m.sum() < 40:
-            return None
-        return [float(a[..., i][m].mean()) / 255.0 for i in range(3)]
-    except Exception:  # noqa: BLE001 — нет фото: подкраски нет, модель остаётся своего цвета
-        return None
+        import mesh_color_check as _MCC
+        th = _MCC.thumbs_of(_MCC.photo_urls({m.replace('_', ':', 1) for m in msids}))
+        return {k.replace(':', '_', 1): _tone(p) for k, p in th.items()}
+    except Exception as e:  # noqa: BLE001 — нет базы/сети: подкраска только по товарам демо, громко
+        print(f'WARN:tint_rep: фото представителей вне демо не прочитаны ({repr(e)[:120]}) — подкраска только по товарам демо',
+              flush=True)
+        return {}
 
 
 def annotate_tint(data: dict, out_dir: str = OUT) -> int:
     """ЦВЕТ ВАРИАНТА НА МОДЕЛИ СЕМЕЙСТВА (demo-02 приёмка 16.10 п.11б). У цветового варианта своей 3D-модели нет: он показывается
     моделью представителя (`msid`), и замена «Серый → Графит» не меняла сцену ни на пиксель. Подкраска = средний тон фото
     варианта / тон фото представителя, по каналу (`sku.tint`, множитель цвета материала — `lib/viewer3d/meshes.ts`); простая
-    заливка до полной перекраски (demo-05 п.11). Нет фото представителя или разница < 6 % — без подкраски."""
+    заливка до полной перекраски (demo-05 п.11). Нет фото представителя или разница < 6 % — без подкраски. Представителя нет
+    среди товаров демо — тон его текущего фото из каталога (`_rep_tones`, T-20261107-14/2). Формула и границы — одно правило со
+    сторожем цвета мешей (`mesh_color_check.tint_of`, `rules/mesh-color-guard.json`)."""
+    import mesh_color_check as _MCC
     skus = [it.get('sku') or {} for v in data.get('variants') or [] for it in (v.get('items') or []) + (v.get('decor') or [])]
     skus += [f for lst in (data.get('feeds') or {}).values() for f in lst if isinstance(f, dict)]
     tone: dict = {}
@@ -1908,15 +1931,18 @@ def annotate_tint(data: dict, out_dir: str = OUT) -> int:
         sid, img = sk.get('sid'), sk.get('img')
         if sid and sid not in tone and img and not str(img).startswith('http'):
             tone[sid] = _tone(os.path.join(out_dir, img))
+    need = {sk.get('msid') for sk in skus if sk.get('sid') and sk.get('msid') and sk['sid'] != sk['msid']
+            and not tone.get(sk['msid'])}
+    tone.update({k: v for k, v in _rep_tones(need).items() if v})
+    R = _MCC.rules()
     n = 0
     for sk in skus:
         sk.pop('tint', None)
         sid, msid = sk.get('sid'), sk.get('msid')
-        a, b = tone.get(sid), tone.get(msid)
-        if not sid or not msid or sid == msid or not a or not b:
+        if not sid or not msid or sid == msid:
             continue
-        t = [round(min(2.5, max(0.35, x / max(y, 0.02))), 3) for x, y in zip(a, b)]
-        if max(abs(x - 1) for x in t) >= 0.06:
+        t = _MCC.tint_of(tone.get(sid), tone.get(msid), R)
+        if t:
             sk['tint'] = t
             n += 1
     return n
