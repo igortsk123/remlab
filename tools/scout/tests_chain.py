@@ -312,9 +312,13 @@ LIVE_DEMO = '~/scout-scenes/flat215-demo'
 
 
 def room_variants(d: dict, room_id: str) -> list:
-    """Варианты комнаты в demo-data.json: гостиная — `variants`, новая комната — `rooms_data.<id>.variants`."""
-    if room_id == 'living':
-        return d.get('variants') or []
+    """Варианты комнаты в demo-data.json — общий список `variants` с полем `room_id` (сборка `flat215_demo.room_variants`;
+    без поля — гостиная). Заготовка onb-12 `rooms_data.<id>.variants` сборкой не пишется; читается только запасным путём,
+    когда в общем списке комнаты нет: прежде читалась только она, и ночь 07.11 дала ложный WARN «bedroom-1/2: вариантов нет»
+    при 10 вариантах спален в данных (T-20261107-04/5)."""
+    vs = [v for v in d.get('variants') or [] if (v.get('room_id') or 'living') == room_id]
+    if vs or room_id == 'living':
+        return vs
     return ((d.get('rooms_data') or {}).get(room_id) or {}).get('variants') or []
 
 
@@ -353,6 +357,17 @@ def link_rooms_enabled(r: Report) -> None:
     r.ok('комнаты: предмет без фото и предмет без цены — красные', len(bad) == 2, f'замечаний {len(bad)}: {bad}')
     n, bad = room_problems({'variants': [{'id': 'v1', 'items': []}]})
     r.ok('комнаты: флагов нет — проверять нечего (гостиную ведут свои проверки)', n == 0 and not bad, f'проверено {n}')
+    # форма сборки: спальни в общем `variants` с `room_id` (ночь 07.11 — ложный «вариантов нет» при 10 вариантах спален)
+    live = {'rooms_enabled': ['bedroom-1', 'bedroom-2'],
+            'variants': [{'id': 'set1', 'items': []}, {'id': 'b1', 'room_id': 'bedroom-1', 'items': [it]},
+                         {'id': 'b2', 'room_id': 'bedroom-2', 'items': [it]}]}
+    n, bad = room_problems(live)
+    r.ok('комнаты: спальни в общем variants с room_id — найдены, норма (гостиная без room_id не считается спальней)',
+         n == 2 and not bad and [v['id'] for v in room_variants(live, 'bedroom-1')] == ['b1']
+         and [v['id'] for v in room_variants(live, 'living')] == ['set1'], f'проверено {n}, замечаний {len(bad)}: {bad}')
+    n, bad = room_problems({**live, 'variants': live['variants'][:2]})
+    r.ok('комнаты: включённая спальня без своих вариантов в общем списке — красная', bad == ['bedroom-2: вариантов нет'],
+         f'замечаний {len(bad)}: {bad}')
 
 
 def live_rooms_enabled(r: Report) -> None:
