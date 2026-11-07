@@ -46,7 +46,7 @@
 | `bedroom.md` | bedroom | Спальня — каталог кроватей, тумб, шкафов, комодов (с показа в демо снят); что дальше | `../plans/b2b-10-rooms-beyond-living.md` | 2026-11-06 |
 | `design-figma.md` | design-figma | Дизайн демо в Фигме для дизайнера — книги, страницы, как пересобрать, что правлено руками | `../completed_plans/design-01-figma-export.md` | 2026-11-06 |
 | `lr-checklist.md` | lr-checklist | Состав гостиной — роли и пригодность | `../domain/living-room-checklist.md` | 2026-10-18 |
-| `onboarding-quiz.md` | onboarding-quiz | Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат | `../domain/onboarding-quiz.md` | 2026-11-06 |
+| `onboarding-quiz.md` | onboarding-quiz | Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат | `../domain/onboarding-quiz.md` | 2026-11-07 |
 <!-- GENERATED:core-registry END -->
 
 > Реестр и decision tree в INDEX регенерирует `tools/memory-audit.mjs` (или `/memory-check`
