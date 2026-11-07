@@ -126,6 +126,7 @@ class Facts:
         self.contract, self.directed = 'orient-v1', (lambda role, name='': False)
         self.manifest, self.glb = (lambda g: {}), (lambda g: (None, 'glb_missing'))
         self.urls = {}                       # {sku: адреса фото} — для представителя семьи (его фото сверяем по его адресам)
+        self.quar = {}                       # {sku: {glb_sha16: решение}} — карантин моделей (`mesh_quarantine` cut/reject)
         self.__dict__.update(kw)
         self.gen_skus = {g.get('sku') for g in self.gens.values()}
 
@@ -174,6 +175,12 @@ def asset_of(sku: str, cat_urls: set, F: Facts, pol: dict) -> tuple:
     full, why = F.glb(gen)
     if why:
         reasons.append(why)
+    # КАРАНТИН МОДЕЛИ (`mesh_quarantine` cut/reject, T-20261107-05/3): витрина такую модель уже вычитает из индекса прода
+    # (`prod_index`), а привязка считала её готовой — сборщик банка ставил её первой («с мешом готов»), спрос писал «нет в индексе»
+    # и звал выкладку по кругу. Карантин — на конкретный файл (`glb_sha`, 16 знаков): пересобранная модель под него не попадает
+    q = (F.quar.get(sku) or {}).get((full or gen.get('glb_sha') or '')[:16])
+    if q:
+        reasons.append(f'mesh_quarantine:{q}')
     if full and not (full.startswith(gen.get('glb_sha') or '-') and full.startswith(rev.get('glb_sha') or gen.get('glb_sha') or '-')):
         reasons.append('glb_sha_mismatch')
     man = F.manifest(gen) or {}
@@ -571,6 +578,14 @@ def orient_note(a: dict, mode: str = 'orient') -> str:
     return ', '.join(a['reasons']) if orient_loose(a, mode) else ''
 
 
+QUARANTINED = 'карантин модели'
+
+
+class ProdIndex(set):
+    """Индекс прода без карантина; `quarantined` — что вычтено (через `_`): `usable` называет такую модель карантином."""
+    quarantined: frozenset = frozenset()
+
+
 def usable(a: dict, msid: str | None, idx, mode: str = 'orient') -> tuple[str, str]:
     """Модель предмета годна для сцены? a — asset товара после привязки (`catalog_items.bound_asset`), msid — какую модель
     грузит сцена (`mesh_rep`: представитель семейства или свой артикул, через `_`), idx — индекс прода (`prod_index`).
@@ -582,6 +597,10 @@ def usable(a: dict, msid: str | None, idx, mode: str = 'orient') -> tuple[str, s
     прода без карантина — иначе серая коробка."""
     if mode not in MESH_GATE_MODES:
         raise ValueError(f'режим сторожа {mode!r}? можно {", ".join(MESH_GATE_MODES)}')
+    # карантин — своей причиной, не «нет в индексе» (иначе спрос и шаг банка зовут выкладку по кругу): по привязке
+    # (`mesh_quarantine:*`) или, пока привязку не пересобрали, по вычтенному индексом (`prod_index(...).quarantined`)
+    if any('mesh_quarantine' in r for r in a.get('reasons') or ()) or msid in getattr(idx, 'quarantined', ()):
+        return QUARANTINED, ''
     loose = orient_loose(a, mode)
     if not (a['ready'] or loose):
         return f"привязка {a['mesh_status']}" + (f": {', '.join(a['reasons'][:2])}" if a['reasons'] else ''), ''
@@ -617,7 +636,10 @@ def prod_index(fallback=lambda: set(), quarantine=None) -> set:
         idx -= quar
     except Exception as e:  # noqa: BLE001 — нет таблицы: карантина нет
         print('карантин не прочитан:', e)
-    return idx
+        quar = set()
+    out = ProdIndex(idx)
+    out.quarantined = frozenset(quar)
+    return out
 
 
 def demo_msids(path: str) -> set:
@@ -754,6 +776,19 @@ def prod_sizes(src: str, ssh: bool) -> tuple:
         return None, f'прод не прочитан: {str(e)[:120]}'
 
 
+QUARANTINE_SQL = ("select sku, glb_sha, coalesce(decision,'cut') from mesh_quarantine "
+                  "where coalesce(decision,'cut') in ('cut','reject')")
+
+
+def load_quarantine(rows) -> dict:
+    """Карантин моделей → {sku: {glb_sha16: решение}}. Решения — те же, что вычитает `prod_index` (cut, reject; пусто = cut)."""
+    out: dict = {}
+    for r in rows(QUARANTINE_SQL):
+        if r and r[0] and r[1]:
+            out.setdefault(r[0], {})[str(r[1])[:16]] = r[2]
+    return out
+
+
 def load_facts(prod_src: str, ssh: bool, out_dir: str) -> tuple:
     import mesh_dark as MDK
     pol = policy()
@@ -783,6 +818,7 @@ def load_facts(prod_src: str, ssh: bool, out_dir: str) -> tuple:
         if r[2] and r[3]:
             reps_of.setdefault(r[2], set()).add(r[3])
     two = {f for f, s in reps_of.items() if len(s) > 1}
+    quar = load_quarantine(_rows)
     import enrich_bridge as EB
     colour = {k: v.get('colour') for k, v in EB.load().items() if v.get('colour')}
     prod, prod_why = prod_sizes(prod_src, ssh)
@@ -802,10 +838,11 @@ def load_facts(prod_src: str, ssh: bool, out_dir: str) -> tuple:
         return mans[p]
     F = Facts(revs=revs, gens=gens, orient=orient, ppc=ppc, products=products, two_reps=two, colour=colour, prod=prod,
               contract=OW.CONTRACT, directed=lambda role, name='': OW.directed_role(role, name, ''),
-              manifest=manifest, glb=make_glb(cache))
+              manifest=manifest, glb=make_glb(cache), quar=quar)
     import mesh_queue as MQ
     sources = {'asset_revisions': _digest(revs), 'mesh_generations': _digest(gens), 'orientation_state': _digest(sorted(orient.items())),
                'product_photo_current': _digest(ppc), 'products_mesh': _digest(products), 'enrichment_colour': _digest(colour),
+               'mesh_quarantine': _digest(quar),
                'policy': _digest(pol), 'orient_contract': OW.CONTRACT, 'directed_roles': sorted(MQ.DIRECTED),
                'prod': {'source': prod_why, 'digest': _digest(prod)}}
     return F, pol, MDK.COLOUR_GROUPS, sources, cache, cache_p
@@ -1014,6 +1051,22 @@ def _selftest() -> int:
        gate == pol['generation']['machine_verdict_ladder']) or print('  код:', gate, 'правило:', pol['generation']['machine_verdict_ladder'])
     F6.products['1:a'] = {'mesh_status': 'quarantine', 'family': None, 'rep': None}
     ok('карантин товара — не ready', 'product_mesh_quarantine' in bind('1:a', cat(1, 'a', 176, 214, 100), F6)['reasons'])
+    # карантин модели (`mesh_quarantine`): на ЭТОТ файл — blocked без 3D (витрина его вычитает); на прежний файл — не мешает
+    try:
+        F.quar = {'1:a': {full['/g/1old'][:16]: 'cut'}}
+        q = bind('1:a', cat(1, 'a', 178, 212, 101))
+        F.quar = {'1:a': {'0123456789abcdef': 'reject'}}
+        q2 = bind('1:a', cat(1, 'a', 178, 212, 101))
+    finally:
+        F.quar = {}
+    ok('карантин модели на её файл — blocked, причина mesh_quarantine:cut, local_3d и published_3d нет',
+       q['status'] == 'blocked' and 'mesh_quarantine:cut' in q['reasons'] and not q['capabilities']['local_3d']
+       and not q['capabilities']['published_3d']) or print(q)
+    ok('карантин на другой (прежний) файл модели — привязка готова (пересобранная модель под карантин не попадает)',
+       q2['status'] == 'ready' and not any(x.startswith('mesh_quarantine') for x in q2['reasons'])) or print(q2)
+    ok('load_quarantine: cut/reject → {sku: {sha16: решение}}, пустое решение — cut (как prod_index)',
+       load_quarantine(lambda sql: [['1:a', 'aaaa1111bbbb2222cccc', 'cut'], ['2:b', 'dddd', 'reject'], ['', 'x', 'cut']])
+       == {'1:a': {'aaaa1111bbbb2222': 'cut'}, '2:b': {'dddd': 'reject'}} and "coalesce(decision,'cut')" in QUARANTINE_SQL)
     ok('паспорт: 3 % или 2 см — что больше', passport_check({'w': 176, 'd': 214, 'h': 100}, [{'w': 181, 'd': 208, 'h': 98}], pol) == []
        and passport_check({'w': 176, 'd': 214, 'h': 100}, [{'w': 182, 'd': 214, 'h': 100}], pol) == ['passport_mismatch:w'])
     r = bind('1:a', cat(1, 'a', 200, 214, 100))

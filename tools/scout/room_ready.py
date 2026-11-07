@@ -84,6 +84,8 @@ def classify(role: str, sku: str, item: dict | None, F: Facts) -> tuple[str, str
     why, _note = RB.usable(a, F.msid(sku), F.idx, F.mode)
     if not why:
         return 'ready', None, None
+    if why == RB.QUARANTINED:                 # карантин модели — на разбор (переделка/решение), не выкладка (T-20261107-05/3)
+        return 'wait_asset', why, 'review'
     if a['mesh_status'] == 'none':
         return 'wait_asset', why, 'mesh'
     if a['mesh_status'] == 'blocked':
@@ -131,6 +133,17 @@ def _selftest() -> int:
     ok('ready, но не выложена — ждёт публикации', c('6:f') == ('wait_asset', 'модель не выложена', 'publish'))
     ok('представитель: сцена грузит 5_r = модель привязки — готов', c('7:g') == ('ready', None, None))
     ok('нет в индексе прода — ждёт публикации', c('8:h') == ('wait_asset', 'нет в индексе прода', 'publish'))
+    # карантин модели (T-20261107-05/3): причина «карантин модели», разбор (review), не выкладка — и по привязке, и по индексу
+    qi = RB.ProdIndex(idx - {'8_h'})
+    qi.quarantined = frozenset({'8_h'})
+    QF = Facts(dict(rows, **{'q:1': _row('blocked', 'q_1', reasons=['mesh_quarantine:cut']),
+                             'q:2': _row('blocked', '5_r', reasons=['rep:mesh_quarantine:reject'], rep='5:r')}),
+               '', qi, {'q_2': '5_r'})
+    want = ('wait_asset', RB.QUARANTINED, 'review')
+    ok('карантин по привязке (свой и представителя) — «карантин модели», review', classify('кровать', 'q:1', None, QF) == want
+       and classify('кровать', 'q:2', None, QF) == want)
+    ok('привязка ещё «ready», а индекс прода вычел карантин — тоже «карантин модели», не «нет в индексе» (выкладку не зовёт)',
+       classify('кровать', '8:h', None, QF) == want and c('8:h')[2] == 'publish')
     ok('товара нет в привязке — ждёт меш (спрос мешей)', c('0:z')[2] == 'mesh' and c('0:z')[0] == 'wait_asset')
     ok('модель сцены = модель привязки, представитель семьи её не перебивает (T-20261106-77/4)',
        Facts(rows, '', idx, {'1_a': '9_9'}).msid('1:a') == '1_a' and c('1:a', FF=Facts(rows, '', idx, {'1_a': '9_9'}))[0] == 'ready')
