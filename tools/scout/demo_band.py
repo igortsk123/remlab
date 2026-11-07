@@ -185,6 +185,14 @@ def own_gen_ok(st: dict, own_gen: set):
     return lambda m: m in st and st[m][2] and m not in own_gen
 
 
+def ready_free(ready: set, quarantined) -> set:
+    """«Готов к выкладке» — без карантина (T-20261107-11/5). Индекс прода для сборки вычитает карантин (`room_bindings.prod_index`),
+    и модель в карантине выглядела «готовой, но не выложенной»: полоса и ядро неполного стиля звали её в выкладку, хотя файл уже
+    на сервере (Gatwick 07.11: rsync не везёт ничего, журнал «ещё 17» при 12 новых, ядро обещает развязку, которой нет). Её путь —
+    решение в `mesh_quarantine` или новый меш, не выкладка. В генерацию она тоже не идёт: статус `ready` не в `GEN_STATUS`."""
+    return set(ready) - set(quarantined or ())
+
+
 def core_publish(demo: dict, rows: list, published: set, ready: set) -> list[str]:
     """ЯДРО НЕПОЛНОГО СТИЛЯ (T-20261107-11/2). Стиль снят сборкой как неполный (`incomplete_styles` → `missing` — роли ядра,
     которых не хватило), а годный кандидат дозаполнения есть, но его модели нет на сервере: ворота сборки (`has_mesh` — индекс
@@ -231,9 +239,11 @@ def load() -> dict:
         lit = ','.join("'" + _sku(m).replace("'", "''") + "'" for m in sorted(own))
         own_gen = {r[0].replace(':', '_', 1) for r in db(f"select distinct sku from mesh_generations where sku in ({lit})") if r}
     own_ok = own_gen_ok(st, own_gen)
-    return {'demo': demo, 'cands': cands, 'published': set(F._mesh_index()),
+    idx = F._mesh_index()
+    return {'demo': demo, 'cands': cands, 'published': set(idx),
             'core_rows': DSP.pool_top() if demo.get('incomplete_styles') else [],
-            'ready': {k for k, (s, uri, _q) in st.items() if s == 'ready' and uri and k not in own},
+            'ready': ready_free({k for k, (s, uri, _q) in st.items() if s == 'ready' and uri and k not in own},
+                                getattr(idx, 'quarantined', frozenset())),
             'eligible': {p['msid'] for p in cands}, 'own': own,
             'gen_ok': lambda m: own_ok(m) if m in own else (m in st and st[m][0] in GEN_STATUS and st[m][2])}
 
@@ -507,6 +517,14 @@ def _selftest() -> int:
     ok('ядро неполного стиля: только недостающая роль стиля, готовая, не на сервере, в конверте, без повторов',
        got == ['G'], got)
     ok('нет неполных стилей — выкладывать нечего', core_publish(demo, rows_c, set(), {'G'}) == [])
+    # КАРАНТИН (T-20261107-11/5): модель на сервере, но в карантине — индекс без неё, а «готова» её больше не называет
+    rq = ready_free({'G', 'pub', 'wide', 'L', 'T'}, frozenset({'G'}))
+    ok('ядро: модель в карантине (уже на сервере) в выкладку не зовётся', core_publish(inc, rows_c, {'pub'}, rq) == [], rq)
+    rq2 = plan(dm, [C('h1'), C('h2')], published={'a', 'c'}, ready=ready_free({'h1', 'h2'}, {'h1'}),
+               gen_ok=lambda m: False, target=4, qmax=10)
+    ok('полоса: модель в карантине не в «выложить» и не в генерацию, соседняя готовая — да',
+       rq2['publish'] == ['h2'] and rq2['generate'] == [], rq2)
+    ok('карантина нет (None/пусто) — готовые как были', ready_free({'a'}, None) == {'a'} == ready_free({'a'}, frozenset()))
     # КОМНАТЫ (T-20261106-82/2)
     J = lambda *ss: [{'sku': x} for x in ss]  # noqa: E731
     m = rooms_merge([('bedroom', J('a', 'b', 'c')), ('hall', J('b', 'd'))], qmax_left=10, money_jobs=10)
