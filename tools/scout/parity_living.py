@@ -23,6 +23,8 @@
   parity_living.py snapshot [--room living|bedroom|hall] [--rev main] [--data DIR] [--steps …] [--into REF]  # эталон «до»
   parity_living.py compare --ref FILE [--rev WORKTREE] [--steps …] [--inject REL=SRC]   # «после»; комната — из эталона
   parity_living.py diff --ref FILE --run STAND               # сверка уже прогнанного стенда без пересчёта
+  parity_living.py prune [--apply] [--ref FILE]              # уборка: последние keep_runs прогонов + прогоны эталонов; data-* не
+                                                             # трогает (сама идёт после snapshot/compare; без --apply — показать)
   parity_living.py --selftest                               # без базы и сети
 Коды: 0 — равно, 1 — есть различия, 2 — шаг упал / сторож поймал запись, 3 — эталон устарел (входы другие).
 Тяжёлое (смоук, демо, банк) идёт по шагам, по одному, с `nice` и `ACC_WORKERS` из правил (DEV обслуживает живое демо).
@@ -55,6 +57,68 @@ def rules() -> dict:
 
 def home(R: dict) -> str:
     return os.path.expanduser(os.environ.get('PARITY_HOME') or R['home'])
+
+
+def _runs_of_ref(h: str, ref: str) -> set:
+    """Папки прогонов `run-…`, на которые ссылается эталон: его стенд и дампы артефактов (по ним сверка разбирает различия)."""
+    try:
+        d = json.load(open(ref, encoding='utf-8'))
+    except (OSError, ValueError):
+        return set()
+    out = set()
+    for p in [d.get('stand') or ''] + [(a or {}).get('dump') or '' for a in (d.get('artifacts') or {}).values()]:
+        if p:
+            rel = os.path.relpath(os.path.abspath(p), h)
+            if not rel.startswith('..') and rel.startswith('run-'):
+                out.add(rel.split(os.sep)[0])
+    return out
+
+
+def prune_runs(R: dict, apply: bool, extra_refs=(), keep: int | None = None) -> dict:
+    """УБОРКА СТЕНДА (T-20261107-48/2): прогон ~330 МБ своих файлов, к 07.11 их набралось 44 (4,4 ГБ). Держим последние
+    `keep_runs` папок `run-*` (по метке времени в имени) плюс прогоны свежего эталона каждой комнаты и эталонов этой команды
+    (`extra_refs`) — без них сверка с эталоном не откроет дампы. `data-*` (заморозки), эталоны `*.json` и прочее — не трогаем.
+    Освобождается только своё: файлы данных в прогоне — жёсткие ссылки на `data-*`."""
+    h = home(R)
+    keep = int(R.get('keep_runs', 4)) if keep is None else keep
+    runs = sorted(n for n in os.listdir(h) if n.startswith('run-') and os.path.isdir(os.path.join(h, n))
+                  and not os.path.islink(os.path.join(h, n)))
+    prot = set()
+    for room in R.get('rooms', {}):
+        refs = [os.path.join(h, n) for n in os.listdir(h) if n.startswith(f'{room}-') and n.endswith('.json')]
+        if refs:
+            prot |= _runs_of_ref(h, max(refs, key=os.path.getmtime))
+    for ref in extra_refs:
+        if ref:
+            prot |= _runs_of_ref(h, ref)
+    lost = sorted(prot - set(runs))   # эталон ссылается на прогон, которого уже нет: сверка с ним не разберёт различия
+    prot &= set(runs)
+    newest = set(runs[-keep:]) if keep > 0 else set()
+    gone = [n for n in runs if n not in newest and n not in prot]
+    own = 0
+    for n in gone:
+        for dp, _, fn in os.walk(os.path.join(h, n)):
+            for f in fn:
+                try:
+                    st = os.lstat(os.path.join(dp, f))
+                except OSError:
+                    continue
+                own += st.st_blocks * 512 if st.st_nlink == 1 else 0
+    fails = []
+    for n in gone if apply else []:
+        errs = []
+        shutil.rmtree(os.path.join(h, n), onerror=lambda f, p, e: errs.append(f'{p}: {e[1]}'))
+        if errs:
+            fails.append(f'{n}: {errs[0]}')
+    held = sorted(prot - newest)
+    print(f"стенд: прогонов {len(runs)}, держим последние {keep}"
+          + (f" + эталонов {len(held)} ({', '.join(held)})" if held else '')
+          + f"; {'убрано' if apply else 'уберу'} {len(gone) - len(fails)} ({own / 2 ** 30:.2f} ГБ своих файлов)"
+          + ('' if apply else ' — сухой прогон') + (f'; не удалено {len(fails)}: {fails[0]}' if fails else ''), flush=True)
+    if lost:
+        print(f"ВНИМАНИЕ: эталон ссылается на удалённый прогон ({', '.join(lost)}) — при различии сверка не откроет дампы; "
+              f"снять эталон заново (snapshot)", flush=True)
+    return {'runs': len(runs), 'gone': gone, 'held': held, 'bytes': own, 'fails': fails, 'lost': lost}
 
 
 def main_copy() -> str:
@@ -1095,13 +1159,15 @@ def main(argv: list) -> int:
     if cmd == 'freeze':
         freeze(R)
         return 0
-    if cmd == 'snapshot':
-        return cmd_snapshot(R, argv[1:])
-    if cmd == 'compare':
-        return cmd_compare(R, argv[1:])
+    if cmd in ('snapshot', 'compare'):   # после прогона — уборка стенда: последние keep_runs + прогоны эталонов (T-48/2)
+        rc = (cmd_snapshot if cmd == 'snapshot' else cmd_compare)(R, argv[1:])
+        prune_runs(R, apply=True, extra_refs=(_arg(argv, '--ref'), _arg(argv, '--into')))
+        return rc
     if cmd == 'diff':
         return cmd_diff(R, argv[1:])
-    raise SystemExit(f'команда {cmd}? есть freeze | snapshot | compare | diff | --selftest')
+    if cmd == 'prune':
+        return 1 if prune_runs(R, apply='--apply' in argv, extra_refs=_args(argv, '--ref'))['fails'] else 0
+    raise SystemExit(f'команда {cmd}? есть freeze | snapshot | compare | diff | prune | --selftest')
 
 
 if __name__ == '__main__':
