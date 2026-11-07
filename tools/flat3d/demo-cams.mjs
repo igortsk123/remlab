@@ -50,6 +50,8 @@ const corners = [{ x: p, y: p }, { x: W - p, y: p }, { x: W - p, y: H - p }, { x
 const shared = !!D.one_layout && list.length > 1;
 const all = shared ? api.camPairAll(list.map(itsOf), W, H, corners) : null;
 if (shared) console.log(`${rid === "living" ? "" : `${rid}: `}одна пара на ${list.length} вариантов: ${all.how}`);
+// обложка без главной вещи комнаты (T-20261107-01, `camPairAll`: ни в одном виде пары она не видна на 2/3) — громко в лог сборки
+if (shared && all.posterMiss) console.log(`WARN:demo_cams: ${rid} — обложка без главной вещи комнаты (${all.how.split(", главное ")[1] ?? ""})`);
 D.cams_shared = D.cams_shared || shared;
 for (const [vi, v] of list.entries()) {
   const pr = shared ? { ...all, ...(all.per?.[vi] ?? {}) } : api.camPair(itsOf(v), W, H, corners);

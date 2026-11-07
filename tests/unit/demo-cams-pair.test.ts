@@ -382,3 +382,40 @@ describe("камеры демо: спальня 1, одна расстановк
     for (const list of L) expect(api1.camFrameState(c1, list.find((it) => api1.camRole(it) === "комод")!)).toBe(1);
   }, 300_000);
 });
+
+// ОБЛОЖКА ПОКАЗЫВАЕТ ГЛАВНУЮ ВЕЩЬ (T-20261107-01, ведущий 07.11: «на всех 5 обложках спальни 2 в центре шкаф и окно, а кровать срезана
+// у левого края»). Спальня 4,50×2,93: каждая точка, откуда кровать видна на 2/3, стоит к ней ближе 1,2 м, и `camBlock` считал кровать
+// «предметом перед объективом» — годных точек с кроватью не было ни одной, пара уходила в угол шкафа и окна (ступень 0)
+describe("камеры демо: спальня 2 — обложка с кроватью", () => {
+  const fx2 = load("tests/fixtures/demo-bedroom-2-one-1107.json");
+  const api2 = new Function("D", `${block};return {camPairAll,camCover,camBlock,camRole,camMainRoles,CAM_MAIN_MIN};`)({ room: fx2.room }) as {
+    camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[]) => Pair & { posterMiss?: boolean };
+    camCover: (c: Cam, its: It[], W: number, H: number) => { inF: number; vis: number }[];
+    camBlock: (c: Cam, its: It[]) => { cov: number; who: string };
+    camRole: (it: It) => string;
+    camMainRoles: () => string[];
+    CAM_MAIN_MIN: number;
+  };
+  const { w: W, d: H } = fx2.room, L = fx2.variants.map(its);
+  let pr: (Pair & { posterMiss?: boolean }) | undefined;
+  const pair = () => (pr ??= api2.camPairAll(L, W, H, corners(W, H)));
+  const bedQ = (c: Cam, list: It[]) => {
+    const i = list.findIndex((it) => api2.camRole(it) === "кровать"), r = api2.camCover(c, list, W, H)[i]!;
+    return Math.min(r.inF, r.vis);
+  };
+  it("главная вещь спальни — кровать; кровать себе не помеха, а шкаф вплотную — помеха", () => {
+    expect(api2.camMainRoles()).toEqual(["кровать"]);
+    const at = { x: 43, y: 83, rot: 114, fov: 90 } as Cam, loft = L[fx2.variants.findIndex((v) => v.id === "bedroom-2-loft")]!;
+    expect(api2.camBlock(at, loft).cov).toBe(0);
+    expect(api2.camBlock({ x: 405, y: 40, rot: -150, fov: 90 } as Cam, loft).who).toBe("шкаф");
+  });
+  it("прежняя C1 кровати не видела; обложка новой пары (C1 — пометки `poster` нет) показывает её ≥ 2/3 во всех 5 стилях", () => {
+    const old = { x: 123, y: 83, rot: -162, fov: 84 } as Cam;
+    for (const list of L) expect(bedQ(old, list)).toBeLessThan(0.05);
+    const p = pair(), cover = p.cams.find((c) => (c as Cam & { poster?: boolean }).poster) ?? p.cams[0]!;
+    for (const [vi, list] of L.entries()) expect(bedQ(cover, list), fx2.variants[vi]!.id).toBeGreaterThanOrEqual(api2.CAM_MAIN_MIN);
+    expect(p.posterMiss).toBe(false);
+    expect(p.how).toContain("главное в C1");
+    expect(p.level).toBe(3);
+  }, 300_000);
+});
