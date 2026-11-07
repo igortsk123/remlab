@@ -1786,9 +1786,13 @@ def build() -> dict:
                 soft_dropped.append((v.get('id'), d.get('role'), sk.get('name'), why))
                 continue
             # ЯРУС ЦВЕТА — ПЕРВЫЙ КЛЮЧ В ЛЮБОЙ ЗАМЕНЕ МЯГКОГО (сухой прогон T-25/3: снятая каталогом подушка минимализма заменилась
-            # первой по цене — синей «Линкс Велюр», discouraged); годные (preferred) раньше, внутри яруса порядок прежний
+            # первой по цене — синей «Линкс Велюр», discouraged); годные (preferred) раньше, внутри яруса порядок прежний.
+            # ТОВАР НАБОРОВ — РАНЬШЕ КАТАЛОЖНОГО того же яруса и стиля (T-20261107-25/4): каталог в ленте — выбор человеку; в вариант
+            # он идёт, только когда в наборах годного нет (шторы сканди и джапанди). Сухой прогон без этого ключа: подушки сменились
+            # в 5 вариантах из 6, у сканди встала фигурная «Тут Рядом Красавчик», у минимализма — снимок комнаты вместо подушки
             best = min(cand, key=lambda p: (DF.color_eval_role(base, p, st)['rank'],
                                             not (st and (p.get('style') == st or st in (p.get('styles') or []))),
+                                            p.get('src') == 'pool',
                                             p.get('sid') in soft_used, abs((p.get('price') or 0) - (sk.get('price') or 0))))
             soft_used.add(best.get('sid'))
             d['sku'] = {k: best.get(k) for k in ('name', 'price', 'price_at', 'img', 'url', 'shop', 'basis', 'sid', 'msid',
