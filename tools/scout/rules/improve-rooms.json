@@ -1,5 +1,5 @@
 {
- "_about": "ПРОМПТ «СДЕЛАТЬ РЕАЛИСТИЧНЕЕ» ЗНАЕТ КОМНАТУ (T-20261105-32/3, ведущий 05.11: в спальне «минимализм» модель дорисовала телевизор). По типу комнаты (`room.kind` запроса) — что это за комната и какую крупную мебель и технику модель НЕ добавляет сверх набора на IMAGE 1. Гостиной записи нет — её промпт побайтно прежний (тест `tests/test_improve_prompt.py`). Читает `improve_mode.room_rules`; `_any` — для любой комнаты, кроме гостиной, складывается с записью типа.",
+ "_about": "ПРОМПТ «СДЕЛАТЬ РЕАЛИСТИЧНЕЕ» ЗНАЕТ КОМНАТУ (T-20261105-32/3, ведущий 05.11: в спальне «минимализм» модель дорисовала телевизор). По типу комнаты (`room.kind` запроса) — что это за комната и какую крупную мебель и технику модель НЕ добавляет сверх набора на IMAGE 1. Гостиной записи нет — её промпт побайтно прежний (тест `tests/test_improve_prompt.py`). Читает `improve_mode.room_rules`; `_any` — для любой комнаты, кроме гостиной, складывается с записью типа. Запись `<тип>:<назначение>` (например `bedroom:child:7-12`, T-20261107-46/1) — по `purpose` запроса, самостоятельная, вместо записи типа; `forbid` — не-мебельные запреты, только в FORBIDDEN.",
  "_any": {
   "no_add": [
    "a wardrobe, cabinet, chest of drawers, shelving unit, desk or table that is not already in IMAGE 1"
@@ -17,6 +17,32 @@
   "_guide": "гайды стилей писались для гостиной («стена за диваном или ТВ»): в спальне эта стена — за изголовьем",
   "guide_note": "The STYLE GUIDE was written for a living room: wherever it mentions the wall behind the sofa or the TV, use the wall behind the bed headboard instead, and do not add a sofa or a TV.",
   "_swap": "запрет стилей «electronics other than the existing television» подразумевает, что ТВ в комнате есть — в спальне его нет",
+  "deny_swap": {
+   "electronics other than the existing television": "electronics of any kind"
+  }
+ },
+ "bedroom:child:7-12": {
+  "_why": "ДЕТСКАЯ ШКОЛЬНИКА 7–12 (kids-room-01 п.«Фото» по критике Codex, T-20261107-46/1): спальня 2 с назначением `child:7-12` (ячейка банка `purpose`, ADR-0330 — новый room_type не вводим). Запись выбирается по `room.kind` + `purpose` запроса (`improve_mode.room_kind`); нет записи `<тип>:<назначение>` — общая запись типа (взрослая спальня побайтно прежняя). Самостоятельная: поля спальни повторены, а не унаследованы — меняя спальню, сверь и эту",
+  "name": "bedroom for one school child aged 7-12",
+  "no_add": [
+   "a cot, crib, baby cradle or changing table",
+   "a bunk bed, loft bed, cabin bed or a second bed",
+   "a second desk or a second study chair",
+   "a television, TV screen, TV stand or media wall",
+   "a sofa, armchair or pouf",
+   "a play tent, playhouse, slide, climbing frame or toy box"
+  ],
+  "_forbid": "не мебель — запреты только в FORBIDDEN (в «ROOM… in particular» мебель и техника): люди, чужие постеры, гендерные стереотипы",
+  "forbid": [
+   "people, children or pets, or any part of a person",
+   "posters, wall decals, pictures or prints of cartoon, film, game or book characters, sports clubs, brands or logos",
+   "a pink-for-girls or blue-for-boys colour theme, princess, fairy, car, superhero or other gender-stereotyped themed decor"
+  ],
+  "_tv": "как у спальни: ТВ-тумбы нет — пункт про серую плоскость-телевизор не нужен",
+  "tv_placeholder": false,
+  "_guide": "гайд гостиной переведён на изголовье (как у спальни) + детская: одна кровать и одно рабочее место ровно как на IMAGE 1, спокойно и по возрасту, нейтрально по полу",
+  "guide_note": "The STYLE GUIDE was written for a living room: wherever it mentions the wall behind the sofa or the TV, use the wall behind the bed headboard instead, and do not add a sofa or a TV. This is a room for ONE school child aged 7-12: exactly one bed and one study place (the desk with its chair) as IMAGE 1 shows them. Make it calm, tidy and age-appropriate — neither a baby nursery nor an adult bedroom — and gender-neutral: colours come only from the STYLE GUIDE and the catalogue products. Small optional decor may be a few books on the desk, nothing on the floor.",
+  "_swap": "как у спальни: в комнате нет ТВ",
   "deny_swap": {
    "electronics other than the existing television": "electronics of any kind"
   }

@@ -4222,7 +4222,8 @@ function payload(){
   // пол и прочие опции застройщика (demo-06): выбор — парами, пол — id материала для кадра
   // фото декора и мягкого — из кэша сборки (`img/…`, demo-24): сервер берёт его по полному адресу, как фото предметов ниже
   const absImg=u=>u&&!/^(https?:)?\/\//.test(u)?base+u:u;
-  return {room:roomOf(v), room_id:roomIdOf(v), variant_id:v.id||'', style:v.style||'', variant:v.title||'', developerOptions:clone(DEVOPT),
+  // назначение комнаты (ячейка банка: `couple`, `child:7-12`…) — сервер берёт свой промпт фото, если он есть (детская, T-20261107-46/1)
+  return {room:roomOf(v), room_id:roomIdOf(v), ...(v.purpose?{purpose:String(v.purpose)}:{}), variant_id:v.id||'', style:v.style||'', variant:v.title||'', developerOptions:clone(DEVOPT),
     decor:(v.decor||[]).map(d=>d&&d.sku&&d.sku.img?Object.assign({},d,{sku:Object.assign({},d.sku,{img:absImg(d.sku.img)})}):d),
     floor:devFloorReq(), walls:devWallReq(),
     // окно превью вида (`crop`, demo-22) уходит вместе с позой: сервер замораживает его в записи кадра (`draft_service._cams_clean`)
