@@ -41,6 +41,9 @@ STATE = os.path.expanduser('~/scout-scenes/mesh-money-guard.json')
 # Запрет на подъём группы: его читает `batch_show.halt_reason()` и НЕ стартует группу, пока
 # файл на месте. Снимает человек — руками, разобравшись в причине простоя.
 HALT = os.path.expanduser('~/scout-scenes/mesh-group-halt.json')
+# Пауза ведущего/владельца: её читает `batch_show` (стоп на границе пачки, финал гасит группы) и `wave_guard.STOPS`.
+# Пул стоит, пока она лежит, — причина известна (T-20261107-09: 07.11 08:09 ушла тревога «причина неизвестна» при ней).
+PAUSE = os.path.expanduser('~/scout-scenes/mesh-batch.PAUSE')
 # ПЕРЕПИСЬ ПУЛА: строка на каждый тик по каждой группе. Нужна, чтобы ответить на вопрос
 # владельца «в какие часы на дешёвом тарифе дают машины» цифрами, а не на глаз: 03.09 данных
 # хватило лишь на догадку (лучший час 21:00 измерен ОДИН раз, 42 часа наблюдений на трое
@@ -183,6 +186,18 @@ def known_stops(gs: list[str], now: float | None = None) -> dict[str, str]:
         elif win and not SG.allowed_now(g, now):
             out[g] = f'вне окна batch {int(win[0]):02d}–{int(win[1]):02d} UTC'
     return out
+
+
+def owner_pause() -> str:
+    """Лежит пауза ведущего (`PAUSE`) — её первая строка (или «без текста»); нет файла — ''."""
+    if not os.path.exists(PAUSE):
+        return ''
+    try:
+        with open(PAUSE, encoding='utf-8', errors='replace') as f:
+            line = f.readline().strip()
+    except OSError:
+        line = ''
+    return line[:200] or 'без текста'
 
 
 def stop_clues(now: float | None = None) -> tuple[bool, list[str]]:
@@ -694,7 +709,12 @@ def main() -> int:
                     except Exception:  # noqa: BLE001 — не смогли спросить: не выдумываем диагноз
                         stopped.append(False)
                 planned = known_stops(gs)
-                if stopped and all(stopped) and set(gs) <= set(planned):
+                pause = owner_pause()
+                if stopped and all(stopped) and pause:
+                    # ПАУЗА ВЕДУЩЕГО (T-20261107-09): пул погасили люди — причина известна, тревоги нет, строка в журнал
+                    st['down_alerted'] = True
+                    print(f'{time.strftime("%H:%M")} пул стоит — пауза ведущего: {pause}', flush=True)
+                elif stopped and all(stopped) and set(gs) <= set(planned):
                     # ВСЕ СТОЯТ ПО ПЛАНУ (T-20261024-01): 24.10 00:42 сторож цены сам остановил mesh-low-10, batch был
                     # вне окна — а в 00:47 ушла тревога «причина неизвестна». Тревога о цене уже была; здесь — строка.
                     st['down_alerted'] = True

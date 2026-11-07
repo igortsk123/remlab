@@ -303,6 +303,58 @@ def case_planned_stop(tmp: str) -> None:
         os.remove(SG.PRICE_HALT)
 
 
+def case_owner_pause(tmp: str) -> None:
+    """Пауза ведущего (T-20261107-09, 07.11 08:09): все группы стоят без запрета цены и окна, но лежит `mesh-batch.PAUSE`
+    — тревоги «причина неизвестна» нет, в журнале «пауза ведущего: <первая строка>». Паузы нет — тревога как раньше."""
+    def run(pause_text: str | None) -> tuple[list[str], str]:
+        if pause_text is None:
+            if os.path.exists(G.PAUSE):
+                os.remove(G.PAUSE)
+        else:
+            open(G.PAUSE, 'w', encoding='utf-8').write(pause_text)
+        sent, ticks = [], [0]
+
+        def fake_sleep(_s: float) -> None:
+            ticks[0] += 1
+            if ticks[0] > 1:
+                raise _Stop
+        keep = (G._api, G.notify, G.heartbeat, G.conveyor_alive, G.SH.check, time.sleep, os.environ.get('SALAD_GROUP'))
+        G._api = lambda path, method='GET': {'instances': []} if path.endswith('/instances') else \
+            {'current_state': {'status': 'stopped'}}
+        G.notify, G.heartbeat = (lambda t: sent.append(t) or True), (lambda *a, **k: None)
+        G.conveyor_alive, G.SH.check = (lambda: True), (lambda: {'ok': True, 'why': '', 'free_gb': 10.0})
+        time.sleep = fake_sleep
+        os.environ['SALAD_GROUP'], os.environ['SALAD_API_KEY'] = 'g-lost', 'x'
+        env = os.path.join(tmp, 'salad-pause.env')
+        open(env, 'w').write('SALAD_API_KEY=x\nSALAD_GROUP=g-lost\n')
+        G.SALAD_ENV = env
+        json.dump({'group': 'g-lost', 'idle_node_min': 0.0, 'silent_since': 0.0, 'last_seen_mesh': 0.0}, open(G.STATE, 'w'))
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                try:
+                    G.main()
+                except _Stop:
+                    pass
+        finally:
+            G._api, G.notify, G.heartbeat, G.conveyor_alive, G.SH.check, time.sleep = keep[:6]
+            os.environ.pop('SALAD_GROUP', None) if keep[6] is None else os.environ.__setitem__('SALAD_GROUP', keep[6])
+        return [t for t in sent if 'остановлены' in t], out.getvalue()
+
+    try:
+        down, log = run('ведущий 07.11 08:30: ждём конца T-85, снять по слову ведущего\nвторая строка\n')
+        ok('пауза ведущего — тревоги нет, в журнале её первая строка',
+           not down and 'пауза ведущего: ведущий 07.11 08:30: ждём конца T-85' in log and 'вторая строка' not in log
+           and 'неизвестна' not in log)
+        down, log = run('')
+        ok('пустой файл паузы — тоже известная причина', not down and 'пауза ведущего: без текста' in log)
+        down, log = run(None)
+        ok('паузы нет — тревога «причина неизвестна» как раньше', len(down) == 1 and 'Причина неизвестна' in down[0])
+    finally:
+        if os.path.exists(G.PAUSE):
+            os.remove(G.PAUSE)
+
+
 def case_manual_cap(tmp: str) -> None:
     """Потолок ручной волны (T-20261027-02): судится тем же правилом, что волна автозапуска, но из своего файла;
     выбран — причина непустая и помечена «manual»; закрытая волна и нет файла — молчим."""
@@ -337,6 +389,7 @@ def main() -> int:
         G.JOURNAL, G.LEASE = os.path.join(tmp, 'progress.jsonl'), os.path.join(tmp, 'lease.json')
         G.NO_CREDITS, G.IDLE_LOG = os.path.join(tmp, 'no-credits.json'), os.path.join(tmp, 'idle.log')
         G.WINDOW_LOG = os.path.join(tmp, 'window.log')
+        G.PAUSE = os.path.join(tmp, 'mesh-batch.PAUSE')          # живую паузу ведущего стенд не читает
         G.WC.PATH = os.path.join(tmp, 'wave-manual-loop.json')    # живую ручную волну стенд не читает
         SG.PRICE_HALT = os.path.join(tmp, 'price-halt-loop.json')   # живой запрет цены стенд не читает и не пишет
         open(G.JOURNAL, 'w').close()
@@ -346,6 +399,7 @@ def main() -> int:
         case_repeats(tmp)
         case_price(tmp)
         case_planned_stop(tmp)
+        case_owner_pause(tmp)
         case_manual_cap(tmp)
     print('сторож денег: ' + ('ВСЁ ЗЕЛЁНОЕ' if not bad else f'ПРОВАЛОВ {bad}'))
     return 1 if bad else 0
