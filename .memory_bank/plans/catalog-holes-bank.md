@@ -2,11 +2,14 @@
 workstream: conveyor
 slug: catalog-holes-bank
 title: Дыры каталога, держащие банк комплектов — роли по данным, высота по форме, вылет подвесов, провенанс глубины
-status: in_progress
+status: partial
 plan_kind: sub
 parent_plan: conv-14-bank-auto-promote
 created: 2026-10-23
-updated: 2026-10-23
+updated: 2026-11-07
+pause_reason: "без движения с 23.10: фокус на комнатах квартиры (room-conveyor-02, владелец 06.11); часть шагов могла уйти в код — сверить по коду при триаже"
+resume_trigger: "триаж ведущим после приёмки демо комнат room-conveyor-02: доделанное — completed со сверкой, остальное — в очередь или archive"
+review_after: 2026-11-21
 ---
 
 ## Цель
