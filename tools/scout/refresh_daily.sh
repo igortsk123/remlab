@@ -582,8 +582,10 @@ if [ "${MESH_QUEUE:-1}" = "1" ]; then
   step mesh_coverage "$PY" mesh_ready.py --coverage || true
   # Метрики конвейера: мерим ГОТОВЫЕ КОМПЛЕКТЫ и покрытие ячеек, а не число мешей.
   step pipeline_metrics "$PY" pipeline_metrics.py || true
-  # каскад ориентации новых мешей + мост со страницей проверки (не блокируют конвейер)
-  step orient_worker "$PY" orient_worker.py --run --limit 100 --vlm || true
+  # каскад ориентации новых мешей + мост со страницей проверки (не блокируют конвейер). --recheck-roles (T-20261105-56/6):
+  # и решения, устаревшие по смене роли товара (в общей квоте --limit); смена уже опубликованного yaw — review_pending
+  # (`orient_worker.yaw_guard`), молча на прод не уходит
+  step orient_worker "$PY" orient_worker.py --run --limit 100 --vlm --recheck-roles || true
   { step review_push "$PY" mesh_review_sync.py --push &&
     step review_pull "$PY" mesh_review_sync.py --pull
   } || echo "[refresh] мост review: нет токена или прод недоступен (не блокирует)"

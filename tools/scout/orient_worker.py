@@ -19,13 +19,16 @@ GLB не перезаписывается. Легаси-совместимост
 ПРЕЖНЕЙ политике ролей, если роль теперь направленная или была неизвестна (отпечаток `role_policy()`; Codex T-36/3);
 (б) СМЕНА РОЛИ в каталоге — роль решения ≠ текущей (`current_role`), в любую сторону: симметричная → направленная,
 направленная → симметричная (пуф, решённый «как диван» до T-53), направленная → другая (T-20261105-56/5). Решения
-человека и `unusable` — никогда. Без флага не берутся: пересчёт платный по VLM, включается явно (ведущий — по цифре
-сухого прогона).
+человека и `unusable` — никогда. Ночной `refresh_daily.sh` идёт с флагом (T-20261105-56/6); устаревшие — в общей
+квоте `--limit` вместе с новыми.
+Сторож поворота (`yaw_guard`, T-20261105-56/6): авто-решение направленного, которое МЕНЯЕТ уже опубликованный yaw этого же
+меша (прод `orient.json`, тот же sha16), пишется `review_pending` (источник `yaw_change_guard`) — на прод молча не уходит.
 --shadow DIR: только устаревшие по ролям (без новых мешей), решения — файлами в DIR и `DIR/index-overlay.json`
 (формат индекса `topview_render.orient_index` → `TOPVIEW_ORIENT_INDEX`); в БД и `orientation/v1` не пишет.
 Один воркер на машину (flock); тяжёлое — под nice.
 """
 import fcntl
+import gc
 import glob
 import hashlib
 import json
@@ -348,9 +351,11 @@ def state_index() -> tuple[set, set, dict]:
     """(все revision_key, устаревшие по политике ролей, rk → (статус, решение-кратко)) — одним запросом. Смену роли
     товара здесь не судим: текущая роль бывает только из manifest меша, его путь знает `pending_meshes`."""
     rows = db("select revision_key, status, coalesce(resolution->>'source',''), coalesce(resolution->>'role',''), "
-              "coalesce(resolution->>'role_policy','') from orientation_state")
+              "coalesce(resolution->>'role_policy',''), coalesce(resolution->>'legacy_front_yaw','') "
+              "from orientation_state")
     have = {r[0] for r in rows if r and r[0]}
-    meta = {r[0]: (r[1], {'source': r[2], 'role': r[3], 'role_policy': r[4]}) for r in rows if len(r) >= 5}
+    meta = {r[0]: (r[1], {'source': r[2], 'role': r[3], 'role_policy': r[4],
+                          'legacy_front_yaw': r[5] if len(r) >= 6 else ''}) for r in rows if len(r) >= 5}
     stale = {rk for rk, (st, res) in meta.items() if stale_by_role_policy(st, res)}
     return have, stale, meta
 
@@ -454,6 +459,56 @@ def overlay_row(res: dict) -> list:
             'shadow-' + hashlib.sha1(blob.encode()).hexdigest()[:16], res.get('role') or '']
 
 
+PUBLISHED_URL = 'https://remont-lab.online/test/mesh-pilot10/orient.json'
+
+
+def published_orient() -> dict | None:
+    """Прод `orient.json` для сторожа поворота. ORIENT_PUBLISHED=<файл> — тест/стенд (пустая строка — «прод пуст»).
+    Сеть недоступна — None: тогда сторож сравнивает с прежним решением в БД."""
+    p = os.environ.get('ORIENT_PUBLISHED')
+    if p is not None:
+        return json.load(open(p, encoding='utf-8')) if p else {}
+    import urllib.request
+    try:
+        return json.loads(urllib.request.urlopen(PUBLISHED_URL, timeout=30).read())
+    except Exception as e:  # noqa: BLE001
+        print(f'[orient] прод orient.json не прочитан ({type(e).__name__}) — сторож поворота по прежнему решению БД',
+              flush=True)
+        return None
+
+
+def snap_yaw(y) -> float:
+    """Поворот так, как его берёт вид сверху у решённого направленного (`topview_render`: снэп к 90°)."""
+    return float(round(float(y or 0) / 90.0) * 90 % 360)
+
+
+def yaw_guard(res: dict, rk: str, published: dict | None, old: tuple | None) -> dict:
+    """Сторож ночного пути (T-20261105-56/6): авто-решение уходит на прод (`publish_merge --only-resolved`) само,
+    поэтому направленному авто-решению, которое МЕНЯЕТ уже опубликованный поворот этого же меша, решённым быть нельзя —
+    `review_pending` (источник `yaw_change_guard`, кандидат в `guard`), прод держит прежний поворот (нерешённое не
+    публикуется), человек смотрит лист. Авто — только если yaw тот же или записи этого меша на проде нет.
+    Опубликованная запись «этого же меша» — `orient_sig` прода с тем же sha16 (у старых записей без подписи — считаем
+    тем же: безопаснее спросить). Прод не прочитан (None) — сравнение с прежним решённым решением в БД (`old` из
+    `state_index`). Симметричные не трогаем: их прод-поворот `orient_policy.publishable` и так не затирает."""
+    if res.get('status') != 'auto_resolved' or 'symmetric' in str(res.get('source') or ''):
+        return res
+    sku_, sha16 = rk.split('|')[0].replace(':', '_'), rk.split('|')[1]
+    new = snap_yaw(res.get('legacy_front_yaw'))
+    ref = None
+    if published is not None:
+        pub = published.get(sku_) or {}
+        sig = str(pub.get('orient_sig') or '').split('|')
+        if pub.get('yaw') is not None and (len(sig) < 3 or sig[1] == sha16):
+            ref = ('прод', snap_yaw(pub['yaw']))
+    elif old and old[0] in ('auto_resolved', 'human_resolved') and str(old[1].get('legacy_front_yaw') or '') != '':
+        ref = ('прежнее решение БД', snap_yaw(old[1]['legacy_front_yaw']))
+    if ref is None or ref[1] == new:
+        return res
+    return {**res, 'status': 'review_pending', 'source': 'yaw_change_guard',
+            'guard': {'was_source': res.get('source'), 'new_yaw': new, 'ref_yaw': ref[1], 'ref': ref[0],
+                      'task': 'T-20261105-56/6'}}
+
+
 def run(limit: int, use_vlm: bool, recheck_roles: bool = False, shadow: str | None = None) -> None:
     """Пачка каскада. `shadow` — папка тени: только устаревшие по ролям, результаты и `index-overlay.json` туда,
     БД и `orientation/v1` не трогаются (свой замок в папке тени — боевой воркер не блокируется)."""
@@ -480,6 +535,8 @@ def run(limit: int, use_vlm: bool, recheck_roles: bool = False, shadow: str | No
         return
     inf_all = json.load(open(outp))
     done, overlay = {}, {}
+    published = published_orient()
+    meta = state_index()[2]
     for rk, sku, glb in todo:
         inf = inf_all.get(glb) or {}
         if 'error' in inf or 'R' not in inf:
@@ -487,7 +544,7 @@ def run(limit: int, use_vlm: bool, recheck_roles: bool = False, shadow: str | No
                    'source': 'infer_error', 'error': inf.get('error', 'нет результата')}
         else:
             try:
-                res = decide(sku, glb, inf, use_vlm)
+                res = yaw_guard(decide(sku, glb, inf, use_vlm), rk, published, meta.get(rk))
             except Exception as e:  # noqa: BLE001 — один меш не валит пакет
                 res = {'contract': CONTRACT, 'sku': sku, 'status': 'review_pending',
                        'source': 'cascade_error', 'error': str(e)[:200]}
@@ -504,6 +561,9 @@ def run(limit: int, use_vlm: bool, recheck_roles: bool = False, shadow: str | No
                      set status=excluded.status, resolution=excluded.resolution, updated=now()""")
         done[res['status']] = done.get(res['status'], 0) + 1
         print(f"  {os.path.basename(glb)}: {res['status']} ({res.get('source', '')}) роль {res.get('role', '')}", flush=True)
+        # Каскад одного меша (trimesh, рендер) оставляет циклы ссылок: без сборки процесс рос на 70–150 МБ за меш —
+        # 3,5 ГБ к 38-му, тень 152 меша снял earlyoom на 6,5 ГБ; с gc.collect() пик 405 МБ на тех же мешах (T-56/6)
+        gc.collect()
     if shadow:
         op = os.path.join(shadow, 'index-overlay.json')
         json.dump(overlay, open(op + '.tmp', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)

@@ -214,11 +214,64 @@ with tempfile.TemporaryDirectory(prefix='orient-role-') as td:
         "open(sys.argv[sys.argv.index('--out')+1],'w'))\n")
     W2.HERE = td
     os.rename(fake_inf, os.path.join(td, 'orient_infer.py'))
+    os.environ['ORIENT_PUBLISHED'] = ''          # прод пуст: сторож поворота без сети
     W2.run(100, False, True, shadow=shd)
     ov = json.load(open(os.path.join(shd, 'index-overlay.json'), encoding='utf-8'))
     check('9) тень: в БД ни одной записи', writes == [], f'{writes[:1]}')
     check('9) тень: оверлей — ровно устаревшие, роли текущие',
           set(ov) == {rk['2:1'], rk['2:4']} and ov[rk['2:1']][4] == 'пуф' and ov[rk['2:4']][4] == 'кресло', f'{ov}')
+
+    # 10) --limit ограничивает и устаревшие (ночной `--run --limit 100 --vlm --recheck-roles`, T-20261105-56/6)
+    W2.db = fake_db
+    check('10) --limit режет общую пачку (устаревшие + новые): 3 кандидата, limit 1 → 1, limit 2 → 2',
+          len(W2.pending_meshes(1, recheck_roles=True)) == 1 and len(W2.pending_meshes(2, recheck_roles=True)) == 2)
+
+    # 11) сторож поворота: авто-решение, меняющее ОПУБЛИКОВАННЫЙ yaw этого же меша, → review_pending, прод не трогаем
+    A = {'status': 'auto_resolved', 'source': 'orienter+seat_agree', 'legacy_front_yaw': 91, 'role': 'кресло'}
+    K = '9:1|abcd|orient-v1'
+
+    def pub(yaw, sha='abcd', sig=True):
+        return {'9_1': {'yaw': yaw, **({'orient_sig': f'9:1|{sha}|orient-v1|m|auto_resolved|yaw-p3'} if sig else {})}}
+    g = W2.yaw_guard
+    check('11) yaw прода тот же (91 снэп → 90) — авто', g(A, K, pub(90), None)['status'] == 'auto_resolved')
+    r = g(A, K, pub(270), None)
+    check('11) yaw прода другой — review_pending, источник yaw_change_guard, кандидат в guard',
+          r['status'] == 'review_pending' and r['source'] == 'yaw_change_guard'
+          and r['guard'] == {'was_source': 'orienter+seat_agree', 'new_yaw': 90.0, 'ref_yaw': 270.0, 'ref': 'прод',
+                             'task': 'T-20261105-56/6'} and A['status'] == 'auto_resolved', f'{r}')
+    check('11) на проде нет записи (новый) — авто', g(A, K, {}, None)['status'] == 'auto_resolved')
+    check('11) на проде другая ревизия меша (другой sha16) — авто', g(A, K, pub(270, sha='zzzz'), None)['status'] == 'auto_resolved')
+    check('11) старая прод-запись без подписи и с другим yaw — review (безопаснее спросить)',
+          g(A, K, pub(270, sig=False), None)['status'] == 'review_pending')
+    check('11) симметричное и нерешённое — не трогаем',
+          g({**A, 'source': SYM}, K, pub(270), None)['source'] == SYM
+          and g({**A, 'status': 'vlm_pending'}, K, pub(270), None)['status'] == 'vlm_pending')
+    old = ('auto_resolved', {'legacy_front_yaw': '180'})
+    check('11) прод не прочитан — по прежнему решению БД: другое → review, то же → авто, прежнего нет → авто',
+          g(A, K, None, old)['status'] == 'review_pending'
+          and g({**A, 'legacy_front_yaw': 179}, K, None, old)['status'] == 'auto_resolved'
+          and g(A, K, None, None)['status'] == 'auto_resolved'
+          and g(A, K, None, ('review_pending', {'legacy_front_yaw': '180'}))['status'] == 'auto_resolved')
+
+    # 12) боевой run (не тень): опубликованный меш с другим yaw пишется в БД review_pending, новый и симметричный — авто
+    y24 = json.load(open(os.path.join(shd, rk['2:4'].replace(':', '_').replace('|', '__') + '.json'),
+                         encoding='utf-8'))['legacy_front_yaw']
+    pf = os.path.join(td, 'prod-orient.json')
+    json.dump({'2_4': {'yaw': (W2.snap_yaw(y24) + 90) % 360, 'orient_sig': rk['2:4'] + '|m|auto_resolved|yaw-p3'},
+               '2_1': {'yaw': 270, 'orient_sig': rk['2:1'] + '|m|auto_resolved|yaw-p3'}}, open(pf, 'w'))
+    os.environ['ORIENT_PUBLISHED'] = pf
+    W2.RES_DIR = os.path.join(td, 'res')
+    W2.SCENE_DIR = td
+    os.makedirs(os.path.join(td, 'orientation'), exist_ok=True)
+    ins = []
+    W2.db = lambda sql, quiet=True: (ins.append(sql) if sql.lstrip().lower().startswith('insert') else fake_db(sql))
+    W2.run(100, False, True)
+    st = {k: next((('review_pending' if "'review_pending'" in s else 'auto_resolved' if "'auto_resolved'" in s else '?')
+                   for s in ins if f"'{rk[k]}'" in s), None) for k in ('2:1', '2:4', '2:5')}
+    check('12) run: кресло со сменой опубликованного yaw → review_pending (yaw_change_guard); пуф (симм.) и новый — авто',
+          st == {'2:1': 'auto_resolved', '2:4': 'review_pending', '2:5': 'auto_resolved'}
+          and any('yaw_change_guard' in s and f"'{rk['2:4']}'" in s for s in ins), f'{st}')
+    os.environ.pop('ORIENT_PUBLISHED', None)
 
 print('test_orient_role_policy:', 'FAIL' if fails else 'OK')
 sys.exit(1 if fails else 0)
