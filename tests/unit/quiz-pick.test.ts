@@ -94,3 +94,21 @@ describe("quizColourOf — цвет предмета → семейство во
     expect(s.light).toBeCloseTo(0.25, 3);
   });
 });
+
+// «КТО БУДЕТ ЖИТЬ» — что с чем сочетается (владелец, голос TG 528, T-20261107-64/2): взаимно исключаются только «Я один» ↔ «Вдвоём»;
+// «С детьми», «Кошка или собака», «Родители или гости часто» — с любым (родитель-одиночка, пара с детьми). Исключение — `exclusive` правила
+describe("вопрос household — исключающие пары", () => {
+  type Hh = { id: string; options: { id: string; ages?: unknown[] }[]; exclusive?: string[][] };
+  const hh = (rule as unknown as { questions: Hh[] }).questions.find((q) => q.id === "household") as Hh;
+
+  it("исключается только «Я один» ↔ «Вдвоём»", () => {
+    expect(hh.exclusive).toEqual([["single", "couple"]]);
+  });
+
+  it("«С детьми» (плашка с возрастами), питомец и гости — ни в одной исключающей группе", () => {
+    const kid = hh.options.find((o) => o.ages);
+    expect(kid?.id).toBe("child");
+    const grouped = new Set((hh.exclusive ?? []).flat());
+    for (const id of ["child", "pet", "guest"]) expect(grouped.has(id)).toBe(false);
+  });
+});
