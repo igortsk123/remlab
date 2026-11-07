@@ -256,8 +256,9 @@ def _rooms_bank(text: str, ok) -> int:
            and not any(n in fn for r in ROOMS for n in chain_of(r)), fn[i - 2:i + 8])
         ok(f'[write={write}] банки комнат: остальная ночь — та же и тем же порядком',
            [n for n in fn if n not in ROOM_BANK] == [n for n in names(night(text, write, start=HEAD)) if n not in ROOM_BANK])
-        ok(f'[write={write}] банки комнат: команды — привязка --build, сборщики без --nightly (флаг показа не решает), суд --night',
-           cmd['room_bindings'] == '$PY room_bindings.py --build' and cmd['compose_bedroom'] == '$PY compose_bedroom.py'
+        ok(f'[write={write}] банки комнат: команды — привязка --build (+ --digest, T-20261107-25/5), сборщики без --nightly '
+           f'(флаг показа не решает), суд --night',
+           cmd['room_bindings'] == '$PY room_bindings.py --build --digest' and cmd['compose_bedroom'] == '$PY compose_bedroom.py'
            and cmd['compose_hall'] == '$PY compose_hall.py'
            and cmd['room_check_hall'] == '$PY room_bootstrap.py --room hall check --night', cmd.get('room_check_hall'))
     blk = text[text.index('# БАНКИ КОМНАТ НОЧЬЮ'):text.index('step demo_band ')]
