@@ -14,9 +14,15 @@
 
 МЕРКА (план): рендер без света (`mesh_render` `UNLIT=1`) в позе фото против фото. Области — кластеры цвета ФОТО
 (≥ 3 % общего силуэта); у каждой ΔL = байт sRGB медианы рендера − медианы фото и сдвиг цвета ΔC (медианный RGB за
-вычетом серой части — хрома без светлоты). Норма: медиана |ΔL| ≤ 20, нет |ΔL| > 40, медиана ΔC ≤ 8; медианы —
-по площади областей (иначе щель-ручка 4 % весит как корпус 82 %), «нет > 40» — по всем областям ≥ 3 %.
+вычетом серой части — хрома без светлоты). Норма: медиана |ΔL| ≤ 20, худшая из областей ≥ 8 % (NORM_REGION) ≤ 40,
+медиана ΔC ≤ 8; медианы — по площади областей (иначе щель-ручка 4 % весит как корпус 82 %); худшая из областей ≥ 3 % —
+справка в листе, не норма (ведущий 07.11, T-85/5).
 Поза — из О0 (`color_steps` подбор по силуэту); фото вписывается в силуэт рендера по рамке.
+
+T-85/5: А-L — тот же множитель, но только по светлоте Y, цветность Lab (a, b) прежняя (`gain_L`): у А осветление дерева
+поднимало и насыщенность. Набор вариантов — `O2_VARIANTS` (по умолчанию «A,B»; «A,AL» — без Б). Чужие GLB той же формы
+(О1 — перекраска со сдвигом входа) меряются той же меркой: 4-й столбец list.tsv «O1=путь.glb[;имя=путь…]»; для них ещё
+`<имя>_stops` — сколько ступеней светлоты осталось до фото (по нему считается следующий круг О1).
 
   ~/venvs/scout/bin/python color_o2.py batch <list.tsv> <steps.jsonl из О0> <папка> [метки крупного листа через запятую]
       [--reuse <o2.jsonl прежнего прогона>]   # «было» и А не зависят от порогов Б — их рендеры берутся готовыми
@@ -49,6 +55,8 @@ MAX_STOPS = 3.0      # больше — «не тот материал»
 SIGMA_DE = 9.0       # мягкость переноса поправки на тексели (ΔE)
 COLLAPSE_Y = 0.01
 REGION_MIN = 0.03    # область мерки — доля общего силуэта
+NORM_REGION = 0.08   # «худшая область» в норме — только области ≥ 8 % (ведущий 07.11: ножки и складки 3–7 % — справка)
+VARIANTS = set(os.environ.get('O2_VARIANTS', 'A,B').split(','))   # A, AL, B; «было» считается всегда
 
 
 # ── цвет ───────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -75,6 +83,33 @@ def lab(rgb8: np.ndarray) -> np.ndarray:
 
 def ylin(rgb8: np.ndarray) -> np.ndarray:
     return s2l(rgb8.astype(np.float32) / 255.0) @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+
+
+def _finv(f: np.ndarray) -> np.ndarray:
+    return np.where(f ** 3 > 0.008856, f ** 3, (f - 16 / 116) / 7.787)
+
+
+def lab2rgb8(Lab: np.ndarray) -> np.ndarray:
+    fy = (Lab[..., 0] + 16) / 116
+    xyz = np.stack([_finv(fy + Lab[..., 1] / 500), _finv(fy), _finv(fy - Lab[..., 2] / 200)], -1) * _WHITE
+    lin = xyz @ np.linalg.inv(_M).T.astype(np.float32)
+    return np.round(l2s(lin) * 255).astype(np.uint8)
+
+
+def gain_L(tex: np.ndarray, lg: float, chunk: int = 1 << 20) -> np.ndarray:
+    """А-L (T-20261106-85/5): тот же множитель яркости Y = 2^lg, но цветность Lab (a, b) остаётся прежней — хрома не растёт
+    вместе со светлотой. Множитель в линейном RGB (`gain`) сохраняет отношения каналов, и при осветлении дерева его
+    насыщенность в байтах росла (721606 стал персиковым, 007531 — оранжевее; ведущий 07.11)."""
+    flat = tex.reshape(-1, 3)
+    out = np.empty_like(flat)
+    k = 2.0 ** float(lg)
+    for s in range(0, len(flat), chunk):
+        L = lab(flat[s:s + chunk])
+        Y = np.clip(_finv((L[..., 0] + 16) / 116) * k, 0, 1)
+        f = np.where(Y > 0.008856, np.cbrt(Y), 7.787 * Y + 16 / 116)
+        L[..., 0] = 116 * f - 16
+        out[s:s + chunk] = lab2rgb8(L)
+    return out.reshape(tex.shape)
 
 
 def gain(tex: np.ndarray, lg) -> np.ndarray:
@@ -258,9 +293,11 @@ def measure(rgb: np.ndarray, ralpha: np.ndarray, prgb: np.ndarray, pmask: np.nda
         c = np.cumsum(np.asarray(ws)[o])
         return float(np.asarray(v)[o][np.searchsorted(c, c[-1] / 2)])
     res['med_dL'] = round(wmed(dls), 1) if dls else None
-    res['max_dL'] = round(float(max(dls)), 1) if dls else None
+    res['max_dL'] = round(float(max(dls)), 1) if dls else None          # справка: худшая из областей ≥ 3 %
+    big = [abs(r['dL']) for r in res['regions'] if r['share'] >= NORM_REGION]
+    res['max_dL8'] = round(float(max(big)), 1) if big else None         # норма: худшая из областей ≥ 8 % (ведущий 07.11)
     res['med_dC'] = round(wmed(dcs), 1) if dcs else None
-    res['pass'] = bool(dls) and res['med_dL'] <= 20 and res['max_dL'] <= 40 and res['med_dC'] <= 8
+    res['pass'] = bool(dls) and res['med_dL'] <= 20 and (res['max_dL8'] or 0) <= 40 and res['med_dC'] <= 8
     return res
 
 
@@ -360,7 +397,8 @@ def write_glb(src: str, dst: str, texs: list) -> None:
     sc.export(dst)
 
 
-def one(label: str, run_dir: str, photo: str, pose: dict, out: str, k: int, prev: dict | None = None) -> dict:
+def one(label: str, run_dir: str, photo: str, pose: dict, out: str, k: int, prev: dict | None = None,
+        extra: dict | None = None) -> dict:
     import mesh_render as MR
     glb = os.path.join(run_dir, 'model.glb')
     tiles = os.path.join(out, 'tiles', f'{k:03d}')
@@ -434,8 +472,34 @@ def one(label: str, run_dir: str, photo: str, pose: dict, out: str, k: int, prev
     else:
         r['A'] = {'skip': r['cls']}
 
+    # А-L: тот же множитель только по светлоте (цветность Lab прежняя)
+    if 'AL' in VARIANTS:
+        if r['cls'] is None:
+            tL = [None if t is None else gain_L(t, lgA) for t in texs]
+            gL = os.path.join(out, 'glb', f'{k:03d}', 'AL.glb')
+            write_glb(glb, gL, tL)
+            aL = np.asarray(CS.unlit(gL, yaw, pitch, os.path.join(tiles, 'AL.png'))[1])
+            r['AL'] = measure(aL[..., :3], aL[..., 3] > 128, prgb, pmask, pcl, y_photo)
+            r['AL_glb'] = gL
+        else:
+            r['AL'] = {'skip': r['cls']}
+
+    # чужие GLB той же формы (О1 — перекраска со сдвигом входа): рендер в той же позе, та же мерка
+    for name, g in (extra or {}).items():
+        if not os.path.exists(g):
+            r[name] = {'skip': 'нет файла'}
+            continue
+        aX = np.asarray(CS.unlit(g, yaw, pitch, os.path.join(tiles, f'{name}.png'))[1])
+        r[name] = measure(aX[..., :3], aX[..., 3] > 128, prgb, pmask, pcl, y_photo)
+        r[f'{name}_glb'] = g
+        y_x = CS.lum(aX[..., :3], aX[..., 3] > 128) or 0.0      # сколько ступеней ещё не хватает (для следующего круга О1)
+        r[f'{name}_y_vis'] = round(y_x, 4)
+        r[f'{name}_stops'] = round(math.log2(max(y_photo, 1e-5) / max(y_x, 1e-5)), 3)
+
     # Б (класс отказа — не лечим и здесь; участки всё равно считаем и показываем)
-    if r['cls'] == 'провал':
+    if 'B' not in VARIANTS:
+        r['zones'] = []
+    elif r['cls'] == 'провал':
         r['B'] = {'skip': r['cls']}
         r['zones'] = []
     else:
@@ -477,13 +541,17 @@ def _lines(m: dict, c: str, r: dict) -> list[tuple[str, tuple]]:
     ok = m.get('pass')
     red, amber, green = (190, 0, 0), (180, 100, 0), (0, 120, 0)
     cl = lambda v, lo, hi: green if v <= lo else amber if v <= hi else red  # noqa: E731
+    m8 = m.get('max_dL8')
     out = [(f"ΔL общий {m['dL_all']:+.0f}", cl(abs(m['dL_all']), 20, 40)),
            (f"медиана |ΔL| {m['med_dL']:.0f}", cl(m['med_dL'], 20, 40)),
-           (f"худшая обл. |ΔL| {m['max_dL']:.0f}", cl(m['max_dL'], 40, 60)),
+           (f"худшая ≥8% |ΔL| {m8:.0f}" if m8 is not None else 'худшая ≥8% —', cl(m8 or 0, 40, 60)),
            (f"хрома ΔC {m['med_dC']:.0f}", cl(m['med_dC'], 8, 16)),
-           ('НОРМА ✓' if ok else 'не норма', green if ok else red)]
-    if c == 'A':
+           ('НОРМА ✓' if ok else 'не норма', green if ok else red),
+           (f"справка: худшая ≥3% {m['max_dL']:.0f}", (110, 110, 110))]
+    if c in ('A', 'AL'):
         out.append((f"множитель {r['A_stops']:+.2f} ступени", (60, 60, 60)))
+    if c == 'O1' and r.get('O1_note'):
+        out.append((r['O1_note'], (60, 60, 60)))
     return out
 
 
@@ -507,20 +575,24 @@ def region_map(r: dict) -> Image.Image | None:
     return Image.fromarray(out)
 
 
-def sheet(rs: list, out_png: str, tile: int, hard: bool = False) -> None:
-    cols = ['photo', 'was', 'A', 'B'] + (['zones', 'err'] if hard else [])
+METRIC_COLS = ('was', 'A', 'AL', 'B', 'O1')
+
+
+def sheet(rs: list, out_png: str, tile: int, hard: bool = False, cols: list | None = None, title: str = 'О2') -> None:
+    cols = list(cols or (['photo', 'was', 'A', 'B'] + (['zones', 'err'] if hard else [])))
     names = {'photo': 'фото товара', 'was': 'было (меш без света)', 'A': 'А: один множитель', 'B': 'Б: по участкам',
+             'AL': 'А-L: множитель по светлоте', 'O1': 'О1: перекраска (лучший круг)',
              'zones': 'участки Б', 'err': 'где промах Б'}
     fs, fb = CS._font(max(12, tile // 19)), CS._font(max(13, tile // 16))
     lh = max(15, tile // 15)
-    text_rows = 9 if hard else 6
+    text_rows = 9 if hard else 8
     head = lh * 4
     W = tile * len(cols)
     row_h = lh + tile + lh * text_rows + 10
     sh = Image.new('RGB', (W, head + len(rs) * row_h), (243, 243, 243))
     dr = ImageDraw.Draw(sh)
-    dr.text((6, 4), 'О2 · мерка: рендер без света против фото; ΔL — байты sRGB (0–255); норма: медиана |ΔL| ≤ 20, '
-            'худшая область ≤ 40, хрома ≤ 8', fill=(0, 0, 0), font=fs)
+    dr.text((6, 4), f'{title} · мерка: рендер без света против фото; ΔL — байты sRGB (0–255); норма: медиана |ΔL| ≤ 20, '
+            'худшая область ≥ 8 % ≤ 40, хрома ≤ 8', fill=(0, 0, 0), font=fs)
     dr.text((6, 4 + lh), 'зелёный — в норме, жёлтый — близко, красный — далеко; медианы по площади областей фото',
             fill=(60, 60, 60), font=fs)
     for j, c in enumerate(cols):
@@ -553,7 +625,7 @@ def sheet(rs: list, out_png: str, tile: int, hard: bool = False) -> None:
                 bg.alpha_composite(im)
                 sh.paste(bg.convert('RGB'), (x + 4 + (tile - 8 - im.size[0]) // 2, y0 + lh + (tile - 8 - im.size[1]) // 2))
             ty = y0 + lh + tile
-            if c in ('was', 'A', 'B') and isinstance(r.get(c), dict):
+            if c in METRIC_COLS and isinstance(r.get(c), dict):
                 for q, (s, col) in enumerate(_lines(r[c], c, r)):
                     dr.text((x + 6, ty + q * lh), s, fill=col, font=fs)
             if c == 'zones':
@@ -586,9 +658,12 @@ def batch(list_tsv: str, steps_jsonl: str, out: str, big: list[str], reuse: str 
     rows = [ln.rstrip('\n').split('\t') for ln in open(list_tsv, encoding='utf-8') if ln.strip()]
     res, bad = [], 0
     with open(os.path.join(out, 'o2.jsonl'), 'w', encoding='utf-8') as fo:
-        for k, (label, run_dir, photo) in enumerate(rows):
+        for k, row in enumerate(rows):
+            label, run_dir, photo = row[:3]
+            # 4-й столбец (необязательный): «имя=путь.glb;имя2=…» — чужие GLB той же формы (О1) в ту же мерку
+            extra = dict(x.split('=', 1) for x in (row[3].split(';') if len(row) > 3 else []) if '=' in x)
             try:
-                r = one(label, run_dir, photo, poses[label], out, k, prev.get(label))
+                r = one(label, run_dir, photo, poses[label], out, k, prev.get(label), extra)
             except Exception as e:  # noqa: BLE001 — счётчик сбоев, не молча
                 import traceback
                 traceback.print_exc()
@@ -600,17 +675,21 @@ def batch(list_tsv: str, steps_jsonl: str, out: str, big: list[str], reuse: str 
             if 'err' in r:
                 print(f'[{k + 1}/{len(rows)}] {label}: СБОЙ {r["err"]}', flush=True)
             else:
-                f = lambda m: m.get('skip') or f"{m['dL_all']:+.0f}/{m['med_dL']}/{m['max_dL']}/{m['med_dC']}{' ✓' if m['pass'] else ''}"  # noqa: E731,E501
+                f = lambda m: m.get('skip') or f"{m['dL_all']:+.0f}/{m['med_dL']}/{m.get('max_dL8')}/{m['med_dC']}{' ✓' if m['pass'] else ''}"  # noqa: E731,E501
                 print(f"[{k + 1}/{len(rows)}] {label}: карта {r['map_check']} класс {r['cls']} было {f(r['was'])} "
-                      f"А {f(r['A'])} Б {f(r['B'])} участки "
-                      + ' '.join(f"{z['area']:.2f}:{z['st']}" for z in r['zones']), flush=True)
+                      + ' '.join(f"{c} {f(r[c])}" for c in METRIC_COLS[1:] if isinstance(r.get(c), dict))
+                      + ' участки ' + ' '.join(f"{z['area']:.2f}:{z['st']}" for z in r['zones']), flush=True)
     sheets([r for r in res if 'err' not in r], out, big)
     print(f'разобрано {len(rows)}, сбоев {bad}; лист {os.path.join(out, "sheet.png")}')
     return 1 if bad else 0
 
 
 def sheets(ok: list, out: str, big: list[str]) -> None:
-    sheet(ok, os.path.join(out, 'sheet.png'), 240)
+    if any(isinstance(r.get('B'), dict) for r in ok):
+        sheet(ok, os.path.join(out, 'sheet.png'), 240)
+    else:   # без Б (T-85/5): столбцы — те варианты, что есть хоть у одной строки
+        cols = ['photo', 'was'] + [c for c in METRIC_COLS[1:] if any(isinstance(r.get(c), dict) for r in ok)]
+        sheet(ok, os.path.join(out, 'sheet.png'), 240, cols=cols, title='О2/О1')
     if big:
         sheet([r for b in big for r in ok if r['label'] == b], os.path.join(out, 'sheet-hard.png'), 400, hard=True)
 
@@ -651,6 +730,14 @@ def selftest() -> int:
         g = gain(np.full((2, 2, 3), 128, np.uint8), 1.0)
         ok('множитель ×2 в линейном свете: 128 → 176', int(g[0, 0, 0]) == 176, g[0, 0])
         ok('множитель 0 ступеней — без изменений', np.array_equal(gain(img, 0.0), img))
+        gl = gain_L(np.full((2, 2, 3), 128, np.uint8), 1.0)
+        ok('А-L: серый 128 ×2 по Y → 176', bool(np.all(np.abs(gl.astype(int) - 176) <= 1)), gl[0, 0])
+        wood = np.array([[[180, 120, 80], [150, 110, 90]]], np.uint8)
+        lw, ll = lab(wood), lab(gain_L(wood, 0.6))
+        ok('А-L: цветность a,b прежняя, светлота выросла',
+           bool(np.abs(lw[..., 1:] - ll[..., 1:]).max() < 1.0 and (ll[..., 0] > lw[..., 0] + 5).all()),
+           (lw.round(1).tolist(), ll.round(1).tolist()))
+        ok('А-L: 0 ступеней — без изменений (±1)', int(np.abs(gain_L(img, 0.0).astype(int) - img).max()) <= 1)
         C = np.array(lab(np.array([[200, 200, 200], [60, 60, 60]], np.uint8)), np.float32)
         lg = soft_lg(img, C, np.array([-1.0, 0.0], np.float32), None)
         ok('Б: правим только светлый участок, тёмный цел', abs(lg[0, 0] + 1) < 0.02 and abs(lg[0, 31]) < 0.02, lg[0, [0, 31]])
