@@ -332,7 +332,7 @@ def _rooms_bank(text: str, ok) -> int:
            'публикуется, платной досъёмки нет (идёт сухая проверка), строка в дайджест; остальная ночь та же',
            not any(n in gn for n in DEMO) and 'demo_real' not in gn and 'demo_real_check' in gn
            and [n for n in gn if n != 'demo_real_check'] == [n for n in ref if n not in (*DEMO, 'demo_real')]
-           and 'DIGEST:демо не собрано и не опубликовано: состояние банка комнат не определено' in ulog
+           and 'DIGEST:!демо не собрано и не опубликовано: состояние банка комнат не определено' in ulog
            and 'состояние FAIL' in dig(ulog, 'спальня' if room == 'bedroom' else 'прихожая'), (gn[-12:], ulog[-400:]))
     fn, _, _ = run(0, full)
     ok('состояние определено — витрина собирается и публикуется, платная досъёмка за публикацией',

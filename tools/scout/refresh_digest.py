@@ -52,12 +52,15 @@ def build(env) -> tuple[dict, str]:
         sha = ''
     delta = ''
     info = []      # строки шагов `DIGEST:текст` (писатель банка: снято / добавлено / ждёт меш) — в дайджест как есть, статус не меняют
+    pinned = []    # `DIGEST:!текст` — важное владельцу («демо не опубликовано», room-bank-01 Д, T-20261107-04/2): всегда, сразу за
+    #               шапкой, вне лимита 6 последних — не зависит от порядка шагов ночи
     try:
         seen = False
         for line in open(env['LOG_FILE'], encoding='utf-8', errors='ignore'):
             if line.startswith('=== ' + env['TODAY']): seen = True
             if seen and line.startswith('ДЕЛЬТА'): delta = line[len('ДЕЛЬТА'):].strip()[:200]
-            if seen and line.startswith('DIGEST:'): info.append(line[len('DIGEST:'):].strip()[:300])
+            if seen and line.startswith('DIGEST:!'): pinned.append('❗ ' + line[len('DIGEST:!'):].strip()[:300])
+            elif seen and line.startswith('DIGEST:'): info.append(line[len('DIGEST:'):].strip()[:300])
     except Exception:
         pass
     fresh = '?'
@@ -77,7 +80,7 @@ def build(env) -> tuple[dict, str]:
     head = {'ok': 'ок', 'warn': 'с предупреждениями', 'FAIL': 'С ОШИБКАМИ'}[overall]
     msg = [f"remlab каталог {env['TODAY']}: прогон {head}, {status['finished_at'][11:16]} UTC",
            f"фиды: скачано {status['feeds_downloaded']}/{status['feeds_total']}, свежих {fresh}; товаров в наличии: {status['products']}",
-           f"дельта: {delta or 'нет'}"] + info[-6:]
+           f"дельта: {delta or 'нет'}"] + pinned + info[-6:]
     if fails: msg.append('FAIL: ' + ', '.join(fails) + (f' (exit {rc})' if rc else ''))
     for k, w in sorted(warns.items()): msg.append(f"WARN {k}" + (f" ×{w['n']}" if w['n'] > 1 else '') + f": {w['first']}")
     if skipped: msg.append('пропущено (openai.off): ' + ', '.join(skipped))

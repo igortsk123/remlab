@@ -80,6 +80,23 @@ with tempfile.TemporaryDirectory() as d:
     rc, out, err = run_digest(env)
     check('мусор в числах — громко, со списком FAIL-шагов', 'СВОДКА НЕ СОБРАЛАСЬ — ValueError' in out and 'FAIL шагов: enrich' in out, out)
 
+with tempfile.TemporaryDirectory() as d:     # важная строка `DIGEST:!` — всегда, вне лимита 6 последних (T-20261107-04/2)
+    env = fixture(d)
+    DEMO = 'демо не собрано и не опубликовано: состояние банка комнат не определено (bedroom) — на проде вчерашнее'
+    open(env['LOG_FILE'], 'a', encoding='utf-8').write(f'DIGEST:!{DEMO}\n' + ''.join(f'DIGEST:обычная {i}\n' for i in range(1, 10)))
+    rc, out, err = run_digest(env)
+    lines = out.splitlines()
+    check('DIGEST:! — в сводке за 9 обычными строками (лимит 6 её бы срезал), с ❗ и без «!»',
+          rc == 0 and f'❗ {DEMO}' in lines and f'!{DEMO}' not in out, out)
+    check('DIGEST:! — сразу за шапкой (дельтой), до обычных; обычных — 6 последних',
+          lines.index(f'❗ {DEMO}') == lines.index('дельта: новых: 27') + 1
+          and [x for x in lines if x.startswith('обычная')] == [f'обычная {i}' for i in range(4, 10)], out)
+    yesterday = fixture(d)
+    open(yesterday['LOG_FILE'], 'w', encoding='utf-8').write(f'=== 2026-11-03 10:40:00 старт ===\nDIGEST:!{DEMO}\n'
+                                                            '=== 2026-11-04 10:40:00 старт ===\n')
+    rc, out, err = run_digest(yesterday)
+    check('DIGEST:! — только сегодняшняя ночь (вчерашняя важная строка не повторяется)', rc == 0 and DEMO not in out, out)
+
 DRIVER = r'''
 set -u
 SRC="$1"; D="$2"; PY="$3"

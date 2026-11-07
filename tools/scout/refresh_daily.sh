@@ -543,7 +543,7 @@ step orient_sync "$PY" orient_review.py --sync
 if [ -n "$rooms_undef" ]; then
   RES[flat215_demo]=FAIL; RES[flat215_publish]=FAIL
   echo "flat215_demo и flat215_publish пропущены: состояние банка комнат не определено (${rooms_undef% })" >> "$LOG"
-  echo "DIGEST:демо не собрано и не опубликовано: состояние банка комнат не определено (${rooms_undef% }) — на проде вчерашнее; разбор — bank_refresh.py --room <комната> state, затем recover" >> "$LOG"
+  echo "DIGEST:!демо не собрано и не опубликовано: состояние банка комнат не определено (${rooms_undef% }) — на проде вчерашнее; разбор — bank_refresh.py --room <комната> state, затем recover" >> "$LOG"
 else
   step flat215_demo "$PY" flat215_demo.py
   # лёгкие копии моделей демо — ворота публикации (demo-01): нет копий у моделей вариантов — демо не публикуется
