@@ -21,7 +21,8 @@
 `room_bindings` (вариант семьи с вердиктом mismatch — blocked `mesh_color_mismatch:…`, свой меш — только предупреждение).
 Вердикт привязан к ассету: модель сменилась — старый вердикт не действует. Таблицы нет — привязка без отметок (WARN, fail-open).
 Замеры моделей — кэш по пути и mtime файла (рядом с таблицей), повтор ночи считает только новые модели.
-Строки: `DIGEST:сторож цвета мешей: отмечено N, из них в ленте было M` и `WARN:mesh_color_own:` (свои меши — разбор ведущему).
+Строка в сводку: `DIGEST:сторож цвета мешей: отмечено N, из них в ленте было M; свои меши с расхождением: K` — свои меши
+только числом, без WARN (К8 отложен, T-14/3); их список — `own-mismatch.tsv` рядом с таблицей. warn/FAIL шага — только сбой.
 
   ~/venvs/scout/bin/python mesh_color_check.py census <папка> [--rooms living,bedroom,hall] [--workers 3]
   ~/venvs/scout/bin/python mesh_color_check.py guard [--out ДИР] [--bindings СНИМОК] [--workers 3] [--seed-cache ФАЙЛ]
@@ -46,6 +47,7 @@ BINDINGS = os.path.join(os.path.expanduser(os.environ.get('CATALOG_ASSETS_DIR') 
 RULES = os.path.join(HERE, 'rules', 'mesh-color-guard.json')
 TABLE_DIR = os.path.expanduser(os.environ.get('MESH_COLOR_DIR') or '~/scout-scenes/catalog-assets/mesh-color')
 TABLE = 'current.json'
+OWN_TSV = 'own-mismatch.tsv'
 REASON = 'mesh_color_mismatch'
 BG_DE = 12.0        # пиксель фото карточки — товар, если дальше от цвета фона (медиана рамки) больше чем на ΔE
 MIN_PX = 80         # меньше пикселей товара — цвета фото нет
@@ -523,11 +525,30 @@ def guard(out_dir: str = TABLE_DIR, snap_path: str = BINDINGS, workers: int = 3,
     _atomic_json(os.path.join(out_dir, TABLE), table)
     print(f'сторож цвета мешей ({R["version"]}): пар {counts["pairs"]}, без замера {counts["unknown"]}, '
           f'вариантов семьи с расхождением {len(fam)}, своих мешей {len(own)} → {out_dir}/{TABLE}', flush=True)
-    print(f'DIGEST:сторож цвета мешей: отмечено {len(fam)}, из них в ленте было {counts["family_mismatch_shown"]}', flush=True)
-    if own:
-        print(f'WARN:mesh_color_own: свои меши с расхождением цвета — {len(own)} (не прячем, разбор ведущему): '
-              + ', '.join(own[:8]) + (' …' if len(own) > 8 else ''), flush=True)
+    write_own(os.path.join(out_dir, OWN_TSV), rows, own)
+    print(digest_line(counts), flush=True)
     return table
+
+
+def write_own(path: str, rows: dict, own: list) -> None:
+    """Свои меши с расхождением — список для К8 (цвет мешей, отложен владельцем): TSV рядом с таблицей, сильные сверху."""
+    def sev(k):
+        d = rows[k].get('seen_vs_sku') or {}
+        return -(abs(d.get('dL', 0)) + d.get('dab', 0))
+    tmp = f'{path}.tmp{os.getpid()}'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        f.write('sku\tasset_id\tdL\tdab\n')
+        for k in sorted(own, key=sev):
+            d = rows[k].get('seen_vs_sku') or {}
+            f.write(f"{k}\t{rows[k].get('asset_id')}\t{d.get('dL')}\t{d.get('dab')}\n")
+    os.replace(tmp, path)
+
+
+def digest_line(counts: dict) -> str:
+    """Одна строка в утреннюю сводку. Свои меши — только число, не WARN (ведущий 07.11, T-14/3): это К8, отложен; вечный warn
+    шага — шум, за ним не видно настоящего сбоя. warn/FAIL шага — только сбой самого сторожа (rc) или нет таблицы (room_bindings)."""
+    return (f'DIGEST:сторож цвета мешей: отмечено {counts["family_mismatch"]}, из них в ленте было '
+            f'{counts["family_mismatch_shown"]}; свои меши с расхождением: {counts["own_mismatch"]} (список — {OWN_TSV})')
 
 
 # ---------- самопроверка ----------
@@ -614,6 +635,13 @@ def _selftest() -> int:
         ok('таблица: своя версия читается, чужая — нет (mesh_colour_version), нет файла — mesh_colour_missing',
            got == rows and not why and old is None and why2 == 'mesh_colour_version'
            and load_table(os.path.join(td, 'нет.json'), R) == (None, 'mesh_colour_missing'))
+        own_p = os.path.join(td, OWN_TSV)
+        write_own(own_p, rows, flagged(rows, False))
+        lines = open(own_p, encoding='utf-8').read().splitlines()
+        line = digest_line({'family_mismatch': 2, 'family_mismatch_shown': 1, 'own_mismatch': 1})
+        ok('свои меши — TSV рядом с таблицей и число в DIGEST, без WARN (статус шага ok)',
+           len(lines) == 2 and lines[1].startswith('1:orange\tD\t') and line.startswith('DIGEST:')
+           and 'отмечено 2, из них в ленте было 1; свои меши с расхождением: 1' in line and 'WARN' not in line)
     print(f'mesh_color_check: ошибок {bad}')
     return 1 if bad else 0
 

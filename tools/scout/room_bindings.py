@@ -255,7 +255,7 @@ def measured_colour(sku: str, aid: str | None, via: bool, F: Facts) -> tuple:
     """Сторож «меш не того цвета» (T-20261107-14/2): (причины blocked, предупреждения). Вердикт ночного замера
     (`mesh_color_check.guard`) действует, только если он про ЭТОТ ассет: модель сменилась — старый вердикт не считается.
     Вариант семьи с расхождением — blocked `mesh_color_mismatch:ΔL…,Δab…` (не в ленту и не в вариант; кандидат на свой меш,
-    `room_mesh_demand`); свой меш — только предупреждение (прятать нечем, разбор ведущему)."""
+    `room_mesh_demand`); свой меш — только пометка в строке (прятать нечем; число — в DIGEST сторожа, список — для К8)."""
     r = (F.mesh_colour or {}).get(sku)
     if not r or not aid or r.get('asset_id') != aid or r.get('verdict') != 'mismatch':
         return [], []
