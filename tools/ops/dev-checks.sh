@@ -33,14 +33,17 @@ if [ -f "$ENVS" ]; then
   set -a; . "$ENVS"; set +a
   # без денег: $5 — строка дайджеста (`WARN:<код>: …` — жёлтый; без `WARN:` — справка). Владелец 23.10 (T-20261023-12): прямой
   # ключ OpenAI пуст и пополняться не будет, всё идёт через шлюз — его «нет денег» больше не тревога, тревога — пустой ШЛЮЗ
+  # ответ пробы — в REMLAB_TMP на диске, не в /tmp (T-20261107-02/2: /tmp DEV — tmpfs с квотой, ночью 07.11 он ронял шаги EDQUOT)
+  . "$(dirname "$0")/remlab-tmp.sh"
   probe() {  # $1 имя, $2 url, $3 ключ, $4 модель, $5 строка «нет денег»
     [ -n "$3" ] || return 0
-    c=$(curl -s -o /tmp/llm-probe.$$ -w '%{http_code}' --max-time 30 "$2" -H "Authorization: Bearer $3" \
+    local f; f=$(mktemp -p "$REMLAB_TMP" llm-probe.XXXXXX) || { echo "канал LLM $1: нет места под ответ пробы в $REMLAB_TMP"; return 0; }
+    c=$(curl -s -o "$f" -w '%{http_code}' --max-time 30 "$2" -H "Authorization: Bearer $3" \
         -H 'content-type: application/json' -d "{\"model\":\"$4\",\"messages\":[{\"role\":\"user\",\"content\":\"1\"}],\"max_completion_tokens\":16}")
-    if [ "$c" = 402 ] || grep -q 'insufficient_quota\|credit_balance' /tmp/llm-probe.$$ 2>/dev/null; then
+    if [ "$c" = 402 ] || grep -q 'insufficient_quota\|credit_balance' "$f" 2>/dev/null; then
       echo "$5 (HTTP $c)"
     else echo "канал LLM $1: HTTP $c"; fi
-    rm -f /tmp/llm-probe.$$
+    rm -f "$f"
   }
   probe "шлюз Vercel" https://ai-gateway.vercel.sh/v1/chat/completions "${VERCEL_AI_GATEWAY_KEY:-}" openai/gpt-6-luna \
     "WARN:gateway_no_credits: шлюз Vercel — нет денег: фото «Сделать реалистичнее», дочитка ссылок, оценка стиля и обогащение стоят"

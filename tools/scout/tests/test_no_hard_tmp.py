@@ -33,9 +33,12 @@ FILES = [
     'tools/ops/demo-live.sh',
     'tools/ops/node-env.sh',
     'tools/ops/remlab-tmp.sh',
+    # ночь вне демо (T-20261107-02/2): шаг dev_checks в refresh_daily и отдельный крон ночного экзамена
+    'tools/ops/dev-checks.sh',
+    'tools/scout/nightly_exam.sh',
 ]
-# разрешённое: /tmp сервера для архива публикации (scp на прод) — не DEV
-ALLOW = ['${PUB_RTMP:-/tmp}']
+# разрешённое: /tmp СЕРВЕРА для архивов (scp на прод) — не DEV; замер занятости /tmp в dev-checks (только чтение)
+ALLOW = ['${PUB_RTMP:-/tmp}', '${GAL_RTMP:-/tmp}', 'du -sk /tmp/* /tmp/.[!.]*']
 HARD = re.compile(r'(?<![\w.~$}-])/tmp/|:-/tmp\}|["\']/tmp["\']')
 MKTEMP = re.compile(r'\bmktemp\b(?P<rest>[^\n)]*)')
 BAD = []
@@ -97,6 +100,11 @@ def main():
     rt = open(os.path.join(ROOT, 'tools/assets/demo_rt.sh'), encoding='utf-8').read()
     ok('mktemp -p "$REMLAB_TMP"' in rt and re.search(r"trap 'rm -f \"\$PUB_LOG\"' EXIT", rt) is not None,
        'demo_rt: временный файл в REMLAB_TMP, свой убирается (trap)')
+    ne = open(os.path.join(ROOT, 'tools/scout/nightly_exam.sh'), encoding='utf-8').read()
+    ok('mktemp -p "$REMLAB_TMP" acc-gallery' in ne and "trap 'rm -f \"$GAL_TGZ\"' EXIT" in ne,
+       'nightly_exam: архив галереи в REMLAB_TMP, убирается trap и при упавшем scp')
+    dc = open(os.path.join(ROOT, 'tools/ops/dev-checks.sh'), encoding='utf-8').read()
+    ok('mktemp -p "$REMLAB_TMP" llm-probe' in dc, 'dev-checks: ответ пробы LLM в REMLAB_TMP')
 
     print('помощник remlab-tmp.sh:')
     with tempfile.TemporaryDirectory() as t:

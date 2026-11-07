@@ -13,10 +13,17 @@ echo "=== $(date '+%F %T') ночной экзамен старт ===" >> "$LOG"
 echo "экзамен rc=$rc" >> "$LOG"
 if [ $rc -eq 0 ]; then
   ./run.sh gallery >> "$LOG" 2>&1
-  ( cd ~/scout-scenes && tar czf /tmp/acc-gallery-nightly.tgz acc-gallery && \
-    scp -q -P 22222 /tmp/acc-gallery-nightly.tgz root@89.167.127.0:/tmp/ && \
-    ssh -p 22222 root@89.167.127.0 'cd /tmp && rm -rf acc-gallery && tar xzf acc-gallery-nightly.tgz && rm -rf /opt/remlab/test/acceptance-plans.prev && mv /opt/remlab/test/acceptance-plans /opt/remlab/test/acceptance-plans.prev && mv acc-gallery /opt/remlab/test/acceptance-plans && rm acc-gallery-nightly.tgz' && \
-    rm -f /tmp/acc-gallery-nightly.tgz && echo "галерея опубликована" ) >> "$LOG" 2>&1
+  # АРХИВ ГАЛЕРЕИ — В REMLAB_TMP НА ДИСКЕ, НЕ В /tmp (T-20261107-02/2): /tmp DEV — tmpfs с квотой; scp не прошёл — архив 24 МБ
+  # оставался в /tmp навсегда (rm стоял в конце цепочки &&). Теперь свой архив убирает trap при любом исходе.
+  # GAL_RTMP — /tmp СЕРВЕРА, куда scp кладёт архив и где он распаковывается (не DEV).
+  . ../ops/remlab-tmp.sh
+  GAL_RTMP=${GAL_RTMP:-/tmp}
+  if GAL_TGZ=$(mktemp -p "$REMLAB_TMP" acc-gallery-nightly.XXXXXX); then trap 'rm -f "$GAL_TGZ"' EXIT
+  else GAL_TGZ=; echo "галерея не опубликована: нет места под архив в $REMLAB_TMP" >> "$LOG"; fi
+  ( [ -n "${GAL_TGZ:-}" ] && cd ~/scout-scenes && tar czf "$GAL_TGZ" acc-gallery && \
+    scp -q -P 22222 "$GAL_TGZ" "root@89.167.127.0:$GAL_RTMP/acc-gallery-nightly.tgz" && \
+    ssh -p 22222 root@89.167.127.0 "cd '$GAL_RTMP' && rm -rf acc-gallery && tar xzf acc-gallery-nightly.tgz && rm -rf /opt/remlab/test/acceptance-plans.prev && mv /opt/remlab/test/acceptance-plans /opt/remlab/test/acceptance-plans.prev && mv acc-gallery /opt/remlab/test/acceptance-plans && rm acc-gallery-nightly.tgz" && \
+    echo "галерея опубликована" ) >> "$LOG" 2>&1
   ~/venvs/scout/bin/python - >> "$LOG" 2>&1 <<'PY'
 import json
 rep=[json.loads(l) for l in open('acceptance-report-zoned.jsonl') if l.strip()]
