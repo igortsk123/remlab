@@ -37,7 +37,10 @@ def ok(name, cond, extra=''):
 def rules_with(td: str, living: bool, bedroom: bool) -> str:
     R = json.load(open(RBS.RULES_PATH, encoding='utf-8'))
     R['write_enabled'] = living
-    R.setdefault('rooms', {}).setdefault('bedroom', {})['write_enabled'] = bedroom
+    rb = R.setdefault('rooms', {}).setdefault('bedroom', {})
+    rb['write_enabled'] = bedroom
+    # стенд сам задаёт флаги спальни — тест не зависит от того, что ведущий включил в файле (T-20261107-04/4)
+    rb['prepare_enabled'] = rb['promote_enabled'] = False
     p = os.path.join(td, f'rules-{int(living)}{int(bedroom)}.json')
     json.dump(R, open(p, 'w', encoding='utf-8'), ensure_ascii=False)
     return p

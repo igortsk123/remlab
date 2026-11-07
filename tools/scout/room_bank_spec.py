@@ -299,10 +299,12 @@ def _selftest() -> int:
                                               'write_enabled': True} and B.view({'write_enabled': True})['write_enabled'] is False)
     ok('ссылка на флаг: гостиная — прежний ключ, спальня — rooms.bedroom.*',
        L.flag_ref('write_enabled') == 'write_enabled' and B.flag_ref('write_enabled') == 'rooms.bedroom.write_enabled')
-    # запись спальни включена ведущим (T-77/2, поколение 0 через room_bootstrap); суд и подготовка — этап Г, выключены
-    ok('правила в файле: у спальни prepare/promote выключены; write — как в файле (bool)',
-       not B.rules().get('prepare_enabled') and not B.rules().get('promote_enabled')
-       and isinstance(B.rules().get('write_enabled'), bool), B.rules())
+    # флаги спальни — решение ведущего (write — T-77/2; prepare/promote — этап Ж, T-20261107-04/4): селфтест не держит их
+    # значения, только форму — bool, и подмена без подготовки невозможна (promote_enabled ⇒ prepare_enabled)
+    bf = B.rules()
+    ok('правила в файле: флаги спальни prepare/promote/write — bool; promote только при prepare',
+       all(isinstance(bf.get(k, False), bool) for k in ('prepare_enabled', 'promote_enabled', 'write_enabled'))
+       and (not bf.get('promote_enabled') or bf.get('prepare_enabled') is True), bf)
     H = for_room('hall', {})
     hp = {v for k, v in H.refresh_paths().items() if k not in ('lock', 'room', 'snap')} | {
         H.candidate, H.prepare_report, H.pending_state, H.promote_manifest, H.promote_work}
