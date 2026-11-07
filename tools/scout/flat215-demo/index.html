@@ -226,6 +226,11 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .vpl-bub .bub-row .lsw{transform:translateY(-1px)}
 .vpl-bub .bub-note{color:var(--muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
 .hm-hint{margin:8px 0 0;font-size:13px;color:var(--muted);line-height:1.3}
+/* «ПОДЕЛИТЬСЯ ИНТЕРЬЕРОМ» (home-mix-01 п.3) — ссылкой цвета бренда под подсказкой; вся квартира, не комната (`interiorLink`) */
+.hm-share-mix{display:inline-flex;align-items:center;gap:6px;min-height:32px;margin:4px 0 0;padding:0;border:0;background:none;
+  color:var(--accent);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.hm-share-mix svg{width:16px;height:16px}
+.hm-share-mix[hidden]{display:none}
 .hm-tabs{position:sticky;top:calc(var(--hm-hd) + var(--hm-cert,0px));z-index:calc(var(--z-sticky) + 1);height:44px;display:flex;align-items:center;gap:6px;overflow-x:auto;
   scrollbar-width:none;background:var(--bg);margin:2px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut)}
 .hm-tabs::-webkit-scrollbar{display:none}
@@ -318,6 +323,7 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
   .hm-acts .btn{flex:none;padding:0 16px}
   /* шкала — на всю ширину шапки (demo-21 п.6): при 560 px справа от неё зияла пустота */
   .hm-hint{font-size:15px}
+  .hm-share-mix{font-size:15px}
   .hm-tabs{margin-top:6px;height:54px}
   .hm-tab{height:38px;font-size:15px;padding:0 18px}
   .hm-rooms{grid-template-columns:repeat(3,1fr);margin-top:12px}
@@ -1096,6 +1102,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 <div class="hm-fav-row" id="favHead" hidden><button class="hm-fav-btn" id="favRowBtn" type="button" aria-controls="screen-fav">
   <span class="h">♥ <b data-t="fav">Избранное</b> <span id="favRowN"></span></span><span class="s" id="favRowSub"></span><span class="chev" aria-hidden="true">›</span></button></div>
 <p class="hm-hint" id="hmHint">Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.</p>
+<button class="hm-share-mix" id="hmShareMix" type="button"><span>Поделиться интерьером</span></button>
 <nav class="hm-tabs" id="styleTabs" role="tablist" aria-label="Стили"></nav>
 
 <!-- ЭКРАН «ИЗБРАННОЕ» (demo-17): «← Назад» возвращает туда, откуда пришли (окно варианта в том же виде или главную на той же
@@ -1304,6 +1311,8 @@ function init(){
   document.querySelectorAll('[data-plan]').forEach(a=>a.onclick=e=>{e.preventDefault(); showTab('plan'); pageScrollTo(0);});
   on('planBack','onclick',e=>{e.preventDefault(); showTab('room');});
   on('favBack','onclick',e=>{e.preventDefault(); favBack();});
+  // «Поделиться интерьером» — вся квартира (home-mix-01 п.3); значок — как у «Поделиться» комнаты
+  {const b=document.getElementById('hmShareMix'); if(b){b.insertAdjacentHTML('afterbegin',SHARE_SVG); b.onclick=shareInterior;}}
   // ♡ N в строке квартиры — экран «Избранное» (корзина); пусто — подсказка, куда нажать
   on('hmFav','onclick',()=>{const n=window.__fav&&window.__fav.list?window.__fav.list().length:0;
     if(n&&window.__basket)histGoFavs(''); else toast(LANG==='en'?'Favourites are empty for now — tap ♡ on a room':'В избранном пока пусто — нажмите ♡ у комнаты');});
@@ -1316,12 +1325,15 @@ function init(){
   if(typeof editsBoot==='function')editsBoot();   // сохранённые правки комнат (photo-sharp-keep-01) — до первой загрузки и кадров
   loadShots();
   load();
-  // СТИЛЬ ИЗ АДРЕСА (demo-16): ссылка менеджера `?style=loft` открывает этот стиль; ссылка на вариант/коллекцию (`#v=`, `#c=`) важнее
-  // комната — тоже из адреса (`?room=`, его пишет `syncStyleParam`; onb-07 основа): нет такого варианта — похожий в той же комнате
-  // (`roomVariantFor`, style-fallback-01), нет и его — гостиная этого стиля
-  {const st=HOME.want, m=homeModel(), rq=(location.search.match(/[?&]room=([a-z0-9-]{2,40})(?:&|$)/)||[])[1]||'living',
-    rv=st&&!/^#(?:v|c)=/.test(location.hash)?(roomVariantFor(m,st,rq)||m.roomVariants.find(x=>x.styleId===st&&x.roomId==='living')):null;
-    if(st)HOME.styleId=st; if(rv&&rv.index!==cur){cur=rv.index; load();}}
+  // ВЫБОР КВАРТИРЫ ИЗ АДРЕСА (home-mix-01; было demo-16 `?style=`): смесь `mix=` → старая `?style=loft` (этот стиль во всех комнатах).
+  // Ссылка на комнату `#v=` без них — квартира в стиле этой комнаты (как раньше вкладка шла за открытым вариантом); `#c=` — по умолчанию.
+  // Комната главной — `?room=` (её пишет `syncHomeParam`); окно `#v=`/`#c=` откроет `applyHash`, нижний список — его вариант
+  {const p=HOME.url, hv=p.open==='v'?decodeURIComponent(location.hash.slice(3)):'';
+    const v=hv?allVariants().find(x=>(x.id||'')===hv):null, al=hv&&!v?String((D.variant_aliases||{})[hv]||'').toLowerCase():'';
+    const vs=v&&!v.mine&&!v.cid?styleIdOf(v):(STYLE_IDS[al]||'');
+    HOME.sel=p.sel||(vs?mixSel([vs],{}):null); HOME.room=p.room||'living';
+    if(!p.open){const L=homeLayout(homeModel()), c=L.find(x=>x.rv&&x.r.id===HOME.room)||L.find(x=>x.rv&&x.r.id==='living');
+      if(c&&c.rv.index!==cur){cur=c.rv.index; load();}}}
   applyHash();
   HOME.ready=true; drawHome(true);
 }
@@ -1561,7 +1573,7 @@ function showTab(which){
   document.getElementById('screen-room').hidden=!room;
   document.getElementById('screen-fav').hidden=!fav;
   // вкладки стилей и подсказка — только на витрине; на плане квартиры и в избранном их нет (план — про всю квартиру, не про стиль)
-  ['styleTabs','hmHint'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=!room;});
+  ['styleTabs','hmHint','hmShareMix'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=!room;});
   document.body.classList.toggle('on-fav',fav);   // экран избранного: строка ЖК, кнопки и строка «Избранное» скрыты (CSS)
   syncHash(which);
   if(which==='plan')flatPlan();   // план — каждый раз заново: подписи комнат зависят от того, что сейчас в сертификате (demo-20 А8)
@@ -1606,6 +1618,16 @@ function variantLink(vid){
   const q=linkParams();
   return location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#v='+encodeURIComponent(vid||curVid());
 }
+// «ПОДЕЛИТЬСЯ ИНТЕРЬЕРОМ» — ВСЯ КВАРТИРА (home-mix-01 п.3): выбор (стили и назначенные комнаты), не вариант; всегда параметр с версией
+// `mix=1.…` (блок HOMEMIX) — у получателя та же раскладка, даже если номера вариантов пересоберутся. Окно комнаты (`#v`) не передаём:
+// «Поделиться» комнаты остаётся своим (`variantLink`/коллекция)
+function interiorLink(){
+  const q=linkParams(), mx=mixEncode(mixEff(HOME.sel,homeModel().styles.map(s=>s.id)));
+  if(mx)q.push('mix='+mx);
+  return location.origin+'/demo/'+(q.length?'?'+q.join('&'):'');
+}
+// событие — общее `share` (его шлёт `shareUrlOpen`); отдельный вид события — с полями смеси менеджеру (шаг 4, `contracts/analytics.ts`)
+function shareInterior(){ if(window.__fav)window.__fav.shareUrlOpen(interiorLink(),''); }
 function copyLink(vid,btn){
   const url=variantLink(vid);
   // ПОДТВЕРЖДЕНИЕ ВИДНО ВСЕГДА (карта сценариев 2.14): подпись на кнопке плюс короткое сообщение внизу —
@@ -1697,10 +1719,11 @@ function flatPlan(){
   // КОМНАТА = КНОПКА, «ЧТО Я ОБУСТРОИЛ» С ПЛАНА (владелец 22.10, demo-20 А8): в сертификате есть вариант комнаты — вместо площади его
   // название и сумма, клик открывает его; нет — готовая комната открывает вариант текущего стиля.
   // ИМЯ, ПЛОЩАДЬ, ГОТОВНОСТЬ — ИЗ РЕЕСТРА КВАРТИРЫ (`homeRooms`, T-20261022-04): у схемы плана только геометрия, id — те же
-  const map=planRoomMap(), m=homeModel(), act=homeActive(m), inc=window.__basket&&window.__basket.included;
+  // вариант комнаты — по раскладке главной (`homeLayout`, home-mix-01): та же комната того же варианта, что на карточке
+  const map=planRoomMap(), m=homeModel(), LAY=homeLayout(m), inc=window.__basket&&window.__basket.included;
   R.forEach(r=>{                                     // комнаты: заливка + перегородки
     const br=map[r.id], room=br||{}, f=br&&inc?inc(br.id):null, ready=room.contentState==='ready';
-    const rv=br&&ready?(m.roomVariants.find(x=>x.styleId===act.styleId&&x.roomId===br.id)||m.roomVariants.find(x=>x.roomId===br.id)):null;
+    const rv=br&&ready?((LAY.find(x=>x.r.id===br.id)||{}).rv||m.roomVariants.find(x=>x.roomId===br.id)):null;
     const go=!!(f||ready);                         // кликается готовая комната или та, где уже выбран вариант
     const g=el('g',{},svg); g.style.cursor=go?'pointer':'default';
     el('rect',{x:r.x,y:r.y,width:r.w,height:r.d,fill:go?'#E7F0F7':'#FBFAF7',
@@ -4222,7 +4245,8 @@ function basketModule(){ if(!_basketMod)_basketMod=sceneManifest().then(m=>{if(!
 // фиктивный вариант. Коллекции (свои и по ссылке) в каталог стилей не входят: каталог ≠ избранное.
 const STYLE_IDS={'сканди':'scandi','современный':'modern','минимализм':'minimal','лофт':'loft','неоклассика':'neoclassic','джапанди':'japandi'};
 const STYLE_EN={'scandi':'Scandi','modern':'Modern','minimal':'Minimalist','loft':'Loft','neoclassic':'Neoclassic','japandi':'Japandi'};
-const HOME={styleId:'', sig:'', ready:false, want:''};
+// `sel` — выбор квартиры (home-mix-01, блок HOMEMIX), `room` — комната в большой карточке главной, `url` — разбор адреса при входе
+const HOME={styleId:'', sig:'', ready:false, sel:null, room:'living', url:null};
 function styleIdOf(v){ return (v&&(v.style_id||STYLE_IDS[String(v.style||'').trim().toLowerCase()]))||''; }
 // ВКЛЮЧЕНИЕ КОМНАТЫ (onb-07 Т3, ADR-0330 п.4): сборка витрины пишет `D.rooms_enabled` — комнаты, чьи варианты в данных (флаг реестра
 // `apartments[].rooms[].enabled`, проверочная сборка — `FLAT215_ROOMS_ENABLED`, только не в папку витрины). Такая комната «готова»
@@ -4302,41 +4326,102 @@ function homeModel(){
 // КОМНАТА БЕЗ ВЫБРАННОГО СТИЛЯ — МОЛЧА ПОХОЖИЙ ВАРИАНТ (план style-fallback-01, владелец 07.11 TG 309: «молчаливая подмена, вариант А»):
 // точного варианта нет — первый по карте сборки `D.room_style_fallback[комната][стиль]` (соседи «легко спутать» → ближе по палитре
 // опроса → порядок вкладок, `demo_room.style_fallback`), чей вариант на главной есть. Без метки и слова «стиль»; плашка остаётся
-// только у комнат совсем без вариантов (кухня, санузлы). Одна функция для карточек, вкладок, опроса и ссылки `?style=&room=`
-function roomVariantFor(m, styleId, roomId){
-  const exact=m.roomVariants.find(x=>x.styleId===styleId&&x.roomId===roomId); if(exact)return exact;
-  const order=((((D&&D.room_style_fallback)||{})[roomId])||{})[styleId]||[];
-  for(const s of order){const rv=m.roomVariants.find(x=>x.styleId===s&&x.roomId===roomId); if(rv)return rv;}
-  return null;
+// только у комнат совсем без вариантов (кухня, санузлы). С home-mix-01 это последний шаг `mixShown` (ниже) — одна функция для
+// карточек, плана квартиры и ссылок `?style=` / `mix=`
+// HOMEMIX START — ВЫБРАННЫЙ ИНТЕРЬЕР КВАРТИРЫ (план home-mix-01, T-20261107-35; Codex 07.11). ХРАНИМ ВЫБОР человека, показанное
+// ВЫЧИСЛЯЕМ: номера вариантов меняются при пересборке витрины, поэтому в состоянии и ссылке — стили, не варианты.
+//   `selected` — 1–2 стиля, первый — основной; `requested` — комната → стиль (только явные ответы: опрос по комнатам, правка комнаты).
+//   Вариант комнаты: назначенный стиль → стиль её зоны → другой выбранный → похожий по карте сборки `room_style_fallback`.
+//   Зоны при двух (Codex: чередовать спальни — произвольно): гостиная и прихожая — основной, спальни (и детская) — второй.
+// Чистые функции без глобалов страницы — тесты `tests/unit/home-mix.test.ts`
+const MIX_VER='1', MIX_STYLE=/^[a-z]{2,20}$/, MIX_ROOM=/^[a-z0-9-]{2,40}$/;
+// выбор в каноничном виде: известные по виду id, без повторов, не больше двух выбранных
+function mixSel(selected, requested){
+  const sel=[], req={};
+  for(const s of selected||[])if(typeof s==='string'&&MIX_STYLE.test(s)&&!sel.includes(s)&&sel.length<2)sel.push(s);
+  for(const r of Object.keys(requested||{}).sort()){const s=requested[r]; if(MIX_ROOM.test(r)&&typeof s==='string'&&MIX_STYLE.test(s))req[r]=s;}
+  return {selected:sel, requested:req};
 }
-// активный ключ: открытый вариант каталога задаёт стиль; открыта коллекция — остаётся выбранный вкладкой стиль
-function homeActive(m){
-  const rv=m.roomVariants.find(x=>x.index===cur), v=allVariants()[cur];
-  // открыта коллекция (своя или по ссылке) — вкладка её стиля («коллекция по ссылке · сканди» → scandi), иначе выбранный вкладкой
-  const cs=v&&v.cid?(STYLE_IDS[String(v.style||'').replace(/^.*·\s*/,'').trim().toLowerCase()]||''):'';
-  // открыт подменённый вариант (стиля вкладки в его комнате нет, `roomVariantFor`) — вкладка остаётся выбранной, не прыгает на стиль замены
-  const sub=rv&&HOME.styleId&&HOME.styleId!==rv.styleId&&m.styles.some(s=>s.id===HOME.styleId)&&roomVariantFor(m,HOME.styleId,rv.roomId)===rv;
-  const styleId=sub?HOME.styleId:rv?rv.styleId:(m.styles.some(s=>s.id===cs)?cs:(m.styles.some(s=>s.id===HOME.styleId)?HOME.styleId:((m.styles[0]||{}).id||'')));
-  return {styleId, roomId:rv?rv.roomId:'living', variantId:rv?rv.variantId:null};
+// выбор против стилей, которые есть на главной сейчас (`ids` — в порядке вкладок): чужие отброшены, пусто — первый стиль (по умолчанию).
+// Сам выбор не переписываем: реестр кадров приходит позже и меняет список стилей — ссылка не должна теряться до его прихода
+function mixEff(sel, ids){
+  ids=ids||[]; const ok=s=>ids.includes(s), s0=sel||{};
+  const selected=(s0.selected||[]).filter(ok).slice(0,2), requested={};
+  for(const r of Object.keys(s0.requested||{}))if(ok(s0.requested[r]))requested[r]=s0.requested[r];
+  if(!selected.length&&ids.length)selected.push(ids[0]);
+  return {selected, requested};
+}
+function mixZone(kind){ return kind==='bedroom'||kind==='nursery'||kind==='kids'?1:0; }
+// стили комнаты по убыванию желания; первый — «запрошено» (менеджеру и `data-style`)
+function mixWant(sel, room){
+  const S=(sel&&sel.selected)||[], want=[], add=s=>{if(s&&!want.includes(s))want.push(s);};
+  add(((sel&&sel.requested)||{})[room.id]); add(S[mixZone(room.kind)]||S[0]); S.forEach(add);
+  return want;
+}
+// показанный вариант комнаты: `rvs` — `homeModel().roomVariants`, `fb` — `D.room_style_fallback`; нет ничего — `rv:null` (плашка)
+function mixShown(rvs, fb, sel, room){
+  const want=mixWant(sel,room), find=s=>rvs.find(x=>x.styleId===s&&x.roomId===room.id);
+  for(const s of want){const x=find(s); if(x)return {rv:x, want:want[0]||''};}
+  for(const s of want)for(const f of (((fb||{})[room.id])||{})[s]||[]){const x=find(f); if(x)return {rv:x, want:want[0]||''};}
+  return {rv:null, want:want[0]||''};
+}
+// параметр ссылки `mix=1.<основной>[.<второй>][.<комната>_<стиль>…]` — точки, `_` и `-` адрес не кодирует. Чужая версия — не наша
+// ссылка (null, дальше разбирается `?style=`); незнакомые части пропускаются — будущие версии добавляют, а не ломают
+function mixEncode(sel){
+  const s=mixSel(sel&&sel.selected, sel&&sel.requested);
+  return s.selected.length?[MIX_VER].concat(s.selected, Object.keys(s.requested).map(r=>r+'_'+s.requested[r])).join('.'):'';
+}
+function mixDecode(str){
+  const t=String(str||'').split('.'); if(t[0]!==MIX_VER)return null;
+  const selected=[], requested={};
+  for(const x of t.slice(1)){const r=x.match(/^([a-z0-9-]{2,40})_([a-z]{2,20})$/); if(r)requested[r[1]]=r[2]; else if(MIX_STYLE.test(x))selected.push(x);}
+  const s=mixSel(selected,requested); return s.selected.length?s:null;
+}
+// АДРЕС → ВЫБОР. Порядок (план home-mix-01): `#v`/`#c` (окно комнаты; выбор квартиры они не задают) → смесь `mix=` → старая
+// `?style=` («этот стиль во всех комнатах») → нет ничего (`sel:null`: опрос или стиль по умолчанию). `room` — комната на главной
+function mixFromUrl(search, hash){
+  const q=new URLSearchParams(String(search||'')), h=String(hash||''), rm=q.get('room')||'';
+  const open=/^#v=/.test(h)?'v':/^#c=/.test(h)?'c':'', room=MIX_ROOM.test(rm)?rm:'';
+  const mx=mixDecode(q.get('mix')); if(mx)return {open, src:'mix', sel:mx, room};
+  const st=q.get('style')||''; if(MIX_STYLE.test(st))return {open, src:'style', sel:mixSel([st],{}), room};
+  return {open, src:'', sel:null, room};
+}
+// адрес главной из выбора: `style=` — всегда основной (старые читатели ссылки и `?style=` обхода опроса), `mix=` — только когда в
+// выборе есть что-то сверх одного стиля; `room` — комната на главной. Возвращает пары «ключ → значение или null (убрать)»
+function mixParams(sel, room){
+  const s=mixSel(sel&&sel.selected, sel&&sel.requested), one=s.selected.length===1&&!Object.keys(s.requested).length;
+  return {style:s.selected[0]||null, mix:s.selected.length&&!one?mixEncode(s):null, room:room||'living'};
+}
+// HOMEMIX END
+// РАСКЛАДКА ГЛАВНОЙ ПО ВЫБОРУ: комната → показанный вариант. Выбор — `HOME.sel` (из адреса, опроса, вкладки); открытая комната
+// (`cur`, `#v`/`#c`) — только окно, раскладку и выбор не меняет (раньше `homeActive` писал стиль открытого окна в `HOME.styleId`).
+// `HOME.styleId` — основной выбранный стиль, для старых читателей (события менеджеру, снимок избранного)
+function homeSel(m){ const e=mixEff(HOME.sel,m.styles.map(s=>s.id)); HOME.styleId=e.selected[0]||''; return e; }
+function homeLayout(m){
+  const e=homeSel(m), fb=(D&&D.room_style_fallback)||{};
+  return m.rooms.map(r=>{const x=r.contentState==='ready'?mixShown(m.roomVariants,fb,e,r):{rv:null, want:mixWant(e,r)[0]||''};
+    return {r, rv:x.rv, want:x.want};});
 }
 function styleParam(){ const m=location.search.match(/[?&]style=([a-z-]{2,20})(?:&|$)/); return m?m[1]:''; }
-HOME.want=styleParam();                 // стиль из ссылки — запоминаем до первой отрисовки
-// стиль — в адресе (`?style=`), остальные параметры (`lang`, `s`, `flat`…) и якорь не трогаем; встроенную страницу не переписываем
-function syncStyleParam(id,room){
-  room=room||'living';
-  if(window.__EMBED||!id||(styleParam()===id&&new URLSearchParams(location.search).get('room')===room))return;
-  // пока открыт опрос (onb-03), `?style=` в адрес не пишем: перезагрузка посреди опроса молча обошла бы его (допущение 4 onb-02)
+HOME.url=mixFromUrl(location.search, location.hash);   // выбор из ссылки — запоминаем до первой отрисовки
+// выбор — в адресе (`?style=`, `mix=`, `room=`), остальные параметры (`lang`, `s`, `flat`…) и якорь не трогаем; встроенную не переписываем
+function syncHomeParam(){
+  if(window.__EMBED||!HOME.sel)return;
+  // пока открыт опрос (onb-03), выбор в адрес не пишем: перезагрузка посреди опроса молча обошла бы его (допущение 4 onb-02)
   if(window.__quiz&&window.__quiz.open)return;
-  try{const u=new URL(location.href); u.searchParams.set('style',id); u.searchParams.set('room',room); history.replaceState(history.state,'',u.pathname+u.search+u.hash);}catch(e){}
+  try{const u=new URL(location.href), P=mixParams(HOME.sel,HOME.room);
+    for(const k of ['style','mix','room']){if(P[k]==null)u.searchParams.delete(k); else u.searchParams.set(k,P[k]);}
+    const to=u.pathname+u.search+u.hash; if(to!==location.pathname+location.search+location.hash)history.replaceState(history.state,'',to);}catch(e){}
+}
+// НОВЫЙ ВЫБОР КВАРТИРЫ (вкладка, итог опроса, окно «Выбрать другой»): раскладка заново, в нижний список — вариант комнаты на главной
+function homeSetSel(sel){
+  HOME.sel=mixSel(sel&&sel.selected, sel&&sel.requested);
+  const m=homeModel(), L=homeLayout(m), c=L.find(x=>x.rv&&x.r.id===HOME.room)||L.find(x=>x.rv);
+  if(c){HOME.room=c.r.id; if(c.rv.index!==cur)pickVariant(c.rv.index);}
+  syncHomeParam(); drawHome(true);
 }
 function homeSelectStyle(id){
-  // вариант того же стиля В ТОЙ ЖЕ КОМНАТЕ, что открыта (onb-07 основа), нет его — похожий в ней же (`roomVariantFor`, style-fallback-01);
-  // нет и такого — гостиная этого стиля, нет и её — любой этого стиля
-  const m=homeModel(), rid=roomIdOf(allVariants()[cur]);
-  const rv=roomVariantFor(m,id,rid)||m.roomVariants.find(x=>x.styleId===id&&x.roomId==='living')||m.roomVariants.find(x=>x.styleId===id);
-  HOME.styleId=id;
-  if(rv&&rv.index!==cur)pickVariant(rv.index);
-  syncStyleParam(id,rv?rv.roomId:'living'); drawHome(true);
+  homeSetSel({selected:[id], requested:{}});
   // ВКЛАДКА ИЗ ЛИПКОЙ ШАПКИ В ЛЮБОМ МЕСТЕ СТРАНИЦЫ (шаг 3): комнаты нового стиля ушли выше — к ним, под липкую шапку
   const rm=document.getElementById('hmRooms'), tb=document.getElementById('styleTabs');
   if(rm&&tb){const top=rm.getBoundingClientRect().top, lim=tb.getBoundingClientRect().bottom;
@@ -4347,40 +4432,40 @@ function homeM2(a){ return a?String(a).replace('.',LANG==='en'?'.':',')+(LANG===
 function drawHome(force){
   const tabs=document.getElementById('styleTabs'), box=document.getElementById('hmRooms'); if(!tabs||!box||!D)return;
   const m=homeModel(), EN=LANG==='en', F=window.__fav;
-  const waitC=/^#c=/.test(location.hash)&&!(allVariants()[cur]||{}).cid;
-  const act=waitC?{styleId:(m.styles.some(s=>s.id===HOME.styleId)?HOME.styleId:((m.styles[0]||{}).id||'')), roomId:'living', variantId:null}:homeActive(m);
-  if(act.styleId&&!waitC){HOME.styleId=act.styleId; if(HOME.ready)syncStyleParam(act.styleId,act.roomId);}
-  const cards=m.rooms.map(r=>{
-    const rv=r.contentState==='ready'?roomVariantFor(m,act.styleId,r.id):null, v=rv?allVariants()[rv.index]:null;
+  // раскладка — по выбору квартиры (`HOME.sel`); открытое окно (`cur`) её не меняет и в выбор не пишет (home-mix-01)
+  const L=homeLayout(m), main=HOME.styleId;
+  const cards=L.map(({r,rv,want})=>{
+    const v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
     // ТОЛЬКО ФОТО НЕЙРОСЕТИ (TG 341, часть 0 T-35): фото нынешней расстановки (правленый вариант, если его сняли; правки комнаты
     // живут в `editRestore`/`variantItems`, photo-sharp-keep-01), иначе `realisticPublishedShot`. Кадр 3D (`liveShot`) и черновик
     // `pubShot` на карточку не идут
     const pc=posterCam(v), bs=bestShot(v,pc), sh=bs&&bs.quality==='realistic'?bs:realisticPublishedShot(v,pc), fav=F&&F.ofState(F.baseState(v));
-    return {r, i:rv.index, v, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), fav:fav?(fav.displayName||''):null};
+    return {r, i:rv.index, v, want, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), fav:fav?(fav.displayName||''):null};
   });
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
-  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, act, m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.img,c.n,c.sum,c.fav]), m.rooms.map(r=>[r.title,r.areaM2])]);
+  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.n,c.sum,c.fav]), m.rooms.map(r=>[r.title,r.areaM2])]);
   homeFavUi();
   if(!force&&sig===HOME.sig)return; HOME.sig=sig;
-  tabs.innerHTML=m.styles.map(s=>`<button class="hm-tab${s.id===act.styleId?' on':''}" role="tab" type="button" data-style="${s.id}" `+
-    `aria-selected="${s.id===act.styleId}">${escHtml(s.title)}</button>`).join('');
+  tabs.innerHTML=m.styles.map(s=>`<button class="hm-tab${s.id===main?' on':''}" role="tab" type="button" data-style="${s.id}" `+
+    `aria-selected="${s.id===main}">${escHtml(s.title)}</button>`).join('');
   const on=tabs.querySelector('.hm-tab.on'); if(on&&on.scrollIntoView&&tabs.scrollWidth>tabs.clientWidth)
     tabs.scrollLeft=Math.max(0,on.offsetLeft-tabs.clientWidth/2+on.offsetWidth/2);
   const plural=n=>EN?(n===1?'item':'items'):(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
   // КОМНАТЫ НА КОМПЬЮТЕРЕ (T-20261106-77 Д5, владелец 06.11: «кнопки комнат справа — по нажатию спальня должна открываться слева»):
   // слева одна большая карточка текущей комнаты, справа список ВСЕХ комнат по плану — готовые нажимаются (`data-room-pick`) и меняют
   // карточку слева без прокрутки, текущая выделена; неготовые неактивны. Телефон — как было: карточки и плашки одним столбцом
-  // (плитки выбора скрыты стилем). Текущая — комната открытого варианта (`homeActive`), нет такой карточки — первая готовая
-  const shown=cards.find(c=>!c.stub&&c.r.id===act.roomId)||cards.find(c=>!c.stub), shownId=shown?shown.r.id:'';
+  // (плитки выбора скрыты стилем). Текущая — `HOME.room` (выбрана плиткой или из `?room=`), нет такой карточки — первая готовая
+  const shown=cards.find(c=>!c.stub&&c.r.id===HOME.room)||cards.find(c=>!c.stub), shownId=shown?shown.r.id:'';
   box.innerHTML=cards.map(c=>{
     const t=`${escHtml(c.r.title)}${c.r.areaM2?` <small>· ${homeM2(c.r.areaM2)}</small>`:''}`;
     if(c.stub)return `<div class="hm-stub" data-room="${c.r.id}" aria-disabled="true"><b>${t}</b><span>${EN?'coming in the next step':'появится следующим шагом'}</span></div>`;
-    // подпись картинки — стиль ПОКАЗАННОГО варианта (у подменённой комнаты он свой); `data-shown` — только у подменённой, для проверок
+    // подпись картинки — стиль ПОКАЗАННОГО варианта (у подменённой комнаты он свой); `data-style` — запрошенный для комнаты стиль
+    // (раскладка, home-mix-01), `data-shown` — только у подменённой, для проверок
     const vs=styleIdOf(c.v), alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===vs)||{}).title), on=c.r.id===shownId;
     return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b>`+
       `<span>${money(c.sum)} · ${c.n} ${plural(c.n)}</span></button>`+
-      `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${act.styleId}"${vs!==act.styleId?` data-shown="${vs}"`:''} data-variant="${escHtml(c.v.id)}">`+
+      `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}"${vs!==c.want?` data-shown="${vs}"`:''} data-variant="${escHtml(c.v.id)}">`+
       `<div class="hm-ph" data-open="${c.i}">`+
       // ЧЁТКО НА КОМПЬЮТЕРЕ (photo-sharp-keep-01, владелец 07.11 TG 349: «фото сжимается, пока не увеличишь»): миниатюра — 640 px,
       // карточка на 1440 — ~712 px (на экране ×2 — 1424): от 900 px браузер берёт по `sizes` миниатюру или полный кадр 2048, телефон —
@@ -4485,7 +4570,7 @@ document.addEventListener('click',e=>{
   const pl=e.target.closest('[data-plan]'); if(pl){e.preventDefault(); showTab('plan'); pageScrollTo(0); return;}
   // комната справа (компьютер, Д5): вариант этой комнаты в текущем стиле — в большую карточку слева; прокрутку не трогаем
   const pk=e.target.closest('[data-room-pick]'); if(pk){const i=+pk.dataset.roomPick; if(!(i>=0))return;
-    if(i!==cur)pickVariant(i); syncStyleParam(HOME.styleId,roomIdOf(allVariants()[i])); drawHome(true); return;}
+    HOME.room=roomIdOf(allVariants()[i]); if(i!==cur)pickVariant(i); syncHomeParam(); drawHome(true); return;}
   const fav=e.target.closest('[data-favorite]'), sh=e.target.closest('[data-share]'), op=e.target.closest('[data-swap],[data-open]');
   if(fav){e.stopPropagation(); const i=+fav.dataset.favorite; if(!window.__fav)return; if(i!==cur)pickVariant(i); window.__fav.toggle(); return;}
   if(sh){e.stopPropagation(); const i=+sh.dataset.share, v=allVariants()[i]||{}; if(!window.__fav)return;
@@ -7415,7 +7500,10 @@ async function liveShotTake(){
     try{var v=allVariants()[cur]||{};
       var names=uniqProducts(variantItems(v).map(skuOf).filter(Boolean)).map(function(x){return x.name;}).slice(0,10);
       // подменённая комната (style-fallback-01): выбран стиль вкладки, показан вариант похожего — менеджеру оба (`chosen`, `shown_style`)
-      var sh=styleIdOf(v), ch=(typeof HOME!=='undefined'&&HOME.styleId)||'', sub=sh&&ch&&sh!==ch&&!v.mine&&!v.cid;
+      // запрошенный — стиль ЭТОЙ комнаты по выбору квартиры (смесь home-mix-01: спальня второго выбранного — не подмена)
+      var rm=homeRooms().filter(function(r){return r.id===roomIdOf(v);})[0];
+      var ch=rm?(mixWant(mixEff(HOME.sel,homeModel().styles.map(function(s){return s.id;})),rm)[0]||''):(HOME.styleId||'');
+      var sh=styleIdOf(v), sub=sh&&ch&&sh!==ch&&!v.mine&&!v.cid;
       return {variant:String(v.style||v.title||'').slice(0,80)||undefined, items:names.map(function(n){return String(n).slice(0,120);}), sum:Math.round(LAST_SUM||0)||undefined,
         chosen:sub?ch:undefined, shown_style:sub?sh:undefined};
     }catch(e){return {};}
@@ -7595,7 +7683,7 @@ function quizPick(rule, answers, available, styleColours){
     var p=param(), h=String(window.__hash0||''), s=String(window.__search0||'');
     if(p==='0'||window.__EMBED)return false;
     var resume=restore(); if(resume&&resume.open)return 'resume';   // перезагрузка посреди опроса — с того же шага (адрес мог переписать сам вид)
-    if(/^#(v=|c=|fav$|plan$)/.test(h)||window.__collHash||/[?&]style=/.test(s))return false;
+    if(/^#(v=|c=|fav$|plan$)/.test(h)||window.__collHash||/[?&](?:style|mix)=/.test(s))return false;   // `mix=` — ссылка «Поделиться интерьером» (home-mix-01)
     if(/[?&]s=/.test(location.search)&&!window.__sendFlat)return false;   // отозванная ссылка менеджера (или её ответ ещё в пути)
     if(p==='1')return true;
     if(!(FLAT&&FLAT.quiz&&FLAT.quiz.enabled))return false;
@@ -8582,7 +8670,7 @@ function quizPick(rule, answers, available, styleColours){
     'Пройтись по квартире в 3D →':'Walk through the flat in 3D →','План квартиры':'Apartment plan','скоро':'soon','Обустроить →':'Furnish →',
     'Посмотреть варианты интерьера':'See interior options','Коллекции расстановок':'Room collections','Выберите готовый вариант или создайте свой':'Pick a ready option or create your own',
     'Открыть':'Open','Ссылка':'Link','Добавить новую расстановку':'Add a new layout','план комнаты, перестановка мебели, свои размеры':'room plan, move furniture, your own sizes',
-    'Избранное':'Favourites','Готово':'Done','Меняйте предметы прямо здесь — план открывать не нужно.':'Swap items right here — no need to open the plan.',
+    'Избранное':'Favourites','Поделиться интерьером':'Share the interior','Готово':'Done','Меняйте предметы прямо здесь — план открывать не нужно.':'Swap items right here — no need to open the plan.',
     'Заменить':'Replace','В магазин':'To shop','Сохранить':'Save','Цвет:':'Colour:','Нет в наличии':'Out of stock','Посмотреть в 3D':'View in 3D','Посмотреть фото с изменениями':'See the photo with changes',
     'Фотография пока с прежней расстановкой.':'The photo still shows the previous layout.',
     'Расстановка готова, но можно сделать реалистичнее.':'The layout is ready — the photo can be made more realistic.',
