@@ -35,7 +35,10 @@ export function contactText(send: Send, ev: BuyerEvent): string {
   const sum = ev.sum ? `, выбрано на ${money(ev.sum, send.market)}` : "";
   const variant = ev.variant ? ` Вариант «${ev.variant}».` : "";
   const items = ev.items?.length ? ` В комнате: ${ev.items.slice(0, 5).join(", ")}.` : "";
-  return `${head(send)}Клиент нажал «${what}»${via ? ` (${via})` : ""}${sum}.${variant}${items} Это клик, не звонок: если не написал — напишите ему сами.`;
+  // комната без выбранного стиля молча показала похожий (style-fallback-01) — менеджер видит правду
+  const sub = ev.chosen && ev.shown_style && ev.chosen !== ev.shown_style
+    ? ` Выбран стиль «${QUIZ_STYLE_RU[ev.chosen]}», в этой комнате его нет — показан похожий «${QUIZ_STYLE_RU[ev.shown_style]}».` : "";
+  return `${head(send)}Клиент нажал «${what}»${via ? ` (${via})` : ""}${sum}.${variant}${sub}${items} Это клик, не звонок: если не написал — напишите ему сами.`;
 }
 
 export function alternativeText(send: Send, ev: BuyerEvent): string {

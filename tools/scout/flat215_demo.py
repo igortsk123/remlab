@@ -557,6 +557,66 @@ def living_room_id() -> str:
     return next((r['id'] for r in demo_apartment().get('rooms') or [] if r.get('kind') == 'living'), 'living')
 
 
+# доли цветовых семейств стиля — функцией страницы (`quizStyleColours`, блок QUIZPICK): одна копия правила на страницу, опрос и сборку
+QUIZ_COLOURS_NODE = r'''
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const m = src.match(/QUIZPICK START[^\n]*\n([\s\S]*?)\n[^\n]*QUIZPICK END/);
+if (!m) { console.log('{}'); process.exit(0); }
+const quizStyleColours = new Function(m[1] + '\nreturn quizStyleColours;')();
+const inp = JSON.parse(fs.readFileSync(0, 'utf8'));
+const out = {};
+for (const [s, v] of Object.entries(inp.variants)) out[s] = quizStyleColours(v, inp.pal);
+console.log(JSON.stringify(out));
+'''
+
+
+def quiz_colours(variants: list, pal: dict | None, root: str) -> dict:
+    """{стиль: доли цвета} — по варианту гостиной стиля (нет — первому его варианту), как опрос страницы. Нет палитры, node или
+    блока QUIZPICK — пусто (карта замен тогда решает равенство порядком вкладок), строка WARN."""
+    if not pal:
+        return {}
+    pick = {}
+    for v in variants:
+        s = v.get('style')
+        if s and (s not in pick or ((v.get('room_id') or 'living') == living_room_id()
+                                    and (pick[s].get('room_id') or 'living') != living_room_id())):
+            pick[s] = v
+    try:
+        r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node -e "$0" "$1"', QUIZ_COLOURS_NODE,
+                            os.path.join(HERE, 'flat215-demo', 'index.html')],
+                           input=json.dumps({'pal': pal, 'variants': pick}, ensure_ascii=False), capture_output=True, text=True,
+                           timeout=120)
+        if r.returncode:
+            raise RuntimeError((r.stderr or r.stdout).strip()[-160:])
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except Exception as e:  # noqa: BLE001 — без палитры карта всё равно строится
+        print(f'WARN:style_fallback_colours: доли цвета стилей не посчитались ({repr(e)[:120]}) — равенство соседей решит порядок вкладок',
+              flush=True)
+        return {}
+
+
+def room_style_fallback(data: dict, root: str) -> dict:
+    """КАРТА ЗАМЕН КОМНАТ (план style-fallback-01, владелец 07.11 TG 309: «молчаливая подмена, вариант А»): `D.room_style_fallback` =
+    {комната: {id стиля вкладки, которого в комнате нет: [id стилей комнаты по порядку замены]}} — правило `demo_room.style_fallback`.
+    Страница (`drawHome`, `homeSelectStyle`, ссылка `?style=&room=`) берёт первый стиль, чей вариант у неё есть, и рисует обычную
+    карточку без пометки. Все комнаты со всеми стилями — пусто (поле не пишется: данные прежние байт в байт)."""
+    import demo_room as R
+    vs = [v for v in data.get('variants') or [] if not v.get('mine') and not v.get('cid') and v.get('style')]
+    tabs = list(dict.fromkeys(v['style'] for v in vs))
+    rooms = {}
+    for v in vs:
+        rooms.setdefault(v.get('room_id') or 'living', []).append(v['style'])
+    if all(set(tabs) <= set(have) for have in rooms.values()):
+        return {}
+    fb = R.style_fallback(rooms, tabs, colours=quiz_colours(vs, (data.get('quiz') or {}).get('palettes'), root))
+    out = {room: {style_id(w): [style_id(s) for s in order if style_id(s)] for w, order in m.items() if style_id(w)}
+           for room, m in fb.items()}
+    for room, m in out.items():
+        print(f'карта замен: {room} — ' + ', '.join(f'{w} → {order[0]}' for w, order in m.items() if order), flush=True)
+    return {room: m for room, m in out.items() if m}
+
+
 def rooms_geo(living: dict, extra: dict | None = None) -> dict:
     """Геометрия комнат витрины `{room_id: комната}` (onb-07 основа). Гостиная — ТОТ ЖЕ объект, что `data['room']` (псевдоним
     для старых читателей: `demo-cams.mjs`, /flat, прогрев); `extra` — другие комнаты (спальни — onb-07 Т2), гостиную не подменяют."""
@@ -2282,6 +2342,9 @@ def main() -> None:
     except (OSError, ValueError):
         prev = None
     data['variant_aliases'] = merge_aliases(prev, data['variants'])
+    fallback = room_style_fallback(data, root)
+    if fallback:
+        data['room_style_fallback'] = fallback
     # ЗАМЕР «МОДЕЛЬ СЕМЕЙСТВА ДРУГОГО ЦВЕТА» В ЛЕНТАХ (demo-05 п.2b) — пока только счёт в журнал, без отсева: отсев обнулил бы
     # ленты стульев и пуфов; лечение — перекраска модели под фото товара
     try:

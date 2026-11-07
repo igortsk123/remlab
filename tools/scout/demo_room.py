@@ -83,6 +83,40 @@ def neighbour_styles(style: str, path: str = STYLE_AXES) -> list:
     return out
 
 
+def colour_sim(a: dict, b: dict) -> float:
+    """Похожесть палитр двух стилей — та же мера, что `quizSim` страницы (блок QUIZPICK): 1 − половина расстояния L1 долей
+    цветовых семейств (1 — одинаковые, 0 — ничего общего). Доли — `quizStyleColours` варианта гостиной стиля."""
+    fams = set(a) | set(b)
+    return 1 - sum(abs((a.get(f) or 0) - (b.get(f) or 0)) for f in fams) / 2
+
+
+def style_fallback(room_styles: dict, tabs: list, neighbours=neighbour_styles, colours: dict | None = None) -> dict:
+    """КОМНАТА БЕЗ ВЫБРАННОГО СТИЛЯ — МОЛЧА ПОХОЖИЙ ВАРИАНТ (план style-fallback-01, владелец 07.11 TG 306/309, вариант А).
+    room_styles — {комната: [стили, чьи варианты в ней есть]}; tabs — стили вкладок главной по порядку (есть хоть в одной комнате);
+    colours — {стиль: доли цветовых семейств варианта гостиной} (мера опроса, `colour_sim`), нет — равенство решает порядок вкладок.
+    → {комната: {стиль вкладки, которого в комнате нет: [стили комнаты по порядку замены]}}: страница берёт первый, чей вариант
+    у неё есть. Порядок: соседи «легко спутать» (`neighbour_styles`) → ближе по палитре → порядок вкладок. Комната без вариантов
+    (кухня, санузлы) в карту не попадает — у неё остаётся плашка; полная комната — тоже (подменять нечего)."""
+    colours = colours or {}
+    pos = {s: i for i, s in enumerate(tabs)}
+    out = {}
+    for room, have in room_styles.items():
+        have = [s for s in dict.fromkeys(have) if s]
+        if not have:
+            continue
+        miss = {}
+        for want in tabs:
+            if want in have:
+                continue
+            near = set(neighbours(want))
+            sim = (lambda s: colour_sim(colours[want], colours[s])) if want in colours else (lambda s: 0.0)
+            miss[want] = sorted(have, key=lambda s: (s not in near, -(sim(s) if s in colours else 0.0),
+                                                     pos.get(s, len(pos)), s))
+        if miss:
+            out[room] = miss
+    return out
+
+
 def base_role(role: str) -> str:
     return re.sub(r'\s+\d+$', '', role or '')
 
