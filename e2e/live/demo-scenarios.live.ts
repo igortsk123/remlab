@@ -103,8 +103,16 @@ test("2.4 режимы в одном окне: «Фото» — только п�
   await expect(page.locator('#shot [data-vm="plan"]')).toHaveCount(0);
   await expect(page.locator("#vFav")).toBeHidden();
   await expect(page.locator("#vShare")).toBeHidden();
-  // строка шторки «<стиль> · Другой стиль для комнаты», шкала с долей этой комнаты, чип с её суммой
-  await expect(page.locator("#vrow .vrow-n")).not.toHaveText("");
+  // смена стиля комнаты: на телефоне — плашка «Сменить стиль» поверх фото, в ряд с «Фото | 3D» (владелец TG 472–477), строки в шторке
+  // нет; на компьютере — строка «<стиль> · Другой стиль для комнаты ›» вверху правой панели. Шкала с долей комнаты, чип с её суммой
+  if ((page.viewportSize()?.width ?? 1280) <= 700) {
+    await expect(page.locator("#vOtherTop")).toBeVisible();
+    await expect(page.locator("#vOtherTop")).toHaveText("Сменить стиль");
+    await expect(page.locator("#vrow")).toBeHidden();
+  } else {
+    await expect(page.locator("#vrow .vrow-n")).not.toHaveText("");
+    await expect(page.locator("#vOtherTop")).toBeHidden();
+  }
   await expect(page.locator("#vsum .cs-room")).toContainText("Эта комната");
   await expect(page.locator("#vchip")).toHaveText(/Мебель и отделка · \d+ \(.+₽\)/);
   for (const m of [...(hasPhoto ? ["photo"] : []), "walk"]) {
