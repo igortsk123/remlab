@@ -116,10 +116,16 @@ def main():
         ok(len(lines) == 2 and lines[1].isdigit(), f'remlab_tmp_free даёт МБ ({r.stdout.strip()!r})')
         home = os.path.join(t, 'home')
         os.makedirs(home)
-        env = {k: v for k, v in os.environ.items() if k != 'REMLAB_TMP'}
+        # без REMLAB_TMP и вне CI (T-20261107-27: на раннере CI/GITHUB_ACTIONS/RUNNER_TEMP заданы — их тоже убрать)
+        env = {k: v for k, v in os.environ.items() if k not in ('REMLAB_TMP', 'CI', 'GITHUB_ACTIONS', 'RUNNER_TEMP')}
         r = subprocess.run(['bash', '-c', '. tools/ops/remlab-tmp.sh; echo "$REMLAB_TMP"'],
                            cwd=ROOT, env={**env, 'HOME': home}, capture_output=True, text=True)
         ok(r.stdout.strip() == os.path.join(home, 'remlab-scratch', 'tmp'), 'по умолчанию — ~/remlab-scratch/tmp')
+        runner = os.path.join(t, 'runner')
+        r = subprocess.run(['bash', '-c', '. tools/ops/remlab-tmp.sh; echo "$REMLAB_TMP"'], cwd=ROOT,
+                           env={**env, 'HOME': home, 'CI': 'true', 'GITHUB_ACTIONS': 'true', 'RUNNER_TEMP': runner},
+                           capture_output=True, text=True)
+        ok(r.stdout.strip() == runner and os.path.isdir(runner), 'в CI без REMLAB_TMP — RUNNER_TEMP (T-13)')
 
     print('demo_rt.sh на подставном дереве (без сети и выкладки):')
     for rc_pub in (0, 1):
