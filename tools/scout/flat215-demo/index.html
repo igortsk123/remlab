@@ -962,6 +962,14 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 #qzBox.on{display:flex}
 .qz-card{background:var(--surface);color:var(--ink);border-radius:20px;box-shadow:var(--e5);width:min(560px,100%);max-height:calc(100dvh - 24px);
  overflow-y:auto;overscroll-behavior:contain;padding:18px 16px 16px;display:flex;flex-direction:column;gap:12px;outline:none}
+/* ВЕРХ ЭКРАНА ВОПРОСА (владелец TG 488–489, T-49): стрелка «‹» назад слева (иконка, 40 px, подпись для чтения с экрана — «Назад»),
+   полоска хода, на экране пары справа — тихая ссылка «Пропустить»; нижних «Назад/Далее» у пары нет — переход по нажатию на фото */
+.qz-top{display:flex;align-items:center;gap:10px;min-height:40px}.qz-top .qz-bar{flex:1 1 auto}
+.qz-up{flex:0 0 auto;width:40px;height:40px;margin-left:-8px;border:0;border-radius:50%;background:none;color:var(--ink);padding:0;cursor:pointer;
+ display:grid;place-items:center}.qz-up svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.qz-up:hover,.qz-up:focus-visible{background:var(--accent-soft);color:var(--accent)}
+.qz-skip{flex:0 0 auto;border:0;background:none;color:var(--muted);font:inherit;font-size:14.5px;padding:8px 0 8px 6px;min-height:40px;cursor:pointer;
+ text-decoration:underline;text-underline-offset:3px}.qz-skip:hover{color:var(--accent)}
 .qz-bar{display:flex;gap:4px}.qz-bar i{flex:1 1 0;height:5px;border-radius:3px;background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--line)}
 .qz-bar i.on{background:var(--accent);box-shadow:none}
 .qz-step{font-size:13px;color:var(--muted);text-align:center;margin-top:-4px}
@@ -1016,13 +1024,17 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   width:100%;max-width:640px;margin:0 auto;padding:calc(14px + env(safe-area-inset-top,0px)) 16px 12px}
 #qzBox .qz-foot{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;width:100%;max-width:640px;margin:0 auto;
   padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));background:var(--qz-bg);box-shadow:0 -1px 0 var(--line)}
+#qzBox .qz-body:last-child{padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+/* телефон, экран пары (T-49): строк «1 из 5» и «Выберите одно» нет — ход видно по полоске, выбор подсказывает сердечко; место — фото */
+@media (max-width:699px){#qzBox .qz-body.qz-pairs .qz-step,#qzBox .qz-body.qz-pairs .qz-sub{display:none}}
 #qzBox .qz-foot .qz-nav{margin-top:0}
 #qzBox .qz-foot .qz-link{min-height:40px}
 .qz-h3{font-size:17px;font-weight:700;text-align:center;margin:10px 0 0}
 /* ПАРА «одно из двух»: два фото во всю ширину, сверху и снизу — делят высоту тела поровну, обе целиком на экране (375×667 и 390×844);
    на широком экране — рядом. Отметка выбора — рамка терракоты и галочка, как у прежних фото опроса */
-.qz-pair{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:10px}
-.qz-pair .qz-ph{flex:1 1 0;min-height:120px}
+.qz-pair{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:10px;margin:0 -8px}
+.qz-pair .qz-ph{flex:1 1 0;min-height:120px;max-height:calc((min(100vw,640px) - 16px) / 1.15 + 24px)}
+.qz-pair .qz-ph b{padding:0 8px}
 .qz-pair .qz-fr{position:relative;display:block;flex:1 1 0;min-height:0}
 .qz-pair .qz-ph .qz-img{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto;border-width:3px}
 .qz-pair .qz-ph b{font-size:15.5px}
@@ -1039,9 +1051,10 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 @media (min-width:700px) and (min-aspect-ratio:1/1){
   #qzBox .qz-body,#qzBox .qz-foot{max-width:none;padding-left:max(32px,env(safe-area-inset-left,0px));padding-right:max(32px,env(safe-area-inset-right,0px))}
   #qzBox .qz-foot .qz-nav{width:100%;max-width:640px;margin:0 auto}
-  .qz-pair{flex-direction:row;align-items:center;justify-content:center;gap:24px}
-  .qz-pair .qz-ph{flex:1 1 0;min-width:0;min-height:0;max-width:calc((100dvh - 260px) * 4 / 3)}
-  .qz-pair .qz-fr{flex:0 0 auto;width:100%;height:min(calc(100dvh - 280px),calc((100vw - 88px) * .41))}
+  .qz-pair{flex-direction:row;align-items:center;justify-content:center;gap:16px;margin:0 -8px}
+  .qz-pair .qz-ph{flex:1 1 0;min-width:0;min-height:0;max-height:none;max-width:calc((100dvh - 200px) * 1.38)}
+  .qz-pair .qz-ph b{padding:0}
+  .qz-pair .qz-fr{flex:0 0 auto;width:100%;height:min(calc(100dvh - 200px),calc((100vw - 80px) / 2 / 1.15))}
   .qz-pair .qz-ph b{font-size:17px}
   .qz-heart{width:52px;height:52px;right:14px;bottom:14px}.qz-heart svg{width:28px;height:28px}
 }
@@ -8251,6 +8264,10 @@ function quizPick(rule, answers, available, styleColours){
     }).filter(Boolean);
   }
   function roomPhotos(st){return roomStyles(st).filter(function(s){return s.real&&s.img;});}
+  // ВОПРОС ЦВЕТОВ (владелец TG 492, T-49): `enabled:false` в правиле — вопроса нет, в подбор (вклад цвета 0) и события цвета не идут;
+  // код подбора по цвету цел — экран возвращается правкой `rules/quiz.json`
+  function colOn(){var q=question('colours'); return !!q&&q.enabled!==false;}
+  function cols(){return colOn()?Q.a.colours:[];}
   function hasKid(){var q=question('household'), kid=((q&&q.options)||[]).filter(function(o){return o.ages;})[0]; return !!kid&&Q.a.household.indexOf(kid.id)>=0;}
   // ПАРЫ ЭКРАНОВ: `style_pairs` правила (нет — `PAIRS0`), первые 2 с фото нейросети у обоих стилей (`quizPairs`, блок HOMEMIX). До реестра
   // кадров — по наличию варианта комнаты (плитки-заглушки без нажатия), после — по фото. Комната: стиль — гостиная, спальня — спальня
@@ -8276,7 +8293,7 @@ function quizPick(rule, answers, available, styleColours){
     var r=rule(), st=styles(), sc={}, ph=roomPhotos('living');
     Q._pickReady=shotsReady();
     st.forEach(function(s){sc[s.id]=s.v?quizStyleColours(s.v,r.palettes):{};});
-    var lv=liked('sp'), out=quizPick(r,{photos:lv, colours:Q.a.colours, household:Q.a.household}, (ph.length?ph:st).map(function(s){return s.id;}), sc);
+    var lv=liked('sp'), out=quizPick(r,{photos:lv, colours:cols(), household:Q.a.household}, (ph.length?ph:st).map(function(s){return s.id;}), sc);
     // ответы экранов стиля — первыми и В ПОРЯДКЕ ЭКРАНОВ (TG 413: экран 1 — гостиная): первая карточка итога и «Выбрать» по умолчанию —
     // ответ экрана 1, а не тот, кого подбор по цветам поставил выше
     var mine=lv.filter(function(id){return out.indexOf(id)>=0;});
@@ -8287,17 +8304,24 @@ function quizPick(rule, answers, available, styleColours){
     b=document.createElement('div'); b.id='qzBox'; b.setAttribute('role','dialog'); b.setAttribute('aria-modal','true');
     b.innerHTML='<div class="qz-card" tabindex="-1"></div>'; document.body.appendChild(b); return b;
   }
-  function bar(st){
+  // ВЕРХ ЭКРАНА ВОПРОСА (владелец TG 488–489, T-20261107-49): «‹» назад — прежняя нижняя «Назад» (тот же `data-qz=back`); `skip` —
+  // тихая ссылка «Пропустить» (экран пары без ответа: прежняя нижняя «Пропустить»; ответ есть — его нажимают на фото ещё раз)
+  var UP_SVG='<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
+  function bar(st,skip){
     var L=asked(), N=L.length, n=Math.max(1,L.indexOf(st)+1);   // считаются только показанные вопросы: шаг без фото пропущен — «1 из 3»
     var t=''; for(var i=1;i<=N;i++)t+='<i'+(i<=n?' class="on"':'')+'></i>';
-    return '<div class="qz-bar" aria-hidden="true">'+t+'</div><div class="qz-step">'+n+(EN()?' of '+N:' из '+N)+'</div>';
+    return '<div class="qz-top"><button class="qz-up" type="button" data-qz="back" aria-label="'+(EN()?'Back':'Назад')+'">'+UP_SVG+'</button>'+
+      '<div class="qz-bar" aria-hidden="true">'+t+'</div>'+
+      (skip?'<button class="qz-skip" type="button" data-qz="next">'+(EN()?'Skip':'Пропустить')+'</button>':'')+'</div>'+
+      '<div class="qz-step">'+n+(EN()?' of '+N:' из '+N)+'</div>';
   }
   // ЭКРАН = ТЕЛО + НИЗ (quiz-pairs-01, владелец TG 408–409: «кнопки внизу всегда прилеплены»): тело листается само, низ — вне листания,
   // всегда виден (у Safari — над панелью и полосой «домой», `safe-area-inset-bottom`)
-  function page(body,foot){return '<div class="qz-body">'+body+'</div><div class="qz-foot">'+foot+'</div>';}
+  // низа нет (экран пары: переход по нажатию на фото, T-49) — только тело, оно и держит поле над полосой «домой»
+  function page(body,foot){return '<div class="qz-body">'+body+'</div>'+(foot?'<div class="qz-foot">'+foot+'</div>':'');}
+  // низ экрана с выбором нескольких ответов — одна «Далее» (назад — стрелка вверху, T-49)
   function nav(canNext,nextText){
-    return '<div class="qz-nav"><button class="btn qz-back" type="button" data-qz="back">'+(EN()?'Back':'Назад')+'</button>'+
-      '<button class="btn primary qz-next" type="button" data-qz="next"'+(canNext?'':' disabled')+'>'+esc(nextText||(EN()?'Next':'Далее'))+'</button></div>';
+    return '<div class="qz-nav"><button class="btn primary qz-next" type="button" data-qz="next"'+(canNext?'':' disabled')+'>'+esc(nextText||(EN()?'Next':'Далее'))+'</button></div>';
   }
   var TICK='<span class="qz-tick" aria-hidden="true">✓</span>';
   var HEART_SVG='<svg viewBox="0 0 24 24" width="24" height="24" focusable="false"><path d="M12 20.3s-7.4-4.5-9.4-9C1.2 8.1 3.1 4.5 6.6 4.5c2.1 0 3.6 1.2 5.4 3.3 1.8-2.1 3.3-3.3 5.4-3.3 3.5 0 5.4 3.6 4 6.8-2 4.5-9.4 9-9.4 9z"/></svg>';
@@ -8319,11 +8343,12 @@ function quizPick(rule, answers, available, styleColours){
   // ЭКРАН ПАРЫ (quiz-pairs-01): «Какой стиль вам ближе?» — два крупных фото, сверху и снизу (на компьютере рядом), выбрать одно — через
   // ~300 мс следующий экран (отметка успевает показаться); «Назад» показывает прежний выбор. Подпись — «Вариант N», номер общий с главной
   // (`homeVarNo`): название стиля покупателю не говорим (TG 341–342), в ответах (`Q.a.sp`/`bp`, `data-pp`) — id стиля, менеджеру нужна правда.
-  // Низ: «Назад» и «Пропустить» (выбрано — «Далее»). Текст — из правила (`style` / `bedroom_style`), у прежней сборки их нет — свой
+  // Низа нет (владелец TG 488–489, T-49): назад — стрелка «‹» вверху, «Пропустить» — ссылка там же (выбрано — жмут фото ещё раз).
+  // Заголовок — по комнате (TG 491): текст из правила (`style` — гостиная, `bedroom_style`, `nursery_style`), у прежней сборки их нет — свой
   // Экран 5 при «С детьми» — про детскую (TG 413): своих фото детской нет — пара спален, другой заголовок
-  var QTXT={style:{ru:'Какой стиль вам ближе?', en:'Which style do you like more?', hint_ru:'Выберите одно', hint_en:'Pick one'},
+  var QTXT={style:{ru:'Какой стиль гостиной вам ближе?', en:'Which living room style do you like more?', hint_ru:'Выберите одно', hint_en:'Pick one'},
     bedroom_style:{ru:'Какой стиль спальни вам ближе?', en:'Which bedroom style do you like more?', hint_ru:'Выберите одно', hint_en:'Pick one'},
-    nursery_style:{ru:'Какой стиль детской вам ближе?', en:'Which children’s room style do you like more?', hint_ru:'Выберите одно', hint_en:'Pick one'}};
+    nursery_style:{ru:'Какой стиль детской вам ближе?', en:'Which kids’ room style do you like more?', hint_ru:'Выберите одно', hint_en:'Pick one'}};
   function screenPair(stp){
     var P=PAIRQ[stp], key=P[0], kind=key==='bp'?'bedroom':'living';
     var qid=key==='sp'?'style':(stp==='b2'&&hasKid()?'nursery_style':'bedroom_style'), qt=question(qid)||QTXT[qid];
@@ -8337,8 +8362,7 @@ function quizPick(rule, answers, available, styleColours){
         (ready&&s.img?'':' disabled')+'><span class="qz-fr">'+
         (ready&&s.img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'<span class="qz-img"></span>')+
         '<span class="qz-heart" aria-hidden="true">'+HEART_SVG+'</span></span><b>'+esc(nm)+'</b></button>';}).join('');
-    return page(bar(stp)+'<h2 class="qz-h" id="qzH">'+esc(tr(qt,''))+'</h2><p class="qz-sub">'+esc(tr(qt,'hint'))+'</p><div class="qz-pair">'+tiles+'</div>',
-      nav(true, cur?'':(EN()?'Skip':'Пропустить')));
+    return page(bar(stp,!cur)+'<h2 class="qz-h" id="qzH">'+esc(tr(qt,''))+'</h2><p class="qz-sub">'+esc(tr(qt,'hint'))+'</p><div class="qz-pair">'+tiles+'</div>','').replace('class="qz-body"','class="qz-body qz-pairs"');
   }
   // ЭКРАН ВОПРОСОВ (quiz-pairs-01 п.3): «Кто будет жить» (+ сколько детей и возраст) и цвета — одним экраном
   function about(){
@@ -8352,13 +8376,13 @@ function quizPick(rule, answers, available, styleColours){
     var ages=withKid?'<div class="qz-lbl">'+(EN()?'Children’s age':'Возраст детей')+'</div><div class="qz-chips">'+
       kid.ages.map(function(o){return chip(o,Q.a.ages,'data-age');}).join('')+'</div>':'';
     var qc=question('colours'), co=(qc&&qc.options)||[];
-    var cols='<h3 class="qz-h3">'+esc(tr(qc,''))+'</h3><p class="qz-sub">'+esc(tr(qc,'hint'))+'</p><div class="qz-cols">'+
+    var colsH=!colOn()?'':'<h3 class="qz-h3">'+esc(tr(qc,''))+'</h3><p class="qz-sub">'+esc(tr(qc,'hint'))+'</p><div class="qz-cols">'+
       co.map(function(o){var on=Q.a.colours.indexOf(o.id)>=0;
         return '<button class="qz-opt" type="button" data-col="'+esc(o.id)+'" aria-pressed="'+on+'"><span class="qz-dots" aria-hidden="true">'+
           (o.dots||[]).map(function(d){return '<i style="background:'+esc(d)+'"></i>';}).join('')+'</span><span class="qz-ol">'+esc(tr(o,''))+'</span>'+(on?TICK:'')+'</button>';}).join('')+'</div>';
     var last=!stepOn('b1')&&!stepOn('b2');   // экранов спальни нет (пар с фото спален не хватает) — дальше сразу итог
     return page(bar('about')+'<h2 class="qz-h" id="qzH">'+esc(tr(q,''))+'</h2><p class="qz-sub">'+esc(tr(q,'hint'))+'</p>'+
-      '<div class="qz-chips">'+opts.map(function(o){return chip(o,Q.a.household,'data-hh');}).join('')+'</div>'+kids+ages+cols,
+      '<div class="qz-chips">'+opts.map(function(o){return chip(o,Q.a.household,'data-hh');}).join('')+'</div>'+kids+ages+colsH,
       nav(true, last?(EN()?'Show the designs':'Показать варианты'):''));
   }
   // ПОДПИСЬ ВАРИАНТА НА ИТОГЕ — «Вариант N», тот же номер, что на шаге гостиной (владелец, голос TG 368, T-20261107-28/2): название
@@ -8372,8 +8396,8 @@ function quizPick(rule, answers, available, styleColours){
     // итог коротко — «Ваш стиль — Вариант N» (владелец 06.11, T-20261106-94; подпись — TG 368), похожие отмечены на карточках
     var st=styles(), lv=liked('sp'), mine0=Q.pick.filter(function(id){return lv.indexOf(id)>=0;}), L=mine0.map(optName);
     // в подписи итога — «Вариант N», не название стиля (T-20261107-28/3); слово «стиль» есть только в вопросах пар (TG 409)
-    var sub=EN()?(mine0.length?'Your closest match — '+L.join(' and '):'Options close to your colours')
-      :(mine0.length?'Вам ближе всего — '+L.join(' и '):'Варианты, близкие вашим цветам');
+    var sub=EN()?(mine0.length?'Your closest match — '+L.join(' and '):(colOn()?'Options close to your colours':'Options for your apartment'))
+      :(mine0.length?'Вам ближе всего — '+L.join(' и '):(colOn()?'Варианты, близкие вашим цветам':'Варианты для вашей квартиры'));
     var cards=Q.pick.map(function(id){var s=st.filter(function(x){return x.id===id;})[0]||{id:id,title:id}, mine=lv.indexOf(id)>=0;
       var ps=s.v?variantProducts(s.v):[], n=ps.length, sum=s.v?money(variantPrice(s.v)):'';
       var img=s.real&&s.img;   // черновой 3D-кадр и пустую плашку не показываем — карточка без картинки, только текст
@@ -8441,7 +8465,7 @@ function quizPick(rule, answers, available, styleColours){
     if(sel)homeSetSel(sel);
     var mx=sel?homeMixReport():{styles:[], rooms:[]}, kid=hasKid();
     var ev={kind:'quiz_done', picked:ans.living, pickedBedroom:ans.bedroom.length?ans.bedroom:undefined, household:Q.a.household.slice(),
-      childAge:kid&&Q.a.ages.length?Q.a.ages.slice():undefined, kids:kid&&Q.a.kids||undefined, colours:Q.a.colours.slice(), result:Q.pick.slice(0,3),
+      childAge:kid&&Q.a.ages.length?Q.a.ages.slice():undefined, kids:kid&&Q.a.kids||undefined, colours:cols().length?cols().slice():undefined, result:Q.pick.slice(0,3),
       chosen:chosen?main:undefined, styles:mx.styles.length?mx.styles:undefined, rooms:mx.rooms.length?mx.rooms:undefined};
     var pre=function(p,L){return (L||[]).map(function(x){return p+x;});};
     tell({ev:ev, counters:['quiz_done'].concat(pre('quiz_photo:',ans.living), pre('quiz_bedroom:',ans.bedroom), pre('quiz_result:',ev.result),

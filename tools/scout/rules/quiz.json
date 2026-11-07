@@ -4,8 +4,8 @@
   "questions": [
     {
       "id": "style",
-      "ru": "Какой стиль вам ближе?",
-      "en": "Which style do you like more?",
+      "ru": "Какой стиль гостиной вам ближе?",
+      "en": "Which living room style do you like more?",
       "hint_ru": "Выберите одно",
       "hint_en": "Pick one",
       "pairs_max": 2,
@@ -25,7 +25,7 @@
     {
       "id": "nursery_style",
       "ru": "Какой стиль детской вам ближе?",
-      "en": "Which children’s room style do you like more?",
+      "en": "Which kids’ room style do you like more?",
       "hint_ru": "Выберите одно",
       "hint_en": "Pick one",
       "options_from": "style_pairs",
@@ -64,6 +64,8 @@
       "en": "Which colours do you like?",
       "hint_ru": "До двух",
       "hint_en": "Up to two",
+      "enabled": false,
+      "_enabled_why": "Экран цветов выключен (владелец 07.11 TG 492: «не надо цвета спрашивать», T-20261107-49/1): вопроса нет, вклад цвета в подбор 0, в событиях поля цветов нет. Код подбора по цвету цел — вернуть экран: убрать поле или true.",
       "min": 0,
       "max": 2,
       "options": [
