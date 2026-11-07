@@ -15,8 +15,10 @@ OUT=${RT_OUT:-$HOME/scout-scenes/flat3d-rt}
 # таблица копий ложится рядом с её demo-data.json (RT_TABLE_OUT), витрина /demo не трогается.
 export RT_TABLE_OUT=${RT_TABLE_OUT:-$(dirname "$DATA")/rt-meshes.json}
 [ -f "$M" ] || cp data/flat3d/runtime-meshes.json "$M"
-"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 1024 2>&1 | tail -2
-"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite 2>&1 | tail -2
+# итог и строки WARN сторожа текстур (T-20261107-15: битая копия не пишется, без KTX2 — запасная JPEG) — в сводку ночи
+SUM='^(WARN:|готово:|вес:)'
+"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 1024 2>&1 | grep -E "$SUM"
+"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite 2>&1 | grep -E "$SUM"
 bad=0
 # вывод выкладки — в REMLAB_TMP на диске, не в /tmp (T-20261107-02: ночью 07.11 запись сюда упала на квоте tmpfs — EDQUOT,
 # и демо не опубликовалось); свой файл убираем при любом выходе

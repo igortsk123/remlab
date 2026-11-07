@@ -25,6 +25,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import datetime as dt
 import hashlib
 import html
@@ -171,12 +173,25 @@ def glb_textures(b: bytes) -> tuple[int, list[str]]:
             probs.append(f'текстура {ti} без картинки')
             continue
         im = imgs[src]
-        if 'bufferView' not in im:
-            probs.append(f'картинка {src} снаружи файла ({str(im.get("uri", ""))[:30]})')
+        uri = str(im.get('uri') or '')
+        if 'bufferView' in im:
+            bv = bvs[im['bufferView']]
+            s, ln = int(bv.get('byteOffset') or 0), int(bv.get('byteLength') or 0)
+            raw, mime = (binb[s:s + ln] if s + ln <= len(binb) else b''), im.get('mimeType', '')
+        elif uri.startswith('data:'):
+            # КАРТИНКА В data-URI (T-20261107-15): gltfpack при сбое KTX2 (квота /tmp, 07.11) пишет `data:image/png;base64,ERR/`
+            # и выходит с кодом 0 — base64 должен декодироваться строго, а байты — нести подпись PNG/JPEG/KTX2
+            head, _, body = uri.partition(',')
+            try:
+                raw = base64.b64decode(body, validate=True) if head.endswith(';base64') else urllib.parse.unquote_to_bytes(body)
+            except (ValueError, binascii.Error) as e:
+                probs.append(f'картинка {src}: data-URI не декодируется ({str(e)[:40]}; {uri[:30]})')
+                continue
+            mime = head[5:].split(';')[0]
+        else:
+            probs.append(f'картинка {src} снаружи файла ({uri[:30]})')
             continue
-        bv = bvs[im['bufferView']]
-        s, ln = int(bv.get('byteOffset') or 0), int(bv.get('byteLength') or 0)
-        why = check_image(binb[s:s + ln] if s + ln <= len(binb) else b'', im.get('mimeType', ''))
+        why = check_image(raw, mime)
         if why:
             probs.append(f'картинка {src}: {why}')
         else:
