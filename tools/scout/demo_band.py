@@ -247,7 +247,7 @@ def rooms_compute(living_generate: int) -> dict:
             out['notes'].append(f"{room}: банка нет ({', '.join(cfg.get('bank') or []) or 'пути не заданы'}) — места не считаю")
             continue
         try:
-            Q = RMD.room_quota(room, bank, cfg['roles'])
+            Q = RMD.room_quota(room, bank, cfg['roles'], share=cfg.get('share'))
         except Exception as e:  # noqa: BLE001 — сбой комнаты не останавливает гостиную и другие комнаты
             out['notes'].append(f'WARN:demo_band: комната {room}: {type(e).__name__}: {e}')
             continue
@@ -420,6 +420,11 @@ def _selftest() -> int:
        and room_bank('hall', {'bank': ['/nope.json']}, env={}) is None)
     ok('комнаты: доли ролей в правилах — сумма 30 на (комната × стиль)',
        all(sum(v['roles'].values()) == 30 for v in ROOMS.values()), {k: sum(v['roles'].values()) for k, v in ROOMS.items()})
+    # T-20261107-10/2: распашной «шкаф» прихожей — член доли шкафа-купе (купе + распашной = 8), сумма долей остаётся 30
+    import room_mesh_demand as RMD
+    ok('комнаты: общие доли (share) проходят проверку quota_share; прихожая — «шкаф» в доле «шкаф-купе», своей доли нет',
+       all(RMD.quota_share(v['roles'], v.get('share')) is not None for v in ROOMS.values())
+       and ROOMS['hall'].get('share') == {'шкаф': 'шкаф-купе'} and 'шкаф' not in ROOMS['hall']['roles'])
     print(f'demo_band selftest: ошибок {bad}')
     return 1 if bad else 0
 

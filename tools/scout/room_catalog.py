@@ -211,6 +211,8 @@ def role_guard(role: str, name: str, d: dict, R: dict) -> str | None:
     if g.get('name_deny') and re.search(g['name_deny'], name or '', re.I):
         return 'название: ' + re.search(g['name_deny'], name, re.I).group(0)
     low = [f'{k} {d[k]:g} < {lo}' for k, lo in g.get('min', {}).items() if d.get(k) and float(d[k]) < lo]
+    # `max` (T-20261107-10/2): верхний предел роли комнаты — распашной шкаф прихожей Ш ≤ 200, Г ≤ 66 (в спальне ключа нет)
+    low += [f'{k} {d[k]:g} > {hi}' for k, hi in g.get('max', {}).items() if d.get(k) and float(d[k]) > hi]
     return 'габарит: ' + ', '.join(low) if low else None
 
 

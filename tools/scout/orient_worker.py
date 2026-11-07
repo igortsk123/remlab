@@ -150,11 +150,37 @@ def cat_role_known(role) -> bool:
     return str(role or '').strip() not in CAT_ROLE_UNKNOWN
 
 
-def pick_role(cat: tuple | None, demand: tuple | None) -> tuple[str, str, str]:
-    """Порядок ролей (T-20261105-56/5 правки): известная роль каталога (`products.cat_role`) главнее `mesh_demand` —
-    там роль замораживается при постановке задания и отстаёт от каталога (пуф «Красавчик» оставался диваном). Каталог
-    не знает роли (`CAT_ROLE_UNKNOWN`) → `mesh_demand`, затем что есть в каталоге, иначе «?» (дальше — манифест).
-    cat/demand — (роль, имя) или None."""
+# Узкая роль → общая, которую она уточняет (T-20261107-10/2): один SKU в двух комнатах (68 шкафов-купе divan.ru — «шкаф» в
+# спальне и «шкаф-купе» в прихожей) берёт узкую — у неё точнее перед и подсказка VLM («раздвижные двери», не «дверцы»).
+ROLE_NARROWER = {'шкаф-купе': 'шкаф'}
+
+
+def pick_room_role(rows) -> tuple[str, str] | None:
+    """Роль SKU по строкам `room_catalog` (спальня, прихожая; [(роль, имя)]) → (роль, имя) или None (T-20261107-10/2,
+    Codex 07.11). Одна известная роль — она. Несколько: общая, уточнённая присутствующей узкой (`ROLE_NARROWER`), уходит;
+    из оставшихся направленная главнее ненаправленной; дальше — первая по алфавиту (детерминированно, не по порядку
+    комнат в JSON). Чистая функция."""
+    rs: dict = {}
+    for role, name in rows or ():
+        if cat_role_known(role):
+            rs.setdefault(role.strip(), name or '')
+    if not rs:
+        return None
+    cand = [r for r in rs if not any(ROLE_NARROWER.get(o) == r for o in rs)] or list(rs)
+    cand = [r for r in cand if directed_role(r, rs[r])] or cand
+    r = sorted(cand)[0]
+    return r, rs[r]
+
+
+def pick_role(cat: tuple | None, demand: tuple | None, room: tuple | None = None) -> tuple[str, str, str]:
+    """Порядок ролей. (0) Роль КОМНАТЫ (`room_catalog`, `pick_room_role`; T-20261107-10/2, Codex 07.11) главнее всего:
+    каталог гостиной (`products.cat_role`) знает товар прихожей по своей роли — банкетку как «пуф» (симметричный
+    [0,90,180,270] вместо «по спинке»), консоль как «комод», шкаф-купе как «шкаф». (1) Известная роль каталога
+    (`products.cat_role`) главнее `mesh_demand` (T-20261105-56/5 правки) — там роль замораживается при постановке задания
+    и отстаёт от каталога (пуф «Красавчик» оставался диваном). Каталог не знает роли (`CAT_ROLE_UNKNOWN`) → `mesh_demand`,
+    затем что есть в каталоге, иначе «?» (дальше — манифест). cat/demand/room — (роль, имя) или None."""
+    if room and cat_role_known(room[0]):
+        return room[0], room[1] or (cat[1] if cat else '') or (demand[1] if demand else ''), ''
     if cat and cat_role_known(cat[0]):
         return cat[0], cat[1] or (demand[1] if demand else ''), ''
     if demand:
@@ -167,6 +193,10 @@ def pick_role(cat: tuple | None, demand: tuple | None) -> tuple[str, str, str]:
 def role_of(sku: str | None) -> tuple[str, str, str]:
     if not sku:
         return '?', '', ''
+    room = pick_room_role([(r[0], r[1]) for r in db(f"""select role, coalesce(name,'') from room_catalog
+                                                       where shop_mid||':'||external_id={q(sku)}""") or [] if len(r) >= 2])
+    if room:
+        return pick_role(None, None, room)
     rows = db(f"""select coalesce(cat_role,''), coalesce(name,''), ''
                    from products where shop_mid||':'||external_id={q(sku)}""")
     cat = (rows[0][0], rows[0][1]) if rows and len(rows[0]) >= 2 else None
@@ -178,11 +208,12 @@ def role_of(sku: str | None) -> tuple[str, str, str]:
 
 
 def role_index(skus) -> dict:
-    """`role_of` для многих SKU двумя запросами (тот же порядок: `pick_role`) — `pending_meshes` смотрит
+    """`role_of` для многих SKU тремя запросами на пачку (тот же порядок: `pick_room_role` → `pick_role`) — `pending_meshes` смотрит
     тысячи ревизий, по запросу на каждую выходило бы по 2 вызова psql на меш. SKU без строк — нет в словаре."""
     skus = sorted({s for s in skus if s and s != '?'})
     cat: dict = {}
     dem: dict = {}
+    rooms: dict = {}
     for i in range(0, len(skus), 500):
         inl = ','.join(q(s) for s in skus[i:i + 500])
         for r in db(f"""select shop_mid||':'||external_id, coalesce(cat_role,''), coalesce(name,'')
@@ -192,7 +223,12 @@ def role_index(skus) -> dict:
         for r in db(f"select sku, role, coalesce(name,'') from mesh_demand where sku in ({inl})") or []:
             if len(r) >= 3:
                 dem[r[0]] = (r[1], r[2])
-    return {s: pick_role(cat.get(s), dem.get(s)) for s in set(cat) | set(dem)}
+        for r in db(f"""select shop_mid||':'||external_id, role, coalesce(name,'') from room_catalog
+                          where shop_mid||':'||external_id in ({inl})""") or []:
+            if len(r) >= 3:
+                rooms.setdefault(r[0], []).append((r[1], r[2]))
+    room = {s: pick_room_role(v) for s, v in rooms.items()}
+    return {s: pick_role(cat.get(s), dem.get(s), room.get(s)) for s in set(cat) | set(dem) | set(room)}
 
 
 def current_role(sku: str | None, glb: str, roles: dict | None = None) -> tuple[str, str, str]:

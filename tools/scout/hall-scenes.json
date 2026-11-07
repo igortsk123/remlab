@@ -81,13 +81,17 @@
   "wardrobe_only": [["шкаф-купе", 180, 60, 230]],
   "big_wardrobe": [["шкаф-купе", 200, 60, 240], ["обувница", 99, 39, 44]],
   "no_storage": [["обувница", 99, 39, 44], ["банкетка", 80, 43, 49], ["зеркало", 50, 3, 150]],
-  "_why": "full — Тебар 150×60×240, Енссон 99×39×44, Аймо 80×43×49, Торвалль 90×40×81, Сайрис 46×17×92, Линн 50×150 (настенное, толщина 3 — гипотеза); standard — Беррингтон 160×60×240, Торвалль 60×23×107, Эдин 120×40×46, Glasar 60×5×60 → 60×3; slim — узкие; module — Неста 77×190 (глубина 35 — ГИПОТЕЗА, у карточки нет); floor_hanger — Ника вк4 60×60×180, этажерка Fixwood 51×19×65, банкетка TC 67×31×49, Glasar 70×4×70"
+  "hinged": [["шкаф", 200, 50, 240], ["обувница", 99, 39, 44], ["банкетка", 80, 43, 49], ["зеркало", 50, 3, 150]],
+  "hinged_narrow": [["шкаф", 93, 50, 214], ["обувница", 60, 23, 107], ["зеркало", 60, 3, 60]],
+  "_why": "full — Тебар 150×60×240, Енссон 99×39×44, Аймо 80×43×49, Торвалль 90×40×81, Сайрис 46×17×92, Линн 50×150 (настенное, толщина 3 — гипотеза); standard — Беррингтон 160×60×240, Торвалль 60×23×107, Эдин 120×40×46, Glasar 60×5×60 → 60×3; slim — узкие; module — Неста 77×190 (глубина 35 — ГИПОТЕЗА, у карточки нет); floor_hanger — Ника вк4 60×60×180, этажерка Fixwood 51×19×65, банкетка TC 67×31×49, Glasar 70×4×70; hinged — распашной Амели 4-200×50×240 (T-20261107-10/2: фронт створки 90 — шкаф 50 + 90 = 140 < 153), hinged_narrow — Монблан 2-93×50×214"
  },
  "scenes": [
   {"id": "flat215-drawing-full", "room": "flat215:hall:drawing-180", "kit": "full", "expect": "solve", "purpose": "flat215: полный набор"},
   {"id": "flat215-drawing-standard", "room": "flat215:hall:drawing-180", "kit": "standard", "expect": "solve", "purpose": "flat215: купе + обувница + банкетка + зеркало"},
   {"id": "flat215-drawing-slim", "room": "flat215:hall:drawing-180", "kit": "slim", "expect": "solve", "purpose": "flat215: без шкафа — вешалка"},
   {"id": "flat215-drawing-module", "room": "flat215:hall:drawing-180", "kit": "module", "expect": "solve", "purpose": "flat215: модуль-прихожая"},
+  {"id": "flat215-drawing-hinged", "room": "flat215:hall:drawing-180", "kit": "hinged", "expect": "solve", "purpose": "flat215: распашной шкаф 200 вместо купе (T-20261107-10/2)"},
+  {"id": "flat215-l-hinged-narrow", "room": "flat215:hall:l-doors", "kit": "hinged_narrow", "expect": "solve", "purpose": "flat215 Г-образная: узкий распашной"},
   {"id": "flat215-drawing-floorhanger", "room": "flat215:hall:drawing-180", "kit": "floor_hanger", "expect": "solve", "purpose": "flat215: напольная вешалка"},
   {"id": "flat215-registry-full", "room": "flat215:hall:registry-93", "kit": "full", "expect": "solve", "purpose": "flat215 9,3 м²: полный набор"},
   {"id": "east-entry-full", "room": "east153x620", "kit": "full", "expect": "solve", "purpose": "вход с востока по флагу is_entrance (геометрия бывшего варианта flat215 entrance-east): полный набор"},

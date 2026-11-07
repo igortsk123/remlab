@@ -824,45 +824,88 @@ def quota_table(slots: dict, styles: list, items: list, states: dict, shown: set
                     weights = {v[1]: 1 for v in best.values()}
                 else:
                     weights = {sku: len(us) for sku, us in per_mesh.items()}
-                order = sorted(best.values(), key=lambda v: (v[0][0], -weights[v[1]]) + v[0][1:])
+                rk = lambda v: (v[0][0], -weights[v[1]]) + v[0][1:]  # noqa: E731
+                order = sorted(best.values(), key=rk)
                 n = lambda k: len(c.get(k) or ())  # noqa: E731
                 table.append({'room_id': rid, 'style': st, 'role': role, 'unit': unit, 'fit': n('fit'), 'cand': n('cand'),
                               'covered': n('covered'), 'job': n('job'), 'photo_wait': n('photo'),
                               'mesh_other': n('has_mesh') + n('blocked') + n('defect'), 'not_job': n('not_job'),
                               'shown_jobs': sum(1 for v in best.values() if v[0][0] == 0),
-                              'ranked': [v[1] for v in order], 'weights': weights})
+                              'ranked': [v[1] for v in order], 'weights': weights,
+                              # ключ порядка — для общей ленты доли нескольких ролей (`quota_plan`, share)
+                              'rank_keys': {v[1]: list(rk(v)) for v in order}})
     return table
 
 
-def quota_plan(table: list, split: dict) -> list:
+def quota_share(split: dict, share: dict | None) -> dict:
+    """Общие доли ролей (`rules/demo-swap.json → rooms.<комната>.share`, T-20261107-10/2): {роль-член: роль-лидер} —
+    член своей доли не имеет, его единицы идут в долю лидера (распашной «шкаф» → «шкаф-купе»: «купе + распашной» = 8).
+    Проверка: лидер — в долях, у члена своей ненулевой доли нет, без цепочек (лидер сам не член) и без «роль → себе».
+    Ошибка — отказ, а не тихий счёт 8 + 8. → share (пустой словарь, если не задан)."""
+    share = dict(share or {})
+    for m, lead in share.items():
+        if m == lead or lead not in split:
+            raise DemandError(f'доля {m!r} → {lead!r}: лидер должен быть другой ролью из долей ({sorted(split)})')
+        if int(split.get(m) or 0):
+            raise DemandError(f'доля {m!r} → {lead!r}: у члена своя доля {split[m]} — либо общая, либо своя')
+        if lead in share:
+            raise DemandError(f'доля {m!r} → {lead!r} → {share[lead]!r}: цепочки долей не поддерживаются')
+    return share
+
+
+def quota_plan(table: list, split: dict, share: dict | None = None) -> list:
     """Добор до доли роли в каждом (room_id × стиль). Чистая функция. → выбранные SKU по порядку; в строки дописывает
     target / after / short. Один SKU засчитывается всем строкам, где он в `ranked` (меш один на все расстановки), — столько
-    единиц, сколько у него в `weights` строки (нет `weights` — 1: счёт по семействам)."""
+    единиц, сколько у него в `weights` строки (нет `weights` — 1: счёт по семействам).
+
+    ОБЩАЯ ДОЛЯ (`share`, `quota_share`; T-20261107-10/2): строки лидера и членов одного (room_id × стиль) — одна группа с
+    целью доли лидера. Готовое у любой роли группы (меши распашных со спальни) уменьшает добор; добор — ОБЩЕЙ лентой группы
+    по ключу `quota_table` (в ленте → единиц на меш → балл стиля → цена → SKU; роль — не первый признак, Codex 07.11), без
+    ключей — лента лидера, потом членов. Цель и недобор пишутся в строку лидера (нет её — в первую строку группы), у членов
+    target = short = 0, after — у каждой строки свой: суммы по (room_id × стиль) в `quota_md` и `demo_band.rooms_report`
+    не задваиваются. Без share — как было: группа = строка."""
+    share = quota_share(split, share)
     where: dict = {}
     for i, r in enumerate(table):
         for s in r['ranked']:
             where.setdefault(s, []).append(i)
     w = lambda i, s: int((table[i].get('weights') or {}).get(s, 1))  # noqa: E731
     order = list(split)
+    lead_of = lambda role: share.get(role, role)  # noqa: E731
+    groups: dict = {}
+    for i, r in enumerate(table):
+        groups.setdefault((r['room_id'], r['style'], lead_of(r['role'])), []).append(i)
+    for g in groups.values():          # лидер — первым в группе, члены — по порядку таблицы
+        g.sort(key=lambda i: (table[i]['role'] != lead_of(table[i]['role']), i))
     picked: list = []
     took: set = set()
-    idx = sorted(range(len(table)), key=lambda i: (table[i]['room_id'], table[i]['style'],
-                                                    order.index(table[i]['role']) if table[i]['role'] in order else 99))
-    for i in idx:
-        r = table[i]
-        r['target'] = int(split.get(r['role'], 0))
-        have = r['covered'] + sum(w(i, s) for s in took if i in where[s])
-        need = max(0, r['target'] - have)
-        for s in r['ranked']:
+    head: dict = {}
+    for key in sorted(groups, key=lambda k: (k[0], k[1], order.index(k[2]) if k[2] in order else 99)):
+        rows = groups[key]
+        target = int(split.get(key[2], 0))
+        for i in rows:
+            table[i]['target'] = 0
+        head[key] = rows[0]
+        table[rows[0]]['target'] = target
+        gain = lambda s: sum(w(i, s) for i in rows if i in where.get(s, ()))  # noqa: E731
+        have = sum(table[i]['covered'] for i in rows) + sum(gain(s) for s in took)
+        need = max(0, target - have)
+        if len(rows) > 1 and all('rank_keys' in table[i] for i in rows):
+            cand = [s for _k, s in sorted((tuple(table[i]['rank_keys'][s]), s) for i in rows for s in table[i]['ranked'])]
+        else:
+            cand = [s for i in rows for s in table[i]['ranked']]
+        for s in cand:
             if need <= 0:
                 break
             if s not in took:
                 took.add(s)
                 picked.append(s)
-                need -= w(i, s)
+                need -= gain(s)
     for i, r in enumerate(table):
         r['after'] = r['covered'] + sum(w(i, s) for s in took if i in where[s])
-        r['short'] = max(0, r['target'] - r['after'])
+        r['short'] = 0
+    for key, rows in groups.items():
+        table[head[key]]['short'] = max(0, table[head[key]]['target'] - sum(table[i]['after'] for i in rows))
     return picked
 
 
@@ -916,9 +959,12 @@ def room_states(room: str, cat: list, R: dict, rows: dict, fetch) -> tuple:
     return items, states, jobs_of
 
 
-def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None, unit: str | None = None) -> dict:
+def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None, unit: str | None = None,
+               share: dict | None = None) -> dict:
     """Квота мешей комнаты: таблица мест, выбранные задания по порядку, итоги. Только чтение БД и банка. unit — единица
-    счёта (sku | family); None — из правил (`room_count_unit`)."""
+    счёта (sku | family); None — из правил (`room_count_unit`). share — общие доли ролей ({член: лидер}, `quota_share`);
+    передаётся явно (`demo_band.rooms_compute` — из rooms.<комната>.share)."""
+    share = quota_share(split, share)
     import asset_strategy as AS
     import catalog_items as CI
     import room_bindings as RB
@@ -936,7 +982,7 @@ def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None, un
     styles = sorted({s['style'] for s in bank if s.get('style')})
     unit = unit or room_count_unit(room)
     table = quota_table(slots, styles, items, states, bank_shown(bank), gate, thr, unit)
-    picked = quota_plan(table, split)
+    picked = quota_plan(table, split, share)
     jobs = []
     for s in picked:
         j = dict(jobs_of[s])
@@ -944,7 +990,8 @@ def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None, un
         j['strata'] = {'tier': 'room', 'reason': f'комната {room}: квота 30 на (комната × стиль), T-20261106-82',
                        'cells': cells}
         jobs.append(j)
-    return {'room': room, 'bank': bank_path, 'split': split, 'table': table, 'jobs': jobs, 'styles': styles, 'unit': unit}
+    return {'room': room, 'bank': bank_path, 'split': split, 'share': share, 'table': table, 'jobs': jobs, 'styles': styles,
+            'unit': unit}
 
 
 def quota_md(Q: dict) -> str:
@@ -1215,6 +1262,44 @@ def _selftest() -> int:
     ok('квота: добор по доле роли, SKU одной строки засчитан и другим (x закрыл тумбу, y — сканди), без доли — 0',
        P == ['x', 'y'] and [r['after'] for r in T] == [3, 1, 1, 5] and [r['short'] for r in T] == [0, 0, 2, 0]
        and T[3]['target'] == 0)
+
+    # ---- общая доля (T-20261107-10/2): распашной «шкаф» в доле «шкаф-купе» — 8 на двоих, не 8 + 8
+    def qrow(role, covered, ranked, keys=None, rid='h1', st='лофт'):
+        r = {'room_id': rid, 'style': st, 'role': role, 'covered': covered, 'ranked': ranked}
+        if keys is not None:
+            r['rank_keys'] = keys
+        return r
+    sp, sh_ = {'шкаф-купе': 3, 'обувница': 1}, {'шкаф': 'шкаф-купе'}
+    K = lambda shown, sc, sku: [shown, -1, -sc, 100, sku]  # noqa: E731
+    Tq = [qrow('шкаф-купе', 0, ['k1', 'k2', 'k3'], {'k1': K(1, 8.0, 'k1'), 'k2': K(1, 7.0, 'k2'), 'k3': K(1, 6.9, 'k3')}),
+          qrow('шкаф', 1, ['s1', 's2'], {'s1': K(0, 6.7, 's1'), 's2': K(1, 7.5, 's2')}),
+          qrow('обувница', 0, ['o1'], {'o1': K(1, 7, 'o1')})]
+    Pq = quota_plan(Tq, sp, sh_)
+    ok('общая доля: готовый меш распашного (со спальни) засчитан купе — добор 2, а не 3',
+       sum(r['after'] for r in Tq[:2]) == 3 and len([s for s in Pq if s != 'o1']) == 2)
+    ok('общая доля: добор общей лентой по ключу (в ленте s1 → балл k1 8,0 → s2 7,5), не «сперва все купе»',
+       Pq == ['s1', 'k1', 'o1'])
+    ok('общая доля: цель и недобор — в строке лидера, у члена 0 (суммы quota_md не задваиваются)',
+       [r['target'] for r in Tq] == [3, 0, 1] and [r['short'] for r in Tq] == [0, 0, 0]
+       and sum(r['target'] for r in Tq) == 4)
+    Tq2 = [qrow('шкаф-купе', 0, ['k1']), qrow('шкаф', 0, ['s1'])]
+    Pq2 = quota_plan(Tq2, {'шкаф-купе': 3}, sh_)
+    ok('общая доля: каталога на двоих 2 из 3 — недобор 1 у лидера; без ключей — лента лидера, потом члена',
+       Pq2 == ['k1', 's1'] and Tq2[0]['short'] == 1 and Tq2[1]['short'] == 0 and [r['after'] for r in Tq2] == [1, 1])
+    Tq3 = [qrow('шкаф', 2, ['s1'])]
+    quota_plan(Tq3, {'шкаф-купе': 3}, sh_)
+    ok('общая доля: строки лидера нет (купе не влезает) — цель в строке члена', Tq3[0]['target'] == 3 and Tq3[0]['short'] == 0)
+    Tq4 = [qrow('шкаф-купе', 0, ['k1']), qrow('шкаф', 0, ['s1'])]
+    P4 = quota_plan(Tq4, {'шкаф-купе': 1})
+    ok('без share — как было: распашной без доли, купе берёт своё', P4 == ['k1'] and Tq4[1]['target'] == 0)
+    for bad_share, why in (({'шкаф': 'нет'}, 'лидер не в долях'), ({'шкаф-купе': 'шкаф-купе'}, 'роль → себе'),
+                           ({'обувница': 'шкаф-купе'}, 'у члена своя доля'),
+                           ({'шкаф': 'шкаф-купе', 'шкаф-купе': 'обувница'}, 'цепочка')):
+        try:
+            quota_share({'шкаф-купе': 3, 'обувница': 1}, bad_share)
+            ok(f'share: {why} — отказ', False)
+        except DemandError:
+            ok(f'share: {why} — отказ', True)
 
     # ---- типоразмеры слота в квоте (T-20261106-90): запись банка несёт полосу своего типоразмера, остальные — из правил
     def bo(slot, tol):
