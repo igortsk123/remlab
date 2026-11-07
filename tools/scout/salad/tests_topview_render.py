@@ -286,6 +286,34 @@ def main() -> None:
               and TR.kept_yaw('x', {'x': {'yaw': 180.0, 'orient': 'orient-v1:auto_resolved:symmetric_by_role'}}, {}, False)
               == (180.0, 'kept'), 'symmetric прод-запись: у направленной роли — 0, у ненаправленной — держится')
 
+        print('роль записи — из решения, затем каталог, не манифест (T-20261105-56/5)')
+        check(TR.record_role(('auto_resolved', 's', 0.0, 'm', 'пуф'), 'кресло', 'диван') == 'пуф'
+              and TR.record_role(('auto_resolved', 's', 0.0, 'm', ''), 'пуф', 'диван') == 'пуф'
+              and TR.record_role(('auto_resolved', 's', 0.0, 'm', '?'), None, 'диван') == 'диван'
+              and TR.record_role(None, '', None) == '',
+              'record_role: решение → каталог → манифест; «?» — как нет роли')
+        out_r = os.path.join(tmp, 'out-role')
+        idx_r = os.path.join(tmp, 'index-role.json')
+        cat_r = os.path.join(tmp, 'catalog-roles.json')
+        # решения без роли (4 поля, как старые строки) — роль из каталога; у keys[1] — роль решения сильнее каталога
+        json.dump({f'{skus[0]}|{sha(keys[0])}|orient-v1': ['auto_resolved', 'symmetric_by_role', 0.0, 'r0'],
+                   f'{skus[1]}|{sha(keys[1])}|orient-v1': ['auto_resolved', 'symmetric_by_role', 0.0, 'r1', 'пуф']},
+                  open(idx_r, 'w', encoding='utf-8'), ensure_ascii=False)
+        json.dump({keys[0]: 'банкетка', keys[1]: 'диван', keys[3]: 'стол обеденный'}, open(cat_r, 'w', encoding='utf-8'),
+                  ensure_ascii=False)
+        rc, log = run(src, out_r, TOPVIEW_ORIENT_INDEX=idx_r, TOPVIEW_CATALOG_ROLES=cat_r)
+        mr = json.load(open(os.path.join(out_r, 'topview.json')))
+        check(rc == 0 and mr[keys[0]]['role'] == 'банкетка' and mr[keys[1]]['role'] == 'пуф' and mr[keys[3]]['role'] == 'стол обеденный'
+              and mr[keys[2]]['role'] == 'пуф',
+              f"роль записи: каталог без роли решения, решение сильнее каталога, нет нигде — манифест "
+              f"({[mr[k]['role'] for k in keys[:4]]})")
+        json.dump({keys[0]: 'пуф', keys[1]: 'диван', keys[3]: 'стол обеденный'}, open(cat_r, 'w', encoding='utf-8'),
+                  ensure_ascii=False)
+        rc, log = run(src, out_r, TOPVIEW_ORIENT_INDEX=idx_r, TOPVIEW_CATALOG_ROLES=cat_r)
+        mr2 = json.load(open(os.path.join(out_r, 'topview.json')))
+        check(rc == 0 and new_count(log) == 0 and mr2[keys[0]]['role'] == 'пуф',
+              f"запись из кэша получает текущую роль без перерисовки (новых {new_count(log)}, роль {mr2[keys[0]]['role']})")
+
     print('стенд вида сверху: ' + ('ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛЫ {len(FAILS)}: {FAILS}'))
     sys.exit(1 if FAILS else 0)
 

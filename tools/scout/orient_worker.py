@@ -13,10 +13,16 @@ GLB не перезаписывается. Легаси-совместимост
 
   ~/venvs/scout/bin/python orient_worker.py --run [--limit N] [--vlm] [--recheck-roles]
   ~/venvs/scout/bin/python orient_worker.py --report
-  ~/venvs/scout/bin/python orient_worker.py --dry-roles   # сколько «симметричных по роли» устарело и цена VLM
---recheck-roles: в пачку идут и решения «симметрична по роли», принятые при ПРЕЖНЕЙ политике ролей, если роль
-теперь направленная или была неизвестна (отпечаток `role_policy()`; Codex T-36/3). Без флага не берутся: пересчёт
-платный по VLM, включается явно (ведущий — по цифре сухого прогона).
+  ~/venvs/scout/bin/python orient_worker.py --dry-roles   # сколько решений устарело по ролям и цена VLM
+  ~/venvs/scout/bin/python orient_worker.py --shadow DIR [--limit N] [--vlm]   # перерешить устаревшие В ПАПКУ, без БД
+--recheck-roles: в пачку идут и решения, устаревшие по ролям (`stale_by_role`): (а) «симметрична по роли», принятое при
+ПРЕЖНЕЙ политике ролей, если роль теперь направленная или была неизвестна (отпечаток `role_policy()`; Codex T-36/3);
+(б) СМЕНА РОЛИ в каталоге — роль решения ≠ текущей (`current_role`), в любую сторону: симметричная → направленная,
+направленная → симметричная (пуф, решённый «как диван» до T-53), направленная → другая (T-20261105-56/5). Решения
+человека и `unusable` — никогда. Без флага не берутся: пересчёт платный по VLM, включается явно (ведущий — по цифре
+сухого прогона).
+--shadow DIR: только устаревшие по ролям (без новых мешей), решения — файлами в DIR и `DIR/index-overlay.json`
+(формат индекса `topview_render.orient_index` → `TOPVIEW_ORIENT_INDEX`); в БД и `orientation/v1` не пишет.
 Один воркер на машину (flock); тяжёлое — под nice.
 """
 import fcntl
@@ -74,6 +80,28 @@ def stale_by_role_policy(status: str, res: dict) -> bool:
     return role in ('', '?') or directed_role(role)
 
 
+def _known(role) -> str:
+    """Роль или '' — пустая и «?» значат «роль неизвестна»."""
+    r = (role or '').strip()
+    return '' if r == '?' else r
+
+
+def role_changed(status: str, res: dict, cur_role: str | None) -> bool:
+    """Роль, по которой решал каскад (`resolution.role`), ≠ текущей роли товара — решение устарело в ЛЮБУЮ сторону
+    (T-20261105-56/5): пуф, решённый «как диван» до правила названий T-53, держит поворот направленного предмета.
+    Обе роли должны быть известны (роль «?» — забота `stale_by_role_policy`); человек и `unusable` — никогда. После
+    перерешения `decide` пишет текущую роль — по кругу не гоняется."""
+    if str(status or '').startswith('human') or status == 'unusable':
+        return False
+    old, cur = _known((res or {}).get('role')), _known(cur_role)
+    return bool(old and cur and old != cur)
+
+
+def stale_by_role(status: str, res: dict, cur_role: str | None) -> bool:
+    """Одно правило «решение устарело по ролям»: прежняя политика ролей ИЛИ смена роли товара."""
+    return stale_by_role_policy(status, res) or role_changed(status, res, cur_role)
+
+
 def front_yaw_from_R(R: list[list[float]]) -> tuple[int, float]:
     """Легаси front_yaw из матрицы: raw_front = Rᵀ·f_canon; f_canon = ry(180)·Z = (0,0,-1).
     Наклон — ХУДШИЙ из двух: перед от горизонтали И верх от вертикали. Проверка только
@@ -116,6 +144,32 @@ def role_of(sku: str | None) -> tuple[str, str, str]:
         if rows and len(rows[0]) >= 2:
             return rows[0][0], rows[0][1], ''
     return '?', '', ''
+
+
+def role_index(skus) -> dict:
+    """`role_of` для многих SKU двумя запросами (тот же порядок: mesh_demand, затем products) — `pending_meshes` смотрит
+    тысячи ревизий, по запросу на каждую выходило бы по 2 вызова psql на меш. SKU без строк — нет в словаре."""
+    skus = sorted({s for s in skus if s and s != '?'})
+    out: dict = {}
+    for i in range(0, len(skus), 500):
+        inl = ','.join(q(s) for s in skus[i:i + 500])
+        for r in db(f"select sku, role, coalesce(name,'') from mesh_demand where sku in ({inl})") or []:
+            if len(r) >= 3:
+                out[r[0]] = (r[1], r[2], '')
+        for r in db(f"""select shop_mid||':'||external_id, coalesce(cat_role,'?'), coalesce(name,'')
+                          from products where shop_mid||':'||external_id in ({inl})""") or []:
+            if len(r) >= 3 and r[0] not in out:
+                out[r[0]] = (r[1], r[2], '')
+    return out
+
+
+def current_role(sku: str | None, glb: str, roles: dict | None = None) -> tuple[str, str, str]:
+    """Текущая роль меша — та, по которой решает `decide`: `role_of` (или готовый `role_index`), пустая/«?» — из
+    manifest.json меша (T-36/2)."""
+    role, name, subtype = (roles.get(sku) or ('?', '', '')) if roles is not None else role_of(sku)
+    if not (role or '').strip() or role == '?':
+        role, name = role_from_manifest(glb, name)
+    return role, name, subtype
 
 
 def canonical_parts(glb: str, R: list[list[float]]):
@@ -170,9 +224,7 @@ def vlm_side(parts, role: str) -> tuple[str | None, float]:
 
 def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
     """Каскад для одного меша → resolution dict (status + evidence)."""
-    role, name, subtype = role_of(sku)
-    if not (role or '').strip() or role == '?':          # NULL/пустая роль в mesh_demand — тоже «нет роли» (Codex T-36/2)
-        role, name = role_from_manifest(glb, name)
+    role, name, subtype = current_role(sku, glb)       # NULL/пустая/«?» — из manifest (Codex T-36/2)
     yaw, tilt = front_yaw_from_R(inf['R'])
     res = {'contract': CONTRACT, 'sku': sku, 'glb': os.path.basename(glb),
            'glb_sha': hashlib.sha256(open(glb, 'rb').read()).hexdigest(),
@@ -262,18 +314,45 @@ _sha16.dirty = False
 def _sha_flush() -> None:
     if _sha16.dirty and _sha16.cache is not None:
         os.makedirs(os.path.dirname(_SHA_CACHE), exist_ok=True)
-        json.dump(_sha16.cache, open(_SHA_CACHE, 'w', encoding='utf-8'))
+        tmp = f'{_SHA_CACHE}.{os.getpid()}.tmp'       # целиком или никак: тень и боевой воркер пишут один кэш
+        json.dump(_sha16.cache, open(tmp, 'w', encoding='utf-8'))
+        os.replace(tmp, _SHA_CACHE)
         _sha16.dirty = False
 
 
-def state_index() -> tuple[set, set]:
-    """(все revision_key, устаревшие по политике ролей) — одним запросом."""
+def state_index() -> tuple[set, set, dict]:
+    """(все revision_key, устаревшие по политике ролей, rk → (статус, решение-кратко)) — одним запросом. Смену роли
+    товара здесь не судим: текущая роль бывает только из manifest меша, его путь знает `pending_meshes`."""
     rows = db("select revision_key, status, coalesce(resolution->>'source',''), coalesce(resolution->>'role',''), "
               "coalesce(resolution->>'role_policy','') from orientation_state")
     have = {r[0] for r in rows if r and r[0]}
-    stale = {r[0] for r in rows if len(r) >= 5 and stale_by_role_policy(
-        r[1], {'source': r[2], 'role': r[3], 'role_policy': r[4]})}
-    return have, stale
+    meta = {r[0]: (r[1], {'source': r[2], 'role': r[3], 'role_policy': r[4]}) for r in rows if len(r) >= 5}
+    stale = {rk for rk, (st, res) in meta.items() if stale_by_role_policy(st, res)}
+    return have, stale, meta
+
+
+def stale_meshes(meta: dict | None = None) -> list[tuple[str, str, str, str, str]]:
+    """Ревизии на диске, устаревшие по ролям: (rk, sku, glb, причина `policy|role`, текущая роль). Роль решения
+    сравнивается с текущей (`current_role` по `role_index` + manifest) — одно правило `stale_by_role`."""
+    if meta is None:
+        meta = state_index()[2]
+    found = []
+    for glb in all_meshes():
+        sku = sku_of_glb(glb)
+        rk = f'{sku}|{_sha16(glb)}|{CONTRACT}'
+        if rk in meta:
+            found.append((rk, sku, glb))
+    roles = role_index(s for _, s, _ in found)
+    out = []
+    for rk, sku, glb in found:
+        st, res = meta[rk]
+        cur = current_role(sku, glb, roles)[0]
+        if stale_by_role_policy(st, res):
+            out.append((rk, sku, glb, 'policy', cur))
+        elif role_changed(st, res, cur):
+            out.append((rk, sku, glb, 'role', cur))
+    _sha_flush()
+    return out
 
 
 def all_meshes() -> list[str]:
@@ -289,16 +368,18 @@ def sku_of_glb(glb: str) -> str:
             or sku_from_path(os.path.basename(os.path.dirname(os.path.dirname(glb)))) or '?')
 
 
-def pending_meshes(limit: int, recheck_roles: bool = False) -> list[tuple[str, str, str]]:
-    """(rev_key, sku, glb) без записи в orientation_state по текущему контракту; с recheck_roles — ещё и решения
-    «симметрична по роли», устаревшие по политике ролей (`stale_by_role_policy`)."""
+def pending_meshes(limit: int, recheck_roles: bool = False, stale_only: bool = False) -> list[tuple[str, str, str]]:
+    """(rev_key, sku, glb) без записи в orientation_state по текущему контракту; с recheck_roles — ещё и решения,
+    устаревшие по ролям (`stale_by_role`: прежняя политика ролей или смена роли товара в любую сторону); stale_only —
+    только устаревшие (тень `--shadow`)."""
+    have, _, meta = state_index()
+    stale = {rk for rk, *_ in stale_meshes(meta)} if (recheck_roles or stale_only) else set()
     out = []
-    have, stale = state_index()
     for glb in all_meshes():
         sku = sku_of_glb(glb)
         sha = _sha16(glb)
         rk = f'{sku}|{sha}|{CONTRACT}'
-        if rk not in have or (recheck_roles and rk in stale):
+        if rk in stale or (not stale_only and rk not in have):
             out.append((rk, sku, glb))
         if len(out) >= limit:
             break
@@ -312,17 +393,15 @@ VLM_TOKENS_OUT = 60                               # max_tokens запроса vl
 
 def dry_roles() -> dict:
     """Сухой прогон --recheck-roles: какие устаревшие решения есть на диске, какая роль у них станет и сколько
-    вызовов VLM это даст (верхняя граница: сидячим VLM нужен, только если сиденье не уверено). Ничего не пишет."""
-    _, stale = state_index()
+    вызовов VLM это даст (верхняя граница: сидячим VLM нужен, только если сиденье не уверено), и смены ролей
+    «было → стало». Ничего не пишет."""
+    _, stale_pol, meta = state_index()
     by_role: dict = {}
-    for glb in all_meshes():
-        sku = sku_of_glb(glb)
-        rk = f'{sku}|{_sha16(glb)}|{CONTRACT}'
-        if rk not in stale:
-            continue
-        role, name, subtype = role_of(sku)
-        if not (role or '').strip() or role == '?':
-            role, name = role_from_manifest(glb, name)
+    moves: dict = {}
+    found = stale_meshes(meta)
+    names = role_index(s for _, s, _, _, _ in found)
+    for rk, sku, glb, why, role in found:
+        _, name, subtype = current_role(sku, glb, names)
         d = directed_role(role, name, subtype)
         c = by_role.setdefault(role, {'meshes': 0, 'directed': 0, 'vlm_max': 0, 'seat_first': 0})
         c['meshes'] += 1
@@ -330,28 +409,45 @@ def dry_roles() -> dict:
             c['directed'] += 1
             c['vlm_max'] += 1
             c['seat_first'] += role in SEAT_ROLES
+        if why == 'role':
+            old = meta[rk][1].get('role')
+            k = f"{old} → {role} ({'направл' if directed_role(old) else 'симм'} → {'направл' if d else 'симм'})"
+            moves[k] = moves.get(k, 0) + 1
     tot = {k: sum(c[k] for c in by_role.values()) for k in ('meshes', 'directed', 'vlm_max', 'seat_first')}
-    out = {'role_policy': role_policy(), 'stale_in_db': len(stale), 'by_role': by_role, 'total': tot,
+    out = {'role_policy': role_policy(), 'stale_policy_in_db': len(stale_pol),
+           'role_changed_on_disk': sum(1 for f in found if f[3] == 'role'),
+           'role_moves': dict(sorted(moves.items(), key=lambda kv: -kv[1])), 'by_role': by_role, 'total': tot,
            'vlm_tokens_in': tot['vlm_max'] * VLM_TOKENS_IN, 'vlm_tokens_out': tot['vlm_max'] * VLM_TOKENS_OUT}
     print(json.dumps(out, ensure_ascii=False, indent=1))
     return out
 
 
-def run(limit: int, use_vlm: bool, recheck_roles: bool = False) -> None:
-    os.makedirs(RES_DIR, exist_ok=True)
-    lock = open(os.path.join(SCENE_DIR, 'orientation', 'worker.lock'), 'w')
+def overlay_row(res: dict) -> list:
+    """Строка индекса решений в формате `topview_render.orient_index` (статус, источник, legacy_front_yaw, отпечаток
+    решения, роль). Отпечаток — sha1 JSON (не md5 jsonb из БД): нужен лишь для подписи кэша вида сверху."""
+    blob = json.dumps(res, ensure_ascii=False, sort_keys=True)
+    return [res.get('status'), res.get('source', ''), float(res.get('legacy_front_yaw') or 0),
+            'shadow-' + hashlib.sha1(blob.encode()).hexdigest()[:16], res.get('role') or '']
+
+
+def run(limit: int, use_vlm: bool, recheck_roles: bool = False, shadow: str | None = None) -> None:
+    """Пачка каскада. `shadow` — папка тени: только устаревшие по ролям, результаты и `index-overlay.json` туда,
+    БД и `orientation/v1` не трогаются (свой замок в папке тени — боевой воркер не блокируется)."""
+    res_dir = shadow or RES_DIR
+    os.makedirs(res_dir, exist_ok=True)
+    lock = open(os.path.join(res_dir if shadow else os.path.join(SCENE_DIR, 'orientation'), 'worker.lock'), 'w')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         print('[orient] другой воркер уже работает — выходим', flush=True)
         return
-    todo = pending_meshes(limit, recheck_roles)
+    todo = pending_meshes(limit, recheck_roles, stale_only=bool(shadow))
     if not todo:
         print('[orient] нечего делать', flush=True)
         return
-    lst = os.path.join(RES_DIR, '_batch.txt')
+    lst = os.path.join(res_dir, '_batch.txt')
     open(lst, 'w').write('\n'.join(g for _, _, g in todo))
-    outp = os.path.join(RES_DIR, '_batch.json')
+    outp = os.path.join(res_dir, '_batch.json')
     r = subprocess.run(['nice', '-n', '15', ORIENTER_PY,
                         os.path.join(HERE, 'orient_infer.py'), '--list', lst, '--out', outp],
                        capture_output=True, text=True, timeout=3600)
@@ -359,7 +455,7 @@ def run(limit: int, use_vlm: bool, recheck_roles: bool = False) -> None:
         print('[orient] infer упал:', r.stderr[-300:], flush=True)
         return
     inf_all = json.load(open(outp))
-    done = {}
+    done, overlay = {}, {}
     for rk, sku, glb in todo:
         inf = inf_all.get(glb) or {}
         if 'error' in inf or 'R' not in inf:
@@ -371,16 +467,24 @@ def run(limit: int, use_vlm: bool, recheck_roles: bool = False) -> None:
             except Exception as e:  # noqa: BLE001 — один меш не валит пакет
                 res = {'contract': CONTRACT, 'sku': sku, 'status': 'review_pending',
                        'source': 'cascade_error', 'error': str(e)[:200]}
-        fp = os.path.join(RES_DIR, rk.replace(':', '_').replace('|', '__') + '.json')
+        fp = os.path.join(res_dir, rk.replace(':', '_').replace('|', '__') + '.json')
         json.dump(res, open(fp + '.tmp', 'w'), ensure_ascii=False, indent=1)
         os.replace(fp + '.tmp', fp)
-        db(f"""insert into orientation_state (revision_key, sku, status, resolution)
-               values ({q(rk)}, {q(sku)}, {q(res['status'])},
-                       {q(json.dumps(res, ensure_ascii=False))}::jsonb)
-               on conflict (revision_key) do update
-                 set status=excluded.status, resolution=excluded.resolution, updated=now()""")
+        if shadow:
+            overlay[rk] = overlay_row(res)
+        else:
+            db(f"""insert into orientation_state (revision_key, sku, status, resolution)
+                   values ({q(rk)}, {q(sku)}, {q(res['status'])},
+                           {q(json.dumps(res, ensure_ascii=False))}::jsonb)
+                   on conflict (revision_key) do update
+                     set status=excluded.status, resolution=excluded.resolution, updated=now()""")
         done[res['status']] = done.get(res['status'], 0) + 1
-        print(f"  {os.path.basename(glb)}: {res['status']} ({res.get('source', '')})", flush=True)
+        print(f"  {os.path.basename(glb)}: {res['status']} ({res.get('source', '')}) роль {res.get('role', '')}", flush=True)
+    if shadow:
+        op = os.path.join(shadow, 'index-overlay.json')
+        json.dump(overlay, open(op + '.tmp', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        os.replace(op + '.tmp', op)
+        print(f'[orient] тень: {len(overlay)} решений → {op} (БД не тронута)', flush=True)
     print(f'[orient] итог: {done}', flush=True)
 
 
@@ -392,9 +496,10 @@ def report() -> None:
 
 
 if __name__ == '__main__':
-    if '--run' in sys.argv:
+    if '--run' in sys.argv or '--shadow' in sys.argv:
         lim = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else 100
-        run(lim, '--vlm' in sys.argv, '--recheck-roles' in sys.argv)
+        shd = sys.argv[sys.argv.index('--shadow') + 1] if '--shadow' in sys.argv else None
+        run(lim, '--vlm' in sys.argv, '--recheck-roles' in sys.argv or bool(shd), shadow=shd)
     elif '--dry-roles' in sys.argv:
         dry_roles()
     elif '--report' in sys.argv:

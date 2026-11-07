@@ -83,6 +83,32 @@ def glb_sha16(glb: str) -> str:
     return sha
 
 
+def catalog_roles() -> dict:
+    """Текущая роль каталога `products.cat_role` одним запросом: sku `mid_eid` → роль. TOPVIEW_CATALOG_ROLES=<файл> —
+    стенд/тень; стенд с готовым индексом решений (`TOPVIEW_ORIENT_INDEX`) без этого файла в БД не ходит — пусто."""
+    p = os.environ.get('TOPVIEW_CATALOG_ROLES')
+    if p:
+        return json.load(open(p, encoding='utf-8'))
+    if os.environ.get('TOPVIEW_ORIENT_INDEX'):
+        return {}
+    r = subprocess.run(['docker', 'exec', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-t', '-A',
+                        '-F', '\x1f', '-c',
+                        "SELECT shop_mid||'_'||external_id, cat_role FROM products WHERE cat_role IS NOT NULL"],
+                       capture_output=True, text=True, timeout=300)
+    return {p[0]: p[1] for p in (ln.split('\x1f') for ln in r.stdout.splitlines()) if len(p) == 2 and p[1]}
+
+
+def record_role(dec: tuple | None, cat_role: str | None, man_role: str | None) -> str:
+    """Роль записи вида сверху / `orient.json` и направленности (T-20261105-56/5): роль, по которой решал каскад
+    (`resolution.role`), нет её — текущая роль каталога, и лишь затем роль манифеста меша. Манифест помнит роль
+    задания на момент генерации (`salad/manifest.py`): пуфы, решённые «как диван» до T-53, и столы с ролью «стул».
+    Роль «?» — как нет роли."""
+    for r in ((dec[4] if dec and len(dec) > 4 else ''), cat_role, man_role):
+        if (r or '').strip() and r != '?':
+            return r
+    return ''
+
+
 def orient_for(sku: str, glb: str, index: dict) -> tuple[str, tuple | None]:
     """(revision_key, решение каскада для ИМЕННО этого GLB или None)."""
     rk = f'{sku}|{glb_sha16(glb)}|{ORIENT_CONTRACT}'
@@ -365,6 +391,7 @@ def main() -> None:
         pass
     index = orient_index()
     print(f'решений каскада ({ORIENT_CONTRACT}): {len(index)}', flush=True)
+    cat_roles = catalog_roles()
     published = published_index()
     stopped_early = False
     todo: list = []
@@ -403,9 +430,9 @@ def main() -> None:
         rk, dec = orient_for(man['sku'], glb, index)
         status = dec[0] if dec else 'none'
         prev = prev_man.get(sku) or {}
-        # направленность — по роли, с которой решал каскад (`resolution.role`; в манифесте меша роль бывает чужой:
-        # столы с ролью «стул»), нет её — по манифесту
-        role = (dec[4] if dec and len(dec) > 4 and dec[4] else '') or man.get('role') or ''
+        # направленность и роль записи — по роли, с которой решал каскад (`resolution.role`; в манифесте меша роль
+        # бывает чужой: столы с ролью «стул», пуфы «диван»), нет её — каталог, затем манифест (`record_role`)
+        role = record_role(dec, cat_roles.get(sku), man.get('role'))
         directed = OP.role_directed(role, man.get('name') or '')
         if OP.is_resolved(status) and OP.is_symmetric(dec[1]) and directed:
             # «симметрична по роли», а роль теперь направленная (прихожая, T-20261106-78): решение устарело — как
@@ -436,7 +463,7 @@ def main() -> None:
         # подписи с `cabinet_*` годны» снято: оно держало перебивку фасадом после смены правила.
         if (os.environ.get('TOPVIEW_FORCE') != '1' and prev and prev.get('orient_sig') == sig
                 and os.path.exists(png_c) and os.path.getmtime(png_c) >= os.path.getmtime(glb)):
-            manifest[sku] = prev                          # готово с прошлого цикла — не пересчитываем
+            manifest[sku] = dict(prev, role=role or prev.get('role'))   # готово с прошлого цикла; роль — текущая
             n += 1
             continue
         png = os.path.join(OUT, f'{sku}.png')
@@ -464,7 +491,7 @@ def main() -> None:
             st += ':upright_unsure'
         dims = (man.get('input') or {}).get('dims_cm') or {}
         entry = {'png': f'{sku}.png', 'yaw': yaw, 'orient': st, 'status': status, 'orient_sig': sig,
-                 'role': man.get('role'), 'w': dims.get('w'), 'd': dims.get('d'), 'ext_ok': bool(ext_ok)}
+                 'role': role or man.get('role'), 'w': dims.get('w'), 'd': dims.get('d'), 'ext_ok': bool(ext_ok)}
         try:
             # кэш: рендер заново, если png отсутствует/старее меша или TOPVIEW_FORCE=1
             # …и если сменился поворот: png рисуется под yaw, свежий по mtime png со старым поворотом — ложь
