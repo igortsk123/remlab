@@ -14,12 +14,31 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 
 from .geometry import base_role, footprint, opening_polygon, room_polygon
 from .models import Placement, Room
 
-_PRIORS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            '..', '..', '..', 'tools', 'scout', 'rules', 'practice_priors.json')
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# ГДЕ ИСКАТЬ ПРИОРЫ (T-20261107-07), первый существующий: env → `rules/` рядом с пакетом (образ запасного рендера кладёт
+# файл в /app/rules/, `infra/draft/Dockerfile`) → источник истины в репо `tools/scout/rules/`. Раньше был только третий путь,
+# и в образе он вёл в несуществующий /tools/scout/rules/ — приоры молча были пустыми. Копию в services/planner-solver/rules
+# не заводить (два места одного файла).
+_PRIORS_NAME = 'practice_priors.json'
+
+
+def priors_candidates() -> list[str]:
+    """Где искать по порядку. env задан — ТОЛЬКО он: явный путь мимо файла — громкое «не найдены», а не тихий откат на другой."""
+    env = os.environ.get('PRACTICE_PRIORS_PATH')
+    if env:
+        return [os.path.abspath(env)]
+    return [
+        os.path.abspath(os.path.join(_HERE, '..', 'rules', _PRIORS_NAME)),
+        os.path.abspath(os.path.join(_HERE, '..', '..', '..', 'tools', 'scout', 'rules', _PRIORS_NAME))]
+
+
+def priors_path() -> str | None:
+    return next((p for p in priors_candidates() if os.path.isfile(p)), None)
 def _oz(name: str, default: float) -> float:
     """Пороги зон возможностей — из правил (Q12-1, ADR-0112): раньше числа были зашиты в коде
     без провенанса, и «ситуация» опиралась на невидимые константы."""
@@ -65,11 +84,25 @@ def _anchor_outcome(kind: str, ps_in_zone: list) -> str | None:
     return None
 
 
+_PRIORS_CACHE: dict = {}   # путь → содержимое; раньше JSON читался заново на каждую возможность каждой гипотезы
+
+
 def priors() -> dict:
+    """Приоры практики; нет файла или он битый — пусто И одна строка в stderr (раньше — молча)."""
+    path = priors_path()
+    if path in _PRIORS_CACHE:
+        return _PRIORS_CACHE[path]
     try:
-        return json.load(open(os.path.abspath(_PRIORS_PATH), encoding='utf-8'))
-    except Exception:
-        return {'opportunities': {}, 'item_presence_pct': {}}
+        if path is None:
+            raise FileNotFoundError('искал: ' + ', '.join(priors_candidates()))
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f'planner.opportunities: приоры практики не найдены или битые ({type(e).__name__}: {e}) — '
+              'исходы возможностей и сертификат будут пустыми', file=sys.stderr, flush=True)
+        data = {'opportunities': {}, 'item_presence_pct': {}}
+    _PRIORS_CACHE[path] = data
+    return data
 
 
 def _rank_map(kind: str) -> dict:
