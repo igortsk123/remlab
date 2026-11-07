@@ -902,6 +902,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .qz-res .qz-img{display:block;width:100%;height:clamp(180px,30vh,250px);object-fit:cover;background:var(--wash-2)}
 .qz-res .qz-tag{position:absolute;top:10px;left:10px;background:var(--surface);color:var(--accent);font-size:13px;font-weight:600;border-radius:999px;padding:4px 10px}
 .qz-res .qz-tag.near{color:var(--muted)}
+.qz-res.qz-noimg .qz-tag{position:static;display:inline-block;margin:12px 12px 0;background:var(--accent-soft)}   /* итог без фото нейросети — только текст (T-28/2) */
 .qz-res .qz-cap{padding:10px 12px 12px}.qz-res .qz-cap b{font-size:18px;display:block}.qz-res .qz-cap span{font-size:14px;color:var(--muted)}
 .qz-pager{display:flex;justify-content:center;align-items:center;gap:2px}
 .qz-pager button{width:28px;height:28px;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center}
@@ -7534,10 +7535,13 @@ function quizPick(rule, answers, available, styleColours){
   function photoStyles(){return styles().filter(function(s){return s.real&&s.img;});}
   function skip1(){return shotsReady()&&photoStyles().length<2;}
   function total(){return skip1()?2:3;}
+  // ИТОГ — ТОЖЕ ТОЛЬКО ФОТО НЕЙРОСЕТИ (владелец TG 341, T-20261107-28/2): стиль без реалистичного фото в тройку не предлагаем —
+  // подбор идёт среди стилей с фото, место занимает следующий; фото нет ни у одного — подбор среди всех, итог без картинки (текст)
   function pick(){
-    var r=rule(), st=styles(), sc={};
+    var r=rule(), st=styles(), sc={}, ph=st.filter(function(s){return s.real&&s.img;});
+    Q._pickReady=shotsReady();
     st.forEach(function(s){sc[s.id]=s.v?quizStyleColours(s.v,r.palettes):{};});
-    return quizPick(r,{photos:Q.a.photos, colours:Q.a.colours, household:Q.a.household}, st.map(function(s){return s.id;}), sc);
+    return quizPick(r,{photos:Q.a.photos, colours:Q.a.colours, household:Q.a.household}, (ph.length?ph:st).map(function(s){return s.id;}), sc);
   }
   function box(){
     var b=document.getElementById('qzBox'); if(b)return b;
@@ -7612,12 +7616,14 @@ function quizPick(rule, answers, available, styleColours){
       :(liked.length?'Ваш стиль — '+L.join(' и '):'Стили, близкие вашим цветам');
     var cards=Q.pick.map(function(id){var s=st.filter(function(x){return x.id===id;})[0]||{id:id,title:id}, mine=Q.a.photos.indexOf(id)>=0;
       var ps=s.v?variantProducts(s.v):[], n=ps.length, sum=s.v?money(variantPrice(s.v)):'';
-      return '<div class="qz-res" data-res="'+esc(id)+'">'+(s.img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'<span class="qz-img"></span>')+
+      var img=s.real&&s.img;   // черновой 3D-кадр и пустую плашку не показываем — карточка без картинки, только текст
+      return '<div class="qz-res'+(img?'':' qz-noimg')+'" data-res="'+esc(id)+'">'+(img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'')+
         '<span class="qz-tag'+(mine?'':' near')+'">'+(mine?(EN()?'Your style':'Ваш стиль'):(EN()?'Similar':'Похожий'))+'</span>'+
         '<div class="qz-cap"><b>'+esc(s.title)+'</b><span>'+(n?n+' '+itemsWord(n)+' · '+esc(sum):'')+'</span></div></div>';}).join('');
     var dots=Q.pick.map(function(id,i){return '<button type="button" data-dot="'+i+'" aria-label="'+(i+1)+'" aria-current="'+(i===Q.at)+'"><i></i></button>';}).join('');
     var cur=(st.filter(function(x){return x.id===Q.pick[Q.at];})[0]||{}).title||'';
-    return '<h2 class="qz-h" id="qzH">'+(EN()?'We picked 3 designs for you':'Подобрали для вас 3 варианта')+'</h2><p class="qz-sub">'+esc(sub)+'</p>'+
+    var k=Q.pick.length;   // стилей с фото может быть меньше трёх (T-28/2)
+    return '<h2 class="qz-h" id="qzH">'+(EN()?'We picked '+k+' design'+(k===1?'':'s')+' for you':'Подобрали для вас '+k+' вариант'+(k===1?'':'а'))+'</h2><p class="qz-sub">'+esc(sub)+'</p>'+
       '<div class="qz-car">'+cards+'</div>'+
       '<div class="qz-pager"><button type="button" class="qz-arr" data-qz="prev" aria-label="'+(EN()?'Previous':'Назад')+'">‹</button>'+dots+
       '<button type="button" class="qz-arr" data-qz="nxt" aria-label="'+(EN()?'Next':'Дальше')+'">›</button></div>'+
@@ -7630,7 +7636,8 @@ function quizPick(rule, answers, available, styleColours){
     var b=box(), c=b.querySelector('.qz-card');
     // фото нейросети меньше двух — шаг 1 пропускаем в сторону движения (назад со 2-го — на приветствие); ответа на фото нет
     if(Q.step===1&&skip1()){Q.a.photos=[]; Q.step=Q._dir<0?0:2; save();}
-    if(Q.step===4&&!Q.pick.length)Q.pick=pick();
+    // тройку считали до прихода реестра кадров (фото ещё не знали) — пересчитать, когда пришёл
+    if(Q.step===4&&(!Q.pick.length||(!Q._pickReady&&shotsReady()))){Q.pick=pick(); Q.at=0;}
     c.innerHTML=SCREENS[Q.step]();
     b.setAttribute('aria-labelledby','qzH'); c.scrollTop=0;
     if(Q.step===4){var car=c.querySelector('.qz-car'), w=car&&car.querySelector('.qz-res');
