@@ -213,6 +213,49 @@ def pack(src_path: str, dst_path: str, simplify: float = 0.0, ktx2: bool = True)
     return True, ""
 
 
+def copy_problems(path: str, expect_texture: bool = True) -> list[str]:
+    """Что не так с готовой копией: каждая картинка под картой цвета должна разбираться (`data:` — строгий base64) и нести
+    подпись PNG/JPEG/KTX2 — тот же сторож, что у ночного отчёта по опубликованному (`scene_artifacts.glb_textures`).
+    ЗАЧЕМ (T-20261107-15): gltfpack 0.24 пишет временные файлы KTX2 ЖЁСТКО в системный tmpfs (`gltfpack-temp<pid>-N.*`, TMPDIR не слушает — strace), и при
+    квоте /tmp (ночь 07.11, 03:28) кладёт вместо текстуры `data:image/png;base64,ERR/` с кодом 0 — 14 моделей стали белыми на
+    проде. `expect_texture` — у исходника были картинки: копия без единой годной тоже битая."""
+    sys.path.insert(0, os.path.join(os.path.dirname(RULES)))
+    import scene_artifacts as SA
+    try:
+        good, probs = SA.glb_textures(open(path, "rb").read())
+    except Exception as e:  # noqa: BLE001 — не разобралась: это и есть поломка, называем её
+        return [f"копия не разбирается: {str(e)[:60]}"]
+    if expect_texture and not good and not probs:
+        probs = ["текстура пропала при упаковке"]
+    return probs
+
+
+def build_copy(tmp: str, dst: str, simplify: float, ktx2: bool, expect_texture: bool) -> tuple[bool, str, list[str]]:
+    """Упаковать `tmp` → `dst` с проверкой картинок. (сжато, как, проблемы). Порядок: gltfpack с KTX2 → проверка; битая —
+    перепаковка без KTX2 (JPEG, gltfpack тогда во временные файлы не пишет) → проверка; не упаковалось — `tmp` как есть
+    (прежний путь «без сжатия, но рабочая») → проверка. Проблемы непустые — копия негодна, `dst` не тронут; файл `.new` убран."""
+    new = dst[:-4] + ".new.glb"
+    tries = [("KTX2", ktx2), ("без KTX2", False)] if ktx2 else [("без KTX2", False)]
+    probs: list[str] = []
+    for how, k in tries:
+        packed, why = pack(tmp, new, simplify, k)
+        if not packed:
+            probs = [f"gltfpack {how}: {why}"]
+            break                                   # не упаковалось вовсе — дальше только исходная копия
+        probs = copy_problems(new, expect_texture)
+        if not probs:
+            os.replace(new, dst)
+            return True, how, []
+        print(f"  {os.path.basename(dst)}: {how} — битая текстура ({'; '.join(probs)[:120]})", file=sys.stderr)
+    if os.path.exists(new):
+        os.remove(new)
+    raw = copy_problems(tmp, expect_texture)
+    if not raw:
+        shutil.copyfile(tmp, dst)
+        return False, "без сжатия", []
+    return False, "", probs + raw
+
+
 def gltfpack_version() -> str:
     exe = GLTFPACK if os.path.exists(GLTFPACK) else (shutil.which("gltfpack") or "")
     try:
@@ -220,6 +263,14 @@ def gltfpack_version() -> str:
         return (out.stdout + out.stderr).strip().splitlines()[0][:60]
     except Exception:  # noqa: BLE001
         return "нет"
+
+
+# ВЕРСИЯ СТОРОЖА КОПИЙ — часть рецепта (T-20261107-15/2). Ночью 07.11 белые копии ушли на /rt/ под тем же `?v=`, что и целые
+# после перепаковки: маршрут immutable на неделю, и браузер, открывший демо в 03:28–10:20, держал бы белое до недели. Смена
+# метки меняет отпечатки ВСЕХ копий → ближайшая ночь пересобирает их штатно, новая таблица уезжает с публикацией демо
+# (`/demo/rt-meshes.json`, no-store) и браузер берёт файл заново. Поднимать при смене упаковки/сторожа, которая лечит уже
+# выложенные копии.
+GUARD_VERSION = "guard=tex-1"
 
 
 def src_sha(data: bytes, recipe: str = "") -> str:
@@ -358,13 +409,15 @@ def main() -> int:
             manifest = {}
 
     sha_key = f"src_sha{a.suffix or ''}"
-    recipe = f"size={a.size};q={a.quality};simplify={a.simplify};ktx2={not a.no_ktx2};{gltfpack_version()}"
+    recipe = f"size={a.size};q={a.quality};simplify={a.simplify};ktx2={not a.no_ktx2};{gltfpack_version()};{GUARD_VERSION}"
     if a.check:
         bad_var, bad_feed = [], []
         for mid in ids:
             dst = os.path.join(a.out, f"{mid}{a.suffix}.glb")
             try:
-                fresh = os.path.exists(dst) and manifest.get(mid, {}).get(sha_key) == src_sha(fetch_source(mid), recipe)
+                # свежая = того же исходника И цела (T-15: битая текстура с верным отпечатком — тоже «нет копии»)
+                fresh = (os.path.exists(dst) and manifest.get(mid, {}).get(sha_key) == src_sha(fetch_source(mid), recipe)
+                         and not copy_problems(dst, expect_texture=False))
             except Exception:  # noqa: BLE001 — исходник недоступен: копию не проверить, считаем несвежей
                 fresh = False
             if not fresh:
@@ -375,6 +428,9 @@ def main() -> int:
         return 1 if bad_var else 0
 
     ok = fail = skip = 0
+    bad_tex: list[str] = []        # копия с битой текстурой не записана (T-20261107-15) — отказ и WARN в сводку
+    fallback: list[str] = []       # KTX2 не вышел — копия с JPEG (сигнал: /tmp под квотой)
+    healed: list[str] = []         # прежняя копия того же исходника была битой — пересобрана
     t0 = time.time()
     for i, mid in enumerate(ids, 1):
         dst = os.path.join(a.out, f"{mid}{a.suffix}.glb")
@@ -382,22 +438,36 @@ def main() -> int:
             src = fetch_source(mid)
             sha = src_sha(src, recipe)
             # ПРОПУСК — ТОЛЬКО ДЛЯ КОПИИ ТОГО ЖЕ ИСХОДНИКА (demo-01 п.5): по одному факту существования файла
-            # перегенерированная модель навсегда оставалась бы со старой копией.
+            # перегенерированная модель навсегда оставалась бы со старой копией. И только ЦЕЛОЙ копии (T-15): битая ночью
+            # 07.11 копия числилась в таблице с верным отпечатком и пропускалась бы вечно
+            # Запасная JPEG-копия (KTX2 не вышел) свежа для ворот, но в следующий прогон пробуем KTX2 снова
+            jpeg_key = f"jpeg{a.suffix or ''}"
             if os.path.exists(dst) and not a.force and manifest.get(mid, {}).get(sha_key) == sha:
-                skip += 1
-                continue
+                if copy_problems(dst, expect_texture=False):
+                    healed.append(mid)
+                elif a.no_ktx2 or not manifest[mid].get(jpeg_key):
+                    skip += 1
+                    continue
             out, stats = optimise(src, a.size, a.quality)
             # gltfpack узнаёт формат ПО РАСШИРЕНИЮ, поэтому промежуточный файл тоже .glb
             tmp = dst[:-4] + ".src.glb"
             with open(tmp, "wb") as fh:
                 fh.write(out)
-            packed, why = pack(tmp, dst, a.simplify, not a.no_ktx2)
-            if not packed:
-                os.replace(tmp, dst)  # без сжатия геометрии, но рабочая модель
-                if i == 1:
-                    print(f"внимание: {why}", file=sys.stderr)
-            else:
-                os.remove(tmp)
+            packed, how, probs = build_copy(tmp, dst, a.simplify, not a.no_ktx2, stats["images_out"] > 0)
+            os.remove(tmp)
+            if probs:
+                # КОПИЮ НЕ ПИШЕМ: битая прежняя тоже уходит из таблицы и с диска — сцена возьмёт исходник (`meshUrl`), а не белое
+                fail += 1
+                bad_tex.append(mid)
+                if os.path.exists(dst) and copy_problems(dst, expect_texture=False):
+                    os.remove(dst)
+                    for k in (f"size{a.suffix or ''}", sha_key, jpeg_key):
+                        manifest.get(mid, {}).pop(k, None)
+                print(f"[{i}/{len(ids)}] {mid}: ОТКАЗ — битая текстура, копия не записана ({'; '.join(probs)[:160]})",
+                      file=sys.stderr)
+                continue
+            if not a.no_ktx2 and how != "KTX2":
+                fallback.append(mid)
             size = os.path.getsize(dst)
             entry = manifest.get(mid, {})
             entry[f"size{a.suffix or ''}"] = size
@@ -406,6 +476,10 @@ def main() -> int:
             entry[f"texture_px{a.suffix or ''}"] = stats["px"]
             entry["triangles"] = stats["triangles"]
             entry["packed"] = packed
+            if fallback and fallback[-1] == mid:
+                entry[jpeg_key] = True
+            else:
+                entry.pop(jpeg_key, None)
             manifest[mid] = entry
             ok += 1
             print(f"[{i}/{len(ids)}] {mid}: {len(src)/1e6:.2f} → {size/1e6:.2f} МБ")
@@ -429,9 +503,18 @@ def main() -> int:
     total_src = sum(m.get("source_bytes", 0) for m in manifest.values())
     total_out = sum(m.get("size", 0) for m in manifest.values())
     print(
-        f"\nготово: {ok}, пропущено: {skip}, отказов: {fail}, {time.time()-t0:.0f} с\n"
+        f"\nготово: {ok}, пропущено: {skip}, отказов: {fail} (битая текстура {len(bad_tex)}), без KTX2 {len(fallback)}, "
+        f"пересобрано битых {len(healed)}, {time.time()-t0:.0f} с\n"
         f"вес: {total_src/1e6:.0f} → {total_out/1e6:.0f} МБ"
     )
+    # строки WARN — в сводку ночи (контракт `refresh_daily.sh:step`), последними: `demo_rt.sh` берёт хвост вывода
+    tag = a.suffix or ""
+    if bad_tex:
+        print(f"WARN:rt_texture: лёгкие копии{tag}: {len(bad_tex)} с битой текстурой не записаны (сцена берёт исходник) — "
+              f"{' '.join(bad_tex[:4])}; причина обычно квота /tmp у gltfpack")
+    if fallback:
+        print(f"WARN:rt_ktx2: лёгкие копии{tag}: {len(fallback)} без KTX2 (JPEG) — gltfpack не сжал текстуру, проверь /tmp "
+              f"(gltfpack пишет туда жёстко) — {' '.join(fallback[:4])}")
     return 1 if fail and not ok else 0
 
 
