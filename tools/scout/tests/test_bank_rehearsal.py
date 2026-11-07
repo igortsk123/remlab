@@ -40,6 +40,32 @@ def ok(name, cond, extra=''):
     bad += 0 if cond else 1
 
 
+def cli(argv: list, flags: dict, report: str, verdict=None) -> tuple[str, int | None]:
+    """`bank_rehearsal.main(argv)` в процессе: флаги комнаты — `flags` (не файл правил), отчёт — `report`, сторож — `verdict`
+    (None — не подменять). → (весь вывод + текст исключения, код; None — вышел исключением)."""
+    import contextlib
+    import io
+    import traceback
+    saved = (RG.verdict, RBS.RoomBankSpec.rules, os.environ.get('BANK_BEDROOM_REHEARSAL'))
+    RBS.RoomBankSpec.rules = lambda self: dict(flags)
+    os.environ['BANK_BEDROOM_REHEARSAL'] = report
+    if verdict is not None:
+        RG.verdict = verdict
+    buf, rc = io.StringIO(), None
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            rc = BR.main(list(argv))
+    except BaseException:                      # noqa: BLE001 — провал теста, не падение: текст исключения — в строку
+        buf.write('\n--- исключение ---\n' + traceback.format_exc())
+    finally:
+        RG.verdict, RBS.RoomBankSpec.rules = saved[0], saved[1]
+        if saved[2] is None:
+            os.environ.pop('BANK_BEDROOM_REHEARSAL', None)
+        else:
+            os.environ['BANK_BEDROOM_REHEARSAL'] = saved[2]
+    return f'код {rc}\n--- вывод ---\n' + buf.getvalue(), rc
+
+
 def bank60() -> list:
     """60 записей спальни: 2 комнаты × 2 назначения × 5 стилей × 3 тира; полоса площади одна на комнату — по (band, style,
     tier) гостиной записи повторяются (разные назначения), по ячейке спальни — уникальны."""
@@ -195,34 +221,37 @@ def main() -> int:
         ok('писатель отказал (чужой set_id ячейки) — репетиция сбой, копия и живой целы',
            not out['ok'] and out['write_rc'] == 1 and x['untouched'], out.get('problems'))
 
-        # CLI: прихожая (rehearse_enabled=false) — «выключено»; спальня без живого — отчёт в свой файл, код 0
-        env = {**os.environ, 'BANK_BEDROOM_REHEARSAL': os.path.join(d, 'rep', 'r')}
-        py = [sys.executable, os.path.join(SCOUT, 'bank_rehearsal.py')]
-        p = subprocess.run(py + ['--room', 'hall'], env=env, capture_output=True, text=True, timeout=60)
-        ok('CLI: прихожая — выключено (rooms.hall.rehearse_enabled=false), код 0', p.returncode == 0 and 'выключено' in p.stdout,
-           p.stdout + p.stderr)
+        # CLI — В ПРОЦЕССЕ (`cli`): флаги комнаты и сторож подменены, вывод и исключение — целиком в строку провала
+        # (T-20261107-04/2: в CI 07.11 тест упал без видимой причины — проверка звала настоящих сторожей и флаги из файла правил)
+        rp = os.path.join(d, 'rep', 'r')
+        txt, rc = cli(['--room', 'hall'], {'rehearse_enabled': False}, rp)
+        ok('CLI: комната с rehearse_enabled=false — «выключено», код 0', rc == 0 and 'выключено' in txt, txt)
         os.makedirs(os.path.join(d, 'nolive-gen'))
-        p = subprocess.run(py + ['--room', 'bedroom', '--live', os.path.join(d, 'нет.json'), '--generations',
-                                 os.path.join(d, 'nolive-gen')], env=env, capture_output=True, text=True, timeout=60)
-        rep = json.load(open(os.path.join(d, 'rep', 'r.json'))) if os.path.exists(os.path.join(d, 'rep', 'r.json')) else {}
+        txt, rc = cli(['--room', 'bedroom', '--live', os.path.join(d, 'нет.json'), '--generations', os.path.join(d, 'nolive-gen')],
+                      {'rehearse_enabled': True}, rp)
+        rep = json.load(open(rp + '.json')) if os.path.exists(rp + '.json') else {}
         ok('CLI: спальня без живого — код 0, DIGEST «репетировать нечего», отчёт и строка истории записаны',
-           p.returncode == 0 and 'DIGEST:банк спальня (репетиция): живого банка нет' in p.stdout and rep.get('mode') == 'нет живого'
-           and os.path.exists(os.path.join(d, 'rep', 'r.jsonl')), p.stdout[-300:] + p.stderr[-300:])
-        p = subprocess.run(py + ['--room', 'living'], env=env, capture_output=True, text=True, timeout=60)
-        ok('CLI: без комнаты / гостиная — отказ, код 2', p.returncode == 2)
-        # сторожа вышли SystemExit (нет style-scores спальни — так было в worktree 07.11): код 0 и WARN, не FAIL шага ночи
+           rc == 0 and 'DIGEST:банк спальня (репетиция): живого банка нет' in txt and rep.get('mode') == 'нет живого'
+           and os.path.exists(rp + '.jsonl'), txt)
+        p = subprocess.run([sys.executable, os.path.join(SCOUT, 'bank_rehearsal.py'), '--room', 'living'],
+                           capture_output=True, text=True, timeout=60)
+        ok('CLI (процесс): без комнаты / гостиная — отказ, код 2', p.returncode == 2,
+           f'код {p.returncode}\n--- stdout ---\n{p.stdout}\n--- stderr ---\n{p.stderr}')
+        # сторожа вышли SystemExit (нет style-scores спальни — так было в worktree 07.11): код 0 и WARN, не FAIL шага ночи.
+        # Сторож — ПОДМЕНА: настоящий `room_guards.verdict` зовёт сборщик, каталог и базу — в чистом CI первым падает другое
         os.makedirs(os.path.join(d, 'se-gen'))
         lp = os.path.join(d, 'se-live.json')
         json.dump(B, open(lp, 'w', encoding='utf-8'), ensure_ascii=False)
         cp = os.path.join(d, 'se-cand.json')
         json.dump(B, open(cp, 'w', encoding='utf-8'), ensure_ascii=False)
-        p = subprocess.run(py + ['--room', 'bedroom', '--live', lp, '--generations', os.path.join(d, 'se-gen'), '--candidate', cp],
-                           env={**env, 'BEDROOM_STYLE_SCORES': os.path.join(d, 'нет-стилей.json')},
-                           capture_output=True, text=True, timeout=120)
+
+        def exits(*a, **k):
+            raise SystemExit('нет style-scores-bedroom.json')
+        txt, rc = cli(['--room', 'bedroom', '--live', lp, '--generations', os.path.join(d, 'se-gen'), '--candidate', cp],
+                      {'rehearse_enabled': True}, rp, verdict=exits)
         ok('CLI: сторожа вышли SystemExit — код 0, строка WARN:bank_rehearsal и DIGEST, живой цел',
-           p.returncode == 0 and 'WARN:bank_rehearsal: bedroom: упала: SystemExit' in p.stdout
-           and 'DIGEST:банк спальня (репетиция)' in p.stdout and json.load(open(lp, encoding='utf-8')) == B,
-           p.stdout[-400:] + p.stderr[-400:])
+           rc == 0 and 'WARN:bank_rehearsal: bedroom: упала: SystemExit' in txt
+           and 'DIGEST:банк спальня (репетиция)' in txt and json.load(open(lp, encoding='utf-8')) == B, txt)
     print(f'test_bank_rehearsal: ошибок {bad}')
     return 1 if bad else 0
 
