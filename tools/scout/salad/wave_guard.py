@@ -229,8 +229,7 @@ def main() -> int:
         note = json.load(open(NOTE)) if os.path.exists(NOTE) else {}
         if note.get('day') != today and not dry:
             subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'),
-                            'Меши: на Salad нет денег — волна ждёт пополнения (разрешение действует до '
-                            + str(lease.get('expires')) + '). Пополните баланс — старт сам в течение 2 ч.'], check=False, timeout=180)
+                            waiting_text(lease.get('expires'))], check=False, timeout=180)
             json.dump({'day': today}, open(NOTE, 'w'))
     if verdict != 'start' or dry:
         return 0
@@ -251,10 +250,29 @@ def main() -> int:
         json.dump(lease, open(LEASE, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     else:
         subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'),
-                        f"Меши: волна запущена по вашему разрешению — до {env['MESH_TAKE_JOBS']} моделей "
-                        f"(потолок ${cap:.2f}). Конец очереди, денег или потолка — машины погаснут сами, итог пришлю."],
+                        start_text(len(lease['waves']), left_usd(lease), lease.get('expires'),
+                                   int(env['MESH_TAKE_JOBS']), cap)],
                        check=False, timeout=180)
     return r.returncode
+
+
+def _ddmm(expires) -> str:
+    """'2026-11-14' → '14.11'; непонятное — как есть."""
+    s = str(expires or '')
+    return f'{s[8:10]}.{s[5:7]}' if len(s) >= 10 and s[4] == '-' and s[7] == '-' else (s or '?')
+
+
+def start_text(n: int, left: float, expires, jobs: int, cap: float) -> str:
+    """Сообщение о старте волны (T-20261107-26: владелец «я не давал потолок такой» — потолок волны считает автомат, не
+    человек; «по вашему разрешению» убрано)."""
+    return (f'Меши: волна {n} запущена в рамках общего разрешения на меши (осталось ${left:.2f} до {_ddmm(expires)}) — '
+            f'до {jobs} моделей; потолок волны ${cap:.2f} посчитан автоматически (модели × цена × 1,5). '
+            'Конец очереди, денег или потолка — машины погаснут сами, итог пришлю.')
+
+
+def waiting_text(expires) -> str:
+    return (f'Меши: на Salad нет денег — волна ждёт пополнения (общее разрешение на меши действует до {_ddmm(expires)}). '
+            'Пополните баланс — старт сам в течение 2 ч.')
 
 
 def _one_lock_test() -> bool:
@@ -284,6 +302,12 @@ def _selftest() -> int:
     ok('разрешение есть, всё чисто — старт на остаток 1000 моделей', d() == ('start', {'MESH_TAKE_JOBS': '1000', 'MESH_MIN_JOBS': '200'}))
     ok('без разрешения — только наблюдаем', d(lease=None)[0] == 'no_lease')
     ok('разрешение истекло', d(today='2026-11-01')[0] == 'lease_expired')
+    t = start_text(10, 0.64, '2026-11-14', 33, 0.64)
+    ok('текст старта: номер волны, остаток до DD.MM, потолок — автоматически, без «вашего»',
+       t.startswith('Меши: волна 10 запущена в рамках общего разрешения на меши (осталось $0.64 до 14.11) — до 33 моделей;')
+       and 'потолок волны $0.64 посчитан автоматически (модели × цена × 1,5)' in t and 'ваш' not in t)
+    ok('текст ожидания денег: до DD.MM, без «вашего»',
+       'действует до 14.11' in waiting_text('2026-11-14') and 'ваш' not in waiting_text('2026-11-14'))
     ok('потолок выбран', d(lease={**L, 'spent_usd': 11.7})[0] == 'budget_spent')
     ok('остаток считается от потраченного', d(lease={**L, 'spent_usd': 6.5})[1].get('MESH_TAKE_JOBS') == '500')
     ok('итог: потолок', close_reason({'kind': 'budget'}, None, 0) == 'выбран потолок денег')
