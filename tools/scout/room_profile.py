@@ -56,8 +56,9 @@ CAPABILITIES = {
     'living': {'catalog': None, 'demo': None, 'mesh_demand': None, 'bank': None,
                '_why': 'legacy: products (load3) → compose2 → flat215_demo.build; шаги конвейера комнат к ней не применяются'},
     'bedroom': {'catalog': 'room_catalog', 'demo': 'demo_bedroom', 'mesh_demand': 'room_mesh_demand', 'bank': 'compose_bedroom'},
-    'hall': {'catalog': 'hall_catalog', 'demo': None, 'mesh_demand': 'room_mesh_demand', 'bank': 'compose_hall',
-             '_why': 'витрина — этап 4 hall-demo-01 (вариантов enabled нет); спрос мешей — по вариантам из банка compose_hall '
+    'hall': {'catalog': 'hall_catalog', 'demo': 'demo_hall', 'mesh_demand': 'room_mesh_demand', 'bank': 'compose_hall',
+             '_why': 'витрина — адаптер demo_hall (этап 4 hall-demo-01; в реестре квартиры прихожая не включена — проверка /test/ '
+                     'через FLAT215_ROOMS_ENABLED у сборки рядом); спрос мешей — по вариантам из банка compose_hall '
                      '(`--hall-bank`, T-75), не по слотам (room_mesh_demand.demand читает правила compose_bedroom); '
                      'банк — кандидат sets-hall.next.json, живого нет'},
     'kitchen': {'catalog': None, 'demo': None, 'mesh_demand': None, 'bank': None,
@@ -198,6 +199,24 @@ def lead_rule(P: dict) -> str:
 def pairs(P: dict) -> tuple:
     """Парные роли (`pair`): пронумерованное место расстановки («тумба прикроватная 2») берёт товар своей роли — в порядке ролей."""
     return tuple(r for r, v in P['roles'].items() if v.get('pair'))
+
+
+def unpaired_numbered(P: dict, bank: list) -> list:
+    """Сторож пары (T-20261107-05, хвост «б» этапа 3 hall-demo-01): пронумерованное место расстановки банка («банкетка 2») у роли
+    профиля без `pair` — витрина его не поставит (товар номеру берёт только парная роль, `demo_room.variant_from_set`), предмет
+    молча пропадёт. Строки «стиль: место (роль)» — по одной на (роль, место)."""
+    pr, out = set(pairs(P)), set()
+    for rec in bank or []:
+        for r in rec.get('layout') or {}:
+            b = re.sub(r'\s+\d+$', '', r)
+            if b != r and b in P['roles'] and b not in pr:
+                out.add(f'{rec.get("style")}: «{r}» (роль «{b}»)')
+    return sorted(out)
+
+
+def bank_file(room_type: str) -> str:
+    """Живой банк наборов типа комнаты (`tools/scout/sets-<тип>.json`, пишет сборщик шага `bank`)."""
+    return os.path.join(HERE, f'sets-{room_type}.json')
 
 
 def hard(P: dict, role: str, key: str, default=None):
@@ -457,6 +476,14 @@ def lint(room_type: str, cam_html: str = CAM_HTML) -> tuple:
             E.append(f'роли состава наборов не в профиле: {sorted(used - set(P["roles"]))}')
         if set(major(P)) - set(rw):
             E.append(f'у крупного нет веса стиля: {sorted(set(major(P)) - set(rw))}')
+    bf = bank_file(room_type)
+    if os.path.isfile(bf):   # банк есть только у DEV (в git его нет): нет файла — пары сверит сборка (`WARN:<тип>_unpaired`)
+        try:
+            for u in unpaired_numbered(P, json.load(open(bf, encoding='utf-8'))):
+                W.append(f'место без pair в банке {os.path.basename(bf)} — {u}: витрина его не поставит; дай роли pair: true '
+                         'или убери номер в сборщике')
+        except (OSError, ValueError) as e:
+            W.append(f'банк {os.path.basename(bf)} не прочитан: {e}')
     cz, why = cam_zones(cam_html)
     if cz is None:
         W.append(f'виды не сверены с демо: {why}')
@@ -540,6 +567,11 @@ def _selftest() -> int:
     ok('прихожая: адаптер её знает (исключений нет), роли = правила каталога прихожей = слоты сборщика',
        not ADAPTER_PENDING and 'hall' in __import__('catalog_items').ROOM_TYPES and not role_errors('hall', H)
        and COMPOSERS[H['composer']['plugin']] == 'tools/scout/compose_hall.py')
+    bank = [{'style': 'лофт', 'layout': {'банкетка': {}, 'банкетка 2': {}, '_room': {}, 'зеркало': {}}}]
+    ok('сторож пары: «банкетка 2» без pair — видно; с pair — тихо; «тумба прикроватная 2» спальни (pair) — тихо',
+       unpaired_numbered(H, bank) == ['лофт: «банкетка 2» (роль «банкетка»)']
+       and not unpaired_numbered(dict(H, roles=dict(H['roles'], банкетка=dict(H['roles']['банкетка'], pair=True))), bank)
+       and not unpaired_numbered(load('bedroom'), [{'style': 'x', 'layout': {'тумба прикроватная 2': {}}}]))
     del H['roles']['зеркало']
     ok('прихожая: роль каталога без профиля — ошибка', any('зеркало' in x for x in role_errors('hall', H)))
     q = copy.deepcopy(raw('kitchen'))
@@ -554,9 +586,10 @@ def _selftest_caps(ok) -> int:
     """Реестр возможностей комнаты (T-20261106-72): матрица, отказ на неизвестном, living/kitchen не в шагах комнат."""
     import room_mesh_demand as RMD
     ok('реестр возможностей: строки = профили, модули на месте', not capability_errors())
-    ok('матрица: каталог — спальня и прихожая; витрина и спрос мешей — спальня; банк — спальня и прихожая',
+    ok('матрица: каталог, витрина (адаптеры demo_bedroom, demo_hall), спрос мешей и банк — спальня и прихожая',
        (rooms_with('catalog'), rooms_with('demo'), rooms_with('mesh_demand'), rooms_with('bank'))
-       == (('bedroom', 'hall'), ('bedroom',), ('bedroom', 'hall'), ('bedroom', 'hall')))
+       == (('bedroom', 'hall'), ('bedroom', 'hall'), ('bedroom', 'hall'), ('bedroom', 'hall'))
+       and rooms_with('demo', 'demo_hall') == ('hall',))
     ok('living и kitchen — ни в одном шаге комнат', all(capability(t, st) is None for t in ('living', 'kitchen') for st in STEPS))
     ok('спрос мешей из реестра: по вариантам (WANT_ROOMS) — спальня и прихожая, по слотам (ROOMS) — только спальня (сборщик '
        'compose_bedroom)', RMD.WANT_ROOMS == rooms_with('mesh_demand') == ('bedroom', 'hall') and RMD.ROOMS == ('bedroom',))

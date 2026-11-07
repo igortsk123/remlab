@@ -395,6 +395,9 @@ def build_variant(spec: Showcase, rec: dict, geo: dict, sku, dims_of, style_id, 
     # экземпляры ролей: товары записи и пронумерованные места готовой расстановки парной роли («тумба прикроватная 2» — товар базовой)
     roles = list(items) + [r for r in (art or {}) if not r.startswith('_') and r not in items and base_role(r) in items
                            and base_role(r) in pairs]
+    # СТОРОЖ ПАРЫ (T-20261107-05, хвост «б» этапа 3): пронумерованное место («банкетка 2») у роли без `pair` в профиле раньше молча
+    # выпадало из варианта — теперь видно: поле `unpaired` варианта (сборка печатает WARN) и `room_profile --lint` по банку
+    unpaired = unpaired_places(art, items, pairs)
     for role in roles:
         if base_role(role) not in spec.place_roles:
             continue
@@ -440,7 +443,15 @@ def build_variant(spec: Showcase, rec: dict, geo: dict, sku, dims_of, style_id, 
     return ({'id': variant_id(rec['room_id'], sid), 'title': (style or sid).capitalize(), 'style': style, 'style_id': sid,
              'room_id': rec['room_id'], 'purpose': rec.get('purpose'), 'fill_pct': art.get('_fill_pct'), 'items': objs,
              'decor': decor, 'dims_unknown': unknown, 'missing_item': empty, 'fill': [],
-             **({'mesh_swaps': swaps} if swaps else {}), **({'orient_unresolved': orient} if orient else {})}, None)
+             **({'mesh_swaps': swaps} if swaps else {}), **({'orient_unresolved': orient} if orient else {}),
+             **({'unpaired': unpaired} if unpaired else {})}, None)
+
+
+def unpaired_places(art: dict | None, items: dict, pairs) -> list:
+    """Пронумерованные места расстановки («… 2»), чья базовая роль есть среди товаров, но без `pair` в профиле: вариант их не
+    ставит (товара у номера нет) — список, чтобы это было видно, а не молча."""
+    return sorted(r for r in (art or {}) if not r.startswith('_') and isinstance(art[r], dict) and r not in items
+                  and base_role(r) != r and base_role(r) in items and base_role(r) not in tuple(pairs))
 
 
 def pick_records(spec: Showcase, bank: list, rooms: list, styles: list) -> list:
