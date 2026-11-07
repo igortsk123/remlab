@@ -145,6 +145,160 @@ def dominated(it: dict, cands: list) -> set:
     return {c['sid'] for c in cands if c['w'] >= it['w'] and c['d'] >= it['d']} | {it['sid']}
 
 
+def temp_score(cls1, set_temp, rgb1) -> float:
+    """Температура нейтрали к набору — та же часть `palette_score` (тёплые и холодные нейтрали не смешивать), без пары акцентов:
+    у крупной мебели пара стиля больше не награждает (style-color-01)."""
+    if cls1 in ('neutral_light', 'neutral_grey') and set_temp != 'mid':
+        t = temperature(rgb1)
+        return 0.8 if t == set_temp or t == 'mid' else -1.2
+    return 0.0
+
+
+# ---------- цвет по стилю и роли (план style-color-01, шаг 1): правила — rules/style-color-policy.json ----------
+COLOR_POLICY = os.path.join(HERE, 'rules', 'style-color-policy.json')
+_POLICY: dict = {}
+_WORD = re.compile(r'[а-яё]+(?:-[а-яё]+)*')
+
+
+def color_policy(path: str | None = None) -> dict:
+    """Правила цвета (кэш по пути) с проверкой полноты: у каждого стиля — ярус на каждую группу × категорию. Слова — в регэкспы."""
+    import json
+    path = path or COLOR_POLICY
+    if path in _POLICY:
+        return _POLICY[path]
+    P = json.load(open(path, encoding='utf-8'))
+    tiers, cats = set(P['tiers']), P['categories']
+    bad = []
+    for st, S in P['styles'].items():
+        for g in P['groups']:
+            row = (S.get('tiers') or {}).get(g) or {}
+            bad += [f'{st}/{g}/{c}: {row.get(c)!r}' for c in cats if row.get(c) not in tiers]
+        for g, by in (S.get('rank') or {}).items():
+            bad += [f'{st}/rank/{g}/{t}: {r!r}' for t, r in by.items()
+                    if g not in P['groups'] or t not in P['tier_rank'] or not isinstance(r, int)]
+        for g, by in (S.get('family_tiers') or {}).items():
+            bad += [f'{st}/{g}/{c}/{f}: {t!r}' for c, fm in by.items() for f, t in fm.items() if t not in tiers]
+    if not P.get('version') or not P.get('provenance'):
+        bad.append('нет version/provenance')
+    if bad:
+        raise ValueError('style-color-policy: ' + '; '.join(bad[:8]))
+    N = P['names']
+    full = lambda rx: re.compile(f'(?:{rx})', re.I)  # noqa: E731
+    P['_rx'] = {'families': [(f, full(rx)) for f, rx in N['families'].items()], 'material': full(N['material']),
+                'neutral': full(N['neutral']), 'vivid': re.compile(N['vivid'], re.I), 'muted_mod': re.compile(N['muted_mod'], re.I)}
+    P['_role_group'] = {r: g for g, rs in P['groups'].items() for r in rs}
+    _POLICY[path] = P
+    return P
+
+
+def color_group(role: str, P: dict) -> str:
+    """Группа роли (`groups` правил); «тумба прикроватная 2» → без номера; нет в правилах — `default_group`."""
+    return P['_role_group'].get(re.sub(r'\s+\d+$', '', role or ''), P['default_group'])
+
+
+def _name_tokens(name: str, P: dict) -> list:
+    """Цветовые слова названия по порядку: (вид, семья, приглушённое, яркое). Вид — chroma | material | neutral."""
+    rx, out = P['_rx'], []
+    for w in _WORD.findall((name or '').lower()):
+        parts = w.split('-')
+        fam = next(((f, p) for p in parts for f, r in rx['families'] if r.fullmatch(p)), None)
+        if fam:
+            others = [p for p in parts if p != fam[1]]
+            muted = any(rx['muted_mod'].match(p + '-') or rx['neutral'].fullmatch(p) for p in others)
+            out.append(('chroma', fam[0], muted, bool(rx['vivid'].search(fam[1]))))
+        elif any(rx['material'].fullmatch(p) for p in parts):
+            out.append(('material', None, False, False))
+        elif any(rx['neutral'].fullmatch(p) for p in parts):
+            out.append(('neutral', None, False, False))
+    return out
+
+
+def _hsv(rgb):
+    if not rgb:
+        return None
+    h, s, v = colorsys.rgb_to_hsv(*[x / 255 for x in rgb])
+    return h * 360, s, v
+
+
+def color_evidence(it: dict, P: dict) -> tuple:
+    """Цвет товара без стиля → (категория, семья, источник). Название — главный признак (цвет из каталога); нет цвета в
+    названии — фото (`cls`/`rgb` из `palette`): уверенный только при насыщенности ≥ confident_min, оттенок дерева — материал."""
+    S = P['saturation']
+    tk = _name_tokens(it.get('name'), P)
+    hsv = _hsv(it.get('rgb'))
+    if tk:
+        kind, fam, muted, vivid = tk[0]
+        if kind == 'chroma':
+            ph = P['photo_family'].get(it.get('cls') or '')
+            strong = bool(hsv and ph == fam and hsv[1] >= S['vivid_min'] and hsv[2] >= S['vivid_v_min'])
+            return ('vivid' if (vivid or strong) and not muted else 'muted'), fam, 'название'
+        sec = next((t for t in tk[1:] if t[0] == 'chroma'), None)
+        if sec:
+            return 'secondary', sec[1], 'название (второй цвет)'
+        return kind, None, 'название'
+    cls = it.get('cls') or 'unknown'
+    if not cls.startswith('accent_') or not hsv:
+        return ('material' if cls.startswith('wood_') else 'neutral'), None, 'фото' if it.get('cls') else 'нет данных'
+    hue, s, v = hsv
+    if S['wood_hue'][0] <= hue <= S['wood_hue'][1] and cls in ('accent_terra', 'accent_yellow'):
+        return 'material', None, 'фото (оттенок дерева)'
+    fam = P['photo_family'].get(cls, 'other')
+    if s < S['confident_min']:
+        return 'weak', fam, f'фото, насыщенность {s:.2f}'
+    if s >= S['vivid_min'] and v >= S['vivid_v_min']:
+        return 'vivid', fam, f'фото, насыщенность {s:.2f}'
+    return 'muted', fam, f'фото, насыщенность {s:.2f}'
+
+
+CAT_RU = {'neutral': 'нейтральный', 'material': 'материал', 'weak': 'неуверенный цвет', 'muted': 'приглушённый цвет',
+          'vivid': 'яркий цвет', 'secondary': 'второй цвет'}
+
+
+def color_eval(it: dict, role: str, style: str, P: dict | None = None, ctx: dict | None = None) -> dict:
+    """ОДИН оценщик цвета (сборщики спальни, прихожей и квота мешей). Чистая функция: товар (name, cls, rgb) × роль × стиль
+    → {tier, rank, delta, why, cat, family, group, major, anchor}; rank — место в ключе ранжирования (`styles.<стиль>.rank`
+    переопределяет `tier_rank` по группе). ctx['chroma'] — сколько цветных якорей уже в наборе: сверх
+    `max_chromatic_anchors` стиля следующий цветной крупный — discouraged. Стиля нет в правилах — allowed без причины."""
+    P = P or color_policy()
+    S = P['styles'].get(style)
+    g = color_group(role, P)
+    major = g in P['major_groups']
+    if S is None:
+        return {'tier': 'allowed', 'rank': P['tier_rank']['allowed'], 'delta': 0.0, 'why': '', 'cat': None, 'family': None, 'group': g, 'major': major,
+                'anchor': False}
+    cat, fam, src = color_evidence(it, P)
+    if cat in ('muted', 'vivid', 'secondary') and fam in S.get('material_families', ()):
+        cat, src = 'material', src + f', {fam} — материал стиля'
+    tier = S['tiers'][g][cat]
+    tier = ((S.get('family_tiers') or {}).get(g) or {}).get(cat, {}).get(fam, tier)
+    anchor = major and cat in P['anchor_categories']
+    why = f'цвет: {CAT_RU[cat]}' + (f' {fam}' if fam else '') + f' ({src}) → {tier}'
+    lim = S.get('max_chromatic_anchors')
+    if anchor and tier != 'forbidden' and lim is not None and (ctx or {}).get('chroma', 0) >= lim:
+        if P['tier_rank'][tier] < P['tier_rank']['discouraged']:
+            tier = 'discouraged'
+            why += f' → discouraged (цветных якорей в наборе уже {ctx["chroma"]}, предел {lim})'
+    rank = ((S.get('rank') or {}).get(g) or {}).get(tier, P['tier_rank'].get(tier))
+    return {'tier': tier, 'rank': rank, 'delta': P['delta'].get(tier, 0.0), 'why': why, 'cat': cat, 'family': fam, 'group': g,
+            'major': major, 'anchor': anchor}
+
+
+def color_tier(it: dict, role: str, style: str, P: dict | None = None, ctx: dict | None = None) -> tuple:
+    """(ярус, дельта, причина) — короткая форма `color_eval`."""
+    e = color_eval(it, role, style, P, ctx)
+    return e['tier'], e['delta'], e['why']
+
+
+def color_rank(tier: str | None, P: dict | None = None) -> int:
+    """Место яруса в ключе ранжирования: preferred 0 → allowed 1 → discouraged 2 (forbidden в ранжирование не попадает)."""
+    return (P or color_policy())['tier_rank'].get(tier or 'allowed', 1)
+
+
+def color_anchors(chosen: dict, style: str, P: dict | None = None) -> int:
+    """Сколько цветных якорей в наборе {роль: товар} (для предела `max_chromatic_anchors`)."""
+    return sum(1 for r, c in chosen.items() if color_eval(c, r, style, P)['anchor'])
+
+
 def palette(items: list) -> None:
     """Цвет по фото (`compose_common`): маленькая картинка в кэш thumbs/, два доминанта и класс — в товар."""
     os.makedirs(THUMBS, exist_ok=True)

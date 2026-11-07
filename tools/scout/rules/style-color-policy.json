@@ -1,0 +1,132 @@
+{
+ "_about": "ЦВЕТ ПО СТИЛЮ И РОЛИ (план style-color-01, шаг 1, T-20261107-12). Один оценщик `compose_common.color_eval` → (ярус, дельта, причина); ярус — ключ ранжирования ПЕРЕД наличием меша в compose_bedroom / compose_hall и порядок + отсечка forbidden в room_mesh_demand.quota_table. Гостиная (compose2, STYLE_PAIR в коде) — шаг 2, этот файл не читает. Ярусы: preferred (раньше) → allowed → discouraged (только когда годных выше нет; ячейка помечается color_relaxed) → forbidden (не берём никогда, не ослабляется).",
+ "version": "style-color-01/1",
+ "provenance": {
+  "passport": ".memory_bank/domain/interior-styles.md:26 (6 стилей: минимализм — светлый монохром 20, джапанди — тёплый монохром 20, современный — нейтраль + насыщенный акцент 20, неоклассика — крем/серо-беж 15 + бархат 10)",
+  "styles_json": "tools/scout/styles.json — score.colors: сканди :59 (yellow/green +0,5), современный :107 (blue +0,5, terra/green +0,4), минимализм :151 (red −1, pink/violet −0,8; render_guide «STYLE NO: colour accents»), лофт :196 (terra +0,6; cyan нет), неоклассика :240 (blue/green +0,5, yellow нет), джапанди :287 (green/terra +0,4, pink/violet −0,8; «почти монохромная гамма»)",
+  "advice": "Codex 07.11 ~/remlab-scratch/codex/style-color-a.md — ярус до меша, классификатор по фото хрупок (олива → yellow, коричневое дерево → terra), жёстко — только уверенный цвет; цветной якорь у современного и неоклассики законен; кожа и кирпич лофта — материал",
+  "decision": ".memory_bank/plans/style-color-01.md § «Решение (после совета, ведущий 07.11)»"
+ },
+ "groups": {
+  "upholstered_anchor": ["кровать", "диван"],
+  "large_casework": ["шкаф", "шкаф-купе", "комод", "тумба прикроватная", "прихожая", "обувница", "консоль", "вешалка", "стеллаж", "тумба ТВ"],
+  "secondary_seating": ["банкетка", "кресло", "пуф", "стул"],
+  "soft_textile": ["плед", "ковёр", "шторы", "подушки"],
+  "decor": ["лампа", "зеркало", "картина", "растение"]
+ },
+ "default_group": "decor",
+ "major_groups": ["upholstered_anchor", "large_casework", "secondary_seating"],
+ "_major_why": "крупная мебель — у неё цвет занимает площадь; у неё пара акцентов стиля (STYLE_PAIR) больше не награждает, палитра — только температура нейтралей; текстиль и декор — прежняя пара (из этого файла, поле pair)",
+ "saturation": {"confident_min": 0.35, "vivid_min": 0.55, "vivid_v_min": 0.3, "wood_hue": [15, 50]},
+ "_saturation_why": "только когда цвета в названии нет (по фото): насыщенность основного кластера (HSV) < confident_min — «слабый» (weak: олива 0,19–0,21 и розовый 0,32 по фото ловятся неуверенно — разбор Codex), ≥ vivid_min при яркости ≥ vivid_v_min — яркий; оттенок 15–50° (дерево) без цвета в названии — материал, не акцент (коричневое дерево с высокой насыщенностью classify относит к terra)",
+ "names": {
+  "_why": "Цвет в названии — главный и уверенный признак (в каталоге спальни/прихожей 07.11: оливковый 265, терракотовый 252, зелёный 78, мятный 78, синий 75, розовый 45, аквамарин 30). Слова — целиком, по основе с окончанием (модели «Белла», «Розетта» — не цвет). Первое цветовое слово названия — основной цвет, следующее за ним через «/» — второй (secondary)",
+  "families": {
+   "olive": "олив(?:ков[а-я]*|а)|хаки",
+   "green": "зел[её]н[а-я]*|изумруд[а-я]*|мятн[а-я]*|салатов[а-я]*|фисташк[а-я]*|шалфе[а-я]*|монстер[а-я]*|пихтов[а-я]*",
+   "cyan": "бирюз[а-я]*|аквамарин[а-я]*|аква",
+   "blue": "син(?:ий|яя|ее|ие|его|ей|им|юю|ей)|голуб(?:ой|ая|ое|ые|ого|ым)|индиго|сапфир[а-я]*|лазур[а-я]*|васильк[а-я]*",
+   "pink": "розов[а-я]*|пудров[а-я]*|лососев[а-я]*|коралл[а-я]*|персиков[а-я]*|фукси[а-я]*|малинов[а-я]*",
+   "terra": "терракот[а-я]*|кирпичн[а-я]*|ржав[а-я]*|рыж[а-я]*|охр(?:а|ян[а-я]*)",
+   "yellow": "ж[её]лт[а-я]*|горчичн[а-я]*|лимонн[а-я]*|шафран[а-я]*",
+   "red": "красн[а-я]*|бордо(?:в[а-я]*)?|вишн[её]в[а-я]*|марсал[а-я]*|винн[а-я]*|бургунд[а-я]*",
+   "violet": "фиолет[а-я]*|лилов[а-я]*|сирен[её]в[а-я]*|лаванд[а-я]*|баклажан[а-я]*|аметист[а-я]*|слив(?:а|ов[а-я]*)",
+   "orange": "оранж[а-я]*"
+  },
+  "vivid": "изумруд|бирюз|фукси|малинов|красн|оранж|ж[её]лт|лимонн|ярк|неонов",
+  "muted_mod": "^(?:серо|пыльно|пыльн|приглуш|светло|бледно|молочно|бежево|темно|тёмно)",
+  "material": "коричнев[а-я]*|шоколад[а-я]*|орех[а-я]*|дуб[а-я]*|венге|ясен[а-я]*|сосн[а-я]*|бук|капучино|кофе[а-я]*|мокко|карамел[а-я]*|какао|табак[а-я]*|коньяк[а-я]*|латун[а-я]*|бронз[а-я]*|золот[а-я]*|медн[а-я]*|медь|хром[а-я]*|серебр[а-я]*|металл[а-я]*|натуральн[а-я]*|древесн[а-я]*|деревянн[а-я]*|ротанг[а-я]*|рогоз[а-я]*|бамбук[а-я]*|тик|бер[её]з[а-я]*|сонома",
+  "neutral": "бел(?:ый|ая|ое|ые|ого|ым|ой|ом)|сер(?:ый|ая|ое|ые|ого|ым|ой|ом)|графит[а-я]*|беж[а-я]*|ч[её]рн[а-я]*|латте|молочн[а-я]*|кремов[а-я]*|крем|сливочн[а-я]*|слонов[а-я]*|песочн[а-я]*|антрацит[а-я]*|шампань|жемчу[а-я]*|кашемир[а-я]*|ванил[а-я]*|тауп[а-я]*|стал(?:ь|ьн[а-я]*)|пеп(?:ел|ельн[а-я]*)",
+  "_neutral_why": "«светлый»/«тёмный» отдельным словом — не цвет (тёмный дуб — дерево); как приставка («светло-зелёный») — muted_mod"
+ },
+ "photo_family": {"accent_terra": "terra", "accent_yellow": "yellow", "accent_green": "green", "accent_cyan": "cyan",
+                  "accent_blue": "blue", "accent_violet": "violet", "accent_pink": "pink", "accent_red": "red", "accent_other": "other"},
+ "categories": ["neutral", "material", "weak", "muted", "vivid", "secondary"],
+ "_categories_why": "neutral — белый/серый/беж/графит/чёрный (или цвета нет ни в названии, ни на фото); material — дерево, коньяк, латунь, металл (и семьи материала стиля: кирпич/ржавчина у лофта) — не акцент; weak — цвет только по фото и неуверенный; muted — уверенный приглушённый цвет (в названии или на фото); vivid — яркий (слово из vivid или фото ≥ vivid_min); secondary — основной нейтральный/материал, второй цвет в названии через «/» (графит/розовый) — второй кластер не отсекает (Codex: отказ по любому кластеру перерезает)",
+ "tiers": ["preferred", "allowed", "discouraged", "forbidden"],
+ "tier_rank": {"preferred": 0, "allowed": 1, "discouraged": 2},
+ "_tier_rank_why": "место яруса в ключе ранжирования (до меша); стиль может переопределить по группе — styles.<стиль>.rank {группа: {ярус: ранг}}",
+ "delta": {"preferred": 0.5, "allowed": 0.0, "discouraged": -0.5},
+ "_delta_why": "к баллу (стиль + …) — только для честной строки «почему» и порядка внутри яруса; сам порядок решает ярус (ключ ранжирования до меша)",
+ "anchor_categories": ["muted", "vivid"],
+ "_anchor_why": "цветной якорь набора — крупная вещь уверенного цвета (muted/vivid после семей материала стиля); сверх max_chromatic_anchors стиля следующий такой — discouraged (по порядку слотов: кровать раньше тумб и шкафа — якорем становится она)",
+ "styles": {
+  "минимализм": {
+   "_why": "паспорт: светлый монохром 20, render_guide «STYLE NO: colour accents»; styles.json :151 — акцентов-плюсов нет. Крупная мебель уверенного цвета — forbidden (изумрудная кровать, оливковый комод), неуверенный по фото — discouraged; пары нет: акцент в текстиле штрафуется палитрой",
+   "pair": [], "material_families": [], "max_chromatic_anchors": 0,
+   "tiers": {
+    "upholstered_anchor": {"neutral": "preferred", "material": "allowed", "weak": "discouraged", "muted": "forbidden", "vivid": "forbidden", "secondary": "discouraged"},
+    "large_casework":     {"neutral": "preferred", "material": "allowed", "weak": "discouraged", "muted": "forbidden", "vivid": "forbidden", "secondary": "discouraged"},
+    "secondary_seating":  {"neutral": "preferred", "material": "allowed", "weak": "discouraged", "muted": "forbidden", "vivid": "forbidden", "secondary": "discouraged"},
+    "soft_textile":       {"neutral": "preferred", "material": "allowed", "weak": "allowed", "muted": "discouraged", "vivid": "discouraged", "secondary": "allowed"},
+    "decor":              {"neutral": "preferred", "material": "allowed", "weak": "allowed", "muted": "discouraged", "vivid": "discouraged", "secondary": "allowed"}
+   }
+  },
+  "джапанди": {
+   "_why": "паспорт: тёплый почти монохром 20, натуральные материалы 20; styles.json :287 — green/terra +0,4 (приглушённо), pink/violet −0,8. Яркое у крупной — forbidden, приглушённые олива/глина у крупной — discouraged; дерево — preferred наравне с нейтралью",
+   "pair": ["terra", "green"], "material_families": [], "max_chromatic_anchors": 0,
+   "tiers": {
+    "upholstered_anchor": {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "discouraged", "vivid": "forbidden", "secondary": "discouraged"},
+    "large_casework":     {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "discouraged", "vivid": "forbidden", "secondary": "discouraged"},
+    "secondary_seating":  {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "discouraged", "vivid": "forbidden", "secondary": "discouraged"},
+    "soft_textile":       {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "decor":              {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"}
+   }
+  },
+  "сканди": {
+   "_why": "паспорт: светлое дерево 25, светлые нейтрали 15, уютный текстиль 15; styles.json :59 — yellow/green +0,5 (мелкий акцент). Цвету у кровати и корпусной бонуса нет (allowed ниже нейтрали — терракотовая кровать уступает нейтральной), один приглушённый мягкий фокус — в текстиле (preferred)",
+   "pair": ["green", "yellow"], "material_families": [], "max_chromatic_anchors": 1,
+   "rank": {"upholstered_anchor": {"allowed": 0}},
+   "_rank_why": "ведущий T-20261107-12/2: у мягкого якоря (кровать) allowed по рангу = preferred — цвет решает балл стиля, не больше max_chromatic_anchors цветных якорей на набор; корпусная остаётся нейтральной первой",
+   "tiers": {
+    "upholstered_anchor": {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "large_casework":     {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "secondary_seating":  {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "soft_textile":       {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "preferred", "vivid": "discouraged", "secondary": "allowed"},
+    "decor":              {"neutral": "preferred", "material": "allowed", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"}
+   }
+  },
+  "современный": {
+   "_why": "паспорт: нейтраль + насыщенный акцент 20; styles.json :107 — blue +0,5, terra/green +0,4. Цветной мягкий якорь (кровать, банкетка) законен (Codex) — preferred, но не больше одного на набор; корпус — без бонуса цвету",
+   "pair": ["blue", "terra"], "material_families": [], "max_chromatic_anchors": 1,
+   "rank": {"upholstered_anchor": {"allowed": 0}},
+   "_rank_why": "ведущий T-20261107-12/2: у мягкого якоря (кровать) allowed по рангу = preferred — цвет решает балл стиля, не больше max_chromatic_anchors цветных якорей на набор; корпусная остаётся нейтральной первой",
+   "tiers": {
+    "upholstered_anchor": {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "preferred", "vivid": "allowed", "secondary": "allowed"},
+    "large_casework":     {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "secondary_seating":  {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "preferred", "vivid": "allowed", "secondary": "allowed"},
+    "soft_textile":       {"neutral": "preferred", "material": "allowed", "weak": "allowed", "muted": "preferred", "vivid": "allowed", "secondary": "allowed"},
+    "decor":              {"neutral": "preferred", "material": "allowed", "weak": "allowed", "muted": "allowed", "vivid": "allowed", "secondary": "allowed"}
+   }
+  },
+  "лофт": {
+   "_why": "паспорт: кирпич/бетон 25, тёмное дерево 15, кожа 10; styles.json :196 — terra +0,6, cyan нет. Кирпичные, ржавые, рыжие (и коньяк, кожа — в material) — материал, не акцент; cyan не награждается (в паре только terra); цветной корпус (зелёная тумба) — discouraged",
+   "pair": ["terra"], "material_families": ["terra", "orange"], "max_chromatic_anchors": 1,
+   "tiers": {
+    "upholstered_anchor": {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "large_casework":     {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "discouraged", "vivid": "discouraged", "secondary": "allowed"},
+    "secondary_seating":  {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "soft_textile":       {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "decor":              {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"}
+   }
+  },
+  "неоклассика": {
+   "_why": "паспорт: крем/серо-беж 15, бархат/капитоне 10, латунь 15; styles.json :240 — blue/green +0,5 (не yellow). Приглушённый синий/зелёный бархат у мягких якорей — preferred наравне с нейтралью (регрессия «допустим»), прочий приглушённый — allowed; корпус нейтральный (цветной — discouraged)",
+   "pair": ["blue", "green"], "material_families": [], "max_chromatic_anchors": 1,
+   "rank": {"upholstered_anchor": {"allowed": 0}},
+   "_rank_why": "ведущий T-20261107-12/2: у мягкого якоря (кровать) allowed по рангу = preferred — цвет решает балл стиля, не больше max_chromatic_anchors цветных якорей на набор; корпусная остаётся нейтральной первой",
+   "tiers": {
+    "upholstered_anchor": {"neutral": "preferred", "material": "allowed", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "large_casework":     {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "discouraged", "vivid": "discouraged", "secondary": "allowed"},
+    "secondary_seating":  {"neutral": "preferred", "material": "allowed", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "soft_textile":       {"neutral": "preferred", "material": "allowed", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
+    "decor":              {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"}
+   },
+   "family_tiers": {
+    "upholstered_anchor": {"muted": {"blue": "preferred", "green": "preferred"}},
+    "secondary_seating": {"muted": {"blue": "preferred", "green": "preferred"}},
+    "soft_textile": {"muted": {"blue": "preferred", "green": "preferred"}}
+   }
+  }
+ }
+}

@@ -7,8 +7,10 @@
   1. кандидаты слота — товар с Ш×Г×В (без размеров в набор не ставим), в полосе 0,8–1,1 идеала слота по сторонам `band`
      (ADR-0322, допуск — zones.json), кровать — с честным габаритом (`footprint_ok`) и спальным местом в вилке назначения;
      в стиле — балл ≥ `in_style_min` (rules/demo-swap.json); цена — в квантилях тира роли;
-  2. порядок — СНАЧАЛА с мешом (готов → сгенерирован → нет; решение ведущего 05.11: «3D собирается сразу»), потом балл
-     стиля + палитра (0,5 × `compose_common.palette_score`), ничья — цена → SKU;
+  2. порядок — СНАЧАЛА ярус цвета по стилю и роли (`compose_common.color_eval`, rules/style-color-policy.json, style-color-01:
+     forbidden не берём, discouraged — только когда выше нет, ячейка `color_relaxed`), потом меш (готов → сгенерирован → нет;
+     решение ведущего 05.11: «3D собирается сразу»), потом балл стиля + цвет (крупная мебель — температура нейтрали и дельта
+     яруса, пара акцентов стиля не награждает; текстиль и декор — 0,5 × `palette_score` с парой из правил цвета), ничья — цена → SKU;
   3. разнообразие: между стилями одной комнаты и назначения — ≤ 1 общая крупная модель (семейство), связка
      «кровать + шкаф» не повторяется нигде; повтор кровати внутри стиля — штраф;
   4. раскладка — `planner.bedroom.solve_bedroom`; кровать не встала или не встало ни одно хранение — следующий кандидат;
@@ -87,12 +89,16 @@ def gate(it: dict, slot: dict, band: dict) -> str | None:
 def rank_key(it: dict) -> tuple:
     """Порядок кандидатов (полный ключ, без зависимости от порядка пула):
     1) модель ещё не стоит в этом стиле (тиры одного стиля — разные вещи; «Монблан» в трёх наборах из четырёх — канарейка 05.11);
+    1б) ярус цвета (style-color-01): preferred → allowed → discouraged — ДО меша (меш выше эстетики делал штраф баллом
+       бесполезным — разбор Codex 07.11); forbidden сюда не доходит (`Composer.ranked`);
     2) меш: готов → сгенерирован → нет → брак меша (приоритет ведущего 05.11 — 3D собирается сразу; «брак не брать» —
        бракованный идёт последним: только если другого в полосе и стиле нет);
     2б) декор: подходящий по названию (`prefer`: ночник, прикроватная, абажур — ведущий 05.11) — при прочих равных первым;
     3) модель ещё не стоит в других стилях комнаты (жёсткий предел ≤ 1 общей — `diversity_ok`, здесь — «лучше ноль»);
     4) балл (стиль + палитра), 5) цена, 6) SKU."""
-    return (bool(it.get('seen_style')), 3 if it.get('mesh_defect') else MESH_RANK.get(it.get('mesh'), 2),
+    import compose_common as CC
+    return (bool(it.get('seen_style')), it['color_rank'] if it.get('color_rank') is not None else CC.color_rank(it.get('color_tier')),
+            3 if it.get('mesh_defect') else MESH_RANK.get(it.get('mesh'), 2),
             it.get('preferred') is False, bool(it.get('seen_all')),
             -round(it.get('score', 0.0), 4), it.get('price') or 0, int(it['mid']), str(it['eid']))
 
@@ -234,23 +240,40 @@ class Composer:
         lo, hi = tier_range([it['price'] for it in styled], self.R['tiers'][tier])
         return [it for it in styled if lo <= it['price'] <= hi], band, True
 
-    def score(self, it: dict, style: str, ctx: dict) -> tuple:
+    def score(self, it: dict, style: str, ctx: dict, col: dict | None = None) -> tuple:
+        """Балл = стиль + цвет. Крупная мебель (группы major правил цвета): температура нейтрали к набору + дельта яруса —
+        пара акцентов стиля не награждает (style-color-01). Текстиль и декор: 0,5 × палитра с парой стиля из правил цвета
+        + дельта яруса. col — `color_eval` товара (None — посчитать)."""
         import compose_common as CC
+        col = col or CC.color_eval(it, it['role'], style, ctx=ctx)
         s = float(it['styles'][style])
         why = [f'стиль {s:g}']
         if it.get('cls'):
-            pal = CC.palette_score(it['cls'], it.get('cls2'), CC.STYLE_PAIR[style], ctx.get('temp', 'mid'), it.get('rgb'))
+            if col['major']:
+                pal = CC.temp_score(it['cls'], ctx.get('temp', 'mid'), it.get('rgb'))
+                if pal:
+                    why.append(f'температура{0.5 * pal:+.1f}')
+            else:
+                pal = CC.palette_score(it['cls'], it.get('cls2'), tuple(CC.color_policy()['styles'][style]['pair']),
+                                       ctx.get('temp', 'mid'), it.get('rgb'))
+                why.append(f'палитра{0.5 * pal:+.1f}')
             s += 0.5 * pal
-            why.append(f'палитра{0.5 * pal:+.1f}')
+        s += col['delta']
+        why.append(col['why'])
         if it['mesh']:
             why.append('меш ' + ('готов' if it['mesh'] == 'ready' else 'сгенерирован'))
         return round(s, 3), '; '.join(why)
 
     def ranked(self, cands: list, style: str, ctx: dict) -> list:
+        """Кандидаты по `rank_key`; ярус цвета forbidden — не кандидат (не ослабляется никогда)."""
+        import compose_common as CC
         out = []
         for it in cands:
-            sc, why = self.score(it, style, ctx)
-            out.append(dict(it, score=sc, why=why, style_score=float(it['styles'][style]),
+            col = CC.color_eval(it, it['role'], style, ctx=ctx)
+            if col['tier'] == 'forbidden':
+                continue
+            sc, why = self.score(it, style, ctx, col)
+            out.append(dict(it, score=sc, why=why, style_score=float(it['styles'][style]), color_tier=col['tier'], color_rank=col['rank'],
                             seen_style=it['fam'] in ctx.get('used_style', ()), seen_all=it['fam'] in ctx.get('used_all', ())))
         return sorted(out, key=rank_key)
 
@@ -273,8 +296,10 @@ class Composer:
             return {'empty': 'NO_BED_IN_STYLE_TIER'}
         banned: set = set()
         ctx = {'temp': 'mid', 'used_style': used['style'], 'used_all': used['all']}
+        import compose_common as CC
         for attempt in range(self.R['tries']['кровать'] + self.R['tries']['storage']):
             chosen, cur = {}, {}
+            ctx = dict(ctx, chroma=0)          # цветные якоря набора — заново на каждую попытку (предел стиля, style-color-01)
             for role in [sl['role'] for sl in cfg['slots']]:
                 rk = self.ranked([c for c in lists[role] if c['sid'] not in banned], style, ctx)
                 pick = next((c for c in rk if diversity_ok(c['fam'], role, cur, built, style)), None)
@@ -282,8 +307,8 @@ class Composer:
                     continue
                 chosen[role] = dict(pick, qty=slots[role].get('qty', 1))
                 cur[role] = pick['fam']
+                ctx = dict(ctx, chroma=CC.color_anchors(chosen, style))
                 if role == 'кровать':
-                    import compose_common as CC
                     ctx = dict(ctx, temp=CC.temperature(pick.get('rgb')))
             if 'кровать' not in chosen:
                 return {'empty': 'NO_BED_DIVERSE'}
@@ -371,6 +396,8 @@ class Composer:
         palette(cands)
         need = {p.role for p in keep}
         cur = {r: c['fam'] for r, c in chosen.items() if r != 'шкаф'}
+        import compose_common as CC        # цветные якоря — без прежнего шкафа (его и меняем)
+        ctx = dict(ctx, chroma=CC.color_anchors({r: c for r, c in chosen.items() if r != 'шкаф'}, style))
         banned: set = set()
         tried = 0
         if os.environ.get('BEDROOM_DEBUG'):
@@ -422,6 +449,9 @@ class Composer:
                 relaxed.append(role)
             palette(cands)
             rk = self.ranked(cands, style, ctx)
+            if not rk:                       # все кандидаты роли — цвет forbidden стиля (style-color-01)
+                gaps.append(f'{role}: нет в стиле по цвету')
+                continue
             qty = 1
             if dc.get('qty_from') == 'windows':
                 qty = max(1, len(windows))
@@ -532,7 +562,9 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
     picks, alts_d, gaps, lay_extra, dslots, relaxed_d = dec
     items = {r: _item(c) for r, c in chosen.items()}
     items.update({r: _item(c) for r, c in picks.items()})
-    alts = {r: [_alt(c) for c in C.ranked([x for x in res['lists'][r] if x['sid'] != chosen[r]['sid']], style, res['ctx'])
+    # запасные роли — с пределом цветных якорей БЕЗ самой роли (её и заменят)
+    rctx = {r: dict(res['ctx'], chroma=CC.color_anchors({k: v for k, v in chosen.items() if k != r}, style)) for r in chosen}
+    alts = {r: [_alt(c) for c in C.ranked([x for x in res['lists'][r] if x['sid'] != chosen[r]['sid']], style, rctx[r])
                 ][:C.R['alternates']] for r in chosen}
     alts.update(alts_d)
     slots = {r: dict({'ideal': res['slots'][r]['ideal'], 'band': res['bands'][r], 'tolerance': list(C.tol),
@@ -555,7 +587,10 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
                                        if wd.get('layout') is not None else {'narrow': False, 'why': wd['why']})
     m2 = round(spec['w'] * spec['d'] / 10000, 1)
     rec = {'room_id': room_id, 'room_type': 'bedroom', 'purpose': purpose, 'band': cell_band(spec), 'm2': m2, 'tier': tier,
-           'style': style, 'style_fit': set_fit(items, style), 'pair': list(CC.STYLE_PAIR[style]), 'gaps': gaps,
+           'style': style, 'style_fit': set_fit(items, style), 'pair': list(CC.color_policy()['styles'][style]['pair']),
+           'color_policy': CC.color_policy()['version'],
+           'color_relaxed': sorted(r for r, c in list(chosen.items()) + list(picks.items()) if c.get('color_tier') == 'discouraged'),
+           'gaps': gaps,
            'total': sum((it.get('price') or 0) * (it.get('qty') or 1) for it in items.values()),
            'items': items, 'alternates': alts, 'slots': slots, 'layout': layout,
            'tier_relaxed': sorted(res.get('relaxed', []) + relaxed_d),

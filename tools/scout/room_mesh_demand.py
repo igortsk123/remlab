@@ -784,13 +784,19 @@ def unit_of(it: dict, unit: str) -> str:
 
 
 def quota_table(slots: dict, styles: list, items: list, states: dict, shown: set, gate, thr: float,
-                unit: str = 'sku') -> list:
+                unit: str = 'sku', color=None) -> list:
     """Строка на (room_id × стиль × роль): единиц влезает / кандидатов (фото ok) / готово / можно в меш (по порядку добора).
     Единица — `unit_of` (`rules/demo-swap.json → room_count_unit`, по умолчанию sku). Меш один на семейство мешей (ADR-0196):
     задание ставится на представителя (`sku` после замены), и он закрывает ВСЕ единицы строки, что на него указывают
     (`weights`: цвета одной модели — один меш, несколько единиц). family: у модели в очередь идёт лучший по порядку меш, модель
     с готовым мешом в очередь не идёт. sku: каждый меш-представитель свой; порядок — в ленте → больше единиц на меш (дешевле)
-    → балл стиля → цена → SKU. В стиле — `room_profile.in_style` (одно правило со сборщиками и отчётом скорера)."""
+    → балл стиля → цена → SKU. В стиле — `room_profile.in_style` (одно правило со сборщиками и отчётом скорера).
+    color(товар, роль, стиль) → ярус (str) или `compose_common.color_eval` ({tier, rank}; ранг стиля по группе) — тот же
+    оценщик, что у сборщиков (style-color-01):
+    forbidden — не единица квоты (сборщик его не возьмёт; счёт — `color_forbidden`), остальное — в порядке добора ПЕРВЫМ
+    ключом, раньше «в ленте» (ведущий T-20261107-12/2): ранг яруса из политики (`color_rank`). None — цвет не учитывается
+    (ранг у всех одинаковый — порядок как до style-color-01)."""
+    import compose_common as CC
     if unit not in COUNT_UNITS:
         raise DemandError(f'единица счёта квоты {unit!r}: только {"|".join(COUNT_UNITS)}')
     table = []
@@ -805,6 +811,11 @@ def quota_table(slots: dict, styles: list, items: list, states: dict, shown: set
                         continue
                     if not any(gate(it, x, x['band']) is None for x in sl):
                         continue
+                    e = color(it, role, st) if color else None        # ярус (str) или color_eval → {tier, rank}
+                    ct, cr = (e, CC.color_rank(e)) if isinstance(e, str) else ((e['tier'], e['rank']) if e else (None, 1))
+                    if ct == 'forbidden':
+                        c.setdefault('color_forbidden', set()).add(unit_of(it, unit))
+                        continue
                     s, u = states[it['sku']], unit_of(it, unit)
                     c.setdefault('fit', set()).add(u)
                     if s in ('photo_pending', 'photo_bad'):
@@ -814,7 +825,7 @@ def quota_table(slots: dict, styles: list, items: list, states: dict, shown: set
                     c.setdefault(s, set()).add(u)
                     if s == 'job':
                         per_mesh.setdefault(it['sku'], set()).add(u)
-                        key = (0 if (it['sku'] in shown or it.get('via') in shown) else 1,
+                        key = (0 if (it['sku'] in shown or it.get('via') in shown) else 1, cr,
                                -(it.get('styles') or {}).get(st, 0), it.get('price') or 0, it['sku'])
                         bk = u if unit == 'family' else it['sku']
                         if bk not in best or key < best[bk][0]:
@@ -824,12 +835,14 @@ def quota_table(slots: dict, styles: list, items: list, states: dict, shown: set
                     weights = {v[1]: 1 for v in best.values()}
                 else:
                     weights = {sku: len(us) for sku, us in per_mesh.items()}
-                rk = lambda v: (v[0][0], -weights[v[1]]) + v[0][1:]  # noqa: E731
+                # ярус цвета → в ленте → единиц на меш → стиль → цена → SKU (v[0] = (в ленте, ярус, −стиль, цена, SKU))
+                rk = lambda v: (v[0][1], v[0][0], -weights[v[1]]) + v[0][2:]  # noqa: E731
                 order = sorted(best.values(), key=rk)
                 n = lambda k: len(c.get(k) or ())  # noqa: E731
                 table.append({'room_id': rid, 'style': st, 'role': role, 'unit': unit, 'fit': n('fit'), 'cand': n('cand'),
                               'covered': n('covered'), 'job': n('job'), 'photo_wait': n('photo'),
                               'mesh_other': n('has_mesh') + n('blocked') + n('defect'), 'not_job': n('not_job'),
+                              'color_forbidden': n('color_forbidden'),
                               'shown_jobs': sum(1 for v in best.values() if v[0][0] == 0),
                               'ranked': [v[1] for v in order], 'weights': weights,
                               # ключ порядка — для общей ленты доли нескольких ролей (`quota_plan`, share)
@@ -981,7 +994,10 @@ def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None, un
     slots = quota_slots(bank, R['purposes'], mod.band_of, tol, lambda r: AS.strategy(r) == 'hunyuan3d')
     styles = sorted({s['style'] for s in bank if s.get('style')})
     unit = unit or room_count_unit(room)
-    table = quota_table(slots, styles, items, states, bank_shown(bank), gate, thr, unit)
+    import compose_common as CC        # цвет по фото (кэш thumbs/) + тот же оценщик, что у сборщика (style-color-01)
+    CC.palette(items)
+    table = quota_table(slots, styles, items, states, bank_shown(bank), gate, thr, unit,
+                        color=lambda it, role, st: CC.color_eval(it, role, st))
     picked = quota_plan(table, split, share)
     jobs = []
     for s in picked:

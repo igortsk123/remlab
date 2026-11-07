@@ -130,8 +130,12 @@ def mesh_of(asset: dict) -> str | None:
 def rank_key(it: dict) -> tuple:
     """Порядок кандидатов: 1) модель ещё не стоит в этом стиле; 2) меш (готов → есть, не годен → нет → брак);
     3) в скольких наборах других стилей модель уже стоит (меньше — раньше: в каталоге 2 семьи шкафов-купе в стиле — пусть
-    чередуются); 4) товар с оценкой стиля раньше товара без неё; 5) балл; 6) цена; 7) SKU."""
-    return (bool(it.get('seen_style')), 3 if it.get('mesh_defect') else MESH_RANK.get(it.get('mesh'), 2),
+    чередуются); 4) товар с оценкой стиля раньше товара без неё; 5) балл; 6) цена; 7) SKU.
+    1б) ярус цвета по стилю и роли (style-color-01, `compose_common.color_eval`): preferred → allowed → discouraged — ДО меша;
+    forbidden сюда не доходит (`Composer.ranked`)."""
+    import compose_common as CC
+    return (bool(it.get('seen_style')), it['color_rank'] if it.get('color_rank') is not None else CC.color_rank(it.get('color_tier')),
+            3 if it.get('mesh_defect') else MESH_RANK.get(it.get('mesh'), 2),
             int(it.get('seen_all') or 0), bool(it.get('style_unknown')), -round(it.get('score', 0.0), 4), it.get('price') or 0,
             int(it['mid']), str(it['eid']))
 
@@ -264,30 +268,48 @@ class Composer:
         lo, hi = tier_range([it['price'] for it in styled], q)
         return [it for it in styled if lo <= it['price'] <= hi], band, True, unknown
 
-    def score(self, it: dict, style: str, ctx: dict) -> tuple:
+    def score(self, it: dict, style: str, ctx: dict, col: dict | None = None) -> tuple:
+        """Балл = стиль + цвет; → (балл, почему, палитра). Палитра — с парой стиля из правил цвета (style-color-01); у
+        крупной мебели (major правил цвета) в балл идёт только температура нейтрали + дельта яруса, пара не награждает;
+        палитра крупной остаётся только порогом для товара без оценки стиля (`ranked`, как раньше, пара — из правил цвета)."""
         import compose_common as CC
+        col = col or CC.color_eval(it, it['role'], style, ctx=ctx)
         sc = (it.get('styles') or {}).get(style)
         s = float(sc) if sc is not None else 0.0
         why = [f'стиль {s:g}' if sc is not None else 'стиль без оценки']
         pal = None
         if it.get('cls'):
-            pal = CC.palette_score(it['cls'], it.get('cls2'), CC.STYLE_PAIR[style], ctx.get('temp', 'mid'), it.get('rgb'))
-            s += 0.5 * pal
-            why.append(f'палитра{0.5 * pal:+.1f}')
+            pal = CC.palette_score(it['cls'], it.get('cls2'), tuple(CC.color_policy()['styles'][style]['pair']),
+                                   ctx.get('temp', 'mid'), it.get('rgb'))
+            if col['major']:
+                t = CC.temp_score(it['cls'], ctx.get('temp', 'mid'), it.get('rgb'))
+                s += 0.5 * t
+                if t:
+                    why.append(f'температура{0.5 * t:+.1f}')
+            else:
+                s += 0.5 * pal
+                why.append(f'палитра{0.5 * pal:+.1f}')
+        s += col['delta']
+        why.append(col['why'])
         if it.get('mesh'):
             why.append({'ready': 'меш готов', 'blocked': 'меш не годен', 'generated': 'меш сгенерирован'}[it['mesh']])
         return round(s, 3), '; '.join(why), pal
 
     def ranked(self, cands: list, style: str, ctx: dict, unknown: bool = False) -> list:
-        """Кандидаты по `rank_key`. Без оценки стиля (`unknown`) — только с палитрой стиля ≥ `style_unknown.palette_min`."""
+        """Кандидаты по `rank_key`. Ярус цвета forbidden — не кандидат (не ослабляется). Без оценки стиля (`unknown`) —
+        только с палитрой ≥ `style_unknown.palette_min`."""
+        import compose_common as CC
         pmin = float((self.R.get('style_unknown') or {}).get('palette_min', 0.0))
         out = []
         for it in cands:
-            sc, why, pal = self.score(it, style, ctx)
+            col = CC.color_eval(it, it['role'], style, ctx=ctx)
+            if col['tier'] == 'forbidden':
+                continue
+            sc, why, pal = self.score(it, style, ctx, col)
             if unknown and pal is not None and pal < pmin:
                 continue
             ss = (it.get('styles') or {}).get(style)
-            out.append(dict(it, score=sc, why=why, style_score=float(ss) if ss is not None else None,
+            out.append(dict(it, score=sc, why=why, style_score=float(ss) if ss is not None else None, color_tier=col['tier'], color_rank=col['rank'],
                             style_unknown=unknown, seen_style=it['fam'] in ctx.get('used_style', ()),
                             seen_all=(ctx.get('used_all') or {}).get(it['fam'], 0)))
         return sorted(out, key=rank_key)
@@ -325,13 +347,14 @@ class Composer:
         for attempt in range(self.R['tries']['set']):
             chosen, cur = {}, {}
             st_role = None
+            ctx = dict(ctx, chroma=0)      # цветные якоря набора — заново на каждую попытку (предел стиля, style-color-01)
             for r in storage:            # хранение: первое по порядку, у которого есть годный кандидат
                 src = [c for c in st_lists[r] if c['sid'] not in banned]
                 pick = next((c for c in self.ranked(src, style, ctx, st_unk[r])
                              if diversity_ok(c['fam'], r, cur, built, style)), None)
                 if pick is not None:
                     chosen[r], cur[r], st_role = pick, pick['fam'], r
-                    ctx = dict(ctx, temp=CC.temperature(pick.get('rgb')))
+                    ctx = dict(ctx, temp=CC.temperature(pick.get('rgb')), chroma=CC.color_anchors(chosen, style))
                     break
             if st_role is None:
                 return best or {'empty': 'NO_STORAGE_IN_STYLE', 'banned': sorted(banned)}
@@ -343,6 +366,7 @@ class Composer:
                              if diversity_ok(c['fam'], r, cur, built, style)), None)
                 if pick is not None:
                     chosen[r], cur[r] = pick, pick['fam']
+                    ctx = dict(ctx, chroma=CC.color_anchors(chosen, style))
             items = [Item(role=r, w_cm=c['w'], d_cm=c['d'], h_cm=c['h'], name=c['name'], item_id=c['sid'])
                      for r, c in chosen.items()]
             lay = solve_hall(room, items)
@@ -391,9 +415,11 @@ def record(C: Composer, spec: dict, style: str, tier: str, res: dict) -> dict:
     import compose_common as CC
     chosen, lay = res['chosen'], res['layout']
     items = {r: _item(c) for r, c in chosen.items()}
+    # запасные роли — с пределом цветных якорей БЕЗ самой роли (её и заменят)
+    rctx = {r: dict(res['ctx'], chroma=CC.color_anchors({k: v for k, v in chosen.items() if k != r}, style)) for r in chosen}
     alts = {r: [_alt(c) for c in C.ranked([x for x in res['lists'][r] if x['sid'] != chosen[r]['sid']
                                            and (r != res['storage'] or r != 'вешалка' or floor_hanger(x, C.R))],
-                                          style, res['ctx'], r in res['unknown'])][:C.R['alternates']] for r in chosen}
+                                          style, rctx[r], r in res['unknown'])][:C.R['alternates']] for r in chosen}
     sizes = {r: size_slot(res['slots'][r], chosen[r].get('size'), C.tol) for r in chosen}   # типоразмер выбранного товара
     slots = {r: {'ideal': sizes[r][0].get('ideal', {}), 'band': sizes[r][1], 'size': sizes[r][0]['size'],
                  'tolerance': list(C.tol), 'qty': 1, 'mesh': True, 'storage': r == res['storage']} for r in chosen}
@@ -410,7 +436,10 @@ def record(C: Composer, spec: dict, style: str, tier: str, res: dict) -> dict:
                        'floor_used_pct': lay.floor_used_pct, 'attempts': res['attempts']}
     m2 = round(spec['w'] * spec['d'] / 10000, 1)
     rec = {'room_id': spec['id'], 'room_type': ROOM, 'purpose': ROOM, 'band': cell_band(spec), 'm2': m2, 'tier': tier, 'style': style,
-           'style_fit': set_fit(items, style), 'pair': list(CC.STYLE_PAIR[style]), 'storage': res['storage'],
+           'style_fit': set_fit(items, style), 'pair': list(CC.color_policy()['styles'][style]['pair']),
+           'color_policy': CC.color_policy()['version'],
+           'color_relaxed': sorted(r for r, c in chosen.items() if c.get('color_tier') == 'discouraged'),
+           'storage': res['storage'],
            'gaps': [f'{r}: не встал ни один кандидат' for r in sorted(res['skipped'])],
            'total': sum((it.get('price') or 0) for it in items.values()),
            'items': items, 'alternates': alts, 'slots': slots, 'layout': layout,
