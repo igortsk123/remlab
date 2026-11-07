@@ -1034,6 +1034,20 @@ def stats(out=sys.stdout) -> int:
     return 0
 
 
+def child_env() -> dict:
+    """Окружение команды: TMPDIR — временная папка на диске, если не задан (T-20261107-13). Тяжёлое (тесты, Playwright/Chromium,
+    сборки) писало временное в /tmp — tmpfs с квотой, общий с соседями, и падало EDQUOT. Правило одно —
+    `tools/scout/remlab_tmp.py` (REMLAB_TMP → ~/remlab-scratch/tmp → в CI системная); нет помощника — окружение как есть."""
+    scout = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scout')
+    if scout not in sys.path:
+        sys.path.append(scout)                 # в конец: свои модули heavy_slot не подменяются
+    try:
+        import remlab_tmp
+    except ImportError:
+        return dict(os.environ)
+    return remlab_tmp.child_env()
+
+
 def run(argv: list) -> int:
     """`<метка> [--min-gb N] [--timeout S] [--no-slot] -- <команда…>` → rc команды (124 — не дождался)."""
     if '--' not in argv or argv.index('--') < 1 or argv.index('--') == len(argv) - 1:
@@ -1066,7 +1080,7 @@ def run(argv: list) -> int:
         signal.signal(s, _term)
     try:
         with heavy_slot(label, min_gb=min_gb, timeout=timeout, no_slot=no_slot, cmd=' '.join(cmd)) as info:
-            p = subprocess.Popen(cmd, pass_fds=(info['fd'],) if info['fd'] is not None else ())
+            p = subprocess.Popen(cmd, pass_fds=(info['fd'],) if info['fd'] is not None else (), env=child_env())
 
             def _fwd(sig, _frm):
                 p.send_signal(sig)

@@ -67,11 +67,10 @@ def sealed(hits: list):
 
 def tmp_root() -> str | None:
     """Папка временного на диске: REMLAB_TMP, иначе ~/remlab-scratch/tmp, если есть (`tools/ops/remlab-tmp.sh`); нет — None
-    (системная). /tmp DEV — tmpfs с квотой: песочница репетиции падала там EDQUOT при ручном прогоне (T-20261107-04/4)."""
-    for d in (os.environ.get('REMLAB_TMP'), os.path.expanduser('~/remlab-scratch/tmp')):
-        if d and os.path.isdir(d):
-            return d
-    return None
+    (системная). /tmp DEV — tmpfs с квотой: песочница репетиции падала там EDQUOT при ручном прогоне (T-20261107-04/4).
+    Правило одно на всех — `remlab_tmp.root()` (T-20261107-13; в CI без REMLAB_TMP — системная)."""
+    import remlab_tmp
+    return remlab_tmp.root()
 
 
 def _sha_file(path: str) -> str | None:

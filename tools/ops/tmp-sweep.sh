@@ -22,3 +22,14 @@ for D in /tmp "$REMLAB_TMP"; do
                 -o -name 'tmp*.glb' -o -name 'llm-probe.*' -o -name 'demo_rt_pub.*' \) -print0)
   echo "чистка $D: файлов $n, $((kb / 1024)) МБ (старше ${H} ч)$([ "$DRY" = 1 ] && echo ' — сухой прогон')"
 done
+# T-20261107-13: забытые ПАПКИ помощника временного — только в REMLAB_TMP (в /tmp папки не трогаем): rt-* (python
+# `remlab_tmp.use`, процесс убит сигналом — atexit не успел) и *-selftest.* (shell-селфтест упал — папку оставили для разбора).
+# Удаляем, только если внутри ничего не менялось дольше порога (долгий живой прогон не задеваем).
+n=0; kb=0
+while IFS= read -r -d '' d; do
+  [ -n "$(find "$d" -mmin -$((H * 60)) -print -quit 2>/dev/null)" ] && continue
+  s=$(du -sk "$d" | cut -f1); kb=$((kb + s)); n=$((n + 1))
+  [ "$DRY" = 1 ] && echo "  удалю папку: $d (${s} КБ)" || rm -rf -- "$d"
+done < <(find "$REMLAB_TMP" -mindepth 1 -maxdepth 1 -type d -user "$(id -u)" -mmin +$((H * 60)) \
+           \( -name 'rt-*' -o -name '*-selftest.*' \) -print0)
+echo "чистка $REMLAB_TMP: папок $n, $((kb / 1024)) МБ (rt-*, *-selftest.*; старше ${H} ч)$([ "$DRY" = 1 ] && echo ' — сухой прогон')"

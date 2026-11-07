@@ -403,6 +403,8 @@ def night(report: str = PREPARE_REPORT, now: float | None = None, runner=None, r
 
 
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('bank_pending-selftest')
     bad = 0
 
     def ok(name: str, cond: bool, extra='') -> None:

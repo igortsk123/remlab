@@ -7,13 +7,20 @@
 - текст длиннее 4 000 знаков — части «(1/2)», «(2/2)» по строкам, длинная строка — по знакам без порванных букв;
   часть не ушла — остальные не шлём, код 1;
 - токен не попадает ни в журналы, ни в вывод; ALERT_DRY=1, «TG не настроен» (код 2) и строка успеха с первой попытки — как раньше.
-Папки случаев не удаляются: ALERT_TEST_DIR (иначе новая папка в tempdir).
+Папки случаев — в ALERT_TEST_DIR (не удаляются) или во временной папке процесса НА ДИСКЕ (`remlab_tmp.use`, T-20261107-13):
+успех — удаляются, провал — остаются (путь в конце). Раньше — в /tmp навсегда (13 папок 07.11), и 07.11 случай «C-локаль»
+упал не из-за alert.sh: в /tmp (tmpfs с квотой) подмена curl не смогла дописать первый вызов в `calls` (вызовов 4, записей 3,
+журнал успеха — все 4 части) — тот же час у соседа `[Errno 122] Disk quota exceeded`. Теперь потерянная запись подмены —
+своя строка FAIL с причиной («запись в папку случая не удалась»), не ложный FAIL alert.sh.
     python3 tools/scout/tests/test_alert_retry.py"""
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_alert_retry')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 SCOUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 BASE = os.environ.get('ALERT_TEST_DIR') or tempfile.mkdtemp(prefix='alert-retry-')
@@ -67,6 +74,9 @@ def run(case, text, plan=(), env_alert=True, **env):
            'sleeps': read(os.path.join(d, 'sleeps')).split(), 'calls': calls}
     leak = [k for k in ('stdout', 'stderr', 'sent', 'fail') if TOKEN in out[k] or 'FAKETOKEN' in out[k]]
     check(f'{case}: токена нет в журналах и выводе', not leak, str(leak))
+    n = read(os.path.join(d, 'n')).strip()
+    check(f'{case}: подмена curl записала каждый вызов', (int(n) if n.isdigit() else 0) == len(calls),
+          f'вызовов {n or 0}, записей {len(calls)} — запись в папку случая не удалась (место/квота временной папки, EDQUOT): {d}')
     return out
 
 
@@ -124,6 +134,9 @@ check('ALERT_DRY=1, пустой текст — громко', 'ПУСТОЙ А�
 o = run('no-config', 'привет', ['ok'], env_alert=False)
 check('нет .env.alert — код 2, «TG не настроен», без запросов', o['rc'] == 2 and '(TG не настроен) привет' in o['fail'] and not o['calls'], o)
 
-print(f'папки случаев: {BASE}')
+if fails and not os.environ.get('ALERT_TEST_DIR'):
+    remlab_tmp.keep('провал test_alert_retry')       # папки случаев — для разбора
+if fails or os.environ.get('ALERT_TEST_DIR'):
+    print(f'папки случаев: {BASE}')
 print('FAIL' if fails else 'OK')
 sys.exit(1 if fails else 0)

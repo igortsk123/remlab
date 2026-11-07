@@ -697,6 +697,9 @@ def sheets(ok: list, out: str, big: list[str]) -> None:
 # ── самопроверка ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 def selftest() -> int:
+    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('color_o2-selftest')
     import tempfile
     import trimesh
     import mesh_render as MR

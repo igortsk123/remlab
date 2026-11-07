@@ -287,6 +287,9 @@ def prune(src: str, journal: str, apply: bool, sink: set,
 
 def _selftest() -> int:
     """Самопроверка на временном дереве: сухой прогон не удаляет, защиты работают."""
+    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('prune_shapes-selftest')
     bad = 0
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, 'v2')

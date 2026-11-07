@@ -447,6 +447,8 @@ def stale_facts(todo: list) -> tuple[set, set]:
 
 def _selftest() -> int:
     # --- ПРОФИЛЬ ДЕМО v2: закреплённые, затем недобор ленты (demo-20 В2) ---
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('mesh_priority-selftest')
     bad_demo = 0
     prod = {s_: {'role': 'столик', 'status': st_} for s_, st_ in
             (('m:1', 'none'), ('m:2', 'stale'), ('m:3', 'none'), ('m:5', 'ready'), ('m:8', 'none'))}

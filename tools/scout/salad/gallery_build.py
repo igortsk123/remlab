@@ -433,6 +433,9 @@ def build() -> str:
 
 def _selftest() -> int:
     """Выбор файла на SKU без базы и сети: флаг выкл / вкл / нет файла привязки, sha и отказ чтения привязки."""
+    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('gallery_build-selftest')
     import tempfile
     bad = 0
 

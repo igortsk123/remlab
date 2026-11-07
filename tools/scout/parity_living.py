@@ -912,6 +912,8 @@ def _raises(f) -> bool:
 
 
 def selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('parity_living-selftest')
     import tempfile
     bad = 0
     os.makedirs(os.path.expanduser('~/.cache'), exist_ok=True)   # временные папки — не в /tmp (квота DEV, урок 528); в CI HOME пуст

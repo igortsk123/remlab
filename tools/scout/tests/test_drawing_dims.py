@@ -16,6 +16,9 @@ import json
 import os
 import sys
 import urllib.error
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_drawing_dims')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCOUT = os.path.join(HERE, '..')

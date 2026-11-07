@@ -150,6 +150,8 @@ def ping(name: str, here: str = HERE) -> str:
 
 # ---------------------------------------------------------------- селфтест
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('env_keys-selftest')
     import tempfile
     bad = 0
 

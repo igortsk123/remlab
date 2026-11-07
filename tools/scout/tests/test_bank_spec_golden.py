@@ -25,6 +25,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_bank_spec_golden')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 SCOUT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.normpath(os.path.join(SCOUT, '..', '..'))
@@ -270,7 +273,8 @@ def sandbox(rev: str | None, rules: str) -> str:
 
 def norm(b: bytes, T: str) -> bytes:
     import re
-    return re.sub(rb'<T>/tmp/[^/\s\'"]+', b'<T>/tmp/<tmp>', b.replace(T.encode(), b'<T>'))
+    # папка сессии помощника временного (remlab_tmp.use → rt-<имя>-xxxx) — служебный уровень, в эталоне её нет (T-20261107-13)
+    return re.sub(rb'<T>/tmp/(?:rt-[^/\s\'"]+/)?[^/\s\'"]+', b'<T>/tmp/<tmp>', b.replace(T.encode(), b'<T>'))
 
 
 def run_story(name: str, rev: str | None) -> dict:

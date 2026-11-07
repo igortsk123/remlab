@@ -101,6 +101,8 @@ def main(argv: list, env: dict, run=apply) -> int:
 
 
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('db_migrate-selftest')
     bad = 0
 
     def ok(cond: bool, name: str) -> None:

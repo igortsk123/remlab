@@ -14,11 +14,14 @@
 # сторож (свободно < запаса — никого нового, идущий доживает), замер пика памяти дерева и WARN долгого держания, --stats.
 # T-79: обгон — голова не проходит по памяти, следующий проходящий берёт свободный слот; голова ждёт дольше
 # HEAVY_SLOT_BACKFILL_MIN — обгон закрыт; одиночный — как прежде.
-# Временная папка остаётся (несколько КБ) — путь в конце.
+# Временная папка — в REMLAB_TMP на диске (T-20261107-13: в /tmp их скопилось 25); успех — удаляется, провал или
+# REMLAB_KEEP_TMP=1 — остаётся, путь в конце.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 S="$DIR/heavy-slot.sh"
-T=$(mktemp -d "${TMPDIR:-/tmp}/heavy-slot-selftest.XXXXXX")
+. "$DIR/remlab-tmp.sh"
+T=$(remlab_tmp_dir heavy-slot-selftest) || { echo "heavy-slot selftest: нет временной папки в $REMLAB_TMP"; exit 1; }
+remlab_tmp_trap "$T"
 export HEAVY_SLOT_DIR="$T/slot" HEAVY_SLOT_LOG="$T/heavy-slot.log" HEAVY_SLOT_MEMINFO="$T/meminfo" HEAVY_SLOT_POLL=0.1 HEAVY_SLOT_REPORT=0
 unset HEAVY_SLOT_HELD
 fails=0
@@ -478,6 +481,5 @@ ok "тип задачи по метке" "$(yes_if '[ "$(python3 -c "import sys;
 st=$("$S" --status)
 ok "после всех: очередь свободна, ожидающих нет" "$(yes_if 'grep -q "^СВОБОДНО" <<<"$st" && grep -q "^ЖДУТ: 0" <<<"$st"')"
 
-echo "временная папка: $T"
 if [ "$fails" = 0 ]; then echo "heavy-slot selftest: OK"; exit 0; fi
 echo "heavy-slot selftest: $fails FAIL"; exit 1

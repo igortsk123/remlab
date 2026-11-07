@@ -115,6 +115,8 @@ def candidate(rep: dict, run_id: str, cand_path: str | None = None) -> tuple[byt
 
 
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('bank_run-selftest')
     import contextlib
     import io
     import tempfile

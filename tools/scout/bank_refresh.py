@@ -566,6 +566,8 @@ def _enabled() -> int:
 
 
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('bank_refresh-selftest')
     import tempfile
     bad = 0
 

@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # САМОПРОВЕРКА `db-migrate-safe.sh` (onb-12 ч.2): заглушки psql/pg_dump и временный замок обслуживания — дев-базу и паузу
 # машины не трогает. Запуск: `tools/ops/db-migrate-safe.sh selftest` (его же гоняет `tests/unit/db-migrate-safe.test.ts`).
-# Временная папка остаётся в $TMPDIR (несколько КБ) — путь в конце вывода.
+# Временная папка — в REMLAB_TMP на диске (T-20261107-13: в /tmp их скопилось 79, 15 МБ — гоняет и `pnpm test`); успех —
+# удаляется, провал или REMLAB_KEEP_TMP=1 — остаётся, путь в конце вывода.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="$ROOT/tools/ops/db-migrate-safe.sh"
-T=$(mktemp -d "${TMPDIR:-/tmp}/db-migrate-selftest.XXXXXX")
+. "$ROOT/tools/ops/remlab-tmp.sh"
+T=$(remlab_tmp_dir db-migrate-selftest) || { echo "db-migrate-safe selftest: нет временной папки в $REMLAB_TMP"; exit 1; }
+remlab_tmp_trap "$T"
 fails=0
 ok() { if [ "$2" = 0 ]; then echo "  [ ok ] $1"; else echo "  [FAIL] $1"; fails=$((fails + 1)); fi; }
 yes_if() { if eval "$1"; then echo 0; else echo 1; fi; }
@@ -163,5 +166,5 @@ ok "--db prod — отказ" "$(yes_if "[ \$(run '$T/sql/010-mixed.sql' --db pr
 ok "нет файла — отказ" "$(yes_if "[ \$(run '$T/sql/nope.sql') = 2 ]")"
 ok "отказы ничего не вызвали" "$(yes_if "[ ! -s '$T/calls.log' ] && ! paused")"
 
-echo "db-migrate-safe selftest: ошибок $fails (папка $T)"
+echo "db-migrate-safe selftest: ошибок $fails"
 [ "$fails" = 0 ]
