@@ -91,10 +91,10 @@ if SOURCE=='room_catalog':
 elif SOURCE=='hall':   # у прихожей правил по материалу нет (rules/hall-roles.json) — список пуст, модуль нужен для ROOM
     import hall_catalog as _RC
     MRULES=_RC.rules().get('style_material_rules',[])
+import style_rules as _SR   # ступень «правила» — общий модуль (отчёт детской берёт ту же формулу, T-20261107-43/1)
 def mfired(p):
     """id сработавших правил по материалу: материал из фида, цвет и название — чтобы золото/хром не ушли в лофт."""
-    return [r['id'] for r in MRULES if re.search(r['mat'],p['mat'],re.I) and not re.search(r['not'],p['mat'],re.I)
-            and not re.search(r['not_col'],p['col']+' '+p['name'],re.I) and re.search(r.get('col',''),p['col']+' '+p['name'],re.I)]
+    return _SR.mfired(p, MRULES)
 
 if SOURCE=='room_catalog':
     print("Каталог спальни (room_catalog)...",flush=True)
@@ -140,24 +140,7 @@ from style_noise import avg_runs, settle, rule_shift
 # ---------- ступень 1: правила (выше переиспользования: смена правил по материалу считается без прогона) ----------
 def rule_score(p, fired=None):
     """fired — id правил по материалу; по умолчанию сработавшие сейчас, прежний список — для сдвига без прогона."""
-    fired=mfired(p) if fired is None else fired
-    txt=' '.join((p['name'],p['mat'],p['uph'],p['stp'],p['desc'])).lower()
-    t=tag(p['name'])
-    out={}
-    for st in SNAMES:
-        sc=STYLES[st]['score']; s=0.0
-        if re.search(sc['pos'],txt): s+=2.5
-        if re.search(sc['neg'],txt): s-=2.5
-        for dim in ('wood','metal','fabric'):
-            v=t.get(dim)
-            if v and v in sc.get(dim,{}): s+=sc[dim][v]*0.6
-        if t.get('style'):
-            s+= 2.0 if t['style']==st else 0.0
-        out[st]=s
-    for r in MRULES:
-        if r['id'] in fired:
-            for st,v in r['add'].items(): out[st]+=v
-    return out
+    return _SR.rule_score(p, STYLES, MRULES, mfired(p) if fired is None else fired)
 
 key=lambda p: f"{p['mid']}-{re.sub(r'[^A-Za-z0-9]','_',p['eid'])[:40]}"
 reused=0; shifted=0; scored_now=[]
