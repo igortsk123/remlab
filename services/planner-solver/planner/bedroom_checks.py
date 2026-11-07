@@ -37,8 +37,16 @@ def num(key: str, default: float) -> float:
     return float(v[0]) if isinstance(v, list) else float(v)
 
 
+def bedroom_role(role: str) -> str:
+    """Роль для правил спальни: номер экземпляра снят (`geometry.base_role`: «тумба прикроватная 2»), детская роль —
+    её взрослый псевдоним (`rules/bedroom.json` aliases: «кровать детская» → «кровать», «стол детский» → «стол рабочий»,
+    «стул детский» → «стул рабочий»): нормы и шаблоны одни (kids-room-01). Взрослым ролям — то же, что `base_role`."""
+    b = base_role(role)
+    return bedroom_rules().get("aliases", {}).get(b, b)
+
+
 def is_bed(p: Placement) -> bool:
-    return base_role(p.role) == "кровать"
+    return bedroom_role(p.role) == "кровать"
 
 
 def is_double(p: Placement) -> bool:
@@ -54,7 +62,7 @@ def both_sides(room: Room, p: Placement) -> bool:
 # Фронт-зоны спальни. Своя таблица, а не `clearances._table`: шкаф спальни держит норму ADR-0330 п.7
 # независимо от того, принят ли подъём для гостиной (её путь читает свою таблицу).
 def bedroom_spec(role: str) -> ClearanceSpec | None:
-    r = base_role(role)
+    r = bedroom_role(role)
     if r == "шкаф":
         return ClearanceSpec(num("wardrobe_hinged_front_min", 90), 0, 0, "распашной фасад (ADR-0330 п.7)")
     if r == "комод":
@@ -70,7 +78,7 @@ GROUPS = (frozenset({"стол рабочий", "стул рабочий"}),)
 
 
 def same_group(a: str, b: str) -> bool:
-    a, b = base_role(a), base_role(b)
+    a, b = bedroom_role(a), bedroom_role(b)
     return any(a in g and b in g for g in GROUPS)
 
 
@@ -171,7 +179,7 @@ def nightstand_ok(room: Room, n: Placement, beds: list[Placement]) -> bool:
 def check_nightstands(room: Room, ps: list[Placement]) -> list[Violation]:
     beds = [p for p in ps if is_bed(p)]
     out = []
-    for n in [p for p in ps if base_role(p.role) == "тумба прикроватная"]:
+    for n in [p for p in ps if bedroom_role(p.role) == "тумба прикроватная"]:
         ok = nightstand_ok(room, n, beds)
         if not ok:
             out.append(_v("NIGHTSTAND_DETACHED", f"«{n.role}» не у изголовья кровати", [n.role], None,
@@ -205,11 +213,37 @@ def check_desk_window(room: Room, ps: list[Placement]) -> list[Violation]:
     wins = [opening_polygon(room, op) for op in room.openings if op.kind == "window"]
     lim = num("desk_window_max", 100)
     out = []
-    for d in [p for p in ps if base_role(p.role) == "стол рабочий"]:
+    for d in [p for p in ps if bedroom_role(p.role) == "стол рабочий"]:
         if wins and min(footprint(d).distance(w) for w in wins) > lim:
             out.append(_v("DESK_FAR_FROM_WINDOW", f"«{d.role}» дальше {lim:.0f} см от окна", [d.role], lim,
                           f"≤{lim:.0f} см до окна", Severity.SOFT))
     return out
+
+
+def light_side(room: Room, desk: Placement) -> str | None:
+    """С какой стороны свет ближайшего окна сидящему за столом: front (окно на стене стола, перед глазами) | left | right;
+    окна нет — None. Стол стоит спинкой к стене, «лицо» f = `facing_vector(rot)` — в комнату; сидящий смотрит против f.
+    ЛЕВО — как в комнате, которую видит покупатель: план (x, y) ложится в сцену как (x, z) three.js (`lib/viewer3d/
+    meshes.ts`: `rotation.y = +rot`, y плана → z сцены), а сверху ось z идёт ПО ЧАСОВОЙ от x — план зеркален обычной
+    математической плоскости. Поэтому левая рука сидящего — (−f_y, f_x), а не (f_y, −f_x) «по учебнику»."""
+    wins = [opening_polygon(room, op) for op in room.openings if op.kind == "window"]
+    if not wins or desk.item is None:
+        return None
+    w = min(wins, key=lambda g: footprint(desk).distance(g))
+    fx, fy = facing_vector(desk.rot)
+    vx, vy = w.centroid.x - desk.x, w.centroid.y - desk.y
+    if vx * fx + vy * fy <= -desk.item.d_cm / 2 + 1:
+        return "front"
+    return "left" if vx * -fy + vy * fx > 0 else "right"
+
+
+def check_desk_light(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Детская: свет на стол — слева или спереди (правша, ведущую руку не знаем — мягко, Codex 07.11). Взрослым — нет."""
+    if room.purpose != "child":
+        return []
+    return [_v("DESK_LIGHT_RIGHT", f"свет на «{d.role}» справа — тень от руки на тетради", [d.role], None,
+               "окно слева или спереди", Severity.SOFT)
+            for d in ps if bedroom_role(d.role) == "стол рабочий" and light_side(room, d) == "right"]
 
 
 def check_bedroom_floor(room: Room, ps: list[Placement]) -> list[Violation]:
@@ -254,7 +288,10 @@ def check_bedroom_passages(room: Room, ps: list[Placement]) -> list[Violation]:
     for p in ps:
         if is_flat_floor(p) or ((p.item.h_cm if p.item else None) or 999) <= LOW_ITEM_MAX_H_CM:
             continue   # низкое (тумба) достают с кровати
-        if not footprint(p).buffer(need / 2 + 1.0).intersects(main):
+        # стол достают через свой стул (стул отодвигают): дошли до стула группы — дошли и до стола (kids-room-01: спальня 2,
+        # стол у окна в углу — по бокам стула по 25 см, «нет прохода к столу» было ложным)
+        reach = unary_union([footprint(p)] + [footprint(q) for q in ps if q is not p and same_group(p.role, q.role)])
+        if not reach.buffer(need / 2 + 1.0).intersects(main):
             out.append(_v("BR_UNREACHABLE", f"к «{p.role}» нет прохода {need:.0f} см", [p.role], need, f"≥{need:.0f} см"))
     return out
 
@@ -271,6 +308,7 @@ def validate_bedroom(room: Room, placements: list[Placement], *, passage: str = 
         lambda: check_bedroom_access(room, placements),
         lambda: check_nightstands(room, placements),
         lambda: check_desk_window(room, placements),
+        lambda: check_desk_light(room, placements),
         lambda: check_bedroom_floor(room, placements),
         lambda: check_bedroom_passages(room, placements),   # самая дорогая — последней
     ]

@@ -14,9 +14,9 @@ from shapely.affinity import rotate as _rot
 from shapely.geometry import Point
 from shapely.ops import unary_union
 
-from .bedroom_checks import (AREA_EPS, _zone_clear, bed_zones, bedroom_rules, bedroom_spec, both_sides, check_bed,
-                             is_double, nightstand_ok, num, same_group, validate_bedroom)
-from .geometry import (SAFE_GAP_CM, _wall_point, _wall_strip, access_zone, base_role, footprint, opening_polygon,
+from .bedroom_checks import (AREA_EPS, _zone_clear, bed_zones, bedroom_role, bedroom_rules, bedroom_spec, both_sides,
+                             check_bed, is_double, light_side, nightstand_ok, num, same_group, validate_bedroom)
+from .geometry import (SAFE_GAP_CM, _wall_point, _wall_strip, access_zone, footprint, opening_polygon,
                        radiator_polygon, room_edges, room_polygon, swing_polygon)
 from .models import Item, Layout, Placement, Room, Severity
 
@@ -27,12 +27,13 @@ ORDER = ["кровать", "тумба прикроватная", "стол ра
 WEIGHT = {"кровать": 6.0, "шкаф": 3.0, "тумба прикроватная": 2.0, "комод": 2.0, "стол рабочий": 2.0,
           "стул рабочий": 1.0, "туалетный столик": 1.0}
 SOFT_PENALTY = {"BED_HEAD_WINDOW": 3.0, "NIGHTSTAND_DETACHED": 2.0, "BEDROOM_FLOOR_OVERFILL": 2.0,
-                "BED_DOOR_WALL": 1.0, "BED_NEAR_RADIATOR": 1.0, "DESK_FAR_FROM_WINDOW": 1.0, "MAIN_PATH_TIGHT": 0.5}
+                "BED_DOOR_WALL": 1.0, "BED_NEAR_RADIATOR": 1.0, "DESK_FAR_FROM_WINDOW": 1.0, "DESK_LIGHT_RIGHT": 1.0,
+                "MAIN_PATH_TIGHT": 0.5}
 _ROT_BY_NORMAL = {(0, 1): 0, (1, 0): 90, (0, -1): 180, (-1, 0): 270}
 
 
 def _order_key(role: str) -> tuple:
-    b = base_role(role)
+    b = bedroom_role(role)
     return (ORDER.index(b) if b in ORDER else len(ORDER), role)
 
 
@@ -101,7 +102,7 @@ def _place(role: str, item: Item, x: float, y: float, rot: int, tpl: str = "") -
 
 def _keepouts(p: Placement, placed: list[Placement], room: Room):
     """Полосы, которые предмет держит свободными после постановки (проходы кровати, фронт хранения)."""
-    if base_role(p.role) == "кровать":
+    if bedroom_role(p.role) == "кровать":
         z = bed_zones(p)
         others = [o for o in placed if o is not p]
         sides = [z[s] for s in ("left", "right")]
@@ -152,7 +153,7 @@ def _fits(st: _State, S: _Statics, p: Placement) -> bool:
 
 def _pref(S: _Statics, p: Placement, slot) -> float:
     """Предпочтения шаблонов (мягкие): кровать по центру стены или в угол, хранение у глухой стены, стол у окна."""
-    r = base_role(p.role)
+    r = bedroom_role(p.role)
     _, _, rot, frac, L, _edge = slot
     fp = footprint(p)
     win_on_wall = any(fp.distance(w) < p.item.d_cm / 2 + 30 and _edge_has(w, _edge) for _, w in S.windows)
@@ -165,7 +166,10 @@ def _pref(S: _Statics, p: Placement, slot) -> float:
         return -1.5 if win_on_wall else 0.0                     # storage_solid_wall
     if r == "стол рабочий":
         dist = min((fp.distance(w) for _, w in S.windows), default=0.0)
-        return -0.01 * dist                                     # work_at_window
+        # work_at_window; детская — свет слева (desk_light_left): в луче, иначе место со светом слева отсекается до финала
+        # (спальня 2 зеркально — стол справа от окна). Стол достаётся через свой стул (`check_bedroom_passages`)
+        right = S.room.purpose == "child" and light_side(S.room, p) == "right"
+        return -0.01 * dist - (SOFT_PENALTY["DESK_LIGHT_RIGHT"] if right else 0.0)
     return 0.0
 
 
@@ -189,9 +193,9 @@ def _chair_spot(desk: Placement, item: Item):
 
 
 def _candidates(st: _State, S: _Statics, role: str, item: Item):
-    b = base_role(role)
+    b = bedroom_role(role)
     if b == "тумба прикроватная":
-        beds = [q for q in st.placed if base_role(q.role) == "кровать"]
+        beds = [q for q in st.placed if bedroom_role(q.role) == "кровать"]
         for bed in beds:
             for x, y in _nightstand_spots(bed, item):
                 p = _place(role, item, x, y, int(bed.rot), bed.tpl_id)
@@ -199,7 +203,7 @@ def _candidates(st: _State, S: _Statics, role: str, item: Item):
                     yield p, 0.0
         return
     if b == "стул рабочий":
-        for desk in [q for q in st.placed if base_role(q.role) == "стол рабочий"]:
+        for desk in [q for q in st.placed if bedroom_role(q.role) == "стол рабочий"]:
             x, y, rot = _chair_spot(desk, item)
             yield _place(role, item, x, y, rot, desk.tpl_id), 0.0
         return
@@ -230,17 +234,25 @@ def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, 
     if cfg is None:
         meta["reason"].append("PURPOSE_UNKNOWN")
         return Layout(room=room, placements=[], meta=meta, unplaced=sorted(i.role for i in items))
+    if cfg.get("ages"):            # детская: состав по возрасту (Room.child_age); возраста нет в правилах — ждёт
+        meta["child_age"] = room.child_age
+        cfg = cfg["ages"].get(room.child_age or "", cfg)
     if cfg.get("pending"):
         meta["reason"].append("PURPOSE_PENDING")
         meta["pending"] = cfg["pending"]
         return Layout(room=room, placements=[], meta=meta, unplaced=sorted(i.role for i in items))
     required = set(cfg["required"])
+    alias = bedroom_rules().get("aliases", {})
+
+    def must_have(role: str) -> bool:
+        """Обязательное по назначению — сама роль или её детский псевдоним («стол детский» закрывает «стол рабочий»)."""
+        return role in required or alias.get(role) in required
     by_role = {i.role: i for i in items}
-    missing = sorted(r for r in required if r not in by_role)
+    missing = sorted(r for r in required if not any(x == r or alias.get(x) == r for x in by_role))
     if missing:
         meta["reason"].append("MISSING_ITEM")
         meta["missing"] = missing
-    bed = by_role.get("кровать")
+    bed = by_role.get("кровать") or next((i for x, i in by_role.items() if alias.get(x) == "кровать"), None)
     if bed is not None and cfg.get("bed") == "double" and not is_double(Placement(role="кровать", item=bed, x=0, y=0)):
         meta["reason"].append("BED_NOT_DOUBLE")
         return Layout(room=room, placements=[], meta=meta, unplaced=["кровать"])
@@ -250,31 +262,31 @@ def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, 
     states = [_State([], [], 0.0, [])]
     for role in roles:
         item = by_role[role]
-        must = role in required
+        must = must_have(role)
         nxt = []
         for st in states:
             for p, pref in _candidates(st, S, role, item):
-                if base_role(role) == "кровать" and not _bed_ok(room, S, p):
+                if bedroom_role(role) == "кровать" and not _bed_ok(room, S, p):
                     continue
                 if not _fits(st, S, p):
                     continue
                 keep = st.keep + [(role, z) for z in _keepouts(p, st.placed + [p], room)]
                 nxt.append(_State(st.placed + [p], keep, st.score + pref, st.skipped))
             if not must:
-                nxt.append(_State(st.placed, st.keep, st.score - WEIGHT.get(base_role(role), 1.0) * 10,
+                nxt.append(_State(st.placed, st.keep, st.score - WEIGHT.get(bedroom_role(role), 1.0) * 10,
                                   st.skipped + [role]))
         if not nxt:
             # обязательное не встало — спальни с этим набором нет: полупустой план (шкаф без кровати) не отдаём
-            meta["reason"].append("BED_NO_FIT" if base_role(role) == "кровать" else "REQUIRED_NO_FIT")
+            meta["reason"].append("BED_NO_FIT" if bedroom_role(role) == "кровать" else "REQUIRED_NO_FIT")
             meta["no_fit"] = role
-            return Layout(room=room, placements=[], meta=meta, unplaced=sorted(r for r in by_role if r in required),
-                          skipped_optional=sorted(r for r in by_role if r not in required))
+            return Layout(room=room, placements=[], meta=meta, unplaced=sorted(r for r in by_role if must_have(r)),
+                          skipped_optional=sorted(r for r in by_role if not must_have(r)))
         nxt.sort(key=_State.key)
         states = _dedupe(nxt)[:beam]
 
     best, best_key = None, None
     for st in states:
-        st, lay = _repair(room, st, required)
+        st, lay = _repair(room, st, must_have)
         hard = sum(v.severity is Severity.HARD for v in lay.violations)
         soft = sum(SOFT_PENALTY.get(v.code, 0.5) for v in lay.violations if v.severity is Severity.SOFT)
         k = (hard, -(st.score - soft), st.key()[1])
@@ -282,35 +294,36 @@ def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, 
             best, best_key = (st, lay), k
     st, lay = best
     placed_roles = {p.role for p in st.placed}
-    lay.unplaced = sorted(r for r in by_role if r in required and r not in placed_roles)
-    lay.skipped_optional = sorted(r for r in by_role if r not in required and r not in placed_roles)
+    lay.unplaced = sorted(r for r in by_role if must_have(r) and r not in placed_roles)
+    lay.skipped_optional = sorted(r for r in by_role if not must_have(r) and r not in placed_roles)
     if any(v.severity is Severity.HARD for v in lay.violations):
         meta["reason"].append("HARD_LEFT")
     if lay.unplaced and not meta["reason"]:
         meta["reason"].append("REQUIRED_NO_FIT")
-    meta["template"] = next((p.tpl_id for p in st.placed if base_role(p.role) == "кровать"), "")
+    meta["template"] = next((p.tpl_id for p in st.placed if bedroom_role(p.role) == "кровать"), "")
     lay.meta = meta
     return lay
 
 
-def _repair(room: Room, st: _State, required: set) -> tuple[_State, Layout]:
+def _repair(room: Room, st: _State, must_have) -> tuple[_State, Layout]:
     """Полная проверка ловит то, чего не видит пошаговая (проход 46 до предмета через всю комнату). Жёсткое
-    из-за ОПЦИОНАЛЬНОГО предмета — снимаем его (самый лёгкий по весу первым) в «не нашлось места», а не сдаём брак."""
+    из-за ОПЦИОНАЛЬНОГО предмета — снимаем его (самый лёгкий по весу первым) в «не нашлось места», а не сдаём брак.
+    must_have(роль) — обязательна ли роль по назначению (с детскими псевдонимами)."""
     placed = list(st.placed)
     while True:
         lay = validate_bedroom(room, placed)
         bad = {r for v in lay.violations if v.severity is Severity.HARD for r in v.roles}
-        drop = sorted((p for p in placed if p.role in bad and p.role not in required),
-                      key=lambda p: (WEIGHT.get(base_role(p.role), 1.0), p.role))
+        drop = sorted((p for p in placed if p.role in bad and not must_have(p.role)),
+                      key=lambda p: (WEIGHT.get(bedroom_role(p.role), 1.0), p.role))
         if not drop:
             break
         gone = drop[0].role
         # стул без стола и стол без стула не оставляем: группа уходит целиком; без кровати уходят и тумбы
         placed = [p for p in placed if p.role != gone and not same_group(p.role, gone)
-                  and not (base_role(gone) == "кровать" and base_role(p.role) == "тумба прикроватная")]
+                  and not (bedroom_role(gone) == "кровать" and bedroom_role(p.role) == "тумба прикроватная")]
     if len(placed) == len(st.placed):
         return st, lay
-    lost = sum(WEIGHT.get(base_role(p.role), 1.0) * 10 for p in st.placed if p not in placed)
+    lost = sum(WEIGHT.get(bedroom_role(p.role), 1.0) * 10 for p in st.placed if p not in placed)
     return _State(placed, [], st.score - lost, st.skipped), lay
 
 

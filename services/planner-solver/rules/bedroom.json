@@ -13,16 +13,20 @@
   "стол рабочий": {"_why": "место под стул — `desk_chair_clear` (Н9)"},
   "стул рабочий": {"group": "стол рабочий", "_why": "стоит в зоне стола, свою зону не держит"}
  },
+ "aliases": {"кровать детская": "кровать", "стол детский": "стол рабочий", "стул детский": "стул рабочий",
+             "_why": "детские роли каталога (tools/scout/rules/bedroom-roles.json kids_roles) — нормы и шаблоны их взрослых ролей: проходы кровати 75/60, место под стул 75, стол у окна (kids-room-01, Codex 07.11); код — planner/bedroom_checks.py:bedroom_role"},
  "purposes": {
   "couple": {"required": ["кровать"], "optional": ["тумба прикроватная", "тумба прикроватная 2", "шкаф", "комод", "туалетный столик"], "bed": "double", "_why": "пара: двуспальная, подход с двух сторон (Н1)"},
   "single": {"required": ["кровать"], "optional": ["тумба прикроватная", "шкаф", "комод", "стол рабочий", "стул рабочий"], "bed": "any", "_why": "один взрослый: кровать можно в угол (Н3)"},
   "guest": {"required": ["кровать"], "optional": ["тумба прикроватная", "тумба прикроватная 2", "комод", "шкаф"], "bed": "any", "_why": "гостевая: кровать 140 (диван-кровать — после ролей onb-04, Н11)"},
   "office": {"required": ["стол рабочий", "стул рабочий"], "optional": ["шкаф", "комод", "кровать", "тумба прикроватная"], "bed": "any", "_why": "кабинет: стол + стул + хранение; спальное место — по месту (Н11)"},
-  "child": {"pending": "onb-04", "_why": "детские роли и нормы безопасности (ГОСТ 19301.3-2022) — после правил ролей onb-04; солвер отвечает кодом PURPOSE_PENDING"}
+  "child": {"pending": "onb-04", "_why": "детская по возрасту (Room.child_age): возраст из `ages` — свой состав; остальные возрасты (0-3 кроватка, 3-7, подросток) и детская без возраста — PURPOSE_PENDING",
+            "ages": {"7-12": {"required": ["кровать", "стол рабочий", "стул рабочий"], "optional": ["тумба прикроватная", "шкаф", "комод"], "bed": "any",
+                              "_why": "школьник 7–12 (владелец TG 434/437, kids-room-01): та же спальня, детская кровать и стол для учёбы со стулом обязательны; роли — псевдонимы `aliases`; кровать можно в угол (Н3), стол у окна со светом слева — мягко"}}}
  },
  "templates": {
   "bed_center_wall": {"for": ["couple", "guest", "single"], "_enforce": "planner/bedroom.py:_bed_candidates (центр стены) + BED_SIDE_PASSAGE", "_why": "двуспальная по центру сплошной стены, по тумбе с двух сторон"},
-  "bed_corner": {"for": ["single", "office", "guest"], "beds": "single", "_enforce": "planner/bedroom.py:_bed_candidates (угол) + BED_SIDE_PASSAGE", "_why": "односпальная в угол: изголовье и длинный бок к стенам"},
+  "bed_corner": {"for": ["single", "office", "guest", "child"], "beds": "single", "_enforce": "planner/bedroom.py:_bed_candidates (угол) + BED_SIDE_PASSAGE", "_why": "односпальная в угол: изголовье и длинный бок к стенам"},
   "storage_solid_wall": {"_enforce": "WINDOW_BLOCKED (planner/validate.py) + штраф окна в planner/bedroom.py:_score", "_why": "шкаф/комод — на стене без окна"},
   "work_at_window": {"_enforce": "DESK_FAR_FROM_WINDOW", "_why": "стол у окна, свет сбоку или спереди (Н8)"},
   "dressing_table": {"_enforce": "BR_ACCESS_BLOCKED / BR_ACCESS_WALL", "_why": "туалетный столик спинкой к стене, перед ним место под пуф"}
@@ -41,6 +45,7 @@
   "wardrobe_not_on_window": {"_enforce": "WINDOW_BLOCKED (planner/validate.py:check_openings)"},
   "desk_at_window": {"_enforce": "DESK_FAR_FROM_WINDOW", "num": "distances_cm.desk_window_max"},
   "desk_chair": {"_enforce": "BR_ACCESS_BLOCKED / BR_ACCESS_WALL", "num": "distances_cm.desk_chair_clear"},
+  "desk_light_left": {"_enforce": "DESK_LIGHT_RIGHT", "_why": "только детская (purpose child): окно сбоку слева или спереди от сидящего за столом — мягко (ведущую руку не знаем, Codex 07.11); у взрослых не проверяем"},
   "nightstand_at_head": {"_enforce": "NIGHTSTAND_DETACHED"},
   "floor_occupancy": {"_enforce": "BEDROOM_FLOOR_OVERFILL", "num": "distances_cm.bedroom_floor_max_pct"},
   "crib_child": {"_enforce": "none", "_why": "Н10 — после ролей onb-04 (кроватка, пеленальный комод)"}
