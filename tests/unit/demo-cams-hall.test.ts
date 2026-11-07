@@ -14,7 +14,8 @@ type Cv = { inF: number; vis: number }[];
 const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
 const block = html.slice(html.indexOf("// CAMFIT START"), html.indexOf("// CAMFIT END"));
 const fx = JSON.parse(readFileSync("tests/fixtures/demo-hall-1107.json", "utf8")) as Fx;
-const api = new Function("D", `${block};return {camPair,camCover,camShownN,camViewFit,camCoverP,camBlock,camNear,camRole,camIsMain,camNearK,camElev,CAM_ZONES,CAM_NEAR};`)({ room: fx.room }) as {
+const api = new Function("D", `${block};return {camPair,camCover,camShownN,camViewFit,camCoverP,camBlock,camNear,camRole,camIsMain,camNearK,camElev,camCutFrame,CAM_ZONES,CAM_NEAR};`)({ room: fx.room }) as {
+  camCutFrame: (c: Cam, it: It, asp?: number) => number;
   camPair: (its: It[], W: number, H: number, cs: { x: number; y: number }[]) => Pair;
   camCover: (c: Cam, its: It[], W: number, H: number) => Cv;
   camShownN: (its: It[], cv: Cv) => number;
@@ -37,7 +38,7 @@ const its = (v: { items: It[] }) => v.items.map((it) => ({ ...it, x: +it.x, y: +
 // обувница и зеркало). Вид на хранение — потолок 2 при любой точке (всё хранение у входа, шкаф в дальнем конце; разбор расстановки —
 // отчёт T-20261107-05/6). Пороги — фиксация, не цель.
 const MIN1: Record<string, number> = { "hall-scandi": 4, "hall-modern": 4, "hall-loft": 4, "hall-minimal": 3, "hall-japandi": 5 };
-type Cut = { cm: number; lo: number; hi: number };
+type Cut = { cm: number; frame: number; hi: number; asp: number };
 const pairs = new Map<string, Pair>();
 const pairOf = (v: { id: string; items: It[] }) => {
   if (!pairs.has(v.id)) pairs.set(v.id, api.camPair(its(v), W, H, corners));
@@ -60,17 +61,18 @@ describe("камеры демо: прихожая, виды зоны", () => {
   });
 
   // T-20261107-05/7 (лист 07.11: на виде 2 в углу кадра крупным планом кусок банкетки или обувницы в метре от глаза): вид на хранение
-  // не берёт точку, где ближняя мебель обрезана краем (`cutNear`). У стиля, где такой точки нет вовсе (modern: обувница у входа
-  // в любой точке вида 2), — подбор без условия с пометкой в отчёте пары, а не подбор без видов зоны
+  // не берёт точку, где ближняя мебель срезана краем кадра телефона (`cutNear`, рамка `asp`). На свежем банке такая точка нашлась
+  // у всех пяти стилей; нет её — подбор без условия с пометкой «без cutNear» в отчёте пары (здесь — провал теста)
   for (const v of fx.variants) {
     it(`${v.id}: вид на хранение — ближняя мебель не обрезана краем (или пометка «без cutNear»)`, () => {
       const pr = pairOf(v), list = its(v), c2 = pr.cams[1]!;
       const g = (api.CAM_ZONES.hall!.views![1] as { cutNear: Cut }).cutNear;
       expect(g.cm).toBeGreaterThanOrEqual(100);
+      expect(g.asp).toBeLessThan(1);   // рамка — телефон (окно выше расчётного кадра)
       const cv = api.camCoverP(c2, list, W, H);
-      const cut = list.filter((it, i) => (it.h ?? 0) > 2 && cv[i]!.inF >= g.lo && cv[i]!.inF < g.hi && api.camNear(c2, it) <= g.cm);
-      if (/без cutNear/.test(pr.how)) expect(v.id).toBe("hall-modern");
-      else expect(cut.map((it) => it.role)).toEqual([]);
+      const cut = list.filter((it, i) => (it.h ?? 0) > 2 && cv[i]!.inF < g.hi && api.camNear(c2, it) <= g.cm && api.camCutFrame(c2, it, g.asp) >= g.frame);
+      expect(pr.how).not.toMatch(/без cutNear/);
+      expect(cut.map((it) => it.role)).toEqual([]);
     });
   }
 

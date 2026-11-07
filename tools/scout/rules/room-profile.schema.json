@@ -40,7 +40,7 @@
   "tolerance": {"description": "допуск полосы слота [низ, верх], по умолчанию 0,8–1,1"},
   "norms": {"type": "array", "minItems": 1, "description": "ссылки на нормы солвера/расстановки"},
   "camera": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["zones"],
-             "properties": {"zones": {"type": "object", "description": "зона → запись CAM_ZONES демо (core, key, show, must, views, cover, anyOf, ready; T-32/6 — edge, rodHook, grid, slide; T-20261107-05/4 — near: коэффициент порогов «близко» узкой комнаты, mainBlock: главная вещь вплотную — помеха; T-20261107-05/7 — moreTol: допуск нарушений, в котором решает «больше мебели»; у вида — cutNear {cm, lo, hi}: ближняя мебель не обрезана краем)",
+             "properties": {"zones": {"type": "object", "description": "зона → запись CAM_ZONES демо (core, key, show, must, views, cover, anyOf, ready; T-32/6 — edge, rodHook, grid, slide; T-20261107-05/4 — near: коэффициент порогов «близко» узкой комнаты, mainBlock: главная вещь вплотную — помеха; T-20261107-05/7 — moreTol: допуск нарушений, в котором решает «больше мебели»; у вида — cutNear {cm, frame, hi, asp}: ближняя мебель не срезана краем кадра)",
                                       "additionalProperties": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}},
                                                                "required": ["core", "key", "show", "must"],
                                                                "properties": {"core": {"type": "object"}, "key": {"type": "array"},

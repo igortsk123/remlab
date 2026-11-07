@@ -2403,7 +2403,7 @@ const CAM_ZONES={
   // Узкая комната: пороги «близко» × `near` (`camNearK`), главная вещь вплотную — помеха (`mainBlock`: «в упор в дверцу»),
   // покрытие — с доли «показан» (`cover` = CAM_SHOWN_MIN: предметы вдоль одной стены заслоняют друг друга), сетка точек до 1,8 м
   // от угла (`grid`: точка вида 1 — у шкафа, в 4–5 м от входа) и доводка `slide`. T-20261107-05/7: вид 2 — без обрезанной ближней
-  // мебели (`cutNear`: ближе 1,2 м и в кадре 0,05–0,9 — кусок банкетки крупным планом в углу); «больше мебели» решает при нарушениях
+  // мебели (`cutNear`: ближе 1,5 м, срезана краем кадра телефона и заняла ≥ 2 % его — кусок банкетки крупным планом в углу); «больше мебели» решает при нарушениях
   // кадра в пределах `moreTol` 1.7 (минимализм: вид к входу с консолью шире объективом вместо двух предметов)
   hall:{ready:false,
     core:{'шкаф-купе':3,'шкаф':3,'прихожая':3,'вешалка':1.5,'обувница':1,'банкетка':1,'консоль':1,'зеркало':0.5},
@@ -2411,7 +2411,7 @@ const CAM_ZONES={
     must:['шкаф-купе','шкаф','прихожая','вешалка','обувница','банкетка','консоль'],
     views:[{need:[{roles:['зеркало'], min:0.9}, {roles:['шкаф-купе','шкаф','прихожая','обувница','вешалка','консоль'], min:0.6}], more:true},
       {need:[{roles:['шкаф-купе','шкаф','прихожая'], min:0.9}, {roles:['консоль','банкетка','обувница','вешалка'], min:0.6}], more:true,
-        cutNear:{cm:120, lo:0.05, hi:0.9}}],
+        cutNear:{cm:150, frame:0.02, hi:0.9, asp:0.65}}],
     apart:60, apartNear:{deg:30, cm:100}, cover:0.6, near:0.6, mainBlock:true, moreTol:1.7,
     grid:[0,20,40,60,80,100,120,140,160,180], slide:{cm:24, step:6}}};
 const CAM_VIEW_DOOR=170, CAM_VIEW_HEAD=160;
@@ -2481,13 +2481,22 @@ function camHeadProj(c,its,i){const P=camWithParts(its), k=P.head[i];
   return camProj(c,{x:it.x-Math.sin(r)*o,y:it.y-Math.cos(r)*o,w:it.w,d:CAM_BED_HB,rot:it.rot||0},0,camItemH(it));}
 function camViewFit(vw,c,its,cv){ return Array.isArray(vw)?vw.some(x=>camViewFit(x,c,its,cv)):camViewOk(vw,c,its)&&camNeedOk(vw,its,cv)&&camCutNearOk(vw,c,its,cv); }
 // БЛИЖНЕЕ НЕ ОБРЕЗАНО (`cutNear` вида, T-20261107-05/7; лист прихожей 07.11: на виде 2 в углу кадра крупным планом кусок банкетки или
-// обувницы в метре от глаза): мебель ближе `cm` к точке, попавшая в кадр долей `lo`…`hi` (`camCover().inF`: уже не «за кадром», ещё не
-// «показана»), делает точку негодной для вида. Поля нет — как было (гостиная, спальни). Нет ни одной пары с этим условием —
-// `camPairAll` подбирает заново без него (`camCutSkip`, пометка в отчёте), а не уходит в подбор без видов зоны
+// обувницы в метре от глаза): мебель ближе `cm` к точке, срезанная краем кадра (рамка — `asp`, ниже) (коробка `camProj` выходит за рамку, в кадре меньше
+// `hi` её самой — `camCover().inF`) и занявшая в кадре не меньше `frame` его площади, делает точку негодной для вида. Мерка — доля
+// КАДРА, а не доля предмета: банкетка в метре от глаза, попавшая в кадр на 4 % себя, занимала весь нижний левый угол (лист 07.11,
+// первый замер по доле предмета с порогом 0,05 точку пропускал). Поля нет — как было (гостиная, спальни). Нет ни одной пары с этим
+// условием — `camPairAll` подбирает заново без него (`camCutSkip`, пометка в отчёте), а не уходит в подбор без видов зоны
+// Рамка — по самому высокому окну показа (`asp`, ширина/высота; телефон ≈ 0,65): окно 3D держит горизонтальный угол, по вертикали
+// видно больше в CAM_ASPECT/asp раз (`viewer.ts:verticalFov`), сдвиг кадра CAM_SHIFT_N — та же доля окна. В рамке CAM_ASPECT банкетка
+// в метре от глаза «за кадром», а на телефоне — в нижнем углу (лист 07.11)
 let camCutSkip=false;
+function camCutFrame(c,it,asp){const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return 0;
+  const Y=asp?Math.max(1,CAM_ASPECT/asp):1, S=CAM_SHIFT_N, ylo=S+Y*(-1-S), yhi=S+Y*(1-S);
+  if(b.x0>=-1&&b.x1<=1&&b.y0>=ylo&&b.y1<=yhi)return 0;                    // целиком в рамке — не срезан
+  return Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1))/2*Math.max(0,Math.min(b.y1,yhi)-Math.max(b.y0,ylo))/(yhi-ylo);}
 function camCutNearOk(vw,c,its,cv){
   const g=vw.cutNear; if(!g||camCutSkip)return true;
-  return !(its||[]).some((it,i)=>camItemH(it)>2&&cv[i]&&cv[i].inF>=g.lo&&cv[i].inF<g.hi&&camNear(c,it)<=g.cm);
+  return !(its||[]).some((it,i)=>camItemH(it)>2&&cv[i]&&cv[i].inF<g.hi&&camNear(c,it)<=g.cm&&camCutFrame(c,it,g.asp)>=g.frame);
 }
 // сколько мебели показано в виде не меньше чем на CAM_SHOWN_MIN (ковёр — пол, не считаем)
 function camShownN(its,cv){ let n=0; (its||[]).forEach((it,i)=>{if(camItemH(it)>2&&camQ(cv[i])>=CAM_SHOWN_MIN-1e-9)n++;}); return n; }
