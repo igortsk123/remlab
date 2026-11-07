@@ -581,6 +581,9 @@ case "${RES[flat215_publish]:-}" in
   *) echo "DIGEST:фото нейросети: пропущено — публикация демо не прошла" >> "$LOG"
      step demo_real_check bash ../ops/demo-real.sh --dry ;;
 esac
+# скорость фото нейросети за сутки (photo-speed-monitor-01, T-20261107-37): по журналу DEV-рендера, без сети и денег —
+# строка DIGEST «заданий, ждал покупатель медиана / 90 %, модель, отказы» + WARN по rules/photo-speed.json (шаг warn, не FAIL)
+step photo_speed "$PY" ../ops/photo-speed.py --digest
 # живая проверка демо на проде после публикации (b2b-12): стили, кадры, замена, ссылка, английский
 step demo_live bash ../ops/demo-live.sh
 
