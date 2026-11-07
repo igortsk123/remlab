@@ -4238,6 +4238,24 @@ function pubShot(v,cam){
   const c1=pool.filter(x=>(x.camera||'C1')===(cam||'C1')), P=c1.length?c1:pool;
   return P[P.length-1]||null;
 }
+// СТРОГО ФОТО НЕЙРОСЕТИ (владелец TG 341 «нельзя без визуалки ничего показывать в 3D», TG 378 «не досняли — оставлять прежнее» = только
+// ФОТО, сборка всегда новая; план photo-before-publish-01 § А, T-20261107-35/1 часть 0). `pubShot` при отсутствии фото отдаёт
+// черновик 3D — на главную, во вкладки и в опрос он больше не идёт. Порядок: 1) фото нейросети ЭТОЙ расстановки (номер состояния,
+// как `shotFits`; точка `cam`, нет её — другая точка того же состояния) → 2) нет — последнее фото нейросети того же варианта (`vid`)
+// и той же точки из прежних расстановок → 3) нет и его — null (вариант не показываем). Черновик (scene3d) — никогда.
+// REALSHOT START — чистая функция выбора; тест `tests/unit/real-shot.test.ts`
+function realPubPick(list, st, vid, cam, camOk){
+  const real=x=>!!(x&&x.url&&x.quality==='realistic'), c0=cam||'C1', atCam=x=>(x.camera||'C1')===c0;
+  const now=list.filter(x=>real(x)&&!!x.stateId&&x.stateId===st&&camOk(x));
+  if(now.length){const c=now.filter(atCam), P=c.length?c:now; return P[P.length-1];}
+  const old=list.filter(x=>real(x)&&!!vid&&x.vid===vid&&atCam(x)&&camOk(x)).sort((a,b)=>(+a.ts||0)-(+b.ts||0));
+  return old[old.length-1]||null;
+}
+// REALSHOT END
+function realisticPublishedShot(v,cam){
+  if(!v||!D)return null;
+  return realPubPick(shots.filter(x=>!x.orphan&&(DBG||!x.svc)), pubStateOf(v), v.id||'', cam||posterCam(v), x=>shotCamOk(x,v.cams));
+}
 // КАРТОЧКА ПРАВЛЕНОГО ВАРИАНТА — КАДР 3D ЕГО НЫНЕШНЕЙ РАССТАНОВКИ (demo-20 Г5, сценарий владельца 22.10): своего кадра у правленой
 // расстановки нет, а `pubShot` — фото ОПУБЛИКОВАННОЙ, не то, что человек видел в окне. Живая сцена снимает точку 1 после правки
 // (правка или показ 3D → `liveShotSoon`); карта «номер состояния → кадр» живёт до перезагрузки страницы; кадра нет — запасной путь `pubShot`
@@ -4246,9 +4264,9 @@ const LIVE_SHOTS=new Map();
 function liveShot(v){ const u=v&&D&&LIVE_SHOTS.get(roomStateKey(v,variantStateOf(v))); return u?{url:u, thumb:u, quality:'live'}:null; }
 function homeModel(){
   const vs=allVariants(), styles=[], seen=new Set(), roomVariants=[];
-  // реестр кадров пришёл — вариант без кадра опубликованного состояния на главную не выводим (его стиль — тоже); реестр не пришёл
-  // или пуст у всех — показываем все: пустая главная хуже карточки «Откройте — покажем в 3D»
-  const shown=v=>!SHOTS_LOADED||!!pubShot(v), any=vs.some(v=>!v.mine&&!v.cid&&shown(v));
+  // реестр кадров пришёл — вариант без ФОТО НЕЙРОСЕТИ (`realisticPublishedShot`, черновик не в счёт — TG 341) на главную не выводим
+  // (его стиль — тоже); реестр не пришёл или фото нет ни у кого — показываем все: пустая главная хуже карточки без фото
+  const shown=v=>!SHOTS_LOADED||!!realisticPublishedShot(v,posterCam(v)), any=vs.some(v=>!v.mine&&!v.cid&&shown(v));
   vs.forEach((v,i)=>{
     if(v.mine||v.cid)return;                     // коллекция — не вариант каталога
     if(any&&!shown(v))return;
@@ -4313,8 +4331,9 @@ function drawHome(force){
   const cards=m.rooms.map(r=>{
     const rv=r.contentState==='ready'?roomVariantFor(m,act.styleId,r.id):null, v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
-    // правленый вариант без своего кадра — кадр 3D его расстановки, нет и его — кадр опубликованного
-    const pc=posterCam(v), sh=bestShot(v,pc)||liveShot(v)||pubShot(v,pc), fav=F&&F.ofState(F.baseState(v));
+    // ТОЛЬКО ФОТО НЕЙРОСЕТИ (TG 341, часть 0 T-35): фото нынешней расстановки (правленый вариант, если его сняли), иначе
+    // `realisticPublishedShot`. Кадр 3D правленой расстановки (`liveShot`, demo-20 Г5) и черновик `pubShot` на карточку больше не идут
+    const pc=posterCam(v), bs=bestShot(v,pc), sh=bs&&bs.quality==='realistic'?bs:realisticPublishedShot(v,pc), fav=F&&F.ofState(F.baseState(v));
     return {r, i:rv.index, v, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), fav:fav?(fav.displayName||''):null};
   });
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
@@ -7512,16 +7531,9 @@ function quizPick(rule, answers, available, styleColours){
     return !seen();
   }
   // стили опроса — опубликованные на главной (`homeModel().styles`). ФОТО — НАСТОЯЩЕЕ (вопрос «какая гостиная ближе» выбирают по
-  // фото, серый черновой 3D-кадр стиль не передаёт): реалистичный кадр нынешнего набора (`pubShot`); его нет — самый свежий
-  // реалистичный кадр гостиной ЭТОГО стиля из реестра (прежний набор того же стиля: стиль тот же, состав мог чуть отличаться);
-  // нет и его — какой есть кадр нынешнего набора
-  function photoOf(v){
-    var sh=pubShot(v); if(sh&&sh.quality==='realistic')return sh;
-    var st=String(v.style||'').trim().toLowerCase();
-    var real=shots.filter(function(x){return x.url&&!x.orphan&&(DBG||!x.svc)&&x.quality==='realistic'&&String(x.style||'').trim().toLowerCase()===st&&
-      (x.room_id||'living')==='living'&&(x.camera||'C1')==='C1';}).sort(function(a,b){return (b.ts||0)-(a.ts||0);});
-    return real[0]||sh;
-  }
+  // фото, серый черновой 3D-кадр стиль не передаёт): строго фото нейросети — этой расстановки, нет — прежней того же варианта и точки
+  // (`realisticPublishedShot`, часть 0 T-35); нет и его — null, вариант из шага выпадает. Черновик — никогда
+  function photoOf(v){ return realisticPublishedShot(v,'C1'); }
   function styles(){
     var m=homeModel();
     return m.styles.map(function(s){
