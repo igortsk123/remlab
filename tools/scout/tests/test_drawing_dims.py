@@ -423,7 +423,8 @@ load3.DRAWING_OVERLAY = True
 import bank_ready  # noqa: E402
 check('bank_ready: глубина с чертежа — доказательство собранных размеров трансформера',
       "p.dims_evidence->'d'->>'source' = 'drawing'" in bank_ready.PROVEN_SQL)
-check(f'HASH_VERSION поднят до 9 (один раз — baseline без stale): {load3.HASH_VERSION}', load3.HASH_VERSION == 9)
+check(f'HASH_VERSION поднят не ниже 9 (чертёж — baseline без stale; 10 — правила T-22): {load3.HASH_VERSION}',
+      load3.HASH_VERSION >= 9)
 import dim_resolver  # noqa: E402
 check('правила резолвера не менялись — отпечаток прежний', dim_resolver.rules_fingerprint() == load3.RULES_FINGERPRINT)
 rd_src = open(os.path.join(SCOUT, 'refresh_daily.sh'), encoding='utf-8').read()

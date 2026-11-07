@@ -44,11 +44,11 @@ ROLES_PATH = os.environ.get('SCOUT_ROLES_PATH') or os.path.join(HERE, 'category-
 FRESH_PATH = os.path.join(HERE, 'feed-freshness.json')
 PSQL = shlex.split(os.environ.get('SCOUT_PSQL_CMD') or '') or [
     "docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", "remlab", "-q", "-v", "ON_ERROR_STOP=1"]
-HASH_VERSION = 9          # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси по магазину/роли; 4 — tvoydom оси перевёрнуты по замеру + тройка в названии (03.09); 5 — пороги правдоподобия по роли: плоский свет, ваза-шар, роль света по «Тип» (catalog-holes-bank, 23.10); 6 — трансформеры Орматек: собранные Ш×Г×В по спальному месту (Н3, 23.10); 7 — поля вылета люстры drop_min/max/adj в evidence (Н2в этап 2, 23.10); 8 — глубина диванов/кресел divan.ru из «Размеры: Глубина габаритная» (conv-14, 04.11); 9 — глубина диванов mnogomebeli/divanboss с чертежа из кэша `drawing_dims` (conv-15, 04.11)
+HASH_VERSION = 10         # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси по магазину/роли; 4 — tvoydom оси перевёрнуты по замеру + тройка в названии (03.09); 5 — пороги правдоподобия по роли: плоский свет, ваза-шар, роль света по «Тип» (catalog-holes-bank, 23.10); 6 — трансформеры Орматек: собранные Ш×Г×В по спальному месту (Н3, 23.10); 7 — поля вылета люстры drop_min/max/adj в evidence (Н2в этап 2, 23.10); 8 — глубина диванов/кресел divan.ru из «Размеры: Глубина габаритная» (conv-14, 04.11); 9 — глубина диванов mnogomebeli/divanboss с чертежа из кэша `drawing_dims` (conv-15, 04.11); 10 — картины/зеркала divan.ru «Размеры» Ш×В, толщина плоских от 0,5 см, лицо+толщина зеркал tvoydom, «Длина» gipfel → d, одна горизонталь у круглого декора tvoydom (T-20261107-22, 07.11)
 # Отпечаток правил разбора размеров (`dim_resolver.rules_fingerprint`), при котором действует HASH_VERSION.
 # Правила изменились → селфтест `dim_resolver` красный, пока не поднят HASH_VERSION и не записан новый
 # отпечаток (13.10: правила осей 11.10 без подъёма версии дали +3 761 ложных stale, сняты по снимку 05.10).
-RULES_FINGERPRINT = '0b02a517cce1'
+RULES_FINGERPRINT = '5c5f0f91b296'
 SHRINK_RATIO = 0.7
 DESC_MAX = 1500
 
@@ -221,7 +221,8 @@ def _rug_kids(img: str | None) -> bool:
 
 
 # ГЛУБИНА С ЧЕРТЕЖА (conv-15): `DRAWING_OVERLAY=0` — оверлея нет вовсе (явное выключение). Откат — ВПЕРЁД: выключить и
-# поднять HASH_VERSION (10), чтобы снятие d стало baseline, а не массовым stale; возврат 9→8 baseline не даст
+# поднять HASH_VERSION (следующий свободный номер; 10 занят правилами T-22 07.11), чтобы снятие d стало baseline, а не
+# массовым stale; возврат на прежний номер baseline не даст
 DRAWING_OVERLAY = os.environ.get('DRAWING_OVERLAY', '1') != '0'
 
 
