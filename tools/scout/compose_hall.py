@@ -5,7 +5,7 @@
 
 Всё про комнату — из профиля `rules/profiles/hall.json`: роли и крупное (major — полоса Ш×Г×В), веса стиля, порог «в стиле»
 (`in_style_min`), допуск полосы (zones.json, 0,8–1,1 идеала), правила состава `composer.rules` = `rules/hall-composition.json`
-(6 стилей, ступень цены, слоты с идеалом, порядок хранения, роли без оценки стиля). Каталог — адаптер
+(5 стилей — без неоклассики, T-20261107-18; ступень цены, слоты с идеалом, порядок хранения, роли без оценки стиля). Каталог — адаптер
 `catalog_items.items('hall', with_assets=True)`: стиль — `product_style_scores` своих товаров, меш — привязка `offer_asset_binding`.
 
 ПОРЯДОК (ячейка `hall|hall|<м²>|<стиль>|<ступень>`):
@@ -672,9 +672,9 @@ def _selftest() -> int:
     R = rules()
     tol = (0.8, 1.1)
     S = {sl['role']: sl for sl in R['purposes'][ROOM]['slots']}
-    ok('профиль: сборщик hall, роли слотов = роли профиля, 6 стилей (неоклассика последней — T-89)',
-       PROFILE['composer']['plugin'] == 'hall' and set(S) == set(PROFILE['roles']) and len(R['styles']) == 6
-       and R['styles'][-1] == 'неоклассика')
+    ok('профиль: сборщик hall, роли слотов = роли профиля, 5 стилей без неоклассики (владелец 07.11, T-20261107-18)',
+       PROFILE['composer']['plugin'] == 'hall' and set(S) == set(PROFILE['roles']) and len(R['styles']) == 5
+       and 'неоклассика' not in R['styles'])
     ok('хранение — из storage_any солвера (распашной «шкаф» — с T-20261107-10/2)',
        set(R['purposes'][ROOM]['storage']) <= set(load_json(os.path.join(SOLVER, 'rules', 'hall.json'))['composition']['storage_any']))
     b = band_of(S['шкаф-купе'], tol)

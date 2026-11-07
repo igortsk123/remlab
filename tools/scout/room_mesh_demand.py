@@ -491,10 +491,14 @@ WANT_RU = {'job': 'годно — в очередь', 'regen_job': 'переге
            'not_job': 'не годен к заданию', 'not_in_room': 'нет в каталоге комнаты'}
 
 
-def hall_want(bank: list, strategy) -> list:
-    """Банк `compose_hall` → товары без меша (`mesh_need`) в ролях с мешем (зеркало — плоскость, не меш), с вариантами."""
+def hall_want(bank: list, strategy, styles=None) -> list:
+    """Банк `compose_hall` → товары без меша (`mesh_need`) в ролях с мешем (зеркало — плоскость, не меш), с вариантами.
+    styles — стили состава прихожей (`compose_hall.rules()['styles']`): набор снятого стиля (неоклассика, T-20261107-18) из
+    старого банка в спрос не идёт. None — все наборы."""
     out: dict = {}
     for s in bank:
+        if styles and s.get('style') not in styles:
+            continue
         role_of = {f"{it['mid']}:{it['eid']}": r for r, it in (s.get('items') or {}).items() if isinstance(it, dict)}
         for sku in s.get('mesh_need') or []:
             r = role_of.get(sku)
@@ -992,7 +996,7 @@ def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None, un
             raise DemandError(f'привязка не читается ({why}) — без неё не знаю, у кого меш уже есть')
     items, states, jobs_of = room_states(room, cat, R, rows, fetch)
     slots = quota_slots(bank, R['purposes'], mod.band_of, tol, lambda r: AS.strategy(r) == 'hunyuan3d')
-    styles = sorted({s['style'] for s in bank if s.get('style')})
+    styles = room_styles(bank, R)
     unit = unit or room_count_unit(room)
     import compose_common as CC        # цвет по фото (кэш thumbs/) + тот же оценщик, что у сборщика (style-color-01)
     CC.palette(items)
@@ -1008,6 +1012,14 @@ def room_quota(room: str, bank_path: str, split: dict, fetch=None, rows=None, un
         jobs.append(j)
     return {'room': room, 'bank': bank_path, 'split': split, 'share': share, 'table': table, 'jobs': jobs, 'styles': styles,
             'unit': unit}
+
+
+def room_styles(bank: list, R: dict) -> list:
+    """Стили мест квоты: стили записей банка, но только из состава комнаты (`composer.rules.styles`; T-20261107-18 — неоклассика
+    ушла из прихожей): старый банк со снятым стилем денег на него не тратит до штатной пересборки. Нет списка в правилах — все
+    стили банка (как было)."""
+    allowed = R.get('styles')
+    return sorted({s['style'] for s in bank if s.get('style') and (not allowed or s['style'] in allowed)})
 
 
 def quota_md(Q: dict) -> str:
@@ -1370,6 +1382,14 @@ def _selftest() -> int:
     H = hall_want(hb, AS.strategy)
     ok('прихожая из банка: без меша и в ролях с мешем (зеркало — плоскость), товар двух вариантов — одна строка',
        sorted(h['sku'] for h in H) == ['1:a', '1:m'] and next(h for h in H if h['sku'] == '1:a')['variants'] == ['сканди комфорт', 'лофт комфорт'])
+    # T-20261107-18: неоклассика ушла из прихожей — набор снятого стиля в старом банке денег не тратит до пересборки
+    hb_neo = hb + [{'style': 'неоклассика', 'tier': 'комфорт', 'mesh_need': ['1:n'], 'items': {'банкетка': {'mid': 1, 'eid': 'n'}}}]
+    ok('прихожая из банка: набор стиля не из состава комнаты — не в спрос',
+       sorted(h['sku'] for h in hall_want(hb_neo, AS.strategy, ['сканди', 'лофт'])) == ['1:a', '1:m']
+       and '1:n' in {h['sku'] for h in hall_want(hb_neo, AS.strategy)})
+    ok('квота: стили мест — из банка, но только из состава комнаты; без списка в правилах — все стили банка',
+       room_styles(hb_neo, {'styles': ['сканди', 'лофт', 'минимализм']}) == ['лофт', 'сканди']
+       and room_styles(hb_neo, {}) == ['лофт', 'неоклассика', 'сканди'])
     M = merge_want([{'room': 'bedroom', 'sku': '1:t', 'role': 'комод', 'why': 'empty', 'variants': ['v1']},
                     {'room': 'bedroom', 'sku': '1:t', 'role': 'комод', 'why': 'regen', 'variants': ['v2']},
                     {'room': 'bedroom', 'sku': '1:h', 'role': 'вешалка', 'why': 'hall', 'variants': []},
@@ -1491,7 +1511,8 @@ def main_want(a: list, arg, room: str, total: float, since: str, price: float, o
             hb = arg('--hall-bank')
             if not hb or not os.path.exists(hb):
                 raise DemandError(f'банк прихожей не найден: {hb!r}')
-            entries += hall_want(json.load(open(hb, encoding='utf-8')), AS.strategy)
+            import compose_hall as CH
+            entries += hall_want(json.load(open(hb, encoding='utf-8')), AS.strategy, CH.rules().get('styles'))
         L = ledger(total, since)
         W = want_demand(room, entries, price)
     except (DemandError, OSError, KeyError, ValueError) as e:
