@@ -2387,6 +2387,34 @@ def rt_table_side() -> str:
     return 'копия'
 
 
+DEMO_CAMS_TIMEOUT = 300
+
+
+def demo_cams(root: str, path: str, timeout: float = DEMO_CAMS_TIMEOUT, run=subprocess.run) -> str:
+    """Ракурсы окна в данные (`tools/flat3d/demo-cams.mjs` → `v.cams`) → строка лога сборки. НЕ ВАЛИТ СБОРКУ (T-20261107-47):
+    таймаут был без перехвата — `TimeoutExpired` ронял весь `flat215_demo`, и ночь оставалась без публикации витрины (07.11 после
+    видов спальни с двух концов подбор шёл 259 с при пороге 300, под нагрузкой — дольше). Таймаут и код ≠ 0 — строка
+    WARN:demo_cams, файл данных остаётся как записан до ракурсов (скрипт пишет подменой — оборванный не портит), сборка идёт дальше:
+    страница считает ракурсы сама, /flat показывает прежний вид. `exec` — таймаут убивает сам node, а не только bash: иначе
+    осиротевший node дописал бы файл позже, посреди публикации. Его временный файл подмены (`<файл>.cams-<pid>.tmp`) после
+    таймаута убираем, чтобы он не уехал на прод с папкой витрины."""
+    try:
+        r = run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && exec node "{root}/tools/flat3d/demo-cams.mjs" "{path}"'],
+                capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        for t in glob.glob(glob.escape(path) + '.cams-*.tmp'):
+            try:
+                os.remove(t)
+            except OSError:
+                pass
+        out = e.stdout.decode(errors='replace') if isinstance(e.stdout, bytes) else (e.stdout or '')
+        return (f'WARN:demo_cams: ракурсы окна в данные не записались (таймаут {timeout:.0f} с) — ракурсы считает '
+                f'страница, сборка идёт дальше; последнее в выводе: {out.strip()[-200:]}')
+    if r.returncode == 0:
+        return (r.stdout or '').strip()[-300:]
+    return f'WARN:demo_cams: ракурсы окна в данные не записались (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}'
+
+
 def main() -> None:
     if '--publish' in sys.argv and not _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
         # publish_demo.sh публикует ПАПКУ ВИТРИНЫ, а не OUT: сборка рядом (копия банка, проверка) на прод не едет
@@ -2468,10 +2496,7 @@ def main() -> None:
     _AIO.write_json(os.path.join(OUT, 'demo-data.json'), data, ensure_ascii=False, indent=1)
     # РАКУРСЫ ОКНА — В ДАННЫЕ (demo-05 п.8): тот же блок CAMFIT страницы считает пару ракурсов каждого варианта
     # (`tools/flat3d/demo-cams.mjs` → `v.cams`), ими снимает «Фото» в /flat. Не посчиталось — /flat покажет прежний вид
-    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/demo-cams.mjs" '
-                        f'"{os.path.join(OUT, "demo-data.json")}"'], capture_output=True, text=True, timeout=300)
-    print((r.stdout or '').strip()[-300:] if r.returncode == 0 else
-          f'WARN:demo_cams: ракурсы окна в данные не записались (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}')
+    print(demo_cams(root, os.path.join(OUT, 'demo-data.json')), flush=True)
     # ОТЧЁТ ЛЕНТ ЗАМЕН ПО СТИЛЮ И РОЛИ (demo-18 п.1): eligible_sku / unique_msid / published_alternatives — правилом моста /flat
     # (`tools/flat3d/swap-report.mjs` → `lib/configurator/demo-feeds.ts`); меньше 5 — строка с «!»
     r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON '
