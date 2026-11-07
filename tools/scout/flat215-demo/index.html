@@ -7423,6 +7423,14 @@ function vwRealShots(){
   const vid=curVid(), st=curStateId(), by=new Map();
   const v=allVariants()[cur];
   shots.forEach(x=>{if(x.quality==='realistic'&&x.url&&!x.svc&&!x.orphan&&shotCamOk(x,cams)&&(x.stateId?x.stateId===st:x.vid===vid&&shotFits(x,v)))by.set(x.camera||'C1',x);});
+  // НЕТРОНУТЫЙ ВАРИАНТ ВИТРИНЫ БЕЗ ФОТО СВОЕЙ РАССТАНОВКИ — ФОТО, КАК НА ГЛАВНОЙ (T-20261107-42, владелец TG 451 «режим фото пропал»):
+  // пересборка данных днём сменила номер состояния, а карточка главной берёт прежнее фото того же варианта (`realPubPick`, T-35/2) —
+  // окно открывалось в 3D без «Фото». Окно = опубликованная расстановка (номер = `pubStateOf`) → та же выборка по каждой точке; правка
+  // или своя отделка меняют номер — прежнее фото не подставляем. Ночная досъёмка снимает новую расстановку (photo-before-publish-01)
+  if(!by.size&&v&&v.id&&!v.mine&&!v.cid&&st===pubStateOf(v)){
+    const L=shots.filter(x=>!x.orphan&&!x.svc);
+    (cams||[]).forEach((_,k)=>{const x=realPubPick(L, st, v.id, 'C'+(k+1), y=>shotCamOk(y,cams)); if(x&&x.url)by.set(x.camera||'C1',x);});
+  }
   return [...by.values()].sort((a,b)=>String(a.camera||'C1').localeCompare(String(b.camera||'C1')));
 }
 const vwCamIndex=c=>Math.max(0,(+String(c||'C1').slice(1)||1)-1);
