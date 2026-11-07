@@ -714,9 +714,10 @@ async function saveFav(page: Page) {
   await page.locator("#vFav").click(); await page.locator("#favOk").click();
   await page.waitForFunction("!document.querySelector('#favPop #favName')", null, { timeout: 30_000 });
 }
-test("2.46 сохранили без фото → автофото: плашка с отсчётом на карточке, одно на состояние, ≤ 10 в сутки, готовое — картинкой; без денег — тихо 3D-снимок", async ({ browser }) => {
+test("2.46 сохранили без фото → автофото: плашка с отсчётом на карточке, одно на состояние, ≤ 10 в сутки, готовое — картинкой; без денег — тихо «Фото готовится», без 3D", async ({ browser }) => {
   test.setTimeout(5 * 60_000);
-  // (а) денег нет: улучшения нет, сообщения об отказе нет, остаётся 3D-снимок (бесплатный черновик)
+  // (а) денег нет: улучшения нет, сообщения об отказе нет; 3D-миниатюры и бесплатного черновика тоже нет (T-20261107-34, TG 341) —
+  // на карточке избранного заглушка «Фото готовится»
   {
     const renders: { quality: string }[] = [];
     const { page, close } = await demoPage(browser, phone, "?live=force", { paid: () => false, renders });
@@ -724,8 +725,7 @@ test("2.46 сохранили без фото → автофото: плашка
     await freshState(page);
     await saveFav(page);
     const toast = await page.locator("#toast").innerText().catch(() => "");
-    // 3D-снимок: миниатюра из сцены (`grabThumb` → `remlab-fav-thumbs`), затем бесплатный черновик коллекции (`snapLater`)
-    await expect.poll(() => renders.filter((r) => r.quality === "draft").length, { timeout: 60_000 }).toBeGreaterThanOrEqual(1);
+    await page.waitForTimeout(8000);   // прежде за это время уходил черновик коллекции (`snapLater`, снят)
     const s = await page.evaluate((k) => {
       const b = (window as unknown as { __basket: { state: () => { favorites: { favoriteId: string }[] } } }).__basket.state(), id = b.favorites[0]?.favoriteId ?? "";
       const th = JSON.parse(localStorage.getItem("remlab-fav-thumbs") || "{}") as Record<string, string>;
@@ -735,8 +735,13 @@ test("2.46 сохранили без фото → автофото: плашка
     expect(s.job).toBe(false);
     expect(s.ap, "заказ автофото без денег").toBeNull();
     expect(renders.filter((r) => r.quality === "realistic")).toEqual([]);
-    expect(s.thumb, "нет миниатюры 3D").toMatch(/^data:image\/jpeg/);
+    expect(s.thumb, "3D-миниатюры нет").toBe("");
+    expect(renders.filter((r) => r.quality === "draft"), "бесплатного черновика коллекции нет").toEqual([]);
     expect(toast).not.toMatch(/ошиб|не получилось|недоступн|улучш/i);
+    await page.keyboard.press("Escape");
+    await page.evaluate("window.__basket.open('living')");
+    await expect(page.locator("#favGrid .favcard .nopv").first()).toHaveText("Фото готовится", { timeout: 15_000 });
+    expect(await page.locator("#favGrid .favcard img").count(), "картинки 3D на карточке нет").toBe(0);
     await close();
   }
   // (б) лимит суток: 10 уже заказано — новое не заказываем
@@ -747,8 +752,9 @@ test("2.46 сохранили без фото → автофото: плашка
     await openWalk(page);
     await freshState(page);
     await saveFav(page);
-    // лимит — только на автофото: черновик 3D-снимка уходит, как без денег
-    await expect.poll(() => renders.filter((r) => r.quality === "draft").length, { timeout: 60_000 }).toBeGreaterThanOrEqual(1);
+    // лимит — только на автофото; черновика 3D-снимка больше нет (T-20261107-34)
+    await page.waitForTimeout(8000);
+    expect(renders.filter((r) => r.quality === "draft"), "черновик коллекции").toEqual([]);
     say("лимит 10 в сутки исчерпан — задания:", JSON.stringify(renders));
     expect(renders.filter((r) => r.quality === "realistic"), "11-е автофото за сутки").toEqual([]);
     await close();

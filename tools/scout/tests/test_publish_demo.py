@@ -11,6 +11,8 @@
   после публикации — код 1 с подсказкой про откат;
 - не молчит и не живёт в /tmp (T-20261106-87): архив — в PUB_TMP; упаковка упала без вывода (`tar` подменён) — код 2 и строка
   «сбой в строке … tar czf … (код 2)»; места мало (`df` подменён) — отказ до упаковки с цифрами; отказы-проверки строку сбоя не печатают.
+- фото нейросети до выкладки (T-20261107-34): ручная выкладка главной сперва снимает фото новой сборки (подменная команда вместо
+  ПЛАТНОГО demo-real.sh), ночь (PUB_PHOTOS_DONE=1) и проба /test/ — без съёмки; съёмка упала / openai.off — публикация есть, WARN.
 Папка случая: PUB_TEST_DIR (не удаляется) или во временной папке процесса на диске (`remlab_tmp.use`): успех — убирается,
 провал — остаётся (T-20261107-13; раньше — в /tmp навсегда).
     python3 tools/scout/tests/test_publish_demo.py"""
@@ -64,6 +66,8 @@ def shims(bin_dir):
         'scp': '#!/usr/bin/env bash\necho "scp $*" >> "$SHIM_LOG"\nargs=("$@"); n=${#args[@]}\n'
                'cp "${args[$((n-2))]}" "${args[$((n-1))]#*:}"\n',
         'curl': '#!/usr/bin/env bash\necho "curl $*" >> "$SHIM_LOG"\nprintf %s "${FAKE_HTTP:-200}"\n',
+        # вместо `tools/ops/demo-real.sh` (ПЛАТНО) — запись «что сняли бы» и код FAKE_PHOTOS_RC (T-20261107-34)
+        'photos': '#!/usr/bin/env bash\necho "photos DEMO_LOCAL=$DEMO_LOCAL $*" >> "$SHIM_LOG"\nexit "${FAKE_PHOTOS_RC:-0}"\n',
         # FAKE_TAR_FAIL=1 — упаковка (czf) падает молча с кодом 2, как `tar` при забитом /tmp, когда и его сообщение
         # некуда записать (T-20261106-87); иначе — настоящий tar (распаковка на «сервере» тоже идёт через него)
         'tar': '#!/usr/bin/env bash\nif [ -n "${FAKE_TAR_FAIL:-}" ] && [ "${1:-}" = czf ]; then exit 2; fi\n'
@@ -95,7 +99,9 @@ def main():
         e = {k: v for k, v in os.environ.items() if not k.startswith('PUB_')}
         e.update(PATH=bin_dir + os.pathsep + os.environ['PATH'], PUB_ROOT=srv, PUB_RTMP=rtmp, PUB_CHOWN='',
                  PUB_SRC=src, PUB_KEEP='3', SHIM_LOG=os.path.join(base, 'shim.log'), TMPDIR=base,
-                 PUB_TMP=os.path.join(base, 'pubtmp'))
+                 PUB_TMP=os.path.join(base, 'pubtmp'),
+                 # съёмка фото до выкладки — всегда подменная, рубильник openai.off — свой файл случая (не tools/scout/openai.off)
+                 PUB_PHOTOS_CMD=os.path.join(bin_dir, 'photos'), PUB_OFF_FLAG=os.path.join(base, 'openai.off'))
         e.update(kw)
         return e
 
@@ -256,6 +262,41 @@ def main():
     out = r.stdout + r.stderr
     ok(r.returncode == 1 and 'мало места под архив' in out and 'свободно 5 МБ' in out, f'мало места: код 1 и цифры ({out.strip()[-160:]!r})')
     ok(tree(live) == before, 'при нехватке места витрина цела')
+
+    # 15. ФОТО НЕЙРОСЕТИ ДО ВЫКЛАДКИ (photo-before-publish-01, T-20261107-34): ручная выкладка главной сперва снимает фото новой
+    # сборки (DEMO_LOCAL = сборка) и только потом пакует; ночь (PUB_PHOTOS_DONE=1) и проба под /test/ — без съёмки; съёмка упала
+    # или openai.off — публикация всё равно идёт (держим фото, не сборку: TG 378), с WARN
+    def shim_since(n):
+        return open(os.path.join(base, 'shim.log'), encoding='utf-8').read().splitlines()[n:]
+
+    def shim_len():
+        return len(open(os.path.join(base, 'shim.log'), encoding='utf-8').read().splitlines())
+    n0 = shim_len()
+    v9 = build(9)
+    r = run()
+    lines = shim_since(n0)
+    ph = [i for i, ln in enumerate(lines) if ln.startswith('photos ')]
+    sc = [i for i, ln in enumerate(lines) if ln.startswith('scp ')]
+    ok(r.returncode == 0 and tree(live) == v9 and len(ph) == 1 and sc and ph[0] < sc[0] and lines[ph[0]] == f'photos DEMO_LOCAL={src} ',
+       f'ручная выкладка главной: сперва фото новой сборки (DEMO_LOCAL — сборка), потом архив и публикация ({lines[:3]!r})')
+    for kw, why in (({'PUB_PHOTOS_DONE': '1'}, 'ночь (PUB_PHOTOS_DONE=1) — фото уже сняты'),
+                    ({'PUB_DIR': 'test/pubsafe-probe'}, 'проба под /test/')):
+        n0 = shim_len()
+        build(10)
+        r = run(**kw)
+        ok(r.returncode == 0 and not any(ln.startswith('photos ') for ln in shim_since(n0)), f'{why} — без съёмки, публикация есть')
+    n0 = shim_len()
+    v11 = build(11)
+    r = run(FAKE_PHOTOS_RC='3')
+    ok(r.returncode == 0 and tree(live) == v11 and 'WARN:publish_demo: досъёмка фото — код 3' in r.stdout
+       and any(ln.startswith('photos ') for ln in shim_since(n0)), f'съёмка упала — публикация всё равно есть, WARN ({r.stdout[-200:]!r})')
+    put(os.path.join(base, 'openai.off'), '')
+    n0 = shim_len()
+    v12 = build(12)
+    r = run()
+    os.remove(os.path.join(base, 'openai.off'))
+    ok(r.returncode == 0 and tree(live) == v12 and 'WARN:publish_demo: платные шаги выключены (openai.off)' in r.stdout
+       and not any(ln.startswith('photos ') for ln in shim_since(n0)), 'openai.off — без съёмки, с WARN, публикация есть')
 
     # 14. запреты (код 2 из проверок) не печатают ложный «сбой в строке»
     r = run(PUB_DIR='caddy')

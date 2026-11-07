@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Ночная досъёмка фото нейросети (план demo-29): шаг `demo_real` ночного прогона — после публикации и прогрева кадров. Только стили
-# без фото своей расстановки, потолок трат — tools/scout/rules/demo-realistic.json. Логика — `tools/ops/demo-realistic.mjs --night`.
+# Ночная досъёмка фото нейросети (план demo-29): шаг `demo_real` ночного прогона — ДО публикации, на новой сборке (`DEMO_LOCAL`,
+# план photo-before-publish-01, T-20261107-34); тот же шаг зовёт ручная выкладка (`publish_demo.sh`). Только варианты без фото своей
+# расстановки, потолок трат — tools/scout/rules/demo-realistic.json (200 ₽, WARN выше 100). Логика — `tools/ops/demo-realistic.mjs --night`.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 . tools/ops/node-env.sh
