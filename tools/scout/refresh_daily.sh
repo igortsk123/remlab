@@ -510,7 +510,7 @@ for room in bedroom hall; do [ "$(room_flag "$room" enabled)" = 1 ] && rooms_on+
 # числом, без WARN: К8 отложен, T-14/3; список own-mismatch.tsv рядом с таблицей). Сбой — FAIL
 # шага, привязка идёт без отметок (fail-open). Только когда привязку пересобирают (иначе таблицу никто не прочтёт)
 [ -n "$rooms_on" ] && step mesh_color_guard "$PY" mesh_color_check.py guard
-[ -n "$rooms_on" ] && step room_bindings "$PY" room_bindings.py --build
+[ -n "$rooms_on" ] && step room_bindings "$PY" room_bindings.py --build --digest   # DIGEST правил роли и запасного пути (T-25/5)
 for room in bedroom hall; do
   if [[ " $rooms_on " != *" $room "* ]]; then
     RES[compose_$room]=выключено

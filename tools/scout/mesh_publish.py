@@ -81,7 +81,8 @@ def scene_keys(ready: list, rows: dict | None) -> set[str]:
     if rows is None:
         return {rep or sku for sku, rep in ready}
     rep = {sku.replace(':', '_', 1): (r or sku).replace(':', '_', 1) for sku, r in ready}
-    return {RB.scene_msid(rows.get(sku), sku.replace(':', '_', 1), rep).replace('_', ':', 1) for sku, _r in ready}
+    keys = (RB.scene_msid(rows.get(sku), sku.replace(':', '_', 1), rep) for sku, _r in ready)
+    return {k.replace('_', ':', 1) for k in keys if k}     # None — модели сцены нет (представитель не проверен, T-25/5)
 
 
 def ready_skus(files: list[str] | None = None, rows: dict | None = None) -> set[str]:
@@ -403,11 +404,12 @@ def _selftest() -> int:
         open(os.path.join(tmp, '5_r', 'model.glb'), 'wb').write(b'x' * 70)
         ok('комнаты: байты к выкладке — только свои папки', bytes_of(['5_r', 'нет'], tmp) == 70)
     # T-20261106-77/6: отбор гостиной — по модели сцены; модели с привязкой гостиной — файлом привязки
-    ready = [('1:own', '1:rep'), ('1:var', '1:rep'), ('1:blk', '1:rep'), ('1:solo', '')]
-    rows = {'1:own': {'mesh_id': '1:own', 'local_3d': True}, '1:var': {'mesh_id': '1:rep', 'local_3d': True},
+    ready = [('1:own', '1:rep'), ('1:var', '1:rep'), ('1:blk', '1:rep2'), ('1:solo', '')]
+    rows = {'1:own': {'mesh_id': '1:own', 'local_3d': True}, '1:var': {'mesh_id': '1:rep', 'local_3d': True, 'via_family': True},
             '1:blk': {'mesh_id': '1:blk', 'local_3d': False}}
-    ok('отбор без привязки — прежнее правило (представитель)', scene_keys(ready, None) == {'1:rep', '1:solo'})
-    ok('отбор по модели сцены: своя с файлом — своя; вариант и без файла — представитель; без строки — свой артикул',
+    ok('отбор без привязки — прежнее правило (представитель)', scene_keys(ready, None) == {'1:rep', '1:rep2', '1:solo'})
+    ok('отбор по модели сцены: своя с файлом — своя; вариант — представитель; своя заблокирована при семье — модели нет '
+       '(представителя молча не берём, T-25/5); без строки — свой артикул',
        scene_keys(ready, rows) == {'1:own', '1:rep', '1:solo'})
     rp = [{'room': 'living', 'meshes': {'1:own': {}, '1:rep': {}, '9:x': {}}}, {'room': 'bedroom', 'meshes': {'1:solo': {}}}]
     ok('по привязке — только модели плана гостиной, попавшие в отбор', living_bound(rp, {'1_own', '1_rep', '1_solo'}) == {'1_own', '1_rep'})

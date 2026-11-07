@@ -282,8 +282,37 @@ def _bind_rows() -> dict:
 
 def _msid(sid: str | None) -> str | None:
     """Какую модель грузит сцена — ОДНО ПРАВИЛО ДЛЯ ВСЕХ КОМНАТ (`room_bindings.scene_msid`, T-20261106-77/5 шаг 3): модель
-    привязки (`mesh_id` строки, ту, что проверила привязка), записи нет — представитель семьи (`mesh_rep`)."""
-    return _RB.scene_msid(_bind_rows().get(sid.replace('_', ':', 1)), sid, _mesh_rep()) if sid else None
+    привязки (`mesh_id` строки, ту, что проверила привязка); представитель семьи — только явной привязкой (`via_family`), иначе
+    None — модели нет, штатная замена (T-20261107-25/5). Привязка не читается вовсе (WARN выше) — по-старому представитель
+    семьи, чтобы сбой таблицы не снял модели со всей гостиной."""
+    if not sid:
+        return None
+    rows = _bind_rows()
+    if not rows:
+        return _mesh_rep().get(sid, sid)
+    return _RB.scene_msid(rows.get(sid.replace('_', ':', 1)), sid, _mesh_rep())
+
+
+def scene_family_digest(data: dict, rows: dict) -> str:
+    """Сторож правила B (T-20261107-25/5) по собранному демо: товаров, у которых сцена грузит ЧУЖУЮ модель (msid ≠ sid) без явной
+    привязки к представителю (`via_family`), — должно быть 0. Не 0 — WARN (правило `scene_msid` обойдено); привязка не читается —
+    тоже WARN (тогда сцена по-старому берёт представителя)."""
+    if not rows:
+        return 'WARN:scene_family: привязка не читается — модели сцены по представителю семьи без проверки'
+    seen = {}
+    for lst in (data.get('feeds') or {}).values():
+        for p in lst:
+            seen[p.get('sid')] = p.get('msid')
+    for v in data.get('variants') or []:
+        for i in v.get('items') or []:
+            s = i.get('sku') or {}
+            seen[s.get('sid')] = s.get('msid')
+    bad = sorted(sid for sid, m in seen.items() if sid and m and m != sid
+                 and not (rows.get(sid.replace('_', ':', 1)) or {}).get('via_family'))
+    if bad:
+        return f'WARN:scene_family: сцена грузит чужую модель без явной привязки у {len(bad)}: {", ".join(bad[:5])}'
+    n = sum(1 for sid, m in seen.items() if sid and m and m != sid)
+    return f'DIGEST:модели сцены: чужая модель без явной привязки 0 (представитель семьи явно — {n})'
 
 
 def colour_flagged(sid: str | None) -> bool:
@@ -763,11 +792,14 @@ def swap_ok(p: dict) -> bool:
     """Товар пула показуем в ленте замен — те же проверки, что лента применяет к товарам сетов: живое фото, модель семейства
     лежит на сервере (не карантин) и подходит товару по цвету, предмет годится для гостиной (`unfit.py`). Пул ленты зовёт её
     ДО отбора 30 в группе (`demo_swap_pool.pick`, demo-18 п.1); ширину комнаты пул проверяет сам по `rules/demo-swap.json`.
-    Дозаполнение вариантов берёт прежний пул (`pool_top`): показываемые варианты в этой задаче не меняются."""
+    Дозаполнение вариантов берёт прежний пул (`pool_top`): показываемые варианты в этой задаче не меняются.
+    МОДЕЛЬ — ПРАВИЛОМ ПРИВЯЗКИ (`_msid`, T-20261107-25/5): запрос пула даёт представителя семьи (`mesh_family_rep`) — по нему пул
+    только группирует «одна модель в группе»; проверяем ту модель, которую сцена реально загрузит (своя или явная семья)."""
     from img_alive import alive_now
     from unfit import unfit
-    return (bool(p.get('msid')) and p['msid'] in _mesh_index() and not unfit(p.get('role'), p.get('name'), None, p.get('h'), d=p.get('d'))
-            and color_ok(p['msid'], p.get('name')) and alive_now(p.get('img')))
+    m = _msid(p.get('sid')) if p.get('sid') else p.get('msid')
+    return (bool(m) and m in _mesh_index() and not unfit(p.get('role'), p.get('name'), None, p.get('h'), d=p.get('d'))
+            and color_ok(m, p.get('name')) and alive_now(p.get('img')))
 
 
 @functools.lru_cache(maxsize=1)
@@ -1668,6 +1700,8 @@ def build() -> dict:
             base = p['role']
             if base not in ENV_ALL:
                 continue
+            if base not in NOMESH_ROLES:   # модель сцены — правилом привязки (`_msid`), не представитель из запроса пула (T-25/5)
+                p = dict(p, msid=_msid(p['sid']))
             # ОДИН ТОВАР — ОДНА КАРТОЧКА, СТИЛЕЙ У НЕЁ МОЖЕТ БЫТЬ НЕСКОЛЬКО (08.09). Пул
             # перечисляет товар в каждом стиле, которому тот подходит; если складывать это в
             # ленту как разные строки — получаются дубли, а если брать только первый стиль —
@@ -2455,6 +2489,7 @@ def main() -> None:
             print('WARN:feed_family_colour: в лентах модели семейства другого цвета — ' + ', '.join(f'{r} {n}' for r, n in sorted(bad.items())), flush=True)
     except Exception as e:  # noqa: BLE001 — замер не валит сборку
         print(f'  замер цвета семейств в лентах не удался: {repr(e)[:100]}', flush=True)
+    print(scene_family_digest(data, _bind_rows()), flush=True)
     # АНГЛИЙСКИЕ НАЗВАНИЯ (план demo-31, владелец 30.10): `name_en`/`colour_en` каждому товару — для английского демо.
     # Без кириллицы и магазина по построению (нет перевода — нейтральное по роли, строка WARN); публикацию не останавливает
     try:
