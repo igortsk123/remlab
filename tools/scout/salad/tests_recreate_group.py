@@ -99,6 +99,10 @@ def main() -> None:
     import migrate_groups as MG
     import queue_setup as QS
     MG.ghcr_auth = lambda: {}
+    # боевая группа-очередь в проверках ниже — «выключенная, как при создании» (queue_setup.py:94), а не по живому rules:
+    # `disabled` у mesh-q-low-1 снимают под волны (T-20261107-06/2), и отказ «только у канарейки» не должен от этого зависеть
+    _info = QS.SG.info
+    QS.SG.info = lambda g, _i=_info: {**_i(g), 'disabled': True} if g == 'mesh-q-low-1' else _i(g)
     donor = {'container': {'image': MG.IMAGE, 'resources': {'cpu': 8, 'memory': 24576, 'gpu_classes': ['x'],
                                                             'storage_amount': 1, 'shm_size': 1},
                            'environment_variables': {'RECEIVER_TOKEN': 's', 'PIPELINE_VERSION': 'v2'}, 'command': []}}
@@ -132,6 +136,7 @@ def main() -> None:
     except SystemExit as e:
         gpu_err = str(e)
     check('только у канарейки' in gpu_err, 'queue_setup: свои классы GPU у боевой группы-очереди — отказ')
+    QS.SG.info = _info
 
     # recreate_group.self_donor_refusal (T-20261106-85/3): группа-очередь по самой себе — отказ с подсказкой
     check('queue_setup' in R.self_donor_refusal('mesh-q-color-canary', None), 'группа-очередь без --donor (по себе) — отказ')
