@@ -17,7 +17,9 @@
 Представитель семейства (`products.mesh_family_rep`) — чей меш считается мешом семейства:
   1) вариант с решением владельца на странице приёмки (его карточка не должна пропасть);
   2) вариант, у которого меш уже есть (самый ранний по времени файла);
-  3) вариант, стоящий в опубликованных сетах; 4) наименьший sku.
+  3) светлый нейтральный цвет (серый, молочный, беж, белый — `light_neutral`, T-20261107-14/2: подкраска сцены сводит такую
+     основу к любому цвету вниз, яркую и тёмную — нет); 4) вариант, стоящий в опубликованных сетах; 5) наименьший sku.
+  Только для новых семей: прежний представитель липкий (ниже).
 Остальные варианты в очередь не встают; их готовность и ссылка на меш — от представителя
 (`mesh_ready.py`, `mesh_bind.py`). Уже сгенерированные меши вариантов остаются на диске и в
 реестре (владелец: «текущие меши не удаляй»).
@@ -44,6 +46,29 @@ COLORS = frozenset('''
 white black grey gray beige brown blue green natural walnut oak red yellow pink ivory cream
 '''.split())
 SHOP_VARIANT_PARAM = {112923: 'Вариант модели'}
+# ОСНОВА НОВОЙ СЕМЬИ — СВЕТЛЫЙ НЕЙТРАЛЬНЫЙ ВАРИАНТ (T-20261107-14/2, ведущий 07.11). Варианты рисуются мешем представителя
+# с подкраской сцены — множителем цвета по каналу (≤ 2,5): со светлой нейтральной основы он сводит к любому цвету вниз, а
+# с яркой или тёмной не сводит (оранжевый «Аронт» не становится серым — синего канала нет; чёрный «Риан» × 2,5 — тот же
+# чёрный). Только для новых семей: липкий представитель (решения владельца, готовые меши) не меняется, старые не перегенерируем.
+LIGHT_NEUTRAL = frozenset('''
+белый молочный бежевый светло-бежевый кремовый серый светло-серый жемчужный слоновая айвори ivory cream white beige grey gray
+'''.split())
+
+
+def light_neutral(name: str) -> bool:
+    """Основной (первый) цвет в названии — светлый нейтральный: «Велюр Светло-серый», «Букле Молочный», «Серый/Натуральный»."""
+    for w in _norm(name).replace(',', ' ').split():
+        first = w.split('/')[0]
+        if first in COLORS or first in LIGHT_NEUTRAL:
+            return first in LIGHT_NEUTRAL
+    return False
+
+
+def rep_key(s: str, decided: set, quality: dict, in_sets: set, names: dict) -> tuple:
+    """Порядок выбора представителя НОВОЙ семьи (меньше — лучше): решение владельца → есть меш (и его качество) → светлый
+    нейтральный цвет → стоит в опубликованных сетах → sku. Меш у варианта уже есть — он и остаётся основой (не генерим заново)."""
+    return (0 if s in decided else 1, 0 if s in quality else 1, *quality.get(s, (1, 1, 1, 1, '')),
+            0 if light_neutral(names.get(s, '')) else 1, 0 if s in in_sets else 1, s)
 
 
 def _norm(s: str) -> str:
@@ -171,6 +196,7 @@ def compute() -> dict:
     key_of: dict[str, str] = {}
     role_of: dict[str, str] = {}
     base_of: dict[str, str] = {}
+    names: dict[str, str] = {}
     for r in rows:
         if len(r) != 8:
             continue
@@ -184,6 +210,7 @@ def compute() -> dict:
         key_of[sku] = key
         role_of[sku] = role
         base_of[sku] = base_name(int(mid), name.replace('\x1f', ' '), pr)
+        names[sku] = name.replace('\x1f', ' ')
     # ОДНА ФОТОГРАФИЯ = ОДНА ФОРМА (владелец 05.09, вазы Glasar): кластеры по перцептивному
     # отпечатку внутри роли сливают семейства, найденные по имени. Union-find по ключам семейств.
     parent: dict[str, str] = {k: k for k in fam}
@@ -256,9 +283,7 @@ def compute() -> dict:
         if len(prev) == 1:
             rep = prev.pop()            # прежний представитель ещё в семействе — оставляем
         else:
-            rep = min(skus, key=lambda s: (0 if s in decided else 1, 0 if s in quality else 1,
-                                           *quality.get(s, (1, 1, 1, 1, '')),
-                                           0 if s in in_sets else 1, s))
+            rep = min(skus, key=lambda s: rep_key(s, decided, quality, in_sets, names))
         for s in skus:
             out[s] = (key, rep)
     return out
@@ -331,7 +356,22 @@ def _selftest() -> int:
     cl = sorted(sorted(c) for c in cl)
     if cl != [['a', 'b'], ['c']]:
         bad += 1; print(f'  FAIL hamming_clusters: {cl}')
-    print(f'mesh_family selftest: случаев 12, ошибок {bad}')
+    # основа новой семьи — светлый нейтральный вариант (T-20261107-14/2)
+    if not (light_neutral('Диван угловой divan.ru Аронт Мини Велюр Светло-серый') and light_neutral('Пуф Кофи-2 Букле Молочный')
+            and light_neutral('Стул Риан Экокожа Серый/Натуральный') and not light_neutral('Стул Риан Экокожа Черный/Натуральный')
+            and not light_neutral('Диван Аронт Мини Велюр Оранжевый') and not light_neutral('Диван Аронт Мини Велюр Тёмно-серый')
+            and not light_neutral('Стол Лори')):
+        bad += 1; print('  FAIL light_neutral: первый цвет названия')
+    names = {'1:o': 'Диван Аронт Велюр Оранжевый', '1:g': 'Диван Аронт Велюр Светло-серый', '1:b': 'Диван Аронт Велюр Черный'}
+    pick = lambda skus, **kw: min(skus, key=lambda s: rep_key(s, kw.get('decided', set()), kw.get('quality', {}),  # noqa: E731
+                                                               kw.get('in_sets', set()), names))
+    if pick(['1:o', '1:g', '1:b'], in_sets={'1:o'}) != '1:g':
+        bad += 1; print('  FAIL новая семья без мешей: основа — светлый нейтральный, раньше «в сетах»')
+    if pick(['1:o', '1:g'], quality={'1:o': (0, 0, 0, 0, '2026')}) != '1:o':
+        bad += 1; print('  FAIL меш уже есть у оранжевого — основа он (не генерим заново)')
+    if pick(['1:o', '1:g'], decided={'1:o'}) != '1:o':
+        bad += 1; print('  FAIL решение владельца — раньше цвета')
+    print(f'mesh_family selftest: случаев 16, ошибок {bad}')
     return 1 if bad else 0
 
 

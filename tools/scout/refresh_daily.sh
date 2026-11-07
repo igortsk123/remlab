@@ -504,6 +504,12 @@ room_chain() {                  # room_chain <комната> — цепочка
 }
 rooms_on=""; rooms_undef=""
 for room in bedroom hall; do [ "$(room_flag "$room" enabled)" = 1 ] && rooms_on+="$room "; done
+# СТОРОЖ «МЕШ НЕ ТОГО ЦВЕТА» (T-20261107-14/2): видимый цвет модели (× подкраска сцены) против фото товара по вчерашней
+# привязке → таблица вердиктов; следующая сборка привязки отмечает вариант семьи `mesh_color_mismatch` (не в ленту и не в
+# вариант, кандидат на свой меш). Строка DIGEST «отмечено N, из них в ленте было M; свои меши с расхождением: K» (свои — только
+# числом, без WARN: К8 отложен, T-14/3; список own-mismatch.tsv рядом с таблицей). Сбой — FAIL
+# шага, привязка идёт без отметок (fail-open). Только когда привязку пересобирают (иначе таблицу никто не прочтёт)
+[ -n "$rooms_on" ] && step mesh_color_guard "$PY" mesh_color_check.py guard
 [ -n "$rooms_on" ] && step room_bindings "$PY" room_bindings.py --build
 for room in bedroom hall; do
   if [[ " $rooms_on " != *" $room "* ]]; then

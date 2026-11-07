@@ -19,7 +19,9 @@
              ориентация решена для ЭТОГО sha по текущему контракту и не unusable («симметрична по роли» — только у ненаправленной
              роли), паспорт генерации (manifest input.dims_cm) ≈ габарит каталога (политика v1: 3 % или 2 см);
   solver   — габарит каталога есть, у товара из room_catalog — footprint_ok;
-  appearance — свой меш; у варианта семьи — цвет обоих известен и в одной группе;
+  appearance — свой меш; у варианта семьи — цвет обоих известен и в одной группе И замер видимого цвета (модель × подкраска)
+             не дальше порога от фото товара (`mesh_color_check`, таблица ночного замера, `measured_colour`; свой меш с
+             расхождением — только предупреждение `mesh_color_mismatch`);
   published_3d — mesh_id в индексе прода и размер файла там = привязанному (только чтение; публикация — В-1б).
   status = ready, когда solver ∧ local_3d ∧ appearance; иначе blocked со списком причин.
 
@@ -126,6 +128,7 @@ class Facts:
         self.contract, self.directed = 'orient-v1', (lambda role, name='': False)
         self.manifest, self.glb = (lambda g: {}), (lambda g: (None, 'glb_missing'))
         self.urls = {}                       # {sku: адреса фото} — для представителя семьи (его фото сверяем по его адресам)
+        self.mesh_colour = {}                # {sku: вердикт сторожа цвета} — `mesh_color_check.load_table` (T-20261107-14/2)
         self.__dict__.update(kw)
         self.gen_skus = {g.get('sku') for g in self.gens.values()}
 
@@ -245,6 +248,28 @@ def appearance(sku: str, rep: str | None, F: Facts, groups: dict) -> tuple:
     return (True, []) if ga == gb else (False, [f'family_colour_mismatch:{ga}→{gb}'])
 
 
+COLOUR_REASON = 'mesh_color_mismatch'
+
+
+def measured_colour(sku: str, aid: str | None, via: bool, F: Facts) -> tuple:
+    """Сторож «меш не того цвета» (T-20261107-14/2): (причины blocked, предупреждения). Вердикт ночного замера
+    (`mesh_color_check.guard`) действует, только если он про ЭТОТ ассет: модель сменилась — старый вердикт не считается.
+    Вариант семьи с расхождением — blocked `mesh_color_mismatch:ΔL…,Δab…` (не в ленту и не в вариант; кандидат на свой меш,
+    `room_mesh_demand`); свой меш — только пометка в строке (прятать нечем; число — в DIGEST сторожа, список — для К8)."""
+    r = (F.mesh_colour or {}).get(sku)
+    if not r or not aid or r.get('asset_id') != aid or r.get('verdict') != 'mismatch':
+        return [], []
+    if not via:
+        return [], [COLOUR_REASON]
+    d = r.get('seen_vs_sku') or {}
+    return [f"{COLOUR_REASON}:dL{d.get('dL', 0):+.0f},dab{d.get('dab', 0):.0f}"], []
+
+
+def colour_flagged(row: dict | None) -> bool:
+    """Строка привязки (снимок или таблица) отмечена сторожем цвета — для ленты гостиной и спроса мешей."""
+    return any(str(x).startswith(COLOUR_REASON) for x in (row or {}).get('reasons') or [])
+
+
 def offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, assets: dict, families: dict) -> dict | None:
     """Привязка одного товара. cat — {mid, eid, name, dims:[…], footprint_required, footprint_ok, urls:set, seen_in:[…], roles:set}.
     None — у товара нет ни своего кандидата меша, ни семьи (в снимок не попадает: адаптер скажет none)."""
@@ -286,6 +311,8 @@ def offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, assets
     if cat.get('footprint_required') and not cat.get('footprint_ok'):
         solver_why.append('footprint_unverified')
     app_ok, app_why = appearance(sku, rep, F, groups)
+    mc_why, mc_warn = measured_colour(sku, aid, via, F)
+    app_ok, app_why, warn = app_ok and not mc_why, app_why + mc_why, warn + mc_warn
     local_3d = rec is not None and bool(aid) and not local
     caps = {'solver': not solver_why, 'local_3d': local_3d, 'appearance': app_ok,
             'published_3d': bool(local_3d and rec and rec['published']['size_match'])}
@@ -800,14 +827,23 @@ def load_facts(prod_src: str, ssh: bool, out_dir: str) -> tuple:
             except Exception:  # noqa: BLE001 — нет манифеста: паспорт неизвестен (passport_missing)
                 mans[p] = {}
         return mans[p]
+    # сторож цвета мешей (T-20261107-14/2): таблица ночного замера; нет — без отметок, громко (fail-open)
+    import mesh_color_check as MCC
+    mcol, mcol_why = MCC.load_table()
+    if mcol_why:
+        print(f'WARN:mesh_colour: таблица сторожа цвета не читается ({mcol_why}) — привязка без отметок mesh_color_mismatch',
+              flush=True)
+    mcol = mcol or {}
     F = Facts(revs=revs, gens=gens, orient=orient, ppc=ppc, products=products, two_reps=two, colour=colour, prod=prod,
               contract=OW.CONTRACT, directed=lambda role, name='': OW.directed_role(role, name, ''),
-              manifest=manifest, glb=make_glb(cache))
+              manifest=manifest, glb=make_glb(cache), mesh_colour=mcol)
     import mesh_queue as MQ
     sources = {'asset_revisions': _digest(revs), 'mesh_generations': _digest(gens), 'orientation_state': _digest(sorted(orient.items())),
                'product_photo_current': _digest(ppc), 'products_mesh': _digest(products), 'enrichment_colour': _digest(colour),
                'policy': _digest(pol), 'orient_contract': OW.CONTRACT, 'directed_roles': sorted(MQ.DIRECTED),
-               'prod': {'source': prod_why, 'digest': _digest(prod)}}
+               'prod': {'source': prod_why, 'digest': _digest(prod)},
+               'mesh_colour': {'rules': MCC.rules()['version'], 'source': mcol_why or 'table',
+                               'digest': _digest({k: [v.get('asset_id'), v.get('verdict')] for k, v in mcol.items()})}}
     return F, pol, MDK.COLOUR_GROUPS, sources, cache, cache_p
 
 
@@ -1037,6 +1073,25 @@ def _selftest() -> int:
     w = bind('7:w', cat(7, 'w', 93, 50, 76, role='комод', origin='products', urls=('uw',)))
     ok('вариант другого цвета: геометрия да, вид нет', w['status'] == 'blocked' and w['capabilities']['local_3d']
        and not w['capabilities']['appearance'] and w['reasons'] == ['family_colour_mismatch:чёрный→светлый'])
+    # сторож цвета мешей (T-20261107-14/2): вердикт замера про ЭТОТ ассет
+    rep_aid = 'sha256:' + full['/g/rep']
+    Fc = copy.copy(F)
+    Fc.mesh_colour = {'6:v': {'asset_id': rep_aid, 'verdict': 'mismatch', 'seen_vs_sku': {'dL': -39.2, 'dab': 72.0}},
+                      '5:r': {'asset_id': rep_aid, 'verdict': 'mismatch', 'seen_vs_sku': {'dL': 50.0, 'dab': 2.0}}}
+    v = bind('6:v', cat(6, 'v', 93, 50, 76, role='комод', origin='products', urls=('uv',)), Fc)
+    ok('вариант семьи, видимый цвет не тот (замер) — blocked mesh_color_mismatch, вид нет, геометрия да',
+       v['status'] == 'blocked' and v['reasons'] == ['mesh_color_mismatch:dL-39,dab72'] and not v['capabilities']['appearance']
+       and v['capabilities']['local_3d'] and colour_flagged(v)) or print(v)
+    r5 = bind('5:r', cat(5, 'r', 93, 50, 76, role='комод', origin='products', urls=('ur',)), Fc)
+    ok('свой меш с расхождением — не прячем: статус прежний, только предупреждение',
+       COLOUR_REASON in r5['warnings'] and not colour_flagged(r5)
+       and r5['status'] == bind('5:r', cat(5, 'r', 93, 50, 76, role='комод', origin='products', urls=('ur',)))['status']) or print(r5)
+    Fc.mesh_colour = {'6:v': {'asset_id': 'sha256:старый', 'verdict': 'mismatch', 'seen_vs_sku': {'dL': -39, 'dab': 72}}}
+    ok('вердикт про другой (старый) ассет — не действует, вариант ready',
+       bind('6:v', cat(6, 'v', 93, 50, 76, role='комод', origin='products', urls=('uv',)), Fc)['status'] == 'ready')
+    Fc.mesh_colour = {'6:v': {'asset_id': rep_aid, 'verdict': 'unknown', 'seen_vs_sku': None}}
+    ok('нет замера (unknown) — не отметка', bind('6:v', cat(6, 'v', 93, 50, 76, role='комод', origin='products', urls=('uv',)),
+                                                 Fc)['status'] == 'ready')
     F8 = Facts(**copy.deepcopy({k: v for k, v in F.__dict__.items() if k not in ('manifest', 'glb', 'directed')}))
     F8.manifest, F8.glb, F8.directed = F.manifest, F.glb, F.directed
     F8.revs['5:r'][0]['status'] = 'owner_reject'

@@ -113,9 +113,24 @@ def fits(it: dict, c: dict, tol: tuple, thr: float, gate, band_of) -> bool:
 
 
 # ---------------------------------------------------------------- состояние товара
+def colour_own(bind: dict | None) -> bool:
+    """Вариант семьи, отмеченный сторожем цвета (`mesh_color_mismatch`, T-20261107-14/2): меш представителя ему не годится
+    по виду (оранжевый «Аронт» вместо серого) — он НЕ «готов» и не «ждёт разблокировки», а кандидат на СВОЙ меш, на общих правах."""
+    import room_bindings as RB
+    return bool(bind) and bool(bind.get('via_family')) and RB.colour_flagged(bind)
+
+
+def own_facts(f: dict, bind: dict | None) -> dict:
+    """Факты товара для спроса: у отмеченного сторожем цвета варианта семьи представителя нет (свой меш), иначе как есть."""
+    return dict(f, rep=None, rep_has_mesh=False, colour_own=True) if colour_own(bind) else f
+
+
 def state_of(sku: str, f: dict, bind: dict | None, defect: bool) -> str:
     """covered | blocked | defect | job | photo_pending | photo_bad | has_mesh | not_job.
-    f — факты БД (has_mesh, rep_has_mesh, verdict). Товар из products — на общих правах (T-49/2)."""
+    f — факты БД (has_mesh, rep_has_mesh, verdict). Товар из products — на общих правах (T-49/2). Вариант семьи с отметкой
+    сторожа цвета — как товар без привязки и без представителя (`colour_own`)."""
+    if colour_own(bind):
+        bind, f = None, own_facts(f, bind)
     if bind is not None:
         if bind.get('status') == 'ready':
             return 'defect' if defect else 'covered'
@@ -268,6 +283,8 @@ def demand(room: str, bank_path: str, k: int, budget: float, price: float) -> di
             it = dict(it, sku=rep, via=it['sku'])
             f = F.get(rep) or facts([rep], CI.fetch).get(rep, {})
             F[rep] = f
+        elif colour_own(rows.get(it['sku'])):      # отметка сторожа цвета — свой меш варианту (задание по его фото)
+            f = F[it['sku']] = own_facts(f, rows.get(it['sku']))
         key = (it['sku'], it['role'], it.get('via'))
         if key in seen:
             continue
@@ -953,6 +970,8 @@ def room_states(room: str, cat: list, R: dict, rows: dict, fetch) -> tuple:
         if rep and rep != it['sku'] and it['sku'] not in rows:
             it = dict(it, sku=rep, via=it['sku'])
             f = F.get(rep, {})
+        elif colour_own(rows.get(it['sku'])):      # отметка сторожа цвета — свой меш варианту (T-20261107-14/2)
+            f = own_facts(f, rows.get(it['sku']))
         key = (it['sku'], it['role'], it.get('via'))
         if key in seen:
             continue
@@ -1121,6 +1140,16 @@ def _selftest() -> int:
        and state_of('s', {**base, 'in_products': True}, None, False) == 'job'
        and state_of('s', {**base, 'rep_has_mesh': True}, None, False) == 'has_mesh'
        and state_of('s', {**base, 'has_mesh': True}, None, False) == 'has_mesh')
+    # сторож цвета (T-20261107-14/2): вариант семьи с отметкой — кандидат на свой меш, не «готов» и не «ждёт разблокировки»
+    cb = {'status': 'blocked', 'via_family': True, 'reasons': ['mesh_color_mismatch:dL-39,dab72']}
+    ok('вариант семьи с отметкой цвета: не covered/blocked — job (своё фото ok), представитель не мешает',
+       state_of('s', {**base, 'rep': 'r', 'rep_has_mesh': True}, cb, False) == 'job'
+       and state_of('s', {**base, 'rep': 'r', 'rep_has_mesh': True, 'verdict': None}, cb, False) == 'photo_pending'
+       and state_of('s', {**base, 'has_mesh': True}, cb, False) == 'has_mesh'
+       and own_facts({'rep': 'r', 'rep_has_mesh': True}, cb) == {'rep': None, 'rep_has_mesh': False, 'colour_own': True})
+    ok('свой меш с предупреждением цвета и blocked без отметки — как прежде',
+       state_of('s', base, {'status': 'ready', 'via_family': False, 'reasons': [], 'warnings': ['mesh_color_mismatch']}, False) == 'covered'
+       and state_of('s', base, {'status': 'blocked', 'via_family': True, 'reasons': ['rep:orientation_pending']}, False) == 'blocked')
 
     # выбор: одна ячейка, K=2; семейство считается один раз; сначала банк
     cell = {('a', 'тумба', 'x'): {'style': 'a', 'role': 'тумба', 'slot': {}, 'purposes': ['couple']}}
