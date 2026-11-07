@@ -420,11 +420,13 @@ def _selftest() -> int:
        and room_bank('hall', {'bank': ['/nope.json']}, env={}) is None)
     ok('комнаты: доли ролей в правилах — сумма 30 на (комната × стиль)',
        all(sum(v['roles'].values()) == 30 for v in ROOMS.values()), {k: sum(v['roles'].values()) for k, v in ROOMS.items()})
-    # T-20261107-10/2: распашной «шкаф» прихожей — член доли шкафа-купе (купе + распашной = 8), сумма долей остаётся 30
+    # T-20261107-10/2: распашной «шкаф» прихожей — член доли шкафа-купе; T-20261107-18/2: и модуль «прихожая» (купе 11),
+    # сумма долей остаётся 30
     import room_mesh_demand as RMD
-    ok('комнаты: общие доли (share) проходят проверку quota_share; прихожая — «шкаф» в доле «шкаф-купе», своей доли нет',
+    ok('комнаты: общие доли (share) проходят проверку quota_share; прихожая — «шкаф» и модуль в доле «шкаф-купе», своей доли нет',
        all(RMD.quota_share(v['roles'], v.get('share')) is not None for v in ROOMS.values())
-       and ROOMS['hall'].get('share') == {'шкаф': 'шкаф-купе'} and 'шкаф' not in ROOMS['hall']['roles'])
+       and ROOMS['hall'].get('share') == {'шкаф': 'шкаф-купе', 'прихожая': 'шкаф-купе'}
+       and not ({'шкаф', 'прихожая'} & set(ROOMS['hall']['roles'])) and ROOMS['hall']['roles']['шкаф-купе'] == 11)
     print(f'demo_band selftest: ошибок {bad}')
     return 1 if bad else 0
 
