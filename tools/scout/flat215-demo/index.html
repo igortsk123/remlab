@@ -2742,9 +2742,11 @@ function camEndsOk(A,B,W,H,E){
 function camPairAllE(L,W,H,cs,opt){
   const E=camZ().ends;
   if(!E||!CAM_PAIR_ON||(opt&&opt.noEnds))return camPairAll0(L,W,H,cs,opt);
-  const r=camPairAll0(L,W,H,cs,opt), bad=p=>!p||p.corner||p.zoneMiss||p.mm>0;
+  // ОБЩИЙ РАСЧЁТ КАНДИДАТОВ (T-20261107-47): точки, их мерки и покрытие от правила `ends` не зависят — запасной ход без него берёт
+  // готовое (`opt.pre`), а не считает заново: подбор ракурсов сборки шёл 259 с вместо 112 и упирался в таймаут 300 с
+  const pre={}, r=camPairAll0(L,W,H,cs,Object.assign({},opt,{pre})), bad=p=>!p||p.corner||p.zoneMiss||p.mm>0;
   if(!bad(r))return r;
-  const old=camPairAll0(L,W,H,cs,Object.assign({},opt,{noEnds:true}));
+  const old=camPairAll0(L,W,H,cs,Object.assign({},opt,{noEnds:true,pre}));
   // прежняя пара лучше: у новой нет пары вовсе / углы, у прежней есть виды зоны, а у новой нет, или у новой больше непокрытого обязательного
   const worse=old&&!old.corner&&(!r||r.corner||(r.zoneMiss&&!old.zoneMiss)||(!!r.zoneMiss===!!old.zoneMiss&&r.mm>old.mm));
   if(!worse)return r;
@@ -2770,13 +2772,21 @@ function camPairAll0(L,W,H,cs,opt){
       out.push(Object.assign(c,{per,far:per.every(p=>p.far),lv:Math.min(...per.map(p=>p.lv)),score:Math.min(...per.map(p=>p.score)),
         cut:Math.max(...per.map(p=>p.cut)),tall:per.map(p=>p.tall).find(Boolean)||''}));}
     return out;};
-  const base=gen(false), door=gen(true);
-  if(!base.length&&!door.length){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; r.corner=true; return r;}
-  const all=base.concat(door), N=all.length, Q=U.map(u=>new Float32Array(N*u)), bits=L.map(()=>new Int32Array(N)), ZV=camZ().views;
-  const CV=ZV?L.map(()=>new Array(N)):null;   // покрытие точки — `need` и `more` видов зоны
-  all.forEach((c,n)=>L.forEach((its,v)=>{const cv=CV?camCoverP(c,its,W,H):camCover(c,its,W,H); let b=0; if(CV)CV[v][n]=cv;
-    UN[v].forEach((u,k)=>{const q=camUnitQ(cv,u); Q[v][n*U[v]+k]=q; if(q>=1-1e-9&&k<31)b|=(1<<k);}); bits[v][n]=b;}));
-  const level=Math.max(0,...all.map(c=>c.lv));
+  // кандидаты, покрытие и ступень — от правила `ends` и состояния `cutNear` не зависят: второй проход того же подбора (`camPairAllE`)
+  // берёт их из `opt.pre` готовыми (T-20261107-47)
+  const PRE=(opt&&opt.pre)||{}, ZV=camZ().views;
+  if(!PRE.all){
+    const base=gen(false), door=gen(true);
+    PRE.all=base.concat(door);
+    const N0=PRE.all.length;
+    if(N0){
+      PRE.Q=U.map(u=>new Float32Array(N0*u)); PRE.bits=L.map(()=>new Int32Array(N0));
+      PRE.CV=ZV?L.map(()=>new Array(N0)):null;   // покрытие точки — `need` и `more` видов зоны
+      PRE.all.forEach((c,n)=>L.forEach((its,v)=>{const cv=PRE.CV?camCoverP(c,its,W,H):camCover(c,its,W,H); let b=0; if(PRE.CV)PRE.CV[v][n]=cv;
+        UN[v].forEach((u,k)=>{const q=camUnitQ(cv,u); PRE.Q[v][n*U[v]+k]=q; if(q>=1-1e-9&&k<31)b|=(1<<k);}); PRE.bits[v][n]=b;}));
+      PRE.level=Math.max(0,...PRE.all.map(c=>c.lv));}}
+  if(!PRE.all.length){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; r.corner=true; return r;}
+  const all=PRE.all, N=all.length, Q=PRE.Q, bits=PRE.bits, CV=PRE.CV, level=PRE.level;
   // ВИДЫ ЗОНЫ (`CAM_ZONES[..].views`): пара — вид 1 и вид 2 своей зоны (точка годна при мебели каждого варианта); у гостиной видов нет
   camCutSkip=false; camCutRelax=0;
   const vOkOf=()=>ZV&&ZV.length===2?all.map((c,n)=>ZV.map(vw=>L.every((its,v)=>camViewFit(vw,c,its,CV[v][n])))):null;
