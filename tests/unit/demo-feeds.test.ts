@@ -64,4 +64,14 @@ describe("ленты замен: стиль", () => {
     ];
     expect(feedForStyle(feed, "джапанди").map((p) => p.sid)).toEqual(["own", "both", "pool", "old"]);
   });
+
+  it("цвет не в стиле (`color_low`, style-color-01 шаг 2а) — в конце ленты этого стиля, в других стилях порядок прежний", () => {
+    const feed: FeedItem[] = [
+      { sid: "olive", style: "джапанди", styles: ["джапанди", "сканди"], color_low: ["джапанди"] },
+      { sid: "grey", style: "джапанди", styles: ["джапанди", "сканди"] },
+      { sid: "oak", style: "джапанди", styles: ["джапанди"] },
+    ];
+    expect(feedForStyle(feed, "джапанди").map((p) => p.sid)).toEqual(["grey", "oak", "olive"]);
+    expect(feedForStyle(feed, "сканди").map((p) => p.sid)).toEqual(["olive", "grey"]);
+  });
 });

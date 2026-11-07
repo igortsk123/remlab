@@ -9,14 +9,16 @@
  },
  "groups": {
   "upholstered_anchor": ["кровать", "диван"],
-  "large_casework": ["шкаф", "шкаф-купе", "комод", "тумба прикроватная", "прихожая", "обувница", "консоль", "вешалка", "стеллаж", "тумба ТВ"],
+  "large_casework": ["шкаф", "шкаф-купе", "комод", "тумба прикроватная", "прихожая", "обувница", "консоль", "вешалка", "стеллаж", "тумба ТВ",
+                     "тв-тумба", "столик", "стол обеденный"],
   "secondary_seating": ["банкетка", "кресло", "пуф", "стул"],
-  "soft_textile": ["плед", "ковёр", "шторы", "подушки"],
+  "soft_textile": ["плед", "ковёр", "шторы", "подушки", "подушка"],
   "decor": ["лампа", "зеркало", "картина", "растение"]
  },
  "default_group": "decor",
  "major_groups": ["upholstered_anchor", "large_casework", "secondary_seating"],
  "_major_why": "крупная мебель — у неё цвет занимает площадь; у неё пара акцентов стиля (STYLE_PAIR) больше не награждает, палитра — только температура нейтралей; текстиль и декор — прежняя пара (из этого файла, поле pair)",
+ "_pillow_why": "подушки гостиной (шаг 2б, T-20261107-25/3): цель-цвет пары — поле pillow_pair стиля, нет поля — pair (вместо STYLE_PAIR в коде); пустая пара — без цели-цвета (минимализм, джапанди); порядок внутри — ярус soft_textile (`compose_common.color_split`, группы major + soft_textile)",
  "saturation": {"confident_min": 0.35, "vivid_min": 0.55, "vivid_v_min": 0.3, "wood_hue": [15, 50]},
  "_saturation_why": "только когда цвета в названии нет (по фото): насыщенность основного кластера (HSV) < confident_min — «слабый» (weak: олива 0,19–0,21 и розовый 0,32 по фото ловятся неуверенно — разбор Codex), ≥ vivid_min при яркости ≥ vivid_v_min — яркий; оттенок 15–50° (дерево) без цвета в названии — материал, не акцент (коричневое дерево с высокой насыщенностью classify относит к terra)",
  "names": {
@@ -65,6 +67,7 @@
   "джапанди": {
    "_why": "паспорт: тёплый почти монохром 20, натуральные материалы 20; styles.json :287 — green/terra +0,4 (приглушённо), pink/violet −0,8. Яркое у крупной — forbidden, приглушённые олива/глина у крупной — discouraged; дерево — preferred наравне с нейтралью",
    "pair": ["terra", "green"], "material_families": [], "max_chromatic_anchors": 0,
+   "pillow_pair": [], "_pillow_why": "ведущий T-20261107-25/3 (шаг 2б): подушки гостиной без цветовой пары — паспорт «тёплый почти монохром»; цвет подушек решает ярус soft_textile (приглушённое allowed, яркое discouraged)",
    "tiers": {
     "upholstered_anchor": {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "discouraged", "vivid": "forbidden", "secondary": "discouraged"},
     "large_casework":     {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "discouraged", "vivid": "forbidden", "secondary": "discouraged"},

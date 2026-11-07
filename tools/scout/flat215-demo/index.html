@@ -5469,7 +5469,9 @@ function feedFor(base){
   // Исключение (demo-18 п.2): товар чужого набора, который пул отобрал и для этого стиля по баллу, — в `styles` (`flat215_demo.glue`):
   // ковёр «Котри» сканди с баллом джапанди 7.0 был скрыт в джапанди. Правило — как у /flat (`demo-feeds.ts:feedForStyle`)
   const mine=all.filter(p=>p.styles?p.styles.indexOf(st)>=0:(!p.style||p.style===st));
-  return mine.length?mine:all;
+  // ЦВЕТ НЕ В СТИЛЕ — В КОНЕЦ (style-color-01 шаг 2а): `color_low` ставит сборка (`demo_fill.lane_color`), порядок остальных прежний
+  const low=p=>!!(p.color_low&&p.color_low.indexOf(st)>=0);
+  return mine.length?mine.filter(p=>!low(p)).concat(mine.filter(low)):all;
 }
 // ВЫБРАННЫЙ ДЕКОР — не предмет расстановки, а строка списка варианта. Заворачиваем её в такой же
 // объект, какой ждёт лист подбора, и помечаем `dec` — по нему замена пишется в декор, а не в

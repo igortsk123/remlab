@@ -27,6 +27,7 @@
 """
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -164,6 +165,75 @@ def rug_pool(ok=None, band: dict | None = None) -> list[dict]:
     from mesh_queue import db
     rows = [p for p in map(_row, db(rug_sql())) if p]
     return pick(rows + universal_rugs({p['style'] for p in rows}), ok, band=band)
+
+
+SOFT_FEED_ROLES = ('шторы',)
+
+
+def soft_sql(role: str, in_style_min: float = IN_STYLE_MIN) -> str:
+    """ЛЕНТА МЯГКОГО ИЗ КАТАЛОГА (style-color-01 шаг 2б, T-20261107-25/3): шторы приходили в ленту только из товаров наборов —
+    у сканди одна (бирюзовая), у джапанди ни одной. Мягкому места на полу и модели не положено (`flat215_demo.soft_feed_row`),
+    поэтому ни конверта, ни меша не требуем: в продаже, живое фото, ссылка и цена, балл стиля ≥ порога ленты, как у ковров.
+    Порядок — как у ковров. Форма строки — как у `pool_sql` (`_row`); габариты, которых нет, — 0 (мягкое их не меряет)."""
+    return f"""
+with cand as (
+  select p.shop_mid||':'||p.external_id as sku, s.style, coalesce(p.name,'') as name, coalesce(p.shop,'') as shop,
+         coalesce(p.image_url_hd, p.image_url) as img, p.url, coalesce(p.price_shown_rub, p.price_rub) as price,
+         coalesce(p.w_cm, 0) as w_cm, coalesce(p.d_cm, 0) as d_cm, coalesce(p.h_cm, 0) as h_cm, coalesce(e.quality, 0) as q,
+         coalesce((ps.scores->>s.style)::numeric, 0) as st_score, coalesce(ps.universal, false) as uni
+    from products p
+    left join product_enrichment e using (shop_mid, external_id)
+    join product_style_scores ps using (shop_mid, external_id)
+    cross join lateral (select unnest(array[{_lit(STYLES)}]) as style) s
+   where p.cat_role = {_lit([role])} and p.in_stock and p.status = 'active'
+     and p.url is not null and coalesce(p.price_shown_rub, p.price_rub) is not null
+     and coalesce(p.image_url_hd, p.image_url) is not null and coalesce(p.photo_alive, true)
+     and coalesce((ps.scores->>s.style)::numeric, 0) >= {in_style_min}),
+ranked as (
+  select *, row_number() over (partition by style order by uni asc, q desc, st_score desc, price asc nulls last, sku) as rn from cand)
+select sku, sku, {_lit([role])}, style, {_lit([role])}, name, shop, img, url, coalesce(price::text,''), w_cm, d_cm, h_cm
+  from ranked order by style, rn"""
+
+
+CURTAIN_DENY = re.compile(r'рулон|римск|кафе|для кухни|плисс|жалюзи', re.I)
+SIZE_RE = re.compile(r'\s*\d+(?:[.,]\d+)?\s*[xхX×*]\s*\d+(?:[.,]\d+)?\s*(?:см)?', re.I)
+
+
+def curtain_fits(p: dict) -> bool:
+    """Штора гостиной закрывает окно: полотно до пола (h ≥ 250) и ткани ≥ 250 см (комплект «2 шт» — 2×w) — правило сборщика
+    гостиной (`compose2.pick2`, ветка штор), рулонные/римские/кафе — нет (`rules/bedroom-composition.json` `шторы.deny`:
+    рулонка 55 см на окно 240). Без высоты или ширины — нет: размер не додумываем (Р1)."""
+    name = p.get('name') or ''
+    if CURTAIN_DENY.search(name) or not (p.get('h') and p.get('w')):
+        return False
+    cloth = p['w'] * (2 if re.search(r'2\s*шт', name, re.I) else 1)
+    return p['h'] >= 250 and cloth >= 250
+
+
+def model_key(name: str) -> str:
+    """Одна строка ленты на модель и цвет: размеры из названия («260x275 см») не различают товар для показа."""
+    return re.sub(r'\s+', ' ', SIZE_RE.sub(' ', (name or '').lower())).strip()
+
+
+def soft_pool(role: str, ok=None, per_group: int = PER_GROUP) -> list[dict]:
+    """Мягкое ленты замен из каталога: по стилю — до `per_group` прошедших (шторы — `curtain_fits`; `ok(p)` — живое фото и цвет
+    стиля, проверки сборки `flat215_demo.soft_pool_ok`), один размер на модель и цвет (`model_key`), порядок запроса. Модели
+    нет: `msid` пуст."""
+    from mesh_queue import db
+    out, per, seen = [], {}, set()
+    for p in map(_row, db(soft_sql(role))):
+        if not p or per.get(p['style'], 0) >= per_group:
+            continue
+        p['msid'] = None
+        if role == 'шторы' and not curtain_fits(p):
+            continue
+        k = (p['style'], model_key(p['name']))
+        if k in seen or (ok is not None and not ok(p)):
+            continue
+        seen.add(k)
+        per[p['style']] = per.get(p['style'], 0) + 1
+        out.append(p)
+    return out
 
 
 def _row(r: list) -> dict | None:

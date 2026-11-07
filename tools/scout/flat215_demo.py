@@ -728,9 +728,9 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     for style in order + sorted(k for k in by_style if k not in order):
         cands = []
 
-        def filled(i: int, own: bool) -> tuple:
+        def filled(i: int, own: bool, colour: bool = True) -> tuple:
             s = copy.deepcopy(sets[i - 1])
-            j = DF.fill_set(s, pool, gate, _card, _media, has_mesh, DEMO_ENV, taken, own=own)
+            j = DF.fill_set(s, pool, gate, _card, _media, has_mesh, DEMO_ENV, taken, own=own, colour_swap=colour)
             nook = drop_lonely_nook(s, benches)
             if nook:
                 j.append(nook)
@@ -738,10 +738,14 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
             no_mesh = sum(1 for r, it in items.items() if DF.base_role(r) in PLACEABLE
                           and DF.base_role(r) not in NOMESH_ROLES and it and not has_mesh(it))
             placeable = sum(1 for r in items if DF.base_role(r) in PLACEABLE)
-            return ((len(DF.core_missing(s)), no_mesh, -placeable, i, 0 if own else 1), i, s, j)
+            return ((len(DF.core_missing(s)), no_mesh, -placeable, i, 0 if own else 1, 0 if colour else 1), i, s, j)
         for _k in sorted(by_style.get(style, []))[:per_style]:
             c = filled(_k[2], True)
             cands.append(c)
+            # ЗАМЕНА ПО ЦВЕТУ НЕ ВЫБИВАЕТ ВЕЩЬ ИЗ РАССТАНОВКИ (T-25/2): тот же набор без замен по цвету — сразу следом (ключ на
+            # единицу хуже); `choose_banks` возьмёт его, если заменённая по цвету вещь не встала на пол
+            if any(DF.is_colour_swap(x) for x in c[3]):
+                cands.append(filled(_k[2], True, False))
             # СВОЙ ЗАПАСНОЙ НЕ ДЕЛАЕТ ХУЖЕ ПРЕЖНЕГО (T-20261023-10): ворота он проходит, но расстановку может не дать (23.10
             # «современный»: свой столик 120×58 вытеснил торшер). Брали свой запасной — тот же набор с прежним дозаполнением
             # из пула идёт сразу следом (ключ на единицу хуже), и `choose_banks` попробует его раньше следующего набора
@@ -922,6 +926,42 @@ def soft_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
             'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name'))}
 
 
+def soft_pool_ok(p: dict) -> bool:
+    """Мягкое из каталога (`demo_swap_pool.soft_pool`) годно в ленту стиля: живое фото и цвет не яркий-чужой
+    (`demo_fill.color_refused`, тот же отсев, что у замены мягкого)."""
+    import demo_fill as _DF
+    if _DF.color_refused(p.get('role') or '', p, p.get('style')):
+        return False
+    try:
+        from img_alive import alive_now as _alive
+        return bool(_alive(p.get('img')))
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def glue_soft(rows: list, target: dict, have: dict) -> int:
+    """Мягкое пула → в ленты `target` строкой мягкого (как `soft_feed_row`: без меша и конверта); товар уже в ленте — только
+    стиль ему дописываем. → сколько добавлено."""
+    n = 0
+    for p in rows:
+        base = p['role']
+        old = have.get((base, p['sid']))
+        if old is not None:
+            if p['style'] not in old.setdefault('styles', [old['style']] if old.get('style') else []):
+                old['styles'].append(p['style'])
+            continue
+        mid, eid = p['sid'].split('_', 1)
+        it = {'mid': mid, 'eid': eid, 'price': p['price']}
+        row = {'name': p['name'], 'w': p['w'] or None, 'd': p['d'] or None, 'h': p['h'] or None,
+               'price': _price(it)[0], 'price_at': _price(it)[1], 'img': p['img'], 'url': p['url'], 'shop': p.get('shop'),
+               'style': p['style'], 'styles': [p['style']], 'sid': p['sid'], 'msid': None, 'sub': base, 'src': 'pool',
+               'soft': True, 'basis': _basis(mid, eid), 'pack': _pack_of(mid, eid, p['name'])}
+        have[(base, p['sid'])] = row
+        target.setdefault(base, []).append(row)
+        n += 1
+    return n
+
+
 def pool_feed_check(p: dict) -> str:
     """Товар пула (`demo_swap_pool`) годится в ленту замен? → '' — да; иначе причина ('off_env' — габарит вне конверта роли).
     Те же проверки, что у товаров наборов (`set_feed_row`); одна функция для ленты (`build.glue`) и для счёта (`bench_pool`)."""
@@ -1100,6 +1140,15 @@ def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list
                 print(f'  стиль «{style}»: набор {i} не расставился в комнате — беру следующий', flush=True)
                 sets[i - 1] = orig
                 why = why or {'style': style, 'missing': ['расстановка не сошлась']}
+                continue
+            # замена по цвету не должна выбить вещь из расстановки (T-25/2: «Амберсон» 118 см не встал на место стеллажа 75 см
+            # под окном — стеллаж пропал): следом в списке тот же набор без замен по цвету (`fill_banks`)
+            cs = sorted({DF.base_role(x['role']) for x in j if DF.is_colour_swap(x)})
+            if cs and not layout_ok(i, tuple(cs)):
+                print(f'  стиль «{style}»: набор {i} — замена по цвету ({", ".join(cs)}) не встала в расстановку — '
+                      f'беру набор без неё', flush=True)
+                sets[i - 1] = orig
+                why = why or {'style': style, 'missing': ['замена по цвету не встала в расстановку']}
                 continue
             print(f'  вариант стиля «{style}»: набор {i}, ядро полное, без модели {key[1]}, расставляемых {-key[2]}, '
                   f'замен {sum(1 for x in j if x["to"])}, снято без замены {sum(1 for x in j if not x["to"])}', flush=True)
@@ -1660,6 +1709,20 @@ def build() -> dict:
         print(f'ковры ленты замен: из пула {len(rugs)}, добавлено {n_rug[0]} (потолок длинной стороны {rug_ceiling():g} см)')
     except Exception as e:  # noqa: BLE001
         print(f'WARN:rug_pool: ковры пула в ленту не попали: {repr(e)[:160]}')
+    # ШТОРЫ — ИЗ КАТАЛОГА (style-color-01 шаг 2б, T-20261107-25/3): лента штор была только из наборов — у сканди одна
+    # (бирюзовая), у джапанди ни одной, и заменить шторы не в цвет было нечем. Свой запрос (`demo_swap_pool.soft_pool`), в обе
+    # ленты: замен (что видит человек) и сборки (замена мягкого варианта по цвету ниже). Сбой — громко, шторы остаются из наборов
+    try:
+        import demo_swap_pool
+        n_soft = {}
+        for srole in demo_swap_pool.SOFT_FEED_ROLES:
+            rows = demo_swap_pool.soft_pool(srole, soft_pool_ok)
+            n_soft[srole] = (len(rows), glue_soft(rows, feeds, have),
+                             glue_soft(rows, dec_feeds, {(r, p.get('sid')): p for r, lst in dec_feeds.items() for p in lst}))
+        print('мягкое ленты из каталога: ' + ', '.join(f'{r} — из пула {a}, в ленту замен +{b}, в ленту сборки +{c}'
+                                                       for r, (a, b, c) in n_soft.items()))
+    except Exception as e:  # noqa: BLE001
+        print(f'WARN:soft_pool: мягкое из каталога в ленту не попало: {repr(e)[:160]}')
     print(f'пул замены добавил в ленты: {added} товаров (мимо конверта комнаты: {off_env}); '
           'всего по ролям: '
           + ', '.join(f'{k} {len(v)}' for k, v in sorted(feeds.items())))
@@ -1687,7 +1750,7 @@ def build() -> dict:
     except Exception:  # noqa: BLE001
         _alive = lambda u: True  # noqa: E731
     import demo_fill as DF
-    soft_fixed, soft_dropped, soft_used = [], [], set()
+    soft_fixed, soft_dropped, soft_kept, soft_used = [], [], [], set()
     # ВАРИАНТ НА ЗАПАСНОМ — ПОСЛЕДНИМ В РАЗНООБРАЗИИ (T-20261107-11/2): стиль, собранный с запасным нейтральным ковром, берёт
     # мягкое после остальных — разнообразие только переставляет выбор (взятое другим берётся, если больше нечего), поэтому
     # полноты он не теряет, а у стилей со своими ничего не меняется. Порядок вариантов в данных — прежний (сортировка устойчивая)
@@ -1697,9 +1760,13 @@ def build() -> dict:
         for d in (v.get('decor') or []):
             sk = d.get('sku') or {}
             why = None
+            colour = False
             if soft_role(d.get('role')):
                 why = ('роль снята каталогом' if (sk.get('sid') or '').replace('_', ':', 1) in _SOFT_LOST
                        else None if _alive(sk.get('img')) else 'фото не открывается')
+                if not why:          # цвет не в стиле (шаг 2б, `demo_fill.soft_color_need`) — замена, но только ярусом лучше
+                    why = DF.soft_color_need(d.get('role'), sk, st)
+                    colour = bool(why)
             if not why:
                 keep.append(d)
                 continue
@@ -1708,10 +1775,19 @@ def build() -> dict:
             cand = [p for p in dec_feeds.get(base, []) if p.get('soft') and p.get('sid') not in taken]
             # цвет — общим оценщиком (`demo_fill.color_refused`, T-20261107-11/3): яркое не в стиле не берём; нечем — снимаем
             cand = [p for p in cand if not DF.color_refused(base, p, st)]
+            if colour:               # замена по цвету — только preferred/allowed этого стиля; нечем — вещь остаётся
+                cand = [p for p in cand if not DF.soft_color_need(base, p, st)]
+                if not cand:
+                    soft_kept.append((v.get('id'), d.get('role'), sk.get('name'), why))
+                    keep.append(d)
+                    continue
             if not cand:
                 soft_dropped.append((v.get('id'), d.get('role'), sk.get('name'), why))
                 continue
-            best = min(cand, key=lambda p: (not (st and (p.get('style') == st or st in (p.get('styles') or []))),
+            # ЯРУС ЦВЕТА — ПЕРВЫЙ КЛЮЧ В ЛЮБОЙ ЗАМЕНЕ МЯГКОГО (сухой прогон T-25/3: снятая каталогом подушка минимализма заменилась
+            # первой по цене — синей «Линкс Велюр», discouraged); годные (preferred) раньше, внутри яруса порядок прежний
+            best = min(cand, key=lambda p: (DF.color_eval_role(base, p, st)['rank'],
+                                            not (st and (p.get('style') == st or st in (p.get('styles') or []))),
                                             p.get('sid') in soft_used, abs((p.get('price') or 0) - (sk.get('price') or 0))))
             soft_used.add(best.get('sid'))
             d['sku'] = {k: best.get(k) for k in ('name', 'price', 'price_at', 'img', 'url', 'shop', 'basis', 'sid', 'msid',
@@ -1723,6 +1799,8 @@ def build() -> dict:
         print(f'  мягкое {vid} {role}: «{old}» ({why}) → «{new}»', flush=True)
     for vid, role, old, why in soft_dropped:
         print(f'  мягкое {vid} {role}: «{old}» ({why}) — замены нет, строка снята', flush=True)
+    for vid, role, old, why in soft_kept:
+        print(f'  мягкое {vid} {role}: «{old}» ({why}) — замены ярусом лучше нет, оставлено', flush=True)
     for v in variants:
         for d in (v.get('decor') or []):
             sk = d.get('sku') or {}
@@ -1989,7 +2067,10 @@ def cache_images(data: dict) -> dict:
             bc[role] = [p for p in bc[role] if p.get('img')]
     # ТОВАР БЕЗ ФОТО В ВЫБОРКЕ НЕ УЧАСТВУЕТ (владелец 26.08): выборку пересчитываем ПОСЛЕ
     # проверки картинок, иначе половина ленты — пустые карточки.
-    dropped = capped = 0
+    dropped = capped = color_cut = color_low = 0
+    import demo_fill as _DFC
+    cur_items = {(v.get('style'), (x.get('sku') or {}).get('sid')) for v in data.get('variants') or []
+                 if (v.get('room_id') or 'living') == 'living' for x in (v.get('items') or []) + (v.get('decor') or [])}
     for role, lst in list((data.get('feeds') or {}).items()):
         live = [p for p in lst if p.get('img')]
         dropped += len(lst) - len(live)
@@ -2011,6 +2092,12 @@ def cache_images(data: dict) -> dict:
                 per[k] = per.get(k, 0) + 1
             keep.append(p)
         capped += len(live) - len(keep)
+        # ЦВЕТ ЛЕНТЫ ГОСТИНОЙ (style-color-01 шаг 2а, T-20261107-25/2): forbidden — стиль снимается с товара, discouraged — в конец
+        # ленты этого стиля (`color_low`, страница `feedFor`); товары вариантов не трогаем. Ленты других комнат (`bedroom:…`) — как были
+        if ':' not in role:
+            keep, _cut, _low = _DFC.lane_color(role, keep, cur_items)
+            color_cut += _cut
+            color_low += _low
         data['feeds'][role] = keep
         if not data['feeds'][role]:
             data['feeds'].pop(role)
@@ -2036,6 +2123,7 @@ def cache_images(data: dict) -> dict:
     print(f'из выборки убрано без фото: {dropped}; срезано капом 30/подкатегорию×стиль: {capped}; '
           'осталось по ролям: '
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items())))
+    print(f'ленты гостиной по цвету: снято стилей у товаров (forbidden) {color_cut}, в конец ленты стиля (discouraged) {color_low}')
     print(f'предметов комнат без фото (плашка «нет фото»): {len(no_photo)}'
           + (' — ' + '; '.join(no_photo) if no_photo else ''))
     data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped,
