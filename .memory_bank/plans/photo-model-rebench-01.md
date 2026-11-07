@@ -47,3 +47,4 @@ parent_plan: room-conveyor-02
 ## Лог
 - 07.11 17:10 план ведущего по TG 397–398.
 - 07.11 17:50 шаг 1 (Работник 7, отчёт `~/remlab-logs/t138/report-1.md`): шорт-лист gpt-image-2.6-sunburst (+complexity low), Seedream 5.0 Pro, FLUX.3 Klein, Qwen-Image-3 Edit; бенч ≈ 110–160 ₽ (≤ 200). Seedream/Klein — Vercel, Qwen — fal; выход меньше нашего — как есть. Владельцу TG — ждём «да».
+- 07.11 18:00 владелец TG 402 «да» — бенч ≤ 200 ₽; выдано T-38/2 Работнику 7 (стоп на 180 ₽, слепые пары).
