@@ -271,6 +271,68 @@ with tempfile.TemporaryDirectory(prefix='orient-role-') as td:
     check('12) run: кресло со сменой опубликованного yaw → review_pending (yaw_change_guard); пуф (симм.) и новый — авто',
           st == {'2:1': 'auto_resolved', '2:4': 'review_pending', '2:5': 'auto_resolved'}
           and any('yaw_change_guard' in s and f"'{rk['2:4']}'" in s for s in ins), f'{st}')
+
+    # 13) трата VLM ориентации — в общий журнал openai-spend.jsonl (`openai_budget.log_spend`) по цене шлюза;
+    #     дневной лимит `allow` перед пачкой: не влезает — пачка без VLM (T-20261105-56/7). Журнал — во временный файл.
+    import io
+    import types
+    import urllib.request as UR
+
+    import openai_budget as OB
+    # draft_render тянет планировщик (shapely), mesh_render — рендер; CI scout-orient их не ставит — vlm_side берёт
+    # из них только адрес шлюза, ключ, кодирование кадра и сам кадр: заглушки на время раздела
+    saved_mods = {k: sys.modules.get(k) for k in ('draft_render', 'mesh_render')}
+    DR = sys.modules['draft_render'] = types.ModuleType('draft_render')
+    DR.CHAT_URL = 'https://gateway.test/v1/chat/completions'
+    DR._b64 = lambda img, q: 'data:image/jpeg;base64,'
+    MR = sys.modules['mesh_render'] = types.ModuleType('mesh_render')
+    OB.SPEND_LOG = os.path.join(td, 'spend.jsonl')
+    alerts = []
+    OB.subprocess = type('S', (), {'run': staticmethod(lambda *a, **k: alerts.append(a))})   # без алерта в TG
+
+    def spend():
+        return [json.loads(x) for x in open(OB.SPEND_LOG, encoding='utf-8')] if os.path.exists(OB.SPEND_LOG) else []
+    m = W2.VLM_MODEL
+    check('13) цена qwen3-vl в таблице (шлюз $0,20/$0,88 за 1M), оценка запроса — по ней, не запасные $0,10',
+          OB.price_of(m, 1_000_000, 1_000_000) == 1.08 and OB.estimate_request(m) == OB.price_of(m, 400, 60)
+          and OB.estimate_request(m) < 0.001, f'{OB.price_of(m, 1_000_000, 1_000_000)} {OB.estimate_request(m)}')
+    from PIL import Image
+    MR.render = lambda parts, yaw, elev, size=(420, 420): Image.new('RGBA', size, (200, 200, 200, 255))
+    DR.gw_key = lambda: 'test'
+    reply = {'choices': [{'message': {'content': '{"side": "перед", "confidence": 0.9}'}}]}
+    calls = []
+
+    def fake_open(usage=None, fail=False):
+        def f(req, timeout=0):
+            calls.append(json.loads(req.data)['model'])
+            if fail:
+                raise OSError('нет сети')
+            return io.BytesIO(json.dumps({**reply, **({'usage': usage} if usage else {})}).encode())
+        return f
+    UR.urlopen = fake_open({'prompt_tokens': 350, 'completion_tokens': 12})
+    side = W2.vlm_side({}, 'кресло')
+    s = spend()
+    check('13) vlm_side: ответ разобран, в журнале строка модели шлюза с ценой по токенам ответа',
+          side == ('перед', 0.9) and calls == [m] and len(s) == 1 and s[0]['model'] == m and s[0]['prompt_tokens'] == 350
+          and s[0]['cost_usd'] == OB.price_of(m, 350, 12) and s[0]['est_usd'] is None and 'orient vlm' in s[0]['note'], f'{side} {s}')
+    UR.urlopen = fake_open(None)
+    W2.vlm_side({}, 'кресло')
+    s = spend()
+    check('13) ответ без usage — строка с оценкой (est_usd), не пропуск', len(s) == 2 and s[1]['cost_usd'] is None
+          and s[1]['est_usd'] == OB.estimate_request(m), f'{s[-1:]}')
+    UR.urlopen = fake_open(fail=True)
+    check('13) запрос не дошёл — vlm_pending-путь, в журнал не пишем', W2.vlm_side({}, 'кресло') == (None, 0.0) and len(spend()) == 2)
+    seen = []
+    orig_decide = W2.decide
+    W2.decide = lambda sku, glb, inf, use_vlm: (seen.append(use_vlm), orig_decide(sku, glb, inf, use_vlm))[1]
+    open(OB.SPEND_LOG, 'a', encoding='utf-8').write(json.dumps({'ts': __import__('time').strftime('%Y-%m-%d %H:%M'),
+                                                                'model': m, 'n': 1, 'cost_usd': 5.0}) + '\n')
+    W2.run(100, True, True)
+    check('13) дневной лимит исчерпан — пачка без VLM, блок записан в журнал, алерт отправлен',
+          seen and not any(seen) and spend()[-1].get('blocked') and alerts, f'{seen} {spend()[-1:]}')
+    W2.decide = orig_decide
+    for k, v in saved_mods.items():
+        sys.modules.pop(k, None) if v is None else sys.modules.__setitem__(k, v)
     os.environ.pop('ORIENT_PUBLISHED', None)
 
 print('test_orient_role_policy:', 'FAIL' if fails else 'OK')

@@ -48,6 +48,14 @@
    "typical_prompt_tokens": 4000,
    "typical_output_tokens": 1200,
    "_why": "официальная цена (developers.openai.com/api/docs/pricing, сверено 11.10): вдвое дешевле gpt-5.6-luna ($0,20/$1,20) при той же задаче стиль-скоринга"
+  },
+  "alibaba/qwen3-vl-instruct": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 0.88,
+   "typical_prompt_tokens": 400,
+   "typical_output_tokens": 60,
+   "source": "external: https://ai-gateway.vercel.sh/v1/models — pricing alibaba/qwen3-vl-instruct: input 0.0000002, output 0.00000088 $/токен (прочитано 2026-11-07)",
+   "_why": "VLM ориентации мешей (orient_worker.vlm_side) и rug_kids через шлюз Vercel; цена шлюза, не OpenAI. typical_* — один кадр 420² (≈225 токенов) + промпт ≈120, ответ max_tokens 60 (T-20261105-56/7)"
   }
  },
  "_why": "Цены за 1M токенов для учёта расхода и дневного лимита (openai_budget.py). Источник и дата — в _meta.provenance/checked_at"

@@ -23,6 +23,8 @@ GLB не перезаписывается. Легаси-совместимост
 квоте `--limit` вместе с новыми.
 Сторож поворота (`yaw_guard`, T-20261105-56/6): авто-решение направленного, которое МЕНЯЕТ уже опубликованный yaw этого же
 меша (прод `orient.json`, тот же sha16), пишется `review_pending` (источник `yaw_change_guard`) — на прод молча не уходит.
+Деньги VLM (T-20261105-56/7): каждый ответ — в общий журнал `openai-spend.jsonl` (`openai_budget.log_spend`, цена шлюза в
+`rules/openai_prices.json`); перед пачкой — дневной лимит `openai_budget.allow`, не влезает — пачка без VLM (vlm_pending).
 --shadow DIR: только устаревшие по ролям (без новых мешей), решения — файлами в DIR и `DIR/index-overlay.json`
 (формат индекса `topview_render.orient_index` → `TOPVIEW_ORIENT_INDEX`); в БД и `orientation/v1` не пишет.
 Один воркер на машину (flock); тяжёлое — под nice.
@@ -50,6 +52,9 @@ FRONT_CANON_YAW = 180           # фронт канона в нашей MR-ко�
 from mesh_front import NONDIRECTIONAL, SEAT_ROLES, infer_seat_front  # noqa: E402
 from mesh_queue import DIRECTED, db, q  # noqa: E402
 import asset_strategy as AS  # noqa: E402 — канон переда роли и подсказок VLM
+from openai_budget import allow, log_spend, price_of  # noqa: E402 — учёт и дневной лимит платных вызовов (T-56/7)
+
+VLM_MODEL = 'alibaba/qwen3-vl-instruct'   # через шлюз Vercel; цена — rules/openai_prices.json
 
 
 def directed_role(role: str, name: str = '', subtype: str = '') -> bool:
@@ -231,7 +236,7 @@ def vlm_side(parts, role: str) -> tuple[str | None, float]:
     bg.paste(img, (0, 0), img)
     prompt = (f'На изображении {AS.front_hint(role)}. Какой стороной предмет повёрнут '
               'к зрителю? Ответь строго JSON: {"side": "перед"|"зад", "confidence": 0..1}')
-    body = {'model': 'alibaba/qwen3-vl-instruct', 'max_tokens': 60,
+    body = {'model': VLM_MODEL, 'max_tokens': VLM_TOKENS_OUT,
             'messages': [{'role': 'user', 'content': [
                 {'type': 'text', 'text': prompt},
                 {'type': 'image_url', 'image_url': {'url': DR._b64(bg, 85)}}]}]}
@@ -240,7 +245,10 @@ def vlm_side(parts, role: str) -> tuple[str | None, float]:
                                   'Content-Type': 'application/json'})
     try:
         with urllib.request.urlopen(req, timeout=120) as r:
-            txt = json.loads(r.read())['choices'][0]['message']['content'] or ''
+            out = json.loads(r.read())
+        # учёт — тем же журналом, что у остальных платных вызовов (дневной лимит `openai_budget` его видит; T-56/7)
+        log_spend(VLM_MODEL, out.get('usage'), 1, f'orient vlm {role}')
+        txt = out['choices'][0]['message']['content'] or ''
         m = re.search(r'\{.*\}', txt, re.S)
         d = json.loads(m.group(0))
         return str(d.get('side', '')).lower() or None, float(d.get('confidence', 0))
@@ -259,7 +267,7 @@ def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
            'canonical_axes': {'front': 'MR-yaw 180', 'up': '+Y'},
            'legacy_front_yaw': yaw, 'up_tilt_deg': tilt, 'role': role,
            'versions': {'orienter': 'cscarv/3d-orienter@main', 'front': 2,
-                        'vlm': 'alibaba/qwen3-vl-instruct'},
+                        'vlm': VLM_MODEL},
            'role_policy': role_policy(),
            'evidence': {'orienter': {'flip_prob': inf['flip_prob'],
                                      'pset_size': inf['pset_size']}}}
@@ -446,7 +454,8 @@ def dry_roles() -> dict:
     out = {'role_policy': role_policy(), 'stale_policy_in_db': len(stale_pol),
            'role_changed_on_disk': sum(1 for f in found if f[3] == 'role'),
            'role_moves': dict(sorted(moves.items(), key=lambda kv: -kv[1])), 'by_role': by_role, 'total': tot,
-           'vlm_tokens_in': tot['vlm_max'] * VLM_TOKENS_IN, 'vlm_tokens_out': tot['vlm_max'] * VLM_TOKENS_OUT}
+           'vlm_tokens_in': tot['vlm_max'] * VLM_TOKENS_IN, 'vlm_tokens_out': tot['vlm_max'] * VLM_TOKENS_OUT,
+           'vlm_usd': price_of(VLM_MODEL, tot['vlm_max'] * VLM_TOKENS_IN, tot['vlm_max'] * VLM_TOKENS_OUT)}
     print(json.dumps(out, ensure_ascii=False, indent=1))
     return out
 
@@ -534,6 +543,9 @@ def run(limit: int, use_vlm: bool, recheck_roles: bool = False, shadow: str | No
         print('[orient] infer упал:', r.stderr[-300:], flush=True)
         return
     inf_all = json.load(open(outp))
+    # дневной лимит ДО платных вызовов: верхняя граница — по запросу на меш; не влезает — без VLM (vlm_pending), не упасть
+    if use_vlm and not allow(VLM_MODEL, len(todo), note=f'orient vlm ≤{len(todo)}'):
+        use_vlm = False
     done, overlay = {}, {}
     published = published_orient()
     meta = state_index()[2]
