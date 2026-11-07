@@ -323,9 +323,10 @@ def _instances(role: str, art: dict | None) -> list:
     return [r for r in (art or {}) if not r.startswith('_') and isinstance(art[r], dict) and base_role(r) == role]
 
 
-def _fits(spec: Showcase, art: dict, role: str, dm: dict, purpose: str | None) -> tuple[dict | None, list]:
+def _fits(spec: Showcase, art: dict, role: str, dm: dict, purpose: str | None, free: bool = False) -> tuple[dict | None, list]:
     """Замена на месте прежнего товара: те же поворот, стена и центр вдоль стены, свой габарит (`on_ref_place`) → (новая
-    расстановка, []) или (None, новые жёсткие нарушения). Без комнаты в расстановке — расстановку не трогаем."""
+    расстановка, []) или (None, новые жёсткие нарушения). `free` — тот же центр без прижима к стене (плоскость на полу —
+    ковёр: прижатый к стене чужой ковёр давал ложные «проход закрыт»). Без комнаты в расстановке — расстановку не трогаем."""
     if not isinstance((art or {}).get('_room'), dict):
         return art, []
     W, D = art['_room']['w'], art['_room']['d']
@@ -334,7 +335,10 @@ def _fits(spec: Showcase, art: dict, role: str, dm: dict, purpose: str | None) -
         p = art[r]
         if p.get('x') is None or not (p.get('w') and p.get('d')):
             continue
-        out[r] = on_ref_place(dict(p, w=dm['w'], d=dm['d'], h=dm.get('h')), p, W, D, False)
+        # плоскость на полу без высоты в каталоге — высота прежней (банк кладёт ковру h 1): иначе `hard_codes` подставит 60 см,
+        # и чужой ковёр станет препятствием в проходе (стенд 07.11: все ковры второй спальни «не встаёт: BED_SIDE_PASSAGE»)
+        h = dm.get('h') or (p.get('h') if free else None)
+        out[r] = on_ref_place(dict(p, w=dm['w'], d=dm['d'], h=h), p, W, D, free)
     new = hard_codes(spec, out, purpose) - hard_codes(spec, art, purpose)
     return (None, sorted(new)) if new else (out, [])
 
@@ -409,6 +413,12 @@ def gate_items(spec: Showcase, rec: dict, art: dict | None, sku, dims_of, mesh_o
 # у сторожа модели (`gate_items`): годная модель, известный размер, полоса размера назначения у чужого товара, место без новых
 # жёстких нарушений. Пара (тумба 1 = тумба 2) остаётся парой: замена — во все пронумерованные строки роли. Замены нет — товар
 # повторяется, строка в `dup` (сборка печатает WARN demo_room_dup), не молча.
+def _on_floor(role: str, art: dict | None) -> bool:
+    """Плоскость на полу (ковёр): роль без модели (`needs_mesh` — плоскость по фото) и ни одна её строка не поднята (`elev`;
+    зеркало и картина висят — их место у стены)."""
+    return not needs_mesh(role) and not any(((art or {}).get(r) or {}).get('elev') for r in _instances(role, art or {}))
+
+
 def distinct_items(spec: Showcase, rec: dict, items: dict, art: dict | None, sku, dims_of, mesh_ok, spares: dict | None,
                    used: set) -> tuple[dict, dict | None, list, list]:
     """Товары записи без повторов с предыдущими комнатами → (товары, расстановка, замены `{role, was, now}`, повторы
@@ -429,7 +439,8 @@ def distinct_items(spec: Showcase, rec: dict, items: dict, art: dict | None, sku
             t = sku({role: alt}, role)
             if not t or not t.get('sid') or t['sid'] in used or t['sid'] == s.get('sid'):
                 continue
-            w = mesh_ok(t) if mesh_ok is not None and needs_mesh(role) else ''
+            # модель нужна только тому, что стоит в 3D: строка списка (`list_roles`, лампа спальни) модели не требует
+            w = mesh_ok(t) if mesh_ok is not None and needs_mesh(role) and role not in spec.list_roles else ''
             a2 = art
             if not w and role in spec.place_roles:
                 dm = dims_of({}, t, role)
@@ -438,7 +449,7 @@ def distinct_items(spec: Showcase, rec: dict, items: dict, art: dict | None, sku
                 elif far and not _in_band(spec, role, dm, rec.get('purpose')):
                     w = 'вне полосы размера'
                 else:
-                    a2, bad = _fits(spec, art, role, dm, rec.get('purpose'))
+                    a2, bad = _fits(spec, art, role, dm, rec.get('purpose'), free=_on_floor(role, art))
                     w = ('не встаёт: ' + ', '.join(bad)) if bad else ''
             if not w:
                 swaps.append({'role': role, 'was': [s.get('sid'), s.get('name')], 'now': [t.get('sid'), t.get('name')]})
