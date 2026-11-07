@@ -32,10 +32,12 @@ const api = new Function("D", `${block};return {camPair,camCover,camShownN,camVi
 const { w: W, d: H } = fx.room;
 const corners = [{ x: 3, y: 3 }, { x: W - 3, y: 3 }, { x: W - 3, y: H - 3 }, { x: 3, y: H - 3 }];
 const its = (v: { items: It[] }) => v.items.map((it) => ({ ...it, x: +it.x, y: +it.y, w: +it.w, d: +it.d, rot: +it.rot || 0 }));
-// Достигнуто 07.11 (вид к входу): критерий ведущего «≥ 4» — у scandi/modern/loft; minimal — 3 (точка с 4 есть, но с худшим кадром:
-// пустая 0,48 — общий порядок пары ставит нарушения кадра выше числа предметов), japandi — 3 из 5. Вид на хранение — потолок 2–3
-// при любой точке (всё хранение у входа, шкаф в дальнем конце), см. отчёт T-20261107-05/4. Пороги — фиксация, не цель.
-const MIN1: Record<string, number> = { "hall-scandi": 4, "hall-modern": 4, "hall-loft": 4, "hall-minimal": 3, "hall-japandi": 3 };
+// Достигнуто 07.11 на свежем банке compose_hall (T-20261107-05/7, вид к входу): scandi/modern/loft — 4, japandi — 5, minimal — 3
+// (всё в ряд вдоль одной стены; без `moreTol` зоны общий порядок ставил нарушения кадра выше числа предметов и брал вид с двумя —
+// обувница и зеркало). Вид на хранение — потолок 2 при любой точке (всё хранение у входа, шкаф в дальнем конце; разбор расстановки —
+// отчёт T-20261107-05/6). Пороги — фиксация, не цель.
+const MIN1: Record<string, number> = { "hall-scandi": 4, "hall-modern": 4, "hall-loft": 4, "hall-minimal": 3, "hall-japandi": 5 };
+type Cut = { cm: number; lo: number; hi: number };
 const pairs = new Map<string, Pair>();
 const pairOf = (v: { id: string; items: It[] }) => {
   if (!pairs.has(v.id)) pairs.set(v.id, api.camPair(its(v), W, H, corners));
@@ -49,10 +51,28 @@ describe("камеры демо: прихожая, виды зоны", () => {
     expect(api.CAM_ZONES.hall!.near).toBeLessThan(1);
     expect(api.CAM_ZONES.hall!.mainBlock).toBe(true);
     for (const z of ["living", "bedroom", "kitchen"]) {
-      expect(api.CAM_ZONES[z]!.near).toBeUndefined();
-      expect(api.CAM_ZONES[z]!.mainBlock).toBeUndefined();
+      const Z = api.CAM_ZONES[z]! as { near?: number; mainBlock?: boolean; moreTol?: number; views?: { cutNear?: Cut }[] };
+      expect(Z.near).toBeUndefined();
+      expect(Z.mainBlock).toBeUndefined();
+      expect(Z.moreTol).toBeUndefined();
+      expect((Z.views || []).flat().some((x) => x && x.cutNear)).toBe(false);
     }
   });
+
+  // T-20261107-05/7 (лист 07.11: на виде 2 в углу кадра крупным планом кусок банкетки или обувницы в метре от глаза): вид на хранение
+  // не берёт точку, где ближняя мебель обрезана краем (`cutNear`). У стиля, где такой точки нет вовсе (modern: обувница у входа
+  // в любой точке вида 2), — подбор без условия с пометкой в отчёте пары, а не подбор без видов зоны
+  for (const v of fx.variants) {
+    it(`${v.id}: вид на хранение — ближняя мебель не обрезана краем (или пометка «без cutNear»)`, () => {
+      const pr = pairOf(v), list = its(v), c2 = pr.cams[1]!;
+      const g = (api.CAM_ZONES.hall!.views![1] as { cutNear: Cut }).cutNear;
+      expect(g.cm).toBeGreaterThanOrEqual(100);
+      const cv = api.camCoverP(c2, list, W, H);
+      const cut = list.filter((it, i) => (it.h ?? 0) > 2 && cv[i]!.inF >= g.lo && cv[i]!.inF < g.hi && api.camNear(c2, it) <= g.cm);
+      if (/без cutNear/.test(pr.how)) expect(v.id).toBe("hall-modern");
+      else expect(cut.map((it) => it.role)).toEqual([]);
+    });
+  }
 
   it("зеркало висит на своей высоте: консоль под ним его не заслоняет", () => {
     const v = fx.variants.find((x) => x.id === "hall-modern")!, list = its(v);
@@ -69,7 +89,9 @@ describe("камеры демо: прихожая, виды зоны", () => {
       expect(pr.how).not.toMatch(/пары нет/);
       const [c1, c2] = pr.cams as [Cam, Cam];
       expect(api.camViewFit(v1, c1, list, api.camCoverP(c1, list, W, H))).toBe(true);
-      expect(api.camViewFit(v2, c2, list, api.camCoverP(c2, list, W, H))).toBe(true);
+      // откат «без cutNear» (нет точки без обрезанной ближней мебели) — вид зоны по остальным условиям
+      const v2x = /без cutNear/.test(pr.how) ? { ...(v2 as object), cutNear: undefined } : v2;
+      expect(api.camViewFit(v2x, c2, list, api.camCoverP(c2, list, W, H))).toBe(true);
       const n1 = api.camShownN(list, api.camCover(c1, list, W, H)), n2 = api.camShownN(list, api.camCover(c2, list, W, H));
       expect(n1).toBeGreaterThanOrEqual(MIN1[v.id] ?? 4);
       expect(n2).toBeGreaterThanOrEqual(2);

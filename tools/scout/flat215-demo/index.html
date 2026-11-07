@@ -2402,14 +2402,17 @@ const CAM_ZONES={
   // Точка любая (`from` нет — прежние «от двери»/«от шкафа» брали боковые двери и смотрели поперёк, в стену), оба вида — `more`.
   // Узкая комната: пороги «близко» × `near` (`camNearK`), главная вещь вплотную — помеха (`mainBlock`: «в упор в дверцу»),
   // покрытие — с доли «показан» (`cover` = CAM_SHOWN_MIN: предметы вдоль одной стены заслоняют друг друга), сетка точек до 1,8 м
-  // от угла (`grid`: точка вида 1 — у шкафа, в 4–5 м от входа) и доводка `slide`
+  // от угла (`grid`: точка вида 1 — у шкафа, в 4–5 м от входа) и доводка `slide`. T-20261107-05/7: вид 2 — без обрезанной ближней
+  // мебели (`cutNear`: ближе 1,2 м и в кадре 0,05–0,9 — кусок банкетки крупным планом в углу); «больше мебели» решает при нарушениях
+  // кадра в пределах `moreTol` 1.7 (минимализм: вид к входу с консолью шире объективом вместо двух предметов)
   hall:{ready:false,
     core:{'шкаф-купе':3,'шкаф':3,'прихожая':3,'вешалка':1.5,'обувница':1,'банкетка':1,'консоль':1,'зеркало':0.5},
     key:['шкаф-купе','шкаф','прихожая'], show:['вешалка','зеркало','консоль','обувница'],
     must:['шкаф-купе','шкаф','прихожая','вешалка','обувница','банкетка','консоль'],
     views:[{need:[{roles:['зеркало'], min:0.9}, {roles:['шкаф-купе','шкаф','прихожая','обувница','вешалка','консоль'], min:0.6}], more:true},
-      {need:[{roles:['шкаф-купе','шкаф','прихожая'], min:0.9}, {roles:['консоль','банкетка','обувница','вешалка'], min:0.6}], more:true}],
-    apart:60, apartNear:{deg:30, cm:100}, cover:0.6, near:0.6, mainBlock:true,
+      {need:[{roles:['шкаф-купе','шкаф','прихожая'], min:0.9}, {roles:['консоль','банкетка','обувница','вешалка'], min:0.6}], more:true,
+        cutNear:{cm:120, lo:0.05, hi:0.9}}],
+    apart:60, apartNear:{deg:30, cm:100}, cover:0.6, near:0.6, mainBlock:true, moreTol:1.7,
     grid:[0,20,40,60,80,100,120,140,160,180], slide:{cm:24, step:6}}};
 const CAM_VIEW_DOOR=170, CAM_VIEW_HEAD=160;
 function camZ(){ const R=camRoom(); return CAM_ZONES[(R&&R.kind)||'living']||CAM_ZONES.living; }
@@ -2476,7 +2479,16 @@ function camHeadProj(c,its,i){const P=camWithParts(its), k=P.head[i];
   if(k!=null)return camProj(c,P.its[k],CAM_BED_TOP,camItemH(P.its[k]));
   const it=its[i], r=(it.rot||0)*Math.PI/180, o=(it.d||0)/2-CAM_BED_HB/2;
   return camProj(c,{x:it.x-Math.sin(r)*o,y:it.y-Math.cos(r)*o,w:it.w,d:CAM_BED_HB,rot:it.rot||0},0,camItemH(it));}
-function camViewFit(vw,c,its,cv){ return Array.isArray(vw)?vw.some(x=>camViewFit(x,c,its,cv)):camViewOk(vw,c,its)&&camNeedOk(vw,its,cv); }
+function camViewFit(vw,c,its,cv){ return Array.isArray(vw)?vw.some(x=>camViewFit(x,c,its,cv)):camViewOk(vw,c,its)&&camNeedOk(vw,its,cv)&&camCutNearOk(vw,c,its,cv); }
+// БЛИЖНЕЕ НЕ ОБРЕЗАНО (`cutNear` вида, T-20261107-05/7; лист прихожей 07.11: на виде 2 в углу кадра крупным планом кусок банкетки или
+// обувницы в метре от глаза): мебель ближе `cm` к точке, попавшая в кадр долей `lo`…`hi` (`camCover().inF`: уже не «за кадром», ещё не
+// «показана»), делает точку негодной для вида. Поля нет — как было (гостиная, спальни). Нет ни одной пары с этим условием —
+// `camPairAll` подбирает заново без него (`camCutSkip`, пометка в отчёте), а не уходит в подбор без видов зоны
+let camCutSkip=false;
+function camCutNearOk(vw,c,its,cv){
+  const g=vw.cutNear; if(!g||camCutSkip)return true;
+  return !(its||[]).some((it,i)=>camItemH(it)>2&&cv[i]&&cv[i].inF>=g.lo&&cv[i].inF<g.hi&&camNear(c,it)<=g.cm);
+}
 // сколько мебели показано в виде не меньше чем на CAM_SHOWN_MIN (ковёр — пол, не считаем)
 function camShownN(its,cv){ let n=0; (its||[]).forEach((it,i)=>{if(camItemH(it)>2&&camQ(cv[i])>=CAM_SHOWN_MIN-1e-9)n++;}); return n; }
 const camId=(it,i)=>it&&it.id!=null?String(it.id):'item-'+i;
@@ -2532,7 +2544,7 @@ function camEndsOk(A,B,W,H,E){
   const lx=W>=H, m=(lx?W:H)/2, a=(lx?A.x:A.y)-m, b=(lx?B.x:B.y)-m;
   return camAng(A.rot,B.rot)>=E.deg&&a*b<0&&Math.min(Math.abs(a),Math.abs(b))>=(E.mid||0);
 }
-function camPairAll(L,W,H,cs,opt){
+function camPairAllE(L,W,H,cs,opt){
   const E=camZ().ends;
   if(!E||!CAM_PAIR_ON||(opt&&opt.noEnds))return camPairAll0(L,W,H,cs,opt);
   const r=camPairAll0(L,W,H,cs,opt), bad=p=>!p||p.corner||p.zoneMiss||p.mm>0;
@@ -2546,6 +2558,8 @@ function camPairAll(L,W,H,cs,opt){
 }
 // `opt.keep[v]` — маска единиц варианта v, которые пара обязана покрыть (T-20261107-11/3: стиль на запасном не ухудшает покрытие
 // остальных — `demo-cams.mjs`); такой пары нет — null, а не углы. `opt.noEnds` — без правила `ends` зоны (запасной ход `camPairAll`)
+// подбор без `cutNear` (`camCutSkip`) живёт только внутри одного подбора пары: снаружи вид зоны проверяется с условием
+function camPairAll(L,W,H,cs,opt){ try{ return camPairAllE(L,W,H,cs,opt); } finally { camCutSkip=false; } }
 function camPairAll0(L,W,H,cs,opt){
   if(!CAM_PAIR_ON)return camPairCorner(L[0],W,H,cs);
   const KEEP=(opt&&opt.keep)||null, ENDS=(opt&&opt.noEnds)?null:camZ().ends;
@@ -2569,7 +2583,9 @@ function camPairAll0(L,W,H,cs,opt){
     UN[v].forEach((u,k)=>{const q=camUnitQ(cv,u); Q[v][n*U[v]+k]=q; if(q>=1-1e-9&&k<31)b|=(1<<k);}); bits[v][n]=b;}));
   const level=Math.max(0,...all.map(c=>c.lv));
   // ВИДЫ ЗОНЫ (`CAM_ZONES[..].views`): пара — вид 1 и вид 2 своей зоны (точка годна при мебели каждого варианта); у гостиной видов нет
-  let vOk=ZV&&ZV.length===2?all.map((c,n)=>ZV.map(vw=>L.every((its,v)=>camViewFit(vw,c,its,CV[v][n])))):null;
+  camCutSkip=false;
+  const vOkOf=()=>ZV&&ZV.length===2?all.map((c,n)=>ZV.map(vw=>L.every((its,v)=>camViewFit(vw,c,its,CV[v][n])))):null;
+  let vOk=vOkOf();
   // `more` вида зоны k: мебель, показанная в нём, минус штраф пустой стены и потолка (`camMorePen`), — по худшему варианту
   const moreOf=(k,n)=>{if(!ZV||!camVw(ZV[k],'more'))return 0; let m=Infinity; for(let v=0;v<V;v++)m=Math.min(m,camShownN(L[v],CV[v][n])-camMorePen(stat(all[n],v))); return m;};
   // РАЗНЫЕ СТОРОНЫ (`apart` зоны): направления расходятся на `apart`°, ИЛИ на `apartNear.deg`° при точках дальше `apartNear.cm`
@@ -2603,6 +2619,10 @@ function camPairAll0(L,W,H,cs,opt){
   const pairKey=(a,b)=>{let w=null; for(let v=0;v<V;v++){const m=bits[v][a]|bits[v][b], k=[camBits(mustM[v]&~m),defOf(v,a,b),camBits(optM[v]&~m)];
     if(!w||cmp(k,w)>0)w=k;} return [Math.min(fKey(a),fKey(b)),w[0],fCut(a,b),w[1],w[2]];};
   // лучшая пара среди разрешённых кандидатов: сначала покрытие по всем парам, потом точная мерка
+  // ДОПУСК НАРУШЕНИЙ, В КОТОРОМ РЕШАЕТ «БОЛЬШЕ МЕБЕЛИ» (`moreTol` зоны, T-20261107-05/7): в коридоре вид с четырьмя предметами
+  // почти всегда несёт чуть больше пустой стены или пола, чем вид с двумя, и общий допуск CAM_BAD_TOL отдавал пару бедному кадру
+  // (прихожая «минимализм» 07.11: вид к входу — обувница и зеркало). Поля нет — CAM_BAD_TOL, как было
+  const TOL=camZ().moreTol!=null?camZ().moreTol:CAM_BAD_TOL;
   const best=ok=>{
     let bk=null, list=[];
     for(let a=0;a<N;a++){if(!ok(a,-1))continue;
@@ -2629,8 +2649,9 @@ function camPairAll0(L,W,H,cs,opt){
       const q={a:swap?b:a,b:swap?a:b,c1:C1,c2:C2,pen:Math.min(p1,p2)+tallPen(A)+tallPen(B),worst:Math.min(A.score,B.score),
         clut:vmax(v=>clutter(stat(A,v))+clutter(stat(B,v))),div:camAng(A.rot,B.rot),key:bk,more:vOk?moreOf(0,swap?b:a)+moreOf(1,swap?a:b):0};
       if(!pick){pick=q; continue;}
-      // нарушения — с допуском CAM_BAD_TOL: внутри него решают больше мебели и меньше пустого в видах зоны (`more`), худший кадр, загромождение, разнообразие
-      if(q.pen<pick.pen-CAM_BAD_TOL){pick=q; continue;} if(q.pen>pick.pen+CAM_BAD_TOL)continue;
+      // нарушения — с допуском CAM_BAD_TOL (у зоны — свой `moreTol`): внутри него решают больше мебели и меньше пустого в видах зоны
+      // (`more`), худший кадр, загромождение, разнообразие
+      if(q.pen<pick.pen-TOL){pick=q; continue;} if(q.pen>pick.pen+TOL)continue;
       const d=(q.more-pick.more)||(pick.worst-q.worst)||(q.clut-pick.clut)||(pick.div-q.div);
       if(d>1e-9||(Math.abs(d)<=1e-9&&q.pen<pick.pen))pick=q;}
     return pick;};
@@ -2649,10 +2670,16 @@ function camPairAll0(L,W,H,cs,opt){
   const runStages=()=>{for(const [nm,ok0] of stages){const ok=(a,b)=>ok0(a,b)&&okV(a,b)&&keepOk(a,b), p=best(ok); if(!p)continue; res.push([nm,p]); if(!p.key[0]&&!p.key[1]&&!p.key[2]&&p.pen<=CAM_STAGE_OK){pick=p; stage=nm; break;}}};
   runStages();
   // ни одной пары «вход + встречный» — подбор без видов зоны, с пометкой в отчёте (не пустой кадр)
+  // ни одной пары с необрезанной ближней мебелью (`cutNear`) — заново без этого условия, виды зоны остаются
+  let cutMiss=false; if(vOk&&!res.length&&ZV.some(vw=>[].concat(vw).some(x=>x.cutNear))){camCutSkip=true; cutMiss=true; vOk=vOkOf(); runStages();}
   let zoneMiss=false; if(vOk&&!res.length){vOk=null; zoneMiss=true; runStages();}
+  // у зоны с `moreTol` при равном покрытии ступени сравниваются как пары внутри ступени: нарушения в пределах допуска — решает
+  // «больше мебели» (`more`); прихожая «минимализм» 07.11: всё в ряд вдоль одной стены, ни одна ступень не покрывает банкетку
+  // и вешалку, а 72+72 по общему правилу брала вид к входу с двумя предметами при равном ключе у ступени шире
+  const MT=camZ().moreTol, penMore=(x,y)=>MT==null||Math.abs(x.pen-y.pen)>MT?x.pen-y.pen:(y.more-x.more)||(x.pen-y.pen);
   if(!pick){const full=res.filter(([,p])=>!p.key[0]&&!p.key[1]);
-    const pool=full.length?full.sort((x,y)=>(x[1].key[2]-y[1].key[2])||(x[1].pen-y[1].pen))
-      :res.sort((x,y)=>cmp(x[1].key,y[1].key)||(x[1].pen-y[1].pen));
+    const pool=full.length?full.sort((x,y)=>(x[1].key[2]-y[1].key[2])||penMore(x[1],y[1]))
+      :res.sort((x,y)=>cmp(x[1].key,y[1].key)||penMore(x[1],y[1]));
     if(pool.length)[stage,pick]=pool[0];}
   if(!pick){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (пары нет)'; r.corner=true; return r;}
   // ДОВОРОТ ±CAM_NUDGE° (d8 17.10: в сканди ТВ срезан краем вида 2): шаг перебора 5°, поэтому после выбора каждый вид пробует
@@ -2729,7 +2756,7 @@ function camPairAll0(L,W,H,cs,opt){
     return {cams:[mk('C1',a2,v,0),mk('C2',b2,v,1)],covered,missing,stats:[stat(a2,v),stat(b2,v)],bits:covBits(cv[0],v)|covBits(cv[1],v)};});
   const [mk0,mm,mc,dm,mo]=pick.key;
   return {level, cams:per[0].cams,
-    how:`${mm?'недобор':'пара'}: стадия ${stage},${ZV?(zoneMiss?' виды зоны: пары нет — без них,':' виды зоны,'):''} не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}${MQ[0]===null?'':`, главное в C1 ${Math.round(MQ[0]*100)/100} / C2 ${Math.round(MQ[1]*100)/100}${posterMiss?' — ОБЛОЖКА БЕЗ ГЛАВНОГО':''}`}`,
+    how:`${mm?'недобор':'пара'}: стадия ${stage},${ZV?(zoneMiss?' виды зоны: пары нет — без них,':cutMiss?' виды зоны (ближняя мебель обрезана — без cutNear),':' виды зоны,'):''} не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}${MQ[0]===null?'':`, главное в C1 ${Math.round(MQ[0]*100)/100} / C2 ${Math.round(MQ[1]*100)/100}${posterMiss?' — ОБЛОЖКА БЕЗ ГЛАВНОГО':''}`}`,
     posterMiss, zoneMiss, mm,
     covered:per[0].covered, missing:per[0].missing, stats:per[0].stats, per};
 }
