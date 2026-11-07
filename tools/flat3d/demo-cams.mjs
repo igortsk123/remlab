@@ -50,7 +50,10 @@ const H = geo.d;
 const corners = [{ x: p, y: p }, { x: W - p, y: p }, { x: W - p, y: H - p }, { x: p, y: H - p }];
 // своя расстановка у каждого стиля (`geo.cams_own`, сборка — `flat215_demo.room_variants`, T-20261107-05/4: прихожая) — пара на стиль
 const shared = !!D.one_layout && list.length > 1 && !geo.cams_own;
-let all = shared ? api.camPairAll(list.map(itsOf), W, H, corners) : null;
+// мебель стиля — один массив на комнату, покрытие точки при ней — один раз (`cvc`, T-20261107-47/2): подбор по стилю (ниже, «с двух
+// концов») берёт его готовым из общего подбора; точки и выбор те же, данные побайтно те же
+const IT = list.map(itsOf), cvc = new Map();
+let all = shared ? api.camPairAll(IT, W, H, corners, { cvc }) : null;
 if (shared) console.log(`${rid === "living" ? "" : `${rid}: `}одна пара на ${list.length} вариантов: ${all.how}`);
 // СТИЛЬ НА ЗАПАСНОМ НЕ ПОРТИТ ПОКРЫТИЕ ОСТАЛЬНЫХ (T-20261107-11/3, ведущий): неоклассика на запасном нейтральном ковре
 // (`fill[].rug_universal`, T-11/2) сдвинула общую пару, и сканди, современный и минимализм потеряли торшер. Ключ пары — худший по
@@ -86,7 +89,7 @@ if (shared && all.posterMiss) console.log(`WARN:demo_cams: ${rid} — облож
 // требованию «с 2 разных сторон, чтоб разглядывать». Стиль, у которого и своей нет, — прежняя пара (`endsMiss`) и громкое WARN с его именем.
 // Общая пара остаётся, где она с двух концов (спальня 2 07.11)
 if (shared && all.endsMiss) {
-  const own = list.map((v) => api.camPairAll([itsOf(v)], W, H, corners));
+  const own = list.map((v, vi) => api.camPairAll([IT[vi]], W, H, corners, { cvc }));
   const shPer = perOf;
   perOf = (vi) => (own[vi] ? { ...own[vi], ...own[vi].per[0] } : shPer(vi));
   console.log(`${rid}: одной пары с двух концов комнаты на ${list.length} стилей нет — своя пара у каждого стиля`);
