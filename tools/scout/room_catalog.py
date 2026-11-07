@@ -98,7 +98,7 @@ def role_of(mid: int, cid, name: str, R: dict, is_kids) -> str | None:
     if allowed is not None and role not in allowed:
         return None
     must = R.get('role_must_match', {}).get(role)
-    if must and not re.search(must, nm, re.I):
+    if must and not re.search(must, nm, re.I) and not alias_only(role, nm, R):
         return None
     deny = R.get('role_deny', {}).get(role)
     if deny and re.search(deny, nm, re.I):
@@ -202,9 +202,49 @@ def dims_of(o: dict, role: str, R: dict) -> dict:
     return out
 
 
+def alias_only(role: str, name: str, R: dict) -> bool:
+    """Товар взят в роль по ПСЕВДОНИМУ (`role_alias`, T-20261107-18: «Пуф …»/«Скамья …» — банкетка прихожей), а не по
+    своему слову роли (`role_must_match`): название подходит под `name_re` псевдонима и не под его `deny`. Такой товар
+    в роли только при форме роли (`alias_form`, сторожем `role_guard` после размеров). Правил нет — False (спальня)."""
+    a = R.get('role_alias', {}).get(role)
+    if not a:
+        return False
+    must = R.get('role_must_match', {}).get(role)
+    nm = name or ''
+    return ((not must or not re.search(must, nm, re.I)) and bool(re.search(a['name_re'], nm, re.I))
+            and not (a.get('deny') and re.search(a['deny'], nm, re.I)))
+
+
+def alias_form(form: dict, d: dict) -> str | None:
+    """Форма роли для товара-псевдонима (`role_alias.<роль>.form`) → причина отказа или None. Fail-closed: без трёх осей
+    или с неправдоподобными (`ok` False) — отказ: «пуф» без размеров может быть круглым. Оси в плане нормализуются
+    (длинная — ширина), отношение — длинная/короткая. Чистая функция."""
+    w, dd, h = (d.get(k) for k in ('w', 'd', 'h'))
+    if not (w and dd and h):
+        return 'размер неизвестен'
+    if d.get('ok') is False:
+        return 'размеры неправдоподобны'
+    a, b, h = max(float(w), float(dd)), min(float(w), float(dd)), float(h)
+    bad = []
+    if a < form.get('w_min', 0):
+        bad.append(f"ширина {a:g} < {form['w_min']}")
+    if b and a / b < form.get('ratio_min', 0):
+        bad.append(f"Ш/Г {a / b:.2f} < {form['ratio_min']}")
+    for k, v in (('d', b), ('h', h)):
+        lo, hi = form.get(k, (0, 1e9))
+        if not lo <= v <= hi:
+            bad.append(f'{k} {v:g} вне {lo}–{hi}')
+    return ', '.join(bad) or None
+
+
 def role_guard(role: str, name: str, d: dict, R: dict) -> str | None:
     """Почему товар не годится в роль (`role_guard`: платяной шкаф ≥ 150 см в высоту и ≥ 35 в глубину, не настенный,
-    не пенал, не шкафчик) или None. Неизвестный размер не отсекает — нет числа, нет и приговора. Чистая функция."""
+    не пенал, не шкафчик) или None. Неизвестный размер не отсекает — нет числа, нет и приговора. Исключение — товар по
+    псевдониму роли (`alias_only`): его форма (`alias_form`) обязательна и без размеров он не в роли. Чистая функция."""
+    if alias_only(role, name, R):
+        why = alias_form(R['role_alias'][role].get('form') or {}, d or {})
+        if why:
+            return 'форма: ' + why
     g = R.get('role_guard', {}).get(role)
     if not g:
         return None
