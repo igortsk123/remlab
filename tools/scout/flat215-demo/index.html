@@ -943,6 +943,32 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .qz-arr{display:none}
 @media (pointer:fine){.qz-arr{display:flex;width:36px!important;height:36px!important;border-radius:50%;box-shadow:inset 0 0 0 1px var(--line);color:var(--ink);font-size:18px;margin:0 6px}}
 @media (min-width:700px){.qz-card{padding:24px 24px 20px;gap:14px}.qz-res{flex-basis:100%}.qz-car{margin:0 -24px;padding:0 24px;gap:24px}}
+/* ОПРОС НА ВЕСЬ ЭКРАН (план quiz-pairs-01, владелец TG 408–409: «на iPhone кнопки срезаны… не модалкой, или на весь экран, и кнопки
+   внизу всегда прилеплены»). Окно — во всю высоту видимой области (`100dvh`; без поддержки — `100vh` выше), тело `.qz-body` листается
+   само, низ `.qz-foot` вне листания — всегда виден: `100dvh` не заходит под панель Safari, `safe-area-inset-*` добавит поле, если
+   страница когда-нибудь объявит `viewport-fit=cover` (сейчас 0). Компьютер — тот же экран, колонка по центру. «Выбрать другой» не трогаем */
+#qzBox{padding:0;align-items:stretch}
+#qzBox .qz-card{width:100%;max-width:none;height:100vh;height:100dvh;max-height:none;border-radius:0;box-shadow:none;padding:0;gap:0;overflow:hidden;background:var(--qz-bg)}
+#qzBox .qz-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:12px;
+  width:100%;max-width:640px;margin:0 auto;padding:calc(14px + env(safe-area-inset-top,0px)) 16px 12px}
+#qzBox .qz-foot{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;width:100%;max-width:640px;margin:0 auto;
+  padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));background:var(--qz-bg);box-shadow:0 -1px 0 var(--line)}
+#qzBox .qz-foot .qz-nav{margin-top:0}
+#qzBox .qz-foot .qz-link{min-height:40px}
+.qz-h3{font-size:17px;font-weight:700;text-align:center;margin:10px 0 0}
+/* ПАРА «одно из двух»: два фото во всю ширину, сверху и снизу — делят высоту тела поровну, обе целиком на экране (375×667 и 390×844);
+   на широком экране — рядом. Отметка выбора — рамка терракоты и галочка, как у прежних фото опроса */
+.qz-pair{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:10px}
+.qz-pair .qz-ph{flex:1 1 0;min-height:120px}
+.qz-pair .qz-ph .qz-img{flex:1 1 auto;min-height:0;height:0;aspect-ratio:auto;border-width:3px}
+.qz-pair .qz-ph b{font-size:15.5px}
+.qz-pair .qz-tick{top:10px;right:10px;width:28px;height:28px;font-size:15px}
+@media (min-width:700px) and (min-aspect-ratio:1/1){
+  #qzBox .qz-body,#qzBox .qz-foot{max-width:1040px}
+  .qz-pair{flex-direction:row;align-items:stretch;gap:20px}
+  .qz-pair .qz-ph .qz-img{height:auto;flex:0 0 auto;aspect-ratio:4/3}
+  .qz-pair .qz-ph{justify-content:center}
+}
 /* КАРТОЧКА ТОВАРА (demo-26 Д, `itemCardOpen`): телефон — лист снизу на всю ширину (свайп вниз закрывает), компьютер — окно по центру.
    Фото — плитка строки сразу, крупная копия проявляется поверх в той же рамке (`object-fit:contain` у обеих — без скачка) */
 #itemCard{position:fixed;inset:0;z-index:calc(var(--z-modal) + 1);background:var(--scrim-soft);display:none;align-items:flex-end;justify-content:center}
@@ -4454,22 +4480,25 @@ function mixParams(sel, room){
   const s=mixSel(sel&&sel.selected, sel&&sel.requested), one=s.selected.length===1&&!Object.keys(s.requested).length;
   return {style:s.selected[0]||null, mix:s.selected.length&&!one?mixEncode(s):null, room:room||'living'};
 }
-// ОПРОС ПО КОМНАТАМ → ВЫБОР (владелец TG 370, T-35 шаг 4). `main` — вариант, выбранный на итоге (гостиная и прихожая: итог подбирают
-// по ответу гостиной, выбор на итоге — последнее слово про неё); `ans` — ответы шагов {living, bedroom, nursery: [стили]}; `rooms` —
-// комнаты квартиры {id, kind}. Второй выбранный — первый ответ спальни, отличный от основного (зона спален), нет — другой ответ
-// гостиной. Комнатам вида шага — `requested` по кругу (две спальни и два ответа — по одному в каждую; один ответ — в обе); детской
-// без своего ответа (шага нет — вариантов детской нет) — ответ спальни по зоне. Запись, совпадающая с правилом зон, не пишется
-function mixFromQuiz(main, ans, rooms){
-  const a=ans||{}, liv=a.living||[], bed=a.bedroom||[], nur=a.nursery||[];
-  if(!main)main=liv[0]||bed[0]||'';
+// ОПРОС ПАРАМИ → ВЫБОР (владелец TG 408–409 и 413, план quiz-pairs-01, T-35/3). `main` — вариант итога (последнее слово про гостиную);
+// `sp` — ответы экранов «Какой стиль вам ближе?» по порядку (пропущенный — ''), `bp` — экранов спальни: экран 4 → спальня 1,
+// экран 5 → спальня 2 (при детях это «детская»). Основной (гостиная и прихожая) — `main`; второй выбранный — ответ экрана 2 (общий
+// стиль квартиры), нет — ответ экрана 1, если на итоге взяли другой. Спальни без своего ответа — по правилу зон (второй выбранный)
+function mixFromPairs(main, sp, bp, rooms){
+  const S=(sp||[]).filter(Boolean), B=bp||[];
+  if(!main)main=S[0]||B.filter(Boolean)[0]||'';
   if(!main)return null;
-  const base=mixSel([main, bed.find(s=>s!==main)||liv.find(s=>s!==main)||''].filter(Boolean),{}), req={}, k={bedroom:0, nursery:0};
-  for(const r of rooms||[]){
-    const z=r.kind==='bedroom'?'bedroom':(r.kind==='nursery'||r.kind==='kids')&&nur.length?'nursery':'';
-    const L=z==='bedroom'?bed:z==='nursery'?nur:[]; if(!L.length)continue;
-    const s=L[k[z]++%L.length]; if(s!==mixWant(base,r)[0])req[r.id]=s;
-  }
+  const second=(sp||[])[1]&&sp[1]!==main?sp[1]:(S.find(s=>s!==main)||'');
+  const base=mixSel([main, second].filter(Boolean),{}), req={};
+  (rooms||[]).filter(r=>mixZone(r.kind)===1).forEach((r,i)=>{const s=B[i]; if(s&&s!==mixWant(base,r)[0])req[r.id]=s;});
   return mixSel(base.selected, req);
+}
+// пары экранов опроса: правило `style_pairs` (порядок = приоритет) → первые `max`, у которых ОБА стиля в `ok` (стили с фото нейросети)
+function quizPairs(pairs, ok, max){
+  const out=[];
+  for(const p of pairs||[]){ if(out.length>=(max||2))break;
+    if(Array.isArray(p)&&p.length===2&&p[0]!==p[1]&&ok.includes(p[0])&&ok.includes(p[1]))out.push([p[0],p[1]]); }
+  return out;
 }
 // HOMEMIX END
 // РАСКЛАДКА ГЛАВНОЙ ПО ВЫБОРУ: комната → показанный вариант. Выбор — `HOME.sel` (из адреса, опроса, вкладки); открытая комната
@@ -7828,12 +7857,14 @@ function quizPick(rule, answers, available, styleColours){
 // QUIZPICK END
 (function(){
   var SS='remlab-quiz', LS='remlab-quiz-seen';
-  // ШАГИ ПО ИМЕНАМ (T-35 шаг 4, владелец TG 370): «какая гостиная / спальня / (при детях) детская вам ближе» — свой шаг на вид комнаты;
-  // шаг без двух фото нейросети пропускается в сторону движения. Ответы шагов комнат: гостиная — `photos` (прежнее имя: подбор итога,
-  // события), спальня — `bed`, детская — `nur`
-  var STEPS=['hello','living','bedroom','household','nursery','colours','result'], ROOMQ={living:'photos', bedroom:'bed', nursery:'nur'};
-  var KINDS={living:['living'], bedroom:['bedroom'], nursery:['nursery','kids']};
-  var fresh=function(){return {photos:[], bed:[], nur:[], household:[], ages:[], kids:'', colours:[]};};
+  // ШАГИ ПО ИМЕНАМ (план quiz-pairs-01, владелец TG 408–409, 413): «Какой стиль вам ближе?» — 2 экрана пар (`s1` гостиная, `s2` общее),
+  // экран вопросов «кто живёт + цвета» (`about`), 2 экрана спален (`b1` → спальня 1, `b2` → спальня 2; при детях `b2` — «детская»):
+  // всегда 5 вопросов, меньше — только если не хватает пар с фото нейросети у обоих стилей. Ответы: `sp` — экранов стиля, `bp` — спален
+  var STEPS=['hello','s1','s2','about','b1','b2','result'], PAIRQ={s1:['sp',0], s2:['sp',1], b1:['bp',0], b2:['bp',1]};
+  var KINDS={living:['living'], bedroom:['bedroom']};
+  // пары до пересборки витрины: в данных прежнее правило без `style_pairs` — те же пары, что в `rules/quiz.json` (TG 411)
+  var PAIRS0=[['loft','scandi'],['minimal','neoclassic'],['japandi','modern']];
+  var fresh=function(){return {sp:[], bp:[], household:[], ages:[], kids:'', colours:[]};};
   var Q={open:false, step:'hello', a:fresh(), decided:false, at:0, pick:[]};
   window.__quiz=Q;
   if(typeof PAGE_LAYERS!=='undefined')PAGE_LAYERS.push(['qzBox','on']);
@@ -7847,9 +7878,9 @@ function quizPick(rule, answers, available, styleColours){
   function seen(){try{return !!localStorage.getItem(LS);}catch(e){return false;}}
   function markSeen(how){if(quiet())return; try{localStorage.setItem(LS,how+':'+new Date().toISOString().slice(0,10));}catch(e){}}
   function save(){try{sessionStorage.setItem(SS,JSON.stringify({open:Q.open?1:0, step:Q.step, a:Q.a}));}catch(e){}}
-  // сохранённый шаг прежней страницы — номер (0 приветствие, 1 фото, 2 кто живёт, 3 цвета, 4 итог) — переводим в имя
-  function restore(){try{var s=JSON.parse(sessionStorage.getItem(SS)||'null'); if(s&&s.a){Q.a=Object.assign(fresh(),s.a);
-    Q.step=typeof s.step==='number'?(['hello','living','household','colours','result'][s.step]||'hello'):(STEPS.indexOf(s.step)>=0?s.step:'hello'); return s;}}catch(e){} return null;}
+  // сохранённый шаг прежней страницы (номер или имя шага прежнего опроса) — с приветствия, ответы прежнего вида не тянем
+  function restore(){try{var s=JSON.parse(sessionStorage.getItem(SS)||'null'); if(s&&s.a){var a=fresh(), ok=Array.isArray(s.a.sp);
+    Q.a=ok?Object.assign(a,s.a):a; Q.step=ok&&STEPS.indexOf(s.step)>=0?s.step:'hello'; return s;}}catch(e){} return null;}
   function shouldOpen(){
     var p=param(), h=String(window.__hash0||''), s=String(window.__search0||'');
     if(p==='0'||window.__EMBED)return false;
@@ -7877,8 +7908,8 @@ function quizPick(rule, answers, available, styleColours){
   // без реалистичного фото из шага выпадает; таких меньше двух — шаг пропускаем (выбирать не из чего). Реестр кадров приходит
   // отдельно: до него (или 6 с, если не пришёл) карточки — пустые заглушки без нажатия, решение «пропустить» не принимаем
   function shotsReady(){return SHOTS_LOADED||(Date.now()-(Q.t0||0))>6000;}
-  // ВАРИАНТЫ ШАГА КОМНАТЫ (T-35 шаг 4): стили главной, у которых есть вариант комнаты этого вида; фото — первой такой комнаты по плану,
-  // где фото нейросети есть (у спальни 1 нет — спальни 2). Гостиная — точка 1, как раньше; спальня и детская — обложка варианта
+  // СТИЛИ С ФОТО КОМНАТЫ (T-35 шаг 4): стили главной, у которых есть вариант комнаты этого вида; фото — первой такой комнаты по плану,
+  // где фото нейросети есть (у спальни 1 нет — спальни 2). Гостиная — точка 1, как раньше; спальня — обложка варианта
   function roomStyles(st){
     var m=homeModel(), ks=KINDS[st]||[], rooms=m.rooms.filter(function(r){return ks.indexOf(r.kind)>=0;});
     return m.styles.map(function(s){
@@ -7891,16 +7922,23 @@ function quizPick(rule, answers, available, styleColours){
   }
   function roomPhotos(st){return roomStyles(st).filter(function(s){return s.real&&s.img;});}
   function hasKid(){var q=question('household'), kid=((q&&q.options)||[]).filter(function(o){return o.ages;})[0]; return !!kid&&Q.a.household.indexOf(kid.id)>=0;}
-  // шаг показываем? Комнаты: до реестра кадров — если вариант комнаты есть хоть у двух стилей (заглушки без нажатия), после — фото
-  // нейросети у двух; детская — ещё и только при «С детьми» (своих вариантов детской в демо пока нет — шага нет)
+  // ПАРЫ ЭКРАНОВ: `style_pairs` правила (нет — `PAIRS0`), первые 2 с фото нейросети у обоих стилей (`quizPairs`, блок HOMEMIX). До реестра
+  // кадров — по наличию варианта комнаты (плитки-заглушки без нажатия), после — по фото. Комната: стиль — гостиная, спальня — спальня
+  function pairsOf(kind){
+    var r=rule(), qid=kind==='bedroom'?'bedroom_style':'style', q=question(qid), max=(q&&q.pairs_max)||2;
+    var ids=(shotsReady()?roomPhotos(kind):roomStyles(kind)).map(function(s){return s.id;});
+    return quizPairs((r&&Array.isArray(r.style_pairs))?r.style_pairs:PAIRS0, ids, max);
+  }
+  // шаг показываем? Пара — если она есть (комнаты спален — по фото спален)
   function stepOn(st){
-    if(!ROOMQ[st])return STEPS.indexOf(st)>=0;
-    if(st==='nursery'&&!hasKid())return false;
-    return (shotsReady()?roomPhotos(st):roomStyles(st)).length>=2;
+    var P=PAIRQ[st]; if(!P)return STEPS.indexOf(st)>=0;
+    return pairsOf(P[0]==='bp'?'bedroom':'living').length>P[1];
   }
   function asked(){return STEPS.filter(function(s){return s!=='hello'&&s!=='result'&&stepOn(s);});}
   function total(){return asked().length;}
-  function ansOf(st){return stepOn(st)?Q.a[ROOMQ[st]].slice():[];}   // ответ выключенного шага (шаг пропущен) не в счёт
+  // ответы экранов пар по порядку экранов; выключенный экран (пары нет, детей нет) — '' (не в счёт)
+  function ansOf(key){var st=key==='bp'?['b1','b2']:['s1','s2']; return st.map(function(s,i){return stepOn(s)?(Q.a[key][i]||''):'';});}
+  function liked(key){return ansOf(key).filter(Boolean);}
   function move(st,d){var i=STEPS.indexOf(st); return STEPS[Math.max(0,Math.min(STEPS.length-1,(i<0?0:i)+d))];}
   // ИТОГ — ТОЖЕ ТОЛЬКО ФОТО НЕЙРОСЕТИ (владелец TG 341, T-20261107-28/2): стиль без реалистичного фото в тройку не предлагаем —
   // подбор идёт среди стилей с фото, место занимает следующий; фото нет ни у одного — подбор среди всех, итог без картинки (текст)
@@ -7908,7 +7946,11 @@ function quizPick(rule, answers, available, styleColours){
     var r=rule(), st=styles(), sc={}, ph=roomPhotos('living');
     Q._pickReady=shotsReady();
     st.forEach(function(s){sc[s.id]=s.v?quizStyleColours(s.v,r.palettes):{};});
-    return quizPick(r,{photos:ansOf('living'), colours:Q.a.colours, household:Q.a.household}, (ph.length?ph:st).map(function(s){return s.id;}), sc);
+    var lv=liked('sp'), out=quizPick(r,{photos:lv, colours:Q.a.colours, household:Q.a.household}, (ph.length?ph:st).map(function(s){return s.id;}), sc);
+    // ответы экранов стиля — первыми и В ПОРЯДКЕ ЭКРАНОВ (TG 413: экран 1 — гостиная): первая карточка итога и «Выбрать» по умолчанию —
+    // ответ экрана 1, а не тот, кого подбор по цветам поставил выше
+    var mine=lv.filter(function(id){return out.indexOf(id)>=0;});
+    return mine.concat(out.filter(function(id){return mine.indexOf(id)<0;}));
   }
   function box(){
     var b=document.getElementById('qzBox'); if(b)return b;
@@ -7920,6 +7962,9 @@ function quizPick(rule, answers, available, styleColours){
     var t=''; for(var i=1;i<=N;i++)t+='<i'+(i<=n?' class="on"':'')+'></i>';
     return '<div class="qz-bar" aria-hidden="true">'+t+'</div><div class="qz-step">'+n+(EN()?' of '+N:' из '+N)+'</div>';
   }
+  // ЭКРАН = ТЕЛО + НИЗ (quiz-pairs-01, владелец TG 408–409: «кнопки внизу всегда прилеплены»): тело листается само, низ — вне листания,
+  // всегда виден (у Safari — над панелью и полосой «домой», `safe-area-inset-bottom`)
+  function page(body,foot){return '<div class="qz-body">'+body+'</div><div class="qz-foot">'+foot+'</div>';}
   function nav(canNext,nextText){
     return '<div class="qz-nav"><button class="btn qz-back" type="button" data-qz="back">'+(EN()?'Back':'Назад')+'</button>'+
       '<button class="btn primary qz-next" type="button" data-qz="next"'+(canNext?'':' disabled')+'>'+esc(nextText||(EN()?'Next':'Далее'))+'</button></div>';
@@ -7936,29 +7981,32 @@ function quizPick(rule, answers, available, styleColours){
       :(amt?'Застройщик дарит вам сертификат на обстановку <b>'+esc(amt)+'</b>. '+qn+' — и покажем готовые варианты вашей квартиры.'
         :qn+' — и покажем готовые варианты вашей квартиры.');
     // заголовок — смысл «узнаем ваш стиль» (владелец 06.11, T-20261106-94): опрос про человека, а не «что понравилось»
-    return '<h2 class="qz-h" id="qzH">'+(EN()?'Let’s find your style':'Давайте узнаем ваш стиль')+'</h2><p class="qz-txt">'+txt+'</p>'+
+    return page('<h2 class="qz-h" id="qzH">'+(EN()?'Let’s find your style':'Давайте узнаем ваш стиль')+'</h2><p class="qz-txt">'+txt+'</p>',
       '<button class="btn primary qz-next" type="button" data-qz="next" style="min-height:48px;font-weight:600">'+(EN()?'Start':'Начать')+'</button>'+
-      '<button class="qz-link" type="button" data-qz="skip">'+(EN()?'Straight to options':'Сразу к вариантам')+'</button>';
+      '<button class="qz-link" type="button" data-qz="skip">'+(EN()?'Straight to options':'Сразу к вариантам')+'</button>');
   }
-  // подпись карточки — «Вариант N» по порядку на экране, не название стиля (владелец TG 341–342: выбирают по фото, а не по слову);
-  // в ответах (`Q.a.photos`/`bed`/`nur`, `data-ph`) остаётся id стиля — менеджеру нужна правда. Выбрано сколько можно (max 2) — остальные
-  // серые. Номер — по порядку на экране СВОЕГО шага (план home-mix-01 § «Опрос по комнатам»)
-  // текст шага — из правила (`quiz.json`: photos / bedroom / nursery); у сборки с прежним правилом шагов спальни и детской нет — свой текст
-  var QTXT={bedroom:{ru:'Какая спальня вам ближе?', en:'Which bedroom do you like most?', hint_ru:'Можно выбрать одну или две', hint_en:'Pick one or two'},
-    nursery:{ru:'Какая детская вам ближе?', en:'Which children’s room do you like most?', hint_ru:'Можно выбрать одну или две', hint_en:'Pick one or two'}};
-  function screenRoom(stp){
-    var q=question('photos'), qt=stp==='living'?q:(question(stp)||QTXT[stp]), key=ROOMQ[stp], max=(q&&q.max)||2;
-    var ready=shotsReady(), st=ready?roomPhotos(stp):roomStyles(stp), shown=st.map(function(s){return s.id;});
-    Q.a[key]=Q.a[key].filter(function(id){return shown.indexOf(id)>=0;});   // выбор из прежней вкладки — только среди показанных
-    var A=Q.a[key], full=A.length>=max;
-    return bar(stp)+'<h2 class="qz-h" id="qzH">'+esc(tr(qt,''))+'</h2><p class="qz-sub">'+esc(tr(qt,'hint'))+'</p><div class="qz-photos">'+
-      st.map(function(s,i){var on=A.indexOf(s.id)>=0, off=!ready||(full&&!on);
-        return '<button class="qz-ph" type="button" data-ph="'+esc(s.id)+'" aria-pressed="'+on+'"'+(off?' disabled':'')+'>'+
-          (ready?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'<span class="qz-img"></span>')+TICK+
-          '<b>'+(EN()?'Option ':'Вариант ')+(i+1)+'</b></button>';}).join('')+
-      '</div>'+nav(A.length>=((q&&q.min)||1));
+  // ЭКРАН ПАРЫ (quiz-pairs-01): «Какой стиль вам ближе?» — два крупных фото, сверху и снизу (на компьютере рядом), выбрать одно — через
+  // ~300 мс следующий экран (отметка успевает показаться); «Назад» показывает прежний выбор. Подпись — «Вариант N», номер общий с главной
+  // (`homeVarNo`): название стиля покупателю не говорим (TG 341–342), в ответах (`Q.a.sp`/`bp`, `data-pp`) — id стиля, менеджеру нужна правда.
+  // Низ: «Назад» и «Пропустить» (выбрано — «Далее»). Текст — из правила (`style` / `bedroom_style`), у прежней сборки их нет — свой
+  // Экран 5 при «С детьми» — про детскую (TG 413): своих фото детской нет — пара спален, другой заголовок
+  var QTXT={style:{ru:'Какой стиль вам ближе?', en:'Which style do you like more?', hint_ru:'Выберите одно', hint_en:'Pick one'},
+    bedroom_style:{ru:'Какой стиль спальни вам ближе?', en:'Which bedroom style do you like more?', hint_ru:'Выберите одно', hint_en:'Pick one'},
+    nursery_style:{ru:'Какой стиль детской вам ближе?', en:'Which children’s room style do you like more?', hint_ru:'Выберите одно', hint_en:'Pick one'}};
+  function screenPair(stp){
+    var P=PAIRQ[stp], key=P[0], kind=key==='bp'?'bedroom':'living';
+    var qid=key==='sp'?'style':(stp==='b2'&&hasKid()?'nursery_style':'bedroom_style'), qt=question(qid)||QTXT[qid];
+    var pr=pairsOf(kind)[P[1]]||[], ready=shotsReady(), L=ready?roomPhotos(kind):roomStyles(kind), cur=Q.a[key][P[1]]||'';
+    if(pr.indexOf(cur)<0)cur='';
+    var tiles=pr.map(function(id){var s=L.filter(function(x){return x.id===id;})[0]||{id:id, img:''}, on=cur===id;
+      return '<button class="qz-ph" type="button" data-pp="'+esc(id)+'" aria-pressed="'+on+'"'+(ready&&s.img?'':' disabled')+'>'+
+        (ready&&s.img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'<span class="qz-img"></span>')+(on?TICK:'')+
+        '<b>'+esc(optName(id))+'</b></button>';}).join('');
+    return page(bar(stp)+'<h2 class="qz-h" id="qzH">'+esc(tr(qt,''))+'</h2><p class="qz-sub">'+esc(tr(qt,'hint'))+'</p><div class="qz-pair">'+tiles+'</div>',
+      nav(true, cur?'':(EN()?'Skip':'Пропустить')));
   }
-  function screen2(){
+  // ЭКРАН ВОПРОСОВ (quiz-pairs-01 п.3): «Кто будет жить» (+ сколько детей и возраст) и цвета — одним экраном
+  function about(){
     var q=question('household'), opts=(q&&q.options)||[], kid=opts.filter(function(o){return o.ages;})[0];
     var chip=function(o,list,attr){var on=list.indexOf(o.id)>=0;
       return '<button class="qz-opt" type="button" '+attr+'="'+esc(o.id)+'" aria-pressed="'+on+'">'+(on?TICK:'')+esc(tr(o,''))+'</button>';};
@@ -7968,16 +8016,15 @@ function quizPick(rule, answers, available, styleColours){
       kid.kids.map(function(o){return chip(o,Q.a.kids?[Q.a.kids]:[],'data-kids');}).join('')+'</div>':'';
     var ages=withKid?'<div class="qz-lbl">'+(EN()?'Children’s age':'Возраст детей')+'</div><div class="qz-chips">'+
       kid.ages.map(function(o){return chip(o,Q.a.ages,'data-age');}).join('')+'</div>':'';
-    return bar('household')+'<h2 class="qz-h" id="qzH">'+esc(tr(q,''))+'</h2><p class="qz-sub">'+esc(tr(q,'hint'))+'</p>'+
-      '<div class="qz-chips">'+opts.map(function(o){return chip(o,Q.a.household,'data-hh');}).join('')+'</div>'+kids+ages+nav(true);
-  }
-  function screen3(){
-    var q=question('colours'), opts=(q&&q.options)||[];
-    return bar('colours')+'<h2 class="qz-h" id="qzH">'+esc(tr(q,''))+'</h2><p class="qz-sub">'+esc(tr(q,'hint'))+'</p><div class="qz-cols">'+
-      opts.map(function(o){var on=Q.a.colours.indexOf(o.id)>=0;
+    var qc=question('colours'), co=(qc&&qc.options)||[];
+    var cols='<h3 class="qz-h3">'+esc(tr(qc,''))+'</h3><p class="qz-sub">'+esc(tr(qc,'hint'))+'</p><div class="qz-cols">'+
+      co.map(function(o){var on=Q.a.colours.indexOf(o.id)>=0;
         return '<button class="qz-opt" type="button" data-col="'+esc(o.id)+'" aria-pressed="'+on+'"><span class="qz-dots" aria-hidden="true">'+
-          (o.dots||[]).map(function(d){return '<i style="background:'+esc(d)+'"></i>';}).join('')+'</span><span class="qz-ol">'+esc(tr(o,''))+'</span>'+(on?TICK:'')+'</button>';}).join('')+
-      '</div>'+nav(true,EN()?'Show the designs':'Показать варианты');
+          (o.dots||[]).map(function(d){return '<i style="background:'+esc(d)+'"></i>';}).join('')+'</span><span class="qz-ol">'+esc(tr(o,''))+'</span>'+(on?TICK:'')+'</button>';}).join('')+'</div>';
+    var last=!stepOn('b1')&&!stepOn('b2');   // экранов спальни нет (пар с фото спален не хватает) — дальше сразу итог
+    return page(bar('about')+'<h2 class="qz-h" id="qzH">'+esc(tr(q,''))+'</h2><p class="qz-sub">'+esc(tr(q,'hint'))+'</p>'+
+      '<div class="qz-chips">'+opts.map(function(o){return chip(o,Q.a.household,'data-hh');}).join('')+'</div>'+kids+ages+cols,
+      nav(true, last?(EN()?'Show the designs':'Показать варианты'):''));
   }
   // ПОДПИСЬ ВАРИАНТА НА ИТОГЕ — «Вариант N», тот же номер, что на шаге гостиной (владелец, голос TG 368, T-20261107-28/2): название
   // стиля покупателю не показываем. Номер — место в списке шага гостиной (стили с фото нейросети); фото нет ни у одного — место во
@@ -7988,42 +8035,44 @@ function quizPick(rule, answers, available, styleColours){
   function optName(id){return (EN()?'Option ':'Вариант ')+optNo(id);}
   function screenR(){
     // итог коротко — «Ваш стиль — Вариант N» (владелец 06.11, T-20261106-94; подпись — TG 368), похожие отмечены на карточках
-    var st=styles(), lv=ansOf('living'), liked=Q.pick.filter(function(id){return lv.indexOf(id)>=0;}), L=liked.map(optName);
-    // слово «стиль» в опросе не говорим (владелец, T-20261107-28/3)
-    var sub=EN()?(liked.length?'Your closest match — '+L.join(' and '):'Options close to your colours')
-      :(liked.length?'Вам ближе всего — '+L.join(' и '):'Варианты, близкие вашим цветам');
+    var st=styles(), lv=liked('sp'), mine0=Q.pick.filter(function(id){return lv.indexOf(id)>=0;}), L=mine0.map(optName);
+    // в подписи итога — «Вариант N», не название стиля (T-20261107-28/3); слово «стиль» есть только в вопросах пар (TG 409)
+    var sub=EN()?(mine0.length?'Your closest match — '+L.join(' and '):'Options close to your colours')
+      :(mine0.length?'Вам ближе всего — '+L.join(' и '):'Варианты, близкие вашим цветам');
     var cards=Q.pick.map(function(id){var s=st.filter(function(x){return x.id===id;})[0]||{id:id,title:id}, mine=lv.indexOf(id)>=0;
       var ps=s.v?variantProducts(s.v):[], n=ps.length, sum=s.v?money(variantPrice(s.v)):'';
       var img=s.real&&s.img;   // черновой 3D-кадр и пустую плашку не показываем — карточка без картинки, только текст
-      return '<div class="qz-res'+(img?'':' qz-noimg')+'" data-res="'+esc(id)+'">'+(img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'')+
+      return '<div class="qz-res'+(img?'':' qz-noimg')+'" data-res="'+esc(id)+'">'+(img?'<img class="qz-img" alt="" src="'+esc(img)+'">':'')+
         '<span class="qz-tag'+(mine?'':' near')+'">'+(mine?(EN()?'Best match':'Ближе всего'):(EN()?'Similar':'Похожий'))+'</span>'+
         '<div class="qz-cap"><b>'+esc(optName(id))+'</b><span>'+(n?n+' '+itemsWord(n)+' · '+esc(sum):'')+'</span></div></div>';}).join('');
     var dots=Q.pick.map(function(id,i){return '<button type="button" data-dot="'+i+'" aria-label="'+(i+1)+'" aria-current="'+(i===Q.at)+'"><i></i></button>';}).join('');
     var k=Q.pick.length;   // стилей с фото может быть меньше трёх (T-28/2)
-    return '<h2 class="qz-h" id="qzH">'+(EN()?'We picked '+k+' design'+(k===1?'':'s')+' for you':'Подобрали для вас '+k+' вариант'+(k===1?'':'а'))+'</h2><p class="qz-sub">'+esc(sub)+'</p>'+
+    return page('<h2 class="qz-h" id="qzH">'+(EN()?'We picked '+k+' design'+(k===1?'':'s')+' for you':'Подобрали для вас '+k+' вариант'+(k===1?'':'а'))+'</h2><p class="qz-sub">'+esc(sub)+'</p>'+
       '<div class="qz-car">'+cards+'</div>'+
       '<div class="qz-pager"><button type="button" class="qz-arr" data-qz="prev" aria-label="'+(EN()?'Previous':'Назад')+'">‹</button>'+dots+
-      '<button type="button" class="qz-arr" data-qz="nxt" aria-label="'+(EN()?'Next':'Дальше')+'">›</button></div>'+
+      '<button type="button" class="qz-arr" data-qz="nxt" aria-label="'+(EN()?'Next':'Дальше')+'">›</button></div>',
       '<button class="btn primary qz-next" type="button" data-qz="choose" style="min-height:48px;font-weight:600">'+esc(chooseText())+'</button>'+
-      '<button class="qz-link" type="button" data-qz="all">'+(EN()?'All options':'Все варианты')+'</button>';
+      '<button class="qz-link" type="button" data-qz="all">'+(EN()?'All options':'Все варианты')+'</button>');
   }
-  var SCREENS={hello:screen0, living:function(){return screenRoom('living');}, bedroom:function(){return screenRoom('bedroom');},
-    household:screen2, nursery:function(){return screenRoom('nursery');}, colours:screen3, result:screenR};
+  var SCREENS={hello:screen0, s1:function(){return screenPair('s1');}, s2:function(){return screenPair('s2');}, about:about,
+    b1:function(){return screenPair('b1');}, b2:function(){return screenPair('b2');}, result:screenR};
   function render(focus){
     var b=box(), c=b.querySelector('.qz-card');
-    // шаг выключен (меньше двух фото нейросети; детская без детей) — пропускаем в сторону движения (назад — вплоть до приветствия)
+    // шаг выключен (пары с фото нет) — пропускаем в сторону движения (назад — вплоть до приветствия)
     for(var g=0;!stepOn(Q.step)&&g<STEPS.length;g++){Q.step=move(Q.step,Q._dir<0?-1:1); save();}
     // тройку считали до прихода реестра кадров (фото ещё не знали) — пересчитать, когда пришёл
     if(Q.step==='result'&&(!Q.pick.length||(!Q._pickReady&&shotsReady()))){Q.pick=pick(); Q.at=0;}
-    c.innerHTML=SCREENS[Q.step]();
-    b.setAttribute('aria-labelledby','qzH'); c.scrollTop=0;
+    // перерисовка того же экрана (пришли кадры, отметка) прокрутку тела не сбрасывает; новый экран — сверху
+    var bd=c.querySelector('.qz-body'), keep=bd&&c.dataset.step===Q.step?bd.scrollTop:0;
+    c.innerHTML=SCREENS[Q.step](); c.dataset.step=Q.step; c.dataset.n=String(total());
+    b.setAttribute('aria-labelledby','qzH'); bd=c.querySelector('.qz-body'); if(bd)bd.scrollTop=keep;
     if(Q.step==='result'){var car=c.querySelector('.qz-car'), w=car&&car.querySelector('.qz-res');
       if(car&&w){car.scrollLeft=Q.at*stepOf(car,w);
         car.onscroll=function(){var k=Math.round(car.scrollLeft/stepOf(car,w)); if(k!==Q.at&&k>=0&&k<Q.pick.length){Q.at=k; sync();}};}}
     if(focus)try{c.focus({preventScroll:true});}catch(e){}
     // кадры ещё в пути (реестр кадров приходит отдельно) — перерисовать, когда придут
     // приветствие тоже: число вопросов зависит от того, будут ли шаги с фото
-    var wait=function(){return Q.step!=='household'&&Q.step!=='colours';};
+    var wait=function(){return Q.step!=='about';};
     if(wait()&&!SHOTS_LOADED&&!Q._wait){Q._wait=setTimeout(function(){Q._wait=0; if(Q.open&&wait())render();},500);}
   }
   // шаг ленты итога — ширина карточки + промежуток из стилей (телефон 10, компьютер 24 — там соседняя карточка не выглядывает)
@@ -8048,11 +8097,12 @@ function quizPick(rule, answers, available, styleColours){
   // СОБЫТИЯ ОПРОСА (план home-mix-01; раньше страница их не слала вовсе): менеджеру по его ссылке — `quiz_done` с ответами и раскладкой
   // квартиры; застройщику (заход без ссылки менеджера) — счётчики `contracts/analytics.ts`. Слушатели — блоки менеджера и счётчиков ниже
   function tell(d){try{document.dispatchEvent(new CustomEvent('remlab:quiz',{detail:d}));}catch(e){}}
-  // ИТОГ → ВЫБОР КВАРТИРЫ: `main` — вариант итога; ответы шагов комнат расходятся по комнатам (`mixFromQuiz`, блок HOMEMIX).
-  // `chosen` — только при «Выбрать вариант N»; «Все варианты» берёт видимую карточку итога, но выбором её не называет
+  // ИТОГ → ВЫБОР КВАРТИРЫ: `main` — вариант итога; ответы экранов пар расходятся по комнатам (`mixFromPairs`, блок HOMEMIX).
+  // `chosen` — только при «Выбрать вариант N»; «Все варианты» берёт видимую карточку итога, но выбором её не называет.
+  // События — поля прежние (план quiz-pairs-01 п.5): `picked` — ответы экранов стиля, `pickedBedroom` — экранов спален
   function finish(main,chosen){
-    var ans={living:ansOf('living'), bedroom:ansOf('bedroom'), nursery:ansOf('nursery')};
-    var sel=main?mixFromQuiz(main,ans,homeModel().rooms):null;
+    var sp=ansOf('sp'), bp=ansOf('bp'), ans={living:sp.filter(Boolean), bedroom:bp.filter(Boolean)};
+    var sel=main?mixFromPairs(main,sp,bp,homeModel().rooms):null;
     if(sel)homeSetSel(sel);
     var mx=sel?homeMixReport():{styles:[], rooms:[]}, kid=hasKid();
     var ev={kind:'quiz_done', picked:ans.living, pickedBedroom:ans.bedroom.length?ans.bedroom:undefined, household:Q.a.household.slice(),
@@ -8067,7 +8117,10 @@ function quizPick(rule, answers, available, styleColours){
     var b=document.getElementById('qzBox'); if(!b||!Q.open||!b.contains(e.target))return;
     var t=e.target.closest('button'); if(!t)return;
     var a=t.dataset.qz;
-    if(t.dataset.ph){var key=ROOMQ[Q.step]||'photos'; toggle(Q.a[key],t.dataset.ph,(question('photos')||{}).max||2); if(key==='photos')Q.pick=[]; save(); render(); return;}
+    // фото пары: выбор одного (повторное нажатие — тот же выбор) → отметка видна ~300 мс → следующий экран; два быстрых нажатия — один переход
+    if(t.dataset.pp){var P=PAIRQ[Q.step]; if(!P||t.disabled)return; Q.a[P[0]][P[1]]=t.dataset.pp; if(P[0]==='sp')Q.pick=[]; save(); render();
+      var at=Q.step; clearTimeout(Q._adv); Q._adv=setTimeout(function(){Q._adv=0; if(!Q.open||Q.step!==at)return;
+        Q._dir=1; Q.step=move(Q.step,1); if(Q.step==='result'){Q.pick=pick(); Q.at=0;} save(); render(true);},300); return;}
     if(t.dataset.hh){var id=t.dataset.hh, q=question('household'), ex=((q&&q.exclusive)||[]).filter(function(g){return g.indexOf(id)>=0;})[0]||[];
       var i=Q.a.household.indexOf(id); if(i>=0)Q.a.household.splice(i,1);
       else{Q.a.household=Q.a.household.filter(function(x){return ex.indexOf(x)<0||x===id;}); Q.a.household.push(id);}

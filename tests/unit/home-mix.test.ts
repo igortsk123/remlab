@@ -12,7 +12,7 @@ type Parsed = { open: "" | "v" | "c"; src: "" | "mix" | "style"; sel: Sel | null
 
 const src = readFileSync(SRC, "utf8");
 const block = src.slice(src.indexOf("// HOMEMIX START"), src.indexOf("// HOMEMIX END"));
-const page = new Function(`${block};return {mixSel,mixEff,mixZone,mixWant,mixShown,mixEncode,mixDecode,mixFromUrl,mixParams,mixFromQuiz};`)() as {
+const page = new Function(`${block};return {mixSel,mixEff,mixZone,mixWant,mixShown,mixEncode,mixDecode,mixFromUrl,mixParams,mixFromPairs,quizPairs};`)() as {
   mixSel: (selected: unknown[], requested: Record<string, unknown>) => Sel;
   mixEff: (sel: Sel | null, ids: string[]) => Sel;
   mixZone: (kind: string) => number;
@@ -22,7 +22,8 @@ const page = new Function(`${block};return {mixSel,mixEff,mixZone,mixWant,mixSho
   mixDecode: (s: string | null) => Sel | null;
   mixFromUrl: (search: string, hash: string) => Parsed;
   mixParams: (sel: Sel, room: string) => { style: string | null; mix: string | null; room: string };
-  mixFromQuiz: (main: string, ans: Record<string, string[]>, rooms: Room[]) => Sel | null;
+  mixFromPairs: (main: string, sp: string[], bp: string[], rooms: Room[]) => Sel | null;
+  quizPairs: (pairs: unknown[], ok: string[], max: number) => string[][];
 };
 
 // витрина 07.11: гостиные шести стилей, спальни — пяти (у неоклассики спален нет, карта сборки подставляет похожие), прихожих нет
@@ -123,39 +124,38 @@ describe("ссылки", () => {
   });
 });
 
-// ОПРОС ПО КОМНАТАМ → ВЫБОР (владелец TG 370, T-35 шаг 4): ответ шага — стиль комнат этого вида
-describe("опрос по комнатам", () => {
-  const Q = (main: string, ans: Record<string, string[]>) => page.mixFromQuiz(main, ans, ROOMS);
-  it("гостиная — вариант итога (основной), спальни — ответ шага спальни (второй выбранный)", () => {
-    const sel = Q("scandi", { living: ["scandi"], bedroom: ["loft"] });
-    expect(sel).toEqual(S(["scandi", "loft"]));
-    expect(shown(sel!)).toMatchObject({ living: "scandi", "bedroom-1": "loft", "bedroom-2": "loft" });
+// ОПРОС ПАРАМИ → ВЫБОР (план quiz-pairs-01, владелец TG 408–409, 413): экраны 1–2 «Какой стиль вам ближе?» (гостиная, общий),
+// экран 4 → спальня 1, экран 5 → спальня 2 (при детях — «детская»); вариант итога — последнее слово про гостиную
+describe("опрос парами", () => {
+  const P = (main: string, sp: string[], bp: string[], rooms: Room[] = ROOMS) => page.mixFromPairs(main, sp, bp, rooms);
+  it("экран 1 — гостиная (основной), экран 2 — второй выбранный; экраны спален — спальня 1 и спальня 2", () => {
+    const sel = P("loft", ["loft", "minimal"], ["scandi", "japandi"]);
+    expect(sel).toEqual(S(["loft", "minimal"], { "bedroom-1": "scandi", "bedroom-2": "japandi" }));
+    expect(shown(sel!)).toMatchObject({ living: "loft", "bedroom-1": "scandi", "bedroom-2": "japandi" });
   });
-  it("два ответа спальни — по одному в каждую спальню; совпадающее с правилом зон не пишется", () => {
-    const sel = Q("scandi", { living: ["scandi"], bedroom: ["loft", "japandi"] });
-    expect(sel).toEqual(S(["scandi", "loft"], { "bedroom-2": "japandi" }));
-    expect(shown(sel!)).toMatchObject({ living: "scandi", "bedroom-1": "loft", "bedroom-2": "japandi" });
+  it("ответ спальни, совпавший с правилом зон, не пишется; пропущенный экран спальни — по зоне", () => {
+    expect(P("loft", ["loft", "minimal"], ["minimal", ""])).toEqual(S(["loft", "minimal"]));
+    expect(P("loft", ["loft", "minimal"], ["", "scandi"])).toEqual(S(["loft", "minimal"], { "bedroom-2": "scandi" }));
   });
-  it("спальня как гостиная — один выбранный стиль, ссылка без mix=", () => {
-    const sel = Q("loft", { living: ["loft"], bedroom: ["loft"] });
-    expect(sel).toEqual(S(["loft"]));
-    expect(page.mixParams(sel!, "living").mix).toBeNull();
+  it("экрана 2 нет или пропущен — второй выбранный: ответ экрана 1, если на итоге взяли другой", () => {
+    expect(P("loft", ["loft"], [])).toEqual(S(["loft"]));
+    expect(P("modern", ["loft", ""], [])).toEqual(S(["modern", "loft"]));
+    expect(page.mixParams(P("loft", ["loft", "loft"], [])!, "living").mix).toBeNull();   // всё в одном стиле — ссылка без mix=
   });
-  it("шага спальни не было (мало фото) — второй выбранный из ответа гостиной, как правило зон", () => {
-    expect(Q("scandi", { living: ["scandi", "modern"], bedroom: [] })).toEqual(S(["scandi", "modern"]));
-    expect(Q("modern", { living: ["scandi"], bedroom: [] })).toEqual(S(["modern", "scandi"]));   // на итоге выбран похожий — гостиная в нём
-  });
-  it("ответ спальни совпал с основным, второго нет — второй ответ спальни идёт в спальню 2", () => {
-    expect(Q("scandi", { living: ["scandi"], bedroom: ["scandi", "loft"] })).toEqual(S(["scandi", "loft"], { "bedroom-1": "scandi" }));
-  });
-  it("детская: с ответом своего шага — в детскую; без него — по зоне спален (ответ спальни)", () => {
+  it("детская по плану — в зоне спален, по порядку плана", () => {
     const rooms: Room[] = [{ id: "living", kind: "living" }, { id: "bedroom-1", kind: "bedroom" }, { id: "nursery-1", kind: "nursery" }];
-    expect(page.mixFromQuiz("scandi", { bedroom: ["loft"], nursery: ["japandi"] }, rooms)).toEqual(S(["scandi", "loft"], { "nursery-1": "japandi" }));
-    expect(page.mixFromQuiz("scandi", { bedroom: ["loft"], nursery: [] }, rooms)).toEqual(S(["scandi", "loft"]));
+    expect(P("scandi", ["scandi", "loft"], ["loft", "japandi"], rooms)).toEqual(S(["scandi", "loft"], { "nursery-1": "japandi" }));
   });
   it("без варианта итога — первый ответ; ответов нет — null", () => {
-    expect(Q("", { living: ["minimal"] })).toEqual(S(["minimal"]));
-    expect(Q("", {})).toBeNull();
+    expect(P("", ["", "minimal"], [])).toEqual(S(["minimal"]));
+    expect(P("", [], [])).toBeNull();
+  });
+  it("пары экранов: порядок правила, только где оба стиля с фото, не больше двух", () => {
+    const pairs = [["loft", "scandi"], ["minimal", "neoclassic"], ["japandi", "modern"]];
+    expect(page.quizPairs(pairs, STYLES, 2)).toEqual([["loft", "scandi"], ["minimal", "neoclassic"]]);
+    expect(page.quizPairs(pairs, STYLES.filter((s) => s !== "neoclassic"), 2)).toEqual([["loft", "scandi"], ["japandi", "modern"]]);
+    expect(page.quizPairs(pairs, ["loft", "modern"], 2)).toEqual([]);
+    expect(page.quizPairs([["loft", "loft"], ["loft"], "x"], STYLES, 2)).toEqual([]);
   });
 });
 
