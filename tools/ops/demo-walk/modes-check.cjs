@@ -32,6 +32,9 @@ async function page(b,q,lang){
   p.on('request',rq=>{if(rq.method()==='POST'&&/\/api\/render(\?|$)/.test(rq.url())){try{p.renderBodies.push(JSON.parse(rq.postData()||'{}'));}catch(e){}}});
   await p.goto(demoUrl('https://remont-lab.online/demo/'+q),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
+  // РЕЕСТР КАДРОВ — ДО ЧИСТКИ `shots` (T-20261107-66/2): пришедший позже реестр заменяет весь список (реалистичные снова в нём), а окно,
+  // открытое в 3D без фото, по его приходу встаёт на «Фото» (правило А1) — сценарий «без фото» ломался посреди шага
+  await p.waitForFunction("SHOTS_LOADED&&shots.some(x=>x.srv)",null,{timeout:60000});
   await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){}});
   return p;
 }
@@ -41,6 +44,8 @@ const st=p=>p.evaluate(()=>({mode:VW.mode, photoTab:!(document.querySelector('[d
   stub:(()=>{const e=document.getElementById('vStub'); return !!e&&getComputedStyle(e).display!=='none';})(),
   ready:!!document.querySelector('#shot .vready'), err:(document.getElementById('vCtaErr')||{}).textContent||'', sid:curStateId()}));
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+// упала посреди шага — накопленные OK/FAIL всё равно печатаются, падение — отдельной строкой FAIL (T-20261107-66/2)
+try{
 // 1. без реалистичного фото: 3D, вкладки «Фото» нет, ценники, стрелки — к позе 2 и обратно
 let p=await page(b,'?live=force&lang=ru','ru');
 await p.evaluate(()=>{shots=shots.filter(x=>x.quality!=='realistic'); openLiveWindow();});
@@ -138,4 +143,7 @@ await p.screenshot({path:OUT+`m09-${W}-stub.png`}); console.log('errs',p.errs.sl
 p=await page(b,'?live=0&lang=en','en'); await p.evaluate(()=>{shots=shots.filter(x=>x.quality!=='realistic'); openLiveWindow();}); await p.waitForTimeout(2500);
 const en=await p.evaluate(()=>[document.getElementById('vStub').innerText, document.getElementById('vCta').innerText].join(' | '));
 ok('6 EN без кириллицы',!/[А-Яа-яЁё]/.test(en),en); await p.context().close();
-console.log(R.join('\n')); await b.close();})().catch(e=>{console.error(e);process.exit(1);});
+}catch(e){R.push('FAIL проверка прервалась — '+String(e.message||e).split('\n').slice(0,6).join(' | '));}
+finally{console.log(R.join('\n')); console.log(`итог: ${R.filter(x=>x.startsWith('OK')).length}/${R.length}`);
+  process.exitCode=R.some(x=>x.startsWith('FAIL'))?1:0; await b.close().catch(()=>{});}
+})().catch(e=>{console.error(e);process.exit(1);});

@@ -7561,6 +7561,7 @@ function vwModeUi(){
 function vwMode(m){
   if(!['photo','walk','plan'].includes(m))return;
   if(m==='photo'&&!vwPhotoShots().length&&!vwJobHere())return;
+  VW.wantPhoto=0;   // режим выбран (кнопкой, кодом, съёмкой) — по приходу реестра кадров окно не переключаем (`loadShots`, T-66/2)
   if(VJ.job&&!VJ.self)VJ.job.moved=true;   // человек сам ушёл с вкладки — по готовности не переключаем, если он не на «Фото»
   VW.mode=m; vwModeUi();
   if(m==='plan'){liveHide(); return;}

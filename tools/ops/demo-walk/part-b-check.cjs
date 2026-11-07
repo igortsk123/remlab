@@ -17,6 +17,8 @@ async function open(b, vp, q) {
   await p.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
   await p.goto(demoUrl(BASE + "/demo/" + (q || "")), { waitUntil: "load", timeout: 120000 });
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&allVariants().length>0&&typeof homeModel==='function'&&homeModel().styles.length>0", null, { timeout: 90000 });
+  // реестр кадров пришёл: иначе окно, открытое в 3D до него, по его приходу встаёт на «Фото» посреди шага (T-20261107-66/2)
+  await p.waitForFunction("SHOTS_LOADED&&shots.some(x=>x.srv)", null, { timeout: 60000 });
   await p.waitForTimeout(2500);
   return p;
 }
@@ -74,19 +76,22 @@ async function replace(p, role) {
         await openWindow(p);
         if (vp.phone) { await p.evaluate("vwSheet(0)"); await p.waitForTimeout(800); }   // шторка вниз — палец по сцене, а не по списку
         const cv = await p.evaluate(() => { const r = LIVE.canvas.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
-        // пол: точка у нижнего края холста по центру — проверяем, что это не предмет
+        // пол: самая нижняя открытая точка холста (не предмет). На телефоне нижнюю треть холста закрывает свёрнутая
+        // шторка (верх ~464 из 667), поэтому ищем от 0,9 до 0,4 высоты, а не только у края (T-66/2)
         let tapPt = null;
-        for (const fy of [0.9, 0.85, 0.8, 0.75, 0.7]) for (const fx of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+        for (const fy of [0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4]) for (const fx of [0.5, 0.4, 0.6, 0.3, 0.7]) {
           const x = cv.x + cv.w * fx, y = cv.y + cv.h * fy;
           if (!tapPt && (await p.evaluate(([x, y]) => document.elementFromPoint(x, y) === LIVE.canvas && LIVE.scene.pick(x, y) < 0, [x, y]))) tapPt = { x, y };
         }
         ok(`${tag} Б6: точка пола на холсте найдена`, !!tapPt, JSON.stringify(tapPt));
-        const a = await pose(p);
-        if (vp.phone) await p.touchscreen.tap(tapPt.x, tapPt.y); else await p.mouse.click(tapPt.x, tapPt.y);
-        await p.waitForTimeout(2000);
-        const c = await pose(p), moved = Math.hypot(c.x - a.x, c.y - a.y);
-        if (vp.phone) ok(`${tag} Б6: сенсорный экран — тап по полу камеру не двигает`, moved < 1, `сдвиг ${moved.toFixed(1)} см`);
-        else ok(`${tag} Б6: мышь — тап по полу ведёт туда`, moved > 20, `сдвиг ${moved.toFixed(1)} см`);
+        if (tapPt) {
+          const a = await pose(p);
+          if (vp.phone) await p.touchscreen.tap(tapPt.x, tapPt.y); else await p.mouse.click(tapPt.x, tapPt.y);
+          await p.waitForTimeout(2000);
+          const c = await pose(p), moved = Math.hypot(c.x - a.x, c.y - a.y);
+          if (vp.phone) ok(`${tag} Б6: сенсорный экран — тап по полу камеру не двигает`, moved < 1, `сдвиг ${moved.toFixed(1)} см`);
+          else ok(`${tag} Б6: мышь — тап по полу ведёт туда`, moved > 20, `сдвиг ${moved.toFixed(1)} см`);
+        }
         // поворот тапом по краю остаётся
         const y1 = (await pose(p)).yaw;
         const edgeY = await p.evaluate(([x, y0, h]) => { for (let f = 0.5; f > 0.1; f -= 0.05) { const e = document.elementFromPoint(x, y0 + h * f); if (e === LIVE.canvas) return y0 + h * f; } return y0 + h * 0.5; }, [cv.x + cv.w * 0.95, cv.y, cv.h]);
@@ -170,7 +175,11 @@ async function replace(p, role) {
         await p.context().close();
       }
     }
-  } finally { await b.close(); }
+  } catch (e) {   // упала посреди шага — накопленное всё равно в итоге, падение — строкой FAIL (T-20261107-66/2)
+    ok("проверка прервалась", false, String(e.message || e).split("\n").slice(0, 6).join(" | "));
+  } finally { await b.close().catch(() => {}); }
   fs.writeFileSync(`${OUT}/result.txt`, R.join("\n") + "\n");
-  console.log(R.filter((x) => x.startsWith("FAIL")).length ? "ЕСТЬ FAIL" : "ВСЁ OK");
+  console.log(R.join("\n"));
+  console.log(`итог: ${R.filter((x) => x.startsWith("OK")).length}/${R.length} · ` + (R.filter((x) => x.startsWith("FAIL")).length ? "ЕСТЬ FAIL" : "ВСЁ OK"));
+  process.exitCode = R.some((x) => x.startsWith("FAIL")) ? 1 : 0;
 })();

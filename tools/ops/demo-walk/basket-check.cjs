@@ -28,6 +28,8 @@ async function page(b,o={}){
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!!(window.__basket&&window.__basket.state())",null,{timeout:90000});
   if(!o.seed)await p.evaluate(()=>{Object.keys(localStorage).filter(k=>/^remlab-(basket|favorites|collections|fav-thumbs)/.test(k)).forEach(k=>localStorage.removeItem(k)); location.reload();});
   if(!o.seed)await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!!(window.__basket&&window.__basket.state())",null,{timeout:90000});
+  // реестр кадров пришёл: иначе окно, открытое в 3D до него, по его приходу встаёт на «Фото» посреди шага (T-20261107-66/2)
+  await p.waitForFunction("SHOTS_LOADED&&shots.some(x=>x.srv)",null,{timeout:60000});
   await p.waitForTimeout(800);
   return p;
 }
