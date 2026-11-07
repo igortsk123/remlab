@@ -199,7 +199,7 @@ jobs:
       - run: python tools/scout/tests/test_front_roles.py   # перед меша — свойство роли в данных (front в asset-strategies.json): гостиная и спальня как были, прихожая направленная, резерв спроса тот же (T-20261106-78)
       - run: python tools/scout/room_bindings.py --selftest   # привязка товар→меш комнат: готовность (фото, поколение, sha, ориентация, паспорт), семья ссылкой, снимок и таблица (T-20261105-45)
       - run: python tools/scout/room_publish.py --selftest && python tools/scout/mesh_publish.py --selftest   # публикация мешей комнат: файл привязки с проверкой sha, представитель один раз, без настройки — гостиная как прежде (T-20261105-47)
-      - run: python tools/scout/hall_catalog.py --selftest   # каталог прихожей: роли на 105 названиях, размеры зеркал; комплект из модулей — только фото, не в меши (T-20261106-71)
+      - run: python tools/scout/hall_catalog.py --selftest   # каталог прихожей: роли на 142 названиях (пуф/скамья — банкетка только по форме, без размеров — нет, T-20261107-18), размеры зеркал; комплект из модулей — только фото, не в меши (T-20261106-71)
       - run: python tools/scout/room_mesh_demand.py --selftest   # спрос на меши комнат по слотам: ячейки стиль×роль×слот, покрытие по семействам, сначала банк, потолок денег (T-20261105-49)
       - run: python tools/scout/gallery_binding_shadow.py --selftest   # тень «галерея по привязке»: повтор правила mtime, классы расхождений (T-20261105-50)
       - run: python tools/scout/salad/gallery_build.py --selftest   # галерея: выбор файла «привязка, иначе mtime» за флагом GALLERY_FROM_BINDING (выкл/вкл/нет файла привязки), glb_sha (T-20261105-50/2)

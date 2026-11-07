@@ -5,7 +5,7 @@
 
 Всё про комнату — из профиля `rules/profiles/hall.json`: роли и крупное (major — полоса Ш×Г×В), веса стиля, порог «в стиле»
 (`in_style_min`), допуск полосы (zones.json, 0,8–1,1 идеала), правила состава `composer.rules` = `rules/hall-composition.json`
-(6 стилей, ступень цены, слоты с идеалом, порядок хранения, роли без оценки стиля). Каталог — адаптер
+(5 стилей — без неоклассики, T-20261107-18; ступень цены, слоты с идеалом, порядок хранения, роли без оценки стиля). Каталог — адаптер
 `catalog_items.items('hall', with_assets=True)`: стиль — `product_style_scores` своих товаров, меш — привязка `offer_asset_binding`.
 
 ПОРЯДОК (ячейка `hall|hall|<м²>|<стиль>|<ступень>`):
@@ -672,9 +672,9 @@ def _selftest() -> int:
     R = rules()
     tol = (0.8, 1.1)
     S = {sl['role']: sl for sl in R['purposes'][ROOM]['slots']}
-    ok('профиль: сборщик hall, роли слотов = роли профиля, 6 стилей (неоклассика последней — T-89)',
-       PROFILE['composer']['plugin'] == 'hall' and set(S) == set(PROFILE['roles']) and len(R['styles']) == 6
-       and R['styles'][-1] == 'неоклассика')
+    ok('профиль: сборщик hall, роли слотов = роли профиля, 5 стилей без неоклассики (владелец 07.11, T-20261107-18)',
+       PROFILE['composer']['plugin'] == 'hall' and set(S) == set(PROFILE['roles']) and len(R['styles']) == 5
+       and 'неоклассика' not in R['styles'])
     ok('хранение — из storage_any солвера (распашной «шкаф» — с T-20261107-10/2)',
        set(R['purposes'][ROOM]['storage']) <= set(load_json(os.path.join(SOLVER, 'rules', 'hall.json'))['composition']['storage_any']))
     b = band_of(S['шкаф-купе'], tol)
@@ -769,6 +769,11 @@ def _selftest() -> int:
        [x['size'] for x in slot_sizes(S['шкаф'])] == ['100x55', '140x55', '185x55']
        and hf(93, 50)['size'] == '100x55' and hf(139, 50)['size'] == '140x55' and hf(185, 52)['size'] == '185x55'
        and hf(200, 60)['size'] == '185x55' and hf(100, 40) is None and hf(63, 50) is None and hf(100, 52, 300) is not None)
+    # T-20261107-18: банкетки по псевдониму (пуф/скамья, фиды 07.11) — в типоразмеры слота без их правки
+    bf = lambda w, d, h: (fit_size({'w': w, 'd': d, 'h': h, 'footprint_ok': True}, S['банкетка'], tol)[0] or {}).get('size')  # noqa: E731
+    ok('банкетка-пуф: Палси-2 80×45 → 80x45, Этен Мини 60×40 → 60x45, OrmaSoft 122×42 → 130x48, Торонто 67×30 → 70x30; '
+       'Наск 75×51 — ни в один',
+       (bf(80, 45, 45), bf(60, 40, 40), bf(122, 42, 40), bf(67, 30, 45), bf(75, 51, 45)) == ('80x45', '60x45', '130x48', '70x30', None))
     st_ = R['purposes'][ROOM]['storage']
     ok('хранение: купе раньше распашного (фронт 50 против 90 см), распашной раньше модуля и вешалки',
        st_.index('шкаф-купе') < st_.index('шкаф') < st_.index('прихожая') < st_.index('вешалка') and S['шкаф'].get('storage'))

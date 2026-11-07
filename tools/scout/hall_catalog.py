@@ -282,7 +282,11 @@ def _selftest() -> int:
     cases = json.load(open(os.path.join(HERE, 'tests', 'fixtures', 'hall-role-cases.json'), encoding='utf-8'))
     miss = 0
     for c in cases:
+        # итог загрузки: роль по названию и ветке, затем сторож роли на размерах случая (`dims`; нет — неизвестны).
+        # Пуф/скамья (псевдоним банкетки, T-20261107-18) без размеров — не в роли: форма обязательна
         got = rl(c['mid'], c['cid'], c['name'])
+        if got and C.role_guard(got, c['name'], dict(c.get('dims') or {}, ok=True), R):
+            got = None
         if got != c['role']:
             miss += 1
             print(f"FAIL роль: {c['name'][:60]} → {got}, ждали {c['role']} ({c.get('why', '')})")
@@ -343,8 +347,42 @@ def _selftest() -> int:
                       'params': {'Ширина': '1774см', 'Высота': '2400см'}}, 'шкаф-купе', R)
     ok('шкаф Элит: единицы противоречат (мм под «см», ширина в названии ≠ в параметрах) — размер не выдуман, только фото',
        not elit['ok'] and elit['w'] is None)
+    bad += _selftest_alias(R, ok, rl)
     bad += _selftest_kits(R, ok)
     return 1 if bad else 0
+
+
+def _selftest_alias(R: dict, ok, rl) -> int:
+    """Банкетка по псевдониму (T-20261107-18, `role_alias`): границы формы, fail-closed без размеров, явная «Банкетка»
+    без формы, спальня не задета. Случаи на реальных названиях — в фикстуре (`hall-role-cases.json`, «по псевдониму»)."""
+    nm = 'Пуф divan.ru Палси-2 Букле Молочный'
+    g = lambda w, d, h, okd=True: C.role_guard('банкетка', nm, {'w': w, 'd': d, 'h': h, 'ok': okd}, R)  # noqa: E731
+    ok('псевдоним: «Пуф …» в ветке пуфов — кандидат в банкетку, «Банкетка …» — своим словом (форма не нужна)',
+       rl(112923, '445', nm) == 'банкетка' and C.alias_only('банкетка', nm, R)
+       and not C.alias_only('банкетка', 'Банкетка divan.ru Кото Букле Синий', R)
+       and C.role_guard('банкетка', 'Банкетка divan.ru Кото Букле Синий', {}, R) is None)
+    ok('форма: Ш 60 — да, 59,9 — нет; Ш/Г 1,4 (70×50) — да, 1,39 — нет',
+       g(60, 40, 45) is None and 'ширина 59.9 < 60' in (g(59.9, 40, 45) or '')
+       and g(70, 50, 45) is None and 'Ш/Г 1.39' in (g(69.5, 50, 45) or ''))
+    ok('форма: В 38 и 52 — да, 37,9 и 52,1 — нет; Г 52 — да, 52,1 — нет',
+       g(80, 45, 38) is None and g(80, 45, 52) is None and g(80, 45, 37.9) and g(80, 45, 52.1)
+       and g(80, 52, 45) is None and g(80, 52.1, 45))
+    ok('форма: оси нормализуются (45×80 = 80×45); неправдоподобные размеры и без размеров — не банкетка (fail-closed)',
+       g(45, 80, 45) is None and g(80, 45, 45, False) == 'форма: размеры неправдоподобны'
+       and g(108, 55, 43) == 'форма: d 55 вне 25–52' and g(55, 108, 43) == 'форма: d 55 вне 25–52'   # Риббл-18, и с осями наоборот
+       and C.role_guard('банкетка', nm, {}, R) == 'форма: размер неизвестен'
+       and C.role_guard('банкетка', nm, {'w': 80, 'd': 45, 'h': None}, R) == 'форма: размер неизвестен')
+    ok('псевдоним: пуф-стол, трансформер, бескаркасный, к креслу, для ног — не банкетка и с годной формой',
+       all(rl(112923, '445', x) is None for x in ('Пуф/стол TC Ergo', 'Пуф-трансформер Х', 'Пуф бескаркасный Х',
+                                                    'Пуф к креслу Х', 'Пуф для ног Х', 'Пуф-столик Х')))
+    ok('псевдоним только в ветках с банкеткой: садовая 99272:6996 и шкафы 93965:1988 — None',
+       rl(99272, '6996', 'Скамья ЗМИ Торонто 23Л чёрная') is None
+       and rl(93965, '1988', 'Пуфик Орматек Пуф Como/Veda (ЛДСП Белая+экокожа Белая) 82x42') is None)
+    RB = C.rules()
+    names = [c['name'] for c in json.load(open(os.path.join(HERE, 'tests', 'fixtures', 'hall-role-cases.json'), encoding='utf-8'))]
+    ok('спальня не задета: ключа role_alias у неё нет, псевдоним не срабатывает ни на одном названии фикстуры прихожей',
+       'role_alias' not in RB and not any(C.alias_only(r, n, RB) for n in names for r in set(RB['categories'].values())))
+    return 0
 
 
 def _selftest_kits(R: dict, ok) -> int:
