@@ -76,7 +76,7 @@ try:
     sets = [kit(1, 'лофт', 'sofa-gone', [{'mid': 1, 'eid': 'spare'}]), kit(2, 'лофт', 'sofa-gone', [])]
     ranked = F.fill_banks(sets)
     lo = ranked.get('лофт') or []
-    order = [(i, k[-1]) for k, i, s, j in lo]
+    order = [(i, k[4]) for k, i, s, j in lo]     # k[4] — свой/пул; k[5] — с заменой по цвету или без (T-25/2)
     check('набор со своим запасным — два кандидата подряд (свой, затем только пул); без запасных — один',
           order[:2] == [(1, 0), (1, 1)] and order.count((2, 0)) == 1 and (2, 1) not in order, order)
     own = lo[0]

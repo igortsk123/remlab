@@ -86,6 +86,35 @@ j = [x for x in DF.fill_set(s, [p for p in pool if p['eid'] == 'green2'], gate, 
 ok('заменить нечем (в пуле только цветные) — вещь остаётся, журнал пуст: цвет дыры не делает',
    s['items']['стеллаж']['name'] == KANE and j == [])
 
+# --- сухой прогон T-25/2: цвет и в ОБЫЧНОЙ замене, высота при замене по цвету, отсечка forbidden
+media2 = lambda mid, eid: {'state': 'gone' if eid == 'gone' else 'available'}  # noqa: E731
+s = {'style': 'джапанди', 'items': {'стул': {'mid': '1', 'eid': 'gone', 'name': 'Стул TC Diamante Коричневый/Белый', 'w': 50,
+                                            'price': 8990}}}
+j = [x for x in DF.fill_set(s, pool, gate, card, media2, has_mesh) if x['reason'] != 'нет товара']
+ok('снятый с продажи стул джапанди заменяется графитовым, а не оливковым «Фирес» (тот ближе по цене): discouraged — после годных',
+   s['items']['стул']['name'] == GRAPHITE and len(j) == 1 and not DF.is_colour_swap(j[0]))
+OAK = 'Стеллаж divan.ru Талдом 65x80 Дуб Барбера'
+pool_h = [dict(pool[0], h=118), {'mid': '9', 'eid': 'oak', 'role': 'стеллаж', 'style': 'минимализм', 'name': OAK, 'w': 65, 'd': 35,
+                                 'h': 80, 'price': 9990}]
+s = {'style': 'минимализм', 'items': {'стеллаж': {'mid': '1', 'eid': 'kane', 'name': KANE, 'w': 75, 'h': 75, 'price': 10990}}}
+j = DF.fill_set(s, pool_h, gate, card, media, has_mesh)
+ok('замена по цвету — сперва ближе по высоте: стеллаж 75 см (под окном) → «Талдом» 80 см, не «Амберсон» 118 см (ближе по ширине)',
+   s['items']['стеллаж']['name'] == OAK and any(DF.is_colour_swap(x) for x in j))
+s = {'style': 'минимализм', 'items': {'стеллаж': {'mid': '1', 'eid': 'kane', 'name': KANE, 'w': 75, 'h': 75}}}
+j = [x for x in DF.fill_set(s, pool_h, gate, card, media, has_mesh, colour_swap=False) if x['reason'] != 'нет товара']
+ok('colour_swap=False (запасной вариант choose_banks) — замен по цвету нет, вещь та же', s['items']['стеллаж']['name'] == KANE and j == [])
+BURG = 'ТВ-тумба divan.ru Блест 151x61 Бургундский'
+cs = [it(KANE), it(WHITE)]
+ok('color_order: forbidden не ядра — отсечка', [c['name'] for c in DF.color_order('стеллаж', cs, 'минимализм')] == [WHITE])
+cs = [it(BURG), it('ТВ-тумба divan.ru Кимбол 140x45 Белый')]
+ok('color_order: forbidden у ядра (тв-тумба) — не отсечка, а в конец (дыра в ядре снимает вариант)',
+   [c['name'] for c in DF.color_order('тв-тумба', cs, 'минимализм', core=True)] == ['ТВ-тумба divan.ru Кимбол 140x45 Белый', BURG])
+cs = [it('Стул Фирес Рогожка Оливковый'), it('Стул Ламекс-1 Рогожка Серый/Черный'), it(GRAPHITE)]
+ok('color_order: годные (preferred и allowed) — прежний порядок, discouraged после',
+   [c['name'] for c in DF.color_order('стул', cs, 'джапанди')] == ['Стул Ламекс-1 Рогожка Серый/Черный', GRAPHITE,
+                                                                   'Стул Фирес Рогожка Оливковый'])
+ok('color_order: не крупная роль — как было', DF.color_order('подушка', cs, 'джапанди') == cs)
+
 # --- 4 остальных варианта витрины 07.11 (сборка rehearsal-0711, /test/style-fallback-23/): ни одной замены по цвету
 SHOWN = {
     'сканди': ['диван|Диван прямой divan.ru Викс Рогожка Серый', 'столик|Журнальный стол divan.ru Хостер-1 Темно-бежевая керамика/Орех',

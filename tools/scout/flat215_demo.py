@@ -728,9 +728,9 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     for style in order + sorted(k for k in by_style if k not in order):
         cands = []
 
-        def filled(i: int, own: bool) -> tuple:
+        def filled(i: int, own: bool, colour: bool = True) -> tuple:
             s = copy.deepcopy(sets[i - 1])
-            j = DF.fill_set(s, pool, gate, _card, _media, has_mesh, DEMO_ENV, taken, own=own)
+            j = DF.fill_set(s, pool, gate, _card, _media, has_mesh, DEMO_ENV, taken, own=own, colour_swap=colour)
             nook = drop_lonely_nook(s, benches)
             if nook:
                 j.append(nook)
@@ -738,10 +738,14 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
             no_mesh = sum(1 for r, it in items.items() if DF.base_role(r) in PLACEABLE
                           and DF.base_role(r) not in NOMESH_ROLES and it and not has_mesh(it))
             placeable = sum(1 for r in items if DF.base_role(r) in PLACEABLE)
-            return ((len(DF.core_missing(s)), no_mesh, -placeable, i, 0 if own else 1), i, s, j)
+            return ((len(DF.core_missing(s)), no_mesh, -placeable, i, 0 if own else 1, 0 if colour else 1), i, s, j)
         for _k in sorted(by_style.get(style, []))[:per_style]:
             c = filled(_k[2], True)
             cands.append(c)
+            # ЗАМЕНА ПО ЦВЕТУ НЕ ВЫБИВАЕТ ВЕЩЬ ИЗ РАССТАНОВКИ (T-25/2): тот же набор без замен по цвету — сразу следом (ключ на
+            # единицу хуже); `choose_banks` возьмёт его, если заменённая по цвету вещь не встала на пол
+            if any(DF.is_colour_swap(x) for x in c[3]):
+                cands.append(filled(_k[2], True, False))
             # СВОЙ ЗАПАСНОЙ НЕ ДЕЛАЕТ ХУЖЕ ПРЕЖНЕГО (T-20261023-10): ворота он проходит, но расстановку может не дать (23.10
             # «современный»: свой столик 120×58 вытеснил торшер). Брали свой запасной — тот же набор с прежним дозаполнением
             # из пула идёт сразу следом (ключ на единицу хуже), и `choose_banks` попробует его раньше следующего набора
@@ -1100,6 +1104,15 @@ def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list
                 print(f'  стиль «{style}»: набор {i} не расставился в комнате — беру следующий', flush=True)
                 sets[i - 1] = orig
                 why = why or {'style': style, 'missing': ['расстановка не сошлась']}
+                continue
+            # замена по цвету не должна выбить вещь из расстановки (T-25/2: «Амберсон» 118 см не встал на место стеллажа 75 см
+            # под окном — стеллаж пропал): следом в списке тот же набор без замен по цвету (`fill_banks`)
+            cs = sorted({DF.base_role(x['role']) for x in j if DF.is_colour_swap(x)})
+            if cs and not layout_ok(i, tuple(cs)):
+                print(f'  стиль «{style}»: набор {i} — замена по цвету ({", ".join(cs)}) не встала в расстановку — '
+                      f'беру набор без неё', flush=True)
+                sets[i - 1] = orig
+                why = why or {'style': style, 'missing': ['замена по цвету не встала в расстановку']}
                 continue
             print(f'  вариант стиля «{style}»: набор {i}, ядро полное, без модели {key[1]}, расставляемых {-key[2]}, '
                   f'замен {sum(1 for x in j if x["to"])}, снято без замены {sum(1 for x in j if not x["to"])}', flush=True)
