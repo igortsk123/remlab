@@ -2,8 +2,8 @@
  "_about": "ПРИХОЖАЯ (room-pipeline-01 Б-2, T-20261105-44): каталог — room_catalog room='hall' (загрузчик tools/scout/hall_catalog.py, правила rules/hall-roles.json); расстановка — planner/hall.py:solve_hall, проверки — planner/hall_checks.py:validate_hall (реестр солвера «hall»). Наборы по стилю — tools/scout/compose_hall.py (composer hall, правила rules/hall-composition.json, T-20261105-48). Состав, шаблоны и нормы — services/planner-solver/rules/hall.json и occupancy.json по ссылке, не копией.",
  "schema_version": 1,
  "profile_id": "hall",
- "profile_version": "2026-11-07.1",
- "content_sha": "9e815664d3da",
+ "profile_version": "2026-11-07.2",
+ "content_sha": "1ca96aca3a3f",
  "room_type": "hall",
  "purposes": {
   "$ref": "tools/scout/rules/hall-roles.json#/purposes"
@@ -130,58 +130,78 @@
      "консоль"
     ],
     "views": [
-     [
-      {
-       "from": "door",
-       "look": "шкаф-купе",
-       "tol": 35
-      },
-      {
-       "from": "door",
-       "look": "шкаф",
-       "tol": 35
-      },
-      {
-       "from": "door",
-       "look": "прихожая",
-       "tol": 35
-      },
-      {
-       "from": "door",
-       "look": "вешалка",
-       "tol": 35
-      }
-     ],
-     [
-      {
-       "from": "head",
-       "of": "шкаф-купе",
-       "look": "door",
-       "tol": 45
-      },
-      {
-       "from": "head",
-       "of": "шкаф",
-       "look": "door",
-       "tol": 45
-      },
-      {
-       "from": "head",
-       "of": "прихожая",
-       "look": "door",
-       "tol": 45
-      },
-      {
-       "from": "head",
-       "of": "вешалка",
-       "look": "door",
-       "tol": 45
-      }
-     ]
-    ]
+     {
+      "need": [
+       {
+        "roles": [
+         "зеркало"
+        ],
+        "min": 0.9
+       },
+       {
+        "roles": [
+         "шкаф-купе",
+         "шкаф",
+         "прихожая",
+         "обувница",
+         "вешалка",
+         "консоль"
+        ],
+        "min": 0.6
+       }
+      ],
+      "more": true
+     },
+     {
+      "need": [
+       {
+        "roles": [
+         "шкаф-купе",
+         "шкаф",
+         "прихожая"
+        ],
+        "min": 0.9
+       },
+       {
+        "roles": [
+         "консоль",
+         "банкетка",
+         "обувница",
+         "вешалка"
+        ],
+        "min": 0.6
+       }
+      ],
+      "more": true
+     }
+    ],
+    "apart": 60,
+    "apartNear": {
+     "deg": 30,
+     "cm": 100
+    },
+    "cover": 0.6,
+    "near": 0.6,
+    "mainBlock": true,
+    "grid": [
+     0,
+     20,
+     40,
+     60,
+     80,
+     100,
+     120,
+     140,
+     160,
+     180
+    ],
+    "slide": {
+     "cm": 24,
+     "step": 6
+    }
    }
   },
-  "_why": "2 вида по rules/hall.json views: вид 1 entry_storage — от входа на хранение (любое из storage_any), вид 2 counter — от хранения обратно на вход (зеркало, консоль, вешалка, обувница). Хранение — любое из ролей шкафа: запись видов — список равноправных. Заглушка демо (ветка onb-12c) смотрела только на «шкаф» — в каталоге прихожей такой роли тогда не было (распашной «шкаф» добавлен T-20261107-10/2; хранение — шкаф-купе, шкаф, прихожая, вешалка); демо берёт эту запись (Работник 2)"
+  "_why": "2 вида по смыслу правила стенда rules/hall-views.json (T-20261107-05/4): вид 1 — к входу, зеркало целиком и хранение у него; вид 2 — главное хранение целиком и рядом предмет коридора; точка любая, оба вида — больше мебели (more). Узкий коридор: пороги «близко» × near, главная вещь вплотную — помеха (mainBlock), покрытие с доли «показан» (cover 0.6), сетка до 1,8 м от угла. Хранение — любое из ролей шкафа (шкаф-купе, распашной «шкаф» — T-20261107-10/2, прихожая). Демо берёт запись CAM_ZONES.hall; копия здесь сверяется room_profile.py --lint"
  },
  "asset_strategies": {
   "$ref": "tools/scout/rules/asset-strategies.json#/roles"

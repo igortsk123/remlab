@@ -1939,7 +1939,12 @@ function camItemH(it){const r=String(it.role||'').replace(/\s+\d+$/,'');
   // как помеху, а не одну низкую тумбу (14.10: в «джапанди» спина телевизора закрывала пол-кадра)
   return r==='тв-тумба'?h+75:h;}
 // Проекция коробки предмета в кадр позы: прямоугольник на экране в долях −1…1 (x вправо, y вверх) или null (за спиной)
+// ВЫСОТА ПОДВЕСА (`elev`, T-20261107-05/4): настенное (зеркало прихожей на 114–186 см) — коробка от `elev` до `elev + h`, а не от пола:
+// иначе консоль под зеркалом «закрывала» его из любой точки, и вид «зеркало целиком» не находился. Высоты в `camProj` и маске
+// (`camParts`) — от низа предмета. Подвес есть только у настенного — у гостиной и спален его нет, числа прежние
+const camElev=it=>+it.elev>0?+it.elev:0;
 function camProj(c,it,h0,h1){
+  const e=camElev(it); h0+=e; h1+=e;
   const a=(c.rot||0)*Math.PI/180, pitch=Math.atan2(CAM_EYE-CAM_TGT,400), cp=Math.cos(pitch), sp=Math.sin(pitch);
   const f=[Math.sin(a)*cp,-Math.cos(a)*cp,-sp], r=[Math.cos(a),Math.sin(a),0], u=[Math.sin(a)*sp,-Math.cos(a)*sp,cp];
   const tx=Math.tan((c.fov||72)/2*Math.PI/180), ty=tx/CAM_ASPECT;
@@ -1968,7 +1973,9 @@ function camBlock(c,its,yl0){
   const yl=yl0===undefined?-1/3:yl0;
   let sum=0, worst=0, who='';
   (its||[]).forEach(it=>{
-    if(camItemH(it)<=2||camNear(c,it)>CAM_NEAR||camIsMain(it))return;   // ковёр — пол; дальнее — содержание кадра; главная вещь — не помеха
+    // ковёр — пол; дальнее — содержание кадра; главная вещь — не помеха, кроме зоны с `mainBlock` (T-20261107-05/4, ведущий: «шкаф-купе —
+    // помеха для „в упор“»: в коридоре камера у дверцы шкафа-купе, глядя на неё, давала кадр — одна дверца во весь экран)
+    if(camItemH(it)<=2||camNear(c,it)>CAM_NEAR||(camIsMain(it)&&!camZ().mainBlock))return;
     const b=camProj(c,it,0,camItemH(it)); if(!b)return;
     const cov=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1))/2*Math.max(0,Math.min(b.y1,1)-Math.max(b.y0,yl))/2;
     sum+=cov; if(cov>worst){worst=cov;who=it.role;}
@@ -2026,7 +2033,8 @@ function camGraze(c,W,H){
   if(near.some(([,k])=>deg(k)<half))return 2;
   // стена в шаге от камеры под острым углом занимает край кадра плитой (джапанди 15.10: 16° к стене в 43 см — треть кадра);
   // доля — угловая: (полкадра − угол к стене) / кадр, не больше CAM_WALL_SHARE
-  const mid=[[c.x,sx],[W-c.x,sx],[c.y,sy],[H-c.y,sy]].filter(([d])=>d<=CAM_WALL_MID);
+  // порог «в шаге» — с коэффициентом близости зоны (`camNearK`): в коридоре 153 см из середины до обеих стен 76 см
+  const mid=[[c.x,sx],[W-c.x,sx],[c.y,sy],[H-c.y,sy]].filter(([d])=>d<=CAM_WALL_MID*camNearK());
   if(mid.some(([,k])=>(half-deg(k))/(2*half)>CAM_WALL_SHARE))return 2;
   const ops=((camRoom()||{}).openings||[]).filter(o=>o.kind!=='window'&&o.width_cm);
   return ops.some(o=>{const g=wallSeg(o.wall,o.offset_cm,o.width_cm);
@@ -2387,16 +2395,30 @@ const CAM_ZONES={
     must:['кухня-ряд','кухня-колонна','кухня-плечо','холодильник','стол обеденный'],
     views:[[{from:'foot', of:'кухня-ряд', look:'кухня-ряд', tol:30}, {from:'door', look:'кухня-ряд', tol:30}],
       {from:'head', of:'кухня-ряд', look:'стол обеденный', tol:35}]},
-  // ПРИХОЖАЯ — запись профиля `rules/profiles/hall.json` (T-20261105-44): хранение — любая из ролей шкафа (в каталоге прихожей
-  // «шкаф» почти не встречается: шкаф-купе, прихожая, вешалка); вид 1 — от входа на хранение, вид 2 — от хранения на вход
+  // ПРИХОЖАЯ — запись профиля `rules/profiles/hall.json` (T-20261105-44; виды — по смыслу правила стенда `rules/hall-views.json`,
+  // T-20261107-05/4). Коридор 153 × 620: хранение у входа (обувница, банкетка, вешалка, консоль) и главное (шкаф-купе) — в разных
+  // концах, в один кадр не входят. Вид 1 — к входу: зеркало целиком (≥ 0.9; висит на `elev`, `camElev`) и хранение у него; вид 2 — главное
+  // хранение целиком и рядом хотя бы один предмет коридора (без него подбор ставил камеру в боковую дверь — шкаф и пустая стена).
+  // Точка любая (`from` нет — прежние «от двери»/«от шкафа» брали боковые двери и смотрели поперёк, в стену), оба вида — `more`.
+  // Узкая комната: пороги «близко» × `near` (`camNearK`), главная вещь вплотную — помеха (`mainBlock`: «в упор в дверцу»),
+  // покрытие — с доли «показан» (`cover` = CAM_SHOWN_MIN: предметы вдоль одной стены заслоняют друг друга), сетка точек до 1,8 м
+  // от угла (`grid`: точка вида 1 — у шкафа, в 4–5 м от входа) и доводка `slide`
   hall:{ready:false,
     core:{'шкаф-купе':3,'шкаф':3,'прихожая':3,'вешалка':1.5,'обувница':1,'банкетка':1,'консоль':1,'зеркало':0.5},
     key:['шкаф-купе','шкаф','прихожая'], show:['вешалка','зеркало','консоль','обувница'],
     must:['шкаф-купе','шкаф','прихожая','вешалка','обувница','банкетка','консоль'],
-    views:[[{from:'door', look:'шкаф-купе', tol:35}, {from:'door', look:'шкаф', tol:35}, {from:'door', look:'прихожая', tol:35}, {from:'door', look:'вешалка', tol:35}],
-      [{from:'head', of:'шкаф-купе', look:'door', tol:45}, {from:'head', of:'шкаф', look:'door', tol:45}, {from:'head', of:'прихожая', look:'door', tol:45}, {from:'head', of:'вешалка', look:'door', tol:45}]]}};
+    views:[{need:[{roles:['зеркало'], min:0.9}, {roles:['шкаф-купе','шкаф','прихожая','обувница','вешалка','консоль'], min:0.6}], more:true},
+      {need:[{roles:['шкаф-купе','шкаф','прихожая'], min:0.9}, {roles:['консоль','банкетка','обувница','вешалка'], min:0.6}], more:true}],
+    apart:60, apartNear:{deg:30, cm:100}, cover:0.6, near:0.6, mainBlock:true,
+    grid:[0,20,40,60,80,100,120,140,160,180], slide:{cm:24, step:6}}};
 const CAM_VIEW_DOOR=170, CAM_VIEW_HEAD=160;
 function camZ(){ const R=camRoom(); return CAM_ZONES[(R&&R.kind)||'living']||CAM_ZONES.living; }
+// КОЭФФИЦИЕНТ БЛИЗОСТИ ЗОНЫ (`near`, T-20261107-05/4): пороги «близко» — стена в шаге (`camGraze`, CAM_WALL_MID), мебель у глаза
+// (`close`/`close2`/`pclose`: CAM_NEAR_L, 1 м, CAM_NEAR_P) и передний план (`fore`, CAM_FORE_D) — умножаются на него. В коридоре 153 см
+// при общих порогах вида вдоль коридора нет ни из одной точки (до обеих стен 76 см, мебель вдоль стены у края кадра — 60–100 см):
+// подбор уводил камеру поперёк — в стену напротив или в дверцу шкафа. Так снимают коридоры — вдоль, ближнее у края кадра — норма.
+// У гостиной и спален поля нет — 1, числа прежние
+function camNearK(){ return camZ().near||1; }
 // ГЛАВНАЯ ВЕЩЬ КОМНАТЫ (T-20261107-01): роль из `key` зоны с наибольшим весом `core` — диван гостиной, кровать спальни, ряд кухни;
 // у равных — все такие (прихожая: шкаф-купе, шкаф, прихожая). Её не считает помехой `camBlock`, по ней выбирается обложка (`poster`)
 function camMainRoles(){ const Z=camZ(), w=r=>(Z.core||{})[r]||0, m=Math.max(0,...(Z.key||[]).map(w)); return (Z.key||[]).filter(r=>m>0&&w(r)===m); }
@@ -2558,10 +2580,10 @@ function camPairAll0(L,W,H,cs,opt){
   const apartOk=(A,B)=>{const d=camAng(A.rot,B.rot); return endsOk(A,B)&&(d>=APART||(!!AN&&d>=AN.deg&&Math.hypot(A.x-B.x,A.y-B.y)>=AN.cm));};
   const keepOk=(a,b)=>!KEEP||b<0||L.every((_,v)=>!KEEP[v]||((bits[v][a]|bits[v][b])&KEEP[v])===KEEP[v]);
   const okV=(a,b)=>!vOk?(b<0||endsOk(all[a],all[b])):(b<0?(vOk[a][0]||vOk[a][1]):(((vOk[a][0]&&vOk[b][1])||(vOk[b][0]&&vOk[a][1]))&&apartOk(all[a],all[b])));
-  const st=L.map(()=>new Map()), stat=(c,v)=>{v=v||0; const its=L[v]; if(!st[v].has(c)){const s0=camStats(c,its,W,H); s0.keyVis=camKeyVis(c,its,s0);
-    s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L-s0.nearest)/100; s0.close2=Math.max(0,100-s0.nearest)/100;
+  const NK=camNearK(), st=L.map(()=>new Map()), stat=(c,v)=>{v=v||0; const its=L[v]; if(!st[v].has(c)){const s0=camStats(c,its,W,H); s0.keyVis=camKeyVis(c,its,s0);
+    s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L*NK-s0.nearest)/100; s0.close2=Math.max(0,100*NK-s0.nearest)/100;
     s0.keyMiss=Math.max(0,CAM_KEY_SHOW_MIN-camKeyShow(c,its,s0));
-    s0.pNear=camStats(c,its,W,H,{w:48,h:66,sn:CAM_P_SN}).nearest; s0.pclose=Math.max(0,CAM_NEAR_P-s0.pNear)/100;
+    s0.pNear=camStats(c,its,W,H,{w:48,h:66,sn:CAM_P_SN}).nearest; s0.pclose=Math.max(0,CAM_NEAR_P*NK-s0.pNear)/100;
     s0.bad1=camBad(s0); s0.bad2=camBad(s0,true); st[v].set(c,s0);} return st[v].get(c);};
   const vmax=f=>{let m=-Infinity; for(let v=0;v<V;v++)m=Math.max(m,f(v)); return m;};
   // штраф ракурсу 1: точка у мебели ближе CAM_MIN_DIST и ступень строгих правил ниже лучшей достижимой
@@ -2799,7 +2821,7 @@ const CAM_DINE=['стол обеденный','стул'];
 const CAM_BED_TOP=55, CAM_BED_HB=10;
 function camParts(it,i){
   const r=(it.rot||0)*Math.PI/180, ca=Math.cos(r), sa=Math.sin(r), h=camItemH(it), role=camRole(it), g=CAM_DINE.includes(role)?-1:i,
-    box=(hw,hd,z0,z1,ox,oy)=>({i,g,hw,hd,z0,z1,cx:it.x+(ox||0)*ca-(oy||0)*sa,cy:it.y+(ox||0)*sa+(oy||0)*ca,ca,sa,rug:role==='ковёр'});
+    e=camElev(it), box=(hw,hd,z0,z1,ox,oy)=>({i,g,hw,hd,z0:z0+e,z1:z1+e,cx:it.x+(ox||0)*ca-(oy||0)*sa,cy:it.y+(ox||0)*sa+(oy||0)*ca,ca,sa,rug:role==='ковёр'});
   if(role==='торшер')return [box(4,4,0,h-40),box(it.w/2,it.d/2,h-40,h)];   // стойка и абажур
   if(role==='тв-тумба'){const sh=h-75; return [box(it.w/2,it.d/2,0,sh),box(Math.min(it.w*0.45,70),3,sh,h)];}   // тумба и экран над ней
   // КРОВАТЬ — МАТРАС И ИЗГОЛОВЬЕ (T-32/2): высота товара — это изголовье; сплошная коробка 121 см «закрывала» комод и шкаф за
@@ -2861,9 +2883,9 @@ function camStats(c,its,W,H,o){
 }
 function camStatsOf(m,r0,r1){
   const rows=r1-r0, n=m.w*rows, vis={}, ext={}, bins=new Set(), col=new Uint16Array(m.w), e=Math.max(1,Math.round(m.w*CAM_EDGE_COLS)), ys=[];
-  let ceil=0, floor=0, near=0, fore=0, win=false, nearest=1e9;
+  let ceil=0, floor=0, near=0, fore=0, win=false, nearest=1e9; const FD=CAM_FORE_D*camNearK();
   for(let j=r0;j<r1;j++)for(let i=0;i<m.w;i++){const k=j*m.w+i, cl=m.cls[k];
-    if(cl===3)ceil++; else if(cl===1||cl===2)floor++; else if(cl===7&&m.dep[k]<CAM_FORE_D)fore++;
+    if(cl===3)ceil++; else if(cl===1||cl===2)floor++; else if(cl===7&&m.dep[k]<FD)fore++;
     if(cl>=5){col[i]++; if(cl===5)win=true;}
     if(cl===7||cl===2){const q=m.item[k];   // видимые пиксели предмета (ковёр — тоже): рамка в долях кадра — окну превью (`camCrop`)
       const x=ext[q]||(ext[q]=[1e9,-1e9,1e9,-1e9]); if(i<x[0])x[0]=i; if(i>x[1])x[1]=i; if(j-r0<x[2])x[2]=j-r0; if(j-r0>x[3])x[3]=j-r0;}

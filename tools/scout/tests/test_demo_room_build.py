@@ -315,6 +315,10 @@ def _main() -> int:
     check(f'прихожая: вариантов столько же, сколько в записи ({len(vs)}), не меньше 5', len(vs) == len(H['out']['variants']) >= 5)
     check('прихожая: побайтно с записью (варианты, ленты, полосы, геометрия)',
           all(canon(hall[p]) == canon(H['out'][p]) for p in ('variants', 'feeds', 'incomplete', 'geos', 'bands')))
+    # своя расстановка у каждого стиля — своя пара ракурсов (T-20261107-05/4, `demo-cams.mjs`): метка у прихожей (правила одной
+    # расстановки у типа нет), у спален (расстановка общая) — нет
+    check('ракурсы: у прихожей метка cams_own, у спален — нет',
+          hall['geos']['hall'].get('cams_own') is True and not any(g.get('cams_own') for g in got['geos'].values()))
     hard = {v['id']: DR.hard_codes(DH.SPEC, {'_room': hall['geos']['hall'], **{i['role']: dict(i, z=i['y']) for i in v['items']}},
                                    None) for v in vs}
     check(f'прихожая: жёстких нарушений 0 у всех вариантов ({", ".join(hard)})', all(not x for x in hard.values()))

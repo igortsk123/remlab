@@ -9,6 +9,7 @@
 // `flat215_demo.py`) — пара подбирается ОДИН раз по мебели всех вариантов (`camPairAll`: точка годна, если чиста в каждом, ключ —
 // худший), у всех вариантов те же точки (x, y, rot, fov); окно превью и сдвиг телефона — по мебели своего варианта. Ставит
 // `D.cams_shared` — страница по нему не пересчитывает точки после замены товара (`index.html:defaultCams`).
+// Исключение — комната с меткой геометрии `cams_own` (своя расстановка у каждого стиля, T-20261107-05/4): пара — по мебели своего стиля.
 //   node tools/flat3d/demo-cams.mjs <demo-data.json>        дописать ракурсы на месте
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -47,7 +48,8 @@ const api = new Function("D", `${block}\n;return {camPair, camPairAll};`)({ ...D
 const W = geo.w;
 const H = geo.d;
 const corners = [{ x: p, y: p }, { x: W - p, y: p }, { x: W - p, y: H - p }, { x: p, y: H - p }];
-const shared = !!D.one_layout && list.length > 1;
+// своя расстановка у каждого стиля (`geo.cams_own`, сборка — `flat215_demo.room_variants`, T-20261107-05/4: прихожая) — пара на стиль
+const shared = !!D.one_layout && list.length > 1 && !geo.cams_own;
 let all = shared ? api.camPairAll(list.map(itsOf), W, H, corners) : null;
 if (shared) console.log(`${rid === "living" ? "" : `${rid}: `}одна пара на ${list.length} вариантов: ${all.how}`);
 // СТИЛЬ НА ЗАПАСНОМ НЕ ПОРТИТ ПОКРЫТИЕ ОСТАЛЬНЫХ (T-20261107-11/3, ведущий): неоклассика на запасном нейтральном ковре
