@@ -1432,6 +1432,13 @@ def room_variants(room_type: str, apt: dict, flags: dict, variants: list, feeds:
     made = 0
     recs = R.pick_records(spec, bank, list(geos), styles)
     lays = room_one_layout(room_type, recs, styles)
+    # СВОЯ РАССТАНОВКА У КАЖДОГО СТИЛЯ — СВОЯ ПАРА РАКУРСОВ (T-20261107-05/4): правила «одна расстановка на все стили» у типа нет
+    # (прихожая: `rules/demo-layout.json`) или комната его не получила — подбор одной пары на все стили (`demo-cams.mjs`, demo-31)
+    # искал точку, годную при пяти разных расстановках, и находил только поперёк коридора: в стену или в дверцу шкафа. Метка
+    # геометрии `cams_own` — сборщик ракурсов подбирает пару по мебели своего стиля. Спальни (расстановка общая) — без метки
+    for rid in geos:
+        if not any(k[0] == rid for k in lays):
+            geos[rid]['cams_own'] = True
     gate = room_mesh_gate(room_type)
     # сторож выключен — та же проверка только для метки «нет модели» (`no_mesh`), предметы не снимаются
     mark = gate or room_mesh_gate(room_type, mode='orient')

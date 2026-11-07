@@ -1,8 +1,8 @@
 // ПОДБОР ДВУХ ВИДОВ ПРИХОЖЕЙ (T-20261106-73, ведущий 06.11). Правило — данными: `tools/scout/rules/hall-views.json` (что обязано
 // быть в кадре каждого вида, зазор до глаза, допуск среза). Камера и близость — функции блока CAMFIT страницы демо
 // (`tools/scout/flat215-demo/index.html`: `camProj`, `camNear`), исполненные тем же способом, что `tools/flat3d/demo-cams.mjs`, —
-// без копии и без правки страницы. Своё здесь только то, чего в CAMFIT нет: высота подвеса (`elev`) в проверке «не заслонён» —
-// CAMFIT считает каждый предмет коробкой от пола, а зеркало висит на 1–1,5 м.
+// без копии и без правки страницы. Своё здесь только проверка «не заслонён» лучами по лицу предмета с его высотой подвеса (`elev`);
+// проекция и маска CAMFIT подвес знают сами с T-20261107-05/4 (`camElev`) — в `camProj` высоты передаются от низа предмета.
 // Сейчас подбор читает стенд снимков (`tools/flat3d/hall-snap.mjs`); на этапе 6 плана hall-demo-01 он станет источником
 // `CAM_ZONES.hall` (лог плана), а не параллельной логикой.
 
@@ -50,7 +50,7 @@ const z0Of = (it: HallItem): number => it.elev ?? 0;
  * `viewer.ts:photoShift`). Пересчёт результата, а не своя проекция.
  */
 function frameBox(cf: Camfit, c: Cam, it: HallItem, aspect: number): Box {
-  const b = cf.proj(c, it, z0Of(it), z0Of(it) + it.h);
+  const b = cf.proj(c, it, 0, it.h);   // высоты от низа предмета: подвес `elev` CAMFIT добавляет сам (`camElev`, T-20261107-05/4)
   if (!b) return null;
   const k = aspect / cf.aspect, s = (y: number) => (y - cf.shift) * k + cf.shift;
   return { x0: b.x0, x1: b.x1, y0: s(b.y0), y1: s(b.y1), behind: b.behind };

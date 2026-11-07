@@ -490,13 +490,30 @@ def unpaired_places(art: dict | None, items: dict, pairs) -> list:
                   and base_role(r) != r and base_role(r) in items and base_role(r) not in tuple(pairs))
 
 
+def room_styles(room_type: str) -> tuple | None:
+    """Стили, которые знает комната (`room_profile.styles`: правила сборщика её типа); нет профиля или сборщика — None."""
+    import room_profile as RP
+    try:
+        return RP.styles(RP.load(room_type))
+    except ValueError:
+        return None
+
+
 def pick_records(spec: Showcase, bank: list, rooms: list, styles: list) -> list:
     """Одна запись на (комнату, стиль): только включённые комнаты, стили — опубликованные гостиной (ключ стиля — витрина, ADR-0330
-    п.3), порядок — как у гостиной. Несколько записей одной ячейки — первая (банк упорядочивает сборщик)."""
+    п.3), порядок — как у гостиной. Несколько записей одной ячейки — первая (банк упорядочивает сборщик).
+    СТОРОЖ СТИЛЕЙ (T-20261107-05/7; 07.11 в банке прихожей нашлась «неоклассика» — пятистильный сборщик её не собирает, запись
+    пришла чужим путём): стиль записи — из стилей комнаты (`room_styles`: правила сборщика её типа), иначе вариант не публикуется,
+    строка `WARN:demo_room_style`. У типа без списка стилей — как было."""
     rank = lambda xs, x: xs.index(x) if x in xs else len(xs)   # noqa: E731
+    allowed = room_styles(spec.room_type)
     out, seen = [], set()
     for st in styles:
         cand = [r for r in bank if r.get('room_id') in rooms and (r.get('style') or '') == st]
+        if cand and allowed is not None and st not in allowed:
+            print(f'WARN:demo_room_style: {spec.room_type} — стиль «{st}» вне стилей комнаты ({", ".join(allowed)}), '
+                  f'записей {len(cand)} ({", ".join(sorted({r.get("room_id") for r in cand}))}) — вариант не публикуется', flush=True)
+            continue
         # ячейка витрины: назначение и ступень цены по порядку (`purpose_order`, `tier_order`), при равных — порядок банка
         cand.sort(key=lambda r: (rank(spec.purpose_order, r.get('purpose')), rank(spec.tier_order, r.get('tier'))))
         for r in cand:

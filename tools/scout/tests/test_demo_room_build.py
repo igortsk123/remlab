@@ -315,6 +315,10 @@ def _main() -> int:
     check(f'прихожая: вариантов столько же, сколько в записи ({len(vs)}), не меньше 5', len(vs) == len(H['out']['variants']) >= 5)
     check('прихожая: побайтно с записью (варианты, ленты, полосы, геометрия)',
           all(canon(hall[p]) == canon(H['out'][p]) for p in ('variants', 'feeds', 'incomplete', 'geos', 'bands')))
+    # своя расстановка у каждого стиля — своя пара ракурсов (T-20261107-05/4, `demo-cams.mjs`): метка у прихожей (правила одной
+    # расстановки у типа нет), у спален (расстановка общая) — нет
+    check('ракурсы: у прихожей метка cams_own, у спален — нет',
+          hall['geos']['hall'].get('cams_own') is True and not any(g.get('cams_own') for g in got['geos'].values()))
     hard = {v['id']: DR.hard_codes(DH.SPEC, {'_room': hall['geos']['hall'], **{i['role']: dict(i, z=i['y']) for i in v['items']}},
                                    None) for v in vs}
     check(f'прихожая: жёстких нарушений 0 у всех вариантов ({", ".join(hard)})', all(not x for x in hard.values()))
@@ -328,6 +332,30 @@ def _main() -> int:
     check('прихожая: ленты — под ключом «hall:<роль>», строки без модели — с меткой',
           hall['feeds'] and all(k.startswith('hall:') for k in hall['feeds'])
           and any(r.get('no_mesh') for rows in hall['feeds'].values() for r in rows))
+
+    # --- сторож стилей (T-20261107-05/7): гостиная публикует «неоклассику», в банке прихожей есть её запись, а сборщик прихожей
+    #     этого стиля не знает (`rules/hall-composition.json:styles`) — варианта нет, громкая строка WARN:demo_room_style
+    import contextlib
+    import io
+    H6 = dict(H, styles=H['styles'] + ['неоклассика'])
+    check('сторож стилей: в банке фикстуры есть запись «неоклассика», в стилях прихожей её нет',
+          any(r.get('style') == 'неоклассика' for r in H6['bank']) and 'неоклассика' not in (DR.room_styles('hall') or ())
+          and 'неоклассика' in (DR.room_styles('bedroom') or ()))
+    os.environ['HALL_MESH_GATE'] = '0'
+    os.environ['FLAT215_FEED_ANY_MESH'] = '1'
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        picked = [r.get('style') for r in DR.pick_records(DH.SPEC, H6['bank'], ['hall'], H6['styles'])]
+    check(f'сторож стилей: выбор записей витрины — без «неоклассики», пять стилей прихожей ({", ".join(picked)})',
+          picked == H['styles'] and 'WARN:demo_room_style' in buf.getvalue())
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        h6 = json.loads(canon(run_room('hall', H6, Tape(False, copy.deepcopy(H['tape'])), ['hall'])))
+    restore()
+    check(f'сторож стилей: варианта «неоклассика» нет, остальные пять — побайтно как без неё ({len(h6["variants"])})',
+          not [v for v in h6['variants'] if v.get('style') == 'неоклассика'] and canon(h6['variants']) == canon(hall['variants']))
+    check('сторож стилей: строка WARN:demo_room_style с комнатой и стилем',
+          any(ln.startswith('WARN:demo_room_style: hall') and 'неоклассика' in ln for ln in buf.getvalue().splitlines()))
 
     # --- стратегия плоскости в предметах (T-20261107-05/3): мост рисует зеркало на стене только по полю `strategy`
     #     (`fromDemo.ts:isWallPlane` — procedural_plane и высота больше глубины); канон — `asset_strategy`, один для всех путей

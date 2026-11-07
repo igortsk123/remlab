@@ -196,6 +196,14 @@ def lead_rule(P: dict) -> str:
     return P.get('lead_rule') or 'all'
 
 
+def styles(P: dict) -> tuple | None:
+    """Стили комнаты — `styles` правил сборщика (`composer.rules`, напр. `rules/hall-composition.json`): то, что сборщик этого типа
+    умеет собрать (T-20261107-05/7, сторож витрины `demo_room.pick_records`). Нет сборщика или списка — None (сторожа нет)."""
+    r = (P.get('composer') or {}).get('rules')
+    st = r.get('styles') if isinstance(r, dict) else None
+    return tuple(st) if isinstance(st, list) and st else None
+
+
 def pairs(P: dict) -> tuple:
     """Парные роли (`pair`): пронумерованное место расстановки («тумба прикроватная 2») берёт товар своей роли — в порядке ролей."""
     return tuple(r for r, v in P['roles'].items() if v.get('pair'))
