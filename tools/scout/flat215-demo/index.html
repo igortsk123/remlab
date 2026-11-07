@@ -993,6 +993,8 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .qz-opt[aria-pressed=true]{border-color:var(--accent);color:var(--accent);font-weight:600}
 .qz-opt .qz-tick{position:static;width:20px;height:20px;font-size:12px;flex:0 0 20px}
 .qz-lbl{font-size:13.5px;color:var(--muted);margin:2px 0 -4px}
+/* колонка экрана вопросов: на компьютере тело опроса во всю ширину (пары фото рядом) — плашки держим под заголовком по центру (T-64/2) */
+.qz-col{display:flex;flex-direction:column;gap:12px;width:100%;max-width:680px;margin:0 auto}
 /* «С детьми» → сколько и возраст: панель сразу под плашкой, уголок указывает на неё (`kidTip`), раскрытие ~0,25 с (T-20261107-64) */
 .qz-kid{flex:1 0 100%;padding-top:7px;overflow:hidden}
 .qz-kid-p{position:relative;display:flex;flex-direction:column;gap:10px;padding:10px 12px 12px;border-radius:14px;background:var(--surface);
@@ -8439,7 +8441,7 @@ function quizPick(rule, answers, available, styleColours){
           (o.dots||[]).map(function(d){return '<i style="background:'+esc(d)+'"></i>';}).join('')+'</span><span class="qz-ol">'+esc(tr(o,''))+'</span>'+(on?TICK:'')+'</button>';}).join('')+'</div>';
     var last=!stepOn('b1')&&!stepOn('b2');   // экранов спальни нет (пар с фото спален не хватает) — дальше сразу итог
     return page(bar('about')+'<h2 class="qz-h" id="qzH">'+esc(tr(q,''))+'</h2><p class="qz-sub">'+esc(tr(q,'hint'))+'</p>'+
-      '<div class="qz-chips">'+opts.map(function(o){return chip(o,Q.a.household,'data-hh')+(o===kid?kidBox:'');}).join('')+'</div>'+colsH,
+      '<div class="qz-col"><div class="qz-chips">'+opts.map(function(o){return chip(o,Q.a.household,'data-hh')+(o===kid?kidBox:'');}).join('')+'</div>'+colsH+'</div>',
       nav(true, last?(EN()?'Show the designs':'Показать варианты'):''));
   }
   // ПОДПИСЬ ВАРИАНТА НА ИТОГЕ — «Вариант N», тот же номер, что на шаге гостиной (владелец, голос TG 368, T-20261107-28/2): название
