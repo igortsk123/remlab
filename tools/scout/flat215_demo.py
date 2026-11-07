@@ -2018,6 +2018,23 @@ def annotate_yaw(data: dict) -> int:
     return n
 
 
+def annotate_strategy(data: dict) -> int:
+    """СТРАТЕГИЯ 3D-АССЕТА — В ПРЕДМЕТ ВАРИАНТА (T-20261107-05/3; контракт `lib/configurator/fromDemo.ts` поле `strategy`, T-73).
+    Мост рисует зеркало и картину плоскостью на стене только по этому полю (`isWallPlane`): канон ролей лежит в `tools/`, которых
+    нет в образе приложения, поэтому решение идёт ДАННЫМИ. Без поля зеркало прихожей шло коробкой и искало модель (404).
+    Пишем только не-меш стратегию `procedural_plane` (зеркало, картина, ковёр — `asset_strategy`, тот же JSON, что у конвейера
+    и серверного кадра): у остальных предметов данные не меняются. Ковру поле поведения не меняет — стена только при высоте
+    больше глубины."""
+    import asset_strategy as _AS
+    n = 0
+    for v in data.get('variants') or []:
+        for it in v.get('items') or []:
+            if _AS.strategy(it.get('role')) == 'procedural_plane':
+                it['strategy'] = 'procedural_plane'
+                n += 1
+    return n
+
+
 def _tone(path: str):
     """Средний цвет товара по фото без белого фона — то же правило, что у кадра (`draft_render._photo_hex`), в долях 0..1.
     Тело — `mesh_color_check.tone` (одно правило со сторожем цвета мешей, T-20261107-14/2)."""
@@ -2231,6 +2248,7 @@ def main() -> None:
           f'WARN:scene_bundle: движок живой сцены не собрался (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}')
     data = cache_images(build())
     print(f'разворот фронта в предметах вариантов: {annotate_yaw(data)}')
+    print(f'стратегия плоскости (зеркало, картина, ковёр) в предметах вариантов: {annotate_strategy(data)}')
     print(f'подкраска цветовых вариантов семейства: {annotate_tint(data)}')
     print(f'образцы цвета у товаров с цветами: {annotate_swatch(data)}')
     # ВОРОТА АРТЕФАКТОВ (demo-05 п.1): наезд глубже 2 см или модель намного темнее товара — вариант не публикуется. Если

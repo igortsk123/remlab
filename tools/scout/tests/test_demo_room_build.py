@@ -329,6 +329,22 @@ def _main() -> int:
           hall['feeds'] and all(k.startswith('hall:') for k in hall['feeds'])
           and any(r.get('no_mesh') for rows in hall['feeds'].values() for r in rows))
 
+    # --- стратегия плоскости в предметах (T-20261107-05/3): мост рисует зеркало на стене только по полю `strategy`
+    #     (`fromDemo.ts:isWallPlane` — procedural_plane и высота больше глубины); канон — `asset_strategy`, один для всех путей
+    import asset_strategy as AS
+    sv = copy.deepcopy({'variants': B['out']['variants'] + vs})
+    n_plane = F.annotate_strategy(sv)
+    its = [i for v in sv['variants'] for i in v['items']]
+    wall = lambda i: i.get('strategy') == 'procedural_plane' and i.get('w') and i.get('d') and i.get('h') and i['h'] > i['d']  # noqa: E731
+    mirrors = [i for i in its if DR.base_role(i['role']) == 'зеркало']
+    check(f'стратегия: у каждого зеркала прихожей — procedural_plane и оно стоймя, мост рисует плоскость на стене ({len(mirrors)})',
+          len(mirrors) == len(vs) and all(wall(i) for i in mirrors))
+    check(f'стратегия: поле только у ролей procedural_plane канона, у мебели с моделью данных не прибавилось ({n_plane})',
+          n_plane == sum(1 for i in its if i.get('strategy'))
+          and all(AS.strategy(i['role']) == 'procedural_plane' for i in its if i.get('strategy')))
+    check('стратегия: ковёр спальни с полем остаётся на полу (не стена), мебель плоскостью не стала',
+          not [i for i in its if wall(i) and DR.base_role(i['role']) not in ('зеркало', 'картина')])
+
     # --- фото товаров вариантов (T-20261107-05/2): есть у каждого, живое, после шага фото лежит в своей медиа
     photos(B['out']['variants'] + vs, set(B['dead']) | set(H['dead']), {'bedroom_catalog': B['cat'], 'hall_catalog': H['cat']},
            hall['feeds'])
