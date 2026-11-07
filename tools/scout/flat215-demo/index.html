@@ -1305,9 +1305,10 @@ function init(){
   loadShots();
   load();
   // СТИЛЬ ИЗ АДРЕСА (demo-16): ссылка менеджера `?style=loft` открывает этот стиль; ссылка на вариант/коллекцию (`#v=`, `#c=`) важнее
-  // комната — тоже из адреса (`?room=`, его пишет `syncStyleParam`; onb-07 основа): нет такого варианта — гостиная этого стиля
+  // комната — тоже из адреса (`?room=`, его пишет `syncStyleParam`; onb-07 основа): нет такого варианта — похожий в той же комнате
+  // (`roomVariantFor`, style-fallback-01), нет и его — гостиная этого стиля
   {const st=HOME.want, m=homeModel(), rq=(location.search.match(/[?&]room=([a-z0-9-]{2,40})(?:&|$)/)||[])[1]||'living',
-    rv=st&&!/^#(?:v|c)=/.test(location.hash)?(m.roomVariants.find(x=>x.styleId===st&&x.roomId===rq)||m.roomVariants.find(x=>x.styleId===st&&x.roomId==='living')):null;
+    rv=st&&!/^#(?:v|c)=/.test(location.hash)?(roomVariantFor(m,st,rq)||m.roomVariants.find(x=>x.styleId===st&&x.roomId==='living')):null;
     if(st)HOME.styleId=st; if(rv&&rv.index!==cur){cur=rv.index; load();}}
   applyHash();
   HOME.ready=true; drawHome(true);
@@ -4254,12 +4255,24 @@ function homeModel(){
   });
   return {styles, rooms:homeRooms(), roomVariants};
 }
+// КОМНАТА БЕЗ ВЫБРАННОГО СТИЛЯ — МОЛЧА ПОХОЖИЙ ВАРИАНТ (план style-fallback-01, владелец 07.11 TG 309: «молчаливая подмена, вариант А»):
+// точного варианта нет — первый по карте сборки `D.room_style_fallback[комната][стиль]` (соседи «легко спутать» → ближе по палитре
+// опроса → порядок вкладок, `demo_room.style_fallback`), чей вариант на главной есть. Без метки и слова «стиль»; плашка остаётся
+// только у комнат совсем без вариантов (кухня, санузлы). Одна функция для карточек, вкладок, опроса и ссылки `?style=&room=`
+function roomVariantFor(m, styleId, roomId){
+  const exact=m.roomVariants.find(x=>x.styleId===styleId&&x.roomId===roomId); if(exact)return exact;
+  const order=((((D&&D.room_style_fallback)||{})[roomId])||{})[styleId]||[];
+  for(const s of order){const rv=m.roomVariants.find(x=>x.styleId===s&&x.roomId===roomId); if(rv)return rv;}
+  return null;
+}
 // активный ключ: открытый вариант каталога задаёт стиль; открыта коллекция — остаётся выбранный вкладкой стиль
 function homeActive(m){
   const rv=m.roomVariants.find(x=>x.index===cur), v=allVariants()[cur];
   // открыта коллекция (своя или по ссылке) — вкладка её стиля («коллекция по ссылке · сканди» → scandi), иначе выбранный вкладкой
   const cs=v&&v.cid?(STYLE_IDS[String(v.style||'').replace(/^.*·\s*/,'').trim().toLowerCase()]||''):'';
-  const styleId=rv?rv.styleId:(m.styles.some(s=>s.id===cs)?cs:(m.styles.some(s=>s.id===HOME.styleId)?HOME.styleId:((m.styles[0]||{}).id||'')));
+  // открыт подменённый вариант (стиля вкладки в его комнате нет, `roomVariantFor`) — вкладка остаётся выбранной, не прыгает на стиль замены
+  const sub=rv&&HOME.styleId&&HOME.styleId!==rv.styleId&&m.styles.some(s=>s.id===HOME.styleId)&&roomVariantFor(m,HOME.styleId,rv.roomId)===rv;
+  const styleId=sub?HOME.styleId:rv?rv.styleId:(m.styles.some(s=>s.id===cs)?cs:(m.styles.some(s=>s.id===HOME.styleId)?HOME.styleId:((m.styles[0]||{}).id||'')));
   return {styleId, roomId:rv?rv.roomId:'living', variantId:rv?rv.variantId:null};
 }
 function styleParam(){ const m=location.search.match(/[?&]style=([a-z-]{2,20})(?:&|$)/); return m?m[1]:''; }
@@ -4273,9 +4286,10 @@ function syncStyleParam(id,room){
   try{const u=new URL(location.href); u.searchParams.set('style',id); u.searchParams.set('room',room); history.replaceState(history.state,'',u.pathname+u.search+u.hash);}catch(e){}
 }
 function homeSelectStyle(id){
-  // вариант того же стиля В ТОЙ ЖЕ КОМНАТЕ, что открыта (onb-07 основа); нет — гостиная этого стиля, нет и её — любой этого стиля
+  // вариант того же стиля В ТОЙ ЖЕ КОМНАТЕ, что открыта (onb-07 основа), нет его — похожий в ней же (`roomVariantFor`, style-fallback-01);
+  // нет и такого — гостиная этого стиля, нет и её — любой этого стиля
   const m=homeModel(), rid=roomIdOf(allVariants()[cur]);
-  const rv=m.roomVariants.find(x=>x.styleId===id&&x.roomId===rid)||m.roomVariants.find(x=>x.styleId===id&&x.roomId==='living')||m.roomVariants.find(x=>x.styleId===id);
+  const rv=roomVariantFor(m,id,rid)||m.roomVariants.find(x=>x.styleId===id&&x.roomId==='living')||m.roomVariants.find(x=>x.styleId===id);
   HOME.styleId=id;
   if(rv&&rv.index!==cur)pickVariant(rv.index);
   syncStyleParam(id,rv?rv.roomId:'living'); drawHome(true);
@@ -4293,7 +4307,7 @@ function drawHome(force){
   const act=waitC?{styleId:(m.styles.some(s=>s.id===HOME.styleId)?HOME.styleId:((m.styles[0]||{}).id||'')), roomId:'living', variantId:null}:homeActive(m);
   if(act.styleId&&!waitC){HOME.styleId=act.styleId; if(HOME.ready)syncStyleParam(act.styleId,act.roomId);}
   const cards=m.rooms.map(r=>{
-    const rv=r.contentState==='ready'?m.roomVariants.find(x=>x.styleId===act.styleId&&x.roomId===r.id):null, v=rv?allVariants()[rv.index]:null;
+    const rv=r.contentState==='ready'?roomVariantFor(m,act.styleId,r.id):null, v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
     // правленый вариант без своего кадра — кадр 3D его расстановки, нет и его — кадр опубликованного
     const pc=posterCam(v), sh=bestShot(v,pc)||liveShot(v)||pubShot(v,pc), fav=F&&F.ofState(F.baseState(v));
@@ -4316,10 +4330,11 @@ function drawHome(force){
   box.innerHTML=cards.map(c=>{
     const t=`${escHtml(c.r.title)}${c.r.areaM2?` <small>· ${homeM2(c.r.areaM2)}</small>`:''}`;
     if(c.stub)return `<div class="hm-stub" data-room="${c.r.id}" aria-disabled="true"><b>${t}</b><span>${EN?'coming in the next step':'появится следующим шагом'}</span></div>`;
-    const alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===act.styleId)||{}).title), on=c.r.id===shownId;
+    // подпись картинки — стиль ПОКАЗАННОГО варианта (у подменённой комнаты он свой); `data-shown` — только у подменённой, для проверок
+    const vs=styleIdOf(c.v), alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===vs)||{}).title), on=c.r.id===shownId;
     return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b>`+
       `<span>${money(c.sum)} · ${c.n} ${plural(c.n)}</span></button>`+
-      `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${act.styleId}" data-variant="${escHtml(c.v.id)}">`+
+      `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${act.styleId}"${vs!==act.styleId?` data-shown="${vs}"`:''} data-variant="${escHtml(c.v.id)}">`+
       `<div class="hm-ph" data-open="${c.i}">`+
       (c.img?`<img src="${escHtml(c.img)}" alt="${alt}" decoding="async" data-url="${escHtml(c.full)}" onerror="this.onerror=null;this.src=this.dataset.url">`
         :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
@@ -7305,7 +7320,10 @@ async function liveShotTake(){
   function state(){
     try{var v=allVariants()[cur]||{};
       var names=uniqProducts(variantItems(v).map(skuOf).filter(Boolean)).map(function(x){return x.name;}).slice(0,10);
-      return {variant:String(v.style||v.title||'').slice(0,80)||undefined, items:names.map(function(n){return String(n).slice(0,120);}), sum:Math.round(LAST_SUM||0)||undefined};
+      // подменённая комната (style-fallback-01): выбран стиль вкладки, показан вариант похожего — менеджеру оба (`chosen`, `shown_style`)
+      var sh=styleIdOf(v), ch=(typeof HOME!=='undefined'&&HOME.styleId)||'', sub=sh&&ch&&sh!==ch&&!v.mine&&!v.cid;
+      return {variant:String(v.style||v.title||'').slice(0,80)||undefined, items:names.map(function(n){return String(n).slice(0,120);}), sum:Math.round(LAST_SUM||0)||undefined,
+        chosen:sub?ch:undefined, shown_style:sub?sh:undefined};
     }catch(e){return {};}
   }
   function ev(kind,extra){

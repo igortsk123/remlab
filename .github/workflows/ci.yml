@@ -152,6 +152,7 @@ jobs:
       - run: python tools/scout/tests/test_style_color.py   # цвет по стилю и роли: изумрудная кровать минимализма — не кандидат, ярус цвета раньше меша (спальня, прихожая), квота мешей не считает forbidden (style-color-01, T-20261107-12)
       - run: python tools/scout/tests/test_demo_en_roles.py   # EN-страница витрины: роли спальни и прихожей переведены (по профилям комнат, T-20261106-77 Д6)
       - run: pip install scipy && python tools/scout/tests/test_demo_swatch.py   # кружок цвета — тон ткани без фона и теней, светлое не серит (demo-28)
+      - run: python tools/scout/tests/test_style_fallback.py   # комната без выбранного стиля — молча похожий вариант: карта замен (соседи → палитра → вкладки), неоклассика только в гостиной (style-fallback-01, T-20261107-23)
       - run: pip install trimesh && python tools/scout/tests/test_wall_plane.py   # (trimesh — scene_mesh → mesh_render; в planner его нет) (нужен planner: draft_render) зеркало прихожей на серверном кадре — плоскость на стене по стене/развороту/высоте солвера, не clay и не меш, закрывается мебелью (T-20261106-73)
 
   draft-image:

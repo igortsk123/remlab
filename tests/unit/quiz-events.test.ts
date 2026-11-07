@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { pageCounterKind, pageEventIn } from "@/contracts/analytics";
 import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_KIDS_RU, QUIZ_STYLE_RU, quizChildAge, quizColour, quizHousehold, quizKids, quizStyle } from "@/contracts/quiz";
 import { buyerEvent } from "@/contracts/send";
+import { contactText } from "@/modules/sends/signals";
+import type { Send } from "@/modules/sends/types";
 
 // СОБЫТИЯ ОПРОСА (onb-03 Т6, ADR-0330 п.4): менеджеру и застройщику — только перечисления. Словари сервера совпадают с правилом
 // опроса `quiz.json` и стилями страницы демо, иначе страница пришлёт значение, которое сервер отбросит целиком.
@@ -45,6 +47,17 @@ describe("сервер принимает только перечисления"
     expect(buyerEvent.safeParse({ kind: "quiz_done", picked: ["scandi", "loft", "modern"] }).success).toBe(false);   // на фото — не больше двух
     expect(buyerEvent.safeParse({ kind: "quiz_done", colours: ["light", "warm", "cool"] }).success).toBe(false);
     expect(buyerEvent.safeParse({ kind: "quiz_done", kids: "5" }).success).toBe(false);   // сколько детей — только 1 / 2 / 3plus
+  });
+
+  it("подменённая комната (style-fallback-01): выбранный и показанный стиль доходят до менеджера, чужое значение — отказ", () => {
+    const r = buyerEvent.safeParse({ kind: "manager_contact_click", purpose: "consult", channel: "telegram", variant: "современный", chosen: "neoclassic", shown_style: "modern" });
+    expect(r.success).toBe(true);
+    const send: Send = { id: "AbCdEfGhIjKlMnOpQrStUv", partnerId: "p", apartmentId: "flat215", managerId: "m", lang: "ru", market: "ru", status: "opened",
+      createdVia: "bot", originChatId: 1, originMessageId: 2, revoked: false, openedAt: null, openSignalAt: null, summaryDueAt: null, statusAt: null, createdAt: new Date(0) };
+    const text = contactText(send, r.success ? r.data : { kind: "manager_contact_click" });
+    expect(text).toContain("Выбран стиль «Неоклассика», в этой комнате его нет — показан похожий «Современный».");
+    expect(contactText(send, { kind: "manager_contact_click", purpose: "consult" })).not.toContain("Выбран стиль");   // без подмены — как было
+    expect(buyerEvent.safeParse({ kind: "manager_contact_click", shown_style: "Неоклассика" }).success).toBe(false);
   });
 
   it("лишнее поле (имя) отбрасывается, а не доходит до сервера", () => {

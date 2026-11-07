@@ -46,6 +46,8 @@ export const buyerEvent = z.object({
   colours: z.array(quizColour).max(2).optional(),
   result: z.array(quizStyle).max(3).optional(),
   chosen: quizStyle.optional(),
+  // Комната без выбранного стиля показала похожий (план style-fallback-01): `chosen` — стиль вкладки, здесь — стиль показанного варианта.
+  shown_style: quizStyle.optional(),
 });
 export type BuyerEvent = z.infer<typeof buyerEvent>;
 
