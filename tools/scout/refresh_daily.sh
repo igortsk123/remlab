@@ -193,6 +193,9 @@ print(' '.join(k[:12] for k,v in d.items() if int(v.get('fails') or 0)>=2))" 2>/
 # yml_date алертятся ДО загрузки — «скачался успешно» не значит «данные живые» (урок 203)
 # DEV: диск и копия прод-базы вне сервера (b2b-09, ADR-0266) — только предупреждения в дайджест
 step tmp_sweep bash ../ops/tmp-sweep.sh       # /tmp DEV — свои временные файлы старше суток (план b2b-09, 16.10)
+# место на / DEV (T-20261107-48): рабочие папки задач по белому списку rules/dev-disk.json (черновики, выводы, снимки старше
+# недели; хранилище мешей и всё, что называет код, — нет). До сборки — место нужно ей. DIGEST «свободно N, убрано M»; < 30 ГБ — WARN
+step disk_keeper "$PY" ../ops/disk-keeper.py --apply --digest
 step dev_checks bash ../ops/dev-checks.sh
 step feed_guard "$PY" feed_guard.py
 

@@ -1,0 +1,23 @@
+{
+ "_about": "DEV: место на / (T-20261107-48). 07.11 на диске pakardev осталось 10–21 ГБ из 391 при резерве соседнего проекта 25 ГБ; рабочие папки задач копились без уборки. Сторож — tools/ops/disk-keeper.py (шаг disk_keeper ночного tools/scout/refresh_daily.sh): только БЕЛЫЙ СПИСОК папок ниже, не «всё старое»; сухой режим по умолчанию.",
+ "warn_free_gb": 30,
+ "_warn_why": "свободно меньше — WARN:disk_free в дайджест: у соседнего проекта (tamara) резерв 25 ГБ, ночная сборка и волна мешей встают на полном диске",
+ "dir_days": 7,
+ "_dir_why": "подпапка уходит, когда самый свежий файл в ней (и сама папка) старше стольких суток: задача закрыта, разбор сделан; живой прогон пишет — свежий файл держит папку",
+ "log_days": 14,
+ "_log_why": "одиночные журналы *.log в корне папки (и в её контейнерах) старше стольких суток; живые журналы — keep_files",
+ "roots": [
+  {"path": "~/remlab-scratch", "containers": ["tmp"], "keep": ["parity", "tmp/node-compile-cache"], "logs": true,
+   "_why": "черновики задач (t<номер>, lead-*); tmp — REMLAB_TMP ночного прогона и тестов: сам не уходит, уходят его подпапки; parity — дом стенда паритета (rules/parity-living.json), там эталоны"},
+  {"path": "~/remlab-logs", "keep": [], "logs": true,
+   "keep_files": ["heavy-slot.log", "batch-window.log", "money-guard.log"],
+   "_why": "выводы задач и замеров; heavy-slot.log — журнал очереди (tools/ops/heavy_slot.py), batch-window.log читает сторож денег (salad/money_guard.py), money-guard.log пишет крон — не трогаем"},
+  {"path": "~/onb06-out", "keep": [],
+   "_why": "выводы задач онбординга/спальни (t<номер>-<время>); код их не читает — в rules/room-mesh-want.json папка только названа как источник списка"},
+  {"path": "~/scout-scenes",
+   "only": ["^t\\d+[a-z]?(-[\\w.-]+)?$", "^opus-", "-screens$", "^pinwork$", "^photos\\d+-", "^profiles\\d+-", "^demo-morning-",
+            "^demand\\d+-", "^tmp-", "^flat215-demo-t\\d", "^bench-\\d", "^lead-check$", "^demo\\d+[a-z]?$"],
+   "never": ["meshes-hunyuan", "mesh-pilot-gallery", "frames", "frames-in", "meshes", "flat215-demo", "mesh-audit"],
+   "_why": "хранилище конвейера: уходят ТОЛЬКО рабочие папки задач по шаблонам only. never — то, что читает конвейер/рендер/публикация (meshes-hunyuan — болванки решает ADR-0233, только владелец; mesh-pilot-gallery — меши демо, tools/scout/flat215_demo.py; frames — кадры DEV-рендера, draft_render.FRAMES_DIR)"}
+ ]
+}

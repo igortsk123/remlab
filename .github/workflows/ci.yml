@@ -222,6 +222,7 @@ jobs:
       - run: python tools/scout/tests/test_home_rooms.py   # главная «стиль → комнаты»: комнаты из реестра, id стиля для ?style= (demo-16)
       - run: python tools/scout/tests/test_bench_nook.py   # «уголок» с банкеткой — только при ≥ 2 банкеток в ленте стиля, иначе стулья (demo-19 Г2)
       - run: python tools/scout/tests/test_demo_hidden.py   # скрытый банком сет (bank_status hidden) — не вариант демо и не источник ленты замен (conv-14)
+      - run: python tools/ops/disk-keeper.py --selftest   # сторож места DEV: только белый список rules/dev-disk.json, старше недели, не то, что называет код; хранилище мешей, ссылки, живые журналы — нет; сухой режим по умолчанию (T-20261107-48)
       - run: python tools/scout/tests/test_demo_cams_timeout.py   # ракурсы окна не валят сборку: таймаут demo-cams — WARN:demo_cams, сборка идёт дальше, exec node (T-20261107-47)
       - run: python tools/scout/tests/test_demo_own_spare.py   # ушла роль ядра — сперва свой запасной набора; не расставился — тот же набор из пула (T-20261023-10)
       - run: python tools/scout/tests/test_typical_dims.py   # напольные роли солвера — один список в git, с ковром; без файла — отказ (T-20261023-10)
