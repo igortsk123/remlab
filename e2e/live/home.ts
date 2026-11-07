@@ -30,11 +30,12 @@ export async function pickStyle(page: Page, id: string): Promise<void> {
 }
 
 /**
- * То же руками через окно: «Выбрать другой» → нажать плитку `at` (номер по порядку в окне, с 0) — окно закрывается, выбор сразу
- * (один выбор, владелец TG 451). Возвращает id выбранного стиля.
+ * То же через окно выбора стиля всей квартиры: открыть его (`__mixOpen` — кнопки «Выбрать другой» на главной нет с 07.11, владелец
+ * TG 514, T-20261107-63) → нажать плитку `at` (номер по порядку в окне, с 0) — окно закрывается, выбор сразу (один выбор, TG 451).
+ * Возвращает id выбранного стиля.
  */
 export async function pickInWindow(page: Page, at: number): Promise<string> {
-  await page.locator("#hmMixPick").click();
+  await page.evaluate(() => (window as unknown as { __mixOpen: () => void }).__mixOpen());
   const box = page.locator("#mixBox");
   await expect(box).toHaveClass(/\bon\b/);
   await expect(box.locator(".qz-ph").first()).toBeEnabled({ timeout: 20_000 });   // кадры пришли — плитки нажимаются

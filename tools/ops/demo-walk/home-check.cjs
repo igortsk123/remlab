@@ -35,9 +35,9 @@ const fold=p=>p.evaluate(()=>{const R=s=>{const e=document.querySelector(s);retu
   return {photoTop:ph&&Math.round(ph.top), visiblePhotoHeight:ph&&tabs?Math.round(Math.max(0,Math.min(ph.bottom,vh)-Math.max(ph.top,tabs.bottom))):0,
     tabsVisible:!!tabs&&tabs.height>0&&tabs.top>=0&&tabs.bottom<=vh, tabsBottom:tabs&&Math.round(tabs.bottom), hdH:hd&&Math.round(hd.height),
     viewVisible:!!vw&&vw.height>0&&vw.bottom<=vh, hScroll:document.documentElement.scrollWidth>innerWidth, cut};});
-// окно «Выбрать другой»: открыть строкой, нажать плитку `at[0]` — окно закрывается, выбор сразу (один выбор, владелец TG 451). Возвращает [id]
+// окно выбора стиля квартиры: открыть (`__mixOpen`; кнопки на главной нет с 07.11), нажать плитку `at[0]` — окно закрывается, выбор сразу (один выбор, владелец TG 451). Возвращает [id]
 async function pickWin(p,at,{shot=''}={}){
-  await p.click('#hmMixPick'); await p.waitForSelector('#mixBox.on',{timeout:5000});
+  await p.evaluate(()=>window.__mixOpen());   /* кнопки «Выбрать другой» нет с 07.11 (TG 514, T-63) */ await p.waitForSelector('#mixBox.on',{timeout:5000});
   await p.waitForFunction("!!document.querySelector('#mixBox .qz-ph:not([disabled])')",null,{timeout:20000});
   if(shot)await p.screenshot({path:shot});
   const t=p.locator('#mixBox .qz-ph').nth(at[0]), id=await t.getAttribute('data-mx-ph');
@@ -64,7 +64,8 @@ const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeMode
         stubs:[...document.querySelectorAll('#hmRooms .hm-stub:not(.hm-plan-tile) span')].map(e=>e.textContent), card:!!FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length,
         cert:(document.getElementById('hmCert')||{}).dataset||{}, styleUrl:new URLSearchParams(location.search).get('style'),
         oldTabs:document.querySelectorAll('#styleTabs,.hm-tab,#planLink,#planBack,#tab-plan,#tab-room,[data-soon],#screen-soon,#feedShare,#budgetGo').length,
-        collBase:[...document.querySelectorAll('#coll .lay')].length}));
+        collBase:[...document.querySelectorAll('#coll .lay')].length, pick:!!(document.getElementById('hmMixPick')||{}).offsetParent,
+        nameCut:(e=>!!e&&e.scrollWidth>e.clientWidth+1)(document.getElementById('hmMixName'))}));
       const nm=x=>String(x).replace(/ · (рекомендуем|recommended)$/,'');   // имя стиля, у рекомендуемого — метка (владелец TG 447–448)
       ok('стили главной (≥ 4) — строкой «<стиль> · рекомендуем», переключатель на «Интерьер»',st.tabs.length>=4&&nm(st.name)===st.titles[st.on]&&/ · рекомендуем$/.test(st.name)&&st.view.join()==='room:true,plan:false',st.name+' · '+st.view.join());
       ok('комнаты в порядке плана: гостиная, кухня, спальня 1, спальня 2, санузел 1, санузел 2, прихожая',JSON.stringify(st.rooms)===JSON.stringify(ORDER),st.rooms.join(',')+(st.card?' (из карточки)':' (запасной путь витрины)'));
@@ -72,8 +73,9 @@ const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeMode
       ok('сертификат: 0 включено, остаток = весь сертификат',+st.cert.included===0&&+st.cert.amount>0,JSON.stringify(st.cert));
       ok('стиль в адресе',st.styleUrl===st.on,st.styleUrl);
       ok('вкладок стилей, ссылки плана, старых вкладок-комнат, «бюджета» и feedShare нет; варианты не дублируются сеткой',st.oldTabs===0&&st.collBase===0,st.oldTabs+'/'+st.collBase);
+      ok('кнопки «Выбрать другой» на главной нет (TG 514, T-63); название квартиры не обрезано',!st.pick&&!st.nameCut,'кнопка '+st.pick+' обрезка '+st.nameCut);
       // ОКНО «ВЫБРАТЬ ДРУГОЙ»: фото гостиной каждого варианта, названия стилей, у рекомендуемого метка, отмечен нынешний; после двух — остальные серые
-      await p.click('#hmMixPick'); await p.waitForSelector('#mixBox.on',{timeout:5000});
+      await p.evaluate(()=>window.__mixOpen());   /* кнопки «Выбрать другой» нет с 07.11 (TG 514, T-63) */ await p.waitForSelector('#mixBox.on',{timeout:5000});
       await p.waitForFunction("!!document.querySelector('#mixBox .qz-ph:not([disabled])')",null,{timeout:20000});
       const w0=await p.evaluate(()=>({tiles:[...document.querySelectorAll('#mixBox .qz-ph')].map(b=>({id:b.dataset.mxPh, cap:b.querySelector('b').textContent, img:!!b.querySelector('img'), on:b.getAttribute('aria-pressed')==='true'})),
         quiz:!!document.querySelector('#mixBox [data-mx="quiz"]'), apply:!!document.querySelector('#mixBox [data-mx="apply"]'), locked:document.body.style.position==='fixed'}));
@@ -211,7 +213,7 @@ const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeMode
     const cyr=en.match(/[А-Яа-яЁё][^ ]*/g)||[];
     ok('EN: первый экран без кириллицы',!cyr.length,cyr.slice(0,6).join(' '));
     await e.screenshot({path:OUT+'home-390x844-en.png'});
-    await e.click('#hmMixPick'); await e.waitForSelector('#mixBox.on',{timeout:5000}); await e.waitForTimeout(600);
+    await e.evaluate(()=>window.__mixOpen()); await e.waitForSelector('#mixBox.on',{timeout:5000}); await e.waitForTimeout(600);
     const enw=await e.evaluate(()=>document.querySelector('#mixBox .qz-card').innerText);
     const cyw=enw.match(/[А-Яа-яЁё][^ ]*/g)||[];
     ok('EN: окно «Выбрать другой» без кириллицы',!cyw.length&&/recommended/.test(enw),cyw.slice(0,6).join(' ')||enw.slice(0,60));

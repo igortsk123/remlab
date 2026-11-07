@@ -443,7 +443,7 @@ test("2.34 липкая шапка после прокрутки ≤ 140 px (Р�
     expect(st.stuck).toBe(true);
     expect(st.legend).toBe(false);
     expect(st.sticky).toBeLessThanOrEqual(140);
-    // «Выбрать другой» из липкой строки внизу страницы (home-mix-01 шаг 5): в окне — нажать второй стиль
+    // выбор стиля квартиры внизу страницы (home-mix-01 шаг 5; кнопки «Выбрать другой» нет с 07.11 — окно открывает проверка): второй стиль
     const id = await pickInWindow(page, 1);
     await page.waitForTimeout(900);
     const r = await page.evaluate("({top: Math.round(document.getElementById('hmRooms').getBoundingClientRect().top), style: new URLSearchParams(location.search).get('style'), card: document.querySelector('#hmRooms .hm-room[data-room=living]').dataset.style})") as { top: number; style: string; card: string };

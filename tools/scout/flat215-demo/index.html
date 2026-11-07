@@ -283,8 +283,10 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
   background:var(--bg);margin:2px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut)}
 .hm-mix[hidden]{display:none}
 .hm-mix-n{min-width:0;font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* «Выбрать другой ›» — сразу за названием, цветом текста (макет 07.11) */
+/* «Выбрать другой ›» — сразу за названием, цветом текста (макет 07.11). С 07.11 скрыта (владелец TG 514, T-20261107-63): стиль меняют
+   в окне комнаты («Сменить стиль»); окно всей квартиры (`mixOpen()`) осталось в коде — его открывают проверки (`__mixOpen`) */
 .hm-mix-pick{flex:none;min-height:44px;padding:0 2px;border:0;background:none;font:inherit;font-size:15px;color:var(--ink);cursor:pointer;white-space:nowrap}
+.hm-mix-pick[hidden]{display:none}
 .hm-mix-pick::after{content:"›";display:inline-block;margin-left:6px;font-size:18px;line-height:1;transform:translateY(1px)}
 /* «ПОДЕЛИТЬСЯ ИНТЕРЬЕРОМ» (home-mix-01 п.3) — вся квартира, не комната (`interiorLink`); значком в строке варианта, на компьютере — со словом */
 .hm-share-mix{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;min-width:40px;margin:0;padding:0 2px;border:0;background:none;
@@ -1297,7 +1299,8 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
      шкалой, как прежние вкладки: сменить вариант можно из любого места страницы -->
 <div class="hm-mix" id="hmMix">
   <b class="hm-mix-n" id="hmMixName">&nbsp;</b>
-  <button class="hm-mix-pick" id="hmMixPick" type="button" aria-haspopup="dialog">Выбрать другой</button>
+  <!-- «Выбрать другой» скрыта (владелец TG 514, T-20261107-63): смена стиля — в окне комнаты; обработчик и окно остаются -->
+  <button class="hm-mix-pick" id="hmMixPick" type="button" aria-haspopup="dialog" hidden>Выбрать другой</button>
   <!-- в макете 07.11 «Поделиться» нет — кнопка скрыта (обработчик остаётся) -->
   <button class="hm-share-mix" id="hmShareMix" type="button" aria-label="Поделиться интерьером" title="Поделиться интерьером" hidden><span>Поделиться</span></button>
 </div>
