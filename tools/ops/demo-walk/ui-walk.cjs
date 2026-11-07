@@ -91,10 +91,9 @@ const METRICS_JS=`(()=>{const box=[], font={};
     // Фото (если есть снимок этой расстановки) и полноэкранный
     const ph=await p.evaluate(()=>vwRealShots().length>0);
     if(ph){await p.evaluate(()=>vwMode('photo')); await p.waitForTimeout(2500); await shot('win-photo',true);
-      // кнопка «⤢» перекрыта? — что лежит над её серединой (находка обхода); нажатие — командой
-      note('vzbtn-cover',await p.evaluate(()=>{const z=document.getElementById('vzBtn'); if(!z)return 'нет'; const r=z.getBoundingClientRect(), e=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
-        return {rect:[r.left,r.top,r.width,r.height].map(Math.round), top:e?(e.id||e.className||e.tagName):'—', own:!!e&&(e===z||z.contains(e))};}));
-      const zb=await p.$('#vzBtn'); if(zb){await p.evaluate(()=>document.getElementById('vzBtn').click()); await p.waitForTimeout(1500); await shot('photo-fullscreen',true);
+      // кнопки «⤢ во весь экран» над фото нет с 07.11 (владелец TG 522, T-65): проверяем, что её нет; во весь экран — тот же вход, что тап по фото
+      note('vzbtn-absent',await p.evaluate(()=>!document.getElementById('vzBtn')&&![...document.querySelectorAll('#shot *')].some(e=>!e.children.length&&e.offsetParent&&/во весь экран|full screen|⤢/.test(e.textContent))));
+      const zb=await p.evaluate(()=>typeof window.__vwZoomOpen==='function'); if(zb){await p.evaluate(()=>window.__vwZoomOpen()); await p.waitForTimeout(1500); await shot('photo-fullscreen',true);
         await p.evaluate(()=>{const x=document.querySelector('#vzoom .vzx'); if(x)x.click();}); await p.waitForTimeout(600);}}
     else note('win-photo','вкладки «Фото» нет — для этой расстановки нет готового фото');
     await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(1500);});

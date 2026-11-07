@@ -12,7 +12,7 @@ console.log(JSON.stringify(await p.evaluate(()=>{const im=document.querySelector
 await p.screenshot({path:OUT+'/p17-photo.png'});
 console.log('кнопка/шторка:', JSON.stringify(await p.evaluate(()=>{const b=document.getElementById('vzBtn'), r=b&&b.getBoundingClientRect(), sd=document.getElementById('vside').getBoundingClientRect(), im=[...document.querySelectorAll('#shot img')].map(i=>i.getBoundingClientRect()).filter(r=>r.width>300)[0]; return {btn:r&&[Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)], sheetTop:Math.round(sd.top), img:im&&[Math.round(im.left),Math.round(im.top),Math.round(im.width),Math.round(im.height)]};})));
 await p.evaluate(()=>vwSheet(0)); await p.waitForFunction(()=>document.getAnimations().length===0,null,{timeout:8000}).catch(()=>{}); await p.waitForTimeout(400); await p.screenshot({path:OUT+'/p17-photo-collapsed.png'});
-const z=p.locator('#shot :text("во весь экран")').first(); if(await z.count()){await z.click(); await p.waitForTimeout(1200); await p.screenshot({path:OUT+'/p17-zoom.png'});
+const z=p.locator('#shot .shotwrap img.vmain').first();   /* кнопки «⤢» нет с 07.11 (T-65): во весь экран — тап по фото */ if(await z.count()){await z.click(); await p.waitForTimeout(1200); await p.screenshot({path:OUT+'/p17-zoom.png'});
   const before=await p.evaluate(()=>document.querySelector('#vzoom img').getBoundingClientRect().left);
   for(let i=0;i<5;i++){await p.touchscreen.tap(187,333); await p.waitForTimeout(250);}
   const after=await p.evaluate(()=>document.querySelector('#vzoom img').getBoundingClientRect().left);

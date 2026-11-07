@@ -106,8 +106,15 @@ test("2.4 режимы в одном окне: «Фото» — только п�
   // смена стиля комнаты: на телефоне — плашка «Сменить стиль» поверх фото, в ряд с «Фото | 3D» (владелец TG 472–477), строки в шторке
   // нет; на компьютере — строка «<стиль> · Другой стиль для комнаты ›» вверху правой панели. Шкала с долей комнаты, чип с её суммой
   if ((page.viewportSize()?.width ?? 1280) <= 700) {
-    await expect(page.locator("#vOtherTop")).toBeVisible();
-    await expect(page.locator("#vOtherTop")).toHaveText("Сменить стиль");
+    // окно сейчас в «3D»: плашки там нет (владелец TG 523, T-65); в «Фото» — есть, обратно в «3D» — снова нет
+    await expect(page.locator("#vOtherTop")).toBeHidden();
+    if (hasPhoto) {
+      await page.locator('[data-vm="photo"]').click();
+      await expect(page.locator("#vOtherTop")).toBeVisible();
+      await expect(page.locator("#vOtherTop")).toHaveText("Сменить стиль");
+      await page.locator('[data-vm="walk"]').click();
+      await expect(page.locator("#vOtherTop")).toBeHidden();
+    }
     await expect(page.locator("#vrow")).toBeHidden();
   } else {
     await expect(page.locator("#vrow .vrow-n")).not.toHaveText("");
