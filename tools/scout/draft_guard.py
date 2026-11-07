@@ -101,10 +101,81 @@ def registry_room_fields(payload: dict) -> dict:
     return out
 
 
-def registry_trim(data: list, cap: int = REGISTRY_MAX) -> list:
-    """Реестр кадров не растёт бесконечно, но свежайший кадр КАЖДОГО стиля В КАЖДОЙ КОМНАТЕ остаётся: иначе кадры покупателей
-    вытесняют прогретые кадры карточек (b2b-08, verify 14.10), а кадры спальни — кадр гостиной того же стиля (onb-12). Запись без
-    `room_id` — гостиная. Порядок записей сохраняется."""
+# ЗАЩИТА ФОТО ОПУБЛИКОВАННЫХ СОСТОЯНИЙ (T-20261107-17). Реестр полон (120), а прежнее правило держало только свежайшую запись пары
+# (комната, стиль): ночной черновик того же стиля снимал защиту с фото нейросети, и при полном реестре оно уходило как старое —
+# главная (`index.html:pubShot`) показала бы черновик вместо фото. Какие записи показывает главная, знает только код страницы
+# (номер состояния `pubStateOf`, точка `shotCamOk`, сверка варианта `regOf`), поэтому сервер формулу не повторяет: ночной прогрев
+# (`tools/ops/demo-warm.mjs`) тем же кодом выбирает для каждого опубликованного варианта последнее годное фото нейросети, а нет его —
+# последнюю годную запись, и кладёт их ключи файлом `pub-shots.json` рядом с реестром. Нет файла, битый, большой или старше 3 суток —
+# защита только прежняя (статус виден в `shots-trim.json` и в сводке ночи).
+PUB_FILE = 'pub-shots.json'
+PUB_MAX_KEYS = 400            # больше вариантов на главной не бывает; битый файл не раздует обязательное сверх разумного
+PUB_MAX_BYTES = 256 * 1024
+PUB_MAX_AGE_SEC = 3 * 86400
+
+
+def shot_key(r: dict) -> str:
+    """Ключ записи реестра: `id` (с 2026-10 у всех новых), у старых без него — комната|стиль|время. Тот же ключ строит прогрев."""
+    return str(r.get('id') or f"{r.get('room_id') or 'living'}|{r.get('style') or ''}|{r.get('ts') or 0}")
+
+
+def load_pub(path: str, now: float | None = None) -> tuple[set | None, str]:
+    """Ключи защищённых записей из `pub-shots.json` и статус: ok | missing | bad | big | stale. Возраст — по mtime файла на
+    сервере (часы DEV могут расходиться), не по полю `ts` внутри."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None, 'missing'
+    if st.st_size > PUB_MAX_BYTES:
+        return None, 'big'
+    if (now if now is not None else time.time()) - st.st_mtime > PUB_MAX_AGE_SEC:
+        return None, 'stale'
+    try:
+        with open(path, encoding='utf-8') as f:
+            keys = json.load(f).get('keys')
+    except (OSError, ValueError, AttributeError):
+        return None, 'bad'
+    if not isinstance(keys, list) or not all(isinstance(k, str) and 0 < len(k) <= 200 for k in keys):
+        return None, 'bad'
+    if len(keys) > PUB_MAX_KEYS:
+        return None, 'big'
+    return set(keys), 'ok'
+
+
+TRIM_STATS_FILE = 'shots-trim.json'
+
+
+def trim_stats_update(prev, st: dict, pub_status: str, now: float) -> dict:
+    """Счётчики обрезки реестра (`shots-trim.json`, пишет только сервер): итоги растут монотонно с `epoch` (новый — если файла нет
+    или он битый), «за ночь» считает сам ночной прогон разницей со своей прошлой отметкой — второго писателя у файла нет.
+    `protected_current` — сколько записей реестра сейчас под защитой списка прогрева (а не прибавка)."""
+    base = prev if isinstance(prev, dict) and prev.get('epoch') and isinstance(prev.get('dropped_total'), int) else None
+    if base is None:
+        import uuid
+        base = {'epoch': uuid.uuid4().hex[:12], 'since': int(now * 1000), 'trim_events_total': 0, 'dropped_total': 0,
+                'dropped_realistic_total': 0, 'overflow_events_total': 0}
+    out = dict(base)
+    if st.get('dropped'):
+        out['trim_events_total'] = int(out.get('trim_events_total', 0)) + 1
+    out['dropped_total'] = int(out.get('dropped_total', 0)) + int(st.get('dropped', 0))
+    out['dropped_realistic_total'] = int(out.get('dropped_realistic_total', 0)) + int(st.get('dropped_realistic', 0))
+    if st.get('overflow'):
+        out['overflow_events_total'] = int(out.get('overflow_events_total', 0)) + 1
+    out.update(protected_current=int(st.get('protected', 0)), overflow_current=int(st.get('overflow', 0)), pub_status=pub_status,
+               updated=int(now * 1000))
+    return out
+
+
+def registry_trim(data: list, cap: int = REGISTRY_MAX, pub: set | None = None, stats: dict | None = None) -> list:
+    """Реестр не длиннее `cap`. Обязательно остаются: свежайшая запись каждой пары (комната, стиль) — как раньше (иначе кадры
+    покупателей вытесняют прогретые кадры карточек, b2b-08; кадры спальни — кадр гостиной того же стиля, onb-12; запись без
+    `room_id` — гостиная) — и записи из `pub`
+    (кадры, которые сейчас показывает главная). Остальное место — сперва фото нейросети, затем прочее, свежие первыми; уходят старые
+    черновики и старые состояния. Обязательных больше `cap` — остаются все (переполнение — в `stats['overflow']`). Порядок записей
+    сохраняется. `stats` (если дан) получает dropped / dropped_realistic / protected / overflow."""
+    pub = pub or set()
+    if stats is not None:
+        stats.update(dropped=0, dropped_realistic=0, overflow=0, protected=sum(1 for r in data if shot_key(r) in pub))
     if len(data) <= cap:
         return data
     keep = set()
@@ -115,8 +186,15 @@ def registry_trim(data: list, cap: int = REGISTRY_MAX) -> list:
         if st and key not in seen:
             seen.add(key)
             keep.add(i)
-    rest = [i for i in range(len(data) - 1, -1, -1) if i not in keep][:max(0, cap - len(keep))]
-    return [data[i] for i in sorted(keep | set(rest))]
+    keep |= {i for i, r in enumerate(data) if shot_key(r) in pub}
+    newest = [i for i in range(len(data) - 1, -1, -1) if i not in keep]
+    rest = [i for i in newest if data[i].get('quality') == 'realistic'] + [i for i in newest if data[i].get('quality') != 'realistic']
+    out_i = keep | set(rest[:max(0, cap - len(keep))])
+    if stats is not None:
+        gone = [r for i, r in enumerate(data) if i not in out_i]
+        stats.update(dropped=len(gone), dropped_realistic=sum(1 for r in gone if r.get('quality') == 'realistic'),
+                     overflow=max(0, len(keep) - cap))
+    return [data[i] for i in sorted(out_i)]
 
 
 def _selftest() -> int:
@@ -158,7 +236,17 @@ def _selftest() -> int:
     ok(mix[0] not in tr, 'реестр кадров: запись без комнаты — гостиная (её вытесняет свежий кадр гостиной того же стиля)')
     tr = registry_trim([{'style': 'лофт', 'ts': 0}] + [{'style': 'сканди', 'ts': i} for i in range(1, 60)], 10)
     ok(len(tr) == 10 and tr[0]['style'] == 'лофт', 'реестр кадров: старые записи без комнаты — как раньше, по стилю')
-    ok(registry_room_fields({'room_id': 'bedroom', 'variant_id': 'bed1', 'style': 'x'}) == {'room_id': 'bedroom', 'variant_id': 'bed1'},
+    # T-17: фото нейросети из списка прогрева не уходит под 10 свежими черновиками того же стиля; без списка — уходит
+    reg = [{'id': 'p', 'style': 'сканди', 'quality': 'realistic', 'ts': 0}] + [{'id': f'd{i}', 'style': 'сканди', 'ts': i} for i in range(1, 11)]
+    st: dict = {}
+    tr = registry_trim(reg, 3, pub={'p'}, stats=st)
+    ok(tr[0]['id'] == 'p' and len(tr) == 3 and st['protected'] == 1 and st['dropped'] == 8 and st['dropped_realistic'] == 0,
+       'реестр кадров: фото из списка прогрева остаётся при свежих черновиках, счётчики точны')
+    ok(registry_trim([dict(r, quality='draft') if r['id'] == 'p' else r for r in reg], 3)[0]['id'] == 'd8',
+       'реестр кадров: без списка и без фото нейросети — по свежести, как раньше')
+    ok(len(registry_trim(reg, 2, pub={'p', 'd1', 'd2'})) == 4, 'реестр кадров: обязательных больше предела — остаются все')
+    ok(shot_key({'style': 'x', 'ts': 5}) == 'living|x|5' and shot_key({'id': 'a'}) == 'a', 'ключ записи: id, иначе комната|стиль|время')
+    ok(registry_room_fields({'room_id': 'bedroom', 'variant_id': 'bed1', 'style': 'x'}) =={'room_id': 'bedroom', 'variant_id': 'bed1'},
        'запись реестра: комната и вариант сохраняются, если пришли')
     ok(registry_room_fields({'style': 'x'}) == {} and registry_room_fields({'room_id': '', 'variant_id': 'v' * 65}) == {},
        'запись реестра: не пришли (старая страница) или мусор — полей нет, запись — гостиная')

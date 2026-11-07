@@ -35,8 +35,8 @@ TG_BOT = os.environ.get('SHARE_TG_BOT', '')        # имя бота без @; �
 MAX_BOT = os.environ.get('SHARE_MAX_BOT', '')
 SMS_GATE = os.environ.get('SHARE_SMS_GATE', '')   # шлюз СМС; пусто — канал не подключён
 esc = html.escape
-from draft_guard import (ALLOWED_ORIGINS, ip_allowed,  # noqa: E402
-                         queue_eta, registry_room_fields, registry_trim, safe_url, save_share_request)
+from draft_guard import (ALLOWED_ORIGINS, PUB_FILE, TRIM_STATS_FILE, ip_allowed, load_pub,  # noqa: E402
+                         queue_eta, registry_room_fields, registry_trim, safe_url, save_share_request, trim_stats_update)
 from draft_jobs import JobStore, public_view  # noqa: E402
 SHARE_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -265,12 +265,40 @@ def _registry_add(payload: dict, out: dict) -> None:
                 data = []
             data = [x for x in data if x.get('id') != rec['id']]
             data.append(rec)
-            data = registry_trim(data)             # реестр не растёт бесконечно, свежий кадр каждого стиля в каждой комнате не вытесняется
+            # реестр не растёт бесконечно; свежий кадр каждого стиля в каждой комнате и кадры, которые сейчас показывает главная
+            # (список ночного прогрева `pub-shots.json`, T-20261107-17), не вытесняются
+            share = os.path.dirname(path)
+            pub, pub_status = load_pub(os.path.join(share, PUB_FILE))
+            st = {}
+            data = registry_trim(data, pub=pub, stats=st)
             tmp = path + '.tmp'
             json.dump(data, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False)
             os.replace(tmp, path)
+            _trim_stats_save(os.path.join(share, TRIM_STATS_FILE), st, pub_status)
     except Exception as e:  # noqa: BLE001 — реестр не должен ронять ответ
         print(f'  реестр кадров не обновлён: {str(e)[:90]}')
+
+
+_OVERFLOW_LOGGED = [0.0]
+
+
+def _trim_stats_save(path: str, st: dict, pub_status: str) -> None:
+    """Счётчики обрезки — файлом рядом с реестром (читает ночь по https); вызывается под `_REG_LOCK`. Не записались — реестр
+    уже сохранён, кадр не теряем. Защищённых больше предела — ERROR в журнал, не чаще раза в час."""
+    try:
+        try:
+            prev = json.load(open(path, encoding='utf-8'))
+        except Exception:  # noqa: BLE001 — нет или битый: новый epoch
+            prev = None
+        out = trim_stats_update(prev, st, pub_status, time.time())
+        tmp = path + '.tmp'
+        json.dump(out, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False)
+        os.replace(tmp, path)
+        if st.get('overflow') and time.time() - _OVERFLOW_LOGGED[0] > 3600:
+            _OVERFLOW_LOGGED[0] = time.time()
+            print(f'  ERROR: реестр кадров: защищённых больше предела на {st["overflow"]} — оставлены все, предел превышен')
+    except Exception as e:  # noqa: BLE001
+        print(f'  счётчики обрезки реестра не записаны: {str(e)[:90]}')
 
 
 def _proxy_url() -> str:
