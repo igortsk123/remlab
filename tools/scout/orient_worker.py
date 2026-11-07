@@ -134,33 +134,57 @@ def sku_from_path(p: str) -> str | None:
     return f'{m.group(1)}:{m.group(2)}' if m else None
 
 
-def role_of(sku: str | None) -> tuple[str, str, str]:
-    if sku:
-        rows = db(f"select role, coalesce(name,''), '' from mesh_demand where sku={q(sku)}")
-        if rows and len(rows[0]) >= 2:
-            return rows[0][0], rows[0][1], ''
-        rows = db(f"""select coalesce(cat_role,'?'), coalesce(name,''), ''
-                       from products where shop_mid||':'||external_id={q(sku)}""")
-        if rows and len(rows[0]) >= 2:
-            return rows[0][0], rows[0][1], ''
+# Каталожная роль, которая НЕ считается известной: пусто/NULL (в каталоге это «без роли»), «?», «другое».
+CAT_ROLE_UNKNOWN = frozenset({'', '?', 'другое', 'без роли'})
+
+
+def cat_role_known(role) -> bool:
+    return str(role or '').strip() not in CAT_ROLE_UNKNOWN
+
+
+def pick_role(cat: tuple | None, demand: tuple | None) -> tuple[str, str, str]:
+    """Порядок ролей (T-20261105-56/5 правки): известная роль каталога (`products.cat_role`) главнее `mesh_demand` —
+    там роль замораживается при постановке задания и отстаёт от каталога (пуф «Красавчик» оставался диваном). Каталог
+    не знает роли (`CAT_ROLE_UNKNOWN`) → `mesh_demand`, затем что есть в каталоге, иначе «?» (дальше — манифест).
+    cat/demand — (роль, имя) или None."""
+    if cat and cat_role_known(cat[0]):
+        return cat[0], cat[1] or (demand[1] if demand else ''), ''
+    if demand:
+        return demand[0], demand[1], ''
+    if cat:
+        return (cat[0] or '?'), cat[1], ''
     return '?', '', ''
 
 
+def role_of(sku: str | None) -> tuple[str, str, str]:
+    if not sku:
+        return '?', '', ''
+    rows = db(f"""select coalesce(cat_role,''), coalesce(name,''), ''
+                   from products where shop_mid||':'||external_id={q(sku)}""")
+    cat = (rows[0][0], rows[0][1]) if rows and len(rows[0]) >= 2 else None
+    if cat and cat_role_known(cat[0]):
+        return pick_role(cat, None)
+    rows = db(f"select role, coalesce(name,''), '' from mesh_demand where sku={q(sku)}")
+    demand = (rows[0][0], rows[0][1]) if rows and len(rows[0]) >= 2 else None
+    return pick_role(cat, demand)
+
+
 def role_index(skus) -> dict:
-    """`role_of` для многих SKU двумя запросами (тот же порядок: mesh_demand, затем products) — `pending_meshes` смотрит
+    """`role_of` для многих SKU двумя запросами (тот же порядок: `pick_role`) — `pending_meshes` смотрит
     тысячи ревизий, по запросу на каждую выходило бы по 2 вызова psql на меш. SKU без строк — нет в словаре."""
     skus = sorted({s for s in skus if s and s != '?'})
-    out: dict = {}
+    cat: dict = {}
+    dem: dict = {}
     for i in range(0, len(skus), 500):
         inl = ','.join(q(s) for s in skus[i:i + 500])
+        for r in db(f"""select shop_mid||':'||external_id, coalesce(cat_role,''), coalesce(name,'')
+                          from products where shop_mid||':'||external_id in ({inl})""") or []:
+            if len(r) >= 3:
+                cat[r[0]] = (r[1], r[2])
         for r in db(f"select sku, role, coalesce(name,'') from mesh_demand where sku in ({inl})") or []:
             if len(r) >= 3:
-                out[r[0]] = (r[1], r[2], '')
-        for r in db(f"""select shop_mid||':'||external_id, coalesce(cat_role,'?'), coalesce(name,'')
-                          from products where shop_mid||':'||external_id in ({inl})""") or []:
-            if len(r) >= 3 and r[0] not in out:
-                out[r[0]] = (r[1], r[2], '')
-    return out
+                dem[r[0]] = (r[1], r[2])
+    return {s: pick_role(cat.get(s), dem.get(s)) for s in set(cat) | set(dem)}
 
 
 def current_role(sku: str | None, glb: str, roles: dict | None = None) -> tuple[str, str, str]:

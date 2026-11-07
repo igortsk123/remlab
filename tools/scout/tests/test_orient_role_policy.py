@@ -111,9 +111,9 @@ for st in ('human_resolved', 'human', 'unusable'):
 check('6) review/vlm_pending со сменой роли — тоже устарело (решения нет — пересчёт по текущей роли)',
       W.role_changed('vlm_pending', {'source': 'awaiting_vlm', 'role': 'диван'}, 'пуф'))
 
-# 7) role_index = role_of массово (тот же порядок: mesh_demand, затем products; «?» — нет роли каталога)
-DEM = {'1:1': 'пуф'}
-PROD = {'1:1': 'диван', '1:2': 'пуф', '1:3': None}
+# 7) role_index = role_of массово (порядок `pick_role`: известная роль каталога, затем mesh_demand, затем «?»)
+DEM = {'1:1': 'пуф', '1:4': 'стул', '1:5': 'кресло', '1:6': 'бра', '1:7': 'люстра'}
+PROD = {'1:1': 'диван', '1:2': 'пуф', '1:3': None, '1:4': 'другое', '1:5': None, '1:6': '?', '1:7': 'бра'}
 
 
 def fake_db(sql, quiet=True):
@@ -122,7 +122,8 @@ def fake_db(sql, quiet=True):
     if 'from mesh_demand' in sql:
         return [([s] if bulk else []) + [r, 'Имя ' + s] + ([] if bulk else ['']) for s, r in DEM.items() if q_in(s, sql)]
     if 'from products' in sql:
-        return [([s] if bulk else []) + [r if r is not None else '?', 'Имя ' + s] + ([] if bulk else [''])
+        nul = "coalesce(cat_role,'')" in sql and '' or '?'     # как в SQL запроса: NULL → '' (или '?' у старого)
+        return [([s] if bulk else []) + [r if r is not None else nul, 'Имя ' + s] + ([] if bulk else [''])
                 for s, r in PROD.items() if q_in(s, sql)]
     return STATE
 
@@ -133,17 +134,25 @@ def q_in(s, sql):
 
 STATE: list = []
 W.db = fake_db
-idx = W.role_index(['1:1', '1:2', '1:3', '1:9', '?'])
-check('7) role_index: mesh_demand сильнее products', idx.get('1:1', ('',))[0] == 'пуф', f'{idx}')
-check('7) role_index: нет в mesh_demand — products; NULL — «?»; нет нигде — нет ключа',
-      idx.get('1:2', ('',))[0] == 'пуф' and idx.get('1:3', ('',))[0] == '?' and '1:9' not in idx, f'{idx}')
+ALL = ['1:1', '1:2', '1:3', '1:4', '1:5', '1:6', '1:7', '1:9', '?']
+idx = W.role_index(ALL)
+R = {s: idx.get(s, ('—',))[0] for s in ALL}
+check('7) известная роль каталога главнее mesh_demand (пуф «Красавчик»: спрос «пуф», каталог «диван» → диван; '
+      'бра/люстра — каталог)', R['1:1'] == 'диван' and R['1:7'] == 'бра', f'{R}')
+check('7) каталог «другое» / NULL / «?» — роль из mesh_demand', (R['1:4'], R['1:5'], R['1:6']) == ('стул', 'кресло', 'бра'),
+      f'{R}')
+check('7) только каталог — его роль; NULL без спроса — «?»; нет нигде — нет ключа',
+      R['1:2'] == 'пуф' and R['1:3'] == '?' and '1:9' not in idx, f'{idx}')
+check('7) cat_role_known: пусто, «?», «другое», «без роли» — неизвестна',
+      not any(W.cat_role_known(x) for x in (None, '', ' ', '?', 'другое', 'без роли')) and W.cat_role_known('пуф'))
 import orient_worker as W2  # noqa: E402 — role_of настоящий (выше его подменили для decide)
 import importlib  # noqa: E402
 
 W2 = importlib.reload(W2)
 W2.db = fake_db
-for s in ('1:1', '1:2', '1:3'):
-    check(f'7) role_of({s}) == role_index[{s}]', W2.role_of(s)[0] == W2.role_index([s])[s][0])
+for s in ('1:1', '1:2', '1:3', '1:4', '1:5', '1:6', '1:7'):
+    check(f'7) role_of({s}) == role_index[{s}]', W2.role_of(s)[0] == W2.role_index([s])[s][0] == R[s],
+          f'{W2.role_of(s)} {R[s]}')
 
 # 8) пачка: смена роли ловится по манифесту, человек — нет; без флага — нет; тень — только устаревшие
 with tempfile.TemporaryDirectory(prefix='orient-role-') as td:
