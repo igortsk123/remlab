@@ -62,6 +62,28 @@ def base_role(role: str) -> str:
     return re.sub(r'\s+\d+$', '', role)
 
 
+# ЦВЕТ ЗАМЕНЫ НЕОБЯЗАТЕЛЬНОГО (T-20261107-11/3): дозаполнение подставляло стулья «Glasar Совы желтый» в неоклассику на место
+# снятого кресла, а лента мягкого — подушку «Саона Велюр Оранжевый/Синий». Оценщик цвета один на все сборщики
+# (`compose_common.color_eval`, правила `rules/style-color-policy.json`): у второстепенных сидений и мягкого текстиля ЯРКИЙ
+# цвет с ярусом discouraged/forbidden — замену не берём. Только яркий (ведущий: «не брать vivid»): приглушённый discouraged
+# (оливковые стулья джапанди) отсевом сменил бы опубликованный стиль — это решение политики, не этой правки. Роль
+# необязательная: лучше на стул меньше, чем чужой цвет; ядро так не режем (дыра в ядре снимает вариант). Названия ролей
+# демо → роли политики: «подушка» у демо, «подушки» у правил.
+COLOR_GROUPS = ('secondary_seating', 'soft_textile')
+COLOR_ROLE = {'подушка': 'подушки', 'покрывало': 'плед', 'ковер': 'ковёр'}
+
+
+def color_refused(role: str, c: dict, style: str | None) -> str | None:
+    """Причина не брать кандидата по цвету (ярус discouraged/forbidden в группах `COLOR_GROUPS`); None — годен. Роли вне
+    групп и стиль без правил — None (как было)."""
+    import compose_common as CC
+    b = base_role(role or '')
+    e = CC.color_eval(c, COLOR_ROLE.get(b, b), style or '')
+    if e['group'] in COLOR_GROUPS and e['cat'] == 'vivid' and e['tier'] in ('discouraged', 'forbidden'):
+        return e['why']
+    return None
+
+
 def load_pool() -> list[dict]:
     """Пул кандидатов: объёмные — `demo_swap_pool.pool_top()` (прежний отбор 30, demo-18), ковры — плоский запрос."""
     from demo_swap_pool import pool_top
@@ -166,8 +188,11 @@ def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | N
         own_c = own_spares(s, role, media, used) if own and base_role(role) in CORE else []
         # уже взятый в другой вариант запасной — после пула (разнообразие между стилями, как у `candidates`), но до дыры
         k = lambda c: f"{c['mid']}:{c['eid']}" in (avoid or ())  # noqa: E731
+        core = base_role(role) in CORE
         for c in ([c for c in own_c if not k(c)] + candidates(role, old, s.get('style'), pool, used, env, avoid)
                   + [c for c in own_c if k(c)]):
+            if not core and color_refused(role, c, s.get('style')):
+                continue                 # необязательное яркое не в стиле — не берём (T-20261107-11/3)
             if ok(role, c, s, {r: v for r, v in items.items() if r != role}):
                 repl, spare, uni = card(c, old or {}), c.get('spare'), c.get('rug_universal')
                 if uni:                  # запасной нейтральный ковёр стиля (`demo_swap_pool.universal_rugs`) — с отметкой
@@ -304,6 +329,24 @@ def _selftest() -> int:
     j9 = fill_set(s9, pool, gate, card, media, has_mesh)
     ok('свой ковёр стиля — ключа rug_universal нет нигде (5 стилей побайтно)',
        'rug_universal' not in s9['items']['ковёр'] and not any('rug_universal' in x for x in j9))
+    # цвет необязательного (T-20261107-11/3): яркий стул неоклассике не берём, нейтральный — да; современному яркий можно;
+    # ядро (диван) по цвету не режем; подушка демо = «подушки» правил
+    alive |= {('4', 'chy'), ('4', 'chb')}
+    chairs = [{'mid': '4', 'eid': 'chy', 'role': 'стул', 'style': 'неоклассика', 'name': 'Стул Glasar Совы желтый', 'w': 45, 'd': 50},
+              {'mid': '4', 'eid': 'chb', 'role': 'стул', 'style': 'неоклассика', 'name': 'Стул Венский бежевый', 'w': 45, 'd': 50}]
+    s10 = {'style': 'неоклассика', 'items': {'стул': {'mid': '7', 'eid': 'gone', 'name': 'Стул снятый', 'w': 45}}}
+    fill_set(s10, chairs, gate, card, media, has_mesh)
+    ok('неоклассика: яркий жёлтый стул пропущен, взят бежевый', s10['items'].get('стул', {}).get('name') == 'Стул Венский бежевый')
+    s11 = {'style': 'неоклассика', 'items': {'стул': {'mid': '7', 'eid': 'gone', 'name': 'Стул снятый', 'w': 45}}}
+    fill_set(s11, chairs[:1], gate, card, media, has_mesh)
+    ok('…только яркий — стул снят, а не жёлтый', 'стул' not in s11['items'])
+    ok('современный: яркий стул допустим', color_refused('стул', chairs[0], 'современный') is None)
+    ok('подушка демо — группа мягкого: оранжевая неоклассике нет, синяя бархатная да',
+       bool(color_refused('подушка', {'name': 'Подушка Саона Велюр Оранжевый/Синий'}, 'неоклассика'))
+       and color_refused('подушка', {'name': 'Подушка Бархат синий'}, 'неоклассика') is None)
+    ok('приглушённый discouraged (оливковый стул джапанди) — не отсев, только яркий',
+       color_refused('стул', {'name': 'Стул Марти-2 Велюр Оливковый/Натуральный'}, 'джапанди') is None)
+    ok('ядро по цвету не режем: жёлтый диван — не причина', color_refused('диван', {'name': 'Диван желтый'}, 'неоклассика') is None)
     return 1 if bad else 0
 
 

@@ -1502,6 +1502,7 @@ def build() -> dict:
         from img_alive import alive_now as _alive
     except Exception:  # noqa: BLE001
         _alive = lambda u: True  # noqa: E731
+    import demo_fill as DF
     soft_fixed, soft_dropped, soft_used = [], [], set()
     # ВАРИАНТ НА ЗАПАСНОМ — ПОСЛЕДНИМ В РАЗНООБРАЗИИ (T-20261107-11/2): стиль, собранный с запасным нейтральным ковром, берёт
     # мягкое после остальных — разнообразие только переставляет выбор (взятое другим берётся, если больше нечего), поэтому
@@ -1521,6 +1522,8 @@ def build() -> dict:
             base = re.sub(r'\s+\d+$', '', d.get('role') or '')
             taken = {(x.get('sku') or {}).get('sid') for x in v.get('decor') or []}
             cand = [p for p in dec_feeds.get(base, []) if p.get('soft') and p.get('sid') not in taken]
+            # цвет — общим оценщиком (`demo_fill.color_refused`, T-20261107-11/3): яркое не в стиле не берём; нечем — снимаем
+            cand = [p for p in cand if not DF.color_refused(base, p, st)]
             if not cand:
                 soft_dropped.append((v.get('id'), d.get('role'), sk.get('name'), why))
                 continue
