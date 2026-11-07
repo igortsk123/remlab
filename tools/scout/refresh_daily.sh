@@ -552,12 +552,24 @@ if [ -n "$rooms_undef" ]; then
   echo "flat215_demo и flat215_publish пропущены: состояние банка комнат не определено (${rooms_undef% })" >> "$LOG"
   echo "DIGEST:!демо не собрано и не опубликовано: состояние банка комнат не определено (${rooms_undef% }) — на проде вчерашнее; разбор — bank_refresh.py --room <комната> state, затем recover" >> "$LOG"
 else
+  # ВИТРИНА: СБОРКА → ВОРОТА → ФОТО НЕЙРОСЕТИ → ПУБЛИКАЦИЯ (план photo-before-publish-01, T-20261107-34; владелец 07.11 TG 341, 356, 378)
+  DEMO_OUT=${FLAT215_DEMO_OUT:-$HOME/scout-scenes/flat215-demo}   # папка сборки (`flat215_demo.py:OUT`) = что публикует publish_demo.sh
   step flat215_demo "$PY" flat215_demo.py
   # лёгкие копии моделей демо — ворота публикации (demo-01): нет копий у моделей вариантов — демо не публикуется
   if step demo_rt bash ../assets/demo_rt.sh; then
-    step flat215_publish bash publish_demo.sh
+    # ДОСЪЁМКА ФОТО НЕЙРОСЕТИ — ДО ПУБЛИКАЦИИ, НА НОВОЙ СБОРКЕ (демо-29 → photo-before-publish-01): у вариантов без фото своей
+    # расстановки «Сделать реалистичнее» страницей ИЗ ЛОКАЛЬНОЙ СБОРКИ (`DEMO_LOCAL`; номер состояния тот же, что увидит покупатель),
+    # потолок трат — rules/demo-realistic.json (200 ₽, WARN в дайджест выше 100 ₽), трата — по счётчику шлюза; «сервер обновлялся» —
+    # один повтор через 5 мин. Раньше снимали ПОСЛЕ публикации — до утра главная показывала новую расстановку без фото.
+    # Публикация идёт ВСЕГДА (TG 378: «оставлять прежнее» — только про фото): не досняли — страница держит прежнее фото варианта
+    # (`index.html:realisticPublishedShot`), их число — строкой проверки ниже. Платный шаг — под openai.off; итог — DIGEST, сбой —
+    # WARN:demo_real (шаг warn, не FAIL). `PUB_PHOTOS_DONE=1` — фото этой сборки уже сняты, обёртка публикации их не повторяет
+    paid_step demo_real env DEMO_LOCAL="$DEMO_OUT" bash ../ops/demo-real.sh
+    [ "${OPENAI_OFF:-0}" = "1" ] && echo "DIGEST:фото нейросети: пропущено — платные шаги выключены (openai.off)" >> "$LOG"
+    step flat215_publish env PUB_PHOTOS_DONE=1 bash publish_demo.sh
   else
     RES[flat215_publish]=FAIL; echo "flat215_publish пропущен: ворота demo_rt" >> "$LOG"
+    echo "DIGEST:фото нейросети: пропущено — демо не опубликовано (ворота demo_rt)" >> "$LOG"
   fi
 fi
 # ОТЧЁТ ОБ АРТЕФАКТАХ СЦЕНЫ ПО ОПУБЛИКОВАННОМУ (demo-05 п.1, 18.10): данные — с прода (то, что видит покупатель, даже если
@@ -566,21 +578,10 @@ fi
 step scene_artifacts "$PY" scene_artifacts.py --data "https://remont-lab.online/demo/demo-data.json?v=$(date +%s)"
 # прогрев кадров (b2b-08 п.4): у каждого стиля — черновой кадр свежего набора, без чьего-то нажатия «снять»
 step demo_warm bash ../ops/demo-warm.sh
-# ДОСЪЁМКА ФОТО НЕЙРОСЕТИ (план demo-29, владелец 23.10 «а»): у стилей без фото своей расстановки — «Сделать реалистичнее» ночью,
-# потолок трат — rules/demo-realistic.json (50 ₽), трата — по счётчику шлюза. Только после прошедшей публикации: иначе снимали бы
-# вчерашнюю расстановку. Платный шаг — под openai.off. Итог — строка DIGEST, сбой — WARN:demo_real (шаг warn, не FAIL)
-# Публикация не прошла — платной съёмки нет, но бесплатная проверка `--dry` идёт (room-photos-07 п.5, T-20261106-88): строка
-# «пустые пары комната × стиль» по ОПУБЛИКОВАННОМУ (что видит покупатель) — в дайджесте каждую ночь, а не только после публикации
-# Платные шаги выключены (openai.off) — та же бесплатная проверка (T-20261107-20): иначе строки «пустые пары» в такую ночь не было бы
-case "${RES[flat215_publish]:-}" in
-  ok|warn) paid_step demo_real bash ../ops/demo-real.sh
-     if [ "${OPENAI_OFF:-0}" = "1" ]; then
-       echo "DIGEST:фото нейросети: пропущено — платные шаги выключены (openai.off)" >> "$LOG"
-       step demo_real_check bash ../ops/demo-real.sh --dry
-     fi ;;
-  *) echo "DIGEST:фото нейросети: пропущено — публикация демо не прошла" >> "$LOG"
-     step demo_real_check bash ../ops/demo-real.sh --dry ;;
-esac
+# ПРОВЕРКА ФОТО ПО ОПУБЛИКОВАННОМУ — КАЖДУЮ НОЧЬ, БЕСПЛАТНО (room-photos-07 п.5, T-20261106-88; T-20261107-20, -34): после прогрева
+# кадров `--dry` по тому, что видит покупатель: строка «пустые пары комната × стиль» и «фото новой расстановки нет у N: показывают
+# прежнее фото M» (+ WARN со списком). Идёт и при упавшей публикации, и при openai.off — сводка о фото не молчит
+step demo_real_check bash ../ops/demo-real.sh --dry
 # скорость фото нейросети за сутки (photo-speed-monitor-01, T-20261107-37): по журналу DEV-рендера, без сети и денег —
 # строка DIGEST «заданий, ждал покупатель медиана / 90 %, модель, отказы» + WARN по rules/photo-speed.json (шаг warn, не FAIL)
 step photo_speed "$PY" ../ops/photo-speed.py --digest

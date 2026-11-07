@@ -9,8 +9,9 @@
 #                                        `--rollback <метка>-undo`, он её напечатает
 # Настройки (окружение): PUB_DIR — папка на сервере, `demo` (по умолчанию) или `test/<имя>` для пробы; PUB_SRC — что
 # публиковать (по умолчанию ~/scout-scenes/flat215-demo); PUB_KEEP — сколько копий хранить (3); PUB_TMP — где собрать архив
-# (по умолчанию ~/.cache/remlab-publish, на диске). Для самопроверки —
-# PUB_ROOT, PUB_RTMP, PUB_CHOWN, PUB_URL (`tests/test_publish_demo.py`, ssh/scp/curl подменены).
+# (по умолчанию ~/.cache/remlab-publish, на диске); PUB_PHOTOS_DONE=1 — фото нейросети этой сборки уже сняты (ставит ночь),
+# без неё выкладка главной сперва снимает их (ниже, T-20261107-34). Для самопроверки —
+# PUB_ROOT, PUB_RTMP, PUB_CHOWN, PUB_URL, PUB_PHOTOS_CMD, PUB_OFF_FLAG (`tests/test_publish_demo.py`, ssh/scp/curl и съёмка подменены).
 #
 # ТОП-СПРАЙТЫ ПЕРЕЖИВАЮТ ПУБЛИКАЦИЮ (01.09). `rm -rf flat215-demo` чистил и `topsprites/`,
 # а туда виды сверху приезжают ОТДЕЛЬНО, прямым scp из мешевого конвейера
@@ -195,6 +196,23 @@ case "${1:-}" in
 esac
 
 [ -f "$PUB_SRC/index.html" ] || { echo "нет $PUB_SRC/index.html — сборка не выполнялась"; exit 1; }
+# ФОТО НЕЙРОСЕТИ ДО ВЫКЛАДКИ — И У РУЧНОЙ ТОЖЕ (план photo-before-publish-01, T-20261107-34; владелец 07.11 TG 341: «нельзя без
+# визуалки ничего показывать в 3D»). Ночь снимает фото новой сборки сама и зовёт публикацию с `PUB_PHOTOS_DONE=1`; ручная выкладка
+# главной без этой отметки сперва снимает те же фото тем же шагом (`tools/ops/demo-real.sh` с `DEMO_LOCAL=<сборка>`: потолок,
+# очередь тяжёлых прогонов, повтор «сервер обновлялся» — как ночью), обхода днём нет. Публикацию фото НЕ держат (TG 378): не
+# досняли — WARN, страница покажет прежнее фото варианта. Платные шаги выключены (`openai.off` рядом) — без съёмки, с WARN.
+# Проба под /test/ — без съёмки (её фото главной не нужны). Для самопроверки — PUB_PHOTOS_CMD (вместо demo-real.sh), PUB_OFF_FLAG.
+HERE=$(cd "$(dirname "$0")" && pwd)
+if [ "$PUB_DIR" = demo ] && [ "${PUB_PHOTOS_DONE:-0}" != 1 ]; then
+  if [ -f "${PUB_OFF_FLAG:-$HERE/openai.off}" ]; then
+    echo "WARN:publish_demo: платные шаги выключены (openai.off) — фото нейросети новой сборки не сняты, варианты покажут прежнее фото"
+  else
+    echo "фото нейросети новой сборки — до выкладки (demo-real.sh, DEMO_LOCAL=$PUB_SRC; может ждать очередь тяжёлых прогонов)"
+    photos_rc=0
+    DEMO_LOCAL="$PUB_SRC" bash "${PUB_PHOTOS_CMD:-$HERE/../ops/demo-real.sh}" || photos_rc=$?
+    [ "$photos_rc" = 0 ] || echo "WARN:publish_demo: досъёмка фото — код $photos_rc; публикую, не досняли — варианты покажут прежнее фото"
+  fi
+fi
 mkdir -p "$PUB_TMP"
 # место под архив: сборка в основном картинки — сжатие почти не уменьшает, берём её размер + 20 МБ запаса
 need=$(( $(du -sm "$PUB_SRC" | cut -f1) + 20 ))

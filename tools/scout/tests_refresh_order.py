@@ -335,12 +335,26 @@ def _rooms_bank(text: str, ok) -> int:
         ok(f'состояние {room} не определено ({"флаги выключены" if not flags else "флаги включены"}) — витрина не собирается и не '
            'публикуется, платной досъёмки нет (идёт сухая проверка), строка в дайджест; остальная ночь та же',
            not any(n in gn for n in DEMO) and 'demo_real' not in gn and 'demo_real_check' in gn
-           and [n for n in gn if n != 'demo_real_check'] == [n for n in ref if n not in (*DEMO, 'demo_real')]
+           and gn == [n for n in ref if n not in (*DEMO, 'demo_real')]
            and 'DIGEST:!демо не собрано и не опубликовано: состояние банка комнат не определено' in ulog
            and 'состояние FAIL' in dig(ulog, 'спальня' if room == 'bedroom' else 'прихожая'), (gn[-12:], ulog[-400:]))
-    fn, _, _ = run(0, full)
-    ok('состояние определено — витрина собирается и публикуется, платная досъёмка за публикацией',
-       all(n in fn for n in (*DEMO, 'demo_real')) and 'demo_real_check' not in fn)
+    fn, cmd, _ = run(0, full)
+    # ФОТО ДО ПУБЛИКАЦИИ (photo-before-publish-01, T-20261107-34): сборка → ворота → платная досъёмка на ЛОКАЛЬНОЙ сборке → публикация
+    # (с отметкой «фото сняты», обёртка не повторяет) → прогрев кадров → бесплатная проверка по опубликованному — каждую ночь
+    ok('состояние определено — сборка → ворота → досъёмка фото на новой сборке (DEMO_LOCAL) → публикация (PUB_PHOTOS_DONE=1) → '
+       'прогрев → сухая проверка по опубликованному',
+       fn.index('flat215_demo') < fn.index('demo_rt') < fn.index('demo_real') < fn.index('flat215_publish') < fn.index('demo_warm')
+       < fn.index('demo_real_check') and fn.count('demo_real_check') == 1
+       and cmd['demo_real'].startswith('env DEMO_LOCAL=') and cmd['demo_real'].endswith('/scout-scenes/flat215-demo bash ../ops/demo-real.sh')
+       and cmd['flat215_publish'] == 'env PUB_PHOTOS_DONE=1 bash publish_demo.sh'
+       and cmd['demo_real_check'] == 'bash ../ops/demo-real.sh --dry', {n: cmd.get(n) for n in ('demo_real', 'flat215_publish', 'demo_real_check')})
+    gn, _, glog = run(0, full, fail='demo_rt')
+    ok('ворота demo_rt не прошли — ни досъёмки, ни публикации; сухая проверка идёт; строка «фото: пропущено» в дайджест',
+       'demo_real' not in gn and 'flat215_publish' not in gn and 'demo_real_check' in gn
+       and 'DIGEST:фото нейросети: пропущено — демо не опубликовано (ворота demo_rt)' in glog, (gn[-8:], glog[-300:]))
+    for bad in ('demo_real', 'flat215_publish'):
+        gn, _, _ = run(0, full, fail=bad)
+        ok(f'сбой {bad} — ночь та же: публикация не зависит от фото (TG 378), проверка по опубликованному идёт', gn == fn, gn[-8:])
     # ТЕНЬ (этап Е): репетиция записи в копию — за rehearse_enabled, после цепочки (или суда), до проверки состояния; сбой — WARN
     # в смысле ночи: остальное идёт, витрина и публикация — идут
     reh = 'bedroom:rehearse_enabled'

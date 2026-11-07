@@ -4323,7 +4323,7 @@ function attachCollShot(cid,url){
 }
 // Кадр ТЕКУЩЕЙ расстановки, если он уже снят (путь без домена — так его принимает сервер коллекций).
 function currentShotPath(){
-  // картинка коллекции (demo-09 п.6, Codex п.5): реалистичный снимок этой расстановки, иначе пусто — сервер снимет кадр сам (`snapLater`)
+  // картинка коллекции (demo-09 п.6, Codex п.5): реалистичный снимок этой расстановки, иначе пусто — до фото нейросети (`setFavShot`)
   const sh=vwRealShots()[0]; if(!sh)return '';
   try{const p=new URL(sh.url,location.origin).pathname;
     return /^\/test\/share\/frames\/[\w.-]{1,120}\.(?:jpg|jpeg|png|webp)$/.test(p)?p:'';}catch(e){return '';}
@@ -5222,7 +5222,8 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
       return;
     }
     const lost=code==='lost'||code==='not_found';
-    if(opt.bg){opt.fail((lost?'':'Не получилось сделать фото. ')+String(err.message||err).slice(0,200)); return;}
+    // код отказа — вторым аргументом: ночная досъёмка по нему повторяет «сервер обновлялся» (`demo-realistic.mjs:isLost`, T-20261107-34)
+    if(opt.bg){opt.fail((lost?'':'Не получилось сделать фото. ')+String(err.message||err).slice(0,200), code); return;}
     shotOpen('<div class="wait">'+(lost?'':'Не получилось собрать кадр.<br>')+
       escHtml(String(err.message||err).slice(0,200))+
       '<br><button class="btn primary" id="shRetry" style="margin-top:12px">Повторить</button></div>','');
@@ -7557,7 +7558,7 @@ document.addEventListener('keydown',e=>{const sh=document.getElementById('shot')
   const zm=document.getElementById('vzoom'); if(zm&&zm.classList.contains('on'))return;
   if(e.key==='ArrowLeft'){vwPhoto(VW.photo-1); e.preventDefault();} else if(e.key==='ArrowRight'){vwPhoto(VW.photo+1); e.preventDefault();}});
 // БЕЗ 3D СЕРВЕРНОГО ЭСКИЗА В ОКНЕ НЕТ (demo-09, ответ владельца 37.4): реалистичное фото, если есть, иначе спокойная заглушка
-// (`.vstub`) и рабочая «Сделать реалистичнее»; серверный черновик — только картинка коллекции (`snapLater`)
+// (`.vstub`) и рабочая «Сделать реалистичнее»; серверного черновика нет и у картинки коллекции (`snapLater` снят, T-20261107-34)
 // сумма и история обновляются после любой правки; после замены — строка подсвечена, шторка до половины, сообщение
 document.addEventListener('remlab:hist',e=>{vwSumUpdate(); vwHist(); if(((e.detail||{}).n||0)>1)vwAfterChange();});
 // ЛЮБОЕ ИЗМЕНЕНИЕ → 3D (demo-09 п.4) И ШТОРКА ВНИЗ НА ТЕЛЕФОНЕ (п.4a, владелец 17.10: «заменили — сразу сворачивать, чтоб увидел»):
@@ -8560,26 +8561,8 @@ function quizPick(rule, answers, available, styleColours){
       room:c.roomId||'living', styleId:c.styleId||'',
       stateId:c.stateId||'', displayName:c.displayName||''};
   }
-  // ЧЕРНОВОЙ КАДР КОЛЛЕКЦИИ В ФОНЕ (demo-03, 2.13): кадра этой расстановки ещё нет — снимаем бесплатный черновик
-  // (наша 3D-сцена, без модели) и один раз прикрепляем к коллекции. `no_registry` — кадр не уходит в общую ленту
-  // стиля: это чужая расстановка, а не вариант витрины. Не вышло — карточка просто остаётся без фото.
-  function snapLater(cid, stateId){
-    var body=Object.assign(payload(),{quality:'draft',async:1,no_registry:1,stateId:stateId}), t0=Date.now();
-    fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
-      .then(function(r){return r.json();}).then(function(j){
-        if(!j||!j.job)return;
-        (function poll(){ if(Date.now()-t0>8*60000)return;
-          setTimeout(function(){fetch('/api/job?id='+encodeURIComponent(j.job),{cache:'no-store'}).then(function(r){return r.json();})
-            .then(function(jj){
-              if(jj&&jj.status==='running')return poll();
-              var u=jj&&jj.shots&&jj.shots[0]&&jj.shots[0].url; if(!u)return;
-              var path=new URL(u,location.origin).pathname;
-              attachCollShot(cid,u);
-              fetch('/api/collections/'+cid,{method:'PATCH',headers:{'content-type':'application/json'},
-                body:JSON.stringify({shot:path,stateId:stateId})}).catch(function(){});
-            }).catch(poll);},3000);})();
-      }).catch(function(){});
-  }
+  // ЧЕРНОВОЙ КАДР КОЛЛЕКЦИИ (`snapLater`, demo-03 2.13) СНЯТ (план photo-before-publish-01, T-20261107-34; владелец 07.11 TG 341:
+  // «нельзя без визуалки ничего показывать в 3D»): картинка коллекции — только фото нейросети (`setFavShot`), до него — «Фото готовится»
   function fetchOne(id){return fetch('/api/collections/'+id,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})
     .then(function(j){return j&&j.ok?asVariant(j.collection):null;}).catch(function(){return null;});}
   // COLLREAD START — ЧТЕНИЕ КОЛЛЕКЦИЙ ПАЧКОЙ С ПОВТОРОМ (demo-19 А1; чистые функции — тест `tests/unit/demo-collread.test.ts`).
@@ -8692,33 +8675,10 @@ function quizPick(rule, answers, available, styleColours){
   function bkStore(apt,b){try{localStorage.setItem(BKP+apt,JSON.stringify(b));}catch(_){}}
   function bkPut(b){BK.b=b; bkStore(BK.apt,b); bkRedraw();}
   function bkRedraw(){try{drawVariants();}catch(_){} favDraw(); favUi(); try{vwSumUpdate();}catch(_){}}
-  // МИНИАТЮРА ИЗБРАННОГО ИЗ СЦЕНЫ (demo-15, fable-lead 18.10: карточка без картинки — большая пустая заглушка). При сохранении
-  // сердечком живая сцена снимает текущий вид 480×320 (`DemoScene.capture` — без рамки выделения), JPEG ~25 КБ хранится на этом
-  // устройстве рядом со списком. Хранилище браузера небольшое — держим миниатюры TMAX новейших; не влезло — у старых заглушка
-  // или серверный черновик (`snapLater`: он же — картинка коллекции у того, кому отправили ссылку)
-  var TKEY='remlab-fav-thumbs', TMAX=30;
-  var thumbs=function(){try{return JSON.parse(localStorage.getItem(TKEY)||'{}')||{};}catch(_){return {};}};
-  function thumbPut(id,url){
-    var t=thumbs(); t[id]=url;
-    var keep=favs().map(function(f){return f.favoriteId;}).filter(function(x){return x!==id&&t[x];});
-    keep.unshift(id); keep=keep.slice(0,TMAX);
-    for(var n=keep.length;n>0;n--){var o={}; keep.slice(0,n).forEach(function(k){o[k]=t[k];});
-      try{localStorage.setItem(TKEY,JSON.stringify(o)); return true;}catch(_){}}   // переполнено — отбрасываем самые старые
-    return false;
-  }
-  function thumbDrop(id){var t=thumbs(); if(!(id in t))return; delete t[id]; try{localStorage.setItem(TKEY,JSON.stringify(t));}catch(_){}}
-  function grabThumb(){
-    if(typeof LIVE==='undefined'||LIVE.ok!==true||!LIVE.scene||!LIVE.scene.capture)return Promise.resolve('');
-    // главный ракурс (C1), а не случайный текущий взгляд: его точка подобрана показать основную мебель, как кадры карточек вариантов
-    // (самопроверка 18.10: с текущего вида у окна на миниатюре были телевизор и стулья без дивана)
-    var c=(cams||loadCams())[0]; if(!c)return Promise.resolve('');
-    var p=camPoseOf(c);
-    return LIVE.scene.update(clone(items), liveDecor()).then(function(){return LIVE.scene.capture([p],480,320);})
-      .then(function(r){return createImageBitmap(r.frames[0]);})
-      .then(function(bm){var cv=document.createElement('canvas'); cv.width=480; cv.height=320; cv.getContext('2d').drawImage(bm,0,0);
-        return cv.toDataURL('image/jpeg',0.72);})
-      .catch(function(){return '';});
-  }
+  // МИНИАТЮРА ИЗБРАННОГО ИЗ СЦЕНЫ (demo-15: `grabThumb` → `remlab-fav-thumbs`) СНЯТА (план photo-before-publish-01, T-20261107-34;
+  // владелец 07.11 TG 341): карточка избранного — фото нейросети этой расстановки (`f.shot`, `setFavShot`), до него — заглушка
+  // «Фото готовится» (`favDraw`). Старые миниатюры на устройстве больше не показываются — хранилище освобождаем
+  try{localStorage.removeItem('remlab-fav-thumbs');}catch(_){}
   var cap=function(t){t=String(t||'');return t?t[0].toUpperCase()+t.slice(1):t;};
   var styleOfV=function(v){return String((v&&v.style)||'').replace(/^(моя коллекция|my collection|коллекция по ссылке|shared collection) · /,'');};
   // комната и стиль расстановки: у варианта витрины — из данных сборки, у коллекции — из её снимка; нет — гостиная
@@ -8780,9 +8740,9 @@ function quizPick(rule, answers, available, styleColours){
     return location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#c='+id;}
   function post(snap){return fetch('/api/collections',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(snap)})
     .then(function(r){return r.json().then(function(j){if(!r.ok||!j.ok)throw new Error((j&&j.error)||'');return j;});});}
-  // `auto` — рисуется улучшенное фото (`autoPhoto`): бесплатный черновик не снимаем — картинку коллекции прикрепляют один раз
-  function afterSave(id,snap,auto){remember(id,snap.style||'',true); if(window.__embedEvent)window.__embedEvent('save');
-    if(snap.shot)attachCollShot(id,location.origin+snap.shot); else if(!auto)snapLater(id, snap.stateId);
+  // картинка коллекции — только фото нейросети этой расстановки (есть — сразу; нет — придёт `setFavShot`), черновика нет (T-20261107-34)
+  function afterSave(id,snap){remember(id,snap.style||'',true); if(window.__embedEvent)window.__embedEvent('save');
+    if(snap.shot)attachCollShot(id,location.origin+snap.shot);
     // новая коллекция встаёт в начало списка — открытое окно остаётся на своём варианте (номер `cur` сдвигаем, demo-20 Б3)
     return fetchOne(id).then(function(v){if(v&&!MINE.some(function(x){return x.cid===id;})){var was=allVariants()[cur];
         MINE.unshift(v); var k=allVariants().indexOf(was); if(k>=0)cur=k; if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}
@@ -8869,7 +8829,7 @@ function quizPick(rule, answers, available, styleColours){
   function apSave(o){AP_MEM=o; try{localStorage.setItem(AKEY,JSON.stringify(o));}catch(_){}}
   function paidOk(){return fetch('/api/draft/paid',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})
     .then(function(j){return !!(j&&j.available);}).catch(function(){return false;});}
-  // → Promise<true>, если фото этого состояния рисуется (нами или ручной кнопкой) — тогда черновик коллекции не нужен
+  // → Promise<true>, если фото этого состояния рисуется (нами или ручной кнопкой)
   function autoPhoto(f){
     var job=typeof VJ!=='undefined'?VJ.job:null;
     if(job)return Promise.resolve(job.stateId===f.stateId);   // идёт фото этого состояния — его и возьмём; другого — одно за раз
@@ -8879,7 +8839,7 @@ function quizPick(rule, answers, available, styleColours){
       if(!ok||VJ.job||curStateId()!==f.stateId)return false;
       var a=apLoad(); if(a.s[f.stateId]||a.n>=AUTO_DAY_MAX)return false;
       a.n+=1; a.s[f.stateId]={t:Date.now()}; apSave(a);
-      vwRealistic({auto:true, fail:function(){var b=apLoad(); delete b.s[f.stateId]; apSave(b); snapLater(f.favoriteId,f.stateId);}});
+      vwRealistic({auto:true, fail:function(){var b=apLoad(); delete b.s[f.stateId]; apSave(b); favDraw();}});
       return true;
     });
   }
@@ -8903,9 +8863,7 @@ function quizPick(rule, answers, available, styleColours){
     // фото этого состояния уже снято на этом устройстве (сохраняли раньше) — оно и картинка, без нового запроса
     if(!snap.shot){var was=apLoad().s[snap.stateId]; if(was&&was.shot)snap.shot=was.shot;}
     var draft=draftQuote();
-    var tp=snap.shot?Promise.resolve(''):grabThumb();      // есть реалистичное фото этой расстановки — оно и есть картинка
     return post(snap).then(function(j){
-      tp.then(function(u){if(u&&thumbPut(j.id,u)){favDraw();}});
       reportAct('favourite_save');
       var f={favoriteId:j.id, editToken:j.editToken||null, roomId:room.id, roomKind:room.kind, styleId:st.slice(0,20), stateId:snap.stateId||'',
         sourceVariantId:String(v.id||'').slice(0,40), displayName:nm, autoName:nm===def, createdAt:Date.now(),
@@ -8914,8 +8872,8 @@ function quizPick(rule, answers, available, styleColours){
       whenBasket(function(){if(!draft){var dq=draftQuote(); if(dq)f.quote=dq;}   // корзина открылась позже сохранения — строки досчитать сейчас
         var b=BK.mod.addFavorite(BK.b,f); markMig(f.favoriteId); decide(b,f,BK.mod.evaluate(b,room.id,f.quote,BK.limit));});
       // коллекция с сервера — текущие цены: строки пересчитываются, уже включённый вариант остаётся включённым
-      // автофото — после миниатюры: оба снимают одну живую сцену, вместе миниатюра терялась (самопроверка T-16)
-      return (snap.shot?Promise.resolve(false):tp.then(function(){return autoPhoto(f);})).then(function(auto){return afterSave(j.id,snap,auto);})
+      // нет фото этой расстановки — автофото (одно на состояние, лимит суток); карточка до него — «Фото готовится»
+      return (snap.shot?Promise.resolve(false):autoPhoto(f)).then(function(){return afterSave(j.id,snap);})
         .then(function(){bkRefresh(); bkRedraw();});
     }).catch(function(){toast(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.');});
   }
@@ -8931,7 +8889,7 @@ function quizPick(rule, answers, available, styleColours){
     return fetch('/api/collections/'+id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({displayName:name,editToken:f.editToken})})
       .then(function(r){if(!r.ok)back();},back);
   }
-  function removeFav(id){ if(!BK.mod||!BK.b)return; bkPut(BK.mod.removeFavorite(BK.b,id,BK.limit)); thumbDrop(id); drawColl(true);
+  function removeFav(id){ if(!BK.mod||!BK.b)return; bkPut(BK.mod.removeFavorite(BK.b,id,BK.limit)); drawColl(true);
     toast(EN()?'Removed from favourites':'Убрано из избранного');}
   // «Не включать в сертификат»: комната уходит из расчёта, вариант остаётся в избранном; включить снова — переключателем (те же ворота)
   function excludeFav(id){ var f=favOf(id); if(!f||!BK.mod||BK.b.includedByRoom[f.roomId]!==id)return; bkPut(BK.mod.exclude(BK.b,f.roomId));
@@ -9058,18 +9016,20 @@ function quizPick(rule, answers, available, styleColours){
     chips.innerHTML=groups.map(function(g){var n=l.filter(function(f){return f.roomId===g.id;}).length;
       return '<button class="hm-fav-chip'+(g.id===BK.sel?' on':'')+'" type="button" role="tab" aria-selected="'+(g.id===BK.sel)+'" data-froom="'+e(g.id)+'">'+e(g.title)+' · '+n+'</button>';}).join('');
     chips.querySelectorAll('[data-froom]').forEach(function(b){b.onclick=function(){BK.sel=b.dataset.froom; favDraw();};});
-    var TH=thumbs(), list=l.filter(function(f){return f.roomId===BK.sel;}).sort(function(a,b){return b.createdAt-a.createdAt;});
+    var list=l.filter(function(f){return f.roomId===BK.sel;}).sort(function(a,b){return b.createdAt-a.createdAt;});
     grid.innerHTML=list.map(function(f){
       var v=MINE.find(function(x){return x.cid===f.favoriteId;});
-      var img=(f.shot?location.origin+f.shot:'')||TH[f.favoriteId]||((typeof COLL_SHOTS!=='undefined'&&COLL_SHOTS[f.favoriteId])||'');
-      if(!img&&v){var bs=bestShot(v); if(bs)img=thumbOf(bs);}
+      // ТОЛЬКО ФОТО НЕЙРОСЕТИ (T-20261107-34, TG 341): своё фото избранного или снятое на этом устройстве для этой расстановки;
+      // 3D-миниатюра и серверный черновик (`COLL_SHOTS` старых коллекций) не показываются — до фото заглушка «Фото готовится»
+      var img=f.shot?location.origin+f.shot:'';
+      if(!img&&v){var bs=bestShot(v); if(bs&&bs.quality==='realistic')img=thumbOf(bs);}
       var d=new Date(f.createdAt||Date.now()), date=('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'+d.getFullYear();
       var known=f.quote.lines.filter(function(x){return x.settlement==='allowance';}), full=f.quote.status==='fresh'&&known.every(function(x){return x.priceStatus==='known';});
       var sum=known.reduce(function(s,x){return s+(x.amount||0);},0), on=inc[f.roomId]===f.favoriteId;
       var price=full?'<b>'+fmtCard(sum)+'</b>':(EN()?'prices are being checked':'цены уточняются');
       var job=typeof VJ!=='undefined'?VJ.job:null, wait=!f.shot&&job&&job.stateId===f.stateId?photoWaitHtml(job.t0):'';
       return '<div class="favcard'+(on?' inc':'')+'" data-fid="'+e(f.favoriteId)+'"><div class="fph" data-fopen="'+e(f.favoriteId)+'">'+
-          (img?'<img src="'+e(img)+'" alt="" loading="lazy">':'<div class="nopv">'+(EN()?'Open to see it in 3D':'Откройте — покажем в 3D')+'</div>')+wait+'</div>'+
+          (img?'<img src="'+e(img)+'" alt="" loading="lazy">':'<div class="nopv">'+(EN()?'Photo is being prepared':'Фото готовится')+'</div>')+wait+'</div>'+
         '<div class="fb"><div class="nm">'+e(f.displayName)+'</div><div class="pr">'+e(styleTitle(f.styleId))+' · '+date+' · '+price+'</div>'+
         // «Добавлено в сертификат» и «i» рядом, вне <label> — тап по «i» не переключает выбор (владелец 22.10, demo-20 А6); пузырь — общий
         // обработчик `.vpl-i`, открывается вверх (у карточки `overflow:hidden`, вниз его срезало бы)

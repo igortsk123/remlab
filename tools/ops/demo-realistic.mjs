@@ -7,20 +7,29 @@
 //   node tools/ops/demo-realistic.mjs --go --all   # остальные — после того как пробное фото посмотрели глазами
 //   node tools/ops/demo-realistic.mjs --force сканди [--go]   # переснять и у кого фото уже есть (demo-11: новая модель и промпт)
 //   node tools/ops/demo-realistic.mjs --force all --go --all
-//   node tools/ops/demo-realistic.mjs --night [--cap-rub 50] [--dry]   # ночной шаг demo_real (demo-29), см. ниже
+//   node tools/ops/demo-realistic.mjs --night [--cap-rub 200] [--dry]   # ночной шаг demo_real (demo-29), см. ниже
 //   node tools/ops/demo-realistic.mjs --selftest   # ночной учёт и потолок на заглушках — без браузера и денег
 //   REAL_STYLES=современный,лофт   только эти стили и в этом порядке (проба на 1–2 парах, T-20261106-88); комната — `REAL_ROOM`
 //   --frames   кадры из браузера (живая 3D-сцена, как у покупателя: `vwCaptureViews`), а не серверный эскиз; не снялись — СТОП без оплаты
 //   DEMO_LOCAL=<папка сборки>   страница и данные витрины — из локальной сборки (`FLAT215_DEMO_OUT`), сервер и реестр — прода: фото
-//              новых ракурсов снимаются ДО публикации (demo-22: опубликованная страница их сразу показывает — номер состояния тот же)
+//              новых ракурсов снимаются ДО публикации (demo-22: опубликованная страница их сразу показывает — номер состояния тот же).
+//              Так идёт и ночь (T-20261107-34). Строки «пустые пары» и «прежнее фото» в этом режиме не печатаются: они про то, что
+//              видит покупатель, — их даёт бесплатная проверка `--dry` по опубликованному после прогрева кадров (`refresh_daily.sh`)
 // Годна только НОВАЯ запись реестра (не из прежних id) этого стиля и состояния, с обеими точками, позами камер страницы,
 // моделью и версией промпта, которых ждём (EXPECT_MODEL, EXPECT_PROMPT); `shots.json` не чистится — старое остаётся историей.
 // Ошибка любого варианта останавливает прогон (деньги не тратятся вслепую); счётчик «снято / не вышло» — в конце.
 //
 // НОЧЬ (план demo-29, владелец 23.10 «а»): `--night` снимает всех без фото своей расстановки, пока трата ночи не дойдёт до потолка
-// (`rules/demo-realistic.json:night_cap_rub`, 50 ₽; `--cap-rub` — перекрыть). Трата — ФАКТ: прирост счётчика шлюза `total_used`
+// (`rules/demo-realistic.json:night_cap_rub`, 200 ₽ — владелец 07.11 TG 356; `--cap-rub` — перекрыть; трата выше `night_warn_rub`
+// 100 ₽ — WARN в дайджест). Трата — ФАКТ: прирост счётчика шлюза `total_used`
 // (GET /v1/credits, бесплатно) после задания; не пришёл за `bill_wait_s` или ключа нет — задание по оценке `est_rub_per_job`.
 // Прерванное («результат неизвестен») считается потраченным. Ошибка — стоп без повторов; улучшение недоступно — 0 ₽ и WARN.
+// ИСКЛЮЧЕНИЕ — «СЕРВЕР ОБНОВЛЯЛСЯ» (план photo-before-publish-01, T-20261107-34): задание потеряно выкладкой прода (код страницы
+// `lost`/`not_found`) — один повтор того же варианта через 5 мин (`LOST_RETRY_MS`), не стоп ночи; трата первой попытки учтена,
+// повтор — в пределах потолка; второй отказ подряд — стоп, как обычная ошибка. Число таких отказов — в лог и строку DIGEST.
+// ФОТО ДО ПУБЛИКАЦИИ (тот же план): ночь снимает НОВУЮ сборку до выкладки (`DEMO_LOCAL`, `refresh_daily.sh`), публикация идёт
+// всегда; варианты, оставшиеся без фото новой расстановки, на странице показывают прежнее фото (`index.html:realisticPublishedShot`)
+// — их число и список — строки `DIGEST:`/`WARN:demo_real:` (`staleLines`).
 // Итог — строка `DIGEST:` в утреннюю сводку; сбой — `WARN:demo_real:`. Код выхода 0 у обработанных исходов (шаг — warn, не FAIL).
 // ВСЕ КОМНАТЫ, СНАЧАЛА ПУСТЫЕ (план room-photos-07 п.2, T-20261106-88): пары «комната × стиль» без единого фото нейросети (ни своей,
 // ни прежней расстановки) — первыми, затем те, у кого фото устарело; потолок ночи прежний, остаток — следующей ночью. `--dry` печатает
@@ -50,7 +59,8 @@ const CREDITS_URL = "https://ai-gateway.vercel.sh/v1/credits";
 export function nightRules(text, argv = []) {
   const r = JSON.parse(text);
   const ci = argv.indexOf("--cap-rub");
-  const out = { cap: Number(ci >= 0 ? argv[ci + 1] : r.night_cap_rub), est: Number(r.est_rub_per_job), rate: Number(r.usd_rub), waitS: Number(r.bill_wait_s ?? 90) };
+  const out = { cap: Number(ci >= 0 ? argv[ci + 1] : r.night_cap_rub), warn: Number(r.night_warn_rub), est: Number(r.est_rub_per_job), rate: Number(r.usd_rub),
+    waitS: Number(r.bill_wait_s ?? 90) };
   for (const [k, v] of Object.entries(out)) if (!(Number.isFinite(v) && v >= 0)) throw new Error(`rules/demo-realistic.json: ${k} = ${v}`);
   if (!out.cap || !out.est || !out.rate) throw new Error("rules/demo-realistic.json: потолок, оценка задания и курс обязаны быть больше нуля");
   return out;
@@ -108,12 +118,22 @@ async function gwUsed() {
   } catch { return null; }
 }
 
+/** Пауза перед повтором задания, потерянного выкладкой прода («сервер обновлялся»): выкладка с проверкой — 2–4 мин. */
+export const LOST_RETRY_MS = 300_000;
+
+/** Отказ «сервер обновлялся»: код страницы (`makePhoto` → `opt.fail(текст, код)`) или — у страницы без кода — её текст. */
+export function isLost(r) {
+  return !r.ok && (["lost", "not_found"].includes(r.code)
+    || /сервер обновлялся|обновлении сервера|server update|сервер кадров недоступен/i.test(r.why ?? ""));
+}
+
 /** НОЧНОЙ ЦИКЛ (чистое ядро, deps — заглушки в самопроверке): перед заданием — влезает ли оценка в остаток потолка; после —
  *  факт по приросту счётчика (ждём до `waitS`), не пришёл — оценка. Ошибка или прерванное — стоп, трата учтена.
- *  deps: shoot(t) → {ok, why}; used() → $|null; sleep(ms). → {done, failed, rub, byEst, stop, left, log[]} */
+ *  «Сервер обновлялся» (`isLost`) — один повтор того же варианта через `LOST_RETRY_MS`, отказ — в `lost`; второй подряд — стоп.
+ *  deps: shoot(t) → {ok, why, code?}; used() → $|null; sleep(ms). → {done, failed, lost, rub, byEst, stop, left, log[]} */
 export async function runNight(todo, deps, rules) {
-  const res = { done: 0, failed: 0, rub: 0, byEst: 0, stop: "", left: 0, log: [], ok: [] };
-  let last = await deps.used();
+  const res = { done: 0, failed: 0, lost: 0, rub: 0, byEst: 0, stop: "", left: 0, log: [], ok: [] };
+  let last = await deps.used(), again = false;
   for (let k = 0; k < todo.length; k++) {
     const t = todo[k];
     if (res.rub + rules.est > rules.cap) { res.stop = "cap"; res.left = todo.length - k; break; }
@@ -131,22 +151,43 @@ export async function runNight(todo, deps, rules) {
     const rub = delta !== null ? delta * rules.rate : rules.est;
     if (delta === null) res.byEst += 1;
     res.rub += rub;
-    res.log.push(`  ${pairLabel(t)}: ${r.ok ? "снято" : "НЕ ВЫШЛО — " + r.why}, ${rub.toFixed(1)} ₽${delta === null ? " (оценка)" : ""}`);
-    if (r.ok) { res.done += 1; res.ok.push(t); }
-    else { res.failed += 1; res.stop = "error"; res.why = `${pairLabel(t)}: ${r.why}`; res.left = todo.length - k - 1; break; }
+    const retry = !r.ok && !again && isLost(r);
+    res.log.push(`  ${pairLabel(t)}: ${r.ok ? "снято" : "НЕ ВЫШЛО — " + r.why}, ${rub.toFixed(1)} ₽${delta === null ? " (оценка)" : ""}`
+      + (retry ? ` — сервер обновлялся, повтор через ${LOST_RETRY_MS / 60_000} мин` : ""));
+    if (r.ok) { res.done += 1; res.ok.push(t); again = false; }
+    else if (retry) { res.lost += 1; again = true; await deps.sleep(LOST_RETRY_MS); k -= 1; }
+    else { res.failed += 1; res.stop = "error"; res.why = `${pairLabel(t)}: ${r.why}${again ? " (после повтора)" : ""}`; res.left = todo.length - k - 1; break; }
   }
+  if (res.lost) res.log.push(`  отказов «сервер обновлялся» за ночь: ${res.lost} (каждый — один повтор через ${LOST_RETRY_MS / 60_000} мин)`);
   return res;
 }
 
-/** Строки итога для лога шага: DIGEST — в утреннюю сводку, WARN — в предупреждения дайджеста. */
-export function nightLines(n, todoLen, paid, res, cap) {
+/** Строки итога для лога шага: DIGEST — в утреннюю сводку, WARN — в предупреждения дайджеста. `warn` — порог траты ночи для WARN
+ *  (`rules/demo-realistic.json:night_warn_rub`, 100 ₽): выше него — строка WARN, даже если потолок не достигнут. */
+export function nightLines(n, todoLen, paid, res, cap, warn = Infinity) {
   if (!todoLen) return ["DIGEST:фото нейросети: все стили с фото своей расстановки — 0 ₽"];
   if (!paid.available) return [`WARN:demo_real: улучшение недоступно (${paid.code ?? "?"}) — без фото своей расстановки ${todoLen}, ничего не снято, 0 ₽`];
   const tail = res.stop === "cap" ? `; потолок — без фото осталось ${res.left}` : res.stop === "error" ? `; остановлено на ошибке, без фото осталось ${res.left}` : "";
-  const out = [`DIGEST:фото нейросети: снято ${res.done}, не вышло ${res.failed}, ≈${Math.round(res.rub)} ₽ из ${cap} ₽${res.byEst ? ` (по оценке — ${res.byEst})` : ""}${tail}`];
+  const out = [`DIGEST:фото нейросети: снято ${res.done}, не вышло ${res.failed}, ≈${Math.round(res.rub)} ₽ из ${cap} ₽${res.byEst ? ` (по оценке — ${res.byEst})` : ""}`
+    + `${res.lost ? `, отказов «сервер обновлялся» ${res.lost} (повтор через 5 мин)` : ""}${tail}`];
   if (res.stop === "error") out.push(`WARN:demo_real: ${res.why}`);
   if (res.stop === "cap") out.push(`WARN:demo_real: потолок ${cap} ₽ — без фото своей расстановки осталось ${res.left} (досниму следующей ночью)`);
+  if (res.rub > warn) out.push(`WARN:demo_real: трата ночи ≈${Math.round(res.rub)} ₽ — выше порога ${warn} ₽ (потолок ${cap} ₽)`);
   return out;
+}
+
+/**
+ * ПРЕЖНЕЕ ФОТО (план photo-before-publish-01, владелец 07.11 TG 378): сборка выкладывается всегда, а вариант, оставшийся без фото
+ * новой расстановки, страница показывает с последним фото нейросети того же варианта из прежних расстановок
+ * (`index.html:realisticPublishedShot`); нет и его — вариант на главной не виден. `todo` — пары без фото своей расстановки до съёмки,
+ * `shot` — снятые этой ночью. → строка DIGEST и, если прежнее фото кто-то показывает, WARN со списком.
+ */
+export function staleLines(todo, shot, reg) {
+  const key = (v) => `${v.room || "living"}|${v.id}`, got = new Set(shot.map(key));
+  const left = todo.filter((t) => !got.has(key(t)));
+  const prev = left.filter((t) => hasAnyReal(reg, t));
+  const head = `DIGEST:фото новой расстановки нет у ${left.length}: показывают прежнее фото ${prev.length}, без фото (на главной не видны) ${left.length - prev.length}`;
+  return prev.length ? [head, `WARN:demo_real: прежнее фото показывают ${prev.length}: ${prev.map(pairLabel).join(", ")}`] : [head];
 }
 
 async function main() {
@@ -197,14 +238,14 @@ async function main() {
         if (DRY) {
           console.log(`сухой прогон ночи — ничего не снято, 0 ₽ (снял бы ${Math.min(todo.length, Math.floor(rules.cap / rules.est))}):`);
           for (const l of dryLines(todo, reg0, rules)) console.log(l);
-        } else for (const l of nightLines(0, todo.length, paid, null, rules.cap)) console.log(l);
-        for (const l of empty()) console.log(l);
+        } else for (const l of nightLines(0, todo.length, paid, null, rules.cap, rules.warn)) console.log(l);
+        if (!LOCAL) for (const l of [...empty(), ...(todo.length ? staleLines(todo, [], reg0) : [])]) console.log(l);
         return;
       }
       const res = await runNight(todo, { shoot: (t) => shootOne(page, t, before), used: gwUsed, sleep: (ms) => new Promise((ok) => setTimeout(ok, ms)) }, rules);
       for (const l of res.log) console.log(l);
-      for (const l of nightLines(0, todo.length, paid, res, rules.cap)) console.log(l);
-      for (const l of empty(res.ok)) console.log(l);
+      for (const l of nightLines(0, todo.length, paid, res, rules.cap, rules.warn)) console.log(l);
+      if (!LOCAL) for (const l of [...empty(res.ok), ...staleLines(todo, res.ok, reg0)]) console.log(l);
       done = res.done; failed = res.failed;
       return;
     }
@@ -236,7 +277,8 @@ async function shootOne(page, t, before) {
       if (!cap) return { error: "кадры из браузера не сняты — платный вызов не делаю" };
       extra = { views: cap.views, clay: cap.clay, sheet: cap.sheet };
     }
-    return await new Promise((ok) => makePhoto("realistic", "", "", { bg: true, extra, progress: () => {}, fail: (m) => ok({ error: String(m) }),
+    // код отказа (`lost`/`not_found` — «сервер обновлялся») страница отдаёт вторым аргументом (T-20261107-34) — для повтора ночью
+    return await new Promise((ok) => makePhoto("realistic", "", "", { bg: true, extra, progress: () => {}, fail: (m, code) => ok({ error: String(m), code: code || "" }),
       done: (n0) => ok({ n: shots.length - n0, frames: (shots[n0] || {}).timing?.frames }) }));
   }, [t.i, FRAMES]);
   if (FRAMES && !res.error && res.frames !== "browser") res.error = `снято не из кадров браузера (${res.frames ?? "?"})`;
@@ -251,14 +293,15 @@ async function shootOne(page, t, before) {
     : sig(rec) !== t.cams ? `позы камер ${sig(rec)} ≠ страницы ${t.cams}` : "";
   const sec = Math.round((Date.now() - t0) / 1000);
   const ok = !res.error && rec && !why && (rec.shots ?? []).length >= 2;
-  return { ok: !!ok, why: res.error ?? (why || "меньше двух кадров"), sec, urls: (rec?.shots ?? []).map((s) => s.url).join(" , ") };
+  return { ok: !!ok, why: res.error ?? (why || "меньше двух кадров"), code: res.code ?? "", sec, urls: (rec?.shots ?? []).map((s) => s.url).join(" , ") };
 }
 
 async function selftest() {
   const res = [];
   const check = (ok, msg, got) => { res.push(ok); console.log(ok ? `OK   ${msg}` : `FAIL ${msg}: ${JSON.stringify(got)}`); };
   const rules = nightRules(readFileSync(RULES, "utf8"));
-  check(rules.cap === 50 && rules.est > 0 && rules.rate > 0, "настройка: потолок 50 ₽ (слово владельца), оценка и курс заданы", rules);
+  check(rules.cap === 200 && rules.warn === 100 && rules.est > 0 && rules.rate > 0,
+    "настройка: потолок 200 ₽ (владелец 07.11 TG 356), WARN выше 100 ₽, оценка и курс заданы", rules);
   check(nightRules(readFileSync(RULES, "utf8"), ["--cap-rub", "20"]).cap === 20, "--cap-rub перекрывает потолок", null);
   let threw = false;
   try { nightRules('{"night_cap_rub": 50}'); } catch { threw = true; }
@@ -296,6 +339,33 @@ async function selftest() {
   // 7) потолок меньше оценки — ни одного задания
   r = await runNight(todo, { shoot: async () => { throw new Error("не должно звать"); }, used: async () => null, sleep: nap }, { ...R, cap: 5 });
   check(r.done === 0 && r.failed === 0 && r.stop === "cap" && r.rub === 0, "потолок меньше оценки — ничего не начато, 0 ₽", r);
+  // 7а) «СЕРВЕР ОБНОВЛЯЛСЯ» (T-20261107-34): один повтор того же варианта через 5 мин, ночь идёт дальше; второй отказ подряд — стоп
+  const lostR = { ok: false, why: "Улучшение прервалось: сервер обновлялся. Результат неизвестен", code: "lost" };
+  let naps = []; const napLog = async (ms) => { naps.push(ms); };
+  let tries = {}; shot = [];
+  r = await runNight(todo.slice(0, 3), { shoot: async (t) => { tries[t.style] = (tries[t.style] ?? 0) + 1; shot.push(t.style);
+    return t.i === 1 && tries[t.style] === 1 ? lostR : { ok: true }; }, used: async () => null, sleep: napLog }, { ...R, cap: 200 });
+  check(r.done === 3 && r.failed === 0 && r.lost === 1 && !r.stop && shot.join(",") === "лофт,сканди,сканди,джапанди" && naps.includes(LOST_RETRY_MS)
+    && r.rub === 40 && r.log.some((l) => l.includes("сервер обновлялся, повтор через 5 мин")) && r.log.at(-1).includes("отказов «сервер обновлялся» за ночь: 1"),
+    "сервер обновлялся — повтор того же варианта через 5 мин, трата обеих попыток учтена, ночь идёт дальше, счётчик отказов в логе", { r, shot, naps });
+  check(nightLines(0, 3, { available: true }, r, 200)[0].includes("отказов «сервер обновлялся» 1"), "строка DIGEST — с числом отказов «сервер обновлялся»", null);
+  naps = []; shot = [];
+  r = await runNight(todo.slice(0, 3), { shoot: async (t) => { shot.push(t.style); return t.i === 1 ? lostR : { ok: true }; }, used: async () => null, sleep: napLog }, { ...R, cap: 200 });
+  check(r.done === 1 && r.failed === 1 && r.lost === 1 && r.stop === "error" && shot.join(",") === "лофт,сканди,сканди" && r.left === 1 && /после повтора/.test(r.why),
+    "второй отказ «сервер обновлялся» подряд — стоп ночи (повтор один)", { r, shot });
+  r = await runNight(todo.slice(0, 2), { shoot: async (t) => (t.i === 0 ? { ok: false, why: "Задание прервалось при обновлении сервера — нажмите «Повторить»." } : { ok: true }),
+    used: async () => null, sleep: nap }, { ...R, cap: 200 });
+  check(r.lost === 1 && r.failed === 1 && r.stop === "error", "страница без кода — отказ узнаётся по тексту «при обновлении сервера»", r);
+  r = await runNight(todo.slice(0, 2), { shoot: async () => ({ ok: false, why: "в реестре нет новой записи" }), used: async () => null, sleep: nap }, { ...R, cap: 200 });
+  check(r.lost === 0 && r.failed === 1 && r.stop === "error", "иная ошибка — стоп без повтора, как прежде", r);
+  shot = [];
+  r = await runNight(todo.slice(0, 3), { shoot: async (t) => { shot.push(t.style); return lostR; }, used: async () => null, sleep: nap }, { ...R, cap: 15 });
+  check(r.lost === 1 && r.stop === "cap" && shot.length === 1 && r.rub === 10, "повтор — в пределах потолка: не влезает — стоп по потолку, без повторной оплаты", { r, shot });
+  // 7в) WARN по трате ночи выше night_warn_rub (100 ₽), потолок 200
+  const big = { done: 12, failed: 0, lost: 0, rub: 120, byEst: 12, stop: "", left: 0 }, small = { ...big, done: 9, rub: 90 };
+  check(nightLines(0, 12, { available: true }, big, 200, 100).includes("WARN:demo_real: трата ночи ≈120 ₽ — выше порога 100 ₽ (потолок 200 ₽)")
+    && !nightLines(0, 9, { available: true }, small, 200, 100).some((l) => l.includes("трата ночи")),
+    "трата ночи выше 100 ₽ — WARN в дайджест; 90 ₽ — без него", nightLines(0, 12, { available: true }, big, 200, 100));
   // 7б) ВСЕ КОМНАТЫ, СНАЧАЛА ПУСТЫЕ (room-photos-07 п.2): пары без единого фото — первыми; REAL_STYLES — только они, их порядок
   const P = [{ id: "s1", room: "living", style: "сканди" }, { id: "s2", room: "living", style: "современный" }, { id: "b1", room: "bedroom-1", style: "сканди" },
     { id: "b2", room: "bedroom-1", style: "лофт" }];
@@ -314,35 +384,46 @@ async function selftest() {
   el = emptyLines(P, [], []);
   check(el.length === 1 && el[0] === "DIGEST:пустые пары комната × стиль: 0 из 4", "пустых пар нет — одна строка DIGEST, без WARN", el);
   check(emptyLines(P, [{ id: "b1", room: "living" }], [])[0].endsWith("0 из 4"), "пара — по комнате и номеру: чужая комната не засчитывается", null);
+  // ПРЕЖНЕЕ ФОТО (T-20261107-34): s1 (гостиная, сканди) — есть фото прежней расстановки; s2, b1 — нет никакого; b1 снят этой ночью
+  let sl = staleLines(P.slice(0, 3), [P[2]], regP);
+  check(sl[0] === "DIGEST:фото новой расстановки нет у 2: показывают прежнее фото 1, без фото (на главной не видны) 1"
+    && sl[1] === "WARN:demo_real: прежнее фото показывают 1: сканди", "не досняли — строка, сколько вариантов показывают прежнее фото, и WARN со списком", sl);
+  sl = staleLines(P.slice(1, 3), [], regP);
+  check(sl.length === 1 && sl[0].endsWith("показывают прежнее фото 0, без фото (на главной не видны) 2"), "прежнего фото нет ни у кого — без WARN о прежнем", sl);
   m = meter(0.06);
   r = await runNight(P, { shoot: async () => { m.bill(); return { ok: true }; }, used: m.used, sleep: nap }, R);
   check(r.ok.map((t) => t.id).join(",") === "s1,s2,b1,b2" && r.log[2].startsWith("  bedroom-1/сканди: снято"), "ночь: снятые пары — в итог (для пустых пар), подпись «комната/стиль»", r.log);
-  // 8) шаг ночи: публикация не прошла — demo_real пропущен (bash-ветка refresh_daily.sh)
+  // 8) ВИТРИНА НОЧЬЮ (photo-before-publish-01, T-20261107-34): сборка → ворота → платная досъёмка на ЛОКАЛЬНОЙ сборке → публикация
+  // ВСЕГДА (фото её не держит, TG 378) → прогрев → бесплатная проверка по опубликованному каждую ночь. Ветка — из самого refresh_daily.sh
   const sh = readFileSync(new URL("../scout/refresh_daily.sh", import.meta.url), "utf8");
-  const bash = (pub, off = 0) => {
-    // ветка шага из самого refresh_daily.sh; запись в лог ночи — в вывод (сокет node не открыть заново как /dev/stdout).
-    // `paid_step` — настоящий из refresh_daily.sh (он и решает про openai.off), `step` — заглушка
-    const body = sh.slice(sh.indexOf("# ДОСЪЁМКА ФОТО НЕЙРОСЕТИ"), sh.indexOf("# живая проверка демо на проде"));
+  const bash = ({ off = 0, fail = "", undef = "" } = {}) => {
+    // запись в лог ночи — в вывод (сокет node не открыть заново как /dev/stdout). `paid_step` — настоящий из refresh_daily.sh (он и
+    // решает про openai.off), `step` — заглушка: печатает команду, шаг `fail` роняет
+    const a = sh.indexOf('if [ -n "$rooms_undef" ]; then'), b = sh.indexOf("# скорость фото нейросети за сутки");
+    if (a < 0 || b < a) throw new Error("в refresh_daily.sh нет блока витрины (rooms_undef … скорость фото)");
     const paidDef = (/^paid_step\(\) .*$/m.exec(sh) || [""])[0];
     if (!paidDef) throw new Error("в refresh_daily.sh нет paid_step()");
     return import("node:child_process").then(({ spawnSync }) => spawnSync("bash", ["-c",
-      `set -u; declare -A RES; RES[flat215_publish]=${pub}; OPENAI_OFF=${off}; step(){ echo "STEP $*"; }; ${paidDef.replaceAll('>> "$LOG"', "")}\n${body.replaceAll('>> "$LOG"', "")}\necho "RES=\${RES[demo_real]:-}"`],
+      `set -u; declare -A RES; rooms_undef=${JSON.stringify(undef)}; OPENAI_OFF=${off}; PY=py; HOME=/h; unset FLAT215_DEMO_OUT
+step(){ echo "STEP $*"; if [ "$1" = ${JSON.stringify(fail)} ]; then RES[$1]=FAIL; return 1; fi; RES[$1]=ok; }
+${paidDef.replaceAll('>> "$LOG"', "")}\n${sh.slice(a, b).replaceAll('>> "$LOG"', "")}\necho "RES=\${RES[demo_real]:-}"`],
     { encoding: "utf8" }).stdout);
   };
-  const okRun = await bash("ok"), warnRun = await bash("warn"), failRun = await bash("FAIL"), noRun = await bash("");
-  const paidRe = /STEP demo_real bash \.\.\/ops\/demo-real\.sh\n/, checkRe = /STEP demo_real_check bash \.\.\/ops\/demo-real\.sh --dry\n/;
-  check(paidRe.test(okRun) && paidRe.test(warnRun) && !/STEP demo_real /.test(failRun) && !/STEP demo_real /.test(noRun)
-    && /DIGEST:фото нейросети: пропущено/.test(failRun) && /RES=\n/.test(failRun + "\n"),
-    "публикация FAIL (или не было) — платный demo_real пропущен со строкой DIGEST, без пометки openai.off; ok/warn — шаг идёт", { okRun, failRun, noRun });
-  check(checkRe.test(failRun) && checkRe.test(noRun) && !/demo_real_check/.test(okRun) && !/demo_real_check/.test(warnRun),
-    "публикация FAIL — вместо съёмки бесплатная проверка --dry (строка «пустые пары» каждую ночь); ok/warn — её нет", { okRun, failRun });
-  // T-20261107-20: платные шаги выключены (openai.off) — платный пропущен, бесплатная проверка --dry идёт, одна, со строкой DIGEST
-  const offOk = await bash("ok", 1), offFail = await bash("FAIL", 1);
-  check(!/STEP demo_real /.test(offOk) && /openai\.off: платный шаг «demo_real» пропущен/.test(offOk) && /RES=skipped/.test(offOk)
-    && (offOk.match(/STEP demo_real_check bash \.\.\/ops\/demo-real\.sh --dry\n/g) || []).length === 1
-    && /DIGEST:фото нейросети: пропущено — платные шаги выключены \(openai\.off\)/.test(offOk)
-    && (offFail.match(/STEP demo_real_check /g) || []).length === 1 && /публикация демо не прошла/.test(offFail),
-    "openai.off — платный demo_real пропущен, вместо него один сухой --dry со строкой DIGEST; при упавшей публикации — тоже один", { offOk, offFail });
+  const order = (out) => [...out.matchAll(/^STEP (\S+)/gm)].map((m) => m[1]).join(" ");
+  const okRun = await bash(), rtRun = await bash({ fail: "demo_rt" }), offRun = await bash({ off: 1 }), realFail = await bash({ fail: "demo_real" }),
+    undefRun = await bash({ undef: "bedroom " });
+  check(order(okRun) === "flat215_demo demo_rt demo_real flat215_publish scene_artifacts demo_warm demo_real_check"
+    && /STEP demo_real env DEMO_LOCAL=\/h\/scout-scenes\/flat215-demo bash \.\.\/ops\/demo-real\.sh\n/.test(okRun)
+    && /STEP flat215_publish env PUB_PHOTOS_DONE=1 bash publish_demo\.sh\n/.test(okRun) && /STEP demo_real_check bash \.\.\/ops\/demo-real\.sh --dry\n/.test(okRun),
+    "ночь: досъёмка фото на НОВОЙ сборке (DEMO_LOCAL) до публикации, публикация с отметкой «фото сняты», сухая проверка — после прогрева", okRun);
+  check(order(realFail) === order(okRun), "досъёмка упала — публикация всё равно идёт (держим только фото, не сборку)", realFail);
+  check(order(rtRun) === "flat215_demo demo_rt scene_artifacts demo_warm demo_real_check" && /DIGEST:фото нейросети: пропущено — демо не опубликовано \(ворота demo_rt\)/.test(rtRun),
+    "ворота demo_rt не прошли — ни досъёмки, ни публикации, строка DIGEST; сухая проверка идёт", rtRun);
+  check(order(offRun) === "flat215_demo demo_rt flat215_publish scene_artifacts demo_warm demo_real_check" && /openai\.off: платный шаг «demo_real» пропущен/.test(offRun)
+    && /RES=skipped/.test(offRun) && /DIGEST:фото нейросети: пропущено — платные шаги выключены \(openai\.off\)/.test(offRun),
+    "openai.off — платная досъёмка пропущена со строкой DIGEST, публикация и одна сухая проверка идут", offRun);
+  check(order(undefRun) === "scene_artifacts demo_warm demo_real_check" && /RES=\n/.test(undefRun + "\n"),
+    "состояние банка комнат не определено — ни сборки, ни досъёмки, ни публикации; сухая проверка по опубликованному идёт", undefRun);
   const wrap = readFileSync(new URL("./demo-real.sh", import.meta.url), "utf8");
   check(/demo-realistic\.mjs --night "\$@"/.test(wrap), "demo-real.sh передаёт аргументы (--dry) в скрипт", null);
   // 9) очередь тяжёлых прогонов (T-20261107-03): вне слота — перезапуск себя под heavy-slot с теми же аргументами; в слоте — нет
