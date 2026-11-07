@@ -4248,8 +4248,11 @@ function realPubPick(list, st, vid, cam, camOk){
   const real=x=>!!(x&&x.url&&x.quality==='realistic'), c0=cam||'C1', atCam=x=>(x.camera||'C1')===c0;
   const now=list.filter(x=>real(x)&&!!x.stateId&&x.stateId===st&&camOk(x));
   if(now.length){const c=now.filter(atCam), P=c.length?c:now; return P[P.length-1];}
-  const old=list.filter(x=>real(x)&&!!vid&&x.vid===vid&&atCam(x)&&camOk(x)).sort((a,b)=>(+a.ts||0)-(+b.ts||0));
-  return old[old.length-1]||null;
+  // прежние расстановки — картинка, не ракурс окна (владелец TG 378: «оставлять прежнее» = фото; T-35/2: сборка 15:19 сдвинула точку 1,
+  // и все гостиные пропали): та же точка и совпадает с нынешней → та же точка → любая совпадающая → любая; внутри — свежее
+  const old=list.filter(x=>real(x)&&!!vid&&x.vid===vid).sort((a,b)=>(+a.ts||0)-(+b.ts||0));
+  for(const ok of [x=>atCam(x)&&camOk(x), atCam, camOk, ()=>true]){const P=old.filter(ok); if(P.length)return P[P.length-1];}
+  return null;
 }
 // REALSHOT END
 function realisticPublishedShot(v,cam){
