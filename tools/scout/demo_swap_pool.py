@@ -167,20 +167,24 @@ def rug_pool(ok=None, band: dict | None = None) -> list[dict]:
     return pick(rows + universal_rugs({p['style'] for p in rows}), ok, band=band)
 
 
-SOFT_FEED_ROLES = ('шторы',)
+# Подушки (T-20261107-25/4): в ленту шли только подушки наборов — у неоклассики ни одной; из каталога тем же отбором, что шторы
+SOFT_FEED_ROLES = ('шторы', 'подушка')
 
 
 def soft_sql(role: str, in_style_min: float = IN_STYLE_MIN) -> str:
     """ЛЕНТА МЯГКОГО ИЗ КАТАЛОГА (style-color-01 шаг 2б, T-20261107-25/3): шторы приходили в ленту только из товаров наборов —
     у сканди одна (бирюзовая), у джапанди ни одной. Мягкому места на полу и модели не положено (`flat215_demo.soft_feed_row`),
     поэтому ни конверта, ни меша не требуем: в продаже, живое фото, ссылка и цена, балл стиля ≥ порога ленты, как у ковров.
-    Порядок — как у ковров. Форма строки — как у `pool_sql` (`_row`); габариты, которых нет, — 0 (мягкое их не меряет)."""
+    Порядок — как у ковров, но фото товара в интерьере или с другими товарами — после снимков товара (T-25/4: в ленте подушек
+    плитка-комната вместо подушки; такое фото хуже и для «Улучшить фото»). Форма строки — как у `pool_sql` (`_row`); габариты,
+    которых нет, — 0 (мягкое их не меряет)."""
     return f"""
 with cand as (
   select p.shop_mid||':'||p.external_id as sku, s.style, coalesce(p.name,'') as name, coalesce(p.shop,'') as shop,
          coalesce(p.image_url_hd, p.image_url) as img, p.url, coalesce(p.price_shown_rub, p.price_rub) as price,
          coalesce(p.w_cm, 0) as w_cm, coalesce(p.d_cm, 0) as d_cm, coalesce(p.h_cm, 0) as h_cm, coalesce(e.quality, 0) as q,
-         coalesce((ps.scores->>s.style)::numeric, 0) as st_score, coalesce(ps.universal, false) as uni
+         coalesce((ps.scores->>s.style)::numeric, 0) as st_score, coalesce(ps.universal, false) as uni,
+         coalesce(e.payload->'model'->>'image_type', '') in ('товар_в_интерьере', 'несколько_товаров') as scene
     from products p
     left join product_enrichment e using (shop_mid, external_id)
     join product_style_scores ps using (shop_mid, external_id)
@@ -190,7 +194,8 @@ with cand as (
      and coalesce(p.image_url_hd, p.image_url) is not null and coalesce(p.photo_alive, true)
      and coalesce((ps.scores->>s.style)::numeric, 0) >= {in_style_min}),
 ranked as (
-  select *, row_number() over (partition by style order by uni asc, q desc, st_score desc, price asc nulls last, sku) as rn from cand)
+  select *, row_number() over (partition by style order by uni asc, scene asc, q desc, st_score desc, price asc nulls last, sku) as rn
+    from cand)
 select sku, sku, {_lit([role])}, style, {_lit([role])}, name, shop, img, url, coalesce(price::text,''), w_cm, d_cm, h_cm
   from ranked order by style, rn"""
 
