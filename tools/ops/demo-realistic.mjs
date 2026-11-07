@@ -319,11 +319,14 @@ async function selftest() {
   check(r.ok.map((t) => t.id).join(",") === "s1,s2,b1,b2" && r.log[2].startsWith("  bedroom-1/сканди: снято"), "ночь: снятые пары — в итог (для пустых пар), подпись «комната/стиль»", r.log);
   // 8) шаг ночи: публикация не прошла — demo_real пропущен (bash-ветка refresh_daily.sh)
   const sh = readFileSync(new URL("../scout/refresh_daily.sh", import.meta.url), "utf8");
-  const bash = (pub) => {
-    // ветка шага из самого refresh_daily.sh; запись в лог ночи — в вывод (сокет node не открыть заново как /dev/stdout)
+  const bash = (pub, off = 0) => {
+    // ветка шага из самого refresh_daily.sh; запись в лог ночи — в вывод (сокет node не открыть заново как /dev/stdout).
+    // `paid_step` — настоящий из refresh_daily.sh (он и решает про openai.off), `step` — заглушка
     const body = sh.slice(sh.indexOf("# ДОСЪЁМКА ФОТО НЕЙРОСЕТИ"), sh.indexOf("# живая проверка демо на проде"));
+    const paidDef = (/^paid_step\(\) .*$/m.exec(sh) || [""])[0];
+    if (!paidDef) throw new Error("в refresh_daily.sh нет paid_step()");
     return import("node:child_process").then(({ spawnSync }) => spawnSync("bash", ["-c",
-      `declare -A RES; RES[flat215_publish]=${pub}; OPENAI_OFF=0; step(){ echo "STEP $*"; }; paid_step(){ step "$@"; }\n${body.replaceAll('>> "$LOG"', "")}\necho "RES=\${RES[demo_real]:-}"`],
+      `set -u; declare -A RES; RES[flat215_publish]=${pub}; OPENAI_OFF=${off}; step(){ echo "STEP $*"; }; ${paidDef.replaceAll('>> "$LOG"', "")}\n${body.replaceAll('>> "$LOG"', "")}\necho "RES=\${RES[demo_real]:-}"`],
     { encoding: "utf8" }).stdout);
   };
   const okRun = await bash("ok"), warnRun = await bash("warn"), failRun = await bash("FAIL"), noRun = await bash("");
@@ -333,6 +336,13 @@ async function selftest() {
     "публикация FAIL (или не было) — платный demo_real пропущен со строкой DIGEST, без пометки openai.off; ok/warn — шаг идёт", { okRun, failRun, noRun });
   check(checkRe.test(failRun) && checkRe.test(noRun) && !/demo_real_check/.test(okRun) && !/demo_real_check/.test(warnRun),
     "публикация FAIL — вместо съёмки бесплатная проверка --dry (строка «пустые пары» каждую ночь); ok/warn — её нет", { okRun, failRun });
+  // T-20261107-20: платные шаги выключены (openai.off) — платный пропущен, бесплатная проверка --dry идёт, одна, со строкой DIGEST
+  const offOk = await bash("ok", 1), offFail = await bash("FAIL", 1);
+  check(!/STEP demo_real /.test(offOk) && /openai\.off: платный шаг «demo_real» пропущен/.test(offOk) && /RES=skipped/.test(offOk)
+    && (offOk.match(/STEP demo_real_check bash \.\.\/ops\/demo-real\.sh --dry\n/g) || []).length === 1
+    && /DIGEST:фото нейросети: пропущено — платные шаги выключены \(openai\.off\)/.test(offOk)
+    && (offFail.match(/STEP demo_real_check /g) || []).length === 1 && /публикация демо не прошла/.test(offFail),
+    "openai.off — платный demo_real пропущен, вместо него один сухой --dry со строкой DIGEST; при упавшей публикации — тоже один", { offOk, offFail });
   const wrap = readFileSync(new URL("./demo-real.sh", import.meta.url), "utf8");
   check(/demo-realistic\.mjs --night "\$@"/.test(wrap), "demo-real.sh передаёт аргументы (--dry) в скрипт", null);
   // 9) очередь тяжёлых прогонов (T-20261107-03): вне слота — перезапуск себя под heavy-slot с теми же аргументами; в слоте — нет
@@ -348,6 +358,12 @@ async function selftest() {
   check(miss3 === "WARN:demo_real: очередь тяжёлых прогонов DEV занята дольше 120 мин — фото нейросети этой ночью не сняты, вариантов без фото: 3"
     && missQ.endsWith("вариантов без фото: ? (сухой проход не ответил)"),
     "ночь не дождалась очереди — WARN с числом вариантов без фото из сухого прохода; нет ответа — «?»", { miss3, missQ });
+  // T-20261107-20: строки пустых пар в такую ночь — из сухого прохода; не ответил — «не посчитаны», сводка о парах не молчит
+  const dryOk = `фото нейросети: без фото своей расстановки — 1: лофт\n${emptyLines(P, [], [P[1]]).join("\n")}\n`;
+  const se0 = slotEmptyLines(dryOk), se1 = slotEmptyLines(""), se2 = slotEmptyLines(undefined);
+  check(se0.length === 0 && dryOk.includes("DIGEST:пустые пары комната × стиль: 1 из 4") && se1.length === 1
+    && se1[0].startsWith("DIGEST:!пустые пары комната × стиль: не посчитаны") && se2.length === 1,
+    "очередь занята: строки «пустые пары» сухого прохода идут в журнал как есть; нет их — одна строка «не посчитаны»", { se0, se1 });
   process.exit(res.every(Boolean) ? 0 : 1);
 }
 
@@ -373,6 +389,15 @@ export function slotMissedLine(dryOut) {
   return `WARN:demo_real: очередь тяжёлых прогонов DEV занята дольше ${NIGHT_WAIT_S / 60} мин — фото нейросети этой ночью не сняты, вариантов без фото: ${m ? m[1] : "? (сухой проход не ответил)"}`;
 }
 
+/**
+ * Строки пустых пар в ночь, не дождавшуюся очереди (T-20261107-20): сухой проход сам печатает `emptyLines` — их и отдаём (вывод уже
+ * в журнале), а не ответил он или упал раньше счёта — одна строка «не посчитаны», чтобы утренняя сводка не молчала о парах.
+ */
+export function slotEmptyLines(dryOut) {
+  return /^DIGEST:пустые пары комната × стиль:/m.test(dryOut ?? "") ? []
+    : ["DIGEST:!пустые пары комната × стиль: не посчитаны — сухой проход не ответил (очередь тяжёлых прогонов занята, фото не сняты)"];
+}
+
 if (process.argv.includes("--selftest")) await selftest();
 else if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const slot = underSlot(process.env, process.argv.slice(2), process.execPath, process.argv[1]);
@@ -387,6 +412,7 @@ else if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
         { encoding: "utf8", env: { ...process.env, REAL_NO_SLOT: "1" }, timeout: 600_000 });
       process.stdout.write(d.stdout ?? "");
       console.log(slotMissedLine(d.stdout ?? ""));
+      for (const l of slotEmptyLines(d.stdout)) console.log(l);
       process.exit(0);
     }
     process.exit(r.status ?? 1);
