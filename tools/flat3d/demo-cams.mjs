@@ -83,8 +83,7 @@ if (shared && list.some(onSpare) && list.some((v) => !onSpare(v))) {
   }
 }
 // обложка без главной вещи комнаты (T-20261107-01, `camPairAll`: ни в одном виде пары она не видна на 2/3) — громко в лог сборки
-if (shared && all.posterMiss) console.log(`WARN:demo_cams: ${rid} — обложка без главной вещи комнаты (${all.how.split(", главное ")[1] ?? ""})`);
-// ВИДЫ С ДВУХ КОНЦОВ КОМНАТЫ (`ends` зоны, T-20261107-30, владелец TG 345; ведущий: вариант А): одной пары «с двух концов» на все стили
+if (shared && all.posterMiss) console.log(`WARN:demo_cams: ${rid} — обложка без главной вещи комнаты (${all.how.split(", главное ")[1] ?? ""})`);// ВИДЫ С ДВУХ КОНЦОВ КОМНАТЫ (`ends` зоны, T-20261107-30, владелец TG 345; ведущий: вариант А): одной пары «с двух концов» на все стили
 // нет (`camPairAll` вернул прежнюю с `endsMiss`) — у каждого стиля своя пара с двух концов; сравнение стилей с одной точки уступает
 // требованию «с 2 разных сторон, чтоб разглядывать». Стиль, у которого и своей нет, — прежняя пара (`endsMiss`) и громкое WARN с его именем.
 // Общая пара остаётся, где она с двух концов (спальня 2 07.11)
@@ -95,6 +94,25 @@ if (shared && all.endsMiss) {
   console.log(`${rid}: одной пары с двух концов комнаты на ${list.length} стилей нет — своя пара у каждого стиля`);
   const miss = list.filter((_, vi) => !own[vi] || own[vi].endsMiss).map((v) => v.style || v.id);
   if (miss.length) console.log(`WARN:demo_cams: ${rid} — виды с двух концов комнаты не вышли у стилей ${miss.join(", ")}: прежняя пара`);
+}
+// ЧИСТАЯ ОБЛОЖКА И ВИДЫ ЗОНЫ ВАЖНЕЕ ОДНОЙ ПАРЫ (T-20261107-67, ведущий: обложка спальни 2 «Сканди» — шкаф срезан краем кадра):
+// общая пара на все стили спальни 2 шла без видов зоны (`zoneMiss`: «от входа на изголовье» сразу у пяти стилей нет) и с обложкой,
+// где крупное срезано краем (`posterCut`, `camPosterBad`), — чистого вида в ней нет ни у одной общей пары. Тогда у стиля — своя
+// пара, если она не хуже общей по обязательному покрытию (`mm`) и видам зоны и лучше по ним или по обложке; иначе общая. Громко — в лог
+if (shared && !all.endsMiss && (all.zoneMiss || all.posterCut)) {
+  const own = list.map((v, vi) => api.camPairAll([IT[vi]], W, H, corners, { cvc }));
+  const pc =(p) => p.posterCut ?? 0, mm = (p) => p.mm ?? 0;
+  const take = own.map((o) => !!o && !o.corner && mm(o) <= mm(all) && (!o.zoneMiss || !!all.zoneMiss) && pc(o) <= pc(all)
+    && (mm(o) < mm(all) || (!o.zoneMiss && !!all.zoneMiss) || pc(o) < pc(all)));
+  if (take.some(Boolean)) {
+    const shPer = perOf;
+    perOf = (vi) => (take[vi] ? { ...own[vi], ...own[vi].per[0] } : shPer(vi));
+    console.log(`${rid}: одной пары с видами зоны и чистой обложкой на ${list.length} стилей нет — своя пара у стилей ${list.filter((_, vi) => take[vi]).map((v) => v.style || v.id).join(", ")}`);
+  }
+  const em = list.filter((_, vi) => take[vi] && own[vi].endsMiss).map((v) => v.style || v.id);
+  if (em.length) console.log(`WARN:demo_cams: ${rid} — виды с двух концов комнаты не вышли у стилей ${em.join(", ")}: прежняя пара`);
+  const bad = list.filter((_, vi) => pc(take[vi] ? own[vi] : all)).map((v) => v.style || v.id);
+  if (bad.length) console.log(`WARN:demo_cams: ${rid} — обложка не чистая у стилей ${bad.join(", ")}`);
 }
 D.cams_shared = D.cams_shared || shared;
 for (const [vi, v] of list.entries()) {

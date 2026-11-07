@@ -2638,6 +2638,29 @@ function camNearK(){ return camZ().near||1; }
 function camMainRoles(){ const Z=camZ(), w=r=>(Z.core||{})[r]||0, m=Math.max(0,...(Z.key||[]).map(w)); return (Z.key||[]).filter(r=>m>0&&w(r)===m); }
 function camIsMain(it){ return camMainRoles().includes(camRole(it)); }
 const CAM_MAIN_MIN=2/3;   // обложка: главная вещь видна не меньше чем на 2/3 (ведущий, T-20261107-01)
+// ЧИСТАЯ ОБЛОЖКА (T-20261107-67, ведущий: обложка спальни 2 «Сканди» — шкаф у самого края кадра, кадр выглядит случайным; раньше там же
+// «шкаф+окно, кровать срезана»). Вид годен в обложку без оговорок, если главная вещь (`camIsMain`) в нём целиком по ширине и сверху
+// (`camWhole`) и видна не меньше CAM_MAIN_MIN, а крупное (вес ядра зоны ≥ 1 или главное) не срезано боковым или верхним краем
+// (или частью за спиной): за краем больше CAM_PCUT предмета (маска, `camCover().inF`), а кусок в кадре не уже CAM_PSTRIP КАДРА
+// (`fr`: шкаф вплотную к камере в кадре на 2 % себя занимал 8 % кадра — это срез, а не «вне кадра»). Низ у пола ближней мебели за
+// нижним краем — не срез (`camWhole`). Ответ — число бед: срезанное крупное + 1, если главного нет целиком; 0 — чистый вид.
+// Подбор пары ставит «есть чистый вид» сразу после покрытия обязательного (`camPairAll0:pairKey`), обложка — чистый вид (`PO`)
+// `camBigCut` — разбор: n — срезанного крупного, fr — сколько кадра оно занимает (доводка точки вида не даёт куску расти: спальня 2
+// «Сканди», вид 1 — сдвиг на 26 см ради «больше мебели» расширил полосу шкафа у края с 8 до 15 % кадра при том же числе срезов),
+// main — главного нет целиком
+const CAM_PCUT=0.15, CAM_PSTRIP=0.01;
+function camBigCut(c,its,cv){
+  let n=0, fr=0, has=false, ok=false;
+  (its||[]).forEach((it,i)=>{const q=cv[i]; if(!q)return; const main=camIsMain(it);
+    if(main){has=true; if(camWhole(c,it)&&Math.min(q.inF,q.vis)>=CAM_MAIN_MIN-1e-9)ok=true;}
+    if(!main&&((camZ().core||{})[camRole(it)]||0)<1)return;
+    if((q.fr||0)<CAM_PSTRIP||1-q.inF<=CAM_PCUT)return;
+    const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind||b.x0<-1||b.x1>1||b.y1>1){n++; fr+=q.fr;}});
+  return {n,fr,main:has&&!ok};
+}
+function camPosterBad(c,its,cv){ const r=camBigCut(c,its,cv); return r.n+(r.main?1:0); }
+// сдвиг точки хуже по срезам крупного: больше бед обложки или срезанный кусок занял больше кадра (допуск 0,5 % кадра)
+const camBigCutWorse=(q,c0)=>q.n+(q.main?1:0)>c0.n+(c0.main?1:0)||q.fr>c0.fr+0.005;
 // порог покрытия зоны: `cover` записи, иначе общий CAM_COVER (гостиная)
 function camCov(){ return camZ().cover||CAM_COVER; }
 // середины дверей комнаты кадра на полу, см
@@ -2774,10 +2797,12 @@ function camCover(c,its,W,H){
   const m=camMask(Object.assign({},c,{fov:fe}),its,W,H,{w,h,asp:CAM_ASPECT,vr:[-sn/E-1,-sn/E+1],inner:{i0,i1:w-i0,j0,j1:h-j0}});
   const box=(b,lim)=>{if(!b||b.behind)return 0; const a=(b.x1-b.x0)*(b.y1-b.y0); if(a<=0)return 0;
     return Math.max(0,Math.min(b.x1,lim)-Math.max(b.x0,-lim))*Math.max(0,Math.min(b.y1,lim)-Math.max(b.y0,-lim))/a;};
+  // `fr` — доля КАДРА под видимым куском предмета (без заслонения; T-20261107-67: шкаф вплотную к камере — 2 % себя, но 8 % кадра)
+  const fp=Math.max(1,(w-2*i0)*(h-2*j0));
   return (its||[]).map((it,i)=>{const h1=camItemH(it), b=camProj(c,it,camRole(it)==='изголовье'?CAM_BED_TOP:0,h1);
-    if(camRole(it)==='ковёр')return {inF:box(b,1),vis:1};
-    const so=m.solo[i]||0; if(!so)return {inF:0,vis:0};
-    return {inF:(m.soloIn[i]||0)/so*box(b,E),vis:Math.min(1,(m.visG[i]||0)/so)};});
+    if(camRole(it)==='ковёр')return {inF:box(b,1),vis:1,fr:0};
+    const so=m.solo[i]||0; if(!so)return {inF:0,vis:0,fr:0};
+    return {inF:(m.soloIn[i]||0)/so*box(b,E),vis:Math.min(1,(m.visG[i]||0)/so),fr:(m.soloIn[i]||0)/fp};});
 }
 // качество единицы в виде: 1 — покрыта; меньше — доля до порога по худшему из двух (в кадре, не заслонён)
 function camUnitQ(cv,u){const C=camCov(), qi=i=>Math.min(1,cv[i].inF/C,cv[i].vis/C);
@@ -2855,11 +2880,14 @@ function camPairAll0(L,W,H,cs,opt){
       // (Map: массив мебели → точка → покрытие) даёт `demo-cams.mjs`, и подбор по стилю берёт готовое из общего подбора тех же стилей
       const CVC=opt&&opt.cvc, cov=(c,its)=>{const f=()=>PRE.CV?camCoverP(c,its,W,H):camCover(c,its,W,H); if(!CVC)return f();
         let m=CVC.get(its); if(!m)CVC.set(its,m=new Map()); const k=[c.x,c.y,c.rot,c.fov,!!PRE.CV].join(','); let r=m.get(k); if(!r)m.set(k,r=f()); return r;};
+      // беды обложки точки (`camPosterBad`, T-20261107-67) — из той же мерки (в кэше `cvc` не лежат: зависят от зоны комнаты)
+      PRE.pb=L.map(()=>new Int8Array(N0));
       PRE.all.forEach((c,n)=>L.forEach((its,v)=>{const cv=cov(c,its); let b=0; if(PRE.CV)PRE.CV[v][n]=cv;
+        PRE.pb[v][n]=Math.min(100,camPosterBad(c,its,cv));
         UN[v].forEach((u,k)=>{const q=camUnitQ(cv,u); PRE.Q[v][n*U[v]+k]=q; if(q>=1-1e-9&&k<31)b|=(1<<k);}); PRE.bits[v][n]=b;}));
       PRE.level=Math.max(0,...PRE.all.map(c=>c.lv));}}
   if(!PRE.all.length){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; r.corner=true; return r;}
-  const all=PRE.all, N=all.length, Q=PRE.Q, bits=PRE.bits, CV=PRE.CV, level=PRE.level;
+  const all=PRE.all, N=all.length, Q=PRE.Q, bits=PRE.bits, CV=PRE.CV, level=PRE.level, PB=PRE.pb;
   // ВИДЫ ЗОНЫ (`CAM_ZONES[..].views`): пара — вид 1 и вид 2 своей зоны (точка годна при мебели каждого варианта); у гостиной видов нет
   camCutSkip=false; camCutRelax=0;
   const vOkOf=()=>ZV&&ZV.length===2?all.map((c,n)=>ZV.map(vw=>L.every((its,v)=>camViewFit(vw,c,its,CV[v][n])))):null;
@@ -2892,10 +2920,13 @@ function camPairAll0(L,W,H,cs,opt){
   // не стоит дивана или ТВ, срезанного краем; (1) не покрыто обязательных — как прежде (выкинуть предмет из кадра ради «без срезов»
   // нельзя: урок demo-22); (2) сколько крупного срезано краем в обоих видах (целиком или вне кадра) — раньше недобора долей: стеллаж,
   // виденный на 85 % вместо 80 %, не стоит дивана, разрезанного краем вида 2; (3) недобор, (4) необязательное. У нескольких вариантов
-  // каждое — по худшему варианту
+  // каждое — по худшему варианту. ЧИСТАЯ ОБЛОЖКА (T-20261107-67): между (1) и (2) — беды лучшего из двух видов как обложки
+  // (`camPosterBad`: главное целиком, крупное не срезано краем); общая пара спальни 2 без видов зоны брала C1 со шкафом у края кадра,
+  // потому что срезы краем шли после покрытия и одинаково у обоих видов, а какой из видов станет обложкой, ключ не знал
   const fKey=n=>vmax(v=>all[n].per[v].fc.key), fCut=(a,b)=>vmax(v=>all[a].per[v].fc.cut+all[b].per[v].fc.cut);
+  const fPB=n=>vmax(v=>PB[v][n]);
   const pairKey=(a,b)=>{let w=null; for(let v=0;v<V;v++){const m=bits[v][a]|bits[v][b], k=[camBits(mustM[v]&~m),defOf(v,a,b),camBits(optM[v]&~m)];
-    if(!w||cmp(k,w)>0)w=k;} return [Math.min(fKey(a),fKey(b)),w[0],fCut(a,b),w[1],w[2]];};
+    if(!w||cmp(k,w)>0)w=k;} return [Math.min(fKey(a),fKey(b)),w[0],Math.min(fPB(a),fPB(b)),fCut(a,b),w[1],w[2]];};
   // лучшая пара среди разрешённых кандидатов: сначала покрытие по всем парам, потом точная мерка
   // ДОПУСК НАРУШЕНИЙ, В КОТОРОМ РЕШАЕТ «БОЛЬШЕ МЕБЕЛИ» (`moreTol` зоны, T-20261107-05/7): в коридоре вид с четырьмя предметами
   // почти всегда несёт чуть больше пустой стены или пола, чем вид с двумя, и общий допуск CAM_BAD_TOL отдавал пару бедному кадру
@@ -2945,7 +2976,7 @@ function camPairAll0(L,W,H,cs,opt){
   let pick=null, stage='';
   const res=[];
   // (demo-31 правки: и главное целиком в одном виде, и крупное нигде не срезано краем — иначе следующая стадия, шире объектив)
-  const runStages=()=>{for(const [nm,ok0] of stages){const ok=(a,b)=>ok0(a,b)&&okV(a,b)&&keepOk(a,b), p=best(ok); if(!p)continue; res.push([nm,p]); if(!p.key[0]&&!p.key[1]&&!p.key[2]&&p.pen<=CAM_STAGE_OK){pick=p; stage=nm; break;}}};
+  const runStages=()=>{for(const [nm,ok0] of stages){const ok=(a,b)=>ok0(a,b)&&okV(a,b)&&keepOk(a,b), p=best(ok); if(!p)continue; res.push([nm,p]); if(!p.key[0]&&!p.key[1]&&!p.key[2]&&!p.key[3]&&p.pen<=CAM_STAGE_OK){pick=p; stage=nm; break;}}};
   runStages();
   // ни одной пары «вход + встречный» — подбор без видов зоны, с пометкой в отчёте (не пустой кадр)
   // ни одной пары с необрезанной ближней мебелью (`cutNear`) — заново без этого условия, виды зоны остаются
@@ -2960,7 +2991,7 @@ function camPairAll0(L,W,H,cs,opt){
   // и вешалку, а 72+72 по общему правилу брала вид к входу с двумя предметами при равном ключе у ступени шире
   const MT=camZ().moreTol, penMore=(x,y)=>MT==null||Math.abs(x.pen-y.pen)>MT?x.pen-y.pen:(y.more-x.more)||(x.pen-y.pen);
   if(!pick){const full=res.filter(([,p])=>!p.key[0]&&!p.key[1]);
-    const pool=full.length?full.sort((x,y)=>(x[1].key[2]-y[1].key[2])||penMore(x[1],y[1]))
+    const pool=full.length?full.sort((x,y)=>(x[1].key[2]-y[1].key[2])||(x[1].key[3]-y[1].key[3])||penMore(x[1],y[1]))
       :res.sort((x,y)=>cmp(x[1].key,y[1].key)||penMore(x[1],y[1]));
     if(pool.length)[stage,pick]=pool[0];}
   if(!pick){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (пары нет)'; r.corner=true; return r;}
@@ -2970,8 +3001,9 @@ function camPairAll0(L,W,H,cs,opt){
   const covBits=(cv,v)=>{let b=0; UN[v].forEach((u,k)=>{if(camUnitQ(cv,u)>=1-1e-9&&k<31)b|=(1<<k);}); return b;};
   const sideCut=c=>vmax(v=>camSideCut(c,L[v]));
   // `other` — вторая точка пары: доворот не сводит виды с двух концов комнаты ближе `ends` зоны (T-20261107-30)
+  // беды обложки и кусок срезанного крупного в кадре (`camBigCut`, T-20261107-67) доворот и доводка не растят ни одному варианту
   const nudge=(c,otherBits,first,other)=>{let bestC=c, bc=sideCut(c);
-    const need=L.map((its,v)=>covBits(camCover(c,its,W,H),v)|otherBits[v]);
+    const cv0=L.map(its=>camCover(c,its,W,H)), pb0=L.map((its,v)=>camBigCut(c,its,cv0[v])), need=L.map((its,v)=>covBits(cv0[v],v)|otherBits[v]);
     for(let d=-CAM_NUDGE; d<=CAM_NUDGE; d++){if(!d)continue; const q=Object.assign({},c,{rot:c.rot+d});
       const k=sideCut(q); if(k>bc||(k===bc&&Math.abs(d)>=Math.abs(bestC.rot-c.rot)))continue;
       if(!endsOk(q,other))continue;
@@ -2982,7 +3014,7 @@ function camPairAll0(L,W,H,cs,opt){
         // главное целиком и крупное, не срезанное краем, — не хуже выбранного (demo-31 правки)
         const f0=camFrameCuts(c,its), f1=camFrameCuts(q,its); if(f1.key>f0.key||f1.cut>f0.cut){ok=false; break;}
         const sq=stat(q,v); if(camBad(sq,!first)>camBad(stat(c,v),!first)+1e-9){ok=false; break;}
-        if(((covBits(camCover(q,its,W,H),v)|otherBits[v])&need[v])!==need[v]){ok=false; break;}
+        const cq=camCover(q,its,W,H); if(((covBits(cq,v)|otherBits[v])&need[v])!==need[v]||camBigCutWorse(camBigCut(q,its,cq),pb0[v])){ok=false; break;}
         if(vOk&&!camViewFit(ZV[first?0:1],q,its,camCoverP(q,its,W,H))){ok=false; break;}   // доворот не выводит из вида зоны (T-32/3)
         if(first&&sq.keyVis<stat(c,v).keyVis)ok=false;}
       if(!ok)continue;
@@ -2997,7 +3029,7 @@ function camPairAll0(L,W,H,cs,opt){
   const zslide=(c,k,other)=>{const Z=camZ().slide; if(!vOk||!Z)return c;
     const ob=L.map((its,v)=>covBits(camCover(other,its,W,H),v)), need=L.map((its,v)=>covBits(camCover(c,its,W,H),v)|ob[v]);
     const val=q=>{let m=Infinity; for(let v=0;v<V;v++)m=Math.min(m,camShownN(L[v],camCoverP(q,L[v],W,H))-camMorePen(stat(q,v))); return m;};
-    const f0=L.map(its=>camFrameCuts(c,its)), sc0=sideCut(c);
+    const f0=L.map(its=>camFrameCuts(c,its)), sc0=sideCut(c), pb0=L.map(its=>camBigCut(c,its,camCover(c,its,W,H)));
     let best=c, bv=val(c);
     for(let dx=-Z.cm;dx<=Z.cm;dx+=Z.step)for(let dy=-Z.cm;dy<=Z.cm;dy+=Z.step)for(let dr=-CAM_NUDGE;dr<=CAM_NUDGE;dr++){
       if(!dx&&!dy&&!dr)continue;
@@ -3008,7 +3040,7 @@ function camPairAll0(L,W,H,cs,opt){
       for(let v=0;v<V&&ok;v++){const its=L[v], f1=camFrameCuts(q,its);
         if(f1.key>f0[v].key||f1.cut>f0[v].cut||!camCandEval(Object.assign({},q),its,W,H)||(camTallCut(q,its)&&!c.per[v].tall)){ok=false; break;}
         const cv=camCoverP(q,its,W,H);
-        if(!camViewFit(ZV[k],q,its,cv)||((covBits(cv,v)|ob[v])&need[v])!==need[v]||camBad(stat(q,v),k===1)>camBad(stat(c,v),k===1)+1e-9)ok=false;}
+        if(camBigCutWorse(camBigCut(q,its,cv),pb0[v])||!camViewFit(ZV[k],q,its,cv)||((covBits(cv,v)|ob[v])&need[v])!==need[v]||camBad(stat(q,v),k===1)>camBad(stat(c,v),k===1)+1e-9)ok=false;}
       if(!ok)continue;
       const qv=val(q); if(qv>bv+1e-9){best=Object.assign({},c,{x:q.x,y:q.y,rot:q.rot}); bv=qv;}}
     return best;};
@@ -3025,8 +3057,10 @@ function camPairAll0(L,W,H,cs,opt){
   const mainQ=c=>{let m=Infinity, any=false; for(let v=0;v<V;v++){const cv=camCover(c,L[v],W,H); let b=-1;
     L[v].forEach((it,i)=>{if(camIsMain(it))b=Math.max(b,Math.min(cv[i].inF,cv[i].vis));}); if(b>=0)any=true; m=Math.min(m,Math.max(b,0));} return any?m:null;};
   const MQ=[mainQ(a2),mainQ(b2)], MOK=MQ.map(q=>q!==null&&q>=CAM_MAIN_MIN-1e-9);
-  const POm=MOK[0]!==MOK[1]?(MOK[0]?0:1):PO0, PO=POm===0&&PO0===-1?-1:POm;   // C1 без пометки — и так обложка (`posterCam`)
-  const posterMiss=MQ[0]!==null&&!MOK[0]&&!MOK[1];
+  // ЧИСТАЯ ОБЛОЖКА ПРЕЖДЕ ВСЕГО (T-20261107-67): чистый (`camPosterBad` = 0, по худшему варианту) из двух один — обложка он; иначе как было
+  const PBq=[a2,b2].map(c=>vmax(v=>camPosterBad(c,L[v],camCover(c,L[v],W,H))));
+  const POm=PBq[0]!==PBq[1]&&!Math.min(...PBq)?(PBq[0]?1:0):MOK[0]!==MOK[1]?(MOK[0]?0:1):PO0, PO=POm===0&&PO0===-1?-1:POm;   // C1 без пометки — и так обложка (`posterCam`)
+  const posterMiss=MQ[0]!==null&&!MOK[0]&&!MOK[1], posterCut=PBq[PO===1?1:0];
   const mk=(n,c,v,k)=>Object.assign({name:n,x:c.x,y:c.y,rot:c.rot,fov:c.fov||72,pshift:camPortraitShift(c,L[v],W,H),crop:camCrops(stat(c,v),L[v],camCover(c,L[v],W,H),cropOf(k),c)},PO===k?{poster:true}:{});
   const per=L.map((its,v)=>{const cv=[camCover(a2,its,W,H),camCover(b2,its,W,H)], covered=[], missing=[];
     UN[v].forEach(u=>{const grp=u.any&&Math.max(camUnitQ(cv[0],u),camUnitQ(cv[1],u))>=1-1e-9;   // группа «хотя бы один» покрыта
@@ -3036,10 +3070,10 @@ function camPairAll0(L,W,H,cs,opt){
       else missing.push({id,role:camRole(its[i]),must:u.must,inFrame:Math.round(r[k].inF*100)/100,visible:Math.round(r[k].vis*100)/100,
         reason:r[k].inF<camCov()?'вне кадра':'заслонён'});});});
     return {cams:[mk('C1',a2,v,0),mk('C2',b2,v,1)],covered,missing,stats:[stat(a2,v),stat(b2,v)],bits:covBits(cv[0],v)|covBits(cv[1],v)};});
-  const [mk0,mm,mc,dm,mo]=pick.key;
+  const [mk0,mm,,mc,dm,mo]=pick.key;
   return {level, cams:per[0].cams,
-    how:`${mm?'недобор':'пара'}: стадия ${stage},${ZV?(zoneMiss?' виды зоны: пары нет — без них,':cutMiss?' виды зоны (ближняя мебель обрезана — без cutNear),':cutRelax?` виды зоны (ближняя мебель обрезана до ${Math.round(cutRelax*100)} % кадра),`:' виды зоны,'):''} не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}${MQ[0]===null?'':`, главное в C1 ${Math.round(MQ[0]*100)/100} / C2 ${Math.round(MQ[1]*100)/100}${posterMiss?' — ОБЛОЖКА БЕЗ ГЛАВНОГО':''}`}`,
-    posterMiss, zoneMiss, mm,
+    how:`${mm?'недобор':'пара'}: стадия ${stage},${ZV?(zoneMiss?' виды зоны: пары нет — без них,':cutMiss?' виды зоны (ближняя мебель обрезана — без cutNear),':cutRelax?` виды зоны (ближняя мебель обрезана до ${Math.round(cutRelax*100)} % кадра),`:' виды зоны,'):''} не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}${MQ[0]===null?'':`, главное в C1 ${Math.round(MQ[0]*100)/100} / C2 ${Math.round(MQ[1]*100)/100}${posterMiss?' — ОБЛОЖКА БЕЗ ГЛАВНОГО':''}`}${posterCut?`, обложка не чистая (бед ${posterCut}: крупное срезано краем или главное не целиком)`:', обложка чистая'}`,
+    posterMiss, posterCut, zoneMiss, mm,
     covered:per[0].covered, missing:per[0].missing, stats:per[0].stats, per};
 }
 // ОКНО ПРЕВЬЮ (demo-22 п.2) — для каждого вида и пропорции окна заранее, по маске той же расстановки (`camStats().ext` — рамки
