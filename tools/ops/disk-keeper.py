@@ -108,9 +108,11 @@ def code_mentions(roots):
     except (OSError, subprocess.SubprocessError):
         return None
     pats = {r: re.compile(re.escape(r) + r'/([\w.-]+)(?:/([\w.-]+))?') for r in roots}
+    own = {os.path.realpath(__file__), os.path.realpath(RULES),
+           os.path.realpath(os.path.join(REPO, 'tools', 'scout', 'rules', 'dev-disk.json'))}   # сам сторож и его правила называют корни, а не читают папки
     for f in files:
         p = os.path.join(REPO, f)
-        if not f or not os.path.isfile(p) or os.path.getsize(p) > 4 * 2 ** 20:
+        if not f or not os.path.isfile(p) or os.path.realpath(p) in own or os.path.getsize(p) > 4 * 2 ** 20:
             continue
         try:
             text = open(p, encoding='utf-8', errors='ignore').read()
