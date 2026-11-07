@@ -155,7 +155,12 @@ def demo_rank() -> list[dict]:
     if len(pinned) > demo_band.QUEUE_MAX:
         print(f'WARN:mesh_priority: закреплённых владельцем {len(pinned)} — больше потолка очереди demo '
               f'{demo_band.QUEUE_MAX}; закреплённые не режем, недобор ленты встанет после них', flush=True)
-    band = demo_band.queue_skus()
+    q = demo_band.queue()
+    band = q['skus']
+    # СВОЙ МЕШ ВАРИАНТУ С ЧУЖИМ ЦВЕТОМ (T-20261107-19): вариант семьи, которого сторож цвета спрятал из ленты, `demo_band`
+    # ставит под недобор места на общих правах. В `products()` вариантов нет (меш — представителю), поэтому задание —
+    # готовое, по своей карточке варианта (`own_jobs`), как у комнат; ярус и потолок — недобора ленты
+    own = own_jobs(sorted(q['own'])) if q['own'] else {}
     # КАНДИДАТ БАНКА (conv-14 шаг 2): спрос `bank_candidate` — за флагом `rules/bank-candidate.json:enabled` (выключен,
     # пустой список). Потолок `mesh_queue_max` — ОБЩИЙ с недобором ленты после дедупликации по представителю семейства
     import bank_pending
@@ -163,7 +168,7 @@ def demo_rank() -> list[dict]:
     if bank:
         band, bank = bank_pending.combine(band, bank, demo_band.QUEUE_MAX, int(bank_pending.rules().get('reserve') or 0))
     ver = f"demo-v{prof.get('policy_version', 2)}"
-    base = demo_pick(pinned, band, prod, ver, bank)
+    base = demo_pick(pinned, band, prod, ver, bank, own=own)
     if not demo_band.ROOMS:
         return base
     # КОМНАТЫ КРОМЕ ГОСТИНОЙ (T-20261106-82/2): квота 30 на (комната × стиль) — `demo_band.room_jobs`; потолок очереди — остаток
@@ -171,10 +176,43 @@ def demo_rank() -> list[dict]:
     # есть готовые и товары вне `products` — по длине списков комнатам доставалось 10 мест из 150 вместо ~109, сухой прогон
     # 06.11), деньги — остаток трека комнат. Задание — готовое (`room_mesh_jobs.job_of`): товаров `room_catalog` в `products()` нет
     rooms = demo_band.room_jobs(sum(1 for r in base if r['status'] != 'ready'))
-    return demo_pick(pinned, band, prod, ver, bank, rooms) if rooms else base
+    return demo_pick(pinned, band, prod, ver, bank, rooms, own=own) if rooms else base
 
 
-def demo_pick(pinned: tuple, band: list, prod: dict, ver: str, bank: list | tuple = (), rooms: list | tuple = ()) -> list[dict]:
+def own_job(row: list) -> dict | None:
+    """Задание своего меша варианту по его карточке products (вход генератора — как `products()`: HD-фото, иначе обычное;
+    диаметр как есть). `row` — (sku, роль, фото, название, w, d, h, dia). Без фото или габарита — None. Чистая функция."""
+    if len(row) != 8:
+        return None
+    sku, role, img, name, w, d, h, dia = row
+    mid, eid = sku.split(':', 1)
+    dims = {'w': float(w or 0) or None, 'd': float(d or 0) or None, 'h': float(h or 0) or None, 'dia': float(dia or 0) or None}
+    if not img or not dims['h'] or not (dims['w'] or dims['dia']):
+        return None
+    return {'sku': sku, 'mid': int(mid), 'eid': eid, 'role': role, 'name': name or '', 'image_url': img, 'dims_cm': dims,
+            'strata': {'colour_own': True}}
+
+
+def own_jobs(skus: list) -> dict:
+    """sku варианта → готовое задание своего меша (`own_job`); пометку «требуется меш» и отсутствие своего поколения уже
+    проверил `demo_band.own_gen_ok`."""
+    lit = ','.join("'" + s.replace("'", "''") + "'" for s in skus)
+    out = {}
+    for r in db("select shop_mid||':'||external_id, coalesce(cat_role,''), coalesce(image_url_hd, image_url), coalesce(name,''), "
+                "coalesce(w_cm,0), coalesce(d_cm,0), coalesce(h_cm,0), coalesce(dia_cm,0) "
+                f"from products where shop_mid||':'||external_id in ({lit});"):
+        j = own_job(r)
+        if j:
+            out[j['sku']] = j
+    miss = [s for s in skus if s not in out]
+    if miss:
+        print(f'WARN:mesh_priority: своих мешей вариантам по сторожу цвета не собрано {len(miss)} (нет фото или габарита в '
+              f'products): {", ".join(miss[:5])}', flush=True)
+    return out
+
+
+def demo_pick(pinned: tuple, band: list, prod: dict, ver: str, bank: list | tuple = (), rooms: list | tuple = (),
+              own: dict | None = None) -> list[dict]:
     """Чистый отбор: закреплённые (ярус 0), затем недобор ленты (ярус 1) по порядку `demo_band`, затем кандидат банка (ярус 2,
     `bank_pending`; общий потолок уже посчитан `bank_pending.combine`), затем квота комнат (ярус 3, `demo_band.room_jobs`:
     готовые задания `room_mesh_jobs.job_of` — их товары живут в `room_catalog`, не в `products`; SKU, уже взятый выше, второй
@@ -184,16 +222,26 @@ def demo_pick(pinned: tuple, band: list, prod: dict, ver: str, bank: list | tupl
 
     ЗАКРЕПЛЁННЫЕ ВЛАДЕЛЬЦЕМ ИДУТ ПЕРВЫМИ (12.10): волна 12.10 сделала 986 мешей, а из 12 закреплённых позиций, которыми
     закрывались все шесть сцен демо, попали только 2 — деньги ушли «вширь». Закреплённый берётся независимо от роли и ленты:
-    это прямое указание человека, а не отбор."""
+    это прямое указание человека, а не отбор.
+
+    `own` — варианты семей со своим мешем по сторожу цвета (`own_jobs`, T-20261107-19): их в `products()` нет, в недоборе
+    ленты (ярус 1) они встают готовым заданием на своём месте порядка."""
     rows, seen = [], set()
+    own = own or {}
     for tier, skus, why in ((0, pinned, 'закреплено владельцем (rules/mesh-pinned.json)'),
                             (1, band, 'демо: недобор ленты замен по полосе размера (demo_band)'),
                             (2, bank, 'демо: кандидат банка ждёт меш (bank_candidate, conv-14)')):
         for sku in skus:
+            j = own.get(sku) if tier == 1 else None
             p = prod.get(sku)
-            if not p or sku in seen:
+            if (not p and not j) or sku in seen:
                 continue
             seen.add(sku)
+            if j:
+                rows.append({'tier': 1, 'sku': sku, 'role': j['role'], 'status': 'none', 'key': f'01|{len(rows):06d}|{sku}',
+                             'policy_version': ver, 'job': j,
+                             'reason': why + ': свой меш варианту — у представителя не тот цвет (сторож цвета, T-20261107-19)'})
+                continue
             # Форма ряда — ТА ЖЕ, что у боевого ранжира: `build_queue` читает `key` и `policy_version`
             rows.append({'tier': tier, 'sku': sku, 'role': p['role'], 'status': p['status'],
                          'key': f'{tier:02d}|{len(rows):06d}|{sku}', 'reason': why, 'policy_version': ver})
@@ -475,6 +523,24 @@ def _selftest() -> int:
         bad_demo += 1; print(f'  FAIL квота комнат — ярус 3 после банка, без повторов и без уже взятого из ленты: {got}')
     if not all(r.get('job') is RJ[1] for r in rows if r['sku'] == 'r:7') or rows[-1]['status'] != 'none':
         bad_demo += 1; print('  FAIL ряд комнаты несёт готовое задание и статус «нет меша»')
+    # свой меш варианту по сторожу цвета (T-20261107-19): ярус 1 на месте порядка ленты, готовое задание, без повтора
+    oj = own_job(['7:v1', 'диван', 'http://img/v1', 'Аронт серый', '220', '95', '85', '0'])
+    OJ = {'7:v1': oj}
+    rows = demo_pick(('m:8',), ['m:1', '7:v1', 'm:2', '7:v9'], prod, 'test', ['7:v1', 'm:3'], RJ[:1] + [{'sku': '7:v1', 'role': 'диван'}],
+                     own=OJ)
+    got = [(r['sku'], r['tier']) for r in rows]
+    if got != [('m:8', 0), ('m:1', 1), ('7:v1', 1), ('m:2', 1), ('m:3', 2)]:
+        bad_demo += 1; print(f'  FAIL свой меш варианту — ярус 1 по порядку ленты, без повтора в банке и комнатах, вне products и own — нет: {got}')
+    r_v = next((r for r in rows if r['sku'] == '7:v1'), {})
+    if r_v.get('job') is not oj or r_v.get('status') != 'none' or 'сторож цвета' not in r_v.get('reason', ''):
+        bad_demo += 1; print(f'  FAIL ряд варианта несёт готовое задание, статус «нет меша» и причину: {r_v}')
+    if (oj['mid'], oj['eid'], oj['image_url'], oj['dims_cm']) != (7, 'v1', 'http://img/v1', {'w': 220.0, 'd': 95.0, 'h': 85.0, 'dia': None}) \
+            or own_job(['7:v2', 'диван', '', '', '220', '95', '85', '0']) is not None \
+            or own_job(['7:v3', 'пуф', 'u', '', '0', '0', '45', '50'])['dims_cm']['dia'] != 50.0 \
+            or own_job(['7:v4', 'пуф', 'u', '', '50', '50', '0', '0']) is not None:
+        bad_demo += 1; print('  FAIL own_job: вход — фото и габарит варианта, диаметр как есть; без фото или высоты — нет задания')
+    if demo_pick((), ['7:v1'], prod, 'test', own=OJ)[0]['tier'] != 1 or demo_pick((), [], prod, 'test', ['7:v1'], own=OJ):
+        bad_demo += 1; print('  FAIL вариант со своим мешем — только в недоборе ленты (ярус 1), не через банк')
     print('профиль демо: ' + ('ОК' if not bad_demo else f'ПРОВАЛОВ {bad_demo}'))
 
     bad = 0
@@ -528,18 +594,25 @@ def _selftest() -> int:
             todo = [{'sku': f'9:{i}', 'role': 'кресло', 'tier': 1, 'reason': 'т', 'status': st[i],
                      'policy_version': 't'} for i in st]
             prod = {x['sku']: {'image_url': 'u', 'dims_cm': {}} for x in todo}
+            todo.append({'sku': '7:v1', 'role': 'диван', 'tier': 1, 'reason': 'т', 'status': 'none', 'policy_version': 't',
+                         'job': oj})      # свой меш варианту (T-20261107-19) — готовое задание, вне `products()`
             out = os.path.join(td, 'q.json')
             with contextlib.redirect_stdout(io.StringIO()) as buf:
                 build_queue(out, todo, prod)
-            got = {j['sku']: j['seeds'] for j in json.load(open(out, encoding='utf-8'))['jobs']}
+            snap = json.load(open(out, encoding='utf-8'))['jobs']
+            got = {j['sku']: j['seeds'] for j in snap}
         finally:
             g.update(keep)
-    want = {'9:1': [1], '9:3': [0], '9:4': [0], '9:5': [0]}
+    want = {'9:1': [1], '9:3': [0], '9:4': [0], '9:5': [0], '7:v1': [0]}
+    jv = next((j for j in snap if j['sku'] == '7:v1'), {})
+    if (jv.get('image_url'), (jv.get('strata') or {}).get('colour_own'), (jv.get('strata') or {}).get('tier')) != ('http://img/v1', True, 1):
+        bad += 1
+        print('  FAIL build_queue: задание варианта — его фото, пометка colour_own и ярус 1 в снимке', jv)
     if got != want or 'stale_missing_photo_hash 3, suppressed_seed0 1' not in buf.getvalue():
         bad += 1
         print('  FAIL build_queue: переделка без хеша ставится, без переделки подавлена, другой хеш — seed 0',
               got, buf.getvalue()[-120:])
-    print(f'mesh_priority selftest: случаев 6 + профиль демо 6, ошибок {bad + bad_demo}')
+    print(f'mesh_priority selftest: случаев 6 + профиль демо 10, ошибок {bad + bad_demo}')
     return 1 if bad or bad_demo else 0
 
 

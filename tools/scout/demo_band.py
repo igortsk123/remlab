@@ -159,11 +159,35 @@ def plan(demo: dict, cands: list, published: set, ready: set, gen_ok, target: in
     return {'pairs': rows, 'publish': publish, 'generate': generate, 'cut': cut, 'target': target, 'queue_max': qmax}
 
 
+def own_colour(cands: list, flagged: set) -> tuple[list, set]:
+    """СВОЙ МЕШ ВАРИАНТУ С ЧУЖИМ ЦВЕТОМ (T-20261107-19): вариант семьи, отмеченный сторожем цвета (`mesh_color_mismatch`,
+    `room_mesh_demand.colour_own`), лента прячет (`flat215_demo.colour_flagged`) — меш представителя ему не годится по виду.
+    Здесь он становится СВОЕЙ моделью (`msid` = свой `sid`): кандидат на свой меш на общих правах ленты — тот же порядок,
+    тот же добор только под недобор места, тот же потолок очереди. `flagged` — `sid` отмеченных. Чистая функция.
+    → (кандидаты, множество таких моделей)."""
+    out, own = [], set()
+    for c in cands:
+        if c.get('sid') in flagged:
+            c = dict(c, msid=c['sid'], colour_own=True)
+            own.add(c['sid'])
+        out.append(c)
+    return out, own
+
+
+def own_gen_ok(st: dict, own_gen: set):
+    """Можно ли ставить свой меш варианту `own_colour`: статус и ссылка у него в products — представителя
+    (`mesh_bind.propagate_family`), поэтому «готов» не смотрим; нужна пометка «требуется меш» у самого варианта и ни одного
+    своего поколения в `mesh_generations` (уже сделан или в пути — второй раз не платим; привязка возьмёт его сама)."""
+    return lambda m: m in st and st[m][2] and m not in own_gen
+
+
 def load() -> dict:
     """Факты для `plan`: вчерашняя лента, места и полоса; годные в полосе из базы (ворота ленты, но и без меша) с формой
-    дивана (`sofa_shape` — как у ленты); модели на сервере (`flat215_demo._mesh_index`); готовность мешей по базе."""
+    дивана (`sofa_shape` — как у ленты); модели на сервере (`flat215_demo._mesh_index`); готовность мешей по базе.
+    Варианты, отмеченные сторожем цвета, — своими моделями (`own_colour`): не «готовы» и годны к своему мешу (`own_gen_ok`)."""
     from mesh_queue import db
     import flat215_demo as F
+    import room_mesh_demand as RMD
     import sofa_shape as SS
     demo = json.load(open(DEMO_DATA, encoding='utf-8'))
     band = (demo.get('rules') or {}).get('slot_band_cm') or {}
@@ -174,22 +198,31 @@ def load() -> dict:
             if p['role'] == SOFA:
                 p.update(SS.shape(p.get('name'), p.get('d')))
             cands.append(p)
+    bind = F._bind_rows()
+    cands, own = own_colour(cands, {p['sid'] for p in cands if RMD.colour_own(bind.get(_sku(p['sid'])))})
     st: dict = {}
     for r in db("select shop_mid||'_'||external_id, coalesce(mesh_status,'none'), (mesh_uri is not null)::text, "
                 "coalesce(mesh_required, false)::text from products where cat_role in (" + DSP._lit(DSP.ROLES) + ")"):
         if len(r) == 4:
             st[r[0]] = (r[1], r[2] == 'true', r[3] == 'true')
+    own_gen = set()
+    if own:
+        lit = ','.join("'" + _sku(m).replace("'", "''") + "'" for m in sorted(own))
+        own_gen = {r[0].replace(':', '_', 1) for r in db(f"select distinct sku from mesh_generations where sku in ({lit})") if r}
+    own_ok = own_gen_ok(st, own_gen)
     return {'demo': demo, 'cands': cands, 'published': set(F._mesh_index()),
-            'ready': {k for k, (s, uri, _q) in st.items() if s == 'ready' and uri},
-            'eligible': {p['msid'] for p in cands},
-            'gen_ok': lambda m: m in st and st[m][0] in GEN_STATUS and st[m][2]}
+            'ready': {k for k, (s, uri, _q) in st.items() if s == 'ready' and uri and k not in own},
+            'eligible': {p['msid'] for p in cands}, 'own': own,
+            'gen_ok': lambda m: own_ok(m) if m in own else (m in st and st[m][0] in GEN_STATUS and st[m][2])}
 
 
 def compute() -> dict:
     f = load()
     res = plan(f['demo'], f['cands'], f['published'], f['ready'], f['gen_ok'])
     el = f['eligible']
-    res['sets'] = {'eligible': len(el), 'ready': len(el & f['ready']), 'published': len(el & f['published'])}
+    res['sets'] = {'eligible': len(el), 'ready': len(el & f['ready']), 'published': len(el & f['published']),
+                   'colour_own': len(f['own'])}
+    res['own'] = [m for m in res['generate'] if m in f['own']]
     return res
 
 
@@ -202,9 +235,15 @@ def publish_skus() -> set:
     return {_sku(m) for m in compute()['publish']}
 
 
+def queue() -> dict:
+    """Под генерацию по порядку (`mid:eid`): представители семейств и варианты со своим мешем по сторожу цвета
+    (`own_colour`) — профиль demo очереди мешей (`mesh_priority.demo_rank`). → {'skus': [...], 'own': {sku варианта}}."""
+    res = compute()
+    return {'skus': [_sku(m) for m in res['generate']], 'own': {_sku(m) for m in res['own']}}
+
+
 def queue_skus() -> list:
-    """Представители семейств (`mid:eid`) под генерацию — профиль demo очереди мешей (`mesh_priority.demo_rank`), по порядку."""
-    return [_sku(m) for m in compute()['generate']]
+    return queue()['skus']
 
 
 # ---------------------------------------------------------------- комнаты кроме гостиной (T-20261106-82/2)
@@ -323,7 +362,8 @@ def report(dry: bool = False) -> int:
             short.append(f'{role}/{st}')
         print(line)
     print(f"[demo_band] выложить {len(res['publish'])} моделей, в очередь мешей demo {len(res['generate'])}"
-          + (f" (срезано потолком {res['cut']})" if res['cut'] else '') + f"; пар без 10 и всем каталогом: {len(short)}")
+          + (f" (срезано потолком {res['cut']})" if res['cut'] else '') + f"; пар без 10 и всем каталогом: {len(short)}"
+          + f"; в очереди своих мешей вариантам по сторожу цвета {len(res['own'])} (отмечено в полосе {res['sets']['colour_own']})")
     if res['cut']:
         print(f"WARN:demo_band: очередь мешей demo упёрлась в потолок {res['queue_max']} — {res['cut']} моделей ждут следующего раза")
     # нехватка каталога — известное состояние, а не поломка: тревога только на НОВЫЕ такие пары (иначе строка каждую ночь,
@@ -344,7 +384,7 @@ def report(dry: bool = False) -> int:
               + (f", остаток денег трека комнат {R['left_rub']:g} ₽" if R['left_rub'] is not None else ''))
     if not dry:
         out = {'target': res['target'], 'queue_max': res['queue_max'], 'cut': res['cut'], 'sets': res['sets'], 'short': short,
-               'publish': res['publish'], 'generate': res['generate'],
+               'publish': res['publish'], 'generate': res['generate'], 'colour_own': res['own'],
                'pairs': {f'{r}/{s}': v for (r, s), v in sorted(res['pairs'].items())}}
         if rooms_rec is not None:
             out['rooms'] = rooms_rec
@@ -405,6 +445,28 @@ def _selftest() -> int:
     ok('потолок очереди: первые по вкладу, остаток срезан и недобор за ним вернулся',
        cut['generate'] == ['g1'] and cut['cut'] == 2 and cut['pairs'][('столик', 'лофт')]['after'] == 2, cut['pairs'][('столик', 'лофт')])
     ok('правило — из rules/demo-swap.json', TARGET == int(RULES['mesh_target']) and QUEUE_MAX == int(RULES['mesh_queue_max']))
+    # СВОЙ МЕШ ВАРИАНТУ С ЧУЖИМ ЦВЕТОМ (T-20261107-19): v1 — вариант семьи «g9» на меше представителя, отмечен сторожем
+    oc = [dict(C('g9'), sid='v1'), dict(C('g9'), sid='v2'), dict(C('g8'), sid='g8')]
+    oc2, own = own_colour(oc, {'v1'})
+    ok('сторож цвета: отмеченный вариант — своя модель (msid = sid), соседи по семье и прочие — как были',
+       [c['msid'] for c in oc2] == ['v1', 'g9', 'g8'] and own == {'v1'} and oc[0]['msid'] == 'g9', oc2)
+    st = {'v1': ('ready', True, True), 'v3': ('ready', True, False), 'v4': ('ready', True, True)}
+    g = own_gen_ok(st, {'v4'})
+    ok('свой меш варианту: статус «готов» представителя не мешает; нужна пометка «требуется меш»; своё поколение есть — нет',
+       g('v1') and not g('v3') and not g('v4') and not g('v9'))
+    # недобор места: вариант встаёт в очередь на общих правах ленты (порядок кандидатов, потолок)
+    dm = {'rules': demo['rules'], 'variants': [{'style': 'сканди', 'items': [{'role': 'столик', 'sku': {'msid': 'a'}}]}],
+          'feeds': {'столик': [{'msid': 'a', 'w': 100, 'styles': ['сканди']}, {'msid': 'c', 'w': 110, 'styles': ['сканди']}]}}
+    vc, own = own_colour([C('h1'), dict(C('R'), sid='v1'), C('h2')], {'v1'})
+    rv = plan(dm, vc, published={'a', 'c'}, ready={'R'} - own, gen_ok=lambda m: g(m) if m in own else m != 'R', target=4, qmax=10)
+    ok('лента голодна: отмеченный вариант — в очередь своим мешем, по порядку ленты, в пределах недобора',
+       rv['generate'] == ['h1', 'v1', 'h2'] and rv['pairs'][('столик', 'сканди')]['after'] == 4, rv['generate'])
+    full = {'rules': dm['rules'], 'variants': dm['variants'],
+            'feeds': {'столик': [{'msid': x, 'w': 100, 'styles': ['сканди']} for x in ('a', 'c', 'd', 'e', 'f')]}}
+    rf = plan(full, vc, published={'a', 'c', 'd', 'e', 'f'}, ready=set(), gen_ok=lambda m: g(m) if m in own else True, target=4)
+    ok('лента сыта (≥ цели на место) — вариант не берём, очередь пуста', rf['generate'] == [] and rf['publish'] == [], rf['generate'])
+    rc = plan(dm, vc, published={'a', 'c'}, ready=set(), gen_ok=lambda m: g(m) if m in own else True, target=4, qmax=1)
+    ok('потолок очереди общий: вариант стоит за моделями выше по ленте', rc['generate'] == ['h1'] and rc['cut'] == 2, rc)
     # КОМНАТЫ (T-20261106-82/2)
     J = lambda *ss: [{'sku': x} for x in ss]  # noqa: E731
     m = rooms_merge([('bedroom', J('a', 'b', 'c')), ('hall', J('b', 'd'))], qmax_left=10, money_jobs=10)
