@@ -11,7 +11,8 @@
   после публикации — код 1 с подсказкой про откат;
 - не молчит и не живёт в /tmp (T-20261106-87): архив — в PUB_TMP; упаковка упала без вывода (`tar` подменён) — код 2 и строка
   «сбой в строке … tar czf … (код 2)»; места мало (`df` подменён) — отказ до упаковки с цифрами; отказы-проверки строку сбоя не печатают.
-Папка случая не удаляется: PUB_TEST_DIR (иначе новая во временной).
+Папка случая: PUB_TEST_DIR (не удаляется) или во временной папке процесса на диске (`remlab_tmp.use`): успех — убирается,
+провал — остаётся (T-20261107-13; раньше — в /tmp навсегда).
     python3 tools/scout/tests/test_publish_demo.py"""
 import hashlib
 import os
@@ -21,6 +22,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_publish_demo')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, '..', 'publish_demo.sh')
@@ -258,6 +262,8 @@ def main():
     ok(r.returncode == 2 and 'сбой в строке' not in r.stdout + r.stderr, 'отказ по PUB_DIR — без строки «сбой»')
 
     print('итог:', 'OK' if not BAD else f'FAIL ({len(BAD)})')
+    if BAD:
+        remlab_tmp.keep('провал test_publish_demo')   # папка случая — для разбора (успех — убирается, T-20261107-13)
     return 1 if BAD else 0
 
 

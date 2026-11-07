@@ -24,6 +24,9 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('tests_money_guard')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import money_guard as G  # noqa: E402

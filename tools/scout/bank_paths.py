@@ -102,6 +102,8 @@ def room_bank_output(env, room: str = 'bedroom') -> str:
 
 
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('bank_paths-selftest')
     import tempfile
     bad = 0
 

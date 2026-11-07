@@ -72,6 +72,8 @@ def commit(step: str, out: str, bank: list, report: dict, hard: list[str], warn:
 
 # ---------------------------------------------------------------- селфтест
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('room_candidate-selftest')
     import contextlib
     import io
     import tempfile

@@ -278,6 +278,8 @@ def summary(P: dict) -> str:
 
 # ---------------------------------------------------------------- селфтест: тесты Codex «Publisher tests» на подставных данных
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('room_publish-selftest')
     import tempfile
     bad = 0
 

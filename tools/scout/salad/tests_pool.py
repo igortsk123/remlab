@@ -19,6 +19,9 @@ import sys
 import tempfile
 import threading
 import time
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('tests_pool')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import node_health as NH  # noqa: E402

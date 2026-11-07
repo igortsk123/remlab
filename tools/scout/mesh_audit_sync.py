@@ -367,6 +367,8 @@ def _selftest() -> int:
     """Комментарий владельца проходит мост: sidecar и журнал `mesh_decisions` (поле `note`), пустой — без `note`, ACK как
     раньше, курсор после применения; отмена дописывает `cleared` того же поколения и разбор её не считает. Сеть и база —
     заглушки, файлы — во временной папке."""
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('mesh_audit_sync-selftest')
     import tempfile
     import types
     import mesh_decisions as MD

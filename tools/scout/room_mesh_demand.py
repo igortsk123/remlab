@@ -1079,6 +1079,8 @@ def report_md(S: dict) -> str:
 
 # ---------------------------------------------------------------- селфтест
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('room_mesh_demand-selftest')
     bad = 0
 
     def ok(name, cond):

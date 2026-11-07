@@ -20,6 +20,9 @@ import os
 import sys
 import tempfile
 import traceback
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_room_bank_chain')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 SCOUT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SCOUT)

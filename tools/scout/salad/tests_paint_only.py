@@ -23,6 +23,9 @@ import os
 import sys
 import tempfile
 import textwrap
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('tests_paint_only')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 

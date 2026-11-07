@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,16 +24,22 @@ describe("встраивание демо", () => {
   });
 
   it("ручка: квартира партнёра с витриной — страница с заголовком; чужая/неизвестная — 404", async () => {
+    // временная папка убирается в finally (T-20261107-13: без уборки в /tmp скопилось 55 папок demo-*)
     const dir = mkdtempSync(join(tmpdir(), "demo-"));
-    writeFileSync(join(dir, "index.html"), "<html><head></head><body>demo</body></html>");
-    process.env.DEMO_DIR = dir;
-    const { GET } = await import("@/app/embed/[partner]/[flat]/route");
-    const ok = await GET(new Request("http://x/embed/demo/flat215"), { params: Promise.resolve({ partner: "demo", flat: "flat215" }) });
-    expect(ok.status).toBe(200);
-    expect(ok.headers.get("content-security-policy")).toMatch(/^frame-ancestors 'self'/);
-    expect(await ok.text()).toContain("__EMBED");
-    const bad = await GET(new Request("http://x/embed/demo/nope"), { params: Promise.resolve({ partner: "demo", flat: "nope" }) });
-    expect(bad.status).toBe(404);
+    try {
+      writeFileSync(join(dir, "index.html"), "<html><head></head><body>demo</body></html>");
+      process.env.DEMO_DIR = dir;
+      const { GET } = await import("@/app/embed/[partner]/[flat]/route");
+      const ok = await GET(new Request("http://x/embed/demo/flat215"), { params: Promise.resolve({ partner: "demo", flat: "flat215" }) });
+      expect(ok.status).toBe(200);
+      expect(ok.headers.get("content-security-policy")).toMatch(/^frame-ancestors 'self'/);
+      expect(await ok.text()).toContain("__EMBED");
+      const bad = await GET(new Request("http://x/embed/demo/nope"), { params: Promise.resolve({ partner: "demo", flat: "nope" }) });
+      expect(bad.status).toBe(404);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      delete process.env.DEMO_DIR;
+    }
   });
 });
 

@@ -8,6 +8,10 @@ LOG=nightly.log
 # пауза обслуживания (onb-12, `tools/ops/cron-pause.sh`): на паузе — строка в лог и выход
 . ../ops/maintenance.sh
 maint_gate nightly_exam "$LOG"
+# ВРЕМЕННОЕ ВСЕГО ЭКЗАМЕНА — НА ДИСК (T-20261107-13): как в refresh_daily, TMPDIR → REMLAB_TMP до первого шага, чтобы python
+# (tempfile), node и Chromium экзамена не писали в /tmp (tmpfs с квотой, EDQUOT при пиках у соседей)
+. ../ops/remlab-tmp.sh
+export TMPDIR="$REMLAB_TMP"
 echo "=== $(date '+%F %T') ночной экзамен старт ===" >> "$LOG"
 ./run.sh exam >> "$LOG" 2>&1; rc=$?
 echo "экзамен rc=$rc" >> "$LOG"
@@ -15,8 +19,7 @@ if [ $rc -eq 0 ]; then
   ./run.sh gallery >> "$LOG" 2>&1
   # АРХИВ ГАЛЕРЕИ — В REMLAB_TMP НА ДИСКЕ, НЕ В /tmp (T-20261107-02/2): /tmp DEV — tmpfs с квотой; scp не прошёл — архив 24 МБ
   # оставался в /tmp навсегда (rm стоял в конце цепочки &&). Теперь свой архив убирает trap при любом исходе.
-  # GAL_RTMP — /tmp СЕРВЕРА, куда scp кладёт архив и где он распаковывается (не DEV).
-  . ../ops/remlab-tmp.sh
+  # GAL_RTMP — /tmp СЕРВЕРА, куда scp кладёт архив и где он распаковывается (не DEV). REMLAB_TMP задан в начале скрипта.
   GAL_RTMP=${GAL_RTMP:-/tmp}
   if GAL_TGZ=$(mktemp -p "$REMLAB_TMP" acc-gallery-nightly.XXXXXX); then trap 'rm -f "$GAL_TGZ"' EXIT
   else GAL_TGZ=; echo "галерея не опубликована: нет места под архив в $REMLAB_TMP" >> "$LOG"; fi

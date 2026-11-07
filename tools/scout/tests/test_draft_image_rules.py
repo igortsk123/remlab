@@ -20,6 +20,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_draft_image_rules')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 DOCKERFILE = os.path.join(ROOT, 'infra', 'draft', 'Dockerfile')

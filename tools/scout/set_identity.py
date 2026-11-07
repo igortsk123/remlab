@@ -232,6 +232,8 @@ def main() -> int:
 
 
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('set_identity-selftest')
     bad = 0
 
     def ok(name: str, cond: bool) -> None:

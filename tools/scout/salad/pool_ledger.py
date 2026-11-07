@@ -211,6 +211,9 @@ def main(argv: list[str]) -> int:
 
 def selftest() -> int:
     """Без сети: разбор событий, классы инстансов, цена по классу, молчащие машины, постраничное чтение."""
+    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('pool_ledger-selftest')
     import tempfile
     bad = []
 

@@ -4,7 +4,7 @@
 // продукте (собираем esbuild для node). Вывод — markdown в stdout, `--json <файл>` — ещё и данные.
 //   node tools/flat3d/kitchen-checks-table.mjs [--room 311] [--json out.json]
 import { build as esbuild } from "esbuild";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -35,9 +35,16 @@ export function run(room) {
   },
   bundle: true, format: "esm", platform: "node", write: false, alias: { "@": ROOT }, logLevel: "warning", absWorkingDir: ROOT,
 });
-const tmp = join(mkdtempSync(join(tmpdir(), "kitchen-table-")), "run.mjs");
-writeFileSync(tmp, res.outputFiles[0].text);
-const { run } = await import(pathToFileURL(tmp).href);
+// временная папка сборки убирается сразу после импорта (T-20261107-13: в /tmp их скопилось 7, 7,7 МБ)
+const tmpDir = mkdtempSync(join(tmpdir(), "kitchen-table-"));
+const tmp = join(tmpDir, "run.mjs");
+let run;
+try {
+  writeFileSync(tmp, res.outputFiles[0].text);
+  ({ run } = await import(pathToFileURL(tmp).href));
+} finally {
+  rmSync(tmpDir, { recursive: true, force: true });
+}
 const rows = run(ROOM);
 
 const where = { front: "перед", "behind-island": "за островом", "leg-end": "торец плеча" };

@@ -21,6 +21,9 @@ import tempfile
 import numpy as np
 import trimesh
 from PIL import Image
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('tests_alien_debris')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIGHT, DARK = (225, 220, 205), (20, 18, 16)

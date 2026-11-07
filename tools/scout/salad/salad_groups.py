@@ -178,6 +178,10 @@ def reconcile_text(R: dict) -> list:
 
 
 def _selftest() -> int:
+    import sys  # noqa: E401
+    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('salad_groups-selftest')
     import tempfile  # noqa: PLC0415
     global RULES, _CACHE, PRICE_HALT
     bad = 0
