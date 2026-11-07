@@ -15,7 +15,15 @@
 //   node tools/ops/demo-warm.mjs --selftest
 // НЕСКОЛЬКО КОМНАТ (onb-12, T-20261105-17): варианты — всех комнат витрины (`room_id`, нет — гостиная), номер состояния — по
 // комнате варианта (`pubStateOf` страницы), запись реестра — к варианту по комнате и номеру варианта (`regOf`), предел — по числу комнат.
-import { readFileSync } from "node:fs";
+// КАДР — СВОЙ БРАУЗЕР И СВОЙ СРОК (T-20261107-16): без видеокарты страница после 1–2 кадров вставала (программный WebGL копится в
+// одной вкладке), `page.evaluate` не возвращался, и ночь снимала не всё, а то и упиралась в `timeout 1800` обёртки без итога.
+// Теперь каждая попытка — новый браузер; срок попытки `WARM_SHOT_SEC` (по умолчанию 180 с, с открытием страницы); не успел или
+// кадра нет в реестре — браузер закрывается, ещё одна попытка (`WARM_TRIES`, по умолчанию 2). Общий бюджет `WARM_BUDGET_SEC`
+// (1500 с, меньше 1800 обёртки): не хватает на попытку — кадр «не успели», итог печатается всегда. Итог — строкой
+// `DIGEST:прогрев кадров: снято X из Y…` в сводку ночи, со временем на кадр. Цикл съёмки — `warmLoop`, проверяется селфтестом.
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
 
@@ -28,6 +36,22 @@ const PATH = (process.env.DEMO_PATH ?? "/demo/").replace(/\/?$/, "/");
 // `WARM_ROOM=bedroom-1` — снимать только эту комнату (проверочная сборка новее данных главной, и без фильтра прогрев переснял бы
 // черновики гостиной, у которой фото уже есть); итог «без фото» — тоже по ней
 const ONLY = process.env.WARM_ROOM ?? "";
+// ПРОБА (`WARM_PROBE=1`, T-20261107-16): те же варианты и тот же путь съёмки, но кадр с `no_registry` — сервер считает его как обычно,
+// а в реестр не пишет. Реестр полон (предел 120, `draft_guard.registry_trim`), и лишний черновик вытеснил бы старую запись — так
+// замеряем время на кадр без следа на проде. Снимать нечего (все с кадром) — проба берёт все варианты витрины.
+const PROBE = !!process.env.WARM_PROBE;
+
+/**
+ * Временная папка браузера — на диске (T-20261107-16): Playwright кладёт профиль и кэш Chromium в `os.tmpdir()`, а /tmp на DEV —
+ * tmpfs с квотой, забитый до 78 %. Там картинки витрины обрывались `ERR_INSUFFICIENT_RESOURCES`, а вкладка падала («Target
+ * crashed»); с TMPDIR на диске — ни одного сбоя. Ночь уже даёт TMPDIR (`refresh_daily.sh`), ручной запуск — нет: берём REMLAB_TMP
+ * или ~/remlab-scratch/tmp. Заданный TMPDIR не трогаем. Возвращает папку или '' (CI и чужая машина — системная).
+ */
+export function browserTmp(env, exists = existsSync, home = homedir()) {
+  if (env.TMPDIR) return "";
+  const d = env.REMLAB_TMP || (exists(join(home, "remlab-scratch")) ? join(home, "remlab-scratch", "tmp") : "");
+  return d;
+}
 
 /** Предел кадров за прогон: `WARM_MAX` или 5 стилей на каждую комнату витрины, но не меньше прежних 8 (одна гостиная — как было). */
 export function warmMax(env, variants) {
@@ -83,35 +107,112 @@ export function needWarm(variants, shots, dataTs, poseVer, camOk) {
       && (!s.stateId || !v.stateId || s.stateId === v.stateId) && poseOk(s) && camOk(s, v.cams)));
 }
 
+/** Обещание или его срок: `{ value }` / `{ error }` / `{ timeout: true }` — цикл съёмки не ждёт зависшую страницу. */
+export function withDeadline(p, ms) {
+  let tm;
+  const late = new Promise((ok) => { tm = setTimeout(() => ok({ timeout: true }), ms); });
+  return Promise.race([Promise.resolve(p).then((value) => ({ value }), (e) => ({ error: String(e) })), late])
+    .finally(() => clearTimeout(tm));
+}
+
+/**
+ * ЦИКЛ СЪЁМКИ (T-20261107-16): по кадру за раз, каждая попытка — `shoot(t)` (новый браузер), после неё всегда `reset()` (браузер
+ * закрыт). Попытка в сроке `shotMs`; кадр засчитан, только если он есть в реестре (`fresh(t)`) — и после «не успел» тоже: сервер мог
+ * досчитать. Не хватает бюджета на попытку — кадр «не успели». Возвращает снятые, не снятые (с причиной), не успевшие и время на кадр.
+ */
+export async function warmLoop(todo, { shoot, reset, fresh, shotMs, budgetMs, tries = 2, now = Date.now, log = console.log, label = pairLabel }) {
+  const t0 = now(), out = { done: [], failed: [], skipped: [], times: [] };
+  for (const t of todo) {
+    let ok = false, why = "", over = false;
+    for (let k = 1; k <= tries && !ok; k += 1) {
+      if (now() - t0 + shotMs > budgetMs) { over = true; break; }
+      const s0 = now();
+      const r = await withDeadline(shoot(t), shotMs);
+      await reset();
+      const sec = Math.round((now() - s0) / 1000);
+      if (await fresh(t, r)) {
+        ok = true; out.times.push(sec);
+        log(`  ${label(t)}: кадр снят за ${sec} с${k > 1 ? ` (попытка ${k})` : ""}`);
+      } else {
+        why = r.timeout ? `не успел за ${Math.round(shotMs / 1000)} с` : r.error ? r.error.slice(0, 160) : "кадр не появился в реестре";
+        log(`  ${label(t)}: попытка ${k} — ${why}${k < tries ? ", новый браузер, ещё раз" : ""}`);
+      }
+    }
+    if (ok) out.done.push(t);
+    else if (over && !why) out.skipped.push(t);
+    else out.failed.push({ ...t, why: why || "не успели по общему сроку" });
+  }
+  return out;
+}
+
+/** Строка в сводку ночи: снято / не снято / не успели, время на кадр (медиана и максимум), без фото на главной. */
+export function digestLine({ todo = [], done = [], failed = [], skipped = [], times = [], missing = [], variants = [] }) {
+  const lab = (l) => l.map(pairLabel).join(", ");
+  if (!todo.length) {
+    return `DIGEST:прогрев кадров: свежий кадр не нужен — у ${variants.length - missing.length} из ${variants.length} вариантов кадр есть`
+      + (missing.length ? `; без фото ${missing.length}: ${lab(missing)}` : "");
+  }
+  const st = [...times].sort((a, b) => a - b), med = st.length ? st[Math.floor((st.length - 1) / 2)] : 0;
+  return `DIGEST:прогрев кадров: снято ${done.length} из ${todo.length}`
+    + (failed.length ? `, не снято ${failed.length}: ${lab(failed)}` : "")
+    + (skipped.length ? `, не успели ${skipped.length}: ${lab(skipped)}` : "")
+    + (st.length ? `; кадр ~${med} с (до ${st[st.length - 1]} с)` : "")
+    + (missing.length ? `; без фото на главной ${missing.length}` : "");
+}
+
+// номер опубликованного состояния — той же функцией страницы (блок STATEID), что ставит его кадрам
+// номер состояния — тем, чем его считает сама страница для кадра (`variantStateOf`, demo-09), а не своей копией формулы
+// ОПУБЛИКОВАННОЕ состояние (данные витрины и своя отделка `v.dev`), а не живое: у открытого варианта живое сбивает общая отделка
+// комната варианта (onb-12): номер — `pubStateOf` страницы (геометрия `roomOf(v)`); страница до onb-07 его не знает — прежняя
+// формула с `D.room`. Вариант, чьей комнаты нет в данных (`roomGeoOf` → null), главная не показывает — и снимать его не в чем.
+// `i` — номер в `allVariants()`: по нему страница открывает вариант (`pickVariant`), фильтр номера не сдвигает
+const PUB = `allVariants().map((v, i) => ({ v, i })).filter(({ v }) => !v.mine && !v.cid
+    && (typeof roomGeoOf !== 'function' || !!roomGeoOf(v))).map(({ v, i }) => ({ i, id: v.id,
+  room: typeof roomIdOf === 'function' ? roomIdOf(v) : 'living', style: v.style,
+  stateId: typeof pubStateOf === 'function' ? pubStateOf(v)
+    : stateIdOf(v.items || [], (v.decor || []).filter(x => (x.sku || {}).name), D.room, v.dev || {}),
+  cams: v.cams || null }))`;
+
+/** Открыть витрину и дождаться данных. */
+async function openDemo(browser) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  // `?live=0` — без живой 3D-сцены: после съёмки страница открывает окно варианта, и сборка сцены программным рендером
+  // (у прогрева нет видеокарты) подвешивала следующий кадр (17.10: прогон снял 1 из 5 и встал по сроку)
+  // `quiz=0` — без опроса-знакомства (onb-03): окно опроса поверх витрины не нужно кадру и не держит страницу
+  await page.goto(`${BASE}${PATH}?live=0&quiz=0&lang=ru`, { waitUntil: "domcontentloaded" });
+  // данные витрины приходят после разметки: пока `D` пуст, `allVariants()` бросает — ждать надо `D`, иначе прогон падал
+  // на первом же ожидании и ночью кадров не снимал вовсе (найдено 17.10: у трёх стилей не было кадра своей расстановки)
+  await page.waitForFunction("typeof D !== 'undefined' && !!D && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });
+  return page;
+}
+
 async function main() {
   const head = await fetch(`${BASE}${PATH}demo-data.json`, { method: "HEAD" });
   const dataTs = new Date(head.headers.get("last-modified") ?? 0).getTime();
-  const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  let done = 0, failed = 0, missing = [], camOk = null, variants = [];
-  const doneV = [], failedV = [];
-  try {
-    // `?live=0` — без живой 3D-сцены: после съёмки страница открывает окно варианта, и сборка сцены программным рендером
-    // (у прогрева нет видеокарты) подвешивала следующий кадр (17.10: прогон снял 1 из 5 и встал по сроку)
-    // `quiz=0` — без опроса-знакомства (onb-03): окно опроса поверх витрины не нужно кадру и не держит страницу
-    await page.goto(`${BASE}${PATH}?live=0&quiz=0&lang=ru`, { waitUntil: "domcontentloaded" });
-    // данные витрины приходят после разметки: пока `D` пуст, `allVariants()` бросает — ждать надо `D`, иначе прогон падал
-    // на первом же ожидании и ночью кадров не снимал вовсе (найдено 17.10: у трёх стилей не было кадра своей расстановки)
-    await page.waitForFunction("typeof D !== 'undefined' && !!D && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });
+  const SHOT_MS = Number(process.env.WARM_SHOT_SEC ?? 180) * 1000, BUDGET_MS = Number(process.env.WARM_BUDGET_SEC ?? 1500) * 1000;
+  const TRIES = Number(process.env.WARM_TRIES ?? 2);
+  let missing = [], camOk = null, variants = [], todo = [];
+  let res = { done: [], failed: [], skipped: [], times: [] };
+  const bt = browserTmp(process.env);
+  if (bt) { mkdirSync(bt, { recursive: true }); process.env.TMPDIR = bt; }
+  console.log(`временная папка браузера: ${process.env.TMPDIR || "системная"}${PROBE ? "; ПРОБА — кадры в реестр не пишутся" : ""}`);
+  // разведка — своим браузером: список вариантов, реестр, предикат точки; съёмка — каждый кадр в новом (T-20261107-16).
+  // Вкладка без видеокарты изредка падает и здесь («Target crashed») — до 3 попыток, каждая в новом браузере
+  let browser = null;
+  for (let k = 1; ; k += 1) {
+    browser = await chromium.launch();
+    const r = await withDeadline(scout(browser), 150_000);
+    await closeQuick(browser);
+    browser = null;
+    if (r.value) break;
+    const why = r.timeout ? "разведка не успела за 150 с" : r.error.split("\n")[0].slice(0, 160);
+    if (k >= 3) throw new Error(`demo_warm: витрина не открылась за 3 попытки — ${why}`);
+    console.log(`  разведка, попытка ${k} — ${why}; новый браузер, ещё раз`);
+  }
+  async function scout(b) {
+    const page = await openDemo(b);
     await page.waitForTimeout(4000); // реестр кадров приезжает позже данных
-    // номер опубликованного состояния — той же функцией страницы (блок STATEID), что ставит его кадрам
-    // номер состояния — тем, чем его считает сама страница для кадра (`variantStateOf`, demo-09), а не своей копией формулы
-    // ОПУБЛИКОВАННОЕ состояние (данные витрины и своя отделка `v.dev`), а не живое: у открытого варианта живое сбивает общая отделка
-    // комната варианта (onb-12): номер — `pubStateOf` страницы (геометрия `roomOf(v)`); страница до onb-07 его не знает — прежняя
-    // формула с `D.room`. Вариант, чьей комнаты нет в данных (`roomGeoOf` → null), главная не показывает — и снимать его не в чем.
-    // `i` — номер в `allVariants()`: по нему страница открывает вариант (`pickVariant`), фильтр номера не сдвигает
-    const pub = `allVariants().map((v, i) => ({ v, i })).filter(({ v }) => !v.mine && !v.cid
-        && (typeof roomGeoOf !== 'function' || !!roomGeoOf(v))).map(({ v, i }) => ({ i, id: v.id,
-      room: typeof roomIdOf === 'function' ? roomIdOf(v) : 'living', style: v.style,
-      stateId: typeof pubStateOf === 'function' ? pubStateOf(v)
-        : stateIdOf(v.items || [], (v.decor || []).filter(x => (x.sku || {}).name), D.room, v.dev || {}),
-      cams: v.cams || null }))`;
-    variants = (await page.evaluate(pub)).filter((v) => !ONLY || v.room === ONLY);
+    variants = (await page.evaluate(PUB)).filter((v) => !ONLY || v.room === ONLY);
     const MAX = warmMax(process.env, variants);
     const shots = await page.evaluate("(Array.isArray(shots) ? shots : []).map(s => ({ vid: s.vid, svc: !!s.svc, ts: s.ts, stateId: s.stateId || '', quality: s.quality || '', pose: ((s.cams || [])[0] || {}).pose || 1, cams: s.cams || null, camera: s.camera || 'C1' }))");
     const poseVer = await page.evaluate("typeof POSE_VER === 'number' ? POSE_VER : 0");
@@ -123,48 +224,66 @@ async function main() {
       camOk = () => true;
       console.log("WARN:demo_warm: страница прода без сверки точки съёмки (shotCamOk) — сверяю, как она: только по состоянию");
     }
-    const todo = needWarm(variants, shots, dataTs, poseVer, camOk).slice(0, MAX);
-    const label = pairLabel;
+    todo = needWarm(variants, shots, dataTs, poseVer, camOk).slice(0, MAX);
+    if (PROBE && !todo.length) todo = variants.slice(0, MAX);
     const rooms = new Set(variants.map((v) => v.room)).size;
-    console.log(`прогрев кадров: стилей ${variants.length}${rooms > 1 ? ` в ${rooms} комнатах` : ""}, нужен свежий кадр ${todo.length}${todo.length ? ": " + todo.map(label).join(", ") : ""}`);
-    // проба (DRY) ничего не снимает, но итог по нынешнему реестру считает — что ночь сочла бы провалом
-    for (const t of DRY ? [] : todo) {
-      try {
-        await page.evaluate(async (i) => {
-          // кадр — опубликованного состояния: отделка варианта, а не общая (`DEVOPT`) — иначе номер состояния кадра не совпал бы
-          // eslint-disable-next-line no-undef -- функции страницы демо
-          DEVOPT = devCanon(allVariants()[i].dev || {});
-          // eslint-disable-next-line no-undef
-          pickVariant(i);
-          // eslint-disable-next-line no-undef
-          await makePhoto("draft");
-        }, t.i);
-        // ответ пришёл — кадр в реестре сервера (draft_service._registry_add); проверяем по реестру, а не по странице
-        const reg = await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json();
-        const fresh = reg.some((r) => regOf(r, t) && r.ts >= dataTs && (r.shots ?? []).length
-          && (!t.stateId || rowFits(r, t, camOk)));
-        if (fresh) { done += 1; doneV.push(t); }
-        else { failed += 1; failedV.push(t); console.log(`  ${label(t)}: кадр не появился в реестре`); }
-      } catch (e) {
-        failed += 1; failedV.push(t);
-        console.log(`  ${label(t)}: ${String(e).slice(0, 160)}`);
-      }
-    }
-    // итог — по реестру: у каждого варианта есть кадр опубликованного состояния (снятый когда угодно — главной этого хватает)
-    const reg = await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json();
-    missing = withoutShot(variants, reg, camOk);
-  } finally {
-    await browser.close();
+    console.log(`прогрев кадров: стилей ${variants.length}${rooms > 1 ? ` в ${rooms} комнатах` : ""}, нужен свежий кадр ${todo.length}${todo.length ? ": " + todo.map(pairLabel).join(", ") : ""}`);
+    return true;
   }
-  if (!DRY) console.log(`прогрев кадров: снято ${done}, не вышло ${failed}`);
+  const registry = async () => (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json();
+  // проба (DRY) ничего не снимает, но итог по нынешнему реестру считает — что ночь сочла бы провалом
+  if (!DRY && todo.length) {
+    console.log(`съёмка: каждый кадр в новом браузере, срок ${SHOT_MS / 1000} с, попыток ${TRIES}, бюджет ${BUDGET_MS / 1000} с`);
+    res = await warmLoop(todo, {
+      shotMs: SHOT_MS, budgetMs: BUDGET_MS, tries: TRIES,
+      shoot: async (t) => {
+        browser = await chromium.launch();
+        const page = await openDemo(browser);
+        // номер варианта ищем заново в этой странице (по номеру и комнате), а не верим прежнему
+        const i = await page.evaluate(`(${PUB}).find(v => v.id === ${JSON.stringify(t.id)} && v.room === ${JSON.stringify(t.room)})?.i ?? -1`);
+        if (i < 0) throw new Error("вариант пропал из витрины");
+        // ФОНОВЫЙ РЕЖИМ СТРАНИЦЫ (`opt.bg`, как у demo-realistic): без экрана ожидания и окна кадра после съёмки, отказ сервера —
+        // текстом в ответ (в обычном режиме он уходил в окно на странице, и прогрев видел только «кадр не появился в реестре»)
+        const r = await page.evaluate(([n, probe]) => {
+          // кадр — опубликованного состояния: отделка варианта, а не общая (`DEVOPT`) — иначе номер состояния кадра не совпал бы
+          DEVOPT = devCanon(allVariants()[n].dev || {});
+          pickVariant(n);
+          return new Promise((ok) => makePhoto("draft", "", "", { bg: true, extra: probe ? { no_registry: 1 } : {}, progress: () => {},
+            fail: (m) => ok({ error: String(m) }), done: (n0) => ok({ n: shots.length - n0 }) }));
+        }, [i, PROBE]);
+        if (r.error) throw new Error(r.error);
+        if (!r.n) throw new Error("сервер вернул кадр без снимков");
+        return r;
+      },
+      reset: async () => { if (browser) await closeQuick(browser); browser = null; },
+      // кадр — в реестре сервера (draft_service._registry_add); проверяем по реестру, а не по странице. Проба (`WARM_PROBE`) в реестр
+      // не пишет — там зачёт по ответу страницы
+      fresh: async (t, r) => {
+        if (PROBE) return !!(r && r.value);
+        try {
+          return (await registry()).some((r) => regOf(r, t) && r.ts >= dataTs && (r.shots ?? []).length && (!t.stateId || rowFits(r, t, camOk)));
+        } catch { return false; }
+      },
+    });
+  }
+  // итог — по реестру: у каждого варианта есть кадр опубликованного состояния (снятый когда угодно — главной этого хватает)
+  missing = withoutShot(variants, await registry(), camOk);
+  const failedV = [...res.failed, ...res.skipped], nFail = failedV.length;
+  if (!DRY) console.log(`прогрев кадров: снято ${res.done.length}, не вышло ${nFail}`);
   console.log(`по парам комната × стиль (${variants.length}):`);
-  for (const l of pairLines(variants, { done: doneV, failed: failedV, missing })) console.log(l);
-  const list = missing.map((v) => (v.room && v.room !== "living" ? `${v.room}/${v.style}` : v.style)).join(", ");
+  for (const l of pairLines(variants, { done: res.done, failed: failedV, missing })) console.log(l);
+  const list = missing.map(pairLabel).join(", ");
   console.log(`${missing.length && !DRY ? "ERROR:demo_warm: " : ""}без фото своей расстановки и своих ракурсов — ${missing.length}`
     + (missing.length ? `: ${list} (на главной их нет)` : ""));
   if (DRY) return;
-  if (failed) console.log(`ERROR:demo_warm: ${failed} кадр(ов) не снялось`);
-  if (missing.length || failed) process.exitCode = 1;
+  console.log(digestLine({ todo, ...res, missing, variants }));
+  if (nFail) console.log(`ERROR:demo_warm: ${nFail} кадр(ов) не снялось`);
+  if (missing.length || nFail) process.exitCode = 1;
+}
+
+/** Закрыть браузер, не повиснув на нём: зависшая вкладка может держать и закрытие — ждём 15 с и идём дальше. */
+async function closeQuick(b) {
+  await withDeadline(b.close(), 15_000);
 }
 
 /** Подпись пары: гостиная — стиль (как было), другая комната — «комната/стиль». */
@@ -255,7 +374,44 @@ if (DIRECT && process.argv.includes("--selftest")) {
   threw = false;
   try { camOkFromHtml("<html></html>"); } catch { threw = true; }
   check(threw, "в странице нет блоков CAMANG/SHOTCAM — громкий отказ", threw);
+  // ЦИКЛ СЪЁМКИ (T-20261107-16): второй кадр виснет (обещание не возвращается) — срок, браузер закрыт, новая попытка; кадр,
+  // который сервер досчитал после срока, засчитан; бюджет кончился — «не успели»; время на кадр — в строке сводки
+  const L = [], tl = [{ id: "a", style: "сканди" }, { id: "b", room: "bedroom-1", style: "лофт" }, { id: "c", style: "лофт" },
+    { id: "d", style: "джапанди" }, { id: "e", style: "минимализм" }];
+  let clock = 0, resets = 0, launched = 0;
+  const att = {}, inReg = new Set();
+  const plan = { a: ["ok"], b: ["hang", "ok"], c: ["hang-late"], d: ["err", "err"], e: ["ok"] };
+  const shoot = (t) => {
+    launched += 1;
+    const k = att[t.id] = (att[t.id] ?? 0) + 1, what = plan[t.id][k - 1];
+    if (what === "ok") { clock += 20_000; inReg.add(t.id); return Promise.resolve(); }
+    if (what === "err") { clock += 5_000; return Promise.reject(new Error("сервер кадров недоступен")); }
+    clock += 60_000; if (what === "hang-late") inReg.add(t.id);   // сервер досчитал, страница так и не вернулась
+    return new Promise(() => {});
+  };
+  const loop = await warmLoop(tl, { shoot, reset: async () => { resets += 1; }, fresh: async (t) => inReg.has(t.id),
+    shotMs: 30, budgetMs: 170_000, tries: 2, now: () => clock, log: (s) => L.push(s) });
+  const ids = (l) => l.map((x) => x.id).join(",");
+  check(ids(loop.done) === "a,b,c" && ids(loop.failed) === "d" && ids(loop.skipped) === "e",
+    "цикл: зависание — срок и новая попытка; досчитанный после срока — снят; два сбоя — не снят; бюджет кончился — не успели",
+    JSON.stringify({ done: ids(loop.done), failed: ids(loop.failed), skipped: ids(loop.skipped) }));
+  check(resets === launched && launched === 6, "каждая попытка — свой браузер, и после каждой он закрыт (6 попыток — 6 закрытий)", [launched, resets]);
+  check(L.some((s) => s.includes("bedroom-1/лофт: попытка 1 — не успел за 0 с, новый браузер")) && L.some((s) => s.includes("bedroom-1/лофт: кадр снят за 20 с (попытка 2)")),
+    "журнал: зависшая попытка и повтор в новом браузере видны строкой", L.join(" | "));
+  check(loop.failed[0].why === "Error: сервер кадров недоступен", "причина несданного кадра — текст ошибки", loop.failed[0].why);
+  got = digestLine({ todo: tl, ...loop, missing: [{ id: "e", style: "минимализм" }], variants: tl });
+  check(got === "DIGEST:прогрев кадров: снято 3 из 5, не снято 1: джапанди, не успели 1: минимализм; кадр ~20 с (до 60 с); без фото на главной 1",
+    "строка сводки: снято / не снято / не успели, время на кадр, без фото на главной", got);
+  got = digestLine({ todo: [], variants: tl, missing: [] });
+  check(got === "DIGEST:прогрев кадров: свежий кадр не нужен — у 5 из 5 вариантов кадр есть", "строка сводки, когда снимать нечего", got);
+  check(browserTmp({ TMPDIR: "/x" }) === "" && browserTmp({ REMLAB_TMP: "/r" }) === "/r"
+    && browserTmp({}, () => true, "/h") === "/h/remlab-scratch/tmp" && browserTmp({}, () => false, "/h") === "",
+  "папка браузера: заданный TMPDIR — его; иначе REMLAB_TMP, иначе ~/remlab-scratch/tmp; нет его — системная", null);
+  const dl = await withDeadline(new Promise(() => {}), 10);
+  check(dl.timeout === true, "срок: вечное обещание отпускает", JSON.stringify(dl));
   process.exit(res.every(Boolean) ? 0 : 1);
 } else if (DIRECT) {
   await main();
+  // зависший процесс браузера не держит node: итог и строка сводки уже напечатаны
+  process.exit(process.exitCode ?? 0);
 }
