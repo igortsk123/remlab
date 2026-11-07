@@ -226,23 +226,33 @@ _ROOMS = None
 def room_rules(room: str | None) -> dict:
     """Правила промпта по типу комнаты (`rules/improve-rooms.json`, T-32/3): {} у гостиной и без типа — промпт побайтно прежний.
     Иначе запись типа + общее `_any` для любой не-гостиной: `name`, `no_add` (крупное, чего нет в наборе), `tv_placeholder`, `guide_note`,
-    `deny_swap` (замена запрета стилей)."""
-    global _ROOMS
+    `deny_swap` (замена запрета стилей), `forbid` (не-мебельные запреты — только в FORBIDDEN; T-46/1, у детской).
+    `room` — тип или `<тип>:<назначение>` (`room_kind`); запись назначения самостоятельная, вместо записи типа."""
     kind = (room or '').strip().lower()
     if not kind or kind == 'living':
         return {}
-    if _ROOMS is None:
-        _ROOMS = json.load(open(os.path.join(HERE, 'rules', 'improve-rooms.json'), encoding='utf-8'))
-    rec, anyr = _ROOMS.get(kind) or {}, _ROOMS.get('_any') or {}
+    rec, anyr = _rooms().get(kind) or {}, _rooms().get('_any') or {}
     return {'name': rec.get('name') or kind, 'no_add': list(rec.get('no_add') or []) + list(anyr.get('no_add') or []),
             'tv_placeholder': rec.get('tv_placeholder', True), 'guide_note': rec.get('guide_note') or '',
-            'deny_swap': dict(rec.get('deny_swap') or {})}
+            'deny_swap': dict(rec.get('deny_swap') or {}), 'forbid': list(rec.get('forbid') or [])}
+
+
+def _rooms() -> dict:
+    global _ROOMS
+    if _ROOMS is None:
+        _ROOMS = json.load(open(os.path.join(HERE, 'rules', 'improve-rooms.json'), encoding='utf-8'))
+    return _ROOMS
 
 
 def room_kind(payload: dict) -> str | None:
-    """Тип комнаты запроса: `room.kind` (геометрия комнаты варианта со страницы); нет — None (гостиная)."""
+    """Тип комнаты запроса: `room.kind` (геометрия комнаты варианта со страницы); нет — None (гостиная). ДЕТСКАЯ (T-20261107-46/1):
+    у варианта есть `purpose` (ячейка банка, `child:7-12`) и в правилах есть запись `<тип>:<назначение>` — она; иначе тип (у взрослой
+    спальни `couple`/`single`… записи нет — промпт побайтно прежний)."""
     r = payload.get('room') if isinstance(payload, dict) else None
-    return r.get('kind') if isinstance(r, dict) else None
+    kind = r.get('kind') if isinstance(r, dict) else None
+    pur = payload.get('purpose') if kind and isinstance(payload.get('purpose'), str) else None
+    key = f'{kind}:{pur}'.lower() if pur else None
+    return key if key and key in _rooms() else kind
 
 
 SIZE_PORTRAIT = os.environ.get('IMPROVE_SIZE_PORTRAIT', '3072x2048')   # телефон (demo-10): два вертикальных вида бок о бок
@@ -426,7 +436,8 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         '',
         'Never add, remove or replace:',
         '',
-    ] + [f'* {x};' for x in deny] + [f'* {x} (not part of this {rr["name"]});' for x in (rr or {}).get('no_add', [])] + [
+    ] + [f'* {x};' for x in deny] + [f'* {x} (not part of this {rr["name"]});' for x in (rr or {}).get('no_add', [])]
+      + [f'* {x};' for x in (rr or {}).get('forbid', [])] + [
         '',
         'Do not add text, labels, logos or watermarks. Do not change the camera, architecture or '
         'furniture arrangement.',
@@ -552,7 +563,9 @@ def frames_key(payload: dict, model: str, quality: str) -> str:
     key = json.dumps([[(v.get('camera'), v.get('id')) for v in views], payload.get('style') or '',
                       (payload.get('floor') or {}).get('id'), (payload.get('walls') or {}).get('id'),
                       ((payload.get('walls') or {}).get('accent') or {}).get('side'), items, decor,
-                      PROMPT_VERSION, model, quality, payload.get('sheet') or 'landscape'], ensure_ascii=False, sort_keys=True)
+                      PROMPT_VERSION, model, quality, payload.get('sheet') or 'landscape']
+                     # своя запись назначения (детская, T-46/1) — свой промпт, свой ключ; у остальных ключ прежний
+                     + ([rk] if ':' in (rk := room_kind(payload) or '') else []), ensure_ascii=False, sort_keys=True)
     return _hl.sha256(key.encode('utf-8')).hexdigest()[:32]
 
 

@@ -133,4 +133,31 @@ check('прихожая не задевает спальню и гостиную
       and 'entrance hall' not in _cases())
 check('тип комнаты из запроса — room.kind', IM.room_kind({'room': {'kind': 'bedroom'}}) == 'bedroom' and IM.room_kind({'room': None}) is None
       and IM.room_kind({}) is None)
+# ДЕТСКАЯ 7–12 (T-20261107-46/1, kids-room-01 «Фото»): свой промпт по `purpose` запроса; спальня взрослых и прихожая — побайтно прежние
+# (отпечатки 12 случаев сняты с кода до правки: спальня 69d208d9d4ea, прихожая 3dc602321119)
+check('спальня и прихожая: промпт побайтно прежний', _h(_cases(room='bedroom')) == '69d208d9d4ea' and _h(_cases(room='hall')) == '3dc602321119',
+      (_h(_cases(room='bedroom')), _h(_cases(room='hall'))))
+_bed = {'room': {'kind': 'bedroom'}}
+check('назначение запроса: детская — своя запись, взрослые и неизвестные — тип, без комнаты — None',
+      IM.room_kind({**_bed, 'purpose': 'child:7-12'}) == 'bedroom:child:7-12'
+      and all(IM.room_kind({**_bed, 'purpose': p}) == 'bedroom' for p in ('couple', 'single', 'guest', 'office', 'child:0-3', '', None, 7))
+      and IM.room_kind({'room': {'kind': 'hall'}, 'purpose': 'hall'}) == 'hall' and IM.room_kind({'purpose': 'child:7-12'}) is None)
+_k = IM.prompt_for('сканди', room='bedroom:child:7-12')
+_kr = _rr['bedroom:child:7-12']
+check('детская: комната названа, «не добавлять» (люлька, двухъярусная, вторая кровать и стол) и общее — в ROOM и FORBIDDEN',
+      'ROOM: this is a bedroom for one school child aged 7-12.' in _k and all(x in _k for x in _kr['no_add'] + _rr['_any']['no_add'])
+      and 'a cot, crib' in _k and 'bunk bed, loft bed' in _k
+      and all(f'* {x} (not part of this bedroom for one school child aged 7-12);' in _k.rsplit('FORBIDDEN', 1)[1] for x in _kr['no_add']))
+check('детская: люди, чужие постеры, гендерные стереотипы — только в FORBIDDEN, не в списке мебели ROOM',
+      all(f'* {x};' in _k.rsplit('FORBIDDEN', 1)[1] and x not in _k.split('STATIC HARD RULES')[0] for x in _kr['forbid'])
+      and 'people, children or pets' in _k and 'cartoon, film, game' in _k and 'pink-for-girls' in _k)
+check('детская: гайд — изголовье, одна кровать и одно рабочее место; ТВ-заглушки и «существующего телевизора» нет',
+      'wall behind the bed headboard' in _k and 'exactly one bed and one study place' in _k and 'is a TELEVISION' not in _k
+      and 'existing television' not in _k)
+check('детская не задевает спальню, прихожую и гостиную', _k != IM.prompt_for('сканди', room='bedroom') and 'school child' not in _cases(room='bedroom')
+      and 'school child' not in _cases(room='hall') and 'school child' not in _cases())
+_fk = {'views': [{'camera': 'C1', 'id': 'a'}, {'camera': 'C2', 'id': 'b'}], 'style': 'сканди', 'items': [{'role': 'кровать', 'name': 'X', 'img': 'u'}],
+       **_bed}
+check('ключ кадров: взрослая спальня прежний (и с purpose), детская — свой', IM.frames_key(_fk, 'm', 'medium') == 'bd8cc75634b0db84ca37ee0142c311f8'
+      == IM.frames_key({**_fk, 'purpose': 'couple'}, 'm', 'medium') != IM.frames_key({**_fk, 'purpose': 'child:7-12'}, 'm', 'medium'))
 sys.exit(1 if fails else 0)
