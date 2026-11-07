@@ -4396,7 +4396,9 @@ function loadShots(){
     Object.keys(COLL_SHOTS).forEach(cid=>attachCollShot(cid,COLL_SHOTS[cid]));
     // ОКНО ОТКРЫТО ДО РЕЕСТРА (T-20261106-77/4): вкладка «Фото» считалась по пустому списку кадров и не появлялась, пока окно не
     // перерисуют (спальня 1 × сканди при первом открытии) — пересчитываем вкладки открытого окна по пришедшим кадрам
-    const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('on')&&sh.classList.contains('v2')&&typeof vwModeUi==='function')vwModeUi();
+    const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('on')&&sh.classList.contains('v2')&&typeof vwModeUi==='function'){
+      // …и окно, открытое в 3D только потому, что кадров ещё не было, встаёт на «Фото» (T-20261107-66 А: так окно ждало в 3D с 2 фото)
+      if(VW.wantPhoto&&VW.mode==='walk'&&!VJ.job&&vwPhotoShots().length){VW.wantPhoto=0; vwMode('photo');} else vwModeUi();}
     drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
     try{drawHome();}catch(e){}   // карточки главной — по кадрам опубликованного состояния (demo-20 Б2)
     openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
@@ -5099,7 +5101,7 @@ function restoreView(s){
   if(!open||i!==cur)vwOpenVariant(i);
   if(typeof s.y==='number')pageScrollTo(s.y);         // главная под окном — где была (закроют окно — та же прокрутка)
   setTimeout(()=>{ NAV.restoring=Date.now();
-    if(s.mode&&s.mode!==VW.mode&&(s.mode!=='photo'||vwRealShots().length))vwMode(s.mode);
+    if(s.mode&&s.mode!==VW.mode&&(s.mode!=='photo'||vwPhotoShots().length))vwMode(s.mode);
     if(!s.free&&typeof s.photo==='number'&&s.photo!==VW.photo)vwCamGo(s.photo);
     if(VW_PHONE()&&typeof s.sheet==='number')vwSheet(s.sheet);
     setTimeout(()=>{const sc=document.getElementById('vscroll'); if(sc&&s.list)sc.scrollTop=s.list;},VW_SLOW()?40:380);},120);
@@ -5738,9 +5740,10 @@ function viewShot(i){
   // текущему варианту — там переключения не происходит и правки человека не теряются.
   // Снимок ТОЙ ЖЕ расстановки (тот же `stateId`) — тоже свой: избранное, сохранённое из варианта каталога, делит с ним снимок
   // (`vwRealShots` по состоянию, demo-20 Б3), и окно избранного иначе уезжало на вариант каталога (слияние demo-20 А+Б, план А8)
-  const vi=allVariants().findIndex(v=>(v.id||'')===(s.vid||''));
-  if(vi>=0&&vi!==cur&&!(s.stateId&&s.stateId===curStateId()))pickVariant(vi);
-  if(VW.mode==='photo'&&!vwRealShots().includes(s))VW.mode='walk';   // старый снимок — история; в окне — 3D (demo-09)
+  // …и снимок, что «Фото» показывает затемнённым после правки (T-66 Б): он прежней расстановки этого окна — вариант не меняем
+  const vi=allVariants().findIndex(v=>(v.id||'')===(s.vid||'')), vis=VW.mode==='photo'&&vwPhotoShots().includes(s);
+  if(vi>=0&&vi!==cur&&!(s.stateId&&s.stateId===curStateId())&&!vis)pickVariant(vi);
+  if(VW.mode==='photo'&&!vis)VW.mode='walk';   // старый снимок — история; в окне — 3D (demo-09)
   // ЯКОРЯ ставим по координатам, посчитанным сервером из масок сцены: клик ведёт в магазин
   const pins='';           // ЗНАЧКОВ НА ФОТО НЕТ (владелец 27.08): товары — лентой под кадром
   // ПОД ФОТО — ВСЕ ТОВАРЫ С ЦЕНАМИ И ИТОГОМ (владелец 26.08)
@@ -6735,6 +6738,15 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 .vphwait s{display:block;height:100%;width:0;background:var(--accent);transition:width 1s linear}
 .vphwait small{font-size:13.5px;color:var(--muted,#6b625b)}
 @media (prefers-reduced-motion:reduce){.vphwait s{transition:none}}
+/* ФОТО ПРЕЖНЕЙ РАССТАНОВКИ ЗАТЕМНЕНО (T-20261107-66 Б): поверх — «Вы изменили комнату» и две кнопки на светлой плашке, как у хода работы */
+.vstale{position:absolute;inset:0;z-index:calc(var(--zl-scene) + 1);display:flex;align-items:center;justify-content:center;padding:24px;
+ background:rgba(38,30,24,.5);text-align:center;color:var(--ink)}
+.vstcard{display:flex;flex-direction:column;align-items:stretch;gap:10px;padding:18px 20px;width:min(300px,86%);
+ border-radius:var(--radius);background:rgba(255,255,255,.94);box-shadow:var(--e4)}
+.vstcard b{font-size:18px;font-weight:600;margin-bottom:4px}
+.vstcard .btn{width:100%;padding:11px 16px;font-size:15.5px}
+/* плашка загрузки 3D — только в «3D» (fable-lead 07.11, T-66): в «Фото» сцена грузится в фоне молча */
+#shot.vphoto .vload{display:none}
 .vready{position:absolute;left:0;right:0;margin:0 auto;width:max-content;max-width:calc(100% - 24px);top:60px;z-index:var(--zl-float);border:0;
  background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px;line-height:1.3;padding:7px 14px;border-radius:999px;
  box-shadow:var(--e3);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -6816,6 +6828,8 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
   .vstub{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
   /* ход фото закрывает весь кадр (под шторкой — тоже: иначе между ним и шторкой виден прежний снимок), надпись — над шторкой */
   .vphwait{padding-bottom:calc(var(--vsh,320px) + 24px)}
+  /* затемнение — на весь кадр, плашка с кнопками — между ↶ ↷ сверху и переключателем ракурсов над шторкой (T-66 Б) */
+  .vstale{padding-top:116px;padding-bottom:calc(var(--vsh,320px) + 64px)}
   /* «Фото» на телефоне — во всю высоту области сцены, без размытых полос; по ширине фото шире экрана, кадр — окно превью вида
      (`vwPhotoFocus`, главная мебель в кадре). Свайп вбок — другой ракурс (demo-26 Б, владелец 23.10; сдвиг пальцем demo-22 п.3 уступил
      ему место): прокрутки нет, `scrollLeft` ставит только код; вертикальный жест отдаём браузеру — свайпом он не считается.
@@ -6963,10 +6977,13 @@ function openLiveWindow(){
   if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
   VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null; VW.sheetVis=0; VW.auto=null;   // новое окно варианта — первая точка съёмки
   // ОКНО ОТКРЫВАЕТСЯ В «ФОТО», ЕСЛИ ЕСТЬ РЕАЛИСТИЧНЫЙ СНИМОК ЭТОЙ РАССТАНОВКИ, ИНАЧЕ В «3D» (demo-09 п.1)
-  const v=allVariants()[cur]||{}, vid=v.id||('v'+cur), real=vwRealShots();
+  // ЕСТЬ ХОТЬ ОДНО ФОТО КОМНАТЫ — ТОЖЕ «ФОТО» (T-20261107-66 А): стиль, правленый в прошлый раз, открывается в сохранённой правке
+  // (`editRestore`, `EDITS_KEY`) — своего фото у неё нет, и окно уходило в 3D; теперь — последнее фото затемнённым (`vwStaleUi`)
+  const v=allVariants()[cur]||{}, vid=v.id||('v'+cur), real=vwPhotoShots();
   // «Фото» — со свёрнутой шторкой (приёмка d8 17.10: на средней диван был под шторкой — фото видно целиком)
+  VW.wantPhoto=0;
   if(real.length){const k=real[0]; VW.mode='photo'; VW.photo=vwCamIndex(k.camera); viewShot(shots.indexOf(k)); return;}
-  VW.mode='walk';
+  VW.mode='walk'; VW.wantPhoto=1;   // реестр кадров ещё не пришёл — по приходу встанем на «Фото», если человек сам не выбрал режим (`loadShots`)
   let i=shots.findIndex(x=>x.vid===vid&&x.live);
   if(i<0){shots.push({url:'',camera:'C1',quality:'live',vid:vid,revision:'',ts:Date.now(),live:true,svc:true}); i=shots.length-1;}
   viewShot(i);
@@ -7112,7 +7129,7 @@ function vwSwipeWire(el){
   if(!el||el._swipe)return; el._swipe=true;
   let p=null; const im=()=>el.querySelector('img.vmain');
   const back=()=>{const i=im(); if(i){i.style.transition='transform .2s ease'; i.style.transform='';}};
-  el.addEventListener('pointerdown',e=>{p=e.pointerType==='mouse'||VW.mode!=='photo'||vwRealShots().length<2?null:{x:e.clientX,y:e.clientY,t:Date.now()};});
+  el.addEventListener('pointerdown',e=>{p=e.pointerType==='mouse'||VW.mode!=='photo'||vwPhotoShots().length<2?null:{x:e.clientX,y:e.clientY,t:Date.now()};});
   el.addEventListener('pointermove',e=>{if(!p)return; const dx=e.clientX-p.x, dy=e.clientY-p.y;
     if(Math.abs(dx)>8&&Math.abs(dx)>Math.abs(dy)){const i=im(); if(i){i.style.transition='none'; i.style.transform=`translateX(${Math.round(dx*0.35)}px)`;}}});
   el.addEventListener('pointercancel',()=>{p=null; back();});
@@ -7424,7 +7441,7 @@ function vwMount(s){
   if(VW.sheetVis>0){vwLayout();}
   else{VW.sheetVis=0; vwLayout(); vwSheet(0);}
   vwHist();
-  shot.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>vwMode(b.dataset.vm));
+  shot.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>{VW.wantPhoto=0; vwMode(b.dataset.vm);});
   vwModeUi();
   shot.querySelectorAll('[data-cam]').forEach(b=>b.onclick=()=>vwCamGo(+b.dataset.cam));
   vwCamsUi();
@@ -7461,7 +7478,7 @@ function vwMount(s){
         t.dataset.mode=VW.mode; t.dataset.live=String(typeof LIVE!=='undefined'&&LIVE.state); t.dataset.busy=String(isBusy());   // состояние в момент показа — для проверок
         // В «ФОТО» СВАЙП — ДРУГОЙ РАКУРС (demo-26 Б; было «потяните фото», demo-22 п.3): подсказка называет оба жеста — свайп и шторку, если
         // ракурсов два; текст — по режиму в момент показа, сменили режим, пока она видна, — уходит («уже видел» не ставится)
-        const ph=VW.mode==='photo'&&vwRealShots().length>1;
+        const ph=VW.mode==='photo'&&vwPhotoShots().length>1;
         t.textContent=LANG==='en'?(ph?'Swipe — another view · pull the sheet — items and swaps':'Pull or tap — items and swaps')
           :(ph?'Свайп — другой ракурс · шторку — товары и замены':'Потяните или нажмите — товары и замены');
         // два жеста — две строки: разделитель « · » в тексте остаётся, на экране он — перенос (точка не висит в конце строки)
@@ -7481,7 +7498,7 @@ function vwMount(s){
   const mi=shot.querySelector('.shotwrap img.vmain');
   if(mi&&VW_PHONE())vwPhotoFocus(mi,s);
   if(mi)vwSwipeWire(mi.parentNode);
-  const zoom=()=>vwZoom(s.url, vwRealShots(), x=>{if(VW.mode==='photo')vwCamGo(vwCamIndex(x.camera));});
+  const zoom=()=>vwZoom(s.url, vwPhotoShots(), x=>{if(VW.mode==='photo')vwCamGo(vwCamIndex(x.camera));});
   window.__vwZoomOpen=zoom;   // проверкам — тот же вход, что тап по фото (кнопки «⤢» нет с 07.11, T-65)
   if(mi)vwTapZoom(mi.parentNode, zoom);
   vwPins();
@@ -7494,7 +7511,8 @@ function vwModeUi(){
   shot.classList.toggle('vwalk',m==='walk'); shot.classList.toggle('vplan',m==='plan'); shot.classList.toggle('vphoto',m==='photo');
   // «Фото» — только когда есть реалистичный снимок ЭТОЙ расстановки (demo-09); стрелки — по снимкам в «Фото», по позам в 3D
   // …или пока фото этой расстановки рисуется (demo-20 Б3): вкладка появляется сразу, на ней — ход работы (`vwPhWaitUi`)
-  const real=vwRealShots(), ph=shot.querySelector('[data-vm="photo"]'); if(ph)ph.hidden=!real.length&&!vwJobHere();
+  // …или есть хоть одно фото комнаты (T-20261107-66 Б): после правки — последнее фото затемнённым (`vwPhotoShots`, `vwStaleUi`)
+  const real=vwPhotoShots(), ph=shot.querySelector('[data-vm="photo"]'); if(ph)ph.hidden=!real.length&&!vwJobHere();
   shot.classList.toggle('vmany',m==='photo'?real.length>1:vwCamN()>1);
   // область сцены зависит от режима («3D» — на весь экран), шторка остаётся, где была (v4)
   if(VW_PHONE())requestAnimationFrame(()=>vwLayout());
@@ -7502,12 +7520,13 @@ function vwModeUi(){
   vwCtaUi();
   vwCamsUi();
   vwPhWaitUi();
+  vwStaleUi();
   if(m==='plan')vwPlanDraw();
   e2Head(document.getElementById('vscroll'));   // в «Фото» кнопки нет — линия переходит на блок выше
 }
 function vwMode(m){
   if(!['photo','walk','plan'].includes(m))return;
-  if(m==='photo'&&!vwRealShots().length&&!vwJobHere())return;
+  if(m==='photo'&&!vwPhotoShots().length&&!vwJobHere())return;
   if(VJ.job&&!VJ.self)VJ.job.moved=true;   // человек сам ушёл с вкладки — по готовности не переключаем, если он не на «Фото»
   VW.mode=m; vwModeUi();
   if(m==='plan'){liveHide(); return;}
@@ -7532,12 +7551,65 @@ function vwRealShots(){
   }
   return [...by.values()].sort((a,b)=>String(a.camera||'C1').localeCompare(String(b.camera||'C1')));
 }
+// ПОСЛЕ ПРАВКИ «ФОТО» НЕ ПРЯЧЕМ (T-20261107-66 Б, владелец): у новой расстановки фото нет — показываем последнее фото этой комнаты
+// затемнённым, «Вы изменили комнату» и две кнопки (`vwStaleUi`). Какое фото и куда ведёт «Вернуть как было» (`to` — шаг истории окна):
+// 1) шаг истории (не текущий) со своим фото нейросети, самый свежий снимок → вернуть = на этот шаг (`histGo`: предметы, декор, пол);
+// 2) иначе фото опубликованной расстановки витрины (`realPubPick`, как у карточки главной) → вернуть = шаг истории с опубликованным
+//    номером (первый шаг окна); такого шага нет (история длиннее HIST_MAX) — кнопки нет;
+// 3) иначе последнее фото нейросети этого варианта — кнопки нет: расстановка того снимка в окне не хранится
+function vwStalePick(){
+  const none={list:[], to:-1};
+  if(!D||!items||!shots.length)return none;
+  const h=histOf(), v=allVariants()[cur]||{}, vid=curVid();
+  const ok=x=>x.quality==='realistic'&&x.url&&!x.svc&&!x.orphan&&shotCamOk(x,cams);
+  const byCam=L=>{const by=new Map(); L.slice().sort((a,b)=>(+a.ts||0)-(+b.ts||0)).forEach(x=>by.set(x.camera||'C1',x)); return by;};
+  const out=(by,to)=>({list:[...by.values()].sort((a,b)=>String(a.camera||'C1').localeCompare(String(b.camera||'C1'))), to});
+  let best=null;
+  h.stack.forEach((s,k)=>{ if(k===h.at||!s.stateId)return;
+    const L=shots.filter(x=>ok(x)&&x.stateId===s.stateId); if(!L.length)return;
+    const ts=Math.max(...L.map(x=>+x.ts||0)); if(!best||ts>=best.ts)best={L,k,ts}; });
+  if(best)return out(byCam(best.L), best.k);
+  if(v.id&&!v.mine&&!v.cid){
+    const pub=pubStateOf(v), L=shots.filter(x=>!x.orphan&&!x.svc), by=new Map();
+    (cams||[]).forEach((_,k)=>{const x=realPubPick(L, pub, v.id, 'C'+(k+1), y=>shotCamOk(y,cams)); if(x&&x.url)by.set(x.camera||'C1',x);});
+    if(by.size)return out(by, h.stack.findIndex(s=>s.stateId===pub));
+  }
+  const L=shots.filter(x=>ok(x)&&x.vid===vid);
+  return L.length?out(byCam(L), -1):none;
+}
+// снимки для «Фото»: этой расстановки; их нет и фото не рисуется — последнее фото комнаты (затемнённое)
+function vwPhotoShots(){ const r=vwRealShots(); return r.length||vwJobHere()?r:vwStalePick().list; }
+// затемнение поверх фото прежней расстановки; во время съёмки — экран ожидания (`vwPhWaitUi`), затемнения нет
+function vwStaleUi(){
+  const wrap=document.querySelector('#shot .shotwrap'); if(!wrap)return;
+  let el=wrap.querySelector('.vstale');
+  const pk=VW.mode==='photo'&&!vwJobHere()&&!vwRealShots().length?vwStalePick():null;
+  if(!pk||!pk.list.length){if(el)el.remove(); return;}
+  const EN=LANG==='en', back=pk.to>=0;
+  if(!el||el.dataset.lang!==LANG||el.dataset.back!==String(back)){
+    if(el)el.remove();
+    el=document.createElement('div'); el.className='vstale'; el.dataset.lang=LANG; el.dataset.back=String(back);
+    el.innerHTML=`<div class="vstcard"><b>${EN?'You changed the room':'Вы изменили комнату'}</b>`+
+      `<button class="btn primary" type="button" data-st="show">${EN?'Show the changes':'Показать изменения'}</button>`+
+      (back?`<button class="btn" type="button" data-st="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div>`;
+    el.querySelector('[data-st="show"]').onclick=()=>vwRealistic();   // та же съёмка, что «Сделать реалистичнее» (ожидание, очередь, отказ)
+    const b=el.querySelector('[data-st="back"]'); if(b)b.onclick=()=>vwStaleBack();
+    wrap.appendChild(el);
+  }
+}
+// «Вернуть как было»: расстановка и отделка фото (шаг истории) → обычное фото без затемнения; окно остаётся в «Фото»
+function vwStaleBack(){
+  const pk=vwStalePick(); if(pk.to<0)return;
+  const h=histOf(); VW.restoring=1;
+  try{histGo(pk.to-h.at);}finally{VW.restoring=0;}
+  vwMode('photo');
+}
 const vwCamIndex=c=>Math.max(0,(+String(c||'C1').slice(1)||1)-1);
 // «Фото» — снимок выбранной точки (или первый); «3D» — живая сцена
 function vwPhotoShow(){
-  if(VW.mode==='photo'){const r=vwRealShots(); if(!r.length){if(vwJobHere()){liveHide(); vwPhWaitUi(); return;} vwMode('walk'); return;}
+  if(VW.mode==='photo'){const r=vwPhotoShots(); if(!r.length){if(vwJobHere()){liveHide(); vwPhWaitUi(); return;} vwMode('walk'); return;}
     const k=r.find(x=>(x.camera||'C1')===vwCam())||r[0]; VW.photo=vwCamIndex(k.camera);
-    const i=shots.indexOf(k); if(i!==shotAt){viewShot(i); return;} liveHide(); return;}
+    const i=shots.indexOf(k); if(i!==shotAt){viewShot(i); return;} liveHide(); vwStaleUi(); return;}
   liveShow();
 }
 // ОДИН РАКУРС НА ОКНО (demo-15, Codex п.2): `VW.photo` — номер точки съёмки для «Фото» и 3D; `VW.free` — камера ушла с точки
@@ -7545,7 +7617,7 @@ function vwPhotoShow(){
 // в «3D» — плавный переход (`goToPose`)
 function vwCamGo(k){
   const n=vwCamN(); if(!n)return; k=((k%n)+n)%n;
-  if(VW.mode==='photo'){const r=vwRealShots(), nx=r.find(x=>vwCamIndex(x.camera)===k); if(!nx)return;
+  if(VW.mode==='photo'){const r=vwPhotoShots(), nx=r.find(x=>vwCamIndex(x.camera)===k); if(!nx)return;
     VW.photo=k; VW.free=false; vwModeUi(); vwPhotoShow(); reportAct('view_switch'); return;}
   if(VW.mode!=='walk')return;
   VW.photo=k; VW.free=false; vwModeUi();
@@ -7555,7 +7627,7 @@ function vwCamGo(k){
 }
 // ← → и свайп по фото (demo-26 Б) — следующий/предыдущий ракурс тем же переходом
 function vwPhoto(k){
-  if(VW.mode==='photo'){const r=vwRealShots(); if(r.length<2)return;
+  if(VW.mode==='photo'){const r=vwPhotoShots(); if(r.length<2)return;
     const at=Math.max(0,r.findIndex(x=>(x.camera||'C1')===vwCam())), nx=r[((at+(k>VW.photo?1:-1))%r.length+r.length)%r.length];
     vwCamGo(vwCamIndex(nx.camera)); return;}
   vwCamGo(k);
@@ -7764,6 +7836,8 @@ document.addEventListener('remlab:hist',e=>{vwSumUpdate(); vwHist(); if(((e.deta
 // замена, пол/стены/кухня, ↶/↷. Прокрутка списка изменением не считается; колонку компьютера не трогаем
 function vwAfterChange(){
   const shot=document.getElementById('shot'); if(!shot.classList.contains('on')||!shot.classList.contains('v2'))return;
+  VW.wantPhoto=0;
+  if(VW.restoring)return;   // «Вернуть как было» (T-66 Б) — правка к фото: окно остаётся в «Фото», шторку не трогаем
   if(VW.mode==='photo')vwMode('walk'); else vwModeUi();
   if(VW_PHONE()&&VW.mode!=='plan'){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos>0)vwSheet(0);}
 }

@@ -174,9 +174,9 @@ const saveHeart=async(p)=>{await p.click('#vFav'); CARET=await caret(p); await p
     await p.context().close();
     if(PHONE){   // окно сразу в 3D (вариант без реалистичного фото): подсказка ждёт модели
       const t3=await page(b);
-      // как расстановка, которую уже меняли (реалистичного фото этого состояния нет): окно открывается сразу в 3D
-      await t3.evaluate(()=>{window.vwRealShots=vwRealShots=()=>[];}); const k=0;
-      if(k>=0){const m3=await t3.evaluate(i=>{window.vwRealShots=vwRealShots=()=>[]; pickVariant(i); VW.collapse=true; vwOpenVariant(i); return VW.mode;},k);
+      // как комната без единого фото (с T-20261107-66 правленая расстановка с прежним фото открывается в «Фото» затемнённым): окно — сразу в 3D
+      await t3.evaluate(()=>{window.vwRealShots=vwRealShots=()=>[]; window.vwPhotoShots=vwPhotoShots=()=>[];}); const k=0;
+      if(k>=0){const m3=await t3.evaluate(i=>{window.vwRealShots=vwRealShots=()=>[]; window.vwPhotoShots=vwPhotoShots=()=>[]; pickVariant(i); VW.collapse=true; vwOpenVariant(i); return VW.mode;},k);
         console.log('режим окна при открытии:',m3);
         const tp=await t3.waitForFunction(()=>{const t=document.querySelector('#shot .vtip'); if(!t)return null; const cr=document.getElementById('vCams').getBoundingClientRect();
           return {mode:t.dataset.mode, live:t.dataset.live, busy:t.dataset.busy, ready:LIVE.state==='ready', loading:document.getElementById('vload').classList.contains('on'), tipBottom:Math.round(t.getBoundingClientRect().bottom), camsTop:Math.round(cr.top)};},null,{timeout:60000,polling:100}).then(h=>h.jsonValue(),()=>null);
