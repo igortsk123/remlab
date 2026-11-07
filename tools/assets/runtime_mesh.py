@@ -265,6 +265,14 @@ def gltfpack_version() -> str:
         return "нет"
 
 
+# ВЕРСИЯ СТОРОЖА КОПИЙ — часть рецепта (T-20261107-15/2). Ночью 07.11 белые копии ушли на /rt/ под тем же `?v=`, что и целые
+# после перепаковки: маршрут immutable на неделю, и браузер, открывший демо в 03:28–10:20, держал бы белое до недели. Смена
+# метки меняет отпечатки ВСЕХ копий → ближайшая ночь пересобирает их штатно, новая таблица уезжает с публикацией демо
+# (`/demo/rt-meshes.json`, no-store) и браузер берёт файл заново. Поднимать при смене упаковки/сторожа, которая лечит уже
+# выложенные копии.
+GUARD_VERSION = "guard=tex-1"
+
+
 def src_sha(data: bytes, recipe: str = "") -> str:
     """Отпечаток копии = исходник + рецепт сборки (размер, качество, упрощение, KTX2, версия gltfpack): смена
     параметров тоже должна пересобрать копию, а не только смена исходника (разбор Codex 14.10)."""
@@ -401,7 +409,7 @@ def main() -> int:
             manifest = {}
 
     sha_key = f"src_sha{a.suffix or ''}"
-    recipe = f"size={a.size};q={a.quality};simplify={a.simplify};ktx2={not a.no_ktx2};{gltfpack_version()}"
+    recipe = f"size={a.size};q={a.quality};simplify={a.simplify};ktx2={not a.no_ktx2};{gltfpack_version()};{GUARD_VERSION}"
     if a.check:
         bad_var, bad_feed = [], []
         for mid in ids:
