@@ -2544,6 +2544,9 @@ const CAM_ZONES={
   // мебели (`cutNear`: ближе 1,5 м к глазу живого «3D», срезана краем холста телефона или компьютера (`live` — окна показа: пропорция,
   // видимая полоса, низ над шторкой) и заняла ≥ 2 % его — кусок банкетки или консоли крупным планом в углу); «больше мебели» решает при нарушениях
   // кадра в пределах `moreTol` 1.7 (минимализм: вид к входу с консолью шире объективом вместо двух предметов)
+  // `livePitchMin` −25 (T-20261107-05/8, ведущий: вариант Б): нижний предел наклона живого «3D» в прихожей вместо −40 — в коридоре 153 см
+  // глаз «3D» посередине, и при −40° низкая мебель у входа в метре от глаза попадала в угол кадра из любой точки; поза несёт его в
+  // просмотрщик (`camPoseOf` → `viewer.ts:PhotoPose.pitchMin`), мера обрезки `cutNear` считает с ним же (`camLivePitch`)
   hall:{ready:false,
     core:{'шкаф-купе':3,'шкаф':3,'прихожая':3,'вешалка':1.5,'обувница':1,'банкетка':1,'консоль':1,'зеркало':0.5},
     key:['шкаф-купе','шкаф','прихожая'], show:['вешалка','зеркало','консоль','обувница'],
@@ -2551,7 +2554,7 @@ const CAM_ZONES={
     views:[{need:[{roles:['зеркало'], min:0.9}, {roles:['шкаф-купе','шкаф','прихожая','обувница','вешалка','консоль'], min:0.6}], more:true},
       {need:[{roles:['шкаф-купе','шкаф','прихожая'], min:0.9}, {roles:['консоль','банкетка','обувница','вешалка'], min:0.6}], more:true,
         cutNear:{cm:150, frame:0.02, hi:0.9, live:[{asp:0.562, top:0.096, bot:0.685, vis:0.77}, {asp:1.1, top:0.077, bot:0.93, vis:1}]}}],
-    apart:60, apartNear:{deg:30, cm:100}, cover:0.6, near:0.6, mainBlock:true, moreTol:1.7,
+    apart:60, apartNear:{deg:30, cm:100}, cover:0.6, near:0.6, mainBlock:true, moreTol:1.7, livePitchMin:-25,
     grid:[0,20,40,60,80,100,120,140,160,180], slide:{cm:24, step:6}}};
 const CAM_VIEW_DOOR=170, CAM_VIEW_HEAD=160;
 function camZ(){ const R=camRoom(); return CAM_ZONES[(R&&R.kind)||'living']||CAM_ZONES.living; }
@@ -2644,7 +2647,7 @@ function camLivePitch(e,its,tanH,tanV,fr){   // `live-eye.ts:livePitchDeg` по 
   if(!Number.isFinite(hi))return -12*Math.PI/180;
   const top=Math.min(Math.max(fr.top,0),1), bot=Math.min(Math.max(fr.bot,top+0.05),1);
   const at=Math.atan(tanV*(1-2*top)), ab=Math.atan(tanV*(1-2*bot)), th=((hi-at)+(lo-ab))/2;
-  return Math.max(CAM_LIVE_PMIN*Math.PI/180,Math.min(0,th));
+  const pm=camZ().livePitchMin; return Math.max((pm??CAM_LIVE_PMIN)*Math.PI/180,Math.min(0,th));
 }
 // живая камера вида `c` в окне `fr`: глаз, базис и тангенсы углов
 function camLiveCam(c,its,fr,W,H){
@@ -3234,6 +3237,7 @@ function camPoseOf(c){
   const p={x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER};
   const R=D&&curRoom();
   if(CAM_PAIR_ON&&R){try{p.pshift=camPortraitShift(c,items,R.w,R.d);}catch(e){}}
+  const pm=camZ().livePitchMin; if(pm!=null)p.pitchMin=pm;   // нижний предел наклона «3D» зоны (прихожая −25°, T-20261107-05/8)
   return p;
 }
 function loadCams(){
