@@ -2851,7 +2851,11 @@ function camPairAll0(L,W,H,cs,opt){
     if(N0){
       PRE.Q=U.map(u=>new Float32Array(N0*u)); PRE.bits=L.map(()=>new Int32Array(N0));
       PRE.CV=ZV?L.map(()=>new Array(N0)):null;   // покрытие точки — `need` и `more` видов зоны
-      PRE.all.forEach((c,n)=>L.forEach((its,v)=>{const cv=PRE.CV?camCoverP(c,its,W,H):camCover(c,its,W,H); let b=0; if(PRE.CV)PRE.CV[v][n]=cv;
+      // ПОКРЫТИЕ ТОЧКИ — ОДИН РАЗ НА СБОРКУ (T-20261107-47/2): оно зависит только от точки (x, y, rot, fov) и мебели; `opt.cvc`
+      // (Map: массив мебели → точка → покрытие) даёт `demo-cams.mjs`, и подбор по стилю берёт готовое из общего подбора тех же стилей
+      const CVC=opt&&opt.cvc, cov=(c,its)=>{const f=()=>PRE.CV?camCoverP(c,its,W,H):camCover(c,its,W,H); if(!CVC)return f();
+        let m=CVC.get(its); if(!m)CVC.set(its,m=new Map()); const k=[c.x,c.y,c.rot,c.fov,!!PRE.CV].join(','); let r=m.get(k); if(!r)m.set(k,r=f()); return r;};
+      PRE.all.forEach((c,n)=>L.forEach((its,v)=>{const cv=cov(c,its); let b=0; if(PRE.CV)PRE.CV[v][n]=cv;
         UN[v].forEach((u,k)=>{const q=camUnitQ(cv,u); PRE.Q[v][n*U[v]+k]=q; if(q>=1-1e-9&&k<31)b|=(1<<k);}); PRE.bits[v][n]=b;}));
       PRE.level=Math.max(0,...PRE.all.map(c=>c.lv));}}
   if(!PRE.all.length){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; r.corner=true; return r;}
