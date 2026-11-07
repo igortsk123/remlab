@@ -75,7 +75,7 @@ describe("комнаты квартиры", () => {
   // ФЛАГИ КОМНАТ И ОПРОСА (ADR-0330 п.5, onb-12): по умолчанию выключены; гостиная показывается как раньше.
   // Спальни включены флагом реестра (T-20261106-77, ведущий): у остальных комнат флага нет — работают умолчания схемы.
   // Опрос включён явно только у русской демо-квартиры (onb-03, T-20261106-83: показ на главной /demo); британский двойник — без флага.
-  it("флаги: нет в данных — выключены; в файлах включены только спальни и опрос русской демо; гостиная готова как раньше", () => {
+  it("флаги: нет в данных — выключены; в файлах включены только спальни и опрос демо (и его британского двойника); гостиная готова как раньше", () => {
     const raw = JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
     expect(raw.apartments[0].quiz).toEqual({ enabled: true });            // включён явно (T-83), остальное — умолчания схемы
     expect(raw.apartments[0].rooms.filter((r: Record<string, unknown>) => "enabled" in r).map((r: { id: string }) => r.id))
@@ -86,9 +86,9 @@ describe("комнаты квартиры", () => {
     expect(findApartment("demo-uk-215")!.apartment.rooms.filter((r) => r.enabled).map((r) => r.id)).toEqual(["bedroom-1", "bedroom-2"]);
     const ru = apartmentCard(findApartment("flat215")!, "ru");
     expect(ru.quiz).toEqual({ enabled: true });
-    // нет поля — выключено: британский двойник и та же квартира без ключа `quiz`
-    expect(JSON.parse(readFileSync("data/partners/demo-uk.json", "utf8")).apartments[0].quiz).toBeUndefined();
-    expect(apartmentCard(findApartment("demo-uk-215")!, "en").quiz).toEqual({ enabled: false });
+    // британский двойник — как оригинал, включён явно (T-94/2; сверка всех enTwin — «британский профиль»); нет поля — выключено
+    expect(JSON.parse(readFileSync("data/partners/demo-uk.json", "utf8")).apartments[1].quiz).toEqual({ enabled: true });
+    expect(apartmentCard(findApartment("demo-uk-215")!, "en").quiz).toEqual({ enabled: true });
     delete raw.apartments[0].quiz;
     expect(apartmentCard(findApartment("flat215", partners([raw]))!, "ru").quiz).toEqual({ enabled: false });
     expect(ru.rooms.filter((r) => r.contentState === "ready").map((r) => r.id)).toEqual(["living"]);
@@ -289,6 +289,20 @@ describe("британский профиль английского демо", 
     expect(fl.variants.every((v) => !v.price.text.includes("₽"))).toBe(true);
     expect(card.options.find((o) => o.kind === "kitchen")!.settlement).toBe("allowance");
     expect(card.sources.demoData).toBe(hit.apartment.sources.demoData);   // та же витрина
+  });
+  // T-94/2: английское анонимное демо берёт карточку двойника — флаг опроса у него обязан совпадать с оригиналом,
+  // иначе на чистом /demo/?lang=en окна нет (так и было до правки: у demo-uk-215 ключа не было)
+  it("у каждого enTwin опрос включён так же, как у оригинала", () => {
+    const pairs = partners().flatMap((p) => p.apartments.filter((a) => a.enTwin).map((a) => [a, findApartment(a.enTwin!)?.apartment] as const));
+    expect(pairs.length).toBeGreaterThan(0);
+    for (const [a, twin] of pairs) {
+      expect(twin, `двойник ${a.enTwin} есть в реестре`).toBeTruthy();
+      expect(twin!.quiz.enabled, `опрос ${a.id} → ${a.enTwin}`).toBe(a.quiz.enabled);
+    }
+  });
+  it("flat215 + en: карточка двойника с включённым опросом", async () => {
+    const { demoProfile } = await import("@/lib/partners/registry");
+    expect(apartmentCard(demoProfile(findApartment("flat215")!, "en"), "en").quiz).toEqual({ enabled: true });
   });
 });
 

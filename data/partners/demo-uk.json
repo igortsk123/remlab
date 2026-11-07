@@ -123,6 +123,9 @@
       "sources": {
         "demoData": "/demo/demo-data.json"
       },
+      "quiz": {
+        "enabled": true
+      },
       "rooms": [
         {
           "id": "living",
