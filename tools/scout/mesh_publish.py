@@ -73,28 +73,39 @@ def want_skus(files: list[str]) -> set[str]:
             for _r, it in (s.get('items') or {}).items() if it and it.get('mid')}
 
 
-def ready_skus(files: list[str] | None = None) -> set[str]:
+def scene_keys(ready: list, rows: dict | None) -> set[str]:
+    """Чистое ядро `ready_skus`: [(sku, представитель|'')] → ключи моделей СЦЕНЫ (`mid:eid`). С привязкой (rows) — то же правило,
+    что у демо (`room_bindings.scene_msid`: своя модель привязки, если у неё есть файл, иначе представитель); rows None —
+    прежнее правило (представитель)."""
+    import room_bindings as RB
+    if rows is None:
+        return {rep or sku for sku, rep in ready}
+    rep = {sku.replace(':', '_', 1): (r or sku).replace(':', '_', 1) for sku, r in ready}
+    return {RB.scene_msid(rows.get(sku), sku.replace(':', '_', 1), rep).replace('_', ':', 1) for sku, _r in ready}
+
+
+def ready_skus(files: list[str] | None = None, rows: dict | None = None) -> set[str]:
     """Ключи КАТАЛОГА МЕШЕЙ для товаров комплектов, у которых меш готов.
 
-    Ключ — не артикул товара, а артикул ПРЕДСТАВИТЕЛЯ СЕМЕЙСТВА (ADR-0196): цветовые варианты
-    своего меша не имеют и берут модель «родителя», и витрина ищет GLB именно по нему
-    (`flat215_demo._msid`). Без этого перевода шаг честно считал «не хватает 61 модели», хотя
-    все они лежат под ключом родителя — ровно та ложная тревога, из-за которой проверки
-    перестают читать (урок 470).
+    Ключ — не артикул товара, а МОДЕЛЬ СЦЕНЫ (T-20261106-77/6): та же, что грузит демо (`flat215_demo._msid` →
+    `room_bindings.scene_msid`). У цветового варианта своей модели нет — ключ представителя семьи (ADR-0196; без перевода шаг
+    считал «не хватает 61 модели» — урок 470); есть своя модель привязки с файлом — она. До T-77/6 ключом всегда был
+    представитель, и свою модель варианта из комплектов выкладка не везла, а файл представителя брала галерея «по свежести».
+    rows — строки привязки (`room_publish.load_rows`); None — прежнее правило.
     """
     want = want_skus(files or [SETS])
     out = subprocess.run(
         PSQL + ["select shop_mid||':'||external_id||'~'||coalesce(mesh_family_rep,'') "
                 "from products where mesh_uri is not null and mesh_status='ready'"],
         capture_output=True, text=True)
-    keys = set()
+    ready = []
     for line in out.stdout.split('\n'):
         if '~' not in line:
             continue
         sku, rep = line.strip().split('~', 1)
         if sku in want:
-            keys.add(rep or sku)
-    return keys
+            ready.append((sku, rep))
+    return scene_keys(ready, rows)
 
 
 def prod_free_gb() -> float:
@@ -154,7 +165,14 @@ def main() -> int:
     files = bank_files()
     if len(files) > 1:
         print(f'[публикация] банк-кандидат {files[1]} — публикую товары живого банка и кандидата', flush=True)
-    skus = ready_skus(files)
+    import room_publish as RP
+    try:                                      # привязка — одна на отбор гостиной и на комнаты (T-20261106-77/6)
+        rows, why = RP.load_rows()
+    except Exception as e:  # noqa: BLE001
+        rows, why = None, repr(e)[:160]
+    if rows is None:
+        print(f'WARN:mesh_publish: привязка не читается ({why}) — отбор гостиной по представителю (прежнее правило)', flush=True)
+    skus = ready_skus(files, rows)
     # ПОД НЕДОБОР ЛЕНТЫ ЗАМЕН (план demo-20 В1, владелец 22.10 TG 793): готовые меши годных в полосе размера, которых нет на
     # сервере, — в той же выкладке. До этого шаг брал только товары комплектов, и модели «под ленту» до ленты не доходили
     demo = set()
@@ -170,9 +188,8 @@ def main() -> int:
     missing = {s for s in skus if s.replace(':', '_') not in have}
     print(f'[публикация] с готовым мешем (комплекты + недобор ленты): {len(skus)}; '
           f'в локальной галерее уже {len(skus) - len(missing)}; добавить {len(missing)}', flush=True)
-    import room_publish as RP
     rooms_only = '--rooms-only' in sys.argv
-    rplans, rerr = RP.plans()                 # без ROOM_PUBLISH — ([], []): ни базы, ни файлов
+    rplans, rerr = RP.plans(rows=rows)        # без ROOM_PUBLISH — ([], []): ни базы, ни файлов
     for e in rerr:
         print(f'WARN:mesh_publish: комнаты не публикую: {e}', flush=True)
     for P in rplans:
@@ -180,6 +197,11 @@ def main() -> int:
     if rooms_only and not rplans:
         print('WARN:mesh_publish: --rooms-only без годной настройки комнат — нечего делать', flush=True)
         return 0
+    sel = {s.replace(':', '_', 1) for s in skus}
+    bound = living_bound(rplans, sel)
+    if bound:
+        print(f'[публикация] гостиная: файл по привязке у {len(bound)} моделей отбора, по галерее (свежесть) — у '
+              f'{len(sel - bound)}', flush=True)
 
     free = prod_free_gb()
     if free < 0:
@@ -197,13 +219,19 @@ def main() -> int:
         lst = os.path.join(HERE, '.mesh-publish-only.txt')
         with open(lst, 'w', encoding='utf-8') as f:
             f.write('\n'.join(sorted(skus)))
-        code, out = sh(f'GALLERY_ONLY={lst} GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 '
+        env = f'GALLERY_ONLY={lst} '
+        if bound:                             # галерея кладёт тот же файл привязки — иначе ночной пинг-понг байтов с `stage`
+            blst = os.path.join(HERE, '.mesh-publish-bound.txt')
+            with open(blst, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(sorted(bound)))
+            env += f'GALLERY_FROM_BINDING=1 GALLERY_BIND_ONLY={blst} '
+        code, out = sh(f'{env}GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 '
                        f'{PY} {SALAD}/gallery_build.py', 3600)
         print(f'[публикация] галерея: код {code}; {out.splitlines()[-1][:160] if out else ""}', flush=True)
         if code:
             print('WARN:mesh_publish: галерея не собралась — на прод ничего не везу', flush=True)
             return 0
-    room_ids = rooms_stage(rplans, {s.replace(':', '_') for s in skus}) if rplans else []
+    room_ids = rooms_stage(rplans, sel - bound) if rplans else []
     if rooms_only and not room_ids:
         print('[публикация] комнаты: выкладывать нечего', flush=True)
         return 0
@@ -254,6 +282,16 @@ def main() -> int:
         print(f'WARN:mesh_publish: в индексе {n}, а показать можем {len(skus)} — слияние не доехало',
               flush=True)
     return 0
+
+
+def living_bound(rplans: list, sel: set) -> set:
+    """Модели отбора гостиной («mid_eid»), чей файл — ПО ПРИВЯЗКЕ (T-20261106-77/6): есть в плане гостиной (`ROOM_PUBLISH=living`,
+    годная ready-привязка, не в `publish_hold`). Их файл кладёт `room_publish.stage` со сверкой sha, галерея берёт тот же файл
+    (`GALLERY_BIND_ONLY`), а не «самый свежий»: до T-77/6 у отобранных гостиной стоял файл галереи, и файл привязки на прод
+    не доезжал (`living_other`: 13770…, 1600…; 5177 с отбором по модели сцены из отбора вышел — его товары на своих моделях).
+    Остальной отбор — галерея по свежести, как прежде.
+    Без плана гостиной — пусто (всё как прежде)."""
+    return {m.replace(':', '_', 1) for P in rplans if P['room'] == 'living' for m in P['meshes']} & sel
 
 
 def rooms_stage(rplans: list, living: set) -> list:
@@ -362,6 +400,16 @@ def _selftest() -> int:
         os.makedirs(os.path.join(tmp, '5_r'))
         open(os.path.join(tmp, '5_r', 'model.glb'), 'wb').write(b'x' * 70)
         ok('комнаты: байты к выкладке — только свои папки', bytes_of(['5_r', 'нет'], tmp) == 70)
+    # T-20261106-77/6: отбор гостиной — по модели сцены; модели с привязкой гостиной — файлом привязки
+    ready = [('1:own', '1:rep'), ('1:var', '1:rep'), ('1:blk', '1:rep'), ('1:solo', '')]
+    rows = {'1:own': {'mesh_id': '1:own', 'local_3d': True}, '1:var': {'mesh_id': '1:rep', 'local_3d': True},
+            '1:blk': {'mesh_id': '1:blk', 'local_3d': False}}
+    ok('отбор без привязки — прежнее правило (представитель)', scene_keys(ready, None) == {'1:rep', '1:solo'})
+    ok('отбор по модели сцены: своя с файлом — своя; вариант и без файла — представитель; без строки — свой артикул',
+       scene_keys(ready, rows) == {'1:own', '1:rep', '1:solo'})
+    rp = [{'room': 'living', 'meshes': {'1:own': {}, '1:rep': {}, '9:x': {}}}, {'room': 'bedroom', 'meshes': {'1:solo': {}}}]
+    ok('по привязке — только модели плана гостиной, попавшие в отбор', living_bound(rp, {'1_own', '1_rep', '1_solo'}) == {'1_own', '1_rep'})
+    ok('без плана гостиной — по привязке ничего (как прежде)', living_bound([], {'1_own'}) == set())
     print(f'mesh_publish selftest: ошибок {bad}')
     return 1 if bad else 0
 

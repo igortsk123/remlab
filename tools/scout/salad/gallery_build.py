@@ -312,7 +312,15 @@ def build() -> str:
                         'role_mesh': AS.strategy(man.get('role')) == 'hunyuan3d',
                         'has_glb': os.path.exists(os.path.join(d, 'model.glb'))})
     from_binding = os.environ.get('GALLERY_FROM_BINDING') == '1'
-    bound, bad = binding_dirs(only) if from_binding else ({}, {})
+    # ПРИВЯЗКА ТОЛЬКО ДЛЯ СПИСКА (T-20261106-77/6): `mesh_publish` даёт модели гостиной, чей файл везёт привязка
+    # (`living_bound`), — остальной отбор по свежести, как прежде. Нет файла списка — привязка для всего отбора.
+    bind_only = None
+    bo_p = os.environ.get('GALLERY_BIND_ONLY')
+    if from_binding and bo_p and os.path.exists(bo_p):
+        bind_only = {l.strip().replace('_', ':', 1) for l in open(bo_p, encoding='utf-8') if l.strip()}
+        bind_only = bind_only & only if only is not None else bind_only
+        print(f'[галерея] файл по привязке — только для списка: {len(bind_only)} SKU', flush=True)
+    bound, bad = binding_dirs(bind_only if bind_only is not None else only) if from_binding else ({}, {})
     chosen, how = select(entries, only, bound, from_binding)
     if from_binding:
         n_b = sum(1 for v in how.values() if v == 'binding')
