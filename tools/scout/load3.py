@@ -44,11 +44,11 @@ ROLES_PATH = os.environ.get('SCOUT_ROLES_PATH') or os.path.join(HERE, 'category-
 FRESH_PATH = os.path.join(HERE, 'feed-freshness.json')
 PSQL = shlex.split(os.environ.get('SCOUT_PSQL_CMD') or '') or [
     "docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", "remlab", "-q", "-v", "ON_ERROR_STOP=1"]
-HASH_VERSION = 10         # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси по магазину/роли; 4 — tvoydom оси перевёрнуты по замеру + тройка в названии (03.09); 5 — пороги правдоподобия по роли: плоский свет, ваза-шар, роль света по «Тип» (catalog-holes-bank, 23.10); 6 — трансформеры Орматек: собранные Ш×Г×В по спальному месту (Н3, 23.10); 7 — поля вылета люстры drop_min/max/adj в evidence (Н2в этап 2, 23.10); 8 — глубина диванов/кресел divan.ru из «Размеры: Глубина габаритная» (conv-14, 04.11); 9 — глубина диванов mnogomebeli/divanboss с чертежа из кэша `drawing_dims` (conv-15, 04.11); 10 — картины/зеркала divan.ru «Размеры» Ш×В, толщина плоских от 0,5 см, лицо+толщина зеркал tvoydom, «Длина» gipfel → d, одна горизонталь у круглого декора tvoydom (T-20261107-22, 07.11)
+HASH_VERSION = 10         # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси по магазину/роли; 4 — tvoydom оси перевёрнуты по замеру + тройка в названии (03.09); 5 — пороги правдоподобия по роли: плоский свет, ваза-шар, роль света по «Тип» (catalog-holes-bank, 23.10); 6 — трансформеры Орматек: собранные Ш×Г×В по спальному месту (Н3, 23.10); 7 — поля вылета люстры drop_min/max/adj в evidence (Н2в этап 2, 23.10); 8 — глубина диванов/кресел divan.ru из «Размеры: Глубина габаритная» (conv-14, 04.11); 9 — глубина диванов mnogomebeli/divanboss с чертежа из кэша `drawing_dims` (conv-15, 04.11); 10 — картины/зеркала divan.ru «Размеры» Ш×В, толщина плоских от 0,5 см, лицо+толщина зеркал tvoydom, «Длина» gipfel → d, одна горизонталь у круглого декора tvoydom, «Длина» ковра tvoydom → d (T-20261107-22, 07.11)
 # Отпечаток правил разбора размеров (`dim_resolver.rules_fingerprint`), при котором действует HASH_VERSION.
 # Правила изменились → селфтест `dim_resolver` красный, пока не поднят HASH_VERSION и не записан новый
 # отпечаток (13.10: правила осей 11.10 без подъёма версии дали +3 761 ложных stale, сняты по снимку 05.10).
-RULES_FINGERPRINT = '5c5f0f91b296'
+RULES_FINGERPRINT = '0adda926c10c'
 SHRINK_RATIO = 0.7
 DESC_MAX = 1500
 
@@ -256,6 +256,8 @@ def assign(o: dict, catrole: dict, known: set) -> dict:
     # СИДЕНЬЕ ПО НАЗВАНИЮ (T-20261105-53): пуф/банкетка/оттоманка из ветки диванов/кресел → пуф; кровать и секция модульного
     # дивана — без роли (строка грузится, в архив не уходит). До разбора размеров: потолки габаритов берутся по роли
     role, o['seat_note'] = category_map.seat_role(role, o['name'])
+    # КОВЁР ПО НАЗВАНИЮ (T-20261107-22/5): подложка/крепёж из ветки ковров — без роли (строка грузится, в архив не уходит)
+    role, o['rug_note'] = category_map.rug_role(role, o['name'])
     o['role'] = role
     o['known'] = key in known
     o['accepted'] = accepted
@@ -433,6 +435,9 @@ def main() -> int:
             seat[k] = seat.get(k, 0) + 1
     if seat:       # не WARN — правило осознанное, срабатывает каждую ночь (как свет и детские линии)
         print('сиденье по названию (T-53): ' + ', '.join(f'{k} — {v}' for k, v in sorted(seat.items())), flush=True)
+    rug_acc = sum(1 for o in accepted if o.get('rug_note'))
+    if rug_acc:
+        print(f'ковёр по названию (T-22/5): без роли — {rug_acc}', flush=True)
     mismatch = sum(1 for o in offers if o['mid_mismatch'])
     if mismatch:
         print(f'WARN:mid_mismatch: у {mismatch} офферов merchant_id не совпадает с mid в ссылке (взят атрибут)', flush=True)
@@ -739,6 +744,12 @@ def selftest() -> int:
                      ('Диван-кровать Glasar', 'диван')):
         o = assign({'mid': 99272, 'cid': '6982', 'name': nm, 'params': {}, 'price': 1}, {(99272, '6982'): 'диван'}, set())
         check(f'сиденье «{nm[:24]}» → {want}', o['role'] == want and o['accepted'], f"{o['role']} {o.get('seat_note')}")
+    # ковёр по названию (T-20261107-22/5): подложка Velcoc из ветки ковров — без роли и принята, ковёр — ковёр
+    for nm, want in (('Подложка противоскользящая под ковер Velcoc 180х120 см', None),
+                     ('Ковер Kimberley 160x230 бежевый', 'ковёр')):
+        o = assign({'mid': 99272, 'cid': '7001', 'name': nm, 'params': {'Ширина': '120', 'Длина': '180'}, 'price': 1},
+                   {(99272, '7001'): 'ковёр'}, set())
+        check(f'ковёр «{nm[:24]}» → {want}', o['role'] == want and o['accepted'], f"{o['role']} {o.get('rug_note')}")
     # мягкое детских линий (demo-24): подушка Вигге без роли по соседу-пуфу, обычная подушка — с ролью, строка принята
     offs = [assign({'mid': 112923, 'cid': '445', 'name': 'Пуф divan.ru Вигге Мех Зеленый', 'price': 1,
                     'params': {'Серия': 'Вигге', 'Назначение': 'Для детской'}}, {(112923, '445'): 'пуф'}, set()),
