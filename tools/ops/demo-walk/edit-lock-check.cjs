@@ -2,7 +2,8 @@ const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ЗАМОК ПРАВОК НА ВРЕМЯ «УЛУЧШАЮ…» И «ФОТО ГОТОВО» (demo-20 Г5, T-20261022-07/2): пока рисуется фото этой расстановки, замена, ↶,
 // отделка и «Изменить план» не применяются — подсказка; по готовности (ушёл в 3D) — сообщение «Фото готово · Смотреть» → вкладка «Фото»;
-// карточка главной у правленого варианта — кадр 3D его расстановки (`liveShot`), а не фото опубликованной. Платный путь подменён:
+// карточка главной у правленого варианта — фото нейросети, не кадр 3D (`liveShot` снимается, но на карточку не идёт: T-20261107-35
+// часть 0, владелец TG 341). Платный путь подменён:
 // задание «идёт», пока проба не скажет «готово», и отдаёт уже опубликованный кадр. Заодно: ссылок на /flat нет (demo-20 Г6).
 //   BASE=https://remont-lab.online/demo/ OUT=<папка/> node tools/ops/demo-walk/edit-lock-check.cjs 375x667
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=process.env.OUT||require('os').tmpdir()+'/';
@@ -103,7 +104,9 @@ const geoOk=g=>g.shown&&!g.overCams&&!g.overPanel&&(g.gap==null||g.gap>=8)&&(PHO
   ok('5 снят кадр 3D правленой расстановки',await p.evaluate(()=>!!liveShot(allVariants()[cur])));
   await p.evaluate(()=>{const c=document.getElementById('shotx'); if(c)c.click();}); await p.waitForTimeout(1200);
   const card=await p.evaluate(()=>{const i=document.querySelector('#hmRooms .hm-room img'); return i?i.getAttribute('src'):'';});
-  ok('5 карточка главной — кадр 3D (blob:)',/^blob:/.test(card),card.slice(0,60));
+  // с T-20261107-35 часть 0 (владелец TG 341: «без визуалки ничего в 3D»): кадр 3D на карточку не идёт — фото нейросети
+  // (`realisticPublishedShot`: этой расстановки, иначе прежней того же варианта и точки)
+  ok('5 карточка главной — фото нейросети, не кадр 3D (blob:)',!!card&&!/^blob:/.test(card),card.slice(0,60));
   const fl5=await p.evaluate(()=>[...document.querySelectorAll('a[href*="/flat"]')].map(a=>a.id||a.className||a.textContent.trim()).slice(0,5));
   ok('5 главная — ссылок на /flat нет',!fl5.length,fl5);
   await p.evaluate(()=>{const c=document.querySelector('#hmRooms .hm-room'); if(c)c.scrollIntoView({block:'center'});}); await p.waitForTimeout(600);
