@@ -211,6 +211,7 @@ jobs:
       - run: python tools/scout/room_mesh_demand.py --selftest   # спрос на меши комнат по слотам: ячейки стиль×роль×слот, покрытие по семействам, сначала банк, потолок денег (T-20261105-49)
       - run: python tools/scout/gallery_binding_shadow.py --selftest   # тень «галерея по привязке»: повтор правила mtime, классы расхождений (T-20261105-50)
       - run: python tools/scout/salad/gallery_build.py --selftest   # галерея: выбор файла «привязка, иначе mtime» за флагом GALLERY_FROM_BINDING (выкл/вкл/нет файла привязки), glb_sha (T-20261105-50/2)
+      - run: python tools/scout/tests/test_parity_prune.py   # уборка стенда паритета: последние keep_runs прогонов + прогоны свежих эталонов; data-*, эталоны и жёсткие ссылки целы (T-20261107-48/2)
       - run: python tools/scout/tests/test_parity_living.py   # стенд паритета гостиной: шум, подмешанное различие, устаревший эталон, сторож записи и сети (T-20261105-41)
       - run: bash tools/ops/heavy-slot-selftest.sh   # общая очередь тяжёлых прогонов DEV: по одному, смерть держателя освобождает, порог памяти, rc, таймаут, вложенный (T-20261105-57)
       - run: python tools/scout/atomic_io.py --selftest && python tools/scout/tests/test_publish_demo.py   # выходные json сборки демо — подменой; публикация: копия прежней версии, хранится 3, откат переносом без подмены каталога, проба на /test/ (T-20261105-59)
