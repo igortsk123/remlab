@@ -19,8 +19,10 @@
 import copy
 import gzip
 import hashlib
+import io
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -145,6 +147,90 @@ def run_room(room_type: str, fx: dict, tape: Tape, rooms_enabled: list, out_dir:
             'incomplete': incomplete, 'geos': geos, 'bands': bands}
 
 
+LOCAL_IMG = re.compile(r'^img/[0-9a-f]{16}\.jpg$')
+
+
+def variant_photos(variants: list) -> list:
+    """(вариант, роль, адрес фото) — предметы и декор каждого варианта: то, что покупатель видит строкой списка и значком плана."""
+    return [(v.get('id'), it.get('role'), (it.get('sku') or {}).get('img')) for v in variants
+            for it in (v.get('items') or []) + (v.get('decor') or [])]
+
+
+def _jpeg() -> bytes:
+    from PIL import Image
+    b = io.BytesIO()
+    Image.new('RGB', (640, 480), (200, 190, 170)).save(b, 'JPEG')
+    return b.getvalue()
+
+
+def photos(variants: list, dead: set, catalogs: dict, feeds: dict) -> None:
+    """Фото товаров вариантов спальни и прихожей. Сеть в CI не ходим: «адрес отвечает» — запись живости фото (`img_alive`) в
+    фикстуре, «лежит в медиа» — настоящий шаг фото сборки (`cache_images`) с подменённой загрузкой: после него у предмета адрес
+    `img/<id>.jpg`, и плитка с крупной копией лежат в папке сборки. Магазин не отдал фото — у предмета пусто («нет фото» на
+    странице), а не мёртвая ссылка магазина (рваная иконка у покупателя)."""
+    import urllib.request
+    rows = variant_photos(variants)
+    check(f'фото: у каждого предмета вариантов спальни и прихожей адрес фото есть ({len(rows)} строк)', rows and all(u for *_, u in rows))
+    check('фото: ни один адрес не из мёртвых по записи живости', not [r for r in rows if r[2] in dead])
+    refused = rows[0][2]                                      # один адрес магазин не отдаёт ни разу (403 через раз — тут всегда)
+    keep = (F.OUT, F.time, F.IMG_FALLBACK, urllib.request.urlopen)
+    tmp = tempfile.mkdtemp(prefix='demo-room-photos-')
+    jpg = _jpeg()
+
+    def urlopen(req, timeout=None):
+        url = req.full_url if hasattr(req, 'full_url') else req
+        if url == refused:
+            raise OSError('403')
+        return io.BytesIO(jpg)
+    try:
+        F.OUT, F.IMG_FALLBACK = tmp, ''                       # без подхвата с прода: только свой шаг
+        F.time = type('T', (), {'sleep': staticmethod(lambda s: None), 'time': staticmethod(lambda: 0.0)})
+        urllib.request.urlopen = urlopen
+        data = F.cache_images(copy.deepcopy({'variants': variants, 'feeds': feeds, **catalogs}))
+    finally:
+        F.OUT, F.time, F.IMG_FALLBACK, urllib.request.urlopen = keep
+    after = variant_photos(data['variants'])
+    gone = [r for r in after if r[2] is None]
+    local = [r for r in after if r[2] is not None]
+    check(f'фото: после шага фото у предметов — свои копии img/<id>.jpg ({len(local)}), адресов магазина не осталось',
+          local and all(LOCAL_IMG.match(u) for *_, u in local))
+    check('фото: плитка и крупная копия каждого предмета лежат в папке сборки и открываются как JPEG',
+          all(_is_jpeg(os.path.join(tmp, u)) and _is_jpeg(os.path.join(tmp, u[:-4] + '-l.jpg')) for *_, u in local))
+    n_ref = sum(1 for *_, u in rows if u == refused)
+    check(f'фото: магазин не отдал фото — у предмета пусто («нет фото»), не ссылка магазина ({len(gone)} = {n_ref})',
+          len(gone) == n_ref and all(r[:2] in {x[:2] for x in rows if x[2] == refused} for r in gone))
+
+
+def _is_jpeg(path: str) -> bool:
+    from PIL import Image
+    try:
+        with Image.open(path) as im:
+            return im.format == 'JPEG' and im.size[0] > 0
+    except Exception:
+        return False
+
+
+def check_out(folder: str) -> int:
+    """Готовая папка сборки (`--out <папка>`, где лежит `demo-data.json`): фото каждого предмета каждого варианта (все комнаты) —
+    свой файл в `img/` (плитка, открывается) или адрес, что отвечает 200 картинкой. Для /test/ и витрины перед публикацией."""
+    data = json.load(open(os.path.join(folder, 'demo-data.json'), encoding='utf-8'))
+    rows = variant_photos(data.get('variants') or [])
+    bad = []
+    for vid, role, u in rows:
+        if not u:
+            bad.append((vid, role, 'нет адреса'))
+        elif re.match(r'^https?:|^//', u):
+            code, ctype, raw = F._http_get(('https:' + u) if u.startswith('//') else u)
+            if code != 200 or not ctype.lower().startswith('image/'):
+                bad.append((vid, role, f'{code} {ctype} {u[:80]}'))
+        elif not _is_jpeg(os.path.join(folder, u)):
+            bad.append((vid, role, f'нет файла {u}'))
+    for b in bad:
+        print('  ', *b)
+    check(f'фото папки {folder}: у всех {len(rows)} строк вариантов фото на месте ({len({r[0] for r in rows})} вариантов)', not bad)
+    return 1 if bad else 0
+
+
 def load_fx(room_type: str) -> dict:
     with gzip.open(os.path.join(FIX, f'demo-room-build-{room_type}.json.gz'), 'rt', encoding='utf-8') as fh:
         return json.load(fh)
@@ -175,8 +261,22 @@ def record(argv: list) -> int:
 
 
 def main() -> int:
+    # ВСЕ ВРЕМЕННЫЕ ПАПКИ ТЕСТА — В ОДНОЙ, И ОНА УБИРАЕТСЯ (T-20261107-05/2): прежде каждый прогон оставлял в /tmp по ~2–5 МБ
+    # (банк, папка сборки, фото), за день прогонов набралась квота /tmp DEV — и безголовый браузер (он держит там общую память)
+    # стал отдавать фото с ERR_INSUFFICIENT_RESOURCES
+    with tempfile.TemporaryDirectory(prefix='demo-room-build-') as root:
+        tempfile.tempdir = root
+        try:
+            return _main()
+        finally:
+            tempfile.tempdir = None
+
+
+def _main() -> int:
     if '--record' in sys.argv:
         return record(sys.argv)
+    if '--out' in sys.argv:
+        return check_out(sys.argv[sys.argv.index('--out') + 1])
     saved = {k: getattr(F, k) for k in ('_sku', '_msid', '_mesh_index', 'bedroom_mesh_gate', 'room_mesh_gate', 'OUT',
                                         'room_photo_catalog')}
     dead_saved = img_alive.dead_room_photos
@@ -226,6 +326,25 @@ def main() -> int:
     check('прихожая: ленты — под ключом «hall:<роль>», строки без модели — с меткой',
           hall['feeds'] and all(k.startswith('hall:') for k in hall['feeds'])
           and any(r.get('no_mesh') for rows in hall['feeds'].values() for r in rows))
+
+    # --- фото товаров вариантов (T-20261107-05/2): есть у каждого, живое, после шага фото лежит в своей медиа
+    photos(B['out']['variants'] + vs, set(B['dead']) | set(H['dead']), {'bedroom_catalog': B['cat'], 'hall_catalog': H['cat']},
+           hall['feeds'])
+
+    # --- таблица лёгких копий у сборки рядом: копия витрины, когда своей нет; у витрины — ничего
+    keep = (F.OUT, F._BP.DEMO_OUT_DEFAULT)
+    try:
+        shop, side = tempfile.mkdtemp(), tempfile.mkdtemp()
+        json.dump({'meshes': {'m1': {'size': 1}}}, open(os.path.join(shop, 'rt-meshes.json'), 'w'))
+        F._BP.DEMO_OUT_DEFAULT, F.OUT = shop, side
+        first, again = F.rt_table_side(), F.rt_table_side()
+        F.OUT = shop
+        own = F.rt_table_side()
+    finally:
+        F.OUT, F._BP.DEMO_OUT_DEFAULT = keep
+    check(f'сборка рядом: таблица лёгких копий — копия витрины, второй раз своя, у витрины не трогаем ({first}/{again}/{own or "—"})',
+          (first, again, own) == ('копия', 'своя', '')
+          and json.load(open(os.path.join(side, 'rt-meshes.json')))['meshes'] == {'m1': {'size': 1}})
 
     # --- выключатель сторожа у папки витрины — отказ
     os.environ['HALL_MESH_GATE'] = '0'

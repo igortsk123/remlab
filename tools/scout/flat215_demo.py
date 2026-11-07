@@ -2153,6 +2153,24 @@ def room_ir(room: dict, root: str, tag: str = '') -> None:
         print(f'WARN:fixtures_ir: {tag}плинтус/карниз/светильник не посчитались (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
 
 
+def rt_table_side() -> str:
+    """ТАБЛИЦА ЛЁГКИХ КОПИЙ У СБОРКИ РЯДОМ (T-20261107-05/2). `rt-meshes.json` кладёт в папку витрины не эта сборка, а публикация
+    копий (`tools/assets/publish_rt.sh`). У сборки для /test/ её не было — страница (`rtMeshes`) получала 404, сцена брала тяжёлые
+    исходники галереи `/test/mesh-pilot10/<id>/model.glb` вместо `/rt/`, а у товаров без модели — ещё и 404 на каждый. Копия таблицы
+    витрины — только когда своей нет; папку витрины не трогает. Что сделано — строкой (для журнала)."""
+    if _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
+        return ''
+    dst, src = os.path.join(OUT, 'rt-meshes.json'), os.path.join(_BP.DEMO_OUT_DEFAULT, 'rt-meshes.json')
+    if os.path.exists(dst):
+        return 'своя'
+    if not os.path.exists(src):
+        print(f'WARN:rt_table: у витрины нет {src} — сцена /test/ возьмёт исходники галереи', flush=True)
+        return 'нет'
+    _AIO.write_text(dst, open(src, encoding='utf-8').read())
+    print(f'таблица лёгких копий: копия витрины → {dst}', flush=True)
+    return 'копия'
+
+
 def main() -> None:
     if '--publish' in sys.argv and not _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
         # publish_demo.sh публикует ПАПКУ ВИТРИНЫ, а не OUT: сборка рядом (копия банка, проверка) на прод не едет
@@ -2163,6 +2181,7 @@ def main() -> None:
     src = os.path.join(HERE, 'flat215-demo', 'index.html')
     if os.path.exists(src):
         _AIO.write_text(os.path.join(OUT, 'index.html'), open(src, encoding='utf-8').read())
+    rt_table_side()
     # ДВИЖОК ЖИВОЙ СЦЕНЫ (demo-01): тот же исходник, что /flat (`lib/viewer3d`), собирается рядом со страницей
     # (`lib/scene.<версия>.js` + `lib/scene.json`). Не собрался — остаётся вчерашний файл, страница работает с ним
     # или уходит на серверный эскиз; громко, а не молча.
