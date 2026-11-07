@@ -60,8 +60,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # ночной прогрев кадров демо: сверка кадра по состоянию И точке съёмки — предикатом самой страницы (T-20261022-16)
       - run: node tools/ops/demo-warm.mjs --selftest
-      # ночная досъёмка фото нейросети: потолок 50 ₽, трата по счётчику шлюза, прерванное — потрачено, пропуск после неудачной публикации (demo-29)
+      # ночная досъёмка фото нейросети: потолок 200 ₽ (TG 356), трата по счётчику шлюза, прерванное — потрачено, пропуск после неудачной публикации (demo-29)
       - run: node tools/ops/demo-realistic.mjs --selftest
+      # состояние CI на main для ночной сводки и людей: последний решающий прогон, красная полоса с часами, упавший шаг; API — подменой (T-20261107-41)
+      - run: python3 tools/ops/ci_status.py --selftest
       # скорость фото нейросети: медленно → WARN, отказы 503 считаются, пустой журнал — «заданий 0», старый журнал без двойного счёта (T-20261107-37)
       - run: python3 tools/ops/photo-speed.py --selftest
       # сводка прода: 5xx — по журналу доступа Caddy, без двойного счёта строк журнала ошибок (T-20261106-66)
@@ -271,6 +273,7 @@ jobs:
           SALAD_API_KEY: x
       - run: python tools/scout/salad/queue_run.py --selftest
       - run: bash tools/ops/cron-pause.sh selftest   # пауза кронов на обслуживание: на паузе тяжёлые кроны выходят строкой в лог, on ждёт работающих (onb-12)
+      - run: pip install pyyaml && python tools/ops/prepush_check.py --selftest   # перед пушем — проверки CI по изменённым файлам: карта из ci.yml (цикл, &&, pip срезан), «тест читает файл», потолок времени; правка refresh_daily.sh / rules/demo-realistic.json запускает demo-realistic (T-20261107-41)
       - run: python tools/scout/tests_bank_isolation.py   # новый банк рядом: копия не пишет sets3.json и общие файлы, ворота сборщика fail-closed (план conv-13)
       - run: diff -q tools/scout/asset_strategy.py tools/scout/salad/asset_strategy.py
       - run: diff -q tools/scout/rules/asset-strategies.json tools/scout/salad/asset-strategies.json
