@@ -2,8 +2,8 @@
  "_about": "СПАЛЬНЯ (room-pipeline-01 Б-2, T-20261105-40): профиль читает compose_bedroom.py — правила состава, допуск, порог стиля, крупное, веса стиля и жёсткий минимум шкафа. Состав по назначениям (слоты, идеалы, полосы, декор) — в bedroom-composition.json по ссылке, не копией.",
  "schema_version": 1,
  "profile_id": "bedroom",
- "profile_version": "2026-11-06.2",
- "content_sha": "2e915b1feb1c",
+ "profile_version": "2026-11-07.1",
+ "content_sha": "75ba0dcb0693",
  "room_type": "bedroom",
  "purposes": {
   "$ref": "tools/scout/rules/bedroom-roles.json#/purposes"
@@ -213,6 +213,10 @@
     "apartNear": {
      "deg": 30,
      "cm": 100
+    },
+    "ends": {
+     "deg": 120,
+     "mid": 0
     },
     "cover": 0.75,
     "anyOf": [
