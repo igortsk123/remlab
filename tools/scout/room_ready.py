@@ -66,8 +66,9 @@ class Facts:
             self._mesh_ok = {s for s in self.rows if not RB.usable(self.asset(s), self.msid(s), self.idx, self.mode)[0]}
         return self._mesh_ok
 
-    def msid(self, sku: str) -> str:
-        """Модель сцены = модель привязки, представитель — запасной путь (`room_bindings.scene_msid`, T-20261106-77/4)."""
+    def msid(self, sku: str) -> str | None:
+        """Модель сцены = модель привязки (`room_bindings.scene_msid`, T-20261106-77/4); представитель — только явной привязкой
+        (`via_family`), иначе None (T-20261107-25/5)."""
         return RB.scene_msid(self.rows.get(sku), sku.replace(':', '_', 1), self.rep_map)
 
 
@@ -155,12 +156,12 @@ def _selftest() -> int:
     ok('товара нет в привязке — ждёт меш (спрос мешей)', c('0:z')[2] == 'mesh' and c('0:z')[0] == 'wait_asset')
     ok('модель сцены = модель привязки, представитель семьи её не перебивает (T-20261106-77/4)',
        Facts(rows, '', idx, {'1_a': '9_9'}).msid('1:a') == '1_a' and c('1:a', FF=Facts(rows, '', idx, {'1_a': '9_9'}))[0] == 'ready')
-    ok('записи привязки нет — представитель семьи (запасной путь)', Facts(rows, '', idx, {'0_z': '9_9'}).msid('0:z') == '9_9'
-       and Facts(rows, '', idx, {}).msid('0:z') == '0_z')
-    ok('у записи нет модели — представитель; сторож ловит расхождение', Facts({'1:a': _row('ready', None, True)}, '', idx,
-                                                                              {'1_a': '9_9'}).msid('1:a') == '9_9'
+    ok('записи привязки нет, а семья есть — модели нет (представителя молча не берём, T-25/5); без семьи — свой артикул',
+       Facts(rows, '', idx, {'0_z': '9_9'}).msid('0:z') is None and Facts(rows, '', idx, {}).msid('0:z') == '0_z')
+    ok('у записи нет модели, а семья есть — модели нет; сторож называет причину',
+       Facts({'1:a': _row('ready', None, True)}, '', idx, {'1_a': '9_9'}).msid('1:a') is None
        and classify('кровать', '1:a', None, Facts({'1:a': _row('ready', None, True)}, '', idx, {'1_a': '9_9'}))[1]
-       .startswith('сцена грузит 9_9'))
+       .startswith('модели сцены нет'))
     ok('лампа, ковёр, шторы — моделью не проверяются (как у витрины)', all(c('0:z', r)[0] == 'ready' for r in ('лампа', 'ковёр', 'шторы')))
     ok('пронумерованный экземпляр «тумба прикроватная 2» — проверяется как тумба', c('0:z', 'тумба прикроватная 2')[0] == 'wait_asset')
     U = Facts(None, 'binding_missing', idx, {})

@@ -152,6 +152,7 @@ class Facts:
         self.urls = {}                       # {sku: адреса фото} — для представителя семьи (его фото сверяем по его адресам)
         self.mesh_colour = {}                # {sku: вердикт сторожа цвета} — `mesh_color_check.load_table` (T-20261107-14/2)
         self.quar = {}                       # {sku: {glb_sha16: решение}} — карантин моделей (`mesh_quarantine` cut/reject)
+        self.roles = {}                      # {sku: (роль, имя, подтип)} — `orient_worker.role_index` (`effective_role`)
         self.__dict__.update(kw)
         self.gen_skus = {g.get('sku') for g in self.gens.values()}
 
@@ -299,13 +300,69 @@ def colour_flagged(row: dict | None) -> bool:
     return any(str(x).startswith(COLOUR_REASON) for x in (row or {}).get('reasons') or [])
 
 
+def effective_role(sku: str, cat: dict, passport_role: str | None, F: Facts) -> tuple[str, str]:
+    """ОДНА роль товара для вопроса «нужен ли перед» → (роль, откуда: catalog | passport | unknown) (T-20261107-25/5, Codex A).
+    Порядок — канон `orient_worker` (тот, по которому разворот и решается): роль `room_catalog` (`pick_room_role`: узкая
+    главнее общей, направленная главнее) → `products.cat_role` → `mesh_demand` (`role_index`, готов в `F.roles` при сборке);
+    товара там нет (селфтест) — тот же резолвер по ролям каталога из `seen_in`. Паспорт генерации (`manifest.role`) — ТОЛЬКО
+    если каталог роли не знает (`cat_role_known`). Раньше брали объединение ролей каталога и паспорта и блокировали, если хоть
+    одна направленная: паспорт «стул» у обеденного стола «Мелтон» держал его свой меш (179 товаров, у 124 — единственный блок)."""
+    import orient_worker as OW
+    r = (F.roles or {}).get(sku)
+    if r is None:
+        room = OW.pick_room_role([(x[1], cat.get('name') or '') for x in cat.get('seen_in') or () if x[2] == 'room_catalog'])
+        prod = next(((x[1], cat.get('name') or '') for x in cat.get('seen_in') or () if x[2] != 'room_catalog'), None)
+        r = OW.pick_role(prod, None, room) if (room or prod) else None
+    if r and OW.cat_role_known(r[0]):
+        return r[0].strip(), 'catalog'
+    if OW.cat_role_known(passport_role):
+        return passport_role.strip(), 'passport'
+    return '', 'unknown'
+
+
 def offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, assets: dict, families: dict) -> dict | None:
     """Привязка одного товара. cat — {mid, eid, name, dims:[…], footprint_required, footprint_ok, urls:set, seen_in:[…], roles:set}.
-    None — у товара нет ни своего кандидата меша, ни семьи (в снимок не попадает: адаптер скажет none)."""
-    own_revs = F.revs.get(sku) or []
+    None — у товара нет ни своего кандидата меша, ни семьи (в снимок не попадает: адаптер скажет none).
+    ЗАПАСНОЙ ПУТЬ К ПРЕДСТАВИТЕЛЮ (T-20261107-25/5, Codex B): своя модель есть, но не годна к 3D (`local_3d` нет), а у товара
+    семья — привязка проверяет модель представителя ПРОТИВ ЭТОГО товара (файл, разворот, паспорт к габаритам товара, цвет группы
+    и замер) и берёт её ЯВНО (`via_family`, `asset_id` представителя, предупреждение `family_fallback`), только если она годна к
+    3D и по виду. Не прошла — остаётся своя заблокированная привязка с `fallback_rejected:<orientation|color|other>`; сцена тогда
+    модели не получает (`scene_msid` → None, штатная замена). Раньше сцена молча грузила представителя (оливковый «Мелтон»
+    вместо бежевого) — модель, которую привязка не проверяла."""
+    b = _offer_binding(sku, cat, F, pol, groups, assets, families)
+    if b is None or b['via_family'] or b['capabilities']['local_3d']:
+        return b
+    frep, _, _ = family_of(sku, F)
+    if frep is None or not (F.revs.get(frep) or frep in F.gen_skus):
+        return b
+    a2, f2 = {}, {}
+    fb = _offer_binding(sku, cat, F, pol, groups, a2, f2, family=True)
+    if fb is not None and fb['capabilities']['local_3d'] and fb['capabilities']['appearance']:
+        assets.update({k: v for k, v in a2.items() if k not in assets})
+        families.update({k: v for k, v in f2.items() if k not in families})
+        own = reason_key(b['reasons'][0]) if b['reasons'] else 'own'
+        fb['warnings'] = sorted(set(fb['warnings']) | {'family_fallback', f'own_mesh_blocked:{own}'})
+        return fb
+    if fb is None:
+        kind = 'other'
+    elif any(r.startswith('rep:orientation') for r in fb['reasons']):
+        kind = 'orientation'
+    elif not fb['capabilities']['appearance']:
+        kind = 'color'
+    else:
+        kind = 'other'
+    b['warnings'] = sorted(set(b['warnings']) | {f'fallback_rejected:{kind}'})
+    return b
+
+
+def _offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, assets: dict, families: dict,
+                   family: bool = False) -> dict | None:
+    """Привязка по одному пути: своя модель (если своя ревизия текущего фото есть) или семья; family=True — только семья
+    (запасной путь `offer_binding`)."""
+    own_revs = [] if family else (F.revs.get(sku) or [])
     frep, ffid, ffam_why = family_of(sku, F)
     rep_mesh = frep is not None and (bool(ffam_why) or bool(F.revs.get(frep)) or frep in F.gen_skus)
-    if not own_revs and sku not in F.gen_skus and not rep_mesh:
+    if not own_revs and (family or sku not in F.gen_skus) and not rep_mesh:
         return None              # ни своего меша, ни меша у представителя (битая ссылка семьи — блок, не «нет»)
     rec, aid, photo, w, why = None, None, {'basis': None, 'current_sha': None}, [], ['no_revision']
     if own_revs:
@@ -332,13 +389,21 @@ def offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, assets
         if from_plan:
             warn.append('passport_d_from_plan')
     local += pp
-    roles = set(cat.get('roles') or ()) | ({rec['passport']['role']} if rec and rec['passport'].get('role') else set())
+    # перед нужен? — по ОДНОЙ роли (`effective_role`); паспорт другой роли — предупреждение, не блок
+    prole = ((rec or {}).get('passport') or {}).get('role')
+    role, role_src = effective_role(sku, cat, prole, F)
+    nm = cat.get('name') or ''
+    mism = role_src == 'catalog' and bool(prole) and str(prole).strip() not in ('', '?') and str(prole).strip() != role
+    if mism:
+        warn.append('passport_role_mismatch')
     ori = (rec or {}).get('orientation') or {}
     if ori.get('source') == 'symmetric_by_role' and not any(x.startswith('orientation') for x in (rec or {}).get('reasons', [])):
-        if any(F.directed(r, cat.get('name') or '') for r in roles):
+        if role and F.directed(role, nm):
             local.append('orientation_symmetric_by_role')
         else:
             warn.append('orientation_by_role_only')
+            if mism and F.directed(str(prole).strip(), nm):
+                warn.append('passport_role_overruled')     # прежнее правило (объединение ролей) держало бы по паспорту
     solver_why = []
     if not cat['dims'] or not all(d.get('w') and d.get('d') and d.get('h') for d in cat['dims']):
         solver_why.append('catalog_dims_missing')
@@ -660,6 +725,8 @@ def usable(a: dict, msid: str | None, idx, mode: str = 'orient') -> tuple[str, s
         return f"привязка {a['mesh_status']}" + (f": {', '.join(a['reasons'][:2])}" if a['reasons'] else ''), ''
     if a['ready'] and not a['published']:
         return 'модель не выложена', ''
+    if msid is None:
+        return 'модели сцены нет: представитель семьи привязкой не проверен', ''
     if (a['mesh_id'] or '').replace(':', '_', 1) != msid:
         return f"сцена грузит {msid}, привязка проверила {a['mesh_id']}", ''
     if msid not in idx:
@@ -708,20 +775,34 @@ def demo_msids(path: str) -> set:
     return {m for m in out if m}
 
 
-def scene_msid(row: dict | None, sid: str, rep: dict) -> str:
+def scene_msid(row: dict | None, sid: str, rep: dict) -> str | None:
     """Какую модель грузит сцена ЛЮБОЙ КОМНАТЫ (спальня — T-20261106-77/4, вариант А ведущего; гостиная — `flat215_demo._msid`,
-    T-77/5 шаг 3): модель привязки (`mesh_id` строки `offer_asset_binding`), её нет — представитель семейства (`mesh_rep`,
-    иначе свой артикул). Все через `_`.
+    T-77/5 шаг 3): ТОЛЬКО модель привязки (`mesh_id` строки `offer_asset_binding`), все через `_`.
     Зачем: привязка проверяет СВОЮ ревизию товара (своё текущее фото), а `mesh_rep` давал модель представителя — `usable` такой
     предмет отбрасывал («сцена грузит X, привязка проверила Y»), хотя своя модель выложена (Теджонс/Ханна/Монсон Латте,
     Модерн Терракотовый); у гостиной представитель — другой цвет той же формы (лист T-77/5: своя ближе к фото почти везде).
     Свои модели гостиной выкладывает `room_publish` (ROOM_PUBLISH=living).
-    ФАЙЛА МОДЕЛИ У ПРИВЯЗКИ НЕТ (`local_3d` ложно) — тоже представитель (T-77/5 шаг 3, сухой прогон): у 49 заблокированных строк
-    гостиной `mesh_id` — свой артикул без файла; правило без этой оговорки сняло бы модель у 46 товаров лент и у стола варианта
-    set16. Спальне вердикт сторожа не меняет (128 из 128 товаров банка — тот же): такой предмет отбрасывается и так."""
+    ПРЕДСТАВИТЕЛЯ СЕМЬИ МОЛЧА НЕ БЕРЁМ (T-20261107-25/5, Codex B): модель представителя — только если привязка взяла её явно
+    (`via_family`: своей модели нет или запасной путь `offer_binding` проверил её против этого товара). Своя модель
+    заблокирована, а запасной путь не прошёл (или привязки у товара с семьёй нет) — None: модели нет, сборка делает штатную
+    замену. Раньше здесь брался `mesh_rep` — оливковый «Мелтон» вместо бежевого (54 товара гостиной, сухой прогон 07.11).
+    Товар без семьи: строки нет — свой артикул (ковры, декор: модель им не положена или её судит индекс прода); строка есть —
+    её `mesh_id` (заблокированная своя — как раньше, её судьбу решает сторож комнаты / индекс прода).
+    rep — `mesh_rep` (артикул → представитель): только чтобы узнать, что у товара есть семья."""
     r = row or {}
     m = r.get('mesh_id')
-    return m.replace(':', '_', 1) if m and r.get('local_3d') else rep.get(sid, sid)
+    if m and (r.get('local_3d') or r.get('via_family')):
+        return m.replace(':', '_', 1)
+    if rep.get(sid, sid) != sid:
+        return None
+    return m.replace(':', '_', 1) if m else sid
+
+
+def implicit_fallback(row: dict | None, sid: str, rep: dict) -> bool:
+    """Прежнее правило `scene_msid` взяло бы представителя семьи молча (модель, которую привязка не проверяла) — для счётчика
+    DIGEST `implicit_family_fallback` (сколько таких закрыто правилом B)."""
+    r = row or {}
+    return not (r.get('mesh_id') and (r.get('local_3d') or r.get('via_family'))) and rep.get(sid, sid) != sid
 
 
 def mesh_rep(db=None) -> dict:
@@ -917,6 +998,9 @@ def build(out_dir: str, prod_src: str, ssh: bool, dry: bool = False) -> tuple:
     F, pol, groups, sources, cache, cache_p = load_facts(prod_src, ssh, out_dir)
     cats = catalog_offers()
     sources['catalog_offers'] = _digest({k: [v['dims'], sorted(v['urls']), v['footprint_ok']] for k, v in cats.items()})
+    import orient_worker as OW
+    F.roles = OW.role_index(cats)          # роль «нужен ли перед» — тем же резолвером, что разворот (`effective_role`)
+    sources['roles'] = _digest(sorted(F.roles.items()))
     snap = assemble(cats, F, pol, groups, sources)
     _atomic_write(cache_p, json.dumps(cache, sort_keys=True).encode())
     path = write_snapshot(snap, out_dir)          # сперва файл: откат и разбор есть, даже если запись в таблицу упадёт
@@ -966,6 +1050,36 @@ def report(snap: dict) -> dict:
             R[k] = dict(sorted(R[k].items(), key=lambda kv: -kv[1]))
     return {'snapshot': snap['content_sha'][:16], 'policy_version': snap['policy_version'], 'counts': snap['counts'], 'rooms': rooms,
             'assets': len(snap['assets']), 'families': len(snap['families'])}
+
+
+def role_fallback_counts(snap: dict) -> dict:
+    """Счётчики правил A и B (T-20261107-25/5) по снимку: паспорт ≠ каталог (`passport_role_mismatch`; из них только он держал
+    бы привязку — `passport_role_overruled` без других причин), запасной путь к представителю — взят явно (`family_fallback`)
+    и отклонён по развороту / цвету / иному (`fallback_rejected:*`: прежде сцена молча грузила бы представителя — теперь модели
+    нет, `implicit_family_fallback`)."""
+    c = {'passport_role_mismatch': 0, 'passport_role_only_blocking': 0, 'family_fallback': 0, 'implicit_family_fallback': 0,
+         'fallback_rejected': {'orientation': 0, 'color': 0, 'other': 0}}
+    for o in snap['offers'].values():
+        w = o['warnings']
+        c['passport_role_mismatch'] += 'passport_role_mismatch' in w
+        c['passport_role_only_blocking'] += 'passport_role_overruled' in w and not o['reasons']
+        c['family_fallback'] += 'family_fallback' in w
+        for x in w:
+            if x.startswith('fallback_rejected:'):
+                k = x.split(':', 1)[1]
+                c['fallback_rejected'][k] = c['fallback_rejected'].get(k, 0) + 1
+                c['implicit_family_fallback'] += 1
+    return c
+
+
+def digest_line(snap: dict) -> str:
+    """Строка в ночную сводку (`refresh_daily.sh`, шаг room_bindings с --digest)."""
+    c = role_fallback_counts(snap)
+    r = c['fallback_rejected']
+    return (f"DIGEST:привязка мешей: паспорт ≠ каталог по роли {c['passport_role_mismatch']} (только он держал бы "
+            f"{c['passport_role_only_blocking']}); представитель семьи вместо своей заблокированной — проверен и взят "
+            f"{c['family_fallback']}, отклонён {c['implicit_family_fallback']} (разворот {r['orientation']}, цвет {r['color']}, "
+            f"иное {r['other']}) — у них модели в сцене нет, замена")
 
 
 def report_md(rep: dict) -> str:
@@ -1308,10 +1422,103 @@ def _selftest() -> int:
     rep = report(s1)
     ok('отчёт по комнатам', rep['rooms']['bedroom']['ready'] == 2 and rep['rooms']['bedroom']['offers'] == 2 and report_md(rep))
     rmap = {'7_c': '7_r'}
-    ok('scene_msid: модель привязки (есть файл) · файла нет — представитель · строки нет — представитель / свой артикул',
+    ok('scene_msid: модель привязки (есть файл) · явная семья (via_family) — представитель · своя заблокирована при семье — '
+       'None (не представитель молча, T-25/5) · строки нет при семье — None · без семьи — свой артикул / mesh_id',
        scene_msid({'mesh_id': '7:c', 'local_3d': True}, '7_c', rmap) == '7_c'
-       and scene_msid({'mesh_id': '7:c', 'local_3d': False, 'status': 'blocked'}, '7_c', rmap) == '7_r'
-       and scene_msid(None, '7_c', rmap) == '7_r' and scene_msid(None, '8_d', rmap) == '8_d')
+       and scene_msid({'mesh_id': '7:r', 'local_3d': False, 'via_family': True}, '7_c', rmap) == '7_r'
+       and scene_msid({'mesh_id': '7:c', 'local_3d': False, 'status': 'blocked'}, '7_c', rmap) is None
+       and scene_msid(None, '7_c', rmap) is None and scene_msid(None, '8_d', rmap) == '8_d'
+       and scene_msid({'mesh_id': '8:d', 'local_3d': False}, '8_d', rmap) == '8_d')
+    ok('implicit_fallback: прежнее правило взяло бы представителя молча — да у заблокированной своей и у пустой при семье',
+       implicit_fallback({'mesh_id': '7:c', 'local_3d': False}, '7_c', rmap) and implicit_fallback(None, '7_c', rmap)
+       and not implicit_fallback({'mesh_id': '7:c', 'local_3d': True}, '7_c', rmap)
+       and not implicit_fallback({'mesh_id': '8:d', 'local_3d': False}, '8_d', rmap))
+    ok('usable: модели сцены нет (None) — своя причина, не «сцена грузит None»',
+       usable({'ready': True, 'published': True, 'mesh_status': 'ready', 'reasons': [], 'mesh_id': '7:c'}, None, {'7_c'})[0]
+       .startswith('модели сцены нет'))
+
+    # ---- A (T-20261107-25/5): «нужен ли перед» — по ОДНОЙ роли (`effective_role`, порядок `orient_worker`), паспорт — запасной
+    mans_a = {'role': 'кровать', 'input': {'dims_cm': {'w': 98, 'd': 35, 'h': 25}, 'image_url': 'u2'}}
+    Fa = copy.copy(F)
+    Fa.manifest = lambda g: mans_a if g.get('path') == '/g/2' else F.manifest(g)
+    r = bind('2:b', c, Fa)          # каталог «комод» (не направлен), паспорт «кровать» (направлен), «симметрична по роли»
+    ok('A: каталог знает роль (комод) — паспорт «кровать» не держит: ready, предупреждения passport_role_mismatch и _overruled',
+       r['status'] == 'ready' and {'passport_role_mismatch', 'passport_role_overruled', 'orientation_by_role_only'}
+       <= set(r['warnings'])) or print(r['reasons'], r['warnings'])
+    ca = cat(2, 'b', 98, 35, 25, role='кровать', urls=('u2',))
+    r = bind('2:b', ca)             # каталог «кровать» (направлен), паспорт «комод»
+    ok('A: каталог — направленная роль — «симметрична по роли» не годна, расхождение паспорта — предупреждение',
+       'orientation_symmetric_by_role' in r['reasons'] and 'passport_role_mismatch' in r['warnings']
+       and 'passport_role_overruled' not in r['warnings'])
+    cu = cat(2, 'b', 98, 35, 25, role='другое', urls=('u2',))
+    r = bind('2:b', cu, Fa)         # каталог роли не знает → паспорт «кровать»
+    ok('A: каталог роли не знает («другое») — роль из паспорта (кровать): blocked, без passport_role_mismatch',
+       'orientation_symmetric_by_role' in r['reasons'] and 'passport_role_mismatch' not in r['warnings'])
+    Fr = copy.copy(F)
+    Fr.roles = {'2:b': ('кровать', '', '')}
+    ok('A: роль из резолвера (`role_index`: room_catalog → cat_role → mesh_demand) главнее ролей строки каталога',
+       'orientation_symmetric_by_role' in bind('2:b', c, Fr)['reasons'])
+    Fr.roles = {'2:b': ('?', '', '')}
+    ok('A: резолвер роли не знает («?») — паспорт', effective_role('2:b', c, 'кровать', Fr) == ('кровать', 'passport')
+       and effective_role('2:b', c, None, Fr) == ('', 'unknown'))
+    import orient_worker as OW
+    two = {'name': 'Шкаф', 'seen_in': [['bedroom', 'шкаф', 'room_catalog'], ['hall', 'шкаф-купе', 'room_catalog'],
+                                       ['living', 'комод', 'products']]}
+    ok('A: без записи резолвера — тот же резолвер по строкам каталога: узкая роль комнаты главнее, комната главнее cat_role',
+       effective_role('x', two, 'стул', Facts()) == ('шкаф-купе', 'catalog')
+       and effective_role('x', {'name': 'Стол', 'seen_in': [['living', 'стол обеденный', 'products']]}, 'стул', Facts())
+       == (OW.pick_role(('стол обеденный', 'Стол'), None)[0], 'catalog'))
+
+    # ---- B (T-20261107-25/5): своя модель заблокирована → представитель семьи только ЯВНО и проверенным против товара
+    def with_own(F0, sku, st='owner_reject', ppc_url='uv'):
+        Fb = Facts(**copy.deepcopy({k: v for k, v in F0.__dict__.items() if k not in ('manifest', 'glb', 'directed')}))
+        Fb.directed = F0.directed
+        own_full = 'eeee5555' + '0' * 56
+        Fb.revs[sku] = [{'revision_key': f'{sku}|ph6|v1', 'sha16': 'ph6', 'pipeline': 'v1', 'status': st, 'origin': 'salad-pilot',
+                         'glb_sha': 'eeee5555', 'current_generation_key': 'G6'}]
+        Fb.gens['G6'] = gen('G6', sku, '/g/6', 'eeee5555')
+        Fb.gen_skus = {g.get('sku') for g in Fb.gens.values()}
+        Fb.ppc[sku] = (ppc_url, 'ph6' + 'f' * 61)
+        Fb.orient[(sku, 'eeee5555' + '0' * 8)] = {'revision_key': f'{sku}|eeee5555|orient-v1', 'status': 'auto_resolved',
+                                                    'glb_sha': own_full, 'contract': 'orient-v1', 'source': 'orienter+vlm_agree',
+                                                    'unusable': False, 'yaw_deg': 0}
+        Fb.manifest = lambda g: ({'role': 'комод', 'input': {'dims_cm': {'w': 93, 'd': 50, 'h': 76}, 'image_url': ppc_url}}
+                                 if g.get('path') == '/g/6' else F0.manifest(g))
+        Fb.glb = lambda g: (own_full, None) if g.get('path') == '/g/6' else F0.glb(g)
+        return Fb
+    gen = lambda key, sku, path, sha: {'generation_key': key, 'sku': sku, 'glb_sha': sha, 'path': path, 'glb_bytes': 100,  # noqa: E731
+                                       'machine_verdict': 'generated', 'owner_verdict': None}
+    cv = cat(6, 'v', 93, 50, 76, role='комод', origin='products', urls=('uv',))
+    Fb = with_own(F, '6:v')
+    ok('B: без брака своя модель — прямая привязка (запасной путь не нужен)',
+       bind('6:v', cv, with_own(F, '6:v', 'generated'))['mesh_id'] == '6_v')
+    v = bind('6:v', cv, Fb)
+    ok('B: своя забракована, представитель годен и того же цвета — ЯВНАЯ привязка к нему: via_family, ассет представителя, '
+       'family_fallback и own_mesh_blocked', v['via_family'] and v['mesh_id'] == '5_r' and v['asset_id'] == rep_aid
+       and v['capabilities']['local_3d'] and 'family_fallback' in v['warnings']
+       and 'own_mesh_blocked:revision_owner_reject' in v['warnings'] and v['status'] == 'ready') or print(v)
+    ok('B: сцена грузит представителя ТОЛЬКО по такой привязке', scene_msid({'mesh_id': v['mesh_id'], 'local_3d': True,
+                                                                             'via_family': True}, '6_v', {'6_v': '5_r'}) == '5_r')
+    cw = cat(7, 'w', 93, 50, 76, role='комод', origin='products', urls=('uw',))
+    w7 = bind('7:w', cw, with_own(F, '7:w', ppc_url='uw'))
+    ok('B: представитель другого цвета — отклонён (fallback_rejected:color), привязка своя заблокированная, сцена — None',
+       not w7['via_family'] and w7['mesh_id'] == '7_w' and 'fallback_rejected:color' in w7['warnings']
+       and scene_msid({'mesh_id': '7:w', 'local_3d': False}, '7_w', {'7_w': '5_r'}) is None) or print(w7)
+    Fo = with_own(F, '6:v')
+    Fo.orient[('5:r', 'dddd4444' + '0' * 8)]['status'] = 'review_pending'
+    v = bind('6:v', cv, Fo)
+    ok('B: у представителя не решён разворот — отклонён (fallback_rejected:orientation)',
+       not v['via_family'] and 'fallback_rejected:orientation' in v['warnings']) or print(v)
+    Fm = with_own(F, '6:v')
+    Fm.mesh_colour = {'6:v': {'asset_id': rep_aid, 'verdict': 'mismatch', 'seen_vs_sku': {'dL': -40, 'dab': 70}}}
+    ok('B: замер цвета модели представителя против ЭТОГО товара — расхождение — отклонён по цвету',
+       'fallback_rejected:color' in bind('6:v', cv, Fm)['warnings'])
+    snap = assemble({'6:v': cv, '7:w': cw}, with_own(with_own(F, '6:v'), '7:w', ppc_url='uw'), pol, G, {})
+    cnt = role_fallback_counts(snap)
+    ok('B: снимок — ассет и семья запасного пути на месте, схема цела; счётчики и строка сводки',
+       not validate(snap) and cnt['family_fallback'] == 1 and cnt['implicit_family_fallback'] == 1
+       and cnt['fallback_rejected']['color'] == 1 and digest_line(snap).startswith('DIGEST:привязка мешей:')) \
+        or print(validate(snap), cnt)
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0
 
@@ -1327,6 +1534,8 @@ def main(argv: list) -> int:
         print(report_md(rep))
         print(f'снимок: {path} ({sec} с); current: {os.path.join(out, CURRENT)}; '
               + ('таблицу не трогали (--dry)' if n is None else f'таблица {TABLE}: {n} строк, snapshot_id {snap["content_sha"][:16]}'))
+        line = digest_line(snap)
+        print(line if '--digest' in argv else line.removeprefix('DIGEST:'), flush=True)   # в сводку — один раз за ночь
         if '--report-out' in argv:
             d = argv[argv.index('--report-out') + 1]
             os.makedirs(d, exist_ok=True)
