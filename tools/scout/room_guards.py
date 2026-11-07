@@ -542,6 +542,20 @@ def run_night(room: str, cand_path: str | None = None, json_out: str | None = No
               assume_ready: bool = False) -> int:
     """Сухой вердикт по файлам комнаты (кандидат, живой банк), каталогу и привязке — печать; JSON — только по `--json`.
     live_path — другой живой банк (только чтение; сухой прогон из worktree против основной копии)."""
+    got = verdict(room, cand_path, live_path, assume_ready)
+    if got is None:
+        return 0
+    rep, lines, _, _ = got
+    for x in lines:
+        print(x, flush=True)
+    if json_out:
+        json.dump(rep, open(json_out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1, default=str)
+    return 0
+
+
+def verdict(room: str, cand_path: str | None = None, live_path: str | None = None, assume_ready: bool = False):
+    """Сухой вердикт ночи по файлам комнаты → (отчёт, строки, кандидат, живой) или None — кандидат не читается (строки WARN и
+    DIGEST напечатаны). Общий для `run_night` и репетиции записи (`bank_rehearsal`, этап Е): решение то же, что видит ночь."""
     import room_bank_spec as RBS
     import room_bootstrap as RBo
     import room_ready as RR
@@ -554,7 +568,7 @@ def run_night(room: str, cand_path: str | None = None, json_out: str | None = No
     except (FileNotFoundError, ValueError) as e:
         print(f'WARN:room_guards:{room}: кандидат {cand_path} не читается ({type(e).__name__}) — сторожа не судили', flush=True)
         print(f'DIGEST:банк {ROOM_RU.get(room, room)} (сторожа, сухо): кандидата нет — не судили; живой не тронут', flush=True)
-        return 0
+        return None
     live = json.load(open(live_path, encoding='utf-8')) if os.path.exists(live_path) else None
     try:
         from img_alive import dead_room_photos
@@ -572,11 +586,7 @@ def run_night(room: str, cand_path: str | None = None, json_out: str | None = No
     rep, lines = night(room, cand, live, cat=cat, F=F, R=R, tol=M.tolerance(), dead=dead, share=share, F_strict=F_strict,
                        identity_fn=lambda rm, c: RBo.identity(rm, c, skipped),
                        gen0_verdict=lambda rm, c: RBo.verdict(rm, c, skipped=skipped), assume_ready=assume_ready)
-    for x in lines:
-        print(x, flush=True)
-    if json_out:
-        json.dump(rep, open(json_out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1, default=str)
-    return 0
+    return rep, lines, cand, live
 
 
 def _opt(argv: list, name: str) -> str | None:

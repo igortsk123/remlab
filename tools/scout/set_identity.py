@@ -42,6 +42,9 @@ def cell(s: dict) -> tuple:
     return tuple(s.get(f) for f in CELL_FIELDS)
 
 
+_CELL = cell          # ячейка гостиной по умолчанию; у функций идентичности ниже `key` подменяет её на ячейку комнаты
+
+
 def _fingerprint(s: dict) -> str:
     payload = json.dumps({f: s.get(f) for f in IDENTITY_FIELDS},
                          ensure_ascii=False, sort_keys=True)
@@ -74,13 +77,15 @@ def ensure_ids(sets: list[dict]) -> int:
     return added
 
 
-def assign_ids(sets: list[dict], prev: list[dict] | None) -> list[dict]:
+def assign_ids(sets: list[dict], prev: list[dict] | None, key=None) -> list[dict]:
     """Идентичность пересобранного банка относительно прежнего: id и ПОРЯДОК — по ячейке `(band, style, tier)`.
 
     Возвращает новый список: сеты в порядке прежнего банка, у каждого id его ячейки. Без прежнего (первая сборка) —
     отпечаток `ensure_ids`. Любое нарушение — `IdentityError`, ничего не возвращаем: дубль ячейки, пропавшая или лишняя
     ячейка, у сета уже записан ДРУГОЙ id, в прежнем банке нет id или он повторяется. Номер массива — тоже идентичность
-    (сцены `setN-*`, демо публикует `setN`): поэтому порядок задаёт прежний банк, а не порядок сборки."""
+    (сцены `setN-*`, демо публикует `setN`): поэтому порядок задаёт прежний банк, а не порядок сборки.
+    `key` — ячейка другой комнаты (`RoomBankSpec.cell`, room-bank-01 этап Е); None — гостиная `(band, style, tier)`."""
+    cell = key or _CELL
     dup = [c for c, n in _count(cell(s) for s in sets).items() if n > 1]
     if dup:
         raise IdentityError(f'дубль ячейки в новом банке: {dup[:3]}')
@@ -108,15 +113,16 @@ def assign_ids(sets: list[dict], prev: list[dict] | None) -> list[dict]:
             raise IdentityError(f'дрейф set_id ячейки {cell(p)}: записан {s["set_id"]}, в прежнем банке {p["set_id"]}')
         s['set_id'] = p['set_id']
         out.append(s)
-    problems = verify(out, prev, cells=None)     # число ячеек задаёт прежний банк (живой — 126)
+    problems = verify(out, prev, cells=None, key=key)     # число ячеек задаёт прежний банк (живой — 126)
     if problems:
         raise IdentityError('; '.join(problems))
     return out
 
 
-def verify(sets: list[dict], prev: list[dict] | None = None, cells: int | None = 126) -> list[str]:
+def verify(sets: list[dict], prev: list[dict] | None = None, cells: int | None = 126, key=None) -> list[str]:
     """Структура банка: `cells` уникальных ячеек (None — не проверять число), у каждого сета set_id, id не повторяются;
-    с `prev` — карта «номер массива → (ячейка, set_id)» та же. Пусто — всё цело."""
+    с `prev` — карта «номер массива → (ячейка, set_id)» та же. Пусто — всё цело. `key` — ячейка комнаты (None — гостиная)."""
+    cell = key or _CELL
     out = []
     cs = [cell(s) for s in sets]
     if cells is not None and len(sets) != cells:
@@ -145,12 +151,12 @@ def _count(xs) -> dict:
     return out
 
 
-def write_bank(sets: list[dict], out_path: str, prev_path: str | None) -> list[dict]:
+def write_bank(sets: list[dict], out_path: str, prev_path: str | None, key=None) -> list[dict]:
     """Записать собранный банк: идентичность по прежнему (`assign_ids`), затем АТОМАРНО (временный файл + rename; инцидент
     08.08 — падение посреди json.dump оставило 18/126). Нарушение идентичности — `IdentityError` ДО записи: файл не тронут.
     Возвращает сеты в записанном порядке."""
     prev = json.load(open(prev_path, encoding='utf-8')) if prev_path and os.path.exists(prev_path) else None
-    out = assign_ids(sets, prev)
+    out = assign_ids(sets, prev, key)
     tmp = out_path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, indent=1)

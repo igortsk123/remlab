@@ -60,6 +60,8 @@
    "prepare_enabled": false,
    "promote_enabled": false,
    "write_enabled": true,
+   "rehearse_enabled": true,
+   "_rehearse_why": "ТЕНЬ (room-bank-01 этап Е, T-20261107-04, ведущий 07.11): ночью bank_rehearsal.py — копия живого банка и журнала → manifest из сухого вердикта room_guards (сторожа подменили 0 — «механика»: 1 ячейка, не судима) → настоящий bank_refresh.write в копию → откат rollback по SHA → копия = живой «до»; живой банк, его журнал, прод, медиа и сеть не трогаются (сверяется). Сбой — WARN, ночь идёт",
    "publish": "live",
    "_publish_why": "ночной mesh_publish выкладывает модели спальни (ROOM_PUBLISH из room_bank_spec.room_publish) — иначе свежие модели спальни не доходят до индекса прода, пока их не выложат руками (T-20261106-96/1 Б, ведущий 06.11)",
    "mesh_gate": "orient",
@@ -71,6 +73,7 @@
    "prepare_enabled": false,
    "promote_enabled": false,
    "write_enabled": false,
+   "rehearse_enabled": false,
    "mesh_gate": "orient"
   }
  },

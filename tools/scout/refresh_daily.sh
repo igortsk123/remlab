@@ -518,11 +518,16 @@ for room in bedroom hall; do
     elif ! res_okw room_check_$room; then RES[chain_$room]="суд не прошёл"
     elif room_chain "$room"; then RES[chain_$room]=ok
     else RES[chain_$room]=FAIL; fi
+    # ТЕНЬ (этап Е): настоящий писатель — в КОПИЮ живого банка, откат по SHA, копия = живой «до»; живое, прод и сеть не трогает;
+    # сбой — WARN (код 0), ночь идёт. Нужен кандидат этой ночи (сборка ok|warn)
+    if [ "$(room_flag "$room" rehearse_enabled)" != 1 ]; then RES[bank_rehearse_$room]=выключено
+    elif ! res_okw compose_$room; then RES[bank_rehearse_$room]="нет кандидата"
+    else step bank_rehearse_$room "$PY" bank_rehearsal.py --room "$room"; fi
   fi
   step bank_state_$room "$PY" bank_refresh.py --room "$room" state || rooms_undef+="$room "
 done
-room_digest "спальня (банк)" привязка=room_bindings сборка=compose_bedroom суд=room_check_bedroom цепочка=chain_bedroom состояние=bank_state_bedroom
-room_digest "прихожая (банк)" привязка=room_bindings сборка=compose_hall суд=room_check_hall цепочка=chain_hall состояние=bank_state_hall
+room_digest "спальня (банк)" привязка=room_bindings сборка=compose_bedroom суд=room_check_bedroom цепочка=chain_bedroom репетиция=bank_rehearse_bedroom состояние=bank_state_bedroom
+room_digest "прихожая (банк)" привязка=room_bindings сборка=compose_hall суд=room_check_hall цепочка=chain_hall репетиция=bank_rehearse_hall состояние=bank_state_hall
 step demo_band "$PY" demo_band.py --report
 # меши комнат — на прод вместе с гостиной (`room_publish.py`), только комнаты с `rooms.<комната>.publish` (live|next); пусто — как прежде
 ROOM_PUB=$("$PY" room_bank_spec.py --publish 2>/dev/null || true)

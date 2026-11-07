@@ -77,6 +77,13 @@ def rules() -> dict:
     return SPEC.view(json.load(open(RULES_PATH, encoding='utf-8')))
 
 
+def _key():
+    """Ячейка для идентичности записи и отката (room-bank-01 этап Е, T-20261107-04): гостиная — None (`set_identity.cell`,
+    `(band, style, tier)`, побайтно прежнее); комната — `RoomBankSpec.cell` (у спальни `(room_id, purpose, band, style, tier)`:
+    по тройке гостиной её 60 записей повторяются)."""
+    return None if SPEC.room == RBS.LIVING else SPEC.cell
+
+
 def sha(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
@@ -191,7 +198,7 @@ def recover(P: dict, abandon: bool = False) -> int:
     if cur == it['live_sha_after']:
         snap = gzip.decompress(open(it['snapshot'], 'rb').read())
         bad = (['снимок повреждён'] if sha(snap) != it['live_sha_before']
-               else SID.verify(json.loads(raw), json.loads(snap), cells=len(json.loads(snap))))
+               else SID.verify(json.loads(raw), json.loads(snap), cells=len(json.loads(snap)), key=_key()))
         if not bad:
             if it.get('hold') is not None:
                 _hold_save(P, it['hold'])
@@ -373,7 +380,7 @@ def write(P: dict, R: dict, *, force: bool = False, media_fn=None, now: float | 
     if sha(hraw) != man.get('hybrid_sha'):
         return _fail('смешанный банк не тот, что судили (hybrid_sha другой)')
     hybrid = json.loads(hraw)
-    ident = SID.verify(hybrid, live, cells=len(live))
+    ident = SID.verify(hybrid, live, cells=len(live), key=_key())
     if ident:
         return _fail('идентичность смешанного против живого: ' + '; '.join(ident))
     worse = [n for n in range(1, len(live) + 1) if n not in promoted and _strip(hybrid[n - 1]) != _strip(live[n - 1])]
@@ -397,7 +404,7 @@ def write(P: dict, R: dict, *, force: bool = False, media_fn=None, now: float | 
             print(x, flush=True)
         return 0
     try:                                       # байты, которые запишет write_bank (тот же dump) — sha «после» для намерения
-        target = json.dumps(SID.assign_ids(copy.deepcopy(out), live), ensure_ascii=False, indent=1).encode('utf-8')
+        target = json.dumps(SID.assign_ids(copy.deepcopy(out), live, _key()), ensure_ascii=False, indent=1).encode('utf-8')
     except SID.IdentityError as e:
         return _fail(f'идентичность записи: {e}')
     # запрет отката снимается сам, когда у ячейки новый кандидат
@@ -412,13 +419,13 @@ def write(P: dict, R: dict, *, force: bool = False, media_fn=None, now: float | 
     _intent_save(P, {'gen': gen, 'run_id': run_id, 'snapshot': spath, 'live_sha_before': lsha, 'live_sha_after': sha(target),
                      'hold': keep if keep != hold else None, 'record': rec})
     try:
-        SID.write_bank(out, P['live'], P['live'])
+        SID.write_bank(out, P['live'], P['live'], **({'key': _key()} if _key() else {}))
     except Exception as e:                     # noqa: BLE001 — любой сбой до rename: банк прежний (атомарная запись)
         _intent_clear(P)
         return _fail(f'запись не удалась ({type(e).__name__}: {e}); снимок {spath}')
     nraw = open(P['live'], 'rb').read()
     new = json.loads(nraw)
-    left = SID.verify(new, live, cells=len(live))
+    left = SID.verify(new, live, cells=len(live), key=_key())
     if left or new != out or sha(nraw) != sha(target):
         _atomic(P['live'], raw)
         _intent_clear(P)
@@ -454,7 +461,7 @@ def rollback(P: dict, gen: str, force: bool = False) -> int:
         return _fail(f"снимок {rec['snapshot']} повреждён (sha не тот)")
     raw = open(P['live'], 'rb').read()
     old, live = json.loads(snap), json.loads(raw)
-    ident = SID.verify(old, live, cells=len(live))
+    ident = SID.verify(old, live, cells=len(live), key=_key())
     if ident:
         return _fail('карта «номер → ячейка, set_id» снимка не совпала с живой: ' + '; '.join(ident))
     if raw == snap:
@@ -859,6 +866,8 @@ def main() -> int:
         return release(P, a[1] if len(a) > 1 else 'all')
     if a[:1] == ['recover']:
         return recover(P, abandon='--abandon' in a)
+    if SPEC.room != RBS.LIVING:                # медиа комнаты — уже в кандидате (strict сторожей сверил их с каталогом сейчас)
+        return write(P, rules(), force='--force' in a, media_fn=None, run_id=RUN.arg(a))
     from catalog_media import sync_sets
     return write(P, rules(), force='--force' in a, media_fn=sync_sets, run_id=RUN.arg(a))
 

@@ -373,10 +373,14 @@ def _selftest() -> int:
     return 1 if bad else 0
 
 
+# ночные флаги комнаты: шаги цепочки, репетиция записи в копию (тень, этап Е — на живое не влияет) и выкладка мешей
+NIGHT_FLAGS = (*FLAGS, 'rehearse_enabled', 'publish')
+
+
 def night_flag(room: str, flag: str) -> int:
     """Флаг комнаты для ночи (`refresh_daily.sh`, T-20261106-89): 1/0. Ночные флаги комнаты — `FLAGS` и `publish`; неизвестный — отказ."""
-    if flag not in (*FLAGS, 'publish'):
-        raise SystemExit(f'--flag {flag}: такого флага комнаты нет (есть: {", ".join((*FLAGS, "publish"))})')
+    if flag not in NIGHT_FLAGS:
+        raise SystemExit(f'--flag {flag}: такого флага комнаты нет (есть: {", ".join(NIGHT_FLAGS)})')
     return 1 if for_room(room).rules().get(flag) else 0
 
 

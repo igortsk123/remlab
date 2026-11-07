@@ -88,7 +88,8 @@ ROOM_STEPS = ('hall_catalog', 'rooms_alive', 'style_bedroom', 'style_hall', 'roo
 # → refresh [write_enabled]) → проверка состояния (всегда) — после писателя гостиной, до demo_band
 ROOMS = ('bedroom', 'hall')
 CHAIN = ('bank_prepare', 'mesh_cand', 'room_bindings', 'bank_pending', 'bank_promote', 'bank_refresh')
-ROOM_BANK = ('room_bindings', *(f'{s}_{r}' for r in ROOMS for s in ('compose', 'room_check', *CHAIN, 'bank_state')))
+ROOM_BANK = ('room_bindings', *(f'{s}_{r}' for r in ROOMS for s in ('compose', 'room_check', *CHAIN, 'bank_rehearse',
+                                                                     'bank_state')))
 DEMO = ('flat215_demo', 'demo_rt', 'flat215_publish')
 
 
@@ -336,6 +337,39 @@ def _rooms_bank(text: str, ok) -> int:
     fn, _, _ = run(0, full)
     ok('состояние определено — витрина собирается и публикуется, платная досъёмка за публикацией',
        all(n in fn for n in (*DEMO, 'demo_real')) and 'demo_real_check' not in fn)
+    # ТЕНЬ (этап Е): репетиция записи в копию — за rehearse_enabled, после цепочки (или суда), до проверки состояния; сбой — WARN
+    # в смысле ночи: остальное идёт, витрина и публикация — идут
+    reh = 'bedroom:rehearse_enabled'
+    for flags, after in ((f'{full} {reh}', 'bank_refresh_bedroom'), (f'{on} {reh}', 'room_check_bedroom')):
+        fn, cmd, log = run(0, flags)
+        ref, _, _ = run(0, flags.replace(f' {reh}', ''))
+        ok(f'репетиция ({"полная цепочка" if after.startswith("bank_refresh") else "prepare выключен"}): сразу за {after}, до проверки '
+           'состояния; команда `bank_rehearsal.py --room bedroom`; у прихожей нет; остальная ночь та же; в дайджесте «репетиция ok»',
+           fn.index(after) + 1 == fn.index('bank_rehearse_bedroom') == fn.index('bank_state_bedroom') - 1
+           and cmd['bank_rehearse_bedroom'] == '$PY bank_rehearsal.py --room bedroom' and 'bank_rehearse_hall' not in fn
+           and [n for n in fn if n != 'bank_rehearse_bedroom'] == ref and 'репетиция ok' in dig(log, 'спальня'),
+           (fn[fn.index(after) - 1:fn.index(after) + 4], dig(log, 'спальня')))
+    fn, _, log = run(0, full)
+    ok('репетиция: флаг выключен — шага нет, в дайджесте «репетиция выключено»',
+       'bank_rehearse_bedroom' not in fn and 'репетиция выключено' in dig(log, 'спальня'), dig(log, 'спальня'))
+    fr = f'{full} {reh}'
+    fn, _, _ = run(0, fr)
+    for failed in ('bank_rehearse_bedroom', 'bank_pending_bedroom', 'room_check_bedroom'):
+        gn, _, flog = run(0, fr, fail=failed)
+        gone = [] if failed == 'bank_rehearse_bedroom' else bch[bch.index(failed) + 1:] if failed in bch else bch
+        ok(f'репетиция: сбой {failed} — {"ночь та же" if not gone else "цепочка встала, репетиция всё равно идёт (кандидат есть)"}; '
+           'состояние, прихожая, витрина, публикация — идут',
+           gn == [n for n in fn if n not in gone] and 'bank_rehearse_bedroom' in gn
+           and all(n in gn for n in ('bank_state_bedroom', 'compose_hall', *DEMO, 'demo_real')), (gn[-12:], dig(flog, 'спальня')))
+    gn, _, flog = run(0, fr, fail='compose_bedroom')
+    ok('репетиция: сборка упала (кандидата нет) — репетиции нет, в дайджесте «репетиция нет кандидата»; витрина идёт',
+       'bank_rehearse_bedroom' not in gn and 'репетиция нет кандидата' in dig(flog, 'спальня') and all(n in gn for n in DEMO),
+       dig(flog, 'спальня'))
+    gn, _, wlog = run(0, fr, warn='compose_bedroom')
+    ok('репетиция: сборка с WARN — репетиция идёт', 'bank_rehearse_bedroom' in gn, gn[-12:])
+    gn, _, wlog = run(0, fr, warn='bank_rehearse_bedroom')
+    ok('репетиция: WARN репетиции — ночь та же, «репетиция warn» в дайджесте',
+       gn == fn and 'репетиция warn' in dig(wlog, 'спальня'), dig(wlog, 'спальня'))
     full, _ = night_log(text, 0, start=HEAD, publish='bedroom,hall=next')
     cmd = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in full}
     plain = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in night(text, 0, start=HEAD)}
