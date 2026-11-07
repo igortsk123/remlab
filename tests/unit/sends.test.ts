@@ -151,6 +151,16 @@ describe("опрос-знакомство (onb-03, ADR-0330 п.4)", () => {
       + "Квартира: гостиная — «Сканди»; спальня 1 — «Неоклассика» (такой нет, показан похожий «Современный»); спальня 2 — «Лофт».");
   });
 
+  it("«Отправить выбор риелтору» (home-figma-02): сигнал сразу — сумма и квартира по комнатам; повтор в 2 минуты не дублирует", async () => {
+    const s = (await createSend(mgr(), "flat215", "bot", { chatId: 501, messageId: 42 }, T0, store))!;
+    const sel: BuyerEvent = { kind: "selection_send", sum: 450000, styles: ["scandi", "loft"], rooms: rooms.filter((r) => r.room !== "bedroom-1") };
+    await recordBuyerEvent(s.id, sel, at(1), store);
+    await recordBuyerEvent(s.id, sel, at(2), store);
+    expect(store.outbox.map((o) => o.kind)).toEqual(["selection_send"]);
+    expect(store.outbox[0]!.text).toBe("Клиент отправил вам свой выбор на 450 000 ₽. Квартира: гостиная — «Сканди»; спальня 2 — «Лофт». Напишите ему — он ждёт ответа.");
+    expect((await store.getSend(s.id))!.status).toBe("engaged");
+  });
+
   it("«Выбрать другой» нового вида — в сводке стили и квартира по комнатам", async () => {
     const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
     await recordBuyerEvent(s.id, { kind: "style_change", styles: ["scandi", "loft"], rooms: rooms.filter((r) => r.room !== "bedroom-1") }, at(1), store);

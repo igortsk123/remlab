@@ -64,7 +64,7 @@ test("замена предмета меняет сумму; ссылка на �
 test("английский режим: первый экран без русских надписей", async ({ page }) => {
   await openDemo(page, "?lang=en");
   await page.waitForFunction("!!FLAT");
-  const head = await page.locator("#hmHd, #flatPrice, #hmView, #hmCert, #hmMix, #hmHint, #hmRooms").allInnerTexts();
+  const head = await page.locator("#hmHd, #flatPrice, #hmView, #hmBot, #hmMix, #hmTip1, #hmTip2, #hmRooms").allInnerTexts();
   expect(head.join(" ")).not.toMatch(/[А-Яа-яЁё]/);
 });
 

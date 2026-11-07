@@ -408,16 +408,20 @@ const rub = (t: string) => Number((t.match(/([\d\s  ]+)₽/)?.[1] ?? "").replace
 test("2.41–2.42 одна шкала сертификата (главная, окно, избранное) и сообщения: вид .msg, «включено, остаток N», доплата с подтверждением", async ({ browser }) => {
   test.setTimeout(6 * 60_000);
   const { page, close } = await demoPage(browser, phone, "?live=force");
-  // главная: «Выбрано 0» слева, сумма сертификата справа, полоса пустая, «i» на месте
+  // главная — липкий низ (home-figma-02): «Выбрано N» = сумма вариантов всех комнат главной (ведущий 07.11), справа — сумма сертификата
+  // без слова «сертификат», «i» на месте
   const h0 = await scale(page, "#hmCert");
   expect(h0).not.toBeNull();
   const total = rub(h0!.right);
-  say("главная до выбора:", JSON.stringify(h0), "· сертификат", total);
+  const home = Math.round(await page.evaluate("homeChosen()") as number);
+  say("главная до выбора:", JSON.stringify(h0), "· сертификат", total, "· комнаты главной", home);
   expect(h0!.left).toMatch(/^Выбрано/);
-  expect(h0!.chosen).toBe(0);
-  expect(rub(h0!.right), "справа — сумма сертификата").toBeGreaterThan(0);   // подпись «сертификат» на телефоне скрыта (`.lab-r`)
+  expect(home).toBeGreaterThan(0);
+  expect(h0!.chosen).toBe(home);
+  expect(rub(h0!.right), "справа — сумма сертификата").toBeGreaterThan(0);
+  expect(h0!.right).not.toMatch(/сертификат/);
   expect(h0!.leftIsLeft).toBe(true);
-  expect(h0!.s).toBe(0);
+  expect(h0!.s).toBeGreaterThan(0);
   expect(h0!.info).toBe(true);
   // окно: та же шкала; светлая часть — что добавит эта расстановка
   await page.locator(LIVING).click();
@@ -451,29 +455,25 @@ test("2.41–2.42 одна шкала сертификата (главная, о
   const alpha = Number(look.bg.match(/rgba?\(([^)]+)\)/)?.[1]?.split(",")[3] ?? 1);
   expect(alpha, "фон сообщения непрозрачный").toBeLessThan(1);
   expect(look.w).toBe(Math.round(Math.min(look.vw * 0.92, 560)));
-  // шкала после выбора: полоса = выбрано (главная, избранное); выбрано = сумма расстановки
+  // шкала главной после сохранения — по-прежнему выбор комнат главной (корзина её не меняет); полоса = выбрано; «i» — остаток
   await page.keyboard.press("Escape");
   const h1 = await scale(page, "#hmCert");
+  const home1 = Math.round(await page.evaluate("homeChosen()") as number);
   say("главная после выбора:", JSON.stringify(h1));
-  expect(h1!.chosen).toBe(sum);
-  expect(h1!.s).toBeCloseTo(Math.min(100, (sum / Math.max(total, sum)) * 100), 0);
+  expect(h1!.chosen).toBe(home1);
+  expect(h1!.s).toBeCloseTo(Math.min(100, (home1 / Math.max(total, home1)) * 100), 0);
   await page.locator("#hmCert button.vpl-i").click();
   const hb = (await page.locator("#hmCert .vpl-bub").innerText()).replace(/\s+/g, " ");
   say("пузырь «i» главной:", hb.slice(0, 200));
-  expect(hb).toMatch(/Осталось/);
-  expect(rub(hb.split("Осталось")[1]!), "остаток в «i»").toBe(total - sum);
+  if (home1 <= total) {
+    expect(hb).toMatch(/Осталось/);
+    expect(rub(hb.split("Осталось")[1]!), "остаток в «i»").toBe(total - home1);
+  } else expect(hb).toMatch(/Доплата/);
   await page.locator("#hmCert button.vpl-i").click();
+  // липкий низ — только на главной; на экране избранного его нет
   await page.evaluate("window.__basket.open('living')");
   await expect(page.locator("#screen-fav")).toBeVisible();
-  await page.evaluate("scrollTo(0, document.documentElement.scrollHeight)");
-  await page.waitForTimeout(500);
-  const fav = await page.evaluate("(() => { const e = document.getElementById('hmCert'), b = e.getBoundingClientRect(); return { visible: !!e.offsetParent, top: Math.round(b.top), bottom: Math.round(b.bottom), inFav: !!e.closest('#screen-fav') || getComputedStyle(e).position === 'sticky' || e.classList.contains('stuck') }; })()") as { visible: boolean; top: number; bottom: number; inFav: boolean };
-  const f1 = await scale(page, "#hmCert");
-  say("избранное, прокручено вниз:", JSON.stringify(fav), JSON.stringify(f1));
-  expect(fav.visible).toBe(true);
-  expect(fav.top).toBeGreaterThanOrEqual(0);
-  expect(fav.bottom).toBeLessThanOrEqual(260);                      // липкая — у верха экрана, не уехала с прокруткой
-  expect(f1!.chosen).toBe(sum);
+  await expect(page.locator("#hmBot")).toBeHidden();
   // своё имя: «Гостиная «<имя>» — включено…» (не включать → включить снова)
   const id = await page.evaluate("Object.values(window.__basket.state().includedByRoom)[0]") as string;
   await page.evaluate(([id]) => { const F = (window as unknown as { __fav: { rename: (i: string, n: string) => Promise<void>; exclude: (i: string) => void } }).__fav; return F.rename(id!, "Проверка").then(() => F.exclude(id!)); }, [id]);
