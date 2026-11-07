@@ -1,6 +1,7 @@
 {
  "_about": "Политика привязки товар → меш (room-pipeline-01 В-1а, T-20261105-45; разбор Codex _intake/codex/room-bind-2026-11-05-answer.md). Читает tools/scout/room_bindings.py; смена любого числа — новая policy_version (снимок с другой версией адаптер не читает как свой).",
- "policy_version": "v1",
+ "policy_version": "v2",
+ "_policy_history": "v2 (07.11, T-20261106-96/1): машинный вердикт — лестница вместо списка; v1 не пускал scene_ready/web_ready (ступени выше geometry_valid) — 40 мешей, переоценённых приёмкой gate_version 2, ушли в blocked.",
  "passport": {
   "_why": "паспорт ассета — габарит Ш×Г×В, с которым меш генерировали (manifest.json input.dims_cm), против текущего габарита каталога. ГИПОТЕЗА v1 (ведущий 05.11): отклонение не больше 3 % или 2 см — что больше. Допуск слота −20/+10 % сюда не годится: он отвечает на другой вопрос (Codex).",
   "keys": ["w", "d", "h"],
@@ -12,7 +13,10 @@
   "url_fallback": true
  },
  "generation": {
-  "machine_verdict_ok": [null, "generated", "geometry_valid"],
+  "_machine_verdict_why": "машинный вердикт поколения (mesh_generations.machine_verdict ← verdict.json приёмки salad/apply_repairs.py ← mesh_gate_pbr.status) — ЛЕСТНИЦА снизу вверх: каждая ступень значит «прошёл все нижние». Годен null (приёмка ещё не судила) или любая ступень не ниже machine_verdict_min; значение не из лестницы (failed и т. п.) — blocked. Лестница — полный список ступеней mesh_gate_pbr.status в порядке роста; самопроверка room_bindings сверяет её с кодом, новая ступень без правки лестницы роняет самопроверку, а не выбивает меши.",
+  "machine_verdict_ladder": ["generated", "geometry_valid", "scene_ready", "web_ready"],
+  "machine_verdict_min": "generated",
+  "machine_verdict_null_ok": true,
   "revision_status_ok": ["accepted", "generated"],
   "origin_bad": ["legacy-local"],
   "product_mesh_status_bad": ["quarantine", "rejected"]

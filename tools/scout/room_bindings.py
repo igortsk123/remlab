@@ -59,6 +59,16 @@ def policy(path: str = POLICY) -> dict:
 
 
 # ---------------------------------------------------------------- чистые правила
+def verdict_ok(v, pol: dict) -> bool:
+    """Машинный вердикт поколения годен: null (не судили) при machine_verdict_null_ok или ступень лестницы не ниже
+    machine_verdict_min (лестница — ступени mesh_gate_pbr.status снизу вверх; выше — значит прошёл все нижние)."""
+    g = pol['generation']
+    if v is None:
+        return bool(g['machine_verdict_null_ok'])
+    lad = g['machine_verdict_ladder']
+    return v in lad and lad.index(v) >= lad.index(g['machine_verdict_min'])
+
+
 def within(m, c, pol: dict) -> bool:
     p = pol['passport']
     return abs(float(m) - float(c)) <= max(p['rel'] * float(m), p['abs_cm'])
@@ -154,7 +164,7 @@ def asset_of(sku: str, cat_urls: set, F: Facts, pol: dict) -> tuple:
     gen = F.gens.get(rev.get('current_generation_key') or '')
     if gen is None:
         return None, None, True, photo, warn, reasons + ['no_current_generation']
-    if gen.get('machine_verdict') not in P['generation']['machine_verdict_ok']:
+    if not verdict_ok(gen.get('machine_verdict'), P):
         reasons.append(f"machine_verdict:{gen['machine_verdict']}")
     if gen.get('owner_verdict'):
         reasons.append(f"owner_verdict:{gen['owner_verdict']}")
@@ -979,7 +989,24 @@ def _selftest() -> int:
     ok('вердикт владельца на поколении (redo) — не ready', 'owner_verdict:redo' in bind('1:a', cat(1, 'a', 176, 214, 100), F6)['reasons'])
     F6.gens['G1old'].update(owner_verdict=None, machine_verdict='failed')
     ok('машинный вердикт-отказ — не ready', 'machine_verdict:failed' in bind('1:a', cat(1, 'a', 176, 214, 100), F6)['reasons'])
+    for v in ('scene_ready', 'web_ready', 'geometry_valid', 'generated', None):
+        F6.gens['G1old']['machine_verdict'] = v
+        ok(f'машинный вердикт {v} (ступень лестницы или не судили) — годен',
+           not any(x.startswith('machine_verdict') for x in bind('1:a', cat(1, 'a', 176, 214, 100), F6)['reasons']))
+    for v in ('failed', 'rejected', '', 'web_ready2'):
+        F6.gens['G1old']['machine_verdict'] = v
+        ok(f'машинный вердикт «{v}» не из лестницы — blocked', bind('1:a', cat(1, 'a', 176, 214, 100), F6)['status'] == 'blocked')
     F6.gens['G1old']['machine_verdict'] = 'generated'
+    pmin = json.loads(json.dumps(pol))
+    pmin['generation']['machine_verdict_min'] = 'scene_ready'
+    ok('нижний порог лестницы: ниже min — не годен, min и выше — годен',
+       not verdict_ok('geometry_valid', pmin) and verdict_ok('scene_ready', pmin) and verdict_ok('web_ready', pmin))
+    src = open(os.path.join(HERE, 'mesh_gate_pbr.py'), encoding='utf-8').read()
+    body = src[src.index('def status('):]
+    body = body[:body.index('\ndef ', 1)] if '\ndef ' in body[1:] else body
+    gate = re.findall(r"st = '([a-z_]+)'", body)
+    ok('лестница правила = ступени mesh_gate_pbr.status в порядке роста',
+       gate == pol['generation']['machine_verdict_ladder']) or print('  код:', gate, 'правило:', pol['generation']['machine_verdict_ladder'])
     F6.products['1:a'] = {'mesh_status': 'quarantine', 'family': None, 'rep': None}
     ok('карантин товара — не ready', 'product_mesh_quarantine' in bind('1:a', cat(1, 'a', 176, 214, 100), F6)['reasons'])
     ok('паспорт: 3 % или 2 см — что больше', passport_check({'w': 176, 'd': 214, 'h': 100}, [{'w': 181, 'd': 208, 'h': 98}], pol) == []
