@@ -114,11 +114,56 @@ select sku, sku, '{RUG}', style, '{RUG}', name, shop, img, url, coalesce(price::
   from ranked order by style, rn"""
 
 
+UNI_RUG = RULES['rug_universal']
+
+
+def universal_rug_sql() -> str:
+    """Нейтральные «универсальные» ковры (`rules/demo-swap.json` `rug_universal`) — без стиля, форма строки `_row`, порядок —
+    качество обогащения, артикул. Ворота наличия/фото — те же, что у `rug_sql`."""
+    flag = 'and coalesce(ps.universal, false)' if UNI_RUG.get('universal_flag') else ''
+    return f"""
+select p.shop_mid||':'||p.external_id as sku, p.shop_mid||':'||p.external_id, '{RUG}', '', '{RUG}', coalesce(p.name,''),
+       coalesce(p.shop,''), coalesce(p.image_url_hd, p.image_url), p.url,
+       coalesce(coalesce(p.price_shown_rub, p.price_rub)::text,''), greatest(p.w_cm, p.d_cm), least(p.w_cm, p.d_cm), 1
+  from products p
+  join product_enrichment e using (shop_mid, external_id)
+  join product_style_scores ps using (shop_mid, external_id)
+ where p.cat_role = '{RUG}' and p.in_stock and p.status = 'active'
+   and p.w_cm is not null and p.d_cm is not null
+   and coalesce(p.image_url_hd, p.image_url) is not null and coalesce(p.photo_alive, true)
+   and e.payload->'model'->>'primary_color' in ({_lit(UNI_RUG['colors'])})
+   and e.payload->'model'->'specific'->>'rug_pattern' in ({_lit(UNI_RUG['patterns'])})
+   {flag}
+ order by coalesce(e.quality, 0) desc, 1"""
+
+
+def universal_rugs(have: set, styles: tuple = STYLES, rows: list | None = None) -> list[dict]:
+    """ЗАПАСНОЙ КОВЁР СТИЛЯ — ОБЩАЯ ФУНКЦИЯ ОБОИХ ЗАПРОСОВ (T-20261107-11/2): стилям из `styles`, у которых нет ни одного своего
+    ковра (`have` — стили, которые свой запрос уже дал), — нейтральные универсальные ковры строками `_row` со стилем этого стиля
+    и отметкой `rug_universal`. У кого свой ковёр есть — ничего (5 стилей гостиной не меняются). `rows` — строки
+    `universal_rug_sql` (None — из базы, и только когда есть кому).
+
+    НЕСОВПАДЕНИЕ «СТУПЕНЬ ↔ БАЛЛ» (решит ведущий отдельно): «свой ковёр» у дозаполнения вариантов — ступень обогащения
+    (`demo_fill.RUG_SQL`: `payload.model.styles` «высокая»/«средняя»), у ленты — балл стиля ≥ `IN_STYLE_MIN` (`rug_sql`).
+    Отбор ленты строже, и стиль может иметь свой ковёр в варианте, но не в ленте (или наоборот) — тогда запасной включится
+    только в той, где своих нет. Критерии «в стиле» здесь не меняются."""
+    miss = [s for s in styles if s not in have]
+    if not miss:
+        return []
+    if rows is None:
+        from mesh_queue import db
+        rows = db(universal_rug_sql())
+    base = [p for p in map(_row, rows) if p]
+    return [dict(p, style=s, rug_universal=True) for s in miss for p in base]
+
+
 def rug_pool(ok=None, band: dict | None = None) -> list[dict]:
     """Ковры ленты замен: тот же отбор `pick` (до `PER_GROUP` прошедших на стиль, конверт роли — `ENVELOPE['ковёр']` по длинной
-    стороне, сперва — в полосе `band`), `ok` — проверки сборки ковра (`flat215_demo.swap_rug_ok`)."""
+    стороне, сперва — в полосе `band`), `ok` — проверки сборки ковра (`flat215_demo.swap_rug_ok`). Стилю без своих ковров —
+    запасной нейтральный (`universal_rugs`)."""
     from mesh_queue import db
-    return pick([p for p in map(_row, db(rug_sql())) if p], ok, band=band)
+    rows = [p for p in map(_row, db(rug_sql())) if p]
+    return pick(rows + universal_rugs({p['style'] for p in rows}), ok, band=band)
 
 
 def _row(r: list) -> dict | None:
@@ -294,6 +339,25 @@ def _selftest() -> int:
     if [p['sid'] for p in pick(rugs)] != ['r0', 'r2', 'r3']:
         bad += 1
         print('  FAIL: конверт ковра — по длинной стороне 180–300')
+    # запасной нейтральный ковёр (T-20261107-11/2): только стилям без своих, с отметкой; есть свои у всех — пусто, база не нужна
+    urow = ['112923:9', '112923:9', 'ковёр', '', 'ковёр', 'Ковер Серый 200x300', 'divan', 'i', 'u', '5000', '300', '200', '1']
+    uni = universal_rugs({'лофт', 'сканди'}, styles=('лофт', 'сканди', 'неоклассика'), rows=[urow])
+    if [(p['style'], p['sid'], p.get('rug_universal')) for p in uni] != [('неоклассика', '112923_9', True)]:
+        bad += 1
+        print('  FAIL: запасной ковёр — только стилю без своих, со стилем и отметкой:', uni)
+    if universal_rugs(set(STYLES), rows=None) != []:
+        bad += 1
+        print('  FAIL: у всех стилей свои ковры — запасного нет (и запроса к базе нет)')
+    uq = universal_rug_sql()
+    for must in ("'серый'", "'однотонный'", 'ps.universal', "rug_pattern", 'photo_alive', "cat_role = 'ковёр'"):
+        if must not in uq:
+            bad += 1
+            print('  FAIL: в запросе запасного ковра нет', must)
+    own_r = dict(rug, sid='own', msid='own', style='сканди')
+    mixed = pick([own_r] + uni)
+    if [(p['style'], p['sid']) for p in mixed] != [('сканди', 'own'), ('неоклассика', '112923_9')]:
+        bad += 1
+        print('  FAIL: лента — свой ковёр стиля остаётся, запасной — своей группой стиля без своих:', mixed)
     # полоса (demo-20 В): в группе сперва подходящие по размеру, порядок внутри прежний; без полосы — как было
     bnd = {'диван': {'lo': 160, 'hi': 200, 'side': 'w'}}
     rows_b = [row('w1', 'W', 150), row('n1', 'N', 180), row('w2', 'X', 150), row('n2', 'Y', 190)]

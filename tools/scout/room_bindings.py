@@ -95,6 +95,28 @@ def passport_check(gen_dims: dict | None, cat_dims_list: list, pol: dict, prefix
     return out
 
 
+def plan_depth(gen_dims: dict | None, cat_dims_list: list, name: str | None, pol: dict) -> tuple:
+    """Паспорт генерации без глубины у КРУГЛОГО или КВАДРАТНОГО в плане предмета → глубина = диаметру/ширине паспорта
+    (T-20261107-11/2). Генерация круглого столика получает в manifest только Ш и В (d=None), и паспорт навсегда
+    `passport_dim_missing:d` (347 прямых и ~400 семейных привязок 07.11). Круглый — слово из `round_words` в названии;
+    квадратный — у КАЖДОГО габарита каталога |w − d| ≤ `square_tol_cm`. Иначе (или d уже есть) — паспорт как был.
+    → (паспорт, взята ли глубина из плана)."""
+    p = (pol.get('passport') or {}).get('plan_depth') or {}
+    if not p.get('enabled') or not gen_dims or gen_dims.get('d') is not None:
+        return gen_dims, False
+    side = gen_dims.get('dia') if gen_dims.get('dia') is not None else gen_dims.get('w')
+    if side is None:
+        return gen_dims, False
+    nm = (name or '').lower()
+    round_ = any(wd in nm for wd in p.get('round_words') or ())
+    square = bool(cat_dims_list) and all(cd.get('w') is not None and cd.get('d') is not None
+                                         and abs(float(cd['w']) - float(cd['d'])) <= float(p.get('square_tol_cm', 0))
+                                         for cd in cat_dims_list)
+    if not (round_ or square):
+        return gen_dims, False
+    return dict(gen_dims, d=side), True
+
+
 def dims_hash(dims_list: list, keys: list) -> str:
     return hashlib.sha256(json.dumps([[d.get(k) for k in keys] for d in dims_list], sort_keys=True).encode()).hexdigest()[:16]
 
@@ -271,7 +293,12 @@ def offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, assets
         local = [f'rep:{x}' for x in local] + fam_why
         families.setdefault(fid, {'family': (F.products.get(sku) or {}).get('family') or '', 'representative_offer_id': rep,
                                   'basis': 'products.mesh_family_rep'})
-    pp = passport_check(rec['passport']['dims_cm'], cat['dims'], pol, 'family_passport' if via else 'passport') if rec else []
+    pp = []
+    if rec:
+        gdims, from_plan = plan_depth(rec['passport']['dims_cm'], cat['dims'], cat.get('name'), pol)
+        pp = passport_check(gdims, cat['dims'], pol, 'family_passport' if via else 'passport')
+        if from_plan:
+            warn.append('passport_d_from_plan')
     local += pp
     roles = set(cat.get('roles') or ()) | ({rec['passport']['role']} if rec and rec['passport'].get('role') else set())
     ori = (rec or {}).get('orientation') or {}
@@ -1016,6 +1043,34 @@ def _selftest() -> int:
     ok('карантин товара — не ready', 'product_mesh_quarantine' in bind('1:a', cat(1, 'a', 176, 214, 100), F6)['reasons'])
     ok('паспорт: 3 % или 2 см — что больше', passport_check({'w': 176, 'd': 214, 'h': 100}, [{'w': 181, 'd': 208, 'h': 98}], pol) == []
        and passport_check({'w': 176, 'd': 214, 'h': 100}, [{'w': 182, 'd': 214, 'h': 100}], pol) == ['passport_mismatch:w'])
+    # глубина из плана (T-20261107-11/2): круглый по названию или квадратный по каталогу; прямоугольный — как было
+    noD = {'w': 80, 'd': None, 'h': 33}
+    ok('паспорт без d, квадратный в плане по каталогу — d = ширине, сходится',
+       plan_depth(noD, [{'w': 80, 'd': 80, 'h': 33}], 'Стол журнальный Gatwick 80 см', pol) == ({'w': 80, 'd': 80, 'h': 33}, True)
+       and passport_check(plan_depth(noD, [{'w': 80, 'd': 80, 'h': 33}], '', pol)[0], [{'w': 80, 'd': 80, 'h': 33}], pol) == [])
+    ok('паспорт без d, «круглый» в названии — d = ширине, хотя каталог не квадратный',
+       plan_depth(noD, [{'w': 80, 'd': 60, 'h': 33}], 'Столик Круглый 80', pol)[1]
+       and passport_check(plan_depth(noD, [{'w': 80, 'd': 60, 'h': 33}], 'Столик Круглый 80', pol)[0],
+                          [{'w': 80, 'd': 60, 'h': 33}], pol) == ['passport_mismatch:d'])
+    ok('паспорт без d, диаметр в паспорте — d = диаметру',
+       plan_depth({'w': None, 'd': None, 'h': 40, 'dia': 50}, [{'w': 50, 'd': 50, 'h': 40}], 'Столик Ø50', pol)[0]['d'] == 50)
+    ok('паспорт без d у прямоугольного — по-прежнему passport_dim_missing:d',
+       plan_depth(noD, [{'w': 80, 'd': 60, 'h': 33}], 'Стол журнальный Лори', pol) == (noD, False)
+       and passport_check(noD, [{'w': 80, 'd': 60, 'h': 33}], pol) == ['passport_dim_missing:d'])
+    ok('d в паспорте есть — правило не вмешивается (квадратный каталог, d паспорта иной)',
+       plan_depth({'w': 80, 'd': 70, 'h': 33}, [{'w': 80, 'd': 80, 'h': 33}], 'кругл', pol) == ({'w': 80, 'd': 70, 'h': 33}, False))
+    poff = json.loads(json.dumps(pol))
+    poff['passport']['plan_depth']['enabled'] = False
+    ok('правило выключено — паспорт как был', plan_depth(noD, [{'w': 80, 'd': 80, 'h': 33}], 'кругл', poff) == (noD, False))
+    mans_sq = {'role': 'столик', 'input': {'dims_cm': {'w': 98, 'd': None, 'h': 25}, 'image_url': 'u2'}}
+    Fsq = copy.copy(F)
+    Fsq.manifest = lambda g: mans_sq if g.get('path') == '/g/2' else F.manifest(g)
+    r = bind('2:b', cat(2, 'b', 98, 98, 25, role='комод', urls=('u2',)), Fsq)
+    ok('привязка: квадратный столик без d в паспорте — ready с отметкой passport_d_from_plan',
+       r['status'] == 'ready' and 'passport_d_from_plan' in r['warnings']) or print(r['reasons'], r['warnings'])
+    r = bind('2:b', cat(2, 'b', 98, 35, 25, role='комод', urls=('u2',)), Fsq)
+    ok('привязка: прямоугольный без d в паспорте — blocked passport_dim_missing:d',
+       'passport_dim_missing:d' in r['reasons'] and 'passport_d_from_plan' not in r['warnings'])
     r = bind('1:a', cat(1, 'a', 200, 214, 100))
     ok('габарит каталога сменился — не ready', r['status'] == 'blocked' and 'passport_mismatch:w' in r['reasons']
        and r['passport']['status'] == 'mismatch')
