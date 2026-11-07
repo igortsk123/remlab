@@ -1038,6 +1038,48 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .qz-pair .qz-fr{position:relative;display:block;flex:1 1 0;min-height:0}
 .qz-pair .qz-ph .qz-img{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto;border-width:3px}
 .qz-pair .qz-ph b{font-size:15.5px}
+/* ИТОГ «ПОДБИРАЕМ → ГОТОВО» (владелец TG 494, 496–497, T-49/2): стопка фото по центру. Чужие стили ложатся друг на друга с лёгким
+   поворотом (`.fod.in`), сверху — комнаты собранной квартиры (`.fin.in`); «готово» (`.qz-fin.done`) — чужие гаснут, свои раскрываются
+   веером (смещение/поворот/масштаб — переменные карточки из `finRun`), подписи комнат проявляются. Ширина карточки — от высоты и
+   ширины экрана, веер из трёх на 390 не выходит за края */
+.qz-fin{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+/* телефон: карточка ~78 % ширины, веер сверху вниз — высота стопки ≈ 2,1 высоты карточки (3:4 ширины) */
+.qz-stack{position:relative;flex:0 0 auto;width:100%;--cw:min(78vw,calc((100dvh - 300px) * .62),520px);height:calc(var(--cw) * .75 * 2.1)}
+.qz-fin[data-n='2'] .qz-stack{height:calc(var(--cw) * .75 * 1.6)}.qz-fin[data-n='1'] .qz-stack,.qz-fin[data-n='0'] .qz-stack{height:calc(var(--cw) * .75 * 1.1)}
+.qz-sc{position:absolute;left:50%;top:50%;width:var(--cw);aspect-ratio:4/3;border-radius:14px;overflow:hidden;background:var(--wash-2);
+  border:4px solid var(--surface);box-shadow:0 10px 28px rgba(0,0,0,.18);opacity:0;
+  transform:translate(-50%,-50%) translate(46%,22%) rotate(14deg) scale(.9);
+  transition:transform .55s cubic-bezier(.2,.75,.25,1),opacity .3s ease}
+.qz-sc img{display:block;width:100%;height:100%;object-fit:cover}
+.qz-sc.in{opacity:1;transform:translate(-50%,-50%) rotate(var(--r,0deg))}
+.qz-fin.done .qz-sc.fod{opacity:0;transform:translate(-50%,-50%) rotate(var(--r,0deg)) scale(.9)}
+.qz-fin.done .qz-sc.fin{opacity:1;transform:translate(-50%,-50%) translate(var(--fx,0%),var(--fy,0%)) rotate(var(--fr,0deg)) scale(var(--fs,1))}
+/* веер: гостиная в центре сверху; телефон — спальня выше-левее, детская ниже-правее; компьютер — слева и справа */
+.qz-fin[data-n='3'] .fin.b1{--fx:-10%;--fy:-60%;--fr:-5deg;--fs:.84}.qz-fin[data-n='3'] .fin.b2{--fx:10%;--fy:60%;--fr:5deg;--fs:.84}
+.qz-fin[data-n='2'] .fin.liv{--fy:22%}.qz-fin[data-n='2'] .fin.b1,.qz-fin[data-n='2'] .fin.b2{--fx:-8%;--fy:-40%;--fr:-4deg;--fs:.86}
+.qz-sc-l{position:absolute;left:8px;bottom:8px;z-index:1;background:rgba(255,255,255,.92);color:var(--ink);font-size:13px;font-weight:600;
+  border-radius:999px;padding:4px 10px;opacity:0;transition:opacity .35s ease .25s}
+.qz-fin.done .qz-sc-l{opacity:1}
+.qz-sc.b1 .qz-sc-l{bottom:auto;top:8px}.qz-sc.b2 .qz-sc-l{left:auto;right:8px}   /* у спальни виден верх, у детской — правый край */
+#qzBox .qz-foot .qz-see{width:100%;max-width:420px;align-self:center}
+.qz-fint{flex:0 0 auto;width:100%;max-width:520px;text-align:center}
+.qz-fsub{position:relative;min-height:3em;margin-top:8px}
+.qz-prog{position:absolute;top:8px;left:50%;width:min(240px,60%);height:4px;border-radius:2px;background:var(--accent-soft);
+  overflow:hidden;transform:translateX(-50%);transition:opacity .3s}
+.qz-prog i{display:block;height:100%;width:0;background:var(--accent);transition:width 2s linear}
+.qz-fins{opacity:0;transition:opacity .4s ease .15s;margin:0}
+.qz-fin.done .qz-prog{opacity:0}.qz-fin.done .qz-fins{opacity:1}
+#qzBox .qz-card:not(.qz-done) .qz-see{opacity:0}
+.qz-see{transition:opacity .35s ease .2s}
+@media (min-width:700px) and (min-aspect-ratio:1/1){
+  .qz-stack{--cw:min(38vw,calc((100dvh - 330px) * 1.15),520px);height:calc(var(--cw) * .75 * 1.15)}
+  .qz-fin[data-n] .qz-stack{height:calc(var(--cw) * .75 * 1.15)}
+  .qz-fin[data-n='3'] .fin.b1{--fx:-36%;--fy:3%;--fr:-7deg}.qz-fin[data-n='3'] .fin.b2{--fx:36%;--fy:3%;--fr:7deg}
+  .qz-fin[data-n='2'] .fin.liv{--fx:13%;--fy:0%;--fr:3deg}.qz-fin[data-n='2'] .fin.b1,.qz-fin[data-n='2'] .fin.b2{--fx:-24%;--fy:2%;--fr:-5deg}
+  .qz-sc.b1 .qz-sc-l{top:auto;bottom:12px}
+  .qz-sc-l{font-size:14px;left:12px;bottom:12px}.qz-sc.b2 .qz-sc-l{right:12px}.qz-fin .qz-h{font-size:24px}.qz-fin .qz-sub{font-size:16px}
+}
+@media (prefers-reduced-motion:reduce){.qz-sc,.qz-sc-l,.qz-prog,.qz-prog i,.qz-fins,.qz-see{transition:none}}
 /* сердечко (TG 435): белый полупрозрачный круг 44 px, контур сердца; выбрано — заливка акцентом, лёгкий «толчок» */
 .qz-heart{position:absolute;right:10px;bottom:10px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;pointer-events:none;
   background:rgba(255,255,255,.55);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);box-shadow:0 1px 4px rgba(0,0,0,.18);transition:background .15s,transform .15s}
@@ -8392,26 +8434,71 @@ function quizPick(rule, answers, available, styleColours){
   // список — `homeVarList` (общий с главной: строка «Вариант N» и окно «Выбрать другой», шаг 5)
   function optNo(id){return homeVarNo(id);}
   function optName(id){return (EN()?'Option ':'Вариант ')+optNo(id);}
+  // ИТОГ = «ПОДБИРАЕМ» → «КВАРТИРА ГОТОВА» (владелец TG 494, 496–497, T-20261107-49/2): трёх карточек стилей нет. Квартира — ОДИН
+  // собранный вариант: стиль комнаты — с экрана этой комнаты (гостиная — экраны стиля гостиной, спальня — экран спальни, детская —
+  // экран детской), ответа нет — по правилу зон (`mixFromPairs`, блок HOMEMIX: тот же выбор, что прежняя «Выбрать вариант N»).
+  // Основной (`Q.pick[0]`) — ответ экрана 1, нет — первый из подбора. Стопка — НАШИ фото нейросети: чужие стили перелистываются,
+  // сверху ложатся комнаты квартиры и раскрываются веером; без движения (`prefers-reduced-motion`) — сразу «готово»
+  function finRooms(){
+    var m=homeModel(), main=Q.pick[0]||'', sel=main?mixFromPairs(main,ansOf('sp'),ansOf('bp'),m.rooms):null, fb=(D&&D.room_style_fallback)||{};
+    if(!sel)return [];
+    var beds=m.rooms.filter(function(r){return mixZone(r.kind)===1;}), kid=hasKid(), out=[], liv=false;
+    m.rooms.forEach(function(r){
+      var bi=beds.indexOf(r); if(r.contentState!=='ready'||(r.kind==='living'?liv:bi<0||bi>1))return;
+      var x=mixShown(m.roomVariants,fb,sel,r); if(!x.rv)return;
+      var v=allVariants()[x.rv.index], sh=photoOf(v,r.kind==='living'?'C1':posterCam(v));
+      if(!(sh&&sh.quality==='realistic'&&(sh.thumb||sh.url)))return;   // черновой 3D-кадр в стопку не кладём
+      if(r.kind==='living')liv=true;
+      var lb=r.kind==='living'?(EN()?'Living room':'Гостиная'):bi===0?(EN()?'Bedroom':'Спальня'):kid?(EN()?'Kids’ room':'Детская'):(EN()?'Bedroom 2':'Спальня 2');
+      out.push({role:r.kind==='living'?'liv':(bi===0?'b1':'b2'), img:sh.thumb||sh.url, label:lb});
+    });
+    return out;
+  }
+  // перелистываемые — фото гостиных и спален других стилей (до 5), без повторов с итоговыми
+  function finFodder(fin){
+    var used=fin.map(function(x){return x.img;}), out=[];
+    roomPhotos('living').concat(roomPhotos('bedroom')).forEach(function(x){if(x.img&&used.indexOf(x.img)<0&&out.indexOf(x.img)<0)out.push(x.img);});
+    return out.slice(0,5);
+  }
   function screenR(){
-    // итог коротко — «Ваш стиль — Вариант N» (владелец 06.11, T-20261106-94; подпись — TG 368), похожие отмечены на карточках
-    var st=styles(), lv=liked('sp'), mine0=Q.pick.filter(function(id){return lv.indexOf(id)>=0;}), L=mine0.map(optName);
-    // в подписи итога — «Вариант N», не название стиля (T-20261107-28/3); слово «стиль» есть только в вопросах пар (TG 409)
-    var sub=EN()?(mine0.length?'Your closest match — '+L.join(' and '):(colOn()?'Options close to your colours':'Options for your apartment'))
-      :(mine0.length?'Вам ближе всего — '+L.join(' и '):(colOn()?'Варианты, близкие вашим цветам':'Варианты для вашей квартиры'));
-    var cards=Q.pick.map(function(id){var s=st.filter(function(x){return x.id===id;})[0]||{id:id,title:id}, mine=lv.indexOf(id)>=0;
-      var ps=s.v?variantProducts(s.v):[], n=ps.length, sum=s.v?money(variantPrice(s.v)):'';
-      var img=s.real&&s.img;   // черновой 3D-кадр и пустую плашку не показываем — карточка без картинки, только текст
-      return '<div class="qz-res'+(img?'':' qz-noimg')+'" data-res="'+esc(id)+'">'+(img?'<img class="qz-img" alt="" src="'+esc(img)+'">':'')+
-        '<span class="qz-tag'+(mine?'':' near')+'">'+(mine?(EN()?'Best match':'Ближе всего'):(EN()?'Similar':'Похожий'))+'</span>'+
-        '<div class="qz-cap"><b>'+esc(optName(id))+'</b><span>'+(n?n+' '+itemsWord(n)+' · '+esc(sum):'')+'</span></div></div>';}).join('');
-    var dots=Q.pick.map(function(id,i){return '<button type="button" data-dot="'+i+'" aria-label="'+(i+1)+'" aria-current="'+(i===Q.at)+'"><i></i></button>';}).join('');
-    var k=Q.pick.length;   // стилей с фото может быть меньше трёх (T-28/2)
-    return page('<h2 class="qz-h" id="qzH">'+(EN()?'We picked '+k+' design'+(k===1?'':'s')+' for you':'Подобрали для вас '+k+' вариант'+(k===1?'':'а'))+'</h2><p class="qz-sub">'+esc(sub)+'</p>'+
-      '<div class="qz-car">'+cards+'</div>'+
-      '<div class="qz-pager"><button type="button" class="qz-arr" data-qz="prev" aria-label="'+(EN()?'Previous':'Назад')+'">‹</button>'+dots+
-      '<button type="button" class="qz-arr" data-qz="nxt" aria-label="'+(EN()?'Next':'Дальше')+'">›</button></div>',
-      '<button class="btn primary qz-next" type="button" data-qz="choose" style="min-height:48px;font-weight:600">'+esc(chooseText())+'</button>'+
-      '<button class="qz-link" type="button" data-qz="all">'+(EN()?'All options':'Все варианты')+'</button>');
+    var fin=finRooms(), fod=finFodder(fin);
+    var card=function(src,cls,st,lb){return '<div class="qz-sc '+cls+'" style="'+st+'"><img alt="" src="'+esc(src)+'">'+(lb?'<span class="qz-sc-l">'+esc(lb)+'</span>':'')+'</div>';};
+    var cards=fod.map(function(x,i){return card(x,'fod','--r:'+[-4,3,-2,5,-3][i%5]+'deg','');}).join('')+
+      // порядок появления: спальни, потом гостиная — она ложится сверху
+      // веер «готово» — классом роли (`liv`/`b1`/`b2`) и числом комнат (`data-n`), раскладка — в стилях
+      fin.slice().sort(function(a,b){return (a.role==='liv')-(b.role==='liv');}).map(function(x){
+        return card(x.img,'fin '+x.role,'--r:'+(x.role==='liv'?0:x.role==='b1'?-3:3)+'deg',x.label);}).join('');
+    var sub=EN()?'We put your apartment together from your styles. You can change the style in any room':
+      'Собрали квартиру из ваших стилей. В каждой комнате стиль можно сменить';
+    return page('<div class="qz-fin" data-n="'+Math.min(3,fin.length)+'"><div class="qz-stack" aria-hidden="true">'+cards+'</div>'+
+      '<div class="qz-fint"><h2 class="qz-h" id="qzH" aria-live="polite">'+(EN()?'Finding your options…':'Подбираем варианты…')+'</h2>'+
+      '<div class="qz-fsub"><div class="qz-prog" aria-hidden="true"><i></i></div><p class="qz-sub qz-fins">'+esc(sub)+'</p></div></div></div>',
+      '<button class="btn primary qz-next qz-see" type="button" data-qz="choose" disabled style="min-height:48px;font-weight:600">'+(EN()?'Take a look':'Посмотреть')+'</button>');
+  }
+  // ход стопки: фото сперва загружаются (не дольше 1,5 с; не загрузилось — карточку убираем, пустых рамок нет), затем чужие ложатся
+  // по одной (280 мс), свои (300 мс), через 250 мс — «готово». Новый заход на итог перезапускает ход (`Q._finT`)
+  function finRun(c){
+    var box=c.querySelector('.qz-fin'); if(!box)return;
+    var T=Q._finT=(Q._finT||0)+1, live=function(){return Q.open&&Q.step==='result'&&Q._finT===T;};
+    var h=box.querySelector('#qzH'), see=c.querySelector('.qz-see'), bar=box.querySelector('.qz-prog i');
+    var done=function(){if(!live())return; box.classList.add('done'); c.classList.add('qz-done');
+      h.textContent=EN()?'Your apartment is ready':'Квартира готова'; if(see){see.disabled=false; try{see.focus({preventScroll:true});}catch(e){}}};
+    var imgs=[].slice.call(box.querySelectorAll('.qz-sc img'));
+    var start=function(){if(!live()||start.on)return; start.on=1;
+      imgs.forEach(function(im){if(!(im.complete&&im.naturalWidth)){var k=im.parentNode; k.parentNode.removeChild(k);}});
+      var fods=[].slice.call(box.querySelectorAll('.qz-sc.fod')), fins=[].slice.call(box.querySelectorAll('.qz-sc.fin'));
+      box.setAttribute('data-n',String(Math.min(3,fins.length)));   // фото не загрузилось — веер по оставшимся
+      if(VW_SLOW()){fins.forEach(function(k){k.classList.add('in');}); done(); return;}
+      var t=80, end=t+fods.length*280+fins.length*300+250;
+      if(bar){bar.style.transitionDuration=end+'ms'; void bar.offsetWidth; bar.style.width='100%';}
+      fods.forEach(function(k){setTimeout(function(){if(live())k.classList.add('in');},t); t+=280;});
+      fins.forEach(function(k){setTimeout(function(){if(live())k.classList.add('in');},t); t+=300;});
+      setTimeout(done,Math.max(end,1200));
+    };
+    var left=imgs.length; if(!left){start(); return;}
+    imgs.forEach(function(im){if(im.complete){if(!--left)start(); return;}
+      im.addEventListener('load',function(){if(!--left)start();}); im.addEventListener('error',function(){if(!--left)start();});});
+    setTimeout(start,1500);
   }
   var SCREENS={hello:screen0, s1:function(){return screenPair('s1');}, s2:function(){return screenPair('s2');}, about:about,
     b1:function(){return screenPair('b1');}, b2:function(){return screenPair('b2');}, result:screenR};
@@ -8422,28 +8509,18 @@ function quizPick(rule, answers, available, styleColours){
     // тройку считали до прихода реестра кадров (фото ещё не знали) — пересчитать, когда пришёл
     if(Q.step==='result'&&(!Q.pick.length||(!Q._pickReady&&shotsReady()))){Q.pick=pick(); Q.at=0;}
     // перерисовка того же экрана (пришли кадры, отметка) прокрутку тела не сбрасывает; новый экран — сверху
+    if(Q.step==='result'&&c.dataset.step==='result'&&c.querySelector('.qz-fin')){if(focus)try{c.focus({preventScroll:true});}catch(e){} return;}
     var bd=c.querySelector('.qz-body'), keep=bd&&c.dataset.step===Q.step?bd.scrollTop:0;
+    c.classList.remove('qz-done');
     c.innerHTML=SCREENS[Q.step](); c.dataset.step=Q.step; c.dataset.n=String(total());
     b.setAttribute('aria-labelledby','qzH'); bd=c.querySelector('.qz-body'); if(bd)bd.scrollTop=keep;
-    if(Q.step==='result'){var car=c.querySelector('.qz-car'), w=car&&car.querySelector('.qz-res');
-      if(car&&w){car.scrollLeft=Q.at*stepOf(car,w);
-        car.onscroll=function(){var k=Math.round(car.scrollLeft/stepOf(car,w)); if(k!==Q.at&&k>=0&&k<Q.pick.length){Q.at=k; sync();}};}}
+    if(Q.step==='result')finRun(c);
     if(focus)try{c.focus({preventScroll:true});}catch(e){}
     // кадры ещё в пути (реестр кадров приходит отдельно) — перерисовать, когда придут
     // приветствие тоже: число вопросов зависит от того, будут ли шаги с фото
     var wait=function(){return Q.step!=='about';};
     if(wait()&&!SHOTS_LOADED&&!Q._wait){Q._wait=setTimeout(function(){Q._wait=0; if(Q.open&&wait())render();},500);}
   }
-  // шаг ленты итога — ширина карточки + промежуток из стилей (телефон 10, компьютер 24 — там соседняя карточка не выглядывает)
-  function stepOf(car,w){return w.offsetWidth+(parseFloat(getComputedStyle(car).columnGap)||0);}
-  function chooseText(){var n=optNo(Q.pick[Q.at]); return EN()?'Choose option '+n:'Выбрать вариант '+n;}
-  function sync(){   // листание итога: точки и надпись кнопки — за видимой карточкой
-    var c=box().querySelector('.qz-card');
-    c.querySelectorAll('[data-dot]').forEach(function(d){d.setAttribute('aria-current',String(+d.dataset.dot===Q.at));});
-    var ch=c.querySelector('[data-qz=choose]'); if(ch)ch.textContent=chooseText();
-  }
-  function go(k){var car=box().querySelector('.qz-car'), w=car&&car.querySelector('.qz-res'); if(!w)return;
-    Q.at=Math.max(0,Math.min(Q.pick.length-1,k)); car.scrollTo({left:Q.at*stepOf(car,w),behavior:VW_SLOW()?'auto':'smooth'}); sync();}
   function close(how){
     Q.open=false; box().classList.remove('on'); save();
     if(how)markSeen(how);
@@ -8490,14 +8567,11 @@ function quizPick(rule, answers, available, styleColours){
     if(t.dataset.kids){Q.a.kids=Q.a.kids===t.dataset.kids?'':t.dataset.kids; save(); render(); return;}   // один ответ; повторное нажатие снимает
     if(t.dataset.age){var j=Q.a.ages.indexOf(t.dataset.age); if(j>=0)Q.a.ages.splice(j,1); else Q.a.ages.push(t.dataset.age); save(); render(); return;}
     if(t.dataset.col){toggle(Q.a.colours,t.dataset.col,(question('colours')||{}).max||2); Q.pick=[]; save(); render(); return;}
-    if(t.dataset.dot){go(+t.dataset.dot); return;}
-    if(a==='prev'){go(Q.at-1); return;} if(a==='nxt'){go(Q.at+1); return;}
     if(a==='next'){if(t.disabled)return; Q._dir=1; Q.step=move(Q.step,1); if(Q.step==='result'){Q.pick=pick(); Q.at=0;} save(); render(true); return;}
     if(a==='back'){Q._dir=-1; Q.step=move(Q.step,-1); save(); render(true); return;}
     if(a==='skip'){close('skip'); tell({counters:['quiz_skip']}); return;}
-    // «Все варианты» (шаг 5): видимая карточка итога — выбором квартиры (главная не пустая), поверх — окно «Выбрать другой» со всеми
-    if(a==='all'){var id1=Q.pick[Q.at]; close('done'); finish(id1,false); if(window.__mixOpen)window.__mixOpen(); return;}
-    if(a==='choose'){var id2=Q.pick[Q.at]; close('done'); finish(id2,true); return;}
+    // «Посмотреть» (T-49/2): собранная квартира — выбор, как прежняя «Выбрать вариант N» (основной — первый из подбора)
+    if(a==='choose'){if(t.disabled)return; var id2=Q.pick[0]; close('done'); finish(id2,true); return;}
   });
   // решаем, когда пришла карточка квартиры (флаг и сертификат — в ней); по ссылке менеджера — карточка ЕГО квартиры
   function decide(){
