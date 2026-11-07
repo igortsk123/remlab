@@ -738,6 +738,12 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .vtab.add{border-style:dashed;color:var(--accent)}
 /* СХЕМА КОМНАТ: площади разные, поэтому плитки масштабируются по площади — но это схема, а не план */
 #flatRooms{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+/* ЧЁРНЫЙ ОВАЛ НА ПЛАНЕ (T-20261107-36, владелец TG 381–382): комната плана — группа SVG с `tabindex`, координаты в МЕТРАХ (`viewBox`
+   `flatPlan`). Рамка фокуса (`:focus-visible` выше; у Chrome своя чёрно-белая `auto`) рисуется в тех же единицах: 2px = 2 м, ~120 px
+   поверх соседних комнат со скруглением. Рамку и подсветку касания снимаем; фокус с клавиатуры — обводкой самой комнаты */
+#flatRooms svg :focus,.planbox svg :focus{outline:none}
+#flatRooms svg g[role=button]{-webkit-tap-highlight-color:transparent}
+#flatRooms svg g[role=button]:focus-visible rect:nth-of-type(2){stroke:var(--accent);stroke-width:.12}
 .rm{border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;background:var(--wash);
  min-width:120px;display:flex;flex-direction:column;justify-content:flex-end;cursor:default}
 .rm.go{cursor:pointer;border-color:var(--accent);background:var(--surface);box-shadow:var(--glow)}
