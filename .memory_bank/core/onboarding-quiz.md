@@ -3,7 +3,7 @@ tier: 1
 topic: onboarding-quiz
 scope: Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат
 tier2: "../domain/onboarding-quiz.md"
-updated: 2026-11-06
+updated: 2026-11-07
 importance: med
 source: manual
 status: draft
@@ -18,7 +18,7 @@ review_after: 2026-12-05
 главная. Экраны — `tools/scout/flat215-demo/index.html` (T-83, 06.11; «сколько детей» — T-94). Детали — [[onboarding-quiz-details]].
 
 **Где показываем.** Флаг `contracts/partner.ts:apartmentQuiz`; имя `lib/quiz/name.ts` (поле менеджера выключено, `QUIZ_NAME_FIELD`).
-- Только по флагу квартиры `apartments[].quiz.enabled`. По умолчанию он выключен, у двойника `demo-uk-215` — свой.
+- Только по флагу квартиры `apartments[].quiz.enabled`. По умолчанию он выключен; у британского двойника `demo-uk-215` — такой же, как у оригинала `flat215` (включён 07.11, T-94/2; совпадение сторожит `tests/unit/partners.test.ts` § «британский профиль»).
 - Обход:
   - `?quiz=0` — так ходит вся автоматика;
   - `/embed`;
