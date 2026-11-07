@@ -33,8 +33,12 @@ import room_bank_spec as RBS  # noqa: E402
 import room_guards as RG  # noqa: E402
 import room_identity as RI  # noqa: E402
 import room_publish as RP  # noqa: E402
+import bank_rehearsal as BR  # noqa: E402
 
 bad = 0
+# временное — на диск (REMLAB_TMP), не в tmpfs /tmp с квотой: как у test_bank_rehearsal (T-20261107-04/4); в CI — системная
+if BR.tmp_root():
+    tempfile.tempdir = BR.tmp_root()
 
 
 def ok(name, cond, extra=''):

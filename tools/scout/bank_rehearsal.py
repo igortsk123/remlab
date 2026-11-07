@@ -65,6 +65,15 @@ def sealed(hits: list):
         socket.socket.connect, subprocess.Popen.__init__ = real_conn, real_popen
 
 
+def tmp_root() -> str | None:
+    """Папка временного на диске: REMLAB_TMP, иначе ~/remlab-scratch/tmp, если есть (`tools/ops/remlab-tmp.sh`); нет — None
+    (системная). /tmp DEV — tmpfs с квотой: песочница репетиции падала там EDQUOT при ручном прогоне (T-20261107-04/4)."""
+    for d in (os.environ.get('REMLAB_TMP'), os.path.expanduser('~/remlab-scratch/tmp')):
+        if d and os.path.isdir(d):
+            return d
+    return None
+
+
 def _sha_file(path: str) -> str | None:
     import bank_refresh as RF
     try:
@@ -311,7 +320,7 @@ def main(argv: list) -> int:
             os.makedirs(keep)               # новая папка: существующую не трогаем
             out = rehearse(room, keep, live_path=live_path, gen_dir=gen_dir, verdict_fn=verdict_fn, run_id=run_id)
         else:
-            with tempfile.TemporaryDirectory(prefix=f'bank-rehearsal-{room}-') as sb:
+            with tempfile.TemporaryDirectory(prefix=f'bank-rehearsal-{room}-', dir=tmp_root()) as sb:
                 out = rehearse(room, sb, live_path=live_path, gen_dir=gen_dir, verdict_fn=verdict_fn, run_id=run_id)
     except (Exception, SystemExit) as e:  # noqa: BLE001 — репетиция не прошла: ночь идёт, в сводке видно; SystemExit — модули
         # сторожей/сборщика выходят им на нехватке входа (нет style-scores-*.json): без него шаг ночи стал бы FAIL, а не WARN

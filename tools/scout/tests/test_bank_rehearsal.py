@@ -32,6 +32,12 @@ import set_identity as SID  # noqa: E402
 
 bad = 0
 SPEC = RBS.for_room('bedroom')
+# ВРЕМЕННОЕ — НА ДИСК (T-20261107-04/4): /tmp на DEV — tmpfs с квотой, его забивают соседи; тест падал «Disk quota exceeded»
+# на записи hybrid.json (2 из 200 прогонов 07.11, логи ~/remlab-logs/t04/flaky/). Все временные папки процесса (стенд и
+# песочница `bank_rehearsal.main`) — в REMLAB_TMP, как у ночи; в CI его нет — системная временная папка
+TMP = BR.tmp_root()
+if TMP:
+    tempfile.tempdir = TMP
 
 
 def ok(name, cond, extra=''):
@@ -154,6 +160,8 @@ def main() -> int:
 
     # ——— (2) репетиция ———
     with tempfile.TemporaryDirectory(prefix='rehearsal-') as d:
+        ok('стенд — в папке временного на диске (REMLAB_TMP), не в tmpfs /tmp; в CI — системная',
+           (TMP is None and BR.tmp_root() is None) or os.path.dirname(d) == TMP, (TMP, d))
         cand = copy.deepcopy(B)
         cand[7] = other(cand[7])
         out, lp, g, x = run(os.path.join(d, 'm'), B, cand)
