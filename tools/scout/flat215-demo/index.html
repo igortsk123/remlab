@@ -7615,13 +7615,14 @@ function quizPick(rule, answers, available, styleColours){
   function screenR(){
     // итог коротко — «Ваш стиль — Вариант N» (владелец 06.11, T-20261106-94; подпись — TG 368), похожие отмечены на карточках
     var st=styles(), liked=Q.pick.filter(function(id){return Q.a.photos.indexOf(id)>=0;}), L=liked.map(optName);
-    var sub=EN()?(liked.length?'Your style — '+L.join(' and '):'Styles close to your colours')
-      :(liked.length?'Ваш стиль — '+L.join(' и '):'Стили, близкие вашим цветам');
+    // слово «стиль» в опросе не говорим (владелец, T-20261107-28/3)
+    var sub=EN()?(liked.length?'Your closest match — '+L.join(' and '):'Options close to your colours')
+      :(liked.length?'Вам ближе всего — '+L.join(' и '):'Варианты, близкие вашим цветам');
     var cards=Q.pick.map(function(id){var s=st.filter(function(x){return x.id===id;})[0]||{id:id,title:id}, mine=Q.a.photos.indexOf(id)>=0;
       var ps=s.v?variantProducts(s.v):[], n=ps.length, sum=s.v?money(variantPrice(s.v)):'';
       var img=s.real&&s.img;   // черновой 3D-кадр и пустую плашку не показываем — карточка без картинки, только текст
       return '<div class="qz-res'+(img?'':' qz-noimg')+'" data-res="'+esc(id)+'">'+(img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'')+
-        '<span class="qz-tag'+(mine?'':' near')+'">'+(mine?(EN()?'Your style':'Ваш стиль'):(EN()?'Similar':'Похожий'))+'</span>'+
+        '<span class="qz-tag'+(mine?'':' near')+'">'+(mine?(EN()?'Best match':'Ближе всего'):(EN()?'Similar':'Похожий'))+'</span>'+
         '<div class="qz-cap"><b>'+esc(optName(id))+'</b><span>'+(n?n+' '+itemsWord(n)+' · '+esc(sum):'')+'</span></div></div>';}).join('');
     var dots=Q.pick.map(function(id,i){return '<button type="button" data-dot="'+i+'" aria-label="'+(i+1)+'" aria-current="'+(i===Q.at)+'"><i></i></button>';}).join('');
     var k=Q.pick.length;   // стилей с фото может быть меньше трёх (T-28/2)
@@ -7630,7 +7631,7 @@ function quizPick(rule, answers, available, styleColours){
       '<div class="qz-pager"><button type="button" class="qz-arr" data-qz="prev" aria-label="'+(EN()?'Previous':'Назад')+'">‹</button>'+dots+
       '<button type="button" class="qz-arr" data-qz="nxt" aria-label="'+(EN()?'Next':'Дальше')+'">›</button></div>'+
       '<button class="btn primary qz-next" type="button" data-qz="choose" style="min-height:48px;font-weight:600">'+esc(chooseText())+'</button>'+
-      '<button class="qz-link" type="button" data-qz="all">'+(EN()?'All styles':'Все стили')+'</button>';
+      '<button class="qz-link" type="button" data-qz="all">'+(EN()?'All options':'Все варианты')+'</button>';
   }
   var SCREENS=[screen0,screen1,screen2,screen3,screenR];
   function render(focus){
