@@ -180,6 +180,7 @@ jobs:
       - run: python tools/scout/tests/test_orient_role_policy.py   # перерешение при смене роли в обе стороны, человек не перерешается, роль каталога главнее mesh_demand, тень без записи в БД (T-20261105-56/5)
       - run: python tools/scout/opening_ir.py --selftest   # проёмы кадра из общего описания (demo-04)
       - run: python tools/scout/mesh_dark.py --selftest    # модель темнее товара — признак карантина (demo-05)
+      - run: python tools/scout/salad/tests_alien_debris.py   # пометка обломков меша: GLB (Scene) и Trimesh судятся без ошибки, ALIEN_CUT=0 файл не трогает (T-20261106-85/3)
       - run: pip install fast-simplification && python tools/scout/tests/test_mesh_lite.py   # эскиз меша: LITE_TEXTURE_SAFE — текстурный меш, который не ужать с границей, полным (T-20261105-51/2)
       - run: python tools/scout/unfit.py --selftest        # пригодность для гостиной: одно правило у подбора и лечения демо
       - run: python tools/scout/env_keys.py --selftest     # ключи и журнал расходов из worktree — основной копии, чужой mltest последним с WARN (T-20261105-52)
