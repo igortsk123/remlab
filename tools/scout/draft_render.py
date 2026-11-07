@@ -1632,6 +1632,38 @@ def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
     return Image.open(io.BytesIO(base64.b64decode(b64))).convert('RGB')
 
 
+def photo_outcome(e: BaseException) -> str:
+    """Исход задания «Сделать реалистичнее» одной меткой без пробелов — для строки ФОТО-ЗАМЕР (photo-speed-monitor-01)."""
+    s = str(e)
+    if isinstance(e, NoCreditsError):
+        return 'нет_денег'
+    m = re.search(r'HTTP (\d{3})', s)
+    if m:
+        return f'шлюз_{m.group(1)}'
+    if 'не вернул картинку' in s:
+        return 'шлюз_пусто'
+    if isinstance(e, TimeoutError) or 'timed out' in s:
+        return 'таймаут'
+    if 'разделительную полосу' in s:
+        return 'полоса'
+    return 'другое'
+
+
+def photo_mark(pm: dict, outcome: str, post: float | None = None) -> None:
+    """ОДНА СТРОКА С ДАТОЙ НА ЗАДАНИЕ «Сделать реалистичнее» (photo-speed-monitor-01, T-20261107-37). Журнал сервиса —
+    `print` без времени, по нему не понять, за какие сутки задание; эту строку читает `tools/ops/photo-speed.py`.
+    Формат: `ГГГГ-ММ-ДД ЧЧ:ММ:СС ФОТО-ЗАМЕР путь=browser|source|server|- подготовка=С модель=С сохранение=С всего=С исход=ok|…`,
+    «-» — не дошли до шага. `всего` — от начала задания до ответа (или до отказа). Сбой самой строки задание не роняет."""
+    try:
+        def f(v):
+            return '-' if v is None else f'{v:.1f}'
+        print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} ФОТО-ЗАМЕР путь={pm.get('path') or '-'} подготовка={f(pm.get('ours'))} "
+              f"модель={f(pm.get('model'))} сохранение={f(post)} всего={f(time.time() - pm['t0'])} исход={outcome}",
+              flush=True)
+    except Exception as e:  # noqa: BLE001 — учёт не важнее фото; причина — в журнал
+        print(f'ФОТО-ЗАМЕР не записан: {e!r}'[:200], flush=True)
+
+
 def _publish_sources(stamp: str, imgs: dict, prompt: str, legend: list, meta: dict) -> str:
     """СЛУЖЕБНАЯ СТРАНИЦА «ИСХОДНИКИ» (владелец 26.08: «покажи полностью, что отправляешь в GPT и
     в каком виде и какой промпт — результат пока плохой»). Кладём РОВНО то, что ушло в модель:
@@ -3481,6 +3513,8 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         _sf = IM.single_flight(_cid) if _bf else None
         if _sf is not None:
             _sf.acquire(timeout=900)
+        # замер задания для строки ФОТО-ЗАМЕР (photo-speed-monitor-01): путь, подготовка, модель — заполняются по ходу
+        _pm = {'t0': time.time(), 'path': None, 'ours': None, 'model': None}
         try:
             _c = _improve_cache(_cid)
             import improve_mode as IM
@@ -3515,6 +3549,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             if built is None:
                 built = IM.build(layout, (layout or {}).get('style') or '')
             _t_our = time.time() - _t_our
+            _pm.update(path='browser' if _bf else 'source' if reused else 'server', ours=_t_our)
             print(f'улучшение: наша часть {_t_our:.1f}с '
                   + ('(кадры из браузера)' if _bf else '(лист взят из исходника, пересборки нет)' if reused
                      else '(ИСХОДНИКА НЕ БЫЛО — пересобрал, это потеря)'), flush=True)
@@ -3529,6 +3564,8 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             _t_gpt = time.time()
             out = gpt_edit(imgs, prompt, size=built.get('size') or IM.SIZE, quality=gq, model=REALISTIC_MODEL)   # лист телефона — 3072×2048
             _t_gpt = time.time() - _t_gpt
+            _pm['model'] = _t_gpt
+            _t_post = time.time()
             print(f'улучшение: модель {_t_gpt:.1f}с (размер {built.get("size") or IM.SIZE}, качество {gq}); '
                   f'итого {_t_our + _t_gpt:.1f}с, из них наши {100 * _t_our / max(_t_our + _t_gpt, .1):.0f}%',
                   flush=True)
@@ -3561,7 +3598,11 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                        # откуда кадры и сколько заняла наша часть до вызова модели (demo-10: цель ≤ 2 с при кадрах из браузера)
                        'timing': {'ours': round(_t_our, 2), 'model': round(_t_gpt, 1), 'frames': 'browser' if _bf else 'server'}}
             _improve_cache(_cid, res)      # см. ниже: обрыв связи не стоит генерации
+            photo_mark(_pm, 'ok', post=time.time() - _t_post)
             return res
+        except BaseException as e:     # отказ шлюза — SystemExit, денег нет — NoCreditsError: строку пишем и пробрасываем как было
+            photo_mark(_pm, photo_outcome(e))
+            raise
         finally:
             if _sf is not None:
                 _sf.release()
