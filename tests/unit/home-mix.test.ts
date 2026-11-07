@@ -173,7 +173,8 @@ describe("выбор пишут только явные действия", () =>
     const writes = [...src.matchAll(/HOME\.sel\s*=(?!=)/g)].map((m) => m.index ?? 0);
     expect(writes.length).toBe(2);
     expect(fnBody("homeSetSel")).toMatch(/HOME\.sel\s*=(?!=)/);
-    expect(src.slice(writes[0] - 900, writes[0])).toContain("ВЫБОР КВАРТИРЫ ИЗ АДРЕСА");
+    const w0 = writes[0] ?? 0;
+    expect(src.slice(w0 - 900, w0)).toContain("ВЫБОР КВАРТИРЫ ИЗ АДРЕСА");
   });
   it("HOME.styleId — только зеркало выбора (homeSel), окно и отрисовка его не пишут", () => {
     const writes = [...src.matchAll(/HOME\.styleId\s*=(?!=)/g)];
