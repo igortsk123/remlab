@@ -185,7 +185,8 @@ def color_policy(path: str | None = None) -> dict:
     N = P['names']
     full = lambda rx: re.compile(f'(?:{rx})', re.I)  # noqa: E731
     P['_rx'] = {'families': [(f, full(rx)) for f, rx in N['families'].items()], 'material': full(N['material']),
-                'neutral': full(N['neutral']), 'vivid': re.compile(N['vivid'], re.I), 'muted_mod': re.compile(N['muted_mod'], re.I)}
+                'neutral': full(N['neutral']), 'vivid': re.compile(N['vivid'], re.I), 'muted_mod': re.compile(N['muted_mod'], re.I),
+                'group_families': {g: [(f, full(rx)) for f, rx in fm.items()] for g, fm in (N.get('group_families') or {}).items()}}
     P['_role_group'] = {r: g for g, rs in P['groups'].items() for r in rs}
     _POLICY[path] = P
     return P
@@ -196,12 +197,14 @@ def color_group(role: str, P: dict) -> str:
     return P['_role_group'].get(re.sub(r'\s+\d+$', '', role or ''), P['default_group'])
 
 
-def _name_tokens(name: str, P: dict) -> list:
-    """Цветовые слова названия по порядку: (вид, семья, приглушённое, яркое). Вид — chroma | material | neutral."""
+def _name_tokens(name: str, P: dict, group: str | None = None) -> list:
+    """Цветовые слова названия по порядку: (вид, семья, приглушённое, яркое). Вид — chroma | material | neutral. `group` — группа
+    роли: её слова-цвета (`names.group_families`: «голд» у мягкого) — после общих семей; без группы — только общие."""
     rx, out = P['_rx'], []
+    fams = rx['families'] + rx['group_families'].get(group, [])
     for w in _WORD.findall((name or '').lower()):
         parts = w.split('-')
-        fam = next(((f, p) for p in parts for f, r in rx['families'] if r.fullmatch(p)), None)
+        fam = next(((f, p) for p in parts for f, r in fams if r.fullmatch(p)), None)
         if fam:
             others = [p for p in parts if p != fam[1]]
             muted = any(rx['muted_mod'].match(p + '-') or rx['neutral'].fullmatch(p) for p in others)
@@ -220,11 +223,11 @@ def _hsv(rgb):
     return h * 360, s, v
 
 
-def color_evidence(it: dict, P: dict) -> tuple:
+def color_evidence(it: dict, P: dict, group: str | None = None) -> tuple:
     """Цвет товара без стиля → (категория, семья, источник). Название — главный признак (цвет из каталога); нет цвета в
     названии — фото (`cls`/`rgb` из `palette`): уверенный только при насыщенности ≥ confident_min, оттенок дерева — материал."""
     S = P['saturation']
-    tk = _name_tokens(it.get('name'), P)
+    tk = _name_tokens(it.get('name'), P, group)
     hsv = _hsv(it.get('rgb'))
     if tk:
         kind, fam, muted, vivid = tk[0]
@@ -266,7 +269,7 @@ def color_eval(it: dict, role: str, style: str, P: dict | None = None, ctx: dict
     if S is None:
         return {'tier': 'allowed', 'rank': P['tier_rank']['allowed'], 'delta': 0.0, 'why': '', 'cat': None, 'family': None, 'group': g, 'major': major,
                 'anchor': False}
-    cat, fam, src = color_evidence(it, P)
+    cat, fam, src = color_evidence(it, P, g)
     if cat in ('muted', 'vivid', 'secondary') and fam in S.get('material_families', ()):
         cat, src = 'material', src + f', {fam} — материал стиля'
     tier = S['tiers'][g][cat]
