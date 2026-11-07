@@ -323,4 +323,24 @@ describe("мост витрина → конфигуратор: замены к�
     expect(rug1.asset.kind === "kit" && rug1.asset.materials.body).toBe("rug:feed:a");
     expect(sw.totals.upgrades - base.totals.upgrades).toBe(5230 - 9291);
   });
+
+  // T-20261107-25/9 (план dims-effective-01): у стульев К2 глубина каталога — копия ширины; сцена берёт глубину по мешу (`d`),
+  // подпись «Ш×Г×В» покупателю — каталожную (`d_catalog`), как у магазина
+  it("стул К2: место и модель — по глубине сцены, подпись — каталожная глубина; без d_catalog — как раньше", () => {
+    const k2 = { ...data, feeds: { стул: [{ name: "Стул Б", sid: "k2", msid: "mk2", img: "img/k2.jpg", w: 49, d: 54, d_catalog: 49,
+      h: 82, price: 3000, src: "pool", style: "сканди", styles: ["сканди"] }] },
+    variants: [{ id: "set1", style: "сканди", items: [
+      { role: "стул", x: 10, y: 10, rot: 0, w: 49, d: 54, d_catalog: 49, h: 82, sku: { name: "Стул А", price: 5000, msid: "1_1", url: "u" } },
+      { role: "столик", x: 200, y: 180, rot: 0, w: 80, d: 60, h: 45, sku: { name: "Столик Y", msid: "99272_2" } },
+    ] }] };
+    const r = fromDemoVariant(k2, "set1", CTX)!;
+    const chair = r.apartment.slots.find((s) => s.id === "стул#0")!;
+    expect(chair.placement).toMatchObject({ wCm: 49, dCm: 54, hCm: 82 });
+    const own = r.catalogue.options.find((o) => o.titleRu === "Стул А")!;
+    expect(own.descRu).toBe("49×49×82 см");
+    const alt = r.catalogue.options.find((o) => o.id === "feed:стул:k2")!;
+    expect(alt.descRu).toBe("49×49×82 см");
+    expect(alt.asset).toMatchObject({ kind: "mesh", meshId: "mk2", wCm: 49, dCm: 54, hCm: 82 });
+    expect(r.catalogue.options.find((o) => o.titleRu === "Столик Y")!.descRu).toBe("80×60×45 см");
+  });
 });
