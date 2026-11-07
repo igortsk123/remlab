@@ -58,13 +58,15 @@ export interface LivePoint {
   h: number;
 }
 
-/** Наклон камеры (градусы, вниз — минус), при котором точки мебели `pts` лежат в полосе `band` кадра из позы `pose`. */
+/** Наклон камеры (градусы, вниз — минус), при котором точки мебели `pts` лежат в полосе `band` кадра из позы `pose`.
+ *  `minDeg` — нижний предел наклона (по умолчанию `LIVE_PITCH_MIN`; у зоны может быть свой — прихожая −25°, T-20261107-05/8). */
 export function livePitchDeg(
   pose: { x: number; y: number; rot: number; fov?: number },
   pts: LivePoint[],
   aspect: number,
   band: LiveBand,
   eyeCm = LIVE_EYE_CM,
+  minDeg = LIVE_PITCH_MIN,
 ): number {
   const a = (pose.rot * Math.PI) / 180;
   const fx = Math.sin(a), fy = -Math.cos(a);                   // взгляд позы на плане — как `photoRay`
@@ -83,7 +85,7 @@ export function livePitchDeg(
   const top = Math.min(Math.max(band.top, 0), 1), bottom = Math.min(Math.max(band.bottom, top + 0.05), 1);
   const at = Math.atan(tanV * (1 - 2 * top)), ab = Math.atan(tanV * (1 - 2 * bottom));
   const theta = ((hi - at) + (lo - ab)) / 2;
-  return Math.max(LIVE_PITCH_MIN, Math.min(0, (theta * 180) / Math.PI));
+  return Math.max(minDeg, Math.min(0, (theta * 180) / Math.PI));
 }
 
 /** Точки предмета для `livePitchDeg` из его габаритной коробки (см): 8 углов; висящее выше `LIVE_TOP_CAP_CM` (люстра, полка) — нет. */

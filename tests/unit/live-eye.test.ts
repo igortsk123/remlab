@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
-import { boxPoints, livePitchDeg, liveSpot, LIVE_EYE_CM, LIVE_PITCH_DEFAULT, LIVE_TOP_CAP_CM, LIVE_WALL_CM, type LiveBand } from "@/lib/viewer3d/live-eye";
+import { boxPoints, livePitchDeg, liveSpot, LIVE_EYE_CM, LIVE_PITCH_DEFAULT, LIVE_PITCH_MIN, LIVE_TOP_CAP_CM, LIVE_WALL_CM, type LiveBand } from "@/lib/viewer3d/live-eye";
 import { verticalFov } from "@/lib/viewer3d/viewer";
 
 // «3D» ГЛАЗАМИ СТОЯЩЕГО (demo-27): наклон из `livePitchDeg` ставится настоящей камерой three.js так, как это делает движок (глаз
@@ -42,6 +42,15 @@ describe("наклон «3D» глазами стоящего", () => {
       }
     });
   }
+
+  // T-20261107-05/8: у зоны свой нижний предел наклона (прихожая −25°) — на телефоне мебель у ног тянула взгляд к −40°
+  it("нижний предел наклона — у позы свой: −25° держится, без него — общий −40°", () => {
+    const low = [{ x: 0, y: 70, h: 0 }, { x: 0, y: 70, h: 45 }];   // банкетка у ног — тянет взгляд вниз до упора
+    const band = { top: 0.1, bottom: 0.68 }, aspect = 375 / 667;
+    expect(livePitchDeg(pose, low, aspect, band)).toBe(LIVE_PITCH_MIN);
+    expect(livePitchDeg(pose, low, aspect, band, LIVE_EYE_CM, -25)).toBe(-25);
+    expect(livePitchDeg(pose, room, 1265 / 1100, { top: 0.06, bottom: 0.9 }, LIVE_EYE_CM, -25)).toBeGreaterThanOrEqual(-25);
+  });
 
   it("за спиной, у самых ног и вне кадра по ширине — не учитываются; мебели нет — наклон по умолчанию", () => {
     const behind = [{ x: 0, y: -300, h: 0 }, { x: 0, y: 30, h: 0 }, { x: 800, y: 200, h: 0 }];

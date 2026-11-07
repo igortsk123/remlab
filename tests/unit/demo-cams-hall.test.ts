@@ -67,6 +67,9 @@ describe("камеры демо: прихожая, виды зоны", () => {
   // отходит от стен и наклонён к мебели, лист 1627 — мера по камере фото консоль модерна не видела). Узкий коридор: глаз посередине,
   // строгой точки нет у 4 стилей из 5 — допуск ступенями (`CAM_CUT_LADDER`, пометка «обрезана до N % кадра»); достигнуто — не выше
   // 10 % кадра, без отката «без cutNear». Пороги — фиксация, не цель.
+  // T-20261107-05/8 (вариант Б): у прихожей наклон «3D» не круче −25° (`livePitchMin`) — в кадре больше комнаты, но ближняя обувница
+  // модерна (свои 84 % в кадре) берёт ступень 20 %: фиксация по стилю, остальные — 10 %.
+  const CUT_LIM: Record<string, number> = { 'hall-modern': 0.2 };
   for (const v of fx.variants) {
     it(`${v.id}: вид на хранение — ближняя мебель в живом «3D» не обрезана краем сверх допуска`, () => {
       const pr = pairOf(v), list = its(v), c2 = pr.cams[1]!;
@@ -76,7 +79,7 @@ describe("камеры демо: прихожая, виды зоны", () => {
       expect(g.live.some((f) => f.asp > 1)).toBe(true);                // компьютер
       expect(pr.how).not.toMatch(/без cutNear/);
       const m = pr.how.match(/обрезана до (\d+) % кадра/), lim = Math.max(g.frame, m ? +m[1]! / 100 : 0);
-      expect(lim).toBeLessThanOrEqual(0.1);
+      expect(lim).toBeLessThanOrEqual(CUT_LIM[v.id] ?? 0.1);
       const cut = g.live.flatMap((fr) => list.filter((it) => (it.h ?? 0) > 2).map((it) => ({ it, q: api.camCutLive(c2, it, list, fr, W, H) }))
         .filter(({ q }) => q.near <= g.cm && q.own < g.hi && q.frame >= lim).map(({ it, q }) => `${it.role} ${fr.asp} ${q.frame.toFixed(3)}`));
       expect(cut).toEqual([]);

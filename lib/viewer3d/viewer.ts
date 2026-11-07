@@ -114,6 +114,9 @@ export interface PhotoPose {
   /** Сдвиг объектива ВЕРТИКАЛЬНОГО кадра (телефон), доля высоты: пол и потолок поровну, мебель — в средней трети (demo-12,
    *  подбор `camPortraitShift` в блоке CAMFIT демо). Есть — вертикальный кадр не наклоняется к мебели, вертикали прямые. */
   pshift?: number;
+  /** Нижний предел наклона «3D» глазами стоящего, градусы (вниз — минус): зона комнаты задаёт свой (`CAM_ZONES.hall.livePitchMin`,
+   *  T-20261107-05/8 — в узком коридоре при −40° низкая мебель у входа в метре от глаза попадала в угол кадра). Нет — `LIVE_PITCH_MIN`. */
+  pitchMin?: number;
 }
 export const PHOTO_EYE_CM = 165;
 export const PHOTO_TARGET_CM = 105;
@@ -697,7 +700,7 @@ export class FlatViewer {
       if (!bb || bb.isEmpty()) continue;
       pts.push(...boxPoints({ x: bb.min.x / CM, y: bb.min.z / CM, h: bb.min.y / CM }, { x: bb.max.x / CM, y: bb.max.z / CM, h: bb.max.y / CM }));
     }
-    return livePitchDeg(pose, pts, this.camera.aspect, this.liveEye?.band ?? { top: 0, bottom: 1 }, this.liveEye?.eyeCm);
+    return livePitchDeg(pose, pts, this.camera.aspect, this.liveEye?.band ?? { top: 0, bottom: 1 }, this.liveEye?.eyeCm, pose.pitchMin);
   }
 
   /** Глаз и цель позы (см) для ЖИВОЙ сцены: «3D» глазами стоящего — глаз `liveEye`, взгляд горизонтален (наклон — `photoLook`). */
