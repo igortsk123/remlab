@@ -139,6 +139,7 @@ jobs:
       - run: python tools/assets/tests/test_demo_ids.py   # лёгкие копии /rt/: все комнаты витрины, лента по типу комнаты, ковёр по стратегии (T-20261106-77)
       - run: python tools/assets/tests/test_rt_texture_guard.py   # битая текстура лёгкой копии (gltfpack «ERR/» при квоте /tmp) — перепаковка без KTX2 или копию не пишем (T-20261107-15)
       - run: python tools/scout/tests/test_browser_sheet.py   # лист из кадров браузера: размер, полоса, порядок, ключ ответа (demo-10)
+      - run: python tools/scout/tests/test_registry_protect.py   # реестр кадров не выкидывает кадры главной из списка прогрева (×3 вариантов, 5 ночей), счётчики shots-trim.json, _registry_add целиком; здесь — draft_service тянет planner+numpy+PIL (T-20261107-17)
       - run: python tools/scout/tests/test_improve_sheet.py   # без листа товаров платного улучшения нет (422), замена товара — новый SKU в листе (T-20261106-88)
       - run: python tools/scout/tests/test_contracts_fuse.py   # шаги банка не молчат (WARN при отказе предохранителя), пара кресел — одна модель (conv-12)
       - run: python tools/scout/tests/test_refresh_digest.py   # утренняя сводка ночного прогона не уходит пустой: порванная буква WARN, сломанный вход — громко (T-20261104-11)
