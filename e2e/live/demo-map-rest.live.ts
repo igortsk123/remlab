@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test, expect, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
 
 import { demoUrl, LIVE_CHECK_HEADERS } from "./browser";
+import { homeStyles, pickStyle } from "./home";
 
 // КАРТА СЦЕНАРИЕВ ДЕМО — ОСТАВШИЕСЯ СТРОКИ (T-20261106-69, план demo-03): 2.30–2.32, 2.39–2.48 `domain/demo-scenario-map.md`.
 // Ожидание берём из колонки «ожидание» строки карты, не из факта: проверка краснеет, когда сценарий сломан. Номер строки — в начале
@@ -638,10 +639,10 @@ test("2.45 замена одного из одинаковых (стулья ×2
   test.setTimeout(5 * 60_000);
   const { page, close } = await demoPage(browser, desk, "?live=force");
   // стиль, где у гостиной есть пара одинаковых (одна роль, один товар)
-  const n = await page.locator("#styleTabs [data-style]").count();
+  const S = await homeStyles(page);
   let found: { base: string; idx: number[] } | null = null;
-  for (let i = 0; i < n && !found; i++) {
-    await page.locator("#styleTabs [data-style]").nth(i).click();
+  for (let i = 0; i < S.length && !found; i++) {
+    await pickStyle(page, S[i]!.id);   // квартира в этом стиле (home-mix-01 шаг 5: вкладок стилей больше нет)
     await page.locator(LIVING).click();
     await expect(page.locator("#shot")).toHaveClass(/\bon\b/);
     found = await page.evaluate(() => {
@@ -815,9 +816,8 @@ test("2.47 «уголок» с банкеткой — только если в �
   const bad = rows.filter((r) => (r.bench > 0 && r.benchFeed < SWAP_RULES.nook_min_benches) || (r.bench === 0 && r.table > 0 && r.chairs < 2));
   expect(bad, "банкетка без ленты или столовая без стульев").toEqual([]);
   // список покупок окна: банкетки нет там, где её нет в расстановке (стиль без ленты банкеток)
-  const n = await page.locator("#styleTabs [data-style]").count();
-  for (let i = 0; i < n; i++) {
-    await page.locator("#styleTabs [data-style]").nth(i).click();
+  for (const s of await homeStyles(page)) {
+    await pickStyle(page, s.id);
     await page.locator(LIVING).click();
     await expect(page.locator("#shot")).toHaveClass(/\bon\b/);
     const w = await page.evaluate(() => {

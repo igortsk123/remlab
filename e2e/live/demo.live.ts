@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 import { demoUrl } from "./browser";
+import { homeStyles, pickStyle } from "./home";
 
 // Демо для застройщика на ПРОДЕ (план b2b-12): то, что гость заметит за первые две минуты. Данные — живые, поэтому
 // проверяем инварианты, а не конкретные товары: стили есть и у каждого есть кадр, замена меняет сумму, ссылка на
@@ -21,8 +22,8 @@ test("1.1 стили опубликованы, у каждого есть кад
   const styles = await page.evaluate(() => (window as unknown as DemoWindow).allVariants().map((v) => v.style));
   expect(styles.length).toBeGreaterThanOrEqual(4);
   expect(new Set(styles).size).toBe(styles.length);
-  // вкладки главной — стили, по одной на опубликованный вариант (demo-16)
-  await expect(page.locator("#styleTabs [data-style]")).toHaveCount(styles.length);
+  // вместо вкладок стилей — строка выбранного интерьера «Вариант N» (home-mix-01 шаг 5)
+  await expect(page.locator("#hmMixName")).toHaveText(/^Вариант(ы)?\s\d/);
   const res = await request.get("/demo/demo-data.json");
   const age = (Date.now() - new Date(res.headers()["last-modified"] ?? 0).getTime()) / 86_400_000;
   expect(age, "витрина демо старше 2 суток").toBeLessThan(2);
@@ -37,7 +38,7 @@ test("1.1 стили опубликованы, у каждого есть кад
 
 test("замена предмета меняет сумму; ссылка на вариант открывает его", async ({ page }) => {
   await openDemo(page);
-  await page.locator("#styleTabs [data-style]").nth(1).click();
+  await pickStyle(page, (await homeStyles(page))[1]!.id);
   await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
   // переменные страницы (items, D, sel, tryOn, LAST_SUM, cur) — глобальные `let`, не свойства window: строкой
   const before = await page.evaluate("LAST_SUM");
@@ -60,7 +61,7 @@ test("замена предмета меняет сумму; ссылка на �
 test("английский режим: первый экран без русских надписей", async ({ page }) => {
   await openDemo(page, "?lang=en");
   await page.waitForFunction("!!FLAT");
-  const head = await page.locator("#hmHd, #flatPrice, #hmCert, #hmHint, #styleTabs, #hmRooms").allInnerTexts();
+  const head = await page.locator("#hmHd, #flatPrice, #hmView, #hmCert, #hmMix, #hmHint, #hmRooms").allInnerTexts();
   expect(head.join(" ")).not.toMatch(/[А-Яа-яЁё]/);
 });
 
@@ -71,7 +72,7 @@ test("комната «Спальня 1»: общая заглушка него�
   await expect(stub).toContainText("м²");
   await expect(stub).toContainText("появится следующим шагом");
   await expect(page.locator('[data-br-role="кровать"]')).toHaveCount(0);   // фотокаталога на странице нет
-  await page.locator("#styleTabs [data-style]").last().click();
+  await pickStyle(page, (await homeStyles(page)).at(-1)!.id);
   await expect(stub).toContainText("появится следующим шагом");
   expect(errors).toEqual([]);
 });

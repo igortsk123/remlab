@@ -599,7 +599,7 @@ def quiz_colours(variants: list, pal: dict | None, root: str) -> dict:
 def room_style_fallback(data: dict, root: str) -> dict:
     """КАРТА ЗАМЕН КОМНАТ (план style-fallback-01, владелец 07.11 TG 309: «молчаливая подмена, вариант А»): `D.room_style_fallback` =
     {комната: {id стиля вкладки, которого в комнате нет: [id стилей комнаты по порядку замены]}} — правило `demo_room.style_fallback`.
-    Страница (`drawHome`, `homeSelectStyle`, ссылка `?style=&room=`) берёт первый стиль, чей вариант у неё есть, и рисует обычную
+    Страница (`drawHome`/`homeLayout`, окно «Выбрать другой» `mixApply`, ссылка `?style=&room=`) берёт первый стиль, чей вариант у неё есть, и рисует обычную
     карточку без пометки. Все комнаты со всеми стилями — пусто (поле не пишется: данные прежние байт в байт)."""
     import demo_room as R
     vs = [v for v in data.get('variants') or [] if not v.get('mine') and not v.get('cid') and v.get('style')]

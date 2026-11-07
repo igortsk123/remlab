@@ -29,7 +29,7 @@ const METRICS_JS=`(()=>{const box=[], font={};
     walk(c,d+1);});};
   walk(document.body,0);
   const f=(k,sel)=>{const e=document.querySelector(sel); if(e){const cs=getComputedStyle(e); font[k]=cs.fontSize+' / '+cs.fontWeight+' · '+Math.round(e.getBoundingClientRect().width)+'px';}};
-  f('body','body'); f('шапка: тип квартиры','.hm-hd b, .hm-hd .t, .hm-hd'); f('цена квартиры','.hm-hd .pr, .hm-price'); f('шкала','#hmCert .cs-t'); f('вкладка стиля','.hm-tab');
+  f('body','body'); f('шапка: тип квартиры','.hm-hd b, .hm-hd .t, .hm-hd'); f('цена квартиры','.hm-hd .pr, .hm-price'); f('шкала','#hmCert .cs-t'); f('строка «Вариант N»','.hm-mix-n'); f('переключатель Интерьер/План','.hm-vw');
   f('подпись комнаты на фото','.hm-room .hm-ph .nm, .hm-room b'); f('цена комнаты','.hm-room .pr b, .hm-room .pr'); f('кнопка Открыть','.hm-room .btn.primary, .hm-room .btn');
   f('строка «скоро»','.hm-soon, .hm-rooms .hm-r2'); f('подсказка','.hm-hint'); f('кнопки Ипотека/Консультация','.hm-acts .btn');
   return {vw:innerWidth, vh:innerHeight, box:box.slice(0,60), font};})()`;
@@ -50,7 +50,7 @@ const METRICS_JS=`(()=>{const box=[], font={};
     await shot('home-top',true); fs.writeFileSync(OUT+`metrics-${W}.json`,JSON.stringify(await p.evaluate(METRICS_JS),null,1));
     await p.evaluate(()=>scrollTo(0,document.body.scrollHeight)); await p.waitForTimeout(600); await p.evaluate(()=>scrollTo(0,0)); await p.waitForTimeout(400);   // ленивые картинки
     await p.click('#hmCert .vpl-i'); await p.waitForTimeout(400); await shot('home-top-cert-i',true); await p.click('#hmCert .vpl-i');
-    const t=await p.evaluate(()=>{const t=document.querySelector('.hm-tabs'); return t?Math.round(t.getBoundingClientRect().top+scrollY):400;});
+    const t=await p.evaluate(()=>{const t=document.querySelector('.hm-mix'); return t?Math.round(t.getBoundingClientRect().top+scrollY):400;});
     for(const [nm,dy] of [['home-scrolled-tabs-stuck',60],['home-scrolled-rooms',360],['home-scrolled-deep',900]]){
       await p.evaluate(y=>scrollTo(0,y),t+dy); await p.waitForTimeout(700); await shot(nm,true);}
     await p.evaluate(y=>scrollTo(0,y),t+60); await p.waitForTimeout(500);

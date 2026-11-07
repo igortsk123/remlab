@@ -183,8 +183,8 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 /* ЛИПКИЙ БЛОК ГЛАВНОЙ — ОДНИМ СЛОЕМ (demo-21 п.3): строка квартиры, шкала и вкладки стилей прилипают встык, фон общий; линия и тень
    `--e2` — только у НИЖНЕГО прилипшего (`certStuck` ставит `.e2on`), и только когда под ним есть прокрученное. Прежняя кромка-градиент
    под шкалой (приёмка Б 20.10) заменена этой тенью. Открытый пузырь «i» шкалы — над всеми липкими (слой пузырей) */
-.hm-hd,.hm-cert,.hm-tabs{transition:box-shadow .2s}
-.hm-hd.e2on,.hm-cert.e2on,.hm-tabs.e2on{box-shadow:var(--e2)}
+.hm-hd,.hm-cert,.hm-mix{transition:box-shadow .2s}
+.hm-hd.e2on,.hm-cert.e2on,.hm-mix.e2on{box-shadow:var(--e2)}
 .hm-cert:has(.vpl-bub:not([hidden])){z-index:var(--z-pop)}
 .cs{position:relative;container-type:inline-size;padding:6px 10px 7px;border-radius:var(--radius-sm);background:var(--accent-soft)}
 .cs-t{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);white-space:nowrap;min-width:0}
@@ -226,17 +226,33 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .vpl-bub .bub-row .lsw{transform:translateY(-1px)}
 .vpl-bub .bub-note{color:var(--muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
 .hm-hint{margin:8px 0 0;font-size:13px;color:var(--muted);line-height:1.3}
-/* «ПОДЕЛИТЬСЯ ИНТЕРЬЕРОМ» (home-mix-01 п.3) — ссылкой цвета бренда под подсказкой; вся квартира, не комната (`interiorLink`) */
-.hm-share-mix{display:inline-flex;align-items:center;gap:6px;min-height:32px;margin:4px 0 0;padding:0;border:0;background:none;
-  color:var(--accent);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
-.hm-share-mix svg{width:16px;height:16px}
+/* ПЕРЕКЛЮЧАТЕЛЬ «ИНТЕРЬЕР / ПЛАН КВАРТИРЫ» (home-mix-01 шаг 5, макет 158:452): две равные кнопки, выбранная — тёмная */
+.hm-view{display:flex;gap:8px;margin:10px 0 0;max-width:440px}
+.hm-view[hidden]{display:none}
+.hm-vw{flex:1 1 0;min-width:0;height:40px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  font:inherit;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-vw.on{background:var(--ink);border-color:var(--ink);color:#fff;cursor:default}
+.hm-vw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* СТРОКА «ВАРИАНТ N · ВЫБРАТЬ ДРУГОЙ» (шаг 5) — на месте прежних вкладок стилей и так же липкая под шкалой */
+.hm-mix{position:sticky;top:calc(var(--hm-hd) + var(--hm-cert,0px));z-index:calc(var(--z-sticky) + 1);min-height:44px;display:flex;align-items:center;gap:10px;
+  background:var(--bg);margin:2px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut)}
+.hm-mix[hidden]{display:none}
+.hm-mix-n{min-width:0;font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-mix-pick{flex:none;margin-left:auto;min-height:44px;padding:0 2px;border:0;background:none;font:inherit;font-size:15px;color:var(--accent);cursor:pointer;white-space:nowrap}
+/* «ПОДЕЛИТЬСЯ ИНТЕРЬЕРОМ» (home-mix-01 п.3) — вся квартира, не комната (`interiorLink`); значком в строке варианта, на компьютере — со словом */
+.hm-share-mix{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;min-width:40px;margin:0;padding:0 2px;border:0;background:none;
+  color:var(--accent);font:inherit;font-size:15px;font-weight:600;cursor:pointer}
+.hm-share-mix svg{width:18px;height:18px}
 .hm-share-mix[hidden]{display:none}
-.hm-tabs{position:sticky;top:calc(var(--hm-hd) + var(--hm-cert,0px));z-index:calc(var(--z-sticky) + 1);height:44px;display:flex;align-items:center;gap:6px;overflow-x:auto;
-  scrollbar-width:none;background:var(--bg);margin:2px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut)}
-.hm-tabs::-webkit-scrollbar{display:none}
-.hm-tab{flex:none;height:34px;min-height:34px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);
-  font-size:14px;color:var(--ink);cursor:pointer}
-.hm-tab.on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:600}
+@media(max-width:699px){.hm-share-mix>span{display:none}}
+/* ОКНО «ВЫБРАТЬ ДРУГОЙ» (`#mixBox`): карточка и плитки фото — классы опроса (`qz-`), один вид; под окном — затемнение, нажатие мимо закрывает */
+#mixBox{position:fixed;inset:0;z-index:var(--z-modal);background:var(--scrim-soft);display:none;align-items:center;justify-content:center;padding:12px}
+#mixBox.on{display:flex}
+#mixBox .qz-card{position:relative}
+#mixBox .qz-h{padding:0 34px}
+#mixBox .qz-tick{font-weight:700}
+.mx-x{position:absolute;top:8px;right:8px;width:40px;height:40px;border:0;border-radius:50%;background:none;color:var(--muted);font-size:26px;line-height:1;cursor:pointer}
+.mx-x:hover{background:var(--wash-2)}
 .hm-rooms{display:grid;gap:12px;margin:8px 0 18px}
 .hm-room{background:var(--surface);border-radius:var(--radius);box-shadow:var(--e1);overflow:hidden}
 .hm-room .hm-ph{position:relative;aspect-ratio:2048/1446;background:var(--wash-2);cursor:pointer;display:block}
@@ -310,7 +326,6 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
 .vpl-bar{display:flex}.vpl-bar i{flex:none}.vpl-bar i.pv{background:var(--accent);opacity:.35}
 .vpl-bar.over i.pv{background:#B3261E;opacity:.45}
 .hm-plan-bot{display:block;margin:-6px 0 18px}
-@media(max-width:899px){.hm-plan-top{display:none}}
 .hm-back{display:inline-block;margin:4px 0 10px;color:var(--accent);font-weight:600;text-decoration:none}
 @media(min-width:900px){
   :root{--hm-hd:60px}
@@ -323,9 +338,10 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
   .hm-acts .btn{flex:none;padding:0 16px}
   /* шкала — на всю ширину шапки (demo-21 п.6): при 560 px справа от неё зияла пустота */
   .hm-hint{font-size:15px}
-  .hm-share-mix{font-size:15px}
-  .hm-tabs{margin-top:6px;height:54px}
-  .hm-tab{height:38px;font-size:15px;padding:0 18px}
+  .hm-view{margin-top:12px}
+  .hm-mix{margin-top:6px;min-height:54px;gap:16px}
+  .hm-mix-n{font-size:19px}
+  .hm-mix-pick,.hm-share-mix{font-size:16px}
   .hm-rooms{grid-template-columns:repeat(3,1fr);margin-top:12px}
   /* слева — ОДНА карточка текущей комнаты (Д5), справа столбец: все комнаты + «План квартиры» (`--hm-rows` — drawHome) */
   .hm-rooms .hm-room{grid-column:1/span 2;grid-row:1/span var(--hm-rows,6)}
@@ -350,8 +366,10 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
   .hm-cert .cs-t{font-size:clamp(13px,.72vw,16px)}
   .hm-cert .cs{padding:clamp(6px,.4vw,9px) 14px}
   .hm-hint{font-size:clamp(15px,.8vw,18px)}
-  .hm-tabs{height:clamp(54px,2.9vw,64px)}
-  .hm-tab{height:clamp(38px,2.1vw,46px);font-size:clamp(15px,.78vw,17.5px);padding:0 clamp(18px,1vw,24px)}
+  .hm-mix{min-height:clamp(54px,2.9vw,64px)}
+  .hm-mix-n{font-size:clamp(19px,1vw,23px)}
+  .hm-mix-pick,.hm-share-mix{font-size:clamp(16px,.82vw,18px)}
+  .hm-vw{height:clamp(40px,2.2vw,48px);font-size:clamp(15px,.8vw,17.5px)}
   .hm-rooms{gap:16px}
   .hm-room .hm-ph .ttl{font-size:clamp(16px,.9vw,20px)}
   .hm-room .rb{padding:12px 16px}
@@ -1085,13 +1103,19 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
      дом целиком (этаж, корпус) и условия цены (бывший значок «i» у цены) -->
 <div class="hm-top" id="flatPrice">
   <div class="hm-meta" id="flatMetaRow"><span id="flatMeta">&nbsp;</span><button class="hm-more" id="flatMoreBtn" type="button" aria-expanded="false"
-    aria-controls="flatMore"><span class="w">Подробнее</span><span class="chev" aria-hidden="true">⌄</span></button><a class="hm-plan hm-plan-top" id="planLink" data-plan href="#plan">План квартиры</a></div>
+    aria-controls="flatMore"><span class="w">Подробнее</span><span class="chev" aria-hidden="true">⌄</span></button></div>
   <div class="hm-more-box" id="flatMore" hidden></div>
   <!-- `fh-acts` — точка встраивания строки «Ваш менеджер» по ссылке менеджера (`mount`, блок b2b-02) -->
   <div class="hm-acts fh-acts">
     <button class="btn round" id="pcMort" type="button">Ипотека</button>
     <button class="btn cta round" id="pcCons" type="button">Консультация</button>
   </div>
+</div>
+<!-- ИНТЕРЬЕР / ПЛАН КВАРТИРЫ (home-mix-01 шаг 5, макет дизайнера 158:452): переключатель экранов вместо ссылки «План квартиры» в шапке
+     и «← К стилям» на плане; в избранном скрыт (`showTab`) -->
+<div class="hm-view" id="hmView" role="tablist" aria-label="Что показать">
+  <button class="hm-vw on" type="button" role="tab" data-view="room" aria-selected="true">Интерьер</button>
+  <button class="hm-vw" type="button" role="tab" data-view="plan" aria-selected="false">План квартиры</button>
 </div>
 <!-- СЕРТИФИКАТ ОДНОЙ СТРОКОЙ (владелец 18.10: шкала — только здесь, не в липкой шапке и не на карточке комнаты). Пока корзины нет
      (demo-16 шаг 2) — «0 включено»: остаток = весь сертификат -->
@@ -1101,9 +1125,15 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
      Пусто — строки нет, первый экран как в макете A -->
 <div class="hm-fav-row" id="favHead" hidden><button class="hm-fav-btn" id="favRowBtn" type="button" aria-controls="screen-fav">
   <span class="h">♥ <b data-t="fav">Избранное</b> <span id="favRowN"></span></span><span class="s" id="favRowSub"></span><span class="chev" aria-hidden="true">›</span></button></div>
-<p class="hm-hint" id="hmHint">Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.</p>
-<button class="hm-share-mix" id="hmShareMix" type="button"><span>Поделиться интерьером</span></button>
-<nav class="hm-tabs" id="styleTabs" role="tablist" aria-label="Стили"></nav>
+<!-- ВЫБРАННЫЙ ИНТЕРЬЕР ВМЕСТО ВКЛАДОК СТИЛЕЙ (home-mix-01 шаг 5, макет 158:452): «Вариант N» (два — «Варианты N и M») и «Выбрать
+     другой» — окно `#mixBox`; «Поделиться интерьером» — значком в этой же строке (ведущий: не отдельной строкой). Строка липкая под
+     шкалой, как прежние вкладки: сменить вариант можно из любого места страницы -->
+<div class="hm-mix" id="hmMix">
+  <b class="hm-mix-n" id="hmMixName">&nbsp;</b>
+  <button class="hm-mix-pick" id="hmMixPick" type="button" aria-haspopup="dialog">Выбрать другой</button>
+  <button class="hm-share-mix" id="hmShareMix" type="button" aria-label="Поделиться интерьером" title="Поделиться интерьером"><span>Поделиться</span></button>
+</div>
+<p class="hm-hint" id="hmHint">Вы можете менять мебель, отделку и встраиваемое</p>
 
 <!-- ЭКРАН «ИЗБРАННОЕ» (demo-17): «← Назад» возвращает туда, откуда пришли (окно варианта в том же виде или главную на той же
      прокрутке — запись истории demo-16 шаг 3); комнаты (группы) → варианты с «Включить в сертификат» (ровно один на комнату) -->
@@ -1116,7 +1146,6 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 </section>
 
 <section id="screen-plan" hidden>
-  <a class="hm-back" id="planBack" href="#room">← К стилям</a>
   <div class="panel">
     <h3 id="flatTitle">План квартиры</h3>
 
@@ -1287,7 +1316,7 @@ function init(){
   // экран» (там ещё стрелки) и у поля имени — они помечают событие (`preventDefault`), карточка товара ловит раньше (capture) —
   // здесь их пропускаем, чтобы одно нажатие не закрыло два слоя.
   const ESC_CLOSE={shot:closeShot, swapBox:()=>closeSwapFull(), cons:()=>closeCons(), mlist:()=>ml.classList.remove('on'),
-    sheet:()=>pickerCancel(), itemCard:()=>itemCardClose(), favPop:()=>{const p=document.getElementById('favPop'); if(p)p.remove();}};
+    sheet:()=>pickerCancel(), itemCard:()=>itemCardClose(), mixBox:()=>mixClose(), favPop:()=>{const p=document.getElementById('favPop'); if(p)p.remove();}};
   const topLayer=()=>{let top=null, zt=-Infinity;
     PAGE_LAYERS.concat([['favPop','']]).forEach(([id,c])=>{const el=document.getElementById(id);
       if(!el||(c&&!el.classList.contains(c)))return;
@@ -1307,9 +1336,10 @@ function init(){
   // ИЗ КОНСТРУКТОРА — В ОКНО С ЖИВОЙ СЦЕНОЙ (demo-02): серверный кадр нужен только на запасном пути (нет видеокарты)
   on('consShot','onclick',()=>openLiveWindow());   // без 3D окно покажет заглушку и «Сделать реалистичнее» (demo-09)
   on('swapShot','onclick',()=>makePhoto('draft'));
-  // ПЛАН КВАРТИРЫ — ССЫЛКОЙ, НЕ ВКЛАДКОЙ (demo-16): вкладки теперь стили; назад — «← К стилям»
+  // ПЛАН КВАРТИРЫ: плитка в конце списка комнат и переключатель «Интерьер / План квартиры» (home-mix-01 шаг 5) — он же дорога назад
   document.querySelectorAll('[data-plan]').forEach(a=>a.onclick=e=>{e.preventDefault(); showTab('plan'); pageScrollTo(0);});
-  on('planBack','onclick',e=>{e.preventDefault(); showTab('room');});
+  document.querySelectorAll('#hmView [data-view]').forEach(b=>b.onclick=()=>{const w=b.dataset.view; if(curScreen()===w)return; showTab(w); pageScrollTo(0);});
+  on('hmMixPick','onclick',()=>mixOpen());
   on('favBack','onclick',e=>{e.preventDefault(); favBack();});
   // «Поделиться интерьером» — вся квартира (home-mix-01 п.3); значок — как у «Поделиться» комнаты
   {const b=document.getElementById('hmShareMix'); if(b){b.insertAdjacentHTML('afterbegin',SHARE_SVG); b.onclick=shareInterior;}}
@@ -1539,7 +1569,7 @@ function certStuck(){const c=document.getElementById('hmCert'); if(c&&!c.hidden)
 // ОДНА ТЕНЬ У ЛИПКОГО БЛОКА ГЛАВНОЙ (demo-21 п.3): строка квартиры, шкала и вкладки стилей — один слой; линию и тень `--e2` получает
 // НИЖНИЙ из прилипших (стоит ровно на своём `top`), и только когда страница прокручена — под ним есть уехавшее содержимое
 function hmE2(){
-  const L=[document.getElementById('hmHd'),document.getElementById('hmCert'),document.getElementById('styleTabs')].filter(e=>e&&!e.hidden&&e.offsetParent);
+  const L=[document.getElementById('hmHd'),document.getElementById('hmCert'),document.getElementById('hmMix')].filter(e=>e&&!e.hidden&&e.offsetParent);
   let low=null;
   if(scrollY>0)for(const e of L)if(Math.abs(e.getBoundingClientRect().top-parseFloat(getComputedStyle(e).top))<=0.5)low=e;
   L.forEach(e=>e.classList.toggle('e2on',e===low));
@@ -1572,8 +1602,11 @@ function showTab(which){
   document.getElementById('screen-plan').hidden=which!=='plan';
   document.getElementById('screen-room').hidden=!room;
   document.getElementById('screen-fav').hidden=!fav;
-  // вкладки стилей и подсказка — только на витрине; на плане квартиры и в избранном их нет (план — про всю квартиру, не про стиль)
-  ['styleTabs','hmHint','hmShareMix'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=!room;});
+  // строка варианта и подсказка — только на витрине; на плане квартиры и в избранном их нет (план — про всю квартиру, не про вариант).
+  // Переключатель «Интерьер / План квартиры» — на витрине и на плане, в избранном нет (там своё «← Назад»)
+  ['hmMix','hmHint'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=!room;});
+  {const v=document.getElementById('hmView'); if(v){v.hidden=fav;
+    v.querySelectorAll('[data-view]').forEach(b=>{const on=b.dataset.view===which; b.classList.toggle('on',on); b.setAttribute('aria-selected',String(on));});}}
   document.body.classList.toggle('on-fav',fav);   // экран избранного: строка ЖК, кнопки и строка «Избранное» скрыты (CSS)
   syncHash(which);
   if(which==='plan')flatPlan();   // план — каждый раз заново: подписи комнат зависят от того, что сейчас в сертификате (demo-20 А8)
@@ -4444,20 +4477,93 @@ function homeMixReport(){
   return {styles:e.selected.slice(), rooms:homeLayout(m).filter(x=>x.rv&&x.want).map(x=>({room:x.r.id, requested:x.want, shown:styleIdOf(allVariants()[x.rv.index])}))
     .filter(x=>x.shown)};
 }
-function homeSelectStyle(id){
-  homeSetSel({selected:[id], requested:{}});
-  // ВКЛАДКА ИЗ ЛИПКОЙ ШАПКИ В ЛЮБОМ МЕСТЕ СТРАНИЦЫ (шаг 3): комнаты нового стиля ушли выше — к ним, под липкую шапку
-  const rm=document.getElementById('hmRooms'), tb=document.getElementById('styleTabs');
+// ВАРИАНТЫ КВАРТИРЫ С НОМЕРАМИ (home-mix-01 шаг 5): стили главной, у которых есть фото нейросети гостиной (точка 1,
+// `realisticPublishedShot`), — «Вариант N» по этому порядку. ОДИН источник номера для опроса (шаг гостиной и итог, `optNo`), строки
+// «Вариант N» и окна «Выбрать другой»; фото нет ни у одного (реестр кадров ещё в пути) — все стили главной без фото
+function homeVarList(){
+  const m=homeModel(), liv=m.rooms.filter(r=>r.kind==='living');
+  const L=m.styles.map(s=>{let sh=null;
+    liv.some(r=>{const rv=m.roomVariants.find(x=>x.styleId===s.id&&x.roomId===r.id); if(!rv)return false;
+      const p=realisticPublishedShot(allVariants()[rv.index],'C1'); if(p&&p.quality==='realistic'&&(p.thumb||p.url)){sh=p; return true;} return false;});
+    return {id:s.id, title:s.title, img:sh?(sh.thumb||sh.url):''};});
+  const ph=L.filter(x=>x.img); return ph.length?ph:L;
+}
+function homeVarNo(id){ const i=homeVarList().findIndex(x=>x.id===id); return i<0?'':String(i+1); }
+// «Вариант 2» / «Варианты 2 и 5» (неразрывный пробел перед номером — не расходятся по строкам); стиля нет в списке — его название
+function homeMixName(m){
+  const EN=LANG==='en', ids=homeSel(m).selected, L=homeVarList(), no=ids.map(id=>{const i=L.findIndex(x=>x.id===id); return i<0?'':String(i+1);});
+  if(!ids.length)return '';
+  if(no.some(x=>!x))return ids.map(id=>(m.styles.find(s=>s.id===id)||{}).title||id).join(' + ');
+  return no.length===1?(EN?'Option ':'Вариант ')+no[0]:(EN?'Options ':'Варианты ')+no[0]+(EN?' and ':' и ')+no[1];
+}
+// НОВЫЙ ВЫБОР ИЗ ЛЮБОГО МЕСТА СТРАНИЦЫ (строка липкая, шаг 3): комнаты нового выбора ушли выше — к ним, под липкую шапку
+function homeToRooms(){
+  const rm=document.getElementById('hmRooms'), tb=document.getElementById('hmMix');
   if(rm&&tb){const top=rm.getBoundingClientRect().top, lim=tb.getBoundingClientRect().bottom;
     if(top<lim)scrollTo({top:Math.max(0,scrollY+top-lim-8),behavior:VW_SLOW()?'auto':'smooth'});}
-  reportAct('style_tab');
 }
+// ОКНО «ВЫБРАТЬ ДРУГОЙ» (home-mix-01 шаг 5, макет 158:452): фото гостиной каждого варианта (строго фото нейросети — `homeVarList`),
+// подписи «Вариант N» — те же номера, что в опросе; один или два, после двух остальные серые (как в опросе, T-28). Порядок нажатия —
+// номер на галочке: первый — основной (гостиная, прихожая), второй — спальни (`mixZone`). «Показать» — новый выбор квартиры, правки
+// комнат из опроса (`requested`) сбрасываются. Менеджеру — `style_change` с раскладкой, застройщику — счётчик (`remlab:quiz`, как опрос)
+const MIX={open:false, pick:[], wait:0};
+function mixBox(){
+  let b=document.getElementById('mixBox'); if(b)return b;
+  b=document.createElement('div'); b.id='mixBox'; b.setAttribute('role','dialog'); b.setAttribute('aria-modal','true'); b.setAttribute('aria-labelledby','mixH');
+  b.innerHTML='<div class="qz-card" tabindex="-1"></div>'; document.body.appendChild(b);
+  b.addEventListener('click',e=>{
+    if(e.target===b){mixClose(); return;}   // мимо окна
+    const t=e.target.closest('button'); if(!t||t.disabled)return;
+    if(t.dataset.mxPh){const id=t.dataset.mxPh, i=MIX.pick.indexOf(id); if(i>=0)MIX.pick.splice(i,1); else if(MIX.pick.length<2)MIX.pick.push(id); mixRender(); return;}
+    const a=t.dataset.mx;
+    if(a==='close'){mixClose(); return;}
+    if(a==='apply'){const ids=MIX.pick.slice(); mixClose(); mixApply(ids); return;}
+    if(a==='quiz'){mixClose(); if(window.__quizOpen)window.__quizOpen(); return;}
+  });
+  return b;
+}
+function mixRender(){
+  const c=mixBox().querySelector('.qz-card'), EN=LANG==='en', ready=!!SHOTS_LOADED, L=homeVarList(), full=MIX.pick.length>=2;
+  if(ready)MIX.pick=MIX.pick.filter(id=>L.some(x=>x.id===id));   // вариант без фото гостиной не предлагаем — и отмеченным его не держим
+  const quiz=typeof window.__quizCan==='function'&&window.__quizCan();
+  c.innerHTML=`<button class="mx-x" type="button" data-mx="close" aria-label="${EN?'Close':'Закрыть'}">×</button>`+
+    `<h2 class="qz-h" id="mixH">${EN?'Choose a design':'Выберите вариант'}</h2>`+
+    `<p class="qz-sub">${EN?'One or two. With two, the living room comes from the first and the bedrooms from the second':'Один или два. Если два — гостиная из первого, спальни из второго'}</p>`+
+    `<div class="qz-photos">${L.map((s,i)=>{const k=MIX.pick.indexOf(s.id), on=k>=0, off=!ready||(full&&!on);
+      return `<button class="qz-ph" type="button" data-mx-ph="${escHtml(s.id)}" aria-pressed="${on}"${off?' disabled':''}>`+
+        (ready&&s.img?`<img class="qz-img" alt="" src="${escHtml(s.img)}">`:'<span class="qz-img"></span>')+
+        `<span class="qz-tick" aria-hidden="true">${on?k+1:''}</span><b>${EN?'Option':'Вариант'} ${i+1}</b></button>`;}).join('')}</div>`+
+    `<button class="btn primary qz-next" type="button" data-mx="apply"${MIX.pick.length?'':' disabled'} style="min-height:48px;font-weight:600">${EN?'Show':'Показать'}</button>`+
+    (quiz?`<button class="qz-link" type="button" data-mx="quiz">${EN?'Take the quiz again':'Пройти опрос заново'}</button>`:'');
+  // кадры ещё в пути — плитки пустые и не нажимаются; перерисовать, когда придут
+  if(!ready&&!MIX.wait)MIX.wait=setTimeout(()=>{MIX.wait=0; if(MIX.open)mixRender();},500);
+}
+function mixOpen(){
+  if(!D)return;
+  MIX.pick=homeSel(homeModel()).selected.slice(0,2); MIX.open=true; mixRender();
+  const b=mixBox(); b.classList.add('on'); try{b.querySelector('.qz-card').focus({preventScroll:true});}catch(e){}
+}
+function mixClose(){
+  const b=document.getElementById('mixBox'); MIX.open=false; if(!b||!b.classList.contains('on'))return;
+  b.classList.remove('on'); const p=document.getElementById('hmMixPick'); if(p&&p.offsetParent)try{p.focus({preventScroll:true});}catch(e){}
+}
+function mixApply(ids){
+  ids=(ids||[]).slice(0,2); if(!ids.length)return;
+  const was=HOME.sel?JSON.stringify([HOME.sel.selected,HOME.sel.requested]):'';
+  homeSetSel({selected:ids, requested:{}}); homeToRooms();
+  if(JSON.stringify([HOME.sel.selected,HOME.sel.requested])===was)return;   // тот же выбор — не событие
+  const r=homeMixReport();
+  try{document.dispatchEvent(new CustomEvent('remlab:quiz',{detail:{ev:{kind:'style_change', styles:r.styles, rooms:r.rooms.length?r.rooms:undefined}, counters:['style_change']}}));}catch(e){}
+}
+window.__mixOpen=mixOpen; window.__mixApply=mixApply;   // итог опроса «Все варианты» и проверки (demo-walk)
 function homeM2(a){ return a?String(a).replace('.',LANG==='en'?'.':',')+(LANG==='en'?' m²':' м²'):''; }
 function drawHome(force){
-  const tabs=document.getElementById('styleTabs'), box=document.getElementById('hmRooms'); if(!tabs||!box||!D)return;
+  const nm=document.getElementById('hmMixName'), box=document.getElementById('hmRooms'); if(!box||!D)return;
   const m=homeModel(), EN=LANG==='en', F=window.__fav;
   // раскладка — по выбору квартиры (`HOME.sel`); открытое окно (`cur`) её не меняет и в выбор не пишет (home-mix-01)
-  const L=homeLayout(m), main=HOME.styleId;
+  const L=homeLayout(m);
+  // «Вариант N» — до проверки «не изменилось»: номер зависит от реестра кадров (фото гостиной), а не только от раскладки
+  if(nm){const t=homeMixName(m)||' '; if(nm.textContent!==t)nm.textContent=t;}
   const cards=L.map(({r,rv,want})=>{
     const v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
@@ -4471,10 +4577,6 @@ function drawHome(force){
   const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.n,c.sum,c.fav]), m.rooms.map(r=>[r.title,r.areaM2])]);
   homeFavUi();
   if(!force&&sig===HOME.sig)return; HOME.sig=sig;
-  tabs.innerHTML=m.styles.map(s=>`<button class="hm-tab${s.id===main?' on':''}" role="tab" type="button" data-style="${s.id}" `+
-    `aria-selected="${s.id===main}">${escHtml(s.title)}</button>`).join('');
-  const on=tabs.querySelector('.hm-tab.on'); if(on&&on.scrollIntoView&&tabs.scrollWidth>tabs.clientWidth)
-    tabs.scrollLeft=Math.max(0,on.offsetLeft-tabs.clientWidth/2+on.offsetWidth/2);
   const plural=n=>EN?(n===1?'item':'items'):(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
   // КОМНАТЫ НА КОМПЬЮТЕРЕ (T-20261106-77 Д5, владелец 06.11: «кнопки комнат справа — по нажатию спальня должна открываться слева»):
   // слева одна большая карточка текущей комнаты, справа список ВСЕХ комнат по плану — готовые нажимаются (`data-room-pick`) и меняют
@@ -4589,7 +4691,6 @@ function homeFavUi(){
     f.setAttribute('aria-label',(LANG==='en'?'Favourites: ':'Избранное: ')+n);}
 }
 document.addEventListener('click',e=>{
-  const t=e.target&&e.target.closest&&e.target.closest('#styleTabs [data-style]'); if(t){homeSelectStyle(t.dataset.style); return;}
   const box=e.target&&e.target.closest&&e.target.closest('#hmRooms'); if(!box)return;
   const pl=e.target.closest('[data-plan]'); if(pl){e.preventDefault(); showTab('plan'); pageScrollTo(0); return;}
   // комната справа (компьютер, Д5): вариант этой комнаты в текущем стиле — в большую карточку слева; прокрутку не трогаем
@@ -4627,7 +4728,7 @@ function showSwap(){
 // отпускает страницу раньше времени, забытый вызов не оставляет её запертой. Прокрутку главной, пока она заперта, читать и
 // задавать — `pageY()`/`pageScrollTo()`
 var PAGE_LOCK={on:false, y:0};   // var, не const: прокрутку могут спросить раньше, чем выполнится эта строка
-var PAGE_LAYERS=[['shot','on'],['swapBox','on'],['cons','on'],['vzoom','on'],['mlist','on'],['sheet','open'],['itemCard','on']];
+var PAGE_LAYERS=[['shot','on'],['swapBox','on'],['cons','on'],['vzoom','on'],['mlist','on'],['sheet','open'],['itemCard','on'],['mixBox','on']];
 function pageLayerOpen(){
   return PAGE_LAYERS.some(([id,c])=>{const e=document.getElementById(id); return !!e&&e.classList.contains(c);})||!!document.getElementById('favPop');}
 function pageY(){return PAGE_LOCK&&PAGE_LOCK.on?PAGE_LOCK.y:window.scrollY;}
@@ -6771,7 +6872,7 @@ document.addEventListener('scroll',e=>{const t=e.target; if(t&&(t.id==='vscroll'
 function bubPlace(bub){
   const box=bub.parentElement.getBoundingClientRect(), home=!bub.closest('#shot,.hm-cert');
   let lim=8;
-  if(home)[document.getElementById('hmHd'),document.getElementById('hmCert'),document.getElementById('styleTabs')].forEach(e=>{
+  if(home)[document.getElementById('hmHd'),document.getElementById('hmCert'),document.getElementById('hmMix')].forEach(e=>{
     if(!e||e.hidden||!e.offsetParent)return; const r=e.getBoundingClientRect(); if(r.bottom>0&&r.top<box.top)lim=Math.max(lim,r.bottom+8);});
   const fits=()=>{const r=bub.getBoundingClientRect(); return r.top>=lim&&r.bottom<=innerHeight-8;};
   bub.style.top=bub.style.bottom=''; if(fits())return;
@@ -7846,7 +7947,8 @@ function quizPick(rule, answers, available, styleColours){
   // стиля покупателю не показываем. Номер — место в списке шага гостиной (стили с фото нейросети); фото нет ни у одного — место во
   // вкладках главной (тот же список, из которого подбирает `pick`). В ответах и событиях — id стиля. Пробел перед номером неразрывный:
   // «Вариант» и «3» на телефоне не расходятся по строкам (T-35)
-  function optNo(id){var ph=roomPhotos('living'), L=(ph.length?ph:styles()).map(function(s){return s.id;}), i=L.indexOf(id); return i<0?'':String(i+1);}
+  // список — `homeVarList` (общий с главной: строка «Вариант N» и окно «Выбрать другой», шаг 5)
+  function optNo(id){return homeVarNo(id);}
   function optName(id){return (EN()?'Option ':'Вариант ')+optNo(id);}
   function screenR(){
     // итог коротко — «Ваш стиль — Вариант N» (владелец 06.11, T-20261106-94; подпись — TG 368), похожие отмечены на карточках
@@ -7943,7 +8045,8 @@ function quizPick(rule, answers, available, styleColours){
     if(a==='next'){if(t.disabled)return; Q._dir=1; Q.step=move(Q.step,1); if(Q.step==='result'){Q.pick=pick(); Q.at=0;} save(); render(true); return;}
     if(a==='back'){Q._dir=-1; Q.step=move(Q.step,-1); save(); render(true); return;}
     if(a==='skip'){close('skip'); tell({counters:['quiz_skip']}); return;}
-    if(a==='all'){var id1=Q.pick[Q.at]; close('done'); finish(id1,false); return;}
+    // «Все варианты» (шаг 5): видимая карточка итога — выбором квартиры (главная не пустая), поверх — окно «Выбрать другой» со всеми
+    if(a==='all'){var id1=Q.pick[Q.at]; close('done'); finish(id1,false); if(window.__mixOpen)window.__mixOpen(); return;}
     if(a==='choose'){var id2=Q.pick[Q.at]; close('done'); finish(id2,true); return;}
   });
   // решаем, когда пришла карточка квартиры (флаг и сертификат — в ней); по ссылке менеджера — карточка ЕГО квартиры
@@ -7962,6 +8065,9 @@ function quizPick(rule, answers, available, styleColours){
   }
   document.addEventListener('flatcard',decide);
   window.__quizOpen=function(){Q.step='hello'; Q.a=fresh(); Q.pick=[]; Q.at=0; open('again');};   // «Изменить ответы» (Т4) и проверки
+  // «Пройти опрос заново» в окне «Выбрать другой» (шаг 5) — только когда опросу есть из чего строиться (правило в сборке и стили);
+  // встроенной странице — нет. `?quiz=0` выключает только САМ показ при заходе — просьбу человека пройти опрос он не отменяет
+  window.__quizCan=function(){return !window.__EMBED&&!!rule()&&homeModel().styles.length>0;};
 })();
 </script>
 <script>
@@ -8757,7 +8863,8 @@ function quizPick(rule, answers, available, styleColours){
     'Пройтись по квартире в 3D →':'Walk through the flat in 3D →','План квартиры':'Apartment plan','скоро':'soon','Обустроить →':'Furnish →',
     'Посмотреть варианты интерьера':'See interior options','Коллекции расстановок':'Room collections','Выберите готовый вариант или создайте свой':'Pick a ready option or create your own',
     'Открыть':'Open','Ссылка':'Link','Добавить новую расстановку':'Add a new layout','план комнаты, перестановка мебели, свои размеры':'room plan, move furniture, your own sizes',
-    'Избранное':'Favourites','Поделиться интерьером':'Share the interior','Готово':'Done','Меняйте предметы прямо здесь — план открывать не нужно.':'Swap items right here — no need to open the plan.',
+    'Избранное':'Favourites','Поделиться интерьером':'Share the interior','Поделиться':'Share','Интерьер':'Interior','Выбрать другой':'Choose another',
+    'Вы можете менять мебель, отделку и встраиваемое':'You can change the furniture, finishes and built-ins','Готово':'Done','Меняйте предметы прямо здесь — план открывать не нужно.':'Swap items right here — no need to open the plan.',
     'Заменить':'Replace','В магазин':'To shop','Сохранить':'Save','Цвет:':'Colour:','Нет в наличии':'Out of stock','Посмотреть в 3D':'View in 3D','Посмотреть фото с изменениями':'See the photo with changes',
     'Фотография пока с прежней расстановкой.':'The photo still shows the previous layout.',
     'Расстановка готова, но можно сделать реалистичнее.':'The layout is ready — the photo can be made more realistic.',
@@ -8810,7 +8917,7 @@ function quizPick(rule, answers, available, styleColours){
     'Изменить план':'Edit the plan','Фото сейчас не сделать: у сервиса картинок закончился баланс. Попробуйте позже.':'The photo cannot be made right now: the image service has run out of balance. Please try later.',
     'Фото сейчас не сделать: сервер улучшения не отвечает. Попробуйте позже.':'The photo cannot be made right now: the enhancement server is not responding. Please try later.','Отделка и ремонт':'Options & upgrades','Встраиваемое':'Fitted & integrated','← Назад':'← Back',
     'Изменено вами':'Changed by you'};
-  var ATTR={'Что значит оплата 100%':'What does full payment mean','Цена, подробнее':'Price details','Стили':'Styles','Избранное':'Favourites','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
+  var ATTR={'Что значит оплата 100%':'What does full payment mean','Цена, подробнее':'Price details','Стили':'Styles','Что показать':'What to show','Избранное':'Favourites','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
     'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
     'Следующий вид':'Next view','скоро':'soon'};
   var role=function(r){var k=String(r).toLowerCase().replace(/\s+\d+$/,'');return ROLE[k]||null;};

@@ -29,7 +29,7 @@ const bubSeen=sel=>`(()=>{const b=document.querySelector(${JSON.stringify(sel)})
   await p.screenshot({path:OUT+`tip-${W}-1-home.png`});
   await p.click('#hmCert .vpl-i'); await p.waitForTimeout(300);
   // 2. главная, шкала прилипла (прокрутка к комнатам)
-  await p.evaluate(()=>{const t=document.querySelector('.hm-tabs'); scrollTo(0,(t?t.getBoundingClientRect().top+scrollY:400)+200);}); await p.waitForTimeout(800);
+  await p.evaluate(()=>{const t=document.querySelector('.hm-mix'); scrollTo(0,(t?t.getBoundingClientRect().top+scrollY:400)+200);}); await p.waitForTimeout(800);
   await p.click('#hmCert .vpl-i'); await p.waitForTimeout(400);
   s=await p.evaluate(bubSeen('#hmCert .vpl-bub'));
   ok('2 главная, шкала прилипла — пузырь целиком виден',s.open&&s.inView&&!s.bad.length,JSON.stringify(s));
@@ -75,7 +75,7 @@ const bubSeen=sel=>`(()=>{const b=document.querySelector(${JSON.stringify(sel)})
   await p.screenshot({path:OUT+`tip-${W}-5-fav.png`});
   // 5б. карточка у верха экрана (под строкой стилей): пузырь не уходит под неё
   if(fi){await fi.click(); await p.waitForTimeout(300);
-    await p.evaluate(()=>{const c=document.querySelector('#favGrid .favcard .incw'), t=document.querySelector('.hm-tabs').getBoundingClientRect().bottom; scrollBy(0,c.getBoundingClientRect().top-t-30);}); await p.waitForTimeout(800);
+    await p.evaluate(()=>{const c=document.querySelector('#favGrid .favcard .incw'), t=document.querySelector('.hm-mix').getBoundingClientRect().bottom; scrollBy(0,c.getBoundingClientRect().top-t-30);}); await p.waitForTimeout(800);
     await fi.click(); await p.waitForTimeout(400);
     s=await p.evaluate(bubSeen('#favGrid .favcard .incw .vpl-bub'));
     ok('5б избранное у верха экрана — пузырь целиком виден',s.open&&s.inView&&!s.bad.length,JSON.stringify(s));

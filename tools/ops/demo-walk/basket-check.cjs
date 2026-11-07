@@ -137,7 +137,7 @@ const saveHeart=async(p)=>{await p.click('#vFav'); CARET=await caret(p); await p
     const lay=await p.evaluate(()=>{const s=document.getElementById('screen-fav').getBoundingClientRect(), w=document.querySelector('.wrap'), cs=getComputedStyle(w),
       col=w.getBoundingClientRect().width-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight), cards=[...document.querySelectorAll('#favGrid .favcard')].map(c=>c.getBoundingClientRect());
       return {w:Math.round(s.width), col:Math.round(col), hScroll:document.documentElement.scrollWidth>innerWidth, out:cards.filter(r=>r.left<s.left-1||r.right>s.right+1).length,
-        perRow:cards.filter(r=>Math.abs(r.top-cards[0].top)<2).length, tabs:!document.getElementById('styleTabs').hidden, top:!!document.getElementById('flatPrice').offsetParent};});
+        perRow:cards.filter(r=>Math.abs(r.top-cards[0].top)<2).length, tabs:!document.getElementById('hmMix').hidden, top:!!document.getElementById('flatPrice').offsetParent};});
     ok('экран на ширину колонки, карточки внутри, без горизонтальной прокрутки; вкладок стилей и строки ЖК нет'+(PHONE?', на телефоне — одна карточка в ряд':''),
       Math.abs(lay.w-lay.col)<=2&&!lay.out&&!lay.hScroll&&!lay.tabs&&!lay.top&&(!PHONE||lay.perRow===1),JSON.stringify(lay));
     await p.screenshot({path:OUT+W+'-3-favs.png'});

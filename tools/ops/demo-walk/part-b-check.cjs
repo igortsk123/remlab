@@ -16,7 +16,7 @@ async function open(b, vp, q) {
   const p = await ctx.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(String(e).slice(0, 200)));
   await p.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
   await p.goto(demoUrl(BASE + "/demo/" + (q || "")), { waitUntil: "load", timeout: 120000 });
-  await p.waitForFunction("typeof D!=='undefined'&&!!D&&allVariants().length>0&&document.querySelectorAll('#styleTabs [data-style]').length>0", null, { timeout: 90000 });
+  await p.waitForFunction("typeof D!=='undefined'&&!!D&&allVariants().length>0&&typeof homeModel==='function'&&homeModel().styles.length>0", null, { timeout: 90000 });
   await p.waitForTimeout(2500);
   return p;
 }
@@ -53,15 +53,16 @@ async function replace(p, role) {
       // Б1 — язык на вкладке «Современный»
       {
         const p = await open(b, vp, "?lang=ru");
-        const tab = await p.evaluate(() => { const t = [...document.querySelectorAll("#styleTabs [data-style]")].find((x) => /соврем/i.test(x.textContent)); return t && t.dataset.style; });
-        await p.click(`#styleTabs [data-style="${tab}"]`); await p.waitForTimeout(600);
+        // вкладок стилей нет (home-mix-01 шаг 5): квартира в «Современном» — путём «Показать» окна «Выбрать другой»
+        const tab = await p.evaluate(() => { const s = homeModel().styles.find((x) => /соврем/i.test(x.title)); return s && s.id; });
+        await p.evaluate((id) => window.__mixApply([id]), tab); await p.waitForTimeout(600);
         await p.evaluate(() => window.scrollTo(0, 300)); await p.waitForTimeout(300);
         const y0 = await p.evaluate("Math.round(scrollY)");
         await p.evaluate(() => document.querySelector('#langSw [data-lang="en"]').click());
         await p.waitForURL(/lang=en/, { timeout: 30000 });
-        await p.waitForFunction("typeof D!=='undefined'&&!!D&&document.querySelectorAll('#styleTabs [data-style]').length>0", null, { timeout: 90000 });
+        await p.waitForFunction("typeof D!=='undefined'&&!!D&&typeof homeModel==='function'&&homeModel().styles.length>0", null, { timeout: 90000 });
         await p.waitForTimeout(4000);
-        const st = await p.evaluate(() => ({ open: document.getElementById("shot").classList.contains("on"), tab: (document.querySelector("#styleTabs .hm-tab.on") || {}).dataset?.style, y: Math.round(scrollY), url: location.search + location.hash }));
+        const st = await p.evaluate(() => ({ open: document.getElementById("shot").classList.contains("on"), tab: homeSel(homeModel()).selected[0], y: Math.round(scrollY), url: location.search + location.hash }));
         ok(`${tag} Б1: смена языка на «Современном» — окно не открыто, вкладка та же`, !st.open && st.tab === tab, JSON.stringify({ ...st, y0 }));
         ok(`${tag} Б1: прокрутка вернулась (±80: английский текст выше другой высоты)`, Math.abs(st.y - y0) <= 80, `было ${y0}, стало ${st.y}`);
         await p.screenshot({ path: `${OUT}/${tag}-lang-en.png` });

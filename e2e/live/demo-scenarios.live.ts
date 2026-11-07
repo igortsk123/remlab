@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 import { demoUrl } from "./browser";
+import { HOME_READY, homeStyles, pickInWindow, pickStyle } from "./home";
 
 // КАРТА СЦЕНАРИЕВ ДЕМО НА ПРОДЕ (план demo-03, `.memory_bank/domain/demo-scenario-map.md`). Номера тестов = номера строк
 // карты. Каждая проверка печатает число (время, количество, сумму): «не упало» — не проверка. Платный путь не тратит
@@ -41,16 +42,17 @@ test("1.2–1.5 первый экран: консультация, ипотек�
   await expect(page.locator("#flatMore")).toContainText("оплате 100");
   // кнопки «Пройтись по квартире в 3D» в шапке нет (владелец 16.10, demo-02 п.8) — 3D внутри окна варианта
   await expect(page.locator("#pc3d")).toHaveCount(0);
-  // план квартиры — ссылкой, не вкладкой (demo-16), и плашкой в конце комнат (demo-20 А7); назад — «← К стилям»
-  for (const sel of ["#planLink", "#hmRooms .hm-plan-tile"]) {
+  // план квартиры — переключателем «Интерьер / План квартиры» (home-mix-01 шаг 5) и плашкой в конце комнат (demo-20 А7); назад — «Интерьер»
+  for (const sel of ['#hmView [data-view="plan"]', "#hmRooms .hm-plan-tile"]) {
     await page.locator(sel).click();
     await expect(page.locator("#screen-plan")).toBeVisible();
-    await expect(page.locator("#styleTabs")).toBeHidden();
-    await page.locator("#planBack").click();
+    await expect(page.locator("#hmMix")).toBeHidden();
+    await expect(page.locator('#hmView [data-view="plan"]')).toHaveAttribute("aria-selected", "true");
+    await page.locator('#hmView [data-view="room"]').click();
     await expect(page.locator("#screen-room")).toBeVisible();
   }
-  // вкладки — стили; внутри — комнаты в порядке плана, неготовые — одинаковой заглушкой с площадью (demo-16)
-  const tabs = await page.locator("#styleTabs [data-style]").allInnerTexts();
+  // стили главной (бывшие вкладки, home-mix-01 шаг 5 — строка «Вариант N»); внутри — комнаты в порядке плана, неготовые — заглушкой (demo-16)
+  const tabs = (await homeStyles(page)).map((s) => s.title);
   const rooms = await page.locator("#hmRooms [data-room]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.room));
   const stubs = await page.locator("#hmRooms .hm-stub:not(.hm-plan-tile)").allInnerTexts();
   say("стили:", tabs.join(" | "), "· комнаты:", rooms.join(","));
@@ -65,9 +67,9 @@ test("1.2–1.5 первый экран: консультация, ипотек�
 
 test("2.1–2.3 окно кадра: фото, список, числа как на карточке комнаты каждого стиля", async ({ page }) => {
   await openDemo(page);
-  const n = await page.locator("#styleTabs [data-style]").count();
-  for (let i = 0; i < n; i++) {
-    await page.locator("#styleTabs [data-style]").nth(i).click();     // вкладка стиля → карточка гостиной этого стиля (demo-16)
+  const S = await homeStyles(page);
+  for (let i = 0; i < S.length; i++) {
+    await pickStyle(page, S[i]!.id);     // квартира в этом стиле → карточка гостиной этого стиля (home-mix-01 шаг 5)
     const card = (await page.locator("#hmRooms .hm-room[data-room=living] .sum small").innerText()) + " · " + (await page.locator("#hmRooms .hm-room[data-room=living] .sum b").innerText());
     await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
     await expect(page.locator("#shot")).toBeVisible();
@@ -162,8 +164,8 @@ test("2.27 карточка: кадр своей расстановки или �
   await page.waitForFunction("shots.length > 0");
   // карточка комнаты каждого стиля (demo-16): вкладка → гостиная этого стиля
   const cards: { style: string; shown: string; fits: boolean }[] = [];
-  for (const id of await page.locator("#styleTabs [data-style]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.style))) {
-    await page.locator(`#styleTabs [data-style="${id}"]`).click();
+  for (const { id } of await homeStyles(page)) {
+    await pickStyle(page, id);
     cards.push(...(await page.evaluate(`[allVariants()[cur]].map((v) => { const el = document.querySelector('#hmRooms .hm-room[data-room=living]'), im = el && el.querySelector('img');
     const s = im ? shots.find((x) => thumbOf(x) === im.getAttribute('src') || x.url === im.dataset.url) : null;
     return { style: v.style, shown: s ? s.quality + ':' + (s.stateId ? 'state' : 'items') : (el && el.querySelector('.nopv') ? 'заглушка' : '?'), fits: !s || shotFits(s, v) }; })`) as { style: string; shown: string; fits: boolean }[]));
@@ -387,8 +389,9 @@ test("2.33 первый экран телефона: вкладки стилей
     const ctx = await browser.newContext({ ...phone, viewport: vp });
     const page = await ctx.newPage();
     await page.goto(demoUrl("/demo/"), { waitUntil: "load" });
-    await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 0 && !!FLAT");
-    const m = await page.evaluate(() => { const ph = document.querySelector("#hmRooms .hm-room[data-room=living] .hm-ph")!.getBoundingClientRect(), tb = document.getElementById("styleTabs")!.getBoundingClientRect();
+    await page.waitForFunction(HOME_READY);
+    // вместо вкладок стилей — строка «Вариант N · Выбрать другой» (home-mix-01 шаг 5): она до сгиба, под ней ≥ 120 px фото
+    const m = await page.evaluate(() => { const ph = document.querySelector("#hmRooms .hm-room[data-room=living] .hm-ph")!.getBoundingClientRect(), tb = document.getElementById("hmMix")!.getBoundingClientRect();
       return { tabsVisible: tb.top >= 0 && tb.bottom <= innerHeight, tabsHeight: Math.round(tb.height), visiblePhotoHeight: Math.round(Math.max(0, Math.min(ph.bottom, innerHeight) - Math.max(ph.top, tb.bottom))) }; });
     say(`${vp.width}×${vp.height}:`, JSON.stringify(m));
     expect(m.tabsVisible).toBe(true);
@@ -405,10 +408,10 @@ test("2.34 липкая шапка после прокрутки ≤ 140 px (Р�
     const ctx = await browser.newContext(phone);
     const page = await ctx.newPage();
     await page.goto(demoUrl(`/demo/${q}`), { waitUntil: "load" });
-    await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 1 && !!FLAT");
+    await page.waitForFunction(`${HOME_READY} && homeModel().styles.length > 1`);
     await page.evaluate("scrollTo(0, document.documentElement.scrollHeight)");
     await page.waitForTimeout(500);
-    const st = await page.evaluate(`({ sticky: Math.round(Math.max(document.getElementById('hmHd').getBoundingClientRect().bottom, document.getElementById('styleTabs').getBoundingClientRect().bottom)),
+    const st = await page.evaluate(`({ sticky: Math.round(Math.max(document.getElementById('hmHd').getBoundingClientRect().bottom, document.getElementById('hmMix').getBoundingClientRect().bottom)),
       mode: document.getElementById('hmCert').dataset.mode, stuck: document.getElementById('hmCert').classList.contains('stuck'),
       legend: [...document.querySelectorAll('#hmCert .cs-lg, #hmCert .cs-ov')].some((e) => !!e.offsetParent) })`) as { sticky: number; mode: string; stuck: boolean; legend: boolean };
     say(`${q || "РФ"} липкая часть:`, JSON.stringify(st));
@@ -416,8 +419,8 @@ test("2.34 липкая шапка после прокрутки ≤ 140 px (Р�
     expect(st.stuck).toBe(true);
     expect(st.legend).toBe(false);
     expect(st.sticky).toBeLessThanOrEqual(140);
-    const id = await page.locator("#styleTabs [data-style]").nth(1).getAttribute("data-style");
-    await page.locator(`#styleTabs [data-style="${id}"]`).click();
+    // «Выбрать другой» из липкой строки внизу страницы (home-mix-01 шаг 5): в окне — второй вариант, «Показать»
+    const [id] = await pickInWindow(page, [1]);
     await page.waitForTimeout(900);
     const r = await page.evaluate("({top: Math.round(document.getElementById('hmRooms').getBoundingClientRect().top), style: new URLSearchParams(location.search).get('style'), card: document.querySelector('#hmRooms .hm-room[data-room=living]').dataset.style})") as { top: number; style: string; card: string };
     say("после вкладки:", JSON.stringify(r));
@@ -442,7 +445,7 @@ test("2.35 корзина: 0 на старте; первая гостиная в
   expect(Object.keys(s1.inc).length).toBe(1);
   expect(s1.cert).toBeGreaterThan(0);
   await page.keyboard.press("Escape");
-  await page.locator("#styleTabs [data-style]").nth(1).click();
+  await pickStyle(page, (await homeStyles(page))[1]!.id);
   await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
   await page.waitForSelector("#vFav:visible");
   await page.locator("#vFav").click();
@@ -637,12 +640,11 @@ const pinsInFrame = (page: Page) => page.evaluate(() => {
 async function pinsEveryStyle(page: Page, label: string): Promise<string[]> {
   await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
   await page.goto(demoUrl("/demo/?live=force"), { waitUntil: "load" });
-  await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 0 && !!FLAT", null, { timeout: 90_000 });
-  const n = await page.locator("#styleTabs [data-style]").count();
+  await page.waitForFunction(HOME_READY, null, { timeout: 90_000 });
   const bad: string[] = [];
-  for (let i = 0; i < n; i++) {
-    const style = (await page.locator("#styleTabs [data-style]").nth(i).innerText()).trim();
-    await page.locator("#styleTabs [data-style]").nth(i).click();
+  for (const s of await homeStyles(page)) {
+    const style = s.title;
+    await pickStyle(page, s.id);
     await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
     await expect(page.locator("#shot")).toHaveClass(/\bon\b/);
     await page.evaluate("if (VW.mode !== 'walk') vwMode('walk')");   // у варианта может быть реалистичное фото — пины только в 3D

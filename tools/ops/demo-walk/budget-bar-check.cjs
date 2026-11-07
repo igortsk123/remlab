@@ -80,7 +80,7 @@ const BUB=`(()=>{const b=document.querySelector('#hmCert .vpl-bub'); if(!b||b.hi
       const room=await p.evaluate("(()=>{const c=document.getElementById('hmCert'); return document.documentElement.scrollHeight-innerHeight-(c.getBoundingClientRect().top+scrollY-parseFloat(getComputedStyle(c).top));})()");
       if(room<1){R.push(`ИНФО ${name} ${W}×${H}: страница не прокручивается до шапки — липкого состояния нет`); await p.context().close(); continue;}
       await p.evaluate("scrollTo(0, document.documentElement.scrollHeight)"); await p.waitForTimeout(500);
-      const st=await p.evaluate(`({sticky:Math.round(Math.max(document.getElementById('hmHd').getBoundingClientRect().bottom, document.getElementById('styleTabs').getBoundingClientRect().bottom)),
+      const st=await p.evaluate(`({sticky:Math.round(Math.max(document.getElementById('hmHd').getBoundingClientRect().bottom, document.getElementById('hmMix').getBoundingClientRect().bottom)),
         cert:Math.round(document.getElementById('hmCert').getBoundingClientRect().height), stuck:document.getElementById('hmCert').classList.contains('stuck'),
         lg:[...document.querySelectorAll('#hmCert .cs-lg,#hmCert .cs-ov')].some(e=>!!e.offsetParent),
         right:[...document.querySelectorAll('#hmCert .cs-t .cs-r')].filter(e=>!!e.offsetParent).map(e=>e.innerText).join('|'), y:${Y}})`);

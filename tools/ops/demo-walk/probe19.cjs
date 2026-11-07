@@ -17,17 +17,18 @@ for(const name of (process.argv[3]||'p375,p390,desk').split(',')){const [vp,mobi
   // 1. липкая шапка после прокрутки
   await p.evaluate(()=>scrollTo(0,1500)); await p.waitForTimeout(600);
   out.sticky=await p.evaluate(()=>{const R=e=>{if(!e)return null;const b=e.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)];};
-    const hd=document.querySelector('.hm-hd'), tabs=document.querySelector('.hm-tabs');
+    const hd=document.querySelector('.hm-hd'), tabs=document.querySelector('.hm-mix');   // строка «Вариант N» вместо вкладок (home-mix-01 шаг 5)
     const stuck=[...document.querySelectorAll('body *')].filter(e=>{const s=getComputedStyle(e); if(!(s.position==='sticky'||s.position==='fixed'))return false; const r=e.getBoundingClientRect(); return r.top<=1&&r.height>0&&r.width>100;}).map(e=>[e.className||e.id, R(e)]);
     return {hd:R(hd), tabs:R(tabs), hdText:(hd?hd.innerText:'').replace(/\s+/g,' ').slice(0,80), tabsBottom:tabs?Math.round(tabs.getBoundingClientRect().bottom):null, stuck, y:scrollY};});
   await p.screenshot({path:OUT+'/p19-'+name+'-2sticky.png'});
   step('sticky');
-  // 2. вкладка стиля снизу страницы → комнаты стиля под шапкой, адрес
+  // 2. другой стиль снизу страницы (путь «Показать» окна «Выбрать другой») → комнаты стиля под шапкой, адрес
   await p.evaluate(()=>scrollTo(0,document.body.scrollHeight)); await p.waitForTimeout(500);
-  const tab=p.locator('#styleTabs [data-style]:not(.on)').last(); const tabId=await tab.getAttribute('data-style'); await tab.click(); await p.waitForTimeout(1200);
+  const tabId=await p.evaluate(()=>{const S=homeModel().styles.map(s=>s.id), on=homeSel(homeModel()).selected[0]; return S.filter(x=>x!==on).pop();});
+  await p.evaluate(id=>window.__mixApply([id]),tabId); await p.waitForTimeout(1200);
   out.tab=await p.evaluate((id)=>{const R=e=>{if(!e)return null;const b=e.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)];};
-    const tabs=document.querySelector('.hm-tabs'), first=document.querySelector('.hm-room[data-style="'+id+'"]');
-    return {id, url:location.search+location.hash, on:document.querySelector('#styleTabs .on')?.dataset.style, tabsBottom:tabs?Math.round(tabs.getBoundingClientRect().bottom):null, firstRoom:R(first), y:scrollY};},tabId);
+    const tabs=document.querySelector('.hm-mix'), first=document.querySelector('.hm-room[data-style="'+id+'"]');
+    return {id, url:location.search+location.hash, on:homeSel(homeModel()).selected[0], tabsBottom:tabs?Math.round(tabs.getBoundingClientRect().bottom):null, firstRoom:R(first), y:scrollY};},tabId);
   await p.screenshot({path:OUT+'/p19-'+name+'-3tab.png'});
   step('tab');
   // 3. окно варианта → ракурс 2 → шторка → ♡ → «Перейти →» → назад → вперёд → перезагрузка
@@ -53,8 +54,8 @@ for(const name of (process.argv[3]||'p375,p390,desk').split(',')){const [vp,mobi
   step('reload');
   // 4. EN
   await p.goto(demoUrl(BASE+'?live=0&lang=en'),{waitUntil:'load',timeout:120000}); await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.waitForTimeout(3000);
-  out.en=await p.evaluate(()=>{const txt=[...document.querySelectorAll('.hm-hd, .hm-tabs, .hm-fav-row, .hm-fav-sec, #hmRooms, header, [role=dialog]')].map(e=>e.innerText||'').join('\n');
-    const cyr=txt.match(/[^\n]*[А-Яа-яЁё]+[^\n]*/g)||[]; return {cyr:cyr.slice(0,8), favLabel:document.getElementById('hmFav')?.getAttribute('aria-label'), tabs:[...document.querySelectorAll('#styleTabs .hm-tab')].map(b=>b.textContent.trim())};});
+  out.en=await p.evaluate(()=>{const txt=[...document.querySelectorAll('.hm-hd, .hm-view, .hm-mix, .hm-fav-row, .hm-fav-sec, #hmRooms, header, [role=dialog]')].map(e=>e.innerText||'').join('\n');
+    const cyr=txt.match(/[^\n]*[А-Яа-яЁё]+[^\n]*/g)||[]; return {cyr:cyr.slice(0,8), favLabel:document.getElementById('hmFav')?.getAttribute('aria-label'), tabs:[(document.getElementById('hmMixName')||{}).textContent||'']};});
   await p.evaluate(()=>{pickVariant(0); openLiveWindow();}); await p.waitForTimeout(5000);
   out.enWin=await p.evaluate(()=>{const txt=document.getElementById('shot').innerText||''; return (txt.match(/[^\n]*[А-Яа-яЁё]+[^\n]*/g)||[]).slice(0,8);});
   await p.screenshot({path:OUT+'/p19-'+name+'-7en.png'});
