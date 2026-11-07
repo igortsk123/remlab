@@ -862,7 +862,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
    из трёх отрезков (закрашены до текущего включительно), варианты — светлые плашки бренда, выбранный — рамка терракоты и галочка;
    кнопки «Назад» (контур) и «Далее» (терракота) в один ряд. Телефон 375×667 — без прокрутки страницы (окно ≤ высоты экрана, при
    крупном шрифте листается само окно), компьютер — окно ≤ 560 px. Классы — с префиксом `qz-` (урок о коротких классах) */
-#qzBox{position:fixed;inset:0;z-index:var(--z-modal);background:var(--scrim-soft);display:none;align-items:center;justify-content:center;padding:12px}
+/* фон опроса — СПЛОШНОЙ нейтральный в тон страницы, не затемнение поверх сайта (владелец, голос TG 373, T-20261107-28/3): открытая
+   комната под окном звала закрыть его. Свой токен `--qz-bg` — тёмная тема (её у страницы пока нет) переопределит его одной строкой */
+#qzBox{--qz-bg:var(--bg);position:fixed;inset:0;z-index:var(--z-modal);background:var(--qz-bg);display:none;align-items:center;justify-content:center;padding:12px}
 #qzBox.on{display:flex}
 .qz-card{background:var(--surface);color:var(--ink);border-radius:20px;box-shadow:var(--e5);width:min(560px,100%);max-height:calc(100dvh - 24px);
  overflow-y:auto;overscroll-behavior:contain;padding:18px 16px 16px;display:flex;flex-direction:column;gap:12px;outline:none}
@@ -7570,7 +7572,7 @@ function quizPick(rule, answers, available, styleColours){
     // заголовок — смысл «узнаем ваш стиль» (владелец 06.11, T-20261106-94): опрос про человека, а не «что понравилось»
     return '<h2 class="qz-h" id="qzH">'+(EN()?'Let’s find your style':'Давайте узнаем ваш стиль')+'</h2><p class="qz-txt">'+txt+'</p>'+
       '<button class="btn primary qz-next" type="button" data-qz="next" style="min-height:48px;font-weight:600">'+(EN()?'Start':'Начать')+'</button>'+
-      '<button class="qz-link" type="button" data-qz="skip">'+(EN()?'Go straight to the styles':'Сразу к стилям')+'</button>';
+      '<button class="qz-link" type="button" data-qz="skip">'+(EN()?'Straight to options':'Сразу к вариантам')+'</button>';
   }
   // подпись карточки — «Вариант N» по порядку на экране, не название стиля (владелец TG 341–342: выбирают по фото, а не по слову);
   // в ответах (`Q.a.photos`, `data-ph`) остаётся id стиля — менеджеру нужна правда. Выбрано сколько можно (max 2) — остальные серые
