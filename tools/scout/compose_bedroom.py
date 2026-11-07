@@ -163,12 +163,15 @@ def cells(R: dict) -> list:
 
 # ---------------------------------------------------------------- данные
 def _room_model(spec: dict, purpose: str):
+    """Комната для солвера. purpose — ключ правил сборки: `child:7-12` → purpose child + child_age 7-12 (kids-room-01:
+    возраст доходит до солвера — у 7–12 свой обязательный состав)."""
     sys.path.insert(0, SOLVER)
     from planner.models import Opening, Radiator, Room
+    p, _, age = purpose.partition(':')
     return Room(width_cm=spec['w'], depth_cm=spec['d'], contour=spec.get('contour'),
                 openings=[Opening(**{k: v for k, v in o.items() if not k.startswith('_')}) for o in spec.get('openings', [])],
                 radiators=[Radiator(**{k: v for k, v in r.items() if not k.startswith('_')}) for r in spec.get('radiators', [])],
-                room_type='bedroom', purpose=purpose)
+                room_type='bedroom', purpose=p, child_age=age or None)
 
 
 def room_spec(room_id: str, variant: str) -> dict:
@@ -178,14 +181,17 @@ def room_spec(room_id: str, variant: str) -> dict:
     raise SystemExit(f'{FLAT}: нет {room_id}/{variant}')
 
 
-def load_items(rules: dict) -> tuple:
+def load_items(rules: dict, purpose: str | None = None) -> tuple:
     """(мебель, декор) спальни из адаптера каталога (`catalog_items.items('bedroom')`, room-pipeline-01 Б-1). Мебель —
     room_catalog (показ, включённые роли, без детского в общих ролях), стиль — по семейству из `style-scores-bedroom.json`;
+    purpose детской (`child:7-12`) — каталог ПО НАЗНАЧЕНИЮ: детские роли и взрослые товары, годные по размеру
+    (`room_catalog.purposes_of`, kids-room-01); взрослые назначения и None — прежний каталог байт в байт;
     декор — каталог гостиной (в наличии, фото живо, цена, есть `product_style_scores`). Признаки ламп по описанию товара
     (`lamp_task_desc` / `lamp_bed_desc` правил) — флагами из БД, сам текст не тянем. Поля словарей и их порядок — прежние
     (`load_catalog`/`load_decor` до T-20261105-39): банк до/после перевода побайтно равен; NULL текста — '' как раньше."""
     import catalog_items as CI
-    return to_dicts(CI.items('bedroom', desc_flags={'task': rules.get('lamp_task_desc'), 'bed': rules.get('lamp_bed_desc')}))
+    return to_dicts(CI.items('bedroom', purpose=purpose,
+                             desc_flags={'task': rules.get('lamp_task_desc'), 'bed': rules.get('lamp_bed_desc')}))
 
 
 def to_dicts(got: list) -> tuple:
@@ -282,7 +288,7 @@ class Composer:
         from planner.models import Item
         cfg = self.R['purposes'][purpose]
         self.purpose = purpose
-        room = _room_model(spec, purpose.split(':')[0])
+        room = _room_model(spec, purpose)
         slots, lists, bands, relaxed = {}, {}, {}, []
         for sl in cfg['slots']:
             cands, band, rx = self.pool(sl, style, tier, self.cat)
@@ -891,6 +897,13 @@ def _selftest() -> int:
                                                      ('office', 'child:0-3', 'child:3-7', 'child:7-12', 'child:teen')))
     ok('спальня 2 — все назначения словаря ADR-0330', set(R['rooms']['bedroom-2']['purposes']) ==
        {'couple', 'single', 'guest', 'office', 'child:0-3', 'child:3-7', 'child:7-12', 'child:teen'})
+    _rm = lambda p: (lambda r: (r.purpose, r.child_age))(_room_model(room_spec('bedroom-2', 'drawing-180'), p))  # noqa: E731
+    ok('назначение с возрастом доходит до солвера (kids-room-01)',
+       _rm('child:7-12') == ('child', '7-12') and _rm('couple') == ('couple', None))
+    k712 = R['purposes']['child:7-12'].get('kids_sets') or {}
+    ok('правило наборов детской 7–12 записано: 2 стиля, семейств кровать 2 / стол 2 / стул 1',
+       len(k712.get('styles', [])) == 2 and {r: n for r, n in k712.get('families_min', {}).items() if not r.startswith('_')}
+       == {'кровать детская': 2, 'стол детский': 2, 'стул': 1})
     # ковёр под кроватью — на геометрии спальни 1 (солвер, без базы)
     sys.path.insert(0, SOLVER)
     from planner.bedroom import solve_bedroom

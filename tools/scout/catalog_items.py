@@ -88,16 +88,28 @@ def profile_roles(room_type: str, profile: dict | None = None) -> dict:
     return out
 
 
-def _sources(room_type: str, profile: dict | None = None) -> list:
+def _sources(room_type: str, profile: dict | None = None, purpose: str | None = None) -> list:
     """[(origin, preset, roles)] — порядок источников = порядок выдачи; роли из профиля (`profile_roles`). Источник роли
-    профиля, которого у комнаты нет в PRESETS, — ошибка (иначе роль молча пропала бы из выдачи)."""
+    профиля, которого у комнаты нет в PRESETS, — ошибка (иначе роль молча пропала бы из выдачи). Детская (`is_child`) —
+    мебель room_catalog по НАЗНАЧЕНИЮ: роли, у которых в `purposes` правил есть это назначение (`room_catalog.purpose_roles`),
+    вместо ролей профиля взрослой спальни; декор — как у спальни."""
     check_room(room_type)
     by = profile_roles(room_type, profile)
     have = [o for o, _ in PRESETS[room_type]]
     if set(by) - set(have):
         raise ValueError(f'catalog_items: у комнаты {room_type!r} роли из источника {sorted(set(by) - set(have))}, '
                          f'а читаются только {have}')
+    if is_child(purpose):
+        if room_type != 'bedroom':
+            raise ValueError(f'catalog_items: детская — назначение спальни (ADR-0330), не {room_type!r}')
+        import room_catalog as RC
+        by = dict(by, room_catalog=RC.purpose_roles(purpose, RC.rules()))
     return [(o, preset, by.get(o, [])) for o, preset in PRESETS[room_type]]
+
+
+def is_child(purpose: str | None) -> bool:
+    """Назначение детской `child:<возраст>`; None и взрослые (couple|single|guest|office) — прежняя выдача байт в байт."""
+    return bool(purpose) and purpose.startswith('child:')
 
 
 # ---------------------------------------------------------------- база
@@ -204,14 +216,16 @@ def _rc(room_type: str):
     return M
 
 
-def room_catalog_sql(room_type: str, roles: list) -> str:
+def room_catalog_sql(room_type: str, roles: list, purpose: str | None = None) -> str:
     """Мебель комнаты: показ (`<модуль>.shown_where`: цена, фото, оффер в свежем фиде) + роли профиля + не детское
-    (когда есть столбец kids). Порядок — магазин → артикул (как прежний `compose_bedroom.load_catalog`)."""
+    (когда есть столбец kids). Порядок — магазин → артикул (как прежний `compose_bedroom.load_catalog`). Детская —
+    без условия «не детское»: годность решает назначение строки (`room_catalog_items`)."""
     import room_catalog as RC
     M = _rc(room_type)
     R = M.rules()
     return (f"select {ROOM_CATALOG_COLS} from room_catalog where {M.shown_where(R)} and role in ("
-            + ','.join(_lit(r) for r in roles) + f"){RC.kids_where(R)} order by shop_mid, external_id")
+            + ','.join(_lit(r) for r in roles) + f"){'' if is_child(purpose) else RC.kids_where(R)} "
+            "order by shop_mid, external_id")
 
 
 def style_scores(room_type: str, get=None) -> dict:
@@ -231,17 +245,24 @@ def style_scores(room_type: str, get=None) -> dict:
     return json.load(open(path, encoding='utf-8'))
 
 
-def room_catalog_items(rows: list, room_type: str, get=None) -> list:
-    """Строки room_catalog → CatalogItem. Детское в общей роли (`kids_shared`) — вне показа взрослой спальни, как прежде;
-    детская (child:*) — PURPOSE_PENDING, её отбор появится с её профилем. Стиль — оценка семейства у любого его члена."""
+def room_catalog_items(rows: list, room_type: str, get=None, purpose: str | None = None) -> list:
+    """Строки room_catalog → CatalogItem. Взрослая спальня (purpose None|couple|…) — как прежде: детское в общей роли
+    (`kids_shared`) вне выдачи. Детская (child:<возраст>) — только строки с этим назначением по размерам
+    (`room_catalog.row_purposes`: вилки `purposes` правил, честные размеры; детское общей роли — только child:*).
+    Стиль — оценка семейства у любого его члена."""
     import room_catalog as RC
     if not rows:
         return []
     R = _rc(room_type).rules()
     ss = style_scores(room_type, get)
     out, fams = [], {}
+    child = is_child(purpose)
     for r in rows:
-        if RC.child_only(_width(r, N_ROOM)[0], r[3] or '', R):
+        if child:
+            if purpose not in RC.row_purposes(_width(r, N_ROOM)[0], r[3] or '', _f(r[7]), _f(r[8]), _f(r[9]), _f(r[10]),
+                                              _f(r[11]), _b(r[12]), r[13], R):
+                continue
+        elif RC.child_only(_width(r, N_ROOM)[0], r[3] or '', R):
             continue
         fam = f'{r[4] or ""}|{RC.family(r[3] or "")}'
         it = dict(
@@ -341,11 +362,13 @@ def with_binding(items: list, room_type: str, get=None) -> list:
             if c.origin in BINDING_ORIGINS else c for c in items]
 
 
-def items(room_type: str, roles=None, *, desc_flags: dict | None = None, with_assets: bool = False,
-          _fetch=None, _mesh=None, _bindings=None) -> list:
+def items(room_type: str, roles=None, *, purpose: str | None = None, desc_flags: dict | None = None,
+          with_assets: bool = False, _fetch=None, _mesh=None, _bindings=None) -> list:
     """Товары комнаты. roles: None — все роли профиля; [] — пусто без запроса; роль вне закрытого списка профиля — ValueError.
-    desc_flags {имя: регекс} — признаки по products.description (регекс пустой — False). with_assets — состояние меша."""
-    srcs = _sources(room_type)
+    purpose — назначение спальни (ADR-0330): None и взрослые — прежняя выдача; child:<возраст> — каталог по назначению
+    (`_sources`, `room_catalog_items`). desc_flags {имя: регекс} — признаки по products.description (регекс пустой — False).
+    with_assets — состояние меша."""
+    srcs = _sources(room_type, purpose=purpose)
     if roles is not None:
         roles = list(roles)
         if not roles:
@@ -362,7 +385,7 @@ def items(room_type: str, roles=None, *, desc_flags: dict | None = None, with_as
         if not want:
             continue
         if origin == 'room_catalog':
-            out += room_catalog_items(get(room_catalog_sql(preset, want)), room_type, get)
+            out += room_catalog_items(get(room_catalog_sql(preset, want, purpose)), room_type, get, purpose)
         else:
             names = list(flags)
             out += [product_item(_width(r, N_PRODUCT + len(names)), room_type, names)
@@ -551,8 +574,74 @@ def _selftest() -> int:
     errs = [schema_errors(c.to_dict()) for c in b + res['binding_missing']]
     ok('расширенная схема принимает объект привязки', all(not e for e in errs) or print(errs))
     ok('схема ловит неверный тип в asset', schema_errors(dict(b[0].to_dict(), asset=dict(a0, ready='да'))) == ["asset.ready: str не ['boolean']"])
+    _selftest_purpose(ok)
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0
+
+
+def _selftest_purpose(ok) -> None:
+    """Каталог по назначению (kids-room-01 шаг 2): «0 детских товаров во взрослых комнатах» и отбор детской по размерам.
+    Подделка базы отдаёт строки по `role in (…)` запроса, как настоящая; оценки стиля — пусто (файла в CI нет)."""
+    import re
+    import room_catalog as RC
+    R = RC.rules()
+
+    def row(role, eid, name, w, d, h, sw=None, sl=None, ok_='t', note=''):
+        return [role, '112923', eid, name, 'divan.ru', None, '9990', w, d, h, sw, sl, ok_, note, 'http://i/' + eid,
+                None, 'http://i/' + eid, 'http://u/' + eid]
+    rows = [row('кровать', 'b1', 'Кровать divan.ru Стелла 160 Велюр', '176', '214', '100', '160', '200'),
+            row('кровать детская', 'k1', 'Кровать детская divan.ru Анджи 80x160 Белый', '86', '166', '80', '80', '160'),
+            row('кровать детская', 'k2', 'Кровать детская divan.ru Обри 70x140 Белый', '76', '146', '70', '70', '140'),
+            row('стол детский', 't1', 'Стол детский divan.ru Трикси 100x55 Белый', '100', '55', '75'),
+            row('стол рабочий', 't2', 'Письменный стол divan.ru Крейн-3 90x50', '90', '50', '76'),
+            row('стул рабочий', 'c1', 'Офисное кресло divan.ru Фрей Букле Серый', '59', '59', '84'),
+            row('стул рабочий', 'c2', 'Офисное кресло divan.ru Вернер Букле Серый', '66', '66', '116'),
+            row('стул детский', 'c3', 'Стул детский divan.ru Филлис Мини Желтый', '51', '45', '57'),
+            row('шкаф', 'w1', 'Шкаф детский divan.ru Кейла 1-105x190 Белый', '105', '55', '190'),
+            row('шкаф', 'w2', 'Распашной шкаф divan.ru Шелтон 2-91x212 Белый', '91', '60', '212'),
+            row('туалетный столик', 'v1', 'Туалетный столик divan.ru Лора', '100', '45', '76')]
+    sqls = []
+
+    def get(q):
+        sqls.append(q)
+        m = re.search(r"role in \(([^)]*)\)", q)
+        roles = set(re.findall(r"'([^']*)'", m.group(1))) if m else set()
+        return [r for r in rows if r[0] in roles] if 'from room_catalog' in q else []
+    saved = globals()['style_scores']
+    globals()['style_scores'] = lambda room_type, get=None: {}
+    try:
+        kids = set(R['kids_roles'])
+        adult = {p: items('bedroom', purpose=p, _fetch=get) for p in (None, 'couple', 'single', 'guest', 'office')}
+        leak = [(p, c.name) for p, got in adult.items() for c in got
+                if set(c.roles) & kids or any(RC.child_only(r, c.name, R) for r in c.roles)]
+        for x in leak:
+            print('     протечка:', x)
+        ok('0 детских товаров во взрослых комнатах (пара, один, гость, кабинет, без назначения)', not leak and adult[None])
+        ok('взрослые назначения — выдача байт в байт как без назначения',
+           all([c.to_dict() for c in got] == [c.to_dict() for c in adult[None]] for got in adult.values()))
+        sqls.clear()
+        ch = items('bedroom', purpose='child:7-12', _fetch=get)
+        ok('детская 7–12: детские кровать 80×160, стол, стул; рабочий стул ≤ 65 см; шкафы детский и обычный — по назначению',
+           [c.eid for c in ch] == ['k1', 't1', 'c1', 'c3', 'w1', 'w2'] or print('     ', [c.eid for c in ch]))
+        ok('детская 7–12: в запросе нет взрослой кровати, рабочего стола, туалетного столика и условия «не детское»',
+           "'кровать'" not in sqls[0] and "'стол рабочий'" not in sqls[0] and 'туалетный' not in sqls[0]
+           and 'not kids' not in sqls[0] and "'кровать детская'" in sqls[0])
+        ok('детская 3–7: кровать 70×140, без рабочего стула', {c.eid for c in items('bedroom', purpose='child:3-7', _fetch=get)}
+           >= {'k2', 'c3'} and 'c1' not in {c.eid for c in items('bedroom', purpose='child:3-7', _fetch=get)})
+        ok('роль детской — только в детскую: «стул детский» без назначения — ошибка роли профиля',
+           items('bedroom', ['стул детский'], purpose='child:7-12', _fetch=get)[0].eid == 'c3'
+           and _raises(lambda: items('bedroom', ['стул детский'], _fetch=get)))
+        ok('детская — назначение только спальни', _raises(lambda: items('hall', purpose='child:7-12', _fetch=get)))
+    finally:
+        globals()['style_scores'] = saved
+
+
+def _raises(fn) -> bool:
+    try:
+        fn()
+    except ValueError:
+        return True
+    return False
 
 
 def main(argv: list) -> int:

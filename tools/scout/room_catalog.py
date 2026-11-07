@@ -157,6 +157,27 @@ def purposes_of(role: str, d: dict, R: dict, kids: bool = False, hidden=()) -> l
     return out
 
 
+_NOTE_H = re.compile(r'растущая: высота (\d+)–(\d+)')
+
+
+def h_min_of(note: str | None) -> float | None:
+    """Низ диапазона растущей мебели — из заметки размеров строки room_catalog (`dims_of`: «растущая: высота 52–76»)."""
+    m = _NOTE_H.search(note or '')
+    return float(m.group(1)) if m else None
+
+
+def purpose_roles(purpose: str, R: dict) -> list:
+    """Роли, у которых в `purposes` правил есть назначение purpose (порядок правил): каталог ПО НАЗНАЧЕНИЮ (kids-room-01,
+    Codex 07.11) — детские роли идут только в детскую, а не включаются глобально."""
+    return [r for r, tags in (R.get('purposes') or {}).items() if purpose in tags]
+
+
+def row_purposes(role: str, name: str, w, d, h, sw, sl, ok, note, R: dict) -> list:
+    """Назначения строки room_catalog (размеры столбцов + заметка растущей мебели); детское общей роли — только child:*."""
+    dd = {'w': w, 'd': d, 'h': h, 'sw': sw, 'sl': sl, 'ok': bool(ok), 'h_min': h_min_of(note)}
+    return purposes_of(role, dd, R, child_only(role, name, R))
+
+
 _RANGE_H = re.compile(r'(\d{2,3})\s*(?:-|–|/|до)\s*(\d{2,3})')
 _GROW = re.compile(r'растущ|регулир\w* по высот|с регулировкой высот', re.I)
 
@@ -673,6 +694,17 @@ def _selftest_onb04(R: dict, ok) -> int:
        and pk('кроватка', sw=60, sl=120) == ['child:0-3'])
     ok('растущая парта 52–76: все детские возрасты', pk('стол детский', h=76, h_min=52) == ['child:3-7', 'child:7-12', 'child:teen'])
     ok('стол с неправдоподобными размерами — без возраста', purposes_of('стол детский', {'h': 50, 'ok': False}, R) == [])
+    ok('взрослый рабочий стул в детскую 7–12 — только компактный (Ш ≤ 65) в вилке детского стула (T-20261107-43/1)',
+       'child:7-12' in pk('стул рабочий', w=56, d=56, h=81) and 'child:7-12' not in pk('стул рабочий', w=66, d=66, h=116)
+       and 'child:7-12' not in purposes_of('стул рабочий', {'w': 50, 'h': 80, 'ok': False}, R))
+    ok('каталог по назначению: детская 7–12 — детские кровать/стол/стул, детское хранение и рабочий стул; взрослых кровати, '
+       'рабочего стола и туалетного столика нет', purpose_roles('child:7-12', R) == [
+           'тумба прикроватная', 'комод', 'шкаф', 'кровать детская', 'стол детский', 'стул рабочий', 'стул детский']
+       and not {'кровать', 'стол рабочий', 'туалетный столик'} & set(purpose_roles('child:7-12', R)))
+    ok('строка room_catalog → назначения: растущая парта 52–76 из заметки; детский шкаф — только child:*',
+       row_purposes('стол детский', 'Парта', 120, 60, 76, None, None, True, 'растущая: высота 52–76', R)
+       == ['child:3-7', 'child:7-12', 'child:teen'] and h_min_of('') is None
+       and row_purposes('шкаф', 'Шкаф детский divan.ru Кейла', 105, 55, 190, None, None, True, '', R)[0] == 'child:0-3')
     ok('детское в гостевой — нет: у детских ролей только child:*',
        all(t.startswith('child:') for r in kids_roles for t in R['purposes'].get(r, {})))
     ok('растущая высота: «680/910» в мм внутри см → 68–91', grow_height('Парта-мольберт Shandong 102х61,5х680/910 см',
