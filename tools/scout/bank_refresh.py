@@ -39,6 +39,7 @@
   ~/venvs/scout/bin/python bank_refresh.py --run-id <номер> --force   # ручная запись при выключенном флаге
   ~/venvs/scout/bin/python bank_refresh.py recover [--abandon] # довести/откатить прерванную запись (намерение)
   ~/venvs/scout/bin/python bank_refresh.py list                # поколения
+  ~/venvs/scout/bin/python bank_refresh.py [--room X] state    # живой = журнал? (0 — да; 3 — не определено: ночь не публикует демо)
   ~/venvs/scout/bin/python bank_refresh.py rollback <поколение|last> [--force]   # --force — при exam.lock
   ~/venvs/scout/bin/python bank_refresh.py release [<ячейка>|all]                # снять запрет отката
   ~/venvs/scout/bin/python bank_refresh.py --enabled           # 1/0 — для refresh_daily.sh (ошибка чтения — 0)
@@ -216,6 +217,69 @@ def recover(P: dict, abandon: bool = False) -> int:
           f"не трогаю; разбор руками, затем `bank_refresh.py recover --abandon` ({P['intent']})", flush=True)
     print(f'DIGEST:банк: писатель стоит — незавершённая запись {gen} и чужая правка живого банка, нужен разбор', flush=True)
     return 1
+
+
+# виды записей журнала, после которых живой банк ОБЯЗАН иметь их `live_sha_after` (None — живого файла нет)
+CHANGES = ('write', 'rollback', 'bootstrap', 'unbootstrap')
+
+
+def expected(J: list[dict]) -> tuple[str | None, str | None]:
+    """(sha, которым живой банк должен быть по журналу; какая запись это задала). Записи-изменения — свой `live_sha_after`;
+    восстановление `abandon` — живой оставлен как был (`live_sha`); `abort`/`restore` — живой прежний (sha предыдущей записи).
+    Журнала нет — (None, None): писатель ещё не работал."""
+    want, at = None, None
+    for r in J:
+        if r.get('kind') in CHANGES and 'live_sha_after' in r:
+            want, at = r['live_sha_after'], f"{r['kind']} {r.get('gen')}"
+        elif r.get('kind') == 'recover' and r.get('action') == 'abandon':
+            want, at = r.get('live_sha'), f"recover/abandon {r.get('gen')}"
+    return want, at
+
+
+def state(P: dict) -> tuple[bool, str]:
+    """ОПРЕДЕЛЕНО ЛИ СОСТОЯНИЕ ЖИВОГО БАНКА (room-bank-01 этап Д: «неопределённое состояние → демо не публиковать»). Только чтение.
+    Неопределено: незавершённая запись (намерение), журнал не читается, живой не читается как JSON, sha живого ≠ sha по
+    последней записи журнала (менял кто-то мимо писателя или запись оборвалась без намерения). Журнала нет — определено
+    (писатель/bootstrap не работали; что лежит, то и было)."""
+    if os.path.exists(P['intent']):
+        try:
+            it = _intent_load(P) or {}
+        except ValueError:
+            it = {}
+        return False, (f"незавершённая запись {it.get('gen')} ({(it.get('record') or {}).get('kind')}) — намерение "
+                       f"{P['intent']}; разбор — `bank_refresh.py recover`")
+    try:
+        J = journal(P)
+    except ValueError as e:
+        return False, f"журнал не читается ({P['journal']}: {e})"
+    try:
+        raw = open(P['live'], 'rb').read()
+    except FileNotFoundError:
+        raw = None
+    if raw is not None:
+        try:
+            json.loads(raw)
+        except ValueError as e:
+            return False, f"живой банк не читается как JSON ({P['live']}: {e})"
+    cur = sha(raw) if raw is not None else None
+    want, at = expected(J)
+    if at is None:
+        return True, 'журнала нет — писатель не работал; ' + ('живой банк есть' if raw is not None else 'живого банка нет')
+    if cur != want:
+        return False, (f"живой банк ({(cur or 'нет файла')[:12]}) не равен журналу ({(want or 'нет файла')[:12]}, {at}) — "
+                       'менял кто-то мимо писателя или запись оборвалась')
+    return True, f"живой банк = журнал ({at}; {(cur or 'нет файла')[:12]})"
+
+
+def state_cli(P: dict) -> int:
+    good, msg = state(P)
+    room = P.get('room', 'living')
+    if good:
+        print(f'bank_state: {room}: ок — {msg}', flush=True)
+        return 0
+    print(f'ERROR:bank_state: {room}: состояние не определено — {msg}', flush=True)
+    print(f'DIGEST:банк {room}: состояние не определено — {msg}; демо в эту ночь не публикуется', flush=True)
+    return 3
 
 
 def summary(live: list, out: list, promoted: list, rows: dict) -> dict:
@@ -781,6 +845,8 @@ def main() -> int:
     P = paths()
     if a[:1] == ['list']:
         return list_gens(P)
+    if a[:1] == ['state']:                     # только чтение — и у каркаса комнаты (ночь: ворота публикации демо, этап Д)
+        return state_cli(P)
     gate = SPEC.skeleton_gate('bank_refresh', rules(), 'write_enabled', '--force' in a) if SPEC.skeleton else None
     if gate is not None:                       # каркас комнаты: ни записи, ни отката, ни снятия запрета
         return gate

@@ -83,10 +83,17 @@ COMBOS = [(wd, lock) for wd in (1, 3) for lock in (False, True)]
 # ГОЛОВА КОНВЕЙЕРА КОМНАТ (room-conveyor-02 К1, T-20261106-84): каталоги комнат — сразу за load3, шаги комнат — рядом с такими же
 # шагами гостиной (`ROOM_AFTER`). В `--against` шаги комнат не считаем разницей — это сравнение остальной ночи с прежней.
 ROOM_STEPS = ('hall_catalog', 'rooms_alive', 'style_bedroom', 'style_hall', 'rooms_cutout')
-# БАНКИ КОМНАТ НОЧЬЮ (room-bank-nightly-04 = К4, T-20261106-89): привязка → сборщик → сухой суд → цепочка банка комнаты (за
-# prepare_enabled) — после писателя гостиной, до demo_band; за флагами rules/bank-candidate.json:rooms.<комната>.*
-ROOM_BANK = ('room_bindings', 'compose_bedroom', 'room_check_bedroom', 'compose_hall', 'room_check_hall',
-             *(f'{s}_{r}' for r in ('bedroom', 'hall') for s in ('bank_prepare', 'bank_pending', 'bank_promote', 'bank_refresh')))
+# БАНКИ КОМНАТ НОЧЬЮ (room-bank-nightly-04 = К4, T-20261106-89; порядок — room-bank-01 этап Д, T-20261107-04): привязка → сборщик →
+# сухой суд → цепочка банка комнаты (prepare → меши кандидата → привязка → pending [за prepare_enabled] → promote [promote_enabled]
+# → refresh [write_enabled]) → проверка состояния (всегда) — после писателя гостиной, до demo_band
+ROOMS = ('bedroom', 'hall')
+CHAIN = ('bank_prepare', 'mesh_cand', 'room_bindings', 'bank_pending', 'bank_promote', 'bank_refresh')
+ROOM_BANK = ('room_bindings', *(f'{s}_{r}' for r in ROOMS for s in ('compose', 'room_check', *CHAIN, 'bank_state')))
+DEMO = ('flat215_demo', 'demo_rt', 'flat215_publish')
+
+
+def chain_of(room: str) -> list[str]:
+    return [f'{s}_{room}' for s in CHAIN]
 ROOM_ALL = ('room_catalog', *ROOM_STEPS, *ROOM_BANK)
 ROOM_AFTER = {'load3': ['room_catalog', 'hall_catalog'], 'pool_photos': ['rooms_alive'],
               'style_score': ['style_bedroom', 'style_hall'], 'cutout': ['rooms_cutout']}
@@ -139,9 +146,11 @@ def _selftest() -> int:
            and fn.index('layout_page') < fn.index('bank_prepare'))
         ok(f'[{tag}] false: медиа пишет банк (--apply)', all(s.endswith('catalog_media.py --apply') for s in f
                                                               if s.startswith('bank_media')))
-        k = tn.index('bank_promote') + 1
-        ok(f'[{tag}] true: писатель сразу за bank_promote, за ним индекс, set_id, пересчёт сцен, страницы, затем demo_band',
-           tn[k:k + len(IDX) + 2] == ['bank_refresh', *IDX, 'demo_band'], tn[k:k + len(IDX) + 2])
+        tl = [n for n in tn if n not in ROOM_BANK]          # шаги комнат (проверка состояния идёт всегда) — отдельно, ниже
+        k = tl.index('bank_promote') + 1
+        ok(f'[{tag}] true: писатель сразу за bank_promote, за ним индекс, set_id, пересчёт сцен, страницы, затем (после комнат) demo_band',
+           tl[k:k + len(IDX) + 2] == ['bank_refresh', *IDX, 'demo_band'] and tn.index('layout_page') < tn.index('bank_state_bedroom'),
+           tl[k:k + len(IDX) + 2])
         wn = names(night(text, 0, wd, lock, start=HEAD))
         ok(f'[{tag}] каталог комнат → demo_band → mesh_publish → витрина (T-20261106-82/2: места комнат — из свежего room_catalog)',
            all(n.index('room_catalog') < n.index('demo_band') < n.index('mesh_publish') < n.index('flat215_demo')
@@ -207,58 +216,126 @@ def _selftest() -> int:
 
 
 def _rooms_bank(text: str, ok) -> int:
-    """Банки комнат ночью (T-20261106-89): флаги, порядок, команды, изоляция сбоев, ROOM_PUBLISH. Ошибки считает `ok` вызывающего."""
-    base = names(night(text, 0, start=HEAD))
-    ok('банки комнат: флаги выключены (раздела нет / enabled=false) — ни одного шага комнат, ночь та же',
-       not any(n in base for n in ROOM_BANK), [n for n in base if n in ROOM_BANK])
-    _, log = night_log(text, 0, start=HEAD)
-    ok('банки комнат: выключено — строка дайджеста комнаты «сборка выключено»',
-       any(ln.startswith('DIGEST:спальня (банк): ') and 'сборка выключено' in ln for ln in log.splitlines()), log[-300:])
+    """Банки комнат ночью (T-20261106-89; порядок, флаги и сбои — room-bank-01 этап Д, T-20261107-04): флаги, порядок, команды,
+    сбой на каждом шаге комнаты, «состояние не определено → демо не публикуется», ROOM_PUBLISH. Ошибки считает `ok` вызывающего."""
+    def run(write=0, flags='', fail='', warn=''):
+        full, log = night_log(text, write, start=HEAD, flags=flags, fail=fail, warn=warn)
+        import collections                  # нет шага — пустая команда (проверка «✗», а не KeyError)
+        return names(full), collections.defaultdict(str, (x.split(' :: ', 1) for x in full)), log
+
+    def dig(log, room):
+        return next((ln for ln in log.splitlines() if ln.startswith(f'DIGEST:{room} (банк): ')), '')
+    base, cmd, log = run()
+    living = names(night(text, 0, start=HEAD))
+    ok('банки комнат: флаги выключены — из шагов комнат только проверка состояния (спальня, прихожая; витрина читает живой банк '
+       'и при выключенных флагах), сразу за банком гостиной и до demo_band; остальная ночь та же',
+       [n for n in base if n in ROOM_BANK] == ['bank_state_bedroom', 'bank_state_hall']
+       and base.index('bank_promote') < base.index('bank_state_bedroom') < base.index('bank_state_hall') < base.index('demo_band')
+       and [n for n in base if n not in ROOM_BANK] == [n for n in living if n not in ROOM_BANK],
+       [n for n in base if n in ROOM_BANK])
+    ok('банки комнат: проверка состояния — `bank_refresh.py --room X state` (только чтение)',
+       cmd.get('bank_state_bedroom') == '$PY bank_refresh.py --room bedroom state'
+       and cmd.get('bank_state_hall') == '$PY bank_refresh.py --room hall state', cmd.get('bank_state_bedroom'))
+    ok('банки комнат: выключено — строка дайджеста «сборка выключено … состояние ok»',
+       'сборка выключено' in dig(log, 'спальня') and 'состояние ok' in dig(log, 'спальня'), dig(log, 'спальня'))
     on = 'bedroom:enabled hall:enabled'
     for write in (0, 1):
-        full, log = night_log(text, write, start=HEAD, flags=on)
-        fn = names(full)
-        cmd = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in full}
-        want = ['room_bindings', 'compose_bedroom', 'room_check_bedroom', 'compose_hall', 'room_check_hall']
+        fn, cmd, log = run(write, on)
+        want = ['room_bindings', 'compose_bedroom', 'room_check_bedroom', 'bank_state_bedroom', 'compose_hall', 'room_check_hall',
+                'bank_state_hall']
         last_living = 'bank_refresh' if write else 'bank_promote'
         i = fn.index('room_bindings')
-        ok(f'[write={write}] банки комнат: привязка → сборка → суд спальни → прихожей подряд, сразу после банка гостиной '
-           f'({last_living}{" + индекс" if write else ""}) и до demo_band; цепочки комнат нет (prepare выключен)',
-           fn[i:i + 5] == want and fn[i + 5] == 'demo_band' and fn.index(last_living) < i
-           and not any(n.startswith(('bank_prepare_', 'bank_refresh_')) for n in fn), fn[i - 2:i + 6])
+        ok(f'[write={write}] банки комнат: привязка → сборка → суд → состояние спальни → то же прихожей подряд, сразу после банка '
+           f'гостиной ({last_living}{" + индекс" if write else ""}) и до demo_band; цепочки комнат нет (prepare выключен)',
+           fn[i:i + len(want)] == want and fn[i + len(want)] == 'demo_band' and fn.index(last_living) < i
+           and not any(n in fn for r in ROOMS for n in chain_of(r)), fn[i - 2:i + 8])
         ok(f'[write={write}] банки комнат: остальная ночь — та же и тем же порядком',
-           [n for n in fn if n not in ROOM_BANK] == names(night(text, write, start=HEAD)))
+           [n for n in fn if n not in ROOM_BANK] == [n for n in names(night(text, write, start=HEAD)) if n not in ROOM_BANK])
         ok(f'[write={write}] банки комнат: команды — привязка --build, сборщики без --nightly (флаг показа не решает), суд --night',
            cmd['room_bindings'] == '$PY room_bindings.py --build' and cmd['compose_bedroom'] == '$PY compose_bedroom.py'
            and cmd['compose_hall'] == '$PY compose_hall.py'
            and cmd['room_check_hall'] == '$PY room_bootstrap.py --room hall check --night', cmd.get('room_check_hall'))
-    full, log = night_log(text, 0, start=HEAD, flags='hall:enabled')
-    fn = names(full)
-    ok('банки комнат: включена только прихожая — шаги спальни не идут, привязка одна',
-       'compose_bedroom' not in fn and fn.count('room_bindings') == 1 and 'room_check_hall' in fn, fn)
-    chain = 'bedroom:enabled hall:enabled bedroom:prepare_enabled'
-    full, log = night_log(text, 0, start=HEAD, flags=chain)
-    fn = names(full)
-    cmd = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in full}
-    bch = ['bank_prepare_bedroom', 'bank_pending_bedroom', 'bank_promote_bedroom', 'bank_refresh_bedroom']
+    blk = text[text.index('# БАНКИ КОМНАТ НОЧЬЮ'):text.index('step demo_band ')]
+    ok('банки комнат: флаги банка — только `room_bank_spec.py --flag` (rules/bank-candidate.json:rooms.*), флаг показа витрины '
+       '(apartments[].rooms[].enabled, `--nightly`, room_flags) блок не читает',
+       'room_bank_spec.py --room "$1" --flag' in blk and not any(w in blk.split('room_flag()', 1)[1]
+                                                                  for w in ('--nightly', 'room_flags', 'apartments')))
+    fn, _, _ = run(0, 'hall:enabled')
+    ok('банки комнат: включена только прихожая — сборки спальни нет, привязка одна, состояние — у обеих',
+       'compose_bedroom' not in fn and fn.count('room_bindings') == 1 and 'room_check_hall' in fn
+       and 'bank_state_bedroom' in fn and 'bank_state_hall' in fn, fn)
+    # полная цепочка спальни: все флаги банка спальни включены (prepare, promote, write); у прихожей — только сборка
+    full = 'bedroom:enabled hall:enabled bedroom:prepare_enabled bedroom:promote_enabled bedroom:write_enabled'
+    fn, cmd, log = run(0, full)
+    bch = chain_of('bedroom')
     j = fn.index('room_check_bedroom') + 1
-    ok('банки комнат: prepare_enabled спальни — её цепочка prepare → pending → promote → refresh сразу за судом, '
-       'номер ночи свой ($BANK_RUN_ID-bedroom), у прихожей цепочки нет',
-       fn[j:j + 4] == bch and fn[j + 4] == 'compose_hall' and not any(n.endswith('_hall') and n.startswith('bank_') for n in fn)
-       and all(cmd[n].endswith('--room bedroom --run-id $BANK_RUN_ID-bedroom') or '--room bedroom --night --run-id' in cmd[n]
-               for n in bch), [cmd.get(n) for n in bch])
-    for failed, gone in (('compose_bedroom', ['room_check_bedroom', *bch]), ('bank_prepare_bedroom', bch[1:]),
-                         ('bank_promote_bedroom', bch[3:]), ('room_bindings', [])):
-        got, flog = night_log(text, 0, start=HEAD, flags=chain, fail=failed)
-        gn = names(got)
-        ok(f'банки комнат: упал {failed} — дальше по спальне не идёт ({", ".join(gone) or "—"}), прихожая и вся остальная '
-           'ночь (витрина, публикация) — те же; в дайджесте спальни FAIL',
-           gn == [n for n in fn if n not in gone] and 'compose_hall' in gn and 'flat215_publish' in gn
-           and any(ln.startswith('DIGEST:спальня (банк): ') and 'FAIL' in ln for ln in flog.splitlines()), (gn[-8:], flog[-300:]))
-    got, wlog = night_log(text, 0, start=HEAD, flags=chain, warn='compose_bedroom')
-    ok('банки комнат: сборка спальни с WARN (стиль пропущен по правилу ядра, T-89/2) — кандидат есть: суд и цепочка идут, '
-       'в дайджесте «сборка warn»', names(got) == fn and any(ln.startswith('DIGEST:спальня (банк): ') and 'сборка warn' in ln
-                                                            for ln in wlog.splitlines()), (names(got)[-8:], wlog[-300:]))
+    ok('банки комнат: полная цепочка спальни — prepare → меши кандидата → привязка → pending → promote → refresh → проверка '
+       'состояния, сразу за судом; у прихожей цепочки нет',
+       fn[j:j + len(bch) + 2] == [*bch, 'bank_state_bedroom', 'compose_hall']
+       and not any(n in fn for n in chain_of('hall')), fn[j - 1:j + 9])
+    ok('банки комнат: номер ночи спальни свой ($BANK_RUN_ID-bedroom) у prepare/pending/promote/refresh; меши кандидата — '
+       '`ROOM_PUBLISH=bedroom=next mesh_publish --rooms-only`; вторая привязка — --build',
+       all(cmd[f'{s}_bedroom'].endswith('--room bedroom --run-id $BANK_RUN_ID-bedroom') for s in ('bank_prepare', 'bank_promote',
+                                                                                                   'bank_refresh'))
+       and cmd['bank_pending_bedroom'] == '$PY bank_pending.py --room bedroom --night --run-id $BANK_RUN_ID-bedroom'
+       and cmd['mesh_cand_bedroom'] == 'env ROOM_PUBLISH=bedroom=next $PY mesh_publish.py --rooms-only'
+       and cmd['room_bindings_bedroom'] == '$PY room_bindings.py --build', [cmd.get(n) for n in bch])
+    ok('банки комнат: порядок ночи плана — room_catalog → привязка → подготовка спальни → … → состояние → demo_band → публикация '
+       'мешей → витрина → публикация витрины; цепочка ok в дайджесте',
+       fn.index('room_catalog') < fn.index('room_bindings') < fn.index('compose_bedroom') < fn.index('bank_prepare_bedroom')
+       < fn.index('bank_refresh_bedroom') < fn.index('bank_state_bedroom') < fn.index('demo_band') < fn.index('mesh_publish')
+       < fn.index('flat215_demo') < fn.index('flat215_publish') and 'цепочка ok' in dig(log, 'спальня'), dig(log, 'спальня'))
+    ok('банки комнат: при полной цепочке остальная ночь — та же и тем же порядком',
+       [n for n in fn if n not in ROOM_BANK] == [n for n in living if n not in ROOM_BANK])
+    # флаги по одному: prepare без promote — до pending; promote без write — до promote; write без promote — refresh не идёт
+    for flags, stop, why in (('bedroom:enabled bedroom:prepare_enabled', 'bank_pending_bedroom', 'promote выключен'),
+                             ('bedroom:enabled bedroom:prepare_enabled bedroom:promote_enabled', 'bank_promote_bedroom',
+                              'write выключен'),
+                             ('bedroom:enabled bedroom:prepare_enabled bedroom:write_enabled', 'bank_pending_bedroom',
+                              'promote выключен — писать нечего')):
+        fn, _, log = run(0, flags)
+        k = bch.index(stop) + 1
+        ok(f'банки комнат: {flags.replace("bedroom:", "")} — цепочка до {stop} ({why}), дальше её шагов нет, состояние проверено, '
+           'цепочка ok', all(n in fn for n in bch[:k]) and not any(n in fn for n in bch[k:]) and 'bank_state_bedroom' in fn
+           and 'цепочка ok' in dig(log, 'спальня'), (fn, dig(log, 'спальня')))
+    ok('банки комнат: write_enabled без prepare_enabled — цепочки нет вовсе (флаг записи один ничего не запускает)',
+       not any(n in run(0, 'bedroom:enabled bedroom:write_enabled')[0] for n in bch))
+    # ВНЕДРЕНИЕ СБОЯ НА КАЖДОМ ШАГЕ КОМНАТЫ: дальше по спальне не идёт, проверка состояния и прихожая — идут, витрина и
+    # публикация — идут (живой банк спальни — последний годный), в дайджесте спальни FAIL / «суд не прошёл»
+    fn, _, _ = run(0, full)
+    steps = ['room_bindings', 'compose_bedroom', 'room_check_bedroom', *bch]
+    for failed in steps:
+        if failed == 'room_bindings':
+            gone = []
+        elif failed == 'compose_bedroom':
+            gone = ['room_check_bedroom', *bch]
+        elif failed == 'room_check_bedroom':
+            gone = bch
+        else:
+            gone = bch[bch.index(failed) + 1:]
+        gn, _, flog = run(0, full, fail=failed)
+        d = dig(flog, 'спальня')
+        ok(f'сбой {failed}: дальше по спальне не идёт ({", ".join(gone) or "—"}); состояние, прихожая, витрина и публикация — '
+           f'идут, остальная ночь та же; дайджест спальни с FAIL',
+           gn == [n for n in fn if n not in gone] and all(n in gn for n in ('bank_state_bedroom', 'compose_hall', *DEMO))
+           and 'FAIL' in d and (failed != 'room_check_bedroom' or 'цепочка суд не прошёл' in d), (gn[-10:], d))
+    for warned in ('compose_bedroom', 'room_check_bedroom', 'mesh_cand_bedroom'):
+        gn, _, wlog = run(0, full, warn=warned)
+        ok(f'WARN на {warned} (сборка: стиль пропущен по правилу ядра; суд: «не годен»; меши: прод не ответил) — цепочка идёт до '
+           'конца, ночь та же', gn == fn and 'цепочка ok' in dig(wlog, 'спальня'), (gn[-10:], dig(wlog, 'спальня')))
+    # НЕОПРЕДЕЛЁННОЕ СОСТОЯНИЕ → ДЕМО НЕ ПУБЛИКОВАТЬ (и не собирать: на проде остаётся вчерашнее)
+    for flags, room in ((full, 'bedroom'), ('', 'bedroom'), (on, 'hall')):
+        ref, _, _ = run(0, flags)
+        gn, _, ulog = run(0, flags, fail=f'bank_state_{room}')
+        ok(f'состояние {room} не определено ({"флаги выключены" if not flags else "флаги включены"}) — витрина не собирается и не '
+           'публикуется, платной досъёмки нет (идёт сухая проверка), строка в дайджест; остальная ночь та же',
+           not any(n in gn for n in DEMO) and 'demo_real' not in gn and 'demo_real_check' in gn
+           and [n for n in gn if n != 'demo_real_check'] == [n for n in ref if n not in (*DEMO, 'demo_real')]
+           and 'DIGEST:демо не собрано и не опубликовано: состояние банка комнат не определено' in ulog
+           and 'состояние FAIL' in dig(ulog, 'спальня' if room == 'bedroom' else 'прихожая'), (gn[-12:], ulog[-400:]))
+    fn, _, _ = run(0, full)
+    ok('состояние определено — витрина собирается и публикуется, платная досъёмка за публикацией',
+       all(n in fn for n in (*DEMO, 'demo_real')) and 'demo_real_check' not in fn)
     full, _ = night_log(text, 0, start=HEAD, publish='bedroom,hall=next')
     cmd = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in full}
     plain = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in night(text, 0, start=HEAD)}

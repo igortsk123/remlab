@@ -479,27 +479,50 @@ fi
 #   (флаг БАНКА комнаты, не показа: `rooms[].enabled` витрины на сборку не влияет, room-bank-01 этап Д). Сбой комнаты гостиную,
 #   публикацию и витрину не трогает: шаги — `step`, строка комнаты — в дайджест. Живой банк комнаты — по слову ведущего
 #   (`room_bootstrap.py run --confirm-lead`).
+# ПОРЯДОК НОЧИ КОМНАТЫ (room-bank-01 этап Д, T-20261107-04): блок гостиной (выше) → room_catalog (голова ночи) → привязка →
+#   ПОДГОТОВКА (сборщик + сухой суд) → [prepare_enabled] bank_prepare → меши КАНДИДАТА на прод (`mesh_publish --rooms-only`,
+#   ROOM_PUBLISH=<комната>=next: модели новых ячеек выложены ДО суда, иначе суд видит «меш не опубликован») → снова привязка
+#   (`published_3d` по выложенному) → bank_pending → [promote_enabled] bank_promote → [write_enabled] bank_refresh → ПРОВЕРКА
+#   СОСТОЯНИЯ → демо → публикация. Шаги цепочки — через `&&` (`room_chain`): упал один — дальше по комнате не идёт, живой банк
+#   комнаты остаётся последним годным (писатель не дошёл или вернул снимок), гостиная, публикация мешей и витрина идут.
+#   ПРОВЕРКА СОСТОЯНИЯ `bank_refresh --room X state` — у КАЖДОЙ комнаты и при выключенных флагах (витрина читает живой банк
+#   независимо от флагов банка): живой = журнал, незавершённой записи нет. Не определено (FAIL) — витрина в эту ночь не
+#   собирается и не публикуется (на проде остаётся вчерашняя), строка в дайджест.
 room_flag() { local v; v=$("$PY" room_bank_spec.py --room "$1" --flag "$2" 2>/dev/null) || v=0; [ "$v" = 1 ] && echo 1 || echo 0; }
-rooms_on=""
+res_okw() { case "${RES[$1]:-}" in ok|warn) return 0 ;; esac; return 1; }   # шаг прошёл (ok или warn)
+room_chain() {                  # room_chain <комната> — цепочка банка комнаты за её флагами; 0 — дошла, докуда разрешено; 1 — сбой
+  local room="$1" rid="$BANK_RUN_ID-$1"
+  step bank_prepare_$room "$PY" bank_prepare.py --room "$room" --run-id "$rid" || return 1
+  step mesh_cand_$room env ROOM_PUBLISH="$room=next" "$PY" mesh_publish.py --rooms-only || return 1
+  step room_bindings_$room "$PY" room_bindings.py --build || return 1
+  step bank_pending_$room "$PY" bank_pending.py --room "$room" --night --run-id "$rid" || return 1
+  if [ "$(room_flag "$room" promote_enabled)" != 1 ]; then RES[bank_promote_$room]=выключено; return 0; fi
+  step bank_promote_$room "$PY" bank_promote.py --room "$room" --run-id "$rid" || return 1
+  if [ "$(room_flag "$room" write_enabled)" != 1 ]; then RES[bank_refresh_$room]=выключено; return 0; fi
+  step bank_refresh_$room "$PY" bank_refresh.py --room "$room" --run-id "$rid"
+}
+rooms_on=""; rooms_undef=""
 for room in bedroom hall; do [ "$(room_flag "$room" enabled)" = 1 ] && rooms_on+="$room "; done
 [ -n "$rooms_on" ] && step room_bindings "$PY" room_bindings.py --build
 for room in bedroom hall; do
-  if [[ " $rooms_on " != *" $room "* ]]; then RES[compose_$room]=выключено; continue; fi
-  if step compose_$room "$PY" compose_$room.py; then
-    step room_check_$room "$PY" room_bootstrap.py --room "$room" check --night
+  if [[ " $rooms_on " != *" $room "* ]]; then
+    RES[compose_$room]=выключено
+  else
+    if step compose_$room "$PY" compose_$room.py; then
+      step room_check_$room "$PY" room_bootstrap.py --room "$room" check --night
+    fi
+    # warn сборки (стиль пропущен по правилу ядра, T-89/2) — кандидат записан, цепочка идёт; FAIL — кандидата нет;
+    # суд упал (не WARN «не годен», а сбой самого суда) — цепочку не начинаем
+    if [ "$(room_flag "$room" prepare_enabled)" != 1 ]; then RES[chain_$room]=выключено
+    elif ! res_okw compose_$room; then RES[chain_$room]="нет кандидата"
+    elif ! res_okw room_check_$room; then RES[chain_$room]="суд не прошёл"
+    elif room_chain "$room"; then RES[chain_$room]=ok
+    else RES[chain_$room]=FAIL; fi
   fi
-  if [ "$(room_flag "$room" prepare_enabled)" != 1 ]; then RES[chain_$room]=выключено; continue; fi
-  # warn сборки (стиль пропущен по правилу ядра, T-89/2) — кандидат записан, цепочка идёт; FAIL — кандидата нет
-  case "${RES[compose_$room]:-}" in ok|warn) ;; *) RES[chain_$room]="нет кандидата"; continue ;; esac
-  rid="$BANK_RUN_ID-$room"
-  if step bank_prepare_$room "$PY" bank_prepare.py --room "$room" --run-id "$rid" \
-    && step bank_pending_$room "$PY" bank_pending.py --room "$room" --night --run-id "$rid" \
-    && step bank_promote_$room "$PY" bank_promote.py --room "$room" --run-id "$rid" \
-    && step bank_refresh_$room "$PY" bank_refresh.py --room "$room" --run-id "$rid"; then RES[chain_$room]=ok
-  else RES[chain_$room]=FAIL; fi
+  step bank_state_$room "$PY" bank_refresh.py --room "$room" state || rooms_undef+="$room "
 done
-room_digest "спальня (банк)" привязка=room_bindings сборка=compose_bedroom суд=room_check_bedroom цепочка=chain_bedroom
-room_digest "прихожая (банк)" привязка=room_bindings сборка=compose_hall суд=room_check_hall цепочка=chain_hall
+room_digest "спальня (банк)" привязка=room_bindings сборка=compose_bedroom суд=room_check_bedroom цепочка=chain_bedroom состояние=bank_state_bedroom
+room_digest "прихожая (банк)" привязка=room_bindings сборка=compose_hall суд=room_check_hall цепочка=chain_hall состояние=bank_state_hall
 step demo_band "$PY" demo_band.py --report
 # меши комнат — на прод вместе с гостиной (`room_publish.py`), только комнаты с `rooms.<комната>.publish` (live|next); пусто — как прежде
 ROOM_PUB=$("$PY" room_bank_spec.py --publish 2>/dev/null || true)
@@ -511,12 +534,19 @@ step mesh_comments "$PY" mesh_decisions.py --comments --since 7d --digest
 step orient_pull "$PY" orient_review.py --pull
 # записи разворота, которые ничего не меняют на экране (решение = текущий вид, симметричные) — на прод слиянием
 step orient_sync "$PY" orient_review.py --sync
-step flat215_demo "$PY" flat215_demo.py
-# лёгкие копии моделей демо — ворота публикации (demo-01): нет копий у моделей вариантов — демо не публикуется
-if step demo_rt bash ../assets/demo_rt.sh; then
-  step flat215_publish bash publish_demo.sh
+# банк комнаты в неопределённом состоянии (room-bank-01 этап Д) — витрину не собираем и не публикуем: на проде вчерашняя
+if [ -n "$rooms_undef" ]; then
+  RES[flat215_demo]=FAIL; RES[flat215_publish]=FAIL
+  echo "flat215_demo и flat215_publish пропущены: состояние банка комнат не определено (${rooms_undef% })" >> "$LOG"
+  echo "DIGEST:демо не собрано и не опубликовано: состояние банка комнат не определено (${rooms_undef% }) — на проде вчерашнее; разбор — bank_refresh.py --room <комната> state, затем recover" >> "$LOG"
 else
-  RES[flat215_publish]=FAIL; echo "flat215_publish пропущен: ворота demo_rt" >> "$LOG"
+  step flat215_demo "$PY" flat215_demo.py
+  # лёгкие копии моделей демо — ворота публикации (demo-01): нет копий у моделей вариантов — демо не публикуется
+  if step demo_rt bash ../assets/demo_rt.sh; then
+    step flat215_publish bash publish_demo.sh
+  else
+    RES[flat215_publish]=FAIL; echo "flat215_publish пропущен: ворота demo_rt" >> "$LOG"
+  fi
 fi
 # ОТЧЁТ ОБ АРТЕФАКТАХ СЦЕНЫ ПО ОПУБЛИКОВАННОМУ (demo-05 п.1, 18.10): данные — с прода (то, что видит покупатель, даже если
 # сегодняшняя публикация не прошла), лёгкие копии — то, что выложено на /rt/. Наезд > 2 см, модель без текстуры, нет ковра/вазы —
