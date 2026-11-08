@@ -30,15 +30,29 @@ export interface Camfit {
   /** метрики кадра страницы (`camStats`) и штраф пустого вида зоны (`camMorePen`: пустая стена и потолок) */
   stats: (c: Cam, its: CamIt[], W: number, H: number, o?: { w?: number }) => Stats; morePen: (s: Stats) => number;
   aspect: number; shift: number; eye: number;
+  /** версия позы съёмки страницы (`POSE_VER`): поза вида пишется с ней — мера и снимок одной позы (T-73/6) */
+  poseVer: number;
+  shiftAt: (aspect: number) => number;
 }
 
-/** Функции CAMFIT из текста блока страницы (`// CAMFIT START` … `// CAMFIT END`). Комната — как `D.room` у `demo-cams.mjs`. */
-export function camfitFrom(block: string, room: HallRoom): Camfit {
-  const api = new Function("D", `${block};return {camProj,camNear,camStats,camMorePen,CAM_ASPECT,CAM_SHIFT_N,CAM_EYE};`)({ room }) as {
+/** Поза съёмки стенда прихожей. Страница с T-73/6 снимает позой 3 (глаз 150, вниз 8° — кровать спальни целиком); в прихожей 1,5 м
+ *  шириной шкаф-купе 250 см с ней целиком не входит ни с одной точки (верх кадра +11° над горизонтом — нужно ≥ 5 м до шкафа), поэтому
+ *  стенд снимает прежней позой 2 (глаз 135, горизонтально): мера и снимок — одной позы, блок CAMFIT исполняется с ней. */
+export const HALL_POSE = { ver: 2, eye: 135, pitch: 0, shift: -0.1 };
+
+/** Функции CAMFIT из текста блока страницы (`// CAMFIT START` … `// CAMFIT END`). Комната — как `D.room` у `demo-cams.mjs`;
+ *  поза съёмки — `pose` (по умолчанию `HALL_POSE`): подставляется в константы позы блока (`POSE_VER`, `CAM_POSE`). */
+export function camfitFrom(block0: string, room: HallRoom, pose = HALL_POSE): Camfit {
+  const re = /const POSE_VER=\d+, CAM_POSE=\{[^}]*\};/;
+  if (!re.test(block0)) throw new Error("camfitFrom: в блоке CAMFIT нет констант позы (POSE_VER, CAM_POSE)");
+  const block = block0.replace(re, `const POSE_VER=${pose.ver}, CAM_POSE={eye:${pose.eye}, pitch:${pose.pitch}, shift:${pose.shift}};`);
+  const api = new Function("D", `${block};return {camProj,camNear,camStats,camMorePen,CAM_ASPECT,CAM_SHIFT_N,CAM_EYE,POSE_VER,CAM_POSE};`)({ room }) as {
     camProj: Camfit["proj"]; camNear: Camfit["near"]; camStats: Camfit["stats"]; camMorePen: Camfit["morePen"];
-    CAM_ASPECT: number; CAM_SHIFT_N: number; CAM_EYE: number };
+    CAM_ASPECT: number; CAM_SHIFT_N: number; CAM_EYE: number; POSE_VER: number; CAM_POSE: { shift: number } };
   return { proj: api.camProj, near: api.camNear, stats: api.camStats, morePen: api.camMorePen, aspect: api.CAM_ASPECT,
-    shift: api.CAM_SHIFT_N, eye: api.CAM_EYE };
+    shift: api.CAM_SHIFT_N, eye: api.CAM_EYE, poseVer: api.POSE_VER,
+    // сдвиг объектива кадра пропорции A в долях −1…1 (`viewer.ts:photoShift`: от 3:2 и шире — сдвиг позы, уже — верх как у 3:2)
+    shiftAt: (a: number) => 1 - Math.min(1, a / 1.5) * (1 + 2 * api.CAM_POSE.shift) };
 }
 
 const base = (r: string): string => r.replace(/\s+\d+$/, "").trim();
@@ -46,13 +60,13 @@ const z0Of = (it: HallItem): number => it.elev ?? 0;
 
 /**
  * Рамка предмета в кадре пропорции `aspect`. CAMFIT считает кадр /demo (2048×1489); по горизонтали объектив тот же, а по вертикали
- * экранная координата растягивается в aspect/CAM_ASPECT раз вокруг сдвига объектива (сдвиг позы v2 одинаков при пропорции ≥ 1,5 —
- * `viewer.ts:photoShift`). Пересчёт результата, а не своя проекция.
+ * экранная координата растягивается в aspect/CAM_ASPECT раз, и сдвиг объектива — свой у каждой пропорции (`viewer.ts:photoShift`;
+ * T-73/6: у кадра 2048×1489 он больше, чем у 3:2). Пересчёт результата, а не своя проекция.
  */
 function frameBox(cf: Camfit, c: Cam, it: HallItem, aspect: number): Box {
   const b = cf.proj(c, it, 0, it.h);   // высоты от низа предмета: подвес `elev` CAMFIT добавляет сам (`camElev`, T-20261107-05/4)
   if (!b) return null;
-  const k = aspect / cf.aspect, s = (y: number) => (y - cf.shift) * k + cf.shift;
+  const k = aspect / cf.aspect, sa = cf.shiftAt(aspect), s = (y: number) => (y - cf.shift) * k + sa;
   return { x0: b.x0, x1: b.x1, y0: s(b.y0), y1: s(b.y1), behind: b.behind };
 }
 
@@ -157,7 +171,7 @@ function evaluate(cf: Camfit, rule: HallViewsRule, roomW: number, roomD: number,
   const prefer = view.prefer.map((nd) => { const r = check(nd); return { nd, r }; });
   const needOk = need.filter((x) => x.r?.ok).length;
   need.forEach((x) => { if (!x.r?.ok) why.push(`${label(x.nd)}: ${x.nd.whole ? "не целиком или заслонено" : "мало в кадре или заслонено"}`); });
-  const pose: HallPose = { x: Math.round(c.x), y: Math.round(c.y), rot: Math.round(c.rot) % 360, fov: c.fov, pose: 2 };
+  const pose: HallPose = { x: Math.round(c.x), y: Math.round(c.y), rot: Math.round(c.rot) % 360, fov: c.fov, pose: cf.poseVer };
   const pick: ViewPick = {
     id: view.id, label: view.label, ok: !why.length, pose,
     need: need.map((x) => ({ want: label(x.nd), got: x.r?.it.role ?? null, inFrame: round2(x.r?.f ?? 0), visible: round2(x.r?.v ?? 0) })),

@@ -17,6 +17,7 @@
 """
 import io
 import json
+import math
 import os
 import re
 import sys
@@ -307,16 +308,21 @@ def _opening(o: dict) -> dict:
 # v2 — глаз 135 (норма интерьерной съёмки 1,2–1,5 м), камера ГОРИЗОНТАЛЬНА, кадр опущен сдвигом объектива на 10 % высоты:
 # вертикали прямые, как у фотографа интерьеров (разбор Codex 14.10). Версию присылает страница в каждой камере (`pose`);
 # без неё — v1, чтобы старые ссылки и реестр давали прежний кадр.
+# v3 (T-20261108-73/6, владелец TG 690 «камера чуть выше и слегка вниз») — глаз 150, взгляд вниз на 8° (цель в 4 м ниже глаза
+# на 400·tg 8°), сдвиг как у v2: при горизонтальном взгляде с 135 см низ кровати и дивана уходил под кадр (замер 08.11).
 PHOTO_POSE_V1 = (165.0, 105.0, 0.0)
 PHOTO_POSE_V2 = (135.0, 135.0, -0.10)
+PHOTO_POSE_V3_PITCH = 8.0
+PHOTO_POSE_V3 = (150.0, 150.0 - 400.0 * math.tan(math.radians(PHOTO_POSE_V3_PITCH)), -0.10)
 
 
 def photo_pose_heights(ver) -> tuple:
     """(глаз, цель, сдвиг объектива) позы ракурса по её версии."""
     try:
-        return PHOTO_POSE_V2 if int(ver or 1) >= 2 else PHOTO_POSE_V1
+        v = int(ver or 1)
     except (TypeError, ValueError):
         return PHOTO_POSE_V1
+    return PHOTO_POSE_V3 if v >= 3 else PHOTO_POSE_V2 if v >= 2 else PHOTO_POSE_V1
 
 
 def cams_from_request(room, placements, layout):

@@ -46,7 +46,7 @@ for (const v of vars) {
 D.cams_shared = false;
 for (const [rid, { geo, list }] of groups) {
 // блок страницы читает D.room (двери для правила «не у двери», высота потолка) — отдаём комнату этой группы вариантов
-const api = new Function("D", `${block}\n;return {camPair, camPairAll, camAng, camZ, camLiveBigCut, camIsMain, camRole};`)({ ...D, room: geo });
+const api = new Function("D", `${block}\n;return {camPair, camPairAll, camAng, camZ, camLiveBigCut, camIsMain, camRole, POSE_VER};`)({ ...D, room: geo });
 const W = geo.w;
 const H = geo.d;
 const corners = [{ x: p, y: p }, { x: W - p, y: p }, { x: W - p, y: H - p }, { x: p, y: H - p }];
@@ -91,8 +91,9 @@ if (shared && list.some(onSpare) && list.some((v) => !onSpare(v))) {
 const v2 =shared && all && all.relax != null;
 if (v2 && all.relax > 0) {
   const own = list.map((v, vi) => api.camPairAll([IT[vi]], W, H, corners, { prev: prevOf(v) }));
-  // та же ступень — своя, если ключ видов (`keys`: обязательное, его недобор, крупные срезы, масса, недобор доли; сумма C1 + C2) лучше
-  const sc = (o) => [o.relax, ...[0, 1, 2, 3, 4].map((i) => (o.keys ?? []).reduce((a, k) => a + (k[i] ?? 0), 0))];
+  // та же ступень — своя, если ключ видов (`keys`: обязательное, его недобор, крупные срезы, главное на телефоне, масса, недобор доли;
+  // сумма C1 + C2) лучше
+  const sc = (o) => [o.relax, ...[0, 1, 2, 3, 4, 5].map((i) => (o.keys ?? []).reduce((a, k) => a + (k[i] ?? 0), 0))];
   const less = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i]; return false; };
   const take = own.map((o) => !!o && o.relax != null && !!o.keys && less(sc(o), sc(all)));
   if (take.some(Boolean)) {
@@ -131,7 +132,9 @@ const CUT_WARN = 0.1, cutWarn = [];
 const bigOf = (it) => api.camIsMain(it) || ((api.camZ().core || {})[api.camRole(it)] || 0) >= 1;
 for (const [vi, v] of list.entries()) {
   const pr = shared ? { ...all, ...(perOf(vi) ?? {}) } : api.camPairAll([itsOf(v)], W, H, corners, { prev: prevOf(v) });
-  v.cams = pr.cams.map((c) => ({ name: c.name, x: Math.round(c.x), y: Math.round(c.y), rot: Math.round(c.rot || 0), fov: c.fov || 72, pose: 2,
+  v.cams = pr.cams.map((c) => ({ name: c.name, x: Math.round(c.x), y: Math.round(c.y), rot: Math.round(c.rot || 0), fov: c.fov || 72,
+    // версия позы съёмки — та же, что у страницы (`POSE_VER` блока CAMFIT; T-73/6: 3 — глаз 150, вниз 8°): /flat ставит камеру по ней
+    pose: api.POSE_VER,
     // подбор парой (demo-12, ADR-0304, по умолчанию с 17.10) несёт сдвиг вертикального кадра телефона
     ...(typeof c.pshift === "number" ? { pshift: c.pshift } : {}), ...(c.crop ? { crop: c.crop } : {}),
     // обложка комнаты на главной (T-32/3, правило зоны `poster`)

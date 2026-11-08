@@ -109,7 +109,8 @@ export interface PhotoPose {
   rot: number;
   fov?: number;
   /** Версия позы (`draft_render.photo_pose_heights`): 1 — глаз 165 и наклон к 105 в 4 м; 2 — глаз 135, камера
-   *  горизонтальна, кадр опущен сдвигом объектива (вертикали прямые, demo-02 14.10). Нет — 1, как у старых кадров. */
+   *  горизонтальна, кадр опущен сдвигом объектива (вертикали прямые, demo-02 14.10); 3 — глаз 150, взгляд вниз на 8°, сдвиг
+   *  как у 2 (T-73/6). Нет — 1, как у старых кадров. */
   pose?: number;
   /** Сдвиг объектива ВЕРТИКАЛЬНОГО кадра (телефон), доля высоты: пол и потолок поровну, мебель — в средней трети (demo-12,
    *  подбор `camPortraitShift` в блоке CAMFIT демо). Есть — вертикальный кадр не наклоняется к мебели, вертикали прямые. */
@@ -121,16 +122,22 @@ export interface PhotoPose {
 export const PHOTO_EYE_CM = 165;
 export const PHOTO_TARGET_CM = 105;
 export const PHOTO_AIM_CM = 400;
-export const PHOTO_POSE_VER = 2;
+export const PHOTO_POSE_VER = 3;
 const POSE_V2 = { eye: 135, target: 135, shift: -0.1 };
+/** v3 (T-20261108-73/6, владелец TG 690 «камера чуть выше и слегка вниз»): глаз 150, взгляд вниз на 8° (цель — на `PHOTO_AIM_CM`
+ *  впереди, ниже глаза), сдвиг объектива — как у v2. При горизонтальном взгляде с 135 см низ кровати и дивана уходил под кадр.
+ *  Те же числа — `draft_render.PHOTO_POSE_V3` и `CAM_POSE` в блоке CAMFIT демо (мера подбора ракурсов). */
+export const POSE_V3_PITCH = 8;
+const POSE_V3 = { eye: 150, target: 150 - PHOTO_AIM_CM * Math.tan((POSE_V3_PITCH * Math.PI) / 180), shift: -0.1 };
+const poseOf = (p: PhotoPose) => ((p.pose ?? 1) >= 3 ? POSE_V3 : (p.pose ?? 1) >= 2 ? POSE_V2 : null);
 
 /** Точки глаза и цели фото-позы в сантиметрах (x — вправо, y — вверх, z — вглубь плана). Общая для теста и рендера. */
 export function photoRay(p: PhotoPose): { eye: [number, number, number]; target: [number, number, number] } {
   const a = (p.rot * Math.PI) / 180;
-  const v2 = (p.pose ?? 1) >= 2;
+  const q = poseOf(p);
   return {
-    eye: [p.x, v2 ? POSE_V2.eye : PHOTO_EYE_CM, p.y],
-    target: [p.x + PHOTO_AIM_CM * Math.sin(a), v2 ? POSE_V2.target : PHOTO_TARGET_CM, p.y - PHOTO_AIM_CM * Math.cos(a)],
+    eye: [p.x, q ? q.eye : PHOTO_EYE_CM, p.y],
+    target: [p.x + PHOTO_AIM_CM * Math.sin(a), q ? q.target : PHOTO_TARGET_CM, p.y - PHOTO_AIM_CM * Math.cos(a)],
   };
 }
 
@@ -138,7 +145,7 @@ export function photoRay(p: PhotoPose): { eye: [number, number, number]; target:
  *  Вертикальный кадр (`aspect` < 1) с подобранным `pshift` — свой сдвиг (demo-12). */
 export function photoShift(p: PhotoPose, aspect = 1.5): number {
   if (aspect < 1 && typeof p.pshift === "number") return p.pshift;
-  const base = (p.pose ?? 1) >= 2 ? POSE_V2.shift : 0;
+  const base = poseOf(p)?.shift ?? 0;
   // КАДР КОМПЬЮТЕРА ВО ВСЮ ОБЛАСТЬ (demo-15, fable-lead 18.10: поля над и под полосой 3:2 — пустое место). Область уже 3:2,
   // но не вертикальная: верхний край — как у кадра 3:2 (потолка не больше, прогон d8 14.10), вся добавочная высота — в пол.
   // В долях −1…1 сдвиг верхнего края — `2·shift`; при 3:2 формула даёт ровно `base`.
