@@ -26,13 +26,15 @@ type Api = {
   camLiveSpot: (c: Cam, W: number, H: number) => { x: number; y: number };
   camAng: (a: number, b: number) => number;
   CAM_ZONES: Record<string, { intent?: unknown; ends?: unknown; views?: unknown }>;
-  CAM_V2: { depth: number[]; depthWide: number[]; shift: number; inward: number; turn: number; apart: number; big: number; far: number; farWide: number };
+  CAM_V2: { depth: number[]; depthWide: number[]; shift: number; inward: number; turn: number; apart: number; big: number; far: number; farWide: number;
+    band: { side: number; depth: number[] } };
+  CAM_V2_BAND: number;
 };
 const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
 const block = html.slice(html.indexOf("// CAMFIT START"), html.indexOf("// CAMFIT END"));
 const load = (f: string) => JSON.parse(readFileSync(f, "utf8")) as Fx;
 const apiOf = (room: Room) =>
-  new Function("D", `${block};return {camPairAll,camV2Raw,camV2Set,camEntry,camZ,camLiveSpot,camAng,CAM_ZONES,CAM_V2,
+  new Function("D", `${block};return {camPairAll,camV2Raw,camV2Set,camEntry,camZ,camLiveSpot,camAng,CAM_ZONES,CAM_V2,CAM_V2_BAND,
     has:n=>{try{return typeof eval(n)!=='undefined';}catch(e){return false;}}};`)({ room }) as Api & { has: (n: string) => boolean };
 const its = (v: { items: It[] }) => v.items.map((it) => ({ ...it, x: +it.x, y: +it.y, w: +it.w, d: +it.d, rot: +it.rot || 0 }));
 const corners = (W: number, H: number) => [{ x: 3, y: 3 }, { x: W - 3, y: 3 }, { x: W - 3, y: H - 3 }, { x: 3, y: H - 3 }];
@@ -42,14 +44,16 @@ const FX = {
   bed2: "tests/fixtures/demo-bedroom-2-one-1107.json",
   hall: "tests/fixtures/demo-hall-1107.json",
 };
-// вид 1 в проёме входа: глубина от плоскости двери, сдвиг вдоль неё, взгляд внутрь
-const doorCheck = (api: Api, room: Room, c: Cam, tag: string) => {
+// вид 1 в проёме входа: глубина от плоскости двери, сдвиг вдоль неё, взгляд внутрь; `band` — полоса у стены двери (ступень
+// `CAM_V2_BAND`, T-73/5): до `band.side` см от края проёма, глубина `band.depth`
+const doorCheck = (api: Api, room: Room, c: Cam, tag: string, band = false) => {
   const G = api.CAM_V2, o = api.camEntry()!.o, W = room.w, H = room.d, u = o.offset_cm + o.width_cm / 2;
   const [px, py, nx, ny, tx, ty] = o.wall === "west" ? [0, u, 1, 0, 0, 1] : o.wall === "east" ? [W, u, -1, 0, 0, 1] : o.wall === "south" ? [u, 0, 0, 1, 1, 0] : [u, H, 0, -1, 1, 0];
   const depth = (c.x - px) * nx + (c.y - py) * ny, shift = Math.abs((c.x - px) * tx + (c.y - py) * ty);
-  expect(depth, `${tag}: глубина от двери`).toBeLessThanOrEqual(Math.max(...G.depthWide) + 1e-9);
-  expect(depth, `${tag}: в комнате`).toBeGreaterThanOrEqual(0);
-  expect(shift, `${tag}: сдвиг вдоль двери`).toBeLessThanOrEqual(G.shift * o.width_cm + 1);
+  expect(depth, `${tag}: глубина от двери`).toBeLessThanOrEqual(Math.max(...(band ? G.band.depth : G.depthWide)) + 1e-9);
+  expect(depth, `${tag}: в комнате`).toBeGreaterThanOrEqual(band ? Math.min(...G.band.depth) - 1e-9 : 0);
+  if (band) expect(shift - o.width_cm / 2, `${tag}: от края проёма вдоль стены`).toBeLessThanOrEqual(G.band.side + 1);
+  else expect(shift, `${tag}: сдвиг вдоль двери`).toBeLessThanOrEqual(G.shift * o.width_cm + 1);
   const a = (c.rot * Math.PI) / 180;
   expect(Math.sin(a) * nx - Math.cos(a) * ny, `${tag}: взгляд внутрь`).toBeGreaterThanOrEqual(Math.cos((G.inward * Math.PI) / 180) - 1e-9);
   return { px, py };
@@ -149,15 +153,18 @@ describe("правило видов v2: спальни (слепки 07.11, 5 с
       for (const c of [c1, c2]) expect(bigCuts(api, c, list, W, H), c.name).toEqual([]);
     }
   }, 300_000);
-  // спальня 2 (4,50 × 2,93): дверь в середине южной стены, изножье кровати в 30 см от глаза живого 3D у двери — целиком её от двери не
-  // видно ни из одной точки (фиксация: ступень 8 и WARN по виду 1); дальние углы заняты кроватью, тумбами и шкафом — кровать целиком
-  // видна в виде 2, и обложка — он
-  it("спальня 2, своя пара стиля: вид 1 от двери, вид 2 — кровать целиком, обложка — вид 2; что не вышло — WARN по виду", () => {
+  // спальня 2 (4,50 × 2,93): дверь в середине южной стены, изножье кровати в 30 см от глаза живого 3D у двери — из проёма кровать
+  // целиком не видна. T-73/5 (ведущий): вид 1 — в полосе у стены двери (ступень `CAM_V2_BAND` и выше, WARN `door_wall_band`), кровать
+  // в нём целиком во всех окнах (телефон, компьютер, фото); дальние углы заняты — кровать целиком и в виде 2
+  it("спальня 2, своя пара стиля: вид 1 у двери или у стены двери — кровать целиком в обоих видах; что не вышло — WARN по виду", () => {
     const fx = load(FX.bed2), api = apiOf(fx.room), { w: W, d: H } = fx.room;
     for (const v of fx.variants) {
       const list = its(v), p = api.camPairAll([list], W, H, corners(W, H)), [c1, c2] = p.cams as [Cam, Cam], S = api.camV2Set(list, api.camZ().intent);
-      doorCheck(api, fx.room, c1, v.style);
+      const band = /reason=.*door_wall_band/.test(p.warns.join(" "));
+      if (band) expect(p.relax, `${v.style}: полоса у стены двери не раньше своей ступени`).toBeGreaterThanOrEqual(api.CAM_V2_BAND);
+      doorCheck(api, fx.room, c1, v.style, band);
       notDup(api, c1, c2, W, H, v.style);
+      expect(whole(api, c1, list, W, H, S.mains), `${v.style}: кровать в виде 1 (${p.how})`).toEqual([true]);
       expect(whole(api, c2, list, W, H, S.mains), `${v.style}: кровать в виде 2 (${p.how})`).toEqual([true]);
       if (p.relax > 0) expect(p.warns.length, `${v.style}: ступень ${p.relax} без WARN`).toBeGreaterThan(0);
       for (const w of p.warns) expect(w).toMatch(/^view=C[12]( intent=\w+)? relax=\d reason=/);
