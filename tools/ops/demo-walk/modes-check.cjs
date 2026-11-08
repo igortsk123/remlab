@@ -3,8 +3,10 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 // задания» — плюс «без 3D» и EN. Платный путь НЕ вызывается: ответы /api/render и /api/job подменяются (готовое фото = картинка товара).
 //   PROD=1 node tools/ops/demo-walk/modes-check.cjs 375x667          — прод как есть (платный путь подменён ВО ВСЕХ сценариях)
 //   SP=<папка с floorlib/> node … 375x667                            — локальная страница и движок поверх прода
+//   PROD=1 BASE=http://127.0.0.1:8799/demo/ node … 375x667            — другая сборка (stage-proxy), страница как есть
 const {demoUrl}=require('../demo-url.cjs');
 const SP=process.env.SP, OUT=process.env.OUT||require('os').tmpdir()+'/', prod=!!process.env.PROD||!SP;
+const BASE=process.env.BASE||'https://remont-lab.online/demo/';
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number);
 const R=[]; const ok=(n,c,i)=>R.push((c?'OK  ':'FAIL')+' '+n+' '+(i||''));
 // размер JPEG по маркеру SOF0/SOF2 — без зависимостей
@@ -30,7 +32,7 @@ async function page(b,q,lang){
   await p.route(/\/api\/render\/frame/,r=>{const buf=r.request().postDataBuffer()||Buffer.alloc(0); const id=require('crypto').createHash('sha256').update(buf).digest('hex');
     fs.writeFileSync(OUT+'frame-'+id.slice(0,8)+'.jpg',buf); p.frames.push({id,bytes:buf.length,w:buf.readUInt16BE?jpegSize(buf):null}); r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id,bytes:buf.length})});});
   p.on('request',rq=>{if(rq.method()==='POST'&&/\/api\/render(\?|$)/.test(rq.url())){try{p.renderBodies.push(JSON.parse(rq.postData()||'{}'));}catch(e){}}});
-  await p.goto(demoUrl('https://remont-lab.online/demo/'+q),{waitUntil:'load',timeout:120000});
+  await p.goto(demoUrl(BASE+q),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
   // РЕЕСТР КАДРОВ — ДО ЧИСТКИ `shots` (T-20261107-66/2): пришедший позже реестр заменяет весь список (реалистичные снова в нём), а окно,
   // открытое в 3D без фото, по его приходу встаёт на «Фото» (правило А1) — сценарий «без фото» ломался посреди шага
@@ -43,6 +45,24 @@ const st=p=>p.evaluate(()=>({mode:VW.mode, photoTab:!(document.querySelector('[d
   pins:[...document.querySelectorAll('#vpins .vpin')].filter(n=>!n.hidden).length, pos:(document.getElementById('vside')||{dataset:{}}).dataset.pos,
   stub:(()=>{const e=document.getElementById('vStub'); return !!e&&getComputedStyle(e).display!=='none';})(),
   ready:!!document.querySelector('#shot .vready'), err:(document.getElementById('vCtaErr')||{}).textContent||'', sid:curStateId()}));
+// суммы и состав окна (шкала `#vsum` — итоговые цифры через 1,8 с после правки, анимация 0,45 с), главная — пересчитана тут же (`drawHome`)
+const sums=p=>p.evaluate(()=>{const s=document.getElementById('vsum'); try{drawHome();}catch(e){}
+  const a=document.querySelector('#hmRooms article.hm-room[data-room="'+((allVariants()[cur]||{}).room||'living')+'"]')||document.querySelector('#hmRooms article.hm-room');
+  return {sid:curStateId(), mode:VW.mode, stale:!!document.querySelector('#shot .vstale'), plate:s?s.textContent.replace(/\s+/g,' '):'',
+    chip:(document.getElementById('vchip')||{}).textContent||'', list:[...document.querySelectorAll('#vside .vitems > *')].map(e=>e.textContent.replace(/\s+/g,' ').trim()).join(' | '),
+    comp:items.map(i=>i.role+'='+((i.sku||{}).name||'')), decor:decorList().map(x=>(x.sku||{}).name||''), dev:JSON.stringify(DEVOPT),
+    homeInc:(document.getElementById('hmCert')||{dataset:{}}).dataset.included, homeCard:a?(a.querySelector('.rb .sum')||{}).textContent:''};});
+// кадр живой сцены с точки 1 (одна поза — сравнимо до и после) и подписи моделей; разница — средняя по пикселям, 0…255
+async function frame3d(p){
+  const m0=await p.evaluate(()=>VW.mode); await p.evaluate(()=>vwMode('walk'));
+  await p.waitForFunction(()=>LIVE.scene&&LIVE.state==='ready',null,{timeout:120000}).catch(()=>{}); await p.waitForTimeout(2500);
+  const r=await p.evaluate(async()=>{if(!LIVE.scene||!LIVE.scene.capture)return null; const c=(cams||loadCams())[0]; const x=await LIVE.scene.capture([camPoseOf(c)],320,226);
+    const bm=await createImageBitmap(x.frames[0]), cv=document.createElement('canvas'); cv.width=320; cv.height=226; const g=cv.getContext('2d'); g.drawImage(bm,0,0);
+    return {px:Array.from(g.getImageData(0,0,320,226).data.filter((_,i)=>i%4!==3)), models:LIVE.scene.models()};}).catch(()=>null);
+  await p.evaluate(m=>vwMode(m),m0); await p.waitForTimeout(800);
+  return r;
+}
+const diff3d=(a,b)=>{let s=0; for(let i=0;i<a.length;i++)s+=Math.abs(a[i]-b[i]); return +(s/a.length).toFixed(2);};
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 // упала посреди шага — накопленные OK/FAIL всё равно печатаются, падение — отдельной строкой FAIL (T-20261107-66/2)
 try{
@@ -88,6 +108,8 @@ await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>!VJ.j
 ok('2 готово для этой расстановки → «Фото» открылось само, кнопки нет',s.mode==='photo'&&s.photoTab&&s.cta===null,JSON.stringify({mode:s.mode,tab:s.photoTab,cta:s.cta}));
 await p.screenshot({path:OUT+`m09-${W}-photo.png`});
 // 4. изменение → 3D и шторка вниз (телефон)
+// до правки — суммы окна, чип, список шторки, главная, состав и кадр 3D с точки 1: «Вернуть как было» (4в) должно вернуть всё
+const s0=await sums(p), f0=await frame3d(p);
 await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(800);
 await p.evaluate(()=>{const g=devGroups().find(x=>x.kind==='flooring'); if(g)devSet(g.id,g.variants[1].id);}); await p.waitForTimeout(1500); s=await st(p);
 // после правки вкладка «Фото» остаётся: на ней прежнее фото затемнённым, «Вы изменили комнату» и две кнопки (T-20261107-66 Б)
@@ -97,6 +119,21 @@ await p.evaluate(()=>vwMode('photo')); await p.waitForTimeout(800);
 const stl=await p.evaluate(()=>{const o=document.querySelector('#shot .vstale'); return {mode:VW.mode, txt:o?o.innerText.replace(/\n+/g,' / '):'', back:!!(o&&o.querySelector('[data-st="back"]'))};});
 ok('4б «Фото» после правки — затемнено, «Вы изменили комнату», «Показать изменения» и «Вернуть как было»',
   stl.mode==='photo'&&/Вы изменили комнату/.test(stl.txt)&&/Показать изменения/.test(stl.txt)&&stl.back,JSON.stringify(stl));
+// 4в. «ВЕРНУТЬ КАК БЫЛО» ВОЗВРАЩАЕТ ВСЁ (T-20261108-71 А, владелец TG 563): состав, декор, пол, номер состояния; шкала окна («Выбрано»,
+// «Эта комната», «Другие комнаты», доплата), чип и список шторки; главная («Выбрано» и карточка); в 3D — та же картинка с точки 1
+const s1e=await sums(p);
+await p.click('#shot .vstale [data-st="back"]'); await p.waitForTimeout(1800);
+const s1=await sums(p), dif=k=>JSON.stringify(s0[k])===JSON.stringify(s1[k])?'':k;
+ok('4в «Вернуть как было» → «Фото» без затемнения; состав, декор, пол и номер — как до правки',s1.mode==='photo'&&!s1.stale&&s1.sid===s0.sid&&!dif('comp')&&!dif('decor')&&!dif('dev'),
+  JSON.stringify({mode:s1.mode,stale:s1.stale,sid:[s0.sid,s1e.sid,s1.sid].map(x=>x.slice(3,11)),dev:[s0.dev,s1.dev]}));
+const bad=['plate','chip','list','homeInc','homeCard'].map(dif).filter(Boolean);
+ok('4в суммы — как до правки: шкала окна, чип, список шторки, «Выбрано» и карточка главной',!bad.length,bad.length?JSON.stringify(bad.map(k=>[k,s0[k],s1[k]])):s1.plate.slice(0,90));
+const f1=await frame3d(p), pd=f0&&f1?diff3d(f0.px,f1.px):-1;
+ok('4в в 3D — прежняя расстановка: модели и кадр с точки 1 (с полом) как до правки',!!f1&&JSON.stringify(f0.models)===JSON.stringify(f1.models)&&pd>=0&&pd<1,'разница кадра '+pd);
+// ↶/↷ после возврата — как отмена: возврат = шаг назад по истории, ↷ снова даёт правку, ↶ от неё — опять возвращённая
+const hs=await p.evaluate(()=>{const id0=curStateId(), f=histFwd(), id1=curStateId(), b=histBack(); return {f, b, id0, id1, back:curStateId()===id0};});
+ok('4в ↷ после возврата — снова правка, ↶ — снова как было',hs.f&&hs.id1===s1e.sid&&hs.b&&hs.back,JSON.stringify({f:hs.f,b:hs.b,back:hs.back,edit:hs.id1===s1e.sid}));
+await p.evaluate(()=>{histFwd();}); await p.waitForTimeout(1200);   // снова правка — дальше шаги как прежде
 await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(600);
 await p.evaluate(()=>histBack()); await p.waitForTimeout(1200); s=await st(p);
 ok('4 ↶ вернул расстановку со снимком → «Фото» снова доступно (в 3D)',s.mode==='walk'&&s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));

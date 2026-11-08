@@ -328,6 +328,13 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 .hm-room{cursor:pointer}
 .hm-room .hm-seen{position:absolute;top:12px;left:12px;display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border-radius:999px;
   background:rgba(40,36,33,.62);color:#fff;font-size:13.5px;font-weight:500;pointer-events:none;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+/* ПРАВЛЕНАЯ КОМНАТА БЕЗ СВОЕГО ФОТО (T-20261108-71 Б): прежнее фото затемнено тем же тоном, что в окне (`.vstale`), по центру — светлая
+   плашка «Вы изменили комнату»; подпись комнаты и «✓ Просмотрено» — над затемнением; клик — как у всей карточки */
+.hm-room .hm-ph.stale::after{content:'';position:absolute;inset:0;background:rgba(38,30,24,.5);pointer-events:none}
+.hm-room .hm-ph.stale .ttl,.hm-room .hm-ph.stale .hm-seen{z-index:1}
+.hm-room .hm-stale{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;max-width:calc(100% - 32px);padding:9px 16px;
+  border-radius:999px;background:rgba(255,255,255,.94);color:var(--ink);font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;box-shadow:var(--e4);pointer-events:none}
 .hm-room .rb{display:flex;align-items:center;gap:8px;padding:12px}
 .hm-room .rb .sum{flex:1;min-width:0;font-size:16px;white-space:nowrap}
 .hm-room .rb .sum small{display:block;color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
@@ -5048,11 +5055,15 @@ function drawHome(force){
     // ТОЛЬКО ФОТО НЕЙРОСЕТИ (TG 341, часть 0 T-35): фото нынешней расстановки (правленый вариант, если его сняли; правки комнаты
     // живут в `editRestore`/`variantItems`, photo-sharp-keep-01), иначе `realisticPublishedShot`. Кадр 3D (`liveShot`) и черновик
     // `pubShot` на карточку не идут
-    const pc=posterCam(v), bs=bestShot(v,pc), sh=bs&&bs.quality==='realistic'?bs:realisticPublishedShot(v,pc);
-    return {r, i:rv.index, v, want, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), seen:seen.has(r.id)};
+    const pc=posterCam(v), bs=bestShot(v,pc), own=!!bs&&bs.quality==='realistic', sh=own?bs:realisticPublishedShot(v,pc);
+    // ФОТО НЕ ЭТОЙ РАССТАНОВКИ — ПОМЕТКА «ИЗМЕНЕНО» (T-20261108-71 Б, владелец TG 563): комнату правили (номер состояния ≠ опубликованному),
+    // а своего фото у правки нет — на карточке прежнее фото, затемнённое, как в окне (`.vstale`); сумма — новая. Снимается, когда
+    // расстановка снова совпала с фото («Вернуть как было», ↶ до исходного) или сняли её фото (`bestShot`)
+    const stale=!!sh&&!own&&typeof editShelf==='function'&&editShelf(v)&&variantStateOf(v)!==pubStateOf(v);
+    return {r, i:rv.index, v, want, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), seen:seen.has(r.id), stale};
   });
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
-  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.n,c.sum,c.seen]), m.rooms.map(r=>[r.title,r.areaM2])]);
+  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.n,c.sum,c.seen,c.stale]), m.rooms.map(r=>[r.title,r.areaM2])]);
   homeFavUi(); homeCertDraw(); homeTips();
   if(!force&&sig===HOME.sig)return; HOME.sig=sig;
   const plural=n=>EN?(n===1?'item':'items'):(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
@@ -5069,8 +5080,8 @@ function drawHome(force){
     const vs=styleIdOf(c.v), alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===vs)||{}).title), on=c.r.id===shownId;
     return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b>`+
       `<span>${money(c.sum)} · ${c.n} ${plural(c.n)}</span></button>`+
-      `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}"${vs!==c.want?` data-shown="${vs}"`:''} data-variant="${escHtml(c.v.id)}" data-open="${c.i}">`+
-      `<div class="hm-ph" data-open="${c.i}">`+
+      `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}"${vs!==c.want?` data-shown="${vs}"`:''} data-variant="${escHtml(c.v.id)}" data-open="${c.i}"${c.stale?' data-stale="1"':''}>`+
+      `<div class="hm-ph${c.stale?' stale':''}" data-open="${c.i}">`+
       // ЧЁТКО НА КОМПЬЮТЕРЕ (photo-sharp-keep-01, владелец 07.11 TG 349: «фото сжимается, пока не увеличишь»): миниатюра — 640 px,
       // карточка на 1440 — ~712 px (на экране ×2 — 1424): от 900 px браузер берёт по `sizes` миниатюру или полный кадр 2048, телефон —
       // миниатюру, как было (вес не растёт). Скрытые карточки (на компьютере видна одна) — `lazy`: полные кадры не тянутся впустую
@@ -5080,6 +5091,7 @@ function drawHome(force){
         :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
       // макет 07.11: сердечка и «Поделиться» на карточке нет; открывали комнату — чип «✓ Просмотрено» слева вверху
       (c.seen?`<span class="hm-seen">✓ ${EN?'Viewed':'Просмотрено'}</span>`:'')+
+      (c.stale?`<span class="hm-stale">${EN?'You changed the room':'Вы изменили комнату'}</span>`:'')+
       `<div class="ttl">${t}</div></div>`+
       `<div class="rb"><div class="sum"><b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}</small></div>`+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;
@@ -6565,6 +6577,18 @@ function histGo(step){
 }
 function histBack(){return histGo(-1);}
 function histFwd(){return histGo(1);}
+// ОПУБЛИКОВАННАЯ РАССТАНОВКА ВИТРИНЫ — НОВЫМ ШАГОМ ИСТОРИИ (T-20261108-71 А, владелец TG 563: «вернул назад — и в 3D, и в суммах»):
+// «Вернуть как было», когда шага с опубликованным номером в истории уже нет (правок больше HIST_MAX). Предметы и декор — из данных
+// витрины (`v.items`, `DECOR0`), отделка — своя варианта (`v.dev`); ↶ после этого ведёт к правленой. Ответ — дошли ли до опубликованной
+function histPubPush(){
+  const v=allVariants()[cur]; if(!editShelf(v)||vwEditLock()||!(v.items||[]).length)return false;
+  items=clone(v.items); sel=null;
+  if(DECOR0.has(v))decorSet(v,DECOR0.get(v));
+  const d=devCanon(clone(v.dev||{})); if(JSON.stringify(d)!==JSON.stringify(DEVOPT)){DEVOPT=d; devApply(); devDraw();}
+  draw(); try{basket(); showSwap(); refreshShotList();}catch(e){}
+  histPush();
+  return curStateId()===pubStateOf(v);
+}
 // ПРАВКИ КОМНАТЫ НЕ ТЕРЯЮТСЯ (photo-sharp-keep-01, владелец 07.11 TG 351: «сделал визуалку, вернулся в спальню — пропала»): `load()` при
 // каждой смене варианта брал витринные `v.items` — замены выбрасывались, а с ними и фото нейросети (оно привязано к номеру состояния).
 // Теперь вариант открывается в последнем шаге своей истории (`HIST`); варианты витрины ещё и запоминаются в браузере (`EDITS_KEY`:
@@ -7604,7 +7628,8 @@ function vwRealShots(){
 // затемнённым, «Вы изменили комнату» и две кнопки (`vwStaleUi`). Какое фото и куда ведёт «Вернуть как было» (`to` — шаг истории окна):
 // 1) шаг истории (не текущий) со своим фото нейросети, самый свежий снимок → вернуть = на этот шаг (`histGo`: предметы, декор, пол);
 // 2) иначе фото опубликованной расстановки витрины (`realPubPick`, как у карточки главной) → вернуть = шаг истории с опубликованным
-//    номером (первый шаг окна); такого шага нет (история длиннее HIST_MAX) — кнопки нет;
+//    номером (первый шаг окна); такого шага нет (история длиннее HIST_MAX) — `to = -2`: опубликованная из данных витрины новым шагом
+//    (`histPubPush`, T-20261108-71; прежде кнопки не было);
 // 3) иначе последнее фото нейросети этого варианта — кнопки нет: расстановка того снимка в окне не хранится
 function vwStalePick(){
   const none={list:[], to:-1};
@@ -7621,7 +7646,7 @@ function vwStalePick(){
   if(v.id&&!v.mine&&!v.cid){
     const pub=pubStateOf(v), L=shots.filter(x=>!x.orphan&&!x.svc), by=new Map();
     (cams||[]).forEach((_,k)=>{const x=realPubPick(L, pub, v.id, 'C'+(k+1), y=>shotCamOk(y,cams)); if(x&&x.url)by.set(x.camera||'C1',x);});
-    if(by.size)return out(by, h.stack.findIndex(s=>s.stateId===pub));
+    if(by.size){const k=h.stack.findIndex(s=>s.stateId===pub); return out(by, k>=0?k:(v.items||[]).length?-2:-1);}
   }
   const L=shots.filter(x=>ok(x)&&x.vid===vid);
   return L.length?out(byCam(L), -1):none;
@@ -7634,7 +7659,7 @@ function vwStaleUi(){
   let el=wrap.querySelector('.vstale');
   const pk=VW.mode==='photo'&&!vwJobHere()&&!vwRealShots().length?vwStalePick():null;
   if(!pk||!pk.list.length){if(el)el.remove(); return;}
-  const EN=LANG==='en', back=pk.to>=0;
+  const EN=LANG==='en', back=pk.to>=0||pk.to===-2;
   if(!el||el.dataset.lang!==LANG||el.dataset.back!==String(back)){
     if(el)el.remove();
     el=document.createElement('div'); el.className='vstale'; el.dataset.lang=LANG; el.dataset.back=String(back);
@@ -7648,9 +7673,9 @@ function vwStaleUi(){
 }
 // «Вернуть как было»: расстановка и отделка фото (шаг истории) → обычное фото без затемнения; окно остаётся в «Фото»
 function vwStaleBack(){
-  const pk=vwStalePick(); if(pk.to<0)return;
+  const pk=vwStalePick(); if(pk.to<0&&pk.to!==-2)return;
   const h=histOf(); VW.restoring=1;
-  try{histGo(pk.to-h.at);}finally{VW.restoring=0;}
+  try{if(pk.to===-2)histPubPush(); else histGo(pk.to-h.at);}finally{VW.restoring=0;}
   vwMode('photo');
 }
 const vwCamIndex=c=>Math.max(0,(+String(c||'C1').slice(1)||1)-1);
