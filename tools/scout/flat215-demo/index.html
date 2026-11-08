@@ -323,16 +323,15 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 .hm-room .hm-ph .ttl{position:absolute;left:0;right:0;bottom:0;padding:22px 12px 9px;color:#fff;font-weight:700;font-size:16px;
   background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none}
 .hm-room .hm-ph .ttl small{font-weight:500;opacity:.9}
-/* КАРТОЧКА КОМНАТЫ ПО МАКЕТУ 07.11: вся карточка открывает комнату; на фото — чип «✓ Просмотрено» (комнату открывали, `homeSeen`);
-   ниже цена и «N товаров», справа маленькая квадратная «›». Сердечка, «Поделиться» и «Открыть» нет */
+/* КАРТОЧКА КОМНАТЫ ПО МАКЕТУ 07.11: вся карточка открывает комнату; на фото — подпись комнаты, ниже цена и «N товаров», справа
+   маленькая квадратная «›». Сердечка, «Поделиться» и «Открыть» нет; чипа «✓ Просмотрено» нет (владелец 08.11 TG 592: «человек и так
+   знает», T-20261108-72) — признак «открывали» (`homeSeen`) остаётся только для подсказок */
 .hm-room{cursor:pointer}
-.hm-room .hm-seen{position:absolute;top:12px;left:12px;display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border-radius:999px;
-  background:rgba(40,36,33,.62);color:#fff;font-size:13.5px;font-weight:500;pointer-events:none;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
 /* ПРАВЛЕНАЯ КОМНАТА БЕЗ СВОЕГО ФОТО (T-20261108-71 Б): прежнее фото затемнено тем же тоном, что в окне (`.vstale`), по центру — светлая
-   плашка «Вы изменили комнату» и под ней кнопки окна «Сделать реалистичнее» и «Вернуть как было» (T-20261108-71/2); подпись комнаты и
-   «✓ Просмотрено» — над затемнением; клик мимо кнопок — как у всей карточки */
+   плашка «Вы изменили комнату» и под ней кнопки окна «Сделать реалистичнее» и «Вернуть как было» (T-20261108-71/2); подпись комнаты —
+   над затемнением; клик мимо кнопок — как у всей карточки */
 .hm-room .hm-ph.stale::after{content:'';position:absolute;inset:0;background:rgba(38,30,24,.5);pointer-events:none}
-.hm-room .hm-ph.stale .ttl,.hm-room .hm-ph.stale .hm-seen{z-index:1}
+.hm-room .hm-ph.stale .ttl{z-index:1}
 .hm-room .hm-stale{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;width:max-content;max-width:calc(100% - 24px);
   display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:var(--radius);background:rgba(255,255,255,.94);color:var(--ink);
   text-align:center;box-shadow:var(--e4);cursor:default}
@@ -1699,7 +1698,7 @@ function homeSend(){
     (EN?'This button opens the developer’s consultation form — your selection goes into the request.':'Эта кнопка ведёт на форму консультации застройщика — выбор уйдёт в тексте заявки.')+'</span></div>','');
 }
 // ПОДСКАЗКИ (макет 158:452 / 376:8149) — по одному разу: закрыли «×» — больше не показываем (`localStorage`, в try). Открытые комнаты —
-// там же, по квартире (`flat215-seen`): чип «✓ Просмотрено» на карточке и вторая подсказка вместо первой
+// там же, по квартире (`flat215-seen`): вторая подсказка вместо первой (чипа «✓ Просмотрено» на карточке с 08.11 нет, T-20261108-72)
 const TIP_KEY='flat215-tips', SEEN_KEY='flat215-seen';
 function lsJson(k,d){try{const v=JSON.parse(localStorage.getItem(k)||'null'); return v&&typeof v==='object'?v:d;}catch(e){return d;}}
 function lsPut(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
@@ -5053,7 +5052,6 @@ function drawHome(force){
   // название выбора — до проверки «не изменилось»: список стилей зависит от реестра кадров, рекомендуемый — от опроса
   if(nm){const x=homeMixName(m), h=(escHtml(x.name)||'&nbsp;')+(x.rec?`<span class="hm-rec"> · ${EN?'recommended':'рекомендуем'}</span>`:'');
     if(nm._h!==h){nm._h=h; nm.innerHTML=h;}}
-  const seen=homeSeenSet();
   const cards=L.map(({r,rv,want})=>{
     const v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
@@ -5067,10 +5065,10 @@ function drawHome(force){
     const stale=!!sh&&!own&&typeof editShelf==='function'&&editShelf(v)&&variantStateOf(v)!==pubStateOf(v);
     // на пометке — две кнопки, как в окне (T-20261108-71/2): «Вернуть как было» — только если есть к чему (тот же выбор, что в окне, `vwStalePick`)
     const pk=stale&&typeof vwStalePick==='function'?vwStalePick(v):null, back=!!pk&&(pk.to>=0||pk.to===-2);
-    return {r, i:rv.index, v, want, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), seen:seen.has(r.id), stale, back};
+    return {r, i:rv.index, v, want, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), stale, back};
   });
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
-  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.n,c.sum,c.seen,c.stale,c.back]), m.rooms.map(r=>[r.title,r.areaM2])]);
+  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.n,c.sum,c.stale,c.back]), m.rooms.map(r=>[r.title,r.areaM2])]);
   homeFavUi(); homeCertDraw(); homeTips();
   if(!force&&sig===HOME.sig)return; HOME.sig=sig;
   const plural=n=>EN?(n===1?'item':'items'):(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
@@ -5096,8 +5094,7 @@ function drawHome(force){
         `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?'':' loading="lazy"'} data-url="${escHtml(c.full)}" `+
         `onerror="this.onerror=null;var s=this.parentNode.querySelector('source');if(s)s.remove();this.src=this.dataset.url"></picture>`
         :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
-      // макет 07.11: сердечка и «Поделиться» на карточке нет; открывали комнату — чип «✓ Просмотрено» слева вверху
-      (c.seen?`<span class="hm-seen">✓ ${EN?'Viewed':'Просмотрено'}</span>`:'')+
+      // макет 07.11: сердечка и «Поделиться» на карточке нет; чипа «✓ Просмотрено» нет (владелец 08.11 TG 592, T-20261108-72)
       (c.stale?`<div class="hm-stale"><b>${EN?'You changed the room':'Вы изменили комнату'}</b><div class="hm-stb">`+
         `<button class="btn primary" type="button" data-hst="real">${EN?'Make it realistic':CTA_REAL}</button>`+
         (c.back?`<button class="btn" type="button" data-hst="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div></div>`:'')+
@@ -7057,7 +7054,7 @@ function vwHist(){
 function vwOpenVariant(i){ const v=allVariants()[i];
   if(i>=0&&i!==cur){ if(v&&v.cid&&v.dev){DEVOPT=devCanon(v.dev); devApply(); devDraw();} pickVariant(i); }
   openLiveWindow();
-  if(v)try{homeSeen(roomIdOf(v));}catch(e){} }   // комнату открывали — «✓ Просмотрено» на карточке и вторая подсказка (home-figma-02)
+  if(v)try{homeSeen(roomIdOf(v));}catch(e){} }   // комнату открывали — вторая подсказка вместо первой (home-figma-02; чипа на карточке нет с 08.11)
 function openLiveWindow(){
   if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
   VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null; VW.sheetVis=0; VW.auto=null;   // новое окно варианта — первая точка съёмки

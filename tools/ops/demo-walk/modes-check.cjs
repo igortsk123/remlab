@@ -135,7 +135,8 @@ const hs=await p.evaluate(()=>{const id0=curStateId(), f=histFwd(), id1=curState
 ok('4в ↷ после возврата — снова правка, ↶ — снова как было',hs.f&&hs.id1===s1e.sid&&hs.b&&hs.back,JSON.stringify({f:hs.f,b:hs.b,back:hs.back,edit:hs.id1===s1e.sid}));
 await p.evaluate(()=>{histFwd();}); await p.waitForTimeout(1200);   // снова правка — дальше шаги как прежде
 // 4г. КНОПКИ НА ПОМЕТКЕ КАРТОЧКИ ГЛАВНОЙ (T-20261108-71/2, владелец TG 582): правка → окно закрыто → на карточке «Вы изменили комнату» и
-// две кнопки окна (≥ 40 px, подпись комнаты и «✓ Просмотрено» не закрыты); «Вернуть как было» с карточки — тот же возврат, что в окне:
+// две кнопки окна (≥ 40 px, подпись комнаты не закрыта); чипа «✓ Просмотрено» нет, хотя комнату открывали (владелец 08.11 TG 592,
+// T-20261108-72); «Вернуть как было» с карточки — тот же возврат, что в окне:
 // окно не открывается, пометки нет, сумма карточки и «Выбрано» — как до правки
 const RM=await p.evaluate(()=>(allVariants()[cur]||{}).room||'living'), CARD=`#hmRooms article.hm-room[data-room="${RM}"]`;
 const hcard=()=>p.evaluate(sel=>{try{drawHome();}catch(e){} const a=document.querySelector(sel); if(!a)return null; const m=a.querySelector('.hm-stale');
@@ -144,11 +145,11 @@ const hcard=()=>p.evaluate(sel=>{try{drawHome();}catch(e){} const a=document.que
   const ttl=a.querySelector('.ttl'), tr=ttl?document.createRange():null; if(tr)tr.selectNodeContents(ttl);
   const mr=R(m), btn=[...(m?m.querySelectorAll('[data-hst]'):[])].map(b=>({k:b.dataset.hst, t:b.textContent, h:Math.round(b.getBoundingClientRect().height)}));
   return {stale:a.dataset.stale==='1', btn, sum:(a.querySelector('.rb .sum')||{}).textContent, inc:(document.getElementById('hmCert')||{dataset:{}}).dataset.included,
-    win:document.getElementById('shot').classList.contains('on'), coverTtl:over(mr,tr?R(tr):null), coverSeen:over(mr,R(a.querySelector('.hm-seen')))};},CARD);
+    win:document.getElementById('shot').classList.contains('on'), coverTtl:over(mr,tr?R(tr):null), chip:!!a.querySelector('.hm-seen')||/Просмотрено|Viewed/.test(a.textContent), seenSet:homeSeenSet().size};},CARD);
 await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(1500);
 const hc1=await hcard();
-ok('4г правка → на карточке пометка и кнопки «Сделать реалистичнее» и «Вернуть как было» ≥ 40 px, подпись и «Просмотрено» не закрыты',
-  !!hc1&&hc1.stale&&hc1.btn.length===2&&hc1.btn[0].k==='real'&&/Сделать реалистичнее/.test(hc1.btn[0].t)&&hc1.btn[1].k==='back'&&hc1.btn.every(x=>x.h>=40)&&!hc1.coverTtl&&!hc1.coverSeen,
+ok('4г правка → на карточке пометка и кнопки «Сделать реалистичнее» и «Вернуть как было» ≥ 40 px, подпись не закрыта, чипа «Просмотрено» нет',
+  !!hc1&&hc1.stale&&hc1.btn.length===2&&hc1.btn[0].k==='real'&&/Сделать реалистичнее/.test(hc1.btn[0].t)&&hc1.btn[1].k==='back'&&hc1.btn.every(x=>x.h>=40)&&!hc1.coverTtl&&!hc1.chip,
   JSON.stringify(hc1));
 await p.locator(CARD).scrollIntoViewIfNeeded().catch(()=>{}); await p.screenshot({path:OUT+`m71-${W}-card.png`});
 await p.click(CARD+' [data-hst="back"]'); await p.waitForTimeout(1500);
@@ -168,6 +169,9 @@ ok('4 ↶ вернул расстановку со снимком → «Фото
 // работы, задание — правленой расстановки, заказ того же вида, что по кнопке окна (шаг 2); платное подменено
 await p.evaluate(()=>histFwd()); await p.waitForTimeout(1200);
 await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(1500);
+// окно уже открывали с карточки (4г, «›») — признак «открывали» записан, а чипа «✓ Просмотрено» нет (владелец 08.11 TG 592, T-20261108-72)
+const hc3=await hcard();
+ok('4д комнату открывали с карточки — признак для подсказок есть, чипа «Просмотрено» на карточке нет',!!hc3&&hc3.seenSet>0&&!hc3.chip,JSON.stringify(hc3&&{seen:hc3.seenSet,chip:hc3.chip}));
 const nb=p.renderBodies.length; await p.evaluate(()=>{window.__fakeReady=0;});
 await p.click(CARD+' [data-hst="real"]'); await p.waitForTimeout(1500); s=await st(p);
 const jw=await p.evaluate(()=>({on:document.getElementById('shot').classList.contains('on'), job:VJ.job?{vid:VJ.job.vid,sid:VJ.job.stateId}:null, vid:curVid(),
