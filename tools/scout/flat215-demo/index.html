@@ -279,12 +279,12 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
   font:inherit;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hm-vw.on{background:var(--ink);border-color:var(--ink);color:#fff;cursor:default}
 .hm-vw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-/* СТРОКА «ВАРИАНТ N · ВЫБРАТЬ ДРУГОЙ» (шаг 5) — на месте прежних вкладок стилей и так же липкая под шкалой */
+/* СТРОКА «ВЫБРАТЬ ДРУГОЙ · ПОДЕЛИТЬСЯ» (шаг 5) — на месте прежних вкладок стилей и так же липкая под шкалой. Названия стиля в ней нет
+   (владелец TG 610, T-20261108-76: «подпись вверху на Главной не надо»); обе кнопки скрыты — строки нет, пока не покажут хоть одну (`showTab`) */
 .hm-mix{position:sticky;top:calc(var(--hm-hd) + var(--hm-cert,0px));z-index:calc(var(--z-sticky) + 1);min-height:44px;display:flex;align-items:center;gap:10px;
   background:var(--bg);margin:2px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut)}
 .hm-mix[hidden]{display:none}
-.hm-mix-n{min-width:0;font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* «Выбрать другой ›» — сразу за названием, цветом текста (макет 07.11). С 07.11 скрыта (владелец TG 514, T-20261107-63): стиль меняют
+/* «Выбрать другой ›» — цветом текста (макет 07.11). С 07.11 скрыта (владелец TG 514, T-20261107-63): стиль меняют
    в окне комнаты («Сменить стиль»); окно всей квартиры (`mixOpen()`) осталось в коде — его открывают проверки (`__mixOpen`) */
 .hm-mix-pick{flex:none;min-height:44px;padding:0 2px;border:0;background:none;font:inherit;font-size:15px;color:var(--ink);cursor:pointer;white-space:nowrap}
 .hm-mix-pick[hidden]{display:none}
@@ -301,8 +301,7 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 #mixBox .qz-card{position:relative}
 #mixBox .qz-h{padding:0 34px}
 #mixBox .qz-tick{font-weight:700}
-/* «рекомендуем» (владелец TG 447–448): у названия выбора на главной — тихим словом через «·», в окне выбора — маленькой меткой */
-.hm-rec{font-weight:400;font-size:.82em;color:var(--muted)}
+/* «рекомендуем» (владелец TG 447–448) — маленькой меткой в окне выбора стиля; на главной названия стиля с меткой нет (TG 610, T-76) */
 .mx-rec{display:inline-block;margin-left:4px;padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent);
   font-size:12px;font-weight:600;line-height:1.5;vertical-align:1px;white-space:nowrap}
 /* СТРОКА ШТОРКИ ОКНА (макет 373:7035): «Сканди» слева, «Другой стиль для комнаты» — ссылкой справа; на компьютере — над шкалой колонки */
@@ -425,7 +424,6 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
   /* шкала — на всю ширину шапки (demo-21 п.6): при 560 px справа от неё зияла пустота */
   .hm-view{margin-top:12px}
   .hm-mix{margin-top:6px;min-height:54px;gap:16px}
-  .hm-mix-n{font-size:19px}
   .hm-mix-pick,.hm-share-mix{font-size:16px}
   .hm-rooms{grid-template-columns:repeat(3,1fr);margin-top:12px}
   /* слева — ОДНА карточка текущей комнаты (Д5), справа столбец: все комнаты + «План квартиры» (`--hm-rows` — drawHome) */
@@ -451,7 +449,6 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
   .hm-cert .cs-t{font-size:clamp(13px,.72vw,16px)}
   .hm-cert .cs{padding:clamp(6px,.4vw,9px) 14px}
   .hm-mix{min-height:clamp(54px,2.9vw,64px)}
-  .hm-mix-n{font-size:clamp(19px,1vw,23px)}
   .hm-mix-pick,.hm-share-mix{font-size:clamp(16px,.82vw,18px)}
   .hm-vw{height:clamp(40px,2.2vw,48px);font-size:clamp(15px,.8vw,17.5px)}
   .hm-rooms{gap:16px}
@@ -1324,11 +1321,10 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
      Пусто — строки нет, первый экран как в макете A -->
 <div class="hm-fav-row" id="favHead" hidden><button class="hm-fav-btn" id="favRowBtn" type="button" aria-controls="screen-fav">
   <span class="h">♥ <b data-t="fav">Избранное</b> <span id="favRowN"></span></span><span class="s" id="favRowSub"></span><span class="chev" aria-hidden="true">›</span></button></div>
-<!-- ВЫБРАННЫЙ ИНТЕРЬЕР ВМЕСТО ВКЛАДОК СТИЛЕЙ (home-mix-01 шаг 5, макет 158:452): «Вариант N» (два — «Варианты N и M») и «Выбрать
-     другой» — окно `#mixBox`; «Поделиться интерьером» — значком в этой же строке (ведущий: не отдельной строкой). Строка липкая под
-     шкалой, как прежние вкладки: сменить вариант можно из любого места страницы -->
+<!-- СТРОКА ВМЕСТО ВКЛАДОК СТИЛЕЙ (home-mix-01 шаг 5, макет 158:452): «Выбрать другой» — окно `#mixBox`; «Поделиться интерьером» —
+     значком в этой же строке. Строка липкая под шкалой, как прежние вкладки. Названия выбора в ней нет (владелец TG 610, T-20261108-76);
+     обе кнопки скрыты — строка скрыта целиком (`showTab`), элемент остаётся -->
 <div class="hm-mix" id="hmMix">
-  <b class="hm-mix-n" id="hmMixName">&nbsp;</b>
   <!-- «Выбрать другой» скрыта (владелец TG 514, T-20261107-63): смена стиля — в окне комнаты; обработчик и окно остаются -->
   <button class="hm-mix-pick" id="hmMixPick" type="button" aria-haspopup="dialog" hidden>Выбрать другой</button>
   <!-- в макете 07.11 «Поделиться» нет — кнопка скрыта (обработчик остаётся) -->
@@ -1854,9 +1850,10 @@ function showTab(which){
   document.getElementById('screen-plan').hidden=which!=='plan';
   document.getElementById('screen-room').hidden=!room;
   document.getElementById('screen-fav').hidden=!fav;
-  // строка варианта и подсказка — только на витрине; на плане квартиры и в избранном их нет (план — про всю квартиру, не про вариант).
+  // строка «Выбрать другой · Поделиться» и подсказка — только на витрине; на плане квартиры и в избранном их нет (план — про всю квартиру,
+  // не про вариант). Названия в строке нет (T-20261108-76), обе кнопки скрыты — строки нет и на витрине, без пустой полосы над карточками.
   // Переключатель «Интерьер / План квартиры» — на витрине и на плане, в избранном нет (там своё «← Назад»)
-  {const e=document.getElementById('hmMix'); if(e)e.hidden=!room;}
+  {const e=document.getElementById('hmMix'); if(e)e.hidden=!room||![...e.children].some(c=>!c.hidden);}
   homeTips(); homeBotShow();
   {const v=document.getElementById('hmView'); if(v){v.hidden=fav;
     v.querySelectorAll('[data-view]').forEach(b=>{const on=b.dataset.view===which; b.classList.toggle('on',on); b.setAttribute('aria-selected',String(on));});}}
@@ -4942,20 +4939,14 @@ function homeVarList(){
   const ph=L.filter(x=>x.img); return ph.length?ph:L;
 }
 function homeVarNo(id){ const i=homeVarList().findIndex(x=>x.id===id); return i<0?'':String(i+1); }
-// НАЗВАНИЕ ВЫБОРА (владелец TG 447–448, вместо «Вариант N»): стиль — «Сканди», смешанный (два стиля или стиль комнаты) — «Сканди + Лофт»; `rec` — основной стиль
-// выбора рекомендуемый (`homeRec`: итог опроса, без опроса — стиль по умолчанию), тогда за названием метка «рекомендуем»
-function homeMixName(m){
-  const e=homeSel(m), all=[...e.selected]; for(const r of Object.values(e.requested))if(!all.includes(r))all.push(r);
-  // рекомендуемый — выбор ровно как подобран опросом; без опроса — стиль по умолчанию во всей квартире; поменял покупатель — без метки
-  const R=homeRecStored(), def=m.styles[0]&&m.styles[0].id;
-  const rec=R&&R.sig?mixSig(e)===R.sig:(e.selected.length===1&&e.selected[0]===def&&!Object.keys(e.requested).length);
-  return {name:all.map(id=>homeStyleTitle(m,id)).join(' + '), rec:!!all.length&&rec};
-}
-// НОВЫЙ ВЫБОР ИЗ ЛЮБОГО МЕСТА СТРАНИЦЫ (строка липкая, шаг 3): комнаты нового выбора ушли выше — к ним, под липкую шапку
+// НОВЫЙ ВЫБОР ИЗ ЛЮБОГО МЕСТА СТРАНИЦЫ (шаг 3): комнаты нового выбора ушли выше — к ним, под липкий верх (низ нижнего видимого из
+// шапки и строки `#hmMix`, как `hmE2`; строка без кнопок скрыта — T-20261108-76; шкала сертификата — в нижней полосе, не сверху)
 function homeToRooms(){
-  const rm=document.getElementById('hmRooms'), tb=document.getElementById('hmMix');
-  if(rm&&tb){const top=rm.getBoundingClientRect().top, lim=tb.getBoundingClientRect().bottom;
-    if(top<lim)scrollTo({top:Math.max(0,scrollY+top-lim-8),behavior:VW_SLOW()?'auto':'smooth'});}
+  const rm=document.getElementById('hmRooms'); if(!rm)return;
+  const lim=Math.max(0,...['hmHd','hmMix'].map(id=>document.getElementById(id))
+    .filter(e=>e&&!e.hidden&&e.offsetParent).map(e=>e.getBoundingClientRect().bottom));
+  const top=rm.getBoundingClientRect().top;
+  if(top<lim)scrollTo({top:Math.max(0,scrollY+top-lim-8),behavior:VW_SLOW()?'auto':'smooth'});
 }
 // ОКНО «ВЫБРАТЬ ДРУГОЙ» (home-mix-01 шаг 5, макет 158:452): фото гостиной каждого стиля (строго фото нейросети — `homeVarList`),
 // подписи — названия стилей, у рекомендуемого — метка (владелец TG 447–448). ОДИН выбор (владелец TG 451): нажатие на стиль закрывает
@@ -5053,13 +5044,11 @@ function mixApply(ids){
 window.__mixOpen=mixOpen; window.__mixApply=mixApply;   // итог опроса «Все варианты» и проверки (demo-walk)
 function homeM2(a){ return a?String(a).replace('.',LANG==='en'?'.':',')+(LANG==='en'?' m²':' м²'):''; }
 function drawHome(force){
-  const nm=document.getElementById('hmMixName'), box=document.getElementById('hmRooms'); if(!box||!D)return;
+  const box=document.getElementById('hmRooms'); if(!box||!D)return;
   const m=homeModel(), EN=LANG==='en';
-  // раскладка — по выбору квартиры (`HOME.sel`); открытое окно (`cur`) её не меняет и в выбор не пишет (home-mix-01)
+  // раскладка — по выбору квартиры (`HOME.sel`); открытое окно (`cur`) её не меняет и в выбор не пишет (home-mix-01).
+  // Названия выбора над карточками нет (владелец TG 610, T-20261108-76: «подпись вверху на Главной не надо»)
   const L=homeLayout(m);
-  // название выбора — до проверки «не изменилось»: список стилей зависит от реестра кадров, рекомендуемый — от опроса
-  if(nm){const x=homeMixName(m), h=(escHtml(x.name)||'&nbsp;')+(x.rec?`<span class="hm-rec"> · ${EN?'recommended':'рекомендуем'}</span>`:'');
-    if(nm._h!==h){nm._h=h; nm.innerHTML=h;}}
   const cards=L.map(({r,rv,want})=>{
     const v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};

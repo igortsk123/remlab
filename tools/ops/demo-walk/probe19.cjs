@@ -55,7 +55,7 @@ for(const name of (process.argv[3]||'p375,p390,desk').split(',')){const [vp,mobi
   // 4. EN
   await p.goto(demoUrl(BASE+'?live=0&lang=en'),{waitUntil:'load',timeout:120000}); await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.waitForTimeout(3000);
   out.en=await p.evaluate(()=>{const txt=[...document.querySelectorAll('.hm-hd, .hm-view, .hm-mix, .hm-fav-row, .hm-fav-sec, #hmRooms, header, [role=dialog]')].map(e=>e.innerText||'').join('\n');
-    const cyr=txt.match(/[^\n]*[А-Яа-яЁё]+[^\n]*/g)||[]; return {cyr:cyr.slice(0,8), favLabel:document.getElementById('hmFav')?.getAttribute('aria-label'), tabs:[(document.getElementById('hmMixName')||{}).textContent||'']};});
+    const cyr=txt.match(/[^\n]*[А-Яа-яЁё]+[^\n]*/g)||[]; return {cyr:cyr.slice(0,8), favLabel:document.getElementById('hmFav')?.getAttribute('aria-label'), noRow:(m=>!document.getElementById('hmMixName')&&(!m||m.hidden))(document.getElementById('hmMix'))};});   // строки стиля нет (T-20261108-76)
   await p.evaluate(()=>{pickVariant(0); openLiveWindow();}); await p.waitForTimeout(5000);
   out.enWin=await p.evaluate(()=>{const txt=document.getElementById('shot').innerText||''; return (txt.match(/[^\n]*[А-Яа-яЁё]+[^\n]*/g)||[]).slice(0,8);});
   await p.screenshot({path:OUT+'/p19-'+name+'-7en.png'});

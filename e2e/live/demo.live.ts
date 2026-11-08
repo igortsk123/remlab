@@ -24,10 +24,11 @@ test("1.1 стили опубликованы, у каждого есть кад
   const styles = (await page.evaluate("allVariants().filter((v) => roomIdOf(v) === 'living').map((v) => v.style)")) as string[];
   expect(styles.length).toBeGreaterThanOrEqual(4);
   expect(new Set(styles).size).toBe(styles.length);
-  // вместо вкладок стилей — строка выбранного интерьера: название стиля, у рекомендуемого — «· рекомендуем» (владелец TG 447–448)
-  const titles = await page.evaluate(() => (window as unknown as { homeModel: () => { styles: { title: string }[] } }).homeModel().styles.map((t) => t.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  const one = `(?:${titles.join("|")})`;
-  await expect(page.locator("#hmMixName")).toHaveText(new RegExp(`^${one}(?: \\+ ${one})*(?: · рекомендуем)?$`));
+  // строки выбранного интерьера над карточками («Сканди · рекомендуем», «Сканди + Минимализм») нет — владелец TG 610, T-20261108-76:
+  // ни названия, ни метки, сама строка `#hmMix` скрыта (её кнопки скрыты с T-63)
+  await expect(page.locator("#hmMixName")).toHaveCount(0);
+  await expect(page.locator("#screen-room .hm-rec")).toHaveCount(0);
+  await expect(page.locator("#hmMix")).toBeHidden();
   const res = await request.get("/demo/demo-data.json");
   const age = (Date.now() - new Date(res.headers()["last-modified"] ?? 0).getTime()) / 86_400_000;
   expect(age, "витрина демо старше 2 суток").toBeLessThan(2);

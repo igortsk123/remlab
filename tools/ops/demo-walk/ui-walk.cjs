@@ -29,7 +29,7 @@ const METRICS_JS=`(()=>{const box=[], font={};
     walk(c,d+1);});};
   walk(document.body,0);
   const f=(k,sel)=>{const e=document.querySelector(sel); if(e){const cs=getComputedStyle(e); font[k]=cs.fontSize+' / '+cs.fontWeight+' · '+Math.round(e.getBoundingClientRect().width)+'px';}};
-  f('body','body'); f('шапка: тип квартиры','.hm-hd b, .hm-hd .t, .hm-hd'); f('цена квартиры','.hm-hd .pr, .hm-price'); f('шкала','#hmCert .cs-t'); f('строка «Вариант N»','.hm-mix-n'); f('переключатель Интерьер/План','.hm-vw');
+  f('body','body'); f('шапка: тип квартиры','.hm-hd b, .hm-hd .t, .hm-hd'); f('цена квартиры','.hm-hd .pr, .hm-price'); f('шкала','#hmCert .cs-t'); f('переключатель Интерьер/План','.hm-vw');
   f('подпись комнаты на фото','.hm-room .hm-ph .nm, .hm-room b'); f('цена комнаты','.hm-room .pr b, .hm-room .pr'); f('кнопка Открыть','.hm-room .btn.primary, .hm-room .btn');
   f('строка «скоро»','.hm-soon, .hm-rooms .hm-r2'); f('подсказка','.hm-hint'); f('кнопки Ипотека/Консультация','.hm-acts .btn');
   return {vw:innerWidth, vh:innerHeight, box:box.slice(0,60), font};})()`;

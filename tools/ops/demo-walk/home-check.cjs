@@ -1,6 +1,7 @@
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ПЕРВЫЙ ЭКРАН ГЛАВНОЙ (план demo-16 шаг 1; с home-mix-01 шаг 5 — макет дизайнера 158:452): до сгиба — строка квартиры, переключатель
-// «Интерьер / План квартиры», сертификат, строка «<стиль> · рекомендуем · Выбрать другой» и ≥ 120 px фото первой комнаты (метрика
+// «Интерьер / План квартиры», сертификат и ≥ 120 px фото первой комнаты; строки стиля «<стиль> · рекомендуем» над карточками нет
+// (владелец TG 610, T-20261108-76; «Выбрать другой» скрыта с T-63 — строка `#hmMix` скрыта целиком) (метрика
 // `tools/ops/mock/home-v2/check.cjs`); внутри — комнаты в порядке плана, неготовые — заглушкой; окно «Выбрать другой»: фото гостиных,
 // 1–2, после двух остальные серые, два — гостиная из первого, спальни из второго (`mix=`); стиль в адресе (`?style=`, `lang`/`s`
 // сохраняются); план квартиры — переключателем и обратно; EN без кириллицы. Избранное (demo-17) — отдельный экран `#fav` с «← Назад»:
@@ -18,6 +19,9 @@ async function page(b,[W,H],q,lang){
   const phone=W<=700;
   const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:phone?2:1,isMobile:phone,hasTouch:phone,locale:lang==='en'?'en-GB':'ru-RU'});
   await ctx.grantPermissions(['clipboard-read','clipboard-write'],{origin:'https://remont-lab.online'});
+  // СТРОКИ СТИЛЯ НАД КАРТОЧКАМИ НЕТ (T-20261108-76): ни названия `#hmMixName`, ни метки «рекомендуем», сама строка `#hmMix` скрыта или нулевая
+  await ctx.addInitScript(()=>{window.__noRow=()=>{const m=document.getElementById('hmMix');
+    return !document.getElementById('hmMixName')&&!document.querySelector('#screen-room .hm-rec')&&(!m||m.hidden||!m.offsetHeight);};});
   const p=await ctx.newPage(); p.errs=[]; p.on('pageerror',e=>p.errs.push(String(e)));
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   await p.route(/\/api\/render(\?|$)/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({job:'fake-'+Date.now()})}));
@@ -28,12 +32,15 @@ async function page(b,[W,H],q,lang){
   await p.waitForTimeout(500);
   return p;
 }
+// низ липкого верха — нижний видимый из шапки и строки `#hmMix`, как `hmE2` страницы (строка скрыта — T-20261108-76; шкала — в нижней полосе)
+const STICKY="Math.round(Math.max(0,...['hmHd','hmMix'].map(id=>document.getElementById(id)).filter(e=>e&&!e.hidden&&e.offsetParent).map(e=>e.getBoundingClientRect().bottom)))";
 const fold=p=>p.evaluate(()=>{const R=s=>{const e=document.querySelector(s);return e?e.getBoundingClientRect():null;}, vh=innerHeight;
-  const ph=R('#hmRooms .hm-room .hm-ph'), tabs=R('#hmMix'), hd=R('#hmHd'), vw=R('#hmView');
-  const cut=[...document.querySelectorAll('.hm-fk,.hm-price,#flatMeta,.cs-l,.cs-r,.hm-more,.hm-acts .btn,.hm-vw,.hm-mix-n,.hm-mix-pick,.hm-stub b,.hm-stub span,.hm-room .rb small')]
+  const ph=R('#hmRooms .hm-room .hm-ph'), hd=R('#hmHd'), vw=R('#hmView');
+  const stk=Math.max(0,...['hmHd','hmMix'].map(id=>document.getElementById(id)).filter(e=>e&&!e.hidden&&e.offsetParent).map(e=>e.getBoundingClientRect().bottom));
+  const cut=[...document.querySelectorAll('.hm-fk,.hm-price,#flatMeta,.cs-l,.cs-r,.hm-more,.hm-acts .btn,.hm-vw,.hm-mix-pick,.hm-stub b,.hm-stub span,.hm-room .rb small')]
     .filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>e.textContent.trim().slice(0,24));
-  return {photoTop:ph&&Math.round(ph.top), visiblePhotoHeight:ph&&tabs?Math.round(Math.max(0,Math.min(ph.bottom,vh)-Math.max(ph.top,tabs.bottom))):0,
-    tabsVisible:!!tabs&&tabs.height>0&&tabs.top>=0&&tabs.bottom<=vh, tabsBottom:tabs&&Math.round(tabs.bottom), hdH:hd&&Math.round(hd.height),
+  return {photoTop:ph&&Math.round(ph.top), visiblePhotoHeight:ph?Math.round(Math.max(0,Math.min(ph.bottom,vh)-Math.max(ph.top,stk))):0,
+    noRow:window.__noRow(), stickyBottom:Math.round(stk), hdH:hd&&Math.round(hd.height),
     viewVisible:!!vw&&vw.height>0&&vw.bottom<=vh, hScroll:document.documentElement.scrollWidth>innerWidth, cut};});
 // окно выбора стиля квартиры: открыть (`__mixOpen`; кнопки на главной нет с 07.11), нажать плитку `at[0]` — окно закрывается, выбор сразу (один выбор, владелец TG 451). Возвращает [id]
 async function pickWin(p,at,{shot=''}={}){
@@ -45,35 +52,33 @@ async function pickWin(p,at,{shot=''}={}){
   return [id];
 }
 const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeModel());
-  return {sel:e.selected, name:document.getElementById('hmMixName').textContent, want:Object.fromEntries(L.map(x=>[x.r.id,x.want])),
+  return {sel:e.selected, noRow:window.__noRow(), want:Object.fromEntries(L.map(x=>[x.r.id,x.want])),
     url:location.search, card:(document.querySelector('#hmRooms .hm-room[data-room=living]')||{}).dataset||{}};});
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
   try{
     for(const vp of VPS){const [W,H]=vp, phone=W<=700, tag=W+'x'+H;
       const p=await page(b,vp,'');
       const f=await fold(p);
-      if(phone)ok(`${tag}: до сгиба переключатель, строка стиля и ≥ 120 px фото первой комнаты`,f.viewVisible&&f.tabsVisible&&f.visiblePhotoHeight>=120,JSON.stringify({photoTop:f.photoTop,visible:f.visiblePhotoHeight,tabsBottom:f.tabsBottom}));
-      else ok(`${tag}: переключатель, строка варианта и фото комнаты на первом экране`,f.viewVisible&&f.tabsVisible&&f.visiblePhotoHeight>=120,JSON.stringify({photoTop:f.photoTop,visible:f.visiblePhotoHeight}));
+      if(phone)ok(`${tag}: до сгиба переключатель и ≥ 120 px фото первой комнаты, строки стиля над карточками нет`,f.viewVisible&&f.noRow&&f.visiblePhotoHeight>=120,JSON.stringify({photoTop:f.photoTop,visible:f.visiblePhotoHeight,stickyBottom:f.stickyBottom,noRow:f.noRow}));
+      else ok(`${tag}: переключатель и фото комнаты на первом экране, строки стиля над карточками нет`,f.viewVisible&&f.noRow&&f.visiblePhotoHeight>=120,JSON.stringify({photoTop:f.photoTop,visible:f.visiblePhotoHeight,noRow:f.noRow}));
       ok(`${tag}: без горизонтальной прокрутки, подписи не обрезаны`,!f.hScroll&&!f.cut.length,f.cut.join(' | '));
       await p.screenshot({path:OUT+`home-${tag}-1-top.png`});
       if(phone)await p.screenshot({path:OUT+`home-${tag}-3-full.png`,fullPage:true});
       if(!phone&&vp!==VPS[VPS.length-1]){await p.context().close(); continue;}
-      const st=await p.evaluate(()=>({tabs:homeModel().styles.map(s=>s.id), titles:Object.fromEntries(homeModel().styles.map(s=>[s.id,s.title])), on:homeSel(homeModel()).selected[0], name:document.getElementById('hmMixName').textContent,
+      const st=await p.evaluate(()=>({tabs:homeModel().styles.map(s=>s.id), titles:Object.fromEntries(homeModel().styles.map(s=>[s.id,s.title])), on:homeSel(homeModel()).selected[0], noRow:window.__noRow(),
         view:[...document.querySelectorAll('#hmView [data-view]')].map(b=>b.dataset.view+':'+b.getAttribute('aria-selected')),
         rooms:[...document.querySelectorAll('#hmRooms [data-room]')].map(e=>e.dataset.room), ready:[...document.querySelectorAll('#hmRooms .hm-room')].map(e=>e.dataset.room),
         stubs:[...document.querySelectorAll('#hmRooms .hm-stub:not(.hm-plan-tile) span')].map(e=>e.textContent), card:!!FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length,
         cert:(document.getElementById('hmCert')||{}).dataset||{}, styleUrl:new URLSearchParams(location.search).get('style'),
         oldTabs:document.querySelectorAll('#styleTabs,.hm-tab,#planLink,#planBack,#tab-plan,#tab-room,[data-soon],#screen-soon,#feedShare,#budgetGo').length,
-        collBase:[...document.querySelectorAll('#coll .lay')].length, pick:!!(document.getElementById('hmMixPick')||{}).offsetParent,
-        nameCut:(e=>!!e&&e.scrollWidth>e.clientWidth+1)(document.getElementById('hmMixName'))}));
-      const nm=x=>String(x).replace(/ · (рекомендуем|recommended)$/,'');   // имя стиля, у рекомендуемого — метка (владелец TG 447–448)
-      ok('стили главной (≥ 4) — строкой «<стиль> · рекомендуем», переключатель на «Интерьер»',st.tabs.length>=4&&nm(st.name)===st.titles[st.on]&&/ · рекомендуем$/.test(st.name)&&st.view.join()==='room:true,plan:false',st.name+' · '+st.view.join());
+        collBase:[...document.querySelectorAll('#coll .lay')].length, pick:!!(document.getElementById('hmMixPick')||{}).offsetParent}));
+      ok('стили главной (≥ 4), выбран основной; строки «<стиль> · рекомендуем» над карточками нет (TG 610, T-76); переключатель на «Интерьер»',st.tabs.length>=4&&!!st.titles[st.on]&&st.noRow&&st.view.join()==='room:true,plan:false',st.on+' · строки нет '+st.noRow+' · '+st.view.join());
       ok('комнаты в порядке плана: гостиная, кухня, спальня 1, спальня 2, санузел 1, санузел 2, прихожая',JSON.stringify(st.rooms)===JSON.stringify(ORDER),st.rooms.join(',')+(st.card?' (из карточки)':' (запасной путь витрины)'));
       ok('гостиная готова; неготовые — единая заглушка',st.ready[0]==='living'&&st.ready.length+st.stubs.length===ORDER.length&&new Set(st.stubs).size<=1,st.ready.join(',')+' | '+st.stubs[0]);
       ok('сертификат: 0 включено, остаток = весь сертификат',+st.cert.included===0&&+st.cert.amount>0,JSON.stringify(st.cert));
       ok('стиль в адресе',st.styleUrl===st.on,st.styleUrl);
       ok('вкладок стилей, ссылки плана, старых вкладок-комнат, «бюджета» и feedShare нет; варианты не дублируются сеткой',st.oldTabs===0&&st.collBase===0,st.oldTabs+'/'+st.collBase);
-      ok('кнопки «Выбрать другой» на главной нет (TG 514, T-63); название квартиры не обрезано',!st.pick&&!st.nameCut,'кнопка '+st.pick+' обрезка '+st.nameCut);
+      ok('кнопки «Выбрать другой» на главной нет (TG 514, T-63)',!st.pick,'кнопка '+st.pick);
       // ОКНО «ВЫБРАТЬ ДРУГОЙ»: фото гостиной каждого варианта, названия стилей, у рекомендуемого метка, отмечен нынешний; после двух — остальные серые
       await p.evaluate(()=>window.__mixOpen());   /* кнопки «Выбрать другой» нет с 07.11 (TG 514, T-63) */ await p.waitForSelector('#mixBox.on',{timeout:5000});
       await p.waitForFunction("!!document.querySelector('#mixBox .qz-ph:not([disabled])')",null,{timeout:20000});
@@ -85,20 +90,20 @@ const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeMode
       await p.screenshot({path:OUT+`home-${tag}-2a-window.png`});
       await p.keyboard.press('Escape'); await p.waitForTimeout(300);
       ok('Esc закрывает окно, выбор прежний',!(await p.$('#mixBox.on'))&&(await sel(p)).sel.join()===st.on);
-      // переключение: окно → третий вариант → «Показать»: гостиная этого стиля, открытый вариант, адрес, строка — имя стиля
+      // переключение: окно → третий вариант: гостиная этого стиля, открытый вариант, адрес; строки стиля над карточками по-прежнему нет
       const k=Math.min(2,w0.tiles.length-1), [id]=await pickWin(p,[k]);
       const s2=await p.evaluate(()=>{const c=document.querySelector('#hmRooms .hm-room'); const v=allVariants()[cur];
-        return {name:document.getElementById('hmMixName').textContent, card:c&&c.dataset.style, variant:c&&c.dataset.variant, cur:v&&v.id,
+        return {sel:homeSel(homeModel()).selected.join(), noRow:window.__noRow(), card:c&&c.dataset.style, variant:c&&c.dataset.variant, cur:v&&v.id,
           url:location.search, sum:c&&c.querySelector('.sum b').textContent};});
-      ok('«Выбрать другой» → гостиная этого варианта, открытый вариант и адрес совпадают, строка — имя стиля без метки',s2.card===id&&s2.variant===s2.cur&&new URLSearchParams(s2.url).get('style')===id&&
-        s2.name===st.titles[id],JSON.stringify(s2));
+      ok('«Выбрать другой» → гостиная этого варианта, открытый вариант и адрес совпадают, выбран этот стиль, строки стиля нет',s2.card===id&&s2.variant===s2.cur&&new URLSearchParams(s2.url).get('style')===id&&
+        s2.sel===id&&s2.noRow,JSON.stringify(s2));
       await p.screenshot({path:OUT+`home-${tag}-2-style.png`});
       await p.click('#hmRooms .hm-room [data-swap]'); await p.waitForTimeout(800);
       const win=await p.evaluate(()=>({open:document.getElementById('shot').classList.contains('on'), sum:+document.getElementById('vsum').getAttribute('data-sum'), money:money(+document.getElementById('vsum').getAttribute('data-sum'))}));
       ok('«Открыть» → окно варианта, сумма как на карточке',win.open&&win.money===s2.sum,win.money+' / '+s2.sum);
       await p.keyboard.press('Escape'); await p.evaluate(()=>{const x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();}); await p.waitForTimeout(400);
       // СМЕШИВАНИЕ — ВЫБОРОМ СТИЛЯ В КОМНАТЕ (владелец TG 451): окно гостиной → «Другой стиль для комнаты ›» → один стиль: окно комнаты
-      // на новом варианте, меняется только гостиная (`requested`), строка главной — прежний основной стиль, в адресе `mix=`
+      // на новом варианте, меняется только гостиная (`requested`), основной стиль прежний, строки стиля на главной нет, в адресе `mix=`
       const s5a=await sel(p);
       await p.click('#hmRooms .hm-room[data-room=living] [data-swap]'); await p.waitForSelector('#shot.on.v2 #vside',{timeout:15000}); await p.waitForTimeout(600);
       // телефон — плашка «Сменить стиль» поверх фото, строки в шторке нет (владелец TG 472–477); компьютер — строка вверху правой панели
@@ -119,29 +124,31 @@ const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeMode
       const to=rw.tiles.find(t=>!t.on).id;
       await p.click(`#mixBox .qz-ph[data-mx-ph="${to}"]`); await p.waitForTimeout(900);
       const s5=await sel(p), w5=await p.evaluate(()=>({open:document.getElementById('shot').classList.contains('on'), box:!!document.querySelector('#mixBox.on'), st:styleIdOf(allVariants()[cur]||{})}));
-      ok('один выбор: окно стилей закрылось, комната на новом стиле, остальные комнаты как были, строка главной «<основной> + <стиль комнаты>» без «рекомендуем», адрес mix=',
-        !w5.box&&w5.open&&w5.st===to&&s5.want.living===to&&Object.keys(s5a.want).every(k=>k==='living'||s5.want[k]===s5a.want[k])&&s5.name===nm(s5a.name)+' + '+st.titles[to]&&/[?&]mix=1\./.test(s5.url),JSON.stringify({w5,s5}));
+      ok('один выбор: окно стилей закрылось, комната на новом стиле, остальные комнаты как были, основной стиль прежний, строки «<основной> + <стиль комнаты>» на главной нет, адрес mix=',
+        !w5.box&&w5.open&&w5.st===to&&s5.want.living===to&&Object.keys(s5a.want).every(k=>k==='living'||s5.want[k]===s5a.want[k])&&s5.sel[0]===s5a.sel[0]&&s5.noRow&&/[?&]mix=1\./.test(s5.url),JSON.stringify({w5,s5}));
       await p.screenshot({path:OUT+`home-${tag}-2c-room-style.png`});
       await p.evaluate(()=>{const x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();}); await p.waitForTimeout(400);
-      // ЛИПКАЯ ШАПКА (шаг 3; demo-19 Б3 — шкала сертификата тоже липкая, сразу под строкой квартиры): после прокрутки — строка квартиры,
-      // шкала и строка варианта (≤ 140 px на телефоне), остальное уехало; «Выбрать другой» снизу страницы — комнаты нового выбора под шапкой
+      // ЛИПКАЯ ШАПКА (шаг 3; demo-19 Б3 — шкала сертификата тоже липкая, сразу под строкой квартиры): после прокрутки — строка квартиры
+      // и шкала (≤ 140 px на телефоне), строки стиля нет и тут (T-76), остальное уехало; новый выбор снизу страницы — комнаты под шапкой
       await p.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight)); await p.waitForTimeout(500);
+      // `#hmHint` снят макетом 07.11 (T-39) — уехавшие считаем по тем, что есть (иначе шаг падал исключением, до итога)
       const sk=await p.evaluate(()=>{const hd=document.getElementById('hmHd').getBoundingClientRect(), tb=document.getElementById('hmMix').getBoundingClientRect(),
         ce=document.getElementById('hmCert').getBoundingClientRect(),
-        gone=['flatPrice','hmView','hmHint'].every(id=>{const r=document.getElementById(id).getBoundingClientRect(); return r.bottom<=hd.bottom;});
+        flow=['flatPrice','hmView','hmHint'].map(id=>document.getElementById(id)).filter(e=>e&&e.offsetParent),
+        gone=flow.every(e=>e.getBoundingClientRect().bottom<=hd.bottom);
         // страница короче высоты шапки и экрана (компьютер, одна готовая комната) — прокрутить мимо шапки нельзя, липкость не включается
-        const short=document.documentElement.scrollHeight-innerHeight<document.getElementById('hmHint').getBoundingClientRect().bottom+scrollY;
-        return {hdTop:Math.round(hd.top), certTop:Math.round(ce.top), certBot:Math.round(ce.bottom), hdBot:Math.round(hd.bottom), tabsTop:Math.round(tb.top), sticky:Math.round(Math.max(hd.bottom,tb.bottom)), gone, short};});
-      ok(`${tag}: после прокрутки липкие строка квартиры, шкала сертификата и строка варианта${phone?' ≤ 140 px':''}, остальное уехало`,
-        sk.hdTop===0&&Math.abs(sk.certTop-sk.hdBot)<=1&&sk.tabsTop>=sk.certBot-1&&(sk.gone||(!phone&&sk.short))&&(!phone||sk.sticky<=140),JSON.stringify(sk));
+        const short=document.documentElement.scrollHeight-innerHeight<Math.max(0,...flow.map(e=>e.getBoundingClientRect().bottom))+scrollY;
+        return {hdTop:Math.round(hd.top), certTop:Math.round(ce.top), certBot:Math.round(ce.bottom), hdBot:Math.round(hd.bottom), noRow:window.__noRow(), tbH:Math.round(tb.height), sticky:Math.round(Math.max(hd.bottom,tb.bottom)), gone, short};});
+      ok(`${tag}: после прокрутки липкие строка квартиры и шкала сертификата${phone?' ≤ 140 px':''}, строки стиля нет, остальное уехало`,
+        sk.hdTop===0&&Math.abs(sk.certTop-sk.hdBot)<=1&&sk.noRow&&sk.tbH===0&&(sk.gone||(!phone&&sk.short))&&(!phone||sk.sticky<=140),JSON.stringify(sk));
       await p.screenshot({path:OUT+`home-${tag}-4-sticky.png`});
       // прокрутка к комнатам плавная, её длина зависит от высоты страницы — ждём конца: scrollY не меняется 300 мс (не дольше 3 с)
       const [id2]=await pickWin(p,[0]);
       await p.evaluate(()=>new Promise(res=>{let y=scrollY, t0=Date.now(), same=Date.now();
         const tick=()=>{const n=Date.now(); if(scrollY!==y){y=scrollY; same=n;} if(n-same>=300||n-t0>=3000)return res(); requestAnimationFrame(tick);}; requestAnimationFrame(tick);}));
-      const s4=await p.evaluate(()=>{const r=document.getElementById('hmRooms').getBoundingClientRect(), tb=document.getElementById('hmMix').getBoundingClientRect();
-        return {roomsTop:Math.round(r.top), tabsBottom:Math.round(tb.bottom), vh:innerHeight, style:new URLSearchParams(location.search).get('style'), mix:new URLSearchParams(location.search).get('mix'), room:new URLSearchParams(location.search).get('room')};});
-      ok('«Выбрать другой» из липкой строки снизу страницы — комнаты нового выбора под шапкой, в адресе стиль и комната',s4.roomsTop>=s4.tabsBottom-1&&s4.roomsTop<s4.vh*0.6&&s4.style===id2&&!s4.mix&&s4.room==='living',JSON.stringify(s4));
+      const s4=await p.evaluate(`(()=>{const r=document.getElementById('hmRooms').getBoundingClientRect();
+        return {roomsTop:Math.round(r.top), stickyBottom:${STICKY}, vh:innerHeight, style:new URLSearchParams(location.search).get('style'), mix:new URLSearchParams(location.search).get('mix'), room:new URLSearchParams(location.search).get('room')};})()`);
+      ok('новый выбор стиля снизу страницы — комнаты нового выбора под липким верхом, в адресе стиль и комната',s4.roomsTop>=s4.stickyBottom-1&&s4.roomsTop<s4.vh*0.6&&s4.style===id2&&!s4.mix&&s4.room==='living',JSON.stringify(s4));
       // план квартиры — переключателем и обратно
       await p.evaluate(()=>scrollTo(0,0)); await p.waitForTimeout(300);
       await p.click('#hmView [data-view="plan"]'); await p.waitForTimeout(400);
@@ -149,15 +156,15 @@ const sel=p=>p.evaluate(()=>{const e=homeSel(homeModel()), L=homeLayout(homeMode
         sel:document.querySelector('#hmView [data-view="plan"]').getAttribute('aria-selected')}));
       await p.screenshot({path:OUT+`home-${tag}-8-plan.png`});
       await p.click('#hmView [data-view="room"]'); await p.waitForTimeout(400);
-      const bk=await p.evaluate(()=>({room:!document.getElementById('screen-room').hidden, mix:!document.getElementById('hmMix').hidden,
+      const bk=await p.evaluate(()=>({room:!document.getElementById('screen-room').hidden, noRow:window.__noRow(),
         sel:document.querySelector('#hmView [data-view="room"]').getAttribute('aria-selected')}));
-      ok('«План квартиры» — переключателем: план без строки варианта, «Интерьер» — назад',pl.plan&&pl.mixHidden&&pl.sel==='true'&&pl.hash==='#plan'&&bk.room&&bk.mix&&bk.sel==='true',JSON.stringify([pl,bk]));
+      ok('«План квартиры» — переключателем: план без строки варианта, «Интерьер» — назад, строки стиля нет и там',pl.plan&&pl.mixHidden&&pl.sel==='true'&&pl.hash==='#plan'&&bk.room&&bk.noRow&&bk.sel==='true',JSON.stringify([pl,bk]));
       ok('без ошибок страницы',!p.errs.length,p.errs.slice(0,2).join(' | '));
       await p.context().close();
       // ссылка менеджера со стилем: ?style= открывает его, прочие параметры не теряются
       const q=await page(b,vp,'?lang=ru&style='+id);
-      const s3=await q.evaluate(()=>({on:homeSel(homeModel()).selected.join(), name:document.getElementById('hmMixName').textContent, url:location.search}));
-      ok('старая ссылка ?style= открывает этот стиль во всей квартире, lang сохраняется',s3.on===id&&/lang=ru/.test(s3.url)&&nm(s3.name)===st.titles[id],JSON.stringify(s3));
+      const s3=await q.evaluate(()=>({on:homeSel(homeModel()).selected.join(), noRow:window.__noRow(), url:location.search}));
+      ok('старая ссылка ?style= открывает этот стиль во всей квартире, lang сохраняется, строки стиля нет',s3.on===id&&/lang=ru/.test(s3.url)&&s3.noRow,JSON.stringify(s3));
       await q.screenshot({path:OUT+`home-${tag}-9-old-style.png`});
       await q.context().close();
     }

@@ -54,7 +54,7 @@ test("1.2–1.5 первый экран: чат, «Отправить выбор
     await page.locator('#hmView [data-view="room"]').click();
     await expect(page.locator("#screen-room")).toBeVisible();
   }
-  // стили главной (бывшие вкладки, home-mix-01 шаг 5 — строка «<стиль> · рекомендуем»); внутри — комнаты в порядке плана, неготовые — заглушкой (demo-16)
+  // стили главной (бывшие вкладки, home-mix-01 шаг 5; строки «<стиль> · рекомендуем» над карточками нет с T-20261108-76); внутри — комнаты в порядке плана, неготовые — заглушкой (demo-16)
   const tabs = (await homeStyles(page)).map((s) => s.title);
   const rooms = await page.locator("#hmRooms [data-room]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.room));
   const stubs = await page.locator("#hmRooms .hm-stub:not(.hm-plan-tile)").allInnerTexts();
@@ -415,18 +415,21 @@ const saveHeart = async (page: Page) => {
   return name;
 };
 
-test("2.33 первый экран телефона: вкладки стилей и ≥ 120 px фото первой комнаты до сгиба (375×667 и 390×844)", async ({ browser }) => {
+test("2.33 первый экран телефона: строки стиля нет, ≥ 120 px фото первой комнаты до сгиба (375×667 и 390×844)", async ({ browser }) => {
   for (const vp of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
     const ctx = await browser.newContext({ ...phone, viewport: vp });
     const page = await ctx.newPage();
     await page.goto(demoUrl("/demo/"), { waitUntil: "load" });
     await page.waitForFunction(HOME_READY);
-    // вместо вкладок стилей — строка «<стиль> · рекомендуем · Выбрать другой» (home-mix-01 шаг 5): она до сгиба, под ней ≥ 120 px фото
-    const m = await page.evaluate(() => { const ph = document.querySelector("#hmRooms .hm-room[data-room=living] .hm-ph")!.getBoundingClientRect(), tb = document.getElementById("hmMix")!.getBoundingClientRect();
-      return { tabsVisible: tb.top >= 0 && tb.bottom <= innerHeight, tabsHeight: Math.round(tb.height), visiblePhotoHeight: Math.round(Math.max(0, Math.min(ph.bottom, innerHeight) - Math.max(ph.top, tb.bottom))) }; });
+    // строки «<стиль> · рекомендуем» над карточками нет (владелец TG 610, T-20261108-76): `#hmMix` скрыта, без пустой полосы;
+    // под липкой шапкой — ≥ 120 px фото
+    const m = await page.evaluate(() => { const ph = document.querySelector("#hmRooms .hm-room[data-room=living] .hm-ph")!.getBoundingClientRect(), tb = document.getElementById("hmMix")!;
+      const stk = Math.max(0, ...["hmHd", "hmMix"].map((id) => document.getElementById(id)).filter((e): e is HTMLElement => !!e && !e.hidden && !!e.offsetParent).map((e) => e.getBoundingClientRect().bottom));
+      return { rowHidden: tb.hidden, rowHeight: Math.round(tb.getBoundingClientRect().height), name: !!document.getElementById("hmMixName"), visiblePhotoHeight: Math.round(Math.max(0, Math.min(ph.bottom, innerHeight) - Math.max(ph.top, stk))) }; });
     say(`${vp.width}×${vp.height}:`, JSON.stringify(m));
-    expect(m.tabsVisible).toBe(true);
-    expect(m.tabsHeight).toBeGreaterThan(0);   // свёрнутая лента (onb-03 Т4) — 0 px, «видна» была бы ложно (onb-02 Т7)
+    expect(m.rowHidden).toBe(true);
+    expect(m.rowHeight).toBe(0);   // не пустая полоса на месте строки
+    expect(m.name).toBe(false);
     expect(m.visiblePhotoHeight).toBeGreaterThanOrEqual(120);
     await ctx.close();
   }
@@ -442,6 +445,7 @@ test("2.34 липкая шапка после прокрутки ≤ 140 px (Р�
     await page.waitForFunction(`${HOME_READY} && homeModel().styles.length > 1`);
     await page.evaluate("scrollTo(0, document.documentElement.scrollHeight)");
     await page.waitForTimeout(500);
+    // липкий верх — шапка; строка `#hmMix` скрыта (T-20261108-76) и в max даёт 0
     const st = await page.evaluate(`({ sticky: Math.round(Math.max(document.getElementById('hmHd').getBoundingClientRect().bottom, document.getElementById('hmMix').getBoundingClientRect().bottom)),
       mode: document.getElementById('hmCert').dataset.mode, stuck: document.getElementById('hmCert').classList.contains('stuck'),
       legend: [...document.querySelectorAll('#hmCert .cs-lg, #hmCert .cs-ov')].some((e) => !!e.offsetParent) })`) as { sticky: number; mode: string; stuck: boolean; legend: boolean };
