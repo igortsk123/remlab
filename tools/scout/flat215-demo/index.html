@@ -5626,7 +5626,8 @@ function wireShotList(){
     if(!a)return;
     const it=items.find(i=>(skuOf(i)||{}).name===a.name), dx=decorList().find(x=>(x.sku||{}).name===a.name);
     const s=(it&&skuOf(it))||(dx&&dx.sku)||{}, rep=row.querySelector('[data-rep]'), slot=dx?decorSel(dx.i):it;
-    itemCardOpen(icItem({...a, w:s.w, d:s.d, h:s.h}, a.role), rep?()=>rep.click():null,
+    // глубина в подписи карточки — каталожная: `d_catalog` товара идёт вместе с `d` сцены (иначе стул К2 «47×52», T-25/11)
+    itemCardOpen(icItem({...a, w:s.w, d:s.d, ...(s.d_catalog!=null?{d_catalog:s.d_catalog}:{}), h:s.h}, a.role), rep?()=>rep.click():null,
       {fam:colourFam(s,a.role), cur:0, at:sw?+sw.dataset.sw:0, save:q=>saveColour(slot,q)});};
   document.querySelectorAll('#shotbody [data-rep]').forEach(b=>b.onclick=()=>{
     const a=shotRows[+b.dataset.rep];
