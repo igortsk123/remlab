@@ -76,6 +76,15 @@ ok('1 «Сделать реалистичнее» видна в 3D',!!s.cta&&/р
 const dz=await p.evaluate(()=>{const d=document.getElementById('vCams').getBoundingClientRect(), t=document.getElementById('vside').getBoundingClientRect(); return {dots:Math.round(d.bottom), sheet:Math.round(t.top)};});
 if(W<=700)ok('1 точки ракурсов над верхом шторки',dz.dots<=dz.sheet,JSON.stringify(dz));
 await p.screenshot({path:OUT+`m09-${W}-walk.png`});
+// 1г. ОДИНОКОЙ «3D» НЕТ (T-20261108-73/3, ведущий): «Фото» скрыто — переключателя «Фото | 3D» нет вовсе, окно в 3D; ↶↷, «Скрыть цены» и ✕
+// там же, где в окне с «Фото» (шаг 7 сверяет те же места). ↶↷ до правки скрыты — место меряем, показав их на миг
+const topGeo=pg=>pg.evaluate(()=>{const R=s=>{const e=document.querySelector(s); if(!e||!e.offsetParent)return null; const r=e.getBoundingClientRect();
+    return [Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)];};
+  const h=document.querySelector('#shot .vhist'), was=h&&h.hidden; if(h)h.hidden=false;
+  const out={modes:R('#shot .vmodes'), hist:R('#shot .vhist'), price:R('#vPriceTop'), x:R('#shotx')}; if(h)h.hidden=was; return out;});
+const g1=await topGeo(p);
+ok('1г без «Фото» — переключателя «Фото | 3D» нет, окно в 3D; ↶↷, «Скрыть цены», ✕ видны',!g1.modes&&s.mode==='walk'&&!!g1.hist&&!!g1.price&&!!g1.x,JSON.stringify(g1));
+await p.screenshot({path:OUT+`m09-${W}-walk-top.png`,clip:{x:0,y:0,width:W,height:Math.min(H,140)}});
 // 1в. «СКРЫТЬ ЦЕНЫ» (T-20261108-75, владелец TG 606): в 3D вверху «Скрыть цены» (на месте «Сменить стиль») → ценников 0 → «Показать цены» →
 // ценники вернулись; в «Фото» — «Сменить стиль» (шаг 2)
 const pb=()=>p.evaluate(()=>{const v=id=>{const e=document.getElementById(id); return e&&e.offsetParent?e.innerText.trim():null;};
@@ -316,12 +325,19 @@ const en=await p.evaluate(()=>[document.getElementById('vStub').innerText, docum
 ok('6 EN без кириллицы',!/[А-Яа-яЁё]/.test(en),en); await p.context().close();
 // 7. «ФОТО» ВИТРИННОГО ВАРИАНТА (T-20261108-75): вверху «Сменить стиль» (телефон) / строка «Другой стиль для комнаты» в панели (компьютер),
 // «Скрыть цены» нет; в 3D — наоборот. Отдельная страница: после «Сделать реалистичнее» (шаги 2–4) расстановка своя, смены стиля у неё нет
-p=await page(b,'?live=force&lang=ru','ru'); await p.evaluate(()=>openLiveWindow()); await p.waitForTimeout(2500);
+// вариант — первый с фото своей точки (после пересборки видов у первого варианта его может не быть, T-73/3: окно — в 3D без «Фото»)
+p=await page(b,'?live=force&lang=ru','ru');
+const v7=await p.evaluate(()=>{const c0=cur; for(let i=0;i<allVariants().length;i++){const v=allVariants()[i]; if(v.mine||v.cid)continue; pickVariant(i); if(vwRealShots().length)return v.id;} pickVariant(c0); return null;});
+ok('7 у витрины есть вариант с фото своей точки',!!v7,String(v7));
+await p.evaluate(()=>openLiveWindow()); await p.waitForTimeout(2500);
 const top7=()=>p.evaluate(()=>{const v=id=>{const e=document.getElementById(id); return e&&e.offsetParent?e.innerText.trim():null;}; return {mode:VW.mode, price:v('vPriceTop'), style:v('vOtherTop'), row:v('vOther')};});
 let t7=await top7();
 ok('7 «Фото» — «Сменить стиль», «Скрыть цены» нет',t7.mode==='photo'&&!t7.price&&(W<=700?t7.style==='Сменить стиль':/Другой стиль/.test(t7.row||'')),JSON.stringify(t7));
 await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(1500); t7=await top7();
 ok('7 3D — «Скрыть цены» вместо «Сменить стиль»',t7.mode==='walk'&&t7.price==='Скрыть цены'&&!t7.style,JSON.stringify(t7));
+// к 1г: с «Фото» переключатель есть, а ↶↷, «Скрыть цены» и ✕ — на тех же местах, что в окне без него (±1 px)
+const g7=await topGeo(p), same=(a,c)=>!!a&&!!c&&a.every((v,i)=>Math.abs(v-c[i])<=1);
+ok('7 с «Фото» — переключатель есть; ↶↷, «Скрыть цены», ✕ на тех же местах, что без «Фото» (шаг 1г)',!!g7.modes&&same(g7.hist,g1.hist)&&same(g7.price,g1.price)&&same(g7.x,g1.x),JSON.stringify({g1,g7}));
 console.log('errs',p.errs.slice(0,3)); await p.context().close();
 }catch(e){R.push('FAIL проверка прервалась — '+String(e.message||e).split('\n').slice(0,6).join(' | '));}
 finally{console.log(R.join('\n')); console.log(`итог: ${R.filter(x=>x.startsWith('OK')).length}/${R.length}`);

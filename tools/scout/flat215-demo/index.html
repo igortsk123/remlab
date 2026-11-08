@@ -6749,6 +6749,7 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
    «Фото» (нет снимка) колонки не занимает */
 .vmodes{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:2px;padding:4px;border-radius:999px;
  background:var(--veil);z-index:var(--zl-float);box-shadow:var(--e3)}
+.vmodes[hidden]{display:none}   /* «Фото» скрыто — переключателя нет (T-20261108-73/3, `vwModeUi`) */
 .vmodes button{text-align:center}
 .vmodes button{border:0;background:transparent;color:#fff;font-size:15px;padding:7px 14px;border-radius:999px;cursor:pointer}
 .vmodes button.on{background:var(--surface);color:var(--ink);font-weight:600}
@@ -7691,6 +7692,9 @@ function vwModeUi(){
   // …или пока фото этой расстановки рисуется (demo-20 Б3): вкладка появляется сразу, на ней — ход работы (`vwPhWaitUi`)
   // …или есть хоть одно фото комнаты (T-20261107-66 Б): после правки — последнее фото затемнённым (`vwPhotoShots`, `vwStaleUi`)
   const real=vwPhotoShots(), ph=shot.querySelector('[data-vm="photo"]'); if(ph)ph.hidden=!real.length&&!vwJobHere();
+  // ОДИНОКАЯ «3D» (T-20261108-73/3, ведущий): «Фото» скрыто — переключатель из одной кнопки ничего не переключает; не показываем его вовсе,
+  // окно сразу в 3D. Соседи (↶↷, «Скрыть цены», ✕) стоят от краёв сцены, не от него — не съезжают (modes-check, шаг 7)
+  const vm=shot.querySelector('.vmodes'); if(vm)vm.hidden=!!ph&&ph.hidden;
   shot.classList.toggle('vmany',m==='photo'?real.length>1:vwCamN()>1);
   // область сцены зависит от режима («3D» — на весь экран), шторка остаётся, где была (v4)
   if(VW_PHONE())requestAnimationFrame(()=>vwLayout());
