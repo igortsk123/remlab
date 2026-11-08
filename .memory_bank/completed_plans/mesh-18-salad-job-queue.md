@@ -2,9 +2,10 @@
 workstream: mesh
 slug: mesh-18-salad-job-queue
 title: mesh-18 — задания на машины Salad через Job Queue вместо SSH-шлюза (у части машин вход Salad рвёт SSH до приветствия)
-status: in_progress
+status: completed
+completed: 2026-11-08
 created: 2026-10-24
-updated: 2026-10-24
+updated: 2026-11-08
 ---
 
 ## Цель
@@ -173,3 +174,9 @@ mesh-17: ночь 23→24.10 — 108 из 202 прогретых машин ра
   закачка образа не оплачивается); полный размах 30 машин ≈ 261 ₽/ч. Откат: `disabled: true` → SALAD_GROUP обратно на mesh-low-10 →
   stop mesh-q-low-1 (задания в очереди снять `queue_run.py --cancel`; начатые доделает или подхватит complete.json приёмника).
 - 2026-10-24 — [работник 2] T-20261024-05/1: mesh-q-low-1 replicas 30 → 10 (PATCH остановленной группы, шаг 2 боевого порядка, слово ведущего); GET: stopped, autostart false, версия 1, queue_connection 8001 /generate mesh-q-low на месте; реплик в проекте 32/50. Follow-up: серия сбоев одной машины в режиме очереди → пересадка по instance из `_salad` (сейчас не делается).
+
+## Completion summary
+- Итог: задания на машины Salad идут через Job Queue (`queue_connection` при создании группы, посредник `queue_proxy.py`, транспорт `auto`, SSH — запасной) — ADR-0317, `core/mesh-pool.md` § Транспорт. 27.10 в работе — 0,92 ₽/меш при потолке 1,5 ₽.
+- Память: ADR-0317 (`decisions/adr-0301-0350.md`), `core/mesh-pool.md`, `domain/mesh-pool-ops.md`.
+- Уроки: 518 (группа с очередью — только создание), 523 (цена — только новые job_id).
+- Закрыт ведущим 08.11 по гейту PLAN-STUCK: план не двигался в файле с 24.10, хотя работа была в проде.
