@@ -180,7 +180,8 @@ def _sku(items: dict, role: str) -> dict | None:
             'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name')),
             # запасной нейтральный ковёр стиля без своих (`demo_swap_pool.universal_rugs`) — только когда он; иначе ключа нет
             **({'rug_universal': True} if it.get('rug_universal') else {}),
-            **_cat_dims(it)}
+            # глубина «для сцены» у стульев К2 (`scene_dims`, T-25/9): d — по мешу, d_catalog — каталог для подписи
+            **scene_dims(f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else None, _cat_dims(it))}
 
 
 def _cat_dims(it: dict) -> dict:
@@ -322,6 +323,53 @@ def colour_flagged(sid: str | None) -> bool:
     return bool(sid) and _RB.colour_flagged(_bind_rows().get(sid.replace('_', ':', 1)))
 
 
+_EFF_POL: dict | None = None
+
+
+def scene_dims(sid: str | None, dims: dict) -> dict:
+    """ГЛУБИНА «ДЛЯ СЦЕНЫ» (T-20261107-25/9, план dims-effective-01, Codex 07.11 п.5). У стульев К2 глубина каталога — копия
+    ширины (ложный квадрат); привязка подтвердила глубину паспорта мешем (`passport.effective_dims`). Сцена — солвер, след,
+    3D (`meshes.ts:placeMesh` тянет модель до w,d,h) и фото — берёт её; каталожная остаётся рядом в `d_catalog` (подпись
+    товара покупателю), отбор и фильтры по-прежнему на каталоге. Условия — `room_bindings.effective_d`; откат — политика
+    `passport.d_by_mesh.effective: false` или `FLAT215_EFFECTIVE_DIMS=0`. Нет основания — `dims` как есть (тот же объект)."""
+    global _EFF_POL
+    if not sid or not dims or os.environ.get('FLAT215_EFFECTIVE_DIMS', '1') == '0':
+        return dims
+    rows = _bind_rows()
+    if not rows:
+        return dims
+    if _EFF_POL is None:
+        try:
+            _EFF_POL = _RB.policy()
+        except Exception as e:  # noqa: BLE001 — политика не читается: сцена на каталоге
+            print(f'WARN:scene_dims: политика привязки не читается ({repr(e)[:120]}) — глубина сцены из каталога', flush=True)
+            _EFF_POL = {}
+    d = _RB.effective_d(rows.get(sid.replace('_', ':', 1)), _msid(sid), dims.get('w'), dims.get('d'), _EFF_POL)
+    if d is None:
+        return dims
+    return dict(dims, d=d, d_catalog=dims.get('d'), dims_by='паспорт по мешу')
+
+
+def _scene_sets(sets: list) -> list:
+    """Копия банка демо для солвера с глубиной «для сцены» (`scene_dims`); сам банк и `sets` в памяти не трогаем (Р1: банк =
+    каталог, `catalog_media.sync_sets`)."""
+    out = []
+    for s in sets:
+        items = (s or {}).get('items') if isinstance(s, dict) else None
+        if not items:
+            out.append(s)
+            continue
+        new = {}
+        for role, it in items.items():
+            if it and it.get('mid') and it.get('eid'):
+                sd = scene_dims(f"{it['mid']}_{it['eid']}", it)
+                if sd is not it:
+                    it = {k: v for k, v in sd.items() if k not in ('d_catalog', 'dims_by')}
+            new[role] = it
+        out.append(dict(s, items=new))
+    return out
+
+
 DECOR_ROLES = {'ваза', 'статуэтка', 'свеча', 'книги', 'поднос', 'шкатулка', 'часы'}
 
 
@@ -418,12 +466,15 @@ def _dims_of(v: dict, sku: dict | None, role: str = '') -> dict:
     """
     sku = sku or {}
     w, d, h = sku.get('w'), sku.get('d'), sku.get('h')
-    src = 'каталог'
+    src = sku.get('dims_by') or 'каталог'          # 'паспорт по мешу' — глубина сцены К2 (`scene_dims`, T-25/9)
     if sku.get('dia') and not (w and d):
         w, d, src = sku['dia'], sku['dia'], 'диаметр'
     import footprint as _fp
     known = _fp.footprint_known({'w': w, 'd': d})
-    return {'w': w, 'd': d, 'h': h, 'dims_src': src if known else 'неизвестно', 'dims_unknown': not known}
+    out = {'w': w, 'd': d, 'h': h, 'dims_src': src if known else 'неизвестно', 'dims_unknown': not known}
+    if known and sku.get('dims_by') and sku.get('d_catalog') is not None:
+        out['d_catalog'] = sku['d_catalog']        # подпись «Ш×Г×В» покупателю — каталог (`fromDemo.ts`)
+    return out
 
 
 BANKS: list = []          # заполняется в build(): выбранные банки демо
@@ -903,7 +954,11 @@ def set_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
     _w, _d, _h = ((max(it['w'], it['d']), min(it['w'], it['d']), 1.0) if base == 'ковёр'
                   else (it.get('w'), it.get('d'), it.get('h')))
     _msd = _msd or (_sid if base == 'ковёр' else None)
-    return {'name': it.get('name'), 'w': _w, 'd': _d, 'h': _h,
+    # глубина «для сцены» (`scene_dims`, T-25/9): отбор выше — по каталогу, место и модель в сцене — по мешу
+    _sd = scene_dims(_sid, {'w': _w, 'd': _d}) if base != 'ковёр' else {}
+    _dc = {'d_catalog': _d} if _sd.get('dims_by') else {}
+    _d = _sd.get('d', _d) if _dc else _d
+    return {'name': it.get('name'), 'w': _w, 'd': _d, **_dc, 'h': _h,
             'price': _price(it)[0], 'price_at': _price(it)[1], 'img': it.get('img'), 'url': it.get('url'),
             'shop': it.get('shop'), 'style': style, 'sid': _sid, 'msid': _msd,
             'src': 'set',
@@ -1198,8 +1253,9 @@ def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list
 
 
 def _write_demo_sets(sets: list) -> None:
-    """Банк для солвера; переписываем только при изменении — раскладки не пересчитываются зря."""
-    blob = json.dumps(sets, ensure_ascii=False)
+    """Банк для солвера; переписываем только при изменении — раскладки не пересчитываются зря. Глубина — «для сцены»
+    (`_scene_sets`, T-25/9): солвер ставит стул К2 по глубине меша, а не по квадрату каталога."""
+    blob = json.dumps(_scene_sets(sets), ensure_ascii=False)
     if not os.path.exists(DEMO_SETS) or open(DEMO_SETS, encoding='utf-8').read() != blob:
         _AIO.write_text(DEMO_SETS, blob)
 
@@ -1630,6 +1686,7 @@ def build() -> dict:
                 _sk = dict(_sk); _sk['hung'] = True
             objs.append({'role': role, 'x': round(v['x'], 1), 'y': round(v['z'], 1),
                          'rot': int(v.get('rot') or 0), 'w': _dims['w'], 'd': _dims['d'],
+                         **({'d_catalog': _dims['d_catalog']} if 'd_catalog' in _dims else {}),
                          'h': _dims['h'], 'dims_src': _dims.get('dims_src'), 'sku': _sk,
                          # Г-диван: у него ДРУГИЕ пороги (столик может стоять вплотную внутри «Г»,
                          # ТВ ближе — 150 см), иначе советчик выдаёт ложные предупреждения на
@@ -1738,7 +1795,10 @@ def build() -> dict:
             if why:
                 continue
             mid, eid = p['sid'].split('_', 1)
-            it = {'name': p['name'], 'w': p['w'], 'd': p['d'], 'h': p['h'], 'price': p['price'],
+            # глубина «для сцены» (`scene_dims`, T-25/9): проверки ленты выше — по каталогу, место и модель — по мешу
+            _sd = scene_dims(p['sid'], {'w': p['w'], 'd': p['d']}) if base not in NOMESH_ROLES else {}
+            _dc = {'d_catalog': p['d']} if _sd.get('dims_by') else {}
+            it = {'name': p['name'], 'w': p['w'], 'd': _sd['d'] if _dc else p['d'], **_dc, 'h': p['h'], 'price': p['price'],
                   'img': p['img'], 'url': p['url'], 'shop': p.get('shop'),
                   'style': p['style'], 'styles': [p['style']],
                   'sid': p['sid'], 'msid': p['msid'], 'sub': p['sub'], 'src': 'pool',

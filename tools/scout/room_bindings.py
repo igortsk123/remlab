@@ -178,6 +178,40 @@ def d_by_mesh(path: str, full_sha: str, gen_d, cat_dims_list: list, F, pol: dict
     return dict(out, ok=worst[1] <= float(P['tol']), why='' if worst[1] <= float(P['tol']) else 'err')
 
 
+def effective_dims(dbm: dict, aid: str, cat_dims_list: list, pol: dict) -> dict | None:
+    """Глубина «для сцены» (T-20261107-25/9, план dims-effective-01, Codex 07.11 п.5): К2 подтвердил глубину паспорта отношением
+    сторон своего меша — сцена (солвер, след, 3D, фото) берёт её, а не квадрат каталога; каталог, банк, цены и фильтры — как
+    были. Пишется только при `d_by_mesh.ok` и `passport.d_by_mesh.effective`; `catalog_w` — ширина каталога на момент снимка:
+    читатель (`effective_d`) сверяет с текущей и при расхождении берёт каталог (снимок устарел)."""
+    P = (pol.get('passport') or {}).get('d_by_mesh') or {}
+    if not dbm or not dbm.get('ok') or not P.get('effective') or not cat_dims_list:
+        return None
+    return {'d': dbm['passport_d'], 'source': 'passport_by_mesh', 'mesh_d': dbm['mesh_d'], 'err': dbm['err'],
+            'asset_id': aid, 'measurement': dbm['measurement'], 'catalog_w': cat_dims_list[0].get('w')}
+
+
+def effective_d(row: dict | None, scene_msid: str | None, cat_w, cat_d, pol: dict | None = None):
+    """Читатель глубины «для сцены» (T-20261107-25/9): строка привязки → глубина паспорта по мешу или None (тогда — каталог).
+    Только если ВСЁ сразу: политика включена (`passport.d_by_mesh.effective`); строка ready и своя модель (не `via_family`);
+    сцена грузит ровно модель привязки (`mesh_id` == `scene_msid`); у строки есть `passport.effective_dims`; ширина каталога
+    сейчас та же (±2 см), а глубина каталога по-прежнему копия ширины — магазин починил фид или поменял товар → каталог."""
+    P = ((pol if pol is not None else policy()).get('passport') or {}).get('d_by_mesh') or {}
+    r = row or {}
+    e = (r.get('passport') or {}).get('effective_dims') or {}
+    if not P.get('effective') or not e or r.get('status') != 'ready' or r.get('via_family'):
+        return None
+    if not scene_msid or not r.get('mesh_id') or str(r['mesh_id']).replace(':', '_', 1) != scene_msid \
+            or e.get('d') is None or e.get('catalog_w') is None:
+        return None
+    try:
+        w, d = float(cat_w), float(cat_d)
+    except (TypeError, ValueError):
+        return None
+    if abs(w - float(e['catalog_w'])) > 2 or abs(w - d) > 0.01:
+        return None
+    return e['d']
+
+
 def dims_hash(dims_list: list, keys: list) -> str:
     return hashlib.sha256(json.dumps([[d.get(k) for k in keys] for d in dims_list], sort_keys=True).encode()).hexdigest()[:16]
 
@@ -446,7 +480,7 @@ def _offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, asset
     # перед нужен? — по ОДНОЙ роли (`effective_role`); паспорт другой роли — предупреждение, не блок
     prole = ((rec or {}).get('passport') or {}).get('role')
     role, role_src = effective_role(sku, cat, prole, F)
-    pp, dbm = [], None
+    pp, dbm, effd = [], None, None
     if rec:
         gd0 = rec['passport']['dims_cm']
         # глубина каталога — копия ширины (`copied_d`): паспорт сверяем ДО plan_depth — тот достроил бы d = w при w == d,
@@ -462,6 +496,7 @@ def _offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, asset
             if dbm['ok']:
                 pp = []
                 warn.append('passport_d_by_mesh')
+                effd = effective_dims(dbm, aid, cat['dims'], pol)
             else:
                 warn.append(f"passport_d_by_mesh_rejected:{dbm['why']}")
     local += pp
@@ -497,7 +532,7 @@ def _offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, asset
             'reasons': all_why, 'warnings': sorted(set(warn)), 'capabilities': caps,
             'passport': {'status': 'ok' if not pp and rec is not None else ('mismatch' if pp else 'unknown'),
                          'catalog_dims': cat['dims'], 'hash': dims_hash(cat['dims'], pol['passport']['keys']),
-                         **({'d_by_mesh': dbm} if dbm else {})},
+                         **({'d_by_mesh': dbm} if dbm else {}), **({'effective_dims': effd} if effd else {})},
             'photo': photo, 'seen_in': sorted(cat['seen_in'])}
 
 
@@ -1748,6 +1783,37 @@ def _selftest() -> int:
                                  if g.get('path') == '/g/2' else F.manifest(g))), pol, G, {})
     ok('К2: снимок с разбором d_by_mesh проходит схему, политика v4', not validate(snap) and snap['policy_version'] == 'v4'
        and snap['offers']['2:b']['status'] == 'ready') or print(validate(snap))
+    # ГЛУБИНА «ДЛЯ СЦЕНЫ» (T-20261107-25/9, план dims-effective-01): запись в снимок и читатель `effective_d`
+    r, _ = chair({'w': 49, 'd': 54, 'h': 82}, A)
+    e = r['passport'].get('effective_dims') or {}
+    ok('сцена К2: вернувшийся стул — passport.effective_dims {d паспорта 54, источник, меш, ошибка, asset, ширина каталога 49}',
+       e.get('d') == 54 and e.get('source') == 'passport_by_mesh' and e.get('mesh_d') == 54.0 and e.get('err') == 0.0
+       and e.get('asset_id') == r['asset_id'] and e.get('catalog_w') == 49 and e.get('measurement') == 'raw2:t') or print(e)
+    ok('сцена К2: снимок с effective_dims проходит схему', not validate(snap)
+       and 'effective_dims' in snap['offers']['2:b']['passport']) or print(snap['offers']['2:b']['passport'])
+    r2, _ = chair({'w': 49, 'd': 83, 'h': 82}, dict(A, long=0.49, short=0.48))
+    ok('сцена К2: отказ К2 (ошибка вне допуска) — effective_dims нет', 'effective_dims' not in r2['passport']) or print(r2)
+    r3, _ = chair({'w': 49, 'd': 54, 'h': 82}, A, marked=False)
+    ok('сцена К2: без К2 — effective_dims нет', 'effective_dims' not in r3['passport'])
+    pne = json.loads(json.dumps(pol))
+    pne['passport']['d_by_mesh']['effective'] = False
+    ok('сцена К2: флаг effective выключен — запись не делается',
+       effective_dims(r['passport']['d_by_mesh'], r['asset_id'], [{'w': 49, 'd': 49, 'h': 82}], pne) is None)
+    ms = r['mesh_id']
+    ok('сцена К2 effective_d: ready, своя модель, каталог прежний (49×49) — глубина 54',
+       effective_d(r, ms, 49, 49, pol) == 54) or print(r['mesh_id'], r['status'])
+    ok('сцена К2 effective_d: флаг effective выключен (откат без пересборки) — None (каталог)',
+       effective_d(r, ms, 49, 49, pne) is None)
+    ok('сцена К2 effective_d: сцена грузит другую модель — None', effective_d(r, 'чужая_модель', 49, 49, pol) is None)
+    ok('сцена К2 effective_d: ширина каталога сменилась больше 2 см (снимок устарел) — None; на 1,5 см — глубина',
+       effective_d(r, ms, 45, 45, pol) is None and effective_d(r, ms, 50.5, 50.5, pol) == 54)
+    ok('сцена К2 effective_d: магазин починил фид (глубина каталога больше не копия ширины) — None',
+       effective_d(r, ms, 49, 52, pol) is None)
+    ok('сцена К2 effective_d: строка не ready / вариант семьи / нет строки / нет поля — None',
+       effective_d(dict(r, status='blocked'), ms, 49, 49, pol) is None
+       and effective_d(dict(r, via_family=True), ms, 49, 49, pol) is None
+       and effective_d(None, ms, 49, 49, pol) is None and effective_d(r3, r3['mesh_id'], 49, 49, pol) is None
+       and effective_d(r, ms, None, 49, pol) is None)
     print('selftest:', 'OK' if not bad else f'{bad} FAIL')
     return 1 if bad else 0
 

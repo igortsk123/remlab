@@ -109,7 +109,9 @@ type DemoItem = {
   y?: number;
   rot?: number;
   w?: number;
+  /** Глубина «для сцены»; у стульев К2 — по мешу, каталожная тогда в `d_catalog` (T-20261107-25/9). */
   d?: number;
+  d_catalog?: number;
   h?: number;
   elev?: number;
   corner?: boolean;
@@ -134,6 +136,11 @@ type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoIt
   cams?: { name?: string; x?: number; y?: number; rot?: number; fov?: number; pose?: number; pshift?: number; crop?: Record<string, CropWindow> }[] };
 
 const isRugRole = (role?: string): boolean => String(role ?? "").startsWith("ковёр");
+/**
+ * Глубина в подписи «Ш×Г×В» покупателю — КАТАЛОЖНАЯ (то, что он увидит у магазина), а сцена берёт `d` (у стульев К2 — по мешу,
+ * `flat215_demo.scene_dims`; решение ведущего T-20261107-25/9, план dims-effective-01).
+ */
+export const captionDepth = (x: { d?: number; d_catalog?: number }): number | undefined => x.d_catalog ?? x.d;
 /** Картинка товара витрины: абсолютная — как есть, относительная (`img/…`) — от адреса витрины. */
 function assetUrl(img: string | undefined, base: string | undefined): string | undefined {
   if (!img || /^https?:|^\//.test(img) || !base) return img;
@@ -350,7 +357,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
       const id = `feed:${pre}${base}:${p.sid ?? p.name}`;
       if (!feedOptions.has(id)) {
         feedOptions.set(id, { id, category: "furniture", titleRu: p.name ?? base, titleEn: nameEnOf(p, base, p.name ?? base),
-          descRu: `${Math.round(p.w!)}×${Math.round(p.d!)}×${Math.round(p.h!)} см${(p.pack ?? 1) > 1 ? ` · ${p.pack} шт. в упаковке` : ""}`,
+          descRu: `${Math.round(p.w!)}×${Math.round(captionDepth(p)!)}×${Math.round(p.h!)} см${(p.pack ?? 1) > 1 ? ` · ${p.pack} шт. в упаковке` : ""}`,
           tier: "standard", price: rub(p.price), ...packOf(p.pack), packKey: id,
           listPrice: rub(p.price), availability: "available", roomKinds: kinds,
           asset: { kind: "mesh", meshId: p.msid, yawDeg: p.yaw ?? 0, wCm: p.w, dCm: p.d, hCm: p.h, ...tintOf(p.tint) },
@@ -499,7 +506,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
       category: "furniture" as const,
       titleRu: it.sku?.name ?? it.role ?? "Предмет",
       titleEn: nameEnOf(it.sku, it.role, it.sku?.name ?? it.role ?? "Item"),
-      descRu: `${Math.round(it.w as number)}×${Math.round(it.d as number)}×${Math.round(it.h as number)} см`,
+      descRu: `${Math.round(it.w as number)}×${Math.round(captionDepth(it) as number)}×${Math.round(it.h as number)} см`,
       // Мебель витрины в цену квартиры не входит: это покупка за счёт сертификата/доплаты, поэтому
       // ступень «стандарт» и настоящая цена товара — иначе «выбрано на» в 3D было бы всегда 0.
       tier: "standard" as const,

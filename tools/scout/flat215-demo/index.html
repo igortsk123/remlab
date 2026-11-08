@@ -1571,7 +1571,8 @@ function variantItems(v){ return variantLive(v)?items:((typeof editedItemsOf==='
 function variantDecor(v){ return variantLive(v)?decorList():(((v&&v.decor)||[]).filter(x=>(x.sku||{}).name)); }
 function dimsText(o){ // размеры показываем только известные; иначе — честно (Р1)
   if(!o||!o.w||!o.d)return 'размеры не указаны магазином';
-  return `${Math.round(o.w)}×${Math.round(o.d)}${o.h?'×'+Math.round(o.h):''} см`;}
+  // глубина в подписи — каталожная (`d_catalog`, есть только когда сцена взяла глубину по мешу: стулья К2, T-20261107-25/9)
+  return `${Math.round(o.w)}×${Math.round(o.d_catalog??o.d)}${o.h?'×'+Math.round(o.h):''} см`;}
 // ОДНО ЧИСЛО ТОВАРОВ И ОДНА СУММА — ДЛЯ КАРТОЧКИ, ОКНА КАДРА, КОНСТРУКТОРА И СПИСКА (карта сценариев 2.3, 14.10).
 // Было три счёта: карточка брала сумму КОМПЛЕКТА по ролям (с пуфом и вторым диваном, которых нет ни в комнате, ни на
 // фото) и считала слоты (два стула = 2), окно — строки товаров без умножения на количество, список справа — третьим
@@ -2053,7 +2054,7 @@ function wrap2(s,max){
 function applyKit(kit){            // комплект накладывается на ЛЮБУЮ расстановку; предметы,
   let n=0;                          // которых в комплекте нет, остаются как были (можно смешивать)
   items.forEach(it=>{const p=kit.roles[it.role]||kit.roles[it.role.split(' ')[0]];
-    if(!p)return;it.w=p.w;it.d=p.d;it.h=p.h;
+    if(!p)return;it.w=p.w;it.d=p.d;it.h=p.h;delete it.d_catalog;   // комплект — размеры банка (каталог), T-25/9
     it.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,basis:p.basis};n++;});
   document.getElementById('sel').innerHTML=`Применён <b>${kit.title}</b>: товаров ${n}`+
     (kit.sum?` · сумма ${money(kit.sum)}`:'')+
@@ -4269,7 +4270,7 @@ function drawLabels(){
   const order=B.slice().sort((p,q)=>(rug(p.it)-rug(q.it))||((p.r-p.l)*(p.b-p.t)-(q.r-q.l)*(q.b-q.t)));
   let hidden=0;
   order.forEach(o=>{
-    const it=o.it, cx=(o.l+o.r)/2, cy=(o.t+o.b)/2+0.3*sz, full=`${it.role} ${Math.round(it.w)}×${Math.round(it.d)}`;
+    const it=o.it, cx=(o.l+o.r)/2, cy=(o.t+o.b)/2+0.3*sz, full=`${it.role} ${Math.round(it.w)}×${Math.round(it.d_catalog??it.d)}`;
     let best=null;
     [full,it.role].forEach((s,short)=>{
       const w=labBox(0,0,s,sz).r*2;
@@ -5653,7 +5654,7 @@ const IC={on:false, pushed:false, eat:false, swap:null, from:null, p:null, fam:n
 function icBig(src){ return D&&D._img_large&&/(^|\/)img\/[0-9a-f]{16}\.jpg$/.test(src||'')?src.replace(/\.jpg$/,'-l.jpg'):''; }
 // товар строки → поля карточки; у ковра высоты нет (плита), как в ленте замен
 function icItem(p, role){ const r=baseRole(role), rug=r==='ковёр';
-  return {name:itemName(p,r), img:p.img, url:itemUrl(p), shop:itemShop(p), price:p.price, qty:p.qty||1, role:r, w:p.w, d:p.d, h:rug?null:p.h,
+  return {name:itemName(p,r), img:p.img, url:itemUrl(p), shop:itemShop(p), price:p.price, qty:p.qty||1, role:r, w:p.w, d:p.d, ...(p.d_catalog!=null&&!rug?{d_catalog:p.d_catalog}:{}), h:rug?null:p.h,
     ...(p.in_stock===false?{in_stock:false}:{})}; }
 // ЦВЕТА МОДЕЛИ — товары ленты своей роли из той же семьи цветов, только с фото; первым — сам товар. Семья — `fam` сборки
 // (`annotate_swatch`: у цвета со своей 3D-моделью `msid` свой, а семья общая, T-20261106-77/5), иначе — модель `msid`.
@@ -6010,7 +6011,7 @@ stage.addEventListener('pointerdown',e=>{if(vwEditLock()){e.preventDefault(); re
         drag={dx:touchStart.pt.x-hit.x,dy:touchStart.pt.y-hit.y,t:Date.now(),moved:false};
         if(navigator.vibrate)navigator.vibrate(30);},450);
     }else{hideRotOvl();drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};}
-    document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d)} см`+(hit.sku&&hit.sku.name?` · ${itemName(hit.sku,hit.role)}`:'');
+    document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d_catalog??hit.d)} см`+(hit.sku&&hit.sku.name?` · ${itemName(hit.sku,hit.role)}`:'');
     warmUp();draw();showTip(hit);}});
 stage.addEventListener('pointermove',e=>{
   if(touchTimer&&touchStart&&Math.hypot(e.clientX-touchStart.x,e.clientY-touchStart.y)>10){
@@ -6336,6 +6337,8 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
   // ковёр ложится вдоль длинной стороны своего места (demo-18 п.2, как `resolve.fitPlacement` в /flat): в ленте длинная — `w`
   if(s.role.startsWith('ковёр')){const a=Math.max(p.w,p.d), b=Math.min(p.w,p.d); [s.w,s.d]=s.w>=s.d?[a,b]:[b,a];}
   else{s.w=p.w;s.d=p.d;s.h=p.h||s.h;}
+  // каталожная глубина для подписи — от НОВОГО товара (у стульев К2 сцена по мешу, T-20261107-25/9); у прежнего не оставлять
+  if(p.d_catalog!=null&&!s.role.startsWith('ковёр'))s.d_catalog=p.d_catalog; else delete s.d_catalog;
   // msid — артикул МОДЕЛИ (представителя семейства): у цветового варианта своего меша нет, и
   // без этого поля сцена после замены рисовала серую коробку (08.09, ADR-0196).
   s.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
@@ -6344,9 +6347,10 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
          ...(p.yaw!=null?{yaw:p.yaw}:{}),
          // подкраска цветового варианта на модели семейства (приёмка 16.10 п.11б, `flat215_demo.annotate_tint`)
          ...(p.tint?{tint:p.tint}:{})};
-  kin.forEach(it=>{it.w=s.w; it.d=s.d; it.h=s.h; it.sku=Object.assign({},s.sku);});
+  kin.forEach(it=>{it.w=s.w; it.d=s.d; it.h=s.h; it.sku=Object.assign({},s.sku);
+    if(s.d_catalog!=null)it.d_catalog=s.d_catalog; else delete it.d_catalog;});
   sel=s;
-  document.getElementById('sel').innerHTML=`Примерено: <b>${itemName(p,s.role)}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${money(p.price)}`+
+  document.getElementById('sel').innerHTML=`Примерено: <b>${itemName(p,s.role)}</b> · ${Math.round(p.w)}×${Math.round(p.d_catalog??p.d)} см · ${money(p.price)}`+
     (itemUrl(p)?` · <a href="${itemUrl(p)}" target="_blank" rel="noopener">открыть в магазине</a>`:'');
   draw();}
 
