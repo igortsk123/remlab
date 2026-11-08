@@ -231,7 +231,7 @@ async function main() {
     const before = new Set(reg0.map((r) => r.id));
     const todo = orderTodo(all.filter((t) => t.want), reg0, ONLY_STYLES);
     // кадр опубликованного состояния — предикатом точки самой страницы (как `demo-warm.mjs`); нет его на странице — только по состоянию
-    const camSrc = await page.evaluate("typeof shotCamOk === 'function' && typeof camAng === 'function' ? 'const camAng=' + camAng.toString() + ';const CAM_ID_TOL=' + JSON.stringify(CAM_ID_TOL) + ';' + shotCamOk.toString() : ''");
+    const camSrc = await page.evaluate("typeof shotCamOk === 'function' && typeof camAng === 'function' ? 'const camAng=' + camAng.toString() + ';const CAM_ID_TOL=' + JSON.stringify(CAM_ID_TOL) + (typeof POSE_VER === 'number' ? ';const POSE_VER=' + POSE_VER : '') + ';' + shotCamOk.toString() : ''");
     const camOk = camSrc ? camOkFrom(camSrc) : () => true;
     const noFrame = withoutShot(all.map((t) => ({ ...t, stateId: t.pub, cams: t.vcams })), reg0, camOk);
     const empty = (shot = []) => emptyLines(all, noFrame, all.filter((t) => t.want && !shot.some((x) => x.id === t.id && x.room === t.room)));

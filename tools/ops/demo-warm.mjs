@@ -292,7 +292,7 @@ async function main() {
     const poseVer = await page.evaluate("typeof POSE_VER === 'number' ? POSE_VER : 0");
     // предикат точки — код самой страницы прода (`pubShot` → `shotCamOk`), а не копия. Страница без него (выкладка до demo-22)
     // сама точку не сверяет — сверяем, как она, только по состоянию, и говорим об этом в журнале
-    const camSrc = await page.evaluate("typeof shotCamOk === 'function' && typeof camAng === 'function' ? 'const camAng=' + camAng.toString() + ';const CAM_ID_TOL=' + JSON.stringify(CAM_ID_TOL) + ';' + shotCamOk.toString() : ''");
+    const camSrc = await page.evaluate("typeof shotCamOk === 'function' && typeof camAng === 'function' ? 'const camAng=' + camAng.toString() + ';const CAM_ID_TOL=' + JSON.stringify(CAM_ID_TOL) + (typeof POSE_VER === 'number' ? ';const POSE_VER=' + POSE_VER : '') + ';' + shotCamOk.toString() : ''");
     if (camSrc) camOk = camOkFrom(camSrc);
     else {
       camOk = () => true;
@@ -460,6 +460,13 @@ if (DIRECT && process.argv.includes("--selftest")) {
   check(got === "p", "прогрев: то же состояние, другая точка — нужен свежий кадр", got);
   got = needWarm(pv, ps(C(10, 10, 45)), 100, 0, camOk).map((x) => x.id).join(",");
   check(got === "", "прогрев: та же точка — не трогаем", got);
+  // ПОЗА СЪЁМКИ (T-20261108-73/7): та же точка, другая версия позы (глаз, наклон) — кадр другой, «без фото своих ракурсов»
+  const P = (cams, pose) => cams.map((c) => ({ ...c, pose }));
+  const pv3 = [{ ...pv[0], cams: P(C(10, 10, 45), 3) }];
+  got = withoutShot(pv3, regAt(P(C(10, 10, 45), 2)), camOk).map((x) => x.id).join(",");
+  check(got === "p", "итог: та же точка, кадр позы 2 при позе варианта 3 — «без фото»", got);
+  got = withoutShot(pv3, regAt(P(C(10, 10, 45), 3)), camOk).map((x) => x.id).join(",");
+  check(got === "", "итог: та же точка и та же поза — годен", got);
   // НЕСКОЛЬКО КОМНАТ (onb-12): запись → вариант по комнате и номеру варианта; без комнаты — гостиная, как весь нынешний реестр
   const lv = { id: "set3", room: "living", style: "сканди" }, bv = { id: "bed1", room: "bedroom", style: "сканди" };
   check(regOf({ style: "сканди" }, lv) && regOf({ room_id: "living", variant_id: "set9", style: "сканди" }, lv),
