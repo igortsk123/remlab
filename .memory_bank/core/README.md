@@ -17,8 +17,8 @@
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-11-06 |
 | `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-11-06 |
 | `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-11-06 |
-| `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-11-06 |
-| `demo-scenarios.md` | demo-scenarios | Сценарии демо /demo — карта кнопок «ожидание → факт», живые проверки, дефекты прогона и планы demo-01…03 | `../domain/demo-scenario-map.md` | 2026-11-06 |
+| `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-11-08 |
+| `demo-scenarios.md` | demo-scenarios | Сценарии демо /demo — карта кнопок «ожидание → факт», живые проверки, дефекты прогона и планы demo-01…03 | `../domain/demo-scenario-map.md` | 2026-11-08 |
 | `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-10-17 |
 | `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-11-06 |
 | `goals.md` | goals | Цели v0.4 — сценарий, монетизация, порядок ступеней | `../plans/MASTER-cost-first.md` | 2026-10-19 |
@@ -46,7 +46,7 @@
 | `bedroom.md` | bedroom | Спальня — каталог кроватей, тумб, шкафов, комодов (с показа в демо снят); что дальше | `../plans/b2b-10-rooms-beyond-living.md` | 2026-11-06 |
 | `design-figma.md` | design-figma | Дизайн демо в Фигме для дизайнера — книги, страницы, как пересобрать, что правлено руками | `../completed_plans/design-01-figma-export.md` | 2026-11-06 |
 | `lr-checklist.md` | lr-checklist | Состав гостиной — роли и пригодность | `../domain/living-room-checklist.md` | 2026-10-18 |
-| `onboarding-quiz.md` | onboarding-quiz | Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат | `../domain/onboarding-quiz.md` | 2026-11-07 |
+| `onboarding-quiz.md` | onboarding-quiz | Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат | `../domain/onboarding-quiz.md` | 2026-11-08 |
 <!-- GENERATED:core-registry END -->
 
 > Реестр и decision tree в INDEX регенерирует `tools/memory-audit.mjs` (или `/memory-check`

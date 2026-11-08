@@ -3,7 +3,7 @@ tier: 2
 topic: onboarding-quiz-details
 scope: Опрос-знакомство на /demo — матрица входов, аудит цветов 5 стилей, события и сигнал менеджеру, правило подбора 3 стилей, 5↔6 стилей, живые проверки
 tier1: ../core/onboarding-quiz.md
-updated: 2026-11-07
+updated: 2026-11-08
 importance: med
 source: manual
 ---
@@ -378,14 +378,14 @@ evaluate и кликают или снимают уже в нём. При вкл
 
 | Скрипт : строка goto | Добавка к URL сейчас | Сломается? | Правка |
 |---|---|---|---|
-| `basket-check.cjs:26` | `?[lang=en&]live=force` | да (флаг) | `&quiz=0` |
+| `basket-check.cjs:40` (с 08.11, T-69; было `:26`) | `?[lang=en&]live=force&quiz=0` | нет — `&quiz=0` уже в адресе | сделано |
 | `budget-bar-check.cjs:51` | `?lang=…&live=0` | да (флаг) | `&quiz=0` |
 | `colour-check.cjs:23`, `item-card-check.cjs:27`, `row-acts-check.cjs:27` | `?lang=…&live=0` | флаг (окно поверх / снимки) | `&quiz=0` |
 | `edit-lock-check.cjs:33` | `?lang=ru&live=force` | да (флаг) | `&quiz=0` |
 | `fav-check.cjs:18` | `?[lang=en&]live=force&v=…` | да (флаг) | `&quiz=0` |
 | `figma-defects-check.cjs:28` | `?lang=…&live=0&v=…` | да (флаг) | `&quiz=0` |
 | `home-check.cjs:20` (хелпер `page`; вызовы `:37` `''`, `:99` `?lang=ru&style=…`, `:106` `?live=force#fav`, `:151` `?lang=en`) | разные | да (флаг); `:106` — нет (глубокая ссылка `#fav`); `:99` — по решению Т1 для `?style=` | `quiz=0` в хелпере `page` (склейка `?`/`&` до `#`) |
-| `modes-check.cjs:32` (вызовы `:44`, `:121`, `:131`) | `?live=…&lang=…` | флаг | `&quiz=0` в хелпере `page` |
+| `modes-check.cjs:33` (вызовы `:50`, `:133`, `:143`; с 08.11, было `:32`/`:44`/`:121`/`:131`) | `?live=…&lang=…` | нет — `demoUrl` добавляет `quiz=0` | сделано (`tools/ops/demo-url.cjs`) |
 | `part-b-check.cjs:17` (хелпер `open`; BASE по умолчанию `localhost:3106`) | `?lang=ru[&live=force]` | да (флаг) | `&quiz=0` в `open` |
 | `photo-pan-check.cjs:43`, `window-hint-check.cjs:24` (хелпер `page`), `tip-check.cjs:21`, `preload-check.cjs:43`, `soft-check.cjs:18`, `ui-walk.cjs:44` | `?lang=…&live=…` | да / флаг | `&quiz=0` |
 | `sheet-gestures.cjs:24,166`, `zoom-check.cjs:11`, `plan-labels.cjs:13`, `pins-fps.cjs:12`, `frames-real.cjs:10`, `capture-variants.cjs:14`, `probe15–18.cjs:7-8`, `probe19.cjs:11,54` | адрес прода зашит в код, `?live=…` | флаг | `&quiz=0` |
@@ -447,6 +447,20 @@ evaluate и кликают или снимают уже в нём. При вкл
 
 Итого новых строк: 18 (5.1–5.18). Карта и тесты расходиться не должны:
 `demo_map_uncovered` = 0 (`onb-03` критерий `:89`).
+
+**Было → стало с 07.11 (код `main` 762558e7; строки выше — проект главы до кода, их ожидания местами устарели):**
+- **Итог опроса (5.12, T-49/2):** вместо «3 карточки стилей · Выбрать «X»» — экран сборки квартиры: стопка фото комнат,
+  «Подбираем варианты…» → «Квартира готова» → кнопка «Посмотреть» (`index.html` — разметка итога `qz-fin`/`qz-see`, ход `finRun`:
+  кнопка доступна после «готово»); «Посмотреть» = выбор основного стиля, первого из подбора (`data-qz="choose"` → `finish(Q.pick[0])`).
+- **«Выбрать другой» на главной (5.13, T-63):** кнопка `#hmMixPick` скрыта (`hidden` в разметке); окно смешивания `#mixBox`
+  (`index.html:mixOpen`) осталось для «Другой стиль для комнаты» / «Сменить стиль» в окне комнаты (`mixOpen(комната)`, `#vOther`/`#vOtherTop`).
+- **«Кто живёт» (T-64):** панель «Сколько детей · Возраст детей» — сразу под плашкой «С детьми» в том же ряду (`.qz-kid`, раскрытие
+  в момент выбора — `Q._kidIn`); взаимно исключают друг друга только «один» и «вдвоём» (`tools/scout/rules/quiz.json` household
+  `exclusive: [["single","couple"]]`, обработчик `data-hh` в `index.html`); снятие «С детьми» сбрасывает детей и возраст.
+- **Ширина (5.16, T-64):** на компьютере колонка опроса до 680 px по центру (`index.html` `.qz-col{max-width:680px}`), а не «окно ≤560 px».
+- **Цвета:** вопрос выключен (`quiz.json` вопрос `colours` — `enabled:false`, `index.html:colOn`; T-49/1), шагов — по включённым.
+- **Корзина (5.15):** «Убрать из выбора»/«Вернуть»/«Убрать всё» есть только в модуле (`lib/basket/basket.ts:excludeLine`/`restoreLine`/`exclude`,
+  `tests/unit/basket.test.ts`); на странице кнопок нет, шкала главной — сумма комнат (`index.html:homeChosen`, карта 2.35).
 
 ## Матрица приёмки всех комнат (ADR-0330 п.6)
 
