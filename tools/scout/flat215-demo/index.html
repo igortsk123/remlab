@@ -6696,12 +6696,21 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 #vzoom .vzh{position:absolute;left:50%;bottom:calc(68px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:rgba(255,255,255,.92);color:#222;
  padding:8px 12px;border-radius:var(--radius-sm);font-size:14px;width:max-content;max-width:calc(100% - 32px);text-align:center;line-height:1.35}
 #shot.v2 .shotwrap .livecv{border-radius:0}
-.vmodes{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:2px;padding:4px;border-radius:999px;
+/* половинки «Фото | 3D» — одной ширины, по более широкой (владелец TG 614, T-20261108-75): сетка из равных колонок; скрытая вкладка
+   «Фото» (нет снимка) колонки не занимает */
+.vmodes{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:2px;padding:4px;border-radius:999px;
  background:var(--veil);z-index:var(--zl-float);box-shadow:var(--e3)}
+.vmodes button{text-align:center}
 .vmodes button{border:0;background:transparent;color:#fff;font-size:15px;padding:7px 14px;border-radius:999px;cursor:pointer}
 .vmodes button.on{background:var(--surface);color:var(--ink);font-weight:600}
 /* «Сменить стиль» поверх фото — только телефон (владелец TG 475–477); на компьютере — строка вверху правой панели (`.vrow`) */
 .vstyle{display:none}
+/* «Скрыть цены / Показать цены» — только в 3D (владелец TG 606, T-20261108-75): тёмная плашка как «Фото | 3D»; телефон — на месте
+   «Сменить стиль» (ниже, в правилах телефона), компьютер — правый верх сцены, по высоте как «Фото | 3D» */
+.vprice{display:none;align-items:center;position:absolute;top:12px;right:12px;height:39px;padding:0 16px;border:0;border-radius:999px;background:var(--veil);
+ color:#fff;font:inherit;font-size:15px;font-weight:600;white-space:nowrap;cursor:pointer;z-index:var(--zl-float);box-shadow:var(--e3)}
+#shot.vwalk .vprice{display:inline-flex}
+#shot.nolive .vprice,#shot.vsheetfull .vprice{display:none}
 .vhist[hidden]{display:none!important}.vhist span:empty{display:none}
 .vhist{position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:6px;background:var(--veil);color:#fff;
  border-radius:999px;padding:5px;font-size:14px;z-index:var(--zl-float);box-shadow:var(--e3)}
@@ -6899,6 +6908,9 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
    background:var(--veil);color:#fff;font:inherit;font-size:14px;font-weight:600;white-space:nowrap;cursor:pointer;z-index:var(--zl-float);box-shadow:var(--e3)}
   /* в «3D» плашки нет — только в «Фото» (владелец TG 523, 07.11, T-65) */
   .vstyle[hidden],#shot.vsheetfull .vstyle,#shot.vwalk .vstyle{display:none}
+  .vprice{top:11px;right:60px;height:36px;padding:0 14px;font-size:14px}   /* в 3D — на месте «Сменить стиль» (T-75) */
+  /* узкий телефон (320): равные половинки «Фото | 3D» шире — поля поуже, чтобы верхний ряд не наезжал (T-75, TG 614) */
+  @media (max-width:360px){.vmodes button{padding:6px 7px}.vstyle,.vprice{padding:0 10px;font-size:13px}}
   #shot.v2 .vrow{display:none}
   .vhist{top:58px;bottom:auto;left:10px}
   /* сцена — только над шторкой: под полуоткрытой шторкой мебель иначе пряталась, а видно было потолок */
@@ -7013,6 +7025,7 @@ function vwHtml(s, navs, list){
     // «Фото | 3D» без «План» (макет 373:7035, home-figma-02): план квартиры — на главной; режим `plan` в коде остаётся
     `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button></div>`+
     `<button class="vstyle" id="vOtherTop" type="button" aria-haspopup="dialog"${vwCanStyle()?'':' hidden'}>${EN?'Change style':'Сменить стиль'}</button>`+
+    `<button class="vprice" id="vPriceTop" type="button" data-off="${PRICES_OFF?1:0}">${vwPriceLabel()}</button>`+
     // РАКУРСЫ СЛОВАМИ (владелец 18.10, demo-15 п.3: «стрелочки непонятно что значат»): один переключатель для «Фото» и 3D,
     // подписи — по месту камеры (`vwCamNames`); ← → на компьютере остаются (`vwPhoto`), свайп по фото ракурс не листает (demo-22)
     `<div class="vcams" id="vCams" role="tablist">${vwCamLabels().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
@@ -7473,6 +7486,14 @@ function vwHighlight(idx, opt){
 // из кэша движка (`viewer.projectSlot`), замеры окна и кнопок — 12 раз в секунду, не на каждом кадре. В «Фото» (снимок нейросети)
 // меток нет — там только картинка. Правила прежние: только целиком в кадре, не под кнопками и шторкой, из пересекающихся — дороже
 const PINS={map:new Map(), box:null, t:0, fr:null, busy:[], raf:0};
+// ЦЕНЫ СКРЫТЫ (владелец TG 606, T-20261108-75): кнопка вверху 3D «Скрыть цены» ⇄ «Показать цены» убирает все ценники, и выбранный тоже;
+// выбор предмета, замена, шторка и суммы — как прежде. Выбор — на визит (вкладка: sessionStorage), новый визит — цены показаны
+var PRICES_OFF=false; try{PRICES_OFF=sessionStorage.getItem('remlab-prices-off')==='1';}catch(e){}
+function vwPriceLabel(){const EN=LANG==='en'; return PRICES_OFF?(EN?'Show prices':'Показать цены'):(EN?'Hide prices':'Скрыть цены');}
+function vwPricesToggle(){PRICES_OFF=!PRICES_OFF; try{sessionStorage.setItem('remlab-prices-off',PRICES_OFF?'1':'0');}catch(e){}
+  const b=document.getElementById('vPriceTop'); if(b){b.textContent=vwPriceLabel(); b.dataset.off=PRICES_OFF?'1':'0';}
+  const bx=document.getElementById('vpins'); if(PRICES_OFF&&bx){bx.innerHTML=''; PINS.map.clear();}   // сразу, не со следующего кадра сцены
+  vwPins();}
 function vwPins(){ if(!PINS.raf)PINS.raf=requestAnimationFrame(vwPinsTick); }
 // ЦЕННИК НЕ ЗАКРЫВАЕТ СВОЙ ПРЕДМЕТ (demo-27 В, владелец 23.10: у дальнего обеденного стола цена целиком скрывала столешницу): место — над
 // РАМКОЙ предмета (проекция его габаритной коробки, движок `projectSlot`) с зазором; занято (другой ценник, кнопки, шторка, край) — выше
@@ -7490,10 +7511,10 @@ function vwPinsTick(now){
   const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
   if(box!==PINS.box){PINS.box=box; PINS.map.clear(); PINS.fr=null;
     box.onclick=e=>{const b=e.target.closest&&e.target.closest('[data-pi]'); if(b)vwHighlight(+b.dataset.pi);};}
-  const on=shot.classList.contains('on')&&VW.mode==='walk'&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
+  const on=shot.classList.contains('on')&&VW.mode==='walk'&&!PRICES_OFF&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
   if(!on){if(box.childElementCount)box.innerHTML=''; PINS.map.clear(); return;}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
-    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready')]
+    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready')]
       .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);}
   const fr=PINS.fr, pad=4, seen=new Set(), cand=[];
   const hit=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
@@ -7527,6 +7548,7 @@ function vwMount(s){
   else{VW.sheetVis=0; vwLayout(); vwSheet(0);}
   vwHist();
   shot.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>{VW.wantPhoto=0; vwMode(b.dataset.vm);});
+  {const pt=document.getElementById('vPriceTop'); if(pt)pt.onclick=vwPricesToggle;}
   vwModeUi();
   shot.querySelectorAll('[data-cam]').forEach(b=>b.onclick=()=>vwCamGo(+b.dataset.cam));
   vwCamsUi();
