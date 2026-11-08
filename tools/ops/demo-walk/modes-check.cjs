@@ -76,6 +76,15 @@ ok('1 «Сделать реалистичнее» видна в 3D',!!s.cta&&/р
 const dz=await p.evaluate(()=>{const d=document.getElementById('vCams').getBoundingClientRect(), t=document.getElementById('vside').getBoundingClientRect(); return {dots:Math.round(d.bottom), sheet:Math.round(t.top)};});
 if(W<=700)ok('1 точки ракурсов над верхом шторки',dz.dots<=dz.sheet,JSON.stringify(dz));
 await p.screenshot({path:OUT+`m09-${W}-walk.png`});
+// 1в. «СКРЫТЬ ЦЕНЫ» (T-20261108-75, владелец TG 606): в 3D вверху «Скрыть цены» (на месте «Сменить стиль») → ценников 0 → «Показать цены» →
+// ценники вернулись; в «Фото» — «Сменить стиль» (шаг 2)
+const pb=()=>p.evaluate(()=>{const v=id=>{const e=document.getElementById(id); return e&&e.offsetParent?e.innerText.trim():null;};
+  return {price:v('vPriceTop'), style:v('vOtherTop'), pins:[...document.querySelectorAll('#vpins .vpin')].filter(n=>!n.hidden).length};});
+let pz=await pb(); ok('1в в 3D вверху «Скрыть цены», «Сменить стиль» нет',pz.price==='Скрыть цены'&&!pz.style&&pz.pins>=3,JSON.stringify(pz));
+await p.click('#vPriceTop'); await p.waitForTimeout(600); pz=await pb();
+ok('1в «Скрыть цены» → ценников 0, кнопка «Показать цены»',pz.pins===0&&pz.price==='Показать цены',JSON.stringify(pz));
+await p.click('#vPriceTop'); await p.waitForFunction(()=>[...document.querySelectorAll('#vpins .vpin')].some(n=>!n.hidden),null,{timeout:20000}).catch(()=>{}); pz=await pb();
+ok('1в «Показать цены» → ценники вернулись',pz.pins>=3&&pz.price==='Скрыть цены',JSON.stringify(pz));
 const p0=await p.evaluate(()=>LIVE.scene.pose()); await p.evaluate(()=>vwPhoto(VW.photo+1)); await p.waitForTimeout(1500);
 const p1=await p.evaluate(()=>LIVE.scene.pose()); await p.evaluate(()=>vwPhoto(VW.photo-1)); await p.waitForTimeout(1500); const p2=await p.evaluate(()=>LIVE.scene.pose());
 ok('1 стрелка → поза 2, обратно → поза 1',(p1.x!==p0.x||p1.y!==p0.y)&&Math.abs(p2.x-p0.x)<=2&&Math.abs(p2.y-p0.y)<=2,JSON.stringify([p0,p1,p2]));
@@ -272,6 +281,15 @@ await p.screenshot({path:OUT+`m09-${W}-stub.png`}); console.log('errs',p.errs.sl
 p=await page(b,'?live=0&lang=en','en'); await p.evaluate(()=>{shots=shots.filter(x=>x.quality!=='realistic'); openLiveWindow();}); await p.waitForTimeout(2500);
 const en=await p.evaluate(()=>[document.getElementById('vStub').innerText, document.getElementById('vCta').innerText].join(' | '));
 ok('6 EN без кириллицы',!/[А-Яа-яЁё]/.test(en),en); await p.context().close();
+// 7. «ФОТО» ВИТРИННОГО ВАРИАНТА (T-20261108-75): вверху «Сменить стиль» (телефон) / строка «Другой стиль для комнаты» в панели (компьютер),
+// «Скрыть цены» нет; в 3D — наоборот. Отдельная страница: после «Сделать реалистичнее» (шаги 2–4) расстановка своя, смены стиля у неё нет
+p=await page(b,'?live=force&lang=ru','ru'); await p.evaluate(()=>openLiveWindow()); await p.waitForTimeout(2500);
+const top7=()=>p.evaluate(()=>{const v=id=>{const e=document.getElementById(id); return e&&e.offsetParent?e.innerText.trim():null;}; return {mode:VW.mode, price:v('vPriceTop'), style:v('vOtherTop'), row:v('vOther')};});
+let t7=await top7();
+ok('7 «Фото» — «Сменить стиль», «Скрыть цены» нет',t7.mode==='photo'&&!t7.price&&(W<=700?t7.style==='Сменить стиль':/Другой стиль/.test(t7.row||'')),JSON.stringify(t7));
+await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(1500); t7=await top7();
+ok('7 3D — «Скрыть цены» вместо «Сменить стиль»',t7.mode==='walk'&&t7.price==='Скрыть цены'&&!t7.style,JSON.stringify(t7));
+console.log('errs',p.errs.slice(0,3)); await p.context().close();
 }catch(e){R.push('FAIL проверка прервалась — '+String(e.message||e).split('\n').slice(0,6).join(' | '));}
 finally{console.log(R.join('\n')); console.log(`итог: ${R.filter(x=>x.startsWith('OK')).length}/${R.length}`);
   process.exitCode=R.some(x=>x.startsWith('FAIL'))?1:0; await b.close().catch(()=>{});}
