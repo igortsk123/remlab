@@ -11,6 +11,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('tests_scene_dims')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 os.environ.setdefault('FLAT215_DEMO_OUT', os.path.join(os.environ.get('TMPDIR') or '/tmp', 'tests_scene_dims'))
 import flat215_demo as FD  # noqa: E402
 import room_bindings as RB  # noqa: E402
