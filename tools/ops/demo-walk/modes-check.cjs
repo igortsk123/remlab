@@ -110,6 +110,12 @@ await p.screenshot({path:OUT+`m09-${W}-photo.png`});
 // 4. изменение → 3D и шторка вниз (телефон)
 // до правки — суммы окна, чип, список шторки, главная, состав и кадр 3D с точки 1: «Вернуть как было» (4в) должно вернуть всё
 const s0=await sums(p), f0=await frame3d(p);
+// 4-0. ЛЕГЕНДА ПОД ШКАЛОЙ «ВЫБРАНО» (T-20261108-74, владелец 08.11 TG 598, 612): строки «Другие комнаты» нет нигде (телефон и компьютер) —
+// «по общей сумме и так понятно»; «Эта комната N ₽» есть
+const lg=await p.evaluate(()=>({li:[...document.querySelectorAll('#vsum .cs-room .li')].map(e=>({t:e.textContent.replace(/\s+/g,' ').trim(),
+  vis:getComputedStyle(e).display!=='none'&&e.getBoundingClientRect().height>0})), oth:/Другие комнаты|Other rooms/.test((document.getElementById('vsum')||{}).textContent||'')}));
+ok('4-0 под шкалой «Выбрано» — только «Эта комната N ₽», строки «Другие комнаты» нет',
+  lg.li.length===1&&lg.li[0].vis&&/^(Эта комната|This room) .*\d/.test(lg.li[0].t)&&!lg.oth,JSON.stringify(lg));
 await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(800);
 await p.evaluate(()=>{const g=devGroups().find(x=>x.kind==='flooring'); if(g)devSet(g.id,g.variants[1].id);}); await p.waitForTimeout(1500); s=await st(p);
 // после правки вкладка «Фото» остаётся: на ней прежнее фото затемнённым, «Вы изменили комнату» и две кнопки (T-20261107-66 Б)
@@ -135,7 +141,7 @@ ok('4б плашка окна компактная (≤ 100 px'+(W>340?', кно
   JSON.stringify(stg));
 await p.screenshot({path:OUT+`m77-${W}-stale.png`});
 // 4в. «ВЕРНУТЬ КАК БЫЛО» ВОЗВРАЩАЕТ ВСЁ (T-20261108-71 А, владелец TG 563): состав, декор, пол, номер состояния; шкала окна («Выбрано»,
-// «Эта комната», «Другие комнаты», доплата), чип и список шторки; главная («Выбрано» и карточка); в 3D — та же картинка с точки 1
+// «Эта комната», доплата), чип и список шторки; главная («Выбрано» и карточка); в 3D — та же картинка с точки 1
 const s1e=await sums(p);
 await p.click('#shot .vstale [data-st="back"]'); await p.waitForTimeout(1800);
 const s1=await sums(p), dif=k=>JSON.stringify(s0[k])===JSON.stringify(s1[k])?'':k;
@@ -202,11 +208,26 @@ const jw=await p.evaluate(()=>({on:document.getElementById('shot').classList.con
   wait:(()=>{const o=document.querySelector('#shot .vphwait'); return o?o.querySelector('b').textContent:'';})()}));
 ok('4д «Сделать реалистичнее» с карточки → окно комнаты на «Фото» с ходом работы, задание — этой правки',
   jw.on&&s.mode==='photo'&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(jw.wait)&&!!jw.job&&jw.job.vid===jw.vid&&jw.job.sid===s1e.sid,JSON.stringify({...jw,mode:s.mode}));
+// 4д. ВО ВРЕМЯ УЛУЧШЕНИЯ НА «ФОТО» — ПРЕЖНЕЕ ФОТО (T-20261108-74, владелец 08.11 TG 604): у правки есть прежнее фото → оно затемнено,
+// поверх «Улучшаю… N %», плашки «Вы изменили комнату» нет; карточка не под верхними кнопками, на телефоне — по центру кадра между ними и шторкой
+const ow=await p.evaluate(()=>{const R=e=>{if(typeof e==='string')e=document.querySelector(e); if(!e)return null; const cs=getComputedStyle(e);
+    if(cs.display==='none'||cs.visibility==='hidden'||e.closest('[hidden]'))return null; const r=e.getBoundingClientRect(); return r.width&&r.height?{l:r.left,t:r.top,r:r.right,b:r.bottom}:null;};
+  const w=document.querySelector('#shot .vphwait'), c=R(w&&w.querySelector('.vphcard')), img=document.querySelector('#shot .shotwrap img.vmain');
+  const top=['#shot .vmodes','#shot .vstyle','#shotx','#shot .vhist'].map(R).filter(Boolean), side=R('#vside'), cams=R('#shot .vcams');
+  const tB=Math.max(...top.map(x=>x.b)), bT=Math.min(...[side&&side.t,cams&&cams.t].filter(x=>x!=null));
+  return {old:!!w&&w.classList.contains('vprev'), bg:!!w&&!!w.dataset.bg, plate:!!R('#shot .vstale'), stale:vwStalePick().list.length, real:vwRealShots().length,
+    img:!!R(img), over:!!c&&top.some(r=>r.l<c.r&&c.l<r.r&&r.t<c.b&&c.t<r.b), mid:c?Math.round((c.t+c.b)/2-(tB+bT)/2):null};});
+ok('4д во время улучшения на «Фото» — прежнее фото затемнено, поверх «Улучшаю…», плашки «Вы изменили комнату» нет, карточка не под кнопками'+(W<=700?' и по центру кадра':''),
+  ow.old&&!ow.bg&&!ow.plate&&ow.stale>0&&!ow.real&&ow.img&&!ow.over&&(W>700||Math.abs(ow.mid)<=16),JSON.stringify(ow));
+await p.screenshot({path:OUT+`m74-${W}-job-old.png`});
 for(let t=0;t<40&&!p.renderBodies.slice(nb).some(x=>x.quality==='realistic');t++)await p.waitForTimeout(500);
 const rc=p.renderBodies.slice(nb).filter(x=>x.quality==='realistic').pop()||{}, keys=o=>Object.keys(o).sort().join(',');
 ok('4д заказ тот же, что по кнопке окна: те же поля, оба вида, тот же лист (платное подменено)',keys(rc)===keys(rb)&&(rc.views||[]).length===2&&rc.sheet===rb.sheet,
   JSON.stringify({card:keys(rc),win:keys(rb),sheet:[rc.sheet,rb.sheet]}));
 await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>!VJ.job,null,{timeout:20000}).catch(()=>{}); await p.waitForTimeout(600);
+const nw=await p.evaluate(()=>({mode:VW.mode, wait:!!document.querySelector('#shot .vphwait'), plate:!!document.querySelector('#shot .vstale'), real:vwRealShots().length,
+  img:(()=>{const i=document.querySelector('#shot .shotwrap img.vmain'); return !!i&&getComputedStyle(i).display!=='none'&&i.getBoundingClientRect().height>0;})()}));
+ok('4д по готовности — на «Фото» новое фото этой правки, без затемнения и хода',nw.mode==='photo'&&!nw.wait&&!nw.plate&&nw.real>0&&nw.img,JSON.stringify(nw));
 await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(600);
 // 3. ПРАВКА ВО ВРЕМЯ «УЛУЧШАЮ…» НЕ ПРИМЕНЯЕТСЯ (demo-20 Г5, владелец 22.10 TG 867): ушёл в 3D, пробует сменить пол — подсказка, расстановка
 // та же; по готовности окно остаётся в 3D, вкладка «Фото» есть и «Фото готово · Смотреть». Прежний сценарий «поменял во время съёмки →

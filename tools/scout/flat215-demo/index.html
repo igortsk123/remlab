@@ -248,9 +248,10 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 /* квадратик легенды бюджета — свой класс `.lsw`: общий `.sw` с кружком цвета (demo-28) раздувал его до кружка 22 px */
 .lsw{flex:none;display:inline-block;width:10px;height:10px;border-radius:3px}
 .lsw.f{background:var(--accent)}.lsw.u{background:var(--up)}.lsw.x{background:var(--hatch);box-shadow:inset 0 0 0 1px var(--bad-ink)}
-/* ЭТА КОМНАТА / ДРУГИЕ КОМНАТЫ (окно, макет 373:7035): отрезок комнаты — тёмно-зелёный, легенда — кружками, столбиком; в раздельном
+/* ЭТА КОМНАТА (окно, макет 373:7035): отрезок комнаты — тёмно-зелёный, легенда — кружком, только «Эта комната N ₽» (строку «Другие
+   комнаты» сняли, T-20261108-74, владелец TG 612: «по общей сумме и так понятно»); в раздельном
    бюджете зелёный занят «Улучшениями» — там комната тёмной терракотой */
-.sg .s.rmseg,.lsw.r{background:var(--up)}.lsw.o{background:var(--accent)}
+.sg .s.rmseg,.lsw.r{background:var(--up)}
 .cs.two .sg .s.rmseg,.cs.two .lsw.r{background:rgb(122 62 38)}
 .cs-lg.cs-room{display:block;margin-top:5px}.cs-lg.cs-room .li{display:flex}.cs-lg.cs-room .lsw{width:8px;height:8px;border-radius:50%}
 .cs-lg.cs-room .nv{color:var(--ink)}
@@ -1761,8 +1762,9 @@ function certScale(o){
       `<i class="s" style="width:${w(Math.min(c,Lm)-r0)}"></i><i class="pv" style="width:${w(pv)}"></i><i class="x" style="width:${w(x)}"></i>`+
       `<i class="xp" style="width:${w(xp)}"></i>${t>Lm?`<b class="lim" style="left:${w(Lm)}"></b>`:''}</div>`;};
   const chosen=inc.furniture+inc.fitout;
-  const rmLg=rm!=null?`<div class="cs-lg cs-room"><span class="li"><span class="lsw r"></span>${EN?'This room':'Эта комната'} <span class="nv">${fmtCard(rm)}</span></span>`+
-    `<span class="li"><span class="lsw o"></span>${EN?'Other rooms':'Другие комнаты'}</span></div>`:'';
+  // легенда — только «Эта комната N ₽»: строки «Другие комнаты» нет нигде — «только место занимает, по общей сумме и так понятно»
+  // (T-20261108-74, владелец 08.11 TG 598, 612); цвет «других» на шкале прежний
+  const rmLg=rm!=null?`<div class="cs-lg cs-room"><span class="li"><span class="lsw r"></span>${EN?'This room':'Эта комната'} <span class="nv">${fmtCard(rm)}</span></span></div>`:'';
   const legend=rmLg+(two?`<div class="cs-lg two">`+parts.map(([k,Lm,c])=>`<span class="li"><span class="lsw ${cls[k]}"></span>`+
       `<span class="lf">${NM[k]}</span><span class="sh">${BUD_SHORT()[k]}</span> <span class="nv"><b>${fmtNum(c)}</b> / ${fmtNum(Lm)}</span></span>`).join('')+`</div>`:'')+ovLine;
   return `<div class="cs${over?' over':''}${two?' two':''}"><div class="cs-t"><span class="cs-l">${EN?'Chosen':'Выбрано'} `+
@@ -6811,7 +6813,9 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 .vphwait.vbg::before{content:'';position:absolute;inset:0;background:rgba(251,248,243,.42)}
 .vphcard{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 22px;min-width:min(300px,82%);
  border-radius:var(--radius);background:rgba(255,255,255,.9);box-shadow:var(--e4)}
-.vphwait:not(.vbg) .vphcard{background:none;box-shadow:none}
+.vphwait:not(.vbg):not(.vprev) .vphcard{background:none;box-shadow:none}
+/* под ходом — прежнее фото этой комнаты (T-20261108-74): тот же тон затемнения, что у «Вы изменили комнату» (`.vstale`), плашка светлая */
+.vphwait.vprev{background:rgba(38,30,24,.5)}
 .vphwait b{font-size:20px;font-weight:600}
 .vphwait i{display:block;width:min(260px,70%);height:6px;border-radius:999px;background:rgba(176,106,74,.18);overflow:hidden}
 .vphwait s{display:block;height:100%;width:0;background:var(--accent);transition:width 1s linear}
@@ -6910,14 +6914,13 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
   .vplanbox{inset:60px 8px var(--vsh,320px) 8px}
   /* подсказка «фото готово» — сверху, под ↶ ↷: снизу её перекрывала подпись выбранного пола (самопроверка 17.10) */
   .vstub{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
-  /* ход фото закрывает весь кадр (под шторкой — тоже: иначе между ним и шторкой виден прежний снимок), надпись — над шторкой */
-  .vphwait{padding-bottom:calc(var(--vsh,320px) + 24px)}
-  /* затемнение — на весь кадр, плашка с кнопками — по центру видимого кадра: между верхними кнопками (и ↶ ↷, когда есть) и подписями
-     ракурсов над шторкой (T-66 Б; T-20261108-77, владелец TG 618/619). Кадр «Фото» и так кончается у шторки (`.shotwrap{bottom:--vsh}`) —
-     высоту шторки второй раз не вычитаем (прежде плашку уносило вверх, под «Фото|3D» и «Сменить стиль») */
-  .vstale{padding:58px 12px 12px}
-  #shot:has(.vhist:not([hidden])) .vstale{padding-top:110px}
-  #shot.vmany .vstale{padding-bottom:60px}
+  /* ХОД «УЛУЧШАЮ…» И «ВЫ ИЗМЕНИЛИ КОМНАТУ» — ПО ЦЕНТРУ ВИДИМОГО КАДРА: между верхними кнопками (и ↶ ↷, когда есть) и подписями
+     ракурсов над шторкой (T-66 Б; T-20261108-74, владелец TG 600/601: на iPhone «Улучшаю…» уходила под «Фото|3D» и «Сменить стиль»;
+     T-20261108-77, TG 618/619). Кадр «Фото» и так кончается у шторки (`.shotwrap{bottom:--vsh}`) — высоту шторки второй раз не вычитаем
+     (прежде карточку уносило на ~130 px выше середины); затемнение — на весь кадр */
+  .vphwait{padding:58px 16px 12px}.vstale{padding:58px 12px 12px}
+  #shot:has(.vhist:not([hidden])) .vphwait,#shot:has(.vhist:not([hidden])) .vstale{padding-top:110px}
+  #shot.vmany .vphwait,#shot.vmany .vstale{padding-bottom:60px}
   /* «Фото» на телефоне — во всю высоту области сцены, без размытых полос; по ширине фото шире экрана, кадр — окно превью вида
      (`vwPhotoFocus`, главная мебель в кадре). Свайп вбок — другой ракурс (demo-26 Б, владелец 23.10; сдвиг пальцем demo-22 п.3 уступил
      ему место): прокрутки нет, `scrollLeft` ставит только код; вертикальный жест отдаём браузеру — свайпом он не считается.
@@ -6962,7 +6965,7 @@ function vwSum(){
   if(!cert)return `<div class="vpl-h"><span>${n} ${word}</span><b data-k="sum" data-to="${sumC}">${money(sumC)}</b></div>${extra}`;
   // ШКАЛА ОКНА = ШКАЛА НИЗА ГЛАВНОЙ (макет 373:7035, home-figma-02; прежде — корзина избранного и «светлая часть — что добавит»):
   // «Выбрано» — все комнаты главной, эта — своей нынешней расстановкой (замена видна сразу); полоса двумя цветами — эта комната и
-  // другие, легенда «Эта комната X / Другие комнаты»; в «i» — доступно/выбрано/осталось, как на главной
+  // другие, легенда «Эта комната X» (строки «Другие комнаты» нет, T-20261108-74); в «i» — доступно/выбрано/осталось, как на главной
   const others=homeOthers(roomIdOf(v)), pdev=t?(t.developerSurcharge||0)+(t.propertyPriceDelta||0):0;
   const lines=[pdev?`${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}`:'', fxNote()];
   return certScale({pkg, inc:{furniture:sumC+others, fitout:0}, room:sumC, lines, bubId:'vplBub'});
@@ -7670,7 +7673,10 @@ function vwStalePick(v0){
   return L.length?out(byCam(L), -1):none;
 }
 // снимки для «Фото»: этой расстановки; их нет и фото не рисуется — последнее фото комнаты (затемнённое)
-function vwPhotoShots(){ const r=vwRealShots(); return r.length||vwJobHere()?r:vwStalePick().list; }
+// ИДЁТ УЛУЧШЕНИЕ — ТОЖЕ ПРЕЖНЕЕ ФОТО (T-20261108-74, владелец 08.11 TG 604: «перехожу на „Фото“ в момент улучшения — показывать старое
+// фото и на нём тот же оверлей „Улучшаю…“»): затемнено, поверх — ход работы (`vwPhWaitUi`), плашки «Вы изменили комнату» нет
+// (`vwStaleUi`); прежнего фото нет — ход на кадре 3D, как было
+function vwPhotoShots(){ const r=vwRealShots(); return r.length?r:vwStalePick().list; }
 // затемнение поверх фото прежней расстановки; во время съёмки — экран ожидания (`vwPhWaitUi`), затемнения нет
 function vwStaleUi(){
   const wrap=document.querySelector('#shot .shotwrap'); if(!wrap)return;
@@ -7811,7 +7817,10 @@ function vwPhWaitUi(){
   if(VW.mode!=='photo'||!vwJobHere()){if(el)el.remove(); return;}
   if(!el){el=document.createElement('div'); el.className='vphwait'; el.setAttribute('role','status'); el.innerHTML='<div class="vphcard"><b></b><i><s></s></i><small></small></div>'; wrap.appendChild(el);}
   if(!VJ.job.bg)vwPhDraft(VJ.job);   // окно открыли посреди задания (автофото избранного) — хотя бы черновик
-  const bg=VJ.job.bg||''; if(el.dataset.bg!==bg){el.dataset.bg=bg; el.style.backgroundImage=bg?'url("'+bg+'")':''; el.classList.toggle('vbg',!!bg);}
+  // под ходом — прежнее фото комнаты (`vwPhotoShots`, T-20261108-74): кадр 3D не кладём, фото затемнено, как у `.vstale`
+  const old=!vwRealShots().length&&vwPhotoShots().length>0;
+  const bg=old?'':(VJ.job.bg||''); if(el.dataset.bg!==bg){el.dataset.bg=bg; el.style.backgroundImage=bg?'url("'+bg+'")':''; el.classList.toggle('vbg',!!bg);}
+  el.classList.toggle('vprev',old);   // не `.vold` — так называется плашка «Фото нейросети…»
   const w=photoWait(VJ.job.t0), EN=LANG==='en', nt=/^осталось/.test(VJ.job.note||'')?'':(VJ.job.note||'');
   el.querySelector('b').textContent=(EN?'Enhancing… ':'Улучшаю… ')+Math.floor(w.pct)+' %';
   el.querySelector('s').style.width=w.pct.toFixed(1)+'%';
