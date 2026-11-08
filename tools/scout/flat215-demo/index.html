@@ -3176,6 +3176,22 @@ function camEntry(){
 // проём на полу: середина `p`, нормаль внутрь комнаты `n`, направление вдоль стены `t` (y = 0 — south, как `wallSeg`)
 function camPortal(o,W,H){ const u=(+o.offset_cm||0)+(+o.width_cm)/2;
   return o.wall==='west'?{p:[0,u],n:[1,0],t:[0,1]}:o.wall==='east'?{p:[W,u],n:[-1,0],t:[0,1]}:o.wall==='south'?{p:[u,0],n:[0,1],t:[1,0]}:{p:[u,H],n:[0,-1],t:[1,0]}; }
+// СТВОРКА ДВЕРИ (T-73/7, ведущий): полотно, открытое в комнату (`rooms_geo.openings_ir`: группа `leaf` повёрнута — `opening-ir.ts:doorIR`),
+// — крупный предмет меры v2: ЦЕЛИКОМ / ВНЕ / СРЕЗАН во всех окнах, физика точки, та же лестница. Закрытое (поворот 0) лежит в плоскости
+// стены — не предмет (демо 08.11: все три двери закрыты — комната показа одна, `viewer.ts:isIsolatedRoom`). Оси — как
+// `opening_ir.py:world_boxes`: начало стены и поворот лицом в комнату (`rooms.ts:frameOf`, стена на `CAM_INSET` см внутрь), z = y плана
+const CAM_INSET=1;
+function camLeafIts(W,H){ const out=[], fr={south:[0,CAM_INSET,0],north:[W,H-CAM_INSET,180],west:[CAM_INSET,H,90],east:[W-CAM_INSET,0,270]};
+  const ry=(deg,x,z)=>{const r=deg*Math.PI/180, c=Math.cos(r), s=Math.sin(r); return [c*x+s*z,-s*x+c*z];};
+  ((camRoom()||{}).openings_ir||[]).forEach((e,k)=>{const ir=e&&e.ir, f=e&&fr[e.wall]; if(!ir||ir.kind!=='door'||!f)return;
+    const g=(ir.groups||{}).leaf, b=(ir.boxes||[]).find(x=>x.role==='leaf'&&x.group==='leaf'); if(!g||!b)return;
+    if(Math.abs((((+g.rotYDeg||0)%360)+540)%360-180)<1)return;
+    const P=(lx,lz)=>{const p=ry(+g.rotYDeg,lx,lz), q=ry(f[2],p[0]+(+g.x||0),p[1]+(+g.z||0)); return [q[0]+f[0],q[1]+f[1]];};
+    const c=P(+b.x,+b.z), e1=P(+b.x+1,+b.z), r=v=>Math.round(v*10)/10;
+    out.push({role:'створка двери',leaf:true,id:'door-leaf-'+k,x:r(c[0]),y:r(c[1]),w:+b.w,d:+b.d,h:+b.h,elev:Math.max(0,(+b.y||0)-b.h/2+(+g.y||0)),
+      rot:r(Math.atan2(e1[1]-c[1],e1[0]-c[0])*180/Math.PI)});});
+  return out;
+}
 // три окна показа вида `c`: живое 3D телефона и компьютера (`CAM_LIVE_WIN`) и кадр фото; `st` — окно для «целиком» (у фото без низа)
 // (T-73/6) кадр фото — ровно поза съёмки (`camPhotoL`: глаз, наклон, сдвиг), низ кадра режет, как в кадре сцены; четвёртое окно —
 // фото на телефоне (`camPhoneWin`): та же камера, полная высота кадра, ширина окна «Фото» телефона, середина — на главной группе вида
@@ -3251,7 +3267,8 @@ function camV2View(raw,S,reqs,lev,cv,why){
   const wt=i=>Math.max((Z.core||{})[camRole(its[i])]||0.25,camIsMain(its[i])?1:0), must=i=>(Z.must||[]).includes(camRole(its[i]));
   const sm=new Array(n), fu=new Array(nw).fill(0), se=new Array(nw).fill(0); let major=0, mass=0;
   for(let k=0;k<n;k++){const r=raw[k], i=S.ids[k], w=wt(i); let cut=false, whole=true, frM=0, qm=1;
-    for(let j=0;j<nw;j++){if(j===JPH)continue; const x=r[j]; if(x.s===2)cut=true; if(x.s!==1)whole=false; if(x.s){frM=Math.max(frM,x.fr); qm=Math.min(qm,x.q); se[j]+=w; if(x.s===1)fu[j]+=w;}}
+    const lf=!!its[i].leaf;   // створка двери: срез и масса — как у крупного, в долю целиком и «содержание» не идёт
+    for(let j=0;j<nw;j++){if(j===JPH)continue; const x=r[j]; if(x.s===2)cut=true; if(x.s!==1)whole=false; if(x.s){frM=Math.max(frM,x.fr); qm=Math.min(qm,x.q); if(!lf){se[j]+=w; if(x.s===1)fu[j]+=w;}}}
     sm[k]={cut,whole};
     if(cut){mass+=w*Math.sqrt(frM)*(1-qm);
       if(frM>=G.big||(must(i)&&(lev<7||frM>=G.mustCut))){major++;
@@ -3279,17 +3296,19 @@ function camV2View(raw,S,reqs,lev,cv,why){
 }
 function camPairV2(L,W,H,cs,opt){
   opt=opt||{}; const G=CAM_V2, Z=camZ(), I=Z.intent||{}, V=L.length, warns=[], KEEP=opt.keep||null;
+  // мера и физика точки — с открытыми створками дверей (`camLeafIts`); покрытие, обложка и окна превью — по мебели стиля
+  const LV=camLeafIts(W,H), LM=LV.length?L.map(its=>its.concat(LV)):L;
   const cmp=(x,y)=>{for(let i=0;i<x.length;i++){if(x[i]<y[i]-1e-9)return -1; if(x[i]>y[i]+1e-9)return 1;} return 0;};
   const kmax=ks=>ks.reduce((m,k)=>m?m.map((x,i)=>Math.max(x,k[i])):k.slice(),null);
   const fail=reason=>{
-    const pv=opt.prev; if(Array.isArray(pv)&&pv.length===2&&pv.every(c=>c&&camV2Free(c,W,H)&&L.every(its=>camV2Phys(c,its,W,H)))){
+    const pv=opt.prev; if(Array.isArray(pv)&&pv.length===2&&pv.every(c=>c&&camV2Free(c,W,H)&&LM.every(its=>camV2Phys(c,its,W,H)))){
       const r=camV2Out(L,W,H,Object.assign({},pv[0]),Object.assign({},pv[1]),{level:0,how:`прежняя пара (смысл видов не выполнить: ${reason})`});
       r.relax=CAM_V2_ANY; r.warns=warns.concat(`view=pair relax=${CAM_V2_ANY} reason=${reason} keep=last_good`); return r;}
     const r=camPairAll0(L,W,H,cs,opt); if(!r)return r;
     r.relax=CAM_V2_ANY; r.warns=warns.concat(`view=pair relax=${CAM_V2_ANY} reason=${reason} fallback=v1`); return r;};
   const en=camEntry(); if(!en)return fail('no_entry');
   if(en.warn)warns.push(`view=C1 reason=entry_ambiguous door=${en.o.wall}@${en.o.offset_cm}`);
-  const pt=camPortal(en.o,W,H), dw=+en.o.width_cm, S=L.map(its=>camV2Set(its,I));
+  const pt=camPortal(en.o,W,H), dw=+en.o.width_cm, S=LM.map(its=>camV2Set(its,I));
   const aim=(x,y,tx,ty)=>Math.round(Math.atan2(tx-x,y-ty)*180/Math.PI), nrm=r=>((Math.round(r)+180)%360+360)%360-180;
   const facing=(rot,n,lim)=>{const a=rot*Math.PI/180; return Math.sin(a)*n[0]-Math.cos(a)*n[1]>=Math.cos(lim*Math.PI/180)-1e-9;};
   const its0=L[0], core=its0.filter(it=>(Z.core||{})[camRole(it)]);
@@ -3328,8 +3347,8 @@ function camPairV2(L,W,H,cs,opt){
     for(let k=-fan;k<=fan;k+=G.step)rots.push(nrm(base+k));
     extra(view).forEach(it=>{const r=nrm(aim(x,y,it.x,it.y)); if(camAng(r,base)<=fan&&!rots.some(q=>camAng(q,r)<=2))rots.push(r);});
     for(const rot of rots)for(const fov of CAM_FOVS){const c={x,y,rot,fov,k:pk}; const z=zoneOf(view,c); if(!z)continue; const gz=!camV2Free(c,W,H); if(gz&&(view||!camV2Free(c,W,H,true)))continue;
-      if(!L.every(its=>camV2Phys(c,its,W,H)))continue;
-      flags(c,z,gz); c.view=view; c.kind=kind; c.raw=L.map((its,v)=>camV2Raw(c,its,W,H,S[v].ids)); c.cv=null; C[view].push(c);}};
+      if(!LM.every(its=>camV2Phys(c,its,W,H)))continue;
+      flags(c,z,gz); c.view=view; c.kind=kind; c.raw=LM.map((its,v)=>camV2Raw(c,its,W,H,S[v].ids)); c.cv=null; C[view].push(c);}};
   for(const d of G.depth.concat(G.depthWide))for(const s of [0,-G.shift,G.shift])add(0,pt.p[0]+d*pt.n[0]+s*dw*pt.t[0],pt.p[1]+d*pt.n[1]+s*dw*pt.t[1]);
   // полоса у стены двери: от края проёма на `side` см в обе стороны шагом `step` (и напротив проёма), глубина `band.depth`
   {const B=G.band, us=[0]; for(let o=0;o<=B.side+1e-9;o+=B.step)us.push(dw/2+o,-(dw/2+o));
@@ -3372,9 +3391,9 @@ function camPairV2(L,W,H,cs,opt){
       const q={x:c.x+dx,y:c.y+dy,rot:nrm(c.rot+dr),fov:c.fov,k:c.k,view,kind};
       if(q.x<3||q.y<3||q.x>W-3||q.y>H-3||camAtWindow(q.x,q.y,W,H))continue;
       const z=zoneOf(view,q); if(!z)continue; const gz=!camV2Free(q,W,H); flags(q,z,gz);
-      if(relax<minLev(q)||dup(q,other).bad||!L.every(its=>camV2Phys(q,its,W,H)))continue;
+      if(relax<minLev(q)||dup(q,other).bad||!LM.every(its=>camV2Phys(q,its,W,H)))continue;
       if(gz&&(view||!camV2Free(q,W,H,true)))continue;
-      q.raw=L.map((its,v)=>camV2Raw(q,its,W,H,S[v].ids)); const k=keyOf(q,relax,false);
+      q.raw=LM.map((its,v)=>camV2Raw(q,its,W,H,S[v].ids)); const k=keyOf(q,relax,false);
       if(cmp(k,bk)<0){best=q; bk=k;}}
     if(best===c)return x;
     const kb=keyOf(best,relax,true); if(cmp(kb,x.k)>0)return x;
