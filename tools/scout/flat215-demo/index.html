@@ -100,7 +100,8 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .bar{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
 .chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:11px 20px;font-size:clamp(16px,1.15vw,18.5px);cursor:pointer}
 .chip.on{background:var(--accent);color:var(--surface);border-color:var(--accent)}
-.btn{border:1px solid var(--line);background:var(--surface);border-radius:var(--radius-sm);padding:12px 20px;font-size:clamp(16px,1.15vw,18.5px);cursor:pointer}
+/* цвет текста задан явно: без него Safari на iPhone красит текст кнопки системным синим (T-20261108-77, владелец 08.11 TG 616) */
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);-webkit-appearance:none;appearance:none;border-radius:var(--radius-sm);padding:12px 20px;font-size:clamp(16px,1.15vw,18.5px);cursor:pointer}
 .btn.primary{background:var(--accent);color:var(--surface);border-color:var(--accent)}
 /* ПЕРЕТАСКИВАНИЕ НЕ ДОЛЖНО ВЫДЕЛЯТЬ ТЕКСТ (владелец 01.09: «начинаю двигать торшер — выделяется текст всех подписей»). На плане десятки подписей, и браузер по умолчанию считает движение с зажатой кнопкой выделением текста: план синеет целиком. Подписи —
    часть чертежа, выделять их незачем ни на мыши, ни на пальце. */
@@ -327,18 +328,25 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
    маленькая квадратная «›». Сердечка, «Поделиться» и «Открыть» нет; чипа «✓ Просмотрено» нет (владелец 08.11 TG 592: «человек и так
    знает», T-20261108-72) — признак «открывали» (`homeSeen`) остаётся только для подсказок */
 .hm-room{cursor:pointer}
-/* ПРАВЛЕНАЯ КОМНАТА БЕЗ СВОЕГО ФОТО (T-20261108-71 Б): прежнее фото затемнено тем же тоном, что в окне (`.vstale`), по центру — светлая
-   плашка «Вы изменили комнату» и под ней кнопки окна «Сделать реалистичнее» и «Вернуть как было» (T-20261108-71/2); подпись комнаты —
-   над затемнением; клик мимо кнопок — как у всей карточки */
+/* ПРАВЛЕНАЯ КОМНАТА БЕЗ СВОЕГО ФОТО (T-20261108-71 Б): прежнее фото затемнено тем же тоном, что в окне (`.vstale`); внизу фото, над
+   подписью комнаты — мелкая надпись «Вы изменили комнату» и под ней в ряд кнопки окна «Сделать реалистичнее» и «Вернуть как было».
+   КОМПАКТНО (T-20261108-77, владелец 08.11 TG 616: «слишком крупно, уменьши в 2–3 раза, а то как открывать саму комнату»): без плашки,
+   ~50 px высотой, середина фото и подпись комнаты свободны — клик мимо кнопок открывает комнату, как у всей карточки. Не вверху: там
+   на первой карточке подсказка «Меняйте мебель, отделку и стиль…» (`.hm-tip`) — закрывала бы кнопки */
 .hm-room .hm-ph.stale::after{content:'';position:absolute;inset:0;background:rgba(38,30,24,.5);pointer-events:none}
 .hm-room .hm-ph.stale .ttl{z-index:1}
-.hm-room .hm-stale{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;width:max-content;max-width:calc(100% - 24px);
-  display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:var(--radius);background:rgba(255,255,255,.94);color:var(--ink);
-  text-align:center;box-shadow:var(--e4);cursor:default}
-.hm-room .hm-stale b{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* две кнопки окна (T-20261108-71/2): в ряд, не влезли (375, RU) — столбиком на всю ширину плашки; высота ≥ 40 px — под палец */
-.hm-room .hm-stb{display:flex;flex-wrap:wrap;gap:8px}
-.hm-room .hm-stb .btn{flex:1 1 auto;min-height:40px;padding:0 14px;font-size:14.5px;font-weight:500;white-space:nowrap}
+.hm-room .hm-stale{position:absolute;left:12px;right:12px;bottom:38px;z-index:2;display:flex;flex-direction:column;align-items:flex-start;gap:4px;
+  color:#fff;text-align:left;pointer-events:none}
+.hm-room .hm-stale b{max-width:100%;font-size:12.5px;line-height:1.2;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  text-shadow:0 1px 2px rgba(0,0,0,.45)}
+/* две кнопки в ряд (на 320 не влезли — столбиком); высота 30 px, шрифт 13 px */
+.hm-room .hm-stb{display:flex;flex-wrap:wrap;gap:6px;pointer-events:auto}
+.hm-room .hm-stb .btn{flex:0 0 auto;min-height:30px;padding:0 10px;font-size:13px;line-height:1;font-weight:500;white-space:nowrap;
+  border-radius:999px;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+/* узкий телефон (320, iPhone SE 1): кнопки мельче, чтобы остаться в ряд — столбиком они закрыли бы середину фото */
+@media(max-width:340px){.hm-room .hm-stale{left:10px;right:10px}.hm-room .hm-stb{gap:5px}.hm-room .hm-stb .btn{padding:0 8px;font-size:12px}}
+@media(min-width:1000px){.hm-room .hm-stale{left:14px;right:14px;bottom:calc(clamp(16px,.9vw,20px) * 1.25 + 20px);gap:6px}.hm-room .hm-stale b{font-size:14px}
+  .hm-room .hm-stb .btn{min-height:34px;padding:0 14px;font-size:14px}}
 .hm-room .rb{display:flex;align-items:center;gap:8px;padding:12px}
 .hm-room .rb .sum{flex:1;min-width:0;font-size:16px;white-space:nowrap}
 .hm-room .rb .sum small{display:block;color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
@@ -6823,10 +6831,15 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 /* ФОТО ПРЕЖНЕЙ РАССТАНОВКИ ЗАТЕМНЕНО (T-20261107-66 Б): поверх — «Вы изменили комнату» и две кнопки на светлой плашке, как у хода работы */
 .vstale{position:absolute;inset:0;z-index:calc(var(--zl-scene) + 1);display:flex;align-items:center;justify-content:center;padding:24px;
  background:rgba(38,30,24,.5);text-align:center;color:var(--ink)}
-.vstcard{display:flex;flex-direction:column;align-items:stretch;gap:10px;padding:18px 20px;width:min(300px,86%);
- border-radius:var(--radius);background:rgba(255,255,255,.94);box-shadow:var(--e4)}
-.vstcard b{font-size:18px;font-weight:600;margin-bottom:4px}
-.vstcard .btn{width:100%;padding:11px 16px;font-size:15.5px}
+/* КОМПАКТНО И ПОЛУПРОЗРАЧНО (T-20261108-77, владелец 08.11 TG 618/619: «сильно крупно; по центру, может быть полупрозрачно»): мелкий
+   заголовок, кнопки в ряд ~34 px (не влезли — столбиком), фон — светлое матовое стекло: фото сквозь видно, текст читается */
+.vstcard{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 12px;width:max-content;max-width:100%;
+ border-radius:var(--radius);background:rgba(255,255,255,.72);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);box-shadow:var(--e4)}
+.vstcard b{font-size:14px;line-height:1.2;font-weight:600}
+.vstcard .vstb{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+.vstcard .btn{flex:1 1 auto;min-height:34px;padding:0 12px;font-size:14px;line-height:1;font-weight:500;white-space:nowrap;border-radius:999px}
+.vstcard .btn:not(.primary){background:rgba(255,255,255,.9)}
+@media(min-width:1000px){.vstcard{padding:12px 16px}.vstcard b{font-size:15px}.vstcard .btn{min-height:38px;padding:0 16px;font-size:15px}}
 /* плашка загрузки 3D — только в «3D» (fable-lead 07.11, T-66): в «Фото» сцена грузится в фоне молча */
 #shot.vphoto .vload{display:none}
 .vready{position:absolute;left:0;right:0;margin:0 auto;width:max-content;max-width:calc(100% - 24px);top:60px;z-index:var(--zl-float);border:0;
@@ -6910,8 +6923,12 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
   .vstub{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
   /* ход фото закрывает весь кадр (под шторкой — тоже: иначе между ним и шторкой виден прежний снимок), надпись — над шторкой */
   .vphwait{padding-bottom:calc(var(--vsh,320px) + 24px)}
-  /* затемнение — на весь кадр, плашка с кнопками — между ↶ ↷ сверху и переключателем ракурсов над шторкой (T-66 Б) */
-  .vstale{padding-top:116px;padding-bottom:calc(var(--vsh,320px) + 64px)}
+  /* затемнение — на весь кадр, плашка с кнопками — по центру видимого кадра: между верхними кнопками (и ↶ ↷, когда есть) и подписями
+     ракурсов над шторкой (T-66 Б; T-20261108-77, владелец TG 618/619). Кадр «Фото» и так кончается у шторки (`.shotwrap{bottom:--vsh}`) —
+     высоту шторки второй раз не вычитаем (прежде плашку уносило вверх, под «Фото|3D» и «Сменить стиль») */
+  .vstale{padding:58px 12px 12px}
+  #shot:has(.vhist:not([hidden])) .vstale{padding-top:110px}
+  #shot.vmany .vstale{padding-bottom:60px}
   /* «Фото» на телефоне — во всю высоту области сцены, без размытых полос; по ширине фото шире экрана, кадр — окно превью вида
      (`vwPhotoFocus`, главная мебель в кадре). Свайп вбок — другой ракурс (demo-26 Б, владелец 23.10; сдвиг пальцем demo-22 п.3 уступил
      ему место): прокрутки нет, `scrollLeft` ставит только код; вертикальный жест отдаём браузеру — свайпом он не считается.
@@ -7675,9 +7692,10 @@ function vwStaleUi(){
   if(!el||el.dataset.lang!==LANG||el.dataset.back!==String(back)){
     if(el)el.remove();
     el=document.createElement('div'); el.className='vstale'; el.dataset.lang=LANG; el.dataset.back=String(back);
-    el.innerHTML=`<div class="vstcard"><b>${EN?'You changed the room':'Вы изменили комнату'}</b>`+
-      `<button class="btn primary" type="button" data-st="show">${EN?'Show the changes':'Показать изменения'}</button>`+
-      (back?`<button class="btn" type="button" data-st="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div>`;
+    // основная кнопка подписана, как везде, «Сделать реалистичнее» (CTA_REAL; владелец 08.11: «у нас называется так», T-20261108-77)
+    el.innerHTML=`<div class="vstcard"><b>${EN?'You changed the room':'Вы изменили комнату'}</b><div class="vstb">`+
+      `<button class="btn primary" type="button" data-st="show">${EN?'Make it realistic':CTA_REAL}</button>`+
+      (back?`<button class="btn" type="button" data-st="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div></div>`;
     el.querySelector('[data-st="show"]').onclick=()=>vwRealistic();   // та же съёмка, что «Сделать реалистичнее» (ожидание, очередь, отказ)
     const b=el.querySelector('[data-st="back"]'); if(b)b.onclick=()=>vwStaleBack();
     wrap.appendChild(el);

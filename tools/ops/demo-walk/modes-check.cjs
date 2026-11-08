@@ -117,8 +117,23 @@ ok('4 смена пола → 3D, вкладка «Фото» есть',s.mode==
 if(W<=700)ok('4a шторка свернулась сама',s.pos==='0','pos '+s.pos);
 await p.evaluate(()=>vwMode('photo')); await p.waitForTimeout(800);
 const stl=await p.evaluate(()=>{const o=document.querySelector('#shot .vstale'); return {mode:VW.mode, txt:o?o.innerText.replace(/\n+/g,' / '):'', back:!!(o&&o.querySelector('[data-st="back"]'))};});
-ok('4б «Фото» после правки — затемнено, «Вы изменили комнату», «Показать изменения» и «Вернуть как было»',
-  stl.mode==='photo'&&/Вы изменили комнату/.test(stl.txt)&&/Показать изменения/.test(stl.txt)&&stl.back,JSON.stringify(stl));
+ok('4б «Фото» после правки — затемнено, «Вы изменили комнату», «Сделать реалистичнее» и «Вернуть как было»',
+  stl.mode==='photo'&&/Вы изменили комнату/.test(stl.txt)&&/Сделать реалистичнее/.test(stl.txt)&&!/Показать изменения/.test(stl.txt)&&stl.back,JSON.stringify(stl));
+// 4б. ПЛАШКА ОКНА КОМПАКТНАЯ, ПОЛУПРОЗРАЧНАЯ, ПО ЦЕНТРУ ВИДИМОГО КАДРА (T-20261108-77, владелец TG 618/619): кнопки в ряд 30–40 px, не под
+// верхними кнопками и не на подписях ракурсов; на телефоне — по центру между ними и шторкой; текст кнопок — цвет страницы (не синий Safari)
+const stg=await p.evaluate(()=>{const R=e=>{if(typeof e==='string')e=document.querySelector(e); if(!e)return null; const cs=getComputedStyle(e);
+    if(cs.display==='none'||cs.visibility==='hidden'||e.closest('[hidden]'))return null; const r=e.getBoundingClientRect(); return r.width&&r.height?{l:r.left,t:r.top,r:r.right,b:r.bottom}:null;};
+  const c=document.querySelector('#shot .vstcard'), cr=R(c), bs=c?[...c.querySelectorAll('.btn')].map(b=>{const r=b.getBoundingClientRect(); return {h:Math.round(r.height),top:Math.round(r.top),c:getComputedStyle(b).color};}):[];
+  const top=['#shot .vmodes','#shot .vstyle','#shotx','#shot .vhist'].map(R).filter(Boolean), side=R('#vside'), cams=R('#shot .vcams');
+  const tB=Math.max(...top.map(x=>x.b)), bT=Math.min(...[side&&side.t,cams&&cams.t].filter(x=>x!=null)); if(cams)top.push(cams);
+  const d=document.createElement('i'); d.style.color='var(--ink)'; document.body.appendChild(d); const ink=getComputedStyle(d).color; d.remove();
+  const bg=c?getComputedStyle(c).backgroundColor:'', a=+(bg.match(/rgba?\([^)]*,\s*([\d.]+)\)$/)||[0,1])[1];
+  return {h:cr?Math.round(cr.b-cr.t):0, bs, row:bs.length===2&&bs[0].top===bs[1].top, over:!!cr&&top.some(r=>r.l<cr.r&&cr.l<r.r&&r.t<cr.b&&cr.t<r.b),
+    mid:cr?Math.round((cr.t+cr.b)/2-(tB+bT)/2):null, ink, alpha:a};});
+ok('4б плашка окна компактная (≤ 100 px'+(W>340?', кнопки в ряд':'')+'), полупрозрачная, не на кнопках и подписях ракурсов'+(W<=700?', по центру кадра':'')+', текст кнопок — цвет страницы',
+  stg.h>0&&stg.h<=100&&(W<=340||stg.row)&&stg.bs.every(x=>x.h>=30&&x.h<=40)&&!stg.over&&stg.alpha<0.95&&(W>700||Math.abs(stg.mid)<=16)&&stg.bs.length===2&&stg.bs[1].c===stg.ink,
+  JSON.stringify(stg));
+await p.screenshot({path:OUT+`m77-${W}-stale.png`});
 // 4в. «ВЕРНУТЬ КАК БЫЛО» ВОЗВРАЩАЕТ ВСЁ (T-20261108-71 А, владелец TG 563): состав, декор, пол, номер состояния; шкала окна («Выбрано»,
 // «Эта комната», «Другие комнаты», доплата), чип и список шторки; главная («Выбрано» и карточка); в 3D — та же картинка с точки 1
 const s1e=await sums(p);
@@ -135,21 +150,30 @@ const hs=await p.evaluate(()=>{const id0=curStateId(), f=histFwd(), id1=curState
 ok('4в ↷ после возврата — снова правка, ↶ — снова как было',hs.f&&hs.id1===s1e.sid&&hs.b&&hs.back,JSON.stringify({f:hs.f,b:hs.b,back:hs.back,edit:hs.id1===s1e.sid}));
 await p.evaluate(()=>{histFwd();}); await p.waitForTimeout(1200);   // снова правка — дальше шаги как прежде
 // 4г. КНОПКИ НА ПОМЕТКЕ КАРТОЧКИ ГЛАВНОЙ (T-20261108-71/2, владелец TG 582): правка → окно закрыто → на карточке «Вы изменили комнату» и
-// две кнопки окна (≥ 40 px, подпись комнаты не закрыта); чипа «✓ Просмотрено» нет, хотя комнату открывали (владелец 08.11 TG 592,
+// две кнопки окна (подпись комнаты не закрыта); чипа «✓ Просмотрено» нет, хотя комнату открывали (владелец 08.11 TG 592,
 // T-20261108-72); «Вернуть как было» с карточки — тот же возврат, что в окне:
-// окно не открывается, пометки нет, сумма карточки и «Выбрано» — как до правки
+// окно не открывается, пометки нет, сумма карточки и «Выбрано» — как до правки.
+// КОМПАКТНО (T-20261108-77, владелец TG 616 «слишком крупно, как открывать комнату»): пометка внизу фото над подписью комнаты ≤ 60 px, кнопки в ряд и на 320 (вверху на первой
+// карточке подсказка `.hm-tip`),
+// кнопки в ряд 28–36 px; середина фото свободна (там — сама карточка, не кнопка); текст кнопок — цвет страницы, не системный синий Safari
 const RM=await p.evaluate(()=>(allVariants()[cur]||{}).room||'living'), CARD=`#hmRooms article.hm-room[data-room="${RM}"]`;
 const hcard=()=>p.evaluate(sel=>{try{drawHome();}catch(e){} const a=document.querySelector(sel); if(!a)return null; const m=a.querySelector('.hm-stale');
+  if(m)a.scrollIntoView({block:'center'});
   const R=e=>{if(!e)return null; const r=e.getBoundingClientRect(); return {l:r.left,t:r.top,r:r.right,b:r.bottom};};
   const over=(x,y)=>!!x&&!!y&&x.l<y.r&&y.l<x.r&&x.t<y.b&&y.t<x.b;
   const ttl=a.querySelector('.ttl'), tr=ttl?document.createRange():null; if(tr)tr.selectNodeContents(ttl);
-  const mr=R(m), btn=[...(m?m.querySelectorAll('[data-hst]'):[])].map(b=>({k:b.dataset.hst, t:b.textContent, h:Math.round(b.getBoundingClientRect().height)}));
+  const ink=(()=>{const d=document.createElement('i'); d.style.color='var(--ink)'; document.body.appendChild(d); const c=getComputedStyle(d).color; d.remove(); return c;})();
+  const mr=R(m), btn=[...(m?m.querySelectorAll('[data-hst]'):[])].map(b=>{const r=b.getBoundingClientRect(); return {k:b.dataset.hst, t:b.textContent, h:Math.round(r.height), top:Math.round(r.top), c:getComputedStyle(b).color};});
+  const ph=R(a.querySelector('.hm-ph')), mid=ph&&document.elementFromPoint((ph.l+ph.r)/2,(ph.t+ph.b)/2);
   return {stale:a.dataset.stale==='1', btn, sum:(a.querySelector('.rb .sum')||{}).textContent, inc:(document.getElementById('hmCert')||{dataset:{}}).dataset.included,
-    win:document.getElementById('shot').classList.contains('on'), coverTtl:over(mr,tr?R(tr):null), chip:!!a.querySelector('.hm-seen')||/Просмотрено|Viewed/.test(a.textContent), seenSet:homeSeenSet().size};},CARD);
+    win:document.getElementById('shot').classList.contains('on'), coverTtl:over(mr,tr?R(tr):null), chip:!!a.querySelector('.hm-seen')||/Просмотрено|Viewed/.test(a.textContent), seenSet:homeSeenSet().size,
+    mh:mr?Math.round(mr.b-mr.t):0, mBot:mr&&ph?Math.round(ph.b-mr.b):null, midFree:!!mid&&!!mid.closest(sel)&&!mid.closest('[data-hst]'), row:btn.length===2&&btn[0].top===btn[1].top, ink};},CARD);
 await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(1500);
 const hc1=await hcard();
-ok('4г правка → на карточке пометка и кнопки «Сделать реалистичнее» и «Вернуть как было» ≥ 40 px, подпись не закрыта, чипа «Просмотрено» нет',
-  !!hc1&&hc1.stale&&hc1.btn.length===2&&hc1.btn[0].k==='real'&&/Сделать реалистичнее/.test(hc1.btn[0].t)&&hc1.btn[1].k==='back'&&hc1.btn.every(x=>x.h>=40)&&!hc1.coverTtl&&!hc1.chip,
+ok('4г правка → внизу фото карточки над подписью пометка ≤ 60 px и кнопки «Сделать реалистичнее» и «Вернуть как было» 28–36 px в ряд'+
+  ', середина фото свободна, подпись не закрыта, цвет текста кнопок — свой, чипа «Просмотрено» нет',
+  !!hc1&&hc1.stale&&hc1.btn.length===2&&hc1.btn[0].k==='real'&&/Сделать реалистичнее/.test(hc1.btn[0].t)&&hc1.btn[1].k==='back'&&hc1.btn.every(x=>x.h>=28&&x.h<=36)&&
+  hc1.row&&hc1.mh<=60&&hc1.mBot!=null&&hc1.mBot>=24&&hc1.mBot<=60&&hc1.midFree&&hc1.btn[1].c===hc1.ink&&!hc1.coverTtl&&!hc1.chip,
   JSON.stringify(hc1));
 await p.locator(CARD).scrollIntoViewIfNeeded().catch(()=>{}); await p.screenshot({path:OUT+`m71-${W}-card.png`});
 await p.click(CARD+' [data-hst="back"]'); await p.waitForTimeout(1500);
