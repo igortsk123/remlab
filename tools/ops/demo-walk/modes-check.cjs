@@ -171,9 +171,9 @@ await p.evaluate(()=>{histFwd();}); await p.waitForTimeout(1200);   // снов�
 // две кнопки окна (подпись комнаты не закрыта); чипа «✓ Просмотрено» нет, хотя комнату открывали (владелец 08.11 TG 592,
 // T-20261108-72); «Вернуть как было» с карточки — тот же возврат, что в окне:
 // окно не открывается, пометки нет, сумма карточки и «Выбрано» — как до правки.
-// КОМПАКТНО (T-20261108-77, владелец TG 616 «слишком крупно, как открывать комнату»): пометка внизу фото над подписью комнаты ≤ 60 px, кнопки в ряд и на 320 (вверху на первой
-// карточке подсказка `.hm-tip`),
-// кнопки в ряд 28–36 px; середина фото свободна (там — сама карточка, не кнопка); текст кнопок — цвет страницы, не системный синий Safari
+// ПОЛОСОЙ ПОД ФОТО (T-20261108-78, владелец TG 643 «чтобы человек случайно не нажал»; прежде — поверх фото, T-77): надпись и кнопки — между
+// фото и строкой цены, ни одна кнопка не заходит на фото; фото затемнено (вуаль 0,25–0,45), подпись комнаты на нём;
+// кнопки в ряд 28–36 px; середина фото открывает комнату; текст кнопок — цвет страницы, не системный синий Safari
 const RM=await p.evaluate(()=>(allVariants()[cur]||{}).room||'living'), CARD=`#hmRooms article.hm-room[data-room="${RM}"]`;
 const hcard=()=>p.evaluate(sel=>{try{drawHome();}catch(e){} const a=document.querySelector(sel); if(!a)return null; const m=a.querySelector('.hm-stale');
   if(m)a.scrollIntoView({block:'center'});
@@ -182,16 +182,18 @@ const hcard=()=>p.evaluate(sel=>{try{drawHome();}catch(e){} const a=document.que
   const ttl=a.querySelector('.ttl'), tr=ttl?document.createRange():null; if(tr)tr.selectNodeContents(ttl);
   const ink=(()=>{const d=document.createElement('i'); d.style.color='var(--ink)'; document.body.appendChild(d); const c=getComputedStyle(d).color; d.remove(); return c;})();
   const mr=R(m), btn=[...(m?m.querySelectorAll('[data-hst]'):[])].map(b=>{const r=b.getBoundingClientRect(); return {k:b.dataset.hst, t:b.textContent, h:Math.round(r.height), top:Math.round(r.top), c:getComputedStyle(b).color};});
-  const ph=R(a.querySelector('.hm-ph')), mid=ph&&document.elementFromPoint((ph.l+ph.r)/2,(ph.t+ph.b)/2);
+  const phe=a.querySelector('.hm-ph'), ph=R(phe), rb=R(a.querySelector('.rb')), mid=ph&&document.elementFromPoint((ph.l+ph.r)/2,(ph.t+ph.b)/2);
+  const vl=phe?getComputedStyle(phe,'::after'):null, va=vl&&vl.content!=='none'?+((vl.backgroundColor.match(/rgba\([^)]*,\s*([\d.]+)\)/)||[])[1]||0):0;
   return {stale:a.dataset.stale==='1', btn, sum:(a.querySelector('.rb .sum')||{}).textContent, inc:(document.getElementById('hmCert')||{dataset:{}}).dataset.included,
     win:document.getElementById('shot').classList.contains('on'), coverTtl:over(mr,tr?R(tr):null), chip:!!a.querySelector('.hm-seen')||/Просмотрено|Viewed/.test(a.textContent), seenSet:homeSeenSet().size,
-    mh:mr?Math.round(mr.b-mr.t):0, mBot:mr&&ph?Math.round(ph.b-mr.b):null, midFree:!!mid&&!!mid.closest(sel)&&!mid.closest('[data-hst]'), row:btn.length===2&&btn[0].top===btn[1].top, ink};},CARD);
+    under:!!mr&&!!ph&&!!rb&&mr.t>=ph.b-1&&mr.b<=rb.t+1, onPh:!!ph&&btn.some(b=>{const e=m.querySelector(`[data-hst="${b.k}"]`).getBoundingClientRect(); return e.top<ph.b&&e.bottom>ph.t;}),
+    veil:va, ttlIn:!!ph&&!!tr&&over(R(tr),ph), midFree:!!mid&&!!mid.closest(sel)&&!mid.closest('[data-hst]'), row:btn.length===2&&btn[0].top===btn[1].top, ink};},CARD);
 await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(1500);
 const hc1=await hcard();
-ok('4г правка → внизу фото карточки над подписью пометка ≤ 60 px и кнопки «Сделать реалистичнее» и «Вернуть как было» 28–36 px в ряд'+
-  ', середина фото свободна, подпись не закрыта, цвет текста кнопок — свой, чипа «Просмотрено» нет',
+ok('4г правка → под фото карточки (над ценой) полоса «Вы изменили комнату» и кнопки «Сделать реалистичнее» и «Вернуть как было» 28–36 px в ряд'+
+  ', на фото кнопок нет, фото затемнено, подпись комнаты на фото, середина фото открывает комнату, цвет текста кнопок — свой, чипа «Просмотрено» нет',
   !!hc1&&hc1.stale&&hc1.btn.length===2&&hc1.btn[0].k==='real'&&/Сделать реалистичнее/.test(hc1.btn[0].t)&&hc1.btn[1].k==='back'&&hc1.btn.every(x=>x.h>=28&&x.h<=36)&&
-  hc1.row&&hc1.mh<=60&&hc1.mBot!=null&&hc1.mBot>=24&&hc1.mBot<=60&&hc1.midFree&&hc1.btn[1].c===hc1.ink&&!hc1.coverTtl&&!hc1.chip,
+  hc1.row&&hc1.under&&!hc1.onPh&&hc1.veil>=0.25&&hc1.veil<=0.45&&hc1.ttlIn&&hc1.midFree&&hc1.btn[1].c===hc1.ink&&!hc1.coverTtl&&!hc1.chip,
   JSON.stringify(hc1));
 await p.locator(CARD).scrollIntoViewIfNeeded().catch(()=>{}); await p.screenshot({path:OUT+`m71-${W}-card.png`});
 await p.click(CARD+' [data-hst="back"]'); await p.waitForTimeout(1500);
@@ -232,6 +234,34 @@ const ow=await p.evaluate(()=>{const R=e=>{if(typeof e==='string')e=document.que
 ok('4д во время улучшения на «Фото» — прежнее фото затемнено, поверх «Улучшаю…», плашки «Вы изменили комнату» нет, карточка не под кнопками'+(W<=700?' и по центру кадра':''),
   ow.old&&!ow.bg&&!ow.plate&&ow.stale>0&&!ow.real&&ow.img&&!ow.over&&(W>700||Math.abs(ow.mid)<=16),JSON.stringify(ow));
 await p.screenshot({path:OUT+`m74-${W}-job-old.png`});
+// 4е. «УЛУЧШАЮ… N %» И В «3D» (T-20261108-78, владелец TG 643): ушёл во время улучшения в 3D — та же карточка хода по центру видимого кадра
+// (между верхними кнопками и шторкой/ракурсами; на телефоне ±16 px), не под кнопками, полупрозрачная, сцену не закрывает и жесты пропускает.
+// Переключаем как код окна (`VJ.self`) — иначе задание запомнит «ушёл с „Фото“», и по готовности окно не перейдёт на фото (шаг ниже)
+await p.evaluate(()=>{VJ.self=1; vwMode('walk'); VJ.self=0;}); await p.waitForTimeout(1500);
+const m3=()=>p.evaluate(()=>{const R=e=>{if(typeof e==='string')e=document.querySelector(e); if(!e)return null; const cs=getComputedStyle(e);
+    if(cs.display==='none'||cs.visibility==='hidden'||e.closest('[hidden]'))return null; const r=e.getBoundingClientRect(); return r.width&&r.height?{l:r.left,t:r.top,r:r.right,b:r.bottom}:null;};
+  const w=document.querySelector('#shot .vphwait'), c=R(w&&w.querySelector('.vphcard'));
+  const top=['#shot .vmodes','#shot .vstyle','#shot .vprice','#shotx','#shot .vhist'].map(R).filter(Boolean), side=R('#vside'), cams=R('#shot .vcams'), st=R('#shot .vstage');
+  const tB=Math.max(...top.map(x=>x.b)), bT=Math.min(...[VW_PHONE()&&side?side.t:null,cams&&cams.t,st&&st.b].filter(x=>x!=null));
+  const cbg=c?getComputedStyle(w.querySelector('.vphcard')).backgroundColor:'', a=+((cbg.match(/rgba\([^)]*,\s*([\d.]+)\)/)||[])[1]||1);
+  return {mode:VW.mode, job:vwJobHere(), v3d:!!w&&w.classList.contains('v3d'), card:!!c, txt:w?w.querySelector('b').textContent:'', bg:w?getComputedStyle(w).backgroundImage+'|'+getComputedStyle(w).backgroundColor:'',
+    pe:w?getComputedStyle(w).pointerEvents:'', alpha:a, over:!!c&&top.some(r=>r.l<c.r&&c.l<r.r&&r.t<c.b&&c.t<r.b)||(!!c&&!!cams&&cams.l<c.r&&c.l<cams.r&&cams.t<c.b&&c.t<cams.b),
+    mid:c?Math.round((c.t+c.b)/2-(tB+bT)/2):null};});
+const w3=await m3();
+ok('4е во время улучшения в «3D» — карточка «Улучшаю… N %» по центру видимого кадра'+(W<=700?' (±16 px)':'')+', не под кнопками, полупрозрачная, 3D видно и крутится',
+  w3.mode==='walk'&&w3.job&&w3.v3d&&w3.card&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(w3.txt)&&w3.bg==='none|rgba(0, 0, 0, 0)'&&w3.pe==='none'&&w3.alpha<0.9&&!w3.over&&
+  (W>700||Math.abs(w3.mid)<=16),JSON.stringify(w3));   // компьютер: ↶↷ внизу слева сцены — «середину» меряет проба по сцене
+await p.screenshot({path:OUT+`m78-${W}-job-3d.png`});
+// шторка на середине (так она стоит после «Сделать реалистичнее» из 3D) — карточка по центру нового видимого кадра, не на ракурсах; и на «Фото» тоже
+if(W<=700){
+  await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(1500); const w3m=await m3();
+  await p.evaluate(()=>{VJ.self=1; vwMode('photo'); VJ.self=0;}); await p.waitForTimeout(1500); const w3p=await m3();
+  ok('4е шторка на середине — «Улучшаю…» в 3D и на «Фото» по центру видимого кадра (±16 px), не на ракурсах и кнопках',
+    w3m.card&&!w3m.over&&Math.abs(w3m.mid)<=16&&w3p.card&&!w3p.over&&Math.abs(w3p.mid)<=16,JSON.stringify({walk:{mid:w3m.mid,over:w3m.over},photo:{mid:w3p.mid,over:w3p.over}}));
+  await p.screenshot({path:OUT+`m78-${W}-job-sheet-mid.png`});
+  await p.evaluate(()=>vwSheet(0)); await p.waitForTimeout(800);
+}
+await p.evaluate(()=>{VJ.self=1; vwMode('photo'); VJ.self=0;}); await p.waitForTimeout(800);
 for(let t=0;t<40&&!p.renderBodies.slice(nb).some(x=>x.quality==='realistic');t++)await p.waitForTimeout(500);
 const rc=p.renderBodies.slice(nb).filter(x=>x.quality==='realistic').pop()||{}, keys=o=>Object.keys(o).sort().join(',');
 ok('4д заказ тот же, что по кнопке окна: те же поля, оба вида, тот же лист (платное подменено)',keys(rc)===keys(rb)&&(rc.views||[]).length===2&&rc.sheet===rb.sheet,

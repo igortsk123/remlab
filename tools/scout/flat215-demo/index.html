@@ -328,25 +328,22 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
    маленькая квадратная «›». Сердечка, «Поделиться» и «Открыть» нет; чипа «✓ Просмотрено» нет (владелец 08.11 TG 592: «человек и так
    знает», T-20261108-72) — признак «открывали» (`homeSeen`) остаётся только для подсказок */
 .hm-room{cursor:pointer}
-/* ПРАВЛЕНАЯ КОМНАТА БЕЗ СВОЕГО ФОТО (T-20261108-71 Б): прежнее фото затемнено тем же тоном, что в окне (`.vstale`); внизу фото, над
-   подписью комнаты — мелкая надпись «Вы изменили комнату» и под ней в ряд кнопки окна «Сделать реалистичнее» и «Вернуть как было».
-   КОМПАКТНО (T-20261108-77, владелец 08.11 TG 616: «слишком крупно, уменьши в 2–3 раза, а то как открывать саму комнату»): без плашки,
-   ~50 px высотой, середина фото и подпись комнаты свободны — клик мимо кнопок открывает комнату, как у всей карточки. Не вверху: там
-   на первой карточке подсказка «Меняйте мебель, отделку и стиль…» (`.hm-tip`) — закрывала бы кнопки */
-.hm-room .hm-ph.stale::after{content:'';position:absolute;inset:0;background:rgba(38,30,24,.5);pointer-events:none}
+/* ПРАВЛЕНАЯ КОМНАТА БЕЗ СВОЕГО ФОТО (T-20261108-71 Б): прежнее фото затемнено — «это старое фото, оно не совпадает с выбранным»; подпись
+   комнаты на нём читается. Надпись «Вы изменили комнату» и кнопки окна «Сделать реалистичнее» / «Вернуть как было» — ПОЛОСОЙ ПОД ФОТО,
+   между фото и строкой цены (T-20261108-78, владелец 08.11 TG 643: «показывать под фотографией, чтобы человек случайно не нажал;
+   высоту карточки увеличивать, изображение затемнять»; прежде — поверх фото внизу, T-77). Фото целиком открывает комнату, кнопки —
+   только в своей полосе; без пометки карточка прежней высоты */
+.hm-room .hm-ph.stale::after{content:'';position:absolute;inset:0;background:rgba(38,30,24,.34);pointer-events:none}
 .hm-room .hm-ph.stale .ttl{z-index:1}
-.hm-room .hm-stale{position:absolute;left:12px;right:12px;bottom:38px;z-index:2;display:flex;flex-direction:column;align-items:flex-start;gap:4px;
-  color:#fff;text-align:left;pointer-events:none}
-.hm-room .hm-stale b{max-width:100%;font-size:12.5px;line-height:1.2;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  text-shadow:0 1px 2px rgba(0,0,0,.45)}
-/* две кнопки в ряд (на 320 не влезли — столбиком); высота 30 px, шрифт 13 px */
-.hm-room .hm-stb{display:flex;flex-wrap:wrap;gap:6px;pointer-events:auto}
-.hm-room .hm-stb .btn{flex:0 0 auto;min-height:30px;padding:0 10px;font-size:13px;line-height:1;font-weight:500;white-space:nowrap;
-  border-radius:999px;box-shadow:0 1px 3px rgba(0,0,0,.18)}
-/* узкий телефон (320, iPhone SE 1): кнопки мельче, чтобы остаться в ряд — столбиком они закрыли бы середину фото */
-@media(max-width:340px){.hm-room .hm-stale{left:10px;right:10px}.hm-room .hm-stb{gap:5px}.hm-room .hm-stb .btn{padding:0 8px;font-size:12px}}
-@media(min-width:1000px){.hm-room .hm-stale{left:14px;right:14px;bottom:calc(clamp(16px,.9vw,20px) * 1.25 + 20px);gap:6px}.hm-room .hm-stale b{font-size:14px}
-  .hm-room .hm-stb .btn{min-height:34px;padding:0 14px;font-size:14px}}
+.hm-room .hm-stale{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:10px 12px 2px;color:var(--ink);text-align:left;cursor:default}
+.hm-room .hm-stale b{max-width:100%;font-size:13px;line-height:1.25;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* две кнопки в ряд; высота 30 px, шрифт 13 px (вид — как у пометки окна) */
+.hm-room .hm-stb{display:flex;flex-wrap:wrap;gap:6px}
+.hm-room .hm-stb .btn{flex:0 0 auto;min-height:30px;padding:0 12px;font-size:13px;line-height:1;font-weight:500;white-space:nowrap;border-radius:999px}
+@media(max-width:340px){.hm-room .hm-stale{padding:10px 10px 0}.hm-room .hm-stb{gap:5px}.hm-room .hm-stb .btn{padding:0 9px;font-size:12px}}
+/* компьютер: надпись слева, кнопки справа — одной строкой */
+@media(min-width:1000px){.hm-room .hm-stale{flex-direction:row;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px 0}
+  .hm-room .hm-stale b{font-size:14px}.hm-room .hm-stb .btn{min-height:34px;padding:0 14px;font-size:14px}}
 .hm-room .rb{display:flex;align-items:center;gap:8px;padding:12px}
 .hm-room .rb .sum{flex:1;min-width:0;font-size:16px;white-space:nowrap}
 .hm-room .rb .sum small{display:block;color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
@@ -5094,10 +5091,11 @@ function drawHome(force){
         `onerror="this.onerror=null;var s=this.parentNode.querySelector('source');if(s)s.remove();this.src=this.dataset.url"></picture>`
         :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
       // макет 07.11: сердечка и «Поделиться» на карточке нет; чипа «✓ Просмотрено» нет (владелец 08.11 TG 592, T-20261108-72)
+      `<div class="ttl">${t}</div></div>`+
+      // пометка «Вы изменили комнату» — полосой ПОД фото, не поверх (T-20261108-78, владелец TG 643: «чтобы человек случайно не нажал»)
       (c.stale?`<div class="hm-stale"><b>${EN?'You changed the room':'Вы изменили комнату'}</b><div class="hm-stb">`+
         `<button class="btn primary" type="button" data-hst="real">${EN?'Make it realistic':CTA_REAL}</button>`+
         (c.back?`<button class="btn" type="button" data-hst="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div></div>`:'')+
-      `<div class="ttl">${t}</div></div>`+
       `<div class="rb"><div class="sum"><b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}</small></div>`+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;
   }).join('')+
@@ -5194,6 +5192,8 @@ document.addEventListener('click',e=>{
   const hs=e.target.closest('[data-hst]'); if(hs){e.preventDefault(); e.stopPropagation();
     const a=hs.closest('[data-open]'), i=a?+a.dataset.open:-1; if(!(i>=0))return;
     if(hs.dataset.hst==='back')homeStaleBack(i); else homeStaleReal(i); return;}
+  // промах мимо кнопок в полосе пометки (T-20261108-78) — ничего не делает: окно открывают фото и строка цены
+  if(e.target.closest('.hm-stale'))return;
   // вся карточка открывает комнату (макет 07.11); сердечко и «Поделиться» с карточек сняты — их обработчиков здесь больше нет
   const op=e.target.closest('[data-swap],[data-open]');
   if(op){const i=+(op.dataset.swap||op.dataset.open); if(i>=0)vwOpenVariant(i);}
@@ -6822,7 +6822,12 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 .vphwait.vbg::before{content:'';position:absolute;inset:0;background:rgba(251,248,243,.42)}
 .vphcard{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 22px;min-width:min(300px,82%);
  border-radius:var(--radius);background:rgba(255,255,255,.9);box-shadow:var(--e4)}
-.vphwait:not(.vbg):not(.vprev) .vphcard{background:none;box-shadow:none}
+.vphwait:not(.vbg):not(.vprev):not(.v3d) .vphcard{background:none;box-shadow:none}
+/* «3D» во время улучшения (T-20261108-78): фона нет — сцену видно и крутить можно (жесты проходят сквозь), карточка полупрозрачная */
+.vphwait.v3d{background:none;pointer-events:none}
+.vphwait.v3d .vphcard{background:rgba(255,255,255,.74);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);box-shadow:var(--e4)}
+.vphwait.vcompact .vphcard{gap:8px;padding:10px 18px}.vphwait.vcompact b{font-size:17px}.vphwait.vcompact small{display:none}
+.vphwait.vtight .vphcard{visibility:hidden}
 /* под ходом — прежнее фото этой комнаты (T-20261108-74): тот же тон затемнения, что у «Вы изменили комнату» (`.vstale`), плашка светлая */
 .vphwait.vprev{background:rgba(38,30,24,.5)}
 .vphwait b{font-size:20px;font-weight:600}
@@ -6930,9 +6935,13 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
      ракурсов над шторкой (T-66 Б; T-20261108-74, владелец TG 600/601: на iPhone «Улучшаю…» уходила под «Фото|3D» и «Сменить стиль»;
      T-20261108-77, TG 618/619). Кадр «Фото» и так кончается у шторки (`.shotwrap{bottom:--vsh}`) — высоту шторки второй раз не вычитаем
      (прежде карточку уносило на ~130 px выше середины); затемнение — на весь кадр */
-  .vphwait{padding:58px 16px 12px}.vstale{padding:58px 12px 12px}
+  /* шторка поднята выше свёрнутой (`--vsv` > `--vsh`, T-20261108-78) — низ видимого кадра выше на разницу */
+  .vphwait{padding:58px 16px calc(max(0px,var(--vsv,0px) - var(--vsh,0px)) + 12px)}.vstale{padding:58px 12px calc(max(0px,var(--vsv,0px) - var(--vsh,0px)) + 12px)}
   #shot:has(.vhist:not([hidden])) .vphwait,#shot:has(.vhist:not([hidden])) .vstale{padding-top:110px}
-  #shot.vmany .vphwait,#shot.vmany .vstale{padding-bottom:60px}
+  #shot.vmany .vphwait,#shot.vmany .vstale{padding-bottom:calc(max(0px,var(--vsv,0px) - var(--vsh,0px)) + 60px)}
+  /* «3D»: сцена во всю высоту, под шторкой (`#shot.vwalk .shotwrap{bottom:0}`) — низ видимого кадра = верх шторки (и подписи ракурсов над ней) */
+  #shot.vwalk .vphwait.v3d{padding-bottom:calc(var(--vsv,var(--vsh,320px)) + 12px)}
+  #shot.vwalk.vmany .vphwait.v3d{padding-bottom:calc(var(--vsv,var(--vsh,320px)) + 60px)}
   /* «Фото» на телефоне — во всю высоту области сцены, без размытых полос; по ширине фото шире экрана, кадр — окно превью вида
      (`vwPhotoFocus`, главная мебель в кадре). Свайп вбок — другой ракурс (demo-26 Б, владелец 23.10; сдвиг пальцем demo-22 п.3 уступил
      ему место): прокрутки нет, `scrollLeft` ставит только код; вертикальный жест отдаём браузеру — свайпом он не считается.
@@ -7313,6 +7322,9 @@ function vwSheetApply(vis, anim){
   sd.style.transform=`translateY(${Math.round(e.max-vis)}px)`;
   // точки ракурсов — над текущим верхом шторки при любой высоте (приёмка d8 17.10: в средней остановке прятались за шторкой)
   const dots=document.getElementById('vCams'); if(dots){dots.style.transition=anim&&!VW_SLOW()?'':'none'; dots.style.bottom=Math.round(vis+12)+'px';}
+  // `--vsv` — видимая высота шторки сейчас (`--vsh` — свёрнутой): по ней ход «Улучшаю…» и «Вы изменили комнату» стоят по центру
+  // видимого кадра и при поднятой шторке (T-20261108-78: после «Сделать реалистичнее» из 3D шторка на середине — карточка ложилась на ракурсы)
+  const vwEl=document.querySelector('#shot .vw'); if(vwEl)vwEl.style.setProperty('--vsv',Math.round(vis)+'px');
   // подсказки окна — вместе с переключателем, по цели сдвига (T-20261018-09: поставленная при показе оставалась на месте и ложилась на него)
   document.querySelectorAll('#shot .vtip').forEach(vwTipPlace);
   // «во весь экран» — тоже над текущим верхом шторки (приёмка d8 17.10: на средней кнопка была под шторкой)
@@ -7836,13 +7848,22 @@ function vwPhDraft(job){const d=shots.filter(x=>x.stateId===job.stateId&&x.url&&
 function vwPhWaitUi(){
   const wrap=document.querySelector('#shot .shotwrap'); if(!wrap)return;
   let el=wrap.querySelector('.vphwait');
-  if(VW.mode!=='photo'||!vwJobHere()){if(el)el.remove(); return;}
+  // в «3D» — та же карточка хода по центру видимого кадра, полупрозрачная, сцену не закрывает и жесты не ловит (T-20261108-78, владелец
+  // TG 643: «не вижу „Улучшаю“ по центру в режиме 3D»; прежде в 3D ход был только на кнопке в шторке)
+  const w3=VW.mode==='walk';
+  if((VW.mode!=='photo'&&!w3)||!vwJobHere()){if(el)el.remove(); return;}
   if(!el){el=document.createElement('div'); el.className='vphwait'; el.setAttribute('role','status'); el.innerHTML='<div class="vphcard"><b></b><i><s></s></i><small></small></div>'; wrap.appendChild(el);}
+  el.classList.toggle('v3d',w3);
   if(!VJ.job.bg)vwPhDraft(VJ.job);   // окно открыли посреди задания (автофото избранного) — хотя бы черновик
   // под ходом — прежнее фото комнаты (`vwPhotoShots`, T-20261108-74): кадр 3D не кладём, фото затемнено, как у `.vstale`
-  const old=!vwRealShots().length&&vwPhotoShots().length>0;
-  const bg=old?'':(VJ.job.bg||''); if(el.dataset.bg!==bg){el.dataset.bg=bg; el.style.backgroundImage=bg?'url("'+bg+'")':''; el.classList.toggle('vbg',!!bg);}
+  const old=!w3&&!vwRealShots().length&&vwPhotoShots().length>0;
+  const bg=old||w3?'':(VJ.job.bg||''); if(el.dataset.bg!==bg){el.dataset.bg=bg; el.style.backgroundImage=bg?'url("'+bg+'")':''; el.classList.toggle('vbg',!!bg);}
   el.classList.toggle('vprev',old);   // не `.vold` — так называется плашка «Фото нейросети…»
+  // шторка поднята так, что карточке тесно между верхними кнопками и шторкой (короткий телефон, шторка на середине): сперва карточка
+  // сжимается до строки «Улучшаю… N %» с полосой; не влезает и так — не показываем (ход — на кнопке шторки, полоса на самой шторке)
+  el.classList.remove('vcompact','vtight');
+  if(VW_PHONE()){const cs=getComputedStyle(el), room=el.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom), c=el.firstChild;
+    if(c&&room<c.offsetHeight){el.classList.add('vcompact'); if(room<c.offsetHeight)el.classList.add('vtight');}}
   const w=photoWait(VJ.job.t0), EN=LANG==='en', nt=/^осталось/.test(VJ.job.note||'')?'':(VJ.job.note||'');
   el.querySelector('b').textContent=(EN?'Enhancing… ':'Улучшаю… ')+Math.floor(w.pct)+' %';
   el.querySelector('s').style.width=w.pct.toFixed(1)+'%';
