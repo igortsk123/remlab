@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 // главное хранение целиком и предмет коридора рядом; узкая комната — пороги «близко» × `near`, главная вещь вплотную — помеха
 // (`mainBlock`); подвес настенного (`elev`) — в проекции и маске. У каждого стиля прихожей своя расстановка — пара на стиль
 // (`demo-cams.mjs`, метка геометрии `cams_own`). Расстановки — сборка рядом 07.11 (5 стилей, коридор 153 × 620).
+// С 08.11 (T-20261108-73/4) пару прихожей ставит правило видов v2 (`camPairV2`): вид 1 — от входной двери, вид 2 — дальняя часть;
+// виды зоны (`views`, `camViewFit`) остались у прежнего подбора — запасного; меры кадра («в упор», подвес зеркала, срез 3D) — те же.
 type It = { role: string; x: number; y: number; rot: number; w: number; d: number; h: number | null; elev?: number };
 type Cam = { name: string; x: number; y: number; rot: number; fov: number; poster?: boolean };
 type Pair = { cams: Cam[]; how: string };
@@ -16,13 +18,14 @@ type Frame = { asp: number; top: number; bot: number; vis: number };
 const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
 const block = html.slice(html.indexOf("// CAMFIT START"), html.indexOf("// CAMFIT END"));
 const fx = JSON.parse(readFileSync("tests/fixtures/demo-hall-1107.json", "utf8")) as Fx;
-const api = new Function("D", `${block};return {camPair,camCover,camShownN,camViewFit,camCoverP,camBlock,camNear,camRole,camIsMain,camNearK,camElev,camCutLive,CAM_ZONES,CAM_NEAR};`)({ room: fx.room }) as {
+const api = new Function("D", `${block};return {camPair,camCover,camBlock,camNear,camRole,camIsMain,camNearK,camElev,camCutLive,camEntry,camV2Raw,camV2Set,camZ,CAM_ZONES,CAM_NEAR};`)({ room: fx.room }) as {
+  camEntry: () => { o: { wall: string; offset_cm: number; width_cm: number; is_entrance?: boolean }; warn: string } | null;
+  camV2Raw: (c: Cam, its: It[], W: number, H: number, ids: number[]) => { s: number; fr: number; q: number }[][];
+  camV2Set: (its: It[], I: unknown) => { mains: number[]; need: number[] };
+  camZ: () => { intent?: unknown };
   camCutLive: (c: Cam, it: It, its: It[], fr: Frame, W: number, H: number) => { frame: number; own: number; near: number };
   camPair: (its: It[], W: number, H: number, cs: { x: number; y: number }[]) => Pair;
   camCover: (c: Cam, its: It[], W: number, H: number) => Cv;
-  camShownN: (its: It[], cv: Cv) => number;
-  camViewFit: (vw: unknown, c: Cam, its: It[], cv: Cv) => boolean;
-  camCoverP: (c: Cam, its: It[], W: number, H: number) => Cv;
   camBlock: (c: Cam, its: It[]) => { cov: number; who: string };
   camNear: (c: Cam, it: It) => number;
   camRole: (it: It) => string;
@@ -35,13 +38,6 @@ const api = new Function("D", `${block};return {camPair,camCover,camShownN,camVi
 const { w: W, d: H } = fx.room;
 const corners = [{ x: 3, y: 3 }, { x: W - 3, y: 3 }, { x: W - 3, y: H - 3 }, { x: 3, y: H - 3 }];
 const its = (v: { items: It[] }) => v.items.map((it) => ({ ...it, x: +it.x, y: +it.y, w: +it.w, d: +it.d, rot: +it.rot || 0 }));
-// Достигнуто 07.11 на свежем банке compose_hall (T-20261107-05/7, вид к входу): scandi/modern/loft — 4, japandi — 5, minimal — 3
-// (всё в ряд вдоль одной стены; без `moreTol` зоны общий порядок ставил нарушения кадра выше числа предметов и брал вид с двумя —
-// обувница и зеркало). Вид на хранение — потолок 2 при любой точке (всё хранение у входа, шкаф в дальнем конце; разбор расстановки —
-// отчёт T-20261107-05/6). Пороги — фиксация, не цель. minimal 3 → 2 (T-20261108-73): срез краем живого «3D» вошёл в ключ пары
-// (`camBigCut` → `camLiveBigCut`) — прежний вид к входу (43,431 → 32°) резал шкаф-купе краем 3D на 17 % кадра; новый (50,419 → 22°)
-// без среза, консоль в кадре на 26 % вместо 61 %
-const MIN1: Record<string, number> = { "hall-scandi": 4, "hall-modern": 4, "hall-loft": 4, "hall-minimal": 3, "hall-japandi": 5 };
 type Cut = { cm: number; frame: number; hi: number; live: Frame[] };
 const pairs = new Map<string, Pair>();
 const pairOf = (v: { id: string; items: It[] }) => {
@@ -97,18 +93,24 @@ describe("камеры демо: прихожая, виды зоны", () => {
     expect(Math.min(cv[m]!.inF, cv[m]!.vis)).toBeGreaterThanOrEqual(0.9);
   });
 
+  // ПРАВИЛО ВИДОВ v2 (T-20261108-73/4, владелец TG 668/671; `camPairV2`): вид 1 — у входной двери (`is_entrance`, хоть боковые двери
+  // ближе к середине), взгляд внутрь, главное хранение целиком; вид 2 — дальняя часть коридора, в кадре целиком хоть один предмет
+  // `intent.need` (зеркало, обувница, вешалка, консоль, банкетка). Целиком — во всех трёх окнах показа (`camV2Raw`)
+  const whole = (c: Cam, list: It[], ids: number[]) => api.camV2Raw(c, list, W, H, ids).map((r) => r.every((x) => x.s === 1));
   for (const v of fx.variants) {
-    it(`${v.id}: оба вида зоны, вид к входу — не меньше достигнутого (${MIN1[v.id] ?? 4}), вид на хранение — шкаф целиком + сосед`, () => {
-      const pr = pairOf(v), list = its(v), [v1, v2] = api.CAM_ZONES.hall!.views!;
-      expect(pr.how).not.toMatch(/пары нет/);
-      const [c1, c2] = pr.cams as [Cam, Cam];
-      expect(api.camViewFit(v1, c1, list, api.camCoverP(c1, list, W, H))).toBe(true);
-      // откат «без cutNear» (нет точки без обрезанной ближней мебели) — вид зоны по остальным условиям
-      const v2x = /без cutNear/.test(pr.how) ? { ...(v2 as object), cutNear: undefined } : v2;
-      expect(api.camViewFit(v2x, c2, list, api.camCoverP(c2, list, W, H))).toBe(true);
-      const n1 = api.camShownN(list, api.camCover(c1, list, W, H)), n2 = api.camShownN(list, api.camCover(c2, list, W, H));
-      expect(n1).toBeGreaterThanOrEqual(MIN1[v.id] ?? 4);
-      expect(n2).toBeGreaterThanOrEqual(2);
+    it(`${v.id}: вид 1 у входной двери и шкаф в нём целиком, вид 2 — в дальней части, предмет коридора целиком`, () => {
+      const pr = pairOf(v), list = its(v), [c1, c2] = pr.cams as [Cam, Cam];
+      const en = api.camEntry()!, dw = en.o.width_cm, cx = en.o.offset_cm + dw / 2;
+      expect(en.o.is_entrance).toBe(true);
+      expect(en.o.wall).toBe("south");
+      expect(pr.how).toMatch(/^v2: C1 со стороны двери \(south\)/);
+      expect(c1.y, "глубина от плоскости двери").toBeLessThanOrEqual(100);
+      expect(Math.abs(c1.x - cx), "сдвиг вдоль двери").toBeLessThanOrEqual(0.2 * dw + 1);
+      expect(-Math.cos((c1.rot * Math.PI) / 180), "взгляд внутрь").toBeGreaterThanOrEqual(Math.cos((75 * Math.PI) / 180) - 1e-9);
+      const S = api.camV2Set(list, api.camZ().intent);
+      expect(whole(c1, list, S.mains).some(Boolean), `${v.id} C1: шкаф целиком`).toBe(true);
+      expect(Math.hypot(c2.x - cx, c2.y), "вид 2 — дальше половины наибольшего расстояния до двери").toBeGreaterThanOrEqual(0.5 * Math.hypot(Math.max(cx, W - cx), H));
+      expect(whole(c2, list, S.need).some(Boolean), `${v.id} C2: предмет коридора целиком`).toBe(true);
     });
 
     it(`${v.id}: ни один вид не «в упор» — главная вещь вплотную считается помехой, ближе 50 см к глазу мебели в кадре нет`, () => {

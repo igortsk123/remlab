@@ -32,6 +32,8 @@ const p = 3; // как `camPad()` страницы и клэмп сервера
 let n = 0;
 const vars = D.variants ?? [];
 const itsOf = (v) => (v.items ?? []).map((it) => ({ ...it, x: +it.x, y: +it.y, w: +it.w, d: +it.d, rot: +it.rot || 0 }));
+// прежняя пара варианта — last-known-good правила видов v2 (`camPairV2` `opt.prev`)
+const prevOf = (v) => (Array.isArray(v.cams) && v.cams.length === 2 ? v.cams.map((c) => ({ ...c })) : null);
 // по комнатам в порядке вариантов; одна пара на все стили (demo-31) — внутри своей комнаты
 const groups = new Map();
 for (const v of vars) {
@@ -44,7 +46,7 @@ for (const v of vars) {
 D.cams_shared = false;
 for (const [rid, { geo, list }] of groups) {
 // блок страницы читает D.room (двери для правила «не у двери», высота потолка) — отдаём комнату этой группы вариантов
-const api = new Function("D", `${block}\n;return {camPair, camPairAll, camEndsOk, camAng, camZ, camLiveBigCut, camIsMain, camRole};`)({ ...D, room: geo });
+const api = new Function("D", `${block}\n;return {camPair, camPairAll, camAng, camZ, camLiveBigCut, camIsMain, camRole};`)({ ...D, room: geo });
 const W = geo.w;
 const H = geo.d;
 const corners = [{ x: p, y: p }, { x: W - p, y: p }, { x: W - p, y: H - p }, { x: p, y: H - p }];
@@ -53,7 +55,7 @@ const shared = !!D.one_layout && list.length > 1 && !geo.cams_own;
 // мебель стиля — один массив на комнату, покрытие точки при ней — один раз (`cvc`, T-20261107-47/2): подбор по стилю (ниже, «с двух
 // концов») берёт его готовым из общего подбора; точки и выбор те же, данные побайтно те же
 const IT = list.map(itsOf), cvc = new Map();
-let all = shared ? api.camPairAll(IT, W, H, corners, { cvc }) : null;
+let all = shared ? api.camPairAll(IT, W, H, corners, { cvc, prev: prevOf(list[0]) }) : null;
 if (shared) console.log(`${rid === "living" ? "" : `${rid}: `}одна пара на ${list.length} вариантов: ${all.how}`);
 // СТИЛЬ НА ЗАПАСНОМ НЕ ПОРТИТ ПОКРЫТИЕ ОСТАЛЬНЫХ (T-20261107-11/3, ведущий): неоклассика на запасном нейтральном ковре
 // (`fill[].rug_universal`, T-11/2) сдвинула общую пару, и сканди, современный и минимализм потеряли торшер. Ключ пары — худший по
@@ -82,27 +84,27 @@ if (shared && list.some(onSpare) && list.some((v) => !onSpare(v))) {
     }
   }
 }
-// ВИДЫ С ДВУХ КОНЦОВ КОМНАТЫ (`ends` зоны, T-20261107-30, владелец TG 345; ведущий: вариант А): одной пары «с двух концов» на все стили
-// нет (`camPairAll` вернул прежнюю с `endsMiss`) — у каждого стиля своя пара с двух концов; сравнение стилей с одной точки уступает
-// требованию «с 2 разных сторон, чтоб разглядывать». Стиль, у которого и своей нет, — прежняя пара (`endsMiss`) и громкое WARN с его именем.
-// Общая пара остаётся, где она с двух концов (спальня 2 07.11)
-if (shared && all.endsMiss) {
-  // своя пара — с двух концов и ценой обязательного (`endsHard`, T-20261108-73: порядок «два конца → обязательное → чистый вид»)
-  const own = list.map((v, vi) => api.camPairAll([IT[vi]], W, H, corners, { cvc, endsHard: true }));
-  const shPer = perOf;
-  perOf = (vi) => (own[vi] ? { ...own[vi], ...own[vi].per[0] } : shPer(vi));
-  console.log(`${rid}: одной пары с двух концов комнаты на ${list.length} стилей нет — своя пара у каждого стиля`);
-  const miss = list.filter((_, vi) => !own[vi] || own[vi].endsMiss).map((v) => v.style || v.id);
-  if (miss.length) console.log(`WARN:demo_cams: ${rid} — виды с двух концов комнаты не вышли у стилей ${miss.join(", ")}: прежняя пара`);
-  const cost = list.map((v, vi) => (own[vi]?.endsCost ? `${v.style || v.id} (${own[vi].how.split(": ")[0]})` : "")).filter(Boolean);
-  if (cost.length) console.log(`WARN:demo_cams: ${rid} — виды с двух концов ценой обязательного: ${cost.join("; ")}`);
+// ПРАВИЛО ВИДОВ v2 (T-20261108-73/4, владелец TG 668/671; `camPairV2`): вид 1 — со стороны двери, вид 2 — по смыслу комнаты.
+// Общая пара на все стили не вышла строго (`relax` > 0 — ступень лестницы ослаблений) — у стиля своя пара, если её ступень ниже,
+// а при той же ступени — если её виды лучше по ключу (смысл видов важнее одной точки на все стили, как «с двух концов» до v2). Прежняя пара варианта — last-known-good (`opt.prev`):
+// смысл видов не выполнить — она, а не случайная
+const v2 =shared && all && all.relax != null;
+if (v2 && all.relax > 0) {
+  const own = list.map((v, vi) => api.camPairAll([IT[vi]], W, H, corners, { prev: prevOf(v) }));
+  // та же ступень — своя, если ключ видов (`keys`: обязательное, его недобор, крупные срезы, масса, недобор доли; сумма C1 + C2) лучше
+  const sc = (o) => [o.relax, ...[0, 1, 2, 3, 4].map((i) => (o.keys ?? []).reduce((a, k) => a + (k[i] ?? 0), 0))];
+  const less = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i]; return false; };
+  const take = own.map((o) => !!o && o.relax != null && !!o.keys && less(sc(o), sc(all)));
+  if (take.some(Boolean)) {
+    const shPer = perOf;
+    perOf = (vi) => (take[vi] ? { ...own[vi], ...own[vi].per[0] } : shPer(vi));
+    console.log(`${rid}: общая пара — ступень ${all.relax}; своя пара лучше у стилей ${list.filter((_, vi) => take[vi]).map((v) => `${v.style || v.id} (${own[list.indexOf(v)].relax})`).join(", ")}`);
+  }
 }
-// ЧИСТАЯ ОБЛОЖКА И ВИДЫ ЗОНЫ ВАЖНЕЕ ОДНОЙ ПАРЫ (T-20261107-67, ведущий: обложка спальни 2 «Сканди» — шкаф срезан краем кадра):
-// общая пара на все стили спальни 2 шла без видов зоны (`zoneMiss`: «от входа на изголовье» сразу у пяти стилей нет) и с обложкой,
-// где крупное срезано краем (`posterCut`, `camPosterBad`), — чистого вида в ней нет ни у одной общей пары. Тогда у стиля — своя
-// пара, если она не хуже общей по обязательному покрытию (`mm`) и видам зоны и лучше по ним или по обложке; иначе общая. Громко — в лог
-if (shared && !all.endsMiss && (all.zoneMiss || all.posterCut)) {
-  const own = list.map((v, vi) => api.camPairAll([IT[vi]], W, H, corners, { cvc, endsHard: true }));
+// ЧИСТАЯ ОБЛОЖКА И ВИДЫ ЗОНЫ ВАЖНЕЕ ОДНОЙ ПАРЫ (T-20261107-67; только прежний подбор `camPairAll0` — зоны без `intent`, кухня):
+// у стиля — своя пара, если она не хуже общей по обязательному покрытию (`mm`) и видам зоны и лучше по ним или по обложке
+if (shared && !v2 && (all.zoneMiss || all.posterCut)) {
+  const own = list.map((v, vi) => api.camPairAll([IT[vi]], W, H, corners, { cvc }));
   const pc =(p) => p.posterCut ?? 0, mm = (p) => p.mm ?? 0;
   const take = own.map((o) => !!o && !o.corner && mm(o) <= mm(all) && (!o.zoneMiss || !!all.zoneMiss) && pc(o) <= pc(all)
     && (mm(o) < mm(all) || (!o.zoneMiss && !!all.zoneMiss) || pc(o) < pc(all)));
@@ -111,10 +113,6 @@ if (shared && !all.endsMiss && (all.zoneMiss || all.posterCut)) {
     perOf = (vi) => (take[vi] ? { ...own[vi], ...own[vi].per[0] } : shPer(vi));
     console.log(`${rid}: одной пары с видами зоны и чистой обложкой на ${list.length} стилей нет — своя пара у стилей ${list.filter((_, vi) => take[vi]).map((v) => v.style || v.id).join(", ")}`);
   }
-  const em = list.filter((_, vi) => take[vi] && own[vi].endsMiss).map((v) => v.style || v.id);
-  if (em.length) console.log(`WARN:demo_cams: ${rid} — виды с двух концов комнаты не вышли у стилей ${em.join(", ")}: прежняя пара`);
-  const ec = list.map((v, vi) => (take[vi] && own[vi].endsCost ? `${v.style || v.id} (${own[vi].how.split(": ")[0]})` : "")).filter(Boolean);
-  if (ec.length) console.log(`WARN:demo_cams: ${rid} — виды с двух концов ценой обязательного: ${ec.join("; ")}`);
   const bad = list.filter((_, vi) => pc(take[vi] ? own[vi] : all)).map((v) => v.style || v.id);
   if (bad.length) console.log(`WARN:demo_cams: ${rid} — обложка не чистая у стилей ${bad.join(", ")}`);
 }
@@ -132,7 +130,7 @@ D.cams_shared = D.cams_shared || shared;
 const CUT_WARN = 0.1, cutWarn = [];
 const bigOf = (it) => api.camIsMain(it) || ((api.camZ().core || {})[api.camRole(it)] || 0) >= 1;
 for (const [vi, v] of list.entries()) {
-  const pr = shared ? { ...all, ...(perOf(vi) ?? {}) } : api.camPairAll([itsOf(v)], W, H, corners, { endsHard: true });
+  const pr = shared ? { ...all, ...(perOf(vi) ?? {}) } : api.camPairAll([itsOf(v)], W, H, corners, { prev: prevOf(v) });
   v.cams = pr.cams.map((c) => ({ name: c.name, x: Math.round(c.x), y: Math.round(c.y), rot: Math.round(c.rot || 0), fov: c.fov || 72, pose: 2,
     // подбор парой (demo-12, ADR-0304, по умолчанию с 17.10) несёт сдвиг вертикального кадра телефона
     ...(typeof c.pshift === "number" ? { pshift: c.pshift } : {}), ...(c.crop ? { crop: c.crop } : {}),
@@ -141,19 +139,14 @@ for (const [vi, v] of list.entries()) {
   v.cam_level = pr.level;
   v.cam_cover = { covered: (pr.covered ?? []).length, missing: (pr.missing ?? []).map((m) => ({ id: m.id, role: m.role, must: m.must, reason: m.reason })) };
   console.log(`${v.id}: ${pr.how ?? ""}${(pr.missing ?? []).length ? ` — не видно: ${pr.missing.map((m) => `${m.role} (${m.reason})`).join(", ")}` : ""}`);
-  if (!shared && pr.endsMiss) console.log(`WARN:demo_cams: ${v.id} — виды с двух концов комнаты не вышли, взята прежняя пара`);
-  // СТОРОЖ «С ДВУХ КОНЦОВ» (T-20261108-73): итоговая пара варианта не с двух концов комнаты при правиле `ends` зоны — громко, по варианту,
-  // какой бы веткой выше она ни пришла (общая, своя, запасная)
-  const E = api.camZ().ends, [c1, c2] = v.cams;
-  if (E && c1 && c2 && !api.camEndsOk(c1, c2, W, H, E))
-    console.log(`WARN:demo_cams: ${v.id} — виды не с двух концов комнаты (угол ${Math.round(api.camAng(c1.rot, c2.rot))}°, точки ${c1.x},${c1.y} и ${c2.x},${c2.y})`);
-  if (!shared && pr.endsCost) console.log(`WARN:demo_cams: ${v.id} — виды с двух концов ценой обязательного (${pr.how.split(": ")[0]})`);
+  // ступень ослаблений итоговой пары варианта (v2) — машинной строкой, какой бы веткой выше пара ни пришла (общая, своя, запасная)
+  for (const w of pr.warns ?? []) console.log(`WARN:demo_cams room=${rid} style=${v.style || v.id} ${w}`);
   const its = IT[vi], cuts = v.cams.flatMap((c) => api.camLiveBigCut(c, its, W, H, new Set(), bigOf).filter((q) => q.fr >= CUT_WARN)
     .map((q) => `${c.name} ${api.camRole(its[q.i])} ${Math.round(q.fr * 100)} %`));
   if (cuts.length) cutWarn.push(`${v.style || v.id} (${cuts.join(", ")})`);
   n += 1;
 }
-if (cutWarn.length) console.log(`WARN:demo_cams: ${rid} — крупное срезано краем живого 3D (кусок ≥ ${CUT_WARN * 100} % кадра): ${cutWarn.join("; ")} — пары чище подбор не нашёл: срез в ключе пары после двух концов, главного целиком, обязательного и чистой обложки`);
+if (cutWarn.length) console.log(`WARN:demo_cams: ${rid} — крупное срезано краем живого 3D (кусок ≥ ${CUT_WARN * 100} % кадра): ${cutWarn.join("; ")} — пары чище подбор не нашёл`);
 }
 // подменой, не обрезкой (T-20261105-59): оборвался процесс посреди записи — demo-data.json остаётся вчерашним целиком
 const tmp = `${file}.cams-${process.pid}.tmp`;

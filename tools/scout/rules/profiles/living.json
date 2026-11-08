@@ -2,8 +2,8 @@
  "_about": "ГОСТИНАЯ — ОПИСАНИЕ того, что есть (room-pipeline-01 Б-2, T-20261105-40). Сборщик гостиной compose2.py этот профиль НЕ читает и не меняется: он на старом пути до доказанного паритета (тень каталога — catalog_items_shadow.py, стенд хешей — волна Б). Числа здесь — ссылки на те правила, что читает compose2 сегодня; роли — его ROLES (линтер сверяет с исходником).",
  "schema_version": 1,
  "profile_id": "living",
- "profile_version": "2026-11-08.1",
- "content_sha": "2103164e51dc",
+ "profile_version": "2026-11-08.2",
+ "content_sha": "4ef02d6064d0",
  "room_type": "living",
  "composer": {
   "plugin": "living_legacy",
@@ -171,13 +171,21 @@
      "стол письменный",
      "кресло"
     ],
-    "ends": {
-     "deg": 120,
-     "mid": 0
+    "intent": {
+     "c2": [
+      "dining",
+      "window"
+     ],
+     "crop": [
+      null,
+      [
+       "стол обеденный"
+      ]
+     ]
     }
    }
   },
-  "_why": "запись CAM_ZONES.living демо (index.html, onb-07 Т4): у гостиной видов нет — пару кадров выбирает прежнее правило; демо читает профиль в волне Г, до того линтер сверяет копию"
+  "_why": "запись CAM_ZONES.living демо (index.html, T-20261108-73/4, правило видов v2): вид 1 — со стороны входной двери, вид 2 — стол со стульями (intent.c2 dining), без стола — полоса у окна; концы (ends) сняты; демо читает профиль только через сверку lint"
  },
  "asset_strategies": {
   "$ref": "tools/scout/rules/asset-strategies.json#/roles"

@@ -46,6 +46,7 @@
                                                                "properties": {"core": {"type": "object"}, "key": {"type": "array"},
                                                                               "show": {"type": "array"}, "must": {"type": "array"},
                                                                               "views": {"type": "array"}, "apart": {"type": "number"}, "apartNear": {"type": "object"}, "ends": {"type": "object"}, "poster": {"type": "string", "enum": ["more"]}, "cover": {"type": "number"},
+                                                                              "intent": {"type": "object", "description": "правило видов v2 (T-20261108-73/4): c2 — смысл вида 2 по порядку (dining | window | far), need — предмет, который вид 2 показывает целиком, crop — роли узкого окна телефона по видам"},
                                                                               "anyOf": {"type": "array"}, "ready": {"type": "boolean"},
                                                                               "edge": {"type": "number"}, "rodHook": {"type": "boolean"}, "grid": {"type": "array"}, "slide": {"type": "object"}, "near": {"type": "number", "exclusiveMinimum": 0}, "mainBlock": {"type": "boolean"}, "moreTol": {"type": "number", "minimum": 0}, "livePitchMin": {"type": "number", "minimum": -40, "maximum": 0}}}}}},
   "asset_strategies": {"description": "стратегия 3D-ассета по роли (канон rules/asset-strategies.json)"}
