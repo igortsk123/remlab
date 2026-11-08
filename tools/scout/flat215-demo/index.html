@@ -2648,7 +2648,9 @@ const CAM_MAIN_MIN=2/3;   // обложка: главная вещь видна 
 // `camBigCut` — разбор: n — срезанного крупного, fr — сколько кадра оно занимает (доводка точки вида не даёт куску расти: спальня 2
 // «Сканди», вид 1 — сдвиг на 26 см ради «больше мебели» расширил полосу шкафа у края с 8 до 15 % кадра при том же числе срезов),
 // main — главного нет целиком
-const CAM_PCUT=0.15, CAM_PSTRIP=0.01;
+// ступени куска срезанного в кадре для ключа пары (T-20261107-68) — почти вдвое каждая: полоса шкафа в 3 и 8 % кадра — разные
+// ступени, кровать на 27 и 29 % кадра — одна
+const CAM_PCUT=0.15, CAM_PSTRIP=0.01, CAM_CW_BINS=[0.01,0.02,0.04,0.06,0.1,0.15,0.25,0.4];
 function camBigCut(c,its,cv){
   let n=0, fr=0, has=false, ok=false;
   (its||[]).forEach((it,i)=>{const q=cv[i]; if(!q)return; const main=camIsMain(it);
@@ -2881,13 +2883,13 @@ function camPairAll0(L,W,H,cs,opt){
       const CVC=opt&&opt.cvc, cov=(c,its)=>{const f=()=>PRE.CV?camCoverP(c,its,W,H):camCover(c,its,W,H); if(!CVC)return f();
         let m=CVC.get(its); if(!m)CVC.set(its,m=new Map()); const k=[c.x,c.y,c.rot,c.fov,!!PRE.CV].join(','); let r=m.get(k); if(!r)m.set(k,r=f()); return r;};
       // беды обложки точки (`camPosterBad`, T-20261107-67) — из той же мерки (в кэше `cvc` не лежат: зависят от зоны комнаты)
-      PRE.pb=L.map(()=>new Int8Array(N0));
+      PRE.pb=L.map(()=>new Int8Array(N0)); PRE.cw=L.map(()=>new Float32Array(N0));   // и кусок срезанного в кадре (T-20261107-68)
       PRE.all.forEach((c,n)=>L.forEach((its,v)=>{const cv=cov(c,its); let b=0; if(PRE.CV)PRE.CV[v][n]=cv;
-        PRE.pb[v][n]=Math.min(100,camPosterBad(c,its,cv));
+        const bc=camBigCut(c,its,cv); PRE.pb[v][n]=Math.min(100,bc.n+(bc.main?1:0)); PRE.cw[v][n]=bc.fr;
         UN[v].forEach((u,k)=>{const q=camUnitQ(cv,u); PRE.Q[v][n*U[v]+k]=q; if(q>=1-1e-9&&k<31)b|=(1<<k);}); PRE.bits[v][n]=b;}));
       PRE.level=Math.max(0,...PRE.all.map(c=>c.lv));}}
   if(!PRE.all.length){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (годных точек нет)'; r.corner=true; return r;}
-  const all=PRE.all, N=all.length, Q=PRE.Q, bits=PRE.bits, CV=PRE.CV, level=PRE.level, PB=PRE.pb;
+  const all=PRE.all, N=all.length, Q=PRE.Q, bits=PRE.bits, CV=PRE.CV, level=PRE.level, PB=PRE.pb, CW=PRE.cw;
   // ВИДЫ ЗОНЫ (`CAM_ZONES[..].views`): пара — вид 1 и вид 2 своей зоны (точка годна при мебели каждого варианта); у гостиной видов нет
   camCutSkip=false; camCutRelax=0;
   const vOkOf=()=>ZV&&ZV.length===2?all.map((c,n)=>ZV.map(vw=>L.every((its,v)=>camViewFit(vw,c,its,CV[v][n])))):null;
@@ -2923,10 +2925,18 @@ function camPairAll0(L,W,H,cs,opt){
   // каждое — по худшему варианту. ЧИСТАЯ ОБЛОЖКА (T-20261107-67): между (1) и (2) — беды лучшего из двух видов как обложки
   // (`camPosterBad`: главное целиком, крупное не срезано краем); общая пара спальни 2 без видов зоны брала C1 со шкафом у края кадра,
   // потому что срезы краем шли после покрытия и одинаково у обоих видов, а какой из видов станет обложкой, ключ не знал
+  // КУСОК СРЕЗАННОГО В КАДРЕ НА ОБОИХ ВИДАХ (T-20261107-68, ведущий: покупатель листает оба вида, и оба уходят в фото нейросети):
+  // после числа срезов (2) — сколько кадра обоих видов занимает срезанное краем (`camBigCut().fr` по маске, сумма двух видов, по
+  // худшему варианту) ступенью CAM_CW_BINS, до недобора. Срез по коробке (`fc.cut`) не различал кровать, разрезанную краем на половину
+  // кадра (спальня 2 «Джапанди», вид 1, после T-67), и вид без неё: у обеих пар 1; а число бед по маске — край тумбы (1 % кадра) и
+  // полосу шкафа (8 %, спальня 2 «Современный»). Ступени — чтобы сотые доли кадра не отдавали пару кадру с нарушениями. Раньше
+  // недобора — только у пары, покрывшей всё обязательное: у неполной пары доля видимого важнее (общая пара спальни 2: недобор
+  // 0.15 → 1.15, обложка без главного), там кусок — после недобора. Стадия принимается по-прежнему по (0)–(2)
   const fKey=n=>vmax(v=>all[n].per[v].fc.key), fCut=(a,b)=>vmax(v=>all[a].per[v].fc.cut+all[b].per[v].fc.cut);
-  const fPB=n=>vmax(v=>PB[v][n]);
+  const cwRaw=(a,b)=>vmax(v=>CW[v][a]+CW[v][b]);
+  const fPB=n=>vmax(v=>PB[v][n]), fBad=(a,b)=>vmax(v=>PB[v][a]+PB[v][b]), fCW=(a,b)=>{const x=cwRaw(a,b); return CAM_CW_BINS.filter(t=>x>=t).length;};
   const pairKey=(a,b)=>{let w=null; for(let v=0;v<V;v++){const m=bits[v][a]|bits[v][b], k=[camBits(mustM[v]&~m),defOf(v,a,b),camBits(optM[v]&~m)];
-    if(!w||cmp(k,w)>0)w=k;} return [Math.min(fKey(a),fKey(b)),w[0],Math.min(fPB(a),fPB(b)),fCut(a,b),w[1],w[2]];};
+    if(!w||cmp(k,w)>0)w=k;} const cw=fCW(a,b); return [Math.min(fKey(a),fKey(b)),w[0],Math.min(fPB(a),fPB(b)),fCut(a,b),w[0]?0:cw,w[1],cw,w[2]];};
   // лучшая пара среди разрешённых кандидатов: сначала покрытие по всем парам, потом точная мерка
   // ДОПУСК НАРУШЕНИЙ, В КОТОРОМ РЕШАЕТ «БОЛЬШЕ МЕБЕЛИ» (`moreTol` зоны, T-20261107-05/7): в коридоре вид с четырьмя предметами
   // почти всегда несёт чуть больше пустой стены или пола, чем вид с двумя, и общий допуск CAM_BAD_TOL отдавал пару бедному кадру
@@ -2991,7 +3001,7 @@ function camPairAll0(L,W,H,cs,opt){
   // и вешалку, а 72+72 по общему правилу брала вид к входу с двумя предметами при равном ключе у ступени шире
   const MT=camZ().moreTol, penMore=(x,y)=>MT==null||Math.abs(x.pen-y.pen)>MT?x.pen-y.pen:(y.more-x.more)||(x.pen-y.pen);
   if(!pick){const full=res.filter(([,p])=>!p.key[0]&&!p.key[1]);
-    const pool=full.length?full.sort((x,y)=>(x[1].key[2]-y[1].key[2])||(x[1].key[3]-y[1].key[3])||penMore(x[1],y[1]))
+    const pool=full.length?full.sort((x,y)=>(x[1].key[2]-y[1].key[2])||(x[1].key[3]-y[1].key[3])||(x[1].key[4]-y[1].key[4])||penMore(x[1],y[1]))
       :res.sort((x,y)=>cmp(x[1].key,y[1].key)||penMore(x[1],y[1]));
     if(pool.length)[stage,pick]=pool[0];}
   if(!pick){if(KEEP)return null; const r=camPairCorner(L[0],W,H,cs); r.how='углы (пары нет)'; r.corner=true; return r;}
@@ -3070,9 +3080,9 @@ function camPairAll0(L,W,H,cs,opt){
       else missing.push({id,role:camRole(its[i]),must:u.must,inFrame:Math.round(r[k].inF*100)/100,visible:Math.round(r[k].vis*100)/100,
         reason:r[k].inF<camCov()?'вне кадра':'заслонён'});});});
     return {cams:[mk('C1',a2,v,0),mk('C2',b2,v,1)],covered,missing,stats:[stat(a2,v),stat(b2,v)],bits:covBits(cv[0],v)|covBits(cv[1],v)};});
-  const [mk0,mm,,mc,dm,mo]=pick.key;
+  const [mk0,mm,,mc,,dm,,mo]=pick.key, cw=cwRaw(pick.a,pick.b), mb=fBad(pick.a,pick.b);
   return {level, cams:per[0].cams,
-    how:`${mm?'недобор':'пара'}: стадия ${stage},${ZV?(zoneMiss?' виды зоны: пары нет — без них,':cutMiss?' виды зоны (ближняя мебель обрезана — без cutNear),':cutRelax?` виды зоны (ближняя мебель обрезана до ${Math.round(cutRelax*100)} % кадра),`:' виды зоны,'):''} не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}${MQ[0]===null?'':`, главное в C1 ${Math.round(MQ[0]*100)/100} / C2 ${Math.round(MQ[1]*100)/100}${posterMiss?' — ОБЛОЖКА БЕЗ ГЛАВНОГО':''}`}${posterCut?`, обложка не чистая (бед ${posterCut}: крупное срезано краем или главное не целиком)`:', обложка чистая'}`,
+    how:`${mm?'недобор':'пара'}: стадия ${stage},${ZV?(zoneMiss?' виды зоны: пары нет — без них,':cutMiss?' виды зоны (ближняя мебель обрезана — без cutNear),':cutRelax?` виды зоны (ближняя мебель обрезана до ${Math.round(cutRelax*100)} % кадра),`:' виды зоны,'):''} не покрыто обязательных ${mm} (недобор ${Math.round(dm*100)/100}), главного не целиком ${mk0}, срезано краем ${mc}${cw?` (кусок в кадре ${Math.round(cw*100)} %)`:''}, бед кадра в двух видах ${mb}, необязательных ${mo}, нарушений ${Math.round(pick.pen*10)/10}, кандидатов ${N}, мерок ${st.reduce((a,m)=>a+m.size,0)}${V>1?`, вариантов ${V} (ключ — худший)`:''}${MQ[0]===null?'':`, главное в C1 ${Math.round(MQ[0]*100)/100} / C2 ${Math.round(MQ[1]*100)/100}${posterMiss?' — ОБЛОЖКА БЕЗ ГЛАВНОГО':''}`}${posterCut?`, обложка не чистая (бед ${posterCut}: крупное срезано краем или главное не целиком)`:', обложка чистая'}`,
     posterMiss, posterCut, zoneMiss, mm,
     covered:per[0].covered, missing:per[0].missing, stats:per[0].stats, per};
 }
