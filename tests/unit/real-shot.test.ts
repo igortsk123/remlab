@@ -88,6 +88,25 @@ ${cut("// SHOTCAM START", "// SHOTCAM END")};${block};${fnSrc};return vwPubShotA
     expect(vwPubShotAt([shot("c2-prev", "C2", win, { stateId: "S-old" })], "S-now", "set1", now, 1)?.url).toBe("c2-prev");
     expect(vwPubShotAt([shot("c2-prev-old", "C2", oldC2, { stateId: "S-old" })], "S-now", "set1", now, 1)).toBeNull();
   });
+  // ПЕРЕСЪЁМКА (T-20261108-73/3, владелец TG 666): ночь (`tools/ops/demo-realistic.mjs`) снимает пару, если хоть у одного вида нет фото
+  // своей точки (`vwRealMissing`). Прежде — только если фото нет ни у одного: C1 на месте, C2 сдвинут — пару не снимали никогда
+  const fm = src.indexOf("function vwRealMissing("), vwRealMissing = new Function(`${src.slice(fm, src.indexOf("\n}", fm) + 2)};return vwRealMissing;`)() as
+    (have: Shot[], cs: { name?: string }[]) => string[];
+  const have = (list: Shot[]) => now.map((_, k) => vwPubShotAt(list, "S-now", "set1", now, k)).filter((x): x is Shot => !!x);
+  it("пересъёмка: C1 своей точки, C2 снят с прежней — нужно фото вида C2 (пара в очереди), хотя одно фото у пары есть", () => {
+    const part = have([shot("c1", "C1", oldC2), shot("c2-old", "C2", oldC2)]);
+    expect(part.map((x) => x.url)).toEqual(["c1"]);
+    expect(vwRealMissing(part, now)).toEqual(["C2"]);
+    expect(vwRealMissing(have([shot("c1", "C1", win), shot("c2", "C2", win)]), now)).toEqual([]);
+    expect(vwRealMissing([], now)).toEqual(["C1", "C2"]);
+    expect(vwRealMissing([], [{}, {}])).toEqual(["C1", "C2"]);
+  });
+  it("ночной отбор пересъёмки — по `vwRealMissing`, не «нет ни одного фото»", () => {
+    const night = readFileSync("tools/ops/demo-realistic.mjs", "utf8");
+    expect(night).toMatch(/vwRealMissing\(vwRealShots\(\), cams \|\| loadCams\(\)\)/);
+    expect(night).toMatch(/const want = force \? [^\n]*: miss\.length > 0;/);
+    expect(night).not.toMatch(/: !vwRealShots\(\)\.length;/);
+  });
 });
 
 describe("страница: главная, вкладки и опрос берут только строгую функцию", () => {

@@ -2784,27 +2784,53 @@ function camLiveCam(c,its,fr,W,H){
   const th=camLivePitch(e,its,tanH,tanV,fr), a=(c.rot||0)*Math.PI/180, ct=Math.cos(th), st=Math.sin(th);
   return {x:sp.x, y:sp.y, tanH, tanV, f:[Math.sin(a)*ct,-Math.cos(a)*ct,st], r:[Math.cos(a),Math.sin(a),0], u:[-Math.sin(a)*st,Math.cos(a)*st,ct]};
 }
-// коробка предмета на холсте живой камеры (x, y — доли −1…1, y вверх), с отсечением по ближней плоскости; null — целиком за спиной
-function camLiveBox(L,it){
-  const h0=camElev(it), h1=h0+camItemH(it), rr=(it.rot||0)*Math.PI/180, ca=Math.cos(rr), sa=Math.sin(rr), P=[];
+// СИЛУЭТ ПРЕДМЕТА НА ХОЛСТЕ ЖИВОЙ КАМЕРЫ — ТОЧНО, НЕ ПРЯМОУГОЛЬНИК (T-20261108-73/3): грани коробки (камера: x вправо, y вверх, z
+// вперёд) обрезаются пирамидой взгляда — ближней плоскостью CAM_CLIP_Z и, если `win`, краями окна показа; видимый силуэт выпуклой
+// коробки — выпуклая оболочка проекций обрезанных граней. Прежняя мера брала прямоугольник вокруг проекций точек: у предмета
+// вплотную сбоку от глаза точки рёбер, обрезанные ближней плоскостью, уходят далеко за край, и прямоугольник ложился на треть
+// кадра при пустом кадре (спальня 1 «Лофт», шкаф у стены рядом с глазом: «41 %», на экране шкафа нет; прихожая — шкаф-купе 17–21 %)
+function camLiveFaces(L,it){
+  const h0=camElev(it), h1=h0+camItemH(it), rr=(it.rot||0)*Math.PI/180, ca=Math.cos(rr), sa=Math.sin(rr), lo=[], hi=[];
+  const tr=(px,py,pz)=>{const v=[px-L.x,py-L.y,pz-CAM_LIVE_EYE];
+    return [v[0]*L.r[0]+v[1]*L.r[1], v[0]*L.u[0]+v[1]*L.u[1]+v[2]*L.u[2], v[0]*L.f[0]+v[1]*L.f[1]+v[2]*L.f[2]];};
   [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([i,j])=>{const dx=i*it.w/2, dy=j*it.d/2, px=it.x+dx*ca-dy*sa, py=it.y+dx*sa+dy*ca;
-    [h0,h1].forEach(pz=>{const v=[px-L.x,py-L.y,pz-CAM_LIVE_EYE];
-      P.push([v[0]*L.r[0]+v[1]*L.r[1], v[0]*L.u[0]+v[1]*L.u[1]+v[2]*L.u[2], v[0]*L.f[0]+v[1]*L.f[1]+v[2]*L.f[2]]);});});
-  const E=[]; for(let k=0;k<4;k++){const n=(k+1)%4; E.push([2*k,2*k+1],[2*k,2*n],[2*k+1,2*n+1]);}
-  const pts=P.filter(p=>p[2]>=CAM_CLIP_Z);
-  E.forEach(([i,j])=>{const p=P[i], q=P[j]; if((p[2]-CAM_CLIP_Z)*(q[2]-CAM_CLIP_Z)<0){const t=(CAM_CLIP_Z-p[2])/(q[2]-p[2]); pts.push([p[0]+t*(q[0]-p[0]), p[1]+t*(q[1]-p[1]), CAM_CLIP_Z]);}});
-  if(!pts.length)return null;
-  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
-  pts.forEach(([xr,yu,z])=>{const sx=xr/z/L.tanH, sy=yu/z/L.tanV; x0=Math.min(x0,sx); x1=Math.max(x1,sx); y0=Math.min(y0,sy); y1=Math.max(y1,sy);});
-  return {x0,x1,y0,y1};
+    lo.push(tr(px,py,h0)); hi.push(tr(px,py,h1));});
+  const F=[lo, hi.slice().reverse()];
+  for(let k=0;k<4;k++){const n=(k+1)%4; F.push([lo[k],lo[n],hi[n],hi[k]]);}
+  return F;
 }
-// срезан ли предмет в окне `fr` живого «3D»: {frame — доля видимой части холста, own — доля коробки предмета в ней, near — до глаза}
+// обрезка многоугольника полупространством a·p + d ≥ 0 (Сазерленд — Ходжмен)
+function camClipPoly(poly,a,d){
+  const out=[], s=p=>a[0]*p[0]+a[1]*p[1]+a[2]*p[2]+d;
+  for(let i=0;i<poly.length;i++){const p=poly[i], q=poly[(i+1)%poly.length], sp=s(p), sq=s(q);
+    if(sp>=0)out.push(p);
+    if((sp>=0)!==(sq>=0)){const t=sp/(sp-sq); out.push([p[0]+t*(q[0]-p[0]), p[1]+t*(q[1]-p[1]), p[2]+t*(q[2]-p[2])]);}}
+  return out;
+}
+function camHullArea(pts){
+  if(pts.length<3)return 0;
+  const P=pts.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]), cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]), lo=[], up=[];
+  for(const p of P){while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],p)<=0)lo.pop(); lo.push(p);}
+  for(let i=P.length-1;i>=0;i--){const p=P[i]; while(up.length>=2&&cr(up[up.length-2],up[up.length-1],p)<=0)up.pop(); up.push(p);}
+  const H=lo.slice(0,-1).concat(up.slice(0,-1)); let s=0;
+  for(let i=0;i<H.length;i++){const a=H[i], b=H[(i+1)%H.length]; s+=a[0]*b[1]-a[1]*b[0];}
+  return Math.abs(s)/2;
+}
+// площадь силуэта в долях холста −1…1 (окно по высоте — ylo…yhi); `win` — обрезать краями окна, иначе только ближней плоскостью
+function camLiveArea(L,it,ylo,yhi,win){
+  const pts=[];
+  camLiveFaces(L,it).forEach(f=>{let g=camClipPoly(f,[0,0,1],-CAM_CLIP_Z);
+    if(win){g=camClipPoly(g,[-1,0,L.tanH],0); g=camClipPoly(g,[1,0,L.tanH],0); g=camClipPoly(g,[0,-1,L.tanV*yhi],0); g=camClipPoly(g,[0,1,-L.tanV*ylo],0);}
+    g.forEach(([x,y,z])=>pts.push([x/z/L.tanH, y/z/L.tanV]));});
+  return camHullArea(pts);
+}
+// срезан ли предмет в окне `fr` живого «3D»: {frame — доля видимой части холста под ним (целиком в окне — 0), own — видимая доля
+// силуэта, near — до глаза}
 function camCutLive(c,it,its,fr,W,H){
-  const L=camLiveCam(c,its,fr,W,H), b=camLiveBox(L,it), near=camNear({x:L.x,y:L.y},it);
-  if(!b)return {frame:0, own:0, near};
-  const ylo=1-2*(fr.vis??1), yhi=1, ix=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)), iy=Math.max(0,Math.min(b.y1,yhi)-Math.max(b.y0,ylo));
-  const area=Math.max(1e-9,(b.x1-b.x0)*(b.y1-b.y0)), inside=b.x0>=-1&&b.x1<=1&&b.y0>=ylo&&b.y1<=yhi;
-  return {frame:inside?0:ix*iy/(2*(yhi-ylo)), own:ix*iy/area, near};
+  const L=camLiveCam(c,its,fr,W,H), near=camNear({x:L.x,y:L.y},it), ylo=1-2*(fr.vis??1), yhi=1, vis=camLiveArea(L,it,ylo,yhi,true);
+  if(vis<=1e-9)return {frame:0, own:0, near};
+  const own=vis/Math.max(vis,camLiveArea(L,it,ylo,yhi,false));
+  return {frame:own>=0.999?0:vis/(2*(yhi-ylo)), own, near};
 }
 function camCutFrame(c,it,its,fr,W,H){const q=camCutLive(c,it,its,fr,W,H); return q.frame;}
 function camCutNearOk(vw,c,its,cv){
@@ -7703,6 +7729,14 @@ function vwRealShots(){
     (cams||[]).forEach((_,k)=>{const x=vwPubShotAt(L, st, v.id, cams, k); if(x)by.set(x.camera||'C1',x);});
   }
   return [...by.values()].sort((a,b)=>String(a.camera||'C1').localeCompare(String(b.camera||'C1')));
+}
+// КАКИМ ВИДАМ НУЖНО ФОТО (T-20261108-73/3, владелец TG 666: переснять сразу после выкладки видов): имена точек `cs`, у которых в `have`
+// (`vwRealShots()`) нет фото нейросети своей точки. Фото не своей точки (точку сдвинул пересчёт видов) — такой же повод, как «нет фото».
+// Ночная съёмка (`tools/ops/demo-realistic.mjs`) брала пару, только когда фото нет ни у одного вида: C1 на месте, C2 сдвинут — пару не
+// снимали, и у второго вида фото не было бы никогда. Задание снимает оба вида разом
+function vwRealMissing(have, cs){
+  const got=new Set((have||[]).map(x=>x.camera||'C1'));
+  return (cs||[]).map((c,k)=>(c&&c.name)||'C'+(k+1)).filter(n=>!got.has(n));
 }
 // ФОТО ВИДА В ОКНЕ — ТОЛЬКО СО СВОЕЙ ТОЧКИ (T-20261108-73, ведущий: подпись кнопки не должна врать — «Со стороны окна» над фото,
 // снятым от двери). Карточке главной `realPubPick` отдаёт и фото прежних точек («оставлять прежнее» — картинка, TG 378), а у кнопки

@@ -78,10 +78,15 @@ export function orderTodo(todo, reg, styles = []) {
   return [...bare, ...todo.filter((t) => !bare.includes(t))];
 }
 
+/** Пара для списка: «комната/стиль», а если фото своей точки нет у одного вида из двух (T-20261108-73/3) — и какого. */
+export function todoLabel(t) {
+  return `${pairLabel(t)}${Array.isArray(t.miss) && t.miss.length === 1 ? ` (вид ${t.miss[0]})` : ""}`;
+}
+
 /** Сухой ход: строка на пару «комната/стиль — пусто|устарело — ≈N ₽», в пределах потолка помечена «снял бы». */
 export function dryLines(todo, reg, rules) {
   const fit = Math.floor(rules.cap / rules.est);
-  return todo.map((t, k) => `  ${k < fit ? "снял бы" : "ждёт   "} ${pairLabel(t)} — ${hasAnyReal(reg, t) ? "фото устарело" : "фото нет совсем"} — ≈${rules.est} ₽`)
+  return todo.map((t, k) => `  ${k < fit ? "снял бы" : "ждёт   "} ${todoLabel(t)} — ${hasAnyReal(reg, t) ? "фото устарело" : "фото нет совсем"} — ≈${rules.est} ₽`)
     .concat([`  итого за ночь ≈${Math.min(todo.length, fit) * rules.est} ₽ по оценке (потолок ${rules.cap} ₽), ждут следующей ночи ${Math.max(0, todo.length - fit)}`]);
 }
 
@@ -213,10 +218,12 @@ async function main() {
     // все пары витрины: `want` — нужно фото; `pub`/`vcams` — опубликованное состояние и точки варианта (проверка кадра, как у прогрева)
     const all = await page.evaluate(`((force, only) => { const c0 = cur, out = [];
       allVariants().forEach((v, i) => { if (typeof roomGeoOf === 'function' && !roomGeoOf(v)) return; if (v.mine || v.cid) return; pickVariant(i);
-        // --force <стиль> — только он; --force all — все; без --force — у кого нет фото своей расстановки
-        const want = force ? (force === "all" || force === v.style) : !vwRealShots().length;
+        // --force <стиль> — только он; --force all — все; без --force — у кого хоть у одного вида нет фото своей расстановки и своей
+        // точки (vwRealMissing, T-20261108-73/3: фото не своей точки — тот же повод; прежде — только «нет ни у одного вида»)
+        const miss = typeof vwRealMissing === 'function' ? vwRealMissing(vwRealShots(), cams || loadCams()) : (vwRealShots().length ? [] : ['все']);
+        const want = force ? (force === "all" || force === v.style) : miss.length > 0;
         const room = typeof roomIdOf === 'function' ? roomIdOf(v) : 'living';
-        if (!only || room === only) out.push({ i, id: v.id, room, style: v.style, stateId: curStateId(), want,
+        if (!only || room === only) out.push({ i, id: v.id, room, style: v.style, stateId: curStateId(), want, miss,
           pub: typeof pubStateOf === 'function' ? pubStateOf(v) : curStateId(), vcams: v.cams || null,
           cams: (cams || loadCams()).map((c) => [c.name, Math.round(c.x), Math.round(c.y), Math.round(c.rot || 0)].join(":")).join("|") }); });
       pickVariant(c0); return out; })(${JSON.stringify(NIGHT ? "" : FORCE)}, ${JSON.stringify(ONLY_ROOM)})`);
@@ -228,7 +235,7 @@ async function main() {
     const camOk = camSrc ? camOkFrom(camSrc) : () => true;
     const noFrame = withoutShot(all.map((t) => ({ ...t, stateId: t.pub, cams: t.vcams })), reg0, camOk);
     const empty = (shot = []) => emptyLines(all, noFrame, all.filter((t) => t.want && !shot.some((x) => x.id === t.id && x.room === t.room)));
-    console.log(`фото нейросети: ${FORCE && !NIGHT ? `переснять (--force ${FORCE})` : "без фото своей расстановки"} — ${todo.length}${todo.length ? ": " + todo.map(pairLabel).join(", ") : ""}`
+    console.log(`фото нейросети: ${FORCE && !NIGHT ? `переснять (--force ${FORCE})` : "без фото своей расстановки"} — ${todo.length}${todo.length ? ": " + todo.map(todoLabel).join(", ") : ""}`
       + `${ONLY_STYLES.length ? ` (только ${ONLY_STYLES.join(", ")})` : ""}`);
     console.log(`улучшение сейчас: ${paid.available ? "доступно" : "НЕДОСТУПНО (" + (paid.code ?? "?") + ")"}`);
     if (NIGHT) {
@@ -378,6 +385,8 @@ async function selftest() {
   check(dl[0] === "  снял бы современный — фото нет совсем — ≈10 ₽" && dl[1] === "  снял бы bedroom-1/сканди — фото нет совсем — ≈10 ₽"
     && dl[2].startsWith("  ждёт    bedroom-1/лофт") && dl[3].startsWith("  ждёт    сканди — фото устарело")
     && dl[4] === "  итого за ночь ≈20 ₽ по оценке (потолок 20 ₽), ждут следующей ночи 2", "--dry: список «комната/стиль» с ценой и пометкой «снял бы» в пределах потолка", dl);
+  const dm = dryLines([{ ...P[0], miss: ["C2"] }, { ...P[1], miss: ["C1", "C2"] }], regP, { cap: 20, est: 10 });
+  check(dm[0].includes(" (вид C2) — ") && !dm[1].includes("(вид"), "--dry: фото своей точки нет у одного вида из двух — в строке пары назван вид (T-73/3)", dm);
   let el = emptyLines(P, [P[2]], [P[1], P[2]]);
   check(el[0] === "DIGEST:пустые пары комната × стиль: 2 из 4 — современный (нет фото), bedroom-1/сканди (нет кадра и фото)"
     && el[1].startsWith("WARN:demo_real: пустые пары комната × стиль — 2:"), "пустые пары: строка дайджеста и WARN со списком", el);

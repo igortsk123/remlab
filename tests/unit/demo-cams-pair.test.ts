@@ -408,7 +408,7 @@ describe("камеры демо: спальня 1, одна расстановк
 describe("камеры демо: спальня 2 — обложка с кроватью", () => {
   const fx2 = load("tests/fixtures/demo-bedroom-2-one-1107.json");
   const api2 = new Function("D", `${block};return {camPairAll,camCover,camBlock,camRole,camMainRoles,CAM_MAIN_MIN};`)({ room: fx2.room }) as {
-    camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[]) => Pair & { posterMiss?: boolean };
+    camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[], opt?: { endsHard?: boolean }) => Pair & { posterMiss?: boolean };
     camCover: (c: Cam, its: It[], W: number, H: number) => { inF: number; vis: number }[];
     camBlock: (c: Cam, its: It[]) => { cov: number; who: string };
     camRole: (it: It) => string;
@@ -428,15 +428,22 @@ describe("камеры демо: спальня 2 — обложка с кров
     expect(api2.camBlock(at, loft).cov).toBe(0);
     expect(api2.camBlock({ x: 405, y: 40, rot: -150, fov: 90 } as Cam, loft).who).toBe("шкаф");
   });
-  it("прежняя C1 кровати не видела; обложка новой пары (C1 — пометки `poster` нет) показывает её ≥ 2/3 во всех 5 стилях", () => {
+  // T-20261108-73/3: точная мера среза краем живого 3D — у прежней общей пары (43,83 114° · 387,103 −105°) второй вид в 3D режет кровать
+  // на 30–56 % кадра у 4 стилей из 5, ключ пары это видит и берёт другую общую пару — в ней обложка «Лофта» показывает кровать на 0,65 < 2/3
+  // (`posterMiss`). Такую общую пару стили не берут: у них своя (`demo-cams.mjs`, «своя пара у стилей…», `endsHard`), и обложка, которая
+  // выходит в данные, показывает кровать ≥ 2/3 у всех 5 стилей
+  it("прежняя C1 кровати не видела; обложка, что выходит в данные (общая пара или своя пара стиля), показывает её ≥ 2/3 во всех 5 стилях", () => {
     const old = { x: 123, y: 83, rot: -162, fov: 84 } as Cam;
     for (const list of L) expect(bedQ(old, list)).toBeLessThan(0.05);
-    const p = pair(), cover = p.cams.find((c) => (c as Cam & { poster?: boolean }).poster) ?? p.cams[0]!;
-    for (const [vi, list] of L.entries()) expect(bedQ(cover, list), fx2.variants[vi]!.id).toBeGreaterThanOrEqual(api2.CAM_MAIN_MIN);
-    expect(p.posterMiss).toBe(false);
+    const p = pair(), coverOf = (q: Pair) => q.cams.find((c) => (c as Cam & { poster?: boolean }).poster) ?? q.cams[0]!;
     expect(p.how).toContain("главное в C1");
-    expect(p.level).toBe(3);
-  }, 300_000);
+    for (const [vi, list] of L.entries()) {
+      const q = p.posterMiss ? api2.camPairAll([list], W, H, corners(W, H), { endsHard: true }) : p;
+      expect(q.posterMiss, `${fx2.variants[vi]!.id}: ${q.how}`).toBe(false);
+      expect(bedQ(coverOf(q), list), fx2.variants[vi]!.id).toBeGreaterThanOrEqual(api2.CAM_MAIN_MIN);
+      expect(q.level, fx2.variants[vi]!.id).toBe(3);
+    }
+  }, 600_000);
 });
 
 // СТИЛЬ НА ЗАПАСНОМ НЕ УХУДШАЕТ ПОКРЫТИЕ ОСТАЛЬНЫХ (T-20261107-11/3): слепок — гостиная сборки 07.11, неоклассика на запасном нейтральном
@@ -503,12 +510,45 @@ describe("одна пара: стиль на запасном не ухудша�
     const p = apiL.camLiveBigCut(c, list, W, H, new Set(), big).find((q) => apiL.camRole(list[q.i]!) === "тв-тумба");
     return p ? p.fr : 0;
   };
-  it("живое 3D: вид «От окна» сборки 08.11 до правки (120,90 → 96°) режет ТВ-тумбу левым краем — вид не проходит (`camBigCut`)", () => {
+  // T-73/3, точная мера: тумба с ТВ у левого края этого вида — настоящая (снимок 375 «От окна»), кусок 15 % кадра; вид считается срезом
+  // (`camBigCut`), и подбор берёт его только когда чище нет — со сторожем WARN (тест выше)
+  it("живое 3D: вид «От окна» (120,90 → 96°) режет ТВ-тумбу левым краем — кусок ≥ 10 % кадра, срез в ключе пары (`camBigCut`)", () => {
     const list = its(fxN.variants.find((v) => v.style === "минимализм")!), old = { name: "C2", x: 120, y: 90, rot: 96, fov: 78 };
     expect(tvLiveCut(old, list)).toBeGreaterThan(0.1);
     expect(apiL.camBigCut(old, list, apiL.camCover(old, list, W, H)).n).toBeGreaterThan(0);
     // тот же предмет, когда край его не задевает (вид от двери на ТВ) — не срез
     expect(tvLiveCut({ name: "C1", x: 436, y: 232, rot: -87, fov: 90 }, list)).toBe(0);
+  });
+});
+
+// ТОЧНАЯ МЕРА СРЕЗА КРАЕМ ЖИВОГО 3D (T-20261108-73/3): прежняя брала прямоугольник вокруг проекций точек коробки, обрезанных ближней
+// плоскостью, — у предмета вплотную сбоку от глаза точки уходят далеко за край, и прямоугольник ложился на треть кадра. Спальня 1
+// «Лофт», вид «От двери» сборки 08.11 (83,230 54° 72°): шкаф у западной стены рядом с глазом — «срезан на 41 % кадра», на снимке
+// живого 3D шкафа нет. Теперь — силуэт граней, обрезанных пирамидой взгляда (`camLiveArea`)
+describe("живое 3D: точная мера среза краем", () => {
+  const fx1 = load("tests/fixtures/demo-bedroom-1-one-1107.json");
+  type Cut = { frame: number; own: number; near: number };
+  type Win = { asp: number; top: number; bot: number; vis?: number };
+  const api1 = new Function("D", `${block};return {camCutLive,camLiveBigCut,camRole,CAM_LIVE_WIN};`)({ room: fx1.room }) as {
+    camCutLive: (c: Cam, it: It, its: It[], fr: Win, W: number, H: number) => Cut;
+    camLiveBigCut: (c: Cam, its: It[], W: number, H: number, skip: Set<number>, big: (it: It) => boolean) => { i: number; fr: number }[];
+    camRole: (it: It) => string; CAM_LIVE_WIN: Win[];
+  };
+  const { w: W, d: H } = fx1.room, list = its(fx1.variants.find((v) => v.id === "bedroom-1-loft")!);
+  const cam = { name: "C1", x: 83, y: 230, rot: 54, fov: 72 }, wi = list.findIndex((it) => api1.camRole(it) === "шкаф");
+  it("шкаф сбоку от глаза (в 1 м, вне кадра) — срез 0 в окне телефона и компьютера; в списке срезанного его нет", () => {
+    expect(wi).toBeGreaterThanOrEqual(0);
+    for (const fr of api1.CAM_LIVE_WIN) {
+      const q = api1.camCutLive(cam, list[wi]!, list, fr, W, H);
+      expect(q.near, "шкаф ближе порога cutNear — мера его проверяет").toBeLessThanOrEqual(150);
+      expect(q.frame, `окно ${fr.asp}: доля кадра`).toBe(0);
+    }
+    expect(api1.camLiveBigCut(cam, list, W, H, new Set(), () => true).map((q) => api1.camRole(list[q.i]!))).not.toContain("шкаф");
+  });
+  it("тот же шкаф, когда глаз смотрит вдоль него, — в кадре срезан краем (мера не слепая)", () => {
+    const along = { name: "t", x: 83, y: 230, rot: -20, fov: 72 };
+    const f = Math.max(...api1.CAM_LIVE_WIN.map((fr) => api1.camCutLive(along, list[wi]!, list, fr, W, H).frame));
+    expect(f).toBeGreaterThan(0.02);
   });
 });
 
