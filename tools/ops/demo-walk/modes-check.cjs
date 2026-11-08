@@ -100,7 +100,10 @@ if(W<=700){await p.evaluate(()=>vwSheet(3)); await p.waitForFunction(()=>documen
   await p.evaluate(()=>closePicker()); await p.waitForTimeout(500);}
 // 2. «Сделать реалистичнее» → сразу вкладка «Фото» и на ней «Улучшаю… N %» во весь кадр (demo-20 Б3, владелец 22.10 TG 791/795) → готово → снимок сам
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);
-await p.click('#vCta'); await p.waitForTimeout(1500); s=await st(p);
+// «сразу» = после снимка кадра (`vwPhGrab`): под нагрузкой на программной графике он дольше 1,5 с — ждём условие до 6 с, не время (T-20261108-75/2)
+await p.click('#vCta');
+await p.waitForFunction(()=>{const o=document.querySelector('#shot .vphwait b'); return VW.mode==='photo'&&!!o&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(o.textContent);},null,{timeout:6000}).catch(()=>{});
+s=await st(p);
 const pw2=await p.evaluate(()=>{const o=document.querySelector('#shot .vphwait'); return o?o.querySelector('b').textContent:'';});
 ok('2 после нажатия — сразу «Фото» с ходом работы',s.mode==='photo'&&s.photoTab&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(pw2),JSON.stringify({mode:s.mode,tab:s.photoTab,wait:pw2}));
 // заказ уходит после съёмки кадров — на 1440 под программной графикой это дольше 1,5 с: ждём сам заказ, не время
