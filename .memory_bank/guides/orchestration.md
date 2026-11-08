@@ -133,7 +133,8 @@ anti-rediscovery из `memory-discipline.md` относится и к брифа
   (ведущий и рабочие VS Code с 19.10) и pakardev; `tools/ops/tokstat.py` читает только машину, где запущен.
 - **Страж лимита учётки** (владелец через tamara, TG 237): `~/.local/bin/claude-strazh-limita` на algor — systemd user timer
   `claude-strazh-limita.timer` (5 мин); при 90 % 5-часового лимита впечатывает в tmux `tg-remlab` «новых тяжёлых заданий не давай»,
-  после сброса — «продолжай» (рабочим во вкладках VS Code ведущий пишет сам). Проба `--proba`, журнал `~/.local/state/claude-strazh/zhurnal.log`.
+  после сброса — «продолжай» (рабочим во вкладках VS Code ведущий пишет сам). Недельного порога «замедлись» нет
+  (владелец 08.11, TG 569: «не было — убери»; пробная версия с 95 % снята). Проба `--proba`, журнал `~/.local/state/claude-strazh/zhurnal.log`.
 - **Автоподъём ведущих после перезагрузки algor** (TG 245 tamara): systemd user `claude-vedushchie.service` →
   `~/.local/bin/claude-vedushchie-podnyat`: нет tmux `tg-remlab` → ждёт sshfs ≤ 5 мин и поднимает сессию `--resume <id>` (id пишет страж
   в `~/.local/state/claude-strazh/<цель>.sessiya`), первое сообщение — «[автозапуск …] reply владельцу; ListAgents; CronList».
