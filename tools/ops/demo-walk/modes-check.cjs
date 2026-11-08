@@ -134,9 +134,52 @@ ok('4в в 3D — прежняя расстановка: модели и кад�
 const hs=await p.evaluate(()=>{const id0=curStateId(), f=histFwd(), id1=curStateId(), b=histBack(); return {f, b, id0, id1, back:curStateId()===id0};});
 ok('4в ↷ после возврата — снова правка, ↶ — снова как было',hs.f&&hs.id1===s1e.sid&&hs.b&&hs.back,JSON.stringify({f:hs.f,b:hs.b,back:hs.back,edit:hs.id1===s1e.sid}));
 await p.evaluate(()=>{histFwd();}); await p.waitForTimeout(1200);   // снова правка — дальше шаги как прежде
+// 4г. КНОПКИ НА ПОМЕТКЕ КАРТОЧКИ ГЛАВНОЙ (T-20261108-71/2, владелец TG 582): правка → окно закрыто → на карточке «Вы изменили комнату» и
+// две кнопки окна (≥ 40 px, подпись комнаты и «✓ Просмотрено» не закрыты); «Вернуть как было» с карточки — тот же возврат, что в окне:
+// окно не открывается, пометки нет, сумма карточки и «Выбрано» — как до правки
+const RM=await p.evaluate(()=>(allVariants()[cur]||{}).room||'living'), CARD=`#hmRooms article.hm-room[data-room="${RM}"]`;
+const hcard=()=>p.evaluate(sel=>{try{drawHome();}catch(e){} const a=document.querySelector(sel); if(!a)return null; const m=a.querySelector('.hm-stale');
+  const R=e=>{if(!e)return null; const r=e.getBoundingClientRect(); return {l:r.left,t:r.top,r:r.right,b:r.bottom};};
+  const over=(x,y)=>!!x&&!!y&&x.l<y.r&&y.l<x.r&&x.t<y.b&&y.t<x.b;
+  const ttl=a.querySelector('.ttl'), tr=ttl?document.createRange():null; if(tr)tr.selectNodeContents(ttl);
+  const mr=R(m), btn=[...(m?m.querySelectorAll('[data-hst]'):[])].map(b=>({k:b.dataset.hst, t:b.textContent, h:Math.round(b.getBoundingClientRect().height)}));
+  return {stale:a.dataset.stale==='1', btn, sum:(a.querySelector('.rb .sum')||{}).textContent, inc:(document.getElementById('hmCert')||{dataset:{}}).dataset.included,
+    win:document.getElementById('shot').classList.contains('on'), coverTtl:over(mr,tr?R(tr):null), coverSeen:over(mr,R(a.querySelector('.hm-seen')))};},CARD);
+await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(1500);
+const hc1=await hcard();
+ok('4г правка → на карточке пометка и кнопки «Сделать реалистичнее» и «Вернуть как было» ≥ 40 px, подпись и «Просмотрено» не закрыты',
+  !!hc1&&hc1.stale&&hc1.btn.length===2&&hc1.btn[0].k==='real'&&/Сделать реалистичнее/.test(hc1.btn[0].t)&&hc1.btn[1].k==='back'&&hc1.btn.every(x=>x.h>=40)&&!hc1.coverTtl&&!hc1.coverSeen,
+  JSON.stringify(hc1));
+await p.locator(CARD).scrollIntoViewIfNeeded().catch(()=>{}); await p.screenshot({path:OUT+`m71-${W}-card.png`});
+await p.click(CARD+' [data-hst="back"]'); await p.waitForTimeout(1500);
+const hc2=await hcard(), sid2=await p.evaluate(()=>curStateId());
+ok('4г «Вернуть как было» с карточки → окно не открылось, пометки нет, сумма карточки и «Выбрано» как до правки, номер прежний',
+  !!hc2&&!hc2.win&&!hc2.stale&&!hc2.btn.length&&hc2.sum===s0.homeCard&&hc2.inc===s0.homeInc&&sid2===s0.sid,
+  JSON.stringify({win:hc2&&hc2.win,stale:hc2&&hc2.stale,sum:[s0.homeCard,hc2&&hc2.sum],inc:[s0.homeInc,hc2&&hc2.inc],sid:sid2===s0.sid}));
+await p.screenshot({path:OUT+`m71-${W}-card-back.png`});
+// окно снова (кнопка «›» карточки) — возврат был шагом истории, как в окне: ↷ даёт правку
+await p.click(CARD+' [data-swap]'); await p.waitForFunction(()=>document.getElementById('shot').classList.contains('on'),null,{timeout:20000}).catch(()=>{}); await p.waitForTimeout(1500);
+const fw=await p.evaluate(()=>{const f=histFwd(); return {f, sid:curStateId()};}); await p.waitForTimeout(1200);
+ok('4г после возврата с карточки ↷ в окне — снова правка',fw.f&&fw.sid===s1e.sid,JSON.stringify({f:fw.f,edit:fw.sid===s1e.sid}));
 await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(600);
 await p.evaluate(()=>histBack()); await p.waitForTimeout(1200); s=await st(p);
 ok('4 ↶ вернул расстановку со снимком → «Фото» снова доступно (в 3D)',s.mode==='walk'&&s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));
+// 4д. «СДЕЛАТЬ РЕАЛИСТИЧНЕЕ» С КАРТОЧКИ — ТО ЖЕ ЗАДАНИЕ, ЧТО ИЗ ОКНА (T-20261108-71/2): окно этой комнаты открывается на «Фото» с ходом
+// работы, задание — правленой расстановки, заказ того же вида, что по кнопке окна (шаг 2); платное подменено
+await p.evaluate(()=>histFwd()); await p.waitForTimeout(1200);
+await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(1500);
+const nb=p.renderBodies.length; await p.evaluate(()=>{window.__fakeReady=0;});
+await p.click(CARD+' [data-hst="real"]'); await p.waitForTimeout(1500); s=await st(p);
+const jw=await p.evaluate(()=>({on:document.getElementById('shot').classList.contains('on'), job:VJ.job?{vid:VJ.job.vid,sid:VJ.job.stateId}:null, vid:curVid(),
+  wait:(()=>{const o=document.querySelector('#shot .vphwait'); return o?o.querySelector('b').textContent:'';})()}));
+ok('4д «Сделать реалистичнее» с карточки → окно комнаты на «Фото» с ходом работы, задание — этой правки',
+  jw.on&&s.mode==='photo'&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(jw.wait)&&!!jw.job&&jw.job.vid===jw.vid&&jw.job.sid===s1e.sid,JSON.stringify({...jw,mode:s.mode}));
+for(let t=0;t<40&&!p.renderBodies.slice(nb).some(x=>x.quality==='realistic');t++)await p.waitForTimeout(500);
+const rc=p.renderBodies.slice(nb).filter(x=>x.quality==='realistic').pop()||{}, keys=o=>Object.keys(o).sort().join(',');
+ok('4д заказ тот же, что по кнопке окна: те же поля, оба вида, тот же лист (платное подменено)',keys(rc)===keys(rb)&&(rc.views||[]).length===2&&rc.sheet===rb.sheet,
+  JSON.stringify({card:keys(rc),win:keys(rb),sheet:[rc.sheet,rb.sheet]}));
+await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>!VJ.job,null,{timeout:20000}).catch(()=>{}); await p.waitForTimeout(600);
+await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(600);
 // 3. ПРАВКА ВО ВРЕМЯ «УЛУЧШАЮ…» НЕ ПРИМЕНЯЕТСЯ (demo-20 Г5, владелец 22.10 TG 867): ушёл в 3D, пробует сменить пол — подсказка, расстановка
 // та же; по готовности окно остаётся в 3D, вкладка «Фото» есть и «Фото готово · Смотреть». Прежний сценарий «поменял во время съёмки →
 // „фото готово для прежней“» стал невозможен по замыслу
