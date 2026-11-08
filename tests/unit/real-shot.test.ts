@@ -64,6 +64,32 @@ describe("realisticPublishedShot — порядок и запреты", () => {
   });
 });
 
+// ФОТО ВИДА В ОКНЕ — ТОЛЬКО СО СВОЕЙ ТОЧКИ (T-20261108-73, ведущий 08.11: «подпись не должна врать» — после пересборки видов «Со стороны
+// окна» стояло над фото, снятым от двери). `vwPubShotAt`: годен кадр с именем точки `C<k+1>` и той же точкой (`shotCamOk`); иначе null —
+// у вида фото нет, как у любого вида без фото. Карточке главной прежнее фото другой точки по-прежнему годно (шаг 2 выше, TG 378)
+describe("vwPubShotAt — фото вида в окне только со своей точки", () => {
+  const cut = (a: string, b: string) => src.slice(src.indexOf(a), src.indexOf(b));
+  const at = src.indexOf("function vwPubShotAt("), fnSrc = src.slice(at, src.indexOf("\n}", at) + 2);
+  const vwPubShotAt = new Function(`${src.slice(src.indexOf("const camAng="), src.indexOf("\n", src.indexOf("const camAng=")))};
+${cut("// SHOTCAM START", "// SHOTCAM END")};${block};${fnSrc};return vwPubShotAt;`)() as (
+    list: Shot[], st: string, vid: string, cs: { name: string; x: number; y: number; rot: number; fov: number }[], k: number) => Shot | null;
+  const door = { x: 436, y: 232, rot: -82, fov: 84 }, win = { x: 60, y: 205, rot: 50, fov: 90 }, oldC2 = { x: 409, y: 205, rot: -100, fov: 78 };
+  const now = [{ name: "C1", ...door }, { name: "C2", ...win }];
+  const shot = (url: string, camera: string, c2: typeof win, o: Partial<Shot> = {}) =>
+    ({ ...sh(url, { stateId: "S-now", camera, ...o }), cams: [{ name: "C1", ...door }, { name: "C2", ...c2 }] }) as Shot;
+  it("кадр C2 снят с прежней точки (у двери) — у вида «От окна» фото нет; та же точка — есть", () => {
+    expect(vwPubShotAt([shot("c2-old", "C2", oldC2)], "S-now", "set1", now, 1)).toBeNull();
+    expect(vwPubShotAt([shot("c2-now", "C2", win)], "S-now", "set1", now, 1)?.url).toBe("c2-now");
+    // точка C1 у этих кадров та же — C1 годен, хотя у C2 в той же сборке точка сменилась
+    expect(vwPubShotAt([shot("c1", "C1", oldC2)], "S-now", "set1", now, 0)?.url).toBe("c1");
+  });
+  it("чужая точка вместо своей не подставляется: у C2 нет своего кадра — C1 не берём; прежней расстановки той же точки — берём", () => {
+    expect(vwPubShotAt([shot("c1", "C1", win)], "S-now", "set1", now, 1)).toBeNull();
+    expect(vwPubShotAt([shot("c2-prev", "C2", win, { stateId: "S-old" })], "S-now", "set1", now, 1)?.url).toBe("c2-prev");
+    expect(vwPubShotAt([shot("c2-prev-old", "C2", oldC2, { stateId: "S-old" })], "S-now", "set1", now, 1)).toBeNull();
+  });
+});
+
 describe("страница: главная, вкладки и опрос берут только строгую функцию", () => {
   const fn = (name: string) => { const at = src.indexOf(`function ${name}(`); return src.slice(at, src.indexOf("\nfunction ", at + 10)); };
   it("homeModel (карточки и вкладки) и photoOf (опрос) — realisticPublishedShot, не pubShot", () => {

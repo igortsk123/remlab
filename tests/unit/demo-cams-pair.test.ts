@@ -16,7 +16,12 @@ const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
 const block = html.slice(html.indexOf("// CAMFIT START"), html.indexOf("// CAMFIT END"));
 const load = (f: string) => JSON.parse(readFileSync(f, "utf8")) as Fx;
 const apiOf = (fx: Fx) =>
-  new Function("D", `${block};return {camPair,camPairAll,camHard,camFrameState,CAM_KEY,camPairCorner,camStats,camCover,camMask,camAtWindow,camNear,camRole,CAM_B_CLEAR,CAM_MUST,CAM_COVER,CAM_ASPECT};`)({ room: fx.room }) as {
+  new Function("D", `${block};return {camPair,camPairAll,camHard,camFrameState,CAM_KEY,camPairCorner,camStats,camCover,camMask,camAtWindow,camNear,camRole,CAM_B_CLEAR,CAM_MUST,CAM_COVER,CAM_ASPECT,camEndsOk,camBigCut,CAM_ZONES,camLiveBigCut,camIsMain,camZ};`)({ room: fx.room }) as {
+    camLiveBigCut: (c: Cam, its: It[], W: number, H: number, skip: Set<number>, big: (it: It) => boolean) => { i: number; fr: number }[];
+    camIsMain: (it: It) => boolean; camZ: () => { core?: Record<string, number> };
+    camEndsOk: (A: Cam, B: Cam, W: number, H: number, E: { deg: number; mid?: number } | null) => boolean;
+    camBigCut: (c: Cam, its: It[], cv: { inF: number; vis: number }[]) => { n: number; main: boolean; fr: number };
+    CAM_ZONES: Record<string, { ends?: { deg: number; mid?: number } }>;
     camPair: (its: It[], W: number, H: number, cs: { x: number; y: number }[]) => Pair;
     camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[]) => Pair & { per: (Omit<Pair, "level" | "how">)[] };
     camHard: (c: Cam, its: It[], strict: number, minDist?: number) => string | false | undefined;
@@ -170,6 +175,8 @@ describe("камеры демо: пара", () => {
 // Слепок — сборка рядом 02.11 с `DEMO_ONE_LAYOUT=1` (`tools/scout/demo_one_layout.py`, подбор — `camPairAll`)
 type FxOne = Fx & { variants: { id: string; style: string; items: It[]; cams_shared: Cam[] }[] };
 const fxOne = load("tests/fixtures/demo-layouts-one-0211.json") as FxOne, apiOne = apiOf(fxOne);
+// крупное для среза краем — как в `camBigCut`: главное или вес ядра зоны ≥ 1
+const bigOne = (it: It) => apiOne.camIsMain(it) || ((apiOne.camZ().core ?? {})[apiOne.camRole(it)] ?? 0) >= 1;
 
 describe("демо: одна расстановка, одна пара точек", () => {
   const { w: W, d: H } = fxOne.room;
@@ -197,8 +204,11 @@ describe("демо: одна расстановка, одна пара точе�
       expect(pts(p.cams), fxOne.variants[i]!.id).toEqual(pts(all.cams));
       for (const c of p.cams) expect(apiOne.camHard(c, L[i]!, 0, apiOne.CAM_B_CLEAR), `${fxOne.variants[i]!.id} ${c.name}`).toBeFalsy();
     }
-    // слепок записан той же функцией при сборке — подбор и сборка не разошлись
-    expect(pts(all.cams)).toEqual(pts(fxOne.variants[0]!.cams_shared));
+    // слепок сборки 02.11 (`cams_shared`) — пара до правила «с двух концов» гостиной (T-20261108-73): обе точки у восточной двери;
+    // теперь одна пара на 5 стилей — с двух концов комнаты (у двери и у окна)
+    const E = apiOne.CAM_ZONES.living!.ends!, [a, b] = all.cams as [Cam, Cam], [a0, b0] = fxOne.variants[0]!.cams_shared as [Cam, Cam];
+    expect(apiOne.camEndsOk(a0, b0, W, H, E)).toBe(false);
+    expect(apiOne.camEndsOk(a, b, W, H, E), `C1 ${a.x},${a.y} ${a.rot}° · C2 ${b.x},${b.y} ${b.rot}°`).toBe(true);
   });
   // правки ведущего 02.11 по эскизам: в C1 ТВ срезан правым краем у всех стилей, в C2 столик крупно и срезан, стулья — краем
   it("главный вид C1 — диван, столик и ТВ-тумба целиком; крупная мебель ни в одном виде не срезана краем — у всех вариантов", { timeout: 120_000 }, () => {
@@ -207,9 +217,15 @@ describe("демо: одна расстановка, одна пара точе�
       const id = fxOne.variants[i]!.id, list = L[i]!, [c1, c2] = p.cams as [Cam, Cam];
       for (const it of list.filter((x) => apiOne.CAM_KEY.includes(apiOne.camRole(x))))
         expect(apiOne.camFrameState(c1, it), `${id} C1: ${it.role} целиком`).toBe(1);
-      for (const c of [c1, c2])
-        for (const it of list.filter((x) => apiOne.CAM_MUST.includes(apiOne.camRole(x)) || apiOne.camRole(x) === "стул"))
-          expect(apiOne.camFrameState(c, it), `${id} ${c.name}: ${it.role} не срезан краем`).not.toBe(2);
+      // срез — мерой T-68 (`camBigCut`: кусок срезанного крупного ≥ 1 % кадра и срезано > 15 %). С двух концов (T-20261108-73)
+      // край кадра задевает полоску ТВ-тумбы или дивана меньше 1 % кадра и стул — у прежней пары у восточной двери их не было
+      // Срез краем живого «3D» (T-20261108-73, `camLiveBigCut` в `camBigCut`) — отдельно: в кадре фото срезов нет, в 3D у вида C2
+      // «От окна» есть (обеденный стол в углу у ТВ виден от окна только взглядом вдоль стены с ТВ; `demo-cams.mjs` пишет WARN)
+      for (const c of [c1, c2]) {
+        const bc = apiOne.camBigCut(c, list, apiOne.camCover(c, list, W, H)), live = apiOne.camLiveBigCut(c, list, W, H, new Set(), bigOne).length;
+        expect(bc.n - live, `${id} ${c.name}: крупное не срезано краем кадра фото (кусок ${bc.fr.toFixed(3)} кадра)`).toBe(0);
+      }
+      expect(apiOne.camLiveBigCut(c1, list, W, H, new Set(), bigOne), `${id} C1: в 3D ничего не срезано`).toEqual([]);
     }
   });
 });
@@ -429,32 +445,71 @@ describe("камеры демо: спальня 2 — обложка с кров
 describe("одна пара: стиль на запасном не ухудшает покрытие остальных", () => {
   type FxN = Omit<Fx, "variants"> & { variants: { id: string; style: string; items: It[]; fill?: { rug_universal?: boolean }[] }[] };
   const fxN = load("tests/fixtures/demo-layouts-neo-0711.json") as unknown as FxN;
-  const apiN = new Function("D", `${block};return {camPairAll};`)({ room: fxN.room }) as {
+  const apiN = new Function("D", `${block};return {camPairAll,camEndsOk,CAM_ZONES};`)({ room: fxN.room }) as {
     camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[], opt?: { keep: number[] }) =>
       (Pair & { per: (Omit<Pair, "level" | "how"> & { bits: number })[] }) | null;
+    camEndsOk: (a: Cam, b: Cam, W: number, H: number, E: { deg: number; mid?: number }) => boolean;
+    CAM_ZONES: Record<string, { ends?: { deg: number; mid?: number } }>;
   };
   const { w: W, d: H } = fxN.room;
   it("условие keep недостижимо — null, а не углы", () => {
     const list = its(fxN.variants[0]!);
     expect(apiN.camPairAll([list], W, H, corners(W, H), { keep: [1 << 30] })).toBeNull();
   }, 120_000);
-  it("demo-cams: одна пара на 6 стилей, покрытие 5 стилей со своим набором не хуже пары без неоклассики", () => {
+  // С ДВУХ КОНЦОВ (T-20261108-73, владелец TG 594): у гостиной правило `ends`, и одной пары с двух концов на 6 стилей этой расстановки нет
+  // (как на живых данных 08.11) — у каждого стиля своя пара с двух концов. Покрытие обязательного теряет только стиль, названный в громком
+  // WARN «ценой обязательного» (минимализм: низкий стеллаж у окна заслонён ТВ-тумбой), — не молча. До правила: одна пара на 6 стилей,
+  // оба вида у двери (66°)
+  it("demo-cams: одной пары с двух концов на 6 стилей нет — у каждого стиля своя, с двух концов; покрытие теряет только стиль из WARN", () => {
     const own = fxN.variants.filter((v) => !(v.fill ?? []).some((x) => x.rug_universal));
     expect(own).toHaveLength(5);
     const base = apiN.camPairAll(own.map(its), W, H, corners(W, H))!;
     const dir = mkdtempSync(join(process.env.REMLAB_TMP || tmpdir(), "cams-neo-")), f = join(dir, "demo-data.json");
     writeFileSync(f, readFileSync("tests/fixtures/demo-layouts-neo-0711.json"));
     const log = execFileSync("node", ["tools/flat3d/demo-cams.mjs", f], { encoding: "utf8" });
-    expect(log).toMatch(/взята пара, где их покрытие не хуже/);
-    const out = JSON.parse(readFileSync(f, "utf8")) as { variants: { id: string; cams: Cam[]; cam_cover: { missing: { id: string }[] } }[] };
-    const pts = (cams: Cam[]) => cams.map((c) => [c.x, c.y, c.rot, c.fov]);
-    for (const v of out.variants) expect(pts(v.cams), v.id).toEqual(pts(out.variants[0]!.cams));
+    expect(log).toMatch(/одной пары с двух концов комнаты на 6 стилей нет — своя пара у каждого стиля/);
+    const warn = log.split("\n").filter((s) => /^WARN:demo_cams: .*ценой обязательного/.test(s)).join("\n");
+    expect(log).not.toMatch(/виды не с двух концов комнаты/);
+    const out = JSON.parse(readFileSync(f, "utf8")) as { variants: { id: string; cams: Cam[]; cam_cover: { missing: { id: string; must: boolean }[] } }[] };
+    const E = apiN.CAM_ZONES.living!.ends!;
+    for (const v of out.variants) expect(apiN.camEndsOk(v.cams[0]!, v.cams[1]!, W, H, E), `${v.id}: с двух концов`).toBe(true);
     for (const [i, v] of own.entries()) {
+      // обязательное (необязательное — в ключе после чистого вида: стул ради вида без куска ТВ у края уступить можно)
       const was = new Set(base.per[i]!.covered), now = out.variants.find((x) => x.id === v.id)!;
-      const lost = now.cam_cover.missing.map((m) => m.id).filter((id) => was.has(id));
-      expect(lost, `${v.style}: потеряно покрытие`).toEqual([]);
+      const lost = now.cam_cover.missing.filter((m) => m.must).map((m) => m.id).filter((id) => was.has(id));
+      if (lost.length) expect(warn, `${v.style}: потеряно покрытие ${lost.join(", ")} без WARN`).toContain(v.style);
     }
-  }, 300_000);
+    expect(warn).toMatch(/минимализм/);
+    // ТВ на тумбе, срезанный краем живого 3D (ведущий 08.11: кусок тумбы с ТВ у левого края «От окна» — дефект), — не молча: кусок
+    // ≥ 10 % кадра только у стиля, названного в WARN «срезано краем живого 3D» (обеденный стол в углу у ТВ виден от окна только
+    // взглядом вдоль стены с ТВ — обязательное идёт в ключе раньше чистого вида)
+    const cutW = log.split("\n").find((s) => /^WARN:demo_cams: living — крупное срезано краем живого 3D/.test(s)) ?? "";
+    for (const v of out.variants) {
+      const list = its(fxN.variants.find((x) => x.id === v.id)!), st = fxN.variants.find((x) => x.id === v.id)!.style;
+      for (const c of v.cams) if (tvLiveCut(c, list) >= 0.1) expect(cutW, `${v.id} ${c.name} ${c.x},${c.y} ${c.rot}°: ТВ-тумба срезана краем 3D без WARN`).toContain(`${st} (`);
+    }
+  }, 600_000);
+  // СРЕЗ КРАЕМ ЖИВОГО 3D (T-20261108-73, ведущий 08.11 по снимку set9 375×667 «От окна»: у левого края тёмный кусок тумбы с ТВ ~1/6 ширины).
+  // Мера фото-кадра его не видела (тумба в маске 0–2 %): живое 3D смотрит со своего места — глаз 152 см, в 50 см от стен, с наклоном вниз,
+  // холст телефона во весь экран. Мера — `camLiveBigCut` (окна и пороги — как у прихожей `cutNear`), входит в `camBigCut`
+  const apiL = new Function("D", `${block};return {camLiveBigCut,camBigCut,camCover,camRole,camIsMain,camZ};`)({ room: fxN.room }) as {
+    camLiveBigCut: (c: Cam, its: It[], W: number, H: number, skip: Set<number>, big: (it: It) => boolean) => { i: number; fr: number }[];
+    camBigCut: (c: Cam, its: It[], cv: { inF: number; vis: number }[]) => { n: number; main: boolean; fr: number };
+    camCover: (c: Cam, its: It[], W: number, H: number) => { inF: number; vis: number }[];
+    camRole: (it: It) => string; camIsMain: (it: It) => boolean; camZ: () => { core?: Record<string, number> };
+  };
+  const tvLiveCut = (c: Cam, list: It[]) => {
+    const big = (it: It) => apiL.camIsMain(it) || ((apiL.camZ().core ?? {})[apiL.camRole(it)] ?? 0) >= 1;
+    const p = apiL.camLiveBigCut(c, list, W, H, new Set(), big).find((q) => apiL.camRole(list[q.i]!) === "тв-тумба");
+    return p ? p.fr : 0;
+  };
+  it("живое 3D: вид «От окна» сборки 08.11 до правки (120,90 → 96°) режет ТВ-тумбу левым краем — вид не проходит (`camBigCut`)", () => {
+    const list = its(fxN.variants.find((v) => v.style === "минимализм")!), old = { name: "C2", x: 120, y: 90, rot: 96, fov: 78 };
+    expect(tvLiveCut(old, list)).toBeGreaterThan(0.1);
+    expect(apiL.camBigCut(old, list, apiL.camCover(old, list, W, H)).n).toBeGreaterThan(0);
+    // тот же предмет, когда край его не задевает (вид от двери на ТВ) — не срез
+    expect(tvLiveCut({ name: "C1", x: 436, y: 232, rot: -87, fov: 90 }, list)).toBe(0);
+  });
 });
 
 // ВИДЫ СПАЛЬНИ С ДВУХ КОНЦОВ КОМНАТЫ (T-20261107-30, владелец 07.11 TG 345: «эти виды в спальнях должны быть с 2 разных сторон спальни,
@@ -473,10 +528,11 @@ describe("камеры демо: спальни — виды с двух кон�
     CAM_ZONES: Record<string, { views?: unknown[]; ends?: Z }>;
   };
   const ROOMS = [["спальня 1", "tests/fixtures/demo-bedroom-1-one-1107.json"], ["спальня 2", "tests/fixtures/demo-bedroom-2-one-1107.json"]] as const;
-  it("правило — только у спальни: у гостиной, прихожей и кухни `ends` нет (их пары не меняются)", () => {
+  // T-20261108-73 (владелец 08.11 TG 594: «в каждой комнате»): правило — у спальни, гостиной и прихожей; у кухни (пауза) нет
+  it("правило — у спальни, гостиной и прихожей (взгляды встречные, ≥ 120°); у кухни `ends` нет", () => {
     const api = mk(load(ROOMS[0][1]));
-    expect(api.CAM_ZONES.bedroom!.ends!.deg).toBeGreaterThanOrEqual(120);
-    for (const k of ["living", "hall", "kitchen"]) expect(api.CAM_ZONES[k]!.ends, k).toBeUndefined();
+    for (const k of ["bedroom", "living", "hall"]) expect(api.CAM_ZONES[k]!.ends!.deg, k).toBeGreaterThanOrEqual(120);
+    expect(api.CAM_ZONES.kitchen!.ends).toBeUndefined();
   });
   it("мера концов: по разные стороны середины длинной оси, угол ≥ deg, отступ от середины ≥ mid", () => {
     const api = mk(load(ROOMS[0][1])), E = { deg: 120, mid: 50 };
@@ -531,9 +587,10 @@ describe("камеры демо: спальни — виды с двух кон�
   // (224 см — за порогом CAM_NAME_NEAR 220) звалась по северному окну, обе кнопки — «окно», и страница ставила «Ракурс 1 / 2».
   // Пары — из сборки с правилом 07.11 (`demo-cams.mjs` на живых данных)
   const namesSrc = html.slice(html.indexOf("const CAM_NAME_NEAR="), html.indexOf("// ПОДПИСИ КНОПОК РАКУРСА ЦЕЛИКОМ"));
-  const namesOf = (room: Fx["room"]) => {
-    const f = new Function("D", `${block};const LANG='ru';let cams=null,CS=[];const loadCams=()=>CS;function curRoom(){return D.room;}
-${namesSrc};return (cs)=>{CS=cs;return vwCamNames();};`)({ room: room }) as (cs: Cam[]) => string[];
+  // `list` — мебель комнаты (глобальная `items` страницы: подпись по крупному предмету), `lang` — язык страницы, `short` — короткие имена
+  const namesOf = (room: Fx["room"], list: It[] = [], lang = "ru", short = false) => {
+    const f = new Function("D", "ITS", `${block};const LANG='${lang}';let cams=null,CS=[];const items=ITS;const loadCams=()=>CS;function curRoom(){return D.room;}
+${namesSrc};return (cs)=>{CS=cs;return vwCamNames(${short});};`)({ room: room }, list) as (cs: Cam[]) => string[];
     return (...xy: [number, number][]) => f(xy.map(([x, y], k) => ({ name: `C${k + 1}`, x, y, rot: 0, fov: 72 })));
   };
   it("подписи: спальня 1 — у всех 5 стилей «Со стороны двери / окна»; прежняя пара — прежние «окна, слева / справа»", () => {
@@ -545,5 +602,42 @@ ${namesSrc};return (cs)=>{CS=cs;return vwCamNames();};`)({ room: room }) as (cs:
   it("подписи: спальня 2 и гостиная — как до правила", () => {
     expect(namesOf(load(ROOMS[1][1]).room)([43, 83], [387, 103])).toEqual(["Со стороны окна", "Со стороны двери"]);
     expect(namesOf(load("tests/fixtures/demo-layouts-neo-0711.json").room)([409, 205], [346, 322])).toEqual(["Со стороны двери, справа", "Со стороны двери, слева"]);
+  });
+  // ПОДПИСИ ПО ТОМУ, ЧТО У КАЖДОГО КОНЦА (T-20261108-73, владелец 08.11 TG 594: «с другой стороны ничего нет — „от двери“ и „от шкафа“»):
+  // в своей половине проёма нет — по ближайшему крупному предмету; одинаковых имён и «Ракурс N» нет. Пары — сборка 08.11 на данных прода
+  it("подписи: спальня 2 — восточный конец без проёма зовётся по кровати (до — «Ракурс 2»), RU и EN, полные и короткие", () => {
+    const fx = load(ROOMS[1][1]), list = its(fx.variants.find((v) => v.style === "сканди")!);
+    expect(namesOf(fx.room)([57, 83], [447, 53])).toEqual(["Со стороны окна", "Ракурс 2"]);   // без мебели — как было на проде
+    expect(namesOf(fx.room, list)([57, 83], [447, 53])).toEqual(["Со стороны окна", "Со стороны кровати"]);
+    expect(namesOf(fx.room, list, "ru", true)([57, 83], [447, 53])).toEqual(["От окна", "От кровати"]);
+    expect(namesOf(fx.room, list, "en")([57, 83], [447, 53])).toEqual(["From the window", "From the bed"]);
+    expect(namesOf(fx.room, list, "en", true)([57, 83], [447, 53])).toEqual(["Window", "Bed"]);
+  });
+  it("подписи: гостиная с двух концов — «От двери» / «От окна» (до — «От двери, справа / слева», TG 618)", () => {
+    const fx = load("tests/fixtures/demo-layouts-neo-0711.json");
+    expect(namesOf(fx.room, its(fx.variants[0]!))([436, 232], [120, 90])).toEqual(["Со стороны двери", "Со стороны окна"]);
+    expect(namesOf(fx.room, its(fx.variants[0]!), "ru", true)([436, 232], [60, 205])).toEqual(["От двери", "От окна"]);
+  });
+  it("подписи: прихожая — у входа «От двери», хоть боковая дверь ближе; у дальнего конца — «От шкафа», не вторая «дверь»", () => {
+    const fx = load("tests/fixtures/demo-hall-1107.json");
+    for (const v of fx.variants) {
+      const nm = namesOf(fx.room, its(v), "ru", true);
+      // минимализм 08.11: точка у входа в 58 см от боковой двери и в 131 см от входной; дальняя — в 43 см от боковой двери в комнату
+      expect(nm([43, 431], [50, 131]), v.id).toEqual(["От шкафа", "От двери"]);
+      expect(nm([50, 425], [50, 75]), v.id).toEqual(["От шкафа", "От двери"]);
+    }
+  });
+  it("подписи: в любой паре с двух концов — разные и без «Ракурс N» (сетка точек по всем комнатам)", () => {
+    const rooms: [string, Fx][] = [["спальня 1", load(ROOMS[0][1])], ["спальня 2", load(ROOMS[1][1])],
+      ["гостиная", load("tests/fixtures/demo-layouts-neo-0711.json")], ["прихожая", load("tests/fixtures/demo-hall-1107.json")]];
+    for (const [tag, fx] of rooms) {
+      const { w: W, d: H } = fx.room, lx = W >= H, nm = namesOf(fx.room, its(fx.variants[0]!), "ru", true);
+      const at = (u: number, v: number): [number, number] => (lx ? [u * W, v * H] : [v * W, u * H]);
+      for (const u1 of [0.05, 0.2, 0.4]) for (const u2 of [0.6, 0.8, 0.95]) for (const v1 of [0.1, 0.5, 0.9]) for (const v2 of [0.1, 0.5, 0.9]) {
+        const r = nm(at(u1, v1), at(u2, v2));
+        expect(r[0], `${tag} ${at(u1, v1)} / ${at(u2, v2)}`).not.toBe(r[1]);
+        expect(r.join(" "), `${tag} ${at(u1, v1)} / ${at(u2, v2)}`).not.toMatch(/Ракурс/);
+      }
+    }
   });
 });

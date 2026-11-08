@@ -38,8 +38,10 @@ const its = (v: { items: It[] }) => v.items.map((it) => ({ ...it, x: +it.x, y: +
 // Достигнуто 07.11 на свежем банке compose_hall (T-20261107-05/7, вид к входу): scandi/modern/loft — 4, japandi — 5, minimal — 3
 // (всё в ряд вдоль одной стены; без `moreTol` зоны общий порядок ставил нарушения кадра выше числа предметов и брал вид с двумя —
 // обувница и зеркало). Вид на хранение — потолок 2 при любой точке (всё хранение у входа, шкаф в дальнем конце; разбор расстановки —
-// отчёт T-20261107-05/6). Пороги — фиксация, не цель.
-const MIN1: Record<string, number> = { "hall-scandi": 4, "hall-modern": 4, "hall-loft": 4, "hall-minimal": 3, "hall-japandi": 5 };
+// отчёт T-20261107-05/6). Пороги — фиксация, не цель. minimal 3 → 2 (T-20261108-73): срез краем живого «3D» вошёл в ключ пары
+// (`camBigCut` → `camLiveBigCut`) — прежний вид к входу (43,431 → 32°) резал шкаф-купе краем 3D на 17 % кадра; новый (50,419 → 22°)
+// без среза, консоль в кадре на 26 % вместо 61 %
+const MIN1: Record<string, number> = { "hall-scandi": 4, "hall-modern": 4, "hall-loft": 4, "hall-minimal": 2, "hall-japandi": 5 };
 type Cut = { cm: number; frame: number; hi: number; live: Frame[] };
 const pairs = new Map<string, Pair>();
 const pairOf = (v: { id: string; items: It[] }) => {
