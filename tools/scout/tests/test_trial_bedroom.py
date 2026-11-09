@@ -3,7 +3,10 @@
 
   1) спальни всех панелей найдены, id комнат и вариантов уникальны на задание;
   2) масштаб не подтверждён — отказ по всем комнатам, ни одного предмета;
-  3) правило кровати (TG 1377): идеальной ширины нет модели → другая, что влезает; никакая → без кровати и с текстом; узких 90 нет;
+  3) правило шаблонов (владелец 09.11, TG 478/480): шаблон (назначение × ширина) → товары под него → нет или не встали → следующий;
+     ни один — комната пустая, исход кодом `no_products`, остальные обставляются; кровать без тумб — не шаблон; узких 90 нет;
+     исход — коды (`furnished`/`no_products`/`not_readable`/`scale_unverified`), готовых надписей одного языка нет (TG 486–488);
+     все стили комнаты — на одном ядре и с одной петлёй (у страницы одна геометрия комнаты); сторож спрашивается с моделью сцены;
   4) только разрешённые поля: ни магазинов, ни ссылок; подложенная утечка ловится;
   5) готовая расстановка банка (`layout`) не читается; мебель проверена по полному контуру;
   6) куски для общей версии данных совпадают с контрактом.
@@ -83,7 +86,7 @@ def test_all_bedrooms_unique_ids():
     ids = [v['id'] for r in job['rooms'] for v in r['variants']]
     assert ids and len(ids) == len(set(ids))
     for r in job['rooms']:
-        assert r['outcome']['state'] == 'ready' and len(r['variants']) == len(TB.STYLES)
+        assert r['outcome']['state'] == 'furnished' and len(r['variants']) == len(TB.STYLES)
 
 
 def test_kind_other_named_bedroom_found_and_ensuite_not():
@@ -97,7 +100,8 @@ def test_scale_unverified_refused_no_furniture(tmp_path):
     job = TB.build('t2', plan('not_verified'), None)            # даже без данных: до подбора дело не доходит
     assert job['status'] == 'refused'
     for r in job['rooms']:
-        assert r['variants'] == [] and r['outcome']['state'] == 'refused' and r['outcome']['code'] == 'scale_unverified' and r['outcome']['text']
+        assert r['variants'] == [] and r['outcome']['state'] == 'scale_unverified' and r['outcome']['code'] == 'scale_unverified'
+        assert 'text' not in r['outcome']                        # исход — код, надпись на языке страницы ставит сборщик
     saved = json.load(open(os.path.join(tmp_path, 't2', 'bedrooms.json'), encoding='utf-8'))
     assert saved['status'] == 'refused'
 
@@ -111,22 +115,25 @@ def test_bed_without_model_replaced_by_other_width():
     blocked = {f'i{i}_i{i}0' for i in range(len(TB.STYLES))}      # идеальной ширине модели нет
     job = TB.build('t3', plan(sizes=((420, 380),)), ctx(bank, blocked))
     r = job['rooms'][0]
-    assert r['outcome']['state'] == 'ready'
+    assert r['outcome']['state'] == 'furnished'
     assert {b['sku']['sleep_w'] for b in beds(r)} == {140}
+    assert {v['template'] for v in r['variants']} <= {'guest-140', 'single-140'}
 
 
-def test_no_bed_fits_refused_with_text():
+def test_no_bed_fits_room_empty_no_products():
     job = TB.build('t4', plan(sizes=((230, 300),)), ctx(full_bank(bed_w=190, sleep=180)))
     o = job['rooms'][0]['outcome']
-    assert o['state'] == 'refused' and o['text'] == TB.TEXT_NO_PRODUCTS and job['rooms'][0]['variants'] == []
+    assert o['state'] == 'no_products' and job['rooms'][0]['variants'] == []
     assert job['status'] == 'refused'
 
 
-def test_no_ready_model_refused_with_text():
+def test_no_ready_model_no_products():
     blocked = {f'b{i}_b{i}0' for i in range(len(TB.STYLES))}
     job = TB.build('t5', plan(sizes=((420, 380),)), ctx(full_bank(), blocked))
     o = job['rooms'][0]['outcome']
-    assert o['state'] == 'refused' and o['code'] == 'no_products' and o['text'] == 'No suitable products under the current templates.'
+    assert o['state'] == 'no_products' and o['code'] == 'no_products'
+    for f in job['rooms'][0]['style_failures']:                  # причина по каждому шаблону: кроватей его ширины с моделью нет
+        assert f['templates'] and all(t['why'] == 'no_bed' for t in f['templates'])
 
 
 def test_single_90_excluded():
@@ -135,18 +142,20 @@ def test_single_90_excluded():
     assert job['rooms'][0]['variants'] == [] and job['rooms'][0]['outcome']['code'] == 'no_products'
 
 
-def test_partial_when_item_missing():
-    bank = [rec(st, item(f'b{i}', 170, sleep=160)) for i, st in enumerate(TB.STYLES)]   # только кровати: тумб и шкафов нет
+def test_bed_without_nightstand_is_no_template():
+    # шаблон — кровать И тумбы (ведущие роли спальни): одни кровати без тумб — не шаблон, комната пустая, «кровать в одиночку» не ставим
+    bank = [rec(st, item(f'b{i}', 170, sleep=160)) for i, st in enumerate(TB.STYLES)]
     job = TB.build('t7', plan(sizes=((420, 380),)), ctx(bank))
     r = job['rooms'][0]
-    assert r['outcome']['state'] == 'partial' and r['outcome']['text']
-    assert all(v['status'] == 'partial' and {m['role'] for m in v['missing_item']} >= {'тумба прикроватная'} for v in r['variants'])
+    assert r['variants'] == [] and r['outcome']['state'] == 'no_products'
+    assert any(t['why'] == 'no_nightstand' for f in r['style_failures'] for t in f['templates'])
 
 
 def test_output_allowlist_no_shop():
     job = TB.build('t8', plan(), ctx(full_bank()))
     blob = json.dumps(job, ensure_ascii=False, default=str)
     assert SHOP not in blob and 'shop-test' not in blob and 'особенный' not in blob and 'http' not in blob
+    assert '"text"' not in blob and 'furniture_text' not in blob       # готовых надписей одного языка нет (владелец TG 486–488)
     for r in job['rooms']:
         for v in r['variants']:
             for it in v['items']:
@@ -214,7 +223,7 @@ def test_not_furnished_without_entry():
     p['panels'][0]['openings'] = [p['panels'][0]['openings'][1]]   # окно есть, двери нет
     job = TB.build('t12', p, ctx(full_bank()))
     o = job['rooms'][0]['outcome']
-    assert o['state'] == 'refused' and o['code'] == 'no_entry' and o['text']
+    assert o['state'] == 'not_readable' and o['code'] == 'no_entry'          # отдельно от «нет подходящих товаров» (Codex lang п.2.4)
 
 
 def test_variants_diverse_products():
@@ -237,7 +246,9 @@ def test_bundle_parts_contract():
     for v in parts['variants']:
         assert re.fullmatch(r'[a-z0-9-]{1,40}', v['room_id']) and v['pending'] is False and isinstance(v['furniture_state'], str) and v['room_id'] in parts['rooms_geo']
     for a in parts['apartment_rooms']:
-        assert a['furniture_state'] in ('ready', 'pending', 'refused')
+        assert a['furniture_state'] in ('ready', 'pending', 'refused') and a['furniture_outcome'] == 'furnished'
+        assert a['panel'] in ('p0', 'p1') and a['src_id'] == 'r1'    # сборщик находит комнату куска по (панель, id плана)
+        assert 'furniture_text' not in a and 'titleEn' not in a      # ни готовых надписей, ни подписей одного языка
     assert [a['storey'] for a in parts['apartment_rooms']] == [0, 1]
     geo = parts['rooms_geo']['bedroom-1']
     assert geo['w'] > 0 and all(not k.startswith('_') for o in geo['openings'] for k in o)
@@ -247,7 +258,8 @@ def test_bundle_parts_refused_room_has_no_variants():
     job = TB.build('t15', plan('not_verified'), None)
     parts = TB.bundle_parts(job)
     assert parts['variants'] == [] and parts['rooms_geo'] == {}
-    assert all(a['furniture_state'] == 'refused' and a['furniture_text'] for a in parts['apartment_rooms'])
+    assert all(a['furniture_state'] == 'refused' and a['furniture_outcome'] == 'scale_unverified' and a['furniture_code'] == 'scale_unverified'
+               for a in parts['apartment_rooms'])
 
 
 def test_coverage_counts_ready_by_width_style():
@@ -257,3 +269,72 @@ def test_coverage_counts_ready_by_width_style():
     assert cov['table'][st1]['160']['bank'] == 1 and cov['table'][st0]['160']['bank'] == 0
     assert {'style': st0, 'sleep_w': 160} in cov['empty_cells']
     assert not any(c['sleep_w'] == 90 for c in cov['empty_cells'])
+
+
+# ───── ПРАВИЛО ШАБЛОНОВ (владелец 09.11, TG 478/480): шаблон → товары под него → нет / не встали → следующий; ни один — комната пустая ─────
+
+def test_templates_order_from_rules():
+    big = TB.templates(16.0, 380.0)                              # NDSS для пары, идеальная ширина 160
+    ids = [t['id'] for t in big]
+    assert ids[0] == 'couple-160' and 'couple-180' in ids and not any(i.endswith('-90') for i in ids)
+    assert {t['nightstands'] for t in big if t['purpose'] == 'couple'} == {2}
+    small = [t['id'] for t in TB.templates(9.5, 280.0)]         # не для пары, идеальная 140
+    assert small[0] == 'guest-140' and not any(i.startswith('couple') for i in small)
+
+
+def test_template_not_fit_goes_to_next_template(monkeypatch):
+    # кровати 160 и 120 есть; 160 «не встаёт» → следующие шаблоны; выполнен первый с кроватью 120, перебор записан
+    real = TB._solve_kit
+
+    def fake(ad, cand, cfg, kit, purpose):
+        return None if kit['кровать']['w'] > 150 else real(ad, cand, cfg, kit, purpose)
+    monkeypatch.setattr(TB, '_solve_kit', fake)
+    bank = []
+    for i, st in enumerate(TB.STYLES):
+        r = rec(st, item(f'b{i}', 170, sleep=160), item(f's{i}', 45, 40, 50))
+        r['alternates'] = {'кровать': [item(f'a{i}', 130, sleep=120)]}
+        bank.append(r)
+    job = TB.build('t17', plan(sizes=((420, 380),)), ctx(bank))
+    r = job['rooms'][0]
+    assert r['outcome']['state'] == 'furnished' and len(r['variants']) == len(TB.STYLES)
+    for v in r['variants']:
+        assert v['template'] == 'guest-120' and v['bed_sleep_w'] == 120
+        tried = {t['template']: t['why'] for t in v['templates_tried']}
+        assert tried['couple-160'] == 'no_fit' and tried['guest-160'] == 'no_fit' and tried['couple-180'] == 'no_bed'
+
+
+def test_one_room_empty_others_furnished():
+    job = TB.build('t18', plan(sizes=((200, 280), (420, 380))), ctx(full_bank()))
+    a, b = job['rooms']
+    assert a['variants'] == [] and a['outcome']['state'] == 'no_products'
+    assert b['outcome']['state'] == 'furnished' and len(b['variants']) == len(TB.STYLES)
+    assert job['status'] == 'partial'
+    parts = TB.bundle_parts(job)
+    assert [x['furniture_outcome'] for x in parts['apartment_rooms']] == ['no_products', 'furnished']
+    assert {v['room_id'] for v in parts['variants']} == {'bedroom-2'}     # пустая комната — без вариантов, сборщик кладёт пустую с надписью
+
+
+def test_variants_share_core_and_hinge():
+    # у страницы у комнаты одна геометрия: все стили на одном ядре и с одной петлёй двери
+    c = [[0, 0], [480, 0], [480, 300], [300, 300], [300, 460], [0, 460]]
+    room = {'id': 'r1', 'name': 'Bedroom 1', 'kind': 'bedroom', 'contour': c, 'bbox': {'x': 0, 'y': 0, 'w': 480, 'd': 460}, 'areaM2': 17.2, 'flags': []}
+    p = {'version': 1, 'units': 'cm', 'scale': {'status': 'verified', 'ppm': 100, 'inliers': 3, 'n': 3}, 'flags': [],
+         'panels': [{'id': 'p0', 'title': 'x', 'rooms': [room], 'walls': [], 'openings': [{'kind': 'door', 'c': [100, 0], 'widthCm': 80, 'exterior': False},
+                                                                                          {'kind': 'window', 'c': [150, 460], 'widthCm': 120, 'exterior': True}]}]}
+    r = TB.build('t19', p, ctx(full_bank()))['rooms'][0]
+    assert len(r['variants']) == len(TB.STYLES)
+    assert len({v['hinge'] for v in r['variants']}) == 1 and all(v['openings_core'] == r['openings_core'] for v in r['variants'])
+
+
+def test_gate_asked_with_scene_model():
+    # сторож моделей решает по модели, которую грузит сцена (`msid`); без неё живой сторож отвечал «модели сцены нет» всем кроватям
+    asked = []
+
+    def mesh_ok(sku):
+        asked.append(sku)
+        return '' if sku.get('msid') == 'm-' + sku['sid'] else 'модели сцены нет'
+    mesh_ok.msid = lambda sid: 'm-' + sid
+    c = ctx(full_bank())
+    c['mesh_ok'] = mesh_ok
+    job = TB.build('t20', plan(sizes=((420, 380),)), c)
+    assert asked and job['rooms'][0]['outcome']['state'] == 'furnished'

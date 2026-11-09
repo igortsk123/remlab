@@ -7,16 +7,19 @@
   3. подбор: стиль → наборы и запас того же стиля из банка спальни (`sets-bedroom.json`, ТОЛЬКО товары; готовая расстановка чужой
      квартиры `layout` не читается, TG 1377) плюс кровати каталога в стиле; в подбор идёт только товар с годной живой моделью
      (`flat215_demo.room_mesh_gate('bedroom')`);
-  4. кровать — по площади: ближайшая к идеальной ширине (120–180, узких 90 нет — решение владельца); нет модели или не встала — следующая,
-     что влезает; ни одна — комната без кровати и честный текст (TG 1377);
+  4. ШАБЛОНЫ (владелец 09.11, TG 478/480; `templates`): назначение × ширина спального места (120–180, узких 90 нет) из
+     `rules/bedroom-composition.json`, по порядку от идеальной для площади ширины; шаблон → товары стиля под него (кровать его ширины
+     с моделью, тумбы) → нет товаров или не встали — следующий шаблон; ни один — комната ПУСТАЯ, исход `no_products` (код; надпись
+     «нет подходящих товаров согласно действующим шаблонам» на нужном языке ставят сборщик и страница), остальные обставляются;
   5. проверка солвером и по ПОЛНОМУ контуру (`planner.validate` + `trial_room.post_check`): мебель в контуре, дуги дверей обеих
      петель свободны, вход достижим;
   6. масштаб не подтверждён — отказ по всем комнатам, вопросов не задаём, мебель не подгоняем;
   7. выход `bedrooms.json` — только разрешённые поля (`ITEM_KEYS`, `SKU_KEYS`); проверка `assert_no_shop` по всему JSON: ни названий,
      ни ссылок магазинов. `bundle_parts(job)` — куски для общей версии данных задания (`trial_bundle`).
 
-  ~/venvs/scout/bin/python trial_bedroom.py <trial_id> <floorplanResult.json> [--frames <папка>]
-  ~/venvs/scout/bin/python trial_bedroom.py <trial_id> --bench model-*.json [--frames <папка>]
+  ~/venvs/scout/bin/python trial_bedroom.py <trial_id> <floorplanResult.json> [--frames <папка>] [--brief <файл.json>]
+  ~/venvs/scout/bin/python trial_bedroom.py --bench <trial_id> model-*.json [--frames <папка>] [--brief <файл.json>]
+Кадры: сверху (каждый вариант; пустая комната — с кодом исхода) и от двери (меши). Исход комнаты — код (`ROOM_STATES`), не текст.
   ~/venvs/scout/bin/python trial_bedroom.py --coverage [--out <папка>]    # А: живые готовые кровати по ширине × стилю
 Банк — `TRIAL_BEDROOM_SETS` (по умолчанию `tools/scout/sets-bedroom.json` этой копии). Код выхода: 0 — готово, 3 — частично, 2 — отказ.
 """
@@ -43,35 +46,36 @@ STYLES = list(COMP.get('styles') or STYLE_ID)
 BED_NAME = re.compile(r'\b(bed\s?room|bedroom|guest\s?room|box\s?room|nursery)\b', re.I)
 NOT_BED = re.compile(r'en[\s-]?suite|bath|wc|shower|dressing|landing|closet|linen', re.I)
 ROOM_ROLES = ('кровать', 'тумба прикроватная', 'шкаф', 'комод')
-NEUTRAL = {'кровать': 'Bed', 'тумба прикроватная': 'Bedside table', 'шкаф': 'Wardrobe', 'комод': 'Chest of drawers'}
 BED_WIDTHS = (120, 140, 160, 180)                  # ширины спального места пробы; узкие 90 — вне охвата (TG 1377)
 NARROW_MAX_CM = 100.0                              # спальное/рама уже — «узкая», не ставим и не считаем
 IDEAL_SIZES = ((18.0, 300.0, 180), (11.5, 255.0, 160), (9.0, 0.0, 140), (0.0, 0.0, 120))   # площадь ядра, короткая сторона → идеальная ширина спального, см (NDSS)
 NDSS_DOUBLE = (11.5, 255.0)                        # двуспальная «для пары» — NDSS 2015 (площадь м², короткая сторона см)
-NIGHTSTANDS = {'couple': 2, 'guest': 1, 'single': 1}
+NIGHTSTANDS = {p: next((int(s.get('qty') or 1) for s in v['slots'] if s['role'] == 'тумба прикроватная'), 1)
+               for p, v in COMP['purposes'].items() if 'slots' in v}          # тумб в шаблоне назначения (пара — 2, Н1)
+TEMPLATE_PURPOSES = ('couple', 'guest', 'single')  # назначения шаблонов спальни; детская/кабинет — свои роли, не здесь
 BACK_ROLES = ('кровать', 'шкаф', 'комод')          # спинкой к стене полного контура, не к стороне ядра над нишей
 BACK_GAP_CM = 12.0                                 # задняя кромка дальше от стены — «стоит в воздухе»
 BACK_MIN_SHARE = 0.8                               # доля точек кромки, что обязаны быть у стены
-MAX_BEDS = 6                                       # разных размеров кроватей на стиль × ядро в переборе
-MAX_CORES = 3                                      # ядер на стиль: дальше — те же кровати на всё меньшей площади
+HINGES = ('left', 'right')                         # петля двери на плане неизвестна — пробуем обе; первый вариант комнаты фиксирует свою
+MAX_CORES = 3                                   # ядер на стиль: дальше — те же кровати на всё меньшей площади
 ROOM_BUDGET_S = 30.0                               # бюджет на комнату (чтобы плохой план не ел конвейер); вышло — лучшее, что есть
 MIN_STYLES_READY = 2                               # меньше стилей — комната честно «частично» (владелец TG 1382: разные стили)
 SMALLEST_BED = {'sofa': [120.0, 195.0], 'bearer': [0.0, 0.0], 'tv_min_cm': 0.0}   # «влезает ли хоть какая-то кровать» в ядро (рама 120)
 
-# ТЕКСТЫ ДЛЯ ПОКУПАТЕЛЯ по комнате (страница на английском; TG 1377). Код → текст
-TEXT_NO_PRODUCTS = 'No suitable products under the current templates.'
-TEXT_NOT_READABLE = 'This room could not be read reliably from the plan, so furniture was not placed.'
-OUTCOME_TEXT = {
-    'scale_unverified': 'Room dimensions could not be confirmed from this plan, so furniture was not placed.',
-    'no_products': TEXT_NO_PRODUCTS, 'bed_no_fit': TEXT_NO_PRODUCTS, 'room_too_small': TEXT_NO_PRODUCTS,
-    'contour_distorted': TEXT_NOT_READABLE, 'opening_ambiguous': TEXT_NOT_READABLE, 'no_core': TEXT_NOT_READABLE,
-    'opening_cut_by_core': TEXT_NOT_READABLE, 'no_entry': TEXT_NOT_READABLE, 'no_bedrooms': None,
-    'partial': 'Some styles or items are not available for this room.'}
-OUTCOME_DEFAULT = 'Furniture could not be placed in this room.'
+# ИСХОД ПО КОМНАТЕ — КОДОМ, без готовых строк (владелец TG 486–488: проба на RU и EN; Codex lang п.2.4): надпись по коду подставляют
+# сборщик (`trial_bundle.OUTCOME_TEXT`, обе локали) и страница. `state` — для страницы, `code` — точная причина (диагностика):
+#   furnished — есть варианты; no_products — не подошёл ни один шаблон («нет подходящих товаров согласно действующим шаблонам»);
+#   not_readable — комнату не прочитать по плану (отдельно от «нет товаров»); scale_unverified — масштаб не подтверждён;
+#   failed — перебор не закончен (бюджет). `pending` — у сборщика: стадия ещё не отдала кусок.
+ROOM_STATES = ('furnished', 'no_products', 'not_readable', 'scale_unverified', 'failed')
+CODE_STATE = {'no_products': 'no_products', 'bed_no_fit': 'no_products', 'room_too_small': 'no_products',
+              'scale_unverified': 'scale_unverified',
+              **{c: 'not_readable' for c in ('contour_distorted', 'opening_ambiguous', 'no_core', 'opening_cut_by_core', 'no_entry')}}
 # ЕДИНЫЙ РАЗРЕШЁННЫЙ СПИСОК ПОЛЕЙ ТОВАРА В ВЫХОДЕ (TG 1377, Codex 09.11): предмет и его `sku` — только эти поля; ни `url`, `shop`,
-# `img`, ни цены магазина. Источник один — `public_item`; `assert_no_shop` проверяет ВЕСЬ JSON задания.
+# `img`, ни цены магазина. Источник один — `public_item`; `assert_no_shop` проверяет ВЕСЬ JSON задания. Тот же список, что общий
+# у сборщика (`trial_bundle.ITEM_KEYS`/`SKU_KEYS`): сборщик ещё раз фильтрует куски стадий своим `public_item`.
 ITEM_KEYS = {'role', 'x', 'y', 'rot', 'w', 'd', 'h', 'dims_src', 'sku', 'corner', 'corner_left', 'section', 'elev'}
-SKU_KEYS = {'name', 'msid', 'w', 'd', 'h', 'sleep_w'}
+SKU_KEYS = {'name', 'name_en', 'colour_en', 'msid', 'w', 'd', 'h', 'sleep_w'}
 SHOP_LINKS = re.compile(r'(https?:|//[a-z0-9.-]+\.[a-z]{2,}|gdeslon|\berid=)', re.I)
 BANNED_KEYS = {'url', 'url_direct', 'shop', 'img', 'img_hd', 'price', 'brand'}
 
@@ -145,8 +149,12 @@ def _sid(it: dict) -> str | None:
     return it.get('sid') or (f"{it['mid']}:{it['eid']}" if it.get('mid') and it.get('eid') else None)
 
 
-def _sku(it: dict) -> dict:
-    return {'sid': (_sid(it) or '').replace(':', '_', 1)}
+def _sku(it: dict, mesh_ok=None) -> dict:
+    """Артикул для сторожа моделей: `sid` и модель, которую грузит сцена (`msid` — `mesh_ok.msid`, как у живого демо). Без `msid`
+    сторож отвечает «модели сцены нет» даже выложенной модели — так проба 09.11 не видела ни одной кровати."""
+    sid = (_sid(it) or '').replace(':', '_', 1)
+    f = getattr(mesh_ok, 'msid', None)
+    return {'sid': sid, 'msid': f(sid) if f else sid}
 
 
 def _defect_names() -> re.Pattern | None:
@@ -160,7 +168,7 @@ def _ready(it: dict | None, mesh_ok, defect) -> bool:
         return False
     if defect and defect.search(it.get('name') or ''):
         return False
-    return not mesh_ok(_sku(it))
+    return not mesh_ok(_sku(it, mesh_ok))
 
 
 def _sleep_w(it: dict) -> float:
@@ -218,8 +226,9 @@ def _thr() -> float:
     return float(json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))['in_style_min'])
 
 
-def bed_pool(style: str, bank: list, catalog: list, mesh_ok, defect, thr: float, ideal: float, used: set) -> list:
-    """Готовые кровати стиля (и соседних, запасом) по близости к идеальной ширине; первыми — не занятые другими спальнями задания."""
+def bed_pool(style: str, bank: list, catalog: list, mesh_ok, defect, thr: float, ideal: float, used: set, room_used: set = frozenset()) -> list:
+    """Готовые кровати стиля (и соседних, запасом): первыми — не стоящие уже в этой комнате в другом стиле (`room_used`), дальше по
+    близости к ширине шаблона, свои раньше соседних, не занятые другими спальнями задания раньше занятых."""
     own = bank_pool(bank, style, 'кровать') + catalog_beds(style, thr, catalog)
     far = []
     for st in R.neighbour_styles(style):
@@ -233,7 +242,7 @@ def bed_pool(style: str, bank: list, catalog: list, mesh_ok, defect, thr: float,
         rows.append(it)
 
     def key(it):
-        return (abs(_sleep_w(it) - ideal), bool(it.get('_borrowed')), _sid(it) in used, it['_src'] != 'bank', -float(it.get('style_score') or 0))
+        return (_sid(it) in room_used, abs(_sleep_w(it) - ideal), bool(it.get('_borrowed')), _sid(it) in used, it['_src'] != 'bank', -float(it.get('style_score') or 0))
     rows.sort(key=key)
     return rows
 
@@ -245,16 +254,25 @@ def ideal_bed(area_m2: float, short: float) -> float:
     return 120.0
 
 
-def purposes_for(it: dict, area_m2: float, short: float) -> list:
-    """Назначения кровати по её ширине и площади ядра: «пара» только в комнате NDSS для двоих; остальное — гостевая/одна."""
-    w = _sleep_w(it)
+def couple_room(area_m2: float, short: float) -> bool:
+    return area_m2 >= NDSS_DOUBLE[0] and short >= NDSS_DOUBLE[1]
+
+
+def templates(area_m2: float, short: float) -> list:
+    """ШАБЛОНЫ РАССТАНОВКИ СПАЛЬНИ (правило владельца 09.11, TG 478/480): назначение × ширина спального места. Состав — из
+    `rules/bedroom-composition.json` → `purposes.<назначение>.slots` (полоса `sleep_w` кровати, число тумб), ширины — `BED_WIDTHS`
+    (узких 90 нет, TG 1377). Обязательное в шаблоне — кровать и тумбы (ведущие роли профиля спальни), шкаф и комод — по месту.
+    Порядок — от идеальной для ядра ширины (NDSS по площади и короткой стороне), при равной — шире; «пара» — только в комнате NDSS
+    для двоих. → [{id, purpose, sleep_w, nightstands}]"""
+    ideal = ideal_bed(area_m2, short)
     out = []
-    if w >= 140 and area_m2 >= NDSS_DOUBLE[0] and short >= NDSS_DOUBLE[1]:
-        out.append('couple')
-    if 120 <= w <= 165:
-        out.append('guest')
-    if w <= 145:
-        out.append('single')
+    for purpose in TEMPLATE_PURPOSES:
+        if purpose == 'couple' and not couple_room(area_m2, short):
+            continue
+        lo, hi = next(s['sleep_w'] for s in COMP['purposes'][purpose]['slots'] if s['role'] == 'кровать')
+        out += [{'id': f'{purpose}-{w}', 'purpose': purpose, 'sleep_w': w, 'nightstands': NIGHTSTANDS[purpose]}
+                for w in BED_WIDTHS if lo <= w <= hi]
+    out.sort(key=lambda t: (abs(t['sleep_w'] - ideal), -t['sleep_w'], TEMPLATE_PURPOSES.index(t['purpose'])))
     return out
 
 
@@ -301,7 +319,8 @@ def back_off_wall(ad: dict, cand: dict, placements: list) -> list:
 def solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     """Набор на ядре, обе петли дверей → лучшая попытка {placements, hard, post, ops, room, meta} или None. Память `ad['memo']`: одинаковые
     размеры на том же ядре считаем один раз (у стилей и кроватей они часто совпадают — комната не упирается в бюджет)."""
-    key = (cand['area_m2'], tuple(cand['rect']), purpose, tuple(sorted((r, it['w'], it['d'], it['h']) for r, it in kit.items())))
+    key = (cand['area_m2'], tuple(cand['rect']), purpose, ad.get('hinges', HINGES),
+           tuple(sorted((r, it['w'], it['d'], it['h']) for r, it in kit.items())))
     if key in ad['memo']:
         return ad['memo'][key]
     res = _solve_kit(ad, cand, cfg, kit, purpose)
@@ -317,7 +336,7 @@ def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
         for k in range(NIGHTSTANDS[purpose] if role == 'тумба прикроватная' else 1):
             items.append(Item(role=f'{role} {k + 1}' if k else role, w_cm=float(it['w']), d_cm=float(it['d']), h_cm=float(it['h'])))
     best = None
-    for hinge in ('left', 'right'):
+    for hinge in ad.get('hinges', HINGES):
         room, ops = build_room(cand, cfg, hinge, purpose)
         lay = solve_bedroom(room, items, purpose)
         ps = lay.placements
@@ -337,74 +356,89 @@ def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     return best
 
 
+def _bundle():
+    """Общий модуль данных страницы (`trial_bundle`, ветка trial-bundle): нейтральные имена по роли на обеих локалях и цвет по-английски.
+    Его нет (ветки ещё не сведены) — имена не пишем: сборщик всё равно ставит их сам (`trial_bundle._part_item`), дублировать не нужно."""
+    try:
+        import trial_bundle
+        return trial_bundle
+    except ImportError:
+        return None
+
+
 def public_item(p, it: dict, msid: str | None) -> dict:
-    """Предмет варианта по РАЗРЕШЁННОМУ списку полей (нейтральное имя, ключ модели, размер)."""
+    """Предмет варианта по РАЗРЕШЁННОМУ списку полей: роль, ключ модели, размер; имена — нейтральные по роли (`name`/`name_en`) и цвет
+    `colour_en` (только слова словарей цвета и материала) — от общего модуля `trial_bundle`, если он есть. Готовых строк одного языка нет."""
     base = base_role(p.role)
-    label = NEUTRAL.get(base, base)
+    sku = {'msid': msid, 'w': it['w'], 'd': it['d'], 'h': it['h']}
     if base == 'кровать':
-        label = f"{label} {round(_sleep_w(it))} cm"
-    sku = {'name': label, 'msid': msid, 'w': it['w'], 'd': it['d'], 'h': it['h']}
-    if base == 'кровать':
-        sku['sleep_w'] = it.get('sleep_w')
+        sku['sleep_w'] = round(_sleep_w(it))
+    B = _bundle()
+    if B is not None:
+        sku['name'], sku['name_en'] = B.neutral_names(p.role)
+        c = B.colour_en(it.get('name'), base)
+        if c:
+            sku['colour_en'] = c
     out = {'role': p.role, 'x': round(p.x, 1), 'y': round(p.y, 1), 'rot': int(p.rot or 0), 'w': it['w'], 'd': it['d'], 'h': it['h'],
-           'dims_src': 'catalog', 'sku': sku, 'corner': False, 'corner_left': False, 'section': None}
+           'dims_src': 'каталог', 'sku': sku, 'corner': False, 'corner_left': False, 'section': None}   # «каталог» — как у живого демо и гостиной сборщика
     return {k: v for k, v in out.items() if k in ITEM_KEYS}
 
 
+def template_ok(res: dict | None, tpl: dict) -> bool:
+    """Расстановка выполняет шаблон: без жёстких нарушений и проблем по контуру, кровать и ВСЕ тумбы шаблона стоят."""
+    if not res or res['score'][0] != 0:
+        return False
+    roles = [base_role(p.role) for p in res['placements']]
+    return 'кровать' in roles and roles.count('тумба прикроватная') >= tpl['nightstands']
+
+
 def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadline: float) -> tuple[dict | None, dict | None]:
-    """Стиль в спальне → (вариант без id, None) или (None, {style, code, detail}): перебор кроватей по ширине, потом ядер."""
-    tried, had_bed_on_any = 0, False
+    """Стиль в спальне по ПРАВИЛУ ШАБЛОНОВ (владелец 09.11, TG 478/480): шаблоны по порядку (`templates`) → под шаблон подбираются
+    товары стиля (кровать его ширины с готовой моделью, тумба; запас — соседние стили) → товаров нет или не встали ни на одном ядре —
+    следующий шаблон. Первый выполненный шаблон — вариант; ни одного — (None, {style, code, templates}) с причиной по каждому шаблону:
+    `no_bed` / `no_nightstand` (товаров нет) / `no_fit` (не встали) / `budget` (не дошли). Шкаф и комод — по месту (`kit_ladder`)."""
+    cores = ad['candidates'][:MAX_CORES]
+    area = max(c['area_m2'] for c in cores)
+    short = max(min(c['w'], c['d']) for c in cores)
     others = {r: pick_role(r, ctx['bank'], style, ctx['mesh_ok'], ctx['defect'], used) for r in ROOM_ROLES[1:]}
-    fallback = None                                      # лучшая кровать без тумбы: вариант «частично», если с тумбой не встанет ничего
-    for ci, cand in enumerate(ad['candidates'][:MAX_CORES]):
-        area, short = cand['area_m2'], min(cand['w'], cand['d'])
-        pool = bed_pool(style, ctx['bank'], ctx['catalog'], ctx['mesh_ok'], ctx['defect'], ctx['thr'], ideal_bed(area, short), used)
-        had_bed_on_any = had_bed_on_any or bool(pool)
-        for bed in spread_beds(pool):
-            for purpose in purposes_for(bed, area, short):
+    stand = others['тумба прикроватная']
+    log = []
+    for tpl in templates(area, short):
+        pool = bed_pool(style, ctx['bank'], ctx['catalog'], ctx['mesh_ok'], ctx['defect'], ctx['thr'], tpl['sleep_w'], used,
+                        ad.get('room_used', set()))
+        beds =[b for b in pool if bed_width_bucket(_sleep_w(b)) == tpl['sleep_w']][:BEDS_PER_TEMPLATE]
+        if not beds or not stand:
+            log.append({'template': tpl['id'], 'why': 'no_bed' if not beds else 'no_nightstand'})
+            continue
+        why = 'no_fit'
+        for ci, cand in enumerate(cores):
+            if tpl['purpose'] == 'couple' and not couple_room(cand['area_m2'], min(cand['w'], cand['d'])):
+                continue
+            for bed in beds:
                 if time.time() > deadline:
-                    return out_of_budget(style, fallback)
-                tried += 1
-                probe = solve_kit(ad, cand, cfg, {'кровать': bed}, purpose)     # кровати нигде нет места — наборы с ней не встанут тем более: не тратим бюджет
-                if not probe:
+                    why = 'budget'
+                    break
+                core_kit = {'кровать': bed, 'тумба прикроватная': stand}     # обязательное шаблона: не встало — шкафы и комоды не пробуем
+                if not template_ok(solve_kit(ad, cand, cfg, core_kit, tpl['purpose']), tpl):
                     continue
-                if probe['score'][0] == 0:
-                    fallback = fallback or (probe, ad, cand, ci, style, bed, others, purpose, ctx)
                 for kit in kit_ladder(bed, others):
-                    if time.time() > deadline:
-                        return out_of_budget(style, fallback)
-                    tried += 1
-                    res = solve_kit(ad, cand, cfg, kit, purpose)
-                    if res and res['score'][0] == 0 and any(base_role(p.role) == 'тумба прикроватная' for p in res['placements']):
-                        return variant_from(res, ad, cand, ci, style, bed, others, purpose, ctx), None
-    if fallback:
-        return variant_from(*fallback), None
-    if not had_bed_on_any:
-        return None, {'style': style, 'code': 'no_products', 'detail': 'нет кровати с готовой моделью в стиле'}
-    return None, {'style': style, 'code': 'bed_no_fit', 'detail': f'ни одна кровать не встала ({tried} попыток)'}
+                    res = solve_kit(ad, cand, cfg, kit, tpl['purpose'])
+                    if template_ok(res, tpl):
+                        return dict(variant_from(res, ad, cand, ci, style, bed, others, tpl, ctx), templates_tried=log), None
+        log.append({'template': tpl['id'], 'why': why})
+        if why == 'budget':
+            break
+    whys = {x['why'] for x in log}
+    code = 'budget' if 'budget' in whys else ('bed_no_fit' if 'no_fit' in whys else 'no_products')
+    return None, {'style': style, 'code': code, 'templates': log}
 
 
-def spread_beds(pool: list) -> list:
-    """Кровати в перебор: не больше двух на ширину спального (шаг 10 см) и `MAX_BEDS` всего — чтобы у соседних по размеру кроватей шанс не
-    съедал бюджет, а следующая ширина («другая кровать, что влезает», TG 1377) дошла до проверки."""
-    seen: dict = {}
-    out = []
-    for b in pool:
-        k = round(_sleep_w(b) / 10)
-        if seen.get(k, 0) < 2:
-            seen[k] = seen.get(k, 0) + 1
-            out.append(b)
-    return out[:MAX_BEDS]
-
-
-def out_of_budget(style: str, fallback) -> tuple:
-    if fallback:
-        return variant_from(*fallback), None
-    return None, {'style': style, 'code': 'budget', 'detail': 'кончился бюджет комнаты'}
+BEDS_PER_TEMPLATE = 2                               # кроватей одной ширины на шаблон: у соседних по размеру шанс, бюджет не съедается
 
 
 def kit_ladder(bed: dict, others: dict) -> list:
-    """Наборы от полного к минимальному: необязательный шкаф или комод, из-за которого расстановка не проходит проверку, снимается, кровать — последней."""
+    """Наборы шаблона от полного к минимальному: необязательный шкаф или комод, из-за которого расстановка не проходит, снимается;
+    последний — кровать с тумбами (обязательное шаблона)."""
     have = {r: it for r, it in others.items() if it}
     out = []
     for drop in ((), ('комод',), ('шкаф',), ('шкаф', 'комод')):
@@ -414,7 +448,7 @@ def kit_ladder(bed: dict, others: dict) -> list:
     return out
 
 
-def variant_from(res: dict, ad: dict, cand: dict, ci: int, style: str, bed: dict, others: dict, purpose: str, ctx: dict) -> dict:
+def variant_from(res: dict, ad: dict, cand: dict, ci: int, style: str, bed: dict, others: dict, tpl: dict, ctx: dict) -> dict:
     x0, y0 = cand['rect'][0], cand['rect'][1]
     kit = {'кровать': bed, **{r: it for r, it in others.items() if it}}
     items, msid = [], ctx['msid']
@@ -422,11 +456,11 @@ def variant_from(res: dict, ad: dict, cand: dict, ci: int, style: str, bed: dict
         it = kit[base_role(p.role)]
         items.append(public_item(p, it, msid(_sid(it))))
     placed = {base_role(p.role) for p in res['placements']}
-    missing = [{'role': r, 'why': 'нет готовой модели' if r not in kit else 'нет места'} for r in ROOM_ROLES if r not in placed]
-    return {'style': style, 'style_id': STYLE_ID.get(style, ''), 'purpose': purpose, 'core_index': ci, 'hinge': res['hinge'],
-            'bed_sleep_w': round(_sleep_w(bed)), 'bed_borrowed_style': bed.get('_borrowed'),
+    missing = [{'role': r, 'why': 'no_model' if r not in kit else 'no_space'} for r in ROOM_ROLES if r not in placed]
+    return {'style': style, 'style_id': STYLE_ID.get(style, ''), 'purpose': tpl['purpose'], 'template': tpl['id'], 'core_index': ci,
+            'hinge': res['hinge'], 'bed_sleep_w': round(_sleep_w(bed)), 'bed_borrowed_style': bed.get('_borrowed'),
             'items': items, 'missing_item': missing, 'fill_pct': res['floor_pct'], 'hard': [], 'post_ok': res['post']['ok'],
-            'status': 'ok' if not any(m['role'] in R.lead_roles('bedroom') for m in missing) else 'partial',   # ведущие — профиль комнаты (кровать + тумба); шкаф и комод необязательны, их нехватка в `missing_item`
+            'status': 'ok',                               # шаблон выполнен (кровать и тумбы); шкаф и комод необязательны — в `missing_item`
             'placements': TD._ps_json(res['placements'], x0, y0),
             'openings_core': res['ops'], '_sids': [_sid(k) for k in kit.values()]}
 
@@ -442,46 +476,53 @@ def furnish_room(trial_id: str, panel: dict, room: dict, rid: str, cfg: dict, ct
         return rec
     rec.update(contour=ad['contour'], control=ad['control'], flags=list(ad['flags']))
     deadline = time.time() + ROOM_BUDGET_S
-    ad['memo'] = {}
+    ad['memo'], ad['room_used'] = {}, set()
     for i, st in enumerate(STYLES):
         share = time.time() + max(deadline - time.time(), 0.0) / (len(STYLES) - i)   # доля бюджета: тяжёлый стиль не съедает бюджет остальных
         var, fail = furnish_style(ad, cfg, st, ctx, ctx['used'].setdefault(st, set()), share)
         if var is None:
             rec['style_failures'].append(fail)
             continue
-        ctx['used'][st].update(var.pop('_sids'))
+        sids = var.pop('_sids')
+        ctx['used'][st].update(sids)
+        ad['room_used'].add(sids[0])                     # кровать этой комнаты: другим стилям — сперва другие кровати (разные стили — разные товары)
+        if not rec['variants']:
+            # У страницы у комнаты ОДНА геометрия (`rooms_geo`: ядро и проёмы с петлёй) — все стили комнаты на ядре и петле первого варианта
+            ad['core_fixed'] = ad['candidates'][var['core_index']]
+            ad['candidates'], ad['hinges'] = [ad['core_fixed']], (var['hinge'],)
+        var['core_index'] = 0
         var['id'] = R.variant_id(rid, var['style_id'])
         var['room_id'] = rid
         rec['variants'].append(var)
+    cand = ad.get('core_fixed') or ad['candidates'][0]                # пустая комната — первое ядро (для кадра и диагностики)
+    ci = 0
+    rec['core'] = {'rect': cand['rect'], 'w': cand['w'], 'd': cand['d'], 'area_m2': cand['area_m2'], 'index': ci,
+                   'residues': [{k: v for k, v in r.items() if k != 'poly'} for r in cand['residues']]}
+    rec['openings_full'] = [{k: v for k, v in o.items()} for o in ad['ops']]
     if rec['variants']:
-        cand = ad['candidates'][rec['variants'][0]['core_index']]
-        rec['core'] = {'rect': cand['rect'], 'w': cand['w'], 'd': cand['d'], 'area_m2': cand['area_m2'], 'index': rec['variants'][0]['core_index'],
-                       'residues': [{k: v for k, v in r.items() if k != 'poly'} for r in cand['residues']]}
-        rec['openings_full'] = [{k: v for k, v in o.items()} for o in ad['ops']]
         rec['openings_core'] = rec['variants'][0]['openings_core']
     rec['outcome'] = outcome_of(rec)
     rec['seconds'] = round(time.time() - t0, 2)
     return rec
 
 
-def refused(code: str, detail: str) -> dict:
-    return {'state': 'refused', 'code': code, 'text': OUTCOME_TEXT.get(code, OUTCOME_DEFAULT), 'detail': detail, 'styles_ok': 0, 'styles_total': 0}
+def refused(code: str, detail: str = '') -> dict:
+    """Комната без мебели: `state` по коду (`CODE_STATE`; неизвестный — `failed`), `detail` — только диагностика, на страницу не идёт."""
+    return {'state': CODE_STATE.get(code, 'failed'), 'code': code, 'detail': detail, 'styles_ok': 0, 'styles_total': 0}
 
 
 def outcome_of(rec: dict) -> dict:
-    """Исход комнаты (ready/partial/refused) — по вариантам и причинам провала стилей; refused — только когда ни одного варианта."""
-    ok = [v for v in rec['variants'] if v['status'] == 'ok']
+    """Исход комнаты кодом: есть хоть один вариант (шаблон выполнен в каком-то стиле) — `furnished`; ни одного — по причинам стилей:
+    товаров нет или не встали ни в одном шаблоне → `no_products` (владелец 09.11: комната пустая, остальные обставляются)."""
     fails = rec['style_failures']
     total = len(rec['variants']) + len(fails)
     if not rec['variants']:
         codes = {f['code'] for f in fails}
-        code = 'no_products' if codes <= {'no_products'} else ('bed_no_fit' if 'bed_no_fit' in codes else next(iter(sorted(codes)), 'solver_failed'))
-        return refused(code, '; '.join(sorted({f['detail'] for f in fails})))
-    base = {'styles_ok': len(ok), 'styles_total': total, 'failed_styles': sorted(f['style'] for f in fails)}
-    if len(ok) == total and len(ok) >= MIN_STYLES_READY:
-        return dict(base, state='ready', code=None, text=None, detail=None)
-    return dict(base, state='partial', code='styles_or_items_missing', text=OUTCOME_TEXT['partial'],
-                detail=f"готово стилей {len(ok)} из {total}; без товара: {sorted({m['role'] for v in rec['variants'] for m in v['missing_item']})}")
+        code = 'no_products' if codes <= {'no_products'} else ('bed_no_fit' if codes <= {'no_products', 'bed_no_fit'} else 'budget')
+        return dict(refused(code), styles_total=total)
+    few = len(rec['variants']) < MIN_STYLES_READY
+    return {'state': 'furnished', 'code': 'few_styles' if few else ('styles_missing' if fails else None), 'detail': None,
+            'styles_ok': len(rec['variants']), 'styles_total': total, 'failed_styles': sorted(f['style'] for f in fails)}
 
 
 # ───────────────────────── задание целиком ─────────────────────────
@@ -559,7 +600,7 @@ def build(trial_id: str, result: dict, ctx: dict | None = None) -> dict:
     for panel, room, rid in rooms:
         job['rooms'].append(furnish_room(trial_id, panel, room, rid, cfg, ctx))
     states = {r['outcome']['state'] for r in job['rooms']}
-    job['status'] = 'refused' if states == {'refused'} else ('ok' if states == {'ready'} else 'partial')
+    job['status'] = 'ok' if states == {'furnished'} else ('partial' if 'furnished' in states else 'refused')
     job['timings'] = {'total_s': round(time.time() - t0, 2), 'rooms_s': {r['room_id']: r.get('seconds') for r in job['rooms']}}
     assert_no_shop(job, shop_tokens(ctx))                    # проверка всего вывода; поймали — падаем, а не публикуем
     _write(OUT, job)
@@ -594,15 +635,17 @@ def bundle_parts(job: dict, storey_by_panel: dict | None = None) -> dict:
         rid = r['room_id']
         o = r['outcome']
         st = storey_by_panel.get(r['panel'])
-        apartment.append({'id': rid, 'kind': 'bedroom', 'ordinal': i, 'titleEn': r.get('name') or 'Bedroom', 'areaM2': r.get('area_m2'),
-                          'contentState': 'ready' if r['variants'] else 'soon', 'furniture_state': 'refused' if o['state'] == 'refused' else 'ready',
-                          'furniture_code': o.get('code'), 'furniture_text': o.get('text'),
-                          **({'storey': st} if st is not None else {})})
+        # комната куска находится сборщиком по (`panel`, `src_id`) (`trial_bundle._map_parts`); подписи на двух языках он строит сам
+        # из `name_src` (`room_titles`); состояние для машины сборщика — ready/refused, код страницы — `furniture_outcome`
+        apartment.append({'id': rid, 'panel': r['panel'], 'src_id': r['src_id'], 'kind': 'bedroom', 'ordinal': i, 'name_src': r.get('name') or '',
+                          'areaM2': r.get('area_m2'), 'contentState': 'ready' if r['variants'] else 'soon',
+                          'furniture_state': 'ready' if o['state'] == 'furnished' else 'refused', 'furniture_outcome': o['state'],
+                          'furniture_code': o.get('code'), **({'storey': st} if st is not None else {})})
         if not r['variants']:
             continue
         core = r['core']
-        geo = {'w': core['w'], 'd': core['d'], 'title': f"{r.get('name') or 'Bedroom'} {r.get('area_m2') or core['area_m2']:.1f} m²",
-               'openings': _page_openings(r['openings_core']), 'radiators': [], **({'storey': st} if st is not None else {})}
+        geo = {'w': core['w'], 'd': core['d'], 'openings': _page_openings(r['openings_core']), 'radiators': [],
+               **({'storey': st} if st is not None else {})}
         rooms_geo[rid] = geo
         for v in r['variants']:
             variants.append({'id': v['id'], 'room_id': rid, 'style': v['style'], 'style_id': v['style_id'], 'title': v['style'].capitalize(), 'purpose': v['purpose'],
@@ -639,20 +682,51 @@ def coverage(ctx: dict | None = None) -> dict:
 ROLE_RGB = {'кровать': (205, 110, 100), 'тумба прикроватная': (150, 120, 90), 'шкаф': (120, 120, 160), 'комод': (140, 130, 100)}
 
 
-def frames(job: dict, dst: str) -> list:
+def frame_door(r: dict, v: dict, path: str) -> dict:
+    """Вид от двери (кадр сцены из мешей, как `trial_demo.frame_entry` гостиной): камера у входной двери ядра, модели — по `msid` предметов."""
+    import draft_render as DR
+    from planner.models import Item, Placement
+    ops = v['openings_core']
+    core = {'w': r['core']['w'], 'd': r['core']['d']}
+    cam = TD.entry_cam({'core': core}, ops)
+    # дверь, у которой стоит камера, — проёмом без полотна: открытое полотно у самой камеры закрывало треть кадра (D, спальня 2; E, спальня 1)
+    doors = sorted((o for o in ops if o['kind'] == 'door'), key=lambda o: (not o.get('is_entrance'), not o.get('swing_cm'), -o['width_cm']))
+    at = doors[0] if doors else None
+    croom = TD.core_room(core, [dict(o, swing_cm=0) if o is at else o for o in ops], render=True)
+    ps = [Placement(role=q['role'], x=q['x'], y=q['y'], rot=q['rot'], elev_cm=q.get('elev') or 0,
+                    item=Item(role=q['role'], w_cm=q['w'], d_cm=q['d'], h_cm=q.get('h') or 60, corner=q['corner'],
+                              corner_left=q['corner_left'], corner_section_cm=q.get('section') or 95)) for q in v['items'] if q.get('w')]
+    sid = {q['role']: q['sku']['msid'] for q in v['items'] if (q.get('sku') or {}).get('msid')}
+    img, diag = DR.scene3d_frame(croom, ps, cam, sid, {})
+    img.save(path, quality=88)
+    return diag
+
+
+def frames(job: dict, dst: str) -> dict:
+    """Кадры всех спален задания: сверху по полному контуру (каждый вариант; комната без мебели — пустая, с кодом исхода) и от двери."""
     os.makedirs(dst, exist_ok=False)
     for k, v in ROLE_RGB.items():
         TD.ROLE_RGB.setdefault(k, v)
-    out = []
+    out = {'top': [], 'door': [], 'clay': {}}
     for r in job['rooms']:
+        if not r.get('contour'):
+            continue                                       # комнату не прочитать — рисовать нечего (код исхода в отчёте)
+        core = r.get('core') or {'rect': [0, 0, 0, 0], 'w': 0, 'd': 0}
+        scene = {'trial_id': r['room_id'], 'room': {'contour': r['contour']}, 'core': core, 'openings_full': r.get('openings_full') or []}
         if not r['variants']:
+            p = os.path.join(dst, f"{r['room_id']}-top-empty.png")
+            TD.frame_top(scene, {'placements': [], 'problems': [], 'hard': []}, p, f"{r.get('name')} · {r['outcome']['state']} ({r['outcome']['code']})")
+            out['top'].append(p)
             continue
-        scene = {'trial_id': r['room_id'], 'room': {'contour': r['contour']}, 'core': r['core'], 'openings_full': r['openings_full']}
         for v in r['variants']:
-            p = os.path.join(dst, f"{r['room_id']}-{v['style_id']}.png")
+            p = os.path.join(dst, f"{r['room_id']}-top-{v['style_id']}.png")
             TD.frame_top(scene, {'placements': v['placements'], 'problems': [], 'hard': []}, p,
-                         f"{v['style']} · {v['purpose']} · спальное {v['bed_sleep_w']}")
-            out.append(p)
+                         f"{r.get('name')} · {v['style']} · шаблон {v['template']}")
+            out['top'].append(p)
+            p = os.path.join(dst, f"{r['room_id']}-door-{v['style_id']}.jpg")
+            diag = frame_door(r, v, p)
+            out['door'].append(p)
+            out['clay'][f"{r['room_id']}-{v['style_id']}"] = diag.get('clay') or []
     return out
 
 
@@ -689,6 +763,7 @@ def main() -> int:
             TD._write(os.path.join(out, 'coverage.json'), c)
         return 0
     fr = _arg(args, '--frames')
+    brief_out = _arg(args, '--brief')
     if '--bench' in args:
         args.remove('--bench')
         trial_id, paths = args[0], args[1:]
@@ -705,10 +780,14 @@ def main() -> int:
             job['frames'] = frames(job, fr)
     brief = {'status': job['status'], 'refusal': job.get('refusal'), 'flags': job['flags'], 'timings': job['timings'],
              'rooms': [{'room': r['room_id'], 'src': r['src_id'], 'panel': r['panel_title'], 'name': r.get('name'), 'area_m2': r.get('area_m2'),
-                        'state': r['outcome']['state'], 'code': r['outcome'].get('code'), 'text': r['outcome'].get('text'),
-                        'styles': [(v['style'], v['bed_sleep_w'], v['purpose'], v['status'], bool(v.get('bed_borrowed_style'))) for v in r['variants']],
-                        'style_failures': r['style_failures'], 'flags': r['flags'], 'seconds': r.get('seconds')} for r in job['rooms']]}
+                        'state': r['outcome']['state'], 'code': r['outcome'].get('code'), 'detail': r['outcome'].get('detail'),
+                        'styles': [(v['style'], v['template'], v['bed_sleep_w'], [m['role'] for m in v['missing_item']], bool(v.get('bed_borrowed_style')))
+                                   for v in r['variants']],
+                        'style_failures': r['style_failures'], 'flags': r['flags'], 'seconds': r.get('seconds')} for r in job['rooms']],
+             'frames': job.get('frames')}
     print(json.dumps(brief, ensure_ascii=False, indent=1))
+    if brief_out:
+        TD._write(brief_out, brief)
     return {'ok': 0, 'partial': 3}.get(job['status'], 2)
 
 
