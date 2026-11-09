@@ -46,3 +46,7 @@ completed:
 
 ## Лог
 - 09.11 08:50 владелец «ок» на вариант А (TG 197) → план, задание рабочему.
+- 09.11 09:00 отчёт /1 (`5725da04` → после rebase `356b8a9c`): чистые `vwPanMove`/`vwPanEnd`, `tests/unit/demo-photo-pan.test.ts` (10),
+  инерция броска, подсказка тремя строками RU/EN; локально pan-check 375 29 OK / 1440 10 OK. Ведущий: кадры 375 глазами — ок → PASS,
+  влито, сборка `flat215_demo` + `publish_demo.sh` (PUB_PHOTOS_DONE=1), прод pan-check 39 OK, modes-check 375 0 FAIL; владельцу — TG 214.
+  Хвост памяти: `domain/onboarding-quiz.md` ссылается на `photo-pan-check.cjs:43` (строка сдвинулась).
