@@ -12,6 +12,8 @@
      укладываемся в бюджет 60 с; иначе честный частичный результат (`partial` с перечнем проблем); 150 с — аварийный предел;
   5. подстановка товаров каждого стиля на места геометрии: у стены — по стене (не «парит»), прочее — по центру;
      предметы «у стены» над нишей — к НАСТОЯЩЕЙ стене контура (`push_to_walls`; ядро кадра расширяется, `core.ext_cm`);
+     не встал, но спинка наполовину у стены (стена ступенькой) — флаг `partly_at_wall`, «в воздухе» — стиль снимаем;
+     необязательный предмет, из-за которого нарушены жёсткие нормы, — снимаем (`drop_norm_breakers`, `dropped_for_norms`);
      проверка `planner.validate` и `post_check` для каждого стиля.
 T-12/2: наборы и модели — правилом живого демо (`item_has_mesh`: годная модель, не чужого цвета; без неё ключевая роль делает
 набор негодным → полоса ниже, прочее снимается); выход — коды и разрешённые поля (`ROW_KEYS`, `assert_no_shop`), исход
@@ -102,7 +104,7 @@ def outcome_of(scene: dict) -> dict:
     if status == 'pending':
         return dict(base, state='pending', code=None)
     if status in ('ok', 'partial') and ok:
-        return dict(base, state='furnished', code=None if status == 'ok' and len(ok) == len(variants) else 'styles_missing')
+        return dict(base, state='furnished', code='styles_missing' if base['styles_missing'] else None)
     if status in ('ok', 'partial', 'no_products'):
         return dict(base, state='no_products', code=ref.get('code') or 'no_products')
     if status == 'refused':
@@ -335,6 +337,34 @@ def drop_window_chairs(room, ps: list) -> tuple[list, list]:
     return [p for p in ps if p.role not in gone], gone
 
 
+KEEP_ROLES = ('диван', 'стенка', 'тв-тумба', 'столик', 'ковёр')   # без них гостиная — не гостиная: не снимаем ради норм
+NORM_DROP_MAX = 2
+
+
+def drop_norm_breakers(hard_fn, ps: list) -> tuple[list, list]:
+    """Необязательный предмет, из-за которого расстановка стиля нарушает жёсткие нормы, — снимаем, стиль остаётся (T-12/2).
+
+    Обобщение `drop_window_chairs`: у геометрии, общей для нескольких стилей, кресло солвер ставит за угловым диваном
+    (E, замер 09.11: ARMCHAIR_BEHIND_SOFA / DEAD_ZONE_BEHIND_SOFA) — из-за одного кресла снимались три стиля. Снимаем по
+    одному предмету (сперва тот, что в большем числе нарушений), не больше `NORM_DROP_MAX`; `KEEP_ROLES` и последний стул
+    не трогаем. Нарушения не ушли все — возвращаем как было (стиль снимет общая проверка). `hard_fn(ps)` → список «код|роли»."""
+    hard, cur, gone = hard_fn(ps), list(ps), []
+    while hard and len(gone) < NORM_DROP_MAX:
+        chairs = [p.role for p in cur if _base(p.role) == 'стул']
+        cnt = {}
+        for h in hard:
+            for r in h.split('|')[1].split(','):
+                if r in {p.role for p in cur} and _base(r) not in KEEP_ROLES and not (r in chairs and len(chairs) == 1):
+                    cnt[r] = cnt.get(r, 0) + 1
+        if not cnt:
+            break
+        role = max(sorted(cnt), key=lambda r: cnt[r])
+        cur = [p for p in cur if p.role != role]
+        gone.append(role)
+        hard = hard_fn(cur)
+    return (cur, gone) if gone and not hard else (ps, [])
+
+
 # ───────────────────────── подстановка товаров стиля ─────────────────────────
 
 def _style_item(st: dict, role: str):
@@ -506,6 +536,7 @@ WALL_ROLES = ('тв-тумба', 'стенка', 'диван', 'стеллаж',
 TOGETHER = {'тв-тумба': ('тв',), 'стенка': ('тв',), 'диван': ('столик',)}   # едут вместе с предметом (ТВ на тумбе, столик у дивана)
 BACK_GAP_CM = 12.0        # кромка спинки дальше от стены — «стоит в воздухе» (как у спален, `trial_bedroom.BACK_GAP_CM`)
 BACK_MIN_SHARE = 0.8      # доля точек кромки, которым положено быть у стены
+HALF_AT_WALL = 0.5        # не встал к стене, но половина спинки у стены — стоит у стены со ступенькой за частью (флаг, не отказ)
 SLIDE_MAX_CM = 40.0       # насколько можно сдвинуть вдоль стены, чтобы встать в нишу целиком
 SLIDE_STEP_CM = 5.0
 PUSH_MAX_CM = 150.0       # глубже — уже не ниша, а соседняя часть комнаты
@@ -548,8 +579,12 @@ def _core_gap(p, W: float, D: float) -> float:
     return {(-1, 0): fb[0], (1, 0): W - fb[2], (0, -1): fb[1], (0, 1): D - fb[3]}[_back(p)]
 
 
+def _wall_share(gaps: list, gap0: float) -> float:
+    return sum(1 for g in gaps if g <= gap0 + BACK_GAP_CM) / len(gaps)
+
+
 def _at_wall(gaps: list, gap0: float) -> bool:
-    return sum(1 for g in gaps if g <= gap0 + BACK_GAP_CM) / len(gaps) >= BACK_MIN_SHARE
+    return _wall_share(gaps, gap0) >= BACK_MIN_SHARE
 
 
 def overhang(ps: list, W: float, D: float) -> dict:
@@ -587,12 +622,13 @@ def push_to_walls(ad: dict, cand: dict, ps: list, check) -> tuple[list, list, li
     стоящий спинкой у стороны ядра (≤ `WALL_NEAR_CM`), а настоящей стены там нет (меньше `BACK_MIN_SHARE` точек кромки в
     пределах `BACK_GAP_CM`), едет спинкой к стене контура — с тем же зазором, что у ядра; не встаёт в нишу целиком — сдвиг вдоль
     стены до `SLIDE_MAX_CM`. Зависимые (`TOGETHER`) едут с ним. Сдвиг принимается, только если `check(новая, прежняя)` —
-    без новых проблем (контур, двери, проход, нормы: окно, ось ТВ, наезды). Не вышло — роль в `stuck` (проблема
-    `back_off_wall`, как у спален). → (расстановка, сдвиги [{role, by_cm}], stuck)."""
+    без новых проблем (контур, двери, проход, нормы: окно, ось ТВ, наезды). Не вышло: спинка хотя бы наполовину у настоящей
+    стены (`HALF_AT_WALL`; стена ступенькой, за частью — проход или эркер) — роль в `partly` (флаг), иначе — в `stuck`
+    (проблема `back_off_wall`, как у спален; стиль не показываем). → (расстановка, сдвиги [{role, by_cm}], stuck, partly)."""
     from planner.geometry import footprint
     P, x0, y0, W, D = ad['poly'], cand['rect'][0], cand['rect'][1], cand['w'], cand['d']
     cur = list(ps)
-    pushes, stuck = [], []
+    pushes, stuck, partly = [], [], []
     slides = sorted({0.0} | {s * k * SLIDE_STEP_CM for k in range(1, int(SLIDE_MAX_CM / SLIDE_STEP_CM) + 1) for s in (1, -1)},
                     key=abs)
     for role in [p.role for p in ps if _base(p.role) in WALL_ROLES and p.item is not None]:
@@ -600,7 +636,8 @@ def push_to_walls(ad: dict, cand: dict, ps: list, check) -> tuple[list, list, li
         gap0 = _core_gap(p, W, D)
         if gap0 > WALL_NEAR_CM:
             continue                                        # стоит не у стены ядра (диван посреди комнаты) — не наш случай
-        if _at_wall(_edge_gaps(P, x0, y0, p), gap0):
+        share0 = _wall_share(_edge_gaps(P, x0, y0, p), gap0)
+        if share0 >= BACK_MIN_SHARE:
             continue                                        # стена ядра = настоящая стена
         bx, by = _back(p)
         ax, ay = (0, 1) if bx else (1, 0)
@@ -621,8 +658,8 @@ def push_to_walls(ad: dict, cand: dict, ps: list, check) -> tuple[list, list, li
                 done = True
                 break
         if not done:
-            stuck.append(role)
-    return cur, pushes, stuck
+            (partly if share0 >= HALF_AT_WALL else stuck).append(role)
+    return cur, pushes, stuck, partly
 
 
 def _full_fp(fp, x0: float, y0: float):
@@ -937,7 +974,7 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
         pc = TR.post_check(ad, cand, ps)
         hard = hard_of(core_room(cand, sr['openings']), ps)
         # предмет у стены ядра, которому не встать к настоящей стене (ниша) — тоже изъян расстановки: такая геометрия хуже
-        _, _, stuck = push_to_walls(ad, cand, ps, push_checker(ad, cand, sr['openings']))
+        _, _, stuck, _ = push_to_walls(ad, cand, ps, push_checker(ad, cand, sr['openings']))
         rec.update(post_ok=pc['ok'], problems=pc['problems'], hard=hard, off_wall=stuck)
         return rec, {'sr': sr, 'ps': ps, 'pc': pc, 'hard': hard,
                      'score': (len(pc['problems']) + len(hard) + len(stuck), len(sr.get('missing') or []))}
@@ -1014,7 +1051,15 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                 ps, gone = drop_window_chairs(croom, ps)
                 absent = absent + gone
                 rows = [r for r in rows if r['role'] not in gone]
-                ps, pushes, stuck = push_to_walls(ad, cand, ps, check)
+                ps, pushes, stuck, partly = push_to_walls(ad, cand, ps, check)
+
+                def hard_ext(q):
+                    e = overhang(q, cand['w'], cand['d'])
+                    return hard_of(ext_room(cand['w'], cand['d'], b['sr']['openings'], e),
+                                   [_moved(p, e['west'], e['south']) for p in q])
+                ps, dropped = drop_norm_breakers(hard_ext, ps)
+                absent = absent + dropped
+                rows = [r for r in rows if r['role'] not in dropped]
                 at = {p.role: p for p in ps}
                 for r in rows:                              # место строки — после прижима к стене
                     if r['role'] in at:
@@ -1028,6 +1073,7 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                 variants.append({'style': st.get('style'), 'set_index': n, 'set_id': st.get('set_id'), 'geometry': gi,
                                  'items': [public_row(r, mesh_ok) for r in rows], 'absent_roles': absent,
                                  'no_mesh_dropped': st.get('no_mesh_dropped') or [], 'pushed': pushes,
+                                 'dropped_for_norms': dropped, 'partly_at_wall': partly,
                                  'hard': shard, 'post_ok': not probs, 'problems': probs, 'placements': _ps_json(ps, x0, y0),
                                  'placements_core': _ps_json(ps), '_ext': ext})
         return geometries, variants, problems
@@ -1243,7 +1289,17 @@ def render_inputs(variant: dict, media: dict) -> tuple[dict, dict]:
     for q in variant.get('placements_core') or []:
         if q['role'] not in photos and _base(q['role']) in photos:
             photos[q['role']] = photos[_base(q['role'])]
+    for q in variant.get('placements_core') or []:
+        if _base(q['role']) == 'ковёр' and q['role'] not in photos:
+            # фото ковра не скачалось (ссылка магазина умерла: E, замер 09.11 — лофт и неоклассика без ковра) — ровный нейтральный
+            # ковёр того же размера, а не пустой пол; `rugs_plain` в отчёте кадров
+            from PIL import Image
+            photos[q['role']] = Image.new('RGB', (400, 300), PLAIN_RUG_RGB)
+            photos.setdefault('_plain', []).append(q['role'])
     return sid, photos
+
+
+PLAIN_RUG_RGB = (206, 200, 190)   # светлый тёплый серый — нейтрален к любому стилю
 
 
 def frame_entry(scene: dict, variant: dict, path: str, media: dict | None = None) -> dict:
@@ -1256,9 +1312,10 @@ def frame_entry(scene: dict, variant: dict, path: str, media: dict | None = None
                               corner_left=q['corner_left'], corner_section_cm=q.get('section') or 95))
           for q in variant['placements_core'] if q.get('w')]
     sid, photos = render_inputs(variant, media or {})
+    plain = photos.pop('_plain', [])
     img, diag = DR.scene3d_frame(croom, ps, entry_cam(scene, ops), sid, photos)
     img.save(path, quality=88)
-    return diag
+    return dict(diag, rugs_plain=plain)
 
 
 def frames(scene: dict, dst: str) -> dict:
@@ -1289,6 +1346,8 @@ def frames(scene: dict, dst: str) -> dict:
         diag = frame_entry(scene, v, p, media.get(v['style']))
         out['entry'].append(p)
         out['clay'][v['style']] = diag.get('clay') or []
+        if diag.get('rugs_plain'):
+            out.setdefault('rugs_plain', {})[v['style']] = diag['rugs_plain']
     out['seconds'] = round(time.time() - t, 2)
     return out
 

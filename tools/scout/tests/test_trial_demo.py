@@ -396,6 +396,10 @@ def test_outcome_partial_names_lost_styles():
     assert o['state'] == 'furnished' and o['code'] == 'styles_missing' and o['styles_missing'] == ['лофт']
     assert 'layout_failed' in o['codes']
     assert (o['styles_ok'], o['styles_total']) == (1, 2)
+    # все стили показаны, проблема только у общей геометрии (снята правкой стиля) — код не «нет стилей»
+    scene['variants'][1] = dict(scene['variants'][0], style='лофт')
+    o = TD.outcome_of(scene)
+    assert o['state'] == 'furnished' and o['code'] is None and o['styles_missing'] == []
 
 
 def test_solver_stage_runs_under_machine_slot(tmp_path, monkeypatch):
@@ -523,7 +527,7 @@ def test_push_to_real_wall_of_niche(monkeypatch):
     ad, cand = _niche()
     ps = [_wall_item('тв-тумба', 20, 200, 150, 40), _wall_item('тв', 20, 200, 120, 8),
           _wall_item('комод', 480, 200, 90, 40, back=(1, 0))]           # восток: сторона ядра = стена
-    got, pushes, stuck = TD.push_to_walls(ad, cand, ps, TD.push_checker(ad, cand, []))
+    got, pushes, stuck, _ = TD.push_to_walls(ad, cand, ps, TD.push_checker(ad, cand, []))
     by = {p.role: p for p in got}
     assert stuck == [] and [p['role'] for p in pushes] == ['тв-тумба']
     assert by['тв-тумба'].x == pytest.approx(-30.0) and by['тв-тумба'].y == pytest.approx(200.0)
@@ -537,15 +541,48 @@ def test_push_slides_into_niche_and_flags_when_impossible(monkeypatch):
     monkeypatch.setattr(TD, 'hard_of', lambda room, ps: [])
     ad, cand = _niche()
     chk = TD.push_checker(ad, cand, [])
-    got, pushes, stuck = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 150, 150, 40)], chk)   # край на 75 — заходит за угол ниши
+    got, pushes, stuck, _ = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 150, 150, 40)], chk)   # край на 75 — заходит за угол ниши
     assert stuck == [] and got[0].y == pytest.approx(175.0) and got[0].x == pytest.approx(-30.0)    # сдвиг вдоль стены на 25
-    got, pushes, stuck = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 200, 260, 40)], chk)   # шире ниши (200)
+    got, pushes, stuck, _ = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 200, 260, 40)], chk)   # шире ниши (200)
     assert stuck == ['комод'] and pushes == [] and got[0].x == pytest.approx(20.0)
     # сдвиг, дающий новое нарушение норм, не принимается
     # проверка видит расстановку в кадре расширенного ядра (+50 на запад): прижатый комод — x 20, прежний — 70
     monkeypatch.setattr(TD, 'hard_of', lambda room, ps: ['WINDOW_BLOCKED|комод'] if any(p.x < 40 for p in ps) else [])
-    got, _, stuck = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 200, 150, 40)], TD.push_checker(ad, cand, []))
+    got, _, stuck, _ = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 200, 150, 40)], TD.push_checker(ad, cand, []))
     assert stuck == ['комод'] and got[0].x == pytest.approx(20.0)
+
+
+def test_half_at_real_wall_is_flag_not_rejection(monkeypatch):
+    """Стена ступенькой (E, замер 09.11: диван спинкой к стене, за его краем — проход): спинка хотя бы наполовину у настоящей
+    стены, а в нишу не встать — предмет стоит, роль в `partly` (флаг), не в `stuck` (стиль не снимаем)."""
+    monkeypatch.setattr(TD, 'hard_of', lambda room, ps: [])
+    ad, cand = _niche()
+    chk = TD.push_checker(ad, cand, [])
+    got, pushes, stuck, partly = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 95, 140, 40)], chk)   # y 25–165: 4 из 7 у стены
+    assert pushes == [] and stuck == [] and partly == ['комод'] and got[0].x == pytest.approx(20.0)
+    _, _, stuck, partly = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 200, 260, 40)], chk)        # 2 из 7 — «в воздухе»
+    assert stuck == ['комод'] and partly == []
+
+
+def test_drop_norm_breakers_removes_optional_item_only_when_it_clears_norms():
+    class P:
+        def __init__(self, role):
+            self.role = role
+    ps = [P('диван'), P('столик'), P('кресло'), P('тв-тумба')]
+
+    def hard(q):
+        roles = {p.role for p in q}
+        out = ['ARMCHAIR_BEHIND_SOFA|диван,кресло', 'ARMCHAIR_TABLE_DIST|кресло,столик'] if 'кресло' in roles else []
+        return out
+    kept, gone = TD.drop_norm_breakers(hard, ps)
+    assert gone == ['кресло'] and [p.role for p in kept] == ['диван', 'столик', 'тв-тумба']
+    # нарушение между обязательными (диван, тумба) — снимать нечего, стиль снимет общая проверка
+    kept, gone = TD.drop_norm_breakers(lambda q: ['TV_AXIS|диван,тв-тумба'], ps)
+    assert gone == [] and kept == ps
+    # после снятия кресла нарушение осталось — возвращаем как было
+    kept, gone = TD.drop_norm_breakers(lambda q: ['X|диван,кресло', 'Y|диван,тв-тумба'] if len(q) == 4 else ['Y|диван,тв-тумба'], ps)
+    assert gone == [] and kept == ps
+    assert TD.drop_norm_breakers(lambda q: [], ps) == (ps, [])
 
 
 def test_shift_ops_follows_extension():
@@ -633,6 +670,11 @@ def test_render_inputs_rug_photo_and_only_good_models(monkeypatch):
     sid, photos = TD.render_inputs(v, {'ковёр': '//cdn/r.jpg', 'стул': '//cdn/c.jpg', 'кресло': None})
     assert sid == {'диван': '1_1'}                                        # без годной модели — серая форма, не чужая модель
     assert photos['ковёр'] == ('PH', '//cdn/r.jpg') and photos['стул 2'] == photos['стул']
+    assert '_plain' not in photos
+    # фото ковра не скачалось (ссылка магазина умерла) — ровный нейтральный ковёр, а не пустой пол
+    monkeypatch.setattr(DR, 'photo', lambda url: None)
+    _, photos = TD.render_inputs({'items': [], 'placements_core': [{'role': 'ковёр'}, {'role': 'диван'}]}, {'ковёр': '//cdn/dead.jpg'})
+    assert photos['_plain'] == ['ковёр'] and photos['ковёр'].getpixel((10, 10)) == TD.PLAIN_RUG_RGB and 'диван' not in photos
 
 
 def test_pick_styles_lowers_band_per_style_and_drops_items_without_model(monkeypatch):
