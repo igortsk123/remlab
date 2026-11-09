@@ -109,6 +109,11 @@ def test_build_mask_thin_layer_only_on_thin_sheet(monkeypatch):
     mid = cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
     cfg = {'mask': ('dark', 110, 3), 'min_area': 60}         # как C: порог и открытие плана, добавки нет
     assert (bench.build_mask(mid, cfg) == fc.wall_mask_dark(mid, 110, 3, 60)).all() and 'thin_hi' not in cfg
+    g = np.full((300, 300), 255, np.uint8)
+    cv2.rectangle(g, (20, 20), (280, 280), 0, 24)
+    thick = cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
+    cfg = {'mask': ('dark', 135, 5), 'min_area': 120}        # как B: толстые — маска плана
+    assert (bench.build_mask(thick, cfg) == fc.wall_mask_dark(thick, 135, 5, 120)).all() and 'thin_hi' not in cfg
     monkeypatch.setenv('FP_MASK', 'old')
     cfg = {'mask': ('dark', 125, 3), 'min_area': 60}
     assert (bench.build_mask(thin, cfg) == fc.wall_mask_dark(thin, 125, 3, 60)).all()

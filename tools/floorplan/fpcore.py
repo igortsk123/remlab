@@ -161,7 +161,7 @@ def wall_mask_auto(img: np.ndarray, mode: str, thr: int = 125, min_area: int = 6
     if t3 >= 12:
         # толстые стены (B): открытие 5 — меньше текста; без гистерезиса и добавок: стена держится порогом,
         # а гистерезис наращивает на неё дуги дверей и мебель (B: гардероб 0,95×0,82 залит)
-        info['open'] = 5
+        info.update(open=5, thin=False)
         return remove_small(cv2.morphologyEx(dark0, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8)), 120), info
     info['thin'] = t3 <= THIN_T3
     if not info['thin']:
