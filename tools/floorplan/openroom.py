@@ -75,6 +75,16 @@ def hull_mask(final: np.ndarray, gray: np.ndarray | None = None, ppm: float = 10
     return m > 0
 
 
+def point_inside(mask: np.ndarray | None, pt) -> bool:
+    """Точка внутри маски (маски нет — считается внутри). Подпись-выноска стоит вне оболочки стен: её рамка легла бы на
+    рамку выноски на пустом листе, а настоящая комната — в другом месте."""
+    if mask is None:
+        return True
+    H, W = mask.shape
+    x, y = int(round(pt[0])), int(round(pt[1]))
+    return 0 <= y < H and 0 <= x < W and bool(mask[y, x])
+
+
 def tint_barrier(gray: np.ndarray, pt, r: int, bg_sheet: float, min_tint: float = TINT_MIN, tol: float = 3.0,
                  floor: float | None = None):
     """Пол залит цветом (F: ~218 на листе 255) → «цвет листа» вокруг — граница комнаты и без линии (открытая сторона

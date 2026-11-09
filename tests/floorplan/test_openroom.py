@@ -143,6 +143,15 @@ def test_enclose_box_refuses_unsupported_frame():
     assert comp is None and 'не легла' in why
 
 
+def test_point_inside_rejects_callout_outside_walls():
+    """Подпись-выноска над планом (B: Walk-in Wardrobe, Wardrobe) — вне оболочки стен, замыкать её нельзя."""
+    _, final = open_sheet(gap_m=1.6)
+    h = orm.hull_mask(final)
+    assert orm.point_inside(h, (100, 90))
+    assert not orm.point_inside(h, (100, 10)) and not orm.point_inside(h, (-5, 500))
+    assert orm.point_inside(None, (100, 10))
+
+
 def test_is_max_note():
     assert orm.is_max_note('max') and orm.is_max_note('into bay') and orm.is_max_note('MAX')
     assert not orm.is_max_note(None) and not orm.is_max_note('') and not orm.is_max_note('unsure')

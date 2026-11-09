@@ -87,6 +87,7 @@ class Ctx:
     bg: float | None = None              # фон листа (P90 серого) — для «пол залит цветом» (openroom)
     floor: float | None = None           # медиана серого найденных комнат панели (пол залит, если темнее листа)
     hull: np.ndarray | None = None       # выпуклая оболочка стен панели: комната не выходит за здание (openroom)
+    hull_walls: np.ndarray | None = None  # оболочка только стен (без линий): подпись вне её — выноска, не открытая комната
 
 
 # --- свидетельства из сырого листа -------------------------------------------------------------------------------------
@@ -593,6 +594,9 @@ def hyp_enclose(st: State, i: int, labels: list, ctx: Ctx, mode: str):
         rm = np.isin(st.lab, st.rooms)
         ctx.floor = float(np.median(ctx.gray[rm])) if rm.any() else ctx.bg
         ctx.hull = openroom.hull_mask(st.final, ctx.gray, ctx.ppm)
+        ctx.hull_walls = openroom.hull_mask(st.final)
+    if not openroom.point_inside(ctx.hull_walls, l.pt):
+        return _no('подпись вне здания (выноска)')
     pt = (l.pt[0] - roi[0], l.pt[1] - roi[1])
     opts = [(q.pt[0] - roi[0], q.pt[1] - roi[1]) for j, q in enumerate(labels) if j != i and q.dims is not None]
     lab_w, final_w, gray_w = st.lab[sl], st.final[sl], ctx.gray[sl]
