@@ -2,8 +2,9 @@
 """Сравнение слепого прогона с эталоном (T-20261109-04) — только ПОСЛЕ прогона, для настройки не используется.
   python tools/floorplan/blind_cmp.py <run-папка> <план> <эталон: X-dims.txt | gold/X.json> → печать и <run>/cmp-<план>.txt
 
-Эталон-текст: строки «имя | лист | стороны | заметка»; стороны «3.77 x 4.20» (или футы), «-» — не читается,
-«~» — неуверенно. Сопоставление по ключу имени (`listing.norm_name`); одинаковых имён несколько — по ближайшему
+Эталон-текст: строки «имя | лист | стороны | заметка», «имя | стороны» или «имя a b»; стороны «3.77 x 4.20»
+(или футы), «-» — не читается, «~» — неуверенно. Имя с уточнением («Bedroom (west)», «Bedroom NW») без точной пары
+ищется по ключу без скобок и сторон света. Сопоставление по ключу имени (`listing.norm_name`); одинаковых имён несколько — по ближайшему
 размеру и листу, один-к-одному; близкие альтернативы — «неоднозначно». Корзины — по наибольшей ошибке стороны
 (порядок сторон не важен): ≤15 / 15–25 / >25 с флагом / >25 без флага (молча неверно) / не измерено."""
 from __future__ import annotations
@@ -41,14 +42,31 @@ def load_ref(path: Path) -> list[dict]:
                         'unsure': False, 'unreadable': 'dims_m' not in g, 'note': ''})
         return out
     for line in path.read_text(errors='replace').splitlines():
-        if not line.strip() or line.lstrip().startswith('#') or '|' not in line:
+        if not line.strip() or line.lstrip().startswith('#'):
             continue
-        f = [x.strip() for x in line.split('|')] + ['', '', '']
+        if '|' not in line:                                    # «Lounge 3.77 4.20» — без листа
+            m = re.match(r'^(.*?)\s+(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)\s*$', line.strip())
+            f = [m.group(1), '', f'{m.group(2)} {m.group(3)}', ''] if m else [line.strip(), '', '-', '']
+        else:
+            f = [x.strip() for x in line.split('|')]
+            if len(f) == 2:                                    # «имя | стороны» — без листа
+                f = [f[0], '', f[1]]
+            f += ['', '', '']
         if f[0].lower() in ('имя', 'name', 'комната'):
             continue
         sides, unsure, unread = parse_sides(f[2])
+        unsure = unsure or f[3].lstrip().startswith('~')
         out.append({'name': f[0], 'sheet': f[1], 'sides': sides, 'unsure': unsure, 'unreadable': unread, 'note': f[3]})
     return out
+
+
+_COMPASS = {'n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'}
+
+
+def base_key(name: str) -> str:
+    """Ключ имени без уточнений эталона: «Bedroom (ground west)», «Bedroom NW» → «bedroom»."""
+    k = listing.norm_name(re.sub(r'\([^)]*\)', ' ', name))
+    return ' '.join(w for w in k.split() if w not in _COMPASS)
 
 
 def load_ours(run: Path, plan: str) -> tuple[list[dict], dict]:
@@ -84,8 +102,9 @@ def err(a, b):
 
 
 def sheet_pen(ref_sheet: str, panel: str) -> float:
-    a, b = set(listing.norm_name(ref_sheet).split()), set(listing.norm_name(panel).split())
-    return 0.0 if not a or (a & b) else 0.5
+    """0 … 0,5: штраф по несовпадению слов листа (Жаккар); лист в эталоне не указан — 0."""
+    a, b = set(re.findall(r'[a-z0-9]+', ref_sheet.lower())), set(re.findall(r'[a-z0-9]+', panel.lower()))
+    return 0.0 if not a else 0.5 * (1 - len(a & b) / len(a | b))
 
 
 def pair(refs: list[dict], ours: list[dict]):
@@ -94,6 +113,9 @@ def pair(refs: list[dict], ours: list[dict]):
     for i, r in enumerate(refs):
         k = listing.norm_name(r['name'])
         same = [j for j, o in enumerate(ours) if listing.norm_name(o['name']) == k]
+        if not same:                                           # имя с уточнением эталона — по ключу без уточнений
+            kb = base_key(r['name'])
+            same = [j for j, o in enumerate(ours) if base_key(o['name']) == kb]
         for j in same:
             o = ours[j]
             s = o['label'] or o['ours']
