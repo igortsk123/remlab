@@ -1299,6 +1299,7 @@ body.trial .row>.acts{padding-left:0}body.trial #flatRooms>.hint{flex:0 0 100%}b
 /* шапка пробы: масштаб и две подписанные ссылки */
 #trHead{margin:8px 0 10px;display:flex;flex-direction:column;gap:8px}
 #trHead .tr-scale{margin:0;align-self:flex-start;padding:4px 10px;border-radius:999px;border:1px dashed #C7652B;color:#8A4A1F;font-size:12px;line-height:1.3}
+#trHead .tr-scale.tr-soft{border:1px solid var(--line);color:var(--muted)}  /* масштаб по общей площади: спокойнее «не подтверждён» */
 #trHead .tr-links{display:flex;flex-wrap:wrap;gap:8px 16px}
 #trHead .tr-link{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);min-width:0}
 #trHead .tr-link>span{flex:1 1 auto;min-width:0}#trHead .tr-link>.btn{flex:none}
@@ -1531,9 +1532,16 @@ function outcomeTxt(id,short){ const o=roomOutcome(id), r=trRoom(id)||{};
   return own||(short?refusedShort():refusedTxt()); }
 const varNoneTxt=v=>v&&roomOutcome(roomIdOf(v))?outcomeTxt(roomIdOf(v),false):(varNotFurn(v)?notFurnTxt():refusedTxt());
 const varNoneShort=v=>v&&roomOutcome(roomIdOf(v))?outcomeTxt(roomIdOf(v),true):(varNotFurn(v)?notFurnShort():refusedShort());
-// масштаб плана (`D.trial.scale`: verified / listing / not_verified, `contracts/trial.ts`) не подтверждён — размеры примерные, говорим это
+// масштаб плана (`D.trial.scale`: verified / listing / area / not_verified, `contracts/trial.ts`) не подтверждён — размеры примерные, говорим это
 const scaleUnconfirmed=()=>TRIAL()&&D.trial.scale==='not_verified';
 const scaleTxt=()=>TR_EN()?'Scale not confirmed — sizes are approximate':'Масштаб не подтверждён — размеры примерные';
+// масштаб по общей площади (`area`, T-20261109-26): комнаты обставлены, но размеры примерные — мягкая подпись сборщика
+// (`D.trial.scale_note` ru/en), нет её — та же фраза здесь; тон спокойнее плашки «не подтверждён»
+const scaleArea=()=>TRIAL()&&D.trial.scale==='area';
+const scaleAreaTxt=()=>{const n=(D.trial||{}).scale_note||{}, EN=TR_EN();
+  return (EN?n.en:n.ru)||(EN?'Sizes are based on the total floor area — approximate.':'Размеры по общей площади — примерные.');};
+const scaleNoteHtml=cls=>scaleUnconfirmed()?`<${cls[0]} class="${cls[1]}" data-tr-scale="1">${scaleTxt()}</${cls[0]}>`
+  :scaleArea()?`<${cls[0]} class="${cls[1]} tr-soft" data-tr-scale="area">${escHtml(scaleAreaTxt())}</${cls[0]}>`:'';
 // `rooms_geo[id].approx` — комната нарисована прямоугольником вместо настоящего контура: показываем это, а не выдаём за точные стены
 const roomApprox=id=>TRIAL()&&!!(((D.rooms_geo||{})[id]||{}).approx), approxTxt=()=>TR_EN()?'Approximate room shape':'Форма комнаты приблизительная';
 const approxTag=id=>roomApprox(id)?`<span class="tr-approx">${approxTxt()}</span>`:'';
@@ -1553,7 +1561,7 @@ function trialHead(){
   const host=document.getElementById('hmHd'); if(!host)return;
   let box=document.getElementById('trHead'); if(!box){box=document.createElement('div'); box.id='trHead'; host.parentNode.insertBefore(box,host.nextSibling);}
   const EN=TR_EN(), L=trialLinks(), buyer=/[?&]quiz=1(?:&|$)/.test(location.search);
-  box.innerHTML=(scaleUnconfirmed()?`<p class="tr-scale" data-tr-scale="1">${scaleTxt()}</p>`:'')+
+  box.innerHTML=scaleNoteHtml(['p','tr-scale'])+
     (buyer?'':`<div class="tr-links"><div class="tr-link"><span><b>${EN?'Your link':'Ваша ссылка'}</b> — ${EN?'opens without the quiz':'без опроса'}</span>`+
       `<button class="btn" type="button" data-tr-copy="agent">${EN?'Copy':'Скопировать'}</button></div>`+
       `<div class="tr-link"><span><b>${EN?'Link for your buyer':'Ссылка для покупателя'}</b> — ${EN?'starts with a short quiz':'начинается с короткого опроса'}</span>`+
@@ -2252,7 +2260,7 @@ function flatPlan(){
   // проба: расшифровка коротких меток отказа под планом — по одной строке на текст (кроме «не обставляется» — она понятна сама)
   if(TRIAL())[...new Set((D.apartment_rooms||[]).filter(r=>/^(no_products|not_readable)$/.test(roomOutcome(r.id)||'')).map(r=>outcomeTxt(r.id,true)+' — '+outcomeTxt(r.id,false)))]
     .forEach(t=>box.insertAdjacentHTML('beforeend',`<div class="hint">${escHtml(t)}</div>`));
-  if(scaleUnconfirmed())box.insertAdjacentHTML('beforeend',`<div class="hint" data-tr-scale="1">${scaleTxt()}</div>`);
+  box.insertAdjacentHTML('beforeend',scaleNoteHtml(['div','hint']));
 
 }
 // комнаты схемы плана ↔ комнаты реестра квартиры (`homeRooms`) — по id: у схемы id реестра (T-20261022-04; сборка падает, если

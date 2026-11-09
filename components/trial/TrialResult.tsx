@@ -17,7 +17,8 @@ import { clock, timer } from "@/lib/trial/steps";
 /** Пауза перед переходом: видно, что все шаги готовы, и успеваешь прочесть плашку масштаба. */
 export const OPEN_TOUR_DELAY_MS = 2500;
 
-type Summary = { rooms: number; scaleOk: boolean };
+// scaleOk — масштаб не not_verified; scaleArea — он по общей площади (`area`): комнаты обставлены, размеры примерные — мягкая строка
+type Summary = { rooms: number; scaleOk: boolean; scaleArea: boolean };
 
 function useSummary(id: string, version: number): Summary | null {
   const [sum, setSum] = useState<Summary | null>(null);
@@ -28,7 +29,8 @@ function useSummary(id: string, version: number): Summary | null {
         const res = await fetch(`/api/trial/${encodeURIComponent(id)}/result`, { cache: "no-store" });
         if (!res.ok) return;
         const r = floorplanResult.parse(((await res.json()) as { result?: unknown }).result);
-        if (alive) setSum({ rooms: r.panels.reduce((n, p) => n + p.rooms.length, 0), scaleOk: r.scale.status !== "not_verified" });
+        if (alive) setSum({ rooms: r.panels.reduce((n, p) => n + p.rooms.length, 0), scaleOk: r.scale.status !== "not_verified",
+          scaleArea: r.scale.status === "area" });
       } catch { /* сводки нет — карточка без неё */ }
     })();
     return () => { alive = false; };
@@ -49,6 +51,7 @@ export function TrialResult({ id, job, lang, steps }: { id: string; job: TrialJo
   return (
     <WaitCard text={t.wait} title={t.done.title} heading testId="trial-done" timer={timer(job.elapsedSec)} progress={1} note={note} steps={steps}>
       {sum && !sum.scaleOk ? <p className={s.warn}><b>{t.done.scaleTitle}</b> {t.done.scaleText}</p> : null}
+      {sum?.scaleArea ? <p className={s.note} data-testid="trial-scale-area">{t.done.scaleArea}</p> : null}
       <div className={l.ready} role="status"><b>{t.done.opening}</b></div>
       <a className={`${l.btn} ${l.btnPrimary}`} href={href} data-testid="trial-open-tour">{t.done.open}</a>
     </WaitCard>

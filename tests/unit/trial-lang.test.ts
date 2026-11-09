@@ -58,6 +58,9 @@ describe("словари", () => {
     }
     expect(TEXT.ru.done.title).toBe("3D готово");
     expect(TEXT.ru.done.scaleTitle).toBe("Масштаб не подтверждён.");
+    // масштаб по общей площади — та же фраза, что у сборщика тура (`tools/scout/trial_bundle.py:SCALE_NOTE`)
+    expect(TEXT.ru.done.scaleArea).toBe("Размеры по общей площади — примерные.");
+    expect(TEXT.en.done.scaleArea).toBe("Sizes are based on the total floor area — approximate.");
     expect(landingText("ru").hero.h1).toMatch(/[а-я]/);
   });
 

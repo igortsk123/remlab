@@ -77,6 +77,7 @@ const en = {
     title: "Your 3D is ready", opening: "Opening the tour…", open: "Open the tour", history: "How it went",
     readyIn: (t: string) => `Ready in ${t}`, rooms: (n: number) => `${n} ${n === 1 ? "room" : "rooms"}`,
     scaleTitle: "Scale not verified.", scaleText: "Room sizes may be off.",
+    scaleArea: "Sizes are based on the total floor area — approximate.",
   },
 };
 
@@ -115,6 +116,7 @@ const ru: TrialText = {
     title: "3D готово", opening: "Открываем тур…", open: "Открыть тур", history: "Как шла работа",
     readyIn: (t: string) => `Готово за ${t}`, rooms: (n: number) => `${n} ${ruPlural(n, "комната", "комнаты", "комнат")}`,
     scaleTitle: "Масштаб не подтверждён.", scaleText: "Размеры комнат могут быть неточными.",
+    scaleArea: "Размеры по общей площади — примерные.",
   },
 };
 
