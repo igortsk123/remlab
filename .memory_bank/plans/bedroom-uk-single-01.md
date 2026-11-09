@@ -51,6 +51,7 @@ review_after: 2026-11-23
 
 ## Лог выполнения
 - 2026-11-09 — план создан ведущим; выдано T-20261109-07 (фоновый помощник, worktree `bedroom-single`).
+- 2026-11-09 — исполнитель: коммит `0bb5a787` на `worktree-bedroom-single` (single_narrow + bed_narrow_wall добавлением, раздел «Спальня» на /test/canons/ опубликован); не влито, ждёт приёмки.
 
 ## Completion summary
 
