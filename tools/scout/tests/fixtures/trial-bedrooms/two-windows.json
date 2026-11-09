@@ -1,0 +1,19 @@
+{
+ "_about": "Угловая спальня 3,50×4,00 (14 м²): окна на двух соседних наружных стенах — 150 на севере, 120 на востоке, под каждым радиатор; дверь 80 в юго-западном углу. Глухих стен две (запад, юг) — изголовье только к ним, не под окно; шкаф не на стену окна.",
+ "_expect": {"pick": "couple", "bed_w_min": 160, "hard": 0, "soft_exclude": ["BED_HEAD_WINDOW"], "radiators": 2},
+ "plan": "fx-two-windows",
+ "result": {
+  "version": 1, "units": "cm",
+  "source": {"mime": "image/png", "pages": 1, "usedPages": 1, "imageW": 1000, "imageH": 800},
+  "scale": {"status": "verified", "ppm": 100, "inliers": 4, "n": 4},
+  "panels": [{"id": "p1", "title": "First Floor",
+   "rooms": [{"id": "r1", "name": "Master Bedroom", "kind": "bedroom",
+              "contour": [[0, 0], [350, 0], [350, 400], [0, 400]], "bbox": {"x": 0, "y": 0, "w": 350, "d": 400},
+              "areaM2": 14.0, "flags": []}],
+   "walls": [],
+   "openings": [{"kind": "window", "c": [175, 0], "widthCm": 150, "exterior": true},
+                {"kind": "window", "c": [350, 200], "widthCm": 120, "exterior": true},
+                {"kind": "door", "c": [45, 400], "widthCm": 80, "exterior": false}]}],
+  "flags": [], "timings": {}, "costUsd": 0
+ }
+}

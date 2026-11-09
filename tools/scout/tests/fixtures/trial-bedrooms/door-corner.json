@@ -1,0 +1,18 @@
+{
+ "_about": "Двуспальная 3,30×3,80 (12,5 м²) с дверью 82 в юго-западном углу (низ листа слева), окно 150 по центру севера. Дуга двери в углу съедает угол: кровать не должна встать в дугу и в проход 76 у двери; ждём пару (кровать 175) без жёстких.",
+ "_expect": {"pick": "couple", "bed_w_min": 160, "hard": 0, "chain": ["couple", "single", "single_narrow"]},
+ "plan": "fx-door-corner",
+ "result": {
+  "version": 1, "units": "cm",
+  "source": {"mime": "image/png", "pages": 1, "usedPages": 1, "imageW": 1000, "imageH": 800},
+  "scale": {"status": "verified", "ppm": 100, "inliers": 4, "n": 4},
+  "panels": [{"id": "p1", "title": "First Floor",
+   "rooms": [{"id": "r1", "name": "Bedroom 2", "kind": "bedroom",
+              "contour": [[0, 0], [330, 0], [330, 380], [0, 380]], "bbox": {"x": 0, "y": 0, "w": 330, "d": 380},
+              "areaM2": 12.54, "flags": []}],
+   "walls": [],
+   "openings": [{"kind": "window", "c": [165, 0], "widthCm": 150, "exterior": true},
+                {"kind": "door", "c": [47, 380], "widthCm": 82, "exterior": false}]}],
+  "flags": [], "timings": {}, "costUsd": 0
+ }
+}

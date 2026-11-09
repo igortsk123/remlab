@@ -1,0 +1,18 @@
+{
+ "_about": "Малая двуспальная UK 3,00×3,30 (9,9 м²): меньше нормы двуспальной (11,5 м²), больше односпальной — цепочка начинается с single (кровать 120–140, «4 ft small double»); окно 140 по центру севера, дверь 76 у юго-восточного угла. Ширина кровати — по размеру комнаты, не по назначению «пара».",
+ "_expect": {"pick": "single", "bed_w_min": 115, "bed_w_max": 150, "hard": 0, "chain": ["single", "single_narrow"]},
+ "plan": "fx-small-double",
+ "result": {
+  "version": 1, "units": "cm",
+  "source": {"mime": "image/png", "pages": 1, "usedPages": 1, "imageW": 1000, "imageH": 800},
+  "scale": {"status": "verified", "ppm": 100, "inliers": 4, "n": 4},
+  "panels": [{"id": "p1", "title": "First Floor",
+   "rooms": [{"id": "r1", "name": "Bedroom 2", "kind": "bedroom",
+              "contour": [[0, 0], [300, 0], [300, 330], [0, 330]], "bbox": {"x": 0, "y": 0, "w": 300, "d": 330},
+              "areaM2": 9.9, "flags": []}],
+   "walls": [],
+   "openings": [{"kind": "window", "c": [150, 0], "widthCm": 140, "exterior": true},
+                {"kind": "door", "c": [252, 330], "widthCm": 76, "exterior": false}]}],
+  "flags": [], "timings": {}, "costUsd": 0
+ }
+}

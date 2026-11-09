@@ -1,0 +1,18 @@
+{
+ "_about": "Кладовка, подписанная как спальня: 1,90×2,30 (4,4 м², меньше UK-нормы односпальной 7,5 м² и 2,15 м). Кровать 100×205 с проходом 75 и дугой двери не встаёт — честный отказ с причиной, без полупустого плана; флаг below_ndss_single.",
+ "_expect": {"pick": null, "flags_include": ["below_ndss_single"], "refusal_any": ["BED_NO_FIT", "REQUIRED_NO_FIT", "HARD_LEFT"]},
+ "plan": "fx-too-small",
+ "result": {
+  "version": 1, "units": "cm",
+  "source": {"mime": "image/png", "pages": 1, "usedPages": 1, "imageW": 1000, "imageH": 800},
+  "scale": {"status": "verified", "ppm": 100, "inliers": 4, "n": 4},
+  "panels": [{"id": "p1", "title": "First Floor",
+   "rooms": [{"id": "r1", "name": "Bedroom 4", "kind": "bedroom",
+              "contour": [[0, 0], [190, 0], [190, 230], [0, 230]], "bbox": {"x": 0, "y": 0, "w": 190, "d": 230},
+              "areaM2": 4.37, "flags": []}],
+   "walls": [],
+   "openings": [{"kind": "window", "c": [95, 0], "widthCm": 90, "exterior": true},
+                {"kind": "door", "c": [45, 230], "widthCm": 76, "exterior": false}]}],
+  "flags": [], "timings": {}, "costUsd": 0
+ }
+}
