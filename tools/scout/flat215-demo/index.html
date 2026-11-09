@@ -8533,8 +8533,20 @@ function vwCtaUi(){
 // ВСЕГДА ШИРОКИЙ КАДР на любом устройстве (demo-20 Г1, владелец 22.10: «не обрезай под телефон» — «пропорция устройства» означала только
 // ПОКАЗ): окно «Фото» и превью обрезают по месту (`vwPhotoFocus`), «⤢» показывает широкое фото целиком
 const VW_FRAME_SIZES=[[2048,1489],[1536,1117]];   // пропорция вида листа 2048×3072 с полосой 94 px (Codex 17.10 п.2)
+// СЦЕНЫ ЕЩЁ НЕТ — СТРОИМ ЕЁ ДЛЯ КАДРОВ (T-20261109-29): окно, открытое сразу в «Фото» (прежнее фото комнаты, T-20261107-66), кнопка
+// «Сделать реалистичнее» на плашке «Вы изменили комнату» и на карточке главной (`homeStaleReal`), нажатие до готовности 3D — сцены не
+// было, кадры не снимались, и сервер пересобирал исходник сам (+35–45 с к каждому фото). Холст сцене не нужен (`capturePhoto` рисует
+// своей камерой вне экрана), поэтому ждём движок (`liveEngine`: та же проба устройства, тот же запасной путь), но не дольше
+// VW_CAPTURE_WAIT_MS — дальше серверный путь, как раньше. Без видеокарты 3D не будет — не строим вовсе
+const VW_CAPTURE_WAIT_MS=25000;
+async function vwCaptureScene(){
+  if(LIVE.ok===true&&LIVE.scene)return LIVE.scene;
+  if(LIVE.ok===false||(liveSoftGL()&&!LIVE.force))return null;
+  const sc=await Promise.race([liveEngine(), new Promise(ok=>setTimeout(()=>ok(null),VW_CAPTURE_WAIT_MS))]).catch(()=>null);
+  return sc&&LIVE.ok===true&&LIVE.scene===sc?sc:null;
+}
 async function vwCaptureViews(){
-  if(LIVE.ok!==true||!LIVE.scene||!LIVE.scene.capture)return null;
+  if(!await vwCaptureScene()||!LIVE.scene.capture){try{console.info('кадр из браузера не снят: 3D нет',LIVE.ok,LIVE.why||'');}catch(_){} return null;}
   const poses=(cams||loadCams()).slice(0,2).map(camPoseOf);
   // СЦЕНА — ТОЧНО ЭТА РАССТАНОВКА (самопроверка 17.10: после смены варианта снимок ловил часть мебели прежнего — сцена ещё обновлялась):
   // ставим текущие предметы и декор и ждём, затем снимаем (`update` — последняя побеждает, повтор того же — без перезагрузки моделей)
