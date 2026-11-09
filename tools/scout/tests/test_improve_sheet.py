@@ -151,7 +151,9 @@ check('лист без товаров — прежний отказ «нет л�
 # 5) from_sources: счёт фото — из легенды исходника; папка без счёта (до T-17) — пересборка, а не платный вызов вслепую
 import json as _json  # noqa: E402
 import tempfile  # noqa: E402
-_tmpd = tempfile.TemporaryDirectory(prefix='improve-src-')      # убирается сам по выходу
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_improve_sheet')  # временное теста — на диске, не в /tmp; убирается при выходе (T-20261107-13)
+_tmpd =tempfile.TemporaryDirectory(prefix='improve-src-')      # убирается сам по выходу
 _tmp = DR.SRC_DIR = _tmpd.name
 _w, _h = (int(x) for x in IM.SIZE.split('x'))
 for sid, meta in (('old', {'версия промпта': IM.PROMPT_VERSION, 'качество': 'full'}),
