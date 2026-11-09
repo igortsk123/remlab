@@ -2,6 +2,7 @@
 """Кадры «исходник | 3D» (T-20261109-02): кусок листа по bbox панели рядом с серым 3D (сверху и под углом).
   python tools/floorplan/stitch.py <run-папка с A/B/C и 3d/> <out-папка>"""
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -21,6 +22,13 @@ def label(img, text):
     return out
 
 
+def safe_name(s: str) -> str:
+    """Имя панели → безопасное имя файла (T-09: «Garage / Workshop» — «/» делал путь в несуществующую папку,
+    cv2.imwrite молча не писал кадр): разделители путей и служебные знаки → «-», пробелы по краям — прочь."""
+    s = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', '-', str(s)).strip(' .-')
+    return re.sub(r'-{2,}', '-', s) or 'panel'
+
+
 def main(run, out):
     run, out = Path(run), Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -36,9 +44,12 @@ def main(run, out):
         crop = src[max(0, y0):y1, max(0, x0):x1]
         H = 700
         tiles = [label(fit_h(crop, H), f'{plan} {m["panel"]}: source')]   # OpenCV-шрифт без кириллицы
+        miss = []
         for v in ('top', 'oblique'):
             p = run / '3d' / f'3d-{plan}-{idx}-{v}.png'
-            if p.exists():
+            if not p.exists():
+                miss.append(v)
+            else:
                 im = cv2.imread(str(p))
                 ys, xs = np.nonzero((im < 250).any(axis=2))
                 if len(ys):
@@ -49,8 +60,11 @@ def main(run, out):
         row = tiles[0]
         for t in tiles[1:]:
             row = np.hstack([row, gap, t])
-        cv2.imwrite(str(out / f'side-{plan}-{idx}-{m["panel"]}.png'), row)
-        print(out / f'side-{plan}-{idx}-{m["panel"]}.png', row.shape[1], 'x', row.shape[0])
+        dst = out / f'side-{plan}-{idx}-{safe_name(m["panel"])}.png'
+        if not cv2.imwrite(str(dst), row):
+            print('НЕ ЗАПИСАН', dst)
+            continue
+        print(dst, row.shape[1], 'x', row.shape[0], ('· нет 3D: ' + ', '.join(miss)) if miss else '')
 
 
 if __name__ == '__main__':

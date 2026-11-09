@@ -80,8 +80,12 @@ function inside(pts, x, y) {
   return r;
 }
 
+// null — кадр снять нельзя (T-09: панель без полов — вид изнутри; без стен — любой вид); render.mjs пишет флаг и идёт дальше
 window.renderView = (model, view) => {
+  const floors = (model.floors || []).filter((f) => f.outer && f.outer.length >= 3);
+  if (view === "interior" && !floors.length) return null;
   const { scene, c, size } = build(model, view !== "top");
+  if (!Number.isFinite(c.x) || !Number.isFinite(size.x)) return null;
   const aspect = W / H;
   let cam;
   if (view === "top") {
@@ -101,7 +105,7 @@ window.renderView = (model, view) => {
   } else {
     // вид изнутри самой большой комнаты: из дальнего угла на центр, высота глаз 1,5 м
     let best = null;
-    for (const f of model.floors) if (!best || polyArea(f.outer) > polyArea(best.outer)) best = f;
+    for (const f of floors) if (!best || polyArea(f.outer) > polyArea(best.outer)) best = f;
     const pts = best.outer;
     const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
     let far = pts[0], fd = -1;

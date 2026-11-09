@@ -38,6 +38,167 @@ def wall_mask_dark(img: np.ndarray, thr: int, open_px: int, min_area: int = 60) 
     return remove_small(m, min_area)
 
 
+# --- маска стен для тонких линий и водяных знаков (T-20261109-09) ------------------------------------------------------
+# Порог 125 + открытие 3 теряет стены в 1–2 px (E, F) и стены под полупрозрачным водяным знаком (B: 30 → ~100–140).
+# Подходы сравнивались на A/B/C/E/F по корзинам (отчёт T-09, лог плана floorplan-raster-bench-01): «ширина штриха» (открытие по
+# измеренной ширине длинных штрихов), «длинные линии» (открытие отрезком по семействам углов + досборка),
+# «отрезки LSD» (детектор отрезков OpenCV, Apache-2.0), «гистерезис» (слабое тёмное, связанное с сильным).
+
+def line_kernel(L: int, angle_deg: float) -> np.ndarray:
+    """Структурный элемент «отрезок» длины L px под углом (градусы, как в `angle_families`: atan2(dy, dx), y вниз)."""
+    L = max(3, int(L)) | 1
+    k = np.zeros((L, L), np.uint8)
+    c = (L - 1) / 2
+    a = math.radians(angle_deg)
+    s = c / max(abs(math.cos(a)), abs(math.sin(a)))          # на всю клетку: L px по ведущей оси
+    dx, dy = math.cos(a) * s, math.sin(a) * s
+    cv2.line(k, (int(round(c - dx)), int(round(c - dy))), (int(round(c + dx)), int(round(c + dy))), 1, 1)
+    return k
+
+
+def long_strokes(m: np.ndarray, L: int, angles=(0.0, 90.0)) -> np.ndarray:
+    """Пиксели маски, лежащие на прямом штрихе длиной ≥ L px по одному из направлений (открытие отрезком).
+    Текст и штриховка (короче L) уходят при любой толщине линии; стена в 1 px остаётся."""
+    m = m.astype(np.uint8)
+    out = np.zeros_like(m)
+    seen = []
+    for a in list(angles) + [0.0, 90.0]:
+        a = float(a) % 180
+        if any(angdiff(a, b) < 2 for b in seen):
+            continue
+        seen.append(a)
+        out |= cv2.morphologyEx(m, cv2.MORPH_OPEN, line_kernel(L, a))
+    return out
+
+
+def grow_within(seed: np.ndarray, m: np.ndarray, steps: int) -> np.ndarray:
+    """Условное наращивание: seed растёт по пикселям m не дальше steps px (углы, торцы и короткие простенки длинной
+    линии возвращаются; текст, лишь касающийся стены, — только на steps px)."""
+    cur = (seed > 0) & (m > 0)
+    k = np.ones((3, 3), np.uint8)
+    for _ in range(max(0, int(steps))):
+        nxt = (cv2.dilate(cur.astype(np.uint8), k) > 0) & (m > 0)
+        if (nxt == cur).all():
+            break
+        cur = nxt
+    return cur.astype(np.uint8)
+
+
+def hysteresis(gray: np.ndarray, thr: int, thr_hi: int) -> np.ndarray:
+    """Тёмное с гистерезисом: сильное (< thr) + слабое (< thr_hi), связное с сильным. Стена под полупрозрачным
+    водяным знаком светлее (B: ~100–140), но продолжает тёмную стену вне знака; сам знак (светлый) не связан."""
+    strong = (gray < thr).astype(np.uint8)
+    weak = (gray < thr_hi).astype(np.uint8)
+    n, lab = cv2.connectedComponents(weak, connectivity=8)
+    keep = np.zeros(n, bool)
+    keep[np.unique(lab[strong > 0])] = True
+    keep[0] = False
+    return keep[lab].astype(np.uint8)
+
+
+def long_stroke_width(m: np.ndarray, L: int) -> tuple[float, float]:
+    """Длинные штрихи маски (без открытия): (медиана ширины, доля осевых пикселей шириной < 3 px); (0, 0) — нет."""
+    ls = long_strokes(m, L)
+    if not ls.any():
+        return 0.0, 0.0
+    # ширину меряем по самой маске (открытие отрезком срезает толщину диагоналей), на осевых пикселях длинных штрихов
+    dt = cv2.distanceTransform(m.astype(np.uint8), cv2.DIST_L2, 5)
+    mx = cv2.dilate(dt, np.ones((3, 3), np.uint8))
+    ridge = (dt >= 0.5) & (dt >= mx - 1e-6) & (ls > 0)
+    v = 2 * dt[ridge]
+    if not v.size:
+        return 0.0, 0.0
+    return float(np.median(v)), float((v < 3).mean())
+
+
+def lsd_mask(gray: np.ndarray, dark: np.ndarray, L: int, max_gray: int) -> np.ndarray:
+    """Отрезки LSD (OpenCV, Apache-2.0) длиной ≥ L px, тёмные вдоль (медиана серого по отрезку ≤ max_gray) →
+    тёмные пиксели маски `dark` в полосе ±2 px вокруг отрезка (толщина — по самой картинке)."""
+    lsd = cv2.createLineSegmentDetector()
+    lines = lsd.detect(gray)[0]
+    band = np.zeros(gray.shape, np.uint8)
+    if lines is None:
+        return band
+    H, W = gray.shape
+    for x1, y1, x2, y2 in lines.reshape(-1, 4):
+        Lp = math.hypot(x2 - x1, y2 - y1)
+        if Lp < L:
+            continue
+        n = int(Lp) + 1
+        xs = np.clip(np.round(np.linspace(x1, x2, n)).astype(int), 0, W - 1)
+        ys = np.clip(np.round(np.linspace(y1, y2, n)).astype(int), 0, H - 1)
+        # край тёмной полосы — LSD идёт по границе; ищем тёмное в ±2 px поперёк
+        dn = np.array([-(y2 - y1), x2 - x1]) / max(Lp, 1e-6)
+        best = 255
+        for s in (-2, -1, 0, 1, 2):
+            xx = np.clip(np.round(xs + s * dn[0]).astype(int), 0, W - 1)
+            yy = np.clip(np.round(ys + s * dn[1]).astype(int), 0, H - 1)
+            best = min(best, float(np.median(gray[yy, xx])))
+        if best <= max_gray:
+            cv2.line(band, (int(round(x1)), int(round(y1))), (int(round(x2)), int(round(y2))), 1, 5)
+    return (band & dark).astype(np.uint8)
+
+
+THIN_SHARE = 0.15
+THIN_T3 = 5          # медианная толщина стен после открытия 3 (px): ≤ 5 — лист тонких стен (E, F: 4; A, C, D, G: 6–8)     # «тонкие стены»: доля длинных штрихов уже 3 px
+
+
+def wall_mask_auto(img: np.ndarray, mode: str, thr: int = 125, min_area: int = 60, thr_hi: int = 170,
+                   thin_gray: int = 100) -> tuple[np.ndarray, dict]:
+    """Маска стен тёмного листа без настройки под лист (T-09) → (маска, сведения о выборе).
+    Общая часть: тёмное с гистерезисом (`hysteresis`, водяной знак), ширина длинных штрихов (`long_stroke_width`):
+    толстые (медиана ≥ 12 px) — открытие 5, средние (> THIN_T3) — открытие 3, оба как было, без гистерезиса и
+    добавок; режимы ниже включаются только на листе тонких стен (медиана ≤ THIN_T3):
+      'base'   — без добавки (порог + открытие, как T-04, но с гистерезисом при thr_hi > thr);
+      'width'  — открытие по ширине: P25 ширины длинных штрихов < 3 px → открытие 2 вместо 3;
+      'lines'  — + длинные прямые штрихи (открытие отрезком по семействам углов) тёмного ядра (< thin_gray),
+                 досборка углов/торцов по маске не дальше 1,5 L;
+      'lsd'    — + тёмные пиксели вдоль длинных отрезков LSD."""
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+    dark0 = (g < thr).astype(np.uint8)
+    t3 = stroke_thickness(remove_small(cv2.morphologyEx(dark0, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)), min_area))
+    info = {'mode': mode, 'thr': thr, 'thr_hi': thr_hi, 't3': round(t3, 2)}
+    if t3 >= 12:
+        # толстые стены (B): открытие 5 — меньше текста; без гистерезиса и добавок: стена держится порогом,
+        # а гистерезис наращивает на неё дуги дверей и мебель (B: гардероб 0,95×0,82 залит)
+        info['open'] = 5
+        return remove_small(cv2.morphologyEx(dark0, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8)), 120), info
+    info['thin'] = t3 <= THIN_T3
+    if not info['thin']:
+        # средние стены (A, C, D, G: 6–8 px): открытие 3 их держит; добавки и гистерезис только портят (C: lines:170
+        # ≤15 18 → 13) — как было
+        info['open'] = 3
+        return remove_small(cv2.morphologyEx(dark0, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)), min_area), info
+    # тонкие: гистерезис возвращает сглаженные края штриха (E: ядро стены 6–13, края 74–130)
+    dark = hysteresis(g, thr, thr_hi) if thr_hi > thr else dark0
+    L = 21
+    med, thin_share = long_stroke_width(dark, L)
+    info.update(w_med=round(med, 2), thin_share=round(thin_share, 3), open=3)
+    m3 = remove_small(cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)), min_area)
+    base = m3
+    if mode == 'width':
+        if thin_share >= THIN_SHARE:
+            info['open'] = 2
+            # открытие 2×2 без сдвига: у чётного ядра morphologyEx сдвигает маску на 1 px — эрозия и дилатация
+            # с зеркальными якорями
+            k2 = np.ones((2, 2), np.uint8)
+            er = cv2.erode(dark, k2, anchor=(0, 0))
+            base = remove_small(cv2.dilate(er, k2, anchor=(1, 1)), min_area)
+        return base, info
+    if mode == 'lines':
+        fams = angle_families(m3) if m3.any() else [0.0, 90.0]
+        core = (g < thin_gray).astype(np.uint8) & dark
+        ls = long_strokes(core, L, fams)
+        ls = grow_within(ls, dark, int(1.5 * L))
+        info['added_px'] = int(((ls > 0) & (base == 0)).sum())
+        return remove_small(base | ls, min_area), info
+    if mode == 'lsd':
+        ls = lsd_mask(g, dark, L, thin_gray)
+        info['added_px'] = int(((ls > 0) & (base == 0)).sum())
+        return remove_small(base | ls, min_area), info
+    return base, info
+
+
 def stroke_thickness(mask: np.ndarray) -> float:
     """Медианная толщина штриха маски, px: 2·dt на осевых пикселях (локальные максимумы distance transform)."""
     dt = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
@@ -600,7 +761,11 @@ def angle_families(wall: np.ndarray, min_share: float = 0.06, merge_deg: float =
     return ref
 
 
-def panel_families(wall: np.ndarray, min_len_px: float, sep_deg: float = 15.0) -> list[float]:
+FAM_MIN_SEP = 8.0     # семейства углов панели ближе 8° — одно (T-09: крыло C 0,5°/5,7° — два близких направления)
+
+
+def panel_families(wall: np.ndarray, min_len_px: float, sep_deg: float = 15.0,
+                   min_sep: float = FAM_MIN_SEP) -> list[float]:
     """Семейства углов панели (T-04): `angle_families` по стенам панели + наклоны, у которых суммарная длина граней
     ≥ min_len_px, даже если их доля мала (эркер 45° на большом этаже); новый наклон — не ближе sep_deg к уже
     найденным (лесенка косой стены в 3–6° не становится «семейством»)."""
@@ -625,7 +790,20 @@ def panel_families(wall: np.ndarray, min_len_px: float, sep_deg: float = 15.0) -
             idx = [(int(a) + k) % 180 for k in (-1, 0, 1)]
             w = hist[idx]
             fams.append((float(a) + float((np.array([-1, 0, 1]) * w).sum() / max(1e-9, w.sum()))) % 180)
-    return fams
+    return separate_families(fams, hist, min_sep)
+
+
+def separate_families(fams: list[float], hist: np.ndarray, min_sep: float = FAM_MIN_SEP) -> list[float]:
+    """Семейства с минимальным разносом (T-09): из близких (< min_sep) остаётся то, у которого больше длина граней
+    (гистерезис ±2° по `hist` — длины рёбер по углу 0–179). Иначе грань в 3° от «лишнего» семейства не считалась
+    косой (метрика обманута), а выпрямление тянуло соседние стены к двум разным углам (косой пол)."""
+    def weight(f):
+        return float(sum(hist[(int(round(f)) + k) % 180] for k in range(-2, 3)))
+    out = []
+    for f in sorted(fams, key=lambda f: -weight(f)):
+        if all(angdiff(f, g) >= min_sep for g in out):
+            out.append(f)
+    return out
 
 
 def angdiff(a: float, b: float) -> float:

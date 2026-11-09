@@ -38,21 +38,36 @@ const base = `http://127.0.0.1:${server.address().port}/`;
 
 const browser = await chromium.launch({ ignoreDefaultArgs: ["--disable-dev-shm-usage"],
   args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const flags = [];
 try {
   const tab = await browser.newPage({ viewport: { width: 1200, height: 900 } });
   tab.on("pageerror", (e) => console.error("page:", e.message));
   await tab.goto(base);
   await tab.waitForFunction(() => window.ready === true, null, { timeout: 60000 });
+  // T-09: кадр, который снять нельзя (панель без полов — вид изнутри; сбой страницы), пропускается с флагом,
+  // остальные панели рендерятся; флаги — в <out>/render-flags.json и в журнал
   for (const mp of MODELS) {
     const model = JSON.parse(readFileSync(mp, "utf8"));
     for (const v of VIEWS) {
       const t0 = Date.now();
-      const url = await tab.evaluate(([m, view]) => window.renderView(m, view), [model, v]);
       const name = `3d-${model.plan}-${basename(mp).replace(/^model-[A-Z]-/, "").replace(".json", "")}-${v}.png`;
+      let url = null, why = null;
+      try {
+        url = await tab.evaluate(([m, view]) => window.renderView(m, view), [model, v]);
+        if (!url) why = (model.floors || []).length ? "нет стен" : "0 полов";
+      } catch (e) {
+        why = `сбой: ${String(e.message || e).split("\n")[0]}`;
+      }
+      if (!url) {
+        flags.push({ model: basename(mp), panel: model.panel, view: v, why });
+        console.log(name, `пропуск — ${why}`);
+        continue;
+      }
       writeFileSync(join(OUT, name), Buffer.from(url.split(",")[1], "base64"));
       console.log(name, `${Date.now() - t0} мс`);
     }
   }
+  writeFileSync(join(OUT, "render-flags.json"), JSON.stringify(flags, null, 1));
 } finally {
   await browser.close().catch(() => {});
   server.close();

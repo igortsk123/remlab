@@ -75,11 +75,32 @@ def load_vlm(plan, vdir, shape):
     return out
 
 
+THIN_MASK = 'lsd:170'   # T-09: добавка тонких стен «режим[:порог гистерезиса]» (fc.wall_mask_auto); FP_MASK=old — без неё
+
+
+def thin_mode():
+    fm = os.environ.get('FP_MASK', THIN_MASK)
+    if not fm or fm == 'old':
+        return None
+    mode, _, hi = fm.partition(':')
+    return mode, int(hi or 0)
+
+
 def build_mask(img, cfg):
+    """Маска стен листа. Тёмные листы — порог и открытие плана; лист тонких стен (медиана толщины ≤ fc.THIN_T3,
+    общее правило T-09, не порог под лист) — маска fc.wall_mask_auto с добавкой тонких стен."""
     k = cfg['mask']
     if k[0] == 'blue':
         return fc.wall_mask_blue(img, cfg['min_area'])
-    return fc.wall_mask_dark(img, k[1], k[2], cfg['min_area'])
+    m = fc.wall_mask_dark(img, k[1], k[2], cfg['min_area'])
+    tm = thin_mode()
+    if tm:
+        m2, info = fc.wall_mask_auto(img, tm[0], k[1], cfg['min_area'], tm[1])
+        cfg['mask_info'] = info
+        if info['thin']:
+            cfg['thin_hi'] = tm[1]
+            return m2
+    return m
 
 
 def rot_angles(fams):
@@ -379,6 +400,17 @@ def room_angle(mask, fams):
     return ((f + 45) % 90) - 45
 
 
+def room_body(res, rid):
+    """Тело комнаты для мерки: без эркера (подпись агентства — без него); комната целиком внутри эркера — как есть
+    (T-09: иначе пустая маска роняла прогон)."""
+    lab = res['lab']
+    m = lab == rid
+    bay = res.get('bay_in')
+    if bay is not None and (m & ~bay).any():
+        m = m & ~bay
+    return m
+
+
 def match_gold(res, gold_rooms, fams, core=False):
     lab, rooms = res['lab'], res['rooms']
     hit = {}
@@ -392,7 +424,7 @@ def match_gold(res, gold_rooms, fams, core=False):
         rid = g['_room']
         if rid is None or 'dims_m' not in g or len(hit[rid]) > 1:
             continue
-        m = (lab == rid) & ~res.get('bay_in', np.zeros(lab.shape, bool))   # подпись агентства — без эркера
+        m = room_body(res, rid)
         ang = room_angle(m, fams)
         obs.append({'id': g['name'], 'dims': tuple(g['dims_m']), 'ext': fc.room_extents(m, -ang, core), 'angle': ang})
     return hit, obs
@@ -442,7 +474,7 @@ def unlabeled_dims(res, groom, hit, fams, ppm, fit):
         rid = g.get('_room')
         if rid is None or len(hit.get(rid, [])) > 1:
             continue
-        m = (res['lab'] == rid) & ~res.get('bay_in', np.zeros(res['lab'].shape, bool))
+        m = room_body(res, rid)
         ext = fc.room_extents(m, -room_angle(m, fams), True)
         wx, wy = ext.get(c, ext['p95'])
         out.append({'id': g['name'], 'gold': None, 'status': 'мерка без подписи', 'ours': [round(wx / ppm, 3), round(wy / ppm, 3)],
@@ -538,7 +570,8 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
     gold = gold or json.loads((HERE / 'gold' / f'{plan}.json').read_text())
     img = cv2.imread(str(Path(inputs) / gold['image']), cv2.IMREAD_COLOR)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    cfg = cfg or CFG[plan]
+    if cfg is None:      # FP_AUTO=1 — A/B/C по общему правилу (как слепые), иначе — настройка стенда CFG
+        cfg = auto_cfg(img) if os.environ.get('FP_AUTO', '0') != '0' else dict(CFG[plan])
     wall = build_mask(img, cfg)
     t = fc.stroke_thickness(wall)
     fams = fc.angle_families(wall)
@@ -705,6 +738,8 @@ def dark_raw(img, gray, cfg):
     if k[0] == 'blue':
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         return (hsv[..., 0] >= 95) & (hsv[..., 0] <= 135) & (hsv[..., 1] >= 100) & (hsv[..., 2] >= 50)
+    if cfg.get('thin_hi', 0) > k[1]:                 # лист тонких стен: тёмное с гистерезисом, как в маске
+        return fc.hysteresis(gray, k[1], cfg['thin_hi']) > 0
     return gray < k[1]
 
 
