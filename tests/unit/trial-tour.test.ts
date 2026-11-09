@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { TrialJobView } from "@/contracts/trial";
+import { bundleProblem, trialBundle } from "@/contracts/trial-bundle";
 import { pinJobRelease, pinRelease, writeTourData } from "@/lib/trial/tour-bundle";
 import { jobDir, releaseDir } from "@/lib/trial/tour-files";
 import { injectTour, tourLinks } from "@/lib/trial/tour-page";
@@ -206,22 +207,39 @@ describe("фикстуры тура пробы", () => {
     expect(d.variants.some((v) => v.items.length > 0)).toBe(true);
     expect(d.variants.every((v) => !v.pending)).toBe(true);
   });
-  it("исходы мебели по комнате — кодами: подбирается / обставлена / нет товаров / не обставляется", () => {
-    type Room = { id: string; kind: string; titleRu: string; titleEn: string; furniture_state: string };
-    const CODES = ["pending", "furnished", "no_products", "not_furnished"];
+  // контракт сборщика данных (`contracts/trial-bundle.ts`): страница читает исходы и подписи из тех же полей, что пишет сборщик
+  it("обе фикстуры проходят контракт сборщика: форма и связи", () => {
+    for (const f of ["trial-tour-empty.json", "trial-tour-furnished.json"]) {
+      const b = trialBundle.parse(read(f));
+      expect(bundleProblem(b, b.trial.job_id), f).toBeNull();
+    }
+  });
+  it("исходы мебели по комнате — кодами: подбирается / обставлена / нет товаров / не разобрана / не обставляется", () => {
+    type Room = { id: string; kind: string; titleRu: string; titleEn: string; furniture_state: string; furniture_outcome: string;
+      furniture_text_en?: string | null };
+    const OUTCOMES = ["pending", "furnished", "no_products", "not_readable", "not_furnished"];
     const rooms = (f: string) => (read(f) as unknown as { apartment_rooms: Room[] }).apartment_rooms;
     for (const f of ["trial-tour-empty.json", "trial-tour-furnished.json"]) {
       for (const r of rooms(f)) {
-        expect(CODES, `${f} ${r.id}`).toContain(r.furniture_state);
+        expect(OUTCOMES, `${f} ${r.id}`).toContain(r.furniture_outcome);
         expect(r.titleRu && r.titleEn, `${f} ${r.id}: подписи на двух языках`).toBeTruthy();
+        if (r.furniture_state === "refused" || r.furniture_state === "not_furnished") expect(r.furniture_text_en, `${f} ${r.id}`).toBeTruthy();
       }
     }
-    expect(rooms("trial-tour-empty.json").some((r) => r.furniture_state === "pending")).toBe(true);
+    expect(rooms("trial-tour-empty.json").some((r) => r.furniture_outcome === "pending")).toBe(true);
     const furn = rooms("trial-tour-furnished.json");
-    expect(furn.filter((r) => r.furniture_state === "no_products").map((r) => r.id)).toEqual(["bedroom-1"]);
-    expect(furn.some((r) => r.furniture_state === "furnished")).toBe(true);
-    expect(furn.filter((r) => r.furniture_state === "not_furnished").every((r) => !["living", "bedroom"].includes(r.kind))).toBe(true);
+    expect(furn.filter((r) => r.furniture_outcome === "no_products").map((r) => r.id)).toEqual(["bedroom-1"]);
+    expect(furn.filter((r) => r.furniture_outcome === "not_readable").map((r) => r.id)).toEqual(["hall"]);
+    expect(furn.some((r) => r.furniture_outcome === "furnished")).toBe(true);
+    expect(furn.filter((r) => r.furniture_outcome === "not_furnished").every((r) => !["living", "bedroom"].includes(r.kind))).toBe(true);
     for (const v of read("trial-tour-furnished.json").variants.filter((x) => x.room_id === "bedroom-1")) expect(v.items).toEqual([]);
+  });
+  it("подписи геометрии на двух языках, правило опроса — в данных (ссылка покупателя `?quiz=1`)", () => {
+    for (const f of ["trial-tour-empty.json", "trial-tour-furnished.json"]) {
+      const d = read(f) as unknown as { rooms_geo: Record<string, { title_ru?: string; title_en?: string }>; quiz?: { questions?: unknown[] } };
+      for (const [k, g] of Object.entries(d.rooms_geo)) expect(g.title_ru && g.title_en && !/[Ѐ-ԯ]/.test(g.title_en), `${f} ${k}`).toBeTruthy();
+      expect(d.quiz?.questions?.length ?? 0, f).toBeGreaterThan(0);
+    }
   });
   it("масштаб задания в данных: не подтверждён — на пустой", () => {
     const scale = (f: string) => (read(f).trial as { scale?: string }).scale;

@@ -1284,12 +1284,17 @@ body.trial #hmBot,body.trial .vtop,body.trial #consShot,body.trial #swapShot,bod
 /* карточка пробы без фото: план комнаты с мебелью (тот же рисунок, что план окна) и подпись «Откройте — покажем в 3D» */
 .hm-room .hm-ph .nopv.tr-plan{background:var(--wash,#F3F0EA);padding:42px 14px 44px}
 .hm-room .hm-ph .nopv.tr-plan svg{width:100%;height:100%;display:block}
+/* узкий экран: «Форма приблизительная» (слева) и «Откройте — покажем в 3D» (справа) в одну строку не помещаются — вторым рядом */
+@media(max-width:700px){.hm-ph:has(.tr-3d)>.tr-approx{top:44px}.hm-room .hm-ph:has(>.tr-approx) .nopv.tr-plan{padding-top:76px}}
+.vstub.tr-flat{background:var(--wash,#F3F0EA);padding:72px 20px 20px}
+.vstub.tr-flat .tr-plan{width:100%;height:100%;max-width:760px}.vstub.tr-flat svg{width:100%;height:100%;display:block}
 .tr-3d{position:absolute;right:10px;top:10px;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.94);color:var(--ink);font-size:12px;line-height:1.3;box-shadow:0 2px 8px rgba(0,0,0,.08)}
 /* шапка пробы: масштаб и две подписанные ссылки */
 #trHead{margin:8px 0 10px;display:flex;flex-direction:column;gap:8px}
 #trHead .tr-scale{margin:0;align-self:flex-start;padding:4px 10px;border-radius:999px;border:1px dashed #C7652B;color:#8A4A1F;font-size:12px;line-height:1.3}
 #trHead .tr-links{display:flex;flex-wrap:wrap;gap:8px 16px}
-#trHead .tr-link{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+#trHead .tr-link{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);min-width:0}
+#trHead .tr-link>span{flex:1 1 auto;min-width:0}#trHead .tr-link>.btn{flex:none}
 #trHead .tr-link b{color:var(--ink);font-weight:600}
 #trHead .tr-link .btn{padding:5px 12px;font-size:13px;min-height:0}
 </style></head><body><div class="wrap">
@@ -1491,23 +1496,34 @@ let D=null, cur=0, items=[], sel=null, S=1, PAD=18;
 // странице по коду и языку (RU/EN, владелец 09.11 TG 486), не из данных: «нет подходящих товаров» — честная надпись, не вечная крутилка
 const TRIAL=()=>!!(D&&D.trial);
 const TR_EN=()=>LANG==='en';
-// коды исхода; прежние слова сборщика (ready/refused/partial/none) и коды причин читаются так же — данные и страница вливаются порознь
+// ИСХОД КОМНАТЫ — КОДОМ (`contracts/trial-bundle.ts`): сперва `furniture_outcome` (furnished / pending / no_products / not_readable /
+// not_furnished; прочие коды причин — отказ или «не обставляется» по таблице), нет его — `furniture_state` (ready / pending / refused /
+// not_furnished). Прежние слова сборщика (partial/none/failed, `furniture_code`) читаются так же — данные и страница вливаются порознь
 const TR_OUT={furnished:'furnished',ready:'furnished',partial:'furnished',pending:'pending',no_products:'no_products',refused:'no_products',failed:'no_products',
-  not_furnished:'not_furnished',none:'not_furnished'};
-const TR_NOT_FURN=new Set(['not_furnished','room_kind_not_furnished','one_living_furnished']);
-function roomOutcome(id){ if(!TRIAL())return undefined;
-  const r=(D.apartment_rooms||[]).find(x=>x&&x.id===id); if(!r)return undefined;
-  const o=TR_OUT[r.furniture_state]; return o==='no_products'&&TR_NOT_FURN.has(r.furniture_code)?'not_furnished':o; }
-// отказ варианта: исход комнаты «нет товаров»/«не обставляется» или сам вариант без предметов с исходом-отказом
-const varRefused=v=>!!(v&&TRIAL()&&(/^(no_products|not_furnished)$/.test(roomOutcome(roomIdOf(v))||'')||(/^(failed|none|no_products|not_furnished)$/.test(v.furniture_state||'')&&!(v.items||[]).length)));
+  not_readable:'not_readable',scale_unverified:'no_products',no_window:'no_products',
+  not_furnished:'not_furnished',none:'not_furnished',largest_living_only:'not_furnished',room_kind_not_furnished:'not_furnished',one_living_furnished:'not_furnished'};
+const trRoom=id=>TRIAL()?(D.apartment_rooms||[]).find(x=>x&&x.id===id):undefined;
+function roomOutcome(id){ const r=trRoom(id); if(!r)return undefined;
+  return TR_OUT[r.furniture_outcome]||TR_OUT[r.furniture_code]||TR_OUT[r.furniture_state]; }
+const TR_NONE=/^(no_products|not_readable|not_furnished)$/;
+// отказ варианта: исход комнаты — отказ любого рода, или сам вариант без предметов с исходом-отказом
+const varRefused=v=>!!(v&&TRIAL()&&(TR_NONE.test(roomOutcome(roomIdOf(v))||'')||(/^(failed|none|no_products|not_furnished|refused)$/.test(v.furniture_state||'')&&!(v.items||[]).length)));
 const varPending=v=>!!(v&&(v.pending||v.furniture_state==='pending')&&!(v.items||[]).length&&!varRefused(v));
 const varNotFurn=v=>!!(v&&TRIAL()&&(roomOutcome(roomIdOf(v))==='not_furnished'||/^(none|not_furnished)$/.test(v.furniture_state||'')));
 const pendTxt=()=>TR_EN()?'Choosing furniture…':'Подбираем мебель…', pendSpin='<i class="tr-spin" aria-hidden="true"></i>';
 const refusedTxt=()=>TR_EN()?'No suitable products under the current templates':'Нет подходящих товаров согласно действующим шаблонам';
 const refusedShort=()=>TR_EN()?'no products':'нет товаров';
 const notFurnTxt=()=>TR_EN()?'We don’t furnish this room':'Эту комнату не обставляем', notFurnShort=()=>TR_EN()?'not furnished':'не обставляется';
-// текст отказа варианта: «не обставляется» отдельно от «нет подходящих товаров»
-const varNoneTxt=v=>varNotFurn(v)?notFurnTxt():refusedTxt(), varNoneShort=v=>varNotFurn(v)?notFurnShort():refusedShort();
+const unreadTxt=()=>TR_EN()?'We couldn’t read this room on the plan':'Не удалось разобрать эту комнату на плане', unreadShort=()=>TR_EN()?'not read':'не разобрана';
+// текст исхода комнаты по коду и языку: «не обставляется», «не разобрана» и «нет подходящих товаров» — разные. Код причины без своей
+// надписи (масштаб, нет окна …) — текст сборщика на языке показа (`furniture_text_en`/`furniture_text`), нет его — «нет товаров»
+function outcomeTxt(id,short){ const o=roomOutcome(id), r=trRoom(id)||{};
+  if(o==='not_furnished')return short?notFurnShort():notFurnTxt();
+  if(o==='not_readable')return short?unreadShort():unreadTxt();
+  const own=!short&&r.furniture_outcome&&!/^(no_products|failed)$/.test(r.furniture_outcome)?(TR_EN()?r.furniture_text_en:r.furniture_text):'';
+  return own||(short?refusedShort():refusedTxt()); }
+const varNoneTxt=v=>v&&roomOutcome(roomIdOf(v))?outcomeTxt(roomIdOf(v),false):(varNotFurn(v)?notFurnTxt():refusedTxt());
+const varNoneShort=v=>v&&roomOutcome(roomIdOf(v))?outcomeTxt(roomIdOf(v),true):(varNotFurn(v)?notFurnShort():refusedShort());
 // масштаб плана (`D.trial.scale`: verified / listing / not_verified, `contracts/trial.ts`) не подтверждён — размеры примерные, говорим это
 const scaleUnconfirmed=()=>TRIAL()&&D.trial.scale==='not_verified';
 const scaleTxt=()=>TR_EN()?'Scale not confirmed — sizes are approximate':'Масштаб не подтверждён — размеры примерные';
@@ -1542,6 +1558,11 @@ function trialSetup(){
   const t=TR_EN()?'Your floor plan':'Ваша планировка', fk=document.getElementById('flatKind');
   if(fk)fk.textContent=t;
   document.title=t;
+  // подписи комнат по языку показа: `title` у геометрии — русская (как в живом /demo), у сборщика рядом `title_ru`/`title_en`
+  [D.room,...Object.values(D.rooms_geo||{})].forEach(g=>{if(g){const s=TR_EN()?g.title_en:g.title_ru; if(s)g.title=s;}});
+  // стиль, для которого товаров не нашлось, в комнате с другими обставленными стилями — не показываем (выбирать в нём нечего)
+  const full=new Set((D.variants||[]).filter(v=>(v.items||[]).length).map(roomIdOf));
+  D.variants=(D.variants||[]).filter(v=>(v.items||[]).length||v.pending||v.furniture_state==='pending'||!full.has(roomIdOf(v)));
   (D.variants||[]).forEach(v=>{if(varRefused(v)){v.items=[]; v.decor=[];}});   // отказ по комнате: сцена пустая, даже если у варианта остались предметы
   trialHead();
   trialPoll();
@@ -1595,7 +1616,8 @@ window.addEventListener('error',e=>{                 // пустая стран�
 function pageEn(){ try{return LANG==='en';}catch(e){}
   const m=location.search.match(/[?&]lang=(ru|en)(?:&|$)/); if(m)return m[1]==='en';
   try{return localStorage.getItem('remlab-lang')==='en';}catch(e){return false;} }
-fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();})
+fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();
+  if(TRIAL()){window.__trialReady=1; document.dispatchEvent(new Event('trialready'));}})   // проба: опрос без карточки квартиры (`decide`)
   .catch(e=>{const b=document.getElementById('sub');
     if(b)b.textContent=(pageEn()?'Could not load the data: ':'Не удалось загрузить данные: ')+String(e.message||e).slice(0,140);});
 
@@ -2157,7 +2179,7 @@ function flatPlan(){
       L.push({t:homeM2(room.areaM2),k:0.95,a:{fill:'#5C655E'}});
       const o=TRIAL()&&!rv&&br?roomOutcome(br.id):'';   // проба: комната без варианта — исход по коду (не обставляется / подбирается)
       L.push(pend?{t:pendTxt(),k:0.85,a:{fill:'#5C655E'}}:none?{t:varNoneShort(allVariants()[rv.index]),k:0.85,a:{fill:'#8A4A1F','data-refused':'1'}}:go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}
-        :o==='not_furnished'?{t:notFurnShort(),k:0.85,a:{fill:'#9AA098','data-outcome':o}}:o==='pending'?{t:pendTxt(),k:0.85,a:{fill:'#5C655E','data-outcome':o}}:o==='no_products'?{t:refusedShort(),k:0.85,a:{fill:'#8A4A1F','data-outcome':o}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
+        :o==='pending'?{t:pendTxt(),k:0.85,a:{fill:'#5C655E','data-outcome':o}}:o&&TR_NONE.test(o)?{t:outcomeTxt(br.id,true),k:0.85,a:{fill:o==='not_furnished'?'#9AA098':'#8A4A1F','data-outcome':o}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
     }
     const LH=fs*1.2; let y=r.y+r.d/2-LH*(L.length-1)/2+fs*0.35;
     L.forEach(l=>{el('text',Object.assign({x:cx,y,'text-anchor':'middle','font-size':fs*l.k},l.a),g).textContent=l.t; y+=LH;});
@@ -2189,7 +2211,9 @@ function flatPlan(){
   });
   box.appendChild(svg);
   if(TRIAL()&&R.some(r=>roomApprox(r.id)))box.insertAdjacentHTML('beforeend',`<div class="hint">≈ ${approxTxt()}</div>`);
-  if(TRIAL()&&allVariants().some(v=>varRefused(v)&&!varNotFurn(v)))box.insertAdjacentHTML('beforeend',`<div class="hint">${refusedShort()} — ${refusedTxt()}</div>`);
+  // проба: расшифровка коротких меток отказа под планом — по одной строке на текст (кроме «не обставляется» — она понятна сама)
+  if(TRIAL())[...new Set((D.apartment_rooms||[]).filter(r=>/^(no_products|not_readable)$/.test(roomOutcome(r.id)||'')).map(r=>outcomeTxt(r.id,true)+' — '+outcomeTxt(r.id,false)))]
+    .forEach(t=>box.insertAdjacentHTML('beforeend',`<div class="hint">${escHtml(t)}</div>`));
   if(scaleUnconfirmed())box.insertAdjacentHTML('beforeend',`<div class="hint" data-tr-scale="1">${scaleTxt()}</div>`);
 
 }
@@ -5579,7 +5603,7 @@ function drawHome(force){
   const shown=cards.find(c=>!c.stub&&c.r.id===HOME.room)||cards.find(c=>!c.stub), shownId=shown?shown.r.id:'';
   box.innerHTML=cards.map(c=>{
     const t=`${escHtml(c.r.title)}${c.r.areaM2?` <small>· ${homeM2(c.r.areaM2)}</small>`:''}`;
-    if(c.stub){const o=roomOutcome(c.r.id), tx=o==='pending'?pendSpin+pendTxt():o==='not_furnished'?notFurnShort():o==='no_products'?refusedShort():(EN?'coming in the next step':'появится следующим шагом');   // проба: исход комнаты по коду
+    if(c.stub){const o=roomOutcome(c.r.id), tx=o==='pending'?pendSpin+pendTxt():o&&TR_NONE.test(o)?outcomeTxt(c.r.id,true):(EN?'coming in the next step':'появится следующим шагом');   // проба: исход комнаты по коду
       return `<div class="hm-stub" data-room="${c.r.id}"${o?` data-outcome="${o}"`:''} aria-disabled="true"><b>${t}</b><span>${tx}</span></div>`;}
     // подпись картинки — стиль ПОКАЗАННОГО варианта (у подменённой комнаты он свой); `data-style` — запрошенный для комнаты стиль
     // (раскладка, home-mix-01), `data-shown` — только у подменённой, для проверок
@@ -8624,6 +8648,11 @@ function liveOff(why){
   // показанную сцену освобождаем: видеоконтекст и модели не держим до закрытия страницы (verify 14.10)
   if(LIVE.scene){try{LIVE.scene.dispose();}catch(e){} LIVE.scene=null;}
   const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('v2'))sh.classList.add('nolive');   // 3D нет — заглушка `.vstub`
+  // ПРОБА: «устройство не тянет» — только когда виновато устройство (видеоконтекст, программный рендер, медленный кадр, WebGL). Иная
+  // причина (закреплённый движок старше правки «пустая комната», сбой загрузки) — план комнаты сверху под плашкой состояния, не обвинение
+  const st=document.getElementById('vStub');
+  if(TRIAL()&&st&&!/видеоконтекст|медленный кадр|программный рендер|webgl/i.test(String(why))){st.classList.add('tr-flat');
+    st.innerHTML=`<div class="tr-plan">${trialPlanSvg(allVariants()[cur]||{})}</div>`;}
   try{console.info('живая сцена выключена:',why);}catch(e){}
 }
 // ДЕКОР В ЖИВУЮ СЦЕНУ — ТОТ ЖЕ, ЧТО УХОДИТ В СЕРВЕРНЫЙ КАДР (`payload().decor`, demo-05 п.9): ваза встаёт на столик
@@ -9394,7 +9423,7 @@ function quizPick(rule, answers, available, styleColours){
   });
   // решаем, когда пришла карточка квартиры (флаг и сертификат — в ней); по ссылке менеджера — карточка ЕГО квартиры
   function decide(){
-    if(Q.decided||typeof D==='undefined'||!D||!FLAT)return;
+    if(Q.decided||typeof D==='undefined'||!D||(!FLAT&&!TRIAL()))return;   // проба: карточки квартиры нет — правило опроса в данных (`D.quiz`)
     if(/[?&]s=/.test(location.search)&&!window.__sendFlat&&!Q._sendWait){Q._sendWait=1;
       setTimeout(function(){Q._sendWait=2; decide();},4000); return;}   // ответ /api/sends ещё в пути; не пришёл — ссылка отозвана
     if(Q._sendWait===1&&!window.__sendFlat)return;
@@ -9407,6 +9436,8 @@ function quizPick(rule, answers, available, styleColours){
     try{if(!window.__EMBED)history.replaceState(history.state,'',location.pathname+(window.__search0||'')+(window.__hash0||''));}catch(e){}
   }
   document.addEventListener('flatcard',decide);
+  // проба: решаем, когда данные задания легли (`trialready` после `init`); пришли раньше этого скрипта — сразу
+  document.addEventListener('trialready',decide); if(typeof D!=='undefined'&&D&&TRIAL()&&window.__trialReady)decide();
   window.__quizOpen=function(){Q.step='hello'; Q.a=fresh(); Q.pick=[]; Q.at=0; open('again');};   // «Изменить ответы» (Т4) и проверки
   // «Пройти опрос заново» в окне «Выбрать другой» (шаг 5) — только когда опросу есть из чего строиться (правило в сборке и стили);
   // встроенной странице — нет. `?quiz=0` выключает только САМ показ при заходе — просьбу человека пройти опрос он не отменяет
