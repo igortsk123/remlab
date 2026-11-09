@@ -67,7 +67,7 @@ def per_region(fn, wall, regions, pad=2):
 def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr=215):
     """Один проход при гипотезе масштаба ppm (px на метр): разрывы → комнаты → проёмы."""
     ang = rot_angles(fams)
-    Ls, Lb, fl = int(1.7 * ppm), int(3.6 * ppm), max(3, int(round(1.5 * t)))
+    Ls, Lb, fl = int(1.7 * ppm), int(6.0 * ppm), max(3, int(round(1.5 * t)))   # Lb: окна/французские двери до 6 м
     corner = fc.extend_corners(wall, int(0.6 * ppm), fl)
     wall = (wall | corner).astype(np.uint8)
     thin = fc.thin_lines(gray, wall, thin_thr)
@@ -112,6 +112,13 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
                 continue
             ev = fc.door_evidence(thin, c, u, nrm, L, dpt)
             if dpt > max_depth and not win and ev < DOOR_EV:
+                # каморка (шкаф, кладовка) залита перемычкой целиком — проём ищем только в её «устье» у соседа
+                mm = fc.mouth_strip(lab_s == g.id, wall, t)
+                if mm is not None:
+                    ys2, xs2 = mm
+                    c2, u2, n2, L2, d2 = fc.gap_axes(ys2, xs2)
+                    if d2 <= max_depth and L2 >= 0.4 * ppm and fc.door_evidence(thin, c2, u2, n2, L2, d2) >= DOOR_EV:
+                        keep[ys2, xs2] = 1
                 continue
             if win or g.glaze >= GLAZE_MIN or ev >= DOOR_EV:
                 keep[ys, xs] = 1
@@ -125,7 +132,7 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
             m = lab_b == g.id
             k = max(int(2 * g.depth), int(1.4 * ppm)) | 1      # эркер: рама в ~0,5 м снаружи стены
             near = cv2.dilate(thin, np.ones((k, k), np.uint8))
-            if g.glaze >= GLAZE_MIN or near[m].mean() >= 0.5:
+            if g.glaze >= GLAZE_MIN or (g.length <= 3.6 * ppm and near[m].mean() >= 0.5):   # шире 3,6 м — только по раме
                 keep |= m.astype(np.uint8)
     # наружный контур: закрытие ~1,8 м по каждому куску листа — наружные окна/двери закрываются без «следа» проёма
     final0 = (wall | keep).astype(np.uint8)
@@ -168,6 +175,16 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
             m = lab0 == i
             if 2 * dtf[m].max() < 0.6 * ppm:
                 keep[m] = 1
+    # перемычка, у которой с обеих сторон наружа, не стена ни одной комнаты (связка между постройками) — снять
+    _, labF, outF = fc.free_components((wall | keep).astype(np.uint8))
+    nk, labK = cv2.connectedComponents(keep.astype(np.uint8), connectivity=8)
+    for i in range(1, nk):
+        ys, xs = np.nonzero(labK == i)
+        y0_, y1_, x0_, x1_ = max(0, ys.min() - 4), ys.max() + 5, max(0, xs.min() - 4), xs.max() + 5
+        ring = cv2.dilate((labK[y0_:y1_, x0_:x1_] == i).astype(np.uint8), np.ones((7, 7), np.uint8)) > 0
+        fr = (labF[y0_:y1_, x0_:x1_] > 0) & ring
+        if fr.any() and outF[y0_:y1_, x0_:x1_][fr].all():
+            keep[ys, xs] = 0
     add = keep.astype(np.uint8)
     final = (wall | add).astype(np.uint8)
     n, lab, outside = fc.free_components(final)
@@ -211,7 +228,7 @@ def room_angle(mask, fams):
     return ((f + 45) % 90) - 45
 
 
-def match_gold(res, gold_rooms, fams):
+def match_gold(res, gold_rooms, fams, core=False):
     lab, rooms = res['lab'], res['rooms']
     hit = {}
     for gi, g in enumerate(gold_rooms):
@@ -226,18 +243,35 @@ def match_gold(res, gold_rooms, fams):
             continue
         m = (lab == rid)
         ang = room_angle(m, fams)
-        obs.append({'id': g['name'], 'dims': tuple(g['dims_m']), 'ext': fc.room_extents(m, -ang), 'angle': ang})
+        obs.append({'id': g['name'], 'dims': tuple(g['dims_m']), 'ext': fc.room_extents(m, -ang, core), 'angle': ang})
     return hit, obs
+
+
+def crosses_wall(wall, p1, p2):
+    n = int(max(abs(p2[0] - p1[0]), abs(p2[1] - p1[1]))) + 1
+    xs = np.clip(np.round(np.linspace(p1[0], p2[0], n)).astype(int), 0, wall.shape[1] - 1)
+    ys = np.clip(np.round(np.linspace(p1[1], p2[1], n)).astype(int), 0, wall.shape[0] - 1)
+    return bool(wall[ys, xs].any())
 
 
 def topology(res, gold_rooms, hit, ppm):
     req = [g for g in gold_rooms if not g.get('optional')]
     missing = [g['name'] for g in req if g['_room'] is None]
-    merged = [[gold_rooms[i]['name'] for i in v] for v in hit.values()
-              if len([i for i in v if not gold_rooms[i].get('optional')]) > 1]
+    merged, open_plan = [], []
+    for v in hit.values():
+        req_v = [i for i in v if not gold_rooms[i].get('optional')]
+        if len(req_v) < 2:
+            continue
+        names = [gold_rooms[i]['name'] for i in v]
+        # «открытая планировка»: между подписями на листе нет стены (прямая между точками не пересекает маску стен)
+        if 'wall' in res and all(not crosses_wall(res['wall'], gold_rooms[a]['pt'], gold_rooms[b]['pt'])
+                                 for k, a in enumerate(req_v) for b in req_v[k + 1:]):
+            open_plan.append(names)
+        else:
+            merged.append(names)
     extra = [rid for rid in res['rooms'] if rid not in hit and res['areas'][rid] >= 1.0 * ppm * ppm]
     return {'gold_rooms': len(req), 'found': len(req) - len(missing), 'missing': missing, 'merged': merged,
-            'extra_rooms': len(extra), 'extra_areas_m2': [round(res['areas'][r] / ppm / ppm, 2) for r in extra]}
+            'open_plan': open_plan, 'extra_rooms': len(extra), 'extra_areas_m2': [round(res['areas'][r] / ppm / ppm, 2) for r in extra]}
 
 
 def panels_of(final, ppm):
@@ -330,7 +364,7 @@ def run_plan(plan, inputs, outdir):
             if fit:
                 ppm = 1 / fit['s']
         r = analyze(sub_img, sub_gray, sub_wall, ppm, fams, t, sub_regions, cfg['thin'], cfg['glaze'])
-        hit, obs = match_gold(r, groom, fams)
+        hit, obs = match_gold(r, groom, fams, core=True)
         fit = fc.fit_scale(obs)
         loo = fc.leave_one_out(obs)
         topo = topology(r, groom, hit, ppm)
@@ -362,7 +396,9 @@ def run_plan(plan, inputs, outdir):
                   'diag_edges': len(diag), 'diag_kept': len(diag_kept)}
         name = most_common([g['panel'] for g in groom]) or f'panel{pi}'
         P = {'panel': name, 'bbox_px': [X0, Y0, X1, Y1], 'ppm': ppm, 'fit': fit and {k: v for k, v in fit.items() if k != 'inliers'},
-             'inliers': fit and fit['inliers'], 'loo': loo, 'loo_sum': fc.loo_summary(loo), 'topology': topo,
+             'inliers': fit and fit['inliers'], 'loo': loo, 'loo_sum': fc.loo_summary(loo), 'loo_near': fc.loo_summary(loo, 'near'),
+             'loo_clean': fc.loo_summary(loo, 'near_clean'), 'label_flags': [l['id'] for l in loo if l.get('flag_label')],
+             'topology': topo,
              'gia_m2': gpx / ppm / ppm, 't_ext_px': t_ext, 'openings': op, 'angles': angles,
              'gold_panels': sorted({g['panel'] for g in groom})}
         out_panels.append(P)
@@ -401,7 +437,8 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     for g in r['gaps']:
         (wins if g.kind == 'window' else doors)[lab_g == g.id] = 1
     solid = ((r['wall'] > 0) & (final > 0)).astype(np.uint8)
-    bands = [(0.0, SILL, solid | wins), (SILL, HEAD, solid), (HEAD, H_WALL, solid | wins | doors)]
+    # стена монолитом на всю высоту; под окном — подоконная часть, над окном и дверью — перемычка (без горизонтальных швов)
+    bands = [(0.0, H_WALL, solid), (0.0, SILL, wins & (solid == 0)), (HEAD, H_WALL, (wins | doors) & (solid == 0))]
     off = (0, 0)
     model = {'plan': plan, 'panel': P['panel'], 'ppm': ppm, 'bbox_px': P['bbox_px'], 'bands': [], 'floors': [],
              'openings': [], 'rooms': []}
@@ -410,7 +447,7 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
         model['bands'].append({'z0': z0, 'z1': z1, 'polys': [{'outer': poly_m(o, ppm, off),
                                                              'holes': [poly_m(h, ppm, off) for h in hs]} for o, hs in polys]})
     for rid in r['rooms']:
-        kf = max(3, int(0.12 * ppm)) | 1                     # пол — под стену на ~6 см, без щели у плинтуса
+        kf = max(3, int(2 * fc.stroke_thickness(r['wall']) + 1)) | 1   # пол заходит под всю толщину стены — без щели
         fm = cv2.dilate((r['lab'] == rid).astype(np.uint8), np.ones((kf, kf), np.uint8)) & (~r['outside']).astype(np.uint8)
         polys, _ = fc.mask_polygons(fm, fams, min_area=10)
         names = [g['name'] for g in groom if g.get('_room') == rid]
@@ -452,6 +489,8 @@ if __name__ == '__main__':
     print(json.dumps({'plan': L['plan'], 't': L['thickness_px'], 'fams': L['families_deg'], 'sweep': L['sweep'][:3],
                       'areas': L['areas'], 'sec': L['sec']}, ensure_ascii=False, default=float))
     for p in L['panels']:
+        print(p['panel'], 'near', {k: round(v, 3) for k, v in p['loo_near'].items()}, 'clean',
+              {k: round(v, 3) for k, v in p['loo_clean'].items()}, 'flags', p['label_flags'])
         print(p['panel'], 'ppm', round(p['ppm'], 2), 'loo', {k: round(v, 3) if isinstance(v, float) else v for k, v in p['loo_sum'].items()},
               'topo', p['topology'], 'gia', round(p['gia_m2'], 1), 'open', p['openings'],
               'ang', {k: (round(v, 2) if isinstance(v, float) else v) for k, v in p['angles'].items()},

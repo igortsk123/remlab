@@ -299,6 +299,29 @@ def gap_axes(ys: np.ndarray, xs: np.ndarray):
     return c, u, n, float(a.max() - a.min() + 1), float(b.max() - b.min() + 1)
 
 
+def mouth_strip(comp: np.ndarray, wall: np.ndarray, t: float):
+    """Перемычка залила целиком маленькую каморку: оставить только «устье» — полосу толщиной ~t у свободного места
+    вне компоненты (там дверной проём). → (ys, xs) самой крупной полосы или None."""
+    ys, xs = np.nonzero(comp)
+    if not len(ys):
+        return None
+    m = int(2 * t + 4)
+    H, W = comp.shape
+    y0, y1, x0, x1 = max(0, ys.min() - m), min(H, ys.max() + m + 1), max(0, xs.min() - m), min(W, xs.max() + m + 1)
+    c = comp[y0:y1, x0:x1].astype(bool)
+    free = (wall[y0:y1, x0:x1] == 0) & ~c
+    if not free.any():
+        return None
+    dt = cv2.distanceTransform((~free).astype(np.uint8), cv2.DIST_L2, 5)
+    strip = (c & (dt <= t)).astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(strip, connectivity=8)
+    if n < 2:
+        return None
+    k = 1 + int(np.argmax(st[1:, cv2.CC_STAT_AREA]))
+    sy, sx = np.nonzero(lab == k)
+    return sy + y0, sx + x0
+
+
 def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5) -> float:
     """Есть ли у разрыва дуга двери: доля углов 0–90°, где на радиусе створки от петли (конец разрыва, грань стены)
     лежит тонкая линия. Створка одна (радиус L) или две (по L/2 от каждого конца, обе дуги). → лучшая доля 0..1."""
@@ -315,6 +338,18 @@ def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: i
                 hit += 1
         return hit / len(pts)
 
+    def leaf(h, s, R):
+        """Створка: прямая тонкая линия от петли поперёк стены длиной ~R (доля покрытых точек)."""
+        rs = np.linspace(0.15 * R, 0.95 * R, 12)
+        hit = 0
+        for r in rs:
+            x, y = h + s * r
+            xi, yi = int(round(x)), int(round(y))
+            y0, y1, x0, x1 = max(0, yi - 2), min(H, yi + 3), max(0, xi - 2), min(W, xi + 3)
+            if y1 > y0 and x1 > x0 and thin[y0:y1, x0:x1].any():
+                hit += 1
+        return hit / len(rs)
+
     best = 0.0
     for s in (n, -n):
         face = c + s * depth / 2
@@ -322,10 +357,21 @@ def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: i
             e1, e2 = face - u * L * (0.5 - j), face + u * L * (0.5 - j)
             for f in np.arange(0.5, 1.06, 0.05):
                 R = f * L
-                single = max(cov(e1, u, s, R), cov(e2, -u, s, R))
+                a1, a2 = cov(e1, u, s, R), cov(e2, -u, s, R)
+                single = max(a1, a2)
                 double = min(cov(e1, u, s, R / 2), cov(e2, -u, s, R / 2))
                 best = max(best, single, double)
+                # второй признак: створка у петли + дуга хотя бы частично (её конец бывает срезан стеной)
+                if best < LEAF_SCORE:
+                    for a, e in ((a1, e1), (a2, e2)):
+                        if a >= LEAF_ARC_MIN and leaf(e, s, R) >= LEAF_MIN:
+                            best = max(best, LEAF_SCORE)
     return best
+
+
+LEAF_MIN = 0.8        # створка: ≥ 80 % её длины — тонкая линия
+LEAF_ARC_MIN = 0.4    # при створке хватает 40 % дуги
+LEAF_SCORE = 0.8      # «дверь по створке» — выше порога дуги (0,75)
 
 
 def free_components(wall: np.ndarray):
@@ -398,8 +444,28 @@ def _max_runs(m: np.ndarray, axis: int) -> np.ndarray:
     return np.array(out, float)
 
 
-def room_extents(room: np.ndarray, angle_deg: float = 0.0) -> dict:
-    """Кандидаты размеров комнаты, px вдоль осей комнаты (угол — семейство стен): P95 хорды, медиана хорд, габарит."""
+def largest_rect(m: np.ndarray) -> tuple[float, float]:
+    """Наибольший вписанный прямоугольник по осям (гистограммы по строкам + стек) → (ширина, высота) px."""
+    h = np.zeros(m.shape[1], int)
+    best, bw, bh = 0, 0, 0
+    for row in m:
+        h = np.where(row > 0, h + 1, 0)
+        st = []
+        for i in range(len(h) + 1):
+            cur = h[i] if i < len(h) else 0
+            start = i
+            while st and st[-1][1] >= cur:
+                start, hh = st.pop()
+                a = hh * (i - start)
+                if a > best:
+                    best, bw, bh = a, i - start, hh
+            st.append((start, cur))
+    return float(bw), float(bh)
+
+
+def room_extents(room: np.ndarray, angle_deg: float = 0.0, core: bool = False) -> dict:
+    """Кандидаты размеров комнаты, px вдоль осей комнаты (угол — семейство стен): P95 хорды, медиана хорд, габарит;
+    core=True — ещё «главное тело»: наибольший вписанный прямоугольник (подпись агентства часто без ниши/эркера)."""
     ys, xs = np.nonzero(room)
     x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
     m = room[y0:y1, x0:x1].astype(np.uint8)
@@ -408,9 +474,12 @@ def room_extents(room: np.ndarray, angle_deg: float = 0.0) -> dict:
         m, _ = rotate_mask(m, angle_deg)
     hx, vy = _max_runs(m, 1), _max_runs(m, 0)
     ys2, xs2 = np.nonzero(m)
-    return {'p95': (float(np.percentile(hx, 95)), float(np.percentile(vy, 95))),
-            'med': (float(np.median(hx)), float(np.median(vy))),
-            'bbox': (float(xs2.max() - xs2.min() + 1), float(ys2.max() - ys2.min() + 1))}
+    out = {'p95': (float(np.percentile(hx, 95)), float(np.percentile(vy, 95))),
+           'med': (float(np.median(hx)), float(np.median(vy))),
+           'bbox': (float(xs2.max() - xs2.min() + 1), float(ys2.max() - ys2.min() + 1))}
+    if core:
+        out['core'] = largest_rect(m[ys2.min():ys2.max() + 1, xs2.min():xs2.max() + 1])
+    return out
 
 
 # --- масштаб: RANSAC по подписям ------------------------------------------------------------------------------------------
@@ -419,7 +488,7 @@ CANDS = ('p95', 'med', 'bbox')
 
 
 def _pred(ext: dict, cand: str, perm: int, s: float):
-    wx, wy = ext[cand]
+    wx, wy = ext.get(cand, ext['p95'])
     return (s * wx, s * wy) if perm == 0 else (s * wy, s * wx)   # perm 0: первое число подписи — по горизонтали
 
 
@@ -483,6 +552,9 @@ def convention(fit: dict) -> tuple[str, int, float]:
     return c, p, n / max(1, len(fit['inliers']))
 
 
+NEAR_FLAG_M = 0.15     # ни один кандидат не ближе — «подпись без ниши/эркера» (или мерили иначе): флаг, не подгонка
+
+
 def leave_one_out(obs: list[dict], **kw) -> list[dict]:
     """Каждую комнату с подписью убираем из калибровки, масштаб и манеру — по остальным, затем предсказываем её
     стороны (кандидат и перестановка — манера остальных, НЕ подгонка под ответ)."""
@@ -496,16 +568,28 @@ def leave_one_out(obs: list[dict], **kw) -> list[dict]:
         c, p, share = convention(f)
         _, (pa, pb) = _err(o, f['s'], c, p)
         a, b = o['dims']
+        # ближайший к подписи кандидат при масштабе остальных (порядок чисел — манера панели)
+        near = min((_err(o, f['s'], cc, p)[0], cc) for cc in o['ext'])
+        _, (na, nb) = _err(o, f['s'], near[1], p)
         res.append({'id': o['id'], 'ok': True, 's': f['s'], 'cand': c, 'perm': p, 'share': share,
                     'pred': (round(pa, 3), round(pb, 3)), 'gold': (a, b),
                     'err': (round(abs(pa - a), 3), round(abs(pb - b), 3)),
-                    'rel': (abs(pa - a) / a, abs(pb - b) / b)})
+                    'rel': (abs(pa - a) / a, abs(pb - b) / b),
+                    'near_cand': near[1], 'near_pred': (round(na, 3), round(nb, 3)),
+                    'near_err': (round(abs(na - a), 3), round(abs(nb - b), 3)),
+                    'near_rel': (abs(na - a) / a, abs(nb - b) / b),
+                    'flag_label': near[0] > NEAR_FLAG_M})
     return res
 
 
-def loo_summary(rows: list[dict]) -> dict:
-    e = [x for r in rows if r.get('ok') for x in r['err']]
-    rel = [x for r in rows if r.get('ok') for x in r['rel']]
+def loo_summary(rows: list[dict], mode: str = 'conv') -> dict:
+    """conv — кандидат по манере панели; near — ближайший кандидат (все комнаты); near_clean — без флага подписи."""
+    ok = [r for r in rows if r.get('ok')]
+    if mode != 'conv':
+        ok = [r for r in ok if mode == 'near' or not r.get('flag_label')]
+    ke, kr = ('err', 'rel') if mode == 'conv' else ('near_err', 'near_rel')
+    e = [x for r in ok for x in r[ke]]
+    rel = [x for r in ok for x in r[kr]]
     if not e:
         return {'n_dims': 0}
     return {'n_dims': len(e), 'mae': float(np.mean(e)), 'p95': float(np.percentile(e, 95)), 'max': float(max(e)),

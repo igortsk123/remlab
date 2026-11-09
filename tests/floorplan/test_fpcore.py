@@ -119,6 +119,53 @@ def test_door_evidence_sees_quarter_arc():
     assert fc.door_evidence(np.zeros_like(thin), c, u, n, L, d) < 0.2
 
 
+def test_door_evidence_leaf_rescues_partial_arc():
+    """Дуга срезана (видна половина), но прямая створка у петли есть → дверь (≥ LEAF_SCORE); без створки — нет."""
+    arc = np.zeros((200, 200), np.uint8)
+    cv2.ellipse(arc, (60, 100), (60, 60), 0, 50, 90, 1, 1)      # только половина дуги — у створки
+    ys, xs = np.mgrid[97:104, 60:121]
+    c, u, n, L, d = fc.gap_axes(ys.ravel(), xs.ravel())
+    assert fc.door_evidence(arc, c, u, n, L, d) < 0.75
+    with_leaf = arc.copy()
+    cv2.line(with_leaf, (60, 100), (60, 160), 1, 1)
+    assert fc.door_evidence(with_leaf, c, u, n, L, d) >= fc.LEAF_SCORE
+
+
+def test_mouth_strip_keeps_only_doorway_of_closet():
+    """Перемычка залила каморку целиком + проём в правой стене → остаётся полоса у проёма, не вся каморка."""
+    wall = np.zeros((100, 100), np.uint8)
+    wall[20:26, 20:80] = 1; wall[74:80, 20:80] = 1; wall[20:80, 20:26] = 1; wall[20:80, 74:80] = 1
+    wall[40:60, 74:80] = 0                                     # проём
+    comp = np.zeros_like(wall)
+    comp[26:74, 26:74] = 1; comp[40:60, 74:80] = 1
+    sy, sx = fc.mouth_strip(comp, wall, t=6)
+    assert sx.min() >= 66 and 38 <= sy.min() and sy.max() <= 62
+    assert len(sy) < 0.2 * comp.sum()
+
+
+def test_largest_rect_and_core_extent_of_l_room():
+    m = np.zeros((120, 160), np.uint8)
+    m[10:110, 10:150] = 1
+    m[10:50, 110:150] = 0                                      # L-комната: вырез угла 40×40
+    w, h = fc.largest_rect(m)
+    assert w * h == 100 * 100 or (w, h) == (140, 60)            # 100×100 (тело) больше 140×60
+    assert (w, h) == (100.0, 100.0)
+    ext = fc.room_extents(m, 0.0, core=True)
+    assert ext['core'] == (100.0, 100.0) and ext['bbox'] == (140.0, 100.0)
+
+
+def test_leave_one_out_near_candidate_and_label_flag():
+    s = 0.02
+    dims = [(4.1, 3.45), (2.6, 3.0), (5.2, 4.0), (3.3, 2.2)]
+    obs = [_obs(f'r{i}', d, (d[0] / s, d[1] / s)) for i, d in enumerate(dims)]
+    obs[1]['ext']['core'] = obs[1]['ext']['p95']               # у части комнат есть «тело»
+    obs.append(_obs('nisha', (3.0, 2.0), (3.6 / s, 2.0 / s)))   # подпись без ниши: ни один кандидат не ближе 0,15
+    rows = {r['id']: r for r in fc.leave_one_out(obs)}
+    assert rows['nisha']['flag_label'] and not rows['r0']['flag_label']
+    near, clean = fc.loo_summary(list(rows.values()), 'near'), fc.loo_summary(list(rows.values()), 'near_clean')
+    assert clean['n_dims'] == near['n_dims'] - 2 and clean['mae'] < near['mae']
+
+
 def test_feet_to_m_and_gold_labels_consistent():
     assert fc.feet_to_m("13'6\"") == pytest.approx(4.1148, abs=1e-4)
     # эталоны: метры и футы каждой подписи согласованы (UK-листы округляют дюймы — допуск 3")

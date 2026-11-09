@@ -43,7 +43,17 @@ PROMPTS = {
         "the wall thickness in pixels. Use as many segments as needed; diagonal walls are allowed. "
         "Answer with JSON only: {{\"walls\": [{{\"x1\": n, \"y1\": n, \"x2\": n, \"y2\": n, \"t\": n}}], "
         "\"openings\": [{{\"type\": \"door\"|\"window\", \"x\": n, \"y\": n, \"width\": n}}]}}"),
+    'wallspro': (
+        "This is an architectural floor plan image. Use a normalized coordinate grid 0-1000 on both axes (x: 0 = left "
+        "edge, 1000 = right edge; y: 0 = top edge, 1000 = bottom edge). Trace ALL walls (exterior and interior) as "
+        "straight centre-line segments in that 0-1000 grid. Draw walls as CONTINUOUS through door and window openings "
+        "(do not break them), and list the openings separately. Include the wall thickness in the same grid units. "
+        "Use as many segments as needed; diagonal walls are allowed. "
+        "Answer with JSON only: {{\"walls\": [{{\"x1\": n, \"y1\": n, \"x2\": n, \"y2\": n, \"t\": n}}], "
+        "\"openings\": [{{\"type\": \"door\"|\"window\", \"x\": n, \"y\": n, \"width\": n}}]}}"),
 }
+# $ за 1 токен (вход, выход) — из /v1/models шлюза 09.11; для потолка «худшего случая» перед вызовом
+PRICE = {'google/gemini-3.8-flash': (0.75e-6, 3.75e-6), 'google/gemini-3.1-pro-preview': (2e-6, 12e-6)}
 
 
 def credits():
@@ -90,6 +100,10 @@ def ask(plan, kind, out):
     usd0, n0 = spent(out)
     if usd0 >= CAP_USD:
         raise SystemExit(f'потолок ${CAP_USD} исчерпан: ${usd0:.4f} за {n0} вызовов')
+    pin, pout = PRICE.get(MODEL, (2e-6, 12e-6))
+    max_tok = min(16000, int((CAP_USD - usd0 - 3000 * pin) / pout))   # худший случай не выходит за потолок
+    if max_tok < 4000:
+        raise SystemExit(f'остаток ${CAP_USD - usd0:.3f} мал для вызова {MODEL}')
     gold = json.loads((HERE / 'gold' / f'{plan}.json').read_text())
     img, w, h = jpeg(INPUTS / gold['image'])
     msg = [{'role': 'user', 'content': [
@@ -97,7 +111,7 @@ def ask(plan, kind, out):
         {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(img).decode()}}]}]
     b0 = credits()
     t0 = time.time()
-    resp = llm_gateway.chat(MODEL, msg, timeout=180, tries=3, direct_fallback=False, temperature=0, max_tokens=16000)
+    resp = llm_gateway.chat(MODEL, msg, timeout=180, tries=3, direct_fallback=False, temperature=0, max_tokens=max_tok)
     sec = time.time() - t0
     time.sleep(3)
     b1 = credits()
@@ -115,7 +129,33 @@ def ask(plan, kind, out):
     with open(out / 'calls.jsonl', 'a') as f:
         f.write(json.dumps(rec, ensure_ascii=False) + '\n')
     (out / f'raw-{plan}-{kind}.txt').write_text(raw)
+    rec['max_tokens'] = max_tok
     print(json.dumps(rec, ensure_ascii=False))
+
+
+def _pairs(pairs):
+    """Сильная модель путает ключи («y» вместо «y1/y2», «y1» дважды) — дубли в JSON теряются. Чиним по порядку:
+    x-значения → x1, x2; y-значения → y1, y2. Остальные ключи как есть (оговорка в отчёте)."""
+    d = {}
+    xs = [v for k, v in pairs if k in ('x', 'x1', 'x2')]
+    ys = [v for k, v in pairs if k in ('y', 'y1', 'y2')]
+    for k, v in pairs:
+        if k not in ('x', 'x1', 'x2', 'y', 'y1', 'y2'):
+            d[k] = v
+    if len(xs) == 2 and len(ys) == 2:
+        d.update(x1=xs[0], x2=xs[1], y1=ys[0], y2=ys[1])
+        if [k for k, _ in pairs if k[0] in 'xy'] != ['x1', 'y1', 'x2', 'y2']:
+            d['_fixed_keys'] = True
+    elif len(xs) == 1 and len(ys) == 1:
+        d.update(x=xs[0], y=ys[0])
+    else:
+        for k, v in pairs:
+            d.setdefault(k, v)
+    return d
+
+
+def _loads(t):
+    return json.loads(t, object_pairs_hook=_pairs)
 
 
 def parse(raw):
@@ -123,9 +163,22 @@ def parse(raw):
     if not m:
         return None
     try:
-        return json.loads(m.group(0))
+        return _loads(m.group(0))
     except json.JSONDecodeError:
-        return None
+        pass
+    # ответ оборван лимитом токенов (finish=length): берём всё до последнего целого объекта и закрываем массив
+    txt = raw[raw.index('{'):]
+    for cut in range(txt.rfind('}'), 0, -1):
+        if txt[cut] != '}':
+            continue
+        for tail in (']}', ']}]}'):
+            try:
+                d = _loads(txt[:cut + 1] + tail)
+                d['_truncated'] = True
+                return d
+            except json.JSONDecodeError:
+                continue
+    return None
 
 
 def img_size(plan):
@@ -178,7 +231,7 @@ def _eval_labels(plan, data):
             'pt_err_px_max': float(max(dists)) if dists else None}
 
 
-def eval_walls(plan, data, out):
+def eval_walls(plan, data, out, kind='walls'):
     """Стены VLM → маска → комнаты → метрики; два прочтения координат (px / 0–1000), лучшее — по числу найденных комнат."""
     w, h = img_size(plan)
     best = None
@@ -193,7 +246,7 @@ def eval_walls(plan, data, out):
                     s_[k] *= ky
             if isinstance(s_.get('t'), (int, float)):
                 s_['t'] *= (kx + ky) / 2
-        e = _eval_walls(plan, d, out, name)
+        e = _eval_walls(plan, d, out, f'{kind}-{name}')
         e['coords'] = name
         if best is None or e['topology']['found'] > best['topology']['found']:
             best = e
@@ -235,7 +288,7 @@ def _eval_walls(plan, data, out, tag):
     for g in groom:
         cv2.circle(ov, tuple(map(int, g['pt'])), 6, (0, 120, 255) if g.get('_room') is not None else (0, 0, 255), -1)
     cv2.imwrite(str(Path(out) / f'vlm-walls-{plan}-{tag}.png'), ov)
-    return {'segments': len(walls), 'openings': len((data or {}).get('openings', [])), 'topology': topo, 'loo': loo,
+    return {'segments': len(walls), 'fixed_keys': sum(1 for w_ in walls if w_.get('_fixed_keys')), 'openings': len((data or {}).get('openings', [])), 'topology': topo, 'loo': loo,
             'ppm': round(ppm, 2)}
 
 
@@ -248,7 +301,9 @@ def evaluate(out):
         if data is None:
             rep[f'{plan}-{kind}'] = {'parse': 'fail'}
             continue
-        rep[f'{plan}-{kind}'] = eval_labels(plan, data) if kind == 'labels' else eval_walls(plan, data, out)
+        rep[f'{plan}-{kind}'] = eval_labels(plan, data) if kind == 'labels' else eval_walls(plan, data, out, kind)
+        if data.get('_truncated'):
+            rep[f'{plan}-{kind}']['truncated'] = True
     usd, n = spent(out)
     rep['_money'] = {'calls': n, 'usd': round(usd, 4)}
     (out / 'vlm-eval.json').write_text(json.dumps(rep, ensure_ascii=False, indent=1, default=float))
