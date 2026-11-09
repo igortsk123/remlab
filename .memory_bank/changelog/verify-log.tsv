@@ -168,3 +168,22 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-06	.memory_bank/domain/occupancy-rules.md	drift	1	1	1	T-63/3: заголовок §7 — правила на 08.2026; док сверен целиком
 2026-11-06	.memory_bank/domain/demo-planner-ui.md	drift	9	4	4	T-63/3: досверка — подбор пары (ссылка на порядок), вес hog, #vsum = certScale, после замены без ценника; флик, ≤140, подгрузка, кнопки декора — ок; док сверен целиком
 2026-11-06	.memory_bank/domain/mesh-run-playbook.md	drift	10	5	5	T-63/3: §2-бис переписан под v2 demo_band со сверкой; док сверен целиком
+2026-11-09	.memory_bank/guides/orchestration.md	drift	18	1	1	T-20261109-18/1: tokeny — модуль кита, tokeny.py новее tamara; док сверен целиком
+2026-11-09	.claude/rules/memory-discipline.md	drift	29	2	2	T-20261109-18/1: Stop-hook блокирует (--block); BLOATED >12 KB; док сверен целиком
+2026-11-09	.memory_bank/guides/how-to-write-rules.md	drift	8	0	0	T-20261109-18/1: всё OK; док сверен целиком
+2026-11-09	.memory_bank/advertising/campaign_state.md	drift	26	2	2	T-20261109-18/1: условия нового объявления; Метрика не на /try*; док сверен целиком
+2026-11-09	.memory_bank/core/marketing-acquisition.md	drift	7	1	1	T-20261109-18/1: цель 10 шлёт started-goal.ts; док сверен целиком
+2026-11-09	.memory_bank/lessons/estimate-ads-leads.md	drift	5	0	0	T-20261109-18/1: всё OK; док сверен целиком
+2026-11-09	.memory_bank/guides/execution-playbook.md	drift	18	4	4	T-20261109-18/1: вкладка рабочего; TRIAL_DAILY_CAP; автосжатие Opus 260k; док сверен целиком
+2026-11-09	.memory_bank/lessons/viz-render.md	drift	81	17	17	T-20261109-18/1: пометки «сейчас в коде (09.11)» к урокам 61,74,84,86,93,96,97,107,112,115,125,126,132,135,141,143; док сверен целиком
+2026-11-09	.memory_bank/guides/layout-engine-spec.md	drift	59	1	1	T-20261109-18/1: область rules_audit; док сверен целиком
+2026-11-09	.memory_bank/domain/lr-composition-guide.md	rotation	19	5	5	T-20261109-18/1: предел пола floor_cap_pct (мягкий), ковёр в счёт, зона до 30 м², composition.json в git, дополнения 14.08; док сверен целиком
+2026-11-09	.memory_bank/guides/product-book-plan.md	drift	19	2	2	T-20261109-18/1: вся книга; book-build.py --publish, ночной шаг book_page; док сверен целиком
+2026-11-09	.memory_bank/guides/memory-automation.md	drift	33	3	3	T-20261109-18/1: баннер SessionStart; условия Stop-блока; хуки через r; док сверен целиком
+2026-11-09	.memory_bank/lessons/memory-process.md	drift	7	0	0	T-20261109-18/1: всё OK; док сверен целиком
+2026-11-09	.claude/rules/pipeline-tracing.md	drift	15	0	0	T-20261109-18/1: всё OK; док сверен целиком
+2026-11-09	.memory_bank/core/observability-tracing.md	drift	25	1	1	T-20261109-18/1: дочитка через getExtractProvider, вне прогона; док сверен целиком
+2026-11-09	.memory_bank/core/access-and-integrations.md	drift	20	0	0	T-20261109-18/1: всё OK; док сверен целиком
+2026-11-09	.memory_bank/deployment.md	drift	25	0	0	T-20261109-18/1: всё OK; док сверен целиком
+2026-11-09	.memory_bank/lessons/flat3d-configurator.md	drift	67	8	8	T-20261109-18/1: aimAtCentre по символу; scene3d снят; пороги 80/20/150; ObjectTools; frontSource; швы без запасного; мост fromDemo; имя теста; док сверен целиком
+2026-11-09	.memory_bank/core/apartment-configurator.md	drift	36	0	0	T-20261109-18/1: всё OK; док сверен целиком

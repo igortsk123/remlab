@@ -3,12 +3,12 @@ tier: 1
 topic: observability-tracing
 scope: Трейсинг AI-пайплайна — лог, разбор
 tier2: ../domain/observability.md
-updated: 2026-10-19
+updated: 2026-11-09
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-18
+last_verified: 2026-11-09
 review_after: 2026-12-05
 ---
 
@@ -24,8 +24,7 @@ base64 НЕ пишем).
 
 ## Захват (инвариант)
 Единая точка — слой провайдеров: `getImageProvider()/getVisionProvider()` (`lib/providers/`)
-возвращают обёртку `traced.ts` — каждый вызов LLM логирует себя сам (исключение-долг: `lib/calc/link-parse-ai.ts`
-зовёт OpenAI мимо трейса — `.claude/rules/pipeline-tracing.md`). Прогон открывает
+возвращают обёртку `traced.ts` — каждый вызов LLM логирует себя сам; дочитка по ссылке — тоже (`getExtractProvider()`), но вне прогона, в лог не идёт. Прогон открывает
 `modules/generation-job` через `runWithTrace`; контекст — AsyncLocalStorage; нет прогона →
 passthrough. Смена модели/промпта/шага НЕ требует правки лога.
 

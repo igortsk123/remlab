@@ -3,7 +3,7 @@ tier: 1
 topic: lr-composition
 scope: Композиция гостиной — доли
 tier2: "../domain/lr-composition-guide.md"
-updated: 2026-11-04
+updated: 2026-11-09
 importance: high
 source: manual
 status: working
