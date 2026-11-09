@@ -1,0 +1,73 @@
+---
+workstream: product
+slug: agent-trial-03-living
+title: Проба агента — гостиная с мебелью на произвольном плане (ядро контура + адаптер floorplanResult + сборка демо без flat215)
+status: draft
+created: 2026-11-09
+updated: 2026-11-09
+completed:
+plan_kind: subplan
+parent_plan: MASTER-agent-trial
+review_after: 2026-11-23
+---
+
+## Цель
+Загруженный агентом план (`floorplanResult`, `contracts/trial.ts`) → гостиная с мебелью по нашим шаблонам (как `/demo`), без ручной
+работы и без привязки к квартире flat215. Первая версия: одна расстановка на квартиру, стили меняют товары (`DEMO_ONE_LAYOUT`), меши —
+только готовые. Время шага ≤ 60 с на тёплом DEV (весь бюджет пробы — 3 мин, MASTER).
+
+## Источник задачи
+MASTER-agent-trial T5; владелец TG 322–328 (демо под загруженный план, мебель в гостиной и спальнях), TG 375 (параллелить).
+Разбор кода — `~/remlab-logs/living-contour-research/findings-1430.md` (common, 09.11).
+
+## Что есть (по коду)
+- Солвер принимает осевой контур: `planner/models.py:Room.contour` (w/d = bbox), `candidates.py:wall_candidates` по рёбрам,
+  `room_map.py:contour_features` (ядро — `geometry.largest_free_rectangles`), `zones.py:usable_polygon`; тесты `test_beam.py:142`.
+- Ограничение: проёмы и радиаторы — только на сторонах bbox (`geometry._wall_point/_wall_strip`); часть эвристик по bbox
+  (`template._tv_range_candidates`, `_wall_of`, `geometry.floor_used_pct`).
+- Гостиная решается `tools/scout/solver_run.py` (`ENGINE=zoned` → `zones.solve_zoned_beam`), контур — `SCENE_CONTOUR` + W D (урок 249).
+- `tools/scout/flat215_demo.py` зашит на flat215: `OUT` (:23), бэнд `'14-16'` (:55, :746), `solve_layouts` (:483–511), имена раскладок
+  без id квартиры (:735), `flat215.json` (:857, :866, :1633), `demo_apartment`/`demo_ceiling`/`living_room_id` (:555, :568, :635).
+
+## Решение (вариант А разбора; Б и В — позже)
+1. **Адаптер** `tools/scout/trial_room.py` (новый): `floorplanResult` → комната гостиной `{w, d, contour, openings, radiators}`:
+   комната `kind=="living"` (нет — самая большая жилая с окном → флаг `living_guessed`); контур → `room_bridge.orthogonalize`, сдвиг в (0,0);
+   проёмы панели → ближайшее ребро → `wall`+`offset_cm` (двери: `swing_cm`≈ширине; окна: `sill_cm` 85 из правил), радиатор под каждым
+   наружным окном (как `flat215.json`).
+2. **Ядро:** `largest_free_rectangles(room_polygon)[0]`; проёмы на рёбрах ядра — как есть; стык с «хвостом» Г-формы — `opening` шириной
+   стыка (резерв прохода). Отказ с причиной (`living_core_small` — ядро < 70 % площади; `living_no_window`), тогда гостиная серая.
+3. **Решение** — `solver_run.py N --v3 W D` по ядру; 6 стилей параллельно, `LAYOUT_SUFFIX=<trial_id>`, таймаут 150 с; финальный
+   `planner.validate` по полному контуру (мебель только в ядре).
+4. **Сборка демо без flat215:** параметры вместо констант в `flat215_demo.py` (вход-квартира, бэнд по площади ядра через `_slot_band`,
+   `OUT` и суффикс по id) — путь flat215 без изменений (тест: сборка flat215 байт в байт прежняя). Сеты — только `no_mesh == 0`; в бэнде нет
+   — ближайший бэнд вниз с флагом.
+
+## Критерии приёмки
+- [ ] D и E владельца (`~/remlab-logs/floorplan-bench/blind/`) через адаптер → гостиная с мебелью, 0 жёстких нарушений, кадры сверху и
+  от входа; Г-гостиная (тест) — мебель в ядре, проход к хвосту свободен.
+- [ ] flat215: демо и раскладки байт в байт прежние (`DEMO_*` по умолчанию).
+- [ ] Время шага ≤ 60 с (p50, тёплый DEV) по журналу; честные отказы с причиной, не молча.
+- [ ] Тесты: адаптер (проёмы на рёбра, радиаторы, ядро, отказы), `pytest services/planner-solver/tests` и `tools/scout/tests` зелёные.
+- [ ] Эталоны D–G для подстройки НЕ использовать (владелец TG 357); сверка — один раз в конце.
+
+## Границы
+`tools/scout/**` — только в worktree (кроны берут main). Солвер (`services/planner-solver/planner/*`) — без правок в v1. Меши не
+генерировать. `tools/floorplan/**` не трогать (T-09/T-10).
+
+## Задачи
+- [ ] **L-A адаптер + ядро** (`trial_room.py`, тесты).
+- [ ] **L-B параметризация `flat215_demo.py`** + сборка гостиной для trial_id в `~/scout-scenes/trial/<id>/`, тест «flat215 прежний».
+- [ ] **L-C замер** на D, E (тёплый/холодный), кадры ведущему.
+
+## Codex
+Новый план с архитектурой (п.5 правила) → критика до «деплой»: `_intake/codex/agent-trial-03-living-2026-11-09.md`.
+
+## Лог выполнения
+- 2026-11-09 14:35 — план создан по разбору кода (draft).
+
+## Completion summary
+
+### Уроки
+
+## Follow-up work
+- Вариант Б (полный контур) — когда `Opening` получит привязку к ребру контура; вариант В — кухня-гостиная (виртуальная стена).
