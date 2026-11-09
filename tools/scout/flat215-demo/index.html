@@ -4091,7 +4091,7 @@ function loadCams(){
   try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(r&&r.length===2)return r;}catch(e){}
   return defaultCams();
 }
-function saveCams(){try{localStorage.setItem(camsKey(),JSON.stringify(cams));}catch(e){}}
+function saveCams(){try{localStorage.setItem(camsKey(),JSON.stringify(cams));}catch(e){} try{vwPreSoon();}catch(e){}}   // камеры — часть ключа кадров заранее
 function drawCams(){
   if(!cams)cams=loadCams();
   clampCams();
@@ -7831,6 +7831,7 @@ function vwOpenVariant(i){ const v=allVariants()[i];
   openLiveWindow();
   if(v)try{homeSeen(roomIdOf(v));}catch(e){} }   // комнату открывали — вторая подсказка вместо первой (home-figma-02; чипа на карточке нет с 08.11)
 function openLiveWindow(){
+  setTimeout(vwPreSoon,0);   // окно этой расстановки открыто — кадры для «Сделать реалистичнее» заранее (T-20261109-32)
   if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
   VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null; VW.sheetVis=0; VW.auto=null;   // новое окно варианта — первая точка съёмки
   // ОКНО ОТКРЫВАЕТСЯ В «ФОТО», ЕСЛИ ЕСТЬ РЕАЛИСТИЧНЫЙ СНИМОК ЭТОЙ РАССТАНОВКИ, ИНАЧЕ В «3D» (demo-09 п.1)
@@ -8620,7 +8621,7 @@ async function vwPhGrab(job){
   try{const wrap=document.querySelector('#shot .shotwrap'), r=wrap&&wrap.getBoundingClientRect();
     if(LIVE.ok===true&&LIVE.scene&&LIVE.scene.exportFrame&&LIVE.canvas&&LIVE.canvas.isConnected&&r&&r.width>0&&r.height>0){
       const k=Math.min(2,window.devicePixelRatio||1);
-      const b=await LIVE.scene.exportFrame(Math.round(r.width*k),Math.round(r.height*k),'image/jpeg',0.8);
+      const b=await vwSceneQ(()=>LIVE.scene.exportFrame(Math.round(r.width*k),Math.round(r.height*k),'image/jpeg',0.8));
       if(b){job.bg=URL.createObjectURL(b); return;}}}catch(e){}
   vwPhDraft(job);
 }
@@ -8688,7 +8689,9 @@ async function vwCaptureScene(){
   const sc=await Promise.race([liveEngine(), new Promise(ok=>setTimeout(()=>ok(null),VW_CAPTURE_WAIT_MS))]).catch(()=>null);
   return sc&&LIVE.ok===true&&LIVE.scene===sc?sc:null;
 }
-async function vwCaptureViews(){
+// o.stale() — расстановка уже другая: снятое не грузим (кадры заранее, T-20261109-32); o.noUpload — только снять (грузим позже, `vwUploadViews`)
+async function vwCaptureViews(o){
+  o=o||{};
   if(!await vwCaptureScene()||!LIVE.scene.capture){try{console.info('кадр из браузера не снят: 3D нет',LIVE.ok,LIVE.why||'');}catch(_){} return null;}
   const poses=(cams||loadCams()).slice(0,2).map(camPoseOf);
   // СЦЕНА — ТОЧНО ЭТА РАССТАНОВКА (самопроверка 17.10: после смены варианта снимок ловил часть мебели прежнего — сцена ещё обновлялась):
@@ -8698,14 +8701,90 @@ async function vwCaptureViews(){
   for(const [w,h] of (isTouchUI()?VW_FRAME_SIZES.slice(1):VW_FRAME_SIZES)){
     try{
       const r=await LIVE.scene.capture(poses,w,h), tc=performance.now();
-      const ids=await Promise.all(r.frames.map(b=>fetch('/api/render/frame',{method:'POST',headers:{'content-type':'image/jpeg'},body:b})
-        .then(x=>x.ok?x.json():Promise.reject(new Error('кадр не принят '+x.status))).then(j=>j.id)));
-      return {views:ids.map((id,k)=>({camera:'C'+(k+1),id})), clay:r.clay, blobs:r.frames, sheet:'landscape',
-        ms:{capture:Math.round(tc-t0), upload:Math.round(performance.now()-tc)}, size:w+'×'+h};
+      VPF.captures++;
+      if(o.stale&&o.stale())return null;
+      const cap={clay:r.clay, blobs:r.frames, sheet:'landscape', ms:{capture:Math.round(tc-t0)}, size:w+'×'+h};
+      return o.noUpload?cap:await vwUploadViews(cap);
     }catch(e){try{console.warn('кадр из браузера не снят',w,e);}catch(_){}}
   }
   return null;
 }
+async function vwUploadViews(cap){
+  const tc=performance.now();
+  const ids=await Promise.all(cap.blobs.map(b=>fetch('/api/render/frame',{method:'POST',headers:{'content-type':'image/jpeg'},body:b})
+    .then(x=>x.ok?x.json():Promise.reject(new Error('кадр не принят '+x.status))).then(j=>j.id)));
+  cap.views=ids.map((id,k)=>({camera:'C'+(k+1),id})); cap.ms=Object.assign({},cap.ms,{upload:Math.round(performance.now()-tc)});
+  return cap;
+}
+// КАДРЫ ЗАРАНЕЕ (T-20261109-32, владелец 09.11 TG 563/567: кадры всегда от человека; сменил мебель — сразу готовим, сменил снова — прежние
+// выбрасываем; цель — ~1 с от нажатия до заказа). Через VPF_QUIET_MS тишины после правки (`remlab:hist`, готовая сцена, камеры) снимаем
+// кадры ТЕКУЩЕЙ расстановки окна; ключ — номер состояния + позы C1/C2 + размер кадра; кэш — одна запись. Съёмки идут строго по
+// одной (`VPF.q`): сцена одна, а `update` + `capture` двух съёмок сразу смешали бы расстановки. Бережно: только при готовой 3D
+// или открытом окне, не в скрытой вкладке, не при экономии трафика/2g и не на программном рендере без `?live=force`.
+// ЛИМИТ СЕРВЕРА — общий с заказом фото (`draft_guard.IP_LIMITS.render`: 120 за 10 мин с адреса): заранее грузим не больше
+// VPF_UP_MAX кадров за 10 мин, дальше кадры держим в браузере и грузим по нажатию — иначе частые правки съели бы лимит самого заказа
+const VPF_QUIET_MS=1500, VPF_UP_MAX=20, VPF_UP_WIN_MS=600000, VPF_MAX_AGE_MS=3600000;
+const VPF={cap:null, run:null, t:0, q:Promise.resolve(), up:[], captures:0, log:[]};
+function vwPreKey(){ return curStateId()+'|'+(isTouchUI()?'t':'d')+'|'+JSON.stringify((cams||loadCams()).slice(0,2).map(camPoseOf)); }
+function vwPreOk(){
+  if(TRIAL()||document.hidden||LIVE.ok===false||(liveSoftGL()&&!LIVE.force)||!D||!items)return false;
+  const c=navigator.connection; if(c&&(c.saveData||/(^|slow-)2g$/.test(c.effectiveType||'')))return false;
+  const sh=document.getElementById('shot');
+  return (LIVE.ok===true&&!!LIVE.scene)||!!(sh&&sh.classList.contains('on')&&sh.classList.contains('v2'));
+}
+function vwPreFresh(c,key){ return !!c&&c.key===key&&Date.now()-c.at<VPF_MAX_AGE_MS; }
+// ОДНА ОЧЕРЕДЬ НА РИСОВАНИЕ СЦЕНЫ В ЧУЖОМ РАЗМЕРЕ: `capture` и `exportFrame` на время кадра меняют размер холста и ждут `toBlob` —
+// две разом возвращают размер друг друга, и окно 3D остаётся в размере кадра. Съёмка заранее, кадр карточки и заглушка «Фото» — по одной
+function vwSceneQ(fn){ const p=VPF.q.then(fn).catch(()=>null); VPF.q=p; return p; }
+// кадры этой расстановки уже есть (запись) или снимаются (`{}`) — при нажатии заглушку «Фото» берём из них, сцену заново не рисуем
+function vwPreReady(){ try{const key=vwPreKey(); if(vwPreFresh(VPF.cap,key))return VPF.cap; if(VPF.run&&VPF.run.key===key)return {};}catch(e){} return null; }
+function vwPreLog(kind,key,extra){ VPF.log.push(Object.assign({kind, key:String(key).slice(0,14), t:Math.round(performance.now())},extra||{})); if(VPF.log.length>40)VPF.log.shift(); }
+function vwPreSoon(){
+  clearTimeout(VPF.t);
+  if(!vwPreOk())return;
+  let key=''; try{key=vwPreKey();}catch(e){return;}
+  if(VPF.cap&&VPF.cap.key!==key)VPF.cap=null;              // сменил снова — прежние кадры выбрасываем
+  VPF.t=setTimeout(vwPreTake,VPF_QUIET_MS);
+}
+function vwPreTake(){
+  if(!vwPreOk())return;
+  const key=vwPreKey();
+  if(vwPreFresh(VPF.cap,key)||(VPF.run&&VPF.run.key===key))return;
+  vwViewsRun(key,false);
+}
+function vwPreUpOk(n){ const now=Date.now(); VPF.up=VPF.up.filter(t=>now-t<VPF_UP_WIN_MS); return VPF.up.length+n<=VPF_UP_MAX; }
+// одна съёмка в очереди; `press` — по нажатию: снятое отдаём, даже если расстановка сменилась посреди (сверку делает `vwRealistic`);
+// заранее — устаревшее не грузим и не кладём в кэш
+function vwViewsRun(key,press){
+  const run={key};
+  run.p=VPF.q.then(async()=>{
+    if(!press&&(!vwPreOk()||vwPreKey()!==key))return null;               // устарела, пока ждала очереди
+    const k0=press?vwPreKey():key, up=press||vwPreUpOk(2);
+    const c=await vwCaptureViews({stale:press?null:()=>vwPreKey()!==key, noUpload:!up});
+    if(!c)return null;
+    // `capture` заново запускает цикл кадров — вне «3D» (окно закрыто, «План», «Фото») он не нужен, как у `liveShotTake`
+    if(!press&&(VW.mode!=='walk'||!LIVE.canvas||!LIVE.canvas.isConnected))try{LIVE.scene.stop();}catch(e){}
+    if(!press&&c.views)VPF.up.push(Date.now(),Date.now());
+    c.key=k0; c.at=Date.now();
+    if(vwPreKey()===k0)VPF.cap=c; else if(!press)return null;
+    vwPreLog(press?'press':'pre',k0,{up:!!c.views, ms:c.ms});
+    return c;
+  }).catch(()=>null).finally(()=>{if(VPF.run===run)VPF.run=null;});
+  VPF.q=run.p; VPF.run=run; return run.p;
+}
+// по нажатию: готовые кадры этой расстановки — сразу; съёмка этой же идёт — ждём её; иначе снимаем сейчас (после устаревшей в очереди)
+async function vwViewsNow(){
+  clearTimeout(VPF.t);
+  const key=vwPreKey();
+  let c=vwPreFresh(VPF.cap,key)?VPF.cap:null, how='ready';
+  if(!c&&VPF.run&&VPF.run.key===key){c=await VPF.run.p; how='waited'; if(c&&c.key!==vwPreKey())c=null;}
+  if(c&&!c.views){try{await vwUploadViews(c); how+='+upload';}catch(e){try{console.warn('кадр из браузера не принят',e);}catch(_){} c=null;}}
+  if(!c){c=await vwViewsRun(vwPreKey(),true); how='now';}
+  if(c)vwPreLog('use',c.key,{how});
+  return c&&Object.assign({},c,{pre:how});
+}
+document.addEventListener('remlab:hist',vwPreSoon);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(VPF.t); else vwPreSoon();});
 // АВТОФОТО ИЗБРАННОГО (demo-19 В3): тот же путь, `o.auto` — отказ без текста на экране (остаётся 3D-снимок), `o.fail` — сообщить
 // избранному. Готовое фото любого задания (и ручного) — событие `remlab:photo`: избранное этого состояния берёт его картинкой
 async function vwRealistic(o){
@@ -8718,16 +8797,23 @@ async function vwRealistic(o){
   // ОКНО ЭТОЙ РАССТАНОВКИ ОТКРЫТО — СРАЗУ «ФОТО» С ХОДОМ РАБОТЫ (demo-20 Б3, владелец 22.10 TG 791/795): и по кнопке «Сделать реалистичнее»,
   // и при добавлении в избранное (автофото) — одинаково; готовое фото встанет туда само
   const shotEl=document.getElementById('shot'), here=()=>shotEl.classList.contains('on')&&shotEl.classList.contains('v2')&&job.stateId===curStateId();
-  if(here()){await vwPhGrab(job); if(here()){VJ.self=1; vwMode('photo'); VJ.self=0;}}
+  job.tm={};
+  // кадры сняты заранее — заглушка из кадра той же камеры, что будет на фото; снимаются — встанет из них ниже (T-20261109-32)
+  const pre=vwPreReady();
+  if(here()){if(!pre)await vwPhGrab(job); else if(pre.blobs&&pre.blobs.length)job.bg=URL.createObjectURL(pre.blobs[job.cam]||pre.blobs[0]); else vwPhDraft(job);
+    if(here()){VJ.self=1; vwMode('photo'); VJ.self=0;}}
+  job.tm.grab=Date.now()-job.t0;
   const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();
     if(job.bg&&job.bg.startsWith('blob:'))setTimeout(()=>URL.revokeObjectURL(job.bg),3000);
     // не вышло — вкладка «Фото» без снимка исчезает, человек возвращается в 3D
     if(here()&&VW.mode==='photo'&&!vwRealShots().length){VJ.self=1; vwMode('walk'); VJ.self=0;} else vwModeUi();};
-  let cap=await vwCaptureViews();
+  // кадры этой расстановки сняты заранее (T-20261109-32) — сразу; снимаются — ждём ту же съёмку; иначе снимаем сейчас
+  let cap=await vwViewsNow();
   // расстановку поменяли, пока снимались кадры: заказ (`makePhoto` берёт товары и номер состояния сейчас) и кадры должны быть об
   // одном — снимаем ещё раз уже новую; иначе фото подписано новой расстановкой, а нарисовано по кадрам прежней (demo-20 Б3, 1440)
-  if(job.stateId!==curStateId()){job.stateId=curStateId(); job.vid=curVid(); cap=await vwCaptureViews(); vwModeUi();}
-  VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay}:null;   // для проверок и замера
+  if(job.stateId!==curStateId()){job.stateId=curStateId(); job.vid=curVid(); cap=await vwViewsNow(); vwModeUi();}
+  job.tm.views=Date.now()-job.t0;
+  VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay,pre:cap.pre,key:cap.key,ids:(cap.views||[]).map(v=>v.id),tm:job.tm,t0:job.t0}:null;   // для проверок и замера
   if(!job.bg&&cap&&cap.blobs&&cap.blobs.length){job.bg=URL.createObjectURL(cap.blobs[job.cam]||cap.blobs[0]); vwPhWaitUi();}
   if(VW.mode==='photo')liveHide();   // съёмка кадров запускает цикл сцены — на «Фото» он не нужен
   makePhoto('realistic','','',{bg:true, extra:cap?{views:cap.views, clay:cap.clay, sheet:cap.sheet}:{},
@@ -9074,7 +9160,7 @@ async function liveShow(){
     const how=sc.frameItem?sc.frameItem(k):(sc.focus&&sc.focus(k),'turn'); LIVE.framed=how; VW.free=true; vwCamsUi(); sc.start();}
   LIVE.focus=null;
   LIVE.state='ready'; vwLoad(false);
-  liveShotSoon();
+  liveShotSoon(); vwPreSoon();
 }
 // кадр правленой расстановки для карточки главной (`liveShot`): точка 1, без наклона — `capture`, как кадры нейросети, но без отправки.
 // Не снимаем, если у расстановки есть свой кадр, она не правлена (карточке хватает опубликованного) или идёт «Улучшаю…» (своя съёмка).
@@ -9090,13 +9176,14 @@ async function liveShotTake(){
   const st=variantStateOf(v);
   if(LIVE_SHOTS.has(roomStateKey(v,st))||bestShot(v)||st===pubStateOf(v))return;
   const c=(cams||loadCams())[0]; if(!c)return;
-  try{await sc.update(clone(items), liveDecor());
-    if(st!==variantStateOf(allVariants()[cur]||{}))return;
+  // в общей очереди сцены со съёмкой кадров заранее (`vwSceneQ`, T-20261109-32)
+  await vwSceneQ(async()=>{try{await sc.update(clone(items), liveDecor());
+    if(st!==variantStateOf(allVariants()[cur]||{})||VJ.job)return;
     const r=await sc.capture([camPoseOf(c)],1024,723);
     if(VW.mode!=='walk'||!LIVE.canvas.isConnected)sc.stop();   // `capture` заново запускает цикл кадров — вне «3D» он не нужен
     if(!r||!r.frames||!r.frames[0]||st!==variantStateOf(allVariants()[cur]||{}))return;
     LIVE_SHOTS.set(roomStateKey(v,st),URL.createObjectURL(r.frames[0])); drawHome();
-  }catch(e){}
+  }catch(e){}});
 }
 </script>
 <script>

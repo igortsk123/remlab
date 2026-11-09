@@ -1,8 +1,10 @@
 // T-20261109-29: «Сделать реалистичнее» — уходят ли кадры из браузера (`views`) в заказ фото. БЕСПЛАТНО: /api/render отвечает
 // заглушкой-отказом (платная генерация не запускается), /api/render/frame — заглушкой с id = sha256 (на прод ничего не грузится).
-//   node tools/ops/demo-walk/photo-views-check.cjs <WxH> <новая папка> [walk,early,stale,home]
+//   node tools/ops/demo-walk/photo-views-check.cjs <WxH> <новая папка> [walk,early,stale,home,pre2,pre5,race]
 // Сценарии: walk — окно в 3D, сцена готова; early — нажали до готовности 3D; stale — окно открылось в «Фото» (прежнее фото, T-66),
 // кнопка на плашке «Вы изменили комнату»; home — кнопка карточки главной (`homeStaleReal`). Годно — заказ с `views` из 2 id (VIEWS).
+// T-20261109-32 (кадры заранее): pre2/pre5 — правка → пауза 2/5 с → нажатие; race — вторая правка посреди съёмки первой. Годно — FAST:
+// заказ ≤ 1,5 с от нажатия, кадры той расстановки, что при нажатии, ни одна не снималась дважды. По умолчанию — прежние четыре.
 // Страница — index.html этой копии (PAGE=путь), данные/движок/реестр — прод (`?live=force`: программный рендер headless).
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const ROOT = path.join(__dirname, '../../..');
@@ -22,6 +24,7 @@ async function open(b) {
   const p = await ctx.newPage();
   p.log = []; p.bodies = []; p.frames = [];
   p.on('console', m => { const t = m.text(); if (m.type() === 'warning' || m.type() === 'error' || /кадр/.test(t)) p.log.push(m.type() + ': ' + t.slice(0, 300)); });
+  p.on('response', x => { if (x.status() === 429) p.log.push('error: 429 ' + x.url().slice(0, 120)); });
   p.on('pageerror', e => p.log.push('pageerror: ' + String(e).slice(0, 300)));
   await p.route(/\/demo\/(index\.html)?(\?.*)?$/, r => r.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: fs.readFileSync(PAGE, 'utf8') }));
   await p.route(/\/api\/events/, r => r.fulfill({ status: 204, body: '' }));
@@ -54,13 +57,61 @@ async function waitOrder(p, ms) {
 async function report(p, name, before, t0) {
   const b = p.bodies.filter(x => x.quality === 'realistic').pop() || null;
   const after = await live(p);
-  const r = { scenario: name, size: W + 'x' + H, before, after, order: b ? { views: b.views, src_id: b.src_id, sheet: b.sheet, sec: +((b.t - t0) / 1000).toFixed(1) } : null,
+  const r = { scenario: name, size: W + 'x' + H, before, after, order: b ? { views: b.views, src_id: b.src_id, sheet: b.sheet, sec: +((b.t - t0) / 1000).toFixed(1), ms: b.t - t0 } : null,
     lastCapture: await p.evaluate(() => VW.lastCapture), frames: p.frames.length, console: p.log.filter(l => /кадр|error|Error/.test(l)).slice(-8) };
   r.verdict = b && Array.isArray(b.views) && b.views.length === 2 ? 'VIEWS' : (b ? 'NO-VIEWS' : 'NO-ORDER');
   res.push(r); console.log(JSON.stringify(r));
 }
 // правка без окна: другой пол — расстановка «изменена», фото комнаты становится прежним (как у покупателя, вернувшегося к комнате)
-const edit = p => p.evaluate(() => { const g = devGroups().find(x => x.kind === 'flooring'); if (g) devSet(g.id, g.variants[1].id); return !!g; });
+const edit = (p, k = 1) => p.evaluate(k => { const g = devGroups().find(x => x.kind === 'flooring'); if (g) devSet(g.id, g.variants[k % g.variants.length].id); return !!g; }, k);
+// T-20261109-32 — кадры заранее: «правка → пауза → нажатие». Годно: заказ ≤ 1,5 с от нажатия, кадры заказа — той расстановки, что
+// при нажатии (ключ кадров начинается с curStateId), ни одна расстановка не снималась дважды (VPF.log: pre/press по ключу)
+async function prefetch(b, name, pauseMs, race) {
+  const p = await open(b);
+  await p.evaluate(() => { shots = shots.filter(x => x.quality !== 'realistic'); openLiveWindow(); });
+  await p.waitForFunction(() => LIVE.scene && LIVE.state === 'ready', null, { timeout: 150000 }).catch(() => {});
+  await p.waitForFunction(() => VPF.cap && !VPF.run, null, { timeout: 120000 }).catch(() => {});   // кадры открытого окна сняты
+  await p.waitForTimeout(500);
+  await edit(p, 1);
+  let staleKey = null;
+  if (race) {   // вторая правка посреди съёмки первой: заказ должен уйти с кадрами второй
+    await p.waitForFunction(() => !!VPF.run, null, { timeout: 30000 }).catch(() => {});
+    staleKey = await p.evaluate(() => VPF.run && VPF.run.key.slice(0, 14));
+    await edit(p, 2);
+  }
+  // pauseMs=0 — ждём, пока кадры этой расстановки сняты и загружены: чистая цена нажатия, без скорости рендера машины проверки
+  if (pauseMs) await p.waitForTimeout(pauseMs);
+  else await p.waitForFunction(() => VPF.cap && VPF.cap.views && VPF.cap.key === vwPreKey() && !VPF.run, null, { timeout: 120000 }).catch(() => {});
+  const before = await live(p);
+  const pre = await p.evaluate(() => ({ cap: !!VPF.cap, run: !!VPF.run, key: curStateId().slice(0, 14) }));
+  await p.screenshot({ path: OUT + `/${name}-${W}-before.png` });
+  const t0 = Date.now(); await p.click('#vCta');
+  await waitOrder(p, 90000);
+  await p.screenshot({ path: OUT + `/${name}-${W}-after.png` });
+  await report(p, name, before, t0);
+  const r = res[res.length - 1];
+  const st = await p.evaluate(() => ({ now: curStateId().slice(0, 14), last: VW.lastCapture, log: VPF.log, captures: VPF.captures,
+    capViews: VPF.cap && VPF.cap.views ? VPF.cap.views.map(v => v.id) : null }));
+  const shot = {};
+  for (const e of st.log) if (e.kind === 'pre' || e.kind === 'press') shot[e.key] = (shot[e.key] || 0) + 1;
+  const orderIds = r.order && r.order.views ? r.order.views.map(v => v.id) : null;
+  // нажатие → заказ считаем от входа в обработчик кнопки (`job.t0`): щелчок Playwright сам ждёт «устойчивых» кадров анимации, а
+  // программный рендер на 375×667 ×2 даёт их раз в сотни мс — это цена проверочной машины, не страницы. clickMs — для сравнения
+  const ob = p.bodies.filter(x => x.quality === 'realistic').pop();
+  const pressMs = ob && st.last && st.last.t0 ? ob.t - st.last.t0 : (r.order ? r.order.ms : null);
+  if (r.order) { r.order.clickMs = r.order.ms; r.order.ms = pressMs; }
+  r.prefetch = { pauseMs, pressMs, clickMs: r.order ? r.order.clickMs : null, pre, how: st.last && st.last.pre, staleKey, stateAtPress: pre.key,
+    capturedTwice: Object.entries(shot).filter(([, n]) => n > 1).map(([k]) => k), captures: st.captures,
+    sameState: !!(st.last && st.last.key && st.last.key.startsWith(pre.key)),
+    viewsMatchCache: !!(orderIds && st.capViews && orderIds.join() === st.capViews.join()), log: st.log.slice(-8) };
+  // race: нажатие ждёт съёмку новой расстановки (её не было) — годность по кадрам, не по времени: NEWSTATE
+  const slow = !race && r.order && r.order.ms > 1500;
+  r.verdict = r.verdict === 'VIEWS' && !slow && r.prefetch.sameState && !r.prefetch.capturedTwice.length
+    ? (race ? 'NEWSTATE' : 'FAST') : r.verdict + (slow ? '-SLOW' : '') + (r.prefetch.sameState ? '' : '-WRONGSTATE')
+      + (r.prefetch.capturedTwice.length ? '-TWICE' : '');
+  console.log(JSON.stringify({ scenario: name, prefetch: r.prefetch, verdict: r.verdict }));
+  await p.context().close();
+}
 
 (async () => {
   const b = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -91,6 +142,10 @@ const edit = p => p.evaluate(() => { const g = devGroups().find(x => x.kind === 
         await waitOrder(p, 90000); await report(p, 'stale', before, t0); }
       await p.context().close();
     }
+    if (ONLY.includes('ready')) await prefetch(b, 'ready', 0, false);      // правка → кадры готовы → нажатие
+    if (ONLY.includes('pre2')) await prefetch(b, 'pre2', 2000, false);     // задание: правка → 2 с → нажатие
+    if (ONLY.includes('pre5')) await prefetch(b, 'pre5', 5000, false);     // кадры успели сняться и загрузиться
+    if (ONLY.includes('race')) await prefetch(b, 'race', 2000, true);      // правка посреди съёмки → кадры новой расстановки
     if (ONLY.includes('home')) { // кнопка на карточке главной (`homeStaleReal`): окно открывается и съёмка сразу
       const p = await open(b);
       await edit(p); const before = await live(p); const t0 = Date.now();
