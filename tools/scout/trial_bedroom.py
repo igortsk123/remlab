@@ -48,8 +48,9 @@ NARROW_MAX_CM = 100.0                              # спальное/рама �
 IDEAL_SIZES = ((18.0, 300.0, 180), (11.5, 255.0, 160), (9.0, 0.0, 140), (0.0, 0.0, 120))   # площадь ядра, короткая сторона → идеальная ширина спального, см (NDSS)
 NDSS_DOUBLE = (11.5, 255.0)                        # двуспальная «для пары» — NDSS 2015 (площадь м², короткая сторона см)
 NIGHTSTANDS = {'couple': 2, 'guest': 1, 'single': 1}
-MAX_BEDS = 10                                      # кроватей на стиль × ядро в переборе
-ROOM_BUDGET_S = 25.0                               # бюджет на комнату (чтобы плохой план не ел конвейер); вышло — лучшее, что есть
+MAX_BEDS = 6                                       # разных размеров кроватей на стиль × ядро в переборе
+MAX_CORES = 3                                      # ядер на стиль: дальше — те же кровати на всё меньшей площади
+ROOM_BUDGET_S = 30.0                               # бюджет на комнату (чтобы плохой план не ел конвейер); вышло — лучшее, что есть
 MIN_STYLES_READY = 2                               # меньше стилей — комната честно «частично» (владелец TG 1382: разные стили)
 SMALLEST_BED = {'sofa': [120.0, 195.0], 'bearer': [0.0, 0.0], 'tv_min_cm': 0.0}   # «влезает ли хоть какая-то кровать» в ядро (рама 120)
 
@@ -273,7 +274,17 @@ def build_room(cand: dict, cfg: dict, hinge: str, purpose: str):
 
 
 def solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
-    """Набор на ядре, обе петли дверей → лучшая попытка {placements, hard, post, ops, room, meta} или None."""
+    """Набор на ядре, обе петли дверей → лучшая попытка {placements, hard, post, ops, room, meta} или None. Память `ad['memo']`: одинаковые
+    размеры на том же ядре считаем один раз (у стилей и кроватей они часто совпадают — комната не упирается в бюджет)."""
+    key = (cand['area_m2'], tuple(cand['rect']), purpose, tuple(sorted((r, it['w'], it['d'], it['h']) for r, it in kit.items())))
+    if key in ad['memo']:
+        return ad['memo'][key]
+    res = _solve_kit(ad, cand, cfg, kit, purpose)
+    ad['memo'][key] = res
+    return res
+
+
+def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     from planner.bedroom import solve_bedroom
     from planner.models import Item
     items = []
@@ -316,24 +327,63 @@ def public_item(p, it: dict, msid: str | None) -> dict:
 def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadline: float) -> tuple[dict | None, dict | None]:
     """Стиль в спальне → (вариант без id, None) или (None, {style, code, detail}): перебор кроватей по ширине, потом ядер."""
     tried, had_bed_on_any = 0, False
-    for ci, cand in enumerate(ad['candidates']):
+    others = {r: pick_role(r, ctx['bank'], style, ctx['mesh_ok'], ctx['defect'], used) for r in ROOM_ROLES[1:]}
+    fallback = None                                      # лучшая кровать без тумбы: вариант «частично», если с тумбой не встанет ничего
+    for ci, cand in enumerate(ad['candidates'][:MAX_CORES]):
         area, short = cand['area_m2'], min(cand['w'], cand['d'])
-        ideal = ideal_bed(area, short)
-        beds = bed_pool(style, ctx['bank'], ctx['catalog'], ctx['mesh_ok'], ctx['defect'], ctx['thr'], ideal, used)
-        had_bed_on_any = had_bed_on_any or bool(beds)
-        others = {r: pick_role(r, ctx['bank'], style, ctx['mesh_ok'], ctx['defect'], used) for r in ROOM_ROLES[1:]}
-        for bed in beds[:MAX_BEDS]:
+        pool = bed_pool(style, ctx['bank'], ctx['catalog'], ctx['mesh_ok'], ctx['defect'], ctx['thr'], ideal_bed(area, short), used)
+        had_bed_on_any = had_bed_on_any or bool(pool)
+        for bed in spread_beds(pool):
             for purpose in purposes_for(bed, area, short):
                 if time.time() > deadline:
-                    return None, {'style': style, 'code': 'budget', 'detail': 'кончился бюджет комнаты'}
+                    return out_of_budget(style, fallback)
                 tried += 1
-                kit = {'кровать': bed, **{r: it for r, it in others.items() if it}}
-                res = solve_kit(ad, cand, cfg, kit, purpose)
-                if res and res['score'][0] == 0:
-                    return variant_from(res, ad, cand, ci, style, bed, others, purpose, ctx), None
+                probe = solve_kit(ad, cand, cfg, {'кровать': bed}, purpose)     # одна кровать не встала — наборы с ней не встанут тем более: не тратим бюджет
+                if not probe or probe['score'][0] != 0:
+                    continue
+                fallback = fallback or (probe, ad, cand, ci, style, bed, others, purpose, ctx)
+                for kit in kit_ladder(bed, others):
+                    if time.time() > deadline:
+                        return out_of_budget(style, fallback)
+                    tried += 1
+                    res = solve_kit(ad, cand, cfg, kit, purpose)
+                    if res and res['score'][0] == 0 and any(base_role(p.role) == 'тумба прикроватная' for p in res['placements']):
+                        return variant_from(res, ad, cand, ci, style, bed, others, purpose, ctx), None
+    if fallback:
+        return variant_from(*fallback), None
     if not had_bed_on_any:
         return None, {'style': style, 'code': 'no_products', 'detail': 'нет кровати с готовой моделью в стиле'}
     return None, {'style': style, 'code': 'bed_no_fit', 'detail': f'ни одна кровать не встала ({tried} попыток)'}
+
+
+def spread_beds(pool: list) -> list:
+    """Кровати в перебор: не больше двух на ширину спального (шаг 10 см) и `MAX_BEDS` всего — чтобы у соседних по размеру кроватей шанс не
+    съедал бюджет, а следующая ширина («другая кровать, что влезает», TG 1377) дошла до проверки."""
+    seen: dict = {}
+    out = []
+    for b in pool:
+        k = round(_sleep_w(b) / 10)
+        if seen.get(k, 0) < 2:
+            seen[k] = seen.get(k, 0) + 1
+            out.append(b)
+    return out[:MAX_BEDS]
+
+
+def out_of_budget(style: str, fallback) -> tuple:
+    if fallback:
+        return variant_from(*fallback), None
+    return None, {'style': style, 'code': 'budget', 'detail': 'кончился бюджет комнаты'}
+
+
+def kit_ladder(bed: dict, others: dict) -> list:
+    """Наборы от полного к минимальному: необязательный шкаф или комод, из-за которого расстановка не проходит проверку, снимается, кровать — последней."""
+    have = {r: it for r, it in others.items() if it}
+    out = []
+    for drop in ((), ('комод',), ('шкаф',), ('шкаф', 'комод')):
+        kit = {'кровать': bed, **{r: it for r, it in have.items() if r not in drop}}
+        if kit not in out:
+            out.append(kit)
+    return out
 
 
 def variant_from(res: dict, ad: dict, cand: dict, ci: int, style: str, bed: dict, others: dict, purpose: str, ctx: dict) -> dict:
@@ -364,8 +414,10 @@ def furnish_room(trial_id: str, panel: dict, room: dict, rid: str, cfg: dict, ct
         return rec
     rec.update(contour=ad['contour'], control=ad['control'], flags=list(ad['flags']))
     deadline = time.time() + ROOM_BUDGET_S
-    for st in STYLES:
-        var, fail = furnish_style(ad, cfg, st, ctx, ctx['used'].setdefault(st, set()), deadline)
+    ad['memo'] = {}
+    for i, st in enumerate(STYLES):
+        share = time.time() + max(deadline - time.time(), 0.0) / (len(STYLES) - i)   # доля бюджета: тяжёлый стиль не съедает бюджет остальных
+        var, fail = furnish_style(ad, cfg, st, ctx, ctx['used'].setdefault(st, set()), share)
         if var is None:
             rec['style_failures'].append(fail)
             continue
