@@ -1284,6 +1284,8 @@ body.trial #hmBot,body.trial .vtop,body.trial #consShot,body.trial #swapShot,bod
 /* карточка пробы без фото: план комнаты с мебелью (тот же рисунок, что план окна) и подпись «Откройте — покажем в 3D» */
 .hm-room .hm-ph .nopv.tr-plan{background:var(--wash,#F3F0EA);padding:42px 14px 44px}
 .hm-room .hm-ph .nopv.tr-plan svg{width:100%;height:100%;display:block}
+/* узкий экран: плашка состояния не заходит под ✕ — в две строки по центру */
+@media(max-width:700px){.vpend{max-width:calc(100% - 120px);white-space:normal;text-align:center}}
 /* узкий экран: «Форма приблизительная» (слева) и «Откройте — покажем в 3D» (справа) в одну строку не помещаются — вторым рядом */
 @media(max-width:700px){.hm-ph:has(.tr-3d)>.tr-approx{top:44px}.hm-room .hm-ph:has(>.tr-approx) .nopv.tr-plan{padding-top:76px}}
 .vstub.tr-flat{background:var(--wash,#F3F0EA);padding:72px 20px 20px}
@@ -2137,7 +2139,7 @@ function flatPlan(){
   // чертежа-источника (`P.title`) НЕ показываем — он про другую квартиру. Карточки ещё нет — нейтрально.
   document.getElementById('flatTitle').textContent=flatTitle();
   const box=document.getElementById('flatRooms');box.innerHTML='';
-  if(!R.length){box.innerHTML='<div class="hint">План не загружен.</div>';return;}
+  if(!R.length){box.innerHTML=`<div class="hint">${LANG==='en'?'The floor plan is not loaded.':'План не загружен.'}</div>`;return;}
   const xs=R.flatMap(r=>[r.x,r.x+r.w]).concat((P.contour||[]).map(p=>p[0]));
   const ys=R.flatMap(r=>[r.y,r.y+r.d]).concat((P.contour||[]).map(p=>p[1]));
   const X0=Math.min(...xs), X1=Math.max(...xs), Y0=Math.min(...ys), Y1=Math.max(...ys);
@@ -5612,7 +5614,7 @@ function drawHome(force){
       return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b><span>${mark}${c.pending?msg:varNoneShort(c.v)}</span></button>`+
       `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}" data-variant="${escHtml(c.v.id)}" data-open="${c.i}" ${c.pending?'data-pending':'data-refused'}="1">`+
       `<div class="hm-ph" data-open="${c.i}"><div class="nopv tr-wait">${mark}<span>${msg}</span></div>${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
-      `<div class="rb"><div class="sum"><small class="tr-wait-tx">${c.pending?(EN?'Your rooms are ready — furniture is on the way':'Комнаты готовы — мебель появится здесь'):(EN?'The room is ready, without furniture':'Комната готова, без мебели')}</small></div>`+
+      `<div class="rb"><div class="sum"><small class="tr-wait-tx">${c.pending?(EN?'Your rooms are ready — furniture is on the way':'Комнаты готовы — мебель появится здесь'):(c.refused&&TRIAL()?varNoneTxt(c.v):(EN?'The room is ready, without furniture':'Комната готова, без мебели'))}</small></div>`+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;}
     return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b>`+
       `<span>${trJoin(money(c.sum),c.n+' '+plural(c.n))}</span></button>`+
@@ -8183,6 +8185,7 @@ function vwMount(s){
       // первый показ — через 0,7 с: человек успевает переключить «Фото»/«3D», и подсказка не встаёт поверх загрузки
       (function tip(){
         if(!shot.classList.contains('on'))return;
+        if(TRIAL()&&!items.length)return;   // проба: комната пустая (подбирается / нет товаров) — «товары и замены» звать некуда
         if(Date.now()-at<700||isBusy()){if(Date.now()-at<20000)setTimeout(tip,250); return;}
         const t=document.createElement('div'); t.className='vtip msg';
         t.dataset.mode=VW.mode; t.dataset.live=String(typeof LIVE!=='undefined'&&LIVE.state); t.dataset.busy=String(isBusy());   // состояние в момент показа — для проверок
