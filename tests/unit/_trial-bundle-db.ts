@@ -184,7 +184,7 @@ export function bundleDbTests(c: () => Ctx): void {
       await fs.writeFile(path.join(demo, "rt-meshes.json"), "{}");
       const { publishBundle } = await import("@/lib/trial/repo-bundle");
       const { ensureJobRelease } = await import("@/lib/trial/tour-bundle");
-      const pin = (id: string, d: string) => ensureJobRelease(id, d, demo);
+      const pin = (id: string, d?: string) => ensureJobRelease(id, d, demo);
       const text = (id: string, n: number) => JSON.stringify(bundleOf(id, { rev: n }));
       const f = await started();
       expect(await publishBundle(f, text(f.id, 1), sha(text(f.id, 1)), c().dir, pin)).toMatchObject({ version: 1, release: "pinned" });
