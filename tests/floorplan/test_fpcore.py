@@ -229,6 +229,40 @@ def test_one_open_hole_does_not_strip_window_closures_of_floor():
     assert r['add'][22:27, 345:375].mean() > 0.5                    # окно R2 закрыто, несмотря на дыру в R1
 
 
+def test_notch_is_not_opening_and_door_width_floor():
+    """T-36: полоска в 1–2 px вдоль грани стены (зазубрина маски под водяным знаком) — не проём; проём через всю толщину — да."""
+    g = lambda d: fc.Gap(1, 0, 0, 30, d, 'door', 1.0, False, (0, 0, 1, 1))  # noqa: E731
+    assert fc.is_notch(g(1), 10) and fc.is_notch(g(3), 10) and fc.is_notch(g(1.5), 4)
+    assert not fc.is_notch(g(5), 10) and not fc.is_notch(g(10), 10)
+    assert 0.4 <= fc.DOOR_MIN_M < 0.61                              # ниже самой узкой комнатной двери (UK 610 мм, ГОСТ — 600)
+
+
+def test_interior_gaps_narrow_slot_and_face_notch_are_walls():
+    """T-36 (лист T, CARTER & KING): перегородка с дверью 0,8 м, щелью 0,25 м без створки, зазубриной грани и дверцей
+    кладовки 0,35 м со створкой → дверей две (0,8 и дверца), щель и зазубрина — стена."""
+    import bench
+    ppm, t = 40.0, 8
+    g = np.full((320, 520), 255, np.uint8)
+    cv2.rectangle(g, (20, 20), (500, 300), 244, -1)
+    wall = np.zeros_like(g)
+    wall[20:28, 20:500] = 1; wall[292:300, 20:500] = 1; wall[20:300, 20:28] = 1; wall[20:300, 492:500] = 1
+    wall[20:300, 256:264] = 1                                       # перегородка R1|R2
+    wall[60:92, 256:264] = 0                                        # дверь 0,8 м сквозь толщину
+    wall[200:210, 256:264] = 0                                      # щель 0,25 м сквозь толщину — уже нормы
+    wall[140:152, 262:264] = 0                                      # зазубрина 2 px по грани (стена не прорвана)
+    wall[240:254, 256:264] = 0                                      # дверца кладовки 0,35 м с нарисованной створкой
+    cv2.ellipse(g, (264, 60), (32, 32), 0, 0, 90, 0, 1); cv2.line(g, (264, 60), (296, 60), 0, 1)   # створка двери
+    cv2.ellipse(g, (264, 240), (14, 14), 0, 0, 90, 0, 1); cv2.line(g, (264, 240), (278, 240), 0, 1)
+    g[wall > 0] = 0
+    g[200:210, 256:264] = 190; g[140:152, 262:264] = 190            # водяной знак: серое в щели и зазубрине («стекло» 1,0)
+    fams = fc.angle_families(wall)
+    r = bench.analyze(cv2.cvtColor(g, cv2.COLOR_GRAY2BGR), g, wall, ppm, fams, t)
+    near = lambda y0, y1: [q for q in r['gaps'] if 240 <= q.cx <= 280 and y0 <= q.cy <= y1]  # noqa: E731
+    assert [q.kind for q in near(55, 97)] == ['door']
+    assert all(q.kind == 'wall' for q in near(195, 215) + near(135, 157))
+    assert [q.kind for q in near(235, 259)] == ['door']             # узкая, но со створкой — дверь
+
+
 def test_split_by_labels_cuts_at_wide_opening_neck():
     """Две подписи в одной области (комнаты соединены проёмом 1,5 м без двери) → две комнаты, граница — в проёме."""
     lab = np.zeros((200, 400), np.int32)

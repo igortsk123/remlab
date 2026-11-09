@@ -313,8 +313,17 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     for g in gaps:
         if bay.any() and bay[lab_g == g.id].any():
             g.kind = 'window'
+        elif not g.exterior and fc.is_notch(g, t):   # T-36: зазубрина грани стены (водяной знак, сжатие) — не проём;
+            g.kind = 'wall'                          # наружные не трогаем: рама окна серым в линии стены даёт щель в 1 px
         elif not g.exterior:
+            # T-36: межкомнатная уже нормы (с запасом на недомер) — просвет/шум, не дверь; закрытие остаётся стеной.
+            # Нарисована створка (дуга) — дверца кладовки/шкафа (UK 457/533 мм): остаётся дверью.
             g.kind = 'door'
+            if g.length < fc.DOOR_MIN_M * ppm:
+                ys, xs = np.nonzero(lab_g == g.id)
+                c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
+                if fc.door_evidence(thin, c, u, nrm, L, dpt) < DOOR_EV:
+                    g.kind = 'wall'
         elif g.glaze >= GLAZE_MIN:
             g.kind = 'window'
         else:                                        # наружный без рамы: дуга створки → дверь, иначе окно
@@ -721,17 +730,18 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
             rad = 0.75 * ppm
             used, hits = set(), 0
             tm = 0
+            gaps_o = [g for g in r['gaps'] if g.kind != 'wall']     # зазубрины — стена, не проём (T-36)
             for o in gopen:
                 best = None
-                for g in r['gaps']:
+                for g in gaps_o:
                     d = math.hypot(g.cx - o['pt'][0], g.cy - o['pt'][1])
                     if d <= rad and g.id not in used and (best is None or d < best[0]):
                         best = (d, g)
                 if best:
                     used.add(best[1].id); hits += 1
                     tm += int(best[1].kind == o['type'])
-            op = {'gold': len(gopen), 'found': hits, 'recall': hits / len(gopen), 'detected': len(r['gaps']),
-                  'precision': hits / max(1, len(r['gaps'])), 'type_ok': tm}
+            op = {'gold': len(gopen), 'found': hits, 'recall': hits / len(gopen), 'detected': len(gaps_o),
+                  'precision': hits / max(1, len(gaps_o)), 'type_ok': tm}
         # углы стен > 1 м: выпрямленная грань против прямой МНК по исходным пикселям
         polys, edges = fc.mask_polygons(r['final'], fams, min_area=4)
         errs = [fc.angdiff(e['ang'], e['raw']) for e in edges if e['len'] >= ppm]
@@ -920,14 +930,15 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     final, add, lab_g = r['final'], r['add'], r['lab_g']
     doors = np.zeros_like(add)
     wins = np.zeros_like(add)
+    notch = np.zeros_like(add)
     for g in r['gaps']:
-        (wins if g.kind == 'window' else doors)[lab_g == g.id] = 1
+        (wins if g.kind == 'window' else notch if g.kind == 'wall' else doors)[lab_g == g.id] = 1
     if r.get('add_extra') is not None:                 # закрытия локального пересчёта (T-03) — как двери
         doors |= r['add_extra']
     doors &= (final > 0)
     wins &= (final > 0)
-    solid = ((r['wall'] > 0) & (final > 0)).astype(np.uint8)
-    if r.get('drawn') is not None:                     # разрез min-cut вдоль нарисованной линии — тонкая стена
+    solid = (((r['wall'] > 0) | (notch > 0)) & (final > 0)).astype(np.uint8)    # зазубрина/узкий просвет — стена
+    if r.get('drawn') is not None:                    # разрез min-cut вдоль нарисованной линии — тонкая стена
         solid |= cv2.dilate(r['drawn'].astype(np.uint8), np.ones((2, 2), np.uint8))
     # стена монолитом на всю высоту; под окном — подоконная часть, над окном и дверью — перемычка (без горизонтальных швов)
     bands = [(0.0, H_WALL, solid), (0.0, SILL, wins & (solid == 0)), (HEAD, H_WALL, (wins | doors) & (solid == 0))]
@@ -989,6 +1000,8 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
                  'straight': {k: fc.STRAIGHT_STATS[k] - st0[k] for k in st0}}
     model['skew'] = P['skew']
     for g in r['gaps']:
+        if g.kind == 'wall':
+            continue
         model['openings'].append({'kind': g.kind, 'c': [round(g.cx / ppm, 3), round(g.cy / ppm, 3)],
                                   'width_m': round(g.length / ppm, 3), 'glaze': round(g.glaze, 2), 'exterior': g.exterior})
     Path(outdir).mkdir(parents=True, exist_ok=True)
