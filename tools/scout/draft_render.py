@@ -1542,6 +1542,213 @@ def _legend(per_cam: list, skus: dict, meta: dict | None = None,
     return out
 
 
+# ЦЕНА КАЖДОГО ПЛАТНОГО КАДРА (T-20261109-28): на каждый вызов шлюза картинок (`gpt_edit`, `_chat_edit`) — строка JSON в
+# `~/scout-scenes/photo-cost.jsonl`: модель, размер, качество, сколько картинок ушло, `usage`/id генерации из ответа шлюза, баланс
+# до и после и разница `cost_usd` (`balance_delta`). Баланс ДО — параллельно запросу (шлюз списывает по готовности, кадр идёт 40+ с),
+# ПОСЛЕ — в фоновом потоке через паузу: ответ человеку не ждёт. Разница баланса — общий счёт ключа: шли параллельно другие вызовы
+# этого процесса — `overlap: true` (чужие процессы видит отчёт `tools/ops/photo-cost.py` по пересечению окон). Отчёт — там же.
+PHOTO_COST_LOG = os.environ.get('PHOTO_COST_LOG', os.path.expanduser('~/scout-scenes/photo-cost.jsonl'))
+_PC_SETTLE_S = float(os.environ.get('PHOTO_COST_SETTLE_S', '2.5'))   # баланс шлюза обновляется не мгновенно (trial_hero: 2 с)
+_PC_LOCK = threading.Lock()
+_PC_STATE = {'active': 0, 'seq': 0}      # активные платные вызовы процесса (до замера ПОСЛЕ включительно) и счётчик стартов
+_PC_TLS = threading.local()              # запись текущего вызова: в неё `_pc_seen` кладёт usage и заголовки ответа
+_PC_THREADS: list = []
+_PC_LABELS = {'trial_hero': 'hero'}      # метка по имени скрипта, если вызывающий её не дал
+
+
+def _pc_label(explicit) -> str:
+    if explicit:
+        return str(explicit)
+    if os.environ.get('PHOTO_COST_LABEL'):
+        return os.environ['PHOTO_COST_LABEL']
+    base = os.path.splitext(os.path.basename(sys.argv[0] if sys.argv and sys.argv[0] else ''))[0] or 'other'
+    return _PC_LABELS.get(base, base)
+
+
+def _pc_find(obj, names: tuple, depth: int = 0):
+    """Первое значение по одному из ключей `names` в ответе шлюза (вглубь до 6 уровней; длинные строки — base64 — мимо)."""
+    if depth > 6:
+        return None
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in names and not isinstance(v, (dict, list)):
+                return v
+        for v in obj.values():
+            if isinstance(v, (dict, list)):
+                f = _pc_find(v, names, depth + 1)
+                if f is not None:
+                    return f
+    elif isinstance(obj, list):
+        for v in obj[:20]:
+            f = _pc_find(v, names, depth + 1)
+            if f is not None:
+                return f
+    return None
+
+
+def _pc_strip(obj, depth: int = 0):
+    """Ответ шлюза без картинок: строки длиннее 300 знаков (base64) режутся, глубина ≤ 6."""
+    if depth > 6:
+        return '…'
+    if isinstance(obj, dict):
+        return {k: _pc_strip(v, depth + 1) for k, v in list(obj.items())[:40]}
+    if isinstance(obj, list):
+        return [_pc_strip(v, depth + 1) for v in obj[:10]]
+    if isinstance(obj, str) and len(obj) > 300:
+        return obj[:60] + f'…[{len(obj)} зн.]'
+    return obj
+
+
+def _pc_seen(headers, j=None) -> None:
+    """Из ответа шлюза — в запись текущего вызова: служебные заголовки, `usage`, id генерации и цену, если шлюз их отдал.
+    Вне записанного вызова — ничего. Сбой разбора — строка в лог, ответ человеку не ломает."""
+    rec = getattr(_PC_TLS, 'rec', None)
+    if rec is None:
+        return
+    try:
+        hs = {}
+        for k, v in (headers.items() if headers is not None else []):
+            kl = str(k).lower()
+            if kl != 'set-cookie' and (kl.startswith(('x-', 'openai-')) or 'generation' in kl or 'request-id' in kl):
+                hs[kl] = str(v)[:200]
+        if hs:
+            rec['headers'] = dict(list(hs.items())[:40])
+        gen = next((v for k, v in hs.items() if 'generation' in k), None)
+        if isinstance(j, dict):
+            if j.get('usage') is not None:
+                rec['usage'] = _pc_strip(j['usage'])
+            meta = {k: v for k, v in j.items() if k not in ('data', 'choices', 'usage')}
+            msg = ((j.get('choices') or [{}])[0] or {}).get('message') if isinstance(j.get('choices'), list) else None
+            if isinstance(msg, dict):
+                meta.update({f'message.{k}': v for k, v in msg.items() if k not in ('images', 'content')})
+            if meta:
+                rec['resp_meta'] = _pc_strip(meta)
+            gid = j.get('id') if isinstance(j.get('id'), str) and j['id'].startswith('gen') else None
+            gen = gen or gid or _pc_find(j, ('generationId', 'generation_id'))
+            cost = _pc_find(j, ('cost', 'marketCost', 'market_cost'))
+            try:
+                if cost is not None:
+                    rec['gateway_cost_usd'] = float(cost)
+            except (TypeError, ValueError):
+                rec['gateway_cost_raw'] = str(cost)[:80]
+        if gen:
+            rec['generation_id'] = str(gen)[:120]
+    except Exception as e:  # noqa: BLE001 — учёт цены не роняет кадр; причина — в лог
+        print(f'ЦЕНА ФОТО: ответ шлюза не разобран — {type(e).__name__}: {e}', flush=True)
+
+
+def _pc_bal():
+    try:
+        return gw_credits(max_age_s=0)
+    except Exception as e:  # noqa: BLE001
+        print(f'ЦЕНА ФОТО: баланс не узнан — {type(e).__name__}: {e}', flush=True)
+        return None
+
+
+def _pc_write(rec: dict) -> None:
+    path = PHOTO_COST_LOG
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    line = json.dumps(rec, ensure_ascii=False, default=str)
+    with _PC_LOCK, open(path, 'a', encoding='utf-8') as f:
+        f.write(line + '\n')
+
+
+def _pc_finish(rec: dict, th0, box: dict, seq0: int) -> None:
+    """Фоновый хвост записи: пауза → баланс ПОСЛЕ → разница → строка в журнал. Ошибка — в лог, не наружу."""
+    try:
+        time.sleep(_PC_SETTLE_S)
+        th0.join(timeout=15)
+        bal0, bal1 = box.get('bal0'), _pc_bal()
+        with _PC_LOCK:
+            if _PC_STATE['seq'] != seq0:          # за наше окно стартовал другой платный вызов — разница общая
+                rec['overlap'] = True
+        rec.update(bal0=bal0, bal1=bal1, t_bal1=round(time.time(), 3))
+        if bal0 is not None and bal1 is not None:
+            d = round(bal0 - bal1, 6)
+            rec['delta_usd'] = d
+            if d > 0:
+                rec.update(cost_usd=d, cost_source='balance_delta')
+            else:
+                rec['cost_note'] = 'баланс не уменьшился: не успел обновиться, пополнение или отказ без списания'
+        else:
+            rec['cost_note'] = 'баланс не узнать (нет сети или ключа)'
+        _pc_write(rec)
+    except Exception as e:  # noqa: BLE001 — запись цены не должна ронять службу
+        print(f'ЦЕНА ФОТО: запись не сделана — {type(e).__name__}: {e} | {json.dumps(rec, default=str)[:300]}', flush=True)
+    finally:
+        with _PC_LOCK:
+            _PC_STATE['active'] -= 1
+
+
+def photo_cost_wait(timeout: float = 30.0) -> None:
+    """Дождаться фоновых записей цены (тесты, скрипты перед выходом)."""
+    end = time.time() + timeout
+    for t in list(_PC_THREADS):
+        t.join(timeout=max(0.0, end - time.time()))
+    with _PC_LOCK:
+        _PC_THREADS[:] = [t for t in _PC_THREADS if t.is_alive()]
+
+
+def _photo_cost(fn):
+    """Обёртка платного вызова шлюза: запись в `PHOTO_COST_LOG`. Необязательный `cost_label=` — кто звал (demo / hero / …);
+    без него — `PHOTO_COST_LABEL` из окружения или имя скрипта. Вложенный вызов (gpt_edit → _chat_edit) пишется один раз."""
+    import functools
+    import inspect
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def wrap(*a, cost_label=None, **kw):
+        if getattr(_PC_TLS, 'rec', None) is not None:
+            return fn(*a, **kw)
+        try:
+            ba = sig.bind(*a, **kw)
+            ba.apply_defaults()
+            ar = ba.arguments
+        except TypeError:
+            return fn(*a, **kw)                   # неверные аргументы — пусть падает сам вызов, платного запроса не будет
+        t0 = time.time()
+        rec = {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t0)), 'label': _pc_label(cost_label),
+               'fn': fn.__name__, 'model': ar.get('model'), 'size': ar.get('size'), 'quality': ar.get('quality'),
+               'n_images': len(ar.get('images') or []), 'mask': ar.get('mask') is not None, 'pid': os.getpid(),
+               't_start': round(t0, 3)}
+        with _PC_LOCK:
+            rec['overlap'] = _PC_STATE['active'] > 0
+            _PC_STATE['active'] += 1
+            _PC_STATE['seq'] += 1
+            seq0 = _PC_STATE['seq']
+        box: dict = {}
+        th0 = threading.Thread(target=lambda: box.__setitem__('bal0', _pc_bal()), name='photo-cost-bal0')
+        try:
+            th0.start()
+        except Exception as e:  # noqa: BLE001
+            print(f'ЦЕНА ФОТО: поток баланса ДО не запущен — {e}', flush=True)
+        _PC_TLS.rec = rec
+        try:
+            out = fn(*a, **kw)
+            rec['ok'] = True
+            return out
+        except BaseException as e:
+            rec.update(ok=False, error=f'{type(e).__name__}: {str(e)[:200]}')
+            raise
+        finally:
+            _PC_TLS.rec = None
+            rec['t_end'] = round(time.time(), 3)
+            rec['dur_s'] = round(rec['t_end'] - t0, 1)
+            th = threading.Thread(target=_pc_finish, args=(rec, th0, box, seq0), name='photo-cost')
+            try:
+                th.start()                            # не daemon: короткий скрипт дождётся записи при выходе
+                with _PC_LOCK:
+                    _PC_THREADS[:] = [t for t in _PC_THREADS if t.is_alive()] + [th]
+            except Exception as e:  # noqa: BLE001
+                print(f'ЦЕНА ФОТО: фоновый замер не запущен — {e}', flush=True)
+                with _PC_LOCK:
+                    _PC_STATE['active'] -= 1
+    return wrap
+
+
+@_photo_cost
 def _chat_edit(images: list, prompt: str, model: str) -> Image.Image:
     """Google-модели картинок живут на шлюзе не в /images/edits, а в /chat/completions: картинки
     уходят частями сообщения, ответ приходит с полем images. Нужно, чтобы сравнивать модели на
@@ -1561,7 +1768,9 @@ def _chat_edit(images: list, prompt: str, model: str) -> Image.Image:
     try:
         with urllib.request.urlopen(req, timeout=_GW_TIMEOUT) as r:
             j = json.loads(r.read())
+            _pc_seen(r.headers, j)
     except urllib.error.HTTPError as e:
+        _pc_seen(e.headers)
         if e.code == 402:
             raise NoCreditsError(NO_CREDITS_TEXT) from None
         raise
@@ -1580,6 +1789,7 @@ def _chat_edit(images: list, prompt: str, model: str) -> Image.Image:
 _GW_TIMEOUT = int(os.environ.get('RENDER_GW_TIMEOUT', '240'))
 
 
+@_photo_cost
 def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
              quality: str = 'medium', model: str = 'openai/gpt-image-2',
              mask: Image.Image | None = None) -> Image.Image:
@@ -1620,7 +1830,9 @@ def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
     try:
         with urllib.request.urlopen(req, timeout=_GW_TIMEOUT) as r:
             j = json.loads(r.read())
+            _pc_seen(r.headers, j)
     except urllib.error.HTTPError as e:
+        _pc_seen(e.headers)
         try:
             body = e.read().decode('utf-8', 'replace')[:600]
         except Exception:  # noqa: BLE001
@@ -3568,7 +3780,8 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             if built.get('dsheet') is not None and 'IMAGE 3' in prompt:
                 imgs = [sheet, ident if ident is not None else Image.new('RGB', (64, 64), (255, 255, 255)), built['dsheet']]
             _t_gpt = time.time()
-            out = gpt_edit(imgs, prompt, size=built.get('size') or IM.SIZE, quality=gq, model=REALISTIC_MODEL)   # лист телефона — 3072×2048
+            out = gpt_edit(imgs, prompt, size=built.get('size') or IM.SIZE, quality=gq, model=REALISTIC_MODEL,
+                           cost_label='demo')   # лист телефона — 3072×2048; цена — в photo-cost.jsonl
             _t_gpt = time.time() - _t_gpt
             _pm['model'] = _t_gpt
             _t_post = time.time()
