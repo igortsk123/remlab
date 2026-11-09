@@ -1305,6 +1305,18 @@ body.trial .row>.acts{padding-left:0}body.trial #flatRooms>.hint{flex:0 0 100%}b
 #trHead .tr-link>span{flex:1 1 auto;min-width:0}#trHead .tr-link>.btn{flex:none}
 #trHead .tr-link b{color:var(--ink);font-weight:600}
 #trHead .tr-link .btn{padding:5px 12px;font-size:13px;min-height:0}
+/* «Обустроить» (Р1, макет А): строка масштаба с кнопкой, плашка «подбираем…»/«не получилось», пометка под планом, кнопка на карточке */
+#trHead .tr-scrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.btn.tr-fur{padding:6px 14px;font-size:14px;min-height:0;border-color:#3B76A2;color:#3B76A2;background:#fff;font-weight:600}
+.hm-room .rb .btn.tr-fur{flex:none;margin-left:auto}
+.tr-rb{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-sm,12px);background:var(--wash-3,#F4F2ED);font-size:14px;line-height:1.35}
+.tr-rb .tr-spin{width:18px;height:18px;margin:0;flex:none}
+.tr-rb b{font-weight:600}.tr-rb .st{color:var(--muted)}
+.tr-rb.fail{background:#FBF0E2;color:#6B4416;justify-content:space-between}
+.tr-rb.fail .btn{flex:none;padding:5px 12px;font-size:13px;min-height:0}
+#flatRooms>.hint.tr-note{display:flex;gap:8px;align-items:baseline;color:#96601F}
+.tr-note .dot{flex:none;width:8px;height:8px;border-radius:50%;background:#96601F;transform:translateY(-1px)}
+.tr-lnk{border:0;background:none;padding:0;font:inherit;color:var(--accent);font-weight:600;cursor:pointer;white-space:nowrap}
 </style></head><body><div class="wrap">
 <!-- ЗАГОЛОВОК И ЛИД УБРАНЫ (владелец 01.09): они повторяли то, что теперь говорит блок
      сертификата, и отодвигали паспорт квартиры вниз. Первым идёт сама квартира. -->
@@ -1509,23 +1521,29 @@ const TR_EN=()=>LANG==='en';
 // not_furnished). Прежние слова сборщика (partial/none/failed, `furniture_code`) читаются так же — данные и страница вливаются порознь
 const TR_OUT={furnished:'furnished',ready:'furnished',partial:'furnished',pending:'pending',no_products:'no_products',refused:'no_products',failed:'no_products',
   not_readable:'not_readable',scale_unverified:'no_products',no_window:'no_products',
-  not_furnished:'not_furnished',none:'not_furnished',largest_living_only:'not_furnished',room_kind_not_furnished:'not_furnished',one_living_furnished:'not_furnished'};
+  not_furnished:'not_furnished',none:'not_furnished',largest_living_only:'not_furnished',room_kind_not_furnished:'not_furnished',one_living_furnished:'not_furnished',
+  size_unverified:'awaiting',awaiting_check:'awaiting'};   // «ждёт проверки размера» (Р1): без мебели, агент может нажать «Обустроить»
 const trRoom=id=>TRIAL()?(D.apartment_rooms||[]).find(x=>x&&x.id===id):undefined;
+// комната «ждёт проверки», по которой идёт «Обустроить», — уже «подбирается» (крутилка, опрос версии), а не пустая с кнопкой
 function roomOutcome(id){ const r=trRoom(id); if(!r)return undefined;
-  return TR_OUT[r.furniture_outcome]||TR_OUT[r.furniture_code]||TR_OUT[r.furniture_state]; }
-const TR_NONE=/^(no_products|not_readable|not_furnished)$/;
+  const o=TR_OUT[r.furniture_outcome]||TR_OUT[r.furniture_code]||TR_OUT[r.furniture_state];
+  return o==='awaiting'&&trRebuilding(id)?'pending':o; }
+const TR_NONE=/^(no_products|not_readable|not_furnished|awaiting)$/;
 // отказ варианта: исход комнаты — отказ любого рода, или сам вариант без предметов с исходом-отказом
 const varRefused=v=>!!(v&&TRIAL()&&(TR_NONE.test(roomOutcome(roomIdOf(v))||'')||(/^(failed|none|no_products|not_furnished|refused)$/.test(v.furniture_state||'')&&!(v.items||[]).length)));
-const varPending=v=>!!(v&&(v.pending||v.furniture_state==='pending')&&!(v.items||[]).length&&!varRefused(v));
+const varPending=v=>!!(v&&(v.pending||v.furniture_state==='pending'||(TRIAL()&&roomOutcome(roomIdOf(v))==='pending'))&&!(v.items||[]).length&&!varRefused(v));
 const varNotFurn=v=>!!(v&&TRIAL()&&(roomOutcome(roomIdOf(v))==='not_furnished'||/^(none|not_furnished)$/.test(v.furniture_state||'')));
 const pendTxt=()=>TR_EN()?'Choosing furniture…':'Подбираем мебель…', pendSpin='<i class="tr-spin" aria-hidden="true"></i>';
 const refusedTxt=()=>TR_EN()?'No suitable products under the current templates':'Нет подходящих товаров согласно действующим шаблонам';
 const refusedShort=()=>TR_EN()?'no products':'нет товаров';
 const notFurnTxt=()=>TR_EN()?'We don’t furnish this room':'Эту комнату не обставляем', notFurnShort=()=>TR_EN()?'not furnished':'не обставляется';
 const unreadTxt=()=>TR_EN()?'We couldn’t read this room on the plan':'Не удалось разобрать эту комнату на плане', unreadShort=()=>TR_EN()?'not read':'не разобрана';
+const awaitTxt=()=>TR_EN()?'Size may be inaccurate — furniture not placed yet':'Размер может быть неточным — мебель пока не расставлена',
+  awaitShort=()=>TR_EN()?'size unconfirmed':'размер не подтверждён';
 // текст исхода комнаты по коду и языку: «не обставляется», «не разобрана» и «нет подходящих товаров» — разные. Код причины без своей
 // надписи (масштаб, нет окна …) — текст сборщика на языке показа (`furniture_text_en`/`furniture_text`), нет его — «нет товаров»
 function outcomeTxt(id,short){ const o=roomOutcome(id), r=trRoom(id)||{};
+  if(o==='awaiting')return short?awaitShort():awaitTxt();
   if(o==='not_furnished')return short?notFurnShort():notFurnTxt();
   if(o==='not_readable')return short?unreadShort():unreadTxt();
   const own=!short&&r.furniture_outcome&&!/^(no_products|failed)$/.test(r.furniture_outcome)?(TR_EN()?r.furniture_text_en:r.furniture_text):'';
@@ -1544,13 +1562,16 @@ const scaleNoteHtml=cls=>scaleUnconfirmed()?`<${cls[0]} class="${cls[1]}" data-t
   :scaleArea()?`<${cls[0]} class="${cls[1]} tr-soft" data-tr-scale="area">${escHtml(scaleAreaTxt())}</${cls[0]}>`:'';
 // `rooms_geo[id].approx` — комната нарисована прямоугольником вместо настоящего контура: показываем это, а не выдаём за точные стены
 const roomApprox=id=>TRIAL()&&!!(((D.rooms_geo||{})[id]||{}).approx), approxTxt=()=>TR_EN()?'Approximate room shape':'Форма комнаты приблизительная';
-const approxTag=id=>roomApprox(id)?`<span class="tr-approx">${approxTxt()}</span>`:'';
+// обставлена «как есть» по кнопке «Обустроить» (`apartment_rooms[].approx_consent`): размеры не подтверждены — говорим это на комнате
+const roomConsent=id=>!!(trRoom(id)||{}).approx_consent, consentTxt=()=>TR_EN()?'Approximate sizes':'Размеры примерные';
+const approxTag=id=>roomConsent(id)?`<span class="tr-approx" data-consent="1">${consentTxt()}</span>`:roomApprox(id)?`<span class="tr-approx">${approxTxt()}</span>`:'';
 // ЦЕН В ПРОБЕ НЕТ (план agent-trial-08 В): каталог и рубли — не для агента; режимом — `fmtCard` отдаёт пусто, а места «сумма · N предметов»
 // собирают строку через `trJoin`, чтобы не оставалось «· » и пустых скобок
 const trJoin=(...a)=>a.filter(Boolean).join(' · ');
 // ССЫЛКИ ЗАДАНИЯ (план К): агенту — без опроса `?quiz=0`, покупателю — с опроса `?quiz=1`; язык показа сохраняется
-function trialLinks(){ const base=location.origin+location.pathname.replace(/[^/]*$/,''), lg='&lang='+(TR_EN()?'en':'ru');
-  return {agent:base+'?quiz=0'+lg, buyer:base+'?quiz=1'+lg}; }
+// ключ правки `k` (Р1) — только в ссылке агента (порядок — как `lib/trial/tour-page.ts:tourLinks`); покупатель его не получает никогда
+function trialLinks(){ const base=location.origin+location.pathname.replace(/[^/]*$/,''), lg='&lang='+(TR_EN()?'en':'ru'), k=trKey();
+  return {agent:base+'?quiz=0'+(k?'&k='+k:'')+lg, buyer:base+'?quiz=1'+lg}; }
 function trialCopy(u){
   const ok=()=>toast(TR_EN()?'Link copied':'Ссылка скопирована');
   try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u).then(ok,()=>prompt('',u)); return;} }catch(e){}
@@ -1561,12 +1582,17 @@ function trialHead(){
   const host=document.getElementById('hmHd'); if(!host)return;
   let box=document.getElementById('trHead'); if(!box){box=document.createElement('div'); box.id='trHead'; host.parentNode.insertBefore(box,host.nextSibling);}
   const EN=TR_EN(), L=trialLinks(), buyer=/[?&]quiz=1(?:&|$)/.test(location.search);
-  box.innerHTML=scaleNoteHtml(['p','tr-scale'])+
+  // «Обустроить всё» (Р1) — у агента с ключом, когда ждут проверки несколько комнат или не подтверждён масштаб всей квартиры
+  const wait=trAwaiting(), all=trKey()&&TRB.state!=='run'&&wait.length&&(scaleUnconfirmed()||wait.length>1), note=scaleNoteHtml(['p','tr-scale']);
+  box.innerHTML=trBanner()+
+    (note||all?`<div class="tr-scrow">${note}`+
+      (all?`<button class="btn tr-fur" type="button" data-tr-furnish="*">${EN?'Furnish all':'Обустроить всё'}</button>`:'')+`</div>`:'')+
     (buyer?'':`<div class="tr-links"><div class="tr-link"><span><b>${EN?'Your link':'Ваша ссылка'}</b> — ${EN?'opens without the quiz':'без опроса'}</span>`+
       `<button class="btn" type="button" data-tr-copy="agent">${EN?'Copy':'Скопировать'}</button></div>`+
       `<div class="tr-link"><span><b>${EN?'Link for your buyer':'Ссылка для покупателя'}</b> — ${EN?'starts with a short quiz':'начинается с короткого опроса'}</span>`+
       `<button class="btn" type="button" data-tr-copy="buyer">${EN?'Copy':'Скопировать'}</button></div></div>`);
   box.querySelectorAll('[data-tr-copy]').forEach(b=>{b.onclick=()=>trialCopy(L[b.dataset.trCopy]);});
+  box.querySelectorAll('[data-tr-act]').forEach(b=>{b.onclick=()=>b.dataset.trAct==='reload'?location.reload():trFurnish(TRB.want||'*');});
 }
 function trialSetup(){
   document.body.classList.add('trial');
@@ -1585,6 +1611,7 @@ function trialSetup(){
   trialPlanFromPanels();
   trialHead();
   trialPoll();
+  trRebuildInit();
 }
 // ПЛАН КВАРТИРЫ ПРОБЫ (T-20261109-20/3): своей схемы плана (`D.plan.rooms`) сборка задания не даёт — рисуем из этажей распознавания
 // (`trial.panels[].rooms[]`: контур и рамка комнаты в см, id — те же, что в `apartment_rooms`). Схема плана — в метрах; этажи — рядом
@@ -1625,24 +1652,121 @@ function trialPlanSvg(v){
   finally{ S=s0; PAD=p0; sel=sel0; }
   return out;
 }
-// ОПРОС ВЕРСИИ: пока есть комнаты «подбирается», спрашиваем номер результата; вырос — перезагрузка (адрес и `#v=` сохраняются, состояние — в хранилище задания).
-// Плавное появление мебели без перезагрузки — следующий шаг плана. Страница в фоне не опрашивает; 404/410 — задание снято, стоп
-function trialPoll(){
-  const base=window.__TOUR_VER; if(base==null)return;
-  const next=()=>setTimeout(go,5000);
-  async function go(){
-    if(!allVariants().some(varPending))return;
-    if(document.visibilityState!=='visible')return next();
-    try{
-      const r=await fetch('version.json?ts='+Date.now(),{cache:'no-store'});
-      if(r.status===404||r.status===410)return;
-      const j=await r.json();
-      if(+j.version>base){location.reload();return;}
-    }catch(e){}
-    next();
-  }
-  next();
+// ОПРОС ВЕРСИИ: пока есть комнаты «подбирается» (или идёт «Обустроить»), спрашиваем номер результата; вырос — перезагрузка (адрес и `#v=`
+// сохраняются, состояние — в хранилище задания). Плавное появление мебели без перезагрузки — следующий шаг плана. Страница в фоне не
+// опрашивает; 404/410 — задание снято, стоп. `delay` — через сколько спросить (после нажатия «Обустроить» — сразу)
+let trPollT=0;
+function trialPoll(delay){
+  if(window.__TOUR_VER==null)return;
+  clearTimeout(trPollT); trPollT=setTimeout(trPollGo,delay==null?5000:delay);
 }
+async function trPollGo(){
+  const base=window.__TOUR_VER, rb=TRB.state==='run';
+  if(!allVariants().some(varPending)&&!rb)return;
+  if(document.visibilityState!=='visible')return trialPoll();
+  try{
+    const r=await fetch('version.json?ts='+Date.now(),{cache:'no-store'});
+    if(r.status===404||r.status===410)return;
+    const j=await r.json();
+    if(+j.version>base){trSave(null); location.reload(); return;}
+    if(rb&&trRebuildSeen(j))return;
+  }catch(e){}
+  trialPoll(rb?4000:5000);
+}
+// «ОБУСТРОИТЬ» (план agent-trial-08, Р1; T-20261109-27): комнаты «ждут проверки размера» (масштаб не подтверждён / размер не сошёлся) — агент
+// с ключом правки `k` в адресе снимает проверку: POST `/api/trial/<id>/rebuild` (единственная ручка, которую пускает песочница тура) →
+// очередь → воркер подбирает мебель «как есть» → ОДНА новая версия данных; страница опрашивает `version.json` и перезагружается.
+// `base_version` — версия данных, которую страница показывает (ETag `"v<N>"` ответа данных; нет — `bundle` из `version.json`): сменилась —
+// сервер отвечает `stale`, ничего не пишет. Покупатель (без ключа) видит только пометки, кнопок нет. Состояние нажатия — в sessionStorage
+// вкладки: «не получилось» показываем только тому, кто нажимал, а не каждому, кто откроет страницу потом
+const TRB={state:'idle', want:null, err:'', base:0};
+const trKey=()=>TRIAL()?((location.search.match(/[?&]k=([A-Za-z0-9_-]{22})(?:&|$)/)||[])[1]||''):'';
+const trJobId=()=>(location.pathname.match(/\/try\/([A-Za-z0-9_-]{22})\/tour\//)||[])[1]||'';
+const TRB_KEY='tr-rebuild';
+function trSave(v){ try{ if(v)sessionStorage.setItem(TRB_KEY,JSON.stringify(v)); else sessionStorage.removeItem(TRB_KEY); }catch(e){} }
+function trLoad(){ try{ return JSON.parse(sessionStorage.getItem(TRB_KEY)||'null'); }catch(e){ return null; } }
+function trDataEtag(r){ try{ const m=String(r.headers.get('etag')||'').match(/^(?:W\/)?"v(\d+)"$/); if(m)TRB.base=+m[1]; }catch(e){} return r; }
+// комнаты, что ждут проверки (по данным, без учёта идущего «Обустроить»)
+function trAwaiting(){ if(!TRIAL())return [];
+  return (D.apartment_rooms||[]).filter(r=>r&&(TR_OUT[r.furniture_outcome]||TR_OUT[r.furniture_code]||TR_OUT[r.furniture_state])==='awaiting').map(r=>r.id); }
+function trRebuilding(id){ return TRB.state==='run'&&(TRB.want==='*'||(Array.isArray(TRB.want)&&TRB.want.indexOf(id)>=0)); }
+const TRB_TXT={
+  stale:['Тур обновился, пока вы смотрели — обновите страницу и нажмите ещё раз','The tour was updated meanwhile — reload the page and try again','reload'],
+  nothing_to_furnish:['Эти комнаты уже обустроены — обновите страницу','These rooms are already furnished — reload the page','reload'],
+  bad_rooms:['Эти комнаты уже обустроены — обновите страницу','These rooms are already furnished — reload the page','reload'],
+  rebuild_limit:['На сегодня лимит «Обустроить» исчерпан — попробуйте завтра','Today’s “Furnish” limit is used up — try again tomorrow',''],
+  rate_limited:['Слишком часто — подождите минуту и нажмите ещё раз','Too many tries — wait a minute and try again',''],
+  forbidden:['Эта ссылка — только для просмотра. Откройте свою ссылку агента','This link is view-only. Open your agent link',''],
+  expired:['Срок пробы истёк','This trial has expired',''],
+  not_ready:['Тур ещё собирается — подождите минуту и нажмите снова','The tour is still being built — wait a minute and try again','retry'],
+  offline:['Нет связи — проверьте интернет и нажмите ещё раз','No connection — check the internet and try again','retry'],
+  _:['Не получилось подобрать мебель — попробуйте ещё раз','Couldn’t pick the furniture — please try again','retry']};
+function trBanner(){
+  const EN=TR_EN();
+  if(TRB.state==='run')return `<div class="tr-rb" data-tr-rebuild="run" role="status"><span class="tr-spin" aria-hidden="true"></span><div>`+
+    `<b>${pendTxt()}</b><div class="st">${EN?'Usually a few minutes. The page will refresh by itself.':'Обычно несколько минут. Страница обновится сама.'}</div></div></div>`;
+  if(TRB.state!=='fail')return '';
+  const t=TRB_TXT[TRB.err]||TRB_TXT._, act=t[2];
+  return `<div class="tr-rb fail" data-tr-rebuild="fail" data-code="${escHtml(TRB.err||'')}" role="alert"><div>${EN?t[1]:t[0]}</div>`+
+    (act?`<button class="btn" type="button" data-tr-act="${act}">${act==='reload'?(EN?'Reload':'Обновить'):(EN?'Try again':'Ещё раз')}</button>`:'')+`</div>`;
+}
+function trRedraw(){
+  try{trialHead();}catch(e){}
+  try{if(typeof drawHome==='function')drawHome(true);}catch(e){}
+  try{if(curScreen()==='plan')flatPlan();}catch(e){}
+}
+function trFail(code){ TRB.state='fail'; TRB.err=code||'_'; trSave(null); trRedraw(); }
+// ответ `version.json` во время «Обустроить»: упала — текст по коду; закончилась без новой версии — перезагрузка (покажет как есть)
+function trRebuildSeen(j){
+  if(j.rebuild==='queued'||j.rebuild==='running')return false;
+  if(j.rebuild==='failed'){trFail(j.rebuildError||'_'); return true;}
+  trSave(null); location.reload(); return true;
+}
+function trReqId(){ const a=new Uint8Array(12); crypto.getRandomValues(a); return Array.from(a,x=>'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'[x&63]).join(''); }
+async function trFurnish(want){
+  const k=trKey(), id=trJobId(); if(!k||!id||TRB.state==='run')return;
+  const rooms=want==='*'?'all':[].concat(want);
+  TRB.want=want==='*'?'*':rooms; TRB.state='run'; TRB.err=''; trRedraw();
+  let r, j={};
+  try{
+    if(!TRB.base){const v=await (await fetch('version.json?ts='+Date.now(),{cache:'no-store'})).json(); TRB.base=+v.bundle||0;}
+    r=await fetch('/api/trial/'+id+'/rebuild',{method:'POST',headers:{'content-type':'application/json'},cache:'no-store',
+      body:JSON.stringify({k, request_id:trReqId(), base_version:TRB.base||1, rooms})});
+    try{j=await r.json();}catch(e){}
+  }catch(e){ return trFail('offline'); }
+  if(r.status===202||(r.status===409&&j.error==='busy')){ trSave({want:TRB.want, at:Date.now()}); trialPoll(1500); return; }
+  trFail(j.error||'_');
+}
+// при загрузке: «Обустроить» уже идёт (нажали в этой вкладке до перезагрузки или в другой) — крутилка и опрос; упала — текст только нажимавшему
+async function trRebuildInit(){
+  if(!TRIAL()||window.__TOUR_VER==null)return;
+  const saved=trLoad();
+  if(!saved&&!trKey())return;
+  try{
+    const v=await (await fetch('version.json?ts='+Date.now(),{cache:'no-store'})).json();
+    if(!TRB.base)TRB.base=+v.bundle||0;
+    if(v.rebuild==='queued'||v.rebuild==='running'){TRB.state='run'; TRB.want=(saved&&saved.want)||'*'; trRedraw(); trialPoll(4000); return;}
+    if(v.rebuild==='failed'&&saved){trFail(v.rebuildError||'_'); return;}
+    trSave(null);
+  }catch(e){}
+}
+// пометки под планом (макет А): комната ждёт проверки — «<комната>: размер может быть неточным — Обустроить»; таких несколько — одной
+// строкой с «Обустроить всё»; обставленные «как есть» — «≈ Размеры примерные». Без ключа — те же пометки, без кнопок
+function trPlanNotes(box){
+  const EN=TR_EN(), k=!!trKey(), title=id=>{const r=trRoom(id)||{}; return (EN?r.titleEn:r.titleRu)||r.title||id;};
+  const wait=trAwaiting().filter(id=>!trRebuilding(id)), btn=(id,t)=>k?` — <button class="tr-lnk" type="button" data-tr-furnish="${escHtml(id)}">${t}</button>`:'';
+  if(wait.length===1)box.insertAdjacentHTML('beforeend',`<div class="hint tr-note" data-tr-await="1"><span class="dot"></span><span>`+
+    `${escHtml(title(wait[0]))}: ${EN?'size may be inaccurate':'размер может быть неточным'}${btn(wait[0],EN?'Furnish':'Обустроить')}</span></div>`);
+  else if(wait.length>1)box.insertAdjacentHTML('beforeend',`<div class="hint tr-note" data-tr-await="${wait.length}"><span class="dot"></span><span>`+
+    `${EN?'Sizes not confirmed':'Размеры не подтверждены'}: ${wait.map(id=>escHtml(title(id))).join(', ')}${btn('*',EN?'Furnish all':'Обустроить всё')}</span></div>`);
+  if((D.apartment_rooms||[]).some(r=>r&&r.approx_consent))box.insertAdjacentHTML('beforeend',`<div class="hint" data-tr-consent="1">≈ ${EN?
+    'Furnished as is — sizes are approximate':'Обставлено «как есть» — размеры примерные'}</div>`);
+}
+// кнопки «Обустроить» — где бы ни стояли (план, карточка, пометка, шапка): перехват раньше клика по комнате, окно комнаты не открывается
+document.addEventListener('click',e=>{
+  const b=e.target&&e.target.closest&&e.target.closest('[data-tr-furnish]'); if(!b||!TRIAL())return;
+  e.preventDefault(); e.stopPropagation(); trFurnish(b.getAttribute('data-tr-furnish'));
+},true);
 const stage=document.getElementById('stage'), NS='http://www.w3.org/2000/svg';
 const el=(t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);return n;};
 const clone=o=>JSON.parse(JSON.stringify(o));
@@ -1656,7 +1780,7 @@ window.addEventListener('error',e=>{                 // пустая стран�
 function pageEn(){ try{return LANG==='en';}catch(e){}
   const m=location.search.match(/[?&]lang=(ru|en)(?:&|$)/); if(m)return m[1]==='en';
   try{return localStorage.getItem('remlab-lang')==='en';}catch(e){return false;} }
-fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();
+fetch('demo-data.json?v='+Date.now()).then(r=>trDataEtag(r).json()).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();
   if(TRIAL()){window.__trialReady=1; document.dispatchEvent(new Event('trialready'));}})   // проба: опрос без карточки квартиры (`decide`)
   .catch(e=>{const b=document.getElementById('sub');
     if(b)b.textContent=(pageEn()?'Could not load the data: ':'Не удалось загрузить данные: ')+String(e.message||e).slice(0,140);});
@@ -2212,7 +2336,7 @@ function flatPlan(){
       stroke:'#3B76A2','stroke-width':0.05},g);
     if(pts&&roomApprox(r.id))el('polygon',{points:pts,fill:'none',stroke:'#C7652B','stroke-width':0.04,'stroke-dasharray':'0.18 0.12','data-approx':'1'},g);
     else if(roomApprox(r.id))el('rect',{x:r.x+PART,y:r.y+PART,width:r.w-PART*2,height:r.d-PART*2,fill:'none',stroke:'#C7652B','stroke-width':0.04,'stroke-dasharray':'0.18 0.12','data-approx':'1'},g);   // проба: прямоугольник вместо контура — пунктиром
-    const name=(roomApprox(r.id)?'≈ ':'')+(room.title||r.id), cx=r.x+r.w/2;
+    const name=(roomApprox(r.id)||roomConsent(r.id)?'≈ ':'')+(room.title||r.id), cx=r.x+r.w/2;
     // узкая комната (санузлы 0,8 м): имя по ширине комнаты, иначе соседние «Санузел» слипались через стену
     const fs=Math.min(Math.max(0.2,Math.min(0.32,Math.min(r.w,r.d)/4.4)),r.w*0.84/(name.length*0.62));
     // строки подписи: имя комнаты; дальше — вариант в сертификате (название в 1–2 строки и сумма) или площадь и «Обустроить →»/«скоро»
@@ -2223,7 +2347,9 @@ function flatPlan(){
     }else{
       L.push({t:homeM2(room.areaM2),k:0.95,a:{fill:'#5C655E'}});
       const o=TRIAL()&&!rv&&br?roomOutcome(br.id):'';   // проба: комната без варианта — исход по коду (не обставляется / подбирается)
-      L.push(pend?{t:pendTxt(),k:0.85,a:{fill:'#5C655E'}}:none?{t:varNoneShort(allVariants()[rv.index]),k:0.85,a:{fill:'#8A4A1F','data-refused':'1'}}:go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}
+      const aw=TRIAL()&&br&&roomOutcome(br.id)==='awaiting';   // проба: ждёт проверки размера — у агента с ключом «Обустроить →» (Р1)
+      L.push(aw&&trKey()?{t:(TR_EN()?'Furnish':'Обустроить')+' →',k:0.9,a:{fill:'#3B76A2','font-weight':'600','data-tr-furnish':br.id,role:'button',style:'cursor:pointer'}}
+        :aw?{t:awaitShort(),k:0.85,a:{fill:'#96601F','data-outcome':'awaiting'}}:pend?{t:pendTxt(),k:0.85,a:{fill:'#5C655E'}}:none?{t:varNoneShort(allVariants()[rv.index]),k:0.85,a:{fill:'#8A4A1F','data-refused':'1'}}:go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}
         :o==='pending'?{t:pendTxt(),k:0.85,a:{fill:'#5C655E','data-outcome':o}}:o&&TR_NONE.test(o)?{t:outcomeTxt(br.id,true),k:0.85,a:{fill:o==='not_furnished'?'#9AA098':'#8A4A1F','data-outcome':o}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
     }
     const LH=fs*1.2; let y=r.y+r.d/2-LH*(L.length-1)/2+fs*0.35;
@@ -2261,6 +2387,7 @@ function flatPlan(){
   if(TRIAL())[...new Set((D.apartment_rooms||[]).filter(r=>/^(no_products|not_readable)$/.test(roomOutcome(r.id)||'')).map(r=>outcomeTxt(r.id,true)+' — '+outcomeTxt(r.id,false)))]
     .forEach(t=>box.insertAdjacentHTML('beforeend',`<div class="hint">${escHtml(t)}</div>`));
   box.insertAdjacentHTML('beforeend',scaleNoteHtml(['div','hint']));
+  if(TRIAL())trPlanNotes(box);
 
 }
 // комнаты схемы плана ↔ комнаты реестра квартиры (`homeRooms`) — по id: у схемы id реестра (T-20261022-04; сборка падает, если
@@ -5666,6 +5793,8 @@ function drawHome(force){
       `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}" data-variant="${escHtml(c.v.id)}" data-open="${c.i}" ${c.pending?'data-pending':'data-refused'}="1">`+
       `<div class="hm-ph" data-open="${c.i}"><div class="nopv tr-wait">${mark}<span>${msg}</span></div>${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
       `<div class="rb"><div class="sum"><small class="tr-wait-tx">${c.pending?(EN?'Your rooms are ready — furniture is on the way':'Комнаты готовы — мебель появится здесь'):(c.refused&&TRIAL()?varNoneTxt(c.v):(EN?'The room is ready, without furniture':'Комната готова, без мебели'))}</small></div>`+
+      // ждёт проверки размера — у агента с ключом «Обустроить» прямо на карточке (Р1)
+      (c.refused&&TRIAL()&&trKey()&&roomOutcome(c.r.id)==='awaiting'?`<button class="btn tr-fur" type="button" data-tr-furnish="${escHtml(c.r.id)}">${EN?'Furnish':'Обустроить'}</button>`:'')+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;}
     return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b>`+
       `<span>${trJoin(money(c.sum),c.n+' '+plural(c.n))}</span></button>`+
