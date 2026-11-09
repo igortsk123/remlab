@@ -6,7 +6,9 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { buildGreyScene, fitView, roomView, type GreyScene, type TrialPanel, type View } from "@/lib/trial/grey-scene";
+import { dirsFor, frameView, MARGIN, pickTurn, roomBox, type Insets, type Turn, type View } from "@/lib/trial/grey-camera";
+import { buildGreyScene, CUT_H, type GreyScene, type TrialPanel } from "@/lib/trial/grey-scene";
+import { placeLabels, rectIn } from "@/components/trial/grey-labels";
 
 export type ViewMode = "oblique" | "top";
 export type Viewer = { status: "loading" | "ready" | "no-webgl"; flyTo(mode: ViewMode | { room: string }): void };
@@ -30,29 +32,19 @@ function hatchTexture(): THREE.Texture | null {
   return t;
 }
 
-/** Подписи: проекция точки комнаты на экран; маленькая на экране комната — только «?» (у флажков) без названия. */
-function placeLabels(gs: GreyScene, cam: THREE.Camera, box: HTMLElement, layer: HTMLElement, selected: string | null) {
-  const w = box.clientWidth, h = box.clientHeight;
-  const v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3();
-  for (const r of gs.rooms) {
-    const el = layer.querySelector<HTMLElement>(`[data-room="${CSS.escape(r.id)}"]`);
-    if (!el) continue;
-    v.copy(r.label).project(cam);
-    a.set(r.center.x - r.size.x / 2, 0, r.center.z).project(cam);
-    b.set(r.center.x + r.size.x / 2, 0, r.center.z).project(cam);
-    const span = Math.hypot((a.x - b.x) * w, (a.y - b.y) * h) / 2;
-    const visible = v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
-    el.style.display = visible ? "" : "none";
-    el.dataset.compact = span < 64 && r.id !== selected ? "1" : "0";
-    el.style.transform = `translate(-50%, -50%) translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
-  }
+/** Отступы рамки (доли холста): 8 % по краям, сверху — ниже панели кнопок. */
+function insetsOf(box: HTMLElement, tools: HTMLElement | null): Insets {
+  const h = Math.max(box.clientHeight, 1);
+  const top = tools ? Math.max(MARGIN, rectIn(box, tools).b / h + 0.03) : MARGIN;
+  return { top, right: MARGIN, bottom: MARGIN, left: MARGIN };
 }
 
 export function useGreyViewer(
-  box: RefObject<HTMLDivElement | null>, layer: RefObject<HTMLDivElement | null>, panel: TrialPanel, selected: string | null,
+  box: RefObject<HTMLDivElement | null>, layer: RefObject<HTMLDivElement | null>, tools: RefObject<HTMLDivElement | null>,
+  panel: TrialPanel, selected: string | null,
 ): Viewer {
   const [status, setStatus] = useState<Viewer["status"]>("loading");
-  const api = useRef<{ fly(v: View): void; gs: GreyScene; aspect(): number; redraw(): void } | null>(null);
+  const api = useRef<{ fly(v: View): void; gs: GreyScene; turn: Turn; aspect(): number; insets(): Insets; redraw(): void } | null>(null);
   const sel = useRef(selected);
 
   useEffect(() => {
@@ -65,6 +57,7 @@ export function useGreyViewer(
       setStatus("no-webgl");
       return;
     }
+    renderer.localClippingEnabled = true; // «срез» ближних стен в виде к комнате (`GreyScene.cutaway`)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.domElement.setAttribute("aria-label", "3D model of the floor plan");
     renderer.domElement.style.display = "block";
@@ -79,7 +72,7 @@ export function useGreyViewer(
     let raf = 0;
     const draw = () => {
       renderer.render(gs.scene, cam);
-      placeLabels(gs, cam, el, lab, sel.current);
+      placeLabels(gs, cam, el, lab, tools.current, sel.current);
     };
     const aspect = () => Math.max(el.clientWidth, 1) / Math.max(el.clientHeight, 1);
     const resize = () => {
@@ -103,7 +96,9 @@ export function useGreyViewer(
       };
       raf = requestAnimationFrame(step);
     };
-    const first = fitView(gs.center, gs.size.x, gs.size.z, aspect(), "oblique");
+    const insets = () => insetsOf(el, tools.current);
+    const turn = pickTurn(gs.points, aspect(), insets()); // длинная сторона плана — вдоль длинной стороны холста
+    const first = frameView(gs.points, dirsFor(turn).oblique, aspect(), insets());
     cam.position.copy(first.position);
     controls.target.copy(first.target);
     controls.maxDistance = first.position.distanceTo(first.target) * 4;
@@ -112,7 +107,7 @@ export function useGreyViewer(
     const ro = new ResizeObserver(resize);
     ro.observe(el);
     resize();
-    api.current = { fly, gs, aspect, redraw: draw };
+    api.current = { fly, gs, turn, aspect, insets, redraw: draw };
     el.dataset.ready = "1";
     setStatus("ready");
     return () => {
@@ -126,7 +121,7 @@ export function useGreyViewer(
       api.current = null;
       delete el.dataset.ready;
     };
-  }, [box, layer, panel]);
+  }, [box, layer, tools, panel]);
 
   useEffect(() => {
     sel.current = selected;
@@ -139,9 +134,16 @@ export function useGreyViewer(
     flyTo(mode) {
       const a = api.current;
       if (!a) return;
-      if (typeof mode === "string") { a.fly(fitView(a.gs.center, a.gs.size.x, a.gs.size.z, a.aspect(), mode)); return; }
+      const d = dirsFor(a.turn);
+      if (typeof mode === "string") {
+        a.gs.cutaway(null);
+        a.fly(frameView(a.gs.points, d[mode], a.aspect(), a.insets()));
+        return;
+      }
       const r = a.gs.rooms.find((x) => x.id === mode.room);
-      if (r) a.fly(roomView(r, a.aspect()));
+      if (!r) return;
+      a.gs.cutaway(r, d.toward); // ближние стены — до CUT_H, комната видна целиком
+      a.fly(frameView(roomBox(r.center, r.size, CUT_H), d.room, a.aspect(), a.insets()));
     },
   };
 }

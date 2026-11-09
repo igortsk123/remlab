@@ -5,12 +5,14 @@
 
 import * as THREE from "three";
 import type { FloorplanResult } from "@/contracts/trial";
+import { labelPoint } from "@/lib/trial/plan-geom";
 
 export type TrialPanel = FloorplanResult["panels"][number];
 export type TrialRoom = TrialPanel["rooms"][number];
 type Pt = readonly [number, number];
 
 const M = 0.01; // см → м сцены
+export const CUT_H = 0.3; // высота срезанных стен, м
 export const GREY = { bg: 0xffffff, wall: 0x9a9a9a, edge: 0x57534e, floor: 0xd6d3d1, selected: 0xe8c8b7 } as const;
 
 export type SceneRoom = {
@@ -19,59 +21,17 @@ export type SceneRoom = {
   label: THREE.Vector3; center: THREE.Vector3; size: THREE.Vector3;
 };
 export type GreyScene = {
-  scene: THREE.Scene; center: THREE.Vector3; size: THREE.Vector3; rooms: SceneRoom[];
+  scene: THREE.Scene; center: THREE.Vector3; size: THREE.Vector3; bounds: THREE.Box3; rooms: SceneRoom[];
+  /** Углы стен (низ и верх полос) и полов — по ним камера вписывает модель плотнее, чем по рамке. */
+  points: THREE.Vector3[];
   floors: Map<string, THREE.Mesh>; walls: THREE.Mesh[];
   /** Подсветить пол комнаты (null — снять). */
   highlight(id: string | null): void;
+  /** «Срез» для вида к комнате: стены ближе середины комнаты к камере (`toward` — горизонталь к камере, по умолчанию +Z)
+   *  — ниже `CUT_H`; null — стены целиком. Нужен `renderer.localClippingEnabled = true`. */
+  cutaway(room: SceneRoom | null, toward?: THREE.Vector3): void;
   dispose(): void;
 };
-
-export function polyArea(pts: readonly Pt[]): number {
-  let a = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const [x1, y1] = pts[i]!, [x2, y2] = pts[(i + 1) % pts.length]!;
-    a += x1 * y2 - x2 * y1;
-  }
-  return Math.abs(a / 2);
-}
-
-export function inside(pts: readonly Pt[], x: number, y: number): boolean {
-  let r = false;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const [xi, yi] = pts[i]!, [xj, yj] = pts[j]!;
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) r = !r;
-  }
-  return r;
-}
-
-/** Точка подписи: центр масс, а у Г-образных (центр снаружи) — середина самого широкого отрезка на его высоте. */
-export function labelPoint(pts: readonly Pt[]): [number, number] {
-  let a = 0, cx = 0, cy = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const [x1, y1] = pts[i]!, [x2, y2] = pts[(i + 1) % pts.length]!;
-    const k = x1 * y2 - x2 * y1;
-    a += k; cx += (x1 + x2) * k; cy += (y1 + y2) * k;
-  }
-  if (Math.abs(a) < 1e-9) return [pts[0]![0], pts[0]![1]];
-  const c: [number, number] = [cx / (3 * a), cy / (3 * a)];
-  if (inside(pts, c[0], c[1])) return c;
-  const ys = pts.map((p) => p[1]);
-  const y0 = Math.min(...ys), y1 = Math.max(...ys);
-  let best: [number, number] = [pts[0]![0], pts[0]![1]], bw = -1;
-  for (let s = 1; s < 10; s++) {
-    const y = y0 + ((y1 - y0) * s) / 10;
-    const xs: number[] = [];
-    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-      const [xi, yi] = pts[i]!, [xj, yj] = pts[j]!;
-      if ((yi > y) !== (yj > y)) xs.push(((xj - xi) * (y - yi)) / (yj - yi) + xi);
-    }
-    xs.sort((p, q) => p - q);
-    for (let k = 0; k + 1 < xs.length; k += 2) {
-      if (xs[k + 1]! - xs[k]! > bw) { bw = xs[k + 1]! - xs[k]!; best = [(xs[k]! + xs[k + 1]!) / 2, y]; }
-    }
-  }
-  return best;
-}
 
 function shapeOf(outer: readonly Pt[], holes: readonly (readonly Pt[])[] = []): THREE.Shape {
   const s = new THREE.Shape(outer.map(([x, y]) => new THREE.Vector2(x * M, -y * M)));
@@ -89,15 +49,18 @@ export function buildGreyScene(
   scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 1.6));
   const sun = new THREE.DirectionalLight(0xffffff, 1.4);
   scene.add(sun);
-  const wallMat = new THREE.MeshStandardMaterial({ color: col.wall, roughness: 0.9 });
-  const edgeMat = new THREE.LineBasicMaterial({ color: col.edge });
+  // DoubleSide: у срезанной стены видна внутренность, а не дыра
+  const wallMat = new THREE.MeshStandardMaterial({ color: col.wall, roughness: 0.9, side: THREE.DoubleSide, clipIntersection: true });
+  const edgeMat = new THREE.LineBasicMaterial({ color: col.edge, clipIntersection: true });
   const floorMat = new THREE.MeshStandardMaterial({ color: col.floor, roughness: 1, side: THREE.DoubleSide });
   const flagMat = new THREE.MeshStandardMaterial({ color: col.floor, roughness: 1, side: THREE.DoubleSide, map: opts.hatch ?? null });
   const selMat = new THREE.MeshStandardMaterial({ color: col.selected, roughness: 1, side: THREE.DoubleSide });
   const box = new THREE.Box3();
   const walls: THREE.Mesh[] = [];
+  const points: THREE.Vector3[] = [];
   for (const band of panel.walls) {
     for (const p of band.polys) {
+      for (const [x, y] of p.outer) points.push(new THREE.Vector3(x * M, band.z0 * M, y * M), new THREE.Vector3(x * M, band.z1 * M, y * M));
       const g = new THREE.ExtrudeGeometry(shapeOf(p.outer, p.holes), { depth: (band.z1 - band.z0) * M, bevelEnabled: false });
       g.rotateX(-Math.PI / 2);
       g.translate(0, band.z0 * M, 0);
@@ -112,6 +75,7 @@ export function buildGreyScene(
   const rooms: SceneRoom[] = [];
   for (const r of panel.rooms) {
     const flagged = r.flags.length > 0;
+    for (const [x, y] of r.contour) points.push(new THREE.Vector3(x * M, 0, y * M));
     const g = new THREE.ShapeGeometry(shapeOf(r.contour));
     g.rotateX(-Math.PI / 2);
     g.translate(0, 0.005, 0);
@@ -129,15 +93,22 @@ export function buildGreyScene(
     });
   }
   if (box.isEmpty()) box.set(new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 1));
+  if (!points.length) points.push(box.min.clone(), box.max.clone());
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   sun.position.set(center.x - size.x * 0.4, 12, center.z + size.z * 0.9);
   sun.target.position.copy(center);
   scene.add(sun.target);
   return {
-    scene, center, size, rooms, floors, walls,
+    scene, center, size, bounds: box, points, rooms, floors, walls,
     highlight(id) {
       for (const [rid, m] of floors) m.material = rid === id ? selMat : m.userData.flagged ? flagMat : floorMat;
+    },
+    cutaway(room, toward = new THREE.Vector3(0, 0, 1)) {
+      // отсекается пересечение «выше CUT_H» и «ближе середины комнаты к камере» (clipIntersection)
+      const h = toward.clone().setY(0).normalize();
+      const planes = room ? [new THREE.Plane(new THREE.Vector3(0, -1, 0), CUT_H), new THREE.Plane(h.clone().negate(), h.dot(room.center))] : [];
+      for (const m of [wallMat, edgeMat]) { m.clippingPlanes = planes; m.needsUpdate = true; }
     },
     dispose() {
       scene.traverse((o) => { if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) o.geometry.dispose(); });
@@ -145,22 +116,3 @@ export function buildGreyScene(
     },
   };
 }
-
-export type View = { position: THREE.Vector3; target: THREE.Vector3 };
-const OBLIQUE = new THREE.Vector3(-0.25, 0.75, 0.62).normalize(); // как `scene.js` «oblique»: с нижнего края листа
-
-/** Камера, в которую рамка (ширина × глубина, м) влезает целиком: «3D» — наискосок, «top» — сверху (север вверх). */
-export function fitView(center: THREE.Vector3, w: number, d: number, aspect: number, mode: "oblique" | "top", fovDeg = 35): View {
-  const half = Math.tan((fovDeg * Math.PI) / 360);
-  // сверху стены ближе к камере и в перспективе шире плана — запас больше
-  const need = Math.max(w / Math.max(aspect, 0.1), d) * (mode === "top" ? 1.45 : 1.4);
-  const dist = Math.max(need / 2 / half, 2);
-  // сверху холста — кнопки «3D / From above»: модель чуть ниже середины кадра (верх экрана ≈ −Z сцены в обоих видах)
-  const target = new THREE.Vector3(center.x, 0, center.z - need * (mode === "top" ? 0.06 : 0.05));
-  const dir = mode === "top" ? new THREE.Vector3(0, 1, 0.0001).normalize() : OBLIQUE;
-  return { position: target.clone().addScaledVector(dir, dist), target };
-}
-
-/** Камера к комнате: наискосок, с запасом, чтобы были видны соседние стены. */
-export const roomView = (r: SceneRoom, aspect: number): View =>
-  fitView(r.center, Math.max(r.size.x, 2.5) * 1.5, Math.max(r.size.z, 2.5) * 1.5, aspect, "oblique");

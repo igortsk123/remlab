@@ -42,14 +42,19 @@ export function GreyTour({ result }: { result: FloorplanResult }) {
 function PanelTour({ panel, scaleOk }: { panel: TrialPanel; scaleOk: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
+  const tools = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [mode, setMode] = useState<ViewMode>("oblique");
-  const viewer = useGreyViewer(box, layer, panel, selected);
+  const viewer = useGreyViewer(box, layer, tools, panel, selected);
   const go = (next: ViewMode) => { setMode(next); setSelected(null); viewer.flyTo(next); };
   const pick = (id: string) => {
     if (id === selected) { go(mode); return; }
     setSelected(id);
     viewer.flyTo({ room: id });
+    // на телефоне список ниже холста — показать, куда смотрит камера (ниже липкой шапки сайта)
+    const st = box.current?.getBoundingClientRect();
+    const top = Math.max(0, ...Array.from(document.querySelectorAll("header"), (h) => h.getBoundingClientRect().bottom)) + 12;
+    if (st && (st.top < top || st.bottom > window.innerHeight)) window.scrollBy({ top: st.top - top, behavior: "smooth" });
   };
   return (
     <div className={s.tour}>
@@ -66,7 +71,7 @@ function PanelTour({ panel, scaleOk }: { panel: TrialPanel; scaleOk: boolean }) 
           {viewer.status === "no-webgl" ? (
             <p className={`${s.msg} muted`}>This browser can&apos;t show 3D. The room list still works.</p>
           ) : null}
-          <div className={s.tools}>
+          <div ref={tools} className={s.tools}>
             <button type="button" className={s.pill} aria-pressed={mode === "oblique" && !selected} onClick={() => go("oblique")}>3D</button>
             <button type="button" className={s.pill} aria-pressed={mode === "top" && !selected} onClick={() => go("top")}>From above</button>
           </div>
@@ -77,7 +82,9 @@ function PanelTour({ panel, scaleOk }: { panel: TrialPanel; scaleOk: boolean }) 
         </div>
       </div>
       <div className={s.rooms}>
-        <p className={`${s.hint} muted`}>Tap a room to look at it.</p>
+        <p className={`${s.hint} muted`}>
+          <span className={s.onTouch}>Tap</span><span className={s.onMouse}>Click</span> a room to look at it.
+        </p>
         <ul className={s.roomList} aria-label="Rooms">
           {panel.rooms.map((r) => (
             <li key={r.id}>

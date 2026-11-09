@@ -57,6 +57,7 @@ export function UploadForm() {
     if (!file) { setError(uploadErrorText("no_file")); return; }
     const data = new FormData();
     data.set("listing", String(new FormData(e.currentTarget).get("listing") ?? "").trim());
+    // TODO(legal): строка согласия — решение владельца
     data.set("consent", "yes");
     data.set("file", file);
     setError(null);

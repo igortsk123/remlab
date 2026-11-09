@@ -3,7 +3,9 @@ import path from "node:path";
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { floorplanResult } from "@/contracts/trial";
-import { buildGreyScene, fitView, inside, labelPoint, polyArea, roomView } from "@/lib/trial/grey-scene";
+import { DIRS, dirsFor, frameView, MARGIN, pickTurn, roomBox } from "@/lib/trial/grey-camera";
+import { buildGreyScene, CUT_H } from "@/lib/trial/grey-scene";
+import { inside, labelPoint, polyArea } from "@/lib/trial/plan-geom";
 
 // Серый тур пробы (agent-trial-01, T-C): сцена из фикстуры результата (план D, два этажа) без WebGL — полы по `contour`,
 // стены полосами, флаги → штриховка, подписи внутри комнат, камеры «3D» / «сверху» / к комнате.
@@ -85,17 +87,89 @@ describe("buildGreyScene", () => {
     expect(inside(L, x, y)).toBe(true);
   });
 
-  it("сверху — камера над центром; 3D — наискосок с нижнего края листа; к комнате — ближе, чем весь лист", () => {
-    const top = fitView(gs.center, gs.size.x, gs.size.z, 1.5, "top");
-    expect(top.position.x).toBeCloseTo(gs.center.x, 3);
+  /** Экранные координаты (-1…1) углов рамки при этой камере — как в браузере. */
+  const ndc = (v: { position: THREE.Vector3; target: THREE.Vector3 }, box: THREE.Box3, aspect: number) => {
+    const cam = new THREE.PerspectiveCamera(35, aspect, 0.05, 400);
+    cam.position.copy(v.position);
+    cam.lookAt(v.target);
+    cam.updateMatrixWorld();
+    const out: THREE.Vector3[] = [];
+    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+      out.push(new THREE.Vector3(x, y, z).project(cam));
+    }
+    return out;
+  };
+
+  it("обзор вписан по рамке модели: все углы в кадре с отступом ~8 %, край — у отступа (модель не «полхолста»)", () => {
+    for (const aspect of [16 / 10.5, 0.85]) {
+      for (const mode of ["oblique", "top"] as const) {
+        const v = frameView(gs.bounds, DIRS[mode], aspect);
+        const pts = ndc(v, gs.bounds, aspect);
+        const lim = 1 - 2 * MARGIN + 1e-3;
+        for (const p of pts) { expect(Math.abs(p.x)).toBeLessThanOrEqual(lim); expect(Math.abs(p.y)).toBeLessThanOrEqual(lim); }
+        // хотя бы по одной оси рамка доходит до отступа — модель вписана плотно
+        const spanX = Math.max(...pts.map((p) => p.x)) - Math.min(...pts.map((p) => p.x));
+        const spanY = Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y));
+        expect(Math.max(spanX, spanY)).toBeGreaterThan(2 * (1 - 2 * MARGIN) - 0.02);
+      }
+    }
+    const top = frameView(gs.bounds, DIRS.top, 1.5);
     expect(top.position.y).toBeGreaterThan(5);
-    const ob = fitView(gs.center, gs.size.x, gs.size.z, 1.5, "oblique");
+    const ob = frameView(gs.bounds, DIRS.oblique, 1.5);
     expect(ob.position.z).toBeGreaterThan(gs.center.z);
     expect(ob.position.x).toBeLessThan(gs.center.x);
-    const r = gs.rooms[0]!;
-    const rv = roomView(r, 1.5);
-    expect(rv.target.x).toBeCloseTo(r.center.x, 3);
+  });
+
+  it("поворот «3D»: длинный план на широком холсте — сбоку, на телефоне — с нижнего края; точки модели в кадре", () => {
+    expect(gs.size.z).toBeGreaterThan(gs.size.x * 1.3); // фикстура — вытянутый вглубь лист
+    const wide = pickTurn(gs.points, 16 / 10.5);
+    expect(wide).not.toBe(0);
+    expect(pickTurn(gs.points, 0.85)).toBe(0);
+    const v = frameView(gs.points, dirsFor(wide).oblique, 16 / 10.5);
+    const bb = new THREE.Box3().setFromPoints(gs.points);
+    const cam = new THREE.PerspectiveCamera(35, 16 / 10.5, 0.05, 400);
+    cam.position.copy(v.position); cam.lookAt(v.target); cam.updateMatrixWorld();
+    const pts = gs.points.map((p) => p.clone().project(cam));
+    for (const p of pts) { expect(Math.abs(p.x)).toBeLessThanOrEqual(1 - 2 * MARGIN + 1e-3); expect(Math.abs(p.y)).toBeLessThanOrEqual(1 - 2 * MARGIN + 1e-3); }
+    // вписан плотнее, чем по рамке с нижнего края
+    const base = frameView(bb, DIRS.oblique, 16 / 10.5);
+    expect(v.position.distanceTo(v.target)).toBeLessThan(base.position.distanceTo(base.target) * 0.85);
+  });
+
+  it("срез — со стороны камеры при повороте", () => {
+    const r = gs.rooms.find((x) => x.name === "Lounge")!;
+    gs.cutaway(r, dirsFor(1).toward);
+    const mat = gs.walls[0]!.material as THREE.MeshStandardMaterial;
+    const clipped = (p: THREE.Vector3) => mat.clippingPlanes!.every((pl) => pl.distanceToPoint(p) < 0);
+    const near = new THREE.Vector3(r.center.x, 1.5, r.center.z).addScaledVector(dirsFor(1).toward, 1);
+    const far = new THREE.Vector3(r.center.x, 1.5, r.center.z).addScaledVector(dirsFor(1).toward, -1);
+    expect(clipped(near)).toBe(true);
+    expect(clipped(far)).toBe(false);
+    gs.cutaway(null);
+  });
+
+  it("панель кнопок сверху: рамка ниже неё", () => {
+    const ins = { top: 0.2, right: 0.08, bottom: 0.08, left: 0.08 };
+    const pts = ndc(frameView(gs.bounds, DIRS.oblique, 1.5, ins), gs.bounds, 1.5);
+    for (const p of pts) expect(p.y).toBeLessThanOrEqual(1 - 2 * 0.2 + 1e-3);
+  });
+
+  it("к комнате: комната целиком в кадре и ближе общего вида; ближние стены срезаны, дальние — целиком", () => {
+    const r = gs.rooms.find((x) => x.name === "Lounge")!;
+    const rb = roomBox(r.center, r.size, CUT_H);
+    const rv = frameView(rb, DIRS.room, 1.5);
+    for (const p of ndc(rv, rb, 1.5)) { expect(Math.abs(p.x)).toBeLessThanOrEqual(0.85); expect(Math.abs(p.y)).toBeLessThanOrEqual(0.85); }
+    const ob = frameView(gs.bounds, DIRS.oblique, 1.5);
     expect(rv.position.distanceTo(rv.target)).toBeLessThan(ob.position.distanceTo(ob.target));
+    gs.cutaway(r);
+    const mat = gs.walls[0]!.material as THREE.MeshStandardMaterial;
+    expect(mat.clipIntersection).toBe(true);
+    const clipped = (p: THREE.Vector3) => mat.clippingPlanes!.every((pl) => pl.distanceToPoint(p) < 0);
+    expect(clipped(new THREE.Vector3(r.center.x, 1.5, r.center.z + 1))).toBe(true); // ближняя стена выше среза
+    expect(clipped(new THREE.Vector3(r.center.x, 0.2, r.center.z + 1))).toBe(false); // низ ближней стены остаётся
+    expect(clipped(new THREE.Vector3(r.center.x, 1.5, r.center.z - 1))).toBe(false); // дальняя — целиком
+    gs.cutaway(null);
+    expect(mat.clippingPlanes).toHaveLength(0);
   });
 
   it("пустой лист не падает: рамка по умолчанию", () => {
