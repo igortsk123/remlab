@@ -43,6 +43,10 @@ source: manual
   Вопрос из отчёта: «From above» оставлен север-вверх (на компьютере узкий) — поворачивать ли тоже (одна строка `dirsFor`).
 - **T-12** гостиная на любом плане — worktree `.claude/worktrees/trial-living` (уточни `git worktree list`), план `plans/agent-trial-03-living.md`.
   Замечено: `openings_core=null` в свежих сценах — кадр героя тогда откажет (`trial_no_openings`). Контракт сцены — docstring `trial_hero.py`.
+  **Остановлен 16:00** (повис на окне разрешения при коммите). Ветка `worktree-trial-living`: `393c075c` адаптер (L-A) + `7bfe984f` wip
+  (ведущий закоммитил то, что агент уже подготовил: `tools/scout/trial_demo.py`, `tests/test_trial_demo.py`, фикстура flat215, правка
+  `solver_run.py`). Тест `test_trial_demo.py` ведущий НЕ проверял (вывод пустой) — прогнать первым делом. Агент остановился на шаге
+  «время кадров в сцене»; отладка — `.claude/tmp-t12/`. Сверить с планом `plans/agent-trial-03-living.md`, что из L-B/L-C осталось.
 - **T-16** стенд планировок этап 5 (открытые комнаты E-0/F-4, перегородки C-3) — worktree `.claude/worktrees/floorplan-bench`; правит
   `tools/floorplan/fpcore.py`, `bench.py`. **Отчёт partial 16:00:** коммит `28a8e09e` на ветке (не влит). Новый `tools/floorplan/openroom.py`
   (замыкание открытой комнаты `lines`/`box`, по умолчанию `FP_OPEN=box`), `repair.py` гипотеза `hyp_enclose`, `fpcore.py` семейства углов
