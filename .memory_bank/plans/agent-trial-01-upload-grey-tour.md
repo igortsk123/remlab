@@ -184,6 +184,8 @@ lease_until<now()) order by created_at for update skip locked limit 1) returning
 - 2026-11-09 — план создан (draft), ждёт «деплой» по очереди мастера (⚑ сроки хранения; ⚑ снимок страниц до выкладки).
 - 2026-11-09 13:12 — Codex по плану (поправки выше, приняты); сроки хранения — по Codex (короче прежних 14/90, риск меньше); in_progress; выдано T-20261109-08 = T-A (worktree `trial-runtime`). Владелец TG 327: кухня/санузел/прихожая — серыми с подписью.
 
+- 2026-11-09 13:35 — T-A (T-20261109-08) done: `ec977b1b` → main `7ce61ee8`; 35 новых тестов (18 на Postgres: гонки claim/heartbeat/result, ABA, лимит очереди под замком), всего 850 зелёные; build зелёный. Отступления: суточный потолок — по заданиям в БД под advisory-замком (не `PRESETS`); Caddy — именованный `@trialapi` (ниже заслона Next-Action), `?Referrer-Policy` отдельной директивой; зависшие > 24 ч → `failed/stale`; Метрики и cookie-баннера на /try нет. Ведущий: pg_dump прода, токен на проде и DEV.
+
 ## Completion summary
 
 ### Уроки
