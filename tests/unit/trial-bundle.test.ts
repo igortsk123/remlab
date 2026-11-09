@@ -18,8 +18,8 @@ describe("форма и связи", () => {
   const room = (furniture_state: string, furniture_text: string | null = null) => ({ id: "living", furniture_state, furniture_text });
 
   it("годные данные проходит, лишние поля страницы остаются", () => {
-    const p = parse({ quiz: { a: 1 }, plan: {} });
-    expect(p.success && (p.data as Record<string, unknown>).quiz).toEqual({ a: 1 });
+    const p = parse({ plan: { a: 1 }, sets: [] });
+    expect(p.success && (p.data as Record<string, unknown>).plan).toEqual({ a: 1 });
     expect(bundleProblem(trialBundle.parse(bundleOf(ID)), ID)).toBeNull();
   });
 
@@ -30,6 +30,12 @@ describe("форма и связи", () => {
     expect(parse({ room: { w: "4", d: 3, title: "", openings: [], radiators: [] } }).success).toBe(false);
   });
 
+  it("опрос: без `quiz.questions` ссылка покупателя `?quiz=1` не откроет опрос — такие данные не принимаем", () => {
+    expect(parse({ quiz: undefined }).success).toBe(false);
+    expect(parse({ quiz: { questions: [] } }).success).toBe(false);
+    expect(parse({ quiz: { a: 1 } }).success).toBe(false);
+  });
+
   it("связи: чужое задание, повтор варианта, вариант без комнаты, «ждёт мебель» с мебелью", () => {
     expect(bundleProblem(trialBundle.parse(bundleOf("B".repeat(22))), ID)).toBe("wrong_job");
     expect(problem({ variants: [v, v] })).toBe("variant_id_repeated");
@@ -38,7 +44,7 @@ describe("форма и связи", () => {
     expect(problem({ variants: [{ ...v, items: [{ role: "sofa", x: 1, y: 2 }] }] })).toBe("pending_with_items");
   });
 
-  it("исход мебели по комнате: только три значения, отказ — с текстом, «готово» — с мебелью", () => {
+  it("исход мебели по комнате: только четыре значения, отказ — с текстом, «готово» — с мебелью", () => {
     expect(parse({ apartment_rooms: [{ id: "living" }] }).success).toBe(false);
     expect(parse({ apartment_rooms: [room("failed")] }).success).toBe(false);
     expect(problem({ apartment_rooms: [room("refused", "  ")] })).toBe("refused_without_text");
@@ -47,9 +53,28 @@ describe("форма и связи", () => {
     expect(problem({ apartment_rooms: [room("ready")] })).toBe("ready_without_items");
   });
 
-  it("образец от `trial_bundle.py` (тот же файл сверяет тест Python) проходит контракт: пустая и с мебелью", async () => {
+  it("«не обставляется» (кухня, санузел, прихожая) — с текстом; мебель только у «готово»; завершено — без «подбирается»", () => {
+    const full = { ...v, pending: false, furniture_state: "ready", items: [{ role: "диван", x: 1, y: 2 }] };
+    expect(problem({ apartment_rooms: [room("not_furnished")] })).toBe("refused_without_text");
+    expect(problem({ apartment_rooms: [room("pending"), { id: "kitchen-1", furniture_state: "not_furnished", furniture_text: "Эту комнату не обставляем." }] })).toBeNull();
+    expect(problem({ variants: [full], apartment_rooms: [room("refused", "Нет подходящих товаров.")] })).toBe("items_in_unfurnished_room");
+    expect(problem({ trial: { job_id: ID, complete: true } })).toBe("complete_with_pending");
+    expect(problem({ trial: { job_id: ID, complete: true }, variants: [full], apartment_rooms: [room("ready")] })).toBeNull();
+  });
+
+  it("второй замок: поля магазина у товара или ленты и кириллица в английской подписи — не принимаем", () => {
+    const withSku = (sku: Record<string, unknown>) => ({ ...v, pending: false, furniture_state: "ready", items: [{ role: "диван", x: 1, y: 2, sku }] });
+    const ready = [{ ...room("ready"), titleEn: "Lounge" }];
+    expect(problem({ variants: [withSku({ name: "Диван", name_en: "Sofa", msid: "m" })], apartment_rooms: ready })).toBeNull();
+    expect(problem({ variants: [withSku({ name: "Диван", url: "https://x" })], apartment_rooms: ready })).toBe("shop_field");
+    expect(problem({ variants: [withSku({ name: "Диван", price: 1 })], apartment_rooms: ready })).toBe("shop_field");
+    expect(problem({ feeds: { диван: [{ name: "Диван", img: "//x" }] } })).toBe("shop_field");
+    expect(problem({ apartment_rooms: [{ ...room("pending"), titleEn: "Спальня 2" }] })).toBe("cyrillic_in_english_title");
+  });
+
+  it("образец от `trial_bundle.py` (тот же файл сверяет тест Python) проходит контракт: пустая, с мебелью, со спальнями и «не обставляется»", async () => {
     const samples = JSON.parse(await fs.readFile(SAMPLE_FILE, "utf8")) as Record<string, { trial: { job_id: string } }>;
-    expect(Object.keys(samples).sort()).toEqual(["empty", "furnished"]);
+    expect(Object.keys(samples).sort()).toEqual(["empty", "furnished", "rooms"]);
     for (const s of Object.values(samples)) {
       const p = trialBundle.safeParse(s);
       expect(p.success ? null : p.error.issues).toBeNull();

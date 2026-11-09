@@ -23,7 +23,7 @@ const geo = { w: 400, d: 300, title: "Гостиная", openings: [{ kind: "doo
 export const bundleOf = (id: string, over: Record<string, unknown> = {}): Record<string, unknown> => ({
   trial: { job_id: id }, room: geo, rooms_geo: { living: geo }, apartment_rooms: [{ id: "living", furniture_state: "pending", furniture_text: null }],
   variants: [{ id: "trial-living", room_id: "living", style: "scandi", items: [], pending: true, furniture_state: "pending" }],
-  feeds: {}, rules: {}, ...over,
+  feeds: {}, rules: {}, quiz: { questions: [{ id: "style" }] }, ...over,
 });
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const ids = (id: string) => ({ params: Promise.resolve({ id }) });

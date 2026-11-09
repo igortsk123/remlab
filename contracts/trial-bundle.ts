@@ -5,8 +5,10 @@ import { z } from "zod";
 
 const num = z.number().finite();
 const wall = z.enum(["north", "south", "east", "west"]);
+// подпись комнаты: `title` — по-русски (как в живом `/demo`), `title_ru`/`title_en` — оба языка, `approx` — ядро заметно меньше контура
 const geo = z.looseObject({
   w: num.positive(), d: num.positive(), title: z.string().max(200),
+  title_ru: z.string().max(200).optional(), title_en: z.string().max(200).optional(), approx: z.boolean().optional(),
   openings: z.array(z.looseObject({ kind: z.enum(["door", "window", "opening"]), wall, offset_cm: num, width_cm: num.positive() })).max(200),
   radiators: z.array(z.unknown()).max(50),
 });
@@ -16,16 +18,25 @@ const variant = z.looseObject({
 });
 
 export const trialBundle = z.looseObject({
-  trial: z.looseObject({ job_id: z.string() }),
+  /** `complete` — ни одной комнаты-цели (гостиные, спальни) в «подбирается»: только тогда задание может стать `done`. */
+  trial: z.looseObject({ job_id: z.string(), complete: z.boolean().optional() }),
   room: geo,
   rooms_geo: z.record(z.string(), geo),
-  /** По каждой комнате исход мебели: готово / подбирается / отказ (`furniture_text` — текст для покупателя). */
+  /** По каждой комнате исход мебели: подбирается / готово / отказ / не обставляется (кухня, санузел, прихожая); `furniture_text` —
+   *  текст покупателю (у отказа и «не обставляется» обязателен), `furniture_text_en` — он же по-английски. */
   apartment_rooms: z.array(z.looseObject({
-    id: z.string().min(1).max(40), furniture_state: z.enum(["ready", "pending", "refused"]), furniture_text: z.string().max(300).nullable(),
+    id: z.string().min(1).max(40), furniture_state: z.enum(["ready", "pending", "refused", "not_furnished"]),
+    furniture_text: z.string().max(300).nullable(), furniture_text_en: z.string().max(300).nullable().optional(),
+    /** код для надписи на любом языке: furnished / pending / no_products / not_readable / scale_unverified / no_window /
+     *  largest_living_only / not_furnished / failed */
+    furniture_outcome: z.string().max(40).optional(),
+    titleRu: z.string().max(120).optional(), titleEn: z.string().max(120).optional(),
   })).max(200),
   variants: z.array(variant).min(1).max(200),
   feeds: z.record(z.string(), z.array(z.unknown())),
   rules: z.looseObject({}),
+  /** Правило опроса (`rules/quiz.json`): без `questions` ссылка покупателя `?quiz=1` опрос не откроет. */
+  quiz: z.looseObject({ questions: z.array(z.unknown()).min(1) }),
 });
 export type TrialBundle = z.infer<typeof trialBundle>;
 
@@ -38,10 +49,25 @@ export function bundleProblem(b: TrialBundle, jobId: string): string | null {
   if (new Set(rooms).size !== rooms.length) return "room_id_repeated";
   if (b.variants.some((v) => !(v.room_id in b.rooms_geo))) return "variant_without_room";
   if (b.variants.some((v) => v.pending && v.items.length > 0)) return "pending_with_items";
-  if (b.apartment_rooms.some((r) => r.furniture_state === "refused" && !r.furniture_text?.trim())) return "refused_without_text";
+  const textual = new Set(["refused", "not_furnished"]);
+  if (b.apartment_rooms.some((r) => textual.has(r.furniture_state) && !r.furniture_text?.trim())) return "refused_without_text";
   const furnished = new Set(b.variants.filter((v) => v.items.length > 0).map((v) => v.room_id));
   if (b.apartment_rooms.some((r) => r.furniture_state === "ready" && !furnished.has(r.id))) return "ready_without_items";
+  if (b.apartment_rooms.some((r) => r.furniture_state !== "ready" && furnished.has(r.id))) return "items_in_unfurnished_room";
+  if (b.trial.complete && b.apartment_rooms.some((r) => r.furniture_state === "pending")) return "complete_with_pending";
+  if (b.apartment_rooms.some((r) => r.titleEn && CYRILLIC.test(r.titleEn))) return "cyrillic_in_english_title";
+  if (hasShopField(b)) return "shop_field";
   return null;
+}
+
+const CYRILLIC = /[Ѐ-ԯ]/;
+// второй замок к очистке сборщика (`trial_bundle.assert_public`): у товаров вариантов и лент нет полей магазина
+const SHOP_FIELDS = new Set(["url", "url_direct", "shop", "img", "img_hd", "price", "brand"]);
+function hasShopField(b: TrialBundle): boolean {
+  const bad = (o: unknown): boolean => !!o && typeof o === "object" && Object.keys(o).some((k) => SHOP_FIELDS.has(k) || k.endsWith("_url"));
+  const items = b.variants.flatMap((v) => v.items);
+  const rows = Object.values(b.feeds).flat();
+  return items.some((it) => bad(it) || bad((it as { sku?: unknown }).sku)) || rows.some(bad);
 }
 
 const lease = { id: z.string(), attempt: z.number().int().positive(), leaseToken: z.string().min(16).max(64) };

@@ -13,7 +13,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
 import trial_bundle as TB  # noqa: E402
 
-CTX = {'rules': {'sofa_tv_cm': [180, 300]}, 'msid_of': lambda sid: f'm-{sid}', 'slot_band': lambda g: {'диван': {'min': g['w']}}}
+QUIZ = {'questions': [{'id': 'style', 'ru': 'Какой стиль?', 'en': 'Which style?'}]}
+CTX = {'rules': {'sofa_tv_cm': [180, 300]}, 'msid_of': lambda sid: f'm-{sid}', 'slot_band': lambda g: {'диван': {'min': g['w']}},
+       'quiz': QUIZ}
 JOB = 'AbCdEfGhIjKlMnOpQrStUv'
 RECT = [(0, 0), (500, 0), (500, 400), (0, 400)]
 
@@ -90,6 +92,8 @@ def test_empty_room_is_explicitly_pending_not_ready():
     assert d['feeds'] == {} and d['rules']['sofa_tv_cm'] and d['apartment_rooms'][0]['contentState'] == 'ready'
     assert d['rooms_enabled'] == ['living']
     assert _outcomes(d)['living'] == ('pending', None, None)
+    assert d['apartment_rooms'][0]['furniture_outcome'] == 'pending' and d['trial']['complete'] is False
+    assert d['quiz'] == QUIZ
 
 
 def _outcomes(d):
@@ -103,12 +107,13 @@ def test_room_outcome_every_room_ready_pending_or_refused_with_text():
     res = plan()
     empty = _outcomes(build(res))
     assert empty['living'] == ('pending', None, None)
-    assert empty['bathroom-1'][:2] == ('refused', 'room_kind_not_furnished') and empty['bathroom-1'][2]
+    assert empty['bathroom-1'][:2] == ('not_furnished', 'room_kind_not_furnished') and empty['bathroom-1'][2]
     assert _outcomes(build(res, scene_for(res)))['living'] == ('ready', None, None)
     failed = scene_for(res, status='refused')
     failed['refusal'] = {'code': 'living_core_small', 'detail': 'x'}
     state, code, text = _outcomes(build(res, failed))['living']
-    assert (state, code) == ('refused', 'living_core_small') and 'мала' in text
+    assert (state, code, text) == ('refused', 'living_core_small', TB.OUTCOME_TEXT['no_products'][0])
+    assert text == 'Нет подходящих товаров согласно действующим шаблонам.'
 
 
 def test_room_outcome_refused_when_no_variant_has_furniture():
@@ -168,8 +173,8 @@ def test_room_ids_unique_across_panels_and_kinds_keep_counters():
     d = build(result(p0, p1))
     ids = [r['id'] for r in d['apartment_rooms']]
     assert len(ids) == len(set(ids)) and set(ids) == {'living', 'living-2', 'bedroom-1', 'bedroom-2'}
-    assert {v['room_id'] for v in d['variants']} == {'living', 'living-2'}
-    assert len({v['id'] for v in d['variants']}) == 2
+    assert {v['room_id'] for v in d['variants']} == {'living', 'living-2', 'bedroom-1', 'bedroom-2'}
+    assert len({v['id'] for v in d['variants']}) == 4
     by = {r['id']: r for r in d['apartment_rooms']}
     assert by['living']['storey'] == 0 and by['living-2']['storey'] == 1 and d['rooms_geo']['living-2']['storey'] == 1
     assert 'floor' not in d and 'floorsTotal' not in d and all('floor' not in r for r in d['apartment_rooms'])
@@ -219,14 +224,15 @@ def test_scene_variants_replace_pending_ready_first_and_mapped():
     it = v['items'][0]
     assert it['role'] == 'диван' and it['x'] == 250.0 and it['y'] == 340.0 and it['rot'] == 90 and it['w'] == 200.0 and it['h'] == 80.0
     assert it['corner'] is True and it['corner_left'] is True and it['section'] == 95.0
-    assert it['sku']['msid'] == 'm-1_2' and it['sku']['img'] == 'https://img.example/a.jpg' and it['sku']['price'] == 100
+    assert it['sku']['msid'] == 'm-1_2' and it['sku']['name'] == 'Диван' and it['sku']['name_en'] == 'Sofa'
+    assert not {'img', 'url', 'price', 'sid'} & set(it['sku'])
     assert v['missing_item'] == [{'role': 'ковёр'}]
     assert d['variants'][1]['furniture_state'] == 'partial' and d['variants'][1]['furniture_problem']['codes'] == ['route_blocked']
     assert d['variants'][2]['furniture_state'] == 'failed' and d['variants'][2]['items'] == []
     assert d['trial']['furniture'] == 'ready' and d['trial']['flags'] == ['band_lowered']
     assert d['rules']['slot_band_cm'] == {'диван': {'min': 500}}
     # лента замен — только товары сцены; порядок по цене
-    assert [p['sid'] for p in d['feeds']['диван']] == ['1_2'] and set(d['feeds']['диван'][0]['styles']) == {'сканди', 'минимализм'}
+    assert [p['msid'] for p in d['feeds']['диван']] == ['m-1_2'] and set(d['feeds']['диван'][0]['styles']) == {'сканди', 'минимализм'}
     assert d['sofa_feed'] == d['feeds']['диван']
 
 
@@ -249,7 +255,7 @@ def test_scene_furnishes_one_living_other_stops_spinning():
     res['panels'][0]['openings'] = [WINDOW, DOOR, op('window', (1200, 0), 100), op('door', (1400, 150), 90)]
     d = build(res, scene_for(res))
     other = [v for v in d['variants'] if v['room_id'] == 'living-2'][0]
-    assert other['pending'] is False and other['furniture_state'] == 'none' and other['items'] == []
+    assert other['pending'] is False and other['furniture_state'] == 'failed' and other['items'] == []
     state, code, text = _outcomes(d)['living-2']
     assert (state, code) == ('refused', 'one_living_furnished') and text
 
@@ -304,11 +310,180 @@ def test_output_is_valid_json_with_no_shapely_leftovers():
     json.dumps(build(res, scene_for(res)), ensure_ascii=False)
 
 
+# ───────── третья проверка советника и владелец 09.11: опрос, очистка, «не обставляется», пустая комната с текстом ─────────
+
+def test_quiz_rule_goes_into_bundle_and_live_rule_is_bilingual():
+    assert build(simple())['quiz'] == QUIZ
+    live = TB.quiz_rule()
+    assert live['questions'] and all(q.get('ru') and q.get('en') for q in live['questions'])
+    with pytest.raises(TB.BundleRefused, match='quiz_missing'):
+        TB.build(JOB, simple(), ctx={**CTX, 'quiz': {'questions': []}})
+
+
+def _walk_keys(o):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            yield k
+            yield from _walk_keys(v)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _walk_keys(v)
+
+
+def test_no_shop_names_links_or_prices_anywhere():
+    res = simple()
+    scene = scene_for(res)
+    for sv in scene['variants']:
+        for r in sv['items']:
+            r.update(name='Диван угловой Бергамо Hoff', shop='hoff', brand='Hoff')
+    d = build(res, scene)
+    text = json.dumps(d, ensure_ascii=False).lower()
+    assert 'бергамо' not in text and 'hoff' not in text and 'shop.example' not in text and 'img.example' not in text
+    assert not set(_walk_keys(d)) & TB.BANNED_KEYS
+    for v in d['variants']:
+        for it in v['items']:
+            assert set(it) <= TB.ITEM_KEYS and set(it['sku']) <= TB.SKU_KEYS
+    for rows in d['feeds'].values():
+        assert all(set(r) <= TB.FEED_KEYS for r in rows)
+
+
+def test_output_check_catches_leaks():
+    with pytest.raises(TB.BundleRefused, match='shop_leak'):
+        TB.assert_public({'a': [{'url': 'x'}]}, [])
+    with pytest.raises(TB.BundleRefused, match='shop_leak'):
+        TB.assert_public({'a': 'см. https://divan.ru/x'}, [])
+    with pytest.raises(TB.BundleRefused, match='shop_leak'):
+        TB.assert_public({'a': {'name': 'Диван Бергамо угловой'}}, ['диван бергамо угловой'])
+    TB.assert_public({'a': {'name': 'Диван', 'name_en': 'Sofa'}}, ['диван бергамо угловой'])
+
+
+def test_colour_en_only_dictionary_words():
+    assert TB.colour_en(None, 'диван') == '' and TB.colour_en('Диван Викс', 'диван') == ''
+    c = TB.colour_en('Диван прямой Викс Рогожка Серый', 'диван')
+    assert c and not TB._CYR.search(c) and 'viks' not in c.lower()
+
+
+def bedroom_part(rid='bedroom-1', state='ready', code=None, with_items=True):
+    """Кусок как `trial_bedroom.bundle_parts`: магазинное имя и ссылка нарочно — сборка обязана их снять."""
+    items = [{'role': 'кровать', 'x': 200, 'y': 150, 'rot': 0, 'w': 170, 'd': 210, 'h': 100, 'dims_src': 'catalog', 'corner': False,
+              'corner_left': False, 'section': None, 'url': 'https://shop.example/bed',
+              'sku': {'name': 'Кровать Люкс Hoff', 'msid': 'm-bed', 'w': 170, 'd': 210, 'h': 100, 'sleep_w': 160, 'img': '//x.example/b.jpg'}}]
+    geo = {'w': 400, 'd': 350, 'title': 'Bedroom 12.0 m²', 'openings': [], 'radiators': []}
+    out = {'rooms_geo': {rid: geo} if with_items else {},
+           'apartment_rooms': [{'id': rid, 'kind': 'bedroom', 'furniture_state': state, 'furniture_code': code, 'furniture_text': 'x'}],
+           'variants': [{'id': f'{rid}-scandi', 'room_id': rid, 'style': 'сканди', 'style_id': 'scandi', 'title': 'Сканди', 'items': items,
+                         'pending': False, 'furniture_state': 'ready'}] if with_items else []}
+    return out
+
+
+def flat_with_bedrooms():
+    far = [(600, 0), (1000, 0), (1000, 350), (600, 350)]
+    far2 = [(1100, 0), (1500, 0), (1500, 350), (1100, 350)]
+    kit = [(0, 500), (300, 500), (300, 700), (0, 700)]
+    rooms = [room('r1', 'living', name='Lounge'), room('b1', 'bedroom', far, name='Bedroom 1', area=14),
+             room('b2', 'bedroom', far2, name='Bedroom 2', area=14), room('k1', 'kitchen', kit, name='Kitchen', area=6),
+             room('h1', 'hall', kit, name='Hall', area=6)]
+    ops = [WINDOW, DOOR, op('window', (800, 0), 120), op('door', (1000, 175), 90), op('window', (1300, 0), 120), op('door', (1500, 175), 90)]
+    return result(panel('p0', rooms, ops))
+
+
+def test_bedrooms_pending_until_their_stage_then_ready_or_empty_with_owner_text():
+    res = flat_with_bedrooms()
+    d = build(res)
+    o = _outcomes(d)
+    assert o['bedroom-1'] == ('pending', None, None) and o['bedroom-2'][0] == 'pending' and d['trial']['complete'] is False
+    assert {v['room_id'] for v in d['variants'] if v['pending']} == {'living', 'bedroom-1', 'bedroom-2'}
+    assert o['kitchen-1'][:2] == ('not_furnished', 'room_kind_not_furnished') and o['hall-1'][0] == 'not_furnished'
+    # стадия спален: первая обставлена, во второй нет подходящих товаров — пустая комната с текстом владельца, остальные обставлены
+    d = TB.build(JOB, res, scene_for(res), ctx=CTX, parts=[bedroom_part(), bedroom_part('bedroom-2', 'refused', 'no_products', False)])
+    o = _outcomes(d)
+    by = {r['id']: r for r in d['apartment_rooms']}
+    assert o['living'][0] == 'ready' and o['bedroom-1'][0] == 'ready' and by['bedroom-1']['furniture_outcome'] == 'furnished'
+    assert o['bedroom-2'] == ('refused', 'no_products', 'Нет подходящих товаров согласно действующим шаблонам.')
+    assert by['bedroom-2']['furniture_outcome'] == 'no_products'
+    assert by['bedroom-2']['furniture_text_en'] == 'No suitable products under the current templates.'
+    empty = [v for v in d['variants'] if v['room_id'] == 'bedroom-2']
+    assert len(empty) == 1 and empty[0]['items'] == [] and empty[0]['furniture_state'] == 'failed' and 'bedroom-2' in d['rooms_geo']
+    assert by['kitchen-1']['furniture_outcome'] == 'not_furnished' and by['kitchen-1']['furniture_text_en']
+    assert d['trial']['complete'] is True
+    bed = next(v for v in d['variants'] if v['room_id'] == 'bedroom-1')['items'][0]
+    assert bed['sku'] == {'name': 'Кровать 160 см', 'name_en': 'Bed 160 cm', 'msid': 'm-bed', 'w': 170, 'd': 210, 'h': 100, 'sleep_w': 160}
+    assert 'url' not in bed and 'hoff' not in json.dumps(d, ensure_ascii=False).lower()
+
+
+def test_parts_matched_by_source_room_and_foreign_room_refused():
+    res = flat_with_bedrooms()
+    part = bedroom_part('bedroom-7')
+    part['apartment_rooms'][0].update(panel='p0', src_id='b2')
+    d = TB.build(JOB, res, None, ctx=CTX, parts=[part])
+    assert _outcomes(d)['bedroom-2'][0] == 'ready' and {v['room_id'] for v in d['variants'] if v['items']} == {'bedroom-2'}
+    with pytest.raises(TB.BundleRefused, match='parts_mismatch'):
+        TB.build(JOB, res, None, ctx=CTX, parts=[bedroom_part('bedroom-9')])
+    with pytest.raises(TB.BundleRefused, match='parts_mismatch'):
+        TB.build(JOB, res, None, ctx=CTX, parts=[bedroom_part('living')])
+
+
+# ───────── язык (владелец TG 486–488, Codex lang п.2.1): контракт языково-нейтральный ─────────
+
+@pytest.mark.parametrize('name,kind,ru,en', [
+    ('Lounge', 'living', 'Гостиная', 'Lounge'), ('Bedroom 3', 'bedroom', 'Спальня 3', 'Bedroom 3'),
+    ('BEDROOM 1', 'bedroom', 'Спальня 1', 'Bedroom 1'), ('Kitchen/Diner', 'kitchen', 'Кухня-столовая', 'Kitchen/Diner'), ('Lounge/Diner', 'living', 'Гостиная/столовая', 'Lounge/Diner'),
+    ('WC #1', 'bathroom', 'Туалет 1', 'WC #1'), ('FIRST FLOOR LANDING', 'hall', 'Прихожая', 'First Floor Landing'),
+    ('Lounge and Dining Room', 'living', 'Гостиная и столовая', 'Lounge and Dining Room'),
+    ('Bedroom 2 / En-suite', 'bedroom', 'Спальня 2 / санузел при спальне', 'Bedroom 2 / En-suite'),
+    ('Snug', 'living', 'Малая гостиная', 'Snug'), ('Den', 'living', 'Гостиная', 'Den'), ('Bedroom', 'bedroom', 'Спальня', 'Bedroom'),
+    ('Кухня-гостиная', 'living', 'Кухня-гостиная', 'Kitchen-living room'), ('Спальня 2', 'bedroom', 'Спальня 2', 'Bedroom 2'),
+    ('Гостиная', 'living', 'Гостиная', 'Living room'), ('Санузел', 'bathroom', 'Санузел', 'Bathroom'),
+    ('Кладовка у лестницы', 'other', 'Кладовка у лестницы', 'Room'), ('Спальня №4', 'bedroom', 'Спальня №4', 'Bedroom 4'),
+    ('', 'hall', 'Прихожая', 'Hall'), (None, 'bedroom', 'Спальня', 'Bedroom'),
+])
+def test_room_titles_both_languages(name, kind, ru, en):
+    assert TB.room_titles(name, kind) == (ru, en)
+
+
+def _plan(names):
+    xs = [0, 600, 1100, 1600]
+    rooms, ops = [], []
+    for i, (name, kind) in enumerate(names):
+        x0 = xs[i]
+        rooms.append(room(f'r{i}', kind, [(x0, 0), (x0 + 450, 0), (x0 + 450, 380), (x0, 380)], name=name, area=17.1))
+        ops += [op('window', (x0 + 225, 0), 120), op('door', (x0 + 450, 190), 90)]
+    return result(panel('p0', rooms, ops))
+
+
+@pytest.mark.parametrize('names', [
+    [('Гостиная', 'living'), ('Спальня 1', 'bedroom'), ('Кухня', 'kitchen'), ('Санузел', 'bathroom')],
+    [('Lounge', 'living'), ('Bedroom 1', 'bedroom'), ('Kitchen', 'kitchen'), ('Bathroom', 'bathroom')],
+], ids=['ru-plan', 'uk-plan'])
+def test_ru_and_uk_plans_give_both_languages(names):
+    d = build(_plan(names))
+    for r, (src, _) in zip(d['apartment_rooms'], names):
+        assert r['name_src'] == src and r['titleRu'] and r['titleEn']
+        assert not TB._CYR.search(r['titleEn']) and TB._CYR.search(r['titleRu'])
+        assert r['furniture_outcome'] in ('pending', 'not_furnished')
+        assert r['furniture_text_en'] is None or not TB._CYR.search(r['furniture_text_en'])
+    by = {r['id']: r for r in d['apartment_rooms']}
+    assert by['living']['titleRu'] == 'Гостиная' and by['bedroom-1']['titleRu'] == 'Спальня 1' and by['bedroom-1']['titleEn'] == 'Bedroom 1'
+    for rid, g in d['rooms_geo'].items():
+        assert g['title_en'].endswith('m²') and not TB._CYR.search(g['title_en']) and g['title_ru'].endswith('м²') and g['title'] == g['title_ru']
+        assert g['name_src'] == by[rid]['name_src'] and g['approx'] is False
+
+
+def test_approx_room_marked():
+    ell = [(0, 0), (600, 0), (600, 300), (300, 300), (300, 500), (0, 500)]
+    d = build(result(panel('p0', [room('r1', 'living', ell, area=24)], [op('window', (450, 0), 120), op('door', (0, 150), 90)])))
+    assert d['rooms_geo']['living']['approx'] is True
+    assert build(simple())['rooms_geo']['living']['approx'] is False
+
+
 def test_sample_for_ts_contract_is_current():
     """Образец читает `tests/unit/trial-bundle.test.ts` и прогоняет через Zod: форма Python и TS не разъедутся. UPDATE_TRIAL_SCHEMA=1 — перезаписать."""
     path = os.path.join(HERE, '..', '..', '..', 'tests', 'fixtures', 'trial-bundle.sample.json')
     res = simple()
-    now = json.dumps({'empty': build(res), 'furnished': build(res, scene_for(res))}, ensure_ascii=False, indent=1, sort_keys=True) + '\n'
+    flat = flat_with_bedrooms()
+    rooms = TB.build(JOB, flat, scene_for(flat), ctx=CTX, parts=[bedroom_part(), bedroom_part('bedroom-2', 'refused', 'no_products', False)])
+    now = json.dumps({'empty': build(res), 'furnished': build(res, scene_for(res)), 'rooms': rooms}, ensure_ascii=False, indent=1,
+                     sort_keys=True) + '\n'
     if os.environ.get('UPDATE_TRIAL_SCHEMA') == '1':
         with open(path, 'w', encoding='utf-8') as f:
             f.write(now)
