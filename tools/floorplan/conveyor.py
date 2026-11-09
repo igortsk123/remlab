@@ -37,6 +37,10 @@ HERE = Path(__file__).resolve().parent
 SCOUT = HERE.parent / 'scout'
 BUNDLE_MAX_BYTES = 8 * 1024 * 1024          # = lib/trial/bundle.ts:TRIAL_BUNDLE_MAX_BYTES
 BEDROOM = 'bedroom'                          # = trial_bundle.BEDROOM
+# Класс в общей очереди тяжёлых прогонов (`tools/ops/heavy_slot.py`, переменная HEAVY_SLOT_PRIO — стадии берут слот сами):
+# агент ждёт на открытой странице. Загрузка тура — 1, «Обустроить» — 2 (раньше всех). Порог памяти тот же (T-20261109-31).
+SLOT_PRIO_TRIAL = 1
+SLOT_PRIO_REBUILD = 2
 
 
 def bedroom_stage_ready() -> bool:
@@ -70,6 +74,8 @@ def failed_scene(job_id: str, code: str, detail: str = '') -> dict:
 
 
 class Conveyor:
+    PRIO = SLOT_PRIO_TRIAL                           # класс стадий в очереди heavy_slot (`_env`)
+
     def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str | None = None):
         self.w, self.cfg, self.lease, self.wd, self.hb = w, w.cfg, lease, wd, hb
         self.jid = job_id or lease['id']             # у пересборки аренда своя (id пересборки), задание — отдельно
@@ -89,7 +95,7 @@ class Conveyor:
 
     # ── процессы стадий ──
     def _env(self) -> dict:
-        return {**os.environ, 'TRIAL_SCENES_ROOT': str(self.cfg.scenes_root)}
+        return {**os.environ, 'TRIAL_SCENES_ROOT': str(self.cfg.scenes_root), 'HEAVY_SLOT_PRIO': str(self.PRIO)}
 
     def _stage(self, name: str, cmd: list, timeout: float) -> tuple[int | None, str | None]:
         rc, why = self.w.run_child(cmd, self.wd / f'{name}.log', timeout, self.hb, env=self._env())
@@ -304,7 +310,10 @@ class Rebuild(Conveyor):
     (`run(release)`: версии 1 и 2 НЕ публикуются) → итоговая версия на `/api/trial/worker/rebuild/publish`.
     Мебель прочих комнат не теряется: все комнаты, которые и раньше обставлялись, проходят стадии заново из того же результата
     (детерминированно; ночное обновление каталога может сменить подбор), комнаты без снятия остаются «ждут проверки».
-    Сервер ещё раз сверяет `base_version` под замком: страница сменилась — 409 `stale`, ничего не пишется."""
+    Сервер ещё раз сверяет `base_version` под замком: страница сменилась — 409 `stale`, ничего не пишется.
+    Стадии пересборки идут в очереди heavy_slot первыми (`PRIO`, T-20261109-31): агент нажал и ждёт."""
+
+    PRIO = SLOT_PRIO_REBUILD
 
     def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms):
         super().__init__(w, lease, wd, hb, result_path, job_id=job_id)

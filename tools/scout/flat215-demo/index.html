@@ -1583,7 +1583,7 @@ function trialHead(){
   let box=document.getElementById('trHead'); if(!box){box=document.createElement('div'); box.id='trHead'; host.parentNode.insertBefore(box,host.nextSibling);}
   const EN=TR_EN(), L=trialLinks(), buyer=/[?&]quiz=1(?:&|$)/.test(location.search);
   // «Обустроить всё» (Р1) — у агента с ключом, когда ждут проверки несколько комнат или не подтверждён масштаб всей квартиры
-  const wait=trAwaiting(), all=trKey()&&TRB.state!=='run'&&wait.length&&(scaleUnconfirmed()||wait.length>1), note=scaleNoteHtml(['p','tr-scale']);
+  const wait=trAwaiting(), all=trCanFurnish()&&wait.length&&(scaleUnconfirmed()||wait.length>1), note=scaleNoteHtml(['p','tr-scale']);
   box.innerHTML=trBanner()+
     (note||all?`<div class="tr-scrow">${note}`+
       (all?`<button class="btn tr-fur" type="button" data-tr-furnish="*">${EN?'Furnish all':'Обустроить всё'}</button>`:'')+`</div>`:'')+
@@ -1690,6 +1690,9 @@ function trDataEtag(r){ try{ const m=String(r.headers.get('etag')||'').match(/^(
 function trAwaiting(){ if(!TRIAL())return [];
   return (D.apartment_rooms||[]).filter(r=>r&&(TR_OUT[r.furniture_outcome]||TR_OUT[r.furniture_code]||TR_OUT[r.furniture_state])==='awaiting').map(r=>r.id); }
 function trRebuilding(id){ return TRB.state==='run'&&(TRB.want==='*'||(Array.isArray(TRB.want)&&TRB.want.indexOf(id)>=0)); }
+// кнопки «Обустроить» / «Обустроить всё» (шапка, пометка под планом, план, карточка): у агента с ключом и не во время пересборки —
+// пока она идёт, второе нажатие всё равно гасится, видимая кнопка только путает (T-20261109-31)
+function trCanFurnish(){ return !!trKey()&&TRB.state!=='run'; }
 const TRB_TXT={
   stale:['Тур обновился, пока вы смотрели — обновите страницу и нажмите ещё раз','The tour was updated meanwhile — reload the page and try again','reload'],
   nothing_to_furnish:['Эти комнаты уже обустроены — обновите страницу','These rooms are already furnished — reload the page','reload'],
@@ -1753,7 +1756,7 @@ async function trRebuildInit(){
 // пометки под планом (макет А): комната ждёт проверки — «<комната>: размер может быть неточным — Обустроить»; таких несколько — одной
 // строкой с «Обустроить всё»; обставленные «как есть» — «≈ Размеры примерные». Без ключа — те же пометки, без кнопок
 function trPlanNotes(box){
-  const EN=TR_EN(), k=!!trKey(), title=id=>{const r=trRoom(id)||{}; return (EN?r.titleEn:r.titleRu)||r.title||id;};
+  const EN=TR_EN(), k=trCanFurnish(), title=id=>{const r=trRoom(id)||{}; return (EN?r.titleEn:r.titleRu)||r.title||id;};
   const wait=trAwaiting().filter(id=>!trRebuilding(id)), btn=(id,t)=>k?` — <button class="tr-lnk" type="button" data-tr-furnish="${escHtml(id)}">${t}</button>`:'';
   if(wait.length===1)box.insertAdjacentHTML('beforeend',`<div class="hint tr-note" data-tr-await="1"><span class="dot"></span><span>`+
     `${escHtml(title(wait[0]))}: ${EN?'size may be inaccurate':'размер может быть неточным'}${btn(wait[0],EN?'Furnish':'Обустроить')}</span></div>`);
@@ -2349,9 +2352,9 @@ function flatPlan(){
       const o=TRIAL()&&!rv&&br?roomOutcome(br.id):'';   // проба: комната без варианта — исход по коду (не обставляется / подбирается)
       // проба: ждёт проверки размера — причина строкой; у агента с ключом ниже действие «Обустроить как есть» (Р1). Не «Обустроить →»:
       // на плане эта надпись значит «открыть обстановку» обставленной комнаты — одно слово для двух действий путало бы
-      const aw=TRIAL()&&br&&roomOutcome(br.id)==='awaiting';
-      if(aw&&trKey())L.push({t:awaitShort(),k:0.8,a:{fill:'#96601F'}});
-      L.push(aw&&trKey()?{t:TR_EN()?'Furnish as is':'Обустроить как есть',k:0.85,a:{fill:'#96601F','font-weight':'700','text-decoration':'underline','data-tr-furnish':br.id,role:'button',style:'cursor:pointer'}}
+      const aw=TRIAL()&&br&&roomOutcome(br.id)==='awaiting', can=aw&&trCanFurnish();
+      if(can)L.push({t:awaitShort(),k:0.8,a:{fill:'#96601F'}});
+      L.push(can?{t:TR_EN()?'Furnish as is':'Обустроить как есть',k:0.85,a:{fill:'#96601F','font-weight':'700','text-decoration':'underline','data-tr-furnish':br.id,role:'button',style:'cursor:pointer'}}
         :aw?{t:awaitShort(),k:0.85,a:{fill:'#96601F','data-outcome':'awaiting'}}:pend?{t:pendTxt(),k:0.85,a:{fill:'#5C655E'}}:none?{t:varNoneShort(allVariants()[rv.index]),k:0.85,a:{fill:'#8A4A1F','data-refused':'1'}}:go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}
         :o==='pending'?{t:pendTxt(),k:0.85,a:{fill:'#5C655E','data-outcome':o}}:o&&TR_NONE.test(o)?{t:outcomeTxt(br.id,true),k:0.85,a:{fill:o==='not_furnished'?'#9AA098':'#8A4A1F','data-outcome':o}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
     }
@@ -5797,7 +5800,7 @@ function drawHome(force){
       `<div class="hm-ph" data-open="${c.i}"><div class="nopv tr-wait">${mark}<span>${msg}</span></div>${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
       `<div class="rb"><div class="sum"><small class="tr-wait-tx">${c.pending?(EN?'Your rooms are ready — furniture is on the way':'Комнаты готовы — мебель появится здесь'):(c.refused&&TRIAL()?varNoneTxt(c.v):(EN?'The room is ready, without furniture':'Комната готова, без мебели'))}</small></div>`+
       // ждёт проверки размера — у агента с ключом «Обустроить» прямо на карточке (Р1)
-      (c.refused&&TRIAL()&&trKey()&&roomOutcome(c.r.id)==='awaiting'?`<button class="btn tr-fur" type="button" data-tr-furnish="${escHtml(c.r.id)}">${EN?'Furnish':'Обустроить'}</button>`:'')+
+      (c.refused&&TRIAL()&&trCanFurnish()&&roomOutcome(c.r.id)==='awaiting'?`<button class="btn tr-fur" type="button" data-tr-furnish="${escHtml(c.r.id)}">${EN?'Furnish':'Обустроить'}</button>`:'')+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;}
     return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b>`+
       `<span>${trJoin(money(c.sum),c.n+' '+plural(c.n))}</span></button>`+

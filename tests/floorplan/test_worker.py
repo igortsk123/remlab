@@ -703,6 +703,46 @@ def test_rebuild_publishes_one_version_other_rooms_kept(prod, mk, tmp_path):
     assert (tmp_path / 'scenes' / JID / 'scene.json').exists()            # стадия гостиной шла по заданию, не по id пересборки
 
 
+# Обёртка стадии: пишет «имя класс-очереди» (HEAVY_SLOT_PRIO, которым стадия возьмёт heavy_slot) и запускает настоящую подделку.
+PRIO_SPY = r'''
+import os, runpy, sys
+log, name, script = sys.argv[1:4]
+open(log, 'a').write(f"{name} {os.environ.get('HEAVY_SLOT_PRIO', '-')}\n")
+sys.argv = [script, *sys.argv[4:]]
+runpy.run_path(script, run_name='__main__')
+'''
+
+
+def _prio_spy(mk, tmp_path):
+    """Рабочий, у которого стены и все стадии мебели идут через `PRIO_SPY`. → (рабочий, путь журнала)."""
+    spy, log = tmp_path / 'prio_spy.py', tmp_path / 'prio.log'
+    spy.write_text(PRIO_SPY)
+    w0 = mk(furnish=True)
+    wrap = lambda name, cmd: [sys.executable, str(spy), str(log), name, cmd[-1]]   # noqa: E731
+    w = mk(furnish=True, pipeline=wrap('walls', w0.cfg.pipeline),
+           stage_cmds={k: wrap(k, v) for k, v in w0.cfg.stage_cmds.items() if v})
+    return w, log
+
+
+def test_heavy_slot_class_job_stages_trial_rebuild_first(prod, mk, tmp_path):
+    """T-20261109-31: агент ждёт на открытой странице → стадии берут общую очередь heavy_slot не последними. Загрузка тура (стены
+    и мебель задания) — класс 1, пересборка «Обустроить» — класс 2 (раньше всех); сам порядок по классу — `heavy-slot-selftest.sh`."""
+    prod.add_job()
+    w, log = _prio_spy(mk, tmp_path)
+    w.loop(max_iter=1)
+    assert w.done == [(JID, 'done')]
+    got = log.read_text().split('\n')[:-1]
+    assert got[0] == 'walls 1' and {'living 1', 'bedrooms 1', 'bundle 1'} <= set(got) and all(x.endswith(' 1') for x in got)
+    assert wk.conveyor.SLOT_PRIO_TRIAL == 1 and wk.conveyor.SLOT_PRIO_REBUILD == 2
+
+    log.write_text('')
+    _rebuild(prod, ['*'], flagged=('r1', 'b1'))
+    w.loop(max_iter=1)
+    assert w.done[-1] == (RID, 'rebuilt')
+    got = log.read_text().split('\n')[:-1]
+    assert {'living 2', 'bedrooms 2', 'bundle 2'} <= set(got) and all(x.endswith(' 2') for x in got)
+
+
 def test_rebuild_all_releases_every_waiting_room(prod, mk):
     _rebuild(prod, ['*'], flagged=('r1', 'b1'))
     w = mk(furnish=True)

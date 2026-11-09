@@ -6,7 +6,7 @@
 `remlab-render` (живое демо). Здесь — одна очередь: замок `flock` (держит процесс; умер — ядро отпускает само), взявший
 очередь ждёт порога памяти и только потом стартует; кто держит и кто ждёт — `--status`, журнал — `~/remlab-logs/heavy-slot.log`.
 
-  tools/ops/heavy-slot.sh <метка> [--min-gb N] [--timeout S] [--no-slot] -- <команда…>   # обёртка: rc команды наружу
+  tools/ops/heavy-slot.sh <метка> [--min-gb N] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…>  # rc команды наружу
   tools/ops/heavy-slot.sh --status                                                       # кто держит, кто ждёт, память
   from heavy_slot import heavy_slot                                                       # из питона — на ОДИН шаг:
   with heavy_slot('t51-look', min_gb=6):                                                  #   длинный цикл берёт слот на
@@ -60,12 +60,23 @@
     `head` под `queue.lock`; считать от прихода нельзя — задача, простоявшая в хвосте, закрывала бы обгон сразу, ровно в
     заторе 06.11), а у держателя слота 1, ждущего память, — с начала ожидания памяти. Голова ждёт не дольше
     HEAVY_SLOT_BACKFILL_MIN + оставшееся держание тех, кто уже идёт.
+  * ПРИОРИТЕТ ИНТЕРАКТИВНЫХ (T-20261109-31): у билета класс `prio` — `--prio N` / `heavy_slot(prio=N)` / переменная
+    HEAVY_SLOT_PRIO (её ставит воркер пробы стадиям): 0 — обычный (тесты, меши, сборки), 1 — загрузка тура (человек ждёт
+    страницу), 2 — «Обустроить» (агент нажал и смотрит на «подбираем…»). Порядок выдачи — по классу, внутри класса — по
+    номеру билета (приходу): голова, обгон, уступка — всё по этому порядку. ПРИОРИТЕТ ОБХОДИТ ТОЛЬКО ОЧЕРЕДЬ: порог памяти,
+    допуск в дополнительный слот и сторож — те же; идущих не снимает. Держатель слота 1, который ещё ЖДЁТ ПАМЯТЬ (не
+    стартовал), отдаёт слот пришедшему старшего класса сразу (опрос раз в ≤ 1 с) и встаёт в очередь со своим прежним билетом —
+    место среди равных за ним; старший ждёт память в слоте так же. ЗАЩИТА ОТ ГОЛОДАНИЯ: билет, ждущий дольше
+    HEAVY_SLOT_PRIO_AGE_MIN (мин, 30; 0 — без старения), считается старшим классом — дальше идёт по приходу; поток
+    приоритетных не держит обычную задачу больше этого срока (плюс текущие держания). Ожидающий старой версии (без билета)
+    и заместитель — класс 0; процесс старой версии классов не знает и сверяет порог только по номерам — до своего
+    перезапуска может взять слот раньше приоритетного (переходный период).
 Переменные (для самопроверки и особых случаев): HEAVY_SLOT_DIR (замок и состояние, по умолчанию ~/.cache/remlab-heavy-slot —
 одинаково в кроне и в сессии, не в репо), HEAVY_SLOT_LOG, HEAVY_SLOT_MEMINFO (подмена /proc/meminfo), HEAVY_SLOT_POLL (с, 30),
 HEAVY_SLOT_REPORT (строка «ждёт» в журнал раз в N с, 300), HEAVY_SLOT_YIELD, HEAVY_SLOT_MAX_YIELDS, HEAVY_SLOT_SLOTS,
 HEAVY_SLOT_RESERVE_GB, HEAVY_SLOT_HEAD_POLL, HEAVY_SLOT_SAMPLE, HEAVY_SLOT_LONG_S, HEAVY_SLOT_MEASURE_MIN_S,
 HEAVY_SLOT_EFF_FLOOR_GB, HEAVY_SLOT_MEM_STUB (файл «метка ГБ» — подмена замера памяти дерева для самопроверки),
-HEAVY_SLOT_BACKFILL_MIN.
+HEAVY_SLOT_BACKFILL_MIN, HEAVY_SLOT_PRIO, HEAVY_SLOT_PRIO_AGE_MIN.
 """
 from __future__ import annotations
 
@@ -229,11 +240,12 @@ def _next_seq(d: str) -> int:
     return n
 
 
-def _take_ticket(d: str, me: dict) -> str:
-    """Билет в конец очереди: следующий номер из `seq`, файл `wait/<номер>-<pid>`."""
+def _take_ticket(d: str, me: dict, keep: int | None = None) -> str:
+    """Билет в конец очереди: следующий номер из `seq`, файл `wait/<номер>-<pid>`. `keep` — вернуться со СВОИМ прежним номером
+    (держатель отдал слот старшему классу, не дождавшись памяти: место среди равных за ним)."""
     with _qlock(d):
         _tickets(d, clean=True)                   # пришедшие раньше без билета — получают его до меня
-        n = _next_seq(d)
+        n = keep if keep else _next_seq(d)
         p = os.path.join(d, 'wait', f'{n:08d}-{os.getpid()}')
         _write_kv(p, dict(me, ticket=n, start=_starttime(os.getpid()), stage='очередь'))
     return p
@@ -255,6 +267,55 @@ def _is_ticket(f: str) -> bool:
     """Имя билета: `<номер>-<pid>`, заместитель — `<номер>_<pid>` (версия T-57/2 имена без «-» пропускает, поэтому
     заместитель её ожидающих не держит: снять устаревший заместитель она не умеет)."""
     return '.tmp' not in f and f[:8].isdigit() and f[8:9] in ('-', '_')
+
+
+PRIO_MAX = 2                                     # 0 обычный · 1 загрузка тура · 2 «Обустроить» (T-20261109-31)
+
+
+def prio_clamp(x) -> int:
+    """Класс приоритета в границах 0…PRIO_MAX; не число — 0 (обычный)."""
+    try:
+        return min(max(int(x), 0), PRIO_MAX)
+    except (TypeError, ValueError):
+        return 0
+
+
+def prio_env() -> int:
+    """Класс по умолчанию — из HEAVY_SLOT_PRIO (ставит воркер пробы своим стадиям); нет — 0."""
+    return prio_clamp(os.environ.get('HEAVY_SLOT_PRIO') or 0)
+
+
+def prio_age_s() -> float:
+    """Старение (защита от голодания): ждущий дольше HEAVY_SLOT_PRIO_AGE_MIN (мин, 30) — старший класс; ≤ 0 — без старения."""
+    return _env_f('HEAVY_SLOT_PRIO_AGE_MIN', 30) * 60
+
+
+def _cls(kv: dict, now: float, age: float) -> int:
+    """Действующий класс записи: `prio`; ждёт дольше `age` — старший (по `since` — начало ожидания всего вызова: уступка
+    и новый билет срок не обнуляют)."""
+    p = prio_clamp(kv.get('prio') or 0)
+    if age > 0 and p < PRIO_MAX:
+        with contextlib.suppress(TypeError, ValueError):
+            if now - float(kv.get('since') or now) >= age:
+                p = PRIO_MAX
+    return p
+
+
+def _rank(kv: dict, n: int, now: float, age: float) -> tuple:
+    """Ключ порядка выдачи: (−класс, номер билета)."""
+    return -_cls(kv, now, age), n
+
+
+def _outranked(d: str, me: dict) -> dict | None:
+    """Ожидающий СТАРШЕГО класса, чем мой (держатель слота 1, ещё ждущий память), — ему слот отдаётся сразу (T-20261109-31)."""
+    now, age = time.time(), prio_age_s()
+    mine = _cls(me, now, age)
+    if mine >= PRIO_MAX:
+        return None
+    for _, _, kv in _tickets(d):
+        if str(kv.get('pid')) != str(me.get('pid')) and _cls(kv, now, age) > mine:
+            return kv
+    return None
 
 
 def _tickets(d: str, clean: bool = False) -> list:
@@ -295,6 +356,9 @@ def _tickets(d: str, clean: bool = False) -> list:
                                              stage='очередь').items()}
             _write_kv(p, rec)
             out.append((n, p, rec))
+    now, age = time.time(), prio_age_s()
+    out.sort(key=lambda x: _rank(x[2], x[0], now, age))   # порядок выдачи: класс, потом приход (T-20261109-31)
+    if clean:
         _mark_head(d, out)
     return out
 
@@ -651,10 +715,11 @@ def _admit(d: str, k: int, own: float, n: int) -> tuple[bool, str, float]:
 @contextlib.contextmanager
 def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no_slot: bool = False,
                poll: float | None = None, report: float | None = None, say=None, cmd: str = '',
-               yield_after: float | None = None, max_yields: int | None = None):
+               yield_after: float | None = None, max_yields: int | None = None, prio: int | None = None):
     """Взять общую очередь, дождаться памяти по допуску (`_need`: свой порог + доля других держателей + запас), выполнить
-    тело, отпустить (пик памяти дерева и время — в журнал и `peaks.tsv`). → info: waited_s, free_gb, fd, eff_gb.
-    Таймаут (очередь + память) — SlotTimeout. `say(msg)` — дублировать строки ожидания в свой журнал."""
+    тело, отпустить (пик памяти дерева и время — в журнал и `peaks.tsv`). → info: waited_s, free_gb, fd, eff_gb, prio.
+    Таймаут (очередь + память) — SlotTimeout. `say(msg)` — дублировать строки ожидания в свой журнал. `prio` — класс
+    приоритета 0…2 (None — из HEAVY_SLOT_PRIO): меняет только место в очереди, не порог памяти."""
     poll = _env_f('HEAVY_SLOT_POLL', 30) if poll is None else poll
     report = _env_f('HEAVY_SLOT_REPORT', 300) if report is None else report
 
@@ -662,7 +727,9 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         log(label, msg)
         if say:
             say(msg)
-    info = {'label': label, 'waited_s': 0.0, 'free_gb': None, 'fd': None, 'nested': None, 'no_slot': no_slot, 'yields': 0}
+    pr = prio_env() if prio is None else prio_clamp(prio)
+    info = {'label': label, 'waited_s': 0.0, 'free_gb': None, 'fd': None, 'nested': None, 'no_slot': no_slot, 'yields': 0,
+            'prio': pr}
     said_starve = False
     free_by = None if no_slot else _noslot_parent()
     if no_slot or free_by:
@@ -703,11 +770,14 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
     if eff_why:
         note(eff_why)
     me = {'label': label, 'pid': os.getpid(), 'since': int(t0), 'min_gb': min_gb, 'eff_gb': round(own, 3), 'type': typ,
-          'bf': 1, 'cmd': cmd[:300]}
+          'bf': 1, 'cmd': cmd[:300], 'prio': pr}
     got, ticket, yields, t_lock, extra_why, said_closed = False, None, 0, 0.0, '', False
+    keep = None                                       # номер билета, с которым вернуться после уступки старшему классу
 
     def grab(try_extra: bool) -> int:
-        """Первый в очереди: занять слот 1, иначе (раз в step) — второй по памяти. → номер слота или 0."""
+        """Первый в очереди: занять слот 1, иначе (раз в step) — второй по памяти. → номер слота, 0 — нет, −1 — я уже не первый.
+        «Первый» сверяется раз в step, а старший класс встаёт впереди в любой момент (T-20261109-31): взяв замок, сверяю
+        ещё раз под `queue.lock` — не первый → замок назад."""
         nonlocal extra_why
         for k in range(1, n + 1):
             if k > 1 and not try_extra:
@@ -716,6 +786,9 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 fcntl.flock(fds[k], fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 continue
+            if not _my_turn(d, ticket):
+                fcntl.flock(fds[k], fcntl.LOCK_UN)
+                return -1
             if k == 1:
                 return 1
             ok, why, free_k = _admit(d, k, own, n)
@@ -782,7 +855,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         return 0
     try:
         while True:                                   # круг: билет → очередь → слот → память (или уступка → новый билет)
-            ticket = _take_ticket(d, dict(me, yields=yields))
+            ticket = _take_ticket(d, dict(me, yields=yields), keep)
+            my_n, keep = int(os.path.basename(ticket)[:8]), None
             said, head, t_chk, t_extra, t_bf = False, False, -1e9, -1e9, -1e9
             while True:
                 now = time.time()
@@ -793,6 +867,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     k = grab(n > 1 and now - t_extra >= step)
                     if n > 1 and now - t_extra >= step:
                         t_extra = now
+                    if k < 0:                         # впереди встал старший класс — я больше не первый
+                        head, k = False, 0
                 elif n > 1 and now - t_bf >= step:    # не первый — обгон в свободный дополнительный слот (T-79)
                     t_bf = now
                     k = backfill(ticket)
@@ -800,7 +876,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     break
                 if not said:
                     h = _read_kv(holder_p) or {}
-                    note(f"ждёт очередь: держит {h.get('label', '?')} pid={h.get('pid', '?')}, билет {os.path.basename(ticket)}")
+                    note(f"ждёт очередь: держит {h.get('label', '?')} pid={h.get('pid', '?')}, билет {os.path.basename(ticket)}"
+                         + (f', приоритет {pr}' if pr else ''))
                     said = True
                 if timeout is not None and time.time() - t0 >= timeout:
                     note(f'не дождался очереди за {round(time.time() - t0)} с (--timeout {timeout:g}) — не запускаю')
@@ -844,7 +921,24 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     if yields >= max_y and yields > 0 and not said_starve:
                         note(f'уступок {yields} из {max_y} — дальше жду память, держа очередь (защита от голодания)')
                         said_starve = True
-                time.sleep(poll)
+                # пока жду память — слот не мой по праву: пришёл ожидающий старшего класса — отдаю сразу, встаю на своё место
+                # (опрос раз в step, память — раз в poll; порог памяти он ждёт так же — обходится только очередь; T-20261109-31)
+                t_end, w = time.time() + poll, None
+                while True:
+                    w = _outranked(d, me)
+                    if w or time.time() >= t_end:
+                        break
+                    time.sleep(min(step, max(t_end - time.time(), 0.0)))
+                if w:
+                    note(f"отдал слот старшему классу: {w.get('label')} pid={w.get('pid')} (приоритет "
+                         f"{_cls(w, time.time(), prio_age_s())}) — сам ждал память {_sec(time.time() - t_mem)} с, {why}; "
+                         f"встаю в очередь со своим билетом {my_n}")
+                    h = _read_kv(holder_p) or {}
+                    if h.get('pid') == str(os.getpid()):
+                        _unlink(holder_p)
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                    got, yielded, keep = False, True, my_n
+                    break
                 ok, why, free = _need(d, 1, own, n)
             if not yielded:
                 break
@@ -852,7 +946,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         if slot == 1:
             _write_kv(holder_p, dict(me, since=int(time.time()), stage='работает', free_gb=round(free, 1), yields=yields))
         note(f'взял: ждал {_sec(waited)} с (очередь {_sec(t_lock)}, память {_sec(waited - t_lock)}), свободно {free:.1f} ГБ'
-             + (f', уступок {yields}' if yields else '') + (f'; слот {slot}: {extra_why}' if slot > 1 else ''))
+             + (f', уступок {yields}' if yields else '') + (f', приоритет {pr}' if pr else '')
+             + (f'; слот {slot}: {extra_why}' if slot > 1 else ''))
         info.update(waited_s=round(waited, 1), free_gb=free, fd=fd, yields=yields, eff_gb=own)
         old = os.environ.get('HEAVY_SLOT_HELD')
         os.environ['HEAVY_SLOT_HELD'] = str(os.getpid())
@@ -970,9 +1065,12 @@ def status(out=sys.stdout) -> int:
         stale = stale or bool(h and not held)
     if not any_held:
         pr('СВОБОДНО: очередь никто не держит' + (' (запись держателя устарела — процесс умер)' if stale else ''))
-    pr(f'ЖДУТ: {len(waiters)}' + (' (по порядку прихода)' if waiters else '')
+    anyp = any(prio_clamp(w.get('prio') or 0) for w in waiters)
+    pr(f'ЖДУТ: {len(waiters)}' + ((' (по порядку выдачи: приоритет, потом приход)' if anyp else ' (по порядку прихода)')
+                                  if waiters else '')
        + ''.join(f"\n  {k}. {w['label']} · pid {w['pid']} · {w.get('stage')} {_ago(w.get('since'))}"
                  f" · порог {w.get('min_gb')} ГБ · билет {w.get('ticket')}"
+                 + (f" · приоритет {w['prio']}" if prio_clamp(w.get('prio') or 0) else '')
                  + (f" · уступок {w['yields']}" if w.get('yields') not in (None, '0') else '')
                  for k, w in enumerate(waiters, 1))
        + (f'\n  (записей умерших ожидающих: {dead} — не считаются)' if dead else ''))
@@ -1049,18 +1147,24 @@ def child_env() -> dict:
 
 
 def run(argv: list) -> int:
-    """`<метка> [--min-gb N] [--timeout S] [--no-slot] -- <команда…>` → rc команды (124 — не дождался)."""
+    """`<метка> [--min-gb N] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…>` → rc команды (124 — не дождался)."""
+    use = '<метка> [--min-gb N] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…> | --status | --stats'
     if '--' not in argv or argv.index('--') < 1 or argv.index('--') == len(argv) - 1:
-        print('heavy-slot: <метка> [--min-gb N] [--timeout S] [--no-slot] -- <команда…> | --status | --stats', file=sys.stderr)
+        print(f'heavy-slot: {use}', file=sys.stderr)
         return 2
     i = argv.index('--')
     opts, cmd = argv[:i], argv[i + 1:]
     label, opts = opts[0], opts[1:]
-    min_gb, timeout, no_slot = 6.0, None, False
+    min_gb, timeout, no_slot, prio = 6.0, None, False, None
     k = 0
     while k < len(opts):
         o = opts[k]
-        if o in ('--min-gb', '--timeout') and k + 1 < len(opts):
+        if o == '--prio' and k + 1 < len(opts):
+            if opts[k + 1] not in [str(x) for x in range(PRIO_MAX + 1)]:
+                print(f'heavy-slot: --prio {opts[k + 1]!r} — нужно 0…{PRIO_MAX}', file=sys.stderr)
+                return 2
+            prio, k = int(opts[k + 1]), k + 2
+        elif o in ('--min-gb', '--timeout') and k + 1 < len(opts):
             try:
                 v = float(opts[k + 1])
             except ValueError:
@@ -1079,7 +1183,7 @@ def run(argv: list) -> int:
     for s in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(s, _term)
     try:
-        with heavy_slot(label, min_gb=min_gb, timeout=timeout, no_slot=no_slot, cmd=' '.join(cmd)) as info:
+        with heavy_slot(label, min_gb=min_gb, timeout=timeout, no_slot=no_slot, cmd=' '.join(cmd), prio=prio) as info:
             p = subprocess.Popen(cmd, pass_fds=(info['fd'],) if info['fd'] is not None else (), env=child_env())
 
             def _fwd(sig, _frm):

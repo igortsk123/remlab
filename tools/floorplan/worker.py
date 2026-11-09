@@ -437,7 +437,8 @@ class Worker:
             cmd += ['--listing-file', str(wd / 'listing.txt')]
         if self.cfg.an_cache:
             cmd += ['--an-cache', self.cfg.an_cache]
-        rc, why = self.run_child(cmd, wd / 'pipeline.log', self.cfg.job_timeout_s, hb)
+        rc, why = self.run_child(cmd, wd / 'pipeline.log', self.cfg.job_timeout_s, hb,   # стены — класс загрузки тура (T-31)
+                                 env={**os.environ, 'HEAVY_SLOT_PRIO': str(conveyor.SLOT_PRIO_TRIAL)})
         if why == 'lost':
             self.done.append((jid, 'lost'))
             return
