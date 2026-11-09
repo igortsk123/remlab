@@ -35,6 +35,12 @@ source: manual
 - **T-11** страницы `/try`, `/try/<id>`, серый тур — worktree `.claude/worktrees/trial-pages` (ветка `worktree-trial-pages`), цикл 2:
   подписи под кнопками, стены заслоняют комнату, модель мала в кадре, Tap/Click. Дальше: снимки 375/1280 владельцу (design-first),
   после «ок» — влить, выкатить `/try`; лендинг переедет на основной адрес. ❓ открыт вопрос владельцу TG 443 про согласие (consent).
+  **Отчёт цикла 2 (16:10, done):** ветка на `ec561911`, коммиты `6b9e5107` (цикл 1) + `3f016830` (цикл 2); typecheck/lint 0, unit 870/870,
+  build ok, e2e пробы 6/6. Новое: `lib/trial/grey-camera.ts`, `lib/trial/plan-geom.ts`, `components/trial/grey-labels.ts`. Подписи прячутся у края/
+  под кнопками/за камерой; ближние стены срезаются до 0,3 м у выбранной комнаты; вписывание с отступом 8 %, вид «3D» поворачивается на 90°,
+  если так крупнее ≥15 %; Tap/Click по устройству; consent — `TODO(legal)`. Снимки `/home/pakar/remlab-logs/trial-pages/shots-1553/`
+  (`phone-*`/`desk-*`, 1–6). **Ведущий ещё НЕ смотрел** — сначала самому (desk-3, phone-3, desk-3b, phone-3b), потом владельцу на «ок».
+  Вопрос из отчёта: «From above» оставлен север-вверх (на компьютере узкий) — поворачивать ли тоже (одна строка `dirsFor`).
 - **T-12** гостиная на любом плане — worktree `.claude/worktrees/trial-living` (уточни `git worktree list`), план `plans/agent-trial-03-living.md`.
   Замечено: `openings_core=null` в свежих сценах — кадр героя тогда откажет (`trial_no_openings`). Контракт сцены — docstring `trial_hero.py`.
 - **T-16** стенд планировок этап 5 (открытые комнаты E-0/F-4, перегородки C-3) — worktree `.claude/worktrees/floorplan-bench`; правит
