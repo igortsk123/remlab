@@ -124,18 +124,19 @@ def spent(out):
     return sum(r.get('usd') or 0.0 for r in rows), len(rows)
 
 
-def ask(plan, kind, out, image=None):
+def ask(plan, kind, out, image=None, cap_usd=CAP_USD):
+    """cap_usd — потолок денег на папку `out` (по `calls.jsonl`); стенд — $0,50, проба для агентов — своя доля на задание."""
     sys.path.insert(0, str(HERE.parent / 'scout'))
     import llm_gateway  # noqa: E402 — только шлюз, без тяжёлых модулей scout
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     usd0, n0 = spent(out)
-    if usd0 >= CAP_USD:
-        raise SystemExit(f'потолок ${CAP_USD} исчерпан: ${usd0:.4f} за {n0} вызовов')
+    if usd0 >= cap_usd:
+        raise SystemExit(f'потолок ${cap_usd} исчерпан: ${usd0:.4f} за {n0} вызовов')
     pin, pout = PRICE.get(MODEL, (2e-6, 12e-6))
-    max_tok = min(16000, int((CAP_USD - usd0 - 3000 * pin) / pout))   # худший случай не выходит за потолок
+    max_tok = min(16000, int((cap_usd - usd0 - 3000 * pin) / pout))   # худший случай не выходит за потолок
     if max_tok < 4000:
-        raise SystemExit(f'остаток ${CAP_USD - usd0:.3f} мал для вызова {MODEL}')
+        raise SystemExit(f'остаток ${cap_usd - usd0:.3f} мал для вызова {MODEL}')
     if image is None:
         gold = json.loads((HERE / 'gold' / f'{plan}.json').read_text())
         image = INPUTS / gold['image']

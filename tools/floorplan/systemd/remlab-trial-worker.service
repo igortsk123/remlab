@@ -1,0 +1,40 @@
+# ВОРКЕР DEV ПРОБЫ ДЛЯ АГЕНТОВ (agent-trial-01-upload-grey-tour, T-B · T-20261109-10): сам ходит на прод по HTTPS
+# (claim → файл → стенд tools/floorplan/pipeline.py → result/fail; heartbeat 10 с; по одному заданию).
+# Пользовательский юнит pakar (linger). Ставит ведущий: tools/floorplan/worker_install.sh (копирует файл и печатает
+# команды включения — сам ничего не включает). Вручную: systemctl --user status remlab-trial-worker ·
+# журнал — ~/remlab-logs/trial/worker.log · проверка без заданий — python tools/floorplan/worker.py --check.
+# Токен TRIAL_WORKER_TOKEN — из ~/.config/remlab/env (вне git; не печатать). Без токена воркер выходит с кодом 2.
+[Unit]
+Description=remlab: воркер DEV пробы для агентов (планировка → серый тур)
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=%h/igor/remlab
+EnvironmentFile=-%h/.config/remlab/env
+Environment=TRIAL_API_URL=https://remont-lab.online TRIAL_WORK_DIR=%h/remlab-logs/trial PYTHONUNBUFFERED=1
+Environment=TMPDIR=%h/remlab-scratch/tmp
+ExecStartPre=/usr/bin/mkdir -p %h/remlab-logs/trial %h/remlab-scratch/tmp
+ExecStart=%h/venvs/scout/bin/python -u tools/floorplan/worker.py
+StandardOutput=append:%h/remlab-logs/trial/worker.log
+StandardError=append:%h/remlab-logs/trial/worker.log
+Restart=always
+RestartSec=10
+# SIGTERM — только воркеру: он снимает стенд сам и возвращает задание в очередь (fail waiting_capacity, попытка не
+# тратится). control-group прибил бы стенд раньше — задание ушло бы как сбой стенда.
+KillMode=mixed
+TimeoutStopSec=60
+# Гость DEV: живое демо (remlab-render), кроны и тяжёлая очередь важнее. Память — на дерево воркер+стенд:
+# пик стенда по peaks.tsv (метка trial-floorplan, 09.11): A 0,14–0,16 ГБ, B 0,23, C (4 этажа из 10) 0,38 ГБ (RSS 0,48);
+# лист ужимается до 2000 px по длинной стороне, поэтому больше C не бывает. Потолок ×4 к C — на чужие планировки.
+# Сверх MemoryMax ядро снимает стенд → fail pipeline_error с повтором; второй раз — failed.
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=200%
+MemoryHigh=1G
+MemoryMax=2G
+MemorySwapMax=0
+OOMScoreAdjust=500
+
+[Install]
+WantedBy=default.target
