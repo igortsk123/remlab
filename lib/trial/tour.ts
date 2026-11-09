@@ -6,6 +6,7 @@
 import path from "node:path";
 
 import type { TrialJobView } from "@/contracts/trial";
+import type { LatestBundle } from "@/lib/trial/repo-bundle";
 import { TRIAL_HEADERS, trialDir } from "@/lib/trial/config";
 import { validId } from "@/lib/trial/http";
 import { jobRelease, readRegular, readTourData, releaseDir } from "@/lib/trial/tour-files";
@@ -48,7 +49,14 @@ const headers = (extra: Record<string, string> = {}): Record<string, string> => 
 const text = (status: number, body: string, extra: Record<string, string> = {}): Response =>
   new Response(body, { status, headers: headers({ "Content-Type": "text/plain; charset=utf-8", ...extra }) });
 
-export type TourDeps = { view: (id: string) => Promise<TrialJobView | "expired" | undefined>; dir?: string };
+/** `latest` — чтение последней версии данных (`repo-bundle.ts:latestBundle`; передаёт маршрут — здесь импорт дал бы круг модулей);
+ *  нет — только запасной `demo-data.json`. */
+export type TourDeps = {
+  view: (id: string) => Promise<TrialJobView | "expired" | undefined>;
+  latest?: (id: string, dir: string) => Promise<LatestBundle>;
+  dir?: string;
+};
+const NO_LATEST = async (): Promise<LatestBundle> => "not_ready";
 
 /** Ответ на запрос тура. id — только формат `TOKEN_RE`; нет задания или бандла — 404; результат снят по сроку — 410 (как `/try/<id>`). */
 export async function tourResponse(id: string, parts: readonly string[], deps: TourDeps): Promise<Response> {
@@ -58,7 +66,11 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
   const view = await deps.view(id);
   if (view === undefined) return text(404, "not found");
   if (view === "expired") return text(410, "expired");
-  if (target.kind === "version") return new Response(JSON.stringify({ version: view.resultVersion }), { headers: headers({ "Content-Type": JSON_TYPE }) });
+  if (target.kind === "version") {
+    // опрос страницы: `version` растёт — перезагрузка; `bundle` — версия данных (база для «Обустроить»); `rebuild` — пересборка идёт / упала
+    const v = { version: view.resultVersion, bundle: view.bundleVersion, rebuild: view.rebuild, rebuildError: view.rebuildError };
+    return new Response(JSON.stringify(v), { headers: headers({ "Content-Type": JSON_TYPE }) });
+  }
   if (target.kind === "shared") return new Response(null, { status: 302, headers: headers({ Location: target.url }) });
   const dir = deps.dir ?? trialDir();
   const release = await jobRelease(dir, id);
@@ -68,7 +80,12 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
     if (!html) return text(404, "not ready");
     return new Response(injectTour(html.toString("utf8"), id, view.resultVersion), { headers: headers({ "Content-Type": "text/html; charset=utf-8" }) });
   }
-  const body = target.kind === "data" ? await readTourData(dir, id) : await readRegular(path.join(releaseDir(dir, release), target.rel));
+  if (target.kind === "data") {
+    const data = await readTourData(dir, id, deps.latest ?? NO_LATEST);
+    if (!data) return text(404, "not found");
+    return new Response(new Uint8Array(data.body), { headers: headers({ "Content-Type": JSON_TYPE, ETag: `"v${data.version}"` }) });
+  }
+  const body = await readRegular(path.join(releaseDir(dir, release), target.rel));
   if (!body) return text(404, "not found");
-  return new Response(new Uint8Array(body), { headers: headers({ "Content-Type": target.kind === "data" ? JSON_TYPE : target.type }) });
+  return new Response(new Uint8Array(body), { headers: headers({ "Content-Type": target.type }) });
 }

@@ -35,8 +35,26 @@ export const trialJobView = z.object({
   resultVersion: z.number().int().nonnegative(),
   /** Опубликованная версия данных страницы (`/api/trial/<id>/bundle`, ETag `"v<N>"`); 0 — ещё нет. */
   bundleVersion: z.number().int().nonnegative(),
+  /** Последняя пересборка «Обустроить» (план agent-trial-08, Р1): ждёт / идёт / не удалась; null — нет или завершена. Ключа здесь нет. */
+  rebuild: z.enum(["queued", "running", "failed"]).nullable().default(null),
+  rebuildError: z.enum(["stale", "lease_lost", "timeout", "pipeline_error", "internal"]).nullable().default(null),
 });
 export type TrialJobView = z.infer<typeof trialJobView>;
+
+// ── «Обустроить» / «Обустроить всё» (план agent-trial-08, Р1; `db/init/024-trial-rebuilds.sql`) ─────────────────
+/** id комнаты страницы (`living`, `bedroom-1`, `living-2`) — как `trial_bundle.py` и `variant.room_id`. */
+export const trialPageRoomId = z.string().regex(/^[a-z0-9-]{1,40}$/);
+/** Тело кнопки: `k` — ключ правки из ссылки агента, `request_id` — повтор нажатия даёт ту же пересборку, `base_version` — версия данных,
+ *  которую видит страница (устарела — 409 `stale`), `rooms` — комнаты страницы или "all" (все, что ждут проверки). */
+export const trialRebuildIn = z.object({
+  k: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
+  request_id: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+  base_version: z.number().int().positive(),
+  rooms: z.union([z.array(trialPageRoomId).min(1).max(40), z.literal("all")]),
+});
+export type TrialRebuildIn = z.infer<typeof trialRebuildIn>;
+/** Коды сбоя пересборки от воркера (наружу — `trialJobView.rebuildError`). */
+export const trialRebuildFailCode = z.enum(["stale", "timeout", "pipeline_error", "internal", "waiting_capacity", "nothing_to_furnish"]);
 
 const num = z.number().finite();
 const pt = z.tuple([num, num]);
@@ -104,7 +122,23 @@ export const trialClaimIn = z.object({
   version: z.string().max(64).optional(),
   /** true — воркер сам себя притормозил: только отметиться «жив», задание не брать. */
   paused: z.boolean().optional(),
+  /** true — воркер умеет пересборки «Обустроить» (`rebuild` в ответе); старый воркер их не получает. */
+  rebuilds: z.boolean().optional(),
 });
+/** Аренда пересборки: `id` — id строки `trial_rebuilds` (не задания). */
+export const trialRebuildLeaseIn = z.object({ ...lease, spentUsd: spent });
+export const trialRebuildFailIn = z.object({
+  ...lease, code: trialRebuildFailCode, retryable: z.boolean(), detail: z.string().max(2000).optional(), spentUsd: spent,
+});
+export type TrialRebuildLease = Pick<z.infer<typeof trialRebuildLeaseIn>, "id" | "attempt" | "leaseToken">;
+export type TrialRebuildFailIn = z.infer<typeof trialRebuildFailIn>;
+
+/** Что получает воркер при claim пересборки: `rooms` — накопленные снятые комнаты задания вместе с этой пересборкой ("*" — все),
+ *  `result` — сохранённый результат стен из Postgres (рабочие папки DEV чистятся по сроку). */
+export type TrialRebuildClaimed = {
+  id: string; jobId: string; attempt: number; leaseToken: string; leaseUntil: string; rooms: string[]; baseVersion: number;
+  result: unknown;
+};
 export const trialHeartbeatIn = z.object({ ...lease, stage: trialStage, spentUsd: spent });
 export const trialResultIn = z.object({ ...lease, result: z.unknown(), spentUsd: spent });
 export const trialFailIn = z.object({

@@ -2,6 +2,7 @@ import { foreignOrigin } from "@/lib/http/origin";
 import { guard } from "@/lib/ratelimit/http";
 import { randomToken } from "@/lib/token";
 import { trialDir } from "@/lib/trial/config";
+import { newEditKey } from "@/lib/trial/edit-key";
 import { fail, trialJson } from "@/lib/trial/http";
 import { admissionPrecheck, commitUpload, type Admission } from "@/lib/trial/repo-create";
 import { receiveUpload } from "@/lib/trial/upload";
@@ -27,12 +28,14 @@ export async function POST(req: Request): Promise<Response> {
   const dir = trialDir();
   const up = await receiveUpload(req, dir, id);
   if (!up.ok) return fail(up.status, up.error);
+  const edit = newEditKey();
   let verdict: Admission;
   try {
-    verdict = await commitUpload(up, id, dir);
+    verdict = await commitUpload(up, id, dir, process.env, edit.hash);
   } catch {
     return fail(500, "internal");
   }
   if (verdict !== "ok") return REFUSE[verdict]();
-  return trialJson({ ok: true, id, url: `/try/${id}` }, 201);
+  // ключ правки — ЕДИНСТВЕННЫЙ раз наружу: в ответе загрузки и в ссылке агента (`?k=`); дальше его знает только ссылка
+  return trialJson({ ok: true, id, url: `/try/${id}?k=${edit.key}`, editKey: edit.key }, 201);
 }

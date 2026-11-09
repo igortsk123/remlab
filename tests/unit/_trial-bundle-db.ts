@@ -25,6 +25,7 @@ export const bundleOf = (id: string, over: Record<string, unknown> = {}): Record
   variants: [{ id: "trial-living", room_id: "living", style: "scandi", items: [], pending: true, furniture_state: "pending" }],
   feeds: {}, rules: {}, quiz: { questions: [{ id: "style" }] }, ...over,
 });
+const PIN_OK = async (): Promise<"exists"> => "exists"; // закрепление страницы — своим тестом ниже
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const ids = (id: string) => ({ params: Promise.resolve({ id }) });
 
@@ -32,7 +33,7 @@ export function bundleDbTests(c: () => Ctx): void {
   describe("данные страницы задания", () => {
     const pub = (await_: { id: string; attempt: number; leaseToken: string }, n = 1) => {
       const json = JSON.stringify(bundleOf(await_.id, { rev: n }));
-      return import("@/lib/trial/repo-bundle").then((m) => m.publishBundle(await_, json, sha(json), c().dir));
+      return import("@/lib/trial/repo-bundle").then((m) => m.publishBundle(await_, json, sha(json), c().dir, PIN_OK));
     };
     const started = async () => {
       const { id } = await c().seed();
@@ -59,8 +60,8 @@ export function bundleDbTests(c: () => Ctx): void {
 
     it("пустая → с мебелью: версия растёт, задание идёт; итог не сбрасывает данные страницы", async () => {
       const f = await started();
-      expect(await pub(f, 1)).toEqual({ version: 1, repeated: false });
-      expect(await pub(f, 2)).toEqual({ version: 2, repeated: false });
+      expect(await pub(f, 1)).toEqual({ version: 1, repeated: false, release: "exists" });
+      expect(await pub(f, 2)).toEqual({ version: 2, repeated: false, release: "exists" });
       expect(await c().row(f.id)).toMatchObject({ status: "running", bundle_version: 2, result_version: 2 });
       await c().repo.acceptResult(f, JSON.stringify(sampleResult()), "r".repeat(64));
       expect(await c().row(f.id)).toMatchObject({ status: "done", bundle_version: 2, result_version: 3 });
@@ -77,7 +78,7 @@ export function bundleDbTests(c: () => Ctx): void {
     it("повтор того же содержимого — без новой версии и без файла", async () => {
       const f = await started();
       await pub(f, 1);
-      expect(await pub(f, 1)).toEqual({ version: 1, repeated: true });
+      expect(await pub(f, 1)).toEqual({ version: 1, repeated: true, release: "exists" });
       expect(await listing(f.id)).toEqual(["bundle-1.json"]);
       expect(await c().row(f.id)).toMatchObject({ bundle_version: 1, result_version: 1 });
     });
@@ -90,7 +91,7 @@ export function bundleDbTests(c: () => Ctx): void {
       const b = (await c().repo.claim("w2"))!;
       expect(await pub(f, 2)).toBe("lease_lost");
       const g = { id: f.id, attempt: 2, leaseToken: b.leaseToken };
-      expect(await pub(g, 3)).toEqual({ version: 1, repeated: false });
+      expect(await pub(g, 3)).toEqual({ version: 1, repeated: false, release: "exists" });
       expect(await pub(f, 4)).toBe("lease_lost");
       expect(await listing(f.id)).toEqual(["bundle-1.json"]);
       await c().repo.acceptResult(g, JSON.stringify(sampleResult()), "r".repeat(64));
@@ -112,7 +113,7 @@ export function bundleDbTests(c: () => Ctx): void {
       await expect(pub(f, 1)).rejects.toThrow();
       expect(await c().row(f.id)).toMatchObject({ bundle_version: 0, result_version: 0 });
       await fs.rm(path.join(c().dir, f.id));
-      expect(await pub(f, 1)).toEqual({ version: 1, repeated: false });
+      expect(await pub(f, 1)).toEqual({ version: 1, repeated: false, release: "exists" });
     });
 
     it("чтение: нет задания / ещё нет данных — 404, версия и 304, заголовки, неисправный id", async () => {
@@ -172,6 +173,40 @@ export function bundleDbTests(c: () => Ctx): void {
       expect((await post({ ...ok, bundle: big, sha256: sha(big) })).status).toBe(413);
       expect(await listing(f.id)).toEqual([]);
       expect(await (await post(ok)).json()).toMatchObject({ ok: true, version: 1, repeated: false });
+    });
+
+    it("первая принятая версия закрепляет страницу тура (один раз); сбой закрепления — warning, версия данных не теряется", async () => {
+      const demo = path.join(c().dir, "..", `demo-${process.pid}`);
+      await fs.mkdir(path.join(demo, "lib"), { recursive: true });
+      await fs.writeFile(path.join(demo, "index.html"), "<html><head></head><body>tour</body></html>");
+      await fs.writeFile(path.join(demo, "lib", "scene.json"), JSON.stringify({ file: "scene.abc123.js" }));
+      await fs.writeFile(path.join(demo, "lib", "scene.abc123.js"), "// scene");
+      await fs.writeFile(path.join(demo, "rt-meshes.json"), "{}");
+      const { publishBundle } = await import("@/lib/trial/repo-bundle");
+      const { ensureJobRelease } = await import("@/lib/trial/tour-bundle");
+      const pin = (id: string, d: string) => ensureJobRelease(id, d, demo);
+      const text = (id: string, n: number) => JSON.stringify(bundleOf(id, { rev: n }));
+      const f = await started();
+      expect(await publishBundle(f, text(f.id, 1), sha(text(f.id, 1)), c().dir, pin)).toMatchObject({ version: 1, release: "pinned" });
+      const rel = (await fs.readFile(path.join(c().dir, f.id, "release"), "utf8")).trim();
+      expect(rel).toMatch(/^[a-f0-9]{32}$/);
+      expect(await publishBundle(f, text(f.id, 2), sha(text(f.id, 2)), c().dir, pin)).toMatchObject({ version: 2, release: "exists" });
+      expect((await fs.readFile(path.join(c().dir, f.id, "release"), "utf8")).trim()).toBe(rel);
+
+      const g = await started();
+      const boom = async (): Promise<never> => { throw new Error("no showcase"); };
+      expect(await publishBundle(g, text(g.id, 1), sha(text(g.id, 1)), c().dir, boom)).toMatchObject({ version: 1, release: "failed" });
+      expect(await c().row(g.id)).toMatchObject({ bundle_version: 1 });
+      process.env.DEMO_DIR = path.join(demo, "missing");
+      const t2 = text(g.id, 2);
+      const viaRoute = await post({ ...g, bundle: t2, sha256: sha(t2) });
+      expect(await viaRoute.json()).toMatchObject({ ok: true, version: 2, warning: "release_pin_failed" });
+      process.env.DEMO_DIR = demo;
+      const t3 = text(g.id, 3);
+      expect(await (await post({ ...g, bundle: t3, sha256: sha(t3) })).json()).toEqual({ ok: true, version: 3, repeated: false });
+      expect((await fs.readFile(path.join(c().dir, g.id, "release"), "utf8")).trim()).toBe(rel);
+      delete process.env.DEMO_DIR;
+      await fs.rm(demo, { recursive: true, force: true });
     });
 
     it("срок: папка удаляется, 410; неудача удаления — повтор уборкой сирот; папка живого задания цела", async () => {

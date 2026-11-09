@@ -31,5 +31,12 @@ export const trialFileHours = (env = process.env) => envInt(env.TRIAL_FILE_RETEN
 /** Результат — 30 дней (потом 410). */
 export const trialResultDays = (env = process.env) => envInt(env.TRIAL_RESULT_RETENTION_DAYS, 30, 365);
 
+/** «Обустроить» (план agent-trial-08, Р1): пересборок на одно задание за сутки — DEV тратит минуты машины, не деньги. */
+export const trialRebuildDaily = (env = process.env) => envInt(env.TRIAL_REBUILD_DAILY, 10, 100);
+/** Квота приоритета: пересборки идут раньше новых загрузок, но не больше стольких подряд, пока загрузка ждёт. */
+export const trialRebuildQuota = (env = process.env) => envInt(env.TRIAL_REBUILD_QUOTA, 2, 20);
+/** Витрина `/demo` в контейнере приложения (docker-compose: `./demo:/srv/demo:ro`) — источник закреплённой страницы тура. */
+export const trialDemoDir = (env = process.env): string => env.DEMO_DIR || "/srv/demo";
+
 /** Заголовки всех ответов пробы: ключ ссылки не уходит в Referer и не оседает в кэшах. */
 export const TRIAL_HEADERS = { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } as const;

@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { TrialJobView } from "@/contracts/trial";
 import { bundleProblem, trialBundle } from "@/contracts/trial-bundle";
-import { pinJobRelease, pinRelease, writeTourData } from "@/lib/trial/tour-bundle";
+import { ensureJobRelease, pinJobRelease, pinRelease, writeTourData } from "@/lib/trial/tour-bundle";
 import { jobDir, releaseDir } from "@/lib/trial/tour-files";
 import { injectTour, tourLinks } from "@/lib/trial/tour-page";
 import { tourResponse, tourTarget } from "@/lib/trial/tour";
@@ -57,6 +57,30 @@ describe("тур пробы: вставка песочницы", () => {
   it("две ссылки задания: агент без опроса, покупатель с опросом", () => {
     expect(tourLinks(ID)).toEqual({ agent: `/try/${ID}/tour/?quiz=0`, buyer: `/try/${ID}/tour/?quiz=1` });
   });
+  it("ключ правки — только в ссылке агента; кривой ключ не переносится", () => {
+    const k = "K".repeat(22);
+    expect(tourLinks(ID, k)).toEqual({ agent: `/try/${ID}/tour/?quiz=0&k=${k}`, buyer: `/try/${ID}/tour/?quiz=1` });
+    expect(tourLinks(ID, "<x>").agent).toBe(`/try/${ID}/tour/?quiz=0`);
+  });
+  it("песочница пропускает только «Обустроить» этого задания и только через fetch", async () => {
+    const boot = injectTour(html, ID).match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+    const seen: string[] = [];
+    const store = new Map<string, string>();
+    class FakeStorage { getItem(k: string) { return store.get(k) ?? null; } setItem(k: string, v: string) { store.set(k, v); }
+      removeItem(k: string) { store.delete(k); } key() { return null; } get length() { return 0; } }
+    const win: Record<string, unknown> = { fetch: async (u: string) => { seen.push(String(u)); return new Response("{}"); } };
+    const nav = { sendBeacon: (u: string) => { seen.push(`beacon:${u}`); return true; } };
+    const loc = { origin: "https://x.test", pathname: `/try/${ID}/tour/`, search: "", hash: "" };
+    new Function("window", "Storage", "history", "location", "navigator", "document", "URL", "Response", boot)(
+      win, FakeStorage, { replaceState: () => undefined, state: null }, loc, nav, { baseURI: "https://x.test/try/" }, URL, Response);
+    const f = win.fetch as (u: string) => Promise<Response>;
+    expect((await f(`/api/trial/${ID}/rebuild`)).status).toBe(200);
+    expect((await f(`/api/trial/${OTHER}/rebuild`)).status).toBe(403);
+    expect((await f(`/api/trial/${ID}/rebuild?x=1`)).status).toBe(403);
+    expect((await f(`/api/trial/${ID}`)).status).toBe(403);
+    (nav.sendBeacon as (u: string) => boolean)(`/api/trial/${ID}/rebuild`);
+    expect(seen).toEqual([`/api/trial/${ID}/rebuild`]);
+  });
   it("мусор в id — отказ", () => {
     expect(() => injectTour(html, "<script>")).toThrow();
     expect(() => injectTour("<p>no head</p>", ID)).toThrow();
@@ -99,7 +123,7 @@ describe("тур пробы: ответы и закреплённая верси
     const r = await get(["version.json"]);
     expect(r.status).toBe(200);
     expect(r.headers.get("cache-control")).toBe("private, no-store");
-    expect(await r.json()).toEqual({ version: 7 });
+    expect(await r.json()).toMatchObject({ version: 7 });
     expect((await tourResponse(ID, ["version.json"], { view: async () => "expired", dir })).status).toBe(410);
   });
 
@@ -166,6 +190,26 @@ describe("тур пробы: ответы и закреплённая верси
     mkdirSync(jd, { recursive: true });
     writeFileSync(join(jd, "release"), "../../etc\n");
     expect((await tourResponse("bad0000000000000000000", [], { view, dir })).status).toBe(404);
+  });
+
+  it("данные — последняя версия по манифесту (ETag = база «Обустроить»), без версий — запасной demo-data.json", async () => {
+    const r = await tourResponse(ID, ["demo-data.json"], { view, dir, latest: async () => ({ version: 3, json: '{"rev":3}' }) });
+    expect(r.headers.get("etag")).toBe('"v3"');
+    expect(await r.json()).toEqual({ rev: 3 });
+    const old = await tourResponse(ID, ["demo-data.json"], { view, dir, latest: async () => "not_ready" });
+    expect(old.headers.get("etag")).toBe('"v0"');
+    expect((await old.json()).trial.id).toBe(ID);
+  });
+
+  it("закрепление страницы при первой версии: гонка трёх публикаций — один release; повтор — exists; нет витрины — ошибка", async () => {
+    const J = "PinPinPinPinPinPinPinA";
+    const got = await Promise.all([1, 2, 3].map(() => ensureJobRelease(J, dir, demo)));
+    expect(got.filter((x) => x === "pinned")).toHaveLength(1);
+    expect(readFileSync(join(dir, J, "release"), "utf8").trim()).toBe(release);
+    expect(await ensureJobRelease(J, dir, demo)).toBe("exists");
+    expect((await tourResponse(J, [], { view, dir })).status).toBe(200);
+    await expect(ensureJobRelease("PinPinPinPinPinPinPinB", dir, join(root, "no-demo"))).rejects.toThrow();
+    expect(existsSync(join(dir, "PinPinPinPinPinPinPinB", "release"))).toBe(false);
   });
 
   it("копия версии целая: index, сцена, корзина, модели", () => {

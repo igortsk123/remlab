@@ -4,10 +4,10 @@ import { promises as fs } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 
-import { trialDir } from "@/lib/trial/config";
+import { trialDemoDir, trialDir } from "@/lib/trial/config";
 import { validId } from "@/lib/trial/http";
 import { tourTarget } from "@/lib/trial/tour";
-import { RELEASE_RE, jobDir, releaseDir } from "@/lib/trial/tour-files";
+import { RELEASE_RE, jobDir, jobRelease, releaseDir } from "@/lib/trial/tour-files";
 
 async function write(file: string, data: Buffer | string): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true });
@@ -49,6 +49,32 @@ export async function pinRelease(demoDir: string, dir = trialDir()): Promise<str
 export async function pinJobRelease(id: string, release: string, dir = trialDir()): Promise<void> {
   if (!validId(id) || !RELEASE_RE.test(release)) throw new Error("bad id or release");
   await write(path.join(jobDir(dir, id), "release"), `${release}\n`);
+}
+
+/** Закрепить, ТОЛЬКО если у задания ещё нет версии: жёсткая ссылка не заменяет существующий файл, поэтому гонка двух публикаций
+ *  даёт один `release` (вторая получает EEXIST → "exists"). → true — закрепили мы. */
+async function pinJobReleaseOnce(id: string, release: string, dir: string): Promise<boolean> {
+  if (!validId(id) || !RELEASE_RE.test(release)) throw new Error("bad id or release");
+  const d = jobDir(dir, id);
+  const tmp = path.join(d, `.release.${randomBytes(6).toString("hex")}.tmp`);
+  await write(tmp, `${release}\n`);
+  try {
+    await fs.link(tmp, path.join(d, "release"));
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw e;
+  } finally {
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
+  }
+}
+
+/** Принята версия данных задания — страница тура должна открываться: нет `<id>/release` → закрепить текущую витрину
+ *  (`DEMO_DIR`, на проде `/srv/demo`). Уже есть — ничего (повторная публикация, пересборка). Ошибка — исключение наверх. */
+export async function ensureJobRelease(id: string, dir = trialDir(), demoDir = trialDemoDir()): Promise<"pinned" | "exists"> {
+  if (await jobRelease(dir, id)) return "exists";
+  const name = await pinRelease(demoDir, dir);
+  return (await pinJobReleaseOnce(id, name, dir)) ? "pinned" : "exists";
 }
 
 /** Положить данные задания атомарно (страница не увидит половину JSON). Временная запись до вливания ветки данных — для проверок и фикстур. */

@@ -3,6 +3,7 @@
 
 import { constants, promises as fs } from "node:fs";
 import path from "node:path";
+import type { LatestBundle } from "@/lib/trial/repo-bundle";
 
 export const RELEASE_RE = /^[a-f0-9]{16,64}$/;
 
@@ -32,6 +33,11 @@ export async function jobRelease(dir: string, id: string): Promise<string | null
   return RELEASE_RE.test(name) ? name : null;
 }
 
-/** Текущий `demo-data.json` задания. Единственное место чтения данных: при вливании ветки данных заменяется на `bundle-N.json` по манифесту. */
-export const readTourData = (dir: string, id: string): Promise<Buffer | null> =>
-  readRegular(path.join(jobDir(dir, id), "demo-data.json"));
+/** Данные страницы задания: последняя опубликованная версия по манифесту (`latestBundle`, `bundle-N.json`) — её номер уходит в ETag
+ *  (страница отправляет его как `base_version` кнопки «Обустроить»); версий нет — запасной `demo-data.json` (фикстуры, ручная выкладка). */
+export async function readTourData(dir: string, id: string, latest: (id: string, dir: string) => Promise<LatestBundle>): Promise<{ body: Buffer; version: number } | null> {
+  const got = await latest(id, dir);
+  if (typeof got === "object") return { body: Buffer.from(got.json, "utf8"), version: got.version };
+  const old = await readRegular(path.join(jobDir(dir, id), "demo-data.json"));
+  return old ? { body: old, version: 0 } : null;
+}

@@ -33,7 +33,8 @@ export async function admissionPrecheck(env = process.env): Promise<Admission> {
   return decide(c, env);
 }
 
-export async function commitUpload(staged: Staged, id: string, dir: string, env = process.env): Promise<Admission> {
+/** `editKeyHash` — sha256 ключа правки агента (`lib/trial/edit-key.ts`); сам ключ в базу не попадает. */
+export async function commitUpload(staged: Staged, id: string, dir: string, env = process.env, editKeyHash: string | null = null): Promise<Admission> {
   const finalPath = path.join(dir, inputName(id, staged.mime));
   let renamed = false;
   try {
@@ -44,7 +45,7 @@ export async function commitUpload(staged: Staged, id: string, dir: string, env 
       if (v !== "ok") return v;
       await tx.insert(trialJobs).values({
         id, inputHash: staged.inputHash, inputPath: path.basename(finalPath), inputMime: staged.mime, inputBytes: staged.bytes,
-        listingText: staged.listing, consentVersion: POLICY_VERSION,
+        listingText: staged.listing, consentVersion: POLICY_VERSION, editKeyHash,
       });
       await fs.rename(staged.partPath, finalPath);
       renamed = true;

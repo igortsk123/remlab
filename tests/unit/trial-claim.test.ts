@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type postgresT from "postgres";
 
 import { bundleDbTests } from "./_trial-bundle-db";
+import { rebuildDbTests } from "./_trial-rebuild-db";
 import { png, sampleResult } from "./_trial-helpers";
 
 // Очередь пробы на НАСТОЯЩЕЙ Postgres (agent-trial-01, T-A; поправки Codex 09.11): гонки claim, ограждение аренды
@@ -388,4 +389,5 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
   });
 
   bundleDbTests(() => ({ pg, repo: L.repo, seed, row, expire, dir: DIR, token: TOKEN }));
+  rebuildDbTests(() => ({ pg, repo: L.repo, seed, row, dir: DIR, token: TOKEN }));
 });

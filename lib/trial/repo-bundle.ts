@@ -11,14 +11,28 @@ import { validId } from "@/lib/trial/http";
 import { fence, spentSet } from "@/lib/trial/repo-worker";
 import { rows } from "@/lib/trial/sql";
 import { trialDir } from "@/lib/trial/config";
+import { ensureJobRelease } from "@/lib/trial/tour-bundle";
 
-const KEEP_VERSIONS = 2; // предыдущая остаётся: страница могла только что узнать её номер
+export const KEEP_VERSIONS = 2; // предыдущая остаётся: страница могла только что узнать её номер
 
-type Published = { version: number; repeated: boolean };
+/** `release` — закрепление страницы тура (`ensureJobRelease`): "failed" — версия данных принята, но тур не откроется, пока не закрепят. */
+export type Published = { version: number; repeated: boolean; release?: "pinned" | "exists" | "failed" };
 type Row = { bundle_version: number; bundle_hash: string | null; result_version: number };
+
+/** После принятой версии: у задания должна быть закреплённая страница (ведущий 09.11: без неё тур на проде не откроется). Сбой
+ *  закрепления версию данных не отменяет — код в ответе воркеру и строка в журнале приложения; следующая публикация попробует снова. */
+export async function pinAfterPublish(id: string, dir: string, pin = ensureJobRelease): Promise<"pinned" | "exists" | "failed"> {
+  try {
+    return await pin(id, dir);
+  } catch (e) {
+    console.error(`trial ${id}: release_pin_failed ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
+    return "failed";
+  }
+}
 
 export async function publishBundle(
   f: Pick<TrialBundleIn, "id" | "attempt" | "leaseToken" | "spentUsd">, json: string, hash: string, dir = trialDir(),
+  pin = ensureJobRelease,
 ): Promise<Published | "lease_lost"> {
   const out = await db().transaction(async (tx): Promise<Published | "lease_lost"> => {
     const got = (await tx.execute(sql`select bundle_version, bundle_hash, result_version from trial_jobs where ${fence(f)} for update`)) as unknown as Row[];
@@ -32,8 +46,9 @@ export async function publishBundle(
         ${spentSet(f.spentUsd)} where ${fence(f)} returning id`)) as unknown as { id: string }[];
     return done.length ? { version: next, repeated: false } : "lease_lost";
   });
-  if (out !== "lease_lost" && !out.repeated) await pruneBundles(dir, f.id, out.version - KEEP_VERSIONS + 1).catch(() => undefined);
-  return out;
+  if (out === "lease_lost") return out;
+  if (!out.repeated) await pruneBundles(dir, f.id, out.version - KEEP_VERSIONS + 1).catch(() => undefined);
+  return { ...out, release: await pinAfterPublish(f.id, dir, pin) };
 }
 
 type Info = { status: string; bundle_version: number; past_term: boolean };

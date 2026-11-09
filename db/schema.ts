@@ -545,6 +545,9 @@ export const trialJobs = pgTable(
     resultVersion: integer("result_version").notNull().default(0),
     bundleVersion: integer("bundle_version").notNull().default(0),
     bundleHash: text("bundle_hash"),
+    // «Обустроить» (`db/init/024-trial-rebuilds.sql`): sha256 ключа правки агента и накопленные комнаты, снятые с проверки размера
+    editKeyHash: text("edit_key_hash"),
+    releasedRooms: jsonb("released_rooms").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
@@ -567,3 +570,34 @@ export const trialWorkers = pgTable("trial_workers", {
   lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
   version: text("version"),
 });
+
+// Очередь «Обустроить» (`db/init/024-trial-rebuilds.sql`; запросы — `lib/trial/repo-rebuild.ts`, сырой SQL): своя аренда и ограждение,
+// одна активная на задание, повтор `request_id` — та же строка.
+export const trialRebuilds = pgTable(
+  "trial_rebuilds",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id").notNull().references(() => trialJobs.id, { onDelete: "cascade" }),
+    requestId: text("request_id").notNull(),
+    rooms: jsonb("rooms").$type<string[]>().notNull(),
+    baseVersion: integer("base_version").notNull(),
+    status: text("status").notNull().default("queued"),
+    attempt: integer("attempt").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(2),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    leaseToken: text("lease_token"),
+    workerId: text("worker_id"),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    errorCode: text("error_code"),
+    errorDetail: text("error_detail"),
+    bundleHash: text("bundle_hash"),
+    resultVersion: integer("result_version"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("trial_rebuilds_queue_idx").on(t.status, t.createdAt),
+    index("trial_rebuilds_job_idx").on(t.jobId, t.createdAt),
+  ],
+);

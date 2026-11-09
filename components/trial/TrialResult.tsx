@@ -40,7 +40,9 @@ function useSummary(id: string, version: number): Summary | null {
 
 export function TrialResult({ id, job, lang, steps }: { id: string; job: TrialJobView; lang: TrialLang; steps: WaitStep[] }) {
   const t = textOf(lang);
-  const href = tourHref(id, lang);
+  // ключ правки агента едет из его ссылки `/try/<id>?k=…` в тур — без него «Обустроить» на странице нет (только просмотр)
+  const k = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("k");
+  const href = tourHref(id, lang, k);
   const sum = useSummary(id, job.resultVersion);
   useEffect(() => {
     const go = setTimeout(() => window.location.replace(href), OPEN_TOUR_DELAY_MS);

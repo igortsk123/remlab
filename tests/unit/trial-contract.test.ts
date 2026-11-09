@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { floorplanResult, trialJobView } from "@/contracts/trial";
+import { floorplanResult, trialJobView, trialRebuildIn } from "@/contracts/trial";
 import { POST as claimPost } from "@/app/api/trial/worker/claim/route";
 import { GET as inputGet } from "@/app/api/trial/worker/[id]/input/route";
 import { workerAuth } from "@/lib/trial/auth";
@@ -45,9 +45,22 @@ describe("floorplanResult (Zod)", () => {
     const v = trialJobView.parse({
       id: "x", status: "queued", stage: "queued", stages: [], createdAt: "t", finishedAt: null, elapsedSec: 0, queueAhead: 0,
       workerAlive: false, errorCode: null, resultVersion: 0, bundleVersion: 0, inputPath: "secret.png", leaseToken: "tok", listingText: "x",
+      editKeyHash: "h".repeat(64), editKey: "K".repeat(22),
     });
     expect(Object.keys(v).sort()).toEqual(
-      ["bundleVersion", "createdAt", "elapsedSec", "errorCode", "finishedAt", "id", "queueAhead", "resultVersion", "stage", "stages", "status", "workerAlive"]);
+      ["bundleVersion", "createdAt", "elapsedSec", "errorCode", "finishedAt", "id", "queueAhead", "rebuild", "rebuildError", "resultVersion", "stage",
+        "stages", "status", "workerAlive"]);
+    expect(v).toMatchObject({ rebuild: null, rebuildError: null });
+  });
+
+  it("«Обустроить»: тело кнопки — ключ, повтор, версия, комнаты или all; лишнее и кривое — отказ", () => {
+    const ok = { k: "K".repeat(22), request_id: "req-00000001", base_version: 3, rooms: ["living", "bedroom-1"] };
+    expect(trialRebuildIn.safeParse(ok).success).toBe(true);
+    expect(trialRebuildIn.safeParse({ ...ok, rooms: "all" }).success).toBe(true);
+    for (const bad of [{ ...ok, k: "short" }, { ...ok, rooms: [] }, { ...ok, rooms: ["../x"] }, { ...ok, rooms: "some" },
+      { ...ok, base_version: 0 }, { ...ok, request_id: "x" }]) {
+      expect(trialRebuildIn.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    }
   });
 });
 

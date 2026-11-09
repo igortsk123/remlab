@@ -7,11 +7,15 @@ import { TOKEN_RE } from "@/lib/token";
 /** Что нельзя делать со страницы пробы никогда: любые ручки `/api/*` (кадры, заявка менеджеру, коллекции, счётчики) и реестр кадров. */
 const BLOCK = String.raw`/^\/(?:api|test\/share)(?:\/|$)/`;
 
-/** Две ссылки задания: агент смотрит без опроса, покупатель начинает с опроса. Выдача — страница ожидания, следующий шаг плана. */
-export const tourLinks = (id: string): { agent: string; buyer: string } => ({
-  agent: `/try/${id}/tour/?quiz=0`,
+/** Две ссылки задания: агент смотрит без опроса, покупатель начинает с опроса. Ключ правки `k` (Р1) — только в ссылке агента
+ *  (тот же порядок строит страница, `trialLinks` в `index.html`); покупатель его никогда не получает. */
+export const tourLinks = (id: string, k?: string | null): { agent: string; buyer: string } => ({
+  agent: `/try/${id}/tour/?quiz=0${k && TOKEN_RE.test(k) ? `&k=${k}` : ""}`,
   buyer: `/try/${id}/tour/?quiz=1`,
 });
+
+/** Единственная ручка `/api/*`, которую песочница пропускает, — «Обустроить» ЭТОГО задания и только через fetch (право — ключом на сервере). */
+export const rebuildPath = (id: string): string => `/api/trial/${id}/rebuild`;
 
 /** `version` — номер результата на момент отдачи HTML: страница опрашивает `version.json` и обновляется, когда он вырастет. */
 export function injectTour(html: string, id: string, version = 0): string {
@@ -32,9 +36,10 @@ P.key=function(i){var k=own(this)[i];return k==null?null:k.slice(PRE.length);};
 P.clear=function(){own(this).forEach(function(k){R.call(this,k);},this);};
 Object.defineProperty(P,'length',{configurable:true,enumerable:true,get:function(){return own(this).length;}});
 var BLOCK=${BLOCK};
-function bad(u){try{var x=new URL(String(u),document.baseURI);return x.origin===location.origin&&BLOCK.test(x.pathname);}catch(e){return false;}}
+var OK=${JSON.stringify(rebuildPath(id))};
+function bad(u,ok){try{var x=new URL(String(u),document.baseURI);return x.origin===location.origin&&BLOCK.test(x.pathname)&&!(ok&&x.pathname===OK&&!x.search);}catch(e){return false;}}
 var F=window.fetch;
-window.fetch=function(i,o){if(bad(i&&i.url||i))return Promise.resolve(new Response('{"ok":false,"error":"trial"}',{status:403,headers:{'content-type':'application/json'}}));return F.call(window,i,o);};
+window.fetch=function(i,o){if(bad(i&&i.url||i,1))return Promise.resolve(new Response('{"ok":false,"error":"trial"}',{status:403,headers:{'content-type':'application/json'}}));return F.call(window,i,o);};
 if(navigator.sendBeacon){var B=navigator.sendBeacon.bind(navigator);navigator.sendBeacon=function(u,d){return bad(u)?true:B(u,d);};}
 })();</script>`;
   const at = m.index + m[0].length;
