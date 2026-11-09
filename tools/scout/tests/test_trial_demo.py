@@ -259,6 +259,7 @@ def _assert_openings_contract(s: dict) -> None:
 
 def test_scene_always_has_openings_core_for_hero(tmp_path, monkeypatch):
     monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
     s = TD.build('h1', plan(), sets=bank(), solver=fake_solver(), pick=lambda sets, band: [1, 2] if band == '17-20' else [])
     assert s['status'] in ('ok', 'partial')
     _assert_openings_contract(json.load(open(os.path.join(s['out'], 'scene.json'), encoding='utf-8')))
@@ -267,6 +268,7 @@ def test_scene_always_has_openings_core_for_hero(tmp_path, monkeypatch):
 def test_openings_core_present_when_first_geometry_failed(tmp_path, monkeypatch):
     """Первая геометрия не расставлена, вторая — да: сцена `partial`, а проёмы ядра на месте (они не зависят от мебели)."""
     monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
     good = fake_solver()
 
     def half(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=1):
@@ -324,7 +326,7 @@ def test_failed_layout_is_reported_not_empty_ok(tmp_path, monkeypatch):
         return {'rc': 0, 'seconds': 0.0, 'artifact': path, 'openings': [], 'stderr': '',
                 'art': {'_infeasible_reason': {'code': 'MEDIA_MISSING'}}, 'missing': []}
     s = TD.build('t3', plan(), sets=bank(), solver=never, pick=lambda sets, band: [1, 2] if band == '17-20' else [])
-    assert s['status'] == 'failed' and s['problems'][0]['code'] == 'solver_failed'
+    assert s['status'] == 'no_products' and s['problems'][0]['code'] == 'solver_failed'
 
 
 def test_refusal_written_as_scene(tmp_path, monkeypatch):
@@ -361,7 +363,7 @@ def test_outcome_ready(tmp_path, monkeypatch):
     no_hard(monkeypatch)
     s = TD.build('o1', plan(), sets=bank(), solver=fake_solver(), pick=_pick12)
     disk = json.load(open(os.path.join(s['out'], 'scene.json'), encoding='utf-8'))
-    assert disk['outcome']['state'] == 'ready' and disk['outcome']['code'] is None
+    assert disk['outcome']['state'] == 'furnished' and disk['outcome']['code'] is None
     assert disk['outcome']['styles_ok'] == disk['outcome']['styles_total'] == 2
 
 
@@ -370,10 +372,11 @@ def test_outcome_refused_scale_not_verified(tmp_path, monkeypatch):
     p = plan()
     p['scale']['status'] = 'not_verified'
     s = TD.build('o2', p, sets=bank(), solver=fake_solver(), pick=_pick12)
-    assert s['outcome']['state'] == 'refused' and s['outcome']['code'] == 'scale_unverified' and s['outcome']['detail']
+    assert s['outcome']['state'] == 'refused' and s['outcome']['code'] == 'scale_unverified'
+    assert 'detail' not in s['outcome']                            # исход — кодами, текст на языке подставит страница
 
 
-def test_outcome_refused_solver_failed(tmp_path, monkeypatch):
+def test_outcome_no_products_when_no_layout(tmp_path, monkeypatch):
     monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
 
     def never(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=1):
@@ -382,7 +385,7 @@ def test_outcome_refused_solver_failed(tmp_path, monkeypatch):
         json.dump(art, open(path, 'w', encoding='utf-8'))
         return {'rc': 0, 'seconds': 0.0, 'artifact': path, 'openings': [], 'stderr': '', 'art': art, 'missing': []}
     s = TD.build('o3', plan(), sets=bank(), solver=never, pick=_pick12)
-    assert s['outcome']['state'] == 'refused' and s['outcome']['code'] == 'solver_failed' and s['outcome']['detail']
+    assert s['outcome']['state'] == 'no_products' and s['outcome']['code'] == 'solver_failed'
 
 
 def test_outcome_partial_names_lost_styles():
@@ -390,7 +393,8 @@ def test_outcome_partial_names_lost_styles():
              'variants': [{'style': 'сканди', 'post_ok': True, 'hard': [], 'problems': []},
                           {'style': 'лофт', 'post_ok': False, 'hard': [], 'problems': [{'code': 'layout_failed'}]}]}
     o = TD.outcome_of(scene)
-    assert o['state'] == 'partial' and o['code'] == 'styles_missing' and 'лофт' in o['detail'] and 'layout_failed' in o['detail']
+    assert o['state'] == 'furnished' and o['code'] == 'styles_missing' and o['styles_missing'] == ['лофт']
+    assert 'layout_failed' in o['codes']
     assert (o['styles_ok'], o['styles_total']) == (1, 2)
 
 
@@ -443,7 +447,7 @@ def test_queue_timeout_is_honest_refusal(tmp_path, monkeypatch):
         def __exit__(self, *a):
             return False
     s = TD.build('q2', plan(), sets=bank(), solver=fake_solver(), pick=_pick12, slot=Slot)
-    assert s['status'] == 'failed' and s['outcome']['state'] == 'refused' and s['outcome']['code'] == 'queue_timeout'
+    assert s['status'] == 'failed' and s['outcome']['state'] == 'failed' and s['outcome']['code'] == 'queue_timeout'
 
 
 def test_style_with_hard_after_substitution_gets_own_layout_or_is_hidden(tmp_path, monkeypatch):
@@ -464,7 +468,7 @@ def test_style_with_hard_after_substitution_gets_own_layout_or_is_hidden(tmp_pat
     assert by['лофт'].get('failed') and by['лофт']['placements_core'] == [] and by['лофт']['hard'] == []
     assert by['лофт']['problems'][0]['code'] == 'style_rejected' and 'WINDOW_BLOCKED' in by['лофт']['problems'][0]['why']
     assert by['сканди']['post_ok'] and by['сканди']['items']
-    assert s['outcome']['state'] == 'partial' and s['outcome']['styles_ok'] == 1
+    assert s['outcome']['state'] == 'furnished' and s['outcome']['code'] == 'styles_missing' and s['outcome']['styles_ok'] == 1
 
 
 def test_chair_at_window_is_dropped_but_last_chair_is_kept(monkeypatch):
@@ -495,3 +499,179 @@ def test_real_solver_writes_only_trial_dir(tmp_path, monkeypatch):
     assert any(v['items'] for v in s['variants'])
     lay = os.listdir(os.path.join(s['out'], 'layouts'))
     assert lay and all(f.startswith('v3set') and '-trial-' in f for f in lay)
+
+
+# ───────────────────────── 7) T-12/2: к настоящей стене, модели, фото ковра, выход без магазина, «нет товаров» ─────────────────────────
+
+NICHE = [(0, 0), (500, 0), (500, 400), (0, 400), (0, 300), (-50, 300), (-50, 100), (0, 100)]   # ниша 50 см на западе, y 100–300
+
+
+def _niche():
+    from shapely.geometry import Polygon
+    ad = {'poly': Polygon(NICHE), 'ops': []}
+    cand = {'rect': [0, 0, 500, 400], 'w': 500.0, 'd': 400.0, 'residues': []}
+    return ad, cand
+
+
+def _wall_item(role, x, y, w, d, back=(-1, 0)):
+    return Placement(role=role, x=x, y=y, rot=_facing(-back[0], -back[1]), item=Item(role=role, w_cm=w, d_cm=d, h_cm=55))
+
+
+def test_push_to_real_wall_of_niche(monkeypatch):
+    """Тумба ТВ у стороны ядра над нишей — едет спинкой к настоящей стене (тот же зазор), ТВ — с ней; у настоящей стены — не трогаем."""
+    monkeypatch.setattr(TD, 'hard_of', lambda room, ps: [])
+    ad, cand = _niche()
+    ps = [_wall_item('тв-тумба', 20, 200, 150, 40), _wall_item('тв', 20, 200, 120, 8),
+          _wall_item('комод', 480, 200, 90, 40, back=(1, 0))]           # восток: сторона ядра = стена
+    got, pushes, stuck = TD.push_to_walls(ad, cand, ps, TD.push_checker(ad, cand, []))
+    by = {p.role: p for p in got}
+    assert stuck == [] and [p['role'] for p in pushes] == ['тв-тумба']
+    assert by['тв-тумба'].x == pytest.approx(-30.0) and by['тв-тумба'].y == pytest.approx(200.0)
+    assert by['тв'].x == pytest.approx(-30.0)                              # ТВ едет с носителем
+    assert by['комод'].x == pytest.approx(480.0)
+    assert TD.overhang(got, 500, 400)['west'] == pytest.approx(50.0)
+    assert TD.TR.post_check(ad, cand, got)['ok']
+
+
+def test_push_slides_into_niche_and_flags_when_impossible(monkeypatch):
+    monkeypatch.setattr(TD, 'hard_of', lambda room, ps: [])
+    ad, cand = _niche()
+    chk = TD.push_checker(ad, cand, [])
+    got, pushes, stuck = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 150, 150, 40)], chk)   # край на 75 — заходит за угол ниши
+    assert stuck == [] and got[0].y == pytest.approx(175.0) and got[0].x == pytest.approx(-30.0)    # сдвиг вдоль стены на 25
+    got, pushes, stuck = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 200, 260, 40)], chk)   # шире ниши (200)
+    assert stuck == ['комод'] and pushes == [] and got[0].x == pytest.approx(20.0)
+    # сдвиг, дающий новое нарушение норм, не принимается
+    # проверка видит расстановку в кадре расширенного ядра (+50 на запад): прижатый комод — x 20, прежний — 70
+    monkeypatch.setattr(TD, 'hard_of', lambda room, ps: ['WINDOW_BLOCKED|комод'] if any(p.x < 40 for p in ps) else [])
+    got, _, stuck = TD.push_to_walls(ad, cand, [_wall_item('комод', 20, 200, 150, 40)], TD.push_checker(ad, cand, []))
+    assert stuck == ['комод'] and got[0].x == pytest.approx(20.0)
+
+
+def test_shift_ops_follows_extension():
+    ops = [{'kind': 'window', 'wall': 'south', 'offset_cm': 10, 'width_cm': 100},
+           {'kind': 'door', 'wall': 'west', 'offset_cm': 30, 'width_cm': 80, 'swing_cm': 80}]
+    got = TD.shift_ops(ops, {'west': 50.0, 'south': 20.0, 'east': 0.0, 'north': 0.0})
+    assert [o['offset_cm'] for o in got] == [60.0, 50.0] and ops[0]['offset_cm'] == 10
+
+
+def niche_plan():
+    p = plan()
+    p['panels'][0]['rooms'][0]['contour'] = [list(q) for q in NICHE]
+    p['panels'][0]['rooms'][0]['bbox'] = {'x': -50, 'y': 0, 'w': 550, 'd': 400}
+    return p
+
+
+def test_scene_core_extended_for_pushed_furniture(tmp_path, monkeypatch):
+    """Сцена: носитель ТВ подставного солвера стоит у западной стороны ядра над нишей → прижат; ядро кадра расширено, координаты
+    «в ядре» сдвинуты, проёмы — тоже; солверное ядро — `solver_rect`."""
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
+
+    def west(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=1):
+        st = json.load(open(sets_file, encoding='utf-8'))[n - 1]
+        s, t = st['items']['диван'], st['items']['тв-тумба']
+        W = cand['w']
+        art = {'тв-тумба': {'x': t['d'] / 2, 'z': 200, 'rot': _facing(1, 0), 'w': t['w'], 'd': t['d']},
+               'диван': {'x': W - s['d'] / 2 - 5, 'z': 200, 'rot': _facing(-1, 0), 'w': s['w'], 'd': s['d']}}
+        path = os.path.join(layouts, f'v3set{n}-layout-{tag}.json')
+        json.dump(art, open(path, 'w', encoding='utf-8'))
+        return {'rc': 0, 'seconds': 0.01, 'artifact': path, 'openings': TD.TR_strip(TR.solver_openings(cand, cfg, hinge)),
+                'stderr': '', 'art': art, 'missing': []}
+    s = TD.build('w1', niche_plan(), sets=bank(), solver=west, pick=_pick12)
+    assert s['status'] in ('ok', 'partial') and 'core_extended' in s['flags']
+    core = s['core']
+    ext = core['ext_cm']
+    assert ext['west'] > 0 and core['w'] == pytest.approx(core['solver_rect'][2] - core['solver_rect'][0] + ext['west'])
+    v = next(v for v in s['variants'] if v['items'])
+    tv = next(q for q in v['placements_core'] if q['role'] == 'тв-тумба')
+    assert tv['x'] - tv['d'] / 2 == pytest.approx(0.0, abs=0.6)          # спинка — у стены кадра (= стена ниши)
+    full = next(q for q in v['placements'] if q['role'] == 'тв-тумба')
+    wall = min(x for x, _ in s['room']['contour'])                       # адаптер сдвигает контур в (0, 0)
+    assert full['x'] - full['d'] / 2 == pytest.approx(wall, abs=0.6)     # в полном контуре — у стены ниши
+    assert v['pushed'] and v['pushed'][0]['role'] == 'тв-тумба'
+    _assert_openings_contract(s)
+
+
+def shop_bank():
+    b = bank()
+    for st in b:
+        for r, x in st['items'].items():
+            x.update(name=f'Товар «{st["style"]}» {r} Магазинный', url=f'https://shop.example.ru/p/{x["mid"]}?erid=abc',
+                     img=f'//cdn.example.ru/i/{x["mid"]}.jpg', price=1000, shop='Пример-Мебель')
+    return b
+
+
+def test_scene_has_no_shop_fields_or_names(tmp_path, monkeypatch):
+    """Выход гостиной — разрешённые поля (`ROW_KEYS`): ни названия магазина, ни ссылок, ни картинок, ни цены; `name_en`/`colour_en`
+    есть; картинки для кадров — во внутреннем `media.json`."""
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
+    sets = shop_bank()
+    s = TD.build('s1', plan(), sets=sets, solver=fake_solver(), pick=_pick12)
+    raw = open(os.path.join(s['out'], 'scene.json'), encoding='utf-8').read()
+    for bad in ('shop.example', 'cdn.example', 'erid', 'Магазинный', 'Пример-Мебель', '"price"', '"url"', '"img"'):
+        assert bad not in raw, bad
+    TD.assert_no_shop(json.loads(raw), TD.shop_tokens(sets))
+    items = [r for v in s['variants'] for r in v['items']]
+    assert items and all(set(r) <= set(TD.ROW_KEYS) and 'name' not in r for r in items)
+    assert all(r.get('name_en') and not TD.SHOP_LINKS.search(r['name_en']) for r in items)
+    media = json.load(open(os.path.join(s['out'], 'media.json'), encoding='utf-8'))
+    assert media['сканди']['диван'].startswith('//cdn.example.ru/')
+    with pytest.raises(TD.ShopLeak):
+        TD.assert_no_shop({'items': [{'url': 'x'}]}, [])
+    with pytest.raises(TD.ShopLeak):
+        TD.assert_no_shop({'note': 'Товар «сканди» диван Магазинный'}, TD.shop_tokens(sets))
+
+
+def test_render_inputs_rug_photo_and_only_good_models(monkeypatch):
+    """Кадр от входа: ковёр — по фото товара (раньше фото не передавались — ковра в кадре не было); модель — только годная."""
+    import draft_render as DR
+    monkeypatch.setattr(DR, 'photo', lambda url: ('PH', url))
+    v = {'items': [{'role': 'диван', 'msid': '1_1'}, {'role': 'кресло', 'msid': None}, {'role': 'ковёр', 'msid': None}],
+         'placements_core': [{'role': 'стул 2'}]}
+    sid, photos = TD.render_inputs(v, {'ковёр': '//cdn/r.jpg', 'стул': '//cdn/c.jpg', 'кресло': None})
+    assert sid == {'диван': '1_1'}                                        # без годной модели — серая форма, не чужая модель
+    assert photos['ковёр'] == ('PH', '//cdn/r.jpg') and photos['стул 2'] == photos['стул']
+
+
+def test_pick_styles_lowers_band_per_style_and_drops_items_without_model(monkeypatch):
+    """Перебор шаблонов: у стиля диван без годной модели в своей полосе — берётся полоса ниже; нет нигде — стиля нет.
+    Не ключевая роль без модели снимается из набора (`usable_set`), ключевая делает набор негодным."""
+    bad = {101, 201, 301}
+    monkeypatch.setattr(TD, 'item_has_mesh', lambda x: bool(x) and x.get('mid') not in bad)
+    sets = [style('сканди', it(101, 200, 95), band='21-25'),                     # 1: диван без модели
+            style('сканди', it(102, 200, 95), band='17-20', extra={'кресло': it(103, 80, 80)}),   # 2: годен полосой ниже
+            style('лофт', it(201, 200, 95), band='21-25'),                       # 3: нигде нет годного
+            style('минимализм', it(302, 200, 95), band='21-25', extra={'кресло': it(301, 80, 80)})]  # 4: кресло без модели
+    assert TD._pick_styles(sets, '21-25') == [2, 4]                       # порядок стилей — `STYLES`
+    u = TD.usable_set(sets[3], TD.item_has_mesh)
+    assert 'кресло' not in u['items'] and u['no_mesh_dropped'] == ['кресло'] and 'кресло' in sets[3]['items']
+    assert not TD.eligible(sets[0]) and TD.eligible(sets[1])
+
+
+def test_pending_written_before_solver_and_no_products_when_nothing_fits(tmp_path, monkeypatch):
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
+    seen = []
+    sv = fake_solver()
+
+    def spy(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=1):
+        seen.append(json.load(open(os.path.join(os.path.dirname(layouts), 'scene.json'), encoding='utf-8'))['outcome']['state'])
+        return sv(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=n)
+    TD.build('p1', plan(), sets=bank(), solver=spy, pick=_pick12)
+    assert seen and set(seen) == {'pending'}
+    huge = [style('сканди', it(1, 480, 300, 'Диван прямой'), band=b) for b in ('14-16', '17-20')]
+    s = TD.build('p2', plan(), sets=huge, solver=fake_solver(), pick=lambda sets, band: [i for i, x in enumerate(sets, 1)
+                                                                                         if x['band'] == band])
+    assert s['status'] == 'no_products' and s['outcome']['state'] == 'no_products'
+    assert s['outcome']['code'] == 'living_core_small' and 'band_lowered' in s.get('flags', []) or s['refusal']['code'] == 'living_core_small'
+
+
+def test_all_styles_rejected_is_no_products(tmp_path, monkeypatch):
+    """Расстановка есть, но все стили сняты проверкой — комната пустая, исход `no_products`, не «частично»."""
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    monkeypatch.setattr(TD, 'hard_of', lambda room, ps: ['WINDOW_BLOCKED|диван'] if any(p.item and p.item.name for p in ps) else [])
+    s = TD.build('n1', plan(), sets=bank(), solver=fake_solver(), pick=_pick12)
+    assert s['status'] == 'no_products' and s['outcome']['state'] == 'no_products' and s['outcome']['styles_ok'] == 0
+    assert all(not v['items'] for v in s['variants'])

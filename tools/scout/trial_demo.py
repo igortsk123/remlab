@@ -11,7 +11,11 @@
   4. проверка по ПОЛНОМУ контуру (`trial_room.post_check`): не прошла — вторая петля дверей, потом следующее ядро, пока
      укладываемся в бюджет 60 с; иначе честный частичный результат (`partial` с перечнем проблем); 150 с — аварийный предел;
   5. подстановка товаров каждого стиля на места геометрии: у стены — по стене (не «парит»), прочее — по центру;
+     предметы «у стены» над нишей — к НАСТОЯЩЕЙ стене контура (`push_to_walls`; ядро кадра расширяется, `core.ext_cm`);
      проверка `planner.validate` и `post_check` для каждого стиля.
+T-12/2: наборы и модели — правилом живого демо (`item_has_mesh`: годная модель, не чужого цвета; без неё ключевая роль делает
+набор негодным → полоса ниже, прочее снимается); выход — коды и разрешённые поля (`ROW_KEYS`, `assert_no_shop`), исход
+`furnished | no_products | pending | refused | failed` (`outcome_of`); картинки для кадров — внутренний `media.json`.
 Пишет ТОЛЬКО в `~/scout-scenes/trial/<trial_id>/` (корень — `TRIAL_SCENES_ROOT`): `trial-sets.json`, `layouts/`,
 `adapter.json`, `scene.json`, кадры `--frames`. Живые `~/scout-scenes/flat215-demo` и `tools/scout/v3set*` не трогает.
 
@@ -73,24 +77,37 @@ def _slot_timeout(e: Exception) -> bool:
     return type(e).__name__ == 'SlotTimeout'
 
 
+STATES = ('furnished', 'no_products', 'pending', 'refused', 'failed')
+
+
 def outcome_of(scene: dict) -> dict:
-    """ИСХОД ПО КОМНАТЕ — одно явное поле для конвейера и страницы: `state` ∈ ready | partial | refused, `code` и `detail` —
-    причина (для ready — null), `styles_ok`/`styles_total` — сколько стилей можно показать."""
+    """ИСХОД ПО КОМНАТЕ — КОДАМИ, без готовых строк интерфейса (владелец TG 486–488: проба на RU и EN; текст на языке подставляют
+    сборщик и страница). `state`:
+      furnished   — есть что показать (хотя бы один стиль); `code` = null, если показаны все стили, иначе `styles_missing`;
+      no_products — комната остаётся ПУСТОЙ: «нет подходящих товаров согласно действующим шаблонам» (владелец 09.11) — ни на одной
+                    полосе банка набор не влез в ядро, ни одна расстановка не вышла, или все стили сняты проверкой;
+      pending     — подбор идёт (сцена записана до солвера);
+      refused     — комнату не обставляем: план не годится (масштаб, нет окна, нет ядра — код адаптера), не «нет товаров»;
+      failed      — технический сбой (очередь машины), повторить позже.
+    `codes` — все коды причин (проблемы сцены и стилей), `styles_missing` — какие стили не показаны."""
     variants = scene.get('variants') or []
-    total, ok = len(variants), sum(1 for v in variants if v.get('post_ok') and not v.get('hard'))
-    base = {'styles_ok': ok, 'styles_total': total}
+    ok = [v for v in variants if v.get('post_ok') and not v.get('hard')]
+    codes = sorted({p['code'] for p in scene.get('problems') or [] if p.get('code')}
+                   | {p['code'] for v in variants for p in v.get('problems') or [] if p.get('code')}
+                   | {h.split('|')[0] for v in variants for h in v.get('hard') or []})
+    base = {'styles_ok': len(ok), 'styles_total': len(variants), 'codes': codes,
+            'styles_missing': [v['style'] for v in variants if v not in ok]}
     status = scene.get('status')
-    if status == 'ok':
-        return dict(base, state='ready', code=None, detail=None)
-    if status == 'partial':
-        codes = sorted({p['code'] for p in scene.get('problems') or [] if p.get('code')}
-                       | {p['code'] for v in variants for p in v.get('problems') or [] if p.get('code')}
-                       | {h.split('|')[0] for v in variants for h in v.get('hard') or []})
-        bad = [v['style'] for v in variants if not v.get('post_ok') or v.get('hard')]
-        return dict(base, state='partial', code='styles_missing' if bad or not codes else codes[0],
-                    detail=f"нет стилей: {', '.join(bad)}; причины: {', '.join(codes)}" if bad else ', '.join(codes))
-    ref = scene.get('refusal') or next(iter(scene.get('problems') or []), None) or {'code': 'unknown'}
-    return dict(base, state='refused', code=ref.get('code'), detail=ref.get('detail') or ref.get('why'))
+    ref = scene.get('refusal') or next(iter(scene.get('problems') or []), None) or {}
+    if status == 'pending':
+        return dict(base, state='pending', code=None)
+    if status in ('ok', 'partial') and ok:
+        return dict(base, state='furnished', code=None if status == 'ok' and len(ok) == len(variants) else 'styles_missing')
+    if status in ('ok', 'partial', 'no_products'):
+        return dict(base, state='no_products', code=ref.get('code') or 'no_products')
+    if status == 'refused':
+        return dict(base, state='refused', code=ref.get('code') or 'unknown')
+    return dict(base, state='failed', code=ref.get('code') or 'unknown')
 
 
 def out_dir(trial_id: str) -> str:
@@ -121,6 +138,10 @@ def band_for(area_m2: float) -> tuple[str, list]:
 
 def _base(role: str) -> str:
     return re.sub(r'\s+\d+$', '', role)
+
+
+def _sid(it: dict | None) -> str | None:
+    return f"{it['mid']}_{it['eid']}" if it and it.get('mid') else None
 
 
 def _area(it: dict) -> float:
@@ -170,7 +191,7 @@ def geometry_set(styles: list[dict], band: str) -> tuple[dict, dict]:
             it['_h_from'] = {'h': it.get('h'), 'low_style': low[r][1]}
             it['h'] = low[r][0]
         items[r] = it
-    src = {r: {'style': best[r][0], 'role': best[r][2], 'name': best[r][1].get('name')} for r in sorted(keep)}
+    src = {r: {'style': best[r][0], 'role': best[r][2], 'sid': _sid(best[r][1])} for r in sorted(keep)}
     return {'band': band, 'style': 'геометрия', 'm2': None, 'items': items, 'set_id': 'trial-geometry'}, src
 
 
@@ -416,11 +437,10 @@ def substitute(geo_ps: list, st: dict, W: float, D: float) -> tuple[list, list, 
         return srole, it, item
 
     def row(p, q, srole, it, dxy):
-        rows[p.role] = {'role': p.role, 'style_role': srole, 'name': it.get('name'), 'mid': it.get('mid'),
-                        'eid': it.get('eid'), 'sid': f"{it['mid']}_{it['eid']}" if it.get('mid') else None,
-                        'price': it.get('price'), 'url': it.get('url'), 'img': it.get('img'), 'w': q.item.w_cm,
+        # строка «что поставлено» — БЕЗ полей магазина; сам товар (`_it`) — только внутри сборки (`public_row` его снимает)
+        rows[p.role] = {'role': p.role, 'style_role': srole, 'sid': _sid(it), 'w': q.item.w_cm,
                         'd': q.item.d_cm, 'h': it.get('h'), 'x': round(q.x, 1), 'y': round(q.y, 1), 'rot': q.rot,
-                        'corner': q.item.corner, 'shift_cm': [round(dxy[0], 1), round(dxy[1], 1)]}
+                        'corner': q.item.corner, 'shift_cm': [round(dxy[0], 1), round(dxy[1], 1)], '_it': it}
 
     def dependent(role):
         return _base(role) in FOLLOW or _base(role) == 'стул'
@@ -480,6 +500,237 @@ def substitute(geo_ps: list, st: dict, W: float, D: float) -> tuple[list, list, 
     return [new[r] for r in order], absent, [rows[r] for r in order if r in rows]
 
 
+# ───────────────────────── мебель «у стены» — к НАСТОЯЩЕЙ стене контура ─────────────────────────
+
+WALL_ROLES = ('тв-тумба', 'стенка', 'диван', 'стеллаж', 'комод')   # стоят спинкой к стене
+TOGETHER = {'тв-тумба': ('тв',), 'стенка': ('тв',), 'диван': ('столик',)}   # едут вместе с предметом (ТВ на тумбе, столик у дивана)
+BACK_GAP_CM = 12.0        # кромка спинки дальше от стены — «стоит в воздухе» (как у спален, `trial_bedroom.BACK_GAP_CM`)
+BACK_MIN_SHARE = 0.8      # доля точек кромки, которым положено быть у стены
+SLIDE_MAX_CM = 40.0       # насколько можно сдвинуть вдоль стены, чтобы встать в нишу целиком
+SLIDE_STEP_CM = 5.0
+PUSH_MAX_CM = 150.0       # глубже — уже не ниша, а соседняя часть комнаты
+_EDGE_T = (0.02, 0.15, 0.3, 0.5, 0.7, 0.85, 0.98)
+SIDE_OF = {(-1, 0): 'west', (1, 0): 'east', (0, -1): 'south', (0, 1): 'north'}
+
+
+def _back(p) -> tuple[int, int]:
+    from planner.geometry import facing_vector
+    fx, fy = (round(v) for v in facing_vector(p.rot))
+    return -fx, -fy
+
+
+def _edge_gaps(P, x0: float, y0: float, p, dx: float = 0.0, dy: float = 0.0) -> list:
+    """Точки задней кромки предмета (кадр ядра, сдвиг dx, dy) → расстояние от каждой до стены ПОЛНОГО контура в сторону спинки."""
+    from shapely.geometry import LineString
+    from planner.geometry import footprint
+    bx, by = _back(p)
+    fb = footprint(p).bounds
+    if bx:
+        xb = fb[2] if bx > 0 else fb[0]
+        pts = [(xb, fb[1] + (fb[3] - fb[1]) * t) for t in _EDGE_T]
+    else:
+        yb = fb[3] if by > 0 else fb[1]
+        pts = [(fb[0] + (fb[2] - fb[0]) * t, yb) for t in _EDGE_T]
+    out = []
+    for x, y in pts:
+        X, Y = x0 + x + dx, y0 + y + dy
+        hit = LineString([(X - bx, Y - by), (X + bx * 1000, Y + by * 1000)]).intersection(P.exterior)
+        geoms = [] if hit.is_empty else (list(hit.geoms) if hasattr(hit, 'geoms') else [hit])
+        ds = [(c[0] - X) * bx + (c[1] - Y) * by for g in geoms for c in g.coords]
+        ds = [d for d in ds if d >= -1.0]
+        out.append(max(min(ds), 0.0) if ds else 1000.0)
+    return out
+
+
+def _core_gap(p, W: float, D: float) -> float:
+    from planner.geometry import footprint
+    fb = footprint(p).bounds
+    return {(-1, 0): fb[0], (1, 0): W - fb[2], (0, -1): fb[1], (0, 1): D - fb[3]}[_back(p)]
+
+
+def _at_wall(gaps: list, gap0: float) -> bool:
+    return sum(1 for g in gaps if g <= gap0 + BACK_GAP_CM) / len(gaps) >= BACK_MIN_SHARE
+
+
+def overhang(ps: list, W: float, D: float) -> dict:
+    """Насколько расстановка выходит за прямоугольник ядра по сторонам (после прижима к стене ниши) → {сторона: см}."""
+    from planner.geometry import footprint
+    ext = {'west': 0.0, 'east': 0.0, 'south': 0.0, 'north': 0.0}
+    for p in ps:
+        if p.item is None:
+            continue
+        b = footprint(p).bounds
+        ext['west'] = max(ext['west'], -b[0])
+        ext['south'] = max(ext['south'], -b[1])
+        ext['east'] = max(ext['east'], b[2] - W)
+        ext['north'] = max(ext['north'], b[3] - D)
+    return {k: float(-(-round(v, 1) // 1)) if v > 0.05 else 0.0 for k, v in ext.items()}
+
+
+def shift_ops(ops: list, ext: dict) -> list:
+    """Проёмы ядра → в кадр ядра, расширенного на `ext` (смещение вдоль стены растёт на запад/юг)."""
+    out = []
+    for o in ops:
+        o = dict(o)
+        o['offset_cm'] = round(o['offset_cm'] + (ext.get('west', 0.0) if o['wall'] in ('south', 'north') else ext.get('south', 0.0)), 1)
+        out.append(o)
+    return out
+
+
+def ext_room(W: float, D: float, ops: list, ext: dict, render: bool = False):
+    return core_room({'w': W + ext['west'] + ext['east'], 'd': D + ext['south'] + ext['north']}, shift_ops(ops, ext), render=render)
+
+
+def push_to_walls(ad: dict, cand: dict, ps: list, check) -> tuple[list, list, list]:
+    """ПРЕДМЕТЫ «У СТЕНЫ» — К НАСТОЯЩЕЙ СТЕНЕ КОНТУРА (T-12/2). Солвер ставит мебель в прямоугольное ЯДРО; сторона ядра бывает
+    не стеной, а краем ниши (E: тумба ТВ в 55 см от стены, за ней «воздух»). Правило общее, не под план: предмет из `WALL_ROLES`,
+    стоящий спинкой у стороны ядра (≤ `WALL_NEAR_CM`), а настоящей стены там нет (меньше `BACK_MIN_SHARE` точек кромки в
+    пределах `BACK_GAP_CM`), едет спинкой к стене контура — с тем же зазором, что у ядра; не встаёт в нишу целиком — сдвиг вдоль
+    стены до `SLIDE_MAX_CM`. Зависимые (`TOGETHER`) едут с ним. Сдвиг принимается, только если `check(новая, прежняя)` —
+    без новых проблем (контур, двери, проход, нормы: окно, ось ТВ, наезды). Не вышло — роль в `stuck` (проблема
+    `back_off_wall`, как у спален). → (расстановка, сдвиги [{role, by_cm}], stuck)."""
+    from planner.geometry import footprint
+    P, x0, y0, W, D = ad['poly'], cand['rect'][0], cand['rect'][1], cand['w'], cand['d']
+    cur = list(ps)
+    pushes, stuck = [], []
+    slides = sorted({0.0} | {s * k * SLIDE_STEP_CM for k in range(1, int(SLIDE_MAX_CM / SLIDE_STEP_CM) + 1) for s in (1, -1)},
+                    key=abs)
+    for role in [p.role for p in ps if _base(p.role) in WALL_ROLES and p.item is not None]:
+        p = next(q for q in cur if q.role == role)
+        gap0 = _core_gap(p, W, D)
+        if gap0 > WALL_NEAR_CM:
+            continue                                        # стоит не у стены ядра (диван посреди комнаты) — не наш случай
+        if _at_wall(_edge_gaps(P, x0, y0, p), gap0):
+            continue                                        # стена ядра = настоящая стена
+        bx, by = _back(p)
+        ax, ay = (0, 1) if bx else (1, 0)
+        mates = {role} | {q.role for q in cur if _base(q.role) in TOGETHER.get(_base(role), ())}
+        done = False
+        for t in slides:
+            gaps = _edge_gaps(P, x0, y0, p, ax * t, ay * t)
+            s = min(gaps) - gap0
+            if s <= 1.0 or s > PUSH_MAX_CM or not _at_wall([g - s for g in gaps], gap0):
+                continue
+            dx, dy = ax * t + bx * s, ay * t + by * s
+            new = [_moved(q, dx, dy) if q.role in mates else q for q in cur]
+            if not ad['poly'].buffer(0.5).contains(_full_fp(footprint(next(q for q in new if q.role == role)), x0, y0)):
+                continue
+            if check(new, cur):
+                cur = new
+                pushes.append({'role': role, 'by_cm': [round(dx, 1), round(dy, 1)], 'with': sorted(mates - {role})})
+                done = True
+                break
+        if not done:
+            stuck.append(role)
+    return cur, pushes, stuck
+
+
+def _full_fp(fp, x0: float, y0: float):
+    from shapely.affinity import translate
+    return translate(fp, x0, y0)
+
+
+def push_checker(ad: dict, cand: dict, ops: list):
+    """Проверка сдвига для `push_to_walls`: проблемы полного контура (`post_check`) и жёсткие нормы на ядре, расширенном под
+    расстановку (`ext_room`), — у новой расстановки не больше, чем у прежней на той же комнате."""
+    W, D = cand['w'], cand['d']
+
+    def bad(ps, ext):
+        pc = TR.post_check(ad, cand, ps)
+        sh = [_moved(p, ext['west'], ext['south']) for p in ps]
+        return {(q['code'], q.get('role')) for q in pc['problems']} | set(hard_of(ext_room(W, D, ops, ext), sh))
+
+    def check(new, old):
+        ext = overhang(new, W, D)
+        return bad(new, ext) <= bad(old, ext)
+    return check
+
+
+# ───────────────────────── выход без данных магазина ─────────────────────────
+
+SHOP_LINKS = re.compile(r'(https?:|//[a-z0-9.-]+\.[a-z]{2,}|gdeslon|\berid=)', re.I)   # как `trial_bedroom.SHOP_LINKS`
+BANNED_KEYS = {'url', 'url_direct', 'shop', 'img', 'img_hd', 'price', 'brand'}        # как `trial_bedroom.BANNED_KEYS`
+OWN_TEXT_KEYS = ('name_en', 'colour_en')   # наш перевод (`names_en` сам не пускает магазин): латинское имя модели — не утечка
+ROW_KEYS = ('role', 'style_role', 'sid', 'msid', 'mesh', 'name_en', 'colour_en', 'w', 'd', 'h', 'x', 'y', 'rot', 'corner',
+            'shift_cm')
+
+
+class ShopLeak(RuntimeError):
+    pass
+
+
+_NE: dict = {}
+
+
+def _names_en(it: dict, role: str) -> dict:
+    """`name_en`/`colour_en` — тем же правилом, что живое демо (`names_en.name_en`: ручной перевод → словарь → нейтральное по роли;
+    без кириллицы, домена и названия магазина)."""
+    import names_en as NE
+    if not _NE:
+        _NE.update(M=NE.load_map(), D=NE.load_dict())
+    r = NE.name_en({'name': it.get('name') or '', 'sid': _sid(it)}, _base(role), _NE['M'], _NE['D'])
+    return {'name_en': r['name'], 'colour_en': r['colour']}
+
+
+def public_row(r: dict, mesh_ok) -> dict:
+    """Строка предмета варианта по РАЗРЕШЁННОМУ списку (`ROW_KEYS`): роли, ключи товара и модели, размеры, место, английское
+    название по контракту двух языков. Русское название, ссылка, картинка, цена и магазин в выход НЕ идут (советник 09.11c)."""
+    it = r.get('_it') or {}
+    out = {k: v for k, v in r.items() if k in ROW_KEYS}
+    if mesh_ok is None:                                      # подставной банк тестов: моделей не проверяем
+        out.update(msid=None, mesh='unchecked')
+    elif not mesh_role(r['role']):
+        out.update(msid=None, mesh='not_needed')            # ковёр и пр. — фото/плоскость, модель не положена
+    elif mesh_ok(it):
+        import flat215_demo as FD
+        out.update(msid=FD._msid(r['sid']), mesh='model')
+    else:
+        out.update(msid=None, mesh='none')                  # в кадре — серая форма; в наборе такого быть не должно
+    if it.get('name'):
+        out.update(_names_en(it, r.get('style_role') or r['role']))
+    return {k: out.get(k) for k in ROW_KEYS if k in out}
+
+
+def shop_tokens(styles: list) -> list:
+    """Что нельзя выдать: имена магазинов (словарь `names_en`), домены ссылок и русские названия товаров наборов пробы."""
+    import names_en as NE
+    from urllib.parse import urlparse
+    toks = {str(s).lower() for s in (NE.load_dict().get('shops') or [])}
+    for st in styles:
+        for it in (st.get('items') or {}).values():
+            if not isinstance(it, dict):
+                continue
+            for k in ('shop', 'name', 'brand'):
+                if it.get(k):
+                    toks.add(str(it[k]).lower())
+            for k in ('url', 'img'):
+                host = urlparse(('https:' + it[k]) if str(it.get(k) or '').startswith('//') else str(it.get(k) or '')).hostname
+                if host:
+                    toks.add(host.lower().removeprefix('www.'))
+    return sorted(t for t in toks if len(t) >= 3)
+
+
+def assert_no_shop(obj, tokens: list) -> None:
+    """Проверка ВЫВОДА целиком (как `trial_bedroom.assert_no_shop`): ни запрещённых полей, ни ссылок, ни названий магазинов и
+    товаров. Найдено — `ShopLeak` (громко: это ошибка кода, а не данных)."""
+    pats = [re.compile(r'(?<!\w)' + re.escape(t) + r'(?!\w)') for t in tokens]
+
+    def walk(v, path, own=False):
+        if isinstance(v, dict):
+            for k, x in v.items():
+                if k in BANNED_KEYS or (isinstance(k, str) and (k.endswith('_url') or k == 'href')):
+                    raise ShopLeak(f'запрещённое поле {path}.{k}')
+                walk(x, f'{path}.{k}', k in OWN_TEXT_KEYS)
+        elif isinstance(v, (list, tuple)):
+            for i, x in enumerate(v):
+                walk(x, f'{path}[{i}]')
+        elif isinstance(v, str):
+            s = v.lower()
+            if SHOP_LINKS.search(s) or (not own and any(p.search(s) for p in pats)):
+                raise ShopLeak(f'значение в {path}: {v[:80]}')
+    walk(obj, '$')
+
+
 def _ps_json(ps: list, x0: float = 0.0, y0: float = 0.0) -> list:
     return [{'role': p.role, 'x': round(p.x + x0, 1), 'y': round(p.y + y0, 1), 'rot': p.rot,
              'w': p.item.w_cm if p.item else None, 'd': p.item.d_cm if p.item else None,
@@ -503,8 +754,10 @@ def _write(path: str, data) -> None:
     os.replace(tmp, path)
 
 
-def _write_scene(out: str, scene: dict) -> None:
+def _write_scene(out: str, scene: dict, tokens: list = ()) -> None:
+    """Сцена комнаты — с исходом кодом (`outcome_of`) и проверкой «без данных магазина» по всему JSON (`assert_no_shop`)."""
     scene['outcome'] = outcome_of(scene)
+    assert_no_shop(scene, list(tokens))
     _write(os.path.join(out, 'scene.json'), scene)
 
 
@@ -513,15 +766,85 @@ def _no_slot(label: str):
     return contextlib.nullcontext({'waited_s': 0.0})
 
 
-def _pick_styles(sets: list, band: str) -> list:
+def item_has_mesh(it: dict | None) -> bool:
+    """МОДЕЛЬ ТОВАРА ГОДИТСЯ ДЛЯ КАДРА — то же правило, что у живого демо (`flat215_demo`, `has_mesh` сборки вариантов): модель
+    лежит на сервере, подходит товару по цвету (`color_ok`), это не модель семейства другого цвета (`mesh_dark.family_colour_mismatch`)
+    и привязка не отмечена «меш не того цвета» (`colour_flagged`). Проба брала только «модель есть в индексе» — и рисовала чужую
+    модель семейства: у джапанди E оливковый «Филс» стал тёмной моделью представителя (привязка заблокирована, T-12/2)."""
     import flat215_demo as FD
-    return FD.pick_banks(sets, band, len(STYLES))
+    import mesh_dark as MDK
+    if not it or not it.get('mid'):
+        return False
+    sid = f"{it['mid']}_{it['eid']}"
+    m = FD._msid(sid)
+    return bool(m) and m in FD._mesh_index() and FD.color_ok(m, it.get('name') or '') \
+        and MDK.family_colour_mismatch(sid, m) is None and not FD.colour_flagged(sid)
 
 
-def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solver, pick=_pick_styles, slot=None) -> dict:
+def mesh_role(role: str) -> bool:
+    """Роль рисуется моделью (ковёр, картина и прочее из `NOMESH_ROLES` — фото/плоскостью, модель им не положена)."""
+    import flat215_demo as FD
+    b = _base(role)
+    return b.split(' ')[0] in FD.PLACEABLE and b not in FD.NOMESH_ROLES
+
+
+def no_mesh_roles(st: dict) -> list:
+    """Роли набора, которым модель положена, а годной (`item_has_mesh`) нет."""
+    return sorted(r for r, it in (st.get('items') or {}).items() if it and mesh_role(r) and not item_has_mesh(it))
+
+
+CORE_ROLES = ('диван',) + BEARERS     # без годной модели этих ролей набор не показываем (их не снять из комнаты)
+
+
+def eligible(st: dict, mesh_ok=None) -> bool:
+    """Набор годен для пробы: диван и носитель ТВ (если он есть) — с годной моделью. Прочее без модели снимается из набора
+    (`usable_set`): лучше на кресло меньше, чем серая коробка или модель чужого цвета."""
+    mesh_ok = mesh_ok or item_has_mesh
+    items = st.get('items') or {}
+    return bool(items.get('диван')) and all(mesh_ok(items[r]) for r in CORE_ROLES if items.get(r))
+
+
+def usable_set(st: dict, mesh_ok) -> dict:
+    """Копия набора без предметов, которым положена модель, а годной нет (`mesh_ok=None` — подставной банк тестов: как есть)."""
+    if mesh_ok is None:
+        return st
+    items = st.get('items') or {}
+    gone = sorted(r for r, it in items.items() if it and mesh_role(r) and not mesh_ok(it))
+    return dict(st, items={r: it for r, it in items.items() if r not in gone}, no_mesh_dropped=gone)
+
+
+def _pick_styles(sets: list, band: str) -> list:
+    """ПЕРЕБОР ШАБЛОНОВ ПО СТИЛЮ (владелец 09.11: шаблон → товары под него → нет → следующий; не подошёл ни один — пусто).
+    По ОДНОМУ набору на стиль: годный (`eligible`) набор этой полосы, ключ `flat215_demo.pick_banks` (меньше предметов без
+    модели → больше расставляемых), но «без модели» — СТРОГО, правилом демо (`item_has_mesh`), а не «есть в индексе». У стиля
+    нет годного набора в полосе — следующая полоса ВНИЗ (товары мельче, в ядро влезут); нет нигде — стиля нет."""
+    import flat215_demo as FD
+    names = [b for b, _ in BANDS]
+    lower = names[:names.index(band) + 1][::-1] if band in names else [band]
+    best: dict = {}
+    for i, st in enumerate(sets, 1):
+        items = st.get('items') or {}
+        if st.get('band') not in lower or 'диван' not in items or FD.hidden(st) or not eligible(st):
+            continue
+        placeable = sum(1 for r in items if r.split(' ')[0] in FD.PLACEABLE)
+        key = (lower.index(st['band']), len(no_mesh_roles(st)), -placeable, len(st.get('gaps') or []), i)
+        style = st.get('style') or ''
+        if style not in best or key < best[style][0]:
+            best[style] = (key, i)
+    picked = [best[s][1] for s in STYLES if s in best]
+    picked += [v[1] for k, v in sorted(best.items()) if k not in STYLES]
+    return picked[:len(STYLES)]
+
+
+def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solver, pick=_pick_styles, slot=None,
+          mesh_ok=None) -> dict:
     """Проба целиком → сцена (`scene.json`). Отказ адаптера — сцена со статусом `refused`, не исключение. Исход для конвейера
-    и страницы — поле `outcome` (`outcome_of`). Подбор и расстановка — под общей очередью машины (`machine_slot`)."""
+    и страницы — поле `outcome` (`outcome_of`). Подбор и расстановка — под общей очередью машины (`machine_slot`).
+    `mesh_ok` — правило «годная модель» (по умолчанию у настоящего отбора — `item_has_mesh`; у подставного банка тестов — не
+    проверяется). Картинки товаров для кадров — `media.json` рядом (внутренний файл пробы, в выход комнаты не входит)."""
     t0 = time.time()
+    if mesh_ok is None and pick is _pick_styles:
+        mesh_ok = item_has_mesh
     OUT = out_dir(trial_id)
     layouts = os.path.join(OUT, 'layouts')
     os.makedirs(layouts, exist_ok=True)
@@ -537,35 +860,43 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
         _write_scene(OUT, scene)
         return scene
     t_ad = time.time() - t0
+    scene.update(status='pending')                         # подбор идёт: читатель сцены видит `pending`, а не пустоту
+    _write_scene(OUT, scene)
     # ── полоса, стили, геометрия (часть «адаптера»: это ещё до солвера) ──
+    # ПЕРЕБОР ШАБЛОНОВ (владелец 09.11): полоса → наборы стилей (`pick`: у стиля нет годного набора — его полоса ниже) → влезает
+    # ли обязательная группа в ядро → нет — полоса ниже; не влезло нигде — комната ПУСТАЯ, исход `no_products`
     sets = sets if sets is not None else json.load(open(sets_path(), encoding='utf-8'))
     band, bflags = band_for(ad['candidates'][0]['area_m2'])
     flags = list(ad['flags']) + bflags
     i_band = [b for b, _ in BANDS].index(band)
-    picked, groups, cands = [], [], []
+    picked, groups, cands, chosen_sets = [], [], [], {}
     while i_band >= 0:
         band = BANDS[i_band][0]
         picked = pick(sets, band)
         if picked:
-            groups = shape_groups([sets[i - 1] for i in picked], band)
+            chosen_sets = {i: usable_set(sets[i - 1], mesh_ok) for i in picked}
+            groups = shape_groups([chosen_sets[i] for i in picked], band)
             for g in groups:                                     # номер набора в банке — для отчёта
-                g['styles'] = [(st, next(i for i in picked if sets[i - 1] is st)) for st, _ in g['styles']]
+                g['styles'] = [(st, next(i for i in picked if chosen_sets[i] is st)) for st, _ in g['styles']]
             # ядро годно, если обязательная группа влезает реальными товарами КАЖДОЙ геометрии
             cands = [c for c in ad['candidates'] if all(TR.group_fits(c['w'], c['d'], g['need']) for g in groups)]
             if cands:
                 break
         i_band -= 1
         flags.append('band_lowered')
+    tokens = shop_tokens([sets[i - 1] for i in picked]) if picked else []
     if not cands:
-        scene.update(status='refused', refusal={'code': 'living_core_small',
-                                                'detail': 'диван и ТВ реальных товаров не влезают ни в одно ядро ни на одной полосе'})
+        scene.update(status='no_products', refusal={'code': 'living_core_small',
+                                                    'detail': 'диван и ТВ реальных товаров не влезают ни в одно ядро ни на одной полосе'})
         scene['timings'] = {'adapter_s': round(time.time() - t0, 3), 'solver_s': 0, 'assembly_s': 0,
                             'total_s': round(time.time() - t0, 3)}
-        _write_scene(OUT, scene)
+        _write_scene(OUT, scene, tokens)
         return scene
-    styles = [sets[i - 1] for i in picked]
+    styles = [chosen_sets[i] for i in picked]
     if len(styles) < len(STYLES):
         flags.append(f'styles_{len(styles)}_of_{len(STYLES)}')
+    flags += sorted(f"style_band_lowered:{st.get('style')}" for st in styles if st.get('band') != band)
+    flags += sorted(f"no_mesh_dropped:{st.get('style')}" for st in styles if st.get('no_mesh_dropped'))
     sets_file = os.path.join(OUT, 'trial-sets.json')
     # геометрии — первые номера снимка; за ними свои наборы стилей, урезанные до ролей геометрии (см. `trim_to_geometry`)
     geo_of = {id(st): g['set'] for g in groups for st, _ in g['styles']}
@@ -578,7 +909,7 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
     #    расставлено — оставшиеся прогоны снимаем, результат честно частичный; не расставлено ничего — ждём аварийный предел.
     #    Потом — следующее ядро, пока в бюджете ──
     t1 = time.time()
-    tries, chosen = [], None
+    tries, chosen, media = [], None, {}
     n_geo = len(groups)
     clock = {'queue': 0.0}
 
@@ -594,16 +925,22 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
             return dict(rec, rc='timeout', seconds=EMERGENCY_S), None
         rec.update(rc=sr['rc'], seconds=sr['seconds'], missing=sr.get('missing'))
         if sr['art'] is None:
-            return dict(rec, stderr=sr.get('stderr')), None
+            if sr.get('stderr'):                           # текст ошибки солвера — в журнал папки пробы, не в сцену
+                with _RUN_LOCK, open(os.path.join(OUT, 'solver-stderr.log'), 'a', encoding='utf-8') as f:
+                    f.write(f"== {tag}\n{sr['stderr']}\n")
+            return dict(rec, error='solver_error' if sr.get('stderr') else 'no_artifact'), None
         ps = placements_of(sr['art'])
         if not any(_base(p.role) == 'диван' for p in ps):
             # солвер честно сказал «не расставить» (`_infeasible_reason`) — пустая комната не результат
-            return dict(rec, rc='empty', infeasible=sr['art'].get('_infeasible_reason')), None
+            inf = sr['art'].get('_infeasible_reason')
+            return dict(rec, rc='empty', infeasible=inf.get('code') if isinstance(inf, dict) else inf), None
         pc = TR.post_check(ad, cand, ps)
         hard = hard_of(core_room(cand, sr['openings']), ps)
-        rec.update(post_ok=pc['ok'], problems=pc['problems'], hard=hard)
+        # предмет у стены ядра, которому не встать к настоящей стене (ниша) — тоже изъян расстановки: такая геометрия хуже
+        _, _, stuck = push_to_walls(ad, cand, ps, push_checker(ad, cand, sr['openings']))
+        rec.update(post_ok=pc['ok'], problems=pc['problems'], hard=hard, off_wall=stuck)
         return rec, {'sr': sr, 'ps': ps, 'pc': pc, 'hard': hard,
-                     'score': (len(pc['problems']) + len(hard), len(sr.get('missing') or []))}
+                     'score': (len(pc['problems']) + len(hard) + len(stuck), len(sr.get('missing') or []))}
 
     def solve_units(units, ci, cand, pool, have=False):
         """Прогоны солвера по мере готовности → (лучшие расстановки по `tag`, итоговый список единиц)."""
@@ -654,7 +991,7 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                 head['replaces'] = u['from']
                 flags.append('own_layouts')
             if b is None:                                   # не расставить — стили без сцены, с причиной
-                why = next((t.get('infeasible') or t.get('stderr') or t.get('rc') for t in reversed(tries)
+                why = next((t.get('infeasible') or t.get('error') or t.get('rc') for t in reversed(tries)
                             if t['unit'] == u['tag'] and t['cand'] == ci), None)
                 geometries.append(dict(head, failed=why, placements=[], placements_core=[], problems=[], hard=[],
                                        openings_core=TR_strip(TR.solver_openings(cand, cfg))))
@@ -671,17 +1008,28 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
             problems += [dict(p, geometry=gi) for p in b['pc']['problems']]
             problems += [{'code': h.split('|')[0], 'roles': h.split('|')[1], 'geometry': gi} for h in b['hard']]
             croom = core_room(cand, b['sr']['openings'])
+            check = push_checker(ad, cand, b['sr']['openings'])
             for st, n in u['styles']:
                 ps, absent, rows = substitute(b['ps'], st, cand['w'], cand['d'])
                 ps, gone = drop_window_chairs(croom, ps)
                 absent = absent + gone
                 rows = [r for r in rows if r['role'] not in gone]
+                ps, pushes, stuck = push_to_walls(ad, cand, ps, check)
+                at = {p.role: p for p in ps}
+                for r in rows:                              # место строки — после прижима к стене
+                    if r['role'] in at:
+                        r.update(x=round(at[r['role']].x, 1), y=round(at[r['role']].y, 1))
+                media[st.get('style')] = {r['role']: (r.get('_it') or {}).get('img') for r in rows}
+                ext = overhang(ps, cand['w'], cand['d'])
                 spc = TR.post_check(ad, cand, ps)
-                shard = hard_of(croom, ps)
+                probs = spc['problems'] + [{'code': 'back_off_wall', 'role': r} for r in stuck]
+                shard = hard_of(ext_room(cand['w'], cand['d'], b['sr']['openings'], ext),
+                                [_moved(p, ext['west'], ext['south']) for p in ps])
                 variants.append({'style': st.get('style'), 'set_index': n, 'set_id': st.get('set_id'), 'geometry': gi,
-                                 'items': rows, 'absent_roles': absent, 'hard': shard, 'post_ok': spc['ok'],
-                                 'problems': spc['problems'], 'placements': _ps_json(ps, x0, y0),
-                                 'placements_core': _ps_json(ps)})
+                                 'items': [public_row(r, mesh_ok) for r in rows], 'absent_roles': absent,
+                                 'no_mesh_dropped': st.get('no_mesh_dropped') or [], 'pushed': pushes,
+                                 'hard': shard, 'post_ok': not probs, 'problems': probs, 'placements': _ps_json(ps, x0, y0),
+                                 'placements_core': _ps_json(ps), '_ext': ext})
         return geometries, variants, problems
 
     geo_units = [{'tag': f'g{gi}', 'kind': 'geometry', 'n': gi + 1, 'shape': g['shape'], 'source': g['source'],
@@ -723,16 +1071,17 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                                                               'detail': f'нет места в очереди тяжёлых задач за {SLOT_TIMEOUT_S:.0f} с'}])
         scene['timings'] = {'adapter_s': round(t_ad + t_prep, 3), 'solver_s': 0, 'assembly_s': 0,
                             'total_s': round(time.time() - t0, 3), 'queue_s': round(time.time() - t1, 3)}
-        _write_scene(OUT, scene)
+        _write_scene(OUT, scene, tokens)
         return scene
     t_sol = time.time() - t1 - clock['queue']
     scene['tries'] = tries
     if chosen is None:
-        scene.update(status='failed', flags=flags, problems=[{'code': 'solver_failed',
-                                                              'detail': 'ни одна расстановка не получилась ни на одном ядре'}])
+        # ни одна расстановка этих товаров не вышла ни на одном ядре — «нет подходящих товаров под шаблоны», комната пустая
+        scene.update(status='no_products', flags=flags, problems=[{'code': 'solver_failed',
+                                                                   'detail': 'ни одна расстановка не получилась ни на одном ядре'}])
         scene['timings'] = {'adapter_s': round(t_ad + t_prep, 3), 'solver_s': round(t_sol, 3), 'assembly_s': 0,
                             'total_s': round(elapsed(), 3), 'queue_s': round(clock['queue'], 3)}
-        _write_scene(OUT, scene)
+        _write_scene(OUT, scene, tokens)
         return scene
     # ── сборка: товары каждого стиля на места СВОЕЙ расстановки; что и после своей расстановки нарушает правила — не показываем ──
     t2 = time.time()
@@ -748,26 +1097,52 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
     order = {s: i for i, s in enumerate(STYLES)}
     variants.sort(key=lambda v: order.get(v['style'], 99))
     ok_styles = [v for v in variants if v['post_ok'] and not v['hard']]
-    status = 'ok' if not problems and len(ok_styles) == len(variants) else 'partial'
+    # ни один стиль не прошёл — комната ПУСТАЯ с исходом «нет подходящих товаров» (владелец 09.11), а не «частично»
+    status = 'no_products' if not ok_styles else ('ok' if not problems and len(ok_styles) == len(variants) else 'partial')
     if elapsed() > BUDGET_S:
         flags.append('over_budget')
     if solver is run_solver and beam_off(cand):
         flags.append('beam_off_large')
-    scene.update(status=status, flags=sorted(set(flags + cand['flags'])), problems=problems, band=band,
-                 room={**ad['room'], 'panel': ad['panel']},
-                 core={'rect': cand['rect'], 'w': cand['w'], 'd': cand['d'], 'area_m2': cand['area_m2'],
+    # ── ядро, расширенное под мебель, прижатую к стенам ниш: прямоугольник кадра и все координаты «в ядре» — в нём ──
+    ext = {s: max([(v.get('_ext') or {}).get(s, 0.0) for v in ok_styles] or [0.0]) for s in ('west', 'east', 'south', 'north')}
+    for v in variants:
+        v.pop('_ext', None)
+    sx, sy = ext['west'], ext['south']
+
+    def sh_ps(ps):
+        return [dict(q, x=round(q['x'] + sx, 1), y=round(q['y'] + sy, 1)) for q in ps]
+
+    def sh_j(juncs):
+        return [(w, round(a + (sx if w in ('south', 'north') else sy), 1), round(b + (sx if w in ('south', 'north') else sy), 1))
+                for w, a, b in juncs]
+    for g in geometries:
+        g.update(placements_core=sh_ps(g['placements_core']), openings_core=shift_ops(g['openings_core'], ext))
+    for v in variants:
+        v['placements_core'] = sh_ps(v['placements_core'])
+        for r in v['items']:
+            r.update(x=round(r['x'] + sx, 1), y=round(r['y'] + sy, 1))
+    x0, y0, x1, y1 = cand['rect']
+    W2, D2 = cand['w'] + ext['west'] + ext['east'], cand['d'] + ext['south'] + ext['north']
+    scene.update(status=status, flags=sorted(set(flags + cand['flags'] + (['core_extended'] if any(ext.values()) else []))),
+                 problems=problems, band=band, room={**ad['room'], 'panel': ad['panel']},
+                 # `rect`, `w`, `d` — ядро кадра (с прижатой к стенам ниш мебелью); `solver_rect` — ядро, в котором считал солвер;
+                 # `ext_cm` — на сколько расширено по сторонам (координаты «в ядре» сдвинуты на запад/юг)
+                 core={'rect': [x0 - sx, y0 - sy, x1 + ext['east'], y1 + ext['north']], 'w': W2, 'd': D2,
+                       'area_m2': cand['area_m2'], 'solver_rect': cand['rect'], 'ext_cm': ext,
                        'core_share': cand['core_share'], 'index': ci,
-                       'residues': [{k: v for k, v in r.items() if k != 'poly'} for r in cand['residues']]},
+                       'residues': [dict({k: v for k, v in r.items() if k != 'poly'}, junctions=sh_j(r['junctions']))
+                                    for r in cand['residues']]},
                  openings_full=[{k: v for k, v in o.items()} for o in ad['ops']],
                  # проёмы ядра (кадр ядра, `planner/models.py:Opening`) — общие для всех геометрий, кроме стороны петли
                  # двери (`geometries[i].openings_core` — точные для своей расстановки)
-                 openings_core=geometries[0]['openings_core'],
+                 openings_core=TR_strip(geometries[0]['openings_core']),
                  geometries=geometries, variants=variants, styles_ok=len(ok_styles))
     t_asm = time.time() - t2
     scene['timings'] = {'adapter_s': round(t_ad + t_prep, 3), 'solver_s': round(t_sol, 3), 'assembly_s': round(t_asm, 3),
                         'total_s': round(elapsed(), 3), 'solver_runs': len(tries), 'queue_s': round(clock['queue'], 3),
                         'adapter_only_s': round(t_ad, 3)}
-    _write_scene(OUT, scene)
+    _write(os.path.join(OUT, 'media.json'), {v['style']: media.get(v['style']) or {} for v in ok_styles})
+    _write_scene(OUT, scene, tokens)
     return scene
 
 
@@ -853,9 +1228,26 @@ def entry_cam(scene: dict, ops: list):
     return Camera(name='entry', eye=(pos[0], 160.0, pos[1]), target=(W / 2, 95.0, D / 2), fov_deg=72, width=1152, height=768)
 
 
-def frame_entry(scene: dict, variant: dict, path: str) -> dict:
+def render_inputs(variant: dict, media: dict) -> tuple[dict, dict]:
+    """Что кадру рисовать моделью и что — фото: модель — только ГОДНАЯ (`items[].msid`, правило `item_has_mesh`; нет — честная
+    серая форма, а не модель семейства чужого цвета); фото — по картинке товара (`media.json`): без фото ковёр не рисуется
+    вовсе (`draft_render._paste_rug` → «пропал ковёр», T-12/2). Экземпляры пары («стул 2») наследуют фото роли."""
     import draft_render as DR
-    import flat215_demo as FD
+    sid = {r['role']: r['msid'] for r in variant['items'] if r.get('msid')}
+    photos = {}
+    for role, url in (media or {}).items():
+        if url:
+            ph = DR.photo(url)
+            if ph is not None:
+                photos[role] = ph
+    for q in variant.get('placements_core') or []:
+        if q['role'] not in photos and _base(q['role']) in photos:
+            photos[q['role']] = photos[_base(q['role'])]
+    return sid, photos
+
+
+def frame_entry(scene: dict, variant: dict, path: str, media: dict | None = None) -> dict:
+    import draft_render as DR
     from planner.models import Item, Placement
     ops = scene['geometries'][variant['geometry']]['openings_core']
     croom = core_room({'w': scene['core']['w'], 'd': scene['core']['d']}, ops, render=True)
@@ -863,8 +1255,8 @@ def frame_entry(scene: dict, variant: dict, path: str) -> dict:
                     item=Item(role=q['role'], w_cm=q['w'], d_cm=q['d'], h_cm=q.get('h') or 60, corner=q['corner'],
                               corner_left=q['corner_left'], corner_section_cm=q.get('section') or 95))
           for q in variant['placements_core'] if q.get('w')]
-    sid = {r['role']: FD._msid(r['sid']) for r in variant['items'] if r.get('sid')}
-    img, diag = DR.scene3d_frame(croom, ps, entry_cam(scene, ops), {k: v for k, v in sid.items() if v}, {})
+    sid, photos = render_inputs(variant, media or {})
+    img, diag = DR.scene3d_frame(croom, ps, entry_cam(scene, ops), sid, photos)
     img.save(path, quality=88)
     return diag
 
@@ -874,6 +1266,10 @@ def frames(scene: dict, dst: str) -> dict:
     t = time.time()
     tag = scene['trial_id']
     out = {'top': [], 'entry': [], 'clay': {}}
+    try:
+        media = json.load(open(os.path.join(scene['out'], 'media.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        media = {}
     for g in scene.get('geometries') or []:
         if g.get('failed'):
             continue
@@ -890,7 +1286,7 @@ def frames(scene: dict, dst: str) -> dict:
         frame_top(scene, v, p, v['style'])
         out['top'].append(p)
         p = os.path.join(dst, f'{tag}-entry-{sid}.jpg')
-        diag = frame_entry(scene, v, p)
+        diag = frame_entry(scene, v, p, media.get(v['style']))
         out['entry'].append(p)
         out['clay'][v['style']] = diag.get('clay') or []
     out['seconds'] = round(time.time() - t, 2)
