@@ -186,6 +186,8 @@ lease_until<now()) order by created_at for update skip locked limit 1) returning
 
 - 2026-11-09 13:35 — T-A (T-20261109-08) done: `ec977b1b` → main `7ce61ee8`; 35 новых тестов (18 на Postgres: гонки claim/heartbeat/result, ABA, лимит очереди под замком), всего 850 зелёные; build зелёный. Отступления: суточный потолок — по заданиям в БД под advisory-замком (не `PRESETS`); Caddy — именованный `@trialapi` (ниже заслона Next-Action), `?Referrer-Policy` отдельной директивой; зависшие > 24 ч → `failed/stale`; Метрики и cookie-баннера на /try нет. Ведущий: pg_dump прода, токен на проде и DEV.
 
+- 2026-11-09 15:45 — T-B (T-20261109-10) done на ветке `worktree-trial-worker` (поверх main с T-09): `pipeline.py` + `worker.py` + юнит/`worker_install.sh` (не установлен); `pytest tests/floorplan` 113 зелёные (новых 46); A–G из кэша VLM — Zod прода принимает все 7; пик 0,16–0,43 ГБ → `MemoryMax=2G`; время стенда A 44 с · B 27 · C 546 · D 40 · E 220 · F 86 · G 286. Отступления: метка слота `trial-floorplan` (не `trial-<id>`); > 4 панелей — топ-4 по площади + `panels_truncated` (C, F, G).
+
 ## Completion summary
 
 ### Уроки
