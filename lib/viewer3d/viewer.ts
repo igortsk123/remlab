@@ -1539,22 +1539,44 @@ export class FlatViewer {
     for (const o of [this.outline, this.ghost]) if (o && o.visible) { o.visible = false; undo.push(() => { o.visible = true; }); }
     // кайма вида за окном — только для глаза «3D» (`openings.ts:skirtMesh`); кадр нейросети — как у сервера, по плоскости вида
     this.scene.traverse((o) => { if (o.name === "window-view:skirt" && o.visible) { o.visible = false; undo.push(() => { o.visible = true; }); } });
+    // тёплая подсветка выбранного — не в кадр нейросети; снимаем и возвращаем в той же задаче, что и кадр (T-20261109-32/2:
+    // прежде её гасил `demo-scene.capture` на всю съёмку — выбранный предмет в 3D «тух» на секунды)
+    const sel = this.selectedSlot;
+    if (sel) { this.highlight(null); undo.push(() => this.highlight(sel)); }
+    return this.frameBlob(width, height, "image/jpeg", quality, () => {
+      try { this.renderer.render(this.scene, cam); } finally { undo.forEach((f) => f()); }
+    });
+  }
+
+  /**
+   * КАДР В ЧУЖОМ РАЗМЕРЕ БЕЗ МИГАНИЯ ОКНА (T-20261109-32/2). Холст один: кадр рисуется в нём в своём размере. Прежде холст ждал
+   * `toBlob` в этом размере — между тем браузер показывал окно 3D в чужом разрешении и мог показать сам кадр другой камеры (проба
+   * `photo-views-check flicker`: 8 кадров анимации из 41 в размере 2048×1489). Теперь в ОДНОЙ задаче, до показа: нарисовали → копия
+   * в свой 2D-холст → размер вернули → видимый вид перерисован. Сжатие (`toBlob`) — уже копии, асинхронно; пиксели кадра те же.
+   */
+  private async frameBlob(width: number, height: number, type: string, quality: number, draw: () => void): Promise<Blob> {
     const canvas = this.renderer.domElement;
     const prev = new THREE.Vector2();
     this.renderer.getSize(prev);
     const prevRatio = this.renderer.getPixelRatio();
+    const copy = document.createElement("canvas");
+    copy.width = width;
+    copy.height = height;
+    const ctx = copy.getContext("2d");
+    if (!ctx) throw new Error("кадр не собрался");
     try {
       this.renderer.setPixelRatio(1);
       this.renderer.setSize(width, height, false);
-      this.renderer.render(this.scene, cam);
-      const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/jpeg", quality));
-      if (!blob) throw new Error("кадр не собрался");
-      return blob;
+      draw();
+      ctx.drawImage(canvas, 0, 0);   // буфер WebGL ещё цел: та же задача, что и отрисовка
     } finally {
       this.renderer.setPixelRatio(prevRatio);
       this.renderer.setSize(prev.x, prev.y, false);
-      undo.forEach((f) => f());
+      this.renderer.render(this.scene, this.camera);   // `setSize` очистил холст — видимый вид на место до показа
     }
+    const blob = await new Promise<Blob | null>((ok) => copy.toBlob(ok, type, quality));
+    if (!blob) throw new Error("кадр не собрался");
+    return blob;
   }
 
   /** Кадр «здесь и сейчас» — для превью и для e2e-проверки, что сцена реально нарисовалась. */
@@ -1568,26 +1590,20 @@ export class FlatViewer {
    * не на каждое движение. Холст временно перерисовывается в нужном размере и возвращается обратно.
    */
   async exportFrame(width: number, height: number, type = "image/jpeg", quality = 0.9): Promise<Blob> {
-    const canvas = this.renderer.domElement;
-    const prev = new THREE.Vector2();
-    this.renderer.getSize(prev);
-    const prevRatio = this.renderer.getPixelRatio();
     const prevAspect = this.camera.aspect;
     const prevFov = this.camera.fov;
-    this.renderer.setPixelRatio(1);
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    if (this.photo) this.camera.fov = verticalFov(this.photo.fov ?? 72, this.camera.aspect);
-    this.camera.updateProjectionMatrix();
-    this.renderer.render(this.scene, this.camera);
-    const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, type, quality));
-    this.renderer.setPixelRatio(prevRatio);
-    this.renderer.setSize(prev.x, prev.y, false);
-    this.camera.aspect = prevAspect;
-    this.camera.fov = prevFov;
-    this.camera.updateProjectionMatrix();
-    if (!blob) throw new Error("кадр не собрался");
-    return blob;
+    return this.frameBlob(width, height, type, quality, () => {
+      try {
+        this.camera.aspect = width / height;
+        if (this.photo) this.camera.fov = verticalFov(this.photo.fov ?? 72, this.camera.aspect);
+        this.camera.updateProjectionMatrix();
+        this.renderer.render(this.scene, this.camera);
+      } finally {
+        this.camera.aspect = prevAspect;
+        this.camera.fov = prevFov;
+        this.camera.updateProjectionMatrix();
+      }
+    });
   }
 
   get position(): { x: number; y: number; heading: number } {

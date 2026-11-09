@@ -255,7 +255,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     aimLive: () => viewer.aimLive(),
     capture: async (poses, width, height) => {
       await running;                                  // последняя расстановка уже в сцене
-      viewer.highlight(null);                         // тёплая подсветка выбранного — не в кадр нейросети
+      // подсветку выбранного снимает и возвращает сам `capturePhoto` на время кадра (T-20261109-32/2: здесь она гасла на всю съёмку)
       try {
         const frames: Blob[] = [];
         for (const p of poses) frames.push(await viewer.capturePhoto(p, width, height, 0.85, { tilt: height > width }));

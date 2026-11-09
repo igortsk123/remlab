@@ -5,6 +5,8 @@
 // кнопка на плашке «Вы изменили комнату»; home — кнопка карточки главной (`homeStaleReal`). Годно — заказ с `views` из 2 id (VIEWS).
 // T-20261109-32 (кадры заранее): pre2/pre5 — правка → пауза 2/5 с → нажатие; race — вторая правка посреди съёмки первой. Годно — FAST:
 // заказ ≤ 1,5 с от нажатия, кадры той расстановки, что при нажатии, ни одна не снималась дважды. По умолчанию — прежние четыре.
+// flicker (T-20261109-32/2) — окно в 3D, правка, съёмка заранее: не мигает ли видимый холст (STEADY / FLICKER-…). Движок сцены
+// этой копии вместо прода: `node tools/flat3d/build-scene-bundle.mjs --out <папка>` и ENGINE=<папка>.
 // Страница — index.html этой копии (PAGE=путь), данные/движок/реестр — прод (`?live=force`: программный рендер headless).
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const ROOT = path.join(__dirname, '../../..');
@@ -27,6 +29,12 @@ async function open(b) {
   p.on('response', x => { if (x.status() === 429) p.log.push('error: 429 ' + x.url().slice(0, 120)); });
   p.on('pageerror', e => p.log.push('pageerror: ' + String(e).slice(0, 300)));
   await p.route(/\/demo\/(index\.html)?(\?.*)?$/, r => r.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: fs.readFileSync(PAGE, 'utf8') }));
+  // ENGINE=<папка сборки `build-scene-bundle.mjs --out`> — движок сцены этой копии вместо прода (правка `lib/viewer3d`)
+  if (process.env.ENGINE) await p.route(/\/demo\/lib\/(scene\.json|(scene|basket)\.[0-9a-f]+\.js)(\?.*)?$/, r => {
+    const f = path.join(process.env.ENGINE, path.basename(new URL(r.request().url()).pathname));
+    if (!fs.existsSync(f)) return r.continue();
+    return r.fulfill({ status: 200, contentType: f.endsWith('.json') ? 'application/json' : 'text/javascript', body: fs.readFileSync(f) });
+  });
   await p.route(/\/api\/events/, r => r.fulfill({ status: 204, body: '' }));
   await p.route(/\/api\/(render|draft|warm)/, r => {
     const u = new URL(r.request().url());
@@ -113,6 +121,72 @@ async function prefetch(b, name, pauseMs, race) {
   await p.context().close();
 }
 
+// T-20261109-32/2 — МИГАНИЕ ОКНА 3D ПРИ СЪЁМКЕ ЗАРАНЕЕ: человек смотрит на 3D, через 1,5 с после правки страница снимает кадры C1/C2
+// на том же холсте. Сцена неподвижна: каждый снимок видимой части холста (~раз в 100 мс) сверяем с итоговым (через 1,5 с после
+// съёмки) и с предыдущим — доля пикселей с отличием > 24 по каналу и средняя яркость; на каждом кадре анимации в странице пишем
+// canvas.width/height и getBoundingClientRect. Годно — STEADY: во время съёмки ни один снимок не отличается от итога больше 2 %,
+// размер буфера и место холста на экране на кадрах анимации не менялись.
+async function flicker(b) {
+  const sharp = require(NM + '/.pnpm/' + fs.readdirSync(NM + '/.pnpm').find(d => d.startsWith('sharp@')) + '/node_modules/sharp');
+  const p = await open(b);
+  await p.evaluate(() => { shots = shots.filter(x => x.quality !== 'realistic'); openLiveWindow(); });
+  await p.waitForFunction(() => LIVE.scene && LIVE.state === 'ready', null, { timeout: 150000 }).catch(() => {});
+  await p.waitForFunction(() => VPF.cap && !VPF.run, null, { timeout: 120000 }).catch(() => {});
+  await p.waitForTimeout(800);
+  const clip = await p.evaluate(([W, H]) => { const r = LIVE.canvas.getBoundingClientRect();
+    const x = Math.max(0, r.x), y = Math.max(0, r.y);
+    return { x, y, width: Math.min(W, r.right) - x, height: Math.min(H, r.bottom) - y }; }, [W, H]);
+  await p.evaluate(() => { window.__fl = []; const c = LIVE.canvas;
+    const f = () => { const r = c.getBoundingClientRect();
+      __fl.push([Math.round(performance.now()), c.width, c.height, Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height), VPF.run ? 1 : 0]);
+      if (__fl.length < 20000) requestAnimationFrame(f); };
+    requestAnimationFrame(f); });
+  await edit(p, 1);
+  const t0 = Date.now(), frames = [];
+  let started = null, endAt = 0;   // null, не 0: на телефоне съёмка видна уже на первом шаге (t=0)
+  while (Date.now() - t0 < 60000) {
+    const ts = Date.now();
+    const run = await p.evaluate(() => !!VPF.run);
+    frames.push({ t: ts - t0, run, buf: await p.screenshot({ clip, type: 'png' }) });
+    if (run && started === null) started = ts - t0;
+    if (started !== null && !run && !endAt) endAt = Date.now();
+    if (endAt && Date.now() - endAt > 1500) break;
+    await p.waitForTimeout(Math.max(0, 100 - (Date.now() - ts)));
+  }
+  const raw = async buf => (await sharp(buf).removeAlpha().raw().toBuffer({ resolveWithObject: true })).data;
+  const fin = await raw(frames[frames.length - 1].buf);
+  const diff = (a, z) => { let n = 0; for (let i = 0; i < a.length; i += 3) if (Math.max(Math.abs(a[i] - z[i]), Math.abs(a[i + 1] - z[i + 1]), Math.abs(a[i + 2] - z[i + 2])) > 24) n++; return n / (a.length / 3); };
+  const lum = a => { let s = 0; for (let i = 0; i < a.length; i += 3) s += 0.2126 * a[i] + 0.7152 * a[i + 1] + 0.0722 * a[i + 2]; return s / (a.length / 3); };
+  let prev = null;
+  for (const f of frames) { const a = await raw(f.buf); f.dFinal = +diff(a, fin).toFixed(4); f.dPrev = prev ? +diff(a, prev).toFixed(4) : 0; f.lum = +lum(a).toFixed(1); prev = a; }
+  const fl = await p.evaluate(() => __fl);
+  // кадр C1 для нейросети — сверить, что переделка отрисовки его не изменила (движок прод ↔ этой копии)
+  const c1 = await p.evaluate(async () => { const bl = VPF.cap && VPF.cap.blobs && VPF.cap.blobs[0]; if (!bl) return null;
+    const a = new Uint8Array(await bl.arrayBuffer()); let s = ''; for (let i = 0; i < a.length; i += 8192) s += String.fromCharCode.apply(null, a.subarray(i, i + 8192)); return btoa(s); });
+  if (c1) fs.writeFileSync(OUT + `/flicker-${W}-c1-frame.jpg`, Buffer.from(c1, 'base64'));
+  const sizes = {}, rects = {};
+  for (const [, w, h, x, y, rw, rh] of fl) { sizes[w + 'x' + h] = (sizes[w + 'x' + h] || 0) + 1; rects[[x, y, rw, rh].join(',')] = (rects[[x, y, rw, rh].join(',')] || 0) + 1; }
+  let gap = 0; for (let i = 1; i < fl.length; i++) gap = Math.max(gap, fl[i][0] - fl[i - 1][0]);
+  const during = started === null ? [] : frames.filter(f => f.t >= started && (!endAt || f.t <= endAt - t0));
+  const worst = during.reduce((m, f) => (f.dFinal > (m ? m.dFinal : -1) ? f : m), null);
+  const name = `flicker-${W}`;
+  const save = (f, tag) => f && fs.writeFileSync(OUT + `/${name}-${tag}-t${f.t}.png`, f.buf);
+  save(frames[0], '0-edit'); save(during[0], '1-start'); save(worst, '2-worst'); save(frames[frames.length - 1], '3-final');
+  const r = { scenario: 'flicker', size: W + 'x' + H, engine: process.env.ENGINE ? 'local' : 'prod', clip, captureStartMs: started,
+    captureEndMs: endAt ? endAt - t0 : null, shots: frames.length, shotsDuring: during.length,
+    maxDiffDuring: worst ? worst.dFinal : null, worstAt: worst ? worst.t : null,
+    lumRange: [Math.min(...frames.map(f => f.lum)), Math.max(...frames.map(f => f.lum))],
+    rafFrames: fl.length, rafDuringRun: fl.filter(x => x[7]).length, rafMaxGapMs: gap, canvasSizes: sizes, canvasRects: rects,
+    series: frames.map(f => ({ t: f.t, run: f.run ? 1 : 0, dFinal: f.dFinal, dPrev: f.dPrev, lum: f.lum })),
+    console: p.log.filter(l => /error|Error/.test(l)).slice(-8) };
+  r.verdict = (r.maxDiffDuring !== null && r.maxDiffDuring <= 0.02 && Object.keys(sizes).length === 1 && Object.keys(rects).length === 1)
+    ? 'STEADY' : 'FLICKER' + (Object.keys(sizes).length > 1 ? '-SIZE' : '') + (Object.keys(rects).length > 1 ? '-RECT' : '')
+      + (r.maxDiffDuring > 0.02 ? '-PIXELS' : '') + (r.maxDiffDuring === null ? '-NOCAPTURE' : '');
+  res.push(r);
+  console.log(JSON.stringify(Object.assign({}, r, { series: undefined })));
+  await p.context().close();
+}
+
 (async () => {
   const b = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   try {
@@ -142,6 +216,7 @@ async function prefetch(b, name, pauseMs, race) {
         await waitOrder(p, 90000); await report(p, 'stale', before, t0); }
       await p.context().close();
     }
+    if (ONLY.includes('flicker')) await flicker(b);                         // 3D на экране, съёмка заранее — не мигает ли окно
     if (ONLY.includes('ready')) await prefetch(b, 'ready', 0, false);      // правка → кадры готовы → нажатие
     if (ONLY.includes('pre2')) await prefetch(b, 'pre2', 2000, false);     // задание: правка → 2 с → нажатие
     if (ONLY.includes('pre5')) await prefetch(b, 'pre5', 5000, false);     // кадры успели сняться и загрузиться
