@@ -34,6 +34,8 @@ POCKET_SHARE = 0.25      # карман за линией мебели (стол
 BOX_SUPPORT = 0.5        # рамка: доля периметра на стенах/линиях не меньше 0,5
 BOX_EDGE_OK = 0.6        # и хотя бы две стороны поддержаны на 0,6+
 BOX_INTERIOR = 0.03      # внутри рамки стен и чужих комнат не больше 3 %
+BOX_INTERIOR_MAX = 0.06  # у мерки «max»/«into bay» — до 6 %: это габарит, а в комнате бывают выступы стен, ниша, камин
+BOX_OUTSIDE = 0.15      # за оболочкой здания — не больше 15 % рамки (углы мимо эркера у мерки «max»; пол по оболочке обрезается)
 ATTACH_M = 0.3           # линия «связана со стеной», если подходит к ней ближе 0,3 м (эркер, рама; не остров, не текст)
 
 
@@ -225,9 +227,17 @@ def _main_rot(fams) -> float:
     return float(min(a, key=abs))
 
 
-def enclose_box(final, lab, rooms, gray, pt, dims, ppm, fams, bg_sheet, other_pts, t_int, floor=None, inside=None):
+def is_max_note(note) -> bool:
+    """Заметка подписи говорит, что размер — наибольший габарит комнаты («max», «into bay»), а не прямоугольник."""
+    s = str(note or '').lower()
+    return 'max' in s or 'bay' in s
+
+
+def enclose_box(final, lab, rooms, gray, pt, dims, ppm, fams, bg_sheet, other_pts, t_int, floor=None, inside=None,
+                max_extent: bool = False):
     """Подход «рамка по мерке подписи» в окне. → (маска комнаты, сведения) или (None, причина).
-    inside — выпуклая оболочка здания: рамка за неё не выходит (вне её — как стена внутри рамки)."""
+    inside — выпуклая оболочка здания: пол за неё не выходит, рамка заходит не больше BOX_OUTSIDE (углы мимо эркера).
+    max_extent — мерка «max»/«into bay»: габарит, поэтому внутри рамки допускается больше выступов стен."""
     Wm = final > 0
     R = np.isin(lab, list(rooms)) if len(rooms) else np.zeros(lab.shape, bool)
     out = ~inside if inside is not None else np.zeros(Wm.shape, bool)
@@ -240,15 +250,16 @@ def enclose_box(final, lab, rooms, gray, pt, dims, ppm, fams, bg_sheet, other_pt
     rot = _main_rot(fams)
     shape = Wm.shape
     M = None
-    hard = Wm | R | out
+    hard = Wm | R
     if abs(rot) > 0.5:
         sup_r, M = fc.rotate_mask(sup.astype(np.uint8), rot)
         hard_r, _ = fc.rotate_mask(hard.astype(np.uint8), rot)
+        out_r, _ = fc.rotate_mask(out.astype(np.uint8), rot)
         P = M @ np.array([pt[0], pt[1], 1.0])
         px, py = float(P[0]), float(P[1])
         opts = [tuple(M @ np.array([x, y, 1.0])) for x, y in other_pts]
     else:
-        sup_r, hard_r = sup.astype(np.uint8), hard.astype(np.uint8)
+        sup_r, hard_r, out_r = sup.astype(np.uint8), hard.astype(np.uint8), out.astype(np.uint8)
         px, py = float(pt[0]), float(pt[1])
         opts = list(other_pts)
     tol = max(2, int(round(t_int)))
@@ -260,6 +271,8 @@ def enclose_box(final, lab, rooms, gray, pt, dims, ppm, fams, bg_sheet, other_pt
     colc[1:, :] = np.cumsum(S, axis=0)
     ii = np.zeros((Hh + 1, Ww + 1), np.int64)
     ii[1:, 1:] = np.cumsum(np.cumsum(hard_r.astype(np.int64), 0), 1)
+    io = np.zeros((Hh + 1, Ww + 1), np.int64)
+    io[1:, 1:] = np.cumsum(np.cumsum(out_r.astype(np.int64), 0), 1)
     m = max(2, int(0.2 * ppm))
     best = None
     for (da, db) in ((dims[0], dims[1]), (dims[1], dims[0])):
@@ -277,22 +290,26 @@ def enclose_box(final, lab, rooms, gray, pt, dims, ppm, fams, bg_sheet, other_pt
         rig = (colc[Y0 + h, X0 + w] - colc[Y0, X0 + w]) / h
         sup_v = (w * (top + bot) + h * (lef + rig)) / (2.0 * (w + h))
         a0, b0, a1, b1 = X0 + tol, Y0 + tol, X0 + w - tol, Y0 + h - tol
-        inner = (ii[b1, a1] - ii[b0, a1] - ii[b1, a0] + ii[b0, a0]) / max(1, (w - 2 * tol) * (h - 2 * tol))
-        sc = sup_v - 4.0 * inner
+        cells = max(1, (w - 2 * tol) * (h - 2 * tol))
+        inner = (ii[b1, a1] - ii[b0, a1] - ii[b1, a0] + ii[b0, a0]) / cells
+        beyond = (io[b1, a1] - io[b0, a1] - io[b1, a0] + io[b0, a0]) / cells
+        sc = sup_v - 4.0 * (inner + beyond)
         for (ox, oy) in opts:                           # рамка не накрывает другую подпись с размером
             inside = (X0 + m <= ox) & (ox < X0 + w - m) & (Y0 + m <= oy) & (oy < Y0 + h - m)
             sc = np.where(inside, -9.0, sc)
         k = int(np.argmax(sc))
         j, i = np.unravel_index(k, sc.shape)
         cand = (float(sc[j, i]), int(X0[j, i]), int(Y0[j, i]), w, h, float(sup_v[j, i]), float(inner[j, i]),
-                [float(top[j, i]), float(bot[j, i]), float(lef[j, i]), float(rig[j, i])])
+                [float(top[j, i]), float(bot[j, i]), float(lef[j, i]), float(rig[j, i])], float(beyond[j, i]))
         if best is None or cand[0] > best[0]:
             best = cand
     if best is None:
         return None, 'рамка не помещается'
-    _, x0, y0, w, h, sv, inner, edges = best
-    if sv < BOX_SUPPORT or sum(e >= BOX_EDGE_OK for e in edges) < 2 or inner > BOX_INTERIOR:
-        return None, f'рамка не легла: опора {sv:.2f}, стороны {[round(e, 2) for e in edges]}, внутри {inner:.3f}'
+    _, x0, y0, w, h, sv, inner, edges, beyond = best
+    lim_in = BOX_INTERIOR_MAX if max_extent else BOX_INTERIOR
+    if sv < BOX_SUPPORT or sum(e >= BOX_EDGE_OK for e in edges) < 2 or inner > lim_in or beyond > BOX_OUTSIDE:
+        return None, (f'рамка не легла: опора {sv:.2f}, стороны {[round(e, 2) for e in edges]}, внутри {inner:.3f}, '
+                      f'за оболочкой {beyond:.3f}')
     # стороны — к ближней линии (±6 % или 3 px): мерка подписи с допуском манеры
     def refine(pos, length, horiz, lo, sign):
         d = max(3, int(0.06 * length))
@@ -330,7 +347,7 @@ def enclose_box(final, lab, rooms, gray, pt, dims, ppm, fams, bg_sheet, other_pt
     if comp.sum() < OPEN_MIN * A:
         return None, f'мала {comp.sum() / A:.2f}'
     return comp, {'support': round(sv, 2), 'edges': [round(e, 2) for e in edges], 'inner': round(inner, 3),
-                  'tint': tint is not None, 'share': round(float(comp.sum()) / A, 2), 'rot': round(rot, 1)}
+                  'beyond': round(beyond, 3), 'tint': tint is not None, 'share': round(float(comp.sum()) / A, 2), 'rot': round(rot, 1)}
 
 
 def virtual_boundary(comp: np.ndarray, final: np.ndarray, t: float) -> np.ndarray:

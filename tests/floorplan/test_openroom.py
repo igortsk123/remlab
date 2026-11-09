@@ -143,6 +143,46 @@ def test_enclose_box_refuses_unsupported_frame():
     assert comp is None and 'не легла' in why
 
 
+def test_is_max_note():
+    assert orm.is_max_note('max') and orm.is_max_note('into bay') and orm.is_max_note('MAX')
+    assert not orm.is_max_note(None) and not orm.is_max_note('') and not orm.is_max_note('unsure')
+
+
+def test_enclose_box_max_label_tolerates_wall_nib():
+    """Мерка «max» — габарит: выступ стены на ~4 % рамки не отменяет комнату; при обычной мерке — отказ (порог 3 %)."""
+    g, final = open_sheet(gap_m=3.0)
+    final[60:76, 70:88] = 1
+    lab = np.zeros(final.shape, np.int32)
+    args = (final, lab, [], g, (100, 95), (5.0, 4.0), PPM, [0.0, 90.0], 255.0)
+    comp, why = orm.enclose_box(*args, other_pts=[(200, 90)], t_int=4)
+    assert comp is None and 'не легла' in why
+    comp, info = orm.enclose_box(*args, other_pts=[(200, 90)], t_int=4, max_extent=True)
+    assert comp is not None, info
+    assert not comp[68, 80]                               # выступ — не пол
+
+
+def test_enclose_box_frame_may_overhang_hull_a_little():
+    """Угол рамки мимо эркера (за оболочкой до 15 % рамки) не отменяет комнату; пол за оболочку не выходит."""
+    g, final = open_sheet(gap_m=3.0)
+    inside = np.ones(final.shape, bool)
+    for y in range(50, 72):
+        inside[y, 52:52 + (72 - y)] = False               # срезан левый верхний угол комнаты, ~4 % рамки
+    comp, info = orm.enclose_box(final, np.zeros(final.shape, np.int32), [], g, (100, 95), (5.0, 4.0), PPM,
+                                 [0.0, 90.0], 255.0, other_pts=[(200, 90)], t_int=4, inside=inside)
+    assert comp is not None, info
+    assert 0 < info['beyond'] <= orm.BOX_OUTSIDE
+    assert not (comp & ~inside).any()
+
+
+def test_enclose_box_refuses_frame_far_beyond_hull():
+    g, final = open_sheet(gap_m=3.0)
+    inside = np.zeros(final.shape, bool)
+    inside[40:80, :] = True                               # оболочка — полоса 40 px: половина рамки (80 px) вне её при любом сдвиге
+    comp, why = orm.enclose_box(final, np.zeros(final.shape, np.int32), [], g, (100, 60), (5.0, 4.0), PPM,
+                                [0.0, 90.0], 255.0, other_pts=[(200, 90)], t_int=4, inside=inside)
+    assert comp is None and 'за оболочкой' in why
+
+
 def test_virtual_boundary_only_off_wall():
     g, final = open_sheet(gap_m=1.6)
     comp = np.zeros(final.shape, bool)

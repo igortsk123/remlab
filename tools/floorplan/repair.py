@@ -56,6 +56,7 @@ class Label:
     pt: tuple                       # px панели
     dims: tuple | None = None       # (a, b) м, как напечатано; None — помещение без размеров (имя от VLM)
     src: str = 'vlm'
+    note: str | None = None         # заметка подписи («max», «into bay»): мерка по наибольшим сторонам
 
 
 @dataclass
@@ -603,7 +604,8 @@ def hyp_enclose(st: State, i: int, labels: list, ctx: Ctx, mode: str):
                                             None, floor=ctx.floor, inside=hull_w)
     elif mode == 'box':
         comp, info = openroom.enclose_box(final_w, lab_w, rooms_in, gray_w, pt, l.dims, ctx.ppm, ctx.fams, ctx.bg, opts,
-                                          ctx.t_int, floor=ctx.floor, inside=hull_w)
+                                          ctx.t_int, floor=ctx.floor, inside=hull_w,
+                                          max_extent=openroom.is_max_note(l.note))
     else:
         return _no(f'нет подхода {mode}')
     if comp is None:

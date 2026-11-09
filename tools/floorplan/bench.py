@@ -688,7 +688,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         rep_log, rep_labels = [], []
         if vl and os.environ.get('FP_REPAIR', '1') != '0':
             # T-03: круг самопочинки — гипотезы с ценой и откатом вместо прямых слияний/разрезов
-            labs = [repair.Label(q['name'], (q['pt'][0] - X0, q['pt'][1] - Y0), q['dims'], 'vlm')
+            labs = [repair.Label(q['name'], (q['pt'][0] - X0, q['pt'][1] - Y0), q['dims'], 'vlm', q.get('note'))
                     for q in vl['labels'] if inside(q['pt'])]
             labs += [repair.Label(q['name'], (q['pt'][0] - X0, q['pt'][1] - Y0), None, 'vlm-space')
                      for q in vl['spaces'] if inside(q['pt'])]
