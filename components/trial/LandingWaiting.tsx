@@ -1,45 +1,44 @@
 // Нижние блоки лендинга `/try` (макет v3-en-final, TG 420): образец экрана ожидания, вопросы агентов и финальный призыв.
 // Образец — картинка, а не форма: он `inert` (кнопки и поле почты не нажимаются; почты в пробе нет до T9).
+// Тексты на двух языках — `landing-text.ts`.
 
+import { landingText } from "@/components/trial/landing-text";
 import { WaitCard, type WaitStep } from "@/components/trial/WaitCard";
 import l from "@/components/trial/landing.module.css";
+import { textOf, type TrialLang } from "@/lib/trial/i18n";
 
-const DEMO: WaitStep[] = [
-  { key: "a", state: "done", title: "Plan received", sub: "floorplan-flat-215.pdf", at: "0:04" },
-  { key: "b", state: "done", title: "Rooms and sizes read", sub: "7 rooms · 77.2 m²", at: "0:51" },
-  { key: "c", state: "done", title: "3D ready", at: "1:18" },
-  { key: "d", state: "run", title: "Furnishing living room and bedrooms", at: "…" },
-  { key: "e", state: "next", title: "AI image of the living room" },
-];
-const FAQ = [
-  ["How accurate are the sizes?", "From the plan and your measurements. Sizes we're unsure of are flagged. Not for measuring."],
-  ["What furniture is shown?", "From our catalogue, priced in pounds. Styles can be switched."],
-  ["Which rooms are furnished?", "Living rooms and bedrooms. Up to two floors."],
-  ["What happens to my floor plan?", "We delete your plan within 24 hours and the tour after 30 days. We share neither."],
+const SAMPLE: Pick<WaitStep, "key" | "state" | "at">[] = [
+  { key: "a", state: "done", at: "0:04" },
+  { key: "b", state: "done", at: "0:51" },
+  { key: "c", state: "done", at: "1:18" },
+  { key: "d", state: "run", at: "…" },
+  { key: "e", state: "next" },
 ];
 
-export function LandingWaiting() {
+export function LandingWaiting({ lang }: { lang: TrialLang }) {
+  const t = landingText(lang).waiting;
+  const steps: WaitStep[] = SAMPLE.map((s, i) => ({ ...s, title: t.steps[i]![0], sub: t.steps[i]![1] || undefined }));
   return (
     <section className={l.alt} id="waiting">
       <div className={`${l.wrap} ${l.waitGrid}`}>
         <div>
-          <h2>While we finish the tour</h2>
-          <p className={l.lead}>The 3D opens first, furniture and the image follow.</p>
+          <h2>{t.h2}</h2>
+          <p className={l.lead}>{t.lead}</p>
         </div>
         <div inert style={{ display: "contents" }}>
-          <WaitCard timer="01:42" progress={0.68} note="Times vary by floor plan" steps={DEMO}>
-            <div className={l.ready}><b>Your links are ready</b></div>
+          <WaitCard text={textOf(lang).wait} timer="01:42" progress={0.68} note={t.note} steps={steps}>
+            <div className={l.ready}><b>{t.ready}</b></div>
             <div className={l.links}>
-              <div><a className={`${l.btn} ${l.btnPrimary}`} href="#example">Open your link</a></div>
-              <div><button className={`${l.btn} ${l.btnSecondary}`} type="button">Buyer link</button></div>
+              <div><a className={`${l.btn} ${l.btnPrimary}`} href="#example">{t.open}</a></div>
+              <div><button className={`${l.btn} ${l.btnSecondary}`} type="button">{t.buyer}</button></div>
             </div>
-            <div className={l.ph}><div><b>AI image loading…</b>it&apos;ll appear here</div></div>
+            <div className={l.ph}><div><b>{t.phTitle}</b>{t.phText}</div></div>
             <div className={l.mail}>
-              <b>Rather not wait?</b>
-              <p>We&apos;ll email you the links.</p>
+              <b>{t.mailTitle}</b>
+              <p>{t.mailText}</p>
               <div className={l.mailRow}>
-                <input type="email" placeholder="you@agency.co.uk" aria-label="Email" />
-                <button className={`${l.btn} ${l.btnSecondary}`} type="button">Email me</button>
+                <input type="email" placeholder={t.mailPh} aria-label={t.mailLabel} />
+                <button className={`${l.btn} ${l.btnSecondary}`} type="button">{t.mailBtn}</button>
               </div>
             </div>
           </WaitCard>
@@ -49,13 +48,14 @@ export function LandingWaiting() {
   );
 }
 
-export function LandingFaq() {
+export function LandingFaq({ lang }: { lang: TrialLang }) {
+  const t = landingText(lang).faq;
   return (
     <section id="faq">
       <div className={l.wrap}>
-        <h2>Questions agents ask</h2>
+        <h2>{t.h2}</h2>
         <div className={l.faq}>
-          {FAQ.map(([q, a], i) => (
+          {t.items.map(([q, a], i) => (
             <details className={l.card} open={i === 0} key={q}><summary>{q}</summary><p>{a}</p></details>
           ))}
         </div>
@@ -64,15 +64,16 @@ export function LandingFaq() {
   );
 }
 
-export function LandingFinal() {
+export function LandingFinal({ lang }: { lang: TrialLang }) {
+  const t = landingText(lang).final;
   return (
     <section className={l.final} style={{ paddingTop: 0 }}>
       <div className={l.wrap}>
         <div className={l.card}>
-          <h2>Try it on your next listing</h2>
+          <h2>{t.h2}</h2>
           <div className={l.actions}>
-            <a className={`${l.btn} ${l.btnPrimary}`} href="#top">Upload a floor plan</a>
-            <a className={`${l.btn} ${l.btnSecondary}`} href="#example">See an example</a>
+            <a className={`${l.btn} ${l.btnPrimary}`} href="#top">{t.upload}</a>
+            <a className={`${l.btn} ${l.btnSecondary}`} href="#example">{t.example}</a>
           </div>
         </div>
       </div>

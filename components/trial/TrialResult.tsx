@@ -1,59 +1,56 @@
 "use client";
 
-// Готовое задание пробы: JSON результата (`app/api/trial/[id]/result/route.ts`, проверка той же Zod-схемой, что у прода)
-// → серый 3D-тур. three грузится отдельным куском только здесь (dynamic, без SSR). Состояния: loading / error+retry / тур.
+// Геометрия задания опубликована (план agent-trial-08: серый тур снят, итог пробы — `/try/<id>/tour/`, страница `/demo` под
+// загруженный план): карточка ожидания со всеми галочками, «Открываем тур…», и через пару секунд — переход в тур на том же
+// языке. Кнопка — для тех, кто не хочет ждать, и на случай, если переход не случился. Сводку (сколько комнат, подтверждён ли
+// масштаб) берём из результата (`app/api/trial/[id]/result/route.ts`, та же Zod-схема, что у прода); не загрузился —
+// переходу это не мешает, тур покажет своё.
 
-import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { WaitCard, type WaitStep } from "@/components/trial/WaitCard";
 import l from "@/components/trial/landing.module.css";
 import s from "@/components/trial/trial.module.css";
-import { floorplanResult, type FloorplanResult, type TrialJobView } from "@/contracts/trial";
-import { clock } from "@/lib/trial/steps";
+import { floorplanResult, type TrialJobView } from "@/contracts/trial";
+import { textOf, tourHref, type TrialLang } from "@/lib/trial/i18n";
+import { clock, timer } from "@/lib/trial/steps";
 
-const GreyTour = dynamic(() => import("@/components/trial/GreyTour").then((m) => m.GreyTour), {
-  ssr: false,
-  loading: () => <p className={s.note}>Loading 3D…</p>,
-});
+/** Пауза перед переходом: видно, что все шаги готовы, и успеваешь прочесть плашку масштаба. */
+export const OPEN_TOUR_DELAY_MS = 2500;
 
-type Load = { kind: "loading" } | { kind: "error" } | { kind: "ok"; result: FloorplanResult };
+type Summary = { rooms: number; scaleOk: boolean };
 
-export function TrialResult({ id, job, steps }: { id: string; job: TrialJobView; steps: ReactNode }) {
-  const [load, setLoad] = useState<Load>({ kind: "loading" });
-  const fetchResult = useCallback(async () => {
-    setLoad({ kind: "loading" });
-    try {
-      const res = await fetch(`/api/trial/${encodeURIComponent(id)}/result`, { cache: "no-store" });
-      if (!res.ok) throw new Error(String(res.status));
-      const body = (await res.json()) as { result?: unknown };
-      setLoad({ kind: "ok", result: floorplanResult.parse(body.result) });
-    } catch {
-      setLoad({ kind: "error" });
-    }
-  }, [id]);
-  useEffect(() => { void fetchResult(); }, [fetchResult, job.resultVersion]);
+function useSummary(id: string, version: number): Summary | null {
+  const [sum, setSum] = useState<Summary | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/trial/${encodeURIComponent(id)}/result`, { cache: "no-store" });
+        if (!res.ok) return;
+        const r = floorplanResult.parse(((await res.json()) as { result?: unknown }).result);
+        if (alive) setSum({ rooms: r.panels.reduce((n, p) => n + p.rooms.length, 0), scaleOk: r.scale.status !== "not_verified" });
+      } catch { /* сводки нет — карточка без неё */ }
+    })();
+    return () => { alive = false; };
+  }, [id, version]);
+  return sum;
+}
 
-  const rooms = load.kind === "ok" ? load.result.panels.reduce((n, p) => n + p.rooms.length, 0) : 0;
+export function TrialResult({ id, job, lang, steps }: { id: string; job: TrialJobView; lang: TrialLang; steps: WaitStep[] }) {
+  const t = textOf(lang);
+  const href = tourHref(id, lang);
+  const sum = useSummary(id, job.resultVersion);
+  useEffect(() => {
+    const go = setTimeout(() => window.location.replace(href), OPEN_TOUR_DELAY_MS);
+    return () => clearTimeout(go);
+  }, [href]);
+
+  const note = [t.done.readyIn(clock(job.elapsedSec)), sum?.rooms ? t.done.rooms(sum.rooms) : null].filter(Boolean).join(" · ");
   return (
-    <div data-testid="trial-done">
-      <div className={s.doneHead}>
-        <h1>Your 3D is ready</h1>
-        <span>
-          Ready in {clock(job.elapsedSec)}
-          {rooms ? ` · ${rooms} rooms` : ""}
-        </span>
-      </div>
-      {load.kind === "loading" ? <p className={s.note} role="status">Loading 3D…</p> : null}
-      {load.kind === "error" ? (
-        <div className={`${l.card} ${l.wait} ${s.msgCard}`} role="alert">
-          <p className={s.note}>We couldn&apos;t load the 3D. Please try again.</p>
-          <button className={`${l.btn} ${l.btnPrimary}`} style={{ marginTop: 12 }} type="button" onClick={() => void fetchResult()}>Try again</button>
-        </div>
-      ) : null}
-      {load.kind === "ok" ? <GreyTour result={load.result} /> : null}
-      <details className={s.history}>
-        <summary>How it went</summary>
-        {steps}
-      </details>
-    </div>
+    <WaitCard text={t.wait} title={t.done.title} heading testId="trial-done" timer={timer(job.elapsedSec)} progress={1} note={note} steps={steps}>
+      {sum && !sum.scaleOk ? <p className={s.warn}><b>{t.done.scaleTitle}</b> {t.done.scaleText}</p> : null}
+      <div className={l.ready} role="status"><b>{t.done.opening}</b></div>
+      <a className={`${l.btn} ${l.btnPrimary}`} href={href} data-testid="trial-open-tour">{t.done.open}</a>
+    </WaitCard>
   );
 }

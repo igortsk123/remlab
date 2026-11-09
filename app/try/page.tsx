@@ -3,26 +3,30 @@ import { LandingHero } from "@/components/trial/LandingHero";
 import { LandingCompare, LandingExample, LandingHow } from "@/components/trial/LandingSections";
 import { LandingFaq, LandingFinal, LandingWaiting } from "@/components/trial/LandingWaiting";
 import { TryShell } from "@/components/trial/TryShell";
+import { textOf } from "@/lib/trial/i18n";
+import { pageLang } from "@/lib/trial/page-lang";
 
 // Лендинг пробы для агентов UK (план agent-trial-01, T-C): макет v3-en-final, согласованный владельцем (TG 420), с рабочей
-// формой в первом экране. Пока не публичный — из поиска закрыт; Метрики на /try нет (`lib/metrika.ts:noMetrikaPath`).
-export const metadata: Metadata = {
-  title: "RemLab for Agents",
-  description: "Upload a PDF or photo and get a tour link for buyers.",
-  robots: { index: false, follow: false },
-  referrer: "no-referrer",
-};
+// формой в первом экране. Два языка — `?lang=ru|en` (план agent-trial-08, П). Пока не публичный — из поиска закрыт;
+// Метрики на /try нет (`lib/metrika.ts:noMetrikaPath`).
+type Search = Promise<{ lang?: string | string[] }>;
 
-export default function TryPage() {
+export async function generateMetadata({ searchParams }: { searchParams: Search }): Promise<Metadata> {
+  const { meta } = textOf((await pageLang(await searchParams)).lang);
+  return { title: meta.title, description: meta.description, robots: { index: false, follow: false }, referrer: "no-referrer" };
+}
+
+export default async function TryPage({ searchParams }: { searchParams: Search }) {
+  const { lang, explicit } = await pageLang(await searchParams);
   return (
-    <TryShell>
-      <LandingHero />
-      <LandingHow />
-      <LandingCompare />
-      <LandingExample />
-      <LandingWaiting />
-      <LandingFaq />
-      <LandingFinal />
+    <TryShell lang={lang} explicit={explicit} path="/try">
+      <LandingHero lang={lang} />
+      <LandingHow lang={lang} />
+      <LandingCompare lang={lang} />
+      <LandingExample lang={lang} />
+      <LandingWaiting lang={lang} />
+      <LandingFaq lang={lang} />
+      <LandingFinal lang={lang} />
     </TryShell>
   );
 }
