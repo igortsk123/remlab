@@ -8,8 +8,10 @@ import path from "node:path";
 import { sql, type SQL } from "drizzle-orm";
 import type { db } from "@/lib/db";
 import { TRIAL_STALE_HOURS, TRIAL_TOMBSTONE_DAYS, trialDir, trialFileHours, trialResultDays } from "@/lib/trial/config";
+import { removeBundles } from "@/lib/trial/bundle";
 import { terminalSet } from "@/lib/trial/sql";
 import { INPUT_NAME_RE, removeInput } from "@/lib/trial/storage";
+import { TOKEN_RE } from "@/lib/token";
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
 export type TrialRetention = { kind: string; days: number | null; deleted: number; kept?: number };
@@ -52,6 +54,25 @@ async function orphans(tx: Tx, now: Date, dir: string): Promise<number> {
   return n;
 }
 
+/** Папки данных страницы (`<id>/`) без живого задания старше часа: записи нет, или надгробие, а удаление в свой срок не удалось (повтор здесь). */
+async function orphanBundleDirs(tx: Tx, now: Date, dir: string, rm: typeof fs.rm): Promise<number> {
+  const names = (await fs.readdir(dir).catch(() => [] as string[])).filter((n) => TOKEN_RE.test(n));
+  const old: string[] = [];
+  for (const n of names) {
+    const st = await fs.lstat(path.join(dir, n)).catch(() => null);
+    if (st && st.isDirectory() && st.mtimeMs < now.getTime() - ORPHAN_AGE_MS) old.push(n);
+  }
+  if (!old.length) return 0;
+  const alive = new Set((await q<{ id: string }>(tx, sql`select id from trial_jobs where status <> 'expired'
+    and id in (${sql.join(old.map((n) => sql`${n}`), sql`, `)})`)).map((r) => r.id));
+  let n = 0;
+  for (const id of old) {
+    if (alive.has(id)) continue;
+    if (await removeBundles(dir, id, rm).then(() => true, () => false)) n++;
+  }
+  return n;
+}
+
 export async function trialRetention(tx: Tx, now: Date, env = process.env, rm: typeof fs.rm = fs.rm): Promise<TrialRetention[]> {
   const dir = trialDir(env);
   const stale = await q<{ id: string }>(tx, sql`update trial_jobs set status = 'failed', error_code = 'stale', ${terminalSet(env)}
@@ -59,15 +80,20 @@ export async function trialRetention(tx: Tx, now: Date, env = process.env, rm: t
     returning id`);
   const f = await files(tx, now, dir, rm);
   const results = await q<{ id: string }>(tx, sql`update trial_jobs set status = 'expired', result = null, result_hash = null,
-      listing_text = null, input_hash = null, error_detail = null, lease_token = null
+      listing_text = null, input_hash = null, error_detail = null, lease_token = null, bundle_version = 0, bundle_hash = null
     where status in ('done', 'failed', 'cancelled') and input_path is null and result_expires_at < ${now.toISOString()} returning id`);
+  let bundlesKept = 0;
+  for (const r of results) { // данные страницы уходят вместе с результатом; не вышло — повторит `orphanBundleDirs`
+    await removeBundles(dir, r.id, rm).catch(() => { bundlesKept++; });
+  }
   const tomb = await q<{ id: string }>(tx, sql`delete from trial_jobs where status = 'expired'
     and result_expires_at < ${new Date(now.getTime() - TRIAL_TOMBSTONE_DAYS * 86_400_000).toISOString()} returning id`);
   return [
     { kind: "trial_stale", days: null, deleted: stale.length },
     { kind: "trial_files", days: Math.ceil(trialFileHours(env) / 24), deleted: f.deleted, kept: f.kept },
     { kind: "trial_results", days: trialResultDays(env), deleted: results.length },
+    { kind: "trial_bundles", days: trialResultDays(env), deleted: results.length - bundlesKept, kept: bundlesKept },
     { kind: "trial_tombstones", days: TRIAL_TOMBSTONE_DAYS, deleted: tomb.length },
-    { kind: "trial_orphans", days: null, deleted: await orphans(tx, now, dir) },
+    { kind: "trial_orphans", days: null, deleted: (await orphans(tx, now, dir)) + (await orphanBundleDirs(tx, now, dir, rm)) },
   ];
 }

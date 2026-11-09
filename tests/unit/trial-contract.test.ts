@@ -44,10 +44,10 @@ describe("floorplanResult (Zod)", () => {
   it("вид страницы — только разрешённые поля (strip лишнего)", () => {
     const v = trialJobView.parse({
       id: "x", status: "queued", stage: "queued", stages: [], createdAt: "t", finishedAt: null, elapsedSec: 0, queueAhead: 0,
-      workerAlive: false, errorCode: null, resultVersion: 0, inputPath: "secret.png", leaseToken: "tok", listingText: "x",
+      workerAlive: false, errorCode: null, resultVersion: 0, bundleVersion: 0, inputPath: "secret.png", leaseToken: "tok", listingText: "x",
     });
     expect(Object.keys(v).sort()).toEqual(
-      ["createdAt", "elapsedSec", "errorCode", "finishedAt", "id", "queueAhead", "resultVersion", "stage", "stages", "status", "workerAlive"]);
+      ["bundleVersion", "createdAt", "elapsedSec", "errorCode", "finishedAt", "id", "queueAhead", "resultVersion", "stage", "stages", "status", "workerAlive"]);
   });
 });
 

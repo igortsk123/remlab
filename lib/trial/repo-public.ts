@@ -8,7 +8,8 @@ import { claimable, iso, jsonOf, rows } from "@/lib/trial/sql";
 
 type ViewRow = {
   id: string; status: string; stage: string; stages: unknown; created_at: string; finished_at: string | null;
-  elapsed_sec: number; error_code: string | null; result_version: number; queue_ahead: number | null; worker_alive: boolean;
+  elapsed_sec: number; error_code: string | null; result_version: number; bundle_version: number; queue_ahead: number | null;
+  worker_alive: boolean;
 };
 
 /** undefined — нет такого задания; "expired" — результат снят по сроку (410). */
@@ -16,7 +17,7 @@ export async function jobView(id: string): Promise<TrialJobView | "expired" | un
   const [r] = await rows<ViewRow>(sql`select j.id, j.status, j.stage, j.stages, ${iso(sql`j.created_at`)} as created_at,
       ${iso(sql`j.finished_at`)} as finished_at,
       greatest(0, floor(extract(epoch from coalesce(j.finished_at, now()) - j.created_at)))::int as elapsed_sec,
-      j.error_code, j.result_version,
+      j.error_code, j.result_version, j.bundle_version,
       case when j.status = 'queued' then (select count(*)::int from trial_jobs o
         where ${claimable(sql.raw("o"))} and (o.created_at, o.id) < (j.created_at, j.id)) end as queue_ahead,
       exists (select 1 from trial_workers w where w.last_seen > now() - make_interval(secs => ${TRIAL_WORKER_ALIVE_SEC}::int)) as worker_alive
@@ -28,6 +29,7 @@ export async function jobView(id: string): Promise<TrialJobView | "expired" | un
     id: r.id, status: r.status, stage: r.stage, stages: jsonOf(r.stages), createdAt: r.created_at, finishedAt: r.finished_at,
     elapsedSec: r.elapsed_sec, queueAhead: r.queue_ahead, workerAlive: r.worker_alive,
     errorCode: r.status === "failed" ? (code.success ? code.data : "internal") : null, resultVersion: r.result_version,
+    bundleVersion: r.bundle_version,
   });
 }
 

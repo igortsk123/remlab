@@ -543,6 +543,8 @@ export const trialJobs = pgTable(
     result: jsonb("result").$type<Record<string, unknown>>(),
     resultHash: text("result_hash"),
     resultVersion: integer("result_version").notNull().default(0),
+    bundleVersion: integer("bundle_version").notNull().default(0),
+    bundleHash: text("bundle_hash"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),

@@ -1,0 +1,596 @@
+{
+ "empty": {
+  "apartment_id": "",
+  "apartment_rooms": [
+   {
+    "areaM2": 20.0,
+    "contentState": "ready",
+    "furniture_code": null,
+    "furniture_state": "pending",
+    "furniture_text": null,
+    "id": "living",
+    "kind": "living",
+    "ordinal": 1,
+    "titleEn": "Lounge",
+    "titleRu": "Гостиная"
+   }
+  ],
+  "feeds": {},
+  "incomplete_styles": [],
+  "plan": {},
+  "room": {
+   "d": 400,
+   "openings": [
+    {
+     "height_cm": 150,
+     "kind": "window",
+     "offset_cm": 190.0,
+     "sill_cm": 85,
+     "wall": "south",
+     "width_cm": 120.0
+    },
+    {
+     "hinge": "left",
+     "is_entrance": false,
+     "kind": "door",
+     "offset_cm": 155.0,
+     "swing_cm": 90,
+     "wall": "east",
+     "width_cm": 90.0
+    }
+   ],
+   "radiators": [],
+   "title": "Lounge 20.0 m²",
+   "w": 500
+  },
+  "rooms_enabled": [
+   "living"
+  ],
+  "rooms_geo": {
+   "living": {
+    "d": 400,
+    "openings": [
+     {
+      "height_cm": 150,
+      "kind": "window",
+      "offset_cm": 190.0,
+      "sill_cm": 85,
+      "wall": "south",
+      "width_cm": 120.0
+     },
+     {
+      "hinge": "left",
+      "is_entrance": false,
+      "kind": "door",
+      "offset_cm": 155.0,
+      "swing_cm": 90,
+      "wall": "east",
+      "width_cm": 90.0
+     }
+    ],
+    "radiators": [],
+    "title": "Lounge 20.0 m²",
+    "w": 500
+   }
+  },
+  "rules": {
+   "slot_band_cm": {
+    "диван": {
+     "min": 500
+    }
+   },
+   "sofa_tv_cm": [
+    180,
+    300
+   ]
+  },
+  "sets": [],
+  "sofa_feed": [],
+  "trial": {
+   "flags": [],
+   "furniture": "pending",
+   "job_id": "AbCdEfGhIjKlMnOpQrStUv",
+   "panels": [
+    {
+     "id": "p0",
+     "openings": [
+      {
+       "c": [
+        250,
+        0
+       ],
+       "exterior": false,
+       "kind": "window",
+       "widthCm": 120
+      },
+      {
+       "c": [
+        500,
+        200
+       ],
+       "exterior": false,
+       "kind": "door",
+       "widthCm": 90
+      }
+     ],
+     "rooms": [
+      {
+       "areaM2": 20.0,
+       "bbox": {
+        "d": 400,
+        "w": 500,
+        "x": 0,
+        "y": 0
+       },
+       "contour": [
+        [
+         0,
+         0
+        ],
+        [
+         500,
+         0
+        ],
+        [
+         500,
+         400
+        ],
+        [
+         0,
+         400
+        ]
+       ],
+       "flags": [],
+       "id": "living",
+       "kind": "living",
+       "name": "Lounge",
+       "src_id": "r1"
+      }
+     ],
+     "title": "Plan 1",
+     "walls": [
+      {
+       "polys": [],
+       "z0": 0,
+       "z1": 270
+      }
+     ]
+    }
+   ],
+   "refused_rooms": [],
+   "scale": "listing"
+  },
+  "variants": [
+   {
+    "cams": [],
+    "decor": [],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "furniture_state": "pending",
+    "id": "trial-living",
+    "items": [],
+    "missing_item": [],
+    "pending": true,
+    "room_id": "living",
+    "room_size": {
+     "d": 400,
+     "w": 500
+    },
+    "style": "сканди",
+    "style_id": "scandi",
+    "title": "Сканди"
+   }
+  ]
+ },
+ "furnished": {
+  "apartment_id": "",
+  "apartment_rooms": [
+   {
+    "areaM2": 20.0,
+    "contentState": "ready",
+    "furniture_code": null,
+    "furniture_state": "ready",
+    "furniture_text": null,
+    "id": "living",
+    "kind": "living",
+    "ordinal": 1,
+    "titleEn": "Lounge",
+    "titleRu": "Гостиная"
+   }
+  ],
+  "feeds": {
+   "диван": [
+    {
+     "corner": true,
+     "d": 90.0,
+     "h": 80.0,
+     "img": "https://img.example/a.jpg",
+     "msid": "m-1_2",
+     "name": "диван A",
+     "price": 100,
+     "sid": "1_2",
+     "src": "set",
+     "style": "сканди",
+     "styles": [
+      "сканди",
+      "минимализм"
+     ],
+     "url": "https://shop.example/a",
+     "w": 200.0
+    }
+   ],
+   "стул": [
+    {
+     "corner": false,
+     "d": 40.0,
+     "h": 80.0,
+     "img": "https://img.example/a.jpg",
+     "msid": "m-1_2",
+     "name": "стул 2 A",
+     "price": 100,
+     "sid": "1_2",
+     "src": "set",
+     "style": "сканди",
+     "styles": [
+      "сканди",
+      "минимализм"
+     ],
+     "url": "https://shop.example/a",
+     "w": 40.0
+    }
+   ]
+  },
+  "incomplete_styles": [],
+  "plan": {},
+  "room": {
+   "d": 400,
+   "openings": [
+    {
+     "height_cm": 150,
+     "kind": "window",
+     "offset_cm": 190.0,
+     "sill_cm": 85,
+     "wall": "south",
+     "width_cm": 120.0
+    },
+    {
+     "hinge": "left",
+     "kind": "door",
+     "offset_cm": 155.0,
+     "swing_cm": 90,
+     "wall": "east",
+     "width_cm": 90.0
+    },
+    {
+     "kind": "opening",
+     "offset_cm": 10.0,
+     "wall": "north",
+     "width_cm": 150.0
+    }
+   ],
+   "radiators": [],
+   "title": "Lounge 20.0 m²",
+   "w": 500
+  },
+  "rooms_enabled": [
+   "living"
+  ],
+  "rooms_geo": {
+   "living": {
+    "d": 400,
+    "openings": [
+     {
+      "height_cm": 150,
+      "kind": "window",
+      "offset_cm": 190.0,
+      "sill_cm": 85,
+      "wall": "south",
+      "width_cm": 120.0
+     },
+     {
+      "hinge": "left",
+      "kind": "door",
+      "offset_cm": 155.0,
+      "swing_cm": 90,
+      "wall": "east",
+      "width_cm": 90.0
+     },
+     {
+      "kind": "opening",
+      "offset_cm": 10.0,
+      "wall": "north",
+      "width_cm": 150.0
+     }
+    ],
+    "radiators": [],
+    "title": "Lounge 20.0 m²",
+    "w": 500
+   }
+  },
+  "rules": {
+   "slot_band_cm": {
+    "диван": {
+     "min": 500
+    }
+   },
+   "sofa_tv_cm": [
+    180,
+    300
+   ]
+  },
+  "sets": [],
+  "sofa_feed": [
+   {
+    "corner": true,
+    "d": 90.0,
+    "h": 80.0,
+    "img": "https://img.example/a.jpg",
+    "msid": "m-1_2",
+    "name": "диван A",
+    "price": 100,
+    "sid": "1_2",
+    "src": "set",
+    "style": "сканди",
+    "styles": [
+     "сканди",
+     "минимализм"
+    ],
+    "url": "https://shop.example/a",
+    "w": 200.0
+   }
+  ],
+  "trial": {
+   "flags": [
+    "band_lowered"
+   ],
+   "furniture": "ready",
+   "job_id": "AbCdEfGhIjKlMnOpQrStUv",
+   "panels": [
+    {
+     "id": "p0",
+     "openings": [
+      {
+       "c": [
+        250,
+        0
+       ],
+       "exterior": false,
+       "kind": "window",
+       "widthCm": 120
+      },
+      {
+       "c": [
+        500,
+        200
+       ],
+       "exterior": false,
+       "kind": "door",
+       "widthCm": 90
+      }
+     ],
+     "rooms": [
+      {
+       "areaM2": 20.0,
+       "bbox": {
+        "d": 400,
+        "w": 500,
+        "x": 0,
+        "y": 0
+       },
+       "contour": [
+        [
+         0,
+         0
+        ],
+        [
+         500,
+         0
+        ],
+        [
+         500,
+         400
+        ],
+        [
+         0,
+         400
+        ]
+       ],
+       "flags": [],
+       "id": "living",
+       "kind": "living",
+       "name": "Lounge",
+       "src_id": "r1"
+      }
+     ],
+     "title": "Plan 1",
+     "walls": [
+      {
+       "polys": [],
+       "z0": 0,
+       "z1": 270
+      }
+     ]
+    }
+   ],
+   "refused_rooms": [],
+   "scale": "listing"
+  },
+  "variants": [
+   {
+    "cams": [],
+    "decor": [],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "furniture_state": "ready",
+    "id": "set7",
+    "items": [
+     {
+      "corner": true,
+      "corner_left": true,
+      "d": 90.0,
+      "dims_src": "каталог",
+      "h": 80.0,
+      "role": "диван",
+      "rot": 90,
+      "section": 95.0,
+      "sku": {
+       "d": 90.0,
+       "h": 80.0,
+       "img": "https://img.example/a.jpg",
+       "msid": "m-1_2",
+       "name": "диван A",
+       "price": 100,
+       "sid": "1_2",
+       "url": "https://shop.example/a",
+       "w": 200.0
+      },
+      "w": 200.0,
+      "x": 250.0,
+      "y": 340.0
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 40.0,
+      "dims_src": "каталог",
+      "h": 80.0,
+      "role": "стул 2",
+      "rot": 90,
+      "section": 95.0,
+      "sku": {
+       "d": 40.0,
+       "h": 80.0,
+       "img": "https://img.example/a.jpg",
+       "msid": "m-1_2",
+       "name": "стул 2 A",
+       "price": 100,
+       "sid": "1_2",
+       "url": "https://shop.example/a",
+       "w": 40.0
+      },
+      "w": 40.0,
+      "x": 50.0,
+      "y": 50.0
+     }
+    ],
+    "missing_item": [
+     {
+      "role": "ковёр"
+     }
+    ],
+    "pending": false,
+    "room_id": "living",
+    "room_size": {
+     "d": 400,
+     "w": 500
+    },
+    "style": "сканди",
+    "style_id": "scandi",
+    "title": "Сканди"
+   },
+   {
+    "cams": [],
+    "decor": [],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "furniture_problem": {
+     "codes": [
+      "route_blocked"
+     ]
+    },
+    "furniture_state": "partial",
+    "id": "set11",
+    "items": [
+     {
+      "corner": true,
+      "corner_left": true,
+      "d": 90.0,
+      "dims_src": "каталог",
+      "h": 80.0,
+      "role": "диван",
+      "rot": 90,
+      "section": 95.0,
+      "sku": {
+       "d": 90.0,
+       "h": 80.0,
+       "img": "https://img.example/a.jpg",
+       "msid": "m-1_2",
+       "name": "диван A",
+       "price": 100,
+       "sid": "1_2",
+       "url": "https://shop.example/a",
+       "w": 200.0
+      },
+      "w": 200.0,
+      "x": 250.0,
+      "y": 340.0
+     },
+     {
+      "corner": false,
+      "corner_left": false,
+      "d": 40.0,
+      "dims_src": "каталог",
+      "h": 80.0,
+      "role": "стул 2",
+      "rot": 90,
+      "section": 95.0,
+      "sku": {
+       "d": 40.0,
+       "h": 80.0,
+       "img": "https://img.example/a.jpg",
+       "msid": "m-1_2",
+       "name": "стул 2 A",
+       "price": 100,
+       "sid": "1_2",
+       "url": "https://shop.example/a",
+       "w": 40.0
+      },
+      "w": 40.0,
+      "x": 50.0,
+      "y": 50.0
+     }
+    ],
+    "missing_item": [
+     {
+      "role": "ковёр"
+     }
+    ],
+    "pending": false,
+    "room_id": "living",
+    "room_size": {
+     "d": 400,
+     "w": 500
+    },
+    "style": "минимализм",
+    "style_id": "minimal",
+    "title": "Минимализм"
+   },
+   {
+    "cams": [],
+    "decor": [],
+    "dims_unknown": [],
+    "fill": [],
+    "fill_pct": null,
+    "furniture_problem": {
+     "codes": []
+    },
+    "furniture_state": "failed",
+    "id": "set9",
+    "items": [],
+    "missing_item": [],
+    "pending": false,
+    "room_id": "living",
+    "room_size": {
+     "d": 400,
+     "w": 500
+    },
+    "style": "лофт",
+    "style_id": "loft",
+    "title": "Лофт"
+   }
+  ]
+ }
+}

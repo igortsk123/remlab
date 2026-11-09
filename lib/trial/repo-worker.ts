@@ -11,9 +11,9 @@ import { TRIAL_LEASE_SEC } from "@/lib/trial/config";
 import { claimable, iso, rows, terminalSet } from "@/lib/trial/sql";
 
 const NOW_ISO = iso(sql`now()`);
-const fence = (f: { id: string; attempt: number; leaseToken: string }) => sql`id = ${f.id} and status = 'running'
+export const fence = (f: { id: string; attempt: number; leaseToken: string }) => sql`id = ${f.id} and status = 'running'
   and attempt = ${f.attempt} and lease_token = ${f.leaseToken} and lease_until > now()`;
-const spentSet = (v?: number) => sql`spent_usd = greatest(spent_usd, ${v ?? 0}::numeric)`;
+export const spentSet = (v?: number) => sql`spent_usd = greatest(spent_usd, ${v ?? 0}::numeric)`;
 const stagePush = (stage: string) => sql`stages || jsonb_build_array(jsonb_build_object('stage', ${stage}::text, 'at', ${NOW_ISO}))`;
 
 /** «Воркер жив» — на каждом опросе, в том числе когда он сам себя притормозил. */

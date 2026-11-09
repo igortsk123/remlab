@@ -33,6 +33,8 @@ export const trialJobView = z.object({
   workerAlive: z.boolean(),
   errorCode: trialErrorCode.nullable(),
   resultVersion: z.number().int().nonnegative(),
+  /** Опубликованная версия данных страницы (`/api/trial/<id>/bundle`, ETag `"v<N>"`); 0 — ещё нет. */
+  bundleVersion: z.number().int().nonnegative(),
 });
 export type TrialJobView = z.infer<typeof trialJobView>;
 

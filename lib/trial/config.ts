@@ -16,6 +16,7 @@ export const TRIAL_FILE_MAX_BYTES = 15 * 1024 * 1024; // лимит ФАЙЛА; 
 export const TRIAL_BODY_MAX_BYTES = 16 * 1024 * 1024; // всё тело multipart (файл + поля + разметка)
 export const TRIAL_LISTING_MAX = 5000;
 export const TRIAL_RESULT_MAX_BYTES = 2 * 1024 * 1024;
+export const TRIAL_BUNDLE_MAX_BYTES = 8 * 1024 * 1024; // данные страницы: живой /demo ≈ 1,3 МБ; Caddy 16 МБ — внешний заслон
 export const TRIAL_LEASE_SEC = 60; // heartbeat раз в 10 с продлевает на 60 с
 export const TRIAL_WORKER_ALIVE_SEC = 30; // воркер опрашивает раз в 2 с; 30 с тишины — «не на связи»
 export const TRIAL_STALE_HOURS = 24; // незавершённое задание старше суток — failed/stale (retention)

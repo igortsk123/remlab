@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type postgresT from "postgres";
 
+import { bundleDbTests } from "./_trial-bundle-db";
 import { png, sampleResult } from "./_trial-helpers";
 
 // Очередь пробы на НАСТОЯЩЕЙ Postgres (agent-trial-01, T-A; поправки Codex 09.11): гонки claim, ограждение аренды
@@ -385,4 +386,6 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
     await expect(pg`insert into trial_jobs (id, input_path, input_mime, input_bytes) values ('x', '../../etc/passwd', 'image/png', 1)`)
       .rejects.toThrow();
   });
+
+  bundleDbTests(() => ({ pg, repo: L.repo, seed, row, expire, dir: DIR, token: TOKEN }));
 });
