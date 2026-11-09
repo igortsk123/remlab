@@ -2,11 +2,12 @@ const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ФОТО И РАКУРСЫ (demo-22 п.2, T-20261022-12/1; свайп — demo-26 Б, T-20261023-09/1). Телефон: в «Фото» картинка во всю высоту области
 // и шире её, кадр — окно превью вида (`crop` ближайшей пропорции к фактической области, главная мебель в кадре) на ОБОИХ ракурсах;
-// прокрутки пальцем нет — свайп вбок (≥ 50 px, быстро) меняет ракурс, медленная протяжка, короткий и вертикальный жест — нет; тап —
-// во весь экран: там при масштабе 1 свайп — ракурс, при увеличении — сдвиг без смены ракурса. Компьютер — фото целиком, как было.
-// Замер: фактическая пропорция области фото и какое окно превью выбрано. Платного нет: заказ фото и коллекции подменены.
+// палец двигает фото по ширине 1:1 (photo-swipe-pan-01), у края свайп вбок (≥ 50 px, быстро) — соседний вид; не у края, медленная протяжка,
+// короткий и вертикальный жест — вид тот же; тап — во весь экран: там при масштабе 1 свайп — ракурс, при увеличении — сдвиг без смены
+// ракурса. Компьютер — фото целиком, как было. Замер: фактическая пропорция области фото и какое окно превью выбрано. Платного нет.
 //   DATA=<demo-data.json с crop> FROZEN=1 BASE=https://remont-lab.online/demo/ OUT=<папка/> node tools/ops/demo-walk/photo-pan-check.cjs 375x667
-// DATA — подменить данные витрины; FROZEN=1 — дописать окна превью из DATA в записи реестра кадров (как сохранит сервер)
+// DATA — подменить данные витрины; FROZEN=1 — дописать окна превью из DATA в записи реестра кадров (как сохранит сервер);
+// LOCAL=1 — страница из этой копии (`tools/scout/flat215-demo/index.html`) поверх данных и движка BASE
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=process.env.OUT||require('os').tmpdir()+'/';
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number), PHONE=W<=700;
 const DATA=process.env.DATA?JSON.parse(fs.readFileSync(process.env.DATA,'utf8')):null;
@@ -41,6 +42,7 @@ const PAN=`(()=>{const p=document.querySelector('#shot .vpan'), im=p&&p.querySel
     const near=(a,c)=>Math.abs(a.x-c.x)<=2&&Math.abs(a.y-c.y)<=2;
     j.forEach(rec=>(rec.cams||[]).forEach(c=>{for(const v of DATA.variants){const d=(v.cams||[]).find(x=>x.name===c.name&&near(x,c)&&x.crop); if(d){c.crop=d.crop; break;}}}));
     await r.fulfill({response:res,body:JSON.stringify(j),headers:{...res.headers(),'content-type':'application/json'}});});
+  if(process.env.LOCAL)await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));
   await p.goto(demoUrl(BASE+'?lang=ru&live=0'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&SHOTS_LOADED",null,{timeout:90000}).catch(()=>{});
   await p.waitForTimeout(1500);
@@ -57,7 +59,7 @@ const PAN=`(()=>{const p=document.querySelector('#shot .vpan'), im=p&&p.querySel
   if(PHONE){
     ok('0 область фото — фактическая пропорция',!!g0&&g0.aspect>0.4&&g0.aspect<0.8,g0&&{w:g0.w,h:g0.h,aspect:g0.aspect});
     ok('0 фото во всю высоту и шире области (есть что двигать)',!!g0&&g0.imgH===g0.h&&g0.max>50,g0&&{imgW:g0.imgW,imgH:g0.imgH,max:g0.max});
-    ok('0 прокрутки пальцем нет (свайп — ракурс), вертикальный жест — браузеру',!!g0&&g0.ovx==='hidden'&&/pan-y/.test(g0.ta),g0&&{ovx:g0.ovx,ta:g0.ta});
+    ok('0 нативной прокрутки нет (фото двигает код за пальцем), вертикальный жест — браузеру',!!g0&&g0.ovx==='hidden'&&/pan-y/.test(g0.ta),g0&&{ovx:g0.ovx,ta:g0.ta});
     // окно превью — ближайшей пропорции к области; старт — середина окна (диван в кадре)
     const EXP=()=>p.evaluate(()=>{const pn=document.querySelector('#shot .vpan'), s=shots[shotAt], a=pn.clientWidth/pn.clientHeight, cr=vwCropOf(s,a);
       const Ws=pn.scrollWidth; return cr?{key:cr.key, x:cr.x, w:cr.w, want:Math.round(Math.max(0,Math.min(pn.scrollWidth-pn.clientWidth,(cr.x+cr.w/2)*Ws-pn.clientWidth/2)))}:null;});
@@ -77,18 +79,40 @@ const PAN=`(()=>{const p=document.querySelector('#shot .vpan'), im=p&&p.querySel
       for(let k=1;k<=steps;k++){await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x0+(x1-x0)*k/steps,y:y+(y1-y)*k/steps}]}); await p.waitForTimeout(16);}
       await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]}); await p.waitForTimeout(1200);};
     const yM=Math.round(g0.h/2), lab=()=>p.evaluate(()=>{const b=document.querySelector('#vCams [data-cam].on'); return b?b.textContent:'';});
-    const lab0=await lab();
-    await swipe(300,120,yM); const g1=await p.evaluate(PAN), lab1=await lab(), exp1=await EXP();
-    ok('1 свайп влево — другой ракурс, подпись активной кнопки — его, полный экран не открылся',!!g1&&g1.photo!==g0.photo&&g1.cam!==g0.cam&&lab1&&lab1!==lab0&&!g1.zoom,
-      {from:[g0.photo,lab0],to:g1&&[g1.photo,lab1],zoom:g1&&g1.zoom});
-    ok('1 второй ракурс — тоже из окна превью (главная мебель в кадре)',!!exp1&&g1.crop===exp1.key&&Math.abs(g1.sl-exp1.want)<=2,{exp1,sl:g1.sl,crop:g1.crop});
-    await shot({path:OUT+`pan-${W}-2-swiped.png`});
-    await swipe(120,300,yM); const g2=await p.evaluate(PAN);
-    ok('2 свайп вправо — обратно к первому ракурсу',!!g2&&g2.photo===g0.photo&&g2.cam===g0.cam,{photo:g2&&g2.photo});
+    const lab0=await lab(), tr=()=>p.evaluate(()=>{const i=document.querySelector('#shot .vpan img.vmain'); return i?i.style.transform:'';});
+    // (photo-swipe-pan-01) палец ведёт фото 1:1: медленно на 80 px в ту сторону, где есть место; вид тот же, резинки после — нет
+    const d1=g0.sl<=g0.max-90?-80:80;
+    await swipe(200,200+d1,yM,40); const g1=await p.evaluate(PAN), tr1=await tr();
+    ok('1 палец ведёт фото 1:1 (медленно 80 px), вид тот же',g1.photo===g0.photo&&Math.abs(g1.sl-(g0.sl-d1))<=4&&!tr1&&!g1.zoom,{sl:[g0.sl,g1.sl],want:g0.sl-d1,tr:tr1});
+    await shot({path:OUT+`pan-${W}-2-moved.png`});
+    // быстрый свайп НЕ у края — фото доезжает (с инерцией), вид тот же
+    await p.evaluate(()=>{const n=document.querySelector('#shot .vpan'); n.scrollLeft=Math.round((n.scrollWidth-n.clientWidth)/2);}); await p.waitForTimeout(300);
+    const gm=await p.evaluate(PAN);
+    await swipe(300,180,yM); const g1b=await p.evaluate(PAN);
+    ok('1 быстрый свайп не у края — фото сдвинулось, вид тот же',g1b.photo===g0.photo&&g1b.sl>gm.sl+60,{sl:[gm.sl,g1b.sl],max:g1b.max,photo:g1b.photo});
+    // медленно до правого края (и за него — резинка, отпустил — пружинит назад)
+    await swipe(360,20,yM,60); const g1c=await p.evaluate(PAN), tr1c=await tr();
+    ok('1 протяжка до края — фото у правого края, вид тот же, резинка вернулась',g1c.photo===g0.photo&&g1c.sl>=g1c.max-1&&!tr1c,{sl:g1c.sl,max:g1c.max,tr:tr1c});
+    await shot({path:OUT+`pan-${W}-3-edge.png`});
+    // у края свайп в ту же сторону — соседний вид
+    await swipe(300,120,yM); const g2=await p.evaluate(PAN), lab1=await lab(), exp1=await EXP();
+    ok('2 у края свайп влево — другой вид, подпись активной кнопки — его, полный экран не открылся',!!g2&&g2.photo!==g0.photo&&g2.cam!==g0.cam&&lab1&&lab1!==lab0&&!g2.zoom,
+      {from:[g0.photo,lab0],to:g2&&[g2.photo,lab1],zoom:g2&&g2.zoom});
+    ok('2 второй вид — тоже из окна превью (главная мебель в кадре)',!!exp1&&g2.crop===exp1.key&&Math.abs(g2.sl-exp1.want)<=2,{exp1,sl:g2.sl,crop:g2.crop});
+    await shot({path:OUT+`pan-${W}-4-swiped.png`});
+    // назад: не у левого края свайп вправо — вид тот же; довели до края — свайп вправо возвращает первый вид
+    if(g2.sl>2){await swipe(150,230,yM,6); const g2a=await p.evaluate(PAN);
+      ok('2 не у края свайп вправо — вид тот же',g2a.photo===g2.photo,{sl:[g2.sl,g2a.sl],photo:g2a.photo});}
+    await swipe(20,360,yM,60); const g2l=await p.evaluate(PAN);
+    ok('2 протяжка вправо — фото у левого края',g2l.sl<=1&&g2l.photo===g2.photo,{sl:g2l.sl});
+    await swipe(120,300,yM); const g2r=await p.evaluate(PAN);
+    ok('2 у левого края свайп вправо — обратно к первому виду',!!g2r&&g2r.photo===g0.photo&&g2r.cam===g0.cam,{photo:g2r&&g2r.photo});
+    await p.evaluate(()=>{const n=document.querySelector('#shot .vpan'); n.scrollLeft=n.scrollWidth;}); await p.waitForTimeout(300);
     await swipe(200,175,yM,6); const g2b=await p.evaluate(PAN);
-    ok('2 короткий жест (25 px) — ракурс тот же',g2b.photo===g0.photo,{photo:g2b.photo});
+    ok('2 короткий жест у края (25 px) — вид тот же',g2b.photo===g0.photo,{photo:g2b.photo});
+    await p.evaluate(()=>{const n=document.querySelector('#shot .vpan'); n.scrollLeft=n.scrollWidth;}); await p.waitForTimeout(300);
     await swipe(300,120,yM,60); const g2c=await p.evaluate(PAN);
-    ok('2 медленная протяжка (~1 с) — ракурс тот же',g2c.photo===g0.photo,{photo:g2c.photo});
+    ok('2 медленная протяжка у края (~1 с) — вид тот же',g2c.photo===g0.photo,{photo:g2c.photo});
     await swipe(190,210,yM+60,12,yM-100); const g3=await p.evaluate(PAN);
     ok('3 вертикальный жест по фото — ракурс тот же, полный экран не открылся',g3.photo===g0.photo&&!g3.zoom,{photo:g3.photo,zoom:g3.zoom});
     // шторка: вертикальная протяжка за шапку — шторка двигается, ракурс тот же

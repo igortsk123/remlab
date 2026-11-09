@@ -1,14 +1,15 @@
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ПОДСКАЗКА ОКНА ПО РЕЖИМУ (demo-22, T-20261022-12/2): разовая подсказка телефона (`remlab-sheet-hint-v1`) в «Фото» называет оба жеста —
-// «Свайп — другой ракурс · шторку — товары и замены», в 3D — прежняя; сменили режим, пока видна, — уходит и «уже видел» не ставится.
+// «Двигайте фото пальцем · у края — другой вид · шторку — товары и замены» (photo-swipe-pan-01), в 3D — прежняя; сменили режим, пока видна, — уходит и «уже видел» не ставится.
 // Компьютер — подсказки окна нет. Платного нет (заказ фото подменён).
 //   DATA=<demo-data.json> FROZEN=1 BASE=https://remont-lab.online/demo/ OUT=<папка/> node tools/ops/demo-walk/window-hint-check.cjs 375x667
+// LOCAL=1 — страница из этой копии (`tools/scout/flat215-demo/index.html`) поверх данных и движка BASE
 const {demoUrl}=require('../demo-url.cjs');
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=process.env.OUT||require('os').tmpdir()+'/';
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number), PHONE=W<=700;
 const DATA=process.env.DATA?JSON.parse(fs.readFileSync(process.env.DATA,'utf8')):null;
 const R=[]; const ok=(n,c,i)=>R.push((c?'OK  ':'FAIL')+' '+n+' '+(i===undefined?'':typeof i==='string'?i:JSON.stringify(i)));
-const PHOTO_RU='Свайп — другой ракурс · шторку — товары и замены', WALK_RU='Потяните или нажмите — товары и замены';
+const PHOTO_RU='Двигайте фото пальцем · у края — другой вид · шторку — товары и замены', WALK_RU='Потяните или нажмите — товары и замены';
 const TIP=`(()=>{const t=document.querySelector('#shot .vtip'); if(!t)return null; const r=t.getBoundingClientRect();
   return {text:t.textContent, mode:t.dataset.mode, r:[r.left,r.top,r.right,r.bottom].map(Math.round), seen:!!localStorage.getItem('remlab-sheet-hint-v1')};})()`;
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
@@ -22,6 +23,7 @@ const TIP=`(()=>{const t=document.querySelector('#shot .vtip'); if(!t)return nul
       const near=(a,c)=>Math.abs(a.x-c.x)<=2&&Math.abs(a.y-c.y)<=2;
       j.forEach(rec=>(rec.cams||[]).forEach(c=>{for(const v of DATA.variants){const d=(v.cams||[]).find(x=>x.name===c.name&&near(x,c)&&x.crop); if(d){c.crop=d.crop; break;}}}));
       await r.fulfill({response:res,body:JSON.stringify(j),headers:{...res.headers(),'content-type':'application/json'}});});
+    if(process.env.LOCAL)await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));
     await p.goto(demoUrl(BASE+'?lang=ru&'+q),{waitUntil:'load',timeout:120000});
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&SHOTS_LOADED",null,{timeout:90000}).catch(()=>{});
     await p.evaluate(()=>{try{localStorage.removeItem('remlab-sheet-hint-v1');}catch(e){}}); return p;};

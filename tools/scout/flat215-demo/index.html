@@ -7305,9 +7305,9 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
   #shot.vwalk .vphwait.v3d{padding-bottom:calc(var(--vsv,var(--vsh,320px)) + 12px)}
   #shot.vwalk.vmany .vphwait.v3d{padding-bottom:calc(var(--vsv,var(--vsh,320px)) + 60px)}
   /* «Фото» на телефоне — во всю высоту области сцены, без размытых полос; по ширине фото шире экрана, кадр — окно превью вида
-     (`vwPhotoFocus`, главная мебель в кадре). Свайп вбок — другой ракурс (demo-26 Б, владелец 23.10; сдвиг пальцем demo-22 п.3 уступил
-     ему место): прокрутки нет, `scrollLeft` ставит только код; вертикальный жест отдаём браузеру — свайпом он не считается.
-     Вся комната — по тапу, во весь экран */
+     (`vwPhotoFocus`, главная мебель в кадре). Палец двигает фото по ширине 1:1, у края свайп — другой вид (photo-swipe-pan-01, владелец
+     09.11; было demo-26 Б — только свайп): нативной прокрутки нет, `scrollLeft` ставит код (`vwSwipeWire`) — отсечка тапа прежняя;
+     вертикальный жест отдаём браузеру — сдвигом и свайпом он не считается. Вся комната — по тапу, во весь экран */
   #shot.v2 .vstage .vpan{overflow-x:hidden;overflow-y:hidden;touch-action:pan-y;scrollbar-width:none}
   #shot.v2 .vstage .vpan::-webkit-scrollbar{display:none}
   #shot.v2 .vstage .shotwrap .vpan img.vmain{width:auto;min-width:100%;max-width:none;height:100%;object-fit:cover}
@@ -7595,21 +7595,57 @@ function vwPhotoFocus(img, s){
 }
 // ТАП ПО ФОТО — ВО ВЕСЬ ЭКРАН (demo-22 п.3, Codex 22.10 §4): тап — сдвиг пальца < 8 px и фото не прокрутилось; нажатие, которым
 // останавливают инерцию, — не тап (прокрутка была только что); браузер забрал жест в прокрутку — `pointercancel`, тапа нет
+// VWPAN START — решение жеста по фото окна (чистые функции; проверка — `tests/unit/demo-photo-pan.test.ts`)
 // СВАЙП РАКУРСА (demo-26 Б): ≥ 50 px, заметно больше вбок, чем по вертикали, и быстро (≤ 700 мс) — иначе это прокрутка или сдвиг
 function vwIsSwipe(dx,dy,ms){ return Math.abs(dx)>=50&&Math.abs(dx)>1.5*Math.abs(dy)&&ms<=700; }
-// свайп по фото окна — соседний ракурс, как кнопкой (`vwPhoto`: то же состояние и подпись активной кнопки). Только палец/перо: мышью — кнопки
-// и стрелки. Фото чуть идёт за пальцем; не свайп — возвращается. Вертикальный жест забирает браузер (`touch-action: pan-y` → pointercancel).
-// Тап — как был (`vwTapZoom`: во весь экран), он отсекается сдвигом ≥ 8 px
+// ФОТО ДВИГАЕТСЯ ПАЛЬЦЕМ 1:1 (photo-swipe-pan-01, владелец 09.11 TG 193–197: «туговато по фотке»): `sl0` — где было фото при касании,
+// `over` — на сколько фото шире области; ответ — новое `scrollLeft` в пределах [0, over] и резинка за краем (×0,3, px сдвига картинки)
+const VW_PAN_RUB=0.3, VW_PAN_EDGE=2;
+function vwPanMove(sl0, dx, over){
+  const o=Math.max(0,over||0), t=sl0-dx, sl=Math.max(0,Math.min(o,t));
+  return {sl, rub:Math.round((sl-t)*VW_PAN_RUB)};
+}
+// отпустили палец: соседний вид (+1 / −1) — только свайп (`vwIsSwipe`), начатый, когда фото УЖЕ стояло у края в сторону жеста (или фото
+// не шире области); начат не у края — фото доехало до края и стоит, вид тот же (0). `many` — видов больше одного
+function vwPanEnd(dx, dy, ms, sl0, over, many){
+  if(!many||!vwIsSwipe(dx,dy,ms))return 0;
+  const o=Math.max(0,over||0);
+  if(dx<0&&sl0>=o-VW_PAN_EDGE)return 1;    // палец влево — к правому краю фото; уже там — следующий вид
+  if(dx>0&&sl0<=VW_PAN_EDGE)return -1;     // палец вправо — к левому краю; уже там — предыдущий
+  return 0;
+}
+// VWPAN END
+// ЖЕСТ ПО ФОТО ОКНА (photo-swipe-pan-01; было demo-26 Б — фото шло за пальцем ×0,35 и пружинило, свайп сразу менял вид). Только палец/перо:
+// мышью — кнопки и стрелки. Вбок — фото едет за пальцем 1:1 (`scrollLeft` ставит код, нативной прокрутки нет — отсечка тапа и вертикальный
+// жест браузеру прежние), за краем — резинка, отпустил — пружинит назад; быстрый бросок докатывается по инерции до края. У края свайп в ту же
+// сторону — соседний вид, как кнопкой (`vwPhoto`: то же состояние и подпись активной кнопки; старт нового вида — `vwPhotoFocus`).
+// Вертикальный жест забирает браузер (`touch-action: pan-y` → pointercancel). Тап — как был (`vwTapZoom`: во весь экран), сдвиг ≥ 8 px — не тап
 function vwSwipeWire(el){
   if(!el||el._swipe)return; el._swipe=true;
-  let p=null; const im=()=>el.querySelector('img.vmain');
-  const back=()=>{const i=im(); if(i){i.style.transition='transform .2s ease'; i.style.transform='';}};
-  el.addEventListener('pointerdown',e=>{p=e.pointerType==='mouse'||VW.mode!=='photo'||vwPhotoShots().length<2?null:{x:e.clientX,y:e.clientY,t:Date.now()};});
+  let p=null, fling=0; const im=()=>el.querySelector('img.vmain');
+  const over=()=>Math.max(0,el.scrollWidth-el.clientWidth);
+  const rub=x=>{const i=im(); if(i){i.style.transition=x?'none':'transform .2s ease'; i.style.transform=x?`translateX(${x}px)`:'';}};
+  const stop=()=>{if(fling){cancelAnimationFrame(fling); fling=0;}};
+  // инерция броска: скорость пальца в конце жеста (px/мс), затухание ~0,95 за кадр; упёрлась в край — стоп (без резинки)
+  const glide=v=>{if(VW_SLOW()||Math.abs(v)<0.3)return; let t0=performance.now();
+    const step=now=>{const dt=Math.min(40,now-t0); t0=now; const o=over(), sl=el.scrollLeft-v*dt;
+      el.scrollLeft=Math.max(0,Math.min(o,sl)); v*=Math.pow(0.95,dt/16);
+      fling=(Math.abs(v)<0.02||sl<=0||sl>=o)?0:requestAnimationFrame(step);};
+    fling=requestAnimationFrame(step);};
+  el.addEventListener('pointerdown',e=>{stop();
+    p=e.pointerType==='mouse'||VW.mode!=='photo'?null:{x:e.clientX,y:e.clientY,t:Date.now(),sl:el.scrollLeft,o:over(),ax:'',lx:e.clientX,lt:e.timeStamp,v:0};});
   el.addEventListener('pointermove',e=>{if(!p)return; const dx=e.clientX-p.x, dy=e.clientY-p.y;
-    if(Math.abs(dx)>8&&Math.abs(dx)>Math.abs(dy)){const i=im(); if(i){i.style.transition='none'; i.style.transform=`translateX(${Math.round(dx*0.35)}px)`;}}});
-  el.addEventListener('pointercancel',()=>{p=null; back();});
-  el.addEventListener('pointerup',e=>{const q=p; p=null; if(!q)return; const dx=e.clientX-q.x, dy=e.clientY-q.y;
-    back(); if(VW.mode==='photo'&&vwIsSwipe(dx,dy,Date.now()-q.t))vwPhoto(VW.photo+(dx<0?1:-1));});
+    if(!p.ax){if(Math.hypot(dx,dy)<=8)return; p.ax=Math.abs(dx)>Math.abs(dy)?'x':'y';}
+    if(p.ax!=='x')return;
+    const m=vwPanMove(p.sl,dx,p.o); el.scrollLeft=m.sl; rub(m.rub);
+    const dt=e.timeStamp-p.lt; if(dt>0){p.v=0.6*((e.clientX-p.lx)/dt)+0.4*p.v; p.lx=e.clientX; p.lt=e.timeStamp;}});
+  el.addEventListener('pointercancel',()=>{p=null; rub(0);});
+  el.addEventListener('pointerup',e=>{const q=p; p=null; if(!q)return; const dx=e.clientX-q.x, dy=e.clientY-q.y; rub(0);
+    if(VW.mode!=='photo'||q.ax!=='x')return;
+    const d=vwPanEnd(dx,dy,Date.now()-q.t,q.sl,q.o,vwPhotoShots().length>1);
+    if(d){vwPhoto(VW.photo+d); return;}
+    // палец замер перед отпусканием (> 80 мс без движения) — без инерции
+    if(e.timeStamp-q.lt<80)glide(q.v);});
 }
 function vwTapZoom(el, fn){
   if(!el)return; el._tapFn=fn; if(el._tap)return; el._tap=true;
@@ -7963,13 +7999,14 @@ function vwMount(s){
         if(Date.now()-at<700||isBusy()){if(Date.now()-at<20000)setTimeout(tip,250); return;}
         const t=document.createElement('div'); t.className='vtip msg';
         t.dataset.mode=VW.mode; t.dataset.live=String(typeof LIVE!=='undefined'&&LIVE.state); t.dataset.busy=String(isBusy());   // состояние в момент показа — для проверок
-        // В «ФОТО» СВАЙП — ДРУГОЙ РАКУРС (demo-26 Б; было «потяните фото», demo-22 п.3): подсказка называет оба жеста — свайп и шторку, если
-        // ракурсов два; текст — по режиму в момент показа, сменили режим, пока она видна, — уходит («уже видел» не ставится)
+        // В «ФОТО» ПАЛЕЦ ДВИГАЕТ ФОТО, У КРАЯ — ДРУГОЙ ВИД (photo-swipe-pan-01; было «свайп — другой ракурс», demo-26 Б): подсказка называет
+        // оба жеста — фото и шторку, если видов два; текст — по режиму в момент показа, сменили режим, пока она видна, — уходит («уже видел» не ставится)
         const ph=VW.mode==='photo'&&vwPhotoShots().length>1;
-        t.textContent=LANG==='en'?(ph?'Swipe — another view · pull the sheet — items and swaps':'Pull or tap — items and swaps')
-          :(ph?'Свайп — другой ракурс · шторку — товары и замены':'Потяните или нажмите — товары и замены');
-        // два жеста — две строки: разделитель « · » в тексте остаётся, на экране он — перенос (точка не висит в конце строки)
-        if(ph){const [a,c]=t.textContent.split(' · '); t.textContent=''; t.append(a); const br=document.createElement('span'); br.className='vtip-br'; br.textContent=' · '; t.append(br,c);}
+        t.textContent=LANG==='en'?(ph?'Drag the photo · at the edge — another view · pull the sheet — items and swaps':'Pull or tap — items and swaps')
+          :(ph?'Двигайте фото пальцем · у края — другой вид · шторку — товары и замены':'Потяните или нажмите — товары и замены');
+        // части — строками: разделитель « · » в тексте остаётся, на экране он — перенос (точка не висит в конце строки); три строки —
+        // «двигайте фото / у края — другой вид / шторку…» (на 375 фраза о фото одной строкой не влезала, рвалась посреди, photo-swipe-pan-01)
+        if(ph){const parts=t.textContent.split(' · '); t.textContent=''; parts.forEach((x,k)=>{if(k){const br=document.createElement('span'); br.className='vtip-br'; br.textContent=' · '; t.append(br);} t.append(x);});}
         // над переключателем ракурсов; его нет — над шапкой шторки в её конечном положении (приёмка d8 17.10); шторка сдвинется — следом
         vwTipPlace(t);
         shot.appendChild(t);
@@ -7981,7 +8018,8 @@ function vwMount(s){
           setTimeout(watch,150);})();
       })();}}
   // увеличить картинку: тап (клик) по ней — плашки «⤢ во весь экран» поверх фото нет (владелец TG 522, 07.11, T-65). РАКУРС — КНОПКАМИ
-  // И СВАЙПОМ ПО ФОТО (demo-26 Б, владелец 23.10: «влево-вправо можно было свайпать»): тот же переход, что у переключателя (`vwPhoto`)
+  // И СВАЙПОМ У КРАЯ ФОТО (demo-26 Б, владелец 23.10: «влево-вправо можно было свайпать»; не у края палец двигает фото — photo-swipe-pan-01):
+  // тот же переход, что у переключателя (`vwPhoto`)
   const mi=shot.querySelector('.shotwrap img.vmain');
   if(mi&&VW_PHONE())vwPhotoFocus(mi,s);
   if(mi)vwSwipeWire(mi.parentNode);
@@ -9987,7 +10025,7 @@ function quizPick(rule, answers, available, styleColours){
     'Ссылка скопирована':'Link copied','Ракурс':'View','План':'Plan','Товары и замены ⌃':'Items & swaps ⌃','⌄ Свернуть':'⌄ Collapse',
     'Сделать фотореалистичное фото':'Make a photorealistic photo','нейросеть · 2–4 мин · бесплатно для вас':'AI · 2–4 min · free for you',
     'Сделать реалистичнее':'Make it realistic','Отменить изменение':'Undo the change','Вернуть изменение':'Redo the change',
-    'Потяните или нажмите — товары и замены':'Pull or tap — items and swaps','Свайп — другой ракурс · шторку — товары и замены':'Swipe — another view · pull the sheet — items and swaps','Фото нейросети · расстановка могла отличаться':'AI photo · the layout may differ','Собираем сцену…':'Building the scene…','⤢ во весь экран':'⤢ full screen','Двигайте пальцем · щипок — увеличить · двойной тап — назад':'Drag to move · pinch to zoom · double tap to go back','Ракурс 1':'View 1','Ракурс 2':'View 2','Загружаем модели…':'Loading models…','Обновляем…':'Updating…','Загружаем модель…':'Loading the model…','Сервер рисует эскиз…':'The server is drawing a sketch…','Эскиз с сервера · у устройства нет видеокарты':'Server sketch · your device has no graphics card','Готово — посмотреть в окне':'Done — view in the window','Расставляем мебель…':'Placing furniture…','Предыдущая расстановка':'Previous layout','Следующая расстановка':'Next layout',
+    'Потяните или нажмите — товары и замены':'Pull or tap — items and swaps','Двигайте фото пальцем · у края — другой вид · шторку — товары и замены':'Drag the photo · at the edge — another view · pull the sheet — items and swaps','Фото нейросети · расстановка могла отличаться':'AI photo · the layout may differ','Собираем сцену…':'Building the scene…','⤢ во весь экран':'⤢ full screen','Двигайте пальцем · щипок — увеличить · двойной тап — назад':'Drag to move · pinch to zoom · double tap to go back','Ракурс 1':'View 1','Ракурс 2':'View 2','Загружаем модели…':'Loading models…','Обновляем…':'Updating…','Загружаем модель…':'Loading the model…','Сервер рисует эскиз…':'The server is drawing a sketch…','Эскиз с сервера · у устройства нет видеокарты':'Server sketch · your device has no graphics card','Готово — посмотреть в окне':'Done — view in the window','Расставляем мебель…':'Placing furniture…','Предыдущая расстановка':'Previous layout','Следующая расстановка':'Next layout',
     'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Готово — посмотреть в окне» внизу.':
       'Hold an item for half a second and drag it to move. A short tap shows rotation arrows. When ready, tap “Done — view in the window” below.',
     'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Готово — посмотреть в окне» внизу.':
