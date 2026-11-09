@@ -1,0 +1,39 @@
+{
+  "plan": "B",
+  "image": "B-uk-floor-90m2.jpg",
+  "source": "manual: расшифровка подписей по картинке глазами (09.11, T-20261109-02); точки — центр подписи или точка выноски, px исходника 1280×905",
+  "note": "Walk-in Wardrobe, Bathroom, Wardrobe подписаны выноской снаружи — точка = кружок выноски внутри комнаты",
+  "areas": [
+    {"panel": "floor1", "label": "Approximate total area (excl. balconies)", "m2": 90.3, "sqft": 973}
+  ],
+  "rooms": [
+    {"panel": "floor1", "name": "En-suite", "dims_m": [2.76, 3.66], "dims_ft": ["9'0\"", "12'0\""], "pt": [240, 262]},
+    {"panel": "floor1", "name": "Walk-in Wardrobe", "dims_m": [1.48, 3.81], "dims_ft": ["4'10\"", "12'6\""], "pt": [400, 176]},
+    {"panel": "floor1", "name": "Bathroom", "dims_m": [2.46, 2.56], "dims_ft": ["8'0\"", "8'4\""], "pt": [583, 212]},
+    {"panel": "floor1", "name": "Bedroom 4.70x3.68", "dims_m": [4.70, 3.68], "dims_ft": ["15'5\"", "12'0\""], "pt": [866, 250]},
+    {"panel": "floor1", "name": "Principal Bedroom", "dims_m": [4.21, 4.29], "dims_ft": ["13'9\"", "14'0\""], "pt": [277, 555]},
+    {"panel": "floor1", "name": "Landing", "dims_m": [2.41, 5.51], "dims_ft": ["7'10\"", "18'1\""], "pt": [577, 665]},
+    {"panel": "floor1", "name": "Bedroom 4.61x4.26", "dims_m": [4.61, 4.26], "dims_ft": ["15'1\"", "13'11\""], "pt": [873, 555]},
+    {"panel": "floor1", "name": "Wardrobe", "dims_m": [0.95, 0.82], "dims_ft": ["3'1\"", "2'8\""], "pt": [107, 722]},
+    {"panel": "floor1", "name": "Cupboard (без подписи)", "pt": [447, 365], "optional": true}
+  ],
+  "openings": [
+    {"panel": "floor1", "type": "window", "pt": [270, 112]},
+    {"panel": "floor1", "type": "window", "pt": [525, 112]},
+    {"panel": "floor1", "type": "window", "pt": [865, 112]},
+    {"panel": "floor1", "type": "window", "pt": [1055, 235]},
+    {"panel": "floor1", "type": "window", "pt": [1055, 705]},
+    {"panel": "floor1", "type": "window", "pt": [262, 760]},
+    {"panel": "floor1", "type": "window", "pt": [585, 760]},
+    {"panel": "floor1", "type": "window", "pt": [865, 760]},
+    {"panel": "floor1", "type": "door", "pt": [60, 480], "note": "двустворчатая наружу (Джульетта)"},
+    {"panel": "floor1", "type": "door", "pt": [130, 410], "note": "ванная хозяйская"},
+    {"panel": "floor1", "type": "door", "pt": [385, 410], "note": "гардеробная"},
+    {"panel": "floor1", "type": "door", "pt": [648, 320], "note": "ванная"},
+    {"panel": "floor1", "type": "door", "pt": [475, 368], "note": "кладовка"},
+    {"panel": "floor1", "type": "door", "pt": [683, 362], "note": "спальня 4.70"},
+    {"panel": "floor1", "type": "door", "pt": [475, 637], "note": "главная спальня"},
+    {"panel": "floor1", "type": "door", "pt": [683, 707], "note": "спальня 4.61"},
+    {"panel": "floor1", "type": "door", "pt": [148, 700], "note": "шкаф"}
+  ]
+}
