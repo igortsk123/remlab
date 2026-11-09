@@ -38,7 +38,13 @@ source: manual
 - **T-12** гостиная на любом плане — worktree `.claude/worktrees/trial-living` (уточни `git worktree list`), план `plans/agent-trial-03-living.md`.
   Замечено: `openings_core=null` в свежих сценах — кадр героя тогда откажет (`trial_no_openings`). Контракт сцены — docstring `trial_hero.py`.
 - **T-16** стенд планировок этап 5 (открытые комнаты E-0/F-4, перегородки C-3) — worktree `.claude/worktrees/floorplan-bench`; правит
-  `tools/floorplan/fpcore.py`, `bench.py`.
+  `tools/floorplan/fpcore.py`, `bench.py`. **Отчёт partial 16:00:** коммит `28a8e09e` на ветке (не влит). Новый `tools/floorplan/openroom.py`
+  (замыкание открытой комнаты `lines`/`box`, по умолчанию `FP_OPEN=box`), `repair.py` гипотеза `hyp_enclose`, `fpcore.py` семейства углов
+  по комнате, `bench.py` отсев обрывков <1,5 м²; 86 тестов `tests/floorplan` зелёные; VLM $0. Box замкнул E-0 сад/кухня/завтрак и F-4 Barn
+  (±3 %, кроме завтрака −17 % с флагом); лишних на E 8→2, C 7→4, тихо неверных 0. **Осталось:** прогнать box на A/B/C на последнем коде,
+  полный A–G с кадрами (`.claude-t09/frames.sh`) и глазами E-0/E-1/F-4/C-3, B — проверить замкнутые гардеробные, E без кэша (порог ~166 с),
+  одна сверка с эталонами D–G в конце; E-1 «Principal Bedroom Suite» box не замыкает. Наложения — `~/remlab-logs/floorplan-bench/dbg-t16/`.
+  Агент признал, что по ошибке открыл `run-1441/cmp-D…G.txt` (для подстройки не использовал). Строка лога в плане не закоммичена (в worktree).
 - **T-06** волна мешей спальни K=5 — после отчёта ВЕРНУТЬ потолок аренды `~/scout-scenes/wave-lease.json` max_usd 16.16 (сейчас 14.36,
   hold `hold_20261109`); крон-напоминание common 85af5201 можно игнорировать.
 
