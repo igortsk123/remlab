@@ -6,13 +6,17 @@
   1. гостиная — `kind == 'living'` (самая большая); нет — самая большая `other` с окном → флаг `living_guessed`;
   2. контур → к оси + `room_bridge.orthogonalize`; КОНТРОЛЬ: изменение площади, IoU, сдвиг наших проёмов (`contour_distorted`);
   3. проёмы панели → этой комнате, привязка в ИСХОДНЫХ координатах: вся ширина проёма (пробы по ней) у границы контура
-     в допуске. У границы, но не целиком и не чужой — отказ `opening_ambiguous` (не угадываем);
+     в допуске. У границы, но не целиком и не чужой — отказ `opening_ambiguous` (не угадываем), кроме двух правил по
+     стенам панели (T-20261109-25, с флагами): след проёма в подоконнике/перемычке вдоль ровно одной линии стены контура
+     (`opening_snapped`, ширина по следу — `opening_width_from_walls`) и проём в полу соседа не в стене (`opening_foreign`);
   4. ядро — несколько кандидатов `planner.geometry.largest_free_rectangles` (не только [0]); остатки вне ядра
      классифицируются ДО решения: `recess` (мельче прохода — проёмы проецируются на сторону ядра), `bay` (эркер с окном:
      стык = окно-пролёт), `passage` (в остатке дверь: стык = дверь БЕЗ полотна — её видит резерв маршрута солвера
      `zones.route_reserve`), `tail` (хвост комнаты — тоже проход), `nook` (мелочь — стена);
   5. допуск ядра — по проверяемым условиям: внутри контура; обязательная группа (диван + ТВ на дистанции полосы) влезает
-     реальными габаритами; ни один проём не разрезан ядром; есть вход. `core_share` (70 %) — только диагностика;
+     реальными габаритами; ни один проём не разрезан ядром (кроме двери, часть которой над нишей комнаты, если на
+     сторону ядра приходится не меньше прохода, — `entry_via_niche`, такие ядра запасные); есть вход.
+     `core_share` (70 %) — только диагностика;
   6. `post_check` — после солвера по ПОЛНОМУ контуру: мебель в контуре, дуги дверей с ОБЕИХ сторон свободны (петель в
      контракте нет), вход и все нужные стыки связаны проходом `passage_min_cm` после мебели.
 Радиаторы и камины НЕ выдумываются (в контракте их нет). Пороги — `rules/trial-room.json`.
@@ -127,31 +131,147 @@ def from_bench_models(models: list[dict]) -> dict:
 
 # ───────────────────────── 1. какая комната — гостиная ─────────────────────────
 
-def _openings_of(panel: dict, room: dict, cfg: dict) -> tuple[list, list]:
-    """Проёмы панели, привязанные к комнате в ИСХОДНЫХ координатах → (наши, неоднозначные).
+def openings_of(panel: dict, room: dict, cfg: dict) -> tuple[list, list, list]:
+    """Проёмы панели, привязанные к комнате в ИСХОДНЫХ координатах → (наши, неоднозначные, флаги).
 
     Наш: центр ≤ near от границы пола И вся ширина (пробы вдоль ближайшего ребра) ≤ near от неё. Между near и far, не наш
-    и не лёг целиком к другой комнате панели — неоднозначный. Дверь общей стены наша и соседа — это нормально."""
+    и не лёг целиком к другой комнате панели — неоднозначный. Дверь общей стены наша и соседа — это нормально.
+    Неоднозначный проверяется ещё двумя правилами по геометрии стен панели (T-20261109-25), оба — с флагом:
+      * след проёма в стене (`_footprint`: кусок подоконника/перемычки) задаёт центр, ширину и ось; проём наш, если вдоль
+        следа ровно одно параллельное ребро контура в допуске near на всю ширину (`opening_snapped`, ширина по следу —
+        ещё `opening_width_from_walls`); два ребра на равном расстоянии — по-прежнему неоднозначный;
+      * центр глубже near в полу соседней комнаты и не в стене — проём соседа (`opening_foreign`), не наш."""
     poly = Polygon(room['contour']).buffer(0)
     near, far, k = float(cfg['opening_near_cm']), float(cfg['opening_far_cm']), int(cfg['opening_samples'])
     others = [Polygon(r['contour']).buffer(0) for r in panel['rooms'] if r is not room]
-    ours, amb = [], []
+    ours, amb, flags = [], [], set()
+
+    def mine(op, j, d0, c, fix=()):
+        # «наружная» — только если и по геометрии за стеной нет другой комнаты панели: распознавание ставит
+        # exterior=True всем дверям подряд (модель стенда E — 18 из 18), а от него зависят вход и свет патио
+        inner = any(o.exterior.distance(c) <= far for o in others)
+        ours.append(dict(op, _idx=j, _d=round(d0, 1), exterior=bool(op.get('exterior')) and not inner,
+                         _exterior_src=bool(op.get('exterior')), **({'_fix': list(fix)} if fix else {})))
+
     for j, op in enumerate(panel.get('openings') or []):
         c = Point(op['c'])
         d0 = poly.exterior.distance(c)
         if d0 > far:
             continue
         if _covers(poly, op, near, k) and d0 <= near:
-            # «наружная» — только если и по геометрии за стеной нет другой комнаты панели: распознавание ставит
-            # exterior=True всем дверям подряд (модель стенда E — 18 из 18), а от него зависят вход и свет патио
-            inner = any(o.exterior.distance(c) <= far for o in others)
-            ours.append(dict(op, _idx=j, _d=round(d0, 1), exterior=bool(op.get('exterior')) and not inner,
-                             _exterior_src=bool(op.get('exterior'))))
+            mine(op, j, d0, c)
             continue
         if any(o.exterior.distance(c) <= near and _covers(o, op, near, k) for o in others):
             continue                                   # целиком у соседа — его проём
+        fp = _footprint(panel, op, cfg)
+        face = _one_edge_along(poly, fp, near, k) if fp else None
+        if face:
+            fix = ['opening_snapped'] + (['opening_width_from_walls'] if abs(fp['w'] - float(op['widthCm'])) > 10 else [])
+            snapped = dict(op, c=[round(face[0], 1), round(face[1], 1)], widthCm=round(fp['w'], 1))
+            mine(snapped, j, poly.exterior.distance(Point(face)), Point(face), fix)
+            flags.update(fix)
+            continue
+        if not poly.contains(c) and not _in_wall(panel, c) and \
+                any(o.contains(c) and o.exterior.distance(c) > near for o in others):
+            flags.add('opening_foreign')               # в полу соседа, не в стене — его проём (дверь, сдвинутая распознаванием)
+            continue
         amb.append(dict(op, _idx=j, _d=round(d0, 1)))
+    return ours, amb, sorted(flags)
+
+
+def _openings_of(panel: dict, room: dict, cfg: dict) -> tuple[list, list]:
+    """(наши, неоднозначные) — прежний вход для сборщика страницы (`trial_bundle.core_geometry`); флаги — `openings_of`."""
+    ours, amb, _ = openings_of(panel, room, cfg)
     return ours, amb
+
+
+_PIECES: dict = {}
+
+
+def _wall_pieces(panel: dict) -> tuple[list, list]:
+    """Куски стен панели → (полосы проёмов: подоконники и перемычки, все куски). Полоса полной высоты в проёме разорвана,
+    а подоконник (0–90) и перемычка (210–260) лежат ровно над/под проёмом — это его след в стене."""
+    key, walls = id(panel), panel.get('walls')
+    hit = _PIECES.get(key)
+    if hit is None or hit[0] is not panel or hit[3] is not walls:
+        if len(_PIECES) > 64:
+            _PIECES.clear()
+        gaps, every = [], []
+        for b in panel.get('walls') or []:
+            full = float(b['z0']) <= 10 and float(b['z1']) >= 200
+            for p in b.get('polys') or []:
+                g = Polygon(p['outer'], p.get('holes') or []).buffer(0)
+                if g.is_empty:
+                    continue
+                every.append(g)
+                if not full:
+                    gaps.append(g)
+        # панель и её список стен держим ссылками: id не переиспользуется, пока жив кэш; заменили стены — пересчёт
+        _PIECES[key] = (panel, gaps, every, walls)
+    return _PIECES[key][1], _PIECES[key][2]
+
+
+def _in_wall(panel: dict, c: Point, tol: float = 5.0) -> bool:
+    return any(g.distance(c) <= tol for g in _wall_pieces(panel)[1])
+
+
+def _footprint(panel: dict, op: dict, cfg: dict) -> dict | None:
+    """След проёма в стене: кусок подоконника/перемычки у центра — чистый узкий прямоугольник (толщина ≤ wall_thick_max_cm,
+    длина ≥ 1,5 толщины) → {c, w, u}. Нет следа, кусок неровный (слились две перемычки) или куски не согласны — None."""
+    c = Point(op['c'])
+    tmax = float(cfg.get('wall_thick_max_cm', 60))
+    got = []
+    for g in _wall_pieces(panel)[0]:
+        if g.distance(c) > 5:
+            continue
+        r = g.minimum_rotated_rectangle
+        if r.geom_type != 'Polygon' or r.area <= 0 or g.area / r.area < 0.85:
+            continue
+        cs = list(r.exterior.coords)
+        sides = sorted(((math.dist(cs[i], cs[i + 1]), (cs[i + 1][0] - cs[i][0], cs[i + 1][1] - cs[i][1])) for i in (0, 1)),
+                       reverse=True)
+        (L, v), (t, _) = sides
+        if t > tmax or L < 1.5 * t:
+            continue
+        got.append({'c': (r.centroid.x, r.centroid.y), 'w': L, 'u': (v[0] / L, v[1] / L), 't': t})
+    if not got or any(abs(g['w'] - got[0]['w']) > 15 or math.dist(g['c'], got[0]['c']) > 15 for g in got[1:]):
+        return None
+    return got[0]
+
+
+def _one_edge_along(poly: Polygon, fp: dict, near: float, k: int) -> tuple | None:
+    """Вдоль следа проёма ровно одна линия стены контура: рёбра, параллельные оси следа (соседние соосные — одна линия),
+    закрывают всю его ширину (каждая проба ≤ near от линии, считая от ближней грани следа — проём в толще стены);
+    вторая такая линия не дальше первой + 10 см — неоднозначно (проём в углу ниши, ступенька стены). Перпендикулярные
+    рёбра (угол) в счёт не идут. → (центр ближней грани следа) или None."""
+    ux, uy = fp['u']
+    cx, cy = fp['c']
+    nx, ny = -uy, ux
+    half = max(0.0, fp['w'] / 2 - 5.0)
+    probes = [Point(cx + ux * t, cy + uy * t) for t in (-half + 2 * half * i / max(1, k - 1) for i in range(k))]
+    cs = list(poly.exterior.coords)
+    lines: list[tuple[float, list]] = []                  # (смещение по нормали от следа, рёбра)
+    for a, b in zip(cs, cs[1:]):
+        seg = LineString([a, b])
+        if seg.length < 1e-6 or abs(((b[0] - a[0]) * ux + (b[1] - a[1]) * uy) / seg.length) < 0.97:
+            continue
+        off = ((a[0] + b[0]) / 2 - cx) * nx + ((a[1] + b[1]) / 2 - cy) * ny
+        for o, segs in lines:
+            if abs(o - off) <= 10:
+                segs.append(seg)
+                break
+        else:
+            lines.append((off, [seg]))
+    ds = []
+    for off, segs in lines:
+        worst = max(0.0, max(min(s.distance(p) for s in segs) for p in probes) - fp['t'] / 2)
+        if worst <= near:
+            ds.append((worst, off))
+    ds.sort()
+    if not ds or (len(ds) > 1 and ds[1][0] - ds[0][0] < 10):
+        return None
+    s = math.copysign(min(fp['t'] / 2, abs(ds[0][1])), ds[0][1])
+    return (cx + nx * s, cy + ny * s)
 
 
 def _edge_dir(poly: Polygon, pt: Point) -> tuple[float, float]:
@@ -330,10 +450,41 @@ def _on_core(o: dict, rect, P: Polygon, recess: float, near: float):
             if not P.buffer(1.0).contains(gap.buffer(-0.5) if gap.area > 4 else gap.centroid):
                 continue
         if lo < a - 5 or hi > b + 5:
-            return ('cut', wall)
+            return ('cut', wall, lo, hi)
         lo, hi = max(lo, a), min(hi, b)
         return ('on', wall, round(lo - a, 1), round(hi - lo, 1))
     return None
+
+
+def _niche_entry(o: dict, rect, P: Polygon, cut: tuple, passage: float) -> dict | None:
+    """Дверь, которую сторона ядра режет (часть ширины — за углом ядра, в нише комнаты): ядро может не включать нишу, если
+    (1) это дверь или портал, не окно; (2) на сторону ядра приходится не меньше прохода `passage` — вход прямо в ядро;
+    (3) перед свисающей частью — пол комнаты (не стена соседнего угла): пробы на 10 см внутрь от линии двери лежат в
+    контуре вне ядра. Тогда дверь ставится на сторону ядра обрезанной до общей части (флаг `entry_via_niche`); её полную
+    дугу по-прежнему проверяет `post_check` по полному контуру. Иначе — None (отказ `opening_cut_by_core` как раньше)."""
+    if o['kind'] not in ('door', 'opening'):
+        return None
+    _, wall, lo, hi = cut
+    axis, line, a, b, sgn = _side(rect, wall)
+    s0, s1 = max(lo, a), min(hi, b)
+    if s1 - s0 < passage:
+        return None
+    inner = box(*rect)
+    for x0, x1 in ((lo, a), (b, hi)):
+        if x1 - x0 <= 5:
+            continue
+        for t in (x0 + 2.5, (x0 + x1) / 2, x1 - 2.5):
+            # от линии стороны ядра (центр двери может лежать в толще стены) на 10 см внутрь комнаты
+            q = (t, line - sgn * 10) if axis == 'x' else (line - sgn * 10, t)
+            pt = Point(q)
+            if not P.contains(pt) or inner.contains(pt):
+                return None
+    return {'o': o, 'wall': wall, 'offset_cm': round(s0 - a, 1), 'width_cm': round(s1 - s0, 1), 'niche': True}
+
+
+def core_rank(c: dict) -> tuple:
+    """Порядок пригодных ядер: со светом, без входа через нишу (`entry_via_niche` — запасной), крупнее."""
+    return (not c['light_on_core'], 'entry_via_niche' in c['flags'], -c['area_m2'])
 
 
 SLIVER_CM = 20.0   # остаток уже — дрожь стены после выпрямления, а не часть комнаты: морфологическое «открытие» его снимает
@@ -416,7 +567,13 @@ def core_candidate(P: Polygon, rect, ops: list, need: dict, cfg: dict) -> dict:
         if r is None:
             rest_ops.append(o)
         elif r[0] == 'cut':
-            cand['reasons'].append(f"opening_cut_by_core:{o['kind']}@{r[1]}")
+            via = _niche_entry(o, rect, P, r, recess)
+            if via:
+                cand['openings'].append(via)
+                if 'entry_via_niche' not in cand['flags']:
+                    cand['flags'].append('entry_via_niche')
+            else:
+                cand['reasons'].append(f"opening_cut_by_core:{o['kind']}@{r[1]}")
         else:
             cand['openings'].append({'o': o, 'wall': r[1], 'offset_cm': r[2], 'width_cm': r[3]})
     for g, juncs, dep in parts:
@@ -476,7 +633,9 @@ def solver_openings(cand: dict, cfg: dict, hinge: str = 'left') -> list:
             out.append(dict(base, kind='door', swing_cm=0))
         else:
             ent = bool(o['exterior']) and o['w'] < cfg['patio_door_min_cm']
-            out.append(dict(base, kind='door', swing_cm=round(o['leaf']), hinge=hinge, is_entrance=ent))
+            # дверь из ниши обрезана до общей со стороной ядра части — полотно не шире её (полная дуга — в `post_check`)
+            leaf = min(o['leaf'], x['width_cm']) if x.get('niche') else o['leaf']
+            out.append(dict(base, kind='door', swing_cm=round(leaf), hinge=hinge, is_entrance=ent))
     for r in cand['residues']:
         for wall, a, b in r['junctions']:
             if b - a < 5:
@@ -496,7 +655,8 @@ def adapt(result: dict, need: dict | None = None, cfg: dict | None = None) -> di
     if (result.get('scale') or {}).get('status') == 'not_verified':
         raise Refusal('scale_unverified')
     panel, room, flags = pick_living(result, cfg)
-    ours, amb = _openings_of(panel, room, cfg)
+    ours, amb, oflags = openings_of(panel, room, cfg)
+    flags = flags + oflags
     if amb:
         raise Refusal('opening_ambiguous', '; '.join(f"{o['kind']} {o['widthCm']:.0f} см в {o['_d']:.0f} см от стены"
                                                      for o in amb))
@@ -516,7 +676,7 @@ def adapt(result: dict, need: dict | None = None, cfg: dict | None = None) -> di
         raise Refusal('no_core')
     cands = [core_candidate(P, r, ops, need, cfg) for r in rects[:int(cfg['core_candidates'])]]
     ok = [c for c in cands if not c['reasons']]
-    ok.sort(key=lambda c: (not c['light_on_core'], -c['area_m2']))
+    ok.sort(key=core_rank)
     if not ok:
         why = [r.split(':')[0] for c in cands for r in c['reasons']]
         code = next((k for k in ('living_core_small', 'opening_cut_by_core', 'no_entry') if k in why), 'no_core')

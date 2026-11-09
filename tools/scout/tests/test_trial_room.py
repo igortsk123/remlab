@@ -3,6 +3,8 @@
 Синтетические планы в контракте `contracts/trial.ts:floorplanResult` (см, x вправо, y вниз по листу):
   Г-комната (хвост с дверью → стык-проход, мебель на стыке → `route_blocked`), эркер с единственным окном (не отказ,
   окно-пролёт), вход через гостиную, общая дверь двух комнат и дверь соседа у угла, неоднозначный проём → отказ,
+  проёмы по стенам панели (T-25: в толще стены → привязка, ширина по следу, два равных ребра и слитая перемычка → отказ,
+  дверь в полу соседа — его; дверь над нишей → вход в ядро при проходе, без прохода или без пола перед ней → отказ),
   контроль `orthogonalize` (поворот — ок, косая стена — `contour_distorted`), прочие отказы, перевод моделей стенда
   по схеме `tests/fixtures/trial-result.schema.json`.
     ~/venvs/scout/bin/python -m pytest tools/scout/tests/test_trial_room.py -q"""
@@ -180,6 +182,109 @@ def test_ambiguous_opening_past_corner():
     """Центр на стене, но ширина выходит за угол — не угадываем."""
     assert refusal(result([room('r1', 'living', RECT)], [op('window', (480, 0), 160, True), op('door', (100, 400), 90)])) \
         == 'opening_ambiguous'
+
+
+# ───────────────────────── проёмы по геометрии стен панели (T-20261109-25) ─────────────────────────
+
+def lintel(x0, y0, x1, y1, z=(210, 260)):
+    """Кусок перемычки (или подоконника) над проёмом — его след в стене."""
+    return {'z0': z[0], 'z1': z[1], 'polys': [{'outer': [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], 'holes': []}]}
+
+
+def with_walls(res, *bands):
+    res['panels'][0]['walls'] = list(bands)
+    return res
+
+
+def test_opening_in_thick_wall_snaps_to_edge():
+    """Дверь по оси толстой стены (центр в 45 см от пола, дальше допуска 35): след в перемычке 40 см толщины, ближняя
+    грань — в 25 см от ребра, параллельного следу → наша, центр на грани, флаг `opening_snapped`. Без стен — отказ."""
+    base = [op('window', (250, 0), 150, True), op('door', (250, 445), 90)]
+    assert refusal(result([room('r1', 'living', RECT)], base)) == 'opening_ambiguous'
+    res = with_walls(result([room('r1', 'living', RECT)], base), lintel(205, 425, 295, 465))
+    ad = TR.adapt(res)
+    assert 'opening_snapped' in ad['flags'] and 'opening_width_from_walls' not in ad['flags']
+    d = [o for o in TR.openings_of(res['panels'][0], res['panels'][0]['rooms'][0], TR.rules())[0] if o['_idx'] == 1][0]
+    assert d['c'] == [250.0, 425.0] and d['widthCm'] == 90.0 and d['_fix'] == ['opening_snapped']
+    assert [(x['o']['kind'], x['wall']) for x in ad['candidates'][0]['openings'] if x['o']['kind'] == 'door'] == [('door', 'north')]
+
+
+def test_opening_width_from_wall_footprint():
+    """Окно распознано шириной 600 при стене 500 (как G, спальня 4: 501 см при проёме ~90) — ширина по следу в подоконнике
+    и перемычке, флаг `opening_width_from_walls`; следы двух полос согласны."""
+    ops = [op('window', (250, -5), 600, True), op('door', (100, 400), 90)]
+    assert refusal(result([room('r1', 'living', RECT)], ops)) == 'opening_ambiguous'
+    res = with_walls(result([room('r1', 'living', RECT)], ops), lintel(200, -15, 300, 5, (0, 90)), lintel(200, -15, 300, 5))
+    ad = TR.adapt(res)
+    assert {'opening_snapped', 'opening_width_from_walls'} <= set(ad['flags'])
+    win = [x for x in ad['candidates'][0]['openings'] if x['o']['kind'] == 'window']
+    assert len(win) == 1 and win[0]['width_cm'] == 100 and win[0]['wall'] == 'south'
+
+
+def test_footprint_between_two_equal_edges_stays_ambiguous():
+    """След между двумя параллельными рёбрами на равном расстоянии (узкая полоса комнаты) — не угадываем."""
+    strip = [(0, 0), (400, 0), (400, 40), (200, 40), (200, 400), (0, 400)]
+    res = with_walls(result([room('r1', 'bedroom', strip)], [op('door', (300, 20), 600)]), lintel(250, 15, 350, 25))
+    p = res['panels'][0]
+    ours, amb, flags = TR.openings_of(p, p['rooms'][0], TR.rules())
+    assert ours == [] and [o['_idx'] for o in amb] == [0] and flags == []
+
+
+def test_merged_lintel_is_no_footprint():
+    """Две перемычки слились в Г (как E, спальня 2: двери 12 и 14) — след неровный, ширину и ось не берём: отказ остаётся."""
+    lshape = {'z0': 210, 'z1': 260, 'polys': [{'outer': [[150, -15], [350, -15], [350, 5], [170, 5], [170, 120], [150, 120]],
+                                               'holes': []}]}
+    res = with_walls(result([room('r1', 'living', RECT)], [op('window', (250, -5), 600, True), op('door', (100, 400), 90)]), lshape)
+    assert refusal(res) == 'opening_ambiguous'
+
+
+def test_door_inside_neighbour_floor_is_neighbours():
+    """Дверь в 45 см от нашей стены, но в полу соседней комнаты глубже допуска и не в стене (как G, спальня 6) — его проём,
+    флаг `opening_foreign`; без соседа — по-прежнему отказ (`test_ambiguous_opening_off_wall`)."""
+    hall = room('r2', 'hall', [(0, 400), (500, 400), (500, 700), (0, 700)])
+    res = result([room('r1', 'living', RECT), hall], [op('window', (250, 0), 150, True), op('door', (100, 400), 90),
+                                                       op('door', (250, 445), 90)])
+    ad = TR.adapt(res)
+    assert 'opening_foreign' in ad['flags'] and sorted(o['src'] for o in ad['ops']) == [0, 1]
+    # та же дверь в стене (кусок стены полной высоты у центра) — не «чужая», отказ
+    res['panels'][0]['walls'] = [lintel(0, 430, 500, 460, (0, 260))]
+    assert refusal(res) == 'opening_ambiguous'
+
+
+NICHE = [(0, 0), (500, 0), (500, 400), (100, 400), (100, 150), (0, 150)]   # ниша 100×150 слева сверху, ядро 400×400
+
+
+def test_door_partly_in_niche_enters_core():
+    """Дверь 200 см на верхней стене, 70 см её — над нишей: ядро 400×400 нишу не включает; на сторону ядра приходится
+    130 см ≥ прохода → дверь на стороне ядра обрезанной (флаг `entry_via_niche`), створка не шире общей части,
+    полная дверь — в `post_check` по полному контуру."""
+    ad = TR.adapt(result([room('r1', 'living', NICHE)], [op('door', (130, 0), 200), op('window', (500, 250), 120, True)]))
+    c = ad['candidates'][0]
+    assert c['rect'] == [100, 0, 500, 400] and 'entry_via_niche' in c['flags']
+    door = [x for x in c['openings'] if x['o']['kind'] == 'door']
+    assert len(door) == 1 and door[0]['niche'] and door[0]['offset_cm'] == 0 and door[0]['width_cm'] == 130
+    sd = [o for o in TR.solver_openings(c, TR.rules()) if o['kind'] == 'door']
+    assert sd[0]['width_cm'] == 130 and sd[0]['swing_cm'] == 100
+    assert TR.post_check(ad, c, [])['ok']
+    blocked = TR.post_check(ad, c, [place('комод', 30, 30, 60, 40)])     # у стены перед дверью (кадр ядра: x 0 = край ниши)
+    assert 'door_passage_blocked' in {p['code'] for p in blocked['problems']}
+
+
+def test_door_in_niche_without_passage_is_cut():
+    """На сторону ядра — 50 см (меньше прохода 60): входа прямо в ядро нет — отказ `opening_cut_by_core` как раньше."""
+    assert refusal(result([room('r1', 'living', NICHE)], [op('door', (90, 0), 120), op('window', (500, 250), 120, True)])) \
+        == 'opening_cut_by_core'
+
+
+def test_niche_entry_needs_floor_in_front():
+    """Свисающая часть двери — за углом ядра у стены, не над полом комнаты: не вход через нишу."""
+    from shapely.geometry import box
+    P = box(100, 0, 500, 400)
+    o = {'kind': 'door', 'c': (130, 0), 'w': 200, 'axis': 'x'}
+    assert TR._niche_entry(o, (100, 0, 500, 400), P, ('cut', 'south', 30, 230), 60) is None
+    assert TR._niche_entry(dict(o, kind='window'), (100, 0, 500, 400), TR.Polygon(NICHE), ('cut', 'south', 30, 230), 60) is None
+    got = TR._niche_entry(o, (100, 0, 500, 400), TR.Polygon(NICHE), ('cut', 'south', 30, 230), 60)
+    assert got and got['width_cm'] == 130 and got['offset_cm'] == 0
 
 
 def test_far_opening_ignored():

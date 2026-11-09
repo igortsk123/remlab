@@ -114,10 +114,10 @@ def adapt_room(panel: dict, room: dict, cfg: dict) -> dict:
     """Спальня плана → {poly, ops, candidates, flags, room_id…} (шаги `trial_room.adapt` без правил гостиной: окно не обязательно,
     обязательная группа — самая маленькая кровать). Отказ — `BedroomRefusal`."""
     from planner.geometry import largest_free_rectangles
-    ours, amb = TR._openings_of(panel, room, cfg)
+    ours, amb, oflags = TR.openings_of(panel, room, cfg)
     if amb:
         raise BedroomRefusal('opening_ambiguous', '; '.join(f"{o['kind']} {o['widthCm']:.0f} см в {o['_d']:.0f} см от стены" for o in amb))
-    flags = [] if TR._light(ours, cfg)[0] else ['no_window']
+    flags = ([] if TR._light(ours, cfg)[0] else ['no_window']) + oflags
     try:
         fr = TR.ortho_frame(room['contour'], cfg)
         ops = [TR._place_opening(fr['poly'], o, fr['T'], cfg) for o in ours]
@@ -128,7 +128,9 @@ def adapt_room(panel: dict, room: dict, cfg: dict) -> dict:
         raise BedroomRefusal('no_core', 'нет прямоугольного ядра')
     cands = [TR.core_candidate(fr['poly'], r, ops, SMALLEST_BED, cfg) for r in rects[:int(cfg['core_candidates'])]]
     ok = [c for c in cands if not c['reasons']]
-    ok.sort(key=lambda c: (not c['light_on_core'], -c['area_m2']))
+    ok.sort(key=TR.core_rank)
+    if ok and 'entry_via_niche' in ok[0]['flags']:
+        flags.append('entry_via_niche')                # ядра без входа через нишу стоят раньше — раз первое с нишей, то и все
     if not ok:
         why = [r.split(':')[0] for c in cands for r in c['reasons']]
         if 'opening_unplaced' in why and 'no_entry' not in why and 'living_core_small' not in why:
