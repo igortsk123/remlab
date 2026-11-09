@@ -206,15 +206,26 @@ describe("фикстуры тура пробы", () => {
     expect(d.variants.some((v) => v.items.length > 0)).toBe(true);
     expect(d.variants.every((v) => !v.pending)).toBe(true);
   });
-  it("состояния мебели по комнате: подбирается / готово / отказ", () => {
-    type Room = { id: string; furniture_state: string; furniture_text: string | null };
+  it("исходы мебели по комнате — кодами: подбирается / обставлена / нет товаров / не обставляется", () => {
+    type Room = { id: string; kind: string; titleRu: string; titleEn: string; furniture_state: string };
+    const CODES = ["pending", "furnished", "no_products", "not_furnished"];
     const rooms = (f: string) => (read(f) as unknown as { apartment_rooms: Room[] }).apartment_rooms;
+    for (const f of ["trial-tour-empty.json", "trial-tour-furnished.json"]) {
+      for (const r of rooms(f)) {
+        expect(CODES, `${f} ${r.id}`).toContain(r.furniture_state);
+        expect(r.titleRu && r.titleEn, `${f} ${r.id}: подписи на двух языках`).toBeTruthy();
+      }
+    }
     expect(rooms("trial-tour-empty.json").some((r) => r.furniture_state === "pending")).toBe(true);
     const furn = rooms("trial-tour-furnished.json");
-    const refused = furn.filter((r) => r.furniture_state === "refused");
-    expect(refused.map((r) => r.id)).toEqual(["bedroom-1"]);
-    expect(refused[0]?.furniture_text).toBeTruthy();
-    expect(furn.some((r) => r.furniture_state === "ready")).toBe(true);
+    expect(furn.filter((r) => r.furniture_state === "no_products").map((r) => r.id)).toEqual(["bedroom-1"]);
+    expect(furn.some((r) => r.furniture_state === "furnished")).toBe(true);
+    expect(furn.filter((r) => r.furniture_state === "not_furnished").every((r) => !["living", "bedroom"].includes(r.kind))).toBe(true);
     for (const v of read("trial-tour-furnished.json").variants.filter((x) => x.room_id === "bedroom-1")) expect(v.items).toEqual([]);
+  });
+  it("масштаб задания в данных: не подтверждён — на пустой", () => {
+    const scale = (f: string) => (read(f).trial as { scale?: string }).scale;
+    expect(scale("trial-tour-empty.json")).toBe("not_verified");
+    expect(scale("trial-tour-furnished.json")).toBe("verified");
   });
 });

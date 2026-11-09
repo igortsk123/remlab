@@ -1281,6 +1281,17 @@ body.trial #hmBot,body.trial .vtop,body.trial #consShot,body.trial #swapShot,bod
 .vw.pending .vstage>.tr-approx{top:58px}
 .vpend{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:5;display:flex;align-items:center;padding:9px 16px;border-radius:999px;background:rgba(255,255,255,.94);color:var(--ink);font-size:14px;line-height:1.2;box-shadow:0 4px 18px rgba(0,0,0,.14);white-space:nowrap;pointer-events:none}
 .vpend.none{white-space:normal;width:max-content;max-width:calc(100% - 32px);text-align:center;border-radius:16px;color:#8A4A1F}
+/* карточка пробы без фото: план комнаты с мебелью (тот же рисунок, что план окна) и подпись «Откройте — покажем в 3D» */
+.hm-room .hm-ph .nopv.tr-plan{background:var(--wash,#F3F0EA);padding:42px 14px 44px}
+.hm-room .hm-ph .nopv.tr-plan svg{width:100%;height:100%;display:block}
+.tr-3d{position:absolute;right:10px;top:10px;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.94);color:var(--ink);font-size:12px;line-height:1.3;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+/* шапка пробы: масштаб и две подписанные ссылки */
+#trHead{margin:8px 0 10px;display:flex;flex-direction:column;gap:8px}
+#trHead .tr-scale{margin:0;align-self:flex-start;padding:4px 10px;border-radius:999px;border:1px dashed #C7652B;color:#8A4A1F;font-size:12px;line-height:1.3}
+#trHead .tr-links{display:flex;flex-wrap:wrap;gap:8px 16px}
+#trHead .tr-link{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+#trHead .tr-link b{color:var(--ink);font-weight:600}
+#trHead .tr-link .btn{padding:5px 12px;font-size:13px;min-height:0}
 </style></head><body><div class="wrap">
 <!-- ЗАГОЛОВОК И ЛИД УБРАНЫ (владелец 01.09): они повторяли то, что теперь говорит блок
      сертификата, и отодвигали паспорт квартиры вниз. Первым идёт сама квартира. -->
@@ -1476,24 +1487,82 @@ let D=null, cur=0, items=[], sel=null, S=1, PAD=18;
 // РЕЖИМ ПРОБЫ (agent-trial-08, «демо = шаблон»): страница та же, а поле данных `D.trial` (в живом `/demo` его нет) выключает всё, что
 // относится к застройщику и стоит денег. Запреты сети и хранилище — в «песочнице» адреса `/try/<id>/tour` (`lib/trial/tour-page.ts`).
 // `v.pending` — вариант «мебель подбирается»: `items: []` сам по себе значил бы готовую пустую комнату
-// `apartment_rooms[].furniture_state` — исход по комнате (ready/pending/refused, `tools/scout/trial_bundle.py`): отказ — честная надпись, не вечная крутилка
+// `apartment_rooms[].furniture_state` — исход по комнате кодом (`roomOutcome`): furnished / pending / no_products / not_furnished. Тексты — на
+// странице по коду и языку (RU/EN, владелец 09.11 TG 486), не из данных: «нет подходящих товаров» — честная надпись, не вечная крутилка
 const TRIAL=()=>!!(D&&D.trial);
-const roomFurn=id=>TRIAL()?((D.apartment_rooms||[]).find(r=>r&&r.id===id)||{}).furniture_state:undefined;
-const varRefused=v=>!!(v&&TRIAL()&&(roomFurn(v.room_id)==='refused'||(v.furniture_state==='failed'&&!(v.items||[]).length)));
+const TR_EN=()=>LANG==='en';
+// коды исхода; прежние слова сборщика (ready/refused/partial/none) и коды причин читаются так же — данные и страница вливаются порознь
+const TR_OUT={furnished:'furnished',ready:'furnished',partial:'furnished',pending:'pending',no_products:'no_products',refused:'no_products',failed:'no_products',
+  not_furnished:'not_furnished',none:'not_furnished'};
+const TR_NOT_FURN=new Set(['not_furnished','room_kind_not_furnished','one_living_furnished']);
+function roomOutcome(id){ if(!TRIAL())return undefined;
+  const r=(D.apartment_rooms||[]).find(x=>x&&x.id===id); if(!r)return undefined;
+  const o=TR_OUT[r.furniture_state]; return o==='no_products'&&TR_NOT_FURN.has(r.furniture_code)?'not_furnished':o; }
+// отказ варианта: исход комнаты «нет товаров»/«не обставляется» или сам вариант без предметов с исходом-отказом
+const varRefused=v=>!!(v&&TRIAL()&&(/^(no_products|not_furnished)$/.test(roomOutcome(roomIdOf(v))||'')||(/^(failed|none|no_products|not_furnished)$/.test(v.furniture_state||'')&&!(v.items||[]).length)));
 const varPending=v=>!!(v&&(v.pending||v.furniture_state==='pending')&&!(v.items||[]).length&&!varRefused(v));
-const pendTxt=()=>LANG==='en'?'Choosing furniture…':'Подбираем мебель…', pendSpin='<i class="tr-spin" aria-hidden="true"></i>';
-const refusedTxt=()=>LANG==='en'?'No suitable products under the current templates':'Нет подходящих товаров согласно действующим шаблонам';
-const refusedShort=()=>LANG==='en'?'no products':'нет товаров';
+const varNotFurn=v=>!!(v&&TRIAL()&&(roomOutcome(roomIdOf(v))==='not_furnished'||/^(none|not_furnished)$/.test(v.furniture_state||'')));
+const pendTxt=()=>TR_EN()?'Choosing furniture…':'Подбираем мебель…', pendSpin='<i class="tr-spin" aria-hidden="true"></i>';
+const refusedTxt=()=>TR_EN()?'No suitable products under the current templates':'Нет подходящих товаров согласно действующим шаблонам';
+const refusedShort=()=>TR_EN()?'no products':'нет товаров';
+const notFurnTxt=()=>TR_EN()?'We don’t furnish this room':'Эту комнату не обставляем', notFurnShort=()=>TR_EN()?'not furnished':'не обставляется';
+// текст отказа варианта: «не обставляется» отдельно от «нет подходящих товаров»
+const varNoneTxt=v=>varNotFurn(v)?notFurnTxt():refusedTxt(), varNoneShort=v=>varNotFurn(v)?notFurnShort():refusedShort();
+// масштаб плана (`D.trial.scale`: verified / listing / not_verified, `contracts/trial.ts`) не подтверждён — размеры примерные, говорим это
+const scaleUnconfirmed=()=>TRIAL()&&D.trial.scale==='not_verified';
+const scaleTxt=()=>TR_EN()?'Scale not confirmed — sizes are approximate':'Масштаб не подтверждён — размеры примерные';
 // `rooms_geo[id].approx` — комната нарисована прямоугольником вместо настоящего контура: показываем это, а не выдаём за точные стены
-const roomApprox=id=>TRIAL()&&!!(((D.rooms_geo||{})[id]||{}).approx), approxTxt=()=>LANG==='en'?'Approximate room shape':'Форма комнаты приблизительная';
+const roomApprox=id=>TRIAL()&&!!(((D.rooms_geo||{})[id]||{}).approx), approxTxt=()=>TR_EN()?'Approximate room shape':'Форма комнаты приблизительная';
 const approxTag=id=>roomApprox(id)?`<span class="tr-approx">${approxTxt()}</span>`:'';
+// ЦЕН В ПРОБЕ НЕТ (план agent-trial-08 В): каталог и рубли — не для агента; режимом — `fmtCard` отдаёт пусто, а места «сумма · N предметов»
+// собирают строку через `trJoin`, чтобы не оставалось «· » и пустых скобок
+const trJoin=(...a)=>a.filter(Boolean).join(' · ');
+// ССЫЛКИ ЗАДАНИЯ (план К): агенту — без опроса `?quiz=0`, покупателю — с опроса `?quiz=1`; язык показа сохраняется
+function trialLinks(){ const base=location.origin+location.pathname.replace(/[^/]*$/,''), lg='&lang='+(TR_EN()?'en':'ru');
+  return {agent:base+'?quiz=0'+lg, buyer:base+'?quiz=1'+lg}; }
+function trialCopy(u){
+  const ok=()=>toast(TR_EN()?'Link copied':'Ссылка скопирована');
+  try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u).then(ok,()=>prompt('',u)); return;} }catch(e){}
+  prompt('',u); }
+// шапка пробы: подпись масштаба и две подписанные ссылки — только у агента (у покупателя `?quiz=1` их нет)
+function trialHead(){
+  // под шапкой, в потоке страницы: шапка `.hm-hd` липкая и фиксированной высоты — внутри неё блок наезжал на вкладки (375, 18:28)
+  const host=document.getElementById('hmHd'); if(!host)return;
+  let box=document.getElementById('trHead'); if(!box){box=document.createElement('div'); box.id='trHead'; host.parentNode.insertBefore(box,host.nextSibling);}
+  const EN=TR_EN(), L=trialLinks(), buyer=/[?&]quiz=1(?:&|$)/.test(location.search);
+  box.innerHTML=(scaleUnconfirmed()?`<p class="tr-scale" data-tr-scale="1">${scaleTxt()}</p>`:'')+
+    (buyer?'':`<div class="tr-links"><div class="tr-link"><span><b>${EN?'Your link':'Ваша ссылка'}</b> — ${EN?'opens without the quiz':'без опроса'}</span>`+
+      `<button class="btn" type="button" data-tr-copy="agent">${EN?'Copy':'Скопировать'}</button></div>`+
+      `<div class="tr-link"><span><b>${EN?'Link for your buyer':'Ссылка для покупателя'}</b> — ${EN?'starts with a short quiz':'начинается с короткого опроса'}</span>`+
+      `<button class="btn" type="button" data-tr-copy="buyer">${EN?'Copy':'Скопировать'}</button></div></div>`);
+  box.querySelectorAll('[data-tr-copy]').forEach(b=>{b.onclick=()=>trialCopy(L[b.dataset.trCopy]);});
+}
 function trialSetup(){
   document.body.classList.add('trial');
-  const t=D.trial.title||(LANG==='en'?'Your floor plan':'Ваша планировка'), fk=document.getElementById('flatKind');
+  const t=TR_EN()?'Your floor plan':'Ваша планировка', fk=document.getElementById('flatKind');
   if(fk)fk.textContent=t;
   document.title=t;
-  (D.variants||[]).forEach(v=>{if(varRefused(v))v.items=[];});   // отказ по комнате: сцена пустая, даже если у варианта остались предметы
+  (D.variants||[]).forEach(v=>{if(varRefused(v)){v.items=[]; v.decor=[];}});   // отказ по комнате: сцена пустая, даже если у варианта остались предметы
+  trialHead();
   trialPoll();
+}
+// ПРЕВЬЮ КАРТОЧКИ ПРОБЫ (фото нейросети у задания нет): план комнаты сверху с мебелью — тем же рисунком, что план окна (`shape`),
+// в тон страницы; масштаб и отступ подменяются на время рисунка и возвращаются
+function trialPlanSvg(v){
+  const R=roomGeoOf(v); if(!R||!R.w||!R.d)return '';
+  const its=(v.items||[]).filter(it=>it&&it.role&&it.w&&it.d), s0=S, p0=PAD, sel0=sel, k=Math.min(560/R.w,360/R.d);
+  let out='';
+  try{ S=k; PAD=14; sel=null;
+    const W=R.w*S+2*PAD, H=R.d*S+2*PAD, svg=el('svg',{viewBox:`0 0 ${W.toFixed(1)} ${H.toFixed(1)}`,preserveAspectRatio:'xMidYMid meet','aria-hidden':'true'});
+    svg.appendChild(el('rect',{x:X(0),y:Y(0),width:R.w*S,height:R.d*S,fill:'#FAF8F3',stroke:'#3A3A3A','stroke-width':3}));
+    (R.openings||[]).forEach(o=>{const W0=R.w,H0=R.d,f=o.offset_cm||0,l=o.width_cm||0,
+      p=o.wall==='south'?{x1:f,y1:0,x2:f+l,y2:0}:o.wall==='north'?{x1:f,y1:H0,x2:f+l,y2:H0}:o.wall==='west'?{x1:0,y1:f,x2:0,y2:f+l}:{x1:W0,y1:f,x2:W0,y2:f+l};
+      svg.appendChild(el('line',{x1:X(p.x1),y1:Y(p.y1),x2:X(p.x2),y2:Y(p.y2),stroke:o.kind==='door'?'#C8783C':'#5A9BD4','stroke-width':7}));});
+    its.slice().sort((a,b)=>(a.role.startsWith('ковёр')?0:1)-(b.role.startsWith('ковёр')?0:1)).forEach(it=>{try{svg.appendChild(shape(it));}catch(e){}});
+    out=svg.outerHTML;
+  }catch(e){ out=''; }
+  finally{ S=s0; PAD=p0; sel=sel0; }
+  return out;
 }
 // ОПРОС ВЕРСИИ: пока есть комнаты «подбирается», спрашиваем номер результата; вырос — перезагрузка (адрес и `#v=` сохраняются, состояние — в хранилище задания).
 // Плавное появление мебели без перезагрузки — следующий шаг плана. Страница в фоне не опрашивает; 404/410 — задание снято, стоп
@@ -1519,12 +1588,16 @@ const clone=o=>JSON.parse(JSON.stringify(o));
 
 window.addEventListener('error',e=>{                 // пустая страница не объясняет, что сломалось
   const b=document.getElementById('sub');
-  if(b)b.innerHTML='<b style="color:#B4552B">Ошибка на странице:</b> '+
+  if(b)b.innerHTML='<b style="color:#B4552B">'+(pageEn()?'Page error:':'Ошибка на странице:')+'</b> '+
     String((e.error&&e.error.message)||e.message||'').slice(0,180);
 });
+// язык для ошибок загрузки: они случаются и до `LANG` (объявлен ниже) — тогда по адресу и выбору человека (проба — RU/EN, TG 486)
+function pageEn(){ try{return LANG==='en';}catch(e){}
+  const m=location.search.match(/[?&]lang=(ru|en)(?:&|$)/); if(m)return m[1]==='en';
+  try{return localStorage.getItem('remlab-lang')==='en';}catch(e){return false;} }
 fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();})
   .catch(e=>{const b=document.getElementById('sub');
-    if(b)b.textContent='Не удалось загрузить данные: '+String(e.message||e).slice(0,140);});
+    if(b)b.textContent=(pageEn()?'Could not load the data: ':'Не удалось загрузить данные: ')+String(e.message||e).slice(0,140);});
 
 function on(id, ev, fn){                     // узла может не быть — интерфейс меняется чаще кода
   const n=document.getElementById(id);
@@ -2082,7 +2155,9 @@ function flatPlan(){
       L.push({t:(f.sumText?f.sumText+' ':'')+'→',k:0.95,a:{fill:'#3B76A2','font-weight':'700'}});
     }else{
       L.push({t:homeM2(room.areaM2),k:0.95,a:{fill:'#5C655E'}});
-      L.push(pend?{t:pendTxt(),k:0.85,a:{fill:'#5C655E'}}:none?{t:refusedShort(),k:0.85,a:{fill:'#8A4A1F','data-refused':'1'}}:go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
+      const o=TRIAL()&&!rv&&br?roomOutcome(br.id):'';   // проба: комната без варианта — исход по коду (не обставляется / подбирается)
+      L.push(pend?{t:pendTxt(),k:0.85,a:{fill:'#5C655E'}}:none?{t:varNoneShort(allVariants()[rv.index]),k:0.85,a:{fill:'#8A4A1F','data-refused':'1'}}:go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}
+        :o==='not_furnished'?{t:notFurnShort(),k:0.85,a:{fill:'#9AA098','data-outcome':o}}:o==='pending'?{t:pendTxt(),k:0.85,a:{fill:'#5C655E','data-outcome':o}}:o==='no_products'?{t:refusedShort(),k:0.85,a:{fill:'#8A4A1F','data-outcome':o}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
     }
     const LH=fs*1.2; let y=r.y+r.d/2-LH*(L.length-1)/2+fs*0.35;
     L.forEach(l=>{el('text',Object.assign({x:cx,y,'text-anchor':'middle','font-size':fs*l.k},l.a),g).textContent=l.t; y+=LH;});
@@ -2114,7 +2189,8 @@ function flatPlan(){
   });
   box.appendChild(svg);
   if(TRIAL()&&R.some(r=>roomApprox(r.id)))box.insertAdjacentHTML('beforeend',`<div class="hint">≈ ${approxTxt()}</div>`);
-  if(TRIAL()&&allVariants().some(varRefused))box.insertAdjacentHTML('beforeend',`<div class="hint">${refusedShort()} — ${refusedTxt()}</div>`);
+  if(TRIAL()&&allVariants().some(v=>varRefused(v)&&!varNotFurn(v)))box.insertAdjacentHTML('beforeend',`<div class="hint">${refusedShort()} — ${refusedTxt()}</div>`);
+  if(scaleUnconfirmed())box.insertAdjacentHTML('beforeend',`<div class="hint" data-tr-scale="1">${scaleTxt()}</div>`);
 
 }
 // комнаты схемы плана ↔ комнаты реестра квартиры (`homeRooms`) — по id: у схемы id реестра (T-20261022-04; сборка падает, если
@@ -5071,7 +5147,7 @@ function drawColl(force){
       (views>1?`<div class="badge2">${views} вида</div>`:'')+
       `</div>`+
       `<div class="body"><div class="nm">${v.style||v.title||('вариант '+(i+1))}</div>`+
-      `<div class="pr">${n} ${n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров')} · <b>${money(p)}</b></div>`+
+      `<div class="pr">${n} ${n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров')}${TRIAL()?'':` · <b>${money(p)}</b>`}</div>`+
       `<div class="acts">`+
         `<button class="btn" data-swap="${i}">Открыть</button>`+
         // ПУСТАЯ КАРТОЧКА ДОЛЖНА ПРЕДЛАГАТЬ СНЯТЬ (владелец 01.09: «когда фото чернового нет,
@@ -5503,18 +5579,19 @@ function drawHome(force){
   const shown=cards.find(c=>!c.stub&&c.r.id===HOME.room)||cards.find(c=>!c.stub), shownId=shown?shown.r.id:'';
   box.innerHTML=cards.map(c=>{
     const t=`${escHtml(c.r.title)}${c.r.areaM2?` <small>· ${homeM2(c.r.areaM2)}</small>`:''}`;
-    if(c.stub)return `<div class="hm-stub" data-room="${c.r.id}" aria-disabled="true"><b>${t}</b><span>${EN?'coming in the next step':'появится следующим шагом'}</span></div>`;
+    if(c.stub){const o=roomOutcome(c.r.id), tx=o==='pending'?pendSpin+pendTxt():o==='not_furnished'?notFurnShort():o==='no_products'?refusedShort():(EN?'coming in the next step':'появится следующим шагом');   // проба: исход комнаты по коду
+      return `<div class="hm-stub" data-room="${c.r.id}"${o?` data-outcome="${o}"`:''} aria-disabled="true"><b>${t}</b><span>${tx}</span></div>`;}
     // подпись картинки — стиль ПОКАЗАННОГО варианта (у подменённой комнаты он свой); `data-style` — запрошенный для комнаты стиль
     // (раскладка, home-mix-01), `data-shown` — только у подменённой, для проверок
     const vs=styleIdOf(c.v), alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===vs)||{}).title), on=c.r.id===shownId;
-    if(c.pending||c.refused){const mark=c.pending?pendSpin:'', msg=c.pending?pendTxt():refusedTxt();
-      return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b><span>${mark}${c.pending?msg:refusedShort()}</span></button>`+
+    if(c.pending||c.refused){const mark=c.pending?pendSpin:'', msg=c.pending?pendTxt():varNoneTxt(c.v);
+      return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b><span>${mark}${c.pending?msg:varNoneShort(c.v)}</span></button>`+
       `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}" data-variant="${escHtml(c.v.id)}" data-open="${c.i}" ${c.pending?'data-pending':'data-refused'}="1">`+
       `<div class="hm-ph" data-open="${c.i}"><div class="nopv tr-wait">${mark}<span>${msg}</span></div>${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
       `<div class="rb"><div class="sum"><small class="tr-wait-tx">${c.pending?(EN?'Your rooms are ready — furniture is on the way':'Комнаты готовы — мебель появится здесь'):(EN?'The room is ready, without furniture':'Комната готова, без мебели')}</small></div>`+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;}
     return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b>`+
-      `<span>${money(c.sum)} · ${c.n} ${plural(c.n)}</span></button>`+
+      `<span>${trJoin(money(c.sum),c.n+' '+plural(c.n))}</span></button>`+
       `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}"${vs!==c.want?` data-shown="${vs}"`:''} data-variant="${escHtml(c.v.id)}" data-open="${c.i}"${c.stale?' data-stale="1"':''}>`+
       `<div class="hm-ph${c.stale?' stale':''}" data-open="${c.i}">`+
       // ЧЁТКО НА КОМПЬЮТЕРЕ (photo-sharp-keep-01, владелец 07.11 TG 349: «фото сжимается, пока не увеличишь»): миниатюра — 640 px,
@@ -5523,6 +5600,7 @@ function drawHome(force){
       (c.img?`<picture>${c.full&&c.full!==c.img?`<source media="(min-width:900px)" srcset="${escHtml(c.img)} 640w, ${escHtml(c.full)} 2048w" sizes="${HM_SIZES}">`:''}`+
         `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?'':' loading="lazy"'} data-url="${escHtml(c.full)}" `+
         `onerror="this.onerror=null;var s=this.parentNode.querySelector('source');if(s)s.remove();this.src=this.dataset.url"></picture>`
+        :TRIAL()?`<div class="nopv tr-plan">${trialPlanSvg(c.v)}<span class="tr-3d">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</span></div>`   // проба: фото нет — план комнаты с мебелью
         :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
       // макет 07.11: сердечка и «Поделиться» на карточке нет; чипа «✓ Просмотрено» нет (владелец 08.11 TG 592, T-20261108-72)
       `${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
@@ -5530,7 +5608,7 @@ function drawHome(force){
       (c.stale?`<div class="hm-stale"><b>${EN?'You changed the room':'Вы изменили комнату'}</b><div class="hm-stb">`+
         `<button class="btn primary" type="button" data-hst="real">${EN?'Make it realistic':CTA_REAL}</button>`+
         (c.back?`<button class="btn" type="button" data-hst="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div></div>`:'')+
-      `<div class="rb"><div class="sum"><b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}</small></div>`+
+      `<div class="rb"><div class="sum">${TRIAL()?`<b>${c.n} ${plural(c.n)}</b>`:`<b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}</small>`}</div>`+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;
   }).join('')+
   // «ПЛАН КВАРТИРЫ» — ПЛАШКОЙ В РЯД С КОМНАТАМИ, ЧУТЬ ВЫДЕЛЕН ЦВЕТОМ (владелец 22.10, demo-20 А7); прежняя ссылка под комнатами убрана.
@@ -5705,7 +5783,7 @@ function openCons(mode){
   const head=document.getElementById('consWhat');
   if(head)head.textContent=mode==='edit'?'Планировка':'Новая расстановка';
   document.getElementById('consStyle').textContent=v.style||v.title||'';
-  document.getElementById('consSum').textContent='Комплект: '+money(variantPrice(v));
+  document.getElementById('consSum').textContent=TRIAL()?'':'Комплект: '+money(variantPrice(v));
   work.hidden=false; body.appendChild(work);
   let hint=document.getElementById('consHint');
   if(!hint){hint=document.createElement('div');hint.id='consHint';hint.className='cons-hint';}
@@ -5952,7 +6030,9 @@ function maskColour(p, m, names){
 // DEMOMASK END
 let NAMES_EN=null, NAMES_D=null;
 function namesEn(){ if(NAMES_D!==D){NAMES_D=D; NAMES_EN=namesEnOf(D||{});} return NAMES_EN; }
-function MASK(){return maskOf(FLAT);}
+// проба на английском — своя маска показа (не карточка застройщика): английские названия из сборки (`name_en`), без русских магазинов и ссылок
+const TRIAL_MASK_EN={englishNames:true, hideShops:true};
+function MASK(){return TRIAL()?(LANG==='en'?TRIAL_MASK_EN:null):maskOf(FLAT);}
 function maskRoleEn(r){const b=String(r||'').replace(/\s+\d+$/,''); return (window.__trText&&window.__trText(b))||'';}
 // ПОМОЩНИКИ ПОКАЗА ТОВАРА — все места вывода названия, магазина и ссылки «В магазин» идут через них (demo-31)
 function itemName(p, role){return maskName(p, role, MASK(), namesEn(), maskRoleEn);}
@@ -5961,6 +6041,7 @@ function itemUrl(p){const m=MASK(); return m&&m.hideShops?'':String((p&&p.url)||
 function fxRate(){return fxRateOf(FLAT);}
 function toCard(rub){const r=fxRate(); return r?Math.round((+rub||0)*r):Math.round(+rub||0);}
 function fmtCard(v){const n=Math.round(+v||0);
+  if(TRIAL())return '';                            // проба: цен нет нигде (план agent-trial-08 В) — режимом, а не по местам
   if(FLAT&&FLAT.currency==='GBP')return '£'+n.toLocaleString('en-GB');
   if(DEMO_UK_PENDING())return '…';                 // английское демо ждёт британскую карточку — без вспышки рублей
   return n.toLocaleString('ru-RU')+' ₽';}
@@ -6684,10 +6765,11 @@ function filters(){
   if(st)add('Только стиль '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);
   // пороги — рубли витрины; подписи — в валюте карточки (британский двойник: £)
   const fx=fxRate(), EN=LANG==='en';
+  if(!TRIAL()){   // проба: цен нет — и отбора по цене нет
   add(fx?(EN?'under ':'до ')+money(30000):'до 30 тыс',F.price==='lo',()=>F.price=F.price==='lo'?null:'lo');
   add(fx?money(30000)+'–'+money(60000):'30–60 тыс',F.price==='mid',()=>F.price=F.price==='mid'?null:'mid');
   add(fx?money(60000)+'+':'60+ тыс',F.price==='hi',()=>F.price=F.price==='hi'?null:'hi');
-  add('дешевле сначала',F.sort==='price',()=>F.sort=F.sort==='price'?'fit':'price');
+  add('дешевле сначала',F.sort==='price',()=>F.sort=F.sort==='price'?'fit':'price');}
 }
 function grid(){
   const g=document.getElementById('grid');g.innerHTML='';
@@ -6808,7 +6890,7 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
   kin.forEach(it=>{it.w=s.w; it.d=s.d; it.h=s.h; it.sku=Object.assign({},s.sku);
     if(s.d_catalog!=null)it.d_catalog=s.d_catalog; else delete it.d_catalog;});
   sel=s;
-  document.getElementById('sel').innerHTML=`Примерено: <b>${itemName(p,s.role)}</b> · ${Math.round(p.w)}×${Math.round(p.d_catalog??p.d)} см · ${money(p.price)}`+
+  document.getElementById('sel').innerHTML=`Примерено: <b>${itemName(p,s.role)}</b> · ${trJoin(Math.round(p.w)+'×'+Math.round(p.d_catalog??p.d)+' см',money(p.price))}`+
     (itemUrl(p)?` · <a href="${itemUrl(p)}" target="_blank" rel="noopener">открыть в магазине</a>`:'');
   draw();}
 
@@ -7406,7 +7488,7 @@ const vwCam=()=>'C'+(VW.photo+1);
 const vwCamN=()=>Math.max(1,((typeof cams!=='undefined'&&cams)||loadCams()).length);
 function vwSum(){
   if(varPending(allVariants()[cur]))return pendSpin+`<span>${pendTxt()}</span>`;
-  if(varRefused(allVariants()[cur]))return `<span>${refusedShort()}</span>`;
+  if(varRefused(allVariants()[cur]))return `<span>${varNoneShort(allVariants()[cur])}</span>`;
   const v=allVariants()[cur]||{}, n=variantCount(v), sum=variantPrice(v), EN=LANG==='en';
   const cert=(FLAT&&FLAT.certificate&&FLAT.certificate.amount)||0;
   const word=itemsWord(n);
@@ -7423,6 +7505,7 @@ function vwSum(){
     t.onRequest.length?`<div class="vpl-dev">${EN?'price on request: ':'цена уточняется у менеджера: '}${t.onRequest.map(escHtml).join(', ')}</div>`:''].join(''):'';
   // ПЛАШКА СЕРТИФИКАТА (demo-02 v3, владелец 16.10: «явно и ярко: сертификат на N, выбрано столько-то, остаток такой-то»):
   // отдельный элемент над шторкой (телефон) / шапкой колонки (компьютер), вне прокрутки — сумма видна при замене из глубины списка
+  if(TRIAL())return `<div class="vpl-h"><span>${n} ${word}</span></div>`;   // проба: число предметов без цены
   if(!cert)return `<div class="vpl-h"><span>${n} ${word}</span><b data-k="sum" data-to="${sumC}">${money(sumC)}</b></div>${extra}`;
   // ШКАЛА ОКНА = ШКАЛА НИЗА ГЛАВНОЙ (макет 373:7035, home-figma-02; прежде — корзина избранного и «светлая часть — что добавит»):
   // «Выбрано» — все комнаты главной, эта — своей нынешней расстановкой (замена видна сразу); полоса двумя цветами — эта комната и
@@ -7454,7 +7537,8 @@ function vwSumUpdate(){
 }
 // чип «⌃ Мебель и отделка · 11 (X ₽)» (макет 373:7035): X — сумма этой комнаты, та же, что «Эта комната» в легенде шкалы
 function vwChipText(){ const v=allVariants()[cur]||{}, n=variantCount(v), EN=LANG==='en';
-  return (EN?'⌃ Furniture & finishes · ':'⌃ Мебель и отделка · ')+n+' ('+fmtCard(toCard(variantPrice(v)))+')'; }
+  const p=fmtCard(toCard(variantPrice(v)));   // проба: цены нет — без пустых скобок
+  return (EN?'⌃ Furniture & finishes · ':'⌃ Мебель и отделка · ')+n+(p?' ('+p+')':''); }
 // СТРОКА ШТОРКИ (макет 373:7035, владелец TG 447–448, 451): «Сканди · Другой стиль для комнаты ›» — видна сразу, в свёрнутой шторке; название стиля этой комнаты, у сохранённой расстановки — её имя;
 // «Другой стиль для комнаты» — окно выбора только для этой комнаты (`mixOpen(комната)`), если у комнаты есть другой стиль
 function vwCanStyle(){ const v=allVariants()[cur]||{}; return !!D&&!v.cid&&!v.mine&&mixRoomList(roomIdOf(v)).length>1; }
@@ -7476,12 +7560,12 @@ function vwHtml(s, navs, list){
   // плашки «⤢ во весь экран» поверх фото нет (владелец TG 522, 07.11): во весь экран — тапом (кликом) по фото, `vwTapZoom`
   const img=s.url?`<img class="vblur" src="${s.url}" alt="" aria-hidden="true"><div class="vpan"><img class="vmain" src="${s.url}" alt="${styleOf(s)}" draggable="false"></div>`:'';
   const refused=varRefused(allVariants()[cur]), pending=refused||varPending(allVariants()[cur]);   // проба: мебель подбирается или товаров нет — плашка поверх пустой комнаты, панели товаров и камер убраны
-  return `<div class="vw${pending?' pending':''}"><div class="vstage">${pending?`<div class="vpend${refused?' none':''}">${refused?'':pendSpin}<span>${refused?refusedTxt():pendTxt()}</span></div>`:''}${approxTag(roomIdOf(allVariants()[cur]||{}))}<div class="shotwrap">${img}${navs}${old}</div>`+
+  return `<div class="vw${pending?' pending':''}"><div class="vstage">${pending?`<div class="vpend${refused?' none':''}">${refused?'':pendSpin}<span>${refused?varNoneTxt(allVariants()[cur]):pendTxt()}</span></div>`:''}${approxTag(roomIdOf(allVariants()[cur]||{}))}<div class="shotwrap">${img}${navs}${old}</div>`+
     `<div class="vmodes" role="tablist"><button data-vm="photo" class="${VW.mode==='photo'?'on':''}">Фото</button>`+
     // «Фото | 3D» без «План» (макет 373:7035, home-figma-02): план квартиры — на главной; режим `plan` в коде остаётся
     `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button></div>`+
     `<button class="vstyle" id="vOtherTop" type="button" aria-haspopup="dialog"${vwCanStyle()?'':' hidden'}>${EN?'Change style':'Сменить стиль'}</button>`+
-    `<button class="vprice" id="vPriceTop" type="button" data-off="${PRICES_OFF?1:0}">${vwPriceLabel()}</button>`+
+    (TRIAL()?'':`<button class="vprice" id="vPriceTop" type="button" data-off="${PRICES_OFF?1:0}">${vwPriceLabel()}</button>`)+   // проба: цен нет — и кнопки нет
     // РАКУРСЫ СЛОВАМИ (владелец 18.10, demo-15 п.3: «стрелочки непонятно что значат»): один переключатель для «Фото» и 3D,
     // подписи — по месту камеры (`vwCamNames`); ← → на компьютере остаются (`vwPhoto`), свайп по фото ракурс не листает (demo-22)
     `<div class="vcams" id="vCams" role="tablist">${vwCamLabels().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
@@ -8006,7 +8090,7 @@ function vwPinsTick(now){
   const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
   if(box!==PINS.box){PINS.box=box; PINS.map.clear(); PINS.fr=null;
     box.onclick=e=>{const b=e.target.closest&&e.target.closest('[data-pi]'); if(b)vwHighlight(+b.dataset.pi);};}
-  const on=shot.classList.contains('on')&&VW.mode==='walk'&&!PRICES_OFF&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
+  const on=shot.classList.contains('on')&&VW.mode==='walk'&&!PRICES_OFF&&!TRIAL()&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;   // проба: ценников нет
   if(!on){if(box.childElementCount)box.innerHTML=''; PINS.map.clear(); return;}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
     PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready')]
@@ -8490,7 +8574,7 @@ const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пу�
       // мягкое (demo-24): в 3D замены не видно — сообщение говорит, где она появится (тот же текст, что у `tryOn`)
       if(s0.dec!==undefined&&isSoft(role))softSwapToast();
       // по-русски и в EN: «Заменено: …» переводит словарь EN вместе с ролью («Replaced: sofa»); готовое «Replaced: диван» он не узнавал
-      else toast('Заменено: '+what+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
+      else toast('Заменено: '+what+(d&&!TRIAL()?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
       // шторка уже свёрнута — сцена с заменой видна; наведение камеры — после обновления сцены (`liveShow`, demo-15 п.2).
       // КОНТУР СНИМАЕМ СРАЗУ (demo-20 Б4, владелец 22.10: «рамку убирать автоматически»): заменённое видно и так — камера у предмета
       vwSelect(null);
@@ -8815,9 +8899,9 @@ async function liveShotTake(){
     var what=purpose==='mortgage'?(EN?'I would like to know the mortgage or instalment options':'хочу узнать условия ипотеки или рассрочки')
       :(EN?'I would like some advice':'хочу консультацию');
     var text=EN?('Hello, '+M.name+'! I am looking at the apartment from your link'+(st.variant?', option “'+st.variant+'”':'')+
-        (st.sum?', furniture for '+money(st.sum):'')+'. '+what+'. '+location.href)
+        (st.sum&&!TRIAL()?', furniture for '+money(st.sum):'')+'. '+what+'. '+location.href)
       :('Здравствуйте, '+M.name+'! Смотрю квартиру по вашей ссылке'+(st.variant?', вариант «'+st.variant+'»':'')+
-        (st.sum?', мебель на '+money(st.sum):'')+'. '+what[0].toUpperCase()+what.slice(1)+'. '+location.href);
+        (st.sum&&!TRIAL()?', мебель на '+money(st.sum):'')+'. '+what[0].toUpperCase()+what.slice(1)+'. '+location.href);
     var links=[];
     if(M.whatsapp)links.push(['whatsapp','WhatsApp','https://wa.me/'+String(M.whatsapp).replace(/\D/g,'')+'?text='+encodeURIComponent(text)]);
     if(M.telegram)links.push(['telegram','Telegram','https://t.me/'+encodeURIComponent(String(M.telegram).replace(/^@/,''))+'?text='+encodeURIComponent(text)]);
@@ -9462,7 +9546,7 @@ function quizPick(rule, answers, available, styleColours){
     var sec=document.createElement('section');sec.id='screen-'+type;sec.hidden=true;
     var room=document.getElementById('screen-room');room.parentNode.insertBefore(sec,room.nextSibling);
     function draw(){
-      var en=EN(), money=function(v){return v.toLocaleString(en?'en-GB':'ru-RU')+' ₽';};
+      var en=EN(), money=function(v){return TRIAL()?'':v.toLocaleString(en?'en-GB':'ru-RU')+' ₽';};   // проба: цен нет
       sec.innerHTML='<div class="panel"><h2 style="margin:0 0 4px">'+esc(RC.head[en?1:0])+'</h2>'+
         '<div class="sub" style="margin-bottom:14px">'+esc(RC.sub[en?1:0])+
         (bc.updated?' '+(en?'Prices from the catalogue of ':'Цены по каталогу на ')+esc(bc.updated)+(en?', check with the shop.':', уточняйте у продавца.'):'')+'</div>'+

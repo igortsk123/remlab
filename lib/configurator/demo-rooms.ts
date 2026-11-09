@@ -62,7 +62,8 @@ const kindOf = (...xs: (string | undefined)[]): RoomKind => {
 /**
  * Комнаты квартиры по вариантам витрины: в комнате открытого варианта — он сам, в остальных — вариант того же стиля, нет —
  * первый. Порядок: гостиная, дальше по `apartment_rooms[].ordinal`. `fits` — пригоден ли вариант (есть ли что поставить):
- * комната с пустым вариантом не появляется.
+ * соседняя комната с пустым вариантом не появляется; комната ОТКРЫТОГО варианта — всегда, и пустой (проба: «мебель
+ * подбирается», «нет подходящих товаров» — покупатель видит саму комнату в 3D, T-20261109-20).
  */
 export function planRooms<V extends Variant>(data: Data<V>, open: V, fits: (v: V) => boolean): RoomAt<V>[] {
   const vs = data.variants ?? [];
@@ -75,7 +76,7 @@ export function planRooms<V extends Variant>(data: Data<V>, open: V, fits: (v: V
   for (const id of ids) {
     const mine = vs.filter((v) => roomIdOf(v) === id);
     const variant = id === roomIdOf(open) ? open : mine.find((v) => v.style === open.style && fits(v)) ?? mine.find(fits);
-    if (!variant || !fits(variant)) continue;
+    if (!variant || (variant !== open && !fits(variant))) continue;
     const own = id === LIVING ? data.room ?? data.rooms_geo?.[LIVING] : data.rooms_geo?.[id];
     const geo = own ?? data.room;
     if (!geo?.w || !geo?.d) continue;

@@ -94,6 +94,18 @@ describe("вторая комната по room_id", () => {
     expect(r.apartment.rooms.map((x) => x.id)).toEqual(["living", "bedroom-1"]);   // кухни, прихожей, санузлов, спальни 2 — нет
   });
 
+  it("открытый вариант без мебели — комната есть, пустая (проба: «мебель подбирается» в 3D, T-20261109-20)", () => {
+    const empty = { ...bed, id: "bed2", room_id: "bedroom-1", items: [], decor: [] };
+    const r = fromDemoVariant({ ...withBed, variants: [...withBed.variants!, empty] }, "bed2", RU)!;
+    expect(r).not.toBeNull();
+    const b = r.apartment.rooms.find((x) => x.id === "bedroom-1")!;
+    // только отделка (пол, стены), мебели нет
+    expect(r.apartment.slots.filter((s) => s.roomId === "bedroom-1").map((s) => s.kind)).toEqual(["surface", "surface"]);
+    expect(r.apartment.spawn.x).toBe(b.x + b.w / 2);
+    // соседняя гостиная — со своей мебелью, как раньше
+    expect(r.apartment.slots.some((s) => s.roomId === "living")).toBe(true);
+  });
+
   it("лесенка: вид за окном любой комнаты не входит в соседнюю, двери без соседей закрыты", () => {
     const three = { ...withBed, variants: [...withBed.variants!, { ...bed, id: "k1", room_id: "kitchen" }] };
     const a = build(three, "set16", RU).apartment;
