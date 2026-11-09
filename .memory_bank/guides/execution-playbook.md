@@ -2,17 +2,18 @@
 tier: 2
 topic: execution-playbook
 scope: Как исполнитель (opus-worker, Opus 5.5) ведёт работу по подпланам коммерческого мастер-плана — правила, чекпоинты владельца, эскалация
-updated: 2026-10-18
+updated: 2026-11-09
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-10-18
+last_verified: 2026-11-09
 ---
 
 # Execution Playbook — правила движения по подпланам
 
-> Для исполнителя (opus-worker, Claude Opus 5.5; свежая фоновая сессия на задачу — `.claude/rules/orchestration.md`),
+> Для исполнителя (рабочий, Claude Opus 5.5; основной путь с 20.10 — вкладка рабочего, следующая задача — в ту же
+> вкладку без очистки; фоновая сессия — запасной путь; `.claude/rules/orchestration.md`),
 > ведущего fable-lead и владельца. Мастер-план — `plans/MASTER-cost-first.md` (прежний конвейер — архив);
 > техядро — MASTER-roadmap (архив). Базовый workflow — `.claude/rules/agent-workflow.md`
 > (этот playbook его конкретизирует, не заменяет).
@@ -36,8 +37,10 @@ last_verified: 2026-10-18
   (`.claude/rules/pipeline-tracing.md`).
 - Расход на AI: лимиты и стоп-механизмы (сторож денег прогона мешей, ADR-0169/0174) не отключать «чтобы
   потестить». Дневной $-лимит есть только на OpenAI в конвейере каталога — $5/день
-  (`tools/scout/openai_budget.py`, `tools/scout/rules/openai_prices.json:daily_cap_usd`); на сайте — дневные лимиты
-  числа платных запросов (`lib/ratelimit/index.ts`, `PAID_DAILY_CAP_*`); общего $-лимита нет (Э0 — в архиве).
+  (`tools/scout/openai_budget.py`, `tools/scout/rules/openai_prices.json:daily_cap_usd`); на сайте — дневные потолки
+  числа платных запросов: разбор ссылок и генерация — `lib/ratelimit/index.ts`, `PAID_DAILY_CAP_PARSE`/`PAID_DAILY_CAP_GEN`
+  (500/200); проба для агентов — `TRIAL_DAILY_CAP` (30, `lib/trial/config.ts`), считается по созданным заданиям
+  (`lib/trial/repo-create.ts`); общего $-лимита нет (Э0 — в архиве).
 - Юридическую логику (ПДн/лицензии) не реализовывать — ставить TODO.
 
 ## Чекпоинты владельца «⏸ ПОКАЗАТЬ ВЛАДЕЛЬЦУ»
@@ -74,8 +77,9 @@ pnpm test && pnpm build` (+ e2e где указано) зелёные + спец
 - Статусы: подплан `in_progress` → `completed` ТОЛЬКО после `/memory-check` + audit чисто
   (гейт из `agent-workflow.md`); частично — `partial`.
 - Обновить статус этапа в `plans/MASTER-cost-first.md`.
-- Завершённый подплан → `completed_plans/`. Следующий подплан — новой фоновой сессией исполнителя; fable-lead не
-  чистится (автосжатие на 400 тыс., `.claude/rules/orchestration.md`).
+- Завершённый подплан → `completed_plans/`. Следующий подплан — во вкладку рабочего без очистки (фоновая сессия —
+  запасной путь); ведущий не чистится (автосжатие: Opus 5.5 — у ~260 тыс. при окне 293 тыс., Fable — на 400 тыс.;
+  `.claude/settings.json`, `.claude/rules/orchestration.md`).
 
 ## Эскалация к владельцу (немедленно)
 Деньги (тарифы/цены/скидки), удаление данных, миграции БД с риском, всё юридическое,

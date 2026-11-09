@@ -3,12 +3,12 @@ tier: 2
 topic: direct-campaign-state
 scope: Состояние кампании Яндекс Директ 712721026 — стратегия, группы, ключи, объявления, минусы, протоколы
 tier1: ../core/marketing-acquisition.md
-updated: 2026-10-23
+updated: 2026-11-09
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-18
+last_verified: 2026-11-09
 review_after: "2026-12-15"
 ---
 
@@ -114,7 +114,8 @@ review_after: "2026-12-15"
 Это ручная процедура плана; автопилот `infra/server/ads-watchdog/` (сверено 18.10) работает со своими
 порогами: потолок ставки +5 ₽ до 25 ₽ при показах <50/день два дня подряд, не чаще раза в 48 ч
 (`check.py`, `decisions.py`); тревога по AT при доле >30% расхода и расходе от 100 ₽; новое объявление
-при CTR <2,5% от 300 показов (`decisions.py`). Пока `DRY_RUN` ≠ `"0"` (по умолчанию, `common.py`) — только сообщения.
+при CTR <2,5% от 300 показов за 7 дней, если в группе меньше 3 объявлений и с прошлого добавления прошло
+≥7 дней (`decisions.py: group_needs_new_ad`, вызов — `ads_ab.py`). Пока `DRY_RUN` ≠ `"0"` (по умолчанию, `common.py`) — только сообщения.
 
 ## Метрика (создана 2026-07-11 через Management API)
 Счётчик **110599064** (remont-lab.online), вебвизор+клики вкл. Цели (cutoff 2026-07-11 —
@@ -132,7 +133,8 @@ review_after: "2026-12-15"
 кнопке «Посчитать». Разрыв ряда: с удаления v1 (коммит 712dc35a) до 20.10 цель была нулевой — шаг «расчёт» в отчёте автопилота
 (`infra/server/ads-watchdog/report.py`, цель 581529922 в `common.py`) за этот период не сравнивать.
 ⚠️ **С 13.10 (b2b-04) Метрика работает не везде:** скрипт (`app/layout.tsx`), просмотры и все цели идут только
-при `metrikaAllowed()` (`lib/metrika.ts`) — не на путях `/manager*` и `/partner*`; в английском режиме
+при `metrikaAllowed()` (`lib/metrika.ts`; скрипт в `app/layout.tsx` проверяет те же условия у себя) — не на путях
+`/manager*`, `/partner*`, `/try` и `/try/<id>` (`noMetrikaPath`); в английском режиме
 (`?lang=en` или `localStorage remlab-lang=en`) — только после согласия `remlab-cookies=yes`; проверка на каждое
 событие; пиксель noscript убран.
 ⚠️ С 2026-07-31 (ADR-0036) цель 12 шлётся в момент РЕАЛЬНОГО сохранения: ResultView

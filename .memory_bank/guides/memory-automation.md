@@ -3,8 +3,8 @@ tier: 2
 topic: memory-automation
 scope: Как история проекта попадает в Memory Bank — слои, мост, хуки-напоминания, гейты
 tier1: ""
-last_verified: 2026-10-18
-updated: 2026-11-05
+last_verified: 2026-11-09
+updated: 2026-11-09
 importance: high
 source: manual
 ---
@@ -24,7 +24,7 @@ source: manual
 
 ## Цикл сессии (что гарантирует полноту)
 1. **Старт** — SessionStart-hook (`tools/session-freshness.mjs`) печатает баннер, если
-   project-state отстал или audit грязный; иначе молчит. Читать: `INDEX.md` → нужные доки.
+   `project-state` старше 14 дней, аудит нашёл проблемы или есть хотя бы предупреждения (CODE-DRIFT и др.); иначе молчит. Читать: `INDEX.md` → нужные доки.
 2. **В процессе** — durable-факт фиксировать сразу в `.memory_bank/` (no-orphan). PostToolUse(Read)-hook
    (`tools/read-logger.mjs`) логирует чтения доков в `changelog/reads.log`. PostToolUse(Edit|Write)-hook
    (`tools/code-touch-hint.mjs`, кит 1.9) подсказывает агенту, какие доки описывают правленый файл кода
@@ -38,8 +38,9 @@ source: manual
    каждая сверка — `node tools/memory-health.mjs --log-verify …`) → уровни → связи+INDEX+реестры → чистота.
    Работает ли механизм — `node tools/memory-health.mjs` (сверки, найдено/исправлено, сдвиги дат без записи).
    Stop-hook (`tools/session-reminder.mjs --block --scratch-fresh-days 2`, `.claude/settings.json`) блокирует
-   завершение ответа, если есть план `in_progress`, правки вне `.memory_bank/` и блокнот пуст или без записи свежее
-   2 дней, либо грязен `memory-audit --check`.
+   завершение ответа, только если одновременно есть план `in_progress` (или `completed`, ещё не перенесённый из
+   `plans/`), правки вне `.memory_bank/` и при этом блокнот пуст или без записи свежее 2 дней, либо грязен
+   `memory-audit --check` (без CODE-DRIFT).
 4. **Завершение плана** — гейт: план не `completed`, пока `/memory-check` не выполнен и audit
    не «чисто» (`agent-workflow.md`, DoD в `plans/_template.md`).
 
@@ -60,7 +61,8 @@ source: manual
   `memory-project-audit.mjs --brief`; Stop = `session-reminder.mjs --block --scratch-fresh-days 2` (аудит встроен, без
   CODE-DRIFT); PreCompact = `tools/precompact-guard.mjs`; PostToolUse = `tools/read-logger.mjs` (Read) и
   `tools/code-touch-hint.mjs` (Edit|Write); PreToolUse(Bash) = `tools/hooks/guard-bash.mjs`. Мягкий шаблон для чужих
-  проектов — `tools/stop-hook.example.json`. Без Node — shell-напоминание (только у Stop).
+  проектов — `tools/stop-hook.example.json`. Без Node, но с `r` — хуки идут через `r node tools/…`
+  на pakardev; без Node и без `r` — только shell-напоминание у Stop.
 
 ## Почему не авто-хук ЗАПИСИ на каждый SessionEnd
 Авто-запись контента опасна (рекурсия, стоимость, нужно суждение о том, что durable). Поэтому

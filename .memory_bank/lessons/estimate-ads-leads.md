@@ -7,6 +7,7 @@ updated: 2026-10-19
 importance: med
 source: manual
 status: stable
+last_verified: 2026-11-09
 ---
 
 # Уроки: Смета, калькуляторы, Директ, лиды (+ source-KB)

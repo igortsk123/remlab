@@ -3,12 +3,12 @@ tier: 1
 topic: marketing-acquisition
 scope: Реклама — Яндекс, семантика
 tier2: "../domain/wordstat-semantics.md"
-updated: 2026-10-23
+updated: 2026-11-09
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-19
+last_verified: 2026-11-09
 review_after: "2026-12-15"
 ---
 
@@ -17,7 +17,7 @@ review_after: "2026-12-15"
 ## Доступы и состояние (2026-07-11 ✅)
 Общий аккаунт с v0-health-card (`_secrets/ACCESS.md`, рецепты — `integrations.md` §Яндекс;
 токен до ≈2027-04; чужие не трогать). Метрика `110599064` (воронки 01–06 AI, 10–13 смета;
-цель 10 код не шлёт; с 13.10 — только при `metrikaAllowed()` в `lib/metrika.ts`; ключи в адресе маскируются — [[observability-tracing]]). Кампании v0.4 пересобраны 11.07, ID — ниже.
+цель 10 — `lib/calc/started-goal.ts`; с 13.10 — только при `metrikaAllowed()` в `lib/metrika.ts`; ключи в адресе маскируются — [[observability-tracing]]). Кампании v0.4 пересобраны 11.07, ID — ниже.
 Автопилот DRY-RUN по ВСЕМ четырём кампаниям (с 11.07); на 23.10 все 4 в архиве Директа, расход 0 — `../advertising/autopilot.md`.
 
 ## Спрос (Вордстат 2026-07-11; полностью — Tier 2)

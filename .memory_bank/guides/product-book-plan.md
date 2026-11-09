@@ -3,10 +3,11 @@ tier: 2
 topic: product-book-plan
 scope: План и промпт для книги о продукте remlab «как должно быть после всех правок» — сквозной счастливый путь простым языком для владельца; главы, источники, правила стиля
 tier1: ""
-updated: 2026-10-13
+updated: 2026-11-09
 importance: high
 source: manual
 status: working
+last_verified: 2026-11-09
 ---
 
 # Книга о продукте — план и промпт для продолжения
@@ -66,9 +67,10 @@ refresh_daily.sh`, `load3.py`, `dim_resolver.py`, `stock_truth.py`; главы 3
 абзац «как владелец убедится». После главы — `/memory-check`.»
 
 ## Публикация
-Тестовая страница главы 1 для чтения с телефона: `https://remont-lab.online/test/book/` (статик
-`/opt/remlab/test/book/index.html`, собирается из `guides/product-book.md` простым конвертером; при новой главе
-пересобрать и залить `scp`). Поисковикам закрыта (noindex).
+Страница книги для чтения с телефона: `https://remont-lab.online/test/book/` — вся книга с оглавлением (статик
+`/opt/remlab/test/book/index.html`). Собирает `tools/book-build.py` из `guides/product-book.md` (абзацы «Сегодня»
+выделяет), выкладка — `--publish` (scp внутри); ночью это делает `tools/scout/refresh_daily.sh`, шаг `book_page`,
+руками после правки — тот же `--publish`. Поисковикам закрыта (noindex).
 
 ## Поправки владельца к стилю (13.10, стиль подтверждён)
 - Книга описывает идеал (счастливый путь); как обстоят дела сегодня — ОТДЕЛЬНОЙ пометкой курсивом,

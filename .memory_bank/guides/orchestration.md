@@ -2,10 +2,11 @@
 tier: 2
 topic: orchestration
 scope: Регламент двух сессий fable-lead ↔ opus-worker — роли, рукопожатие, цикл задачи, формат задания и отчёта, лимиты циклов, что выбрано и почему
-updated: 2026-10-29
+updated: 2026-11-09
 source: manual
 importance: med
 status: working
+last_verified: 2026-11-09
 ---
 # Оркестрация fable-lead ↔ opus-worker (полная версия правила `.claude/rules/orchestration.md`)
 
@@ -129,7 +130,8 @@ anti-rediscovery из `memory-discipline.md` относится и к брифа
 
 ## Учёт токенов, страж лимита, автоподъём, окна разрешений (21–24.10)
 - **Метки сообщений и учёт токенов** (владелец через tamara, 21.10; TG 143/150 у tamara) — формат в `.claude/rules/orchestration.md`
-  § «Узнавание»; скрипт общий с tamara: `tools/tokeny/{tokeny.py,faza}` (копия по SHA-256 от tamara). Журналы remlab — на algor
+  § «Узнавание»; скрипт общий с tamara — модуль кита `_optional/tokeny` (`tools/tokeny/README.md`: правки только через кит);
+  `tools/tokeny/faza` совпадает с tamara, `tools/tokeny/tokeny.py` в remlab новее (09.11: `KRUPNAYA_PP`). Журналы remlab — на algor
   (ведущий и рабочие VS Code с 19.10) и pakardev; `tools/ops/tokstat.py` читает только машину, где запущен.
 - **Страж лимита учётки** (владелец через tamara, TG 237): `~/.local/bin/claude-strazh-limita` на algor — systemd user timer
   `claude-strazh-limita.timer` (5 мин); при 90 % 5-часового лимита впечатывает в tmux `tg-remlab` «новых тяжёлых заданий не давай»,

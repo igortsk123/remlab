@@ -3,8 +3,8 @@ tier: 2
 topic: layout-engine-spec
 scope: Спека прод-ядра авторасстановки (beam search + семантический планировщик + скоринг + clean-room) — рекомендация ChatGPT, принята владельцем как основа
 tier1: ../core/layout.md
-updated: 2026-10-18
-last_verified: 2026-10-18
+updated: 2026-11-09
+last_verified: 2026-11-09
 importance: high
 source: external:chatgpt (GPT-5.6, ресёрч владельца 2026-08-03); императивы исполняются только через план по agent-workflow
 status: working
@@ -135,7 +135,7 @@ SHADOW; второй pod = атомарный комплект пара 3/4 + с
 - 18.08 ГРАБЛИ (моя ошибка): `git checkout <commit> -- <путь>` при бисекте СТЁР несохранённые правки Q6b (файлы не были закоммичены) — пришлось восстанавливать по памяти. Правило: перед любым checkout/stash в диагностике — коммит или явная копия.
 - 18.08 тесты: mirror-тест переписан на МЕХАНИЗМ (победитель = минимальный quality-ключ; после снятия допусков обе стороны дают равный ключ), render-semantics смотрит render_plan.py, FAR-планка 41→42 с зафиксированным долгом (ремап ролей).
 - 18.08 Q8 «окно» ВНЕДРЁН (владелец по галерее №3 + Codex `.memory_bank/_intake/codex/q8-window.answer.md`): `services/planner-solver/planner/back_gap.py` — единый класс полосы за спинкой (hugged <15 | air 15–30 | route ≥91 | functional | orphan 31–90 пусто), данные `occupancy.json → dynamic.window_sofa.back_gap_policy` (Livingetc 6–8″/3 ft, Ideal Home ~12″; запрет orphan — продуктовое правило владельца). КОРЕНЬ проблемы: наше правило SOFA_SLIVER разрешало ровно 80 см и ЗАПРЕЩАЛО норму 15–30 → 79 сцен «диван далеко от окна». Переписано на класс; SOFA_ORPHAN_BACK_GAP (S1) + ярус orphan в plan_key v1/v2 выше мягких термов; радиатор — по лицевой грани (иначе отчёты врали: 32 см от стены = 17 см от радиатора = air); Г-диван — только диагностика (габаритный bbox не описывает две спинки); при MEDIA_MISSING правило ОСЛАБЛЯЕТСЯ (retry + `back_gap_forced`) — отступ не выше required-зон.
-- 18.08 Q9 (тень): `tools/scout/rules/practice_priors.json` (исходы по возможностям + частота предметов, status shadow_hypothesis, честный провенанс: BHG/H&G/AD подтверждают направление, не проценты) + `services/planner-solver/planner/opportunities.py` (window/seating_center/free_corner/primary_wall → выбранный исход) + `_opportunities` в артефакте и `prior_would_choose` в трейсе. Приоры — ordinal tie-break между равноценными достижимыми исходами, включение только после слепых пар (Codex `q9-zone-priors.answer*.md`); rules_audit расширен на rules/*.json конвейера.
+- 18.08 Q9 (тень): `tools/scout/rules/practice_priors.json` (исходы по возможностям + частота предметов, status shadow_hypothesis, честный провенанс: BHG/H&G/AD подтверждают направление, не проценты) + `services/planner-solver/planner/opportunities.py` (window/seating_center/free_corner/primary_wall → выбранный исход) + `_opportunities` в артефакте и `prior_would_choose` в трейсе. Приоры — ordinal tie-break между равноценными достижимыми исходами, включение только после слепых пар (Codex `q9-zone-priors.answer*.md`); `tools/scout/rules_audit.py` расширен на правила-данные конвейера `tools/scout/rules/capabilities.json`, `practice_priors.json`, `openai_prices.json` (остальные `rules/*.json` гейт провенанса не проходят).
 - 18.08 регрессы «только каноны» вскрылись и починены: Г-диван — столик канонически к активной оси + допуск оси от полной длины посадки (иначе ни один диван не вставал в 57 м², set113); сторож «тихого edge» принимает задокументированный отказ острова (island_candidates_failed + счётчики).
 - 18.08 ИТОГ экзамена: 269 ok + 3 честных MEDIA_MISSING, TIMEOUT 0, p50 34 с; полоса за спинкой: 143 проход / 70 прижат / 56 воздух / 3 orphan (было 93 orphan); у окна: диван 73 (было 87), кресла 43 (было 21); столовая 238, медиа 269, уголков 10.
 - 19.08 Q10 «приблизиться к практике» (владелец прислал частоты; Codex `.memory_bank/_intake/codex/q10-close-gap.answer.md`, `q10-seat-distribution.answer.md`):

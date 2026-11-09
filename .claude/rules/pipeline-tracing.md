@@ -7,7 +7,7 @@ paths:
   - "lib/pipelines/**/*.ts"
   - "lib/trace/**/*.ts"
 updated: 2026-10-18
-last_verified: 2026-10-18
+last_verified: 2026-11-09
 ---
 
 # Дисциплина трейсинга пайплайна (ADR-0013)

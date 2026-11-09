@@ -7,6 +7,7 @@ updated: 2026-10-29
 importance: med
 source: manual
 status: stable
+last_verified: 2026-11-09
 ---
 
 # Уроки: Память, процесс, работа с владельцем
