@@ -656,10 +656,9 @@ def frame_door(r: dict, v: dict, path: str) -> dict:
     ops = v['openings_core']
     core = {'w': r['core']['w'], 'd': r['core']['d']}
     cam = TD.entry_cam({'core': core}, ops)
-    # дверь, у которой стоит камера, — проёмом без полотна: открытое полотно у самой камеры закрывало треть кадра (D, спальня 2; E, спальня 1)
-    doors = sorted((o for o in ops if o['kind'] == 'door'), key=lambda o: (not o.get('is_entrance'), not o.get('swing_cm'), -o['width_cm']))
-    at = doors[0] if doors else None
-    croom = TD.core_room(core, [dict(o, swing_cm=0) if o is at else o for o in ops], render=True)
+    # двери в кадре — проёмами без полотен: открытое полотно у камеры или у соседней двери закрывало треть кадра
+    # (run-1843: D спальня 2, E спальня 1, G спальня 1); зоны распахивания проверены решателем, кадр — только для глаза
+    croom = TD.core_room(core, [dict(o, swing_cm=0) if o['kind'] == 'door' else o for o in ops], render=True)
     ps = [Placement(role=q['role'], x=q['x'], y=q['y'], rot=q['rot'], elev_cm=q.get('elev') or 0,
                     item=Item(role=q['role'], w_cm=q['w'], d_cm=q['d'], h_cm=q.get('h') or 60, corner=q['corner'],
                               corner_left=q['corner_left'], corner_section_cm=q.get('section') or 95)) for q in v['items'] if q.get('w')]
