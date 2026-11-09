@@ -47,7 +47,7 @@ def load_vlm(plan, vdir, shape):
     H, W = shape[:2]
     kx, ky = W / 1000.0, H / 1000.0
     out = {'pts': [], 'panels': [], 'labels': [], 'spaces': []}
-    p = Path(vdir) / f'raw-{plan}-labels.txt'
+    p = Path(vdir) / f'raw-{plan}-{os.environ.get("FP_LABELS", "labels")}.txt'   # T-04: слепые — labels2
     if p.exists():
         d = vlm.parse(p.read_text()) or {}
         out['pts'] = [(r['pt'][0] * kx, r['pt'][1] * ky) for r in d.get('rooms', []) if r.get('pt')]
@@ -57,7 +57,8 @@ def load_vlm(plan, vdir, shape):
             dm = r.get('dims_m')
             ok = isinstance(dm, list) and len(dm) == 2 and all(isinstance(v, (int, float)) and 0.5 <= v <= 30 for v in dm)
             out['labels'].append({'name': ' '.join(str(r.get('name', '')).split()), 'pt': (r['pt'][0] * kx, r['pt'][1] * ky),
-                                  'dims': tuple(float(v) for v in dm) if ok else None})
+                                  'dims': tuple(float(v) for v in dm) if ok else None,
+                                  'unsure': bool(r.get('unsure')), 'note': r.get('note')})
     # T-03: помещения без размеров (имя от VLM) — второй ответ, отдельная папка (FP_VLM2)
     p2 = Path(os.environ.get('FP_VLM2', vdir)) / f'raw-{plan}-unlabeled.txt'
     if p2.exists():
@@ -430,6 +431,25 @@ def room_dims(groom, hit, obs, loo, ppm_sheet):
     return out
 
 
+def unlabeled_dims(res, groom, hit, fams, ppm, fit):
+    """Слепой план (T-04): комната найдена, а размер подписи не прочитан (нет в VLM и в тексте) — мерка по масштабу
+    панели (кандидат — манера панели, иначе P95), стороны без порядка; статус «мерка без подписи», флаг всегда."""
+    c = fc.convention(fit)[0] if fit else 'p95'
+    out = []
+    for g in groom:
+        if 'dims_m' in g:
+            continue
+        rid = g.get('_room')
+        if rid is None or len(hit.get(rid, [])) > 1:
+            continue
+        m = (res['lab'] == rid) & ~res.get('bay_in', np.zeros(res['lab'].shape, bool))
+        ext = fc.room_extents(m, -room_angle(m, fams), True)
+        wx, wy = ext.get(c, ext['p95'])
+        out.append({'id': g['name'], 'gold': None, 'status': 'мерка без подписи', 'ours': [round(wx / ppm, 3), round(wy / ppm, 3)],
+                    'cand': c, 'flag': 'размер не прочитан', 'flag_level': 1})
+    return out
+
+
 def crosses_wall(wall, p1, p2):
     n = int(max(abs(p2[0] - p1[0]), abs(p2[1] - p1[1]))) + 1
     xs = np.clip(np.round(np.linspace(p1[0], p2[0], n)).astype(int), 0, wall.shape[1] - 1)
@@ -511,12 +531,14 @@ def gia_px(res, t):
     return float(foot.sum() - ext_wall.sum()), t_ext
 
 
-def run_plan(plan, inputs, outdir):
+def run_plan(plan, inputs, outdir, gold=None, cfg=None):
+    """gold/cfg — для слепого плана (T-04): «золото» собрано из подписей VLM + текста объявления (`blind_gold`),
+    маска — `auto_cfg`; иначе — `gold/<план>.json` и CFG стенда."""
     t0 = time.time()
-    gold = json.loads((HERE / 'gold' / f'{plan}.json').read_text())
+    gold = gold or json.loads((HERE / 'gold' / f'{plan}.json').read_text())
     img = cv2.imread(str(Path(inputs) / gold['image']), cv2.IMREAD_COLOR)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    cfg = CFG[plan]
+    cfg = cfg or CFG[plan]
     wall = build_mask(img, cfg)
     t = fc.stroke_thickness(wall)
     fams = fc.angle_families(wall)
@@ -533,12 +555,18 @@ def run_plan(plan, inputs, outdir):
             est = 1 / f['s']
             sweep.append({'ppm': ppm, 'est': est, 'inl': len(f['inliers']), 'n': len(obs),
                           'cons': abs(est / ppm - 1)})
+    if not sweep:
+        raise SystemExit(f'{plan}: масштаб не найден — нет комнат с подписью размера, совпавших с комнатами маски')
     sweep.sort(key=lambda x: (-x['inl'], x['cons']))
     log['sweep'] = [{k: round(v, 3) if isinstance(v, float) else v for k, v in s.items()} for s in sweep[:6]]
     ppm0 = sweep[0]['est']
     base = analyze(img, gray, wall, ppm0, fams, t, regions, cfg['thin'], cfg['glaze'])
     vdir = os.environ.get('FP_VLM')
     vl = load_vlm(plan, vdir, img.shape) if vdir else None
+    if vl is not None and gold.get('_labels') is not None:     # слепой: подписи VLM с размерами из текста объявления
+        vl['labels'] = [dict(q) for q in gold['_labels']]
+        vl['pts'] = [q['pt'] for q in gold['_labels']]
+    log['cfg'] = {k: list(v) if isinstance(v, tuple) else v for k, v in cfg.items()}
     H_, W_ = wall.shape
     pan = []     # (X0, Y0, X1, Y1, маска панели или None, принадлежность точки)
     if vl and vl['panels']:
@@ -614,6 +642,8 @@ def run_plan(plan, inputs, outdir):
         loo = fc.leave_one_out(obs)
         topo = name_extras(topology(r, groom, hit, ppm), rep_labels)
         dims = room_dims(groom, hit, obs, loo, ppm0)
+        if gold.get('blind'):
+            dims += unlabeled_dims(r, groom, hit, fams, ppm, fit)
         attach_flags(dims, groom, rep_labels, ppm)
         gpx, t_ext = gia_px(r, t)
         # проёмы против ручного счёта
@@ -649,7 +679,8 @@ def run_plan(plan, inputs, outdir):
              'label_splits': r.get('label_splits', []), 'repairs': rep_log, 'label_report': rep_labels,
              'vlm_title': vl['panels'][pi]['title'] if vl and vl['panels'] else None,
              'gia_m2': gpx / ppm / ppm, 't_ext_px': t_ext, 'openings': op, 'angles': angles,
-             'gold_panels': sorted({g['panel'] for g in groom}), 'dims': dims}
+             'gold_panels': sorted({g['panel'] for g in groom}), 'dims': dims,
+             'fams_panel': fc.panel_families(r['wall'], 2 * 1.5 * ppm), 'image': str(Path(inputs) / gold['image'])}
         out_panels.append(P)
         export_panel(outdir, plan, pi, P, r, sub_img, sub_wall, fams, groom, gopen)
     # площади против листа
@@ -722,6 +753,8 @@ def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
 def attach_flags(dims, groom, rep_labels, ppm):
     """Флаг системы (по подписи, прочитанной VLM, и её комнате) — к строке золота: ближайшая подпись VLM ≤ 1,5 м."""
     for row in dims:
+        if row.get('status') == 'мерка без подписи':      # флаг уже свой (T-04)
+            continue
         g = next((x for x in groom if x['name'] == row['id']), None)
         if g is None:
             continue
@@ -775,19 +808,52 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     bands = [(0.0, H_WALL, solid), (0.0, SILL, wins & (solid == 0)), (HEAD, H_WALL, (wins | doors) & (solid == 0))]
     off = (0, 0)
     model = {'plan': plan, 'panel': P['panel'], 'ppm': ppm, 'bbox_px': P['bbox_px'], 'bands': [], 'floors': [],
-             'openings': [], 'rooms': []}
-    for z0, z1, m in bands:
-        polys, _ = fc.mask_polygons(m, fams, min_area=3)
+             'openings': [], 'rooms': [], 'image': P.get('image')}
+    # T-04: выпрямление — рёбра к семействам углов ПАНЕЛИ, ступени под прямым углом; грани пола — на грани стен.
+    # Метрика косых — на тех же масках прежним способом (до) и новым (после).
+    fp = P.get('fams_panel') or fams
+    straight = os.environ.get('FP_STRAIGHT', '1') != '0'
+    min_len = 0.3 * ppm
+    st0 = dict(fc.STRAIGHT_STATS)
+    t_w = fc.stroke_thickness(r['wall'])
+    old_w, new_w = [], []
+    for bi, (z0, z1, m) in enumerate(bands):
+        polys0, _ = fc.mask_polygons(m, fams, min_area=3)
+        if not straight:
+            polys = polys0
+        elif bi == 0:
+            polys = fc.mask_polygons(m, fp, min_area=3, straight=True, short_px=ppm, min_free=0.4 * ppm)[0]
+        else:                                          # подоконник/перемычка — прямоугольник по семейству
+            polys = fc.rect_polygons(m, fp, min_area=3)
+        old_w += polys0; new_w += polys
         model['bands'].append({'z0': z0, 'z1': z1, 'polys': [{'outer': poly_m(o, ppm, off),
                                                              'holes': [poly_m(h, ppm, off) for h in hs]} for o, hs in polys]})
+    ref = (fc.polygon_lines(fc.mask_polygons(final, fp, min_area=3, straight=True, short_px=ppm, min_free=0.4 * ppm)[0],
+                            fp) if straight else None)
+    old_f, new_f = [], []
     for rid in r['rooms']:
-        kf = max(3, int(2 * fc.stroke_thickness(r['wall']) + 1)) | 1   # пол заходит под всю толщину стены — без щели
+        kf = max(3, int(2 * t_w + 1)) | 1   # пол заходит под всю толщину стены — без щели
         fm = cv2.dilate((r['lab'] == rid).astype(np.uint8), np.ones((kf, kf), np.uint8)) & (~r['outside']).astype(np.uint8)
-        polys, _ = fc.mask_polygons(fm, fams, min_area=10)
+        polys0, _ = fc.mask_polygons(fm, fams, min_area=10)
+        polys = (fc.mask_polygons(fm, fp, min_area=10, straight=True, ref=ref, ref_d=t_w + 1.5, short_px=ppm,
+                                  min_free=0.4 * ppm)[0]
+                 if straight else polys0)
+        old_f += polys0; new_f += polys
+        if os.environ.get('FP_DUMP'):                  # отладка выпрямления: маски полов панели
+            Path(os.environ['FP_DUMP']).mkdir(parents=True, exist_ok=True)
+            np.save(Path(os.environ['FP_DUMP']) / f'floor-{plan}-{pi}-{rid}.npy', fm)
+            np.save(Path(os.environ['FP_DUMP']) / f'final-{plan}-{pi}.npy', final)
+            for bi, (_, _, bm) in enumerate(bands):
+                np.save(Path(os.environ['FP_DUMP']) / f'band{bi}-{plan}-{pi}.npy', bm)
         names = [g['name'] for g in groom if g.get('_room') == rid]
         for o, hs in polys:
             model['floors'].append({'outer': poly_m(o, ppm, off), 'holes': [poly_m(h, ppm, off) for h in hs], 'room': rid})
         model['rooms'].append({'id': int(rid), 'names': names, 'area_m2': round(float(r['areas'][rid]) / ppm / ppm, 2)})
+    P['skew'] = {'fams_panel': [round(f, 1) for f in fp],
+                 'floors_before': fc.skew_stats(old_f, fp, min_len), 'floors_after': fc.skew_stats(new_f, fp, min_len),
+                 'walls_before': fc.skew_stats(old_w, fp, min_len), 'walls_after': fc.skew_stats(new_w, fp, min_len),
+                 'straight': {k: fc.STRAIGHT_STATS[k] - st0[k] for k in st0}}
+    model['skew'] = P['skew']
     for g in r['gaps']:
         model['openings'].append({'kind': g.kind, 'c': [round(g.cx / ppm, 3), round(g.cy / ppm, 3)],
                                   'width_m': round(g.length / ppm, 3), 'glaze': round(g.glaze, 2), 'exterior': g.exterior})
@@ -814,14 +880,88 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     cv2.imwrite(str(Path(outdir) / f'overlay-{plan}-{pi}.png'), ov)
 
 
+DARK_THR = 125
+
+
+def auto_cfg(img) -> dict:
+    """Маска стен для нового листа без настройки (T-04, слепые планы): синие стены — если синего (тон 95–135,
+    насыщенность ≥ 100) ≥ 1 % листа и это штрихи, а не заливка; иначе тёмное: порог 125 (между C 110 и B 135 —
+    водяной знак светлее), открытие 3 px; толстые стены (медиана ≥ 12 px после открытия 3: B 22, C 8) — открытие 5 (меньше текста)."""
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    blue = (hsv[..., 0] >= 95) & (hsv[..., 0] <= 135) & (hsv[..., 1] >= 100) & (hsv[..., 2] >= 50)
+    if blue.mean() >= 0.01 and 2.5 <= fc.stroke_thickness(blue.astype(np.uint8)) <= 25:
+        return {'mask': ('blue',), 'min_area': 40, 'thin': 15, 'glaze': 215, 'auto': 'blue'}
+    thr = int(os.environ.get('FP_DARK_THR', DARK_THR))
+    m3 = fc.wall_mask_dark(img, thr, 3, 60)
+    t3 = fc.stroke_thickness(m3)
+    if t3 >= 12:
+        return {'mask': ('dark', thr, 5), 'min_area': 120, 'thin': 15, 'glaze': 200, 'auto': f'dark t3={t3:.1f}'}
+    return {'mask': ('dark', thr, 3), 'min_area': 60, 'thin': 15, 'glaze': 200, 'auto': f'dark t3={t3:.1f}'}
+
+
+def blind_gold(plan, image, vdir, listing_path=None) -> dict:
+    """Слепой план (T-04): «золото» стенда из подписей VLM (имя, точка, размер, если напечатан) + текст объявления
+    (`listing.match`: размер из текста — по имени, флаг при расхождении/повторе/отсутствии). Имена делаются
+    уникальными (#2, #3 — у одинаковых), панель подписи — контур VLM, в котором точка (как в run_plan)."""
+    import listing
+    img = cv2.imread(str(image), cv2.IMREAD_COLOR)
+    vl = load_vlm(plan, vdir, img.shape)
+    labs = [dict(q) for q in vl['labels']]
+    rows, orphans = [], []
+    if listing_path and Path(listing_path).exists():
+        rows = listing.parse_listing(Path(listing_path).read_text(errors='replace'))
+    labs, orphans = listing.match(labs, rows)
+    polys = [np.ascontiguousarray(q['poly'].reshape(-1, 1, 2), np.float32) for q in vl['panels']]
+    titles = [str(q.get('title') or f'panel{i}') for i, q in enumerate(vl['panels'])]
+    seen = {}
+    for t in list(titles):                                   # одинаковые заголовки панелей — различать
+        seen[t] = seen.get(t, 0) + 1
+    cnt = {}
+    for i, t in enumerate(titles):
+        if seen[t] > 1:
+            cnt[t] = cnt.get(t, 0) + 1
+            titles[i] = f'{t} {cnt[t]}'
+    from collections import Counter
+    nn = Counter(q['name'] for q in labs)
+    k = Counter()
+    rooms = []
+    for q in labs:
+        k[q['name']] += 1
+        name = q['name'] if nn[q['name']] == 1 else f'{q["name"]} #{k[q["name"]]}'
+        pan = (titles[int(np.argmax([cv2.pointPolygonTest(pp, (float(q['pt'][0]), float(q['pt'][1])), True)
+                                     for pp in polys]))] if polys else 'sheet')
+        g = {'name': name, 'name0': q['name'], 'panel': pan, 'pt': [int(round(q['pt'][0])), int(round(q['pt'][1]))],
+             'dims_src': q.get('dims_src'), 'text_flags': q.get('text_flags', []), 'unsure': q.get('unsure', False),
+             'note': q.get('note')}
+        if q.get('dims'):
+            g['dims_m'] = [float(q['dims'][0]), float(q['dims'][1])]
+        rooms.append(g)
+        q['name'] = name
+    return {'image': str(Path(image).resolve()), 'rooms': rooms, 'openings': [], 'areas': [], '_labels': labs,
+            'listing_rows': len(rows), 'listing_orphans': orphans, 'blind': True}
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('plan')
     ap.add_argument('out')
     ap.add_argument('--inputs', default='/home/pakar/remlab-logs/floorplan-bench/inputs')
+    ap.add_argument('--blind', help='картинка слепого плана (без золота): подписи — VLM (FP_VLM, FP_LABELS), маска — auto_cfg')
+    ap.add_argument('--listing', help='текст объявления (по умолчанию <картинка без расширения>-listing.txt, если есть)')
     a = ap.parse_args()
     Path(a.out).mkdir(parents=True, exist_ok=True)
-    L = run_plan(a.plan, a.inputs, a.out)
+    if a.blind:
+        img_p = Path(a.blind)
+        lst = a.listing or str(img_p.with_name(img_p.stem + '-listing.txt'))
+        G = blind_gold(a.plan, img_p, os.environ['FP_VLM'], lst)
+        C = auto_cfg(cv2.imread(str(img_p), cv2.IMREAD_COLOR))
+        (Path(a.out) / f'gold-{a.plan}.json').write_text(json.dumps({k: v for k, v in G.items() if k != '_labels'},
+                                                                    ensure_ascii=False, indent=1, default=float))
+        print('blind', a.plan, 'labels', len(G['rooms']), 'with dims', sum(1 for g in G['rooms'] if 'dims_m' in g),
+              'listing rows', G['listing_rows'], 'orphans', len(G['listing_orphans']), 'cfg', C)
+        L = run_plan(a.plan, str(img_p.parent), a.out, gold=G, cfg=C)
+    else:
+        L = run_plan(a.plan, a.inputs, a.out)
     print(json.dumps({'plan': L['plan'], 't': L['thickness_px'], 'fams': L['families_deg'], 'sweep': L['sweep'][:3],
                       'areas': L['areas'], 'sec': L['sec']}, ensure_ascii=False, default=float))
     for p in L['panels']:

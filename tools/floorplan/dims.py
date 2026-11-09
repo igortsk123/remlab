@@ -7,7 +7,52 @@ from pathlib import Path
 GOLD = Path(__file__).resolve().parent / 'gold'
 
 
+def table_blind(run: Path, plan: str, gold: dict) -> tuple[list[str], dict]:
+    """Слепой план (T-04): строка на подпись VLM — размер подписи (план/текст), наше, разница, флаги (свои и текста).
+    Эталона здесь нет: сравнение с эталоном — `blind_cmp.py` после прогона."""
+    met = json.loads((run / plan / f'metrics-{plan}.json').read_text())
+    by = {g['name']: g for g in gold['rooms']}
+    lines, cnt = [], {'всего': 0, 'измерено': 0, 'не измерено': 0}
+    seen = set()
+    for p in met['panels']:
+        for d in p.get('dims', []):
+            g = by.get(d['id'], {})
+            seen.add(d['id'])
+            cnt['всего'] += 1
+            lab = f'{d["gold"][0]:.2f}×{d["gold"][1]:.2f} ({g.get("dims_src")})' if d.get('gold') else '—'
+            fl = [d['flag']] if d.get('flag_level') else []
+            fl += g.get('text_flags', [])
+            if g.get('unsure'):
+                fl.append('VLM не уверен')
+            if g.get('note'):
+                fl.append(f'заметка: {g["note"]}')
+            ftxt = (' · флаг: ' + '; '.join(fl)) if fl else ''
+            if 'ours' in d:
+                cnt['измерено'] += 1
+                oa, ob = d['ours']
+                diff = f'{d["diff_cm"][0]:+d} / {d["diff_cm"][1]:+d} см' if d.get('diff_cm') else d['status']
+                lines.append(f'{plan} | {p["panel"]:<14} | {d["id"]:<26} | {lab:>20} | {oa:.2f}×{ob:.2f} | {diff}{ftxt}')
+            else:
+                cnt['не измерено'] += 1
+                lines.append(f'{plan} | {p["panel"]:<14} | {d["id"]:<26} | {lab:>20} | не измерена: {d["status"]}{ftxt}')
+    for g in gold['rooms']:
+        if g['name'] not in seen:
+            cnt['всего'] += 1
+            cnt['не измерено'] += 1
+            lines.append(f'{plan} | {g["panel"]:<14} | {g["name"]:<26} | '
+                         f'{(str(g.get("dims_m")) if g.get("dims_m") else "—"):>20} | не измерена: комната не найдена'
+                         + ((' · флаг: ' + '; '.join(g['text_flags'])) if g.get('text_flags') else ''))
+    for o in gold.get('listing_orphans', []):
+        lines.append(f'{plan} | текст          | {o["name"]:<26} | {o["dims_m"][0]:.2f}×{o["dims_m"][1]:.2f} (text) | '
+                     f'флаг: {o["why"]}')
+    cnt['корзины'] = {}
+    return lines, cnt
+
+
 def table(run: Path, plan: str) -> tuple[list[str], dict]:
+    bg = run / plan / f'gold-{plan}.json'
+    if bg.exists():
+        return table_blind(run, plan, json.loads(bg.read_text()))
     gold = json.loads((GOLD / f'{plan}.json').read_text())
     met = json.loads((run / plan / f'metrics-{plan}.json').read_text())
     rows = {}
@@ -63,10 +108,15 @@ def main():
     plans = sys.argv[2:] or ['A', 'B', 'C']
     out = ['план | панель | комната | подпись | наше | разница (сторона 1 / сторона 2)']
     for plan in plans:
+        if not (run / plan / f'metrics-{plan}.json').exists():       # план упал — причина в <run>/<план>.log
+            out.append(f'{plan}: нет metrics — стенд упал (см. {plan}.log)')
+            out.append('')
+            continue
         lines, cnt = table(run, plan)
         out += lines
         out.append(f'{plan}: подписанных {cnt["всего"]}, измерено {cnt["измерено"]}, не измерено {cnt["не измерено"]}')
-        out.append(f'{plan} корзины (наибольшая сторона): ' + ', '.join(f'{k} {v}' for k, v in cnt['корзины'].items()))
+        if cnt['корзины']:
+            out.append(f'{plan} корзины (наибольшая сторона): ' + ', '.join(f'{k} {v}' for k, v in cnt['корзины'].items()))
         out.append('')
     text = '\n'.join(out)
     (run / 'dims.txt').write_text(text + '\n')

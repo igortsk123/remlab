@@ -27,8 +27,11 @@ def main(run, out):
     for mp in sorted(run.glob('*/model-*.json')):
         m = json.loads(mp.read_text())
         plan, idx = m['plan'], mp.stem.split('-')[-1]
-        gold = json.loads((Path(__file__).resolve().parent / 'gold' / f'{plan}.json').read_text())
-        src = cv2.imread(str(INPUTS / gold['image']), cv2.IMREAD_COLOR)
+        if m.get('image'):                             # T-04: путь к исходнику — в модели (слепые планы без золота)
+            src = cv2.imread(m['image'], cv2.IMREAD_COLOR)
+        else:
+            gold = json.loads((Path(__file__).resolve().parent / 'gold' / f'{plan}.json').read_text())
+            src = cv2.imread(str(INPUTS / gold['image']), cv2.IMREAD_COLOR)
         x0, y0, x1, y1 = m['bbox_px']
         crop = src[max(0, y0):y1, max(0, x0):x1]
         H = 700

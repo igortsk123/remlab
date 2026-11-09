@@ -3,7 +3,7 @@
 (Vercel AI Gateway, `google/gemini-3.8-flash`, только шлюз). Два вопроса на план: подписи комнат с точкой и «стены JSON-ом».
 Оценка — теми же мерками, что OpenCV-путь (комнаты по эталону, LOO размеров), стены VLM растрируются в маску.
 
-  ask:  python tools/floorplan/vlm.py ask <A|B|C> <labels|walls> <out-папка>   (ключ — из окружения запуска)
+  ask:  python tools/floorplan/vlm.py ask <A|B|C> <labels|walls> <out-папка> [картинка]  (ключ — env_keys шлюза)
   eval: python tools/floorplan/vlm.py eval <out-папка>                         (без сети)
 
 Деньги: остаток шлюза до/после (GET /v1/credits) + токены из ответа; потолок стенда $0,50 — проверяется перед вызовом.
@@ -61,6 +61,19 @@ PROMPTS = {
         "walls tightly and contains no other building, and the names of the rooms inside it. Ignore compass, scale bar, "
         "legend and text blocks. Answer with JSON only: {\"panels\": [{\"title\": str, \"poly\": [[x, y], ...], "
         "\"rooms\": [str]}]}"),
+    # T-20261109-04: подписи для слепых планов — явно в сетке 0–1000 (как panels), футы → метры, заметки «max/into bay»,
+    # нечитаемое — пометить, не угадывать (владелец: «бывает такое, где плохо видно»)
+    'labels2': (
+        "This is a real-estate floor plan sheet. Use a normalized coordinate grid 0-1000 on both axes (x: 0 = left "
+        "edge, 1000 = right edge; y: 0 = top edge, 1000 = bottom edge). List EVERY room label printed on it (all floors "
+        "and buildings). For each room give: the room name exactly as printed; the dimensions as printed converted to "
+        "metres (two numbers in the printed order; if both metres and feet are printed use the metres; if only feet and "
+        "inches are printed convert them; null if no dimensions are printed for this room); any qualifier printed with "
+        "the dimensions such as 'max', 'into bay', 'narrowing to' (else null); the centre point [x, y] of the room-name "
+        "text in the 0-1000 grid; and unsure=true if the text is too small or blurred to read with confidence. Never "
+        "guess numbers you cannot read: give null and unsure=true instead. "
+        "Answer with JSON only: {\"rooms\": [{\"name\": str, \"dims_m\": [a, b] | null, \"note\": str | null, "
+        "\"pt\": [x, y], \"unsure\": bool}], \"areas\": [{\"label\": str, \"m2\": number}]}"),
     # T-20261109-03: имена неподписанных помещений — чтобы «лишние куски» мерить честно и разводить слитые с холлом комнаты
     'unlabeled': (
         "This is a real-estate floor plan sheet. Use a normalized coordinate grid 0-1000 on both axes (x: 0 = left "
@@ -111,7 +124,7 @@ def spent(out):
     return sum(r.get('usd') or 0.0 for r in rows), len(rows)
 
 
-def ask(plan, kind, out):
+def ask(plan, kind, out, image=None):
     sys.path.insert(0, str(HERE.parent / 'scout'))
     import llm_gateway  # noqa: E402 — только шлюз, без тяжёлых модулей scout
     out = Path(out)
@@ -123,10 +136,12 @@ def ask(plan, kind, out):
     max_tok = min(16000, int((CAP_USD - usd0 - 3000 * pin) / pout))   # худший случай не выходит за потолок
     if max_tok < 4000:
         raise SystemExit(f'остаток ${CAP_USD - usd0:.3f} мал для вызова {MODEL}')
-    gold = json.loads((HERE / 'gold' / f'{plan}.json').read_text())
-    img, w, h = jpeg(INPUTS / gold['image'])
+    if image is None:
+        gold = json.loads((HERE / 'gold' / f'{plan}.json').read_text())
+        image = INPUTS / gold['image']
+    img, w, h = jpeg(image)
     msg = [{'role': 'user', 'content': [
-        {'type': 'text', 'text': PROMPTS[kind] if kind in ('panels', 'unlabeled') else PROMPTS[kind].format(w=w, h=h)},
+        {'type': 'text', 'text': PROMPTS[kind] if kind in ('panels', 'unlabeled', 'labels2') else PROMPTS[kind].format(w=w, h=h)},
         {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(img).decode()}}]}]
     b0 = credits()
     t0 = time.time()
@@ -330,7 +345,7 @@ def evaluate(out):
 
 
 if __name__ == '__main__':
-    if sys.argv[1] == 'ask':
-        ask(sys.argv[2], sys.argv[3], sys.argv[4])
+    if sys.argv[1] == 'ask':          # ask <план> <вид> <out> [картинка — слепой план без золота]
+        ask(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5] if len(sys.argv) > 5 else None)
     else:
         evaluate(sys.argv[2])
