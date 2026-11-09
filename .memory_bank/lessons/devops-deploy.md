@@ -3,7 +3,7 @@ tier: 2
 topic: lessons-devops-deploy
 scope: Уроки: devops — docker/buildkit, exit-fi, gitignore, деплой, CI, хуки, инструменты dev-машины — читать перед планом по этой теме
 tier1: ../core/lessons.md
-updated: 2026-10-29
+updated: 2026-11-09
 importance: med
 source: manual
 status: stable
@@ -390,3 +390,4 @@ systemd — крон-подъём раз в 10 минут (`tools/ops/dev-checks
   `playwright install --with-deps` падал, выкладка стояла с 28.10 21:00 UTC. Причина прочитана без токена — аннотация check-run
   публичного API. Починка — `runs-on: ubuntu-24.04` у gate (`.github/workflows/ci.yml:12`, `438ef30f`). Правило: образ раннера CI —
   закреплённой версией, не `latest`.
+- **556 (09.11)** — push в main во время съёмки фото: выкладка CI перезапускает сервер, съёмка падает «сервер обновлялся» (T-73, 08.11). Во время платной съёмки — не пушить; досъёмка упавших.

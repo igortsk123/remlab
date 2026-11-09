@@ -3,7 +3,7 @@ tier: 1
 topic: demo-planner
 scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
-updated: 2026-11-08
+updated: 2026-11-09
 importance: high
 source: manual
 status: working
@@ -33,8 +33,8 @@ review_after: 2026-12-05
 
 **Вариант = стиль (13.10, ADR-0244):** `choose_banks`/`fill_banks` (ADR-0259) — по набору на стиль (самый собираемый);
 встраивание — `/embed/<партнёр>/<квартира>` (ADR-0283).
-- **Кадры (ADR-0280/0291/0304/0320/0329):** прогрев `tools/ops/demo-warm.mjs`; одна расстановка и пара точек — `index.html:camPairAll`.
-  С 07.11: обложка `camPosterBad`, пара на стиль — `tools/flat3d/demo-cams.mjs`.
+- **Кадры (ADR-0280/0291/0304/0320/0329/0332):** прогрев `tools/ops/demo-warm.mjs`; одна расстановка и пара точек — `index.html:camPairAll`.
+  С 07.11: обложка `camPosterBad`, пара на стиль — `tools/flat3d/demo-cams.mjs`. С 08.11 — `camPairV2`, Tier 2 § «Ракурсы v3».
 - **22–24.10 (ADR-0319…0326):** мягкое — в списке и на фото, без 3D; цвета образцами; карточка товара; горизонтальный кадр GPT,
-  свайп = ракурс; ночная досъёмка фото ≤ 50 ₽ — Tier 2 § «Демо 22–24.10».
+  свайп = ракурс — Tier 2 § «Демо 22–24.10».
 - **Сценарии, дефекты, живые проверки, планы demo-01…03** — [[demo-scenarios]].
