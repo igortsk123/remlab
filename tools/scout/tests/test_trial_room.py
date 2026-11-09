@@ -340,6 +340,21 @@ def test_refusals():
         == 'living_core_small'
 
 
+def test_scale_unverified_consent_furnishes_as_is():
+    """Р1 «Обустроить»: агент согласился обставить «как есть» (флаг `approx_consent` от пересборки) — масштаб не подтверждён, но отказа
+    нет, флаг идёт в исход; согласие только на НЕ главную гостиную — отказ как раньше."""
+    base = [op('window', (250, 0), 150, True), op('door', (100, 400), 90)]
+    ok = room('r1', 'living', RECT)
+    ok['flags'] = ['approx_consent']
+    ad = TR.adapt(result([ok], base, status='not_verified'))
+    assert 'approx_consent' in ad['flags'] and ad['candidates']
+    ad = TR.adapt(result([ok], base))                                   # масштаб подтверждён — флаг ни на что не влияет
+    assert 'approx_consent' not in ad['flags']
+    small = room('r2', 'living', [(600, 0), (900, 0), (900, 300), (600, 300)])
+    small['flags'] = ['approx_consent']
+    assert refusal(result([room('r1', 'living', RECT), small], base, status='not_verified')) == 'scale_unverified'
+
+
 def test_living_guessed_from_other_with_window():
     ad = TR.adapt(result([room('r1', 'other', RECT)], [op('window', (250, 0), 150, True), op('door', (100, 400), 90)]))
     assert 'living_guessed' in ad['flags']

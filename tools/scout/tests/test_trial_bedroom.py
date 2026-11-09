@@ -106,6 +106,18 @@ def test_scale_unverified_refused_no_furniture(tmp_path):
     assert saved['status'] == 'refused'
 
 
+def test_scale_unverified_consented_room_furnished_others_refused():
+    """Р1 «Обустроить»: масштаб не подтверждён, агент снял проверку с одной спальни (`approx_consent`) — её обставляем «как есть»
+    (флаг в исходе), вторая — отказ `scale_unverified`, как раньше."""
+    p = plan('not_verified')
+    p['panels'][1]['rooms'][0]['flags'] = ['approx_consent']
+    job = TB.build('t2c', p, ctx(full_bank()))
+    a, b = job['rooms']
+    assert a['outcome']['state'] == 'scale_unverified' and a['variants'] == []
+    assert b['outcome']['state'] == 'furnished' and b['variants'] and 'approx_consent' in b['flags']
+    assert job['status'] == 'partial'
+
+
 def test_bed_without_model_replaced_by_other_width():
     bank = []
     for i, st in enumerate(TB.STYLES):

@@ -649,12 +649,23 @@ def solver_openings(cand: dict, cfg: dict, hinge: str = 'left') -> list:
     return out
 
 
+APPROX_CONSENT = 'approx_consent'                            # = trial_bundle.APPROX_CONSENT
+
+
 def adapt(result: dict, need: dict | None = None, cfg: dict | None = None) -> dict:
     """floorplanResult → гостиная: {room, ops, candidates (допущенные, по порядку), rejected, flags}. Отказ — `Refusal`."""
     cfg = cfg or rules()
-    if (result.get('scale') or {}).get('status') == 'not_verified':
+    # масштаб не подтверждён — отказ; исключение — гостиная, где агент нажал «Обустроить» (флаг `approx_consent` от пересборки, Р1):
+    # обставляем «как есть», флаг идёт в исход (страница: «размеры примерные»; это НЕ `verified`)
+    unverified = (result.get('scale') or {}).get('status') == 'not_verified'
+    if unverified and not any(APPROX_CONSENT in (r.get('flags') or []) for p in result.get('panels') or [] for r in p.get('rooms') or []
+                              if r.get('kind') == 'living'):
         raise Refusal('scale_unverified')
     panel, room, flags = pick_living(result, cfg)
+    if unverified:
+        if APPROX_CONSENT not in (room.get('flags') or []):
+            raise Refusal('scale_unverified')
+        flags = flags + [APPROX_CONSENT]
     ours, amb, oflags = openings_of(panel, room, cfg)
     flags = flags + oflags
     if amb:

@@ -6,6 +6,9 @@
 TRIAL_FURNISH=0) → POST …/result; heartbeat сразу после claim, сразу при смене шага и не реже
 раза в 10 с (шаг из `<папка>/stage`, деньги из `<папка>/spent`; время шага прод метит только по heartbeat), concurrency 1. Ошибка → POST …/fail {code, retryable}. 409 на любой ручке — аренда потеряна: процесс
 стенда снимается, задание доделает тот, кто его забрал.
+«Обустроить» (Р1): claim с `rebuilds: true` (при TRIAL_FURNISH) может вернуть `rebuild` вместо `job` — пересборка страницы готового
+задания по кнопке агента (`process_rebuild` → `conveyor.Rebuild`: одна итоговая версия на …/rebuild/publish, аренда — …/rebuild/heartbeat,
+сбой — …/rebuild/fail). Сервер ставит пересборки раньше новых загрузок, но не больше квоты подряд, пока загрузка ждёт.
 
 Предохранитель (задание не брать, но отмечаться «жив» — claim с paused:true): MemAvailable < 3 ГБ; в общей очереди
 тяжёлых ждут ≥ 2 (`tools/ops/heavy_slot.py:status`); 3 сбоя подряд по нашей вине → пауза 10 мин; /api/health прода
@@ -48,6 +51,8 @@ TOKEN_RE = re.compile(r'^[A-Za-z0-9_-]{22}$')       # = lib/token.ts:TOKEN_RE �
 EXT = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf'}
 INPUT_MAX = 15 * 1024 * 1024
 STAGES = ('raster', 'labels', 'walls', 'repair', 'export')
+# = contracts/trial.ts:trialRebuildFailCode — коды сбоя пересборки «Обустроить»
+REBUILD_CODES = ('stale', 'timeout', 'pipeline_error', 'internal', 'waiting_capacity', 'nothing_to_furnish')
 USER_CODES = {'pdf_unreadable', 'unsupported', 'too_large', 'no_plan', 'budget'}   # вина файла, не DEV: в серию сбоев не идут
 
 
@@ -185,9 +190,10 @@ class Api:
 class Heartbeat(threading.Thread):
     """Продление аренды раз в heartbeat_s: шаг — из `<папка>/stage`, деньги — из `<папка>/spent`. 409 → lost."""
 
-    def __init__(self, w: 'Worker', lease: dict, wd: Path):
+    def __init__(self, w: 'Worker', lease: dict, wd: Path, path: str = '/api/trial/worker/heartbeat', with_stage: bool = True):
         super().__init__(daemon=True)
         self.w, self.lease, self.wd = w, lease, wd
+        self.path, self.with_stage = path, with_stage        # пересборка «Обустроить» — своя ручка, без шага
         self.stop_ev, self.lost = threading.Event(), threading.Event()
         self.sent = []
 
@@ -199,10 +205,12 @@ class Heartbeat(threading.Thread):
         return s if s in STAGES else 'raster'
 
     def beat(self) -> None:
-        body = {**self.lease, 'stage': self.stage(), 'spentUsd': self.w.spent(self.wd)}
-        self.sent.append((time.time(), body['stage']))
+        body = {**self.lease, 'spentUsd': self.w.spent(self.wd)}
+        if self.with_stage:
+            body['stage'] = self.stage()
+        self.sent.append((time.time(), body.get('stage')))
         try:
-            st, _ = self.w.api.call('POST', '/api/trial/worker/heartbeat', body)
+            st, _ = self.w.api.call('POST', self.path, body)
         except NetError as e:
             log(f'{self.lease["id"]}: heartbeat: {e}')
             return
@@ -276,7 +284,8 @@ class Worker:
                 self.last_reason = reason
             try:
                 st, body = self.api.call('POST', '/api/trial/worker/claim',
-                                         {'workerId': self.cfg.worker_id, 'version': VERSION, 'paused': bool(reason)})
+                                         {'workerId': self.cfg.worker_id, 'version': VERSION, 'paused': bool(reason),
+                                          **({'rebuilds': True} if self.cfg.furnish else {})})
             except NetError as e:
                 log(f'claim: {e}')
                 self.stop.wait(max(self.cfg.poll_s, 5))
@@ -285,9 +294,12 @@ class Worker:
                 log(f'claim: {st} {(body or {}).get("error", "")}')
                 self.stop.wait(max(self.cfg.poll_s, 10))
                 continue
-            job = (body or {}).get('job')
+            job, rb = (body or {}).get('job'), (body or {}).get('rebuild')
             if job and not reason:
                 self.process(job)
+                continue
+            if rb and not reason:
+                self.process_rebuild(rb)
                 continue
             self.stop.wait(self.cfg.poll_s)
 
@@ -456,6 +468,51 @@ class Worker:
                              30 if code == 'waiting_capacity' else None)
         # убит сигналом (OOM, earlyoom) или упал без отчёта — один повтор (попыток 2)
         self.fail(lease, wd, 'pipeline_error', True, f'pipeline rc={rc}')
+
+    # ── пересборка «Обустроить» (план agent-trial-08, Р1; T-20261109-27) ──
+    def process_rebuild(self, rb: dict) -> None:
+        """Пересборка от claim: аренда своя (id пересборки), результат стен — из Postgres (в ответе claim), итог — одна версия
+        (`conveyor.Rebuild`). Потеря аренды — процессы стадий снимаются (`run_child` по `hb.lost`), ничего не публикуется."""
+        rid, jid = str(rb.get('id', '')), str(rb.get('jobId', ''))
+        lease = {'id': rid, 'attempt': int(rb.get('attempt', 0)), 'leaseToken': str(rb.get('leaseToken', ''))}
+        if not TOKEN_RE.match(jid) or not TOKEN_RE.match(rid) or not isinstance(rb.get('result'), dict):
+            log(f'claim: странная пересборка {rid[:40]!r} задания {jid[:40]!r}')
+            self.fail_rebuild(lease, self.cfg.base, 'internal', False, 'bad rebuild id, job id or result')
+            return
+        wd = self.cfg.base / jid / f'r{lease["attempt"]}-{rid[:6]}-{time.strftime("%H%M%S")}'
+        wd.mkdir(parents=True, exist_ok=True)
+        res_p = wd / 'result.json'
+        res_p.write_text(json.dumps(rb['result'], ensure_ascii=False))
+        log(f'{jid}: «Обустроить» {rid} (попытка {lease["attempt"]}, комнаты {rb.get("rooms")}, версия страницы {rb.get("baseVersion")})')
+        hb = Heartbeat(self, lease, wd, path='/api/trial/worker/rebuild/heartbeat', with_stage=False)
+        hb.start()
+        t0 = time.time()
+        try:
+            end = conveyor.Rebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or []).rebuild()
+        except Exception as e:                       # noqa: BLE001 — сбой кода конвейера: пересборка failed с кодом, воркер живёт
+            log(f'{jid}: пересборка {rid}: {type(e).__name__}: {e}')
+            end = 'failed:internal'
+        finally:
+            hb.stop_ev.set()
+            hb.join(5)
+        log(f'{jid}: пересборка {rid} → {end}, {time.time() - t0:.1f} с')
+        if end == 'published':
+            self.streak = 0
+            self.done.append((rid, 'rebuilt'))
+        elif end in ('stale', 'lost'):               # stale — сервер уже пометил пересборку; lost — она не наша
+            self.done.append((rid, end))
+        elif end == 'stop':
+            self.fail_rebuild(lease, wd, 'waiting_capacity', True, 'worker stopping')
+        else:
+            code = end.split(':', 1)[1] if end.startswith('failed:') else 'pipeline_error'
+            self.fail_rebuild(lease, wd, code, code in ('pipeline_error', 'internal'), end)
+
+    def fail_rebuild(self, lease: dict, wd: Path, code: str, retryable: bool, detail: str = '') -> None:
+        code = code if code in REBUILD_CODES else 'pipeline_error'
+        st = self._post('/api/trial/worker/rebuild/fail',
+                        {**lease, 'code': code, 'retryable': retryable, 'detail': detail[:2000], 'spentUsd': self.spent(wd)})
+        log(f'{lease["id"]}: пересборка fail {code} retryable={retryable} → {st}')
+        self.done.append((lease['id'], f'fail:{code}:{st}'))
 
     def result(self, lease: dict, wd: Path, res: dict) -> bool:
         body = {**lease, 'result': res, 'spentUsd': self.spent(wd)}

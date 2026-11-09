@@ -74,6 +74,9 @@ SCALE_UNVERIFIED_AWAITS_CHECK = True
 SCALE_NOTE = {
     'area': ('Размеры по общей площади — примерные.', 'Sizes are based on the total floor area — approximate.'),
 }
+# флаг комнаты в результате, который ставит пересборка «Обустроить» (`tools/floorplan/conveyor.py:Rebuild`): агент согласился
+# обставить «как есть» — проверка размера снята, решатели не отказывают по масштабу, страница пишет «размеры примерные»
+APPROX_CONSENT = 'approx_consent'
 OUTCOME_TEXT = {
     'size_unverified': ('Размер может быть неточным — поправьте и нажмите «Обустроить».',
                         'Size may be approximate — adjust and tap “Furnish”.'),
@@ -596,8 +599,12 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     rooms_geo, apartment_rooms, variants = {}, [], []
     outcomes = {ids[id(x['room'])]: _outcome('refused', x['code']) for x in refused}
 
+    def consented(r, rid):
+        """Агент нажал «Обустроить» (Р1): комната обставляется «как есть», размеры — примерные (не `verified`!)."""
+        return rid in release or APPROX_CONSENT in (r.get('flags') or [])
+
     def awaits(r, rid):
-        return None if rid in release else size_check(result, r)
+        return None if consented(r, rid) else size_check(result, r)
 
     def put_geo(panel, room, rid, geo, kind):
         full = {'w': geo['w'], 'd': geo['d'], **_geo_titles(room, geo, kind), 'openings': geo['openings'], 'radiators': [],
@@ -690,6 +697,8 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
         st = storey_map.get(panel_of[id(r)])
         if st is not None:
             entry['storey'] = st
+        if kind in (LIVING, BEDROOM) and consented(r, rid) and size_check(result, r):
+            entry['approx_consent'] = True                  # страница: «размеры примерные» — проверка снята агентом, не подтверждена
         apartment_rooms.append(entry)
     vids = [v['id'] for v in variants]
     if len(vids) != len(set(vids)):

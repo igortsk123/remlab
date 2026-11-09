@@ -553,6 +553,15 @@ def assert_no_shop(obj, tokens: list) -> None:
         raise ShopLeak(f'{e.code}: {e.detail}') from e
 
 
+APPROX_CONSENT = 'approx_consent'                            # = trial_bundle.APPROX_CONSENT
+
+
+def _scale_refused(panel: dict, room: dict, rid: str) -> dict:
+    return {'room_id': rid, 'src_id': room['id'], 'panel': panel['id'], 'panel_title': panel.get('title'), 'name': room.get('name'),
+            'area_m2': room.get('areaM2'), 'variants': [], 'style_failures': [], 'flags': [],
+            'outcome': refused('scale_unverified', 'масштаб плана не проверен')}
+
+
 def build(trial_id: str, result: dict, ctx: dict | None = None) -> dict:
     """Все спальни задания → `bedrooms.json` (папка пробы). Исходы по комнатам, отказ задания — статус `refused`, не исключение."""
     t0 = time.time()
@@ -566,11 +575,13 @@ def build(trial_id: str, result: dict, ctx: dict | None = None) -> dict:
         job.update(status='refused', refusal={'code': 'no_bedrooms'})
         _write(OUT, job)
         return job
-    if job['scale'] == 'not_verified':                      # масштаб не подтверждён — никакой подгонки и вопросов агенту (Codex 09.11, TG 1377)
+    # масштаб не подтверждён — никакой подгонки и вопросов агенту (Codex 09.11, TG 1377); исключение — комнаты, где агент нажал
+    # «Обустроить» (флаг `approx_consent` от пересборки, Р1): обставляем «как есть», исход несёт флаг — страница пишет «размеры примерные»
+    unverified = job['scale'] == 'not_verified'
+    consent = {id(room) for _, room, _ in rooms if APPROX_CONSENT in (room.get('flags') or [])} if unverified else set()
+    if unverified and not consent:
         for panel, room, rid in rooms:
-            job['rooms'].append({'room_id': rid, 'src_id': room['id'], 'panel': panel['id'], 'panel_title': panel.get('title'), 'name': room.get('name'),
-                                 'area_m2': room.get('areaM2'), 'variants': [], 'style_failures': [], 'flags': [],
-                                 'outcome': refused('scale_unverified', 'масштаб плана не проверен')})
+            job['rooms'].append(_scale_refused(panel, room, rid))
         job.update(status='refused', refusal={'code': 'scale_unverified'})
         _write(OUT, job)
         return job
@@ -578,7 +589,13 @@ def build(trial_id: str, result: dict, ctx: dict | None = None) -> dict:
     if ctx.get('catalog_error'):
         job['flags'].append('catalog_unavailable')
     for panel, room, rid in rooms:
-        job['rooms'].append(furnish_room(trial_id, panel, room, rid, cfg, ctx))
+        if unverified and id(room) not in consent:
+            job['rooms'].append(_scale_refused(panel, room, rid))
+            continue
+        rec = furnish_room(trial_id, panel, room, rid, cfg, ctx)
+        if unverified:
+            rec['flags'] = list(rec.get('flags') or []) + [APPROX_CONSENT]
+        job['rooms'].append(rec)
     states = {r['outcome']['state'] for r in job['rooms']}
     job['status'] = 'ok' if states == {'furnished'} else ('partial' if 'furnished' in states else 'refused')
     job['timings'] = {'total_s': round(time.time() - t0, 2), 'rooms_s': {r['room_id']: r.get('seconds') for r in job['rooms']}}

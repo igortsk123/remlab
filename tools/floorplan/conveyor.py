@@ -11,7 +11,7 @@
   5. после `done` — `after_done` (заглушка: фото `trial_hero.py` — отдельный план agent-trial-05).
 Комнаты, которые ждут проверки размера (`awaiting_check`: флаг «размер не сошёлся» или масштаб всей квартиры не подтверждён —
 `trial_bundle.size_check`, владелец 09.11 TG 531/533), стадиями не обставляются и `done` не держат; все цели ждут проверки — сразу
-`done` после версии 1. Потом по кнопке «Обустроить» (другая задача) — `furnish_rooms(…, room_ids)`.
+`done` после версии 1. Потом по кнопке «Обустроить» — пересборка `Rebuild` (одна итоговая версия, см. класс).
 Сбой, таймаут стадии мебели или отказ сборщика с её куском (утечка магазина и т. п.) — комната получает отказ с кодом
 (`stage_failed` / `stage_timeout` / код сборщика), 3D остаётся, задание всё равно завершается.
 
@@ -70,9 +70,9 @@ def failed_scene(job_id: str, code: str, detail: str = '') -> dict:
 
 
 class Conveyor:
-    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path):
+    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str | None = None):
         self.w, self.cfg, self.lease, self.wd, self.hb = w, w.cfg, lease, wd, hb
-        self.jid = lease['id']
+        self.jid = job_id or lease['id']             # у пересборки аренда своя (id пересборки), задание — отдельно
         self.result_path = result_path
         self.result = json.loads(result_path.read_text(encoding='utf-8'))
         self.cmds = self.cfg.stage_cmds or default_cmds(self.cfg.python)
@@ -289,6 +289,98 @@ class Conveyor:
             # не должно случаться (у каждой стадии есть отказ кодом); не держим задание вечно — `done`, а код в журнале
             self.log('incomplete: в последней принятой версии есть комнаты pending')
         return 'result'
+
+
+APPROX_CONSENT = 'approx_consent'            # = trial_bundle.APPROX_CONSENT
+
+
+class Rebuild(Conveyor):
+    """Пересборка «Обустроить» / «Обустроить всё» (план agent-trial-08, Р1; T-20261109-27): ОДНА новая версия страницы.
+
+    Исходник — сохранённый `result` задания из Postgres (claim пересборки; рабочие папки DEV чистятся по сроку). Комнаты страницы,
+    с которых агент снял проверку размера, — накопленный набор задания (`trial_jobs.released_rooms` ∪ эта пересборка, `*` — все).
+    Шаги: версия-проверка без снятия (какие комнаты сейчас `awaiting_check`) → выбранным комнатам в копии результата флаг
+    `approx_consent` (решатели не отказывают по масштабу, страница пишет «размеры примерные») → обычный конвейер со снятием
+    (`run(release)`: версии 1 и 2 НЕ публикуются) → итоговая версия на `/api/trial/worker/rebuild/publish`.
+    Мебель прочих комнат не теряется: все комнаты, которые и раньше обставлялись, проходят стадии заново из того же результата
+    (детерминированно; ночное обновление каталога может сменить подбор), комнаты без снятия остаются «ждут проверки».
+    Сервер ещё раз сверяет `base_version` под замком: страница сменилась — 409 `stale`, ничего не пишется."""
+
+    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms):
+        super().__init__(w, lease, wd, hb, result_path, job_id=job_id)
+        self.want = [str(x) for x in rooms or []]
+        self.outcome = None                          # 'published' | 'stale' | 'rejected' — итог отправки версии
+
+    def publish(self, tag: str, data: bytes) -> bool:
+        sha = hashlib.sha256(data).hexdigest()
+        body = json.loads(data)
+        st, resp = self.w.post_json('/api/trial/worker/rebuild/publish',
+                                    {**self.lease, 'jobId': self.jid, 'bundle': data.decode('utf-8'), 'sha256': sha,
+                                     'spentUsd': self.w.spent(self.wd)})
+        err = (resp or {}).get('error')
+        if st == 200:
+            self.last, self.outcome = body, 'published'
+            self.log(f'{tag}: пересборка → версия {(resp or {}).get("version")}{" (повтор)" if (resp or {}).get("repeated") else ""}, '
+                     f'{len(data)} Б{" · " + str((resp or {}).get("warning")) if (resp or {}).get("warning") else ""}')
+            return True
+        if st == 409 and err == 'stale':
+            self.outcome = 'stale'
+            self.log(f'{tag}: stale — страница сменилась, пока подбирали; версию не пишем')
+            return False
+        if st == 409:
+            self.stopped = 'lost'
+            self.log(f'{tag}: lease_lost')
+            return False
+        self.outcome = 'rejected'
+        self.log(f'{tag}: bundle_rejected http={st} {json.dumps(resp or {}, ensure_ascii=False)[:300]}')
+        return False
+
+    def chosen(self) -> tuple[list, dict] | None:
+        """Версия-проверка без снятия → (комнаты страницы к обустройству, эта версия) или None (сборщик не собрал)."""
+        data, code = self.build('v0-check', None, None)
+        if data is None:
+            if not self.stopped:
+                self.log(f'v0-check: {code} — версию не собрать')
+            return None
+        cur = json.loads(data)
+        waiting = [r['id'] for r in cur['apartment_rooms'] if r.get('furniture_state') == 'awaiting_check']
+        want = set(self.want)
+        return (waiting if '*' in want else [r for r in waiting if r in want]), cur
+
+    def consent(self, cur: dict, pick: list) -> None:
+        """Копия результата: выбранным комнатам (id страницы → панель и id плана) флаг `approx_consent`; дальше конвейер идёт по ней."""
+        src = {x['id']: (p['id'], x['src_id']) for p in cur['trial']['panels'] for x in p['rooms']}
+        keys = {src[r] for r in pick if r in src}
+        res = json.loads(json.dumps(self.result))
+        for p in res['panels']:
+            for r in p['rooms']:
+                if (p['id'], r['id']) in keys and APPROX_CONSENT not in (r.get('flags') or []):
+                    r['flags'] = list(r.get('flags') or []) + [APPROX_CONSENT]
+        self.result_path = self._write('result-consent.json', res)
+        self.result = res
+
+    def rebuild(self) -> str:
+        """→ 'published' | 'stale' | 'lost' | 'stop' | 'failed:<код>' (код — для `/rebuild/fail`)."""
+        t0 = time.time()
+        got = self.chosen()
+        if self.stopped:
+            return self.stopped
+        if got is None:
+            return 'failed:pipeline_error'
+        pick, cur = got
+        if not pick:
+            self.log(f'нечего обустраивать: просили {self.want}, ждут проверки {[r["id"] for r in cur["apartment_rooms"] if r.get("furniture_state") == "awaiting_check"]}')
+            return 'failed:nothing_to_furnish'
+        self.log(f'обустраиваю {pick} (просили {self.want})')
+        self.consent(cur, pick)
+        self.run(pick)
+        self.timings['rebuild_s'] = round(time.time() - t0, 1)
+        if self.stopped:
+            return self.stopped
+        self.log(f'пересборка: {self.outcome}, время {json.dumps(self.timings)}')
+        if self.outcome in ('published', 'stale'):
+            return self.outcome
+        return 'failed:pipeline_error'
 
 
 def furnish_rooms(w, lease: dict, wd: Path, hb, result_path: Path, room_ids) -> str:

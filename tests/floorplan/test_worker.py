@@ -66,12 +66,15 @@ if mode == 'refuse' or (mode == 'leak' and sc and sc['status'] == 'ok'):
     print('сборка: отказ')
     print(json.dumps({'refusal': 'shop_leak' if mode == 'leak' else 'bad_result', 'detail': 'x'})); sys.exit(2)
 got = {e['src_id']: e for e in (json.load(open(parts)) if parts else {}).get('apartment_rooms') or []}
-rooms, n = [], {}
+rooms, n, pages = [], {}, []
 for p in result['panels']:
+    pages.append({'id': p['id'], 'rooms': []})
     for r in p['rooms']:
         n[r['kind']] = n.get(r['kind'], 0) + 1
         rid = 'living' if r['kind'] == 'living' and n['living'] == 1 else f"{r['kind']}-{n[r['kind']]}"
-        if r['kind'] in ('living', 'bedroom') and 'dims_mismatch' in (r.get('flags') or []) and rid not in release \
+        pages[-1]['rooms'].append({'id': rid, 'src_id': r['id']})
+        consent = rid in release or 'approx_consent' in (r.get('flags') or [])
+        if r['kind'] in ('living', 'bedroom') and 'dims_mismatch' in (r.get('flags') or []) and not consent \
                 and not (r['kind'] == 'living' and sc and sc['status'] == 'ok'):
             st, code = 'awaiting_check', 'dims_mismatch'
         elif r['kind'] == 'living':
@@ -88,7 +91,7 @@ for p in result['panels']:
             st, code = 'not_furnished', None
         rooms.append({'id': rid, 'kind': r['kind'], 'furniture_state': st, 'furniture_code': code})
 data = {'apartment_rooms': rooms, 'pad': 'x' * int(os.environ.get('FAKE_BUNDLE_PAD', '0')),
-        'trial': {'job_id': jid, 'complete': all(x['furniture_state'] != 'pending' for x in rooms)}}
+        'trial': {'job_id': jid, 'complete': all(x['furniture_state'] != 'pending' for x in rooms), 'panels': pages}}
 json.dump(data, open(out, 'w'))
 print(json.dumps({'ok': True}))
 '''
@@ -133,6 +136,8 @@ class Prod:
         self.result_codes = []
         self.bundle_codes = []
         self.bundles = []                       # принятые версии: {'sha', 'data'} — как манифест `trial_jobs.bundle_version/hash`
+        self.rebuilds = []                      # очередь пересборок «Обустроить» (claim отдаёт после заданий)
+        self.rebuild_codes = []                 # ответы …/rebuild/publish по очереди: (код, error)
         self.health = 200
         self.lock = threading.Lock()
 
@@ -187,10 +192,29 @@ def make_handler(prod: Prod):
             if self.headers.get('Authorization') != f'Bearer {TOKEN}':
                 return self.send(401, {'ok': False})
             if self.path == '/api/trial/worker/claim':
+                if not b.get('paused') and not prod.jobs and prod.rebuilds and b.get('rebuilds'):
+                    prod.lease = prod.rebuilds.pop(0)
+                    return self.send(200, {'ok': True, 'job': None, 'rebuild': prod.lease})
                 if b.get('paused') or not prod.jobs:
                     return self.send(200, {'ok': True, 'job': None})
                 prod.lease = prod.jobs.pop(0)
                 return self.send(200, {'ok': True, 'job': prod.lease})
+            if self.path == '/api/trial/worker/rebuild/publish':   # = app/api/trial/worker/rebuild/publish/route.ts
+                if not self.fenced(b) or b.get('jobId') != prod.lease.get('jobId'):
+                    return self.send(409, {'error': 'lease_lost'})
+                raw = b['bundle'].encode()
+                if hashlib.sha256(raw).hexdigest() != b['sha256']:
+                    return self.send(422, {'error': 'hash_mismatch'})
+                if prod.rebuild_codes:
+                    code, err = prod.rebuild_codes.pop(0)
+                    return self.send(code, {'error': err})
+                with prod.lock:
+                    prod.bundles.append({'sha': b['sha256'], 'data': json.loads(raw)})
+                    return self.send(200, {'ok': True, 'version': len(prod.bundles), 'repeated': False})
+            if self.path in ('/api/trial/worker/rebuild/heartbeat', '/api/trial/worker/rebuild/fail'):
+                if prod.hb_status != 200 or not self.fenced(b):
+                    return self.send(409, {'error': 'lease_lost'})
+                return self.send(200, {'ok': True, 'leaseUntil': 'x', 'status': 'failed'})
             if self.path == '/api/trial/worker/heartbeat':
                 if prod.hb_status != 200 or not self.fenced(b):
                     return self.send(409, {'error': 'lease_lost'})
@@ -637,3 +661,103 @@ def test_bedroom_refusals_cover_every_bedroom():
     assert [(e['panel'], e['src_id'], e['furniture_state'], e['furniture_code']) for e in parts['apartment_rooms']] == \
         [('p0', 'b1', 'refused', 'stage_unavailable'), ('p1', 'b2', 'refused', 'stage_unavailable')]
     assert len({e['id'] for e in parts['apartment_rooms']}) == 2
+
+
+# ───────────────────────── «Обустроить» — пересборка (conveyor.Rebuild, T-20261109-27) ─────────────────────────
+
+RID = 'RbRbRbRbRbRbRbRbRbRbRb'
+
+
+def _plan(flagged=('r1',)):
+    """Сохранённый результат задания (как в Postgres): у комнат из `flagged` — «размер не сошёлся»."""
+    rooms = [{'id': 'r1', 'kind': 'living'}, {'id': 'k1', 'kind': 'kitchen'}, {'id': 'b1', 'kind': 'bedroom'}]
+    for r in rooms:
+        r['flags'] = ['dims_mismatch'] if r['id'] in flagged else []
+    return {'version': 1, 'units': 'cm', 'fake': True, 'panels': [{'id': 'p0', 'rooms': rooms}]}
+
+
+def _rebuild(prod, rooms, flagged=('r1',), **over):
+    prod.rebuilds.append({'id': RID, 'jobId': JID, 'attempt': 1, 'leaseToken': 'R' * 32, 'leaseUntil': 'x', 'rooms': rooms,
+                          'baseVersion': 2, 'result': _plan(flagged), **over})
+
+
+def test_rebuild_publishes_one_version_other_rooms_kept(prod, mk, tmp_path):
+    """Гостиная ждала проверки, спальня была обставлена. «Обустроить» гостиную → ОДНА версия на …/rebuild/publish: гостиная с мебелью,
+    спальня снова с мебелью (стадии из того же результата), кухня как была; ни `/bundle`, ни `result` задания."""
+    _rebuild(prod, ['living'])
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')]
+    assert prod.by('/api/trial/worker/claim')[0]['rebuilds'] is True
+    sent = prod.by('/api/trial/worker/rebuild/publish')
+    assert len(sent) == 1 and sent[0]['jobId'] == JID and sent[0]['id'] == RID and sent[0]['leaseToken'] == 'R' * 32
+    assert _states(prod) == [({'living': 'ready', 'kitchen-1': 'not_furnished', 'bedroom-1': 'ready'}, True)]
+    assert prod.by('/api/trial/worker/bundle') == [] and prod.by('/api/trial/worker/result') == []
+    assert prod.by('/api/trial/worker/rebuild/fail') == []
+    hbs = prod.by('/api/trial/worker/rebuild/heartbeat')
+    assert hbs and all(h['id'] == RID and 'stage' not in h for h in hbs) and prod.by('/api/trial/worker/heartbeat') == []
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    consent = json.loads((wd / 'result-consent.json').read_text())
+    flags = {r['id']: r['flags'] for r in consent['panels'][0]['rooms']}
+    assert flags == {'r1': ['dims_mismatch', 'approx_consent'], 'k1': [], 'b1': []}
+    assert (tmp_path / 'scenes' / JID / 'scene.json').exists()            # стадия гостиной шла по заданию, не по id пересборки
+
+
+def test_rebuild_all_releases_every_waiting_room(prod, mk):
+    _rebuild(prod, ['*'], flagged=('r1', 'b1'))
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')]
+    assert _states(prod) == [({'living': 'ready', 'kitchen-1': 'not_furnished', 'bedroom-1': 'ready'}, True)]
+
+
+def test_rebuild_only_chosen_room_others_keep_waiting(prod, mk):
+    """Снята проверка только со спальни — гостиная по-прежнему ждёт проверки (без мебели), спальня обставлена."""
+    _rebuild(prod, ['bedroom-1'], flagged=('r1', 'b1'))
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    st = _states(prod)
+    assert len(st) == 1 and st[0][0]['living'] == 'awaiting_check:dims_mismatch' and st[0][0]['bedroom-1'] == 'ready'
+
+
+def test_rebuild_stale_not_published_and_not_failed_again(prod, mk):
+    """Сервер ответил `stale` (страница сменилась, пока подбирали): версия не записана, воркер не шлёт `fail` — сервер уже пометил."""
+    _rebuild(prod, ['living'])
+    prod.rebuild_codes = [(409, 'stale')]
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'stale')] and prod.bundles == [] and prod.by('/api/trial/worker/rebuild/fail') == []
+
+
+def test_rebuild_nothing_to_furnish_fails_with_code(prod, mk):
+    _rebuild(prod, ['bedroom-1'], flagged=('r1',))                     # спальня не ждёт проверки — снимать нечего
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    fails = prod.by('/api/trial/worker/rebuild/fail')
+    assert len(fails) == 1 and fails[0]['code'] == 'nothing_to_furnish' and fails[0]['retryable'] is False
+    assert prod.bundles == [] and w.done == [(RID, 'fail:nothing_to_furnish:200')]
+
+
+def test_rebuild_lease_lost_kills_stage_and_publishes_nothing(prod, mk, monkeypatch):
+    monkeypatch.setenv('FAKE_LIVING', 'slow')
+    _rebuild(prod, ['living'])
+    w = mk(furnish=True)
+    t0 = time.time()
+    threading.Timer(1.5, lambda: setattr(prod, 'hb_status', 409)).start()
+    w.loop(max_iter=1)
+    assert time.time() - t0 < 20 and w.done == [(RID, 'lost')]
+    assert prod.bundles == [] and prod.by('/api/trial/worker/rebuild/publish') == [] and prod.by('/api/trial/worker/rebuild/fail') == []
+
+
+def test_rebuild_bad_claim_fails_internal(prod, mk):
+    _rebuild(prod, ['living'], result=None)
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert [f['code'] for f in prod.by('/api/trial/worker/rebuild/fail')] == ['internal']
+
+
+def test_without_furnish_worker_does_not_ask_for_rebuilds(prod, mk):
+    _rebuild(prod, ['living'])
+    w = mk(furnish=False)
+    w.loop(max_iter=1)
+    assert 'rebuilds' not in prod.by('/api/trial/worker/claim')[0] and prod.rebuilds and w.done == []

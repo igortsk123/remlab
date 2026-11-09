@@ -492,6 +492,24 @@ def test_scale_from_total_area_furnishes_with_soft_note():
     assert 'scale_note' not in build(simple())['trial']
 
 
+def test_approx_consent_room_released_and_marked():
+    """Р1 «Обустроить»: флаг `approx_consent` в результате (ставит пересборка) снимает проверку как `release`; запись комнаты несёт
+    `approx_consent: true` (страница — «размеры примерные»); прочие комнаты ждут проверки, `scale` остаётся `not_verified`."""
+    flat = flat_with_bedrooms()
+    flat['scale']['status'] = 'not_verified'
+    b1 = next(r for r in flat['panels'][0]['rooms'] if r['id'] == 'b1')
+    b1['flags'] = ['approx_consent']
+    d = TB.build(JOB, flat, None, ctx=CTX, parts=[bedroom_part()])
+    rooms = {r['id']: r for r in d['apartment_rooms']}
+    assert rooms['bedroom-1']['furniture_state'] == 'ready' and rooms['bedroom-1']['approx_consent'] is True
+    assert rooms['living']['furniture_state'] == 'awaiting_check' and 'approx_consent' not in rooms['living']
+    assert d['trial']['scale'] == 'not_verified'
+    # тот же флаг при подтверждённом масштабе — размеры не «примерные», метки нет
+    flat['scale']['status'] = 'verified'
+    d = TB.build(JOB, flat, None, ctx=CTX, parts=[bedroom_part()])
+    assert all('approx_consent' not in r for r in d['apartment_rooms'])
+
+
 def test_parts_matched_by_source_room_and_foreign_room_refused():
     res = flat_with_bedrooms()
     part = bedroom_part('bedroom-7')
