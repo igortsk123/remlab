@@ -50,7 +50,7 @@ async function upload(page: Page, listing = "Lounge 3.77 x 4.20 m", lang: "en" |
   if (!(await sizes.isVisible())) await page.getByText(t.open).click(); // узкий экран — свёрнуто
   await sizes.fill(listing);
   await page.locator("form").getByRole("button", { name: t.button }).click();
-  await page.waitForURL(new RegExp(`/try/[A-Za-z0-9_-]{22}\\?lang=${lang}$`), { timeout: 15_000 }); // язык идёт дальше
+  await page.waitForURL(new RegExp(`/try/[A-Za-z0-9_-]{22}\\?k=[A-Za-z0-9_-]{22}&lang=${lang}$`), { timeout: 15_000 }); // язык и ключ агента (Р1) идут дальше
   return new URL(page.url()).pathname.split("/").pop()!;
 }
 
@@ -70,7 +70,9 @@ async function finish(api: APIRequestContext, lease: { id: string; attempt: numb
 }
 
 // Next срезает косую в конце (`/tour/` → `/tour`); страница тура возвращает её сама (ветка worktree-demo-template, `injectTour`)
-const tourUrl = (id: string, lang: string) => new RegExp(`/try/${id}/tour/?\\?lang=${lang}$`);
+const tourUrl = (id: string, lang: string) => new RegExp(`/try/${id}/tour/?\\?lang=${lang}&k=[A-Za-z0-9_-]{22}$`);
+// ссылка «Открыть тур» у агента несёт его ключ правки (`tourHref`, Р1)
+const tourHrefRe = (id: string, lang: string) => new RegExp(`^/try/${id}/tour/\\?lang=${lang}&k=[A-Za-z0-9_-]{22}$`);
 
 test("загрузка → задание в базе → шаги → готово → переход в тур", async ({ page, request }) => {
   const id = await upload(page);
@@ -95,7 +97,7 @@ test("загрузка → задание в базе → шаги → гото�
   const done = page.getByTestId("trial-done");
   await expect(done.getByRole("heading", { name: "Your 3D is ready" })).toBeVisible({ timeout: 10_000 });
   await expect(stepState(page, "3D ready")).toHaveAttribute("data-state", "done");
-  await expect(done.getByRole("link", { name: "Open the tour" })).toHaveAttribute("href", `/try/${id}/tour/?lang=en`);
+  await expect(done.getByRole("link", { name: "Open the tour" })).toHaveAttribute("href", tourHrefRe(id, "en"));
   await expect(done.getByText(/rooms$/)).toBeVisible(); // сводка из результата: «Ready in м:сс · N rooms»
   await expect(page.getByText("Scale not verified.")).toHaveCount(0);
   await expect(page.getByTestId("grey-tour")).toHaveCount(0); // серого тура больше нет
@@ -132,7 +134,7 @@ test("по-русски: форма → ожидание → готово → т
   const done = page.getByTestId("trial-done");
   await expect(done.getByRole("heading", { name: "3D готово" })).toBeVisible({ timeout: 10_000 });
   await expect(done.getByText("Масштаб не подтверждён.")).toBeVisible();
-  await expect(done.getByRole("link", { name: "Открыть тур" })).toHaveAttribute("href", `/try/${id}/tour/?lang=ru`);
+  await expect(done.getByRole("link", { name: "Открыть тур" })).toHaveAttribute("href", tourHrefRe(id, "ru"));
   await page.waitForURL(tourUrl(id, "ru"), { timeout: 10_000 });
 });
 
