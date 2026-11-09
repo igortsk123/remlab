@@ -1278,33 +1278,30 @@ body.trial .row>.acts{padding-left:0}body.trial #flatRooms>.hint{flex:0 0 100%}b
 .hm-room .nopv.tr-wait{display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;text-align:center;font-size:15px;color:var(--ink)}
 .hm-room .nopv.tr-wait .tr-spin{width:30px;height:30px;border-width:3px;margin:0}
 .hm-room .rb .sum small.tr-wait-tx{color:var(--muted)}
-.vw.pending .vmodes,.vw.pending .vgrip,.vw.pending .vtop,.vw.pending .vscroll,.vw.pending .vcams,.vw.pending .vrow,.vw.pending .vpill{display:none!important}
+/* ОКНО КОМНАТЫ БЕЗ МЕБЕЛИ — ТО ЖЕ ОКНО, ЧТО В /demo (T-20261109-35, владелец 09.11 TG 593/596: «если даже мебели нет — всё равно должно
+   открыться визуально всё как на демо»): панели и шторка на месте, плашки поверх сцены нет; вместо списка товаров — тихая строка
+   по причине (`vwNoneHtml`), у агента с ключом — «Обустроить», если комната ждёт проверки размера */
+.vnone{padding:14px 0 18px;font-size:14px;line-height:1.45;color:var(--muted)}
+.vnone p{margin:0}.vnone .tr-spin{vertical-align:-3px}
+.vnone .btn{margin-top:12px}
+@media(max-width:700px){.vnone{padding:10px 0 16px}}
+/* карточка комнаты без мебели: причина под планом — целиком, в две строки на телефоне, а не обрезанной */
+.hm-room[data-refused] .rb .sum small.tr-wait-tx,.hm-room[data-pending] .rb .sum small.tr-wait-tx{white-space:normal}
 .tr-approx{position:absolute;left:10px;top:10px;z-index:2;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.92);color:#8A4A1F;font-size:12px;line-height:1.3;border:1px dashed #C7652B;pointer-events:none}
 .vstage>.tr-approx{left:50%;top:14px;transform:translateX(-50%);z-index:5;white-space:nowrap}
-.vw.pending .vstage>.tr-approx{top:58px}
-.vpend{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:5;display:flex;align-items:center;padding:9px 16px;border-radius:999px;background:rgba(255,255,255,.94);color:var(--ink);font-size:14px;line-height:1.2;box-shadow:0 4px 18px rgba(0,0,0,.14);white-space:nowrap;pointer-events:none}
-.vpend.none{white-space:normal;width:max-content;max-width:calc(100% - 32px);text-align:center;border-radius:16px;color:#8A4A1F}
 /* карточка пробы без фото: план комнаты с мебелью (тот же рисунок, что план окна) и подпись «Откройте — покажем в 3D» */
 .hm-room .hm-ph .nopv.tr-plan{background:var(--wash,#F3F0EA);padding:42px 14px 44px}
 .hm-room .hm-ph .nopv.tr-plan svg{width:100%;height:100%;display:block}
-/* узкий экран: плашка состояния не заходит под ✕ — в две строки по центру */
-@media(max-width:700px){.vpend{width:max-content;max-width:calc(100% - 120px);white-space:normal;text-align:center}
-/* телефон: состояние уже на плашке сверху — шторка снизу его повторяла («Choosing furniture…» дважды, T-20261109-20/3) */
-.vw.pending .vside{display:none!important}}
 /* узкий экран: «Форма приблизительная» (слева) и «Откройте — покажем в 3D» (справа) в одну строку не помещаются — вторым рядом */
 @media(max-width:700px){.hm-ph:has(.tr-3d)>.tr-approx{top:44px}.hm-room .hm-ph:has(>.tr-approx) .nopv.tr-plan{padding-top:76px}}
 .vstub.tr-flat{background:var(--wash,#F3F0EA);padding:72px 20px 20px}
 .vstub.tr-flat .tr-plan{width:100%;height:100%;max-width:760px}.vstub.tr-flat svg{width:100%;height:100%;display:block}
 .tr-3d{position:absolute;right:10px;top:10px;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.94);color:var(--ink);font-size:12px;line-height:1.3;box-shadow:0 2px 8px rgba(0,0,0,.08)}
-/* шапка пробы: масштаб и две подписанные ссылки */
+/* шапка пробы: подпись масштаба и «Обустроить всё»; ссылок для копирования в туре нет (только на странице ожидания `/try/<id>`, T-35) */
 #trHead{margin:8px 0 10px;display:flex;flex-direction:column;gap:8px}
+#trHead:empty{display:none}
 #trHead .tr-scale{margin:0;align-self:flex-start;padding:4px 10px;border-radius:999px;border:1px dashed #C7652B;color:#8A4A1F;font-size:12px;line-height:1.3}
 #trHead .tr-scale.tr-soft{border:1px solid var(--line);color:var(--muted)}  /* масштаб по общей площади: спокойнее «не подтверждён» */
-#trHead .tr-links{display:flex;flex-wrap:wrap;gap:8px 16px}
-#trHead .tr-link{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);min-width:0}
-#trHead .tr-link>span{flex:1 1 auto;min-width:0}#trHead .tr-link>.btn{flex:none}
-#trHead .tr-link b{color:var(--ink);font-weight:600}
-#trHead .tr-link .btn{padding:5px 12px;font-size:13px;min-height:0}
 /* «Обустроить» (Р1, макет А): строка масштаба с кнопкой, плашка «подбираем…»/«не получилось», пометка под планом, кнопка на карточке */
 #trHead .tr-scrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .btn.tr-fur{padding:6px 14px;font-size:14px;min-height:0;border-color:#3B76A2;color:#3B76A2;background:#fff;font-weight:600}
@@ -1534,7 +1531,8 @@ const varRefused=v=>!!(v&&TRIAL()&&(TR_NONE.test(roomOutcome(roomIdOf(v))||'')||
 const varPending=v=>!!(v&&(v.pending||v.furniture_state==='pending'||(TRIAL()&&roomOutcome(roomIdOf(v))==='pending'))&&!(v.items||[]).length&&!varRefused(v));
 const varNotFurn=v=>!!(v&&TRIAL()&&(roomOutcome(roomIdOf(v))==='not_furnished'||/^(none|not_furnished)$/.test(v.furniture_state||'')));
 const pendTxt=()=>TR_EN()?'Choosing furniture…':'Подбираем мебель…', pendSpin='<i class="tr-spin" aria-hidden="true"></i>';
-const refusedTxt=()=>TR_EN()?'No suitable products under the current templates':'Нет подходящих товаров согласно действующим шаблонам';
+// без служебных слов («шаблоны»), по тону страницы (T-20261109-35, владелец 09.11 TG 596); код причины тот же — `no_products`
+const refusedTxt=()=>TR_EN()?'No matching furniture found':'Подходящей мебели не нашлось';
 const refusedShort=()=>TR_EN()?'no products':'нет товаров';
 const notFurnTxt=()=>TR_EN()?'We don’t furnish this room':'Эту комнату не обставляем', notFurnShort=()=>TR_EN()?'not furnished':'не обставляется';
 const unreadTxt=()=>TR_EN()?'We couldn’t read this room on the plan':'Не удалось разобрать эту комнату на плане', unreadShort=()=>TR_EN()?'not read':'не разобрана';
@@ -1568,30 +1566,19 @@ const approxTag=id=>roomConsent(id)?`<span class="tr-approx" data-consent="1">${
 // ЦЕН В ПРОБЕ НЕТ (план agent-trial-08 В): каталог и рубли — не для агента; режимом — `fmtCard` отдаёт пусто, а места «сумма · N предметов»
 // собирают строку через `trJoin`, чтобы не оставалось «· » и пустых скобок
 const trJoin=(...a)=>a.filter(Boolean).join(' · ');
-// ССЫЛКИ ЗАДАНИЯ (план К): агенту — без опроса `?quiz=0`, покупателю — с опроса `?quiz=1`; язык показа сохраняется
-// ключ правки `k` (Р1) — только в ссылке агента (порядок — как `lib/trial/tour-page.ts:tourLinks`); покупатель его не получает никогда
-function trialLinks(){ const base=location.origin+location.pathname.replace(/[^/]*$/,''), lg='&lang='+(TR_EN()?'en':'ru'), k=trKey();
-  return {agent:base+'?quiz=0'+(k?'&k='+k:'')+lg, buyer:base+'?quiz=1'+lg}; }
-function trialCopy(u){
-  const ok=()=>toast(TR_EN()?'Link copied':'Ссылка скопирована');
-  try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u).then(ok,()=>prompt('',u)); return;} }catch(e){}
-  prompt('',u); }
-// шапка пробы: подпись масштаба и две подписанные ссылки — только у агента (у покупателя `?quiz=1` их нет)
+// ССЫЛКИ ЗАДАНИЯ (агенту — без опроса, покупателю — `?quiz=1`, ключ `k` — только агенту) копируются на странице ожидания `/try/<id>`
+// (`lib/trial/tour-page.ts:tourLinks`); в самом туре блока ссылок нет — верх как у /demo (T-20261109-35, владелец 09.11 TG 615)
+// шапка пробы: подпись масштаба и «Обустроить всё» / плашка пересборки; нечего сказать — блок пустой и скрыт (`#trHead:empty`)
 function trialHead(){
   // под шапкой, в потоке страницы: шапка `.hm-hd` липкая и фиксированной высоты — внутри неё блок наезжал на вкладки (375, 18:28)
   const host=document.getElementById('hmHd'); if(!host)return;
   let box=document.getElementById('trHead'); if(!box){box=document.createElement('div'); box.id='trHead'; host.parentNode.insertBefore(box,host.nextSibling);}
-  const EN=TR_EN(), L=trialLinks(), buyer=/[?&]quiz=1(?:&|$)/.test(location.search);
+  const EN=TR_EN();
   // «Обустроить всё» (Р1) — у агента с ключом, когда ждут проверки несколько комнат или не подтверждён масштаб всей квартиры
   const wait=trAwaiting(), all=trCanFurnish()&&wait.length&&(scaleUnconfirmed()||wait.length>1), note=scaleNoteHtml(['p','tr-scale']);
   box.innerHTML=trBanner()+
     (note||all?`<div class="tr-scrow">${note}`+
-      (all?`<button class="btn tr-fur" type="button" data-tr-furnish="*">${EN?'Furnish all':'Обустроить всё'}</button>`:'')+`</div>`:'')+
-    (buyer?'':`<div class="tr-links"><div class="tr-link"><span><b>${EN?'Your link':'Ваша ссылка'}</b> — ${EN?'opens without the quiz':'без опроса'}</span>`+
-      `<button class="btn" type="button" data-tr-copy="agent">${EN?'Copy':'Скопировать'}</button></div>`+
-      `<div class="tr-link"><span><b>${EN?'Link for your buyer':'Ссылка для покупателя'}</b> — ${EN?'starts with a short quiz':'начинается с короткого опроса'}</span>`+
-      `<button class="btn" type="button" data-tr-copy="buyer">${EN?'Copy':'Скопировать'}</button></div></div>`);
-  box.querySelectorAll('[data-tr-copy]').forEach(b=>{b.onclick=()=>trialCopy(L[b.dataset.trCopy]);});
+      (all?`<button class="btn tr-fur" type="button" data-tr-furnish="*">${EN?'Furnish all':'Обустроить всё'}</button>`:'')+`</div>`:'');
   box.querySelectorAll('[data-tr-act]').forEach(b=>{b.onclick=()=>b.dataset.trAct==='reload'?location.reload():trFurnish(TRB.want||'*');});
 }
 function trialSetup(){
@@ -2030,7 +2017,8 @@ function homeTipClose(id){const t=lsJson(TIP_KEY,{}); if(t[id])return; t[id]=1; 
 function homeTips(){
   const t1=document.getElementById('hmTip1'), t2=document.getElementById('hmTip2'); if(!t1||!t2)return;
   const on=!!D&&curScreen()==='room', T=lsJson(TIP_KEY,{}), seen=homeSeenSet().size>0, EN=LANG==='en';
-  t1.hidden=!(on&&!seen&&!T.t1); t2.hidden=!(on&&seen&&!T.t2);
+  // проба: «отправьте выбор риелтору» — некуда (кнопки отправки в пробе нет, `homeSend`) — вторую подсказку не показываем
+  t1.hidden=!(on&&!seen&&!T.t1); t2.hidden=!(on&&seen&&!T.t2)||TRIAL();
   t1.querySelector('span').textContent=EN?'Change the furniture, finishes and style of any room':'Меняйте мебель, отделку и стиль любой комнаты';
   t2.querySelector('span').textContent=EN?'When you are done, send your selection to the agent':'Когда закончите, отправьте выбор риелтору';
   t1.querySelector('button').setAttribute('aria-label',EN?'Close the tip':'Закрыть подсказку');
@@ -5794,11 +5782,15 @@ function drawHome(force){
     // подпись картинки — стиль ПОКАЗАННОГО варианта (у подменённой комнаты он свой); `data-style` — запрошенный для комнаты стиль
     // (раскладка, home-mix-01), `data-shown` — только у подменённой, для проверок
     const vs=styleIdOf(c.v), alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===vs)||{}).title), on=c.r.id===shownId;
-    if(c.pending||c.refused){const mark=c.pending?pendSpin:'', msg=c.pending?pendTxt():varNoneTxt(c.v);
+    // КОМНАТА БЕЗ МЕБЕЛИ — ТА ЖЕ КАРТОЧКА, ЧТО ОБСТАВЛЕННАЯ (T-20261109-35): план пустой комнаты (стены, окна, двери) и «Откройте — покажем
+    // в 3D»; под ним вместо «N товаров» — тихая строка по причине. Плана нет (нет размеров комнаты) — прежняя надпись в рамке
+    if(c.pending||c.refused){const mark=c.pending?pendSpin:'', msg=c.pending?pendTxt():varNoneTxt(c.v), pl=TRIAL()?trialPlanSvg(c.v):'';
       return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b><span>${mark}${c.pending?msg:varNoneShort(c.v)}</span></button>`+
       `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}" data-variant="${escHtml(c.v.id)}" data-open="${c.i}" ${c.pending?'data-pending':'data-refused'}="1">`+
-      `<div class="hm-ph" data-open="${c.i}"><div class="nopv tr-wait">${mark}<span>${msg}</span></div>${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
-      `<div class="rb"><div class="sum"><small class="tr-wait-tx">${c.pending?(EN?'Your rooms are ready — furniture is on the way':'Комнаты готовы — мебель появится здесь'):(c.refused&&TRIAL()?varNoneTxt(c.v):(EN?'The room is ready, without furniture':'Комната готова, без мебели'))}</small></div>`+
+      `<div class="hm-ph" data-open="${c.i}">`+
+        (pl?`<div class="nopv tr-plan">${pl}<span class="tr-3d">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</span></div>`:`<div class="nopv tr-wait">${mark}<span>${msg}</span></div>`)+
+        `${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
+      `<div class="rb"><div class="sum"><small class="tr-wait-tx">${mark}${msg}</small></div>`+
       // ждёт проверки размера — у агента с ключом «Обустроить» прямо на карточке (Р1)
       (c.refused&&TRIAL()&&trCanFurnish()&&roomOutcome(c.r.id)==='awaiting'?`<button class="btn tr-fur" type="button" data-tr-furnish="${escHtml(c.r.id)}">${EN?'Furnish':'Обустроить'}</button>`:'')+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;}
@@ -7706,8 +7698,9 @@ const VW={mode:'photo', photo:0, pinsT:0};
 const vwCam=()=>'C'+(VW.photo+1);
 const vwCamN=()=>Math.max(1,((typeof cams!=='undefined'&&cams)||loadCams()).length);
 function vwSum(){
-  if(varPending(allVariants()[cur]))return pendSpin+`<span>${pendTxt()}</span>`;
-  if(varRefused(allVariants()[cur]))return `<span>${varNoneShort(allVariants()[cur])}</span>`;
+  // комната без мебели — та же плашка, что «N товаров» (T-20261109-35): коротко, почему пусто; подробно — строкой вместо списка
+  if(varPending(allVariants()[cur]))return `<div class="vpl-h"><span>${pendSpin}${pendTxt()}</span></div>`;
+  if(varRefused(allVariants()[cur]))return `<div class="vpl-h"><span>${varNoneShort(allVariants()[cur])}</span></div>`;
   const v=allVariants()[cur]||{}, n=variantCount(v), sum=variantPrice(v), EN=LANG==='en';
   const cert=(FLAT&&FLAT.certificate&&FLAT.certificate.amount)||0;
   const word=itemsWord(n);
@@ -7756,8 +7749,17 @@ function vwSumUpdate(){
 }
 // чип «⌃ Мебель и отделка · 11 (X ₽)» (макет 373:7035): X — сумма этой комнаты, та же, что «Эта комната» в легенде шкалы
 function vwChipText(){ const v=allVariants()[cur]||{}, n=variantCount(v), EN=LANG==='en';
+  if(!n&&(varRefused(v)||varPending(v)))return EN?'⌃ Furniture & finishes':'⌃ Мебель и отделка';   // комната без мебели — без «· 0»
   const p=fmtCard(toCard(variantPrice(v)));   // проба: цены нет — без пустых скобок
   return (EN?'⌃ Furniture & finishes · ':'⌃ Мебель и отделка · ')+n+(p?' ('+p+')':''); }
+// СТРОКА ВМЕСТО СПИСКА ТОВАРОВ (T-20261109-35): комната без мебели — почему (по коду исхода, RU/EN) и что можно сделать: агенту с ключом —
+// «Обустроить», если комната ждёт проверки размера (та же кнопка, что на карточке и плане, `data-tr-furnish`)
+function vwNoneHtml(){ const v=allVariants()[cur], EN=LANG==='en';
+  if(varPending(v))return `<div class="vnone"><p>${pendSpin}${EN?'Choosing furniture — it will appear here':'Подбираем мебель — она появится здесь'}</p></div>`;
+  if(!varRefused(v))return '';
+  const id=roomIdOf(v), aw=roomOutcome(id)==='awaiting'&&trCanFurnish();
+  return `<div class="vnone" data-outcome="${escHtml(roomOutcome(id)||'')}"><p>${escHtml(varNoneTxt(v))}${aw?(EN?'. You can furnish it as is — sizes will be approximate.':'. Можно обустроить как есть — размеры будут примерными.'):''}</p>`+
+    (aw?`<button class="btn tr-fur" type="button" data-tr-furnish="${escHtml(id)}">${EN?'Furnish':'Обустроить'}</button>`:'')+`</div>`; }
 // СТРОКА ШТОРКИ (макет 373:7035, владелец TG 447–448, 451): «Сканди · Другой стиль для комнаты ›» — видна сразу, в свёрнутой шторке; название стиля этой комнаты, у сохранённой расстановки — её имя;
 // «Другой стиль для комнаты» — окно выбора только для этой комнаты (`mixOpen(комната)`), если у комнаты есть другой стиль
 function vwCanStyle(){ const v=allVariants()[cur]||{}; return !!D&&!v.cid&&!v.mine&&mixRoomList(roomIdOf(v)).length>1; }
@@ -7778,8 +7780,10 @@ function vwHtml(s, navs, list){
   // `.vpan` — полоса прокрутки фото: на телефоне фото двигается пальцем влево-вправо (demo-22 п.3), на компьютере — просто рамка
   // плашки «⤢ во весь экран» поверх фото нет (владелец TG 522, 07.11): во весь экран — тапом (кликом) по фото, `vwTapZoom`
   const img=s.url?`<img class="vblur" src="${s.url}" alt="" aria-hidden="true"><div class="vpan"><img class="vmain" src="${s.url}" alt="${styleOf(s)}" draggable="false"></div>`:'';
-  const refused=varRefused(allVariants()[cur]), pending=refused||varPending(allVariants()[cur]);   // проба: мебель подбирается или товаров нет — плашка поверх пустой комнаты, панели товаров и камер убраны
-  return `<div class="vw${pending?' pending':''}"><div class="vstage">${pending?`<div class="vpend${refused?' none':''}">${refused?'':pendSpin}<span>${refused?varNoneTxt(allVariants()[cur]):pendTxt()}</span></div>`:''}${approxTag(roomIdOf(allVariants()[cur]||{}))}<div class="shotwrap">${img}${navs}${old}</div>`+
+  // проба: мебель подбирается или товаров нет — ТО ЖЕ окно (T-20261109-35): пустая комната в 3D, ракурсы и шторка на месте, вместо списка —
+  // строка по причине (`vwNoneHtml`); `data-empty` — для проверок, вид от него не зависит
+  const v0=allVariants()[cur], empty=varRefused(v0)?'none':varPending(v0)?'pending':'';
+  return `<div class="vw"${empty?` data-empty="${empty}"`:''}><div class="vstage">${approxTag(roomIdOf(v0||{}))}<div class="shotwrap">${img}${navs}${old}</div>`+
     `<div class="vmodes" role="tablist"><button data-vm="photo" class="${VW.mode==='photo'?'on':''}">Фото</button>`+
     // «Фото | 3D» без «План» (макет 373:7035, home-figma-02): план квартиры — на главной; режим `plan` в коде остаётся
     `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button></div>`+
@@ -7810,7 +7814,7 @@ function vwHtml(s, navs, list){
     `<div class="vlist" id="vlist"><div class="vgroups" id="vGroups">${vwGroupsHtml()}</div>`+
     `<div class="vgsec"><button class="vopts-back" id="vOptsBack">${EN?'← Back':'← Назад'}</button><b id="vgTitle">${vwGroupTitle(VW.group)}</b></div>`+
     `<div class="vopts" id="vOpts"><div class="vfloor" id="vfloor">${devFloorHtml()}</div></div>`+
-    `<div class="vfitted" id="vfitted">${devFittedHtml()}</div><div class="vitems">${list}${fxNote()}</div></div></div></div></div>`;
+    `<div class="vfitted" id="vfitted">${devFittedHtml()}</div><div class="vitems">${list||vwNoneHtml()}${fxNote()}</div></div></div></div></div>`;
 }
 // ↶ ↷ БЕЗ СЧЁТЧИКА (владелец 16.10, п.3: «Layout 4 of 4 — не понимаю, что это и зачем»): пока правок нет — кнопок нет; после
 // правки — активный ↶; «Расстановка N из M» — только в режиме отладки `?debug=1`

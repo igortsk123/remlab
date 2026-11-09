@@ -8,7 +8,7 @@ import { TOKEN_RE } from "@/lib/token";
 const BLOCK = String.raw`/^\/(?:api|test\/share)(?:\/|$)/`;
 
 /** Две ссылки задания: агент смотрит без опроса, покупатель начинает с опроса. Ключ правки `k` (Р1) — только в ссылке агента
- *  (тот же порядок строит страница, `trialLinks` в `index.html`); покупатель его никогда не получает. */
+ *  покупатель его никогда не получает. Копируются только на странице ожидания `/try/<id>` — в самом туре блока ссылок нет (T-20261109-35). */
 export const tourLinks = (id: string, k?: string | null): { agent: string; buyer: string } => ({
   agent: `/try/${id}/tour/?quiz=0${k && TOKEN_RE.test(k) ? `&k=${k}` : ""}`,
   buyer: `/try/${id}/tour/?quiz=1`,
