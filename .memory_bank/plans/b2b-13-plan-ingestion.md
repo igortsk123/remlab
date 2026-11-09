@@ -7,7 +7,7 @@ pause_reason: "п.1 исследование сделано 14.10 (Codex, `_inta
 resume_trigger: "Владелец прислал 3 планировки (желательно DXF + PDF)"
 review_after: 2026-12-14
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-11-09
 completed:
 plan_kind: sub
 parent_plan: MASTER-developer-product
@@ -69,6 +69,7 @@ review_after: 2027-01-13
 - [ ] `core/room-measurement.md` переписать как «входы геометрии» (план + фото); ADR; `/memory-check`
 
 ## Лог выполнения
+- 2026-11-09 — владелец TG 198: бриф-исследование «растр → семантический вектор» (`_intake/floorplan-raster-research-owner-2026-11-09.md`, источник: владелец, desk research; кандидаты floorplan-vectorizer MIT, FloorPlan Vision, Raster2Seq — веса CC BY-NC) + обещал примеры планов → «протестить и выбрать путь». Ждём картинки; затем прототип п.3 (растровая ветка) на них.
 - 2026-10-14 — Opus 5.5: п.1 исследование — Codex (vercel, с источниками), итог в плане; прототип ждёт 3 образца (вопрос 27).
 - 2026-10-13 — план создан (draft), Fable 5.1; старт — после `b2b-06`; бесплатный тест с девелоперами НЕ ждёт этого плана: их планировки заводятся вручную контрактом `b2b-06`
 
