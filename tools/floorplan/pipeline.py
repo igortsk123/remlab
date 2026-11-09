@@ -42,7 +42,8 @@ MAX_PIXELS = 40_000_000          # картинка ≤ 40 Мп (картинк�
 MAX_SIDE = 2000                  # лист приводится к ≤ 2000 px по длинной стороне: перебор масштаба стенда — 18…134 px/м
 PDF_PAGES, PDF_DPI = 2, 150
 PDF_TIMEOUT_S, PDF_AS_BYTES = 30, 1 << 30
-WALL_T_M = 0.20                  # без подписей: масштаб по толщине стены (D–G: толщина/ppm = 0,18…0,27 м) — not_verified
+WALL_T_M = 0.20                  # без подписей: масштаб по толщине стены (D–G: толщина/ppm = 0,18…0,27 м) — not_verified;
+                                 # есть общая площадь (текст/лист) — масштаб по ней, статус `area` (`scale_of`, T-20261109-26)
 SLOT_LABEL, SLOT_MIN_GB, SLOT_TIMEOUT_S = 'trial-floorplan', 2.5, 60
 MAX_PANELS, MAX_ROOMS, MAX_OPENINGS, MAX_POLYS, MAX_HOLES, MAX_RING = 4, 80, 400, 400, 200, 4000
 RESULT_MAX_BYTES = 2 * 1024 * 1024 - 64 * 1024
@@ -392,7 +393,106 @@ def _room_flags(names, G_by, dims_by, scale_ok):
     return list(dict.fromkeys(fl))[:30]
 
 
-def scale_of(log: dict, G: dict, guess: bool) -> dict:
+AREA_WALL_T_M = (0.08, 0.60)      # масштаб по общей площади даёт стену такой толщины — иначе площадь не про этот лист
+AREA_CONFLICT_REL = 0.10          # подписи/текст против общей площади: расхождение масштаба > 10 % — флаг (опора подписей остаётся)
+# Знаменатель честен, только если найдено всё здание: подпись VLM без найденной комнаты = кусок площади мимо знаменателя,
+# и масштаб по площади раздувает ВСЕ метры (стенд без размеров: E 14/65 без комнаты → +33 %, F 4/25 — два корпуса → +21 %,
+# G 5/73 → +5 %; с размерами ≤ 3/65). Доля потерянных подписей больше этой — площадь не берём (`area_unusable:coverage`).
+AREA_MISSED_MAX = 0.10
+
+
+def _excluded(names, excl) -> bool:
+    import listing
+    s = ' '.join(names or []).lower()
+    return any(r in s for r in tuple(listing.OPEN_AIR) + tuple(excl or ()))
+
+
+def area_scale(log: dict, models: dict, area: dict) -> dict:
+    """Общая площадь → масштаб ВСЕГО листа (px/м). Знаменатель — пиксели² того же, что считает площадь:
+    • `gia` (британская Total/GIA, RICS): по внутренней грани наружных стен С внутренними стенами — `bench.gia_px`
+      каждой панели (`gia_m2 × ppm²`);
+    • `rooms` (русская «общая площадь»): сумма помещений без стен — комнаты моделей (`area_m2 × ppm²`).
+    Балконы/террасы/лоджии (в GIA и в «общую» не входят) и то, что подпись исключает («excl. garage»), — вычитаются
+    по именам комнат. Проверки: найдено всё здание (подписей VLM без комнаты ≤ AREA_MISSED_MAX, `coverage`), стена по
+    этому масштабу правдоподобной толщины (`wall_thickness`). → {'ppm', 'px2', 'excluded_px2', 'wall_t_m', 'missed', 'ok', 'why'}."""
+    labs = [q for P in log['panels'] for q in P.get('label_report') or []
+            if not _excluded([str(q.get('name') or '')], area.get('excl'))]
+    lost = [q for q in labs if q.get('room') is None]
+    missed = (len(lost), len(labs))
+    if labs and len(lost) / len(labs) > AREA_MISSED_MAX:
+        return {'ok': False, 'why': 'coverage', 'missed': missed}
+    px2 = ex = 0.0
+    for P in log['panels']:
+        ppm = float(P.get('ppm') or 0)
+        m = models.get(tuple(P['bbox_px']))
+        if ppm <= 0 or m is None:
+            continue
+        rooms_px = sum(float(r.get('area_m2') or 0) * ppm * ppm for r in m.get('rooms', []))
+        ex_px = sum(float(r.get('area_m2') or 0) * ppm * ppm for r in m.get('rooms', []) if _excluded(r.get('names'), area.get('excl')))
+        px2 += (float(P.get('gia_m2') or 0) * ppm * ppm if area['conv'] == 'gia' else rooms_px) - ex_px
+        ex += ex_px
+    if px2 <= 0:
+        return {'ok': False, 'why': 'no_area_px', 'missed': missed}
+    ppm = math.sqrt(px2 / float(area['m2']))
+    t_m = float(log.get('thickness_px') or 0) / ppm
+    ok = AREA_WALL_T_M[0] <= t_m <= AREA_WALL_T_M[1]
+    return {'ok': ok, 'why': None if ok else 'wall_thickness', 'ppm': ppm, 'px2': round(px2), 'excluded_px2': round(ex),
+            'wall_t_m': round(t_m, 3), 'missed': missed}
+
+
+def _scale_model(m: dict, k: float) -> dict:
+    """Модель панели в метрах × k (масштаб по площади поверх прогона по толщине стены): контуры, стены, проёмы, площади."""
+    def ring(r):
+        return [[p[0] * k, p[1] * k] for p in r]
+    out = dict(m)
+    out['floors'] = [dict(f, outer=ring(f['outer']), holes=[ring(h) for h in f.get('holes') or []]) for f in m.get('floors', [])]
+    out['rooms'] = [dict(r, area_m2=float(r.get('area_m2') or 0) * k * k) for r in m.get('rooms', [])]
+    out['bands'] = [dict(b, polys=[dict(p, outer=ring(p['outer']), holes=[ring(h) for h in p.get('holes') or []])
+                                   for p in b.get('polys', [])]) for b in m.get('bands', [])]
+    out['openings'] = [dict(o, c=[o['c'][0] * k, o['c'][1] * k], width_m=float(o.get('width_m') or 0) * k)
+                       for o in m.get('openings', [])]
+    return out
+
+
+def scale_of(log: dict, G: dict, guess: bool, area: dict | None = None, models: dict | None = None,
+             skipped: bool = False) -> tuple[dict, list, dict]:
+    """Порядок опор: подписи плана (verified, ≥ 2 инлаера с размером с листа) → размеры текстом (listing) → общая площадь
+    (area: только при угаданном по толщине стены масштабе) → толщина стены (not_verified, плашка `Scale not verified`).
+    Общая площадь при подписях/тексте — только сверка: разошлась > AREA_CONFLICT_REL — флаг `scale_area_conflict`.
+    → (scale, флаги результата, k — множитель метров моделей по bbox панели: пусто, кроме `area`)."""
+    scale, fl, k = _scale_labels(log, G, guess), [], {}
+    if not area:
+        return scale, fl, k
+    scale.update(areaM2=round(float(area['m2']), 1), areaSrc=area['src'])
+    if skipped:                                               # общая — про все листы PDF, а прочитаны не все
+        return scale, fl + ['area_pages_skipped'], k
+    a = area_scale(log, models or {}, area)
+    if not a['ok']:
+        return scale, fl + [f"area_unusable:{a['why']}"], k
+    if scale['status'] == 'not_verified':
+        # панели — куски одного листа: пиксель один, масштаб листа один; метры панели × (её прежний ppm / новый)
+        k = {tuple(P['bbox_px']): float(P['ppm']) / a['ppm'] for P in log['panels'] if float(P.get('ppm') or 0) > 0}
+        scale.update(status='area', ppm=round(a['ppm'], 3))
+        fl += ['scale_from_area'] + [f for f in area.get('flags') or []]
+    else:
+        # сверка: площадь по найденному масштабу (у каждой панели свой) против общей, в линейной мере
+        got = sum(_area_m2_of(P, models or {}, area) for P in log['panels'])
+        if got > 0 and abs(math.sqrt(got / float(area['m2'])) - 1) > AREA_CONFLICT_REL:
+            fl.append('scale_area_conflict')
+    return scale, fl, k
+
+
+def _area_m2_of(P: dict, models: dict, area: dict) -> float:
+    """Площадь панели в м² по её собственному масштабу, в той же мере, что общая (gia / rooms, без исключённого)."""
+    m = models.get(tuple(P['bbox_px']))
+    if m is None:
+        return 0.0
+    ex = sum(float(r.get('area_m2') or 0) for r in m.get('rooms', []) if _excluded(r.get('names'), area.get('excl')))
+    base = float(P.get('gia_m2') or 0) if area['conv'] == 'gia' else sum(float(r.get('area_m2') or 0) for r in m.get('rooms', []))
+    return max(0.0, base - ex)
+
+
+def _scale_labels(log: dict, G: dict, guess: bool) -> dict:
     """verified — подписи плана сошлись (≥ 2 инлаера с размером с листа); listing — опора на размеры из текста;
     иначе not_verified (тур есть, плашка `Scale not verified`)."""
     src = {g['name']: g.get('dims_src') for g in G['rooms']}
@@ -478,17 +578,25 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
             'openings': openings[:MAX_OPENINGS], '_trunc': len(rooms) > MAX_ROOMS}
 
 
-def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: float, timings: dict, flags: list,
-              guess: bool) -> dict:
-    scale = scale_of(log, G, guess)
-    G_by = {g['name']: g for g in G['rooms']}
-    models = {}
+def _models(out: Path, plan: str) -> dict:
+    ms = {}
     for p in out.glob(f'model-{plan}-*.json'):
         m = json.loads(p.read_text())
-        models[tuple(m['bbox_px'])] = m
+        ms[tuple(m['bbox_px'])] = m
+    return ms
+
+
+def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: float, timings: dict, flags: list,
+              guess: bool, area: dict | None = None) -> dict:
+    G_by = {g['name']: g for g in G['rooms']}
+    models = _models(out, plan)
     flags = list(flags)
-    if guess:
+    scale, afl, k = scale_of(log, G, guess, area, models, 'pages_skipped' in flags)
+    if k:
+        models = {bb: _scale_model(m, k[bb]) if bb in k else m for bb, m in models.items()}
+    if guess and scale['status'] != 'area':
         flags.append('scale_from_wall_thickness')
+    flags += afl
     if not G['rooms']:
         flags.append('no_labels')
     for nd in (1, 0):
@@ -560,6 +668,9 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
         raw = vlm.parse((vlm_dir / f'raw-{plan}-labels2.txt').read_text()) or {}
         if raw.get('_truncated'):
             fl.append('vlm_truncated')
+        import listing
+        area, afl = listing.pick_area(listing.total_area(listing_text or ''), listing.sheet_area(raw.get('areas')))
+        fl += afl
         G = bench.blind_gold(plan, image, str(vlm_dir), str(lst) if lst else None)
         C = bench.auto_cfg(cv2.imread(str(image), cv2.IMREAD_COLOR))
         T['labels'] = time.time() - t0
@@ -569,7 +680,7 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
     T['walls'] = time.time() - t1 - meta['slot_wait']
     t2 = time.time()
     stage('export')
-    res = to_result(log, out, plan, G, source, v['usd'], T, fl, meta['guess_ppm'] is not None)
+    res = to_result(log, out, plan, G, source, v['usd'], T, fl, meta['guess_ppm'] is not None, area)
     res['timings']['export'] = round(time.time() - t2, 2)
     (workdir / 'gold.json').write_text(json.dumps({k: x for k, x in G.items() if k != '_labels'}, ensure_ascii=False,
                                                   default=float))

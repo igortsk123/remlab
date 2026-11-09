@@ -481,6 +481,17 @@ def test_scale_unverified_whole_flat_awaits_check_by_switch(monkeypatch):
     assert {r['furniture_state'] for r in d['apartment_rooms'] if r['kind'] in ('living', 'bedroom')} == {'pending'}
 
 
+def test_scale_from_total_area_furnishes_with_soft_note():
+    """T-26: масштаб по общей площади (`area`) — комнаты обставляются как обычно, на плане мягкая пометка ru/en; у прочих — без неё."""
+    flat = flat_with_bedrooms()
+    flat['scale']['status'] = 'area'
+    d = TB.build(JOB, flat, None, ctx=CTX)
+    assert {r['furniture_state'] for r in d['apartment_rooms'] if r['kind'] in ('living', 'bedroom')} == {'pending'}
+    assert d['trial']['scale'] == 'area' and set(d['trial']['scale_note']) == {'ru', 'en'}
+    assert 'примерн' in d['trial']['scale_note']['ru'] and 'approximate' in d['trial']['scale_note']['en']
+    assert 'scale_note' not in build(simple())['trial']
+
+
 def test_parts_matched_by_source_room_and_foreign_room_refused():
     res = flat_with_bedrooms()
     part = bedroom_part('bedroom-7')

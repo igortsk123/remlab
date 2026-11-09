@@ -80,3 +80,50 @@ def test_match_text_disagrees_with_plan_keeps_plan_and_flags():
     got, _ = ls.match([{'name': 'Study', 'dims': (3.2, 2.93)}], ls.parse_listing('Study 3.60m x 2.93m'))
     assert got[0]['dims'] == (3.2, 2.93)
     assert any('≠ план' in f for f in got[0]['text_flags'])
+
+
+# ── общая площадь (T-20261109-26) ──
+
+@pytest.mark.parametrize('text, m2, conv, approx', [
+    ('Total area 72.5 m²', 72.5, 'gia', False),
+    ('Approx. Gross Internal Area 780 sq ft', 72.46, 'gia', True),
+    ('Approximate total area\n1,347 sq ft / 125.2 sq m', 125.2, 'gia', True),
+    ('GIA: 90.3 sqm (973 sq ft)', 90.3, 'gia', False),
+    ('Общая площадь 54,3 м²', 54.3, 'rooms', False),
+    ('Квартира, площадь общая — 61 кв. м', 61.0, 'rooms', False),
+    ('Lovely flat.\n780 sq ft of space', 72.46, 'gia', False),
+])
+def test_total_area_formats(text, m2, conv, approx):
+    a = ls.total_area(text)
+    assert a is not None and a['m2'] == pytest.approx(m2, abs=0.05)
+    assert a['conv'] == conv and a['approx'] is approx and a['src'] == 'text'
+
+
+def test_total_area_keyed_wins_and_ambiguous_is_none():
+    txt = 'Lounge 3.77m x 4.20m\nBedroom 1 12.4 m²\nTotal area 72.5 m² (excl. balcony and garage)\n'
+    a = ls.total_area(txt)
+    assert a['m2'] == 72.5 and set(a['excl']) == {'balcon', 'garage'}
+    assert ls.total_area('Bedroom 1 12.4 m²\nBedroom 2 9.8 m²') is None          # две разные площади без ключа — не угадываем
+    assert ls.total_area('Total area 72.5 m²\nTotal area 95 m²') is None           # две разные «общие»
+    assert ls.total_area('Lounge 3.77m x 4.20m\nKitchen 12\'3" x 6\'9"') is None  # размеры комнат — не площадь
+    assert ls.total_area('') is None and ls.total_area('Total area 3 m²') is None
+    assert 'area_m2_ne_sqft' in ls.total_area('Total area 72.5 m² / 900 sq ft')['flags']
+
+
+def test_sheet_area_total_label_or_sum_of_parts():
+    rows = [{'label': 'Farmhouse', 'm2': 213.1}, {'label': 'Garage', 'm2': 71.6}, {'label': 'Total', 'm2': 804.1}]
+    assert ls.sheet_area(rows)['m2'] == 804.1 and ls.sheet_area(rows)['flags'] == []
+    parts = ls.sheet_area([{'label': 'Ground Floor', 'm2': 63.9}, {'label': 'First Floor', 'm2': 61.3}])
+    assert parts['m2'] == 125.2 and parts['flags'] == ['area_sum_of_parts']
+    ex = ls.sheet_area([{'label': 'Approximate total area (excl. balconies)', 'm2': 90.3}])
+    assert ex['excl'] == ['balcon'] and ex['approx'] and ex['src'] == 'sheet'
+    assert ls.sheet_area([]) is None and ls.sheet_area([{'label': 'x', 'm2': 'n/a'}]) is None
+
+
+def test_pick_area_text_and_sheet():
+    t, s = ls.total_area('Total area 90 m²'), ls.sheet_area([{'label': 'Total', 'm2': 91.0}])
+    a, fl = ls.pick_area(t, s)
+    assert a['src'] == 'both' and a['m2'] == 90 and fl == []
+    a, fl = ls.pick_area(t, ls.sheet_area([{'label': 'Total', 'm2': 120.0}]))
+    assert a is None and fl == ['area_conflict']                                    # разошлись > 5 % — опоры нет, флаг
+    assert ls.pick_area(None, s)[0]['src'] == 'sheet' and ls.pick_area(None, None) == (None, [])

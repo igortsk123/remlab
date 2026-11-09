@@ -1,6 +1,8 @@
 """Модуль стенда для пробы агентов (agent-trial-01, T-B): слепой план → `floorplanResult`.
 
-Тяжёлые (A/B/C, «без подписей», «размеры из текста») гоняют настоящий `bench.run_plan` на листах стенда и ответах VLM
+Лёгкие `test_area_*` (T-20261109-26) — масштаб по общей площади на синтетике: знаменатель GIA/комнаты, балкон и «excl.»,
+конфликт с подписями — флаг, неправдоподобная площадь и пропущенные листы — прежний not_verified.
+Тяжёлые (A/B/C, «без подписей», «без подписей, но с общей площадью листа», «размеры из текста») гоняют настоящий `bench.run_plan` на листах стенда и ответах VLM
 из кэша (`~/remlab-logs/floorplan-bench/vlm-t04`, 0 $; платный вопрос — падение теста); запускать под
 `tools/ops/heavy-slot.sh`. Нет кэша (CI, другая машина) — пропуск. TRIAL_TEST_FAST=1 — без C (C — 4–11 мин).
 Результат сверяется с выгрузкой контракта `tests/fixtures/trial-result.schema.json` + refine «bbox — проекция контура».
@@ -116,13 +118,15 @@ def out_root():
     return d
 
 
-def stripped_vlm(dst: Path):
-    """Кэш A для плана «T» без единого размера на листе (dims_m → null)."""
+def stripped_vlm(dst: Path, keep_areas: bool = False):
+    """Кэш A для плана «T» без единого размера на листе (dims_m → null); общая площадь листа (125,2 м²) — только с keep_areas."""
     dst.mkdir(parents=True, exist_ok=True)
     import vlm
     d = vlm.parse((VLM / 'raw-A-labels2.txt').read_text())
     for r in d['rooms']:
         r['dims_m'] = None
+    if not keep_areas:
+        d['areas'] = []
     (dst / 'raw-T-labels2.txt').write_text(json.dumps(d))
     for k in ('panels', 'unlabeled'):
         shutil.copyfile(VLM / f'raw-A-{k}.txt', dst / f'raw-T-{k}.txt')
@@ -171,6 +175,22 @@ def test_no_printed_dims_is_not_verified(out_root):
     rooms = [r for p in res['panels'] for r in p['rooms']]
     assert rooms and all('scale_unverified' in r['flags'] for r in rooms)
     assert all('dims' not in r for r in rooms)
+
+
+@heavy
+def test_no_printed_dims_scale_from_sheet_area(out_root):
+    """Размеров на листе нет, общая площадь листа есть (A: Total area 125,2 м²) → статус `area`, комнаты без `scale_unverified`,
+    сумма комнат — доля GIA (комнаты без стен): не больше листа и не меньше 3/4."""
+    v = stripped_vlm(out_root / 'vlm-area', keep_areas=True)
+    res = pl.run(IMG['A'], '', out_root / 'area', vlm_dir=v, ask=forbid_ask, slot=False)
+    assert_contract(res)
+    sc = res['scale']
+    assert sc['status'] == 'area' and sc['areaM2'] == 125.2 and sc['areaSrc'] == 'sheet' and sc['ppm'] > 0, sc
+    assert 'scale_from_area' in res['flags'] and 'scale_from_wall_thickness' not in res['flags']
+    rooms = [r for p in res['panels'] for r in p['rooms']]
+    assert rooms and not any('scale_unverified' in r['flags'] for r in rooms)
+    total = sum(r['areaM2'] for r in rooms)
+    assert 0.75 * 125.2 <= total <= 125.2, total
 
 
 @heavy
@@ -335,6 +355,114 @@ def test_to_result_scale_status_rules(tmp_path):
     res = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], True)                                    # масштаб по толщине стены
     assert res['scale']['status'] == 'not_verified' and res['scale']['ppm'] is None
     assert all('scale_unverified' in r['flags'] for r in res['panels'][0]['rooms'])
+
+
+def area_synth(gia_m2=30.0, ppm=50.0, extra_rooms=()):
+    """Прогон «по толщине стены» (ppm угадан = 50 px/м, стена 10 px = 0,2 м) с GIA панели `gia_m2` при этом ppm."""
+    log, models, G = synth()
+    log['thickness_px'] = 10.0
+    log['panels'][0].update(ppm=ppm, gia_m2=gia_m2, inliers=[], fit={'n': 0})
+    for i, (name, a) in enumerate(extra_rooms):
+        rid = 20 + i
+        x = 20.0 + 3 * i
+        models[0]['floors'].append({'outer': [[x, 0], [x + 2, 0], [x + 2, 2], [x, 2]], 'holes': [], 'room': rid})
+        models[0]['rooms'].append({'id': rid, 'names': [name], 'area_m2': a})
+    return log, models, G
+
+
+def area(m2, conv='gia', src='text', excl=()):
+    return {'m2': m2, 'src': src, 'approx': True, 'excl': list(excl), 'conv': conv, 'raw': '', 'flags': []}
+
+
+def test_area_scale_when_only_wall_thickness(tmp_path):
+    """Без подписей: GIA 30 м² при угаданных 50 px/м = 75 000 px²; общая 120 м² → 25 px/м, метры × 2, статус `area`."""
+    log, models, G = area_synth()
+    write_models(tmp_path, models)
+    res = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], True, area(120.0))
+    assert_contract(res)
+    assert res['scale'] == {'status': 'area', 'ppm': 25.0, 'inliers': 0, 'n': 0, 'areaM2': 120.0, 'areaSrc': 'text'}
+    assert 'scale_from_area' in res['flags'] and 'scale_from_wall_thickness' not in res['flags']
+    lounge = next(r for r in res['panels'][0]['rooms'] if r['name'] == 'Lounge')
+    assert lounge['contour'][1] == [800.0, 0.0] and lounge['areaM2'] == 48.0      # 4 м → 8 м, 12 м² → 48 м²
+    assert 'scale_unverified' not in lounge['flags']
+    op = res['panels'][0]['openings'][0]
+    assert op['c'] == [200.0, 10.0] and op['widthCm'] == 160.0
+    assert res['panels'][0]['walls'][0]['polys'][0]['outer'][1] == [1800.0, 0.0] and res['panels'][0]['walls'][0]['z1'] == 260.0
+
+
+def test_area_excludes_balcony_and_named_exclusions(tmp_path):
+    """Балкон в GIA не входит (вычитается всегда), гараж — только когда подпись его исключает."""
+    log, models, G = area_synth(gia_m2=36.0, extra_rooms=[('Balcony', 6.0)])
+    write_models(tmp_path, models)
+    assert pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], True, area(120.0))['scale']['ppm'] == 25.0
+    log, models, G = area_synth(gia_m2=40.0, extra_rooms=[('Garage', 10.0)])
+    write_models(tmp_path / 'g', models)
+    assert pl.to_result(log, tmp_path / 'g', 'T', G, SRC, 0, {}, [], True, area(120.0, excl=['garage']))['scale']['ppm'] == 25.0
+    with_garage = pl.to_result(log, tmp_path / 'g', 'T', G, SRC, 0, {}, [], True, area(160.0))['scale']['ppm']
+    assert with_garage == 25.0                                                      # 40 × 2500 / 160
+
+
+def test_area_russian_total_counts_rooms_without_walls(tmp_path):
+    """«Общая площадь» (РФ) — сумма помещений без стен: комнаты 12 + 11 + 1 = 24 м² при 50 px/м → 60 000 px²; 96 м² → 25 px/м."""
+    log, models, G = area_synth(gia_m2=99.0)
+    write_models(tmp_path, models)
+    res = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], True, area(96.0, conv='rooms'))
+    assert res['scale']['status'] == 'area' and res['scale']['ppm'] == 25.0
+
+
+def test_area_conflicts_with_labels_is_flagged_not_used(tmp_path):
+    """Подписи есть (listing) — масштаб от них; общая площадь в 4 раза больше найденной → флаг, статус и метры прежние."""
+    log, models, G = area_synth()
+    log['panels'][0]['inliers'] = [('Lounge', 'p95', 0), ('Bedroom #2', 'p95', 0)]
+    write_models(tmp_path, models)
+    res = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], False, area(120.0))
+    assert_contract(res)
+    assert res['scale']['status'] == 'listing' and res['scale']['ppm'] == 50.0 and res['scale']['areaM2'] == 120.0
+    assert 'scale_area_conflict' in res['flags']
+    assert next(r for r in res['panels'][0]['rooms'] if r['name'] == 'Lounge')['contour'][1] == [400.0, 0.0]
+    ok = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], False, area(31.0))     # совпала (±10 %) — без флага
+    assert 'scale_area_conflict' not in ok['flags']
+
+
+def test_area_unusable_stays_not_verified(tmp_path):
+    """Площадь даёт стену 2 м (общая — не про этот лист) или не все листы PDF прочитаны → прежний not_verified с флагом."""
+    log, models, G = area_synth()
+    write_models(tmp_path, models)
+    res = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], True, area(3000.0))
+    assert res['scale']['status'] == 'not_verified' and res['scale']['ppm'] is None
+    assert 'area_unusable:wall_thickness' in res['flags'] and 'scale_from_wall_thickness' in res['flags']
+    res = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, ['pages_skipped'], True, area(120.0))
+    assert res['scale']['status'] == 'not_verified' and 'area_pages_skipped' in res['flags']
+    none = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], True, None)          # площади нет — как раньше
+    assert none['scale'] == {'status': 'not_verified', 'ppm': None, 'inliers': 0, 'n': 0}
+
+
+def _labels(log, found, lost):
+    """Подписи VLM панели: `found` с найденной комнатой, имена `lost` — без комнаты (здание найдено не всё)."""
+    log['panels'][0]['label_report'] = ([{'name': f'Room {i}', 'room': 1, 'space': True} for i in range(found)]
+                                        + [{'name': n, 'room': None, 'space': True} for n in lost])
+
+
+def test_area_needs_whole_building_found(tmp_path):
+    """Подписей без комнаты > 10 % — часть здания мимо знаменателя, масштаб по площади раздул бы все метры:
+    площадь не берём (`area_unusable:coverage`), прежний not_verified. Балкон без комнаты не в счёт (в площадь не входит);
+    ровно 10 % — ещё можно. У плана с подписями (здесь listing) та же нехватка — только флаг, масштаб прежний."""
+    log, models, G = area_synth()
+    write_models(tmp_path, models)
+    _labels(log, 9, ['Hay Barn', 'Cattle Yard'])                                   # 2 из 11 — 18 %
+    res = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], True, area(120.0))
+    assert res['scale']['status'] == 'not_verified' and res['scale']['ppm'] is None
+    assert 'area_unusable:coverage' in res['flags'] and 'scale_from_wall_thickness' in res['flags']
+    _labels(log, 9, ['Balcony', 'Store'])                                          # 1 из 10 (балкон не в счёт)
+    res = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], True, area(120.0))
+    assert res['scale']['status'] == 'area' and res['scale']['ppm'] == 25.0
+    log, models, G = synth()
+    log['thickness_px'], log['panels'][0]['gia_m2'] = 10.0, 30.0
+    _labels(log, 1, ['Hay Barn'])
+    write_models(tmp_path / 'v', models)
+    was = pl.to_result(log, tmp_path / 'v', 'T', G, SRC, 0, {}, [], False)['scale']
+    res = pl.to_result(log, tmp_path / 'v', 'T', G, SRC, 0, {}, [], False, area(30.0))
+    assert res['scale'] == dict(was, areaM2=30.0, areaSrc='text') and 'area_unusable:coverage' in res['flags']
 
 
 def test_to_result_limits(tmp_path):

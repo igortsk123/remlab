@@ -78,10 +78,14 @@ export const floorplanResult = z.object({
     imageH: z.number().int().positive(),
   }),
   scale: z.object({
-    status: z.enum(["verified", "listing", "not_verified"]),
+    /** опоры по порядку: подписи плана → размеры текстом → общая площадь (`area`, размеры примерные) → толщина стены */
+    status: z.enum(["verified", "listing", "area", "not_verified"]),
     ppm: num.positive().nullable(),
     inliers: z.number().int().nonnegative(),
     n: z.number().int().nonnegative(),
+    /** общая площадь, если найдена (у `area` — опора масштаба, иначе сверка): м² и откуда — текст, лист или оба */
+    areaM2: num.positive().optional(),
+    areaSrc: z.enum(["text", "sheet", "both"]).optional(),
   }),
   panels: z.array(panel).min(1).max(4),
   flags,

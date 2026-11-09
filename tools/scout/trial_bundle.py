@@ -69,6 +69,11 @@ SIZE_CHECK_FLAGS = ('dims_mismatch',)      # флаги комнаты из ра
 # масштаб ВСЕЙ квартиры не подтверждён (`scale.status == not_verified`) → все гостиные и спальни ждут проверки (TG 533: «не обставлять»);
 # False — обставлять как обычно
 SCALE_UNVERIFIED_AWAITS_CHECK = True
+# мягкая пометка на плане по статусу масштаба (`trial.scale_note`, ru/en): `area` — масштаб по общей площади, комнаты обставляются
+# как обычно (решение ведущего, T-20261109-26), но размеры примерные — говорим это
+SCALE_NOTE = {
+    'area': ('Размеры по общей площади — примерные.', 'Sizes are based on the total floor area — approximate.'),
+}
 OUTCOME_TEXT = {
     'size_unverified': ('Размер может быть неточным — поправьте и нажмите «Обустроить».',
                         'Size may be approximate — adjust and tap “Furnish”.'),
@@ -693,7 +698,9 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     if ctx.get('slot_band') and LIVING in rooms_geo:
         rules['slot_band_cm'] = ctx['slot_band'](rooms_geo[LIVING])
     feeds = _feeds(variants)
-    trial = {'job_id': job_id, 'scale': result['scale']['status'], 'furniture': SCENE_FURNITURE[scene['status']] if scene else 'pending',
+    note = SCALE_NOTE.get(result['scale']['status'])
+    trial = {'job_id': job_id, 'scale': result['scale']['status'],
+             **({'scale_note': {'ru': note[0], 'en': note[1]}} if note else {}), 'furniture': SCENE_FURNITURE[scene['status']] if scene else 'pending',
              'complete': all(r['furniture_state'] != 'pending' for r in apartment_rooms),
              'flags': sorted(set(result.get('flags') or []) | set(flags) | set(storey_flags) | set((scene or {}).get('flags') or [])),
              'refused_rooms': [{'room_id': ids[id(x['room'])], 'code': x['code'], 'detail': x['detail']} for x in refused],
