@@ -489,7 +489,44 @@ def variant_payload(title: str) -> tuple[dict, str]:
     return {'room': d['room'], 'items': items, 'decor': v.get('decor') or []}, (v.get('style') or '')
 
 
-_IDENT_CACHE: dict = {}
+_IDENT_CACHE: dict = {}      # состав товаров → (лист эталонов, позиций, с фото)
+
+# ДОЛЯ КАРТОЧЕК ЛИСТА С НАСТОЯЩИМ ФОТО, НИЖЕ — НЕ ПЛАТИМ (T-20261109-17). Лист, где у всех карточек «фото нет», `paid_gate` раньше
+# пропускал: собран же (сухой прогон работника 3, 09.11: неверный путь `img/` → 0 фото из 9). Модель тогда рисует товары по названию —
+# «не тот» набор за деньги. 3/4 — как у пробы (`trial_hero.photo_gate`): одна-две карточки без фото у набора 6–9 позиций модель
+# переживает (остальное видит), половина — уже нет. Замер живых вариантов демо 09.11 — `paid_gate_census.py`, отчёт T-17.
+MIN_PHOTO_SHARE = 0.75
+
+
+def sheet_counts(items: list, photos: dict, skus: dict | None = None) -> tuple[int, int]:
+    """(позиций на листе эталонов, из них с настоящим фото) — та же группировка, что у `draft_render._identity`: только товары
+    с названием, одна роль — один раз, одинаковый товар («стул», «стул 2») — одна карточка, фото — у первой роли карточки."""
+    import draft_render as DR
+    skus = skus if skus is not None else {it['role']: it for it in items or [] if it.get('role')}
+    seen, cards = set(), {}
+    for it in items or []:
+        role = it.get('role')
+        if not role or not it.get('name') or role in seen:
+            continue
+        seen.add(role)
+        key = (DR._base_sku(role, skus).get('name') or it['name']) + '|' + DR._base_role(role)
+        cards.setdefault(key, photos.get(role) is not None)
+    return len(cards), sum(cards.values())
+
+
+def _ident_sheet(items: list, photos: dict, skus: dict | None = None):
+    """Лист эталонов и его счёт фото — одним входом для `build` и `build_from_views` (кэш по составу товаров)."""
+    import draft_render as DR
+    key = tuple(sorted((it.get('role'), it.get('name'), it.get('img')) for it in items if it.get('name')))
+    got = _IDENT_CACHE.get(key)
+    if got is None:
+        anchors_all = [{'role': it['role'], 'n': i + 1} for i, it in enumerate(items) if it.get('name')]
+        skus = skus if skus is not None else {it['role']: it for it in items if it.get('role')}
+        got = (DR._identity(anchors_all, photos, skus), *sheet_counts(items, photos, skus))
+        if len(_IDENT_CACHE) > 12:
+            _IDENT_CACHE.clear()
+        _IDENT_CACHE[key] = got
+    return got
 
 
 # ——— КАДРЫ ИЗ БРАУЗЕРНОЙ СЦЕНЫ (план demo-10, Codex 17.10) ———————————————————————————————————————————————
@@ -585,18 +622,11 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
     orient = 'portrait' if payload.get('sheet') == 'portrait' else None
     sheet = sheet_from_views([load_frame(v.get('id')) for v in vs[:2]], orient)
     items = payload.get('items', [])
-    ident = None
+    ident, n_items, n_photos = None, 0, 0
     try:
-        _ikey = tuple(sorted((it.get('role'), it.get('name'), it.get('img')) for it in items if it.get('name')))
-        ident = _IDENT_CACHE.get(_ikey)
-        if ident is None:
-            anchors_all = [{'role': it['role'], 'n': i + 1} for i, it in enumerate(items) if it.get('name')]
-            photos = {it['role']: DR.photo(it.get('img')) for it in items if it.get('img') and it.get('role')}
-            ident = DR._identity(anchors_all, photos, {it['role']: it for it in items if it.get('role')})
-            if len(_IDENT_CACHE) > 12:
-                _IDENT_CACHE.clear()
-            _IDENT_CACHE[_ikey] = ident
-    except Exception as e:  # noqa: BLE001 — без эталонов запрос всё равно осмыслен
+        photos = {it['role']: DR.photo(it.get('img')) for it in items if it.get('img') and it.get('role')}
+        ident, n_items, n_photos = _ident_sheet(items, photos)
+    except Exception as e:  # noqa: BLE001 — листа нет: `paid_gate` откажет до оплаты
         print(f'  лист эталонов не собрался: {str(e)[:80]}')
     # ТРЕТИЙ ЛИСТ — декор, которого нет в сцене, и МЯГКОЕ (demo-24): номера по порядку, мягкое — после декора
     decor, soft = DR.decor_split(payload)[1], soft_items(payload)
@@ -624,12 +654,19 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
             'лист': 'вертикальные виды бок о бок' if orient else 'горизонтальные виды друг под другом',
             'лист на входе': f'{sheet.width}×{sheet.height}', 'версия промпта': PROMPT_VERSION,
             'серые заглушки в кадре': ', '.join(clay) or 'нет',
-            'мягкое на третьем листе': ', '.join(f"{x['role']} {(x.get('sku') or {}).get('name')}" for x in soft) or 'нет'}
+            'мягкое на третьем листе': ', '.join(f"{x['role']} {(x.get('sku') or {}).get('name')}" for x in soft) or 'нет',
+            **_photo_meta(n_items, n_photos)}
     imgs = {'1-ОТПРАВЛЯЕМ-лист-двух-видов': sheet, '2-ОТПРАВЛЯЕМ-эталоны-товаров': ident, '3-ОТПРАВЛЯЕМ-декор-разместить': dsheet}
     _th.Thread(target=lambda: DR._publish_sources(stamp, imgs, prompt, [], meta), daemon=True).start()
     url = (DR.PUBLIC_BASE + DR.SRC_URL + '/' + stamp + '/') if DR.PUBLIC_BASE else os.path.join(DR.SRC_DIR, stamp)
     return {'src_url': url, 'sheet': sheet, 'ident': ident, 'dsheet': dsheet, 'prompt': prompt, 'clay': clay, 'cams': [v.get('camera') for v in vs[:2]],
-            'size': size_for(orient), 'orient': orient or 'landscape', 'prods_failed': PROMPT_V4 and not prods}
+            'size': size_for(orient), 'orient': orient or 'landscape', 'prods_failed': PROMPT_V4 and not prods,
+            'n_items': n_items, 'n_photos': n_photos}
+
+
+def _photo_meta(n_items: int, n_photos: int) -> dict:
+    """Счёт фото листа в легенду исходника: человеку — словами, `from_sources` — числами (без них лист пересобирается)."""
+    return {'фото товаров на листе': f'{n_photos} из {n_items}', 'n_items': n_items, 'n_photos': n_photos}
 
 
 def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
@@ -704,20 +741,10 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
     # ЛИСТ ЭТАЛОНОВ КЭШИРУЕМ ПО СОСТАВУ ТОВАРОВ (план paid-path-speed): он одинаков для всех
     # кадров одного набора и не зависит ни от ракурса, ни от расстановки. Пересобирать его на
     # каждый запрос — собирать один и тот же коллаж заново.
-    ident = None
+    ident, n_items, n_photos = None, 0, 0
     try:
-        anchors_all = [{'role': it['role'], 'n': i + 1}
-                       for i, it in enumerate(payload.get('items', [])) if it.get('name')]
-        skus = {it['role']: it for it in payload.get('items', []) if it.get('role')}
-        _ikey = tuple(sorted((it.get('role'), it.get('name'), it.get('img'))
-                             for it in payload.get('items', []) if it.get('name')))
-        ident = _IDENT_CACHE.get(_ikey)
-        if ident is None:
-            ident = DR._identity(anchors_all, photos, skus)
-            if len(_IDENT_CACHE) > 12:
-                _IDENT_CACHE.clear()
-            _IDENT_CACHE[_ikey] = ident
-    except Exception as e:  # noqa: BLE001 — без эталонов запрос всё равно осмыслен
+        ident, n_items, n_photos = _ident_sheet(payload.get('items', []), photos)
+    except Exception as e:  # noqa: BLE001 — листа нет: `paid_gate` откажет до оплаты
         print(f'  лист эталонов не собрался: {str(e)[:80]}')
     # ТРЕТИЙ ЛИСТ — ДЕКОР НА МЕБЕЛЬ (владелец 01.09). Вазы куплены и лежат в комплекте, но на
     # плане их нет: они стоят на тумбе или столе, а не на полу. Отдаём отдельным изображением с
@@ -766,9 +793,11 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
          'версия промпта': PROMPT_VERSION,
          'камеры': ', '.join(f'{c.name} fov {c.fov_deg:.0f}°' for c in cams),
          'серые заглушки в кадре': ', '.join(sorted(set(clay))) or 'нет',
-         'маска': 'не используется — замер показал, что она не соблюдается'})
+         'маска': 'не используется — замер показал, что она не соблюдается',
+         **_photo_meta(n_items, n_photos)})
     return {'src_url': url, 'sheet': sheet, 'ident': ident, 'dsheet': dsheet, 'prompt': prompt,
-            'clay': sorted(set(clay)), 'cams': [c.name for c in cams], 'prods_failed': PROMPT_V4 and not prods}
+            'clay': sorted(set(clay)), 'cams': [c.name for c in cams], 'prods_failed': PROMPT_V4 and not prods,
+            'n_items': n_items, 'n_photos': n_photos}
 
 
 def paid_gate(built: dict) -> None:
@@ -777,12 +806,20 @@ def paid_gate(built: dict) -> None:
     приложенных товаров — платили за фото «не того» набора. Теперь — ошибка ДО вызова модели: задание не оплачивается, страница
     и ночная досъёмка видят отказ (`demo-realistic.mjs` останавливает ночь на ошибке). Один вход для всех трёх путей сборки
     (`build_from_views`, `build`, `from_sources`) — зовёт `draft_render` прямо перед `gpt_edit`; тип ошибки —
-    `draft_render.NoProductSheet` (сервис кадров отвечает 422)."""
+    `draft_render.NoProductSheet` (сервис кадров отвечает 422).
+    ЛИСТ ИЗ КАРТОЧЕК «ФОТО НЕТ» — тоже отказ (T-20261109-17): каждая сборка отдаёт `n_items` (позиций на листе) и `n_photos` (из них
+    с настоящим фото, `sheet_counts`); доля ниже `MIN_PHOTO_SHARE` или счёт неизвестен — не платим."""
     import draft_render as DR
     if built.get('ident') is None:
         raise DR.NoProductSheet('нет листа товаров (эталоны не собрались) — платный вызов не делаю')
     if built.get('prods_failed'):
         raise DR.NoProductSheet('список товаров для промпта не собрался — платный вызов не делаю')
+    n, k = built.get('n_items'), built.get('n_photos')
+    if n is None or k is None:
+        raise DR.NoProductSheet('неизвестно, сколько товаров листа с фото — платный вызов не делаю')
+    if n == 0 or k < MIN_PHOTO_SHARE * n:
+        raise DR.NoProductSheet(f'фото товаров на листе {k} из {n} (нужно не меньше {MIN_PHOTO_SHARE:.0%}) — модель рисовала бы товары '
+                                'по названию; платный вызов не делаю')
 
 
 def main() -> int:
@@ -827,14 +864,16 @@ def publish_from_views(views: list, payload: dict, stamp: str) -> str:
     for v in parts:
         sheet.paste(v, (0, y))
         y += v.height + DR.BAND_PX
-    ident = None
+    ident, n_items, n_photos = None, 0, 0
     try:
         items = payload.get('items') or []
         anchors_all = [{'role': it['role'], 'n': i + 1}
                        for i, it in enumerate(items) if it.get('name')]
         photos = {it['role']: DR.photo(it.get('img')) for it in items if it.get('img')}
-        ident = DR._identity(anchors_all, photos, {it['role']: it for it in items if it.get('role')})
-    except Exception as e:  # noqa: BLE001 — без эталонов запрос всё равно осмыслен
+        skus = {it['role']: it for it in items if it.get('role')}
+        ident = DR._identity(anchors_all, photos, skus)
+        n_items, n_photos = sheet_counts(items, photos, skus)
+    except Exception as e:  # noqa: BLE001 — листа нет: `paid_gate` откажет до оплаты
         print(f'  лист эталонов не собрался: {str(e)[:80]}')
     out_w, out_h = (int(x) for x in SIZE.split('x'))
     return DR._publish_sources(
@@ -847,7 +886,8 @@ def publish_from_views(views: list, payload: dict, stamp: str) -> str:
          'размер запроса': SIZE,
          'лист на входе': f'{sheet.width}×{sheet.height}',
          'на вид после резки': f'~{out_w}×{(out_h - DR.BAND_PX) // 2}',
-         'версия промпта': PROMPT_VERSION})
+         'версия промпта': PROMPT_VERSION,
+         **_photo_meta(n_items, n_photos)})
 
 
 def from_sources(src_id: str | None):
@@ -886,6 +926,13 @@ def from_sources(src_id: str | None):
             return None
     except Exception:  # noqa: BLE001 — нет легенды: старая папка, доверяем как раньше
         pass
+    # СЧЁТ ФОТО ЛИСТА (T-20261109-17): `paid_gate` без него не платит; папка до T-17 его не знает — пересобираем (время, не деньги)
+    try:
+        _mc = json.load(open(os.path.join(d, 'meta.json'), encoding='utf-8'))
+        n_items, n_photos = int(_mc['n_items']), int(_mc['n_photos'])
+    except Exception:  # noqa: BLE001
+        print(f'улучшение: исходник {src_id} без счёта фото товаров — пересобираю', flush=True)
+        return None
     sh = Image.open(sheet_p).convert('RGB')
     _w, _h = (int(x) for x in SIZE.split('x'))
     if abs(sh.width / max(sh.height, 1) - _w / _h) > 0.01:
@@ -902,4 +949,4 @@ def from_sources(src_id: str | None):
             'prompt': open(prompt_p, encoding='utf-8').read(),
             'src_url': (DR.PUBLIC_BASE + DR.SRC_URL + '/' + str(src_id) + '/')
                        if DR.PUBLIC_BASE else d,
-            'clay': []}
+            'clay': [], 'n_items': n_items, 'n_photos': n_photos}

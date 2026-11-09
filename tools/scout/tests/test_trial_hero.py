@@ -190,7 +190,9 @@ Image.new('RGB', (1536, 1024)).save(os.path.join(sc2, 'frame.png'))
 json.dump({'room': room, 'items': [dict(it, img='img/missing.jpg') for it in items], 'style': 'сканди'},
           open(os.path.join(sc2, 'scene.json'), 'w', encoding='utf-8'), ensure_ascii=False)
 r = TH.run(sc2, os.path.join(base_dir, 'nophoto'), go=True)
-check('нет фото товаров: отказ no_product_photos до оплаты', not r['ok'] and r['error_code'] == 'no_product_photos', r.get('error'))
+# с T-20261109-17 лист «фото нет» ловит и общий `improve_mode.paid_gate` (идёт раньше `photo_gate`) — код тогда no_product_sheet
+check('нет фото товаров: отказ до оплаты', not r['ok'] and r['error_code'] in ('no_product_photos', 'no_product_sheet')
+      and 'фото товаров' in (r.get('error') or ''), r.get('error'))
 r = TH.run(os.path.join(base_dir, 'nowhere'), os.path.join(base_dir, 'bad'), go=True)
 check('нет папки сцены: отказ bad_input, json записан', not r['ok'] and r['error_code'] == 'bad_input'
       and os.path.exists(os.path.join(base_dir, 'bad', 'hero.json')), r.get('error_code'))
