@@ -38,6 +38,7 @@ sys.path.insert(0, HERE)
 import demo_room as R  # noqa: E402
 import trial_demo as TD  # noqa: E402
 import trial_room as TR  # noqa: E402
+import trial_bundle as BU  # noqa: E402  — сборщик данных страницы: общая чистка товара и проёмы страницы
 
 COMP = json.load(open(os.path.join(HERE, 'rules', 'bedroom-composition.json'), encoding='utf-8'))
 STYLE_ID = {'сканди': 'scandi', 'современный': 'modern', 'минимализм': 'minimal', 'лофт': 'loft', 'неоклассика': 'neoclassic',
@@ -71,13 +72,10 @@ ROOM_STATES = ('furnished', 'no_products', 'not_readable', 'scale_unverified', '
 CODE_STATE = {'no_products': 'no_products', 'bed_no_fit': 'no_products', 'room_too_small': 'no_products',
               'scale_unverified': 'scale_unverified',
               **{c: 'not_readable' for c in ('contour_distorted', 'opening_ambiguous', 'no_core', 'opening_cut_by_core', 'no_entry')}}
-# ЕДИНЫЙ РАЗРЕШЁННЫЙ СПИСОК ПОЛЕЙ ТОВАРА В ВЫХОДЕ (TG 1377, Codex 09.11): предмет и его `sku` — только эти поля; ни `url`, `shop`,
-# `img`, ни цены магазина. Источник один — `public_item`; `assert_no_shop` проверяет ВЕСЬ JSON задания. Тот же список, что общий
-# у сборщика (`trial_bundle.ITEM_KEYS`/`SKU_KEYS`): сборщик ещё раз фильтрует куски стадий своим `public_item`.
-ITEM_KEYS = {'role', 'x', 'y', 'rot', 'w', 'd', 'h', 'dims_src', 'sku', 'corner', 'corner_left', 'section', 'elev'}
-SKU_KEYS = {'name', 'name_en', 'colour_en', 'msid', 'w', 'd', 'h', 'sleep_w'}
-SHOP_LINKS = re.compile(r'(https?:|//[a-z0-9.-]+\.[a-z]{2,}|gdeslon|\berid=)', re.I)
-BANNED_KEYS = {'url', 'url_direct', 'shop', 'img', 'img_hd', 'price', 'brand'}
+# ЕДИНЫЙ РАЗРЕШЁННЫЙ СПИСОК ПОЛЕЙ ТОВАРА — ОДИН НА ВСЕ КОМНАТЫ, у сборщика данных страницы (`trial_bundle`, TG 1377, Codex 09.11):
+# предмет и его `sku` — только `BU.ITEM_KEYS`/`BU.SKU_KEYS` (имена по роли, цвет, модель, размеры); ни `url`, `shop`, `img`, ни цены.
+# Здесь не копируется: фильтр — `BU.public_item`, проверка всего JSON — `BU.assert_public` (утечка → `ShopLeak`, а не публикация).
+ITEM_KEYS, SKU_KEYS = BU.ITEM_KEYS, BU.SKU_KEYS
 
 
 class BedroomRefusal(Exception):
@@ -356,32 +354,20 @@ def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     return best
 
 
-def _bundle():
-    """Общий модуль данных страницы (`trial_bundle`, ветка trial-bundle): нейтральные имена по роли на обеих локалях и цвет по-английски.
-    Его нет (ветки ещё не сведены) — имена не пишем: сборщик всё равно ставит их сам (`trial_bundle._part_item`), дублировать не нужно."""
-    try:
-        import trial_bundle
-        return trial_bundle
-    except ImportError:
-        return None
-
-
 def public_item(p, it: dict, msid: str | None) -> dict:
-    """Предмет варианта по РАЗРЕШЁННОМУ списку полей: роль, ключ модели, размер; имена — нейтральные по роли (`name`/`name_en`) и цвет
-    `colour_en` (только слова словарей цвета и материала) — от общего модуля `trial_bundle`, если он есть. Готовых строк одного языка нет."""
+    """Предмет варианта через ОБЩИЙ фильтр сборщика (`BU.public_item`): роль, модель, размер; имена — нейтральные по роли на обеих локалях
+    (`BU.neutral_names`; ширину спального места к имени кровати добавляет сборщик), цвет `colour_en` — только слова словарей цвета и
+    материала (`BU.colour_en`: модель, бренд и магазин не проходят). Название товара и магазин в выход не идут."""
     base = base_role(p.role)
-    sku = {'msid': msid, 'w': it['w'], 'd': it['d'], 'h': it['h']}
+    ru, en = BU.neutral_names(p.role)
+    sku = {'name': ru, 'name_en': en, 'msid': msid, 'w': it['w'], 'd': it['d'], 'h': it['h']}
     if base == 'кровать':
         sku['sleep_w'] = round(_sleep_w(it))
-    B = _bundle()
-    if B is not None:
-        sku['name'], sku['name_en'] = B.neutral_names(p.role)
-        c = B.colour_en(it.get('name'), base)
-        if c:
-            sku['colour_en'] = c
-    out = {'role': p.role, 'x': round(p.x, 1), 'y': round(p.y, 1), 'rot': int(p.rot or 0), 'w': it['w'], 'd': it['d'], 'h': it['h'],
-           'dims_src': 'каталог', 'sku': sku, 'corner': False, 'corner_left': False, 'section': None}   # «каталог» — как у живого демо и гостиной сборщика
-    return {k: v for k, v in out.items() if k in ITEM_KEYS}
+    c = BU.colour_en(it.get('name'), base)
+    if c:
+        sku['colour_en'] = c
+    return BU.public_item({'role': p.role, 'x': round(p.x, 1), 'y': round(p.y, 1), 'rot': int(p.rot or 0), 'w': it['w'], 'd': it['d'],
+                           'h': it['h'], 'dims_src': 'каталог', 'sku': sku, 'corner': False, 'corner_left': False, 'section': None})
 
 
 def template_ok(res: dict | None, tpl: dict) -> bool:
@@ -499,8 +485,8 @@ def furnish_room(trial_id: str, panel: dict, room: dict, rid: str, cfg: dict, ct
     rec['core'] = {'rect': cand['rect'], 'w': cand['w'], 'd': cand['d'], 'area_m2': cand['area_m2'], 'index': ci,
                    'residues': [{k: v for k, v in r.items() if k != 'poly'} for r in cand['residues']]}
     rec['openings_full'] = [{k: v for k, v in o.items()} for o in ad['ops']]
-    if rec['variants']:
-        rec['openings_core'] = rec['variants'][0]['openings_core']
+    # проёмы ядра для страницы: у обставленной — петля вариантов; у пустой — те же стыки (комната показывается пустой, с надписью по коду)
+    rec['openings_core'] = rec['variants'][0]['openings_core'] if rec['variants'] else TD.TR_strip(TR.solver_openings(cand, cfg, HINGES[0]))
     rec['outcome'] = outcome_of(rec)
     rec['seconds'] = round(time.time() - t0, 2)
     return rec
@@ -552,25 +538,17 @@ def shop_tokens(ctx: dict) -> list:
             toks.add(str(c.shop).lower())
         if getattr(c, 'name', None):
             toks.add(str(c.name).lower())
-    return sorted(t for t in toks if len(t) >= 3)
+    neutral = {n.lower() for r in ROOM_ROLES for n in BU.neutral_names(r)}       # наши же нейтральные имена — не утечка
+    return sorted(t for t in toks if len(t) >= 3 and t not in neutral)
 
 
 def assert_no_shop(obj, tokens: list) -> None:
-    """Проверка очисткой ВЫВОДА: ни запрещённых полей, ни ссылок, ни названий магазинов/товаров во всём JSON. Найдено — `ShopLeak`."""
-    def walk(v, path):
-        if isinstance(v, dict):
-            for k, x in v.items():
-                if k in BANNED_KEYS or (isinstance(k, str) and (k.endswith('_url') or k == 'href')):
-                    raise ShopLeak(f'запрещённое поле {path}.{k}')
-                walk(x, f'{path}.{k}')
-        elif isinstance(v, (list, tuple)):
-            for i, x in enumerate(v):
-                walk(x, f'{path}[{i}]')
-        elif isinstance(v, str):
-            s = v.lower()
-            if SHOP_LINKS.search(s) or any(re.search(r'(?<!\w)' + re.escape(t) + r'(?!\w)', s) for t in tokens):
-                raise ShopLeak(f'значение в {path}: {v[:80]}')
-    walk(obj, '$')
+    """Проверка очисткой ВЫВОДА — общая проверка сборщика (`BU.assert_public`: запрещённые поля, ссылки, названия магазинов/товаров во всём
+    JSON). Найдено — `ShopLeak`: стадия падает, а не публикует."""
+    try:
+        BU.assert_public(obj, tokens)
+    except BU.BundleRefused as e:
+        raise ShopLeak(f'{e.code}: {e.detail}') from e
 
 
 def build(trial_id: str, result: dict, ctx: dict | None = None) -> dict:
@@ -613,18 +591,6 @@ def _write(out: str, job: dict) -> None:
 
 # ───────────────────────── куски для общей версии данных (trial_bundle) ─────────────────────────
 
-def _page_openings(ops: list) -> list:
-    """Проёмы ядра → формат `room.openings` страницы (служебное снято, проход без полотна — `opening`), как `trial_demo.core_room(render=True)`."""
-    out = []
-    for o in ops:
-        o = {k: v for k, v in o.items() if not k.startswith('_')}
-        if o.get('kind') == 'door' and not o.get('swing_cm'):
-            o = {k: v for k, v in o.items() if k != 'swing_cm'}
-            o['kind'] = 'opening'
-        out.append(o)
-    return out
-
-
 def bundle_parts(job: dict, storey_by_panel: dict | None = None) -> dict:
     """`bedrooms.json` → куски контракта `contracts/trial-bundle.ts`: `rooms_geo`, `apartment_rooms`, `variants` (id уникальны
     на задание: комната — `bedroom-<n>`, вариант — `<комната>-<стиль>`). `storey_by_panel` — {id панели: этаж} (`trial_bundle.storeys`).
@@ -641,12 +607,13 @@ def bundle_parts(job: dict, storey_by_panel: dict | None = None) -> dict:
                           'areaM2': r.get('area_m2'), 'contentState': 'ready' if r['variants'] else 'soon',
                           'furniture_state': 'ready' if o['state'] == 'furnished' else 'refused', 'furniture_outcome': o['state'],
                           'furniture_code': o.get('code'), **({'storey': st} if st is not None else {})})
+        if r.get('core') and r.get('openings_core') is not None:      # прочитанная комната — геометрия и без мебели (пустая, с надписью)
+            core = r['core']
+            rooms_geo[rid] = {'w': core['w'], 'd': core['d'], 'openings': BU._openings_for_page(r['openings_core']), 'radiators': [],
+                              **({'storey': st} if st is not None else {})}
         if not r['variants']:
             continue
         core = r['core']
-        geo = {'w': core['w'], 'd': core['d'], 'openings': _page_openings(r['openings_core']), 'radiators': [],
-               **({'storey': st} if st is not None else {})}
-        rooms_geo[rid] = geo
         for v in r['variants']:
             variants.append({'id': v['id'], 'room_id': rid, 'style': v['style'], 'style_id': v['style_id'], 'title': v['style'].capitalize(), 'purpose': v['purpose'],
                              'items': v['items'], 'decor': [], 'dims_unknown': [], 'missing_item': v['missing_item'], 'fill': [], 'fill_pct': v.get('fill_pct'),

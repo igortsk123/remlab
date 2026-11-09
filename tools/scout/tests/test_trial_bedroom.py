@@ -312,6 +312,28 @@ def test_one_room_empty_others_furnished():
     parts = TB.bundle_parts(job)
     assert [x['furniture_outcome'] for x in parts['apartment_rooms']] == ['no_products', 'furnished']
     assert {v['room_id'] for v in parts['variants']} == {'bedroom-2'}     # пустая комната — без вариантов, сборщик кладёт пустую с надписью
+    assert set(parts['rooms_geo']) == {'bedroom-1', 'bedroom-2'}          # но с геометрией: показывается пустой
+
+
+def test_parts_accepted_by_page_bundle():
+    # стыковка со сборщиком страницы (`trial_bundle.build`, main 8087fd5d): комнаты по (панель, id плана), надписи RU/EN по коду, чистка — его
+    import trial_bundle as BU
+    p = plan(sizes=((200, 280), (420, 380)))
+    p['panels'][0]['rooms'].append(rect_room('lv', 'Living room', 600, 0, 500, 400, kind='living'))
+    p['panels'][0]['openings'] += openings(600, 0, 500, 400)
+    job = TB.build('t21', p, ctx(full_bank()))
+    cb = {'rules': {'sofa_tv_cm': [180, 300]}, 'msid_of': lambda sid: f'm-{sid}', 'slot_band': lambda g: {'диван': {'min': g['w']}},
+          'quiz': BU.quiz_rule()}
+    d = BU.build('t21', p, None, ctx=cb, parts=[TB.bundle_parts(job)])
+    beds_ = {a['name_src']: a for a in d['apartment_rooms'] if a['kind'] == 'bedroom'}
+    empty, full = beds_['Bedroom 1'], beds_['Bedroom 2']
+    assert empty['furniture_outcome'] == 'no_products' and empty['furniture_text_en'] == 'No suitable products under the current templates.'
+    assert empty['furniture_text'].startswith('Нет подходящих товаров') and empty['id'] in d['rooms_geo']
+    assert [v['items'] for v in d['variants'] if v['room_id'] == empty['id']] == [[]]          # пустая, без мебели
+    assert full['furniture_outcome'] == 'furnished' and full['titleRu'] == 'Спальня 2' and full['titleEn'] == 'Bedroom 2'
+    bed = next(it for v in d['variants'] if v['room_id'] == full['id'] for it in v['items'] if it['role'] == 'кровать')
+    assert bed['sku']['name'] == 'Кровать 160 см' and bed['sku']['name_en'].endswith('160 cm')
+    assert SHOP not in json.dumps(d, ensure_ascii=False)
 
 
 def test_variants_share_core_and_hinge():
