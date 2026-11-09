@@ -45,8 +45,14 @@ def _placed_from_artifact(art: dict) -> tuple[dict, dict]:
     return placed, dims
 
 
-def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
-    """out — артефакт (как пишет solver_run: предметы x/z/rot/w/d + _room/_zones)."""
+def render_artifact(out: dict, png_path: str, band: str = '14-16', radiators: bool = False,
+                    font_px: int | None = None, labels_inside: bool = False) -> None:
+    """out — артефакт (как пишет solver_run: предметы x/z/rot/w/d + _room/_zones).
+    radiators=True — рисовать радиаторы `_room.radiators` полосой у стены (спальня /test/canons/, 09.11); по умолчанию
+    выключено — прежние кадры гостиной не меняются. font_px — кегль подписей задан явно (спальня: три плана в ряд по
+    ~340 px — кегль от ширины кадра, чтобы после ужатия подписи были одинаковы); None — прежний расчёт.
+    labels_inside=True — уехавшая подпись не ложится на стену/за комнату (спальня: стул у стола под окном), по
+    умолчанию выключено."""
     placed, dims = _placed_from_artifact(out)
     FLOOR = list(dims.items())
     RW, RD = float(out['_room']['w']), float(out['_room']['d'])
@@ -90,9 +96,12 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
     # после ужатия давали разный видимый кегль. Теперь кегль пропорционален кадру, и после
     # масштабирования подписи выглядят одинаково на всех планах.
     _FS = max(16, min(34, int(img.width / 52)))
+    if font_px:
+        _FS = int(font_px)
     F_ITEM,F_TXT=_font(_FS),_font(_FS + 1)
     _LBL_BOXES=[]                      # занятые прямоугольники подписей — против наложений
     _ITEM_BOXES=[]                     # рамки предметов — подпись не должна их накрывать
+    _LBL_IN=[]                         # labels_inside: границы комнаты по вертикали (px)
 
 
     def _put_label(dr, x, y, txt, font, fill=(15,15,15)):
@@ -117,6 +126,8 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
           for k in (0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6):
             cy = min(max(y + k * (h + 6), h / 2 + 6), H - h / 2 - 6)
             box = (x - w / 2 - 3, cy - h / 2 - 3, x + w / 2 + 3, cy + h / 2 + 3)
+            if _LBL_IN and not (_LBL_IN[0] <= box[1] and box[3] <= _LBL_IN[1]):
+                continue
             if _hits(box, _LBL_BOXES) or (_strict and _hits(box, others)):
                 continue
             if True:
@@ -131,6 +142,8 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
                 stroke_width=3, stroke_fill=(255, 255, 255))
         return x, y
     def T(x,z): return (20+x*SC,20+(RD-z)*SC)  # z вверх
+    if labels_inside:
+        _LBL_IN[:] = [T(0, RD)[1] + 4, T(0, 0)[1] - 4]
     # СТЕНЫ ПО ФАКТУ: если сцена задана контуром — рисуем контур, а не прямоугольник
     _ctr_pts=out['_room'].get('contour')
     if _ctr_pts:
@@ -175,6 +188,14 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
         return (RWO,o),(RWO,o+w)
 
 
+    # радиатор — ДО проёмов: линия окна и подпись «окно» ложатся поверх полосы, а не под неё
+    if radiators:
+        for _rd in out['_room'].get('radiators') or []:
+            (_ax, _az), (_bx, _bz) = _wall_seg(_rd)
+            _dp = float(_rd.get('depth_cm') or 12)
+            _nx, _nz = {'south': (0, 1), 'north': (0, -1), 'west': (1, 0), 'east': (-1, 0)}[_rd['wall']]
+            _q = [(_ax, _az), (_bx, _bz), (_bx + _nx * _dp, _bz + _nz * _dp), (_ax + _nx * _dp, _az + _nz * _dp)]
+            dr.polygon([T(*_nrm(x, z)) for x, z in _q], outline=(170, 80, 70), fill=(232, 176, 166))
     # ПРОЁМЫ ПО ФАКТУ (те же, что видел солвер) — раньше дверь/окно рисовались в
     # фиксированных местах и не совпадали с расстановкой (владелец 12.08)
     for _op in out['_room']['openings']:
@@ -203,7 +224,11 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
                 dr.polygon([T(*_nrm(x,z)) for x,z in _sp.exterior.coords],
                            outline=(225,190,150))
     cols={'диван':(120,120,190),'тв-тумба':(160,160,160),'кресло':(190,150,140),'столик':(150,120,90),
-          'пуф':(170,170,150),'торшер':(60,60,60),'кашпо':(170,140,169)}
+          'пуф':(170,170,150),'торшер':(60,60,60),'кашпо':(170,140,169),
+          # спальня (раздел «Спальня» /test/canons/, 09.11): только роли спальни — у гостиной таких нет, её кадры прежние
+          'кровать':(150,172,200),'тумба прикроватная':(185,165,135),'тумба прикроватная 2':(185,165,135),
+          'шкаф':(150,160,150),'стол рабочий':(150,120,90),'стол детский':(150,120,90),
+          'стул рабочий':(190,150,140),'стул детский':(190,150,140),'туалетный столик':(170,140,169)}
     # КОНТЕКСТ (19.08, замечание владельца «зачем диван на этом каноне»): предметы из `_context`
     # не входят в состав схемы — они лишь свидетель отношения («ТВ, к которому повёрнута форма»,
     # «диван, по оси которого центрирован носитель»). Рисуем бледной заливкой и пунктирным
@@ -234,6 +259,14 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
             _dashed(pts, (130, 130, 130))
         else:
             dr.polygon(pts, outline=(40, 40, 40), fill=_col)
+        if r.split(' ')[0] == 'кровать' and r in out:
+            # подушка у изголовья (спальня): изголовье — спинка у стены, «лицо» rot смотрит к изножью (bedroom_checks)
+            from shapely.affinity import rotate as _rotP, translate as _trP
+            from shapely.geometry import box as _boxP
+            _bv = out[r]; _bw, _bd = float(_bv.get('w') or 0), float(_bv.get('d') or 0)
+            _pl = _trP(_rotP(_boxP(-_bw / 2 + 8, -_bd / 2 + 6, _bw / 2 - 8, -_bd / 2 + 32), -float(_bv.get('rot', 0)),
+                             origin=(0, 0)), float(_bv['x']), float(_bv.get('z', _bv.get('y', 0))))
+            dr.polygon([T(*_nrm(x, z)) for x, z in _pl.exterior.coords], outline=(90, 100, 120), fill=(240, 242, 246))
         xs=[p[0] for p in pts]; ys=[p[1] for p in pts]
         _ITEM_BOXES.append((min(xs),min(ys),max(xs),max(ys)))
     # подписи — вторым проходом, поверх всей мебели и в обход чужих блоков

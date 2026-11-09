@@ -28,7 +28,7 @@ WEIGHT = {"кровать": 6.0, "шкаф": 3.0, "тумба прикроват
           "стул рабочий": 1.0, "туалетный столик": 1.0}
 SOFT_PENALTY = {"BED_HEAD_WINDOW": 3.0, "NIGHTSTAND_DETACHED": 2.0, "BEDROOM_FLOOR_OVERFILL": 2.0,
                 "BED_DOOR_WALL": 1.0, "BED_NEAR_RADIATOR": 1.0, "DESK_FAR_FROM_WINDOW": 1.0, "DESK_LIGHT_RIGHT": 1.0,
-                "MAIN_PATH_TIGHT": 0.5}
+                "MAIN_PATH_TIGHT": 0.5, "BED_NARROW_OFF_WALL": 2.0}
 _ROT_BY_NORMAL = {(0, 1): 0, (1, 0): 90, (0, -1): 180, (-1, 0): 270}
 
 
@@ -54,6 +54,8 @@ class _Statics:
         rads = [radiator_polygon(room, r).buffer(hard - 1.0) for r in room.radiators]
         self.blocked = unary_union(door + rads) if (door or rads) else None
         self.windows = [(op, opening_polygon(room, op)) for op in room.openings if op.kind == "window"]
+        # шаблон кровати, заданный назначением (`purposes[*].bed_template`: single_narrow → bed_narrow_wall); нет — прежний выбор
+        self.bed_tpl: str | None = None
 
 
 def _slots(room: Room, item: Item):
@@ -158,6 +160,10 @@ def _pref(S: _Statics, p: Placement, slot) -> float:
     fp = footprint(p)
     win_on_wall = any(fp.distance(w) < p.item.d_cm / 2 + 30 and _edge_has(w, _edge) for _, w in S.windows)
     if r == "кровать":
+        if p.tpl_id == "bed_narrow_wall":
+            # узкая односпальная: изголовье и длинный бок к стенам (в угол) — сильнее мягких штрафов, отход от угла дорог
+            corner = min(frac * L - p.item.w_cm / 2, L - frac * L - p.item.w_cm / 2)
+            return -0.05 * min(corner, 100) + (1.0 if corner < 1 else 0.0)
         if is_double(p):
             return -4.0 * abs(frac - 0.5)                         # шаблон bed_center_wall
         corner = min(frac * L - p.item.w_cm / 2, L - frac * L - p.item.w_cm / 2)
@@ -211,7 +217,8 @@ def _candidates(st: _State, S: _Statics, role: str, item: Item):
         x, y, rot = slot[0], slot[1], slot[2]
         tpl = ""
         if b == "кровать":
-            tpl = "bed_center_wall" if is_double(Placement(role=role, item=item, x=0, y=0)) else "bed_corner"
+            dbl = is_double(Placement(role=role, item=item, x=0, y=0))
+            tpl = S.bed_tpl if (S.bed_tpl and not dbl) else ("bed_center_wall" if dbl else "bed_corner")
         elif b in ("шкаф", "комод"):
             tpl = "storage_solid_wall"
         elif b == "стол рабочий":
@@ -256,8 +263,12 @@ def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, 
     if bed is not None and cfg.get("bed") == "double" and not is_double(Placement(role="кровать", item=bed, x=0, y=0)):
         meta["reason"].append("BED_NOT_DOUBLE")
         return Layout(room=room, placements=[], meta=meta, unplaced=["кровать"])
+    if bed is not None and cfg.get("bed") == "single" and is_double(Placement(role="кровать", item=bed, x=0, y=0)):
+        meta["reason"].append("BED_NOT_SINGLE")      # узкое назначение (single_narrow) двуспальную не ставит
+        return Layout(room=room, placements=[], meta=meta, unplaced=["кровать"])
 
     S = _Statics(room)
+    S.bed_tpl = cfg.get("bed_template")
     roles = sorted(by_role, key=_order_key)
     states = [_State([], [], 0.0, [])]
     for role in roles:

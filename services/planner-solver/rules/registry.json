@@ -765,6 +765,13 @@
    "где": "planner/bedroom_checks.py"
   },
   {
+   "id": "BED_NARROW_OFF_WALL",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "длинный бок «{b.role}» не у стены",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
    "id": "BED_NEAR_RADIATOR",
    "вид": "hard",
    "стадия": "спальня",

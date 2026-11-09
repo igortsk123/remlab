@@ -688,7 +688,10 @@ def _selftest_onb04(R: dict, ok) -> int:
        all(c['expect']['ok'] and c['expect']['w'] - c['expect']['sw'] <= 40 and c['expect']['d'] - c['expect']['sl'] <= 40 for c in kb))
     pk = lambda role, **d: purposes_of(role, {'ok': True, **d}, R)  # noqa: E731
     ok('кровать 160×200: пара, гостевая; не подросток', pk('кровать', sw=160, sl=200) == ['couple', 'guest'])
-    ok('кровать 90×200: один, гостевая, подросток', pk('кровать', sw=90, sl=200) == ['single', 'guest', 'child:teen'])
+    ok('кровать 90×200: один, гостевая, подросток, узкая односпальная', pk('кровать', sw=90, sl=200) == ['single', 'guest', 'child:teen', 'single_narrow'])
+    ok('узкая односпальная (UK single, 09.11): 90–100 × 190–200; 120 и 90×210 — нет',
+       'single_narrow' in pk('кровать', sw=100, sl=190) and 'single_narrow' not in pk('кровать', sw=120, sl=200)
+       and 'single_narrow' not in pk('кровать', sw=90, sl=210))
     ok('кровать без спального места — назначений нет', pk('кровать') == [])
     ok('детская 80×160: 3–7 и 7–12; 0–3 — только кроватка', pk('кровать детская', sw=80, sl=160) == ['child:3-7', 'child:7-12']
        and pk('кроватка', sw=60, sl=120) == ['child:0-3'])

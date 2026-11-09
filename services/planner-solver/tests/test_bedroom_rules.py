@@ -52,4 +52,5 @@ def test_numbers_not_hardcoded_in_bedroom_json():
 
 
 def test_purposes_match_adr_vocabulary():
-    assert set(_load("bedroom.json")["purposes"]) == {"couple", "single", "child", "office", "guest"}
+    # single_narrow — добавлено 09.11 (план bedroom-uk-single-01, «не поправить, а добавить»); прежние пять — те же
+    assert set(_load("bedroom.json")["purposes"]) == {"couple", "single", "child", "office", "guest", "single_narrow"}

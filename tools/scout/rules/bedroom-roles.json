@@ -276,6 +276,16 @@
      190,
      210
     ]
+   },
+   "single_narrow": {
+    "sw": [
+     90,
+     100
+    ],
+    "sl": [
+     190,
+     200
+    ]
    }
   },
   "тумба прикроватная": {
@@ -284,7 +294,8 @@
    "guest": {},
    "child:3-7": {},
    "child:7-12": {},
-   "child:teen": {}
+   "child:teen": {},
+   "single_narrow": {}
   },
   "комод": {
    "couple": {},
@@ -293,7 +304,8 @@
    "child:0-3": {},
    "child:3-7": {},
    "child:7-12": {},
-   "child:teen": {}
+   "child:teen": {},
+   "single_narrow": {}
   },
   "шкаф": {
    "couple": {},
@@ -303,7 +315,8 @@
    "child:0-3": {},
    "child:3-7": {},
    "child:7-12": {},
-   "child:teen": {}
+   "child:teen": {},
+   "single_narrow": {}
   },
   "туалетный столик": {
    "couple": {},
@@ -344,7 +357,8 @@
   "стол рабочий": {
    "office": {},
    "single": {},
-   "child:teen": {}
+   "child:teen": {},
+   "single_narrow": {}
   },
   "стол детский": {
    "child:3-7": {
@@ -379,7 +393,8 @@
      65
     ]
    },
-   "child:teen": {}
+   "child:teen": {},
+   "single_narrow": {}
   },
   "стул детский": {
    "child:3-7": {

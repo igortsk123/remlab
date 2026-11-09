@@ -1048,6 +1048,13 @@ def main() -> None:
              ".meta{font-size:15px;color:#3A423C;margin-top:8px}.meta div{margin:3px 0}"
              ".none{color:#a33}.head{margin:10px 0;padding:10px 12px;border-left:3px solid #3B76A2;"
              "background:#F4F7FA;font-size:15.5px}")
+    # РАЗДЕЛ «СПАЛЬНЯ» (план bedroom-uk-single-01, 09.11): назначения и шаблоны спальни раскладывает солвер спальни
+    # (`canon_bedroom.py`); дописывается ПОСЛЕ карточек гостиной — их разметка и кадры прежние
+    import canon_bedroom as CBR
+    bed_html, bed_warn = CBR.section(OUT, artifact, render_artifact)
+    for _w in bed_warn:
+        print('  ВНИМАНИЕ спальня: ' + _w)
+    style += CBR.CSS
     head = ("<div class='head'>Каждый канон нарисован ТЕМ ЖЕ кодом, что и рабочие планы: это не "
             "картинки от руки, а результат шаблона в мини-комнате с нужным якорем (окно, эркер, "
             "камин, угол, стена). Под планом — паспорт: когда применяется, почему так, статус."
@@ -1062,8 +1069,15 @@ def main() -> None:
             "<meta name='viewport' content='width=device-width, initial-scale=1'>"
             "<meta name='robots' content='noindex'><meta http-equiv='cache-control' content='no-store'>"
             f"<title>Каноны зон — планы</title><style>{style}</style></head><body><div class='wrap'>"
-            f"<h1>Каноны зон — визуальная библиотека</h1>{head}{''.join(cards)}</div></body></html>")
+            f"<h1>Каноны зон — визуальная библиотека</h1>{head}{''.join(cards)}{bed_html}</div></body></html>")
     open(os.path.join(OUT, 'index.html'), 'w', encoding='utf-8').write(page)
+    # та же спальня отдельной страницей — прямая ссылка без прокрутки гостиной (/test/canons/bedroom.html)
+    open(os.path.join(OUT, 'bedroom.html'), 'w', encoding='utf-8').write(
+        "<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<meta name='robots' content='noindex'><meta http-equiv='cache-control' content='no-store'>"
+        f"<title>Шаблоны спальни — планы</title><style>{style}</style></head><body><div class='wrap'>"
+        f"<p class='legend'><a href='./'>← все каноны (гостиная и спальня)</a></p>{bed_html}</div></body></html>")
     _miss = coverage_gate({f"{c['zone']}.{c.get('passport_id') or c['id']}" for c in _all})
     if _miss:
         print('  ВНИМАНИЕ полнота библиотеки: активные схемы без карточки — ' + ', '.join(_miss))

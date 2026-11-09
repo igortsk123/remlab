@@ -77,8 +77,9 @@ class Room(BaseModel):
     finish: dict | None = Field(default=None)
     # спальня — свой модуль правил (`planner/bedroom.py`, `bedroom_checks.py`); гостиная по умолчанию, её путь не меняется
     room_type: RoomType = "living"
-    # назначение спальни и возраст ребёнка — словарь ADR-0330 п.3 (`rules/bedroom.json` purposes)
-    purpose: Literal["couple", "single", "child", "office", "guest"] | None = None
+    # назначение спальни и возраст ребёнка — словарь ADR-0330 п.3 (`rules/bedroom.json` purposes);
+    # single_narrow — узкая односпальная UK single 90×190 (план bedroom-uk-single-01, добавлено 09.11)
+    purpose: Literal["couple", "single", "child", "office", "guest", "single_narrow"] | None = None
     child_age: Literal["0-3", "3-7", "7-12", "teen"] | None = None
 
     @model_validator(mode="after")

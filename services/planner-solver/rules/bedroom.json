@@ -22,14 +22,17 @@
   "office": {"required": ["стол рабочий", "стул рабочий"], "optional": ["шкаф", "комод", "кровать", "тумба прикроватная"], "bed": "any", "_why": "кабинет: стол + стул + хранение; спальное место — по месту (Н11)"},
   "child": {"pending": "onb-04", "_why": "детская по возрасту (Room.child_age): возраст из `ages` — свой состав; остальные возрасты (0-3 кроватка, 3-7, подросток) и детская без возраста — PURPOSE_PENDING",
             "ages": {"7-12": {"required": ["кровать", "стол рабочий", "стул рабочий"], "optional": ["тумба прикроватная", "шкаф", "комод"], "bed": "any",
-                              "_why": "школьник 7–12 (владелец TG 434/437, kids-room-01): та же спальня, детская кровать и стол для учёбы со стулом обязательны; роли — псевдонимы `aliases`; кровать можно в угол (Н3), стол у окна со светом слева — мягко"}}}
+                              "_why": "школьник 7–12 (владелец TG 434/437, kids-room-01): та же спальня, детская кровать и стол для учёбы со стулом обязательны; роли — псевдонимы `aliases`; кровать можно в угол (Н3), стол у окна со светом слева — мягко"}}},
+  "single_narrow": {"required": ["кровать"], "optional": ["тумба прикроватная", "шкаф", "комод", "стол рабочий", "стул рабочий"], "bed": "single", "bed_template": "bed_narrow_wall", "added": "2026-11-09",
+                    "_why": "узкая односпальная (UK single 90×190, владелец TG 297 09.11: «не поправить, а добавить»): малые британские спальни 2,4×3,3 м — кровать по спальному месту 90–100, рама до ~110 (`tools/scout/rules/bedroom-composition.json` purposes.single_narrow); двуспальная (рама ≥ `roles.кровать.double_min_w_cm`) — отказ BED_NOT_SINGLE; одна тумба; шкаф/комод и стол — по месту (план bedroom-uk-single-01)"}
  },
  "templates": {
   "bed_center_wall": {"for": ["couple", "guest", "single"], "_enforce": "planner/bedroom.py:_bed_candidates (центр стены) + BED_SIDE_PASSAGE", "_why": "двуспальная по центру сплошной стены, по тумбе с двух сторон"},
   "bed_corner": {"for": ["single", "office", "guest", "child"], "beds": "single", "_enforce": "planner/bedroom.py:_bed_candidates (угол) + BED_SIDE_PASSAGE", "_why": "односпальная в угол: изголовье и длинный бок к стенам"},
   "storage_solid_wall": {"_enforce": "WINDOW_BLOCKED (planner/validate.py) + штраф окна в planner/bedroom.py:_score", "_why": "шкаф/комод — на стене без окна"},
   "work_at_window": {"_enforce": "DESK_FAR_FROM_WINDOW", "_why": "стол у окна, свет сбоку или спереди (Н8)"},
-  "dressing_table": {"_enforce": "BR_ACCESS_BLOCKED / BR_ACCESS_WALL", "_why": "туалетный столик спинкой к стене, перед ним место под пуф"}
+  "dressing_table": {"_enforce": "BR_ACCESS_BLOCKED / BR_ACCESS_WALL", "_why": "туалетный столик спинкой к стене, перед ним место под пуф"},
+  "bed_narrow_wall": {"for": ["single_narrow"], "beds": "single", "added": "2026-11-09", "_enforce": "planner/bedroom.py:_pref (длинный бок к стене, в угол) + BED_NARROW_OFF_WALL + BED_SIDE_PASSAGE + NIGHTSTAND_DETACHED", "_why": "узкая односпальная (UK single 90×190) изголовьем и длинным боком к стенам — в угол; проход 75 с одной открытой стороны, тумба у изголовья с открытой стороны; освободившаяся стена — под шкаф, комод или стол. Отличие от bed_corner: для рамы до ~110, бок у стены — правило с проверкой, а не слабое предпочтение"}
  },
  "rules": {
   "bed_side_passage": {"_enforce": "BED_SIDE_PASSAGE", "num": "distances_cm.bed_side_passage"},
@@ -48,6 +51,7 @@
   "desk_light_left": {"_enforce": "DESK_LIGHT_RIGHT", "_why": "только детская (purpose child): окно сбоку слева или спереди от сидящего за столом — мягко (ведущую руку не знаем, Codex 07.11); у взрослых не проверяем"},
   "nightstand_at_head": {"_enforce": "NIGHTSTAND_DETACHED"},
   "floor_occupancy": {"_enforce": "BEDROOM_FLOOR_OVERFILL", "num": "distances_cm.bedroom_floor_max_pct"},
-  "crib_child": {"_enforce": "none", "_why": "Н10 — после ролей onb-04 (кроватка, пеленальный комод)"}
+  "crib_child": {"_enforce": "none", "_why": "Н10 — после ролей onb-04 (кроватка, пеленальный комод)"},
+  "bed_narrow_side_wall": {"_enforce": "BED_NARROW_OFF_WALL", "_why": "только назначение с шаблоном bed_narrow_wall (single_narrow): длинный бок узкой кровати — к стене (зазор ≤ 10 см); иначе мягко — кровать посреди малой комнаты съедает два прохода"}
  }
 }

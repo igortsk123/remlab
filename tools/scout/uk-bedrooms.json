@@ -1,0 +1,21 @@
+{
+ "_about": "ТРИ СПАЛЬНИ ИЗ ОБЪЯВЛЕНИЯ ВЛАДЕЛЬЦА (TG 260, UK; план bedroom-uk-single-01) — геометрия для солвера спальни: страница шаблонов /test/canons/ (`tools/scout/canon_gallery.py`, раздел «Спальня») и тесты узкой односпальной (`services/planner-solver/tests/test_bedroom_single_narrow.py`). Координаты — как у гостиной и flat215-bedrooms.json: см, x — ширина (запад→восток), y — глубина (юг→север), south — стена y=0, offset — от начала стены.",
+ "_source": "размеры — из объявления (Bedroom One 3,77×5,61; Two 3,96×3,60; Three 2,44×3,33). Плана этажа в объявлении нет — проёмы ПРАВДОПОДОБНЫЕ (допущение исполнителя 09.11, не замер): окно по центру наружной стены, под ним радиатор (типично для UK); дверь UK 762 мм (76 см) у угла — с лестничной площадки. В Bedroom Three (box room) дверь на длинной стене у угла: на короткой стене напротив окна изголовье узкой кровати встаёт только на стену двери (мягкое замечание «изголовье на стене двери», BED_DOOR_WALL) — так тоже бывает, но вариант с дверью сбоку чаще у малых спален.",
+ "rooms": [
+  {"id": "bedroom-one", "title": "Bedroom One", "w": 377, "d": 561,
+   "openings": [{"kind": "door", "wall": "south", "offset_cm": 12, "width_cm": 76, "swing_cm": 76},
+                {"kind": "window", "wall": "north", "offset_cm": 104, "width_cm": 170, "sill_cm": 85}],
+   "radiators": [{"wall": "north", "offset_cm": 129, "width_cm": 120}],
+   "_why": "21,1 м², вытянутая: окно 170 по центру короткой северной стены, радиатор под ним; дверь у юго-западного угла на противоположной короткой стене"},
+  {"id": "bedroom-two", "title": "Bedroom Two", "w": 396, "d": 360,
+   "openings": [{"kind": "door", "wall": "south", "offset_cm": 12, "width_cm": 76, "swing_cm": 76},
+                {"kind": "window", "wall": "north", "offset_cm": 128, "width_cm": 140, "sill_cm": 85}],
+   "radiators": [{"wall": "north", "offset_cm": 138, "width_cm": 120}],
+   "_why": "14,3 м², почти квадрат: окно 140 по центру северной стены, радиатор под ним; дверь у юго-западного угла напротив окна"},
+  {"id": "bedroom-three", "title": "Bedroom Three", "w": 244, "d": 333,
+   "openings": [{"kind": "door", "wall": "west", "offset_cm": 10, "width_cm": 76, "swing_cm": 76},
+                {"kind": "window", "wall": "north", "offset_cm": 62, "width_cm": 120, "sill_cm": 85}],
+   "radiators": [{"wall": "north", "offset_cm": 67, "width_cm": 110}],
+   "_why": "8,1 м², box room: окно 120 по центру короткой северной стены, радиатор под ним; дверь на длинной западной стене у юго-западного угла"}
+ ]
+}

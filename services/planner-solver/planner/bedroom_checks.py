@@ -117,6 +117,18 @@ def _against_wall(room: Room, strip) -> bool:
     return strip.difference(room_polygon(room)).area >= 0.8 * strip.area
 
 
+def bed_template(room: Room) -> str | None:
+    """Шаблон кровати, который назначение задаёт явно (`rules/bedroom.json` purposes[*].bed_template; сейчас только
+    single_narrow → bed_narrow_wall). У прежних назначений ключа нет — None, их путь не меняется."""
+    return (bedroom_rules()["purposes"].get(room.purpose or "") or {}).get("bed_template")
+
+
+def side_on_wall(room: Room, p: Placement) -> bool:
+    """Длинный бок кровати у стены (зазор ≤ WALL_GAP_CM) — признак шаблона bed_narrow_wall."""
+    z = bed_zones(p)
+    return _against_wall(room, z["left_wall"]) or _against_wall(room, z["right_wall"])
+
+
 def head_wall(p: Placement) -> str:
     return {0: "south", 90: "west", 180: "north", 270: "east"}[int(p.rot) % 360]
 
@@ -155,6 +167,9 @@ def check_bed(room: Room, ps: list[Placement]) -> list[Violation]:
         if any(op.kind in ("door", "balcony") and op.wall == head_wall(b) for op in room.openings):
             out.append(_v("BED_DOOR_WALL", f"изголовье «{b.role}» на стене двери", [b.role], None,
                           "изголовье не на стене двери", Severity.SOFT))
+        if bed_template(room) == "bed_narrow_wall" and not is_double(b) and not side_on_wall(room, b):
+            out.append(_v("BED_NARROW_OFF_WALL", f"длинный бок «{b.role}» не у стены", [b.role], None,
+                          "узкая кровать боком к стене (шаблон bed_narrow_wall)", Severity.SOFT))
         soft = num("bed_radiator_soft", 50)
         for r in room.radiators:
             dist = footprint(b).distance(radiator_polygon(room, r))
