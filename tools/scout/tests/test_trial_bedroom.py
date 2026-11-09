@@ -190,6 +190,25 @@ def test_l_shape_checked_over_full_contour():
     assert x0 >= -1 and y0 >= -1 and x1 <= 481 and y1 <= 461
 
 
+def test_bed_head_not_against_niche_air():
+    # ниша 55 см вдоль восточной стены: сторона ядра над ней — не стена, кровать изголовьем туда не ставим
+    from shapely.geometry import Point, Polygon
+    c = [[0, 0], [400, 0], [400, 280], [345, 280], [345, 420], [0, 420]]
+    room = {'id': 'r1', 'name': 'Bedroom 1', 'kind': 'bedroom', 'contour': c, 'bbox': {'x': 0, 'y': 0, 'w': 400, 'd': 420}, 'areaM2': 15.7, 'flags': []}
+    p = {'version': 1, 'units': 'cm', 'scale': {'status': 'verified', 'ppm': 100, 'inliers': 3, 'n': 3}, 'flags': [],
+         'panels': [{'id': 'p0', 'title': 'x', 'rooms': [room], 'walls': [], 'openings': [{'kind': 'door', 'c': [60, 0], 'widthCm': 80, 'exterior': False},
+                                                                                          {'kind': 'window', 'c': [170, 420], 'widthCm': 120, 'exterior': True}]}]}
+    job = TB.build('t16', p, ctx(full_bank()))
+    r = job['rooms'][0]
+    assert r['variants']
+    edge = Polygon(c).exterior
+    for v in r['variants']:
+        b = next(q for q in v['placements'] if q['role'] == 'кровать')
+        rad = __import__('math').radians(b['rot'])
+        bx, by = b['x'] - __import__('math').sin(rad) * b['d'] / 2, b['y'] - __import__('math').cos(rad) * b['d'] / 2
+        assert edge.distance(Point(bx, by)) <= TB.BACK_GAP_CM + 1
+
+
 def test_not_furnished_without_entry():
     p = plan(sizes=((420, 380),))
     p['panels'][0]['openings'] = [p['panels'][0]['openings'][1]]   # окно есть, двери нет

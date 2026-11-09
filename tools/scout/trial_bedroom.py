@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import re
 import sys
@@ -48,6 +49,9 @@ NARROW_MAX_CM = 100.0                              # спальное/рама �
 IDEAL_SIZES = ((18.0, 300.0, 180), (11.5, 255.0, 160), (9.0, 0.0, 140), (0.0, 0.0, 120))   # площадь ядра, короткая сторона → идеальная ширина спального, см (NDSS)
 NDSS_DOUBLE = (11.5, 255.0)                        # двуспальная «для пары» — NDSS 2015 (площадь м², короткая сторона см)
 NIGHTSTANDS = {'couple': 2, 'guest': 1, 'single': 1}
+BACK_ROLES = ('кровать', 'шкаф', 'комод')          # спинкой к стене полного контура, не к стороне ядра над нишей
+BACK_GAP_CM = 12.0                                 # задняя кромка дальше от стены — «стоит в воздухе»
+BACK_MIN_SHARE = 0.8                               # доля точек кромки, что обязаны быть у стены
 MAX_BEDS = 6                                       # разных размеров кроватей на стиль × ядро в переборе
 MAX_CORES = 3                                      # ядер на стиль: дальше — те же кровати на всё меньшей площади
 ROOM_BUDGET_S = 30.0                               # бюджет на комнату (чтобы плохой план не ел конвейер); вышло — лучшее, что есть
@@ -273,6 +277,27 @@ def build_room(cand: dict, cfg: dict, hinge: str, purpose: str):
                 purpose=purpose), ops
 
 
+def back_off_wall(ad: dict, cand: dict, placements: list) -> list:
+    """Спинка кровати, шкафа, комода — у настоящей стены ПОЛНОГО контура. Ядро — прямоугольник: его сторона бывает «стеной» солвера и над нишей
+    комнаты, тогда кровать стоит изголовьем в воздух (кадр D, спальня 2: щель 57 см за кроватью). Доля точек задней кромки дальше `BACK_GAP_CM` от стены → роль."""
+    from shapely.geometry import Point
+    x0, y0 = cand['rect'][0], cand['rect'][1]
+    edge = ad['poly'].exterior
+    bad = []
+    for p in placements:
+        if base_role(p.role) not in BACK_ROLES or p.item is None:
+            continue
+        rad = math.radians(p.rot or 0)
+        fx, fy = math.sin(rad), math.cos(rad)                # вперёд от спинки (как `planner.validate._back_pt`)
+        ax, ay = fy, -fx                                     # вдоль спинки
+        bx, by = x0 + p.x - fx * p.item.d_cm / 2, y0 + p.y - fy * p.item.d_cm / 2
+        pts = [Point(bx + ax * p.item.w_cm * t, by + ay * p.item.w_cm * t) for t in (-0.45, -0.3, -0.15, 0.0, 0.15, 0.3, 0.45)]
+        near = sum(1 for q in pts if edge.distance(q) <= BACK_GAP_CM)
+        if near / len(pts) < BACK_MIN_SHARE:
+            bad.append(p.role)
+    return bad
+
+
 def solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     """Набор на ядре, обе петли дверей → лучшая попытка {placements, hard, post, ops, room, meta} или None. Память `ad['memo']`: одинаковые
     размеры на том же ядре считаем один раз (у стилей и кроватей они часто совпадают — комната не упирается в бюджет)."""
@@ -300,6 +325,8 @@ def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
             continue
         hard = sorted(set(TD.hard_of(room, ps)) | {f"{v.code}|{','.join(sorted(v.roles))}" for v in lay.violations if v.severity.name == 'HARD'})
         post = TR.post_check(ad, cand, ps)
+        post = dict(post, problems=post['problems'] + [{'code': 'back_off_wall', 'role': r} for r in back_off_wall(ad, cand, ps)])
+        post['ok'] = not post['problems']
         rec = {'placements': ps, 'hard': hard, 'post': post, 'ops': ops, 'hinge': hinge,
                'score': (len(hard) + len(post['problems']), len(lay.skipped_optional)), 'skipped': list(lay.skipped_optional),
                'reason': list(lay.meta.get('reason') or []), 'floor_pct': lay.floor_used_pct, 'room': room}
@@ -338,10 +365,11 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
                 if time.time() > deadline:
                     return out_of_budget(style, fallback)
                 tried += 1
-                probe = solve_kit(ad, cand, cfg, {'кровать': bed}, purpose)     # одна кровать не встала — наборы с ней не встанут тем более: не тратим бюджет
-                if not probe or probe['score'][0] != 0:
+                probe = solve_kit(ad, cand, cfg, {'кровать': bed}, purpose)     # кровати нигде нет места — наборы с ней не встанут тем более: не тратим бюджет
+                if not probe:
                     continue
-                fallback = fallback or (probe, ad, cand, ci, style, bed, others, purpose, ctx)
+                if probe['score'][0] == 0:
+                    fallback = fallback or (probe, ad, cand, ci, style, bed, others, purpose, ctx)
                 for kit in kit_ladder(bed, others):
                     if time.time() > deadline:
                         return out_of_budget(style, fallback)
