@@ -2,7 +2,7 @@
 // session_id вынесен колонкой для выборок workspace. Расширение на нормальные таблицы — позже.
 // Трейсинг пайплайна (ADR-0013): runs/steps/assets — подробный лог каждого вызова LLM.
 
-import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial, uniqueIndex, primaryKey, bigserial, date } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial, uniqueIndex, primaryKey, bigserial, date, numeric } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { Project } from "@/contracts/project";
 import type { Estimate } from "@/contracts/estimate";
@@ -510,3 +510,58 @@ export const ownerReviews = pgTable(
   },
   (t) => [index("owner_reviews_kind_idx").on(t.kind, t.id)],
 );
+
+// ── Проба для агентов UK (план agent-trial-01, T-A; `db/init/022-trial-jobs.sql`) ───────────────────
+// Очередь заданий «план → серый тур»: воркер DEV берёт задание claim-ом (SKIP LOCKED), держит аренду heartbeat-ом.
+// Ограждение — attempt + lease_token (`lib/trial/repo-worker.ts`). Email и ip_hash не храним (поправки Codex 09.11).
+export const trialJobs = pgTable(
+  "trial_jobs",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull().default("floorplan"),
+    status: text("status").notNull().default("queued"),
+    stage: text("stage").notNull().default("queued"),
+    stages: jsonb("stages").$type<{ stage: string; at: string }[]>().notNull().default([]),
+    attempt: integer("attempt").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(2),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull().defaultNow(),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    leaseToken: text("lease_token"),
+    workerId: text("worker_id"),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    inputHash: text("input_hash"),
+    inputPath: text("input_path"),
+    inputMime: text("input_mime").notNull(),
+    inputBytes: integer("input_bytes").notNull(),
+    inputDeletedAt: timestamp("input_deleted_at", { withTimezone: true }),
+    listingText: text("listing_text"),
+    consentVersion: text("consent_version"),
+    budgetUsd: numeric("budget_usd", { precision: 8, scale: 4 }).notNull().default("0.10"),
+    spentUsd: numeric("spent_usd", { precision: 8, scale: 4 }).notNull().default("0"),
+    errorCode: text("error_code"),
+    errorDetail: text("error_detail"),
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    resultHash: text("result_hash"),
+    resultVersion: integer("result_version").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    resultExpiresAt: timestamp("result_expires_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("trial_jobs_queue_idx").on(t.status, t.nextRunAt),
+    index("trial_jobs_lease_idx").on(t.leaseUntil).where(sql`status = 'running'`),
+    index("trial_jobs_hash_idx").on(t.inputHash),
+    index("trial_jobs_expires_idx").on(t.expiresAt).where(sql`input_path is not null`),
+    index("trial_jobs_result_expires_idx").on(t.resultExpiresAt),
+    index("trial_jobs_created_idx").on(t.createdAt),
+  ],
+);
+
+// «Жив ли воркер»: last_seen — на каждом опросе claim (и когда воркер сам себя притормозил).
+export const trialWorkers = pgTable("trial_workers", {
+  id: text("id").primaryKey(),
+  lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
+  version: text("version"),
+});

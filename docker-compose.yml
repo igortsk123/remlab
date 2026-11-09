@@ -33,9 +33,11 @@ services:
   traces-init:
     image: alpine:3.20
     container_name: remlab-traces-init
-    command: ["sh", "-c", "mkdir -p /data && chown -R 1001:65533 /data && chmod -R u+rwX /data"]
+    # тот же приём — для тома файлов пробы агентов (/trial, план agent-trial-01)
+    command: ["sh", "-c", "mkdir -p /data /trial && chown -R 1001:65533 /data /trial && chmod -R u+rwX /data /trial"]
     volumes:
       - remlab-traces:/data
+      - remlab-trial:/trial
     restart: "no"
     logging:
       driver: json-file
@@ -95,8 +97,18 @@ services:
       # сигналы копятся с пометкой «нет канала» и видны на странице менеджера.
       - MANAGER_TG_TOKEN=${MANAGER_TG_TOKEN:-}
       - MANAGER_TG_WEBHOOK_SECRET=${MANAGER_TG_WEBHOOK_SECRET:-}
+      # Проба для агентов UK (план agent-trial-01): файлы планов на своём томе; мост воркера DEV — Bearer
+      # TRIAL_WORKER_TOKEN (пусто → ручки воркера закрыты, 503). Потолок заданий в сутки на сайт (30 × $0,10 = $3),
+      # очередь ожидающих, сроки: исходный файл — часы после финального статуса (≤ 168), результат — дни (потом 410).
+      - TRIAL_DIR=/app/data/trial
+      - TRIAL_WORKER_TOKEN=${TRIAL_WORKER_TOKEN:-}
+      - TRIAL_DAILY_CAP=${TRIAL_DAILY_CAP:-30}
+      - TRIAL_QUEUE_MAX=${TRIAL_QUEUE_MAX:-5}
+      - TRIAL_FILE_RETENTION_HOURS=${TRIAL_FILE_RETENTION_HOURS:-24}
+      - TRIAL_RESULT_RETENTION_DAYS=${TRIAL_RESULT_RETENTION_DAYS:-30}
     volumes:
       - remlab-traces:/app/data/traces
+      - remlab-trial:/app/data/trial
       # витрина демо — для встраивания на сайт застройщика (`/embed/…`, план b2b-07): читаем файл, а не свой же прод
       - ./demo:/srv/demo:ro
     networks: [remlab-net]
@@ -196,5 +208,6 @@ networks:
 volumes:
   remlab-db:
   remlab-traces:
+  remlab-trial:
   caddy-data:
   caddy-config:

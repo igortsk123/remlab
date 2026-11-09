@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/base/buttons/button";
+import { noMetrikaPath } from "@/lib/metrika";
 
 // Баннер cookie (план b2b-04, ADR-0268). РФ-режим — уведомление «используем Метрику» (запоминается «Понятно»);
 // английский (UK) — СОГЛАСИЕ: Метрика не запускается, пока человек не нажал «Accept» (`app/layout.tsx`,
-// `window.__remlabMetrika`). На страницах менеджера и отчёта застройщику Метрики нет — баннера тоже.
+// `window.__remlabMetrika`). На страницах менеджера, отчёта застройщику и пробы (/try) Метрики нет — баннера тоже.
 export const COOKIE_KEY = "remlab-cookies";
 
 export function isEnglishMode(search: string, stored: string | null): boolean {
@@ -24,7 +25,7 @@ export function CookieBanner() {
 
   useEffect(() => {
     const p = location.pathname;
-    if (p.startsWith("/manager") || p.startsWith("/partner")) return;
+    if (noMetrikaPath(p)) return; // Метрики там нет — и спрашивать согласие не о чем
     const en = isEnglishMode(location.search, read("remlab-lang"));
     const v = read(COOKIE_KEY);
     if (en ? v !== "yes" && v !== "no" : v === null) setMode(en ? "en" : "ru");

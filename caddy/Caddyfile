@@ -34,7 +34,7 @@ remont-lab.online {
 				request>headers>X-Trace-Token delete
 				request>headers>X-Telegram-Bot-Api-Secret-Token delete
 				request>headers>Referer delete
-				request>uri regexp "([?&]s=|/api/sends/|/api/collections/)[A-Za-z0-9_-]{22}" "${1}…"
+				request>uri regexp "([?&]s=|/api/sends/|/api/collections/|/api/trial/|/api/trial/worker/|/try/)[A-Za-z0-9_-]{22}" "${1}…"
 			}
 		}
 	}
@@ -51,8 +51,22 @@ remont-lab.online {
 		# frame-ancestors с доменами партнёра. ПРАВИЛО: любой ответ со своим CSP обязан содержать frame-ancestors.
 		?Content-Security-Policy "frame-ancestors 'self'"
 		X-Content-Type-Options "nosniff"
-		Referrer-Policy "strict-origin-when-cross-origin"
 		-Server
+	}
+	# «?» ОТДЕЛЬНОЙ директивой (09.11, agent-trial-01): ручки пробы ставят свой `no-referrer` — ключ ссылки /try/<id> не
+	# уходит в Referer чужим сайтам; остальным ответам — по-прежнему strict-origin-when-cross-origin. В общем блоке выше
+	# нельзя: Caddy сводит все «?» блока в ОДНО условие «нет ни того, ни другого» — ответ со своим Referrer-Policy терял бы
+	# frame-ancestors (проверено `caddy adapt`).
+	header ?Referrer-Policy "strict-origin-when-cross-origin"
+
+	# ПРОБА ДЛЯ АГЕНТОВ (agent-trial-01): страница задания /try/<id> — ключ в адресе. Не в кэши, не в Referer, не в поиск.
+	# Порядок двух отложенных header не важен: здесь — безусловная установка, общий блок выше — только «если нет».
+	@trialpage path /try /try/*
+	header @trialpage {
+		defer
+		Referrer-Policy "no-referrer"
+		Cache-Control "private, no-store"
+		X-Robots-Tag "noindex, nofollow"
 	}
 
 	# ВНУТРЕННИЕ РУЧКИ ПРИЛОЖЕНИЯ (план b2b-01): их зовут только соседние контейнеры по сети
@@ -70,6 +84,24 @@ remont-lab.online {
 	}
 	handle @nextrce {
 		respond "Запрос отклонён." 403
+	}
+
+	# Загрузка плана и мост воркера DEV (agent-trial-01). Не /api/job*: тот префикс уходит в сервис кадров draft:8099
+	# (совпал бы и /api/jobs). Тело ≤ 16 МБ — внешний заслон; файл ≤ 15 МБ считает само приложение по прочитанным байтам
+	# (потоком на диск, не в память — app живёт в 1 ГБ). Буфер повтора retry_restart — 1 МБ: большая загрузка при
+	# перезапуске app не повторяется, а получает 502 (агент загрузит снова). Именованный матчер (не путь) — чтобы
+	# Caddy не поднял блок выше заслона @nextrce: запрос с Next-Action сюда не попадает вовсе.
+	@trialapi {
+		path /api/trial /api/trial/*
+		not header Next-Action *
+	}
+	handle @trialapi {
+		request_body {
+			max_size 16MB
+		}
+		reverse_proxy remlab-app:3000 {
+			import retry_restart
+		}
 	}
 
 	# служебные страницы проверки (витрина шаблонов, галереи, отчёты) — статик из

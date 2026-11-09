@@ -14,6 +14,7 @@ import { and, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { flatConfigs, generationAssets, generationRuns, generationSteps, leadMessages, leads, retentionRuns } from "@/db/schema";
 import { TRACE_DIR } from "@/lib/trace/assets";
+import { trialRetention } from "@/lib/trial/retention";
 
 export type RetentionResult = { kind: string; days: number | null; deleted: number; kept?: number };
 type Tx = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
@@ -89,6 +90,8 @@ export async function runRetention(now = new Date(), env = process.env): Promise
     out.push({ kind: "leads", days: lDays, deleted: lDays ? await oldLeads(tx, now, lDays) : 0 });
     const cDays = daysFrom(env.CONTACT_RETENTION_DAYS);
     out.push({ kind: "flat_contacts", days: cDays, deleted: cDays ? await flatContacts(tx, now, cDays) : 0 });
+    // проба для агентов (agent-trial-01): сроки по умолчанию заданы (файл 24 ч, результат 30 дн.) — ПДн не копим
+    out.push(...(await trialRetention(tx, now, env)));
     for (const r of out) await tx.insert(retentionRuns).values({ kind: r.kind, days: r.days, deleted: r.deleted, ranAt: now });
     return out;
   });

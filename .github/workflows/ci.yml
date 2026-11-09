@@ -115,7 +115,7 @@ jobs:
                    link_clicks link_routes leads lead_messages style_results \
                    mesh_review_tasks mesh_review_decisions \
                    mesh_audit_items mesh_audit_decisions mesh_audit_batches mesh_audit_cancellations \
-                   flat_configs; do
+                   flat_configs trial_jobs trial_workers; do
             got=$(psql -h localhost -U remlab -d remlab -tAc "select to_regclass('public.$t')")
             [ "$got" = "$t" ] || { echo "НЕТ таблицы $t после применения db/init"; exit 1; }
           done

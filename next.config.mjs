@@ -9,6 +9,18 @@ const nextConfig = {
   env: {
     APP_VERSION: process.env.APP_VERSION ?? "dev",
   },
+  // Проба для агентов (agent-trial-01): ключ ссылки /try/<id> не уходит в Referer и в поиск. На проде то же (и
+  // Cache-Control: private, no-store) ставит Caddy `@trialpage`; здесь — для запуска без Caddy (dev, e2e).
+  async headers() {
+    const h = [
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "X-Robots-Tag", value: "noindex, nofollow" },
+    ];
+    return [
+      { source: "/try", headers: h },
+      { source: "/try/:path*", headers: h },
+    ];
+  },
 };
 
 export default nextConfig;

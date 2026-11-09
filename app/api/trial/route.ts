@@ -1,0 +1,38 @@
+import { foreignOrigin } from "@/lib/http/origin";
+import { guard } from "@/lib/ratelimit/http";
+import { randomToken } from "@/lib/token";
+import { trialDir } from "@/lib/trial/config";
+import { fail, trialJson } from "@/lib/trial/http";
+import { admissionPrecheck, commitUpload, type Admission } from "@/lib/trial/repo-create";
+import { receiveUpload } from "@/lib/trial/upload";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const REFUSE: Record<Exclude<Admission, "ok">, () => Response> = {
+  busy: () => fail(503, "busy", { "Retry-After": "120" }),
+  daily_cap: () => fail(429, "daily_cap", { "Retry-After": "3600" }),
+};
+
+// Загрузка плана для пробы (план agent-trial-01, T-A): multipart `file` (JPEG/PNG/WebP/PDF ≤ 15 МБ), `listing` (текст
+// объявления ≤ 5000), `consent=yes`. Email НЕ принимаем до T9 (минимизация ПДн). Лимит частоты и заполненность очереди —
+// ДО чтения тела; тело — потоком на диск (`lib/trial/upload.ts`); окончательный допуск — под замком при записи.
+export async function POST(req: Request): Promise<Response> {
+  if (foreignOrigin(req)) return fail(403, "forbidden");
+  const limited = await guard(req, "trialUpload");
+  if (limited) return limited;
+  const pre = await admissionPrecheck();
+  if (pre !== "ok") return REFUSE[pre]();
+  const id = randomToken();
+  const dir = trialDir();
+  const up = await receiveUpload(req, dir, id);
+  if (!up.ok) return fail(up.status, up.error);
+  let verdict: Admission;
+  try {
+    verdict = await commitUpload(up, id, dir);
+  } catch {
+    return fail(500, "internal");
+  }
+  if (verdict !== "ok") return REFUSE[verdict]();
+  return trialJson({ ok: true, id, url: `/try/${id}` }, 201);
+}

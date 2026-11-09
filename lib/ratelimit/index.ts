@@ -48,6 +48,18 @@ export const PRESETS = {
   ownerReview: (ip: string) => ({ paid: false, rules: [{ key: `owner-review:ip:${ip}`, limit: 600, windowSec: 600 }] }),
   pageEvent: (ip: string) => ({ paid: false, rules: [{ key: `page-event:ip:${ip}`, limit: 120, windowSec: 600 }] }),
   partnerReport: (ip: string) => ({ paid: false, rules: [{ key: `partner-report:ip:${ip}`, limit: 60, windowSec: 600 }] }),
+  // Проба для агентов (agent-trial-01): загрузка плана — платный VLM на DEV, поэтому при сбое лимитера закрыто.
+  // Суточный потолок на весь сайт (TRIAL_DAILY_CAP, 30) считается по созданным заданиям под замком в
+  // `lib/trial/repo-create.ts` — счётчик здесь съедал бы потолок отказами (полная очередь, битый файл).
+  trialUpload: (ip: string) => ({
+    paid: true,
+    rules: [
+      { key: `trial:ip:${ip}`, limit: 3, windowSec: 600 },
+      { key: `trial:ip-day:${ip}`, limit: 10, windowSec: DAY },
+    ],
+  }),
+  // Страница задания опрашивает статус раз в 1,5 с (40 в минуту) — запас на две вкладки.
+  trialRead: (ip: string) => ({ paid: false, rules: [{ key: `trial-read:ip:${ip}`, limit: 120, windowSec: 60 }] }),
 } satisfies Record<string, (ip: string) => { paid: boolean; rules: Rule[] }>;
 
 export function windowStart(nowMs: number, windowSec: number): Date {
