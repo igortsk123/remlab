@@ -1,0 +1,65 @@
+/* Страница задания /try/<id> и серый тур (план agent-trial-01, T-C). Только семантические токены UUI (ui-rules.md).
+   Шапка, подвал, кнопки и карточка ожидания — общие с лендингом: `landing.module.css`. */
+
+/* ── страница задания: рамка, сообщения, связь ── */
+.page.page { padding: 28px 0 56px; }
+@media (min-width: 768px) { .page.page { padding: 40px 0 72px; } }
+.page .msgCard, .page [data-testid="trial-wait"] { margin: 0 auto; }
+.msgTitle.msgTitle { font-size: 20px; }
+.note.note { font-size: 14px; color: var(--color-text-tertiary); margin: 8px 0 0; }
+.offline { margin: 12px 0 0; font-size: 14px; color: var(--color-text-warning-primary); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.linkBtn { font: inherit; font-weight: 600; color: var(--color-fg-brand-primary); background: none; border: 0; padding: 0; min-height: 44px; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── готово ── */
+.doneHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; margin-bottom: 14px; }
+.doneHead h1 { margin: 0; font-size: clamp(24px, 4vw, 32px); }
+.doneHead span { color: var(--color-text-tertiary); font-size: 15px; }
+.history { margin-top: 18px; }
+.history summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--color-fg-brand-primary); min-height: 44px; display: flex; align-items: center;
+  gap: 8px; list-style: none; }
+.history summary::-webkit-details-marker { display: none; }
+.history summary::before { content: "+"; font-size: 18px; line-height: 1; }
+.history[open] summary { color: var(--color-text-secondary); }
+.history[open] summary::before { content: "−"; }
+.history ul { max-width: 420px; }
+
+/* ── тур ── */
+.tour { display: grid; gap: 14px; }
+@media (min-width: 900px) { .tour { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; } }
+.stage { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.canvas { position: relative; width: 100%; aspect-ratio: 4 / 3.4; max-height: 72vh; border-radius: 14px; overflow: hidden; touch-action: none;
+  background: var(--color-bg-primary); border: 1px solid var(--color-border-secondary); }
+@media (min-width: 900px) { .canvas { aspect-ratio: 16 / 10.5; } }
+.labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.roomLabel { position: absolute; left: 0; top: 0; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  font-size: 12px; line-height: 1.2; padding: 3px 7px; border-radius: 999px; color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-bg-primary) 88%, transparent); border: 1px solid var(--color-border-secondary); }
+.roomLabel b { font-weight: 600; }
+.roomLabel[data-compact="1"] { padding: 0; border: 0; background: none; }
+.roomLabel[data-compact="1"] b { display: none; }
+.roomLabel[data-compact="1"][data-flagged="0"] { display: none !important; }
+.q { font-style: normal; font-weight: 700; font-size: 11px; width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center;
+  background: var(--color-bg-warning-secondary); color: var(--color-text-warning-primary); border: 1px solid var(--color-fg-warning-secondary); }
+.msg { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 16px; margin: 0; font-size: 14px; }
+.tools { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; }
+.notes { display: flex; flex-direction: column; gap: 6px; }
+.notes p { margin: 0; font-size: 13px; color: var(--color-text-tertiary); }
+.warn.warn { color: var(--color-text-warning-primary); background: var(--color-bg-warning-primary); border: 1px solid var(--color-border-secondary);
+  border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 14px; font-weight: 600; cursor: pointer;
+  background: var(--color-bg-primary); color: var(--color-text-secondary); border: 1px solid var(--color-border-primary); }
+.pill:hover { background: var(--color-bg-primary_hover); }
+.pill[aria-pressed="true"], .pill[aria-selected="true"] { background: var(--color-bg-brand-solid); color: var(--color-text-white); border-color: transparent; }
+.rooms { min-width: 0; }
+.rooms .roomList { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+@media (min-width: 560px) and (max-width: 899px) { .rooms .roomList { grid-template-columns: 1fr 1fr; } }
+.hint { font-size: 13px; margin: 0 0 8px; }
+.room { width: 100%; min-height: 48px; text-align: left; display: flex; flex-direction: column; gap: 1px; padding: 8px 12px; border-radius: 10px; cursor: pointer;
+  background: var(--color-bg-primary); border: 1px solid var(--color-border-secondary); color: var(--color-text-primary); }
+.room:hover { background: var(--color-bg-primary_hover); }
+.room[aria-pressed="true"] { border-color: var(--color-border-brand); background: var(--color-bg-brand-primary); }
+.roomName { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 15px; }
+.roomMeta { font-size: 13px; color: var(--color-text-tertiary); }
+.roomMeta em { font-style: normal; color: var(--color-text-warning-primary); }

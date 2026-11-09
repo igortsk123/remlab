@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { TRIAL_BASE, TRIAL_DB, TRIAL_PORT, trialServerEnv } from "./e2e/trial-env";
 
 const PORT = 3000;
 const baseURL = `http://127.0.0.1:${PORT}`;
@@ -21,10 +22,16 @@ export default defineConfig({
     storageState: "e2e/cookies-seen.json",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: "REMLAB_FAKE_AI=1 pnpm start",
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: "REMLAB_FAKE_AI=1 pnpm start",
+      url: baseURL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    // проба для агентов (e2e/trial.spec.ts): свой сервер на тестовой базе — только когда она есть (CI: TEST_DATABASE_URL)
+    ...(TRIAL_DB
+      ? [{ command: `pnpm start -p ${TRIAL_PORT}`, url: `${TRIAL_BASE}/try`, env: trialServerEnv(TRIAL_DB), reuseExistingServer: false, timeout: 120_000 }]
+      : []),
+  ],
 });

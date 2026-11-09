@@ -79,7 +79,10 @@ jobs:
           TEST_DATABASE_URL: postgres://remlab:test@localhost:5432/remlab
       - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium
+      # e2e/trial.spec.ts (проба агентов) поднимает второй сервер на этой же тестовой базе — ручки пробы без Postgres не работают
       - run: pnpm e2e
+        env:
+          TEST_DATABASE_URL: postgres://remlab:test@localhost:5432/remlab
 
   db-init:
     # ГАРДА ПРОД-СХЕМЫ (05.09, ADR-0179). `db/init/*.sql` — схема БОЕВОЙ базы, деплой применяет их
