@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type postgresT from "postgres";
 
 import { bundleOf } from "./_trial-bundle-db";
-import { sampleResult } from "./_trial-helpers";
+import { sampleResult, withOneRowStats } from "./_trial-helpers";
 
 // «Обустроить» на НАСТОЯЩЕЙ Postgres (agent-trial-08, Р1; T-20261109-27): ключ правки, повтор request_id, устаревшая версия (при нажатии и
 // перед публикацией), одна активная, суточный лимит, аренда (потеря, перехват, исчерпание), одна новая версия, накопленные комнаты,
@@ -202,6 +202,27 @@ export function rebuildDbTests(c: () => Ctx): void {
       expect(await worker("rebuild/fail", { ...lease(d), code: "timeout", retryable: false })).toMatchObject({ body: { status: "failed" } });
       expect(await view(id)).toMatchObject({ rebuild: "failed", rebuildError: "timeout" });
       expect((await worker("rebuild/fail", { ...lease(d), code: "timeout", retryable: false })).status).toBe(409);
+    });
+
+    it("один claimRebuild — ровно одна пересборка в running, и при плане Nested Loop со статистикой одной строки (T-20261109-37)", async () => {
+      const queued = async (n: number) => {
+        const ids: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const { id } = await c().seed();
+          await c().pg`update trial_jobs set status = 'done' where id = ${id}`;
+          await c().pg`insert into trial_rebuilds (id, job_id, request_id, rooms, base_version, created_at)
+            values (${`rb${i}-${id}`}, ${id}, ${`req-${id}`}, '["*"]'::jsonb, 1, now() - make_interval(secs => ${n - i}))`;
+          ids.push(`rb${i}-${id}`);
+        }
+        return ids;
+      };
+      let ids: string[] = [];
+      const r = await withOneRowStats(c().pg, ["trial_rebuilds", "trial_jobs"], () => queued(1), async () => {
+        ids = await queued(4);
+        return (await W()).claimRebuild("w1");
+      });
+      expect(r?.id).toBe(ids[0]);
+      expect((await c().pg`select id from trial_rebuilds where status = 'running'`).map((x) => x.id)).toEqual([ids[0]]);
     });
 
     it("приоритет с квотой: пересборки раньше загрузки, но не больше двух подряд, пока она ждёт; старый воркер их не видит", async () => {

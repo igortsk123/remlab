@@ -37,16 +37,16 @@ export async function rebuildFirst(env = process.env): Promise<boolean> {
 
 type ClaimRow = { id: string; job_id: string; attempt: number; lease_token: string; lease_until: string; rooms: unknown; base_version: number };
 
+/** Одна пересборка под аренду — скалярным подзапросом, как `repo-worker.ts:claim` (почему не `from (…) c` — там). */
 export async function claimRebuild(workerId: string): Promise<TrialRebuildClaimed | null> {
   await exhaustRebuilds();
   const token = randomToken(24);
   const [r] = await rows<ClaimRow>(sql`update trial_rebuilds r set status = 'running', attempt = r.attempt + 1, lease_token = ${token},
       lease_until = now() + make_interval(secs => ${TRIAL_LEASE_SEC}::int), worker_id = ${workerId}, heartbeat_at = now(),
       started_at = coalesce(r.started_at, now())
-    from (select x.id from trial_rebuilds x join trial_jobs j on j.id = x.job_id
+    where r.id = (select x.id from trial_rebuilds x join trial_jobs j on j.id = x.job_id
       where (x.status = 'queued' or (x.status = 'running' and x.lease_until < now())) and x.attempt < x.max_attempts and j.status = 'done'
-      order by x.created_at, x.id for update of x skip locked limit 1) c
-    where r.id = c.id
+      order by x.created_at, x.id for update of x skip locked limit 1)
     returning r.id, r.job_id, r.attempt, r.lease_token, ${iso(sql`r.lease_until`)} as lease_until, r.rooms, r.base_version`);
   if (!r) return null;
   const [j] = await rows<{ result: unknown; released_rooms: unknown }>(sql`select result, released_rooms from trial_jobs where id = ${r.job_id}`);

@@ -34,14 +34,16 @@ type ClaimRow = {
   input_bytes: number; input_hash: string | null; listing_text: string | null; budget_usd: string;
 };
 
+/** Одно задание под аренду. Выбор — СКАЛЯРНЫМ подзапросом `where id = (select … skip locked limit 1)`: он выполняется один раз
+ *  (InitPlan). Вариант `from (select … skip locked limit 1) c where j.id = c.id` при малой статистике идёт Nested Loop с подзапросом
+ *  внутри — тот перезапускается на каждую строку, свою же обновлённую пропускает и отдаёт следующую: один claim брал ВСЕ (T-20261109-37). */
 export async function claim(workerId: string): Promise<TrialClaimed | null> {
   await exhaustExpired();
   const token = randomToken(24);
   const [r] = await rows<ClaimRow>(sql`update trial_jobs j set status = 'running', attempt = j.attempt + 1,
       lease_token = ${token}, lease_until = now() + make_interval(secs => ${TRIAL_LEASE_SEC}::int), worker_id = ${workerId},
       heartbeat_at = now(), started_at = coalesce(j.started_at, now())
-    from (select id from trial_jobs t where ${claimable(sql.raw("t"))} order by created_at, id for update skip locked limit 1) c
-    where j.id = c.id
+    where j.id = (select id from trial_jobs t where ${claimable(sql.raw("t"))} order by created_at, id for update skip locked limit 1)
     returning j.id, j.kind, j.attempt, j.lease_token, ${iso(sql`j.lease_until`)} as lease_until, j.input_mime, j.input_bytes,
       j.input_hash, j.listing_text, j.budget_usd`);
   if (!r) return null;

@@ -67,3 +67,22 @@ export const uploadParts = (file: Buffer, extra: Part[] = []): Part[] => [
   { name: "file", file },
   ...extra,
 ];
+
+type Pg = { unsafe: (q: string) => PromiseLike<unknown> };
+/**
+ * Статистика «в таблице одна строка» (T-20261109-37): с ней планировщик ставит очередь Nested Loop'ом, таблицу снаружи, а подзапрос
+ * `skip locked limit 1` — внутрь (перезапуск на каждую строку). Так ловился claim нескольких заданий разом — без опоры на случайный
+ * autovacuum. `fill` должен вставить одну строку в каждую таблицу; после analyze строки удаляются, autovacuum на время `run` выключен.
+ */
+export async function withOneRowStats<T>(pg: Pg, tables: string[], fill: () => Promise<unknown>, run: () => Promise<T>): Promise<T> {
+  const each = async (f: (t: string) => string) => { for (const t of tables) await pg.unsafe(f(t)); };
+  await each((t) => `alter table ${t} set (autovacuum_enabled = false)`);
+  try {
+    await fill();
+    await each((t) => `analyze ${t}`);
+    await each((t) => `delete from ${t}`);
+    return await run();
+  } finally {
+    await each((t) => `alter table ${t} reset (autovacuum_enabled)`);
+  }
+}

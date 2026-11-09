@@ -5,7 +5,7 @@ import type postgresT from "postgres";
 
 import { bundleDbTests } from "./_trial-bundle-db";
 import { rebuildDbTests } from "./_trial-rebuild-db";
-import { png, sampleResult } from "./_trial-helpers";
+import { png, sampleResult, withOneRowStats } from "./_trial-helpers";
 
 // Очередь пробы на НАСТОЯЩЕЙ Postgres (agent-trial-01, T-A; поправки Codex 09.11): гонки claim, ограждение аренды
 // (reclaim против старых heartbeat/result/fail, ABA с тем же worker_id, граница истечения, исчерпание попыток), повтор
@@ -86,6 +86,17 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
     expect(got).toHaveLength(5);
     expect(new Set(got.map((j) => j!.id)).size).toBe(5);
     expect(got.every((j) => j!.attempt === 1 && j!.leaseToken.length >= 30)).toBe(true);
+  });
+
+  it("один claim переводит в running ровно одно задание — и при плане Nested Loop со статистикой одной строки (T-20261109-37)", async () => {
+    process.env.TRIAL_QUEUE_MAX = "50";
+    const ids: string[] = [];
+    const a = await withOneRowStats(pg, ["trial_jobs"], () => seed(), async () => {
+      for (let i = 0; i < 5; i++) ids.push((await seed()).id);
+      return L.repo.claim("w1");
+    });
+    expect(a?.id).toBe(ids[0]);
+    expect((await pg`select id from trial_jobs where status = 'running'`).map((r) => r.id)).toEqual([ids[0]]);
   });
 
   it("просроченная аренда возвращается: attempt 2, новый токен; старый heartbeat — потерян", async () => {
