@@ -1270,6 +1270,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 /* РЕЖИМ ПРОБЫ (agent-trial-08, `D.trial` → класс на body): шапка без цены, ЖК и менеджера, без сертификата, избранного и платной кнопки */
 body.trial #hmAva,body.trial #flatPriceSum,body.trial #flatMetaRow,body.trial #flatMore,body.trial #hmChat,body.trial #hmFav,body.trial #vFav,
 body.trial #hmBot,body.trial .vtop,body.trial #consShot,body.trial #swapShot,body.trial #shotNow,body.trial #pcMort,body.trial #pcCons,body.trial .hm-tipw{display:none!important}
+/* фото товаров в пробе нет (ссылки магазина вычищены) — пустую плашку «нет фото» не показываем, строка без слота (T-20261109-20/3) */
+body.trial .row>.noimg-sm,body.trial .prow>.pnoimg,body.trial .card>.noimg,body.trial #itemCard .ic-ph:has(.ic-no){display:none!important}
+body.trial .row>.acts{padding-left:0}body.trial #flatRooms>.hint{flex:0 0 100%}body.trial .pinlist .row,body.trial .pinlist .row .t{min-height:0}
 /* «мебель подбирается» — состояние, а не пустая готовая комната: карточка, план и окно комнаты */
 .tr-spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite;vertical-align:-3px;margin-right:8px}
 .hm-room .nopv.tr-wait{display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;text-align:center;font-size:15px;color:var(--ink)}
@@ -1285,7 +1288,9 @@ body.trial #hmBot,body.trial .vtop,body.trial #consShot,body.trial #swapShot,bod
 .hm-room .hm-ph .nopv.tr-plan{background:var(--wash,#F3F0EA);padding:42px 14px 44px}
 .hm-room .hm-ph .nopv.tr-plan svg{width:100%;height:100%;display:block}
 /* узкий экран: плашка состояния не заходит под ✕ — в две строки по центру */
-@media(max-width:700px){.vpend{max-width:calc(100% - 120px);white-space:normal;text-align:center}}
+@media(max-width:700px){.vpend{width:max-content;max-width:calc(100% - 120px);white-space:normal;text-align:center}
+/* телефон: состояние уже на плашке сверху — шторка снизу его повторяла («Choosing furniture…» дважды, T-20261109-20/3) */
+.vw.pending .vside{display:none!important}}
 /* узкий экран: «Форма приблизительная» (слева) и «Откройте — покажем в 3D» (справа) в одну строку не помещаются — вторым рядом */
 @media(max-width:700px){.hm-ph:has(.tr-3d)>.tr-approx{top:44px}.hm-room .hm-ph:has(>.tr-approx) .nopv.tr-plan{padding-top:76px}}
 .vstub.tr-flat{background:var(--wash,#F3F0EA);padding:72px 20px 20px}
@@ -1566,8 +1571,33 @@ function trialSetup(){
   const full=new Set((D.variants||[]).filter(v=>(v.items||[]).length).map(roomIdOf));
   D.variants=(D.variants||[]).filter(v=>(v.items||[]).length||v.pending||v.furniture_state==='pending'||!full.has(roomIdOf(v)));
   (D.variants||[]).forEach(v=>{if(varRefused(v)){v.items=[]; v.decor=[];}});   // отказ по комнате: сцена пустая, даже если у варианта остались предметы
+  // ковёр — плита (в данных витрины высота 1 см, только для расчёта сцены); сборка задания даёт высоту товара (60 см) — сцена ставила
+  // прозрачный короб 3×2 м поверх столика (T-20261109-20/3)
+  (D.variants||[]).forEach(v=>(v.items||[]).forEach(it=>{if(it&&/^ковёр/.test(it.role||'')&&it.h>1){it.h=1; if(it.sku&&it.sku.h>1)it.sku.h=1;}}));
+  trialPlanFromPanels();
   trialHead();
   trialPoll();
+}
+// ПЛАН КВАРТИРЫ ПРОБЫ (T-20261109-20/3): своей схемы плана (`D.plan.rooms`) сборка задания не даёт — рисуем из этажей распознавания
+// (`trial.panels[].rooms[]`: контур и рамка комнаты в см, id — те же, что в `apartment_rooms`). Схема плана — в метрах; этажи — рядом
+// слева направо с подписью над каждым («Этаж 1» / название этажа с чертежа по-английски). Своя схема есть — не трогаем
+function trialPlanFromPanels(){
+  const PN=(D.trial||{}).panels;
+  if(((D.plan||{}).rooms||[]).length||!Array.isArray(PN)||!PN.length)return;
+  const m=v=>v/100, many=PN.length>1, top=many?0.7:0, rooms=[], labels=[];
+  let ox=0;
+  PN.forEach((p,k)=>{
+    const rs=(p&&p.rooms||[]).filter(r=>r&&r.id&&r.bbox&&r.bbox.w>0&&r.bbox.d>0); if(!rs.length)return;
+    const x0=Math.min(...rs.map(r=>r.bbox.x)), y0=Math.min(...rs.map(r=>r.bbox.y)), x1=Math.max(...rs.map(r=>r.bbox.x+r.bbox.w));
+    const px=x=>ox+m(x-x0), py=y=>top+m(y-y0);
+    rs.forEach(r=>{const b=r.bbox;
+      rooms.push({id:r.id, x:px(b.x), y:py(b.y), w:m(b.w), d:m(b.d),
+        poly:(r.contour||[]).length>=3?r.contour.map(q=>[+px(q[0]).toFixed(3), +py(q[1]).toFixed(3)]):null});});
+    const n=(p.storey!=null?+p.storey:k)+1;
+    if(many)labels.push({x:ox, y:top-0.25, t:TR_EN()?(p.title||'Floor '+n):'Этаж '+n});
+    ox+=m(x1-x0)+1.5;
+  });
+  if(rooms.length)D.plan=Object.assign({},D.plan||{},{rooms, labels});
 }
 // ПРЕВЬЮ КАРТОЧКИ ПРОБЫ (фото нейросети у задания нет): план комнаты сверху с мебелью — тем же рисунком, что план окна (`shape`),
 // в тон страницы; масштаб и отступ подменяются на время рисунка и возвращаются
@@ -2140,8 +2170,9 @@ function flatPlan(){
   document.getElementById('flatTitle').textContent=flatTitle();
   const box=document.getElementById('flatRooms');box.innerHTML='';
   if(!R.length){box.innerHTML=`<div class="hint">${LANG==='en'?'The floor plan is not loaded.':'План не загружен.'}</div>`;return;}
+  const LB=P.labels||[];                              // подписи этажей (план пробы из этажей распознавания, `trialPlanFromPanels`)
   const xs=R.flatMap(r=>[r.x,r.x+r.w]).concat((P.contour||[]).map(p=>p[0]));
-  const ys=R.flatMap(r=>[r.y,r.y+r.d]).concat((P.contour||[]).map(p=>p[1]));
+  const ys=R.flatMap(r=>[r.y,r.y+r.d]).concat((P.contour||[]).map(p=>p[1]),LB.map(l=>l.y-0.45));
   const X0=Math.min(...xs), X1=Math.max(...xs), Y0=Math.min(...ys), Y1=Math.max(...ys);
   const PAD=0.5, ns='http://www.w3.org/2000/svg';
   const svg=document.createElementNS(ns,'svg');
@@ -2164,11 +2195,15 @@ function flatPlan(){
     const rv=br&&ready?((LAY.find(x=>x.r.id===br.id)||{}).rv||m.roomVariants.find(x=>x.roomId===br.id)):null;
     const go=!!(f||ready), pend=!!rv&&varPending(allVariants()[rv.index]), none=!!rv&&varRefused(allVariants()[rv.index]);   // кликается готовая комната или та, где уже выбран вариант; pend — проба, мебель подбирается; none — проба, товаров нет
     const g=el('g',{},svg); g.style.cursor=go?'pointer':'default';
-    el('rect',{x:r.x,y:r.y,width:r.w,height:r.d,fill:go?'#E7F0F7':'#FBFAF7',
+    // контур комнаты (план пробы, `poly`) — многоугольником; схема демо — прямоугольниками, как было
+    const pts=r.poly&&r.poly.length>=3?r.poly.map(p=>p.join(',')).join(' '):'';
+    if(pts)el('polygon',{points:pts,fill:go?'#E7F0F7':'#FBFAF7',stroke:go?'#3B76A2':'#585E58','stroke-width':PART,'stroke-linejoin':'miter'},g);
+    else el('rect',{x:r.x,y:r.y,width:r.w,height:r.d,fill:go?'#E7F0F7':'#FBFAF7',
       stroke:'#585E58','stroke-width':PART},g);
-    if(go)el('rect',{x:r.x+PART/2,y:r.y+PART/2,width:r.w-PART,height:r.d-PART,fill:'none',
+    if(go&&!pts)el('rect',{x:r.x+PART/2,y:r.y+PART/2,width:r.w-PART,height:r.d-PART,fill:'none',
       stroke:'#3B76A2','stroke-width':0.05},g);
-    if(roomApprox(r.id))el('rect',{x:r.x+PART,y:r.y+PART,width:r.w-PART*2,height:r.d-PART*2,fill:'none',stroke:'#C7652B','stroke-width':0.04,'stroke-dasharray':'0.18 0.12','data-approx':'1'},g);   // проба: прямоугольник вместо контура — пунктиром
+    if(pts&&roomApprox(r.id))el('polygon',{points:pts,fill:'none',stroke:'#C7652B','stroke-width':0.04,'stroke-dasharray':'0.18 0.12','data-approx':'1'},g);
+    else if(roomApprox(r.id))el('rect',{x:r.x+PART,y:r.y+PART,width:r.w-PART*2,height:r.d-PART*2,fill:'none',stroke:'#C7652B','stroke-width':0.04,'stroke-dasharray':'0.18 0.12','data-approx':'1'},g);   // проба: прямоугольник вместо контура — пунктиром
     const name=(roomApprox(r.id)?'≈ ':'')+(room.title||r.id), cx=r.x+r.w/2;
     // узкая комната (санузлы 0,8 м): имя по ширине комнаты, иначе соседние «Санузел» слипались через стену
     const fs=Math.min(Math.max(0.2,Math.min(0.32,Math.min(r.w,r.d)/4.4)),r.w*0.84/(name.length*0.62));
@@ -2211,6 +2246,7 @@ function flatPlan(){
       fill:'none',stroke:'#C8783C','stroke-width':0.035});
     el('line',{x1:ax,y1:ay,x2:v?ax:ax+d.r,y2:v?ay+d.r:ay,stroke:'#C8783C','stroke-width':0.05});
   });
+  LB.forEach(l=>{el('text',{x:l.x,y:l.y,'font-size':0.36,fill:'#5C655E','font-weight':'600'}).textContent=l.t;});
   box.appendChild(svg);
   if(TRIAL()&&R.some(r=>roomApprox(r.id)))box.insertAdjacentHTML('beforeend',`<div class="hint">≈ ${approxTxt()}</div>`);
   // проба: расшифровка коротких меток отказа под планом — по одной строке на текст (кроме «не обставляется» — она понятна сама)
@@ -5257,11 +5293,17 @@ function styleIdOf(v){ return (v&&(v.style_id||STYLE_IDS[String(v.style||'').tri
 // `apartments[].rooms[].enabled`, проверочная сборка — `FLAT215_ROOMS_ENABLED`, только не в папку витрины). Такая комната «готова»
 // и без смены `contentState` в карточке квартиры; нет поля — всё по карточке, как было
 function roomOn(r){ return r.contentState==='ready'||((D&&D.rooms_enabled)||[]).includes(r.id)?'ready':r.contentState; }
+// МЕЛКАЯ БЕЗЫМЯННАЯ КОМНАТА (ведущий T-20261109-20/3: «Room · 1.81 m²» в списке — шум): без своего названия, меньше 2,5 м², не гостиная
+// и не спальня — в списке карточек её нет, на плане остаётся. Правило общее, по данным комнаты, не по номерам
+const HOME_TINY_M2=2.5;
+function homeTiny(r){ return !!(r&&r.noName&&(+r.areaM2||0)<HOME_TINY_M2&&!/^(living|bedroom)/.test(r.kind||'')); }
 function homeRooms(){
   const EN=LANG==='en', card=FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length?FLAT.rooms:null;
   if(card)return card.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:r.title, areaM2:r.areaM2, contentState:roomOn(r)}));
   const raw=(D&&D.apartment_rooms)||[];
-  if(raw.length)return raw.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:EN?r.titleEn:r.titleRu, areaM2:r.areaM2, contentState:roomOn(r)}));
+  // `noName` — у комнаты распознавания нет своего названия на чертеже (`name_src` пуст): её подпись — общая «Помещение»
+  if(raw.length)return raw.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:EN?r.titleEn:r.titleRu, areaM2:r.areaM2, contentState:roomOn(r),
+    noName:'name_src' in r&&!r.name_src}));
   // реестр молчит (старая сборка без карточки) — честно только то, что обставлено: гостиная
   return [{id:'living', kind:'living', ordinal:1, title:EN?'Living room':'Гостиная', areaM2:null, contentState:'ready'}];
 }
@@ -5604,6 +5646,7 @@ function drawHome(force){
   // (плитки выбора скрыты стилем). Текущая — `HOME.room` (выбрана плиткой или из `?room=`), нет такой карточки — первая готовая
   const shown=cards.find(c=>!c.stub&&c.r.id===HOME.room)||cards.find(c=>!c.stub), shownId=shown?shown.r.id:'';
   box.innerHTML=cards.map(c=>{
+    if(c.stub&&homeTiny(c.r))return '';   // безымянная кладовка 1,5 м² — только на плане, список не засоряет (T-20261109-20/3)
     const t=`${escHtml(c.r.title)}${c.r.areaM2?` <small>· ${homeM2(c.r.areaM2)}</small>`:''}`;
     if(c.stub){const o=roomOutcome(c.r.id), tx=o==='pending'?pendSpin+pendTxt():o&&TR_NONE.test(o)?outcomeTxt(c.r.id,true):(EN?'coming in the next step':'появится следующим шагом');   // проба: исход комнаты по коду
       return `<div class="hm-stub" data-room="${c.r.id}"${o?` data-outcome="${o}"`:''} aria-disabled="true"><b>${t}</b><span>${tx}</span></div>`;}
@@ -6062,6 +6105,12 @@ function MASK(){return TRIAL()?(LANG==='en'?TRIAL_MASK_EN:null):maskOf(FLAT);}
 function maskRoleEn(r){const b=String(r||'').replace(/\s+\d+$/,''); return (window.__trText&&window.__trText(b))||'';}
 // ПОМОЩНИКИ ПОКАЗА ТОВАРА — все места вывода названия, магазина и ссылки «В магазин» идут через них (demo-31)
 function itemName(p, role){return maskName(p, role, MASK(), namesEn(), maskRoleEn);}
+// ПРОБА: название товара — нейтральное по роли («Диван»), строка роли под ним его повторяет («Диван / диван», T-20261109-20/3) — не показываем;
+// на английском русскую роль не показываем вовсе
+function trRoleDup(name, role){ if(!TRIAL())return false;
+  const w=s=>String(s||'').toLowerCase().replace(/ё/g,'е').split(/[\s-]+/).filter(Boolean).sort().join(' ');   // «Обеденный стол» = «стол обеденный»
+  const n=w(name), b=baseRole(role).toLowerCase();
+  return n===w(b)||n===w(maskRoleEn(role))||(LANG==='en'&&/[а-яё]/.test(b)); }
 function itemShop(p){const m=MASK(); return m&&m.hideShops?'':String((p&&p.shop)||'');}
 function itemUrl(p){const m=MASK(); return m&&m.hideShops?'':String((p&&p.url)||'');}
 function fxRate(){return fxRateOf(FLAT);}
@@ -6149,7 +6198,8 @@ function shotListHtml(s){
           (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`:'<div class="noimg-sm">нет фото</div>')+
           `<div class="t"><b>${itemName(a,a.role)}</b>`+
           // мягкое (demo-24) — без пометки, роль без номера слота (владелец и ведущий 23.10)
-          `<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${itemShop(a)?' · '+itemShop(a):''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
+          (TRIAL()?`<span>${[trRoleDup(itemName(a,a.role),a.role)?'':baseRole(a.role),(a.qty||1)>1?a.qty+(LANG==='en'?' pcs':' шт.'):''].filter(Boolean).join(' · ')}</span>`
+          :`<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${itemShop(a)?' · '+itemShop(a):''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`)+
           swatchRow(own&&(own.sku&&own.sku.name?own.sku:skuOf(own)),a.role)+`</div>`+
           `<div class="p">${money(a.price)}</div>`+
           // действия — своей строкой под фото и текстом: цена их не сжимает (`.row>.acts`, demo-26 Г)
@@ -9135,7 +9185,8 @@ function quizPick(rule, answers, available, styleColours){
   // ШАГ 1 — ТОЛЬКО ФОТО НЕЙРОСЕТИ (владелец TG 341–342, T-20261107-28): серый черновой 3D-кадр в опросе не показываем — вариант
   // без реалистичного фото из шага выпадает; таких меньше двух — шаг пропускаем (выбирать не из чего). Реестр кадров приходит
   // отдельно: до него (или 6 с, если не пришёл) карточки — пустые заглушки без нажатия, решение «пропустить» не принимаем
-  function shotsReady(){return SHOTS_LOADED||(Date.now()-(Q.t0||0))>6000;}
+  // проба: фото нейросети у задания нет по устройству — реестр не ждём, экраны пар без фото пропускаются сразу (иначе 6 с серых заглушек)
+  function shotsReady(){return SHOTS_LOADED||TRIAL()||(Date.now()-(Q.t0||0))>6000;}
   // СТИЛИ С ФОТО КОМНАТЫ (T-35 шаг 4): стили главной, у которых есть вариант комнаты этого вида; фото — первой такой комнаты по плану,
   // где фото нейросети есть (у спальни 1 нет — спальни 2). Гостиная — точка 1, как раньше; спальня — обложка варианта
   function roomStyles(st){
