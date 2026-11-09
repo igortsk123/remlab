@@ -21,29 +21,76 @@
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import trial_room as TR  # noqa: E402  (кладёт солвер в sys.path)
 
+_RUNNING: set = set()
+_RUN_LOCK = threading.Lock()
+
 TRIAL_ROOT = os.path.expanduser(os.environ.get('TRIAL_SCENES_ROOT') or '~/scout-scenes/trial')
 LIVE_PATHS = (os.path.expanduser('~/scout-scenes/flat215-demo'), HERE)
 BUDGET_S = 60.0          # Codex 09.11: целевой бюджет пробы, дальше — честный частичный результат
 EMERGENCY_S = 150.0      # аварийный предел одного прогона солвера
+STOP_S = 55.0            # когда снимать незавершённые прогоны, если показать уже есть что (запас на сборку до 60 с)
 BANDS = [('14-16', 14), ('17-20', 17), ('21-25', 21), ('26-30', 26), ('31-40', 31), ('41-50', 41), ('50+', 50)]
 STYLES = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
 BEARERS = ('стенка', 'тв-тумба')
 GEOMETRY_MIN_STYLES = 3  # роль входит в геометрию, если она есть хотя бы у половины стилей группы (не больше 3; диван и носитель ТВ — всегда)
 
 
+SLOT_MIN_GB = 3.0        # свободной памяти перед тяжёлым шагом (замер — `heavy-slot.sh --stats`, тип trial)
+SLOT_TIMEOUT_S = 900.0   # очередь машины дольше — честный отказ `queue_timeout`, не молчаливое ожидание
+
+
 class TrialPathError(RuntimeError):
     pass
+
+
+@contextlib.contextmanager
+def machine_slot(label: str):
+    """ТЯЖЁЛЫЙ ШАГ — ЧЕРЕЗ ОБЩУЮ ОЧЕРЕДЬ МАШИНЫ (`tools/ops/heavy_slot.py`): подбор и расстановка съедают память так же, как
+    прочие прогоны DEV. Ожидание очереди в бюджет шага не входит (пишется отдельно, `timings.queue_s`). → info (`waited_s`)."""
+    ops = os.path.abspath(os.path.join(HERE, '..', 'ops'))
+    if ops not in sys.path:
+        sys.path.insert(0, ops)
+    import heavy_slot as HS
+    with HS.heavy_slot(label, min_gb=SLOT_MIN_GB, timeout=SLOT_TIMEOUT_S, cmd=f'trial_demo {label}') as info:
+        yield info
+
+
+def _slot_timeout(e: Exception) -> bool:
+    return type(e).__name__ == 'SlotTimeout'
+
+
+def outcome_of(scene: dict) -> dict:
+    """ИСХОД ПО КОМНАТЕ — одно явное поле для конвейера и страницы: `state` ∈ ready | partial | refused, `code` и `detail` —
+    причина (для ready — null), `styles_ok`/`styles_total` — сколько стилей можно показать."""
+    variants = scene.get('variants') or []
+    total, ok = len(variants), sum(1 for v in variants if v.get('post_ok') and not v.get('hard'))
+    base = {'styles_ok': ok, 'styles_total': total}
+    status = scene.get('status')
+    if status == 'ok':
+        return dict(base, state='ready', code=None, detail=None)
+    if status == 'partial':
+        codes = sorted({p['code'] for p in scene.get('problems') or [] if p.get('code')}
+                       | {p['code'] for v in variants for p in v.get('problems') or [] if p.get('code')}
+                       | {h.split('|')[0] for v in variants for h in v.get('hard') or []})
+        bad = [v['style'] for v in variants if not v.get('post_ok') or v.get('hard')]
+        return dict(base, state='partial', code='styles_missing' if bad or not codes else codes[0],
+                    detail=f"нет стилей: {', '.join(bad)}; причины: {', '.join(codes)}" if bad else ', '.join(codes))
+    ref = scene.get('refusal') or next(iter(scene.get('problems') or []), None) or {'code': 'unknown'}
+    return dict(base, state='refused', code=ref.get('code'), detail=ref.get('detail') or ref.get('why'))
 
 
 def out_dir(trial_id: str) -> str:
@@ -127,6 +174,17 @@ def geometry_set(styles: list[dict], band: str) -> tuple[dict, dict]:
     return {'band': band, 'style': 'геометрия', 'm2': None, 'items': items, 'set_id': 'trial-geometry'}, src
 
 
+def trim_to_geometry(st: dict, geo: dict) -> dict:
+    """Свой набор стиля для солвера — только роли его геометрии. Полный набор несёт вторые диваны, третьи кресла и обеденные
+    группы, которых в геометрии нет: солвер тратит на них время и на большом ядре даёт жёсткие нарушения (E, замер 09.11).
+    Показывается всё равно то, что расставлено, — тот же состав, что у стилей на общей геометрии. Товары не меняются."""
+    keep = {}
+    for role, it in (st.get('items') or {}).items():
+        if role == _base(role) and ('тв-тумба' if role in BEARERS else role) in geo['items']:
+            keep[role] = it
+    return dict(st, items=keep)
+
+
 def shape_groups(styles: list[dict], band: str) -> list[dict]:
     """Стили → геометрии по ФОРМЕ дивана. Угловой и прямой диван — разные расстановки (у углового спинка может стоять
     в «воздухе», столик — у оттоманки): подстановка прямого на место углового даёт щель за спинкой и столик в диване
@@ -164,6 +222,14 @@ def TR_strip(ops: list) -> list:
     return [{k: v for k, v in o.items() if not k.startswith('_')} for o in ops]
 
 
+def beam_off(cand: dict) -> bool:
+    """Большое ядро (`room_map.room_mode` = large): перебор гипотез расстановки дольше бюджета шага (E 690×505: 71 с против 45 с
+    без него, замер 09.11). Прогон — первой, «жадной» расстановкой (`LAYOUT_BEAM=0`, она и так всегда среди кандидатов); в сцене флаг."""
+    from planner.models import Room
+    from planner.room_map import room_mode
+    return room_mode(Room(width_cm=cand['w'], depth_cm=cand['d'])) == 'large'
+
+
 def run_solver(cand: dict, cfg: dict, sets_file: str, layouts: str, hinge: str, tag: str, timeout: float,
                n: int = 1) -> dict:
     ops = TR_strip(TR.solver_openings(cand, cfg, hinge))
@@ -171,15 +237,35 @@ def run_solver(cand: dict, cfg: dict, sets_file: str, layouts: str, hinge: str, 
                SCENE_RADIATORS='[]', LAYOUT_SUFFIX=f'-{tag}', LAYOUT_OUT_DIR=layouts)
     for k in ('SCENE_CONTOUR', 'LAYOUT_SIGNATURE_FILE'):
         env.pop(k, None)
+    if beam_off(cand):
+        env.setdefault('LAYOUT_BEAM', '0')
     t = time.time()
-    r = subprocess.run([sys.executable, 'solver_run.py', str(n), '--v3', str(int(cand['w'])), str(int(cand['d']))],
-                       cwd=HERE, env=env, capture_output=True, text=True, timeout=timeout)
+    p = subprocess.Popen([sys.executable, 'solver_run.py', str(n), '--v3', str(int(cand['w'])), str(int(cand['d']))],
+                         cwd=HERE, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    with _RUN_LOCK:
+        _RUNNING.add(p)
+    try:
+        stdout, stderr = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.communicate()
+        raise
+    finally:
+        with _RUN_LOCK:
+            _RUNNING.discard(p)
     art_path = os.path.join(layouts, f'v3set{n}-layout-{tag}.json')
-    out = {'rc': r.returncode, 'seconds': round(time.time() - t, 2), 'artifact': art_path, 'openings': ops,
-           'stderr': r.stderr[-600:] if r.returncode else ''}
-    out['art'] = json.load(open(art_path, encoding='utf-8')) if r.returncode == 0 and os.path.exists(art_path) else None
-    out['missing'] = [ln.split(':', 1)[1].strip() for ln in r.stdout.splitlines() if ln.startswith('НЕ размещены:')]
+    out = {'rc': p.returncode, 'seconds': round(time.time() - t, 2), 'artifact': art_path, 'openings': ops,
+           'stderr': stderr[-600:] if p.returncode else ''}
+    out['art'] = json.load(open(art_path, encoding='utf-8')) if p.returncode == 0 and os.path.exists(art_path) else None
+    out['missing'] = [ln.split(':', 1)[1].strip() for ln in stdout.splitlines() if ln.startswith('НЕ размещены:')]
     return out
+
+
+def _stop_running() -> None:
+    """Бюджет вышел: снять свои ещё идущие прогоны солвера (только дочерние процессы этой пробы)."""
+    with _RUN_LOCK:
+        for p in list(_RUNNING):
+            p.terminate()
 
 
 def _placed(art: dict) -> dict:
@@ -213,6 +299,19 @@ def hard_of(room, ps) -> list:
     from planner.validate import validate
     return sorted({f"{v.code}|{','.join(sorted(v.roles))}" for v in validate(room, ps).violations
                    if v.severity.name == 'HARD'})
+
+
+def drop_window_chairs(room, ps: list) -> tuple[list, list]:
+    """Стул выше подоконника у самого окна — лишний: убираем его, стол остаётся с остальными стульями.
+
+    Солвер ставит дополнительные стулья без учёта их высоты; из-за одного стула спинкой в окно весь стиль снимать незачем
+    (E, замер 09.11: джапанди, стул 93 см при подоконнике 85). Последний стул не убираем — такой стиль снимет общая проверка."""
+    near = {r for h in hard_of(room, ps) if h.startswith('WINDOW_BLOCKED|') for r in h.split('|')[1].split(',')}
+    chairs = [p.role for p in ps if _base(p.role) == 'стул']
+    gone = sorted(r for r in near if r in chairs)
+    if not gone or len(gone) == len(chairs):
+        return ps, []
+    return [p for p in ps if p.role not in gone], gone
 
 
 # ───────────────────────── подстановка товаров стиля ─────────────────────────
@@ -404,13 +503,24 @@ def _write(path: str, data) -> None:
     os.replace(tmp, path)
 
 
+def _write_scene(out: str, scene: dict) -> None:
+    scene['outcome'] = outcome_of(scene)
+    _write(os.path.join(out, 'scene.json'), scene)
+
+
+def _no_slot(label: str):
+    """Подставной решатель (тесты) не грузит машину — очередь не нужна."""
+    return contextlib.nullcontext({'waited_s': 0.0})
+
+
 def _pick_styles(sets: list, band: str) -> list:
     import flat215_demo as FD
     return FD.pick_banks(sets, band, len(STYLES))
 
 
-def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solver, pick=_pick_styles) -> dict:
-    """Проба целиком → сцена (`scene.json`). Отказ адаптера — сцена со статусом `refused`, не исключение."""
+def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solver, pick=_pick_styles, slot=None) -> dict:
+    """Проба целиком → сцена (`scene.json`). Отказ адаптера — сцена со статусом `refused`, не исключение. Исход для конвейера
+    и страницы — поле `outcome` (`outcome_of`). Подбор и расстановка — под общей очередью машины (`machine_slot`)."""
     t0 = time.time()
     OUT = out_dir(trial_id)
     layouts = os.path.join(OUT, 'layouts')
@@ -424,7 +534,7 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
         scene.update(status='refused', refusal={'code': e.code, 'detail': e.detail})
         scene['timings'] = {'adapter_s': round(time.time() - t0, 3), 'solver_s': 0, 'assembly_s': 0,
                             'total_s': round(time.time() - t0, 3)}
-        _write(os.path.join(OUT, 'scene.json'), scene)
+        _write_scene(OUT, scene)
         return scene
     t_ad = time.time() - t0
     # ── полоса, стили, геометрия (часть «адаптера»: это ещё до солвера) ──
@@ -451,22 +561,29 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                                                 'detail': 'диван и ТВ реальных товаров не влезают ни в одно ядро ни на одной полосе'})
         scene['timings'] = {'adapter_s': round(time.time() - t0, 3), 'solver_s': 0, 'assembly_s': 0,
                             'total_s': round(time.time() - t0, 3)}
-        _write(os.path.join(OUT, 'scene.json'), scene)
+        _write_scene(OUT, scene)
         return scene
     styles = [sets[i - 1] for i in picked]
     if len(styles) < len(STYLES):
         flags.append(f'styles_{len(styles)}_of_{len(STYLES)}')
     sets_file = os.path.join(OUT, 'trial-sets.json')
-    _write(sets_file, [g['set'] for g in groups] + styles)     # геометрии — первые номера снимка
+    # геометрии — первые номера снимка; за ними свои наборы стилей, урезанные до ролей геометрии (см. `trim_to_geometry`)
+    geo_of = {id(st): g['set'] for g in groups for st, _ in g['styles']}
+    _write(sets_file, [g['set'] for g in groups] + [trim_to_geometry(st, geo_of[id(st)]) for st in styles])
     _write(os.path.join(OUT, 'adapter.json'), TR.summary(ad))
     t_prep = time.time() - t0 - t_ad
     # ── солвер: по ОДНОЙ геометрии на форму дивана (обе — параллельно); проверка по полному контуру; есть проблемы —
     #    вторая петля дверей. Геометрию не расставить (крупнейшие товары не сходятся, напр. носитель ТВ) — стили этой
-    #    формы считаются СВОИМИ наборами на том же ядре (честно: каждый — своей расстановкой). Потом — следующее ядро,
-    #    пока в бюджете ──
+    #    формы СРАЗУ считаются своими наборами на том же ядре (не дожидаясь второй формы). Кончился бюджет и что-то уже
+    #    расставлено — оставшиеся прогоны снимаем, результат честно частичный; не расставлено ничего — ждём аварийный предел.
+    #    Потом — следующее ядро, пока в бюджете ──
     t1 = time.time()
     tries, chosen = [], None
     n_geo = len(groups)
+    clock = {'queue': 0.0}
+
+    def elapsed() -> float:
+        return time.time() - t0 - clock['queue']
 
     def one(u, ci, cand, hinge):
         tag = f"trial-{u['tag']}-c{ci}-{hinge[0]}"
@@ -488,93 +605,154 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
         return rec, {'sr': sr, 'ps': ps, 'pc': pc, 'hard': hard,
                      'score': (len(pc['problems']) + len(hard), len(sr.get('missing') or []))}
 
-    def run_units(units, ci, cand, pool):
-        best = {}
-        for hinge in ('left', 'right'):
-            todo = [u for u in units if u['tag'] not in best or best[u['tag']]['score'][0]]
-            if not todo or (tries and time.time() - t0 > BUDGET_S):
-                break
-            for u, (rec, res) in zip(todo, pool.map(lambda x: one(x, ci, cand, hinge), todo)):
+    def solve_units(units, ci, cand, pool, have=False):
+        """Прогоны солвера по мере готовности → (лучшие расстановки по `tag`, итоговый список единиц)."""
+        best, pending, units, stopped = {}, {}, list(units), False
+
+        def submit(u, hinge):
+            pending[pool.submit(one, u, ci, cand, hinge)] = (u, hinge)
+
+        for u in units:
+            submit(u, 'left')
+        while pending:
+            left = STOP_S - elapsed()
+            if left <= 0 and (best or have) and not stopped:         # есть что показать — снимаем то, что не успело
+                stopped = True
+                _stop_running()
+            hold = None if stopped or (left <= 0 and not (best or have)) else max(left, 0.05)
+            done, _ = wait(list(pending), timeout=hold, return_when=FIRST_COMPLETED)
+            for f in done:
+                u, hinge = pending.pop(f)
+                rec, res = f.result()
                 tries.append(rec)
                 if res and (u['tag'] not in best or res['score'] < best[u['tag']]['score']):
                     best[u['tag']] = dict(res, hinge=hinge)
-        return best
+                if stopped or elapsed() > STOP_S:
+                    continue
+                if res and res['score'][0] and hinge == 'left':
+                    submit(u, 'right')                     # проблемы у дверей — вторая петля
+                elif res is None and u['kind'] == 'geometry' and len(u['styles']) > 1:
+                    own = own_units(u, u['styles'])
+                    units = [x for x in units if x is not u] + own
+                    for v in own:
+                        submit(v, 'left')
+        return best, units
+
+    def own_units(u, styles):
+        return [{'tag': f"s{n}", 'kind': 'own', 'n': n_geo + picked.index(n) + 1, 'shape': u['shape'], 'source': None,
+                 'styles': [(st, n)], 'from': u['tag']} for st, n in styles]
+
+    def assemble(ci, cand, best, units):
+        """Товары каждого стиля на места СВОЕЙ расстановки → (геометрии, варианты, проблемы)."""
+        x0, y0 = cand['rect'][0], cand['rect'][1]
+        geometries, variants, problems = [], [], []
+        for gi, u in enumerate(units):
+            b = best.get(u['tag'])
+            head = {'id': u['tag'], 'kind': u['kind'], 'shape': u['shape'], 'snapshot_index': u['n'],
+                    'styles': [st.get('style') for st, _ in u['styles']], 'source': u['source']}
+            if u.get('from'):
+                head['replaces'] = u['from']
+                flags.append('own_layouts')
+            if b is None:                                   # не расставить — стили без сцены, с причиной
+                why = next((t.get('infeasible') or t.get('stderr') or t.get('rc') for t in reversed(tries)
+                            if t['unit'] == u['tag'] and t['cand'] == ci), None)
+                geometries.append(dict(head, failed=why, placements=[], placements_core=[], problems=[], hard=[],
+                                       openings_core=TR_strip(TR.solver_openings(cand, cfg))))
+                problems.append({'code': 'layout_failed', 'geometry': gi, 'why': why})
+                for st, n in u['styles']:
+                    variants.append({'style': st.get('style'), 'set_index': n, 'set_id': st.get('set_id'), 'geometry': gi,
+                                     'items': [], 'absent_roles': [], 'hard': [], 'post_ok': False,
+                                     'problems': [{'code': 'layout_failed', 'why': why}], 'placements': [],
+                                     'placements_core': [], 'failed': True})
+                continue
+            geometries.append(dict(head, missing=b['sr'].get('missing'), hinge=b['hinge'], openings_core=b['sr']['openings'],
+                                   problems=b['pc']['problems'], hard=b['hard'], placements=_ps_json(b['ps'], x0, y0),
+                                   placements_core=_ps_json(b['ps']), artifact=os.path.relpath(b['sr']['artifact'], OUT)))
+            problems += [dict(p, geometry=gi) for p in b['pc']['problems']]
+            problems += [{'code': h.split('|')[0], 'roles': h.split('|')[1], 'geometry': gi} for h in b['hard']]
+            croom = core_room(cand, b['sr']['openings'])
+            for st, n in u['styles']:
+                ps, absent, rows = substitute(b['ps'], st, cand['w'], cand['d'])
+                ps, gone = drop_window_chairs(croom, ps)
+                absent = absent + gone
+                rows = [r for r in rows if r['role'] not in gone]
+                spc = TR.post_check(ad, cand, ps)
+                shard = hard_of(croom, ps)
+                variants.append({'style': st.get('style'), 'set_index': n, 'set_id': st.get('set_id'), 'geometry': gi,
+                                 'items': rows, 'absent_roles': absent, 'hard': shard, 'post_ok': spc['ok'],
+                                 'problems': spc['problems'], 'placements': _ps_json(ps, x0, y0),
+                                 'placements_core': _ps_json(ps)})
+        return geometries, variants, problems
 
     geo_units = [{'tag': f'g{gi}', 'kind': 'geometry', 'n': gi + 1, 'shape': g['shape'], 'source': g['source'],
                   'styles': g['styles']} for gi, g in enumerate(groups)]
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as pool:
-        for ci, cand in enumerate(cands):
-            units = list(geo_units)
-            best = run_units(units, ci, cand, pool)
-            failed = [u for u in units if u['tag'] not in best and len(u['styles']) > 1]
-            if failed and time.time() - t0 <= BUDGET_S:
-                own = [{'tag': f"s{n}", 'kind': 'own', 'n': n_geo + picked.index(n) + 1, 'shape': u['shape'],
-                        'source': None, 'styles': [(st, n)], 'from': u['tag']} for u in failed for st, n in u['styles']]
-                units = [u for u in units if u not in failed] + own
-                best.update(run_units(own, ci, cand, pool))
-            if best:
-                # лучше ядро, где расставлено больше стилей; среди них — меньше проблем
-                lost = sum(len(u['styles']) for u in units if u['tag'] not in best)
-                total = (lost, sum(b['score'][0] for b in best.values()))
-                if chosen is None or total < chosen[0]:
-                    chosen = (total, ci, cand, best, units)
-                if total == (0, 0):
+    slot_ctx = (slot or (machine_slot if solver is run_solver else _no_slot))(f'trial-living-{trial_id}')
+    try:
+        with slot_ctx as info, ThreadPoolExecutor(max_workers=MAX_PARALLEL) as pool:
+            clock['queue'] = float((info or {}).get('waited_s') or 0.0)
+            for ci, cand in enumerate(cands):
+                best, units = solve_units(geo_units, ci, cand, pool)
+                if best:
+                    # лучше ядро, где расставлено больше стилей; среди них — меньше проблем
+                    lost = sum(len(u['styles']) for u in units if u['tag'] not in best)
+                    total = (lost, sum(b['score'][0] for b in best.values()))
+                    if chosen is None or total < chosen[0]:
+                        chosen = (total, ci, cand, best, units)
+                    if total == (0, 0):
+                        break
+                if elapsed() > STOP_S:
                     break
-            if time.time() - t0 > BUDGET_S:
-                break
-    t_sol = time.time() - t1
+            if chosen is not None:
+                # стиль, чей товар на месте геометрии нарушает правила (высокий диван у окна) — своим набором, пока есть время
+                _, ci, cand, best, units = chosen
+                _, draft, _ = assemble(ci, cand, best, units)
+                bad = {v['style'] for v in draft if not v.get('failed') and (v['hard'] or not v['post_ok'])}
+                if bad and elapsed() <= STOP_S:
+                    for u in [u for u in units if u['kind'] == 'geometry' and any(st.get('style') in bad for st, _ in u['styles'])]:
+                        move = [(st, n) for st, n in u['styles'] if st.get('style') in bad]
+                        u['styles'] = [x for x in u['styles'] if x not in move]
+                        own = own_units(u, move)
+                        got, _ = solve_units(own, ci, cand, pool, have=True)
+                        units = units + own
+                        best.update(got)
+                    chosen = (chosen[0], ci, cand, best, units)
+    except Exception as e:  # noqa: BLE001 — разбираем только очередь машины, остальное — наверх
+        if not _slot_timeout(e):
+            raise
+        scene.update(status='failed', flags=flags, problems=[{'code': 'queue_timeout',
+                                                              'detail': f'нет места в очереди тяжёлых задач за {SLOT_TIMEOUT_S:.0f} с'}])
+        scene['timings'] = {'adapter_s': round(t_ad + t_prep, 3), 'solver_s': 0, 'assembly_s': 0,
+                            'total_s': round(time.time() - t0, 3), 'queue_s': round(time.time() - t1, 3)}
+        _write_scene(OUT, scene)
+        return scene
+    t_sol = time.time() - t1 - clock['queue']
     scene['tries'] = tries
     if chosen is None:
-        scene.update(status='failed', flags=flags, problems=[{'code': 'solver_failed'}])
+        scene.update(status='failed', flags=flags, problems=[{'code': 'solver_failed',
+                                                              'detail': 'ни одна расстановка не получилась ни на одном ядре'}])
         scene['timings'] = {'adapter_s': round(t_ad + t_prep, 3), 'solver_s': round(t_sol, 3), 'assembly_s': 0,
-                            'total_s': round(time.time() - t0, 3)}
-        _write(os.path.join(OUT, 'scene.json'), scene)
+                            'total_s': round(elapsed(), 3), 'queue_s': round(clock['queue'], 3)}
+        _write_scene(OUT, scene)
         return scene
-    # ── сборка: товары каждого стиля на места СВОЕЙ расстановки ──
+    # ── сборка: товары каждого стиля на места СВОЕЙ расстановки; что и после своей расстановки нарушает правила — не показываем ──
     t2 = time.time()
     _, ci, cand, best, units = chosen
-    x0, y0 = cand['rect'][0], cand['rect'][1]
-    geometries, variants, problems = [], [], []
-    for gi, u in enumerate(units):
-        b = best.get(u['tag'])
-        head = {'id': u['tag'], 'kind': u['kind'], 'shape': u['shape'], 'snapshot_index': u['n'],
-                'styles': [st.get('style') for st, _ in u['styles']], 'source': u['source']}
-        if u.get('from'):
-            head['replaces'] = u['from']
-            flags.append('own_layouts')
-        if b is None:                                       # не расставить — стили без сцены, с причиной
-            why = next((t.get('infeasible') or t.get('stderr') or t.get('rc') for t in reversed(tries)
-                        if t['unit'] == u['tag'] and t['cand'] == ci), None)
-            geometries.append(dict(head, failed=why, placements=[], placements_core=[], problems=[], hard=[],
-                                   openings_core=TR_strip(TR.solver_openings(cand, cfg))))
-            problems.append({'code': 'layout_failed', 'geometry': gi, 'why': why})
-            for st, n in u['styles']:
-                variants.append({'style': st.get('style'), 'set_index': n, 'set_id': st.get('set_id'), 'geometry': gi,
-                                 'items': [], 'absent_roles': [], 'hard': [], 'post_ok': False,
-                                 'problems': [{'code': 'layout_failed', 'why': why}], 'placements': [],
-                                 'placements_core': [], 'failed': True})
+    geometries, variants, problems = assemble(ci, cand, best, units)
+    for v in variants:
+        if v.get('failed') or (not v['hard'] and v['post_ok']):
             continue
-        geometries.append(dict(head, missing=b['sr'].get('missing'), hinge=b['hinge'], openings_core=b['sr']['openings'],
-                               problems=b['pc']['problems'], hard=b['hard'], placements=_ps_json(b['ps'], x0, y0),
-                               placements_core=_ps_json(b['ps']), artifact=os.path.relpath(b['sr']['artifact'], OUT)))
-        problems += [dict(p, geometry=gi) for p in b['pc']['problems']]
-        problems += [{'code': h.split('|')[0], 'roles': h.split('|')[1], 'geometry': gi} for h in b['hard']]
-        croom = core_room(cand, b['sr']['openings'])
-        for st, n in u['styles']:
-            ps, absent, rows = substitute(b['ps'], st, cand['w'], cand['d'])
-            spc = TR.post_check(ad, cand, ps)
-            shard = hard_of(croom, ps)
-            variants.append({'style': st.get('style'), 'set_index': n, 'set_id': st.get('set_id'), 'geometry': gi,
-                             'items': rows, 'absent_roles': absent, 'hard': shard, 'post_ok': spc['ok'],
-                             'problems': spc['problems'], 'placements': _ps_json(ps, x0, y0),
-                             'placements_core': _ps_json(ps)})
+        why = sorted({h.split('|')[0] for h in v['hard']} | {p['code'] for p in v['problems']})
+        problems.append({'code': 'style_rejected', 'style': v['style'], 'why': why, 'geometry': v['geometry']})
+        v.update(items=[], placements=[], placements_core=[], post_ok=False, failed=True, hard=[],
+                 problems=[{'code': 'style_rejected', 'why': why}])
     order = {s: i for i, s in enumerate(STYLES)}
     variants.sort(key=lambda v: order.get(v['style'], 99))
     ok_styles = [v for v in variants if v['post_ok'] and not v['hard']]
     status = 'ok' if not problems and len(ok_styles) == len(variants) else 'partial'
-    if time.time() - t0 > BUDGET_S:
+    if elapsed() > BUDGET_S:
         flags.append('over_budget')
+    if solver is run_solver and beam_off(cand):
+        flags.append('beam_off_large')
     scene.update(status=status, flags=sorted(set(flags + cand['flags'])), problems=problems, band=band,
                  room={**ad['room'], 'panel': ad['panel']},
                  core={'rect': cand['rect'], 'w': cand['w'], 'd': cand['d'], 'area_m2': cand['area_m2'],
@@ -587,9 +765,9 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                  geometries=geometries, variants=variants, styles_ok=len(ok_styles))
     t_asm = time.time() - t2
     scene['timings'] = {'adapter_s': round(t_ad + t_prep, 3), 'solver_s': round(t_sol, 3), 'assembly_s': round(t_asm, 3),
-                        'total_s': round(time.time() - t0, 3), 'solver_runs': len(tries),
+                        'total_s': round(elapsed(), 3), 'solver_runs': len(tries), 'queue_s': round(clock['queue'], 3),
                         'adapter_only_s': round(t_ad, 3)}
-    _write(os.path.join(OUT, 'scene.json'), scene)
+    _write_scene(OUT, scene)
     return scene
 
 
@@ -657,16 +835,21 @@ def frame_top(scene: dict, layer: dict, path: str, label: str) -> None:
 
 
 def entry_cam(scene: dict, ops: list):
-    """Камера «от входа»: у входной двери ядра (или у стыка с проходом) на высоте глаз, взгляд в центр ядра."""
+    """Камера «от входа»: откуда человек войдёт в ядро, на высоте глаз, взгляд в центр ядра. Порядок: настоящая дверь ядра
+    (вход — первым) → стык с остатком-проходом (`passage`: в нём дверь квартиры) → стык с хвостом → прочие порталы."""
     from planner.scene import Camera
     W, D = scene['core']['w'], scene['core']['d']
-    doors = [o for o in ops if o['kind'] == 'door']
-    doors.sort(key=lambda o: (not o.get('is_entrance'), not o.get('swing_cm'), -o['width_cm']))
-    if not doors:
+    real = sorted((o for o in ops if o['kind'] == 'door' and o.get('swing_cm')),
+                  key=lambda o: (not o.get('is_entrance'), -o['width_cm']))
+    places = [(o['wall'], o['offset_cm'] + o['width_cm'] / 2) for o in real]
+    for kind in ('passage', 'tail'):
+        juncs = [j for r in scene['core'].get('residues') or [] if r['kind'] == kind for j in r['junctions']]
+        places += [(w, (a + b) / 2) for w, a, b in sorted(juncs, key=lambda j: j[1] - j[2])]
+    places += [(o['wall'], o['offset_cm'] + o['width_cm'] / 2) for o in ops if o['kind'] in ('door', 'opening') and not o.get('swing_cm')]
+    if not places:
         return Camera(name='entry', eye=(W - 25, 160.0, D - 25), target=(W / 2, 100.0, D / 2), fov_deg=72, width=1152, height=768)
-    o = doors[0]
-    m = o['offset_cm'] + o['width_cm'] / 2
-    pos = {'south': (m, 20.0), 'north': (m, D - 20.0), 'west': (20.0, m), 'east': (W - 20.0, m)}[o['wall']]
+    wall, m = places[0]
+    pos = {'south': (m, 20.0), 'north': (m, D - 20.0), 'west': (20.0, m), 'east': (W - 20.0, m)}[wall]
     return Camera(name='entry', eye=(pos[0], 160.0, pos[1]), target=(W / 2, 95.0, D / 2), fov_deg=72, width=1152, height=768)
 
 
@@ -722,11 +905,12 @@ def main() -> int:
     scene = build(args[0], load_result(args[1:]))
     if '--frames' in sys.argv and scene['status'] in ('ok', 'partial'):
         t = time.time()
-        fr = frames(scene, os.path.join(scene['out'], 'frames'))
+        with machine_slot(f"trial-frames-{scene['trial_id']}"):      # рендер кадров — тоже тяжёлый шаг
+            fr = frames(scene, os.path.join(scene['out'], 'frames'))
         scene['frames'] = fr
         scene['timings']['frames_s'] = round(time.time() - t, 3)
         _write(os.path.join(scene['out'], 'scene.json'), scene)
-    brief = {k: scene.get(k) for k in ('trial_id', 'status', 'band', 'flags', 'problems', 'timings', 'refusal', 'styles_ok')}
+    brief = {k: scene.get(k) for k in ('trial_id', 'status', 'outcome', 'band', 'flags', 'problems', 'timings', 'refusal', 'styles_ok')}
     brief['core'] = {k: (scene.get('core') or {}).get(k) for k in ('rect', 'w', 'd', 'area_m2')} if scene.get('core') else None
     brief['variants'] = [(v['style'], f"g{v['geometry']}", len(v['items']), v['post_ok'], v['hard'],
                           [p['code'] for p in v['problems']], v['absent_roles'])

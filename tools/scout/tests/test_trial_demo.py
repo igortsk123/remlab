@@ -205,6 +205,11 @@ def bank():
             style('лофт', it(2, 210, 95, 'Диван прямой'), extra={'столик': it(12, 90, 50)}, band='17-20')]
 
 
+def no_hard(monkeypatch):
+    """Подставная расстановка геометрически условна (нормы дистанций не проходит): в тестах логики сборки нормы отключаем."""
+    monkeypatch.setattr(TD, "hard_of", lambda room, ps: [])
+
+
 def fake_solver(fail_geometry=False):
     calls = []
 
@@ -227,6 +232,7 @@ def fake_solver(fail_geometry=False):
 
 def test_build_writes_only_trial_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
     before = _live_state()
     sv = fake_solver()
     scene = TD.build('t1', plan(), sets=bank(), solver=sv, pick=lambda sets, band: [1, 2] if band == '17-20' else [])
@@ -241,18 +247,52 @@ def test_build_writes_only_trial_dir(tmp_path, monkeypatch):
     assert {'adapter_s', 'solver_s', 'assembly_s', 'total_s'} <= set(s['timings'])
 
 
+def _assert_openings_contract(s: dict) -> None:
+    """Контракт со стадией героя (`trial_hero.py`, докстрока и `payload_from_trial`): у сцены ok/partial `openings_core` —
+    всегда список проёмов ядра в полях `planner.models.Opening`, без служебных `_…`; иначе кадр — отказ `trial_no_openings`."""
+    assert isinstance(s['openings_core'], list) and s['openings_core']
+    for o in s['openings_core']:
+        assert o['kind'] in ('window', 'door', 'balcony', 'opening') and o['wall'] in TR.WALLS
+        assert o['offset_cm'] >= 0 and o['width_cm'] > 0
+        assert not any(str(k).startswith('_') for k in o)
+
+
+def test_scene_always_has_openings_core_for_hero(tmp_path, monkeypatch):
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    s = TD.build('h1', plan(), sets=bank(), solver=fake_solver(), pick=lambda sets, band: [1, 2] if band == '17-20' else [])
+    assert s['status'] in ('ok', 'partial')
+    _assert_openings_contract(json.load(open(os.path.join(s['out'], 'scene.json'), encoding='utf-8')))
+
+
+def test_openings_core_present_when_first_geometry_failed(tmp_path, monkeypatch):
+    """Первая геометрия не расставлена, вторая — да: сцена `partial`, а проёмы ядра на месте (они не зависят от мебели)."""
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    good = fake_solver()
+
+    def half(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=1):
+        if n == 1 or json.load(open(sets_file, encoding='utf-8'))[n - 1].get('style') == 'сканди':
+            path = os.path.join(layouts, f'v3set{n}-layout-{tag}.json')
+            art = {'_infeasible_reason': {'code': 'MEDIA_MISSING'}}
+            json.dump(art, open(path, 'w', encoding='utf-8'))
+            return {'rc': 0, 'seconds': 0.0, 'artifact': path, 'openings': [], 'stderr': '', 'art': art, 'missing': []}
+        return good(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=n)
+    s = TD.build('h2', plan(), sets=bank(), solver=half, pick=lambda sets, band: [1, 2] if band == '17-20' else [])
+    assert s['status'] == 'partial'
+    _assert_openings_contract(s)
+
+
 def test_run_solver_env_points_into_trial_dir(tmp_path, monkeypatch):
     seen = {}
 
-    class R:
+    class P:
         returncode = 1
-        stdout = ''
-        stderr = 'x'
 
-    def fake_run(cmd, cwd=None, env=None, **kw):
-        seen.update(cmd=cmd, cwd=cwd, env=env)
-        return R()
-    monkeypatch.setattr(TD.subprocess, 'run', fake_run)
+        def __init__(self, cmd, cwd=None, env=None, **kw):
+            seen.update(cmd=cmd, cwd=cwd, env=env)
+
+        def communicate(self, timeout=None):
+            return '', 'x'
+    monkeypatch.setattr(TD.subprocess, 'Popen', P)
     monkeypatch.setenv('SCENE_CONTOUR', '[[0,0]]')
     ad = TR.adapt(plan())
     TD.run_solver(ad['candidates'][0], TR.rules(), str(tmp_path / 'trial-sets.json'), str(tmp_path / 'layouts'),
@@ -266,6 +306,7 @@ def test_run_solver_env_points_into_trial_dir(tmp_path, monkeypatch):
 
 def test_geometry_failure_falls_back_to_own_sets(tmp_path, monkeypatch):
     monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
     sv = fake_solver(fail_geometry=True)
     s = TD.build('t2', plan(), sets=bank(), solver=sv, pick=lambda sets, band: [1, 2] if band == '17-20' else [])
     assert 'own_layouts' in s['flags']
@@ -295,12 +336,160 @@ def test_refusal_written_as_scene(tmp_path, monkeypatch):
     assert os.path.exists(os.path.join(s['out'], 'scene.json'))
 
 
+# ───────────────────────── 6) исход по комнате и очередь машины ─────────────────────────
+
+def _pick12(sets, band):
+    return [1, 2] if band == '17-20' else []
+
+
+def test_own_set_trimmed_to_geometry_roles():
+    geo = {'items': {'диван': {}, 'тв-тумба': {}, 'столик': {}}}
+    st = {'style': 'лофт', 'items': {'диван': it(1, 200, 95), 'стенка': it(2, 220, 45), 'столик': it(3, 90, 50),
+                                     'кресло': it(4, 80, 80), 'кресло 3': it(5, 80, 80), 'стол обеденный': it(6, 120, 80)}}
+    got = TD.trim_to_geometry(st, geo)
+    assert sorted(got['items']) == ['диван', 'стенка', 'столик']   # носитель ТВ стиля сохранён, лишние роли сняты
+    assert len(st['items']) == 6                                   # исходный набор не тронут (из него берутся товары)
+
+
+def test_beam_off_only_for_large_core():
+    assert TD.beam_off({'w': 690, 'd': 505}) is True
+    assert TD.beam_off({'w': 445, 'd': 380}) is False
+
+
+def test_outcome_ready(tmp_path, monkeypatch):
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
+    s = TD.build('o1', plan(), sets=bank(), solver=fake_solver(), pick=_pick12)
+    disk = json.load(open(os.path.join(s['out'], 'scene.json'), encoding='utf-8'))
+    assert disk['outcome']['state'] == 'ready' and disk['outcome']['code'] is None
+    assert disk['outcome']['styles_ok'] == disk['outcome']['styles_total'] == 2
+
+
+def test_outcome_refused_scale_not_verified(tmp_path, monkeypatch):
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    p = plan()
+    p['scale']['status'] = 'not_verified'
+    s = TD.build('o2', p, sets=bank(), solver=fake_solver(), pick=_pick12)
+    assert s['outcome']['state'] == 'refused' and s['outcome']['code'] == 'scale_unverified' and s['outcome']['detail']
+
+
+def test_outcome_refused_solver_failed(tmp_path, monkeypatch):
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+
+    def never(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=1):
+        path = os.path.join(layouts, f'v3set{n}-layout-{tag}.json')
+        art = {'_infeasible_reason': {'code': 'MEDIA_MISSING'}}
+        json.dump(art, open(path, 'w', encoding='utf-8'))
+        return {'rc': 0, 'seconds': 0.0, 'artifact': path, 'openings': [], 'stderr': '', 'art': art, 'missing': []}
+    s = TD.build('o3', plan(), sets=bank(), solver=never, pick=_pick12)
+    assert s['outcome']['state'] == 'refused' and s['outcome']['code'] == 'solver_failed' and s['outcome']['detail']
+
+
+def test_outcome_partial_names_lost_styles():
+    scene = {'status': 'partial', 'problems': [{'code': 'layout_failed'}],
+             'variants': [{'style': 'сканди', 'post_ok': True, 'hard': [], 'problems': []},
+                          {'style': 'лофт', 'post_ok': False, 'hard': [], 'problems': [{'code': 'layout_failed'}]}]}
+    o = TD.outcome_of(scene)
+    assert o['state'] == 'partial' and o['code'] == 'styles_missing' and 'лофт' in o['detail'] and 'layout_failed' in o['detail']
+    assert (o['styles_ok'], o['styles_total']) == (1, 2)
+
+
+def test_solver_stage_runs_under_machine_slot(tmp_path, monkeypatch):
+    """Настоящий решатель идёт через общую очередь; прогоны — внутри слота; ожидание очереди не считается бюджетом."""
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    events = []
+    sv = fake_solver()
+
+    def spy(*a, **kw):
+        events.append('solve')
+        return sv(*a, **kw)
+
+    class Slot:
+        def __init__(self, label):
+            events.append(('slot', label))
+
+        def __enter__(self):
+            events.append('enter')
+            return {'waited_s': 500.0}
+
+        def __exit__(self, *a):
+            events.append('exit')
+            return False
+    s = TD.build('q1', plan(), sets=bank(), solver=spy, pick=_pick12, slot=Slot)
+    assert events[0] == ('slot', 'trial-living-q1') and events[1] == 'enter' and events[-1] == 'exit' and 'solve' in events
+    assert events.index('exit') > max(i for i, e in enumerate(events) if e == 'solve')
+    assert s['timings']['queue_s'] == 500.0 and s['timings']['total_s'] < 400       # очередь не съела бюджет
+    assert 'over_budget' not in s['flags']
+
+
+def test_real_runner_selects_machine_slot():
+    src = open(TD.__file__, encoding='utf-8').read()
+    assert '(slot or (machine_slot if solver is run_solver else _no_slot))' in src
+
+
+def test_queue_timeout_is_honest_refusal(tmp_path, monkeypatch):
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+
+    class SlotTimeout(Exception):
+        pass
+
+    class Slot:
+        def __init__(self, label):
+            pass
+
+        def __enter__(self):
+            raise SlotTimeout('очередь')
+
+        def __exit__(self, *a):
+            return False
+    s = TD.build('q2', plan(), sets=bank(), solver=fake_solver(), pick=_pick12, slot=Slot)
+    assert s['status'] == 'failed' and s['outcome']['state'] == 'refused' and s['outcome']['code'] == 'queue_timeout'
+
+
+def test_style_with_hard_after_substitution_gets_own_layout_or_is_hidden(tmp_path, monkeypatch):
+    """Товар стиля на месте геометрии нарушает правила: пробуем своим набором; не вышло — стиль скрыт с причиной, не показан."""
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    calls = []
+    sv = fake_solver()
+
+    def solver(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=1):
+        calls.append(n)
+        return sv(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=n)
+    real_hard = lambda room, ps: []                               # нормы подставной расстановки не проверяем
+    # нарушение только у товара «лофт» (ширина 210) — и на месте геометрии, и в своей расстановке
+    monkeypatch.setattr(TD, 'hard_of', lambda room, ps: ['WINDOW_BLOCKED|диван'] if any(p.role == 'диван' and p.item.w_cm == 210 and p.item.name for p in ps) else real_hard(room, ps))
+    s = TD.build('h3', plan(), sets=bank(), solver=solver, pick=_pick12)
+    by = {v['style']: v for v in s['variants']}
+    assert max(calls) == 3                                         # геометрия + свой набор «лофта» (номер 3 в снимке)
+    assert by['лофт'].get('failed') and by['лофт']['placements_core'] == [] and by['лофт']['hard'] == []
+    assert by['лофт']['problems'][0]['code'] == 'style_rejected' and 'WINDOW_BLOCKED' in by['лофт']['problems'][0]['why']
+    assert by['сканди']['post_ok'] and by['сканди']['items']
+    assert s['outcome']['state'] == 'partial' and s['outcome']['styles_ok'] == 1
+
+
+def test_chair_at_window_is_dropped_but_last_chair_is_kept(monkeypatch):
+    """Лишний стул у окна убираем, диван у окна не трогаем (его снимет общая проверка), последний стул оставляем."""
+    class P:
+        def __init__(self, role):
+            self.role = role
+    ps = [P('диван'), P('стул'), P('стул 2')]
+    monkeypatch.setattr(TD, 'hard_of', lambda room, x: ['WINDOW_BLOCKED|стул 2', 'WINDOW_BLOCKED|диван'])
+    kept, gone = TD.drop_window_chairs(None, ps)
+    assert gone == ['стул 2'] and [p.role for p in kept] == ['диван', 'стул']
+    monkeypatch.setattr(TD, 'hard_of', lambda room, x: ['WINDOW_BLOCKED|стул', 'WINDOW_BLOCKED|стул 2'])
+    kept, gone = TD.drop_window_chairs(None, ps)
+    assert gone == [] and len(kept) == 3
+    monkeypatch.setattr(TD, 'hard_of', lambda room, x: [])
+    assert TD.drop_window_chairs(None, ps) == (ps, [])
+
+
 @pytest.mark.skipif(os.environ.get('TRIAL_SLOW') == '0', reason='TRIAL_SLOW=0 — без настоящего солвера')
 def test_real_solver_writes_only_trial_dir(tmp_path, monkeypatch):
     """Настоящий `solver_run.py` (zoned) на ядре 500×400: раскладки — только в папке пробы."""
     monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
     before = _live_state()
-    s = TD.build('real', plan(), sets=bank(), pick=lambda sets, band: [1, 2] if band == '17-20' else [])
+    s = TD.build('real', plan(), sets=bank(), pick=lambda sets, band: [1, 2] if band == '17-20' else [],
+                 slot=TD._no_slot)                                 # в тесте — без общей очереди машины (маленькая комната, секунды)
     assert _live_state() == before
     assert s['status'] in ('ok', 'partial'), s.get('problems')
     assert any(v['items'] for v in s['variants'])
