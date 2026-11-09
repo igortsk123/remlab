@@ -2,7 +2,7 @@
 workstream: product
 slug: agent-trial-01-upload-grey-tour
 title: Проба агента — загрузка плана → задание на проде → воркер DEV → серый 3D-тур по ссылке /try/<id>
-status: draft
+status: in_progress
 created: 2026-11-09
 updated: 2026-11-09
 completed:
@@ -46,6 +46,31 @@ Codex `_intake/codex/agent-trial-master-2026-11-09-answer.md` §1–3; инве�
 - **Очередь — только Postgres** (Codex §2): `FOR UPDATE SKIP LOCKED`, lease + heartbeat, опрос воркера раз в 2 с; LISTEN/NOTIFY нет.
 - **PDF → PNG на DEV, не на проде:** `pdftoppm` (poppler 26.01 уже стоит на pakardev; GPL — вызываем отдельным процессом, наш код не
   заражает), `-r 150 -png -f 1 -l 2`, `timeout 30`, `prlimit --as`. PyMuPDF — AGPL, нельзя; `pypdfium2` (Apache/BSD) — запасной, не стоит.
+
+## Поправки после Codex 09.11 — ПРИОРИТЕТ над текстом ниже
+Ответ — `_intake/codex/agent-trial-01-plan-2026-11-09-answer.md`; ведущий сверил по коду (`lib/metrika.ts:metrikaSafeUrl` не маскирует
+`/try/`, `docker-compose.yml:103` app `mem_limit: 1g`) — принято целиком:
+- **Ограждение:** claim → `attempt = attempt + 1` + новый случайный `lease_token`; heartbeat/result/fail — одним `UPDATE … WHERE
+  status='running' AND attempt=? AND lease_token=? AND lease_until>now()`; просроченный heartbeat аренду не продлевает; claim берёт только
+  `attempt < max_attempts` (2 = ровно два claim), исчерпанные — отдельным `UPDATE` в `failed/lease_lost`; повтор того же result после
+  потерянного ответа — идемпотентен (тот же хэш тела → 200), другой — 409.
+- **Загрузка потоком** (busboy → `<id>.part`), не `request.formData()`: лимит частоты и заполненность очереди — ДО чтения тела; лимит
+  15 МБ — по реально прочитанным байтам; sha256 и сигнатура — на лету; успех → атомарный rename; обрыв/ошибка БД/превышение → `.part`
+  удаляется; retention чистит сироты `.part`. Caddy 16 МБ — внешний заслон. (`next.config.mjs` `bodySizeLimit` — только Server Actions.)
+- **Без `breaker` и `queuePos` в БД:** `queueAhead` считать тем же условием и порядком, что claim; `trial_workers` = `id, last_seen,
+  version` (last_seen — на каждом опросе, даже когда воркер сам себя притормозил); причина торможения — в логах DEV.
+- **ПДн и сроки (ICO: storage limitation / minimisation):** исходный файл — 24 ч после финального статуса (максимум 7 дней для
+  диагностики), результат — 30 дней; email до T9 НЕ собирать (поля в форме нет; колонка — в T9); `ip_hash` в задании не хранить (лимитер
+  ведёт свои счётчики); после удаления файла — `input_path=null`, `input_deleted_at`; ошибка unlink оставляет запись для повтора
+  (инвариант `modules/retention/run.ts`). Сроки — env, по умолчанию эти.
+- **Утечка ключа ссылки:** на `/try/*` Метрику и Вебвизор не грузить вовсе (или маска `/try/*` в `metrikaSafeUrl` + clean=false);
+  заголовки `Referrer-Policy: no-referrer`, `Cache-Control: private, no-store`; `result_version` → `ETag`.
+- **Деньги:** суточный потолок заданий 30 (30 × $0,10 = $3), не 50.
+- **Тесты T-A дополнительно:** reclaim одновременно со старым heartbeat/result/fail; ABA с тем же `worker_id`; граница истечения
+  lease; исчерпание попыток; повтор result; конкурентная постановка не пробивает лимит очереди 5; chunked-загрузка, ложный
+  `Content-Length`, лимит ±1 байт, обрыв, ошибка БД — без `.part` и сирот; публичные ответы без `input_path`, текста объявления,
+  lease/token, worker, деталей ошибок; traversal/symlink через `input_path`; неверный Bearer и пустой env; retention: файл удалён —
+  результат жив, потом результат → 410; ошибка unlink → повтор.
 
 ## Таблица `trial_jobs` (`db/init/022-trial-jobs.sql` + `db/schema.ts`)
 `id text pk` · `kind text 'floorplan'` · `status text` (`queued|running|done|failed|cancelled|expired`) · `stage text`
@@ -157,6 +182,7 @@ lease_until<now()) order by created_at for update skip locked limit 1) returning
 
 ## Лог выполнения
 - 2026-11-09 — план создан (draft), ждёт «деплой» по очереди мастера (⚑ сроки хранения; ⚑ снимок страниц до выкладки).
+- 2026-11-09 13:12 — Codex по плану (поправки выше, приняты); сроки хранения — по Codex (короче прежних 14/90, риск меньше); in_progress; выдано T-20261109-08 = T-A (worktree `trial-runtime`). Владелец TG 327: кухня/санузел/прихожая — серыми с подписью.
 
 ## Completion summary
 
