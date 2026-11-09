@@ -131,6 +131,7 @@ review_after: 2026-11-23
 
 ## Лог выполнения
 - 2026-11-09 — план создан (draft) ведущим на algor; большая переделка — после сброса лимита algor 11.11 03:00 или с common (владелец TG 1319).
+- 2026-11-09 — T-20261109-23/1 (работник 3, ветка `worktree-trial-conveyor`): конвейер стадий в воркере — `tools/floorplan/conveyor.py` (стены → v1, гостиная → v2, спальни → v3, `done` по исходу каждой комнаты, отказ стадии = код комнаты, повтор без дубля по журналу sha); `awaiting_check`/`size_unverified` по флагу размера и по `scale.status == not_verified` (TG 531/533); вход для кнопки — `conveyor.furnish_rooms(room_ids)`.
 
 ## Completion summary
 

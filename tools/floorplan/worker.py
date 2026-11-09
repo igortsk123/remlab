@@ -2,7 +2,8 @@
 """Воркер DEV пробы для агентов (план agent-trial-01-upload-grey-tour, T-B): сам ходит на прод по HTTPS.
 
 Цикл: предохранитель → POST /api/trial/worker/claim → GET …/<id>/input (файл) → `pipeline.py job` отдельным процессом
-(PDF → PNG, VLM, стенд под heavy_slot) → POST …/result; heartbeat сразу после claim, сразу при смене шага и не реже
+(PDF → PNG, VLM, стенд под heavy_slot) → конвейер мебели `conveyor.py` (версии страницы 1 → 2 → 3 на POST …/bundle; выключить —
+TRIAL_FURNISH=0) → POST …/result; heartbeat сразу после claim, сразу при смене шага и не реже
 раза в 10 с (шаг из `<папка>/stage`, деньги из `<папка>/spent`; время шага прод метит только по heartbeat), concurrency 1. Ошибка → POST …/fail {code, retryable}. 409 на любой ручке — аренда потеряна: процесс
 стенда снимается, задание доделает тот, кто его забрал.
 
@@ -39,6 +40,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'ops'))
+sys.path.insert(0, str(HERE))
+import conveyor  # noqa: E402 — стадии мебели после стен
 
 VERSION = 'trial-worker/1'
 TOKEN_RE = re.compile(r'^[A-Za-z0-9_-]{22}$')       # = lib/token.ts:TOKEN_RE — id задания (и имя папки)
@@ -79,6 +82,15 @@ class Cfg:
     meminfo: str = '/proc/meminfo'
     an_cache: str | None = None
     pipeline: list = field(default_factory=lambda: [sys.executable, str(HERE / 'pipeline.py')])
+    # конвейер мебели после стен (`conveyor.py`): версии данных страницы 1 → 2 → 3, потом `done`
+    furnish: bool = True
+    python: str = sys.executable
+    scenes_root: Path = Path(os.environ.get('TRIAL_SCENES_ROOT') or '~/scout-scenes/trial').expanduser()
+    living_timeout_s: float = 1800.0             # с ожиданием общей очереди тяжёлых
+    bedroom_timeout_s: float = 1800.0
+    bundle_timeout_s: float = 180.0
+    bundle_max_bytes: int = conveyor.BUNDLE_MAX_BYTES
+    stage_cmds: dict | None = None               # тесты: свои команды стадий; None — настоящие скрипты
 
     @classmethod
     def from_env(cls, env=os.environ) -> 'Cfg':
@@ -92,7 +104,10 @@ class Cfg:
                    worker_id=env.get('TRIAL_WORKER_ID') or f'dev-{socket.gethostname()}'[:64],
                    base=Path(env.get('TRIAL_WORK_DIR') or '~/remlab-logs/trial').expanduser(),
                    job_timeout_s=f('TRIAL_JOB_TIMEOUT_S', 900.0), mem_min_gb=f('TRIAL_MEM_MIN_GB', 3.0),
-                   keep_hours=f('TRIAL_DEV_KEEP_HOURS', 24.0), an_cache=env.get('TRIAL_FP_CACHE') or None)
+                   keep_hours=f('TRIAL_DEV_KEEP_HOURS', 24.0), an_cache=env.get('TRIAL_FP_CACHE') or None,
+                   furnish=env.get('TRIAL_FURNISH', '1') != '0',
+                   scenes_root=Path(env.get('TRIAL_SCENES_ROOT') or '~/scout-scenes/trial').expanduser(),
+                   living_timeout_s=f('TRIAL_LIVING_TIMEOUT_S', 1800.0), bedroom_timeout_s=f('TRIAL_BEDROOM_TIMEOUT_S', 1800.0))
 
     @property
     def vlm_root(self) -> Path:
@@ -298,6 +313,47 @@ class Worker:
                 time.sleep(min(30.0, self.cfg.retry_s * (k + 1)))
         return None
 
+    @staticmethod
+    def log(msg: str) -> None:
+        log(msg)
+
+    def post_json(self, path: str, body: dict, tries: int = 5) -> tuple[int | None, dict | None]:
+        """Как `_post`, но с телом ответа (номер версии) — для `/bundle`. Повтор того же тела безопасен: тот же хэш → `repeated`."""
+        for k in range(tries):
+            try:
+                st, resp = self.api.call('POST', path, body)
+                if st < 500:
+                    return st, resp
+                self.log(f'{body.get("id")}: {path} {st}')
+            except NetError as e:
+                self.log(f'{body.get("id")}: {path}: {e}')
+            if k + 1 < tries:
+                time.sleep(min(30.0, self.cfg.retry_s * (k + 1)))
+        return None, None
+
+    def run_child(self, cmd: list, log_path: Path, timeout_s: float, hb: Heartbeat, env: dict | None = None) -> tuple[int | None, str | None]:
+        """Процесс стадии в своей группе, вывод — в `log_path`. → (код выхода, причина снятия: lost | timeout | stop | None)."""
+        with open(log_path, 'ab') as out:
+            self.child = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
+                                          cwd=str(HERE.parent.parent), env=env)
+            deadline = time.time() + timeout_s
+            why = None
+            while self.child.poll() is None:
+                if hb.lost.is_set():
+                    why = 'lost'
+                elif time.time() > deadline:
+                    why = 'timeout'
+                elif self.stop.is_set():
+                    why = 'stop'
+                if why:
+                    self._kill()
+                    break
+                time.sleep(0.2)
+        rc, self.child = self.child.returncode, None
+        if why is None and hb.lost.is_set():
+            why = 'lost'
+        return rc, why
+
     def fail(self, lease: dict, wd: Path, code: str, retryable: bool, detail: str = '', retry_after: int | None = None) -> None:
         body = {**lease, 'code': code, 'retryable': retryable, 'detail': detail[:2000], 'spentUsd': self.spent(wd)}
         if retry_after:
@@ -369,24 +425,8 @@ class Worker:
             cmd += ['--listing-file', str(wd / 'listing.txt')]
         if self.cfg.an_cache:
             cmd += ['--an-cache', self.cfg.an_cache]
-        with open(wd / 'pipeline.log', 'ab') as out:
-            self.child = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
-                                          cwd=str(HERE.parent.parent))
-            deadline = time.time() + self.cfg.job_timeout_s
-            why = None
-            while self.child.poll() is None:
-                if hb.lost.is_set():
-                    why = 'lost'
-                elif time.time() > deadline:
-                    why = 'timeout'
-                elif self.stop.is_set():
-                    why = 'stop'
-                if why:
-                    self._kill()
-                    break
-                time.sleep(0.2)
-        rc, self.child = self.child.returncode, None
-        if why == 'lost' or hb.lost.is_set():
+        rc, why = self.run_child(cmd, wd / 'pipeline.log', self.cfg.job_timeout_s, hb)
+        if why == 'lost':
             self.done.append((jid, 'lost'))
             return
         if why == 'timeout':
@@ -395,7 +435,20 @@ class Worker:
             return self.fail(lease, wd, 'waiting_capacity', True, 'worker stopping', 5)
         res_p, err_p = wd / 'result.json', wd / 'error.json'
         if rc == 0 and res_p.exists():
-            return self.result(lease, wd, json.loads(res_p.read_text()))
+            res = json.loads(res_p.read_text())
+            last = None
+            if self.cfg.furnish:                     # стены готовы → версии страницы по очереди (`conveyor.py`), `done` — последним
+                cv = conveyor.Conveyor(self, lease, wd, hb, res_p)
+                end = cv.run()
+                last = cv.last
+                if end == 'lost':
+                    self.done.append((jid, 'lost'))
+                    return
+                if end == 'stop':
+                    return self.fail(lease, wd, 'waiting_capacity', True, 'worker stopping', 5)
+            if self.result(lease, wd, res):
+                conveyor.after_done(self, lease, wd, last)
+            return
         if err_p.exists():
             e = json.loads(err_p.read_text())
             code = e.get('code') or 'pipeline_error'
@@ -404,20 +457,22 @@ class Worker:
         # убит сигналом (OOM, earlyoom) или упал без отчёта — один повтор (попыток 2)
         self.fail(lease, wd, 'pipeline_error', True, f'pipeline rc={rc}')
 
-    def result(self, lease: dict, wd: Path, res: dict) -> None:
+    def result(self, lease: dict, wd: Path, res: dict) -> bool:
         body = {**lease, 'result': res, 'spentUsd': self.spent(wd)}
         st = self._post('/api/trial/worker/result', body)
         if st == 200:
             self.streak = 0
             self.done.append((lease['id'], 'done'))
             log(f'{lease["id"]}: результат принят')
-        elif st == 409:
+            return True
+        if st == 409:
             self.done.append((lease['id'], 'lost'))
             log(f'{lease["id"]}: результат не принят — аренда потеряна')
         elif st in (413, 422):
             self.fail(lease, wd, 'pipeline_error', False, f'result rejected {st}')
         else:
             self.fail(lease, wd, 'internal', True, f'result http {st}')
+        return False
 
     # ── уборка DEV: файл владельца не держим дольше прода ──
     def janitor(self, now: float | None = None) -> list:

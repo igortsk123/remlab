@@ -3,6 +3,7 @@
 Поддельный прод повторяет контракт ручек `app/api/trial/worker/*` (Bearer, ограждение id/attempt/leaseToken, paused →
 job null, 409 — аренда потеряна); вместо стенда — поддельный `pipeline.py job` (режим из FAKE_MODE).
 """
+import hashlib
 import json
 import os
 import sys
@@ -39,7 +40,84 @@ if mode in ('no_plan', 'capacity'):
     code = 'no_plan' if mode == 'no_plan' else 'waiting_capacity'
     put('error.json', json.dumps({'code': code, 'retryable': mode == 'capacity', 'detail': 'x'})); sys.exit(3)
 put('stage', 'walls'); time.sleep(0.25)
-put('result.json', json.dumps({'version': 1, 'units': 'cm', 'fake': True}))
+flagged = os.environ.get('FAKE_SIZE_FLAG', '').split(',')        # «размер не сошёлся» у этих комнат
+rooms = [{'id': 'r1', 'kind': 'living'}, {'id': 'k1', 'kind': 'kitchen'}]
+if os.environ.get('FAKE_BEDROOMS_IN_PLAN', '1') == '1':
+    rooms.append({'id': 'b1', 'kind': 'bedroom'})
+for r in rooms:
+    r['flags'] = ['dims_mismatch'] if r['id'] in flagged else []
+put('result.json', json.dumps({'version': 1, 'units': 'cm', 'fake': True, 'panels': [{'id': 'p0', 'rooms': rooms}]}))
+'''
+
+# ── поддельные стадии конвейера (`conveyor.py`): тот же интерфейс командной строки, что у настоящих ──
+FAKE_BUNDLE = r'''
+import json, os, sys
+a = sys.argv[1:]
+def opt(n):
+    if n in a:
+        i = a.index(n); v = a[i + 1]; del a[i:i + 2]; return v
+scene, parts, out = opt('--scene'), opt('--parts'), opt('--out')
+release = (opt('--release') or '').split(',')
+jid, res = a
+result = json.load(open(res))
+mode = os.environ.get('FAKE_BUNDLE', 'ok')
+sc = json.load(open(scene)) if scene else None
+if mode == 'refuse' or (mode == 'leak' and sc and sc['status'] == 'ok'):
+    print('сборка: отказ')
+    print(json.dumps({'refusal': 'shop_leak' if mode == 'leak' else 'bad_result', 'detail': 'x'})); sys.exit(2)
+got = {e['src_id']: e for e in (json.load(open(parts)) if parts else {}).get('apartment_rooms') or []}
+rooms, n = [], {}
+for p in result['panels']:
+    for r in p['rooms']:
+        n[r['kind']] = n.get(r['kind'], 0) + 1
+        rid = 'living' if r['kind'] == 'living' and n['living'] == 1 else f"{r['kind']}-{n[r['kind']]}"
+        if r['kind'] in ('living', 'bedroom') and 'dims_mismatch' in (r.get('flags') or []) and rid not in release \
+                and not (r['kind'] == 'living' and sc and sc['status'] == 'ok'):
+            st, code = 'awaiting_check', 'dims_mismatch'
+        elif r['kind'] == 'living':
+            if sc is None:
+                st, code = 'pending', None
+            elif sc['status'] in ('ok', 'partial'):
+                st, code = 'ready', None
+            else:
+                st, code = 'refused', (sc.get('refusal') or {}).get('code') or sc['status']
+        elif r['kind'] == 'bedroom':
+            e = got.get(r['id'])
+            st, code = (e['furniture_state'], e.get('furniture_code')) if e else ('pending', None)
+        else:
+            st, code = 'not_furnished', None
+        rooms.append({'id': rid, 'kind': r['kind'], 'furniture_state': st, 'furniture_code': code})
+data = {'apartment_rooms': rooms, 'pad': 'x' * int(os.environ.get('FAKE_BUNDLE_PAD', '0')),
+        'trial': {'job_id': jid, 'complete': all(x['furniture_state'] != 'pending' for x in rooms)}}
+json.dump(data, open(out, 'w'))
+print(json.dumps({'ok': True}))
+'''
+
+FAKE_LIVING = r'''
+import json, os, sys, time
+jid = sys.argv[1]
+mode = os.environ.get('FAKE_LIVING', 'ok')
+d = os.path.join(os.environ['TRIAL_SCENES_ROOT'], jid)
+os.makedirs(d, exist_ok=True)
+if mode == 'slow':
+    time.sleep(60)
+if mode == 'crash':
+    os._exit(9)
+if mode == 'stale':                      # упала тихо: scene.json не обновлён (лежит от прошлого раза)
+    sys.exit(0)
+json.dump({'trial_id': jid, 'status': mode}, open(os.path.join(d, 'scene.json'), 'w'))
+sys.exit({'ok': 0, 'partial': 3}.get(mode, 2))
+'''
+
+FAKE_BEDROOMS = r'''
+import json, os, sys
+jid, res, out = sys.argv[1:]
+if os.environ.get('FAKE_BEDROOMS') == 'crash':
+    os._exit(9)
+r = json.load(open(res))
+rooms = [{'id': f'bedroom-{i}', 'panel': p['id'], 'src_id': x['id'], 'furniture_state': 'ready'}
+         for i, (p, x) in enumerate(((p, x) for p in r['panels'] for x in p['rooms'] if x['kind'] == 'bedroom'), 1)]
+json.dump({'rooms_geo': {}, 'apartment_rooms': rooms, 'variants': []}, open(out, 'w'))
 '''
 
 
@@ -53,6 +131,8 @@ class Prod:
         self.input_status = 200
         self.hb_status = 200
         self.result_codes = []
+        self.bundle_codes = []
+        self.bundles = []                       # принятые версии: {'sha', 'data'} — как манифест `trial_jobs.bundle_version/hash`
         self.health = 200
         self.lock = threading.Lock()
 
@@ -120,6 +200,22 @@ def make_handler(prod: Prod):
                 if code == 200 and not self.fenced(b):
                     code = 409
                 return self.send(code, {'ok': code == 200})
+            if self.path == '/api/trial/worker/bundle':          # = app/api/trial/worker/bundle/route.ts (без проверки формы)
+                if not self.fenced(b):
+                    return self.send(409, {'error': 'lease_lost'})
+                raw = b['bundle'].encode()
+                if len(raw) > 8 * 1024 * 1024:
+                    return self.send(413, {'error': 'too_large'})
+                if hashlib.sha256(raw).hexdigest() != b['sha256']:
+                    return self.send(422, {'error': 'hash_mismatch'})
+                if prod.bundle_codes:
+                    code = prod.bundle_codes.pop(0)
+                    return self.send(code, {'error': 'x'})
+                with prod.lock:
+                    if prod.bundles and prod.bundles[-1]['sha'] == b['sha256']:
+                        return self.send(200, {'ok': True, 'version': len(prod.bundles), 'repeated': True})
+                    prod.bundles.append({'sha': b['sha256'], 'data': json.loads(raw)})
+                    return self.send(200, {'ok': True, 'version': len(prod.bundles), 'repeated': False})
             if self.path == '/api/trial/worker/fail':
                 return self.send(200 if self.fenced(b) else 409, {'ok': True, 'status': 'queued'})
             self.send(404, {})
@@ -144,11 +240,18 @@ def mk(prod, tmp_path, monkeypatch):
     mem = tmp_path / 'meminfo'
     mem.write_text('MemTotal:       16000000 kB\nMemAvailable:    8000000 kB\n')
 
-    def make(mode='ok', waiting=0, **over):
+    stages = {}
+    for name, src in (('bundle', FAKE_BUNDLE), ('living', FAKE_LIVING), ('bedrooms', FAKE_BEDROOMS)):
+        p = tmp_path / f'fake_{name}.py'
+        p.write_text(src)
+        stages[name] = [sys.executable, str(p)]
+
+    def make(mode='ok', waiting=0, furnish=False, bedroom_stage=True, **over):
         monkeypatch.setenv('FAKE_MODE', mode)
         kw = dict(url=prod.url, token=TOKEN, worker_id='dev-test', base=tmp_path / 'trial', poll_s=0.05,
                   heartbeat_s=0.1, stage_poll_s=0.05, meminfo=str(mem), retry_s=0.01, kill_grace_s=2,
-                  pipeline=[sys.executable, str(child)])
+                  pipeline=[sys.executable, str(child)], furnish=furnish, scenes_root=tmp_path / 'scenes',
+                  stage_cmds={**stages, 'bedrooms': stages['bedrooms'] if bedroom_stage else None})
         kw.update(over)
         cfg = wk.Cfg(**kw)
         return wk.Worker(cfg, waiting=lambda: waiting)
@@ -336,3 +439,201 @@ def test_cfg_from_env():
     assert (c.url, c.token, c.job_timeout_s, str(c.base), str(c.vlm_root)) == \
         ('https://example.test', 'x', 60.0, '/tmp/t', '/tmp/t/vlm-cache')
     assert c.worker_id.startswith('dev-') and c.mem_min_gb == 3.0 and c.heartbeat_s == 10.0
+    assert c.furnish is True and c.living_timeout_s == 1800.0 and c.bundle_max_bytes == 8 * 1024 * 1024
+    c = wk.Cfg.from_env({'TRIAL_FURNISH': '0', 'TRIAL_SCENES_ROOT': '/tmp/s', 'TRIAL_LIVING_TIMEOUT_S': '30'})
+    assert c.furnish is False and str(c.scenes_root) == '/tmp/s' and c.living_timeout_s == 30.0
+
+
+# ───────────────────────── конвейер после стен (conveyor.py, T-20261109-23) ─────────────────────────
+
+def _states(prod):
+    """По каждой принятой версии: {комната: состояние[:код]} и `complete`."""
+    out = []
+    for b in prod.bundles:
+        rooms = {r['id']: r['furniture_state'] + (f":{r['furniture_code']}" if r.get('furniture_code') else '')
+                 for r in b['data']['apartment_rooms']}
+        out.append((rooms, b['data']['trial']['complete']))
+    return out
+
+
+def _order(prod):
+    return [p.rsplit('/', 1)[-1] for p, _, _ in prod.reqs if p in ('/api/trial/worker/bundle', '/api/trial/worker/result',
+                                                                       '/api/trial/worker/fail')]
+
+
+def test_conveyor_versions_in_order_then_done(prod, mk):
+    """Стены → версия 1 (всё pending), гостиная → версия 2, спальни → версия 3 (complete), и только потом `result`."""
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(JID, 'done')]
+    assert _states(prod) == [
+        ({'living': 'pending', 'kitchen-1': 'not_furnished', 'bedroom-1': 'pending'}, False),
+        ({'living': 'ready', 'kitchen-1': 'not_furnished', 'bedroom-1': 'pending'}, False),
+        ({'living': 'ready', 'kitchen-1': 'not_furnished', 'bedroom-1': 'ready'}, True)]
+    assert _order(prod) == ['bundle', 'bundle', 'bundle', 'result']
+    sent = prod.by('/api/trial/worker/bundle')
+    assert all(s['id'] == JID and s['attempt'] == 1 and s['leaseToken'] == 'L' * 32 for s in sent)
+    assert all(hashlib.sha256(s['bundle'].encode()).hexdigest() == s['sha256'] for s in sent)
+    # стадии живут, пока идёт heartbeat: аренда продлевается и во время мебели
+    assert prod.by('/api/trial/worker/fail') == []
+
+
+def test_conveyor_living_failure_is_room_refusal_and_job_done(prod, mk, monkeypatch):
+    for mode, code, over in (('crash', 'stage_failed', {}), ('slow', 'stage_timeout', {'living_timeout_s': 1.0})):
+        prod.reqs.clear()
+        prod.bundles.clear()
+        monkeypatch.setenv('FAKE_LIVING', mode)
+        prod.add_job(attempt=len(prod.reqs) + 1)
+        w = mk(furnish=True, base=mk.mem.parent / f'trial-{mode}', **over)
+        w.loop(max_iter=1)
+        assert w.done == [(JID, 'done')], mode
+        st = _states(prod)
+        assert st[1][0]['living'] == f'refused:{code}' and st[-1][1] is True, (mode, st)
+        assert _order(prod)[-1] == 'result'
+
+
+def test_conveyor_stale_scene_is_not_taken_for_fresh(prod, mk, monkeypatch, tmp_path):
+    """Гостиная вышла без новой сцены — старый `scene.json` (прошлая попытка) за итог не принимается."""
+    d = tmp_path / 'scenes' / JID
+    d.mkdir(parents=True)
+    (d / 'scene.json').write_text(json.dumps({'trial_id': JID, 'status': 'ok'}))
+    old = time.time() - 3600
+    os.utime(d / 'scene.json', (old, old))
+    monkeypatch.setenv('FAKE_LIVING', 'stale')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert _states(prod)[1][0]['living'] == 'refused:stage_failed' and w.done == [(JID, 'done')]
+
+
+def test_conveyor_honest_living_outcome_kept(prod, mk, monkeypatch):
+    monkeypatch.setenv('FAKE_LIVING', 'no_products')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert _states(prod)[1][0]['living'] == 'refused:no_products' and w.done == [(JID, 'done')]
+
+
+def test_conveyor_without_bedroom_module_bedrooms_pending_then_refused(prod, mk):
+    """Ветка спален не влита: в версии 2 спальня ещё `pending`, в последней — отказ `stage_unavailable`, задание — `done`."""
+    prod.add_job()
+    w = mk(furnish=True, bedroom_stage=False)
+    w.loop(max_iter=1)
+    st = _states(prod)
+    assert st[1][0]['bedroom-1'] == 'pending' and st[2][0]['bedroom-1'] == 'refused:stage_unavailable' and st[2][1] is True
+    assert w.done == [(JID, 'done')]
+
+
+def test_conveyor_bedroom_crash_refused(prod, mk, monkeypatch):
+    monkeypatch.setenv('FAKE_BEDROOMS', 'crash')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert _states(prod)[-1] == ({'living': 'ready', 'kitchen-1': 'not_furnished', 'bedroom-1': 'refused:stage_failed'}, True)
+
+
+def test_conveyor_builder_refusal_of_stage_piece_becomes_room_refusal(prod, mk, monkeypatch):
+    """Сборщик не принял сцену (утечка магазина) — сцена не публикуется, гостиная получает отказ этим кодом."""
+    monkeypatch.setenv('FAKE_BUNDLE', 'leak')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    st = _states(prod)
+    assert st[1][0]['living'] == 'refused:shop_leak' and st[-1][1] is True and w.done == [(JID, 'done')]
+
+
+def test_conveyor_repeat_does_not_duplicate_versions(prod, mk, monkeypatch):
+    """Одинаковая версия не шлётся дважды: без спален в плане версия 3 = версия 2 — её нет; перезапуск (новая попытка того же
+    задания) не откатывает страницу к пустой версии 1 и не плодит версий."""
+    monkeypatch.setenv('FAKE_BEDROOMS_IN_PLAN', '0')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert len(prod.bundles) == 2 and len(prod.by('/api/trial/worker/bundle')) == 2
+    prod.add_job(attempt=2, leaseToken='M' * 32)
+    w.loop(max_iter=1)
+    assert len(prod.bundles) == 2 and len(prod.by('/api/trial/worker/bundle')) == 2
+    assert w.done == [(JID, 'done'), (JID, 'done')] and len(prod.by('/api/trial/worker/result')) == 2
+
+
+def test_conveyor_lease_lost_during_living_stops_everything(prod, mk, monkeypatch):
+    monkeypatch.setenv('FAKE_LIVING', 'slow')
+    prod.add_job()
+    w = mk(furnish=True)
+    t0 = time.time()
+    threading.Timer(2.0, lambda: setattr(prod, 'hb_status', 409)).start()
+    w.loop(max_iter=1)
+    assert time.time() - t0 < 20 and w.done == [(JID, 'lost')]
+    assert len(prod.bundles) == 1 and prod.by('/api/trial/worker/result') == [] and prod.by('/api/trial/worker/fail') == []
+
+
+def test_conveyor_no_version_without_walls_bundle_still_done(prod, mk, monkeypatch):
+    """Версию 1 не собрать (отказ сборщика) или она больше потолка — мебель не подбираем, задание закрываем как раньше."""
+    monkeypatch.setenv('FAKE_BUNDLE', 'refuse')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert prod.bundles == [] and _order(prod) == ['result'] and w.done == [(JID, 'done')]
+    monkeypatch.setenv('FAKE_BUNDLE', 'ok')
+    monkeypatch.setenv('FAKE_BUNDLE_PAD', '5000')
+    prod.reqs.clear()
+    prod.add_job(attempt=2, leaseToken='M' * 32)
+    w = mk(furnish=True, bundle_max_bytes=4096, base=mk.mem.parent / 'trial-big')
+    w.loop(max_iter=1)
+    assert prod.bundles == [] and _order(prod) == ['result']
+
+
+def test_conveyor_server_rejects_version_logged_and_job_finishes(prod, mk, capsys):
+    prod.add_job()
+    prod.bundle_codes = [422]
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert 'bundle_rejected http=422' in capsys.readouterr().out
+    assert w.done == [(JID, 'done')]
+
+
+def test_conveyor_size_flag_room_skipped_and_job_done(prod, mk, monkeypatch, tmp_path):
+    """TG 531: гостиная с «размер не сошёлся» ждёт проверки — подбор гостиной не запускается, спальня обставляется, `done`."""
+    monkeypatch.setenv('FAKE_SIZE_FLAG', 'r1')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    st = _states(prod)
+    assert [s[0]['living'] for s in st] == ['awaiting_check:dims_mismatch'] * 2 and st[-1][0]['bedroom-1'] == 'ready'
+    assert st[-1][1] is True and w.done == [(JID, 'done')]
+    assert not (tmp_path / 'scenes' / JID).exists()                    # trial_demo не запускался
+    # все комнаты-цели ждут проверки (масштаб квартиры / флаги): версия 1 уже полная — ни одной стадии, сразу `done`
+    monkeypatch.setenv('FAKE_SIZE_FLAG', 'r1,b1')
+    prod.reqs.clear()
+    prod.bundles.clear()
+    prod.add_job(attempt=2, leaseToken='M' * 32)
+    w = mk(furnish=True, base=mk.mem.parent / 'trial-all')
+    w.loop(max_iter=1)
+    assert _order(prod) == ['bundle', 'result'] and _states(prod)[0][1] is True
+
+
+def test_furnish_rooms_entry_releases_checked_rooms(prod, mk, monkeypatch, tmp_path):
+    """Точка входа будущей кнопки «Обустроить»: по списку комнат проверка снята — стадия гостиной идёт, пустая версия 1 не шлётся."""
+    import conveyor as cv
+    monkeypatch.setenv('FAKE_SIZE_FLAG', 'r1')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    n = len(prod.bundles)
+    wd = next(d for d in (w.cfg.base / JID).iterdir() if d.is_dir())
+    hb = wk.Heartbeat(w, {'id': JID, 'attempt': 1, 'leaseToken': 'L' * 32}, wd)
+    end = cv.furnish_rooms(w, {'id': JID, 'attempt': 1, 'leaseToken': 'L' * 32}, wd, hb, wd / 'result.json', ['living'])
+    assert end == 'result' and len(prod.bundles) == n + 1
+    assert prod.bundles[-1]['data']['apartment_rooms'][0]['furniture_state'] == 'ready'
+    assert (tmp_path / 'scenes' / JID / 'scene.json').exists()
+
+
+def test_bedroom_refusals_cover_every_bedroom():
+    import conveyor as cv
+    res = {'panels': [{'id': 'p0', 'rooms': [{'id': 'b1', 'kind': 'bedroom'}, {'id': 'r1', 'kind': 'living'}]},
+                      {'id': 'p1', 'rooms': [{'id': 'b2', 'kind': 'bedroom'}]}]}
+    parts = cv.bedroom_refusals(res, 'stage_unavailable')
+    assert [(e['panel'], e['src_id'], e['furniture_state'], e['furniture_code']) for e in parts['apartment_rooms']] == \
+        [('p0', 'b1', 'refused', 'stage_unavailable'), ('p1', 'b2', 'refused', 'stage_unavailable')]
+    assert len({e['id'] for e in parts['apartment_rooms']}) == 2

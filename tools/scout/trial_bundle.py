@@ -28,6 +28,7 @@
 не трогаем. Папки и версии — на проде (`lib/trial/repo-bundle.ts`): здесь только сборка JSON.
 
   ~/venvs/scout/bin/python trial_bundle.py <job_id> <floorplanResult.json> [--scene scene.json] [--parts parts.json] [--out demo-data.json]
+      [--release living,bedroom-1]      # комнаты, с которых снята «проверка размера» (кнопка «Обустроить»)
 Код выхода: 0 — собрано, 2 — честный отказ (причина JSON-строкой в stdout).
 """
 from __future__ import annotations
@@ -53,14 +54,24 @@ PENDING_STYLE = 'сканди'                 # стиль пустой ком�
 FURNITURE_ONLY_REASONS = {'living_core_small', 'no_entry'}
 TITLES = {'living': ('Гостиная', 'Living room'), 'bedroom': ('Спальня', 'Bedroom'), 'kitchen': ('Кухня', 'Kitchen'),
           'bathroom': ('Санузел', 'Bathroom'), 'hall': ('Прихожая', 'Hall'), 'other': ('Помещение', 'Room')}
-SCENE_FURNITURE = {'ok': 'ready', 'partial': 'partial', 'refused': 'failed', 'failed': 'failed'}
+# статусы `trial_demo` (`scene.json`); `pending` (подбор не дошёл до конца) сюда не входит — конвейер (`tools/floorplan/conveyor.py`)
+# такую сцену не отдаёт, а подменяет отказом `stage_failed`
+SCENE_FURNITURE = {'ok': 'ready', 'partial': 'partial', 'no_products': 'failed', 'refused': 'failed', 'failed': 'failed'}
 SCENE_READY = ('ok', 'partial')
 
 # ───────────────────────── исход по комнате: код для страницы и тексты (ru, en) ─────────────────────────
 # `furniture_state` — машина состояний (дирижёр), `furniture_outcome` — код для страницы (выбор надписи на любом языке),
 # `furniture_code` — точная причина стадии (диагностика). Тексты — готовые на обоих языках, страница может взять свои по коду.
-ROOM_STATES = ('pending', 'ready', 'refused', 'not_furnished')
+ROOM_STATES = ('pending', 'ready', 'refused', 'not_furnished', 'awaiting_check')
+# «ЖДЁТ ПРОВЕРКИ РАЗМЕРА» (владелец 09.11, TG 531/533): гостиную/спальню, где распознавание пометило «размер не сошёлся», конвейер сам
+# НЕ обставляет — агент поправит размер и нажмёт «Обустроить» (`release` — комнаты, с которых проверка снята). `done` не держит.
+SIZE_CHECK_FLAGS = ('dims_mismatch',)      # флаги комнаты из распознавания (`tools/floorplan/pipeline.py:_room_flags`)
+# масштаб ВСЕЙ квартиры не подтверждён (`scale.status == not_verified`) → все гостиные и спальни ждут проверки (TG 533: «не обставлять»);
+# False — обставлять как обычно
+SCALE_UNVERIFIED_AWAITS_CHECK = True
 OUTCOME_TEXT = {
+    'size_unverified': ('Размер может быть неточным — поправьте и нажмите «Обустроить».',
+                        'Size may be approximate — adjust and tap “Furnish”.'),
     'no_products': ('Нет подходящих товаров согласно действующим шаблонам.', 'No suitable products under the current templates.'),
     'not_readable': ('Не удалось надёжно построить эту комнату по плану, поэтому мебель не расставлена.',
                      'This room could not be read reliably from the plan, so furniture was not placed.'),
@@ -296,7 +307,15 @@ def colour_en(name: str | None, role: str) -> str:
     if not name:
         return ''
     NE, D = _names_en()
-    c = (NE.translate(name, role, D).get('colour') or '').strip()
+    return clean_colour((NE.translate(name, role, D).get('colour') or '').strip())
+
+
+def clean_colour(c: str | None) -> str:
+    """Готовый английский цвет (строка сцены `trial_demo`: `colour_en`) — пропускаем только слова словарей цвета, материала, рисунка."""
+    c = (c or '').strip()
+    if not c:
+        return ''
+    NE, D = _names_en()
     vocab = {w for t in ('colours', 'materials', 'patterns') for v in (D.get(t) or {}).values() for w in re.findall(r'[a-z]+', str(v).lower())}
     words = re.findall(r'[^\s,/-]+', c.lower())
     return c if words and not NE.bad(c, D) and all(w in vocab or w in ('and', 'with') for w in words) else ''
@@ -385,6 +404,8 @@ def _outcome(state: str, code: str | None = None) -> dict:
         outcome = 'pending'
     elif state == 'not_furnished':
         outcome = 'not_furnished'
+    elif state == 'awaiting_check':
+        outcome = 'size_unverified'
     else:
         outcome = CODE_OUTCOME.get(code or '', 'failed')
         outcome = 'failed' if outcome == 'not_furnished' else outcome
@@ -393,12 +414,15 @@ def _outcome(state: str, code: str | None = None) -> dict:
 
 
 def _item(row: dict, place: dict | None, msid_of) -> dict:
-    """Строка сцены `trial_demo` → предмет варианта по разрешённому списку: имя — нейтральное по роли, модель — `msid`."""
+    """Строка сцены `trial_demo` → предмет варианта по разрешённому списку: имя — нейтральное по роли, модель — `msid`.
+    Строка нового формата (`trial_demo.public_row`) несёт `msid` сама: там он уже проверен правилом «годная модель» (нет годной — null,
+    в кадре серая форма); по `sid` его тогда НЕ выводим — иначе вернётся модель семьи, снятая проверкой. Цвет — её `colour_en`."""
     p = place or {}
     h = row.get('h') if row.get('h') is not None else p.get('h')
     ru, en = neutral_names(row['role'])
-    sku = {'name': ru, 'name_en': en, 'colour_en': colour_en(row.get('name'), _base_role(row['role'])),
-           'msid': msid_of(row.get('sid')) if row.get('sid') else None, 'w': row.get('w'), 'd': row.get('d'), 'h': h}
+    msid = row['msid'] if 'msid' in row else (msid_of(row.get('sid')) if row.get('sid') else None)
+    colour = clean_colour(row['colour_en']) if row.get('colour_en') else colour_en(row.get('name'), _base_role(row['role']))
+    sku = {'name': ru, 'name_en': en, 'colour_en': colour, 'msid': msid, 'w': row.get('w'), 'd': row.get('d'), 'h': h}
     return public_item({'role': row['role'], 'x': row['x'], 'y': row['y'], 'rot': int(row.get('rot') or 0), 'w': row.get('w'), 'd': row.get('d'),
                         'h': h, 'dims_src': 'каталог', 'sku': sku, 'corner': bool(row.get('corner')), 'corner_left': bool(p.get('corner_left')),
                         'section': p.get('section')})
@@ -456,6 +480,14 @@ def _check_input(job_id: str, result: dict, scene: dict | None) -> None:
         raise BundleRefused('scene_mismatch', 'сцена без ядра, комнаты или вариантов')
 
 
+def size_check(result: dict, room: dict) -> str | None:
+    """Почему комнату-цель нельзя обставлять сразу: `scale_unverified` (масштаб квартиры, при `SCALE_UNVERIFIED_AWAITS_CHECK`),
+    флаг комнаты из `SIZE_CHECK_FLAGS` — или None."""
+    if SCALE_UNVERIFIED_AWAITS_CHECK and (result.get('scale') or {}).get('status') == 'not_verified':
+        return 'scale_unverified'
+    return next((f for f in room.get('flags') or [] if f in SIZE_CHECK_FLAGS), None)
+
+
 def _living_rooms(result: dict, cfg: dict) -> tuple[list, list]:
     """Комнаты типа «гостиная»: первая — та же, что выбирает `trial_room.pick_living` (её обставляет сцена), дальше по площади."""
     try:
@@ -503,9 +535,13 @@ def _part_item(it: dict) -> dict:
     return out
 
 
-def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None = None, parts: list | None = None) -> dict:
-    """floorplanResult (+ сцена гостиной, + куски стадий) → `demo-data.json`. Нечего показать или утечка магазина — `BundleRefused`."""
+def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None = None, parts: list | None = None,
+          release=()) -> dict:
+    """floorplanResult (+ сцена гостиной, + куски стадий) → `demo-data.json`. Нечего показать или утечка магазина — `BundleRefused`.
+    Гостиная/спальня с `size_check` — `awaiting_check` (мебель не показываем), кроме id из `release` (агент проверил размер) и главной
+    гостиной с готовой сценой (её обставили по запросу)."""
     _check_input(job_id, result, scene)
+    release = set(release or ())
     parts = list(parts or [])
     ctx = ctx or default_ctx()
     quiz = ctx.get('quiz') or quiz_rule()
@@ -555,6 +591,9 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     rooms_geo, apartment_rooms, variants = {}, [], []
     outcomes = {ids[id(x['room'])]: _outcome('refused', x['code']) for x in refused}
 
+    def awaits(r, rid):
+        return None if rid in release else size_check(result, r)
+
     def put_geo(panel, room, rid, geo, kind):
         full = {'w': geo['w'], 'd': geo['d'], **_geo_titles(room, geo, kind), 'openings': geo['openings'], 'radiators': [],
                 'approx': _approx(room, geo)}
@@ -577,8 +616,12 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
             else:                                            # ни один стиль не встал — пустая комната с текстом, а не пустые «стили»
                 variants.append(_empty_variant(rid, geo, 'failed', {'code': 'furniture_failed'}))
                 outcomes[rid] = _outcome('refused', 'furniture_failed')
+        elif awaits(room, rid):
+            variants.append(_empty_variant(rid, geo, 'awaiting_check', {'code': awaits(room, rid)}))
+            outcomes[rid] = _outcome('awaiting_check', awaits(room, rid))
         elif room is main and scene is not None:
-            why = scene.get('refusal') or {'code': (scene.get('problems') or [{}])[0].get('code') or scene['status']}
+            first = (scene.get('problems') or [{}])[0].get('code')
+            why = scene.get('refusal') or {'code': 'no_products' if scene['status'] == 'no_products' else (first or scene['status'])}
             variants.append(_empty_variant(rid, geo, 'failed', why))
             outcomes[rid] = _outcome('refused', why.get('code'))
         elif scene is not None:                              # `trial_demo` обставляет одну гостиную: эта уже не дождётся мебели
@@ -605,6 +648,10 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
                     gcode = e.code
             if geo:
                 put_geo(p, r, rid, geo, BEDROOM)
+            if geo and awaits(r, rid):                      # кусок стадии спален (если был) не показываем: размер ждёт проверки
+                variants.append(_empty_variant(rid, geo, 'awaiting_check', {'code': awaits(r, rid)}))
+                outcomes[rid] = _outcome('awaiting_check', awaits(r, rid))
+                continue
             if got is None:
                 if geo:
                     variants.append(_empty_variant(rid, geo, 'pending'))
@@ -683,6 +730,7 @@ def _arg(args: list, name: str) -> str | None:
 def main() -> int:
     args = sys.argv[1:]
     scene_path, parts_path, out = _arg(args, '--scene'), _arg(args, '--parts'), _arg(args, '--out')
+    release = [x for x in (_arg(args, '--release') or '').split(',') if x]
     if len(args) != 2:
         print(__doc__)
         return 0
@@ -691,7 +739,7 @@ def main() -> int:
     scene = json.load(open(scene_path, encoding='utf-8')) if scene_path else None
     parts = json.load(open(parts_path, encoding='utf-8')) if parts_path else []
     try:
-        data = build(job_id, result, scene, parts=parts if isinstance(parts, list) else [parts])
+        data = build(job_id, result, scene, parts=parts if isinstance(parts, list) else [parts], release=release)
     except BundleRefused as e:
         print(json.dumps({'refusal': e.code, 'detail': e.detail}, ensure_ascii=False))
         return 2

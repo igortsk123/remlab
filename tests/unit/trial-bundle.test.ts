@@ -62,6 +62,15 @@ describe("форма и связи", () => {
     expect(problem({ trial: { job_id: ID, complete: true }, variants: [full], apartment_rooms: [room("ready")] })).toBeNull();
   });
 
+  it("«ждёт проверки размера» (awaiting_check) — с текстом, без мебели, `done` не держит", () => {
+    const full = { ...v, pending: false, furniture_state: "ready", items: [{ role: "диван", x: 1, y: 2 }] };
+    const wait = room("awaiting_check", "Размер может быть неточным — поправьте и нажмите «Обустроить».");
+    expect(problem({ apartment_rooms: [room("awaiting_check")] })).toBe("refused_without_text");
+    expect(problem({ trial: { job_id: ID, complete: true }, variants: [{ ...v, pending: false, furniture_state: "awaiting_check" }],
+      apartment_rooms: [wait] })).toBeNull();
+    expect(problem({ variants: [full], apartment_rooms: [wait] })).toBe("items_in_unfurnished_room");
+  });
+
   it("второй замок: поля магазина у товара или ленты и кириллица в английской подписи — не принимаем", () => {
     const withSku = (sku: Record<string, unknown>) => ({ ...v, pending: false, furniture_state: "ready", items: [{ role: "диван", x: 1, y: 2, sku }] });
     const ready = [{ ...room("ready"), titleEn: "Lounge" }];

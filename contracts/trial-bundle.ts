@@ -22,13 +22,15 @@ export const trialBundle = z.looseObject({
   trial: z.looseObject({ job_id: z.string(), complete: z.boolean().optional() }),
   room: geo,
   rooms_geo: z.record(z.string(), geo),
-  /** По каждой комнате исход мебели: подбирается / готово / отказ / не обставляется (кухня, санузел, прихожая); `furniture_text` —
-   *  текст покупателю (у отказа и «не обставляется» обязателен), `furniture_text_en` — он же по-английски. */
+  /** По каждой комнате исход мебели: подбирается / готово / отказ / не обставляется (кухня, санузел, прихожая) / ждёт проверки размера
+   *  (`awaiting_check`: распознавание пометило «размер не сошёлся» — автоматически не обставляем, агент поправит размер и нажмёт
+   *  «Обустроить»; `done` не держит); `furniture_text` — текст покупателю (у отказа, «не обставляется» и «ждёт проверки» обязателен),
+   *  `furniture_text_en` — он же по-английски. */
   apartment_rooms: z.array(z.looseObject({
-    id: z.string().min(1).max(40), furniture_state: z.enum(["ready", "pending", "refused", "not_furnished"]),
+    id: z.string().min(1).max(40), furniture_state: z.enum(["ready", "pending", "refused", "not_furnished", "awaiting_check"]),
     furniture_text: z.string().max(300).nullable(), furniture_text_en: z.string().max(300).nullable().optional(),
     /** код для надписи на любом языке: furnished / pending / no_products / not_readable / scale_unverified / no_window /
-     *  largest_living_only / not_furnished / failed */
+     *  largest_living_only / not_furnished / failed / size_unverified */
     furniture_outcome: z.string().max(40).optional(),
     titleRu: z.string().max(120).optional(), titleEn: z.string().max(120).optional(),
   })).max(200),
@@ -49,7 +51,7 @@ export function bundleProblem(b: TrialBundle, jobId: string): string | null {
   if (new Set(rooms).size !== rooms.length) return "room_id_repeated";
   if (b.variants.some((v) => !(v.room_id in b.rooms_geo))) return "variant_without_room";
   if (b.variants.some((v) => v.pending && v.items.length > 0)) return "pending_with_items";
-  const textual = new Set(["refused", "not_furnished"]);
+  const textual = new Set(["refused", "not_furnished", "awaiting_check"]);
   if (b.apartment_rooms.some((r) => textual.has(r.furniture_state) && !r.furniture_text?.trim())) return "refused_without_text";
   const furnished = new Set(b.variants.filter((v) => v.items.length > 0).map((v) => v.room_id));
   if (b.apartment_rooms.some((r) => r.furniture_state === "ready" && !furnished.has(r.id))) return "ready_without_items";

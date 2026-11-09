@@ -136,7 +136,8 @@ def test_openings_mapped_to_walls_and_radiators_never_invented():
 def test_geometry_ignores_furniture_refusals():
     # масштаб не проверен, нет окна — адаптер отказал бы мебели, а комната есть
     d = build(simple(status='not_verified'))
-    assert d['trial']['scale'] == 'not_verified' and d['variants'][0]['pending'] is True
+    assert d['trial']['scale'] == 'not_verified' and 'living' in d['rooms_geo']
+    assert d['variants'][0]['furniture_state'] == 'awaiting_check'          # TG 533: масштаб не подтверждён — ждёт проверки
     no_window = result(panel('p0', [room('r1', 'living')], [DOOR]))
     assert build(no_window)['variants'][0]['pending'] is True
 
@@ -271,6 +272,38 @@ def test_scene_without_furniture_keeps_room_and_says_why(status):
     assert v['pending'] is False and v['furniture_state'] == 'failed' and v['items'] == [] and v['room_id'] == 'living'
     assert v['furniture_problem']['code'] == ('living_core_small' if status == 'refused' else 'solver_failed')
     assert d['trial']['furniture'] == 'failed'
+
+
+def test_scene_no_products_leaves_room_empty_with_owner_text():
+    """`trial_demo` 09.11: ни один стиль не встал — статус `no_products` (с отказом или без): комната пустая, текст «нет товаров»."""
+    res = simple()
+    for refusal in (None, {'code': 'living_core_small', 'detail': 'не влезает'}):
+        scene = {**scene_for(res, status='no_products'), 'problems': [{'code': 'solver_failed'}]}
+        if refusal:
+            scene['refusal'] = refusal
+        d = build(res, scene)
+        assert [v['furniture_state'] for v in d['variants']] == ['failed'] and d['variants'][0]['items'] == []
+        state, code, text = _outcomes(d)['living']
+        assert state == 'refused' and code == (refusal or {}).get('code', 'no_products') and text.startswith('Нет подходящих товаров')
+        assert d['trial']['furniture'] == 'failed' and d['trial']['complete'] is True
+    with pytest.raises(TB.BundleRefused, match='scene_mismatch'):     # подбор не дошёл до конца — сборщик такую сцену не берёт
+        build(res, {**scene_for(res), 'status': 'pending'})
+
+
+def test_scene_rows_of_new_format_keep_checked_model_and_colour():
+    """Строка `trial_demo.public_row`: `msid` уже проверен (null — годной модели нет), по `sid` модель семьи не выводится; цвет — свой."""
+    res = simple()
+    scene = scene_for(res)
+    for v in scene['variants']:
+        for r in v['items']:
+            for k in ('name', 'url', 'img', 'price', 'mid', 'eid'):
+                r.pop(k)
+            r.update(msid=None, mesh='none', name_en='Kirmas corner sofa, terracotta velour', colour_en='terracotta velour')
+    it = build(res, scene)['variants'][0]['items'][0]
+    assert it['sku']['msid'] is None and it['sku']['colour_en'] == 'terracotta velour' and it['sku']['name_en'] == 'Sofa'
+    scene['variants'][0]['items'][0].update(msid='112923_1', colour_en='Kirmas velour')        # чужое слово в цвете — цвет пустой
+    it = build(res, scene)['variants'][0]['items'][0]
+    assert it['sku']['msid'] == '112923_1' and it['sku']['colour_en'] == ''
 
 
 def test_scene_of_another_job_or_room_refused():
@@ -409,6 +442,43 @@ def test_bedrooms_pending_until_their_stage_then_ready_or_empty_with_owner_text(
     bed = next(v for v in d['variants'] if v['room_id'] == 'bedroom-1')['items'][0]
     assert bed['sku'] == {'name': 'Кровать 160 см', 'name_en': 'Bed 160 cm', 'msid': 'm-bed', 'w': 170, 'd': 210, 'h': 100, 'sleep_w': 160}
     assert 'url' not in bed and 'hoff' not in json.dumps(d, ensure_ascii=False).lower()
+
+
+def test_size_flag_room_awaits_check_not_furnished_and_does_not_hold_done():
+    """TG 531: «размер не сошёлся» (`dims_mismatch`) — гостиная/спальня ждёт проверки: без мебели, с текстом на обоих языках;
+    `complete` не держит; снятая проверка (`release`) — комната снова в обычном пути."""
+    flat = flat_with_bedrooms()
+    for r in flat['panels'][0]['rooms']:
+        if r['id'] in ('r1', 'b1'):
+            r['flags'] = ['dims_mismatch']
+    d = TB.build(JOB, flat, None, ctx=CTX, parts=[bedroom_part(), bedroom_part('bedroom-2', 'refused', 'no_products', False)])
+    rooms = {r['id']: r for r in d['apartment_rooms']}
+    for rid in ('living', 'bedroom-1'):
+        r = rooms[rid]
+        assert (r['furniture_state'], r['furniture_outcome'], r['furniture_code']) == ('awaiting_check', 'size_unverified', 'dims_mismatch')
+        assert r['furniture_text'].startswith('Размер может быть неточным') and r['furniture_text_en'].startswith('Size may be approximate')
+        v = next(v for v in d['variants'] if v['room_id'] == rid)
+        assert v['items'] == [] and v['pending'] is False and v['furniture_state'] == 'awaiting_check'
+    assert rooms['bedroom-2']['furniture_state'] == 'refused' and d['trial']['complete'] is True
+    # агент проверил размер: гостиная снова ждёт мебель, спальня берёт свой кусок
+    d = TB.build(JOB, flat, None, ctx=CTX, parts=[bedroom_part()], release=['living', 'bedroom-1'])
+    rooms = {r['id']: r['furniture_state'] for r in d['apartment_rooms']}
+    assert rooms['living'] == 'pending' and rooms['bedroom-1'] == 'ready' and d['trial']['complete'] is False
+    # гостиную обставили по запросу (готовая сцена) — показываем мебель, флаг не мешает
+    d = TB.build(JOB, flat, scene_for(flat), ctx=CTX, parts=[bedroom_part()], release=['bedroom-1'])
+    assert {r['id']: r['furniture_state'] for r in d['apartment_rooms']}['living'] == 'ready'
+
+
+def test_scale_unverified_whole_flat_awaits_check_by_switch(monkeypatch):
+    """TG 533: масштаб ВСЕЙ квартиры не подтверждён — все гостиные и спальни ждут проверки; переключатель — одна константа."""
+    flat = flat_with_bedrooms()
+    flat['scale']['status'] = 'not_verified'
+    d = TB.build(JOB, flat, None, ctx=CTX)
+    got = {r['id']: (r['furniture_state'], r['furniture_code']) for r in d['apartment_rooms'] if r['kind'] in ('living', 'bedroom')}
+    assert got and set(got.values()) == {('awaiting_check', 'scale_unverified')} and d['trial']['complete'] is True
+    monkeypatch.setattr(TB, 'SCALE_UNVERIFIED_AWAITS_CHECK', False)
+    d = TB.build(JOB, flat, None, ctx=CTX)
+    assert {r['furniture_state'] for r in d['apartment_rooms'] if r['kind'] in ('living', 'bedroom')} == {'pending'}
 
 
 def test_parts_matched_by_source_room_and_foreign_room_refused():
