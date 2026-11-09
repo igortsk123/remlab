@@ -507,20 +507,49 @@ def topology(res, gold_rooms, hit, ppm):
     extra = [rid for rid in res['rooms'] if rid not in hit and res['areas'][rid] >= 1.0 * ppm * ppm]
     return {'gold_rooms': len(req), 'found': len(req) - len(missing), 'missing': missing, 'merged': merged,
             'open_plan': open_plan, 'extra_rooms': len(extra), 'extra_areas_m2': [round(res['areas'][r] / ppm / ppm, 2) for r in extra],
-            '_extra_ids': extra}
+            '_extra_ids': extra,
+            '_extra_w': [round(inscribed_width(res['lab'] == r) / ppm, 2) if 'lab' in res else None for r in extra]}
+
+
+# Обрывок (T-16): безымянный лишний кусок, который не может быть помещением, — меньше FRAG_AREA_M2 или уже FRAG_WIDTH_M
+# по вписанной ширине (межстенный зазор, лестничный марш, клетка мебели, водяной знак). Пол его остаётся в выгрузке,
+# но в «лишние комнаты» он не идёт — уходит в список fragments_m2 (виден в отчёте).
+FRAG_AREA_M2 = 1.5
+FRAG_WIDTH_M = 1.0
+
+
+def inscribed_width(mask):
+    """Ширина вписанной окружности куска, пкс (2 × максимум расстояния до края)."""
+    m = np.pad(mask.astype(np.uint8), 1)
+    return 2.0 * float(cv2.distanceTransform(m, cv2.DIST_L2, 5).max())
+
+
+def is_fragment(area_m2, width_m):
+    return area_m2 < FRAG_AREA_M2 or (width_m is not None and width_m < FRAG_WIDTH_M)
 
 
 def name_extras(topo, rep_labels):
     """Лишние куски (нет комнаты золота) — с именем помещения от VLM, если его точка в этом куске; без имени —
-    «необъяснённый» (критерий этапа 2: лишние — только неподписанные помещения с именем VLM)."""
+    «необъяснённый» (критерий этапа 2: лишние — только неподписанные помещения с именем VLM). Безымянный обрывок
+    (is_fragment) из лишних снимается в fragments_m2."""
     ids = topo.pop('_extra_ids', [])
+    ws = topo.pop('_extra_w', [None] * len(ids))
     by = {}
     for q in rep_labels or []:
         if q.get('room') is not None:
             by.setdefault(q['room'], []).append(q['name'])
     names = [', '.join(by.get(rid, [])) or None for rid in ids]
-    topo['extra_named'] = names
-    topo['extra_unnamed_m2'] = [a for a, n in zip(topo['extra_areas_m2'], names) if n is None]
+    keep, frag = [], []
+    for a, w, n in zip(topo['extra_areas_m2'], ws, names):
+        if n is None and is_fragment(a, w):
+            frag.append(a)
+        else:
+            keep.append((a, w, n))
+    topo['extra_rooms'] = len(keep)
+    topo['extra_areas_m2'] = [a for a, _, _ in keep]
+    topo['extra_named'] = [n for _, _, n in keep]
+    topo['extra_unnamed_m2'] = [a for a, _, n in keep if n is None]
+    topo['fragments_m2'] = frag
     return topo
 
 
@@ -673,11 +702,18 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         hit, obs = match_gold(r, groom, fams, core=True)
         fit = fc.fit_scale(obs)
         loo = fc.leave_one_out(obs)
-        topo = name_extras(topology(r, groom, hit, ppm), rep_labels)
+        topo = topology(r, groom, hit, ppm)
+        if os.environ.get('FP_STATE'):                 # отладка (T-16): состояние панели после починки
+            Path(os.environ['FP_STATE']).mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(Path(os.environ['FP_STATE']) / f'st-{plan}-{pi}.npz', lab=r['lab'], final=r['final'],
+                                wall=r['wall'], outside=r['outside'], rooms=np.array(r['rooms']), gray=sub_gray,
+                                extra=np.array(topo['_extra_ids']), ppm=ppm)
+        topo = name_extras(topo, rep_labels)
         dims = room_dims(groom, hit, obs, loo, ppm0)
         if gold.get('blind'):
             dims += unlabeled_dims(r, groom, hit, fams, ppm, fit)
         attach_flags(dims, groom, rep_labels, ppm)
+        flag_enclosed(dims, rep_log)
         gpx, t_ext = gia_px(r, t)
         # проёмы против ручного счёта
         op = None
@@ -815,6 +851,15 @@ def attach_flags(dims, groom, rep_labels, ppm):
                     row['flag'], row['flag_level'] = ('замер ≠ подписи' if lvl == 2 else 'ниша/манера?'), lvl
 
 
+def flag_enclosed(dims, rep_log):
+    """Комната, замкнутая гипотезой enclose (T-16), — часть её границы проведена не по стене (линия, край заливки,
+    продолжение стены): мерка поперёк такой стороны — догадка; без своего флага — флаг 1 «открытая: граница проведена»."""
+    opened = {e.get('label') for e in rep_log or [] if e.get('kind') == 'enclose' and e.get('applied')}
+    for row in dims:
+        if row.get('id') in opened and not row.get('flag_level'):
+            row['flag'], row['flag_level'] = 'открытая: граница проведена', 1
+
+
 def most_common(xs):
     from collections import Counter
     return Counter(xs).most_common(1)[0][0] if xs else None
@@ -822,6 +867,51 @@ def most_common(xs):
 
 def poly_m(poly, ppm, off):
     return [[round((float(p[0]) + off[0]) / ppm, 4), round((float(p[1]) + off[1]) / ppm, 4)] for p in poly]
+
+
+def room_families_map(r, fp, ppm, t_w):
+    """Семейства углов по комнате (T-16, `fc.room_families`): у комнаты с длинным прямым ребром не из семейств панели —
+    свои; грань стены берёт семейства ближайшей комнаты (≤ 2t+3 px). FP_ROOMFAM=0 — как до T-16 (одно на панель).
+    → (комната → семейства, fams_at(участок контура), fams_of(_, p, q) для метрики стен)."""
+    if os.environ.get('FP_ROOMFAM', '1') == '0':
+        return {}, None, None
+    lab = r['lab']
+    room_fams = {}
+    for rid in r['rooms']:
+        ys, xs = np.nonzero(lab == rid)
+        if not len(ys):
+            continue
+        y0, y1, x0, x1 = max(0, ys.min() - 2), ys.max() + 3, max(0, xs.min() - 2), xs.max() + 3
+        rf = fc.room_families(lab[y0:y1, x0:x1] == rid, fp, fc.ROOM_FAM_MIN_M * ppm)
+        if len(rf) > len(fp):
+            room_fams[int(rid)] = rf
+    if not room_fams:
+        return {}, None, None
+    from scipy import ndimage
+    R = np.isin(lab, list(room_fams))
+    dist, (iy, ix) = ndimage.distance_transform_edt(~R, return_indices=True)
+    near = lab[iy, ix].copy()
+    near[dist > 2 * t_w + 3] = 0
+    H, W = lab.shape
+
+    def at_pts(xs, ys):
+        v = near[np.clip(np.round(ys).astype(int), 0, H - 1), np.clip(np.round(xs).astype(int), 0, W - 1)]
+        if not v.size:
+            return None
+        ids, cnt = np.unique(v, return_counts=True)
+        k = int(ids[int(np.argmax(cnt))])
+        if k == 0 or cnt.max() < 0.5 * v.size:
+            return None
+        return room_fams.get(k)
+
+    def fams_at(span):
+        span = np.asarray(span, float).reshape(-1, 2)
+        return at_pts(span[:, 0], span[:, 1])
+
+    def fams_of(_k, p, q):
+        t = np.linspace(0.0, 1.0, 9)
+        return at_pts(p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t)
+    return room_fams, fams_at, fams_of
 
 
 def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
@@ -851,29 +941,34 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     min_len = 0.3 * ppm
     st0 = dict(fc.STRAIGHT_STATS)
     t_w = fc.stroke_thickness(r['wall'])
+    room_fams, fams_at, wall_fams_of = room_families_map(r, fp, ppm, t_w) if straight else ({}, None, None)
     old_w, new_w = [], []
     for bi, (z0, z1, m) in enumerate(bands):
         polys0, _ = fc.mask_polygons(m, fams, min_area=3)
         if not straight:
             polys = polys0
         elif bi == 0:
-            polys = fc.mask_polygons(m, fp, min_area=3, straight=True, short_px=ppm, min_free=0.4 * ppm)[0]
+            polys = fc.mask_polygons(m, fp, min_area=3, straight=True, short_px=ppm, min_free=0.4 * ppm,
+                                     fams_at=fams_at)[0]
         else:                                          # подоконник/перемычка — прямоугольник по семейству
-            polys = fc.rect_polygons(m, fp, min_area=3)
+            polys = fc.rect_polygons(m, fp, min_area=3, fams_at=fams_at)
         old_w += polys0; new_w += polys
         model['bands'].append({'z0': z0, 'z1': z1, 'polys': [{'outer': poly_m(o, ppm, off),
                                                              'holes': [poly_m(h, ppm, off) for h in hs]} for o, hs in polys]})
-    ref = (fc.polygon_lines(fc.mask_polygons(final, fp, min_area=3, straight=True, short_px=ppm, min_free=0.4 * ppm)[0],
-                            fp) if straight else None)
+    ref = (fc.polygon_lines(fc.mask_polygons(final, fp, min_area=3, straight=True, short_px=ppm, min_free=0.4 * ppm,
+                                             fams_at=fams_at)[0], fp) if straight else None)
     old_f, new_f = [], []
+    fl_fams0, fl_fams = [], []
     for rid in r['rooms']:
         kf = max(3, int(2 * t_w + 1)) | 1   # пол заходит под всю толщину стены — без щели
         fm = cv2.dilate((r['lab'] == rid).astype(np.uint8), np.ones((kf, kf), np.uint8)) & (~r['outside']).astype(np.uint8)
         polys0, _ = fc.mask_polygons(fm, fams, min_area=10)
+        rf = room_fams.get(rid)
         polys = (fc.mask_polygons(fm, fp, min_area=10, straight=True, ref=ref, ref_d=t_w + 1.5, short_px=ppm,
-                                  min_free=0.4 * ppm)[0]
+                                  min_free=0.4 * ppm, fams_at=(lambda span, rf=rf: rf) if rf else None)[0]
                  if straight else polys0)
         old_f += polys0; new_f += polys
+        fl_fams0 += [rf or fp] * len(polys0); fl_fams += [rf or fp] * len(polys)
         if os.environ.get('FP_DUMP'):                  # отладка выпрямления: маски полов панели
             Path(os.environ['FP_DUMP']).mkdir(parents=True, exist_ok=True)
             np.save(Path(os.environ['FP_DUMP']) / f'floor-{plan}-{pi}-{rid}.npy', fm)
@@ -884,9 +979,13 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
         for o, hs in polys:
             model['floors'].append({'outer': poly_m(o, ppm, off), 'holes': [poly_m(h, ppm, off) for h in hs], 'room': rid})
         model['rooms'].append({'id': int(rid), 'names': names, 'area_m2': round(float(r['areas'][rid]) / ppm / ppm, 2)})
+    # метрика косых: ребро — против семейств своей комнаты (T-16; у комнат без своих — семейства панели)
     P['skew'] = {'fams_panel': [round(f, 1) for f in fp],
-                 'floors_before': fc.skew_stats(old_f, fp, min_len), 'floors_after': fc.skew_stats(new_f, fp, min_len),
-                 'walls_before': fc.skew_stats(old_w, fp, min_len), 'walls_after': fc.skew_stats(new_w, fp, min_len),
+                 'fams_rooms': {int(k): [round(f, 1) for f in v[len(fp):]] for k, v in room_fams.items()},
+                 'floors_before': fc.skew_stats(old_f, fp, min_len, fams_of=lambda k, p, q: fl_fams0[k]),
+                 'floors_after': fc.skew_stats(new_f, fp, min_len, fams_of=lambda k, p, q: fl_fams[k]),
+                 'walls_before': fc.skew_stats(old_w, fp, min_len, fams_of=wall_fams_of),
+                 'walls_after': fc.skew_stats(new_w, fp, min_len, fams_of=wall_fams_of),
                  'straight': {k: fc.STRAIGHT_STATS[k] - st0[k] for k in st0}}
     model['skew'] = P['skew']
     for g in r['gaps']:

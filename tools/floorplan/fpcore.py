@@ -1084,7 +1084,7 @@ def mask_polygons(mask: np.ndarray, fams: list[float], min_area: float = 8.0, st
         if straight:
             v, e, _ = straighten_contour(c, fams, ref=ref, ref_d=ref_d, **kw)
             return v, e
-        return regularize_contour(c, fams, **kw)
+        return regularize_contour(c, fams, **{k: v for k, v in kw.items() if k != 'fams_at'})
     hier = hier[0]
     for i, c in enumerate(cnts):
         if hier[i][3] != -1 or cv2.contourArea(c) < min_area:
@@ -1121,14 +1121,60 @@ def _norm(a):
     return np.array([-math.sin(r), math.cos(r)])
 
 
+ROOM_FAM_MIN_M = 1.5    # T-16: прямое ребро комнаты от 1,5 м задаёт своё направление (перегородка по осям в крыле 5,7°)
+ROOM_FAM_SEP = 2.5      # ... если оно дальше 2,5° от семейств панели (ближе — шум МНК длинной лесенки)
+ROOM_FAM_RMS = 0.8      # ... и это прямая: остаток пикселей участка ≤ 0,8 px (не дуга эркера, не зубцы)
+
+
+def room_families(mask: np.ndarray, base: list[float], min_len_px: float, sep: float = ROOM_FAM_SEP,
+                  eps: float = STRAIGHT_EPS, max_rms: float = ROOM_FAM_RMS) -> list[float]:
+    """Семейства углов КОМНАТЫ (кластера), T-16: семейства панели + направления длинных прямых рёбер контура самой
+    комнаты, которых среди семейств панели нет (дальше sep°). Панель C-3: крыло повёрнуто на 5,7°, перегородки
+    внутри — по осям листа; общий разнос семейств панели (≥ 8°, T-09) сливал 0° в 5,7°, и перегородки поворачивались
+    вместе с крылом. Комната без такого ребра — семейства панели как были (лесенка 2–6° семейством не становится)."""
+    out = [float(f) for f in base]
+    cnts, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    extra = []
+    for cnt in cnts:
+        c = cnt.reshape(-1, 2)
+        if len(c) < 20:
+            continue
+        ap = cv2.approxPolyDP(cnt, eps, True).reshape(-1, 2)
+        if len(ap) < 3:
+            continue
+        idx_of = {}
+        for i, p in enumerate(c):
+            idx_of.setdefault((int(p[0]), int(p[1])), i)
+        idx = [idx_of[(int(p[0]), int(p[1]))] for p in ap]
+        for k in range(len(idx)):
+            i0, i1 = idx[k], idx[(k + 1) % len(idx)]
+            span = c[i0:i1 + 1] if i1 >= i0 else np.vstack([c[i0:], c[:i1 + 1]])
+            L = float(np.hypot(*(span[-1] - span[0])))
+            if L < min_len_px or len(span) < 3:
+                continue
+            vx, vy, x0, y0 = cv2.fitLine(span.astype(np.float32), cv2.DIST_L2, 0, 0.01, 0.01).ravel()
+            res = (span[:, 0] - x0) * (-vy) + (span[:, 1] - y0) * vx
+            if float(np.sqrt(np.mean(res ** 2))) > max_rms:
+                continue
+            a = math.degrees(math.atan2(vy, vx)) % 180
+            if min(angdiff(a, f) for f in out) > sep:
+                extra.append((a, L))
+    extra.sort(key=lambda t: -t[1])
+    for a, L in extra:
+        if min(angdiff(a, f) for f in out) > sep:
+            out.append(a)
+    return out
+
+
 def contour_lines(cnt: np.ndarray, fams: list[float], tol_deg: float = STRAIGHT_TOL, eps: float = STRAIGHT_EPS,
                   min_seg: float = STRAIGHT_MIN_SEG, short_px: float = 30.0, tol_short: float = 15.0,
-                  min_free: float = 12.0) -> list[dict]:
+                  min_free: float = 12.0, fams_at=None) -> list[dict]:
     """Контур → прямые: участок approxPolyDP → угол МНК; в tol_deg от семейства — угол семейства, смещение —
     медиана проекций пикселей участка на нормаль (робастно к зубцам); короткие участки отбрасываются (стык);
     соседние параллельные прямые с близким смещением сливаются. Прямая: ang, off, a, b (концы участка), len, raw.
     Участок короче short_px — угол МНК ненадёжен: к семейству в tol_short; не попал и короче min_free (фаска угла,
-    зубец перемычки) — тоже стык."""
+    зубец перемычки) — тоже стык. fams_at(участок) → семейства этого места (комнаты рядом, T-16) — для участков
+    от short_px; короткие — к семействам fams (панели)."""
     c = cnt.reshape(-1, 2)
     if len(c) < 4:
         return []
@@ -1152,7 +1198,10 @@ def contour_lines(cnt: np.ndarray, fams: list[float], tol_deg: float = STRAIGHT_
         else:
             vx, vy = (span[-1] - span[0]) / (L or 1)
         raw = math.degrees(math.atan2(vy, vx)) % 180
-        fam = min(fams, key=lambda f: angdiff(f, raw)) if fams else raw
+        fs = fams
+        if fams_at is not None and L >= short_px:
+            fs = fams_at(span) or fams
+        fam = min(fs, key=lambda f: angdiff(f, raw)) if fs else raw
         snapped = angdiff(fam, raw) <= (tol_short if L < short_px else tol_deg)
         if not snapped and L < min_free:
             continue
@@ -1276,12 +1325,12 @@ def _poly_ok(verts: np.ndarray, c: np.ndarray) -> bool:
 
 def straighten_contour(cnt: np.ndarray, fams: list[float], tol_deg: float = STRAIGHT_TOL, eps: float = STRAIGHT_EPS,
                        min_seg: float = STRAIGHT_MIN_SEG, max_shift: float = 6.0, ref: list | None = None,
-                       ref_d: float = 0.0, short_px: float = 30.0, min_free: float = 12.0):
+                       ref_d: float = 0.0, short_px: float = 30.0, min_free: float = 12.0, fams_at=None):
     """Контур → (вершины, рёбра для метрики, прямые). Рёбра к семействам углов, ступени под прямым углом, вершины —
-    пересечения; ref — прямые стен для снапа граней пола (ref_d px). Не прошло проверку (`_poly_ok`) —
-    прежний `regularize_contour` (рёбра — его)."""
+    пересечения; ref — прямые стен для снапа граней пола (ref_d px); fams_at — семейства по месту (`contour_lines`).
+    Не прошло проверку (`_poly_ok`) — прежний `regularize_contour` (рёбра — его)."""
     c = cnt.reshape(-1, 2)
-    lines = contour_lines(c, fams, tol_deg, eps, min_seg, short_px=short_px, min_free=min_free)
+    lines = contour_lines(c, fams, tol_deg, eps, min_seg, short_px=short_px, min_free=min_free, fams_at=fams_at)
     STRAIGHT_STATS['calls'] += 1
     v = None
     if ref and ref_d > 0 and lines and len(c) >= 4:
@@ -1312,10 +1361,11 @@ def straighten_contour(cnt: np.ndarray, fams: list[float], tol_deg: float = STRA
 
 
 def rect_polygons(mask: np.ndarray, fams: list[float], min_area: float = 3.0, tol_deg: float = 12.0,
-                  min_fill: float = 0.6):
+                  min_fill: float = 0.6, fams_at=None):
     """Перемычки и подоконники (закрытия проёмов) — прямоугольники: minAreaRect куска, угол — к семейству в tol_deg
     (закрытие, проведённое по чужому наклону листа, не косит перемычку). Не прямоугольный кусок (заполнение
-    < min_fill) — `straighten_contour`. → [(вершины, [])] как mask_polygons."""
+    < min_fill) — `straighten_contour`. fams_at(пиксели куска) → семейства по месту (комнаты рядом, T-16).
+    → [(вершины, [])] как mask_polygons."""
     n, lab, st, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
     out = []
     for i in range(1, n):
@@ -1325,14 +1375,15 @@ def rect_polygons(mask: np.ndarray, fams: list[float], min_area: float = 3.0, to
         (cx, cy), (w, h), a = cv2.minAreaRect(np.column_stack([xs, ys]).astype(np.float32))
         w, h = w + 1, h + 1                              # пиксель — квадрат 1×1, а не точка
         if len(xs) >= min_fill * w * h:
-            f = min(fams, key=lambda q: angdiff(q, a)) if fams else a
+            fs = (fams_at(np.column_stack([xs, ys])) or fams) if fams_at is not None else fams
+            f = min(fs, key=lambda q: angdiff(q, a)) if fs else a
             if angdiff(f, a) <= tol_deg:
                 d = (f - a + 90) % 180 - 90
                 a = a + d
             box = cv2.boxPoints(((cx, cy), (w, h), a))
             out.append((box.astype(float), []))
             continue
-        sub, _ = mask_polygons((lab == i).astype(np.uint8), fams, min_area, straight=True)
+        sub, _ = mask_polygons((lab == i).astype(np.uint8), fams, min_area, straight=True, fams_at=fams_at)
         out += sub
     return out
 
@@ -1353,13 +1404,14 @@ def polygon_lines(polys: list, fams: list[float], min_len: float = 3.0) -> list[
     return out
 
 
-def skew_stats(polys: list, fams: list[float], min_len: float, tol_deg: float = 3.0) -> dict:
+def skew_stats(polys: list, fams: list[float], min_len: float, tol_deg: float = 3.0, fams_of=None) -> dict:
     """Метрика косых граней (T-04): по рёбрам многоугольников длиной ≥ min_len — доля длины, чей угол дальше tol_deg
-    от любого семейства панели; число многоугольников, где такое ребро есть (у пола — «косой пол»)."""
+    от любого семейства панели; число многоугольников, где такое ребро есть (у пола — «косой пол»).
+    fams_of(номер многоугольника, p, q) → семейства этого ребра (комнаты, T-16), иначе — fams панели."""
     tot = off = 0.0
     bad_polys = 0
     worst = 0.0
-    for outer, holes in polys:
+    for pk, (outer, holes) in enumerate(polys):
         bad = False
         for v in [outer] + list(holes):
             v = np.asarray(v, float)
@@ -1369,7 +1421,8 @@ def skew_stats(polys: list, fams: list[float], min_len: float, tol_deg: float = 
                 if L < min_len:
                     continue
                 a = math.degrees(math.atan2(q[1] - p[1], q[0] - p[0])) % 180
-                d = min(angdiff(a, f) for f in fams) if fams else 0.0
+                fs = (fams_of(pk, p, q) or fams) if fams_of is not None else fams
+                d = min(angdiff(a, f) for f in fs) if fs else 0.0
                 tot += L
                 if d > tol_deg:
                     off += L

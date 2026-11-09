@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import time
 from dataclasses import dataclass, field
 
@@ -27,6 +28,17 @@ import cv2
 import numpy as np
 
 import fpcore as fc
+import openroom
+
+# T-16: замыкание открытых комнат (openroom.py) — подходы по порядку, пока один не построит гипотезу;
+# FP_OPEN=none — без замыкания (как до T-16), lines / box / box+lines — сравнение в отчёте T-16. Выбран box:
+# рамка по мерке подписи с опорой на линии внутри оболочки здания не протекает; lines на E-1 протёк за эркер.
+OPEN_MODES = 'box'
+
+
+def open_modes() -> list:
+    v = os.environ.get('FP_OPEN', OPEN_MODES)
+    return [] if v in ('', 'none', '0') else v.split('+')
 
 TOL_NORM_M, TOL_NORM_REL = 0.12, 0.03      # норма расхождения с подписью
 TOL_BAD_M, TOL_BAD_REL = 0.25, 0.05        # выше — «не сошлось»: геометрию менять только с пиксельным свидетельством
@@ -71,6 +83,9 @@ class Ctx:
     conv: tuple = ('p95', 0)         # манера подписи панели (кандидат, перестановка) — заморожена
     bay_in: np.ndarray | None = None
     dominant: np.ndarray | None = None   # маска по доминирующему тёмному цвету (для recompute)
+    bg: float | None = None              # фон листа (P90 серого) — для «пол залит цветом» (openroom)
+    floor: float | None = None           # медиана серого найденных комнат панели (пол залит, если темнее листа)
+    hull: np.ndarray | None = None       # выпуклая оболочка стен панели: комната не выходит за здание (openroom)
 
 
 # --- свидетельства из сырого листа -------------------------------------------------------------------------------------
@@ -473,6 +488,7 @@ def hyp_remove(st: State, p: int, q: int, ctx: Ctx, trigger: tuple, outside: np.
 
 _SKIPS: list = []                   # почему гипотеза не построилась — в журнал (не молча)
 SKIPLOG: list = []
+TABU: set = set()                    # отвергнутые (ключ, состояние окна) текущего круга — propose их не считает (T-16)
 
 
 def _no(why: str):
@@ -561,6 +577,56 @@ def hyp_recompute(st: State, i: int, labels: list, ctx: Ctx, outside: np.ndarray
                                                'virtual': round(virt_frac, 2),
                                                'area_m2': round(float(comp.sum()) / ctx.ppm ** 2, 2)},
                f'recompute:{i}:{close_m}:{use_dom}')
+
+
+def hyp_enclose(st: State, i: int, labels: list, ctx: Ctx, mode: str):
+    """Подпись с размером не в комнате и локальный пересчёт её не замкнул (стена не сплошная: проём, складные двери,
+    открытая планировка, открытая сторона) → замкнуть контур вокруг подписи (`openroom`, подход mode). Новых стен нет:
+    граница не по стене — виртуальная (`cut`), поэтому пиксельная цена не меняется; принимает топология."""
+    l = labels[i]
+    H, W = st.lab.shape
+    roi = openroom.window(l.pt, l.dims, ctx.ppm, (H, W), k=0.75 if mode == 'lines' else 1.0)
+    sl = np.s_[roi[1]:roi[3], roi[0]:roi[2]]
+    if ctx.bg is None:
+        ctx.bg = float(np.percentile(ctx.gray, 90))
+        rm = np.isin(st.lab, st.rooms)
+        ctx.floor = float(np.median(ctx.gray[rm])) if rm.any() else ctx.bg
+        ctx.hull = openroom.hull_mask(st.final, ctx.gray, ctx.ppm)
+    pt = (l.pt[0] - roi[0], l.pt[1] - roi[1])
+    opts = [(q.pt[0] - roi[0], q.pt[1] - roi[1]) for j, q in enumerate(labels) if j != i and q.dims is not None]
+    lab_w, final_w, gray_w = st.lab[sl], st.final[sl], ctx.gray[sl]
+    hull_w = ctx.hull[sl] if ctx.hull is not None else None
+    rs = set(st.rooms)
+    rooms_in = [int(v) for v in np.unique(lab_w) if int(v) in rs]
+    if mode == 'lines':
+        comp, info = openroom.enclose_lines(final_w, lab_w, rooms_in, gray_w, pt, l.dims, ctx.ppm, ctx.fams, ctx.bg, opts,
+                                            None, floor=ctx.floor, inside=hull_w)
+    elif mode == 'box':
+        comp, info = openroom.enclose_box(final_w, lab_w, rooms_in, gray_w, pt, l.dims, ctx.ppm, ctx.fams, ctx.bg, opts,
+                                          ctx.t_int, floor=ctx.floor, inside=hull_w)
+    else:
+        return _no(f'нет подхода {mode}')
+    if comp is None:
+        return _no(info)
+    virt = openroom.virtual_boundary(comp, final_w, ctx.t_int)
+
+    def apply(s: State, comp=comp, virt=virt):
+        s = s.copy()
+        nid = int(s.lab.max()) + 1
+        s.lab[sl][comp] = nid
+        s.rooms.append(nid)
+        if virt.any():
+            if s.cut is None:
+                s.cut = np.zeros(s.lab.shape, bool)
+                s.drawn = np.zeros(s.lab.shape, bool)
+            s.cut[sl] |= virt
+        return s
+
+    return Hyp('enclose', (i,), roi, apply, {'label': l.name, 'mode': mode, **info,
+                                            'area_m2': round(float(comp.sum()) / ctx.ppm ** 2, 2),
+                                            'label_m2': round(float(l.dims[0] * l.dims[1]), 2),
+                                            'virtual_m': round(float(virt.sum()) / ctx.ppm, 2)},
+               f'enclose:{i}:{mode}')
 
 
 def hyp_neck(st: State, i: int, labels: list, ctx: Ctx, eps: float = 0.05):
@@ -785,6 +851,7 @@ def propose(st: State, labels: list, ctx: Ctx, outside: np.ndarray) -> list:
     #    улики окно не замкнули (иначе тонкий контур стола/ковра внутри комнаты выигрывает у самой комнаты)
     for i in topo['missing']:
         strong = 0
+        made = 0
         for dom in (False, True, 'faint'):
             if dom == 'faint' and strong:
                 SKIPLOG.append({'kind': 'skip', 'hyp': 'recompute', 'label': labels[i].name, 'dominant': dom,
@@ -796,16 +863,30 @@ def propose(st: State, labels: list, ctx: Ctx, outside: np.ndarray) -> list:
                 if h:
                     out.append(h)
                     strong += dom != 'faint'
+                    made += (h.key, _state_hash(st, h.roi)) not in TABU   # отвергнутый пересчёт — не замена замыканию
                 elif _SKIPS:
                     SKIPLOG.append({'kind': 'skip', 'hyp': 'recompute', 'label': labels[i].name, 'close_m': close_m,
                                     'dominant': dom, 'why': _SKIPS[-1]})
+        # 5) T-16: пересчёт окна не замкнул — открытая комната: замыкание контура вокруг подписи (по подходам)
+        if made:
+            continue
+        for mode in open_modes():
+            _SKIPS.clear()
+            h = hyp_enclose(st, i, labels, ctx, mode)
+            if h:
+                out.append(h)
+                break
+            if _SKIPS:
+                SKIPLOG.append({'kind': 'skip', 'hyp': 'enclose', 'label': labels[i].name, 'mode': mode,
+                                'why': _SKIPS[-1]})
     return out
 
 
 def run(st: State, labels: list, ctx: Ctx, outside: np.ndarray, budget_s: float = BUDGET_S,
         max_passes: int = MAX_PASSES) -> tuple[State, list]:
     t0 = time.time()
-    journal, tabu = [], set()
+    journal, tabu = [], TABU
+    tabu.clear()
     for ps in range(max_passes):
         SKIPLOG.clear()
         hyps = propose(st, labels, ctx, outside)
