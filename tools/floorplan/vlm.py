@@ -51,6 +51,16 @@ PROMPTS = {
         "Use as many segments as needed; diagonal walls are allowed. "
         "Answer with JSON only: {{\"walls\": [{{\"x1\": n, \"y1\": n, \"x2\": n, \"y2\": n, \"t\": n}}], "
         "\"openings\": [{{\"type\": \"door\"|\"window\", \"x\": n, \"y\": n, \"width\": n}}]}}"),
+    'panels': (
+        "This is a real-estate floor plan sheet. Use a normalized coordinate grid 0-1000 on both axes (x: 0 = left "
+        "edge, 1000 = right edge; y: 0 = top edge, 1000 = bottom edge). The sheet may hold several separate drawings: "
+        "floors of the house and separate buildings (outbuildings, garage, stables, pool house, cellar). List EACH "
+        "separate building drawing as its own panel, with the printed title that belongs to it (e.g. 'Ground Floor', "
+        "'First Floor', 'Outbuildings', 'Cellar'). If an outbuilding is drawn touching the house, it is still its own "
+        "panel. For each panel give an outline polygon (4-12 vertices, clockwise) that follows that building's outer "
+        "walls tightly and contains no other building, and the names of the rooms inside it. Ignore compass, scale bar, "
+        "legend and text blocks. Answer with JSON only: {\"panels\": [{\"title\": str, \"poly\": [[x, y], ...], "
+        "\"rooms\": [str]}]}"),
 }
 # $ за 1 токен (вход, выход) — из /v1/models шлюза 09.11; для потолка «худшего случая» перед вызовом
 PRICE = {'google/gemini-3.8-flash': (0.75e-6, 3.75e-6), 'google/gemini-3.1-pro-preview': (2e-6, 12e-6)}
@@ -107,7 +117,7 @@ def ask(plan, kind, out):
     gold = json.loads((HERE / 'gold' / f'{plan}.json').read_text())
     img, w, h = jpeg(INPUTS / gold['image'])
     msg = [{'role': 'user', 'content': [
-        {'type': 'text', 'text': PROMPTS[kind].format(w=w, h=h)},
+        {'type': 'text', 'text': PROMPTS[kind] if kind == 'panels' else PROMPTS[kind].format(w=w, h=h)},
         {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(img).decode()}}]}]
     b0 = credits()
     t0 = time.time()

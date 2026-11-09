@@ -374,6 +374,181 @@ LEAF_ARC_MIN = 0.4    # при створке хватает 40 % дуги
 LEAF_SCORE = 0.8      # «дверь по створке» — выше порога дуги (0,75)
 
 
+FALSE_MAX_M = 4.0      # ложная стена — короткая (до 4 м)
+FALSE_FLANK_M = 1.0    # стена за концом отрезка тянется ≥ 1 м по той же линии — это продолжение настоящей стены
+FALSE_THIN = 0.7       # тоньше 0,7 типичной внутренней стены — штрих мебели/лестницы, не стена
+FALSE_ADD = 0.8        # или почти целиком наша перемычка (дверь «по мусору»), а не нарисованная стена
+
+
+def _flank_run(final: np.ndarray, sep: np.ndarray, p, u, max_px: int) -> int:
+    """Сколько px стены подряд по направлению u от точки p (за пределами самого отрезка sep)."""
+    H, W = final.shape
+    run, started = 0, False
+    for k in range(1, max_px + 1):
+        x, y = int(round(p[0] + u[0] * k)), int(round(p[1] + u[1] * k))
+        if not (0 <= x < W and 0 <= y < H) or not final[y, x]:
+            break
+        if sep[y, x] and not started:
+            continue
+        started = True
+        run += 1
+    return run
+
+
+def _flood_from_seeds(m: np.ndarray, seeds: list) -> np.ndarray:
+    """Водораздел по высоте «−расстояние до стены»: заливка с приоритетом от каждой подписи (метки k+2), поэтому
+    встречаются на горлах проёмов. (cv2.watershed считает по перепадам цвета соседей, а не по высоте — не подходит.)"""
+    import heapq
+    ys, xs = np.nonzero(m)
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    mm = np.pad(m[y0:y1, x0:x1], 1)
+    dist = cv2.distanceTransform(mm.astype(np.uint8), cv2.DIST_L2, 3)
+    lab = np.zeros(mm.shape, np.int32)
+    heap = []
+    for k, (x, y) in enumerate(seeds):
+        yy, xx = y - y0 + 1, x - x0 + 1
+        if 0 <= yy < mm.shape[0] and 0 <= xx < mm.shape[1]:
+            if not mm[yy, xx]:                         # подпись на тексте/у края — ближайший пиксель области
+                cand = np.argwhere(mm[max(0, yy - 6):yy + 7, max(0, xx - 6):xx + 7])
+                if not len(cand):
+                    continue
+                yy, xx = cand[0][0] + max(0, yy - 6), cand[0][1] + max(0, xx - 6)
+            lab[yy, xx] = k + 2
+            heapq.heappush(heap, (-float(dist[yy, xx]), yy, xx))
+    while heap:
+        _, y, x = heapq.heappop(heap)
+        k = lab[y, x]
+        for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+            if mm[ny, nx] and lab[ny, nx] == 0:
+                lab[ny, nx] = k
+                heapq.heappush(heap, (-float(dist[ny, nx]), ny, nx))
+    out = np.zeros(m.shape, np.int32)
+    out[y0:y1, x0:x1] = lab[1:-1, 1:-1]
+    return out
+
+
+def split_by_labels(lab: np.ndarray, rooms: list, pts: list, ppm: float, r: int = 6):
+    """Подписи как опора (обратное к merge_false_splits): в одной области ≥2 подписей (комнаты соединены широким
+    проёмом без двери) → делим по самым узким местам: водораздел по расстоянию до стен от каждой подписи.
+    Граница проходит по горлу проёма; стены не дорисовываются (в 3D проём остаётся открытым). → (lab, rooms, log)"""
+    lab = lab.copy()
+    rooms = list(rooms)
+    H, W = lab.shape
+    log = []
+    nxt = int(lab.max()) + 1
+    for rid in list(rooms):
+        m = lab == rid
+        seeds = []
+        for (px, py) in pts:
+            x, y = int(round(px)), int(round(py))
+            y0, y1, x0, x1 = max(0, y - r), min(H, y + r + 1), max(0, x - r), min(W, x + r + 1)
+            if m[y0:y1, x0:x1].any():
+                seeds.append((x, y))
+        if len(seeds) < 2:
+            continue
+        markers = _flood_from_seeds(m, seeds)
+        parts = []
+        for k in range(len(seeds)):
+            pk = (markers == k + 2) & m
+            if pk.sum() >= 0.3 * ppm * ppm:
+                parts.append(pk)
+        if len(parts) < 2:
+            continue
+        for pk in parts[1:]:
+            lab[pk] = nxt
+            rooms.append(nxt)
+            nxt += 1
+        log.append({'room': int(rid), 'labels': len(seeds), 'parts': len(parts)})
+        # линия водораздела (−1) остаётся у исходной комнаты
+    return lab, rooms, log
+
+
+def merge_false_splits(lab: np.ndarray, rooms: list, final: np.ndarray, wall: np.ndarray, add: np.ndarray,
+                       pts: list, ppm: float, passes: int = 3):
+    """Подписи как опора: кусок БЕЗ подписи, отрезанный от комнаты С подписью ложной стеной, сливается обратно.
+    Ложная стена: общий отрезок двух комнат короче FALSE_MAX_M, не продолжает линию другой стены (за его концами стены
+    нет ≥ FALSE_FLANK_M) и либо тоньше FALSE_THIN·толщины внутренних стен (штрих), либо это наша перемычка (add).
+    Куски без подписи за настоящими стенами (санузлы, коридоры) не трогаются. → lab, final, rooms, журнал слияний."""
+    lab, final, rooms = lab.copy(), final.copy(), list(rooms)
+    # толщина ВНУТРЕННИХ стен: осевые пиксели нарисованных стен, не прилегающих к наруже (наружные толще и сбивают медиану)
+    _, _, outside = free_components(final)
+    dto = cv2.distanceTransform((~outside).astype(np.uint8), cv2.DIST_L2, 5)
+    dtw = cv2.distanceTransform((wall > 0).astype(np.uint8), cv2.DIST_L2, 5)
+    ridge = (dtw > 0.9) & (dtw >= cv2.dilate(dtw, np.ones((3, 3), np.uint8)) - 1e-6)
+    inner = ridge & (dto > dtw + 2)
+    t_int = float(2 * np.median(dtw[inner])) if inner.sum() > 20 else stroke_thickness(wall)
+    dtf = cv2.distanceTransform((final > 0).astype(np.uint8), cv2.DIST_L2, 5)
+    ridge_f = (dtf > 0.5) & (dtf >= cv2.dilate(dtf, np.ones((3, 3), np.uint8)) - 1e-6)
+    H, W = lab.shape
+    log = []
+
+    def labelled():
+        out = set()
+        for x, y in pts:
+            xi, yi = int(round(x)), int(round(y))
+            r = max(6, int(0.25 * ppm))
+            win = lab[max(0, yi - r):yi + r + 1, max(0, xi - r):xi + r + 1]
+            ids = [v for v in np.unique(win) if v in rooms]
+            if 0 <= yi < H and 0 <= xi < W and lab[yi, xi] in rooms:
+                out.add(int(lab[yi, xi]))
+            elif ids:
+                out.add(int(ids[0]))
+        return out
+
+    for _ in range(passes):
+        lab_ids = labelled()
+        changed = False
+        for p in [r for r in rooms if r not in lab_ids]:
+            P = lab == p
+            if not P.any():
+                continue
+            ys, xs = np.nonzero(P)
+            m = int(2 * t_int + 4)
+            y0, y1, x0, x1 = max(0, ys.min() - m), min(H, ys.max() + m + 1), max(0, xs.min() - m), min(W, xs.max() + m + 1)
+            sl = (slice(y0, y1), slice(x0, x1))
+            d = 1.2 * max(t_int, 2.0) + 1.5
+            dP = cv2.distanceTransform((~P[sl]).astype(np.uint8), cv2.DIST_L2, 3)
+            ring = (final[sl] > 0) & (dP <= d)
+            best = None
+            for q in np.unique(lab[sl][cv2.dilate(ring.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0]):
+                if q not in lab_ids:
+                    continue
+                dQ = cv2.distanceTransform((lab[sl] != q).astype(np.uint8), cv2.DIST_L2, 3)
+                S = ring & (dQ <= d)
+                if S.sum() < 4:
+                    continue
+                sy, sx = np.nonzero(S)
+                c, u, n, L, dep = gap_axes(sy + y0, sx + x0)
+                # толщина — по оси (гребню distance transform) внутри отрезка; медиана: стыки с настоящими стенами — меньшинство
+                rS = S & ridge_f[sl]
+                thick = 2 * float(np.median(dtf[sl][rS])) if rS.any() else 2 * float(dtf[sl][S].max())
+                add_frac = float(add[sl][S].mean())
+                Sg = np.zeros_like(final, bool)
+                Sg[sl] = S
+                fl = max(_flank_run(final, Sg, c + u * L / 2, u, int(1.5 * ppm)),
+                         _flank_run(final, Sg, c - u * L / 2, -u, int(1.5 * ppm)))
+                st = {'piece': int(p), 'room': int(q), 'L_m': round(L / ppm, 2), 'thick': round(thick, 1),
+                      't_int': round(t_int, 1), 'add': round(add_frac, 2), 'flank_m': round(fl / ppm, 2),
+                      'area_m2': round(P.sum() / ppm / ppm, 2)}
+                false = (L <= FALSE_MAX_M * ppm and fl < FALSE_FLANK_M * ppm
+                         and (thick <= FALSE_THIN * t_int or add_frac >= FALSE_ADD))
+                st['false'] = bool(false)
+                log.append(st)
+                if false and (best is None or S.sum() > best[0]):
+                    # сам штрих — пиксели, лежащие вплотную между двумя кусками (грани соседних стен не трогаем)
+                    best = (S.sum(), q, S & (dP <= thick + 1) & (dQ <= thick + 1))
+            if best:
+                _, q, Sthin = best
+                lab[P] = q
+                final[sl][Sthin] = 0
+                lab[sl][Sthin] = q
+                rooms.remove(p)
+                changed = True
+        if not changed:
+            break
+    return lab, final, rooms, log
+
+
 def free_components(wall: np.ndarray):
     """Свободные области: метки (4-связность), наружная область = всё, что касается края картинки."""
     free = (wall == 0).astype(np.uint8)

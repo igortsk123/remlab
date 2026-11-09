@@ -166,6 +166,81 @@ def test_leave_one_out_near_candidate_and_label_flag():
     assert clean['n_dims'] == near['n_dims'] - 2 and clean['mae'] < near['mae']
 
 
+def _two_rooms_with_thin_split():
+    """Коробка 6 px; настоящая внутренняя стена 6 px (справа — комната без подписи, «санузел»); в левой комнате —
+    тонкий штрих 2 px поперёк (ложная стена): сверху подпись, снизу кусок без подписи."""
+    w = np.zeros((300, 300), np.uint8)
+    w[10:16, 10:290] = 1; w[284:290, 10:290] = 1; w[10:290, 10:16] = 1; w[10:290, 284:290] = 1
+    w[16:284, 150:156] = 1                                     # настоящая стена
+    w[16:284, 220:226] = 1                                     # ещё одна (типичная толщина внутренних — 6 px)
+    final = w.copy()
+    final[120:122, 16:150] = 1                                 # ложный штрих 2 px
+    n, lab, outside = fc.free_components(final)
+    areas = np.bincount(lab.ravel(), minlength=n)
+    rooms = [i for i in range(1, n) if areas[i] > 50 and not outside[lab == i].any()]
+    return w, final, lab, rooms
+
+
+def test_merge_false_splits_merges_thin_cut_keeps_real_room():
+    w, final, lab, rooms = _two_rooms_with_thin_split()
+    lab2, final2, rooms2, log = fc.merge_false_splits(lab, rooms, final, final, np.zeros_like(final), [(80, 60)], ppm=40)
+    assert lab2[60, 80] == lab2[200, 80]                       # кусок без подписи вернулся в комнату с подписью
+    assert lab2[150, 190] != lab2[60, 80] and lab2[150, 190] in rooms2   # «санузел» за настоящей стеной — отдельно
+    assert len(rooms2) == len(rooms) - 1 and final2[121, 80] == 0      # сам штрих снят
+    assert any(s['false'] for s in log) and not all(s['false'] for s in log)
+
+
+def test_bay_window_extends_room_and_skips_door_swing():
+    import bench
+    wall = np.zeros((200, 260), np.uint8)
+    wall[40:46, 60:250] = 1; wall[180:186, 60:250] = 1; wall[40:186, 244:250] = 1
+    wall[40:80, 60:66] = 1; wall[140:186, 60:66] = 1             # левая наружная стена с окном y 80..140
+    keep = np.zeros_like(wall); keep[80:140, 60:66] = 1          # окно закрыто перемычкой
+    thin = np.zeros_like(wall)
+    cv2.line(thin, (30, 78), (59, 78), 1, 1); cv2.line(thin, (30, 141), (59, 141), 1, 1)
+    cv2.line(thin, (30, 78), (30, 141), 1, 1)                     # эркер: рама П-образно снаружи, к торцам стены
+    bay, bay_in = bench.bay_windows(wall, keep, thin, thin, ppm=40, t=6)
+    assert bay.any() and bay_in[110, 45] and keep.sum() == 0      # комната продолжается в эркер, его контур — окно
+    keep2 = np.zeros_like(wall); keep2[80:140, 60:66] = 1
+    arc = np.zeros_like(wall)
+    cv2.ellipse(arc, (59, 80), (60, 60), 0, 90, 180, 1, 1)        # дуга створки снаружи (четверть круга)
+    cv2.line(arc, (59, 80), (0, 80), 1, 1)
+    bay2, _ = bench.bay_windows(wall, keep2, arc, arc, ppm=40, t=6)
+    assert not bay2.any() and keep2.sum() > 0
+
+
+def test_one_open_hole_does_not_strip_window_closures_of_floor():
+    """Комната R1 с незакрытой 3-метровой дырой наружу (без рамы) открыта аркой в R2; окно R2 с рамой должно остаться
+    закрытым: «наружа с обеих сторон» считается и вне грубого контура постройки (цикл 3: C, весь этаж пропадал)."""
+    import bench
+    ppm, t = 40.0, 8
+    g = np.full((320, 520), 255, np.uint8)
+    cv2.rectangle(g, (20, 20), (500, 300), 244, -1)                 # заливка комнат
+    wall = np.zeros_like(g)
+    wall[20:28, 20:500] = 1; wall[292:300, 20:500] = 1; wall[20:300, 20:28] = 1; wall[20:300, 492:500] = 1
+    wall[20:120, 256:264] = 1; wall[220:300, 256:264] = 1           # стена R1|R2 с аркой 2,5 м (без створки)
+    wall[292:300, 60:180] = 0                                       # R1: дыра 3 м в низу, рамы нет
+    wall[20:28, 340:380] = 0                                        # R2: окно 1 м вверху, с рамой
+    g[wall > 0] = 0
+    for y in (22, 25):
+        cv2.line(g, (340, y), (379, y), 200, 1)
+    fams = fc.angle_families(wall)
+    r = bench.analyze(cv2.cvtColor(g, cv2.COLOR_GRAY2BGR), g, wall, ppm, fams, t)
+    assert r['add'][22:27, 345:375].mean() > 0.5                    # окно R2 закрыто, несмотря на дыру в R1
+
+
+def test_split_by_labels_cuts_at_wide_opening_neck():
+    """Две подписи в одной области (комнаты соединены проёмом 1,5 м без двери) → две комнаты, граница — в проёме."""
+    lab = np.zeros((200, 400), np.int32)
+    lab[20:180, 20:190] = 1; lab[20:180, 210:380] = 1; lab[80:140, 190:210] = 1   # две комнаты + горло 60 px
+    lab2, rooms2, log = fc.split_by_labels(lab, [1], [(100, 100), (300, 100)], ppm=40)
+    assert len(rooms2) == 2 and log and log[0]['parts'] == 2
+    assert lab2[100, 60] != lab2[100, 340]
+    assert lab2[30, 30] == lab2[100, 60] and lab2[170, 370] == lab2[100, 340]
+    lab3, rooms3, _ = fc.split_by_labels(lab, [1], [(100, 100)], ppm=40)            # одна подпись — не трогаем
+    assert rooms3 == [1] and (lab3 == lab).all()
+
+
 def test_feet_to_m_and_gold_labels_consistent():
     assert fc.feet_to_m("13'6\"") == pytest.approx(4.1148, abs=1e-4)
     # эталоны: метры и футы каждой подписи согласованы (UK-листы округляют дюймы — допуск 3")
