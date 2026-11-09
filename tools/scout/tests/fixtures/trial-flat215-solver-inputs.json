@@ -1,0 +1,40 @@
+[
+ {
+  "cmd": [
+   "solver_run.py",
+   "3",
+   "--v3",
+   "439",
+   "325"
+  ],
+  "cwd": "<HERE>",
+  "env": {
+   "SETS_SNAPSHOT": "<HERE>/demo-sets.json",
+   "SCENE_OPENINGS": "[{\"kind\": \"window\", \"wall\": \"west\", \"offset_cm\": 70, \"width_cm\": 150, \"sill_cm\": 85, \"height_cm\": 150}, {\"kind\": \"door\", \"wall\": \"east\", \"offset_cm\": 205, \"width_cm\": 90, \"swing_cm\": 90}]",
+   "SCENE_RADIATORS": "[{\"wall\": \"west\", \"offset_cm\": 70, \"width_cm\": 180, \"depth_cm\": 12}]",
+   "LAYOUT_SUFFIX": "-one",
+   "LAYOUT_SIGNATURE_FILE": "<HERE>/rules/demo-layout.json",
+   "LAYOUT_OUT_DIR": null,
+   "SCENE_CONTOUR": null
+  }
+ },
+ {
+  "cmd": [
+   "solver_run.py",
+   "41",
+   "--v3",
+   "439",
+   "325"
+  ],
+  "cwd": "<HERE>",
+  "env": {
+   "SETS_SNAPSHOT": "<HERE>/demo-sets.json",
+   "SCENE_OPENINGS": "[{\"kind\": \"window\", \"wall\": \"west\", \"offset_cm\": 70, \"width_cm\": 150, \"sill_cm\": 85, \"height_cm\": 150}, {\"kind\": \"door\", \"wall\": \"east\", \"offset_cm\": 205, \"width_cm\": 90, \"swing_cm\": 90}]",
+   "SCENE_RADIATORS": "[{\"wall\": \"west\", \"offset_cm\": 70, \"width_cm\": 180, \"depth_cm\": 12}]",
+   "LAYOUT_SUFFIX": "-one",
+   "LAYOUT_SIGNATURE_FILE": "<HERE>/rules/demo-layout.json",
+   "LAYOUT_OUT_DIR": null,
+   "SCENE_CONTOUR": null
+  }
+ }
+]

@@ -1074,6 +1074,9 @@ if _bearer and 'диван' in out:
     if _dist > 300:
         out['_tv']['note'] = 'дистанция просмотра >3 м — ТВ от 55″'
 _sfx=os.environ.get('LAYOUT_SUFFIX','')
+# LAYOUT_OUT_DIR (agent-trial-03, T-20261109-12): проба агента пишет раскладку в СВОЮ папку (`~/scout-scenes/trial/<id>/`),
+# а не рядом с живыми `v3set{n}-layout*.json`; не задано — прежний путь HERE байт в байт
+_OUTD=os.environ.get('LAYOUT_OUT_DIR') or HERE
 # Q0 свода №13: метрики «как видит владелец» — только диагностика (planner/view_metrics.py)
 try:
     from planner.view_metrics import view_metrics as _vm
@@ -1091,13 +1094,13 @@ try:
                              'window_nook': _wn}
 except Exception as _e:
     out['_view'] = {'error': repr(_e)[:120]}
-json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)
+json.dump(out,open(os.path.join(_OUTD,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)
 
 # top-down PNG — ЕДИНЫЙ рендер из артефакта (render_plan.py; тот же код — для render-only без
 # пересчёта, ускорение 17.08). placed/подписи/нормализацию делает render_plan по данным out.
 try:
     from render_plan import render_artifact as _render_artifact
-    _render_artifact(out, os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.png'), band=BAND)
+    _render_artifact(out, os.path.join(_OUTD,f'{TAG}{n}-layout{_sfx}.png'), band=BAND)
 except Exception as _re_:
     print(f'render: ошибка ({_re_}) — PNG не записан', file=sys.stderr, flush=True)
 print("placed:",", ".join(f"{r}@({v[0][0]},{v[0][1]})r{v[1]}" for r,v in placed.items()))
