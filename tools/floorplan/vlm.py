@@ -61,6 +61,15 @@ PROMPTS = {
         "walls tightly and contains no other building, and the names of the rooms inside it. Ignore compass, scale bar, "
         "legend and text blocks. Answer with JSON only: {\"panels\": [{\"title\": str, \"poly\": [[x, y], ...], "
         "\"rooms\": [str]}]}"),
+    # T-20261109-03: имена неподписанных помещений — чтобы «лишние куски» мерить честно и разводить слитые с холлом комнаты
+    'unlabeled': (
+        "This is a real-estate floor plan sheet. Use a normalized coordinate grid 0-1000 on both axes (x: 0 = left "
+        "edge, 1000 = right edge; y: 0 = top edge, 1000 = bottom edge). List EVERY enclosed space or room that has NO "
+        "printed dimensions: halls, landings, corridors, lobbies, stairs, WC, cloakroom, bathroom, shower room, "
+        "en-suite, cupboards, stores, plant rooms, porches, voids. Do NOT list rooms that have printed dimensions. "
+        "For each give its name (as printed, or your best type if no text), the centre point of the space itself "
+        "(not of any text outside it) and its approximate size class: 'tiny' (< 2 m2), 'small' (2-6 m2), 'large'. "
+        "Answer with JSON only: {\"spaces\": [{\"name\": str, \"pt\": [x, y], \"size\": str}]}"),
 }
 # $ за 1 токен (вход, выход) — из /v1/models шлюза 09.11; для потолка «худшего случая» перед вызовом
 PRICE = {'google/gemini-3.8-flash': (0.75e-6, 3.75e-6), 'google/gemini-3.1-pro-preview': (2e-6, 12e-6)}
@@ -117,7 +126,7 @@ def ask(plan, kind, out):
     gold = json.loads((HERE / 'gold' / f'{plan}.json').read_text())
     img, w, h = jpeg(INPUTS / gold['image'])
     msg = [{'role': 'user', 'content': [
-        {'type': 'text', 'text': PROMPTS[kind] if kind == 'panels' else PROMPTS[kind].format(w=w, h=h)},
+        {'type': 'text', 'text': PROMPTS[kind] if kind in ('panels', 'unlabeled') else PROMPTS[kind].format(w=w, h=h)},
         {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(img).decode()}}]}]
     b0 = credits()
     t0 = time.time()

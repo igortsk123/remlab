@@ -19,6 +19,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fpcore as fc  # noqa: E402
+import repair  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 
@@ -45,11 +46,24 @@ def load_vlm(plan, vdir, shape):
     import vlm
     H, W = shape[:2]
     kx, ky = W / 1000.0, H / 1000.0
-    out = {'pts': [], 'panels': []}
+    out = {'pts': [], 'panels': [], 'labels': [], 'spaces': []}
     p = Path(vdir) / f'raw-{plan}-labels.txt'
     if p.exists():
         d = vlm.parse(p.read_text()) or {}
         out['pts'] = [(r['pt'][0] * kx, r['pt'][1] * ky) for r in d.get('rooms', []) if r.get('pt')]
+        for r in d.get('rooms', []):
+            if not r.get('pt'):
+                continue
+            dm = r.get('dims_m')
+            ok = isinstance(dm, list) and len(dm) == 2 and all(isinstance(v, (int, float)) and 0.5 <= v <= 30 for v in dm)
+            out['labels'].append({'name': ' '.join(str(r.get('name', '')).split()), 'pt': (r['pt'][0] * kx, r['pt'][1] * ky),
+                                  'dims': tuple(float(v) for v in dm) if ok else None})
+    # T-03: помещения без размеров (имя от VLM) — второй ответ, отдельная папка (FP_VLM2)
+    p2 = Path(os.environ.get('FP_VLM2', vdir)) / f'raw-{plan}-unlabeled.txt'
+    if p2.exists():
+        d = vlm.parse(p2.read_text()) or {}
+        out['spaces'] = [{'name': str(s.get('name', '')), 'pt': (s['pt'][0] * kx, s['pt'][1] * ky), 'dims': None}
+                         for s in d.get('spaces', []) if s.get('pt')]
     p = Path(vdir) / f'raw-{plan}-panels.txt'
     if p.exists():
         d = vlm.parse(p.read_text()) or {}
@@ -91,6 +105,30 @@ def per_region(fn, wall, regions, pad=2):
 
 
 def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr=215):
+    """Кэш на диске (FP_CACHE=<папка>): тот же вход → тот же результат; ускоряет отладку круга починки (T-03).
+    Ключ — байты стены/серого + параметры + хеш исходника analyze (правка кода — новый ключ)."""
+    cdir = os.environ.get('FP_CACHE')
+    if not cdir:
+        return _analyze(img, gray, wall, ppm, fams, t, regions, thin_thr, glaze_thr)
+    import hashlib
+    import inspect
+    import pickle
+    h = hashlib.sha1()
+    for a in (wall, gray):
+        h.update(np.ascontiguousarray(a).tobytes()); h.update(str(a.shape).encode())
+    h.update(repr((round(float(ppm), 6), [round(float(f), 4) for f in fams], round(float(t), 4), regions, thin_thr,
+                   glaze_thr)).encode())
+    h.update(inspect.getsource(_analyze).encode() + inspect.getsource(bay_windows).encode())
+    p = Path(cdir) / f'an-{h.hexdigest()[:20]}.pkl'
+    if p.exists():
+        return pickle.loads(p.read_bytes())
+    r = _analyze(img, gray, wall, ppm, fams, t, regions, thin_thr, glaze_thr)
+    Path(cdir).mkdir(parents=True, exist_ok=True)
+    p.write_bytes(pickle.dumps(r))
+    return r
+
+
+def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr=215):
     """Один проход при гипотезе масштаба ppm (px на метр): разрывы → комнаты → проёмы."""
     ang = rot_angles(fams)
     Ls, Lb, fl = int(1.7 * ppm), int(LB_M * ppm), max(3, int(round(1.5 * t)))   # Lb: окна/французские двери
@@ -416,7 +454,22 @@ def topology(res, gold_rooms, hit, ppm):
             merged.append(names)
     extra = [rid for rid in res['rooms'] if rid not in hit and res['areas'][rid] >= 1.0 * ppm * ppm]
     return {'gold_rooms': len(req), 'found': len(req) - len(missing), 'missing': missing, 'merged': merged,
-            'open_plan': open_plan, 'extra_rooms': len(extra), 'extra_areas_m2': [round(res['areas'][r] / ppm / ppm, 2) for r in extra]}
+            'open_plan': open_plan, 'extra_rooms': len(extra), 'extra_areas_m2': [round(res['areas'][r] / ppm / ppm, 2) for r in extra],
+            '_extra_ids': extra}
+
+
+def name_extras(topo, rep_labels):
+    """Лишние куски (нет комнаты золота) — с именем помещения от VLM, если его точка в этом куске; без имени —
+    «необъяснённый» (критерий этапа 2: лишние — только неподписанные помещения с именем VLM)."""
+    ids = topo.pop('_extra_ids', [])
+    by = {}
+    for q in rep_labels or []:
+        if q.get('room') is not None:
+            by.setdefault(q['room'], []).append(q['name'])
+    names = [', '.join(by.get(rid, [])) or None for rid in ids]
+    topo['extra_named'] = names
+    topo['extra_unnamed_m2'] = [a for a, n in zip(topo['extra_areas_m2'], names) if n is None]
+    return topo
 
 
 def panels_of(final, ppm):
@@ -542,7 +595,15 @@ def run_plan(plan, inputs, outdir):
                 ppm = 1 / fit['s']
         r = analyze(sub_img, sub_gray, sub_wall, ppm, fams, t, sub_regions, cfg['thin'], cfg['glaze'])
         splits = []
-        if vpts:     # подписи VLM как опора: куски без подписи за ложной стеной — обратно в комнату с подписью
+        rep_log, rep_labels = [], []
+        if vl and os.environ.get('FP_REPAIR', '1') != '0':
+            # T-03: круг самопочинки — гипотезы с ценой и откатом вместо прямых слияний/разрезов
+            labs = [repair.Label(q['name'], (q['pt'][0] - X0, q['pt'][1] - Y0), q['dims'], 'vlm')
+                    for q in vl['labels'] if inside(q['pt'])]
+            labs += [repair.Label(q['name'], (q['pt'][0] - X0, q['pt'][1] - Y0), None, 'vlm-space')
+                     for q in vl['spaces'] if inside(q['pt'])]
+            r, rep_log, rep_labels = do_repair(r, labs, sub_img, sub_gray, cfg, ppm, fams, t)
+        elif vpts:     # подписи VLM как опора: куски без подписи за ложной стеной — обратно в комнату с подписью
             r['lab'], r['final'], r['rooms'], splits = fc.merge_false_splits(
                 r['lab'], r['rooms'], r['final'], r['wall'], r['add'], vpts, ppm)
             r['lab'], r['rooms'], lsplit = fc.split_by_labels(r['lab'], r['rooms'], vpts, ppm)
@@ -551,8 +612,9 @@ def run_plan(plan, inputs, outdir):
         hit, obs = match_gold(r, groom, fams, core=True)
         fit = fc.fit_scale(obs)
         loo = fc.leave_one_out(obs)
-        topo = topology(r, groom, hit, ppm)
+        topo = name_extras(topology(r, groom, hit, ppm), rep_labels)
         dims = room_dims(groom, hit, obs, loo, ppm0)
+        attach_flags(dims, groom, rep_labels, ppm)
         gpx, t_ext = gia_px(r, t)
         # проёмы против ручного счёта
         op = None
@@ -584,7 +646,7 @@ def run_plan(plan, inputs, outdir):
              'inliers': fit and fit['inliers'], 'loo': loo, 'loo_sum': fc.loo_summary(loo), 'loo_near': fc.loo_summary(loo, 'near'),
              'loo_clean': fc.loo_summary(loo, 'near_clean'), 'label_flags': [l['id'] for l in loo if l.get('flag_label')],
              'topology': topo, 'false_splits': [s for s in splits if s['false']], 'split_checks': len(splits),
-             'label_splits': r.get('label_splits', []),
+             'label_splits': r.get('label_splits', []), 'repairs': rep_log, 'label_report': rep_labels,
              'vlm_title': vl['panels'][pi]['title'] if vl and vl['panels'] else None,
              'gia_m2': gpx / ppm / ppm, 't_ext_px': t_ext, 'openings': op, 'angles': angles,
              'gold_panels': sorted({g['panel'] for g in groom}), 'dims': dims}
@@ -606,6 +668,85 @@ def run_plan(plan, inputs, outdir):
     return log
 
 
+def dark_raw(img, gray, cfg):
+    """Тёмное сырого листа по правилу плана, БЕЗ открытия/чистки (для проверки наложением — не та же маска)."""
+    k = cfg['mask']
+    if k[0] == 'blue':
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        return (hsv[..., 0] >= 95) & (hsv[..., 0] <= 135) & (hsv[..., 1] >= 100) & (hsv[..., 2] >= 50)
+    return gray < k[1]
+
+
+def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
+    """Круг починки панели (repair.run): масштаб заморожен (ppm), манера подписи — по подписям VLM этой панели."""
+    t_int = repair.inner_thickness(r['final'], r['wall'])
+    ctx = repair.Ctx(gray=gray, ev=repair.evidence(dark_raw(img, gray, cfg), t_int), wp=repair.wall_prob(gray), ppm=ppm,
+                     t_int=t_int, fams=fams, bay_in=r.get('bay_in'))
+    st = repair.State(r['lab'].copy(), r['final'].copy(), list(r['rooms']), r['add'].copy())
+    topo = repair.topology(st, labs, ppm)
+    obs = []
+    for i, l in enumerate(labs):
+        rid = topo['own'][i]
+        if l.dims and rid is not None and sum(1 for j in topo['by'][rid] if labs[j].dims) == 1:
+            obs.append({'id': i, 'dims': l.dims, 'ext': repair.room_ext(st, rid, ctx)})
+    f = fc.fit_scale(obs)
+    if f:
+        c, p, share = fc.convention(f)
+        ctx.conv = (c, p)
+    log0 = {'kind': 'start', 'labels': len([l for l in labs if l.dims]), 'spaces': len([l for l in labs if not l.dims]),
+            't_int': round(t_int, 1), 'conv': list(ctx.conv), 'ppm': round(ppm, 2),
+            'ppm_vlm': round(1 / f['s'], 2) if f else None, 'pix0_m': round(repair.pixel_cost(st, ctx), 1),
+            'topo0': {k: v for k, v in topo.items() if k in ('cost', 'merged')} | {'missing': len(topo['missing']),
+                                                                                   'unexplained': len(topo['unexplained'])}}
+    st2, jr = repair.run(st, labs, ctx, r['outside'])
+    topo2 = repair.topology(st2, labs, ppm)
+    jr.append({'kind': 'end', 'pix_m': round(repair.pixel_cost(st2, ctx), 1), 'topo': topo2['cost'],
+               'missing': len(topo2['missing']), 'merged': topo2['merged'], 'unexplained': len(topo2['unexplained'])})
+    new_wall = (st2.final > 0) & ~(st2.add > 0) & ~(r['final'] > 0)
+    r = dict(r)
+    r['wall'] = ((r['wall'] > 0) | new_wall).astype(np.uint8)
+    r['add_extra'] = ((st2.add > 0) & ~(r['add'] > 0)).astype(np.uint8)
+    r['drawn'] = st2.drawn
+    r['cut'] = st2.cut
+    # комнаты локального пересчёта лежали «снаружи» (открытая постройка) — теперь внутри: пол, площадь, проёмы
+    new_ids = [rid for rid in st2.rooms if rid not in set(r['rooms'])]
+    if new_ids and r.get('outside') is not None:
+        k = max(3, int(2 * t_int + 1)) | 1
+        newm = cv2.dilate(np.isin(st2.lab, new_ids).astype(np.uint8), np.ones((k, k), np.uint8)) > 0
+        r['outside'] = (r['outside'] > 0) & ~newm
+    r['lab'], r['final'], r['rooms'] = st2.lab, st2.final, st2.rooms
+    r['areas'] =np.bincount(r['lab'].ravel(), minlength=int(r['lab'].max()) + 1)
+    return r, [log0] + jr, repair.label_report(st2, labs, ctx)
+
+
+def attach_flags(dims, groom, rep_labels, ppm):
+    """Флаг системы (по подписи, прочитанной VLM, и её комнате) — к строке золота: ближайшая подпись VLM ≤ 1,5 м."""
+    for row in dims:
+        g = next((x for x in groom if x['name'] == row['id']), None)
+        if g is None:
+            continue
+        best = None
+        for q in rep_labels:
+            if q.get('space'):
+                continue
+            d = math.hypot(q['pt'][0] - g['pt'][0], q['pt'][1] - g['pt'][1])
+            if d <= 1.5 * ppm and (best is None or d < best[0]):
+                best = (d, q)
+        if best is None:
+            row['flag'], row['flag_level'] = 'нет подписи VLM', 2
+        else:
+            row['flag'], row['flag_level'] = best[1].get('flag', ''), best[1].get('level', 0)
+            # итоговый замер против чисел подписи, прочитанных VLM (не золота; порядок сторон не важен): замер мог
+            # выбрать другую манеру (ниша, эркер), чем сверка стен, — тогда тоже флаг
+            vd = best[1].get('dims')
+            if vd and 'ours' in row:
+                oa, ob = row['ours']
+                e = min(max(abs(oa - vd[0]), abs(ob - vd[1])), max(abs(oa - vd[1]), abs(ob - vd[0])))
+                lvl = 2 if e > repair.bad_tol(vd) else 1 if e > repair.norm_tol(vd) else 0
+                if lvl > row['flag_level']:
+                    row['flag'], row['flag_level'] = ('замер ≠ подписи' if lvl == 2 else 'ниша/манера?'), lvl
+
+
 def most_common(xs):
     from collections import Counter
     return Counter(xs).most_common(1)[0][0] if xs else None
@@ -623,7 +764,13 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     wins = np.zeros_like(add)
     for g in r['gaps']:
         (wins if g.kind == 'window' else doors)[lab_g == g.id] = 1
+    if r.get('add_extra') is not None:                 # закрытия локального пересчёта (T-03) — как двери
+        doors |= r['add_extra']
+    doors &= (final > 0)
+    wins &= (final > 0)
     solid = ((r['wall'] > 0) & (final > 0)).astype(np.uint8)
+    if r.get('drawn') is not None:                     # разрез min-cut вдоль нарисованной линии — тонкая стена
+        solid |= cv2.dilate(r['drawn'].astype(np.uint8), np.ones((2, 2), np.uint8))
     # стена монолитом на всю высоту; под окном — подоконная часть, над окном и дверью — перемычка (без горизонтальных швов)
     bands = [(0.0, H_WALL, solid), (0.0, SILL, wins & (solid == 0)), (HEAD, H_WALL, (wins | doors) & (solid == 0))]
     off = (0, 0)
@@ -655,6 +802,8 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     ov[solid > 0] = (60, 60, 60)
     ov[doors > 0] = (0, 170, 0)
     ov[wins > 0] = (230, 160, 0)
+    if r.get('cut') is not None:                       # границы min-cut (T-03): пурпур
+        ov[r['cut']] = (200, 0, 200)
     for g in groom:
         x, y = map(int, g['pt'])
         ok = g.get('_room') is not None
