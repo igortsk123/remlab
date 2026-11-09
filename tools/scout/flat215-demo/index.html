@@ -2347,8 +2347,11 @@ function flatPlan(){
     }else{
       L.push({t:homeM2(room.areaM2),k:0.95,a:{fill:'#5C655E'}});
       const o=TRIAL()&&!rv&&br?roomOutcome(br.id):'';   // проба: комната без варианта — исход по коду (не обставляется / подбирается)
-      const aw=TRIAL()&&br&&roomOutcome(br.id)==='awaiting';   // проба: ждёт проверки размера — у агента с ключом «Обустроить →» (Р1)
-      L.push(aw&&trKey()?{t:(TR_EN()?'Furnish':'Обустроить')+' →',k:0.9,a:{fill:'#3B76A2','font-weight':'600','data-tr-furnish':br.id,role:'button',style:'cursor:pointer'}}
+      // проба: ждёт проверки размера — причина строкой; у агента с ключом ниже действие «Обустроить как есть» (Р1). Не «Обустроить →»:
+      // на плане эта надпись значит «открыть обстановку» обставленной комнаты — одно слово для двух действий путало бы
+      const aw=TRIAL()&&br&&roomOutcome(br.id)==='awaiting';
+      if(aw&&trKey())L.push({t:awaitShort(),k:0.8,a:{fill:'#96601F'}});
+      L.push(aw&&trKey()?{t:TR_EN()?'Furnish as is':'Обустроить как есть',k:0.85,a:{fill:'#96601F','font-weight':'700','text-decoration':'underline','data-tr-furnish':br.id,role:'button',style:'cursor:pointer'}}
         :aw?{t:awaitShort(),k:0.85,a:{fill:'#96601F','data-outcome':'awaiting'}}:pend?{t:pendTxt(),k:0.85,a:{fill:'#5C655E'}}:none?{t:varNoneShort(allVariants()[rv.index]),k:0.85,a:{fill:'#8A4A1F','data-refused':'1'}}:go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}
         :o==='pending'?{t:pendTxt(),k:0.85,a:{fill:'#5C655E','data-outcome':o}}:o&&TR_NONE.test(o)?{t:outcomeTxt(br.id,true),k:0.85,a:{fill:o==='not_furnished'?'#9AA098':'#8A4A1F','data-outcome':o}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
     }
