@@ -1,0 +1,67 @@
+---
+tier: 3
+topic: handoff
+scope: передача ведения remlab с common (tg-remlab, сессия 380b7c98) ведущему на algor
+updated: 2026-11-09
+source: manual
+---
+
+# Передача ведения remlab → algor (09.11.2026, ~15:50 Лондон)
+
+Владелец TG 455: «передавай работу algor». Причина — лимит учётки common 90 % (сброс 17:50 Лондон).
+Отдаёт: ведущий common, tmux `common:tg-remlab`, журнал `~/.claude/projects/-home-pakar-igor-remlab/380b7c98-4b73-4e42-abf7-64874b281223.jsonl` (на common).
+Доска — `.memory_bank/plans/README.md` § «Доска задач»; сырьё сессии — `_intake/session-scratch.md` (строки 09.11).
+Макро-цель — `plans/MASTER-agent-trial.md`: агент грузит фото/PDF планировки → своё демо (3D, мебель гостиная+спальни, AI-фото,
+две ссылки) за ≤ 3 мин. Владелец TG 420: «продвигайся по конвейеру… не в ущерб качеству, тайминг хороший»; TG 375–378: параллелить,
+но без пересечений файлов и без красного CI; TG 357: эталоны D–G для настройки НЕ открывать.
+
+## main сейчас
+`cf453130` (push сделан). CI был красным с `1577c22c` (test_tmp_hygiene: test_improve_sheet без remlab_tmp) — починено `d995a3fe`;
+проверить ОДИН раз `python3 tools/ops/ci_status.py` (лимит API GitHub 60/ч — не опрашивать в цикле).
+
+## Принято сегодня (влито)
+- T-07 спальня UK single `6719f170`; T-09 тонкие стены `9a24d511/ff7fd58f`; T-14 замерщик `trial_e2e.py` `80193b10`;
+  T-15 пробник спален `f209e353`; T-17 гейт доли фото `1577c22c` (сервис кадров перезапущен 15:17);
+  T-10 воркер пробы DEV `c326687b/4f649df2` — юнит `remlab-trial-worker` ВКЛЮЧЁН (pakardev, `~/remlab-logs/trial/worker.log`,
+  откат `systemctl --user disable --now remlab-trial-worker.service`), сейчас на паузе предохранителем (очередь heavy ≥ 2);
+  T-18 сверка памяти `b9a6cbdb` (19 доков, 50 расхождений; аудиты чисты);
+  T-13/2 кадр героя `cf453130` (пилюля 2,2 %, широкий кадр k=1,08 + обрезка, `pick_hero_camera`, контракт сцены T-12 в docstring
+  `tools/scout/trial_hero.py`; 5 кадров $0,275, `/home/pakar/remlab-logs/trial-hero/run-1530/`, разбор `findings-1530.md`).
+- Лендинг агентов: https://remont-lab.online/test/landing/ (EN) и `/test/landing/ru.html` (RU), переключатель языка; источник
+  `/home/pakar/remlab-logs/landing-mockup/` (скрипт `lang_switch.py`, выкладка tar → `/opt/remlab/test/landing`).
+
+## В работе (фоновые агенты сессии common — их отчёты придут ко мне; что успею — допишу сюда)
+Всем в 15:45 сказано: доделать текущий шаг, закоммитить на ветку, отчитаться partial. Если отчёта нет — смотри ветку/worktree.
+- **T-11** страницы `/try`, `/try/<id>`, серый тур — worktree `.claude/worktrees/trial-pages` (ветка `worktree-trial-pages`), цикл 2:
+  подписи под кнопками, стены заслоняют комнату, модель мала в кадре, Tap/Click. Дальше: снимки 375/1280 владельцу (design-first),
+  после «ок» — влить, выкатить `/try`; лендинг переедет на основной адрес. ❓ открыт вопрос владельцу TG 443 про согласие (consent).
+- **T-12** гостиная на любом плане — worktree `.claude/worktrees/trial-living` (уточни `git worktree list`), план `plans/agent-trial-03-living.md`.
+  Замечено: `openings_core=null` в свежих сценах — кадр героя тогда откажет (`trial_no_openings`). Контракт сцены — docstring `trial_hero.py`.
+- **T-16** стенд планировок этап 5 (открытые комнаты E-0/F-4, перегородки C-3) — worktree `.claude/worktrees/floorplan-bench`; правит
+  `tools/floorplan/fpcore.py`, `bench.py`.
+- **T-06** волна мешей спальни K=5 — после отчёта ВЕРНУТЬ потолок аренды `~/scout-scenes/wave-lease.json` max_usd 16.16 (сейчас 14.36,
+  hold `hold_20261109`); крон-напоминание common 85af5201 можно игнорировать.
+
+## Остановлено / не начато
+- **T-19 скорость распознавания плана** — остановлен в самом начале (лимит). Бриф готов: `.claude/worktrees/fp-speed/.claude-brief-T-20261109-19.txt`.
+  Замер T-10 (DEV под нагрузкой): «стены» A 38 с, B 23, D 34, F 75, E 200, G 254, C 465 — обещание 3 мин не держим на сложных.
+  После T-16: `bench.run_plan(ppm_fallback=None)` вместо monkeypatch `bench.fc` в `pipeline.py`; политика приоритета пробы над heavy-очередью.
+- Лимит панелей контракта 4 (C, F, G обрезаются; T-10 предлагает 12) — не решено.
+- `tests/floorplan` не в CI.
+- Попутные дефекты от T-18 (код не трогали): `viz_final.py` одиночный путь — NameError `merged`; `viz_paste.py` (комментарий 90° vs 30°,
+  `ids` в `--finish`, абзац GREY VOLUMES); `fromDemo.ts` yaw ?? 0 против урока 441; порог project-state 8/10/12 KB в трёх местах.
+- Узкие односпальные меши: пар 21/30, одиночных 3/15 (T-15).
+- Баланс шлюза Vercel для фото ~$1,3 (≈ 25 кадров) — сказать владельцу перед платными прогонами.
+
+## Планы написать
+`agent-trial-05-hero-photo` (T-13 §7 + run-1530), `agent-trial-07-e2e` (T-14; ⚑ почта: Resend на mail.remont-lab.online, DNS GoDaddy),
+`agent-trial-04-bedroom` (после влития T-12).
+
+## Хвосты памяти
+`/memory-check` (блокнот 09.11 не сведён); ADR: очередь пробы/мост, одобрение лендинга, гостиная вариант A, порог доли фото 0,75;
+`core/agent-trial.md` (нет сводки домена). Урок: prepush гоняет только шаги CI по тронутым файлам — test_tmp_hygiene проверяет ЧУЖИЕ
+тесты, поэтому T-17 ушёл красным; после влития тестов в `tools/scout/tests/` гонять и `test_tmp_hygiene.py`.
+
+## Исполнители common
+«работник 3», «работник 4» — сессии на common (учётка common, тот же лимит), сейчас ждут. Чужая учётка их не продолжит —
+на algor свои рабочие.
