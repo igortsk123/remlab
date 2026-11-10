@@ -1322,6 +1322,9 @@ body.tr-nogoods #shot .pinlist .row>.p{flex:0 0 40px}
 .hm-room[data-refused] .rb .sum small.tr-wait-tx,.hm-room[data-pending] .rb .sum small.tr-wait-tx{white-space:normal}
 .tr-approx{position:absolute;left:10px;top:10px;z-index:2;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.92);color:#8A4A1F;font-size:12px;line-height:1.3;border:1px dashed #C7652B;pointer-events:none}
 .vstage>.tr-approx{left:50%;top:14px;transform:translateX(-50%);z-index:5;white-space:nowrap}
+/* компьютер (T-20261110-40): по центру сверху — переключатель «Фото | 3D», слева сверху — «3D: тяните…»/«Фото нейросети…», справа —
+   «Скрыть цены»; пометка — слева внизу над ракурсами (ракурсы по центру ниже), не пересекает верхние кнопки ни на одной ширине */
+@media(min-width:701px){body.trial #shot .vstage>.tr-approx{left:12px;top:auto;bottom:62px;transform:none}}
 /* карточка пробы без фото: план комнаты с мебелью (тот же рисунок, что план окна) и подпись «Откройте — покажем в 3D» */
 .hm-room .hm-ph .nopv.tr-plan{background:var(--wash,#F3F0EA);padding:42px 14px 44px}
 .hm-room .hm-ph .nopv.tr-plan svg{width:100%;height:100%;display:block}
