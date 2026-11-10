@@ -97,6 +97,29 @@ def test_target_room_without_old_furniture_is_honest_refusal_not_spinner():
     assert [v['items'] for v in new['variants'] if v['room_id'] == 'bedroom-3'] == [[]]
 
 
+def test_living_picked_from_other_room_keeps_its_furniture_and_outcome():
+    """Гостиной с подписью в плане нет — сборщик берёт гостиной комнату вида `other` (прод 10.11: FYyX…, Jsfx…). Её мебель или отказ
+    переносятся, как у любой цели; раньше комнату пропускали по виду — сборщик оставлял «подбирается», `complete` становился False."""
+    flat = flat_with_bedrooms()
+    next(r for r in flat['panels'][0]['rooms'] if r['id'] == 'r1')['kind'] = 'other'
+    _, old = old_tour(flat)
+    by_old = {r['id']: r for r in old['apartment_rooms']}
+    assert by_old['living']['kind'] == 'other' and by_old['living']['furniture_state'] == 'ready'
+    new, rep = RI.reissue(JOB, flat, old, ctx=CTX)
+    assert furniture(new) == furniture(old) and 'living' in rep['kept_furniture'] and new['trial']['complete'] is True
+    # отказ гостиной «нет подходящих товаров» — остаётся отказом с текстом, не крутилкой
+    for r in old['apartment_rooms']:
+        if r['id'] == 'living':
+            r.update(TB._outcome('refused', 'no_products'))
+    old['variants'] = [v for v in old['variants'] if v['room_id'] != 'living'] + [
+        TB._empty_variant('living', old['rooms_geo']['living'], 'failed', {'code': 'no_products'})]
+    new, rep = RI.reissue(JOB, flat, old, ctx=CTX)
+    e = next(r for r in new['apartment_rooms'] if r['id'] == 'living')
+    assert (e['furniture_state'], e['furniture_outcome']) == ('refused', 'no_products') and e['furniture_text']
+    assert 'living' in rep['kept_outcome'] and new['trial']['complete'] is True
+    assert [v['items'] for v in new['variants'] if v['room_id'] == 'living'] == [[]]
+
+
 def test_waiting_and_consented_rooms_keep_their_state():
     """«Ждёт проверки» остаётся ждать (мебели не появится), «размеры примерные» агента — остаётся отметкой, фото по правилу."""
     flat = flat_with_bedrooms()
