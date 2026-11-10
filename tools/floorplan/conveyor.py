@@ -404,12 +404,42 @@ class Rebuild(Conveyor):
 SCALE_TEXT = ('listing', 'verified')         # опоры по длинам (подписи плана / «A на B» текстом); площадь — сверка, не опора
 
 
-def text_applied(old: dict, new: dict) -> bool:
-    """Текст агента лёг на план: у какой-то комнаты размеры из текста, или масштаб стал опираться на длины (был без них).
-    Только общая площадь («кухня 10 м²», «54 м²») — не опора (владелец/ведущий 09.11): это `no_match`, страница как была."""
-    rooms = (r for p in new.get('panels') or [] for r in p.get('rooms') or [])
-    if any((r.get('dims') or {}).get('src') == 'listing' for r in rooms):
-        return True
+def _rooms(res: dict) -> list[dict]:
+    return [r for p in res.get('panels') or [] for r in p.get('rooms') or []]
+
+
+def _is_text(r: dict) -> bool:
+    return (r.get('dims') or {}).get('src') == 'listing'
+
+
+def carry_over(old: dict, text: str) -> tuple[list[str], set[str]]:
+    """Второй текст ДОПОЛНЯЕТ первый (ведущий 10.11, T-20261109-33/3): размеры из прошлых текстов живут только в `result`
+    задания (комнаты с `dims.src == 'listing'`; сам текст не храним) → строки «имя — W m x D m» для перечитывания вместе с новым
+    текстом, чтобы масштаб считался по всем размерам сразу. Комнату, которую задаёт новый текст (то же сопоставление имён, что
+    при разборе: имя или вид+номер RU↔EN), не переносим — новое значение вместо старого, без «повтор имени».
+    → (строки переноса, ключи имён комнат, которых коснулся новый текст)."""
+    import listing
+    rooms = _rooms(old)
+    names = [n for r in rooms for n in str(r.get('name') or '').split(' + ') if n]
+    labels, _ = listing.match([{'name': n, 'dims': None} for n in names], listing.parse_listing(text))
+    hit = {listing.norm_name(lb['name']) for lb in labels if lb.get('text_row')}
+    lines = []
+    for r in rooms:
+        d = r.get('dims') or {}
+        if _is_text(r) and r.get('name') and listing.norm_name(r['name']) not in hit:
+            lines.append(f'{r["name"]} — {float(d["w"]) / 100:.2f} m x {float(d["d"]) / 100:.2f} m')
+    return lines, hit
+
+
+def text_applied(old: dict, new: dict, hit: set[str] | None = None) -> bool:
+    """НОВЫЙ текст агента лёг на план: комната, которой он коснулся (`hit` из `carry_over`), получила размер из текста, или размер из
+    текста появился у комнаты, где его не было, или масштаб стал опираться на длины (был без них). Перенесённые прошлые размеры —
+    не «лёг». Только общая площадь («кухня 10 м²», «54 м²») — не опора (владелец/ведущий 09.11): это `no_match`, страница как была."""
+    import listing
+    before = {r.get('id') for r in _rooms(old) if _is_text(r)}
+    for r in _rooms(new):
+        if _is_text(r) and (r.get('id') not in before or listing.norm_name(str(r.get('name') or '')) in (hit or set())):
+            return True
     was, now = (old.get('scale') or {}).get('status'), (new.get('scale') or {}).get('status')
     return now in SCALE_TEXT and was not in SCALE_TEXT
 
@@ -426,6 +456,8 @@ class ListingRebuild(Rebuild):
         self.text, self.mime, self.ext = text, mime, ext
         self.final_only = True
         self.new_result: dict | None = None
+        self.carried: list[str] = []
+        self.hit: set[str] = set()
 
     def publish_extra(self) -> dict:
         return {'result': self.new_result} if self.new_result is not None else {}
@@ -455,7 +487,7 @@ class ListingRebuild(Rebuild):
         """План заново с текстом → None (новый результат в `self.new_result`) или код исхода."""
         pw = self.wd / 'plan'
         lst = pw / 'listing.txt'
-        lst.write_text(self.text[:5000], encoding='utf-8')
+        lst.write_text('\n'.join(self.carried + [self.text[:5000]]), encoding='utf-8')
         cmd = self.cfg.pipeline + ['job', '--input', str(inp), '--mime', self.mime, '--workdir', str(pw),
                                    '--vlm-root', str(self.cfg.vlm_root), '--job-id', self.jid, '--cap-usd', '0', '--cache-only',
                                    '--listing-file', str(lst)]
@@ -484,11 +516,13 @@ class ListingRebuild(Rebuild):
         inp = self.source()
         if isinstance(inp, str):
             return inp
+        self.carried, self.hit = carry_over(self.result, self.text)
+        self.log(f'прошлые размеры из текста: перенесено комнат {len(self.carried)}, новый текст касается {len(self.hit)}')
         bad = self.reread(inp)
         if bad:
             return bad
         old, new = self.result, self.new_result
-        if not text_applied(old, new):
+        if not text_applied(old, new, self.hit):
             self.log(f'текст не лёг на план: масштаб {(old.get("scale") or {}).get("status")} → {(new.get("scale") or {}).get("status")}')
             return 'failed:no_match'
         n = sum(1 for p in new['panels'] for r in p['rooms'] if (r.get('dims') or {}).get('src') == 'listing')

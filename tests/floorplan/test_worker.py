@@ -42,6 +42,22 @@ if mode in ('no_plan', 'capacity'):
 if '--cache-only' in a:                  # план заново с текстом агента (Р2-текст): «лёг», если в тексте «A на B»
     if os.environ.get('FAKE_CACHE') == 'gone':
         put('error.json', json.dumps({'code': 'source_gone', 'retryable': False, 'detail': 'vlm cache missing'})); sys.exit(3)
+    if os.environ.get('FAKE_NAMES'):     # подписи плана с этими именами; текст — настоящим разбором `listing` (как bench.blind_gold)
+        sys.path.insert(0, os.environ['FAKE_FP'])
+        import listing
+        names = os.environ['FAKE_NAMES'].split('|')
+        labs, _ = listing.match([{'name': n, 'dims': None} for n in names],
+                                listing.parse_listing(open(a[a.index('--listing-file') + 1], encoding='utf-8').read()))
+        rooms = []
+        for i, lb in enumerate(labs):
+            r = {'id': f'p0-r{i}', 'name': lb['name'], 'kind': 'kitchen', 'flags': []}
+            if lb.get('dims_src') == 'text':
+                r['dims'] = {'w': round(lb['dims'][0] * 100, 1), 'd': round(lb['dims'][1] * 100, 1), 'src': 'listing'}
+            rooms.append(r)
+        n = sum(1 for r in rooms if 'dims' in r)
+        put('result.json', json.dumps({'version': 1, 'units': 'cm', 'fake': True, 'reread': True,
+                                       'scale': {'status': 'listing' if n else 'not_verified'}, 'panels': [{'id': 'p0', 'rooms': rooms}]}))
+        sys.exit(0)
     ok = ' на ' in open(a[a.index('--listing-file') + 1], encoding='utf-8').read()
     keep = os.environ.get('FAKE_KEEP_FLAG', '').split(',')         # эти комнаты и с текстом ждут проверки
     rooms = [{'id': 'r1', 'kind': 'living'}, {'id': 'k1', 'kind': 'kitchen'}, {'id': 'b1', 'kind': 'bedroom'}]
@@ -910,6 +926,53 @@ def test_listing_bad_claim_without_mime_fails_internal(prod, mk):
     assert [f['code'] for f in prod.by('/api/trial/worker/rebuild/fail')] == ['internal']
 
 
+NAMES = 'Lounge|Kitchen|Bedroom 1|Bedroom 2'
+
+
+def _dims(res):
+    return {r['name']: (r['dims']['w'], r['dims']['d']) for p in res['panels'] for r in p['rooms'] if 'dims' in r}
+
+
+def _second(prod, mk, monkeypatch, tmp_path, first, second):
+    """Первый текст → опубликованный result → второй текст поверх него (как сервер: claim отдаёт текущий result задания)."""
+    monkeypatch.setenv('FAKE_NAMES', NAMES)
+    monkeypatch.setenv('FAKE_FP', str(ROOT / 'tools' / 'floorplan'))
+    _listing(prod, text=first)
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    one = prod.by('/api/trial/worker/rebuild/publish')[-1]['result']
+    prod.reqs.clear()
+    _listing(prod, text=second, result=one)
+    w.loop(max_iter=1)
+    sent = prod.by('/api/trial/worker/rebuild/publish')
+    lst = sorted((tmp_path / 'trial' / JID).glob('r1-*/plan/listing.txt'), key=lambda p: p.stat().st_mtime)[-1]
+    return one, sent, lst.read_text(encoding='utf-8')
+
+
+def test_listing_second_text_supplements_first(prod, mk, monkeypatch, tmp_path, capsys):
+    """Ведущий 10.11 (вариант А): второй текст ДОПОЛНЯЕТ. Первый — гостиная и спальня 1, второй — только спальня 2 → в новой
+    версии размеры у всех трёх, масштаб не падает. Прошлые размеры берутся из result задания (текст не храним)."""
+    one, sent, lst = _second(prod, mk, monkeypatch, tmp_path, 'Lounge 4.4m x 3.8m\nBedroom 1 5.5m x 4.0m', 'Bedroom 2 3.9m x 4.0m')
+    assert _dims(one) == {'Lounge': (440, 380), 'Bedroom 1': (550, 400)} and one['scale']['status'] == 'listing'
+    assert len(sent) == 1 and _dims(sent[0]['result']) == {'Lounge': (440, 380), 'Bedroom 1': (550, 400), 'Bedroom 2': (390, 400)}
+    assert sent[0]['result']['scale']['status'] == 'listing'
+    assert lst.splitlines() == ['Lounge — 4.40 m x 3.80 m', 'Bedroom 1 — 5.50 m x 4.00 m', 'Bedroom 2 3.9m x 4.0m']
+    assert 'перенесено комнат 2' in capsys.readouterr().out
+
+
+def test_listing_second_text_same_room_new_value(prod, mk, monkeypatch, tmp_path):
+    """Та же комната во втором тексте — новое значение (не «повтор имени», не старое); по-русски — та же комната по виду и номеру."""
+    _, sent, lst = _second(prod, mk, monkeypatch, tmp_path, 'Lounge 4.4m x 3.8m\nBedroom 1 5.5m x 4.0m', 'спальня 1 — 5 на 4,2')
+    assert _dims(sent[0]['result']) == {'Lounge': (440, 380), 'Bedroom 1': (500, 420)}
+    assert lst.splitlines()[0] == 'Lounge — 4.40 m x 3.80 m' and 'Bedroom 1 —' not in lst
+
+
+def test_listing_second_text_without_match_is_no_match(prod, mk, monkeypatch, tmp_path):
+    """Второй текст ни к чему не подошёл — `no_match`, хотя перенесённые прошлые размеры лягут снова: «лёг» считается по новому."""
+    _, sent, _ = _second(prod, mk, monkeypatch, tmp_path, 'Lounge 4.4m x 3.8m', 'позвоните после обеда')
+    assert sent == [] and [f['code'] for f in prod.by('/api/trial/worker/rebuild/fail')] == ['no_match']
+
+
 def test_text_applied_only_length_anchors():
     """«Лёг» — размеры комнаты из текста или масштаб стал опираться на длины; только площадь (`area`) — не опора."""
     import conveyor as cv
@@ -919,3 +982,8 @@ def test_text_applied_only_length_anchors():
     assert not cv.text_applied(P('not_verified'), P('area'))
     assert not cv.text_applied(P('not_verified'), P('not_verified', {'w': 1, 'd': 1, 'src': 'plan'}))
     assert not cv.text_applied(P('verified'), P('verified'))
+    # перенесённый прошлый размер (та же комната и раньше из текста) — не «лёг»; новый текст её задал (`hit`) — «лёг»
+    L = {'w': 1, 'd': 1, 'src': 'listing'}
+    assert not cv.text_applied(P('listing', L), P('listing', L))
+    named = lambda: {'scale': {'status': 'listing'}, 'panels': [{'rooms': [{'id': 'r', 'name': 'Bedroom One', 'dims': L}]}]}  # noqa: E731
+    assert cv.text_applied(named(), named(), {'bedroom 1'})

@@ -26,8 +26,14 @@ export function sendErrorText(code: unknown, t: Words): string {
   return t.error;
 }
 
-/** Что сейчас с текстом агента (по опросу задания); `sent` — только что отправили, а опрос ещё не догнал. */
+/** Код сбоя пересборки по тексту → ключ строки для агента (прочие коды — общее «не получилось»). */
 const FAIL_TEXT = { source_gone: "sourceGone", no_match: "noMatch" } as const;
+
+/** Заголовок окошка: размеры уже применены и больше не нужны (`askSizes=false` после текста агента) — «применили, можно уточнить»,
+ *  в том числе пока идёт или не удалось следующее уточнение (что с ним — строка состояния под полем); иначе — просьба. */
+export function sizesHead(job: Pick<TrialJobView, "listing" | "askSizes">, t: Words): { title: string; text: string } {
+  return job.listing !== null && !job.askSizes ? { title: t.appliedTitle, text: t.appliedText } : { title: t.title, text: t.text };
+}
 
 /** Что сейчас с текстом агента (по опросу задания); `sent` — только что отправили, а опрос ещё не догнал. Применили, а размеры
  *  всё ещё нужны (`askSizes`) — честно «у части комнат размеров нет». */
@@ -52,6 +58,7 @@ export function SizesBox({ id, k, lang, job, onSent }: Props) {
   const [sent, setSent] = useState(false);
   const rid = useRef<string | null>(null);
   const note = listingNote(job, sent, t);
+  const head = sizesHead(job, t);
   const applying = job.listing === "applying";
 
   async function send(e: FormEvent) {
@@ -76,8 +83,8 @@ export function SizesBox({ id, k, lang, job, onSent }: Props) {
 
   return (
     <form className={s.sizes} onSubmit={(e) => void send(e)} data-testid="trial-sizes">
-      <b>{t.title}</b>
-      <p>{t.text}</p>
+      <b>{head.title}</b>
+      <p>{head.text}</p>
       <textarea aria-label={t.label} placeholder={t.placeholder} maxLength={TRIAL_SIZES_TEXT_MAX} value={text} disabled={busy}
         onChange={(e) => { setText(e.target.value); rid.current = null; setErr(null); }} />
       {err ? <p className={s.sizesErr} role="alert">{err}</p> : null}

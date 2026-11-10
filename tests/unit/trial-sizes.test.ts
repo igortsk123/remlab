@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { listingNote, newRequestId, sendErrorText } from "@/components/trial/SizesBox";
+import { listingNote, newRequestId, sendErrorText, sizesHead } from "@/components/trial/SizesBox";
 import { trialJobView, trialListingIn, type TrialJobView } from "@/contracts/trial";
 import { TEXT } from "@/lib/trial/i18n";
 import { asksSizes, sizeAsk } from "@/lib/trial/size-ask";
@@ -70,6 +70,16 @@ describe("строки окошка", () => {
   it("применили: размеры больше не нужны — «готово», часть комнат без размеров — честно «у части нет»", () => {
     expect(listingNote({ listing: "done", listingError: null, askSizes: false }, false, t)).toEqual({ text: t.done, bad: false });
     expect(listingNote({ listing: "done", listingError: null, askSizes: true }, false, t)).toEqual({ text: t.partial, bad: false });
+  });
+  it("заголовок: размеры применены и не нужны — «Размеры применили / можно уточнить» (и пока уточнение идёт или не легло); иначе просьба", () => {
+    const applied = { title: "Размеры применили", text: "Можно уточнить — напишите ещё" };
+    expect(sizesHead({ listing: "done", askSizes: false }, t)).toEqual(applied);
+    expect(sizesHead({ listing: "done", askSizes: false }, TEXT.en.sizes))
+      .toEqual({ title: "Sizes applied", text: "You can refine — write more" });
+    for (const listing of ["applying", "accepted", "failed"] as const)
+      expect(sizesHead({ listing, askSizes: false }, t), listing).toEqual(applied); // уточнение после успеха: размеры на месте
+    for (const listing of ["done", "applying", "failed", null] as const)
+      expect(sizesHead({ listing, askSizes: true }, t), String(listing)).toEqual({ title: t.title, text: t.text });
   });
   it("коды отказа — понятный текст; id запроса подходит ручке", () => {
     expect(sendErrorText("source_gone", t)).toBe(t.sourceGone);

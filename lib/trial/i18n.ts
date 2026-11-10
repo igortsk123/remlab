@@ -83,6 +83,7 @@ const en = {
   },
   sizes: {
     title: "We couldn't find the room sizes", text: "Write what you know, in any form — we'll work it out.",
+    appliedTitle: "Sizes applied", appliedText: "You can refine — write more",
     label: "Room sizes", placeholder: "e.g. living room 4.8 × 3.6 m, bedroom 3 × 3 m",
     send: "Send sizes", sending: "Sending…",
     accepted: "Got it. We'll apply the sizes once the plan is built.", applying: "Applying your sizes…",
@@ -134,6 +135,7 @@ const ru: TrialText = {
   },
   sizes: {
     title: "Не нашли размеры комнат", text: "Напишите, что знаете, в любом виде — уточним.",
+    appliedTitle: "Размеры применили", appliedText: "Можно уточнить — напишите ещё",
     label: "Размеры комнат", placeholder: "например: гостиная 4,8 на 3,6, спальня 3×3",
     send: "Отправить размеры", sending: "Отправляем…",
     accepted: "Приняли. Применим, когда план соберётся.", applying: "Применяем размеры…",

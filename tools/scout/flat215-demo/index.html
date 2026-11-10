@@ -1919,8 +1919,11 @@ function trSizesState(){
 function trSizesBox(box){
   if(!trKey()||!(trAskSizes()||TRL.listing))return;
   const EN=TR_EN(), st=trSizesState(), off=TRL.busy||TRL.listing==='applying';
-  box.insertAdjacentHTML('beforeend',`<form class="tr-sizes" data-tr-sizes="1"><b>${EN?'We couldn’t find the room sizes':'Не нашли размеры комнат'}</b>`+
-    `<p>${EN?'Write what you know, in any form — we’ll work it out.':'Напишите, что знаете, в любом виде — уточним.'}</p>`+
+  const ok=!!TRL.listing&&!trAskSizes();   // размеры применены и не нужны — «применили, можно уточнить» (и пока уточнение идёт/не легло); поле остаётся
+  const hd=ok?['Размеры применили','Sizes applied']:['Не нашли размеры комнат','We couldn’t find the room sizes'];
+  const tx=ok?['Можно уточнить — напишите ещё','You can refine — write more']:['Напишите, что знаете, в любом виде — уточним.','Write what you know, in any form — we’ll work it out.'];
+  box.insertAdjacentHTML('beforeend',`<form class="tr-sizes" data-tr-sizes="1"><b>${EN?hd[1]:hd[0]}</b>`+
+    `<p>${EN?tx[1]:tx[0]}</p>`+
     `<textarea maxlength="2000" aria-label="${EN?'Room sizes':'Размеры комнат'}" placeholder="${EN?'e.g. living room 4.8 × 3.6 m, bedroom 3 × 3 m':'например: гостиная 4,8 на 3,6, спальня 3×3'}"${TRL.busy?' disabled':''}>${escHtml(TRL.text)}</textarea>`+
     (st?`<p class="tr-sz-st${st.bad?' bad':''}" role="${st.bad?'alert':'status'}" data-tr-sizes-state="1">${EN?st.t[1]:st.t[0]}</p>`:'')+
     `<button class="btn tr-fur" type="submit"${off||!(TRL.text||'').trim()?' disabled':''}>${TRL.busy?(EN?'Sending…':'Отправляем…'):(EN?'Send sizes':'Отправить размеры')}</button></form>`);
