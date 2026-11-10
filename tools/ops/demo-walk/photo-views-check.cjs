@@ -1,4 +1,4 @@
-// T-20261109-29: «Сделать реалистичнее» — уходят ли кадры из браузера (`views`) в заказ фото. БЕСПЛАТНО: /api/render отвечает
+// T-20261109-29: «Сделать фото» — уходят ли кадры из браузера (`views`) в заказ фото. БЕСПЛАТНО: /api/render отвечает
 // заглушкой-отказом (платная генерация не запускается), /api/render/frame — заглушкой с id = sha256 (на прод ничего не грузится).
 //   node tools/ops/demo-walk/photo-views-check.cjs <WxH> <новая папка> [walk,early,stale,home,pre2,pre5,race]
 // Сценарии: walk — окно в 3D, сцена готова; early — нажали до готовности 3D; stale — окно открылось в «Фото» (прежнее фото, T-66),
@@ -206,7 +206,7 @@ async function flicker(b) {
       const before = await live(p); const t0 = Date.now(); await p.click('#vCta');
       await waitOrder(p, 90000); await p.screenshot({ path: OUT + `/early-${W}-after.png` }); await report(p, 'early', before, t0); await p.context().close();
     }
-    if (ONLY.includes('stale')) { // комната правлена, окно открывается в «Фото» (прежнее фото, T-66) → «Сделать реалистичнее» на плашке
+    if (ONLY.includes('stale')) { // комната правлена, окно открывается в «Фото» (прежнее фото, T-66) → «Сделать фото» на плашке
       const p = await open(b);
       await edit(p); await p.evaluate(() => vwOpenVariant(cur)); await p.waitForTimeout(2500);
       const before = await live(p); await p.screenshot({ path: OUT + `/stale-${W}-before.png` });

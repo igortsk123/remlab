@@ -48,7 +48,7 @@ await p.evaluate(()=>{if(VW.mode==='photo')vwMode('walk');}); await p.waitForFun
 const h3d=await head();
 ok('v5.2 в 3D свёрнутая: кнопка целиком в экране',h3d.pos==='0'&&h3d.inScreen,JSON.stringify(h3d));
 ok('v5.2 высота свёрнутой ≤ 190 px (на 667)',H>667||h3d.h<=190,`${h3d.h} px`);
-ok('v5.2 кнопка — «'+(EN?'Make it realistic':'Сделать реалистичнее')+'»',EN?/realistic/.test(h3d.ctaTxt)&&!/[А-Яа-я]/.test(h3d.ctaTxt+h3d.chip):/реалистичнее/.test(h3d.ctaTxt),h3d.ctaTxt+' · '+h3d.chip);
+ok('v5.2 кнопка — «'+(EN?'Take photo':'Сделать фото')+'»',EN?/Take photo/.test(h3d.ctaTxt)&&!/[А-Яа-я]/.test(h3d.ctaTxt+h3d.chip):/Сделать фото/.test(h3d.ctaTxt),h3d.ctaTxt+' · '+h3d.chip);
 await p.screenshot({path:OUT+`v52${SFX}-open.png`});   // у варианта есть фото — окно в «Фото», жесты меряем в 3D await p.waitForTimeout(8000);
 await p.evaluate(()=>{window.__fit=0; const o=liveFit; liveFit=function(){window.__fit++; return o.apply(this,arguments);};});
 const geo=()=>p.evaluate(()=>{const sd=document.getElementById('vside').getBoundingClientRect(), cv=LIVE.canvas&&LIVE.canvas.getBoundingClientRect(), pl=document.getElementById('vsum').getBoundingClientRect();
@@ -126,7 +126,7 @@ ok('v5 «← Назад» — прежняя высота (±2)',Math.abs(vis1-v
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800); await p.screenshot({path:OUT+`v5-${W}-mid.png`}); await p.screenshot({path:OUT+`v52${SFX}-mid.png`});
 const hMid=await head(); ok('v5.2 средняя: кнопка в экране, выше свёрнутой',hMid.inScreen&&hMid.h>h3d.h,`${h3d.h} → ${hMid.h}`);
 await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(800); await p.screenshot({path:OUT+`v52${SFX}-full.png`});
-// 8б. v5.1: 10 тапов по чипу из свёрнутой (CDP-касания) — шторка раскрыта каждый раз, «Сделать реалистичнее» не нажата ни разу.
+// 8б. v5.1: 10 тапов по чипу из свёрнутой (CDP-касания) — шторка раскрыта каждый раз, «Сделать фото» не нажата ни разу.
 // Ожидание — по состоянию, не по часам: на загруженной машине анимация идёт дольше 0,3 с
 await p.evaluate(()=>{window.__mp=0; makePhoto=function(){window.__mp++;};});
 let opened=0; const tl=[]; for(let k=0;k<10;k++){await p.evaluate(()=>vwSheet(0)); await still();
@@ -135,7 +135,7 @@ let opened=0; const tl=[]; for(let k=0;k<10;k++){await p.evaluate(()=>vwSheet(0)
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
   const got=await p.waitForFunction(()=>document.getElementById('vside').dataset.pos==='3',null,{timeout:3000}).then(()=>true).catch(()=>false);
   await still(); tl.push(got?'3':'0'); if(got)opened++;}
-ok('v5.1 тап по чипу ×10: раскрыта 10/10, ложных «Сделать реалистичнее» 0',opened===10&&(await p.evaluate('window.__mp'))===0,`раскрыта ${opened}, makePhoto ${await p.evaluate('window.__mp')} · ${tl.join('')}`);
+ok('v5.1 тап по чипу ×10: раскрыта 10/10, ложных «Сделать фото» 0',opened===10&&(await p.evaluate('window.__mp'))===0,`раскрыта ${opened}, makePhoto ${await p.evaluate('window.__mp')} · ${tl.join('')}`);
 // v5.2 п.5: тап по предмету — прокрутка списка сразу, вместе с подъёмом шторки (не вторым движением)
 {const idx=await p.evaluate(()=>{vwSelect(null); const k=items.map((it,i)=>[i,vwRowOf(it)]).filter(x=>x[1]).map(x=>x[0]); return k[Math.floor(k.length/2)];});   // средняя строка — прокрутка нужна и возможна
  await p.evaluate(()=>{vwSheet(0); document.getElementById('vscroll').scrollTop=0;}); await still();

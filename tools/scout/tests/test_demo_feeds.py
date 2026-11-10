@@ -14,8 +14,10 @@ from planner.models import Item, Placement  # noqa: E402
 
 
 def row(sid, w, d, styles, name=None, msid='m', img='img/0123456789abcdef.jpg', **kw):
+    # строка витрины — товар: фото, магазин, ссылка, цена (T-40: строки без них в ленту тура не идут)
     return dict({'sid': sid, 'name': name or f'товар {sid}', 'w': w, 'd': d, 'h': 75, 'styles': list(styles),
-                 'style': styles[0], 'msid': msid, 'img': img}, **kw)
+                 'style': styles[0], 'msid': msid, 'img': img, 'url': f'https://shop.example/{sid}', 'shop': 'Магазин', 'price': 10000},
+                **kw)
 
 
 def demo_file(tmp_path, feeds):
@@ -69,7 +71,8 @@ def test_slot_pick_largest_fitting_with_model():
 def _variant(style, items, room_id='living'):
     return {'room_id': room_id, 'style': style,
             'items': [{'role': r, 'w': w, 'd': d, 'sku': {'name': f'{r} {style}', 'msid': f'{r}-{style}', 'w': w, 'd': d,
-                                                          'img': 'img/0123456789abcdef.jpg'}} for r, w, d in items]}
+                                                          'img': 'img/0123456789abcdef.jpg', 'url': 'https://shop.example/x',
+                                                          'price': 9000}} for r, w, d in items]}
 
 
 def test_feeds_for_counts_short_and_rug_has_no_model():
@@ -99,6 +102,89 @@ def test_feeds_for_cuts_by_place_of_scene_not_by_current_product():
     v2 = _variant('лофт', [('стол обеденный', 110, 85)])
     feeds2, _ = TB.feeds_for([v2], demo)                              # мест нет (спальня, перевыпуск) — по размеру товара
     assert [r.get('w') for r in feeds2['стол обеденный']] == [110]
+
+
+def test_room_feed_only_goods_band_and_own_gets_goods():
+    """T-40 (владелец TG 917/872): в ленте — только товары (фото, магазин, цена) не мельче полосы места; своя строка без товара и тот же
+    товар витрины — одна строка С ТОВАРОМ."""
+    data = {'living': {'диван': [
+        row('1_a', 200, 90, ['лофт']),
+        row('1_b', 205, 90, ['лофт'], url=None),            # нет ссылки в магазин — не товар
+        row('1_c', 150, 90, ['лофт']),                      # мельче полосы места (0,8 текущего)
+        row('1_d', 210, 90, ['лофт'], name='Диван Лофт')]}}  # тот же товар, что свой без товара
+    own = [{'name': 'Диван · 210×90 см', 'msid': 'm', 'w': 210, 'd': 90, 'style': 'лофт', 'styles': ['лофт'], 'src': 'set'}]
+    rows, count = DF.room_feed(data, 'living', 'диван', {'лофт': [(215, 95)]}, own, lo={'лофт': 168})
+    assert [r['name'] for r in rows] == ['Диван Лофт', 'товар 1_a'] and rows[0]['src'] == 'set' and DF.has_goods(rows[0])
+    assert count == {'лофт': 2}
+    # витрины нет — тур собирается прежним путём: свои строки без товара остаются
+    rows0, _ = DF.room_feed({}, 'living', 'диван', {'лофт': [(215, 95)]}, own)
+    assert [r['name'] for r in rows0] == ['Диван · 210×90 см']
+
+
+def test_same_goods_same_model_and_size_untinted_origin_first():
+    data = {'bedroom': {'кровать': [row('2_x', 160, 200, ['сканди'], msid='M'), row('M', 160, 200, ['сканди'], msid='M'),
+                                    row('2_t', 160, 200, ['сканди'], msid='M', tint='#ffffff')]}}
+    assert DF.same_goods(data, 'bedroom', 'кровать', {'msid': 'M', 'w': 160.4, 'd': 200})['sid'] == 'M'   # с которого снята модель
+    assert DF.same_goods(data, 'bedroom', 'кровать', {'msid': 'M', 'w': 180, 'd': 200}) is None           # другой размер
+    only_tint = {'bedroom': {'кровать': [row('2_t', 160, 200, ['сканди'], msid='M', tint='#ffffff')]}}
+    assert DF.same_goods(only_tint, 'bedroom', 'кровать', {'msid': 'M', 'w': 160, 'd': 200}) is None       # фото не того цвета
+
+
+GEO = {'w': 400, 'd': 300}
+
+
+def _it(role, x, y, w, d, rot=0, **sku):
+    return {'role': role, 'x': x, 'y': y, 'w': w, 'd': d, 'rot': rot, 'sku': dict({'name': role, 'w': w, 'd': d}, **sku)}
+
+
+def test_free_place_span_to_neighbours_and_walls_capped():
+    sofa, chair = _it('диван', 100, 45, 200, 90), _it('кресло', 260, 45, 80, 80)
+    rug = _it('ковёр', 200, 150, 240, 170)
+    r1 = lambda p: tuple(round(x, 1) for x in p)  # noqa: E731
+    assert r1(TB.free_place(sofa, [sofa, chair, rug], GEO)) == (220, 99)    # до кресла 220 (= 1,1 ширины), вглубь — 1,1 глубины
+    tight = _it('кресло', 250, 45, 80, 80)
+    assert r1(TB.free_place(sofa, [sofa, tight], GEO)) == (210, 99)         # до соседа 210
+    assert TB.free_place(sofa, [sofa], {'w': 190, 'd': 300})[0] == 200      # тесно — не меньше своего размера
+    assert TB.free_place(rug, [sofa, rug], GEO) == (240, 170)               # ковёр — подложка: место = свой размер
+    assert TB.free_place(sofa, [sofa], None) == (200, 90)                   # без коробки комнаты — свой размер
+    side = _it('комод', 30, 150, 100, 50, rot=90)                           # повёрнут: «вдоль» — по оси y комнаты
+    assert r1(TB.free_place(side, [side], GEO)) == (110, 55)
+
+
+def test_goods_from_feeds_same_bank_slot_and_wall_edge():
+    """Предмет без товара (тур до T-25, перенесённый перевыпуском) — товар: та же модель витрины / товар банка по модели / товар
+    витрины по месту (ковёр без модели, стул снятого с продажи товара); край у стены после замены — у стены."""
+    demo = {'living': {'диван': [row('S', 200, 90, ['лофт'], msid='S')],
+                       'ковёр': [row('R1', 160, 230, ['лофт'], msid='R1'), row('R2', 120, 180, ['лофт'], msid='R2')],
+                       'стул': [row('C2', 44, 44, ['лофт'], msid='C2')]}}
+    v = {'room_id': 'living', 'style': 'лофт', 'items': [
+        _it('диван', 100, 45, 200, 90, msid='S'),
+        _it('кресло', 300, 200, 80, 80, msid='K'),
+        _it('ковёр', 200, 150, 240, 170),
+        _it('стул', 377.5, 22.5, 45, 45, msid='GONE')]}
+    bank = {'name': 'Кресло банка', 'img': 'img/k.jpg', 'url': 'https://shop.example/k', 'price': 5000, 'shop': 'Магазин'}
+    st = TB.goods_from_feeds([v], demo, lambda sid, role: dict(bank) if sid == 'K' else None, {'living': GEO})
+    assert st == {'same': 1, 'bank': 1, 'slot': 2, 'model_only': 0, 'none': 0}
+    sofa, chair, rug, stool = v['items']
+    assert sofa['sku']['msid'] == 'S' and sofa['w'] == 200 and DF.has_goods(sofa['sku'])            # модель и место те же
+    assert chair['sku']['name'] == 'Кресло банка' and chair['sku']['msid'] == 'K'
+    # ковёр: R2 короче дивана (180 < 200) — не берём; R1 длинной стороной вдоль длинной стороны места; модели у плиты нет
+    assert (rug['w'], rug['d']) == (230, 160) and rug['sku']['url'].endswith('R1') and 'msid' not in rug['sku']
+    # стул: товар снят → товар витрины по месту со своей моделью; стоял в углу — остался в углу
+    assert stool['sku']['msid'] == 'C2' and (stool['w'], stool['d']) == (44, 44) and (stool['x'], stool['y']) == (378.0, 22.0)
+    # без витрины и без резолвера — ничего не трогаем
+    v2 = {'room_id': 'living', 'style': 'лофт', 'items': [_it('стул', 100, 100, 45, 45, msid='GONE')]}
+    assert TB.goods_from_feeds([v2], None, None) == {'same': 0, 'bank': 0, 'slot': 0, 'model_only': 0, 'none': 0}
+
+
+def test_feeds_for_writes_page_band_from_place():
+    demo = {'living': {'диван': [row(f'1_{i}', w, 90, ['лофт']) for i, w in enumerate((150, 170, 205, 219, 230))]}}
+    sofa, chair = _it('диван', 100, 45, 200, 90, msid='m', img='img/a.jpg', url='https://shop.example/s', price=1), \
+        _it('кресло', 260, 45, 80, 80)
+    bands: dict = {}
+    feeds, _ = TB.feeds_for([{'room_id': 'living', 'style': 'лофт', 'items': [sofa, chair]}], demo, geo={'living': GEO}, bands=bands)
+    assert sorted(r['w'] for r in feeds['диван']) == [170, 200, 205, 219]       # 150 мельче 0,8×200, 230 не влезает в 220
+    assert bands['диван'] == {'lo': 160, 'side': 'w', 'hi': 221}               # страница режет той же полосой
 
 
 def test_dev_flat_is_demo_owner_and_its_uk_twin(tmp_path):

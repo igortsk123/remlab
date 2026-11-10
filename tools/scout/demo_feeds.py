@@ -120,25 +120,68 @@ def _key(r: dict) -> tuple:
     return (r.get('msid') or r.get('name'), r.get('w'), r.get('d'), r.get('sleep_w'))
 
 
-def room_feed(data: dict, kind: str, role: str, slots: dict, own: list | None = None) -> tuple[list, dict]:
+# ТОВАР В ЛЕНТЕ — С ФОТО И МАГАЗИНОМ (T-20261110-40, владелец TG 917): строка без них — белая карточка «Диван · 210×90» без картинки
+GOODS_FIELDS = ('name', 'name_en', 'colour_en', 'colour_ru', 'price', 'img', 'url', 'shop')
+BAND_LO = 0.8            # нижняя граница «подходящего по размеру» — доля места (полоса владельца 22.10, demo-20 А4: 0,8–1,1 идеала)
+
+
+def has_goods(r: dict) -> bool:
+    """Строка — товар: фото, ссылка в магазин, цена."""
+    p = r.get('price')
+    return bool(r.get('img')) and bool(r.get('url')) and isinstance(p, (int, float)) and not isinstance(p, bool) and p > 0
+
+
+def side(role: str, r: dict) -> float:
+    """Мерило размера роли: у ковра — длинная сторона (в фидах `w` — короткая), у прочих — ширина (как `slot_rules.in_band`)."""
+    w, d = r.get('w') or 0, r.get('d') or 0
+    return max(w, d) if role in ('ковёр', 'ковер') else w
+
+
+def same_goods(data: dict, kind: str, role: str, sku: dict) -> dict | None:
+    """Товар витрины для предмета без товара (сборка до T-25, перенесённая перевыпуском): та же модель (`msid`) того же размера, с
+    фото и магазином. Из цветов модели — неперекрашенный (`tint` нет: фото = цвет модели в кадре), сперва тот, с которого модель
+    снята (`sid` = `msid`). Нет такого — None (покрашенный цвет дал бы фото не того цвета, что в 3D)."""
+    m = sku.get('msid')
+    if not m:
+        return None
+    best = None
+    for r in kind_rows(data, kind, role):
+        if r.get('msid') != m or r.get('tint') or not has_goods(r):
+            continue
+        if abs((r.get('w') or 0) - (sku.get('w') or 0)) > FIT_TOL_CM or abs((r.get('d') or 0) - (sku.get('d') or 0)) > FIT_TOL_CM:
+            continue
+        key = (r.get('sid') != m, r.get('name') or '')
+        if best is None or key < best[0]:
+            best = (key, r)
+    return best[1] if best else None
+
+
+def room_feed(data: dict, kind: str, role: str, slots: dict, own: list | None = None, lo: dict | None = None) -> tuple[list, dict]:
     """Лента позиции комнаты тура → (строки, {стиль: сколько}). `slots` — {стиль: [(ширина, глубина) мест этой роли в варианте
     стиля]}; `own` — строки товаров самих вариантов (идут первыми, как «изначальный набор» /demo). Товар витрины берётся, если у него
     модель и он влезает в место хотя бы одного своего стиля; `styles` строки — только те стили, в чьё место он влезает (страница режет
-    ленту стилем варианта — `index.html:feedFor`)."""
+    ленту стилем варианта — `index.html:feedFor`). `lo` — {стиль: наименьший размер (`side`)}: мельче — «не по размеру» (страница —
+    та же полоса, `rules.slot_band_cm`). Своя строка без товара и строка витрины того же товара — одна строка С ТОВАРОМ витрины;
+    строки без фото и магазина в ленту не идут (T-40)."""
     out = [dict(r) for r in own or []]
     have = {_key(r): r for r in out}             # свой товар варианта = тот же товар витрины (модель и размер) — одна строка
     seen = set()                                 # строки витрины — по ключу товара: цвета одной модели — разные строки, как в /demo
+    lo = lo or {}
     for r in kind_rows(data, kind, role):
-        if not model_ok(role, r) or (r.get('sid') and r['sid'] in seen):
+        if not model_ok(role, r) or not has_goods(r) or (r.get('sid') and r['sid'] in seen):
             continue
-        st = [s for s in styles_of(r) if any(fits(role, r, sl) for sl in slots.get(s) or [])]
+        st = [s for s in styles_of(r) if any(fits(role, r, sl) for sl in slots.get(s) or []) and side(role, r) >= (lo.get(s) or 0)]
         if not st:
             continue
         seen.add(r.get('sid'))
         old = have.get(_key(r))
         if old is not None:
             old['styles'] = list(dict.fromkeys(styles_of(old) + st))
+            if not has_goods(old) and not r.get('tint'):           # своя строка без товара — товар витрины (фото, магазин, цена)
+                old.update({k: r[k] for k in GOODS_FIELDS if r.get(k) not in (None, '')})
             continue
         out.append(dict(r, style=st[0], styles=st))
+    if any(has_goods(r) for r in out):          # тур без товаров вовсе (каталог лёг, витрины нет) — прежняя лента своих строк
+        out = [r for r in out if has_goods(r)]
     count = {s: sum(1 for r in out if s in styles_of(r)) for s in slots}
     return out, count

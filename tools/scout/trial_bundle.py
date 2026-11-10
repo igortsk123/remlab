@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -975,28 +976,163 @@ FEED_EXTRA_KEYS = {'corner_left', 'pack', 'hung', 'd_catalog', 'yaw', 'swatch', 
 SLOTS_KEY = '_slots'     # служебное поле варианта: места предметов сцены гостиной; `feeds_for` снимает его (в данные страницы не идёт)
 
 
-def feeds_for(variants: list, demo: dict | None = None, room_keys: bool = True) -> tuple[dict, dict]:
+PLACE_GROW = 1.1         # место предмета без места решателя: до 1,1 его размера (верх полосы владельца 22.10) в пределах свободного места
+RUG_ROLES = ('ковёр', 'ковер')
+
+
+def _box(it: dict) -> tuple:
+    """Описанный прямоугольник предмета на плане комнаты (x0, y0, x1, y1) — как `index.html:box` (x, y — центр)."""
+    a = math.radians(it.get('rot') or 0)
+    c, s = abs(math.cos(a)), abs(math.sin(a))
+    w, d = it.get('w') or 0, it.get('d') or 0
+    sw, sd = w * c + d * s, w * s + d * c
+    x, y = it.get('x') or 0, it.get('y') or 0
+    return (x - sw / 2, y - sd / 2, x + sw / 2, y + sd / 2)
+
+
+def free_place(it: dict, items: list, geo: dict | None) -> tuple:
+    """(ширина, глубина) МЕСТА предмета в его осях, когда места решателя нет (вариант перенесён перевыпуском, `_slots` не сохранились):
+    свободный пролёт до соседей и стен — тем же правилом, что «встаёт ли» на странице (`index.html:freeSpan`), но не больше
+    `PLACE_GROW` его размера и не меньше его самого. Раньше местом считался размер самого товара, и в ленту шли только товары не крупнее
+    текущего (стул 42×42 — один стул на весь тур, T-40). Ковёр — подложка под мебелью: его место — его размер."""
+    w, d = it.get('w') or 0, it.get('d') or 0
+    if _base_role(it.get('role') or '') in RUG_ROLES or not geo or not (w and d):
+        return (w, d)
+    b = _box(it)
+    others = [_box(o) for o in items if o is not it and not str(o.get('role') or '').startswith(RUG_ROLES)]
+
+    def span(ax: int) -> float:
+        lo, hi = 0.0, float(geo.get('w' if ax == 0 else 'd') or 0)
+        e0, e1 = (b[0], b[2]) if ax == 0 else (b[1], b[3])
+        for o in others:
+            cross = not (o[3] <= b[1] or o[1] >= b[3]) if ax == 0 else not (o[2] <= b[0] or o[0] >= b[2])
+            if not cross:
+                continue
+            o0, o1 = (o[0], o[2]) if ax == 0 else (o[1], o[3])
+            if o1 <= e0:
+                lo = max(lo, o1)
+            elif o0 >= e1:
+                hi = min(hi, o0)
+        return hi - lo
+    sx, sy = span(0), span(1)
+    along, across = (sy, sx) if round((it.get('rot') or 0) / 90) % 2 == 1 else (sx, sy)
+    return (max(w, min(along, w * PLACE_GROW)), max(d, min(across, d * PLACE_GROW)))
+
+
+def _sofa_w(v: dict) -> float:
+    return max([it.get('w') or 0 for it in v.get('items') or [] if _base_role(it.get('role') or '') == 'диван'] or [0])
+
+
+WALL_TOUCH_CM = 5.0      # край предмета ближе к стене — «у стены»: при замене на меньший товар этот край остаётся у стены
+
+
+def _keep_wall_edge(it: dict, b0: tuple, geo: dict | None) -> None:
+    """После замены размера предмета (центр прежний): край, что стоял у стены коробки комнаты, — снова у стены (иначе диван/комод
+    меньшего товара «отъезжает» от стены); у стены нет — центр прежний."""
+    if not geo:
+        return
+    b1 = _box(it)
+    for ax, lim in ((0, float(geo.get('w') or 0)), (1, float(geo.get('d') or 0))):
+        lo0, hi0, half = b0[ax], b0[ax + 2], (b1[ax + 2] - b1[ax]) / 2
+        key = 'x' if ax == 0 else 'y'
+        if lo0 <= WALL_TOUCH_CM:
+            it[key] = round(lo0 + half, 1)
+        elif lim and hi0 >= lim - WALL_TOUCH_CM:
+            it[key] = round(hi0 - half, 1)
+
+
+def goods_from_feeds(variants: list, demo: dict | None, goods=None, geo: dict | None = None) -> dict:
+    """ТОВАР У КАЖДОГО ПРЕДМЕТА (T-20261110-40, владелец TG 917): у туров, собранных до T-25 и перенесённых перевыпуском, предметы — без
+    товара (серые квадраты в списке, первая карточка ленты без фото). Предмету без товара — товар витрины /demo:
+    (1) та же модель того же размера (`demo_feeds.same_goods`) — фото, магазин, цена, название; модель и место не меняются;
+    (2) модель есть, а в витрине её нет (снята из /demo, но лежит в банке пробы) — товар, с которого модель снята: ключ модели = ключ
+    товара (`goods`, резолвер сборки `catalog_goods`);
+    (3) заглушка без модели (ковёр, обеденный стол без `msid`) или товар снят с продажи — самый крупный товар витрины своего стиля, что
+    влезает в место (`free_place`, `demo_feeds.slot_pick`; ковёр — не короче дивана варианта, `index.html:rugFitsSofa`): центр
+    прежний, край у стены — у стены (`_keep_wall_edge`), размер — товара, ковёр — длинной стороной вдоль своей длинной; у мебели — его
+    модель. Ничего не нашлось — предмет как был (в списке — снимок модели). `geo` — коробки комнат {room_id: {w, d}}.
+    Меняет варианты на месте → счётчики {same, bank, slot, model_only, none}."""
+    import demo_feeds as DF
+    st = {'same': 0, 'bank': 0, 'slot': 0, 'model_only': 0, 'none': 0}
+    if not demo and not goods:
+        return st
+    for v in variants:
+        kind = DF.room_kind(v.get('room_id') or '')
+        for it in v.get('items') or []:
+            sku = it.get('sku')
+            if not isinstance(sku, dict) or DF.has_goods(sku):
+                continue
+            base = _base_role(it.get('role') or '')
+            r = DF.same_goods(demo or {}, kind, base, sku)
+            if r is not None:
+                sku.update({k: r[k] for k in DF.GOODS_FIELDS if r.get(k) not in (None, '')})
+                st['same'] += 1
+                continue
+            if sku.get('msid') and base not in DF.NOMESH:
+                g = goods(sku['msid'], base) if goods else None
+                if g and DF.has_goods(g):
+                    sku.update({k: x for k, x in g.items() if x not in (None, '')})
+                    st['bank'] += 1
+                    continue
+            if not demo:
+                st['model_only' if sku.get('msid') else 'none'] += 1
+                continue
+            w, d, sofa = it.get('w') or 0, it.get('d') or 0, _sofa_w(v)
+            place = free_place(it, v.get('items') or [], (geo or {}).get(v.get('room_id') or ''))
+            r = DF.slot_pick(demo, kind, base, v.get('style') or '', place,
+                             ok=lambda x: DF.has_goods(x) and not x.get('tint')
+                             and (base not in RUG_ROLES or DF.side(base, x) >= sofa))
+            if r is None:
+                st['model_only' if sku.get('msid') else 'none'] += 1
+                continue
+            rw, rd = r.get('w') or 0, r.get('d') or 0
+            if base in RUG_ROLES:                      # длинная сторона ковра — вдоль длинной стороны места
+                rw, rd = (max(rw, rd), min(rw, rd)) if w >= d else (min(rw, rd), max(rw, rd))
+            b0 = _box(it)
+            it.update(w=rw, d=rd, **({'h': r['h']} if r.get('h') else {}))
+            _keep_wall_edge(it, b0, (geo or {}).get(v.get('room_id') or ''))
+            new = {'w': rw, 'd': rd, **({'h': r['h']} if r.get('h') else {}),
+                   **{k: r[k] for k in DF.GOODS_FIELDS if r.get(k) not in (None, '')}}
+            if base not in DF.NOMESH and r.get('msid'):
+                new['msid'] = r['msid']
+            sku.clear()
+            sku.update(new)
+            st['slot'] += 1
+    return st
+
+
+def feeds_for(variants: list, demo: dict | None = None, room_keys: bool = True, geo: dict | None = None,
+              bands: dict | None = None) -> tuple[dict, dict]:
     """ЛЕНТЫ ЗАМЕН ТУРА = ЛЕНТЫ /demo ПОД СЛОТ (T-20261110-37): товары вариантов задания (`_feeds`, первыми) + товары лент витрины
     (`demo_feeds.room_feed`: модель есть, стиль совпадает, влезает в место предмета своего стиля в этой комнате). `demo` — ленты витрины
-    (`demo_feeds.load`); нет — только товары вариантов, как раньше. → (ленты, `feeds_short`: {ключ ленты: {стиль: {n, demo}}} при n < 20)."""
+    (`demo_feeds.load`); нет — только товары вариантов, как раньше. → (ленты, `feeds_short`: {ключ ленты: {стиль: {n, demo}}} при n < 20).
+    T-40: место без места решателя — `free_place` по коробке комнаты `geo` ({room_id: {w, d}}); не мельче `BAND_LO` текущего предмета
+    стиля (ковёр — не короче дивана); `bands` (если передан) — полосы страницы по ключу ленты ({lo, hi, side} для
+    `rules.slot_band_cm`): то же правило, что у ленты, — человек видит столько, сколько насчитал сборщик."""
     import demo_feeds as DF
     own = _feeds(variants, room_keys)
-    slots: dict = {}                                   # ключ ленты → (вид комнаты, роль, {стиль: [(ш, г)]})
+    slots: dict = {}                                   # ключ ленты → (вид комнаты, роль, {стиль: [(ш, г)]}, {стиль: нижняя граница})
     for v in variants:
         rid = v.get('room_id') or ''
-        places = v.pop(SLOTS_KEY, None) or {}          # место предмета на расстановке (`trial_demo` → `slots`); нет — размер товара
+        places = v.pop(SLOTS_KEY, None) or {}          # место предмета на расстановке (`trial_demo` → `slots`); нет — свободное место
         for it in v.get('items') or []:
             base = _base_role(it['role'])
             key = feed_key(rid, base, room_keys)
-            k = slots.setdefault(key, (DF.room_kind(rid), base, {}))
+            k = slots.setdefault(key, (DF.room_kind(rid), base, {}, {}))
             sl = places.get(it['role']) or places.get(it.get('style_role') or '') or None
-            w, d = (sl[0], sl[1]) if sl else (it.get('w'), it.get('d'))
+            w, d = (sl[0], sl[1]) if sl else free_place(it, v.get('items') or [], (geo or {}).get(rid))
             # место не меньше своего товара (подстановка могла поставить товар крупнее следа на свободной стороне)
             k[2].setdefault(v.get('style'), []).append((max(w or 0, it.get('w') or 0), max(d or 0, it.get('d') or 0)))
+            low = _sofa_w(v) if base in RUG_ROLES else DF.side(base, it) * DF.BAND_LO
+            s = v.get('style')
+            k[3][s] = min(k[3].get(s, low), low)
     feeds, short = {}, {}
     keep = FEED_KEYS | FEED_EXTRA_KEYS
-    for key, (kind, base, sl) in slots.items():
-        rows, count = DF.room_feed(demo or {}, kind, base, sl, own.get(key))
+    for key, (kind, base, sl, lo) in slots.items():
+        rows, count = DF.room_feed(demo or {}, kind, base, sl, own.get(key), lo=lo)
+        if bands is not None and sl:
+            bands[key] = {'lo': round(min(lo.values()) if lo else 0), 'side': 'long' if base in RUG_ROLES else 'w',
+                          'hi': round(max(max(DF.side(base, {'w': a, 'd': b}) for a, b in x) for x in sl.values()) + DF.FIT_TOL_CM)}
         out = []
         for r in rows:
             row = {k: x for k, x in r.items() if k in keep}
@@ -1004,9 +1140,10 @@ def feeds_for(variants: list, demo: dict | None = None, room_keys: bool = True) 
                 row.pop('msid', None)                  # плита с фото: модели нет (у витрины `msid` ковра = ключ товара)
             out.append(row)
         feeds[key] = out
-        # ПРИЧИНА — ЧИСЛОМ: `demo` — сколько товаров этого стиля с моделью в ленте /demo вообще; n < demo — отсёк размер места,
-        # n ≥ demo — у самой витрины в этом стиле меньше 20
-        low = {s: {'n': n, 'demo': sum(1 for r in DF.kind_rows(demo or {}, kind, base) if s in DF.styles_of(r) and DF.model_ok(base, r))}
+        # ПРИЧИНА — ЧИСЛОМ: `demo` — сколько товаров этого стиля с моделью, фото и магазином в ленте /demo вообще; n < demo — отсёк
+        # размер места, n ≥ demo — у самой витрины в этом стиле меньше 20
+        low = {s: {'n': n, 'demo': sum(1 for r in DF.kind_rows(demo or {}, kind, base)
+                                       if s in DF.styles_of(r) and DF.model_ok(base, r) and DF.has_goods(r))}
                for s, n in count.items() if s and n < DF.MIN_FEED}
         if low:
             short[key] = low
@@ -1296,11 +1433,15 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     rules = dict(ctx['rules'])
     if ctx.get('slot_band') and LIVING in rooms_geo:
         rules['slot_band_cm'] = ctx['slot_band'](rooms_geo[LIVING])
+    demo = ctx['demo_feeds']() if ctx.get('demo_feeds') else None
+    got = goods_from_feeds(variants, demo, goods, rooms_geo)   # предмет без товара — товар витрины (T-40); до имён: у товара — его название
     name_items(variants)                             # до лент: лента и строка списка узнают товар по одному имени
     # ленты — как у /demo под слот этой комнаты (T-37); меньше 20 на стиль позиции — `feeds_short` в журнал сборки (`stats`)
-    feeds, short = feeds_for(variants, ctx['demo_feeds']() if ctx.get('demo_feeds') else None)
+    bands: dict = {}
+    feeds, short = feeds_for(variants, demo, geo=rooms_geo, bands=bands)
+    rules['slot_band_cm'] = {**(rules.get('slot_band_cm') or {}), **bands}   # полоса «по размеру» — от места, как у ленты (T-40)
     if stats is not None:
-        stats.update(feeds={k: len(v) for k, v in feeds.items()}, feeds_short=short)
+        stats.update(feeds={k: len(v) for k, v in feeds.items()}, feeds_short=short, goods_from_feeds=got)
     note =SCALE_NOTE.get(result['scale']['status'])
     trial = {'job_id': job_id, 'scale': result['scale']['status'],
              **({'scale_note': {'ru': note[0], 'en': note[1]}} if note else {}), 'furniture': SCENE_FURNITURE[scene['status']] if scene else 'pending',

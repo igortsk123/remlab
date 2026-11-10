@@ -73,7 +73,7 @@ const clickRep=(p,k)=>p.evaluate(([k,f])=>eval(f)(k).querySelector('[data-rep]')
     await p.waitForTimeout(250);
     const s1=await state(p);
     ok('тост замены — «Нажмите «<надпись кнопки>», чтобы увидеть изменения», надпись та же, что у кнопки',
-      s1.toastOn&&s1.toast===`Нажмите «${s1.cta||'Сделать реалистичнее'}», чтобы увидеть изменения`&&s1.toast.includes('Сделать реалистичнее'),`${s1.toast} / кнопка «${s1.cta}»`);
+      s1.toastOn&&s1.toast===`Нажмите «${s1.cta||'Сделать фото'}», чтобы увидеть изменения`&&s1.toast.includes('Сделать фото'),`${s1.toast} / кнопка «${s1.cta}»`);
     await p.screenshot({path:OUT+W+'-3-tost-zameny.png'});   // пока тост на экране (гаснет за ~1,8 с)
     await p.waitForTimeout(1200);
     const s2=await state(p);
@@ -91,7 +91,7 @@ const clickRep=(p,k)=>p.evaluate(([k,f])=>eval(f)(k).querySelector('[data-rep]')
     await clickRep(e,0);
     await e.waitForSelector('#sheet.open',{timeout:10000}); await e.click('#grid .card:not(.cur) .acts .mini'); await e.waitForTimeout(250);
     const e1=await state(e);
-    ok('EN: тост замены переведён той же надписью кнопки',e1.toast==='Tap “Make it realistic” to see the changes',e1.toast);
+    ok('EN: тост замены переведён той же надписью кнопки',e1.toast==='Tap “Take photo” to see the changes',e1.toast);
     await showRow(e,0);
     await e.screenshot({path:OUT+W+'-4-en-spisok.png'});
     ok('EN: ошибок страницы нет',!e.errs.length,e.errs.join(' | ').slice(0,300));

@@ -72,7 +72,7 @@ await p.evaluate(()=>{shots=shots.filter(x=>x.quality!=='realistic'); openLiveWi
 await p.waitForFunction(()=>LIVE.scene&&LIVE.state==='ready',null,{timeout:150000}).catch(()=>{}); await p.waitForTimeout(2500);
 let s=await st(p); ok('1 без фото — открыто 3D, вкладки «Фото» нет',s.mode==='walk'&&!s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));
 ok('1 ценники над мебелью в 3D (≥ 3)',s.pins>=3,'видно '+s.pins);
-ok('1 «Сделать реалистичнее» видна в 3D',!!s.cta&&/реалистичнее/.test(s.cta),s.cta);
+ok('1 «Сделать фото» видна в 3D',!!s.cta&&/Сделать фото/.test(s.cta),s.cta);
 const dz=await p.evaluate(()=>{const d=document.getElementById('vCams').getBoundingClientRect(), t=document.getElementById('vside').getBoundingClientRect(); return {dots:Math.round(d.bottom), sheet:Math.round(t.top)};});
 if(W<=700)ok('1 точки ракурсов над верхом шторки',dz.dots<=dz.sheet,JSON.stringify(dz));
 await p.screenshot({path:OUT+`m09-${W}-walk.png`});
@@ -107,7 +107,7 @@ if(W<=700){await p.evaluate(()=>vwSheet(3)); await p.waitForFunction(()=>documen
     scrolled:[...document.querySelectorAll('#shot, #shot *')].filter(e=>e.scrollTop>0&&!/vscroll|sheetscroll/.test(e.id)).map(e=>(e.id||e.className)+':'+e.scrollTop)};});
   ok('1б замена через ленту → шторка свёрнута на деле',sw.pos==='0'&&sw.top>=sw.want-2&&!sw.scrolled.length,JSON.stringify(sw));
   await p.evaluate(()=>closePicker()); await p.waitForTimeout(500);}
-// 2. «Сделать реалистичнее» → сразу вкладка «Фото» и на ней «Улучшаю… N %» во весь кадр (demo-20 Б3, владелец 22.10 TG 791/795) → готово → снимок сам
+// 2. «Сделать фото» → сразу вкладка «Фото» и на ней «Улучшаю… N %» во весь кадр (demo-20 Б3, владелец 22.10 TG 791/795) → готово → снимок сам
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);
 // «сразу» = после снимка кадра (`vwPhGrab`): под нагрузкой на программной графике он дольше 1,5 с — ждём условие до 6 с, не время (T-20261108-75/2)
 await p.click('#vCta');
@@ -144,8 +144,8 @@ ok('4 смена пола → 3D, вкладка «Фото» есть',s.mode==
 if(W<=700)ok('4a шторка свернулась сама',s.pos==='0','pos '+s.pos);
 await p.evaluate(()=>vwMode('photo')); await p.waitForTimeout(800);
 const stl=await p.evaluate(()=>{const o=document.querySelector('#shot .vstale'); return {mode:VW.mode, txt:o?o.innerText.replace(/\n+/g,' / '):'', back:!!(o&&o.querySelector('[data-st="back"]'))};});
-ok('4б «Фото» после правки — затемнено, «Вы изменили комнату», «Сделать реалистичнее» и «Вернуть как было»',
-  stl.mode==='photo'&&/Вы изменили комнату/.test(stl.txt)&&/Сделать реалистичнее/.test(stl.txt)&&!/Показать изменения/.test(stl.txt)&&stl.back,JSON.stringify(stl));
+ok('4б «Фото» после правки — затемнено, «Вы изменили комнату», «Сделать фото» и «Вернуть как было»',
+  stl.mode==='photo'&&/Вы изменили комнату/.test(stl.txt)&&/Сделать фото/.test(stl.txt)&&!/Показать изменения/.test(stl.txt)&&stl.back,JSON.stringify(stl));
 // 4б. ПЛАШКА ОКНА КОМПАКТНАЯ, ПОЛУПРОЗРАЧНАЯ, ПО ЦЕНТРУ ВИДИМОГО КАДРА (T-20261108-77, владелец TG 618/619): кнопки в ряд 30–40 px, не под
 // верхними кнопками и не на подписях ракурсов; на телефоне — по центру между ними и шторкой; текст кнопок — цвет страницы (не синий Safari)
 const stg=await p.evaluate(()=>{const R=e=>{if(typeof e==='string')e=document.querySelector(e); if(!e)return null; const cs=getComputedStyle(e);
@@ -199,9 +199,9 @@ const hcard=()=>p.evaluate(sel=>{try{drawHome();}catch(e){} const a=document.que
     veil:va, ttlIn:!!ph&&!!tr&&over(R(tr),ph), midFree:!!mid&&!!mid.closest(sel)&&!mid.closest('[data-hst]'), row:btn.length===2&&btn[0].top===btn[1].top, ink};},CARD);
 await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(1500);
 const hc1=await hcard();
-ok('4г правка → под фото карточки (над ценой) полоса «Вы изменили комнату» и кнопки «Сделать реалистичнее» и «Вернуть как было» 28–36 px в ряд'+
+ok('4г правка → под фото карточки (над ценой) полоса «Вы изменили комнату» и кнопки «Сделать фото» и «Вернуть как было» 28–36 px в ряд'+
   ', на фото кнопок нет, фото затемнено, подпись комнаты на фото, середина фото открывает комнату, цвет текста кнопок — свой, чипа «Просмотрено» нет',
-  !!hc1&&hc1.stale&&hc1.btn.length===2&&hc1.btn[0].k==='real'&&/Сделать реалистичнее/.test(hc1.btn[0].t)&&hc1.btn[1].k==='back'&&hc1.btn.every(x=>x.h>=28&&x.h<=36)&&
+  !!hc1&&hc1.stale&&hc1.btn.length===2&&hc1.btn[0].k==='real'&&/Сделать фото/.test(hc1.btn[0].t)&&hc1.btn[1].k==='back'&&hc1.btn.every(x=>x.h>=28&&x.h<=36)&&
   hc1.row&&hc1.under&&!hc1.onPh&&hc1.veil>=0.25&&hc1.veil<=0.45&&hc1.ttlIn&&hc1.midFree&&hc1.btn[1].c===hc1.ink&&!hc1.coverTtl&&!hc1.chip,
   JSON.stringify(hc1));
 await p.locator(CARD).scrollIntoViewIfNeeded().catch(()=>{}); await p.screenshot({path:OUT+`m71-${W}-card.png`});
@@ -229,7 +229,7 @@ const nb=p.renderBodies.length; await p.evaluate(()=>{window.__fakeReady=0;});
 await p.click(CARD+' [data-hst="real"]'); await p.waitForTimeout(1500); s=await st(p);
 const jw=await p.evaluate(()=>({on:document.getElementById('shot').classList.contains('on'), job:VJ.job?{vid:VJ.job.vid,sid:VJ.job.stateId}:null, vid:curVid(),
   wait:(()=>{const o=document.querySelector('#shot .vphwait'); return o?o.querySelector('b').textContent:'';})()}));
-ok('4д «Сделать реалистичнее» с карточки → окно комнаты на «Фото» с ходом работы, задание — этой правки',
+ok('4д «Сделать фото» с карточки → окно комнаты на «Фото» с ходом работы, задание — этой правки',
   jw.on&&s.mode==='photo'&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(jw.wait)&&!!jw.job&&jw.job.vid===jw.vid&&jw.job.sid===s1e.sid,JSON.stringify({...jw,mode:s.mode}));
 // 4д. ВО ВРЕМЯ УЛУЧШЕНИЯ НА «ФОТО» — ПРЕЖНЕЕ ФОТО (T-20261108-74, владелец 08.11 TG 604): у правки есть прежнее фото → оно затемнено,
 // поверх «Улучшаю… N %», плашки «Вы изменили комнату» нет; карточка не под верхними кнопками, на телефоне — по центру кадра между ними и шторкой
@@ -261,7 +261,7 @@ ok('4е во время улучшения в «3D» — карточка «Ул
   w3.mode==='walk'&&w3.job&&w3.v3d&&w3.card&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(w3.txt)&&w3.bg==='none|rgba(0, 0, 0, 0)'&&w3.pe==='none'&&w3.alpha<0.9&&!w3.over&&
   (W>700||Math.abs(w3.mid)<=16),JSON.stringify(w3));   // компьютер: ↶↷ внизу слева сцены — «середину» меряет проба по сцене
 await p.screenshot({path:OUT+`m78-${W}-job-3d.png`});
-// шторка на середине (так она стоит после «Сделать реалистичнее» из 3D) — карточка по центру нового видимого кадра, не на ракурсах; и на «Фото» тоже
+// шторка на середине (так она стоит после «Сделать фото» из 3D) — карточка по центру нового видимого кадра, не на ракурсах; и на «Фото» тоже
 if(W<=700){
   await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(1500); const w3m=await m3();
   await p.evaluate(()=>{VJ.self=1; vwMode('photo'); VJ.self=0;}); await p.waitForTimeout(1500); const w3p=await m3();
@@ -317,14 +317,14 @@ await p.route(/\/api\/job\?/,r=>r.fulfill({status:410,contentType:'application/j
 await p.evaluate(()=>{shots=shots.filter(x=>x.quality!=='realistic'); openLiveWindow();}); await p.waitForTimeout(2500); s=await st(p);
 ok('5 без 3D — заглушка, кнопка видна',s.mode==='walk'&&s.stub&&!!s.cta,JSON.stringify({stub:s.stub,cta:s.cta}));
 await p.click('#vCta'); await p.waitForFunction(()=>!VJ.job,null,{timeout:20000}).catch(()=>{}); s=await st(p);
-ok('5 «Сделать реалистичнее» без денег — честный ответ под кнопкой',!!s.err,s.err.slice(0,90));
+ok('5 «Сделать фото» без денег — честный ответ под кнопкой',!!s.err,s.err.slice(0,90));
 await p.screenshot({path:OUT+`m09-${W}-stub.png`}); console.log('errs',p.errs.slice(0,3)); await p.context().close();
 // 6. EN: подписи режима без кириллицы
 p=await page(b,'?live=0&lang=en','en'); await p.evaluate(()=>{shots=shots.filter(x=>x.quality!=='realistic'); openLiveWindow();}); await p.waitForTimeout(2500);
 const en=await p.evaluate(()=>[document.getElementById('vStub').innerText, document.getElementById('vCta').innerText].join(' | '));
 ok('6 EN без кириллицы',!/[А-Яа-яЁё]/.test(en),en); await p.context().close();
 // 7. «ФОТО» ВИТРИННОГО ВАРИАНТА (T-20261108-75): вверху «Сменить стиль» (телефон) / строка «Другой стиль для комнаты» в панели (компьютер),
-// «Скрыть цены» нет; в 3D — наоборот. Отдельная страница: после «Сделать реалистичнее» (шаги 2–4) расстановка своя, смены стиля у неё нет
+// «Скрыть цены» нет; в 3D — наоборот. Отдельная страница: после «Сделать фото» (шаги 2–4) расстановка своя, смены стиля у неё нет
 // вариант — первый с фото своей точки (после пересборки видов у первого варианта его может не быть, T-73/3: окно — в 3D без «Фото»)
 p=await page(b,'?live=force&lang=ru','ru');
 const v7=await p.evaluate(()=>{const c0=cur; for(let i=0;i<allVariants().length;i++){const v=allVariants()[i]; if(v.mine||v.cid)continue; pickVariant(i); if(vwRealShots().length)return v.id;} pickVariant(c0); return null;});

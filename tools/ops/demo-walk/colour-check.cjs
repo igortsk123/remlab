@@ -2,7 +2,7 @@ const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ЦВЕТА ТОВАРА (demo-28, владелец 23.10): кружки цвета в строке окна — только у товаров, у модели которых в ленте ≥ 2 цветов; тап по
 // кружку — карточка с предпросмотром этого цвета (фото, название, цена, ссылка), ничего не применено; закрыли — как было; «Сохранить» —
-// цвет сменился (модель та же, `msid`), номер состояния новый, тост «Сделать реалистичнее»; пара одинаковых предметов — вместе; лента —
+// цвет сменился (модель та же, `msid`), номер состояния новый, тост «Сделать фото»; пара одинаковых предметов — вместе; лента —
 // чип цвета текущего открывает ту же карточку («×» закрывает только её, лист замен остаётся — не больше двух слоёв), плитка модели —
 // её цвета и «Заменить» выбранным. Платного нет, на сервер ничего не пишется.
 //   BASE=http://127.0.0.1:8790/demo/ OUT=<папка/> [V=2] [TAG=after] node tools/ops/demo-walk/colour-check.cjs 375x667
@@ -65,7 +65,7 @@ const ST=`({card:!!document.querySelector('#itemCard.on'), sheet:document.getEle
     const after=await p.evaluate(n=>{const its=items.filter(i=>(skuOf(i)||{}).name===n); return {n:its.length, msid:its.map(i=>skuOf(i).msid||skuOf(i).sid), rows:shotRows.map(a=>a.name)};},fam[1].name);
     ok(`${lang}: «Сохранить» — цвет в строке новый, модель та же, состояние новое`,!s2.card&&after.rows.includes(fam[1].name)&&!after.rows.includes(row.name)&&after.msid.every(m=>m===msid0)&&s2.state!==s0.state,
       {rows:after.rows.slice(0,3), msid:after.msid, msid0, st:[s0.state,s2.state]});
-    ok(`${lang}: тост «Сделать реалистичнее»`,/Сделать реалистичнее|Make it realistic/.test(s2.toast),s2.toast);
+    ok(`${lang}: тост «Сделать фото»`,/Сделать фото|Take photo/.test(s2.toast),s2.toast);
     const kin=await p.evaluate(([a,b])=>({old:items.filter(i=>(skuOf(i)||{}).name===a).length, nu:items.filter(i=>(skuOf(i)||{}).name===b).length}),[row.name,fam[1].name]);
     ok(`${lang}: все одинаковые предметы места сменили цвет вместе (старого не осталось)`,kin.old===0&&kin.nu>=1,kin);
     await shot('saved');
@@ -84,7 +84,7 @@ const ST=`({card:!!document.querySelector('#itemCard.on'), sheet:document.getEle
       ok(`${lang}: «назад» — закрыта карточка, лист и окно на месте`,!s3.card&&s3.sheet&&s3.win,s3);
       await tap('#grid .colchip:not(.on)'); await p.waitForTimeout(600);
       await p.locator('#itemCard .ic-sv').click(); await p.waitForTimeout(1000); s3=await st();
-      ok(`${lang}: «Сохранить» из ленты — цвет сменился, лист закрыт, тост`,!s3.card&&!s3.sheet&&(await p.evaluate(()=>shotRows.map(a=>a.name))).includes(want)&&/реалистичнее|realistic/.test(s3.toast),{want,toast:s3.toast});
+      ok(`${lang}: «Сохранить» из ленты — цвет сменился, лист закрыт, тост`,!s3.card&&!s3.sheet&&(await p.evaluate(()=>shotRows.map(a=>a.name))).includes(want)&&/Сделать фото|Take photo/.test(s3.toast),{want,toast:s3.toast});
     }else R.push(`ИНФО ${lang}: у текущей модели в отфильтрованной ленте один цвет — чипов нет`);
     // 7. плитка другой модели: её цвета в карточке, «Заменить» ставит показанный цвет — ищем ленту с такой плиткой по строкам
     let tile=-1;

@@ -145,12 +145,18 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
     with_variant = {v['room_id'] for v in variants}
     for e in new['apartment_rooms']:
         e['contentState'] = 'ready' if e['id'] in with_variant else 'soon'
+    demo = ctx['demo_feeds']() if ctx.get('demo_feeds') else None
+    # товар у перенесённого предмета без товара (тур собран до T-25) — из витрины, как у сборщика (T-40); до имён
+    report['goods_from_feeds'] = TB.goods_from_feeds(variants, demo, TB._Goods(ctx.get('goods')), new['rooms_geo'])
     TB.name_items(variants)
-    # ленты — как у сборщика: /demo под слот комнаты (T-37), `feeds_short` — в отчёт перевыпуска
-    feeds, report['feeds_short'] = TB.feeds_for(variants, ctx['demo_feeds']() if ctx.get('demo_feeds') else None)
+    # ленты — как у сборщика: /demo под слот комнаты (T-37), `feeds_short` — в отчёт перевыпуска; места перенесённых предметов —
+    # свободное место в коробке комнаты, полоса «по размеру» страницы — от места (T-40)
+    bands: dict = {}
+    feeds, report['feeds_short'] = TB.feeds_for(variants, demo, geo=new['rooms_geo'], bands=bands)
     rules = dict(new['rules'])
     if ctx.get('slot_band') and TB.LIVING in new['rooms_geo']:
         rules['slot_band_cm'] = ctx['slot_band'](new['rooms_geo'][TB.LIVING])
+    rules['slot_band_cm'] = {**(rules.get('slot_band_cm') or {}), **bands}
     trial = dict(new['trial'])
     trial['furniture'] = (old.get('trial') or {}).get('furniture') or trial['furniture']
     trial['flags'] = sorted(set(trial.get('flags') or []) | set((old.get('trial') or {}).get('flags') or []))

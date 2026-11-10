@@ -137,7 +137,7 @@ test("2.24 без реалистичного фото — 3D с ценникам
   await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
   expect(await page.evaluate("VW.mode")).toBe("walk");
   await expect(page.locator('[data-vm="photo"]')).toBeHidden();
-  await expect(page.locator("#vCta")).toHaveText(/реалистичнее/);
+  await expect(page.locator("#vCta")).toHaveText(/Сделать фото/);
   await expect.poll(() => page.locator("#vpins .vpin:not([hidden])").count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
   say("ценников в 3D:", await page.locator("#vpins .vpin:not([hidden])").count());
   await page.goto(demoUrl("/demo/?live=0"), { waitUntil: "networkidle" });
@@ -217,7 +217,7 @@ test("2.5–2.6 замена из окна: лента, выбор, сумма �
   say("сумма:", before, "→", await sumNow());
   // любое изменение → 3D (demo-09 п.4); черновика из окна нет
   await expect.poll(() => page.evaluate("VW.mode")).toBe("walk");
-  await expect(page.locator("#vCta")).toHaveText(/реалистичнее/);
+  await expect(page.locator("#vCta")).toHaveText(/Сделать фото/);
 });
 
 test("2.6 живая сцена: замена видна сразу, без запроса кадра к серверу (demo-01)", async ({ page }) => {
@@ -621,7 +621,7 @@ test("2.37 свёрнутая шторка = плашка + чип + кнопк�
     expect(open.ctaTop).toBeGreaterThanOrEqual(0);
     expect(open.ctaBottom).toBeLessThanOrEqual(open.H);
     if (vp.height === 667) expect(open.h).toBeLessThanOrEqual(190);
-    await expect(page.locator("#vCta")).toHaveText(/реалистичнее/);
+    await expect(page.locator("#vCta")).toHaveText(/Сделать фото/);
     // замена как человек: чип → полная, «Заменить» у первой строки, первая карточка ленты
     await page.locator("#vgrip").click();
     await expect.poll(() => page.evaluate("document.getElementById('vside').dataset.pos")).toBe("3");

@@ -2,7 +2,10 @@
 <script>/* ссылку на коллекцию `#c=<id>` запоминаем ДО того, как страница перепишет адрес на открытый вариант (b2b-05) */
 window.__collHash=(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1]||'';
 /* адрес, с которым пришли (onb-03, опрос): глубокая ссылка `#v/#c/#fav/#plan` и `?style=` — обход опроса; позже страница их переписывает сама */
-window.__hash0=String(location.hash); window.__search0=String(location.search);</script>
+window.__hash0=String(location.hash); window.__search0=String(location.search);
+/* ДАННЫЕ — СРАЗУ, ПАРАЛЛЕЛЬНО С РАЗМЕТКОЙ (T-20261110-40, владелец TG 915): запрос стоял в конце 1,2 МБ разметки и уходил только после
+   её загрузки; ответ забирает основной скрипт (`dataFetch`). Песочница тура (`lib/trial/tour-page.ts`) встаёт раньше этой строки */
+try{window.__dataP=fetch('demo-data.json?v='+Date.now()); window.__dataP.catch(function(){});}catch(e){window.__dataP=null;}</script>
 <meta charset="utf-8"><!-- ЗУМ РАЗРЕШЁН (аудит 01.09, Б1): запрет масштабирования на странице с планом и мелкими
      подписями — прямой вред. Жесты на самом плане изолированы `touch-action:none` у #stage,
      поэтому перетаскивание предметов от зума страницы не страдает. -->
@@ -316,6 +319,14 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 .mx-x{position:absolute;top:8px;right:8px;width:40px;height:40px;border:0;border-radius:50%;background:none;color:var(--muted);font-size:26px;line-height:1;cursor:pointer}
 .mx-x:hover{background:var(--wash-2)}
 .hm-rooms{display:grid;gap:12px;margin:8px 0 18px}
+/* СКЕЛЕТ КАРТОЧЕК ДО ДАННЫХ (T-20261110-40, владелец TG 915: «пустой экран 5–7 с»): серые карточка комнаты и плитки — в самой разметке
+   `#hmRooms`, первая `drawHome` их заменяет. Мерцание — только без «уменьшить движение» */
+.hm-skel .hm-ph,.hm-skel .sk{background:var(--wash-2)}
+.hm-skel .sk{display:block;height:14px;border-radius:7px;width:42%}
+.hm-skel .sk.s2{width:22%;margin-left:auto}
+.hm-skel{pointer-events:none}
+@media(prefers-reduced-motion:no-preference){.hm-skel .hm-ph,.hm-skel .sk{animation:hmSkel 1.2s ease-in-out infinite alternate}}
+@keyframes hmSkel{from{opacity:1}to{opacity:.55}}
 .hm-room{background:var(--surface);border-radius:var(--radius);box-shadow:var(--e1);overflow:hidden}
 .hm-room .hm-ph{position:relative;aspect-ratio:2048/1446;background:var(--wash-2);cursor:pointer;display:block}
 .hm-room .hm-ph img{display:block;width:100%;height:100%;object-fit:cover}
@@ -1479,7 +1490,7 @@ body.trial #sheet:not(.open){visibility:hidden;transition:transform .22s ease,vi
   <!-- КОМНАТЫ ВЫБРАННОГО СТИЛЯ (demo-16): гостиная — карточкой варианта, остальные — единой заглушкой «появится следующим шагом» -->
   <!-- первая подсказка — поверх верха первой карточки, пока ни одна комната не открыта (`homeTips`; на месте прежней строки-пояснения) -->
   <div class="hm-tipw"><div class="hm-tip" id="hmTip1" role="status" hidden><span>Меняйте мебель, отделку и стиль любой комнаты</span><button class="hm-tip-x" type="button" data-tip="t1" aria-label="Закрыть подсказку">×</button></div></div>
-  <div class="hm-rooms" id="hmRooms"></div>
+  <div class="hm-rooms" id="hmRooms" aria-busy="true"><article class="hm-room on hm-skel" aria-hidden="true"><div class="hm-ph"></div><div class="rb"><i class="sk"></i><i class="sk s2"></i></div></article><div class="hm-pick hm-skel" aria-hidden="true"><i class="sk"></i></div><div class="hm-pick hm-skel" aria-hidden="true"><i class="sk"></i></div><div class="hm-pick hm-skel" aria-hidden="true"><i class="sk"></i></div></div>
   <div class="budget" id="budget" hidden></div>
 
   <!-- ИЗБРАННОЕ НА ЭТОМ УСТРОЙСТВЕ (владелец 18.10, demo-15 п.6): все сохранённые сердечком расстановки — над готовыми вариантами;
@@ -1917,7 +1928,10 @@ const TRB={state:'idle', want:null, err:'', base:0};
 const TRE={state:'idle', err:''};
 // окна и двери агента на плане (T-20261110-39; ниже `troEnter`): on — режим открыт, ops — рабочая копия проёмов, sel — выбранный, pick — точка на стене
 const TRO={on:false, ops:{}, sel:null, drag:null, pick:null, busy:false, err:''};
-const trKey=()=>TRIAL()?((location.search.match(/[?&]k=([A-Za-z0-9_-]{22})(?:&|$)/)||[])[1]||''):'';
+// «КАК У ПОКУПАТЕЛЯ» (T-20261110-40, владелец 10.11 TG 935): `&buyer=1` в ссылке агента — ключ не читаем, страница ровно покупательская
+// (нет «Обустроить», карандаша, «Окна и двери», подсказка «Размеры уточнит агент»); правка планировки — только с ключом
+const trBuyer=()=>/[?&]buyer=1(?:&|$)/.test(location.search);
+const trKey=()=>TRIAL()&&!trBuyer()?((location.search.match(/[?&]k=([A-Za-z0-9_-]{22})(?:&|$)/)||[])[1]||''):'';
 const trJobId=()=>(location.pathname.match(/\/try\/([A-Za-z0-9_-]{22})\/tour\//)||[])[1]||'';
 const TRB_KEY='tr-rebuild';
 function trSave(v){ try{ if(v)sessionStorage.setItem(TRB_KEY,JSON.stringify(v)); else sessionStorage.removeItem(TRB_KEY); }catch(e){} }
@@ -2407,10 +2421,15 @@ window.addEventListener('error',e=>{                 // пустая стран�
 function pageEn(){ try{return LANG==='en';}catch(e){}
   const m=location.search.match(/[?&]lang=(ru|en)(?:&|$)/); if(m)return m[1]==='en';
   try{return localStorage.getItem('remlab-lang')==='en';}catch(e){return false;} }
-fetch('demo-data.json?v='+Date.now()).then(r=>trDataEtag(r).json()).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();
+// запрос данных ушёл ещё из <head> (`__dataP`, T-20261110-40); не ушёл или сорвался — обычный запрос здесь
+function dataFetch(){ const p=window.__dataP; window.__dataP=null; const own=()=>fetch('demo-data.json?v='+Date.now());
+  return p?p.then(r=>r&&r.ok?r:own(),own):own(); }
+dataFetch().then(r=>trDataEtag(r).json()).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();
   if(TRIAL()){window.__trialReady=1; document.dispatchEvent(new Event('trialready'));}})   // проба: опрос без карточки квартиры (`decide`)
-  .catch(e=>{const b=document.getElementById('sub');
-    if(b)b.textContent=(pageEn()?'Could not load the data: ':'Не удалось загрузить данные: ')+String(e.message||e).slice(0,140);});
+  .catch(e=>{const b=document.getElementById('sub'), msg=(pageEn()?'Could not load the data: ':'Не удалось загрузить данные: ')+String(e.message||e).slice(0,140);
+    if(b)b.textContent=msg;
+    // скелет карточек не мерцает вечно: вместо него — та же надпись
+    const hr=document.getElementById('hmRooms'); if(hr&&hr.querySelector('.hm-skel')){hr.removeAttribute('aria-busy'); hr.innerHTML=`<div class="hm-stub"><span>${escHtml(msg)}</span></div>`;}});
 
 function on(id, ev, fn){                     // узла может не быть — интерфейс меняется чаще кода
   const n=document.getElementById(id);
@@ -5328,7 +5347,8 @@ function reportAct(kind){
 // ВДВОЕ КОРОЧЕ И ГАСНЕТ ПЛАВНО (demo-20 Б4, владелец 22.10: «Заменено: диван +4 000» висело и пропадало рывком)
 // НАДПИСЬ КНОПКИ УЛУЧШЕНИЯ — ОДНА СТРОКА (demo-24 правки): кнопка окна и подсказка после замены мягкого берут её отсюда, перевод —
 // та же строка слоя EN («Make it realistic»), подсказка переводится шаблоном с ней же — надписи не разойдутся
-const CTA_REAL='Сделать реалистичнее';
+// «СДЕЛАТЬ ФОТО» (T-20261110-40, владелец 10.11 TG 932): было «Сделать реалистичнее» — в туре и в /demo одно слово
+const CTA_REAL='Сделать фото', CTA_REAL_EN='Take photo';
 // ЗАМЕНА МЯГКОГО (владелец 23.10): в 3D подушки нет — обычный затухающий тост «Нажмите «<кнопка>», чтобы увидеть изменения»
 function softSwapToast(){toast(`Нажмите «${CTA_REAL}», чтобы увидеть изменения`);}
 function toast(t,act){let el=document.getElementById('toast');
@@ -6570,6 +6590,7 @@ function drawHome(force){
   // карточку слева без прокрутки, текущая выделена; неготовые неактивны. Телефон — как было: карточки и плашки одним столбцом
   // (плитки выбора скрыты стилем). Текущая — `HOME.room` (выбрана плиткой или из `?room=`), нет такой карточки — первая готовая
   const shown=cards.find(c=>!c.stub&&c.r.id===HOME.room)||cards.find(c=>!c.stub), shownId=shown?shown.r.id:'';
+  box.removeAttribute('aria-busy');   // скелет до данных (T-20261110-40) заменяется карточками
   box.innerHTML=cards.map(c=>{
     if(c.stub&&homeTiny(c.r))return '';   // безымянная кладовка 1,5 м² — только на плане, список не засоряет (T-20261109-20/3)
     const t=`${escHtml(c.r.title)}${c.r.areaM2?` <small>· ${homeM2(c.r.areaM2)}</small>`:''}`;
@@ -6608,7 +6629,7 @@ function drawHome(force){
       `${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
       // пометка «Вы изменили комнату» — полосой ПОД фото, не поверх (T-20261108-78, владелец TG 643: «чтобы человек случайно не нажал»)
       (c.stale?`<div class="hm-stale"><b>${EN?'You changed the room':'Вы изменили комнату'}</b><div class="hm-stb">`+
-        `<button class="btn primary" type="button" data-hst="real">${EN?'Make it realistic':CTA_REAL}</button>`+
+        `<button class="btn primary" type="button" data-hst="real">${EN?CTA_REAL_EN:CTA_REAL}</button>`+
         (c.back?`<button class="btn" type="button" data-hst="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div></div>`:'')+
       `<div class="rb"><div class="sum">${TR_NOGOODS()?`<b>${c.n} ${plural(c.n)}</b>`:`<b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}</small>`}</div>`+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;
@@ -7140,7 +7161,8 @@ function shotListHtml(s){
         if(TR_NOGOODS())return trRowHtml(a,k,own);   // проба старой сборки (без товаров): картинка — наша 3D-модель, без цены и магазина (T-20261109-35/2); с товарами — строка /demo
         return `<div class="row" style="cursor:default" data-k="${k}"${a.sid?` data-sid="${escHtml(a.sid)}"`:''}>`+
           // первые 10 строк — сразу, остальные — лениво; до загрузки — заглушка тона страницы (demo-21 п.5), загрузилась — белая плитка
-          (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`:'<div class="noimg-sm">нет фото</div>')+
+          (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`
+            :TRIAL()?trThPic(own):'<div class="noimg-sm">нет фото</div>')+   // тур: у предмета без фото товара — снимок его 3D-модели (T-40)
           `<div class="t"><b>${itemName(a,a.role)}</b>`+
           // мягкое (demo-24) — без пометки, роль без номера слота (владелец и ведущий 23.10)
           `<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${itemShop(a)?' · '+itemShop(a):''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
@@ -7160,15 +7182,19 @@ function shotListHtml(s){
 // серая плитка того же размера; «В магазин» нет, цена — пустое место той же ширины
 const TR_TH=new Map();   // ключ модели (msid + размеры) → data URL миниатюры; одна модель — одна картинка на всю страницу
 function trThKey(s){ return s&&s.msid?[s.msid,Math.round(+s.w||0),Math.round(+s.d||0),Math.round(+s.h||0)].join('|'):''; }
+// картинка строки тура по предмету: готовый снимок модели, иначе плитка, которую `trThumbs` заменит снимком из сцены окна
+function trThPic(own){
+  const s=own?(own.sku&&own.sku.name?own.sku:skuOf(own))||{}:{}, ix=own?items.indexOf(own):-1, key=trThKey(s), u=key&&TR_TH.get(key);
+  return u?`<img class="tr-th ld" src="${u}" alt="">`
+    :`<div class="noimg-sm tr-thph"${ix>=0&&key?` data-th="${ix}" data-thk="${escHtml(key)}"`:''} aria-hidden="true"></div>`;
+}
 function trRowHtml(a,k,own){
-  const EN=LANG==='en', s=own?(own.sku&&own.sku.name?own.sku:skuOf(own))||{}:{}, ix=own?items.indexOf(own):-1, key=trThKey(s);
+  const EN=LANG==='en', s=own?(own.sku&&own.sku.name?own.sku:skuOf(own))||{}:{};
   // название из сборки уже уникально и с размером («Диван · 214×98 см», T-20261109-35/3) — размер к нему не дописываем; вторая строка —
   // цвет/материал на языке страницы (`colour_ru`/`colour_en`), роль не повторяем; нечего сказать — строки нет
-  const name=itemName(a,a.role), u=key&&TR_TH.get(key);
+  const name=itemName(a,a.role);
   const sub=[String((EN?s.colour_en:s.colour_ru)||'').trim(),(a.qty||1)>1?a.qty+(EN?' pcs':' шт.'):''].filter(Boolean).join(' · ');
-  const pic=u?`<img class="tr-th ld" src="${u}" alt="">`
-    :`<div class="noimg-sm tr-thph"${ix>=0&&key?` data-th="${ix}" data-thk="${escHtml(key)}"`:''} aria-hidden="true"></div>`;
-  return `<div class="row" style="cursor:default" data-k="${k}">${pic}`+
+  return `<div class="row" style="cursor:default" data-k="${k}">${trThPic(own)}`+
     `<div class="t"><b>${escHtml(name)}</b>${sub?`<span>${escHtml(sub)}</span>`:''}`+
     swatchRow(own?s:null,a.role)+`</div><div class="p"></div>`+
     `<span class="acts">${own?`<button class="lnk" data-rep="${k}">Заменить</button>`:''}</span></div>`;
@@ -7841,7 +7867,9 @@ function grid(){
   // ШАПКА — «Выбрать <роль> (N)»: роль без номера слота, N — моделей ПОСЛЕ фильтров, сколько видно в ленте: цвета одной модели — одна
   // (владелец 22.10, demo-20 А3)
   const head=n=>{document.getElementById('sh-title').textContent=`Выбрать ${base} (${n})`;};
-  if(!list.length){head(0); g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
+  // тур: замен нет — честно «под это место в библиотеке больше нет» под карточкой «сейчас» (T-40, TG 872)
+  const trNone=()=>{trNowCard(g,base); g.insertAdjacentHTML('beforeend',`<div class="hint">${TR_EN()?'There are no other items with a 3D model for this spot and style in our library yet.':'Других товаров с 3D-моделью под это место и стиль в библиотеке пока нет.'}</div>`);};
+  if(!list.length){head(0); if(TRIAL()){trNone(); return;} g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
   const isCur=p=>!!(sel&&sel.sku&&sel.sku.name===p.name);
   list=list.filter(p=>{
     const pr=p.price||0;
@@ -7855,7 +7883,8 @@ function grid(){
   // товаров без фото в выборке уже нет — их отсекает сборка данных (владелец 26.08)
   list.sort((a,b)=>F.sort==='price'?((a.price||0)-(b.price||0))
                                    :(rank(a)-rank(b)||(a.price||0)-(b.price||0)));
-  if(!list.length){head(0); g.innerHTML='<div class="hint">Под фильтры ничего не подошло — снимите ограничения.</div>';return;}
+  if(!list.length){head(0); if(TRIAL())trNowCard(g,base);
+    g.insertAdjacentHTML('beforeend','<div class="hint">Под фильтры ничего не подошло — снимите ограничения.</div>');return;}
   // ЦВЕТА ОДНОЙ МОДЕЛИ — ЧИПАМИ, ПЕРВЫМИ — ДРУГИЕ МОДЕЛИ (приёмка владельцем 16.10 п.11а): первые три кандидата сканди-дивана были
   // цветами того же «Викс» — одна модель, и замена выглядела несработавшей. Цвета текущей модели — строкой чипов сверху, другие
   // модели — по одной карточке с пометкой «ещё N цветов»; цвет на сцене — подкраской (`sku.tint`)
@@ -7880,6 +7909,8 @@ function grid(){
           grid(); closePicker(); refreshShotList(); softSwapToast();}});}; row.appendChild(b);});}
   const allL=list;                     // вся лента после фильтров — цвета плиток (demo-28)
   list=[...byM.values()];
+  // тур: первая карточка — то, что стоит сейчас (T-40); замен нет — и честная строка; /demo — без неё, как было
+  if(TRIAL()){if(!list.length&&colours.length<2)trNone(); else trNowCard(g,base);}
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
     // у ковра высоты нет — плита (в данных 1 см только для расчёта сцены): «200×140 см», а не «200×140×1 см»
     const dims=base==='ковёр'?dimsText({w:p.w,d:p.d}):dimsText(p);
@@ -7909,6 +7940,22 @@ function grid(){
     c.onclick=e=>{if(e.target.closest('img,.nm')){const fm=allL.filter(x=>modelOf(x)===modelOf(p)), f=[p,...fm.filter(x=>x!==p)];
       itemCardOpen(icItem(p,base),null,{fam:f,cur:-1,at:0,pick:cur?null:(q=>{VW.auto=null; tryOn(q||p); grid(); closePicker(); refreshShotList();})}); return;} take();};
     g.appendChild(c);});}
+// «СЕЙЧАС» ПЕРВОЙ КАРТОЧКОЙ ЛЕНТЫ ТУРА (T-20261110-40, владелец TG 917): человек видит, от чего меняет, — фото товара (нет — снимок
+// 3D-модели предмета), название, цена, размер места, магазин, метка «сейчас»; «Заменить» нет. В счёт «Выбрать … (N)» не входит — N
+// остаётся числом замен
+function trNowCard(g,base){
+  const s=sel&&(sel.sku&&sel.sku.name?sel.sku:skuOf(sel)); if(!s)return;
+  const EN=TR_EN(), c=document.createElement('div'); c.className='card cur tr-now';
+  const dims=base==='ковёр'?dimsText({w:sel.w,d:sel.d}):dimsText({w:sel.w,d:sel.d,h:sel.h||s.h});
+  const u=!s.img&&trThKey(s)&&TR_TH.get(trThKey(s));
+  c.innerHTML=(s.img?`<img src="${s.img}" alt="">`:u?`<img class="tr-th" src="${u}" alt="">`:'<div class="noimg tr-thph" aria-hidden="true"></div>')+
+    `<span class="badge b-ok">${EN?'now':'сейчас'}</span><div class="nm">${itemName(s,base)}</div>`+
+    (s.price?`<div class="pr">${money(s.price)}</div>`:'')+`<div class="dim">${dims}${itemShop(s)?' · '+itemShop(s):''}</div>`+
+    (itemUrl(s)?`<div class="acts"><a class="mini link" href="${itemUrl(s)}" target="_blank" rel="noopener">В магазин</a></div>`:'');
+  const lk=c.querySelector('.link'); if(lk)lk.onclick=e=>e.stopPropagation();
+  c.onclick=e=>{if(e.target.closest('img,.nm'))itemCardOpen(icItem({...s,w:sel.w,d:sel.d,h:sel.h||s.h},base),null,{fam:[s],cur:0,at:0});};
+  g.appendChild(c);
+}
 let TRY_LAST={n:1, base:''};   // последняя замена: сколько предметов группы сменилось (сообщение «Заменено: стулья ×2»)
 function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.role==='диван'); TRY_LAST={n:1, base:''};
   if(!s){toast('Сначала коснитесь предмета на плане');return;}
@@ -8416,6 +8463,11 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 .vphwait.vtight .vphcard{visibility:hidden}
 /* под ходом — прежнее фото этой комнаты (T-20261108-74): тот же тон затемнения, что у «Вы изменили комнату» (`.vstale`), плашка светлая */
 .vphwait.vprev{background:rgba(38,30,24,.5)}
+/* «ФОТО» ТУРА БЕЗ ФОТО (T-20261110-40, TG 930): та же светлая плашка по центру сцены, что у хода работы; под ней — спокойный фон */
+.vtrph{position:absolute;inset:0;z-index:calc(var(--zl-scene) + 1);display:flex;align-items:center;justify-content:center;padding:24px;
+ text-align:center;background:var(--wash-2);color:var(--ink)}
+.vtrph .vphcard{max-width:360px}.vtrph b{font-size:17px;font-weight:600;line-height:1.35}.vtrph small{font-size:13.5px;color:var(--muted,#6b625b)}
+#shot:not(.vphoto) .vtrph{display:none}
 .vphwait b{font-size:20px;font-weight:600}
 .vphwait i{display:block;width:min(260px,70%);height:6px;border-radius:999px;background:rgba(176,106,74,.18);overflow:hidden}
 .vphwait s{display:block;height:100%;width:0;background:var(--accent);transition:width 1s linear}
@@ -9287,7 +9339,7 @@ function vwModeUi(){
   // …или пока фото этой расстановки рисуется (demo-20 Б3): вкладка появляется сразу, на ней — ход работы (`vwPhWaitUi`)
   // …или есть хоть одно фото комнаты (T-20261107-66 Б): после правки — последнее фото затемнённым (`vwPhotoShots`, `vwStaleUi`)
   // ТУР ПРОБЫ (T-20261110-37 В, владелец 10.11 TG 869): переключатель виден всегда, как в /demo — «Фото» без фото не прячется,
-  // а по нажатию объясняет, как его получить (`vwMode` → `trPhotoTap`)
+  // а внутри объясняет, как его получить (`vwPhotoShow` → `trPhotoStubUi`, TG 930)
   const real=vwPhotoShots(), ph=shot.querySelector('[data-vm="photo"]'); if(ph)ph.hidden=!TRIAL()&&!real.length&&!vwJobHere();
   // ОДИНОКАЯ «3D» (T-20261108-73/3, ведущий): «Фото» скрыто — переключатель из одной кнопки ничего не переключает; не показываем его вовсе,
   // окно сразу в 3D. Соседи (↶↷, «Скрыть цены», ✕) стоят от краёв сцены, не от него — не съезжают (modes-check, шаг 7)
@@ -9300,18 +9352,39 @@ function vwModeUi(){
   vwCamsUi();
   vwPhWaitUi();
   vwStaleUi();
+  trPhotoStubUi();
   if(m==='plan')vwPlanDraw();
   e2Head(document.getElementById('vscroll'));   // в «Фото» кнопки нет — линия переходит на блок выше
 }
-// «ФОТО» В ТУРЕ, ПОКА ФОТО НЕТ (T-20261110-37 В): размерам комнаты верим — то же, что кнопка «Сделать реалистичнее» (заказ своей ручкой
-// тура, предел — на сервере); не верим — подсказка, как подтвердить размеры (карандаш у названия комнаты на плане, план trial-room-edit-01)
-function trPhotoTap(){
-  if(trPhotoHere()){if(!VJ.job)vwRealistic(); return;}
-  toast(TR_EN()?'Photo — confirm the room sizes with the pencil on the plan first':'Фото — подтвердите размеры карандашом на плане');
+// «ФОТО» В ТУРЕ ОТКРЫВАЕТСЯ ВСЕГДА (T-20261110-40, владелец 10.11 TG 930, заменяет подсказку тостом): фото этой расстановки нет и не
+// рисуется — на месте фото карточка: размерам верим (`trPhotoHere`) — «Сделать фото», как кнопка шторки (`vwRealistic`); не верим —
+// «Чтобы сделать фото, подтвердите планировку» и «Перейти к планировке» (вкладка «План квартиры»); без ключа агента ещё «Размеры уточнит
+// агент» (TG 927: покупатель планировку не правит). Слово — «планировка», en — floor plan
+const TR_PH_TXT={ask:['Чтобы сделать фото, подтвердите планировку','To take a photo, confirm the floor plan'],
+  go:['Перейти к планировке','Go to the floor plan'], agent:['Размеры уточнит агент','The agent will confirm the sizes'],
+  ready:['Фото этой расстановки ещё нет','There is no photo of this layout yet']};
+const trPhT=k=>TR_PH_TXT[k][TR_EN()?1:0];
+function trPhotoStubUi(){
+  const wrap=document.querySelector('#shot .shotwrap'); if(!wrap)return;
+  let el=wrap.querySelector('.vtrph');
+  const want=TRIAL()&&VW.mode==='photo'&&!vwPhotoShots().length&&!vwJobHere();
+  if(!want){if(el)el.remove(); return;}
+  const ok=trPhotoHere(), key=[LANG,ok,!!trKey()].join('|');
+  if(el&&el.dataset.key===key)return;
+  if(el)el.remove();
+  el=document.createElement('div'); el.className='vtrph'; el.dataset.key=key; el.dataset.ok=String(ok);
+  el.innerHTML=ok?`<div class="vphcard"><b>${trPhT('ready')}</b><button class="btn primary" type="button" data-trph="shot">${TR_EN()?CTA_REAL_EN:CTA_REAL}</button></div>`
+    :`<div class="vphcard"><b>${trPhT('ask')}</b><button class="btn primary" type="button" data-trph="plan">${trPhT('go')}</button>`+
+      (trKey()?'':`<small>${trPhT('agent')}</small>`)+`</div>`;
+  const b=el.querySelector('button');
+  b.onclick=()=>{ if(b.dataset.trph==='shot'){if(!VJ.job)vwRealistic(); return;}
+    const x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();
+    showTab('plan'); pageScrollTo(0); };
+  wrap.appendChild(el);
 }
 function vwMode(m){
   if(!['photo','walk','plan'].includes(m))return;
-  if(m==='photo'&&!vwPhotoShots().length&&!vwJobHere()){if(TRIAL())trPhotoTap(); return;}
+  if(m==='photo'&&!vwPhotoShots().length&&!vwJobHere()&&!TRIAL())return;
   VW.wantPhoto=0;   // режим выбран (кнопкой, кодом, съёмкой) — по приходу реестра кадров окно не переключаем (`loadShots`, T-66/2)
   if(VJ.job&&!VJ.self)VJ.job.moved=true;   // человек сам ушёл с вкладки — по готовности не переключаем, если он не на «Фото»
   VW.mode=m; vwModeUi();
@@ -9399,7 +9472,7 @@ function vwStaleUi(){
     el=document.createElement('div'); el.className='vstale'; el.dataset.lang=LANG; el.dataset.back=String(back);
     // основная кнопка подписана, как везде, «Сделать реалистичнее» (CTA_REAL; владелец 08.11: «у нас называется так», T-20261108-77)
     el.innerHTML=`<div class="vstcard"><b>${EN?'You changed the room':'Вы изменили комнату'}</b><div class="vstb">`+
-      `<button class="btn primary" type="button" data-st="show">${EN?'Make it realistic':CTA_REAL}</button>`+
+      `<button class="btn primary" type="button" data-st="show">${EN?CTA_REAL_EN:CTA_REAL}</button>`+
       (back?`<button class="btn" type="button" data-st="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div></div>`;
     el.querySelector('[data-st="show"]').onclick=()=>vwRealistic();   // та же съёмка, что «Сделать реалистичнее» (ожидание, очередь, отказ)
     const b=el.querySelector('[data-st="back"]'); if(b)b.onclick=()=>vwStaleBack();
@@ -9428,7 +9501,9 @@ function homeStaleReal(i){ if(!allVariants()[i])return; vwOpenVariant(i); vwReal
 const vwCamIndex=c=>Math.max(0,(+String(c||'C1').slice(1)||1)-1);
 // «Фото» — снимок выбранной точки (или первый); «3D» — живая сцена
 function vwPhotoShow(){
-  if(VW.mode==='photo'){const r=vwPhotoShots(); if(!r.length){if(vwJobHere()){liveHide(); vwPhWaitUi(); return;} vwMode('walk'); return;}
+  if(VW.mode==='photo'){const r=vwPhotoShots(); if(!r.length){if(vwJobHere()){liveHide(); vwPhWaitUi(); return;}
+      if(TRIAL()){liveHide(); trPhotoStubUi(); return;}   // тур: «Фото» открыт и без фото — карточка, как его получить (TG 930)
+      vwMode('walk'); return;}
     const k=r.find(x=>(x.camera||'C1')===vwCam())||r[0]; VW.photo=vwCamIndex(k.camera);
     const i=shots.indexOf(k); if(i!==shotAt){viewShot(i); return;} liveHide(); vwStaleUi(); return;}
   liveShow();
@@ -9501,6 +9576,7 @@ async function vwPhGrab(job){
 function vwPhDraft(job){const d=shots.filter(x=>x.stateId===job.stateId&&x.url&&!x.orphan&&x.quality!=='realistic').pop(); if(d)job.bg=d.url;}
 function vwPhWaitUi(){
   const wrap=document.querySelector('#shot .shotwrap'); if(!wrap)return;
+  trPhotoStubUi();   // тур: фото пошло рисоваться (или готово) — карточка «как получить фото» уходит
   let el=wrap.querySelector('.vphwait');
   // в «3D» — та же карточка хода по центру видимого кадра, полупрозрачная, сцену не закрывает и жесты не ловит (T-20261108-78, владелец
   // TG 643: «не вижу „Улучшаю“ по центру в режиме 3D»; прежде в 3D ход был только на кнопке в шторке)
@@ -9536,14 +9612,14 @@ function vwCtaUi(){
     cta.querySelector('.vcta-bar').style.width=w.pct.toFixed(1)+'%';
     cta.querySelector('.vcta-t').textContent=photoWaitText(w);
     const sm=cta.querySelector('small'); sm.textContent=nt; sm.hidden=!nt; cta.dataset.left=w.left;}
-  else{cta.classList.remove('busy'); cta.textContent=EN?'Make it realistic':CTA_REAL;}
+  else{cta.classList.remove('busy'); cta.textContent=EN?CTA_REAL_EN:CTA_REAL;}
   if(!VJ.job||m==='plan')delete cta.dataset.left;
   // ТУР ПРОБЫ (T-20261109-34): кнопка фото — только комнате с доверием к размерам, иначе вместо неё тихая строка; «Изменить план» в туре нет
   const trNo=TRIAL()&&!trPhotoHere();
   if(TRIAL()&&(m==='plan'||trNo))cta.hidden=true;
   let tn=document.getElementById('vCtaNote');
   if(trNo&&m==='walk'){if(!tn){tn=document.createElement('p'); tn.id='vCtaNote'; tn.className='vcta-note'; cta.after(tn);}
-    tn.textContent=EN?'Photo — after the sizes are confirmed':'Фото — после уточнения размеров';}
+    tn.textContent=trPhT('ask');}   // те же слова, что на «Фото» (TG 930)
   else if(tn)tn.remove();
   let er=document.getElementById('vCtaErr');
   if(VJ.err&&m!=='photo'){if(!er){er=document.createElement('p'); er.id='vCtaErr'; er.className='vcta-err'; cta.after(er);} er.textContent=VJ.err;}
@@ -11400,7 +11476,7 @@ function quizPick(rule, answers, available, styleColours){
     'попробуйте ещё раз':'please try again','Один кадр уже считается — дождитесь его.':'A shot is already being made — please wait for it.',
     'Ссылка скопирована':'Link copied','Ракурс':'View','План':'Plan','Товары и замены ⌃':'Items & swaps ⌃','⌄ Свернуть':'⌄ Collapse',
     'Сделать фотореалистичное фото':'Make a photorealistic photo','нейросеть · 2–4 мин · бесплатно для вас':'AI · 2–4 min · free for you',
-    'Сделать реалистичнее':'Make it realistic','Отменить изменение':'Undo the change','Вернуть изменение':'Redo the change',
+    'Сделать фото':'Take photo','Отменить изменение':'Undo the change','Вернуть изменение':'Redo the change',
     'Потяните или нажмите — товары и замены':'Pull or tap — items and swaps','Двигайте фото пальцем · у края — другой вид · шторку — товары и замены':'Drag the photo · at the edge — another view · pull the sheet — items and swaps','Фото нейросети · расстановка могла отличаться':'AI photo · the layout may differ','Собираем сцену…':'Building the scene…','⤢ во весь экран':'⤢ full screen','Двигайте пальцем · щипок — увеличить · двойной тап — назад':'Drag to move · pinch to zoom · double tap to go back','Ракурс 1':'View 1','Ракурс 2':'View 2','Загружаем модели…':'Loading models…','Обновляем…':'Updating…','Загружаем модель…':'Loading the model…','Сервер рисует эскиз…':'The server is drawing a sketch…','Эскиз с сервера · у устройства нет видеокарты':'Server sketch · your device has no graphics card','Готово — посмотреть в окне':'Done — view in the window','Расставляем мебель…':'Placing furniture…','Предыдущая расстановка':'Previous layout','Следующая расстановка':'Next layout',
     'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Готово — посмотреть в окне» внизу.':
       'Hold an item for half a second and drag it to move. A short tap shows rotation arrows. When ready, tap “Done — view in the window” below.',

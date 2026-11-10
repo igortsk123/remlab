@@ -225,7 +225,7 @@ test("2.32 компьютер: окно без полос, сцена во вс�
   expect(Math.abs(a.cv!.w - a.wrap!.w)).toBeLessThanOrEqual(1);
   // кнопка — вне прокрутки списка, под плашкой сертификата
   expect(a.ctaVisible).toBe(true);
-  expect(a.ctaText).toMatch(/реалистичнее/);
+  expect(a.ctaText).toMatch(/Сделать фото/);
   expect(a.ctaInScroll).toBe(false);
   expect(a.cta!.t).toBeGreaterThanOrEqual(a.sum!.b - 1);
   expect(a.cta!.t - a.sum!.b).toBeLessThanOrEqual(40);
@@ -517,7 +517,7 @@ test("2.43 «Сделать реалистичнее»: полоса и «ост
   const { page, close } = await demoPage(browser, desk, "?live=force", { renders });
   await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
   await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
-  await expect(page.locator("#vCta")).toHaveText(/реалистичнее/);
+  await expect(page.locator("#vCta")).toHaveText(/Сделать фото/);
   const t0 = Date.now();
   await page.locator("#vCta").click();
   const read = () => page.evaluate(() => {

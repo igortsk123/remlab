@@ -283,7 +283,9 @@ def test_scene_variants_replace_pending_ready_first_and_mapped():
     assert d['variants'][1]['furniture_state'] == 'partial' and d['variants'][1]['furniture_problem']['codes'] == ['route_blocked']
     assert d['variants'][2]['furniture_state'] == 'failed' and d['variants'][2]['items'] == []
     assert d['trial']['furniture'] == 'ready' and d['trial']['flags'] == ['band_lowered']
-    assert d['rules']['slot_band_cm'] == {'диван': {'min': 500}}
+    # полоса «по размеру» страницы — от места предмета (T-40: полоса по площади гостиной резала все ковры витрины); роли без предмета —
+    # полоса витрины как была
+    assert d['rules']['slot_band_cm']['диван'] == {'lo': 160, 'side': 'w', 'hi': 221} and d['rules']['slot_band_cm']['стул']['lo'] == 32
     # лента замен — только товары сцены; порядок по цене
     assert [p['msid'] for p in d['feeds']['диван']] == ['m-1_2'] and set(d['feeds']['диван'][0]['styles']) == {'сканди', 'минимализм'}
     assert d['sofa_feed'] == d['feeds']['диван']
