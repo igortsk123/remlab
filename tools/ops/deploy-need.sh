@@ -7,7 +7,9 @@
 # Любое сомнение (версия не читается, кадры на другой версии, коммита нет, diff упал) → выкладка как раньше.
 # ПОРЯДОК (T-20261110-01): выкладки встают в очередь по окончанию CI, а не по истории git — 10.11 CI c42d62d0 кончился
 # позже, чем у его потомка 41a95452, и Deploy откатил прод на c42d62d0. Цель — строгий предок выкатанной версии →
-# пропуск («её код уже на проде»). История не скачалась / коммиты не связаны (форс-пуш) → выкладка, как раньше.
+# пропуск («её код уже на проде»). Проверка идёт ДО здоровья и кадров: известно-старая цель не выкатывается
+# автоматически никогда, откат — только ручным workflow_dispatch. История не скачалась / глубже HIST_DEPTH /
+# коммиты не связаны (форс-пуш) → выкладка, как раньше (в логе «порядок не доказан», если история обрезана).
 # actions/checkout берёт 1 коммит — коммит прода докачиваем с историей HIST_DEPTH (≈1 МБ сверху при 100).
 #
 #   deploy-need.sh <TARGET_SHA>   — решение для deploy.yml: stdout «deploy=true|false», причина — в stderr;
@@ -36,36 +38,50 @@ docs_only() {
 
 ver_of() { sed -n 's/.*"version": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -1; }
 
-# 0 — $1 строгий предок $2 (на проде код новее цели). 1 — нет или не удалось доказать (мелкая история, несвязанные коммиты).
+# 0 — $1 строгий предок $2 (на проде код новее цели). 1 — доказано, что нет (история $2 скачана до корня; несвязанные
+# коммиты). 2 — не доказано: история $2 обрезана мелким клоном (глубже HIST_DEPTH) или не докачалась.
 # Мелкий клон может лишь НЕ найти связь, ложного «предок» он не даёт: обход идёт от $2 по настоящим родителям.
 older_than_prod() {
+  local sh
   [ "$1" != "$2" ] || return 1
   git merge-base --is-ancestor "$1" "$2" 2>/dev/null && return 0
   [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ] || return 1
-  git fetch -q --depth="$HIST_DEPTH" origin "$2" 2>/dev/null || return 1
-  git merge-base --is-ancestor "$1" "$2" 2>/dev/null
+  git fetch -q --depth="$HIST_DEPTH" origin "$2" 2>/dev/null || return 2
+  git merge-base --is-ancestor "$1" "$2" 2>/dev/null && return 0
+  # есть ли в истории $2 обрезанный край (коммит из файла shallow) — тогда «нет» не доказано
+  sh=$(git rev-parse --git-path shallow 2>/dev/null)
+  [ -s "$sh" ] || return 1
+  git rev-list "$2" 2>/dev/null | grep -qxFf "$sh" && return 2
+  return 1
 }
 
 # $1 — целевой коммит. stdout: «skip <версия прода>» | «old <версия прода>» | «deploy <причина>»
 decide() {
-  local target=$1 app_h draft_h app drv files
+  local target=$1 app_h draft_h app drv files have_app=0 order=1 tail=""
   app_h=${HEALTH_JSON-$(curl -s --max-time 10 "$SITE/api/health" || true)}
   draft_h=${DRAFT_JSON-$(curl -s --max-time 10 "$SITE/api/draft/health" || true)}
   app=$(printf '%s' "$app_h" | ver_of); drv=$(printf '%s' "$draft_h" | ver_of)
   [ -n "$app" ] || { echo "deploy версия сайта не читается"; return; }
-  printf '%s' "$app_h" | grep -q '"ok":true' || { echo "deploy сайт не здоров (ok≠true)"; return; }
-  [ "$drv" = "$app" ] || { echo "deploy кадры на другой версии (${drv:0:12}) — выкладка их выровняет"; return; }
+  if [ "$app" != "$target" ]; then
+    { git cat-file -e "$app^{commit}" 2>/dev/null || git fetch -q --depth="$HIST_DEPTH" origin "$app" 2>/dev/null; } && have_app=1
+  fi
+  # ПОРЯДОК — ДО здоровья, кадров и сравнения деревьев (T-20261110-01/2): известно-старая цель не выкатывается
+  # автоматически НИКОГДА, даже на нездоровый прод; откат — только ручным запуском (workflow_dispatch).
+  if [ "$have_app" = 1 ] && git cat-file -e "$target^{commit}" 2>/dev/null; then
+    older_than_prod "$target" "$app"; order=$?
+    [ "$order" = 0 ] && { echo "old $app"; return; }
+    [ "$order" = 2 ] && tail="; порядок не доказан (история прода глубже HIST_DEPTH=$HIST_DEPTH) — выкладываем"
+  fi
+  printf '%s' "$app_h" | grep -q '"ok":true' || { echo "deploy сайт не здоров (ok≠true)$tail"; return; }
+  [ "$drv" = "$app" ] || { echo "deploy кадры на другой версии (${drv:0:12}) — выкладка их выровняет$tail"; return; }
   [ "$app" != "$target" ] || { echo "deploy прод уже на целевой версии — повторный запуск, выкладываем как просили"; return; }
-  git cat-file -e "$app^{commit}" 2>/dev/null || git fetch -q --depth="$HIST_DEPTH" origin "$app" 2>/dev/null \
-    || { echo "deploy коммит прода ${app:0:12} не нашёлся"; return; }
+  [ "$have_app" = 1 ] || { echo "deploy коммит прода ${app:0:12} не нашёлся"; return; }
   git cat-file -e "$target^{commit}" 2>/dev/null || { echo "deploy целевой коммит не найден"; return; }
   # --no-renames: перенос app/x → docs/x должен показать и удаление из app/, иначе «только docs» и пропуск
-  files=$(git diff --no-renames --name-only "$app" "$target" 2>/dev/null) || { echo "deploy сравнение не удалось"; return; }
+  files=$(git diff --no-renames --name-only "$app" "$target" 2>/dev/null) || { echo "deploy сравнение не удалось$tail"; return; }
   FIRST_CODE=""
   if docs_only <<<"$files"; then echo "skip $app"; return; fi
-  # код различается: если это потому, что цель СТАРШЕ прода, выкладка была бы откатом (T-20261110-01)
-  if older_than_prod "$target" "$app"; then echo "old $app"; return; fi
-  echo "deploy изменён код: $FIRST_CODE"
+  echo "deploy изменён код: $FIRST_CODE$tail"
 }
 
 selftest() {
@@ -116,6 +132,8 @@ selftest() {
   expect "$(run "$(h "$c3")" "$(dj "$c3")" "$c4")" "deploy изменён код" "цель новее прода"
   expect "$(run "$(h "$c4")" "$(dj "$c4")" "$c4")" "deploy прод уже на целевой" "та же версия"
   expect "$(run "" "" "$c3")" "deploy версия сайта не читается" "цель старше, но версия не читается"
+  expect "$(run '{"ok":false,"version":"'"$c4"'"}' "$(dj "$c4")" "$c3")" "old $c4" "цель старше, прод ok=false — всё равно не откатываем"
+  expect "$(run "$(h "$c4")" "$(dj "$c3")" "$c3")" "old $c4" "цель старше, кадры на другой версии — не откатываем"
   local c5; c5=$(git -C "$t" commit-tree -m orphan "$c1^{tree}") # форс-пуш: та же правка без общей истории
   expect "$(run "$(h "$c5")" "$(dj "$c5")" "$c4")" "deploy изменён код" "несвязанные коммиты (прод — сирота)"
   expect "$(run "$(h "$c4")" "$(dj "$c4")" "$c5")" "deploy изменён код" "несвязанные коммиты (цель — сирота)"
@@ -126,8 +144,11 @@ selftest() {
   git clone -q --depth=1 "file://$t" "$s/c" 2>/dev/null
   runin() { (cd "$1" && HIST_DEPTH=$2 HEALTH_JSON=$(h "$3") DRAFT_JSON=$(dj "$3") decide "$4"); }
   expect "$(runin "$s/a" 100 "$c4" "$c3")" "old $c4" "мелкий клон: цель старше — история докачана"
-  expect "$(runin "$s/b" 1 "$c4" "$c3")" "deploy изменён код" "мелкий клон: история до цели не скачалась → выкладка"
-  expect "$(runin "$s/c" 100 "$c2" "$c4")" "deploy изменён код" "мелкий клон: цель новее"
+  expect "$(runin "$s/b" 1 "$c4" "$c3")" "deploy изменён код: app/y.ts; порядок не доказан" \
+    "история глубже HIST_DEPTH (1) → выкладка, порядок не доказан"
+  r=$(runin "$s/c" 100 "$c2" "$c4")
+  [ "$r" = "deploy изменён код: app/x.ts" ] && ok_ "мелкий клон: цель новее (история прода до корня, без «не доказан») → $r" \
+    || bad "мелкий клон: цель новее → «$r», ждали ровно «deploy изменён код: app/x.ts»"
   [ "$fail" = 0 ] && { echo "deploy-need selftest ok"; return 0; }
   echo "deploy-need selftest FAIL" >&2; return 1
 }
@@ -149,7 +170,7 @@ case "${1:-}" in
     d=$(decide "$1")
     case "$d" in
       "skip "*) need=false; why="на проде ${d#skip }, до ${1:0:12} изменены только документы/память — app и draft не пересоздаём" ;;
-      "old "*) p=${d#old }; need=false; why="цель ${1:0:12} старше прода ${p:0:12} (уже входит в его историю) — CI закончились не по порядку, откат на старый коммит не делаем" ;;
+      "old "*) p=${d#old }; need=false; why="цель ${1:0:12} старше прода ${p:0:12} (уже входит в его историю) — CI закончились не по порядку, автоматически на старый коммит не откатываем; откат — только ручным запуском Deploy (workflow_dispatch)" ;;
       *) need=true; why=${d#deploy } ;;
     esac
     echo "deploy=$need"; echo "выкладка: $need — $why" >&2
