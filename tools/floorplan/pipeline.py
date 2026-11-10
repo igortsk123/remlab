@@ -669,7 +669,9 @@ def _scale_labels(log: dict, G: dict, guess: bool) -> dict:
     return {'status': status, 'ppm': ppm, 'inliers': plan_inl + text_inl, 'n': n}
 
 
-def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: int = 1) -> dict:
+def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: int = 1, pockets: bool = False) -> dict:
+    """Панель журнала стенда → панель `floorplanResult`. `pockets` — лист застройщика (`bench.dev_sheet`): полость без подписи
+    меньше POCKET_M2 — не комната."""
     dims_by = {d['id']: d for d in P.get('dims') or []}
     spaces = {}
     for q in P.get('label_report') or []:
@@ -689,7 +691,7 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
         w, d = round(max(xs) - min(xs), nd), round(max(ys) - min(ys), nd)
         if w <= 0 or d <= 0:
             continue
-        if not shown and float(mr.get('area_m2') or 0.0) < POCKET_M2 and os.environ.get('FP_POCKET', '1') != '0':
+        if pockets and not shown and float(mr.get('area_m2') or 0.0) < POCKET_M2 and os.environ.get('FP_POCKET', '1') != '0':
             continue                                  # T-38: полость без подписи меньше 0,5 м² — не помещение (`bench.pocket_doors`)
         fl = _room_flags(names, G_by, dims_by, scale_ok)
         if not shown:
@@ -776,7 +778,7 @@ def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: floa
             m = models.get(tuple(P['bbox_px']))
             if m is None:
                 continue
-            panels.append(panel_result(pi, P, m, G_by, scale['status'] != 'not_verified', nd))
+            panels.append(panel_result(pi, P, m, G_by, scale['status'] != 'not_verified', nd, bool(log.get('dev_sheet'))))
         panels = [p for p in panels if p['rooms'] or any(w['polys'] for w in p['walls'])]
         if not any(p['rooms'] for p in panels):
             raise TrialError('no_plan', False, 'no rooms found')

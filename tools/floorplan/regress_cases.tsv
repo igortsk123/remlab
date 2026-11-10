@@ -1,0 +1,7 @@
+# Листы регресса сверх загрузок проб (`regress.py run` берёт их сам): имя<TAB>лист<TAB>объявление|-<TAB>[папка VLM]
+# T-33: перевыпуск aRQ с объявлением; лист QFfI/rpJz/yb3 — уже растр (sheet.png), как в T-33/3
+aRQ-r1-listing	~/remlab-logs/trial/aRQVC9nJ1g1WqBTXeA6VqA/r1-1bc0cf-141102/plan/sheet.png	~/remlab-logs/trial/aRQVC9nJ1g1WqBTXeA6VqA/r1-1bc0cf-141102/plan/listing.txt
+# T-38: загрузка oTlA… удалена из проб — лист из прогона T-38 (20:40), кэш VLM по его хешу
+oTlAl0jUZ7CYI_WwyESjUw-a1-215833	~/remlab-logs/t38/2244/sheets/oTlA-215833.png	-	~/remlab-logs/trial/vlm-cache/ed644cded074cbbff9b5846844c1fa02
+# T-38: план застройщика РФ «Этажи» (серые перегородки, площади подписями) — кэш labels4 вне общего
+etagi-1642	~/remlab-logs/t38/1642/job/sheet.png	~/remlab-logs/t38/1642/job/listing.txt	~/remlab-logs/t38/vlm4/etagi

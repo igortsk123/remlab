@@ -319,6 +319,23 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
 
 POCKET_M2 = 0.5     # T-20261110-38: замкнутая полость меньше — не помещение (полость наружной стены Этажей, короб, ниша)
 POCKET_W_M = 0.45   # и уже этого (вписанная ширина): полость в толще стены — щель 0,2–0,3 м; шкаф с дверцей — от ~0,6 м
+DEV_AREA_LABELS = 2  # = pipeline.area_rerun_ppm: столько подписей площади без размеров — манера листа застройщика РФ
+
+
+def dev_sheet(cfg: dict, vl: dict | None) -> bool:
+    """T-20261110-38/3: лист в манере застройщика РФ («Этажи») — по самому листу, не по имени файла: серые перегородки при
+    толстых чёрных стенах (`build_mask` → `grey_info.used`) или ≥ DEV_AREA_LABELS подписей площади комнат без размеров (labels4).
+    Только у такого листа работают правила проёмов T-38 — двери в полость стены (`pocket_doors`), закрытия внутри одной
+    комнаты (`same_room_gaps`), обрубки короче STUB_M, полость без подписи < POCKET_M2 — не комната (`pipeline.panel_result`):
+    на британских листах (контур стен без полостей) они снимали настоящие двери — регресс rgK5…: дверей 162 → 66, у Bedroom 6
+    — ни одной. FP_DEV_SHEET=1|0 — принудительно (сравнение)."""
+    f = os.environ.get('FP_DEV_SHEET')
+    if f in ('0', '1'):
+        return f == '1'
+    if (cfg.get('grey_info') or {}).get('used'):
+        return True
+    labs = (vl or {}).get('labels') or []
+    return sum(1 for q in labs if q.get('area_m2') is not None and not q.get('dims')) >= DEV_AREA_LABELS
 
 
 def pocket_doors(gaps, lab_g, lab, final, outside, areas, pocket_px: float, pocket_w_px: float = np.inf) -> None:
@@ -1054,6 +1071,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
     if vl is not None and gold.get('_labels') is not None:     # слепой: подписи VLM с размерами из текста объявления
         vl['labels'] = [dict(q) for q in gold['_labels']]
         vl['pts'] = [q['pt'] for q in gold['_labels']]
+    cfg['dev_sheet'] = log['dev_sheet'] = dev_sheet(cfg, vl)      # T-38/3: правила проёмов листа застройщика — только у него
     log['cfg'] = {k: list(v) if isinstance(v, tuple) else v for k, v in cfg.items()}
     H_, W_ = wall.shape
     pan = []     # (X0, Y0, X1, Y1, маска панели или None, принадлежность точки)
@@ -1159,9 +1177,10 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
             r['label_splits'] = lsplit
             r['areas'] = np.bincount(r['lab'].ravel(), minlength=int(r['lab'].max()) + 1)
         # T-20261110-38: двери в полости — по комнатам ПОСЛЕ починки (до неё комнату дробят мелкие куски у закрытий, и «полостью»
-        # оказывался кусок площадки: регресс QFfI3u… терял двери ванной и лестницы)
-        pocket_doors(r['gaps'], r['lab_g'], r['lab'], r['final'], r['outside'], r['areas'], POCKET_M2 * ppm * ppm,
-                     POCKET_W_M * ppm)
+        # оказывался кусок площадки: регресс QFfI3u… терял двери ванной и лестницы). Только лист застройщика (`dev_sheet`)
+        if cfg.get('dev_sheet'):
+            pocket_doors(r['gaps'], r['lab_g'], r['lab'], r['final'], r['outside'], r['areas'], POCKET_M2 * ppm * ppm,
+                         POCKET_W_M * ppm)
         hit, obs = match_gold(r, groom, fams, core=True)
         fit = fc.fit_scale(obs)
         loo = fc.leave_one_out(obs)
@@ -1276,8 +1295,10 @@ def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
     st2, jr = repair.run(st_a, labs, ctx, r['outside'])
     jr = jr_area + jr
     # снятое кругом закрытие, по обе стороны которого теперь одна комната, — не проём («дверь» посреди коридора Этажей). Снятое
-    # с границей min-cut (`st.cut`) между разными комнатами — остаётся проёмом
-    removed_area = removed_area | same_room_gaps(r['lab_g'], r['gaps'], (st_a.final > 0) & ~(st2.final > 0), st2.lab)
+    # с границей min-cut (`st.cut`) между разными комнатами — остаётся проёмом. Только лист застройщика (`dev_sheet`, T-38/3)
+    dev = bool(cfg.get('dev_sheet'))
+    if dev:
+        removed_area = removed_area | same_room_gaps(r['lab_g'], r['gaps'], (st_a.final > 0) & ~(st2.final > 0), st2.lab)
     absorbed, removed = [], (removed_area if removed_area.any() else None)
     if os.environ.get('FP_ABSORB', '1') != '0':
         # T-20261110-19: обрывки за нашими закрытиями — в соседа (`repair.absorb_fragments`); зазубрины и окна — стена, не разрез
@@ -1305,7 +1326,7 @@ def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
     r['areas'] =np.bincount(r['lab'].ravel(), minlength=int(r['lab'].max()) + 1)
     if removed is not None and removed.any():
         r['add'] = ((r['add'] > 0) & ~removed).astype(np.uint8)
-        r['lab_g'], r['gaps'] = shrink_gaps(r['lab_g'], r['gaps'], removed, STUB_M * ppm)
+        r['lab_g'], r['gaps'] = shrink_gaps(r['lab_g'], r['gaps'], removed, STUB_M * ppm if dev else 0.0)
     r['absorbed'] = absorbed
     return r, [log0] + off + jr, repair.label_report(st2, labs_all, ctx)
 

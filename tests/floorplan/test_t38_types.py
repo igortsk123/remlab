@@ -258,3 +258,31 @@ def test_shrink_gaps_drops_short_stub_keeps_rest():
     assert gs == [] and not lg.any()                                              # обрубок 10 px < 16 — не проём
     lg, gs = bench.shrink_gaps(lab_g, [g], removed)
     assert len(gs) == 1 and gs[0].length == pytest.approx(10, abs=1)              # без порога — остаток как был
+
+
+def test_dev_sheet_by_sheet_features_not_name(monkeypatch):
+    """T-38/3: правила проёмов Этажей — только у листа застройщика (серые перегородки или площади без размеров); британский
+    лист с размерами — как до T-38 (регресс rgK5…: правила снимали настоящие двери)."""
+    monkeypatch.delenv('FP_DEV_SHEET', raising=False)
+    uk = {'labels': [{'name': 'Bedroom', 'dims': (3.2, 4.1)}, {'name': 'Hall', 'dims': None}]}
+    assert not bench.dev_sheet({'grey_info': {'used': False}}, uk)
+    assert not bench.dev_sheet({}, None)
+    assert bench.dev_sheet({'grey_info': {'used': True}}, uk)                     # серые перегородки при чёрных стенах
+    ru = {'labels': [{'name': 'Bedroom', 'area_m2': 14.9, 'dims': None}, {'name': 'Hall', 'area_m2': 4.3}]}
+    assert bench.dev_sheet({}, ru)                                                # площади комнат вместо размеров
+    one = {'labels': [{'name': 'Bedroom', 'area_m2': 14.9}, {'name': 'Hall', 'dims': (2, 3), 'area_m2': 6.0}]}
+    assert not bench.dev_sheet({}, one)                                           # одна площадь / площадь при размерах — нет
+    monkeypatch.setenv('FP_DEV_SHEET', '1')
+    assert bench.dev_sheet({}, None)
+    monkeypatch.setenv('FP_DEV_SHEET', '0')
+    assert not bench.dev_sheet({'grey_info': {'used': True}}, ru)
+
+
+def test_unlabelled_pocket_room_dropped_only_on_dev_sheet():
+    """Полость без подписи < 0,5 м² — не комната только у листа застройщика; на остальных — как до T-38."""
+    sq = lambda x0, s: [[x0, 0], [x0 + s, 0], [x0 + s, s], [x0, s]]               # noqa: E731
+    model = {'rooms': [{'id': 1, 'names': ['Hall'], 'area_m2': 6.0}, {'id': 2, 'names': [], 'area_m2': 0.3}],
+             'floors': [{'room': 1, 'outer': sq(0, 2.4)}, {'room': 2, 'outer': sq(3, 0.5)}], 'bands': [], 'openings': []}
+    G_by = {'Hall': {'name': 'Hall', 'name0': 'Hall'}}
+    assert len(pl.panel_result(0, {}, model, G_by, True)['rooms']) == 2
+    assert len(pl.panel_result(0, {}, model, G_by, True, pockets=True)['rooms']) == 1
