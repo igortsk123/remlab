@@ -277,6 +277,35 @@ def test_door_inside_neighbour_floor_is_neighbours():
     assert refusal(res) == 'opening_ambiguous'
 
 
+def test_door_at_neighbour_wall_past_corner_is_neighbours_when_room_has_entrance():
+    """T-20261110-33/3 (FjiO, спальня 1 и кладовая над ней): дверь 140 на общей стене выходит за угол обеих комнат — ни одна
+    не накрывает её целиком (4 пробы из 5), центр в полу кладовой в допуске near. У стены соседа не хуже, чем у нашей, и у
+    спальни есть своя дверь — проём соседа, флаг `opening_neighbour_side`. Без своей двери — по-прежнему неоднозначный."""
+    bed = room('r1', 'bedroom', [(0, 100), (400, 100), (400, 400), (0, 400)])
+    cup = room('r2', 'other', [(0, 0), (400, 0), (400, 110), (0, 110)])
+    res = result([bed, cup], [op('door', (100, 400), 90), op('door', (380, 95), 140)])
+    p = res['panels'][0]
+    ours, amb, flags = TR.openings_of(p, bed, TR.rules())
+    assert [o['_idx'] for o in ours] == [0] and amb == [] and flags == ['opening_neighbour_side']
+    res = result([bed, cup], [op('door', (380, 95), 140)])
+    ours, amb, flags = TR.openings_of(res['panels'][0], bed, TR.rules())
+    assert ours == [] and [o['_idx'] for o in amb] == [0] and flags == []
+
+
+def test_door_parallel_beyond_near_inside_neighbour_within_near_is_neighbours():
+    """T-20261110-33/3 (rgK, главная спальня и коридор): дверь 220 идёт вдоль нашей стены в 42 см от неё (ни одной пробы
+    у нас), центр в полу коридора в 32 см от его края (мельче near — правило `opening_foreign` не срабатывает), коридор
+    накрывает 4 пробы из 5. У нас есть своя дверь — проём коридора; без неё — неоднозначный."""
+    bed = room('r1', 'bedroom', [(0, 0), (400, 0), (400, 400), (0, 400)])
+    hall = room('r2', 'hall', [(410, 150), (600, 150), (600, 600), (410, 600)])
+    res = result([bed, hall], [op('door', (200, 400), 90), op('door', (442, 200), 220)])
+    ours, amb, flags = TR.openings_of(res['panels'][0], bed, TR.rules())
+    assert [o['_idx'] for o in ours] == [0] and amb == [] and flags == ['opening_neighbour_side']
+    res = result([bed, hall], [op('door', (442, 200), 220)])
+    ours, amb, flags = TR.openings_of(res['panels'][0], bed, TR.rules())
+    assert ours == [] and [o['_idx'] for o in amb] == [0]
+
+
 NICHE = [(0, 0), (500, 0), (500, 400), (100, 400), (100, 150), (0, 150)]   # ниша 100×150 слева сверху, ядро 400×400
 
 

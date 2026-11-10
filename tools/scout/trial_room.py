@@ -170,11 +170,13 @@ def _openings_plan(panel: dict, room: dict, cfg: dict) -> tuple[list, list, list
       * след проёма в стене (`_footprint`: кусок подоконника/перемычки) задаёт центр, ширину и ось; проём наш, если вдоль
         следа ровно одно параллельное ребро контура в допуске near на всю ширину (`opening_snapped`, ширина по следу —
         ещё `opening_width_from_walls`); два ребра на равном расстоянии — по-прежнему неоднозначный;
-      * центр глубже near в полу соседней комнаты и не в стене — проём соседа (`opening_foreign`), не наш."""
+      * центр глубже near в полу соседней комнаты и не в стене — проём соседа (`opening_foreign`), не наш.
+    И третьим (T-20261110-33/3): дверь у стены единственного соседа, в чьём полу её центр (`_at_neighbour_wall`), — его, если у
+    нас есть своя дверь (`opening_neighbour_side`); своей двери нет — неоднозначная."""
     poly = Polygon(room['contour']).buffer(0)
     near, far, k = float(cfg['opening_near_cm']), float(cfg['opening_far_cm']), int(cfg['opening_samples'])
     others = [Polygon(r['contour']).buffer(0) for r in panel['rooms'] if r is not room]
-    ours, amb, flags = [], [], set()
+    ours, amb, side, flags = [], [], [], set()
 
     def mine(op, j, d0, c, fix=()):
         # «наружная» — только если и по геометрии за стеной нет другой комнаты панели: распознавание ставит
@@ -205,8 +207,32 @@ def _openings_plan(panel: dict, room: dict, cfg: dict) -> tuple[list, list, list
                 any(o.contains(c) and o.exterior.distance(c) > near for o in others):
             flags.add('opening_foreign')               # в полу соседа, не в стене — его проём (дверь, сдвинутая распознаванием)
             continue
+        if _at_neighbour_wall(poly, others, op, c, cfg):
+            side.append(dict(op, _idx=j, _d=round(d0, 1)))   # у стены соседа — решает, есть ли у нас свой вход (после цикла)
+            continue
         amb.append(dict(op, _idx=j, _d=round(d0, 1)))
+    if side and any(o['kind'] in ('door', 'opening') and not o.get('_fix') for o in ours):
+        flags.add('opening_neighbour_side')
+    elif side:
+        amb = sorted(amb + side, key=lambda o: o['_idx'])
     return ours, amb, sorted(flags)
+
+
+def _at_neighbour_wall(poly: Polygon, others: list, op: dict, c: Point, cfg: dict) -> bool:
+    """Спорная ДВЕРЬ лежит у стены соседа, а не у нашей (T-20261110-33/3, второе мнение Codex): центр вне нашего пола и в полу
+    РОВНО ОДНОГО соседа, в допуске near от его границы; у его границы — не меньше `opening_neighbour_share_min` ширины (`_share`
+    с шагом `opening_share_step_cm`) и не меньше, чем у нашей. Такая дверь — соседа, если у нас есть своя дверь, принятая без
+    поправок (вход есть и без неё; решает `_openings_plan`); нет — остаётся неоднозначной. Решение зависит только от геометрии
+    панели, не от порядка комнат. Окна так не уступаем."""
+    if op.get('kind') not in ('door', 'opening') or poly.contains(c):
+        return False
+    near = float(cfg['opening_near_cm'])
+    hold = [o for o in others if o.contains(c)]
+    if len(hold) != 1 or hold[0].exterior.distance(c) > near:
+        return False
+    step = float(cfg.get('opening_share_step_cm', 10))
+    nb = _share(hold[0], op, near, step)
+    return nb >= float(cfg.get('opening_neighbour_share_min', 0.75)) and nb >= _share(poly, op, near, step)
 
 
 def _openings_of(panel: dict, room: dict, cfg: dict) -> tuple[list, list]:
@@ -326,6 +352,17 @@ def _covers(poly: Polygon, op: dict, near: float, k: int) -> bool:
         if poly.exterior.distance(Point(c.x + ux * t, c.y + uy * t)) > near:
             return False
     return True
+
+
+def _share(poly: Polygon, op: dict, near: float, step: float) -> float:
+    """Доля ширины проёма у границы контура: пробы от косяка до косяка (на 5 см внутрь, как `_covers`) не реже `step` см по оси
+    ближайшего ребра, доля проб в пределах near. 1.0 — проём целиком у неё."""
+    c = Point(op['c'])
+    ux, uy = _edge_dir(poly, c)
+    half = max(0.0, float(op['widthCm']) / 2 - 5.0)
+    n = max(2, math.ceil(2 * half / max(1.0, step)) + 1)
+    ts = [-half + (2 * half) * i / (n - 1) for i in range(n)]
+    return sum(poly.exterior.distance(Point(c.x + ux * t, c.y + uy * t)) <= near for t in ts) / len(ts)
 
 
 def _light(ours: list, cfg: dict) -> tuple[bool, list]:
