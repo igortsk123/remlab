@@ -866,9 +866,13 @@ def mouth_strip(comp: np.ndarray, wall: np.ndarray, t: float):
     return sy + y0, sx + x0
 
 
-def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5) -> float:
+def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5, tangent_only: bool = False) -> float:
     """Есть ли у разрыва дуга двери: доля углов 0–90°, где на радиусе створки от петли (конец разрыва, грань стены)
-    лежит тонкая линия. Створка одна (радиус L) или две (по L/2 от каждого конца, обе дуги). → лучшая доля 0..1."""
+    лежит тонкая линия. Створка одна (радиус L) или две (по L/2 от каждого конца, обе дуги). → лучшая доля 0..1.
+    `tangent_only` — только «вогнутая» дуга створки, нарисованной закрытой в линии стены (T-20261110-11): касается грани
+    у торца, центр в комнате на глубине R; её первые ~35° (у самой грани, где лежат линии рамы окна) не считаются."""
+    if tangent_only:
+        return _tangent_evidence(thin, c, u, n, L, depth, step_deg)
     H, W = thin.shape
     th = np.radians(np.arange(0, 91, step_deg))
 
@@ -913,6 +917,45 @@ def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: i
     return best
 
 
+def _tangent_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5) -> float:
+    """«Вогнутая» дуга створки, нарисованной закрытой в линии стены (наш пример /try, T-20261110-11): касается грани стены
+    у торца, центр в комнате на глубине R (h + s·R), идёт от грани к точке напротив другого торца. Петля и R перебираются
+    как в `door_evidence`. Точка засчитана — только чистая дуга: на том же луче на 0,8R и 1,2R линий нет вместе (поперечная
+    линия — край ванны, раковина, штриховка — задевает все три радиуса; листы B и T). Окно 5×5 вокруг точки — как у
+    `door_evidence`: один раз расширенный вырез вокруг разрыва и выборка массивом. → лучшая доля 0..1."""
+    H, W = thin.shape
+    th = np.radians(np.arange(TANGENT_FROM_DEG, 91, step_deg))
+    rad = np.array((1.0,) + TANGENT_PURE)
+    m = int(3 * L + depth) + 8                      # дальше всех точек: L/2 + R + 1,2R при R ≤ 1,05 L
+    cx, cy = int(round(float(c[0]))), int(round(float(c[1])))
+    x0, y0 = max(0, cx - m), max(0, cy - m)
+    crop = np.pad((thin[y0:min(H, cy + m + 1), x0:min(W, cx + m + 1)] > 0).astype(np.uint8), 2)
+    dil = cv2.dilate(crop, np.ones((5, 5), np.uint8))   # точка «у линии» — линия в её окне 5×5 (за краем листа — пусто)
+    hh, ww = dil.shape
+    fs = np.arange(0.5, 1.06, 0.05) * L                 # R
+    js = np.array((0.0, 0.1, 0.2, 0.3))
+    best = 0.0
+    for s in (n, -n):
+        face = c + s * depth / 2
+        for sign in (-1.0, 1.0):                         # петля у одного торца, дуга — к другому
+            d = -sign * u
+            e = face[None, :] + sign * u[None, :] * (L * (0.5 - js))[:, None]                 # (J, 2)
+            o = e[:, None, :] + s[None, None, :] * fs[None, :, None]                          # (J, F, 2)
+            ray = -np.cos(th)[:, None] * s[None, :] + np.sin(th)[:, None] * d[None, :]       # (A, 2)
+            P = (o[:, :, None, None, :] + (fs[None, :, None, None, None] * rad[None, None, None, :, None])
+                 * ray[None, None, :, None, :])                                               # (J, F, A, 3, 2)
+            xi = np.rint(P[..., 0]).astype(int) - x0 + 2
+            yi = np.rint(P[..., 1]).astype(int) - y0 + 2
+            ok = (xi >= 0) & (xi < ww) & (yi >= 0) & (yi < hh)
+            on = np.zeros(xi.shape, bool)
+            on[ok] = dil[yi[ok], xi[ok]] > 0
+            good = on[..., 0] & ~(on[..., 1] & on[..., 2])                                   # (J, F, A)
+            best = max(best, float(good.mean(axis=2).max()))
+    return best
+
+
+TANGENT_FROM_DEG = 35  # «вогнутая» дуга: углы с 35° — дальше ~0,18 R от грани стены, мимо линий рамы окна
+TANGENT_PURE = (0.8, 1.2)  # радиусы проверки «чистой дуги» (линий нет на обоих разом)
 LEAF_MIN = 0.8        # створка: ≥ 80 % её длины — тонкая линия
 LEAF_ARC_MIN = 0.4    # при створке хватает 40 % дуги
 LEAF_SCORE = 0.8      # «дверь по створке» — выше порога дуги (0,75)

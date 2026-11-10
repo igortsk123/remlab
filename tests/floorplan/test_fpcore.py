@@ -131,6 +131,27 @@ def test_door_evidence_leaf_rescues_partial_arc():
     assert fc.door_evidence(with_leaf, c, u, n, L, d) >= fc.LEAF_SCORE
 
 
+def test_door_evidence_sees_tangent_arc_with_leaf_in_wall():
+    """T-20261110-11 (наш пример /try): створка нарисована закрытой в линии стены, дуга «вогнутая» — касается стены у торца,
+    центр в комнате на глубине ширины проёма. Это дверь; без шаблона такой дуги — нет."""
+    thin = np.zeros((200, 200), np.uint8)
+    cv2.line(thin, (60, 100), (120, 100), 1, 1)                 # створка в проёме
+    cv2.ellipse(thin, (60, 160), (60, 60), 0, 270, 360, 1, 1)   # от торца (60,100) до (120,160), центр (60,160)
+    ys, xs = np.mgrid[97:104, 60:121]
+    c, u, n, L, d = fc.gap_axes(ys.ravel(), xs.ravel())
+    assert fc.door_evidence(thin, c, u, n, L, d, tangent_only=True) >= 0.75
+    assert fc.door_evidence(thin, c, u, n, L, d) < 0.75            # прежние рисунки (дуга от петли) её не видят
+    frame = np.zeros_like(thin)
+    for y in (98, 102):
+        cv2.line(frame, (60, y), (120, y), 1, 1)                    # рама окна в проёме
+    cv2.line(frame, (50, 88), (130, 88), 1, 1)                      # размерная линия снаружи, параллельно стене
+    assert fc.door_evidence(frame, c, u, n, L, d, tangent_only=True) < 0.5
+    hatch = frame.copy()
+    for y in range(104, 176, 6):
+        cv2.line(hatch, (40, y), (140, y), 1, 1)                    # штриховка/плитка у окна — линии на всех радиусах
+    assert fc.door_evidence(hatch, c, u, n, L, d, tangent_only=True) < 0.75   # ниже порога двери (bench.DOOR_EV_GLAZED)
+
+
 def test_mouth_strip_keeps_only_doorway_of_closet():
     """Перемычка залила каморку целиком + проём в правой стене → остаётся полоса у проёма, не вся каморка."""
     wall = np.zeros((100, 100), np.uint8)
@@ -227,6 +248,34 @@ def test_one_open_hole_does_not_strip_window_closures_of_floor():
     fams = fc.angle_families(wall)
     r = bench.analyze(cv2.cvtColor(g, cv2.COLOR_GRAY2BGR), g, wall, ppm, fams, t)
     assert r['add'][22:27, 345:375].mean() > 0.5                    # окно R2 закрыто, несмотря на дыру в R1
+
+
+def test_exterior_door_with_leaf_in_wall_is_door_framed_window_stays_window(monkeypatch):
+    """T-20261110-11: наружный проём, где створка нарисована в линии стены («рама» 1,0), а в комнату идёт дуга — дверь
+    (входная дверь дома на внешнем контуре); окно с рамой без дуги — окно. Прежнее правило («рама → окно») давало два окна."""
+    import bench
+    ppm, t = 40.0, 8
+    g = np.full((320, 520), 255, np.uint8)
+    cv2.rectangle(g, (20, 20), (500, 300), 244, -1)
+    wall = np.zeros_like(g)
+    wall[20:28, 20:500] = 1; wall[292:300, 20:500] = 1; wall[20:300, 20:28] = 1; wall[20:300, 492:500] = 1
+    wall[20:28, 100:140] = 0                                        # дверь 1 м во внешней стене
+    wall[20:28, 340:380] = 0                                        # окно 1 м
+    g[wall > 0] = 0
+    cv2.line(g, (100, 24), (139, 24), 0, 2)                       # створка закрытой в проёме
+    cv2.ellipse(g, (100, 68), (40, 40), 0, 270, 360, 0, 2)        # «вогнутая» дуга в комнату
+    for y in (22, 25):
+        cv2.line(g, (340, y), (379, y), 0, 1)                       # рама окна (чёрная, как на листах A/B/T)
+    cv2.line(g, (330, 12), (390, 12), 0, 1)                         # размерная линия снаружи
+    fams = fc.angle_families(wall)
+
+    def kinds():
+        r = bench.analyze(cv2.cvtColor(g, cv2.COLOR_GRAY2BGR), g, wall, ppm, fams, t)
+        at = lambda x0, x1: [q.kind for q in r['gaps'] if q.exterior and x0 <= q.cx <= x1]  # noqa: E731
+        return at(95, 145), at(335, 385)
+    assert kinds() == (['door'], ['window'])
+    monkeypatch.setattr(bench, 'GLAZED_ARC', False)
+    assert kinds() == (['window'], ['window'])
 
 
 def test_notch_is_not_opening_and_door_width_floor():

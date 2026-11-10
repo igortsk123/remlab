@@ -592,6 +592,21 @@ def test_bedrooms_pending_until_their_stage_then_ready_or_empty_with_owner_text(
     assert 'url' not in bed and 'hoff' not in json.dumps(d, ensure_ascii=False).lower()
 
 
+def test_bedroom_without_entry_says_no_door_not_unread():
+    """T-20261110-11: у спальни на плане нет входа (`no_entry`) — свой исход и текст «не нашли вход», а не «не разобрана»;
+    прочие причины «не разобрана» (`contour_distorted` …) — как были."""
+    res = flat_with_bedrooms()
+    d = TB.build(JOB, res, scene_for(res), ctx=CTX, parts=[bedroom_part(), bedroom_part('bedroom-2', 'refused', 'no_entry', False)])
+    by = {r['id']: r for r in d['apartment_rooms']}
+    b2 = by['bedroom-2']
+    assert (b2['furniture_state'], b2['furniture_code'], b2['furniture_outcome']) == ('refused', 'no_entry', 'no_entry')
+    assert (b2['furniture_text'], b2['furniture_text_en']) == ('Не нашли вход в комнату на плане.', 'We couldn’t find a door into this room.')
+    assert [v['items'] for v in d['variants'] if v['room_id'] == 'bedroom-2'] == [[]]
+    d = TB.build(JOB, res, scene_for(res), ctx=CTX, parts=[bedroom_part(), bedroom_part('bedroom-2', 'refused', 'contour_distorted', False)])
+    b2 = {r['id']: r for r in d['apartment_rooms']}['bedroom-2']
+    assert b2['furniture_outcome'] == 'not_readable' and b2['furniture_text'].startswith('Не удалось надёжно построить')
+
+
 def test_size_flag_room_awaits_check_not_furnished_and_does_not_hold_done():
     """TG 531: «размер не сошёлся» (`dims_mismatch`) — гостиная/спальня ждёт проверки: без мебели, с текстом на обоих языках;
     `complete` не держит; снятая проверка (`release`) — комната снова в обычном пути."""

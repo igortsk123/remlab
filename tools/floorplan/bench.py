@@ -33,6 +33,9 @@ CFG = {
 H_WALL, SILL, HEAD = 2.6, 0.9, 2.1
 GLAZE_MIN = 0.6
 DOOR_EV = 0.75
+GLAZED_ARC = True         # наружный проём с «рамой» тоже проверяем на дугу (T-20261110-11); False — прежнее «рама → окно»
+DOOR_EV_GLAZED = 0.9      # с «рамой» по умолчанию окно: дверь — только при почти целой «вогнутой» дуге (11 точек из 12;
+                          # у входов нашего примера 1,0, у окон с мебелью/рамой рядом на A, B, T — 0,75–0,83)
 BAY_RECT = 0.85     # эркер — почти прямоугольник по заполнению minAreaRect
 ENV_DMAX = float(os.environ.get('FP_ENV_DMAX', '3.0'))   # наибольшая глубина закрытия контура, в толщинах стены (2,5 → 3: C, окно в ступени стены)
 FAINT_GRAY = 230  # бледная линия рамы окна (на белом 255 / заливке ~244)
@@ -358,7 +361,16 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                 if fc.door_evidence(thin, c, u, nrm, L, dpt) < DOOR_EV:
                     g.kind = 'wall'
         elif g.glaze >= GLAZE_MIN:
+            # наружный с «рамой» — окно. Но створку рисуют и закрытой в линии стены: «рама» есть, а дуга «вогнутая» —
+            # касается стены у торца, центр в комнате (наш пример /try, T-20261110-11: входы спальни 1 и санузла 2 были
+            # окнами). Прежние рисунки дуги у рам окон ложно доходят до 1,0 (линии рамы, размерные снаружи — листы A, B, T),
+            # поэтому здесь проверяется только этот рисунок
             g.kind = 'window'
+            if GLAZED_ARC:
+                ys, xs = np.nonzero(lab_g == g.id)
+                c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
+                if fc.door_evidence(thin, c, u, nrm, L, dpt, tangent_only=True) >= DOOR_EV_GLAZED:
+                    g.kind = 'door'
         else:                                        # наружный без рамы: дуга створки → дверь, иначе окно
             ys, xs = np.nonzero(lab_g == g.id)
             c, u, nrm, L, dpt = fc.gap_axes(ys, xs)

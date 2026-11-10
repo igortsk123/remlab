@@ -87,6 +87,8 @@ OUTCOME_TEXT = {
     'no_space_walkthrough': ('Проходная комната — не нашлось места под диван и ТВ.', 'Walk-through room — no space for a sofa and TV.'),
     'not_readable': ('Не удалось надёжно построить эту комнату по плану, поэтому мебель не расставлена.',
                      'This room could not be read reliably from the plan, so furniture was not placed.'),
+    # у комнаты на плане не нашлось ни двери, ни прохода (`no_entry`, T-20261110-11) — честнее, чем «не разобрана»
+    'no_entry': ('Не нашли вход в комнату на плане.', 'We couldn’t find a door into this room.'),
     'scale_unverified': ('Размеры комнаты по плану не подтверждены, поэтому мебель не расставлена.',
                          'Room dimensions could not be confirmed from this plan, so furniture was not placed.'),
     'no_window': ('В гостиной на плане нет окна, поэтому мебель гостиной не расставлена.',
@@ -98,7 +100,8 @@ OUTCOME_TEXT = {
 CODE_OUTCOME = {
     **{c: 'no_products' for c in ('no_products', 'bed_no_fit', 'room_too_small', 'living_core_small', 'layout_failed', 'style_rejected',
                                   'furniture_failed')},
-    **{c: 'not_readable' for c in ('contour_distorted', 'no_core', 'opening_cut_by_core', 'opening_ambiguous', 'no_entry')},
+    **{c: 'not_readable' for c in ('contour_distorted', 'no_core', 'opening_cut_by_core', 'opening_ambiguous')},
+    'no_entry': 'no_entry',
     'scale_unverified': 'scale_unverified', 'living_no_window': 'no_window', 'one_living_furnished': 'largest_living_only',
     'room_kind_not_furnished': 'not_furnished',
     **{c: c for c in TD.SPACE_CODES},

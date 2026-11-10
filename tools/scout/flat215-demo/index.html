@@ -1550,7 +1550,7 @@ const TR_EN=()=>LANG==='en';
 // not_furnished; прочие коды причин — отказ или «не обставляется» по таблице), нет его — `furniture_state` (ready / pending / refused /
 // not_furnished). Прежние слова сборщика (partial/none/failed, `furniture_code`) читаются так же — данные и страница вливаются порознь
 const TR_OUT={furnished:'furnished',ready:'furnished',partial:'furnished',pending:'pending',no_products:'no_products',refused:'no_products',failed:'no_products',
-  not_readable:'not_readable',scale_unverified:'no_products',no_window:'no_products',
+  not_readable:'not_readable',no_entry:'not_readable',scale_unverified:'no_products',no_window:'no_products',   // нет входа — текст свой (T-11)
   no_space:'no_space',no_space_walkthrough:'no_space',   // товары были, места под диван и ТВ нет (T-20261110-09) — не «нет товаров»
   not_furnished:'not_furnished',none:'not_furnished',largest_living_only:'not_furnished',room_kind_not_furnished:'not_furnished',one_living_furnished:'not_furnished',
   size_unverified:'awaiting',awaiting_check:'awaiting'};   // «ждёт проверки размера» (Р1): без мебели, агент может нажать «Обустроить»
@@ -1586,6 +1586,8 @@ const refusedTxt=()=>TR_EN()?'No matching furniture found':'Подходящей
 const refusedShort=()=>TR_EN()?'no products':'нет товаров';
 const notFurnTxt=()=>TR_EN()?'We don’t furnish this room':'Эту комнату не обставляем', notFurnShort=()=>TR_EN()?'not furnished':'не обставляется';
 const unreadTxt=()=>TR_EN()?'We couldn’t read this room on the plan':'Не удалось разобрать эту комнату на плане', unreadShort=()=>TR_EN()?'not read':'не разобрана';
+// у комнаты на плане нет ни двери, ни прохода (`no_entry`, T-20261110-11) — говорим это, а не «не разобрана»
+const noEntryTxt=()=>TR_EN()?'We couldn’t find a door into this room':'Не нашли вход в комнату на плане', noEntryShort=()=>TR_EN()?'no door':'нет входа';
 const awaitTxt=()=>TR_EN()?'Size may be inaccurate — furniture not placed yet':'Размер может быть неточным — мебель пока не расставлена',
   awaitShort=()=>TR_EN()?'size unconfirmed':'размер не подтверждён';
 // места нет (решатель не нашёл, куда встать дивану и ТВ), а товары были; две двери и больше — «проходная» (T-20261110-09)
@@ -1596,6 +1598,7 @@ const noSpaceTxt=walk=>walk?(TR_EN()?'Walk-through room — no space for a sofa 
 function outcomeTxt(id,short){ const o=roomOutcome(id), r=trRoom(id)||{};
   if(o==='awaiting')return short?awaitShort():awaitTxt();
   if(o==='not_furnished')return short?notFurnShort():notFurnTxt();
+  if(o==='not_readable'&&(r.furniture_outcome==='no_entry'||r.furniture_code==='no_entry'))return short?noEntryShort():noEntryTxt();
   if(o==='not_readable')return short?unreadShort():unreadTxt();
   if(o==='no_space')return short?noSpaceShort():noSpaceTxt(r.furniture_outcome==='no_space_walkthrough'||r.furniture_code==='no_space_walkthrough');
   const own=!short&&r.furniture_outcome&&!/^(no_products|failed)$/.test(r.furniture_outcome)?(TR_EN()?r.furniture_text_en:r.furniture_text):'';
