@@ -6,7 +6,9 @@
 // данных страницы → закрепление ТЕКУЩЕЙ витрины (`repinJobRelease`): страница тура тоже на новом коде.
 
 import { sql, type SQL } from "drizzle-orm";
+import type { TrialRoomEdit } from "@/contracts/trial";
 import { db } from "@/lib/db";
+import { editsOf } from "@/lib/trial/repo-rebuild-worker";
 import { pruneBundles, readBundle, writeBundle } from "@/lib/trial/bundle";
 import { trialDir } from "@/lib/trial/config";
 import { validId } from "@/lib/trial/http";
@@ -38,9 +40,10 @@ export async function reissueList(days: number): Promise<{ id: string; version: 
   return got.map((r) => ({ id: r.id, version: r.version, createdAt: r.created_at }));
 }
 
-export type ReissueSource = { jobId: string; version: number; result: unknown; bundle: string };
+export type ReissueSource = { jobId: string; version: number; result: unknown; bundle: string; edits: TrialRoomEdit[] };
 
-/** Что пересобирать: сохранённый `result` и ТОЧНЫЕ байты последней версии данных страницы. */
+/** Что пересобирать: сохранённый `result`, ТОЧНЫЕ байты последней версии данных страницы и правки комнат агента (`trial_room_edits`:
+ *  скрипт накладывает их на копию результата — `tools/floorplan/room_edits.py`, иначе перевыпуск вернул бы прочитанные имена и размеры). */
 export async function reissueSource(id: string, dir = trialDir()): Promise<ReissueSource | Refusal> {
   if (!validId(id)) return "not_found";
   const [j] = await rows<JobRow & { result: unknown }>(jobRow(id, sql``, sql`, result`));
@@ -49,7 +52,7 @@ export async function reissueSource(id: string, dir = trialDir()): Promise<Reiss
   if (no) return no;
   if (j.result === null) return "not_ready";
   const bundle = await readBundle(dir, id, j.bundle_version);
-  return bundle === null ? "no_bundle" : { jobId: id, version: j.bundle_version, result: jsonOf(j.result), bundle };
+  return bundle === null ? "no_bundle" : { jobId: id, version: j.bundle_version, result: jsonOf(j.result), bundle, edits: await editsOf(id) };
 }
 
 export type Reissued = { version: number; repeated: boolean; release: string | "failed"; previous: string | null };

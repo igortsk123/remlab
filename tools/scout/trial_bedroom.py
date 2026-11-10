@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import math
 import os
@@ -230,6 +231,17 @@ def adapt_room(panel: dict, room: dict, cfg: dict) -> dict:
 
 def _sid(it: dict) -> str | None:
     return it.get('sid') or (f"{it['mid']}:{it['eid']}" if it.get('mid') and it.get('eid') else None)
+
+
+def _taken(variant: dict) -> set:
+    """Товары готового варианта в виде ключей подбора (`_sid`): у артикула `sku.sid` первое «:» заменено на «_» (`public_item`) — берём
+    и как есть (банк: «mid_eid»), и с «:» обратно (каталог: «mid:eid»), иначе взятая спальня не занимала бы свои товары."""
+    out = set()
+    for q in variant.get('items') or []:
+        s = (q.get('sku') or {}).get('sid')
+        if s:
+            out.update({s, s.replace('_', ':', 1)})
+    return out
 
 
 def _sku(it: dict, mesh_ok=None) -> dict:
@@ -675,8 +687,49 @@ def _scale_refused(panel: dict, room: dict, rid: str) -> dict:
             'outcome': refused('scale_unverified', 'масштаб плана не проверен')}
 
 
-def build(trial_id: str, result: dict, ctx: dict | None = None) -> dict:
-    """Все спальни задания → `bedrooms.json` (папка пробы). Исходы по комнатам, отказ задания — статус `refused`, не исключение."""
+USER_DIMS = TR.USER_DIMS                                     # размер дал агент правкой комнаты — согласие без «примерно»
+
+
+def room_fp(room: dict) -> str:
+    """Отпечаток того, от чего зависит мебель спальни (имя, вид, контур, площадь, флаги; id плана): совпал — прежняя запись годна."""
+    def num(v):   # число — одним видом: результат с сервера проходит JSON-сериализацию JS (433.0 → 433), а значение то же
+        if isinstance(v, bool) or v is None or isinstance(v, str):
+            return v
+        if isinstance(v, (int, float)):
+            return round(float(v), 3)
+        if isinstance(v, dict):
+            return {k: num(x) for k, x in v.items()}
+        return [num(x) for x in v]
+    key = {k: num(room.get(k)) for k in ('id', 'name', 'kind', 'contour', 'areaM2', 'flags')}
+    return hashlib.sha1(json.dumps(key, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+
+
+def _reusable(prev: dict | None, panel: dict, room: dict, dirty: set) -> dict | None:
+    """Запись прежней стадии для неправленой спальни (правка комнаты, T-20261110-36): та же комната по (панель, id плана) и тот же
+    отпечаток; у записей до отпечатков — те же имя и площадь. Правленая (`dirty`) или изменившаяся — None (пересобрать)."""
+    if not prev or (panel['id'], str(room['id'])) in dirty:
+        return None
+    old = next((r for r in prev.get('rooms') or [] if r.get('panel') == panel['id'] and str(r.get('src_id')) == str(room['id'])), None)
+    if not old or not old.get('variants') and (old.get('outcome') or {}).get('state') == 'scale_unverified':
+        return None
+    same = old['_fp'] == room_fp(room) if old.get('_fp') else (old.get('name') == room.get('name') and old.get('area_m2') == room.get('areaM2'))
+    return old if same else None
+
+
+def _relabel(old: dict, rid: str) -> dict:
+    """Прежняя запись под нынешним id страницы (`bedroom-<n>` сдвигается, если правка сменила вид другой комнаты)."""
+    rec = json.loads(json.dumps(old))
+    rec['room_id'] = rid
+    for v in rec.get('variants') or []:
+        v['room_id'], v['id'] = rid, R.variant_id(rid, v['style_id'])
+    rec['reused'] = True
+    return rec
+
+
+def build(trial_id: str, result: dict, ctx: dict | None = None, reuse: dict | None = None) -> dict:
+    """Все спальни задания → `bedrooms.json` (папка пробы). Исходы по комнатам, отказ задания — статус `refused`, не исключение.
+    `reuse` = {'prev': прежний `bedrooms.json`, 'dirty': {(панель, id плана)}} — правка комнаты: неправленые спальни берутся из прежней
+    записи как есть (та же мебель, ≤ 2 мин на правку), заново обставляются только правленые; их товары не повторяют товары взятых."""
     t0 = time.time()
     OUT = TD.out_dir(trial_id)
     os.makedirs(OUT, exist_ok=True)
@@ -689,30 +742,45 @@ def build(trial_id: str, result: dict, ctx: dict | None = None) -> dict:
         _write(OUT, job)
         return job
     # масштаб не подтверждён — никакой подгонки и вопросов агенту (Codex 09.11, TG 1377); исключение — комнаты, где агент нажал
-    # «Обустроить» (флаг `approx_consent` от пересборки, Р1): обставляем «как есть», исход несёт флаг — страница пишет «размеры примерные»
+    # «Обустроить» (флаг `approx_consent` от пересборки, Р1): обставляем «как есть», исход несёт флаг — страница пишет «размеры примерные»;
+    # размер, данный агентом в правке комнаты (`user_dims`), — тоже согласие, но не «примерно»
     unverified = job['scale'] == 'not_verified'
-    consent = {id(room) for _, room, _ in rooms if APPROX_CONSENT in (room.get('flags') or [])} if unverified else set()
+    consent = {id(room) for _, room, _ in rooms if {APPROX_CONSENT, USER_DIMS} & set(room.get('flags') or [])} if unverified else set()
     if unverified and not consent:
         for panel, room, rid in rooms:
             job['rooms'].append(_scale_refused(panel, room, rid))
         job.update(status='refused', refusal={'code': 'scale_unverified'})
         _write(OUT, job)
         return job
-    ctx = ctx or default_ctx()
+    prev, dirty = (reuse or {}).get('prev'), set((reuse or {}).get('dirty') or ())
+    plan = []                                                # (панель, комната, id, прежняя запись | None)
+    for panel, room, rid in rooms:
+        plan.append((panel, room, rid, None if unverified and id(room) not in consent else _reusable(prev, panel, room, dirty)))
+    fresh = [p for p in plan if p[3] is None and not (unverified and id(p[1]) not in consent)]
+    ctx = ctx or (default_ctx() if fresh else {'used': {}})  # всё взято из прежней записи — живые данные не нужны
     if ctx.get('catalog_error'):
         job['flags'].append('catalog_unavailable')
-    for panel, room, rid in rooms:
+    for *_, old in plan:                                     # товары взятых спален — заняты: правленая не повторит их тумбы и комод
+        for v in (old or {}).get('variants') or []:          # ключ — имя стиля (`STYLES`, как у `build_one`), не `style_id`
+            ctx['used'].setdefault(v['style'], set()).update(_taken(v))
+    for panel, room, rid, old in plan:
         if unverified and id(room) not in consent:
             job['rooms'].append(_scale_refused(panel, room, rid))
             continue
+        if old is not None:
+            job['rooms'].append(_relabel(old, rid))
+            continue
         rec = furnish_room(trial_id, panel, room, rid, cfg, ctx)
-        if unverified:
+        if unverified and USER_DIMS not in (room.get('flags') or []):
             rec['flags'] = list(rec.get('flags') or []) + [APPROX_CONSENT]
+        rec['_fp'] = room_fp(room)
         job['rooms'].append(rec)
     states = {r['outcome']['state'] for r in job['rooms']}
     job['status'] = 'ok' if states == {'furnished'} else ('partial' if 'furnished' in states else 'refused')
-    job['timings'] = {'total_s': round(time.time() - t0, 2), 'rooms_s': {r['room_id']: r.get('seconds') for r in job['rooms']}}
-    assert_no_shop(job, shop_tokens(ctx))                    # проверка всего вывода; поймали — падаем, а не публикуем
+    job['timings'] = {'total_s': round(time.time() - t0, 2), 'rooms_s': {r['room_id']: r.get('seconds') for r in job['rooms']},
+                      'reused': [r['room_id'] for r in job['rooms'] if r.get('reused')]}
+    if fresh:
+        assert_no_shop(job, shop_tokens(ctx))                # проверка всего вывода; поймали — падаем, а не публикуем (взятые проверены при сборке)
     _write(OUT, job)
     return job
 

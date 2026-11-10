@@ -22,7 +22,8 @@
 не откатывает страницу к пустой версии 1, если она уже была. Аренда потеряна (409) — стоп, ничего больше не пишем.
 Ошибки — строкой `conveyor <id>: <код> …` в журнал воркера.
 
-  python tools/floorplan/conveyor.py bedrooms <job_id> <result.json> <parts.json>   # стадия спален (так её зовёт конвейер)
+  python tools/floorplan/conveyor.py bedrooms <job_id> <result.json> <parts.json> [<dirty.json>]   # стадия спален (так её зовёт
+                                                                     # конвейер; dirty — правка комнаты: пересобрать только правленые)
 """
 from __future__ import annotations
 
@@ -142,8 +143,9 @@ class Conveyor:
             self.log(f'journal_unreadable {type(e).__name__}: {e}')
             return []
 
-    def build(self, tag: str, scene: Path | None = None, parts: Path | None = None) -> tuple[bytes | None, str | None]:
-        """→ (байты версии, None) или (None, код отказа сборщика / сбоя)."""
+    def build(self, tag: str, scene: Path | None = None, parts: Path | None = None, cams: bool = True) -> tuple[bytes | None, str | None]:
+        """→ (байты версии, None) или (None, код отказа сборщика / сбоя). `cams=False` — версия не уйдёт на страницу (проверка,
+        промежуточная у пересборки): ракурсы не считаем (`trial_bundle --no-cams`, до 2 мин на версию)."""
         self.n += 1
         out = self.wd / f'bundle-{self.n}-{tag}.json'
         cmd = self.cmds['bundle'] + [self.jid, str(self.result_path)]
@@ -153,6 +155,8 @@ class Conveyor:
             cmd += ['--parts', str(parts)]
         if self.release:
             cmd += ['--release', ','.join(self.release)]
+        if not cams:
+            cmd += ['--no-cams']
         cmd += ['--out', str(out)]
         rc, why = self._stage(f'bundle-{self.n}-{tag}', cmd, self.cfg.bundle_timeout_s)
         if why:
@@ -198,11 +202,11 @@ class Conveyor:
     def step(self, tag: str, scene: Path | None, parts: Path | None, fallback, publish: bool = True) -> tuple[Path | None, Path | None]:
         """Собрать и отправить версию; сборщик не принял кусок стадии — `fallback(код)` → (сцена, куски) с отказом и ещё раз.
         → (сцена, куски), которые реально легли в версию: следующая стадия строится на них, а не на отвергнутых."""
-        data, code = self.build(tag, scene, parts)
+        data, code = self.build(tag, scene, parts, cams=publish)
         if data is None and code and not self.stopped and fallback:
             self.log(f'{tag}: {code} — комната получает отказ этим кодом')
             scene, parts = fallback(code)
-            data, code = self.build(tag + '-refused', scene, parts)
+            data, code = self.build(tag + '-refused', scene, parts, cams=publish)
         if data is None:
             if not self.stopped:
                 self.log(f'{tag}: {code} — версию не собрать')
@@ -256,7 +260,7 @@ class Conveyor:
             return self._write('bedrooms-parts.json', parts)
         t0 = time.time()
         out = self.wd / 'bedrooms-parts.json'
-        rc, why = self._stage('bedrooms', self.cmds['bedrooms'] + [self.jid, str(self.result_path), str(out)],
+        rc, why = self._stage('bedrooms', self.cmds['bedrooms'] + [self.jid, str(self.result_path), str(out)] + self.bedroom_extra(),
                               self.cfg.bedroom_timeout_s)
         self.timings['bedrooms_s'] = round(time.time() - t0, 1)
         if self.stopped:
@@ -267,6 +271,10 @@ class Conveyor:
             return self._write('bedrooms-parts.json', bedroom_refusals(self.result, code))
         self.log(f'bedrooms: rc={rc}, {self.timings["bedrooms_s"]} с')
         return out
+
+    def bedroom_extra(self) -> list:
+        """Добавочные аргументы стадии спален (правка комнаты — файл правленых комнат, см. `EditRebuild`)."""
+        return []
 
     def _state(self, rid: str) -> str | None:
         return next((r['furniture_state'] for r in (self.cur or {}).get('apartment_rooms') or [] if r['id'] == rid), None)
@@ -293,8 +301,8 @@ class Conveyor:
             return 'result'
         if self.cur['trial']['complete'] and not self.release:
             self.log('ни одной комнаты не ждёт мебель (проверка размера / отказы) — стадии мебели не нужны')
-            if self.final_only:                      # версия 1 и есть итог: стадий не будет
-                self.publish('v1-final', self.cur_bytes)
+            if self.final_only:                      # версия 1 и есть итог: стадий не будет — собрать её с ракурсами и отправить
+                self.step('v1-final', None, None, None)
             return self._finish(t0)
         if self._state('living') == 'pending':
             scene = self.living()
@@ -352,10 +360,27 @@ class Rebuild(Conveyor):
 
     PRIO = SLOT_PRIO_REBUILD
 
-    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms):
+    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, edits=None):
         super().__init__(w, lease, wd, hb, result_path, job_id=job_id)
         self.want = [str(x) for x in rooms or []]
         self.outcome = None                          # 'published' | 'stale' | 'rejected' — итог отправки версии
+        self.canon = self.result                     # результат задания как прочитан (на сервер уходит только он — ListingRebuild)
+        self.edits = list(edits or [])               # правки комнат агента (claim `edits`, T-20261110-36)
+        self.applied: list = []
+        self.overlay()
+
+    def overlay(self) -> None:
+        """Правки комнат агента — поверх копии канона (`room_edits.apply`): любая пересборка строит тур уже с ними."""
+        if not self.edits:
+            return
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        import room_edits
+        res, self.applied = room_edits.apply(self.canon, self.edits)
+        miss = len(self.edits) - len(self.applied)
+        self.log(f'правки комнат: {len(self.applied)} из {len(self.edits)}' + (f' (не нашлось комнаты: {miss})' if miss else ''))
+        self.result_path = self._write('result-edited.json', res)
+        self.result = res
 
     def publish(self, tag: str, data: bytes) -> bool:
         sha = hashlib.sha256(data).hexdigest()
@@ -387,7 +412,7 @@ class Rebuild(Conveyor):
 
     def chosen(self) -> tuple[list, dict] | None:
         """Версия-проверка без снятия → (комнаты страницы к обустройству, эта версия) или None (сборщик не собрал)."""
-        data, code = self.build('v0-check', None, None)
+        data, code = self.build('v0-check', None, None, cams=False)
         if data is None:
             if not self.stopped:
                 self.log(f'v0-check: {code} — версию не собрать')
@@ -483,8 +508,9 @@ class ListingRebuild(Rebuild):
     Листа или кэша нет — `source_gone` («загрузите план заново»); текст ни к чему не подошёл — `no_match`, ничего не публикуем.
     Комнаты, с которых агент раньше снял проверку (`rooms` claim), снимаются и в новой версии. Текст в журнал не пишется."""
 
-    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, text: str, mime: str, ext: str):
-        super().__init__(w, lease, wd, hb, result_path, job_id=job_id, rooms=rooms)
+    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, text: str, mime: str, ext: str,
+                 edits=None):
+        super().__init__(w, lease, wd, hb, result_path, job_id=job_id, rooms=rooms, edits=edits)
         self.text, self.mime, self.ext = text, mime, ext
         self.final_only = True
         self.new_result: dict | None = None
@@ -548,12 +574,12 @@ class ListingRebuild(Rebuild):
         inp = self.source()
         if isinstance(inp, str):
             return inp
-        self.carried, self.hit = carry_over(self.result, self.text)
+        self.carried, self.hit = carry_over(self.canon, self.text)     # имена и размеры — как прочитаны, не правки агента
         self.log(f'прошлые размеры из текста: перенесено комнат {len(self.carried)}, новый текст касается {len(self.hit)}')
         bad = self.reread(inp)
         if bad:
             return bad
-        old, new = self.result, self.new_result
+        old, new = self.canon, self.new_result
         if not text_applied(old, new, self.hit):
             self.log(f'текст не лёг на план: масштаб {(old.get("scale") or {}).get("status")} → {(new.get("scale") or {}).get("status")}')
             return 'failed:no_match'
@@ -561,7 +587,8 @@ class ListingRebuild(Rebuild):
         self.log(f'текст лёг на план: масштаб {(old.get("scale") or {}).get("status")} → {new["scale"]["status"]}, комнат с размером '
                  f'из текста {n}')
         self.result_path = self._write('result-listing.json', new)
-        self.result = new
+        self.result = self.canon = new               # на сервер — новый канон (`publish_extra`), тур — с правками агента поверх
+        self.overlay()
         pick = None
         if self.want:                                # снятые раньше комнаты — снова снять в новой версии (если ещё ждут проверки)
             got = self.chosen()
@@ -582,6 +609,80 @@ class ListingRebuild(Rebuild):
         return 'failed:pipeline_error'
 
 
+class EditRebuild(Rebuild):
+    """Правка комнаты агентом в туре (план trial-room-edit-01, Е3; T-20261110-36): имя / ширина × длина → ОДНА итоговая версия ≤ 2 мин.
+
+    Правки (claim `edits`; таблица `trial_room_edits`) ложатся на копию канона (`overlay`), канон на сервере не меняется. Пересобирается
+    только то, чего правка коснулась (`dirty` — правки с `built` false): спальни — стадией с повторным использованием прежних записей
+    неправленых спален (`trial_bedroom.build(reuse=…)`, их мебель та же); гостиная — прежняя сцена, если главная гостиная не правлена
+    и та же, что в сцене (`reuse_scene`), иначе стадия. Комнаты, с которых агент раньше снял проверку (`rooms` claim), снимаются и сейчас.
+    Промежуточные версии не публикуются и без ракурсов; итог — с ракурсами."""
+
+    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, edits):
+        super().__init__(w, lease, wd, hb, result_path, job_id=job_id, rooms=rooms, edits=edits)
+        self.final_only = True
+        import room_edits
+        self.dirty = room_edits.dirty_keys(self.applied)
+
+    def bedroom_extra(self) -> list:
+        return [str(self._write('edit-dirty.json', sorted([list(k) for k in self.dirty])))]
+
+    def reuse_scene(self) -> Path | None:
+        """Прежняя сцена гостиной годна: та же главная гостиная (панель и id плана — по версии этой сборки), её правка уже построена
+        (не в `dirty`), сцена — этого задания, с мебелью или честным отказом по товарам, с тем же согласием «как есть»."""
+        scene_p = Path(self.cfg.scenes_root) / self.jid / 'scene.json'
+        main = next(((p['id'], str(r['src_id'])) for p in (self.cur or {}).get('trial', {}).get('panels') or [] for r in p.get('rooms') or []
+                     if r.get('id') == 'living'), None)
+        if main is None or main in self.dirty:
+            return None
+        try:
+            sc = json.loads(scene_p.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return None
+        room = sc.get('room') or {}
+        if sc.get('trial_id') != self.jid or sc.get('status') not in ('ok', 'partial', 'no_products') or \
+                (room.get('panel'), str(room.get('id'))) != main:
+            return None
+        r = next((x for p in self.result['panels'] if p['id'] == main[0] for x in p['rooms'] if str(x['id']) == main[1]), None)
+        fl = (r or {}).get('flags') or []
+        unverified = (self.result.get('scale') or {}).get('status') == 'not_verified'
+        approx = unverified and APPROX_CONSENT in fl and 'user_dims' not in fl
+        return scene_p if approx == (APPROX_CONSENT in (sc.get('flags') or [])) else None
+
+    def living(self) -> Path:
+        got = self.reuse_scene()
+        if got is not None:
+            self.timings['living_s'] = 0.0
+            self.log('living: гостиная не правлена — прежняя сцена')
+            return got
+        return super().living()
+
+    def rebuild(self) -> str:
+        t0 = time.time()
+        if not self.dirty:
+            self.log(f'правки не к чему приложить: правок {len(self.edits)}, приложено {len(self.applied)}')
+            return 'failed:no_match'
+        self.log(f'правленые комнаты {sorted(self.dirty)}')
+        pick = None
+        if self.want:                                # снятые раньше комнаты — снять и сейчас (если ещё ждут проверки)
+            got = self.chosen()
+            if self.stopped:
+                return self.stopped
+            if got is None:
+                return 'failed:pipeline_error'
+            pick, cur = got
+            if pick:
+                self.consent(cur, pick)
+        self.run(pick or None)
+        self.timings['rebuild_s'] = round(time.time() - t0, 1)
+        if self.stopped:
+            return self.stopped
+        self.log(f'правка комнаты: {self.outcome}, время {json.dumps(self.timings)}')
+        if self.outcome in ('published', 'stale'):
+            return self.outcome
+        return 'failed:pipeline_error'
+
+
 def furnish_rooms(w, lease: dict, wd: Path, hb, result_path: Path, room_ids) -> str:
     """Точка входа будущей кнопки «Обустроить» / «Обустроить всё» (другая задача): стадии мебели по списку комнат страницы,
     с которых агент снял проверку размера. Аренда, heartbeat и `result` — у вызывающего (как в `Worker._process`)."""
@@ -593,18 +694,27 @@ def after_done(w, lease: dict, wd: Path, bundle: dict | None) -> None:
     return None
 
 
-def bedrooms_main(job_id: str, result_path: str, out_path: str) -> int:
-    """Стадия спален отдельным процессом: `trial_bedroom.build` под общей очередью тяжёлых → `bundle_parts` → файл кусков."""
+def bedrooms_main(job_id: str, result_path: str, out_path: str, dirty_path: str | None = None) -> int:
+    """Стадия спален отдельным процессом: `trial_bedroom.build` под общей очередью тяжёлых → `bundle_parts` → файл кусков.
+    `dirty_path` (правка комнаты) — [[панель, id плана], …] правленых: прочие спальни — из прежнего `bedrooms.json` задания."""
     sys.path.insert(0, str(SCOUT))
     import trial_bedroom as TBR
     import trial_bundle as TB
     result = json.loads(Path(result_path).read_text(encoding='utf-8'))
+    reuse = None
+    if dirty_path:
+        dirty = {tuple(x) for x in json.loads(Path(dirty_path).read_text(encoding='utf-8'))}
+        try:
+            prev = json.loads((Path(TBR.TD.out_dir(job_id)) / 'bedrooms.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            prev = None
+        reuse = {'prev': prev, 'dirty': dirty}
     slot = getattr(TBR, '_slot', None)
     if slot is None:
         import trial_demo as TD
         slot = TD.machine_slot
     with slot(f'trial-bedroom-{job_id}'):
-        job = TBR.build(job_id, result)
+        job = TBR.build(job_id, result, **({'reuse': reuse} if reuse else {}))
     smap, _ = TB.storeys(result['panels'])
     parts = TBR.bundle_parts(job, {result['panels'][i]['id']: s for i, s in smap.items()})
     TB.write_atomic(out_path, parts)
@@ -614,7 +724,7 @@ def bedrooms_main(job_id: str, result_path: str, out_path: str) -> int:
 
 if __name__ == '__main__':
     a = sys.argv[1:]
-    if len(a) == 4 and a[0] == 'bedrooms':
+    if len(a) in (4, 5) and a[0] == 'bedrooms':
         sys.exit(bedrooms_main(*a[1:]))
     print(__doc__)
     sys.exit(0)

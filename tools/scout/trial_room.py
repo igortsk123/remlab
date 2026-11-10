@@ -132,7 +132,36 @@ def from_bench_models(models: list[dict]) -> dict:
 
 # ───────────────────────── 1. какая комната — гостиная ─────────────────────────
 
+USER_DIMS = 'user_dims'                                      # = trial_bundle.USER_DIMS, tools/floorplan/room_edits.py
+
+
+def plan_contour(room: dict) -> list:
+    """Контур комнаты как прочитан с плана: у комнаты с правкой размера агента (`tools/floorplan/room_edits.py`) — исходный из `plan`."""
+    return (room.get('plan') or {}).get('contour') or room['contour']
+
+
+def moved_point(room: dict, c) -> list:
+    """Точка в исходных координатах комнаты → после масштаба правки размера (от центра исходного охвата); без правки — как есть."""
+    pl = room.get('plan')
+    if not pl or 'sx' not in pl:
+        return [c[0], c[1]]
+    return [round(pl['cx'] + (c[0] - pl['cx']) * pl['sx'], 1), round(pl['cy'] + (c[1] - pl['cy']) * pl['sy'], 1)]
+
+
 def openings_of(panel: dict, room: dict, cfg: dict) -> tuple[list, list, list]:
+    """Проёмы комнаты (см. `_openings_plan`). Правка размера агента: проёмы панели остались на прочитанных стенах, поэтому привязка —
+    по исходным контурам всех комнат панели, а центр проёма своей комнаты переносится тем же масштабом, что и её контур (ширина та же)."""
+    if not any(r.get('plan') for r in panel.get('rooms') or []):
+        return _openings_plan(panel, room, cfg)
+    rooms = [dict(r, contour=plan_contour(r)) for r in panel['rooms']]
+    me = rooms[next(i for i, r in enumerate(panel['rooms']) if r is room)]
+    ours, amb, flags = _openings_plan(dict(panel, rooms=rooms), me, cfg)
+    for o in ours + amb:
+        o['c'] = moved_point(room, o['c'])
+    return ours, amb, flags
+
+
+def _openings_plan(panel: dict, room: dict, cfg: dict) -> tuple[list, list, list]:
     """Проёмы панели, привязанные к комнате в ИСХОДНЫХ координатах → (наши, неоднозначные, флаги).
 
     Наш: центр ≤ near от границы пола И вся ширина (пробы вдоль ближайшего ребра) ≤ near от неё. Между near и far, не наш
@@ -686,14 +715,18 @@ def adapt(result: dict, need: dict | None = None, cfg: dict | None = None) -> di
     # масштаб не подтверждён — отказ; исключение — гостиная, где агент нажал «Обустроить» (флаг `approx_consent` от пересборки, Р1):
     # обставляем «как есть», флаг идёт в исход (страница: «размеры примерные»; это НЕ `verified`)
     unverified = (result.get('scale') or {}).get('status') == 'not_verified'
-    if unverified and not any(APPROX_CONSENT in (r.get('flags') or []) for p in result.get('panels') or [] for r in p.get('rooms') or []
-                              if is_living(r, cfg)):
+    # размер, данный агентом в правке комнаты (`user_dims`), — тоже согласие, и не «примерный»: флаг approx не ставим
+    agreed = (APPROX_CONSENT, USER_DIMS)
+    if unverified and not any(f in (r.get('flags') or []) for p in result.get('panels') or [] for r in p.get('rooms') or []
+                              if is_living(r, cfg) for f in agreed):
         raise Refusal('scale_unverified')
     panel, room, flags = pick_living(result, cfg)
     if unverified:
-        if APPROX_CONSENT not in (room.get('flags') or []):
+        rf = room.get('flags') or []
+        if not any(f in rf for f in agreed):
             raise Refusal('scale_unverified')
-        flags = flags + [APPROX_CONSENT]
+        if USER_DIMS not in rf:
+            flags = flags + [APPROX_CONSENT]
     ours, amb, oflags = openings_of(panel, room, cfg)
     flags = flags + oflags
     if amb:

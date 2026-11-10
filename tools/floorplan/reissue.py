@@ -67,7 +67,11 @@ def one(api: wk.Api, cfg: wk.Cfg, jid: str, run_dir: Path, dry: bool, cmd: list 
         why = (src or {}).get('error') if isinstance(src, dict) else None
         return {'id': jid, 'status': 'skipped' if why in SKIP else 'failed', 'why': why or f'http {st}'}
     base = int(src['version'])
-    rc, rep, new_p = build(cfg, jid, run_dir / jid, src['result'], src['bundle'], cmd)
+    result = src['result']
+    if src.get('edits'):                     # правки комнат агента — поверх копии результата, как у пересборок (`conveyor.Rebuild.overlay`)
+        import room_edits
+        result = room_edits.apply(result, src['edits'])[0]
+    rc, rep, new_p = build(cfg, jid, run_dir / jid, result, src['bundle'], cmd)
     if rc == 2:
         return {'id': jid, 'status': 'refused', 'why': rep.get('refusal'), 'detail': rep.get('detail'), 'from': base}
     if rc != 0 or not new_p.exists():

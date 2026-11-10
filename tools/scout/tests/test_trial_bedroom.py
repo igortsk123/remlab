@@ -523,3 +523,75 @@ def test_template_length_from_real_frames():
     for f in r['style_failures']:
         why = {t['template']: t['why'] for t in f['templates']}
         assert why['guest-120'] == why['single-120'] == 'too_small'
+
+
+# ───────────────────────── правка комнаты агентом (T-20261110-36) ─────────────────────────
+
+def _edited(p, panel, w, d, name=None):
+    """Правка комнаты тем же модулем, что у конвейера (`tools/floorplan/room_edits.py`)."""
+    sys.path.insert(0, os.path.join(SCOUT, '..', 'floorplan'))
+    import room_edits
+    e = {'panel': panel, 'srcId': 'r1', 'anchor': {'x': 0.5, 'y': 0.5}, 'name': name or '', 'kind': '', 'wCm': w, 'dCm': d, 'built': False}
+    return room_edits.apply(p, [e])[0]
+
+
+def test_edit_rebuilds_only_dirty_bedroom_others_reused():
+    """Правка спальни 2: спальня 1 — та же запись (та же мебель, без перебора), спальня 2 — обставлена заново по новому размеру;
+    кровати взятой спальни заняты для новой (`used`)."""
+    c = ctx(full_bank())
+    first = TB.build('t36', plan(), c)
+    p = _edited(plan(), 'p1', 460, 330, 'Спальня гостевая')
+    c2 = ctx(full_bank())
+    job = TB.build('t36', p, c2, reuse={'prev': first, 'dirty': {('p1', 'r1')}})
+    a, b = job['rooms']
+    assert a.get('reused') is True and a['variants'] == first['rooms'][0]['variants'] and job['timings']['reused'] == ['bedroom-1']
+    assert not b.get('reused') and b['name'] == 'Спальня гостевая' and b['variants']
+    assert b['area_m2'] == round(14.4 * 460 / 400 * 330 / 360, 2)
+    for v in a['variants']:                                  # заняты ПО СТИЛЮ — ключом, которым их ищет подбор (имя стиля, не style_id)
+        taken = {q['sku']['sid'] for q in v['items'] if (q.get('sku') or {}).get('sid')}
+        assert taken and {s.replace('_', ':', 1) for s in taken} <= c2['used'][v['style']]   # ключ подбора `_sid` — «mid:eid»
+    # пересборка одной комнаты даёт ей ту же мебель, что полная сборка квартиры (взятая спальня стоит раньше — её товары заняты так же)
+    full = TB.build('t36', p, ctx(full_bank()))['rooms'][1]
+    items = lambda r: [[(q['role'], (q.get('sku') or {}).get('sid'), q['x'], q['y']) for q in v['items']] for v in r['variants']]
+    assert items(b) == items(full)
+
+
+def test_edit_changed_undirty_room_not_reused():
+    """Запись прежняя, а комната изменилась (перечитан план): отпечаток другой — обставляем заново, а не берём старое."""
+    first = TB.build('t36b', plan(), ctx(full_bank()))
+    p = plan(sizes=((430, 380), (400, 360)))
+    job = TB.build('t36b', p, ctx(full_bank()), reuse={'prev': first, 'dirty': set()})
+    assert [bool(r.get('reused')) for r in job['rooms']] == [False, True]
+
+
+def test_reuse_survives_server_json_roundtrip():
+    """Первая сборка — по своему result.json (433.0), пересборка правки — по результату с сервера, где JS пишет целые без «.0» (433):
+    комната та же — запись берётся, а не собирается заново (поймано сквозным прогоном T-36 на плане из объявления)."""
+    p = plan()
+    first = TB.build('t36e', p, ctx(full_bank()))
+    q = json.loads(json.dumps(p))
+    for pan in q['panels']:
+        for r in pan['rooms']:
+            r['contour'] = [[int(c) if float(c).is_integer() else c for c in pt] for pt in r['contour']]
+            r['contour'][0][0] = float(r['contour'][0][0])     # и наоборот: целое стало 433.0
+    assert TB.room_fp(q['panels'][0]['rooms'][0]) == TB.room_fp(p['panels'][0]['rooms'][0])
+    job = TB.build('t36e', q, ctx(full_bank()), reuse={'prev': first, 'dirty': set()})
+    assert all(r.get('reused') for r in job['rooms'])
+
+
+def test_all_reused_needs_no_live_data(monkeypatch):
+    """Ничего из спален не правлено (правка кухни): живые данные (банк, каталог) не грузятся — всё из прежней записи."""
+    first = TB.build('t36c', plan(), ctx(full_bank()))
+    monkeypatch.setattr(TB, 'default_ctx', lambda: (_ for _ in ()).throw(AssertionError('живые данные не нужны')))
+    job = TB.build('t36c', plan(), None, reuse={'prev': first, 'dirty': set()})
+    assert all(r.get('reused') for r in job['rooms']) and job['status'] == first['status']
+
+
+def test_user_dims_is_consent_without_approx_flag():
+    """Масштаб не подтверждён, агент задал размер спальни правкой (`user_dims`): её обставляем, и это не «примерно» (флага approx нет);
+    вторая спальня без согласия — отказ, как раньше."""
+    p = _edited(plan('not_verified'), 'p1', 410, 350)
+    job = TB.build('t36d', p, ctx(full_bank()))
+    a, b = job['rooms']
+    assert a['outcome']['state'] == 'scale_unverified'
+    assert b['outcome']['state'] == 'furnished' and 'approx_consent' not in b['flags']

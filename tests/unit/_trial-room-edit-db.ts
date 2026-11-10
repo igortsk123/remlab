@@ -137,6 +137,9 @@ export function roomEditDbTests(c: () => Ctx): void {
       expect(pub).toMatchObject({ repeated: false });
       expect((await edits(id))[0]).toMatchObject({ built: true });
       expect(await view(id)).toMatchObject({ roomEdit: "done", bundleVersion: (pub as { version: number }).version });
+      // перевыпуск тура оператором получает те же правки (накладывает их сам — `tools/floorplan/reissue.py`), иначе вернул бы прочитанное
+      const { reissueSource } = await import("@/lib/trial/repo-reissue");
+      expect(await reissueSource(id, c().dir)).toMatchObject({ jobId: id, edits: [{ srcId: "r2", wCm: 460, dCm: 345, built: true }] });
     });
   });
 }

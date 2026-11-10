@@ -47,7 +47,7 @@ type EditRow = { panel: string; src_id: string; anchor: unknown; name: string; k
 export type RebuildSkills = boolean | { listing?: boolean; edit?: boolean };
 
 /** Правки комнат задания — воркеру, который их умеет: он накладывает их на копию `result` перед любой сборкой. */
-async function editsOf(jobId: string): Promise<TrialRoomEdit[]> {
+export async function editsOf(jobId: string): Promise<TrialRoomEdit[]> {
   const got = await rows<EditRow>(sql`select panel, src_id, anchor, name, kind, w_cm, d_cm, built from trial_room_edits
     where job_id = ${jobId} order by created_at, room_key`);
   return got.map((e) => ({ panel: e.panel, srcId: e.src_id, anchor: jsonOf<{ x: number; y: number }>(e.anchor), name: e.name, kind: e.kind,

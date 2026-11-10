@@ -746,6 +746,43 @@ def test_photo_ok_false_for_size_flag_and_approx_consent():
     assert {r['id']: r['furniture_state'] for r in d['apartment_rooms']}['living'] == 'ready' and _photo(d)['living'] is False
 
 
+def _user_edit(res, src, w, d, name=''):
+    """Правка комнаты тем же модулем, что у конвейера (`tools/floorplan/room_edits.py`, T-20261110-36)."""
+    sys.path.insert(0, os.path.join(HERE, '..', '..', 'floorplan'))
+    import room_edits
+    pan = res['panels'][0]['id']
+    return room_edits.apply(res, [{'panel': pan, 'srcId': src, 'anchor': {'x': 0, 'y': 0}, 'name': name, 'kind': '', 'wCm': w, 'dCm': d,
+                                   'built': False}])[0]
+
+
+def test_user_dims_photo_ok_without_confirmed_scale_and_no_size_check():
+    """Размер спальни задал агент правкой (`user_dims`): проверки размера нет (обставляется сразу, без «примерно»), фото — можно даже
+    при неподтверждённом масштабе квартиры и при флаге размера, который был у прочитанной комнаты."""
+    flat = flat_with_bedrooms()
+    flat['scale']['status'] = 'not_verified'
+    b1 = next(r for r in flat['panels'][0]['rooms'] if r['id'] == 'b1')
+    b1['flags'] = ['dims_mismatch']
+    ed = _user_edit(flat, 'b1', 420, 330, 'Спальня у окна')
+    d = TB.build(JOB, ed, scene_for(ed), ctx=CTX, parts=[bedroom_part()])
+    by = {r['id']: r for r in d['apartment_rooms']}
+    assert by['bedroom-1']['furniture_state'] == 'ready' and by['bedroom-1']['photo_ok'] is True and 'approx_consent' not in by['bedroom-1']
+    assert by['bedroom-1']['edited'] is True and by['bedroom-1']['titleRu'].startswith('Спальня у окна')
+    assert 'edited' not in by['living'] and by['living']['photo_ok'] is False          # гостиная — без правки, масштаб не подтверждён
+    assert TB.size_check(ed, next(r for r in ed['panels'][0]['rooms'] if r['id'] == 'b1')) is None
+
+
+def test_panels_keep_plan_geometry_and_carry_agent_size():
+    """2D-план тура — как прочитан (стены и проёмы не двигаются): у правленой комнаты в `trial.panels` исходные охват и контур, размер
+    агента — в `edited` (по нему окошко правки и сервер считают «сейчас»); площадь — новая."""
+    flat = flat_with_bedrooms()
+    ed = _user_edit(flat, 'b2', 450, 300)
+    d = TB.build(JOB, ed, scene_for(ed), ctx=CTX, parts=[bedroom_part()])
+    pr = {r['src_id']: r for r in d['trial']['panels'][0]['rooms']}
+    src = next(r for r in flat['panels'][0]['rooms'] if r['id'] == 'b2')
+    assert pr['b2']['bbox'] == src['bbox'] and pr['b2']['contour'] == src['contour'] and pr['b2']['edited'] == {'w': 450, 'd': 300}
+    assert pr['b2']['areaM2'] == round(14 * 450 / 400 * 300 / 350, 2) and 'edited' not in pr['b1']
+
+
 def test_parts_matched_by_source_room_and_foreign_room_refused():
     res = flat_with_bedrooms()
     part = bedroom_part('bedroom-7')

@@ -91,6 +91,9 @@ def opt(n):
         i = a.index(n); v = a[i + 1]; del a[i:i + 2]; return v
 scene, parts, out = opt('--scene'), opt('--parts'), opt('--out')
 release = (opt('--release') or '').split(',')
+cams = '--no-cams' not in a
+if not cams:
+    a.remove('--no-cams')
 jid, res = a
 result = json.load(open(res))
 mode = os.environ.get('FAKE_BUNDLE', 'ok')
@@ -105,7 +108,8 @@ for p in result['panels']:
     for r in p['rooms']:
         n[r['kind']] = n.get(r['kind'], 0) + 1
         rid = 'living' if r['kind'] == 'living' and n['living'] == 1 else f"{r['kind']}-{n[r['kind']]}"
-        pages[-1]['rooms'].append({'id': rid, 'src_id': r['id']})
+        pages[-1]['rooms'].append({'id': rid, 'src_id': r['id'], 'name': r.get('name'), 'bbox': r.get('bbox'),
+                                   **({'edited': r['edited']} if r.get('edited') else {})})
         consent = rid in release or 'approx_consent' in (r.get('flags') or [])
         if r['kind'] in ('living', 'bedroom') and 'dims_mismatch' in (r.get('flags') or []) and not consent \
                 and not (r['kind'] == 'living' and sc and sc['status'] == 'ok'):
@@ -123,7 +127,7 @@ for p in result['panels']:
         else:
             st, code = 'not_furnished', None
         rooms.append({'id': rid, 'kind': r['kind'], 'furniture_state': st, 'furniture_code': code})
-data = {'apartment_rooms': rooms, 'pad': 'x' * int(os.environ.get('FAKE_BUNDLE_PAD', '0')),
+data = {'apartment_rooms': rooms, 'pad': 'x' * int(os.environ.get('FAKE_BUNDLE_PAD', '0')), 'cams': cams,
         'trial': {'job_id': jid, 'complete': all(x['furniture_state'] != 'pending' for x in rooms), 'panels': pages}}
 json.dump(data, open(out, 'w'))
 print(json.dumps({'ok': True}))
@@ -141,17 +145,22 @@ if mode == 'crash':
     os._exit(9)
 if mode == 'stale':                      # упала тихо: scene.json не обновлён (лежит от прошлого раза)
     sys.exit(0)
-json.dump({'trial_id': jid, 'status': mode}, open(os.path.join(d, 'scene.json'), 'w'))
+open(os.path.join(d, 'living-runs'), 'a').write('1')
+res = json.load(open(sys.argv[2]))
+main = next(((p['id'], x['id']) for p in res['panels'] for x in p['rooms'] if x['kind'] == 'living'), (None, None))
+json.dump({'trial_id': jid, 'status': mode, 'room': {'panel': main[0], 'id': main[1]}, 'flags': []}, open(os.path.join(d, 'scene.json'), 'w'))
 sys.exit({'ok': 0, 'partial': 3}.get(mode, 2))
 '''
 
 FAKE_BEDROOMS = r'''
 import json, os, sys
-jid, res, out = sys.argv[1:]
+jid, res, out, *dirty = sys.argv[1:]
 if os.environ.get('FAKE_BEDROOMS') == 'crash':
     os._exit(9)
 r = json.load(open(res))
-rooms = [{'id': f'bedroom-{i}', 'panel': p['id'], 'src_id': x['id'], 'furniture_state': 'ready'}
+dirty = {tuple(k) for k in json.load(open(dirty[0]))} if dirty else None    # правка комнаты: правленые пересобрать, прочие — как были
+rooms = [{'id': f'bedroom-{i}', 'panel': p['id'], 'src_id': x['id'], 'furniture_state': 'ready',
+          **({'rebuilt': (p['id'], x['id']) in dirty} if dirty is not None else {})}
          for i, (p, x) in enumerate(((p, x) for p in r['panels'] for x in p['rooms'] if x['kind'] == 'bedroom'), 1)]
 json.dump({'rooms_geo': {}, 'apartment_rooms': rooms, 'variants': []}, open(out, 'w'))
 '''
@@ -1041,3 +1050,111 @@ def test_text_applied_only_length_anchors():
     assert not cv.text_applied(P('listing', L), P('listing', L))
     named = lambda: {'scale': {'status': 'listing'}, 'panels': [{'rooms': [{'id': 'r', 'name': 'Bedroom One', 'dims': L}]}]}  # noqa: E731
     assert cv.text_applied(named(), named(), {'bedroom 1'})
+
+
+# ───────────────────────── правка комнаты в туре (conveyor.EditRebuild, T-20261110-36) ─────────────────────────
+
+def _boxed():
+    """Результат с охватами и контурами: гостиная 500×400, кухня, две спальни (правке есть к чему приложиться)."""
+    def room(i, kind, name, x, y, w, d):
+        return {'id': i, 'kind': kind, 'name': name, 'flags': [], 'areaM2': round(w * d / 1e4, 2),
+                'bbox': {'x': x, 'y': y, 'w': w, 'd': d}, 'contour': [[x, y], [x + w, y], [x + w, y + d], [x, y + d]]}
+    rooms = [room('r1', 'living', 'Lounge', 0, 0, 500, 400), room('k1', 'kitchen', 'Kitchen', 500, 0, 300, 400),
+             room('b1', 'bedroom', 'Bedroom 1', 0, 400, 400, 350), room('b2', 'bedroom', 'Bedroom 2', 400, 400, 400, 350)]
+    return {'version': 1, 'units': 'cm', 'fake': True, 'scale': {'status': 'verified'}, 'panels': [{'id': 'p0', 'rooms': rooms}]}
+
+
+def _edit(src, w=None, d=None, name=None, built=False, anchor=None):
+    return {'panel': 'p0', 'srcId': src, 'anchor': anchor or {'x': 0.5, 'y': 0.5}, 'name': name or '', 'kind': '',
+            'wCm': w, 'dCm': d, 'built': built}
+
+
+def _edit_rebuild(prod, edits, rooms=(), **over):
+    prod.rebuilds.append({'id': RID, 'jobId': JID, 'attempt': 1, 'leaseToken': 'R' * 32, 'leaseUntil': 'x', 'rooms': list(rooms),
+                          'baseVersion': 3, 'kind': 'edit', 'result': _boxed(), 'edits': edits, **over})
+
+
+def _old_scene(tmp_path, room=('p0', 'r1')):
+    """Сцена гостиной от прошлой сборки задания (как оставляет стадия): правка спальни её не пересобирает."""
+    d = tmp_path / 'scenes' / JID
+    d.mkdir(parents=True, exist_ok=True)
+    (d / 'scene.json').write_text(json.dumps({'trial_id': JID, 'status': 'ok', 'room': {'panel': room[0], 'id': room[1]}, 'flags': []}))
+    return d
+
+
+def test_edit_bedroom_rebuilds_only_it_living_scene_kept(prod, mk, tmp_path):
+    """Правка спальни 2: одна версия на …/rebuild/publish (с ракурсами), гостиная — прежняя сцена (стадия не шла), стадия спален
+    получила правленую комнату; в копии результата — размер агента, исходный охват в `plan`, флаг `user_dims`; канон не тронут."""
+    scenes = _old_scene(tmp_path)
+    _edit_rebuild(prod, [_edit('b1', built=True, name='Bedroom 1'), _edit('b2', 450, 300, 'Кабинет-спальня')])
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')]
+    assert prod.by('/api/trial/worker/claim')[0]['edit'] is True
+    sent = prod.by('/api/trial/worker/rebuild/publish')
+    assert len(sent) == 1 and 'result' not in sent[0]
+    data = prod.bundles[0]['data']
+    assert data['cams'] is True                                     # итог — с ракурсами
+    assert not (scenes / 'living-runs').exists()                    # гостиная не правлена — прежняя сцена
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    assert json.loads((wd / 'edit-dirty.json').read_text()) == [['p0', 'b2']]
+    parts = json.loads((wd / 'bedrooms-parts.json').read_text())
+    assert {e['src_id']: e['rebuilt'] for e in parts['apartment_rooms']} == {'b1': False, 'b2': True}
+    ed = {r['id']: r for r in json.loads((wd / 'result-edited.json').read_text())['panels'][0]['rooms']}
+    b2 = ed['b2']
+    assert b2['bbox'] == {'x': 375.0, 'y': 425.0, 'w': 450.0, 'd': 300.0} and b2['edited'] == {'w': 450, 'd': 300}
+    assert b2['plan']['bbox'] == {'x': 400, 'y': 400, 'w': 400, 'd': 350} and 'user_dims' in b2['flags'] and b2['name'] == 'Кабинет-спальня'
+    assert b2['areaM2'] == round(14.0 * 450 / 400 * 300 / 350, 2)
+    assert 'user_dims' not in ed['b1']['flags'] and ed['r1'] == _boxed()['panels'][0]['rooms'][0]
+    assert json.loads((wd / 'result.json').read_text()) == _boxed()          # канон задания — как прочитан
+    assert all(b.get('cams') for b in (json.loads(p.read_text()) for p in wd.glob('bundle-*-v3-*.json')))
+    assert not any(json.loads(p.read_text()).get('cams') for p in wd.glob('bundle-*-v1-*.json'))   # промежуточная — без ракурсов
+
+
+def test_edit_living_runs_living_stage(prod, mk, tmp_path):
+    scenes = _old_scene(tmp_path)
+    _edit_rebuild(prod, [_edit('r1', 560, 420)])
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')] and (scenes / 'living-runs').read_text() == '1'
+
+
+def test_edit_scene_of_other_living_not_reused(prod, mk, tmp_path):
+    """Сцена на диске — не той гостиной (план перечитан и т. п.): стадия гостиной идёт заново, а не берёт чужую."""
+    scenes = _old_scene(tmp_path, room=('p0', 'zz'))
+    _edit_rebuild(prod, [_edit('b2', 450, 300)])
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')] and (scenes / 'living-runs').read_text() == '1'
+
+
+def test_edit_room_found_by_anchor_when_ids_changed(prod, mk, tmp_path):
+    """id плана сменились (перечитывание): правка находит комнату по центру в долях охвата панели (спальня 2 — (0,75; 0,77))."""
+    _old_scene(tmp_path)
+    _edit_rebuild(prod, [_edit('old-b2', 450, 300, anchor={'x': 0.75, 'y': 0.766})])
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    assert w.done == [(RID, 'rebuilt')] and json.loads((wd / 'edit-dirty.json').read_text()) == [['p0', 'b2']]
+
+
+def test_edit_without_room_fails_no_match(prod, mk):
+    _edit_rebuild(prod, [_edit('gone', 450, 300, anchor={'x': 5, 'y': 5})])
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    fails = prod.by('/api/trial/worker/rebuild/fail')
+    assert [f['code'] for f in fails] == ['no_match'] and prod.bundles == []
+
+
+def test_furnish_rebuild_keeps_edits(prod, mk, tmp_path):
+    """«Обустроить» после правки: тур строится с правками агента (копия с размером), не по прочитанному."""
+    _rebuild(prod, ['bedroom-1'], flagged=('b1',), result=_boxed(), edits=[_edit('b2', 450, 300, built=True)])
+    prod.rebuilds[0]['result']['panels'][0]['rooms'][2]['flags'] = ['dims_mismatch']
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')]
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    rooms = {r['id']: r for r in json.loads((wd / 'result-consent.json').read_text())['panels'][0]['rooms']}
+    assert rooms['b2']['edited'] == {'w': 450, 'd': 300} and 'approx_consent' in rooms['b1']['flags']
+    pan = {r['src_id']: r for r in prod.bundles[0]['data']['trial']['panels'][0]['rooms']}
+    assert pan['b2']['edited'] == {'w': 450, 'd': 300}

@@ -90,6 +90,9 @@ SCALE_NOTE = {
 # флаг комнаты в результате, который ставит пересборка «Обустроить» (`tools/floorplan/conveyor.py:Rebuild`): агент согласился
 # обставить «как есть» — проверка размера снята, решатели не отказывают по масштабу, страница пишет «размеры примерные»
 APPROX_CONSENT = 'approx_consent'
+# флаг комнаты с размером, который агент задал правкой комнаты в туре (`tools/floorplan/room_edits.py`, T-20261110-36): размер дал
+# человек — проверка размера снята (и масштаба квартиры для неё), «примерно» не пишем, фото можно
+USER_DIMS = 'user_dims'
 OUTCOME_TEXT = {
     'size_unverified': ('Размер может быть неточным — поправьте и нажмите «Обустроить».',
                         'Size may be approximate — adjust and tap “Furnish”.'),
@@ -951,7 +954,9 @@ def _check_input(job_id: str, result: dict, scene: dict | None) -> None:
 
 def size_check(result: dict, room: dict) -> str | None:
     """Почему комнату-цель нельзя обставлять сразу: `scale_unverified` (масштаб квартиры, при `SCALE_UNVERIFIED_AWAITS_CHECK`),
-    флаг комнаты из `SIZE_CHECK_FLAGS` — или None."""
+    флаг комнаты из `SIZE_CHECK_FLAGS` — или None. Размер, заданный агентом правкой комнаты (`USER_DIMS`), проверять не нужно."""
+    if USER_DIMS in (room.get('flags') or []):
+        return None
     if SCALE_UNVERIFIED_AWAITS_CHECK and (result.get('scale') or {}).get('status') == 'not_verified':
         return 'scale_unverified'
     return next((f for f in room.get('flags') or [] if f in SIZE_CHECK_FLAGS), None)
@@ -964,9 +969,12 @@ def photo_ok(result: dict, room: dict, kind: str, state: str, consent: bool) -> 
     """ДОВЕРИЕ К РАЗМЕРАМ КОМНАТЫ ДЛЯ ФОТО (план agent-trial-08 § «Правило фото», T-20261109-34): фото нейросети — только гостиной или
     спальне, которая обставлена (`ready`), с подтверждённым масштабом квартиры (`verified`/`listing`; `area` без сверки — нет), без флага
     размера и не обставленной «как есть» по согласию агента (мебель есть, фото нет). Одно правило — его читают страница (кнопка) и сервер
-    (`/api/trial/<id>/photo`)."""
-    return (kind in (LIVING, BEDROOM) and state == 'ready' and (result.get('scale') or {}).get('status') in PHOTO_SCALES
-            and not consent and size_check(result, room) is None)
+    (`/api/trial/<id>/photo`). Размер комнаты задал агент правкой (`USER_DIMS`) — ему и верим: фото можно при любом масштабе квартиры."""
+    if kind not in (LIVING, BEDROOM) or state != 'ready':
+        return False
+    if USER_DIMS in (room.get('flags') or []):
+        return True
+    return (result.get('scale') or {}).get('status') in PHOTO_SCALES and not consent and size_check(result, room) is None
 
 
 def _living_rooms(result: dict, cfg: dict) -> tuple[list, list]:
@@ -1195,6 +1203,8 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
         if kind in (LIVING, BEDROOM) and consented(r, rid) and size_check(result, r):
             entry['approx_consent'] = True                  # страница: «размеры примерные» — проверка снята агентом, не подтверждена
         entry['photo_ok'] = photo_ok(result, r, kind, entry['furniture_state'], consented(r, rid))
+        if r.get('edited') or r.get('user_name'):
+            entry['edited'] = True                          # страница: «✓ скорректировано» у подписи на плане
         apartment_rooms.append(entry)
     if not variants:                                 # ни одной комнаты с коробкой — странице нечего открыть (контракт: ≥1 вариант)
         if refused:
@@ -1218,8 +1228,12 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
              'refused_rooms': [{'room_id': ids[id(x['room'])], 'code': x['code'], 'detail': x['detail']} for x in refused],
              'panels': [{'id': p['id'], 'title': p['title'],
                          **({'storey': storey_map[i]} if i in storey_map else {}),
+                         # 2D-план — как прочитан (стены и проёмы панели не двигаются); правленая комната — исходные охват и контур
+                         # (`plan`) и размер агента `edited` {w, d} (окошко правки показывает его)
                          'rooms': [{'id': ids[id(r)], 'src_id': r['id'], 'name': r.get('name'), 'kind': r['kind'], 'areaM2': r.get('areaM2'),
-                                    'bbox': r.get('bbox'), 'contour': r.get('contour'), 'flags': r.get('flags') or []} for r in p['rooms']],
+                                    'bbox': (r.get('plan') or {}).get('bbox') or r.get('bbox'),
+                                    'contour': (r.get('plan') or {}).get('contour') or r.get('contour'), 'flags': r.get('flags') or [],
+                                    **({'edited': r['edited']} if r.get('edited') else {})} for r in p['rooms']],
                          'openings': p.get('openings') or [], 'walls': p.get('walls') or []} for i, p in enumerate(panels)]}
     room = rooms_geo.get(LIVING) or next(iter(rooms_geo.values()))
     out = {'room': room, 'rooms_geo': rooms_geo, 'apartment_id': '', 'plan': {}, 'apartment_rooms': apartment_rooms,
@@ -1281,6 +1295,9 @@ def main() -> int:
         return 0
     scene_path, parts_path, out = _arg(args, '--scene'), _arg(args, '--parts'), _arg(args, '--out')
     release = [x for x in (_arg(args, '--release') or '').split(',') if x]
+    cams = '--no-cams' not in args                 # версия не для страницы (проверка / промежуточная пересборки) — без ракурсов
+    if not cams:
+        args.remove('--no-cams')
     if len(args) != 2:
         print(__doc__)
         return 0
@@ -1295,7 +1312,8 @@ def main() -> int:
         return 2
     if out:
         write_atomic(out, data)
-        print(add_cams(out, shop_tokens(scene)), flush=True)   # до итоговой строки: конвейер читает последнюю
+        if cams:
+            print(add_cams(out, shop_tokens(scene)), flush=True)   # до итоговой строки: конвейер читает последнюю
         print(json.dumps({'ok': True, 'rooms': list(data['rooms_geo']), 'variants': len(data['variants'])}, ensure_ascii=False))
     else:
         json.dump(data, sys.stdout, ensure_ascii=False, separators=(',', ':'))

@@ -171,6 +171,32 @@ def test_shared_door_belongs_to_both_neighbour_door_to_neighbour():
     assert walls == [('door', 'east'), ('window', 'south')]
 
 
+def _user_size(res, src, w, d):
+    """Правка размера агентом тем же модулем, что у конвейера (`tools/floorplan/room_edits.py`, T-20261110-36)."""
+    sys.path.insert(0, os.path.join(HERE, '..', '..', 'floorplan'))
+    import room_edits
+    return room_edits.apply(res, [{'panel': 'p0', 'srcId': src, 'anchor': {'x': 0, 'y': 0}, 'name': '', 'kind': '', 'wCm': w, 'dCm': d,
+                                   'built': False}])[0]
+
+
+def test_user_size_openings_stay_on_read_walls_and_move_with_room():
+    """Гостиная растянута правкой 490×400 → 600×460: проёмы панели остались на прочитанных стенах; привязка — по исходным контурам
+    (те же проёмы, общая дверь — и прихожей), центр своего проёма — тем же масштабом (окно и дверь — на новых стенах растянутой комнаты);
+    комната обставляется, масштаб не подтверждён — не отказ и не «примерно»."""
+    res = _user_size(shared_result(), 'r1', 600, 460)
+    p = res['panels'][0]
+    ours, amb, _ = TR.openings_of(p, p['rooms'][0], TR.rules())
+    by = {o['_idx']: o for o in ours}
+    assert sorted(by) == [0, 1] and amb == []
+    assert by[0]['c'] == [245.0, -30.0] and by[1]['c'] == [557.2, 200.0] and by[1]['widthCm'] == 90
+    assert 1 in [o['_idx'] for o in TR.openings_of(p, p['rooms'][1], TR.rules())[0]]
+    res['scale']['status'] = 'not_verified'
+    ad = TR.adapt(res)
+    assert 'approx_consent' not in ad['flags']
+    walls = sorted((x['o']['kind'], x['wall']) for x in ad['candidates'][0]['openings'])
+    assert walls == [('door', 'east'), ('window', 'south')]
+
+
 # ───────────────────────── неоднозначный проём → отказ ─────────────────────────
 
 def test_ambiguous_opening_off_wall():
