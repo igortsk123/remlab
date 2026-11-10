@@ -81,9 +81,12 @@ const planProbe = () => {
     const shape = g.querySelector('polygon,rect'); if (!shape) return;
     const rb = shape.getBBox();
     const texts = [...g.querySelectorAll('text')];
+    // /2: «за стеной» — и по рамке комнаты, и по её контуру (углы строки, ужатые на 2 см, в заливке многоугольника)
+    const inFill = (x, y) => { try { const p = svg.createSVGPoint(); p.x = x; p.y = y; return shape.isPointInFill(p); } catch (e) { return true; } };
     const lines = texts.map(t => { const b = t.getBBox(); boxes.push({ gi, b, t: t.textContent });
       const over = Math.max(rb.x - b.x, b.x + b.width - (rb.x + rb.width), rb.y - b.y, b.y + b.height - (rb.y + rb.height));
-      return { t: t.textContent, over: +over.toFixed(3) }; });
+      const e = 0.02, poly = [[b.x + e, b.y + e], [b.x + b.width - e, b.y + e], [b.x + e, b.y + b.height - e], [b.x + b.width - e, b.y + b.height - e]].every(([x, y]) => inFill(x, y));
+      return { t: t.textContent, over: +over.toFixed(3), inPoly: poly }; });
     rooms.push({ name: lines[0] && lines[0].t, w: +rb.width.toFixed(2), d: +rb.height.toFixed(2), lines });
   });
   const hit = [];
@@ -92,10 +95,18 @@ const planProbe = () => {
     const ox = Math.min(a.b.x + a.b.width, c.b.x + c.b.width) - Math.max(a.b.x, c.b.x), oy = Math.min(a.b.y + a.b.height, c.b.y + c.b.height) - Math.max(a.b.y, c.b.y);
     if (ox > 0.01 && oy > 0.01) hit.push(a.t + ' × ' + c.t);
   }
+  // /2: строка подписи ∩ дуга или полотно двери (оранжевые `#C8783C` — так и в странице до /2, где пометки `data-arc` нет): точки по линии
+  const arcPts = [];
+  svg.querySelectorAll('[stroke="#C8783C"]').forEach(a => {
+    if (a.tagName === 'path') { const L = a.getTotalLength(); for (let i = 0; i <= 60; i++) { const p = a.getPointAtLength(L * i / 60); arcPts.push([p.x, p.y]); } }
+    else if (a.tagName === 'line') { const g = k => +a.getAttribute(k); for (let i = 0; i <= 30; i++) arcPts.push([g('x1') + (g('x2') - g('x1')) * i / 30, g('y1') + (g('y2') - g('y1')) * i / 30]); }
+  });
+  const arcHits = boxes.filter(({ b }) => arcPts.some(([x, y]) => x > b.x && x < b.x + b.width && y > b.y && y < b.y + b.height)).map(x => x.t);
   const hints = [...document.querySelectorAll('#flatRooms .hint')].filter(e => e.offsetHeight > 0).map(e => e.textContent.trim());
   const hh = document.getElementById('trHead'), head = hh && hh.offsetHeight > 0 ? hh.innerText : '';   // видимое — не textContent
-  return { svg: true, rooms: rooms.filter(r => r.lines.some(l => l.over > 0.02)).map(r => ({ name: r.name, w: r.w, d: r.d, lines: r.lines })),
-    nRooms: rooms.length, overlaps: hit, doors: svg.querySelectorAll('[data-door="door"]').length, gaps: svg.querySelectorAll('[data-door="gap"]').length,
+  return { svg: true, rooms: rooms.filter(r => r.lines.some(l => l.over > 0.02 || !l.inPoly)).map(r => ({ name: r.name, w: r.w, d: r.d, lines: r.lines })),
+    nRooms: rooms.length, overlaps: hit, arcHits,
+    ops: ((D.plan || {}).trOpenings || []).map(o => ({ k: o.kind, main: o.main, more: (o.more || []).length, t: o.t, ab: o.pts.slice(0, 2) })), doors: svg.querySelectorAll('[data-door="door"]').length, gaps: svg.querySelectorAll('[data-door="gap"]').length,
     windows: svg.querySelectorAll('[data-door="window"]').length,
     fonts: rooms.map(r => r.name + ' ' + r.lines.length),
     hints, head: head.trim() };
@@ -125,7 +136,7 @@ const sheetProbe = () => {
   await p.evaluate(() => window.scrollTo(0, 0));
   const bi = await p.evaluate(() => { const bed = new Set(homeRooms().filter(r => r.kind === 'bedroom').map(r => r.id));
     return allVariants().findIndex(v => bed.has(roomIdOf(v)) && (v.items || []).length); });
-  if (bi >= 0) {
+  if (bi >= 0 && !process.env.NOBED) {           // NOBED=1 — без окна спальни (быстрый прогон плана)
     await p.evaluate(i => { showTab('room'); vwOpenVariant(i); }, bi);
     await p.waitForFunction(() => LIVE.scene && LIVE.state === 'ready', null, { timeout: 150000 }).catch(() => {});
     await p.waitForTimeout(2500);

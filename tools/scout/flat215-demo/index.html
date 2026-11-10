@@ -1664,7 +1664,8 @@ function trialPlanFromPanels(){
     rs.forEach(r=>{const b=r.bbox;
       rooms.push({id:r.id, x:px(b.x), y:py(b.y), w:m(b.w), d:m(b.d),
         poly:(r.contour||[]).length>=3?r.contour.map(q=>[+px(q[0]).toFixed(3), +py(q[1]).toFixed(3)]):null});});
-    trOpeningsOf(p,rs).forEach(o=>ops.push(Object.assign(o,{pts:o.pts.map(q=>[+px(q[0]).toFixed(3), +py(q[1]).toFixed(3)]), t:+m(o.t).toFixed(3)})));
+    const cv=q=>[+px(q[0]).toFixed(3), +py(q[1]).toFixed(3)];
+    trOpeningsOf(p,rs).forEach(o=>ops.push(Object.assign(o,{pts:o.pts.map(cv), more:(o.more||[]).map(s=>s.map(cv)), t:+m(o.t).toFixed(3)})));
     const n=(p.storey!=null?+p.storey:k)+1;
     if(many)labels.push({x:ox, y:top-0.25, t:TR_EN()?(p.title||'Floor '+n):'Этаж '+n});
     ox+=m(x1-x0)+1.5;
@@ -1688,42 +1689,68 @@ function trTextEm(t,wt){ try{ if(!TR_MEAS)TR_MEAS=document.createElement('canvas
   const box=document.getElementById('flatRooms')||document.body;
   TR_MEAS.font=`${wt||400} 100px ${getComputedStyle(box).fontFamily||'sans-serif'}`; return TR_MEAS.measureText(String(t)).width/100;
   }catch(e){ return String(t).length*0.62; } }
-// комнаты схемы → id → прямоугольники {x,y,w,h} из клеток комнаты, свободных от чужих контуров (все максимальные — `trFitLabel` выберет)
-function trLabelBoxes(R){
+// дверь плана пробы (точки `pts` в метрах схемы): радиус дуги и «занятая зона» — сектор открывания (петля H, полотно к T, дуга к F) с запасом
+function trDoorR(o){ const [,,H,T]=o.pts; return Math.hypot(T[0]-H[0],T[1]-H[1]); }
+function trInDoor(c,o,pad){ const [,,H,T,F]=o.pts, r=trDoorR(o), dx=c[0]-H[0], dy=c[1]-H[1]; if(!(r>0)||Math.hypot(dx,dy)>r+pad)return false;
+  return (dx*(T[0]-H[0])+dy*(T[1]-H[1]))/r>=-pad&&(dx*(F[0]-H[0])+dy*(F[1]-H[1]))/r>=-pad; }
+// только линии двери — дуга и полотно (внутри сектора пусто: подпись там не мешает, если не задевает линий) — запасной уровень для кладовок
+function trOnDoor(c,o,pad){ const [,,H,T]=o.pts, r=trDoorR(o); if(trSegDist(c,H,T)<=pad)return true;
+  return Math.abs(Math.hypot(c[0]-H[0],c[1]-H[1])-r)<=pad&&trInDoor(c,o,pad); }
+// комнаты схемы → id → прямоугольники {x,y,w,h} из клеток комнаты, свободных от чужих контуров и от секторов дверей (`doors` —
+// `P.trOpenings`; /2: дуга шла через «Обустроить →» — кликабельную строку): {strict — вне секторов дверей, loose — не задевая только
+// дуг и полотен}; `trFitLabel` выберет. Свободного нет — сперва уступаем чужим контурам (наезд распознавания), двери — в последнюю очередь
+function trLabelBoxes(R,doors){
   const P=R.map(r=>r.poly&&r.poly.length>=3?r.poly:[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.d],[r.x,r.y+r.d]]), out={};
+  const DR=(doors||[]).filter(o=>o&&o.kind==='door'&&o.pts&&o.pts.length>=5), PAD=0.06;
   R.forEach((r,i)=>{
     const N=TR_GRID, cw=r.w/N, ch=r.d/N;
     const oth=P.filter((q,j)=>j!==i&&q.some(p=>p[0]>r.x-1&&p[0]<r.x+r.w+1)&&q.some(p=>p[1]>r.y-1&&p[1]<r.y+r.d+1));
-    const grid=ex=>{const g=[]; let any=false;
+    const dr=DR.filter(o=>{const H=o.pts[2], rr=trDoorR(o)+PAD; return H[0]>r.x-rr&&H[0]<r.x+r.w+rr&&H[1]>r.y-rr&&H[1]<r.y+r.d+rr;});
+    // ed: 1 — сектор двери занят, 2 — заняты только её линии, 0 — двери не учитываем
+    const grid=(ex,ed)=>{const g=[]; let any=false;
       for(let y=0;y<N;y++){const row=[]; for(let x=0;x<N;x++){const c=[r.x+(x+.5)*cw, r.y+(y+.5)*ch];
-        const ok=trInPoly(c,P[i])&&!(ex&&oth.some(q=>trInPoly(c,q))); row.push(ok); any=any||ok;} g.push(row);}
+        const ok=trInPoly(c,P[i])&&!(ex&&oth.some(q=>trInPoly(c,q)))&&!(ed===1&&dr.some(o=>trInDoor(c,o,PAD)))&&!(ed===2&&dr.some(o=>trOnDoor(c,o,PAD)));
+        row.push(ok); any=any||ok;} g.push(row);}
       return any?g:null;};
-    const g=grid(true)||grid(false); if(!g)return;
-    const hgt=new Array(N).fill(0), rects=[];
-    for(let y=0;y<N;y++){                            // максимальные прямоугольники: гистограмма по строкам
-      for(let x=0;x<N;x++)hgt[x]=g[y][x]?hgt[x]+1:0;
-      const st=[];
-      for(let x=0;x<=N;x++){const h=x<N?hgt[x]:0; let s=x;
-        while(st.length&&st[st.length-1][1]>=h){const [sx,sh]=st.pop(); if(sh>0)rects.push({x:r.x+sx*cw, y:r.y+(y-sh+1)*ch, w:(x-sx)*cw, h:sh*ch}); s=sx;}
-        st.push([s,h]);}
-    }
-    out[r.id]=rects;
+    const strict=grid(true,1)||grid(false,1), loose=grid(true,2)||grid(false,2)||grid(true,0)||grid(false,0);
+    if(!loose)return;
+    out[r.id]={strict:strict?trRects(strict,r,cw,ch):[], loose:trRects(loose,r,cw,ch)};
   });
   return out;
 }
-// строки подписи `L` (k — доля кегля) → {fs, cx, cy, n}: наибольший кегль, при котором строки помещаются в один из прямоугольников
-function trFitLabel(rects,L,r){
-  if(!rects||!rects.length)return null;
+// сетка свободных клеток комнаты → все максимальные прямоугольники (гистограмма по строкам)
+function trRects(g,r,cw,ch){
+  const N=TR_GRID, hgt=new Array(N).fill(0), rects=[];
+  for(let y=0;y<N;y++){
+    for(let x=0;x<N;x++)hgt[x]=g[y][x]?hgt[x]+1:0;
+    const st=[];
+    for(let x=0;x<=N;x++){const h=x<N?hgt[x]:0; let s=x;
+      while(st.length&&st[st.length-1][1]>=h){const [sx,sh]=st.pop(); if(sh>0)rects.push({x:r.x+sx*cw, y:r.y+(y-sh+1)*ch, w:(x-sx)*cw, h:sh*ch}); s=sx;}
+      st.push([s,h]);}
+  }
+  return rects;
+}
+// строки подписи `L` (k — доля кегля) → {fs, cx, cy, n}: наибольший кегль, при котором строки помещаются в один из прямоугольников.
+// Сперва вне секторов дверей (`B.strict`); даже одно имя не влезает при TR_FS_MIN — внутри сектора, не задевая дуги и полотна (`B.loose`);
+// и там мельче TR_FS_TINY (кладовка, вся — под открыванием) — без подписи (n = 0): точка-надпись хуже, чем никакой
+const TR_FS_TINY=0.08;
+function trFitLabel(B,L,r){
+  if(!B)return null;
   const cap=Math.min(0.32,Math.max(0.2,Math.min(r.w,r.d)/4.4)), PART=0.09;
-  const fit=n=>{const em=Math.max(...L.slice(0,n).map(l=>trTextEm(l.t,(l.a||{})['font-weight'])*l.k)); let b=null;
+  const fit=(rects,n)=>{const em=Math.max(...L.slice(0,n).map(l=>trTextEm(l.t,(l.a||{})['font-weight'])*l.k)); let b=null;
     rects.forEach(c=>{const fs=Math.min(cap,(c.w*0.92-PART)/em,(c.h*0.92-PART)/(1.2*(n-1)+1));
       if(!b||fs>b.fs+1e-6||(Math.abs(fs-b.fs)<=1e-6&&c.w*c.h>b.c.w*b.c.h))b={fs,c};});
     return b&&b.fs>0?{fs:b.fs, cx:b.c.x+b.c.w/2, cy:b.c.y+b.c.h/2, n}:null;};
-  let z=fit(L.length);
-  for(let n=L.length-1;n>=1&&z&&z.fs<TR_FS_MIN;n--){const z2=fit(n); if(z2)z=z2;}
-  return z;
+  const best=rects=>{ if(!rects||!rects.length)return null; let z=fit(rects,L.length);
+    for(let n=L.length-1;n>=1&&(!z||z.fs<TR_FS_MIN);n--){const z2=fit(rects,n); if(z2)z=z2;} return z; };
+  let z=best(B.strict);
+  if(!z||z.fs<TR_FS_MIN){const z2=best(B.loose); if(z2&&(!z||z2.fs>z.fs))z=z2;}
+  return z&&z.fs<TR_FS_TINY?{fs:TR_FS_MIN, cx:r.x+r.w/2, cy:r.y+r.d/2, n:0}:z;
 }
-const TR_DOOR_MAX=120, TR_WALL_NEAR=45;
+// Внутренняя «дверь» шире 1,2 м (/2): у распознавания рамка двери бывает вдвое шире настоящей (кухня–прихожая тура D — 160 см при двери
+// ~80 на чертеже; 184 см у ванной там, где на чертеже двери нет) — стену не стираем: проём стандартной ширины TR_DOOR_STD по центру, без
+// дуги (направление и сама дверь сомнительны). Наружная или «проход» — реальной ширины
+const TR_DOOR_MAX=120, TR_WALL_NEAR=45, TR_DOOR_STD=90;
 function trPolyOf(r){ const b=r.bbox; return (r.contour||[]).length>=3?r.contour:[[b.x,b.y],[b.x+b.w,b.y],[b.x+b.w,b.y+b.d],[b.x,b.y+b.d]]; }
 function trSegDist(p,a,b){ const dx=b[0]-a[0], dy=b[1]-a[1], L=dx*dx+dy*dy, t=L?Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L)):0;
   return Math.hypot(p[0]-a[0]-t*dx, p[1]-a[1]-t*dy); }
@@ -1733,7 +1760,8 @@ function trInPoly(p,P){ let c=false; for(let i=0,j=P.length-1;i<P.length;j=i++){
 function trOpeningsOf(panel,rs){
   const R=rs.map(r=>({r, P:trPolyOf(r), a:+r.areaM2||(r.bbox.w*r.bbox.d/1e4)})), out=[];
   (panel.openings||[]).forEach(o=>{
-    const c=o&&o.c, w=+(o&&o.widthCm); if(!Array.isArray(c)||!(w>0)||!/^(door|window|opening)$/.test(o.kind))return;
+    const c=o&&o.c; let w=+(o&&o.widthCm); if(!Array.isArray(c)||!(w>0)||!/^(door|window|opening)$/.test(o.kind))return;
+    const wide=o.kind==='door'&&!o.exterior&&w>TR_DOOR_MAX; if(wide)w=TR_DOOR_STD;
     // стена — ближайшее ребро контура, достаточно длинное для проёма (короткий скос угла направление не задаёт)
     let best=null;
     R.forEach(x=>{const P=x.P; for(let i=0;i<P.length;i++){const a=P[i], b=P[(i+1)%P.length], d=trSegDist(c,a,b), L=Math.hypot(b[0]-a[0],b[1]-a[1]);
@@ -1743,16 +1771,27 @@ function trOpeningsOf(panel,rs){
     const q=[best.a[0]+u[0]*pr, best.a[1]+u[1]*pr];   // центр проёма — на линии стены (у распознавания он бывает на 20–30 см в комнате)
     const at=s=>{const p=[q[0]+n[0]*s, q[1]+n[1]*s], h=R.filter(x=>trInPoly(p,x.P)).sort((x,y)=>x.a-y.a); return h[0]||null;};
     const side=[at(30),at(-30)];   // [+n, −n]: комната по каждую сторону стены (самая маленькая из накрытых — контуры распознавания наезжают)
-    // разрыв стирает обводки обеих комнат у проёма: контуры соседей лежат в ±12 см от линии стены
-    const other=side.filter(x=>x&&x!==best.x).map(x=>trPolyDist(q,x.P)).filter(d=>d<=12), t=Math.max(14,2*Math.max(0,...other)+12);
-    const e1=[q[0]-u[0]*w/2, q[1]-u[1]*w/2], e2=[q[0]+u[0]*w/2, q[1]+u[1]*w/2];
-    if(o.kind!=='door'||w>TR_DOOR_MAX||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], t}); return;}
+    // разрыв стирает обводки обеих комнат у проёма: контуры соседей лежат в ±12 см от линии стены — одной линией; дальше (до 30 см —
+    // контуры наезжают, /2: прихожая и кладовка тура D — 20 см) — вторым разрывом по параллельному ребру соседа, а не толстой белой полосой
+    // Обводка, закрытая заливкой комнаты, нарисованной позже (план рисует комнаты по порядку `rs`), не видна — её не стираем, иначе белая
+    // полоса ложится на заливку (/2: «Туалет», «Ванная»). Видимость — по трём точкам отрезка
+    const t=14, e1=[q[0]-u[0]*w/2, q[1]-u[1]*w/2], e2=[q[0]+u[0]*w/2, q[1]+u[1]*w/2], more=[];
+    const hidden=(s,x)=>{const ix=R.indexOf(x); return [0.25,0.5,0.75].every(f=>{const p=[s[0][0]+(s[1][0]-s[0][0])*f, s[0][1]+(s[1][1]-s[0][1])*f];
+      return R.some((y,j)=>j>ix&&trPolyDist(p,y.P)>5&&trInPoly(p,y.P));});};
+    const main=!hidden([e1,e2],best.x);
+    R.forEach(x=>{if(x===best.x)return; const P=x.P; let bb=null;
+      for(let i=0;i<P.length;i++){const a=P[i], b=P[(i+1)%P.length], L=Math.hypot(b[0]-a[0],b[1]-a[1]); if(L<1)continue;
+        const v=[(b[0]-a[0])/L,(b[1]-a[1])/L], d=trSegDist(q,a,b); if(Math.abs(v[0]*u[0]+v[1]*u[1])>0.95&&d>3&&d<=30&&(!bb||d<bb.d))bb={d,a,v};}
+      if(!bb)return;
+      const pj=e=>{const s=(e[0]-bb.a[0])*bb.v[0]+(e[1]-bb.a[1])*bb.v[1]; return [bb.a[0]+bb.v[0]*s, bb.a[1]+bb.v[1]*s];}, sg=[pj(e1),pj(e2)];
+      if(!hidden(sg,x))more.push(sg);});
+    if(o.kind!=='door'||wide||w>TR_DOOR_MAX||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], more, main, t}); return;}
     const pref=x=>!x?-1:(x.r.kind!=='hall'&&x.a>=1.5?2:1);
     const k=pref(side[0])!==pref(side[1])?(pref(side[0])>pref(side[1])?0:1):((side[0]?side[0].a:0)>=(side[1]?side[1].a:0)?0:1);
     const sg=k===0?1:-1, sw=side[k];   // в какую сторону открывается
     const near=e=>Math.min(...sw.P.map(p=>Math.hypot(p[0]-e[0],p[1]-e[1])));
     const [H,F]=near(e2)<near(e1)?[e2,e1]:[e1,e2], T=[H[0]+n[0]*sg*w, H[1]+n[1]*sg*w];
-    out.push({kind:'door', pts:[e1,e2,H,T,F], t});
+    out.push({kind:'door', pts:[e1,e2,H,T,F], more, main, t});
   });
   return out;
 }
@@ -2513,7 +2552,7 @@ function flatPlan(){
   // ИМЯ, ПЛОЩАДЬ, ГОТОВНОСТЬ — ИЗ РЕЕСТРА КВАРТИРЫ (`homeRooms`, T-20261022-04): у схемы плана только геометрия, id — те же
   // вариант комнаты — по раскладке главной (`homeLayout`, home-mix-01): та же комната того же варианта, что на карточке
   const map=planRoomMap(), m=homeModel(), LAY=homeLayout(m), inc=window.__basket&&window.__basket.included;
-  const TRLB=TRIAL()?trLabelBoxes(R):null;           // проба: где в комнате свободно под подпись (контуры распознавания наезжают)
+  const TRLB=TRIAL()?trLabelBoxes(R,P.trOpenings):null;           // проба: где в комнате свободно под подпись (контуры распознавания наезжают)
   R.forEach(r=>{                                     // комнаты: заливка + перегородки
     const br=map[r.id], room=br||{}, f=br&&inc?inc(br.id):null, ready=room.contentState==='ready';
     const rv=br&&ready?((LAY.find(x=>x.r.id===br.id)||{}).rv||m.roomVariants.find(x=>x.roomId===br.id)):null;
@@ -2579,12 +2618,13 @@ function flatPlan(){
   });
   (P.trOpenings||[]).forEach(o=>{                    // проба: проёмы распознавания по направлению стены (`trOpeningsOf`)
     const [a,b,H,T,F]=o.pts;
-    el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#fff','stroke-width':o.t,'data-door':o.kind});
+    el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#fff','stroke-width':o.main===false?0:o.t,'data-door':o.kind});   // своя обводка закрыта соседом — не стираем
+    (o.more||[]).forEach(([c,d])=>el('line',{x1:c[0],y1:c[1],x2:d[0],y2:d[1],stroke:'#fff','stroke-width':o.t}));   // обводка соседа, наехавшего контуром
     if(o.kind==='window')el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#5A9BD4','stroke-width':0.06});
     if(o.kind!=='door')return;
-    const rr=Math.hypot(T[0]-H[0],T[1]-H[1]), cr=(T[0]-H[0])*(F[1]-H[1])-(T[1]-H[1])*(F[0]-H[0]);
-    el('path',{d:`M ${T[0]} ${T[1]} A ${rr.toFixed(3)} ${rr.toFixed(3)} 0 0 ${cr>0?1:0} ${F[0]} ${F[1]}`,fill:'none',stroke:'#C8783C','stroke-width':0.035});
-    el('line',{x1:H[0],y1:H[1],x2:T[0],y2:T[1],stroke:'#C8783C','stroke-width':0.05});
+    const rr=trDoorR(o), cr=(T[0]-H[0])*(F[1]-H[1])-(T[1]-H[1])*(F[0]-H[0]);
+    el('path',{d:`M ${T[0]} ${T[1]} A ${rr.toFixed(3)} ${rr.toFixed(3)} 0 0 ${cr>0?1:0} ${F[0]} ${F[1]}`,fill:'none',stroke:'#C8783C','stroke-width':0.035,'data-arc':'1'});
+    el('line',{x1:H[0],y1:H[1],x2:T[0],y2:T[1],stroke:'#C8783C','stroke-width':0.05,'data-arc':'1'});
   });
   LB.forEach(l=>{el('text',{x:l.x,y:l.y,'font-size':0.36,fill:'#5C655E','font-weight':'600'}).textContent=l.t;});
   box.appendChild(svg);
