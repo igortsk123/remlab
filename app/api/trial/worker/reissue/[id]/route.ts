@@ -9,8 +9,9 @@ export const dynamic = "force-dynamic";
 
 // Пересборка готового тура «как есть» (оператор, T-20261110-05; `lib/trial/repo-reissue.ts`). GET — исходник: `result` и точные байты
 // последней версии. POST — новая версия от `baseVersion` (те же проверки, что у версий воркера, `checkBundle`) и закрепление текущей
-// витрины. 404 нет задания · 410 срок вышел · 409 `not_ready` / `busy` (идёт пересборка агента) / `stale` (версия сменилась).
-const STATUS = { not_found: 404, expired: 410, not_ready: 409, busy: 409, stale: 409 } as const;
+// витрины. 404 нет задания · 410 срок вышел · 409 `not_ready` / `busy` (идёт пересборка агента) / `stale` (версия сменилась) /
+// `no_bundle` (файла версии нет в TRIAL_DIR).
+const STATUS = { not_found: 404, expired: 410, not_ready: 409, busy: 409, stale: 409, no_bundle: 409 } as const;
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   const denied = workerGuard(req);

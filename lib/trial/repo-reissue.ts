@@ -16,7 +16,8 @@ import { repinJobRelease } from "@/lib/trial/tour-bundle";
 
 export const REISSUE_DAYS_MAX = 60;
 
-type Refusal = "not_found" | "expired" | "not_ready" | "busy";
+// `no_bundle` — задание готово, а файла последней версии в TRIAL_DIR нет (тур без данных и так не открывается; пересобирать не из чего).
+type Refusal = "not_found" | "expired" | "not_ready" | "busy" | "no_bundle";
 type JobRow = { status: string; bundle_version: number; result_version: number; bundle_hash: string | null; past_term: boolean; busy: boolean };
 
 const ACTIVE = sql`exists (select 1 from trial_rebuilds r where r.job_id = trial_jobs.id and r.status in ('queued', 'running'))`;
@@ -48,7 +49,7 @@ export async function reissueSource(id: string, dir = trialDir()): Promise<Reiss
   if (no) return no;
   if (j.result === null) return "not_ready";
   const bundle = await readBundle(dir, id, j.bundle_version);
-  return bundle === null ? "not_ready" : { jobId: id, version: j.bundle_version, result: jsonOf(j.result), bundle };
+  return bundle === null ? "no_bundle" : { jobId: id, version: j.bundle_version, result: jsonOf(j.result), bundle };
 }
 
 export type Reissued = { version: number; repeated: boolean; release: string | "failed"; previous: string | null };

@@ -108,7 +108,7 @@ def test_busy_stale_and_dry_run_leave_tour_alone(env, capsys):
     p, cfg, cmd = env
     p.busy.add(A)
     assert RS.main(['--job', A], cfg=cfg, cmd=cmd) == 0
-    assert f'{A}: пропущен — busy (тур не тронут)' in capsys.readouterr().out and p.posts == []
+    assert f'{A}: пропущен — busy: идёт пересборка агента (тур не тронут)' in capsys.readouterr().out and p.posts == []
     p.busy.clear()
     p.stale.add(A)
     assert RS.main(['--job', A], cfg=cfg, cmd=cmd) == 0 and p.tours[A]['version'] == 3

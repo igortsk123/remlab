@@ -31,7 +31,9 @@ import worker as wk  # noqa: E402
 from conveyor import BUNDLE_MAX_BYTES, child_failure  # noqa: E402
 
 READ_MAX = 24 * 1024 * 1024                  # ответ «исходник»: результат (≤ 2 МБ) + версия (≤ 8 МБ), экранированная в JSON
-SKIP = ('busy', 'expired', 'not_ready', 'not_found')   # штатные пропуски: тур не трогаем, это не сбой
+SKIP = ('busy', 'expired', 'not_ready', 'not_found', 'no_bundle')   # пропуски: тур не трогаем, пересборка не сбоила
+WHY = {'busy': 'идёт пересборка агента', 'expired': 'срок тура вышел', 'not_ready': 'тур ещё не готов', 'not_found': 'тура нет',
+       'no_bundle': 'файла версии данных нет на сервере — пересобирать не из чего', 'stale': 'версия сменилась, пока собирали'}
 ROOMS = ('kept_furniture', 'kept_outcome', 'no_source', 'renamed_rooms')
 
 
@@ -98,7 +100,7 @@ def line(r: dict) -> str:
         return f"{r['id']}: собран (без публикации), мебель прежняя в: {', '.join(r.get('kept_furniture') or []) or '—'}" + \
             (' · байты те же' if r.get('same_bytes') else '')
     if s == 'skipped':
-        return f"{r['id']}: пропущен — {r['why']} (тур не тронут)"
+        return f"{r['id']}: пропущен — {r['why']}: {WHY.get(r['why'], '?')} (тур не тронут)"
     if s == 'refused':
         return f"{r['id']}: отказ сборщика {r['why']} — тур остался прежним ({str(r.get('detail') or '')[:120]})"
     return f"{r['id']}: сбой — {r['why']} (тур остался прежним)"

@@ -98,7 +98,7 @@ export function reissueDbTests(c: () => Ctx): void {
       }
     });
 
-    it("отказы: устаревшая база — stale; идёт «Обустроить» — busy; не готов / срок / нет — тур не тронут", async () => {
+    it("отказы: устаревшая база — stale; идёт «Обустроить» — busy; не готов / нет файла версии / срок / нет — тур не тронут", async () => {
       process.env.DEMO_DIR = demo();
       try {
         const { id } = await doneTour();
@@ -113,7 +113,10 @@ export function reissueDbTests(c: () => Ctx): void {
         expect(await post(id, 1, v2)).toMatchObject({ status: 410 });
         expect((await list("7")).body.jobs).toEqual([]);
         expect(await c().row(id)).toMatchObject({ bundle_version: 1 });
-        const { id: fresh } = await c().seed();
+        const { id: lost } = await doneTour();                          // задание готово, а файла версии на сервере нет
+        await fs.rename(path.join(c().dir, lost, "bundle-1.json"), path.join(c().dir, lost, "moved.json"));
+        expect(await call("GET", lost)).toMatchObject({ status: 409, body: { error: "no_bundle" } });
+        const { id: fresh } = await c().seed();                         // после doneTour: тот берёт голову очереди
         expect(await call("GET", fresh)).toMatchObject({ status: 409, body: { error: "not_ready" } });
         expect(await call("GET", "N".repeat(22))).toMatchObject({ status: 404 });
         expect(await call("GET", id, undefined, false)).toMatchObject({ status: 401 });
