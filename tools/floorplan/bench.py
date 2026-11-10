@@ -154,7 +154,9 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     """Один проход при гипотезе масштаба ppm (px на метр): разрывы → комнаты → проёмы."""
     ang = rot_angles(fams)
     Ls, Lb, fl = int(1.7 * ppm), int(LB_M * ppm), max(3, int(round(1.5 * t)))   # Lb: окна/французские двери
-    corner = fc.extend_corners(wall, int(0.6 * ppm), fl)
+    # T-20261110-03/2: торцы со скосом (`fpcore.bevel_end_zone`) не продлеваем — их закрывают bridge_lines и шаг косых дверей
+    ends = fc.wall_ends(wall, t)                     # скелет — один раз на стену листа (запомнен), не на гипотезу масштаба
+    corner = fc.extend_corners(wall, int(0.6 * ppm), fl, fc.bevel_end_zone(wall, t, Ls))
     wall = (wall | corner).astype(np.uint8)
     thin = fc.thin_lines(gray, wall, thin_thr)
     dark = (((gray < glaze_thr) | (thin > 0)) & (wall == 0)).astype(np.uint8)
@@ -232,6 +234,24 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             ys, xs = ys + Y0, xs + X0
             c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
             if fc.DOOR_MIN_M * ppm <= L <= Ls and fc.door_evidence(thin, c, u, nrm, L, dpt) >= DOOR_EV:
+                keep[ys, xs] = 1
+        # T-20261110-03/2: стены угла кончаются скосом 45° с точкой-косяком (`fpcore.bevel_corner_doors`). Правило то же; петля
+        # створки — сама точка-косяк, поэтому дуга ищется и от точек торцов (радиус — до другой точки), не только от граней разрыва
+        ends_r = [dict(e, p=e['p'] - (X0, Y0)) for e in ends if X0 <= e['p'][0] < X1 and Y0 <= e['p'][1] < Y1]
+        for m, p1, p2 in fc.bevel_corner_doors(wall[Y0:Y1, X0:X1], (wall | keep)[Y0:Y1, X0:X1], Ls, t, ends_r):
+            ys, xs = np.nonzero(m)
+            if len(ys) < 3:
+                continue
+            ys, xs = ys + Y0, xs + X0
+            c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
+            if not fc.DOOR_MIN_M * ppm <= L <= Ls:
+                continue
+            q1, q2 = p1 + (X0, Y0), p2 + (X0, Y0)
+            D = float(np.hypot(*(q2 - q1)))
+            ut = (q2 - q1) / D
+            ev = max(fc.door_evidence(thin, c, u, nrm, L, dpt),
+                     fc.door_evidence(thin, (q1 + q2) / 2, ut, np.array([-ut[1], ut[0]]), D, 0.0))
+            if ev >= DOOR_EV:
                 keep[ys, xs] = 1
     # наружный контур: закрытие ~1,8 м по каждому куску листа — наружные окна/двери закрываются без «следа» проёма
     final0 = (wall | keep).astype(np.uint8)

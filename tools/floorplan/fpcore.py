@@ -275,13 +275,15 @@ def bridge_lines(wall: np.ndarray, max_gap: int, min_flank: int, both_flanks: bo
     return add
 
 
-def extend_corners(wall: np.ndarray, reach: int, min_flank: int) -> np.ndarray:
+def extend_corners(wall: np.ndarray, reach: int, min_flank: int, skip: np.ndarray | None = None) -> np.ndarray:
     """Достроить угол, у которого нет вершины (угол спрятан под элементом интерфейса, как у A слева сверху, или
     окно в самом углу): висячий конец длинного куска стены продлевается вдоль строки (столбца) на ≤ reach, и
-    продление остаётся только до самого дальнего пересечения с продлением перпендикулярной стены."""
+    продление остаётся только до самого дальнего пересечения с продлением перпендикулярной стены.
+    skip — концы, которые не продлеваем (T-20261110-03/2: торцы со скосом, `bevel_end_zone` — строки скоса и точки-косяка
+    иначе продлеваются поперёк проёма: прямая дверь делится надвое, косая — замыкается каморкой)."""
     H, W = wall.shape
 
-    def segs(m):
+    def segs(m, sk):
         out = []
         for y in range(m.shape[0]):
             row = m[y]
@@ -293,13 +295,13 @@ def extend_corners(wall: np.ndarray, reach: int, min_flank: int) -> np.ndarray:
                     continue
                 nxt = s[i + 1] if i + 1 < len(s) else None
                 prv = e[i - 1] if i > 0 else None
-                if nxt is None or nxt - e[i] > reach:
+                if (nxt is None or nxt - e[i] > reach) and not (sk is not None and sk[y, e[i] - 1]):
                     out.append((y, e[i], min(m.shape[1], e[i] + reach), +1))
-                if prv is None or s[i] - prv > reach:
+                if (prv is None or s[i] - prv > reach) and not (sk is not None and sk[y, s[i]]):
                     out.append((y, max(0, s[i] - reach), s[i], -1))
         return out
 
-    sh, sv = segs(wall), segs(wall.T)
+    sh, sv = segs(wall, skip), segs(wall.T, None if skip is None else skip.T)
     eh = np.zeros((H, W), np.uint8)
     ev = np.zeros((W, H), np.uint8)
     for y, a, b, _ in sh:
@@ -514,6 +516,244 @@ def corner_cut_doors(wall: np.ndarray, closed: np.ndarray, max_px: float, min_fl
             m = ((cand == k) & (closed == 0)).astype(np.uint8)
             if m.any():
                 out.append(m)
+    return out
+
+
+# --- T-20261110-03/2: торец стены со скосом (рисунок PlanUp и британских агентств) -----------------------------------------
+# Прямая стена не обрывается торцом, а в конце поворачивает коротким скосом ~45° (1–1,5 толщины) к проёму, на конце скоса —
+# точка-косяк; у косой двери оба скоса лежат на диагонали угла, проём — между точками. Торцы «вдоль строк» (`_end_faces`) такой
+# конец не видят (грань — не ровная полоса). Торец ищем по скелету стены: конец скелета — точка торца (центр точки-косяка),
+# направление последних ~t px — направление скоса, отрезок дальше (2–3,5 t) — направление самой стены.
+
+_NB8 = ((-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1))   # соседи P2..P9 (y, x), по часовой от севера
+
+
+def _nb_luts():
+    """Таблицы по 8-битному коду соседей: два подшага утончения Чжана–Суэня и «конец линии» (сосед один или два смежных)."""
+    zs1, zs2, end = np.zeros(256, bool), np.zeros(256, bool), np.zeros(256, bool)
+    for c in range(256):
+        p = [(c >> i) & 1 for i in range(8)]
+        b = sum(p)
+        a = sum(1 for i in range(8) if not p[i] and p[(i + 1) % 8])
+        end[c] = b == 1 or (b == 2 and a == 1)
+        if 2 <= b <= 6 and a == 1:
+            P2, P4, P6, P8 = p[0], p[2], p[4], p[6]
+            zs1[c] = not (P2 and P4 and P6) and not (P4 and P6 and P8)
+            zs2[c] = not (P2 and P4 and P8) and not (P2 and P6 and P8)
+    return zs1, zs2, end
+
+
+_ZS1, _ZS2, _END = _nb_luts()
+
+
+def _nb_code(s: np.ndarray) -> np.ndarray:
+    H, W = s.shape
+    p = np.pad(s, 1)
+    c = np.zeros((H, W), np.uint8)
+    for bit, (dy, dx) in enumerate(_NB8):
+        c |= p[1 + dy:1 + dy + H, 1 + dx:1 + dx + W] << bit
+    return c
+
+
+def skeleton(m: np.ndarray, max_iter: int = 64) -> np.ndarray:
+    """Скелет маски (утончение Чжана–Суэня, numpy). max_iter — предел проходов: стена толщиной t утончается за ~t/2,
+    толстые пятна (заливки, легенды) не доутончаются — концов линий у них нет, для поиска торцов это не мешает."""
+    s = (m > 0).astype(np.uint8)
+    for _ in range(max_iter):
+        n = 0
+        for lut in (_ZS1, _ZS2):
+            d = lut[_nb_code(s)] & (s > 0)
+            k = int(d.sum())
+            if k:
+                s[d] = 0
+                n += k
+        if not n:
+            break
+    return s
+
+
+def _fill_small_holes(m: np.ndarray, max_area: float) -> np.ndarray:
+    """Дырки маски площадью ≤ max_area залить (точка-косяк кружком: иначе скелет — кольцо, конца у стены нет)."""
+    inv = (m == 0).astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(inv, connectivity=4)
+    H, W = m.shape
+    x, y, w, h, a = st[:, 0], st[:, 1], st[:, 2], st[:, 3], st[:, 4]
+    small = (a <= max_area) & (x > 0) & (y > 0) & (x + w < W) & (y + h < H)
+    small[0] = False                                       # метка 0 — сама стена
+    out = (m > 0).astype(np.uint8)
+    if small[1:].any():
+        out[small[lab] & (inv > 0)] = 1
+    return out
+
+
+def _trace(s: np.ndarray, y: int, x: int, n: int) -> list[tuple[int, int]]:
+    """Путь по скелету от конца линии: до n px, до развилки (соседи не смежны между собой) или до конца."""
+    H, W = s.shape
+    path, seen = [(y, x)], {(y, x)}
+    while len(path) < n:
+        cy, cx = path[-1]
+        nb = [(cy + dy, cx + dx) for dy, dx in _NB8
+              if 0 <= cy + dy < H and 0 <= cx + dx < W and s[cy + dy, cx + dx] and (cy + dy, cx + dx) not in seen]
+        if not nb:
+            break
+        if any(max(abs(a[0] - b[0]), abs(a[1] - b[1])) > 1 for a in nb for b in nb):
+            break                                          # развилка: стык стен, а не торец
+        q = min(nb, key=lambda q: abs(q[0] - cy) + abs(q[1] - cx))   # ступенька 8-связной линии — сперва 4-сосед
+        path.append(q)
+        seen.add(q)
+    return path
+
+
+_ENDS_CACHE: dict = {}
+
+
+def wall_ends(wall: np.ndarray, t: float) -> list[dict]:
+    """Торцы стен в любой ориентации, со скосом и без: конец скелета, за которым ≥ 3,5 t стены толщиной ≥ 0,6 t (не
+    текст и не штрих). → [{p: точка торца (x, y), d: направление скоса (последние ~0,8 t, наружу), w: направление стены
+    за скосом (2–3,5 t от конца, наружу)}]. У торца без скоса d ≈ w; у скоса 45° — угол между ними ~45°.
+    Запоминается по самой маске: разбор листа зовёт его на каждую гипотезу масштаба с той же стеной — скелет один раз."""
+    import hashlib
+    key = (wall.shape, round(float(t), 3), hashlib.blake2b(np.packbits(wall > 0).tobytes(), digest_size=16).digest())
+    if key in _ENDS_CACHE:
+        return _ENDS_CACHE[key]
+    out = _wall_ends(wall, t)
+    if len(_ENDS_CACHE) >= 8:
+        _ENDS_CACHE.pop(next(iter(_ENDS_CACHE)))
+    _ENDS_CACHE[key] = out
+    return out
+
+
+def _wall_ends(wall: np.ndarray, t: float) -> list[dict]:
+    t = max(float(t), 2.0)
+    f = _fill_small_holes(wall, 4 * t * t)
+    s = skeleton(f, int(2 * t) + 4)
+    kb, k1, k2 = max(2, round(0.8 * t)), max(4, round(2 * t)), max(6, round(3.5 * t))
+    ys, xs = np.nonzero((s > 0) & _END[_nb_code(s)])
+    if not len(ys):
+        return []
+    dist = cv2.distanceTransform(f, cv2.DIST_L2, 3)
+    out = []
+    for y, x in zip(ys.tolist(), xs.tolist()):
+        path = _trace(s, y, x, k2 + 1)
+        if len(path) <= k2:
+            continue
+        body = [2 * dist[q] for q in path[k1:k2 + 1]]
+        if np.median(body) < 0.6 * t:
+            continue
+        P = np.array(path, float)[:, ::-1]
+        d, w = P[0] - P[kb], P[k1] - P[k2]
+        nd, nw = np.hypot(*d), np.hypot(*w)
+        if nd < 1 or nw < 1:
+            continue
+        out.append({'p': P[0], 'd': d / nd, 'w': w / nw})
+    return out
+
+
+BEVEL_TURN_COS = math.cos(math.radians(25))   # торец со скосом: скос повёрнут от стены на 25–65° (рисуют ~45°); поворот
+BEVEL_MAX_COS = math.cos(math.radians(65))    # ~90° — Г-образный угол или короткий отросток, не скос
+
+
+def _bevelled(e: dict) -> bool:
+    return BEVEL_MAX_COS <= e['d'] @ e['w'] <= BEVEL_TURN_COS
+
+
+def _straight_bevel_pair(a: dict, b: dict, max_px: float, t: float) -> bool:
+    """Прямая дверь со скошенными торцами: стены на одной линии навстречу друг другу, скосы — зеркально в одну сторону от
+    линии стены (оба к проёму), между точками ≤ max_px."""
+    v = b['p'] - a['p']
+    D = float(np.hypot(*v))
+    if D < 2 or D > max_px + 2 * t:
+        return False
+    u = v / D
+    if a['w'] @ b['w'] > -0.9 or a['w'] @ u < 0.8 or -(b['w'] @ u) < 0.8:
+        return False
+    ca = a['w'][0] * a['d'][1] - a['w'][1] * a['d'][0]
+    cb = b['w'][0] * b['d'][1] - b['w'][1] * b['d'][0]
+    return ca * cb < 0
+
+
+def bevel_end_zone(wall: np.ndarray, t: float, max_px: float = 0.0) -> np.ndarray:
+    """Зона торцов со скосом, у которых есть пара (проём): прямая дверь (`_straight_bevel_pair`) или косая в углу
+    (`_corner_bevel_pair`). Круг 2 t вокруг конца скоса (скос до 1,5 t + точка-косяк + грань стены, где скос начинается):
+    здесь `extend_corners` не продлевает — проём закрывают `bridge_lines` (прямая дверь) или `bevel_corner_doors` (угол).
+    Одиночный «скос» (Г-угол, развилка скелета у толстого торца) — не трогаем: там всё как раньше."""
+    z = np.zeros(wall.shape, np.uint8)
+    ends = [e for e in wall_ends(wall, t) if _bevelled(e)]
+    r = int(round(2 * max(float(t), 2.0)))
+    for i, a in enumerate(ends):
+        for b in ends[i + 1:]:
+            if _straight_bevel_pair(a, b, max_px, t) or _straight_bevel_pair(b, a, max_px, t) or \
+                    _corner_bevel_pair(a, b, max_px, t) is not None:
+                for e in (a, b):
+                    cv2.circle(z, tuple(int(round(v)) for v in e['p']), r, 1, -1)
+    return z
+
+
+BEVEL_FACE_COS = math.cos(math.radians(30))   # скос смотрит на соседний торец (±30°)
+BEVEL_PERP_COS = math.cos(math.radians(65))   # стены угла перпендикулярны (90 ± 25°)
+
+
+def _corner_bevel_pair(a: dict, b: dict, max_px: float, t: float):
+    """Косая дверь в углу: стены торцов перпендикулярны, скосы смотрят друг на друга по линии между точками, продолжения стен
+    сходятся за торцами (вершина угла снаружи проёма) не дальше max_px. → расстояние между точками или None."""
+    v = b['p'] - a['p']
+    D = float(np.hypot(*v))
+    if D < 2 or D > max_px + 2 * t:
+        return None
+    u = v / D
+    if abs(a['w'] @ b['w']) > BEVEL_PERP_COS or a['d'] @ u < BEVEL_FACE_COS or -(b['d'] @ u) < BEVEL_FACE_COS:
+        return None
+    det = -a['w'][0] * b['w'][1] + b['w'][0] * a['w'][1]          # p_a + s·w_a = p_b + r·w_b
+    if abs(det) < 1e-6:
+        return None
+    s_ = (-v[0] * b['w'][1] + b['w'][0] * v[1]) / det
+    r_ = (a['w'][0] * v[1] - a['w'][1] * v[0]) / det
+    return D if 0 < s_ <= max_px and 0 < r_ <= max_px else None
+
+
+def bevel_corner_doors(wall: np.ndarray, closed: np.ndarray, max_px: float, t: float, ends=None) -> list[tuple]:
+    """Косая дверь между торцами со скосом (T-20261110-03/2): два торца, чьи стены перпендикулярны (один угол), скосы смотрят
+    друг на друга по линии между точками торцов, продолжения стен сходятся за торцами (вершина угла — снаружи проёма), между
+    точками ≤ max_px и по линии между ними нет стен и закрытий (`closed`). Прямая дверь со скошенными торцами — стены на одной
+    линии, не угол: сюда не попадает (её закрывает `bridge_lines`, как без скосов). Каждый торец — в одной паре, ближние первыми.
+    ends — торцы `wall_ends` в координатах `wall` (готовые — у вызывающего, по всему листу; иначе считаются здесь).
+    → [(маска кандидата — полоса толщиной ~t между точками торцов, без пикселей `closed`; p1, p2 — точки торцов (x, y))]."""
+    ends = [e for e in (wall_ends(wall, t) if ends is None else ends) if _bevelled(e)]
+    if len(ends) < 2:
+        return []
+    H, W = wall.shape
+    cands = []
+    for i in range(len(ends)):
+        a = ends[i]
+        for j in range(i + 1, len(ends)):
+            b = ends[j]
+            D = _corner_bevel_pair(a, b, max_px, t)
+            if D is None:
+                continue
+            n = int(D) + 2
+            xs = np.clip(np.round(np.linspace(a['p'][0], b['p'][0], n)).astype(int), 0, W - 1)
+            ys = np.clip(np.round(np.linspace(a['p'][1], b['p'][1], n)).astype(int), 0, H - 1)
+            on = closed[ys, xs] > 0
+            k0 = int(np.argmin(on)) if not on.all() else n
+            k1 = n - int(np.argmin(on[::-1])) if not on.all() else n
+            if k0 >= k1 or on[k0:k1].any():
+                continue                                   # проём уже закрыт или по линии стена
+            cands.append((D, i, j))
+    out, used = [], set()
+    th = max(3, int(round(t)))
+    for D, i, j in sorted(cands):
+        if i in used or j in used:
+            continue
+        used.update((i, j))
+        p1, p2 = ends[i]['p'], ends[j]['p']
+        m = np.zeros((H, W), np.uint8)
+        cv2.line(m, tuple(int(round(c)) for c in p1), tuple(int(round(c)) for c in p2), 1, th)
+        m[closed > 0] = 0
+        nl, lab, st, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+        if nl < 2:
+            continue
+        m = (lab == 1 + int(np.argmax(st[1:, 4]))).astype(np.uint8)
+        out.append((m, p1, p2))
     return out
 
 

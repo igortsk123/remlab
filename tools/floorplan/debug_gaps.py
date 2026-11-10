@@ -23,7 +23,7 @@ fams = fc.angle_families(wall)
 regions = fc.xy_cut(wall, max(40, int(3 * t)))
 ang = bench.rot_angles(fams)
 Ls, Lb, fl = int(1.7 * ppm), int(3.6 * ppm), max(3, int(round(1.5 * t)))
-wall = (wall | fc.extend_corners(wall, int(0.6 * ppm), fl)).astype(np.uint8)
+wall = (wall | fc.extend_corners(wall, int(0.6 * ppm), fl, fc.bevel_end_zone(wall, t, Ls))).astype(np.uint8)   # как bench._analyze
 thin = fc.thin_lines(gray, wall, bench.CFG[plan]['thin'])
 dark = (((gray < bench.CFG[plan]['glaze']) | (thin > 0)) & (wall == 0)).astype(np.uint8)
 cs = bench.per_region(lambda w: fc.bridge_all(w, Ls, fl, ang), wall, regions)
