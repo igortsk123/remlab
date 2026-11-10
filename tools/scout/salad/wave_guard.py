@@ -15,7 +15,8 @@
 мёртвая рука на сервере.
 
 НЕ СТАРТУЕМ, если: нет разрешения/истекло/потолок выбран; конвейер или другой старт идёт; стоп-файлы владельца
-(`mesh-group-halt.json`, `mesh-batch.PAUSE`); «нет денег» было меньше 2 ч назад; диск DEV ≥ 85 % или < 20 ГБ; ни одну группу
+(`mesh-group-halt.json`, `mesh-batch.PAUSE`); «нет денег» было меньше 2 ч назад; на диске DEV свободно < 20 ГБ (процент занятого не
+смотрим — владелец 10.11, TG 710: на диске 391 ГБ 85 % — это ещё ~58 ГБ свободно); ни одну группу
 из `SALAD_GROUP` нельзя поднять сейчас (запрет цены, `disabled`, окно — `salad_groups.allowed_now`; T-20261106-82/2).
 «Жду денег» — одно сообщение в сутки. Крон DEV: */15.
 
@@ -120,7 +121,7 @@ def decide(lease: dict | None, today: str, busy: bool, stops: list, no_credit_ag
         return 'budget_spent', {}
     if no_credit_age_h is not None and no_credit_age_h < 2:
         return 'waiting_money', {}
-    if disk_pct >= 85 or free_gb < 20:
+    if free_gb < 20:                                    # только свободное место (TG 710); `disk_pct` в запрете не участвует
         return 'disk', {}
     if groups is not None and not any(ok for _g, ok in groups):
         return 'no_group', {'groups': ','.join(g for g, _ok in groups) or '—'}
@@ -329,7 +330,9 @@ def _selftest() -> int:
     ok('нет денег был 3 ч назад — пробуем снова', d(no_credit_age_h=3.0)[0] == 'start')
     ok('конвейер идёт — не мешаем', d(busy=True)[0] == 'busy')
     ok('стоп-файл владельца сильнее разрешения', d(stops=['halt'])[0] == 'stopped_by_owner')
-    ok('диск DEV почти полон — не стартуем', d(disk_pct=90)[0] == 'disk')
+    ok('свободно 19 ГБ — не стартуем', d(disk_pct=95, free_gb=19)[0] == 'disk')
+    ok('занято 95 %, но свободно 21 ГБ — старт (процент не запрещает, TG 710)', d(disk_pct=95, free_gb=21)[0] == 'start')
+    ok('ровно 20 ГБ — старт (порог «меньше 20»)', d(disk_pct=99, free_gb=20)[0] == 'start')
     ok('нет разрешённой группы (запрет цены / disabled) — не стартуем, группы в журнал',
        d(groups=[('mesh-low-10', False), ('mesh-q-low-1', False)]) == ('no_group', {'groups': 'mesh-low-10,mesh-q-low-1'}))
     ok('SALAD_GROUP пуст — не стартуем', d(groups=[]) == ('no_group', {'groups': '—'}))
