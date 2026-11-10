@@ -116,10 +116,10 @@
   },
   {
    "id": "mesh_rub_per_mesh",
-   "title": "₽ за меш: худшая группа за сутки (потолок 1,5 ₽)",
+   "title": "₽ за меш: худшая группа за сутки (потолок 2 ₽)",
    "metric": "mesh_rub_per_mesh",
    "kind": "backlog",
-   "yellow": 1.5,
+   "yellow": 2.0,
    "red": 3,
    "owner": "mesh",
    "runbook": "сторож денег гасит дорогую группу сам (план mesh-15) — разбор: строки «₽ за меш» и «ДОРОГАЯ ГРУППА» в его логе, ~/scout-scenes/mesh-price-halt.json"
