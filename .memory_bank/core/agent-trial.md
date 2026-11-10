@@ -39,5 +39,4 @@ review_after: 2026-12-10
 ## Хранение
 План и тур — 30 дн, правка плана в этот срок (`lib/trial/config.ts:trialFileHours`); с адреса 10/ч и 30/сутки (`lib/trial/upload-limits.ts`); наши машины — `lib/trial/own-key.ts`; email и ip_hash не храним.
 
-## Дыры 10.11
-ADR-0360…0364, уроки — `lessons/floorplan-trial.md`.
+Уроки — `lessons/floorplan-trial.md`.
