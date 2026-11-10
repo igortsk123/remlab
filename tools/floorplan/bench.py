@@ -1051,19 +1051,24 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
 
 
 DARK_THR = 125
+BLUE_VS_DARK = 0.75     # синие штрихи — стены, только если не тоньше 0,75 толщины тёмных (T-20261110-08)
 
 
 def auto_cfg(img) -> dict:
     """Маска стен для нового листа без настройки (T-04, слепые планы): синие стены — если синего (тон 95–135,
-    насыщенность ≥ 100) ≥ 1 % листа и это штрихи, а не заливка; иначе тёмное: порог 125 (между C 110 и B 135 —
-    водяной знак светлее), открытие 3 px; толстые стены (медиана ≥ 12 px после открытия 3: B 22, C 8) — открытие 5 (меньше текста)."""
+    насыщенность ≥ 100) ≥ 1 % листа, это штрихи, а не заливка, и они не тоньше тёмных (≥ BLUE_VS_DARK толщины тёмных:
+    A — синие 12 px против текста 6; наш /try — синие обводки комнат и окна 4 px при тёмно-серых стенах 12 px — не стены);
+    иначе тёмное: порог 125 (между C 110 и B 135 — водяной знак светлее), открытие 3 px; толстые стены (медиана ≥ 12 px
+    после открытия 3: B 22, C 8) — открытие 5 (меньше текста)."""
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     blue = (hsv[..., 0] >= 95) & (hsv[..., 0] <= 135) & (hsv[..., 1] >= 100) & (hsv[..., 2] >= 50)
-    if blue.mean() >= 0.01 and 2.5 <= fc.stroke_thickness(blue.astype(np.uint8)) <= 25:
-        return {'mask': ('blue',), 'min_area': 40, 'thin': 15, 'glaze': 215, 'auto': 'blue'}
     thr = int(os.environ.get('FP_DARK_THR', DARK_THR))
     m3 = fc.wall_mask_dark(img, thr, 3, 60)
     t3 = fc.stroke_thickness(m3)
+    if blue.mean() >= 0.01:
+        tb = fc.stroke_thickness(blue.astype(np.uint8))
+        if 2.5 <= tb <= 25 and tb >= BLUE_VS_DARK * t3:
+            return {'mask': ('blue',), 'min_area': 40, 'thin': 15, 'glaze': 215, 'auto': 'blue'}
     if t3 >= 12:
         return {'mask': ('dark', thr, 5), 'min_area': 120, 'thin': 15, 'glaze': 200, 'auto': f'dark t3={t3:.1f}'}
     return {'mask': ('dark', thr, 3), 'min_area': 60, 'thin': 15, 'glaze': 200, 'auto': f'dark t3={t3:.1f}'}
