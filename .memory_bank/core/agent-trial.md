@@ -18,11 +18,11 @@ review_after: 2026-12-10
 и все спальни по шаблонам → AI-фото. Итог — ровно `/demo` под план. Решения — ADR 09.11; задачи — мастер (tier2) и `agent-trial-08`.
 
 ## По коду
-- **Задание:** `app/try/page.tsx` → `POST /api/trial` → `trial_jobs` (`db/init/022-trial-jobs.sql`, колонки — 023, 024; `trial_rebuilds` — 025, `trial_photos` — 026); ≤ 30 заданий/сутки на сайт
-  (`lib/trial/config.ts:trialDailyCap`); Метрики на /try нет (`lib/metrika.ts:noMetrikaPath`).
+- **Задание:** `app/try/page.tsx` → `POST /api/trial` → `trial_jobs` (`db/init/022-trial-jobs.sql`, колонки — 023, 024; `trial_rebuilds` — 025, `trial_photos` — 026);
+  ≤ 300/сутки на сайт (`trialDailyCap`); Метрики на /try нет (`lib/metrika.ts:noMetrikaPath`).
 - **Воркер DEV:** `tools/floorplan/worker.py`, юнит `tools/floorplan/systemd/remlab-trial-worker.service` (MemoryMax 2G);
   аренда — `lib/trial/repo-worker.ts` (скалярный `skip locked`). Не берёт при < 3 ГБ (`TRIAL_MEM_MIN_GB`), ≥ 2 в heavy-очереди,
-  прод `/api/health` не 200; 3 сбоя подряд по нашей вине — пауза 10 мин.
+  прод `/api/health` не 200.
 - **Стены:** `tools/floorplan/pipeline.py`; неуверенное — флаги (`_room_flags`); масштаб без подписей — по стене или площади
   со статусом `not_verified`.
 - **Стадии:** `tools/floorplan/conveyor.py` — v1 без мебели → гостиная `trial_demo.py` → спальни `trial_bedroom.py`; `done` — всегда после
@@ -30,14 +30,12 @@ review_after: 2026-12-10
 - **Размеры:** «не сошлось» или масштаб не подтверждён — `awaiting_check`, без мебели (`trial_bundle.py:SCALE_UNVERIFIED_AWAITS_CHECK`);
   «Обустроить» — `conveyor.Rebuild`.
 - **Тур:** `app/try/[id]/tour/[[...path]]/route.ts` (страница `/demo` под `TRIAL()`); версия — `lib/trial/tour-bundle.ts:ensureJobRelease`.
+- **Товары:** как в /demo (`trial_bundle.py:catalog_goods`); EN — £ ×1,5 без магазина (`uk_money`); фото — плитка /demo (`demo_img`).
 - **Фото:** при `trial_bundle.py:photo_ok`, ≤ 10 на задание за 24 ч (`trialPhotoDaily`); обложка `tools/scout/trial_hero.py`
   в конвейер не подключена (`conveyor.after_done` — заглушка).
 
 ## Хранение
-План 24 ч после итога, результат 30 дн (`trialFileHours`, `trialResultDays`); email и ip_hash не храним.
-
-## Лендинг
-`/test/landing/` (EN) и `/test/landing/ru.html`, noindex — показ человеку; исходник вне репо.
+План и тур — 30 дн, правка плана в этот срок (`lib/trial/config.ts:trialFileHours`); с адреса 10/ч и 30/сутки (`lib/trial/upload-limits.ts`); наши машины — `lib/trial/own-key.ts`; email и ip_hash не храним.
 
 ## Дыры 10.11
-Решения ночи — ADR-0360…0364, уроки — `lessons/floorplan-trial.md`. Лист C: стены 764 с при пределе 900 с (`worker.py`), второй этаж не виден.
+ADR-0360…0364, уроки — `lessons/floorplan-trial.md`. Лист C: стены 764 с при пределе 900 с (`worker.py`).

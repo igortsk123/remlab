@@ -39,7 +39,7 @@ last_verified: 2026-11-09
   потестить». Дневной $-лимит есть только на OpenAI в конвейере каталога — $5/день
   (`tools/scout/openai_budget.py`, `tools/scout/rules/openai_prices.json:daily_cap_usd`); на сайте — дневные потолки
   числа платных запросов: разбор ссылок и генерация — `lib/ratelimit/index.ts`, `PAID_DAILY_CAP_PARSE`/`PAID_DAILY_CAP_GEN`
-  (500/200); проба для агентов — `TRIAL_DAILY_CAP` (30, `lib/trial/config.ts`), считается по созданным заданиям
+  (500/200); проба для агентов — `TRIAL_DAILY_CAP` (300 с 10.11, `lib/trial/config.ts`), считается по созданным заданиям
   (`lib/trial/repo-create.ts`); общего $-лимита нет (Э0 — в архиве).
 - Юридическую логику (ПДн/лицензии) не реализовывать — ставить TODO.
 
