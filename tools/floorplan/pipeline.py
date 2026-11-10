@@ -391,6 +391,11 @@ KIND_RULES = (
 )
 
 
+def _alias(name: str) -> str:
+    import listing
+    return listing.alias_key(name or '')
+
+
 def room_kind(name: str) -> str:
     s = (name or '').lower()
     for kind, rx in KIND_RULES:
@@ -598,8 +603,18 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
             fl.insert(0, 'unlabeled')
         if rid in absorbed:
             fl.append('fragment_merged')
+        kind = room_kind(shown[0] if shown else '')
+        g1 = G_by.get(names[0], {}) if len(names) == 1 else {}
+        if kind == 'other' and g1.get('text_match') == 'alias' and g1.get('text_name'):
+            # T-20261110-33: подпись листа сама неясна («ES», «ST.»), а строка объявления сопоставлена с ней по синониму — имя и вид
+            # из строки («En-Suite» → санузел); подпись листа остаётся в разметке стенда
+            shown = [str(g1['text_name'])]
+            kind = room_kind(shown[0])
+            fl.append('name_from_listing')
+        if kind == 'other' and shown:
+            kind = room_kind(_alias(shown[0]))                # «ES» = en-suite, «W.C.» = wc — синонимы `listing.alias_key`
         room = {'id': f'p{pi}-r{rid}'[:40], 'name': ' + '.join(dict.fromkeys(shown))[:80],
-                'kind': room_kind(shown[0] if shown else ''), 'contour': contour,
+                'kind': kind, 'contour': contour,
                 # bbox — проекция контура (refine контракта: расхождение < 1 см)
                 'bbox': {'x': min(xs), 'y': min(ys), 'w': w, 'd': d},
                 'areaM2': max(0.0, round(float(mr.get('area_m2') or 0.0), 2)), 'flags': fl}

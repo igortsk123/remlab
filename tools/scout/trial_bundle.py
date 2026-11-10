@@ -201,7 +201,22 @@ def room_titles(name: str | None, kind: str) -> tuple[str, str]:
         en = _tr_room(src, ROOM_RU_EN, 'and')
         return src, (cap(en) if en and not _CYR.search(en) else fb(base_en))
     ru = _tr_room(src, ROOM_EN_RU, 'и')
+    if not ru:
+        # T-20261110-33: сокращения и раздельные написания листа — синонимы распознавания (`tools/floorplan/listing.py:alias_key`):
+        # «ES» → en-suite, «ST.» → store, «BATH ROOM» → bathroom; английская подпись — полным словом
+        al = _alias_key(src)
+        ru = _tr_room(al, ROOM_EN_RU, 'и') if al else None
+        if ru:
+            return cap(ru), (src if al.replace(' ', '') == re.sub(r'\W', '', src.lower()) else cap(al))
     return (cap(ru) if ru else fb(base_ru)), src
+
+
+def _alias_key(name: str) -> str:
+    fp = os.path.join(HERE, '..', 'floorplan')
+    if fp not in sys.path:
+        sys.path.append(fp)                                 # в конец: модули scout с теми же именами главнее
+    import listing
+    return listing.alias_key(name)
 
 # ───────────────────────── общий разрешённый список полей товара (все комнаты) ─────────────────────────
 ITEM_KEYS = {'role', 'x', 'y', 'rot', 'w', 'd', 'h', 'dims_src', 'sku', 'corner', 'corner_left', 'section', 'elev'}

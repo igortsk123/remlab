@@ -218,6 +218,24 @@ def stroke_thickness(mask: np.ndarray) -> float:
     return float(2 * np.median(v)) if v.size else 0.0
 
 
+THIN_PART_REL = 0.4      # T-20261110-33: перегородки тоньше этой доли t листа — «смешанная толщина» (aRQVC9: 8–10 px при t 34)
+THIN_PART_MIN_PX = 4.0   # тоньше — волосяные линии, не стены
+THIN_PART_SHARE = 0.03   # доля пикселей стен в таких перегородках, ниже — шум маски
+
+
+def thin_partition_t(wall: np.ndarray, t: float) -> float | None:
+    """T-20261110-33: толщина тонких перегородок листа (px), если на листе стены двух толщин: наружные/несущие t (медиана всех)
+    и межкомнатные заметно тоньше (< THIN_PART_REL·t). Тонкое — то, что открытие ядром ~0,6·t стирает. None — толщина одна."""
+    k = max(3, int(round(0.6 * t))) | 1
+    w = (wall > 0).astype(np.uint8)
+    thick = cv2.morphologyEx(w, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (k, k)))
+    part = (w > 0) & (thick == 0)
+    if part.sum() < THIN_PART_SHARE * max(1, int(w.sum())):
+        return None
+    tp = stroke_thickness(part)
+    return tp if THIN_PART_MIN_PX <= tp < THIN_PART_REL * t else None
+
+
 # --- разрывы стен (двери, окна) ------------------------------------------------------------------------------------------
 
 def _runs(row: np.ndarray):
@@ -781,6 +799,24 @@ DOOR_MIN_M = 0.45
 def is_notch(g: 'Gap', t: float) -> bool:
     """Разрыв не пересекает стену, а лежит вдоль её грани: глубина < max(2 px, NOTCH_REL·t)."""
     return g.depth < max(2.0, NOTCH_REL * float(t))
+
+
+def passes_through(wall: np.ndarray, ys: np.ndarray, xs: np.ndarray, k: int = 3) -> bool:
+    """T-20261110-33: разрыв пересекает стену насквозь — поперёк него (по нормали за глубину + k px) с ОБЕИХ сторон не стена,
+    в ≥ 2 из 3 точек вдоль. `t` листа — толщина наружных стен; тонкая межкомнатная при толстых наружных (aRQVC9: 8–10 px при t 34,
+    глубина проёма < NOTCH_REL·t) — всё равно проём. У зазубрины грани с одной стороны — тело стены."""
+    c, u, n, L, d = gap_axes(ys, xs)
+    H, W = wall.shape
+    hit = 0
+    for s in (-0.25, 0.0, 0.25):
+        p = c + s * L * u
+        ok = True
+        for sg in (-1.0, 1.0):
+            x, y = np.round(p + sg * (d / 2 + k) * n).astype(int)
+            if not (0 <= x < W and 0 <= y < H) or wall[y, x]:
+                ok = False
+        hit += ok
+    return hit >= 2
 
 
 def thin_lines(gray: np.ndarray, wall: np.ndarray, delta: int = 15, k: int = 7) -> np.ndarray:

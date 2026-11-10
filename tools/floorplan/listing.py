@@ -349,6 +349,7 @@ def match(plan_labels: list[dict], rows: list[dict]) -> tuple[list[dict], list[d
                 l['dims'] = tuple(r['dims_m'])
                 src = 'text'
             l['text_row'] = r['raw']
+            l['text_name'] = r['name']                   # T-20261110-33: имя строки — для неясной подписи листа («ES» → «En-Suite»)
             l['text_match'] = how[i]
         l['dims_src'] = src
         l['text_flags'] = fl

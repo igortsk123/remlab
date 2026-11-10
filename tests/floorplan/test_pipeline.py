@@ -362,6 +362,24 @@ def test_to_result_fields_and_flags(tmp_path):
     assert not any('fragment_merged' in r['flags'] for r in res['panels'][0]['rooms'])
 
 
+def test_unclear_sheet_name_takes_listing_alias_row(tmp_path):
+    # T-20261110-33 (тур aRQVC9): подпись «ES» сама неясна, строка «En-Suite» сопоставлена по синониму → имя и вид из строки, флаг;
+    # «ST.» без строки — вид по синониму (кладовая — other), имя листа; ясная подпись строкой не подменяется
+    log, models, G = synth()
+    G['rooms'][0].update(name='ES', name0='ES', text_name='En-Suite', text_match='alias')
+    G['rooms'][1].update(text_name='Bedroom', text_match='alias')
+    log['panels'][0]['inliers'] = [('ES', 'p95', 0), ('Bedroom #2', 'p95', 0)]
+    models[0]['rooms'][0]['names'] = ['ES']
+    write_models(tmp_path, models)
+    res = pl.to_result(log, tmp_path, 'T', G, SRC, 0.0, {}, [], False)
+    assert_contract(res)
+    rooms = {r['id']: r for r in res['panels'][0]['rooms']}
+    es, bed = rooms['p0-r1'], rooms['p0-r2']
+    assert es['name'] == 'En-Suite' and es['kind'] == 'bathroom' and 'name_from_listing' in es['flags']
+    assert bed['name'] == 'Bedroom' and 'name_from_listing' not in bed['flags']
+    assert pl.room_kind(pl._alias('ES')) == 'bathroom' and pl.room_kind(pl._alias('ST.')) == 'other'
+
+
 def test_fragment_merged_flag(tmp_path):
     # T-19: в комнату влит обрывок за нашим закрытием (`repair.absorb_fragments`) — честный флаг у неё, у прочих нет
     log, models, G = synth()

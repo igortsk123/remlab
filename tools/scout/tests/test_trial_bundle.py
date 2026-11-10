@@ -761,6 +761,9 @@ def test_parts_matched_by_source_room_and_foreign_room_refused():
     ('Гостиная', 'living', 'Гостиная', 'Living room'), ('Санузел', 'bathroom', 'Санузел', 'Bathroom'),
     ('Кладовка у лестницы', 'other', 'Кладовка у лестницы', 'Room'), ('Спальня №4', 'bedroom', 'Спальня №4', 'Bedroom 4'),
     ('', 'hall', 'Прихожая', 'Hall'), (None, 'bedroom', 'Спальня', 'Bedroom'),
+    # T-20261110-33 (тур aRQVC9): сокращения листа — по синонимам распознавания (`listing.alias_key`), не «Помещение»
+    ('ES', 'bathroom', 'Санузел при спальне', 'Ensuite'), ('ST.', 'other', 'Кладовая', 'Store'),
+    ('BATH ROOM', 'bathroom', 'Ванная', 'Bath Room'), ('Bed 2', 'bedroom', 'Спальня 2', 'Bedroom 2'),
 ])
 def test_room_titles_both_languages(name, kind, ru, en):
     assert TB.room_titles(name, kind) == (ru, en)

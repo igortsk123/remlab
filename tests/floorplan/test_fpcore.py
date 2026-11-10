@@ -312,6 +312,64 @@ def test_interior_gaps_narrow_slot_and_face_notch_are_walls():
     assert [q.kind for q in near(235, 259)] == ['door']             # узкая, но со створкой — дверь
 
 
+def test_thin_partition_door_under_thick_exterior_is_opening():
+    """T-20261110-33 (тур aRQVC9): наружные стены толстые (t листа 30 px), межкомнатная — 8 px. Дверь сквозь тонкую стену мельче
+    порога зазубрины по t (0,35·30 = 10,5 px), но по обе стороны от неё — комнаты → проём; зазубрина грани той же стены — стена."""
+    import bench
+    ppm, t = 40.0, 30
+    g = np.full((360, 560), 255, np.uint8)
+    wall = np.zeros_like(g)
+    wall[20:50, 20:540] = 1; wall[310:340, 20:540] = 1; wall[20:340, 20:50] = 1; wall[20:340, 510:540] = 1
+    wall[50:310, 276:284] = 1                                       # тонкая перегородка R1|R2
+    wall[90:122, 276:284] = 0                                       # дверь 0,8 м сквозь толщину 8 px
+    wall[200:212, 282:284] = 0                                      # зазубрина 2 px по грани (стена не прорвана)
+    cv2.ellipse(g, (284, 90), (32, 32), 0, 0, 90, 0, 1); cv2.line(g, (284, 90), (316, 90), 0, 1)   # створка двери
+    g[wall > 0] = 0
+    g[200:212, 282:284] = 190
+    assert fc.passes_through(wall, *np.nonzero(np.pad(np.ones((32, 8), bool), ((90, 238), (276, 276)))))
+    assert not fc.passes_through(wall, *np.nonzero(np.pad(np.ones((12, 2), bool), ((200, 148), (282, 276)))))
+    fams = fc.angle_families(wall)
+    r = bench.analyze(cv2.cvtColor(g, cv2.COLOR_GRAY2BGR), g, wall, ppm, fams, t)
+    near = lambda y0, y1: [q for q in r['gaps'] if 260 <= q.cx <= 300 and y0 <= q.cy <= y1]  # noqa: E731
+    assert [q.kind for q in near(85, 127)] == ['door']
+    assert all(q.kind == 'wall' for q in near(195, 217))
+
+
+def _mixed_sheet():
+    """Наружные 30 px, перегородки 8 px. Спальня сверху справа: дверь 0,8 м в горизонтальной перегородке между короткими косяками
+    (слева — выступ 14 px от вертикальной стены, справа — ступенька стены), как спальня 3 тура aRQVC9."""
+    g = np.full((360, 560), 255, np.uint8)
+    wall = np.zeros_like(g)
+    wall[20:50, 20:540] = 1; wall[310:340, 20:540] = 1; wall[20:340, 20:50] = 1; wall[20:340, 510:540] = 1
+    wall[50:310, 276:284] = 1                                       # вертикальная перегородка
+    wall[132:140, 284:290] = 1                                      # левый косяк — выступ
+    wall[132:140, 322:334] = 1; wall[132:172, 326:334] = 1; wall[164:172, 334:510] = 1   # правый косяк — ступенька
+    cv2.ellipse(g, (290, 132), (32, 32), 0, 270, 360, 0, 1); cv2.line(g, (290, 132), (290, 100), 0, 1)   # створка вверх
+    g[wall > 0] = 0
+    return g, wall
+
+
+def test_thin_partition_door_between_short_jambs(monkeypatch):
+    """T-20261110-33: косяки двери — выступы тонкой перегородки короче флангов 1,5·t листа → второй проход с флангом от толщины
+    перегородок закрывает дверь (спальня отделена от площадки). Без него — спальня слипается с площадкой."""
+    import bench
+    g, wall = _mixed_sheet()
+    assert fc.thin_partition_t(wall, 30) == pytest.approx(8, abs=1.5)
+    u = np.zeros_like(wall); u[20:50, 20:540] = 1; u[310:340, 20:540] = 1; u[20:340, 20:50] = 1; u[20:340, 510:540] = 1
+    assert fc.thin_partition_t(u, 30) is None                      # одна толщина — второго прохода нет
+
+    def run():
+        fams = fc.angle_families(wall)
+        return bench.analyze(cv2.cvtColor(g, cv2.COLOR_GRAY2BGR), g, wall, 40.0, fams, 30)
+    r = run()
+    doors = [q for q in r['gaps'] if q.kind == 'door' and 290 <= q.cx <= 322 and 125 <= q.cy <= 147]
+    assert len(doors) == 1 and 0.7 <= doors[0].length / 40 <= 0.9
+    assert r['lab'][90, 400] != r['lab'][250, 400]                  # спальня ≠ площадка
+    monkeypatch.setattr(fc, 'thin_partition_t', lambda *a: None)
+    r0 = run()
+    assert not [q for q in r0['gaps'] if q.kind == 'door' and 290 <= q.cx <= 322 and 125 <= q.cy <= 147]
+
+
 def test_split_by_labels_cuts_at_wide_opening_neck():
     """Две подписи в одной области (комнаты соединены проёмом 1,5 м без двери) → две комнаты, граница — в проёме."""
     lab = np.zeros((200, 400), np.int32)

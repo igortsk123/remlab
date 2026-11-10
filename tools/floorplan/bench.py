@@ -34,6 +34,7 @@ CFG = {
 H_WALL, SILL, HEAD = 2.6, 0.9, 2.1
 GLAZE_MIN = 0.6
 DOOR_EV = 0.75
+THIN_DOOR_MAX_M = 1.2     # T-20261110-33: дверь в тонкой перегородке (второй проход) — одностворчатая, шире — шум/сантехника
 GLAZED_ARC = True         # наружный проём с «рамой» тоже проверяем на дугу (T-20261110-11); False — прежнее «рама → окно»
 DOOR_EV_GLAZED = 0.9      # с «рамой» по умолчанию окно: дверь — только при почти целой «вогнутой» дуге (11 точек из 12;
                           # у входов нашего примера 1,0, у окон с мебелью/рамой рядом на A, B, T — 0,75–0,83)
@@ -357,6 +358,41 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                      fc.door_evidence(thin, (q1 + q2) / 2, ut, np.array([-ut[1], ut[0]]), D, 0.0))
             if ev >= DOOR_EV:
                 keep[ys, xs] = 1
+    # T-20261110-33: дверь между короткими выступами ТОНКОЙ перегородки при толстых наружных стенах (aRQVC9: t листа 34 px,
+    # перегородки 8–10, косяки двери спальни 3 — выступы 13–22 px при флангах 1,5·t = 51 px — не закрывалась, спальня слипалась
+    # с площадкой). Только на листах со смешанной толщиной (`fpcore.thin_partition_t`): фланг — от толщины перегородок, правило
+    # двери строже угловой — межкомнатная, ширина в [DOOR_MIN_M; THIN_DOOR_MAX_M], глубина ~ толщина перегородки, насквозь
+    # (`fpcore.passes_through`), нарисована дуга (DOOR_EV), к принятому закрытию — только касанием у торца
+    tp = fc.thin_partition_t(wall, t)
+    thin_keep = np.zeros_like(wall)
+    if tp:
+        fl2 = max(3, int(round(1.5 * tp)))
+        for x0, y0, x1, y1 in (regions or [(0, 0, W_, H_)]):
+            X0, Y0, X1, Y1 = max(0, x0 - 2), max(0, y0 - 2), min(W_, x1 + 2), min(H_, y1 + 2)
+            for p in fc.bridge_parts(wall[Y0:Y1, X0:X1], Ls, fl2, ang):
+                pp = np.zeros_like(wall)
+                pp[Y0:Y1, X0:X1] = p
+                pp &= ((wall | keep) == 0).astype(pp.dtype)
+                near_keep = cv2.dilate(keep.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+                lab_t, gt = fc.gap_components(pp, dark, out1)
+                for g in gt:
+                    if g.exterior:
+                        continue
+                    ys, xs = np.nonzero(lab_t == g.id)
+                    c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
+                    # полоска вдоль грани стены (мельче перегородки), прибавка вдоль уже закрытого проёма, сантехника шире
+                    # одностворчатой двери — не дверь. Касание закрытия соседней двери у торца — можно (две двери у одного угла)
+                    tk = near_keep[ys, xs]
+                    if tk.any():
+                        s_ = (np.column_stack([xs[tk], ys[tk]]) - c) @ u
+                        if s_.max() - s_.min() > 0.3 * L:
+                            continue
+                    if not 0.6 * tp <= dpt <= 3 * tp or not fc.DOOR_MIN_M * ppm <= L <= THIN_DOOR_MAX_M * ppm \
+                            or not fc.passes_through(wall | keep, ys, xs):
+                        continue
+                    if fc.door_evidence(thin, c, u, nrm, L, dpt) >= DOOR_EV:
+                        keep[ys, xs] = 1
+                        thin_keep[ys, xs] = 1
     # наружный контур: закрытие ~1,8 м по каждому куску листа — наружные окна/двери закрываются без «следа» проёма
     final0 = (wall | keep).astype(np.uint8)
     _, _, out0 = fc.free_components(final0)
@@ -446,12 +482,26 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     add = (keep | bay).astype(np.uint8)
     final = (wall | add).astype(np.uint8)
     n, lab, outside = fc.free_components(final)
-    lab_g, gaps = fc.gap_components(add, dark, outside)
+    tk = (thin_keep & add).astype(np.uint8)
+    lab_g, gaps = fc.gap_components(add & (tk == 0), dark, outside)
+    if tk.any():
+        # T-20261110-33: дверь тонкой перегородки, касающаяся у торца закрытия соседней двери, — свой разрыв (иначе две двери
+        # у одного угла склеиваются в один проём двойной ширины)
+        lab2, g2 = fc.gap_components(tk, dark, outside)
+        off = int(lab_g.max())
+        for g in g2:
+            g.id += off
+        lab_g = np.where(lab2 > 0, lab2 + off, lab_g)
+        gaps += g2
     for g in gaps:
         if bay.any() and bay[lab_g == g.id].any():
             g.kind = 'window'
-        elif not g.exterior and fc.is_notch(g, t):   # T-36: зазубрина грани стены (водяной знак, сжатие) — не проём;
-            g.kind = 'wall'                          # наружные не трогаем: рама окна серым в линии стены даёт щель в 1 px
+        elif not g.exterior and fc.is_notch(g, t) and not (g.depth >= fc.THIN_PART_MIN_PX
+                                                           and fc.passes_through(wall, *np.nonzero(lab_g == g.id))):
+            # T-36: зазубрина грани стены (водяной знак, сжатие) — не проём; наружные не трогаем: рама окна серым в линии стены
+            # даёт щель в 1 px. T-20261110-33: мелкий по t листа, но сквозь тонкую межкомнатную стену (по обе стороны — комнаты) — проём;
+            # глубина — не мельче самой тонкой стены (щель 2 px между стеной и линией душевой у Nethercote — не дверь)
+            g.kind = 'wall'
         elif not g.exterior:
             # T-36: межкомнатная уже нормы (с запасом на недомер) — просвет/шум, не дверь; закрытие остаётся стеной.
             # Нарисована створка (дуга) — дверца кладовки/шкафа (UK 457/533 мм): остаётся дверью.
@@ -1462,6 +1512,8 @@ def blind_gold(plan, image, vdir, listing_path=None) -> dict:
         g = {'name': name, 'name0': q['name'], 'panel': pan, 'pt': [int(round(q['pt'][0])), int(round(q['pt'][1]))],
              'dims_src': q.get('dims_src'), 'text_flags': q.get('text_flags', []), 'unsure': q.get('unsure', False),
              'note': q.get('note')}
+        if q.get('text_name'):                               # T-20261110-33: строка текста — имя для неясной подписи листа
+            g['text_name'], g['text_match'] = q['text_name'], q.get('text_match')
         if q.get('dims'):
             g['dims_m'] = [float(q['dims'][0]), float(q['dims'][1])]
         rooms.append(g)
