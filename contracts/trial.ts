@@ -113,6 +113,34 @@ export type TrialRoomEdit = {
   built: boolean;
 };
 
+// ── Окна и двери агента на плане тура (план trial-room-edit-01, Е4; `db/init/029-trial-opening-edits.sql`) ─────────────────
+export const TRIAL_OPENING_CM_MIN = 30;
+export const TRIAL_OPENING_CM_MAX = 600;
+export const TRIAL_OPENING_OPS_MAX = 30;
+/** Одна правка проёма: `key` — `s<номер>` (распознанный, как его отдала страница) или `u<токен>` (новый, токен даёт страница);
+ *  `c` — центр на стене, `w_cm` — ширина, см листа (`trial.panels[]`); `removed` — снять. */
+export const trialOpeningOpIn = z.object({
+  key: z.string().regex(/^(s\d{1,3}|u[A-Za-z0-9_-]{6,32})$/),
+  kind: z.enum(["door", "window"]),
+  c: z.tuple([z.number().finite(), z.number().finite()]),
+  w_cm: z.number().finite().min(TRIAL_OPENING_CM_MIN).max(TRIAL_OPENING_CM_MAX),
+  removed: z.boolean(),
+});
+/** «Сохранить» режима «Окна и двери»: все правки одной панели плана разом (`base_version` — версия данных, которую видит страница). */
+export const trialOpeningEditIn = z.object({
+  k: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
+  request_id: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+  base_version: z.number().int().positive(),
+  panel: z.string().min(1).max(40),
+  ops: z.array(trialOpeningOpIn).min(1).max(TRIAL_OPENING_OPS_MAX),
+});
+export type TrialOpeningEditIn = z.infer<typeof trialOpeningEditIn>;
+/** Правка проёма, как её получает воркер при claim любой пересборки (`tools/floorplan/opening_edits.py`). */
+export type TrialOpeningEdit = {
+  panel: string; key: string; srcIdx: number | null; srcC: [number, number] | null; kind: "door" | "window"; c: [number, number];
+  widthCm: number; removed: boolean; built: boolean;
+};
+
 const num = z.number().finite();
 const pt = z.tuple([num, num]);
 const ring = z.array(pt).min(3).max(4000);
@@ -203,6 +231,8 @@ export type TrialRebuildClaimed = {
   kind: "furnish" | "listing" | "edit"; listingText?: string; inputMime?: string;
   /** Правки комнат задания (только воркеру, умеющему `edit`): накладываются на копию `result` перед любой сборкой. */
   edits?: TrialRoomEdit[];
+  /** Окна и двери агента (тому же воркеру): накладываются после правок комнат. */
+  openingEdits?: TrialOpeningEdit[];
 };
 export const trialHeartbeatIn = z.object({ ...lease, stage: trialStage, spentUsd: spent });
 export const trialResultIn = z.object({ ...lease, result: z.unknown(), spentUsd: spent });

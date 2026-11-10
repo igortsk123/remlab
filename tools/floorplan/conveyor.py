@@ -360,25 +360,35 @@ class Rebuild(Conveyor):
 
     PRIO = SLOT_PRIO_REBUILD
 
-    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, edits=None):
+    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, edits=None, opening_edits=None):
         super().__init__(w, lease, wd, hb, result_path, job_id=job_id)
         self.want = [str(x) for x in rooms or []]
         self.outcome = None                          # 'published' | 'stale' | 'rejected' — итог отправки версии
         self.canon = self.result                     # результат задания как прочитан (на сервер уходит только он — ListingRebuild)
         self.edits = list(edits or [])               # правки комнат агента (claim `edits`, T-20261110-36)
+        self.opening_edits = list(opening_edits or [])   # окна и двери агента (claim `openingEdits`, T-20261110-39)
         self.applied: list = []
+        self.applied_ops: list = []
         self.overlay()
 
     def overlay(self) -> None:
-        """Правки комнат агента — поверх копии канона (`room_edits.apply`): любая пересборка строит тур уже с ними."""
-        if not self.edits:
+        """Правки агента — поверх копии канона: комнаты (`room_edits.apply`), затем окна и двери (`opening_edits.apply`, на исходных
+        стенах); любая пересборка строит тур уже с ними."""
+        if not self.edits and not self.opening_edits:
             return
         if str(HERE) not in sys.path:
             sys.path.insert(0, str(HERE))
+        import opening_edits
         import room_edits
-        res, self.applied = room_edits.apply(self.canon, self.edits)
-        miss = len(self.edits) - len(self.applied)
-        self.log(f'правки комнат: {len(self.applied)} из {len(self.edits)}' + (f' (не нашлось комнаты: {miss})' if miss else ''))
+        res = self.canon
+        if self.edits:
+            res, self.applied = room_edits.apply(res, self.edits)
+            miss = len(self.edits) - len(self.applied)
+            self.log(f'правки комнат: {len(self.applied)} из {len(self.edits)}' + (f' (не нашлось комнаты: {miss})' if miss else ''))
+        if self.opening_edits:
+            res, self.applied_ops = opening_edits.apply(res, self.opening_edits)
+            miss = len(self.opening_edits) - len(self.applied_ops)
+            self.log(f'окна и двери: {len(self.applied_ops)} из {len(self.opening_edits)}' + (f' (не легли: {miss})' if miss else ''))
         self.result_path = self._write('result-edited.json', res)
         self.result = res
 
@@ -509,8 +519,8 @@ class ListingRebuild(Rebuild):
     Комнаты, с которых агент раньше снял проверку (`rooms` claim), снимаются и в новой версии. Текст в журнал не пишется."""
 
     def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, text: str, mime: str, ext: str,
-                 edits=None):
-        super().__init__(w, lease, wd, hb, result_path, job_id=job_id, rooms=rooms, edits=edits)
+                 edits=None, opening_edits=None):
+        super().__init__(w, lease, wd, hb, result_path, job_id=job_id, rooms=rooms, edits=edits, opening_edits=opening_edits)
         self.text, self.mime, self.ext = text, mime, ext
         self.final_only = True
         self.new_result: dict | None = None
@@ -618,11 +628,13 @@ class EditRebuild(Rebuild):
     и та же, что в сцене (`reuse_scene`), иначе стадия. Комнаты, с которых агент раньше снял проверку (`rooms` claim), снимаются и сейчас.
     Промежуточные версии не публикуются и без ракурсов; итог — с ракурсами."""
 
-    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, edits):
-        super().__init__(w, lease, wd, hb, result_path, job_id=job_id, rooms=rooms, edits=edits)
+    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, edits, opening_edits=None):
+        super().__init__(w, lease, wd, hb, result_path, job_id=job_id, rooms=rooms, edits=edits, opening_edits=opening_edits)
         self.final_only = True
+        import opening_edits as OE
         import room_edits
-        self.dirty = room_edits.dirty_keys(self.applied)
+        # правленые комнаты и комнаты, чьих стен коснулись окна и двери агента (обе стороны стены, T-20261110-39)
+        self.dirty = room_edits.dirty_keys(self.applied) | OE.dirty_rooms(self.result, self.applied_ops)
 
     def bedroom_extra(self) -> list:
         return [str(self._write('edit-dirty.json', sorted([list(k) for k in self.dirty])))]

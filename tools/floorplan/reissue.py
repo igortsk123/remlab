@@ -71,6 +71,9 @@ def one(api: wk.Api, cfg: wk.Cfg, jid: str, run_dir: Path, dry: bool, cmd: list 
     if src.get('edits'):                     # правки комнат агента — поверх копии результата, как у пересборок (`conveyor.Rebuild.overlay`)
         import room_edits
         result = room_edits.apply(result, src['edits'])[0]
+    if src.get('openingEdits'):              # окна и двери агента — после комнат (`opening_edits.apply`, T-20261110-39)
+        import opening_edits
+        result = opening_edits.apply(result, src['openingEdits'])[0]
     rc, rep, new_p = build(cfg, jid, run_dir / jid, result, src['bundle'], cmd)
     if rc == 2:
         return {'id': jid, 'status': 'refused', 'why': rep.get('refusal'), 'detail': rep.get('detail'), 'from': base}

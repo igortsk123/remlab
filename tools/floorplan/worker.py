@@ -496,6 +496,7 @@ class Worker:
         res_p.write_text(json.dumps(rb['result'], ensure_ascii=False))
         text, edit = rb.get('kind') == 'listing', rb.get('kind') == 'edit'
         edits = rb.get('edits') if isinstance(rb.get('edits'), list) else []    # правки комнат агента — к любой пересборке (T-20261110-36)
+        ops = rb.get('openingEdits') if isinstance(rb.get('openingEdits'), list) else []   # окна и двери агента — так же (T-20261110-39)
         mime = rb.get('inputMime')
         if text and (mime not in EXT or not str(rb.get('listingText') or '').strip()):
             log(f'claim: пересборка по тексту {rid} без листа/текста ({mime!r})')
@@ -503,7 +504,7 @@ class Worker:
             return
         # текст агента в журнал не пишем — только его длину
         what = f'текст агента ({len(rb["listingText"])} зн.)' if text else ('правка комнаты' if edit else '«Обустроить»')
-        log(f'{jid}: {what} {rid} (попытка {lease["attempt"]}, комнаты {rb.get("rooms")}, правок {len(edits)}, '
+        log(f'{jid}: {what} {rid} (попытка {lease["attempt"]}, комнаты {rb.get("rooms")}, правок {len(edits)}, проёмов {len(ops)}, '
             f'версия страницы {rb.get("baseVersion")})')
         hb = Heartbeat(self, lease, wd, path='/api/trial/worker/rebuild/heartbeat', with_stage=False)
         hb.start()
@@ -511,11 +512,11 @@ class Worker:
         try:
             if text:
                 end = conveyor.ListingRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], str(rb['listingText']),
-                                              mime, EXT[mime], edits=edits).rebuild()
+                                              mime, EXT[mime], edits=edits, opening_edits=ops).rebuild()
             elif edit:
-                end = conveyor.EditRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], edits).rebuild()
+                end = conveyor.EditRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], edits, opening_edits=ops).rebuild()
             else:
-                end = conveyor.Rebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], edits=edits).rebuild()
+                end = conveyor.Rebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], edits=edits, opening_edits=ops).rebuild()
         except Exception as e:                       # noqa: BLE001 — сбой кода конвейера: пересборка failed с кодом, воркер живёт
             log(f'{jid}: пересборка {rid}: {type(e).__name__}: {e}')
             end = 'failed:internal'

@@ -5,7 +5,7 @@
 // новой версии. Приоритет над новыми загрузками — с квотой (`rebuildFirst`).
 
 import { sql, type SQL } from "drizzle-orm";
-import type { TrialRebuildClaimed, TrialRebuildFailIn, TrialRebuildLease, TrialRoomEdit } from "@/contracts/trial";
+import type { TrialOpeningEdit, TrialRebuildClaimed, TrialRebuildFailIn, TrialRebuildLease, TrialRoomEdit } from "@/contracts/trial";
 import { db } from "@/lib/db";
 import { randomToken } from "@/lib/token";
 import { pruneBundles, writeBundle } from "@/lib/trial/bundle";
@@ -54,6 +54,17 @@ export async function editsOf(jobId: string): Promise<TrialRoomEdit[]> {
     wCm: e.w_cm, dCm: e.d_cm, built: e.built }));
 }
 
+type OpeningRow = { op_key: string; panel: string; src_idx: number | null; src_c: unknown; kind: "door" | "window"; c: unknown;
+  width_cm: number; removed: boolean; built: boolean };
+/** Окна и двери агента (T-20261110-39) — тому же воркеру: накладываются на копию `result` после правок комнат. */
+export async function openingEditsOf(jobId: string): Promise<TrialOpeningEdit[]> {
+  const got = await rows<OpeningRow>(sql`select op_key, panel, src_idx, src_c, kind, c, width_cm, removed, built from trial_opening_edits
+    where job_id = ${jobId} order by created_at, op_key`);
+  return got.map((e) => ({ panel: e.panel, key: e.op_key.slice(e.panel.length + 1), srcIdx: e.src_idx,
+    srcC: e.src_c === null ? null : jsonOf<[number, number]>(e.src_c), kind: e.kind, c: jsonOf<[number, number]>(e.c), widthCm: e.width_cm,
+    removed: e.removed, built: e.built }));
+}
+
 /** Одна пересборка под аренду — скалярным подзапросом, как `repo-worker.ts:claim` (почему не `from (…) c` — там).
  *  Старый воркер пересборок по тексту и правок не получает. У `listing` и `edit` база версии при claim — ТЕКУЩАЯ версия данных
  *  (поколение после `done`): текст приняли на v1, задание дошло до v3 — это не «устарело». */
@@ -80,7 +91,7 @@ export async function claimRebuild(workerId: string, skills: RebuildSkills = fal
     id: r.id, jobId: r.job_id, attempt: r.attempt, leaseToken: r.lease_token, leaseUntil: r.lease_until,
     rooms: union(j?.released_rooms, r.rooms), baseVersion: r.base_version, result: j ? jsonOf(j.result) : null, kind: r.kind,
     ...(r.kind === "listing" ? { listingText: r.listing_text ?? "", inputMime: j?.input_mime ?? "" } : {}),
-    ...(edit ? { edits: await editsOf(r.job_id) } : {}),
+    ...(edit ? { edits: await editsOf(r.job_id), openingEdits: await openingEditsOf(r.job_id) } : {}),
   };
 }
 
@@ -137,6 +148,7 @@ export async function publishRebuild(
         where id = ${f.id}`);
     // правки комнат вошли в версию (воркер наложил все, что получил при claim; пока пересборка идёт, новых не принимают — `busy`)
     await tx.execute(sql`update trial_room_edits set built = true where job_id = ${cur.job_id} and not built`);
+    await tx.execute(sql`update trial_opening_edits set built = true where job_id = ${cur.job_id} and not built`);
     return { version: next, repeated: same };
   });
   if (out === "lease_lost" || out === "stale" || out === "result_unexpected") return out;

@@ -11,7 +11,7 @@ import { randomToken } from "@/lib/token";
 import { readBundle } from "@/lib/trial/bundle";
 import { trialDir } from "@/lib/trial/config";
 import { editKeyMatches } from "@/lib/trial/edit-key";
-import { q } from "@/lib/trial/repo-rebuild";
+import { q, type Tx } from "@/lib/trial/repo-rebuild";
 import { roomKindOf } from "@/lib/trial/room-kind";
 import { TRIAL_ROOM_EDIT_LIMITS } from "@/lib/trial/upload-limits";
 
@@ -81,14 +81,8 @@ export async function askRoomEdit(id: string, inp: TrialRoomEditIn, dir = trialD
     // окошко показывает подпись страницы (`titleRu`), сборщик хранит подпись плана (`name`) — любое из них = имя не меняли
     const sameName = inp.name === now.name || inp.name === now.title;
     if (sameName && sameDims) return { ok: true, repeated: false, unchanged: true, edit: null };
-    const [active] = await q<{ id: string; kind: string; status: string }>(tx, sql`select id, kind, status from trial_rebuilds
-        where job_id = ${id} and status in ('queued', 'running')`);
-    if (active && !(active.kind === "edit" && active.status === "queued")) return no(409, "busy");
-    if (!active) {
-      const [day] = await q<{ n: number }>(tx, sql`select count(*)::int as n from trial_rebuilds
-          where job_id = ${id} and kind = 'edit' and created_at > now() - interval '24 hours'`);
-      if ((day?.n ?? 0) >= TRIAL_ROOM_EDIT_LIMITS.day) return no(429, "edit_limit");
-    }
+    const gate = await editGate(tx, id);
+    if (!gate.ok) return gate;
     const kind = sameName ? now.kind : roomKindOf(inp.name);
     const name = (sameName ? now.name || now.title : inp.name).slice(0, 60) || inp.name;
     await tx.execute(sql`insert into trial_room_edits (job_id, room_key, panel, src_id, anchor, name, kind, w_cm, d_cm, built, request_id)
@@ -96,10 +90,29 @@ export async function askRoomEdit(id: string, inp: TrialRoomEditIn, dir = trialD
           ${dims?.w ?? null}, ${dims?.d ?? null}, false, ${inp.request_id})
         on conflict (job_id, room_key) do update set name = excluded.name, kind = excluded.kind, w_cm = excluded.w_cm, d_cm = excluded.d_cm,
           anchor = excluded.anchor, built = false, request_id = excluded.request_id, updated_at = now()`);
-    if (active) return { ok: true, repeated: false, unchanged: false, edit: { id: active.id, status: "queued" } };
-    const rid = randomToken();
-    await tx.execute(sql`insert into trial_rebuilds (id, job_id, request_id, rooms, base_version, kind)
-        values (${rid}, ${id}, ${inp.request_id}, '[]'::jsonb, ${job.bundle_version}, 'edit')`);
-    return { ok: true, repeated: false, unchanged: false, edit: { id: rid, status: "queued" } };
+    return { ok: true, repeated: false, unchanged: false, edit: await queueEdit(tx, id, inp.request_id, job.bundle_version, gate.active) };
   });
+}
+
+/** Можно ли поставить правку (комнаты или проёма, T-20261110-39 — та же пересборка `edit`): ждущая правка уже стоит — новая едет с ней
+ *  (без второй работы и без счёта), другая активная — `busy`, суточный лимит пересборок `edit`. */
+export async function editGate(tx: Tx, id: string): Promise<{ ok: true; active: { id: string } | null } | { ok: false; status: number; error: string }> {
+  const [active] = await q<{ id: string; kind: string; status: string }>(tx, sql`select id, kind, status from trial_rebuilds
+      where job_id = ${id} and status in ('queued', 'running')`);
+  if (active && !(active.kind === "edit" && active.status === "queued")) return { ok: false, status: 409, error: "busy" };
+  if (!active) {
+    const [day] = await q<{ n: number }>(tx, sql`select count(*)::int as n from trial_rebuilds
+        where job_id = ${id} and kind = 'edit' and created_at > now() - interval '24 hours'`);
+    if ((day?.n ?? 0) >= TRIAL_ROOM_EDIT_LIMITS.day) return { ok: false, status: 429, error: "edit_limit" };
+  }
+  return { ok: true, active: active ? { id: active.id } : null };
+}
+
+/** Пересборка `edit` под принятую правку: ждущая (`editGate`) — она и есть, иначе новая строка. */
+export async function queueEdit(tx: Tx, id: string, requestId: string, version: number, active: { id: string } | null): Promise<{ id: string; status: string }> {
+  if (active) return { id: active.id, status: "queued" };
+  const rid = randomToken();
+  await tx.execute(sql`insert into trial_rebuilds (id, job_id, request_id, rooms, base_version, kind)
+      values (${rid}, ${id}, ${requestId}, '[]'::jsonb, ${version}, 'edit')`);
+  return { id: rid, status: "queued" };
 }

@@ -1371,6 +1371,20 @@ body.trial .vrow-s{display:none}
 .tr-ed-err{font-size:14px;color:#96601F;margin:10px 0 0}
 .tr-ed-acts{display:flex;gap:10px;margin-top:16px}.tr-ed-acts .btn{flex:1;min-height:46px}.tr-ed-acts .btn:disabled{opacity:.5;cursor:default}
 @media (max-width:700px){.tr-ed-back{align-items:flex-end}.tr-ed{width:100%;border-radius:var(--radius,16px) var(--radius,16px) 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}}
+/* окна и двери агента на плане (T-20261110-39): кнопка режима, полоса режима над планом, всплывашка у проёма */
+.tr-op-open{width:100%;display:flex;justify-content:flex-end}
+.tr-op-open .btn{padding:6px 14px;font-size:14px;min-height:0}
+.tr-op-bar{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:var(--radius-sm,12px);background:var(--wash-3,#F4F2ED);font-size:14px;line-height:1.4}
+.tr-op-bar .st{color:var(--muted)}.tr-op-bar .st b{color:var(--ink);font-weight:600}
+.tr-op-bar .err{color:#96601F;margin-top:6px}
+.tr-op-bar .acts{display:flex;gap:8px;margin-top:8px}.tr-op-bar .acts .btn{padding:7px 14px;font-size:14px;min-height:40px}
+.tr-op-bar .acts .btn:disabled{opacity:.45;cursor:default}
+.tr-op-wrap{position:relative;width:100%}
+.tr-op-wrap svg{touch-action:none;-webkit-user-select:none;user-select:none}
+.tr-op-pop{position:absolute;z-index:5;display:flex;gap:6px;align-items:center;padding:6px;border-radius:999px;background:var(--surface,#fff);
+  box-shadow:0 4px 18px rgba(0,0,0,.16);transform:translate(-50%,calc(-100% - 14px));white-space:nowrap}
+.tr-op-pop .chip{padding:7px 14px;font-size:14px;min-height:36px}
+.tr-op-pop .del{border:0;background:none;color:#A1452B;font:inherit;font-size:14px;font-weight:600;padding:7px 10px;cursor:pointer}
 </style></head><body><div class="wrap">
 <!-- ЗАГОЛОВОК И ЛИД УБРАНЫ (владелец 01.09): они повторяли то, что теперь говорит блок
      сертификата, и отодвигали паспорт квартиры вниз. Первым идёт сама квартира. -->
@@ -1693,7 +1707,13 @@ function trialSetup(){
 function trialPlanFromPanels(){
   const PN=(D.trial||{}).panels;
   if(((D.plan||{}).rooms||[]).length||!Array.isArray(PN)||!PN.length)return;
-  const m=v=>v/100, many=PN.length>1, top=many?0.7:0, rooms=[], labels=[], ops=[];
+  const L=trPlanLayout(PN);
+  if(L.rooms.length)D.plan=Object.assign({},D.plan||{},{rooms:L.rooms, labels:L.labels, trOpenings:L.ops, trTf:L.tf});
+}
+// раскладка этажей распознавания в схему плана: комнаты, подписи этажей, проёмы (`trOpeningsOf`) и перевод см панели → метры схемы
+// (`tf`: x = ox + (X − x0)/100) — по нему окна и двери агента переводят щелчок обратно в см панели (T-20261110-39)
+function trPlanLayout(PN){
+  const m=v=>v/100, many=PN.length>1, top=many?0.7:0, rooms=[], labels=[], ops=[], tf=[];
   let ox=0;
   PN.forEach((p,k)=>{
     const rs=(p&&p.rooms||[]).filter(r=>r&&r.id&&r.bbox&&r.bbox.w>0&&r.bbox.d>0); if(!rs.length)return;
@@ -1703,12 +1723,13 @@ function trialPlanFromPanels(){
       rooms.push({id:r.id, x:px(b.x), y:py(b.y), w:m(b.w), d:m(b.d),
         poly:(r.contour||[]).length>=3?r.contour.map(q=>[+px(q[0]).toFixed(3), +py(q[1]).toFixed(3)]):null});});
     const cv=q=>[+px(q[0]).toFixed(3), +py(q[1]).toFixed(3)];
-    trOpeningsOf(p,rs).forEach(o=>ops.push(Object.assign(o,{pts:o.pts.map(cv), more:(o.more||[]).map(s=>s.map(cv)), t:+m(o.t).toFixed(3)})));
+    trOpeningsOf(p,rs).forEach(o=>ops.push(Object.assign(o,{pts:o.pts.map(cv), more:(o.more||[]).map(s=>s.map(cv)), t:+m(o.t).toFixed(3), panel:p.id})));
+    tf.push({id:p.id, ox, top, x0, y0});
     const n=(p.storey!=null?+p.storey:k)+1;
     if(many)labels.push({x:ox, y:top-0.25, t:TR_EN()?(p.title||'Floor '+n):'Этаж '+n});
     ox+=m(x1-x0)+1.5;
   });
-  if(rooms.length)D.plan=Object.assign({},D.plan||{},{rooms, labels, trOpenings:ops});
+  return {rooms, labels, ops, tf};
 }
 // ДВЕРИ И ОКНА ПЛАНА ПРОБЫ (T-20261110-04): у распознавания проём — центр в стене и ширина (`panels[].openings`: kind, c, widthCm), без
 // направления. Направление стены — ближайшее ребро контура комнаты (стена может быть и косой); по разные стороны — какие комнаты.
@@ -1797,8 +1818,9 @@ function trInPoly(p,P){ let c=false; for(let i=0,j=P.length-1;i<P.length;j=i++){
   if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])c=!c;} return c; }
 function trOpeningsOf(panel,rs){
   const R=rs.map(r=>({r, P:trPolyOf(r), a:+r.areaM2||(r.bbox.w*r.bbox.d/1e4)})), out=[];
-  (panel.openings||[]).forEach(o=>{
+  (panel.openings||[]).forEach((o,i)=>{
     const c=o&&o.c; let w=+(o&&o.widthCm); if(!Array.isArray(c)||!(w>0)||!/^(door|window|opening)$/.test(o.kind))return;
+    const key=typeof o.key==='string'?o.key:'s'+i;   // ключ проёма для правки агентом (сборка с правками даёт свой, T-20261110-39)
     const wide=o.kind==='door'&&!o.exterior&&w>TR_DOOR_MAX; if(wide)w=TR_DOOR_STD;
     // стена — ближайшее ребро контура, достаточно длинное для проёма (короткий скос угла направление не задаёт)
     let best=null;
@@ -1823,13 +1845,13 @@ function trOpeningsOf(panel,rs){
       if(!bb)return;
       const pj=e=>{const s=(e[0]-bb.a[0])*bb.v[0]+(e[1]-bb.a[1])*bb.v[1]; return [bb.a[0]+bb.v[0]*s, bb.a[1]+bb.v[1]*s];}, sg=[pj(e1),pj(e2)];
       if(!hidden(sg,x))more.push(sg);});
-    if(o.kind!=='door'||wide||w>TR_DOOR_MAX||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], more, main, t}); return;}
+    if(o.kind!=='door'||wide||w>TR_DOOR_MAX||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], more, main, t, key}); return;}
     const pref=x=>!x?-1:(x.r.kind!=='hall'&&x.a>=1.5?2:1);
     const k=pref(side[0])!==pref(side[1])?(pref(side[0])>pref(side[1])?0:1):((side[0]?side[0].a:0)>=(side[1]?side[1].a:0)?0:1);
     const sg=k===0?1:-1, sw=side[k];   // в какую сторону открывается
     const near=e=>Math.min(...sw.P.map(p=>Math.hypot(p[0]-e[0],p[1]-e[1])));
     const [H,F]=near(e2)<near(e1)?[e2,e1]:[e1,e2], T=[H[0]+n[0]*sg*w, H[1]+n[1]*sg*w];
-    out.push({kind:'door', pts:[e1,e2,H,T,F], more, main, t});
+    out.push({kind:'door', pts:[e1,e2,H,T,F], more, main, t, key});
   });
   return out;
 }
@@ -1884,6 +1906,8 @@ async function trPollGo(){
 const TRB={state:'idle', want:null, err:'', base:0};
 // правка комнаты карандашом на плане (T-20261110-36; ниже `trEditOpen`): run — пересборка комнаты идёт, fail — не легла (текст по коду)
 const TRE={state:'idle', err:''};
+// окна и двери агента на плане (T-20261110-39; ниже `troEnter`): on — режим открыт, ops — рабочая копия проёмов, sel — выбранный, pick — точка на стене
+const TRO={on:false, ops:{}, sel:null, drag:null, pick:null, busy:false, err:''};
 const trKey=()=>TRIAL()?((location.search.match(/[?&]k=([A-Za-z0-9_-]{22})(?:&|$)/)||[])[1]||''):'';
 const trJobId=()=>(location.pathname.match(/\/try\/([A-Za-z0-9_-]{22})\/tour\//)||[])[1]||'';
 const TRB_KEY='tr-rebuild';
@@ -1896,7 +1920,7 @@ function trAwaiting(){ if(!TRIAL())return [];
 function trRebuilding(id){ return TRB.state==='run'&&(TRB.want==='*'||(Array.isArray(TRB.want)&&TRB.want.indexOf(id)>=0)); }
 // кнопки «Обустроить» / «Обустроить всё» (шапка, пометка под планом, план, карточка): у агента с ключом и не во время пересборки —
 // пока она идёт, второе нажатие всё равно гасится, видимая кнопка только путает (T-20261109-31)
-function trCanFurnish(){ return !!trKey()&&TRB.state!=='run'&&!trListingBusy()&&TRE.state!=='run'; }   // и не пока применяются размеры агента (Р2-текст) или правка комнаты
+function trCanFurnish(){ return !!trKey()&&TRB.state!=='run'&&!trListingBusy()&&TRE.state!=='run'&&!TRO.on; }   // и не пока применяются размеры агента (Р2-текст) или правка комнаты
 const TRB_TXT={
   stale:['Тур обновился, пока вы смотрели — обновите страницу и нажмите ещё раз','The tour was updated meanwhile — reload the page and try again','reload'],
   nothing_to_furnish:['Эти комнаты уже обустроены — обновите страницу','These rooms are already furnished — reload the page','reload'],
@@ -2162,6 +2186,202 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{
   const b=(e.key==='Enter'||e.key===' ')&&e.target&&e.target.closest&&e.target.closest('[data-tr-pen]'); if(!b||!TRIAL())return;
   e.preventDefault(); e.stopPropagation(); trEditOpen(b.getAttribute('data-tr-pen'));
+},true);
+// ОКНА И ДВЕРИ АГЕНТА НА ПЛАНЕ (T-20261110-39; план trial-room-edit-01 § Е4, владелец 10.11 TG 871): режим вкладки «План квартиры» у агента
+// с ключом. Нажатие на любую стену (наружную или перегородку) → «Окно» / «Дверь» → проём на месте нажатия; выбранный проём тянется за края
+// и сдвигается за середину вдоль своей стены; ширина и расстояние до ближнего угла — подписью, пока тянут; «Удалить» снимает и свой, и
+// распознанный (ложная дверь). Всё — в см панели распознавания: проём живёт на ребре контура комнаты (`edge`: начало `a`, направление `u`,
+// длина `L`), положение — смещение центра `t` вдоль ребра. «Сохранить» — POST `/api/trial/<id>/opening-edit` по панели (только тронутые
+// проёмы); дальше — как у правки комнаты: «пересобираю», опрос `version.json`, перезагрузка
+const TRO_W={door:80, window:120}, TRO_MIN=30, TRO_MAX=600, TRO_TOL_PX=22, TRO_CHUNK=30;
+Object.assign(TRE_TXT,{
+  bad_opening:['План обновился — обновите страницу и поправьте ещё раз','The plan was updated — reload the page and edit again'],
+  too_many:['Слишком много правок окон и дверей в этом туре','Too many window and door edits in this tour']});
+const troPanels=()=>((D.trial||{}).panels||[]).filter(p=>p&&p.id&&(p.rooms||[]).some(r=>r&&r.bbox));
+const troTf=id=>(((D.plan||{}).trTf)||[]).find(t=>t.id===id)||null;
+const troToM=(tf,p)=>[tf.ox+(p[0]-tf.x0)/100, tf.top+(p[1]-tf.y0)/100];
+const troToCm=(tf,p)=>[(p[0]-tf.ox)*100+tf.x0, (p[1]-tf.top)*100+tf.y0];
+const troAt=(e,t)=>[e.a[0]+e.u[0]*t, e.a[1]+e.u[1]*t];
+// ближайшее к точке ребро контуров комнат панели, не короче `minL` (см): {a, u, L, s — смещение проекции вдоль ребра, d — расстояние}
+function troEdge(panel,p,minL){
+  let best=null;
+  (panel.rooms||[]).filter(r=>r&&r.bbox).forEach(r=>{const P=trPolyOf(r);
+    for(let i=0;i<P.length;i++){const a=P[i], b=P[(i+1)%P.length], L=Math.hypot(b[0]-a[0],b[1]-a[1]); if(L<minL)continue;
+      const d=trSegDist(p,a,b); if(best&&d>=best.d)continue;
+      const u=[(b[0]-a[0])/L,(b[1]-a[1])/L]; best={a:[+a[0],+a[1]], u, L, d, s:Math.max(0,Math.min(L,(p[0]-a[0])*u[0]+(p[1]-a[1])*u[1]))};}});
+  return best;
+}
+// рабочая копия проёмов из данных: ключ — как у сборки (`key`, иначе `s<номер>`), ребро — ближайшее (как у рисунка `trOpeningsOf`)
+function troInit(){
+  TRO.ops={}; TRO.sel=null; TRO.drag=null; TRO.pick=null; TRO.err='';
+  troPanels().forEach(p=>(p.openings||[]).forEach((o,i)=>{
+    const c=o&&o.c, w=+(o&&o.widthCm); if(!Array.isArray(c)||!(w>0)||!/^(door|window|opening)$/.test(o.kind))return;
+    const key=typeof o.key==='string'?o.key:'s'+i, e=troEdge(p,c,Math.min(w*0.5,60));
+    if(!e||e.d>TR_WALL_NEAR)return;                                       // на плане не нарисован — и править нечего
+    TRO.ops[p.id+'|'+key]={panel:p.id, key, kind:o.kind, w, edge:e, t:e.s, c0:[+c[0],+c[1]], exterior:!!o.exterior, src:true, removed:false, touched:false};
+  }));
+}
+const troC=op=>op.touched?troAt(op.edge,op.t).map(v=>Math.round(v*10)/10):op.c0;
+// панели для рисунка: проёмы — из рабочей копии (снятые не рисуем)
+function troLayoutOps(){
+  const PN=troPanels().map(p=>Object.assign({},p,{openings:Object.values(TRO.ops).filter(op=>op.panel===p.id&&!op.removed)
+    .map(op=>({kind:op.kind, c:troC(op), widthCm:op.w, exterior:op.exterior, key:op.key}))}));
+  return trPlanLayout(PN).ops;
+}
+const troTouched=()=>Object.values(TRO.ops).filter(op=>op.touched&&!(op.removed&&!op.src));
+// подпись: тип · ширина · до ближнего угла (по ребру)
+function troInfo(op){
+  const EN=TR_EN(), gap=Math.max(0,Math.min(op.t-op.w/2, op.edge.L-op.t-op.w/2));
+  const k=op.kind==='window'?(EN?'Window':'Окно'):op.kind==='door'?(EN?'Door':'Дверь'):(EN?'Opening':'Проём');
+  return `${k} · ${Math.round(op.w)} ${EN?'cm':'см'} · ${EN?'to the corner':'до угла'} ${Math.round(gap)} ${EN?'cm':'см'}`;
+}
+function troEnter(){ if(!trCanEdit())return; troInit(); TRO.on=true; trRedraw(); }
+function troExit(){ TRO.on=false; TRO.ops={}; TRO.sel=null; TRO.drag=null; TRO.pick=null; TRO.err=''; trRedraw(); }
+// полоса над планом: вне режима — кнопка «Окна и двери», в режиме — подсказка / подпись выбранного, ошибка, «Отмена» и «Сохранить»
+function troBarHtml(){
+  const EN=TR_EN(), T=(ru,en)=>EN?en:ru;
+  if(!TRO.on)return trCanEdit()&&troPanels().length?`<div class="tr-op-open"><button class="btn" type="button" data-tr-op="open">${T('Окна и двери','Windows & doors')}</button></div>`:'';
+  const op=TRO.ops[TRO.sel], n=troTouched().length;
+  const st=op?`<b data-tr-op-info>${escHtml(troInfo(op))}</b>`:TRO.pick?`<b data-tr-op-info>${escHtml(T('Что поставить сюда?','What goes here?'))}</b>`
+    :T('Нажмите на стену — добавить окно или дверь. Нажмите на проём — тяните за края, двигайте за середину или удалите.',
+      'Tap a wall to add a window or door. Tap an opening to stretch it by the ends, move it by the middle or delete it.');
+  return `<div class="tr-op-bar" data-tr-op-bar><div class="st">${st}</div>`+(TRO.err?`<div class="err" role="alert">${escHtml((TRE_TXT[TRO.err]||TRE_TXT._)[EN?1:0])}</div>`:'')+
+    `<div class="acts"><button class="btn ghost" type="button" data-tr-op="cancel"${TRO.busy?' disabled':''}>${T('Отмена','Cancel')}</button>`+
+    `<button class="btn cta" type="button" data-tr-op="save"${TRO.busy||!n?' disabled':''}>${TRO.busy?T('Сохраняю…','Saving…'):T('Сохранить','Save')+(n?' ('+n+')':'')}</button></div></div>`;
+}
+// концы и середина проёма в метрах схемы
+function troEnds(op){ const tf=troTf(op.panel); if(!tf)return null; const e=op.edge;
+  return [troAt(e,op.t-op.w/2), troAt(e,op.t+op.w/2), troAt(e,op.t)].map(p=>troToM(tf,p)); }
+// поверх плана: выбранный проём (разрыв, цвет типа, ручки на концах и в середине, подпись) или точка нажатия на стене
+function troOverlay(svg){
+  let g=svg.querySelector('[data-tr-op-ovl]'); if(g)g.remove();
+  g=document.createElementNS(NS,'g'); g.setAttribute('data-tr-op-ovl','1'); svg.appendChild(g);
+  const mk=(t,a)=>{const n=document.createElementNS(NS,t); for(const k in a)n.setAttribute(k,a[k]); g.appendChild(n); return n;};
+  const px=1/((svg.getScreenCTM()||{a:60}).a||60);                          // метров в пикселе экрана — ручки и подпись в пикселях
+  const op=TRO.ops[TRO.sel];
+  if(op&&!op.removed){const E=troEnds(op); if(!E)return; const [a,b,m]=E, col=op.kind==='window'?'#5A9BD4':'#C8783C';
+    mk('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#fff','stroke-width':0.2});
+    mk('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:col,'stroke-width':Math.max(0.08,px*6),'stroke-linecap':'butt','data-tr-op-sel':op.key});
+    [a,b].forEach((p,i)=>mk('circle',{cx:p[0],cy:p[1],r:px*9,fill:'#fff',stroke:col,'stroke-width':px*3,'data-tr-op-h':i?'b':'a'}));
+    mk('rect',{x:m[0]-px*6,y:m[1]-px*6,width:px*12,height:px*12,rx:px*3,fill:col,'data-tr-op-h':'m'});
+    // подпись — ниже нижнего конца: у проёма на вертикальной стене не ложится на ручку
+    const tx=mk('text',{x:m[0],y:Math.max(a[1],b[1])+px*30,'text-anchor':'middle','font-size':px*14,'font-weight':'600',fill:'#2A2F2C',stroke:'#fff',
+      'stroke-width':px*4,'paint-order':'stroke','data-tr-op-lbl':'1'}); tx.textContent=troInfo(op);
+    try{const vb=svg.viewBox.baseVal, bb=tx.getBBox();                     // у крайней стены — подпись целиком в пределах схемы
+      if(vb&&vb.width){let dx=0; if(bb.x<vb.x)dx=vb.x-bb.x; else if(bb.x+bb.width>vb.x+vb.width)dx=vb.x+vb.width-bb.x-bb.width;
+        if(dx)tx.setAttribute('x',m[0]+dx);
+        if(bb.y+bb.height>vb.y+vb.height)tx.setAttribute('y',Math.min(a[1],b[1])-px*22);}}catch(x){}
+  }else if(TRO.pick){const tf=troTf(TRO.pick.panel); if(!tf)return; const p=troToM(tf,troAt(TRO.pick.edge,TRO.pick.edge.s));
+    mk('circle',{cx:p[0],cy:p[1],r:px*8,fill:'var(--accent,#C7652B)',stroke:'#fff','stroke-width':px*3,'data-tr-op-pick':'1'});}
+}
+// всплывашка у проёма / точки: выбор «Окно» / «Дверь», у выбранного — ещё «Удалить»
+function troPopup(wrap,svg){
+  const old=wrap.querySelector('.tr-op-pop'); if(old)old.remove();
+  const op=TRO.ops[TRO.sel], EN=TR_EN(); let at=null;
+  if(op&&!op.removed){const E=troEnds(op); at=E&&[E[2],E[0],E[1]];}
+  else if(TRO.pick){const tf=troTf(TRO.pick.panel), q=tf&&troToM(tf,troAt(TRO.pick.edge,TRO.pick.edge.s)); at=q&&[q];}
+  if(!at)return;
+  const m=svg.getScreenCTM(), r=wrap.getBoundingClientRect(); if(!m)return;
+  // над ВЕРХНЕЙ точкой проёма (у вертикальной стены середина — между ручками: всплывашка закрыла бы верхнюю, e2e T-39 C)
+  const sc=p=>{const pt=svg.createSVGPoint(); pt.x=p[0]; pt.y=p[1]; return pt.matrixTransform(m);};
+  const S=at.map(sc), s={x:S[0].x, y:Math.min(...S.map(p=>p.y))-(op?12:0)};
+  const pop=document.createElement('div'); pop.className='tr-op-pop'; pop.setAttribute('data-tr-op-pop','1');
+  const kind=op?op.kind:'';
+  pop.innerHTML=`<button type="button" class="chip${kind==='window'?' on':''}" data-tr-op-kind="window">${EN?'Window':'Окно'}</button>`+
+    `<button type="button" class="chip${kind==='door'?' on':''}" data-tr-op-kind="door">${EN?'Door':'Дверь'}</button>`+
+    (op?`<button type="button" class="del" data-tr-op="del">${EN?'Delete':'Удалить'}</button>`:'');
+  wrap.appendChild(pop);
+  const half=pop.offsetWidth/2, x=Math.max(half+4,Math.min(r.width-half-4,s.x-r.left)), y=s.y-r.top;
+  pop.style.left=x+'px';
+  if(y>=pop.offsetHeight+18)pop.style.top=y+'px';
+  else{let low=Math.max(...S.map(p=>p.y))+(op?12:0);                     // у верхнего края — под проёмом
+    const lb=op&&svg.querySelector('[data-tr-op-lbl]');
+    if(lb){const px=1/(m.a||60), E=at.slice(1), y0=Math.min(E[0][1],E[1][1])-px*14, vb=svg.viewBox.baseVal;   // подпись — над проёмом, под ней не закрыть
+      if(vb&&y0-px*14>=vb.y)lb.setAttribute('y',y0);
+      else{const q=lb.getBoundingClientRect(); low=Math.max(low,q.bottom-14+4);}}                     // над проёмом места нет — всплывашка под подписью
+    pop.style.top=(low-r.top)+'px'; pop.style.transform='translate(-50%,14px)';}
+}
+function troPaint(svg){ troOverlay(svg); const w=svg.parentNode; if(w)troPopup(w,svg);
+  const i=document.querySelector('[data-tr-op-info]'), op=TRO.ops[TRO.sel]; if(i&&op)i.textContent=troInfo(op); }
+// нажатие в режиме: ручка выбранного → тянуть; проём → выбрать (и сразу можно двигать); стена → «что поставить»; мимо — снять выбор
+function troDown(svg,e){
+  if(TRO.busy)return;
+  const m=svg.getScreenCTM(); if(!m)return;
+  const pt=svg.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; const q=pt.matrixTransform(m.inverse()), p=[q.x,q.y], tol=TRO_TOL_PX/m.a;
+  const d2=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+  const sel=TRO.ops[TRO.sel];
+  if(sel&&!sel.removed){const E=troEnds(sel); if(E){const h=[['a',E[0]],['b',E[1]],['m',E[2]]].map(([k,q])=>[k,d2(p,q)]).sort((x,y)=>x[1]-y[1])[0];
+    if(h[1]<=tol)return troGrab(svg,e,sel,h[0]);}}
+  let hit=null;
+  Object.entries(TRO.ops).forEach(([id,op])=>{if(op.removed)return; const E=troEnds(op); if(!E)return; const d=trSegDist(p,E[0],E[1]);
+    if(d<=tol&&(!hit||d<hit.d))hit={id,op,d};});
+  if(hit){TRO.sel=hit.id; TRO.pick=null; flatPlan(); const s=document.querySelector('.tr-op-wrap svg'); if(s)troGrab(s,e,hit.op,'m',true); return;}
+  let wall=null;
+  troPanels().forEach(pn=>{const tf=troTf(pn.id); if(!tf)return; const e2=troEdge(pn,troToCm(tf,p),TRO_MIN);
+    if(e2&&e2.d<=tol*100&&(!wall||e2.d<wall.edge.d))wall={panel:pn.id, edge:e2};});
+  TRO.sel=null; TRO.pick=wall; flatPlan();
+}
+// тянуть: край — второй край стоит, ширина 30…600 см и в пределах ребра; середина — сдвиг вдоль ребра, проём целиком на ребре
+function troGrab(svg,e,op,h,fresh){
+  const m=svg.getScreenCTM(); if(!m)return;
+  const tf=troTf(op.panel), s0=TRO_sAt(svg,op,e,tf), t0=op.t, w0=Math.min(op.w,op.edge.L);
+  let moved=false;
+  try{svg.setPointerCapture(e.pointerId);}catch(x){}
+  const mv=ev=>{const s=TRO_sAt(svg,op,ev,tf); if(s==null)return; if(!moved&&Math.abs(s-s0)<2)return; moved=true;
+    const L=op.edge.L, lo=t0-w0/2, hi=t0+w0/2;
+    if(h==='m'){op.w=w0; op.t=Math.max(w0/2,Math.min(L-w0/2,t0+(s-s0)));}
+    else{const fix=h==='a'?hi:lo, end=Math.max(0,Math.min(L,s)); let w=Math.abs(fix-end); w=Math.max(TRO_MIN,Math.min(TRO_MAX,w));
+      const c=h==='a'?fix-w/2:fix+w/2; op.w=Math.min(w,L); op.t=Math.max(op.w/2,Math.min(L-op.w/2,c));}
+    op.touched=true; troPaint(svg);};
+  const up=()=>{svg.removeEventListener('pointermove',mv); svg.removeEventListener('pointerup',up); svg.removeEventListener('pointercancel',up);
+    TRO.drag=null; if(moved)flatPlan();};
+  TRO.drag={h}; svg.addEventListener('pointermove',mv); svg.addEventListener('pointerup',up); svg.addEventListener('pointercancel',up);
+  if(fresh)troPaint(svg);
+}
+function TRO_sAt(svg,op,e,tf){ const m=svg.getScreenCTM(); if(!m||!tf)return null;
+  const pt=svg.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; const p=troToCm(tf,(q=>[q.x,q.y])(pt.matrixTransform(m.inverse())));
+  return (p[0]-op.edge.a[0])*op.edge.u[0]+(p[1]-op.edge.a[1])*op.edge.u[1]; }
+// выбор типа во всплывашке: у выбранного — смена типа; у точки на стене — новый проём шириной по типу (не шире ребра), центр — у нажатия
+function troKind(kind){
+  const op=TRO.ops[TRO.sel];
+  if(op){if(op.kind!==kind){op.kind=kind; op.touched=true; if(!(op.w>0))op.w=TRO_W[kind];}}
+  else if(TRO.pick){const e=TRO.pick.edge, w=Math.min(TRO_W[kind],e.L), key='u'+trReqId().slice(0,12);
+    const nw={panel:TRO.pick.panel, key, kind, w, edge:e, t:Math.max(w/2,Math.min(e.L-w/2,e.s)), c0:null, exterior:false, src:false, removed:false, touched:true};
+    TRO.ops[nw.panel+'|'+key]=nw; TRO.sel=nw.panel+'|'+key; TRO.pick=null;}
+  TRO.err=''; flatPlan();
+}
+function troDel(){ const op=TRO.ops[TRO.sel]; if(!op)return; op.removed=true; op.touched=true; TRO.sel=null; TRO.err=''; flatPlan(); }
+// «Сохранить»: по панели, кусками ≤ 30 проёмов, у каждого куска свой request_id; первый ставит пересборку, следующие ложатся в неё же
+async function troSave(){
+  const ops=troTouched(); if(!ops.length||TRO.busy)return;
+  TRO.busy=true; TRO.err=''; flatPlan();
+  let queued=false, err='';
+  try{
+    if(!TRB.base){const v=await (await fetch('version.json?ts='+Date.now(),{cache:'no-store'})).json(); TRB.base=+v.bundle||0;}
+    const by={}; ops.forEach(op=>(by[op.panel]=by[op.panel]||[]).push(op));
+    outer: for(const panel of Object.keys(by))for(let i=0;i<by[panel].length;i+=TRO_CHUNK){
+      const part=by[panel].slice(i,i+TRO_CHUNK).map(op=>({key:op.key, kind:op.kind==='window'?'window':'door', c:troC(op),
+        w_cm:Math.max(TRO_MIN,Math.min(TRO_MAX,Math.round(op.w))), removed:!!op.removed}));
+      let r=null, j={};
+      try{ r=await fetch('/api/trial/'+trJobId()+'/opening-edit',{method:'POST',headers:{'content-type':'application/json'},cache:'no-store',
+        body:JSON.stringify({k:trKey(), request_id:trReqId(), base_version:TRB.base||1, panel, ops:part})}); try{j=await r.json();}catch(e){} }catch(e){ r=null; }
+      if(!r){err='offline'; break outer;}
+      if(r.status===202||(r.status===200&&j.ok&&!j.unchanged)){queued=true; continue;}
+      if(r.status===200&&j.unchanged)continue;
+      err=j.error||'_'; break outer;
+    }
+  }catch(e){ err='offline'; }
+  TRO.busy=false;
+  if(queued){TRO.on=false; TRO.ops={}; TRO.sel=null; TRO.pick=null; TRE.state='run'; TRE.err=''; trEditMine(true); trRedraw(); trialPoll(1500); return;}
+  if(!err){troExit(); return;}                                            // менять было нечего
+  TRO.err=err; flatPlan();
+}
+document.addEventListener('click',e=>{
+  const b=e.target&&e.target.closest&&e.target.closest('[data-tr-op],[data-tr-op-kind]'); if(!b||!TRIAL())return;
+  e.preventDefault(); e.stopPropagation();
+  const k=b.getAttribute('data-tr-op-kind'); if(k)return troKind(k);
+  const a=b.getAttribute('data-tr-op');
+  if(a==='open')troEnter(); else if(a==='cancel'){if(!TRO.busy)troExit();} else if(a==='save')troSave(); else if(a==='del')troDel();
 },true);
 const stage=document.getElementById('stage'), NS='http://www.w3.org/2000/svg';
 const el=(t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);return n;};
@@ -2700,6 +2920,8 @@ function flatPlan(){
   const box=document.getElementById('flatRooms');box.innerHTML='';
   if(!R.length){box.innerHTML=`<div class="hint">${LANG==='en'?'The floor plan is not loaded.':'План не загружен.'}</div>`;return;}
   if(TRIAL()&&TRE.state!=='idle')box.insertAdjacentHTML('beforeend',trBanner());   // правка комнаты: «пересобираю» / «не получилось» — и над планом, где правили
+  const TRO_ON=TRIAL()&&TRO.on;                       // проба: режим «Окна и двери» агента — комнаты не открываются, проёмы из рабочей копии
+  if(TRIAL())box.insertAdjacentHTML('beforeend',troBarHtml());
   const LB=P.labels||[];                              // подписи этажей (план пробы из этажей распознавания, `trialPlanFromPanels`)
   const xs=R.flatMap(r=>[r.x,r.x+r.w]).concat((P.contour||[]).map(p=>p[0]));
   const ys=R.flatMap(r=>[r.y,r.y+r.d]).concat((P.contour||[]).map(p=>p[1]),LB.map(l=>l.y-0.45));
@@ -2720,12 +2942,13 @@ function flatPlan(){
   // ИМЯ, ПЛОЩАДЬ, ГОТОВНОСТЬ — ИЗ РЕЕСТРА КВАРТИРЫ (`homeRooms`, T-20261022-04): у схемы плана только геометрия, id — те же
   // вариант комнаты — по раскладке главной (`homeLayout`, home-mix-01): та же комната того же варианта, что на карточке
   const map=planRoomMap(), m=homeModel(), LAY=homeLayout(m), inc=window.__basket&&window.__basket.included;
-  const TRLB=TRIAL()?trLabelBoxes(R,P.trOpenings):null;           // проба: где в комнате свободно под подпись (контуры распознавания наезжают)
+  const OPS=TRO_ON?troLayoutOps():(P.trOpenings||[]);
+  const TRLB=TRIAL()?trLabelBoxes(R,OPS):null;           // проба: где в комнате свободно под подпись (контуры распознавания наезжают)
   R.forEach(r=>{                                     // комнаты: заливка + перегородки
     const br=map[r.id], room=br||{}, f=br&&inc?inc(br.id):null, ready=room.contentState==='ready';
     const rv=br&&ready?((LAY.find(x=>x.r.id===br.id)||{}).rv||m.roomVariants.find(x=>x.roomId===br.id)):null;
     const go=!!(f||ready), pend=!!rv&&varPending(allVariants()[rv.index]), none=!!rv&&varRefused(allVariants()[rv.index]);   // кликается готовая комната или та, где уже выбран вариант; pend — проба, мебель подбирается; none — проба, товаров нет
-    const g=el('g',{},svg); g.style.cursor=go?'pointer':'default';
+    const g=el('g',{},svg); g.style.cursor=go&&!TRO_ON?'pointer':'default';
     // контур комнаты (план пробы, `poly`) — многоугольником; схема демо — прямоугольниками, как было
     const pts=r.poly&&r.poly.length>=3?r.poly.map(p=>p.join(',')).join(' '):'';
     if(pts)el('polygon',{points:pts,fill:go?'#E7F0F7':'#FBFAF7',stroke:go?'#3B76A2':'#585E58','stroke-width':PART,'stroke-linejoin':'miter'},g);
@@ -2756,7 +2979,7 @@ function flatPlan(){
         :o==='pending'?{t:pendTxt(),k:0.85,a:{fill:'#5C655E','data-outcome':o}}:o&&TR_NONE.test(o)?{t:outcomeTxt(br.id,true),k:0.85,a:{fill:o==='not_furnished'?'#9AA098':'#8A4A1F','data-outcome':o}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
     }
     // проба, агент с ключом: карандаш у имени (правка комнаты, T-20261110-36); правленая — «✓ скорректировано» под площадью
-    if(TRIAL()&&br&&trCanEdit()&&trPanelRoom(br.id)){L[0].t+=TRE_PAD; L[0].a=Object.assign({},L[0].a,{'data-tr-ic':'pen','data-tr-room':br.id});}
+    if(TRIAL()&&br&&trCanEdit()&&!TRO_ON&&trPanelRoom(br.id)){L[0].t+=TRE_PAD; L[0].a=Object.assign({},L[0].a,{'data-tr-ic':'pen','data-tr-room':br.id});}
     if(TRIAL()&&br&&trEditable()&&trEdited(br.id))L.splice(f?1:2,0,{t:TRE_PAD+(TR_EN()?'adjusted':'скорректировано'),k:0.75,a:{fill:'#2F7D4F','font-weight':'600','data-tr-ic':'ok'}});
     if(TRLB){const z=trFitLabel(TRLB[r.id],L,r); if(z){fs=z.fs; cx=z.cx; cy=z.cy; L.length=z.n;}}   // проба: подпись целиком в стенах
     const LH=fs*1.2; let y=cy-LH*(L.length-1)/2+fs*0.35;
@@ -2765,7 +2988,7 @@ function flatPlan(){
     if(pend){const sr=fs*0.42, sx=r.x+r.w-sr*2, sy=r.y+sr*2;   // крутилка в углу комнаты на плане
       const c=el('circle',{cx:sx,cy:sy,r:sr,fill:'none',stroke:'#C7652B','stroke-width':sr*0.3,'stroke-linecap':'round','stroke-dasharray':`${sr*4} ${sr*2.3}`,'data-pending':'1'},g);
       el('animateTransform',{attributeName:'transform',type:'rotate',from:`0 ${sx} ${sy}`,to:`360 ${sx} ${sy}`,dur:'1.1s',repeatCount:'indefinite'},c);}
-    if(!go)return;
+    if(!go||TRO_ON)return;
     const open=()=>{
       if(f){const i=allVariants().findIndex(v=>v.cid===f.id); if(i>=0)vwOpenVariant(i); else location.hash='#c='+f.id; return;}
       if(rv)vwOpenVariant(rv.index); else showTab('room');
@@ -2788,7 +3011,8 @@ function flatPlan(){
       fill:'none',stroke:'#C8783C','stroke-width':0.035});
     el('line',{x1:ax,y1:ay,x2:v?ax:ax+d.r,y2:v?ay+d.r:ay,stroke:'#C8783C','stroke-width':0.05});
   });
-  (P.trOpenings||[]).forEach(o=>{                    // проба: проёмы распознавания по направлению стены (`trOpeningsOf`)
+  OPS.forEach(o=>{                                   // проба: проёмы распознавания по направлению стены (`trOpeningsOf`)
+    if(TRO_ON&&o.panel+'|'+o.key===TRO.sel)return;   // выбранный агентом — поверх плана (`troOverlay`)
     const [a,b,H,T,F]=o.pts;
     el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#fff','stroke-width':o.main===false?0:o.t,'data-door':o.kind});   // своя обводка закрыта соседом — не стираем
     (o.more||[]).forEach(([c,d])=>el('line',{x1:c[0],y1:c[1],x2:d[0],y2:d[1],stroke:'#fff','stroke-width':o.t}));   // обводка соседа, наехавшего контуром
@@ -2799,7 +3023,9 @@ function flatPlan(){
     el('line',{x1:H[0],y1:H[1],x2:T[0],y2:T[1],stroke:'#C8783C','stroke-width':0.05,'data-arc':'1'});
   });
   LB.forEach(l=>{el('text',{x:l.x,y:l.y,'font-size':0.36,fill:'#5C655E','font-weight':'600'}).textContent=l.t;});
-  box.appendChild(svg);
+  if(TRO_ON){const wr=document.createElement('div'); wr.className='tr-op-wrap'; wr.appendChild(svg); box.appendChild(wr); svg.setAttribute('data-tr-op-svg','1');
+    svg.addEventListener('pointerdown',e=>{if(e.button>0)return; e.preventDefault(); troDown(svg,e);}); troPaint(svg);}
+  else box.appendChild(svg);
   if(TRIAL()&&R.some(r=>roomApprox(r.id)))box.insertAdjacentHTML('beforeend',`<div class="hint">≈ ${approxTxt()}</div>`);
   // проба: расшифровка коротких меток отказа под планом — по одной строке на текст (кроме «не обставляется» — она понятна сама)
   if(TRIAL())[...new Set((D.apartment_rooms||[]).filter(r=>/^(no_products|no_space|not_readable)$/.test(roomOutcome(r.id)||'')).map(r=>outcomeTxt(r.id,true)+' — '+outcomeTxt(r.id,false)))]

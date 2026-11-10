@@ -1146,6 +1146,41 @@ def test_edit_without_room_fails_no_match(prod, mk):
     assert [f['code'] for f in fails] == ['no_match'] and prod.bundles == []
 
 
+# ───────────────────────── окна и двери агента (opening_edits поверх копии, T-20261110-39) ─────────────────────────
+
+def _opening(key, kind='door', c=(400, 575), w=80, removed=False, built=False, src_c=None):
+    return {'panel': 'p0', 'key': key, 'srcIdx': int(key[1:]) if key[0] == 's' else None, 'srcC': list(src_c) if src_c else None,
+            'kind': kind, 'c': list(c), 'widthCm': w, 'removed': removed, 'built': built}
+
+
+def test_edit_door_between_bedrooms_rebuilds_both_living_kept(prod, mk, tmp_path):
+    """Дверь агента на стене между спальнями (x = 400): пересобираются обе спальни, гостиная — прежняя сцена; в копии — проём с ключом,
+    канон без него."""
+    scenes = _old_scene(tmp_path)
+    _edit_rebuild(prod, [], openingEdits=[_opening('uDOOR001')])
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')]
+    assert not (scenes / 'living-runs').exists()
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    assert json.loads((wd / 'edit-dirty.json').read_text()) == [['p0', 'b1'], ['p0', 'b2']]
+    ops = json.loads((wd / 'result-edited.json').read_text())['panels'][0]['openings']
+    assert ops == [{'kind': 'door', 'c': [400.0, 575.0], 'widthCm': 80.0, 'exterior': False, 'key': 'uDOOR001', 'user': True}]
+    assert 'openings' not in json.loads((wd / 'result.json').read_text())['panels'][0]         # канон — как прочитан
+
+
+def test_furnish_rebuild_keeps_openings(prod, mk, tmp_path):
+    """«Обустроить» после правки проёмов: тур строится с ними (копия), а не по прочитанному."""
+    _rebuild(prod, ['bedroom-1'], flagged=('b1',), result=_boxed(), openingEdits=[_opening('uDOOR002', built=True)])
+    prod.rebuilds[0]['result']['panels'][0]['rooms'][2]['flags'] = ['dims_mismatch']
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')]
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    ops = json.loads((wd / 'result-consent.json').read_text())['panels'][0]['openings']   # сборка шла по копии с проёмом агента
+    assert [o['key'] for o in ops] == ['uDOOR002']
+
+
 def test_furnish_rebuild_keeps_edits(prod, mk, tmp_path):
     """«Обустроить» после правки: тур строится с правками агента (копия с размером), не по прочитанному."""
     _rebuild(prod, ['bedroom-1'], flagged=('b1',), result=_boxed(), edits=[_edit('b2', 450, 300, built=True)])
