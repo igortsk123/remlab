@@ -8,7 +8,7 @@ import type { TrialJobView } from "@/contracts/trial";
 import { bundleProblem, trialBundle } from "@/contracts/trial-bundle";
 import { ensureJobRelease, pinJobRelease, pinRelease, writeTourData } from "@/lib/trial/tour-bundle";
 import { jobDir, releaseDir } from "@/lib/trial/tour-files";
-import { injectTour, tourLinks } from "@/lib/trial/tour-page";
+import { devCardPaths, injectTour, tourLinks } from "@/lib/trial/tour-page";
 import { tourResponse, tourTarget } from "@/lib/trial/tour";
 
 const ID = "AbCdEfGhIjKlMnOpQrStUv";
@@ -90,11 +90,18 @@ describe("тур пробы: вставка песочницы", () => {
     expect((await f("/api/job?id=abc123")).status).toBe(200);
     for (const p of ["/api/render", "/api/render?async=1", "/api/render/frame?x=1", "/api/job", "/api/job?id=a&x=1", "/api/jobs?id=a",
       "/api/job/x?id=a", "/api/share", "/api/draft/paid", "/api/events"]) expect((await f(p)).status, p).toBe(403);
+    // отделка застройщика (T-20261110-37 Г): только карточка квартиры витрины /demo и её британского двойника, только язык + demo=1
+    expect(devCardPaths()).toEqual(["/api/apartments/demo-uk-215", "/api/apartments/flat215"]);
+    expect((await f("/api/apartments/flat215?lang=ru&demo=1")).status).toBe(200);
+    expect((await f("/api/apartments/demo-uk-215?lang=en&demo=1")).status).toBe(200);
+    for (const p of ["/api/apartments/flat215", "/api/apartments/flat215?lang=ru", "/api/apartments/flat215?lang=de&demo=1",
+      "/api/apartments/flat215?lang=ru&demo=1&x=1", "/api/apartments/demo-uk-1?lang=en&demo=1", "/api/apartments/flat215/x?lang=ru&demo=1"])
+      expect((await f(p)).status, p).toBe(403);
     (nav.sendBeacon as (u: string) => boolean)(`/api/trial/${ID}/rebuild`);
     (nav.sendBeacon as (u: string) => boolean)("/api/render/frame");
     (nav.sendBeacon as (u: string) => boolean)(`/api/trial/${ID}/listing`);
     expect(seen).toEqual([`/api/trial/${ID}/rebuild`, `/api/trial/${ID}/listing`, `/api/trial/${ID}/photo`, "/api/render/frame",
-      "/api/job?id=abc123"]);
+      "/api/job?id=abc123", "/api/apartments/flat215?lang=ru&demo=1", "/api/apartments/demo-uk-215?lang=en&demo=1"]);
   });
   it("мусор в id — отказ", () => {
     expect(() => injectTour(html, "<script>")).toThrow();

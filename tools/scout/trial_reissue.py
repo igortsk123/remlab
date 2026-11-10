@@ -146,7 +146,8 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
     for e in new['apartment_rooms']:
         e['contentState'] = 'ready' if e['id'] in with_variant else 'soon'
     TB.name_items(variants)
-    feeds = TB._feeds(variants)
+    # ленты — как у сборщика: /demo под слот комнаты (T-37), `feeds_short` — в отчёт перевыпуска
+    feeds, report['feeds_short'] = TB.feeds_for(variants, ctx['demo_feeds']() if ctx.get('demo_feeds') else None)
     rules = dict(new['rules'])
     if ctx.get('slot_band') and TB.LIVING in new['rooms_geo']:
         rules['slot_band_cm'] = ctx['slot_band'](new['rooms_geo'][TB.LIVING])

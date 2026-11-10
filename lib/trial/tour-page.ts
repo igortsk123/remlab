@@ -2,6 +2,7 @@
 // выполняется ДО любого кода страницы (первый скрипт читает адрес, `?s=` и хранилище раньше, чем придут данные).
 // Режим показа включается полем данных `D.trial`; здесь — только то, что должно действовать всегда и с первого байта.
 
+import { partners } from "@/lib/partners/registry";
 import { TOKEN_RE } from "@/lib/token";
 
 /** Что нельзя делать со страницы пробы никогда: любые ручки `/api/*` (кадры, заявка менеджеру, коллекции, счётчики) и реестр кадров. */
@@ -27,6 +28,18 @@ export const roomEditPath = (id: string): string => `/api/trial/${id}/room-edit`
 const FRAME_PATH = "/api/render/frame";
 const JOB_PATH = "/api/job";
 
+/** ОТДЕЛКА ЗАСТРОЙЩИКА В ТУРЕ (T-20261110-37 Г, план `tour-as-demo-01`): своего застройщика у пробы нет — группы пола и стен берутся
+ *  карточкой квартиры витрины `/demo` (`sources.demoData`) или её британского двойника (`enTwin`), как в /demo. Только чтение карточки
+ *  (`app/api/apartments/[id]`: без записи и счётчиков, общий предел чтения) и только `?lang=ru|en&demo=1`; другие квартиры — отказ.
+ *  Тот же выбор id — у сборщика (`trial_bundle.dev_flat` → `D.trial.dev_flat`). */
+export function devCardPaths(list = partners()): string[] {
+  const apts = list.flatMap((p) => p.apartments);
+  const own = apts.filter((a) => a.sources?.demoData === "/demo/demo-data.json");
+  const ids = new Set(own.flatMap((a) => (a.enTwin ? [a.id, a.enTwin] : [a.id])));
+  // id вставляется в скрипт песочницы — только безопасные символы (как `index.html:flatId`)
+  return [...ids].filter((id) => /^[a-z0-9-]{2,40}$/.test(id)).sort().map((id) => `/api/apartments/${id}`);
+}
+
 /** `version` — номер результата на момент отдачи HTML: страница опрашивает `version.json` и обновляется, когда он вырастет. */
 export function injectTour(html: string, id: string, version = 0): string {
   if (!TOKEN_RE.test(id)) throw new Error("bad id");
@@ -46,8 +59,8 @@ P.key=function(i){var k=own(this)[i];return k==null?null:k.slice(PRE.length);};
 P.clear=function(){own(this).forEach(function(k){R.call(this,k);},this);};
 Object.defineProperty(P,'length',{configurable:true,enumerable:true,get:function(){return own(this).length;}});
 var BLOCK=${BLOCK};
-var OK=${JSON.stringify([rebuildPath(id), listingPath(id), photoPath(id), roomEditPath(id), FRAME_PATH])},JOB=${JSON.stringify(JOB_PATH)};
-function fine(x){return x.search?(x.pathname===JOB&&/^\\?id=[A-Za-z0-9_-]{1,64}$/.test(x.search)):OK.indexOf(x.pathname)>=0;}
+var OK=${JSON.stringify([rebuildPath(id), listingPath(id), photoPath(id), roomEditPath(id), FRAME_PATH])},JOB=${JSON.stringify(JOB_PATH)},DEV=${JSON.stringify(devCardPaths())};
+function fine(x){return x.search?((x.pathname===JOB&&/^\\?id=[A-Za-z0-9_-]{1,64}$/.test(x.search))||(DEV.indexOf(x.pathname)>=0&&/^\\?lang=(?:ru|en)&demo=1$/.test(x.search))):OK.indexOf(x.pathname)>=0;}
 function bad(u,ok){try{var x=new URL(String(u),document.baseURI);return x.origin===location.origin&&BLOCK.test(x.pathname)&&!(ok&&fine(x));}catch(e){return false;}}
 var F=window.fetch;
 window.fetch=function(i,o){if(bad(i&&i.url||i,1))return Promise.resolve(new Response('{"ok":false,"error":"trial"}',{status:403,headers:{'content-type':'application/json'}}));return F.call(window,i,o);};

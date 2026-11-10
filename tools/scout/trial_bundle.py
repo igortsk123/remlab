@@ -264,7 +264,39 @@ def default_ctx() -> dict:
     """Что берётся у живого демо: числа правил страницы, модель товара, правило опроса. Импорт `flat215_demo` тяжёлый — только здесь."""
     import flat215_demo as FD
     return {'rules': {**FD._rules(), 'soft_roles': FD.soft_roles()}, 'msid_of': FD._msid, 'slot_band': FD._slot_band, 'quiz': quiz_rule(),
-            'goods': catalog_goods, 'money_en': uk_money()}
+            'goods': _demo_goods, 'money_en': uk_money(), 'demo_feeds': _demo_feeds, 'dev_flat': dev_flat()}
+
+
+PARTNERS_DIR = os.path.join(HERE, '..', '..', 'data', 'partners')
+
+
+def dev_flat(root: str = PARTNERS_DIR) -> dict | None:
+    """ОТДЕЛКА ЗАСТРОЙЩИКА В ТУРЕ (T-20261110-37 Г, план `tour-as-demo-01`): своего застройщика у пробы нет — по умолчанию отделка
+    витрины, как в /demo: по-русски квартира-хозяйка витрины (`sources.demoData` = `/demo/demo-data.json`, не двойник), по-английски
+    её британский двойник (`enTwin`, `data/partners/demo-uk.json`). Страница берёт группы опций карточкой `/api/apartments/<id>`
+    (`index.html:loadFlatCard`, в туре — только опции, без шапки квартиры). → {'ru': id, 'en': id} или None."""
+    try:
+        apts = [a for fn in sorted(os.listdir(root)) if fn.endswith('.json')
+                for a in (json.load(open(os.path.join(root, fn), encoding='utf-8')).get('apartments') or [])]
+    except (OSError, ValueError):
+        return None
+    twins = {a.get('enTwin') for a in apts if a.get('enTwin')}
+    own = next((a for a in apts if (a.get('sources') or {}).get('demoData') == '/demo/demo-data.json' and a.get('id') not in twins), None)
+    if not own:
+        return None
+    en = own.get('enTwin') if own.get('enTwin') in {a.get('id') for a in apts} else own['id']
+    return {'ru': own['id'], 'en': en}
+
+
+def _demo_feeds() -> dict:
+    import demo_feeds as DF
+    return DF.load()
+
+
+def _demo_goods(sid, role):
+    """Товар каталога; фото — плитка витрины по ключу, если своей плитки нет (товар пула ленты, подставленный по слоту, T-37)."""
+    import demo_feeds as DF
+    return catalog_goods(sid, role, tile=DF.tile_of)
 
 
 # ───────────────────────── товар как в /demo (T-20261110-25) ─────────────────────────
@@ -408,7 +440,7 @@ def bank_index(paths: list | None = None) -> dict:
     return idx
 
 
-def catalog_goods(sid: str | None, role: str, bank: dict | None = None) -> dict | None:
+def catalog_goods(sid: str | None, role: str, bank: dict | None = None, tile=None) -> dict | None:
     """Товар по ключу `sid` («mid_eid») — ровно как у товара `/demo` (`flat215_demo._sku`): название, фото, партнёрская ссылка и
     магазин — из товара БАНКА, цена — текущая из каталога `catalog_media`, нет её — цена банка. Товара нет в банке (старые сцены) —
     всё из каталога. Английское название — `trial_demo._names_en` (правило живой витрины). Не нашли / без названия / без цены — None
@@ -430,7 +462,7 @@ def catalog_goods(sid: str | None, role: str, bank: dict | None = None) -> dict 
     url = src.get('url') if URL_RE.fullmatch(str(src.get('url') or '')) else None
     ne = TD._names_en({'name': src['name'], 'mid': mid, 'eid': eid}, role)
     return {'name': src['name'], 'name_en': ne.get('name_en') or None, 'colour_en': ne.get('colour_en') or None, 'price': int(price),
-            'img': demo_img(goods_img_urls(b, m)), 'url': url, 'shop': (src.get('shop') or None)}
+            'img': demo_img(goods_img_urls(b, m)) or (tile(sid) if tile else None), 'url': url, 'shop': (src.get('shop') or None)}
 
 
 _BANK: dict | None = None
@@ -903,6 +935,8 @@ def _scene_variant(sv: dict, room_id: str, geo: dict, msid_of, goods=None) -> di
            'room_id': room_id, 'items': [_item(r, place.get(r['role']), msid_of, goods) for r in sv.get('items') or []], 'decor': [],
            'dims_unknown': [], 'missing_item': [{'role': r} for r in sv.get('absent_roles') or []], 'fill': [], 'fill_pct': None,
            'cams': [], 'pending': False, 'furniture_state': state, 'room_size': {'w': geo['w'], 'd': geo['d']}}
+    if sv.get('slots'):
+        out[SLOTS_KEY] = sv['slots']          # места предметов — только для лент (`feeds_for`), в данные страницы не идут
     if state != 'ready':
         out['furniture_problem'] = {'codes': sorted({p.get('code') for p in sv.get('problems') or []} | set(sv.get('hard') or []))}
     return out
@@ -933,6 +967,50 @@ def _feeds(variants: list, room_keys: bool = True) -> dict:
     for lst in out.values():
         lst.sort(key=lambda p: (p.get('w') or 0, p.get('name') or ''))
     return out
+
+
+# поля строки ленты витрины, которые страница читает у замены (штук в покупке, сторона угла, подвес, глубина каталога, поворот и тон
+# модели) — числа и флаги, не данные магазина
+FEED_EXTRA_KEYS = {'corner_left', 'pack', 'hung', 'd_catalog', 'yaw', 'swatch', 'tint'}
+SLOTS_KEY = '_slots'     # служебное поле варианта: места предметов сцены гостиной; `feeds_for` снимает его (в данные страницы не идёт)
+
+
+def feeds_for(variants: list, demo: dict | None = None, room_keys: bool = True) -> tuple[dict, dict]:
+    """ЛЕНТЫ ЗАМЕН ТУРА = ЛЕНТЫ /demo ПОД СЛОТ (T-20261110-37): товары вариантов задания (`_feeds`, первыми) + товары лент витрины
+    (`demo_feeds.room_feed`: модель есть, стиль совпадает, влезает в место предмета своего стиля в этой комнате). `demo` — ленты витрины
+    (`demo_feeds.load`); нет — только товары вариантов, как раньше. → (ленты, `feeds_short`: {ключ ленты: {стиль: {n, demo}}} при n < 20)."""
+    import demo_feeds as DF
+    own = _feeds(variants, room_keys)
+    slots: dict = {}                                   # ключ ленты → (вид комнаты, роль, {стиль: [(ш, г)]})
+    for v in variants:
+        rid = v.get('room_id') or ''
+        places = v.pop(SLOTS_KEY, None) or {}          # место предмета на расстановке (`trial_demo` → `slots`); нет — размер товара
+        for it in v.get('items') or []:
+            base = _base_role(it['role'])
+            key = feed_key(rid, base, room_keys)
+            k = slots.setdefault(key, (DF.room_kind(rid), base, {}))
+            sl = places.get(it['role']) or places.get(it.get('style_role') or '') or None
+            w, d = (sl[0], sl[1]) if sl else (it.get('w'), it.get('d'))
+            # место не меньше своего товара (подстановка могла поставить товар крупнее следа на свободной стороне)
+            k[2].setdefault(v.get('style'), []).append((max(w or 0, it.get('w') or 0), max(d or 0, it.get('d') or 0)))
+    feeds, short = {}, {}
+    keep = FEED_KEYS | FEED_EXTRA_KEYS
+    for key, (kind, base, sl) in slots.items():
+        rows, count = DF.room_feed(demo or {}, kind, base, sl, own.get(key))
+        out = []
+        for r in rows:
+            row = {k: x for k, x in r.items() if k in keep}
+            if base in DF.NOMESH:
+                row.pop('msid', None)                  # плита с фото: модели нет (у витрины `msid` ковра = ключ товара)
+            out.append(row)
+        feeds[key] = out
+        # ПРИЧИНА — ЧИСЛОМ: `demo` — сколько товаров этого стиля с моделью в ленте /demo вообще; n < demo — отсёк размер места,
+        # n ≥ demo — у самой витрины в этом стиле меньше 20
+        low = {s: {'n': n, 'demo': sum(1 for r in DF.kind_rows(demo or {}, kind, base) if s in DF.styles_of(r) and DF.model_ok(base, r))}
+               for s, n in count.items() if s and n < DF.MIN_FEED}
+        if low:
+            short[key] = low
+    return feeds, short
 
 
 # ───────────────────────── сборка ─────────────────────────
@@ -1031,7 +1109,7 @@ def _part_item(it: dict, goods=None) -> dict:
 
 
 def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None = None, parts: list | None = None,
-          release=()) -> dict:
+          release=(), stats: dict | None = None) -> dict:
     """floorplanResult (+ сцена гостиной, + куски стадий) → `demo-data.json`. Нечего показать или утечка магазина — `BundleRefused`.
     Гостиная/спальня с `size_check` — `awaiting_check` (мебель не показываем), кроме id из `release` (агент проверил размер) и главной
     гостиной с готовой сценой (её обставили по запросу)."""
@@ -1217,7 +1295,10 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     if ctx.get('slot_band') and LIVING in rooms_geo:
         rules['slot_band_cm'] = ctx['slot_band'](rooms_geo[LIVING])
     name_items(variants)                             # до лент: лента и строка списка узнают товар по одному имени
-    feeds = _feeds(variants)
+    # ленты — как у /demo под слот этой комнаты (T-37); меньше 20 на стиль позиции — `feeds_short` в журнал сборки (`stats`)
+    feeds, short = feeds_for(variants, ctx['demo_feeds']() if ctx.get('demo_feeds') else None)
+    if stats is not None:
+        stats.update(feeds={k: len(v) for k, v in feeds.items()}, feeds_short=short)
     note =SCALE_NOTE.get(result['scale']['status'])
     trial = {'job_id': job_id, 'scale': result['scale']['status'],
              **({'scale_note': {'ru': note[0], 'en': note[1]}} if note else {}), 'furniture': SCENE_FURNITURE[scene['status']] if scene else 'pending',
@@ -1225,6 +1306,7 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
              'flags': sorted(set(result.get('flags') or []) | set(flags) | set(storey_flags) | set((scene or {}).get('flags') or [])
                              | ({'goods_unavailable'} if goods.down else set())),
              **goods_meta(variants, ctx['money_en'] if 'money_en' in ctx else uk_money()),
+             **({'dev_flat': ctx['dev_flat']} if ctx.get('dev_flat') else {}),
              'refused_rooms': [{'room_id': ids[id(x['room'])], 'code': x['code'], 'detail': x['detail']} for x in refused],
              'panels': [{'id': p['id'], 'title': p['title'],
                          **({'storey': storey_map[i]} if i in storey_map else {}),
@@ -1279,6 +1361,12 @@ def add_cams(path: str, tokens: list, run=None) -> str:
     return line
 
 
+def feeds_line(stats: dict) -> str:
+    """Строка журнала сборки: товаров в лентах по позициям и `feeds_short` (позиция → стиль → n, где меньше 20)."""
+    return 'feeds ' + json.dumps(stats.get('feeds') or {}, ensure_ascii=False) + ' feeds_short ' + \
+        json.dumps(stats.get('feeds_short') or {}, ensure_ascii=False)
+
+
 def _arg(args: list, name: str) -> str | None:
     if name not in args:
         return None
@@ -1305,8 +1393,9 @@ def main() -> int:
     result = json.load(open(result_path, encoding='utf-8'))
     scene = json.load(open(scene_path, encoding='utf-8')) if scene_path else None
     parts = json.load(open(parts_path, encoding='utf-8')) if parts_path else []
+    stats: dict = {}
     try:
-        data = build(job_id, result, scene, parts=parts if isinstance(parts, list) else [parts], release=release)
+        data = build(job_id, result, scene, parts=parts if isinstance(parts, list) else [parts], release=release, stats=stats)
     except BundleRefused as e:
         print(json.dumps({'refusal': e.code, 'detail': e.detail}, ensure_ascii=False))
         return 2
@@ -1314,6 +1403,7 @@ def main() -> int:
         write_atomic(out, data)
         if cams:
             print(add_cams(out, shop_tokens(scene)), flush=True)   # до итоговой строки: конвейер читает последнюю
+        print(feeds_line(stats), flush=True)
         print(json.dumps({'ok': True, 'rooms': list(data['rooms_geo']), 'variants': len(data['variants'])}, ensure_ascii=False))
     else:
         json.dump(data, sys.stdout, ensure_ascii=False, separators=(',', ':'))
