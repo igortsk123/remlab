@@ -1271,8 +1271,21 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 body.trial #hmAva,body.trial #flatPriceSum,body.trial #flatMetaRow,body.trial #flatMore,body.trial #hmChat,body.trial #hmFav,body.trial #vFav,
 body.trial #hmBot,body.trial .vtop,body.trial #consShot,body.trial #swapShot,body.trial #shotNow,body.trial #pcMort,body.trial #pcCons,body.trial .hm-tipw{display:none!important}
 /* фото товаров в пробе нет (ссылки магазина вычищены) — пустую плашку «нет фото» не показываем, строка без слота (T-20261109-20/3) */
-body.trial .row>.noimg-sm,body.trial .prow>.pnoimg,body.trial .card>.noimg,body.trial #itemCard .ic-ph:has(.ic-no){display:none!important}
+body.trial .row>.noimg-sm:not(.tr-thph),body.trial .prow>.pnoimg,body.trial .card>.noimg,body.trial #itemCard .ic-ph:has(.ic-no){display:none!important}
 body.trial .row>.acts{padding-left:0}body.trial #flatRooms>.hint{flex:0 0 100%}body.trial .pinlist .row,body.trial .pinlist .row .t{min-height:0}
+/* СПИСОК ОКНА В ТУРЕ = СПИСОК /demo (T-20261109-35/2): плитка 64 px слева (снимок нашей 3D-модели, пока его нет — серая плитка без
+   подписи), высота строки и отступ «Заменить» — как в /demo; место цены пустое, но той же ширины, чтобы колонка текста не скакала */
+body.trial #shot .pinlist .row{min-height:80px}body.trial #shot .pinlist .row .t{min-height:64px}
+body.trial #shot .pinlist .row>.acts{padding-left:74px}
+body.trial #shot .pinlist .row>.p{flex:0 0 40px}
+#shot .pinlist .row .tr-thph{background:var(--wash-2)}
+/* «СМЕНИТЬ СТИЛЬ» НА ТЕЛЕФОНЕ — КАК В /demo (T-20261109-35/2): там плашка только в «Фото» (TG 523), а в туре «Фото» нет — окно всегда
+   в 3D, и без этого правила сменить стиль на телефоне было негде. Место и вид те же (правый верх у «×»); пометка «Форма комнаты
+   приблизительная» на телефоне — строкой ниже, под верхним рядом, чтобы не наезжать на плашку */
+@media(max-width:700px){
+  body.trial #shot.vwalk:not(.vsheetfull) .vstyle:not([hidden]){display:inline-flex}
+  body.trial #shot .vstage>.tr-approx{top:58px}
+}
 /* «мебель подбирается» — состояние, а не пустая готовая комната: карточка, план и окно комнаты */
 .tr-spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite;vertical-align:-3px;margin-right:8px}
 .hm-room .nopv.tr-wait{display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;text-align:center;font-size:15px;color:var(--ink)}
@@ -5482,6 +5495,70 @@ function realisticPublishedShot(v,cam){
 const LIVE_SHOTS=new Map();
 // ключ — комната + вариант + номер состояния (`roomStateKey`, onb-07 основа)
 function liveShot(v){ const u=v&&D&&LIVE_SHOTS.get(roomStateKey(v,variantStateOf(v))); return u?{url:u, thumb:u, quality:'live'}:null; }
+// КАРТОЧКА КОМНАТЫ В ТУРЕ — СНИМОК 3D «СО СТОРОНЫ ДВЕРИ» (T-20261109-35/2, ведущий: «в /demo фото комнаты; в туре — схема плана»). Фото
+// нейросети у пробы нет, поэтому карточка берёт кадр нашей 3D-сцены с точки 1 — та же точка и поза, что откроет окно и снимет «Сделать
+// реалистичнее» (`trHsCams` = выбор `loadCams`/`defaultCams` для этого варианта). Сцена — своя, невидимая, на одну комнату: собрали →
+// кадр 1024×723 (как `liveShotTake`) → освободили вместе с видеоконтекстом; комнаты — строго по одной, сперва показанная. Модели — те
+// же адреса, что возьмёт окно (`lite` как в окне), то есть кэш браузера общий. Без 3D (программный рендер без `?live=force`, `?live=0`,
+// экономия трафика/2g, ошибка движка) — схема плана, как было. Пока открыто окно — ждём (одна сцена за раз), в скрытой вкладке — тоже.
+// Расстановку правили — снимаем заново, до нового кадра карточка держит прежний
+const TR_HS={busy:false, off:false, by:new Map(), fail:new Set(), want:[], t:0};
+function trHsKey(v){ return roomStateKey(v,variantStateOf(v)); }
+function trHomeShotOf(v){ const r=v&&TR_HS.by.get(String(v.id||'')); return r?r.url:''; }
+function trHsOk(){
+  if(!TRIAL()||TR_HS.off||LIVE.ok===false||!D)return false;
+  const c=navigator.connection; if(c&&(c.saveData||/(^|slow-)2g$/.test(c.effectiveType||'')))return false;
+  return !(liveSoftGL()&&!LIVE.force);
+}
+// таймер не переставляем: главная перерисовывается часто, и сброс отодвигал бы съёмку без конца
+function trHomeShotsSoon(ms){ if(!trHsOk()||TR_HS.t)return;
+  TR_HS.t=setTimeout(()=>{ TR_HS.t=0; if(window.requestIdleCallback)requestIdleCallback(trHomeShotsRun,{timeout:3000}); else trHomeShotsRun(); },ms||800); }
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&TR_HS.want.length)trHomeShotsSoon(); });
+// точки съёмки варианта — тем же выбором, что у окна: сохранённые в браузере → готовая пара из данных → подбор. Правила камер читают
+// комнату открытого варианта (`camRoom` → `cur`), поэтому на время СИНХРОННОГО подбора подставляем этот вариант и возвращаем
+function trHsPose(v,its){
+  const vi=allVariants().indexOf(v); if(vi<0)return null;
+  if(vi===cur&&cams)return camPoseOf(cams[0]);
+  const c0=cur, lv=CAM_LEVEL;
+  try{ cur=vi; const R=curRoom(); if(!R)return null;
+    let cs=null; try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(r&&r.length===2)cs=r;}catch(e){}
+    if(!cs&&Array.isArray(v.cams)&&v.cams.length===2&&camSameItems(its,v.items))cs=v.cams;
+    if(!cs)cs=camPair(its,R.w,R.d,cornerList()).cams;
+    const c=cs&&cs[0]; if(!c)return null;
+    const p={x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER};
+    if(CAM_PAIR_ON){try{p.pshift=camPortraitShift(c,its,R.w,R.d);}catch(e){}}
+    const pm=camZ().livePitchMin; if(pm!=null)p.pitchMin=pm;
+    return p; }
+  finally{ cur=c0; CAM_LEVEL=lv; }
+}
+async function trHomeShot(v){
+  const its=clone(variantItems(v)), room=roomOf(v); if(!room||!its.length)return '';
+  const pose=trHsPose(v,its); if(!pose)return '';
+  const M=await sceneModule(), rt=await rtMeshes();
+  const cv=document.createElement('canvas'); cv.width=1024; cv.height=723;
+  const decor=clone(((v.decor)||[]).filter(x=>!isSoft(x.role)&&!x.list_only));   // как `liveDecor`
+  const sc=M.createDemoScene(cv,{room, items:its, decor, base:location.href, runtimeMeshes:rt, lite:isTouchUI(), walk:false});
+  try{ sc.setSize(1024,723); await sc.ready; if(!sc.capture)return '';
+    const r=await sc.capture([pose],1024,723), b=r&&r.frames&&r.frames[0];
+    return b?URL.createObjectURL(b):''; }
+  finally{ try{sc.dispose();}catch(e){}
+    // `renderer.dispose` видеоконтекст не отпускает — на телефоне их мало: отпускаем сами
+    try{const gl=cv.getContext('webgl2')||cv.getContext('webgl'), x=gl&&gl.getExtension('WEBGL_lose_context'); if(x)x.loseContext();}catch(e){} }
+}
+async function trHomeShotsRun(){
+  if(TR_HS.busy||!trHsOk())return;
+  if(document.hidden)return;                                                      // вернётся — `visibilitychange`
+  if(document.getElementById('shot').classList.contains('on')){trHomeShotsSoon(4000); return;}
+  const q=TR_HS.want.filter(v=>{const k=trHsKey(v), r=TR_HS.by.get(String(v.id||'')); return !TR_HS.fail.has(k)&&!(r&&r.key===k);});
+  const v=q.find(x=>roomIdOf(x)===HOME.room)||q[0]; if(!v)return;
+  const key=trHsKey(v); TR_HS.busy=true;
+  try{ const url=await trHomeShot(v);
+    if(!url)TR_HS.fail.add(key);
+    else{ const id=String(v.id||''), old=TR_HS.by.get(id); TR_HS.by.set(id,{key,url}); if(old)try{URL.revokeObjectURL(old.url);}catch(e){} drawHome(); } }
+  catch(e){ TR_HS.off=true; try{console.info('снимок 3D для карточки не снят:',String(e&&e.message||e));}catch(_){} }
+  finally{ TR_HS.busy=false; }
+  trHomeShotsSoon();
+}
 // ШИРИНА КАРТОЧКИ КОМНАТЫ НА КОМПЬЮТЕРЕ (для `sizes`): две трети `.wrap` за вычетом полей и щелей сетки (стили `.hm-rooms` ≥900 px)
 const HM_SIZES='(min-width:2200px) 1045px, (min-width:1600px) 940px, (min-width:1100px) 712px, 65vw';
 function homeModel(){
@@ -5747,6 +5824,7 @@ function drawHome(force){
   // раскладка — по выбору квартиры (`HOME.sel`); открытое окно (`cur`) её не меняет и в выбор не пишет (home-mix-01).
   // Названия выбора над карточками нет (владелец TG 610, T-20261108-76: «подпись вверху на Главной не надо»)
   const L=homeLayout(m);
+  TR_HS.want=[];
   const cards=L.map(({r,rv,want})=>{
     const v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
@@ -5762,8 +5840,12 @@ function drawHome(force){
     const stale=!!sh&&!own&&typeof editShelf==='function'&&editShelf(v)&&variantStateOf(v)!==pubStateOf(v);
     // на пометке — две кнопки, как в окне (T-20261108-71/2): «Вернуть как было» — только если есть к чему (тот же выбор, что в окне, `vwStalePick`)
     const pk=stale&&typeof vwStalePick==='function'?vwStalePick(v):null, back=!!pk&&(pk.to>=0||pk.to===-2);
-    return {r, i:rv.index, v, want, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), stale, back};
+    // проба без фото — снимок 3D «со стороны двери» (`trHomeShot`); пока не снят или 3D нет — схема плана ниже
+    let img=sh?thumbOf(sh):'', full=sh?sh.url:'';
+    if(!sh&&TRIAL()){const u=trHomeShotOf(v); if(u)img=full=u; TR_HS.want.push(v);}
+    return {r, i:rv.index, v, want, img, full, n:variantCount(v), sum:variantPrice(v), stale, back};
   });
+  if(TRIAL()&&TR_HS.want.length)trHomeShotsSoon();
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
   const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.n,c.sum,c.stale,c.back]), m.rooms.map(r=>[r.title,r.areaM2])]);
   homeFavUi(); homeCertDraw(); homeTips();
@@ -6328,13 +6410,13 @@ function shotListHtml(s){
         // только у того, что нашлось в расстановке, а ваза лежит в отдельном списке.
         const own=items.find(i=>(skuOf(i)||{}).name===a.name)
           ||decorList().find(x=>(x.sku||{}).name===a.name);
+        if(TRIAL())return trRowHtml(a,k,own);   // проба: та же строка, картинка — наша 3D-модель, без цены и магазина (T-20261109-35/2)
         return `<div class="row" style="cursor:default" data-k="${k}"${a.sid?` data-sid="${escHtml(a.sid)}"`:''}>`+
           // первые 10 строк — сразу, остальные — лениво; до загрузки — заглушка тона страницы (demo-21 п.5), загрузилась — белая плитка
           (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`:'<div class="noimg-sm">нет фото</div>')+
           `<div class="t"><b>${itemName(a,a.role)}</b>`+
           // мягкое (demo-24) — без пометки, роль без номера слота (владелец и ведущий 23.10)
-          (TRIAL()?`<span>${[trRoleDup(itemName(a,a.role),a.role)?'':baseRole(a.role),(a.qty||1)>1?a.qty+(LANG==='en'?' pcs':' шт.'):''].filter(Boolean).join(' · ')}</span>`
-          :`<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${itemShop(a)?' · '+itemShop(a):''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`)+
+          `<span>${isSoft(a.role)?baseRole(a.role):(a.role||'')}${itemShop(a)?' · '+itemShop(a):''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
           swatchRow(own&&(own.sku&&own.sku.name?own.sku:skuOf(own)),a.role)+`</div>`+
           `<div class="p">${money(a.price)}</div>`+
           // действия — своей строкой под фото и текстом: цена их не сжимает (`.row>.acts`, demo-26 Г)
@@ -6344,8 +6426,44 @@ function shotListHtml(s){
           `</span></div>`;}).join('')+
       `</div>`;
 }
+// СТРОКА СПИСКА В ТУРЕ = СТРОКА /demo (T-20261109-35/2, владелец «внешний вид строго такой же»): картинка слева, название жирным
+// в две строки, роль серым, место цены справа, «Заменить» своей строкой. Чего в туре нет по правилу очистки (`trial_bundle.py`:
+// названий товаров и магазинов, ссылок, цен, картинок магазина) — того нет и здесь: название — нейтральное по роли с размерами
+// (и цветом из `colour_en` на английском), картинка — снимок НАШЕЙ 3D-модели предмета из сцены окна (`trThumbs`), пока её нет —
+// серая плитка того же размера; «В магазин» нет, цена — пустое место той же ширины
+const TR_TH=new Map();   // ключ модели (msid + размеры) → data URL миниатюры; одна модель — одна картинка на всю страницу
+function trThKey(s){ return s&&s.msid?[s.msid,Math.round(+s.w||0),Math.round(+s.d||0),Math.round(+s.h||0)].join('|'):''; }
+function trRowHtml(a,k,own){
+  const EN=LANG==='en', s=own?(own.sku&&own.sku.name?own.sku:skuOf(own))||{}:{}, ix=own?items.indexOf(own):-1, key=trThKey(s);
+  const W=Math.round(+(s.w||(own&&own.w)||0)), Dp=Math.round(+(s.d||(own&&own.d)||0)), col=EN?String(s.colour_en||'').trim():'';
+  const name=itemName(a,a.role)+(col?', '+col:'')+(W&&Dp?` · ${W}×${Dp} ${EN?'cm':'см'}`:'');
+  const role=EN?String(maskRoleEn(a.role)||'').toLowerCase():baseRole(a.role), u=key&&TR_TH.get(key);
+  const pic=u?`<img class="tr-th ld" src="${u}" alt="">`
+    :`<div class="noimg-sm tr-thph"${ix>=0&&key?` data-th="${ix}" data-thk="${escHtml(key)}"`:''} aria-hidden="true"></div>`;
+  return `<div class="row" style="cursor:default" data-k="${k}">${pic}`+
+    `<div class="t"><b>${escHtml(name)}</b><span>${escHtml([role,(a.qty||1)>1?a.qty+(EN?' pcs':' шт.'):''].filter(Boolean).join(' · '))}</span>`+
+    swatchRow(own?s:null,a.role)+`</div><div class="p"></div>`+
+    `<span class="acts">${own?`<button class="lnk" data-rep="${k}">Заменить</button>`:''}</span></div>`;
+}
+// миниатюры строк — из готовой сцены окна (`LIVE.scene.thumbs`, бандл движка с T-20261109-35/2; старый бандл без неё — плитки
+// остаются серыми); модель ещё грузится — спросим снова, до 40 раз через 1,5 с
+let _trThT=0, _trThN=0;
+function trThumbs(again){
+  clearTimeout(_trThT); if(!again)_trThN=0;
+  if(!TRIAL())return;
+  const ph=[...document.querySelectorAll('#shot .pinlist .tr-thph[data-th]')]; if(!ph.length)return;
+  const sc=LIVE.scene;
+  if(LIVE.ok===true&&LIVE.state==='ready'&&sc&&typeof sc.thumbs==='function'&&LIVE.canvas&&LIVE.canvas.isConnected){
+    try{ const out=sc.thumbs(ph.map(e=>+e.dataset.th),128);
+      out.forEach((u,k)=>{ if(!u)return; const e=ph[k]; TR_TH.set(e.dataset.thk,u);
+        const im=document.createElement('img'); im.className='tr-th ld'; im.alt=''; im.src=u; e.replaceWith(im); });
+    }catch(e){}
+  }
+  if(document.querySelector('#shot .pinlist .tr-thph[data-th]')&&++_trThN<40)_trThT=setTimeout(()=>trThumbs(true),1500);
+}
 // «Заменить» из просмотра: находим предмет текущей расстановки по названию товара
 function wireShotList(){
+  if(TRIAL())setTimeout(trThumbs,0);
   // название или миниатюра — карточка товара (demo-26 Д); «Заменить» в ней — та же кнопка строки
   const pl=document.querySelector('#shotbody .pinlist');
   // кружок цвета — та же карточка, сразу с этим цветом в предпросмотре (demo-28)
@@ -9164,7 +9282,7 @@ async function liveShow(){
     const how=sc.frameItem?sc.frameItem(k):(sc.focus&&sc.focus(k),'turn'); LIVE.framed=how; VW.free=true; vwCamsUi(); sc.start();}
   LIVE.focus=null;
   LIVE.state='ready'; vwLoad(false);
-  liveShotSoon(); vwPreSoon();
+  liveShotSoon(); vwPreSoon(); trThumbs();   // проба: миниатюры строк — из готовой сцены (T-20261109-35/2)
 }
 // кадр правленой расстановки для карточки главной (`liveShot`): точка 1, без наклона — `capture`, как кадры нейросети, но без отправки.
 // Не снимаем, если у расстановки есть свой кадр, она не правлена (карточке хватает опубликованного) или идёт «Улучшаю…» (своя съёмка).

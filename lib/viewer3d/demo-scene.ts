@@ -100,6 +100,9 @@ export interface DemoScene {
   models(): Record<number, string>;
   /** Подгрузить модели кандидатов заранее (лента замен открылась) — замена потом без сети. */
   prefetch(items: DemoItem[]): void;
+  /** Миниатюры предметов расстановки (номера как в `update`) для строк списка тура (T-20261109-35/2): JPEG data URL на белом фоне;
+   *  модель не пришла, ковёр или предмета нет на сцене — null (страница держит заглушку и спросит позже). */
+  thumbs(indices: number[], size?: number): (string | null)[];
   /** p95 времени кадра (мс) и программный ли рендер — по ним страница решает, нужен ли серверный эскиз. */
   probe(frames?: number): { p95Ms: number; software: boolean };
   setSize(width: number, height: number): void;
@@ -322,6 +325,10 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     },
     prefetch: (items) => {
       for (const it of items) if (it.sku?.msid) viewer.preloadMesh(meshUrl(it.sku.msid, undefined, opts.lite === true));
+    },
+    thumbs: (indices, size = 128) => {
+      const byIndex = new Map([...slotIndex()].map(([id, i]) => [i, id]));
+      return viewer.thumbs(indices.map((i) => byIndex.get(i) ?? ""), size);
     },
     probe: (frames = 10) => ({ p95Ms: viewer.measureFrameMs(frames), software: viewer.softwareRenderer }),
     setSize: (w, h) => viewer.setSize(w, h),

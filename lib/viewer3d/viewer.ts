@@ -25,6 +25,7 @@ import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { outlineFrame } from "@/lib/viewer3d/outline";
+import { renderThumbs } from "@/lib/viewer3d/thumbs";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { boxPoints, livePitchDeg, liveSpot, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
@@ -1583,6 +1584,31 @@ export class FlatViewer {
   snapshot(): string {
     this.renderer.render(this.scene, this.camera);
     return this.renderer.domElement.toDataURL("image/png");
+  }
+
+  /**
+   * Миниатюры предметов для списка (T-20261109-35/2, `thumbs.ts`): место → JPEG data URL; модель ещё не пришла (коробка, загрузка) или
+   * места нет — null, страница спросит позже. Подсветка выбранного на время листа снята; размер холста и вид экрана — на место.
+   */
+  thumbs(slotIds: string[], size = 128): (string | null)[] {
+    const models = slotIds.map((id) => {
+      const p = this.placed.get(id);
+      return p && p.status === "loaded" ? p.group : null;
+    });
+    if (!models.some(Boolean) || this.disposed) return models.map(() => null);
+    const prev = new THREE.Vector2();
+    this.renderer.getSize(prev);
+    const prevRatio = this.renderer.getPixelRatio();
+    const sel = this.selectedSlot;
+    if (sel) this.highlight(null);
+    try {
+      return renderThumbs(this.renderer, models, size, this.scene.environment, this.scene.environmentIntensity);
+    } finally {
+      this.renderer.setPixelRatio(prevRatio);
+      this.renderer.setSize(prev.x, prev.y, false);
+      if (sel) this.highlight(sel);
+      this.renderer.render(this.scene, this.camera);   // `setSize` очистил холст — видимый вид на место до показа
+    }
   }
 
   /**
