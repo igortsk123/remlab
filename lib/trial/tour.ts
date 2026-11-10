@@ -9,8 +9,10 @@ import type { TrialJobView } from "@/contracts/trial";
 import type { LatestBundle } from "@/lib/trial/repo-bundle";
 import { TRIAL_HEADERS, trialDir } from "@/lib/trial/config";
 import { validId } from "@/lib/trial/http";
+import { MARKET_LANG, tourHref } from "@/lib/trial/i18n";
 import { jobRelease, readRegular, readTourData, releaseDir } from "@/lib/trial/tour-files";
 import { injectTour } from "@/lib/trial/tour-page";
+import { stubHtml, type StubKind, type StubOpts } from "@/lib/trial/tour-stub";
 
 const SCENE_JS = /^lib\/scene\.[a-f0-9]{6,64}\.js$/;
 const BASKET_JS = /^lib\/basket\.[a-f0-9]{6,64}\.js$/;
@@ -50,22 +52,48 @@ const text = (status: number, body: string, extra: Record<string, string> = {}):
   new Response(body, { status, headers: headers({ "Content-Type": "text/plain; charset=utf-8", ...extra }) });
 
 /** `latest` — чтение последней версии данных (`repo-bundle.ts:latestBundle`; передаёт маршрут — здесь импорт дал бы круг модулей);
- *  нет — только запасной `demo-data.json`. */
+ *  нет — только запасной `demo-data.json`. `pin` — закрепить страницу (`tour-bundle.ts:ensureJobRelease`, тот же круг): версия
+ *  данных есть, а закрепления нет (сбой при публикации) — закрепляем при первом открытии. `stub` — язык и ключ для страницы-заглушки. */
 export type TourDeps = {
   view: (id: string) => Promise<TrialJobView | "expired" | undefined>;
   latest?: (id: string, dir: string) => Promise<LatestBundle>;
+  pin?: (id: string, dir: string) => Promise<unknown>;
   dir?: string;
+  stub?: StubOpts;
 };
 const NO_LATEST = async (): Promise<LatestBundle> => "not_ready";
 
-/** Ответ на запрос тура. id — только формат `TOKEN_RE`; нет задания или бандла — 404; результат снят по сроку — 410 (как `/try/<id>`). */
+/** Тур не открывается: адрес страницы — человеку короткая страница (`tour-stub.ts`), машинным адресам — текст, как раньше. */
+function notOpen(page: boolean, status: number, body: string, kind: StubKind, id: string, deps: TourDeps): Response {
+  if (!page) return text(status, body);
+  const o = deps.stub ?? { lang: MARKET_LANG };
+  return new Response(stubHtml(kind, id, tourHref(id, o.lang, o.k), o),
+    { status, headers: headers({ "Content-Type": "text/html; charset=utf-8" }) });
+}
+
+/** Закрепление страницы тура: есть — его версия; нет, но версия данных опубликована — закрепить сейчас (сбой — null). */
+async function releaseOf(dir: string, id: string, view: TrialJobView, pin: TourDeps["pin"]): Promise<string | null> {
+  const got = await jobRelease(dir, id);
+  if (got || !pin || view.bundleVersion <= 0) return got;
+  try {
+    await pin(id, dir);
+  } catch (e) {
+    console.error(`trial ${id}: release_pin_failed (tour) ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
+    return null;
+  }
+  return jobRelease(dir, id);
+}
+
+/** Ответ на запрос тура. id — только формат `TOKEN_RE`; нет задания или бандла — 404; результат снят по сроку — 410 (как `/try/<id>`).
+ *  Сама страница в этих случаях — заглушка для человека (T-20261110-07): «готовится» / «не получилось» / «не найден» / «срок истёк». */
 export async function tourResponse(id: string, parts: readonly string[], deps: TourDeps): Promise<Response> {
-  if (!validId(id)) return text(404, "not found");
+  const page = parts.length === 0;
+  if (!validId(id)) return notOpen(page, 404, "not found", "missing", id, deps);
   const target = tourTarget(parts);
   if (!target) return text(404, "not found");
   const view = await deps.view(id);
-  if (view === undefined) return text(404, "not found");
-  if (view === "expired") return text(410, "expired");
+  if (view === undefined) return notOpen(page, 404, "not found", "missing", id, deps);
+  if (view === "expired") return notOpen(page, 410, "expired", "expired", id, deps);
   if (target.kind === "version") {
     // опрос страницы: `version` растёт — перезагрузка; `bundle` — версия данных (база для «Обустроить»); `rebuild` — пересборка идёт / упала
     // `askSizes`/`listing` — окошко «размеры своими словами» на плане (Р2-текст): звать ли агента и что с его текстом (самого текста нет)
@@ -75,11 +103,13 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
   }
   if (target.kind === "shared") return new Response(null, { status: 302, headers: headers({ Location: target.url }) });
   const dir = deps.dir ?? trialDir();
-  const release = await jobRelease(dir, id);
-  if (!release) return text(404, "not ready");
+  const release = await releaseOf(dir, id, view, deps.pin);
+  // задание идёт (или версия есть, а закрепить не вышло) — «готовится»; закрыто без тура — «не получилось»
+  const closed = view.bundleVersion <= 0 && ["done", "failed", "cancelled"].includes(view.status);
+  if (!release) return notOpen(page, 404, "not ready", closed ? "failed" : "wait", id, deps);
   if (target.kind === "page") {
     const html = await readRegular(path.join(releaseDir(dir, release), "index.html"));
-    if (!html) return text(404, "not ready");
+    if (!html) return notOpen(true, 404, "not ready", "wait", id, deps);
     return new Response(injectTour(html.toString("utf8"), id, view.resultVersion), { headers: headers({ "Content-Type": "text/html; charset=utf-8" }) });
   }
   if (target.kind === "data") {

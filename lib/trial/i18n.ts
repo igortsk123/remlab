@@ -74,6 +74,12 @@ const en = {
     missingTitle: "We can't find this tour", missingText: "Please check the link, or upload the plan again.",
     expiredTitle: "This tour has expired", expiredText: "We keep tours for 30 days. Upload the plan again to make a new one.",
     failedTitle: "We couldn't build this tour", cancelledText: "This upload was cancelled. Please upload the plan again.",
+    noTourText: "We couldn't build a 3D tour from this plan. Please upload the plan again — a sharper image or a different plan usually helps.",
+  },
+  // адрес тура, пока тур не открывается (T-20261110-07): короткая страница вместо голого «not ready»
+  tour: {
+    waitTitle: "Your tour is still being prepared", waitText: "Please refresh the page in a minute.", refresh: "Refresh",
+    progress: "See progress", failText: "Please upload the plan again.", status: "Upload page",
   },
   done: {
     title: "Your 3D is ready", opening: "Opening the tour…", open: "Open the tour", history: "How it went",
@@ -126,6 +132,11 @@ const ru: TrialText = {
     missingTitle: "Тур не найден", missingText: "Проверьте ссылку или загрузите план заново.",
     expiredTitle: "Срок тура истёк", expiredText: "Мы храним туры 30 дней. Загрузите план заново, чтобы сделать новый.",
     failedTitle: "Не получилось собрать тур", cancelledText: "Эта загрузка отменена. Загрузите план заново.",
+    noTourText: "По этому плану не получилось собрать 3D‑тур. Загрузите план ещё раз — обычно помогает более чёткая картинка или другой план.",
+  },
+  tour: {
+    waitTitle: "Тур ещё готовится", waitText: "Обновите страницу через минуту.", refresh: "Обновить",
+    progress: "Ход работы", failText: "Загрузите план ещё раз.", status: "Страница загрузки",
   },
   done: {
     title: "3D готово", opening: "Открываем тур…", open: "Открыть тур", history: "Как шла работа",

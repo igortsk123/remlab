@@ -667,10 +667,13 @@ def photo_ok(result: dict, room: dict, kind: str, state: str, consent: bool) -> 
 
 
 def _living_rooms(result: dict, cfg: dict) -> tuple[list, list]:
-    """Комнаты типа «гостиная»: первая — та же, что выбирает `trial_room.pick_living` (её обставляет сцена), дальше по площади."""
+    """Комнаты типа «гостиная»: первая — та же, что выбирает `trial_room.pick_living` (её обставляет сцена), дальше по площади.
+    Гостиной в плане нет (`no_living`) — пустой список и флаг `no_living`: тур всё равно собирается из остальных комнат (T-20261110-07)."""
     try:
         panel, main, flags = TR.pick_living(result, cfg)
     except TR.Refusal as e:
+        if e.code == 'no_living':
+            return [], ['no_living']
         raise BundleRefused(e.code, e.detail) from e
     from shapely.geometry import Polygon
     rest = [(p, r) for p in result['panels'] for r in p['rooms'] if r.get('kind') == LIVING and r is not main]
@@ -729,10 +732,10 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     panels = result['panels']
     panel_of = {id(r): i for i, p in enumerate(panels) for r in p['rooms']}
     livings, flags = _living_rooms(result, cfg)
-    main = livings[0][1]
-    if scene is not None and scene.get('room') and (scene['room'].get('id') != main['id'] or
+    main = livings[0][1] if livings else None
+    if scene is not None and scene.get('room') and (main is None or scene['room'].get('id') != main['id'] or
                                                      scene['room'].get('panel') != panels[panel_of[id(main)]]['id']):
-        raise BundleRefused('scene_mismatch', f"сцена про комнату {scene['room'].get('id')}, а гостиная плана — {main['id']}")
+        raise BundleRefused('scene_mismatch', f"сцена про комнату {scene['room'].get('id')}, а гостиная плана — {(main or {}).get('id')}")
     furnished = scene is not None and scene['status'] in SCENE_READY
     geos, refused = {}, []
     for panel, room in livings:
@@ -745,8 +748,8 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
                 geos[id(room)] = core_geometry(panel, room, cfg)
         except TR.Refusal as e:
             refused.append({'room': room, 'code': e.code, 'detail': e.detail})
-    if not geos:
-        raise BundleRefused(refused[0]['code'], refused[0]['detail'])
+    # ни одна гостиная не построилась (или её нет) — тур всё равно собирается: стены/план и остальные комнаты с честным исходом
+    # (T-20261110-07: иначе задание закрывалось без версии данных и тур не открывался никогда). Отказ — только если показать нечего.
     # id: первая собранная гостиная — `living` (страница и `HOME.room` опираются на него); уникальны и через панели
     ids: dict = {}
     n_living = 0
@@ -871,6 +874,10 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
             entry['approx_consent'] = True                  # страница: «размеры примерные» — проверка снята агентом, не подтверждена
         entry['photo_ok'] = photo_ok(result, r, kind, entry['furniture_state'], consented(r, rid))
         apartment_rooms.append(entry)
+    if not variants:                                 # ни одной комнаты с коробкой — странице нечего открыть (контракт: ≥1 вариант)
+        if refused:
+            raise BundleRefused(refused[0]['code'], refused[0]['detail'])
+        raise BundleRefused('no_living', TR.REFUSALS['no_living'] + '; ни одна другая комната не построилась')
     vids = [v['id'] for v in variants]
     if len(vids) != len(set(vids)):
         raise BundleRefused('parts_mismatch', 'id вариантов повторяются')

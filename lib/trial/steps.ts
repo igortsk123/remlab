@@ -60,7 +60,10 @@ export const timer = (sec: number): string => (sec >= 3600 ? clock(sec) : clock(
 /** Геометрия опубликована — пора в тур. Сейчас это `done`; промежуточная публикация (план agent-trial-08, З) даст
  *  `running` с `resultVersion > 0` — тур откроется сразу, мебель догрузится в нём. */
 export const geometryReady = (job: TrialJobView): boolean =>
-  job.status === "done" || (job.status === "running" && job.resultVersion > 0);
+  job.bundleVersion > 0 && (job.status === "done" || job.status === "running");
+
+/** Задание закрыто, а версии данных нет — тура не будет (T-20261110-07): страница говорит «не получилось», а не уводит в пустой тур. */
+export const tourMissing = (job: TrialJobView): boolean => job.status === "done" && job.bundleVersion <= 0;
 
 /** Строка под полоской: очередь, «машина занята» или как в макете. */
 export function waitingNote(job: TrialJobView, lang: TrialLang): string {

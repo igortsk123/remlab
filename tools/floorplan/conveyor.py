@@ -260,7 +260,9 @@ class Conveyor:
             return self.stopped
         self.timings['v1_s'] = round(time.time() - t0, 1)
         if self.cur is None:
-            self.log('версия 1 не собрана — мебель не подбираю, задание закрываю серым туром')
+            # показать нечего (ни одной комнаты с коробкой): тура нет, `bundleVersion 0` — страница задания и адрес тура говорят
+            # «не получилось собрать тур» (T-20261110-07); комнаты без гостиной сборщик уже не отвергает
+            self.log('версия 1 не собрана — тура нет, мебель не подбираю, задание закрываю без версии данных')
             return 'result'
         if self.cur['trial']['complete'] and not self.release:
             self.log('ни одной комнаты не ждёт мебель (проверка размера / отказы) — стадии мебели не нужны')
@@ -276,7 +278,10 @@ class Conveyor:
                                  publish=not quiet)               # по кнопке — только итоговая версия: спальни не мигают «подбирается»
             if self.stopped:
                 return self.stopped
-        else:                                     # главная гостиная ждёт проверки размера (или не построена) — подбор не запускаем
+        elif self._state('living') is None:      # гостиной в плане нет (или ни одна не построилась): сцены нет, остальные комнаты — как есть
+            self.log('living: стадия не нужна (гостиной в версии нет)')
+            scene = None
+        else:                                     # главная гостиная ждёт проверки размера — подбор не запускаем
             self.log(f'living: стадия не нужна (состояние {self._state("living")!r})')
             scene = self._write('scene-refused.json', failed_scene(self.jid, 'size_check'))
         if not self._pending_bedrooms():

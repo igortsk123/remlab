@@ -13,7 +13,7 @@ import l from "@/components/trial/landing.module.css";
 import s from "@/components/trial/trial.module.css";
 import type { TrialJobView } from "@/contracts/trial";
 import { textOf, withLang, type TrialLang, type TrialText } from "@/lib/trial/i18n";
-import { clock, errorText, geometryReady, progressOf, stepsOf, timer, waitingNote } from "@/lib/trial/steps";
+import { clock, errorText, geometryReady, progressOf, stepsOf, timer, tourMissing, waitingNote } from "@/lib/trial/steps";
 
 function Message({ t, lang, title, text, retry }: { t: TrialText["msg"]; lang: TrialLang; title: string; text: string; retry?: () => void }) {
   return (
@@ -62,6 +62,7 @@ function Body({ id, lang }: { id: string; lang: TrialLang }) {
   if (state.kind === "expired") return <Message {...m} title={t.msg.expiredTitle} text={t.msg.expiredText} />;
   const { job } = state;
   if (geometryReady(job)) return <TrialResult id={id} job={job} lang={lang} steps={jobSteps(job, lang, fileName)} refresh={retry} />;
+  if (tourMissing(job)) return <Message {...m} title={t.msg.failedTitle} text={t.msg.noTourText} />;
   if (job.status === "failed" || job.status === "cancelled") {
     return <Message {...m} title={t.msg.failedTitle} text={job.status === "cancelled" ? t.msg.cancelledText : errorText(job.errorCode, lang)} />;
   }
