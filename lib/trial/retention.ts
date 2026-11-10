@@ -82,6 +82,9 @@ export async function trialRetention(tx: Tx, now: Date, env = process.env, rm: t
   const results = await q<{ id: string }>(tx, sql`update trial_jobs set status = 'expired', result = null, result_hash = null,
       listing_text = null, input_hash = null, error_detail = null, lease_token = null, bundle_version = 0, bundle_hash = null
     where status in ('done', 'failed', 'cancelled') and input_path is null and result_expires_at < ${now.toISOString()} returning id`);
+  // текст агента «размеры своими словами» (Р2-текст) не переживает результат, даже если пересборка так и не дошла до воркера
+  await tx.execute(sql`update trial_rebuilds r set listing_text = null from trial_jobs j
+    where j.id = r.job_id and j.status = 'expired' and r.listing_text is not null`);
   let bundlesKept = 0;
   for (const r of results) { // данные страницы уходят вместе с результатом; не вышло — повторит `orphanBundleDirs`
     await removeBundles(dir, r.id, rm).catch(() => { bundlesKept++; });

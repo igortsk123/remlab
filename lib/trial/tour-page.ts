@@ -14,8 +14,10 @@ export const tourLinks = (id: string, k?: string | null): { agent: string; buyer
   buyer: `/try/${id}/tour/?quiz=1`,
 });
 
-/** «Обустроить» ЭТОГО задания — ручка `/api/*`, которую песочница пропускает (только через fetch; право — ключом на сервере). */
+/** Ручки `/api/*`, которые песочница пропускает, — «Обустроить» и «размеры своими словами» (Р2-текст) ЭТОГО задания и только через fetch
+ *  (право — ключом на сервере). */
 export const rebuildPath = (id: string): string => `/api/trial/${id}/rebuild`;
+export const listingPath = (id: string): string => `/api/trial/${id}/listing`;
 /** Фото нейросети ЭТОГО задания (T-20261109-34): заказ — через свою ручку (доверие к размерам и суточный предел — на сервере), кадры из
  *  3D — на общую загрузку `/api/render/frame`, ход — опросом `/api/job?id=` (оба — сервис кадров с его IP-пределом). Всё остальное
  *  `/api/*` закрыто, как было; `sendBeacon` — закрыт целиком. */
@@ -42,7 +44,7 @@ P.key=function(i){var k=own(this)[i];return k==null?null:k.slice(PRE.length);};
 P.clear=function(){own(this).forEach(function(k){R.call(this,k);},this);};
 Object.defineProperty(P,'length',{configurable:true,enumerable:true,get:function(){return own(this).length;}});
 var BLOCK=${BLOCK};
-var OK=${JSON.stringify([rebuildPath(id), photoPath(id), FRAME_PATH])},JOB=${JSON.stringify(JOB_PATH)};
+var OK=${JSON.stringify([rebuildPath(id), listingPath(id), photoPath(id), FRAME_PATH])},JOB=${JSON.stringify(JOB_PATH)};
 function fine(x){return x.search?(x.pathname===JOB&&/^\\?id=[A-Za-z0-9_-]{1,64}$/.test(x.search)):OK.indexOf(x.pathname)>=0;}
 function bad(u,ok){try{var x=new URL(String(u),document.baseURI);return x.origin===location.origin&&BLOCK.test(x.pathname)&&!(ok&&fine(x));}catch(e){return false;}}
 var F=window.fetch;

@@ -4,21 +4,34 @@
 import { sql } from "drizzle-orm";
 import { trialErrorCode, trialJobView, type TrialJobView } from "@/contracts/trial";
 import { TRIAL_WORKER_ALIVE_SEC } from "@/lib/trial/config";
+import { scaleAsks, sizeAsk } from "@/lib/trial/size-ask";
 import { claimable, iso, jsonOf, rows } from "@/lib/trial/sql";
 
 type ViewRow = {
   id: string; status: string; stage: string; stages: unknown; created_at: string; finished_at: string | null;
   elapsed_sec: number; error_code: string | null; result_version: number; bundle_version: number; queue_ahead: number | null;
-  worker_alive: boolean; rebuild: { status?: string; code?: string | null } | string | null;
+  worker_alive: boolean; rebuild: Last | string | null; scale_status: string | null;
 };
+type Last = { status?: string; code?: string | null; kind?: string };
+type RebuildPart = Pick<TrialJobView, "rebuild" | "rebuildError" | "listing" | "listingError">;
 
 const REBUILD_ERRORS = new Set(["stale", "lease_lost", "timeout", "pipeline_error", "internal"]);
-/** Последняя пересборка «Обустроить» → видимое состояние: `done` — уже не важно (новая версия пришла), ошибка — закрытым кодом. */
-function rebuildOf(raw: ViewRow["rebuild"]): Pick<TrialJobView, "rebuild" | "rebuildError"> {
-  const r = raw ? jsonOf<{ status?: string; code?: string | null }>(raw) : null;
-  if (!r || (r.status !== "queued" && r.status !== "running" && r.status !== "failed")) return { rebuild: null, rebuildError: null };
-  const code = r.status === "failed" ? (REBUILD_ERRORS.has(r.code ?? "") ? r.code : "internal") : null;
-  return { rebuild: r.status, rebuildError: code as TrialJobView["rebuildError"] };
+const LISTING_ERRORS = new Set([...REBUILD_ERRORS, "source_gone"]);
+const NONE: RebuildPart = { rebuild: null, rebuildError: null, listing: null, listingError: null };
+const errOf = (r: Last, known: Set<string>) => (r.status === "failed" ? (known.has(r.code ?? "") ? r.code : "internal") : null);
+
+/** Последняя пересборка задания → видимое состояние. «Обустроить»: `done` — уже не важно (новая версия пришла), ошибка — закрытым кодом.
+ *  Текст агента (`kind: listing`, Р2-текст): ждёт, пока задание не `done`, — «принято, применим после сборки»; потом «применяем»; итог. */
+function rebuildOf(raw: ViewRow["rebuild"], jobStatus: string): RebuildPart {
+  const r = raw ? jsonOf<Last>(raw) : null;
+  if (!r) return NONE;
+  if (r.kind === "listing") {
+    const listing = r.status === "queued" && jobStatus !== "done" ? "accepted"
+      : r.status === "queued" || r.status === "running" ? "applying" : r.status === "done" ? "done" : r.status === "failed" ? "failed" : null;
+    return { ...NONE, listing, listingError: errOf(r, LISTING_ERRORS) as TrialJobView["listingError"] };
+  }
+  if (r.status !== "queued" && r.status !== "running" && r.status !== "failed") return NONE;
+  return { ...NONE, rebuild: r.status, rebuildError: errOf(r, REBUILD_ERRORS) as TrialJobView["rebuildError"] };
 }
 
 /** undefined — нет такого задания; "expired" — результат снят по сроку (410). */
@@ -26,11 +39,11 @@ export async function jobView(id: string): Promise<TrialJobView | "expired" | un
   const [r] = await rows<ViewRow>(sql`select j.id, j.status, j.stage, j.stages, ${iso(sql`j.created_at`)} as created_at,
       ${iso(sql`j.finished_at`)} as finished_at,
       greatest(0, floor(extract(epoch from coalesce(j.finished_at, now()) - j.created_at)))::int as elapsed_sec,
-      j.error_code, j.result_version, j.bundle_version,
+      j.error_code, j.result_version, j.bundle_version, j.result->'scale'->>'status' as scale_status,
       case when j.status = 'queued' then (select count(*)::int from trial_jobs o
         where ${claimable(sql.raw("o"))} and (o.created_at, o.id) < (j.created_at, j.id)) end as queue_ahead,
       exists (select 1 from trial_workers w where w.last_seen > now() - make_interval(secs => ${TRIAL_WORKER_ALIVE_SEC}::int)) as worker_alive,
-      (select jsonb_build_object('status', r.status, 'code', r.error_code) from trial_rebuilds r where r.job_id = j.id
+      (select jsonb_build_object('status', r.status, 'code', r.error_code, 'kind', r.kind) from trial_rebuilds r where r.job_id = j.id
         order by r.created_at desc, r.id desc limit 1) as rebuild
     from trial_jobs j where j.id = ${id}`);
   if (!r) return undefined;
@@ -40,7 +53,9 @@ export async function jobView(id: string): Promise<TrialJobView | "expired" | un
     id: r.id, status: r.status, stage: r.stage, stages: jsonOf(r.stages), createdAt: r.created_at, finishedAt: r.finished_at,
     elapsedSec: r.elapsed_sec, queueAhead: r.queue_ahead, workerAlive: r.worker_alive,
     errorCode: r.status === "failed" ? (code.success ? code.data : "internal") : null, resultVersion: r.result_version,
-    bundleVersion: r.bundle_version, ...rebuildOf(r.rebuild),
+    bundleVersion: r.bundle_version, ...rebuildOf(r.rebuild, r.status),
+    // результат готов — его масштаб (данных страницы может и не быть); иначе — последняя опубликованная версия данных
+    askSizes: scaleAsks(r.scale_status) || await sizeAsk(r.id, r.bundle_version),
   });
 }
 

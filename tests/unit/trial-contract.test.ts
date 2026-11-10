@@ -48,8 +48,8 @@ describe("floorplanResult (Zod)", () => {
       editKeyHash: "h".repeat(64), editKey: "K".repeat(22),
     });
     expect(Object.keys(v).sort()).toEqual(
-      ["bundleVersion", "createdAt", "elapsedSec", "errorCode", "finishedAt", "id", "queueAhead", "rebuild", "rebuildError", "resultVersion", "stage",
-        "stages", "status", "workerAlive"]);
+      ["askSizes", "bundleVersion", "createdAt", "elapsedSec", "errorCode", "finishedAt", "id", "listing", "listingError", "queueAhead", "rebuild",
+        "rebuildError", "resultVersion", "stage", "stages", "status", "workerAlive"]);
     expect(v).toMatchObject({ rebuild: null, rebuildError: null });
   });
 

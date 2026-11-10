@@ -1341,6 +1341,12 @@ body.trial .vrow-s{display:none}
 #flatRooms>.hint.tr-note{display:flex;gap:8px;align-items:baseline;color:#96601F}
 .tr-note .dot{flex:none;width:8px;height:8px;border-radius:50%;background:#96601F;transform:translateY(-1px)}
 .tr-lnk{border:0;background:none;padding:0;font:inherit;color:var(--accent);font-weight:600;cursor:pointer;white-space:nowrap}
+.tr-sizes{margin-top:12px;padding:12px;border-radius:var(--radius-sm,12px);background:var(--wash-3,#F4F2ED);font-size:14px;line-height:1.4}
+.tr-sizes b{display:block;font-weight:600;color:var(--ink)}
+.tr-sizes p{margin:2px 0 8px;color:var(--muted)}
+.tr-sizes textarea{display:block;width:100%;box-sizing:border-box;min-height:72px;resize:vertical;font:inherit;font-size:16px;line-height:1.4;padding:8px 10px;border:1px solid #D9D4CB;border-radius:10px;background:#fff;color:var(--ink)}
+.tr-sizes .tr-sz-st{margin:8px 0 0;color:#2F6B3F}.tr-sizes .tr-sz-st.bad{color:#96601F}
+.tr-sizes .btn{margin-top:8px;padding:6px 14px;font-size:14px;min-height:0}.tr-sizes .btn:disabled{opacity:.45;cursor:default}
 </style></head><body><div class="wrap">
 <!-- ЗАГОЛОВОК И ЛИД УБРАНЫ (владелец 01.09): они повторяли то, что теперь говорит блок
      сертификата, и отодвигали паспорт квартиры вниз. Первым идёт сама квартира. -->
@@ -1778,16 +1784,18 @@ function trialPoll(delay){
 }
 async function trPollGo(){
   const base=window.__TOUR_VER, rb=TRB.state==='run';
-  if(!allVariants().some(varPending)&&!rb)return;
+  const lb=trListingBusy();
+  if(!allVariants().some(varPending)&&!rb&&!lb)return;
   if(document.visibilityState!=='visible')return trialPoll();
   try{
     const r=await fetch('version.json?ts='+Date.now(),{cache:'no-store'});
     if(r.status===404||r.status===410)return;
     const j=await r.json();
     if(+j.version>base){trSave(null); location.reload(); return;}
+    if(lb)trListingSeen(j);
     if(rb&&trRebuildSeen(j))return;
   }catch(e){}
-  trialPoll(rb?4000:5000);
+  trialPoll(rb||lb?4000:5000);
 }
 // «ОБУСТРОИТЬ» (план agent-trial-08, Р1; T-20261109-27): комнаты «ждут проверки размера» (масштаб не подтверждён / размер не сошёлся) — агент
 // с ключом правки `k` в адресе снимает проверку: POST `/api/trial/<id>/rebuild` (единственная ручка, которую пускает песочница тура) →
@@ -1808,7 +1816,7 @@ function trAwaiting(){ if(!TRIAL())return [];
 function trRebuilding(id){ return TRB.state==='run'&&(TRB.want==='*'||(Array.isArray(TRB.want)&&TRB.want.indexOf(id)>=0)); }
 // кнопки «Обустроить» / «Обустроить всё» (шапка, пометка под планом, план, карточка): у агента с ключом и не во время пересборки —
 // пока она идёт, второе нажатие всё равно гасится, видимая кнопка только путает (T-20261109-31)
-function trCanFurnish(){ return !!trKey()&&TRB.state!=='run'; }
+function trCanFurnish(){ return !!trKey()&&TRB.state!=='run'&&!trListingBusy(); }   // и не пока применяются размеры агента (Р2-текст)
 const TRB_TXT={
   stale:['Тур обновился, пока вы смотрели — обновите страницу и нажмите ещё раз','The tour was updated meanwhile — reload the page and try again','reload'],
   nothing_to_furnish:['Эти комнаты уже обустроены — обновите страницу','These rooms are already furnished — reload the page','reload'],
@@ -1843,7 +1851,7 @@ function trRebuildSeen(j){
 }
 function trReqId(){ const a=new Uint8Array(12); crypto.getRandomValues(a); return Array.from(a,x=>'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'[x&63]).join(''); }
 async function trFurnish(want){
-  const k=trKey(), id=trJobId(); if(!k||!id||TRB.state==='run')return;
+  const k=trKey(), id=trJobId(); if(!k||!id||TRB.state==='run'||trListingBusy())return;
   const rooms=want==='*'?'all':[].concat(want);
   TRB.want=want==='*'?'*':rooms; TRB.state='run'; TRB.err=''; trRedraw();
   let r, j={};
@@ -1864,6 +1872,7 @@ async function trRebuildInit(){
   try{
     const v=await (await fetch('version.json?ts='+Date.now(),{cache:'no-store'})).json();
     if(!TRB.base)TRB.base=+v.bundle||0;
+    if(trKey()&&v.listing){trListingSeen(v); if(trListingBusy())trialPoll(4000);}   // текст агента (Р2-текст) ждёт или применяется
     if(v.rebuild==='queued'||v.rebuild==='running'){TRB.state='run'; TRB.want=(saved&&saved.want)||'*'; trRedraw(); trialPoll(4000); return;}
     if(v.rebuild==='failed'&&saved){trFail(v.rebuildError||'_'); return;}
     trSave(null);
@@ -1880,6 +1889,61 @@ function trPlanNotes(box){
     `${EN?'Sizes not confirmed':'Размеры не подтверждены'}: ${wait.map(id=>escHtml(title(id))).join(', ')}${btn('*',EN?'Furnish all':'Обустроить всё')}</span></div>`);
   if((D.apartment_rooms||[]).some(r=>r&&r.approx_consent))box.insertAdjacentHTML('beforeend',`<div class="hint" data-tr-consent="1">≈ ${EN?
     'Furnished as is — sizes are approximate':'Обставлено «как есть» — размеры примерные'}</div>`);
+}
+// «РАЗМЕРЫ СВОИМИ СЛОВАМИ» (план agent-trial-08, Р2-текст; T-20261109-33): размеров нет (масштаб `not_verified` / `area`) или комнаты ждут
+// проверки — у агента с ключом `k` под планом поле «напишите, что знаете». POST `/api/trial/<id>/listing` (вторая ручка, которую пускает
+// песочница тура) → воркер заново читает план с этим текстом и обставляет → новая версия данных, страница перезагружается. Покупателю —
+// ничего. Повтор того же текста — тот же `request_id` (без второй работы); новый текст — новый id (ждущий сервер заменит)
+const TRL={listing:null, err:'', text:'', rid:null, busy:false};
+const trListingBusy=()=>TRL.listing==='accepted'||TRL.listing==='applying';
+function trAskSizes(){ const s=(D.trial||{}).scale; return s==='not_verified'||s==='area'||trAwaiting().length>0; }
+const TRL_TXT={
+  accepted:['Приняли. Применим, когда план соберётся.','Got it. We’ll apply the sizes once the plan is built.'],
+  applying:['Применяем размеры… Страница обновится сама.','Applying your sizes… The page will refresh by itself.'],
+  done:['Готово — тур обновлён.','Done — the tour is updated.'],
+  failed:['Не получилось применить размеры. Попробуйте ещё раз.','We couldn’t apply the sizes. Please try again.'],
+  source_gone:['Исходный план уже не хранится. Загрузите его заново.','The original plan is no longer stored. Please upload it again.'],
+  busy:['Тур ещё обновляется. Попробуйте через минуту.','The tour is still updating. Try again in a minute.'],
+  rebuild_limit:['Слишком много обновлений за сутки. Попробуйте завтра.','Too many updates today. Try again tomorrow.'],
+  forbidden:['Эта ссылка — только для просмотра. Откройте свою ссылку агента.','This link is view-only. Open your agent link.'],
+  _:['Не удалось отправить. Попробуйте ещё раз.','Couldn’t send. Please try again.']};
+function trSizesState(){
+  if(TRL.err)return {t:TRL_TXT[TRL.err]||TRL_TXT._, bad:true};
+  if(TRL.listing==='failed')return {t:TRL_TXT[TRL.lerr==='source_gone'?'source_gone':'failed'], bad:true};
+  return TRL.listing&&TRL_TXT[TRL.listing]?{t:TRL_TXT[TRL.listing], bad:false}:null;
+}
+function trSizesBox(box){
+  if(!trKey()||!(trAskSizes()||TRL.listing))return;
+  const EN=TR_EN(), st=trSizesState(), off=TRL.busy||TRL.listing==='applying';
+  box.insertAdjacentHTML('beforeend',`<form class="tr-sizes" data-tr-sizes="1"><b>${EN?'We couldn’t find the room sizes':'Не нашли размеры комнат'}</b>`+
+    `<p>${EN?'Write what you know, in any form — we’ll work it out.':'Напишите, что знаете, в любом виде — уточним.'}</p>`+
+    `<textarea maxlength="2000" aria-label="${EN?'Room sizes':'Размеры комнат'}" placeholder="${EN?'e.g. living room 4.8 × 3.6 m, bedroom 3 × 3 m':'например: гостиная 4,8 на 3,6, спальня 3×3'}"${TRL.busy?' disabled':''}>${escHtml(TRL.text)}</textarea>`+
+    (st?`<p class="tr-sz-st${st.bad?' bad':''}" role="${st.bad?'alert':'status'}" data-tr-sizes-state="1">${EN?st.t[1]:st.t[0]}</p>`:'')+
+    `<button class="btn tr-fur" type="submit"${off||!(TRL.text||'').trim()?' disabled':''}>${TRL.busy?(EN?'Sending…':'Отправляем…'):(EN?'Send sizes':'Отправить размеры')}</button></form>`);
+  const f=box.querySelector('[data-tr-sizes]'); if(!f)return;
+  const ta=f.querySelector('textarea');
+  const sb=f.querySelector('button[type=submit]');
+  ta.oninput=()=>{TRL.text=ta.value; TRL.rid=null; if(TRL.err){TRL.err='';} sb.disabled=off||!ta.value.trim();};
+  ['click','pointerdown','keydown'].forEach(n=>f.addEventListener(n,e=>e.stopPropagation()));   // клик в поле — не клик по плану/комнате
+  f.onsubmit=e=>{e.preventDefault(); trSendSizes();};
+}
+async function trSendSizes(){
+  const k=trKey(), id=trJobId(), text=(TRL.text||'').trim(); if(!k||!id||!text||TRL.busy)return;
+  TRL.rid=TRL.rid||trReqId(); TRL.busy=true; TRL.err=''; trRedraw();
+  let r, j={};
+  try{
+    r=await fetch('/api/trial/'+id+'/listing',{method:'POST',headers:{'content-type':'application/json'},cache:'no-store',
+      body:JSON.stringify({k, request_id:TRL.rid, text})});
+    try{j=await r.json();}catch(e){}
+  }catch(e){ TRL.busy=false; TRL.err='offline'; return trRedraw(); }   // тот же request_id при повторе — второй работы не будет
+  TRL.busy=false;
+  if(r.status===202){ TRL.listing='applying'; TRL.rid=null; trRedraw(); trialPoll(1500); return; }
+  TRL.err=j.error||'_'; trRedraw();
+}
+// ответ `version.json`: что с текстом агента; закончился без новой версии (тот же результат) — «готово» без перезагрузки
+function trListingSeen(j){
+  const was=TRL.listing; TRL.listing=j.listing||null; TRL.lerr=j.listingError||'';
+  if(was!==TRL.listing)trRedraw();
 }
 // кнопки «Обустроить» — где бы ни стояли (план, карточка, пометка, шапка): перехват раньше клика по комнате, окно комнаты не открывается
 document.addEventListener('click',e=>{
@@ -2522,7 +2586,7 @@ function flatPlan(){
   if(TRIAL())[...new Set((D.apartment_rooms||[]).filter(r=>/^(no_products|not_readable)$/.test(roomOutcome(r.id)||'')).map(r=>outcomeTxt(r.id,true)+' — '+outcomeTxt(r.id,false)))]
     .forEach(t=>box.insertAdjacentHTML('beforeend',`<div class="hint">${escHtml(t)}</div>`));
   box.insertAdjacentHTML('beforeend',scaleNoteHtml(['div','hint']));
-  if(TRIAL())trPlanNotes(box);
+  if(TRIAL()){trPlanNotes(box); trSizesBox(box);}
 
 }
 // комнаты схемы плана ↔ комнаты реестра квартиры (`homeRooms`) — по id: у схемы id реестра (T-20261022-04; сборка падает, если

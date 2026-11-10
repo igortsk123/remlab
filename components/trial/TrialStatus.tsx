@@ -61,7 +61,7 @@ function Body({ id, lang }: { id: string; lang: TrialLang }) {
   if (state.kind === "missing") return <Message {...m} title={t.msg.missingTitle} text={t.msg.missingText} />;
   if (state.kind === "expired") return <Message {...m} title={t.msg.expiredTitle} text={t.msg.expiredText} />;
   const { job } = state;
-  if (geometryReady(job)) return <TrialResult id={id} job={job} lang={lang} steps={jobSteps(job, lang, fileName)} />;
+  if (geometryReady(job)) return <TrialResult id={id} job={job} lang={lang} steps={jobSteps(job, lang, fileName)} refresh={retry} />;
   if (job.status === "failed" || job.status === "cancelled") {
     return <Message {...m} title={t.msg.failedTitle} text={job.status === "cancelled" ? t.msg.cancelledText : errorText(job.errorCode, lang)} />;
   }

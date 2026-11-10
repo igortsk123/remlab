@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
@@ -15,6 +16,7 @@ test.describe.configure({ mode: "serial" }); // воркер в тесте бе�
 const FIXTURE = path.join(process.cwd(), "tests/fixtures/trial-result-A.json");
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(4000, 7)]);
 const AUTH = { Authorization: `Bearer ${TRIAL_TOKEN}` };
+const GEO = { w: 400, d: 300, title: "Гостиная", openings: [], radiators: [] }; // комната версии данных v1 (Р2-текст)
 let pg: ReturnType<typeof postgres>;
 
 test.beforeAll(async () => {
@@ -105,14 +107,53 @@ test("загрузка → задание в базе → шаги → гото�
   expect((await pg`select status from trial_jobs where id = ${id}`)[0]!.status).toBe("done");
 });
 
-test("масштаб не подтверждён → плашка «Scale not verified» перед переходом", async ({ page, request }) => {
+// Р2-текст (T-20261109-33): размеров нет — у агента окошко «напишите размеры», в тур сам не уводим; текст принимается и после `done`
+test("масштаб не подтверждён → окошко «размеры словами», без автоперехода; текст принят, в статусе его нет", async ({ page, request }) => {
   const id = await upload(page, "");
   const lease = await claim(request, id);
   const result = JSON.parse(await fs.readFile(FIXTURE, "utf8")) as { scale: Record<string, unknown> };
   result.scale = { status: "not_verified", ppm: null, inliers: 0, n: 0 };
   await finish(request, lease, result);
-  await expect(page.getByText("Scale not verified.")).toBeVisible({ timeout: 10_000 });
+  const box = page.getByTestId("trial-sizes");
+  await expect(box.getByText("We couldn't find the room sizes")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("Scale not verified.")).toHaveCount(0); // окошко говорит то же своими словами
+  await page.waitForTimeout(3500); // дольше паузы автоперехода (2,5 с)
+  expect(new URL(page.url()).pathname).toBe(`/try/${id}`);
+  await box.getByLabel("Room sizes").fill("Lounge 4.2 x 3.8 m, bedroom 3 x 3 m");
+  await box.getByRole("button", { name: "Send sizes" }).click();
+  await expect(box.getByTestId("trial-sizes-state")).toHaveText("Applying your sizes…"); // задание уже done — ждёт воркер
+  const [rb] = await pg`select kind, status, listing_text from trial_rebuilds where job_id = ${id}`;
+  expect(rb).toMatchObject({ kind: "listing", status: "queued", listing_text: "Lounge 4.2 x 3.8 m, bedroom 3 x 3 m" });
+  const st = await (await request.get(`${TRIAL_BASE}/api/trial/${id}`)).text();
+  expect(st).toContain('"listing":"applying"');
+  expect(st).not.toContain("Lounge 4.2");
+  await page.getByTestId("trial-done").getByRole("link", { name: "Open the tour" }).click();
   await page.waitForURL(tourUrl(id, "en"), { timeout: 10_000 });
+  await pg`update trial_rebuilds set status = 'failed', listing_text = null where job_id = ${id}`; // воркера листинга в e2e нет
+});
+
+test("текст на v1, пока задание идёт: «принято, применим после сборки» → после done «применяем»", async ({ page, request }) => {
+  const id = await upload(page, "");
+  const lease = await claim(request, id);
+  const bundle = JSON.stringify({
+    trial: { job_id: id, scale: "not_verified" }, room: GEO, rooms_geo: { living: GEO },
+    apartment_rooms: [{ id: "living", furniture_state: "pending", furniture_text: null }],
+    variants: [{ id: "trial-living", room_id: "living", style: "scandi", items: [], pending: true, furniture_state: "pending" }],
+    feeds: {}, rules: {}, quiz: { questions: [{ id: "style" }] },
+  });
+  const pub = await request.post(`${TRIAL_BASE}/api/trial/worker/bundle`, {
+    headers: AUTH, data: { ...lease, bundle, sha256: createHash("sha256").update(bundle).digest("hex") },
+  });
+  expect(pub.status()).toBe(200);
+  const box = page.getByTestId("trial-sizes");
+  await expect(box.getByText("We couldn't find the room sizes")).toBeVisible({ timeout: 10_000 });
+  await box.getByLabel("Room sizes").fill("living room 4.2 x 3.8");
+  await box.getByRole("button", { name: "Send sizes" }).click();
+  await expect(box.getByTestId("trial-sizes-state")).toHaveText("Got it. We'll apply the sizes once the plan is built.");
+  expect((await pg`select status from trial_jobs where id = ${id}`)[0]!.status).toBe("running");
+  await finish(request, lease, JSON.parse(await fs.readFile(FIXTURE, "utf8")));
+  await expect(box.getByTestId("trial-sizes-state")).toHaveText("Applying your sizes…", { timeout: 10_000 });
+  await pg`update trial_rebuilds set status = 'failed', listing_text = null where job_id = ${id}`;
 });
 
 test("по-русски: форма → ожидание → готово → тур на русском", async ({ page, request }) => {
@@ -133,8 +174,11 @@ test("по-русски: форма → ожидание → готово → т
   await finish(request, lease, result);
   const done = page.getByTestId("trial-done");
   await expect(done.getByRole("heading", { name: "3D готово" })).toBeVisible({ timeout: 10_000 });
-  await expect(done.getByText("Масштаб не подтверждён.")).toBeVisible();
+  await expect(done.getByTestId("trial-sizes").getByText("Не нашли размеры комнат")).toBeVisible(); // Р2-текст: окошко агенту
+  await expect(done.getByLabel("Размеры комнат")).toHaveAttribute("placeholder", /гостиная 4,8 на 3,6/);
+  await expect(done.getByRole("button", { name: "Отправить размеры" })).toBeDisabled(); // пустой текст не отправить
   await expect(done.getByRole("link", { name: "Открыть тур" })).toHaveAttribute("href", tourHrefRe(id, "ru"));
+  await done.getByRole("link", { name: "Открыть тур" }).click();
   await page.waitForURL(tourUrl(id, "ru"), { timeout: 10_000 });
 });
 

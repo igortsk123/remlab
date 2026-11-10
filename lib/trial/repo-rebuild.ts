@@ -16,9 +16,9 @@ export type RebuildAsk =
   | { ok: false; status: number; error: string; version?: number };
 
 type JobRow = { status: string; edit_key_hash: string | null; bundle_version: number; past_term: boolean };
-type Tx = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
+export type Tx = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
 const no = (status: number, error: string, version?: number): RebuildAsk => ({ ok: false, status, error, ...(version !== undefined ? { version } : {}) });
-const q = async <T>(tx: Tx, query: SQL): Promise<T[]> => (await tx.execute(query)) as unknown as T[];
+export const q = async <T>(tx: Tx, query: SQL): Promise<T[]> => (await tx.execute(query)) as unknown as T[];
 
 /** Комнаты страницы, которые в версии `version` ждут проверки размера (`furniture_state: awaiting_check`). */
 export async function awaitingRooms(id: string, version: number, dir = trialDir()): Promise<string[] | null> {

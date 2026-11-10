@@ -81,6 +81,16 @@ const en = {
     scaleTitle: "Scale not verified.", scaleText: "Room sizes may be off.",
     scaleArea: "Sizes are based on the total floor area — approximate.",
   },
+  sizes: {
+    title: "We couldn't find the room sizes", text: "Write what you know, in any form — we'll work it out.",
+    label: "Room sizes", placeholder: "e.g. living room 4.8 × 3.6 m, bedroom 3 × 3 m",
+    send: "Send sizes", sending: "Sending…",
+    accepted: "Got it. We'll apply the sizes once the plan is built.", applying: "Applying your sizes…",
+    done: "Done — the tour is updated.", failed: "We couldn't apply the sizes. Please try again.",
+    sourceGone: "The original plan is no longer stored. Please upload it again.",
+    busy: "The tour is still updating. Try again in a minute.", limit: "Too many updates today. Try again tomorrow.",
+    forbidden: "Only the agent's link can change the tour.", error: "Couldn't send. Please try again.",
+  },
 };
 
 export type TrialText = typeof en;
@@ -119,6 +129,16 @@ const ru: TrialText = {
     readyIn: (t: string) => `Готово за ${t}`, rooms: (n: number) => `${n} ${ruPlural(n, "комната", "комнаты", "комнат")}`,
     scaleTitle: "Масштаб не подтверждён.", scaleText: "Размеры комнат могут быть неточными.",
     scaleArea: "Размеры по общей площади — примерные.",
+  },
+  sizes: {
+    title: "Не нашли размеры комнат", text: "Напишите, что знаете, в любом виде — уточним.",
+    label: "Размеры комнат", placeholder: "например: гостиная 4,8 на 3,6, спальня 3×3",
+    send: "Отправить размеры", sending: "Отправляем…",
+    accepted: "Приняли. Применим, когда план соберётся.", applying: "Применяем размеры…",
+    done: "Готово — тур обновлён.", failed: "Не получилось применить размеры. Попробуйте ещё раз.",
+    sourceGone: "Исходный план уже не хранится. Загрузите его заново.",
+    busy: "Тур ещё обновляется. Попробуйте через минуту.", limit: "Слишком много обновлений за сутки. Попробуйте завтра.",
+    forbidden: "Менять тур можно только по ссылке агента.", error: "Не удалось отправить. Попробуйте ещё раз.",
   },
 };
 

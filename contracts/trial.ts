@@ -38,6 +38,12 @@ export const trialJobView = z.object({
   /** Последняя пересборка «Обустроить» (план agent-trial-08, Р1): ждёт / идёт / не удалась; null — нет или завершена. Ключа здесь нет. */
   rebuild: z.enum(["queued", "running", "failed"]).nullable().default(null),
   rebuildError: z.enum(["stale", "lease_lost", "timeout", "pipeline_error", "internal"]).nullable().default(null),
+  /** «Размеры своими словами» (Р2-текст): размеров нет (`scale` ∈ not_verified/area) или есть комнаты, ждущие проверки, — звать агента
+   *  написать размеры. Считается по последней версии данных страницы (`lib/trial/size-ask.ts`). */
+  askSizes: z.boolean().default(false),
+  /** Последний текст агента: принят и ждёт сборки / применяется / применён / не удался. Самого текста здесь нет. */
+  listing: z.enum(["accepted", "applying", "done", "failed"]).nullable().default(null),
+  listingError: z.enum(["source_gone", "stale", "lease_lost", "timeout", "pipeline_error", "internal"]).nullable().default(null),
 });
 export type TrialJobView = z.infer<typeof trialJobView>;
 
@@ -64,8 +70,22 @@ export const trialPhotoIn = z.looseObject({
   items: z.array(z.looseObject({ role: z.string().min(1).max(60) })).min(1).max(200),
 });
 export type TrialPhotoIn = z.infer<typeof trialPhotoIn>;
-/** Коды сбоя пересборки от воркера (наружу — `trialJobView.rebuildError`). */
-export const trialRebuildFailCode = z.enum(["stale", "timeout", "pipeline_error", "internal", "waiting_capacity", "nothing_to_furnish"]);
+/** Коды сбоя пересборки от воркера (наружу — `trialJobView.rebuildError` / `listingError`); `source_gone` — исходного листа уже нет. */
+export const trialRebuildFailCode = z.enum([
+  "stale", "timeout", "pipeline_error", "internal", "waiting_capacity", "nothing_to_furnish", "source_gone",
+]);
+
+// ── «Размеры своими словами» (план agent-trial-08, Р2-текст; `db/init/025-trial-listing-text.sql`) ─────────────────
+export const TRIAL_SIZES_TEXT_MAX = 2000; // знаков (= проверка базы `trial_rebuilds_text_len`)
+export const TRIAL_SIZES_TEXT_MAX_BYTES = 6000; // UTF-8: 2000 знаков кириллицы — 4000 байт
+/** Текст агента: принимается уже на v1 (задание ещё идёт); `request_id` — повтор отправки не даёт второй работы. */
+export const trialListingIn = z.object({
+  k: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
+  request_id: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+  text: z.string().trim().min(1).max(TRIAL_SIZES_TEXT_MAX)
+    .refine((t) => new TextEncoder().encode(t).length <= TRIAL_SIZES_TEXT_MAX_BYTES, { message: "too many bytes" }),
+});
+export type TrialListingIn = z.infer<typeof trialListingIn>;
 
 const num = z.number().finite();
 const pt = z.tuple([num, num]);
@@ -135,6 +155,8 @@ export const trialClaimIn = z.object({
   paused: z.boolean().optional(),
   /** true — воркер умеет пересборки «Обустроить» (`rebuild` в ответе); старый воркер их не получает. */
   rebuilds: z.boolean().optional(),
+  /** true — воркер умеет и пересборки по тексту агента (`kind: "listing"`); без этого такие строки ему не отдаются. */
+  listing: z.boolean().optional(),
 });
 /** Аренда пересборки: `id` — id строки `trial_rebuilds` (не задания). */
 export const trialRebuildLeaseIn = z.object({ ...lease, spentUsd: spent });
@@ -149,6 +171,8 @@ export type TrialRebuildFailIn = z.infer<typeof trialRebuildFailIn>;
 export type TrialRebuildClaimed = {
   id: string; jobId: string; attempt: number; leaseToken: string; leaseUntil: string; rooms: string[]; baseVersion: number;
   result: unknown;
+  /** `listing` — пересборка по тексту агента: `listingText` — его текст (только воркеру), `baseVersion` — версия данных на момент claim. */
+  kind: "furnish" | "listing"; listingText?: string;
 };
 export const trialHeartbeatIn = z.object({ ...lease, stage: trialStage, spentUsd: spent });
 export const trialResultIn = z.object({ ...lease, result: z.unknown(), spentUsd: spent });

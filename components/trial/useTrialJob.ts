@@ -33,7 +33,8 @@ export function useTrialJob(id: string): { state: JobState; offline: boolean; re
         const body = (await res.json()) as { job?: unknown };
         const job = trialJobView.parse(body.job);
         setState({ kind: "ok", job, at: performance.now() });
-        if (FINAL.has(job.status)) next = null;
+        // текст агента «размеры своими словами» ещё ждёт или применяется — опрос не бросаем и после `done` (Р2-текст)
+        if (FINAL.has(job.status) && job.listing !== "accepted" && job.listing !== "applying") next = null;
       }
       fails.current = 0;
       setOffline(false);

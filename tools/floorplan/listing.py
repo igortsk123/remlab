@@ -5,6 +5,12 @@
 Форматы: `Lounge L:3.77m W:4.20m`, `Lounge 3.77m x 4.20m`, `Lounge 3.77 x 4.20`, `Kitchen 12'3" x 6'9"`,
 `Bedroom One 4.10m (13'5") x 3.20m (10'6") max`, имя отдельной строкой над размерами.
 
+Русский текст агента (T-20261109-33, «размеры своими словами»): «гостиная 4,2 на 3,8», «спальня 3×3» (целые — только в строке
+с кириллицей), «кухня 10 м²» (площадь комнаты — поле `area_m2`, стороны не выдумываем), «Комната 1», «вторая спальня»; единицы
+«м/метра», разделители «на / x / × / х». Имена RU↔EN сопоставляются по ВИДУ комнаты и номеру (`room_kind`: «гостиная» ↔ Lounge /
+Living Room, «спальня 1» ↔ Bedroom 1) — только если одна из сторон по-русски и пара однозначна с обеих сторон; английское ↔
+английское — как раньше, по точному ключу имени.
+
 Общая площадь (T-20261109-26): `total_area` (текст: «Total area 72.5 m²», «780 sq ft», «GIA», «общая площадь 54,3 м²»),
 `sheet_area` (напечатано на листе — ответ VLM `labels2.areas`), `pick_area` (обе есть и разошлись — флаг, не угадываем);
 масштаб из неё — `pipeline.area_scale`.
@@ -16,11 +22,18 @@ import re
 NUM_WORDS = {'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5', 'six': '6', 'seven': '7', 'eight': '8',
              'nine': '9', 'ten': '10', 'eleven': '11', 'twelve': '12', 'first': '1', 'second': '2', 'third': '3',
              'fourth': '4', 'fifth': '5', 'sixth': '6', 'seventh': '7', 'eighth': '8', 'ninth': '9', 'tenth': '10'}
-STOP = {'and', 'the', 'of'}
+NUM_WORDS_RU = {'один': '1', 'одна': '1', 'первая': '1', 'первый': '1', 'два': '2', 'две': '2', 'вторая': '2', 'второй': '2',
+                'три': '3', 'третья': '3', 'третий': '3', 'четыре': '4', 'четвертая': '4', 'четвертый': '4', 'пять': '5',
+                'пятая': '5', 'пятый': '5', 'шесть': '6', 'шестая': '6'}
+STOP = {'and', 'the', 'of', 'и', 'я', 'й', 'ая', 'ой'}
 
-_M = r'(\d{1,2}(?:[.,]\d{1,3})?)\s*(?:m|metres|meters|mtrs?)\b'
+_M = r'(\d{1,2}(?:[.,]\d{1,3})?)\s*(?:m|metres|meters|mtrs?|м|метр(?:а|ов)?)\b'      # «м» перед «²/2» — не метр (\b)
 _FT = r"(\d{1,2})\s*(?:'|’|′|ft|feet)\s*(?:(\d{1,2}(?:\.\d+)?)\s*(?:\"|”|″|''|in|inches)?)?"
-_BARE = r'(\d{1,2}[.,]\d{1,3})\s*(?:x|×|by|\*)\s*(\d{1,2}[.,]\d{1,3})(?!\s*(?:\'|’|′|ft))'
+_SEP = r'\s*(?:x|×|х|by|на|\*)\s*'                                               # «х» — кириллица
+_BARE = r'(\d{1,2}[.,]\d{1,3})' + _SEP + r'(\d{1,2}[.,]\d{1,3})(?!\s*(?:\'|’|′|ft))'
+_BARE_INT = r'(?<![\d.,])(\d{1,2}(?:[.,]\d{1,3})?)' + _SEP + r'(\d{1,2}(?:[.,]\d{1,3})?)(?![\d\'’′]|\s*(?:ft|м²|м2|m²|m2))'
+_ROOM_AREA = r'(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:м²|м2\b|кв\.?\s*м\b|m²|m2\b|sq\.?\s*m\b|sqm\b)'
+CYR = re.compile(r'[а-яё]', re.I)
 NOTE_PAT = [('into bay', r'into\s+(?:the\s+)?bay'), ('max', r'\bmax(?:imum)?\b'), ('min', r'\bmin(?:imum)?\b'),
             ('narrowing', r'narrowing'), ('overall', r'\boverall\b'), ('approx', r'\bapprox')]
 
@@ -43,6 +56,8 @@ def parse_line(line: str) -> dict | None:
     met = [(m.start(), _f(m.group(1))) for m in re.finditer(_M, low)]
     ft = [(m.start(), ft_in_to_m(m.group(1), m.group(2))) for m in re.finditer(_FT, low)]
     bare = [(m.start(), (_f(m.group(1)), _f(m.group(2)))) for m in re.finditer(_BARE, low)]
+    if not bare and CYR.search(low):                       # «спальня 3×3», «3 на 4 м» — целые только у русского текста
+        bare = [(m.start(), (_f(m.group(1)), _f(m.group(2)))) for m in re.finditer(_BARE_INT, low)]
     dims, unit, start = None, None, None
     if len(met) >= 2:
         dims, unit, start = (met[0][1], met[1][1]), 'm', met[0][0]
@@ -50,7 +65,9 @@ def parse_line(line: str) -> dict | None:
         dims, unit, start = bare[0][1], 'm', bare[0][0]
     elif len(ft) >= 2:
         dims, unit, start = (ft[0][1], ft[1][1]), 'ft', ft[0][0]
-    if dims is None or not all(0.3 <= v <= 40 for v in dims):
+    if dims is None:
+        return _area_row(s, low)
+    if not all(0.3 <= v <= 40 for v in dims):
         return None
     if ft:
         start = min(start, ft[0][0])
@@ -69,14 +86,31 @@ def parse_line(line: str) -> dict | None:
     return out
 
 
+def _area_row(s: str, low: str) -> dict | None:
+    """Строка без двух сторон, но с площадью КОМНАТЫ («кухня 10 м²», «Bedroom 2 9.8 m²») → {'name', 'dims_m': None, 'area_m2'}.
+    Общая площадь («Общая площадь 54 м²», «GIA …») и площадь без названия комнаты — не строка комнаты (это `total_area`)."""
+    m = re.search(_ROOM_AREA, low)
+    if not m or TOTAL_KEY.search(low) or not ROOM_WORD.search(low[:m.start()]):
+        return None
+    v = _f(m.group(1))
+    if not 1.0 <= v <= 200.0:
+        return None
+    name = re.sub(r'[\s:;,\-–—(=]+$', '', s[:m.start()]).strip()
+    name = re.sub(r'^[\s\-–—•*·]+', '', name)
+    if not name:
+        return None
+    return {'name': name, 'dims_m': None, 'area_m2': round(v, 2), 'unit': 'm2', 'notes': [], 'raw': s}
+
+
 def parse_listing(text: str) -> list[dict]:
-    """Весь текст → строки с размерами; строка без имени берёт ближайшую строку выше без размеров."""
+    """Весь текст → строки с размерами; строка без имени берёт ближайшую строку выше без размеров. Строка с одной площадью
+    комнаты (`area_m2`, без сторон) той же комнаты, что строка со сторонами, — не вторая строка, а поле той (иначе повтор имени)."""
     rows, prev = [], None
     for line in text.splitlines():
         r = parse_line(line)
         if r is None:
             t = ' '.join(line.split()).strip(' :-–—•*')
-            if t and len(t) <= 60 and re.search(r'[A-Za-z]', t):
+            if t and len(t) <= 60 and re.search(r'[A-Za-zА-Яа-яЁё]', t):
                 prev = t
             continue
         if r['name'] is None:
@@ -85,23 +119,56 @@ def parse_listing(text: str) -> list[dict]:
             r['name'] = prev
         prev = None
         rows.append(r)
-    return rows
+    sized = {norm_name(r['name']): r for r in rows if r.get('dims_m')}
+    out = []
+    for r in rows:
+        twin = sized.get(norm_name(r['name'])) if not r.get('dims_m') else None
+        if twin is not None:
+            twin.setdefault('area_m2', r['area_m2'])
+            continue
+        out.append(r)
+    return out
 
 
 def norm_name(name: str) -> str:
-    """Ключ сопоставления: регистр, «/» «&» «-» → пробел, слова-числа → цифры (One↔1), «and/the» убраны,
-    ведущие нули чисел — нет. «Bedroom One» = «bedroom 1» = «BEDROOM 1»; «Kitchen/Diner» = «Kitchen & Diner»."""
-    s = name.lower().replace('&', ' ').replace('/', ' ').replace('+', ' ')
-    s = re.sub(r'[^a-z0-9 ]+', ' ', s)
+    """Ключ сопоставления: регистр, «/» «&» «-» → пробел, слова-числа → цифры (One↔1, «вторая»↔2), «and/the» убраны,
+    ведущие нули чисел — нет, «ё» = «е». «Bedroom One» = «bedroom 1» = «BEDROOM 1»; «Kitchen/Diner» = «Kitchen & Diner»;
+    «Спальня 1» = «спальня первая»."""
+    s = name.lower().replace('ё', 'е').replace('&', ' ').replace('/', ' ').replace('+', ' ')
+    s = re.sub(r'[^a-z0-9а-я ]+', ' ', s)
     toks = []
     for w in s.split():
-        w = NUM_WORDS.get(w, w)
+        w = NUM_WORDS.get(w, NUM_WORDS_RU.get(w, w))
         if w in STOP:
             continue
         if w.isdigit():
             w = str(int(w))
         toks.append(w)
     return ' '.join(toks)
+
+
+# вид комнаты для сопоставления RU↔EN: первый узнанный корень слова (порядок важен: «кухня-гостиная» — кухня)
+KIND_ROOTS = [('kitchen', ('kitchen', 'кухн')), ('living', ('lounge', 'living', 'sitting', 'reception', 'drawing', 'гостин', 'зал')),
+              ('bedroom', ('bedroom', 'bed', 'master', 'спальн', 'детск')), ('dining', ('dining', 'diner', 'столов')),
+              ('bathroom', ('bathroom', 'bath', 'shower', 'ensuite', 'ванн', 'душ', 'санузел')),
+              ('wc', ('wc', 'toilet', 'cloakroom', 'cloaks', 'туалет', 'уборн')),
+              ('hall', ('hallway', 'hall', 'entrance', 'lobby', 'прихож', 'коридор', 'холл')),
+              ('study', ('study', 'office', 'кабинет')), ('utility', ('utility', 'laundry', 'постироч')),
+              ('store', ('storage', 'store', 'cupboard', 'closet', 'pantry', 'кладов', 'гардероб')),
+              ('balcony', ('balcony', 'terrace', 'балкон', 'лоджи', 'террас')), ('garage', ('garage', 'гараж')),
+              ('room', ('room', 'комнат', 'жил'))]
+
+
+def room_kind(name: str) -> tuple[str | None, str | None]:
+    """Имя → (вид, номер) для сопоставления RU↔EN: «Гостиная» → ('living', None), «Bedroom Two» → ('bedroom', '2'),
+    «вторая спальня» → ('bedroom', '2'), «Комната 1» → ('room', '1'). Вид не узнан — (None, номер)."""
+    toks = norm_name(name).split()
+    num = next((t for t in toks if t.isdigit()), None)
+    for t in toks:
+        for kind, roots in KIND_ROOTS:
+            if any(t == r or (len(r) >= 3 and t.startswith(r)) for r in roots):
+                return kind, num
+    return None, num
 
 
 def dims_agree(a, b, tol_abs: float = 0.05, tol_rel: float = 0.02) -> bool:
@@ -115,31 +182,59 @@ def match(plan_labels: list[dict], rows: list[dict]) -> tuple[list[dict], list[d
     """plan_labels: [{'name', 'dims'|None, ...}] (подписи плана, прочитанные VLM) ← строки текста.
     → (подписи с полями 'dims' (итог), 'dims_src' plan|text|both, 'text_flags'), строки текста без пары (с причиной).
     Пара — только по совпадению ключа имени и только один-к-одному: повтор ключа на любой стороне — флаг, размер
-    из текста не берём. Есть и на плане, и в тексте: совпали → both; разошлись → флаг, остаётся размер плана."""
+    из текста не берём. Есть и на плане, и в тексте: совпали → both; разошлись → флаг, остаётся размер плана.
+    Имя по-русски хотя бы с одной стороны и точного ключа нет — пара по виду комнаты и номеру (`room_kind`), тоже один-к-одному
+    (`text_match: kind`); текст без номера («спальня») — к единственной комнате этого вида на плане. Строка с одной площадью
+    (`area_m2`, без сторон) — поле `text_area_m2` у подписи, размер не подменяет."""
     from collections import Counter
-    pk = Counter(norm_name(l['name']) for l in plan_labels)
-    tk = Counter(norm_name(r['name']) for r in rows)
-    by_t = {}
-    for r in rows:
-        by_t.setdefault(norm_name(r['name']), []).append(r)
+    pkey = [norm_name(l['name']) for l in plan_labels]
+    tkey = [norm_name(r['name']) for r in rows]
+    pk, tk = Counter(pkey), Counter(tkey)
+    pair, how = {}, {}                                   # индекс подписи → индекс строки текста; как сопоставили
+    for i, k in enumerate(pkey):
+        if pk[k] == 1 and tk.get(k, 0) == 1:
+            pair[i], how[i] = tkey.index(k), 'name'
+    # RU↔EN: подписи без строки с тем же ключом и строки без подписи с тем же ключом — по виду и номеру, однозначно
+    free_p = [i for i, k in enumerate(pkey) if tk.get(k, 0) == 0]
+    free_t = [j for j, k in enumerate(tkey) if pk.get(k, 0) == 0]
+    pkind = {i: room_kind(plan_labels[i]['name']) for i in free_p}
+    tkind = {j: room_kind(rows[j]['name']) for j in free_t}
+    unsure = set()
+    for j in free_t:
+        kind, num = tkind[j]
+        if kind is None:
+            continue
+        cyr_t = bool(CYR.search(rows[j]['name']))
+        cand = [i for i in free_p if i not in pair and pkind[i][0] == kind and (cyr_t or CYR.search(plan_labels[i]['name']))
+                and (num is None or pkind[i][1] == num)]
+        rivals = [x for x in free_t if x != j and tkind[x][0] == kind and (num is None or tkind[x][1] in (None, num))]
+        if len(cand) == 1 and not rivals:
+            pair[cand[0]], how[cand[0]] = j, 'kind'
+        elif cand:
+            unsure.add(j)
+    used = set(pair.values())
     out = []
-    for l in plan_labels:
+    for i, l in enumerate(plan_labels):
         l = dict(l)
-        k = norm_name(l['name'])
+        k = pkey[i]
         fl = list(l.get('text_flags', []))
         src = 'plan' if l.get('dims') else None
-        if tk.get(k, 0) == 0:
-            if rows:
+        if i not in pair:
+            if tk.get(k, 0) > 1 or (tk.get(k, 0) and pk[k] > 1):
+                fl.append('повтор имени — текст не взят')
+            elif rows:
                 fl.append('нет в тексте')
-        elif tk[k] > 1 or pk[k] > 1:
-            fl.append('повтор имени — текст не взят')
         else:
-            r = by_t[k][0]
+            r = rows[pair[i]]
             if r.get('conflict'):
                 fl.append('текст: ' + r['conflict'])
             if r['notes']:
                 fl.append('текст: ' + '/'.join(r['notes']))
-            if l.get('dims'):
+            if r.get('area_m2'):
+                l['text_area_m2'] = r['area_m2']
+            if not r.get('dims_m'):
+                pass                                     # одна площадь — сторон не выдумываем
+            elif l.get('dims'):
                 if dims_agree(l['dims'], r['dims_m']):
                     src = 'both'
                 else:
@@ -148,16 +243,18 @@ def match(plan_labels: list[dict], rows: list[dict]) -> tuple[list[dict], list[d
                 l['dims'] = tuple(r['dims_m'])
                 src = 'text'
             l['text_row'] = r['raw']
+            l['text_match'] = how[i]
         l['dims_src'] = src
         l['text_flags'] = fl
         out.append(l)
     orphans = []
-    for r in rows:
-        k = norm_name(r['name'])
-        if pk.get(k, 0) == 0:
-            orphans.append(dict(r, why='в тексте есть, на плане не найдено'))
-        elif pk[k] > 1 or tk[k] > 1:
-            orphans.append(dict(r, why='повтор имени'))
+    for j, r in enumerate(rows):
+        if j in used:
+            continue
+        k = tkey[j]
+        why = ('повтор имени' if pk.get(k, 0) > 1 or tk[k] > 1 else
+               'неясно, какая комната на плане' if j in unsure else 'в тексте есть, на плане не найдено')
+        orphans.append(dict(r, why=why))
     return out, orphans
 
 

@@ -16,15 +16,18 @@ import { ensureJobRelease } from "@/lib/trial/tour-bundle";
 
 const fenceR = (f: TrialRebuildLease) => sql`id = ${f.id} and status = 'running'
   and attempt = ${f.attempt} and lease_token = ${f.leaseToken} and lease_until > now()`;
-const doneSet = sql`finished_at = now(), lease_until = null`;
+// конец пересборки: текст агента (`listing`) больше не нужен — не храним
+const doneSet = sql`finished_at = now(), lease_until = null, listing_text = null`;
 const union = (a: unknown, b: unknown): string[] => [...new Set([...jsonOf<string[]>(a ?? []), ...jsonOf<string[]>(b ?? [])])];
 
-/** Исчерпанные попытки с истёкшей арендой → failed/lease_lost; ждущие пересборки снятого (не `done`) задания → failed/stale. */
+/** Исчерпанные попытки с истёкшей арендой → failed/lease_lost; ждущие пересборки снятого (не `done`) задания → failed/stale. Текст агента
+ *  (`listing`) ждёт `done` задания штатно (принят на v1) — снимаем его, только когда задание уже не станет `done`. */
 export async function exhaustRebuilds(): Promise<void> {
   await db().execute(sql`update trial_rebuilds set status = 'failed', error_code = 'lease_lost', ${doneSet}
     where status = 'running' and lease_until < now() and attempt >= max_attempts`);
   await db().execute(sql`update trial_rebuilds r set status = 'failed', error_code = 'stale', ${doneSet}
-    from trial_jobs j where j.id = r.job_id and r.status in ('queued', 'running') and j.status <> 'done'`);
+    from trial_jobs j where j.id = r.job_id and r.status in ('queued', 'running') and j.status <> 'done'
+      and (r.kind <> 'listing' or j.status in ('failed', 'cancelled', 'expired'))`);
 }
 
 /** Пересборку раньше загрузки? Да, пока новая загрузка не ждёт или с её появления взято меньше `TRIAL_REBUILD_QUOTA` пересборок. */
@@ -35,24 +38,33 @@ export async function rebuildFirst(env = process.env): Promise<boolean> {
   return !r?.waiting || r.since < trialRebuildQuota(env);
 }
 
-type ClaimRow = { id: string; job_id: string; attempt: number; lease_token: string; lease_until: string; rooms: unknown; base_version: number };
+type ClaimRow = {
+  id: string; job_id: string; attempt: number; lease_token: string; lease_until: string; rooms: unknown; base_version: number;
+  kind: "furnish" | "listing"; listing_text: string | null;
+};
 
-/** Одна пересборка под аренду — скалярным подзапросом, как `repo-worker.ts:claim` (почему не `from (…) c` — там). */
-export async function claimRebuild(workerId: string): Promise<TrialRebuildClaimed | null> {
+/** Одна пересборка под аренду — скалярным подзапросом, как `repo-worker.ts:claim` (почему не `from (…) c` — там).
+ *  `listing` — воркер умеет пересборки по тексту агента (Р2-текст); старый воркер их не получает. У `listing` база версии при claim —
+ *  ТЕКУЩАЯ версия данных (поколение после `done`): текст приняли на v1, задание дошло до v3 — это не «устарело». */
+export async function claimRebuild(workerId: string, listing = false): Promise<TrialRebuildClaimed | null> {
   await exhaustRebuilds();
   const token = randomToken(24);
   const [r] = await rows<ClaimRow>(sql`update trial_rebuilds r set status = 'running', attempt = r.attempt + 1, lease_token = ${token},
       lease_until = now() + make_interval(secs => ${TRIAL_LEASE_SEC}::int), worker_id = ${workerId}, heartbeat_at = now(),
-      started_at = coalesce(r.started_at, now())
+      started_at = coalesce(r.started_at, now()),
+      base_version = case when r.kind = 'listing' then (select j.bundle_version from trial_jobs j where j.id = r.job_id) else r.base_version end
     where r.id = (select x.id from trial_rebuilds x join trial_jobs j on j.id = x.job_id
       where (x.status = 'queued' or (x.status = 'running' and x.lease_until < now())) and x.attempt < x.max_attempts and j.status = 'done'
+        and (x.kind = 'furnish' or ${listing})
       order by x.created_at, x.id for update of x skip locked limit 1)
-    returning r.id, r.job_id, r.attempt, r.lease_token, ${iso(sql`r.lease_until`)} as lease_until, r.rooms, r.base_version`);
+    returning r.id, r.job_id, r.attempt, r.lease_token, ${iso(sql`r.lease_until`)} as lease_until, r.rooms, r.base_version, r.kind,
+      r.listing_text`);
   if (!r) return null;
   const [j] = await rows<{ result: unknown; released_rooms: unknown }>(sql`select result, released_rooms from trial_jobs where id = ${r.job_id}`);
   return {
     id: r.id, jobId: r.job_id, attempt: r.attempt, leaseToken: r.lease_token, leaseUntil: r.lease_until,
-    rooms: union(j?.released_rooms, r.rooms), baseVersion: r.base_version, result: j ? jsonOf(j.result) : null,
+    rooms: union(j?.released_rooms, r.rooms), baseVersion: r.base_version, result: j ? jsonOf(j.result) : null, kind: r.kind,
+    ...(r.kind === "listing" ? { listingText: r.listing_text ?? "" } : {}),
   };
 }
 

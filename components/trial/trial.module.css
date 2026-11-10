@@ -11,6 +11,17 @@
 .linkBtn { font: inherit; font-weight: 600; color: var(--color-fg-brand-primary); background: none; border: 0; padding: 0; min-height: 44px; cursor: pointer;
   text-decoration: underline; text-underline-offset: 3px; }
 
+/* ── размеры своими словами (Р2-текст): поле агента в карточке «готово» ── */
+.sizes { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-border-secondary); }
+.sizes b { display: block; font-size: 15px; }
+.sizes p { margin: 2px 0 8px; font-size: 14px; color: var(--color-text-tertiary); }
+.sizes textarea { display: block; width: 100%; min-height: 88px; resize: vertical; font: inherit; font-size: 16px; line-height: 1.4;
+  color: var(--color-text-primary); background: var(--color-bg-primary_alt); border: 1px solid var(--color-border-primary); border-radius: 10px; padding: 10px 12px; }
+.sizes textarea:focus { outline: 2px solid var(--color-brand-500); outline-offset: 1px; }
+.sizes .sizesOk { margin: 8px 0 0; color: var(--color-text-success-primary); }
+.sizes .sizesErr { margin: 8px 0 0; color: var(--color-text-warning-primary); }
+.sizes button:disabled { opacity: .45; cursor: default; }
+
 /* ── готово: масштаб не подтверждён ── */
 .warn.warn { margin: 12px 0 0; color: var(--color-text-warning-primary); background: var(--color-bg-warning-primary); border: 1px solid var(--color-border-secondary);
   border-radius: 12px; padding: 10px 12px; font-size: 14px; }
