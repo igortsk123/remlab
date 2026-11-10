@@ -82,6 +82,8 @@ describe("тексты", () => {
     expect(errorText(null, "ru")).toMatch(/что-то пошло не так/);
     expect(uploadErrorText("rate_limited", "en")).toMatch(/10 minutes/);
     expect(uploadErrorText("rate_limited", "ru")).toMatch(/минут 10/);
+    // Retry-After в пределах короткого окна (10 мин) — «подряд», как было
+    expect(uploadErrorText("rate_limited", "ru", 420)).toMatch(/минут 10/);
     expect(uploadErrorText("whatever", "en")).toMatch(/didn't go through/);
     expect(uploadErrorText("toString", "ru")).toMatch(/Загрузка не прошла/); // не поле прототипа
     for (const c of trialErrorCode.options) {
@@ -92,6 +94,23 @@ describe("тексты", () => {
       expect(uploadErrorText(c, "ru")).not.toBe(uploadErrorText(undefined, "ru"));
       expect(uploadErrorText(c, "en")).not.toBe(uploadErrorText(undefined, "en"));
     }
+  });
+
+  it("суточный лимит адреса (T-20261110-15): когда снова — из Retry-After, по-русски по Москве, по-английски UTC", () => {
+    // 10.11 08:49 UTC, сброс в 00:00 UTC (через 54 642 с) — у агента в Москве это завтра после 03:00
+    const now = Date.parse("2026-11-10T08:49:18Z"), ra = 54_642;
+    expect(uploadErrorText("rate_limited", "ru", ra, now)).toBe(
+      "Сегодня с этого адреса уже загружено 10 планов. Попробуйте завтра после 03:00 по Москве.");
+    expect(uploadErrorText("rate_limited", "en", ra, now)).toBe(
+      "10 plans have already been uploaded from this address today. Please try again tomorrow after 00:00 UTC.");
+    // 22:30 UTC = 01:30 по Москве: сброс в 03:00 по Москве — уже «сегодня», а в UTC — «завтра»
+    const late = Date.parse("2026-11-10T22:30:00Z");
+    expect(uploadErrorText("rate_limited", "ru", 5400, late)).toMatch(/Попробуйте сегодня после 03:00 по Москве/);
+    expect(uploadErrorText("rate_limited", "en", 5400, late)).toMatch(/tomorrow after 00:00 UTC/);
+    // время не жёсткое: другой Retry-After — другое время
+    expect(uploadErrorText("rate_limited", "en", 3600 * 3, now)).toMatch(/today after 11:49 UTC/);
+    // без заголовка — короткий текст, как раньше
+    expect(uploadErrorText("rate_limited", "en", null, now)).toMatch(/10 minutes/);
   });
 
   it("тур — когда опубликована версия данных: готово или промежуточная версия у идущего", () => {

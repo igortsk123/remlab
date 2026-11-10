@@ -5,6 +5,7 @@
 
 import type { TrialErrorCode, TrialJobView, TrialStage } from "@/contracts/trial";
 import { ruPlural, type TrialLang } from "@/lib/trial/i18n";
+import { TRIAL_UPLOAD_LIMITS } from "@/lib/trial/upload-limits";
 
 export type StepState = "done" | "run" | "next";
 export type Step = { key: string; title: string; state: StepState; atSec: number | null };
@@ -135,5 +136,23 @@ const UPLOAD_FAILED = {
   en: "The upload didn't go through. Please check your connection and try again.",
   ru: "Загрузка не прошла. Проверьте связь и попробуйте ещё раз.",
 };
-export const uploadErrorText = (code: string | undefined, lang: TrialLang): string =>
-  ((code && Object.hasOwn(UPLOAD_ERRORS, code) ? UPLOAD_ERRORS[code] : undefined) ?? UPLOAD_FAILED)[lang];
+// суточный лимит с адреса: время сброса — из Retry-After (не жёстко), по-русски — по Москве, по-английски — UTC
+const RESET_TZ: Record<TrialLang, string> = { ru: "Europe/Moscow", en: "UTC" };
+const dayOf = (ms: number, tz: string) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, dateStyle: "short" }).format(ms);
+function dayLimitText(lang: TrialLang, retryAfterSec: number, nowMs: number): string {
+  const n = TRIAL_UPLOAD_LIMITS.day.limit, at = nowMs + retryAfterSec * 1000, tz = RESET_TZ[lang];
+  const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
+  const today = dayOf(at, tz) === dayOf(nowMs, tz);
+  return lang === "ru"
+    ? `Сегодня с этого адреса уже загружено ${n} ${ruPlural(n, "план", "плана", "планов")}. Попробуйте ${today ? "сегодня" : "завтра"} после ${hhmm} по Москве.`
+    : `${n} plans have already been uploaded from this address today. Please try again ${today ? "today" : "tomorrow"} after ${hhmm} UTC.`;
+}
+
+/** Текст ошибки загрузки. `rate_limited` с Retry-After дольше короткого окна — сработал суточный лимит адреса (окна
+ *  фиксированные: короткое отвечает не дольше `burst.windowSec`), тогда — когда можно снова; иначе — «подряд», как было. */
+export function uploadErrorText(code: string | undefined, lang: TrialLang, retryAfterSec?: number | null, nowMs = Date.now()): string {
+  if (code === "rate_limited" && retryAfterSec && retryAfterSec > TRIAL_UPLOAD_LIMITS.burst.windowSec) {
+    return dayLimitText(lang, retryAfterSec, nowMs);
+  }
+  return ((code && Object.hasOwn(UPLOAD_ERRORS, code) ? UPLOAD_ERRORS[code] : undefined) ?? UPLOAD_FAILED)[lang];
+}

@@ -18,7 +18,7 @@ const size = (b: number, t: { mb: string; kb: string }, lang: TrialLang) => {
   const n = b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) : String(Math.max(1, Math.round(b / 1024)));
   return `${lang === "ru" ? n.replace(".", ",") : n} ${b >= 1024 * 1024 ? t.mb : t.kb}`;
 };
-type Reply = { status: number; body: { id?: string; url?: string; error?: string } };
+type Reply = { status: number; body: { id?: string; url?: string; error?: string }; retryAfterSec: number | null };
 
 function send(data: FormData, onProgress: (p: number) => void): Promise<Reply> {
   return new Promise((resolve, reject) => {
@@ -26,7 +26,10 @@ function send(data: FormData, onProgress: (p: number) => void): Promise<Reply> {
     x.open("POST", "/api/trial");
     x.responseType = "json";
     x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
-    x.onload = () => resolve({ status: x.status, body: (x.response ?? {}) as Reply["body"] });
+    x.onload = () => {
+      const ra = Number(x.getResponseHeader("Retry-After"));
+      resolve({ status: x.status, body: (x.response ?? {}) as Reply["body"], retryAfterSec: Number.isFinite(ra) && ra > 0 ? ra : null });
+    };
     x.onerror = () => reject(new Error("network"));
     x.send(data);
   });
@@ -75,7 +78,7 @@ export function UploadForm({ lang }: { lang: TrialLang }) {
         router.push(withLang(r.body.url, lang));
         return;
       }
-      setError(uploadErrorText(r.body.error, lang));
+      setError(uploadErrorText(r.body.error, lang, r.retryAfterSec));
     } catch {
       setError(uploadErrorText(undefined, lang));
     }

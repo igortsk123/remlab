@@ -4,6 +4,7 @@
 // платить вслепую), бесплатное — открыто (лимитер не должен ронять сайт).
 
 import { counterStore, type CounterStore } from "@/lib/ratelimit/store";
+import { TRIAL_UPLOAD_LIMITS } from "@/lib/trial/upload-limits";
 
 export type Rule = { key: string; limit: number; windowSec: number };
 export type LimitResult =
@@ -51,11 +52,12 @@ export const PRESETS = {
   // Проба для агентов (agent-trial-01): загрузка плана — платный VLM на DEV, поэтому при сбое лимитера закрыто.
   // Суточный потолок на весь сайт (TRIAL_DAILY_CAP, 30) считается по созданным заданиям под замком в
   // `lib/trial/repo-create.ts` — счётчик здесь съедал бы потолок отказами (полная очередь, битый файл).
+  // Числа — `lib/trial/upload-limits.ts` (по ним же форма пишет «подряд» или «на сегодня»).
   trialUpload: (ip: string) => ({
     paid: true,
     rules: [
-      { key: `trial:ip:${ip}`, limit: 3, windowSec: 600 },
-      { key: `trial:ip-day:${ip}`, limit: 10, windowSec: DAY },
+      { key: `trial:ip:${ip}`, ...TRIAL_UPLOAD_LIMITS.burst },
+      { key: `trial:ip-day:${ip}`, ...TRIAL_UPLOAD_LIMITS.day },
     ],
   }),
   // Страница задания опрашивает статус раз в 1,5 с (40 в минуту) — запас на две вкладки.
