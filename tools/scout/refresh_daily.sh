@@ -197,9 +197,9 @@ step tmp_sweep bash ../ops/tmp-sweep.sh       # /tmp DEV — свои време
 # недели; хранилище мешей и всё, что называет код, — нет). До сборки — место нужно ей. DIGEST «свободно N, убрано M»; < 30 ГБ — WARN
 step disk_keeper "$PY" ../ops/disk-keeper.py --apply --digest
 # второй круг (T-20261110-30): влитые рабочие копии, кэши стенда планов, старые поколения мешей, тома/контейнеры стендов БД —
-# здесь ТОЛЬКО сухо: «можно снять N ГБ», темп «за сутки −M ГБ» и прогноз; удаляет шаг remlab общей уборки (tools/ops/remlab-hygiene.sh)
-# и только по правилам, одобренным владельцем (rules/dev-disk-clean.json → approved). Кончится раньше 3 сут — WARN:disk_forecast
-step disk_clean "$PY" ../ops/disk_clean.py --digest
+# удаляет ТОЛЬКО по правилам, одобренным владельцем (rules/dev-disk-clean.json → approved; все 5 — 10.11 TG 841, ночной --apply — TG 847),
+# каждый кандидат перепроверяется перед удалением; в дайджест — «убрано N ГБ», темп «за сутки −M ГБ» и прогноз (раньше 3 сут — WARN:disk_forecast)
+step disk_clean "$PY" ../ops/disk_clean.py --apply --digest
 step dev_checks bash ../ops/dev-checks.sh
 step feed_guard "$PY" feed_guard.py
 
