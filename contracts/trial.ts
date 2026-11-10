@@ -137,7 +137,7 @@ export const floorplanResult = z.object({
     areaM2: num.positive().optional(),
     areaSrc: z.enum(["text", "sheet", "both"]).optional(),
   }),
-  panels: z.array(panel).min(1).max(4),
+  panels: z.array(panel).min(1).max(6),   // T-27/2: 4 → 6 (Nethercote: дом, постройки, 1-й, 2-й этаж, подвал)
   flags,
   timings: z.record(z.string().max(40), num.nonnegative()),
   costUsd: num.nonnegative(),

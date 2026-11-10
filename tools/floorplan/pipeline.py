@@ -46,7 +46,7 @@ PDF_TIMEOUT_S, PDF_AS_BYTES = 30, 1 << 30
 WALL_T_M = 0.20                  # без подписей: масштаб по толщине стены (D–G: толщина/ppm = 0,18…0,27 м) — not_verified;
                                  # есть общая площадь (текст/лист) — масштаб по ней, статус `area` (`scale_of`, T-20261109-26)
 SLOT_LABEL, SLOT_MIN_GB, SLOT_TIMEOUT_S = 'trial-floorplan', 2.5, 60
-MAX_PANELS, MAX_ROOMS, MAX_OPENINGS, MAX_POLYS, MAX_HOLES, MAX_RING = 4, 80, 400, 400, 200, 4000
+MAX_PANELS, MAX_ROOMS, MAX_OPENINGS, MAX_POLYS, MAX_HOLES, MAX_RING = 6, 80, 400, 400, 200, 4000   # панелей 4 → 6 (T-27/2: Nethercote — 5)
 RESULT_MAX_BYTES = 2 * 1024 * 1024 - 64 * 1024
 MIMES = {'JPEG': 'image/jpeg', 'PNG': 'image/png', 'WEBP': 'image/webp'}
 
@@ -654,6 +654,7 @@ def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: floa
     if guess and scale['status'] != 'area':
         flags.append('scale_from_wall_thickness')
     flags += afl
+    flags += log.get('panel_flags') or []        # T-27/2: делёж листа без опоры (panel_title_guess, panel_titles_merged, vlm_panels_disagree)
     if not G['rooms']:
         flags.append('no_labels')
     for nd in (1, 0):

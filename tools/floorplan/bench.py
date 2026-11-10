@@ -97,15 +97,59 @@ def _box_dist(pt, b):
     return math.hypot(max(x - pt[0], 0, pt[0] - x - w), max(y - pt[1], 0, pt[1] - y - h))
 
 
-def panels_by_titles(final, ppm, titles, W, H):
+TITLE_NEAR_M = 2.0   # T-27/2: заголовок «свой» для куска плана, если не дальше 2 м от его рамки (обычно — под или над этажом)
+
+
+def norm_title(s):
+    return ' '.join(str(s or '').lower().split())
+
+
+def vlm_groups(panels):
+    """T-27/2: контуры VLM с одинаковым заголовком — одна панель (Nethercote: пять «Outbuildings» и два «First Floor» —
+    отдельными контурами; по одному они упирались в потолок панелей и резались). Безымянные — каждая своя.
+    → [(заголовок, [индексы контуров])] в порядке первого появления"""
+    out, at = [], {}
+    for i, q in enumerate(panels):
+        k = norm_title(q.get('title')) or f'#{i}'
+        if k not in at:
+            at[k] = len(out)
+            out.append((' '.join(str(q.get('title') or '').split()), []))
+        out[at[k]][1].append(i)
+    return out
+
+
+def titles_vs_vlm(titles, panels):
+    """Сверка контуров VLM с заголовками этажей (labels3): точка заголовка → ближайший контур (знаковое расстояние);
+    сходится, если у контура тот же заголовок. Контуры «перепутаны» (Nethercote после повтора с низким «думанием»:
+    у «Second Floor» ближайший контур — «Outbuildings») → не сходится. → [(заголовок, заголовок ближайшего контура)]"""
+    polys = [np.ascontiguousarray(q['poly'].reshape(-1, 1, 2), np.float32) for q in panels]
+    out = []
+    for t in titles:
+        d = [cv2.pointPolygonTest(pp, (float(t['pt'][0]), float(t['pt'][1])), True) for pp in polys]
+        out.append((t['title'], ' '.join(str(panels[int(np.argmax(d))].get('title') or '').split())))
+    return out
+
+
+def panels_by_titles(final, ppm, titles, W, H, flags=None):
     """Делёж листа по подписям этажей (владелец TG 775: этажи на листе всегда подписаны): куски плана по маске
     (`panels_of`) → к ближайшему заголовку (расстояние от точки заголовка до рамки куска; заголовок обычно под или над
     своим этажом); панель = все куски одного заголовка (рамки с запасом 1 м — маска стен панели). Заголовок без кусков —
-    панели нет. → [(X0, Y0, X1, Y1, маска, принадлежность точки)], [заголовок панели]"""
+    панели нет. Не молча (T-27/2, в `flags`): кусок без своего заголовка ближе TITLE_NEAR_M отдан ближайшему —
+    `panel_title_guess`; в куске ≥ 2 разных заголовка (слиплись этажи/постройки) — `panel_titles_merged`.
+    → [(X0, Y0, X1, Y1, маска, принадлежность точки)], [заголовок панели]"""
     boxes = panels_of(final, ppm)
     if not boxes or not titles:
         return [], []
-    own = [int(np.argmin([_box_dist(t['pt'], b) for t in titles])) for b in boxes]
+    flags = [] if flags is None else flags
+    own = []
+    for b in boxes:
+        d = [_box_dist(t['pt'], b) for t in titles]
+        near = {norm_title(titles[i]['title']) for i in range(len(titles)) if d[i] <= TITLE_NEAR_M * ppm}
+        if not near:
+            flags.append('panel_title_guess')
+        elif len(near) > 1:
+            flags.append('panel_titles_merged')
+        own.append(int(np.argmin(d)))
     pad = int(1.0 * ppm)
     padded = [(max(0, x - pad), max(0, y - pad), min(W, x + w + pad), min(H, y + h + pad)) for x, y, w, h in boxes]
 
@@ -871,22 +915,37 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
     pan_title = []
     # источник деления листа (T-27): заголовки этажей (≥ 2, `labels3`) → контуры VLM `panels` (не оборванные) → куски маски;
     # FP_PANELS=vlm|pieces — принудительно (сравнение)
+    # T-27/2: целые контуры VLM — геометрия, если заголовки этажей с ними сходятся (`titles_vs_vlm`) или заголовков < 2;
+    # не сходятся / контуры оборваны → делёж кусков по заголовкам; одинаковые заголовки контуров — одна панель (`vlm_groups`)
     pmode = os.environ.get('FP_PANELS', 'auto')
+    titles = (vl.get('titles') or []) if vl else []
+    pflags = log['panel_flags'] = []
     if vl and vl.get('panels_truncated'):
         log['panels_truncated'] = True
-    if vl and pmode in ('auto', 'titles') and len(vl.get('titles') or []) >= 2:
-        pan, pan_title = panels_by_titles(base['final'], ppm0, vl['titles'], W_, H_)
+    if titles:
+        log['titles'] = [{'title': q['title'], 'pt': [round(q['pt'][0], 1), round(q['pt'][1], 1)]} for q in titles]
+    use_vlm = bool(vl and vl['panels']) and pmode in ('auto', 'vlm')
+    if use_vlm and titles:
+        tv = titles_vs_vlm(titles, vl['panels'])
+        log['titles_vs_vlm'] = tv
+        if pmode == 'auto' and len(titles) >= 2 and any(norm_title(a) != norm_title(b) for a, b in tv):
+            use_vlm = False
+            pflags.append('vlm_panels_disagree')
+    if not use_vlm and vl and pmode in ('auto', 'titles') and len(titles) >= 2:
+        pan, pan_title = panels_by_titles(base['final'], ppm0, titles, W_, H_, pflags)
         log['panels_src'] = 'titles'
-        log['titles'] = [{'title': q['title'], 'pt': [round(q['pt'][0], 1), round(q['pt'][1], 1)]} for q in vl['titles']]
     if pan:
         pass                                   # поделено по заголовкам
-    elif vl and vl['panels'] and pmode != 'pieces':
+    elif use_vlm:
         log['panels_src'] = 'vlm'
         # панели — контуры VLM (заголовок → здание): стены за контуром (+1 м) режутся; точка — в ближайший контур
         vpolys = [np.ascontiguousarray(q['poly'].reshape(-1, 1, 2), np.float32) for q in vl['panels']]
+        groups = vlm_groups(vl['panels'])
+        gof = {i: gi for gi, (_, idx) in enumerate(groups) for i in idx}
+        log['panels_groups'] = [[t, idx] for t, idx in groups]
 
         def owner(pt):
-            return int(np.argmax([cv2.pointPolygonTest(pp, (float(pt[0]), float(pt[1])), True) for pp in vpolys]))
+            return gof[int(np.argmax([cv2.pointPolygonTest(pp, (float(pt[0]), float(pt[1])), True) for pp in vpolys]))]
         # контур VLM неточен (C: низ дома срезан на ~1.2 м → весь этаж утёк наружу), поэтому
         # пиксель отдаётся ближайшему контуру (знаковое расстояние), но не дальше PANEL_R_M от него
         sds = []
@@ -896,13 +955,16 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
             sds.append(cv2.distanceTransform(1 - fm, cv2.DIST_L2, 5) - cv2.distanceTransform(fm, cv2.DIST_L2, 5))
         sds = np.stack(sds)
         near = np.argmin(sds, axis=0)
-        for qi, q in enumerate(vl['panels']):
-            pm = ((near == qi) & (sds[qi] <= PANEL_R_M * ppm0)).astype(np.uint8)
+        for gi, (gt, idx) in enumerate(groups):
+            pm = np.zeros((H_, W_), np.uint8)
+            for qi in idx:
+                pm |= ((near == qi) & (sds[qi] <= PANEL_R_M * ppm0)).astype(np.uint8)
             if not pm.any():
                 continue
             ys_, xs_ = np.nonzero(pm)
             pan.append((int(xs_.min()), int(ys_.min()), int(xs_.max()) + 1, int(ys_.max()) + 1, pm,
-                        (lambda pt, qi=qi: owner(pt) == qi)))
+                        (lambda pt, gi=gi: owner(pt) == gi)))
+            pan_title.append(gt or None)
         log['panels_vlm'] = [{'title': q['title'], 'poly': q['poly'].round(1).tolist()} for q in vl['panels']]
     else:
         log['panels_src'] = 'pieces'

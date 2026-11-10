@@ -493,7 +493,7 @@ def test_area_needs_whole_building_found(tmp_path):
 
 
 def test_to_result_limits(tmp_path):
-    log, models, G = synth(n_panels=6)
+    log, models, G = synth(n_panels=pl.MAX_PANELS + 2)     # больше потолка — обрезка честным флагом
     write_models(tmp_path, models)
     res = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], False)
     assert_contract(res)
