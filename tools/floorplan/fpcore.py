@@ -1071,12 +1071,43 @@ def _tangent_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_de
             on = np.zeros(xi.shape, bool)
             on[ok] = dil[yi[ok], xi[ok]] > 0
             good = on[..., 0] & ~(on[..., 1] & on[..., 2])                                   # (J, F, A)
-            best = max(best, float(good.mean(axis=2).max()))
+            # дуга, а не прямая (T-20261110-33/2, aRQVC9: окно лестницы стало дверью — точки «дуги» легли вдоль прямой линии
+            # ступени, окно 5×5 её прощает): середина хорды между концами дуги (35° и 90°) у настоящей дуги — в стороне от линии
+            # на ~0,11 R, у прямой — на самой линии. Прогиб меньше TANGENT_CHORD_MIN_PX окно 5×5 от прямой не отличит (малый R,
+            # мелкие листы) — тогда прямая ещё и продолжается за конец дуги по хорде (ступень тянется дальше), а дуга заворачивает
+            # хорда — между крайними ПАРАМИ соседних засчитанных точек (прямая может не дойти до конца дуги, одиночная точка
+            # у грани — линия стены/рамы, не продолжение прямой; aRQVC9: R = 41)
+            A = good.shape[2]
+            g2 = good[..., :-1] & good[..., 1:]
+            has = g2.any(axis=2)
+            ia = g2.argmax(axis=2)
+            ib = A - 1 - g2[..., ::-1].argmax(axis=2)
+            arc = P[..., 0, :]                                                               # (J, F, A, 2)
+            a0 = np.take_along_axis(arc, ia[:, :, None, None], axis=2)[:, :, 0, :]           # (J, F, 2)
+            a1 = np.take_along_axis(arc, ib[:, :, None, None], axis=2)[:, :, 0, :]
+
+            def line_at(fr):                                                                 # линия в точках хорды → (J, F, len)
+                Q = a0[:, :, None, :] + (a1 - a0)[:, :, None, :] * fr[None, None, :, None]
+                qx = np.rint(Q[..., 0]).astype(int) - x0 + 2
+                qy = np.rint(Q[..., 1]).astype(int) - y0 + 2
+                qok = (qx >= 0) & (qx < ww) & (qy >= 0) & (qy < hh)
+                qon = np.zeros(qx.shape, bool)
+                qon[qok] = dil[qy[qok], qx[qok]] > 0
+                return qon.all(axis=2)
+            mid = line_at(TANGENT_CHORD)
+            ext = line_at(1.0 + TANGENT_EXT)     # только за дальним концом (от стены): назад к грани — линия стены у любой дуги
+            sag = fs[None, :] * (1 - np.cos(np.radians(step_deg) * (ib - ia) / 2))         # прогиб дуги над этой хордой, px
+            score = good.mean(axis=2)
+            score[has & mid & ((sag >= TANGENT_CHORD_MIN_PX) | ext)] = 0.0
+            best = max(best, float(score.max()))
     return best
 
 
 TANGENT_FROM_DEG = 35  # «вогнутая» дуга: углы с 35° — дальше ~0,18 R от грани стены, мимо линий рамы окна
 TANGENT_PURE = (0.8, 1.2)  # радиусы проверки «чистой дуги» (линий нет на обоих разом)
+TANGENT_CHORD = np.array((0.45, 0.5, 0.55))  # середина хорды «вогнутой» дуги: линия во всех трёх — прямая, не дуга
+TANGENT_CHORD_MIN_PX = 4.0  # прогиб дуги не меньше — хватает середины хорды (окно 5×5 ± полтолщины линии)
+TANGENT_EXT = np.array((0.3, 0.5))  # продолжение хорды за конец дуги (доли хорды): линия в обеих точках — прямая идёт дальше
 LEAF_MIN = 0.8        # створка: ≥ 80 % её длины — тонкая линия
 LEAF_ARC_MIN = 0.4    # при створке хватает 40 % дуги
 LEAF_SCORE = 0.8      # «дверь по створке» — выше порога дуги (0,75)

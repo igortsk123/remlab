@@ -3065,7 +3065,15 @@ function flatPlan(){
     const E=o.ext&&o.main!==false&&TRIAL()&&!(P.contour&&P.contour.length)?o.ext:null, sh=(p,s)=>E?[p[0]+E[0]*s, p[1]+E[1]*s]:p;
     if(E){const s=(TR_EXT+0.01)/2, p=sh(a,s), q=sh(b,s); el('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1],stroke:'#fff','stroke-width':TR_EXT+0.01,'data-ext':'1'});}
     const wa=sh(a,(TR_EXT-PART/2)/2), wb=sh(b,(TR_EXT-PART/2)/2);
-    if(o.kind==='window')el('line',{x1:wa[0],y1:wa[1],x2:wb[0],y2:wb[1],stroke:'#5A9BD4','stroke-width':0.06});
+    // окно — как на архитектурном плане (T-20261110-33/2, владелец: «не вижу, где окна»; была черта 6 см — на телефоне ~1 px): разрыв стены
+    // с рамой — две тонкие линии по граням стены, торцы (откосы) и стекло посередине на голубой подложке; толщина знака 20 см — больше
+    // обводки комнаты (9 см), чтобы читался на 375 и на 1280. Ось знака — середина стены (`wa`–`wb`, T-41: у наружной — её середина)
+    if(o.kind==='window'){const L=Math.hypot(wb[0]-wa[0],wb[1]-wa[1]); if(L>0){const h=0.1, nx=-(wb[1]-wa[1])/L*h, ny=(wb[0]-wa[0])/L*h,
+      sd=s=>[[wa[0]+nx*s,wa[1]+ny*s],[wb[0]+nx*s,wb[1]+ny*s]], ln=(p,q,c,w)=>el('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1],stroke:c,'stroke-width':w,'data-win':'1'});
+      el('polygon',{points:[...sd(1),...sd(-1).reverse()].map(p=>p.map(v=>+v.toFixed(3)).join(',')).join(' '),fill:'#DCEAF6',stroke:'none','data-win':'1'});
+      [1,-1].forEach(s=>{const [p,q]=sd(s); ln(p,q,'#3A3F3B',0.03);});
+      ln(...sd(0),'#2F7FC1',0.035);
+      [wa,wb].forEach(e=>ln([e[0]+nx,e[1]+ny],[e[0]-nx,e[1]-ny],'#3A3F3B',0.05));}}
     if(o.kind!=='door')return;
     const rr=trDoorR(o), cr=(T[0]-H[0])*(F[1]-H[1])-(T[1]-H[1])*(F[0]-H[0]);
     el('path',{d:`M ${T[0]} ${T[1]} A ${rr.toFixed(3)} ${rr.toFixed(3)} 0 0 ${cr>0?1:0} ${F[0]} ${F[1]}`,fill:'none',stroke:'#C8783C','stroke-width':0.035,'data-arc':'1'});

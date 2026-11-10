@@ -1486,6 +1486,41 @@ def split_by_drawn(g, lab_g, drawn):
     return out if len(out) >= 2 else one
 
 
+FLOOR_INTRUDE_M = 0.15   # заход пола комнаты в пол соседа глубже этого — сквозь тонкую перегородку (T-20261110-33/2)
+
+
+def floor_depth(lab, rooms):
+    """Глубина каждого пикселя пола комнаты — расстояние (px) до ближайшего пикселя не её пола (стена, закрытие, другая комната)."""
+    dep = np.zeros(lab.shape, np.float32)
+    for k in rooms:
+        m = lab == k
+        dep[m] = cv2.distanceTransform(m.astype(np.uint8), cv2.DIST_L2, 3)[m]
+    return dep
+
+
+def room_floor_mask(lab, outside, rooms_m, rid, t_w, depth=None, tol_px=0.0):
+    """Пол комнаты для модели: её область, расширенная под всю толщину стены `t_w` (без щели у стен), без «снаружи» и без
+    ГЛУБОКОГО ЗАХОДА В ПОЛ ДРУГИХ КОМНАТ (`rooms_m` — маска всех комнат панели, `depth` — `floor_depth`). T-20261110-33/2: толщина
+    стен одна на лист, и на листе с толстыми наружными и тонкими перегородками (aRQVC9: 34 px и 8–10 px) пол спальни проходил
+    перегородку и вставал на ~25 px в пол соседа — контуры налезали, двери площадки ложились в допуск «наш проём» спальни
+    (`trial_room.openings_of`), и ядро резало их у угла (`opening_cut_by_core`). Заход — связный кусок чужого пола под расширением:
+    глубже `tol_px` где-либо — снимается целиком (перегородка тоньше стены листа), мельче — остаётся как был: ниши проёмов и углы
+    стыков у листов с одной толщиной стен (8–11 см у примера /try) — иначе на контуре зубцы, и ядро спальни ломается."""
+    kf = max(3, int(2 * t_w + 1)) | 1
+    own = lab == rid
+    fm = cv2.dilate(own.astype(np.uint8), np.ones((kf, kf), np.uint8)) & (~outside).astype(np.uint8)
+    intr = (fm > 0) & rooms_m & ~own
+    if intr.any():
+        if depth is None:
+            fm[intr] = 0
+            return fm
+        n, cl = cv2.connectedComponents(intr.astype(np.uint8), connectivity=8)
+        deep = np.zeros(n, bool)
+        np.logical_or.at(deep, cl[intr], depth[intr] > tol_px)
+        fm[intr & deep[cl]] = 0
+    return fm
+
+
 def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     """Модель панели для рендера (метры) + наложение для глаз."""
     ppm = P['ppm']
@@ -1532,9 +1567,10 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
                                              fams_at=fams_at)[0], fp) if straight else None)
     old_f, new_f = [], []
     fl_fams0, fl_fams = [], []
+    rooms_m = np.isin(r['lab'], list(r['rooms']))
+    depth = floor_depth(r['lab'], r['rooms'])
     for rid in r['rooms']:
-        kf = max(3, int(2 * t_w + 1)) | 1   # пол заходит под всю толщину стены — без щели
-        fm = cv2.dilate((r['lab'] == rid).astype(np.uint8), np.ones((kf, kf), np.uint8)) & (~r['outside']).astype(np.uint8)
+        fm = room_floor_mask(r['lab'], r['outside'], rooms_m, rid, t_w, depth, FLOOR_INTRUDE_M * ppm)
         polys0, _ = fc.mask_polygons(fm, fams, min_area=10)
         rf = room_fams.get(rid)
         polys = (fc.mask_polygons(fm, fp, min_area=10, straight=True, ref=ref, ref_d=t_w + 1.5, short_px=ppm,

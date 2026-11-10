@@ -152,6 +152,35 @@ def test_door_evidence_sees_tangent_arc_with_leaf_in_wall():
     assert fc.door_evidence(hatch, c, u, n, L, d, tangent_only=True) < 0.75   # ниже порога двери (bench.DOOR_EV_GLAZED)
 
 
+def test_tangent_evidence_rejects_straight_stair_line_at_window():
+    """T-20261110-33/2 (aRQVC9, окно лестницы): у окна с рамой в комнате — прямая линия ступени под углом к стене. Точки
+    «вогнутой» дуги ложатся вдоль неё в окне 5×5 (было 1,00 при пороге 0,9) — это окно, не дверь: середина хорды
+    у прямой лежит на самой линии и продолжается за конец «дуги». Вырез тонких линий листа — `data/arq-stair-window-thin.png`.
+    Настоящие «вогнутые» дуги (R 24–60 px) — по-прежнему дверь."""
+    from pathlib import Path
+    thin = (cv2.imread(str(Path(__file__).parent / 'data' / 'arq-stair-window-thin.png'), cv2.IMREAD_GRAYSCALE) > 0)
+    c, u, n = np.array([160.5, 160.0]), np.array([0.0, 1.0]), np.array([-1.0, 0.0])
+    assert fc.door_evidence(thin.astype(np.uint8), c, u, n, 63.0, 36.0, tangent_only=True) < 0.9   # bench.DOOR_EV_GLAZED
+    for R in (24, 30, 40, 50, 60):
+        arc = np.zeros((240, 240), np.uint8)
+        for y in (98, 102):
+            cv2.line(arc, (60, y), (60 + R, y), 1, 1)               # рама / створка в линии стены
+        cv2.ellipse(arc, (60, 100 + R), (R, R), 0, 270, 360, 1, 1)  # «вогнутая» дуга створки
+        ys, xs = np.mgrid[97:104, 60:61 + R]
+        c2, u2, n2, L2, d2 = fc.gap_axes(ys.ravel(), xs.ravel())
+        assert fc.door_evidence(arc, c2, u2, n2, L2, d2, tangent_only=True) >= 0.9, R
+
+
+def test_tangent_evidence_keeps_outward_door_whose_arc_meets_wall():
+    """T-20261110-33/2 (rgK, наружная дверь конюшни наружу): малая «вогнутая» дуга ложится на верх большой дуги створки —
+    там она почти прямая (прогиб ~2 px), а «продолжение хорды» к грани упирается в линию стены. Продолжение считается
+    только за дальним концом (от стены) — иначе вход становился окном. Вырез — `data/rgk-stable-door-thin.png`."""
+    from pathlib import Path
+    thin = (cv2.imread(str(Path(__file__).parent / 'data' / 'rgk-stable-door-thin.png'), cv2.IMREAD_GRAYSCALE) > 0)
+    c, u, n = np.array([160.28, 160.131]), np.array([-0.0574, 0.9984]), np.array([-0.9984, -0.0574])
+    assert fc.door_evidence(thin.astype(np.uint8), c, u, n, 47.15, 7.38, tangent_only=True) >= 0.9   # bench.DOOR_EV_GLAZED
+
+
 def test_mouth_strip_keeps_only_doorway_of_closet():
     """Перемычка залила каморку целиком + проём в правой стене → остаётся полоса у проёма, не вся каморка."""
     wall = np.zeros((100, 100), np.uint8)
@@ -368,6 +397,28 @@ def test_thin_partition_door_between_short_jambs(monkeypatch):
     monkeypatch.setattr(fc, 'thin_partition_t', lambda *a: None)
     r0 = run()
     assert not [q for q in r0['gaps'] if q.kind == 'door' and 290 <= q.cx <= 322 and 125 <= q.cy <= 147]
+
+
+def test_room_floor_under_thin_partition_stops_at_neighbour_floor():
+    """T-20261110-33/2: пол модели растёт под стену на толщину листа t (наружные 30 px), но в пол соседа за перегородкой 8 px не
+    заходит — иначе контуры налезают, и двери соседа попадают в «наши» проёмы спальни. Под наружную стену — по-прежнему целиком.
+    Мелкий заход (ниша проёма соседа в толще стены, 8 px) остаётся, как был: иначе на контуре зубец, и ядро спальни ломается."""
+    import bench
+    lab = np.zeros((260, 400), np.int32)
+    lab[60:200, 30:196] = 1; lab[60:200, 204:370] = 2               # две комнаты, перегородка 8 px (196…204), наружные — 30 px
+    lab[0:30, 30:370] = 3                                            # сосед сверху за стеной 30 px (30…60)
+    lab[30:38, 60:100] = 3                                           # ниша его проёма в толще стены — 8 px
+    outside = np.zeros_like(lab, bool)
+    rooms_m = np.isin(lab, [1, 2, 3])
+    dep = bench.floor_depth(lab, [1, 2, 3])
+    fm = bench.room_floor_mask(lab, outside, rooms_m, 1, 30, dep, 10)
+    xs = np.nonzero(fm[120])[0]
+    assert xs.min() == 0 and xs.max() == 203                         # слева — вся наружная стена, справа — до пола соседа
+    assert not fm[lab == 2].any()
+    assert fm[32, 80] and fm[36, 80]                                 # ниша соседа сверху (мельче допуска) — под полом, как была
+    assert not fm[29, 80]                                            # сам пол соседа — нет (радиус расширения не достаёт)
+    assert bench.room_floor_mask(lab, outside, rooms_m, 2, 30, dep, 10)[120, 196]   # перегородка — под обоими полами, щели нет
+    assert not bench.room_floor_mask(lab, outside, rooms_m, 1, 30)[lab == 2].any()  # без глубин — чужой пол снимается весь
 
 
 def test_split_by_labels_cuts_at_wide_opening_neck():
