@@ -445,6 +445,122 @@ def room_at(lab, rooms, pt, r=6):
     return best[1] if best else None
 
 
+# ВЫНОСКА (T-20261110-12, Berrys «Floor 1»): подпись в рамке СНАРУЖИ дома, тонкая линия от рамки — к точке в комнате. VLM честно
+# даёт центр текста (`labels2`: «centre point of the room-name text») — над домом, комнаты под точкой нет, подпись «не найдена».
+# Подпись снаружи переносим в конец линии, только если линия видна: в просвете между рамкой и домом (подпись сада/террасы
+# снаружи без линии — остаётся, где была), затем сквозь стену — в комнату, до точки на её конце. Линия — по осям листа.
+CALLOUT_RAY = 0.3          # дальше доли листа от дома рамку не ищем
+CALLOUT_GAP_PX = 4         # линия в просвете рамка → дом — не короче, px
+RIDGE_DROP = 30            # линия темнее фона поперёк луча на столько (серое)
+RIDGE_W = 4                # и не толще, px
+
+
+def _ridge(gray, x, y, d, half):
+    """Тонкая тёмная линия поперёк луча `d` в точке (x, y): смещение её середины от луча (px) или None."""
+    H, W = gray.shape
+    nx, ny = -d[1], d[0]
+    v = []
+    for k in range(-half, half + 1):
+        xx, yy = x + nx * k, y + ny * k
+        if not (0 <= xx < W and 0 <= yy < H):
+            return None
+        v.append(int(gray[yy, xx]))
+    v = np.array(v)
+    idx = np.nonzero(v <= np.percentile(v, 75) - RIDGE_DROP)[0]
+    if not len(idx) or idx.max() - idx.min() >= RIDGE_W:
+        return None
+    return int(round(idx.mean())) - half
+
+
+def building_hulls(res) -> list:
+    """Выпуклые оболочки построек листа (компоненты стен не меньше 2×2 м, как `panels_of`). «Снаружи» для выноски — вне ВСЕХ
+    оболочек: комната с воротами наружу (C, «Store» в гараже) на листе сливается с улицей, а её подпись — внутри постройки."""
+    final, ppm = res['final'], float(res['ppm'])
+    n, lab, st, _ = cv2.connectedComponentsWithStats(final, connectivity=8)
+    out = []
+    for i in range(1, n):
+        x, y, w, h, a = st[i]
+        if w >= 2.0 * ppm and h >= 2.0 * ppm and a >= 0.5 * ppm * ppm:
+            ys, xs = np.nonzero(lab[y:y + h, x:x + w] == i)
+            out.append(cv2.convexHull(np.column_stack([xs + x, ys + y]).astype(np.int32)))
+    return out
+
+
+def follow_callout(pt, gray, res, t, hulls=None):
+    """Подпись снаружи дома с линией-выноской → (точка в комнате на конце линии, id комнаты) или None (не выноска)."""
+    lab, outside, rooms = res['lab'], res['outside'], set(res['rooms'])
+    H, W = gray.shape
+    x0, y0 = int(round(pt[0])), int(round(pt[1]))
+    if not (0 <= x0 < W and 0 <= y0 < H) or not outside[y0, x0] or room_at(lab, rooms, (x0, y0), 6) is not None:
+        return None
+    hulls = building_hulls(res) if hulls is None else hulls
+    if any(cv2.pointPolygonTest(h, (float(x0), float(y0)), False) >= 0 for h in hulls):
+        return None                                           # внутри постройки — не выноска (комната открыта наружу)
+    smax = int(CALLOUT_RAY * max(H, W))
+    hits = []
+    for d in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        for s in range(1, smax):
+            x, y = x0 + d[0] * s, y0 + d[1] * s
+            if not (0 <= x < W and 0 <= y < H):
+                break
+            if not outside[y, x]:
+                hits.append((s, d))
+                break
+    half = max(RIDGE_W, int(round(t / 2)))
+    for sb, d in sorted(hits):
+        offs = []
+        for s in range(sb - 1, 0, -1):                       # просвет перед домом — назад к рамке, пока видна линия
+            o = _ridge(gray, x0 + d[0] * s, y0 + d[1] * s, d, half)
+            if o is None:
+                break
+            offs.append(o)
+        if len(offs) < CALLOUT_GAP_PX or max(offs) - min(offs) > 2:
+            continue
+        off = int(round(float(np.median(offs[:CALLOUT_GAP_PX]))))
+        lx, ly = x0 - d[1] * off, y0 + d[0] * off             # ось линии
+        rid, last, entry = None, None, None
+        for s in range(sb, sb + smax):
+            x, y = lx + d[0] * s, ly + d[1] * s
+            if not (0 <= x < W and 0 <= y < H):
+                break
+            v = int(lab[y, x])
+            if rid is None:
+                if v in rooms:
+                    rid, entry = v, s
+                elif outside[y, x] or s - sb > 6 * t:           # снова наружу или «стена» толще шести стен — не наш случай
+                    break
+                continue
+            if v != rid:
+                break
+            if _ridge(gray, x, y, d, 2) is not None or gray[y, x] < 128:
+                last = s
+            elif last is not None and s - last > 3:          # линия кончилась (точка на её конце пройдена)
+                break
+        if rid is None:
+            continue
+        s = last if last is not None and last > entry else entry + 2
+        q = (lx + d[0] * s, ly + d[1] * s)
+        if room_at(lab, rooms, q, 2) == rid:
+            return q, rid
+    return None
+
+
+def callouts_to_rooms(labels, gray, res, t) -> list:
+    """Подписи-выноски (`follow_callout`) → точка в комнату: правит `pt` подписей на месте. → журнал переносов."""
+    out, hulls = [], None
+    for q in labels:
+        x, y = int(round(q['pt'][0])), int(round(q['pt'][1]))
+        if not (0 <= x < gray.shape[1] and 0 <= y < gray.shape[0]) or not res['outside'][y, x]:
+            continue                                          # подпись в доме — как была (оболочки не считаем зря)
+        hulls = building_hulls(res) if hulls is None else hulls
+        m = follow_callout(q['pt'], gray, res, t, hulls)
+        if m:
+            out.append({'name': q['name'], 'from': [round(float(q['pt'][0]), 1), round(float(q['pt'][1]), 1)],
+                        'to': [int(m[0][0]), int(m[0][1])]})
+            q['pt'] = [int(m[0][0]), int(m[0][1])]
+    return out
+
+
 def room_angle(mask, fams):
     """Ось комнаты: семейство, ближайшее к углу minAreaRect; приведение к (-45, 45]."""
     ys, xs = np.nonzero(mask)
@@ -663,9 +779,13 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
     # 1) перебор гипотез масштаба по всему листу → лучшая по числу инлаеров подписей
     sweep = []
     hyps = [float(os.environ['FP_PPM'])] if os.environ.get('FP_PPM') else [18 * 1.2 ** k for k in range(12)]  # FP_PPM — отладка
+    blind = bool(gold.get('blind'))       # выноски — только у подписей VLM (у ручного золота точки уже в комнатах)
     for ppm in hyps:
         r = analyze(img, gray, wall, ppm, fams, t, regions, cfg['thin'], cfg['glaze'])
-        _, obs = match_gold(r, [dict(g) for g in gold['rooms']], fams)
+        gh = [dict(g) for g in gold['rooms']]
+        if blind:
+            callouts_to_rooms(gh, gray, r, t)
+        _, obs = match_gold(r, gh, fams)
         f = fc.fit_scale(obs)
         if f:
             est = 1 / f['s']
@@ -677,6 +797,12 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
     log['sweep'] = [{k: round(v, 3) if isinstance(v, float) else v for k, v in s.items()} for s in sweep[:6]]
     ppm0 = sweep[0]['est']
     base = analyze(img, gray, wall, ppm0, fams, t, regions, cfg['thin'], cfg['glaze'])
+    if blind:
+        log['callouts'] = callouts_to_rooms(gold['rooms'], gray, base, t)
+        moved = {c['name']: c['to'] for c in log['callouts']}
+        for q in gold.get('_labels') or []:
+            if q['name'] in moved:
+                q['pt'] = tuple(moved[q['name']])
     vdir = os.environ.get('FP_VLM')
     vl = load_vlm(plan, vdir, img.shape) if vdir else None
     if vl is not None and gold.get('_labels') is not None:     # слепой: подписи VLM с размерами из текста объявления
@@ -766,7 +892,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         dims = room_dims(groom, hit, obs, loo, ppm0)
         if gold.get('blind'):
             dims += unlabeled_dims(r, groom, hit, fams, ppm, fit)
-        attach_flags(dims, groom, rep_labels, ppm)
+        attach_flags(dims, groom, rep_labels, ppm, loo)
         flag_enclosed(dims, rep_log)
         gpx, t_ext = gia_px(r, t)
         # проёмы против ручного счёта
@@ -878,8 +1004,15 @@ def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
     return r, [log0] + off + jr, repair.label_report(st2, labs_all, ctx)
 
 
-def attach_flags(dims, groom, rep_labels, ppm):
-    """Флаг системы (по подписи, прочитанной VLM, и её комнате) — к строке золота: ближайшая подпись VLM ≤ 1,5 м."""
+MISMATCH_FLAGS = ('не сошлось', 'замер ≠ подписи')
+
+
+def attach_flags(dims, groom, rep_labels, ppm, loo=None):
+    """Флаг системы (по подписи, прочитанной VLM, и её комнате) — к строке золота: ближайшая подпись VLM ≤ 1,5 м.
+    «Не сошлось» по манере панели, а другая мерка той же комнаты (ядро без ниши/камина, рамка) при масштабе ОСТАЛЬНЫХ комнат
+    (`loo` → `near_*`) даёт подпись в норме по обеим сторонам — подпись про эту комнату, агентство мерило иначе: уровень 1
+    «ниша/манера?», не 2 (T-20261110-12: Principal Bedroom 4.21 — без ниши у французского окна, Bedroom 4.70 — без камина)."""
+    near = {l['id']: l for l in loo or [] if l.get('ok')}
     for row in dims:
         if row.get('status') == 'мерка без подписи':      # флаг уже свой (T-04)
             continue
@@ -906,6 +1039,10 @@ def attach_flags(dims, groom, rep_labels, ppm):
                 lvl = 2 if e > repair.bad_tol(vd) else 1 if e > repair.norm_tol(vd) else 0
                 if lvl > row['flag_level']:
                     row['flag'], row['flag_level'] = ('замер ≠ подписи' if lvl == 2 else 'ниша/манера?'), lvl
+        n = near.get(row['id'])
+        if row.get('flag_level') == 2 and row.get('flag') in MISMATCH_FLAGS and n and n.get('near_err') \
+                and max(n['near_err']) <= repair.norm_tol(row['gold']):
+            row['flag'], row['flag_level'] = f"ниша/манера? ({n['near_cand']})", 1
 
 
 def flag_enclosed(dims, rep_log):

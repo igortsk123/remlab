@@ -3,7 +3,7 @@
 (план agent-trial-03-living, L-A; T-20261109-12; поправки Codex 09.11 главнее «Решения» плана).
 
 Вход — результат стенда (`contracts/trial.ts:floorplanResult`: см, x вправо, y вниз по листу = «вглубь» сцены). Шаги:
-  1. гостиная — `kind == 'living'` (самая большая); нет — самая большая `other` с окном → флаг `living_guessed`;
+  1. гостиная — по подписи плана (`is_living`, самая большая); подписи нет — отказ `no_living`, не угадываем (T-20261110-12);
   2. контур → к оси + `room_bridge.orthogonalize`; КОНТРОЛЬ: изменение площади, IoU, сдвиг наших проёмов (`contour_distorted`);
   3. проёмы панели → этой комнате, привязка в ИСХОДНЫХ координатах: вся ширина проёма (пробы по ней) у границы контура
      в допуске. У границы, но не целиком и не чужой — отказ `opening_ambiguous` (не угадываем), кроме двух правил по
@@ -49,7 +49,7 @@ RULES_PATH = os.path.join(HERE, 'rules', 'trial-room.json')
 WALLS = ('south', 'north', 'west', 'east')
 # ЗАКРЫТЫЙ СПИСОК ОТКАЗОВ (честный отказ с причиной — гостиная остаётся серой, страница пишет почему)
 REFUSALS = {
-    'no_living': 'в плане нет гостиной и нет жилой комнаты с окном',
+    'no_living': 'в плане нет комнаты с подписью гостиной',
     'scale_unverified': 'масштаб плана не проверен — расставлять мебель по нему нельзя',
     'living_no_window': 'у гостиной нет ни окна, ни остеклённой наружной двери',
     'contour_distorted': 'выпрямление контура слишком меняет комнату или сдвигает проёмы',
@@ -307,20 +307,23 @@ def _light(ours: list, cfg: dict) -> tuple[bool, list]:
     return False, flags
 
 
+def is_living(room: dict, cfg: dict) -> bool:
+    """Гостиная — только по подписи плана: вид `living` (`tools/floorplan/pipeline.py:KIND_RULES` — living, lounge, reception,
+    sitting, family, drawing…) или подпись вида `other` под `living_name_re` (русская «Гостиная», «Зал»: стенд знает лишь английские)."""
+    if room.get('kind') == 'living':
+        return True
+    return room.get('kind') == 'other' and bool(re.search(cfg['living_name_re'], str(room.get('name') or '').lower()))
+
+
 def pick_living(result: dict, cfg: dict | None = None) -> tuple[dict, dict, list]:
-    """→ (панель, комната, флаги). Несколько гостиных — самая большая (флаг `living_many`)."""
+    """→ (панель, комната, флаги). Несколько гостиных — самая большая (флаг `living_many`). Гостиную НЕ угадываем (T-20261110-12:
+    этаж спален Berrys — ванная без подписи с окном стала «гостиной» с отказом «нет товаров»): подписи гостиной нет — `no_living`,
+    тур собирается без неё (`trial_bundle._living_rooms`), комната без подписи — «Помещение», не обставляется."""
     cfg = cfg or rules()
-    cands = [(p, r) for p in result['panels'] for r in p['rooms'] if r.get('kind') == 'living']
+    cands = [(p, r) for p in result['panels'] for r in p['rooms'] if is_living(r, cfg)]
     flags = []
     if not cands:
-        guess = []
-        for p in result['panels']:
-            for r in p['rooms']:
-                if r.get('kind') == 'other' and _light(_openings_of(p, r, cfg)[0], cfg)[0]:
-                    guess.append((p, r))
-        if not guess:
-            raise Refusal('no_living')
-        cands, flags = guess, ['living_guessed']
+        raise Refusal('no_living')
     if len(cands) > 1:
         flags.append('living_many')
     p, r = max(cands, key=lambda pr: Polygon(pr[1]['contour']).area)
@@ -659,7 +662,7 @@ def adapt(result: dict, need: dict | None = None, cfg: dict | None = None) -> di
     # обставляем «как есть», флаг идёт в исход (страница: «размеры примерные»; это НЕ `verified`)
     unverified = (result.get('scale') or {}).get('status') == 'not_verified'
     if unverified and not any(APPROX_CONSENT in (r.get('flags') or []) for p in result.get('panels') or [] for r in p.get('rooms') or []
-                              if r.get('kind') == 'living'):
+                              if is_living(r, cfg)):
         raise Refusal('scale_unverified')
     panel, room, flags = pick_living(result, cfg)
     if unverified:

@@ -685,7 +685,7 @@ def _living_rooms(result: dict, cfg: dict) -> tuple[list, list]:
             return [], ['no_living']
         raise BundleRefused(e.code, e.detail) from e
     from shapely.geometry import Polygon
-    rest = [(p, r) for p in result['panels'] for r in p['rooms'] if r.get('kind') == LIVING and r is not main]
+    rest = [(p, r) for p in result['panels'] for r in p['rooms'] if TR.is_living(r, cfg) and r is not main]
     rest.sort(key=lambda pr: -Polygon(pr[1]['contour']).area)
     return [(panel, main)] + rest, flags
 

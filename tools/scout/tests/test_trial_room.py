@@ -355,9 +355,15 @@ def test_scale_unverified_consent_furnishes_as_is():
     assert refusal(result([room('r1', 'living', RECT), small], base, status='not_verified')) == 'scale_unverified'
 
 
-def test_living_guessed_from_other_with_window():
-    ad = TR.adapt(result([room('r1', 'other', RECT)], [op('window', (250, 0), 150, True), op('door', (100, 400), 90)]))
-    assert 'living_guessed' in ad['flags']
+def test_living_not_guessed_without_label():
+    """Комната без подписи гостиной (вид `other`, с окном и дверью) — не гостиная: отказ `no_living` (T-20261110-12: ванная
+    этажа спален Berrys стала «гостиной»). Подпись — синоним (`Lounge` у стенда — `living`) или русская «Гостиная» вида `other`."""
+    ops = [op('window', (250, 0), 150, True), op('door', (100, 400), 90)]
+    assert refusal(result([room('r1', 'other', RECT, name='')], ops)) == 'no_living'
+    assert refusal(result([room('r1', 'other', RECT, name='Walk-in Wardrobe'), room('r2', 'bedroom', RECT)], ops)) == 'no_living'
+    ad = TR.adapt(result([room('r1', 'other', RECT, name='Гостиная')], ops))
+    assert ad['room']['id'] == 'r1' and 'living_guessed' not in ad['flags']
+    assert TR.pick_living(result([room('r1', 'living', RECT, name='Reception Room')], ops))[1]['id'] == 'r1'
 
 
 def test_thresholds_from_rules_not_literals():
