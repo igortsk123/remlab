@@ -472,7 +472,7 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
     следующий шаблон. Первый выполненный шаблон — вариант; ни одного — (None, {style, code, templates}) с причиной по каждому шаблону:
     `too_small` (ни одно ядро меньше нормы кровати шаблона — `bed_need`; длина — по самой короткой готовой раме ширины, `frames_len`) /
     `no_bed` / `frame_too_wide` (кровати ширины есть, но рама с проходами не встаёт ни на одно ядро — `frame_need`; отсев ДО среза
-    `BEDS_PER_TEMPLATE`, T-20261110-20) / `no_nightstand` (товаров нет) / `no_fit` (не встали) / `budget` (не дошли). Код стиля: что-то не встало — `bed_no_fit`; все шаблоны больше комнаты — `room_too_small`;
+    `BEDS_PER_TEMPLATE`, T-20261110-20) / `no_nightstand` (товаров нет) / `no_fit` (не встали) / `budget` (не дошли). Код стиля: что-то не встало (`no_fit` или `frame_too_wide`) — `bed_no_fit`; все шаблоны больше комнаты — `room_too_small`;
     иначе — `no_products` (подходящих по размеру товаров нет). Шкаф и комод — по месту (`kit_ladder`)."""
     cores = ad['candidates'][:MAX_CORES]
     area = max(c['area_m2'] for c in cores)
@@ -523,7 +523,8 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
         if why == 'budget':
             break
     whys = {x['why'] for x in log}
-    code = 'budget' if 'budget' in whys else ('bed_no_fit' if 'no_fit' in whys else
+    # «кровати есть, но рама не встала» (`frame_too_wide`) — для человека это «не встала», как `no_fit` (ведущий, T-20261110-20/1)
+    code = 'budget' if 'budget' in whys else ('bed_no_fit' if whys & {'no_fit', 'frame_too_wide'} else
                                               ('room_too_small' if whys == {'too_small'} else 'no_products'))
     return None, {'style': style, 'code': code, 'templates': log}
 

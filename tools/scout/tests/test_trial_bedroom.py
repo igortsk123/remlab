@@ -496,9 +496,10 @@ def test_narrow_core_frame_filtered_before_cut():
     assert r['bed_frame_max_cm'] == 130
 
 
-def test_narrow_core_only_wide_frames_honest_no_products():
+def test_narrow_core_only_wide_frames_honest_bed_no_fit():
+    # кровати ширины есть, но ни одна рама с проходами не встаёт → «не встала» (bed_no_fit), а не «нет товаров»
     r = TB.build('t31', one_room(205, 370, NARROW_OPS), ctx(bank_120(('kevia', 'seilor'))))['rooms'][0]
-    assert r['variants'] == [] and r['outcome']['state'] == 'no_products' and r['outcome']['code'] == 'no_products'
+    assert r['variants'] == [] and r['outcome']['state'] == 'no_products' and r['outcome']['code'] == 'bed_no_fit'
     for f in r['style_failures']:
         why = {t['template']: t['why'] for t in f['templates']}
         assert why['guest-120'] == why['single-120'] == 'frame_too_wide'
