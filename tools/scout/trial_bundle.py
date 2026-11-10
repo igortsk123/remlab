@@ -185,7 +185,7 @@ def room_titles(name: str | None, kind: str) -> tuple[str, str]:
 
 # ───────────────────────── общий разрешённый список полей товара (все комнаты) ─────────────────────────
 ITEM_KEYS = {'role', 'x', 'y', 'rot', 'w', 'd', 'h', 'dims_src', 'sku', 'corner', 'corner_left', 'section', 'elev'}
-SKU_KEYS = {'name', 'name_en', 'colour_en', 'msid', 'w', 'd', 'h', 'sleep_w'}
+SKU_KEYS = {'name', 'name_en', 'colour_en', 'colour_ru', 'msid', 'w', 'd', 'h', 'sleep_w'}
 FEED_KEYS = SKU_KEYS | {'style', 'styles', 'src', 'corner'}
 BANNED_KEYS = {'url', 'url_direct', 'shop', 'img', 'img_hd', 'price', 'brand'}
 SHOP_LINKS = re.compile(r'(https?:|//[a-z0-9.-]+\.[a-z]{2,}|gdeslon|\berid=)', re.I)
@@ -329,6 +329,135 @@ def clean_colour(c: str | None) -> str:
     return c if words and not NE.bad(c, D) and all(w in vocab or w in ('and', 'with') for w in words) else ''
 
 
+# ───────── имена предметов тура уникальны (T-20261109-35/3) ─────────
+# Страница узнаёт товар по `sku.name` (строка списка, «Заменить», лента, примерка) — как в `/demo`, где названия магазина разные.
+# В туре имя нейтральное по роли, и два разных дивана звались одинаково: «Заменить» отмечала не тот, лента пустела. Имя —
+# «<Роль> · Ш×Г см»; один товар (роль, модель, размер) — одно имя во всём туре (в разных стилях тоже: лента замен общая);
+# разные товары с одинаковой подписью — « · 2», « · 3» в порядке появления.
+
+_ADJ = ('ый', 'ий', 'ой')
+_GENDER = {'кровать': 'f', 'ткань': 'f', 'сталь': 'f', 'мебель': 'f', 'ясень': 'm', 'текстиль': 'm'}
+
+
+def _gender(phrase: str) -> str:
+    """Род существительного во фразе («Прикроватная тумба» → тумба → ж., «ТВ-тумба» → ж., «велюр» → м.): первое слово не-прилагательное."""
+    words = [w for w in re.split(r'[\s-]+', (phrase or '').lower().replace('ё', 'е')) if w]
+    nouns = [w for w in words if not w.endswith(_ADJ + ('ая', 'яя', 'ое', 'ее'))] or words[-1:]
+    w = nouns[-1] if nouns else ''
+    if w in _GENDER:
+        return _GENDER[w]
+    return 'f' if w.endswith(('а', 'я')) else ('n' if w.endswith(('о', 'е')) else 'm')
+
+
+def _agree(adj: str, g: str) -> str:
+    """Прилагательное мужского рода → нужный род; в составном («темно-серый») меняется последняя часть."""
+    if g == 'm':
+        return adj
+    head, sep, last = adj.rpartition('-')
+    if last.endswith('ий') and len(last) > 2 and last[-3] == 'н':           # синий → синяя, синее
+        last = last[:-2] + ('яя' if g == 'f' else 'ее')
+    elif last.endswith(_ADJ):                                                 # серый, бургундский, голубой
+        last = last[:-2] + ('ая' if g == 'f' else 'ое')
+    return head + sep + last
+
+
+_RU_VOCAB: dict = {}
+
+
+def _ru_vocab() -> dict:
+    """Английская фраза цвета/материала/рисунка → (русская форма, прилагательное ли) по словарю `names_en` (обратно);
+    у прилагательного — мужской род (с «ё», если есть), его потом согласуем."""
+    if not _RU_VOCAB:
+        _, D = _names_en()
+        for t in ('colours', 'materials', 'patterns'):
+            forms: dict = {}
+            for ru, en in (D.get(t) or {}).items():
+                if _CYR.search(ru):
+                    forms.setdefault(str(en).lower(), []).append(ru)
+            for en, rus in forms.items():
+                adj = [r for r in rus if all(w.endswith(_ADJ) for w in r.split())]
+                pick = next((r for r in adj if 'ё' in r), adj[0]) if adj else rus[0]
+                _RU_VOCAB.setdefault(en, (pick, bool(adj)))
+    return _RU_VOCAB
+
+
+def colour_ru(colour: str | None, item_ru: str) -> str:
+    """Цвет/материал по-русски из готового `colour_en` (русского названия товара в данных тура нет): фразы словаря, прилагательное
+    согласовано с материалом после него («серая рогожка», «мятный велюр»), без материала — с предметом («Прикроватная тумба» →
+    «белая»). Хоть одно слово не из словаря — пусто (лучше без строки, чем полу-английская)."""
+    toks = re.findall(r'[^\s/]+|/', (colour or '').lower())
+    V = _ru_vocab()
+    parts, i = [], 0
+    while i < len(toks):
+        if toks[i] == '/':
+            parts.append(('/', '', False))
+            i += 1
+            continue
+        for n in (4, 3, 2, 1):
+            seg = toks[i:i + n]
+            if '/' in seg:
+                continue
+            phrase = ' '.join(seg)
+            if phrase in V:
+                parts.append(('w', *V[phrase]))
+                i += n
+                break
+            if n == 1 and phrase == 'and':
+                parts.append(('w', 'и', False))
+                i += 1
+                break
+        else:
+            return ''
+    if not parts:
+        return ''
+    out = []
+    for k, (kind, ru, adj) in enumerate(parts):
+        if kind == '/':
+            out.append('/')
+            continue
+        if adj:
+            noun = next((r for kk, r, a in parts[k + 1:] if kk == 'w' and not a and r != 'и'), None)
+            ru = ' '.join(_agree(w, _gender(noun or item_ru)) for w in ru.split())
+        out.append(ru)
+    return re.sub(r'\s*/\s*', '/', ' '.join(out)).strip()
+
+
+def _dims(sku: dict, it: dict) -> tuple[int, int] | None:
+    w, d = sku.get('w', it.get('w')), sku.get('d', it.get('d'))
+    return (round(w), round(d)) if isinstance(w, (int, float)) and isinstance(d, (int, float)) and w > 0 and d > 0 else None
+
+
+def name_items(variants: list) -> None:
+    """Имена предметов всех вариантов тура — уникальные и понятные (см. выше), плюс `colour_ru`. Меняет варианты на месте."""
+    names: dict = {}                 # товар → (ru, en)
+    taken: dict = {}                 # подпись ru → сколько разных товаров уже её носят
+    for v in variants:
+        for it in v.get('items') or []:
+            sku = it.get('sku')
+            if not isinstance(sku, dict):
+                continue
+            base = _base_role(it.get('role') or '')
+            dm = _dims(sku, it)
+            key = (base, sku.get('msid'), dm, sku.get('sleep_w'))
+            role_ru, role_en = neutral_names(base)
+            if key not in names:                     # от нейтрального имени, а не от `sku.name`: повторная сборка не удвоит размер
+                ru, en = role_ru, role_en
+                sw = sku.get('sleep_w')
+                if isinstance(sw, (int, float)) and sw > 0:          # кровать — с шириной спального места (`_part_item`)
+                    ru, en = f'{ru} {round(sw)} см', f'{en} {round(sw)} cm'
+                if dm:
+                    ru, en = f'{ru} · {dm[0]}×{dm[1]} см', f'{en} · {dm[0]}×{dm[1]} cm'
+                n = taken[ru] = taken.get(ru, 0) + 1
+                names[key] = (ru, en) if n == 1 else (f'{ru} · {n}', f'{en} · {n}')
+            ru, en = names[key]
+            sku.update(name=ru, name_en=en)
+            c = colour_ru(sku.get('colour_en'), role_ru)
+            if c:
+                sku['colour_ru'] = c
+            else:
+                sku.pop('colour_ru', None)
+
+
 def public_item(it: dict) -> dict:
     """Предмет варианта — только разрешённые поля: общий фильтр для гостиной, спален и любых будущих комнат."""
     out = {k: v for k, v in it.items() if k in ITEM_KEYS}
@@ -450,14 +579,20 @@ def _scene_variant(sv: dict, room_id: str, geo: dict, msid_of) -> dict:
     return out
 
 
-def _feeds(variants: list) -> dict:
+def feed_key(room_id: str, base: str, room_keys: bool = True) -> str:
+    """Ключ ленты замен — как ищет страница (`index.html:roomKeysOf`): у гостиных голая роль, у других комнат — «<комната>:<роль>»
+    (у каждой спальни своя лента: свои товары и своя полоса размера). Голая роль у спальни — лента не находилась, «Выбрать кровать (0)»."""
+    return base if not room_keys or room_id == LIVING or room_id.startswith(LIVING + '-') else f'{room_id}:{base}'
+
+
+def _feeds(variants: list, room_keys: bool = True) -> dict:
     """Ленты замен — только товары вариантов задания (других для этого плана не считалось), `диван` → строки как в живом `feeds`."""
     out: dict = {}
     seen: dict = {}
     for v in variants:
         for it in v['items']:
-            sku, base = it.get('sku') or {}, _base_role(it['role'])
-            key = (base, sku.get('msid') or sku.get('name'), sku.get('w'), sku.get('d'))
+            sku, base = it.get('sku') or {}, feed_key(v.get('room_id') or '', _base_role(it['role']), room_keys)
+            key = (base, sku.get('msid') or sku.get('name'), sku.get('w'), sku.get('d'), sku.get('sleep_w'))
             if key in seen:
                 if v['style'] not in seen[key]['styles']:
                     seen[key]['styles'].append(v['style'])
@@ -719,8 +854,9 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     rules = dict(ctx['rules'])
     if ctx.get('slot_band') and LIVING in rooms_geo:
         rules['slot_band_cm'] = ctx['slot_band'](rooms_geo[LIVING])
+    name_items(variants)                             # до лент: лента и строка списка узнают товар по одному имени
     feeds = _feeds(variants)
-    note = SCALE_NOTE.get(result['scale']['status'])
+    note =SCALE_NOTE.get(result['scale']['status'])
     trial = {'job_id': job_id, 'scale': result['scale']['status'],
              **({'scale_note': {'ru': note[0], 'en': note[1]}} if note else {}), 'furniture': SCENE_FURNITURE[scene['status']] if scene else 'pending',
              'complete': all(r['furniture_state'] != 'pending' for r in apartment_rooms),

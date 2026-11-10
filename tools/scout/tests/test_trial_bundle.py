@@ -225,7 +225,7 @@ def test_scene_variants_replace_pending_ready_first_and_mapped():
     it = v['items'][0]
     assert it['role'] == 'диван' and it['x'] == 250.0 and it['y'] == 340.0 and it['rot'] == 90 and it['w'] == 200.0 and it['h'] == 80.0
     assert it['corner'] is True and it['corner_left'] is True and it['section'] == 95.0
-    assert it['sku']['msid'] == 'm-1_2' and it['sku']['name'] == 'Диван' and it['sku']['name_en'] == 'Sofa'
+    assert it['sku']['msid'] == 'm-1_2' and it['sku']['name'] == 'Диван · 200×90 см' and it['sku']['name_en'] == 'Sofa · 200×90 cm'
     assert not {'img', 'url', 'price', 'sid'} & set(it['sku'])
     assert v['missing_item'] == [{'role': 'ковёр'}]
     assert d['variants'][1]['furniture_state'] == 'partial' and d['variants'][1]['furniture_problem']['codes'] == ['route_blocked']
@@ -300,7 +300,8 @@ def test_scene_rows_of_new_format_keep_checked_model_and_colour():
                 r.pop(k)
             r.update(msid=None, mesh='none', name_en='Kirmas corner sofa, terracotta velour', colour_en='terracotta velour')
     it = build(res, scene)['variants'][0]['items'][0]
-    assert it['sku']['msid'] is None and it['sku']['colour_en'] == 'terracotta velour' and it['sku']['name_en'] == 'Sofa'
+    assert it['sku']['msid'] is None and it['sku']['colour_en'] == 'terracotta velour' and it['sku']['name_en'] == 'Sofa · 200×90 cm'
+    assert it['sku']['colour_ru'] == 'терракотовый велюр'
     scene['variants'][0]['items'][0].update(msid='112923_1', colour_en='Kirmas velour')        # чужое слово в цвете — цвет пустой
     it = build(res, scene)['variants'][0]['items'][0]
     assert it['sku']['msid'] == '112923_1' and it['sku']['colour_en'] == ''
@@ -396,6 +397,85 @@ def test_colour_en_only_dictionary_words():
     assert c and not TB._CYR.search(c) and 'viks' not in c.lower()
 
 
+# ───────── имена предметов уникальны (T-20261109-35/3): страница узнаёт товар по `sku.name` ─────────
+
+def _names_unique(d):
+    """В туре: одно имя — один товар (роль, модель, размер); у одного товара — одно имя (во всех стилях и в ленте)."""
+    by_name, by_key = {}, {}
+    for v in d['variants']:
+        for it in v['items']:
+            s = it['sku']
+            key = (TB._base_role(it['role']), s.get('msid'), s.get('w'), s.get('d'), s.get('sleep_w'))
+            assert by_name.setdefault(s['name'], key) == key, f"одно имя у двух товаров: {s['name']}"
+            assert by_key.setdefault(key, (s['name'], s['name_en'])) == (s['name'], s['name_en'])
+            en_key = by_name.setdefault('en:' + s['name_en'], key)
+            assert en_key == key, f"одно английское имя у двух товаров: {s['name_en']}"
+    for role, rows in d['feeds'].items():
+        names = [p['name'] for p in rows]
+        assert len(names) == len(set(names)) and all(n in by_name for n in names), role
+    return by_name
+
+
+def test_item_names_unique_two_equal_sofas_get_suffix():
+    """Два разных дивана одного размера (сценарий «Заменить» сломана): « · 2»; тот же диван в другом стиле — то же имя."""
+    res = simple()
+    scene = scene_for(res)
+    a, b = scene['variants'][0], scene['variants'][2]
+    b['items'][0] = {**b['items'][0], 'sid': '9_9'}                        # другой товар того же размера
+    a['items'].append({**a['items'][0], 'role': 'диван 2', 'sid': '8_8', 'x': 100.0})   # и третий — в том же стиле
+    d = build(res, scene)
+    names = _names_unique(d)
+    sofas = sorted(n for n in names if not n.startswith('en:') and n.startswith('Диван'))
+    assert sofas == ['Диван · 200×90 см', 'Диван · 200×90 см · 2', 'Диван · 200×90 см · 3']
+    assert sorted(n[3:] for n in names if n.startswith('en:Sofa')) == ['Sofa · 200×90 cm', 'Sofa · 200×90 cm · 2', 'Sofa · 200×90 cm · 3']
+    assert len(d['feeds']['диван']) == 3
+    # стулья (`стул`/`стул 2`) — один товар: одно имя без суффикса
+    chairs = {it['sku']['name'] for v in d['variants'] for it in v['items'] if it['role'].startswith('стул')}
+    assert chairs == {'Стул · 40×40 см'}
+
+
+def test_item_names_unique_on_fixtures_and_rebuild_does_not_double():
+    flat = flat_with_bedrooms()
+    parts = [bedroom_part(), bedroom_part('bedroom-2')]
+    parts[1]['variants'][0]['items'][0]['sku'].update(msid='m-bed-2')      # другая кровать того же размера в другой спальне
+    d = TB.build(JOB, flat, scene_for(flat), ctx=CTX, parts=parts)
+    names = _names_unique(d)
+    assert {'Кровать 160 см · 170×210 см', 'Кровать 160 см · 170×210 см · 2'} <= set(names)
+    # лента спальни — под ключом комнаты, как ищет страница (`roomKeysOf`); гостиной — голая роль
+    assert [p['msid'] for p in d['feeds']['bedroom-1:кровать']] == ['m-bed'] and [p['msid'] for p in d['feeds']['bedroom-2:кровать']] == ['m-bed-2']
+    assert 'кровать' not in d['feeds'] and 'диван' in d['feeds'] and d['sofa_feed'] == d['feeds']['диван']
+    for fx in ('empty', 'furnished', 'rooms'):
+        _names_unique(json.load(open(os.path.join(HERE, '..', '..', '..', 'tests', 'fixtures', 'trial-bundle.sample.json')))[fx])
+    # пересборка «Обустроить» берёт куски с уже готовыми именами — размер не удваивается
+    again = [{**p, 'variants': [{**v, 'items': [dict(it, sku=dict(it['sku'])) for it in v['items']]} for v in p['variants']]} for p in parts]
+    for p, v in zip(again, [x for x in d['variants'] if x['room_id'].startswith('bedroom')]):
+        p['variants'][0]['items'][0]['sku']['name'] = v['items'][0]['sku']['name']
+    d2 = TB.build(JOB, flat, scene_for(flat), ctx=CTX, parts=again)
+    assert sorted(_names_unique(d2)) == sorted(names)
+
+
+def test_item_without_size_keeps_role_name_and_unique_suffix():
+    res = simple()
+    scene = scene_for(res)
+    for k, sid in enumerate(('1_1', '2_2')):
+        scene['variants'][0]['items'].append({**scene['variants'][0]['items'][0], 'role': 'торшер' if k == 0 else 'торшер 2', 'sid': sid,
+                                              'w': None, 'd': None, 'corner': False})
+    d = build(res, scene)
+    lamps = [it['sku']['name'] for it in d['variants'][0]['items'] if it['role'].startswith('торшер')]
+    assert lamps == ['Торшер', 'Торшер · 2']
+
+
+@pytest.mark.parametrize('colour,item,want', [
+    ('grey woven fabric', 'Диван', 'серая рогожка'), ('mint velour', 'Кровать', 'мятный велюр'), ('white', 'ТВ-тумба', 'белая'),
+    ('white', 'Кресло', 'белое'), ('blue', 'Прикроватная тумба', 'синяя'), ('grey', 'Кровать', 'серая'),
+    ('dark beige ceramic/walnut', 'Столик', 'темно-бежевая керамика/орех'), ('beige/black velour', 'Стул', 'бежевый/чёрный велюр'),
+    ('black/natural', 'Обеденный стол', 'чёрный/натуральный'), ('graphite bouclé', 'Диван', 'графитовое букле'),
+    ('Diamond latte', 'ТВ-тумба', 'ромб латте'), ('Kirmas velour', 'Диван', ''), ('', 'Диван', ''), (None, 'Диван', ''),
+])
+def test_colour_ru_from_colour_en_agrees_in_gender(colour, item, want):
+    assert TB.colour_ru(colour, item) == want
+
+
 def bedroom_part(rid='bedroom-1', state='ready', code=None, with_items=True):
     """Кусок как `trial_bedroom.bundle_parts`: магазинное имя и ссылка нарочно — сборка обязана их снять."""
     items = [{'role': 'кровать', 'x': 200, 'y': 150, 'rot': 0, 'w': 170, 'd': 210, 'h': 100, 'dims_src': 'catalog', 'corner': False,
@@ -440,7 +520,8 @@ def test_bedrooms_pending_until_their_stage_then_ready_or_empty_with_owner_text(
     assert by['kitchen-1']['furniture_outcome'] == 'not_furnished' and by['kitchen-1']['furniture_text_en']
     assert d['trial']['complete'] is True
     bed = next(v for v in d['variants'] if v['room_id'] == 'bedroom-1')['items'][0]
-    assert bed['sku'] == {'name': 'Кровать 160 см', 'name_en': 'Bed 160 cm', 'msid': 'm-bed', 'w': 170, 'd': 210, 'h': 100, 'sleep_w': 160}
+    assert bed['sku'] == {'name': 'Кровать 160 см · 170×210 см', 'name_en': 'Bed 160 cm · 170×210 cm', 'msid': 'm-bed', 'w': 170, 'd': 210,
+                          'h': 100, 'sleep_w': 160}
     assert 'url' not in bed and 'hoff' not in json.dumps(d, ensure_ascii=False).lower()
 
 

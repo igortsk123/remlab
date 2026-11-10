@@ -344,7 +344,8 @@ def test_parts_accepted_by_page_bundle():
     assert [v['items'] for v in d['variants'] if v['room_id'] == empty['id']] == [[]]          # пустая, без мебели
     assert full['furniture_outcome'] == 'furnished' and full['titleRu'] == 'Спальня 2' and full['titleEn'] == 'Bedroom 2'
     bed = next(it for v in d['variants'] if v['room_id'] == full['id'] for it in v['items'] if it['role'] == 'кровать')
-    assert bed['sku']['name'] == 'Кровать 160 см' and bed['sku']['name_en'].endswith('160 cm')
+    # имя в туре уникально: ширина спального места + габарит (T-20261109-35/3)
+    assert bed['sku']['name'].startswith('Кровать 160 см · ') and bed['sku']['name_en'].startswith('Bed 160 cm · ')
     assert SHOP not in json.dumps(d, ensure_ascii=False)
 
 

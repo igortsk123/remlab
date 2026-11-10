@@ -1272,6 +1272,8 @@ body.trial #hmAva,body.trial #flatPriceSum,body.trial #flatMetaRow,body.trial #f
 body.trial #hmBot,body.trial #consShot,body.trial #swapShot,body.trial #shotNow,body.trial #pcMort,body.trial #pcCons,body.trial .hm-tipw{display:none!important}
 /* фото товаров в пробе нет (ссылки магазина вычищены) — пустую плашку «нет фото» не показываем, строка без слота (T-20261109-20/3) */
 body.trial .row>.noimg-sm:not(.tr-thph),body.trial .prow>.pnoimg,body.trial .card>.noimg,body.trial #itemCard .ic-ph:has(.ic-no){display:none!important}
+/* карточка ленты без картинки: плашка «по размеру» стояла поверх места картинки — на названии; в пробе — в потоке, над ним (T-20261109-35/3) */
+body.trial #grid .card .badge{position:static;display:inline-block;align-self:flex-start;margin:0 0 6px}
 body.trial .row>.acts{padding-left:0}body.trial #flatRooms>.hint{flex:0 0 100%}body.trial .pinlist .row,body.trial .pinlist .row .t{min-height:0}
 /* СПИСОК ОКНА В ТУРЕ = СПИСОК /demo (T-20261109-35/2): плитка 64 px слева (снимок нашей 3D-модели, пока его нет — серая плитка без
    подписи), высота строки и отступ «Заменить» — как в /demo; место цены пустое, но той же ширины, чтобы колонка текста не скакала */
@@ -6456,13 +6458,14 @@ const TR_TH=new Map();   // ключ модели (msid + размеры) → da
 function trThKey(s){ return s&&s.msid?[s.msid,Math.round(+s.w||0),Math.round(+s.d||0),Math.round(+s.h||0)].join('|'):''; }
 function trRowHtml(a,k,own){
   const EN=LANG==='en', s=own?(own.sku&&own.sku.name?own.sku:skuOf(own))||{}:{}, ix=own?items.indexOf(own):-1, key=trThKey(s);
-  const W=Math.round(+(s.w||(own&&own.w)||0)), Dp=Math.round(+(s.d||(own&&own.d)||0)), col=EN?String(s.colour_en||'').trim():'';
-  const name=itemName(a,a.role)+(col?', '+col:'')+(W&&Dp?` · ${W}×${Dp} ${EN?'cm':'см'}`:'');
-  const role=EN?String(maskRoleEn(a.role)||'').toLowerCase():baseRole(a.role), u=key&&TR_TH.get(key);
+  // название из сборки уже уникально и с размером («Диван · 214×98 см», T-20261109-35/3) — размер к нему не дописываем; вторая строка —
+  // цвет/материал на языке страницы (`colour_ru`/`colour_en`), роль не повторяем; нечего сказать — строки нет
+  const name=itemName(a,a.role), u=key&&TR_TH.get(key);
+  const sub=[String((EN?s.colour_en:s.colour_ru)||'').trim(),(a.qty||1)>1?a.qty+(EN?' pcs':' шт.'):''].filter(Boolean).join(' · ');
   const pic=u?`<img class="tr-th ld" src="${u}" alt="">`
     :`<div class="noimg-sm tr-thph"${ix>=0&&key?` data-th="${ix}" data-thk="${escHtml(key)}"`:''} aria-hidden="true"></div>`;
   return `<div class="row" style="cursor:default" data-k="${k}">${pic}`+
-    `<div class="t"><b>${escHtml(name)}</b><span>${escHtml([role,(a.qty||1)>1?a.qty+(EN?' pcs':' шт.'):''].filter(Boolean).join(' · '))}</span>`+
+    `<div class="t"><b>${escHtml(name)}</b>${sub?`<span>${escHtml(sub)}</span>`:''}`+
     swatchRow(own?s:null,a.role)+`</div><div class="p"></div>`+
     `<span class="acts">${own?`<button class="lnk" data-rep="${k}">Заменить</button>`:''}</span></div>`;
 }
@@ -6900,7 +6903,8 @@ stage.addEventListener('pointerdown',e=>{if(vwEditLock()){e.preventDefault(); re
         drag={dx:touchStart.pt.x-hit.x,dy:touchStart.pt.y-hit.y,t:Date.now(),moved:false};
         if(navigator.vibrate)navigator.vibrate(30);},450);
     }else{hideRotOvl();drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};}
-    document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d_catalog??hit.d)} см`+(hit.sku&&hit.sku.name?` · ${itemName(hit.sku,hit.role)}`:'');
+    document.getElementById('sel').textContent=TRIAL()&&hit.sku&&hit.sku.name?`Выбрано: ${itemName(hit.sku,hit.role)}`   // проба: размер — в названии
+      :`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d_catalog??hit.d)} см`+(hit.sku&&hit.sku.name?` · ${itemName(hit.sku,hit.role)}`:'');
     warmUp();draw();showTip(hit);}});
 stage.addEventListener('pointermove',e=>{
   if(touchTimer&&touchStart&&Math.hypot(e.clientX-touchStart.x,e.clientY-touchStart.y)>10){
@@ -7059,7 +7063,9 @@ function feedFor(base){
   const st=plainStyle((allVariants()[cur]||{}).style);
   // МЯГКОЕ — ЛЕНТА ВСЕХ СТИЛЕЙ (demo-24 правки): ленты подушек и штор собраны из наборов банка — по одной-две на стиль, и в своём
   // стиле заменить было не на что (сканди: одна «Удина» — она же текущая). Правило «чужие сеты не показываем» — про мебель
-  if(F.anyStyle||!st||isSoft(base))return all;
+  // ПРОБА: лента — только товары вариантов тура (`trial_bundle._feeds`), по товару на роль в каждом стиле; в «своём» стиле один — текущий,
+  // и лента с фильтром стиля всегда пустела («Выбрать диван (0)», T-20261109-35/3). Замена в туре — на предмет другого стиля
+  if(TRIAL()||F.anyStyle||!st||isSoft(base))return all;
   // у товара стилей может быть несколько (`styles`) — он подходит и неоклассике, и современному
   // ЧУЖИЕ СЕТЫ НЕ ПОКАЗЫВАЕМ (13.10). Товары рекомендованных наборов видны всегда — это правило
   // владельца 08.09 про «изначальный набор». Но наборов шесть, и в ленту неоклассики падали
@@ -7112,7 +7118,7 @@ function filters(){
   // действует, снят = показываем всё
   add('Подходящие по размеру',F.fitOnly,()=>F.fitOnly=!F.fitOnly);
   const st=plainStyle((allVariants()[cur]||{}).style);
-  if(st)add('Только стиль '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);
+  if(st&&!TRIAL())add('Только стиль '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);   // проба: стиль ленту не режет (`feedFor`)
   // пороги — рубли витрины; подписи — в валюте карточки (британский двойник: £)
   const fx=fxRate(), EN=LANG==='en';
   if(!TRIAL()){   // проба: цен нет — и отбора по цене нет
@@ -7236,11 +7242,14 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
          // разворот фронта модели (demo-01): живая сцена ставит заменённую модель по нему, как сервер по orient.json
          ...(p.yaw!=null?{yaw:p.yaw}:{}),
          // подкраска цветового варианта на модели семейства (приёмка 16.10 п.11б, `flat215_demo.annotate_tint`)
-         ...(p.tint?{tint:p.tint}:{})};
+         ...(p.tint?{tint:p.tint}:{}),
+         // проба: имя на обоих языках, цвет и размер товара едут с ним — строка списка и миниатюра после замены (T-20261109-35/3)
+         ...(TRIAL()?{name_en:p.name_en, colour_en:p.colour_en||'', colour_ru:p.colour_ru||'', w:p.w, d:p.d, h:p.h||null, sleep_w:p.sleep_w}:{})};
   kin.forEach(it=>{it.w=s.w; it.d=s.d; it.h=s.h; it.sku=Object.assign({},s.sku);
     if(s.d_catalog!=null)it.d_catalog=s.d_catalog; else delete it.d_catalog;});
   sel=s;
-  document.getElementById('sel').innerHTML=`Примерено: <b>${itemName(p,s.role)}</b> · ${trJoin(Math.round(p.w)+'×'+Math.round(p.d_catalog??p.d)+' см',money(p.price))}`+
+  // проба: размер уже в названии («Диван · 214×98 см») — второй раз не пишем
+  document.getElementById('sel').innerHTML=`Примерено: <b>${itemName(p,s.role)}</b>`+(TRIAL()?'':` · ${trJoin(Math.round(p.w)+'×'+Math.round(p.d_catalog??p.d)+' см',money(p.price))}`)+
     (itemUrl(p)?` · <a href="${itemUrl(p)}" target="_blank" rel="noopener">открыть в магазине</a>`:'');
   draw();}
 
@@ -7890,10 +7899,12 @@ function vwSumUpdate(){
   vwGroupsDraw();          // сводки строк-входов — после смены пола или кухни, без перезагрузки
 }
 // чип «⌃ Мебель и отделка · 11 (X ₽)» (макет 373:7035): X — сумма этой комнаты, та же, что «Эта комната» в легенде шкалы
-function vwChipText(){ const v=allVariants()[cur]||{}, n=variantCount(v), EN=LANG==='en';
-  if(!n&&(varRefused(v)||varPending(v)))return EN?'⌃ Furniture & finishes':'⌃ Мебель и отделка';   // комната без мебели — без «· 0»
+// проба: отделки в туре нет — «Мебель · N» (T-20261109-35/3); `/demo` — как было
+function vwChipWord(){ const EN=LANG==='en'; return TRIAL()?(EN?'Furniture':'Мебель'):(EN?'Furniture & finishes':'Мебель и отделка'); }
+function vwChipText(){ const v=allVariants()[cur]||{}, n=variantCount(v);
+  if(!n&&(varRefused(v)||varPending(v)))return '⌃ '+vwChipWord();   // комната без мебели — без «· 0»
   const p=fmtCard(toCard(variantPrice(v)));   // проба: цены нет — без пустых скобок
-  return (EN?'⌃ Furniture & finishes · ':'⌃ Мебель и отделка · ')+n+(p?' ('+p+')':''); }
+  return '⌃ '+vwChipWord()+' · '+n+(p?' ('+p+')':''); }
 // СТРОКА ВМЕСТО СПИСКА ТОВАРОВ (T-20261109-35): комната без мебели — почему (по коду исхода, RU/EN) и что можно сделать: агенту с ключом —
 // «Обустроить», если комната ждёт проверки размера (та же кнопка, что на карточке и плане, `data-tr-furnish`)
 function vwNoneHtml(){ const v=allVariants()[cur], EN=LANG==='en';
@@ -8271,7 +8282,7 @@ function vwTipPlace(t){
 }
 function vwSheetState(pos){
   const g=document.getElementById('vgrip'), c=document.getElementById('vchip'), sc=document.getElementById('vscroll'), EN=LANG==='en';
-  if(g){g.setAttribute('aria-expanded',String(pos>0)); g.setAttribute('aria-label',pos===3?(EN?'Collapse':'Свернуть'):(EN?'Furniture and finishes — open':'Мебель и отделка — открыть'));}
+  if(g){g.setAttribute('aria-expanded',String(pos>0)); g.setAttribute('aria-label',pos===3?(EN?'Collapse':'Свернуть'):(TRIAL()?(EN?'Furniture — open':'Мебель — открыть'):(EN?'Furniture and finishes — open':'Мебель и отделка — открыть')));}
   if(c)c.textContent=pos===3?(EN?'⌄ Collapse':'⌄ Свернуть'):vwChipText();
   if(sc){sc.style.overflowY=pos===3?'auto':'hidden'; sc.style.touchAction=pos===3?'pan-y':'none';}
   const x=document.getElementById('shotx');   // «×» при полной — «свернуть список» (v5.2 п.6, `vwXCollapses`)
