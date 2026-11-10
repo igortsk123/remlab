@@ -50,9 +50,10 @@ export const PRESETS = {
   pageEvent: (ip: string) => ({ paid: false, rules: [{ key: `page-event:ip:${ip}`, limit: 120, windowSec: 600 }] }),
   partnerReport: (ip: string) => ({ paid: false, rules: [{ key: `partner-report:ip:${ip}`, limit: 60, windowSec: 600 }] }),
   // Проба для агентов (agent-trial-01): загрузка плана — платный VLM на DEV, поэтому при сбое лимитера закрыто.
-  // Суточный потолок на весь сайт (TRIAL_DAILY_CAP, 30) считается по созданным заданиям под замком в
+  // Суточный потолок на весь сайт (TRIAL_DAILY_CAP, 300) считается по созданным заданиям под замком в
   // `lib/trial/repo-create.ts` — счётчик здесь съедал бы потолок отказами (полная очередь, битый файл).
-  // Числа — `lib/trial/upload-limits.ts` (по ним же форма пишет «подряд» или «на сегодня»).
+  // Числа — `lib/trial/upload-limits.ts` (10 в час, 30 в сутки; по ним же форма пишет «подряд» или «на сегодня»).
+  // Наши машины (`lib/trial/own-key.ts`) сюда не доходят — `app/api/trial/route.ts`.
   trialUpload: (ip: string) => ({
     paid: true,
     rules: [

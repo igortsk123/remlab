@@ -11,7 +11,8 @@
 
 Как страница и без долбёжки API (лимиты прода — `lib/ratelimit/index.ts:trialUpload|trialRead`):
 - опрос статуса раз в 1,5 с; волна из K заданий — цикл 1,5 с × K/2 (три задания — 80 запросов в минуту при лимите чтения 120 с адреса);
-- загрузки — с промежутком `--gap` (200 с: прод пускает 3 загрузки за 10 мин и 10 в сутки с адреса);
+- загрузки — с промежутком `--gap` (200 с; прод пускает с адреса 10 загрузок в час и 30 в сутки, наши машины — без лимита:
+  ключ из окружения `TRIAL_OWN_KEY` уходит заголовком `x-trial-own-key` только в `POST /api/trial`, в журнал не пишется);
 - 429/503 — ждём `Retry-After` (не больше `--retry-cap`), не больше 3 повторов; сетевой сбой загрузки НЕ повторяем
   (задание могло создаться — повтор дал бы двойник);
 - задание в очереди, а воркер «не на связи» дольше `--no-worker-sec` — серию останавливаем (не копим очередь).
@@ -118,6 +119,12 @@ class Http:
                 return resp.status, dict(resp.headers), raw
         except urllib.error.HTTPError as e:
             return e.code, dict(e.headers or {}), e.read() or b""
+
+
+def own_key_header() -> dict:
+    """Наши машины без лимита загрузки (`lib/trial/own-key.ts`): ключ — только из окружения, наружу — только этим заголовком."""
+    key = os.environ.get("TRIAL_OWN_KEY", "")
+    return {"x-trial-own-key": key} if key else {}
 
 
 def as_json(raw: bytes) -> dict:
@@ -243,7 +250,7 @@ class Series:
             run.started = datetime.fromtimestamp(t0).isoformat(timespec="seconds")
             run.temp = self._temp(t0)
             try:
-                code, headers, raw = self.http.req("POST", "/api/trial", body, {"Content-Type": ctype})
+                code, headers, raw = self.http.req("POST", "/api/trial", body, {"Content-Type": ctype, **own_key_header()})
             except (urllib.error.URLError, OSError) as e:  # без повтора: задание могло создаться
                 run.outcome = "upload_error"
                 self.jot("upload_error", run, error=str(e)[:200])

@@ -80,10 +80,13 @@ describe("тексты", () => {
     expect(errorText("pdf_unreadable", "en")).toMatch(/PDF/);
     expect(errorText(null, "en")).toMatch(/Something went wrong/);
     expect(errorText(null, "ru")).toMatch(/что-то пошло не так/);
-    expect(uploadErrorText("rate_limited", "en")).toMatch(/10 minutes/);
-    expect(uploadErrorText("rate_limited", "ru")).toMatch(/минут 10/);
-    // Retry-After в пределах короткого окна (10 мин) — «подряд», как было
-    expect(uploadErrorText("rate_limited", "ru", 420)).toMatch(/минут 10/);
+    expect(uploadErrorText("rate_limited", "en")).toMatch(/in a row\. Please try again within the hour/);
+    expect(uploadErrorText("rate_limited", "ru")).toMatch(/подряд\. Попробуйте снова в течение часа/);
+    // Retry-After в пределах короткого окна (час) — «подряд» и через сколько минут
+    expect(uploadErrorText("rate_limited", "ru", 420)).toBe("Вы загрузили много планов подряд. Попробуйте снова через 7 минут.");
+    expect(uploadErrorText("rate_limited", "ru", 61)).toMatch(/через 2 минуты\.$/);
+    expect(uploadErrorText("rate_limited", "en", 30)).toMatch(/in 1 minute\.$/);
+    expect(uploadErrorText("rate_limited", "en", 3600)).toMatch(/in 60 minutes\.$/);
     expect(uploadErrorText("whatever", "en")).toMatch(/didn't go through/);
     expect(uploadErrorText("toString", "ru")).toMatch(/Загрузка не прошла/); // не поле прототипа
     for (const c of trialErrorCode.options) {
@@ -100,9 +103,9 @@ describe("тексты", () => {
     // 10.11 08:49 UTC, сброс в 00:00 UTC (через 54 642 с) — у агента в Москве это завтра после 03:00
     const now = Date.parse("2026-11-10T08:49:18Z"), ra = 54_642;
     expect(uploadErrorText("rate_limited", "ru", ra, now)).toBe(
-      "Сегодня с этого адреса уже загружено 10 планов. Попробуйте завтра после 03:00 по Москве.");
+      "Сегодня с этого адреса уже загружено 30 планов. Попробуйте завтра после 03:00 по Москве.");
     expect(uploadErrorText("rate_limited", "en", ra, now)).toBe(
-      "10 plans have already been uploaded from this address today. Please try again tomorrow after 00:00 UTC.");
+      "30 plans have already been uploaded from this address today. Please try again tomorrow after 00:00 UTC.");
     // 22:30 UTC = 01:30 по Москве: сброс в 03:00 по Москве — уже «сегодня», а в UTC — «завтра»
     const late = Date.parse("2026-11-10T22:30:00Z");
     expect(uploadErrorText("rate_limited", "ru", 5400, late)).toMatch(/Попробуйте сегодня после 03:00 по Москве/);
@@ -110,7 +113,7 @@ describe("тексты", () => {
     // время не жёсткое: другой Retry-After — другое время
     expect(uploadErrorText("rate_limited", "en", 3600 * 3, now)).toMatch(/today after 11:49 UTC/);
     // без заголовка — короткий текст, как раньше
-    expect(uploadErrorText("rate_limited", "en", null, now)).toMatch(/10 minutes/);
+    expect(uploadErrorText("rate_limited", "en", null, now)).toMatch(/within the hour/);
   });
 
   it("тур — когда опубликована версия данных: готово или промежуточная версия у идущего", () => {

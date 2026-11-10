@@ -33,6 +33,8 @@ remont-lab.online {
 				request>headers>X-Internal-Token delete
 				request>headers>X-Trace-Token delete
 				request>headers>X-Telegram-Bot-Api-Secret-Token delete
+				# ключ наших машин для пробы (`lib/trial/own-key.ts`, T-20261110-24)
+				request>headers>X-Trial-Own-Key delete
 				request>headers>Referer delete
 				request>uri regexp "([?&]s=|/api/sends/|/api/collections/|/api/trial/|/api/trial/worker/|/try/)[A-Za-z0-9_-]{22}" "${1}…"
 			}

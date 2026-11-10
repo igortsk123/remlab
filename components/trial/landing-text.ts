@@ -58,7 +58,8 @@ const en = {
       ["How accurate are the sizes?", "From the plan and your measurements. Sizes we're unsure of are flagged. Not for measuring."],
       ["What furniture is shown?", "From our catalogue, priced in pounds. Styles can be switched."],
       ["Which rooms are furnished?", "Living rooms and bedrooms. Up to two floors."],
-      ["What happens to my floor plan?", "We delete your plan within 24 hours and the tour after 30 days. We share neither."],
+      // срок — владелец 10.11 (TG 744): план и тур живут 30 дней, в этот срок план можно поправить (`lib/trial/config.ts:trialFileHours`)
+      ["What happens to my floor plan?", "We keep your plan and tour for 30 days, so you can correct the plan. We share neither."],
     ] as Pair[],
   },
   final: { h2: "Try it on your next listing", upload: "Upload a floor plan", example: "See an example" },
@@ -121,7 +122,7 @@ const ru: LandingText = {
       ["Насколько точны размеры?", "По плану и вашим замерам. Размеры, в которых мы не уверены, отмечены. Не для обмеров."],
       ["Какая мебель показана?", "Из нашего каталога, с ценами в фунтах. Стиль можно сменить."],
       ["Какие комнаты обставляются?", "Гостиные и спальни. До двух этажей."],
-      ["Что будет с моим планом?", "План удаляем в течение 24 часов, тур — через 30 дней. Никому их не передаём."],
+      ["Что будет с моим планом?", "План и тур храним 30 дней: в это время план можно поправить. Никому их не передаём."],
     ],
   },
   final: { h2: "Попробуйте на следующем объявлении", upload: "Загрузить план", example: "Посмотреть пример" },

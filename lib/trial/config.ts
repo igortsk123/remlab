@@ -22,18 +22,22 @@ export const TRIAL_WORKER_ALIVE_SEC = 30; // воркер опрашивает �
 export const TRIAL_STALE_HOURS = 24; // незавершённое задание старше суток — failed/stale (retention)
 export const TRIAL_TOMBSTONE_DAYS = 90; // «надгробие» (410) живёт ещё 90 дней после снятия результата
 
-/** Суточный потолок заданий на весь сайт: 30 × $0,10 = $3 (поправка Codex: не 50). */
-export const trialDailyCap = (env = process.env) => envInt(env.TRIAL_DAILY_CAP, 30, 1000);
+/** Суточный потолок заданий на весь сайт: 300 (владелец 10.11, TG 744: с адреса 30 в сутки — общий 30 упёрся бы раньше адресного).
+ *  Наши машины (`lib/trial/own-key.ts`) его не тратят на проверке, но их задания в счёт входят. */
+export const trialDailyCap = (env = process.env) => envInt(env.TRIAL_DAILY_CAP, 300, 1000);
 /** Сколько заданий может ждать в очереди; больше — 503 «busy». */
 export const trialQueueMax = (env = process.env) => envInt(env.TRIAL_QUEUE_MAX, 5, 100);
-/** Исходный файл — 24 ч после финального статуса, максимум 7 дней (диагностика). */
-export const trialFileHours = (env = process.env) => envInt(env.TRIAL_FILE_RETENTION_HOURS, 24, 168);
-/** «Размеры своими словами» (Р2-текст): хранить исходник готового тура, пока жив тур (`trialResultDays`), — чтобы применить текст агента
- *  и позже суток. ВЫКЛЮЧЕНО: FAQ обещает «план удаляем в течение 24 часов» (`components/trial/landing-text.ts`); включать — только вместе
- *  с правкой FAQ, по решению владельца (T-20261109-33, 10.11). Выключено — после срока файла текст получает честный `source_gone`. */
-export const trialKeepSourceForTour = (env = process.env) => env.TRIAL_KEEP_SOURCE_FOR_TOUR === "1";
 /** Результат — 30 дней (потом 410). */
 export const trialResultDays = (env = process.env) => envInt(env.TRIAL_RESULT_RETENTION_DAYS, 30, 365);
+/** Исходный файл — столько же, сколько тур: 30 дней после финального статуса (владелец 10.11, TG 744: «в течение месяца человек может
+ *  поправить план»; FAQ `components/trial/landing-text.ts`). `TRIAL_FILE_RETENTION_HOURS` — только короче (диагностика), не дольше тура. */
+export const trialFileHours = (env = process.env) => {
+  const tour = trialResultDays(env) * 24;
+  return envInt(env.TRIAL_FILE_RETENTION_HOURS, tour, tour);
+};
+/** «Размеры своими словами» (Р2-текст): держать исходник готового тура, пока жив тур, даже если `TRIAL_FILE_RETENTION_HOURS` задан короче.
+ *  По умолчанию срок файла и так равен сроку тура (10.11) — переключатель нужен лишь при укороченном сроке файла. */
+export const trialKeepSourceForTour = (env = process.env) => env.TRIAL_KEEP_SOURCE_FOR_TOUR === "1";
 
 /** «Обустроить» (план agent-trial-08, Р1): пересборок на одно задание за сутки — DEV тратит минуты машины, не деньги. */
 export const trialRebuildDaily = (env = process.env) => envInt(env.TRIAL_REBUILD_DAILY, 10, 100);

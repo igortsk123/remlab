@@ -13,7 +13,7 @@ export const claimable = (t: SQL): SQL => sql`(((${t}.status = 'queued' and ${t}
   or (${t}.status = 'running' and ${t}.lease_until < now()))
   and ${t}.attempt < ${t}.max_attempts and ${t}.input_path is not null)`;
 
-/** Поля финального статуса: сроки файла (24 ч) и результата (30 дн.) считаются от него. */
+/** Поля финального статуса: сроки файла и результата (оба 30 дн., `lib/trial/config.ts`) считаются от него. Пересборки срок не продлевают. */
 export const terminalSet = (env = process.env): SQL => sql`finished_at = now(), lease_until = null,
   expires_at = now() + make_interval(hours => ${trialFileHours(env)}::int),
   result_expires_at = now() + make_interval(days => ${trialResultDays(env)}::int)`;

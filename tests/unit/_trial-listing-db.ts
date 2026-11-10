@@ -206,7 +206,7 @@ export function listingDbTests(c: () => Ctx): void {
       expect((await get(lease)).status).toBe(410);
     });
 
-    it("срок исходника: по умолчанию 24 ч и у готового тура; переключатель (выключен) держит лист, пока жив тур", async () => {
+    it("срок исходника: вышел срок файла — без переключателя удалён; переключатель держит лист, пока жив тур", async () => {
       const { id, f } = await runningJob();
       await finish(f);
       await c().pg`update trial_jobs set expires_at = now() - interval '1 minute' where id = ${id}`;
@@ -217,7 +217,7 @@ export function listingDbTests(c: () => Ctx): void {
       await run({ ...process.env, TRIAL_KEEP_SOURCE_FOR_TOUR: "1" });
       expect((await c().row(id)).input_path).not.toBeNull(); // включён: тур жив — лист держим
       await run({ ...process.env, TRIAL_KEEP_SOURCE_FOR_TOUR: undefined });
-      expect((await c().row(id)).input_path).toBeNull(); // по умолчанию (FAQ «удаляем в течение 24 часов») — удалён
+      expect((await c().row(id)).input_path).toBeNull(); // выключен — по сроку файла (по умолчанию 30 дн., как тур) удалён
     });
 
     it("задание не удалось — ждущий текст снимается (stale), текст стёрт; сбой воркера source_gone виден странице", async () => {

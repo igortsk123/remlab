@@ -5,7 +5,7 @@
 -- ОГРАЖДЕНИЕ: каждый claim делает attempt+1 и выдаёт новый случайный lease_token; heartbeat/result/fail принимаются одним
 -- UPDATE … WHERE status='running' AND attempt=? AND lease_token=? AND lease_until>now(). Ровно max_attempts claim-ов.
 -- ПДн и сроки (ICO: storage limitation / minimisation): email и ip_hash НЕ храним (email — в T9, лимитер ведёт свои
--- счётчики); исходный файл живёт до expires_at (24 ч после финального статуса), результат — до result_expires_at (30 дн.),
+-- счётчики); исходный файл живёт до expires_at (30 дн. после финального статуса — с 10.11, 027), результат — до result_expires_at (30 дн.),
 -- потом строка — «надгробие» status='expired' без данных (страница отвечает 410). Файл — на томе, в базе только имя.
 -- Файл применяется на КАЖДОМ деплое — всё идемпотентно. Откат (только руками, после pg_dump):
 --   drop table if exists trial_jobs; drop table if exists trial_workers;

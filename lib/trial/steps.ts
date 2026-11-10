@@ -121,8 +121,8 @@ const UPLOAD_ERRORS: Record<string, Record<TrialLang, string>> = {
   busy: { en: "We're busy right now. Please try again in a couple of minutes.", ru: "Сейчас много загрузок. Попробуйте через пару минут." },
   daily_cap: DAY_LIMIT,
   rate_limited: {
-    en: "You've uploaded several plans in a row. Please wait about 10 minutes and try again.",
-    ru: "Вы загрузили несколько планов подряд. Подождите минут 10 и попробуйте снова.",
+    en: "You've uploaded a lot of plans in a row. Please try again within the hour.",
+    ru: "Вы загрузили много планов подряд. Попробуйте снова в течение часа.",
   },
   too_large: TOO_LARGE,
   unsupported_type: WRONG_TYPE,
@@ -148,11 +148,20 @@ function dayLimitText(lang: TrialLang, retryAfterSec: number, nowMs: number): st
     : `${n} plans have already been uploaded from this address today. Please try again ${today ? "today" : "tomorrow"} after ${hhmm} UTC.`;
 }
 
+// почасовой лимит адреса: через сколько минут — из Retry-After (окно фиксированное, поэтому не дольше часа)
+function burstText(lang: TrialLang, retryAfterSec: number): string {
+  const m = Math.max(1, Math.ceil(retryAfterSec / 60));
+  return lang === "ru"
+    ? `Вы загрузили много планов подряд. Попробуйте снова через ${m} ${ruPlural(m, "минуту", "минуты", "минут")}.`
+    : `You've uploaded a lot of plans in a row. Please try again in ${m} ${m === 1 ? "minute" : "minutes"}.`;
+}
+
 /** Текст ошибки загрузки. `rate_limited` с Retry-After дольше короткого окна — сработал суточный лимит адреса (окна
- *  фиксированные: короткое отвечает не дольше `burst.windowSec`), тогда — когда можно снова; иначе — «подряд», как было. */
+ *  фиксированные: короткое отвечает не дольше `burst.windowSec`), тогда — когда можно снова; короче — «подряд» и через сколько
+ *  минут (у суточного под конец суток это тоже верное время); без заголовка — «подряд» без числа. */
 export function uploadErrorText(code: string | undefined, lang: TrialLang, retryAfterSec?: number | null, nowMs = Date.now()): string {
-  if (code === "rate_limited" && retryAfterSec && retryAfterSec > TRIAL_UPLOAD_LIMITS.burst.windowSec) {
-    return dayLimitText(lang, retryAfterSec, nowMs);
+  if (code === "rate_limited" && retryAfterSec && retryAfterSec > 0) {
+    return retryAfterSec > TRIAL_UPLOAD_LIMITS.burst.windowSec ? dayLimitText(lang, retryAfterSec, nowMs) : burstText(lang, retryAfterSec);
   }
   return ((code && Object.hasOwn(UPLOAD_ERRORS, code) ? UPLOAD_ERRORS[code] : undefined) ?? UPLOAD_FAILED)[lang];
 }

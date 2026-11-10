@@ -21,27 +21,30 @@ const COUNTS = sql`select count(*) filter (where status = 'queued')::int as queu
   count(*) filter (where created_at > now() - interval '24 hours')::int as day
   from trial_jobs where status = 'queued' or created_at > now() - interval '24 hours'`;
 
-function decide(c: { queued: number; day: number } | undefined, env: NodeJS.ProcessEnv): Admission {
-  if ((c?.day ?? 0) >= trialDailyCap(env)) return "daily_cap";
+/** `own` — наша машина (`lib/trial/own-key.ts`): суточный потолок сайта не проверяем, очередь — да. */
+function decide(c: { queued: number; day: number } | undefined, env: NodeJS.ProcessEnv, own: boolean): Admission {
+  if (!own && (c?.day ?? 0) >= trialDailyCap(env)) return "daily_cap";
   if ((c?.queued ?? 0) >= trialQueueMax(env)) return "busy";
   return "ok";
 }
 
 /** Без замка — только чтобы не принимать тело заведомо зря. */
-export async function admissionPrecheck(env = process.env): Promise<Admission> {
+export async function admissionPrecheck(env = process.env, own = false): Promise<Admission> {
   const [c] = await rows<{ queued: number; day: number }>(COUNTS);
-  return decide(c, env);
+  return decide(c, env, own);
 }
 
 /** `editKeyHash` — sha256 ключа правки агента (`lib/trial/edit-key.ts`); сам ключ в базу не попадает. */
-export async function commitUpload(staged: Staged, id: string, dir: string, env = process.env, editKeyHash: string | null = null): Promise<Admission> {
+export async function commitUpload(
+  staged: Staged, id: string, dir: string, env = process.env, editKeyHash: string | null = null, own = false,
+): Promise<Admission> {
   const finalPath = path.join(dir, inputName(id, staged.mime));
   let renamed = false;
   try {
     const verdict = await db().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(${LOCK_KEY})`);
       const c = ((await tx.execute(COUNTS)) as unknown as { queued: number; day: number }[])[0];
-      const v = decide(c, env);
+      const v = decide(c, env, own);
       if (v !== "ok") return v;
       await tx.insert(trialJobs).values({
         id, inputHash: staged.inputHash, inputPath: path.basename(finalPath), inputMime: staged.mime, inputBytes: staged.bytes,

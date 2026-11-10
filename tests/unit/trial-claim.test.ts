@@ -27,7 +27,7 @@ type Lib = {
 let L: Lib;
 let pg: ReturnType<typeof postgresT>;
 
-const ENV_KEYS = ["TRIAL_QUEUE_MAX", "TRIAL_DAILY_CAP"] as const;
+const ENV_KEYS = ["TRIAL_QUEUE_MAX", "TRIAL_DAILY_CAP", "TRIAL_OWN_KEY"] as const;
 const lsDir = async () => (await fs.readdir(DIR).catch(() => [] as string[])).sort();
 const row = async (id: string) => (await pg`select * from trial_jobs where id = ${id}`)[0]!;
 const expire = (id: string, sec = 1) => pg`update trial_jobs set lease_until = now() - make_interval(secs => ${sec}) where id = ${id}`;
@@ -319,14 +319,16 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
     expect((await result(new Request("http://app/x", { headers: { "if-none-match": '"v1"' } }), ctx(id))).status).toBe(304);
   });
 
-  it("загрузка: полная очередь — 503 ДО чтения тела; 4-я загрузка с адреса за 10 минут — 429", async () => {
+  const mkUpload = (ip: string, extra: Record<string, string> = {}) => {
+    const fd = new FormData();
+    fd.append("consent", "yes");
+    fd.append("file", new Blob([new Uint8Array(png(300))]), "p.png");
+    return new Request("http://app/api/trial", { method: "POST", body: fd, headers: { "x-forwarded-for": ip, ...extra } });
+  };
+
+  it("загрузка: полная очередь — 503 ДО чтения тела; 11-я загрузка с адреса за час — 429", async () => {
     const { POST: upload } = await import("@/app/api/trial/route");
-    const mk = (ip: string) => {
-      const fd = new FormData();
-      fd.append("consent", "yes");
-      fd.append("file", new Blob([new Uint8Array(png(300))]), "p.png");
-      return new Request("http://app/api/trial", { method: "POST", body: fd, headers: { "x-forwarded-for": ip } });
-    };
+    const mk = (ip: string) => mkUpload(ip);
     process.env.TRIAL_QUEUE_MAX = "1";
     expect((await upload(mk("9.9.9.2"))).status).toBe(201);
     const busy = await upload(mk("9.9.9.3"));
@@ -334,12 +336,54 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
     expect(await busy.json()).toMatchObject({ error: "busy" });
     expect((await lsDir()).filter((n) => n.endsWith(".part"))).toEqual([]);
     process.env.TRIAL_QUEUE_MAX = "50";
-    expect((await upload(mk("9.9.9.4"))).status).toBe(201);
-    expect((await upload(mk("9.9.9.4"))).status).toBe(201);
-    expect((await upload(mk("9.9.9.4"))).status).toBe(201);
-    expect((await upload(mk("9.9.9.4"))).status).toBe(429);
+    for (let i = 0; i < 10; i++) expect((await upload(mk("9.9.9.4"))).status).toBe(201);
+    const over = await upload(mk("9.9.9.4"));
+    expect(over.status).toBe(429);
+    expect(Number(over.headers.get("retry-after"))).toBeLessThanOrEqual(3600);
     const foreign = new Request("http://app/api/trial", { method: "POST", headers: { origin: "https://evil.example", host: "app" } });
     expect((await upload(foreign)).status).toBe(403);
+  });
+
+  it("наши машины (TRIAL_OWN_KEY): верный ключ — мимо лимита адреса и суточного потолка; неверный или без ключа на сервере — как все", async () => {
+    const { POST: upload } = await import("@/app/api/trial/route");
+    const KEY = "own-".padEnd(40, "k");
+    process.env.TRIAL_QUEUE_MAX = "100";
+    process.env.TRIAL_OWN_KEY = KEY;
+    for (let i = 0; i < 11; i++) expect((await upload(mkUpload("9.9.8.1", { "x-trial-own-key": KEY }))).status).toBe(201);
+    // неверный ключ — обычный лимит адреса: 10 прошли, 11-й — 429
+    for (let i = 0; i < 10; i++) expect((await upload(mkUpload("9.9.8.2", { "x-trial-own-key": KEY + "x" }))).status).toBe(201);
+    expect((await upload(mkUpload("9.9.8.2", { "x-trial-own-key": KEY + "x" }))).status).toBe(429);
+    // за сутки на сайте уже 21 ≥ 12: чужой упирается в потолок, наш — нет
+    process.env.TRIAL_DAILY_CAP = "12";
+    const cap = await upload(mkUpload("9.9.8.3"));
+    expect(cap.status).toBe(429);
+    expect(await cap.json()).toMatchObject({ error: "daily_cap" });
+    expect((await upload(mkUpload("9.9.8.3", { "x-trial-own-key": KEY }))).status).toBe(201);
+    // ключа на сервере нет — заголовок ничего не даёт
+    delete process.env.TRIAL_OWN_KEY;
+    expect((await upload(mkUpload("9.9.8.1", { "x-trial-own-key": KEY }))).status).toBe(429);
+  });
+
+  it("027: уже загруженным с живым файлом срок файла = сроку тура; удалённые и новые не трогаем; повтор ничего не меняет", async () => {
+    process.env.TRIAL_QUEUE_MAX = "50";
+    const mkDone = async (fileHours: number, gone = false) => {
+      const { id } = await seed();
+      await pg`update trial_jobs set status = 'done', finished_at = now() - interval '2 hours',
+        expires_at = now() - interval '2 hours' + make_interval(hours => ${fileHours}::int),
+        result_expires_at = now() - interval '2 hours' + interval '30 days',
+        input_path = ${gone ? null : `${id}.png`} where id = ${id}`;
+      return id;
+    };
+    const old = await mkDone(24), gone = await mkDone(24, true), fresh = await mkDone(720);
+    const before = await row(fresh);
+    const sqlText = await fs.readFile(path.join(process.cwd(), "db/init/027-trial-file-30-days.sql"), "utf8");
+    await pg.unsafe(sqlText);
+    await pg.unsafe(sqlText);
+    const o = await row(old);
+    expect(new Date(o.expires_at).getTime()).toBe(new Date(o.result_expires_at).getTime());
+    const g = await row(gone);
+    expect(Math.round((new Date(g.expires_at).getTime() - new Date(g.finished_at).getTime()) / 3_600_000)).toBe(24);
+    expect(new Date((await row(fresh)).expires_at).getTime()).toBe(new Date(before.expires_at).getTime());
   });
 
   it("сроки: файл удалён — результат жив; затем результат → 410; ошибка unlink → ссылка остаётся и удаляется в следующий раз", async () => {
@@ -356,7 +400,7 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
     const r0 = await row(id);
     const hrs = (new Date(r0.expires_at).getTime() - new Date(r0.finished_at).getTime()) / 3_600_000;
     const days = (new Date(r0.result_expires_at).getTime() - new Date(r0.finished_at).getTime()) / 86_400_000;
-    expect([Math.round(hrs), Math.round(days)]).toEqual([24, 30]);
+    expect([Math.round(hrs), Math.round(days)]).toEqual([30 * 24, 30]); // файл живёт столько же, сколько тур (владелец 10.11)
 
     await pg`update trial_jobs set expires_at = now() - interval '1 minute' where id = ${id}`;
     const failing = (async () => { throw new Error("EACCES"); }) as unknown as typeof fs.rm;
