@@ -152,11 +152,35 @@ function windowIR(u0: number, u1: number, sill: number, top: number): IrBox[] {
   ];
 }
 
-/** Как стоит полотно: петли у u0 или у u1 (`hinge`), створка в комнату или наружу (`swingCm === 0`), входная — закрыта. */
+/** Как стоит полотно: петли у u0 или у u1 (`hinge`), створка в комнату или наружу (`swingCm === 0`), входная — закрыта;
+ *  `double` — двустворчатая (две створки по половине проёма). */
 interface LeafPose {
   hingeAtEnd: boolean;
   outward: boolean;
   closed: boolean;
+  double?: boolean;
+}
+
+/**
+ * ДВУСТВОРЧАТАЯ ДВЕРЬ (T-20261110-16/4): дуга в данных (`swing_cm`) — длина полотна; адаптер плана пишет её половиной ширины,
+ * если проём не уже `trial-room.json:double_door_min_cm` (`trial_room.py:_place_opening` → `o.leaf`, `solver_openings`). Полотно,
+ * которое короче 0,6 ширины проёма, одним не закрыть — рисуем две створки. У витрины дуга = ширине, там одна створка, как было.
+ */
+export const isDoubleDoor = (o: Pick<Opening, "kind" | "widthCm" | "swingCm">): boolean =>
+  o.kind === "door" && !!o.swingCm && o.swingCm > 0 && o.swingCm <= o.widthCm * 0.6;
+
+/** Полотно с двумя филёнками и ручкой в осях своей группы: построено вдоль +X от петли (x = 0), ручка — у свободного края
+ *  (`handleAtStart` — у x = 0: закрытая створка с петлями справа стоит без разворота, см. `doorIR`). */
+function leafBoxes(leafW: number, leafH: number, group: string, handleAtStart: boolean): IrBox[] {
+  const handleY = 105;
+  const hx = (v: number): number => (handleAtStart ? v : leafW - v);
+  return [
+    b("leaf", "leaf", leafW, leafH, 4, leafW / 2, leafH / 2, 0, group),
+    b("panel", "panel", leafW * 0.62, leafH * 0.34, 1, leafW / 2, leafH * 0.28, 2.2, group),
+    b("panel", "panel", leafW * 0.62, leafH * 0.34, 1, leafW / 2, leafH * 0.68, 2.2, group),
+    b("handle", "handle", 12, 2.2, 2.2, hx(8), handleY, 3.2, group),
+    b("handle", "handle", 2.4, 2.4, 4, hx(4), handleY, 2.6, group),
+  ];
 }
 
 function doorIR(u0: number, u1: number, top: number, pose: LeafPose): { boxes: IrBox[]; groups: Record<string, IrGroup> } {
@@ -169,7 +193,6 @@ function doorIR(u0: number, u1: number, top: number, pose: LeafPose): { boxes: I
   // Теперь края полотна — посередине профиля коробки: от петли (u0 + P/2) до u1 − P/2, верх — top − P/2
   const leafW = w - P;
   const leafH = top - P / 2;
-  const handleY = 105;
   const boxes: IrBox[] = [
     b("reveal", "reveal", 4, top + 6, DEPTH, u0 - 2, (top + 6) / 2, 0),
     b("reveal", "reveal", 4, top + 6, DEPTH, u1 + 2, (top + 6) / 2, 0),
@@ -177,20 +200,33 @@ function doorIR(u0: number, u1: number, top: number, pose: LeafPose): { boxes: I
     b("casing", "frame", P, top, DEPTH, u0 + P / 2, top / 2, 0),
     b("casing", "frame", P, top, DEPTH, u1 - P / 2, top / 2, 0),
     b("casing", "frame", w, P, DEPTH, cx, top - P / 2, 0),
-    // полотно с двумя филёнками и ручкой — в осях группы «leaf» (петля в начале)
-    b("leaf", "leaf", leafW, leafH, 4, leafW / 2, leafH / 2, 0, "leaf"),
-    b("panel", "panel", leafW * 0.62, leafH * 0.34, 1, leafW / 2, leafH * 0.28, 2.2, "leaf"),
-    b("panel", "panel", leafW * 0.62, leafH * 0.34, 1, leafW / 2, leafH * 0.68, 2.2, "leaf"),
-    b("handle", "handle", 12, 2.2, 2.2, leafW - 8, handleY, 3.2, "leaf"),
-    b("handle", "handle", 2.4, 2.4, 4, leafW - 4, handleY, 2.6, "leaf"),
   ];
   // Полотно построено вдоль +X от петли. Входная — закрыта; межкомнатная распахнута на ~100° от плоскости стены: внутрь
   // комнаты (+Z) или наружу (−Z) и от проёма в сторону своей петли. Петли у u1 — тот же поворот, отражённый вдоль стены.
-  const hx = pose.hingeAtEnd ? u1 - P / 2 : u0 + P / 2;
-  const open = pose.outward ? 99 : -99;
-  const rotYDeg = pose.closed ? (pose.hingeAtEnd ? 180 : 0) : pose.hingeAtEnd ? (pose.outward ? 81 : -81) : open;
-  const leaf: IrGroup = { x: hx, y: 0, z: pose.closed ? 0 : pose.outward ? -2 : 2, rotYDeg };
-  return { boxes, groups: { leaf } };
+  // ЗАКРЫТАЯ С ПЕТЛЯМИ У u1 — БЕЗ РАЗВОРОТА НА 180° (T-20261110-16/4, «в спальне двери нет»): разворот уводил филёнки и ручку
+  // на обратную сторону, в комнату смотрела гладкая белая плита — на белой стене двери не видно (все двери north/west без
+  // петель в данных: зеркало `rooms.ts:openingsOnSide`). Закрытое полотно занимает тот же проём при любых петлях — ставим его
+  // от u0, а ручку переносим к свободному краю.
+  const z = pose.closed ? 0 : pose.outward ? -2 : 2;
+  const swingStart = pose.outward ? 99 : -99;
+  const swingEnd = pose.outward ? 81 : -81;
+  if (pose.double) {
+    // две створки по половине проёма, петли у обоих краёв, ручки — у середины; распахнуты — каждая к своей петле
+    const half = leafW / 2;
+    boxes.push(...leafBoxes(half, leafH, "leaf", false), ...leafBoxes(half, leafH, "leaf2", pose.closed));
+    return {
+      boxes,
+      groups: {
+        leaf: { x: u0 + P / 2, y: 0, z, rotYDeg: pose.closed ? 0 : swingStart },
+        leaf2: pose.closed ? { x: cx, y: 0, z, rotYDeg: 0 } : { x: u1 - P / 2, y: 0, z, rotYDeg: swingEnd },
+      },
+    };
+  }
+  const flipFree = pose.closed && pose.hingeAtEnd;
+  boxes.push(...leafBoxes(leafW, leafH, "leaf", flipFree));
+  const hx = pose.hingeAtEnd && !pose.closed ? u1 - P / 2 : u0 + P / 2;
+  const rotYDeg = pose.closed ? 0 : pose.hingeAtEnd ? swingEnd : swingStart;
+  return { boxes, groups: { leaf: { x: hx, y: 0, z, rotYDeg } } };
 }
 
 function portalIR(u0: number, u1: number, top: number): IrBox[] {
@@ -221,7 +257,7 @@ export function openingIR(o: Opening, opts: OpeningIrOpts): OpeningIR {
     return { schemaVersion: OPENING_IR_VERSION, kind: o.kind, cut: { u0, u1, bottom: 0, top }, boxes: portalIR(u0, u1, top), groups: {} };
   }
   // `hinge` здесь — в осях стены (left = у u0): `rooms.ts:openingsOnSide` при зеркалировании north/west меняет сторону сам
-  const d = doorIR(u0, u1, top, { hingeAtEnd: o.hinge === "right", outward: o.swingCm === 0, closed: !!opts.entrance });
+  const d = doorIR(u0, u1, top, { hingeAtEnd: o.hinge === "right", outward: o.swingCm === 0, closed: !!opts.entrance, double: isDoubleDoor(o) });
   return { schemaVersion: OPENING_IR_VERSION, kind: o.kind, cut: { u0, u1, bottom: 0, top }, boxes: d.boxes, groups: d.groups };
 }
 

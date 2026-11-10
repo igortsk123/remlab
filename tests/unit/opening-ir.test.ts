@@ -130,6 +130,41 @@ describe("описание проёма", () => {
       expect(leaf.h).toBeGreaterThanOrEqual(head.y - head.h / 2);              // верх — под перекладиной
     }
   });
+
+  it("закрытая дверь смотрит в комнату филёнками и ручкой при любых петлях — гладкой плиты на белой стене нет (T-20261110-16/4)", () => {
+    for (const hinge of ["left", "right"] as const) {
+      const ir = openingIR({ kind: "door", wall: "north", offsetCm: 100, widthCm: 80, hinge }, { ...H, entrance: true });
+      const g = ir.groups.leaf!;
+      expect(g.rotYDeg).toBe(0);                                                 // без разворота: локальная +Z = внутрь комнаты
+      const front = ir.boxes.filter((x) => x.role === "panel" || x.role === "handle");
+      expect(front.length).toBe(4);
+      expect(front.every((x) => x.z > 0)).toBe(true);
+      const leaf = ir.boxes.find((x) => x.role === "leaf")!;
+      const handle = ir.boxes.find((x) => x.role === "handle")!;
+      // ручка — у свободного края: петли у u0 — у u1, и наоборот
+      expect(hinge === "left" ? handle.x > leaf.w / 2 : handle.x < leaf.w / 2).toBe(true);
+    }
+  });
+
+  it("двустворчатая: дуга в данных — половина ширины → две створки во весь проём, ручки у середины; одинарная — как была", () => {
+    const o = { kind: "door" as const, wall: "north" as const, offsetCm: 127.2, widthCm: 153.2, swingCm: 77 };
+    for (const entrance of [true, false]) {
+      const ir = openingIR(o, { ...H, entrance });
+      expect(Object.keys(ir.groups).sort()).toEqual(["leaf", "leaf2"]);
+      const leaves = ir.boxes.filter((x) => x.role === "leaf");
+      expect(leaves.map((x) => x.group)).toEqual(["leaf", "leaf2"]);
+      expect(leaves[0]!.w + leaves[1]!.w).toBeCloseTo(153.2 - 5, 5);
+      if (entrance) {
+        const [a, c] = [ir.groups.leaf!, ir.groups.leaf2!];
+        expect(a.x).toBeCloseTo(127.2 + 2.5, 5);
+        expect(c.x).toBeCloseTo(127.2 + 153.2 / 2, 5);                          // вторая — от середины до правой стойки
+        const hs = ir.boxes.filter((x) => x.role === "handle" && x.w > 10);
+        expect(hs.map((x) => (x.group === "leaf" ? a.x + x.x : c.x + x.x)).every((u) => Math.abs(u - (127.2 + 76.6)) < 12)).toBe(true);
+      }
+    }
+    expect(Object.keys(openingIR({ ...o, swingCm: 153.2 }, { ...H, entrance: true }).groups)).toEqual(["leaf"]);
+    expect(Object.keys(openingIR({ ...o, swingCm: 0 }, { ...H, entrance: true }).groups)).toEqual(["leaf"]);
+  });
 });
 
 describe("вид из окна (demo-04 п.5)", () => {

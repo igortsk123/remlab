@@ -35,7 +35,8 @@ for (const o of room.openings ?? []) {
   const atEnd = o.hinge === "end" || o.hinge === "right";
   const mirrored = o.wall === "north" || o.wall === "west";
   const op = { kind, wall: o.wall, offsetCm: offset, widthCm: o.width_cm, hinge: atEnd !== mirrored ? "right" : "left",
-    ...(o.into === false || o.swing_cm === 0 ? { swingCm: 0 } : {}),
+    // дуга — длина полотна: короче 0,6 ширины — двустворчатая (`opening-ir.ts:isDoubleDoor`, как `fromDemo.ts:openings`)
+    ...(o.into === false || o.swing_cm === 0 ? { swingCm: 0 } : o.swing_cm > 0 ? { swingCm: o.swing_cm } : {}),
     ...(o.sill_cm !== undefined ? { sillCm: o.sill_cm } : {}), ...(o.height_cm !== undefined ? { heightCm: o.height_cm } : {}) };
   prepared.push({ op, len });
 }

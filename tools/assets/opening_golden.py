@@ -38,6 +38,10 @@ ROOMS = [
     {"name": "east", "w": 439, "d": 325, "height_cm": 270, "openings": [
         {"kind": "opening", "wall": "east", "offset_cm": 40, "width_cm": 100},
         {"kind": "door", "wall": "east", "offset_cm": 205, "width_cm": 90, "swing_cm": 90}]},
+    # двустворчатая с плана агента (дуга = половина ширины, `trial_room.py:solver_openings`), на зеркальной стене (T-20261110-16/4)
+    {"name": "double", "w": 495, "d": 370, "height_cm": 270, "openings": [
+        {"kind": "window", "wall": "south", "offset_cm": 19.5, "width_cm": 267, "sill_cm": 85, "height_cm": 150},
+        {"kind": "door", "wall": "north", "offset_cm": 214.6, "width_cm": 153.2, "swing_cm": 77}]},
 ]
 
 
