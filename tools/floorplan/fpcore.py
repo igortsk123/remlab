@@ -397,6 +397,126 @@ def bridge_all(wall: np.ndarray, max_gap: int, min_flank: int, angles=(0.0,), bo
     return add
 
 
+# --- T-20261110-03: косая дверь в углу комнаты ------------------------------------------------------------------------------
+# Дверь срезает угол комнаты наискось: обе стены угла кончаются, не дойдя до вершины, проём — между их торцами (~45°).
+# Закрытие вдоль строк/столбцов (`bridge_lines`) его не видит: ни на одной строке нет стены по обе стороны разрыва; `extend_corners`
+# достраивает угол, только если оба торца ближе 0,6 м к вершине (у двери 0,8–0,9 м по диагонали ноги ~0,6 м — мимо).
+# Кандидат — отрезок между торцами двух перпендикулярных стен, чьи продолжения сходятся в свободной вершине угла; приёмка
+# (ширина, дуга створки) — у вызывающего, как у прямой двери (`bench._analyze`).
+
+def _end_faces(m: np.ndarray, min_flank: int, t: float) -> list[dict]:
+    """Торцы кусков стены вдоль строк: подряд идущие строки, где кусок длиной ≥ min_flank кончается в одном месте (±2 px
+    на строку — торец со скосом). → [{d: +1 свободно справа / −1 слева, y0, y1, tip — крайний px торца}]."""
+    faces, live = [], []
+    for y in range(m.shape[0]):
+        row = m[y]
+        if not row.any():
+            live = []
+            continue
+        s, e = _runs(row)
+        ends = [(+1, b - 1) for a, b in zip(s, e) if b - a >= min_flank and b < m.shape[1]]
+        ends += [(-1, a) for a, b in zip(s, e) if b - a >= min_flank and a > 0]
+        nxt = []
+        for d, x in ends:
+            f = next((f for f in live if f['d'] == d and abs(f['x'] - x) <= 2 and f['y1'] == y - 1), None)
+            if f is None:
+                f = {'d': d, 'y0': y, 'y1': y, 'x': x, 'tip': x}
+                faces.append(f)
+            f['y1'], f['x'] = y, x
+            f['tip'] = max(f['tip'], x) if d > 0 else min(f['tip'], x)
+            nxt.append(f)
+        live = nxt
+    hi = 3 * max(float(t), 1.0) + 2
+    H = m.shape[0]
+    out = []
+    for f in faces:
+        if not 2 <= f['y1'] - f['y0'] + 1 <= hi:
+            continue
+        # стена идёт ВДОЛЬ строки: за торцом на min_flank — сплошная полоса, строки над и под ней свободны. Ступеньки стены
+        # другого семейства (в этой рамке — наклонной) дают «торцы» на каждой строке, но над/под ними та же стена со сдвигом
+        a, b = (f['tip'] - min_flank + 1, f['tip'] + 1) if f['d'] > 0 else (f['tip'], f['tip'] + min_flank)
+        a, b = max(0, a), min(m.shape[1], b)
+        if b - a < 2 or m[f['y0']:f['y1'] + 1, a:b].mean() < 0.9:
+            continue
+        # край стены рваный на 1 px (сжатие, поворот листа) — строка через одну от грани уже свободна; у ступенек наклонной
+        # стены обе соседние строки заняты на ≥ 0,5
+        side = [min(m[y, a:b].mean() if 0 <= y < H else 0.0 for y in (y0 + k, y0 + 2 * k))
+                for y0, k in ((f['y0'], -1), (f['y1'], +1))]
+        if any(s > 0.3 for s in side):
+            continue
+        out.append(f)
+    return out
+
+
+def _corner_pairs(w: np.ndarray, closed: np.ndarray, max_px: float, min_flank: int, t: float) -> list[tuple]:
+    """Пары «торец стены вдоль строк × торец стены вдоль столбцов» (рамка уже повёрнута к семейству): продолжения обеих стен
+    сходятся в вершине угла за торцами, полосы продолжений до вершины свободны в `closed` (стены + принятые закрытия: угол
+    не нарисован и прямым закрытием не закрыт), между торцами ≤ max_px и по линии между ними нет стен. Каждый торец — в одной
+    паре, ближние первыми. → [четырёхугольник (4 точки x, y)]: от грани торца одной стены до грани торца другой — как
+    прямоугольник прямого закрытия между косяками (примыкает к обеим граням целиком, щели вдоль торца нет)."""
+    hs, vs = _end_faces(w, min_flank, t), _end_faces(w.T, min_flank, t)
+    if not hs or not vs:
+        return []
+    H, W = w.shape
+    cands = []
+    for i, h in enumerate(hs):
+        yc = (h['y0'] + h['y1']) / 2
+        for j, v in enumerate(vs):                       # у v строки — это столбцы x0..x1, tip — y торца
+            x0, x1 = v['y0'], v['y1']
+            gh = x0 - h['tip'] - 1 if h['d'] > 0 else h['tip'] - x1 - 1   # свободно от торца h до полосы v
+            gv = h['y0'] - v['tip'] - 1 if v['d'] > 0 else v['tip'] - h['y1'] - 1
+            if gh < 1 or gv < 1 or math.hypot(gh, gv) > max_px:
+                continue
+            bh = closed[h['y0']:h['y1'] + 1, h['tip'] + 1:x1 + 1] if h['d'] > 0 else closed[h['y0']:h['y1'] + 1, x0:h['tip']]
+            bv = closed[v['tip'] + 1:h['y1'] + 1, x0:x1 + 1] if v['d'] > 0 else closed[h['y0']:v['tip'], x0:x1 + 1]
+            if not bh.size or not bv.size or bh.mean() > 0.05 or bv.mean() > 0.05:
+                continue
+            xc = (x0 + x1) / 2
+            quad = [(h['tip'], h['y0']), (h['tip'], h['y1']), (x0, v['tip']), (x1, v['tip'])]
+            a1 = (h['tip'] + h['d'], yc)                 # сам проём: от грани торца до грани торца
+            a2 = (xc, v['tip'] + v['d'])
+            n = int(math.hypot(a2[0] - a1[0], a2[1] - a1[1])) + 2
+            xs = np.clip(np.round(np.linspace(a1[0], a2[0], n)).astype(int), 0, W - 1)
+            ys = np.clip(np.round(np.linspace(a1[1], a2[1], n)).astype(int), 0, H - 1)
+            if closed[ys, xs].any():
+                continue
+            cands.append((math.hypot(gh, gv), i, j, quad))
+    out, used_h, used_v = [], set(), set()
+    for _, i, j, quad in sorted(cands, key=lambda c: c[:3]):
+        if i in used_h or j in used_v:
+            continue
+        used_h.add(i)
+        used_v.add(j)
+        out.append(quad)
+    return out
+
+
+def corner_cut_doors(wall: np.ndarray, closed: np.ndarray, max_px: float, min_flank: int, t: float,
+                     angles=(0.0,)) -> list[np.ndarray]:
+    """Кандидаты закрытия косого проёма в углу (по каждому семейству углов, как `bridge_parts`): четырёхугольник между гранями
+    торцов двух стен угла → отдельные маски, только пиксели вне `closed` (стены + уже принятые закрытия)."""
+    out = []
+    for a in angles:
+        if abs(a) < 0.5:
+            rw, rc, M = wall, closed, None
+        else:
+            rw, M = rotate_mask(wall, a)
+            rc, _ = rotate_mask(closed, a)
+        pairs = _corner_pairs(rw, rc, max_px, min_flank, t)[:255]
+        if not pairs:
+            continue
+        cand = np.zeros(rw.shape, np.uint8)
+        for k, quad in enumerate(pairs, 1):
+            cv2.fillConvexPoly(cand, cv2.convexHull(np.array(quad, np.int32)), k)
+        if M is not None:
+            cand = unrotate_mask(cand, M, wall.shape)
+        for k in range(1, len(pairs) + 1):
+            m = ((cand == k) & (closed == 0)).astype(np.uint8)
+            if m.any():
+                out.append(m)
+    return out
+
+
 @dataclass
 class Gap:
     id: int

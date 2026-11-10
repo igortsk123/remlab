@@ -220,6 +220,19 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             near = cv2.dilate(thin, np.ones((k, k), np.uint8))
             if g.glaze >= GLAZE_MIN or (g.length <= 3.6 * ppm and near[m].mean() >= 0.5):   # шире 3,6 м — только по раме
                 keep |= m.astype(np.uint8)
+    # T-20261110-03: косая дверь в углу комнаты (`fpcore.corner_cut_doors`) — отрезок между торцами двух стен угла. Правило — как у
+    # прямой межкомнатной: ширина в [DOOR_MIN_M; Ls] и нарисована дуга/створка (DOOR_EV); проход/арка без створки — не закрываем
+    H_, W_ = wall.shape
+    for x0, y0, x1, y1 in (regions or [(0, 0, W_, H_)]):
+        X0, Y0, X1, Y1 = max(0, x0 - 2), max(0, y0 - 2), min(W_, x1 + 2), min(H_, y1 + 2)
+        for m in fc.corner_cut_doors(wall[Y0:Y1, X0:X1], (wall | keep)[Y0:Y1, X0:X1], Ls, fl, t, ang):
+            ys, xs = np.nonzero(m)
+            if len(ys) < 3:
+                continue
+            ys, xs = ys + Y0, xs + X0
+            c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
+            if fc.DOOR_MIN_M * ppm <= L <= Ls and fc.door_evidence(thin, c, u, nrm, L, dpt) >= DOOR_EV:
+                keep[ys, xs] = 1
     # наружный контур: закрытие ~1,8 м по каждому куску листа — наружные окна/двери закрываются без «следа» проёма
     final0 = (wall | keep).astype(np.uint8)
     _, _, out0 = fc.free_components(final0)
