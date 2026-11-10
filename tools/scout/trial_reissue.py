@@ -181,6 +181,8 @@ def main() -> int:
         print(json.dumps({'refusal': e.code, 'detail': e.detail}, ensure_ascii=False))
         return 2
     TB.write_atomic(out, data)
+    # ракурсы — в данные (T-20261110-32): перевыпуск доносит их и до старых туров, страница которых закреплена (`lib/trial/tour.ts`)
+    print(TB.add_cams(out, []), flush=True)                  # до итоговой строки: `floorplan/reissue.py` читает последнюю
     print(json.dumps({'ok': True, **report}, ensure_ascii=False))
     return 0
 

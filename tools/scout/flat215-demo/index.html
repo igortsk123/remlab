@@ -3502,6 +3502,10 @@ function camPairAll(L,W,H,cs,opt){ camRoomWH=[W,H];
   try{ return CAM_PAIR_ON&&camZ().intent&&!(opt&&opt.v1)?camPairV2(L,W,H,cs,opt):camPairAll0(L,W,H,cs,opt); } finally { camCutSkip=false; camCutRelax=0; camRoomWH=null; } }
 function camPairAll0(L,W,H,cs,opt){
   if(!CAM_PAIR_ON)return camPairCorner(L[0],W,H,cs);
+  // ПУСТАЯ КОМНАТА — ДИАГОНАЛЬ УГЛОВ БЕЗ ПЕРЕБОРА (T-20261110-32): мебели нет ни в одном варианте (тур пробы: «подбирается», отказ,
+  // ждёт проверки размера) — покрывать нечего, а перебор пар шёл 16–38 с (спальня 225×250: 7380 кандидатов, 240 мерок) и давал
+  // обе точки у одной стены лицом в одну сторону. Углы (`camPairCorner`) — 15 мс и диагональ (ADR-0149). У /demo пустых вариантов нет
+  if(L.every(its=>!its||!its.length)){const r=camPairCorner(L[0]||[],W,H,cs); r.how='углы (комната пустая — подбирать нечего)'; r.corner=true; return r;}
   const KEEP=(opt&&opt.keep)||null;
   const V=L.length, UN=L.map(camUnits), U=UN.map(u=>u.length);
   const mustM=UN.map(us=>us.reduce((a,u,k)=>u.must&&k<31?a|(1<<k):a,0)), optM=UN.map(us=>us.reduce((a,u,k)=>!u.must&&k<31?a|(1<<k):a,0));

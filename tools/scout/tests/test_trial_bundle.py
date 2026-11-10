@@ -1061,3 +1061,65 @@ def test_fetch_images_failure_reasons_counted(monkeypatch, tmp_path):
     assert [r['got'][u] for u in urls[1:]] == [None, None, None]
     assert r['fail'] == {'http 404': 1, 'сеть': 1, 'не картинка': 1}
     assert FD.fail_text(r['fail']).startswith('не скачались: 3 (') and FD.fail_text({}) == 'не скачались: 0'
+
+
+# ───────── ракурсы в данных тура (T-20261110-32): страница не перебирает точки при открытии ─────────
+
+def _cams_node(cams_of):
+    """Подмена запуска `demo-cams.mjs`: дописывает `v.cams` в файл, как node, и отвечает кодом 0."""
+    import subprocess
+
+    def run(cmd, **kw):
+        path = cmd[-1].rsplit('"', 2)[-2]
+        d = json.load(open(path, encoding='utf-8'))
+        for v in d['variants']:
+            v['cams'], v['cam_level'] = cams_of(v), 0
+        json.dump(d, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
+        return subprocess.CompletedProcess(cmd, 0, f'ракурсы окна в данных: вариантов {len(d["variants"])}\n', '')
+    return run
+
+
+def test_add_cams_writes_pairs_and_keeps_bundle_public(tmp_path):
+    p = tmp_path / 'bundle.json'
+    TB.write_atomic(str(p), {'variants': [{'id': 'set1', 'items': [], 'cams': []}]})
+    pair = [{'name': 'C1', 'x': 3, 'y': 3, 'rot': 138, 'fov': 72}, {'name': 'C2', 'x': 165, 'y': 190, 'rot': -39, 'fov': 72}]
+    line = TB.add_cams(str(p), [], run=_cams_node(lambda v: pair))
+    assert line.startswith('ракурсы окна в данных'), line
+    assert json.load(open(p))['variants'][0]['cams'] == pair
+
+
+def test_add_cams_leak_restores_bundle_without_cams(tmp_path):
+    p = tmp_path / 'bundle.json'
+    TB.write_atomic(str(p), {'variants': [{'id': 'set1', 'items': [], 'cams': []}]})
+    before = p.read_bytes()
+    line = TB.add_cams(str(p), [], run=_cams_node(lambda v: [{'name': 'C1', 'href': 'https://shop.example/x'}]))
+    assert line.startswith('WARN:trial_cams:'), line
+    assert p.read_bytes() == before                      # прежние байты: версия уходит без ракурсов, а не с утечкой
+
+
+def test_add_cams_timeout_keeps_bundle(tmp_path):
+    import subprocess
+    p = tmp_path / 'bundle.json'
+    TB.write_atomic(str(p), {'variants': [{'id': 'set1', 'items': [], 'cams': []}]})
+    before = p.read_bytes()
+    seen = {}
+
+    def run(cmd, **kw):
+        seen.update(kw)
+        raise subprocess.TimeoutExpired(cmd, kw.get('timeout'))
+    line = TB.add_cams(str(p), [], run=run)
+    assert line.startswith('WARN:demo_cams:') and 'таймаут 120 с' in line, line
+    assert seen['timeout'] == TB.CAMS_TIMEOUT < 180       # меньше срока стадии сборки (`worker.Cfg.bundle_timeout_s`)
+    assert p.read_bytes() == before
+
+
+def test_main_out_prints_json_last(tmp_path, monkeypatch, capsys):
+    """Конвейер и перевыпуск читают ПОСЛЕДНЮЮ строку вывода: строка ракурсов — до неё."""
+    monkeypatch.setattr(TB, 'build', lambda *a, **k: {'rooms_geo': {'living': {}}, 'variants': []})
+    monkeypatch.setattr(TB, 'add_cams', lambda path, tokens: 'ракурсы окна в данных: вариантов 0')
+    res = tmp_path / 'r.json'
+    res.write_text('{}')
+    monkeypatch.setattr(sys, 'argv', ['trial_bundle.py', JOB, str(res), '--out', str(tmp_path / 'b.json')])
+    assert TB.main() == 0
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert lines[0].startswith('ракурсы окна') and json.loads(lines[-1])['ok'] is True

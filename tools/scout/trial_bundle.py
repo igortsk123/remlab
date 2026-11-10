@@ -1217,6 +1217,34 @@ def write_atomic(path: str, data: dict) -> None:
     os.replace(tmp, path)
 
 
+# РАКУРСЫ — В ДАННЫЕ ТУРА ПРИ СБОРКЕ (T-20261110-32, владелец 10.11 TG 806: тур «загрузился еле-еле»): как у /demo, страница берёт
+# готовую пару варианта (`index.html:defaultCams`), а не перебирает точки в главном потоке при открытии (замер 10.11: 16 с у пустой
+# спальни, 3,7 с у обставленной гостиной). Срок — меньше срока стадии сборки у конвейера и перевыпуска (`worker.Cfg.bundle_timeout_s` 180)
+CAMS_TIMEOUT = 120.0
+
+
+def add_cams(path: str, tokens: list, run=None) -> str:
+    """Пара ракурсов каждого варианта — в файл версии тем же `flat215_demo.demo_cams` (`tools/flat3d/demo-cams.mjs` → `v.cams`), что
+    у /demo. НЕ ВАЛИТ СБОРКУ: таймаут или сбой — версия без ракурсов (страница посчитает сама, как раньше). Ракурсы дописаны — версия
+    ещё раз проходит `assert_public`; не прошла — возвращаются прежние байты. → строка лога."""
+    import flat215_demo as FD
+    with open(path, 'rb') as f:
+        before = f.read()
+    line = FD.demo_cams(os.path.abspath(os.path.join(HERE, '..', '..')), path, timeout=CAMS_TIMEOUT, **({'run': run} if run else {}))
+    if line.startswith('WARN:'):
+        return line
+    try:
+        with open(path, encoding='utf-8') as f:
+            assert_public(json.load(f), tokens, goods=True)
+    except (OSError, ValueError, BundleRefused) as e:
+        tmp = f'{path}.{os.getpid()}.tmp'
+        with open(tmp, 'wb') as f:
+            f.write(before)
+        os.replace(tmp, path)
+        return f'WARN:trial_cams: ракурсы сняты, версия — без них: {type(e).__name__}: {getattr(e, "detail", str(e))[:160]}'
+    return line
+
+
 def _arg(args: list, name: str) -> str | None:
     if name not in args:
         return None
@@ -1247,6 +1275,7 @@ def main() -> int:
         return 2
     if out:
         write_atomic(out, data)
+        print(add_cams(out, shop_tokens(scene)), flush=True)   # до итоговой строки: конвейер читает последнюю
         print(json.dumps({'ok': True, 'rooms': list(data['rooms_geo']), 'variants': len(data['variants'])}, ensure_ascii=False))
     else:
         json.dump(data, sys.stdout, ensure_ascii=False, separators=(',', ':'))
