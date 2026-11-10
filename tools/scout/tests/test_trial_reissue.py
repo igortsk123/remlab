@@ -66,6 +66,24 @@ def test_box_under_furniture_kept_titles_from_current_code():
     assert (g['w'], g['d']) == (777, 333) and g['title'] != 'старая подпись' and g['title_en'].startswith('Bedroom')
 
 
+def test_box_of_empty_carried_room_kept_too():
+    """Пустая перенесённая комната («ждёт проверки» / отказ) — коробку тоже не пересчитываем: её проёмы считала стадия подбора, текущий
+    сборщик без стадии считает иначе (прод 10.11: петля двери пустой спальни переворачивалась)."""
+    flat = flat_with_bedrooms()
+    flat['scale']['status'] = 'not_verified'
+    old = TB.build(JOB, flat, None, ctx=CTX, parts=[bedroom_part()])
+    by = {r['id']: r for r in old['apartment_rooms']}
+    assert by['living']['furniture_state'] == 'awaiting_check'
+    g = old['rooms_geo']['living']
+    g['openings'] = [dict(o, hinge='right' if o.get('hinge') != 'right' else 'left') for o in g.get('openings') or []] or \
+        [{'wall': 'north', 'offset_cm': 10, 'width_cm': 80, 'kind': 'door', 'hinge': 'right'}]
+    g.update(w=g['w'] + 7, title='старая подпись')
+    new, rep = RI.reissue(JOB, flat, old, ctx=CTX)
+    ng = new['rooms_geo']['living']
+    assert 'living' in rep['kept_outcome']
+    assert (ng['w'], ng['openings']) == (g['w'], g['openings']) and ng['title'] != 'старая подпись'
+
+
 def test_rooms_matched_by_plan_not_by_page_id():
     """Нумерация комнат страницы сменилась (старая версия звала спальни наоборот) — мебель идёт за комнатой плана."""
     flat, old = old_tour()
