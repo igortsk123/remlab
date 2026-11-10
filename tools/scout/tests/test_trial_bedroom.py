@@ -361,6 +361,102 @@ def test_variants_share_core_and_hinge():
     assert len({v['hinge'] for v in r['variants']}) == 1 and all(v['openings_core'] == r['openings_core'] for v in r['variants'])
 
 
+# ───── УЗКАЯ СПАЛЬНЯ 2,1×3,7 (T-20261110-02, лист T «Bedroom 3»): кровать у стены с проходами по нормам солвера, честные коды отказа ─────
+
+def one_room(w, d, ops):
+    return {'version': 1, 'units': 'cm', 'scale': {'status': 'verified', 'ppm': 100, 'inliers': 3, 'n': 3}, 'flags': [],
+            'panels': [{'id': 'p0', 'title': 'x', 'rooms': [rect_room('r1', 'Bedroom 3', 0, 0, w, d)], 'walls': [], 'openings': ops}]}
+
+
+def door(c, w=68):
+    return {'kind': 'door', 'c': c, 'widthCm': w, 'exterior': False}
+
+
+def window(c, w=120):
+    return {'kind': 'window', 'c': c, 'widthCm': w, 'exterior': True}
+
+
+def narrow_bank(bed_w=130, sleep=120, h=100):
+    return [rec(st, item(f'n{i}', bed_w, 205, h, sleep=sleep), item(f's{i}', 45, 40, 50), item(f'w{i}', 100, 60, 200))
+            for i, st in enumerate(TB.STYLES)]
+
+
+def passages_ok(r, v):
+    """Независимая сверка нормами солвера (`planner.bedroom_checks.check_bed`): проход сбоку кровати и у изножья, изголовье у стены."""
+    from planner.bedroom_checks import check_bed
+    from planner.models import Item, Opening, Placement, Room
+    x0, y0 = r['core']['rect'][0], r['core']['rect'][1]
+    room = Room(width_cm=r['core']['w'], depth_cm=r['core']['d'], openings=[Opening(**o) for o in v['openings_core']], radiators=[],
+                room_type='bedroom', purpose=v['purpose'])
+    ps = [Placement(role=q['role'], x=q['x'] - x0, y=q['y'] - y0, rot=q['rot'], item=Item(role=q['role'], w_cm=q['w'], d_cm=q['d'], h_cm=q['h']))
+          for q in v['placements']]
+    bad = [x.code for x in check_bed(room, ps) if x.severity.name == 'HARD']
+    return not bad, bad
+
+
+@pytest.mark.parametrize('name,ops', [
+    ('дверь в короткой стене', [door([44, 370]), window([0, 150])]),
+    ('дверь в длинной стене', [door([210, 110]), window([105, 0])]),
+])
+def test_narrow_room_gets_single_bed_with_passages(name, ops):
+    job = TB.build('t22', one_room(210, 370, ops), ctx(narrow_bank()))
+    r = job['rooms'][0]
+    assert r['outcome']['state'] == 'furnished' and len(r['variants']) == len(TB.STYLES), (name, r['outcome'], r['style_failures'][:1])
+    for v in r['variants']:
+        assert v['template'] in ('guest-120', 'single-120') and v['bed_sleep_w'] == 120
+        assert v['post_ok'] and not v['hard']
+        ok, bad = passages_ok(r, v)
+        assert ok, (name, bad)
+        roles = [p['role'] for p in v['placements']]
+        assert 'кровать' in roles and 'тумба прикроватная' in roles
+    assert r['bed_frame_max_cm'] == 135                         # 210 − проход 75: спрос на кровати уже рамы 135
+
+
+def test_narrow_room_only_wide_beds_is_no_products_not_no_fit():
+    # лист T до правки: готовые кровати — только 140 (рама 145): 145 + 75 > 210 — шаблон 140 «больше комнаты», 120 — товаров нет →
+    # честное «нет подходящих по размеру товаров» (`no_products`), а не «не встала» (`bed_no_fit`)
+    job = TB.build('t23', one_room(210, 370, [door([47, 370]), window([99, 0], 177)]), ctx(narrow_bank(145, 140)))
+    r = job['rooms'][0]
+    assert r['variants'] == [] and r['outcome']['state'] == 'no_products' and r['outcome']['code'] == 'no_products'
+    for f in r['style_failures']:
+        why = {t['template']: t['why'] for t in f['templates']}
+        assert why['guest-140'] == why['single-140'] == 'too_small' and why['guest-120'] == 'no_bed'
+
+
+def test_t_like_room_bed_under_window_only_with_low_headboard():
+    # геометрия листа T: дверь в углу короткой стены, окно почти во всю противоположную. Изголовье у двери — тумбе места нет (дуга двери),
+    # под окном — только кровать ниже подоконника (WINDOW_BLOCKED солвера): высокая спинка — честный отказ, низкая — кровать с тумбой под окном
+    ops = [door([47, 370]), window([99, 0], 177)]
+    tall = TB.build('t24', one_room(210, 370, ops), ctx(narrow_bank(130, 120, h=100)))['rooms'][0]
+    assert tall['variants'] == [] and tall['outcome']['code'] == 'bed_no_fit'
+    low = TB.build('t25', one_room(210, 370, ops), ctx(narrow_bank(130, 120, h=80)))['rooms'][0]
+    assert low['outcome']['state'] == 'furnished'
+    for v in low['variants']:
+        assert passages_ok(low, v)[0] and 'тумба прикроватная' in [p['role'] for p in v['placements']]
+
+
+def test_tiny_room_honest_too_small():
+    # 1,8×2,6: уже любой кровати шаблонов с проходом (120 + 75) — «мала», а не «не прочитана» (было `no_core` → not_readable)
+    job = TB.build('t26', one_room(180, 260, [door([44, 260]), window([90, 0])]), ctx(narrow_bank()))
+    r = job['rooms'][0]
+    assert r['variants'] == [] and r['outcome']['state'] == 'no_products' and r['outcome']['code'] == 'room_too_small'
+
+
+def test_narrow_single_off_until_rules_switch(monkeypatch):
+    # узкая односпальная (single_narrow, 90–100) — выключатель ночной сборки (`empty` в rules/bedroom-composition.json, TG 1377):
+    # выключена — шаблонов 90 нет; снимут `empty` — комната 2,1×3,7 получает кровать 90 у стены по шаблону солвера bed_narrow_wall
+    assert not TB.narrow_enabled() and not any(t['sleep_w'] < 120 for t in TB.templates(7.8, 210.0))
+    p = dict(TB.COMP['purposes']['single_narrow'])
+    p.pop('empty')
+    monkeypatch.setitem(TB.COMP['purposes'], 'single_narrow', p)
+    assert TB.narrow_enabled() and {'single_narrow-90', 'single_narrow-100'} <= {t['id'] for t in TB.templates(7.8, 210.0)}
+    job = TB.build('t27', one_room(210, 370, [door([210, 110]), window([105, 0])]), ctx(narrow_bank(98, 90)))
+    r = job['rooms'][0]
+    assert r['outcome']['state'] == 'furnished'
+    for v in r['variants']:
+        assert v['template'] == 'single_narrow-90' and v['purpose'] == 'single_narrow' and passages_ok(r, v)[0]
+
+
 def test_gate_asked_with_scene_model():
     # сторож моделей решает по модели, которую грузит сцена (`msid`); без неё живой сторож отвечал «модели сцены нет» всем кроватям
     asked = []

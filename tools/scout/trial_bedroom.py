@@ -7,10 +7,13 @@
   3. подбор: стиль → наборы и запас того же стиля из банка спальни (`sets-bedroom.json`, ТОЛЬКО товары; готовая расстановка чужой
      квартиры `layout` не читается, TG 1377) плюс кровати каталога в стиле; в подбор идёт только товар с годной живой моделью
      (`flat215_demo.room_mesh_gate('bedroom')`);
-  4. ШАБЛОНЫ (владелец 09.11, TG 478/480; `templates`): назначение × ширина спального места (120–180, узких 90 нет) из
-     `rules/bedroom-composition.json`, по порядку от идеальной для площади ширины; шаблон → товары стиля под него (кровать его ширины
-     с моделью, тумбы) → нет товаров или не встали — следующий шаблон; ни один — комната ПУСТАЯ, исход `no_products` (код; надпись
-     «нет подходящих товаров согласно действующим шаблонам» на нужном языке ставят сборщик и страница), остальные обставляются;
+  4. ШАБЛОНЫ (владелец 09.11, TG 478/480; `templates`): назначение × ширина спального места (120–180; узкая 90–100 — назначение
+     `single_narrow`, включается тем же выключателем, что у ночной сборки: `narrow_enabled`) из `rules/bedroom-composition.json`, по
+     порядку от идеальной для площади ширины; шаблон, которому ядро меньше нормы (спальное + проход сбоку, длина + проход у изножья —
+     `bed_need`), не перебирается (`too_small`); шаблон → товары стиля под него (кровать его ширины с моделью, тумбы) → нет товаров
+     или не встали — следующий шаблон; ни один — комната ПУСТАЯ, исход `no_products` (код; надпись «нет подходящих товаров согласно
+     действующим шаблонам» на нужном языке ставят сборщик и страница), остальные обставляются; комната меньше любого шаблона —
+     `room_too_small` (то же состояние страницы, точная причина), не «не прочитана»;
   5. проверка солвером и по ПОЛНОМУ контуру (`planner.validate` + `trial_room.post_check`): мебель в контуре, дуги дверей обеих
      петель свободны, вход достижим;
   6. масштаб не подтверждён — отказ по всем комнатам, вопросов не задаём, мебель не подгоняем;
@@ -48,7 +51,9 @@ BED_NAME = re.compile(r'\b(bed\s?room|bedroom|guest\s?room|box\s?room|nursery)\b
 NOT_BED = re.compile(r'en[\s-]?suite|bath|wc|shower|dressing|landing|closet|linen', re.I)
 ROOM_ROLES = ('кровать', 'тумба прикроватная', 'шкаф', 'комод')
 BED_WIDTHS = (120, 140, 160, 180)                  # ширины спального места пробы; узкие 90 — вне охвата (TG 1377)
-NARROW_MAX_CM = 100.0                              # спальное/рама уже — «узкая», не ставим и не считаем
+NARROW_MAX_CM = 100.0                              # спальное/рама уже — «узкая», не ставим и не считаем (пока узкая выключена)
+NARROW_PURPOSE = 'single_narrow'                   # узкая односпальная (UK single), шаблон солвера `bed_narrow_wall` (план bedroom-uk-single-01)
+NARROW_WIDTHS = (90, 100)                          # её спальное место — `bedroom-composition.json` purposes.single_narrow sleep_w [90, 100]
 IDEAL_SIZES = ((18.0, 300.0, 180), (11.5, 255.0, 160), (9.0, 0.0, 140), (0.0, 0.0, 120))   # площадь ядра, короткая сторона → идеальная ширина спального, см (NDSS)
 NDSS_DOUBLE = (11.5, 255.0)                        # двуспальная «для пары» — NDSS 2015 (площадь м², короткая сторона см)
 NIGHTSTANDS = {p: next((int(s.get('qty') or 1) for s in v['slots'] if s['role'] == 'тумба прикроватная'), 1)
@@ -61,7 +66,58 @@ HINGES = ('left', 'right')                         # петля двери на 
 MAX_CORES = 3                                   # ядер на стиль: дальше — те же кровати на всё меньшей площади
 ROOM_BUDGET_S = 30.0                               # бюджет на комнату (чтобы плохой план не ел конвейер); вышло — лучшее, что есть
 MIN_STYLES_READY = 2                               # меньше стилей — комната честно «частично» (владелец TG 1382: разные стили)
-SMALLEST_BED = {'sofa': [120.0, 195.0], 'bearer': [0.0, 0.0], 'tv_min_cm': 0.0}   # «влезает ли хоть какая-то кровать» в ядро (рама 120)
+BED_LEN_MIN_CM = 195.0                             # самая короткая кровать (спальное 190 + рама) — нижняя граница длины для проверки «влезает»
+
+
+def narrow_enabled() -> bool:
+    """Узкая односпальная в пробе — ТЕМ ЖЕ выключателем, что у ночной сборки банка: пока у назначения `single_narrow` в
+    `rules/bedroom-composition.json` стоит `empty` (NOT_IN_BANK: моделей узких кроватей нет, «ок» владельца на шаблон не дан; владелец
+    TG 1377 — «односпальные отложены»), шаблонов 90–100 нет. Снимут `empty` — проба берёт их сама, без правки кода."""
+    p = COMP['purposes'].get(NARROW_PURPOSE) or {}
+    return 'slots' in p and not p.get('empty')
+
+
+def template_purposes() -> tuple:
+    return TEMPLATE_PURPOSES + ((NARROW_PURPOSE,) if narrow_enabled() else ())
+
+
+def widths_of(purpose: str) -> tuple:
+    """Ширины спального места шаблонов назначения: узкие — только у узкой (у `single` полоса 90–140, но её шаблоны — прежние 120/140)."""
+    return NARROW_WIDTHS if purpose == NARROW_PURPOSE else BED_WIDTHS
+
+
+def all_widths() -> tuple:
+    return (NARROW_WIDTHS if narrow_enabled() else ()) + BED_WIDTHS
+
+
+def _norm(key: str, default: float) -> float:
+    """Число нормы спальни — из `services/planner-solver/rules/occupancy.json` (тот же `num`, что у солвера; одно число — одно место)."""
+    from planner.bedroom_checks import num
+    return num(key, default)
+
+
+def bed_need(sleep_w: float, purpose: str) -> tuple[float, float]:
+    """Наименьшая площадка под кровать шаблона по нормам солвера: поперёк — спальное место (нижняя граница рамы) + проход сбоку
+    `bed_side_passage` (паре — с двух сторон, Н1), вдоль — `BED_LEN_MIN_CM` + проход у изножья `bed_foot_min`. Необходимое условие, не
+    достаточное: двери, окна и тумбы решает солвер."""
+    side, foot = _norm('bed_side_passage', 75), _norm('bed_foot_min', 60)
+    return float(sleep_w) + side * (2 if purpose == 'couple' else 1), BED_LEN_MIN_CM + foot
+
+
+def fits_core(need: tuple, cand: dict) -> bool:
+    a, b = need
+    return (a <= cand['w'] and b <= cand['d']) or (a <= cand['d'] and b <= cand['w'])
+
+
+def bed_frame_max(cores: list) -> float:
+    """Диагностика (спрос волны мешей): самая широкая рама кровати одному, что проходит по проходу сбоку хоть на одном ядре, см."""
+    side, foot = _norm('bed_side_passage', 75), _norm('bed_foot_min', 60)
+    return max([a - side for c in cores for a, b in ((c['w'], c['d']), (c['d'], c['w'])) if b >= BED_LEN_MIN_CM + foot] or [0.0])
+
+
+def smallest_bed() -> dict:
+    """«Влезает ли хоть какая-то кровать» в ядро (`trial_room.core_candidate`): самое узкое спальное место включённых шаблонов × длина."""
+    return {'sofa': [float(min(all_widths())), BED_LEN_MIN_CM], 'bearer': [0.0, 0.0], 'tv_min_cm': 0.0}
 
 # ИСХОД ПО КОМНАТЕ — КОДОМ, без готовых строк (владелец TG 486–488: проба на RU и EN; Codex lang п.2.4): надпись по коду подставляют
 # сборщик (`trial_bundle.OUTCOME_TEXT`, обе локали) и страница. `state` — для страницы, `code` — точная причина (диагностика):
@@ -123,10 +179,17 @@ def adapt_room(panel: dict, room: dict, cfg: dict) -> dict:
         ops = [TR._place_opening(fr['poly'], o, fr['T'], cfg) for o in ours]
     except TR.Refusal as e:
         raise BedroomRefusal(e.code, e.detail) from e
-    rects = [g.bounds for g in largest_free_rectangles(fr['poly'], min_side_cm=cfg['core_min_side_cm'], limit=24)]
+    # ядро спальни — не уже самой узкой кровати шаблонов с проходом сбоку (120 + 75 = 195; общий порог ядра 200 — для гостиной)
+    side = _norm('bed_side_passage', 75)
+    core_min = min(float(cfg['core_min_side_cm']), min(all_widths()) + side)
+    rects = [g.bounds for g in largest_free_rectangles(fr['poly'], min_side_cm=core_min, limit=24)]
     if not rects:
+        x0, y0, x1, y1 = fr['poly'].bounds
+        if min(x1 - x0, y1 - y0) < core_min:            # уже любой кровати с проходом — комната мала, а не «не прочитана»
+            raise BedroomRefusal('room_too_small', f'комната {x1 - x0:.0f}×{y1 - y0:.0f}: нужна сторона ≥ {core_min:.0f} см '
+                                                   f'(спальное {min(all_widths())} + проход {side:.0f})')
         raise BedroomRefusal('no_core', 'нет прямоугольного ядра')
-    cands = [TR.core_candidate(fr['poly'], r, ops, SMALLEST_BED, cfg) for r in rects[:int(cfg['core_candidates'])]]
+    cands = [TR.core_candidate(fr['poly'], r, ops, smallest_bed(), cfg) for r in rects[:int(cfg['core_candidates'])]]
     ok = [c for c in cands if not c['reasons']]
     ok.sort(key=TR.core_rank)
     if ok and 'entry_via_niche' in ok[0]['flags']:
@@ -178,7 +241,8 @@ def _sleep_w(it: dict) -> float:
 
 
 def _bed_ok(it: dict) -> bool:
-    return _sleep_w(it) >= NARROW_MAX_CM and it.get('w', 0) >= NARROW_MAX_CM
+    lo = min(all_widths()) - 5.0 if narrow_enabled() else NARROW_MAX_CM      # узкая включена — её кровати (спальное 90–100) в подборе
+    return _sleep_w(it) >= lo and it.get('w', 0) >= lo
 
 
 def load_bank() -> list:
@@ -260,19 +324,21 @@ def couple_room(area_m2: float, short: float) -> bool:
 
 def templates(area_m2: float, short: float) -> list:
     """ШАБЛОНЫ РАССТАНОВКИ СПАЛЬНИ (правило владельца 09.11, TG 478/480): назначение × ширина спального места. Состав — из
-    `rules/bedroom-composition.json` → `purposes.<назначение>.slots` (полоса `sleep_w` кровати, число тумб), ширины — `BED_WIDTHS`
-    (узких 90 нет, TG 1377). Обязательное в шаблоне — кровать и тумбы (ведущие роли профиля спальни), шкаф и комод — по месту.
+    `rules/bedroom-composition.json` → `purposes.<назначение>.slots` (полоса `sleep_w` кровати, число тумб), ширины — `widths_of`
+    (`BED_WIDTHS`; узкие 90–100 — только у `single_narrow`, и только когда она включена — `narrow_enabled`, TG 1377). Обязательное в
+    шаблоне — кровать и тумбы (ведущие роли профиля спальни), шкаф и комод — по месту.
     Порядок — от идеальной для ядра ширины (NDSS по площади и короткой стороне), при равной — шире; «пара» — только в комнате NDSS
     для двоих. → [{id, purpose, sleep_w, nightstands}]"""
     ideal = ideal_bed(area_m2, short)
+    purposes = template_purposes()
     out = []
-    for purpose in TEMPLATE_PURPOSES:
+    for purpose in purposes:
         if purpose == 'couple' and not couple_room(area_m2, short):
             continue
         lo, hi = next(s['sleep_w'] for s in COMP['purposes'][purpose]['slots'] if s['role'] == 'кровать')
         out += [{'id': f'{purpose}-{w}', 'purpose': purpose, 'sleep_w': w, 'nightstands': NIGHTSTANDS[purpose]}
-                for w in BED_WIDTHS if lo <= w <= hi]
-    out.sort(key=lambda t: (abs(t['sleep_w'] - ideal), -t['sleep_w'], TEMPLATE_PURPOSES.index(t['purpose'])))
+                for w in widths_of(purpose) if lo <= w <= hi]
+    out.sort(key=lambda t: (abs(t['sleep_w'] - ideal), -t['sleep_w'], purposes.index(t['purpose'])))
     return out
 
 
@@ -384,7 +450,9 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
     """Стиль в спальне по ПРАВИЛУ ШАБЛОНОВ (владелец 09.11, TG 478/480): шаблоны по порядку (`templates`) → под шаблон подбираются
     товары стиля (кровать его ширины с готовой моделью, тумба; запас — соседние стили) → товаров нет или не встали ни на одном ядре —
     следующий шаблон. Первый выполненный шаблон — вариант; ни одного — (None, {style, code, templates}) с причиной по каждому шаблону:
-    `no_bed` / `no_nightstand` (товаров нет) / `no_fit` (не встали) / `budget` (не дошли). Шкаф и комод — по месту (`kit_ladder`)."""
+    `too_small` (ни одно ядро меньше нормы кровати шаблона — `bed_need`, товары не смотрим) / `no_bed` / `no_nightstand` (товаров нет) /
+    `no_fit` (не встали) / `budget` (не дошли). Код стиля: что-то не встало — `bed_no_fit`; все шаблоны больше комнаты — `room_too_small`;
+    иначе — `no_products` (подходящих по размеру товаров нет). Шкаф и комод — по месту (`kit_ladder`)."""
     cores = ad['candidates'][:MAX_CORES]
     area = max(c['area_m2'] for c in cores)
     short = max(min(c['w'], c['d']) for c in cores)
@@ -392,6 +460,10 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
     stand = others['тумба прикроватная']
     log = []
     for tpl in templates(area, short):
+        need = bed_need(tpl['sleep_w'], tpl['purpose'])
+        if not any(fits_core(need, c) for c in cores):
+            log.append({'template': tpl['id'], 'why': 'too_small'})
+            continue
         pool = bed_pool(style, ctx['bank'], ctx['catalog'], ctx['mesh_ok'], ctx['defect'], ctx['thr'], tpl['sleep_w'], used,
                         ad.get('room_used', set()))
         beds =[b for b in pool if bed_width_bucket(_sleep_w(b)) == tpl['sleep_w']][:BEDS_PER_TEMPLATE]
@@ -401,6 +473,8 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
         why = 'no_fit'
         for ci, cand in enumerate(cores):
             if tpl['purpose'] == 'couple' and not couple_room(cand['area_m2'], min(cand['w'], cand['d'])):
+                continue
+            if not fits_core(need, cand):
                 continue
             for bed in beds:
                 if time.time() > deadline:
@@ -417,7 +491,8 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
         if why == 'budget':
             break
     whys = {x['why'] for x in log}
-    code = 'budget' if 'budget' in whys else ('bed_no_fit' if 'no_fit' in whys else 'no_products')
+    code = 'budget' if 'budget' in whys else ('bed_no_fit' if 'no_fit' in whys else
+                                              ('room_too_small' if whys == {'too_small'} else 'no_products'))
     return None, {'style': style, 'code': code, 'templates': log}
 
 
@@ -462,7 +537,8 @@ def furnish_room(trial_id: str, panel: dict, room: dict, rid: str, cfg: dict, ct
     except BedroomRefusal as e:
         rec['outcome'] = refused(e.code, e.detail)
         return rec
-    rec.update(contour=ad['contour'], control=ad['control'], flags=list(ad['flags']))
+    rec.update(contour=ad['contour'], control=ad['control'], flags=list(ad['flags']),
+               bed_frame_max_cm=round(bed_frame_max(ad['candidates'][:MAX_CORES])))
     deadline = time.time() + ROOM_BUDGET_S
     ad['memo'], ad['room_used'] = {}, set()
     for i, st in enumerate(STYLES):
@@ -506,7 +582,8 @@ def outcome_of(rec: dict) -> dict:
     total = len(rec['variants']) + len(fails)
     if not rec['variants']:
         codes = {f['code'] for f in fails}
-        code = 'no_products' if codes <= {'no_products'} else ('bed_no_fit' if codes <= {'no_products', 'bed_no_fit'} else 'budget')
+        code = next((c for c, ok in (('room_too_small', {'room_too_small'}), ('no_products', {'no_products', 'room_too_small'}),
+                                     ('bed_no_fit', {'no_products', 'room_too_small', 'bed_no_fit'})) if codes and codes <= ok), 'budget')
         return dict(refused(code), styles_total=total)
     few = len(rec['variants']) < MIN_STYLES_READY
     return {'state': 'furnished', 'code': 'few_styles' if few else ('styles_missing' if fails else None), 'detail': None,
@@ -644,14 +721,15 @@ def bundle_parts(job: dict, storey_by_panel: dict | None = None) -> dict:
 # ───────────────────────── А. замер покрытия ─────────────────────────
 
 def bed_width_bucket(sleep_w: float) -> int | None:
-    return next((b for b in BED_WIDTHS if abs(sleep_w - b) <= 5.0), None)
+    return next((b for b in all_widths() if abs(sleep_w - b) <= 5.0), None)
 
 
 def coverage(ctx: dict | None = None) -> dict:
     """Живые готовые модели кроватей: ширина × стиль (и пустые ячейки для волны, без узких 90 см). Банк и каталог — отдельно."""
     ctx = ctx or default_ctx()
     mesh_ok, defect, thr, bank, catalog = ctx['mesh_ok'], ctx['defect'], ctx['thr'], ctx['bank'], ctx['catalog']
-    t = {s: {b: {'bank': set(), 'catalog': set()} for b in BED_WIDTHS} for s in STYLES}
+    widths = all_widths()                              # узкие — только когда включены (`narrow_enabled`)
+    t = {s: {b: {'bank': set(), 'catalog': set()} for b in widths} for s in STYLES}
     for style in STYLES:
         rows = [('bank', it) for it in bank_pool(bank, style, 'кровать')] + [('catalog', it) for it in catalog_beds(style, thr, catalog)]
         for src, it in rows:
@@ -659,7 +737,7 @@ def coverage(ctx: dict | None = None) -> dict:
             if b is not None and _ready(it, mesh_ok, defect):
                 t[style][b][src].add(_sid(it))
     table = {s: {str(b): {'bank': len(v['bank']), 'catalog': len(v['catalog'] | v['bank'])} for b, v in row.items()} for s, row in t.items()}
-    empty = [{'style': s, 'sleep_w': b} for s in STYLES for b in BED_WIDTHS if not (t[s][b]['bank'] | t[s][b]['catalog'])]
+    empty = [{'style': s, 'sleep_w': b} for s in STYLES for b in widths if not (t[s][b]['bank'] | t[s][b]['catalog'])]
     return {'table': table, 'empty_cells': empty, 'catalog_error': ctx.get('catalog_error') or ''}
 
 
@@ -769,7 +847,8 @@ def main() -> int:
                         'state': r['outcome']['state'], 'code': r['outcome'].get('code'), 'detail': r['outcome'].get('detail'),
                         'styles': [(v['style'], v['template'], v['bed_sleep_w'], [m['role'] for m in v['missing_item']], bool(v.get('bed_borrowed_style')))
                                    for v in r['variants']],
-                        'style_failures': r['style_failures'], 'flags': r['flags'], 'seconds': r.get('seconds')} for r in job['rooms']],
+                        'style_failures': r['style_failures'], 'flags': r['flags'], 'bed_frame_max_cm': r.get('bed_frame_max_cm'),
+                        'seconds': r.get('seconds')} for r in job['rooms']],
              'frames': job.get('frames')}
     print(json.dumps(brief, ensure_ascii=False, indent=1))
     if brief_out:
