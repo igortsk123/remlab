@@ -94,7 +94,7 @@ CHAIN = ('bank_prepare', 'mesh_cand', 'room_bindings', 'bank_pending', 'bank_pro
 # сторож цвета мешей (T-20261107-14/2) — сразу перед первой привязкой комнат: его таблицу читает room_bindings --build
 ROOM_BANK = ('mesh_color_guard', 'room_bindings', *(f'{s}_{r}' for r in ROOMS for s in ('compose', 'room_check', *CHAIN,
                                                                                          'bank_rehearse', 'bank_state')))
-DEMO = ('flat215_demo', 'demo_rt', 'flat215_publish')
+DEMO = ('flat215_demo', 'trial_images', 'demo_rt', 'flat215_publish')
 
 
 def chain_of(room: str) -> list[str]:
@@ -346,6 +346,9 @@ def _rooms_bank(text: str, ok) -> int:
        'прогрев → сухая проверка по опубликованному',
        fn.index('flat215_demo') < fn.index('demo_rt') < fn.index('demo_real') < fn.index('flat215_publish') < fn.index('demo_warm')
        < fn.index('demo_real_check') and fn.count('demo_real_check') == 1
+       # плитки товаров пробы (T-20261110-25/2) — сразу за сборкой витрины, в её папку, до ворот и публикации
+       and fn.index('flat215_demo') + 1 == fn.index('trial_images') < fn.index('demo_rt')
+       and cmd['trial_images'] == '$PY trial_bundle.py --cache-images'
        and cmd['demo_real'].startswith('env DEMO_LOCAL=') and cmd['demo_real'].endswith('/scout-scenes/flat215-demo bash ../ops/demo-real.sh')
        and cmd['flat215_publish'] == 'env PUB_PHOTOS_DONE=1 bash publish_demo.sh'
        and cmd['demo_real_check'] == 'bash ../ops/demo-real.sh --dry', {n: cmd.get(n) for n in ('demo_real', 'flat215_publish', 'demo_real_check')})

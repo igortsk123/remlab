@@ -21,7 +21,8 @@
 ТОВАР КАК В `/demo` (T-20261110-25, владелец 10.11 TG 744: «всё с товарами, как в России; на английской — без названия магазина и
 цена с коэффициентом, ровно как на демо»): у предмета и строки ленты — название, цена, фото, ссылка «В магазин» и магазин, тем же
 источником, что у витрины (`flat215_demo._sku`: название, фото, ссылка, магазин — товар банка по ключу `sid`, цена — текущая из
-каталога `catalog_media`, нет её — банка; товара нет в банке — всё из каталога). Данные товара берутся ТОЛЬКО так по `sid`
+каталога `catalog_media`, нет её — банка; товара нет в банке — всё из каталога; фото — плитка витрины по адресу банка, нет его или
+не скачался — по адресу каталога, плитки всех товаров банков докачивает ночь: `cache_bank_images`, T-20261110-25/2). Данные товара берутся ТОЛЬКО так по `sid`
 (`catalog_goods`, `bank_index`), а не из входа стадий; `sid` в выход не идёт (`NEVER_KEYS`), поля товара — только на своих местах
 (`variants[].items[].sku`, `feeds`, `sofa_feed`) и с проверенным видом (`_goods_ok`). Английскую цену (курс × наценка двойника /demo)
 страница считает по `trial.money_en` (`uk_money` из `data/partners/demo-uk.json`), магазин и ссылку на английском прячет сама —
@@ -38,6 +39,7 @@
 
   ~/venvs/scout/bin/python trial_bundle.py <job_id> <floorplanResult.json> [--scene scene.json] [--parts parts.json] [--out demo-data.json]
       [--release living,bedroom-1]      # комнаты, с которых снята «проверка размера» (кнопка «Обустроить»)
+  ~/venvs/scout/bin/python trial_bundle.py --cache-images [--dry]   # плитки фото всех товаров банков пробы (ночной шаг `trial_images`)
 Код выхода: 0 — собрано, 2 — честный отказ (причина JSON-строкой в stdout).
 """
 from __future__ import annotations
@@ -249,14 +251,111 @@ def default_ctx() -> dict:
 
 # ───────────────────────── товар как в /demo (T-20261110-25) ─────────────────────────
 
-def demo_img(u: str | None) -> str | None:
-    """Фото товара — плитка витрины `/demo` (`flat215_demo.cache_images`: `img/<md5 адреса>.jpg`); тур отдаёт `img/*` переадресацией
-    на `/demo/img/` (`lib/trial/tour.ts:SHARED_IMG`). Плитки нет — фото нет (как у предмета /demo, не скачавшего фото: «нет фото»)."""
-    if not u:
-        return None
+def demo_img(u) -> str | None:
+    """Фото товара — плитка витрины `/demo` (`flat215_demo.fetch_images`: `img/<md5 адреса>.jpg`); тур отдаёт `img/*` переадресацией
+    на `/demo/img/` (`lib/trial/tour.ts:SHARED_IMG`). `u` — адрес или адреса по порядку (`goods_img_urls`): первая лежащая плитка.
+    Плитки нет — фото нет (как у предмета /demo, не скачавшего фото: «нет фото»). Плитки докачивает ночь (`cache_bank_images`)."""
     import flat215_demo as FD
-    name = hashlib.md5(u.encode()).hexdigest()[:16] + '.jpg'
-    return f'img/{name}' if os.path.isfile(os.path.join(FD.OUT, 'img', name)) else None
+    for x in ([u] if isinstance(u, str) else (u or [])):
+        if isinstance(x, str) and x:
+            name = hashlib.md5(x.encode()).hexdigest()[:16] + '.jpg'
+            if os.path.isfile(os.path.join(FD.OUT, 'img', name)):
+                return f'img/{name}'
+    return None
+
+
+def goods_img_urls(b: dict | None, m: dict | None) -> list:
+    """Адреса фото товара по порядку (T-20261110-25/2): банка — как у товара `/demo`; затем каталога (`catalog_media`, адрес
+    берётся в момент кэширования, банк не переписываем) — у товара без `img` в банке или с мёртвым адресом банка."""
+    out: list = []
+    for u in ((b or {}).get('img'), (m or {}).get('img')):
+        if isinstance(u, str) and u and u not in out:
+            out.append(u)
+    return out
+
+
+# ───────────────────────── плитки товаров банков пробы (T-20261110-25/2) ─────────────────────────
+# Ночь (`refresh_daily.sh`, шаг `trial_images` сразу за сборкой витрины, до публикации): плитки ВСЕХ товаров банков пробы — тем же
+# кодом (`flat215_demo.fetch_images`) в ту же папку (`flat215_demo.OUT/img`), публикует их та же выкладка витрины
+# (`publish_demo.sh`: папка сборки целиком). Папку локально никто не чистит, поэтому уже скачанное не перекачивается.
+IMG_DIR_CAP_MB = 300            # потолок папки плиток (диск DEV тесный): с ожидаемой докачкой выше — не качаем, WARN
+IMG_EST_KB = 60                 # оценка на товар: плитка ~15 КБ + крупная ~36 КБ (замер demo-26 Д)
+IMG_FAIL_WARN_SHARE = 0.25      # не скачалось больше этой доли попыток — WARN (обычные мёртвые ссылки фида — тише)
+
+
+def _dir_mb(path: str) -> float:
+    try:
+        return sum(e.stat().st_size for e in os.scandir(path) if e.is_file()) / 1e6
+    except OSError:
+        return 0.0
+
+
+def bank_img_plan(idx: dict, media) -> tuple[dict, dict]:
+    """{sid: [адреса фото по порядку]} по всем товарам банков пробы + счёт источников: `bank` — адрес есть в банке,
+    `catalog` — только в каталоге, `none` — нигде (останется «нет фото»)."""
+    plan, src = {}, {'bank': 0, 'catalog': 0, 'none': 0}
+    for sid, b in idx.items():
+        mid, eid = sid.split('_', 1) if '_' in sid else (sid, '')
+        urls = goods_img_urls(b, media(mid, eid) if eid else None)
+        plan[sid] = urls
+        src['bank' if b.get('img') else 'catalog' if urls else 'none'] += 1
+    return plan, src
+
+
+def cache_bank_images(idx: dict | None = None, media=None, fetch=None, imgdir: str | None = None, dry: bool = False,
+                      log=print) -> dict:
+    """Докачать плитки товаров банков пробы. Первый проход — первый адрес у товаров без плитки; второй — адрес каталога у тех, чей
+    адрес банка не скачался. Итог — счётчики (до/после, источники, отказы по причинам, размер папки) строками в журнал."""
+    import flat215_demo as FD
+    idx = _bank() if idx is None else idx
+    if media is None:
+        import catalog_media as CM
+        try:
+            CM._load()
+            media = CM.media
+        except Exception as e:  # noqa: BLE001 — без каталога качаем адреса банка, громко
+            log(f'WARN:trial_images: каталог недоступен ({str(e)[:120]}) — только адреса банка')
+            media = lambda mid, eid: None  # noqa: E731
+    fetch = fetch or FD.fetch_images
+    imgdir = imgdir or os.path.join(FD.OUT, 'img')
+
+    def has(u):
+        return os.path.isfile(os.path.join(imgdir, FD.img_name(u)))
+
+    def tiled():
+        return sum(1 for us in plan.values() if any(has(u) for u in us))
+
+    plan, src = bank_img_plan(idx, media)
+    before = tiled()
+    need = sorted({us[0] for us in plan.values() if us and not any(has(u) for u in us)})
+    size0 = _dir_mb(imgdir)
+    st = {'goods': len(plan), 'tiled_before': before, 'sources': src, 'to_fetch': len(need), 'dir_mb_before': round(size0, 1)}
+    log(f'плитки товаров пробы: товаров {len(plan)}, с плиткой {before}; адрес фото — из банка {src["bank"]}, только из каталога '
+        f'{src["catalog"]}, нигде {src["none"]}; качать {len(need)}; папка {size0:.1f} МБ')
+    if dry:
+        return st
+    if size0 + len(need) * IMG_EST_KB / 1000 > IMG_DIR_CAP_MB:
+        log(f'WARN:trial_images: папка плиток {size0:.0f} МБ + ~{len(need) * IMG_EST_KB / 1000:.0f} МБ докачки > потолка '
+            f'{IMG_DIR_CAP_MB} МБ — не качаю')
+        return {**st, 'capped': True}
+    r1 = fetch(need, imgdir) if need else {'got': {}, 'fail': {}}
+    # второй адрес (каталога) — только тем, у кого первый не скачался
+    alt = sorted({u for us in plan.values() if us and not any(has(x) for x in us) for u in us[1:]})
+    r2 = fetch(alt, imgdir) if alt else {'got': {}, 'fail': {}}
+    after = tiled()
+    fail: dict = {}
+    for r in (r1, r2):
+        for k, v in (r.get('fail') or {}).items():
+            fail[k] = fail.get(k, 0) + v
+    tried = len(need) + len(alt)
+    size1 = _dir_mb(imgdir)
+    st.update({'catalog_retry': len(alt), 'tiled_after': after, 'fail': fail, 'dir_mb_after': round(size1, 1)})
+    log(f'плитки товаров пробы: с плиткой {before} → {after} из {len(plan)}; адрес каталога вторым — {len(alt)}; '
+        f'{FD.fail_text(fail)}; без адреса фото — {src["none"]}; папка {size0:.1f} → {size1:.1f} МБ')
+    nfail = sum(fail.values())
+    if tried and nfail > tried * IMG_FAIL_WARN_SHARE:
+        log(f'WARN:trial_images: не скачалось {nfail} из {tried} попыток — {FD.fail_text(fail)}')
+    return st
 
 
 def _bank_sid(it: dict) -> str | None:
@@ -313,7 +412,7 @@ def catalog_goods(sid: str | None, role: str, bank: dict | None = None) -> dict 
     url = src.get('url') if URL_RE.fullmatch(str(src.get('url') or '')) else None
     ne = TD._names_en({'name': src['name'], 'mid': mid, 'eid': eid}, role)
     return {'name': src['name'], 'name_en': ne.get('name_en') or None, 'colour_en': ne.get('colour_en') or None, 'price': int(price),
-            'img': demo_img(src.get('img')), 'url': url, 'shop': (src.get('shop') or None)}
+            'img': demo_img(goods_img_urls(b, m)), 'url': url, 'shop': (src.get('shop') or None)}
 
 
 _BANK: dict | None = None
@@ -1121,6 +1220,9 @@ def _arg(args: list, name: str) -> str | None:
 
 def main() -> int:
     args = sys.argv[1:]
+    if args[:1] == ['--cache-images']:          # ночной шаг `trial_images` (и разовая докачка): плитки товаров банков пробы
+        cache_bank_images(dry='--dry' in args)
+        return 0
     scene_path, parts_path, out = _arg(args, '--scene'), _arg(args, '--parts'), _arg(args, '--out')
     release = [x for x in (_arg(args, '--release') or '').split(',') if x]
     if len(args) != 2:

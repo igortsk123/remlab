@@ -2078,43 +2078,44 @@ def published_img(name: str, dst: str, big: str, base: str = None, fetch=None) -
     return True
 
 
-def cache_images(data: dict) -> dict:
-    """ФОТО КЛАДЁМ К СЕБЕ (владелец 26.08: «фотки не все прогружаются»). Причина — в фиде
-    протокол-относительные ссылки на CDN Гдеслона, и примерно половина отдаёт 404: карточки
-    приходили пустыми. Качаем один раз, ужимаем до 400 px и раздаём со своего домена; у товара
-    с мёртвой ссылкой `img=null` — карточка честно показывает «фото недоступно», а сам товар
-    (габариты, цена, ссылка в магазин) остаётся рабочим."""
-    from concurrent.futures import ThreadPoolExecutor
+def img_name(u: str) -> str:
+    """Имя плитки витрины по адресу фото фида: `<md5 адреса>[:16].jpg` (крупная копия — `<то же>-l.jpg`)."""
     import hashlib
+    return hashlib.md5(u.encode()).hexdigest()[:16] + '.jpg'
+
+
+def img_fail_reason(e: BaseException) -> str:
+    """Причина, по которой фото не скачалось, — для счётчика отказов в журнале (не молчим)."""
+    import urllib.error
+    from PIL import UnidentifiedImageError
+    if isinstance(e, urllib.error.HTTPError):
+        return f'http {e.code}'
+    if isinstance(e, UnidentifiedImageError):          # (подкласс OSError — проверяем раньше сети)
+        return 'не картинка'
+    if isinstance(e, (urllib.error.URLError, TimeoutError, ConnectionError, OSError)):
+        return 'сеть'
+    return type(e).__name__
+
+
+def fetch_images(urls, imgdir: str | None = None) -> dict:
+    """СКАЧИВАНИЕ ФОТО В ПАПКУ ВИТРИНЫ — один код для витрины (`cache_images`) и товаров банков пробы агента
+    (`trial_bundle.cache_bank_images`, T-20261110-25/2): плитка 400 px `img/<md5>.jpg` и крупная `-l.jpg` до 1200 px; уже
+    лежащие не перекачиваются; три попытки, затем повтор по одному после паузы, затем копия опубликованной главной.
+    Итог: {'got': {адрес: 'img/<имя>' | None}, 'retried', 'rescued', 'fail': {причина: сколько адресов}} — причина последней
+    попытки у каждого так и не скачавшегося (`img_fail_reason`)."""
+    from concurrent.futures import ThreadPoolExecutor
     import io
     import urllib.request
     from PIL import Image
-    imgdir = os.path.join(OUT, 'img')
+    imgdir = imgdir or os.path.join(OUT, 'img')
     os.makedirs(imgdir, exist_ok=True)
-    urls = set()
-    for lst in (data.get('feeds') or {}).values():
-        for p in lst:
-            if p.get('img'):
-                urls.add(p['img'])
-    for kit in (data.get('sets') or []):
-        for p in kit['roles'].values():
-            if p.get('img'):
-                urls.add(p['img'])
-    for v in data.get('variants') or []:
-        # и декор с мягким (demo-24): фото магазина отдаёт 403 через раз (`imgng.gdeslon.ru`) — строка списка оставалась без картинки
-        for it in v['items'] + (v.get('decor') or []):
-            if (it.get('sku') or {}).get('img'):
-                urls.add(it['sku']['img'])
-    for lst in [x for c in room_catalogs(data) for x in (c.get('roles') or {}).values()]:
-        for p in lst:
-            if p.get('img'):
-                urls.add(p['img'])
+    why: dict = {}
 
     # КРУПНАЯ КОПИЯ ДЛЯ КАРТОЧКИ ТОВАРА (demo-26 Д, владелец 23.10): рядом с плиткой 400 px — `<id>-l.jpg` до 1200 px из того же
     # исходника (в выборке уже `coalesce(image_url_hd, image_url)` — HD магазина, где есть). Замер 23.10 на 25 товарах: исходники
     # 700–2560 px, копия 1200 px — в среднем 36 КБ (на ~850 фото ~30 МБ). Страница берёт её по имени и только при `_img_large`
     def grab(u: str):
-        name = hashlib.md5(u.encode()).hexdigest()[:16] + '.jpg'
+        name = img_name(u)
         dst = os.path.join(imgdir, name)
         big = dst[:-4] + '-l.jpg'
         if os.path.exists(dst) and os.path.exists(big):
@@ -2135,8 +2136,10 @@ def cache_images(data: dict) -> dict:
                 if not os.path.exists(dst):             # плитка уже лежит — не переписываем (докачали только крупную)
                     im.thumbnail((400, 400))
                     im.save(dst, 'JPEG', quality=82)
+                why.pop(u, None)
                 return u, 'img/' + name
-            except Exception:
+            except Exception as e:  # noqa: BLE001 — причина идёт в счётчик отказов (`fail`), не молча
+                why[u] = img_fail_reason(e)
                 if k < 2:
                     time.sleep(1.5)
         # крупная не скачалась, плитка есть — товар остаётся с плиткой (карточка покажет её)
@@ -2153,14 +2156,56 @@ def cache_images(data: dict) -> dict:
             got[u] = grab(u)[1]
             retried += bool(got[u])
         for u in (u for u in miss if not got[u]):
-            name = hashlib.md5(u.encode()).hexdigest()[:16] + '.jpg'
+            name = img_name(u)
             dst = os.path.join(imgdir, name)
             if published_img(name, dst, dst[:-4] + '-l.jpg'):
                 got[u] = 'img/' + name
                 rescued += 1
+    fail: dict = {}
+    for u, v in got.items():
+        if not v:
+            r = why.get(u) or 'нет на главной'
+            fail[r] = fail.get(r, 0) + 1
+    return {'got': got, 'retried': retried, 'rescued': rescued, 'fail': fail}
+
+
+def fail_text(fail: dict) -> str:
+    """«не скачались: 5 (http 404 — 3, сеть — 2)» — для строки журнала."""
+    n = sum(fail.values())
+    return f'не скачались: {n}' + (' (' + ', '.join(f'{k} — {v}' for k, v in sorted(fail.items(), key=lambda x: -x[1])) + ')'
+                                   if n else '')
+
+
+def cache_images(data: dict) -> dict:
+    """ФОТО КЛАДЁМ К СЕБЕ (владелец 26.08: «фотки не все прогружаются»). Причина — в фиде
+    протокол-относительные ссылки на CDN Гдеслона, и примерно половина отдаёт 404: карточки
+    приходили пустыми. Качаем один раз, ужимаем до 400 px и раздаём со своего домена; у товара
+    с мёртвой ссылкой `img=null` — карточка честно показывает «фото недоступно», а сам товар
+    (габариты, цена, ссылка в магазин) остаётся рабочим. Скачивание — `fetch_images`."""
+    urls = set()
+    for lst in (data.get('feeds') or {}).values():
+        for p in lst:
+            if p.get('img'):
+                urls.add(p['img'])
+    for kit in (data.get('sets') or []):
+        for p in kit['roles'].values():
+            if p.get('img'):
+                urls.add(p['img'])
+    for v in data.get('variants') or []:
+        # и декор с мягким (demo-24): фото магазина отдаёт 403 через раз (`imgng.gdeslon.ru`) — строка списка оставалась без картинки
+        for it in v['items'] + (v.get('decor') or []):
+            if (it.get('sku') or {}).get('img'):
+                urls.add(it['sku']['img'])
+    for lst in [x for c in room_catalogs(data) for x in (c.get('roles') or {}).values()]:
+        for p in lst:
+            if p.get('img'):
+                urls.add(p['img'])
+
+    res = fetch_images(urls)
+    got, retried, rescued = res['got'], res['retried'], res['rescued']
     ok = sum(1 for v in got.values() if v)
     print(f'фото: скачано {ok} из {len(urls)} (остальные — битые ссылки фида); со второй попытки: {retried}; '
-          f'подхвачено с прода: {rescued}')
+          f'подхвачено с прода: {rescued}; {fail_text(res["fail"])}')
 
     def fix(p):
         if p and p.get('img'):

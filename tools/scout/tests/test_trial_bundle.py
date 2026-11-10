@@ -910,3 +910,128 @@ def test_catalog_goods_like_demo_sku_bank_first_price_from_catalog(monkeypatch, 
     g4 = TB.catalog_goods('4_d', 'диван', idx)
     assert (g4['name'], g4['url'], g4['shop']) == ('Только каталог', None, 's')
     assert TB.catalog_goods('9_z', 'диван', idx) is None and TB.catalog_goods(None, 'диван', idx) is None
+
+
+# ───────────── плитки фото всех товаров банков пробы (T-20261110-25/2): без сети ─────────────
+
+def _jpeg(w=600, h=400) -> bytes:
+    import io
+    from PIL import Image
+    b = io.BytesIO()
+    Image.new('RGB', (w, h), (150, 110, 80)).save(b, 'JPEG', quality=80)
+    return b.getvalue()
+
+
+def _tile(d, u):
+    import flat215_demo as FD
+    p = os.path.join(d, FD.img_name(u))
+    open(p, 'wb').write(_jpeg(40, 40))
+    open(p[:-4] + '-l.jpg', 'wb').write(_jpeg(40, 40))
+    return p
+
+
+def test_goods_img_urls_bank_first_then_catalog_and_plan_sources():
+    """Адрес фото: банка (как /demo), затем каталога; без адреса в банке — каталог; нигде — «нет фото». Счёт источников плана."""
+    assert TB.goods_img_urls({'img': '//a'}, {'img': '//b'}) == ['//a', '//b']
+    assert TB.goods_img_urls({'img': '//a'}, {'img': '//a'}) == ['//a']
+    assert TB.goods_img_urls({'name': 'x'}, {'img': '//b'}) == ['//b']
+    assert TB.goods_img_urls(None, None) == [] and TB.goods_img_urls({'img': ''}, {'img': None}) == []
+    idx = {'1_a': {'name': 'А', 'img': '//a'}, '2_b': {'name': 'Б'}, '3_c': {'name': 'В'}, '4_x_y': {'name': 'Г', 'img': '//g'}}
+    cat = {('1', 'a'): {'img': '//a2'}, ('2', 'b'): {'img': '//b'}, ('4', 'x_y'): {'img': '//g'}}
+    plan, src = TB.bank_img_plan(idx, lambda mid, eid: cat.get((mid, eid)))
+    assert plan == {'1_a': ['//a', '//a2'], '2_b': ['//b'], '3_c': [], '4_x_y': ['//g']}
+    assert src == {'bank': 2, 'catalog': 1, 'none': 1}
+
+
+def test_demo_img_takes_first_existing_tile(monkeypatch, tmp_path):
+    import flat215_demo as FD
+    monkeypatch.setattr(FD, 'OUT', str(tmp_path))
+    os.makedirs(tmp_path / 'img')
+    _tile(str(tmp_path / 'img'), '//cat')
+    assert TB.demo_img(['//dead', '//cat']) == 'img/' + FD.img_name('//cat')
+    assert TB.demo_img('//cat') == 'img/' + FD.img_name('//cat')
+    assert TB.demo_img(['//dead']) is None and TB.demo_img(None) is None and TB.demo_img([]) is None
+
+
+def test_cache_bank_images_fetches_missing_then_catalog_and_counts_failures(tmp_path):
+    """Уже лежащие не перекачиваются; первый проход — первый адрес; не скачался — второй (каталога); отказы — счётчиком в журнал."""
+    import flat215_demo as FD
+    d = str(tmp_path)
+    _tile(d, '//have')
+    idx = {'1_a': {'name': 'А', 'img': '//have'}, '2_b': {'name': 'Б', 'img': '//dead'}, '3_c': {'name': 'В', 'img': '//new'},
+           '4_d': {'name': 'Г'}, '5_e': {'name': 'Д', 'img': '//gone'}, '6_f': {'name': 'Е'}}
+    cat = {('2', 'b'): {'img': '//cat2'}, ('4', 'd'): {'img': '//cat4'}}
+    calls, lines = [], []
+
+    def fetch(urls, imgdir):
+        calls.append(list(urls))
+        got, fail = {}, {}
+        for u in urls:
+            if u in ('//dead', '//gone'):
+                got[u] = None
+                fail['http 404'] = fail.get('http 404', 0) + 1
+            else:
+                _tile(imgdir, u)
+                got[u] = 'img/' + FD.img_name(u)
+        return {'got': got, 'fail': fail, 'retried': 0, 'rescued': 0}
+
+    st = TB.cache_bank_images(idx, media=lambda mid, eid: cat.get((mid, eid)), fetch=fetch, imgdir=d, log=lines.append)
+    assert calls == [['//cat4', '//dead', '//gone', '//new'], ['//cat2']]          # «//have» не перекачан
+    assert (st['goods'], st['tiled_before'], st['tiled_after']) == (6, 1, 4)
+    assert st['sources'] == {'bank': 4, 'catalog': 1, 'none': 1} and st['fail'] == {'http 404': 2} and st['catalog_retry'] == 1
+    assert any('с плиткой 1 → 4 из 6' in s and 'не скачались: 2 (http 404 — 2)' in s for s in lines), lines
+    assert any(s.startswith('WARN:trial_images: не скачалось 2 из 5') for s in lines), lines      # 2/5 > 25 % — громко
+    # повтор: всё, что могло, уже лежит — качать нечего, кроме мёртвых
+    calls.clear()
+    TB.cache_bank_images(idx, media=lambda mid, eid: cat.get((mid, eid)), fetch=fetch, imgdir=d, log=lines.append)
+    assert calls == [['//gone']]
+
+
+def test_cache_bank_images_dry_and_cap_do_not_fetch(tmp_path, monkeypatch):
+    def fetch(urls, imgdir):
+        raise AssertionError('без скачивания')
+    idx = {'1_a': {'name': 'А', 'img': '//x'}}
+    lines = []
+    st = TB.cache_bank_images(idx, media=lambda m, e: None, fetch=fetch, imgdir=str(tmp_path), dry=True, log=lines.append)
+    assert st['to_fetch'] == 1 and 'tiled_after' not in st
+    monkeypatch.setattr(TB, 'IMG_DIR_CAP_MB', 0)
+    st = TB.cache_bank_images(idx, media=lambda m, e: None, fetch=fetch, imgdir=str(tmp_path), log=lines.append)
+    assert st.get('capped') and any(s.startswith('WARN:trial_images: папка плиток') for s in lines)
+
+
+def test_fetch_images_failure_reasons_counted(monkeypatch, tmp_path):
+    """Общий код скачивания витрины: удачное — плитка и крупная; отказ — причина в счётчике (`http 404`, `сеть`, `не картинка`),
+    не молча. Без сети: подменены `urlopen`, пауза, подхват с главной."""
+    import io
+    import types
+    import urllib.error
+    import urllib.request
+    import flat215_demo as FD
+    ok_raw = _jpeg()
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def urlopen(req, timeout=None):
+        u = req.full_url
+        if u.endswith('/404.jpg'):
+            raise urllib.error.HTTPError(u, 404, 'nf', {}, None)
+        if u.endswith('/net.jpg'):
+            raise urllib.error.URLError('timed out')
+        if u.endswith('/html.jpg'):
+            return Resp(b'<html>nope</html>')
+        return Resp(ok_raw)
+    monkeypatch.setattr(urllib.request, 'urlopen', urlopen)
+    monkeypatch.setattr(FD, 'time', types.SimpleNamespace(sleep=lambda s: None, time=lambda: 0.0))
+    monkeypatch.setattr(FD, 'IMG_FALLBACK', '')
+    urls = ['https://s.example/ok.jpg', 'https://s.example/404.jpg', '//s.example/net.jpg', 'https://s.example/html.jpg']
+    r = FD.fetch_images(urls, str(tmp_path))
+    n = FD.img_name(urls[0])
+    assert r['got'][urls[0]] == 'img/' + n and os.path.exists(tmp_path / n) and os.path.exists(tmp_path / (n[:-4] + '-l.jpg'))
+    assert [r['got'][u] for u in urls[1:]] == [None, None, None]
+    assert r['fail'] == {'http 404': 1, 'сеть': 1, 'не картинка': 1}
+    assert FD.fail_text(r['fail']).startswith('не скачались: 3 (') and FD.fail_text({}) == 'не скачались: 0'
