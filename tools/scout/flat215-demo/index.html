@@ -1310,6 +1310,9 @@ body.tr-nogoods #shot .pinlist .row>.p{flex:0 0 40px}
 /* карточка пробы без фото: план комнаты с мебелью (тот же рисунок, что план окна) и подпись «Откройте — покажем в 3D» */
 .hm-room .hm-ph .nopv.tr-plan{background:var(--wash,#F3F0EA);padding:42px 14px 44px}
 .hm-room .hm-ph .nopv.tr-plan svg{width:100%;height:100%;display:block}
+/* окно «Другой стиль для комнаты» в пробе: фото нейросети нет — тот же план комнаты с мебелью (T-37/2) */
+.qz-ph .qz-img.tr-mxpv{display:flex;align-items:center;justify-content:center;background:var(--wash,#F3F0EA);padding:8px;box-sizing:border-box;overflow:hidden}
+.qz-ph .qz-img.tr-mxpv svg{width:100%;height:100%;display:block}
 /* узкий экран: «Форма приблизительная» (слева) и «Откройте — покажем в 3D» (справа) в одну строку не помещаются — вторым рядом */
 @media(max-width:700px){.hm-ph:has(.tr-3d)>.tr-approx{top:44px}.hm-room .hm-ph:has(>.tr-approx) .nopv.tr-plan{padding-top:76px}}
 .vstub.tr-flat{background:var(--wash,#F3F0EA);padding:72px 20px 20px}
@@ -6189,7 +6192,8 @@ function mixBox(){
 }
 function mixRender(){
   // подписи — названия стилей (владелец TG 447–448: «стиль напиши как рекомендуемый, другие называй как есть»); у рекомендуемого — метка
-  const c=mixBox().querySelector('.qz-card'), EN=LANG==='en', ready=!!SHOTS_LOADED, one=!!MIX.room;
+  // проба (T-37/2): реестра кадров у тура нет — плитки не ждут его; без фото нейросети — план комнаты с мебелью (`trialPlanSvg`, как карточка на главной)
+  const c=mixBox().querySelector('.qz-card'), EN=LANG==='en', ready=!!SHOTS_LOADED||TRIAL(), one=!!MIX.room;
   const L=one?mixRoomList(MIX.room):homeVarList(), rec=D?homeRec(homeModel()):'';
   if(ready)MIX.pick=MIX.pick.filter(id=>L.some(x=>x.id===id));   // вариант без фото гостиной не предлагаем — и отмеченным его не держим
   const quiz=!one&&typeof window.__quizCan==='function'&&window.__quizCan();
@@ -6198,7 +6202,7 @@ function mixRender(){
     (one?`<p class="qz-sub">${EN?'Only this room changes — the other rooms stay as they are':'Меняется только эта комната, остальные — как были'}</p>`:'')+
     `<div class="qz-photos">${L.map(s=>{const on=MIX.pick.includes(s.id), off=!ready;
       return `<button class="qz-ph" type="button" data-mx-ph="${escHtml(s.id)}" aria-pressed="${on}"${off?' disabled':''}>`+
-        (ready&&s.img?`<img class="qz-img" alt="" src="${escHtml(s.img)}">`:'<span class="qz-img"></span>')+
+        (ready&&s.img?`<img class="qz-img" alt="" src="${escHtml(s.img)}">`:s.pv?`<span class="qz-img tr-mxpv">${s.pv}</span>`:'<span class="qz-img"></span>')+
         `<span class="qz-tick" aria-hidden="true">${on?'✓':''}</span><b>${escHtml(s.title)}`+
         (s.id===rec?` <span class="mx-rec">${EN?'recommended':'рекомендуем'}</span>`:'')+`</b></button>`;}).join('')}</div>`+
     (quiz?`<button class="qz-link" type="button" data-mx="quiz">${EN?'Take the quiz again':'Пройти опрос заново'}</button>`:'');
@@ -6224,7 +6228,8 @@ function mixRoomList(room){
   for(const x of m.roomVariants){
     if(x.roomId!==room||out.some(o=>o.id===x.styleId))continue;
     const v=allVariants()[x.index], p=realisticPublishedShot(v,posterCam(v)), no=VL.findIndex(s=>s.id===x.styleId);
-    out.push({id:x.styleId, no:no<0?99:no, title:homeStyleTitle(m,x.styleId), img:p&&p.quality==='realistic'?(p.thumb||p.url):''});
+    const img=p&&p.quality==='realistic'?(p.thumb||p.url):'';
+    out.push({id:x.styleId, no:no<0?99:no, title:homeStyleTitle(m,x.styleId), img, pv:TRIAL()&&!img&&v?trialPlanSvg(v):''});
   }
   return out.sort((a,b)=>a.no-b.no);
 }
