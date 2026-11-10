@@ -45,6 +45,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'ops'))
 sys.path.insert(0, str(HERE))
 import conveyor  # noqa: E402 — стадии мебели после стен
+from conveyor import child_failure  # noqa: E402
 
 VERSION = 'trial-worker/1'
 TOKEN_RE = re.compile(r'^[A-Za-z0-9_-]{22}$')       # = lib/token.ts:TOKEN_RE — id задания (и имя папки)
@@ -145,7 +146,7 @@ class Api:
         self.cfg = cfg
 
     def call(self, method: str, path: str, body: dict | None = None, headers: dict | None = None,
-             auth: bool = True, stream_to: Path | None = None, max_bytes: int = INPUT_MAX):
+             auth: bool = True, stream_to: Path | None = None, max_bytes: int = INPUT_MAX, read_max: int = 4 * 1024 * 1024):
         """→ (статус, JSON | None). stream_to — тело (файл) потоком на диск с потолком max_bytes. Сеть — NetError."""
         h = {'User-Agent': VERSION, **(headers or {})}
         if auth:
@@ -159,7 +160,7 @@ class Api:
             with urllib.request.urlopen(req, timeout=self.cfg.http_timeout) as r:
                 if stream_to is not None:
                     return r.status, self._stream(r, stream_to, max_bytes)
-                raw = r.read(4 * 1024 * 1024)
+                raw = r.read(read_max)
                 return r.status, (json.loads(raw) if raw else None)
         except urllib.error.HTTPError as e:
             try:
@@ -344,7 +345,10 @@ class Worker:
         return None, None
 
     def run_child(self, cmd: list, log_path: Path, timeout_s: float, hb: Heartbeat, env: dict | None = None) -> tuple[int | None, str | None]:
-        """Процесс стадии в своей группе, вывод — в `log_path`. → (код выхода, причина снятия: lost | timeout | stop | None)."""
+        """Процесс стадии в своей группе, вывод — в `log_path`. → (код выхода, причина снятия: lost | timeout | stop | None).
+        Вывод Python — без буфера (`PYTHONUNBUFFERED`, T-20261110-05): процесс, убитый сигналом (OOM, earlyoom), оставляет в журнале
+        всё, что успел напечатать (10.11 разбор листа упал через 456 с с пустым `pipeline.log`)."""
+        env = {**(os.environ if env is None else env), 'PYTHONUNBUFFERED': '1'}
         with open(log_path, 'ab') as out:
             self.child = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
                                           cwd=str(HERE.parent.parent), env=env)
@@ -467,8 +471,10 @@ class Worker:
             code = e.get('code') or 'pipeline_error'
             return self.fail(lease, wd, code, bool(e.get('retryable')), str(e.get('detail') or ''),
                              30 if code == 'waiting_capacity' else None)
-        # убит сигналом (OOM, earlyoom) или упал без отчёта — один повтор (попыток 2)
-        self.fail(lease, wd, 'pipeline_error', True, f'pipeline rc={rc}')
+        # убит сигналом (OOM, earlyoom) или упал без отчёта — один повтор (попыток 2); в причине — сигнал и хвост журнала
+        why = child_failure('pipeline', rc, wd / 'pipeline.log')
+        log(f'{jid}: {why}')
+        self.fail(lease, wd, 'pipeline_error', True, why)
 
     # ── пересборка «Обустроить» (план agent-trial-08, Р1; T-20261109-27) ──
     def process_rebuild(self, rb: dict) -> None:

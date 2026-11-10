@@ -77,6 +77,20 @@ export async function ensureJobRelease(id: string, dir = trialDir(), demoDir = t
   return (await pinJobReleaseOnce(id, name, dir)) ? "pinned" : "exists";
 }
 
+/** Пересборка «как есть» (оператор, T-20261110-05): закрепить за заданием ТЕКУЩУЮ витрину, заменив прежнюю (подменой файла —
+ *  читатель видит старую или новую запись, не половину). Прежняя копия `_releases/<хеш>` остаётся — её держат другие туры.
+ *  → { release: новая, previous: прежняя или null }. */
+export async function repinJobRelease(id: string, dir = trialDir(), demoDir = trialDemoDir()): Promise<{ release: string; previous: string | null }> {
+  if (!validId(id)) throw new Error("bad id");
+  const previous = await jobRelease(dir, id);
+  const release = await pinRelease(demoDir, dir);
+  const d = jobDir(dir, id);
+  const tmp = path.join(d, `.release.${randomBytes(6).toString("hex")}.tmp`);
+  await write(tmp, `${release}\n`);
+  await fs.rename(tmp, path.join(d, "release"));
+  return { release, previous };
+}
+
 /** Положить данные задания атомарно (страница не увидит половину JSON). Временная запись до вливания ветки данных — для проверок и фикстур. */
 export async function writeTourData(id: string, data: string, dir = trialDir()): Promise<void> {
   if (!validId(id)) throw new Error("bad id");

@@ -36,6 +36,8 @@ if mode == 'slow':
     time.sleep(60)
 if mode == 'crash':
     os._exit(9)
+if mode == 'killed':                     # OOM / earlyoom: напечатал (без flush) и убит сигналом — строка должна остаться в журнале
+    print('разбор: лист 1 из 1, VLM 4/9'); os.kill(os.getpid(), 9)
 if mode in ('no_plan', 'capacity'):
     code = 'no_plan' if mode == 'no_plan' else 'waiting_capacity'
     put('error.json', json.dumps({'code': code, 'retryable': mode == 'capacity', 'detail': 'x'})); sys.exit(3)
@@ -369,6 +371,34 @@ def test_pipeline_errors_go_to_fail(prod, mk, mode, code, retryable, after):
     assert f[0].get('retryAfterSec') == after and f[0]['spentUsd'] == pytest.approx(0.012)
     assert prod.by('/api/trial/worker/result') == []
     assert w.streak == (1 if mode == 'crash' else 0)          # вина файла и «DEV занят» — не сбой DEV
+
+
+def test_pipeline_killed_by_signal_reason_has_signal_and_log_tail(prod, mk, monkeypatch):
+    """T-20261110-05: разбор убит сигналом без `error.json` — в причине сбоя имя сигнала и последние строки журнала; вывод без буфера
+    (10.11 `pipeline.log` был пуст: строки остались в буфере убитого процесса)."""
+    monkeypatch.delenv('PYTHONUNBUFFERED', raising=False)      # без буфера — забота воркера, не окружения
+    prod.add_job()
+    w = mk('killed')
+    w.loop(max_iter=1)
+    f = prod.by('/api/trial/worker/fail')
+    assert len(f) == 1 and f[0]['code'] == 'pipeline_error' and f[0]['retryable'] is True
+    assert f[0]['detail'] == 'pipeline rc=-9 (SIGKILL) · разбор: лист 1 из 1, VLM 4/9'
+    prod.reqs.clear()
+    prod.add_job(attempt=2)                                    # своя папка попытки: журнал первой сюда не дописывается
+    w = mk('crash')
+    w.loop(max_iter=1)
+    assert prod.by('/api/trial/worker/fail')[0]['detail'] == 'pipeline rc=9 · журнал пуст'
+
+
+def test_child_failure_signal_names_and_tail(tmp_path):
+    log = tmp_path / 'x.log'
+    assert wk.child_failure('living', -15, log) == 'living rc=-15 (SIGTERM) · журнал пуст'
+    log.write_text('\n'.join(f'строка {i}' for i in range(20)) + '\n\n')
+    got = wk.child_failure('bedrooms', 137, log, lines=3)
+    assert got == 'bedrooms rc=137 (128+SIGKILL) · строка 17 | строка 18 | строка 19'
+    log.write_text('я' * 5000)
+    got = wk.child_failure('pipeline', 1, log, max_chars=200)
+    assert len(got) == 200 and got.startswith('pipeline rc=1 · …я')
 
 
 def test_lease_lost_kills_pipeline_and_reports_nothing(prod, mk):

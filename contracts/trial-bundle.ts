@@ -82,6 +82,11 @@ export const trialBundleIn = z.object({
 });
 export type TrialBundleIn = z.infer<typeof trialBundleIn>;
 
+/** Пересборка готового тура «как есть» (оператор, T-20261110-05): от какой версии собрано и точные байты новой. */
+export const trialReissueIn = z.object({
+  baseVersion: z.number().int().positive(), bundle: z.string().min(2), sha256: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
 /** Итог пересборки «Обустроить» (план agent-trial-08, Р1): `id` — id пересборки (её аренда), `jobId` — задание, чья это версия.
  *  `result` — только у пересборки по тексту агента (Р2-текст): план перечитан с размерами из текста, новый `floorplanResult` задания. */
 export const trialRebuildPublishIn = z.object({

@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -41,6 +42,31 @@ BEDROOM = 'bedroom'                          # = trial_bundle.BEDROOM
 # агент ждёт на открытой странице. Загрузка тура — 1, «Обустроить» — 2 (раньше всех). Порог памяти тот же (T-20261109-31).
 SLOT_PRIO_TRIAL = 1
 SLOT_PRIO_REBUILD = 2
+
+
+def child_failure(name: str, rc: int | None, log_path: Path, lines: int = 8, max_chars: int = 1500) -> str:
+    """Причина сбоя процесса без `error.json`: код выхода, сигнал (rc < 0 — убит сигналом; 128+N — сигнал через оболочку) и последние
+    строки журнала (пустой — так и пишем). Для `fail` (`error_detail`, только для разбора) и журнала воркера."""
+    sig = None
+    if rc is not None and (rc < 0 or 128 < rc < 160):
+        try:
+            sig = signal.Signals(-rc if rc < 0 else rc - 128).name
+        except ValueError:
+            sig = f'signal {-rc if rc < 0 else rc - 128}'
+        sig = sig if rc < 0 else f'128+{sig}'
+    try:
+        with open(log_path, 'rb') as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 16384))
+            tail = [x.strip() for x in fh.read().decode('utf-8', 'replace').splitlines() if x.strip()][-lines:]
+    except OSError:
+        tail = []
+    head = f'{name} rc={rc}' + (f' ({sig})' if sig else '')
+    text = ' | '.join(tail) if tail else 'журнал пуст'
+    room = max_chars - len(head) - 3
+    if len(text) > room:                              # конец журнала важнее начала
+        text = '…' + text[-(room - 1):]
+    return f'{head} · {text}'
 
 
 def bedroom_stage_ready() -> bool:
@@ -138,6 +164,7 @@ class Conveyor:
             except (OSError, ValueError, IndexError) as e:
                 return None, f'bundle_refused_unparsed:{type(e).__name__}'
         if rc != 0 or not out.exists():
+            self.log(child_failure(f'bundle-{self.n}-{tag}', rc, self.wd / f'bundle-{self.n}-{tag}.log'))
             return None, f'bundle_rc_{rc}'
         data = out.read_bytes()
         if len(data) > self.cfg.bundle_max_bytes:
@@ -215,7 +242,7 @@ class Conveyor:
                 code = 'stage_failed'
                 self.log(f'living: сцена не дописана (rc={rc}, статус {status!r})')
         if code:
-            self.log(f'living: {code} (rc={rc}, {self.timings["living_s"]} с)')
+            self.log(f'living: {code} ({self.timings["living_s"]} с) · {child_failure("living", rc, self.wd / "living.log")}')
             return self._write('scene-refused.json', failed_scene(self.jid, code, f'rc={rc}'))
         self.log(f'living: rc={rc}, {self.timings["living_s"]} с')
         return scene_p
@@ -236,7 +263,7 @@ class Conveyor:
             return out
         if why == 'timeout' or rc != 0 or not out.exists():
             code = 'stage_timeout' if why == 'timeout' else 'stage_failed'
-            self.log(f'bedrooms: {code} (rc={rc}, {self.timings["bedrooms_s"]} с)')
+            self.log(f'bedrooms: {code} ({self.timings["bedrooms_s"]} с) · {child_failure("bedrooms", rc, self.wd / "bedrooms.log")}')
             return self._write('bedrooms-parts.json', bedroom_refusals(self.result, code))
         self.log(f'bedrooms: rc={rc}, {self.timings["bedrooms_s"]} с')
         return out
