@@ -1187,6 +1187,8 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
         # (yb3_DQp3 «Спальня 2»: покрыто 0 из 5). Гостиной поле не пишем — у /demo его нет, зона по умолчанию та же
         if kind != LIVING:
             full['kind'] = kind
+        if result.get('ceilingCm'):                   # T-20261110-38: высота потолков из объявления — высота стен тура
+            full['height_cm'] = _num(float(result['ceilingCm']))
         st = storey_map.get(panel_of[id(room)])
         if st is not None:
             full['storey'] = st

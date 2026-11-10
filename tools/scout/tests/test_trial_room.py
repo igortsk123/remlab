@@ -538,3 +538,12 @@ def test_bench_models_adapt(name):
     assert TR.group_fits(c['w'], c['d'], TR.need_group())
     assert ad['room']['control']['area_change'] <= TR.rules()['ortho_area_change_max']
     json.dumps(TR.summary(ad), default=str)
+
+
+def test_op_dist_takes_nearer_of_centre_and_edge_point():
+    """T-20261110-38: косой проём после выпрямления контура — центр в 40 см от ребра, точка на ребре (`edge_q`) — на нём."""
+    from shapely.geometry import box
+    g = box(0, 0, 100, 50)
+    assert TR._op_dist(g, {'c': (150, 25), 'edge_q': (100, 25)}) == pytest.approx(0)
+    assert TR._op_dist(g, {'c': (150, 25)}) == pytest.approx(50)                 # без точки на ребре — по центру, как было
+    assert TR._op_dist(g, {'c': (90, 25), 'edge_q': (300, 25)}) == pytest.approx(0)

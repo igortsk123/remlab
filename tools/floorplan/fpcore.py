@@ -236,6 +236,91 @@ def thin_partition_t(wall: np.ndarray, t: float) -> float | None:
     return tp if THIN_PART_MIN_PX <= tp < THIN_PART_REL * t else None
 
 
+GREY_HI = 165            # T-20261110-38: серые перегородки (Этажи: 132–148 при чёрных наружных 47 и паркете/знаке ≥ 180)
+GREY_THICK_T = 12        # только на листе толстых тёмных стен (как открытие 5 в `bench.auto_cfg`)
+GREY_L_T = 2.5           # прямой штрих ≥ 2,5 толщины наружной стены (мебель, текст и штриховка короче или тоньше)
+GREY_SHARE = 0.03        # добавка ≥ 3 % пикселей тёмных стен — иначе шум, лист не трогаем
+GREY_T_REL = 0.6         # и тоньше 0,6 наружной: перегородка, а не стена под водяным знаком
+
+
+def grey_partitions(gray: np.ndarray, dark: np.ndarray, thr: int, hi: int = GREY_HI) -> tuple[np.ndarray, dict]:
+    """T-20261110-38: межкомнатные перегородки СЕРЫМ при толстых чёрных наружных стенах (планы застройщиков РФ: порог тёмного
+    125 их не видит — квартира выходила одной комнатой). Серое (< hi) без волосяных линий (открытие 3: мебель, дуги, плитка в
+    1–2 px уходят) → только длинные прямые штрихи по семействам углов стен (`long_strokes`, ≥ GREY_L_T·t) → без кромок самих
+    тёмных стен (открытие 3 добавки: сглаженный край чёрной стены — 1–2 px). Берётся, только если лист толстых стен,
+    добавки ≥ GREY_SHARE тёмного и её толщина в [THIN_PART_MIN_PX; GREY_T_REL·t). → (добавка 0/1, сведения)."""
+    d = (dark > 0).astype(np.uint8)
+    t = stroke_thickness(d)
+    info = {'t': round(t, 2), 'used': False}
+    if t < GREY_THICK_T or thr >= hi:
+        return np.zeros_like(d), info
+    grey = cv2.morphologyEx((gray < hi).astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    fams = angle_families(d) if d.any() else [0.0, 90.0]
+    L = max(3, int(round(GREY_L_T * t)))
+    ls = long_strokes(grey, L, fams)
+    # короткие куски перегородок (косяк двери у стены, простенок 0,3 м) — досборка от длинных штрихов и тёмных стен по серому
+    # не дальше L: без них у проёма нет фланга и дверь не закрывается
+    ls = grow_within(((ls > 0) | (d > 0)).astype(np.uint8), grey | d, L)
+    add = ((ls > 0) & (d == 0)).astype(np.uint8)
+    add = cv2.morphologyEx(add, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    add = drop_wall_gap_fill(add, d, t)
+    tp = stroke_thickness(add) if add.any() else 0.0
+    share = float(add.sum()) / max(1, int(d.sum()))
+    info.update(tp=round(tp, 2), share=round(share, 3))
+    if share < GREY_SHARE or not THIN_PART_MIN_PX <= tp < GREY_T_REL * t:
+        return np.zeros_like(d), info
+    info['used'] = True
+    return add, info
+
+
+GREY_GAP_RUN_T = 2.0     # тёмная стена за обоими концами серого штриха по его оси — не короче 2 толщин: штрих лежит в проёме
+
+
+def drop_wall_gap_fill(add: np.ndarray, dark: np.ndarray, t: float) -> np.ndarray:
+    """T-20261110-38 (регресс rpJz…/yb3…): прямой серый штрих, который по своей оси с ОБОИХ концов упирается в продолжение
+    тёмной стены (≥ GREY_GAP_RUN_T·t вдоль оси), лежит в разрыве стены — это значок окна или порог двери, а не перегородка:
+    взятый, он заделывал все окна и двери листа серых стен. Перегородка примыкает к стене торцом (за концом — толщина
+    стены поперёк, потом комната) — остаётся. Изогнутые и угловые куски не трогаем. → добавка без таких штрихов."""
+    n, cc, stats, _ = cv2.connectedComponentsWithStats(add, connectivity=8)
+    if n <= 1:
+        return add
+    reach = max(3, int(round(GREY_GAP_RUN_T * t)))
+    H, W = dark.shape
+    out = add.copy()
+    for i in range(1, n):
+        x0, y0, w, h = stats[i, :4]
+        ys, xs = np.nonzero(cc[y0:y0 + h, x0:x0 + w] == i)
+        if len(xs) < 3:
+            continue
+        pts = np.column_stack([xs + x0, ys + y0]).astype(np.float64)
+        c = pts.mean(axis=0)
+        ev, evec = np.linalg.eigh(np.cov((pts - c).T))
+        u = evec[:, 1]
+        pr = (pts - c) @ u
+        width = float(len(xs)) / max(1.0, float(pr.max() - pr.min() + 1))
+        if pr.max() - pr.min() + 1 < 3 * width:
+            continue                                   # не прямой штрих
+        fill = True
+        for end, s in ((pr.max(), 1.0), (pr.min(), -1.0)):
+            run = 0
+            for k in range(1, reach + 4):
+                x, y = (c + (end + s * k) * u).round().astype(int)
+                if not (0 <= x < W and 0 <= y < H):
+                    break
+                if dark[y, x]:
+                    run += 1
+                    if run >= reach:
+                        break
+                elif run or k > 3:
+                    break                              # тёмное кончилось (или не началось у конца) — не продолжение стены
+            if run < reach:
+                fill = False
+                break
+        if fill:
+            out[cc == i] = 0
+    return out
+
+
 # --- разрывы стен (двери, окна) ------------------------------------------------------------------------------------------
 
 def _runs(row: np.ndarray):

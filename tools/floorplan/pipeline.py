@@ -48,7 +48,8 @@ WALL_T_M = 0.20                  # без подписей: масштаб по 
 SLOT_LABEL, SLOT_MIN_GB, SLOT_TIMEOUT_S = 'trial-floorplan', 2.5, 60
 MAX_PANELS, MAX_ROOMS, MAX_OPENINGS, MAX_POLYS, MAX_HOLES, MAX_RING = 6, 80, 400, 400, 200, 4000   # панелей 4 → 6 (T-27/2: Nethercote — 5)
 RESULT_MAX_BYTES = 2 * 1024 * 1024 - 64 * 1024
-MIMES = {'JPEG': 'image/jpeg', 'PNG': 'image/png', 'WEBP': 'image/webp'}
+MIMES = {'JPEG': 'image/jpeg', 'PNG': 'image/png', 'WEBP': 'image/webp',
+         'AVIF': 'image/avif'}   # T-20261110-38: Pillow ≥ 11.3 читает AVIF сам; лист — PNG, как у остальных (`prepare`)
 
 
 class TrialError(Exception):
@@ -338,8 +339,10 @@ def _slot(enabled: bool, job: str):
     return hs.heavy_slot(SLOT_LABEL, min_gb=SLOT_MIN_GB, timeout=SLOT_TIMEOUT_S, cmd=f'trial {job}')
 
 
-def walls(plan: str, image: Path, out: Path, G: dict, C: dict, stage, slot: bool, job: str) -> tuple[dict, dict]:
-    """`run_plan` под общей очередью тяжёлых DEV. → (журнал run_plan, {'slot_wait', 'guess_ppm'})."""
+def walls(plan: str, image: Path, out: Path, G: dict, C: dict, stage, slot: bool, job: str,
+          guess_ppm: float | None = None) -> tuple[dict, dict]:
+    """`run_plan` под общей очередью тяжёлых DEV. → (журнал run_plan, {'slot_wait', 'guess_ppm'}).
+    `guess_ppm` — масштаб листа без подписей размеров задан снаружи (повтор по общей площади, `area_rerun`), а не по толщине стены."""
     import bench
     import cv2
     import heavy_slot as hs
@@ -362,6 +365,9 @@ def walls(plan: str, image: Path, out: Path, G: dict, C: dict, stage, slot: bool
             meta['slot_wait'] = round(float(info.get('waited_s') or 0.0), 1)
             stage('walls')
             has_dims = any('dims_m' in g for g in G['rooms'])
+            if guess_ppm:
+                meta['guess_ppm'] = float(guess_ppm)
+                return go(_GuessScale(bench.fc, meta['guess_ppm'])), meta
             if has_dims:
                 try:
                     return go(bench.fc), meta
@@ -369,7 +375,7 @@ def walls(plan: str, image: Path, out: Path, G: dict, C: dict, stage, slot: bool
                     if 'масштаб не найден' not in str(e):
                         raise
             img = cv2.imread(str(image), cv2.IMREAD_COLOR)
-            t = bench.fc.stroke_thickness(bench.build_mask(img, C))
+            t = bench.sheet_thickness(bench.build_mask(img, C), C)
             if t <= 0:
                 raise TrialError('no_plan', False, 'no walls found')
             meta['guess_ppm'] = t / WALL_T_M
@@ -402,6 +408,89 @@ def room_kind(name: str) -> str:
         if re.search(rx, s):
             return kind
     return 'other'
+
+
+# T-20261110-38: тип VLM (labels4) → вид результата. Кухня-гостиная — гостиная (её обставляет сцена гостиной, как /demo)
+TYPE_KIND = {'living': 'living', 'kitchen_living': 'living', 'kitchen': 'kitchen', 'bedroom': 'bedroom', 'bathroom': 'bathroom',
+             'wc': 'bathroom', 'hall': 'hall', 'corridor': 'hall'}
+
+
+def vlm_kind(kind: str, g: dict) -> tuple[str, list]:
+    """Вид комнаты с учётом типа от VLM (`labels4`). Названия на листе нет (имя собрано из типа) — вид из типа, с кодом причины:
+    `kind_by_furniture` (по нарисованной мебели/сантехнике), `kind_by_position` (по положению: прихожая у входа), иначе
+    `kind_by_vlm`. Название есть, но не узнано правилами (`other`: «Санузел», «Гардероб») — вид из типа, `kind_by_vlm`.
+    Узнанное по названию не меняется. Балкон/лоджия — `outdoor` (не жилая, не обставляется); пониженная площадь в скобках —
+    `area_reduced`. → (вид, флаги)"""
+    if not g or not g.get('vtype'):
+        return kind, []
+    vt, fl = g['vtype'], []
+    if vt == 'balcony':
+        fl.append('outdoor')
+    if g.get('area_reduced_m2') is not None:
+        fl.append('area_reduced')
+    if g.get('name_src') == 'type':
+        src = g.get('vtype_src')
+        fl.append('kind_by_furniture' if src == 'furniture' else 'kind_by_position' if src == 'position' else 'kind_by_vlm')
+        return TYPE_KIND.get(vt, 'other'), fl
+    if kind == 'other' and vt in TYPE_KIND:
+        return TYPE_KIND[vt], fl + ['kind_by_vlm']
+    return kind, fl
+
+
+AREA_LABEL_REL, AREA_LABEL_M2 = 0.15, 0.5   # комната против своей подписи площади: дальше 15 % и 0,5 м² — флаг
+
+
+def area_label_off(names: list, G_by: dict, got_m2: float) -> str | None:
+    """T-20261110-38: на листе напечатана площадь комнаты (labels4 `area_m2`; у слитых — сумма) → сверка с построенной
+    площадью. Разошлись больше AREA_LABEL_REL и AREA_LABEL_M2 — `area_label_off` (контур комнаты, вероятно, неверен);
+    сошлись — `area_label_ok`. Подписей площади нет (хотя бы у одной из слитых) — None."""
+    labs = [G_by.get(n, {}).get('area_m2') for n in names]
+    if not labs or any(a is None for a in labs):
+        return None
+    want = float(sum(labs))
+    return 'area_label_off' if abs(got_m2 - want) > max(AREA_LABEL_M2, AREA_LABEL_REL * want) else 'area_label_ok'
+
+
+def outdoor_share(G: dict, area: dict | None) -> tuple[dict | None, list]:
+    """T-20261110-38: общая площадь объявления часто включает балкон/лоджию с понижающим (Этажи: 68,0 + 0,3·2,70 = 68,8), а
+    в модели их нет (снаружи наружной стены) — масштаб по общей площади раздувал бы квартиру на эту долю. Если на листе
+    подписаны площади комнат и их сумма (уличные — пониженной, если она напечатана) сходится с общей площадью в
+    OUTDOOR_SUM_REL, у русской «общей» (`conv: rooms`) уличная доля вычитается из опоры масштаба: флаг `area_less_outdoor`.
+    → (площадь для масштаба, флаги)"""
+    if not area or area.get('conv') != 'rooms':
+        return area, []
+    rows = [g for g in G['rooms'] if g.get('area_m2') is not None]
+    if len(rows) < 2:
+        return area, []
+    out = sum((g.get('area_reduced_m2') if g.get('area_reduced_m2') is not None else g['area_m2'])
+              for g in rows if g.get('vtype') == 'balcony')
+    tot = sum(g['area_m2'] for g in rows if g.get('vtype') != 'balcony') + out
+    if out <= 0 or abs(tot - float(area['m2'])) > OUTDOOR_SUM_REL * float(area['m2']):
+        return area, []
+    return dict(area, m2=round(float(area['m2']) - out, 2)), ['area_less_outdoor']
+
+
+OUTDOOR_SUM_REL = 0.02
+POCKET_M2 = 0.5            # = bench.POCKET_M2: полость без подписи меньше — не комната результата
+AREA_RERUN_REL = 0.04      # масштаб по площади дальше 4 % от угаданного по толщине стены — разбор стен заново на нём
+
+
+def area_rerun_ppm(log: dict, out: Path, plan: str, G: dict, area: dict | None, guess_ppm: float | None) -> float | None:
+    """T-20261110-38: лист без подписей размеров разобран на масштабе по толщине стены (t / 0,20 м), а наружные стены
+    застройщиков РФ толще (Этажи: 16 px = 0,215 м → 80 px/м вместо 74). Длины проёмов и закрытий считаются в метрах, поэтому
+    на ложном масштабе закрытие длиной 1,66 м прошло как «дверь» поперёк санузла 5,10. Если общая площадь даёт годный
+    масштаб (`area_scale`, без уличной доли — `outdoor_share`) и он дальше AREA_RERUN_REL — стены разбираются заново на нём
+    (`FP_AREA_RERUN=0` — выкл.). Только у листа с напечатанными площадями комнат (≥ 2, манера застройщиков РФ): у британских
+    листов без размеров повтор на «том же» масштабе разбирал стены иначе и портил комнаты (регресс: Landing 5,05 → 1,86 м²).
+    → ppm повтора или None."""
+    if not guess_ppm or not area or os.environ.get('FP_AREA_RERUN', '1') == '0':
+        return None
+    if sum(1 for g in G.get('rooms') or [] if g.get('area_m2') is not None) < 2:
+        return None
+    a = area_scale(log, _models(out, plan), outdoor_share(G, area)[0])
+    if not a.get('ok') or abs(a['ppm'] / float(guess_ppm) - 1) <= AREA_RERUN_REL:
+        return None
+    return round(float(a['ppm']), 3)
 
 
 def _cm(p, nd=1):
@@ -525,6 +614,8 @@ def scale_of(log: dict, G: dict, guess: bool, area: dict | None = None, models: 
     scale.update(areaM2=round(float(area['m2']), 1), areaSrc=area['src'])
     if skipped:                                               # общая — про все листы PDF, а прочитаны не все
         return scale, fl + ['area_pages_skipped'], k
+    area, ofl = outdoor_share(G, area)                        # T-38: без балкона с понижающим, если подписи площадей сошлись
+    fl += ofl
     a = area_scale(log, models or {}, area)
     if not a['ok']:
         return scale, fl + [f"area_unusable:{a['why']}"], k
@@ -598,6 +689,8 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
         w, d = round(max(xs) - min(xs), nd), round(max(ys) - min(ys), nd)
         if w <= 0 or d <= 0:
             continue
+        if not shown and float(mr.get('area_m2') or 0.0) < POCKET_M2 and os.environ.get('FP_POCKET', '1') != '0':
+            continue                                  # T-38: полость без подписи меньше 0,5 м² — не помещение (`bench.pocket_doors`)
         fl = _room_flags(names, G_by, dims_by, scale_ok)
         if not shown:
             fl.insert(0, 'unlabeled')
@@ -613,6 +706,11 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
             fl.append('name_from_listing')
         if kind == 'other' and shown:
             kind = room_kind(_alias(shown[0]))                # «ES» = en-suite, «W.C.» = wc — синонимы `listing.alias_key`
+        kind, kfl = vlm_kind(kind, g1)
+        fl += kfl
+        off = area_label_off(names, G_by, float(mr.get('area_m2') or 0.0))
+        if off:
+            fl.append(off)
         room = {'id': f'p{pi}-r{rid}'[:40], 'name': ' + '.join(dict.fromkeys(shown))[:80],
                 'kind': kind, 'contour': contour,
                 # bbox — проекция контура (refine контракта: расхождение < 1 см)
@@ -811,6 +909,18 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
         T['labels'] = time.time() - t0
         t1 = time.time()
         log, meta = walls(plan, image, out, G, C, stage, slot, job)
+        ppm2 = area_rerun_ppm(log, out, plan, G, area, meta['guess_ppm'])
+        if ppm2:
+            out2 = workdir / 'bench-area'
+            out2.mkdir(parents=True, exist_ok=True)
+            try:
+                log2, meta2 = walls(plan, image, out2, G, C, stage, slot, job, guess_ppm=ppm2)
+            except TrialError:
+                log2 = None                           # повтор не собрался — остаётся первый прогон (масштаб — по площади)
+            if log2 is not None:
+                log, out = log2, out2
+                meta = dict(meta2, slot_wait=meta['slot_wait'] + meta2['slot_wait'])
+                fl.append('area_rerun')
     T['slot_wait'] = meta['slot_wait']
     T['walls'] = time.time() - t1 - meta['slot_wait']
     t2 = time.time()
@@ -827,6 +937,22 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
                                    source=source, spent=spent, cache_only=cache_only)
     (workdir / 'gold.json').write_text(json.dumps({k: x for k, x in G.items() if k != '_labels'}, ensure_ascii=False,
                                                   default=float))
+    return apply_ceiling(res, listing.ceiling_height(listing_text or ''))
+
+
+def apply_ceiling(res: dict, ceil_m: float | None) -> dict:
+    """T-20261110-38: высота потолков из объявления → `ceilingCm` результата (тур: `geo.height_cm` комнат,
+    `trial_bundle.put_geo`) и верх полос стен на полную высоту (стена и перемычка над проёмом: z1 = H_WALL стенда → потолок).
+    Нет высоты — результат как был (тур — 270 по умолчанию, стены — H_WALL)."""
+    if not ceil_m:
+        return res
+    import bench
+    cm, h0 = round(float(ceil_m) * 100, 1), round(bench.H_WALL * 100, 1)
+    for p in res['panels']:
+        for w in p['walls']:
+            if w['z1'] == h0:
+                w['z1'] = cm
+    res['ceilingCm'] = cm
     return res
 
 

@@ -70,6 +70,9 @@ describe("файлы пробы", () => {
     expect(sniffMime(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe("image/png");
     expect(sniffMime(Buffer.from("RIFF\0\0\0\0WEBPVP8 "))).toBe("image/webp");
     expect(sniffMime(Buffer.from("%PDF-1.7\n"))).toBe("application/pdf");
+    expect(sniffMime(Buffer.from("\0\0\0\x1cftypavif\0\0\0\0"))).toBe("image/avif");
+    expect(sniffMime(Buffer.from("\0\0\0\x1cftypavis\0\0\0\0"))).toBe("image/avif");
+    expect(sniffMime(Buffer.from("\0\0\0\x1cftypheic\0\0\0\0"))).toBeNull();
     expect(sniffMime(Buffer.from("<svg xmlns="))).toBeNull();
     expect(sniffMime(Buffer.from("GIF89a"))).toBeNull();
     expect(sniffMime(Buffer.alloc(0))).toBeNull();

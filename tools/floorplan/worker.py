@@ -49,7 +49,7 @@ from conveyor import child_failure  # noqa: E402
 
 VERSION = 'trial-worker/1'
 TOKEN_RE = re.compile(r'^[A-Za-z0-9_-]{22}$')       # = lib/token.ts:TOKEN_RE — id задания (и имя папки)
-EXT = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf'}
+EXT = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/avif': '.avif', 'application/pdf': '.pdf'}
 INPUT_MAX = 15 * 1024 * 1024
 STAGES = ('raster', 'labels', 'walls', 'repair', 'export')
 # = contracts/trial.ts:trialRebuildFailCode — коды сбоя пересборки «Обустроить»

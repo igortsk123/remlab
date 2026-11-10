@@ -174,7 +174,7 @@ export const floorplanResult = z.object({
   version: z.literal(1),
   units: z.literal("cm"),
   source: z.object({
-    mime: z.enum(["image/jpeg", "image/png", "image/webp", "application/pdf"]),
+    mime: z.enum(["image/jpeg", "image/png", "image/webp", "image/avif", "application/pdf"]),
     pages: z.number().int().min(1),
     usedPages: z.number().int().min(1),
     imageW: z.number().int().positive(),
@@ -191,6 +191,8 @@ export const floorplanResult = z.object({
     areaSrc: z.enum(["text", "sheet", "both"]).optional(),
   }),
   panels: z.array(panel).min(1).max(6),   // T-27/2: 4 → 6 (Nethercote: дом, постройки, 1-й, 2-й этаж, подвал)
+  /** высота потолков из текста объявления, см (T-20261110-38: «Высота потолков 3,1 м»); нет — тур берёт 270 */
+  ceilingCm: num.min(220).max(500).optional(),
   flags,
   timings: z.record(z.string().max(40), num.nonnegative()),
   costUsd: num.nonnegative(),

@@ -577,6 +577,14 @@ def group_fits(w: float, d: float, need: dict) -> bool:
     return (W <= w and L <= d) or (W <= d and L <= w)
 
 
+def _op_dist(g, o: dict) -> float:
+    """Расстояние от остатка до проёма: по центру проёма или по его точке на ребре контура (`edge_q`), что ближе.
+    T-20261110-38: косое закрытие (Этажи: проход коридор → кухня-гостиная) после выпрямления контура осталось в 40 см от
+    ребра ступеньки — по одному центру дверь не находила свой остаток-проход, и гостиная получала отказ `opening_unplaced`."""
+    d = g.distance(Point(o['c']))
+    return min(d, g.distance(Point(o['edge_q']))) if o.get('edge_q') else d
+
+
 def core_candidate(P: Polygon, rect, ops: list, need: dict, cfg: dict) -> dict:
     """Один кандидат ядра: проёмы на его сторонах, классификация остатков, стыки для солвера, причины отказа."""
     near = float(cfg['opening_near_cm'])
@@ -592,10 +600,9 @@ def core_candidate(P: Polygon, rect, ops: list, need: dict, cfg: dict) -> dict:
     parts = [(g, j, _depth(g, rect, j)) for g, j in parts if j]
     rest_ops, grazing = [], []
     for o in ops:
-        pt = Point(o['c'])
-        home = min(parts, key=lambda t: t[0].distance(pt)) if parts else None
+        home = min(parts, key=lambda t: _op_dist(t[0], o)) if parts else None
         # на стороне ядра — прямо на ней; в мелкой нише (остаток мельче прохода) — проецируется на сторону
-        allow = recess if (home is not None and home[2] <= recess and home[0].distance(pt) <= near) else 0.0
+        allow = recess if (home is not None and home[2] <= recess and _op_dist(home[0], o) <= near) else 0.0
         r = _on_core(o, rect, P, allow, near)
         if r is None:
             rest_ops.append(o)
@@ -612,8 +619,8 @@ def core_candidate(P: Polygon, rect, ops: list, need: dict, cfg: dict) -> dict:
         else:
             cand['openings'].append({'o': o, 'wall': r[1], 'offset_cm': r[2], 'width_cm': r[3]})
     for g, juncs, dep in parts:
-        mine = [o for o in rest_ops if g.distance(Point(o['c'])) <= near
-                and min(parts, key=lambda t: t[0].distance(Point(o['c'])))[0] is g]
+        mine = [o for o in rest_ops if _op_dist(g, o) <= near
+                and min(parts, key=lambda t: _op_dist(t[0], o))[0] is g]
         doors = [o for o in mine if o['kind'] in ('door', 'opening')]
         wins = [o for o in mine if o['kind'] == 'window']
         if dep <= recess and not doors and not wins:

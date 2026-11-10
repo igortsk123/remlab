@@ -19,6 +19,7 @@
             "image/jpeg",
             "image/png",
             "image/webp",
+            "image/avif",
             "application/pdf"
           ]
         },
@@ -364,6 +365,11 @@
         ],
         "additionalProperties": false
       }
+    },
+    "ceilingCm": {
+      "type": "number",
+      "minimum": 220,
+      "maximum": 500
     },
     "flags": {
       "maxItems": 30,

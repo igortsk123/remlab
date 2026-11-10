@@ -13,7 +13,7 @@ import { textOf, withLang, type TrialLang } from "@/lib/trial/i18n";
 import { uploadErrorText } from "@/lib/trial/steps";
 
 const MAX_BYTES = 15 * 1024 * 1024; // = lib/trial/config.ts:TRIAL_FILE_MAX_BYTES (серверный модуль сюда не тянем)
-const TYPES = /\.(pdf|jpe?g|png|webp)$/i;
+const TYPES = /\.(pdf|jpe?g|png|webp|avif)$/i;
 const size = (b: number, t: { mb: string; kb: string }, lang: TrialLang) => {
   const n = b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) : String(Math.max(1, Math.round(b / 1024)));
   return `${lang === "ru" ? n.replace(".", ",") : n} ${b >= 1024 * 1024 ? t.mb : t.kb}`;
@@ -96,7 +96,7 @@ export function UploadForm({ lang }: { lang: TrialLang }) {
         ) : (
           <div><b>{t.drop}</b><span>{t.kinds} · <u>{t.choose}</u></span></div>
         )}
-        <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+        <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.avif,application/pdf,image/jpeg,image/png,image/webp,image/avif"
           className="sr-only" onChange={(e) => choose(e.target.files?.[0])} disabled={busy} />
       </label>
       <details className={l.field} ref={box}>

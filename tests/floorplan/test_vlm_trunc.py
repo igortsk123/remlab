@@ -2,7 +2,7 @@
 
 Повтор с низким «думанием» на остаток потолка задания (`pipeline.ensure_vlm`/`_retry_truncated`), флаг `vlm_truncated:<вид>`,
 перерисовка — весь лист (`redraw.crop_box`), разбор — без оборванных контуров (`bench.load_vlm`), делёж листа по заголовкам
-этажей (`bench.panels_by_titles`, владелец TG 775), выбор ответа подписей (`vlm.label_kind`: labels3, старый кэш — labels2).
+этажей (`bench.panels_by_titles`, владелец TG 775), выбор ответа подписей (`vlm.label_kind`: labels4, старый кэш — его вид).
 Лёгкие: без сети, без стенда."""
 import json
 import sys
@@ -20,7 +20,7 @@ import vlm  # noqa: E402
 
 FULL = {'panels': '{"panels": [{"title": "Ground Floor", "poly": [[0,0],[400,0],[400,500],[0,500]], "rooms": []}, '
                   '{"title": "First Floor", "poly": [[500,0],[900,0],[900,500],[500,500]], "rooms": []}]}',
-        'labels3': '{"rooms": [], "areas": [], "titles": []}', 'unlabeled': '{"spaces": []}'}
+        'labels4': '{"rooms": [], "areas": [], "titles": []}', 'unlabeled': '{"spaces": []}'}
 CUT = '{"panels": [{"title": "Ground Floor", "poly": [[0,0],[400,0],[400,500],[0,500]], "rooms": []}, {"title": "First Fl'
 
 
@@ -40,9 +40,9 @@ def scripted_ask(log, script, usd=0.01):
 def test_truncated_answer_is_retried_with_low_effort_on_job_budget(tmp_path):
     log = []
     ask = scripted_ask(log, {'panels': [('length', CUT), ('stop', FULL['panels'])],
-                             'labels3': [('stop', FULL['labels3'])], 'unlabeled': [('stop', FULL['unlabeled'])]})
+                             'labels4': [('stop', FULL['labels4'])], 'unlabeled': [('stop', FULL['unlabeled'])]})
     v = pl.ensure_vlm(tmp_path / 'x.png', tmp_path, ask=ask, cap_usd=0.09)
-    assert sorted(v['asked']) == ['labels3', 'panels', 'unlabeled']
+    assert sorted(v['asked']) == ['labels4', 'panels', 'unlabeled']
     assert v['retried'] == {'panels': 'ok'}
     retry = [c for c in log if c[2] == 'low']
     # повтор — один, вид panels, потолок = уже потрачено в папке вопроса (0,01) + остаток задания (0,09 − 0,03)
@@ -58,7 +58,7 @@ def test_retry_still_truncated_keeps_longer_and_flags(tmp_path):
     longer = CUT
     shorter = '{"panels": [{"title": "Gro'
     ask = scripted_ask([], {'panels': [('length', longer), ('length', shorter)],
-                            'labels3': [('stop', FULL['labels3'])], 'unlabeled': [('stop', FULL['unlabeled'])]})
+                            'labels4': [('stop', FULL['labels4'])], 'unlabeled': [('stop', FULL['unlabeled'])]})
     v = pl.ensure_vlm(tmp_path / 'x.png', tmp_path, ask=ask, cap_usd=0.09)
     assert v['retried'] == {'panels': 'still'}
     assert (tmp_path / 'raw-T-panels.txt').read_text() == longer
@@ -72,7 +72,7 @@ def test_retry_without_budget_keeps_first_answer(tmp_path):
         calls.append(effort)
         if effort:
             raise SystemExit('остаток мал для вызова')
-        scripted_ask([], {'panels': [('length', CUT)], 'labels3': [('stop', FULL['labels3'])],
+        scripted_ask([], {'panels': [('length', CUT)], 'labels4': [('stop', FULL['labels4'])],
                           'unlabeled': [('stop', FULL['unlabeled'])]})(plan, kind, out, image, cap_usd)
     v = pl.ensure_vlm(tmp_path / 'x.png', tmp_path, ask=ask, cap_usd=0.09)
     assert v['retried'] == {'panels': 'budget'} and calls.count('low') == 1
@@ -91,12 +91,17 @@ def test_cached_answers_are_not_retried(tmp_path):
     assert pl.truncated_flags(tmp_path) == ['vlm_truncated:panels']
 
 
-def test_label_kind_new_sheet_labels3_old_cache_labels2(tmp_path, monkeypatch):
-    assert vlm.label_kind(tmp_path, 'T') == 'labels3'                    # новый лист — вопрос с заголовками
+def test_label_kind_new_sheet_labels4_old_cache_kept(tmp_path, monkeypatch):
+    assert vlm.label_kind(tmp_path, 'T') == 'labels4'                    # новый лист — вопрос с типом комнаты (T-38)
+    monkeypatch.setenv('FP_LABELS4', '0')
+    assert vlm.label_kind(tmp_path, 'T') == 'labels3'
+    monkeypatch.delenv('FP_LABELS4')
     (tmp_path / 'raw-T-labels2.txt').write_text('{}')
     assert vlm.label_kind(tmp_path, 'T') == 'labels2'                    # старый кэш — без нового платного вопроса
     (tmp_path / 'raw-T-labels3.txt').write_text('{}')
-    assert vlm.label_kind(tmp_path, 'T') == 'labels3'
+    assert vlm.label_kind(tmp_path, 'T') == 'labels3'                    # кэш labels3 — им и остаётся, без доплаты
+    (tmp_path / 'raw-T-labels4.txt').write_text('{}')
+    assert vlm.label_kind(tmp_path, 'T') == 'labels4'
     monkeypatch.setenv('FP_TITLES', '0')
     assert vlm.label_kind(tmp_path, 'T') == 'labels2'
 

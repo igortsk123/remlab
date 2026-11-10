@@ -124,6 +124,14 @@ def test_room_outcome_refused_when_no_variant_has_furniture():
     assert (state, code) == ('refused', 'furniture_failed') and text
 
 
+def test_ceiling_from_listing_is_room_height_otherwise_default():
+    """T-20261110-38: «Высота потолков 3,1 м» → `ceilingCm` результата → `height_cm` комнат тура; нет — поля нет (тур: 270)."""
+    res = simple()
+    assert 'height_cm' not in build(res)['rooms_geo']['living']
+    res['ceilingCm'] = 310.0
+    assert build(res)['rooms_geo']['living']['height_cm'] == 310
+
+
 def test_openings_mapped_to_walls_and_radiators_never_invented():
     geo = build(simple())['rooms_geo']['living']
     by = {o['kind']: o for o in geo['openings']}

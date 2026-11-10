@@ -46,6 +46,30 @@ PANEL_R_M = float(os.environ.get('FP_PANEL_R_M', '2.5'))   # запас конт
 LB_M = float(os.environ.get('FP_LB_M', '6.0'))   # наибольший закрываемый наружный разрыв, м (длиннее 3,6 м — только по раме)
 
 
+# T-20261110-38: тип комнаты из ответа labels4 → имя для комнаты без названия на листе (английское: его понимают
+# `pipeline.KIND_RULES`, `listing.match` и перевод заголовков `trial_bundle.room_titles`)
+TYPE_NAME = {'living': 'Living room', 'kitchen': 'Kitchen', 'kitchen_living': 'Kitchen-living room', 'bedroom': 'Bedroom',
+             'bathroom': 'Bathroom', 'wc': 'WC', 'hall': 'Hall', 'corridor': 'Corridor', 'wardrobe': 'Dressing room',
+             'storage': 'Storage', 'study': 'Study', 'balcony': 'Balcony', 'other': 'Room'}
+TYPE_SRC = ('name', 'furniture', 'position')
+
+
+def _m2(v, lo=0.3, hi=500.0):
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= float(v) <= hi else None
+
+
+def room_meta(r: dict) -> dict:
+    """Поля labels4 одной комнаты → {'vtype', 'vtype_src', 'area_m2', 'area_reduced_m2'} (непонятное — None).
+    Тип вне списка — None; площадь только числом в разумных пределах; пониженная — меньше своей площади."""
+    t = str(r.get('type') or '').strip().lower().replace('-', '_').replace(' ', '_')
+    a, ar = _m2(r.get('area_m2')), _m2(r.get('area_reduced_m2'), 0.05)
+    if ar is not None and (a is None or ar >= a):
+        ar = None
+    vt = t if t in TYPE_NAME else ('other' if a is not None else None)
+    src = str(r.get('type_src') or '').strip().lower()
+    return {'vtype': vt, 'vtype_src': src if vt and src in TYPE_SRC else None, 'area_m2': a, 'area_reduced_m2': ar}
+
+
 def load_vlm(plan, vdir, shape):
     """Ответы VLM flash (как в продукте): точки подписей и контуры панелей, сетка 0–1000 → px листа."""
     import vlm
@@ -59,14 +83,22 @@ def load_vlm(plan, vdir, shape):
         out['titles'] = [{'title': ' '.join(str(q.get('title', '')).split()), 'pt': (q['pt'][0] * kx, q['pt'][1] * ky)}
                          for q in d.get('titles') or [] if isinstance(q, dict) and _pt_ok(q.get('pt')) and str(q.get('title', '')).strip()]
         out['pts'] = [(r['pt'][0] * kx, r['pt'][1] * ky) for r in d.get('rooms', []) if r.get('pt')]
+        v4 = any(isinstance(r, dict) and ('type' in r or 'area_m2' in r) for r in d.get('rooms', []))
         for r in d.get('rooms', []):
             if not r.get('pt'):
                 continue
             dm = r.get('dims_m')
             ok = isinstance(dm, list) and len(dm) == 2 and all(isinstance(v, (int, float)) and 0.5 <= v <= 30 for v in dm)
-            out['labels'].append({'name': ' '.join(str(r.get('name', '')).split()), 'pt': (r['pt'][0] * kx, r['pt'][1] * ky),
-                                  'dims': tuple(float(v) for v in dm) if ok else None,
-                                  'unsure': bool(r.get('unsure')), 'note': r.get('note')})
+            q = {'name': ' '.join(str(r.get('name') or '').split()), 'pt': (r['pt'][0] * kx, r['pt'][1] * ky),
+                 'dims': tuple(float(v) for v in dm) if ok else None,
+                 'unsure': bool(r.get('unsure')), 'note': r.get('note')}
+            if v4:                                            # T-20261110-38: ответ labels4 (у старых видов этих полей нет)
+                q.update(room_meta(r))
+                if not q['name']:
+                    if not q.get('vtype'):
+                        continue                              # ни названия, ни типа — подписи нет
+                    q['name'], q['name_src'] = TYPE_NAME[q['vtype']], 'type'
+            out['labels'].append(q)
     # T-03: помещения без размеров (имя от VLM) — второй ответ, отдельная папка (FP_VLM2)
     p2 = Path(os.environ.get('FP_VLM2', vdir)) / f'raw-{plan}-unlabeled.txt'
     if p2.exists():
@@ -205,7 +237,21 @@ def build_mask(img, cfg):
         if info['thin']:
             cfg['thin_hi'] = tm[1]
             return m2
+    if os.environ.get('FP_GREY', '1') != '0' and k[2] >= 5:
+        # T-20261110-38: серые перегородки при толстых чёрных стенах (`fpcore.grey_partitions`; FP_GREY=0 — как до T-38)
+        g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+        add, info = fc.grey_partitions(g, m, k[1])
+        cfg['grey_info'] = info
+        if info['used']:
+            return fc.remove_small(m | add, cfg['min_area'])
     return m
+
+
+def sheet_thickness(wall, cfg) -> float:
+    """Толщина стен листа t (px) — мера всех порогов в толщинах. С серыми перегородками (T-38) — толщина тёмных стен, как
+    без них: медиана по маске с перегородками падает до их толщины (Этажи: 16 → 6), и закрытие окон/дверей мерилось бы ею."""
+    gi = cfg.get('grey_info') or {}
+    return float(gi['t']) if gi.get('used') else fc.stroke_thickness(wall)
 
 
 def rot_angles(fams):
@@ -253,6 +299,39 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
     Path(cdir).mkdir(parents=True, exist_ok=True)
     p.write_bytes(pickle.dumps(r))
     return r
+
+
+POCKET_M2 = 0.5     # T-20261110-38: замкнутая полость меньше — не помещение (полость наружной стены Этажей, короб, ниша)
+POCKET_W_M = 0.45   # и уже этого (вписанная ширина): полость в толще стены — щель 0,2–0,3 м; шкаф с дверцей — от ~0,6 м
+
+
+def pocket_doors(gaps, lab_g, lab, final, outside, areas, pocket_px: float, pocket_w_px: float = np.inf) -> None:
+    """«Дверь», у которой с одной стороны полость меньше `pocket_px` и уже `pocket_w_px` (не наружа), — стена: на листе
+    Этажей наружные стены нарисованы контуром с белыми прямоугольниками внутри, и закрытие у полости давало дверь кухни и
+    ванной «в стену» и наружную «дверь» из полости на улицу. Ширина — чтобы не снять дверцу шкафа 0,95×0,82 (регресс, лист
+    FYyXHKH4…: по площади он меньше порога); кроме полости по сторонам больше одного помещения — проход между ними остаётся
+    (регресс 4y0opq…: общее закрытие спальни, её тамбура и ниши шкафа). Межкомнатная, у которой по сторонам одно помещение, —
+    тоже стена (не проход).
+    На месте (g.kind)."""
+    if not gaps or os.environ.get('FP_POCKET', '1') == '0':
+        return
+    k = np.ones((3, 3), np.uint8)
+    dt = None
+    for g in gaps:
+        if g.kind != 'door':
+            continue                                  # наружная дверь — тоже: изнутри у настоящей всегда помещение
+        gm = (lab_g == g.id).astype(np.uint8)
+        ring = (cv2.dilate(gm, k, iterations=2) > 0) & (final == 0)
+        sides = [int(i) for i in np.unique(lab[ring]) if i > 0]
+        small = [i for i in sides if areas[i] < pocket_px and not outside[lab == i].any()]
+        if small and np.isfinite(pocket_w_px):
+            if dt is None:
+                dt = cv2.distanceTransform((final == 0).astype(np.uint8), cv2.DIST_L2, 5)
+            small = [i for i in small if 2 * float(dt[lab == i].max()) < pocket_w_px]
+        if small and len(sides) - len(small) <= 1:    # закрытие-«Т» между двумя комнатами, задевшее полость, — проход
+            g.kind = 'wall'
+        elif not g.exterior and len(sides) < 2:
+            g.kind = 'wall'                           # межкомнатная с одним помещением по сторонам (закрытие у ванны в стену)
 
 
 def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr=215):
@@ -923,7 +1002,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
     if cfg is None:      # FP_AUTO=1 — A/B/C по общему правилу (как слепые), иначе — настройка стенда CFG
         cfg = auto_cfg(img) if os.environ.get('FP_AUTO', '0') != '0' else dict(CFG[plan])
     wall = build_mask(img, cfg)
-    t = fc.stroke_thickness(wall)
+    t = sheet_thickness(wall, cfg)
     fams = fc.angle_families(wall)
     regions = fc.xy_cut(wall, max(40, int(3 * t)))
     log = {'plan': plan, 'thickness_px': round(t, 2), 'families_deg': [round(f, 1) for f in fams], 'regions': regions}
@@ -1051,7 +1130,8 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         rep_log, rep_labels = [], []
         if vl and os.environ.get('FP_REPAIR', '1') != '0':
             # T-03: круг самопочинки — гипотезы с ценой и откатом вместо прямых слияний/разрезов
-            labs = [repair.Label(q['name'], (q['pt'][0] - X0, q['pt'][1] - Y0), q['dims'], 'vlm', q.get('note'))
+            labs = [repair.Label(q['name'], (q['pt'][0] - X0, q['pt'][1] - Y0), q['dims'], 'vlm', q.get('note'),
+                                 q.get('area_m2'))
                     for q in vl['labels'] if inside(q['pt'])]
             labs += [repair.Label(q['name'], (q['pt'][0] - X0, q['pt'][1] - Y0), None, 'vlm-space')
                      for q in vl['spaces'] if inside(q['pt'])]
@@ -1062,6 +1142,10 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
             r['lab'], r['rooms'], lsplit = fc.split_by_labels(r['lab'], r['rooms'], vpts, ppm)
             r['label_splits'] = lsplit
             r['areas'] = np.bincount(r['lab'].ravel(), minlength=int(r['lab'].max()) + 1)
+        # T-20261110-38: двери в полости — по комнатам ПОСЛЕ починки (до неё комнату дробят мелкие куски у закрытий, и «полостью»
+        # оказывался кусок площадки: регресс QFfI3u… терял двери ванной и лестницы)
+        pocket_doors(r['gaps'], r['lab_g'], r['lab'], r['final'], r['outside'], r['areas'], POCKET_M2 * ppm * ppm,
+                     POCKET_W_M * ppm)
         hit, obs = match_gold(r, groom, fams, core=True)
         fit = fc.fit_scale(obs)
         loo = fc.leave_one_out(obs)
@@ -1142,6 +1226,8 @@ def dark_raw(img, gray, cfg):
         return (hsv[..., 0] >= 95) & (hsv[..., 0] <= 135) & (hsv[..., 1] >= 100) & (hsv[..., 2] >= 50)
     if cfg.get('thin_hi', 0) > k[1]:                 # лист тонких стен: тёмное с гистерезисом, как в маске
         return fc.hysteresis(gray, k[1], cfg['thin_hi']) > 0
+    if (cfg.get('grey_info') or {}).get('used'):    # T-38: серые перегородки в маске — и в свидетельстве (иначе починка
+        return gray < fc.GREY_HI                     # снимает их как «стену без тёмного под ней»)
     return gray < k[1]
 
 
@@ -1168,14 +1254,21 @@ def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
             'ppm_vlm': round(1 / f['s'], 2) if f else None, 'pix0_m': round(repair.pixel_cost(st, ctx), 1),
             'topo0': {k: v for k, v in topo.items() if k in ('cost', 'merged')} | {'missing': len(topo['missing']),
                                                                                    'unexplained': len(topo['unexplained'])}}
-    st2, jr = repair.run(st, labs, ctx, r['outside'])
-    absorbed, removed = [], None
+    # T-20261110-38: лист с подписями площадей — куски без подписи сперва в соседа по площади (`repair.absorb_by_area`)
+    st_a, jr_area = repair.absorb_by_area(st, labs, ctx)
+    removed_area = (st.final > 0) & ~(st_a.final > 0)
+    st2, jr = repair.run(st_a, labs, ctx, r['outside'])
+    jr = jr_area + jr
+    # снятое кругом закрытие, по обе стороны которого теперь одна комната, — не проём («дверь» посреди коридора Этажей). Снятое
+    # с границей min-cut (`st.cut`) между разными комнатами — остаётся проёмом
+    removed_area = removed_area | same_room_gaps(r['lab_g'], r['gaps'], (st_a.final > 0) & ~(st2.final > 0), st2.lab)
+    absorbed, removed = [], (removed_area if removed_area.any() else None)
     if os.environ.get('FP_ABSORB', '1') != '0':
         # T-20261110-19: обрывки за нашими закрытиями — в соседа (`repair.absorb_fragments`); зазубрины и окна — стена, не разрез
         notch = np.isin(r['lab_g'], [g.id for g in r['gaps'] if g.kind in ('wall', 'window')])
         st3, jr_a, absorbed = repair.absorb_fragments(st2, labs, ctx, is_fragment, notch)
         jr += jr_a
-        removed = (st2.final > 0) & ~(st3.final > 0)
+        removed = ((st2.final > 0) & ~(st3.final > 0)) | (removed if removed is not None else False)
         st2 = st3
     topo2 = repair.topology(st2, labs, ppm)
     jr.append({'kind': 'end', 'pix_m': round(repair.pixel_cost(st2, ctx), 1), 'topo': topo2['cost'],
@@ -1196,14 +1289,38 @@ def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
     r['areas'] =np.bincount(r['lab'].ravel(), minlength=int(r['lab'].max()) + 1)
     if removed is not None and removed.any():
         r['add'] = ((r['add'] > 0) & ~removed).astype(np.uint8)
-        r['lab_g'], r['gaps'] = shrink_gaps(r['lab_g'], r['gaps'], removed)
+        r['lab_g'], r['gaps'] = shrink_gaps(r['lab_g'], r['gaps'], removed, STUB_M * ppm)
     r['absorbed'] = absorbed
     return r, [log0] + off + jr, repair.label_report(st2, labs_all, ctx)
 
 
-def shrink_gaps(lab_g, gaps, removed):
+STUB_M = 0.22      # T-20261110-38: остаток снятого закрытия короче — огрызок у стены, не проём (двери 5–7 см на туре Этажей)
+
+
+def same_room_gaps(lab_g, gaps, run_removed, lab) -> np.ndarray:
+    """T-20261110-38: пиксели дверей, чьё закрытие снял круг починки (`run_removed`) и у которых по обе стороны (кольцо 2 px)
+    теперь одна комната `lab` → маска для `shrink_gaps`. Двери без снятых пикселей не смотрим."""
+    out = np.zeros(lab_g.shape, bool)
+    if not run_removed.any():
+        return out
+    k = np.ones((3, 3), np.uint8)
+    for g in gaps:
+        if g.kind != 'door' or g.exterior:
+            continue
+        gm = lab_g == g.id
+        if not (gm & run_removed).any():
+            continue
+        ring = (cv2.dilate(gm.astype(np.uint8), k, iterations=2) > 0) & ~gm
+        sides = [int(i) for i in np.unique(lab[ring]) if i > 0]
+        if len(sides) == 1:
+            out |= gm
+    return out
+
+
+def shrink_gaps(lab_g, gaps, removed, stub_px: float = 0.0):
     """Снятые закрытия (T-19, обрывок влит в соседа) — из проёмов: проём целиком снят — его нет, частично — геометрия по
-    оставшимся пикселям (как `fc.gap_components`). Остальные проёмы — как были."""
+    оставшимся пикселям (как `fc.gap_components`); остаток короче `stub_px` — не проём (пиксели остаются стеной).
+    Остальные проёмы — как были."""
     gone = removed & (lab_g > 0)
     ids = set(int(i) for i in np.unique(lab_g[gone]))
     if not ids:
@@ -1220,6 +1337,9 @@ def shrink_gaps(lab_g, gaps, removed):
             lab_g[lab_g == g.id] = 0
             continue
         (cx, cy), (w, h), _ = cv2.minAreaRect(np.column_stack([xs, ys]).astype(np.float32))
+        if max(w, h) + 1 < stub_px:
+            lab_g[lab_g == g.id] = 0
+            continue
         out.append(dataclasses.replace(g, cx=float(cx), cy=float(cy), length=float(max(w, h) + 1), depth=float(min(w, h) + 1),
                                        bbox=(int(xs.min()), int(ys.min()), int(xs.max() - xs.min() + 1),
                                              int(ys.max() - ys.min() + 1))))
@@ -1514,6 +1634,9 @@ def blind_gold(plan, image, vdir, listing_path=None) -> dict:
              'note': q.get('note')}
         if q.get('text_name'):                               # T-20261110-33: строка текста — имя для неясной подписи листа
             g['text_name'], g['text_match'] = q['text_name'], q.get('text_match')
+        for f in ('vtype', 'vtype_src', 'area_m2', 'area_reduced_m2', 'name_src'):   # T-20261110-38: labels4
+            if q.get(f) is not None:
+                g[f] = q[f]
         if q.get('dims'):
             g['dims_m'] = [float(q['dims'][0]), float(q['dims'][1])]
         rooms.append(g)

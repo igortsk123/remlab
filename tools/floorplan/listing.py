@@ -375,7 +375,10 @@ _U_FT = r'(?:sq\.?\s*ft\b|sqft\b|ft²|ft2\b|square\s+f(?:ee|oo)t\b)'
 _AREA_RX = re.compile(_NUM + r'\s*(' + _U_M2 + '|' + _U_FT + ')', re.I)
 TOTAL_KEY = re.compile(r'total|\bgia\b|gross\s+internal|internal\s+(?:floor\s+)?area|floor\s+area|overall\s+area|'
                        r'approx(?:imate|\.)?\s+(?:gross\s+)?(?:internal\s+)?(?:floor\s+)?area|общ\w*\s+площад|площад\w*\s+общ|'
-                       r'\bs\s*общ|итого', re.I)
+                       r'\bs\s*общ|итого|'
+                       # T-20261110-38: поле карточки объявления РФ «Площадь 68,8 м2» (Этажи, ЦИАН) — общая; «Площадь кухни»,
+                       # «Жилая площадь», «Площадь комнат» — не она
+                       r'^\s*площадь\b(?!\s*(?:кухн|комнат|жил|балкон|лодж|участ))', re.I)
 # что площадь НЕ включает: «excl. garage», «excluding balconies», «без балкона» → корни слов для сравнения с комнатами
 EXCL_RX = re.compile(r'(?:excl(?:uding|udes|\.|\b)|not\s+including|without|без(?:\s+учёта|\s+учета)?)\s*:?\s*([^)\n;]{1,80})', re.I)
 OPEN_AIR = ('balcon', 'terrace', 'patio', 'deck', 'veranda', 'loggia', 'roof garden', 'балкон', 'лоджи', 'террас', 'веранд')
@@ -445,7 +448,7 @@ def total_area(text: str) -> dict | None:
         rec = {'m2': round(v, 2), 'flags': fl, 'raw': s[:200], 'ctx': ctx}
         if TOTAL_KEY.search(ctx):
             keyed.append(rec)
-        elif not ROOM_WORD.search(s[:figs[0][0]]):
+        elif not ROOM_WORD.search(ctx[:len(ctx) - len(s) + figs[0][0]]):   # T-38: и строка-ключ выше («Площадь кухни»)
             loose.append(rec)
     pick = keyed or loose
     vals = sorted({round(r['m2'], 1) for r in pick})
@@ -496,3 +499,35 @@ def pick_area(text_a: dict | None, sheet_a: dict | None, tol: float = 0.05) -> t
                     flags=text_a['flags'] + sheet_a['flags']), []
     a = text_a or sheet_a
     return a, []
+
+
+# T-20261110-38: высота потолков из текста объявления («Высота потолков 3,1 м» — Этажи, ЦИАН; «Ceiling height 2.6 m») → высота
+# стен тура. Число — в той же строке, что ключ, или строкой ниже (карточка: «Высота потолков» / «3,1 м»); единицы — м или см
+CEIL_KEY = re.compile(r'высот\w*\s+потолк\w*|потолк\w*|ceiling\s+heights?|ceilings?', re.I)
+CEIL_NUM = re.compile(r'(\d{1,3}(?:[.,]\d{1,2})?)\s*(м\b|м\.|m\b|cm\b|см\b|mm\b|мм\b)?', re.I)
+CEIL_M = (2.2, 5.0)              # жилое помещение; вне — не высота потолка (опечатка, этажность, площадь)
+
+
+def ceiling_height(text: str) -> float | None:
+    """Высота потолков, м, или None (нет ключа, нет числа, вне CEIL_M, несколько разных высот)."""
+    if not text or not text.strip():
+        return None
+    lines = [' '.join(ln.split()) for ln in text.splitlines()]
+    vals = []
+    for i, s in enumerate(lines):
+        k = CEIL_KEY.search(s)
+        if not k:
+            continue
+        tail = s[k.end():]
+        if not CEIL_NUM.search(tail) and i + 1 < len(lines):
+            tail = lines[i + 1]
+        m = CEIL_NUM.search(tail)
+        if not m:
+            continue
+        v = float(m.group(1).replace(',', '.'))
+        u = (m.group(2) or '').lower().rstrip('.')
+        v = v / 100 if u in ('cm', 'см') or (not u and v >= 100) else v / 1000 if u in ('mm', 'мм') else v
+        if CEIL_M[0] <= v <= CEIL_M[1]:
+            vals.append(round(v, 2))
+    vals = sorted(set(vals))
+    return vals[0] if len(vals) == 1 else None

@@ -58,6 +58,7 @@ class Label:
     dims: tuple | None = None       # (a, b) м, как напечатано; None — помещение без размеров (имя от VLM)
     src: str = 'vlm'
     note: str | None = None         # заметка подписи («max», «into bay»): мерка по наибольшим сторонам
+    area: float | None = None       # T-20261110-38: напечатанная площадь, м² (labels4; планы РФ — площадь вместо размеров)
 
 
 @dataclass
@@ -269,6 +270,24 @@ def dims_errors(st: State, labels: list, ctx: Ctx, topo: dict) -> dict:
     return out
 
 
+def area_errors(st: State, labels: list, ctx: Ctx, topo: dict) -> dict:
+    """T-20261110-38: подписи площади без размеров (лист РФ: «14.90» вместо «3.6 × 4.1») — ошибка комнаты в линейной мере,
+    м: |√(площадь комнаты) − √(подпись)|; у комнаты с несколькими подписями — против суммы (если площадь есть у всех).
+    Так кусок без подписи вливается туда, где площадь сходится с напечатанной, а не в соседа по углу. Подписей площади
+    нет (старые ответы VLM, листы с размерами) — пусто: цена как прежде. → {индекс подписи: (ошибка м, None)}."""
+    out = {}
+    if not any(l.area is not None and l.dims is None for l in labels):
+        return out
+    areas = np.bincount(st.lab.ravel(), minlength=int(st.lab.max()) + 1)
+    for rid, ii in topo['by'].items():
+        if any(labels[i].dims is not None or labels[i].area is None for i in ii):
+            continue
+        m2 = float(areas[rid]) / ctx.ppm ** 2
+        e = abs(math.sqrt(m2) - math.sqrt(sum(labels[i].area for i in ii)))
+        out[ii[0]] = (e, None)
+    return out
+
+
 def dims_cost(errs: dict, exclude: set) -> float:
     """Робастная ошибка размеров: среднее ошибок, обрезанных на 1 м, без подписей-триггеров."""
     v = [min(1.0, e) for i, (e, _) in errs.items() if i not in exclude]
@@ -455,9 +474,12 @@ def _shared(st: State, p: int, q: int, ctx: Ctx):
                                         'add': round(float(st.add[sl][S].mean()), 2)}
 
 
-def neighbours(st: State, p: int, ctx: Ctx) -> list:
+def neighbours(st: State, p: int, ctx: Ctx, wide: bool = False) -> list:
+    """Соседние комнаты куска p. `wide` (T-20261110-38: есть подписи площади — цена выбирает соседа по площади, а не вслепую):
+    кольцо вдвое шире — сосед за сдвоенным закрытием (две полосы по 5 px и щель между ними у проёма под перегородкой
+    Этажей) тоже сосед."""
     P = st.lab == p
-    k = int(2 * ctx.t_int + 5) | 1
+    k = int((4 if wide else 2) * ctx.t_int + (9 if wide else 5)) | 1
     ring = cv2.dilate(P.astype(np.uint8), np.ones((k, k), np.uint8)) > 0
     return [int(q) for q in np.unique(st.lab[ring & ~P]) if q in st.rooms and q != p]
 
@@ -886,6 +908,7 @@ def prot_cost(st: State, labels: list, topo: dict, ppm: float) -> float:
 def score(st: State, labels: list, ctx: Ctx, exclude: set, roi=None) -> tuple[Score, dict]:
     topo = topology(st, labels, ctx.ppm)
     errs = dims_errors(st, labels, ctx, topo)
+    errs.update(area_errors(st, labels, ctx, topo))             # T-20261110-38: подписи площади (без размеров)
     return Score(topo['cost'], pixel_cost(st, ctx, roi), dims_cost(errs, exclude), 0.0, 0.0, topo['x'],
                  prot_cost(st, labels, topo, ctx.ppm)), topo
 
@@ -1151,6 +1174,91 @@ FRAG_OURS_MIN = 0.3
 CONTACT_MIN = 0.5           # запасной сосед: общее закрытие ≥ этой доли от главного
 CONTACT_MIN_M = 0.4         # общее закрытие с соседом — не короче (м; проход уже 0,6 м не бывает)
 ABSORB_MAX = 50
+
+
+# T-20261110-38: кусок без подписи на листе с подписями ПЛОЩАДЕЙ (РФ: «14.90», размеров нет) — в ту соседнюю комнату, чья площадь
+# с ним сходится с напечатанной (Этажи: проход 1,85 м² — часть спальни 14,90; угол коридора 1,67 м² — часть коридора 3,80).
+# Сосед — только через НАШИ закрытия (стены листа между ними ≤ AREA_JOIN_WALL доли), выигрыш по ошибке площади — наибольший
+# из всех пар, разрыв со вторым вариантом того же куска ≥ AREA_JOIN_MARGIN; после — ошибка соседа ≤ AREA_JOIN_REL.
+AREA_JOIN_WALL = 0.5
+AREA_JOIN_MARGIN = 0.3      # м²: второй сосед почти так же хорош — не гадаем
+AREA_JOIN_REL = 0.15
+
+
+def absorb_by_area(st: State, labels: list, ctx: Ctx) -> tuple[State, list]:
+    """Куски без подписи → в соседа по площади (см. выше). Подписей площади нет — как было. → (состояние, журнал 'area_join')."""
+    jr = []
+    if not any(l.area is not None and l.dims is None for l in labels):
+        return st, jr
+    ppm = ctx.ppm
+    R = int(2 * ctx.t_int + 6)
+    kern = np.ones((2 * R + 1, 2 * R + 1), np.uint8)
+    for _ in range(ABSORB_MAX):
+        topo = topology(st, labels, ppm)
+        areas = np.bincount(st.lab.ravel(), minlength=int(st.lab.max()) + 1)
+        want = {rid: sum(labels[i].area for i in ii) for rid, ii in topo['by'].items()
+                if all(labels[i].area is not None and labels[i].dims is None for i in ii)}
+        best = []
+        for p in st.rooms:
+            if p in topo['by']:
+                continue
+            P = st.lab == p
+            ys, xs = np.nonzero(P)
+            y0, y1 = max(0, ys.min() - 2 * R), min(P.shape[0], ys.max() + 2 * R + 1)
+            x0, x1 = max(0, xs.min() - 2 * R), min(P.shape[1], xs.max() + 2 * R + 1)
+            sl = np.s_[y0:y1, x0:x1]
+            zP = cv2.dilate(P[sl].astype(np.uint8), kern) > 0
+            ap = float(areas[p]) / ppm / ppm
+            opts = []
+            for q, A in want.items():
+                Q = st.lab[sl] == q
+                if not (zP & Q).any():
+                    continue
+                btw = zP & (cv2.dilate(Q.astype(np.uint8), kern) > 0) & ~P[sl] & ~Q
+                wl = btw & (st.final[sl] > 0)
+                ours = wl & (st.add[sl] > 0)
+                if ours.sum() < CONTACT_MIN_M * ppm * max(ctx.t_int, 2.0) or (wl & ~ours).sum() > AREA_JOIN_WALL * wl.sum():
+                    continue
+                aq = float(areas[q]) / ppm / ppm
+                gain = abs(aq - A) - abs(aq + ap - A)
+                opts.append((gain, q, abs(aq + ap - A) / A, btw, sl))
+            opts.sort(key=lambda o: -o[0])
+            if not opts or opts[0][0] <= 0:
+                continue
+            g, q, rel, btw, sl_ = opts[0]
+            rec = {'kind': 'area_join', 'piece': int(p), 'm2': round(ap, 2), 'into': int(q), 'gain_m2': round(g, 2),
+                   'rel': round(rel, 3), 'alt': [(int(o[1]), round(o[0], 2)) for o in opts[1:3]]}
+            if rel > AREA_JOIN_REL:
+                jr.append(dict(rec, ok=False, why='площадь соседа и после — мимо подписи'))
+            elif len(opts) > 1 and opts[1][0] > g - AREA_JOIN_MARGIN:
+                jr.append(dict(rec, ok=False, why='два соседа почти равны — не гадаем'))
+            else:
+                best.append((g, p, q, btw, sl_, rec))
+        if not best:
+            break
+        g, p, q, btw, sl, rec = max(best, key=lambda b: b[0])
+        s2 = st.copy()
+        s2.lab[s2.lab == p] = q
+        labw = st.lab[sl]
+        other = np.isin(labw, [r for r in st.rooms if r not in (p, q)])
+        far = cv2.distanceTransform((~other).astype(np.uint8), cv2.DIST_L2, 3) > 1.2 * max(ctx.t_int, 2.0) + 1.5 \
+            if other.any() else np.ones(labw.shape, bool)       # закрытия у третьей комнаты (её дверь) — на месте
+        gone = np.zeros(st.lab.shape, bool)
+        gone[sl] = btw & (st.add[sl] > 0) & far                # снимаются только наши закрытия; стены листа — на месте
+        free = np.zeros(st.lab.shape, bool)
+        free[sl] = btw & (st.final[sl] == 0) & ~np.isin(labw, st.rooms) & far   # щель между сдвоенными закрытиями
+        s2.final[gone] = 0
+        s2.add[gone] = 0
+        s2.lab[gone | free] = q
+        s2.rooms.remove(p)
+        topo2 = topology(s2, labels, ppm)
+        stolen = [labels[i].name for i, (o1, o2) in enumerate(zip(topo['own'], topo2['own'])) if o1 != o2]
+        if topo2['cost'] > topo['cost'] or stolen:
+            jr.append(dict(rec, ok=False, why='топология хуже' if not stolen else 'подпись сменила комнату: ' + ', '.join(stolen)))
+            break
+        st = s2
+        jr.append(dict(rec, closure_px=int(gone.sum()), ok=True, applied=True))
+    return st, jr
 
 
 def _band(st: State, P: np.ndarray, ctx: Ctx):

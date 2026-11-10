@@ -102,6 +102,42 @@ PROMPTS = {
         "For each give its name (as printed, or your best type if no text), the centre point of the space itself "
         "(not of any text outside it) and its approximate size class: 'tiny' (< 2 m2), 'small' (2-6 m2), 'large'. "
         "Answer with JSON only: {\"spaces\": [{\"name\": str, \"pt\": [x, y], \"size\": str}]}"),
+    # T-20261110-38 (владелец TG 893–896): то же, что labels3, + комнаты, подписанные ТОЛЬКО площадью (планы застройщиков РФ:
+    # «14,90» без названия), площадь комнаты и пониженная площадь в скобках (балкон/лоджия), тип комнаты — по названию, а без
+    # него — по нарисованной мебели и сантехнике (бачок → туалет, кровать → спальня, диван в самой большой → гостиная). Тот же
+    # один вызов вместо labels3; старый кэш читается прежним видом (`label_kind`)
+    'labels4': (
+        "This is a real-estate floor plan sheet. Use a normalized coordinate grid 0-1000 on both axes (x: 0 = left "
+        "edge, 1000 = right edge; y: 0 = top edge, 1000 = bottom edge). List EVERY room on it (all floors and "
+        "buildings) that has a printed label: a room name, or only a printed room area number (many plans print just "
+        "'14.90' or '12,8 m2' inside each room without a name). For each room give: the room name exactly as printed "
+        "(null if no name is printed); the dimensions as printed converted to metres (two numbers in the printed order; "
+        "if both metres and feet are printed use the metres; if only feet and inches are printed convert them; null if "
+        "no dimensions are printed for this room); the room area in m2 as printed for this room (null if none); if a "
+        "second area is printed in brackets under it, e.g. '2.70 (0.80)' on a balcony, give that bracketed number as "
+        "area_reduced_m2 (else null); any qualifier printed with the dimensions such as 'max', 'into bay', 'narrowing to' "
+        "(else null); the centre point [x, y] in the 0-1000 grid of the room-name text, or of the area number when no "
+        "name is printed; and unsure=true if the text is too small or blurred to read with confidence. Never guess "
+        "numbers you cannot read: give null and unsure=true instead. "
+        "For EVERY listed room also give its most likely type, one of: living, kitchen, kitchen_living, bedroom, "
+        "bathroom, wc, hall, corridor, wardrobe, storage, study, balcony, other; and type_src: 'name' if the type comes "
+        "from the printed name, 'furniture' if no name is printed and you judge it from the furniture and fixtures drawn "
+        "inside that room, 'position' if only from its position. Rules for rooms without a name: a toilet with a cistern "
+        "and no bath or shower = wc; a bath or a shower tray = bathroom; a bed (double or single, also a bed with a desk) "
+        "= bedroom; kitchen units with a hob and sink = kitchen; kitchen units together with a sofa or a dining table in "
+        "the same room = kitchen_living; a sofa without kitchen units = living (the largest room with a sofa is the "
+        "living room); the space just inside the entrance door = hall; a narrow passage between rooms = corridor; a small "
+        "room with only rails or shelves = wardrobe; a space outside the exterior wall with a railing = balcony. "
+        "Also list the printed TITLE of each separate drawing on the sheet: floor names (e.g. 'Ground Floor', 'First "
+        "Floor', 'Second Floor', 'Lower Ground Floor', 'Cellar', 'Basement') and separate building names (e.g. "
+        "'Outbuildings', 'Garage', 'Annexe'), each with the centre point [x, y] of the title text in the 0-1000 grid; "
+        "give titles only as printed (an empty list if none are printed). Do not list the sheet heading, address, "
+        "agent name, compass, scale bar or area totals as titles. In areas list only printed TOTAL floor areas, not "
+        "the areas of single rooms. "
+        "Answer with JSON only: {\"rooms\": [{\"name\": str | null, \"dims_m\": [a, b] | null, \"area_m2\": number | null, "
+        "\"area_reduced_m2\": number | null, \"note\": str | null, \"pt\": [x, y], \"unsure\": bool, \"type\": str, "
+        "\"type_src\": str}], \"areas\": [{\"label\": str, \"m2\": number}], "
+        "\"titles\": [{\"title\": str, \"pt\": [x, y]}]}"),
 }
 # $ за 1 токен (вход, выход) — из /v1/models шлюза 09.11; для потолка «худшего случая» перед вызовом
 PRICE = {'google/gemini-3.8-flash': (0.75e-6, 3.75e-6), 'google/gemini-3.1-pro-preview': (2e-6, 12e-6)}
@@ -143,20 +179,23 @@ def spent(out):
     return sum(r.get('usd') or 0.0 for r in rows), len(rows)
 
 
-NORM_KINDS = ('panels', 'unlabeled', 'labels2', 'labels3')   # сетка 0–1000: промпт без подстановки размеров
-LIST_KEY = {'panels': 'panels', 'unlabeled': 'spaces', 'labels': 'rooms', 'labels2': 'rooms', 'labels3': 'rooms'}
+NORM_KINDS = ('panels', 'unlabeled', 'labels2', 'labels3', 'labels4')   # сетка 0–1000: промпт без подстановки размеров
+LIST_KEY = {'panels': 'panels', 'unlabeled': 'spaces', 'labels': 'rooms', 'labels2': 'rooms', 'labels3': 'rooms', 'labels4': 'rooms'}
+LABEL_KINDS = ('labels4', 'labels3', 'labels2')   # от нового к старому
 
 
 def label_kind(vdir, plan) -> str:
-    """Какой ответ подписей читать/спрашивать в `vdir`: `labels3` (с заголовками этажей, T-27), но если в кэше уже лежит
-    старый `labels2`, а `labels3` нет — `labels2` (старые задания перечитываются из кэша без нового платного вопроса).
-    `FP_TITLES=0` — всегда `labels2` (как до T-27)."""
+    """Какой ответ подписей читать/спрашивать в `vdir`: самый новый из лежащих в кэше (`labels4` — площадь без названия и тип
+    по мебели, T-38; `labels3` — с заголовками этажей, T-27; `labels2`); кэша нет — новый `labels4`. Старые задания
+    перечитываются из кэша тем видом, что спрашивали, без нового платного вопроса. `FP_TITLES=0` — всегда `labels2` (как до
+    T-27); `FP_LABELS4=0` — новый лист спрашивается `labels3` (как до T-38)."""
     v = Path(vdir)
     if os.environ.get('FP_TITLES', '1') == '0':
         return 'labels2'
-    if (v / f'raw-{plan}-labels3.txt').exists() or not (v / f'raw-{plan}-labels2.txt').exists():
-        return 'labels3'
-    return 'labels2'
+    for k in LABEL_KINDS:
+        if (v / f'raw-{plan}-{k}.txt').exists():
+            return k
+    return 'labels4' if os.environ.get('FP_LABELS4', '1') != '0' else 'labels3'
 
 
 def last_call(out) -> dict:
