@@ -1096,6 +1096,11 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     def put_geo(panel, room, rid, geo, kind):
         full = {'w': geo['w'], 'd': geo['d'], **_geo_titles(room, geo, kind), 'openings': geo['openings'], 'radiators': [],
                 'approx': _approx(room, geo)}
+        # ВИД КОМНАТЫ — В КОРОБКУ, КАК У /demo (T-20261110-16/3): правила ракурсов (`index.html:camZ`, ими же `demo-cams.mjs` при
+        # сборке) берут зону по `kind` коробки, без него — гостиную: у спальни искали диван, и точка 1 смотрела в угол без мебели
+        # (yb3_DQp3 «Спальня 2»: покрыто 0 из 5). Гостиной поле не пишем — у /demo его нет, зона по умолчанию та же
+        if kind != LIVING:
+            full['kind'] = kind
         st = storey_map.get(panel_of[id(room)])
         if st is not None:
             full['storey'] = st

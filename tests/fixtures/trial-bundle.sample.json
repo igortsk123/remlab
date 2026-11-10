@@ -816,6 +816,7 @@
    "bedroom-1": {
     "approx": false,
     "d": 350,
+    "kind": "bedroom",
     "name_src": "Bedroom 1",
     "openings": [],
     "radiators": [],
@@ -827,6 +828,7 @@
    "bedroom-2": {
     "approx": false,
     "d": 350,
+    "kind": "bedroom",
     "name_src": "Bedroom 2",
     "openings": [
      {

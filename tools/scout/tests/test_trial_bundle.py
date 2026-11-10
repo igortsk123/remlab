@@ -592,6 +592,16 @@ def test_bedrooms_pending_until_their_stage_then_ready_or_empty_with_owner_text(
     assert 'url' not in bed and 'hoff' not in json.dumps(d, ensure_ascii=False).lower()
 
 
+def test_bedroom_box_carries_kind_for_camera_rules_living_box_as_demo():
+    """T-20261110-16/3: правила ракурсов берут зону по `kind` коробки (`index.html:camZ`); без него спальня снималась по правилам
+    гостиной (точка 1 — угол без мебели). У спальни вид в коробке есть, у гостиной поля нет — как у /demo."""
+    res = flat_with_bedrooms()
+    for d in (build(res), TB.build(JOB, res, scene_for(res), ctx=CTX, parts=[bedroom_part(), bedroom_part('bedroom-2', 'refused', 'no_products', False)])):
+        g = d['rooms_geo']
+        assert g['bedroom-1']['kind'] == 'bedroom' and g['bedroom-2']['kind'] == 'bedroom'
+        assert 'kind' not in g['living'] and 'kind' not in d['room']
+
+
 def test_bedroom_without_entry_says_no_door_not_unread():
     """T-20261110-11: у спальни на плане нет входа (`no_entry`) — свой исход и текст «не нашли вход», а не «не разобрана»;
     прочие причины «не разобрана» (`contour_distorted` …) — как были."""

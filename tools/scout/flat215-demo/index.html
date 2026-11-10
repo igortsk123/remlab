@@ -2121,7 +2121,7 @@ function init(){
   {const p=HOME.url, hv=p.open==='v'?decodeURIComponent(location.hash.slice(3)):'';
     const v=hv?allVariants().find(x=>(x.id||'')===hv):null, al=hv&&!v?String((D.variant_aliases||{})[hv]||'').toLowerCase():'';
     const vs=v&&!v.mine&&!v.cid?styleIdOf(v):(STYLE_IDS[al]||'');
-    HOME.sel=p.sel||(vs?mixSel([vs],{}):null); HOME.room=p.room||'living';
+    HOME.sel=p.sel||(vs?mixSel([vs],{}):null); HOME.room=p.room||homeDefRoom();
     if(!p.open){const L=homeLayout(homeModel()), c=L.find(x=>x.rv&&x.r.id===HOME.room)||L.find(x=>x.rv&&x.r.id==='living');
       if(c&&c.rv.index!==cur){cur=c.rv.index; load();}}}
   applyHash();
@@ -5709,6 +5709,13 @@ function trFurnishedFirst(list, outcomeOf){
   return i>0?[list[i]].concat(list.slice(0,i), list.slice(i+1)):list;
 }
 // TOURFIRST END
+// КОМНАТА БОЛЬШОЙ КАРТОЧКИ ПРИ ВХОДЕ (T-20261110-16/3, ведущий: на компьютере список начинался с «Спальня 2 · 4 товара», а карточка
+// слева и рамка — на «Гостиная · нет товаров»): в туре — первая комната списка, у которой есть вариант (порядок `homeRooms`, то есть
+// обставленная впереди по `trFurnishedFirst`); `?room=` в адресе — главнее. /demo (карточка квартиры) — гостиная, как было
+function homeDefRoom(){
+  if(!TRIAL()||(FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length))return 'living';
+  const c=homeLayout(homeModel()).find(x=>x.rv&&!homeTiny(x.r)); return c?c.r.id:'living';
+}
 function homeRooms(){
   const EN=LANG==='en', card=FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length?FLAT.rooms:null;
   if(card)return card.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:r.title, areaM2:r.areaM2, contentState:roomOn(r)}));
