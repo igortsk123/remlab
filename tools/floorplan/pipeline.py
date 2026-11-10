@@ -13,7 +13,8 @@
 
 Шаги: raster (PDF → PNG `pdftoppm` / картинка → PNG, лимиты) → labels (VLM `labels2|panels|unlabeled` параллельно,
 кэш по хэшу файла, потолок денег на задание) → walls/repair (`run_plan` под `heavy_slot`) → export (сбор моделей
-`model-*-<i>.json` по комнатам).
+`model-*-<i>.json` по комнатам) → [redraw — только с `FP_REDRAW=1|force`: перерисовка шумного листа и приёмка против
+разбора оригинала, `redraw_stage` / `tools/floorplan/redraw.py`; по умолчанию выкл.].
 """
 from __future__ import annotations
 
@@ -624,6 +625,64 @@ def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: floa
     raise TrialError('pipeline_error', False, 'result > 2 MB')
 
 
+# ── перерисовка шумного листа (FP_REDRAW, T-20261110-17; по умолчанию выкл.) ──────────────────────────────────────
+
+def redraw_stage(res: dict, rmode: str, *, image: Path, vlm_dir: Path, plan: str, G: dict, log: dict, out: Path,
+                 workdir: Path, slot: bool, job: str, vlm_usd: float, T: dict, fl: list, area, source: dict,
+                 spent=None, cache_only: bool = False, draw=None) -> dict:
+    """Разбор оригинала `res` уже готов. Тревожный (`redraw.alarm`; `force` — всегда) → перерисовка листа (`redraw.attempt`,
+    свой потолок денег) → стены по ПРОВЕРЕННОМУ чистому листу, подписи — те же `G` с чтения оригинала (VLM чистый лист не
+    видит; кэш VLM — по sha оригинала) → `redraw.decide`. Итог: принят — разбор чистого + `redraw_used`; нет —
+    разбор оригинала + `redraw_rejected:<причина>`. Сбой перерисовки задание не роняет. Шаг страницы не меняется
+    (закрытый список стадий: остаётся `export`). Подробности — `<workdir>/redraw/{redraw,decision}.json`."""
+    import redraw
+    import bench
+    import cv2
+    why = redraw.alarm(res, log)
+    if rmode == 'on' and not why:
+        return res
+    t0 = time.time()
+    rdir = workdir / 'redraw'
+    a = redraw.attempt(image, vlm_dir, plan, rdir, draw=draw, cap=redraw.cap_usd(), cache_only=cache_only)
+    usd = float(a.get('usd') or 0.0)
+    total = round(float(vlm_usd) + usd, 6)
+    if spent and usd:
+        spent(total)
+    dec = {'alarm': why, 'mode': rmode, 'redraw': {k: a.get(k) for k in ('why', 'usd', 'cached', 'clean')}}
+    pick, flag = res, None
+    if not a.get('clean'):
+        flag = f"redraw_rejected:{a.get('why') or 'none'}"
+    else:
+        clean = Path(a['clean'])
+        out_c = rdir / 'bench'
+        out_c.mkdir(parents=True, exist_ok=True)
+        G_c = dict(G, image=str(clean.resolve()))           # те же подписи; лист для стен — чистый
+        try:
+            C_c = bench.auto_cfg(cv2.imread(str(clean), cv2.IMREAD_COLOR))
+            log_c, meta_c = walls(plan, clean, out_c, G_c, C_c, lambda s: None, slot, job)
+            res_c = to_result(log_c, out_c, plan, G_c, source, total, T, fl, meta_c['guess_ppm'] is not None, area)
+            (rdir / 'result-clean.json').write_text(json.dumps(res_c, ensure_ascii=False, separators=(',', ':')))
+            d = redraw.decide(res, log, _models(out, plan), res_c, log_c, _models(out_c, plan))
+        except TrialError as e:
+            flag = f'redraw_rejected:parse_{e.code}'
+            dec['parse_error'] = e.detail[:300]
+        except Exception as e:  # noqa: BLE001 — сбой разбора чистого листа не роняет задание: итог — оригинал
+            flag = 'redraw_rejected:parse_crash'
+            dec['parse_error'] = f'{type(e).__name__}: {str(e)[:300]}'
+        else:
+            dec.update(d)
+            if d['accept']:
+                pick, flag = res_c, 'redraw_used'
+            else:
+                flag = f"redraw_rejected:{d['why']}"
+    pick = dict(pick, timings=dict(res['timings'], redraw=round(time.time() - t0, 2)), costUsd=total)
+    redraw.add_flag(pick, flag)
+    dec['flag'] = flag
+    rdir.mkdir(parents=True, exist_ok=True)
+    (rdir / 'decision.json').write_text(json.dumps(dec, ensure_ascii=False, indent=1, default=float))
+    return pick
+
+
 # ── весь путь ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_dir=None, vlm_root=None, ask=None,
@@ -665,8 +724,9 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
     out = workdir / 'bench'
     out.mkdir(parents=True, exist_ok=True)
     fl = list(flags or [])
-    with _env(FP_VLM=str(vlm_dir), FP_LABELS='labels2', FP_VLM2=None, FP_CACHE=an_cache, FP_PPM=None, FP_DEBUG_ENV=None,
-              FP_DUMP=None):
+    envkw = dict(FP_VLM=str(vlm_dir), FP_LABELS='labels2', FP_VLM2=None, FP_CACHE=an_cache, FP_PPM=None, FP_DEBUG_ENV=None,
+                 FP_DUMP=None)
+    with _env(**envkw):
         import vlm
         raw = vlm.parse((vlm_dir / f'raw-{plan}-labels2.txt').read_text()) or {}
         if raw.get('_truncated'):
@@ -685,6 +745,14 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
     stage('export')
     res = to_result(log, out, plan, G, source, v['usd'], T, fl, meta['guess_ppm'] is not None, area)
     res['timings']['export'] = round(time.time() - t2, 2)
+    if os.environ.get('FP_REDRAW'):
+        import redraw
+        rmode = redraw.mode()
+        if rmode != 'off':
+            with _env(**envkw):
+                res = redraw_stage(res, rmode, image=image, vlm_dir=vlm_dir, plan=plan, G=G, log=log, out=out,
+                                   workdir=workdir, slot=slot, job=job, vlm_usd=v['usd'], T=T, fl=fl, area=area,
+                                   source=source, spent=spent, cache_only=cache_only)
     (workdir / 'gold.json').write_text(json.dumps({k: x for k, x in G.items() if k != '_labels'}, ensure_ascii=False,
                                                   default=float))
     return res
