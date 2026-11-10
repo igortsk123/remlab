@@ -924,6 +924,26 @@ def room_families_map(r, fp, ppm, t_w):
     return room_fams, fams_at, fams_of
 
 
+def split_by_drawn(g, lab_g, drawn):
+    """Дверной проём, через который прошла дорисованная перегородка (T-38: общий проём двух слитых спален), — два
+    проёма по обе стороны стены. → [(cx, cy, длина px)]; не задет — один исходный."""
+    one = [(g.cx, g.cy, g.length)]
+    if g.kind != 'door' or drawn is None or not drawn.any():
+        return one
+    m = lab_g == g.id
+    dd = cv2.dilate(drawn.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+    if not (m & dd).any():
+        return one
+    n, cl = cv2.connectedComponents((m & ~dd).astype(np.uint8), connectivity=8)
+    out = []
+    for j in range(1, n):
+        ys, xs = np.nonzero(cl == j)
+        if len(ys) >= 3:
+            c, _, _, L, _ = fc.gap_axes(ys, xs)
+            out.append((float(c[0]), float(c[1]), L))
+    return out if len(out) >= 2 else one
+
+
 def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     """Модель панели для рендера (метры) + наложение для глаз."""
     ppm = P['ppm']
@@ -1002,8 +1022,9 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     for g in r['gaps']:
         if g.kind == 'wall':
             continue
-        model['openings'].append({'kind': g.kind, 'c': [round(g.cx / ppm, 3), round(g.cy / ppm, 3)],
-                                  'width_m': round(g.length / ppm, 3), 'glaze': round(g.glaze, 2), 'exterior': g.exterior})
+        for cx, cy, L in split_by_drawn(g, lab_g, r.get('drawn')):
+            model['openings'].append({'kind': g.kind, 'c': [round(cx / ppm, 3), round(cy / ppm, 3)],
+                                      'width_m': round(L / ppm, 3), 'glaze': round(g.glaze, 2), 'exterior': g.exterior})
     Path(outdir).mkdir(parents=True, exist_ok=True)
     (Path(outdir) / f'model-{plan}-{pi}.json').write_text(json.dumps(model, ensure_ascii=False))
     # наложение

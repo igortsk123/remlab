@@ -29,6 +29,7 @@ import numpy as np
 
 import fpcore as fc
 import openroom
+import partition
 
 # T-16: замыкание открытых комнат (openroom.py) — подходы по порядку, пока один не построит гипотезу;
 # FP_OPEN=none — без замыкания (как до T-16), lines / box / box+lines — сравнение в отчёте T-16. Выбран box:
@@ -706,6 +707,103 @@ def hyp_neck(st: State, i: int, labels: list, ctx: Ctx, eps: float = 0.05):
                f'neck:{i}:{eps}')
 
 
+# --- T-38: обрыв нарисованной перегородки (две комнаты слиты через белый зазор у её конца) ------------------------------------
+# Схема — советник `_intake/codex/false-doors-merged-rooms-2026-11-09-answer.md`: подписи двух РАЗНЫХ комнат в одной области —
+# только повод искать стену; режем, лишь когда сырая линия перегородки есть и разрез закрывает её локальный обрыв.
+# Геометрия и пороги — `partition.py`.
+
+# не самостоятельная комната: часть комнаты или зона (шкаф, кладовка, «зона»)
+_SUBSPACE = ('wardrobe', 'robe', 'cupboard', 'cpd', 'store', 'storage', 'airing', 'closet', 'walk', 'built', 'area',
+             'bay', 'recess', 'shelf', 'cylinder')
+_ALIAS = {'dining': 'diner', 'dine': 'diner', 'sitting': 'living', 'reception': 'living', 'lounge': 'living',
+          'family': 'living', 'bed': 'bedroom', 'bath': 'bathroom', 'wc': 'cloakroom', 'cloaks': 'cloakroom',
+          'shower': 'bathroom', 'ensuite': 'en-suite'}
+
+
+def room_tokens(name: str) -> tuple | None:
+    """Имя подписи → набор слов (синонимы сведены, номер — отдельным словом: {bedroom,2} ≠ {bedroom,3}).
+    None — не самостоятельная комната (шкаф, кладовка, зона)."""
+    s = (name or '').lower().replace('en suite', 'ensuite').replace('en-suite', 'ensuite')
+    if any(w in s for w in _SUBSPACE):
+        return None
+    words = ''.join(ch if ch.isalnum() else ' ' for ch in s.replace(' and ', ' ')).split()
+    return tuple(sorted({_ALIAS.get(w, w) for w in words})) or None
+
+
+def distinct_rooms(ii: list, labels: list) -> list:
+    """Подписи области → группы «одна комната»: дубли и вложенные имена (слова одной ⊆ слов другой: «Diner» ⊆
+    «Kitchen/Diner», «Bedroom» ⊆ «Bedroom 1») — одна комната; части комнаты (шкаф, зона) — не комната.
+    → список групп индексов (по группе на самостоятельную комнату). Сомнение — в пользу «одна комната» (не резать)."""
+    groups = []                                       # [(набор слов, [индексы])]
+    for i in ii:
+        tk = room_tokens(labels[i].name)
+        if tk is None:
+            continue
+        s = set(tk)
+        for g in groups:
+            if s <= g[0] or g[0] <= s:
+                g[0].update(s)
+                g[1].append(i)
+                break
+        else:
+            groups.append((s, [i]))
+    return [g[1] for g in groups]
+
+
+def hyp_partition(st: State, rid: int, ia: list, ib: list, labels: list, ctx: Ctx, trigger: tuple):
+    """Две самостоятельные комнаты (подписи ia | ib) в одной области → продолжить висящую нарисованную перегородку через
+    короткий зазор до стены (`partition.find_partition`, жёсткие условия там). Новая стена — `drawn` (в 3D сплошная),
+    стены «по пикселям» не меняются; принимает топология (подписи разошлись по двум комнатам)."""
+    region = st.lab == rid
+    if region.sum() > MINCUT_MAX_PX:
+        return _no('область велика для разреза')
+    t = max(2.0, float(ctx.t_int))
+    roi = _roi_of(region, int(partition.GAP_T * t) + 4, region.shape)
+    sl = np.s_[roi[1]:roi[3], roi[0]:roi[2]]
+    raw = (st.final[sl] > 0) & ~(st.add[sl] > 0) & (ctx.wp[sl] >= DRAWN_WP)     # сырая линия: наша стена И тёмное листа
+    angles = rot_angles(ctx.fams)
+
+    def loc(i):
+        return (labels[i].pt[0] - roi[0], labels[i].pt[1] - roi[1])
+    ext_w, B_w, info = partition.find_partition(region[sl], raw, st.final[sl] > 0, t, angles,
+                                                [loc(i) for i in ia], [loc(i) for i in ib], close=st.add[sl] > 0,
+                                                gap_max_px=fc.DOOR_MIN_M * ctx.ppm)
+    if ext_w is None:
+        return _no(info['why'])
+    ext = np.zeros(region.shape, bool)
+    ext[sl] = ext_w
+    B = np.zeros(region.shape, bool)
+    B[sl] = B_w
+    note = {'room': rid, 'a': [labels[i].name for i in ia], 'b': [labels[i].name for i in ib], **info,
+            'gap_m': round(info['gap_px'] / ctx.ppm, 2), 't_px': round(t, 1),
+            'part_m2': round(float(min(B.sum(), (region & ~B & ~ext).sum())) / ctx.ppm ** 2, 2)}
+
+    def apply(s: State, B=B, ext=ext, rid=rid):
+        s = s.copy()
+        nid = int(s.lab.max()) + 1
+        s.lab[B] = nid
+        s.lab[ext & (s.lab == rid)] = 0              # полоса новой стены — не пол комнаты A (иначе её пол заходит в B)
+        s.rooms.append(nid)
+        if s.cut is None:
+            s.cut = np.zeros(s.lab.shape, bool)
+            s.drawn = np.zeros(s.lab.shape, bool)
+        s.cut |= ext
+        s.drawn |= ext
+        return s
+
+    return Hyp('partition', trigger, roi, apply, note, f'partition:{rid}:{ia}:{ib}')
+
+
+def rot_angles(fams) -> list:
+    """Повороты окна: 0 (оси) + диагональные семейства стен панели, приведённые к (-45, 45] (как bench.rot_angles)."""
+    out = [0.0]
+    for f in fams or []:
+        a = ((f + 45) % 90) - 45
+        if abs(a) > 1.5 and all(abs(a - b) > 1.5 for b in out):
+            out.append(a)
+    return out
+
+
 # --- приёмка ----------------------------------------------------------------------------------------------------------------
 
 @dataclass
@@ -822,6 +920,23 @@ def propose(st: State, labels: list, ctx: Ctx, outside: np.ndarray) -> list:
                 h = hyp_mincut(st, rid, [i], rest, labels, ctx, trig, eps)
                 if h:
                     out.append(h)
+    # 1б) T-38: подписи двух РАЗНЫХ самостоятельных комнат в одной области (размеры не нужны) → разрез только по обрыву
+    #     нарисованной перегородки (hyp_partition); каждая комната против остальных
+    for rid, ii in topo['by'].items():
+        groups = distinct_rooms(ii, labels) if len(ii) >= 2 else []
+        if len(groups) < 2:
+            continue
+        for gi, ga in enumerate(groups):
+            if len(groups) == 2 and gi == 1:
+                break                                  # две комнаты: «A против B» = «B против A»
+            gb = [j for gj, g in enumerate(groups) if gj != gi for j in g]
+            _SKIPS.clear()
+            h = hyp_partition(st, rid, ga, gb, labels, ctx, tuple(ga + gb))
+            if h:
+                out.append(h)
+            elif _SKIPS:
+                SKIPLOG.append({'kind': 'skip', 'hyp': 'partition', 'room': int(rid),
+                                'a': [labels[i].name for i in ga], 'b': [labels[i].name for i in gb], 'why': _SKIPS[-1]})
     # 2) подпись «мала» (наше меньше подписи) → влить соседний кусок без подписи
     for i, (e, pred) in errs.items():
         l = labels[i]

@@ -217,3 +217,152 @@ def test_recompute_closes_missing_room():
     t = rp.topology(s2, [l], PPM)
     assert t['missing'] == [] and t['cost'] == 0
     assert s2.add.sum() > 0                           # закрытие проёма — «по построению», не по пикселям
+
+
+# --- T-38: обрыв нарисованной перегородки между двумя комнатами (partition) --------------------------------------------------
+
+def partition_room(stub_rows, names, transpose=False, island=False, size=(160, 120), door=False, ppm=50.0, jamb=0):
+    """Комната size (px) в стенах T; из верхней стены вниз идёт нарисованная перегородка (4 px) на stub_rows строк, дальше
+    до нижней стены — белый зазор (в маске одна область). island — вместо нижней стены у конца перегородки короткий
+    кусок стены-«остров», под которым области сообщаются; jamb — из нижней стены навстречу идёт второй кусок той же
+    перегородки (jamb строк): зазор между ними — проём между косяками. Подписи без размеров (как у VLM) — слева и
+    справа. Масштаб ppm=50 — как у листа T (стена 6 px ≈ 12 см)."""
+    w, h = size
+    H, W = h + 2 * T + 20, w + 2 * T + 20
+    x0 = y0 = 10 + T
+    final = np.zeros((H, W), np.uint8)
+    cv2.rectangle(final, (10, 10), (10 + w + 2 * T - 1, 10 + h + 2 * T - 1), 1, -1)
+    final[y0:y0 + h, x0:x0 + w] = 0
+    xp = x0 + w // 2 - 2
+    final[y0:y0 + stub_rows, xp:xp + 4] = 1
+    if jamb:
+        final[y0 + h - jamb:y0 + h, xp:xp + 4] = 1
+    if island:
+        yi = y0 + stub_rows + 15
+        final[yi:yi + T, xp - 20:xp + 24] = 1
+    lab = np.zeros((H, W), np.int32)
+    lab[y0:y0 + h, x0:x0 + w] = 1
+    lab[final > 0] = 0
+    gray = np.full((H, W), 255, np.uint8)
+    gray[final > 0] = 0
+    add = np.zeros((H, W), np.uint8)
+    if door:                                          # общий проём в нижней стене под концом перегородки — закрыт
+        add[y0 + h:y0 + h + T, xp - 30:xp + 34] = 1
+        gray[add > 0] = 255
+    pts = [(x0 + w // 4, y0 + h // 2), (x0 + 3 * w // 4, y0 + h // 2)]
+    if transpose:
+        final, lab, gray, add = final.T.copy(), lab.T.copy(), gray.T.copy(), add.T.copy()
+        pts = [(y, x) for x, y in pts]
+    st = rp.State(lab, final, [1], add)
+    ctx = rp.Ctx(gray=gray, ev=final > 0, wp=rp.wall_prob(gray), ppm=ppm, t_int=T, fams=[0.0], conv=('p95', 0))
+    labels = [rp.Label(n, p) for n, p in zip(names, pts)]
+    return st, ctx, labels
+
+
+def test_room_tokens_and_distinct_rooms():
+    L = [rp.Label(n, (0, 0)) for n in ('Bedroom 2', 'Bedroom 3', 'Bedroom 2', 'Wardrobe', 'Kitchen/Diner', 'Diner',
+                                        'Dining Area', 'En-suite', 'Ensuite', 'Bedroom')]
+    assert rp.room_tokens('Kitchen/Diner') == ('diner', 'kitchen')
+    assert rp.room_tokens('Built-in Wardrobe') is None and rp.room_tokens('Dining Area') is None
+    names = lambda gs: [[L[i].name for i in g] for g in gs]  # noqa: E731
+    assert names(rp.distinct_rooms([0, 1], L)) == [['Bedroom 2'], ['Bedroom 3']]           # разные комнаты
+    assert len(rp.distinct_rooms([0, 2], L)) == 1                                          # дубль
+    assert len(rp.distinct_rooms([0, 3], L)) == 1                                          # шкаф — не комната
+    assert len(rp.distinct_rooms([4, 5, 6], L)) == 1                                       # составное имя ⊇ часть
+    assert len(rp.distinct_rooms([7, 8], L)) == 1                                          # синонимы
+    assert len(rp.distinct_rooms([9, 0], L)) == 1                                          # «Bedroom» ⊆ «Bedroom 2»: не резать
+
+
+def test_partition_closes_short_gap_at_drawn_wall_end():
+    for tr in (False, True):
+        st, ctx, labels = partition_room(120 - 15, ('Bedroom 2', 'Bedroom 3'), transpose=tr)
+        rp._SKIPS.clear()
+        h = rp.hyp_partition(st, 1, [0], [1], labels, ctx, (0, 1))
+        assert h is not None, rp._SKIPS
+        assert h.note['gap_px'] == 15 and h.note['support'] >= partition_support_min()
+        st2, journal = rp.run(st, labels, ctx, outside=np.zeros_like(st.final, bool))
+        applied = [x for x in journal if x.get('applied')]
+        assert [x['kind'] for x in applied] == ['partition']
+        t1 = rp.topology(st2, labels, ctx.ppm)
+        assert t1['merged'] == 0                          # спальни — разные комнаты
+        g = st2.drawn if not tr else st2.drawn.T          # новая стена — ровно в зазоре, по оси перегородки
+        ys, xs = np.nonzero(g)
+        assert ys.min() == 10 + T + 105 and ys.max() == 10 + T + 119
+        assert xs.min() >= 10 + T + 78 and xs.max() <= 10 + T + 81
+        assert (st2.final == st.final).all()              # стены «по пикселям» не тронуты
+        assert not (st2.lab[st2.drawn] > 0).any()         # полоса новой стены — не пол ни одной из комнат
+
+
+def partition_support_min():
+    import partition
+    return partition.SUPPORT_MIN
+
+
+def test_partition_open_plan_half_wall_not_cut():
+    # кухня/гостиная с полустенкой: перегородка на 40 % высоты, дальше широкое сообщение — это одна открытая зона
+    st, ctx, labels = partition_room(48, ('Kitchen', 'Lounge'))
+    rp._SKIPS.clear()
+    assert rp.hyp_partition(st, 1, [0], [1], labels, ctx, (0, 1)) is None
+    assert 'толщин' in rp._SKIPS[-1]
+    st2, journal = rp.run(st, labels, ctx, outside=np.zeros_like(st.final, bool))
+    assert not [x for x in journal if x.get('applied')]
+    assert any(x.get('hyp') == 'partition' for x in journal if x.get('kind') == 'skip')   # причина — в журнале
+
+
+def test_partition_two_labels_of_one_room_not_cut():
+    # та же геометрия, что в положительном случае, но подписи одной комнаты (дубль от VLM) — не повод искать стену
+    st, ctx, labels = partition_room(120 - 15, ('Bedroom 2', 'Bedroom 2'))
+    assert not [h for h in rp.propose(st, labels, ctx, np.zeros_like(st.final, bool)) if h.kind == 'partition']
+
+
+def test_partition_narrow_passage_without_wall_not_cut():
+    # две комнаты 60×60, между ними узкий проход 10 px без висящей перегородки: резать нечего
+    H, W = 100, 180
+    final = np.ones((H, W), np.uint8)
+    final[20:80, 10:70] = 0
+    final[20:80, 110:170] = 0
+    final[45:55, 70:110] = 0
+    lab = np.where(final == 0, 1, 0).astype(np.int32)
+    gray = np.where(final > 0, 0, 255).astype(np.uint8)
+    st = rp.State(lab, final, [1], np.zeros((H, W), np.uint8))
+    ctx = rp.Ctx(gray=gray, ev=final > 0, wp=rp.wall_prob(gray), ppm=PPM, t_int=T, fams=[0.0], conv=('p95', 0))
+    labels = [rp.Label('Bedroom 1', (40, 50)), rp.Label('Study', (140, 50))]
+    rp._SKIPS.clear()
+    assert rp.hyp_partition(st, 1, [0], [1], labels, ctx, (0, 1)) is None
+
+
+def test_partition_parts_still_connected_elsewhere_not_cut():
+    # у конца перегородки короткий зазор до куска стены, но под ним части сообщаются широко — одна область, не две
+    st, ctx, labels = partition_room(60, ('Bedroom 2', 'Bedroom 3'), island=True)
+    rp._SKIPS.clear()
+    assert rp.hyp_partition(st, 1, [0], [1], labels, ctx, (0, 1)) is None
+    assert 'не развело' in rp._SKIPS[-1]
+
+
+def test_partition_splits_shared_door_into_two():
+    # зазор упёрся в закрытый общий проём двух спален: стена идёт сквозь закрытие, проём в модели — два
+    import types
+    import bench
+    st, ctx, labels = partition_room(120 - 15, ('Bedroom 2', 'Bedroom 3'), door=True)
+    st2, journal = rp.run(st, labels, ctx, outside=np.zeros_like(st.final, bool))
+    rec = [x for x in journal if x.get('applied')]
+    assert [x['kind'] for x in rec] == ['partition'] and rec[0]['close_px'] == T
+    yb = 10 + T + 120                                 # нижняя стена: стена прошла сквозь закрытие проёма
+    assert st2.drawn[yb:yb + T, 10 + T + 78:10 + T + 82].all()
+    lab_g = (st.add > 0).astype(np.int32)
+    ys, xs = np.nonzero(lab_g)
+    g = types.SimpleNamespace(kind='door', id=1, cx=float(xs.mean()), cy=float(ys.mean()), length=64.0)
+    parts = bench.split_by_drawn(g, lab_g, st2.drawn)
+    assert len(parts) == 2 and all(20 <= L <= 34 for _, _, L in parts)
+    assert len(bench.split_by_drawn(g, lab_g, None)) == 1
+
+
+def test_partition_doorway_between_jambs_not_cut():
+    # толстый рисунок стены (6 px при 22 px/м ≈ 27 см): проём 20 px между двумя кусками одной перегородки — 0,9 м,
+    # в толщинах тот же «обрыв» (3,3 t), но по ширине — проход (≥ DOOR_MIN_M): не замуровывать (слепой G, гараж/мастерская)
+    st, ctx, labels = partition_room(60, ('Garage', 'Workshop'), ppm=22.4, jamb=40)
+    rp._SKIPS.clear()
+    assert rp.hyp_partition(st, 1, [0], [1], labels, ctx, (0, 1)) is None
+    assert 'проём' in rp._SKIPS[-1]
+    st, ctx, labels = partition_room(60, ('Garage', 'Workshop'), ppm=50.0, jamb=40)   # тот же рисунок: 0,4 м — обрыв
+    assert rp.hyp_partition(st, 1, [0], [1], labels, ctx, (0, 1)) is not None
