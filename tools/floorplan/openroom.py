@@ -49,6 +49,8 @@ def attached_lines(faint: np.ndarray, wall: np.ndarray, gap: int = 3) -> np.ndar
     """Линии, связанные со стенами (рама, складные двери, остекление, эркер): отдельно стоящие — текст подписи,
     остров кухни, стол, кровать, пунктир фонаря — границей комнаты не бывают. Связность — по линиям с зазором 1 px
     (светлая сглаженная дуга эркера рвётся на куски)."""
+    if fc.empty_img(faint, wall):
+        return faint.copy()
     f8 = faint.astype(np.uint8)
     n, lab = cv2.connectedComponents(cv2.dilate(f8, np.ones((3, 3), np.uint8)), connectivity=8)
     if n <= 1:
@@ -106,7 +108,9 @@ def tint_barrier(gray: np.ndarray, pt, r: int, bg_sheet: float, min_tint: float 
 
 def seed_component(free: np.ndarray, pt, r: int):
     """Связная (4) область свободного, занимающая больше всего круга r вокруг подписи → маска или None."""
-    n, lab = cv2.connectedComponents(free.astype(np.uint8), connectivity=4)
+    if fc.empty_img(free):
+        return None, np.zeros(np.shape(free), np.int32)
+    n, lab =cv2.connectedComponents(free.astype(np.uint8), connectivity=4)
     H, W = free.shape
     disk = np.zeros((H, W), np.uint8)
     cv2.circle(disk, (int(round(pt[0])), int(round(pt[1]))), max(2, r), 1, -1)
@@ -167,6 +171,8 @@ def enclose_lines(final, lab, rooms, gray, pt, dims, ppm, fams, bg_sheet, other_
                   inside=None):
     """Подход «линии и продолжение стен» в окне (координаты окна). → (маска комнаты, сведения) или (None, причина).
     inside — выпуклая оболочка здания (вне её — граница)."""
+    if fc.empty_img(final, lab, gray):
+        return None, 'пустое окно'
     Wm = final > 0
     R = np.isin(lab, list(rooms)) if len(rooms) else np.zeros(lab.shape, bool)
     faint = attached_lines(faint_lines(gray, Wm), Wm, max(3, int(round(ATTACH_M * ppm))))
@@ -248,6 +254,8 @@ def enclose_box(final, lab, rooms, gray, pt, dims, ppm, fams, bg_sheet, other_pt
     """Подход «рамка по мерке подписи» в окне. → (маска комнаты, сведения) или (None, причина).
     inside — выпуклая оболочка здания: пол за неё не выходит, рамка заходит не больше BOX_OUTSIDE (углы мимо эркера).
     max_extent — мерка «max»/«into bay»: габарит, поэтому внутри рамки допускается больше выступов стен."""
+    if fc.empty_img(final, lab, gray):
+        return None, 'пустое окно'
     Wm = final > 0
     R = np.isin(lab, list(rooms)) if len(rooms) else np.zeros(lab.shape, bool)
     out = ~inside if inside is not None else np.zeros(Wm.shape, bool)

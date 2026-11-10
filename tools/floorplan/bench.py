@@ -795,6 +795,8 @@ def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
     ctx = repair.Ctx(gray=gray, ev=repair.evidence(dark_raw(img, gray, cfg), t_int), wp=repair.wall_prob(gray), ppm=ppm,
                      t_int=t_int, fams=fams, bay_in=r.get('bay_in'))
     st = repair.State(r['lab'].copy(), r['final'].copy(), list(r['rooms']), r['add'].copy())
+    labs_all = labs
+    labs, off = repair.on_sheet(labs, st.lab.shape)   # точка за краем листа панели — не в починку (в отчёт — как была)
     topo = repair.topology(st, labs, ppm)
     obs = []
     for i, l in enumerate(labs):
@@ -828,7 +830,7 @@ def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
         r['outside'] = (r['outside'] > 0) & ~newm
     r['lab'], r['final'], r['rooms'] = st2.lab, st2.final, st2.rooms
     r['areas'] =np.bincount(r['lab'].ravel(), minlength=int(r['lab'].max()) + 1)
-    return r, [log0] + jr, repair.label_report(st2, labs, ctx)
+    return r, [log0] + off + jr, repair.label_report(st2, labs_all, ctx)
 
 
 def attach_flags(dims, groom, rep_labels, ppm):

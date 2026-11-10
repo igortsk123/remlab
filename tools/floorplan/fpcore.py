@@ -12,9 +12,19 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
+
+def empty_img(*arrs) -> bool:
+    """Хоть один массив нулевой площади (окно вокруг точки за краем листа, пустой срез). OpenCV 5 на таком входе:
+    connectedComponents* — авария процесса (segfault, не исключение — T-20261110-06), dilate/erode/morphologyEx/
+    warpAffine — cv2.error. Проверять ДО вызова OpenCV от вычисленного окна/среза."""
+    return any(a is None or np.ndim(a) < 2 or a.shape[0] == 0 or a.shape[1] == 0 for a in arrs)
+
+
 # --- маски ------------------------------------------------------------------------------------------------------------
 
 def remove_small(mask: np.ndarray, min_area: int) -> np.ndarray:
+    if empty_img(mask):
+        return np.zeros(np.shape(mask), np.uint8)
     n, lab, st, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
     keep = np.zeros(n, bool)
     keep[1:] = st[1:, cv2.CC_STAT_AREA] >= min_area

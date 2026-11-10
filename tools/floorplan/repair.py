@@ -202,6 +202,8 @@ def pixel_cost(st: State, ctx: Ctx, roi=None) -> float:
     (толстый тёмный штрих без нашей стены рядом). Считается в окне roi (x0, y0, x1, y1) или по всей панели."""
     sl = np.s_[:, :] if roi is None else np.s_[roi[1]:roi[3], roi[0]:roi[2]]
     f = st.final[sl] > 0
+    if fc.empty_img(f):
+        return 0.0                                   # пустое окно: расхождения нет (dilate на нём — cv2.error)
     k = np.ones((3, 3), np.uint8)
     evd = cv2.dilate(ctx.ev[sl].astype(np.uint8), k, iterations=1) > 0
     fd = cv2.dilate(f.astype(np.uint8), k, iterations=1) > 0
@@ -499,6 +501,22 @@ def _no(why: str):
     return None
 
 
+def on_sheet(labels: list, shape) -> tuple[list, list]:
+    """Подписи с точкой на листе панели → (они, записи журнала об остальных). Подпись отдаётся панели по ближайшему
+    контуру VLM без предела расстояния, поэтому её точка бывает за краем листа панели — окно вокруг неё пусто, а OpenCV
+    на пустом окне роняет процесс (лист C, T-20261110-06). Такие подписи в починке не участвуют."""
+    H, W = shape
+    keep, off = [], []
+    for l in labels:
+        x, y = float(l.pt[0]), float(l.pt[1])
+        if 0 <= x < W and 0 <= y < H:
+            keep.append(l)
+        else:
+            off.append({'kind': 'skip', 'hyp': 'label', 'label': l.name, 'pt': [round(x, 1), round(y, 1)],
+                        'sheet': [W, H], 'why': 'точка подписи вне листа панели'})
+    return keep, off
+
+
 def hyp_recompute(st: State, i: int, labels: list, ctx: Ctx, outside: np.ndarray, close_m: float, use_dom: bool):
     """Подпись не в комнате: окно вокруг неё (по её размерам — только как размер окна), закрытие проёмов ≤ close_m
     (и маска по доминирующему тёмному цвету окна) → область подписи, замкнутая внутри окна, становится комнатой."""
@@ -506,8 +524,12 @@ def hyp_recompute(st: State, i: int, labels: list, ctx: Ctx, outside: np.ndarray
     H, W = st.lab.shape
     half = int((0.75 * max(l.dims or (4.0, 4.0)) + 1.0) * ctx.ppm)
     x, y = int(l.pt[0]), int(l.pt[1])
+    if not (0 <= x < W and 0 <= y < H):
+        return _no('точка подписи вне листа')
     roi = (max(0, x - half), max(0, y - half), min(W, x + half + 1), min(H, y + half + 1))
     sl = np.s_[roi[1]:roi[3], roi[0]:roi[2]]
+    if fc.empty_img(st.final[sl]):
+        return _no('пустое окно')                                   # OpenCV на пустом окне роняет процесс
     Wm = (st.final[sl] > 0).astype(np.uint8)
     faint = np.zeros(Wm.shape, bool)
     if use_dom == 'faint':
@@ -590,6 +612,8 @@ def hyp_enclose(st: State, i: int, labels: list, ctx: Ctx, mode: str):
     H, W = st.lab.shape
     roi = openroom.window(l.pt, l.dims, ctx.ppm, (H, W), k=0.75 if mode == 'lines' else 1.0)
     sl = np.s_[roi[1]:roi[3], roi[0]:roi[2]]
+    if fc.empty_img(st.lab[sl]):
+        return _no('пустое окно')                     # подпись за краем листа: OpenCV на пустом окне роняет процесс
     if ctx.bg is None:
         ctx.bg = float(np.percentile(ctx.gray, 90))
         rm = np.isin(st.lab, st.rooms)
@@ -825,6 +849,8 @@ _PROT_CACHE: dict = {}
 def protrusion(m: np.ndarray, ppm: float) -> tuple[float, np.ndarray | None, np.ndarray | None]:
     """Отростки области: что остаётся после открытия кругом диаметра NECK_M (тело комнаты) — куски ≥ 0,5 м².
     → (м², маска тела, маска отростков) в координатах m."""
+    if fc.empty_img(m):
+        return 0.0, None, None
     k = max(3, int(NECK_M * ppm)) | 1
     se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
     mm = cv2.copyMakeBorder(m.astype(np.uint8), k, k, k, k, cv2.BORDER_CONSTANT, value=0)
