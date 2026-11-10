@@ -19,7 +19,7 @@ review_after: 2026-12-10
 
 ## По коду
 - **Задание:** `app/try/page.tsx` → `POST /api/trial` → `trial_jobs` (`db/init/022-trial-jobs.sql`, колонки — 023, 024; `trial_rebuilds` — 025, `trial_photos` — 026);
-  ≤ 300/сутки на сайт (`trialDailyCap`); Метрики на /try нет (`lib/metrika.ts:noMetrikaPath`).
+  ≤ 300/сутки (`trialDailyCap`).
 - **Воркер DEV:** `tools/floorplan/worker.py`, юнит `tools/floorplan/systemd/remlab-trial-worker.service` (MemoryMax 2G);
   аренда — `lib/trial/repo-worker.ts` (скалярный `skip locked`). Не берёт при < 3 ГБ (`TRIAL_MEM_MIN_GB`), ≥ 2 в heavy-очереди,
   прод `/api/health` не 200.
@@ -31,18 +31,13 @@ review_after: 2026-12-10
   «Обустроить» — `conveyor.Rebuild`.
 - **Тур:** `app/try/[id]/tour/[[...path]]/route.ts` (страница `/demo` под `TRIAL()`); версия — `lib/trial/tour-bundle.ts:ensureJobRelease`.
 - **Товары:** как в /demo (`trial_bundle.py:catalog_goods`); EN — £ ×1,5 без магазина (`uk_money`); фото — плитка /demo (`demo_img`).
-- **Фото:** при `trial_bundle.py:photo_ok`, ≤ 10 на задание за 24 ч (`trialPhotoDaily`); обложка `tools/scout/trial_hero.py`
-  в конвейер не подключена (`conveyor.after_done` — заглушка).
+- **Фото:** при `trial_bundle.py:photo_ok`, ≤ 10 на задание за 24 ч (`trialPhotoDaily`).
 
-- **Правка агентом (только ссылка с `k`):** комната — карандаш, `app/api/trial/[id]/room-edit`, `trial_room_edits` (028), шаг
-  `tools/floorplan/room_edits.py`; проёмы — «Окна и двери», `app/api/trial/[id]/opening-edit`, `trial_opening_edits` (029),
-  `tools/floorplan/opening_edits.py`; пересборка вида `edit` — только задетые комнаты (`trial_rebuilds_kind_chk`).
-- **Ленты и стили как /demo:** `tools/scout/demo_feeds.py`, `trial_bundle.feeds_for`; 6 стилей подстановкой (`trial_demo.py`).
-- **Готовые туры на новом коде:** `tools/floorplan/reissue.py --days 14` (окружение воркера); страница тура берётся из витрины `/opt/remlab/demo` —
-  сперва `tools/scout/publish_demo.sh`, потом перевыпуск, иначе правки `index.html` до туров не доходят.
+- **Правка агентом (ссылка с `k`):** комната — `tools/floorplan/room_edits.py` (028), проёмы — `opening_edits.py` (029); пересобираются задетые комнаты.
+- **Ленты /demo:** `tools/scout/demo_feeds.py`. Перевыпуск: `publish_demo.sh`, затем `tools/floorplan/reissue.py --days 14`.
 
 ## Хранение
 План и тур — 30 дн, правка плана в этот срок (`lib/trial/config.ts:trialFileHours`); с адреса 10/ч и 30/сутки (`lib/trial/upload-limits.ts`); наши машины — `lib/trial/own-key.ts`; email и ip_hash не храним.
 
 ## Дыры 10.11
-ADR-0360…0364, уроки — `lessons/floorplan-trial.md`. Лист C: стены 764 с при пределе 900 с (`worker.py`).
+ADR-0360…0364, уроки — `lessons/floorplan-trial.md`.
