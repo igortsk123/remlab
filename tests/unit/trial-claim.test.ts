@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type postgresT from "postgres";
 
 import { bundleDbTests } from "./_trial-bundle-db";
+import { photoDbTests } from "./_trial-photo-db";
 import { rebuildDbTests } from "./_trial-rebuild-db";
 import { png, sampleResult, withOneRowStats } from "./_trial-helpers";
 
@@ -401,4 +402,5 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
 
   bundleDbTests(() => ({ pg, repo: L.repo, seed, row, expire, dir: DIR, token: TOKEN }));
   rebuildDbTests(() => ({ pg, repo: L.repo, seed, row, dir: DIR, token: TOKEN }));
+  photoDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR }));
 });

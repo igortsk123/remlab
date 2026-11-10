@@ -496,6 +496,18 @@ def size_check(result: dict, room: dict) -> str | None:
     return next((f for f in room.get('flags') or [] if f in SIZE_CHECK_FLAGS), None)
 
 
+PHOTO_SCALES = ('verified', 'listing')
+
+
+def photo_ok(result: dict, room: dict, kind: str, state: str, consent: bool) -> bool:
+    """ДОВЕРИЕ К РАЗМЕРАМ КОМНАТЫ ДЛЯ ФОТО (план agent-trial-08 § «Правило фото», T-20261109-34): фото нейросети — только гостиной или
+    спальне, которая обставлена (`ready`), с подтверждённым масштабом квартиры (`verified`/`listing`; `area` без сверки — нет), без флага
+    размера и не обставленной «как есть» по согласию агента (мебель есть, фото нет). Одно правило — его читают страница (кнопка) и сервер
+    (`/api/trial/<id>/photo`)."""
+    return (kind in (LIVING, BEDROOM) and state == 'ready' and (result.get('scale') or {}).get('status') in PHOTO_SCALES
+            and not consent and size_check(result, room) is None)
+
+
 def _living_rooms(result: dict, cfg: dict) -> tuple[list, list]:
     """Комнаты типа «гостиная»: первая — та же, что выбирает `trial_room.pick_living` (её обставляет сцена), дальше по площади."""
     try:
@@ -699,6 +711,7 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
             entry['storey'] = st
         if kind in (LIVING, BEDROOM) and consented(r, rid) and size_check(result, r):
             entry['approx_consent'] = True                  # страница: «размеры примерные» — проверка снята агентом, не подтверждена
+        entry['photo_ok'] = photo_ok(result, r, kind, entry['furniture_state'], consented(r, rid))
         apartment_rooms.append(entry)
     vids = [v['id'] for v in variants]
     if len(vids) != len(set(vids)):

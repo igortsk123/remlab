@@ -14,8 +14,14 @@ export const tourLinks = (id: string, k?: string | null): { agent: string; buyer
   buyer: `/try/${id}/tour/?quiz=1`,
 });
 
-/** Единственная ручка `/api/*`, которую песочница пропускает, — «Обустроить» ЭТОГО задания и только через fetch (право — ключом на сервере). */
+/** «Обустроить» ЭТОГО задания — ручка `/api/*`, которую песочница пропускает (только через fetch; право — ключом на сервере). */
 export const rebuildPath = (id: string): string => `/api/trial/${id}/rebuild`;
+/** Фото нейросети ЭТОГО задания (T-20261109-34): заказ — через свою ручку (доверие к размерам и суточный предел — на сервере), кадры из
+ *  3D — на общую загрузку `/api/render/frame`, ход — опросом `/api/job?id=` (оба — сервис кадров с его IP-пределом). Всё остальное
+ *  `/api/*` закрыто, как было; `sendBeacon` — закрыт целиком. */
+export const photoPath = (id: string): string => `/api/trial/${id}/photo`;
+const FRAME_PATH = "/api/render/frame";
+const JOB_PATH = "/api/job";
 
 /** `version` — номер результата на момент отдачи HTML: страница опрашивает `version.json` и обновляется, когда он вырастет. */
 export function injectTour(html: string, id: string, version = 0): string {
@@ -36,8 +42,9 @@ P.key=function(i){var k=own(this)[i];return k==null?null:k.slice(PRE.length);};
 P.clear=function(){own(this).forEach(function(k){R.call(this,k);},this);};
 Object.defineProperty(P,'length',{configurable:true,enumerable:true,get:function(){return own(this).length;}});
 var BLOCK=${BLOCK};
-var OK=${JSON.stringify(rebuildPath(id))};
-function bad(u,ok){try{var x=new URL(String(u),document.baseURI);return x.origin===location.origin&&BLOCK.test(x.pathname)&&!(ok&&x.pathname===OK&&!x.search);}catch(e){return false;}}
+var OK=${JSON.stringify([rebuildPath(id), photoPath(id), FRAME_PATH])},JOB=${JSON.stringify(JOB_PATH)};
+function fine(x){return x.search?(x.pathname===JOB&&/^\\?id=[A-Za-z0-9_-]{1,64}$/.test(x.search)):OK.indexOf(x.pathname)>=0;}
+function bad(u,ok){try{var x=new URL(String(u),document.baseURI);return x.origin===location.origin&&BLOCK.test(x.pathname)&&!(ok&&fine(x));}catch(e){return false;}}
 var F=window.fetch;
 window.fetch=function(i,o){if(bad(i&&i.url||i,1))return Promise.resolve(new Response('{"ok":false,"error":"trial"}',{status:403,headers:{'content-type':'application/json'}}));return F.call(window,i,o);};
 if(navigator.sendBeacon){var B=navigator.sendBeacon.bind(navigator);navigator.sendBeacon=function(u,d){return bad(u)?true:B(u,d);};}

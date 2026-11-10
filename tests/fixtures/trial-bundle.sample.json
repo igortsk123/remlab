@@ -14,6 +14,7 @@
     "kind": "living",
     "name_src": "Lounge",
     "ordinal": 1,
+    "photo_ok": false,
     "titleEn": "Lounge",
     "titleRu": "Гостиная"
    }
@@ -219,6 +220,7 @@
     "kind": "living",
     "name_src": "Lounge",
     "ordinal": 1,
+    "photo_ok": true,
     "titleEn": "Lounge",
     "titleRu": "Гостиная"
    }
@@ -636,6 +638,7 @@
     "kind": "living",
     "name_src": "Lounge",
     "ordinal": 1,
+    "photo_ok": true,
     "titleEn": "Lounge",
     "titleRu": "Гостиная"
    },
@@ -651,6 +654,7 @@
     "kind": "bedroom",
     "name_src": "Bedroom 1",
     "ordinal": 2,
+    "photo_ok": true,
     "titleEn": "Bedroom 1",
     "titleRu": "Спальня 1"
    },
@@ -666,6 +670,7 @@
     "kind": "bedroom",
     "name_src": "Bedroom 2",
     "ordinal": 3,
+    "photo_ok": false,
     "titleEn": "Bedroom 2",
     "titleRu": "Спальня 2"
    },
@@ -681,6 +686,7 @@
     "kind": "kitchen",
     "name_src": "Kitchen",
     "ordinal": 4,
+    "photo_ok": false,
     "titleEn": "Kitchen",
     "titleRu": "Кухня"
    },
@@ -696,6 +702,7 @@
     "kind": "hall",
     "name_src": "Hall",
     "ordinal": 5,
+    "photo_ok": false,
     "titleEn": "Hall",
     "titleRu": "Прихожая"
    }

@@ -510,6 +510,43 @@ def test_approx_consent_room_released_and_marked():
     assert all('approx_consent' not in r for r in d['apartment_rooms'])
 
 
+def _photo(d):
+    return {r['id']: r['photo_ok'] for r in d['apartment_rooms']}
+
+
+@pytest.mark.parametrize('scale,want', [('verified', True), ('listing', True), ('area', False), ('not_verified', False)])
+def test_photo_ok_only_for_furnished_living_and_bedroom_with_confirmed_scale(scale, want):
+    """T-20261109-34, план agent-trial-08 § «Правило фото»: фото — только гостиной/спальне, обставленной (`ready`), при масштабе
+    `verified`/`listing`. «Подбирается», «нет товаров», «не обставляется» (кухня, прихожая), `area` без сверки — нет."""
+    flat = flat_with_bedrooms()
+    flat['scale']['status'] = scale
+    d = TB.build(JOB, flat, scene_for(flat), ctx=CTX, parts=[bedroom_part(), bedroom_part('bedroom-2', 'refused', 'no_products', False)],
+                 release=['living', 'bedroom-1'] if scale == 'not_verified' else ())
+    p = _photo(d)
+    assert p['living'] is want and p['bedroom-1'] is want
+    assert p['bedroom-2'] is False and p['kitchen-1'] is False and p['hall-1'] is False
+    assert not any(_photo(build(flat)).values())                     # без сцены и кусков — всё «подбирается»: фото нет
+
+
+def test_photo_ok_false_for_size_flag_and_approx_consent():
+    """Флаг размера (`dims_mismatch`) — ждёт проверки, фото нет; «Обустроить как есть» (`approx_consent`) — мебель есть, фото нет."""
+    flat = flat_with_bedrooms()
+    flat['scale']['status'] = 'verified'
+    b1 = next(r for r in flat['panels'][0]['rooms'] if r['id'] == 'b1')
+    b1['flags'] = ['dims_mismatch']
+    d = TB.build(JOB, flat, scene_for(flat), ctx=CTX, parts=[bedroom_part()])
+    assert _photo(d)['bedroom-1'] is False and _photo(d)['living'] is True
+    b1['flags'] = ['dims_mismatch', 'approx_consent']
+    d = TB.build(JOB, flat, scene_for(flat), ctx=CTX, parts=[bedroom_part()])
+    by = {r['id']: r for r in d['apartment_rooms']}
+    assert by['bedroom-1']['furniture_state'] == 'ready' and by['bedroom-1']['approx_consent'] is True and by['bedroom-1']['photo_ok'] is False
+    # гостиную обставили по запросу при флаге размера (готовая сцена): мебель показываем, фото — нет
+    r1 = next(r for r in flat['panels'][0]['rooms'] if r['id'] == 'r1')
+    r1['flags'] = ['dims_mismatch']
+    d = TB.build(JOB, flat, scene_for(flat), ctx=CTX, parts=[bedroom_part()])
+    assert {r['id']: r['furniture_state'] for r in d['apartment_rooms']}['living'] == 'ready' and _photo(d)['living'] is False
+
+
 def test_parts_matched_by_source_room_and_foreign_room_refused():
     res = flat_with_bedrooms()
     part = bedroom_part('bedroom-7')

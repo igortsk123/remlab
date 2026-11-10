@@ -17,11 +17,11 @@ COPY services/planner-solver/rules/ /app/rules/
 COPY tools/scout/rules/asset-strategies.json tools/scout/rules/capabilities.json \
      tools/scout/rules/openai_prices.json tools/scout/rules/practice_priors.json \
      tools/scout/rules/improve-rooms.json /app/rules/
-COPY tools/scout/draft_service.py tools/scout/draft_guard.py tools/scout/draft_jobs.py tools/scout/draft_render.py \
+COPY tools/scout/draft_service.py tools/scout/draft_guard.py tools/scout/draft_jobs.py tools/scout/draft_trial.py tools/scout/draft_render.py \
      tools/scout/asset_strategy.py tools/scout/falmini.py tools/scout/improve_mode.py \
      tools/scout/mesh_render.py tools/scout/scene_mesh.py tools/scout/opening_ir.py tools/scout/styles.json /app/
 # сборка падает, если HTTP-рендеру чего-то не хватает (а не ночью на первом кадре)
-RUN python -c "import draft_service, draft_jobs, draft_render, mesh_render, scene_mesh, opening_ir, improve_mode, asset_strategy; print('imports ok')"
+RUN python -c "import draft_service, draft_jobs, draft_trial, draft_render, mesh_render, scene_mesh, opening_ir, improve_mode, asset_strategy; print('imports ok')"
 # правила промпта спальни читаются лениво (при первом фото не-гостиной) — читаем при сборке, чтобы нехватка ловилась здесь
 RUN python -c "import improve_mode as m; r = m.room_rules('bedroom'); assert r.get('name'), r; print('room rules ok')"
 EXPOSE 8099

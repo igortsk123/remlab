@@ -33,6 +33,8 @@ export const trialBundle = z.looseObject({
      *  largest_living_only / not_furnished / failed / size_unverified */
     furniture_outcome: z.string().max(40).optional(),
     titleRu: z.string().max(120).optional(), titleEn: z.string().max(120).optional(),
+    /** Размерам комнаты можно верить для фото нейросети (`trial_bundle.photo_ok`, T-20261109-34): нет поля — фото нет. */
+    photo_ok: z.boolean().optional(),
   })).max(200),
   variants: z.array(variant).min(1).max(200),
   feeds: z.record(z.string(), z.array(z.unknown())),

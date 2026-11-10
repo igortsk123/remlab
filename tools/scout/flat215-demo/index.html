@@ -1269,7 +1269,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .fh-3d:hover{background:#DCEAF4}
 /* РЕЖИМ ПРОБЫ (agent-trial-08, `D.trial` → класс на body): шапка без цены, ЖК и менеджера, без сертификата, избранного и платной кнопки */
 body.trial #hmAva,body.trial #flatPriceSum,body.trial #flatMetaRow,body.trial #flatMore,body.trial #hmChat,body.trial #hmFav,body.trial #vFav,
-body.trial #hmBot,body.trial .vtop,body.trial #consShot,body.trial #swapShot,body.trial #shotNow,body.trial #pcMort,body.trial #pcCons,body.trial .hm-tipw{display:none!important}
+body.trial #hmBot,body.trial #consShot,body.trial #swapShot,body.trial #shotNow,body.trial #pcMort,body.trial #pcCons,body.trial .hm-tipw{display:none!important}
 /* фото товаров в пробе нет (ссылки магазина вычищены) — пустую плашку «нет фото» не показываем, строка без слота (T-20261109-20/3) */
 body.trial .row>.noimg-sm:not(.tr-thph),body.trial .prow>.pnoimg,body.trial .card>.noimg,body.trial #itemCard .ic-ph:has(.ic-no){display:none!important}
 body.trial .row>.acts{padding-left:0}body.trial #flatRooms>.hint{flex:0 0 100%}body.trial .pinlist .row,body.trial .pinlist .row .t{min-height:0}
@@ -1534,6 +1534,22 @@ const TR_OUT={furnished:'furnished',ready:'furnished',partial:'furnished',pendin
   not_furnished:'not_furnished',none:'not_furnished',largest_living_only:'not_furnished',room_kind_not_furnished:'not_furnished',one_living_furnished:'not_furnished',
   size_unverified:'awaiting',awaiting_check:'awaiting'};   // «ждёт проверки размера» (Р1): без мебели, агент может нажать «Обустроить»
 const trRoom=id=>TRIAL()?(D.apartment_rooms||[]).find(x=>x&&x.id===id):undefined;
+// ФОТО НЕЙРОСЕТИ В ТУРЕ (T-20261109-34, план agent-trial-08 § «Правило фото»): только комнате, размерам которой верим — поле сборщика
+// `photo_ok` (`trial_bundle.photo_ok`: обставлена, масштаб verified/listing, без флага размера, не «как есть»). То же правило проверяет
+// сервер (`/api/trial/<id>/photo`). Нет доверия — кнопки нет, вместо неё тихая строка «Фото — после уточнения размеров»
+const trPhotoOk=id=>{const r=trRoom(id); return !!(r&&r.photo_ok===true);};
+const trPhotoHere=()=>TRIAL()&&trPhotoOk(roomIdOf(allVariants()[cur]||{}));
+// отказ заказа фото тура кодом сервера → текст на языке страницы; неизвестный код — пусто (общий текст отказа)
+function trPhotoErr(code){ const EN=TR_EN(), T={
+  photo_limit:['На сегодня фото по этому туру закончились — попробуйте завтра.','No more photos for this tour today — please try tomorrow.'],
+  photo_not_allowed:['Фото — после уточнения размеров.','Photo — after the sizes are confirmed.'],
+  stale:['Тур обновился — откройте его заново и попробуйте ещё раз.','The tour has been updated — reopen it and try again.'],
+  no_views:['Фото делается из 3D, а 3D на этом устройстве не запустилось.','The photo is made from the 3D view, which did not start on this device.'],
+  expired:['Срок этого тура истёк.','This tour has expired.'],
+  // отказ сервиса кадров ДО оплаты: у товаров комнаты мало фото — модель рисовала бы их по названию (`improve_mode.paid_gate`)
+  no_product_sheet:['Для фото этой комнаты не хватает снимков товаров — попробуйте другой стиль.','There are not enough product pictures for a photo of this room — try another style.'],
+  failed:['Фото сейчас не получилось — попробуйте ещё раз через несколько минут.','The photo did not work this time — please try again in a few minutes.']}[code];
+  return T?T[EN?1:0]:''; }
 // комната «ждёт проверки», по которой идёт «Обустроить», — уже «подбирается» (крутилка, опрос версии), а не пустая с кнопкой
 function roomOutcome(id){ const r=trRoom(id); if(!r)return undefined;
   const o=TR_OUT[r.furniture_outcome]||TR_OUT[r.furniture_code]||TR_OUT[r.furniture_state];
@@ -6146,7 +6162,10 @@ function photoWaitPaint(){
 }
 async function makePhoto(quality, srcId, replaceBatch, opt){
   opt=opt||{};
-  if(TRIAL()){if(opt.fail)opt.fail('');return;}   // проба: никаких трат — ни кнопка, ни автофото избранного сюда не доходят
+  // проба: тратим только на фото нейросети комнаты с доверием к размерам и только по кадрам из 3D (T-20261109-34) — заказ через ручку тура,
+  // предел и правило на сервере; черновик, повтор по `src_id`, автофото избранного сюда не доходят
+  const trialPhoto=TRIAL()&&quality==='realistic'&&!!opt.bg&&!!(opt.extra&&opt.extra.views)&&trPhotoHere();
+  if(TRIAL()&&!trialPhoto){if(opt.fail)opt.fail(trPhotoErr(trPhotoHere()?'no_views':'photo_not_allowed'),'trial');return;}
   const wait=(html,cap)=>{if(opt.bg){const t=document.createElement('div'); t.innerHTML=html; opt.fail(t.textContent.trim()); return;} shotOpen(html,cap);};
   if(busy){wait('<div class="wait">Один кадр уже считается — дождитесь его.</div>','');return;}
   busy=true; warmUp();
@@ -6176,7 +6195,7 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
     // работаем по-прежнему, ответ придёт целиком.
     // В ФОН — ОБА КАЧЕСТВА (b2b-08 п.3): занятый сервер ставит кадр в очередь и говорит место и время, а не отказывает
     const bg = true;
-    const r=await fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},
+    const r=await fetch(trialPhoto?'/api/trial/'+trJobId()+'/photo':'/api/render',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify(Object.assign(req,srcId?{src_id:srcId}:{},bg?{async:1}:{}))});
     let j=await r.json().catch(()=>({error:'сервер кадров недоступен (HTTP '+r.status+')',code:'lost'}));
     // ЧЕСТНЫЙ ОТКАЗ СРАЗУ (demo-03, 14.10): без денег у сервиса картинок сервер отвечает за доли секунды кодом
@@ -6257,6 +6276,8 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
     // (сервер обновлялся, номер неизвестен) — кнопка «Повторить» тем же качеством. Платное повторяется только
     // этой кнопкой человека — сервер сам за него не платит второй раз.
     const code=err&&err.code||'';
+    // тур: любой отказ — своим текстом на языке страницы (текст сервера русский и для демо; нет денег, сервис молчит, задание потеряно — общий)
+    if(trialPhoto){opt.fail(trPhotoErr(code)||trPhotoErr('failed'),code); return;}
     if(code==='no_credits'||code==='unavailable'){
       // окно варианта: про черновик не говорим — его у покупателя больше нет (demo-09 п.5)
       if(opt.bg){opt.fail(code==='no_credits'?'Фото сейчас не сделать: у сервиса картинок закончился баланс. Попробуйте позже.'
@@ -7706,6 +7727,9 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 .vcta-bar{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.22);transition:width 1s linear;pointer-events:none}
 .vcta-t,.vcta.busy small{position:relative}
 .vcta-err{font-size:13px;color:#B3261E;margin:6px 2px 0;line-height:1.4}
+/* тур пробы (T-20261109-34): комнате без доверия к размерам вместо кнопки фото — тихая строка; пустой блок кнопки в туре не показываем */
+.vcta-note{margin:0;padding:4px 0 2px;font-size:13.5px;line-height:1.35;color:var(--muted);text-align:center}
+body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
 .vplanbox{display:none;position:absolute;inset:60px 12px 12px;z-index:var(--zl-scene);background:var(--wash-2)}
 .vplanbox svg{width:100%;height:100%}
 #shot.vplan .vplanbox{display:block}#shot.vplan .shotwrap img,#shot.vplan .vpan,#shot.vplan .vpins,#shot.vplan .vold,#shot.vplan .vzbtn,
@@ -7755,7 +7779,7 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
    padding:5px 14px;font-size:14px;font-weight:600}
   .vtop{padding:2px 14px 8px;touch-action:none}.vtop .vcta{margin-top:0}
   /* «Фото»: кнопки нет (снимок уже есть) — пустой блок не добавляет высоты свёрнутой шторке */
-  .vtop:not(:has(.vcta:not([hidden]),#vCtaErr)){display:none}
+  .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
   .vlist{padding:0 14px}
   /* рамка выделенной строки — внутри поля списка 14 px (обход 1808: при −12 px она доходила до края экрана на 2 px) */
   #shot.v2 .pinlist .row.hl{margin:0 -8px;padding-left:8px;padding-right:8px}
@@ -8787,6 +8811,13 @@ function vwCtaUi(){
     const sm=cta.querySelector('small'); sm.textContent=nt; sm.hidden=!nt; cta.dataset.left=w.left;}
   else{cta.classList.remove('busy'); cta.textContent=EN?'Make it realistic':CTA_REAL;}
   if(!VJ.job||m==='plan')delete cta.dataset.left;
+  // ТУР ПРОБЫ (T-20261109-34): кнопка фото — только комнате с доверием к размерам, иначе вместо неё тихая строка; «Изменить план» в туре нет
+  const trNo=TRIAL()&&!trPhotoHere();
+  if(TRIAL()&&(m==='plan'||trNo))cta.hidden=true;
+  let tn=document.getElementById('vCtaNote');
+  if(trNo&&m==='walk'){if(!tn){tn=document.createElement('p'); tn.id='vCtaNote'; tn.className='vcta-note'; cta.after(tn);}
+    tn.textContent=EN?'Photo — after the sizes are confirmed':'Фото — после уточнения размеров';}
+  else if(tn)tn.remove();
   let er=document.getElementById('vCtaErr');
   if(VJ.err&&m!=='photo'){if(!er){er=document.createElement('p'); er.id='vCtaErr'; er.className='vcta-err'; cta.after(er);} er.textContent=VJ.err;}
   else if(er)er.remove();
@@ -8849,7 +8880,7 @@ const VPF_QUIET_MS=1500, VPF_UP_MAX=20, VPF_UP_WIN_MS=600000, VPF_MAX_AGE_MS=360
 const VPF={cap:null, run:null, t:0, q:Promise.resolve(), up:[], captures:0, log:[]};
 function vwPreKey(){ return curStateId()+'|'+(isTouchUI()?'t':'d')+'|'+JSON.stringify((cams||loadCams()).slice(0,2).map(camPoseOf)); }
 function vwPreOk(){
-  if(TRIAL()||document.hidden||LIVE.ok===false||(liveSoftGL()&&!LIVE.force)||!D||!items)return false;
+  if((TRIAL()&&!trPhotoHere())||document.hidden||LIVE.ok===false||(liveSoftGL()&&!LIVE.force)||!D||!items)return false;
   const c=navigator.connection; if(c&&(c.saveData||/(^|slow-)2g$/.test(c.effectiveType||'')))return false;
   const sh=document.getElementById('shot');
   return (LIVE.ok===true&&!!LIVE.scene)||!!(sh&&sh.classList.contains('on')&&sh.classList.contains('v2'));
@@ -8910,7 +8941,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeou
 // АВТОФОТО ИЗБРАННОГО (demo-19 В3): тот же путь, `o.auto` — отказ без текста на экране (остаётся 3D-снимок), `o.fail` — сообщить
 // избранному. Готовое фото любого задания (и ручного) — событие `remlab:photo`: избранное этого состояния берёт его картинкой
 async function vwRealistic(o){
-  if(TRIAL())return false;
+  if(TRIAL()&&(!trPhotoHere()||(o&&o.auto)))return false;   // тур: только своя кнопка комнаты с доверием к размерам (T-20261109-34)
   o=(o&&o.auto)?o:{};
   if(VJ.job)return false;
   const c=VW.photo, job={vid:curVid(), stateId:curStateId(), cam:c, t0:Date.now(), note:'', auto:!!o.auto};
@@ -8938,6 +8969,8 @@ async function vwRealistic(o){
   VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay,pre:cap.pre,key:cap.key,ids:(cap.views||[]).map(v=>v.id),tm:job.tm,t0:job.t0}:null;   // для проверок и замера
   if(!job.bg&&cap&&cap.blobs&&cap.blobs.length){job.bg=URL.createObjectURL(cap.blobs[job.cam]||cap.blobs[0]); vwPhWaitUi();}
   if(VW.mode==='photo')liveHide();   // съёмка кадров запускает цикл сцены — на «Фото» он не нужен
+  // тур пробы: без кадров из 3D фото нет — серверной сцены для него не строим (T-20261109-34, владелец TG 567)
+  if(TRIAL()&&!(cap&&cap.views)){end(); VJ.err=trPhotoErr('no_views'); vwCtaUi(); return true;}
   makePhoto('realistic','','',{bg:true, extra:cap?{views:cap.views, clay:cap.clay, sheet:cap.sheet}:{},
     progress:t=>{job.note=t; vwCtaUi();},
     fail:(msg)=>{end(); if(job.auto){if(o.fail)o.fail(msg); favDraw(); return;} VJ.err=String(msg||'').slice(0,220); vwCtaUi(); favDraw();},

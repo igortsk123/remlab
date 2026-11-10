@@ -38,6 +38,10 @@ esc = html.escape
 from draft_guard import (ALLOWED_ORIGINS, PUB_FILE, TRIM_STATS_FILE, ip_allowed, load_pub,  # noqa: E402
                          queue_eta, registry_room_fields, registry_trim, safe_url, save_share_request, trim_stats_update)
 from draft_jobs import JobStore, public_view  # noqa: E402
+import draft_trial as DT  # noqa: E402
+# фото тура пробы (T-20261109-34): суточный счёт по заданию — файлом рядом с реестром кадров (на проде — том share, переживает выкладку)
+TRIAL_DAY = DT.TrialDaily(os.path.join(os.path.dirname(DR.FRAMES_DIR), 'trial-photos.json'), DT.daily_limit())
+TRIAL_LIMIT_TEXT = 'На сегодня фото по этому туру закончились — попробуйте завтра.'
 SHARE_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>{{TITLE}} — подборка</title>
@@ -230,8 +234,8 @@ def _registry_add(payload: dict, out: dict) -> None:
     «какой кадр к какому стилю» хранилась ТОЛЬКО в браузере: с другого устройства коллекция
     оказывалась пустой, а предгенерация вообще не имела смысла. Теперь запись делает сервер, а
     страница её просто читает."""
-    if payload.get('no_registry'):
-        return          # фоновый кадр коллекции покупателя (demo-03, 2.13) — не вариант витрины, в общую ленту не идёт
+    if payload.get('no_registry') or payload.get('trial'):
+        return          # фоновый кадр коллекции покупателя (demo-03, 2.13) и фото тура пробы — не варианты витрины, в общую ленту не идут
     try:
         path = os.path.join(os.path.dirname(DR.FRAMES_DIR), 'shots.json')
         import uuid
@@ -588,6 +592,17 @@ class H(BaseHTTPRequestHandler):
             return self._send(429, {'error': 'слишком много кадров подряд, попробуйте через 10 минут'})
         if not (payload.get('room') and payload.get('items')):
             return self._send(400, {'error': 'нужны room и items'})
+        # ТУР ПРОБЫ (T-20261109-34, `draft_trial`): только реалистичное, только по двум кадрам из 3D браузера, без общего реестра;
+        # суточный предел задания считается там, где заказ принят (фон — при постановке, прямой — здесь; внутренний вызов `_job` — нет)
+        tid = DT.trial_id(payload)
+        if tid == '':
+            return self._send(400, {'error': 'неверный номер тура', 'code': 'bad_trial'})
+        if tid:
+            if not DT.has_views(payload):
+                return self._send(422, {'error': 'Фото делается из 3D: кадры не пришли — откройте 3D и попробуйте ещё раз.',
+                                        'code': 'no_views'})
+            payload.update(quality='realistic', no_registry=1)
+            payload.pop('src_id', None)
         # ДЛИННЫЙ ЗАПРОС УХОДИТ В ФОН. Клиент присылает `async:1` и получает номер задания.
         if payload.get('async'):
             quality = 'realistic' if payload.get('quality') == 'realistic' else 'draft'
@@ -600,6 +615,8 @@ class H(BaseHTTPRequestHandler):
                 # создаётся никогда — даже если деньги пополнили между её вопросом и запросом. С demo-11 — ещё и чем будет
                 # нарисовано: модель и промпт того процесса, который рисует (DEV за туннелем; его `/health`), и блоки промпта
                 return self._send(200, {'dry_run': True, 'would': 'job', 'quality': quality, **_dry_info(payload)})
+            if tid and not TRIAL_DAY.take(tid):
+                return self._send(429, {'error': TRIAL_LIMIT_TEXT, 'code': 'photo_limit'})
             body = dict(payload); body.pop('async', None)
             jid = JOBS.new(quality, body)
             threading.Thread(target=_work, args=(jid,), daemon=True).start()
@@ -607,6 +624,8 @@ class H(BaseHTTPRequestHandler):
         # ВРЕМЕННЫЙ КОСТЫЛЬ ДЛЯ ДЕМО (владелец 31.08): полный кадр рендерит DEV-машина
         # через ssh-туннель; конфиг кладётся файлом в share (env контейнера не пересоздать).
         # DEV молчит/упала → фолбэк на локальный (декимированный) рендер, кнопка живёт
+        if tid and '_job' not in payload and not payload.get('dry_run') and not TRIAL_DAY.take(tid):
+            return self._send(429, {'error': TRIAL_LIMIT_TEXT, 'code': 'photo_limit'})
         prx = _proxy_url()
         if prx and not payload.get('no_proxy'):
             try:
@@ -649,6 +668,9 @@ class H(BaseHTTPRequestHandler):
                     return self._send(503, {'error': 'Улучшение фото сейчас недоступно: сервер улучшения не '
                                                      'отвечает. Черновое фото работает — попробуйте улучшить позже.',
                                             'code': 'unavailable'})
+                if tid:                     # тур пробы: запасного рендера нет — фото товаров и кадры есть только у DEV
+                    return self._send(503, {'error': 'Фото сейчас недоступно: сервер улучшения не отвечает. Попробуйте позже.',
+                                            'code': 'unavailable'})
                 print(f'DEV-бэкенд молчит ({str(e)[:80]}) — рендерю локально', flush=True)
         now = time.time()
         _HITS[:] = [t for t in _HITS if now - t < 3600]
@@ -671,6 +693,11 @@ class H(BaseHTTPRequestHandler):
         try:
             t = time.time()
             quality = 'realistic' if payload.get('quality') == 'realistic' else 'draft'
+            if tid:                                  # фото товаров тура — из каталога по модели (в данных тура их нет)
+                n_it, n_img = DT.fill_imgs(payload)
+                n_ok = DT.warm_photos([it.get('img') for it in payload.get('items') or [] if isinstance(it, dict)], DR.CACHE,
+                                      DR.PUBLIC_BASE or 'https://remont-lab.online')
+                print(f'тур {tid[:6]}…: фото товаров из каталога {n_img} из {n_it}, скачано {n_ok}', flush=True)
             res = DR.render(layout=payload, quality=quality,
                             save_prefix=os.path.join(DR.OUT, 'draft-web'))
             if os.environ.get('FRAME_INLINE') == '1':

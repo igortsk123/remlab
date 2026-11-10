@@ -33,6 +33,11 @@ export const trialResultDays = (env = process.env) => envInt(env.TRIAL_RESULT_RE
 
 /** «Обустроить» (план agent-trial-08, Р1): пересборок на одно задание за сутки — DEV тратит минуты машины, не деньги. */
 export const trialRebuildDaily = (env = process.env) => envInt(env.TRIAL_REBUILD_DAILY, 10, 100);
+/** Фото нейросети из тура (T-20261109-34): заказов на одно задание за сутки (агент и покупатель вместе) — каждое фото платное (~6 ₽).
+ *  Тот же предел держит и сервис кадров (`draft_service.TRIAL_PHOTO_DAILY`) — на случай запроса мимо этой ручки. */
+export const trialPhotoDaily = (env = process.env) => envInt(env.TRIAL_PHOTO_DAILY, 10, 100);
+/** Сервис кадров внутри сети compose (`remlab-net`, псевдоним `draft`); заказ фото тура уходит туда с сервера, не со страницы. */
+export const trialDraftUrl = (env = process.env): string => (env.TRIAL_DRAFT_URL || "http://draft:8099").replace(/\/+$/, "");
 /** Квота приоритета: пересборки идут раньше новых загрузок, но не больше стольких подряд, пока загрузка ждёт. */
 export const trialRebuildQuota = (env = process.env) => envInt(env.TRIAL_REBUILD_QUOTA, 2, 20);
 /** Витрина `/demo` в контейнере приложения (docker-compose: `./demo:/srv/demo:ro`) — источник закреплённой страницы тура. */

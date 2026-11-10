@@ -62,7 +62,7 @@ describe("тур пробы: вставка песочницы", () => {
     expect(tourLinks(ID, k)).toEqual({ agent: `/try/${ID}/tour/?quiz=0&k=${k}`, buyer: `/try/${ID}/tour/?quiz=1` });
     expect(tourLinks(ID, "<x>").agent).toBe(`/try/${ID}/tour/?quiz=0`);
   });
-  it("песочница пропускает только «Обустроить» этого задания и только через fetch", async () => {
+  it("песочница пропускает «Обустроить» и фото этого задания, кадры и опрос задания — только через fetch", async () => {
     const boot = injectTour(html, ID).match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
     const seen: string[] = [];
     const store = new Map<string, string>();
@@ -78,8 +78,17 @@ describe("тур пробы: вставка песочницы", () => {
     expect((await f(`/api/trial/${OTHER}/rebuild`)).status).toBe(403);
     expect((await f(`/api/trial/${ID}/rebuild?x=1`)).status).toBe(403);
     expect((await f(`/api/trial/${ID}`)).status).toBe(403);
+    // фото (T-20261109-34): заказ — своей ручкой этого задания, кадры — общей загрузкой, ход — опросом номера задания
+    expect((await f(`/api/trial/${ID}/photo`)).status).toBe(200);
+    expect((await f(`/api/trial/${OTHER}/photo`)).status).toBe(403);
+    expect((await f(`/api/trial/${ID}/photo?x=1`)).status).toBe(403);
+    expect((await f("/api/render/frame")).status).toBe(200);
+    expect((await f("/api/job?id=abc123")).status).toBe(200);
+    for (const p of ["/api/render", "/api/render?async=1", "/api/render/frame?x=1", "/api/job", "/api/job?id=a&x=1", "/api/jobs?id=a",
+      "/api/job/x?id=a", "/api/share", "/api/draft/paid", "/api/events"]) expect((await f(p)).status, p).toBe(403);
     (nav.sendBeacon as (u: string) => boolean)(`/api/trial/${ID}/rebuild`);
-    expect(seen).toEqual([`/api/trial/${ID}/rebuild`]);
+    (nav.sendBeacon as (u: string) => boolean)("/api/render/frame");
+    expect(seen).toEqual([`/api/trial/${ID}/rebuild`, `/api/trial/${ID}/photo`, "/api/render/frame", "/api/job?id=abc123"]);
   });
   it("мусор в id — отказ", () => {
     expect(() => injectTour(html, "<script>")).toThrow();

@@ -53,6 +53,17 @@ export const trialRebuildIn = z.object({
   rooms: z.union([z.array(trialPageRoomId).min(1).max(40), z.literal("all")]),
 });
 export type TrialRebuildIn = z.infer<typeof trialRebuildIn>;
+
+/** Заказ фото нейросети из тура (T-20261109-34): заказ страницы как у `/demo` (`payload()` + `views`). Обязательны комната страницы,
+ *  ДВА кадра из 3D браузера (имена — sha256 загруженных `/api/render/frame`; без 3D фото нет, серверной сцены для тура нет), размеры
+ *  комнаты (сверяются с данными задания) и предметы. Остальные поля заказа проходят как есть — их форму проверяет сервис кадров. */
+export const trialPhotoIn = z.looseObject({
+  room_id: trialPageRoomId,
+  views: z.array(z.object({ camera: z.string().regex(/^C[1-4]$/), id: z.string().regex(/^[0-9a-f]{64}$/) })).length(2),
+  room: z.looseObject({ w: z.number().finite().positive(), d: z.number().finite().positive() }),
+  items: z.array(z.looseObject({ role: z.string().min(1).max(60) })).min(1).max(200),
+});
+export type TrialPhotoIn = z.infer<typeof trialPhotoIn>;
 /** Коды сбоя пересборки от воркера (наружу — `trialJobView.rebuildError`). */
 export const trialRebuildFailCode = z.enum(["stale", "timeout", "pipeline_error", "internal", "waiting_capacity", "nothing_to_furnish"]);
 

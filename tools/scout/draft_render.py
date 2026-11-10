@@ -3759,8 +3759,13 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                 try:
                     built = IM.build_from_views(layout, (layout or {}).get('style') or '')
                 except Exception as e:  # noqa: BLE001 — кадр не скачался/не совпал: честно рисуем сами (запасной путь)
+                    # тур пробы (T-20261109-34): серверной сцены для него нет — без кадров из браузера фото нет, не рисуем сами
+                    if layout.get('trial'):
+                        raise NoProductSheet(f'тур: кадры из браузера не взяты ({str(e)[:80]}) — серверного пути нет, платный вызов не делаю')
                     print(f'улучшение: кадры из браузера не взяты ({str(e)[:80]}) — рисую сам', flush=True)
                     _bf = False
+            elif layout.get('trial'):
+                raise NoProductSheet('тур: нет двух кадров из браузера — серверного пути нет, платный вызов не делаю')
             elif layout.get('src_id'):
                 built = IM.from_sources(layout.get('src_id'))
             reused = built is not None and not _bf
@@ -3781,7 +3786,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                 imgs = [sheet, ident if ident is not None else Image.new('RGB', (64, 64), (255, 255, 255)), built['dsheet']]
             _t_gpt = time.time()
             out = gpt_edit(imgs, prompt, size=built.get('size') or IM.SIZE, quality=gq, model=REALISTIC_MODEL,
-                           cost_label='demo')   # лист телефона — 3072×2048; цена — в photo-cost.jsonl
+                           cost_label='trial' if layout.get('trial') else 'demo')   # лист телефона — 3072×2048; цена — в photo-cost.jsonl
             _t_gpt = time.time() - _t_gpt
             _pm['model'] = _t_gpt
             _t_post = time.time()
