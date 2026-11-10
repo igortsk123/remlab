@@ -115,7 +115,11 @@ def apply(result: dict, edits: list | None) -> tuple[dict, list]:
             key, kind, c, w = str(e.get('key') or ''), e.get('kind'), _pt(e.get('c') or []), _num(e.get('widthCm'))
             removed = bool(e.get('removed'))
             if key[:1] == 'u':                       # добавленный агентом
-                if removed or kind not in KINDS or c is None or w is None:
+                if removed:                          # снят после сборки (сервер пишет снятие только опубликованного): исчезает,
+                    if c is not None:                # комнаты у его стены — пересобрать (мебель стояла под эту дверь; e2e T-39/2 H1)
+                        done.append((e, pan['id'], [c]))
+                    continue
+                if kind not in KINDS or c is None or w is None:
                     continue
                 # наружный — у стены только одной комнаты; комната, чей контур накрывает точку (контуры распознавания наезжают:
                 # дверь спальни в санузел aRQ лежала внутри санузла в 58 см от его стены), — тоже по ту сторону (e2e T-39)

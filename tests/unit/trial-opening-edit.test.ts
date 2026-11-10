@@ -43,6 +43,9 @@ describe("окна и двери: контракт и правила", () => {
       { key: "s0", srcIdx: 0, srcC: [250, 0], kind: "window", c: [250, 0], w: 150, removed: true },
       { key: "uBBBBBB1", srcIdx: null, srcC: null, kind: "door", c: [300, 400], w: 90, removed: false }]);
     expect(openingRows(now, [op({ key: "uAAAAAA1", c: [720, 400], w_cm: 90 })])).toMatchObject([{ key: "uAAAAAA1", srcC: null, c: [720, 400] }]);
+    // свой опубликованный сдвинут и снят — центр как в сборке: у него стоит мебель, комнаты у него воркер пересоберёт
+    expect(openingRows(now, [op({ key: "uAAAAAA1", c: [760, 400], w_cm: 90, removed: true })])).toMatchObject([{ key: "uAAAAAA1", c: [700, 400],
+      removed: true }]);
     expect(openingRows(now, [op({ key: "s7" })])).toBe("bad_opening");
     expect(openingRows(now, [op({ key: "uCCCCCC1", c: [1000, 200] })])).toBe("bad_opening");
   });

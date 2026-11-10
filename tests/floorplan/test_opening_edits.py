@@ -73,9 +73,16 @@ def test_reread_shifted_index_found_by_centre_far_one_skipped():
     assert kinds == ['window', 'window'] and len(done) == 1
 
 
-def test_built_edits_do_not_dirty_and_removed_new_is_nothing():
-    res, done = OE.apply(_res(), [_op('s1', removed=True, src_c=(505, 200), built=True), _op('uBBBBBB1', c=(500, 50), removed=True)])
+def test_built_edits_do_not_dirty():
+    res, done = OE.apply(_res(), [_op('s1', removed=True, src_c=(505, 200), built=True), _op('uBBBBBB1', c=(500, 50), removed=True, built=True)])
     assert len(res['panels'][0]['openings']) == 1 and OE.dirty_rooms(res, done) == set()
+
+
+def test_removed_own_door_disappears_and_dirties_its_rooms():
+    # своя дверь a–b опубликована, потом снята: в проёмах её нет, обе комнаты у неё — пересобрать (иначе no_match, мебель под дверь, e2e T-39/2)
+    res, done = OE.apply(_res(), [_op('uBBBBBB1', c=(500, 330), removed=True)])
+    assert [o['key'] for o in res['panels'][0]['openings']] == ['s0', 's1']
+    assert OE.dirty_rooms(res, done) == {('p0', 'a'), ('p0', 'b')}
 
 
 def test_added_door_gives_room_an_entry_after_room_resize():

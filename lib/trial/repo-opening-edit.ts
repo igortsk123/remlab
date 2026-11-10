@@ -52,8 +52,9 @@ export function openingRows(now: PanelNow, ops: TrialOpeningEditIn["ops"]): Open
     if (op.key.startsWith("s") && !cur) return "bad_opening";
     const [x, y] = op.c;
     if (x < x0 - BOX_PAD_CM || x > x1 + BOX_PAD_CM || y < y0 - BOX_PAD_CM || y > y1 + BOX_PAD_CM) return "bad_opening";
-    const c: Pt = [Math.round(x * 10) / 10, Math.round(y * 10) / 10], w = Math.round(op.w_cm);
     if (!cur && op.removed) continue;                                           // свой новый, снятый до сохранения — нечего писать
+    // снятый — центр как в сборке (у него стоит мебель, эти комнаты и пересобрать), не где его бросили перед «Удалить»
+    const c: Pt = op.removed && cur ? cur.c : [Math.round(x * 10) / 10, Math.round(y * 10) / 10], w = Math.round(op.w_cm);
     if (cur && !op.removed && cur.kind === op.kind && Math.hypot(cur.c[0] - c[0], cur.c[1] - c[1]) < 1 && Math.abs(cur.w - w) < 1) continue;
     const src = op.key.startsWith("s");
     out.push({ key: op.key, srcIdx: src ? Number(op.key.slice(1)) : null, srcC: src ? (cur?.srcC ?? null) : null, kind: op.kind, c, w,
