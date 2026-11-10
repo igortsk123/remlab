@@ -34,6 +34,13 @@ review_after: 2026-12-10
 - **Фото:** при `trial_bundle.py:photo_ok`, ≤ 10 на задание за 24 ч (`trialPhotoDaily`); обложка `tools/scout/trial_hero.py`
   в конвейер не подключена (`conveyor.after_done` — заглушка).
 
+- **Правка агентом (только ссылка с `k`):** комната — карандаш, `app/api/trial/[id]/room-edit`, `trial_room_edits` (028), шаг
+  `tools/floorplan/room_edits.py`; проёмы — «Окна и двери», `app/api/trial/[id]/opening-edit`, `trial_opening_edits` (029),
+  `tools/floorplan/opening_edits.py`; пересборка вида `edit` — только задетые комнаты (`trial_rebuilds_kind_chk`).
+- **Ленты и стили как /demo:** `tools/scout/demo_feeds.py`, `trial_bundle.feeds_for`; 6 стилей подстановкой (`trial_demo.py`).
+- **Готовые туры на новом коде:** `tools/floorplan/reissue.py --days 14` (окружение воркера); страница тура берётся из витрины `/opt/remlab/demo` —
+  сперва `tools/scout/publish_demo.sh`, потом перевыпуск, иначе правки `index.html` до туров не доходят.
+
 ## Хранение
 План и тур — 30 дн, правка плана в этот срок (`lib/trial/config.ts:trialFileHours`); с адреса 10/ч и 30/сутки (`lib/trial/upload-limits.ts`); наши машины — `lib/trial/own-key.ts`; email и ip_hash не храним.
 
