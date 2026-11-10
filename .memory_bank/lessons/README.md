@@ -17,11 +17,14 @@
 | `devops-deploy.md` | DevOps: docker, exit-fi, деплой, CI, хуки, инструменты | 58 |
 | `memory-process.md` | Память, процесс, работа с владельцем | 17 |
 | `estimate-ads-leads.md` | Смета, калькуляторы, Директ, лиды (+ source-KB) | 17 |
-| | **Итого** | **475** |
+| `flat3d-configurator.md` | 3D-конфигуратор `/flat`, движок сцены демо | — |
+| `dev-ops.md` | DEV-машина pakardev: память, /tmp, диск, кроны, worktree | 16 |
+| `floorplan-trial.md` | Распознавание плана, проба агента /try | 4 |
+| | **Итого** (без `dev-ops.md` и новых с 547) | **475** |
 
 ## Как записать новый урок
 
-- **Следующий номер: 547.** (480 — бывший второй «472» из demo-planner, перенумерован 13.10) Номер берётся отсюда и сразу двигается здесь же (`414` → `415`).
+- **Следующий номер: 598.** (480 — бывший второй «472» из demo-planner, перенумерован 13.10) Номер берётся отсюда и сразу двигается здесь же (`414` → `415`).
 - Формат: `**N. Заголовок** — ситуация → пробовали → почему не сработало → правило` (одна запись — один абзац).
 - Куда: в конец файла своей темы `lessons/<тема>.md` (под заголовком `## Новые (после 2026-09-05)` — завести при первой записи).
 - Затем при необходимости — одна строка в `../core/lessons.md` (Tier 1, ≤3 КБ: только живые правила, не пересказ).
@@ -357,3 +360,43 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 556 — push во время съёмки фото роняет съёмку (CI перезапускает сервер) → `lessons/devops-deploy.md`
 - 557 — мерка кадра ≠ поза съёмки и окно телефона — «целиком» по мерке, обрезано на экране → `lessons/demo-planner.md`
 - 558 — код камер вливать после ночной сборки и сразу пересчитывать ракурсы → `lessons/demo-planner.md`
+- 559 — одна 3D-сцена на страницу строила стены по первой открытой комнате; сцена на комнату + `forceContextLoss`, проверять в порядке открытия → `lessons/demo-planner.md`
+- 560 — приёмка по снимкам не тем путём: fullPage тащит шторку, без locale ru-RU — EN, Safari синяя кнопка; путь RU+EN × 375+1440 → `lessons/demo-planner.md`
+- 561 — запасной путь «прежнее фото» проверять на данных свежей сборки, не прода (T-35/0) → `lessons/demo-planner.md`
+- 562 — привязка или состав меняют `stateId` → фото устаревают; ориентация → привязка → сборка → прогрев и досъёмка → `lessons/demo-planner.md`
+- 563 — Figma: FILL отдельным вызовом `use_figma`; план по макету — по живому `get_screenshot` → `lessons/memory-process.md`
+- 564 — таймаут SendMessage ≠ не дошло (повтор тому же); kill — по цепочке `ps -o ppid` и cwd → `lessons/memory-process.md`
+- 565 — запись рабочего в `.claude/` даёт окно разрешения при разрешённом Bash; временное — `~/remlab-scratch/<задача>/` → `lessons/memory-process.md`
+- 566 — сообщения автоматики не приписывают владельцу решений (TG 320) → `lessons/memory-process.md`
+- 567 — `refresh_daily` идёт 2–5 ч; DIGEST читать после последней «=== … старт ===» → `lessons/memory-process.md`
+- 568 — в отчёте о мешах называть ограничитель (PAUSE, профиль очереди, потолок), не только деньги → `lessons/memory-process.md`
+- 569 — CI красный часами незаметно → `ci-status.sh` после каждого вливания → `lessons/devops-deploy.md`
+- 570 — fal 403 «locked» 7 ч повторялся как rate-limit → стоп на balance/locked и после N отказов, ход каждые 50 → `lessons/devops-deploy.md`
+- 571 — claim `update … from (select … skip locked)` при Nested Loop берёт несколько строк → только скалярный `where id = (select …)` → `lessons/devops-deploy.md`
+- 572 — правка адресов /try без `pnpm e2e` → красный CI; e2e — в DoD брифа → `lessons/devops-deploy.md`
+- 573 — тяжёлое копит память в одном процессе (каскад 6 ГБ, `mesh_render` 5,5 ГБ) → по модели в процессе, через heavy-slot → `lessons/dev-ops.md`
+- 574 — длинное одним слотом heavy-slot запирает очередь → порциями 30–40 мин → `lessons/dev-ops.md`
+- 575 — одна модель на группу Salad не окупает прогрев → пачка ≥ 4 или максимум 1 машина → `lessons/mesh-salad-pool.md`
+- 576 — `topview_render` висел на `max_tasks_per_child`; адресный `TOPVIEW_ONLY` только сливает в манифест → `lessons/mesh-salad-pool.md`
+- 577 — Hunyuan 2.1 без normal-карты → автоприёмка браковала всё; общий признак генератора — заметка, не брак → `lessons/mesh-salad-pool.md`
+- 578 — мёртвая рука считала pending живой → живая = машин > 0 → `lessons/mesh-salad-pool.md`
+- 579 — «завален верх»: тождество поворота — по сырому мешу генератора → `lessons/viz-render.md`
+- 580 — уверенность VLM всегда ≥ 0,9 — судить по согласию с геометрией → `lessons/viz-render.md`
+- 581 — годность списком `machine_verdict_ok` выбила спальню 2 → лесенка «от ступени и выше» → `lessons/catalog-stock.md`
+- 582 — паритет, замороженный до загрузки комнаты: «равно» на пустом — ложь → `lessons/catalog-stock.md`
+- 583 — чужой цвет от молчаливого представителя семьи (Мелтон) → модель сцены своя или проверенная → `lessons/catalog-stock.md`
+- 584 — замена по цвету — той же высоты (Амберсон 118 под окном 85) → `lessons/catalog-stock.md`
+- 585 — стиль без роли ядра ломал раскладку всем шести → `core_skip` + `neighbour_fill` → `lessons/layout-solver.md`
+- 586 — тест «файл в образе» ≠ «код доходит своим путём» (`practice_priors`) → `lessons/layout-solver.md`
+- 587 — bbox неровного пола пускает мебель в стену → проверка по контуру, допуск 5 см → `lessons/layout-solver.md`
+- 588 — водяной знак → ложные узкие двери → «нет товаров»; норма проёма и слияние дублей до решателя → `lessons/layout-solver.md`
+- 589 — схожесть кухни с товаром сверять с фото магазина до платных фото → `lessons/flat3d-configurator.md`
+- 590 — два пуша: CI не по порядку → прод откатился; после push — CI и `deploy-need.sh --status` → `lessons/devops-deploy.md`
+- 591 — опрос GitHub без токена раз в 30 с съел лимит 60/ч → `lessons/devops-deploy.md`
+- 592 — перезапуск trial-worker посреди задания → повтор с начала; смотреть worker.log → `lessons/devops-deploy.md`
+- 593 — `env -u` ключа не защищает «0 $» — только `--cache-only --cap-usd 0` → `lessons/devops-deploy.md`
+- 594 — OpenCV на пустом срезе — segfault, лог пуст из-за буфера → `empty_img`, faulthandler → `lessons/floorplan-trial.md`
+- 595 — тонкая синяя подсветка принята за стены (наш пример /try → 1 комната) → `lessons/floorplan-trial.md`
+- 596 — серый тур без закрепления → белая «not ready»; сквозной /try и на плохом плане → `lessons/floorplan-trial.md`
+- 597 — перерисовка нейросетью переписывает текст → геометрия из неё, текст с оригинала → `lessons/floorplan-trial.md`
+- 528, 530 — дополнены 07.11 (gltfpack и `/tmp`; «как в CI» — py3.12, чистый venv, golden `--record`, e2e) без новых номеров

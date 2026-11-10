@@ -3,7 +3,7 @@ tier: 1
 topic: layout
 scope: Расстановка: правила, зоны, прод-ядро
 tier2: ../domain/occupancy-rules.md
-updated: 2026-11-06
+updated: 2026-11-10
 last_verified: 2026-11-06
 importance: high
 source: manual
@@ -30,7 +30,7 @@ review_after: 2026-12-05
 объявляет якорь и форму, приоры практики — только локальный тайбрейк. Аудиты владельца
 21.08 (ADR-0115…0119) и разбор канонов — в Tier 2.
 
-**26.08 (корневые правки по разбору владельца):** ось «диван → носитель» считается ОТ ГЛАВНОЙ
+**26.08 (разбор владельца):** ось «диван → носитель» считается ОТ ГЛАВНОЙ
 СЕКЦИИ (`geometry.seat_axis_origin`) во всех местах, включая фильтр центрированных позиций
 (ADR-0122; медиана смещения 17 → 0 см); ярус ГЛАВНОГО МАРШРУТА (`zones.main_route_tier` по
 `quality.route_width_cm`) стоит ВЫШЕ богатства состава, ниже пола 70 см — терминальный
@@ -39,5 +39,6 @@ review_after: 2026-12-05
 
 **Спальня (onb-05, 05.11):** то же ядро за флагом `room_type=bedroom` (`services/planner-solver/planner/bedroom_checks.py:validate_bedroom`); фронт
 распашного шкафа 90 см во всех комнатах (ADR-0330 п.7); гостиная ускорена вдвое без смены раскладок (`services/planner-solver/planner/geometry.py`).
+**Прихожая, детская** (`services/planner-solver/planner/hall_checks.py:validate_hall`) — Tier 2.
 
 **Tier 2:** `../domain/occupancy-rules.md` · `../guides/layout-engine-spec.md`

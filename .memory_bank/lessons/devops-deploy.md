@@ -3,7 +3,7 @@ tier: 2
 topic: lessons-devops-deploy
 scope: Уроки: devops — docker/buildkit, exit-fi, gitignore, деплой, CI, хуки, инструменты dev-машины — читать перед планом по этой теме
 tier1: ../core/lessons.md
-updated: 2026-11-09
+updated: 2026-11-10
 importance: med
 source: manual
 status: stable
@@ -391,3 +391,23 @@ systemd — крон-подъём раз в 10 минут (`tools/ops/dev-checks
   публичного API. Починка — `runs-on: ubuntu-24.04` у gate (`.github/workflows/ci.yml:12`, `438ef30f`). Правило: образ раннера CI —
   закреплённой версией, не `latest`.
 - **556 (09.11)** — push в main во время съёмки фото: выкладка CI перезапускает сервер, съёмка падает «сервер обновлялся» (T-73, 08.11). Во время платной съёмки — не пушить; досъёмка упавших.
+- **569 (05–07.11)** — CI gate был красным часами (05.11 с 21:11 — 3 ч, и снова 06–07.11), и никто не заметил: после push статус не смотрели, токен `gh` на DEV протух.
+  Правило: после каждого вливания — `tools/ops/ci-status.sh` (публичный API, без входа), красный — чинить до новых вливаний (ADR-0353).
+- **530 — дополнение (07.11):** «как в CI» = python 3.12, чистый venv, переменные `CI`/`GITHUB_ACTIONS`/`RUNNER_TEMP`; эталон банка
+  `tools/scout/tests/test_bank_spec_golden.py --record` — тем же коммитом; `test_tmp_hygiene.py` и `pnpm e2e` тоже входят (`tools/ops/prepush-check.sh`).
+- **570 (06.11)** — fal исчерпал баланс в 22:55 → 403 «locked», а `mask_fal` 7 ч повторял его как rate-limit без хода в журнале. Правило: платный внешний API —
+  стоп на «balance/locked», стоп после N отказов подряд, строка хода каждые 50 вызовов.
+- **571 (09.11)** — захват задания `update … from (select … for update skip locked limit 1) c where j.id = c.id` при Nested Loop перезапускает подзапрос — один
+  claim переводит в running несколько заданий (`lib/trial/repo-worker.ts`, `repo-rebuild-worker.ts`). Правило: только скалярный `where id = (select … skip locked limit 1)`
+  + тест на одну строку.
+- **572 (09.11)** — T-27 прошёл `pnpm test`/`typecheck`/`build`, но CI покраснел на `pnpm e2e` (`e2e/trial.spec.ts` ждал адрес без `?k=`). Правило: правка адресов и
+  ссылок /try — в DoD брифа `pnpm e2e e2e/trial.spec.ts` (или явно «e2e — ведущий в CI»).
+- **590 (10.11)** — два пуша подряд: CI второго закончился раньше первого, Deploy выкатил старый коммит поверх нового — прод откатился (`concurrency` GitHub
+  порядок не держит). Правило: после push смотреть и CI, и версию прода (`bash tools/ops/deploy-need.sh --status`); скрипт не катит предка прода (ADR-0360).
+- **591 (10.11)** — ожидание CI циклом раз в 30 с к api.github.com без токена съело лимит 60 запросов/час на адрес pakardev → `ci_status.py` и ночные кроны
+  получили «403 rate limit». Правило: GitHub без токена — не чаще раза в 3–5 мин; прод — `deploy-need.sh --status` (без GitHub).
+- **592 (10.11)** — перезапуск `remlab-trial-worker` посреди задания → «fail waiting_capacity retryable», задание пошло с начала. Правило: перед перезапуском
+  `~/remlab-logs/trial/worker.log` — нет ли «взял» без «результат принят»; есть — ждать конца. Код разбора (`tools/floorplan/*`) воркер запускает отдельным
+  процессом на каждое задание — для его правок перезапуск не нужен.
+- **593 (10.11)** — «0 $» в пробе работника: `env -u VERCEL_AI_GATEWAY_KEY` не защитил — `tools/scout/env_keys.py` в worktree читает `.env` основной копии;
+  после rebase отпечаток листа сменился, промах кэша стоил 0,029 $. Правило: защита от трат — только флаги `--cache-only --cap-usd 0` и проверка кэша до запуска.

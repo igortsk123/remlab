@@ -3,7 +3,7 @@ tier: 2
 topic: pipeline-order-details
 scope: Порядок конвейера — обоснования этапов и незакрытые места
 tier1: "../core/pipeline-order.md"
-updated: 2026-11-06
+updated: 2026-11-10
 importance: med
 source: manual
 ---
@@ -103,6 +103,73 @@ source: manual
 `tools/scout/room_profile.py:CAPABILITIES`; кортежей комнат в коде нет, неизвестный тип — отказ. Спрос мешей: по слотам — только
 bedroom, по вариантам банка (`--hall-bank`) — bedroom и hall (`tools/scout/room_mesh_demand.py`). Вход прихожей — `is_entrance` у
 проёма в геометрии (`tools/scout/flat215-hall.json`, юг — владелец 06.11), не «первая южная дверь».
+
+## Ночные шаги каталогов комнат (06.11, T-20261106-84)
+Каталоги спальни и прихожей идут в голове ночи рядом с шагами гостиной (`tools/scout/refresh_daily.sh`): `rooms_alive` (живость фото,
+`img_alive.py --rooms`, поле `room_catalog.photo_alive`, миграция `tools/scout/017-room-photo-alive.sql`), платные `style_bedroom` (`style_score.py --source room_catalog`)
+и `style_hall` (`--source hall`), `rooms_cutout` (`cutout_sync.py --rooms-only`, потолок `CUTOUT_ROOMS_MAX`); строка комнаты в дайджесте —
+`refresh_daily.sh:room_digest`. Обязательный декор сцены по типу комнаты — данными `tools/scout/rules/scene-artifacts.json:required_by_kind` (гостиная ковёр+ваза,
+спальня ковёр, прихожая — ничего); `list_only` не считается «без текстуры».
+
+## Банки других комнат — спальня, прихожая (06–07.11, план room-bank-01 этапы Б–Ж)
+- **Одна спецификация комнаты** `tools/scout/room_bank_spec.py:RoomBankSpec` (`for_room`, `room_arg`, `bind`): пути живого/кандидата/
+  отчёта/pending/manifest/поколений/замка, ключ ячейки, адаптеры сборщика и готовности. Все `bank_*` берут константы через неё и
+  принимают `--room X`; гостиная — прежние пути и env побайтно (эталон `tools/scout/tests/test_bank_spec_golden.py`, в CI;
+  правка `bank_*` selftest или `rules/bank-*.json` меняет эталон — прогон и `--record` тем же коммитом).
+- **Флаги комнаты** — `tools/scout/rules/bank-candidate.json:rooms.<комната>.{enabled,prepare_enabled,promote_enabled,write_enabled,
+  rehearse_enabled,publish,mesh_gate}`; нет ключа — выключено, правила гостиной не наследуются. `BANK_WRITE` без `--room` — только
+  гостиная. Спальня (с 07.11) — все включены, `publish: live` (ночной `mesh_publish` выкладывает её модели); прихожая — только сборка
+  кандидата, живого банка нет.
+- **Идентичность** — `tools/scout/room_identity.py:cell`/`set_id_of`: id набора от ячейки `room_id|purpose|band|style|tier` (формат
+  `bed-xxxxxxxx`), матрица — из профиля (`tools/scout/compose_bedroom.py:cells`), в записи `provenance` (правка профиля её меняет).
+- **Поколение 0** — только `tools/scout/room_bootstrap.py --room bedroom run --confirm-lead` при `write_enabled`; откат — живой
+  переименовывается в папку поколений. Суд `room_bootstrap.py:verdict` — `compose_bedroom.check_bank(spare='warn')`: нехватка запаса
+  замен у поколения 0 — строка журнала поколения; ночная замена — `spare='hard'` (решение ведущего 06.11).
+- **Писатель учится комнате** (`tools/scout/bank_refresh.py`): ключ ячейки из спецификации; новые ячейки дописываются в хвост, вне
+  матрицы — `retired` (решение ведущего 07.11 «add + retired»). Чужой manifest (поле `room`) — отказ.
+- **Репетиция** `tools/scout/bank_rehearsal.py:rehearse` (флаг `rehearse_enabled`): копия живого банка и журнала → настоящий
+  `bank_refresh.write` в копию → откат по SHA; живой банк, прод и сеть не трогаются, сбой — WARN.
+- **Сборщики:** `tools/scout/compose_bedroom.py`, `tools/scout/compose_hall.py` (правила `tools/scout/rules/bedroom-composition.json`,
+  `tools/scout/rules/hall-composition.json`), общее (цвет, палитра) — `tools/scout/compose_common.py`; порядок кандидатов: меш готов → сгенерирован →
+  нет → брак; на позиции `has_mesh`/`mesh_defect`; `report.json → shortage, mesh_need`. Стиль без товаров ядра ночью не собирается
+  (`compose_bedroom.py:core_skip`, пропуск — в отчёт), суд не ослабляется.
+- **Стили комнат:** спальня — 6 (`bedroom-composition.json:styles`, владелец 06.11 «вся квартира во всех стилях», отменяет ADR-0330 п.3),
+  прихожая — 5 без неоклассики (`hall-composition.json:_styles_why`, владелец 07.11). Квота и спрос мешей берут стили из правил комнаты.
+- **Прихожая:** каталог — `tools/scout/hall_catalog.py` + `tools/scout/rules/hall-roles.json` (`room_catalog.py` не тронут); солвер —
+  `services/planner-solver/planner/hall.py`, проверки `hall_checks.py:validate_hall`; вход — `is_entrance` в `tools/scout/flat215-hall.json`.
+  Роль «прихожая» (комплекты-стенки без размеров) в 3D не идёт — её доля квоты ушла в «шкаф-купе»; банкетку добирают пуф/скамья по
+  форме (≥ 60 см, Ш/Г ≥ 1,4, Г 25–52, В 38–52). Оценка стиля — `style_score.py --source hall` (свой `style-scores-hall.json`).
+
+## Привязка товар → модель (05–07.11, room-pipeline-01 В-1, ADR-0330)
+- Таблица дев-БД `offer_asset_binding` (`tools/scout/016-offer-asset-binding.sql`; владелец 05.11 TG 126 «можно править базу»),
+  снимок-файл — откат; строит `tools/scout/room_bindings.py --build` (ночной шаг `room_bindings`). Политика —
+  `tools/scout/rules/catalog-bindings.json` (`policy_version`; смена числа → новая версия, чужой снимок не читается).
+- **Машинный вердикт — лестница** `machine_verdict_ladder` generated < geometry_valid < scene_ready < web_ready, годно «от generated
+  и выше» (v2; список v1 выбивал меши, которые приёмка подняла выше — 07.11 так скрылась вся спальня 2).
+- **Годность для сцены** `room_bindings.py:usable` — одно правило у банка спальни и витрины. **Модель сцены** `room_bindings.py:scene_msid`
+  (и для гостиной, `flat215_demo._msid`): модель привязки, если у строки есть файл (`local_3d`) или привязка явно взяла представителя
+  (`via_family`); представителя семьи молча не берём (было: оливковый «Мелтон» вместо бежевого) — модели нет, штатная замена.
+- **Пересборка привязки меняет stateId вариантов** → фото нейросети устаревают; после правок мешей и разворотов — пересборка,
+  прогрев, досъёмка (06.11: привязка 05.11 21:28 собрана до решений разворота — новые модели не доходили до демо).
+- **Выкладка своих моделей** — `tools/scout/room_publish.py` по привязке (спальня; с 07.11 и гостиная); галерея берёт тот же файл
+  (`tools/scout/mesh_publish.py`: `GALLERY_FROM_BINDING=1`), иначе ночной пинг-понг байтов; исключения — `tools/scout/rules/bank-candidate.json:publish_hold`.
+  Смена файла под тем же msid фото не обновляет — переснимать.
+- **Кружки цвета** («Цвета этой модели») — по семье `sku.fam` (представитель), не по msid (`tools/scout/flat215-demo/index.html:famKey`).
+- **Глубина стульев divan.ru** (план dims-effective-01, политика v4): «Ширина габаритная» у них = копия ширины; свой меш сверяет глубину
+  по следу (`passport.d_by_mesh`), сцене — `passport.effective_dims` (солвер, 3D, фото), каталог/банк/цены — каталожная, подпись — каталожная
+  (`d_catalog`). Откат — `effective: false` или `FLAT215_EFFECTIVE_DIMS=0`.
+
+## Квота мешей комнат, полоса и добор (06–07.11)
+- 30 моделей с мешем на (комната × стиль), доли ролей, только влезающие в полосу слота (−20…+10 %) — `tools/scout/rules/demo-swap.json`
+  (раздел комнат); единица счёта — SKU, цвета одной модели — разные товары (владелец 06.11 TG 261–262;
+  `tools/scout/room_mesh_demand.py:room_count_unit`); меш всё равно один на семейство (ADR-0196). Шкаф, шкаф-купе и модуль «прихожая» —
+  одна доля хранения. Источники для каталога комнат — только divan/tvoydom/ormatek (другого партнёрского магазина нет, владелец 06.11).
+- Выкладка мешей и цель «10 на роль» — по полосе слота (`tools/scout/demo_band.py`); конверт ленты 70–132 % (`demo_swap_pool.fits`) —
+  только «все размеры» за чипом; расширять выкладку до конверта нельзя (замер 07.11: +190 моделей / 788 МБ мелочи).
+- **Роль ядра у соседа** — `tools/scout/demo_fill.py:neighbour_fill` (confusable_pairs + цвет получателя) вместо снижения порога одному
+  стилю: без него один стиль без столика ломал общую расстановку всем шести (07.11).
+- **Цвет гостиной на трёх ступенях** (T-25/2–4): сборка `compose2.pick2`, дозаполнение `demo_fill.fill_set`/`color_order`, ленты
+  `demo_fill.lane_color` (forbidden снимает, discouraged — в хвост); замену по цвету брать той же высоты, иначе выпадает из расстановки.
 
 ## Стыки этапов (ADR-0272)
 Пороги — `tools/scout/rules/pipeline-map.json`, расчёт — `tools/scout/pipeline_map.py`, страница `/test/pipeline/`; тревога при смене состояния, напоминание жёлтый/72 ч, красный/24 ч.

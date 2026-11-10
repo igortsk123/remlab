@@ -3,7 +3,7 @@ tier: 2
 topic: observability-details
 scope: Детали трейсинга AI-пайплайна — БД, env, роуты, подписанные URL, imagor, ретеншн, гочи прода
 tier1: ../core/observability-tracing.md
-updated: 2026-10-19
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -96,6 +96,14 @@ imagor читает файл из `FILE_LOADER_BASE_DIR` (= том TRACE_DIR) п
   сервер не пишет `/api/events`, `stale_link` (`app/flat/page.tsx`), события ссылки менеджера (`app/api/sends/[id]/event`) и PostHog
   (кроме `app_error`). Метрика в живых тестах блокируется аргументом браузера `e2e/live/browser.ts` `LIVE_BROWSER_ARGS`; сторож —
   `e2e/live/live-check.live.ts`. Грабли запуска — урок 514.
+
+## Вне трейсинга: фото демо и VLM ориентации (свод 06–09.11)
+- **«Сделать реалистичнее» в демо в `generation_runs` не пишется** — его делает DEV-сервис `remlab-render` (`tools/scout/draft_render.py`,
+  без `lib/trace`). Время шагов — строка `ФОТО-ЗАМЕР` в `~/scout-scenes/dev-render.log` (`draft_render.py` ~1873: путь, подготовка,
+  модель, сохранение, исход); сводка и сторож скорости — `tools/ops/photo-speed.py` по `tools/scout/rules/photo-speed.json`, ночью из
+  `refresh_daily.sh`. Цена одного фото в журнал не пишется — считаем по счёту шлюза (Tier 2 `viz-fidelity-playbook.md` § «Фото нейросети»).
+- **VLM ориентации** (`tools/scout/orient_worker.py`, qwen3-vl через шлюз): расход — оценкой по `tools/scout/rules/openai_prices.json`
+  (`openai_budget.log_spend`), дневной лимит `openai_budget.allow`; не влезло — пачка без VLM (`vlm_pending`).
 
 ## Ключевые файлы
 `lib/trace/*` (recorder, context, store, assets, sign, admin, types, failures), `lib/providers/traced.ts` +

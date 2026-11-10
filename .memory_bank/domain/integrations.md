@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-11-06
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -186,7 +186,9 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 ## fal.ai — inference-API (добавлено 2026-08-04)
 - Ключ `FAL_KEY`, значение в `_secrets/ACCESS.md`; лежит в `tools/scout/.env` основной копии (исторически найден в `.env` соседнего проекта mltest — с 05.11 он только последний запасной с WARN, `tools/scout/env_keys.py`).
 - Баланс: `GET https://rest.alpha.fal.ai/billing/user_balance`, заголовок `Authorization: Key <FAL_KEY>`
-  (на 2026-08-04 — $9.03).
+  (на 2026-08-04 — $9.03). Баланс исчерпан → ответ **403 «locked»**, не 429: 06.11 22:55 `mask_fal` повторял его как rate-limit 7 ч
+  без хода в логе (T-20261106-46); пополнен владельцем 06.11 (TG 258). Вырезку комнат при пустом балансе отключает `CUTOUT_ROOMS_MAX=0`
+  (`tools/scout/cutout_sync.py`, ночью обычно 300; T-84), добивает бесплатный local (T-46/3).
 - Цены (замер 2026-08-04): SDXL 1024² ≈ $0.0023 · Trellis image-to-3D $0.02/модель ·
   FLUX.2-dev ≈ $0.012 · своя GPU per-second: A100 40G $0.99/час, H100 $1.89/час.
 - Расчёт под наш объём: 637 уникальных товаров в 126 комплектах → 3D-ассеты ≈ $13 разово;
@@ -391,6 +393,9 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 Токены в `/opt/remlab/.env`: `LEADS_ADMIN_TG_TOKEN` + `LEADS_ADMIN_TG_CHAT_ID`, `LEADS_CLIENT_TG_TOKEN`,
 `LEADS_TG_WEBHOOK_SECRET`, `LEADS_MAX_TOKEN`, `LEADS_SMTP_USER/PASS` (palmarius.ru@yandex.ru временно; доступ — sup2
 `_secrets/ACCESS.md`) + setWebhook обоих ботов на `/api/leads/tg-{admin,client}`.
+**Письмо агенту (К9, владелец 09.11 TG 493) — пока Gmail владельца** (SMTP `smtp.gmail.com`, пароль приложения): ключи `GMAIL_USER` /
+`GMAIL_APP_PASSWORD`, значения — `/home/pakar/igor/work/.memory_bank/_secrets/ACCESS.md` (проект work); на прод — только в `.env` сервера,
+в git и банк не копировать. Позже — Resend. В коде remlab на 10.11 ещё не подключено (`git grep GMAIL_USER` пусто).
 
 ## Перенесено из `core/access-and-integrations.md` (14.10)
 - OpenAI: `EXTRACT_MODEL` (деф. `openai/gpt-4o-mini`, через шлюз Vercel) — фолбэк парсинга ссылок; реестров цен ДВА и не связаны; в коде

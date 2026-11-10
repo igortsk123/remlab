@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-pipeline
 scope: 3D-меши — генерация, учёт, приёмка
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-11-06
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -21,8 +21,8 @@ review_after: 2026-12-05
 (ремонт ОТМЕНЁН, ADR-0143) → привязка → чистка приёмника → прополка болванок `prune_shapes.py`
 (ADR-0233) → ориентация (ADR-0129), топ-вью; семейства — при старте волны. Цвет — [[mesh-color]].
 
-**`shape.glb` — промежуточное** (продукт `model.glb`): `prune_shapes.py` полет его у принятых
-владельцем мешей, ADR-0233 (у прочих живёт под рычаг, [[mesh-color]]). Образ — GHCR (ADR-0232).
+**`shape.glb`** (продукт — `model.glb`) полется у принятых (ADR-0233) и старше 14 сут (`tools/scout/rules/dev-disk.json`). Образ — GHCR.
+**Ориентация:** на прод — только решённые (`tools/scout/orient_policy.py`; Tier 2 § «Ориентация мешей»).
 
 **Учёт поколений (ADR-0188…0191).** Физический меш = строка `mesh_generations`; ревизия держит
 `current_generation_key` (`tools/scout/salad/ingest_registry.py`), статус владельца живёт, пока
@@ -40,8 +40,8 @@ review_after: 2026-12-05
 **Публикация на прод (ADR-0243):** `mesh_publish.py` перед сборкой витрины; индекс
 `/test/mesh-pilot10/mesh-index.json` пересобирается по серверу. Весь склад (26 ГБ) не выкладываем.
 
-**Автобрак (13.10):** `generated` считается годным (`tools/scout/mesh_ready.py`), обрезка на
-ноде включена — владелец: карантин по оси > 15 %, не резать; план `conv-04-mesh-quarantine`.
+**Автобрак:** `generated` = годный (`tools/scout/mesh_ready.py`); обрезка чужих кусков на ноде выключена
+(`tools/scout/salad/pipeline.py` `ALIEN_CUT=0` — только метка).
 
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · планы `mesh-owner-audit`, `mesh-bulk-salad-hunyuan`,
 `mesh-pool-hardening` · ADR-0129…0134, 0146, 0168–0178, 0182, 0188–0197.

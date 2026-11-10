@@ -3,7 +3,7 @@ tier: 1
 topic: onboarding-quiz
 scope: Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат
 tier2: "../domain/onboarding-quiz.md"
-updated: 2026-11-08
+updated: 2026-11-10
 importance: med
 source: manual
 status: draft
@@ -14,8 +14,8 @@ review_after: 2026-12-05
 
 # Опрос-знакомство — Tier 1 (метаплан `onb-00-quiz-master`, ADR-0330)
 
-Первый экран демо: приветствие → вопросы (фото гостиной в 5 стилях · кто живёт; цвета выключены — `index.html:colOn`) →
-«Квартира готова» → главная. Экраны — `tools/scout/flat215-demo/index.html`. С 07.11 — [[onboarding-quiz-details]] после главы 5.
+Первый экран демо: приветствие → пары стилей (2 экрана — фото гостиной, 2 — спальни; `quiz.json:style_pairs`, `index.html:quizPairs`)
+· кто живёт → «Квартира готова» → главная, собранная из ответов (`mixFromPairs`). Цвета выключены (`colOn`). С 07.11 — [[onboarding-quiz-details]] после главы 5.
 
 **Где показываем.** Флаг `contracts/partner.ts:apartmentQuiz`; имя `lib/quiz/name.ts` (поле менеджера выключено, `QUIZ_NAME_FIELD`).
 - Только по флагу квартиры `apartments[].quiz.enabled`. По умолчанию он выключен; у британского двойника `demo-uk-215` — такой же, как у оригинала `flat215` (включён 07.11, T-94/2; совпадение сторожит `tests/unit/partners.test.ts` § «британский профиль»).
@@ -30,7 +30,7 @@ review_after: 2026-12-05
 **Подбор**
 - Правило — `tools/scout/rules/quiz.json`, функция `quizPick` (блок QUIZPICK в `index.html`, одна копия).
 - Выбранное на фото всегда в тройке, остальное — по палитре. «Кто живёт» на стиль не влияет.
-- Стили — только `homeModel().styles`, сейчас 5.
+- Стили — только `homeModel().styles`.
 - Эталоны — `tests/fixtures/quiz-golden.json`, тест — `tests/unit/quiz-pick.test.ts`.
 
 **Цвета.** Аудит — `node tools/ops/quiz-colour-audit.mjs --data <demo-data.json> --items --dist`. Вопрос 3 весит в подборе. Перекраска —

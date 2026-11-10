@@ -3,7 +3,7 @@ tier: 1
 topic: demo-planner
 scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
-updated: 2026-11-09
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -15,11 +15,11 @@ review_after: 2026-12-05
 # Демо-планировщик — Tier 1 сводка
 
 **Что это:** демо `/demo` (ADR-0201). Квартира №215, 77,2 м².
-Витрина: сертификат → стили → комнаты → окно варианта; план — в конструкторе.
+Витрина: сертификат → комнаты → окно варианта; план — в конструкторе.
 Код: `tools/scout/flat215-demo/index.html`, сборка `flat215_demo.py`, публикация `publish_demo.sh` (копия, `--rollback`;
 [[pipeline-order]]).
 
-- **Главная «стили → комнаты» (ADR-0307):** `index.html:#styleTabs` → комнаты `#hmRooms` из реестра
+- **Главная (07.11, home-mix):** вкладок стилей нет; один выбор `index.html:mixWant` → комнаты `#hmRooms` из реестра
   (`contracts/partner.ts:apartmentRoom`); «Выбрано» — сумма комнат (`index.html:homeChosen`), избранное скрыто (07.11).
 - **Окно варианта:** «Фото» — снимок расстановки, иначе 3D (`index.html:vwRealShots`, ADR-0300); после правки — `vwStalePick`.
 - **Состав (20.10):** банкетка «уголком» — `tools/scout/flat215_demo.py:drop_lonely_nook`; обеденный стол — `tools/scout/unfit.py:unfit`.

@@ -3,7 +3,7 @@ tier: 1
 topic: architecture
 scope: Стек, модули, генерация, деплой — по коду
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-11-06
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -21,19 +21,19 @@ TS strict, pnpm, Next.js 15 App Router. Drizzle — только schema+query (`
 CI: `.github/workflows/{ci,deploy,memory-audit}.yml`.
 
 ## UI-слой (ADR-0041)
-Untitled UI React (Tailwind v4 + React Aria), `components/base|application`; бренд — `styles/brand.css`; `.claude/rules/ui-rules.md`.
+Untitled UI React, `components/base|application`; бренд — `styles/brand.css`; `.claude/rules/ui-rules.md`.
 
 ## Структура (факт)
 - `/app`: `page.tsx` (хаб). Смета: `/calc`, `/calc/[kind]`, `/calc/remont`, `/e/[id]`, `/estimates`→`/lab`, `/go/[eid]/[iid]`.
   `SiteHeader.tsx` (ADR-0017); `/styles` (квиз-заглушка); `/lab` (+ `mesh-review`, `mesh-audit`); `/flat` — 3D
-  ([[apartment-configurator]]); B2B: `/manager`, `/partner/report`, `/embed/[partner]/[flat]`; юр.: `/cookies`, `/privacy`,
-  `/terms`; legacy М5: `/start`, `/p/[id]/*`. `/api` — 16 каталогов (`ls app/api`): apartments, calc, collections, events,
-  flat, health, internal, lab, leads, manager, manager-bot, p, partner, pay, sends, trace.
+  ([[apartment-configurator]]); B2B: `/manager`, `/partner/report`, `/embed/[partner]/[flat]`; проба агента `/try`; юр.: `/cookies`, `/privacy`,
+  `/terms`; legacy М5: `/start`, `/p/[id]/*`. `/api` — 17 каталогов (`ls app/api`): apartments, calc, collections, events,
+  flat, health, internal, lab, leads, manager, manager-bot, p, partner, pay, sends, trace, trial.
 - `/modules` — store, estimate (memory/pg), leads, style, collections, sends, share-requests, partner-report,
   owner-reviews, retention; legacy М5 — ideas, room-analysis, visual-generation, generation-job.
 - **Смета (v0.4):** `contracts/estimate.ts`, `lib/estimate/*`, `lib/pricing/works`; наружу только через `/go/`.
   **Калькулятор v2 (ADR-0018):** `contracts/calc.ts` + `lib/calc/*` + `components/calc/*` (localStorage).
-- `/db` (init 001–021 — `ls db/init`), `/contracts`, `/lib` (+ `configurator`, `viewer3d`, `basket`, `collections`,
+- `/db` (init 001–026 — `ls db/init`), `/contracts`, `/lib` (+ `configurator`, `viewer3d`, `basket`, `collections`,
   `partners`, `embed`, `legal`, `telegram`, `mesh-review`, `mesh-audit`), `/e2e`, `/docs`; `/tools` — в git, кроме данных
   scout (ADR-0055); каталог/меши — `tools/scout/` (Python, дев-БД).
 - Генерация AI (legacy М5): синхронно `app/api/p/[id]/generate` → `runGenerate`, `maxDuration=60`.

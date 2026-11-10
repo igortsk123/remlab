@@ -3,7 +3,7 @@ tier: 1
 topic: data-model
 scope: Схема БД, миграции, pgvector
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-11-06
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -44,7 +44,7 @@ review_after: 2026-12-05
 ## Дев-БД каталога (`remlab-devdb`, `tools/scout/`)
 `products` (+ `availability_state/page_state/basis`, ADR-0186), `asset_revisions`, `orientation_state`,
 `product_photo_current`, `image_url_hd` (ADR-0182), `mesh_generations` (ADR-0188), `mesh_quarantine` (012, ADR-0276),
-`room_catalog`/`room_catalog_runs` (013 спальня/прихожая, 015 `kids`), `upholstery` (015), `offer_asset_binding` (016) — [[catalog]],
+`room_catalog`/`room_catalog_runs` (013, 015 `kids`, 017 `photo_alive`), `upholstery` (015), `offer_asset_binding` (016) — [[catalog]],
 [[stock-and-dims]], [[mesh-pipeline]].
 
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §4.

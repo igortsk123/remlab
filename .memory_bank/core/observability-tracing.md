@@ -3,7 +3,7 @@ tier: 1
 topic: observability-tracing
 scope: Трейсинг AI-пайплайна — лог, разбор
 tier2: ../domain/observability.md
-updated: 2026-11-09
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -14,8 +14,7 @@ review_after: 2026-12-05
 
 # Observability — Tracing AI-пайплайна (ADR-0013)
 
-> По «номеру генерации» восстановить весь путь: промпты, вход/выход, картинки, время, стоимость,
-> ошибки. Правило: `.claude/rules/pipeline-tracing.md`.
+> По «номеру генерации» — весь путь: промпты, I/O, картинки, время, цена, ошибки (`.claude/rules/pipeline-tracing.md`).
 
 ## Сущности (БД, `db/schema.ts`)
 `generation_runs` (прогон; `seq` = номер генерации) → `generation_steps` (вызов LLM: промпт
@@ -34,7 +33,7 @@ passthrough. Смена модели/промпта/шага НЕ требует
   пользователя + ideas; analyze — ПРЕД-шаг (`runAnalyze`, вне трейса, без номера).
   `preview-v1` — история.
 
-Аналитика без ключей и проверок — Tier 2 § Аналитика.
+Tier 2: § Аналитика; § «Вне трейсинга» — фото демо (`tools/scout/draft_render.py`), VLM.
 
 ## Сжатие
 `lib/images/compress.ts` → imagor (fit-in 1536, webp q80) перед LLM; что ушло в LLM — то и input-ассет; без `IMAGOR_BASE_URL` — исходник.

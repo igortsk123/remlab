@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-11-06
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -30,7 +30,7 @@ review_after: 2026-12-05
 - **Vercel AI Gateway:** основной путь к LLM (запасной в `llm_gateway.chat` — прямой OpenAI); «нет денег» — `tools/scout/llm_gateway.py:NoCredits`,
   баланс — `GET /v1/credits` (бесплатно), тревога `gateway_no_credits` в дайджесте DEV (`tools/ops/dev-checks.sh`).
 
-- **fal.ai:** клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131).
+- **fal.ai:** клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131); 403 «locked» = баланс пуст, не повторять.
 
 ## Прочие доступы (детали — `../domain/integrations.md`)
 - **Мост мешей DEV↔прод:** `MESH_REVIEW_SECRET` (кука владельца) + `MESH_REVIEW_MACHINE_TOKEN`

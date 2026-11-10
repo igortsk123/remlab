@@ -3,7 +3,7 @@ tier: 2
 topic: interior-styles
 scope: Паспорта 6 типовых стилей интерьера — признаки с весами, скоринг товаров, промпт-блоки генерации
 tier1: ../core/styles.md
-updated: 2026-11-06
+updated: 2026-11-10
 importance: med
 source: external:web (t-j.ru, netology.ru, domovita.by, ivd.ru, vc.ru, vm.ru; гайды для фото 17.10 — см. § «Гайды для фото») + гипотеза владельца
 status: working
@@ -109,3 +109,12 @@ metallbude.com; джапанди — genroom.io (один источник — �
 `style_bench.py --vote-export` → `style-bench/vote-export.jsonl` (отметки, «универсальный», заметка и её история, старые комментарии v1).
 v3 (план `style-vote-v3`): прежнее `no` показывается как «не нажато» (в выгрузке — справочное `legacy_no`); карточка «просмотрена», если нажат стиль
 или есть комментарий (`style_bench.py:card_states`) — выгружаются и считаются только просмотренные, у них ненажатое = не подходит.
+
+## Итог отметок 05.11 и файлы оценок других комнат
+**Отметки (05.11, `style_bench.py --vote-report`; отметки — прод-БД `owner_reviews` (`db/schema.ts:ownerReviews`), виды `style`/`style_note`):** просмотрено 55 из 166,
+«подходит» 81: современный 34, сканди 19, универсальный 9, джапанди 8, лофт 4, неоклассика 4, минимализм 3. V2 завышает:
+балл 5.0 подходит в 20 из 102, 6.0 — в 25 из 62; прежняя черта A < 4.5 даёт 0. Для сканди/современного отметок хватает,
+для лофта/минимализма/неоклассики нужно ещё ~10–15 на стиль.
+**Другие комнаты:** оценки стиля спальни и прихожей — свои файлы `style-scores-bedroom.json` / `style-scores-hall.json`
+(`style_score.py --source`), в `product_style_scores` не пишутся; стили комнат — `tools/scout/rules/bedroom-composition.json:_styles_why`
+(6), `tools/scout/rules/hall-composition.json:_styles_why` (5, без неоклассики).

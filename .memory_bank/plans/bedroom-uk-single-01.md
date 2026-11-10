@@ -4,7 +4,7 @@ slug: bedroom-uk-single-01
 title: Спальня — раздел «Спальня» на странице шаблонов /test/canons/ + НОВОЕ назначение «узкая односпальная» (UK single 90×190)
 status: in_progress
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-10
 completed:
 plan_kind: sub
 parent_plan: MASTER-agent-trial
@@ -52,6 +52,10 @@ review_after: 2026-11-23
 ## Лог выполнения
 - 2026-11-09 — план создан ведущим; выдано T-20261109-07 (фоновый помощник, worktree `bedroom-single`).
 - 2026-11-09 — исполнитель: коммит `0bb5a787` на `worktree-bedroom-single` (single_narrow + bed_narrow_wall добавлением, раздел «Спальня» на /test/canons/ опубликован); не влито, ждёт приёмки.
+- 2026-11-09 16:40 — владелец TG 1377: спальни UK в пробе агента НЕ отложены, отложена только узкая односпальная (этот план);
+  волна кроватей для неё выключена. Правило шаблонов (TG 478/480): товаров под шаблон нет → следующий шаблон → иначе комната пустая.
+  Состояние шаблонов спальни для справки: 5 шаблонов `services/planner-solver/rules/bedroom.json:templates` и 8 назначений
+  `tools/scout/rules/bedroom-composition.json:purposes`; визуальной страницы, кроме этой задачи, не было (на `/test/canons/` — только гостиная).
 
 ## Completion summary
 

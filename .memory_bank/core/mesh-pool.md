@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-pool
 scope: Пул нод Salad — группы, тарифы, деньги, стопоры
 tier2: "../domain/mesh-pool-ops.md"
-updated: 2026-11-06
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -27,7 +27,7 @@ Interrupted (Priority)`), не OOM. Квота 50 реплик общая; ре�
 
 **Транспорт (ADR-0317):** очередь Salad (Job Queue) — группа с `queue_connection` при создании, посредник `queue_proxy.py` (порт 8001)
 отдаёт машину задания; транспорт `auto` по правилам группы. SSH (молчит на ~половине машин) — запасной.
-Боевая `mesh-q-low-1` создана и выключена (`disabled`); подъём — словом владельца.
+Боевая — `mesh-q-low-1`; «живая» = есть машины (`infra/server/salad-deadman.py`, Tier 2 § 7).
 
 **Деньги.** Платим за `running`, не за работу (ADR-0135; `downloading` не оплачивается). **Потолок 1,5 ₽/меш (ADR-0313):**
 сторож цены `tools/scout/salad/mesh_price.py` в цикле `money_guard.py` судит по средней после 8 ч работы группы; цена — по классу

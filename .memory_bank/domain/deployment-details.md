@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-11-06
+updated: 2026-11-10
 importance: med
 source: manual
 last_verified: 2026-11-06
@@ -176,9 +176,13 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 
 **DEV-рендер как юниты systemd пользователя (18.10, T-04):** `remlab-render` (draft_service, 127.0.0.1:8600, OOMScoreAdjust=200 — первая жертва earlyoom) и `remlab-render-tunnel` (ssh -R 172.18.0.1:8601, OOMScoreAdjust=100, RestartSec=3). Исходники — `tools/scout/systemd/*.service`; ставит и чинит `tools/scout/dev_render_backend.sh` (крон `*/10` — `infra/dev/crontab`; строки @reboot в копии crontab нет). Статус: `systemctl --user status remlab-render remlab-render-tunnel`; логи — `~/scout-scenes/dev-render.log`, `dev-tunnel.log`. Живой ли туннель — с сервера `curl 172.18.0.1:8601/health` (version "dev"); `/api/draft/paid` жив ли туннель прямо не показывает: без своего ключа шлюза прод берёт баланс у DEV `GET /credits` через туннель (кэш 30 с), туннель мёртв → `{available:false, code:"unavailable"}` — неотличимо от других причин (`tools/scout/draft_service.py`). Юнит пользователя не может получить OOMScoreAdjust ниже 100; защита ssh — `--avoid` в `/etc/default/earlyoom` (sudo).
 
-**Память DEV (18.10, по слову владельца):** RAM 9,8 ГБ; своп `/swap.img` 4 ГБ + `/swap2.img` 8 ГБ (в `/etc/fstab`, копия `/etc/fstab.bak-20261018-1805`); zram 4,8 ГБ zstd, приоритет 100 (`/etc/systemd/zram-generator.conf`, `dev-zram0.swap`). Зачем: earlyoom (`-m 10,5 -s 10,5`) при полном свопе убивал draft_service и браузеры проверок. Перед пробами браузера — урок 512.
+**Память DEV (18.10, по слову владельца; к 10.11 RAM 15 ГБ — `free -g`):** было RAM 9,8 ГБ; своп `/swap.img` 4 ГБ + `/swap2.img` 8 ГБ (в `/etc/fstab`, копия `/etc/fstab.bak-20261018-1805`); zram 4,8 ГБ zstd, приоритет 100 (`/etc/systemd/zram-generator.conf`, `dev-zram0.swap`). Зачем: earlyoom (`-m 10,5 -s 10,5`) при полном свопе убивал draft_service и браузеры проверок. Перед пробами браузера — урок 512.
+earlyoom (`/etc/default/earlyoom`, сверено 10.11): `-r 3600 -m 10,5 -s 10,5 --avoid (sshd|ssh|autossh|systemd…) --prefer (qemu|buildkitd|containerd-shim)` —
+первым гасится сборщик образов, затем `remlab-render` (OOMScoreAdjust=200). Что съедало память 05–07.11: сухой прогон `orient_worker.decide` по 86 мешам
+одним процессом (6 ГБ), тень ориентации каскадом (6,5 ГБ к 152-му мешу), рисовалка `mesh_render` пачкой (кэш `lite_parts`, 5,5 ГБ за ~40 моделей),
+стенд паритета + orient_infer разом (05.11 earlyoom 8 раз за 5 мин снимал живое демо) — такие прогоны порциями в новых процессах и под очередью (ниже).
 
-**Тяжёлые прогоны на DEV — только через общую очередь (05.11, T-20261105-57):** `tools/ops/heavy-slot.sh <метка> [--min-gb N] -- <команда>` или в питоне `with heavy_slot('<метка>', min_gb=6):` на шаг (`tools/ops/heavy_slot.py`). До трёх тяжёлых сразу (06.11, T-20261106-74; было два, T-57/3): дополнительный слот (`slot<k>.lock`) — только пока занят другой и свободно ≥ Σ по держателям max(порог − PSS дерева держателя, 0) + свой + запас max(1 ГБ, 10 % RAM — ниже начинается SIGTERM earlyoom) (до T-74 порог держателя вычитался дважды — очередь стояла при простое CPU); одиночный — свободно ≥ свой порог, без запаса; сторож: свободно < запаса — новых не пускать. Пик PSS пишется в `~/.cache/remlab-heavy-slot/peaks.tsv`; после ≥ 3 замеров метки порог = min(объявленный, max(1,5 × пик, 0,5)); `--stats` — сводка замеров; держание > 45 мин — WARN в журнал. Обгон головы (T-20261106-79): голова не проходит по памяти — следующий, кто проходит сейчас, берёт дополнительный слот (слот 1 — всегда голове); голова ждёт головой ≥ `HEAVY_SLOT_BACKFILL_MIN` (20 мин, 0 — без обгона) — обгон закрыт, слоты стекают к ней; `--status` — строка ОБГОН. `HEAVY_SLOT_SLOTS=1` — строго по одному (flock `~/.cache/remlab-heavy-slot/slot.lock`), затем ждёт MemAvailable ≥ N; `--status` — кто держит/ждёт; журнал `~/remlab-logs/heavy-slot.log`; обход — только явный `--no-slot`. Порядок — строго по приходу (билеты, T-57/2); держатель, ждущий память > 10 мин, уступает тому, кому памяти хватает сейчас, не больше 3 раз (защита от голодания). Порог по задаче: при эксклюзивной очереди 5 ГБ хватает (orient_infer ~3,2 ГБ); 6+ при фоне 5,3–5,8 ГБ стоит часами. Свои циклы `free -m` не писать: разные пороги стартуют разом, и earlyoom снимает `remlab-render`. Самопроверка `tools/ops/heavy-slot-selftest.sh` (CI).
+**Тяжёлые прогоны на DEV — только через общую очередь (05.11, T-20261105-57):** `tools/ops/heavy-slot.sh <метка> [--min-gb N] -- <команда>` или в питоне `with heavy_slot('<метка>', min_gb=6):` на шаг (`tools/ops/heavy_slot.py`). До трёх тяжёлых сразу (06.11, T-20261106-74; было два, T-57/3): дополнительный слот (`slot<k>.lock`) — только пока занят другой и свободно ≥ Σ по держателям max(порог − PSS дерева держателя, 0) + свой + запас max(1 ГБ, 10 % RAM — ниже начинается SIGTERM earlyoom) (до T-74 порог держателя вычитался дважды — очередь стояла при простое CPU); одиночный — свободно ≥ свой порог, без запаса; сторож: свободно < запаса — новых не пускать. Пик PSS пишется в `~/.cache/remlab-heavy-slot/peaks.tsv`; порог по замеру (T-74; с ОДНОГО замера — T-20261106-91): есть засчитанный замер типа задачи (держание ≥ 30 с) → порог = min(объявленный, max(k × наибольший пик, 0,5 ГБ)), k = 2,0 при 1–2 замерах (следующий прогон типа доходил до 1,8× первого пика), 1,5 при 3+; держатель превысил свой порог в этом прогоне → его доля у следующих = max(объявленный, пик прогона) (`tools/ops/heavy_slot.py:eff_mult`, docstring «ПОРОГ ПО ЗАМЕРУ»); `--stats` — сводка замеров; держание > 45 мин — WARN в журнал. Обгон головы (T-20261106-79): голова не проходит по памяти — следующий, кто проходит сейчас, берёт дополнительный слот (слот 1 — всегда голове); голова ждёт головой ≥ `HEAVY_SLOT_BACKFILL_MIN` (20 мин, 0 — без обгона) — обгон закрыт, слоты стекают к ней; `--status` — строка ОБГОН. `HEAVY_SLOT_SLOTS=1` — строго по одному (flock `~/.cache/remlab-heavy-slot/slot.lock`), затем ждёт MemAvailable ≥ N; `--status` — кто держит/ждёт; журнал `~/remlab-logs/heavy-slot.log`; обход — только явный `--no-slot` (по слову ведущего): обёртка ставит `HEAVY_SLOT_NOSLOT=<pid>`, вложенные `heavy_slot` её потомков идут мимо очереди («без очереди по предку pid=…»), чужой процесс с тем же env ждёт (T-20261106-97, `heavy_slot.py:_noslot_parent`). Длинное (вырезка 1229 фото ≈ 7 ч) одним слотом запирает очередь — дробить на порции ≈ 30–40 мин, каждая — свой вызов. Разовые скрипты с рендером и прогрев демо — тоже под слотом (ночь 06→07.11: лист рабочего 5,5 ГБ мимо очереди + прогрев `--no-slot` → earlyoom снял рендер и buildkitd). Порядок — строго по приходу (билеты, T-57/2); держатель, ждущий память > 10 мин, уступает тому, кому памяти хватает сейчас, не больше 3 раз (защита от голодания). Порог по задаче: при эксклюзивной очереди 5 ГБ хватает (orient_infer ~3,2 ГБ); 6+ при фоне 5,3–5,8 ГБ стоит часами. Свои циклы `free -m` не писать: разные пороги стартуют разом, и earlyoom снимает `remlab-render`. Самопроверка `tools/ops/heavy-slot-selftest.sh` (CI).
 
 ## Сторож доступности и бэкапы вне сервера (13.10, ADR-0266)
 - `/api/health` (`lib/health.ts`): `select 1` к базе (2 с) и витрина `demo-data.json`; база не ответила → `ok:false` и 503
@@ -194,11 +198,49 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
   Первая репетиция 13.10: 17 таблиц, 3 с, 0 ошибок. Шаг `dev_checks` в `refresh_daily.sh` (`tools/ops/dev-checks.sh`)
   кладёт в дайджест: диск DEV ≥85 %, копии нет >48 ч, репетиция не прошла.
 
-## DEV: диск (13.10; 20.10 — 292 ГБ)
+## DEV: диск (13.10; 20.10 — 292 ГБ; к 10.11 — 391 ГБ)
 20.10 диск растянут до 292 ГБ (по слову владельца, делал ведущий tamara), свободно ~62. До этого 94 % — `wave_guard`
 отказывал в автозапуске волны («disk»). Крупное: `~/scout-scenes` 36 ГБ (меши 28; точных дублей 4,5 ГБ — почти все живые
 копии галереи демо, решение 20.10 — не трогать, списки `~/remlab-logs/dupes-2010*.json`), `~/igor/tamara` 55, `~/igor/julia` 21.
 Docker общий с tamara: автоочистка кэша сборок и безымянных образов `~/.local/bin/docker-clean.sh` (крон 05:40 UTC, ведёт tamara).
+
+**Сторож места (07.11, T-20261107-48):** диск DEV к 10.11 — 391 ГБ, занято 95 % (`df -h /`); 07.11 оставалось 10–21 ГБ при резерве
+tamara 25 ГБ. Ночной шаг `disk_keeper` (`tools/scout/refresh_daily.sh`) → `tools/ops/disk-keeper.py --apply --digest`: убирает только
+БЕЛЫЙ СПИСОК `tools/scout/rules/dev-disk.json` — подпапки `~/remlab-scratch` (кроме `parity`, контейнер `tmp`), `~/remlab-logs`
+(кроме `heavy-slot.log`, `batch-window.log`, `money-guard.log`), `~/onb06-out`, в `~/scout-scenes` — только папки задач по шаблонам
+`only`, `never` (меши, галерея, кадры, `flat215-demo`) не трогает; папка старше `dir_days` 7 сут, журналы `log_days` 14; папку, которую
+называет код, не трогает; свободно < `warn_free_gb` 30 → `WARN:disk_free`. Болванки `shape.glb` старше `shape_max_age_d` 14 сут
+уходят и без приёмки меша (`tools/scout/salad/prune_shapes.py`; владелец 07.11 TG 486 — меняет условие ADR-0233), кроме стоящих в
+очереди перегона/перекраски. Ручная уборка ведущего 06–07.11 — влитые worktree (`git worktree remove`), старые копии баз стенда
+паритета (`remlab_parity_*`); нужное для стендов держать в `~/remlab-scratch`, не в worktree (банк-кандидат пропал вместе с worktree).
+
+## DEV: `/tmp` — tmpfs с квотой; временное конвейера — на диск (07.11, T-20261107-02/13, урок 528)
+`/tmp` на pakardev — tmpfs ~788 МБ с квотой на пользователя; его забивают чужие проекты (mycoruja-img 255 МБ), папки сессий
+Claude и тысячи `playwright_*`. При квоте запись падает EDQUOT — часто молча (Bash-вывод теряется, скрипт с `rc 0`): ночь 06.11
+публикация демо упала rc 2 без причины в журнале (tar и журнал шага в `/tmp`), ночь 07.11 — `demo_rt.sh` (вывод `publish_rt` в
+`/tmp`) → демо не опубликовалось. Правило в коде: `tools/ops/remlab-tmp.sh` (shell, подключать через `.`) и `tools/scout/remlab_tmp.py`
+задают `REMLAB_TMP` = `~/remlab-scratch/tmp` (в CI — `RUNNER_TEMP`); `refresh_daily.sh` экспортирует `TMPDIR=$REMLAB_TMP` и пишет в
+журнал свободное место; шаг `tmp_sweep` (`tools/ops/tmp-sweep.sh`) убирает своё старше суток; CI — `tools/scout/tests/test_tmp_hygiene.py`
+(новый `tools/scout/tests_*.py` — сразу через `remlab_tmp.use`, иначе красный). gltfpack 0.24 пишет временные текстуры ЖЁСТКО
+в `/tmp/gltfpack-temp*` (TMPDIR не слушает) и при EDQUOT кладёт `data:…ERR` с `rc 0` (ночь 07.11: 14 моделей / 28 копий `/rt/` белые на проде) — страховка: сторож текстур в
+`tools/assets/runtime_mesh.py` (битая копия не пишется, без KTX2 — запасная JPEG; T-20261107-15). Venv, pip `TMPDIR`, песочницы рабочих — в `~/remlab-scratch`, не в `/tmp` и не в scratchpad сессии.
+
+## CI: статус без токена, проверка перед пушем, «как в CI» (06–07.11, T-20261106-58, T-20261107-41)
+- **Статус main** — `bash tools/ops/ci-status.sh` (публичный API `actions/workflows/<файл>/runs`, без входа; код 0/1/2) и ночной шаг
+  `ci_status` → строка DIGEST, красный — `WARN:ci_status` (`tools/ops/ci_status.py`). `gh` на pakardev протух (401) — не нужен. Лимит API
+  без токена — 60 запросов/час на адрес DEV (общий с ночными кронами): ждать CI не чаще раза в 3–5 мин (опрос раз в 30–45 с выжег лимит
+  07.11 и 09.11); прод — `tools/ops/deploy-need.sh --status` (без GitHub). После каждого вливания кода — статус CI: 05.11 гейт был красным
+  3 ч, 06.11 — с 15:18 весь день (деплой «skipped» ≥ 30 пушей), 07.11 — ~3 ч / 37 пушей.
+- **Перед пушем** — `.git/hooks/pre-push` → ссылка на `tools/ops/prepush-check.sh` (`tools/ops/prepush_check.py`): карта «путь → команда»
+  разбирается из `ci.yml` (команда касается файла, если запускает его или её исходник его упоминает/импортирует), окружение job + `CI=true`,
+  `GITHUB_ACTIONS=true`, `RUNNER_TEMP`, потолок 120 с (не успел — не стоп, проверит CI), упало → пуш остановлен (обход `--no-verify`).
+  pnpm/docker/playwright/pip/pytest локально не гоняет — их ловит только CI (e2e — урок 09.11). Хук — в `.git/hooks`, не в git: на новой
+  копии поставить ссылкой.
+- **«Как в CI» руками:** python в CI — 3.12 (`ci.yml`, job planner/scout-orient/scout-selftest), на DEV системный 3.14 (там `file://?v=` и
+  forkserver ведут себя иначе) → `docker python:3.12-slim` под своим uid; новый питон-тест — в ЧИСТОМ venv 3.12 ровно с пакетами job
+  (06.11 красный от opencv/pillow/pydantic/trimesh, которых в job нет; `trimesh.split` тянет scipy); env `CI=true GITHUB_ACTIONS=true
+  RUNNER_TEMP=…` (без них `remlab-tmp.sh` ведёт себя иначе). Правка `tools/scout/bank_*` или `tools/scout/rules/bank-*.json` → прогнать
+  `tools/scout/tests/test_bank_spec_golden.py` (эталон вывода selftest и shipped-rules побайтно), ожидаемое отличие — `--record` тем же коммитом.
 
 ## DEV после перезагрузки — что не встаёт само (20.10, урок 522)
 - **`remlab-devdb`** — у контейнера была политика перезапуска `no`: после перезагрузки база стояла, конвейер и сборки

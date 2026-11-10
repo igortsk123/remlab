@@ -3,7 +3,7 @@ tier: 1
 topic: apartment-configurator
 scope: 3D-конфигуратор квартиры — что это, из чего собран, где детали
 tier2: "../domain/flat3d-configurator.md"
-updated: 2026-11-05
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -25,7 +25,7 @@ review_after: 2026-12-28
 
 **Режимы:** бродилка · сверху (`viewer.ts:setViewMode`) · фото (`setPhotoPose`, `LivePhoto.tsx`) · план (`PlanView.tsx`); телефон — «Фото».
 
-**Мебель двигают и поворачивают** (ADR-0227, шаг 15°); стулья — группой (ADR-0230).
+**Мебель:** сдвиг, поворот 15° (ADR-0227), стулья группой (ADR-0230).
 **Из чего собрано** (Tier 2): ядро — `contracts/apartment.ts`, `lib/configurator/resolve.ts`; сцена — `lib/viewer3d/*`;
 сохранение — `flat_configs`; вход с витрины — `lib/configurator/fromDemo.ts` (`?demo=<вариант>&flat=<квартира>`).
 
@@ -36,7 +36,7 @@ review_after: 2026-12-28
 (`resolve.placeTabletop`), ленты (`demo-feeds.ts`), упаковки (`resolve.packPrices`), ТВ — `build-scene.sceneExtras`.
 **С 16.10 (demo-06/07, ADR-0297/0298):** пол и стены витрины — опции места из группы застройщика (`source.floorChoiceOf`,
 `source.finishChoiceOf(hit,"wall")`, `?opt=`), итоги `totals.bySettlement`/`byBudget` (ADR-0308); UK-двойник — курс × маска (ADR-0328, `demo-mask.ts`) — Tier 2.
-**Нет:** маски перекраски, лайтмапов, непрямоугольных комнат. **Телефон (22.10):** стрелки и подписи не пересекаются
-(`WalkPad.tsx:walkPadRect`, `Hotspots.tsx:labelBox`) — Tier 2. **Открыто:** пересборка `furniture.json`.
+**Нет:** маски перекраски, лайтмапов, косых комнат. **Телефон:** стрелки и подписи не пересекаются
+(`WalkPad.tsx:walkPadRect`, `Hotspots.tsx:labelBox`) — Tier 2. **Открыто:** `furniture.json`; кухня (`lib/viewer3d/kits/kitchen.ts`) на паузе (08.11).
 
 **Уроки:** `lessons/flat3d-configurator.md` · **Tier 2:** `../domain/flat3d-configurator.md` · [[demo-planner]]

@@ -1,9 +1,9 @@
 ---
 tier: 1
 topic: bedroom
-scope: Спальня — каталог кроватей, тумб, шкафов, комодов (с показа в демо снят); что дальше
-tier2: "../plans/b2b-10-rooms-beyond-living.md"
-updated: 2026-11-06
+scope: Спальня — каталог, банк наборов, показ на /demo (с 06.11), детская; что дальше
+tier2: "../domain/pipeline-order-details.md"
+updated: 2026-11-10
 importance: med
 source: manual
 status: working
@@ -14,23 +14,30 @@ last_verified: 2026-11-06
 
 # Спальня — Tier 1 сводка
 
-## Что есть (v1, ADR-0279)
-- **Каталог отдельно от гостиной:** таблица `room_catalog` (`tools/scout/013-room-catalog.sql`), загрузчик
-  `tools/scout/room_catalog.py` (ночной шаг `room_catalog` до сборки витрины). `products` и подбор гостиной спальню не
-  видят — сверено: до/после загрузки набор товаров и ролей гостиной тот же.
-- **Роли:** точный список категорий + роль по названию в смешанных ветках — `tools/scout/rules/bedroom-roles.json`;
-  основания, матрасы, стеллажи — отсекаются; детское — в детские роли, в демо только `roles_enabled`. 14.10: кроватей 1 367, шкафов 814, комодов 640, прикроватных
-  тумб 266 (почти всё — divan.ru; ещё Орматек, МногоМебели, ДиванБосс).
-- **Кровать:** габарит ≠ спальное место (`tools/scout/bed_dims.py`). «В расстановку нельзя», если нет габарита или
-  спального места, габарит меньше спального места, равен ему (это матрас), шире на >70 см или длиннее на >60 см, или
-  общий для линейки (`room_catalog.line_dims`: Орматек 200×200 у 80/140/160).
-- **Показ:** есть цена, есть фото и оффер в последнем свежем фиде (`room_catalog.shown_where`); в демо ещё
-  отсеивается товар, чьё фото не скачалось (`flat215_demo.cache_images`). Поле `available` у Гдеслона пустое (ADR-0171) —
-  в снятом с показа блоке — «цены по каталогу, уточняйте у продавца».
-- **Демо (с 16.10, ADR-0299):** фотокаталог спальни СНЯТ с показа — вкладки «Спальня 1/2» показывают общую заглушку
-  неготовых комнат (`tools/scout/flat215-demo/index.html:homeRooms`, флаг `ROOM_PREVIEWS=false`); данные каталога остаются в
-  сборке (`tools/scout/flat215_demo.py:bedroom_catalog` → `D.bedroom_catalog`) для `b2b-10` этапа 2.
+## Каталог (v1, ADR-0279)
+- Отдельно от гостиной: `room_catalog` (`tools/scout/013-room-catalog.sql`, `017` — `photo_alive`), загрузчик
+  `tools/scout/room_catalog.py`, роли — `tools/scout/rules/bedroom-roles.json`. `products` и подбор гостиной спальню не видят.
+- **Кровать:** габарит ≠ спальное место (`tools/scout/bed_dims.py`); без габарита/спального места, «матрас», общий размер линейки —
+  в расстановку нельзя (`room_catalog.line_dims`).
+- Оценка стиля — файл `style-scores-bedroom.json`, не `product_style_scores`.
 
-## Дальше (план `b2b-10` этап 2)
-Есть: стиль, меши, расстановка, комплект и лента замен (`tools/scout/demo_bedroom.py`; под флагом `rooms[].enabled`);
-в показ на главной не включено — [[b2b-10-rooms-beyond-living]]. Перенос в `products` не нужен, пока сборщики читают `room_catalog`.
+## Показ на /demo (с 06.11, T-20261106-77)
+- Спальня 1 и спальня 2 (13,2 м², чертёж №180) — варианты по стилям, 3D и фото нейросети.
+- **Набор:** сборщик `tools/scout/compose_bedroom.py` (правила `tools/scout/rules/bedroom-composition.json`) → кандидат
+  `sets-bedroom.next.json`; ячейка `room_id|purpose|band|style|tier` (`tools/scout/room_identity.py:cell`); стиль без товаров ядра
+  ночью не собирается (`compose_bedroom.py:core_skip`).
+- **Банк:** с 07.11 ночная цепочка спальни настоящая — prepare → pending → promote → писатель `sets-bedroom.json` (флаги
+  `tools/scout/rules/bank-candidate.json:rooms.bedroom`, откат — флаги false + `bank_refresh.py --room bedroom rollback last`).
+- **Витрина** (`tools/scout/demo_bedroom.py` поверх общего `tools/scout/demo_room.py`): ведущие роли — поле `lead` профиля
+  `tools/scout/rules/profiles/bedroom.json`; пустую роль добирает запас из других записей банка (`demo_room.py:role_spares`);
+  лампы декора без моделей — `list_only` (в списке, не в 3D).
+- **Модель предмета** — одно правило с банком: `tools/scout/room_bindings.py:usable` (режим orient: ready или blocked только по
+  развороту), сцена грузит модель привязки (`room_bindings.py:scene_msid`).
+
+## Стили и назначения
+- Шесть стилей в правилах; владелец 07.11: неоклассика — только в гостиной, нет стиля — молча похожий вариант
+  (план `style-fallback-01`, в коде спальни ещё нет).
+- Спальня 2 — назначения couple/single/guest/office/child:* (`bedroom-composition.json:bedroom-2`); детская 7–12 решается солвером
+  (план `kids-room-01`), наборов в банке пока нет.
+
+**Tier 2:** `../domain/pipeline-order-details.md` § «Банки других комнат» · [[b2b-10-rooms-beyond-living]] · ADR-0330.

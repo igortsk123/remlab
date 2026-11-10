@@ -3,7 +3,7 @@ tier: 1
 topic: styles
 scope: Стили — паспорта, скоринг, сеты
 tier2: ../domain/interior-styles.md
-updated: 2026-11-06
+updated: 2026-11-10
 last_verified: 2026-11-06
 importance: high
 source: manual
@@ -37,6 +37,6 @@ CLIP) не согласны, порог «≥ 6» невалиден — дет�
 
 **14.10 (ADR-0269):** стенд по осям (`tools/scout/style_axes.py`) — главный пока нынешний метод; выбор — владелец.
 
-**29.10:** отметки стиля человеком — Tier 2.
+**29.10:** отметки стиля человеком (итог 05.11) — Tier 2.
 
 **Tier 2:** ../domain/interior-styles.md

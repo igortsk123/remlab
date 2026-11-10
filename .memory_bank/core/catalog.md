@@ -3,7 +3,7 @@ tier: 1
 topic: catalog
 scope: Каталог — загрузка из фидов/API, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-11-06
+updated: 2026-11-10
 importance: high
 source: manual
 status: working
@@ -23,10 +23,10 @@ review_after: 2026-12-05
 API (`catalog_api_sync.py`, ежедневно, ADR-0239) — `charge`, пустые HD и описание; каноном состава НЕ является (видит 56 %);
 комиссия — по `article`, HD и описание — по картинке/названию. Вычисляем: размеры (`dim_resolver.py`; глубина с чертежа — [[stock-and-dims]]),
 роль (`category_map.py` → `products.cat_role` → витрина `lr_roles`, ADR-0236; детское — `rug_kids.py`, `category_map.py:soft_kids`; свет —
-`category_map.py:light_role`; диван/кресло — по типу в названии, `category_map.py:seat_role`),
-`in_stock` (`stock_truth.reconcile()`; `load3` новым строкам ставит лишь заглушку).
+`category_map.py:light_role`; диван/кресло/пуф — первое слово-тип в названии, `category_map.py:seat_role`),
+`in_stock` (`stock_truth.reconcile()`).
 
-**Дельта (`load3.py:HASH_VERSION` = 9; смена правил `dim_resolver` — подъём, сторож `RULES_FINGERPRINT`):** text/geometry/image/attrs → `stale`
+**Дельта (`load3.py:HASH_VERSION` = 10; смена правил `dim_resolver` — подъём, сторож `RULES_FINGERPRINT`):** text/geometry/image/attrs → `stale`
 (commercial и image_hd — только счётчики), смена контракта → baseline. Исчез → `missing`, 3 дня → `archived`; не удаляем.
 Порог «< 70 %» — по магазину против последнего успеха (`catalog_import_runs`).
 Карантин фидов — `feed_guard.py` (30–54 ч `degraded` грузится; `stale/broken/empty` — пропуск, `load3.py:404`). Обогащение `enrich.py --vision` — ежедневно, ≤200, сперва товары банков (`enrich.py:daily_pick`).

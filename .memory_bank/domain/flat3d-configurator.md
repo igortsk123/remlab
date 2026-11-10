@@ -3,7 +3,7 @@ tier: 2
 topic: flat3d-configurator-details
 scope: 3D-конфигуратор квартиры — подробности модели, сцены и конвейера ассетов
 tier1: ../core/apartment-configurator.md
-updated: 2026-11-05
+updated: 2026-11-10
 importance: med
 source: manual
 status: working
@@ -227,6 +227,17 @@ runtime-текстура (KTX2) — уйдёт при переходе на пе
 Остров требует глубины комнаты ≥ линия + 100 (проход) + 90 (остров) + 80; иначе — барная стойка
 на торце линии. Техника (вытяжка, посудомойка, духовка-колонна) приходит НЕ от уровня кухни, а от
 пакета техники — признаки в `data/flat3d/catalogue-base.json`, разбор в `lib/viewer3d/kits/kitchen.ts`.
+
+## Кухня-кит по примеру магазина (05–08.11, onb-08/onb-09, kitchen-show-01) — НА ПАУЗЕ
+**Пауза:** владелец 08.11 (TG 553/555) «кухню не надо делать»; ветка показа кухни на /demo не влита (T-20261107-40). Ниже — что в коде `main`.
+- Раскладка — `lib/viewer3d/kits/kitchen-layout.ts:kitchenLayout` (точки мойки/плиты, Г-плечо `CORNER_LEG_CM`, верх по паспорту вокруг вытяжки `HOOD_W`);
+  модули ряда 40/45/60/80 — `lib/viewer3d/kits/kitchen-modules.ts:MODULE_SERIES_CM`, `pickModules`; пример магазина → спека —
+  `lib/viewer3d/kits/kitchen-from-example.ts:kitchenSpecFromExample`; примеры — `data/partners/kitchen-examples/{ru,uk}.json` (схема `contracts/kitchen-example.ts`).
+- Проверки — `lib/viewer3d/kits/kitchen-checks.ts:checkKitchen` (`checkTriangle`, `checkAisles`, `checkVent`); числа — `services/planner-solver/rules/kitchen.json`:
+  треугольник сторона 120–270, сумма ≤ 790 (NKBA); проход 107 (один повар) / 122 (двое) / 91 (путь); вытяжка ≤ 300 см от вентканала —
+  гипотеза, только предупреждение.
+- Грабли: ручки, фасад низа и цоколь (`0x4a4d52`) зашиты в `lib/viewer3d/kits/kitchen.ts`, из паспорта не берутся; металл без карты
+  окружения выходит чёрным; у фида Sima параметры кухонь пустые — цвета мерили по фото магазина.
 
 ## Стык с фото-конвейером
 `lib/configurator/photo.ts` собирает запрос `/api/render`: комната в ЛОКАЛЬНЫХ координатах,

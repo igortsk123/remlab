@@ -12,6 +12,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Задача (scope) | Tier 1 | Tier 2 |
 |----------------|--------|--------|
 | Интеграции/доступы — ключи, клиенты | `core/access-and-integrations.md` | `domain/integrations.md` |
+| Проба для агента недвижимости (UK) — лендинг, загрузка плана, задание, воркер DEV, конвейер стадий, тур /try под план | `core/agent-trial.md` | `plans/MASTER-agent-trial.md` |
 | 3D-конфигуратор квартиры — что это, из чего собран, где детали | `core/apartment-configurator.md` | `domain/flat3d-configurator.md` |
 | Стек, модули, генерация, деплой — по коду | `core/architecture.md` | `../docs/tech-spec-ts-stack.md` |
 | Каталог — загрузка из фидов/API, свежесть, сторожа | `core/catalog.md` | `domain/catalog-enrichment.md` |
@@ -44,7 +45,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Наличие и честность размеров — состояния, парсер, footprint | `core/stock-and-dims.md` | `domain/stock-and-dims.md` |
 | Стили — паспорта, скоринг, сеты | `core/styles.md` | `domain/interior-styles.md` |
 | Stage 1 UX-flow, аналитика | `core/user-flow.md` | `domain/user-flow-details.md` |
-| Спальня — каталог кроватей, тумб, шкафов, комодов (с показа в демо снят); что дальше | `core/bedroom.md` | `plans/b2b-10-rooms-beyond-living.md` |
+| Спальня — каталог, банк наборов, показ на /demo (с 06.11), детская; что дальше | `core/bedroom.md` | `domain/pipeline-order-details.md` |
 | Дизайн демо в Фигме для дизайнера — книги, страницы, как пересобрать, что правлено руками | `core/design-figma.md` | `completed_plans/design-01-figma-export.md` |
 | Состав гостиной — роли и пригодность | `core/lr-checklist.md` | `domain/living-room-checklist.md` |
 | Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат | `core/onboarding-quiz.md` | `domain/onboarding-quiz.md` |
