@@ -508,20 +508,26 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
         if width_beds and not any(fits_core(need, c) for c in cores):
             log.append({'template': tpl['id'], 'why': 'too_small'})
             continue
-        # рама шире ядра (с проходами) — до среза BEDS_PER_TEMPLATE, иначе широкие занимают оба места; среди годных порядок прежний
-        beds = [b for b in width_beds if any(fits_core(need, c) and fits_core(frame_need(b, tpl['purpose']), c) for c in cores)]
-        beds = beds[:BEDS_PER_TEMPLATE]
+        # рама шире ядра (с проходами) — до среза BEDS_PER_TEMPLATE, иначе широкие занимают оба места; среди годных порядок прежний.
+        # Одна проба на размер w×d×h (T-20261110-20/3): цвета одной модели решатель считает одним (память `solve_kit`), а места
+        # в срезе они занимали оба — в спальне 5,9 м² оба места брали Лайтси двух цветов, Лория дальше по списку не пробовалась
+        fit = unique_sizes([b for b in width_beds if any(fits_core(need, c) and fits_core(frame_need(b, tpl['purpose']), c) for c in cores)])
+        beds = fit[:BEDS_PER_TEMPLATE]
         if not beds or not stand:
             why = 'no_bed' if not width_beds else ('frame_too_wide' if not beds else 'no_nightstand')
             log.append({'template': tpl['id'], 'why': why})
             continue
-        why = 'no_fit'
+        why, low_frames = 'no_fit', False
         for ci, cand in enumerate(cores):
             if tpl['purpose'] == 'couple' and not couple_room(cand['area_m2'], min(cand['w'], cand['d'])):
                 continue
             if not fits_core(need, cand):
                 continue
-            for bed in beds:
+            tries, low_done = list(beds), False
+            i = 0
+            while i < len(tries):
+                bed = tries[i]
+                i += 1
                 if not fits_core(frame_need(bed, tpl['purpose']), cand):     # рама не на это ядро — на другом из списка
                     continue
                 if time.time() > deadline:
@@ -529,12 +535,24 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
                     break
                 core_kit = {'кровать': bed, 'тумба прикроватная': stand}     # обязательное шаблона: не встало — шкафы и комоды не пробуем
                 if not template_ok(solve_kit(ad, cand, cfg, core_kit, tpl['purpose']), tpl):
+                    # ВЫСОТА У ОКНА (T-20261110-20/3): решатель не ставит предмет выше подоконника у окна (`planner.bedroom._fits`);
+                    # высокая рама не встала, а ТА ЖЕ рама ниже подоконника встаёт — мешала высота. Тогда высокие рамы не меньше
+                    # этой не пробуем (`dominated`), прочие из очереди — как раньше и первыми (выбор там, где прежний подбор
+                    # находил кровать, не меняется), за ними — низкие рамы этой ширины по прежнему порядку
+                    if not low_done:
+                        got = window_low_beds(ad, cand, cfg, core_kit, tpl, fit, tries)
+                        if got is not None:
+                            lim, low = got
+                            low_done = True
+                            tries = tries[:i] + [b for b in tries[i:] if not dominated(b, bed, lim)] + low
+                            low_frames = True
                     continue
                 for kit in kit_ladder(bed, others):
                     res = solve_kit(ad, cand, cfg, kit, tpl['purpose'])
                     if template_ok(res, tpl):
                         return dict(variant_from(res, ad, cand, ci, style, bed, others, tpl, ctx), templates_tried=log), None
-        log.append({'template': tpl['id'], 'why': why})
+        # low_frames — мешала высота рамы у окна (проба `window_low_beds`), низкие тоже не встали: подсказка спросу на низкие кровати
+        log.append({'template': tpl['id'], 'why': why, **({'low_frames': True} if low_frames else {})})
         if why == 'budget':
             break
     whys = {x['why'] for x in log}
@@ -544,7 +562,53 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
     return None, {'style': style, 'code': code, 'templates': log}
 
 
-BEDS_PER_TEMPLATE = 2                               # кроватей одной ширины на шаблон: у соседних по размеру шанс, бюджет не съедается
+BEDS_PER_TEMPLATE = 2                               # РАЗМЕРОВ кроватей одной ширины на шаблон: у соседних шанс, бюджет не съедается
+
+
+def size_key(b: dict) -> tuple:
+    """Размер так, как его видит решатель (ключ памяти `solve_kit` — точные w, d, h): округление склеило бы разные рамы."""
+    return tuple(float(b.get(k) or 0) for k in ('w', 'd', 'h'))
+
+
+def dominated(b: dict, failed: dict, lim: float) -> bool:
+    """Рама выше предела у окна и не меньше по ширине и длине той, что не встала из-за высоты, — не встанет тоже."""
+    return (float(b.get('h') or 0) > lim and float(b.get('w') or 0) >= float(failed.get('w') or 0)
+            and float(b.get('d') or 0) >= float(failed.get('d') or 0))
+
+
+def unique_sizes(beds: list) -> list:
+    """Первая кровать каждого размера w×d×h (порядок прежний): одинаковые по размеру решатель ставит одинаково."""
+    seen, out = set(), []
+    for b in beds:
+        k = size_key(b)
+        if k not in seen:
+            seen.add(k)
+            out.append(b)
+    return out
+
+
+def window_limit(cand: dict, cfg: dict, purpose: str) -> float | None:
+    """Высота, выше которой решатель не ставит предмет у окна этого ядра: max(подоконник, 80) (`planner.bedroom._fits`),
+    по самому низкому окну. Окон нет — None."""
+    room, _ = build_room(cand, cfg, HINGES[0], purpose)
+    lims = [max(float(op.sill_cm or 0), 80.0) for op in room.openings if op.kind == 'window']
+    return min(lims) if lims else None
+
+
+def window_low_beds(ad: dict, cand: dict, cfg: dict, core_kit: dict, tpl: dict, fit: list, tried: list) -> tuple | None:
+    """Высокая рама не встала: встаёт ли та же рама ниже подоконника? Да — мешала высота у окна → (предел, низкие рамы ≤ предела
+    из годных по размеру `fit`, ещё не пробованные, не больше BEDS_PER_TEMPLATE). Нет (окна нет, рама и так низкая, или и низкая
+    не встаёт — мешает не окно) → None, подбор как был. Проба — подсказка «мешала высота», не доказательство «только под
+    окном»: поэтому прочие высокие рамы очереди не выбрасываются (см. `furnish_style`), снимаются только `dominated`."""
+    bed = core_kit['кровать']
+    lim = window_limit(cand, cfg, tpl['purpose'])
+    if lim is None or float(bed.get('h') or 0) <= lim:
+        return None
+    probe = dict(core_kit, кровать=dict(bed, h=lim))
+    if not template_ok(solve_kit(ad, cand, cfg, probe, tpl['purpose']), tpl):
+        return None
+    seen = {size_key(b) for b in tried}
+    return lim, [b for b in fit if float(b.get('h') or 0) <= lim and size_key(b) not in seen][:BEDS_PER_TEMPLATE]
 
 
 def kit_ladder(bed: dict, others: dict) -> list:

@@ -15,6 +15,9 @@ GLB не перезаписывается. Легаси-совместимост
   ~/venvs/scout/bin/python orient_worker.py --report
   ~/venvs/scout/bin/python orient_worker.py --dry-roles   # сколько решений устарело по ролям и цена VLM
   ~/venvs/scout/bin/python orient_worker.py --shadow DIR [--limit N] [--vlm]   # перерешить устаревшие В ПАПКУ, без БД
+  ~/venvs/scout/bin/python orient_worker.py --bed-guard [--apply] [--out F.json]   # сторож изголовья всех кроватей (без --apply — сухо)
+Кровати (T-20261110-20/3): до VLM — свидетель изголовья по геометрии (`bed_headboard`, `apply_headboard`): уверен — решено
+(согласие или доворот матрицы), стоит боком без ясного торца — `review_pending`/`headboard_sideways` (блок в привязке).
 --recheck-roles: в пачку идут и решения, устаревшие по ролям (`stale_by_role`): (а) «симметрична по роли», принятое при
 ПРЕЖНЕЙ политике ролей, если роль теперь направленная или была неизвестна (отпечаток `role_policy()`; Codex T-36/3);
 (б) СМЕНА РОЛИ в каталоге — роль решения ≠ текущей (`current_role`), в любую сторону: симметричная → направленная,
@@ -53,8 +56,12 @@ from mesh_front import NONDIRECTIONAL, SEAT_ROLES, infer_seat_front  # noqa: E40
 from mesh_queue import DIRECTED, db, q  # noqa: E402
 import asset_strategy as AS  # noqa: E402 — канон переда роли и подсказок VLM
 from openai_budget import allow, log_spend, price_of  # noqa: E402 — учёт и дневной лимит платных вызовов (T-56/7)
+import bed_headboard as HB  # noqa: E402 — изголовье кровати по геометрии (T-20261110-20/3)
 
 VLM_MODEL = 'alibaba/qwen3-vl-instruct'   # через шлюз Vercel; цена — rules/openai_prices.json
+# Кровати: перед/зад VLM видит, а разворот на 90° — нет (отвечает «перед» почти всегда): Лория/Кейла 120 стояли боком
+# с `orienter+vlm_agree`. Свидетель — изголовье по геометрии (`bed_headboard`), до VLM (T-20261110-20/3)
+BED_ROLES = ('кровать',)
 
 
 def directed_role(role: str, name: str = '', subtype: str = '') -> bool:
@@ -325,6 +332,10 @@ def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
         res['raw_to_canonical_quat_wxyz'] = inf['quat_wxyz']
         res['legacy_front_yaw'], res['up_tilt_deg'] = front_yaw_from_R(inf['R'])
 
+    if role in BED_ROLES:
+        out = apply_headboard(res, headboard_witness(res, glb, inf['R']))
+        if out is not None:
+            return out
     parts = canonical_parts(glb, inf['R'])
     if role in SEAT_ROLES:
         seat = infer_seat_front(parts, role, has_back=directed_role(role, name, subtype))
@@ -347,6 +358,50 @@ def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
         res.update(status='review_pending',
                    source='vlm_disagree' if side == 'зад' else 'vlm_unsure')
     return res
+
+
+def headboard_witness(res: dict, glb: str, R) -> dict:
+    """Изголовье по геометрии в каноне решения `R` → вердикт `bed_headboard`; кратко — в evidence.headboard."""
+    hb = HB.infer_headboard(HB.canonical_vertices(glb, R))
+    res.setdefault('evidence', {})['headboard'] = {k: hb.get(k) for k in ('status', 'head_side', 'fix_deg', 'margin', 'xz', 'version')}
+    return hb
+
+
+MISMATCH_SOURCES = ('headboard_sideways', 'headboard_flip')   # в привязке — `orientation_mismatch` (жёсткий блок)
+
+
+def fix_corroborated(hb: dict) -> bool:
+    """Доворот изголовья подтверждён ВТОРЫМ признаком — формой: рама вытянута поперёк канона (длинная сторона по X, а у
+    кровати она должна идти от изголовья к изножью, по Z), значит поворот на 90° виден и без высот. Разворот на 180° форма
+    не подтверждает."""
+    return hb.get('status') == 'confident' and hb.get('fix_deg') in (90, 270) and float(hb.get('xz') or 0) > HB.SQUARE[1]
+
+
+def apply_headboard(res: dict, hb: dict) -> dict | None:
+    """Решение кровати по изголовью → новое решение или None (свидетель не уверен — каскад идёт дальше, к VLM).
+      confident, поправка 0 → `auto_resolved`, `orienter+headboard_agree`;
+      confident, поправка 90/180/270 → матрица каскада доворачивается вокруг вертикали (R' = ry·R: изголовье к +Z канона),
+             кватернион и legacy_front_yaw пересчитаны тем же `front_yaw_from_R` → `auto_resolved`, `headboard_fix`; прежнее —
+             в evidence.headboard.prev;
+      sideways (вытянута поперёк канона, торцы не различить) → `review_pending`, `headboard_sideways`: привязка даёт
+             `orientation_mismatch` — жёсткий блок (`room_bindings.orient_only` его не пускает), человек — на /lab/mesh-review."""
+    st = hb.get('status')
+    if st == 'confident':
+        if not hb['fix_deg']:
+            return {**res, 'status': 'auto_resolved', 'source': 'orienter+headboard_agree'}
+        if not fix_corroborated(hb):
+            # разворот без второго признака (180° или почти квадратная рама): по одной высоте торца прод не трогаем —
+            # высокое изножье дало бы уверенный ложный разворот (второе мнение Codex, T-20/3). Предложение — в evidence
+            return {**res, 'status': 'review_pending', 'source': 'headboard_flip'}
+        prev = {'yaw': res.get('legacy_front_yaw'), 'status': res.get('status'), 'source': res.get('source')}
+        R = HB.rotate_R(res['R'], hb['fix_deg'])
+        out = {**res, 'R': R, 'raw_to_canonical_quat_wxyz': HB.quat_wxyz(R), 'status': 'auto_resolved', 'source': 'headboard_fix'}
+        out['legacy_front_yaw'], out['up_tilt_deg'] = front_yaw_from_R(R)
+        out['evidence'] = {**res.get('evidence', {}), 'headboard': {**res['evidence']['headboard'], 'prev': prev}}
+        return out
+    if st == 'sideways':
+        return {**res, 'status': 'review_pending', 'source': 'headboard_sideways'}
+    return None
 
 
 _SHA_CACHE = os.path.expanduser('~/scout-scenes/orientation/sha-cache.json')
@@ -537,6 +592,11 @@ def yaw_guard(res: dict, rk: str, published: dict | None, old: tuple | None) -> 
     `state_index`). Симметричные не трогаем: их прод-поворот `orient_policy.publishable` и так не затирает."""
     if res.get('status') != 'auto_resolved' or 'symmetric' in str(res.get('source') or ''):
         return res
+    # кровать, довёрнутая изголовьем по геометрии с подтверждением формой (`apply_headboard` → `headboard_fix`), — не догадка
+    # VLM: сторож ловит тихие смены от слабого свидетеля, а эта смена и есть исправление опубликованного брака (Лория/Кейла
+    # 120 боком, T-20261110-20/3). Согласие изголовья (`orienter+headboard_agree`) сторожа не минует
+    if res.get('source') == 'headboard_fix' and fix_corroborated((res.get('evidence') or {}).get('headboard') or {}):
+        return res
     sku_, sha16 = rk.split('|')[0].replace(':', '_'), rk.split('|')[1]
     new = snap_yaw(res.get('legacy_front_yaw'))
     ref = None
@@ -552,6 +612,114 @@ def yaw_guard(res: dict, rk: str, published: dict | None, old: tuple | None) -> 
     return {**res, 'status': 'review_pending', 'source': 'yaw_change_guard',
             'guard': {'was_source': res.get('source'), 'new_yaw': new, 'ref_yaw': ref[1], 'ref': ref[0],
                       'task': 'T-20261105-56/6'}}
+
+
+def store(rk: str, sku: str, res: dict, res_dir: str = RES_DIR, to_db: bool = True) -> None:
+    """Решение — файлом в `res_dir` и (боевой путь) строкой `orientation_state` (ключ revision_key)."""
+    fp = os.path.join(res_dir, rk.replace(':', '_').replace('|', '__') + '.json')
+    json.dump(res, open(fp + '.tmp', 'w'), ensure_ascii=False, indent=1)
+    os.replace(fp + '.tmp', fp)
+    if to_db:
+        db(f"""insert into orientation_state (revision_key, sku, status, resolution)
+               values ({q(rk)}, {q(sku)}, {q(res['status'])},
+                       {q(json.dumps(res, ensure_ascii=False))}::jsonb)
+               on conflict (revision_key) do update
+                 set status=excluded.status, resolution=excluded.resolution, updated=now()""")
+
+
+BED_GUARD_CACHE = os.path.join(SCENE_DIR, 'orientation', 'bed-guard-cache.json')
+
+
+def bed_rows() -> list:
+    """Решения кроватей контракта orient-v1 с путём к модели (поколение того же sha16) → [(rk, sku, status, resolution, glb)]."""
+    out = []
+    for rk, sku, st, txt, path in db(
+            "select o.revision_key, o.sku, o.status, o.resolution::text, coalesce(g.path, '-') from orientation_state o "
+            "left join lateral (select path from mesh_generations g where g.sku = o.sku "
+            "  and g.glb_sha = left(o.resolution->>'glb_sha', 16) limit 1) g on true "
+            f"where o.resolution->>'role' in ({', '.join(q(r) for r in BED_ROLES)}) "
+            f"and coalesce(o.resolution->>'contract', split_part(o.revision_key, '|', 3)) = {q(CONTRACT)} order by o.sku"):
+        glb = os.path.join(path, 'model.glb') if os.path.isdir(path) else path
+        out.append((rk, sku, st, json.loads(txt), glb))
+    return out
+
+
+def bed_verdict(st: str, res: dict, hb: dict) -> tuple[str, dict | None]:
+    """Что сторож делает с решением кровати → (действие, новое решение | None).
+    Решение человека не трогаем никогда (расхождение — в отчёт, `human_conflict`); `unusable` — тоже."""
+    if st == 'human_resolved' or res.get('unusable'):
+        bad = hb.get('status') == 'sideways' or (hb.get('status') == 'confident' and hb['fix_deg'])
+        return ('human_conflict' if bad else 'ok'), None
+    new = apply_headboard(res, hb)
+    if new is None:
+        return 'unsure', None                                  # свидетель не уверен — решение каскада остаётся
+    if new['source'] == 'headboard_fix':
+        return 'fixed', new
+    if new['source'] in MISMATCH_SOURCES:
+        return ('blocked', new) if not (st == 'review_pending' and res.get('source') == new['source']) else ('ok', None)
+    if st == 'auto_resolved':
+        return 'ok', None
+    # согласен: нерешённое «VLM не уверен» решено геометрией; прочие причины разбора (сторож поворота, смена роли…) — не наши
+    return ('promoted', new) if st == 'review_pending' and res.get('source') == 'vlm_unsure' else ('agree_kept', None)
+
+
+def bed_guard(apply: bool, out: str | None = None) -> list:
+    """СТОРОЖ ИЗГОЛОВЬЯ (T-20261110-20/3) по ВСЕМ решениям кроватей: изголовье по геометрии в каноне решения против решения.
+    Разошлось уверенно — решение доворачивается (`headboard_fix`), стоит боком без ясного торца — `headboard_sideways`
+    (блок `orientation_mismatch`), нерешённое с уверенным согласием — `orienter+headboard_agree`. Пишет тем же путём, что
+    каскад (`store`: файл + `orientation_state`), только с `apply`; дальше обычный путь: вид сверху и `publish_merge
+    --only-resolved` → прод `orient.json`, ночная привязка `room_bindings --build`. Решения человека не трогает.
+    Кэш по отпечатку решения и версии свидетеля — меш, проверенный тем же решением, заново не грузится."""
+    try:
+        cache = json.load(open(BED_GUARD_CACHE, encoding='utf-8'))
+    except (OSError, ValueError):
+        cache = {}
+    rows, n = [], {}
+    published, meta = published_orient(), state_index()[2]     # тот же сторож поворота, что у каскада (`run`)
+    for rk, sku, st, res, glb in bed_rows():
+        sig = hashlib.sha1(json.dumps(res, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16] + f'|hb{HB.VERSION}'
+        rec = {'rk': rk, 'sku': sku, 'was': {'status': st, 'source': res.get('source'), 'yaw': res.get('legacy_front_yaw')}}
+        if cache.get(rk, {}).get('sig') == sig:
+            rec.update(action='cached', hb=cache[rk].get('hb'))
+        elif 'R' not in res or not os.path.exists(glb):
+            rec['action'] = 'no_mesh'
+        else:
+            work = json.loads(json.dumps(res))
+            try:
+                hb = headboard_witness(work, glb, res['R'])
+            except Exception as e:  # noqa: BLE001 — одна модель не валит сторожа
+                rec.update(action='error', error=str(e)[:200])
+                hb = None
+            if hb is not None:
+                action, new = bed_verdict(st, work, hb)
+                if new is not None and new['status'] == 'auto_resolved':
+                    # смена опубликованного поворота без подтверждения — не на прод (подтверждённый доворот сторож пропускает)
+                    guarded = yaw_guard(new, rk, published, meta.get(rk))
+                    if guarded.get('source') == 'yaw_change_guard':
+                        action, new = 'guarded', None
+                rec.update(action=action, hb={k: hb.get(k) for k in ('status', 'head_side', 'fix_deg', 'margin', 'xz')})
+                if new is not None:
+                    rec['now'] = {'status': new['status'], 'source': new['source'], 'yaw': new.get('legacy_front_yaw')}
+                    if apply:
+                        store(rk, sku, new)
+                if apply:                    # сухой прогон кэш не трогает (он общий с ночным путём)
+                    cache[rk] = {'sig': sig if new is None else hashlib.sha1(json.dumps(new, sort_keys=True, ensure_ascii=False)
+                                                                           .encode()).hexdigest()[:16] + f'|hb{HB.VERSION}',
+                                 'hb': rec['hb']}
+        n[rec['action']] = n.get(rec['action'], 0) + 1
+        rows.append(rec)
+        gc.collect()
+    if apply:
+        os.makedirs(os.path.dirname(BED_GUARD_CACHE), exist_ok=True)
+        json.dump(cache, open(BED_GUARD_CACHE + '.tmp', 'w', encoding='utf-8'), ensure_ascii=False)
+        os.replace(BED_GUARD_CACHE + '.tmp', BED_GUARD_CACHE)
+    if out:
+        json.dump(rows, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    for r in rows:
+        if r['action'] in ('fixed', 'blocked', 'promoted', 'guarded', 'human_conflict', 'error'):
+            print(f"  {r['sku']}: {r['action']} {r['was']} → {r.get('now')} {r.get('hb')}", flush=True)
+    print(f"[bed-guard] {'запись' if apply else 'сухо'}: {n}", flush=True)
+    return rows
 
 
 def run(limit: int, use_vlm: bool, recheck_roles: bool = False, shadow: str | None = None) -> None:
@@ -596,17 +764,9 @@ def run(limit: int, use_vlm: bool, recheck_roles: bool = False, shadow: str | No
             except Exception as e:  # noqa: BLE001 — один меш не валит пакет
                 res = {'contract': CONTRACT, 'sku': sku, 'status': 'review_pending',
                        'source': 'cascade_error', 'error': str(e)[:200]}
-        fp = os.path.join(res_dir, rk.replace(':', '_').replace('|', '__') + '.json')
-        json.dump(res, open(fp + '.tmp', 'w'), ensure_ascii=False, indent=1)
-        os.replace(fp + '.tmp', fp)
+        store(rk, sku, res, res_dir, to_db=not shadow)
         if shadow:
             overlay[rk] = overlay_row(res)
-        else:
-            db(f"""insert into orientation_state (revision_key, sku, status, resolution)
-                   values ({q(rk)}, {q(sku)}, {q(res['status'])},
-                           {q(json.dumps(res, ensure_ascii=False))}::jsonb)
-                   on conflict (revision_key) do update
-                     set status=excluded.status, resolution=excluded.resolution, updated=now()""")
         done[res['status']] = done.get(res['status'], 0) + 1
         print(f"  {os.path.basename(glb)}: {res['status']} ({res.get('source', '')}) роль {res.get('role', '')}", flush=True)
         # Каскад одного меша (trimesh, рендер) оставляет циклы ссылок: без сборки процесс рос на 70–150 МБ за меш —
@@ -632,6 +792,8 @@ if __name__ == '__main__':
         lim = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else 100
         shd = sys.argv[sys.argv.index('--shadow') + 1] if '--shadow' in sys.argv else None
         run(lim, '--vlm' in sys.argv, '--recheck-roles' in sys.argv or bool(shd), shadow=shd)
+    elif '--bed-guard' in sys.argv:
+        bed_guard('--apply' in sys.argv, sys.argv[sys.argv.index('--out') + 1] if '--out' in sys.argv else None)
     elif '--dry-roles' in sys.argv:
         dry_roles()
     elif '--report' in sys.argv:

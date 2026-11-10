@@ -317,6 +317,11 @@ def asset_of(sku: str, cat_urls: set, F: Facts, pol: dict) -> tuple:
                 reasons.append('orientation_contract')
             elif row.get('glb_sha') != full:
                 reasons.append('orientation_other_glb')
+            elif row.get('source') in ('headboard_sideways', 'headboard_flip'):
+                # кровать стоит боком, а куда смотрит изголовье — не ясно, или изголовье по геометрии с другой стороны, а форма
+                # этого не подтверждает (`orient_worker.apply_headboard`, `MISMATCH_SOURCES`, T-20261110-20/3): не «фронт не
+                # решён», а «модель встанет не так» — жёсткий блок, режим orient его не пускает (`orient_only`)
+                reasons.append('orientation_mismatch')
             elif row.get('status') not in P['orientation']['status_ok']:
                 reasons.append(f"orientation_{row.get('status')}")
             elif row.get('unusable'):
@@ -792,8 +797,10 @@ MESH_GATE_MODES = ('orient', 'strict')
 
 
 def orient_only(reasons) -> bool:
-    """Привязка держит товар ТОЛЬКО из-за нерешённого разворота (`orientation_*`, в т.ч. представителя `rep:orientation_*`)."""
-    return bool(reasons) and all(str(r).split(':')[-1].startswith('orientation_') for r in reasons)
+    """Привязка держит товар ТОЛЬКО из-за нерешённого разворота (`orientation_*`, в т.ч. представителя `rep:orientation_*`).
+    `orientation_mismatch` — не «не решён», а «разворот заведомо неверен» (кровать боком, T-20261110-20/3): не пускается."""
+    tails = [str(r).split(':')[-1] for r in reasons or ()]
+    return bool(tails) and all(t.startswith('orientation_') for t in tails) and 'orientation_mismatch' not in tails
 
 
 def orient_loose(a: dict, mode: str = 'orient') -> bool:

@@ -44,6 +44,9 @@ def quat_to_R(q):
 
 W.role_of = lambda sku: ('?', '', '')
 W.canonical_parts = lambda glb, R: {'R': R}
+# свидетель изголовья (T-20261110-20/3) на подиуме без спинки не уверен — кровать идёт прежним путём (к VLM); его случаи —
+# `test_bed_headboard.py`
+W.HB.canonical_vertices = lambda glb, R: W.HB._box(0, 1.3, 0, 0.4, 0, 2.1, 6)
 seat_calls = []
 
 

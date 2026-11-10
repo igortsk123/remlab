@@ -158,6 +158,7 @@ jobs:
       - run: python tools/scout/tests/test_alert_retry.py   # alert.sh повторяет отправку в TG (обрывы связи), 4xx без повтора, длинное — частями, токен не в журналах (урок 551, T-20261105-31)
       - run: python tools/scout/tests/test_demo_soft.py   # (нужен planner: draft_render) мягкое (подушки, шторы, плед) — в списке и в «Улучшить фото», не в 3D и без мешей (demo-24)
       - run: python tools/scout/tests/test_demo_bedroom.py   # (солвер спальни — shapely из planner) спальни витрины: банк → варианты с комнатой, флаг только у сборки рядом, ленты (onb-07)
+      - run: python tools/scout/bed_headboard.py --selftest && python tools/scout/tests/test_bed_headboard.py   # кровать боком: изголовье по геометрии в каскаде (доворот / блок orientation_mismatch), сторож решений, одна проба на размер и низкие рамы под окном (T-20261110-20/3)
       - run: python -m pytest tools/scout/tests/test_trial_bundle.py -q -p no:cacheprovider   # проба агента: данные страницы /demo под загруженный план — пустые комнаты, сцена, отказы; образец для контракта TS (T-20261109-21)
       - run: python -m pytest tests/floorplan/test_room_edits.py -q -p no:cacheprovider   # правка комнаты агентом в туре: поиск комнаты (id или центр), масштаб от центра, исходник в plan, канон цел (T-20261110-36)
       - run: python -m pytest tests/floorplan/test_opening_edits.py -q -p no:cacheprovider   # окна и двери агента на плане: снять/сдвинуть/добавить, поиск после перечитывания, комнаты по обе стороны стены, дверь даёт вход (T-20261110-39)
