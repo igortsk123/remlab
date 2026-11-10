@@ -144,6 +144,82 @@ export function listingDbTests(c: () => Ctx): void {
       expect(await view(id)).toMatchObject({ listing: "done", bundleVersion: 5 });
     });
 
+    /** Готовое задание с ждущим текстом и пересборкой под арендой нового воркера. */
+    const leased = async () => {
+      const { id, f } = await runningJob();
+      await send(id, body());
+      await finish(f);
+      const got = (await claimVia({ workerId: "new", rebuilds: true, listing: true })).rebuild as Record<string, unknown>;
+      return { id, got, lease: { id: got.id as string, attempt: got.attempt as number, leaseToken: got.leaseToken as string } };
+    };
+    const rebuildPublish = async (b: Record<string, unknown>) => {
+      const { POST } = await import("@/app/api/trial/worker/rebuild/publish/route");
+      const r = await POST(new Request("http://app/x", { method: "POST", headers: { authorization: `Bearer ${c().token}` }, body: JSON.stringify(b) }));
+      return { status: r.status, body: (await r.json()) as Record<string, unknown> };
+    };
+
+    it("публикация по тексту: новый result (масштаб, комнаты) пишется вместе с версией → askSizes=false; кривой result — 422", async () => {
+      const { id, got, lease } = await leased();
+      expect(got).toMatchObject({ kind: "listing", inputMime: "image/png" });
+      expect(await view(id)).toMatchObject({ askSizes: true, listing: "applying" });
+      const out = JSON.stringify(bundleOf(id, { rev: 7, trial: { job_id: id, scale: "listing" } }));
+      const pub = { ...lease, jobId: id, bundle: out, sha256: sha(out) };
+      expect((await rebuildPublish({ ...pub, result: { version: 1 } })).status).toBe(422); // не floorplanResult — не пишем
+      const res = sampleResult({ scale: { status: "listing", ppm: 41.5, inliers: 1, n: 1 } });
+      const r = await rebuildPublish({ ...pub, result: res });
+      expect(r).toMatchObject({ status: 200, body: { ok: true, repeated: false } });
+      const [j] = await c().pg`select result, result_hash from trial_jobs where id = ${id}`;
+      expect((j!.result as { scale: { status: string } }).scale.status).toBe("listing");
+      expect(j!.result_hash).toBe(createHash("sha256").update(JSON.stringify(res)).digest("hex"));
+      expect(await view(id)).toMatchObject({ askSizes: false, listing: "done" });
+    });
+
+    it("result только у пересборки по тексту: у «Обустроить» — result_unexpected, ничего не записано", async () => {
+      const { id, f } = await runningJob();
+      await finish(f);
+      await c().pg`insert into trial_rebuilds (id, job_id, request_id, rooms, base_version) values ('rb9', ${id}, 'furnish-09', '["*"]', 1)`;
+      const w = await W();
+      const got = (await w.claimRebuild("w1", true))!;
+      expect(got.kind).toBe("furnish");
+      expect(got.inputMime).toBeUndefined();
+      const out = JSON.stringify(bundleOf(id, { rev: 8, trial: { job_id: id, scale: "listing" } }));
+      const res = JSON.stringify(sampleResult());
+      expect(await w.publishRebuild({ id: got.id, attempt: got.attempt, leaseToken: got.leaseToken, jobId: id }, out, sha(out), c().dir, PIN,
+        { json: res, hash: sha(res) })).toBe("result_unexpected");
+      const [j] = await c().pg`select bundle_version from trial_jobs where id = ${id}`;
+      expect(j!.bundle_version).toBe(1);
+    });
+
+    it("лист — только пересборке по тексту под её арендой: чужая аренда 409; удалён по сроку — 410 (source_gone у воркера)", async () => {
+      const { id, lease } = await leased();
+      const { GET } = await import("@/app/api/trial/worker/rebuild/[id]/input/route");
+      const get = (l: typeof lease, auth = true) => GET(new Request("http://app/x", { headers: {
+        ...(auth ? { authorization: `Bearer ${c().token}` } : {}), "x-trial-attempt": String(l.attempt), "x-trial-lease": l.leaseToken } }),
+      { params: Promise.resolve({ id: l.id }) });
+      expect((await get(lease, false)).status).toBe(401);
+      expect((await get({ ...lease, leaseToken: "Z".repeat(32) })).status).toBe(409);
+      const ok = await get(lease);
+      expect(ok.status).toBe(200);
+      expect(ok.headers.get("content-type")).toBe("image/png");
+      expect((await ok.arrayBuffer()).byteLength).toBeGreaterThan(0);
+      await c().pg`update trial_jobs set input_path = null where id = ${id}`;
+      expect((await get(lease)).status).toBe(410);
+    });
+
+    it("срок исходника: по умолчанию 24 ч и у готового тура; переключатель (выключен) держит лист, пока жив тур", async () => {
+      const { id, f } = await runningJob();
+      await finish(f);
+      await c().pg`update trial_jobs set expires_at = now() - interval '1 minute' where id = ${id}`;
+      const { trialRetention } = await import("@/lib/trial/retention");
+      const { db } = await import("@/lib/db");
+      const rm = (async () => undefined) as unknown as typeof fs.rm;
+      const run = (env: NodeJS.ProcessEnv) => db().transaction((tx) => trialRetention(tx, new Date(), env, rm));
+      await run({ ...process.env, TRIAL_KEEP_SOURCE_FOR_TOUR: "1" });
+      expect((await c().row(id)).input_path).not.toBeNull(); // включён: тур жив — лист держим
+      await run({ ...process.env, TRIAL_KEEP_SOURCE_FOR_TOUR: undefined });
+      expect((await c().row(id)).input_path).toBeNull(); // по умолчанию (FAQ «удаляем в течение 24 часов») — удалён
+    });
+
     it("задание не удалось — ждущий текст снимается (stale), текст стёрт; сбой воркера source_gone виден странице", async () => {
       const { id, f } = await runningJob();
       await send(id, body());

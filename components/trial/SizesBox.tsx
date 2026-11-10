@@ -27,11 +27,18 @@ export function sendErrorText(code: unknown, t: Words): string {
 }
 
 /** Что сейчас с текстом агента (по опросу задания); `sent` — только что отправили, а опрос ещё не догнал. */
-export function listingNote(job: Pick<TrialJobView, "listing" | "listingError">, sent: boolean, t: Words): { text: string; bad: boolean } | null {
+const FAIL_TEXT = { source_gone: "sourceGone", no_match: "noMatch" } as const;
+
+/** Что сейчас с текстом агента (по опросу задания); `sent` — только что отправили, а опрос ещё не догнал. Применили, а размеры
+ *  всё ещё нужны (`askSizes`) — честно «у части комнат размеров нет». */
+export function listingNote(job: Pick<TrialJobView, "listing" | "listingError" | "askSizes">, sent: boolean, t: Words): { text: string; bad: boolean } | null {
   if (job.listing === "accepted") return { text: t.accepted, bad: false };
   if (job.listing === "applying") return { text: t.applying, bad: false };
-  if (job.listing === "done") return { text: t.done, bad: false };
-  if (job.listing === "failed") return { text: job.listingError === "source_gone" ? t.sourceGone : t.failed, bad: true };
+  if (job.listing === "done") return { text: job.askSizes ? t.partial : t.done, bad: false };
+  if (job.listing === "failed") {
+    const key = FAIL_TEXT[job.listingError as keyof typeof FAIL_TEXT];
+    return { text: key ? t[key] : t.failed, bad: true };
+  }
   return sent ? { text: t.accepted, bad: false } : null;
 }
 

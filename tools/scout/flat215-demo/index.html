@@ -1903,13 +1903,17 @@ const TRL_TXT={
   done:['Готово — тур обновлён.','Done — the tour is updated.'],
   failed:['Не получилось применить размеры. Попробуйте ещё раз.','We couldn’t apply the sizes. Please try again.'],
   source_gone:['Исходный план уже не хранится. Загрузите его заново.','The original plan is no longer stored. Please upload it again.'],
+  partial:['Применили. У части комнат размеров нет — они отмечены на плане.','Applied. Some rooms still have no sizes — they’re marked on the plan.'],
+  no_match:['Не смогли сопоставить размеры с комнатами плана. Напишите названия как на плане, например: «Спальня 1 — 3,2 на 4».',
+    'We couldn’t match these sizes to rooms on the plan. Use the room names from the plan, e.g. “Bedroom 1 3.2 × 4”.'],
   busy:['Тур ещё обновляется. Попробуйте через минуту.','The tour is still updating. Try again in a minute.'],
   rebuild_limit:['Слишком много обновлений за сутки. Попробуйте завтра.','Too many updates today. Try again tomorrow.'],
   forbidden:['Эта ссылка — только для просмотра. Откройте свою ссылку агента.','This link is view-only. Open your agent link.'],
   _:['Не удалось отправить. Попробуйте ещё раз.','Couldn’t send. Please try again.']};
 function trSizesState(){
   if(TRL.err)return {t:TRL_TXT[TRL.err]||TRL_TXT._, bad:true};
-  if(TRL.listing==='failed')return {t:TRL_TXT[TRL.lerr==='source_gone'?'source_gone':'failed'], bad:true};
+  if(TRL.listing==='failed')return {t:TRL_TXT[TRL.lerr==='source_gone'||TRL.lerr==='no_match'?TRL.lerr:'failed'], bad:true};
+  if(TRL.listing==='done'&&trAskSizes())return {t:TRL_TXT.partial, bad:false};   // применили, но часть комнат всё ещё без размеров
   return TRL.listing&&TRL_TXT[TRL.listing]?{t:TRL_TXT[TRL.listing], bad:false}:null;
 }
 function trSizesBox(box){

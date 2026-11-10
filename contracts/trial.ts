@@ -43,7 +43,7 @@ export const trialJobView = z.object({
   askSizes: z.boolean().default(false),
   /** Последний текст агента: принят и ждёт сборки / применяется / применён / не удался. Самого текста здесь нет. */
   listing: z.enum(["accepted", "applying", "done", "failed"]).nullable().default(null),
-  listingError: z.enum(["source_gone", "stale", "lease_lost", "timeout", "pipeline_error", "internal"]).nullable().default(null),
+  listingError: z.enum(["source_gone", "no_match", "stale", "lease_lost", "timeout", "pipeline_error", "internal"]).nullable().default(null),
 });
 export type TrialJobView = z.infer<typeof trialJobView>;
 
@@ -70,9 +70,10 @@ export const trialPhotoIn = z.looseObject({
   items: z.array(z.looseObject({ role: z.string().min(1).max(60) })).min(1).max(200),
 });
 export type TrialPhotoIn = z.infer<typeof trialPhotoIn>;
-/** Коды сбоя пересборки от воркера (наружу — `trialJobView.rebuildError` / `listingError`); `source_gone` — исходного листа уже нет. */
+/** Коды сбоя пересборки от воркера (наружу — `trialJobView.rebuildError` / `listingError`); `source_gone` — исходного листа (или
+ *  кэша чтения плана) уже нет; `no_match` — текст агента ни к одной комнате плана не подошёл (страница остаётся как была). */
 export const trialRebuildFailCode = z.enum([
-  "stale", "timeout", "pipeline_error", "internal", "waiting_capacity", "nothing_to_furnish", "source_gone",
+  "stale", "timeout", "pipeline_error", "internal", "waiting_capacity", "nothing_to_furnish", "source_gone", "no_match",
 ]);
 
 // ── «Размеры своими словами» (план agent-trial-08, Р2-текст; `db/init/025-trial-listing-text.sql`) ─────────────────
@@ -172,7 +173,7 @@ export type TrialRebuildClaimed = {
   id: string; jobId: string; attempt: number; leaseToken: string; leaseUntil: string; rooms: string[]; baseVersion: number;
   result: unknown;
   /** `listing` — пересборка по тексту агента: `listingText` — его текст (только воркеру), `baseVersion` — версия данных на момент claim. */
-  kind: "furnish" | "listing"; listingText?: string;
+  kind: "furnish" | "listing"; listingText?: string; inputMime?: string;
 };
 export const trialHeartbeatIn = z.object({ ...lease, stage: trialStage, spentUsd: spent });
 export const trialResultIn = z.object({ ...lease, result: z.unknown(), spentUsd: spent });

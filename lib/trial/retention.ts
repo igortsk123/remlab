@@ -7,7 +7,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { sql, type SQL } from "drizzle-orm";
 import type { db } from "@/lib/db";
-import { TRIAL_STALE_HOURS, TRIAL_TOMBSTONE_DAYS, trialDir, trialFileHours, trialResultDays } from "@/lib/trial/config";
+import { TRIAL_STALE_HOURS, TRIAL_TOMBSTONE_DAYS, trialDir, trialFileHours, trialKeepSourceForTour, trialResultDays } from "@/lib/trial/config";
 import { removeBundles } from "@/lib/trial/bundle";
 import { terminalSet } from "@/lib/trial/sql";
 import { INPUT_NAME_RE, removeInput } from "@/lib/trial/storage";
@@ -19,9 +19,12 @@ export type TrialRetention = { kind: string; days: number | null; deleted: numbe
 const ORPHAN_AGE_MS = 3_600_000; // моложе часа может быть идущая загрузка
 const q = async <T>(tx: Tx, s: SQL) => (await tx.execute(s)) as unknown as T[];
 
-async function files(tx: Tx, now: Date, dir: string, rm: typeof fs.rm): Promise<{ deleted: number; kept: number }> {
+async function files(tx: Tx, now: Date, dir: string, rm: typeof fs.rm, keepForTour: boolean): Promise<{ deleted: number; kept: number }> {
+  const at = now.toISOString();
+  // хранение исходника готового тура до конца тура (Р2-текст, `trialKeepSourceForTour`): уходит вместе с результатом
+  const tour = keepForTour ? sql`and (status <> 'done' or result_expires_at < ${at})` : sql``;
   const due = await q<{ id: string; input_path: string }>(tx, sql`select id, input_path from trial_jobs
-    where input_path is not null and expires_at < ${now.toISOString()} for update skip locked limit 1000`);
+    where input_path is not null and expires_at < ${at} ${tour} for update skip locked limit 1000`);
   const ok: string[] = [];
   for (const r of due) {
     try { await removeInput(dir, r.input_path, rm); ok.push(r.id); } catch { /* нет прав / занят — повторим */ }
@@ -78,7 +81,7 @@ export async function trialRetention(tx: Tx, now: Date, env = process.env, rm: t
   const stale = await q<{ id: string }>(tx, sql`update trial_jobs set status = 'failed', error_code = 'stale', ${terminalSet(env)}
     where status in ('queued', 'running') and created_at < ${new Date(now.getTime() - TRIAL_STALE_HOURS * 3_600_000).toISOString()}
     returning id`);
-  const f = await files(tx, now, dir, rm);
+  const f = await files(tx, now, dir, rm, trialKeepSourceForTour(env));
   const results = await q<{ id: string }>(tx, sql`update trial_jobs set status = 'expired', result = null, result_hash = null,
       listing_text = null, input_hash = null, error_detail = null, lease_token = null, bundle_version = 0, bundle_hash = null
     where status in ('done', 'failed', 'cancelled') and input_path is null and result_expires_at < ${now.toISOString()} returning id`);

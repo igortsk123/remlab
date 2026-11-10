@@ -628,9 +628,10 @@ def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: floa
 
 def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_dir=None, vlm_root=None, ask=None,
         cap_usd: float = CAP_USD, stage=None, slot: bool = True, an_cache=None, plan: str = PLAN, job: str = '-',
-        timings: dict | None = None, flags: list | None = None, spent=None) -> dict:
+        timings: dict | None = None, flags: list | None = None, spent=None, cache_only: bool = False) -> dict:
     """Лист (PNG/JPEG) + текст объявления → `floorplanResult` (dict). VLM — из `vlm_dir` (или
-    `vlm_root/<sha256 листа>`); нет ответа — платный вопрос с потолком `cap_usd` на задание."""
+    `vlm_root/<sha256 листа>`); нет ответа — платный вопрос с потолком `cap_usd` на задание.
+    `cache_only` — перечитать план с новым текстом (Р2-текст): только кэш VLM, 0 $; кэша нет — `source_gone`."""
     import bench
     import cv2
     image, workdir = Path(image_path).resolve(), Path(workdir)
@@ -647,6 +648,8 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
         root = Path(vlm_root or os.path.expanduser('~/remlab-logs/trial/vlm-cache'))
         vlm_dir = root / file_sha(image)[:32]
     vlm_dir = Path(vlm_dir)
+    if cache_only and any(not (vlm_dir / f'raw-{plan}-{k}.txt').exists() for k in KINDS):
+        raise TrialError('source_gone', False, 'vlm cache missing')
     try:
         v = ensure_vlm(image, vlm_dir, plan, ask, cap_usd)
     except TrialError as e:
@@ -710,7 +713,7 @@ def job_main(a) -> int:
         listing = Path(a.listing_file).read_text(errors='replace') if a.listing_file else ''
         res = run(sheet, listing, W, source=source, vlm_root=a.vlm_root, cap_usd=a.cap_usd, stage=stage,
                   slot=not a.no_slot, an_cache=a.an_cache, job=a.job_id, timings={'raster': time.time() - t0},
-                  flags=flags, spent=spent)
+                  flags=flags, spent=spent, cache_only=a.cache_only)
         _atomic(W / 'result.json', json.dumps(res, separators=(',', ':')))
         return 0
     except TrialError as e:
@@ -745,6 +748,7 @@ def main(argv=None) -> int:
     j.add_argument('--cap-usd', type=float, default=CAP_USD)
     j.add_argument('--an-cache')
     j.add_argument('--no-slot', action='store_true')
+    j.add_argument('--cache-only', action='store_true', help='только кэш VLM (0 $); нет — код source_gone')
     a = ap.parse_args(argv)
     if a.cmd == 'job':
         return job_main(a)

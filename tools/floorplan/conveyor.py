@@ -86,6 +86,8 @@ class Conveyor:
         self.n = 0                                   # номер сборки в этой попытке (имена файлов)
         self.last = None                             # последняя ПРИНЯТАЯ сервером версия (dict) — по ней решается `done`
         self.cur = None                              # последняя СОБРАННАЯ версия — по ней решается, какие стадии нужны
+        self.cur_bytes: bytes | None = None          # её точные байты (итоговая публикация «только последней» — `final_only`)
+        self.final_only = False                      # пересборка: промежуточные версии не публикуются, только итог
         self.release: list = []
         self.timings: dict = {}
         self.stopped = None                          # 'lost' | 'stop' — дальше ничего не пишем
@@ -178,7 +180,7 @@ class Conveyor:
             if not self.stopped:
                 self.log(f'{tag}: {code} — версию не собрать')
             return scene, parts
-        self.cur = json.loads(data)
+        self.cur, self.cur_bytes = json.loads(data), data
         if publish:
             self.publish(tag, data)
         return scene, parts
@@ -252,7 +254,8 @@ class Conveyor:
         мебели для них не запускаются. Версия 1 при списке не публикуется (страница уже есть — не откатываем её к пустой)."""
         t0 = time.time()
         self.release = [str(x) for x in room_ids or []]
-        self.step('v1-walls', None, None, None, publish=not self.release)
+        quiet = bool(self.release) or self.final_only      # по кнопке / по тексту — только итоговая версия
+        self.step('v1-walls', None, None, None, publish=not quiet)
         if self.stopped:
             return self.stopped
         self.timings['v1_s'] = round(time.time() - t0, 1)
@@ -261,6 +264,8 @@ class Conveyor:
             return 'result'
         if self.cur['trial']['complete'] and not self.release:
             self.log('ни одной комнаты не ждёт мебель (проверка размера / отказы) — стадии мебели не нужны')
+            if self.final_only:                      # версия 1 и есть итог: стадий не будет
+                self.publish('v1-final', self.cur_bytes)
             return self._finish(t0)
         if self._state('living') == 'pending':
             scene = self.living()
@@ -268,7 +273,7 @@ class Conveyor:
                 return self.stopped
             scene, _ = self.step('v2-living', scene, None,
                                  lambda code: (self._write('scene-refused.json', failed_scene(self.jid, code)), None),
-                                 publish=not self.release)        # по кнопке — только итоговая версия: спальни не мигают «подбирается»
+                                 publish=not quiet)               # по кнопке — только итоговая версия: спальни не мигают «подбирается»
             if self.stopped:
                 return self.stopped
         else:                                     # главная гостиная ждёт проверки размера (или не построена) — подбор не запускаем
@@ -325,7 +330,7 @@ class Rebuild(Conveyor):
         body = json.loads(data)
         st, resp = self.w.post_json('/api/trial/worker/rebuild/publish',
                                     {**self.lease, 'jobId': self.jid, 'bundle': data.decode('utf-8'), 'sha256': sha,
-                                     'spentUsd': self.w.spent(self.wd)})
+                                     'spentUsd': self.w.spent(self.wd), **self.publish_extra()})
         err = (resp or {}).get('error')
         if st == 200:
             self.last, self.outcome = body, 'published'
@@ -343,6 +348,10 @@ class Rebuild(Conveyor):
         self.outcome = 'rejected'
         self.log(f'{tag}: bundle_rejected http={st} {json.dumps(resp or {}, ensure_ascii=False)[:300]}')
         return False
+
+    def publish_extra(self) -> dict:
+        """Добавка к телу публикации (пересборка по тексту агента шлёт новый `result` задания)."""
+        return {}
 
     def chosen(self) -> tuple[list, dict] | None:
         """Версия-проверка без снятия → (комнаты страницы к обустройству, эта версия) или None (сборщик не собрал)."""
@@ -387,6 +396,121 @@ class Rebuild(Conveyor):
         if self.stopped:
             return self.stopped
         self.log(f'пересборка: {self.outcome}, время {json.dumps(self.timings)}')
+        if self.outcome in ('published', 'stale'):
+            return self.outcome
+        return 'failed:pipeline_error'
+
+
+SCALE_TEXT = ('listing', 'verified')         # опоры по длинам (подписи плана / «A на B» текстом); площадь — сверка, не опора
+
+
+def text_applied(old: dict, new: dict) -> bool:
+    """Текст агента лёг на план: у какой-то комнаты размеры из текста, или масштаб стал опираться на длины (был без них).
+    Только общая площадь («кухня 10 м²», «54 м²») — не опора (владелец/ведущий 09.11): это `no_match`, страница как была."""
+    rooms = (r for p in new.get('panels') or [] for r in p.get('rooms') or [])
+    if any((r.get('dims') or {}).get('src') == 'listing' for r in rooms):
+        return True
+    was, now = (old.get('scale') or {}).get('status'), (new.get('scale') or {}).get('status')
+    return now in SCALE_TEXT and was not in SCALE_TEXT
+
+
+class ListingRebuild(Rebuild):
+    """«Размеры своими словами» (план agent-trial-08, Р2-текст; T-20261109-33): текст агента после `done` → план перечитывается
+    `pipeline.py job --cache-only --cap-usd 0` (исходный лист под арендой пересборки + кэш чтения плана, 0 $) → мебель обычным
+    конвейером → ОДНА итоговая версия вместе с новым `result` задания (масштаб и комнаты, одной транзакцией на сервере).
+    Листа или кэша нет — `source_gone` («загрузите план заново»); текст ни к чему не подошёл — `no_match`, ничего не публикуем.
+    Комнаты, с которых агент раньше снял проверку (`rooms` claim), снимаются и в новой версии. Текст в журнал не пишется."""
+
+    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, text: str, mime: str, ext: str):
+        super().__init__(w, lease, wd, hb, result_path, job_id=job_id, rooms=rooms)
+        self.text, self.mime, self.ext = text, mime, ext
+        self.final_only = True
+        self.new_result: dict | None = None
+
+    def publish_extra(self) -> dict:
+        return {'result': self.new_result} if self.new_result is not None else {}
+
+    def source(self) -> Path | str:
+        """Исходный лист под арендой → путь; иначе код исхода ('lost' | 'failed:<код>')."""
+        inp = self.wd / 'plan' / ('input' + self.ext)
+        inp.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            st, info = self.w.api.call('GET', f'/api/trial/worker/rebuild/{self.lease["id"]}/input', stream_to=inp,
+                                       headers={'X-Trial-Attempt': str(self.lease['attempt']), 'X-Trial-Lease': self.lease['leaseToken']})
+        except Exception as e:                       # noqa: BLE001 — сеть (NetError воркера): повторяемо
+            self.log(f'input: {type(e).__name__}: {e}')
+            return 'failed:internal'
+        if st == 409:
+            self.stopped = 'lost'
+            return 'lost'
+        if st == 410:
+            self.log('input: исходного листа уже нет (срок хранения)')
+            return 'failed:source_gone'
+        if st != 200 or (info or {}).get('too_large'):
+            self.log(f'input: http {st}')
+            return 'failed:internal'
+        return inp
+
+    def reread(self, inp: Path) -> str | None:
+        """План заново с текстом → None (новый результат в `self.new_result`) или код исхода."""
+        pw = self.wd / 'plan'
+        lst = pw / 'listing.txt'
+        lst.write_text(self.text[:5000], encoding='utf-8')
+        cmd = self.cfg.pipeline + ['job', '--input', str(inp), '--mime', self.mime, '--workdir', str(pw),
+                                   '--vlm-root', str(self.cfg.vlm_root), '--job-id', self.jid, '--cap-usd', '0', '--cache-only',
+                                   '--listing-file', str(lst)]
+        if self.cfg.an_cache:
+            cmd += ['--an-cache', self.cfg.an_cache]
+        t0 = time.time()
+        rc, why = self._stage('pipeline', cmd, self.cfg.job_timeout_s)
+        self.timings['reread_s'] = round(time.time() - t0, 1)
+        if self.stopped:
+            return self.stopped
+        if why == 'timeout':
+            return 'failed:timeout'
+        res_p, err_p = pw / 'result.json', pw / 'error.json'
+        if rc == 0 and res_p.exists():
+            self.new_result = json.loads(res_p.read_text(encoding='utf-8'))
+            return None
+        try:
+            code = str(json.loads(err_p.read_text(encoding='utf-8')).get('code') or 'pipeline_error')
+        except (OSError, ValueError):
+            code = 'pipeline_error'
+        self.log(f'план с текстом: rc={rc}, код {code}')
+        return f'failed:{code}'
+
+    def rebuild(self) -> str:
+        t0 = time.time()
+        inp = self.source()
+        if isinstance(inp, str):
+            return inp
+        bad = self.reread(inp)
+        if bad:
+            return bad
+        old, new = self.result, self.new_result
+        if not text_applied(old, new):
+            self.log(f'текст не лёг на план: масштаб {(old.get("scale") or {}).get("status")} → {(new.get("scale") or {}).get("status")}')
+            return 'failed:no_match'
+        n = sum(1 for p in new['panels'] for r in p['rooms'] if (r.get('dims') or {}).get('src') == 'listing')
+        self.log(f'текст лёг на план: масштаб {(old.get("scale") or {}).get("status")} → {new["scale"]["status"]}, комнат с размером '
+                 f'из текста {n}')
+        self.result_path = self._write('result-listing.json', new)
+        self.result = new
+        pick = None
+        if self.want:                                # снятые раньше комнаты — снова снять в новой версии (если ещё ждут проверки)
+            got = self.chosen()
+            if self.stopped:
+                return self.stopped
+            if got is None:
+                return 'failed:pipeline_error'
+            pick, cur = got
+            if pick:
+                self.consent(cur, pick)
+        self.run(pick or None)
+        self.timings['rebuild_s'] = round(time.time() - t0, 1)
+        if self.stopped:
+            return self.stopped
+        self.log(f'пересборка по тексту: {self.outcome}, время {json.dumps(self.timings)}')
         if self.outcome in ('published', 'stale'):
             return self.outcome
         return 'failed:pipeline_error'

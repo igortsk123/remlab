@@ -243,6 +243,21 @@ def test_vlm_errors_map_to_codes(tmp_path):
     assert e.value.code == 'vlm_error' and e.value.retryable
 
 
+def test_cache_only_without_full_cache_is_source_gone_and_asks_nothing(tmp_path):
+    """Р2-текст (T-20261109-33): план заново с текстом агента — только из кэша чтения плана, 0 $. Нет хоть одного ответа —
+    `source_gone` («загрузите план заново»), платного вопроса нет."""
+    (tmp_path / 'raw-T-labels2.txt').write_text('{"rooms": []}')               # кэш неполный: panels/unlabeled нет
+    calls = []
+    src = {'mime': 'image/png', 'pages': 1, 'usedPages': 1, 'imageW': 10, 'imageH': 10}
+    with pytest.raises(pl.TrialError) as e:
+        pl.run(tmp_path / 'x.png', 'Гостиная 4 на 3', tmp_path / 'w', source=src, vlm_dir=tmp_path, ask=fake_ask(calls),
+               cache_only=True)
+    assert e.value.code == 'source_gone' and not e.value.retryable and calls == []
+    rc = pl.main(['job', '--input', str(tmp_path / 'none.png'), '--mime', 'image/png', '--workdir', str(tmp_path / 'j'),
+                  '--vlm-root', str(tmp_path / 'v'), '--cache-only', '--cap-usd', '0'])
+    assert rc == 3 and json.loads((tmp_path / 'j' / 'error.json').read_text())['code'] in ('source_gone', 'unsupported')
+
+
 def test_prepare_images(tmp_path, monkeypatch):
     from PIL import Image
     p = tmp_path / 'a.png'

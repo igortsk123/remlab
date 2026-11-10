@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { listingNote, newRequestId, sendErrorText } from "@/components/trial/SizesBox";
-import { trialJobView, trialListingIn } from "@/contracts/trial";
+import { trialJobView, trialListingIn, type TrialJobView } from "@/contracts/trial";
 import { TEXT } from "@/lib/trial/i18n";
 import { asksSizes, sizeAsk } from "@/lib/trial/size-ask";
 
@@ -58,11 +58,18 @@ describe("тело ручки и вид задания", () => {
 describe("строки окошка", () => {
   const t = TEXT.ru.sizes;
   it("состояние текста по опросу; только что отправили — «приняли»", () => {
-    expect(listingNote({ listing: null, listingError: null }, false, t)).toBeNull();
-    expect(listingNote({ listing: null, listingError: null }, true, t)?.text).toBe(t.accepted);
-    expect(listingNote({ listing: "applying", listingError: null }, false, t)?.text).toBe(t.applying);
-    expect(listingNote({ listing: "failed", listingError: "source_gone" }, false, t)).toEqual({ text: t.sourceGone, bad: true });
-    expect(listingNote({ listing: "failed", listingError: "timeout" }, false, t)).toEqual({ text: t.failed, bad: true });
+    const j = (listing: TrialJobView["listing"], listingError: TrialJobView["listingError"] = null, askSizes = true) =>
+      ({ listing, listingError, askSizes });
+    expect(listingNote(j(null), false, t)).toBeNull();
+    expect(listingNote(j(null), true, t)?.text).toBe(t.accepted);
+    expect(listingNote(j("applying"), false, t)?.text).toBe(t.applying);
+    expect(listingNote(j("failed", "source_gone"), false, t)).toEqual({ text: t.sourceGone, bad: true });
+    expect(listingNote(j("failed", "no_match"), false, t)).toEqual({ text: t.noMatch, bad: true });
+    expect(listingNote(j("failed", "timeout"), false, t)).toEqual({ text: t.failed, bad: true });
+  });
+  it("применили: размеры больше не нужны — «готово», часть комнат без размеров — честно «у части нет»", () => {
+    expect(listingNote({ listing: "done", listingError: null, askSizes: false }, false, t)).toEqual({ text: t.done, bad: false });
+    expect(listingNote({ listing: "done", listingError: null, askSizes: true }, false, t)).toEqual({ text: t.partial, bad: false });
   });
   it("коды отказа — понятный текст; id запроса подходит ручке", () => {
     expect(sendErrorText("source_gone", t)).toBe(t.sourceGone);

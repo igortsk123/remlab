@@ -60,12 +60,22 @@ export async function claimRebuild(workerId: string, listing = false): Promise<T
     returning r.id, r.job_id, r.attempt, r.lease_token, ${iso(sql`r.lease_until`)} as lease_until, r.rooms, r.base_version, r.kind,
       r.listing_text`);
   if (!r) return null;
-  const [j] = await rows<{ result: unknown; released_rooms: unknown }>(sql`select result, released_rooms from trial_jobs where id = ${r.job_id}`);
+  const [j] = await rows<{ result: unknown; released_rooms: unknown; input_mime: string }>(sql`select result, released_rooms, input_mime
+    from trial_jobs where id = ${r.job_id}`);
   return {
     id: r.id, jobId: r.job_id, attempt: r.attempt, leaseToken: r.lease_token, leaseUntil: r.lease_until,
     rooms: union(j?.released_rooms, r.rooms), baseVersion: r.base_version, result: j ? jsonOf(j.result) : null, kind: r.kind,
-    ...(r.kind === "listing" ? { listingText: r.listing_text ?? "" } : {}),
+    ...(r.kind === "listing" ? { listingText: r.listing_text ?? "", inputMime: j?.input_mime ?? "" } : {}),
   };
+}
+
+/** Исходный лист задания — пересборке по тексту агента под ТЕКУЩЕЙ арендой; undefined — аренды нет, `name: null` — файл удалён по сроку. */
+export async function leasedRebuildInput(f: TrialRebuildLease): Promise<{ name: string | null; mime: string } | undefined> {
+  const [r] = await rows<{ input_path: string | null; input_mime: string }>(sql`select j.input_path, j.input_mime
+    from trial_rebuilds r join trial_jobs j on j.id = r.job_id
+    where r.id = ${f.id} and r.kind = 'listing' and r.status = 'running' and r.attempt = ${f.attempt}
+      and r.lease_token = ${f.leaseToken} and r.lease_until > now()`);
+  return r ? { name: r.input_path, mime: r.input_mime } : undefined;
 }
 
 export async function heartbeatRebuild(f: TrialRebuildLease): Promise<{ leaseUntil: string } | null> {
@@ -76,14 +86,20 @@ export async function heartbeatRebuild(f: TrialRebuildLease): Promise<{ leaseUnt
 
 type JobRow = { status: string; bundle_version: number; result_version: number; bundle_hash: string | null; released_rooms: unknown };
 
-/** Итог пересборки → одна новая версия данных страницы. "stale" — пока шла сборка, страница успела смениться: не публикуем. */
+/** Новый `floorplanResult` задания (JSON + sha256) — только у пересборки по тексту агента (Р2-текст). */
+export type NewResult = { json: string; hash: string };
+type PublishOut = Published | "lease_lost" | "stale" | "result_unexpected";
+
+/** Итог пересборки → одна новая версия данных страницы. "stale" — пока шла сборка, страница успела смениться: не публикуем.
+ *  `result` (Р2-текст) пишется в задание той же транзакцией, что и версия: масштаб и комнаты страницы и `result` не расходятся. */
 export async function publishRebuild(
-  f: TrialRebuildLease & { jobId: string }, json: string, hash: string, dir = trialDir(), pin = ensureJobRelease,
-): Promise<Published | "lease_lost" | "stale"> {
-  const out = await db().transaction(async (tx): Promise<Published | "lease_lost" | "stale"> => {
+  f: TrialRebuildLease & { jobId: string }, json: string, hash: string, dir = trialDir(), pin = ensureJobRelease, result?: NewResult,
+): Promise<PublishOut> {
+  const out = await db().transaction(async (tx): Promise<PublishOut> => {
     const ex = async <T>(q: SQL) => (await tx.execute(q)) as unknown as T[];
-    const [cur] = await ex<{ job_id: string; base_version: number; rooms: unknown }>(sql`select job_id, base_version, rooms
-        from trial_rebuilds where ${fenceR(f)} for update`);
+    const [cur] = await ex<{ job_id: string; base_version: number; rooms: unknown; kind: string }>(sql`select job_id, base_version, rooms,
+        kind from trial_rebuilds where ${fenceR(f)} for update`);
+    if (cur && result && cur.kind !== "listing") return "result_unexpected";
     if (!cur || cur.job_id !== f.jobId) {
       const [again] = await ex<{ result_version: number }>(sql`select result_version from trial_rebuilds where id = ${f.id}
           and job_id = ${f.jobId} and status = 'done' and attempt = ${f.attempt} and lease_token = ${f.leaseToken} and bundle_hash = ${hash}`);
@@ -100,12 +116,13 @@ export async function publishRebuild(
     const next = same ? job.bundle_version : job.result_version + 1;
     if (!same) await writeBundle(dir, cur.job_id, next, json);
     await tx.execute(sql`update trial_jobs set released_rooms = ${released}::jsonb
-        ${same ? sql`` : sql`, result_version = ${next}, bundle_version = ${next}, bundle_hash = ${hash}`} where id = ${cur.job_id}`);
+        ${same ? sql`` : sql`, result_version = ${next}, bundle_version = ${next}, bundle_hash = ${hash}`}
+        ${result ? sql`, result = ${result.json}::jsonb, result_hash = ${result.hash}` : sql``} where id = ${cur.job_id}`);
     await tx.execute(sql`update trial_rebuilds set status = 'done', bundle_hash = ${hash}, result_version = ${next}, ${doneSet}
         where id = ${f.id}`);
     return { version: next, repeated: same };
   });
-  if (out === "lease_lost" || out === "stale") return out;
+  if (out === "lease_lost" || out === "stale" || out === "result_unexpected") return out;
   if (!out.repeated) await pruneBundles(dir, f.jobId, out.version - KEEP_VERSIONS + 1).catch(() => undefined);
   return { ...out, release: await pinAfterPublish(f.jobId, dir, pin) };
 }

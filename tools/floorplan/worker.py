@@ -52,7 +52,7 @@ EXT = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'applic
 INPUT_MAX = 15 * 1024 * 1024
 STAGES = ('raster', 'labels', 'walls', 'repair', 'export')
 # = contracts/trial.ts:trialRebuildFailCode — коды сбоя пересборки «Обустроить»
-REBUILD_CODES = ('stale', 'timeout', 'pipeline_error', 'internal', 'waiting_capacity', 'nothing_to_furnish')
+REBUILD_CODES = ('stale', 'timeout', 'pipeline_error', 'internal', 'waiting_capacity', 'nothing_to_furnish', 'source_gone', 'no_match')
 USER_CODES = {'pdf_unreadable', 'unsupported', 'too_large', 'no_plan', 'budget'}   # вина файла, не DEV: в серию сбоев не идут
 
 
@@ -285,7 +285,7 @@ class Worker:
             try:
                 st, body = self.api.call('POST', '/api/trial/worker/claim',
                                          {'workerId': self.cfg.worker_id, 'version': VERSION, 'paused': bool(reason),
-                                          **({'rebuilds': True} if self.cfg.furnish else {})})
+                                          **({'rebuilds': True, 'listing': True} if self.cfg.furnish else {})})
             except NetError as e:
                 log(f'claim: {e}')
                 self.stop.wait(max(self.cfg.poll_s, 5))
@@ -484,12 +484,24 @@ class Worker:
         wd.mkdir(parents=True, exist_ok=True)
         res_p = wd / 'result.json'
         res_p.write_text(json.dumps(rb['result'], ensure_ascii=False))
-        log(f'{jid}: «Обустроить» {rid} (попытка {lease["attempt"]}, комнаты {rb.get("rooms")}, версия страницы {rb.get("baseVersion")})')
+        text = rb.get('kind') == 'listing'
+        mime = rb.get('inputMime')
+        if text and (mime not in EXT or not str(rb.get('listingText') or '').strip()):
+            log(f'claim: пересборка по тексту {rid} без листа/текста ({mime!r})')
+            self.fail_rebuild(lease, wd, 'internal', False, 'listing rebuild without mime or text')
+            return
+        # текст агента в журнал не пишем — только его длину
+        log(f'{jid}: {"текст агента (" + str(len(rb["listingText"])) + " зн.)" if text else "«Обустроить»"} {rid} (попытка '
+            f'{lease["attempt"]}, комнаты {rb.get("rooms")}, версия страницы {rb.get("baseVersion")})')
         hb = Heartbeat(self, lease, wd, path='/api/trial/worker/rebuild/heartbeat', with_stage=False)
         hb.start()
         t0 = time.time()
         try:
-            end = conveyor.Rebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or []).rebuild()
+            if text:
+                end = conveyor.ListingRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], str(rb['listingText']),
+                                              mime, EXT[mime]).rebuild()
+            else:
+                end = conveyor.Rebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or []).rebuild()
         except Exception as e:                       # noqa: BLE001 — сбой кода конвейера: пересборка failed с кодом, воркер живёт
             log(f'{jid}: пересборка {rid}: {type(e).__name__}: {e}')
             end = 'failed:internal'

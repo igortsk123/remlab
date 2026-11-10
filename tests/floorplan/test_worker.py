@@ -39,6 +39,19 @@ if mode == 'crash':
 if mode in ('no_plan', 'capacity'):
     code = 'no_plan' if mode == 'no_plan' else 'waiting_capacity'
     put('error.json', json.dumps({'code': code, 'retryable': mode == 'capacity', 'detail': 'x'})); sys.exit(3)
+if '--cache-only' in a:                  # план заново с текстом агента (Р2-текст): «лёг», если в тексте «A на B»
+    if os.environ.get('FAKE_CACHE') == 'gone':
+        put('error.json', json.dumps({'code': 'source_gone', 'retryable': False, 'detail': 'vlm cache missing'})); sys.exit(3)
+    ok = ' на ' in open(a[a.index('--listing-file') + 1], encoding='utf-8').read()
+    keep = os.environ.get('FAKE_KEEP_FLAG', '').split(',')         # эти комнаты и с текстом ждут проверки
+    rooms = [{'id': 'r1', 'kind': 'living'}, {'id': 'k1', 'kind': 'kitchen'}, {'id': 'b1', 'kind': 'bedroom'}]
+    for r in rooms:
+        r['flags'] = ['dims_mismatch'] if r['id'] in keep or (not ok and r['id'] == 'r1') else []
+    if ok:
+        rooms[0]['dims'] = {'w': 420, 'd': 380, 'src': 'listing'}
+    put('result.json', json.dumps({'version': 1, 'units': 'cm', 'fake': True, 'reread': True,
+                                   'scale': {'status': 'listing' if ok else 'not_verified'}, 'panels': [{'id': 'p0', 'rooms': rooms}]}))
+    sys.exit(0)
 put('stage', 'walls'); time.sleep(0.25)
 flagged = os.environ.get('FAKE_SIZE_FLAG', '').split(',')        # «размер не сошёлся» у этих комнат
 rooms = [{'id': 'r1', 'kind': 'living'}, {'id': 'k1', 'kind': 'kitchen'}]
@@ -182,6 +195,14 @@ def make_handler(prod: Prod):
                 if prod.input_status != 200:
                     return self.send(prod.input_status, {'error': 'x'})
                 return self.send(200, raw=prod.input)
+            if self.path.startswith('/api/trial/worker/rebuild/') and self.path.endswith('/input'):   # = rebuild/[id]/input
+                L = prod.lease
+                if not L or self.path != f'/api/trial/worker/rebuild/{L["id"]}/input' or L.get('kind') != 'listing' or \
+                        self.headers.get('X-Trial-Lease') != L['leaseToken'] or self.headers.get('X-Trial-Attempt') != str(L['attempt']):
+                    return self.send(409, {'error': 'lease_lost'})
+                if prod.input_status != 200:
+                    return self.send(prod.input_status, {'error': 'source_gone'})
+                return self.send(200, raw=prod.input)
             self.send(404, {})
 
         def do_POST(self):
@@ -192,7 +213,8 @@ def make_handler(prod: Prod):
             if self.headers.get('Authorization') != f'Bearer {TOKEN}':
                 return self.send(401, {'ok': False})
             if self.path == '/api/trial/worker/claim':
-                if not b.get('paused') and not prod.jobs and prod.rebuilds and b.get('rebuilds'):
+                if not b.get('paused') and not prod.jobs and prod.rebuilds and b.get('rebuilds') and \
+                        (prod.rebuilds[0].get('kind') != 'listing' or b.get('listing')):
                     prod.lease = prod.rebuilds.pop(0)
                     return self.send(200, {'ok': True, 'job': None, 'rebuild': prod.lease})
                 if b.get('paused') or not prod.jobs:
@@ -208,8 +230,10 @@ def make_handler(prod: Prod):
                 if prod.rebuild_codes:
                     code, err = prod.rebuild_codes.pop(0)
                     return self.send(code, {'error': err})
+                if 'result' in b and prod.lease.get('kind') != 'listing':
+                    return self.send(422, {'error': 'result_unexpected'})
                 with prod.lock:
-                    prod.bundles.append({'sha': b['sha256'], 'data': json.loads(raw)})
+                    prod.bundles.append({'sha': b['sha256'], 'data': json.loads(raw), 'result': b.get('result')})
                     return self.send(200, {'ok': True, 'version': len(prod.bundles), 'repeated': False})
             if self.path in ('/api/trial/worker/rebuild/heartbeat', '/api/trial/worker/rebuild/fail'):
                 if prod.hb_status != 200 or not self.fenced(b):
@@ -801,3 +825,97 @@ def test_without_furnish_worker_does_not_ask_for_rebuilds(prod, mk):
     w = mk(furnish=False)
     w.loop(max_iter=1)
     assert 'rebuilds' not in prod.by('/api/trial/worker/claim')[0] and prod.rebuilds and w.done == []
+
+
+# ───────────────────────── «Размеры своими словами» — пересборка по тексту (conveyor.ListingRebuild, T-20261109-33) ─────────────────
+
+TEXT_OK = 'Гостиная 4,2 на 3,8'
+
+
+def _listing(prod, text=TEXT_OK, rooms=(), **over):
+    _rebuild(prod, list(rooms), **{'kind': 'listing', 'listingText': text, 'inputMime': 'image/png', **over})
+
+
+def test_listing_rereads_plan_free_and_publishes_one_version_with_result(prod, mk, tmp_path, capsys):
+    """Текст лёг: лист — под арендой пересборки, план заново только из кэша (`--cache-only`, 0 $) → ОДНА версия на …/rebuild/publish
+    вместе с новым `result` (масштаб `listing`); гостиная больше не ждёт проверки и обставлена. Текста нет в журнале воркера."""
+    _listing(prod)
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')]
+    claim = prod.by('/api/trial/worker/claim')[0]
+    assert claim['rebuilds'] is True and claim['listing'] is True
+    got = [(p, h) for p, b, h in prod.reqs if p == f'/api/trial/worker/rebuild/{RID}/input']
+    assert len(got) == 1 and got[0][1]['X-Trial-Lease'] == 'R' * 32 and got[0][1]['X-Trial-Attempt'] == '1'
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    argv = json.loads((wd / 'plan' / 'argv.json').read_text())
+    assert '--cache-only' in argv and argv[argv.index('--cap-usd') + 1] == '0' and argv[argv.index('--mime') + 1] == 'image/png'
+    assert (wd / 'plan' / 'listing.txt').read_text(encoding='utf-8') == TEXT_OK
+    sent = prod.by('/api/trial/worker/rebuild/publish')
+    assert len(sent) == 1 and sent[0]['result']['reread'] and sent[0]['result']['scale']['status'] == 'listing'
+    assert 'approx_consent' not in json.dumps(sent[0]['result'])          # в задание — чистый результат, не копия со снятием
+    assert _states(prod) == [({'living': 'ready', 'kitchen-1': 'not_furnished', 'bedroom-1': 'ready'}, True)]
+    assert prod.by('/api/trial/worker/bundle') == [] and prod.by('/api/trial/worker/rebuild/fail') == []
+    assert TEXT_OK not in capsys.readouterr().out
+
+
+def test_listing_no_match_publishes_nothing(prod, mk):
+    """Текст ни к одной комнате не подошёл — `no_match` без повтора, страница как была."""
+    _listing(prod, text='позвоните после обеда')
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    fails = prod.by('/api/trial/worker/rebuild/fail')
+    assert [(f['code'], f['retryable']) for f in fails] == [('no_match', False)]
+    assert prod.bundles == [] and prod.by('/api/trial/worker/rebuild/publish') == []
+
+
+def test_listing_source_gone_when_sheet_deleted(prod, mk, tmp_path):
+    """Лист удалён по сроку (410) — `source_gone` без повтора; план не перечитывается."""
+    prod.input_status = 410
+    _listing(prod)
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert [(f['code'], f['retryable']) for f in prod.by('/api/trial/worker/rebuild/fail')] == [('source_gone', False)]
+    assert not list((tmp_path / 'trial' / JID).glob('r1-*/plan/argv.json'))
+
+
+def test_listing_source_gone_when_vlm_cache_missing(prod, mk, monkeypatch):
+    """Кэша чтения плана нет — платно заново не читаем: `source_gone`."""
+    monkeypatch.setenv('FAKE_CACHE', 'gone')
+    _listing(prod)
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert [(f['code'], f['retryable']) for f in prod.by('/api/trial/worker/rebuild/fail')] == [('source_gone', False)]
+    assert prod.bundles == []
+
+
+def test_listing_keeps_rooms_released_earlier(prod, mk, monkeypatch):
+    """Спальня и с текстом ждёт проверки; агент раньше снял с неё проверку («Обустроить») — в новой версии она снова обставлена.
+    Без такого снятия — ждёт проверки (размеры по тексту есть не у всех комнат)."""
+    monkeypatch.setenv('FAKE_KEEP_FLAG', 'b1')
+    _listing(prod, rooms=['bedroom-1'])
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert _states(prod) == [({'living': 'ready', 'kitchen-1': 'not_furnished', 'bedroom-1': 'ready'}, True)]
+    prod.bundles.clear()
+    _listing(prod)
+    w.loop(max_iter=1)
+    assert _states(prod) == [({'living': 'ready', 'kitchen-1': 'not_furnished', 'bedroom-1': 'awaiting_check:dims_mismatch'}, True)]
+
+
+def test_listing_bad_claim_without_mime_fails_internal(prod, mk):
+    _listing(prod, inputMime='text/plain')
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert [f['code'] for f in prod.by('/api/trial/worker/rebuild/fail')] == ['internal']
+
+
+def test_text_applied_only_length_anchors():
+    """«Лёг» — размеры комнаты из текста или масштаб стал опираться на длины; только площадь (`area`) — не опора."""
+    import conveyor as cv
+    P = lambda st, dims=None: {'scale': {'status': st}, 'panels': [{'rooms': [{'id': 'r', **({'dims': dims} if dims else {})}]}]}  # noqa: E731
+    assert cv.text_applied(P('not_verified'), P('listing'))
+    assert cv.text_applied(P('verified'), P('verified', {'w': 1, 'd': 1, 'src': 'listing'}))
+    assert not cv.text_applied(P('not_verified'), P('area'))
+    assert not cv.text_applied(P('not_verified'), P('not_verified', {'w': 1, 'd': 1, 'src': 'plan'}))
+    assert not cv.text_applied(P('verified'), P('verified'))

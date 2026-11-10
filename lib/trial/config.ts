@@ -28,6 +28,10 @@ export const trialDailyCap = (env = process.env) => envInt(env.TRIAL_DAILY_CAP, 
 export const trialQueueMax = (env = process.env) => envInt(env.TRIAL_QUEUE_MAX, 5, 100);
 /** Исходный файл — 24 ч после финального статуса, максимум 7 дней (диагностика). */
 export const trialFileHours = (env = process.env) => envInt(env.TRIAL_FILE_RETENTION_HOURS, 24, 168);
+/** «Размеры своими словами» (Р2-текст): хранить исходник готового тура, пока жив тур (`trialResultDays`), — чтобы применить текст агента
+ *  и позже суток. ВЫКЛЮЧЕНО: FAQ обещает «план удаляем в течение 24 часов» (`components/trial/landing-text.ts`); включать — только вместе
+ *  с правкой FAQ, по решению владельца (T-20261109-33, 10.11). Выключено — после срока файла текст получает честный `source_gone`. */
+export const trialKeepSourceForTour = (env = process.env) => env.TRIAL_KEEP_SOURCE_FOR_TOUR === "1";
 /** Результат — 30 дней (потом 410). */
 export const trialResultDays = (env = process.env) => envInt(env.TRIAL_RESULT_RETENTION_DAYS, 30, 365);
 

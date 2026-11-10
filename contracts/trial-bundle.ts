@@ -82,8 +82,9 @@ export const trialBundleIn = z.object({
 });
 export type TrialBundleIn = z.infer<typeof trialBundleIn>;
 
-/** Итог пересборки «Обустроить» (план agent-trial-08, Р1): `id` — id пересборки (её аренда), `jobId` — задание, чья это версия. */
+/** Итог пересборки «Обустроить» (план agent-trial-08, Р1): `id` — id пересборки (её аренда), `jobId` — задание, чья это версия.
+ *  `result` — только у пересборки по тексту агента (Р2-текст): план перечитан с размерами из текста, новый `floorplanResult` задания. */
 export const trialRebuildPublishIn = z.object({
   ...lease, jobId: z.string().regex(/^[A-Za-z0-9_-]{22}$/), bundle: z.string().min(2), sha256: z.string().regex(/^[0-9a-f]{64}$/),
-  spentUsd: z.number().nonnegative().max(100).optional(),
+  spentUsd: z.number().nonnegative().max(100).optional(), result: z.unknown().optional(),
 });

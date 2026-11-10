@@ -16,7 +16,7 @@ type Last = { status?: string; code?: string | null; kind?: string };
 type RebuildPart = Pick<TrialJobView, "rebuild" | "rebuildError" | "listing" | "listingError">;
 
 const REBUILD_ERRORS = new Set(["stale", "lease_lost", "timeout", "pipeline_error", "internal"]);
-const LISTING_ERRORS = new Set([...REBUILD_ERRORS, "source_gone"]);
+const LISTING_ERRORS = new Set([...REBUILD_ERRORS, "source_gone", "no_match"]);
 const NONE: RebuildPart = { rebuild: null, rebuildError: null, listing: null, listingError: null };
 const errOf = (r: Last, known: Set<string>) => (r.status === "failed" ? (known.has(r.code ?? "") ? r.code : "internal") : null);
 
