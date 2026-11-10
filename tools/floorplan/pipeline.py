@@ -526,6 +526,7 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
     for q in P.get('label_report') or []:
         if q.get('space') and q.get('room') is not None:
             spaces.setdefault(q['room'], []).append(q['name'])
+    absorbed = {int(x['into']) for x in P.get('absorbed') or []}   # T-19: в комнату влит обрывок за нашим закрытием
     rooms = []
     for mr in model.get('rooms', []):
         rid = mr['id']
@@ -542,6 +543,8 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
         fl = _room_flags(names, G_by, dims_by, scale_ok)
         if not shown:
             fl.insert(0, 'unlabeled')
+        if rid in absorbed:
+            fl.append('fragment_merged')
         room = {'id': f'p{pi}-r{rid}'[:40], 'name': ' + '.join(dict.fromkeys(shown))[:80],
                 'kind': room_kind(shown[0] if shown else ''), 'contour': contour,
                 # bbox — проекция контура (refine контракта: расхождение < 1 см)

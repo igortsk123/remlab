@@ -1136,6 +1136,159 @@ def _differs(s1: State, s2: State, base: State) -> bool:
     return True
 
 
+# --- обрывки за нашими закрытиями (T-20261110-19) ------------------------------------------------------------------------
+# Мелкий безымянный кусок (обрывок — `bench.is_fragment`: < 1,5 м² или уже 1 м) на шумном листе (штрихи лестницы, край ванны,
+# тени, водяной знак) отрезан от соседа НАШИМ закрытием — достроенным разрывом стены, а не стеной листа. Комнату, даже кладовку,
+# замыкают нарисованные стены: у кладовки 0,8×0,8 м с дверью 0,7 м закрытие — ~1/5 границы, остальное — стены листа (на 8
+# листах T-19: WC и кладовки с подписью — 0–0,18). У обрывков — 0,31–0,67 (Wynne: марш лестницы разрезан закрытиями; QFfI:
+# край ванны, тамбур спальни; Nethercote: вход в прихожую по линии коврика, очаг камина). Порог «необъяснённого» (EXPLAIN_M2 = 1 м²) такие
+# куски в починку не пускает, а метрика обрывков (`bench.name_extras`) их лишь не считает, в выгрузке они — «Помещение».
+# Правило: обрывок без подписи, у которого доля наших закрытий (кроме зазубрин) в границе ≥ FRAG_OURS_MIN, вливается в
+# соседа, с которым делит больше всего закрытий; закрытия между ними снимаются. Не вливается, если сосед — с подписью размера и
+# его мерка от этого выходит из допуска (bad_tol) заметно хуже прежней, или топология подписей хуже. Повтор, пока вливается
+# (марш из трёх кусков — по одному). Журнал — 'absorb' (применено / почему нет).
+FRAG_OURS_MIN = 0.3
+CONTACT_MIN = 0.5           # запасной сосед: общее закрытие ≥ этой доли от главного
+CONTACT_MIN_M = 0.4         # общее закрытие с соседом — не короче (м; проход уже 0,6 м не бывает)
+ABSORB_MAX = 50
+
+
+def _band(st: State, P: np.ndarray, ctx: Ctx):
+    """Граница куска P: пиксели стен/закрытий не дальше толщины от него (как `_shared`) → (окно, кольцо, dP)."""
+    ys, xs = np.nonzero(P)
+    H, W = P.shape
+    m = int(2 * ctx.t_int + 6)
+    y0, y1, x0, x1 = max(0, ys.min() - m), min(H, ys.max() + m + 1), max(0, xs.min() - m), min(W, xs.max() + m + 1)
+    sl = np.s_[y0:y1, x0:x1]
+    d = 1.2 * max(ctx.t_int, 2.0) + 1.5
+    dP = cv2.distanceTransform((~P[sl]).astype(np.uint8), cv2.DIST_L2, 3)
+    return sl, (st.final[sl] > 0) & (dP <= d), d
+
+
+def absorb_fragments(st: State, labels: list, ctx: Ctx, frag, notch: np.ndarray | None = None) -> tuple[State, list, list]:
+    """Обрывки за нашими закрытиями — в соседа (см. выше). frag(м², ширина м) → обрывок ли (`bench.is_fragment`);
+    notch — пиксели закрытий, которые не проход и не разрез: зазубрины (стена) и окна (наружная стена) — в долю не идут.
+    Доля — все наши закрытия в границе куска (и к соседям, и наружу: вход с улицы у обрывка прихожей — тоже наш);
+    снимаются только закрытия между куском и соседом, и не те, что у третьей комнаты (дверь соседа в неё — на месте).
+    → (состояние, журнал, [{'into', 'piece', 'm2'}])."""
+    jr, done = [], []
+    ppm = ctx.ppm
+    skip = set()
+    diag = os.environ.get('FP_ABSORB_DIAG', '0') != '0'
+    for _ in range(ABSORB_MAX):
+        topo = topology(st, labels, ppm)
+        areas = np.bincount(st.lab.ravel(), minlength=int(st.lab.max()) + 1)
+        moved = False
+        cands = []
+        for p in st.rooms:
+            if p in skip or (p in topo['by'] and not diag):
+                continue
+            P = st.lab == p
+            a = float(areas[p]) / ppm / ppm
+            w = 2.0 * float(cv2.distanceTransform(np.pad(P.astype(np.uint8), 1), cv2.DIST_L2, 5).max()) / ppm
+            if not frag(a, w):
+                continue
+            sl, ring, d = _band(st, P, ctx)
+            ours = ring & (st.add[sl] > 0)
+            if notch is not None:
+                ours &= ~(notch[sl] > 0)
+            per = {}
+            labw = st.lab[sl]
+            for q in neighbours(st, p, ctx):
+                dQ = cv2.distanceTransform((labw != q).astype(np.uint8), cv2.DIST_L2, 3)
+                other = (labw > 0) & (labw != p) & (labw != q)
+                dR = cv2.distanceTransform((~other).astype(np.uint8), cv2.DIST_L2, 3) if other.any() else None
+                S = ours & (dQ <= d)
+                if dR is not None:
+                    S &= dR > d
+                if S.sum() >= 3:
+                    per[q] = S
+            share = float(ours.sum()) / max(1, int(ring.sum())) if per else 0.0
+            rec = {'kind': 'absorb', 'piece': int(p), 'm2': round(a, 2), 'w_m': round(w, 2), 'ours': round(share, 2),
+                   'per': {int(q): int(S.sum()) for q, S in per.items()}}
+            if p in topo['by']:                           # отладка (FP_ABSORB_DIAG): доля закрытий у кусков С подписью
+                skip.add(p)
+                jr.append(dict(rec, ok=False, why='с подписью: ' + ', '.join(labels[i].name for i in topo['by'][p])))
+                continue
+            if share < FRAG_OURS_MIN:
+                skip.add(p)
+                if per:                                   # кусок с закрытием, но замкнут стенами листа — кладовка: в журнал
+                    jr.append(dict(rec, ok=False, why='замкнут стенами листа'))
+                continue
+            cands.append((share, p, P, a, sl, per, rec))
+        # первым — самый явный обрывок (большая доля закрытий): иначе мелкий кусок марша влился бы в соседний кусок
+        # и снял закрытие между ними — доля у слитого упала бы ниже порога, хотя оба — обрывки (Wynne)
+        for share, p, P, a, sl, per, rec in sorted(cands, key=lambda c: (-c[0], c[1])):
+            # сосед — с наибольшим общим закрытием (при равенстве — с подписью, затем больший)
+            order = sorted(per, key=lambda q: (-int(per[q].sum()), q not in topo['by'], -int(areas[q])))
+            # запасной сосед — только с сопоставимым общим закрытием: слабый касатель (угол закрытия у торца стены листа)
+            # соединил бы кусок с соседом в обход стены (Nethercote: два шкафа в стене между спальнями — в один)
+            # и само общее закрытие — не короче CONTACT_MIN_M: иначе кусок отрезан не нашим закрытием, а своими стенами,
+            # и в соседа вошёл бы островом (Nethercote: очаг камина касается гостиной закрытием в 6 px)
+            top = int(per[order[0]].sum())
+            px_min = CONTACT_MIN_M * ppm * max(ctx.t_int, 2.0)
+            order = [q for q in order if per[q].sum() >= max(CONTACT_MIN * top, px_min)]
+            if not order:
+                skip.add(p)
+                jr.append(dict(rec, ok=False, why='касается соседа коротко'))
+                continue
+            applied = False
+            for q in order:
+                Sg = np.zeros(st.lab.shape, bool)
+                Sg[sl] = per[q]
+                s2 = st.copy()
+                s2.lab[P] = q
+                s2.final[Sg] = 0
+                s2.add[Sg] = 0
+                s2.lab[Sg] = q
+                s2.rooms.remove(p)
+                topo2 = topology(s2, labels, ppm)
+                if topo2['cost'] > topo['cost'] or topo2['merged'] > topo['merged']:
+                    jr.append(dict(rec, into=int(q), ok=False, why='топология хуже'))
+                    continue
+                # подписи остаются у своих комнат: снятое закрытие — пол соседа у чужой точки подписи (Wynne: «Cupboard»
+                # на закрытии ушёл бы к маршу лестницы, а его комната стала бы «безымянной» и влилась бы следом)
+                stolen = [labels[i].name for i, (o1, o2) in enumerate(zip(topo['own'], topo2['own']))
+                          if o1 != o2 and o1 is not None and not (o1 == p and o2 == q)]
+                if stolen:
+                    jr.append(dict(rec, into=int(q), ok=False, why='подпись сменила комнату: ' + ', '.join(stolen)))
+                    continue
+                worse = None
+                e1 = dims_errors(st, labels, ctx, topo)
+                e2 = dims_errors(s2, labels, ctx, topo2)
+                for i in topo2['by'].get(q, []):
+                    if labels[i].dims is None or i not in e2:
+                        continue
+                    eb, ea = (e1[i][0] if i in e1 else 0.0), e2[i][0]
+                    if ea > bad_tol(labels[i].dims) and ea > eb + norm_tol(labels[i].dims):
+                        worse = (labels[i].name, round(eb, 2), round(ea, 2))
+                        break
+                if worse:
+                    jr.append(dict(rec, into=int(q), ok=False, why=f'мерка {worse[0]} хуже: {worse[1]} → {worse[2]} м'))
+                    continue
+                st = s2
+                jr.append(dict(rec, into=int(q), closure_px=int(Sg.sum()), ok=True, applied=True))
+                done.append({'into': int(q), 'piece': int(p), 'm2': round(a, 2)})
+                applied = moved = True
+                break
+            if not applied:
+                skip.add(p)
+            if moved:
+                break                                      # состояние сменилось — доли и соседи заново
+        if not moved:
+            break
+    # кусок, влитый в кусок, — итог в того, в кого влит последний
+    final_of = {}
+    for x in done:
+        final_of[x['piece']] = x['into']
+    for x in done:
+        q = x['into']
+        while q in final_of:
+            q = final_of[q]
+        x['into'] = q
+    return st, jr, done
+
+
 # --- итог по подписям (что не починилось — видно) ----------------------------------------------------------------------
 
 def label_report(st: State, labels: list, ctx: Ctx) -> list:

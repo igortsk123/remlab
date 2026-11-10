@@ -359,6 +359,18 @@ def test_to_result_fields_and_flags(tmp_path):
     ops = res['panels'][0]['openings']
     assert ops[0] == {'kind': 'door', 'c': [100.0, 5.0], 'widthCm': 80.0, 'exterior': False} and ops[1]['kind'] == 'opening'
     assert res['panels'][0]['walls'][0]['z1'] == 260.0
+    assert not any('fragment_merged' in r['flags'] for r in res['panels'][0]['rooms'])
+
+
+def test_fragment_merged_flag(tmp_path):
+    # T-19: в комнату влит обрывок за нашим закрытием (`repair.absorb_fragments`) — честный флаг у неё, у прочих нет
+    log, models, G = synth()
+    log['panels'][0]['absorbed'] = [{'into': 1, 'piece': 7, 'm2': 0.5}]
+    write_models(tmp_path, models)
+    res = pl.to_result(log, tmp_path, 'T', G, SRC, 0, {}, [], False)
+    assert_contract(res)
+    fl = {r['name']: r['flags'] for r in res['panels'][0]['rooms']}
+    assert 'fragment_merged' in fl['Lounge'] and 'fragment_merged' not in fl['Bedroom']
 
 
 def test_to_result_scale_status_rules(tmp_path):

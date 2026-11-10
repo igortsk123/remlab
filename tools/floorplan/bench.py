@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import math
@@ -927,6 +928,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
              'loo_clean': fc.loo_summary(loo, 'near_clean'), 'label_flags': [l['id'] for l in loo if l.get('flag_label')],
              'topology': topo, 'false_splits': [s for s in splits if s['false']], 'split_checks': len(splits),
              'label_splits': r.get('label_splits', []), 'repairs': rep_log, 'label_report': rep_labels,
+             'absorbed': r.get('absorbed', []),
              'vlm_title': vl['panels'][pi]['title'] if vl and vl['panels'] else None,
              'gia_m2': gpx / ppm / ppm, 't_ext_px': t_ext, 'openings': op, 'angles': angles,
              'gold_panels': sorted({g['panel'] for g in groom}), 'dims': dims,
@@ -984,6 +986,14 @@ def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
             'topo0': {k: v for k, v in topo.items() if k in ('cost', 'merged')} | {'missing': len(topo['missing']),
                                                                                    'unexplained': len(topo['unexplained'])}}
     st2, jr = repair.run(st, labs, ctx, r['outside'])
+    absorbed, removed = [], None
+    if os.environ.get('FP_ABSORB', '1') != '0':
+        # T-20261110-19: обрывки за нашими закрытиями — в соседа (`repair.absorb_fragments`); зазубрины и окна — стена, не разрез
+        notch = np.isin(r['lab_g'], [g.id for g in r['gaps'] if g.kind in ('wall', 'window')])
+        st3, jr_a, absorbed = repair.absorb_fragments(st2, labs, ctx, is_fragment, notch)
+        jr += jr_a
+        removed = (st2.final > 0) & ~(st3.final > 0)
+        st2 = st3
     topo2 = repair.topology(st2, labs, ppm)
     jr.append({'kind': 'end', 'pix_m': round(repair.pixel_cost(st2, ctx), 1), 'topo': topo2['cost'],
                'missing': len(topo2['missing']), 'merged': topo2['merged'], 'unexplained': len(topo2['unexplained'])})
@@ -1001,7 +1011,36 @@ def do_repair(r, labs, img, gray, cfg, ppm, fams, t):
         r['outside'] = (r['outside'] > 0) & ~newm
     r['lab'], r['final'], r['rooms'] = st2.lab, st2.final, st2.rooms
     r['areas'] =np.bincount(r['lab'].ravel(), minlength=int(r['lab'].max()) + 1)
+    if removed is not None and removed.any():
+        r['add'] = ((r['add'] > 0) & ~removed).astype(np.uint8)
+        r['lab_g'], r['gaps'] = shrink_gaps(r['lab_g'], r['gaps'], removed)
+    r['absorbed'] = absorbed
     return r, [log0] + off + jr, repair.label_report(st2, labs_all, ctx)
+
+
+def shrink_gaps(lab_g, gaps, removed):
+    """Снятые закрытия (T-19, обрывок влит в соседа) — из проёмов: проём целиком снят — его нет, частично — геометрия по
+    оставшимся пикселям (как `fc.gap_components`). Остальные проёмы — как были."""
+    gone = removed & (lab_g > 0)
+    ids = set(int(i) for i in np.unique(lab_g[gone]))
+    if not ids:
+        return lab_g, gaps
+    lab_g = lab_g.copy()
+    lab_g[gone] = 0
+    out = []
+    for g in gaps:
+        if g.id not in ids:
+            out.append(g)
+            continue
+        ys, xs = np.nonzero(lab_g == g.id)
+        if len(xs) < 3:
+            lab_g[lab_g == g.id] = 0
+            continue
+        (cx, cy), (w, h), _ = cv2.minAreaRect(np.column_stack([xs, ys]).astype(np.float32))
+        out.append(dataclasses.replace(g, cx=float(cx), cy=float(cy), length=float(max(w, h) + 1), depth=float(min(w, h) + 1),
+                                       bbox=(int(xs.min()), int(ys.min()), int(xs.max() - xs.min() + 1),
+                                             int(ys.max() - ys.min() + 1))))
+    return lab_g, out
 
 
 MISMATCH_FLAGS = ('не сошлось', 'замер ≠ подписи')
