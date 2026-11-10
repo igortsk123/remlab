@@ -82,6 +82,93 @@ def test_match_text_disagrees_with_plan_keeps_plan_and_flags():
     assert any('≠ план' in f for f in got[0]['text_flags'])
 
 
+# ── миллиметры, сантиметры и синонимы имён (T-20261110-29: лист агента с `3,290.0mm`, 0 из 5 строк сопоставлено) ──
+
+@pytest.mark.parametrize('line, name, dims', [
+    ('Bedroom 1 - 3,290.0mm x 3,754.0mm - 10\' 10" x 12\' 4"', 'Bedroom 1', (3.29, 3.754)),     # агентский лист 10.11
+    ('En-Suite - 3,265.0mm x 1,215.0mm - 10\' 9" x 4\'', 'En-Suite', (3.265, 1.215)),
+    ('Kitchen 3290mm x 2450mm', 'Kitchen', (3.29, 2.45)),
+    ('Lounge 4,880 x 3,660mm', 'Lounge', (4.88, 3.66)),                                         # одна единица на пару
+    ('Bedroom 2 329cm x 305cm', 'Bedroom 2', (3.29, 3.05)),
+    ('Dining Room 4.5 x 3.2 m', 'Dining Room', (4.5, 3.2)),
+    ('Bedroom 3 - 2119 mm x 3018 mm', 'Bedroom 3', (2.119, 3.018)),
+    ('Garage 5,500mm x 2,700mm', 'Garage', (5.5, 2.7)),
+    # Rightmove / Zoopla / OnTheMarket: метры и футы в одной строке, метрика главнее, в любом порядке
+    ('Living Room 4.88m x 3.66m (16\'0" x 12\'0")', 'Living Room', (4.88, 3.66)),
+    ('Bedroom 1 13\'2" x 11\'5" (4.01m x 3.48m)', 'Bedroom 1', (4.01, 3.48)),
+    ('Reception Room: 4.57m x 3.66m (15\' x 12\')', 'Reception Room', (4.57, 3.66)),
+    ('Bedroom 1 - Double - 3.20m x 4.10m', 'Bedroom 1', (3.2, 4.1)),                            # хвост « - Double» — не имя
+    ('Kitchen - Diner 3.20m x 4.10m', 'Kitchen - Diner', (3.2, 4.1)),                          # «Diner» — помещение, имя целиком
+])
+def test_parse_line_metric_mm_cm_and_feet(line, name, dims):
+    r = ls.parse_line(line)
+    assert r is not None and r['name'] == name and r['unit'] == 'm'
+    assert r['dims_m'] == pytest.approx(dims, abs=0.002)
+    assert 'conflict' not in r
+
+
+def test_parse_line_mm_feet_check_and_notes():
+    r = ls.parse_line('Bedroom 1 - 3,290.0mm x 3,754.0mm - 10\' 10" x 12\' 4"')
+    assert r['dims_ft_m'] == pytest.approx((3.302, 3.759), abs=0.002)                          # футы — сверка, сошлись
+    r = ls.parse_line('Lounge 4,880mm x 3,660mm (19\'9" x 12\'0") into bay')
+    assert r['conflict'] == 'метры ≠ футы' and r['notes'] == ['into bay']                       # 19'9" = 6,02 м
+    r = ls.parse_line('Master Bedroom 4.12m (13\'6") max x 3.61m (11\'10")')
+    assert r['name'] == 'Master Bedroom' and r['notes'] == ['max'] and r['dims_m'] == (4.12, 3.61)
+    assert ls.parse_line('Total area 72.5 m²') is None and ls.parse_line('Ground Floor 1,200 sq ft') is None
+
+
+def test_alias_key_spellings():
+    assert ls.alias_key('ES') == ls.alias_key('En-Suite') == ls.alias_key('ENSUITE') == ls.alias_key('en suite')
+    assert ls.alias_key('BATH ROOM') == ls.alias_key('Bathroom')
+    assert ls.alias_key('W.C.') == ls.alias_key('WC') == ls.alias_key('Cloakroom')
+    assert ls.alias_key('Bed 2') == ls.alias_key('Bedroom 2') and ls.alias_key('ST.') == ls.alias_key('Store')
+    assert ls.alias_key('Lounge') != ls.alias_key('Living Room')                                # разные слова — не синонимы
+
+
+AGENT_1011 = ('First Floor\nBedroom 1 - 3,290.0mm x 3,754.0mm - 10\' 10" x 12\' 4"\nEn-Suite - 3,265.0mm x 1,215.0mm - 10\' 9" x 4\'\n'
+              'Bedroom 2 - 3,290.0mm x 3,055.0mm - 10\' 10" x 10\'\nBedroom 3 - 2,119.0mm x 3,018.0mm - 6\' 11" x 9\' 11"\n'
+              'Bathroom - 2,075.0mm x 1,878.0mm - 6\' 10" x 6\' 2"')
+
+
+def test_match_agent_sheet_mm_aliases_and_master():
+    """Лист агента 10.11 (`aRQVC9nJ1g1WqBTXeA6VqA`): подписи плана VLM ↔ строки объявления — все 5 с размером из текста."""
+    plan = [{'name': n, 'dims': None} for n in ('MASTER BEDROOM', 'BEDROOM 3', 'ES', 'BEDROOM 2', 'ST.', 'BATH ROOM')]
+    got, orphans = ls.match(plan, ls.parse_listing(AGENT_1011))
+    by = {g['name']: g for g in got}
+    assert orphans == []
+    assert by['MASTER BEDROOM']['dims'] == (3.29, 3.754) and by['MASTER BEDROOM']['text_match'] == 'master'
+    assert by['ES']['dims'] == (3.265, 1.215) and by['ES']['text_match'] == 'alias'
+    assert by['BATH ROOM']['dims'] == (2.075, 1.878) and by['BATH ROOM']['text_match'] == 'alias'
+    assert by['BEDROOM 2']['text_match'] == by['BEDROOM 3']['text_match'] == 'name'
+    assert sum(g['dims_src'] == 'text' for g in got) == 5 and by['ST.']['dims'] is None
+
+
+def test_match_master_only_when_unambiguous():
+    rows = ls.parse_listing('Bedroom 1 3.30m x 3.75m\nBedroom 2 3.00m x 3.00m')
+    # своя «Bedroom 1» на плане есть — главную не подменяем
+    got, orphans = ls.match([{'name': 'Master Bedroom', 'dims': None}, {'name': 'Bedroom 1', 'dims': None},
+                             {'name': 'Bedroom 2', 'dims': None}], rows)
+    by = {g['name']: g for g in got}
+    assert by['Master Bedroom']['dims'] is None and by['Bedroom 1']['dims'] == (3.3, 3.75)
+    # две «главные» на плане — не угадываем
+    got, _ = ls.match([{'name': 'Master Bedroom', 'dims': None}, {'name': 'Principal Bedroom', 'dims': None}], rows)
+    assert all(g['dims'] is None for g in got)
+    # обратная сторона: на плане «Bedroom 1», в тексте единственная «Master Bedroom» и своей «Bedroom 1» нет
+    got, _ = ls.match([{'name': 'BEDROOM 1', 'dims': None}], ls.parse_listing('Master Bedroom 4.12m x 3.61m'))
+    assert got[0]['dims'] == (4.12, 3.61) and got[0]['text_match'] == 'master'
+
+
+def test_match_alias_one_to_one():
+    """Синоним — только один-к-одному: «ES» и «En-Suite» на плане при одной строке «Ensuite» — не угадываем."""
+    got, orphans = ls.match([{'name': 'ES', 'dims': None}, {'name': 'En-Suite', 'dims': None}],
+                            ls.parse_listing('Ensuite 2.00m x 1.50m'))
+    assert all(g['dims'] is None for g in got) and orphans[0]['why'] == 'неясно, какая комната на плане'
+    # точный ключ главнее синонима: «WC» ↔ «WC», «Cloakroom» ↔ «Cloakroom»
+    got, orphans = ls.match([{'name': 'WC', 'dims': None}, {'name': 'Cloakroom', 'dims': None}],
+                            ls.parse_listing('WC 1.20m x 0.90m\nCloakroom 1.50m x 1.00m'))
+    assert {g['name']: g['dims'] for g in got} == {'WC': (1.2, 0.9), 'Cloakroom': (1.5, 1.0)} and orphans == []
+
+
 # ── русский текст агента (T-20261109-33, «размеры своими словами») ──
 
 @pytest.mark.parametrize('line, name, dims', [

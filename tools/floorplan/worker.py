@@ -11,7 +11,7 @@ TRIAL_FURNISH=0) → POST …/result; heartbeat сразу после claim, с�
 сбой — …/rebuild/fail). Сервер ставит пересборки раньше новых загрузок, но не больше квоты подряд, пока загрузка ждёт.
 
 Предохранитель (задание не брать, но отмечаться «жив» — claim с paused:true): MemAvailable < 3 ГБ; в общей очереди
-тяжёлых ждут ≥ 2 (`tools/ops/heavy_slot.py:status`); 3 сбоя подряд по нашей вине → пауза 10 мин; /api/health прода
+тяжёлых ждут ≥ 2 класса пробы и выше (`tools/ops/heavy_slot.py:waiting`; наши обычные прогоны не в счёт — T-20261110-29); 3 сбоя подряд по нашей вине → пауза 10 мин; /api/health прода
 не 200. Причина — только в журнал DEV (в базе её нет — поправка Codex 09.11).
 
 Окружение: TRIAL_WORKER_TOKEN (обязателен; юнит берёт его из ~/.config/remlab/env), TRIAL_API_URL
@@ -129,10 +129,14 @@ def mem_available_gb(path: str = '/proc/meminfo') -> float:
 
 
 def heavy_waiting() -> int:
-    """Сколько ждут в общей очереди тяжёлых DEV (строка «ЖДУТ: N» `heavy_slot.status`); не прочитать — 0."""
+    """Сколько ждут в общей очереди тяжёлых DEV КЛАССОМ НЕ НИЖЕ ПРОБЫ (`heavy_slot.waiting(SLOT_PRIO_TRIAL)`, T-20261110-29):
+    наши обычные прогоны (класс 0) задание не задерживают — оно идёт впереди них и в резерв пробы; ждут другие задания
+    агентов — их и считаем. Не прочитать — 0."""
     try:
         import heavy_slot as hs
-        buf = io.StringIO()
+        if hasattr(hs, 'waiting'):
+            return int(hs.waiting(conveyor.SLOT_PRIO_TRIAL))
+        buf = io.StringIO()                           # старая версия очереди — как раньше, все ждущие
         hs.status(out=buf)
         m = re.search(r'ЖДУТ: (\d+)', buf.getvalue())
         return int(m.group(1)) if m else 0

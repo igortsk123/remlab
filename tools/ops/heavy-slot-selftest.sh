@@ -16,7 +16,8 @@
 # HEAVY_SLOT_BACKFILL_MIN — обгон закрыт; одиночный — как прежде. T-20261109-31: приоритет интерактивных (--prio /
 # HEAVY_SLOT_PRIO: 2 раньше 1 раньше 0, внутри класса — по приходу, видно в --status); порог памяти не обходит; держатель, ещё
 # ждущий память, отдаёт слот старшему классу сразу и возвращается со своим билетом; ждущий дольше
-# HEAVY_SLOT_PRIO_AGE_MIN — старший класс (голодания нет); класс вне 0…2 — отказ / в границы.
+# HEAVY_SLOT_PRIO_AGE_MIN — старший класс (голодания нет); класс вне 0…2 — отказ / в границы. T-20261110-29: резерв пробы
+# (HEAVY_SLOT_PRIO_SLOTS) — класс ≥ 1 идёт сразу при занятых обычных слотах, обычный ждёт; `waiting(1)` — только класс ≥ 1.
 # Временная папка — в REMLAB_TMP на диске (T-20261107-13: в /tmp их скопилось 25); успех — удаляется, провал или
 # REMLAB_KEEP_TMP=1 — остаётся, путь в конце.
 set -uo pipefail
@@ -238,6 +239,39 @@ unset HEAVY_SLOT_PRIO_AGE_MIN
 o=$(tr '\n' '|' < "$T/order-p3")
 ok "защита от голодания: обычный, ждущий дольше HEAVY_SLOT_PRIO_AGE_MIN, идёт раньше пришедшего позже приоритетного ($o)" \
   "$(yes_if '[ "$o" = "n|r|" ]')"
+
+# T-20261110-29: резерв пробы — обычные держат ВСЕ обычные слоты (2), памяти много; задание класса 1 идёт в резерв сразу,
+# обычный ждёт; без резерва (HEAVY_SLOT_PRIO_SLOTS=0) класс 1 при занятых слотах ждёт (таймаут → 124)
+mem 16
+export HEAVY_SLOT_SLOTS=2
+"$S" v-h1 --min-gb 1 -- sh -c "$(gate v-go)" & pv1=$!
+until_held
+"$S" v-h2 --min-gb 1 -- sh -c "$(gate v-go)" & pv2=$!
+until_f '"$S" --status | grep -q "^ДЕРЖИТ: v-h2 .* · слот 2$"'; v2_up=$?
+"$S" v-n --min-gb 1 -- sh -c "echo n >> $T/order-v" & pvn=$!; sleep 0.3
+HEAVY_SLOT_PRIO_SLOTS=0 "$S" v-x --min-gb 1 --prio 1 --timeout 1 -- sh -c "echo x >> $T/order-v"; rc_x=$?
+"$S" v-u --min-gb 1 --prio 1 -- sh -c "echo u >> $T/order-v" & pvu=$!
+wait $pvu
+early=$(tr '\n' '|' < "$T/order-v")
+st=$("$S" --status)
+touch "$T/v-go"
+wait $pv1 $pv2 $pvn
+unset HEAVY_SLOT_SLOTS
+o=$(tr '\n' '|' < "$T/order-v")
+ok "резерв пробы: оба обычных слота заняты — класс 1 идёт в резерв (слот 3) сразу, обычный ждёт; без резерва класс 1 ждёт (rc $rc_x) ($early → $o)" \
+  "$(yes_if '[ $v2_up = 0 ] && [ $rc_x = 124 ] && [ "$early" = "u|" ] && [ "$o" = "u|n|" ] && grep -q "v-u .*взял: .*приоритет 1; слот 3" "$HEAVY_SLOT_LOG" && grep -q "^СЛОТОВ: 2 .*резерв пробы 1" <<<"$st"')"
+wv() { python3 -c "import sys; sys.path.insert(0, '$DIR'); import heavy_slot as h; print(h.waiting($1))"; }
+mem 8                                              # 8 < 6 + 6 + запас: дополнительные слоты не открываются, оба ждут
+"$S" w-h -- sh -c "$(gate w-go)" & pwh=$!
+until_held
+"$S" w-n -- true & pwn=$!
+"$S" w-u --prio 1 -- true & pwu=$!
+until_f '[ "$(wv 0)" = 2 ]'; w_all=$?
+w_cls=$(wv 1)
+touch "$T/w-go"
+wait $pwh $pwn $pwu
+ok "waiting(1) считает только ждущих класса ≥ 1 (предохранитель воркера пробы): всех 2, класса ≥ 1 — $w_cls" \
+  "$(yes_if '[ $w_all = 0 ] && [ "$w_cls" = 1 ]')"
 
 "$S" bad-prio --prio 5 -- true 2>"$T/bad-prio.err"; rc=$?
 pv() { HEAVY_SLOT_PRIO="$1" python3 -c "import sys; sys.path.insert(0, '$DIR'); from heavy_slot import prio_env; print(prio_env())"; }

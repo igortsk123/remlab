@@ -3,7 +3,10 @@
 (One↔1, регистр, «/», «&»). Имя в тексте есть, а на плане нет (или наоборот), повтор имени — флаг, не угадываем.
 
 Форматы: `Lounge L:3.77m W:4.20m`, `Lounge 3.77m x 4.20m`, `Lounge 3.77 x 4.20`, `Kitchen 12'3" x 6'9"`,
-`Bedroom One 4.10m (13'5") x 3.20m (10'6") max`, имя отдельной строкой над размерами.
+`Bedroom One 4.10m (13'5") x 3.20m (10'6") max`, имя отдельной строкой над размерами; мм и см (T-20261110-29):
+`Bedroom 1 - 3,290.0mm x 3,754.0mm - 10' 10" x 12' 4"`, `Kitchen 3290mm x 2450mm`, `Lounge 4,880 x 3,660mm`, `Bedroom 2 329cm x 305cm`
+(метрика главнее футов той же строки, футы — сверка). Имена: точный ключ → синонимы (`alias_key`: ES = En-Suite, BATH ROOM =
+Bathroom, W.C. = Cloakroom) → «Bedroom 1» ↔ единственная «Master Bedroom» (если своей «Bedroom 1» на той стороне нет) → RU↔EN.
 
 Русский текст агента (T-20261109-33, «размеры своими словами»): «гостиная 4,2 на 3,8», «спальня 3×3» (целые — только в строке
 с кириллицей), «кухня 10 м²» (площадь комнаты — поле `area_m2`, стороны не выдумываем), «Комната 1», «вторая спальня»; единицы
@@ -27,7 +30,16 @@ NUM_WORDS_RU = {'один': '1', 'одна': '1', 'первая': '1', 'перв
                 'пятая': '5', 'пятый': '5', 'шесть': '6', 'шестая': '6'}
 STOP = {'and', 'the', 'of', 'и', 'я', 'й', 'ая', 'ой'}
 
-_M = r'(\d{1,2}(?:[.,]\d{1,3})?)\s*(?:m|metres|meters|mtrs?|м|метр(?:а|ов)?)\b'      # «м» перед «²/2» — не метр (\b)
+_M = r'(?<![\d.,])(\d{1,2}(?:[.,]\d{1,3})?)\s*(?:m|metres|meters|mtrs?|м|метр(?:а|ов)?)\b'   # «м» перед «²/2» — не метр (\b)
+# миллиметры и сантиметры (T-20261110-29, Rightmove/агентские листы: `3,290.0mm`, `3290 mm`, `329cm`): число с разделителем тысяч
+# или без; запятая с ровно тремя цифрами — тысячи, иначе десятичная («329,5 см»)
+_NUMX = r'(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)'
+_U_MM = r'(mm|millimet(?:re|er)s?|мм)'
+_U_CM = r'(cm|centimet(?:re|er)s?|см)'
+_MMCM = r'(?<![\d.,])' + _NUMX + r'\s*(?:' + _U_MM + '|' + _U_CM + r')\b'
+# пара с одной единицей в конце: «4,880 x 3,660mm», «329 x 305 cm», «4.5 x 3.2 m»
+_PAIR_U = (r'(?<![\d.,])' + _NUMX + r'\s*(?:x|×|х|by|на|\*)\s*' + _NUMX + r'\s*(mm|millimet(?:re|er)s?|мм|cm|centimet(?:re|er)s?|см|'
+           r'm|metres|meters|mtrs?|м|метр(?:а|ов)?)\b')
 _FT = r"(\d{1,2})\s*(?:'|’|′|ft|feet)\s*(?:(\d{1,2}(?:\.\d+)?)\s*(?:\"|”|″|''|in|inches)?)?"
 _SEP = r'\s*(?:x|×|х|by|на|\*)\s*'                                               # «х» — кириллица
 _BARE = r'(\d{1,2}[.,]\d{1,3})' + _SEP + r'(\d{1,2}[.,]\d{1,3})(?!\s*(?:\'|’|′|ft))'
@@ -46,14 +58,54 @@ def ft_in_to_m(ft: str, inch: str | None) -> float:
     return round((int(ft) * 12 + (float(inch) if inch else 0.0)) * 0.0254, 3)
 
 
+def _to_m(num: str, unit: str) -> float | None:
+    """Число с единицей → метры: мм / 1000, см / 100 (запятая с тремя цифрами — тысячи); метры — запятая десятичная («3,29 м»)."""
+    u = unit.lower()
+    try:
+        if u.startswith(('mm', 'milli', 'мм')):
+            return _num(num) / 1000.0
+        if u.startswith(('cm', 'centi', 'см')):
+            return _num(num) / 100.0
+        return _f(num)
+    except ValueError:
+        return None
+
+
+def _metric(low: str) -> list[tuple[int, float]]:
+    """Все метрические размеры строки по порядку → [(позиция, м)]: метры (`_M`), мм и см (`_MMCM`); пара с одной единицей в конце
+    («4,880 x 3,660mm») — если отдельных размеров меньше двух."""
+    out = [(m.start(), _f(m.group(1))) for m in re.finditer(_M, low)]
+    for m in re.finditer(_MMCM, low):
+        v = _to_m(m.group(1), m.group(2) or m.group(3))
+        if v is not None:
+            out.append((m.start(), v))
+    out.sort()
+    if len(out) < 2:
+        m = re.search(_PAIR_U, low)
+        if m:
+            a, b = _to_m(m.group(1), m.group(3)), _to_m(m.group(2), m.group(3))
+            if a is not None and b is not None:
+                out = [(m.start(), a), (m.start(2), b)]
+    return out
+
+
+def _trim_name(name: str) -> str:
+    """Имя до разделителя « - », если хвост — не помещение («Bedroom 1 - Double» → «Bedroom 1»; «Kitchen - Diner» — как есть)."""
+    parts = re.split(r'\s+[-–—]\s+', name)
+    if len(parts) > 1 and ROOM_WORD.search(parts[0]) and not any(ROOM_WORD.search(p) for p in parts[1:]):
+        return parts[0].strip()
+    return name
+
+
 def parse_line(line: str) -> dict | None:
     """Одна строка → {'name', 'dims_m': (a, b), 'unit': 'm'|'ft', 'notes': [...], 'dims_ft_m'?, 'conflict'?} или None,
-    если двух размеров нет. Имя — текст до первого числа (без «L:», «:», «-»); пустое имя — None (возьмёт строку выше)."""
+    если двух размеров нет. Метрика (м, см, мм — `_metric`) главнее футов в той же строке. Имя — текст до первого размера
+    (без «L:», «:», «-», хвоста « - <не помещение>»); пустое имя — None (возьмёт строку выше)."""
     s = ' '.join(line.replace('\t', ' ').split())
     if not s:
         return None
     low = s.lower()
-    met = [(m.start(), _f(m.group(1))) for m in re.finditer(_M, low)]
+    met = _metric(low)
     ft = [(m.start(), ft_in_to_m(m.group(1), m.group(2))) for m in re.finditer(_FT, low)]
     bare = [(m.start(), (_f(m.group(1)), _f(m.group(2)))) for m in re.finditer(_BARE, low)]
     if not bare and CYR.search(low):                       # «спальня 3×3», «3 на 4 м» — целые только у русского текста
@@ -75,7 +127,7 @@ def parse_line(line: str) -> dict | None:
     if m_lw:
         start = min(start, m_lw.start())
     name = re.sub(r'[\s:;,\-–—(]+$', '', s[:start]).strip()
-    name = re.sub(r'^[\s\-–—•*·]+', '', name)
+    name = _trim_name(re.sub(r'^[\s\-–—•*·]+', '', name))
     notes = [k for k, p in NOTE_PAT if re.search(p, low)]
     out = {'name': name or None, 'dims_m': tuple(round(v, 3) for v in dims), 'unit': unit, 'notes': notes, 'raw': s}
     if unit == 'm' and len(ft) >= 2:                       # футы рядом с метрами — сверка чтения
@@ -159,6 +211,32 @@ KIND_ROOTS = [('kitchen', ('kitchen', 'кухн')), ('living', ('lounge', 'livin
               ('room', ('room', 'комнат', 'жил'))]
 
 
+# СИНОНИМЫ ИМЁН (T-20261110-29): второй проход сопоставления — только для подписей и строк, у которых нет точной пары по `norm_name`;
+# многословные — раньше однословных. «ES» на плане = «En-Suite» в тексте, «BATH ROOM» = «Bathroom», «W.C.» = «WC» = «Cloakroom»
+# Разные СЛОВА одной комнаты (Lounge ↔ Living Room) — не синонимы: английское ↔ английское по-прежнему по ключу (T-20261109-33);
+# здесь — сокращения и написания одного слова
+ALIAS_PHRASES = [('en suite', 'ensuite'), ('bath room', 'bathroom'), ('w c', 'wc'), ('cloak room', 'wc'), ('bed room', 'bedroom'),
+                 ('dining room', 'diner'), ('store room', 'store'), ('utility room', 'utility')]
+ALIAS_WORDS = {'es': 'ensuite', 'ens': 'ensuite', 'cloakroom': 'wc', 'cloaks': 'wc', 'toilet': 'wc', 'dining': 'diner', 'st': 'store',
+               'str': 'store', 'storage': 'store', 'bed': 'bedroom', 'kit': 'kitchen', 'util': 'utility'}
+# главная спальня: «Bedroom 1» в тексте ↔ «MASTER BEDROOM» на плане (и наоборот) — третий проход, только однозначно
+MASTER_KEYS = {'master bedroom', 'principal bedroom', 'main bedroom', 'master', 'principal', 'bedroom master', 'master suite',
+               'principal suite'}
+
+
+def alias_key(name: str) -> str:
+    """Ключ второго прохода: `norm_name` + синонимы (`ALIAS_PHRASES`, `ALIAS_WORDS`). «En-Suite» = «ES» = «Ensuite»;
+    «BATH ROOM» = «Bathroom»; «W.C.» = «Cloakroom» = «WC»; «Bed 2» = «Bedroom 2»; «ST.» = «Store»."""
+    s = ' ' + norm_name(name) + ' '
+    for a, b in ALIAS_PHRASES:
+        s = s.replace(' ' + a + ' ', ' ' + b + ' ')
+    return ' '.join(ALIAS_WORDS.get(w, w) for w in s.split())
+
+
+def _master(key: str) -> bool:
+    return alias_key(key) in {alias_key(k) for k in MASTER_KEYS}
+
+
 def room_kind(name: str) -> tuple[str | None, str | None]:
     """Имя → (вид, номер) для сопоставления RU↔EN: «Гостиная» → ('living', None), «Bedroom Two» → ('bedroom', '2'),
     «вторая спальня» → ('bedroom', '2'), «Комната 1» → ('room', '1'). Вид не узнан — (None, номер)."""
@@ -194,12 +272,40 @@ def match(plan_labels: list[dict], rows: list[dict]) -> tuple[list[dict], list[d
     for i, k in enumerate(pkey):
         if pk[k] == 1 and tk.get(k, 0) == 1:
             pair[i], how[i] = tkey.index(k), 'name'
-    # RU↔EN: подписи без строки с тем же ключом и строки без подписи с тем же ключом — по виду и номеру, однозначно
+    # подписи без строки с тем же ключом и строки без подписи с тем же ключом — синонимы, главная спальня, RU↔EN по виду
     free_p = [i for i, k in enumerate(pkey) if tk.get(k, 0) == 0]
     free_t = [j for j, k in enumerate(tkey) if pk.get(k, 0) == 0]
+    unsure = set()
+    # синонимы (T-20261110-29): «ES» ↔ «En-Suite», «BATH ROOM» ↔ «Bathroom» — один-к-одному среди свободных
+    ap = {i: alias_key(plan_labels[i]['name']) for i in free_p}
+    at = {j: alias_key(rows[j]['name']) for j in free_t}
+    cap, cat = Counter(ap.values()), Counter(at.values())
+    for i in free_p:
+        a = ap[i]
+        if cap[a] == 1 and cat.get(a, 0) == 1:
+            pair[i], how[i] = next(j for j in free_t if at[j] == a), 'alias'
+        elif cat.get(a, 0):
+            unsure.update(j for j in free_t if at[j] == a)
+    # главная спальня: «Bedroom 1» ↔ «Master Bedroom» — главная на своей стороне одна, а «Bedroom 1» на её стороне нет вовсе
+    used_t = set(pair.values())
+    rem_p = [i for i in free_p if i not in pair]
+    rem_t = [j for j in free_t if j not in used_t]
+    all_pa = [alias_key(l['name']) for l in plan_labels]
+    all_ta = [alias_key(r['name']) for r in rows]
+    for one_p, one_t, side_master, side_b1 in ((lambda i: _master(ap[i]), lambda j: at[j] == 'bedroom 1', all_pa, all_pa),
+                                               (lambda i: ap[i] == 'bedroom 1', lambda j: _master(at[j]), all_ta, all_ta)):
+        cp = [i for i in rem_p if i not in pair and one_p(i)]
+        ct = [j for j in rem_t if j not in used_t and one_t(j)]
+        masters = sum(1 for a in side_master if _master(a))
+        b1 = sum(1 for a in side_b1 if a == 'bedroom 1')
+        if len(cp) == 1 and len(ct) == 1 and masters == 1 and b1 == 0:
+            pair[cp[0]], how[cp[0]] = ct[0], 'master'
+            used_t.add(ct[0])
+    free_p = [i for i in free_p if i not in pair]
+    free_t = [j for j in free_t if j not in used_t]
+    # RU↔EN: по виду и номеру, однозначно
     pkind = {i: room_kind(plan_labels[i]['name']) for i in free_p}
     tkind = {j: room_kind(rows[j]['name']) for j in free_t}
-    unsure = set()
     for j in free_t:
         kind, num = tkind[j]
         if kind is None:

@@ -513,15 +513,21 @@ def test_janitor_removes_old_job_dirs_only(mk, tmp_path):
     assert w.janitor() == []                         # не чаще раза в час
 
 
-def test_heavy_waiting_parses_status(monkeypatch):
+def test_heavy_waiting_counts_only_trial_class(monkeypatch):
+    """T-20261110-29: предохранитель считает только ждущих класса пробы и выше — наши обычные прогоны задание не держат."""
     import heavy_slot as hs
+    asked = []
+    monkeypatch.setattr(hs, 'waiting', lambda p: asked.append(p) or 1)
+    assert wk.heavy_waiting() == 1 and asked == [wk.conveyor.SLOT_PRIO_TRIAL]
+
+    def boom(p):
+        raise FileNotFoundError('wait')
+    monkeypatch.setattr(hs, 'waiting', boom)
+    assert wk.heavy_waiting() == 0
+    # очередь старой версии (без `waiting`) — как раньше, по строке «ЖДУТ: N»
+    monkeypatch.delattr(hs, 'waiting')
     monkeypatch.setattr(hs, 'status', lambda out: out.write('ДЕРЖИТ: x\nЖДУТ: 3 (по порядку прихода)\n'))
     assert wk.heavy_waiting() == 3
-
-    def boom(out):
-        raise FileNotFoundError('wait')
-    monkeypatch.setattr(hs, 'status', boom)
-    assert wk.heavy_waiting() == 0
 
 
 def test_main_without_token_exits(monkeypatch):

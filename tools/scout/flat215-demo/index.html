@@ -1334,6 +1334,7 @@ body.trial .vrow-n{flex:none;max-width:100%;white-space:normal}
 body.trial .vrow-s{display:none}
 .btn.tr-fur{padding:6px 14px;font-size:14px;min-height:0;border-color:#3B76A2;color:#3B76A2;background:#fff;font-weight:600}
 .hm-room .rb .btn.tr-fur{flex:none;margin-left:auto}
+.hm-stub .btn.tr-fur{align-self:flex-start;margin-top:6px}
 .tr-rb{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-sm,12px);background:var(--wash-3,#F4F2ED);font-size:14px;line-height:1.35}
 .tr-rb .tr-spin{width:18px;height:18px;margin:0;flex:none}
 .tr-rb b{font-weight:600}.tr-rb .st{color:var(--muted)}
@@ -6125,7 +6126,9 @@ function drawHome(force){
     if(c.stub&&homeTiny(c.r))return '';   // безымянная кладовка 1,5 м² — только на плане, список не засоряет (T-20261109-20/3)
     const t=`${escHtml(c.r.title)}${c.r.areaM2?` <small>· ${homeM2(c.r.areaM2)}</small>`:''}`;
     if(c.stub){const o=roomOutcome(c.r.id), tx=o==='pending'?pendSpin+pendTxt():o&&TR_NONE.test(o)?outcomeTxt(c.r.id,true):(EN?'coming in the next step':'появится следующим шагом');   // проба: исход комнаты по коду
-      return `<div class="hm-stub" data-room="${c.r.id}"${o?` data-outcome="${o}"`:''} aria-disabled="true"><b>${t}</b><span>${tx}</span></div>`;}
+      // ждёт проверки размера, а коробки нет (ядро не построилось по угаданному масштабу, T-20261110-29) — «Обустроить» и здесь, как у карточки
+      const fb=TRIAL()&&o==='awaiting'&&trCanFurnish()?`<button class="btn tr-fur" type="button" data-tr-furnish="${escHtml(c.r.id)}">${EN?'Furnish':'Обустроить'}</button>`:'';
+      return `<div class="hm-stub" data-room="${c.r.id}"${o?` data-outcome="${o}"`:''}${fb?'':' aria-disabled="true"'}><b>${t}</b><span>${tx}</span>${fb}</div>`;}
     // подпись картинки — стиль ПОКАЗАННОГО варианта (у подменённой комнаты он свой); `data-style` — запрошенный для комнаты стиль
     // (раскладка, home-mix-01), `data-shown` — только у подменённой, для проверок
     const vs=styleIdOf(c.v), alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===vs)||{}).title), on=c.r.id===shownId;

@@ -644,6 +644,32 @@ def test_scale_unverified_whole_flat_awaits_check_by_switch(monkeypatch):
     assert {r['furniture_state'] for r in d['apartment_rooms'] if r['kind'] in ('living', 'bedroom')} == {'pending'}
 
 
+def test_core_refused_at_unverified_scale_awaits_check_like_built_rooms(monkeypatch):
+    """T-20261110-29: при неподтверждённом масштабе ядро спальни/гостиной не построилось (угаданный масштаб сжал комнату до 3 м² →
+    `no_core`) — исход тот же, что у построенных: ждёт проверки (`size_unverified`, «Обустроить»), не «не разобрана». Коробки нет —
+    варианта нет. Масштаб подтверждён — честный отказ, как раньше."""
+    flat = flat_with_bedrooms()
+    flat['scale']['status'] = 'not_verified'
+    real = TB.core_geometry
+
+    def cg(p, r, cfg):
+        if r['id'] in ('b2', 'r1'):
+            raise TB.TR.Refusal('no_core')
+        return real(p, r, cfg)
+    monkeypatch.setattr(TB, 'core_geometry', cg)
+    d = TB.build(JOB, flat, None, ctx=CTX)
+    rooms = {r['id']: r for r in d['apartment_rooms']}
+    liv = next(r['id'] for r in d['apartment_rooms'] if r['kind'] == 'living')
+    for rid in (liv, 'bedroom-1', 'bedroom-2'):
+        r = rooms[rid]
+        assert (r['furniture_state'], r['furniture_outcome'], r['furniture_code']) == ('awaiting_check', 'size_unverified', 'scale_unverified')
+    assert {v['room_id'] for v in d['variants']} == {'bedroom-1'} and d['trial']['complete'] is True
+    flat['scale']['status'] = 'listing'
+    d = TB.build(JOB, flat, None, ctx=CTX)
+    b2 = {r['id']: r for r in d['apartment_rooms']}['bedroom-2']
+    assert (b2['furniture_state'], b2['furniture_outcome'], b2['furniture_code']) == ('refused', 'not_readable', 'no_core')
+
+
 def test_scale_from_total_area_furnishes_with_soft_note():
     """T-26: масштаб по общей площади (`area`) — комнаты обставляются как обычно, на плане мягкая пометка ru/en; у прочих — без неё."""
     flat = flat_with_bedrooms()

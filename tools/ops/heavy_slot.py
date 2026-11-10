@@ -71,12 +71,17 @@
     приоритетных не держит обычную задачу больше этого срока (плюс текущие держания). Ожидающий старой версии (без билета)
     и заместитель — класс 0; процесс старой версии классов не знает и сверяет порог только по номерам — до своего
     перезапуска может взять слот раньше приоритетного (переходный период).
+  * РЕЗЕРВ ПРОБЫ (T-20261110-29): приоритет обходит только очередь, а 10.11 все три слота по 10 мин держали наши прогоны
+    (VLM-тесты T-27/T-26, пик 0,5 ГБ каждый, свободно 15–16 ГБ) — проба агента (11 с, пик 0,15 ГБ) 8 мин падала по таймауту 60 с.
+    Поэтому сверх HEAVY_SLOT_SLOTS есть HEAVY_SLOT_PRIO_SLOTS (1) слот(ов) `slot<k>.lock`, которые берут ТОЛЬКО билеты класса ≥ 1;
+    допуск — как в дополнительный слот (по памяти по факту, с долями всех держателей и запасом), долю держателя резерва считают все.
+    Свободен только резерв — обычные впереди не мешают обгону (он не их), защита головы его не закрывает.
 Переменные (для самопроверки и особых случаев): HEAVY_SLOT_DIR (замок и состояние, по умолчанию ~/.cache/remlab-heavy-slot —
 одинаково в кроне и в сессии, не в репо), HEAVY_SLOT_LOG, HEAVY_SLOT_MEMINFO (подмена /proc/meminfo), HEAVY_SLOT_POLL (с, 30),
 HEAVY_SLOT_REPORT (строка «ждёт» в журнал раз в N с, 300), HEAVY_SLOT_YIELD, HEAVY_SLOT_MAX_YIELDS, HEAVY_SLOT_SLOTS,
 HEAVY_SLOT_RESERVE_GB, HEAVY_SLOT_HEAD_POLL, HEAVY_SLOT_SAMPLE, HEAVY_SLOT_LONG_S, HEAVY_SLOT_MEASURE_MIN_S,
 HEAVY_SLOT_EFF_FLOOR_GB, HEAVY_SLOT_MEM_STUB (файл «метка ГБ» — подмена замера памяти дерева для самопроверки),
-HEAVY_SLOT_BACKFILL_MIN, HEAVY_SLOT_PRIO, HEAVY_SLOT_PRIO_AGE_MIN.
+HEAVY_SLOT_BACKFILL_MIN, HEAVY_SLOT_PRIO, HEAVY_SLOT_PRIO_AGE_MIN, HEAVY_SLOT_PRIO_SLOTS.
 """
 from __future__ import annotations
 
@@ -127,6 +132,17 @@ def mem_available_gb() -> float:
 def slots() -> int:
     """Число слотов (HEAVY_SLOT_SLOTS, по умолчанию 3; меньше 1 — 1)."""
     return max(1, int(_env_f('HEAVY_SLOT_SLOTS', 3)))
+
+
+def prio_slots() -> int:
+    """РЕЗЕРВ ПРОБЫ (T-20261110-29): сколько слотов сверх `slots()` берут только билеты класса ≥ 1 (загрузка тура, «Обустроить») —
+    HEAVY_SLOT_PRIO_SLOTS, по умолчанию 1; 0 — резерва нет. Допуск в резерв — как в дополнительный слот (по памяти по факту)."""
+    return max(0, int(_env_f('HEAVY_SLOT_PRIO_SLOTS', 1)))
+
+
+def all_slots() -> int:
+    """Все слоты: обычные + резерв пробы (его держателей считают все — их доля памяти)."""
+    return slots() + prio_slots()
 
 
 def reserve_gb() -> float:
@@ -452,7 +468,7 @@ def _nested() -> int | None:
         pid = int(os.environ.get('HEAVY_SLOT_HELD', ''))
     except ValueError:
         return None
-    return pid if pid in _ancestors() and any(is_held(k) for k in range(1, slots() + 1)) else None
+    return pid if pid in _ancestors() and any(is_held(k) for k in range(1, all_slots() + 1)) else None
 
 
 def _noslot_parent() -> int | None:
@@ -755,7 +771,10 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         log(label, f'вложенный вызов: слот уже у предка pid={parent} — не ждём')
         yield info
         return
-    n = slots()
+    # n — все слоты (обычные + резерв пробы): доли памяти держателей и «занят ли другой слот» — по всем; top — до какого слота
+    # могу брать я: класс ≥ 1 — и резерв (T-20261110-29), обычный — только `slots()`
+    n = all_slots()
+    top = n if pr >= 1 else slots()
     d = os.path.dirname(_lock_file())
     holder_p = os.path.join(d, 'holder')
     yield_s = _env_f('HEAVY_SLOT_YIELD', 600) if yield_after is None else yield_after
@@ -779,7 +798,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         «Первый» сверяется раз в step, а старший класс встаёт впереди в любой момент (T-20261109-31): взяв замок, сверяю
         ещё раз под `queue.lock` — не первый → замок назад."""
         nonlocal extra_why
-        for k in range(1, n + 1):
+        for k in range(1, top + 1):
             if k > 1 and not try_extra:
                 break
             try:
@@ -803,12 +822,17 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
     def backfill(tk: str) -> int:
         """ОБГОН (T-79): я не первый; все впереди, кто может взять дополнительный слот, не проходят по памяти, я — проходит:
         беру свободный слот 2…N сразу (как `grab`, ждать память в нём нельзя). Закрыт, пока голова ждёт дольше
-        HEAVY_SLOT_BACKFILL_MIN, и пока свободен слот 1 (его берёт голова). → номер слота или 0."""
+        HEAVY_SLOT_BACKFILL_MIN, и пока свободен слот 1 (его берёт голова). РЕЗЕРВ ПРОБЫ (T-20261110-29): свободен только резерв —
+        он не слот впереди стоящих обычных (их не ждём, защита головы его не закрывает); ждём только впереди стоящих класса ≥ 1.
+        → номер слота или 0."""
         nonlocal extra_why, said_closed
         lim = backfill_s()
-        if lim <= 0 or not is_held(1):
+        if not is_held(1):
             return 0
-        free_k = [k for k in range(2, n + 1) if not is_held(k)]
+        free_k = [k for k in range(2, top + 1) if not is_held(k)]
+        res_only = bool(free_k) and all(k > slots() for k in free_k)
+        if lim <= 0 and not res_only:
+            return 0
         res = reserve_gb()
         if not free_k or mem_available_gb() - res < own:      # дешёвые отсечки до разбора держателей
             return 0
@@ -818,7 +842,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             if pos <= 0:
                 return 0
             who, waited = _head_wait(d, live)
-            if waited >= lim:
+            if waited >= lim and not res_only:
                 if not said_closed:
                     note(f'обгон закрыт: голова {who} ждёт {waited / 60:.0f} мин (≥ {lim / 60:g}) — новые не стартуют, '
                          f'слоты стекают к ней; жду по очереди')
@@ -831,6 +855,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             for i, (_, _, kv) in enumerate(live[:pos]):
                 if kv.get('proxy') == '1' or (i > 0 and kv.get('bf') != '1'):
                     continue                          # старая версия не в голове сама не обгоняет — её не ждём
+                if res_only and prio_clamp(kv.get('prio') or 0) < 1:
+                    continue                          # резерв пробы обычному не достанется — его не ждём
                 try:
                     th = float(kv.get('eff_gb') or kv['min_gb'])
                 except (KeyError, ValueError):
@@ -864,12 +890,12 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     head, t_chk = _my_turn(d, ticket), now
                 k = 0
                 if head:
-                    k = grab(n > 1 and now - t_extra >= step)
-                    if n > 1 and now - t_extra >= step:
+                    k = grab(top > 1 and now - t_extra >= step)
+                    if top > 1 and now - t_extra >= step:
                         t_extra = now
                     if k < 0:                         # впереди встал старший класс — я больше не первый
                         head, k = False, 0
-                elif n > 1 and now - t_bf >= step:    # не первый — обгон в свободный дополнительный слот (T-79)
+                elif top > 1 and now - t_bf >= step:  # не первый — обгон в свободный дополнительный слот (T-79)
                     t_bf = now
                     k = backfill(ticket)
                 if k:
@@ -1020,8 +1046,21 @@ def _ago(since: str | None) -> str:
     return f"с {time.strftime('%H:%M:%S', time.localtime(int(since)))} ({s // 60} мин {s % 60} с)"
 
 
+def waiting(min_prio: int = 0) -> int:
+    """Сколько живых билетов ждут с объявленным классом ≥ min_prio (T-20261110-29: предохранитель воркера пробы считает только
+    свой класс — обычные его не задерживают, задание идёт впереди них и в резерв). min_prio 0 — все, со старой версией без билета."""
+    d = os.path.dirname(_lock_file())
+    live = _tickets(d)
+    if min_prio <= 0:
+        proxied = {kv.get('pid') for _, _, kv in live if kv.get('proxy') == '1'}
+        w = os.path.join(d, 'wait')
+        old = sum(1 for f in os.listdir(w) if f.isdigit() and str(f) not in proxied and _alive(int(f)))
+        return len(live) + old
+    return sum(1 for _, _, kv in live if kv.get('proxy') != '1' and prio_clamp(kv.get('prio') or 0) >= min_prio)
+
+
 def status(out=sys.stdout) -> int:
-    n = slots()
+    n = all_slots()
     d = os.path.dirname(_lock_file())
     live = _tickets(d)
     waiters = [dict(kv, ticket=f"{kv.get('ticket')} (за старую версию без билета)") if kv.get('proxy') == '1' else kv
@@ -1039,7 +1078,7 @@ def status(out=sys.stdout) -> int:
         lock = _lock_file(k)
         held = is_held(k)
         h = _read_kv(_holder_file(d, k))
-        tag = f' · слот {k}' if k > 1 else ''
+        tag = (f' · слот {k}' if k > 1 else '') + (' (резерв пробы)' if k > slots() else '')
         if held and h and _alive(int(h.get('pid', 0) or 0)):
             eff = h.get('eff_gb')
             eff_s = f" (по замеру {float(eff):.2f})" if eff and float(eff) < float(h.get('min_gb') or 0) else ''
@@ -1074,7 +1113,7 @@ def status(out=sys.stdout) -> int:
                  + (f" · уступок {w['yields']}" if w.get('yields') not in (None, '0') else '')
                  for k, w in enumerate(waiters, 1))
        + (f'\n  (записей умерших ожидающих: {dead} — не считаются)' if dead else ''))
-    if n > 1:
+    if slots() > 1:
         lim, (who, w) = backfill_s(), _head_wait(d, live)
         if lim <= 0:
             pr('ОБГОН: выключен (HEAVY_SLOT_BACKFILL_MIN ≤ 0) — строго по порядку прихода')
@@ -1087,10 +1126,11 @@ def status(out=sys.stdout) -> int:
         pr(f'ПАМЯТЬ: свободно {mem_available_gb():.1f} ГБ')
     except (OSError, RuntimeError) as e:
         pr(f'ПАМЯТЬ: не прочитать ({e})')
-    if n > 1:
+    if slots() > 1:
         res = reserve_gb()
-        line = (f'СЛОТОВ: {n} (дополнительный — только пока занят другой и свободно ≥ Σ держателей max(порог − память, 0)'
-                f' + свой + запас {res:.1f} ГБ; иначе по одному)')
+        line = (f'СЛОТОВ: {slots()} (дополнительный — только пока занят другой и свободно ≥ Σ держателей max(порог − память, 0)'
+                f' + свой + запас {res:.1f} ГБ; иначе по одному)'
+                + (f' + резерв пробы {prio_slots()} (только приоритет ≥ 1, допуск тот же)' if prio_slots() else ''))
         with contextlib.suppress(OSError, RuntimeError):
             others = _holders_need(d, 0, n)[0]
             if any_held and others != float('inf'):

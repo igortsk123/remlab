@@ -1071,6 +1071,13 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     def awaits(r, rid):
         return None if consented(r, rid) else size_check(result, r)
 
+    # гостиная, чьё ядро не построилось при НЕПОДТВЕРЖДЁННОМ размере, — не «не разобрана»: ядро считали по угаданному масштабу
+    # (T-20261110-29: спальни 3,2–3,5 м² вместо ~10 → `no_core`); исход — тот же, что у построенной: ждёт проверки, «Обустроить»
+    for x in refused:
+        rid = ids[id(x['room'])]
+        if awaits(x['room'], rid):
+            outcomes[rid] = _outcome('awaiting_check', awaits(x['room'], rid))
+
     def put_geo(panel, room, rid, geo, kind):
         full = {'w': geo['w'], 'd': geo['d'], **_geo_titles(room, geo, kind), 'openings': geo['openings'], 'radiators': [],
                 'approx': _approx(room, geo)}
@@ -1127,8 +1134,9 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
                     gcode = e.code
             if geo:
                 put_geo(p, r, rid, geo, BEDROOM)
-            if geo and awaits(r, rid):                      # кусок стадии спален (если был) не показываем: размер ждёт проверки
-                variants.append(_empty_variant(rid, geo, 'awaiting_check', {'code': awaits(r, rid)}))
+            if awaits(r, rid):                              # кусок стадии спален (если был) не показываем: размер ждёт проверки
+                if geo:                                     # ядро не построилось по угаданному масштабу — тоже ждёт (T-29), без коробки
+                    variants.append(_empty_variant(rid, geo, 'awaiting_check', {'code': awaits(r, rid)}))
                 outcomes[rid] = _outcome('awaiting_check', awaits(r, rid))
                 continue
             if got is None:
