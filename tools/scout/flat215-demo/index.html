@@ -1374,14 +1374,17 @@ body.trial .vrow-s{display:none}
 /* окна и двери агента на плане (T-20261110-39): кнопка режима, полоса режима над планом, всплывашка у проёма */
 .tr-op-open{width:100%;display:flex;justify-content:flex-end}
 .tr-op-open .btn{padding:6px 14px;font-size:14px;min-height:0}
-.tr-op-bar{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:var(--radius-sm,12px);background:var(--wash-3,#F4F2ED);font-size:14px;line-height:1.4}
+/* полоса режима — липкая сразу под шапкой тура: план прокручен к верху — «Отмена / Сохранить» не уходят под шапку (T-20261110-39/3);
+   всплывашка проёма — над полосой, шапка — над обеими */
+.tr-op-bar{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:var(--radius-sm,12px);background:var(--wash-3,#F4F2ED);font-size:14px;line-height:1.4;
+  position:sticky;top:calc(var(--hm-hd) + var(--hm-cert,0px) + 8px);z-index:var(--z-sticky);box-shadow:0 2px 10px rgba(41,37,36,.08)}
 .tr-op-bar .st{color:var(--muted)}.tr-op-bar .st b{color:var(--ink);font-weight:600}
 .tr-op-bar .err{color:#96601F;margin-top:6px}
 .tr-op-bar .acts{display:flex;gap:8px;margin-top:8px}.tr-op-bar .acts .btn{padding:7px 14px;font-size:14px;min-height:40px}
 .tr-op-bar .acts .btn:disabled{opacity:.45;cursor:default}
 .tr-op-wrap{position:relative;width:100%}
 .tr-op-wrap svg{touch-action:none;-webkit-user-select:none;user-select:none}
-.tr-op-pop{position:absolute;z-index:5;display:flex;gap:6px;align-items:center;padding:6px;border-radius:999px;background:var(--surface,#fff);
+.tr-op-pop{position:absolute;z-index:calc(var(--z-sticky) + 1);display:flex;gap:6px;align-items:center;padding:6px;border-radius:999px;background:var(--surface,#fff);
   box-shadow:0 4px 18px rgba(0,0,0,.16);transform:translate(-50%,calc(-100% - 14px));white-space:nowrap}
 .tr-op-pop .chip{padding:7px 14px;font-size:14px;min-height:36px}
 .tr-op-pop .del{border:0;background:none;color:#A1452B;font:inherit;font-size:14px;font-weight:600;padding:7px 10px;cursor:pointer}
@@ -2285,6 +2288,8 @@ function troPopup(wrap,svg){
   // над ВЕРХНЕЙ точкой проёма (у вертикальной стены середина — между ручками: всплывашка закрыла бы верхнюю, e2e T-39 C)
   const sc=p=>{const pt=svg.createSVGPoint(); pt.x=p[0]; pt.y=p[1]; return pt.matrixTransform(m);};
   const S=at.map(sc), s={x:S[0].x, y:Math.min(...S.map(p=>p.y))-(op?12:0)};
+  const lq=op&&(svg.querySelector('[data-tr-op-lbl]')||{getBoundingClientRect:null});   // подпись поднята над проёмом (у нижней стены) — всплывашка над ней
+  if(lq&&lq.getBoundingClientRect){const q=lq.getBoundingClientRect(); if(q.height&&q.top<s.y+12&&q.bottom>s.y-14)s.y=q.top-2;}
   const pop=document.createElement('div'); pop.className='tr-op-pop'; pop.setAttribute('data-tr-op-pop','1');
   const kind=op?op.kind:'';
   pop.innerHTML=`<button type="button" class="chip${kind==='window'?' on':''}" data-tr-op-kind="window">${EN?'Window':'Окно'}</button>`+
