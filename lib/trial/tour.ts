@@ -98,7 +98,7 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
     // опрос страницы: `version` растёт — перезагрузка; `bundle` — версия данных (база для «Обустроить»); `rebuild` — пересборка идёт / упала
     // `askSizes`/`listing` — окошко «размеры своими словами» на плане (Р2-текст): звать ли агента и что с его текстом (самого текста нет)
     const v = { version: view.resultVersion, bundle: view.bundleVersion, rebuild: view.rebuild, rebuildError: view.rebuildError,
-      askSizes: view.askSizes, listing: view.listing, listingError: view.listingError };
+      askSizes: view.askSizes, listing: view.listing, listingError: view.listingError, roomEdit: view.roomEdit, roomEditError: view.roomEditError };
     return new Response(JSON.stringify(v), { headers: headers({ "Content-Type": JSON_TYPE }) });
   }
   if (target.kind === "shared") return new Response(null, { status: 302, headers: headers({ Location: target.url }) });

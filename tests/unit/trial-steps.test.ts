@@ -9,7 +9,7 @@ const at = (sec: number) => new Date(Date.parse(T0) + sec * 1000).toISOString();
 const job = (over: Partial<TrialJobView> = {}): TrialJobView => ({
   id: "x".repeat(22), status: "queued", stage: "queued", stages: [], createdAt: T0, finishedAt: null, elapsedSec: 0,
   queueAhead: 0, workerAlive: true, errorCode: null, resultVersion: 0, bundleVersion: 0, rebuild: null, rebuildError: null,
-  askSizes: false, listing: null, listingError: null, ...over,
+  askSizes: false, listing: null, listingError: null, roomEdit: null, roomEditError: null, ...over,
 });
 const states = (j: TrialJobView) => stepsOf(j, "en").map((s) => s.state);
 

@@ -13,11 +13,11 @@ type ViewRow = {
   worker_alive: boolean; rebuild: Last | string | null; scale_status: string | null;
 };
 type Last = { status?: string; code?: string | null; kind?: string };
-type RebuildPart = Pick<TrialJobView, "rebuild" | "rebuildError" | "listing" | "listingError">;
+type RebuildPart = Pick<TrialJobView, "rebuild" | "rebuildError" | "listing" | "listingError" | "roomEdit" | "roomEditError">;
 
 const REBUILD_ERRORS = new Set(["stale", "lease_lost", "timeout", "pipeline_error", "internal"]);
 const LISTING_ERRORS = new Set([...REBUILD_ERRORS, "source_gone", "no_match"]);
-const NONE: RebuildPart = { rebuild: null, rebuildError: null, listing: null, listingError: null };
+const NONE: RebuildPart = { rebuild: null, rebuildError: null, listing: null, listingError: null, roomEdit: null, roomEditError: null };
 const errOf = (r: Last, known: Set<string>) => (r.status === "failed" ? (known.has(r.code ?? "") ? r.code : "internal") : null);
 
 /** Последняя пересборка задания → видимое состояние. «Обустроить»: `done` — уже не важно (новая версия пришла), ошибка — закрытым кодом.
@@ -29,6 +29,10 @@ function rebuildOf(raw: ViewRow["rebuild"], jobStatus: string): RebuildPart {
     const listing = r.status === "queued" && jobStatus !== "done" ? "accepted"
       : r.status === "queued" || r.status === "running" ? "applying" : r.status === "done" ? "done" : r.status === "failed" ? "failed" : null;
     return { ...NONE, listing, listingError: errOf(r, LISTING_ERRORS) as TrialJobView["listingError"] };
+  }
+  if (r.kind === "edit") {                    // правка комнаты (T-20261110-36): страница держит «Пересобираю комнату…», пока не `done`
+    const roomEdit = r.status === "queued" || r.status === "running" ? "applying" : r.status === "done" ? "done" : r.status === "failed" ? "failed" : null;
+    return { ...NONE, roomEdit, roomEditError: errOf(r, REBUILD_ERRORS) as TrialJobView["roomEditError"] };
   }
   if (r.status !== "queued" && r.status !== "running" && r.status !== "failed") return NONE;
   return { ...NONE, rebuild: r.status, rebuildError: errOf(r, REBUILD_ERRORS) as TrialJobView["rebuildError"] };

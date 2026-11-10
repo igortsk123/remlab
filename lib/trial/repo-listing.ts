@@ -44,7 +44,7 @@ export async function askListing(id: string, inp: TrialListingIn, env = process.
     }
     if (active) return no(409, "busy");
     const [day] = await q<{ n: number }>(tx, sql`select count(*)::int as n from trial_rebuilds
-        where job_id = ${id} and created_at > now() - interval '24 hours'`);
+        where job_id = ${id} and kind <> 'edit' and created_at > now() - interval '24 hours'`);  // правки — свой счёт
     if ((day?.n ?? 0) >= trialRebuildDaily(env)) return no(429, "rebuild_limit");
     const rid = randomToken();
     await tx.execute(sql`insert into trial_rebuilds (id, job_id, request_id, rooms, base_version, kind, listing_text)

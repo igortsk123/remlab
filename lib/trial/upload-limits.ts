@@ -8,3 +8,7 @@ export const TRIAL_UPLOAD_LIMITS = {
   burst: { limit: 10, windowSec: 3600 },
   day: { limit: 30, windowSec: 86_400 },
 } as const;
+
+/** Правка комнаты в туре (T-20261110-36, `lib/trial/repo-room-edit.ts`): пересборок вида `edit` на задание за сутки. Свой счёт — правки
+ *  не съедают «Обустроить» и текст размеров (`config.ts:trialRebuildDaily`); ждущая пересборка правки забирает новые правки без счёта. */
+export const TRIAL_ROOM_EDIT_LIMITS = { day: 30 } as const;

@@ -13,7 +13,9 @@
 alter table trial_rebuilds add column if not exists kind text not null default 'furnish';  -- furnish — «Обустроить»; listing — текст агента
 alter table trial_rebuilds add column if not exists listing_text text;                     -- текст агента (≤ 2000 знаков); null у furnish
 
+-- набор видов — тот же, что в `028-trial-room-edits.sql` (`edit` — правка комнаты): файлы применяются по порядку на КАЖДОМ деплое, и
+-- проверка без `edit` здесь упала бы на первой же строке правки (T-20261110-36)
 alter table trial_rebuilds drop constraint if exists trial_rebuilds_kind_chk;
-alter table trial_rebuilds add constraint trial_rebuilds_kind_chk check (kind in ('furnish', 'listing'));
+alter table trial_rebuilds add constraint trial_rebuilds_kind_chk check (kind in ('furnish', 'listing', 'edit'));
 alter table trial_rebuilds drop constraint if exists trial_rebuilds_text_len;
 alter table trial_rebuilds add constraint trial_rebuilds_text_len check (listing_text is null or char_length(listing_text) <= 2000);

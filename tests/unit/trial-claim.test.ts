@@ -8,6 +8,7 @@ import { listingDbTests } from "./_trial-listing-db";
 import { photoDbTests } from "./_trial-photo-db";
 import { rebuildDbTests } from "./_trial-rebuild-db";
 import { reissueDbTests } from "./_trial-reissue-db";
+import { roomEditDbTests } from "./_trial-room-edit-db";
 import { png, sampleResult, withOneRowStats } from "./_trial-helpers";
 
 // Очередь пробы на НАСТОЯЩЕЙ Postgres (agent-trial-01, T-A; поправки Codex 09.11): гонки claim, ограждение аренды
@@ -451,4 +452,5 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
   photoDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR }));
   listingDbTests(() => ({ pg, repo: L.repo, seed, row, dir: DIR, token: TOKEN }));
   reissueDbTests(() => ({ pg, repo: L.repo, seed, row, dir: DIR, token: TOKEN }));
+  roomEditDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR, token: TOKEN }));
 });

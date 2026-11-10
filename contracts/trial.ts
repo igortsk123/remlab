@@ -44,6 +44,9 @@ export const trialJobView = z.object({
   /** Последний текст агента: принят и ждёт сборки / применяется / применён / не удался. Самого текста здесь нет. */
   listing: z.enum(["accepted", "applying", "done", "failed"]).nullable().default(null),
   listingError: z.enum(["source_gone", "no_match", "stale", "lease_lost", "timeout", "pipeline_error", "internal"]).nullable().default(null),
+  /** Правка комнаты (T-20261110-36): пересобирается / готово (новая версия пришла) / не удалась. */
+  roomEdit: z.enum(["applying", "done", "failed"]).nullable().default(null),
+  roomEditError: z.enum(["stale", "lease_lost", "timeout", "pipeline_error", "internal"]).nullable().default(null),
 });
 export type TrialJobView = z.infer<typeof trialJobView>;
 
@@ -87,6 +90,28 @@ export const trialListingIn = z.object({
     .refine((t) => new TextEncoder().encode(t).length <= TRIAL_SIZES_TEXT_MAX_BYTES, { message: "too many bytes" }),
 });
 export type TrialListingIn = z.infer<typeof trialListingIn>;
+
+// ── Правка комнаты в туре (план trial-room-edit-01, Е3; `db/init/028-trial-room-edits.sql`) ─────────────────
+export const TRIAL_ROOM_NAME_MAX = 60;
+export const TRIAL_ROOM_CM_MIN = 50;
+export const TRIAL_ROOM_CM_MAX = 5000;
+/** Правка одной комнаты страницы: имя и габариты (охват по осям листа, см) — окошко шлёт все поля; площадь окошко переводит в габариты
+ *  по пропорциям. `base_version` — версия данных, которую видит страница (по ней сервер считает «изменилось ли» и порог 10 см). */
+export const trialRoomEditIn = z.object({
+  k: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
+  request_id: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+  base_version: z.number().int().positive(),
+  room: trialPageRoomId,
+  name: z.string().trim().min(1).max(TRIAL_ROOM_NAME_MAX),
+  w_cm: z.number().finite().min(TRIAL_ROOM_CM_MIN).max(TRIAL_ROOM_CM_MAX),
+  d_cm: z.number().finite().min(TRIAL_ROOM_CM_MIN).max(TRIAL_ROOM_CM_MAX),
+});
+export type TrialRoomEditIn = z.infer<typeof trialRoomEditIn>;
+/** Правка, как её получает воркер при claim любой пересборки (накладывает на копию `result` перед сборкой). */
+export type TrialRoomEdit = {
+  panel: string; srcId: string; anchor: { x: number; y: number }; name: string; kind: string; wCm: number | null; dCm: number | null;
+  built: boolean;
+};
 
 const num = z.number().finite();
 const pt = z.tuple([num, num]);
@@ -158,6 +183,8 @@ export const trialClaimIn = z.object({
   rebuilds: z.boolean().optional(),
   /** true — воркер умеет и пересборки по тексту агента (`kind: "listing"`); без этого такие строки ему не отдаются. */
   listing: z.boolean().optional(),
+  /** true — воркер умеет правки комнат (`kind: "edit"` и `edits` в каждой пересборке); без этого строки `edit` ему не отдаются. */
+  edit: z.boolean().optional(),
 });
 /** Аренда пересборки: `id` — id строки `trial_rebuilds` (не задания). */
 export const trialRebuildLeaseIn = z.object({ ...lease, spentUsd: spent });
@@ -173,7 +200,9 @@ export type TrialRebuildClaimed = {
   id: string; jobId: string; attempt: number; leaseToken: string; leaseUntil: string; rooms: string[]; baseVersion: number;
   result: unknown;
   /** `listing` — пересборка по тексту агента: `listingText` — его текст (только воркеру), `baseVersion` — версия данных на момент claim. */
-  kind: "furnish" | "listing"; listingText?: string; inputMime?: string;
+  kind: "furnish" | "listing" | "edit"; listingText?: string; inputMime?: string;
+  /** Правки комнат задания (только воркеру, умеющему `edit`): накладываются на копию `result` перед любой сборкой. */
+  edits?: TrialRoomEdit[];
 };
 export const trialHeartbeatIn = z.object({ ...lease, stage: trialStage, spentUsd: spent });
 export const trialResultIn = z.object({ ...lease, result: z.unknown(), spentUsd: spent });

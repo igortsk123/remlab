@@ -20,13 +20,14 @@ export async function POST(req: Request): Promise<Response> {
   if (body.paused) return trialJson({ ok: true, job: null });
   if (!body.rebuilds) return trialJson({ ok: true, job: await claim(body.workerId) });
   const first = await rebuildFirst();
-  const listing = body.listing === true; // пересборки по тексту агента (Р2-текст) — только воркеру, который их умеет
+  // пересборки по тексту агента (Р2-текст) и правки комнат (T-20261110-36) — только воркеру, который их умеет
+  const can = { listing: body.listing === true, edit: body.edit === true };
   if (first) {
-    const rebuild = await claimRebuild(body.workerId, listing);
+    const rebuild = await claimRebuild(body.workerId, can);
     if (rebuild) return trialJson({ ok: true, job: null, rebuild });
   }
   const job = await claim(body.workerId);
   if (job || first) return trialJson({ ok: true, job });
-  const rebuild = await claimRebuild(body.workerId, listing);
+  const rebuild = await claimRebuild(body.workerId, can);
   return trialJson({ ok: true, job: null, rebuild });
 }

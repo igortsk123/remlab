@@ -1349,6 +1349,23 @@ body.trial .vrow-s{display:none}
 .tr-sizes textarea{display:block;width:100%;box-sizing:border-box;min-height:72px;resize:vertical;font:inherit;font-size:16px;line-height:1.4;padding:8px 10px;border:1px solid #D9D4CB;border-radius:10px;background:#fff;color:var(--ink)}
 .tr-sizes .tr-sz-st{margin:8px 0 0;color:#2F6B3F}.tr-sizes .tr-sz-st.bad{color:#96601F}
 .tr-sizes .btn{margin-top:8px;padding:6px 14px;font-size:14px;min-height:0}.tr-sizes .btn:disabled{opacity:.45;cursor:default}
+/* правка комнаты (T-20261110-36, макет T-31 v2): окошко по центру, на телефоне — шторка снизу */
+.tr-ed-back{position:fixed;inset:0;background:rgba(41,37,36,.38);z-index:9000;display:flex;align-items:center;justify-content:center}
+.tr-ed{background:var(--surface,#fff);border-radius:var(--radius,16px);box-shadow:0 12px 40px rgba(0,0,0,.18);width:min(440px,calc(100vw - 32px));
+  padding:18px 18px 16px;font-size:16px;color:var(--ink);box-sizing:border-box;max-height:calc(100vh - 24px);overflow:auto}
+.tr-ed h3{margin:0 0 12px;font-size:18px;font-weight:600}
+.tr-ed label{display:block;font-size:14px;color:var(--muted);margin:12px 0 6px}
+.tr-ed input{font:inherit;font-size:16px;border:1px solid var(--line,#D9D4CB);border-radius:var(--radius-sm,12px);padding:10px 12px;background:var(--surface,#fff);
+  color:var(--ink);box-sizing:border-box;width:100%;min-height:44px}
+.tr-ed input:focus{outline:none;border-color:var(--accent)}
+.tr-ed button{font-family:inherit}
+.tr-ed-kinds{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.tr-ed-kinds .chip{padding:6px 12px;font-size:14px}
+.tr-ed-row{display:flex;align-items:center;gap:8px}.tr-ed-row input{text-align:center}.tr-ed-row span{color:var(--muted);flex:none}
+.tr-ed-hint{font-size:13.5px;color:var(--muted);margin:12px 0 0}
+.tr-ed-err{font-size:14px;color:#96601F;margin:10px 0 0}
+.tr-ed-acts{display:flex;gap:10px;margin-top:16px}.tr-ed-acts .btn{flex:1;min-height:46px}.tr-ed-acts .btn:disabled{opacity:.5;cursor:default}
+@media (max-width:700px){.tr-ed-back{align-items:flex-end}.tr-ed{width:100%;border-radius:var(--radius,16px) var(--radius,16px) 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}}
 </style></head><body><div class="wrap">
 <!-- ЗАГОЛОВОК И ЛИД УБРАНЫ (владелец 01.09): они повторяли то, что теперь говорит блок
      сертификата, и отодвигали паспорт квартиры вниз. Первым идёт сама квартира. -->
@@ -1838,9 +1855,9 @@ function trialPoll(delay){
   clearTimeout(trPollT); trPollT=setTimeout(trPollGo,delay==null?5000:delay);
 }
 async function trPollGo(){
-  const base=window.__TOUR_VER, rb=TRB.state==='run';
+  const base=window.__TOUR_VER, rb=TRB.state==='run', ed=TRE.state==='run';
   const lb=trListingBusy();
-  if(!allVariants().some(varPending)&&!rb&&!lb)return;
+  if(!allVariants().some(varPending)&&!rb&&!lb&&!ed)return;
   if(document.visibilityState!=='visible')return trialPoll();
   try{
     const r=await fetch('version.json?ts='+Date.now(),{cache:'no-store'});
@@ -1849,8 +1866,9 @@ async function trPollGo(){
     if(+j.version>base){trSave(null); location.reload(); return;}
     if(lb)trListingSeen(j);
     if(rb&&trRebuildSeen(j))return;
+    if(ed&&trEditSeen(j))return;
   }catch(e){}
-  trialPoll(rb||lb?4000:5000);
+  trialPoll(rb||lb||ed?3000:5000);
 }
 // «ОБУСТРОИТЬ» (план agent-trial-08, Р1; T-20261109-27): комнаты «ждут проверки размера» (масштаб не подтверждён / размер не сошёлся) — агент
 // с ключом правки `k` в адресе снимает проверку: POST `/api/trial/<id>/rebuild` (единственная ручка, которую пускает песочница тура) →
@@ -1859,6 +1877,8 @@ async function trPollGo(){
 // сервер отвечает `stale`, ничего не пишет. Покупатель (без ключа) видит только пометки, кнопок нет. Состояние нажатия — в sessionStorage
 // вкладки: «не получилось» показываем только тому, кто нажимал, а не каждому, кто откроет страницу потом
 const TRB={state:'idle', want:null, err:'', base:0};
+// правка комнаты карандашом на плане (T-20261110-36; ниже `trEditOpen`): run — пересборка комнаты идёт, fail — не легла (текст по коду)
+const TRE={state:'idle', err:''};
 const trKey=()=>TRIAL()?((location.search.match(/[?&]k=([A-Za-z0-9_-]{22})(?:&|$)/)||[])[1]||''):'';
 const trJobId=()=>(location.pathname.match(/\/try\/([A-Za-z0-9_-]{22})\/tour\//)||[])[1]||'';
 const TRB_KEY='tr-rebuild';
@@ -1871,7 +1891,7 @@ function trAwaiting(){ if(!TRIAL())return [];
 function trRebuilding(id){ return TRB.state==='run'&&(TRB.want==='*'||(Array.isArray(TRB.want)&&TRB.want.indexOf(id)>=0)); }
 // кнопки «Обустроить» / «Обустроить всё» (шапка, пометка под планом, план, карточка): у агента с ключом и не во время пересборки —
 // пока она идёт, второе нажатие всё равно гасится, видимая кнопка только путает (T-20261109-31)
-function trCanFurnish(){ return !!trKey()&&TRB.state!=='run'&&!trListingBusy(); }   // и не пока применяются размеры агента (Р2-текст)
+function trCanFurnish(){ return !!trKey()&&TRB.state!=='run'&&!trListingBusy()&&TRE.state!=='run'; }   // и не пока применяются размеры агента (Р2-текст) или правка комнаты
 const TRB_TXT={
   stale:['Тур обновился, пока вы смотрели — обновите страницу и нажмите ещё раз','The tour was updated meanwhile — reload the page and try again','reload'],
   nothing_to_furnish:['Эти комнаты уже обустроены — обновите страницу','These rooms are already furnished — reload the page','reload'],
@@ -1885,6 +1905,11 @@ const TRB_TXT={
   _:['Не получилось подобрать мебель — попробуйте ещё раз','Couldn’t pick the furniture — please try again','retry']};
 function trBanner(){
   const EN=TR_EN();
+  if(TRE.state==='run')return `<div class="tr-rb" data-tr-rebuild="edit" role="status"><span class="tr-spin" aria-hidden="true"></span><div>`+
+    `<b>${EN?'Rebuilding the room…':'Пересобираю комнату…'}</b><div class="st">${EN?'Usually under two minutes. The page will refresh by itself.':'Обычно до двух минут. Страница обновится сама.'}</div></div></div>`;
+  if(TRE.state==='fail')return `<div class="tr-rb fail" data-tr-rebuild="edit-fail" data-code="${escHtml(TRE.err||'')}" role="alert"><div>`+
+    `${EN?'Couldn’t rebuild the room — reload the page and try again':'Не получилось пересобрать комнату — обновите страницу и попробуйте ещё раз'}</div>`+
+    `<button class="btn" type="button" data-tr-act="reload">${EN?'Reload':'Обновить'}</button></div>`;
   if(TRB.state==='run')return `<div class="tr-rb" data-tr-rebuild="run" role="status"><span class="tr-spin" aria-hidden="true"></span><div>`+
     `<b>${pendTxt()}</b><div class="st">${EN?'Usually a few minutes. The page will refresh by itself.':'Обычно несколько минут. Страница обновится сама.'}</div></div></div>`;
   if(TRB.state!=='fail')return '';
@@ -1906,7 +1931,7 @@ function trRebuildSeen(j){
 }
 function trReqId(){ const a=new Uint8Array(12); crypto.getRandomValues(a); return Array.from(a,x=>'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'[x&63]).join(''); }
 async function trFurnish(want){
-  const k=trKey(), id=trJobId(); if(!k||!id||TRB.state==='run'||trListingBusy())return;
+  const k=trKey(), id=trJobId(); if(!k||!id||TRB.state==='run'||trListingBusy()||TRE.state==='run')return;
   const rooms=want==='*'?'all':[].concat(want);
   TRB.want=want==='*'?'*':rooms; TRB.state='run'; TRB.err=''; trRedraw();
   let r, j={};
@@ -1928,6 +1953,8 @@ async function trRebuildInit(){
     const v=await (await fetch('version.json?ts='+Date.now(),{cache:'no-store'})).json();
     if(!TRB.base)TRB.base=+v.bundle||0;
     if(trKey()&&v.listing){trListingSeen(v); if(trListingBusy())trialPoll(4000);}   // текст агента (Р2-текст) ждёт или применяется
+    if(trKey()&&v.roomEdit==='applying'){TRE.state='run'; trRedraw(); trialPoll(3000); return;}   // правка комнаты (своя или из другой вкладки) пересобирается
+    if(trKey()&&v.roomEdit==='failed'&&trEditMine()){TRE.state='fail'; TRE.err=v.roomEditError||'_'; trEditMine(false); trRedraw(); return;}
     if(v.rebuild==='queued'||v.rebuild==='running'){TRB.state='run'; TRB.want=(saved&&saved.want)||'*'; trRedraw(); trialPoll(4000); return;}
     if(v.rebuild==='failed'&&saved){trFail(v.rebuildError||'_'); return;}
     trSave(null);
@@ -2011,6 +2038,125 @@ function trListingSeen(j){
 document.addEventListener('click',e=>{
   const b=e.target&&e.target.closest&&e.target.closest('[data-tr-furnish]'); if(!b||!TRIAL())return;
   e.preventDefault(); e.stopPropagation(); trFurnish(b.getAttribute('data-tr-furnish'));
+},true);
+// ПРАВКА КОМНАТЫ (план trial-room-edit-01, поправки владельца 10.11 15:34; T-20261110-36; макет T-31 v2): у агента с ключом `k` у имени
+// комнаты на плане — карандаш (один); окошко: название (типы чипами или своё), ширина × длина (м), площадь (м²) — площадь и размеры
+// связаны пропорционально (у комнаты не прямоугольником площадь ≠ ширина × длина, поэтому от её же площади). «Сохранить» → POST
+// `/api/trial/<id>/room-edit` (третья ручка песочницы тура) → воркер пересобирает 3D и мебель этой комнаты САМ → новая версия данных,
+// страница перезагружается. Порог 10 см и «ничего не изменилось» решает сервер. Правленая комната — «✓ скорректировано» под подписью.
+// Ширина × длина — охват контура по осям листа (`trial.panels[].rooms[].bbox`, см; после правки — `edited`), как считает воркер
+const TRE_PAD='   ';   // место под карандаш/галочку в строке подписи: подбор кегля (`trFitLabel`) меряет строку вместе с ним
+const TRE_KINDS=[['Гостиная','Living room'],['Спальня','Bedroom'],['Кухня','Kitchen'],['Ванная','Bathroom'],['Туалет','WC'],['Коридор','Hallway'],
+  ['Прихожая','Entrance hall'],['Кладовая','Storage']];
+const TRE_PEN=['M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z','m15 5 4 4'], TRE_OK=['M20 6 9 17l-5-5'];
+const TRE_TXT={
+  stale:['Тур обновился, пока вы смотрели — обновите страницу и поправьте ещё раз','The tour was updated meanwhile — reload the page and edit again'],
+  busy:['Тур сейчас обновляется — подождите минуту и сохраните ещё раз','The tour is updating right now — wait a minute and save again'],
+  edit_limit:['На сегодня лимит правок исчерпан — попробуйте завтра','Today’s edit limit is used up — try again tomorrow'],
+  rate_limited:['Слишком часто — подождите минуту и сохраните ещё раз','Too many tries — wait a minute and save again'],
+  forbidden:['Эта ссылка — только для просмотра. Откройте свою ссылку агента','This link is view-only. Open your agent link'],
+  expired:['Срок пробы истёк','This trial has expired'],
+  not_ready:['Тур ещё собирается — подождите минуту','The tour is still being built — wait a minute'],
+  bad_room:['Эту комнату уже нельзя править — обновите страницу','This room can’t be edited any more — reload the page'],
+  name:['Напишите название комнаты','Enter the room name'],
+  dims:['Размеры — от 0,5 до 50 м','Sizes must be between 0.5 and 50 m'],
+  offline:['Нет связи — проверьте интернет и сохраните ещё раз','No connection — check the internet and save again'],
+  _:['Не получилось сохранить — попробуйте ещё раз','Couldn’t save — please try again']};
+const TRE_KEY='tr-room-edit';
+// «правку сохраняли в этой вкладке» — «не получилось» показываем только тому, кто правил (как у «Обустроить»)
+function trEditMine(v){ try{ if(v===undefined)return !!sessionStorage.getItem(TRE_KEY); if(v)sessionStorage.setItem(TRE_KEY,'1'); else sessionStorage.removeItem(TRE_KEY); }catch(e){} return false; }
+const trEditable=()=>TRIAL()&&!!trKey()&&!!trJobId()&&window.__TOUR_VER!=null;
+const trCanEdit=()=>trEditable()&&TRB.state!=='run'&&!trListingBusy()&&TRE.state!=='run';
+// комната страницы → её комната распознавания (панель плана): габариты сейчас (правка или как прочитано), см
+function trPanelRoom(id){
+  for(const p of ((D.trial||{}).panels||[]))for(const r of ((p&&p.rooms)||[]))if(r&&r.id===id&&r.bbox)
+    return {w:+((r.edited||{}).w||r.bbox.w), d:+((r.edited||{}).d||r.bbox.d)};
+  return null;
+}
+const trEdited=id=>!!((trRoom(id)||{}).edited);
+// ответ `version.json` во время правки: упала — текст; закончилась (новая версия или та же) — перезагрузка
+function trEditSeen(j){
+  if(j.roomEdit==='applying')return false;
+  if(j.roomEdit==='failed'){TRE.state='fail'; TRE.err=j.roomEditError||'_'; trEditMine(false); trRedraw(); return true;}
+  trEditMine(false); location.reload(); return true;
+}
+// значки строки подписи на плане: карандаш — в конце строки (кнопка), галочка — в начале; место под них — `TRE_PAD` в тексте
+function trPlanIcon(g,l,x,y,fs){
+  const kind=l.a['data-tr-ic'], s=fs*l.k, wd=trTextEm(l.t,l.a['font-weight'])*s, sz=s*(kind==='pen'?0.95:0.85);
+  const ix=kind==='pen'?x+wd/2-sz-s*0.04:x-wd/2+s*0.04, iy=y-s*0.36-sz/2;
+  const ic=g.appendChild(el('g',{transform:`translate(${ix.toFixed(3)} ${iy.toFixed(3)}) scale(${(sz/24).toFixed(5)})`,'data-tr-icon':kind}));
+  if(kind==='pen'){ic.setAttribute('data-tr-pen',l.a['data-tr-room']); ic.setAttribute('role','button'); ic.setAttribute('tabindex','0');
+    ic.setAttribute('aria-label',TR_EN()?'Edit the name and size':'Изменить название и размеры'); ic.style.cursor='pointer';
+    ic.appendChild(el('rect',{x:-10,y:-10,width:44,height:44,fill:'transparent'}));}   // зона нажатия шире значка
+  (kind==='pen'?TRE_PEN:TRE_OK).forEach(d=>ic.appendChild(el('path',{d,fill:'none',stroke:kind==='pen'?'#78716C':'#2F7D4F',
+    'stroke-width':kind==='pen'?2.1:3,'stroke-linecap':'round','stroke-linejoin':'round'})));
+}
+const trNum=v=>{const x=parseFloat(String(v||'').replace(',','.').replace(/\s/g,'')); return isFinite(x)?x:0;};
+const trFmt=(v,n)=>{const t=String(Math.round(v*Math.pow(10,n))/Math.pow(10,n)); return TR_EN()?t:t.replace('.',',');};
+function trEditOpen(id){
+  if(!trCanEdit()||document.querySelector('[data-tr-edit]'))return;
+  const pr=trPanelRoom(id); if(!pr)return;
+  const EN=TR_EN(), ar=trRoom(id)||{}, hr=homeRooms().find(x=>x.id===id)||{};
+  const title=String(hr.title||(EN?ar.titleEn:ar.titleRu)||ar.titleRu||'');
+  const W0=pr.w/100, L0=pr.d/100, A0=+ar.areaM2||+hr.areaM2||W0*L0, rid=trReqId();
+  const T=(ru,en)=>EN?en:ru, base=title.replace(/\s*\d+$/,'');
+  const bk=document.createElement('div'); bk.className='tr-ed-back'; bk.setAttribute('data-tr-edit',id);
+  bk.innerHTML=`<div class="tr-ed" role="dialog" aria-modal="true" aria-labelledby="tr-ed-h"><h3 id="tr-ed-h">${escHtml(title||T('Комната','Room'))}</h3>`+
+    `<label for="tr-ed-n">${T('Название','Name')}</label><input id="tr-ed-n" maxlength="60" autocomplete="off" value="${escHtml(title)}" placeholder="${T('Например, кабинет','e.g. study')}">`+
+    `<div class="tr-ed-kinds">${TRE_KINDS.map(k=>`<button type="button" class="chip${base===k[0]||base===k[1]?' on':''}">${EN?k[1]:k[0]}</button>`).join('')}</div>`+
+    `<label for="tr-ed-w">${T('Ширина × длина, м','Width × length, m')}</label><div class="tr-ed-row"><input id="tr-ed-w" inputmode="decimal" value="${trFmt(W0,2)}">`+
+    `<span>×</span><input id="tr-ed-l" inputmode="decimal" aria-label="${T('Длина, м','Length, m')}" value="${trFmt(L0,2)}"></div>`+
+    `<label for="tr-ed-a">${T('Площадь, м²','Area, m²')}</label><input id="tr-ed-a" inputmode="decimal" value="${trFmt(A0,1)}">`+
+    `<p class="tr-ed-hint">${T('3D и мебель этой комнаты пересоберутся сами — обычно до двух минут','The 3D and furniture of this room will rebuild by themselves — usually under two minutes')}</p>`+
+    `<p class="tr-ed-err" role="alert" hidden></p>`+
+    `<div class="tr-ed-acts"><button type="button" class="btn ghost" data-tr-ed="cancel">${T('Отмена','Cancel')}</button>`+
+    `<button type="button" class="btn cta" data-tr-ed="save">${T('Сохранить','Save')}</button></div></div>`;
+  document.body.appendChild(bk);
+  const q=s=>bk.querySelector(s), N=q('#tr-ed-n'), Wi=q('#tr-ed-w'), Li=q('#tr-ed-l'), Ai=q('#tr-ed-a'), err=q('.tr-ed-err'), sv=q('[data-tr-ed=save]');
+  const chips=[...bk.querySelectorAll('.tr-ed-kinds .chip')];
+  const say=c=>{err.hidden=!c; err.textContent=c?(TRE_TXT[c]||TRE_TXT._)[EN?1:0]:'';};
+  // площадь ↔ размеры: площадь комнаты — от её контура, поэтому пропорция от исходной (A0 при W0 × L0), а не произведение
+  const areaOf=(w,l)=>A0*(w/W0)*(l/L0);
+  Ai.oninput=()=>{const a=trNum(Ai.value), w=trNum(Wi.value), l=trNum(Li.value); say(''); if(!(a>0&&w>0&&l>0))return;
+    const k=Math.sqrt(a/areaOf(w,l)); Wi.value=trFmt(w*k,2); Li.value=trFmt(l*k,2);};
+  Wi.oninput=Li.oninput=()=>{const w=trNum(Wi.value), l=trNum(Li.value); say(''); if(w>0&&l>0)Ai.value=trFmt(areaOf(w,l),1);};
+  N.oninput=()=>{say(''); chips.forEach(c=>c.classList.toggle('on',c.textContent===N.value.trim()));};
+  chips.forEach(c=>c.onclick=()=>{N.value=c.textContent; chips.forEach(x=>x.classList.toggle('on',x===c)); say('');});
+  const close=()=>{bk.remove(); document.removeEventListener('keydown',esc,true);};
+  const esc=e=>{if(e.key==='Escape'&&!sv.disabled){e.stopPropagation(); close();}};
+  document.addEventListener('keydown',esc,true);
+  bk.onclick=e=>{if(e.target===bk&&!sv.disabled)close();};
+  ['click','pointerdown','keydown'].forEach(n=>q('.tr-ed').addEventListener(n,e=>e.stopPropagation()));   // клик в окошке — не клик по странице
+  q('[data-tr-ed=cancel]').onclick=()=>{if(!sv.disabled)close();};
+  sv.onclick=async()=>{
+    const name=N.value.trim(), w=trNum(Wi.value), l=trNum(Li.value);
+    if(!name)return say('name');
+    if(!(w>=0.5&&w<=50&&l>=0.5&&l<=50))return say('dims');
+    sv.disabled=true; sv.textContent=T('Сохраняю…','Saving…'); say('');
+    let r, j={};
+    try{
+      if(!TRB.base){const v=await (await fetch('version.json?ts='+Date.now(),{cache:'no-store'})).json(); TRB.base=+v.bundle||0;}
+      r=await fetch('/api/trial/'+trJobId()+'/room-edit',{method:'POST',headers:{'content-type':'application/json'},cache:'no-store',
+        body:JSON.stringify({k:trKey(), request_id:rid, base_version:TRB.base||1, room:id, name, w_cm:Math.round(w*100), d_cm:Math.round(l*100)})});
+      try{j=await r.json();}catch(e){}
+    }catch(e){ r=null; }
+    sv.disabled=false; sv.textContent=T('Сохранить','Save');
+    if(!r)return say('offline');                                      // тот же request_id при повторе — второй работы не будет
+    if(r.status===200&&j.unchanged){close(); return;}                 // меньше 10 см и то же имя — менять нечего
+    if(r.status===202||(r.status===200&&j.ok)){close(); TRE.state='run'; TRE.err=''; trEditMine(true); trRedraw(); trialPoll(1500); return;}
+    say(j.error||'_');
+  };
+  setTimeout(()=>{try{N.focus({preventScroll:true});}catch(e){}},0);
+  return bk;
+}
+// карандаш на плане — раньше клика по комнате (тот открыл бы её обстановку)
+document.addEventListener('click',e=>{
+  const b=e.target&&e.target.closest&&e.target.closest('[data-tr-pen]'); if(!b||!TRIAL())return;
+  e.preventDefault(); e.stopPropagation(); trEditOpen(b.getAttribute('data-tr-pen'));
+},true);
+document.addEventListener('keydown',e=>{
+  const b=(e.key==='Enter'||e.key===' ')&&e.target&&e.target.closest&&e.target.closest('[data-tr-pen]'); if(!b||!TRIAL())return;
+  e.preventDefault(); e.stopPropagation(); trEditOpen(b.getAttribute('data-tr-pen'));
 },true);
 const stage=document.getElementById('stage'), NS='http://www.w3.org/2000/svg';
 const el=(t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);return n;};
@@ -2548,6 +2694,7 @@ function flatPlan(){
   document.getElementById('flatTitle').textContent=flatTitle();
   const box=document.getElementById('flatRooms');box.innerHTML='';
   if(!R.length){box.innerHTML=`<div class="hint">${LANG==='en'?'The floor plan is not loaded.':'План не загружен.'}</div>`;return;}
+  if(TRIAL()&&TRE.state!=='idle')box.insertAdjacentHTML('beforeend',trBanner());   // правка комнаты: «пересобираю» / «не получилось» — и над планом, где правили
   const LB=P.labels||[];                              // подписи этажей (план пробы из этажей распознавания, `trialPlanFromPanels`)
   const xs=R.flatMap(r=>[r.x,r.x+r.w]).concat((P.contour||[]).map(p=>p[0]));
   const ys=R.flatMap(r=>[r.y,r.y+r.d]).concat((P.contour||[]).map(p=>p[1]),LB.map(l=>l.y-0.45));
@@ -2603,9 +2750,13 @@ function flatPlan(){
         :aw?{t:awaitShort(),k:0.85,a:{fill:'#96601F','data-outcome':'awaiting'}}:pend?{t:pendTxt(),k:0.85,a:{fill:'#5C655E'}}:none?{t:varNoneShort(allVariants()[rv.index]),k:0.85,a:{fill:'#8A4A1F','data-refused':'1'}}:go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}
         :o==='pending'?{t:pendTxt(),k:0.85,a:{fill:'#5C655E','data-outcome':o}}:o&&TR_NONE.test(o)?{t:outcomeTxt(br.id,true),k:0.85,a:{fill:o==='not_furnished'?'#9AA098':'#8A4A1F','data-outcome':o}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
     }
+    // проба, агент с ключом: карандаш у имени (правка комнаты, T-20261110-36); правленая — «✓ скорректировано» под площадью
+    if(TRIAL()&&br&&trCanEdit()&&trPanelRoom(br.id)){L[0].t+=TRE_PAD; L[0].a=Object.assign({},L[0].a,{'data-tr-ic':'pen','data-tr-room':br.id});}
+    if(TRIAL()&&br&&trEditable()&&trEdited(br.id))L.splice(f?1:2,0,{t:TRE_PAD+(TR_EN()?'adjusted':'скорректировано'),k:0.75,a:{fill:'#2F7D4F','font-weight':'600','data-tr-ic':'ok'}});
     if(TRLB){const z=trFitLabel(TRLB[r.id],L,r); if(z){fs=z.fs; cx=z.cx; cy=z.cy; L.length=z.n;}}   // проба: подпись целиком в стенах
     const LH=fs*1.2; let y=cy-LH*(L.length-1)/2+fs*0.35;
-    L.forEach(l=>{el('text',Object.assign({x:cx,y,'text-anchor':'middle','font-size':fs*l.k},l.a),g).textContent=l.t; y+=LH;});
+    L.forEach(l=>{el('text',Object.assign({x:cx,y,'text-anchor':'middle','font-size':fs*l.k},l.a),g).textContent=l.t;
+      if(l.a&&l.a['data-tr-ic'])trPlanIcon(g,l,cx,y,fs); y+=LH;});
     if(pend){const sr=fs*0.42, sx=r.x+r.w-sr*2, sy=r.y+sr*2;   // крутилка в углу комнаты на плане
       const c=el('circle',{cx:sx,cy:sy,r:sr,fill:'none',stroke:'#C7652B','stroke-width':sr*0.3,'stroke-linecap':'round','stroke-dasharray':`${sr*4} ${sr*2.3}`,'data-pending':'1'},g);
       el('animateTransform',{attributeName:'transform',type:'rotate',from:`0 ${sx} ${sy}`,to:`360 ${sx} ${sy}`,dur:'1.1s',repeatCount:'indefinite'},c);}

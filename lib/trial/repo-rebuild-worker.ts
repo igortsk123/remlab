@@ -5,7 +5,7 @@
 // новой версии. Приоритет над новыми загрузками — с квотой (`rebuildFirst`).
 
 import { sql, type SQL } from "drizzle-orm";
-import type { TrialRebuildClaimed, TrialRebuildFailIn, TrialRebuildLease } from "@/contracts/trial";
+import type { TrialRebuildClaimed, TrialRebuildFailIn, TrialRebuildLease, TrialRoomEdit } from "@/contracts/trial";
 import { db } from "@/lib/db";
 import { randomToken } from "@/lib/token";
 import { pruneBundles, writeBundle } from "@/lib/trial/bundle";
@@ -40,22 +40,36 @@ export async function rebuildFirst(env = process.env): Promise<boolean> {
 
 type ClaimRow = {
   id: string; job_id: string; attempt: number; lease_token: string; lease_until: string; rooms: unknown; base_version: number;
-  kind: "furnish" | "listing"; listing_text: string | null;
+  kind: "furnish" | "listing" | "edit"; listing_text: string | null;
 };
+type EditRow = { panel: string; src_id: string; anchor: unknown; name: string; kind: string; w_cm: number | null; d_cm: number | null; built: boolean };
+/** Что умеет воркер: `listing` — пересборки по тексту агента (Р2-текст), `edit` — правки комнат (T-20261110-36). `true` — старая форма: listing. */
+export type RebuildSkills = boolean | { listing?: boolean; edit?: boolean };
+
+/** Правки комнат задания — воркеру, который их умеет: он накладывает их на копию `result` перед любой сборкой. */
+async function editsOf(jobId: string): Promise<TrialRoomEdit[]> {
+  const got = await rows<EditRow>(sql`select panel, src_id, anchor, name, kind, w_cm, d_cm, built from trial_room_edits
+    where job_id = ${jobId} order by created_at, room_key`);
+  return got.map((e) => ({ panel: e.panel, srcId: e.src_id, anchor: jsonOf<{ x: number; y: number }>(e.anchor), name: e.name, kind: e.kind,
+    wCm: e.w_cm, dCm: e.d_cm, built: e.built }));
+}
 
 /** Одна пересборка под аренду — скалярным подзапросом, как `repo-worker.ts:claim` (почему не `from (…) c` — там).
- *  `listing` — воркер умеет пересборки по тексту агента (Р2-текст); старый воркер их не получает. У `listing` база версии при claim —
- *  ТЕКУЩАЯ версия данных (поколение после `done`): текст приняли на v1, задание дошло до v3 — это не «устарело». */
-export async function claimRebuild(workerId: string, listing = false): Promise<TrialRebuildClaimed | null> {
+ *  Старый воркер пересборок по тексту и правок не получает. У `listing` и `edit` база версии при claim — ТЕКУЩАЯ версия данных
+ *  (поколение после `done`): текст приняли на v1, задание дошло до v3 — это не «устарело». */
+export async function claimRebuild(workerId: string, skills: RebuildSkills = false): Promise<TrialRebuildClaimed | null> {
+  const listing = skills === true || (typeof skills === "object" && skills.listing === true);
+  const edit = typeof skills === "object" && skills.edit === true;
   await exhaustRebuilds();
   const token = randomToken(24);
   const [r] = await rows<ClaimRow>(sql`update trial_rebuilds r set status = 'running', attempt = r.attempt + 1, lease_token = ${token},
       lease_until = now() + make_interval(secs => ${TRIAL_LEASE_SEC}::int), worker_id = ${workerId}, heartbeat_at = now(),
       started_at = coalesce(r.started_at, now()),
-      base_version = case when r.kind = 'listing' then (select j.bundle_version from trial_jobs j where j.id = r.job_id) else r.base_version end
+      base_version = case when r.kind in ('listing', 'edit') then (select j.bundle_version from trial_jobs j where j.id = r.job_id)
+        else r.base_version end
     where r.id = (select x.id from trial_rebuilds x join trial_jobs j on j.id = x.job_id
       where (x.status = 'queued' or (x.status = 'running' and x.lease_until < now())) and x.attempt < x.max_attempts and j.status = 'done'
-        and (x.kind = 'furnish' or ${listing})
+        and (x.kind = 'furnish' or (x.kind = 'listing' and ${listing}) or (x.kind = 'edit' and ${edit}))
       order by x.created_at, x.id for update of x skip locked limit 1)
     returning r.id, r.job_id, r.attempt, r.lease_token, ${iso(sql`r.lease_until`)} as lease_until, r.rooms, r.base_version, r.kind,
       r.listing_text`);
@@ -66,6 +80,7 @@ export async function claimRebuild(workerId: string, listing = false): Promise<T
     id: r.id, jobId: r.job_id, attempt: r.attempt, leaseToken: r.lease_token, leaseUntil: r.lease_until,
     rooms: union(j?.released_rooms, r.rooms), baseVersion: r.base_version, result: j ? jsonOf(j.result) : null, kind: r.kind,
     ...(r.kind === "listing" ? { listingText: r.listing_text ?? "", inputMime: j?.input_mime ?? "" } : {}),
+    ...(edit ? { edits: await editsOf(r.job_id) } : {}),
   };
 }
 
@@ -120,6 +135,8 @@ export async function publishRebuild(
         ${result ? sql`, result = ${result.json}::jsonb, result_hash = ${result.hash}` : sql``} where id = ${cur.job_id}`);
     await tx.execute(sql`update trial_rebuilds set status = 'done', bundle_hash = ${hash}, result_version = ${next}, ${doneSet}
         where id = ${f.id}`);
+    // правки комнат вошли в версию (воркер наложил все, что получил при claim; пока пересборка идёт, новых не принимают — `busy`)
+    await tx.execute(sql`update trial_room_edits set built = true where job_id = ${cur.job_id} and not built`);
     return { version: next, repeated: same };
   });
   if (out === "lease_lost" || out === "stale" || out === "result_unexpected") return out;
