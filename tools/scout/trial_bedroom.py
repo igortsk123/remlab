@@ -96,12 +96,32 @@ def _norm(key: str, default: float) -> float:
     return num(key, default)
 
 
-def bed_need(sleep_w: float, purpose: str) -> tuple[float, float]:
+def bed_need(sleep_w: float, purpose: str, length: float | None = None) -> tuple[float, float]:
     """Наименьшая площадка под кровать шаблона по нормам солвера: поперёк — спальное место (нижняя граница рамы) + проход сбоку
-    `bed_side_passage` (паре — с двух сторон, Н1), вдоль — `BED_LEN_MIN_CM` + проход у изножья `bed_foot_min`. Необходимое условие, не
-    достаточное: двери, окна и тумбы решает солвер."""
+    `bed_side_passage` (паре — с двух сторон, Н1), вдоль — длина рамы (`length`: самая короткая реальная рама ширины шаблона —
+    `frames_len`; нет — `BED_LEN_MIN_CM`) + проход у изножья `bed_foot_min`. Необходимое условие, не достаточное: двери, окна и тумбы
+    решает солвер."""
     side, foot = _norm('bed_side_passage', 75), _norm('bed_foot_min', 60)
-    return float(sleep_w) + side * (2 if purpose == 'couple' else 1), BED_LEN_MIN_CM + foot
+    return float(sleep_w) + side * (2 if purpose == 'couple' else 1), (length or BED_LEN_MIN_CM) + foot
+
+
+def _frame_d(it: dict) -> float:
+    """Длина рамы кровати (`d`), неизвестна — `BED_LEN_MIN_CM`."""
+    v = it.get('d')
+    return float(v) if isinstance(v, (int, float)) and v > 0 else BED_LEN_MIN_CM
+
+
+def frames_len(beds: list) -> float | None:
+    """Самая короткая реальная рама среди кроватей ширины шаблона (T-20261110-20: у рам 120 каталога длина 210–226, а не 195) — длина
+    для `bed_need`; кроватей нет — None (запасная `BED_LEN_MIN_CM`)."""
+    return min((_frame_d(b) for b in beds), default=None)
+
+
+def frame_need(it: dict, purpose: str) -> tuple[float, float]:
+    """Площадка под РАМУ конкретной кровати: ширина рамы + проход сбоку (паре — с двух), длина рамы + проход у изножья. Рама шире
+    `bed_frame_max` ядра — заведомо не встанет (T-20261110-20: в ядре 205 Кевия 150 и Сейлор 153 занимали оба места шаблона)."""
+    side, foot = _norm('bed_side_passage', 75), _norm('bed_foot_min', 60)
+    return float(it.get('w') or 0) + side * (2 if purpose == 'couple' else 1), _frame_d(it) + foot
 
 
 def fits_core(need: tuple, cand: dict) -> bool:
@@ -450,8 +470,9 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
     """Стиль в спальне по ПРАВИЛУ ШАБЛОНОВ (владелец 09.11, TG 478/480): шаблоны по порядку (`templates`) → под шаблон подбираются
     товары стиля (кровать его ширины с готовой моделью, тумба; запас — соседние стили) → товаров нет или не встали ни на одном ядре —
     следующий шаблон. Первый выполненный шаблон — вариант; ни одного — (None, {style, code, templates}) с причиной по каждому шаблону:
-    `too_small` (ни одно ядро меньше нормы кровати шаблона — `bed_need`, товары не смотрим) / `no_bed` / `no_nightstand` (товаров нет) /
-    `no_fit` (не встали) / `budget` (не дошли). Код стиля: что-то не встало — `bed_no_fit`; все шаблоны больше комнаты — `room_too_small`;
+    `too_small` (ни одно ядро меньше нормы кровати шаблона — `bed_need`; длина — по самой короткой готовой раме ширины, `frames_len`) /
+    `no_bed` / `frame_too_wide` (кровати ширины есть, но рама с проходами не встаёт ни на одно ядро — `frame_need`; отсев ДО среза
+    `BEDS_PER_TEMPLATE`, T-20261110-20) / `no_nightstand` (товаров нет) / `no_fit` (не встали) / `budget` (не дошли). Код стиля: что-то не встало — `bed_no_fit`; все шаблоны больше комнаты — `room_too_small`;
     иначе — `no_products` (подходящих по размеру товаров нет). Шкаф и комод — по месту (`kit_ladder`)."""
     cores = ad['candidates'][:MAX_CORES]
     area = max(c['area_m2'] for c in cores)
@@ -466,9 +487,18 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
             continue
         pool = bed_pool(style, ctx['bank'], ctx['catalog'], ctx['mesh_ok'], ctx['defect'], ctx['thr'], tpl['sleep_w'], used,
                         ad.get('room_used', set()))
-        beds =[b for b in pool if bed_width_bucket(_sleep_w(b)) == tpl['sleep_w']][:BEDS_PER_TEMPLATE]
+        width_beds = [b for b in pool if bed_width_bucket(_sleep_w(b)) == tpl['sleep_w']]
+        # длина предпроверки — по самой короткой реальной раме этой ширины (запасная BED_LEN_MIN_CM): заведомо малые ядра — не решателю
+        need = bed_need(tpl['sleep_w'], tpl['purpose'], frames_len(width_beds))
+        if width_beds and not any(fits_core(need, c) for c in cores):
+            log.append({'template': tpl['id'], 'why': 'too_small'})
+            continue
+        # рама шире ядра (с проходами) — до среза BEDS_PER_TEMPLATE, иначе широкие занимают оба места; среди годных порядок прежний
+        beds = [b for b in width_beds if any(fits_core(need, c) and fits_core(frame_need(b, tpl['purpose']), c) for c in cores)]
+        beds = beds[:BEDS_PER_TEMPLATE]
         if not beds or not stand:
-            log.append({'template': tpl['id'], 'why': 'no_bed' if not beds else 'no_nightstand'})
+            why = 'no_bed' if not width_beds else ('frame_too_wide' if not beds else 'no_nightstand')
+            log.append({'template': tpl['id'], 'why': why})
             continue
         why = 'no_fit'
         for ci, cand in enumerate(cores):
@@ -477,6 +507,8 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
             if not fits_core(need, cand):
                 continue
             for bed in beds:
+                if not fits_core(frame_need(bed, tpl['purpose']), cand):     # рама не на это ядро — на другом из списка
+                    continue
                 if time.time() > deadline:
                     why = 'budget'
                     break

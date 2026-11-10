@@ -469,3 +469,56 @@ def test_gate_asked_with_scene_model():
     c['mesh_ok'] = mesh_ok
     job = TB.build('t20', plan(sizes=((420, 380),)), c)
     assert asked and job['rooms'][0]['outcome']['state'] == 'furnished'
+
+
+# ───── рама до среза и длина по реальным рамам (T-20261110-20; разбор T-18: Bedroom 3 5,8 м², ядро 205×370) ─────
+
+def bank_120(order=('kevia', 'seilor', 'vilena'), d=None):
+    frames = {'kevia': (150, 226), 'seilor': (153, 210), 'vilena': (126, 210)}
+    out = []
+    for i, st in enumerate(TB.STYLES):
+        bs = [item(f'{k}{i}', frames[k][0], d or frames[k][1], 92, sleep=120, name=f'Кровать {k} {i} особенная') for k in order]
+        r = rec(st, bs[0], item(f's{i}', 45, 40, 50), item(f'w{i}', 100, 60, 200))
+        r['alternates'] = {'кровать': bs[1:]}
+        out.append(r)
+    return out
+
+
+NARROW_OPS = [door([205, 110]), window([102, 0])]
+
+
+def test_narrow_core_frame_filtered_before_cut():
+    # первыми в банке — широкие Кевия 150 и Сейлор 153: раньше они занимали оба места шаблона (BEDS_PER_TEMPLATE) → no_fit; теперь
+    # их рама с проходом (150 + 75 > 205) отсеяна до среза — встаёт Вилена 126
+    r = TB.build('t30', one_room(205, 370, NARROW_OPS), ctx(bank_120()))['rooms'][0]
+    assert r['outcome']['state'] == 'furnished', (r['outcome'], r['style_failures'][:1])
+    assert {b['sku']['w'] for b in beds(r)} == {126}
+    assert r['bed_frame_max_cm'] == 130
+
+
+def test_narrow_core_only_wide_frames_honest_no_products():
+    r = TB.build('t31', one_room(205, 370, NARROW_OPS), ctx(bank_120(('kevia', 'seilor'))))['rooms'][0]
+    assert r['variants'] == [] and r['outcome']['state'] == 'no_products' and r['outcome']['code'] == 'no_products'
+    for f in r['style_failures']:
+        why = {t['template']: t['why'] for t in f['templates']}
+        assert why['guest-120'] == why['single-120'] == 'frame_too_wide'
+
+
+def test_wide_core_order_unchanged():
+    # ядро ≥ 280: все рамы проходят — первая по порядку банка (Кевия), как до правки
+    r = TB.build('t32', one_room(300, 400, [door([300, 110]), window([150, 0])]), ctx(bank_120()))['rooms'][0]
+    assert r['outcome']['state'] == 'furnished'
+    assert {b['sku']['w'] for b in beds(r)} == {150}
+
+
+def test_template_length_from_real_frames():
+    # ядро 210×275: по запасной длине 195 + 60 = 255 «влезает», но самая короткая готовая рама 120 — 226 (226 + 60 > 275) —
+    # шаблон честно «мал» (too_small), решатель не тратится
+    need_old = TB.bed_need(120, 'single')
+    assert need_old[1] == TB.BED_LEN_MIN_CM + 60 and TB.bed_need(120, 'single', 226)[1] == 286
+    assert TB.frames_len([]) is None and TB.frames_len([{'d': 226}, {'d': 210}, {'d': None}]) == TB.BED_LEN_MIN_CM
+    r = TB.build('t33', one_room(210, 275, [door([210, 110]), window([105, 0])]), ctx(bank_120(('vilena',), d=226)))['rooms'][0]
+    assert r['variants'] == []
+    for f in r['style_failures']:
+        why = {t['template']: t['why'] for t in f['templates']}
+        assert why['guest-120'] == why['single-120'] == 'too_small'

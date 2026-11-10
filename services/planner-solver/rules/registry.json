@@ -752,7 +752,7 @@
   },
   {
    "id": "BED_HEAD_WINDOW",
-   "вид": "hard",
+   "вид": "soft",
    "стадия": "спальня",
    "сообщение": "изголовье «{b.role}» под окном",
    "где": "planner/bedroom_checks.py"
