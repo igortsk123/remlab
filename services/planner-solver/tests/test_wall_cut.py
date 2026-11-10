@@ -35,34 +35,40 @@ def test_cut_silhouette_on_every_wall():
         w, d = c['room']['w'], c['room']['d']
         irs = [{'wall': o['wall'], 'ir': {'kind': o['kind'], 'cut': o['cut']}} for o in c['openings']]
         room = Room(width_cm=w, depth_cm=d, openings_ir=irs)
-        wall = c['openings'][0]['wall']
-        walls.add(wall)
-        tgt = _wall_point(w, d, wall, (w if wall in ('north', 'south') else d) / 2, 140.0)
-        opp = {'south': (w / 2, 140.0, d - 20), 'north': (w / 2, 140.0, 20.0), 'west': (w - 20, 140.0, d / 2),
-               'east': (20.0, 140.0, d / 2)}[wall]
-        cam = Camera(name='t', eye=opp, target=tgt, fov_deg=90)
-        sc = compile_scene(room, [], cam)
-        for o in c['openings']:
-            cut = o['cut']
-            top = min(cut['top'], 270.0)
-            corners = np.array([_wall_point(w, d, wall, u, v) for u in (cut['u0'], cut['u1'])
-                                for v in (cut['bottom'], top)], float)
-            u, v, _ = _project(cam, corners)
-            sem_id = SEMANTIC['window' if o['kind'] in ('window', 'balcony') else 'door']
-            # маска своего проёма — внутри его проекции (на стене два проёма разных видов или далеко друг от друга)
-            x0, x1, y0, y1 = int(np.floor(u.min())), int(np.ceil(u.max())), int(np.floor(v.min())), int(np.ceil(v.max()))
-            sub = sc['semantic'][max(0, y0 - 3):y1 + 3, max(0, x0 - 3):x1 + 3] == sem_id
-            ys, xs = np.nonzero(sub)
-            assert len(xs), f"{c['name']}: проём {o['kind']} не вырезан"
-            got = (xs.min() + max(0, x0 - 3), xs.max() + max(0, x0 - 3), ys.min() + max(0, y0 - 3), ys.max() + max(0, y0 - 3))
-            want = (u.min(), u.max(), v.min(), v.max())
-            for g, wv, name in zip(got, want, ('лево', 'право', 'верх', 'низ')):
-                assert abs(g - wv) <= 1.5, f"{c['name']} {o['kind']}: край «{name}» {g} против {wv:.1f}"
-            # за проёмом — дальше стены: рама и стекло из описания встанут перед этой плоскостью
-            cy, cx = int((v.min() + v.max()) / 2), int((u.min() + u.max()) / 2)
-            dist = float(np.dot(np.array(tgt) - np.array(opp), cam.basis()[1]))
-            assert sc['depth'][cy, cx] > dist + 5, f"{c['name']} {o['kind']}: за вырезом стена"
+        # камера — на каждую стену с проёмами: в комнате с плана проёмы бывают на разных стенах (окно south,
+        # дверь north — «double», T-20261110-16/4); проём на другой стене оказался бы за камерой
+        for wall in dict.fromkeys(o['wall'] for o in c['openings']):
+            walls.add(wall)
+            _check_wall(c, room, w, d, wall)
     assert walls == {'south', 'north', 'west', 'east'}
+
+
+def _check_wall(c, room, w, d, wall):
+    tgt = _wall_point(w, d, wall, (w if wall in ('north', 'south') else d) / 2, 140.0)
+    opp = {'south': (w / 2, 140.0, d - 20), 'north': (w / 2, 140.0, 20.0), 'west': (w - 20, 140.0, d / 2),
+           'east': (20.0, 140.0, d / 2)}[wall]
+    cam = Camera(name='t', eye=opp, target=tgt, fov_deg=90)
+    sc = compile_scene(room, [], cam)
+    for o in (o for o in c['openings'] if o['wall'] == wall):
+        cut = o['cut']
+        top = min(cut['top'], 270.0)
+        corners = np.array([_wall_point(w, d, wall, u, v) for u in (cut['u0'], cut['u1'])
+                            for v in (cut['bottom'], top)], float)
+        u, v, _ = _project(cam, corners)
+        sem_id = SEMANTIC['window' if o['kind'] in ('window', 'balcony') else 'door']
+        # маска своего проёма — внутри его проекции (на стене два проёма разных видов или далеко друг от друга)
+        x0, x1, y0, y1 = int(np.floor(u.min())), int(np.ceil(u.max())), int(np.floor(v.min())), int(np.ceil(v.max()))
+        sub = sc['semantic'][max(0, y0 - 3):y1 + 3, max(0, x0 - 3):x1 + 3] == sem_id
+        ys, xs = np.nonzero(sub)
+        assert len(xs), f"{c['name']}: проём {o['kind']} не вырезан"
+        got = (xs.min() + max(0, x0 - 3), xs.max() + max(0, x0 - 3), ys.min() + max(0, y0 - 3), ys.max() + max(0, y0 - 3))
+        want = (u.min(), u.max(), v.min(), v.max())
+        for g, wv, name in zip(got, want, ('лево', 'право', 'верх', 'низ')):
+            assert abs(g - wv) <= 1.5, f"{c['name']} {o['kind']}: край «{name}» {g} против {wv:.1f}"
+        # за проёмом — дальше стены: рама и стекло из описания встанут перед этой плоскостью
+        cy, cx = int((v.min() + v.max()) / 2), int((u.min() + u.max()) / 2)
+        dist = float(np.dot(np.array(tgt) - np.array(opp), cam.basis()[1]))
+        assert sc['depth'][cy, cx] > dist + 5, f"{c['name']} {o['kind']}: за вырезом стена"
 
 
 def test_no_ir_wall_stays_whole():
