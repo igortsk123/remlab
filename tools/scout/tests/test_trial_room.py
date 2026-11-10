@@ -276,6 +276,38 @@ def test_door_in_niche_without_passage_is_cut():
         == 'opening_cut_by_core'
 
 
+def test_grazing_door_with_other_entry_keeps_core():
+    """T-20261110-14 (Principal Bedroom Berrys): дверь лишь задевает угол ядра (50 см < прохода), но у ядра есть другой полный
+    вход — ядро не отбрасываем: дверь обрезана до общей части (флаги `entry_via_niche` + `grazing`), створка не шире её,
+    остаток-ниша у двери — проход (решатель держит стык свободным), полная дверь — в `post_check` по полному контуру."""
+    ad = TR.adapt(result([room('r1', 'living', NICHE)], [op('door', (90, 0), 120), op('door', (300, 400), 90),
+                                                         op('window', (500, 250), 120, True)]))
+    c = ad['candidates'][0]
+    assert c['rect'] == [100, 0, 500, 400] and not c['reasons'] and 'entry_via_niche' in c['flags']
+    g = [x for x in c['openings'] if x.get('grazing')]
+    assert len(g) == 1 and g[0]['width_cm'] == 50 and g[0]['offset_cm'] == 0
+    assert [r['kind'] for r in c['residues']] == ['tail']          # ниша 100×150 — хвост: стык с ним решатель держит свободным
+    sd = [o for o in TR.solver_openings(c, TR.rules()) if o['kind'] == 'door']
+    assert sorted(o.get('_junction', '') for o in sd) == ['', '', 'tail']
+    assert [o['swing_cm'] for o in sd if o['width_cm'] == 50 and not o.get('_junction')] == [50]
+    assert TR.post_check(ad, c, [])['ok']
+    blocked = TR.post_check(ad, c, [place('комод', 30, 30, 60, 40)])     # у стены под дверью (кадр ядра: x 0 = край ниши)
+    assert 'door_passage_blocked' in {p['code'] for p in blocked['problems']}
+
+
+def test_grazing_door_nook_becomes_passage():
+    """Ниша под задевающей дверью мала для хвоста (80×100 < 1 м²) — была бы «закутком» (стык = стена, шкаф отрезал бы дверь);
+    с задевающей дверью она — проход с этой дверью. Без другого входа то же ядро — отказ."""
+    nook = [(0, 0), (480, 0), (480, 400), (80, 400), (80, 100), (0, 100)]
+    ad = TR.adapt(result([room('r1', 'living', nook)], [op('door', (70, 0), 100), op('door', (300, 400), 90),
+                                                         op('window', (480, 250), 120, True)]))
+    c = ad['candidates'][0]
+    assert c['rect'] == [80, 0, 480, 400] and any(x.get('grazing') and x['width_cm'] == 40 for x in c['openings'])
+    assert [(r['kind'], r['openings']) for r in c['residues']] == [('passage', [0])]
+    assert refusal(result([room('r1', 'living', nook)], [op('door', (70, 0), 100), op('window', (480, 250), 120, True)])) \
+        == 'opening_cut_by_core'
+
+
 def test_niche_entry_needs_floor_in_front():
     """Свисающая часть двери — за углом ядра у стены, не над полом комнаты: не вход через нишу."""
     from shapely.geometry import box

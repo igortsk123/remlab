@@ -5686,12 +5686,23 @@ function roomOn(r){ return r.contentState==='ready'||((D&&D.rooms_enabled)||[]).
 // и не спальня — в списке карточек её нет, на плане остаётся. Правило общее, по данным комнаты, не по номерам
 const HOME_TINY_M2=2.5;
 function homeTiny(r){ return !!(r&&r.noName&&(+r.areaM2||0)<HOME_TINY_M2&&!/^(living|bedroom)/.test(r.kind||'')); }
+// ОБСТАВЛЕННАЯ ПЛИТКА ТУРА — ПЕРВОЙ (T-20261110-14): реестр идёт в порядке чертежа, и первой могла встать комната с отказом («нет
+// товаров» / «нет входа» / «нет места») — тур открывался пустой плиткой. Первая — с отказом, а обставленная есть → первая обставленная
+// встаёт вперёд, остальные — в прежнем порядке; первая обставлена, ждёт проверки или подбирается — порядок как есть. Только тур
+// (реестр `apartment_rooms`); /demo идёт по карточке квартиры
+// TOURFIRST START — чистая функция; тест `tests/unit/trial-tour-order.test.ts`
+function trFurnishedFirst(list, outcomeOf){
+  if(!list.length||!/^(no_products|not_readable|no_space)$/.test(outcomeOf(list[0])||''))return list;
+  const i=list.findIndex(r=>outcomeOf(r)==='furnished');
+  return i>0?[list[i]].concat(list.slice(0,i), list.slice(i+1)):list;
+}
+// TOURFIRST END
 function homeRooms(){
   const EN=LANG==='en', card=FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length?FLAT.rooms:null;
   if(card)return card.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:r.title, areaM2:r.areaM2, contentState:roomOn(r)}));
   const raw=(D&&D.apartment_rooms)||[];
   // `noName` — у комнаты распознавания нет своего названия на чертеже (`name_src` пуст): её подпись — общая «Помещение»
-  if(raw.length)return raw.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:EN?r.titleEn:r.titleRu, areaM2:r.areaM2, contentState:roomOn(r),
+  if(raw.length)return trFurnishedFirst(raw, r=>roomOutcome(r.id)).map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:EN?r.titleEn:r.titleRu, areaM2:r.areaM2, contentState:roomOn(r),
     noName:'name_src' in r&&!r.name_src}));
   // реестр молчит (старая сборка без карточки) — честно только то, что обставлено: гостиная
   return [{id:'living', kind:'living', ordinal:1, title:EN?'Living room':'Гостиная', areaM2:null, contentState:'ready'}];

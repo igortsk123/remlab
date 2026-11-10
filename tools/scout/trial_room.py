@@ -15,7 +15,8 @@
      `zones.route_reserve`), `tail` (хвост комнаты — тоже проход), `nook` (мелочь — стена);
   5. допуск ядра — по проверяемым условиям: внутри контура; обязательная группа (диван + ТВ на дистанции полосы) влезает
      реальными габаритами; ни один проём не разрезан ядром (кроме двери, часть которой над нишей комнаты, если на
-     сторону ядра приходится не меньше прохода, — `entry_via_niche`, такие ядра запасные); есть вход.
+     сторону ядра приходится не меньше прохода, — `entry_via_niche`, такие ядра запасные; меньше прохода — дверь лишь задевает
+     угол ядра: допустимо, только если у ядра есть другой полный вход, T-20261110-14); есть вход.
      `core_share` (70 %) — только диагностика;
   6. `post_check` — после солвера по ПОЛНОМУ контуру: мебель в контуре, дуги дверей с ОБЕИХ сторон свободны (петель в
      контракте нет), вход и все нужные стыки связаны проходом `passage_min_cm` после мебели.
@@ -560,7 +561,7 @@ def core_candidate(P: Polygon, rect, ops: list, need: dict, cfg: dict) -> dict:
         cand['reasons'].append('core_outside')
     parts = [(g, _junctions(g, rect)) for g in _residue_parts(P, rect)]
     parts = [(g, j, _depth(g, rect, j)) for g, j in parts if j]
-    rest_ops = []
+    rest_ops, grazing = [], []
     for o in ops:
         pt = Point(o['c'])
         home = min(parts, key=lambda t: t[0].distance(pt)) if parts else None
@@ -575,6 +576,8 @@ def core_candidate(P: Polygon, rect, ops: list, need: dict, cfg: dict) -> dict:
                 cand['openings'].append(via)
                 if 'entry_via_niche' not in cand['flags']:
                     cand['flags'].append('entry_via_niche')
+            elif (via := _niche_entry(o, rect, P, r, 0.0)):
+                grazing.append(via)                      # дверь задевает угол ядра — решение ниже, когда известны другие входы
             else:
                 cand['reasons'].append(f"opening_cut_by_core:{o['kind']}@{r[1]}")
         else:
@@ -596,6 +599,28 @@ def core_candidate(P: Polygon, rect, ops: list, need: dict, cfg: dict) -> dict:
             kind = 'nook'
         cand['residues'].append({'kind': kind, 'area_m2': round(g.area / 1e4, 2), 'depth_cm': dep,
                                  'junctions': juncs, 'openings': [o['src'] for o in mine], 'poly': g})
+    # ДВЕРЬ ЗАДЕВАЕТ УГОЛ ЯДРА (T-20261110-14, Principal Bedroom Berrys): на сторону ядра приходится меньше прохода, остальное — в нише
+    # комнаты. Входом в ядро она не служит, но и ядро не отбрасывает, если у него есть другой полный вход: ставится на сторону обрезанной
+    # до общей части, как дверь из ниши (флаг `entry_via_niche`); её полную дугу и полосу прохода 76 см проверяет `post_check` по полному
+    # контуру. Ниша, куда уходит остальная дверь, — проход или хвост: стык с ней решатель держит свободным (мелкая — «углубление» или
+    # «закуток» = стена, шкаф отрезал бы дверь — переводится в проход). Другого входа нет — отказ `opening_cut_by_core`.
+    # «Другой вход» — только настоящая дверь: на стороне ядра или в остатке-проходе; хвост без двери не в счёт (у ниши в тесте
+    # `test_door_in_niche_without_passage_is_cut` хвост — та самая ниша, куда уходит задевающая дверь)
+    if grazing:
+        full_entry = any(x['o']['kind'] in ('door', 'opening') for x in cand['openings']) or \
+            any(r['kind'] == 'passage' for r in cand['residues'])
+        for via in grazing:
+            if not full_entry:
+                cand['reasons'].append(f"opening_cut_by_core:{via['o']['kind']}@{via['wall']}")
+                continue
+            cand['openings'].append(dict(via, grazing=True))
+            if 'entry_via_niche' not in cand['flags']:
+                cand['flags'].append('entry_via_niche')
+            pt = Point(via['o']['c'])
+            res = min(cand['residues'], key=lambda r: r['poly'].distance(pt)) if cand['residues'] else None
+            if res is not None and res['poly'].distance(pt) <= near and res['kind'] in ('recess', 'nook'):
+                res['kind'] = 'passage'
+                res['openings'].append(via['o']['src'])
     placed = {id(x['o']) for x in cand['openings']}
     in_res = {o['src'] for r in cand['residues'] for o in rest_ops if o['src'] in r['openings']}
     lost = [o for o in rest_ops if id(o) not in placed and o['src'] not in in_res]
