@@ -88,6 +88,8 @@ def outcome_of(scene: dict) -> dict:
       furnished   — есть что показать (хотя бы один стиль); `code` = null, если показаны все стили, иначе `styles_missing`;
       no_products — комната остаётся ПУСТОЙ: «нет подходящих товаров согласно действующим шаблонам» (владелец 09.11) — ни на одной
                     полосе банка набор не влез в ядро, ни одна расстановка не вышла, или все стили сняты проверкой;
+                    `code` = `no_space_walkthrough` / `no_space` (T-20261110-09), когда товары были, а МЕСТА не нашлось (`_no_space`):
+                    дверей в комнате две и больше — «проходная», одна — просто «нет места под диван и ТВ»;
       pending     — подбор идёт (сцена записана до солвера);
       refused     — комнату не обставляем: план не годится (масштаб, нет окна, нет ядра — код адаптера), не «нет товаров»;
       failed      — технический сбой (очередь машины), повторить позже.
@@ -106,10 +108,46 @@ def outcome_of(scene: dict) -> dict:
     if status in ('ok', 'partial') and ok:
         return dict(base, state='furnished', code='styles_missing' if base['styles_missing'] else None)
     if status in ('ok', 'partial', 'no_products'):
+        if _no_space(scene):
+            return dict(base, state='no_products', code='no_space_walkthrough' if entries_of(scene) >= 2 else 'no_space')
         return dict(base, state='no_products', code=ref.get('code') or 'no_products')
     if status == 'refused':
         return dict(base, state='refused', code=ref.get('code') or 'unknown')
     return dict(base, state='failed', code=ref.get('code') or 'unknown')
+
+
+# неудачи прогона солвера, которые — сбой, а не «места нет» (`build.one`: `error` / `rc`)
+TECH_FAILS = ('solver_error', 'no_artifact', 'timeout')
+SPACE_CODES = ('no_space', 'no_space_walkthrough')
+
+
+def entries_of(scene: dict) -> int:
+    """Входы гостиной (двери и проёмы полного контура, `adapter.ops`): две и больше — комната проходная."""
+    if scene.get('entries') is not None:
+        return int(scene['entries'])
+    return sum(1 for o in scene.get('openings_full') or [] if o.get('kind') in ('door', 'opening'))
+
+
+def _no_space(scene: dict) -> bool:
+    """ТОВАРЫ БЫЛИ, МЕСТА НЕТ (T-20261110-09, наш пример /try): наборы стилей подобраны и влезают в ядро по площади (иначе отказ
+    `living_core_small` — это «нет подходящих товаров»), но солвер не нашёл расстановки (`MEDIA_MISSING`, нет шаблона дивана) или все
+    расстановки сняты проверкой по контуру (`route_blocked`, дуга двери …). Сбой прогона (ошибка, таймаут) — не «места нет»."""
+    if scene.get('refusal'):
+        return False
+    probs = scene.get('problems') or []
+    if not probs:
+        return False
+    for p in probs:
+        code = p.get('code')
+        if code == 'queue_timeout':
+            return False
+        if code == 'layout_failed' and (p.get('why') is None or p.get('why') in TECH_FAILS):
+            return False
+        if code == 'solver_failed':
+            tries = scene.get('tries') or []
+            if not tries or any(t.get('error') or t.get('rc') in TECH_FAILS for t in tries):
+                return False
+    return True
 
 
 def out_dir(trial_id: str) -> str:
@@ -897,6 +935,8 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
         _write_scene(OUT, scene)
         return scene
     t_ad = time.time() - t0
+    # входы комнаты — для исхода «нет места» (проходная или нет, `outcome_of`); пишем до солвера: ранние выходы тоже его читают
+    scene['entries'] = sum(1 for o in ad['ops'] if o['kind'] in ('door', 'opening'))
     scene.update(status='pending')                         # подбор идёт: читатель сцены видит `pending`, а не пустоту
     _write_scene(OUT, scene)
     # ── полоса, стили, геометрия (часть «адаптера»: это ещё до солвера) ──

@@ -1551,6 +1551,7 @@ const TR_EN=()=>LANG==='en';
 // not_furnished). Прежние слова сборщика (partial/none/failed, `furniture_code`) читаются так же — данные и страница вливаются порознь
 const TR_OUT={furnished:'furnished',ready:'furnished',partial:'furnished',pending:'pending',no_products:'no_products',refused:'no_products',failed:'no_products',
   not_readable:'not_readable',scale_unverified:'no_products',no_window:'no_products',
+  no_space:'no_space',no_space_walkthrough:'no_space',   // товары были, места под диван и ТВ нет (T-20261110-09) — не «нет товаров»
   not_furnished:'not_furnished',none:'not_furnished',largest_living_only:'not_furnished',room_kind_not_furnished:'not_furnished',one_living_furnished:'not_furnished',
   size_unverified:'awaiting',awaiting_check:'awaiting'};   // «ждёт проверки размера» (Р1): без мебели, агент может нажать «Обустроить»
 const trRoom=id=>TRIAL()?(D.apartment_rooms||[]).find(x=>x&&x.id===id):undefined;
@@ -1574,7 +1575,7 @@ function trPhotoErr(code){ const EN=TR_EN(), T={
 function roomOutcome(id){ const r=trRoom(id); if(!r)return undefined;
   const o=TR_OUT[r.furniture_outcome]||TR_OUT[r.furniture_code]||TR_OUT[r.furniture_state];
   return o==='awaiting'&&trRebuilding(id)?'pending':o; }
-const TR_NONE=/^(no_products|not_readable|not_furnished|awaiting)$/;
+const TR_NONE=/^(no_products|no_space|not_readable|not_furnished|awaiting)$/;
 // отказ варианта: исход комнаты — отказ любого рода, или сам вариант без предметов с исходом-отказом
 const varRefused=v=>!!(v&&TRIAL()&&(TR_NONE.test(roomOutcome(roomIdOf(v))||'')||(/^(failed|none|no_products|not_furnished|refused)$/.test(v.furniture_state||'')&&!(v.items||[]).length)));
 const varPending=v=>!!(v&&(v.pending||v.furniture_state==='pending'||(TRIAL()&&roomOutcome(roomIdOf(v))==='pending'))&&!(v.items||[]).length&&!varRefused(v));
@@ -1587,12 +1588,16 @@ const notFurnTxt=()=>TR_EN()?'We don’t furnish this room':'Эту комнат
 const unreadTxt=()=>TR_EN()?'We couldn’t read this room on the plan':'Не удалось разобрать эту комнату на плане', unreadShort=()=>TR_EN()?'not read':'не разобрана';
 const awaitTxt=()=>TR_EN()?'Size may be inaccurate — furniture not placed yet':'Размер может быть неточным — мебель пока не расставлена',
   awaitShort=()=>TR_EN()?'size unconfirmed':'размер не подтверждён';
-// текст исхода комнаты по коду и языку: «не обставляется», «не разобрана» и «нет подходящих товаров» — разные. Код причины без своей
+// места нет (решатель не нашёл, куда встать дивану и ТВ), а товары были; две двери и больше — «проходная» (T-20261110-09)
+const noSpaceTxt=walk=>walk?(TR_EN()?'Walk-through room — no space for a sofa and TV':'Проходная комната — не нашлось места под диван и ТВ')
+  :(TR_EN()?'No space for a sofa and TV':'Не нашлось места под диван и ТВ'), noSpaceShort=()=>TR_EN()?'no space':'нет места';
+// текст исхода комнаты по коду и языку: «не обставляется», «не разобрана», «нет места» и «нет подходящих товаров» — разные. Код причины без своей
 // надписи (масштаб, нет окна …) — текст сборщика на языке показа (`furniture_text_en`/`furniture_text`), нет его — «нет товаров»
 function outcomeTxt(id,short){ const o=roomOutcome(id), r=trRoom(id)||{};
   if(o==='awaiting')return short?awaitShort():awaitTxt();
   if(o==='not_furnished')return short?notFurnShort():notFurnTxt();
   if(o==='not_readable')return short?unreadShort():unreadTxt();
+  if(o==='no_space')return short?noSpaceShort():noSpaceTxt(r.furniture_outcome==='no_space_walkthrough'||r.furniture_code==='no_space_walkthrough');
   const own=!short&&r.furniture_outcome&&!/^(no_products|failed)$/.test(r.furniture_outcome)?(TR_EN()?r.furniture_text_en:r.furniture_text):'';
   return own||(short?refusedShort():refusedTxt()); }
 const varNoneTxt=v=>v&&roomOutcome(roomIdOf(v))?outcomeTxt(roomIdOf(v),false):(varNotFurn(v)?notFurnTxt():refusedTxt());
@@ -2630,7 +2635,7 @@ function flatPlan(){
   box.appendChild(svg);
   if(TRIAL()&&R.some(r=>roomApprox(r.id)))box.insertAdjacentHTML('beforeend',`<div class="hint">≈ ${approxTxt()}</div>`);
   // проба: расшифровка коротких меток отказа под планом — по одной строке на текст (кроме «не обставляется» — она понятна сама)
-  if(TRIAL())[...new Set((D.apartment_rooms||[]).filter(r=>/^(no_products|not_readable)$/.test(roomOutcome(r.id)||'')).map(r=>outcomeTxt(r.id,true)+' — '+outcomeTxt(r.id,false)))]
+  if(TRIAL())[...new Set((D.apartment_rooms||[]).filter(r=>/^(no_products|no_space|not_readable)$/.test(roomOutcome(r.id)||'')).map(r=>outcomeTxt(r.id,true)+' — '+outcomeTxt(r.id,false)))]
     .forEach(t=>box.insertAdjacentHTML('beforeend',`<div class="hint">${escHtml(t)}</div>`));
   box.insertAdjacentHTML('beforeend',scaleNoteHtml(['div','hint']));
   if(TRIAL()){trPlanNotes(box); trSizesBox(box);}

@@ -29,7 +29,8 @@ export const trialBundle = z.looseObject({
   apartment_rooms: z.array(z.looseObject({
     id: z.string().min(1).max(40), furniture_state: z.enum(["ready", "pending", "refused", "not_furnished", "awaiting_check"]),
     furniture_text: z.string().max(300).nullable(), furniture_text_en: z.string().max(300).nullable().optional(),
-    /** код для надписи на любом языке: furnished / pending / no_products / not_readable / scale_unverified / no_window /
+    /** код для надписи на любом языке: furnished / pending / no_products / no_space / no_space_walkthrough (товары были, места под
+     *  диван и ТВ нет; «проходная» — две двери и больше, T-20261110-09) / not_readable / scale_unverified / no_window /
      *  largest_living_only / not_furnished / failed / size_unverified */
     furniture_outcome: z.string().max(40).optional(),
     titleRu: z.string().max(120).optional(), titleEn: z.string().max(120).optional(),

@@ -385,7 +385,54 @@ def test_outcome_no_products_when_no_layout(tmp_path, monkeypatch):
         json.dump(art, open(path, 'w', encoding='utf-8'))
         return {'rc': 0, 'seconds': 0.0, 'artifact': path, 'openings': [], 'stderr': '', 'art': art, 'missing': []}
     s = TD.build('o3', plan(), sets=bank(), solver=never, pick=_pick12)
+    # товары были, солвер не нашёл места (MEDIA_MISSING на всех расстановках), дверь одна — «нет места», не «нет товаров» (T-09)
+    assert s['outcome']['state'] == 'no_products' and s['outcome']['code'] == 'no_space'
+    assert s['problems'][0]['code'] == 'solver_failed' and s['entries'] == 1
+
+
+def test_outcome_no_space_walkthrough_two_doors(tmp_path, monkeypatch):
+    """T-20261110-09: вторая дверь (проходная гостиная) — отдельный код `no_space_walkthrough`."""
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+
+    def never(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=1):
+        path = os.path.join(layouts, f'v3set{n}-layout-{tag}.json')
+        art = {'_infeasible_reason': {'code': 'MEDIA_MISSING'}}
+        json.dump(art, open(path, 'w', encoding='utf-8'))
+        return {'rc': 0, 'seconds': 0.0, 'artifact': path, 'openings': [], 'stderr': '', 'art': art, 'missing': []}
+    p = plan()
+    p['panels'][0]['openings'].append({'kind': 'door', 'c': [0, 200], 'widthCm': 80, 'exterior': False})
+    s = TD.build('o3w', p, sets=bank(), solver=never, pick=_pick12)
+    assert s['entries'] == 2
+    assert s['outcome']['state'] == 'no_products' and s['outcome']['code'] == 'no_space_walkthrough'
+
+
+def test_outcome_solver_crash_is_not_no_space(tmp_path, monkeypatch):
+    """Сбой прогона (ошибка солвера без артефакта) — не «места нет»: остаётся `solver_failed`."""
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+
+    def crash(cand, cfg, sets_file, layouts, hinge, tag, timeout, n=1):
+        return {'rc': 1, 'seconds': 0.0, 'artifact': None, 'openings': [], 'stderr': 'Traceback', 'art': None, 'missing': []}
+    s = TD.build('o3c', plan(), sets=bank(), solver=crash, pick=_pick12)
     assert s['outcome']['state'] == 'no_products' and s['outcome']['code'] == 'solver_failed'
+
+
+def test_no_space_rule_on_scene_codes():
+    """Правило `_no_space` по кодам сцены: отказ ядра (`living_core_small`) и технические сбои — не «места нет»."""
+    space = {'status': 'no_products', 'entries': 1, 'problems': [{'code': 'solver_failed'}],
+             'tries': [{'rc': 'empty', 'infeasible': 'MEDIA_MISSING'}]}
+    assert TD.outcome_of(space)['code'] == 'no_space'
+    assert TD.outcome_of(dict(space, entries=2))['code'] == 'no_space_walkthrough'
+    # все стили сняты проверкой по контуру (route_blocked) — тоже места нет
+    rej = {'status': 'no_products', 'entries': 2, 'problems': [{'code': 'style_rejected', 'why': ['route_blocked']}]}
+    assert TD.outcome_of(rej)['code'] == 'no_space_walkthrough'
+    small = {'status': 'no_products', 'refusal': {'code': 'living_core_small'}, 'problems': [{'code': 'living_core_small'}]}
+    assert TD.outcome_of(small)['code'] == 'living_core_small'
+    assert TD.outcome_of(dict(space, tries=[{'rc': 'timeout'}]))['code'] == 'solver_failed'
+    assert TD.outcome_of(dict(space, tries=[]))['code'] == 'solver_failed'
+    lf = {'status': 'no_products', 'entries': 1, 'problems': [{'code': 'layout_failed', 'why': 'solver_error'}]}
+    assert TD.outcome_of(lf)['code'] == 'layout_failed'
+    assert TD.outcome_of(dict(lf, problems=[{'code': 'layout_failed', 'why': 'MEDIA_MISSING'}]))['code'] == 'no_space'
+    assert TD.outcome_of({'status': 'failed', 'problems': [{'code': 'queue_timeout'}]})['code'] == 'queue_timeout'
 
 
 def test_outcome_partial_names_lost_styles():

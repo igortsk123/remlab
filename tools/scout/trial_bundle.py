@@ -42,6 +42,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import trial_room as TR  # noqa: E402  (кладёт солвер в sys.path)
+import trial_demo as TD  # noqa: E402  (исход гостиной — `outcome_of`: «нет места» / «нет товаров», T-20261110-09)
 
 LIVING = 'living'
 BEDROOM = 'bedroom'
@@ -81,6 +82,9 @@ OUTCOME_TEXT = {
     'size_unverified': ('Размер может быть неточным — поправьте и нажмите «Обустроить».',
                         'Size may be approximate — adjust and tap “Furnish”.'),
     'no_products': ('Нет подходящих товаров согласно действующим шаблонам.', 'No suitable products under the current templates.'),
+    # товары были, места под диван и ТВ решатель не нашёл (`trial_demo._no_space`, T-20261110-09); две двери и больше — «проходная»
+    'no_space': ('Не нашлось места под диван и ТВ.', 'No space for a sofa and TV.'),
+    'no_space_walkthrough': ('Проходная комната — не нашлось места под диван и ТВ.', 'Walk-through room — no space for a sofa and TV.'),
     'not_readable': ('Не удалось надёжно построить эту комнату по плану, поэтому мебель не расставлена.',
                      'This room could not be read reliably from the plan, so furniture was not placed.'),
     'scale_unverified': ('Размеры комнаты по плану не подтверждены, поэтому мебель не расставлена.',
@@ -97,6 +101,7 @@ CODE_OUTCOME = {
     **{c: 'not_readable' for c in ('contour_distorted', 'no_core', 'opening_cut_by_core', 'opening_ambiguous', 'no_entry')},
     'scale_unverified': 'scale_unverified', 'living_no_window': 'no_window', 'one_living_furnished': 'largest_living_only',
     'room_kind_not_furnished': 'not_furnished',
+    **{c: c for c in TD.SPACE_CODES},
 }
 APPROX_SHARE = 0.92                       # ядро-прямоугольник меньше этой доли контура — комната «приближённая» (`rooms_geo[].approx`)
 
@@ -557,7 +562,8 @@ def _empty_variant(room_id: str, geo: dict, state: str, problem: dict | None = N
 
 def _outcome(state: str, code: str | None = None) -> dict:
     """Исход мебели по комнате: состояние (дирижёру), код для страницы `furniture_outcome` (`furnished` / `pending` / `no_products` /
-    `not_readable` / `scale_unverified` / `no_window` / `largest_living_only` / `not_furnished` / `failed`), точная причина, тексты ru/en."""
+    `no_space` / `no_space_walkthrough` / `not_readable` / `scale_unverified` / `no_window` / `largest_living_only` / `not_furnished` /
+    `failed`), точная причина, тексты ru/en."""
     if state == 'ready':
         outcome = 'furnished'
     elif state == 'pending':
@@ -806,7 +812,9 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
             outcomes[rid] = _outcome('awaiting_check', awaits(room, rid))
         elif room is main and scene is not None:
             first = (scene.get('problems') or [{}])[0].get('code')
-            why = scene.get('refusal') or {'code': 'no_products' if scene['status'] == 'no_products' else (first or scene['status'])}
+            space = TD.outcome_of(scene).get('code')        # по сцене заново: сцена старой сборки хранит прежний код исхода
+            why = scene.get('refusal') or ({'code': space} if space in TD.SPACE_CODES else
+                                           {'code': 'no_products' if scene['status'] == 'no_products' else (first or scene['status'])})
             variants.append(_empty_variant(rid, geo, 'failed', why))
             outcomes[rid] = _outcome('refused', why.get('code'))
         elif scene is not None:                              # `trial_demo` обставляет одну гостиную: эта уже не дождётся мебели

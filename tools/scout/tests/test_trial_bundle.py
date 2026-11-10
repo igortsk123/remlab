@@ -334,6 +334,29 @@ def test_scene_no_products_leaves_room_empty_with_owner_text():
         build(res, {**scene_for(res), 'status': 'pending'})
 
 
+def test_scene_no_space_is_not_no_products():
+    """T-20261110-09: товары были, места под диван и ТВ нет (MEDIA_MISSING / route_blocked по всем стилям) — свой код и текст;
+    две двери и больше — «проходная». Сцена старой сборки (код исхода `layout_failed`) пересчитывается по правилу `trial_demo`."""
+    res = simple()
+    probs = [{'code': 'layout_failed', 'geometry': 0, 'why': 'MEDIA_MISSING'},
+             {'code': 'style_rejected', 'style': 'лофт', 'why': ['route_blocked'], 'geometry': 1}]
+    cases = ((2, 'no_space_walkthrough', 'Проходная комната — не нашлось места под диван и ТВ.',
+              'Walk-through room — no space for a sofa and TV.'),
+             (1, 'no_space', 'Не нашлось места под диван и ТВ.', 'No space for a sofa and TV.'))
+    for entries, code, ru, en in cases:
+        scene = {**scene_for(res, status='no_products'), 'problems': probs, 'entries': entries,
+                 'outcome': {'state': 'no_products', 'code': 'layout_failed'}}
+        d = build(res, scene)
+        assert [v['furniture_state'] for v in d['variants']] == ['failed'] and d['variants'][0]['items'] == []
+        room = next(r for r in d['apartment_rooms'] if r['id'] == 'living')
+        assert (room['furniture_state'], room['furniture_code'], room['furniture_outcome']) == ('refused', code, code)
+        assert (room['furniture_text'], room['furniture_text_en']) == (ru, en)
+        assert d['trial']['furniture'] == 'failed' and d['trial']['complete'] is True
+    # сбой прогона солвера — не «места нет»: прежний текст «нет товаров»
+    crash = {**scene_for(res, status='no_products'), 'problems': [{'code': 'layout_failed', 'why': 'solver_error'}], 'entries': 2}
+    assert _outcomes(build(res, crash))['living'][2].startswith('Нет подходящих товаров')
+
+
 def test_scene_rows_of_new_format_keep_checked_model_and_colour():
     """Строка `trial_demo.public_row`: `msid` уже проверен (null — годной модели нет), по `sid` модель семьи не выводится; цвет — свой."""
     res = simple()
