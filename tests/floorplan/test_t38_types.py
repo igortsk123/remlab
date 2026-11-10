@@ -47,6 +47,20 @@ def test_load_vlm_labels4_names_unlabelled_rooms_from_type(tmp_path, monkeypatch
     assert by['Hall']['vtype_src'] == 'position' and 'name_src' not in by['Кабинет']
 
 
+def test_load_vlm_same_type_names_numbered_by_area(tmp_path, monkeypatch):
+    rooms = [{'name': '', 'pt': [100, 100], 'type': 'bathroom', 'area_m2': 4.0},
+             {'name': '', 'pt': [500, 500], 'type': 'bathroom', 'area_m2': 5.1},
+             {'name': '', 'pt': [300, 300], 'type': 'bedroom'},
+             {'name': '', 'pt': [200, 200], 'type': 'bedroom'},
+             {'name': 'Спальня', 'pt': [700, 700], 'type': 'bedroom', 'type_src': 'name'}]   # имя с листа — как есть
+    (tmp_path / 'raw-T-labels4.txt').write_text(json.dumps({'rooms': rooms, 'titles': []}))
+    monkeypatch.setenv('FP_LABELS', 'labels4')
+    v = bench.load_vlm('T', str(tmp_path), (1000, 1000))
+    got = {(q['name'], q['pt']) for q in v['labels']}
+    assert got == {('Bathroom 1', (500.0, 500.0)), ('Bathroom 2', (100.0, 100.0)), ('Bedroom 1', (200.0, 200.0)),
+                   ('Bedroom 2', (300.0, 300.0)), ('Спальня', (700.0, 700.0))}
+
+
 def test_load_vlm_old_kinds_unchanged(tmp_path, monkeypatch):
     """Старый кэш (labels3) — те же поля, что до T-38: без типа и площади."""
     (tmp_path / 'raw-T-labels3.txt').write_text(json.dumps({'rooms': [{'name': 'Kitchen', 'pt': [1, 1], 'dims_m': [3, 4]},

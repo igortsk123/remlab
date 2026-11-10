@@ -70,6 +70,21 @@ def room_meta(r: dict) -> dict:
     return {'vtype': vt, 'vtype_src': src if vt and src in TYPE_SRC else None, 'area_m2': a, 'area_reduced_m2': ar}
 
 
+def number_type_names(labels: list) -> None:
+    """T-20261110-38/2: одно имя из типа у нескольких комнат («Bathroom» ×2 на туре Этажей) → «Bathroom 1», «Bathroom 2» —
+    по убыванию площади с листа, без площади — сверху вниз, слева направо. Имена с листа не трогаем. На месте."""
+    by = {}
+    for q in labels:
+        if q.get('name_src') == 'type':
+            by.setdefault(q['name'], []).append(q)
+    for name, qq in by.items():
+        if len(qq) < 2:
+            continue
+        qq.sort(key=lambda q: (-(q.get('area_m2') or 0.0), q['pt'][1], q['pt'][0]))
+        for i, q in enumerate(qq, 1):
+            q['name'] = f'{name} {i}'
+
+
 def load_vlm(plan, vdir, shape):
     """Ответы VLM flash (как в продукте): точки подписей и контуры панелей, сетка 0–1000 → px листа."""
     import vlm
@@ -99,6 +114,7 @@ def load_vlm(plan, vdir, shape):
                         continue                              # ни названия, ни типа — подписи нет
                     q['name'], q['name_src'] = TYPE_NAME[q['vtype']], 'type'
             out['labels'].append(q)
+        number_type_names(out['labels'])
     # T-03: помещения без размеров (имя от VLM) — второй ответ, отдельная папка (FP_VLM2)
     p2 = Path(os.environ.get('FP_VLM2', vdir)) / f'raw-{plan}-unlabeled.txt'
     if p2.exists():
