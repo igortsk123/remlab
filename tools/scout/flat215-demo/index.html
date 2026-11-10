@@ -1319,6 +1319,18 @@ body.trial #shot .pinlist .row>.p{flex:0 0 40px}
 #trHead .tr-scale.tr-soft{border:1px solid var(--line);color:var(--muted)}  /* масштаб по общей площади: спокойнее «не подтверждён» */
 /* «Обустроить» (Р1, макет А): строка масштаба с кнопкой, плашка «подбираем…»/«не получилось», пометка под планом, кнопка на карточке */
 #trHead .tr-scrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+/* на плане квартиры подпись масштаба — одна, строкой под планом, как у /demo (T-20261110-04): плашка вверху её дублировала; кнопки и
+   плашка пересборки в шапке остаются */
+body.trial #trHead:has(~ #screen-plan:not([hidden])) .tr-scale{display:none}
+body.trial #trHead:has(~ #screen-plan:not([hidden])):not(:has(.tr-rb,.tr-fur)){display:none}
+/* закрытая шторка подбора в туре невидима: в /demo её край (сдвиг 102 %) с тенью закрыт липким низом «Выбрано … · Отправить риелтору»,
+   а в туре низа нет — шапка «Подбор товара» с крестиком выглядывала внизу страницы (T-20261110-04). Закрытие — после съезда */
+body.trial #sheet:not(.open){visibility:hidden;transition:transform .22s ease,visibility 0s linear .22s}
+/* строка окна «Сканди · Другой стиль для комнаты ›»: имя стиля не сжимается (на 1280 было «Скан…», в /demo так же — там не трогаем);
+   не влезает с кнопкой — кнопка уходит второй строкой, точка-разделитель тогда не нужна — вместо неё промежуток (T-20261110-04) */
+body.trial .vrow{flex-wrap:wrap;column-gap:14px}
+body.trial .vrow-n{flex:none;max-width:100%;white-space:normal}
+body.trial .vrow-s{display:none}
 .btn.tr-fur{padding:6px 14px;font-size:14px;min-height:0;border-color:#3B76A2;color:#3B76A2;background:#fff;font-weight:600}
 .hm-room .rb .btn.tr-fur{flex:none;margin-left:auto}
 .tr-rb{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-sm,12px);background:var(--wash-3,#F4F2ED);font-size:14px;line-height:1.35}
@@ -1637,7 +1649,7 @@ function trialSetup(){
 function trialPlanFromPanels(){
   const PN=(D.trial||{}).panels;
   if(((D.plan||{}).rooms||[]).length||!Array.isArray(PN)||!PN.length)return;
-  const m=v=>v/100, many=PN.length>1, top=many?0.7:0, rooms=[], labels=[];
+  const m=v=>v/100, many=PN.length>1, top=many?0.7:0, rooms=[], labels=[], ops=[];
   let ox=0;
   PN.forEach((p,k)=>{
     const rs=(p&&p.rooms||[]).filter(r=>r&&r.id&&r.bbox&&r.bbox.w>0&&r.bbox.d>0); if(!rs.length)return;
@@ -1646,11 +1658,97 @@ function trialPlanFromPanels(){
     rs.forEach(r=>{const b=r.bbox;
       rooms.push({id:r.id, x:px(b.x), y:py(b.y), w:m(b.w), d:m(b.d),
         poly:(r.contour||[]).length>=3?r.contour.map(q=>[+px(q[0]).toFixed(3), +py(q[1]).toFixed(3)]):null});});
+    trOpeningsOf(p,rs).forEach(o=>ops.push(Object.assign(o,{pts:o.pts.map(q=>[+px(q[0]).toFixed(3), +py(q[1]).toFixed(3)]), t:+m(o.t).toFixed(3)})));
     const n=(p.storey!=null?+p.storey:k)+1;
     if(many)labels.push({x:ox, y:top-0.25, t:TR_EN()?(p.title||'Floor '+n):'Этаж '+n});
     ox+=m(x1-x0)+1.5;
   });
-  if(rooms.length)D.plan=Object.assign({},D.plan||{},{rooms, labels});
+  if(rooms.length)D.plan=Object.assign({},D.plan||{},{rooms, labels, trOpenings:ops});
+}
+// ДВЕРИ И ОКНА ПЛАНА ПРОБЫ (T-20261110-04): у распознавания проём — центр в стене и ширина (`panels[].openings`: kind, c, widthCm), без
+// направления. Направление стены — ближайшее ребро контура комнаты (стена может быть и косой); по разные стороны — какие комнаты.
+// Дверь (до 1,2 м) — проём + полотно + дуга: открывается в комнату, а не в коридор/прихожую (кроме кладовок < 1,5 м² — в коридор),
+// между двумя комнатами — в большую; петля — у ближнего угла этой комнаты. Шире 1,2 м или «проход» — только проём (арка/двойная — не
+// угадываем). Окно — разрыв стены и голубая линия, как в /demo. Нет стены рядом (> 45 см) — проём не рисуем. Всё в см панели → `pts`
+// (точки: концы проёма [0,1], у двери — петля [2], конец открытого полотна [3], свободный конец проёма [4]); толщина разрыва `t` — в см,
+// в метры схемы переводит вызывающий (`trialPlanFromPanels`)
+// ПОДПИСЬ КОМНАТЫ ПЛАНА ПРОБЫ — ЦЕЛИКОМ В СТЕНАХ (T-20261110-04): кегль по самой длинной строке (ширина — по шрифту страницы, не по
+// числу букв), место — самый подходящий прямоугольник комнаты, свободный от соседних контуров (у распознавания контуры наезжают:
+// подпись «Лестничной площадки» стояла в ванной). Не влезает при TR_FS_MIN — без строки состояния, потом и без площади (только имя —
+// уменьшается до ширины). Схема плана — в метрах
+const TR_FS_MIN=0.14, TR_GRID=32;
+let TR_MEAS=null;
+function trTextEm(t,wt){ try{ if(!TR_MEAS)TR_MEAS=document.createElement('canvas').getContext('2d');
+  const box=document.getElementById('flatRooms')||document.body;
+  TR_MEAS.font=`${wt||400} 100px ${getComputedStyle(box).fontFamily||'sans-serif'}`; return TR_MEAS.measureText(String(t)).width/100;
+  }catch(e){ return String(t).length*0.62; } }
+// комнаты схемы → id → прямоугольники {x,y,w,h} из клеток комнаты, свободных от чужих контуров (все максимальные — `trFitLabel` выберет)
+function trLabelBoxes(R){
+  const P=R.map(r=>r.poly&&r.poly.length>=3?r.poly:[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.d],[r.x,r.y+r.d]]), out={};
+  R.forEach((r,i)=>{
+    const N=TR_GRID, cw=r.w/N, ch=r.d/N;
+    const oth=P.filter((q,j)=>j!==i&&q.some(p=>p[0]>r.x-1&&p[0]<r.x+r.w+1)&&q.some(p=>p[1]>r.y-1&&p[1]<r.y+r.d+1));
+    const grid=ex=>{const g=[]; let any=false;
+      for(let y=0;y<N;y++){const row=[]; for(let x=0;x<N;x++){const c=[r.x+(x+.5)*cw, r.y+(y+.5)*ch];
+        const ok=trInPoly(c,P[i])&&!(ex&&oth.some(q=>trInPoly(c,q))); row.push(ok); any=any||ok;} g.push(row);}
+      return any?g:null;};
+    const g=grid(true)||grid(false); if(!g)return;
+    const hgt=new Array(N).fill(0), rects=[];
+    for(let y=0;y<N;y++){                            // максимальные прямоугольники: гистограмма по строкам
+      for(let x=0;x<N;x++)hgt[x]=g[y][x]?hgt[x]+1:0;
+      const st=[];
+      for(let x=0;x<=N;x++){const h=x<N?hgt[x]:0; let s=x;
+        while(st.length&&st[st.length-1][1]>=h){const [sx,sh]=st.pop(); if(sh>0)rects.push({x:r.x+sx*cw, y:r.y+(y-sh+1)*ch, w:(x-sx)*cw, h:sh*ch}); s=sx;}
+        st.push([s,h]);}
+    }
+    out[r.id]=rects;
+  });
+  return out;
+}
+// строки подписи `L` (k — доля кегля) → {fs, cx, cy, n}: наибольший кегль, при котором строки помещаются в один из прямоугольников
+function trFitLabel(rects,L,r){
+  if(!rects||!rects.length)return null;
+  const cap=Math.min(0.32,Math.max(0.2,Math.min(r.w,r.d)/4.4)), PART=0.09;
+  const fit=n=>{const em=Math.max(...L.slice(0,n).map(l=>trTextEm(l.t,(l.a||{})['font-weight'])*l.k)); let b=null;
+    rects.forEach(c=>{const fs=Math.min(cap,(c.w*0.92-PART)/em,(c.h*0.92-PART)/(1.2*(n-1)+1));
+      if(!b||fs>b.fs+1e-6||(Math.abs(fs-b.fs)<=1e-6&&c.w*c.h>b.c.w*b.c.h))b={fs,c};});
+    return b&&b.fs>0?{fs:b.fs, cx:b.c.x+b.c.w/2, cy:b.c.y+b.c.h/2, n}:null;};
+  let z=fit(L.length);
+  for(let n=L.length-1;n>=1&&z&&z.fs<TR_FS_MIN;n--){const z2=fit(n); if(z2)z=z2;}
+  return z;
+}
+const TR_DOOR_MAX=120, TR_WALL_NEAR=45;
+function trPolyOf(r){ const b=r.bbox; return (r.contour||[]).length>=3?r.contour:[[b.x,b.y],[b.x+b.w,b.y],[b.x+b.w,b.y+b.d],[b.x,b.y+b.d]]; }
+function trSegDist(p,a,b){ const dx=b[0]-a[0], dy=b[1]-a[1], L=dx*dx+dy*dy, t=L?Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L)):0;
+  return Math.hypot(p[0]-a[0]-t*dx, p[1]-a[1]-t*dy); }
+function trPolyDist(p,P){ let d=Infinity; for(let i=0;i<P.length;i++)d=Math.min(d,trSegDist(p,P[i],P[(i+1)%P.length])); return d; }
+function trInPoly(p,P){ let c=false; for(let i=0,j=P.length-1;i<P.length;j=i++){const a=P[i], b=P[j];
+  if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])c=!c;} return c; }
+function trOpeningsOf(panel,rs){
+  const R=rs.map(r=>({r, P:trPolyOf(r), a:+r.areaM2||(r.bbox.w*r.bbox.d/1e4)})), out=[];
+  (panel.openings||[]).forEach(o=>{
+    const c=o&&o.c, w=+(o&&o.widthCm); if(!Array.isArray(c)||!(w>0)||!/^(door|window|opening)$/.test(o.kind))return;
+    // стена — ближайшее ребро контура, достаточно длинное для проёма (короткий скос угла направление не задаёт)
+    let best=null;
+    R.forEach(x=>{const P=x.P; for(let i=0;i<P.length;i++){const a=P[i], b=P[(i+1)%P.length], d=trSegDist(c,a,b), L=Math.hypot(b[0]-a[0],b[1]-a[1]);
+      if(L>=Math.min(w*0.5,60)&&(!best||d<best.d))best={d, a, u:[(b[0]-a[0])/L,(b[1]-a[1])/L], x};}});
+    if(!best||best.d>TR_WALL_NEAR)return;
+    const u=best.u, n=[-u[1],u[0]], pr=(c[0]-best.a[0])*u[0]+(c[1]-best.a[1])*u[1];
+    const q=[best.a[0]+u[0]*pr, best.a[1]+u[1]*pr];   // центр проёма — на линии стены (у распознавания он бывает на 20–30 см в комнате)
+    const at=s=>{const p=[q[0]+n[0]*s, q[1]+n[1]*s], h=R.filter(x=>trInPoly(p,x.P)).sort((x,y)=>x.a-y.a); return h[0]||null;};
+    const side=[at(30),at(-30)];   // [+n, −n]: комната по каждую сторону стены (самая маленькая из накрытых — контуры распознавания наезжают)
+    // разрыв стирает обводки обеих комнат у проёма: контуры соседей лежат в ±12 см от линии стены
+    const other=side.filter(x=>x&&x!==best.x).map(x=>trPolyDist(q,x.P)).filter(d=>d<=12), t=Math.max(14,2*Math.max(0,...other)+12);
+    const e1=[q[0]-u[0]*w/2, q[1]-u[1]*w/2], e2=[q[0]+u[0]*w/2, q[1]+u[1]*w/2];
+    if(o.kind!=='door'||w>TR_DOOR_MAX||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], t}); return;}
+    const pref=x=>!x?-1:(x.r.kind!=='hall'&&x.a>=1.5?2:1);
+    const k=pref(side[0])!==pref(side[1])?(pref(side[0])>pref(side[1])?0:1):((side[0]?side[0].a:0)>=(side[1]?side[1].a:0)?0:1);
+    const sg=k===0?1:-1, sw=side[k];   // в какую сторону открывается
+    const near=e=>Math.min(...sw.P.map(p=>Math.hypot(p[0]-e[0],p[1]-e[1])));
+    const [H,F]=near(e2)<near(e1)?[e2,e1]:[e1,e2], T=[H[0]+n[0]*sg*w, H[1]+n[1]*sg*w];
+    out.push({kind:'door', pts:[e1,e2,H,T,F], t});
+  });
+  return out;
 }
 // ПРЕВЬЮ КАРТОЧКИ ПРОБЫ (фото нейросети у задания нет): план комнаты сверху с мебелью — тем же рисунком, что план окна (`shape`),
 // в тон страницы; масштаб и отступ подменяются на время рисунка и возвращаются
@@ -2344,6 +2442,7 @@ function flatPlan(){
   // ИМЯ, ПЛОЩАДЬ, ГОТОВНОСТЬ — ИЗ РЕЕСТРА КВАРТИРЫ (`homeRooms`, T-20261022-04): у схемы плана только геометрия, id — те же
   // вариант комнаты — по раскладке главной (`homeLayout`, home-mix-01): та же комната того же варианта, что на карточке
   const map=planRoomMap(), m=homeModel(), LAY=homeLayout(m), inc=window.__basket&&window.__basket.included;
+  const TRLB=TRIAL()?trLabelBoxes(R):null;           // проба: где в комнате свободно под подпись (контуры распознавания наезжают)
   R.forEach(r=>{                                     // комнаты: заливка + перегородки
     const br=map[r.id], room=br||{}, f=br&&inc?inc(br.id):null, ready=room.contentState==='ready';
     const rv=br&&ready?((LAY.find(x=>x.r.id===br.id)||{}).rv||m.roomVariants.find(x=>x.roomId===br.id)):null;
@@ -2358,9 +2457,10 @@ function flatPlan(){
       stroke:'#3B76A2','stroke-width':0.05},g);
     if(pts&&roomApprox(r.id))el('polygon',{points:pts,fill:'none',stroke:'#C7652B','stroke-width':0.04,'stroke-dasharray':'0.18 0.12','data-approx':'1'},g);
     else if(roomApprox(r.id))el('rect',{x:r.x+PART,y:r.y+PART,width:r.w-PART*2,height:r.d-PART*2,fill:'none',stroke:'#C7652B','stroke-width':0.04,'stroke-dasharray':'0.18 0.12','data-approx':'1'},g);   // проба: прямоугольник вместо контура — пунктиром
-    const name=(roomApprox(r.id)||roomConsent(r.id)?'≈ ':'')+(room.title||r.id), cx=r.x+r.w/2;
+    const name=(roomApprox(r.id)||roomConsent(r.id)?'≈ ':'')+(room.title||r.id);
+    let cx=r.x+r.w/2, cy=r.y+r.d/2;
     // узкая комната (санузлы 0,8 м): имя по ширине комнаты, иначе соседние «Санузел» слипались через стену
-    const fs=Math.min(Math.max(0.2,Math.min(0.32,Math.min(r.w,r.d)/4.4)),r.w*0.84/(name.length*0.62));
+    let fs=Math.min(Math.max(0.2,Math.min(0.32,Math.min(r.w,r.d)/4.4)),r.w*0.84/(name.length*0.62));
     // строки подписи: имя комнаты; дальше — вариант в сертификате (название в 1–2 строки и сумма) или площадь и «Обустроить →»/«скоро»
     const L=[{t:name,k:1,a:{fill:'#2A2F2C','font-weight':go?'700':'500'}}];
     if(f){
@@ -2377,7 +2477,8 @@ function flatPlan(){
         :aw?{t:awaitShort(),k:0.85,a:{fill:'#96601F','data-outcome':'awaiting'}}:pend?{t:pendTxt(),k:0.85,a:{fill:'#5C655E'}}:none?{t:varNoneShort(allVariants()[rv.index]),k:0.85,a:{fill:'#8A4A1F','data-refused':'1'}}:go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}
         :o==='pending'?{t:pendTxt(),k:0.85,a:{fill:'#5C655E','data-outcome':o}}:o&&TR_NONE.test(o)?{t:outcomeTxt(br.id,true),k:0.85,a:{fill:o==='not_furnished'?'#9AA098':'#8A4A1F','data-outcome':o}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
     }
-    const LH=fs*1.2; let y=r.y+r.d/2-LH*(L.length-1)/2+fs*0.35;
+    if(TRLB){const z=trFitLabel(TRLB[r.id],L,r); if(z){fs=z.fs; cx=z.cx; cy=z.cy; L.length=z.n;}}   // проба: подпись целиком в стенах
+    const LH=fs*1.2; let y=cy-LH*(L.length-1)/2+fs*0.35;
     L.forEach(l=>{el('text',Object.assign({x:cx,y,'text-anchor':'middle','font-size':fs*l.k},l.a),g).textContent=l.t; y+=LH;});
     if(pend){const sr=fs*0.42, sx=r.x+r.w-sr*2, sy=r.y+sr*2;   // крутилка в углу комнаты на плане
       const c=el('circle',{cx:sx,cy:sy,r:sr,fill:'none',stroke:'#C7652B','stroke-width':sr*0.3,'stroke-linecap':'round','stroke-dasharray':`${sr*4} ${sr*2.3}`,'data-pending':'1'},g);
@@ -2404,6 +2505,15 @@ function flatPlan(){
                   :`M ${ax} ${ay} A ${d.r} ${d.r} 0 0 1 ${ax+d.r} ${ay+d.r}`,
       fill:'none',stroke:'#C8783C','stroke-width':0.035});
     el('line',{x1:ax,y1:ay,x2:v?ax:ax+d.r,y2:v?ay+d.r:ay,stroke:'#C8783C','stroke-width':0.05});
+  });
+  (P.trOpenings||[]).forEach(o=>{                    // проба: проёмы распознавания по направлению стены (`trOpeningsOf`)
+    const [a,b,H,T,F]=o.pts;
+    el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#fff','stroke-width':o.t,'data-door':o.kind});
+    if(o.kind==='window')el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#5A9BD4','stroke-width':0.06});
+    if(o.kind!=='door')return;
+    const rr=Math.hypot(T[0]-H[0],T[1]-H[1]), cr=(T[0]-H[0])*(F[1]-H[1])-(T[1]-H[1])*(F[0]-H[0]);
+    el('path',{d:`M ${T[0]} ${T[1]} A ${rr.toFixed(3)} ${rr.toFixed(3)} 0 0 ${cr>0?1:0} ${F[0]} ${F[1]}`,fill:'none',stroke:'#C8783C','stroke-width':0.035});
+    el('line',{x1:H[0],y1:H[1],x2:T[0],y2:T[1],stroke:'#C8783C','stroke-width':0.05});
   });
   LB.forEach(l=>{el('text',{x:l.x,y:l.y,'font-size':0.36,fill:'#5C655E','font-weight':'600'}).textContent=l.t;});
   box.appendChild(svg);

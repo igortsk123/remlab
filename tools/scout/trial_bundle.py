@@ -242,6 +242,29 @@ def storeys(panels: list) -> tuple[dict, list]:
     return dict(enumerate(vals)), []
 
 
+_NUMBERED = re.compile(r'^(.*?)\s*(\d{1,3})$')
+
+
+def room_order(panels: list, storey_map: dict) -> list:
+    """Комнаты в порядке показа (главная, список): этажи снизу вверх (этаж подтверждён — по нему, иначе по порядку панелей), внутри
+    этажа — как на чертеже, но одноимённые с номером («Bedroom 2», «Bedroom 1») — по номеру на своих же местах (TG 593: «Спальня 2»
+    шла раньше «Спальни 1»). Остальные не двигаются."""
+    out = []
+    for i in sorted(range(len(panels)), key=lambda i: (storey_map.get(i, 0), i)):
+        src = panels[i]['rooms']
+        rooms = list(src)
+        groups: dict = {}
+        for k, r in enumerate(src):
+            m = _NUMBERED.match(str(r.get('name') or '').strip())
+            if m and m.group(1).strip():
+                groups.setdefault(m.group(1).strip().lower(), []).append((int(m.group(2)), k))
+        for g in groups.values():                     # места группы те же, комнаты на них — по номеру
+            for pos, (_, k) in zip(sorted(k for _, k in g), sorted(g)):
+                rooms[pos] = src[k]
+        out += rooms
+    return out
+
+
 # ───────────────────────── геометрия комнаты ─────────────────────────
 
 def _num(v: float) -> float | int:
@@ -833,7 +856,7 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
                     variants.append(_empty_variant(rid, geo, 'failed', {'code': code}))
                 outcomes[rid] = _outcome('refused', code)
     with_variant = {v['room_id'] for v in variants}
-    order = [r for _, r in livings] + [r for p in panels for r in p['rooms'] if id(r) not in living_ids]
+    order = [r for _, r in livings] + [r for r in room_order(panels, storey_map) if id(r) not in living_ids]
     for i, r in enumerate(order, 1):
         rid = ids[id(r)]
         kind = kind_of.get(rid, r['kind'])

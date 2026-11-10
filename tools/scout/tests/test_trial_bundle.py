@@ -201,6 +201,21 @@ def test_unconfirmed_storeys_are_not_published(titles):
     assert all('storey' not in p for p in d['trial']['panels'])
 
 
+def test_room_order_numbers_within_same_name_and_storeys_bottom_up():
+    """T-20261110-04: «Bedroom 2» шла раньше «Bedroom 1» (порядок чертежа). Одноимённые с номером — по номеру на своих местах, прочие
+    не двигаются; этажи — снизу вверх по подтверждённому этажу; id комнат не меняются (по ним живут куски стадий)."""
+    up = panel('p0', [room('a', 'bedroom', name='Bedroom 2'), room('b', 'bedroom', name='Bedroom 1'), room('c', 'hall', name='Landing'),
+                      room('d', 'bedroom', name='Bedroom 3'), room('e', 'other', name='Cupboard')], [WINDOW, DOOR], title='First Floor')
+    down = panel('p1', [room('r1', 'living', name='Lounge'), room('k', 'kitchen', name='Kitchen')], [WINDOW, DOOR], title='Ground Floor')
+    names = [r['name'] for r in TB.room_order([up, down], TB.storeys([up, down])[0])]
+    assert names == ['Lounge', 'Kitchen', 'Bedroom 1', 'Bedroom 2', 'Landing', 'Bedroom 3', 'Cupboard']
+    assert [r['name'] for r in TB.room_order([up, down], {})] == ['Bedroom 1', 'Bedroom 2', 'Landing', 'Bedroom 3', 'Cupboard', 'Lounge', 'Kitchen']
+    d = build(result(up, down))
+    rows = [(r['titleEn'], r['id'], r['ordinal']) for r in d['apartment_rooms']]
+    assert [t for t, _, _ in rows][:4] == ['Lounge', 'Kitchen', 'Bedroom 1', 'Bedroom 2'] and [o for _, _, o in rows] == list(range(1, 8))
+    assert dict((t, i) for t, i, _ in rows)['Bedroom 2'] == 'bedroom-1'      # id — по порядку чертежа, как раньше
+
+
 def test_single_panel_keeps_its_storey():
     d = build(result(panel('p0', [room('r1', 'living')], [WINDOW, DOOR], title='Ground Floor')))
     assert d['rooms_geo']['living']['storey'] == 0 and 'storey_unconfirmed' not in d['trial']['flags']

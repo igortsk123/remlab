@@ -1,6 +1,6 @@
 // /demo не изменился (T-20261109-34): та же витрина с index.html «до» (A) и «после» (B) — снимки экранов попарно, доля разных пикселей.
 //   node tools/ops/demo-walk/demo-same-check.cjs <A.html> <B.html> <WxH> <новая папка>
-// Состояния: главная; окно комнаты в «Фото» (прежнее фото и плашка); окно в 3D со шторкой и «Сделать реалистичнее» — холст 3D
+// Состояния: главная; вкладка «План квартиры» (вся страница); окно комнаты в «Фото» (прежнее фото и плашка); окно в 3D со шторкой и «Сделать реалистичнее» — холст 3D
 // скрыт (программный рендер не детерминирован), сравниваем всё вокруг. Данные/движок — прод, `/api/*` — заглушки (платного нет).
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '../../..');
@@ -26,6 +26,11 @@ async function shots(b, page, tag) {
   await freeze();
   const out = {};
   out.home = await p.screenshot();
+  // вкладка «План квартиры» (T-20261110-04: подписи, двери, строка масштаба — правки только для пробы), затем назад на прежнюю вкладку
+  await p.evaluate(() => { window.__tab = ['plan', 'room', 'fav'].find(t => !document.getElementById('screen-' + t).hidden); showTab('plan'); });
+  await p.waitForTimeout(1500);
+  out.plan = await p.screenshot({ fullPage: true });
+  await p.evaluate(() => { showTab(window.__tab || 'room'); window.scrollTo(0, 0); }); await p.waitForTimeout(800);
   await p.evaluate(() => vwOpenVariant(cur)); await p.waitForTimeout(3500);
   out.photo = await p.screenshot();
   await p.evaluate(() => { shots = shots.filter(x => x.quality !== 'realistic'); openLiveWindow(); });
@@ -36,7 +41,7 @@ async function shots(b, page, tag) {
   out.walk = await p.screenshot();
   out.cta = await p.evaluate(() => { const c = document.getElementById('vCta'); return { cta: !!(c && !c.hidden), text: c && c.textContent.trim(),
     note: !!document.getElementById('vCtaNote'), trial: document.body.classList.contains('trial') }; });
-  for (const k of ['home', 'photo', 'walk']) fs.writeFileSync(path.join(OUT, `${k}-${W}-${tag}.png`), out[k]);
+  for (const k of ['home', 'plan', 'photo', 'walk']) fs.writeFileSync(path.join(OUT, `${k}-${W}-${tag}.png`), out[k]);
   await ctx.close();
   return out;
 }
@@ -53,8 +58,8 @@ async function diff(a, b) {
   try {
     const sa = await shots(b, A, 'A'), sb = await shots(b, B, 'B');
     const r = { size, cta: { A: sa.cta, B: sb.cta } };
-    for (const k of ['home', 'photo', 'walk']) r[k] = await diff(sa[k], sb[k]);
-    r.verdict = ['home', 'photo', 'walk'].every(k => r[k].px === 0) && JSON.stringify(sa.cta) === JSON.stringify(sb.cta) ? 'SAME' : 'DIFF';
+    for (const k of ['home', 'plan', 'photo', 'walk']) r[k] = await diff(sa[k], sb[k]);
+    r.verdict = ['home', 'plan', 'photo', 'walk'].every(k => r[k].px === 0) && JSON.stringify(sa.cta) === JSON.stringify(sb.cta) ? 'SAME' : 'DIFF';
     fs.writeFileSync(path.join(OUT, `same-${W}.json`), JSON.stringify(r, null, 1));
     console.log(JSON.stringify(r));
   } catch (e) { console.log('FAIL probe: ' + (e && e.stack || e)); }
