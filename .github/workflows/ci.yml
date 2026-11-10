@@ -138,6 +138,7 @@ jobs:
       - run: python -m pytest services/planner-solver/tests/ -q
       # (здесь, не в scout-orient: «образ как есть» импортирует planner — нужны shapely/pydantic из requirements выше)
       - run: python tools/scout/tests/test_draft_image_rules.py   # образ запасного рендера несёт все rules/*, которые читает его код (improve-rooms.json 07.11), COPY ↔ белый список (T-20261107-03); в раскладке образа код находит приоры практики, planner не ищет файлы вне пакета (T-20261107-07)
+      - run: python -m pytest tools/ops/tests/test_disk_clean.py -q -p no:cacheprovider   # уборка диска DEV второго круга: только влитое/чистое/старое, без одобрения не удаляет, запретные пути (T-20261110-30)
       - run: python -m pytest tools/ops/tests/test_trial_e2e.py -q -p no:cacheprovider   # замерщик пробы агента: стадии, p50/p95, 429/503, без --live на прод не грузит (T-20261109-14)
       - run: python -m pytest tools/tokeny/tests -q -p no:cacheprovider   # учёт токенов (кит _optional/tokeny): цены, машины, % недели (T-20261105-19)
       - run: python tools/scout/scene_checks.py --selftest   # ворота артефактов сцены демо (demo-05 п.1)
