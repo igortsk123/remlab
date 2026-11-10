@@ -101,9 +101,12 @@ services:
       # TRIAL_WORKER_TOKEN (пусто → ручки воркера закрыты, 503). Потолок заданий в сутки на сайт (300; с адреса — 30, 10 в час),
       # очередь ожидающих, сроки: исходный файл — как тур (пусто → 30 дн.; число — часы, только короче тура), результат — дни (потом 410).
       # TRIAL_OWN_KEY — ключ наших машин (заголовок x-trial-own-key, `lib/trial/own-key.ts`): без лимитов; пусто/короче 32 → пропуска нет.
+      # TRIAL_OWN_IPS — адреса наших машин через запятую (браузер владельца ключ не шлёт): точное совпадение с адресом клиента,
+      # как его видит лимитер (`lib/ratelimit/http.ts:clientIp`) — тоже без лимитов; пусто → пропуска по адресу нет.
       - TRIAL_DIR=/app/data/trial
       - TRIAL_WORKER_TOKEN=${TRIAL_WORKER_TOKEN:-}
       - TRIAL_OWN_KEY=${TRIAL_OWN_KEY:-}
+      - TRIAL_OWN_IPS=${TRIAL_OWN_IPS:-}
       - TRIAL_DAILY_CAP=${TRIAL_DAILY_CAP:-300}
       - TRIAL_QUEUE_MAX=${TRIAL_QUEUE_MAX:-5}
       - TRIAL_FILE_RETENTION_HOURS=${TRIAL_FILE_RETENTION_HOURS:-}

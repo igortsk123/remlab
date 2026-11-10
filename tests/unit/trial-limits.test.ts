@@ -53,6 +53,41 @@ describe("наши машины — ключ TRIAL_OWN_KEY", () => {
   });
 });
 
+describe("наши машины — адреса TRIAL_OWN_IPS (владелец TG 779; T-20261110-28)", () => {
+  const fromIp = (ip: string) => new Headers({ "x-forwarded-for": ip });
+  // как в `app/api/trial/route.ts`: наш — мимо лимита адреса, остальные — через `PRESETS.trialUpload`
+  const upload = async (ip: string, env: NodeJS.ProcessEnv, store: MemoryCounterStore, i: number) =>
+    isOwnMachine(fromIp(ip), env) || (await checkLimits(PRESETS.trialUpload(ip), DAY0 + i * 1000, store)).ok;
+
+  it("адрес из списка проходит 11-ю загрузку за час; чужой — 429 на 11-й", async () => {
+    const env = E({ TRIAL_OWN_IPS: " 81.2.3.4 , 2a00:23c5::1 " });
+    const store = new MemoryCounterStore();
+    for (let i = 0; i < 11; i++) expect(await upload("81.2.3.4", env, store, i)).toBe(true);
+    for (let i = 0; i < 11; i++) expect(await upload("2a00:23c5::1", env, store, i)).toBe(true);
+    for (let i = 0; i < 10; i++) expect(await upload("81.2.3.5", env, store, i)).toBe(true);
+    const r = await checkLimits(PRESETS.trialUpload("81.2.3.5"), DAY0 + 10_000, store);
+    expect(r).toMatchObject({ ok: false, reason: "rate" });
+  });
+
+  it("точное совпадение: частичный адрес, соседний, «local» без заголовка — не наши", () => {
+    const env = E({ TRIAL_OWN_IPS: "81.2.3.4" });
+    expect(isOwnMachine(fromIp("81.2.3.4"), env)).toBe(true);
+    expect(isOwnMachine(fromIp("81.2.3.4, 10.0.0.1"), env)).toBe(true); // первый в X-Forwarded-For, как у лимитера
+    expect(isOwnMachine(fromIp("81.2.3.40"), env)).toBe(false);
+    expect(isOwnMachine(fromIp("81.2.3"), env)).toBe(false);
+    expect(isOwnMachine(new Headers(), E({ TRIAL_OWN_IPS: "local" }))).toBe(false);
+  });
+
+  it("пустой список — как у всех: 11-я загрузка — 429", async () => {
+    for (const env of [E(), E({ TRIAL_OWN_IPS: "" }), E({ TRIAL_OWN_IPS: " , ," })]) {
+      const store = new MemoryCounterStore();
+      expect(isOwnMachine(fromIp("81.2.3.4"), env)).toBe(false);
+      for (let i = 0; i < 10; i++) expect(await upload("81.2.3.4", env, store, i)).toBe(true);
+      expect(await upload("81.2.3.4", env, store, 10)).toBe(false);
+    }
+  });
+});
+
 describe("сроки и потолок пробы", () => {
   it("исходный файл — 30 дней (как тур); env только укорачивает", () => {
     expect(trialResultDays(E())).toBe(30);
