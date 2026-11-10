@@ -1270,16 +1270,17 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 /* РЕЖИМ ПРОБЫ (agent-trial-08, `D.trial` → класс на body): шапка без цены, ЖК и менеджера, без сертификата, избранного и платной кнопки */
 body.trial #hmAva,body.trial #flatPriceSum,body.trial #flatMetaRow,body.trial #flatMore,body.trial #hmChat,body.trial #hmFav,body.trial #vFav,
 body.trial #hmBot,body.trial #consShot,body.trial #swapShot,body.trial #shotNow,body.trial #pcMort,body.trial #pcCons,body.trial .hm-tipw{display:none!important}
-/* фото товаров в пробе нет (ссылки магазина вычищены) — пустую плашку «нет фото» не показываем, строка без слота (T-20261109-20/3) */
-body.trial .row>.noimg-sm:not(.tr-thph),body.trial .prow>.pnoimg,body.trial .card>.noimg,body.trial #itemCard .ic-ph:has(.ic-no){display:none!important}
+/* ТУР БЕЗ ТОВАРОВ (`body.tr-nogoods` — данные старой сборки без `D.trial.goods`; тур с товарами показывает их ровно как /demo, этих
+   правил у него нет, T-20261110-25). Фото товаров нет — пустую плашку «нет фото» не показываем, строка без слота (T-20261109-20/3) */
+body.tr-nogoods .row>.noimg-sm:not(.tr-thph),body.tr-nogoods .prow>.pnoimg,body.tr-nogoods .card>.noimg,body.tr-nogoods #itemCard .ic-ph:has(.ic-no){display:none!important}
 /* карточка ленты без картинки: плашка «по размеру» стояла поверх места картинки — на названии; в пробе — в потоке, над ним (T-20261109-35/3) */
-body.trial #grid .card .badge{position:static;display:inline-block;align-self:flex-start;margin:0 0 6px}
-body.trial .row>.acts{padding-left:0}body.trial #flatRooms>.hint{flex:0 0 100%}body.trial .pinlist .row,body.trial .pinlist .row .t{min-height:0}
+body.tr-nogoods #grid .card .badge{position:static;display:inline-block;align-self:flex-start;margin:0 0 6px}
+body.tr-nogoods .row>.acts{padding-left:0}body.trial #flatRooms>.hint{flex:0 0 100%}body.tr-nogoods .pinlist .row,body.tr-nogoods .pinlist .row .t{min-height:0}
 /* СПИСОК ОКНА В ТУРЕ = СПИСОК /demo (T-20261109-35/2): плитка 64 px слева (снимок нашей 3D-модели, пока его нет — серая плитка без
    подписи), высота строки и отступ «Заменить» — как в /demo; место цены пустое, но той же ширины, чтобы колонка текста не скакала */
-body.trial #shot .pinlist .row{min-height:80px}body.trial #shot .pinlist .row .t{min-height:64px}
-body.trial #shot .pinlist .row>.acts{padding-left:74px}
-body.trial #shot .pinlist .row>.p{flex:0 0 40px}
+body.tr-nogoods #shot .pinlist .row{min-height:80px}body.tr-nogoods #shot .pinlist .row .t{min-height:64px}
+body.tr-nogoods #shot .pinlist .row>.acts{padding-left:74px}
+body.tr-nogoods #shot .pinlist .row>.p{flex:0 0 40px}
 #shot .pinlist .row .tr-thph{background:var(--wash-2)}
 /* «СМЕНИТЬ СТИЛЬ» НА ТЕЛЕФОНЕ — КАК В /demo (T-20261109-35/2): там плашка только в «Фото» (TG 523), а в туре «Фото» нет — окно всегда
    в 3D, и без этого правила сменить стиль на телефоне было негде. Место и вид те же (правый верх у «×»); пометка «Форма комнаты
@@ -1546,6 +1547,11 @@ let D=null, cur=0, items=[], sel=null, S=1, PAD=18;
 // странице по коду и языку (RU/EN, владелец 09.11 TG 486), не из данных: «нет подходящих товаров» — честная надпись, не вечная крутилка
 const TRIAL=()=>!!(D&&D.trial);
 const TR_EN=()=>LANG==='en';
+// ТОВАР КАК В /demo (T-20261110-25, владелец 10.11 TG 744): данные с товарами (`D.trial.goods`, сборщик `trial_bundle.py:attach_goods`)
+// показывают название, цену, фото, магазин и «В магазин» ТЕМ ЖЕ кодом, что /demo; на английском — маска показа (`MASK`: английское
+// название, без магазина и ссылки) и цена по курсу и наценке британского двойника (`D.trial.money_en`, `fxRate`). Данные без товаров
+// (старые сборки) — прежний режим пробы без цен: `TR_NOGOODS()` и класс `body.tr-nogoods`
+const TR_NOGOODS=()=>TRIAL()&&!D.trial.goods;
 // ИСХОД КОМНАТЫ — КОДОМ (`contracts/trial-bundle.ts`): сперва `furniture_outcome` (furnished / pending / no_products / not_readable /
 // not_furnished; прочие коды причин — отказ или «не обставляется» по таблице), нет его — `furniture_state` (ready / pending / refused /
 // not_furnished). Прежние слова сборщика (partial/none/failed, `furniture_code`) читаются так же — данные и страница вливаются порознь
@@ -1640,6 +1646,7 @@ function trialHead(){
 }
 function trialSetup(){
   document.body.classList.add('trial');
+  if(!D.trial.goods)document.body.classList.add('tr-nogoods');   // старая сборка без товаров — прежний вид без цен и фото (T-20261110-25)
   const t=TR_EN()?'Your floor plan':'Ваша планировка', fk=document.getElementById('flatKind');
   if(fk)fk.textContent=t;
   document.title=t;
@@ -5598,7 +5605,7 @@ function drawColl(force){
       (views>1?`<div class="badge2">${views} вида</div>`:'')+
       `</div>`+
       `<div class="body"><div class="nm">${v.style||v.title||('вариант '+(i+1))}</div>`+
-      `<div class="pr">${n} ${n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров')}${TRIAL()?'':` · <b>${money(p)}</b>`}</div>`+
+      `<div class="pr">${n} ${n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров')}${TR_NOGOODS()?'':` · <b>${money(p)}</b>`}</div>`+
       `<div class="acts">`+
         `<button class="btn" data-swap="${i}">Открыть</button>`+
         // ПУСТАЯ КАРТОЧКА ДОЛЖНА ПРЕДЛАГАТЬ СНЯТЬ (владелец 01.09: «когда фото чернового нет,
@@ -6152,7 +6159,7 @@ function drawHome(force){
       (c.stale?`<div class="hm-stale"><b>${EN?'You changed the room':'Вы изменили комнату'}</b><div class="hm-stb">`+
         `<button class="btn primary" type="button" data-hst="real">${EN?'Make it realistic':CTA_REAL}</button>`+
         (c.back?`<button class="btn" type="button" data-hst="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div></div>`:'')+
-      `<div class="rb"><div class="sum">${TRIAL()?`<b>${c.n} ${plural(c.n)}</b>`:`<b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}</small>`}</div>`+
+      `<div class="rb"><div class="sum">${TR_NOGOODS()?`<b>${c.n} ${plural(c.n)}</b>`:`<b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}</small>`}</div>`+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;
   }).join('')+
   // «ПЛАН КВАРТИРЫ» — ПЛАШКОЙ В РЯД С КОМНАТАМИ, ЧУТЬ ВЫДЕЛЕН ЦВЕТОМ (владелец 22.10, demo-20 А7); прежняя ссылка под комнатами убрана.
@@ -6327,7 +6334,7 @@ function openCons(mode){
   const head=document.getElementById('consWhat');
   if(head)head.textContent=mode==='edit'?'Планировка':'Новая расстановка';
   document.getElementById('consStyle').textContent=v.style||v.title||'';
-  document.getElementById('consSum').textContent=TRIAL()?'':'Комплект: '+money(variantPrice(v));
+  document.getElementById('consSum').textContent=TR_NOGOODS()?'':'Комплект: '+money(variantPrice(v));
   work.hidden=false; body.appendChild(work);
   let hint=document.getElementById('consHint');
   if(!hint){hint=document.createElement('div');hint.id='consHint';hint.className='cons-hint';}
@@ -6593,11 +6600,17 @@ function trRoleDup(name, role){ if(!TRIAL())return false;
   return n===w(b)||n===w(maskRoleEn(role))||(LANG==='en'&&/[а-яё]/.test(b)); }
 function itemShop(p){const m=MASK(); return m&&m.hideShops?'':String((p&&p.shop)||'');}
 function itemUrl(p){const m=MASK(); return m&&m.hideShops?'':String((p&&p.url)||'');}
-function fxRate(){return fxRateOf(FLAT);}
+// ПРОБА С ТОВАРАМИ (T-20261110-25): на английском — та же цена, что у английского /demo: курс и наценка британского двойника
+// (`D.trial.money_en`, кладёт `trial_bundle.uk_money` из `demo-uk.json`), в виде карточки для `fxRateOf`; по-русски — рубли
+function trMoneyCard(){const m=TRIAL()&&LANG==='en'&&D.trial.goods&&D.trial.money_en; if(!m)return null;
+  return {currency:m.currency, fx:m.fx, demoMask:{priceMarkup:m.priceMarkup}};}
+function fxRate(){return fxRateOf(TRIAL()?trMoneyCard():FLAT);}
 function toCard(rub){const r=fxRate(); return r?Math.round((+rub||0)*r):Math.round(+rub||0);}
 function fmtCard(v){const n=Math.round(+v||0);
-  if(TRIAL())return '';                            // проба: цен нет нигде (план agent-trial-08 В) — режимом, а не по местам
-  if(FLAT&&FLAT.currency==='GBP')return '£'+n.toLocaleString('en-GB');
+  if(TR_NOGOODS())return '';                       // проба старой сборки (без товаров): цен нет нигде (план agent-trial-08 В) — режимом
+  const C=TRIAL()?trMoneyCard():FLAT;
+  if(C&&C.currency==='GBP')return '£'+n.toLocaleString('en-GB');
+  if(TRIAL()&&LANG==='en')return '';               // проба на английском без курса — цену не пишем (рубли покупателю UK не показываем)
   if(DEMO_UK_PENDING())return '…';                 // английское демо ждёт британскую карточку — без вспышки рублей
   return n.toLocaleString('ru-RU')+' ₽';}
 function money(v){return fmtCard(toCard(v));}
@@ -6673,7 +6686,7 @@ function shotListHtml(s){
         // только у того, что нашлось в расстановке, а ваза лежит в отдельном списке.
         const own=items.find(i=>(skuOf(i)||{}).name===a.name)
           ||decorList().find(x=>(x.sku||{}).name===a.name);
-        if(TRIAL())return trRowHtml(a,k,own);   // проба: та же строка, картинка — наша 3D-модель, без цены и магазина (T-20261109-35/2)
+        if(TR_NOGOODS())return trRowHtml(a,k,own);   // проба старой сборки (без товаров): картинка — наша 3D-модель, без цены и магазина (T-20261109-35/2); с товарами — строка /demo
         return `<div class="row" style="cursor:default" data-k="${k}"${a.sid?` data-sid="${escHtml(a.sid)}"`:''}>`+
           // первые 10 строк — сразу, остальные — лениво; до загрузки — заглушка тона страницы (demo-21 п.5), загрузилась — белая плитка
           (a.img?`<img src="${a.img}" loading="${k<10?'eager':'lazy'}" alt="" onload="this.classList.add('ld')">`:'<div class="noimg-sm">нет фото</div>')+
@@ -7143,7 +7156,7 @@ stage.addEventListener('pointerdown',e=>{if(vwEditLock()){e.preventDefault(); re
         drag={dx:touchStart.pt.x-hit.x,dy:touchStart.pt.y-hit.y,t:Date.now(),moved:false};
         if(navigator.vibrate)navigator.vibrate(30);},450);
     }else{hideRotOvl();drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};}
-    document.getElementById('sel').textContent=TRIAL()&&hit.sku&&hit.sku.name?`Выбрано: ${itemName(hit.sku,hit.role)}`   // проба: размер — в названии
+    document.getElementById('sel').textContent=TR_NOGOODS()&&hit.sku&&hit.sku.name?`Выбрано: ${itemName(hit.sku,hit.role)}`   // проба: размер — в названии
       :`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d_catalog??hit.d)} см`+(hit.sku&&hit.sku.name?` · ${itemName(hit.sku,hit.role)}`:'');
     warmUp();draw();showTip(hit);}});
 stage.addEventListener('pointermove',e=>{
@@ -7361,7 +7374,7 @@ function filters(){
   if(st&&!TRIAL())add('Только стиль '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);   // проба: стиль ленту не режет (`feedFor`)
   // пороги — рубли витрины; подписи — в валюте карточки (британский двойник: £)
   const fx=fxRate(), EN=LANG==='en';
-  if(!TRIAL()){   // проба: цен нет — и отбора по цене нет
+  if(!TR_NOGOODS()){   // проба: цен нет — и отбора по цене нет
   add(fx?(EN?'under ':'до ')+money(30000):'до 30 тыс',F.price==='lo',()=>F.price=F.price==='lo'?null:'lo');
   add(fx?money(30000)+'–'+money(60000):'30–60 тыс',F.price==='mid',()=>F.price=F.price==='mid'?null:'mid');
   add(fx?money(60000)+'+':'60+ тыс',F.price==='hi',()=>F.price=F.price==='hi'?null:'hi');
@@ -7489,7 +7502,7 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
     if(s.d_catalog!=null)it.d_catalog=s.d_catalog; else delete it.d_catalog;});
   sel=s;
   // проба: размер уже в названии («Диван · 214×98 см») — второй раз не пишем
-  document.getElementById('sel').innerHTML=`Примерено: <b>${itemName(p,s.role)}</b>`+(TRIAL()?'':` · ${trJoin(Math.round(p.w)+'×'+Math.round(p.d_catalog??p.d)+' см',money(p.price))}`)+
+  document.getElementById('sel').innerHTML=`Примерено: <b>${itemName(p,s.role)}</b>`+(TR_NOGOODS()?'':` · ${trJoin(Math.round(p.w)+'×'+Math.round(p.d_catalog??p.d)+' см',money(p.price))}`)+
     (itemUrl(p)?` · <a href="${itemUrl(p)}" target="_blank" rel="noopener">открыть в магазине</a>`:'');
   draw();}
 
@@ -8108,7 +8121,7 @@ function vwSum(){
     t.onRequest.length?`<div class="vpl-dev">${EN?'price on request: ':'цена уточняется у менеджера: '}${t.onRequest.map(escHtml).join(', ')}</div>`:''].join(''):'';
   // ПЛАШКА СЕРТИФИКАТА (demo-02 v3, владелец 16.10: «явно и ярко: сертификат на N, выбрано столько-то, остаток такой-то»):
   // отдельный элемент над шторкой (телефон) / шапкой колонки (компьютер), вне прокрутки — сумма видна при замене из глубины списка
-  if(TRIAL())return `<div class="vpl-h"><span>${n} ${word}</span></div>`;   // проба: число предметов без цены
+  if(TR_NOGOODS())return `<div class="vpl-h"><span>${n} ${word}</span></div>`;   // проба: число предметов без цены
   if(!cert)return `<div class="vpl-h"><span>${n} ${word}</span><b data-k="sum" data-to="${sumC}">${money(sumC)}</b></div>${extra}`;
   // ШКАЛА ОКНА = ШКАЛА НИЗА ГЛАВНОЙ (макет 373:7035, home-figma-02; прежде — корзина избранного и «светлая часть — что добавит»):
   // «Выбрано» — все комнаты главной, эта — своей нынешней расстановкой (замена видна сразу); полоса двумя цветами — эта комната и
@@ -8181,7 +8194,7 @@ function vwHtml(s, navs, list){
     // «Фото | 3D» без «План» (макет 373:7035, home-figma-02): план квартиры — на главной; режим `plan` в коде остаётся
     `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button></div>`+
     `<button class="vstyle" id="vOtherTop" type="button" aria-haspopup="dialog"${vwCanStyle()?'':' hidden'}>${EN?'Change style':'Сменить стиль'}</button>`+
-    (TRIAL()?'':`<button class="vprice" id="vPriceTop" type="button" data-off="${PRICES_OFF?1:0}">${vwPriceLabel()}</button>`)+   // проба: цен нет — и кнопки нет
+    (TR_NOGOODS()?'':`<button class="vprice" id="vPriceTop" type="button" data-off="${PRICES_OFF?1:0}">${vwPriceLabel()}</button>`)+   // проба: цен нет — и кнопки нет
     // РАКУРСЫ СЛОВАМИ (владелец 18.10, demo-15 п.3: «стрелочки непонятно что значат»): один переключатель для «Фото» и 3D,
     // подписи — по месту камеры (`vwCamNames`); ← → на компьютере остаются (`vwPhoto`), свайп по фото ракурс не листает (demo-22)
     `<div class="vcams" id="vCams" role="tablist">${vwCamLabels().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
@@ -8707,7 +8720,7 @@ function vwPinsTick(now){
   const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
   if(box!==PINS.box){PINS.box=box; PINS.map.clear(); PINS.fr=null;
     box.onclick=e=>{const b=e.target.closest&&e.target.closest('[data-pi]'); if(b)vwHighlight(+b.dataset.pi);};}
-  const on=shot.classList.contains('on')&&VW.mode==='walk'&&!PRICES_OFF&&!TRIAL()&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;   // проба: ценников нет
+  const on=shot.classList.contains('on')&&VW.mode==='walk'&&!PRICES_OFF&&!TR_NOGOODS()&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;   // проба: ценников нет
   if(!on){if(box.childElementCount)box.innerHTML=''; PINS.map.clear(); return;}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
     PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready')]
@@ -9298,7 +9311,7 @@ const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пу�
       // мягкое (demo-24): в 3D замены не видно — сообщение говорит, где она появится (тот же текст, что у `tryOn`)
       if(s0.dec!==undefined&&isSoft(role))softSwapToast();
       // по-русски и в EN: «Заменено: …» переводит словарь EN вместе с ролью («Replaced: sofa»); готовое «Replaced: диван» он не узнавал
-      else toast('Заменено: '+what+(d&&!TRIAL()?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
+      else toast('Заменено: '+what+(d&&!TR_NOGOODS()?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
       // шторка уже свёрнута — сцена с заменой видна; наведение камеры — после обновления сцены (`liveShow`, demo-15 п.2).
       // КОНТУР СНИМАЕМ СРАЗУ (demo-20 Б4, владелец 22.10: «рамку убирать автоматически»): заменённое видно и так — камера у предмета
       vwSelect(null);
@@ -10967,6 +10980,8 @@ function quizPick(rule, answers, available, styleColours){
     [/^(.+?) · (\d+(?:×\d+)+)\s*см · (.+)$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]+' cm · '+m[3]:null;}],
     // строка товара «стул · divan.ru · 2 шт.», размеры ленты «198×90×83 см · divan.ru», бейдж «больше места на 23 см» (п.9 16.10)
     [/^(.+?) · (.+?) · (\d+) шт\.$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]+' · '+m[3]+' pcs':null;}],
+    // та же строка без магазина (английская маска его прячет, demo-31): «стул · 2 шт.» оставалась по-русски (T-20261110-25)
+    [/^(.+?) · (\d+) шт\.$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]+' pcs':null;}],
     [/^(\d+(?:×\d+)+)\s*см( · .+)?$/,function(m){return m[1]+' cm'+(m[2]||'');}],
     [/^больше места на (\d+) см$/,function(m){return 'needs '+m[1]+' cm more room';}],
     [/^ещё (\d+) цвет(?:а|ов)?$/,function(m){return '+'+m[1]+' more colour'+(m[1]==='1'?'':'s');}],

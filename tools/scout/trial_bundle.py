@@ -14,9 +14,18 @@
   `not_furnished` — комнату не обставляем по типу (кухня, санузел, прихожая, прочее): не цель, завершённости не мешает.
 Цели — гостиные и спальни (`TARGET_KINDS`); `trial.complete` — ни одной цели в `pending` (дирижёр ставит `done` только при нём).
 
-ОЧИСТКА (общий разрешённый список для ВСЕХ комнат): предмет — только `ITEM_KEYS`, его `sku` — только `SKU_KEYS` (нейтральное имя
-по роли, ключ модели, размеры), ленты — `FEED_KEYS`; ни названий товаров и магазинов, ни ссылок, ни цен. `assert_public` проверяет
-ВЕСЬ собранный JSON; нашлось — отказ `shop_leak`, а не публикация.
+ОЧИСТКА (общий разрешённый список для ВСЕХ комнат): предмет — только `ITEM_KEYS`, его `sku` — только `SKU_KEYS` (имя, ключ модели,
+размеры) и поля товара `/demo` (`PRODUCT_KEYS`), ленты — `FEED_KEYS`. `assert_public` проверяет ВЕСЬ собранный JSON; нашлось — отказ
+`shop_leak`, а не публикация.
+
+ТОВАР КАК В `/demo` (T-20261110-25, владелец 10.11 TG 744: «всё с товарами, как в России; на английской — без названия магазина и
+цена с коэффициентом, ровно как на демо»): у предмета и строки ленты — название, цена, фото, ссылка «В магазин» и магазин, тем же
+источником, что у витрины (`flat215_demo._sku`: название, фото, ссылка, магазин — товар банка по ключу `sid`, цена — текущая из
+каталога `catalog_media`, нет её — банка; товара нет в банке — всё из каталога). Данные товара берутся ТОЛЬКО так по `sid`
+(`catalog_goods`, `bank_index`), а не из входа стадий; `sid` в выход не идёт (`NEVER_KEYS`), поля товара — только на своих местах
+(`variants[].items[].sku`, `feeds`, `sofa_feed`) и с проверенным видом (`_goods_ok`). Английскую цену (курс × наценка двойника /demo)
+страница считает по `trial.money_en` (`uk_money` из `data/partners/demo-uk.json`), магазин и ссылку на английском прячет сама —
+как у /demo (`index.html:MASK`). Товара нет ни в банке, ни в каталоге (или в каталоге он ушёл) — предмет остаётся с нейтральным именем без цены, как раньше.
 
 ОПРОС: `quiz` — правило `rules/quiz.json` целиком, как в живом `/demo`: без `D.quiz.questions` ссылка покупателя `?quiz=1` опрос не откроет.
 
@@ -33,6 +42,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -194,8 +204,20 @@ def room_titles(name: str | None, kind: str) -> tuple[str, str]:
 # ───────────────────────── общий разрешённый список полей товара (все комнаты) ─────────────────────────
 ITEM_KEYS = {'role', 'x', 'y', 'rot', 'w', 'd', 'h', 'dims_src', 'sku', 'corner', 'corner_left', 'section', 'elev'}
 SKU_KEYS = {'name', 'name_en', 'colour_en', 'colour_ru', 'msid', 'w', 'd', 'h', 'sleep_w'}
-FEED_KEYS = SKU_KEYS | {'style', 'styles', 'src', 'corner'}
+# товар как в /demo (см. шапку): цена (₽ витрины), фото — плитка витрины `img/<md5>.jpg`, ссылка — та же партнёрская, магазин
+PRODUCT_KEYS = {'price', 'img', 'url', 'shop'}
+PUBLIC_SKU_KEYS = SKU_KEYS | PRODUCT_KEYS
+# куски стадий (внутренние файлы DEV, в выход не идут): плюс ключ товара `sid` — по нему сборщик берёт товар из каталога
+STAGE_SKU_KEYS = SKU_KEYS | {'sid'}
+FEED_KEYS = PUBLIC_SKU_KEYS | {'style', 'styles', 'src', 'corner'}
 BANNED_KEYS = {'url', 'url_direct', 'shop', 'img', 'img_hd', 'price', 'brand'}
+# в данных страницы — нигде и никогда: ключи товара у поставщика, служебная прямая ссылка, бренд
+NEVER_KEYS = {'sid', 'mid', 'eid', 'probe_url', 'url_direct', 'img_hd', 'brand'}
+# где у данных страницы товар: предмет варианта, строки лент замен (`sofa_feed` — лента дивана)
+GOODS_AT = re.compile(r'\$\.variants\[\d+\]\.items\[\d+\]\.sku|\$\.feeds\.[^\[\]]+\[\d+\]|\$\.sofa_feed\[\d+\]')
+IMG_RE = re.compile(r'img/[0-9a-f]{16}\.jpg')
+URL_RE = re.compile(r'https://[^\s"\'<>`\\]{4,2000}')
+UK_PARTNER = os.path.join(HERE, '..', '..', 'data', 'partners', 'demo-uk.json')   # британский двойник /demo: курс и наценка
 SHOP_LINKS = re.compile(r'(https?:|//[a-z0-9.-]+\.[a-z]{2,}|gdeslon|\berid=)', re.I)
 TOKEN_MIN = 6                             # короче — слишком общее слово (роль «пуф»), ловило бы само себя
 # имя товара на странице — нейтральное по роли: по-русски (`name`) и по-английски (`name_en`, словарь ролей живой витрины
@@ -221,7 +243,137 @@ def quiz_rule() -> dict:
 def default_ctx() -> dict:
     """Что берётся у живого демо: числа правил страницы, модель товара, правило опроса. Импорт `flat215_demo` тяжёлый — только здесь."""
     import flat215_demo as FD
-    return {'rules': {**FD._rules(), 'soft_roles': FD.soft_roles()}, 'msid_of': FD._msid, 'slot_band': FD._slot_band, 'quiz': quiz_rule()}
+    return {'rules': {**FD._rules(), 'soft_roles': FD.soft_roles()}, 'msid_of': FD._msid, 'slot_band': FD._slot_band, 'quiz': quiz_rule(),
+            'goods': catalog_goods, 'money_en': uk_money()}
+
+
+# ───────────────────────── товар как в /demo (T-20261110-25) ─────────────────────────
+
+def demo_img(u: str | None) -> str | None:
+    """Фото товара — плитка витрины `/demo` (`flat215_demo.cache_images`: `img/<md5 адреса>.jpg`); тур отдаёт `img/*` переадресацией
+    на `/demo/img/` (`lib/trial/tour.ts:SHARED_IMG`). Плитки нет — фото нет (как у предмета /demo, не скачавшего фото: «нет фото»)."""
+    if not u:
+        return None
+    import flat215_demo as FD
+    name = hashlib.md5(u.encode()).hexdigest()[:16] + '.jpg'
+    return f'img/{name}' if os.path.isfile(os.path.join(FD.OUT, 'img', name)) else None
+
+
+def _bank_sid(it: dict) -> str | None:
+    s = it.get('sid')
+    if isinstance(s, str) and s:
+        return s.replace(':', '_', 1)
+    return f"{it['mid']}_{it['eid']}" if it.get('mid') and it.get('eid') else None
+
+
+def bank_index(paths: list | None = None) -> dict:
+    """{sid «mid_eid»: товар банка} — банки, из которых этапы пробы берут мебель: гостиная (`trial_demo.sets_path`, env `TRIAL_SETS`)
+    и спальня (env `TRIAL_BEDROOM_SETS` или `sets-bedroom.json`). Товар — любой словарь с названием и ключом поставщика (наборы,
+    `alternates`). Нет файла — пропуск."""
+    if paths is None:
+        paths = [TD.sets_path(), os.environ.get('TRIAL_BEDROOM_SETS') or os.path.join(HERE, 'sets-bedroom.json')]
+    idx: dict = {}
+
+    def walk(o):
+        if isinstance(o, dict):
+            sid = _bank_sid(o) if o.get('name') else None
+            if sid:                     # в банке есть и урезанные копии товара (название + цена) — поля сливаем, первое непустое
+                cur = idx.setdefault(sid, {})
+                cur.update({k: v for k, v in o.items() if v not in (None, '') and cur.get(k) in (None, '')})
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    for p in paths:
+        if p and os.path.isfile(p):
+            walk(json.load(open(p, encoding='utf-8')))
+    return idx
+
+
+def catalog_goods(sid: str | None, role: str, bank: dict | None = None) -> dict | None:
+    """Товар по ключу `sid` («mid_eid») — ровно как у товара `/demo` (`flat215_demo._sku`): название, фото, партнёрская ссылка и
+    магазин — из товара БАНКА, цена — текущая из каталога `catalog_media`, нет её — цена банка. Товара нет в банке (старые сцены) —
+    всё из каталога. Английское название — `trial_demo._names_en` (правило живой витрины). Не нашли / без названия / без цены — None
+    (предмет остаётся нейтральным); каталог ушёл из продажи и банка нет — None. Каталог недоступен — исключение."""
+    if not isinstance(sid, str) or '_' not in sid:
+        return None
+    mid, eid = sid.split('_', 1)
+    import catalog_media as CM
+    m = CM.media(mid, eid) or {}
+    b = (bank if bank is not None else _bank()).get(sid)
+    if b:
+        src, price = b, m.get('price') or b.get('price')
+    elif m and m.get('state') != 'gone':
+        src, price = m, m.get('price')
+    else:
+        return None
+    if not src.get('name') or not isinstance(price, (int, float)) or not price > 0:
+        return None
+    url = src.get('url') if URL_RE.fullmatch(str(src.get('url') or '')) else None
+    ne = TD._names_en({'name': src['name'], 'mid': mid, 'eid': eid}, role)
+    return {'name': src['name'], 'name_en': ne.get('name_en') or None, 'colour_en': ne.get('colour_en') or None, 'price': int(price),
+            'img': demo_img(src.get('img')), 'url': url, 'shop': (src.get('shop') or None)}
+
+
+_BANK: dict | None = None
+
+
+def _bank() -> dict:
+    global _BANK
+    if _BANK is None:
+        _BANK = bank_index()
+    return _BANK
+
+
+def uk_money() -> dict | None:
+    """Английская цена — ровно как у английского `/demo` (`index.html:fxRateOf`): рубли × курс карточки британского двойника × его
+    наценка (`demoMask.priceMarkup`, владелец 30.10 demo-31). Источник один — `data/partners/demo-uk.json`; нет/кривой — None
+    (страница на английском тогда цену не пишет)."""
+    try:
+        p = json.load(open(UK_PARTNER, encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    fx = p.get('fx') or {}
+    if not (fx.get('from') == 'RUB' and fx.get('to') == p.get('currency') and isinstance(fx.get('rate'), (int, float)) and fx['rate'] > 0):
+        return None
+    twin = next((a for a in p.get('apartments') or [] if (a.get('sources') or {}).get('demoData') == '/demo/demo-data.json'
+                 and a.get('demoMask')), None)
+    mk = ((twin or {}).get('demoMask') or {}).get('priceMarkup')
+    return {'currency': p['currency'], 'fx': {k: fx.get(k) for k in ('from', 'to', 'rate', 'asOf')},
+            'priceMarkup': mk if isinstance(mk, (int, float)) and mk > 0 else 1}
+
+
+class _Goods:
+    """Обёртка резолвера товара на одну сборку: каталог недоступен — товары выключаются на всю сборку (флаг `goods_unavailable`),
+    тур собирается как раньше, без цен, а не падает."""
+
+    def __init__(self, fn):
+        self.fn, self.down = fn, None
+
+    def __call__(self, sid, role):
+        if not self.fn or self.down:
+            return None
+        try:
+            return self.fn(sid, role)
+        except Exception as e:  # noqa: BLE001 — сбой каталога не роняет тур: без товаров, с флагом
+            self.down = str(e)[:200]
+            return None
+
+
+def attach_goods(sku: dict, sid, role: str, goods) -> dict:
+    """Поля товара /demo в `sku` (на месте): название и английское название, цвет, цена, фото, ссылка, магазин. Нет товара — как было."""
+    g = goods(sid, _base_role(role)) if goods and sid else None
+    if g:
+        sku.update({k: v for k, v in g.items() if v not in (None, '')})
+    return sku
+
+
+def goods_meta(variants: list, money_en) -> dict:
+    """`trial.goods` — у предметов есть товары (страница показывает цены, фото и «В магазин», как /demo); `trial.money_en` — курс и
+    наценка английской цены. Товаров нет — полей нет (страница — прежний режим без цен)."""
+    has = any(isinstance((it.get('sku') or {}).get('price'), (int, float)) for v in variants for it in v.get('items') or [])
+    return {'goods': True, **({'money_en': money_en} if money_en else {})} if has else {}
 
 
 # ───────────────────────── этажи ─────────────────────────
@@ -465,8 +617,8 @@ def name_items(variants: list) -> None:
     for v in variants:
         for it in v.get('items') or []:
             sku = it.get('sku')
-            if not isinstance(sku, dict):
-                continue
+            if not isinstance(sku, dict) or isinstance(sku.get('price'), (int, float)):
+                continue                             # товар каталога (`attach_goods`) — его название, как у /demo
             base = _base_role(it.get('role') or '')
             dm = _dims(sku, it)
             key = (base, sku.get('msid'), dm, sku.get('sleep_w'))
@@ -489,11 +641,12 @@ def name_items(variants: list) -> None:
                 sku.pop('colour_ru', None)
 
 
-def public_item(it: dict) -> dict:
-    """Предмет варианта — только разрешённые поля: общий фильтр для гостиной, спален и любых будущих комнат."""
+def public_item(it: dict, sku_keys=PUBLIC_SKU_KEYS) -> dict:
+    """Предмет варианта — только разрешённые поля: общий фильтр для гостиной, спален и любых будущих комнат. Стадии (внутренний файл)
+    зовут его с `STAGE_SKU_KEYS` (с `sid`, без полей товара), сборщик — с `PUBLIC_SKU_KEYS` (поля товара, без `sid`)."""
     out = {k: v for k, v in it.items() if k in ITEM_KEYS}
     if isinstance(out.get('sku'), dict):
-        out['sku'] = {k: v for k, v in out['sku'].items() if k in SKU_KEYS}
+        out['sku'] = {k: v for k, v in out['sku'].items() if k in sku_keys}
     return out
 
 
@@ -515,13 +668,38 @@ def shop_tokens(scene: dict | None) -> list:
     return sorted(t for t in toks if len(t) >= TOKEN_MIN and t not in names)
 
 
-def assert_public(obj, tokens: list) -> None:
-    """Проверка очисткой ВЫВОДА: ни запрещённых полей, ни ссылок, ни названий товаров/магазинов во всём JSON → иначе `shop_leak`."""
+def _goods_ok(k: str, v) -> bool:
+    """Вид поля товара в данных страницы: цена — число ≥ 0, фото — плитка витрины, ссылка — https без кавычек и пробелов, магазин —
+    короткая строка без разметки. Иное — утечка/мусор, отказ."""
+    if k == 'price':
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0
+    if k == 'img':
+        return isinstance(v, str) and bool(IMG_RE.fullmatch(v))
+    if k == 'url':
+        return isinstance(v, str) and bool(URL_RE.fullmatch(v))
+    if k == 'shop':
+        return isinstance(v, str) and 0 < len(v) <= 80 and not re.search(r'[<>"`\\]', v)
+    return False
+
+
+def assert_public(obj, tokens: list, goods: bool = False) -> None:
+    """Проверка очисткой ВЫВОДА: ни запрещённых полей, ни ссылок, ни названий товаров/магазинов во всём JSON → иначе `shop_leak`.
+    `goods` (данные страницы, T-20261110-25): поля товара /demo (`PRODUCT_KEYS`) разрешены ТОЛЬКО на местах товара (`GOODS_AT`) и
+    проверенного вида; их значения и название товара там — не утечка; `NEVER_KEYS` (`sid` и пр.) — нигде. Стадии зовут без `goods`."""
     pats = [re.compile(r'(?<!\w)' + re.escape(t) + r'(?!\w)') for t in tokens]
 
     def walk(v, path):
         if isinstance(v, dict):
+            at = goods and bool(GOODS_AT.fullmatch(path))
             for k, x in v.items():
+                if goods and k in NEVER_KEYS:
+                    raise BundleRefused('shop_leak', f'запрещённое поле {path}.{k}')
+                if at and k in PRODUCT_KEYS:
+                    if x is not None and not _goods_ok(k, x):
+                        raise BundleRefused('shop_leak', f'поле товара {path}.{k} не того вида')
+                    continue
+                if at and k == 'name' and isinstance(x, str):
+                    continue                         # название товара на месте товара — как у /demo
                 if k in BANNED_KEYS or (isinstance(k, str) and (k.endswith('_url') or k == 'href')):
                     raise BundleRefused('shop_leak', f'запрещённое поле {path}.{k}')
                 walk(x, f'{path}.{k}')
@@ -582,28 +760,30 @@ def _outcome(state: str, code: str | None = None) -> dict:
     return {'furniture_state': state, 'furniture_outcome': outcome, 'furniture_code': code, 'furniture_text': ru, 'furniture_text_en': en}
 
 
-def _item(row: dict, place: dict | None, msid_of) -> dict:
+def _item(row: dict, place: dict | None, msid_of, goods=None) -> dict:
     """Строка сцены `trial_demo` → предмет варианта по разрешённому списку: имя — нейтральное по роли, модель — `msid`.
     Строка нового формата (`trial_demo.public_row`) несёт `msid` сама: там он уже проверен правилом «годная модель» (нет годной — null,
-    в кадре серая форма); по `sid` его тогда НЕ выводим — иначе вернётся модель семьи, снятая проверкой. Цвет — её `colour_en`."""
+    в кадре серая форма); по `sid` его тогда НЕ выводим — иначе вернётся модель семьи, снятая проверкой. Цвет — её `colour_en`.
+    Товар (название, цена, фото, ссылка, магазин) — из каталога по `sid` строки (`attach_goods`), не из самой строки."""
     p = place or {}
     h = row.get('h') if row.get('h') is not None else p.get('h')
     ru, en = neutral_names(row['role'])
     msid = row['msid'] if 'msid' in row else (msid_of(row.get('sid')) if row.get('sid') else None)
     colour = clean_colour(row['colour_en']) if row.get('colour_en') else colour_en(row.get('name'), _base_role(row['role']))
-    sku = {'name': ru, 'name_en': en, 'colour_en': colour, 'msid': msid, 'w': row.get('w'), 'd': row.get('d'), 'h': h}
+    sku = attach_goods({'name': ru, 'name_en': en, 'colour_en': colour, 'msid': msid, 'w': row.get('w'), 'd': row.get('d'), 'h': h},
+                       row.get('sid'), row['role'], goods)
     return public_item({'role': row['role'], 'x': row['x'], 'y': row['y'], 'rot': int(row.get('rot') or 0), 'w': row.get('w'), 'd': row.get('d'),
                         'h': h, 'dims_src': 'каталог', 'sku': sku, 'corner': bool(row.get('corner')), 'corner_left': bool(p.get('corner_left')),
                         'section': p.get('section')})
 
 
-def _scene_variant(sv: dict, room_id: str, geo: dict, msid_of) -> dict:
+def _scene_variant(sv: dict, room_id: str, geo: dict, msid_of, goods=None) -> dict:
     style = sv.get('style') or PENDING_STYLE
     failed = bool(sv.get('failed'))
     state = 'failed' if failed else ('ready' if sv.get('post_ok') and not sv.get('hard') else 'partial')
     place = {p['role']: p for p in sv.get('placements_core') or []}
     out = {'id': f"set{sv['set_index']}", 'title': style.capitalize(), 'style': style, 'style_id': STYLE_IDS.get(style, ''),
-           'room_id': room_id, 'items': [_item(r, place.get(r['role']), msid_of) for r in sv.get('items') or []], 'decor': [],
+           'room_id': room_id, 'items': [_item(r, place.get(r['role']), msid_of, goods) for r in sv.get('items') or []], 'decor': [],
            'dims_unknown': [], 'missing_item': [{'role': r} for r in sv.get('absent_roles') or []], 'fill': [], 'fill_pct': None,
            'cams': [], 'pending': False, 'furniture_state': state, 'room_size': {'w': geo['w'], 'd': geo['d']}}
     if state != 'ready':
@@ -690,7 +870,7 @@ def _living_rooms(result: dict, cfg: dict) -> tuple[list, list]:
     return [(panel, main)] + rest, flags
 
 
-def _map_parts(parts: list, panels: list, ids: dict, livings: set) -> dict:
+def _map_parts(parts: list, panels: list, ids: dict, livings: set, goods=None) -> dict:
     """Куски других стадий (спальни — `trial_bedroom.bundle_parts`) → {id комнаты задания: {entry, geo, variants}}.
     Комната кусков находится по (`panel`, `src_id`), если кусок их несёт, иначе по id; чужая, гостиная или повторная — `parts_mismatch`."""
     by_src = {(p['id'], r['id']): ids[id(r)] for p in panels for r in p['rooms']}
@@ -708,20 +888,23 @@ def _map_parts(parts: list, panels: list, ids: dict, livings: set) -> dict:
             if v.get('room_id') not in remap:
                 raise BundleRefused('parts_mismatch', f"вариант {v.get('id')} без комнаты куска")
             out[remap[v['room_id']]]['variants'].append({**v, 'room_id': remap[v['room_id']],
-                                                         'items': [_part_item(it) for it in v.get('items') or []]})
+                                                         'items': [_part_item(it, goods) for it in v.get('items') or []]})
     return out
 
 
-def _part_item(it: dict) -> dict:
-    """Предмет из куска стадии → разрешённые поля, имя — нейтральное по роли на обоих языках (кровать — с шириной спального места)."""
-    out = public_item(it)
+def _part_item(it: dict, goods=None) -> dict:
+    """Предмет из куска стадии → разрешённые поля, имя — нейтральное по роли на обоих языках (кровать — с шириной спального места).
+    Поля товара из куска не берём никогда; товар — из каталога по `sku.sid` куска (`attach_goods`; кусок старой сборки без `sid` —
+    нейтральный предмет, как раньше)."""
+    sid = (it.get('sku') or {}).get('sid') if isinstance(it.get('sku'), dict) else None
+    out = public_item(it, SKU_KEYS)
     sku = dict(out.get('sku') or {})
     ru, en = neutral_names(out.get('role') or '')
     sw = sku.get('sleep_w')
     if isinstance(sw, (int, float)) and sw > 0:
         ru, en = f'{ru} {round(sw)} см', f'{en} {round(sw)} cm'
     sku.update(name=ru, name_en=en)
-    out['sku'] = sku
+    out['sku'] = attach_goods(sku, sid, out.get('role') or '', goods)
     return out
 
 
@@ -776,7 +959,8 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
             if id(r) not in ids:
                 counters[r['kind']] = counters.get(r['kind'], 0) + 1
                 ids[id(r)] = f"{r['kind']}-{counters[r['kind']]}"
-    pmap = _map_parts(parts, panels, ids, {id(r) for _, r in livings})
+    goods = _Goods(ctx.get('goods'))                 # товар как в /demo — из каталога по `sid` (контекст теста без него — без товаров)
+    pmap = _map_parts(parts, panels, ids, {id(r) for _, r in livings}, goods)
     storey_map, storey_flags = storeys(panels)
     rooms_geo, apartment_rooms, variants = {}, [], []
     outcomes = {ids[id(x['room'])]: _outcome('refused', x['code']) for x in refused}
@@ -802,7 +986,7 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
         rid, geo = ids[id(room)], geos[id(room)]
         put_geo(panel, room, rid, geo, LIVING)
         if room is main and furnished:
-            ready = [_scene_variant(sv, rid, geo, ctx['msid_of']) for sv in scene['variants']]
+            ready = [_scene_variant(sv, rid, geo, ctx['msid_of'], goods) for sv in scene['variants']]
             shown = any(v['items'] and v['furniture_state'] != 'failed' for v in ready)
             if shown:
                 variants += sorted(ready, key=lambda v: v['furniture_state'] == 'failed')
@@ -901,7 +1085,9 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     trial = {'job_id': job_id, 'scale': result['scale']['status'],
              **({'scale_note': {'ru': note[0], 'en': note[1]}} if note else {}), 'furniture': SCENE_FURNITURE[scene['status']] if scene else 'pending',
              'complete': all(r['furniture_state'] != 'pending' for r in apartment_rooms),
-             'flags': sorted(set(result.get('flags') or []) | set(flags) | set(storey_flags) | set((scene or {}).get('flags') or [])),
+             'flags': sorted(set(result.get('flags') or []) | set(flags) | set(storey_flags) | set((scene or {}).get('flags') or [])
+                             | ({'goods_unavailable'} if goods.down else set())),
+             **goods_meta(variants, ctx['money_en'] if 'money_en' in ctx else uk_money()),
              'refused_rooms': [{'room_id': ids[id(x['room'])], 'code': x['code'], 'detail': x['detail']} for x in refused],
              'panels': [{'id': p['id'], 'title': p['title'],
                          **({'storey': storey_map[i]} if i in storey_map else {}),
@@ -912,7 +1098,7 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     out = {'room': room, 'rooms_geo': rooms_geo, 'apartment_id': '', 'plan': {}, 'apartment_rooms': apartment_rooms,
            'rooms_enabled': sorted(with_variant), 'variants': variants, 'sets': [], 'sofa_feed': feeds.get('диван', []), 'feeds': feeds,
            'rules': rules, 'incomplete_styles': [], 'quiz': quiz, 'trial': trial}
-    assert_public(out, shop_tokens(scene))           # поймали — отказ, а не публикация
+    assert_public(out, shop_tokens(scene), goods=True)   # поймали — отказ, а не публикация
     return out
 
 

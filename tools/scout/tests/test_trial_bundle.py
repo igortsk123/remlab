@@ -788,3 +788,125 @@ def test_sample_for_ts_contract_is_current():
             f.write(now)
     with open(path, encoding='utf-8') as f:
         assert f.read() == now
+
+
+# ───────── товар как в /demo (T-20261110-25, владелец 10.11 TG 744): название, цена, фото, ссылка, магазин — из каталога по `sid` ─────────
+
+CATALOG = {'1_2': {'name': 'Диван прямой divan.ru Викс Рогожка Серый', 'name_en': 'Viks straight sofa, grey woven fabric',
+                   'colour_en': 'grey woven fabric', 'price': 25990, 'img': 'img/833aa090526a8096.jpg',
+                   'url': 'https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fp&erid=2SDn', 'shop': 'divan.ru'},
+           '7_bed': {'name': 'Кровать Люкс 160×200 Hoff', 'name_en': 'Lux bed 160×200, oak', 'colour_en': 'oak', 'price': 41990,
+                     'img': None, 'url': 'https://xf.gdeslon.ru/cm/aa/?goto=x', 'shop': 'Hoff'}}
+MONEY = {'currency': 'GBP', 'fx': {'from': 'RUB', 'to': 'GBP', 'rate': 0.0089, 'asOf': '2026-10-16'}, 'priceMarkup': 1.5}
+GCTX = {**CTX, 'goods': lambda sid, role: dict(CATALOG[sid]) if sid in CATALOG else None, 'money_en': MONEY}
+
+
+def goods_bedroom_part(sid='7_bed'):
+    p = bedroom_part()
+    p['variants'][0]['items'][0]['sku']['sid'] = sid
+    return p
+
+
+def test_goods_from_catalog_by_sid_like_demo():
+    """Предмет гостиной (строка сцены с `sid`) и спальни (кусок стадии с `sku.sid`) — с товаром каталога: название, английское название,
+    цена, фото, ссылка, магазин; `sid` и прочие ключи поставщика — нигде; поля товара — только у `sku` и строк лент."""
+    flat = flat_with_bedrooms()
+    d = TB.build(JOB, flat, scene_for(flat), ctx=GCTX, parts=[goods_bedroom_part()])
+    sofa = next(it for v in d['variants'] if v['room_id'] == 'living' for it in v['items'] if it['role'] == 'диван')['sku']
+    assert {k: sofa[k] for k in ('name', 'name_en', 'price', 'img', 'url', 'shop')} == {k: CATALOG['1_2'][k] for k in
+                                                                                       ('name', 'name_en', 'price', 'img', 'url', 'shop')}
+    bed = next(it for v in d['variants'] if v['room_id'] == 'bedroom-1' for it in v['items'])['sku']
+    assert bed['name'] == CATALOG['7_bed']['name'] and bed['price'] == 41990 and bed['shop'] == 'Hoff' and 'img' not in bed   # плитки нет — «нет фото»
+    assert d['trial']['goods'] is True and d['trial']['money_en'] == MONEY
+    keys = set(_walk_keys(d))
+    assert not keys & TB.NEVER_KEYS
+    for v in d['variants']:
+        for it in v['items']:
+            assert set(it) <= TB.ITEM_KEYS and set(it['sku']) <= TB.PUBLIC_SKU_KEYS
+    assert d['feeds']['диван'][0]['price'] == 25990 and d['feeds']['bedroom-1:кровать'][0]['url'].startswith('https://')
+    for rows in d['feeds'].values():
+        assert all(set(r) <= TB.FEED_KEYS for r in rows)
+    # магазинное из ВХОДА (строка сцены, кусок стадии) не берём: товар — только из каталога
+    assert 'shop.example' not in json.dumps(d) and 'x.example' not in json.dumps(d)
+
+
+def test_goods_missing_in_catalog_or_old_part_stays_neutral():
+    """Нет в каталоге (ушёл, без цены) или кусок старой сборки без `sid` — предмет с нейтральным именем без цены, как раньше."""
+    flat = flat_with_bedrooms()
+    d = TB.build(JOB, flat, scene_for(flat), ctx={**GCTX, 'goods': lambda sid, role: None}, parts=[bedroom_part()])
+    assert 'goods' not in d['trial'] and 'money_en' not in d['trial']
+    assert not set(_walk_keys(d)) & (TB.PRODUCT_KEYS | TB.NEVER_KEYS)
+    d2 = TB.build(JOB, flat, scene_for(flat), ctx=GCTX, parts=[bedroom_part()])          # спальня без `sid` — нейтральная
+    bed = next(it for v in d2['variants'] if v['room_id'] == 'bedroom-1' for it in v['items'])['sku']
+    assert bed['name'] == 'Кровать 160 см · 170×210 см' and 'price' not in bed and d2['trial']['goods'] is True
+
+
+def test_goods_catalog_down_builds_without_goods_and_flags():
+    def down(sid, role):
+        raise RuntimeError('catalog_media: psql rc=1')
+    flat = flat_with_bedrooms()
+    d = TB.build(JOB, flat, scene_for(flat), ctx={**GCTX, 'goods': down}, parts=[goods_bedroom_part()])
+    assert 'goods_unavailable' in d['trial']['flags'] and 'goods' not in d['trial']
+    assert not set(_walk_keys(d)) & (TB.PRODUCT_KEYS | TB.NEVER_KEYS)
+
+
+def test_goods_check_fields_only_in_place_and_of_right_kind():
+    ok = {'variants': [{'items': [{'sku': {'name': 'Диван Викс divan.ru', **{k: CATALOG['1_2'][k] for k in ('price', 'img', 'url', 'shop')}}}]}],
+          'feeds': {'стол обеденный': [{'name': 'Стол', 'price': 1, 'url': 'https://x.example/a'}]}, 'sofa_feed': [{'price': 2}]}
+    TB.assert_public(ok, ['диван викс divan.ru'], goods=True)
+    bad = [({'trial': {'price': 1}}, 'не на месте товара'),
+           ({'variants': [{'items': [{'price': 1}]}]}, 'у самого предмета'),
+           ({'variants': [{'items': [{'sku': {'img': '//imgng.gdeslon.ru/x/big.jpg'}}]}]}, 'фото не плитка витрины'),
+           ({'variants': [{'items': [{'sku': {'url': 'javascript:alert(1)'}}]}]}, 'ссылка не https'),
+           ({'variants': [{'items': [{'sku': {'price': '1'}}]}]}, 'цена строкой'),
+           ({'feeds': {'диван': [{'shop': '<b>'}]}}, 'магазин с разметкой'),
+           ({'variants': [{'items': [{'sku': {'sid': '1_2'}}]}]}, 'ключ поставщика'),
+           ({'feeds': {'диван': [{'brand': 'Hoff'}]}}, 'бренд'),
+           ({'apartment_rooms': [{'name_src': 'см. https://divan.ru/x'}]}, 'ссылка вне товара')]
+    for obj, why in bad:
+        with pytest.raises(TB.BundleRefused, match='shop_leak'):
+            TB.assert_public(obj, [], goods=True)
+            pytest.fail(why)
+    with pytest.raises(TB.BundleRefused, match='shop_leak'):              # стадии (без `goods`) — как раньше: полей товара нет нигде
+        TB.assert_public(ok, [])
+
+
+def test_uk_money_is_demo_twin_rate_and_markup():
+    """Английская цена тура — ровно как английское /demo: курс карточки британского двойника × его наценка (`demo-uk.json`)."""
+    m = TB.uk_money()
+    p = json.load(open(TB.UK_PARTNER, encoding='utf-8'))
+    twin = next(a for a in p['apartments'] if (a.get('sources') or {}).get('demoData') == '/demo/demo-data.json' and a.get('demoMask'))
+    assert m == {'currency': 'GBP', 'fx': {k: p['fx'][k] for k in ('from', 'to', 'rate', 'asOf')}, 'priceMarkup': twin['demoMask']['priceMarkup']}
+    assert m['priceMarkup'] == 1.5 and m['fx']['rate'] == 0.0089
+
+
+def test_stage_keys_carry_sid_but_page_never():
+    it = {'role': 'кровать', 'x': 1, 'y': 2, 'sku': {'name': 'Кровать', 'sid': '7_bed', 'price': 1, 'url': 'https://x'}}
+    assert TB.public_item(it, TB.STAGE_SKU_KEYS)['sku'] == {'name': 'Кровать', 'sid': '7_bed'}
+    assert TB.public_item(it)['sku'] == {'name': 'Кровать', 'price': 1, 'url': 'https://x'}
+    assert TB._part_item(it)['sku'].keys() <= TB.SKU_KEYS
+
+
+def test_catalog_goods_like_demo_sku_bank_first_price_from_catalog(monkeypatch, tmp_path):
+    """Как `flat215_demo._sku`: название, фото, ссылка, магазин — из товара банка; цена — из каталога, нет — из банка. Товара нет
+    в банке — всё из каталога (ушёл из продажи — нейтрально). Банк спальни (`sid` «mid:eid», в `alternates`) — тоже находится."""
+    import catalog_media as CM
+    cat = {('1', 'a'): {'name': 'Каталог', 'price': 900, 'url': 'https://cat.example/x', 'shop': 'cat', 'state': 'available'},
+           ('3', 'c'): {'name': 'Ушёл', 'price': 5, 'url': 'https://c/y', 'state': 'gone'},
+           ('4', 'd'): {'name': 'Только каталог', 'price': 7, 'url': 'http://bad', 'shop': 's', 'state': 'available'}}
+    monkeypatch.setattr(CM, 'media', lambda mid, eid: cat.get((str(mid), str(eid))))
+    monkeypatch.setattr(TB.TD, '_names_en', lambda it, role: {'name_en': 'Sofa'})
+    bank = tmp_path / 'b.json'
+    bank.write_text(json.dumps({'sets': [{'items': {'диван': {'mid': 1, 'eid': 'a', 'name': 'Банк', 'price': 100}}},  # урезанная копия
+                                         {'items': {'диван': {'mid': 1, 'eid': 'a', 'name': 'Банк', 'price': 100, 'url': 'https://bank.example/x',
+                                                             'shop': 'divan.ru', 'img': '//nope'}},
+                                          'alternates': [{'sid': '2:b', 'name': 'Кровать', 'price': 300, 'url': 'https://bank.example/y'}]}]}))
+    idx = TB.bank_index([str(bank), str(tmp_path / 'нет.json')])
+    assert set(idx) == {'1_a', '2_b'}
+    g = TB.catalog_goods('1_a', 'диван', idx)
+    assert g == {'name': 'Банк', 'name_en': 'Sofa', 'colour_en': None, 'price': 900, 'img': None, 'url': 'https://bank.example/x', 'shop': 'divan.ru'}
+    assert TB.catalog_goods('2_b', 'кровать', idx)['price'] == 300
+    assert TB.catalog_goods('3_c', 'диван', idx) is None
+    g4 = TB.catalog_goods('4_d', 'диван', idx)
+    assert (g4['name'], g4['url'], g4['shop']) == ('Только каталог', None, 's')
+    assert TB.catalog_goods('9_z', 'диван', idx) is None and TB.catalog_goods(None, 'диван', idx) is None

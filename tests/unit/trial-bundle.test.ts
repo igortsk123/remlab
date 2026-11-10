@@ -75,9 +75,20 @@ describe("форма и связи", () => {
     const withSku = (sku: Record<string, unknown>) => ({ ...v, pending: false, furniture_state: "ready", items: [{ role: "диван", x: 1, y: 2, sku }] });
     const ready = [{ ...room("ready"), titleEn: "Lounge" }];
     expect(problem({ variants: [withSku({ name: "Диван", name_en: "Sofa", msid: "m" })], apartment_rooms: ready })).toBeNull();
-    expect(problem({ variants: [withSku({ name: "Диван", url: "https://x" })], apartment_rooms: ready })).toBe("shop_field");
-    expect(problem({ variants: [withSku({ name: "Диван", price: 1 })], apartment_rooms: ready })).toBe("shop_field");
+    // товар как в /demo (T-20261110-25): цена, плитка витрины, ссылка https, магазин — на месте товара и проверенного вида
+    const goods = { name: "Диван Викс", name_en: "Viks sofa", msid: "m", price: 25990, img: "img/833aa090526a8096.jpg",
+      url: "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fp&erid=2SDn", shop: "divan.ru" };
+    expect(problem({ variants: [withSku(goods)], apartment_rooms: ready, feeds: { диван: [goods] } })).toBeNull();
+    expect(problem({ variants: [withSku({ name: "Диван", url: "http://x.example/a" })], apartment_rooms: ready })).toBe("shop_field");
+    expect(problem({ variants: [withSku({ name: "Диван", url: "javascript:alert(1)" })], apartment_rooms: ready })).toBe("shop_field");
+    expect(problem({ variants: [withSku({ name: "Диван", price: "1" })], apartment_rooms: ready })).toBe("shop_field");
     expect(problem({ feeds: { диван: [{ name: "Диван", img: "//x" }] } })).toBe("shop_field");
+    expect(problem({ feeds: { диван: [{ name: "Диван", shop: "<b>x</b>" }] } })).toBe("shop_field");
+    // ключи поставщика, бренд, служебные ссылки — нигде; у самого предмета полей товара нет
+    for (const k of ["sid", "mid", "eid", "brand", "url_direct", "probe_url", "img_hd", "page_url"])
+      expect(problem({ variants: [withSku({ name: "Диван", [k]: "1_2" })], apartment_rooms: ready })).toBe("shop_field");
+    expect(problem({ variants: [{ ...v, pending: false, furniture_state: "ready", items: [{ role: "диван", x: 1, y: 2, price: 1 }] }],
+      apartment_rooms: ready })).toBe("shop_field");
     expect(problem({ apartment_rooms: [{ ...room("pending"), titleEn: "Спальня 2" }] })).toBe("cyrillic_in_english_title");
   });
 

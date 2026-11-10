@@ -187,3 +187,19 @@ def test_shop_names_in_old_items_do_not_pass():
     with pytest.raises(TB.BundleRefused) as e:
         RI.reissue(JOB, flat, old, ctx=CTX)
     assert e.value.code == 'shop_leak'
+
+
+def test_goods_of_old_version_are_carried_and_marked():
+    """Тур с товарами (T-20261110-25): пересборка «как есть» переносит товар предмета (цена, фото, ссылка, магазин, название) и
+    пометку `trial.goods` с курсом английской цены; товар не того вида — отказ."""
+    from test_trial_bundle import GCTX, MONEY, goods_bedroom_part
+    flat = flat_with_bedrooms()
+    old = TB.build(JOB, flat, scene_for(flat), ctx=GCTX, parts=[goods_bedroom_part()])
+    new, _ = RI.reissue(JOB, flat, old, ctx=GCTX)
+    keep = ('name', 'name_en', 'price', 'img', 'url', 'shop')
+    goods = lambda d: sorted(tuple(it['sku'].get(k) for k in keep) for v in d['variants'] for it in v['items'])  # noqa: E731
+    assert goods(new) == goods(old) and new['trial']['goods'] is True and new['trial']['money_en'] == MONEY
+    old['variants'][0]['items'][0]['sku']['img'] = '//imgng.gdeslon.ru/x/big.jpg'
+    with pytest.raises(TB.BundleRefused) as e:
+        RI.reissue(JOB, flat, old, ctx=GCTX)
+    assert e.value.code == 'shop_leak'

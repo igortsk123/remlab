@@ -155,9 +155,13 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
     trial['flags'] = sorted(set(trial.get('flags') or []) | set((old.get('trial') or {}).get('flags') or []))
     trial['complete'] = all(r['furniture_state'] != 'pending' for r in new['apartment_rooms'])
     trial['refused_rooms'] = [x for x in trial.get('refused_rooms') or [] if x.get('room_id') not in report['kept_furniture']]
+    # товары прежней версии (T-20261110-25) переносятся с предметами — пометка «с товарами» и курс английской цены — по ним
+    trial.pop('goods', None)
+    trial.pop('money_en', None)
+    trial.update(TB.goods_meta(variants, ctx['money_en'] if 'money_en' in ctx else TB.uk_money()))
     out = {**new, 'variants': variants, 'feeds': feeds, 'sofa_feed': feeds.get('диван', []), 'rules': rules, 'trial': trial,
            'rooms_enabled': sorted(with_variant), 'room': new['rooms_geo'].get(TB.LIVING) or next(iter(new['rooms_geo'].values()))}
-    TB.assert_public(out, [])
+    TB.assert_public(out, [], goods=True)
     report['kept'] = 'выбор мебели, исходы комнат и коробка комнат с мебелью — из прежней версии (подбор не повторяли)'
     return out, report
 

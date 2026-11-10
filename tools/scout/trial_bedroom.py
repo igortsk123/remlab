@@ -151,7 +151,7 @@ CODE_STATE = {'no_products': 'no_products', 'bed_no_fit': 'no_products', 'room_t
 # ЕДИНЫЙ РАЗРЕШЁННЫЙ СПИСОК ПОЛЕЙ ТОВАРА — ОДИН НА ВСЕ КОМНАТЫ, у сборщика данных страницы (`trial_bundle`, TG 1377, Codex 09.11):
 # предмет и его `sku` — только `BU.ITEM_KEYS`/`BU.SKU_KEYS` (имена по роли, цвет, модель, размеры); ни `url`, `shop`, `img`, ни цены.
 # Здесь не копируется: фильтр — `BU.public_item`, проверка всего JSON — `BU.assert_public` (утечка → `ShopLeak`, а не публикация).
-ITEM_KEYS, SKU_KEYS = BU.ITEM_KEYS, BU.SKU_KEYS
+ITEM_KEYS, SKU_KEYS = BU.ITEM_KEYS, BU.STAGE_SKU_KEYS          # + `sid` — ключ товара для сборщика (T-20261110-25)
 
 
 class BedroomRefusal(Exception):
@@ -445,17 +445,20 @@ def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
 def public_item(p, it: dict, msid: str | None) -> dict:
     """Предмет варианта через ОБЩИЙ фильтр сборщика (`BU.public_item`): роль, модель, размер; имена — нейтральные по роли на обеих локалях
     (`BU.neutral_names`; ширину спального места к имени кровати добавляет сборщик), цвет `colour_en` — только слова словарей цвета и
-    материала (`BU.colour_en`: модель, бренд и магазин не проходят). Название товара и магазин в выход не идут."""
+    материала (`BU.colour_en`: модель, бренд и магазин не проходят). Название товара и магазин в выход не идут; ключ товара `sid` —
+    идёт (внутренний файл стадии): по нему сборщик берёт товар из каталога, как у /demo (`BU.catalog_goods`, T-20261110-25), и в данные
+    страницы его не кладёт."""
     base = base_role(p.role)
     ru, en = BU.neutral_names(p.role)
-    sku = {'name': ru, 'name_en': en, 'msid': msid, 'w': it['w'], 'd': it['d'], 'h': it['h']}
+    sku = {'name': ru, 'name_en': en, 'msid': msid, 'sid': (_sid(it) or '').replace(':', '_', 1) or None, 'w': it['w'], 'd': it['d'], 'h': it['h']}
     if base == 'кровать':
         sku['sleep_w'] = round(_sleep_w(it))
     c = BU.colour_en(it.get('name'), base)
     if c:
         sku['colour_en'] = c
     return BU.public_item({'role': p.role, 'x': round(p.x, 1), 'y': round(p.y, 1), 'rot': int(p.rot or 0), 'w': it['w'], 'd': it['d'],
-                           'h': it['h'], 'dims_src': 'каталог', 'sku': sku, 'corner': False, 'corner_left': False, 'section': None})
+                           'h': it['h'], 'dims_src': 'каталог', 'sku': sku, 'corner': False, 'corner_left': False, 'section': None},
+                          BU.STAGE_SKU_KEYS)
 
 
 def template_ok(res: dict | None, tpl: dict) -> bool:

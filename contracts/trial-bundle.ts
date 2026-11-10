@@ -67,13 +67,25 @@ export function bundleProblem(b: TrialBundle, jobId: string): string | null {
 }
 
 const CYRILLIC = /[Ѐ-ԯ]/;
-// второй замок к очистке сборщика (`trial_bundle.assert_public`): у товаров вариантов и лент нет полей магазина
-const SHOP_FIELDS = new Set(["url", "url_direct", "shop", "img", "img_hd", "price", "brand"]);
+// второй замок к очистке сборщика (`trial_bundle.assert_public`). Товар как в /demo (T-20261110-25, владелец 10.11 TG 744): у товара
+// предмета (`items[].sku`) и строки ленты — цена, фото-плитка витрины, ссылка https и магазин, только проверенного вида; ключей
+// поставщика (`sid`, `mid`, `eid`), служебной прямой ссылки, бренда и прочих `*_url` — нигде; у самого предмета полей товара нет
+const NEVER_FIELDS = new Set(["sid", "mid", "eid", "probe_url", "url_direct", "img_hd", "brand"]);
+const GOODS_FIELDS = new Set(["url", "shop", "img", "price"]);
+const GOODS_OK: Record<string, (v: unknown) => boolean> = {
+  price: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0,
+  img: (v) => typeof v === "string" && /^img\/[0-9a-f]{16}\.jpg$/.test(v),
+  url: (v) => typeof v === "string" && /^https:\/\/[^\s"'<>`\\]{4,2000}$/.test(v),
+  shop: (v) => typeof v === "string" && v.length > 0 && v.length <= 80 && !/[<>"`\\]/.test(v),
+};
+const keysOf = (o: unknown): [string, unknown][] => (o && typeof o === "object" ? Object.entries(o) : []);
+const never = (k: string): boolean => NEVER_FIELDS.has(k) || k.endsWith("_url");
 function hasShopField(b: TrialBundle): boolean {
-  const bad = (o: unknown): boolean => !!o && typeof o === "object" && Object.keys(o).some((k) => SHOP_FIELDS.has(k) || k.endsWith("_url"));
+  const badGoods = (o: unknown): boolean => keysOf(o).some(([k, v]) => never(k) || (GOODS_FIELDS.has(k) && v !== null && GOODS_OK[k]?.(v) !== true));
+  const badItem = (o: unknown): boolean => keysOf(o).some(([k]) => never(k) || GOODS_FIELDS.has(k));
   const items = b.variants.flatMap((v) => v.items);
   const rows = Object.values(b.feeds).flat();
-  return items.some((it) => bad(it) || bad((it as { sku?: unknown }).sku)) || rows.some(bad);
+  return items.some((it) => badItem(it) || badGoods((it as { sku?: unknown }).sku)) || rows.some(badGoods);
 }
 
 const lease = { id: z.string(), attempt: z.number().int().positive(), leaseToken: z.string().min(16).max(64) };
