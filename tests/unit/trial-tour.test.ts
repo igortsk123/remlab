@@ -227,6 +227,66 @@ describe("тур пробы: ответы и закреплённая верси
     expect(existsSync(join(dir, "PinPinPinPinPinPinPinB", "release"))).toBe(false);
   });
 
+  // T-20261110-07: тур не открывается — человеку страница на его языке со ссылкой на задание, машинным адресам — текст как раньше
+  const as = (over: Partial<TrialJobView>) => (async () => ({ id: ID, status: "done", resultVersion: 1, bundleVersion: 0, ...over }) as TrialJobView);
+  const K = "k".repeat(22);
+
+  it("нет закрепления: задание идёт — «готовится» (обновить + ход работы), машинные адреса — текст", async () => {
+    const J = "WaitWaitWaitWaitWaitWa";
+    const r = await tourResponse(J, [], { view: as({ status: "running" }), dir, stub: { lang: "ru", k: K } });
+    expect(r.status).toBe(404);
+    expect(r.headers.get("content-type")).toContain("text/html");
+    expect(r.headers.get("x-robots-tag")).toContain("noindex");
+    const html = await r.text();
+    expect(html).toContain('data-stub="wait"');
+    expect(html).toContain("Тур ещё готовится");
+    expect(html).not.toContain("not ready");
+    expect(html).toContain(`href="/try/${J}/tour/?lang=ru&amp;k=${K}"`);
+    expect(html).toContain(`href="/try/${J}?k=${K}&amp;lang=ru"`);
+    const d = await tourResponse(J, ["demo-data.json"], { view: as({ status: "running" }), dir, stub: { lang: "ru" } });
+    expect(d.status).toBe(404);
+    expect(await d.text()).toBe("not ready");
+  });
+
+  it("задание закрыто без версии данных — «не получилось собрать тур» со ссылкой на загрузку и на задание; кривой ключ не переносится", async () => {
+    const J = "FailFailFailFailFailFa";
+    const html = await (await tourResponse(J, [], { view: as({}), dir, stub: { lang: "en", k: "<x>" } })).text();
+    expect(html).toContain('data-stub="failed"');
+    expect(html).toContain("We couldn&#39;t build this tour");
+    expect(html).toContain('href="/try?lang=en"');
+    expect(html).toContain(`href="/try/${J}?lang=en"`);
+    expect(html).not.toContain("&lt;x&gt;");
+  });
+
+  it("нет задания / срок вышел / кривой id — страница «не найден» / «срок истёк» с кодом 404 / 410", async () => {
+    const miss = await tourResponse(ID, [], { view: async () => undefined, dir, stub: { lang: "ru" } });
+    expect(miss.status).toBe(404);
+    expect(await miss.text()).toContain("Тур не найден");
+    const exp = await tourResponse(ID, [], { view: async () => "expired", dir, stub: { lang: "en" } });
+    expect(exp.status).toBe(410);
+    expect(await exp.text()).toContain("This tour has expired");
+    expect(await (await tourResponse("../../etc", [], { view, dir })).text()).toContain('data-stub="missing"');
+    expect(await (await tourResponse(ID, ["version.json"], { view: async () => "expired", dir })).text()).toBe("expired");
+  });
+
+  it("версия данных есть, а закрепления нет — закрепляем при открытии; закрепить не вышло — «готовится», без петли", async () => {
+    const J = "LazyLazyLazyLazyLazyLa";
+    let calls = 0;
+    const pin = async (id: string, d: string) => { calls++; return ensureJobRelease(id, d, demo); };
+    const r = await tourResponse(J, [], { view: as({ bundleVersion: 2, resultVersion: 2 }), dir, pin });
+    expect(r.status).toBe(200);
+    expect(await r.text()).toContain("v1");
+    expect(readFileSync(join(dir, J, "release"), "utf8").trim()).toBe(release);
+    expect((await tourResponse(J, [], { view: as({ bundleVersion: 2 }), dir, pin })).status).toBe(200);
+    expect(calls).toBe(1);                                          // второй раз закрепление уже есть
+    const B = "BrokBrokBrokBrokBrokBr";
+    const bad = await tourResponse(B, [], { view: as({ bundleVersion: 1 }), dir, pin: async () => { throw new Error("no demo"); } });
+    expect(bad.status).toBe(404);
+    expect(await bad.text()).toContain('data-stub="wait"');
+    const none = await tourResponse(B, [], { view: as({ bundleVersion: 0, status: "running" }), dir, pin: async () => { throw new Error("must not pin"); } });
+    expect(await none.text()).toContain('data-stub="wait"');      // версии данных нет — закреплять нечего
+  });
+
   it("копия версии целая: index, сцена, корзина, модели", () => {
     const rd = releaseDir(dir, release);
     for (const f of ["index.html", "lib/scene.json", "lib/scene.abc123.js", "lib/basket.def456.js", "rt-meshes.json"]) {

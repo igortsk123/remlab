@@ -150,10 +150,39 @@ def test_ambiguous_opening_is_refused_not_guessed():
     assert e.value.code == 'opening_ambiguous'
 
 
-def test_no_living_is_refused_with_reason():
+def test_no_living_still_builds_tour_from_other_rooms():
+    # T-20261110-07: гостиной нет — тур всё равно собирается (иначе задание закрывалось без версии и тур не открывался никогда)
+    far = [(1000, 0), (1500, 0), (1500, 400), (1000, 400)]
+    d = build(result(panel('p0', [room('r1', 'bedroom'), room('r2', 'kitchen', far)], [WINDOW, DOOR])))
+    assert 'no_living' in d['trial']['flags']
+    assert list(d['rooms_geo']) == ['bedroom-1'] and d['room'] == d['rooms_geo']['bedroom-1']
+    by = {r['id']: r for r in d['apartment_rooms']}
+    assert set(by) == {'bedroom-1', 'kitchen-1'}
+    assert by['bedroom-1']['furniture_state'] == 'pending' and by['kitchen-1']['furniture_outcome'] == 'not_furnished'
+    assert [v['room_id'] for v in d['variants']] == ['bedroom-1'] and d['trial']['complete'] is False
+
+
+def test_all_livings_unbuildable_tour_goes_on_with_bedroom():
+    bad = room('r1', 'living')
+    bed = room('r2', 'bedroom', [(1000, 0), (1500, 0), (1500, 400), (1000, 400)])
+    d = build(result(panel('p0', [bad, bed], [op('window', (250, -40), 80), op('window', (1250, 0), 120), op('door', (1500, 200), 90)])))
+    by = {r['id']: r for r in d['apartment_rooms']}
+    assert by['living-1']['furniture_outcome'] == 'not_readable' and by['living-1']['contentState'] == 'soon'
+    assert d['trial']['refused_rooms'][0]['code'] == 'opening_ambiguous'
+    assert list(d['rooms_geo']) == ['bedroom-1']
+
+
+def test_nothing_to_show_is_refused_with_reason():
     with pytest.raises(TB.BundleRefused) as e:
-        build(result(panel('p0', [room('r1', 'bedroom')], [WINDOW, DOOR])))
+        build(result(panel('p0', [room('r1', 'kitchen')], [WINDOW, DOOR])))
     assert e.value.code == 'no_living'
+
+
+def test_scene_without_living_in_plan_is_mismatch():
+    res = result(panel('p0', [room('r1', 'bedroom')], [WINDOW, DOOR]))
+    with pytest.raises(TB.BundleRefused) as e:
+        build(res, scene_for(simple()))
+    assert e.value.code == 'scene_mismatch'
 
 
 def test_one_refused_living_stays_listed_other_goes_on():

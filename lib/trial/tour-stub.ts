@@ -8,7 +8,8 @@ import { textOf, type TrialLang } from "@/lib/trial/i18n";
 export type StubKind = "wait" | "failed" | "missing" | "expired";
 export type StubOpts = { lang: TrialLang; k?: string | null };
 
-const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const ENT: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => ENT[c] ?? c);
 const KEY_RE = /^[A-Za-z0-9_-]{22}$/;
 
 /** Страница задания `/try/<id>` с языком и ключом агента (ключ — только правильной формы). */

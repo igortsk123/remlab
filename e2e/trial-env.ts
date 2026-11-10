@@ -11,6 +11,7 @@ export const trialServerEnv = (db: string): Record<string, string> => ({
   DATABASE_URL: db,
   TRIAL_WORKER_TOKEN: TRIAL_TOKEN,
   TRIAL_DIR: ".data/trial-e2e",
+  DEMO_DIR: "tests/fixtures/trial-demo", // витрина-заглушка: страница тура закрепляется и открывается (T-20261110-07)
   TRIAL_DAILY_CAP: "1000",
   REMLAB_FAKE_AI: "1",
 });

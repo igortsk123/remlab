@@ -71,6 +71,22 @@ async function finish(api: APIRequestContext, lease: { id: string; attempt: numb
   expect(r.status()).toBe(200);
 }
 
+/** Версия данных страницы, как её шлёт конвейер до `result` (без неё тура нет, T-20261110-07). `state` — исход комнаты. */
+async function publish(api: APIRequestContext, lease: { id: string; attempt: number; leaseToken: string }, state = "pending",
+  scale = "not_verified") {
+  const bundle = JSON.stringify({
+    trial: { job_id: lease.id, scale }, room: GEO, rooms_geo: { living: GEO },
+    apartment_rooms: [{ id: "living", furniture_state: state, furniture_text: state === "pending" ? null : "Size may be approximate." }],
+    variants: [{ id: "trial-living", room_id: "living", style: "scandi", items: [], pending: state === "pending", furniture_state: state }],
+    feeds: {}, rules: {}, quiz: { questions: [{ id: "style" }] },
+  });
+  const pub = await api.post(`${TRIAL_BASE}/api/trial/worker/bundle`, {
+    headers: AUTH, data: { ...lease, bundle, sha256: createHash("sha256").update(bundle).digest("hex") },
+  });
+  expect(pub.status()).toBe(200);
+  expect(((await pub.json()) as { warning?: string }).warning).toBeUndefined(); // страница тура закреплена (DEMO_DIR — заглушка витрины)
+}
+
 // Next срезает косую в конце (`/tour/` → `/tour`); страница тура возвращает её сама (ветка worktree-demo-template, `injectTour`)
 const tourUrl = (id: string, lang: string) => new RegExp(`/try/${id}/tour/?\\?lang=${lang}&k=[A-Za-z0-9_-]{22}$`);
 // ссылка «Открыть тур» у агента несёт его ключ правки (`tourHref`, Р1)
@@ -95,6 +111,7 @@ test("загрузка → задание в базе → шаги → гото�
   await expect(stepState(page, "Rooms and sizes read")).toHaveAttribute("data-state", "done");
   await expect(page.getByTestId("trial-wait").getByLabel("Time since upload")).toHaveText(/^\d\d:\d\d$/);
 
+  await publish(request, lease, "pending", "listing"); // масштаб подтверждён — окошка размеров нет, переход сам
   await finish(request, lease, JSON.parse(await fs.readFile(FIXTURE, "utf8")));
   const done = page.getByTestId("trial-done");
   await expect(done.getByRole("heading", { name: "Your 3D is ready" })).toBeVisible({ timeout: 10_000 });
@@ -104,6 +121,7 @@ test("загрузка → задание в базе → шаги → гото�
   await expect(page.getByText("Scale not verified.")).toHaveCount(0);
   await expect(page.getByTestId("grey-tour")).toHaveCount(0); // серого тура больше нет
   await page.waitForURL(tourUrl(id, "en"), { timeout: 10_000 }); // сам, без нажатия
+  await expect(page.locator("body[data-e2e-tour]")).toBeAttached(); // тур открылся: закреплённая копия витрины (заглушка DEMO_DIR)
   expect((await pg`select status from trial_jobs where id = ${id}`)[0]!.status).toBe("done");
 });
 
@@ -113,6 +131,7 @@ test("масштаб не подтверждён → окошко «размер
   const lease = await claim(request, id);
   const result = JSON.parse(await fs.readFile(FIXTURE, "utf8")) as { scale: Record<string, unknown> };
   result.scale = { status: "not_verified", ppm: null, inliers: 0, n: 0 };
+  await publish(request, lease, "awaiting_check");
   await finish(request, lease, result);
   const box = page.getByTestId("trial-sizes");
   await expect(box.getByText("We couldn't find the room sizes")).toBeVisible({ timeout: 10_000 });
@@ -135,16 +154,7 @@ test("масштаб не подтверждён → окошко «размер
 test("текст на v1, пока задание идёт: «принято, применим после сборки» → после done «применяем»", async ({ page, request }) => {
   const id = await upload(page, "");
   const lease = await claim(request, id);
-  const bundle = JSON.stringify({
-    trial: { job_id: id, scale: "not_verified" }, room: GEO, rooms_geo: { living: GEO },
-    apartment_rooms: [{ id: "living", furniture_state: "pending", furniture_text: null }],
-    variants: [{ id: "trial-living", room_id: "living", style: "scandi", items: [], pending: true, furniture_state: "pending" }],
-    feeds: {}, rules: {}, quiz: { questions: [{ id: "style" }] },
-  });
-  const pub = await request.post(`${TRIAL_BASE}/api/trial/worker/bundle`, {
-    headers: AUTH, data: { ...lease, bundle, sha256: createHash("sha256").update(bundle).digest("hex") },
-  });
-  expect(pub.status()).toBe(200);
+  await publish(request, lease);
   const box = page.getByTestId("trial-sizes");
   await expect(box.getByText("We couldn't find the room sizes")).toBeVisible({ timeout: 10_000 });
   await box.getByLabel("Room sizes").fill("living room 4.2 x 3.8");
@@ -171,6 +181,7 @@ test("по-русски: форма → ожидание → готово → т
   await expect(step("3D готово")).toHaveAttribute("data-state", "run");
   const result = JSON.parse(await fs.readFile(FIXTURE, "utf8")) as { scale: Record<string, unknown> };
   result.scale = { status: "not_verified", ppm: null, inliers: 0, n: 0 };
+  await publish(request, lease, "awaiting_check");
   await finish(request, lease, result);
   const done = page.getByTestId("trial-done");
   await expect(done.getByRole("heading", { name: "3D готово" })).toBeVisible({ timeout: 10_000 });
@@ -193,6 +204,43 @@ test("задание не удалось → понятный текст и пу
   await expect(page.getByText(/couldn't find a floor plan in this file/)).toBeVisible();
   await expect(page.getByText("e2e: no walls found")).toHaveCount(0); // подробности — только в базе
   await expect(page.getByRole("main").getByRole("link", { name: "Upload a floor plan" })).toHaveAttribute("href", "/try?lang=en");
+});
+
+// T-20261110-07: тур без версии данных не открывался никогда — агент видел белую страницу «not ready»
+test("серый тур: пока версии нет — тур «готовится»; версия «только стены» → тур открывается", async ({ page, request }) => {
+  const id = await upload(page, "", "ru");
+  const lease = await claim(request, id);
+  const k = new URL(page.url()).searchParams.get("k")!;
+  const tour = `${TRIAL_BASE}/try/${id}/tour/?lang=ru&k=${k}`;
+  const early = await request.get(tour);
+  expect(early.status()).toBe(404);
+  expect(await early.text()).toContain("Тур ещё готовится");
+  await publish(request, lease, "awaiting_check");                         // как у плана без гостиной: комната ждёт проверки
+  await finish(request, lease, JSON.parse(await fs.readFile(FIXTURE, "utf8")));
+  await expect(page.getByTestId("trial-done").getByRole("link", { name: "Открыть тур" })).toBeVisible({ timeout: 10_000 });
+  await page.goto(tour);
+  await expect(page.locator("body[data-e2e-tour]")).toBeAttached();
+  expect((await request.get(`${TRIAL_BASE}/try/${id}/tour/demo-data.json`)).status()).toBe(200);
+});
+
+test("задание закрыто без версии данных → «не получилось собрать тур» без перехода; адрес тура — страница, не «not ready»", async ({ page, request }) => {
+  const id = await upload(page);
+  const lease = await claim(request, id);
+  await finish(request, lease, JSON.parse(await fs.readFile(FIXTURE, "utf8")));
+  await expect(page.getByRole("heading", { name: "We couldn't build this tour" })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/couldn't build a 3D tour from this plan/)).toBeVisible();
+  await page.waitForTimeout(3500); // дольше паузы автоперехода (2,5 с)
+  expect(new URL(page.url()).pathname).toBe(`/try/${id}`);
+  await expect(page.getByRole("main").getByRole("link", { name: "Upload a floor plan" })).toHaveAttribute("href", "/try?lang=en");
+  const r = await page.goto(`${TRIAL_BASE}/try/${id}/tour/?lang=en`);
+  expect(r?.status()).toBe(404);
+  await expect(page.getByRole("heading", { name: "We couldn't build this tour" })).toBeVisible();
+  await expect(page.getByText("not ready")).toHaveCount(0);
+  await page.getByRole("link", { name: "Upload page" }).click();
+  await page.waitForURL(new RegExp(`/try/${id}\\?lang=en$`));
+  const miss = await request.get(`${TRIAL_BASE}/try/${"Z".repeat(22)}/tour/?lang=ru`);
+  expect(miss.status()).toBe(404);
+  expect(await miss.text()).toContain("Тур не найден");
 });
 
 test("машина не на связи → «busy right now», задание ждёт", async ({ page }) => {

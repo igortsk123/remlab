@@ -73,6 +73,8 @@ flagged = os.environ.get('FAKE_SIZE_FLAG', '').split(',')        # «разме�
 rooms = [{'id': 'r1', 'kind': 'living'}, {'id': 'k1', 'kind': 'kitchen'}]
 if os.environ.get('FAKE_BEDROOMS_IN_PLAN', '1') == '1':
     rooms.append({'id': 'b1', 'kind': 'bedroom'})
+if os.environ.get('FAKE_NO_LIVING') == '1':                       # гостиной в плане нет (T-20261110-07)
+    rooms = [r for r in rooms if r['kind'] != 'living']
 for r in rooms:
     r['flags'] = ['dims_mismatch'] if r['id'] in flagged else []
 put('result.json', json.dumps({'version': 1, 'units': 'cm', 'fake': True, 'panels': [{'id': 'p0', 'rooms': rooms}]}))
@@ -646,6 +648,22 @@ def test_conveyor_no_version_without_walls_bundle_still_done(prod, mk, monkeypat
     w = mk(furnish=True, bundle_max_bytes=4096, base=mk.mem.parent / 'trial-big')
     w.loop(max_iter=1)
     assert prod.bundles == [] and _order(prod) == ['result']
+
+
+def test_conveyor_no_living_tour_still_published_bedrooms_go_on(prod, mk, monkeypatch, tmp_path):
+    """T-20261110-07: гостиной в плане нет — версия 1 есть (тур откроется), подбор гостиной не запускается, сцена-отказ
+    «size_check» не пишется, спальня обставляется своей стадией, задание `done`."""
+    monkeypatch.setenv('FAKE_NO_LIVING', '1')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    st = _states(prod)
+    assert st[0] == ({'kitchen-1': 'not_furnished', 'bedroom-1': 'pending'}, False)
+    assert st[-1] == ({'kitchen-1': 'not_furnished', 'bedroom-1': 'ready'}, True)
+    assert _order(prod) == ['bundle', 'bundle', 'result'] and w.done == [(JID, 'done')]
+    assert not (tmp_path / 'scenes' / JID).exists()                    # trial_demo не запускался
+    wd = next(d for d in (w.cfg.base / JID).iterdir() if d.is_dir())
+    assert not (wd / 'scene-refused.json').exists()
 
 
 def test_conveyor_server_rejects_version_logged_and_job_finishes(prod, mk, capsys):

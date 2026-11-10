@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { trialErrorCode, type TrialJobView } from "@/contracts/trial";
-import { clock, errorText, geometryReady, progressOf, stepsOf, timer, uploadErrorText, waitingNote } from "@/lib/trial/steps";
+import { clock, errorText, geometryReady, progressOf, stepsOf, timer, tourMissing, uploadErrorText, waitingNote } from "@/lib/trial/steps";
 
 // Страница задания пробы (agent-trial-01, T-C): три шага макета из стадий воркера, время, очередь, «машина занята», тексты
 // на двух языках (agent-trial-08, П), когда пора в тур.
@@ -94,12 +94,20 @@ describe("тексты", () => {
     }
   });
 
-  it("тур — когда геометрия опубликована: готово или промежуточная версия у идущего", () => {
-    expect(geometryReady(job({ status: "done", resultVersion: 1 }))).toBe(true);
-    expect(geometryReady(job({ status: "running", resultVersion: 1 }))).toBe(true);
+  it("тур — когда опубликована версия данных: готово или промежуточная версия у идущего", () => {
+    expect(geometryReady(job({ status: "done", resultVersion: 2, bundleVersion: 2 }))).toBe(true);
+    expect(geometryReady(job({ status: "running", resultVersion: 1, bundleVersion: 1 }))).toBe(true);
     expect(geometryReady(job({ status: "running" }))).toBe(false);
     expect(geometryReady(job())).toBe(false);
-    expect(geometryReady(job({ status: "failed", resultVersion: 1 }))).toBe(false);
+    expect(geometryReady(job({ status: "failed", resultVersion: 1, bundleVersion: 1 }))).toBe(false);
+  });
+
+  it("done без версии данных — тура нет: не уводим в тур, говорим «не получилось» (T-20261110-07)", () => {
+    const grey = job({ status: "done", resultVersion: 1, bundleVersion: 0 });
+    expect(geometryReady(grey)).toBe(false);
+    expect(tourMissing(grey)).toBe(true);
+    expect(tourMissing(job({ status: "done", resultVersion: 2, bundleVersion: 2 }))).toBe(false);
+    expect(tourMissing(job({ status: "running" }))).toBe(false);
   });
 
   it("часы: шаг «м:сс», таймер «мм:сс»", () => {
