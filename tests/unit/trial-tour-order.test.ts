@@ -30,3 +30,20 @@ describe("trFurnishedFirst — порядок плиток тура", () => {
     expect(order()).toEqual([]);
   });
 });
+
+// ПОРЯДОК КОМНАТ ТУРА КАК В /demo (T-20261110-41): гостиная, кухня, спальни, санузлы, прихожая, прочие; внутри вида — прежний порядок
+type KRoom = { id: string; kind?: string };
+const trKindOrder = new Function(`${block};return trKindOrder;`)() as (list: KRoom[]) => KRoom[];
+const kinds = (...rooms: [string, string | undefined][]) => trKindOrder(rooms.map(([id, kind]) => ({ id, kind }))).map((r) => r.id);
+
+describe("trKindOrder — комнаты тура по виду, как в /demo", () => {
+  it("реестр по этажам и чертежу → гостиная, кухня, спальни, санузлы, прихожие, прочие; внутри вида — как было", () => {
+    expect(kinds(["living", "living"], ["kitchen-1", "kitchen"], ["hall-1", "hall"], ["other-1", "other"], ["bathroom-1", "bathroom"],
+      ["bedroom-1", "bedroom"], ["bedroom-2", "bedroom"], ["hall-2", "hall"], ["bathroom-2", "bathroom"]))
+      .toEqual(["living", "kitchen-1", "bedroom-1", "bedroom-2", "bathroom-1", "bathroom-2", "hall-1", "hall-2", "other-1"]);
+  });
+  it("неизвестный или пустой вид — в конец, в прежнем порядке; пустой список — пустой", () => {
+    expect(kinds(["x", undefined], ["b", "bedroom"], ["y", "loggia"])).toEqual(["b", "x", "y"]);
+    expect(kinds()).toEqual([]);
+  });
+});

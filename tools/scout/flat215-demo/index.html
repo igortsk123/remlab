@@ -1269,7 +1269,11 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .fh-3d:hover{background:#DCEAF4}
 /* РЕЖИМ ПРОБЫ (agent-trial-08, `D.trial` → класс на body): шапка без цены, ЖК и менеджера, без сертификата, избранного и платной кнопки */
 body.trial #hmAva,body.trial #flatPriceSum,body.trial #flatMetaRow,body.trial #flatMore,body.trial #hmChat,body.trial #hmFav,body.trial #vFav,
-body.trial #hmBot,body.trial #consShot,body.trial #swapShot,body.trial #shotNow,body.trial #pcMort,body.trial #pcCons,body.trial .hm-tipw{display:none!important}
+body.trial #hmSend,body.trial #consShot,body.trial #swapShot,body.trial #shotNow,body.trial #pcMort,body.trial #pcCons{display:none!important}
+/* ТУР = /demo (T-20261110-41, владелец TG 920/923): липкий низ со шкалой «Выбрано … / сертификат» — как в /demo, сертификат витрины
+   (`certCard`), без «Отправить выбор риелтору»; подсказка «Меняйте мебель…» — тоже. Левая карточка главной — своей высоты: у тура
+   комнат больше, чем у /demo, и растянутая на весь столбец карточка стояла с белым пустым низом */
+@media(min-width:900px){body.trial .hm-rooms .hm-room{align-self:start}}
 /* ТУР БЕЗ ТОВАРОВ (`body.tr-nogoods` — данные старой сборки без `D.trial.goods`; тур с товарами показывает их ровно как /demo, этих
    правил у него нет, T-20261110-25). Фото товаров нет — пустую плашку «нет фото» не показываем, строка без слота (T-20261109-20/3) */
 body.tr-nogoods .row>.noimg-sm:not(.tr-thph),body.tr-nogoods .prow>.pnoimg,body.tr-nogoods .card>.noimg,body.tr-nogoods #itemCard .ic-ph:has(.ic-no){display:none!important}
@@ -1332,11 +1336,8 @@ body.trial #trHead:has(~ #screen-plan:not([hidden])):not(:has(.tr-rb,.tr-fur)){d
 /* закрытая шторка подбора в туре невидима: в /demo её край (сдвиг 102 %) с тенью закрыт липким низом «Выбрано … · Отправить риелтору»,
    а в туре низа нет — шапка «Подбор товара» с крестиком выглядывала внизу страницы (T-20261110-04). Закрытие — после съезда */
 body.trial #sheet:not(.open){visibility:hidden;transition:transform .22s ease,visibility 0s linear .22s}
-/* строка окна «Сканди · Другой стиль для комнаты ›»: имя стиля не сжимается (на 1280 было «Скан…», в /demo так же — там не трогаем);
-   не влезает с кнопкой — кнопка уходит второй строкой, точка-разделитель тогда не нужна — вместо неё промежуток (T-20261110-04) */
-body.trial .vrow{flex-wrap:wrap;column-gap:14px}
-body.trial .vrow-n{flex:none;max-width:100%;white-space:normal}
-body.trial .vrow-s{display:none}
+/* строка окна «Сканди · Другой стиль для комнаты ›» — как в /demo, одной строкой (T-20261110-41, владелец TG 920: тур = /demo; прежнее
+   правило тура T-20261110-04 переносило кнопку второй строкой) */
 .btn.tr-fur{padding:6px 14px;font-size:14px;min-height:0;border-color:#3B76A2;color:#3B76A2;background:#fff;font-weight:600}
 .hm-room .rb .btn.tr-fur{flex:none;margin-left:auto}
 .hm-stub .btn.tr-fur{align-self:flex-start;margin-top:6px}
@@ -1848,13 +1849,18 @@ function trOpeningsOf(panel,rs){
       if(!bb)return;
       const pj=e=>{const s=(e[0]-bb.a[0])*bb.v[0]+(e[1]-bb.a[1])*bb.v[1]; return [bb.a[0]+bb.v[0]*s, bb.a[1]+bb.v[1]*s];}, sg=[pj(e1),pj(e2)];
       if(!hidden(sg,x))more.push(sg);});
-    if(o.kind!=='door'||wide||w>TR_DOOR_MAX||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], more, main, t, key}); return;}
+    // наружу (T-20261110-41): по одну сторону комнаты нет — там толстая наружная стена плана (`flatPlan`), разрыв тянем и в неё; `ext` —
+    // направление наружу (поворот и масштаб схемы его не меняют). Наружу — только если за стеной на полметра нет ни одной комнаты: щель
+    // между контурами (у распознавания 10–40 см) закрашена стеной, и разрыв в ней лёг бы белой полосой посреди стены
+    const clear=sg=>[10,20,30,40,50].every(s=>{const p=[q[0]+n[0]*s*sg, q[1]+n[1]*s*sg]; return !R.some(x=>trInPoly(p,x.P));});
+    const ext=side[0]&&!side[1]&&clear(-1)?[-n[0],-n[1]]:side[1]&&!side[0]&&clear(1)?[n[0],n[1]]:null;
+    if(o.kind!=='door'||wide||w>TR_DOOR_MAX||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], more, main, t, key, ext}); return;}
     const pref=x=>!x?-1:(x.r.kind!=='hall'&&x.a>=1.5?2:1);
     const k=pref(side[0])!==pref(side[1])?(pref(side[0])>pref(side[1])?0:1):((side[0]?side[0].a:0)>=(side[1]?side[1].a:0)?0:1);
     const sg=k===0?1:-1, sw=side[k];   // в какую сторону открывается
     const near=e=>Math.min(...sw.P.map(p=>Math.hypot(p[0]-e[0],p[1]-e[1])));
     const [H,F]=near(e2)<near(e1)?[e2,e1]:[e1,e2], T=[H[0]+n[0]*sg*w, H[1]+n[1]*sg*w];
-    out.push({kind:'door', pts:[e1,e2,H,T,F], more, main, t, key});
+    out.push({kind:'door', pts:[e1,e2,H,T,F], more, main, t, key, ext});
   });
   return out;
 }
@@ -2593,7 +2599,7 @@ function homeChosen(){
 // шкала изменилась (зовётся часто, открытый пузырь «i» не должен закрываться сам)
 function homeCertDraw(){
   const c=document.getElementById('hmCert'); if(!c)return;
-  const t=(FLAT&&FLAT.certificate)||{};
+  const t=(certCard()||{}).certificate||{};
   if(!t.amount){c.hidden=true;}
   else{
     const P=pkgOf(), inc=Math.round(homeChosen());
@@ -2609,7 +2615,7 @@ function homeCertDraw(){
 // липкий низ — на витрине и плане квартиры (экран главной); в избранном нет
 function homeBotShow(){
   const b=document.getElementById('hmBot'); if(!b)return;
-  const on=!!D&&curScreen()!=='fav'&&!TRIAL();   // проба: без сертификата и «отправить риелтору»
+  const on=!!D&&curScreen()!=='fav'&&(!TRIAL()||!!certCard());   // тур: шкала — только с сертификатом витрины, «отправить риелтору» скрыта
   if(b.hidden===on)b.hidden=!on;
   document.body.classList.toggle('hm-bot-on',on);
   certStick();
@@ -2715,7 +2721,7 @@ const BUD_SHORT=()=>LANG==='en'?{furniture:'Furniture',fitout:'Upgrades'}:{furni
 // сумма без знака валюты — для легенды «1 200 / 4 500» (узкие пробелы: строка влезает в 375)
 function fmtNum(v){const n=Math.round(+v||0); return FLAT&&FLAT.currency==='GBP'?n.toLocaleString('en-GB'):n.toLocaleString('ru-RU').replace(/ /g,' ');}
 // ПАКЕТ КАРТОЧКИ (demo-23): `incentive` {mode, limits, total}; старая карточка без него — одна сумма `certificate.amount`, всё в мебели
-function pkgOf(){ const c=FLAT||{}, i=c.incentive, a=(c.certificate&&c.certificate.amount)||0;
+function pkgOf(){ const c=certCard()||{}, i=c.incentive, a=(c.certificate&&c.certificate.amount)||0;
   if(i&&i.limits&&(i.mode==='split'||i.mode==='pooled')){const f=Math.max(0,+i.limits.furniture||0), u=Math.max(0,+i.limits.fitout||0);
     return {mode:i.mode, limits:{furniture:f, fitout:u}, total:f+u};}
   return {mode:'pooled', limits:{furniture:a, fitout:0}, total:a}; }
@@ -2914,6 +2920,7 @@ function openWantedShot(){
 // бывает»). Рисуем как чертёж застройщика: Г-образный контур, несущие стены толщиной, коридор,
 // санузлы ядром, окна разрывом в стене, двери дугой открывания. Геометрия — из `flat215.json`
 // (`plan_example`), гостиная в НАСТОЯЩИХ габаритах 4,39 × 3,25 м. Клик по комнате открывает её.
+let TR_CLIP=0;                                       // номер обрезки синей кромки комнаты тура (id в документе — разные)
 function flatPlan(){
   const P=D.plan||{}, R=P.rooms||[];
   // ОДНА КВАРТИРА — ОДНО ЧИСЛО (владелец 01.09: «проверь, что этот блок чётко»). В шапке
@@ -2942,6 +2949,12 @@ function flatPlan(){
     el('polygon',{points:P.contour.map(p=>p.join(',')).join(' '),fill:'#fff',
       stroke:'#585E58','stroke-width':WALL,'stroke-linejoin':'miter'});
   }
+  // НАРУЖНАЯ СТЕНА ПЛАНА ТУРА (T-20261110-41, владелец TG 920: план как в /demo): контура квартиры у распознавания нет — подложка из
+  // комнат с обводкой TR_EXT наружу; изнутри её закрывают заливки комнат, видна только толстая кромка снаружи (как контур /demo
+  // толщиной WALL), щели между контурами уже ~25 см закрашиваются стеной
+  const TR_EXT=WALL-PART/2;
+  if(TRIAL()&&!(P.contour&&P.contour.length))R.forEach(r=>{const q=r.poly&&r.poly.length>=3?r.poly:[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.d],[r.x,r.y+r.d]];
+    el('polygon',{points:q.map(p=>p.join(',')).join(' '),fill:'#585E58',stroke:'#585E58','stroke-width':TR_EXT*2,'stroke-linejoin':'miter','data-tr-wall':'1'});});
   // КОМНАТА = КНОПКА, «ЧТО Я ОБУСТРОИЛ» С ПЛАНА (владелец 22.10, demo-20 А8): в сертификате есть вариант комнаты — вместо площади его
   // название и сумма, клик открывает его; нет — готовая комната открывает вариант текущего стиля.
   // ИМЯ, ПЛОЩАДЬ, ГОТОВНОСТЬ — ИЗ РЕЕСТРА КВАРТИРЫ (`homeRooms`, T-20261022-04): у схемы плана только геометрия, id — те же
@@ -2956,7 +2969,12 @@ function flatPlan(){
     const g=el('g',{},svg); g.style.cursor=go&&!TRO_ON?'pointer':'default';
     // контур комнаты (план пробы, `poly`) — многоугольником; схема демо — прямоугольниками, как было
     const pts=r.poly&&r.poly.length>=3?r.poly.map(p=>p.join(',')).join(' '):'';
-    if(pts)el('polygon',{points:pts,fill:go?'#E7F0F7':'#FBFAF7',stroke:go?'#3B76A2':'#585E58','stroke-width':PART,'stroke-linejoin':'miter'},g);
+    if(pts){el('polygon',{points:pts,fill:go?'#E7F0F7':'#FBFAF7',stroke:'#585E58','stroke-width':PART,'stroke-linejoin':'miter'},g);
+      // кликабельная комната — как /demo: стены серые, внутри тонкая синяя кромка (у /demo — рамка со сдвигом PART/2); у контура —
+      // синяя обводка, обрезанная по комнате, поверх неё снова серая стена (прежде вся стена комнаты была синей, T-20261110-41)
+      if(go){const cid='trgo'+(++TR_CLIP); el('polygon',{points:pts},el('clipPath',{id:cid},g));
+        el('polygon',{points:pts,fill:'none',stroke:'#3B76A2','stroke-width':PART+0.05,'clip-path':`url(#${cid})`},g);
+        el('polygon',{points:pts,fill:'none',stroke:'#585E58','stroke-width':PART,'stroke-linejoin':'miter'},g);}}
     else el('rect',{x:r.x,y:r.y,width:r.w,height:r.d,fill:go?'#E7F0F7':'#FBFAF7',
       stroke:'#585E58','stroke-width':PART},g);
     if(go&&!pts)el('rect',{x:r.x+PART/2,y:r.y+PART/2,width:r.w-PART,height:r.d-PART,fill:'none',
@@ -3021,7 +3039,11 @@ function flatPlan(){
     const [a,b,H,T,F]=o.pts;
     el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#fff','stroke-width':o.main===false?0:o.t,'data-door':o.kind});   // своя обводка закрыта соседом — не стираем
     (o.more||[]).forEach(([c,d])=>el('line',{x1:c[0],y1:c[1],x2:d[0],y2:d[1],stroke:'#fff','stroke-width':o.t}));   // обводка соседа, наехавшего контуром
-    if(o.kind==='window')el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#5A9BD4','stroke-width':0.06});
+    // проём в наружной стене (`ext`, T-20261110-41): разрыв — на всю её толщину, голубая линия окна — по середине стены, как в /demo
+    const E=o.ext&&o.main!==false&&TRIAL()&&!(P.contour&&P.contour.length)?o.ext:null, sh=(p,s)=>E?[p[0]+E[0]*s, p[1]+E[1]*s]:p;
+    if(E){const s=(TR_EXT+0.01)/2, p=sh(a,s), q=sh(b,s); el('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1],stroke:'#fff','stroke-width':TR_EXT+0.01,'data-ext':'1'});}
+    const wa=sh(a,(TR_EXT-PART/2)/2), wb=sh(b,(TR_EXT-PART/2)/2);
+    if(o.kind==='window')el('line',{x1:wa[0],y1:wa[1],x2:wb[0],y2:wb[1],stroke:'#5A9BD4','stroke-width':0.06});
     if(o.kind!=='door')return;
     const rr=trDoorR(o), cr=(T[0]-H[0])*(F[1]-H[1])-(T[1]-H[1])*(F[0]-H[0]);
     el('path',{d:`M ${T[0]} ${T[1]} A ${rr.toFixed(3)} ${rr.toFixed(3)} 0 0 ${cr>0?1:0} ${F[0]} ${F[1]}`,fill:'none',stroke:'#C8783C','stroke-width':0.035,'data-arc':'1'});
@@ -5198,7 +5220,8 @@ window.__LANG=LANG;
 const flatKind=()=>FLAT?FLAT.kind:'';
 // «Квартира №N · 77,2 м²» — из карточки; до её загрузки — нейтральная подпись (не чертёж-источник).
 const flatTitle=()=>FLAT?((FLAT.number?(LANG==='en'?'Apartment No. ':'Квартира №')+FLAT.number+' · ':'')+
-  (LANG==='en'?String(FLAT.areaM2)+' m²':String(FLAT.areaM2).replace('.',',')+' м²')):(LANG==='en'?'Apartment plan':'План квартиры');
+  (LANG==='en'?String(FLAT.areaM2)+' m²':String(FLAT.areaM2).replace('.',',')+' м²')):
+  TRIAL()?(LANG==='en'?'Floor plan':'Планировка'):(LANG==='en'?'Apartment plan':'План квартиры');   // тур: «планировка» (владелец TG 927)
 function flatId(){const m=location.search.match(/[?&]flat=([a-z0-9-]{2,40})(?:&|$)/);
   return window.__sendFlat||(m&&m[1])||(D&&D.apartment_id)||'';}
 // АНОНИМНОЕ ДЕМО (ADR-0298): не по ссылке менеджера, не встроено, без явной квартиры и без коллекции по ссылке — тогда на
@@ -5208,9 +5231,16 @@ function DEMO_UK_PENDING(){return !TRIAL()&&LANG==='en'&&demoAnon()&&!FLAT;}
 // тур: только опции отделки (шапку, комнаты и деньги квартиры не берём); песочница пропускает лишь эту карточку (`lib/trial/tour-page.ts:devCardPaths`)
 function trDevCard(){ const id=((D&&D.trial&&D.trial.dev_flat)||{})[LANG]; if(!id||TR_DEV)return;
   fetch('/api/apartments/'+encodeURIComponent(id)+'?lang='+LANG+'&demo=1').then(r=>r.ok?r.json():null).then(j=>{
-    if(!j||!j.ok||!j.card||TR_DEV)return; TR_DEV={id:j.card.id, options:j.card.options||[]};
-    DEVOPT=devCanon(DEVOPT); devApply(); devDraw(); if(typeof vwSumUpdate==='function')vwSumUpdate();
+    if(!j||!j.ok||!j.card||TR_DEV)return;
+    TR_DEV={id:j.card.id, options:j.card.options||[], certificate:j.card.certificate||null, incentive:j.card.incentive||null};
+    DEVOPT=devCanon(DEVOPT); devApply(); devDraw(); if(typeof vwSumUpdate==='function')vwSumUpdate(); homeCertDraw();
   }).catch(()=>{});
+}
+// СЕРТИФИКАТ ШКАЛЫ (главная, окно комнаты): /demo — карточка квартиры; тур — сертификат той же витрины (`TR_DEV`, T-20261110-41,
+// владелец TG 923: «нет слайдера суммы, как в /demo»), только когда у предметов есть цены (`D.trial.goods`) — без цен шкале нечего считать
+function certCard(){
+  if(!TRIAL())return FLAT;
+  return !TR_NOGOODS()&&TR_DEV&&TR_DEV.certificate&&TR_DEV.certificate.amount?TR_DEV:null;
 }
 function loadFlatCard(){if(TRIAL()){trDevCard(); return;} const id=flatId(); if(!id)return;
   fetch('/api/apartments/'+encodeURIComponent(id)+'?lang='+LANG+(demoAnon()?'&demo=1':'')).then(r=>r.ok?r.json():null).then(j=>{
@@ -6106,6 +6136,13 @@ function trFurnishedFirst(list, outcomeOf){
   const i=list.findIndex(r=>outcomeOf(r)==='furnished');
   return i>0?[list[i]].concat(list.slice(0,i), list.slice(i+1)):list;
 }
+// ПОРЯДОК КОМНАТ ТУРА — КАК В /demo (T-20261110-41): гостиная, кухня, спальни, санузлы, прихожая, прочие. Реестр тура идёт по этажам и
+// чертежу (кухня — прихожая — кладовка — туалет — спальни второго этажа). Внутри вида — прежний порядок (этаж, номер); неизвестный вид — в конец
+const TR_KIND_RANK={living:0, kitchen:1, bedroom:2, bathroom:3, hall:4};
+function trKindOrder(list){
+  const rk=r=>{const k=String((r&&r.kind)||''); return k in TR_KIND_RANK?TR_KIND_RANK[k]:9;};
+  return list.map((r,i)=>[r,i]).sort((a,b)=>rk(a[0])-rk(b[0])||a[1]-b[1]).map(x=>x[0]);
+}
 // TOURFIRST END
 // КОМНАТА БОЛЬШОЙ КАРТОЧКИ ПРИ ВХОДЕ (T-20261110-16/3, ведущий: на компьютере список начинался с «Спальня 2 · 4 товара», а карточка
 // слева и рамка — на «Гостиная · нет товаров»): в туре — первая комната списка, у которой есть вариант (порядок `homeRooms`, то есть
@@ -6119,7 +6156,7 @@ function homeRooms(){
   if(card)return card.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:r.title, areaM2:r.areaM2, contentState:roomOn(r)}));
   const raw=(D&&D.apartment_rooms)||[];
   // `noName` — у комнаты распознавания нет своего названия на чертеже (`name_src` пуст): её подпись — общая «Помещение»
-  if(raw.length)return trFurnishedFirst(raw, r=>roomOutcome(r.id)).map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:EN?r.titleEn:r.titleRu, areaM2:r.areaM2, contentState:roomOn(r),
+  if(raw.length)return trFurnishedFirst(trKindOrder(raw), r=>roomOutcome(r.id)).map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:EN?r.titleEn:r.titleRu, areaM2:r.areaM2, contentState:roomOn(r),
     noName:'name_src' in r&&!r.name_src}));
   // реестр молчит (старая сборка без карточки) — честно только то, что обставлено: гостиная
   return [{id:'living', kind:'living', ordinal:1, title:EN?'Living room':'Гостиная', areaM2:null, contentState:'ready'}];
@@ -8523,7 +8560,7 @@ function vwSum(){
   if(varPending(allVariants()[cur]))return `<div class="vpl-h"><span>${pendSpin}${pendTxt()}</span></div>`;
   if(varRefused(allVariants()[cur]))return `<div class="vpl-h"><span>${varNoneShort(allVariants()[cur])}</span></div>`;
   const v=allVariants()[cur]||{}, n=variantCount(v), sum=variantPrice(v), EN=LANG==='en';
-  const cert=(FLAT&&FLAT.certificate&&FLAT.certificate.amount)||0;
+  const cert=((certCard()||{}).certificate||{}).amount||0;
   const word=itemsWord(n);
   // ДЕНЬГИ — ОБЩИМ ЯДРОМ (`settle`, demo-06): мебель — в сертификат, пол RF — доплата застройщику отдельной строкой, UK — в пакет,
   // бюджет «Улучшения» (demo-23 шаг 3). Пока бандл движка не пришёл — прежний счёт мебели, без строк опций (формулу не копируем)
