@@ -179,16 +179,47 @@ def _spent(d: Path) -> float:
     return vlm.spent(d)[0] if d.exists() else 0.0
 
 
+def kinds(vdir: Path, plan: str = PLAN) -> tuple:
+    """Вопросы VLM к листу: подписи (`labels3` с заголовками этажей; старый кэш — `labels2`, `vlm.label_kind`) + panels + unlabeled."""
+    import vlm
+    return (vlm.label_kind(vdir, plan),) + KINDS[1:]
+
+
+def _retry_truncated(ask, plan, kind, sub, image, cap):
+    """Ответ оборван лимитом (finish=length; у Gemini лимит включает рассуждение — Nethercote: 7952 из 8284 ушли на «думание»):
+    один повтор с низким «думанием» на остаток денег задания. Из двух ответов остаётся тот, где больше целых элементов
+    (оборванный JSON `vlm.parse` чинит до последнего целого). Денег на повтор нет — остаётся первый ответ.
+    → 'ok' | 'still' | 'budget'"""
+    import vlm
+    raw = sub / f'raw-{plan}-{kind}.txt'
+    first = sub / f'raw-{plan}-{kind}-try1.txt'
+    shutil.copyfile(raw, first)
+    key = vlm.LIST_KEY.get(kind, 'rooms')
+    try:
+        ask(plan, kind, str(sub), str(image), cap_usd=cap, effort='low')
+    except SystemExit:                                   # потолок: на повтор не хватает — первый ответ, флаг выставит run
+        shutil.copyfile(first, raw)
+        return 'budget'
+    if vlm.last_call(sub).get('finish') != 'length':
+        return 'ok'
+    n = lambda p: len((vlm.parse(p.read_text()) or {}).get(key) or [])   # noqa: E731
+    if n(first) > n(raw):
+        shutil.copyfile(first, raw)
+    return 'still'
+
+
 def ensure_vlm(image: Path, vdir: Path, plan: str = PLAN, ask=None, cap_usd: float = CAP_USD) -> dict:
-    """Ответы VLM `labels2|panels|unlabeled` в `vdir/raw-<plan>-<вид>.txt`: есть файл — кэш (0 $), нет — вопрос
+    """Ответы VLM (`kinds`: labels3|panels|unlabeled) в `vdir/raw-<plan>-<вид>.txt`: есть файл — кэш (0 $), нет — вопрос
     параллельно (сеть — вне слота CPU). Каждый вопрос — в своей подпапке со своим `calls.jsonl` и потолком
-    cap_usd / 3: худший случай трёх одновременных вызовов не выходит за потолок задания.
-    → {'usd': потрачено сейчас, 'cached': [...], 'asked': [...]}"""
+    cap_usd / 3: худший случай трёх одновременных вызовов не выходит за потолок задания. Оборванный ответ (finish=length) —
+    один повтор с низким «думанием» на остаток потолка задания (`_retry_truncated`, T-27), по очереди после первых вызовов.
+    → {'usd': потрачено сейчас, 'cached': [...], 'asked': [...], 'retried': {вид: ok|still|budget}}"""
     import vlm
     ask = ask or vlm.ask
     vdir.mkdir(parents=True, exist_ok=True)
-    todo = [k for k in KINDS if not (vdir / f'raw-{plan}-{k}.txt').exists()]
-    share = cap_usd / len(KINDS)
+    KS = kinds(vdir, plan)
+    todo = [k for k in KS if not (vdir / f'raw-{plan}-{k}.txt').exists()]
+    share = cap_usd / len(KS)
     before = {k: _spent(vdir / k) for k in todo}
 
     def one(kind):
@@ -216,12 +247,34 @@ def ensure_vlm(image: Path, vdir: Path, plan: str = PLAN, ask=None, cap_usd: flo
                     f.result()
                 except TrialError as e:
                     errs.append(e)
-    usd = sum(max(0.0, _spent(vdir / k) - before[k]) for k in todo)
+    used = lambda: sum(max(0.0, _spent(vdir / k) - before[k]) for k in todo)   # noqa: E731
+    retried = {}
+    if not errs:
+        for k in todo:
+            sub = vdir / k
+            if vlm.last_call(sub).get('finish') != 'length':
+                continue
+            retried[k] = _retry_truncated(ask, plan, k, sub, image, _spent(sub) + max(0.0, cap_usd - used()))
+            tmp = vdir / f'.raw-{plan}-{k}.tmp'
+            shutil.copyfile(sub / f'raw-{plan}-{k}.txt', tmp)
+            os.replace(tmp, vdir / f'raw-{plan}-{k}.txt')
+    usd = used()
     if errs:
         e = next((x for x in errs if not x.retryable), errs[0])
         e.usd = usd
         raise e
-    return {'usd': round(usd, 6), 'cached': [k for k in KINDS if k not in todo], 'asked': todo}
+    return {'usd': round(usd, 6), 'cached': [k for k in KS if k not in todo], 'asked': todo, 'retried': retried}
+
+
+def truncated_flags(vlm_dir: Path, plan: str = PLAN) -> list:
+    """`vlm_truncated:<вид>` — ответ VLM в кэше задания оборван (и повтор не помог, или кэш старый): не молча (T-27)."""
+    import vlm
+    out = []
+    for k in kinds(vlm_dir, plan):
+        p = vlm_dir / f'raw-{plan}-{k}.txt'
+        if p.exists() and (vlm.parse(p.read_text()) or {}).get('_truncated'):
+            out.append(f'vlm_truncated:{k}')
+    return out
 
 
 # ── walls: run_plan под слотом ─────────────────────────────────────────────────────────────────────────────────────
@@ -710,7 +763,7 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
         root = Path(vlm_root or os.path.expanduser('~/remlab-logs/trial/vlm-cache'))
         vlm_dir = root / file_sha(image)[:32]
     vlm_dir = Path(vlm_dir)
-    if cache_only and any(not (vlm_dir / f'raw-{plan}-{k}.txt').exists() for k in KINDS):
+    if cache_only and any(not (vlm_dir / f'raw-{plan}-{k}.txt').exists() for k in kinds(vlm_dir, plan)):
         raise TrialError('source_gone', False, 'vlm cache missing')
     try:
         v = ensure_vlm(image, vlm_dir, plan, ask, cap_usd)
@@ -727,13 +780,13 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
     out = workdir / 'bench'
     out.mkdir(parents=True, exist_ok=True)
     fl = list(flags or [])
-    envkw = dict(FP_VLM=str(vlm_dir), FP_LABELS='labels2', FP_VLM2=None, FP_CACHE=an_cache, FP_PPM=None, FP_DEBUG_ENV=None,
+    lk = kinds(vlm_dir, plan)[0]
+    envkw = dict(FP_VLM=str(vlm_dir), FP_LABELS=lk, FP_VLM2=None, FP_CACHE=an_cache, FP_PPM=None, FP_DEBUG_ENV=None,
                  FP_DUMP=None)
     with _env(**envkw):
         import vlm
-        raw = vlm.parse((vlm_dir / f'raw-{plan}-labels2.txt').read_text()) or {}
-        if raw.get('_truncated'):
-            fl.append('vlm_truncated')
+        raw = vlm.parse((vlm_dir / f'raw-{plan}-{lk}.txt').read_text()) or {}
+        fl += truncated_flags(vlm_dir, plan)
         import listing
         area, afl = listing.pick_area(listing.total_area(listing_text or ''), listing.sheet_area(raw.get('areas')))
         fl += afl

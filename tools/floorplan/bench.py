@@ -50,10 +50,13 @@ def load_vlm(plan, vdir, shape):
     import vlm
     H, W = shape[:2]
     kx, ky = W / 1000.0, H / 1000.0
-    out = {'pts': [], 'panels': [], 'labels': [], 'spaces': []}
-    p = Path(vdir) / f'raw-{plan}-{os.environ.get("FP_LABELS", "labels")}.txt'   # T-04: слепые — labels2
+    out = {'pts': [], 'panels': [], 'labels': [], 'spaces': [], 'titles': [], 'panels_truncated': False}
+    p = Path(vdir) / f'raw-{plan}-{os.environ.get("FP_LABELS", "labels")}.txt'   # T-04: слепые — labels2; T-27 — labels3
     if p.exists():
         d = vlm.parse(p.read_text()) or {}
+        # T-27: заголовки этажей/построек (labels3) — делёж листа по подписям (`panels_by_titles`)
+        out['titles'] = [{'title': ' '.join(str(q.get('title', '')).split()), 'pt': (q['pt'][0] * kx, q['pt'][1] * ky)}
+                         for q in d.get('titles') or [] if isinstance(q, dict) and _pt_ok(q.get('pt')) and str(q.get('title', '')).strip()]
         out['pts'] = [(r['pt'][0] * kx, r['pt'][1] * ky) for r in d.get('rooms', []) if r.get('pt')]
         for r in d.get('rooms', []):
             if not r.get('pt'):
@@ -72,11 +75,64 @@ def load_vlm(plan, vdir, shape):
     p = Path(vdir) / f'raw-{plan}-panels.txt'
     if p.exists():
         d = vlm.parse(p.read_text()) or {}
+        # T-27: ответ оборван лимитом — выжили не все этажи (Nethercote: из пяти один «Ground Floor», остальные надписи
+        # оставались вне контура и не привязывались) → на контуры не опираемся: куски плана по маске (`panels_of`)
+        if d.get('_truncated'):
+            out['panels_truncated'] = True
+            return out
         for q in d.get('panels', []):
             poly = np.array([[x * kx, y * ky] for x, y in q.get('poly', [])], np.float32)
             if len(poly) >= 3:
                 out['panels'].append({'title': q.get('title'), 'poly': poly})
     return out
+
+
+def _pt_ok(pt):
+    return isinstance(pt, (list, tuple)) and len(pt) == 2 and all(isinstance(v, (int, float)) for v in pt)
+
+
+def _box_dist(pt, b):
+    """Расстояние точки до прямоугольника (x, y, w, h); внутри — 0."""
+    x, y, w, h = b
+    return math.hypot(max(x - pt[0], 0, pt[0] - x - w), max(y - pt[1], 0, pt[1] - y - h))
+
+
+def panels_by_titles(final, ppm, titles, W, H):
+    """Делёж листа по подписям этажей (владелец TG 775: этажи на листе всегда подписаны): куски плана по маске
+    (`panels_of`) → к ближайшему заголовку (расстояние от точки заголовка до рамки куска; заголовок обычно под или над
+    своим этажом); панель = все куски одного заголовка (рамки с запасом 1 м — маска стен панели). Заголовок без кусков —
+    панели нет. → [(X0, Y0, X1, Y1, маска, принадлежность точки)], [заголовок панели]"""
+    boxes = panels_of(final, ppm)
+    if not boxes or not titles:
+        return [], []
+    own = [int(np.argmin([_box_dist(t['pt'], b) for t in titles])) for b in boxes]
+    pad = int(1.0 * ppm)
+    padded = [(max(0, x - pad), max(0, y - pad), min(W, x + w + pad), min(H, y + h + pad)) for x, y, w, h in boxes]
+
+    def piece(pt):          # кусок точки: среди рамок с запасом, где она лежит, — ближайший без запаса
+        cand = [i for i, (a, b_, c, d) in enumerate(padded) if a <= pt[0] < c and b_ <= pt[1] < d]
+        return min(cand, key=lambda i: _box_dist(pt, boxes[i])) if cand else None
+    names = [t['title'] for t in titles]
+    seen = {n: names.count(n) for n in names}
+    k = {}
+    for i, n in enumerate(names):                         # одинаковые заголовки — различать, как в `blind_gold`
+        if seen[n] > 1:
+            k[n] = k.get(n, 0) + 1
+            names[i] = f'{n} {k[n]}'
+    pan, ttl = [], []
+    for ti in range(len(titles)):
+        mine = [i for i, o in enumerate(own) if o == ti]
+        if not mine:
+            continue
+        pm = np.zeros((H, W), np.uint8)
+        for i in mine:
+            a, b_, c, d = padded[i]
+            pm[b_:d, a:c] = 1
+        X0, Y0 = min(padded[i][0] for i in mine), min(padded[i][1] for i in mine)
+        X1, Y1 = max(padded[i][2] for i in mine), max(padded[i][3] for i in mine)
+        pan.append((X0, Y0, X1, Y1, pm, (lambda pt, mine=frozenset(mine): piece(pt) in mine)))
+        ttl.append(names[ti])
+    return pan, ttl
 
 
 THIN_MASK = 'lsd:170'   # T-09: добавка тонких стен «режим[:порог гистерезиса]» (fc.wall_mask_auto); FP_MASK=old — без неё
@@ -812,7 +868,20 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
     log['cfg'] = {k: list(v) if isinstance(v, tuple) else v for k, v in cfg.items()}
     H_, W_ = wall.shape
     pan = []     # (X0, Y0, X1, Y1, маска панели или None, принадлежность точки)
-    if vl and vl['panels']:
+    pan_title = []
+    # источник деления листа (T-27): заголовки этажей (≥ 2, `labels3`) → контуры VLM `panels` (не оборванные) → куски маски;
+    # FP_PANELS=vlm|pieces — принудительно (сравнение)
+    pmode = os.environ.get('FP_PANELS', 'auto')
+    if vl and vl.get('panels_truncated'):
+        log['panels_truncated'] = True
+    if vl and pmode in ('auto', 'titles') and len(vl.get('titles') or []) >= 2:
+        pan, pan_title = panels_by_titles(base['final'], ppm0, vl['titles'], W_, H_)
+        log['panels_src'] = 'titles'
+        log['titles'] = [{'title': q['title'], 'pt': [round(q['pt'][0], 1), round(q['pt'][1], 1)]} for q in vl['titles']]
+    if pan:
+        pass                                   # поделено по заголовкам
+    elif vl and vl['panels'] and pmode != 'pieces':
+        log['panels_src'] = 'vlm'
         # панели — контуры VLM (заголовок → здание): стены за контуром (+1 м) режутся; точка — в ближайший контур
         vpolys = [np.ascontiguousarray(q['poly'].reshape(-1, 1, 2), np.float32) for q in vl['panels']]
 
@@ -836,6 +905,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
                         (lambda pt, qi=qi: owner(pt) == qi)))
         log['panels_vlm'] = [{'title': q['title'], 'poly': q['poly'].round(1).tolist()} for q in vl['panels']]
     else:
+        log['panels_src'] = 'pieces'
         for (x, y, w, h) in panels_of(base['final'], ppm0):
             pad = int(1.0 * ppm0)
             pan.append((max(0, x - pad), max(0, y - pad), min(W_, x + w + pad), min(H_, y + h + pad), None,
@@ -922,14 +992,15 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         angles = {'n': len(errs), 'median': float(np.median(errs)) if errs else None,
                   'p95': float(np.percentile(errs, 95)) if errs else None,
                   'diag_edges': len(diag), 'diag_kept': len(diag_kept)}
-        name = most_common([g['panel'] for g in groom]) or f'panel{pi}'
+        name = (pan_title[pi] if pi < len(pan_title) else None) or most_common([g['panel'] for g in groom]) or f'panel{pi}'
         P = {'panel': name, 'bbox_px': [X0, Y0, X1, Y1], 'ppm': ppm, 'fit': fit and {k: v for k, v in fit.items() if k != 'inliers'},
              'inliers': fit and fit['inliers'], 'loo': loo, 'loo_sum': fc.loo_summary(loo), 'loo_near': fc.loo_summary(loo, 'near'),
              'loo_clean': fc.loo_summary(loo, 'near_clean'), 'label_flags': [l['id'] for l in loo if l.get('flag_label')],
              'topology': topo, 'false_splits': [s for s in splits if s['false']], 'split_checks': len(splits),
              'label_splits': r.get('label_splits', []), 'repairs': rep_log, 'label_report': rep_labels,
              'absorbed': r.get('absorbed', []),
-             'vlm_title': vl['panels'][pi]['title'] if vl and vl['panels'] else None,
+             'vlm_title': (pan_title[pi] if pi < len(pan_title) else
+                           vl['panels'][pi]['title'] if vl and vl['panels'] and log.get('panels_src') == 'vlm' and pi < len(vl['panels']) else None),
              'gia_m2': gpx / ppm / ppm, 't_ext_px': t_ext, 'openings': op, 'angles': angles,
              'gold_panels': sorted({g['panel'] for g in groom}), 'dims': dims,
              'fams_panel': fc.panel_families(r['wall'], 2 * 1.5 * ppm), 'image': str(Path(inputs) / gold['image'])}

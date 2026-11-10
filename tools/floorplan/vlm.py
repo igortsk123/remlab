@@ -74,6 +74,25 @@ PROMPTS = {
         "guess numbers you cannot read: give null and unsure=true instead. "
         "Answer with JSON only: {\"rooms\": [{\"name\": str, \"dims_m\": [a, b] | null, \"note\": str | null, "
         "\"pt\": [x, y], \"unsure\": bool}], \"areas\": [{\"label\": str, \"m2\": number}]}"),
+    # T-20261110-27 (владелец TG 775): то же, что labels2, + заголовки этажей/построек с точкой — делёж листа по подписям,
+    # а не по угаданным контурам `panels` (длинные полигоны обрывались по лимиту ответа: Nethercote потерял все этажи, кроме одного)
+    'labels3': (
+        "This is a real-estate floor plan sheet. Use a normalized coordinate grid 0-1000 on both axes (x: 0 = left "
+        "edge, 1000 = right edge; y: 0 = top edge, 1000 = bottom edge). List EVERY room label printed on it (all floors "
+        "and buildings). For each room give: the room name exactly as printed; the dimensions as printed converted to "
+        "metres (two numbers in the printed order; if both metres and feet are printed use the metres; if only feet and "
+        "inches are printed convert them; null if no dimensions are printed for this room); any qualifier printed with "
+        "the dimensions such as 'max', 'into bay', 'narrowing to' (else null); the centre point [x, y] of the room-name "
+        "text in the 0-1000 grid; and unsure=true if the text is too small or blurred to read with confidence. Never "
+        "guess numbers you cannot read: give null and unsure=true instead. "
+        "Also list the printed TITLE of each separate drawing on the sheet: floor names (e.g. 'Ground Floor', 'First "
+        "Floor', 'Second Floor', 'Lower Ground Floor', 'Cellar', 'Basement') and separate building names (e.g. "
+        "'Outbuildings', 'Garage', 'Annexe'), each with the centre point [x, y] of the title text in the 0-1000 grid; "
+        "give titles only as printed (an empty list if none are printed). Do not list the sheet heading, address, "
+        "agent name, compass, scale bar or area totals as titles. "
+        "Answer with JSON only: {\"rooms\": [{\"name\": str, \"dims_m\": [a, b] | null, \"note\": str | null, "
+        "\"pt\": [x, y], \"unsure\": bool}], \"areas\": [{\"label\": str, \"m2\": number}], "
+        "\"titles\": [{\"title\": str, \"pt\": [x, y]}]}"),
     # T-20261109-03: имена неподписанных помещений — чтобы «лишние куски» мерить честно и разводить слитые с холлом комнаты
     'unlabeled': (
         "This is a real-estate floor plan sheet. Use a normalized coordinate grid 0-1000 on both axes (x: 0 = left "
@@ -124,8 +143,33 @@ def spent(out):
     return sum(r.get('usd') or 0.0 for r in rows), len(rows)
 
 
-def ask(plan, kind, out, image=None, cap_usd=CAP_USD):
-    """cap_usd — потолок денег на папку `out` (по `calls.jsonl`); стенд — $0,50, проба для агентов — своя доля на задание."""
+NORM_KINDS = ('panels', 'unlabeled', 'labels2', 'labels3')   # сетка 0–1000: промпт без подстановки размеров
+LIST_KEY = {'panels': 'panels', 'unlabeled': 'spaces', 'labels': 'rooms', 'labels2': 'rooms', 'labels3': 'rooms'}
+
+
+def label_kind(vdir, plan) -> str:
+    """Какой ответ подписей читать/спрашивать в `vdir`: `labels3` (с заголовками этажей, T-27), но если в кэше уже лежит
+    старый `labels2`, а `labels3` нет — `labels2` (старые задания перечитываются из кэша без нового платного вопроса).
+    `FP_TITLES=0` — всегда `labels2` (как до T-27)."""
+    v = Path(vdir)
+    if os.environ.get('FP_TITLES', '1') == '0':
+        return 'labels2'
+    if (v / f'raw-{plan}-labels3.txt').exists() or not (v / f'raw-{plan}-labels2.txt').exists():
+        return 'labels3'
+    return 'labels2'
+
+
+def last_call(out) -> dict:
+    """Последняя запись `calls.jsonl` папки вопроса ({} — нет)."""
+    p = Path(out) / 'calls.jsonl'
+    rows = [x for x in p.read_text().splitlines() if x.strip()] if p.exists() else []
+    return json.loads(rows[-1]) if rows else {}
+
+
+def ask(plan, kind, out, image=None, cap_usd=CAP_USD, effort=None):
+    """cap_usd — потолок денег на папку `out` (по `calls.jsonl`); стенд — $0,50, проба для агентов — своя доля на задание.
+    effort — «думание» модели (`reasoning_effort` шлюза; у Gemini 3+ → thinkingLevel, `low` — низкое): лимит `max_tokens`
+    у Gemini включает рассуждение, поэтому повтор оборванного ответа (finish=length) — с `effort='low'` (T-27)."""
     sys.path.insert(0, str(HERE.parent / 'scout'))
     import llm_gateway  # noqa: E402 — только шлюз, без тяжёлых модулей scout
     out = Path(out)
@@ -142,11 +186,12 @@ def ask(plan, kind, out, image=None, cap_usd=CAP_USD):
         image = INPUTS / gold['image']
     img, w, h = jpeg(image)
     msg = [{'role': 'user', 'content': [
-        {'type': 'text', 'text': PROMPTS[kind] if kind in ('panels', 'unlabeled', 'labels2') else PROMPTS[kind].format(w=w, h=h)},
+        {'type': 'text', 'text': PROMPTS[kind] if kind in NORM_KINDS else PROMPTS[kind].format(w=w, h=h)},
         {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(img).decode()}}]}]
     b0 = credits()
     t0 = time.time()
-    resp = llm_gateway.chat(MODEL, msg, timeout=180, tries=3, direct_fallback=False, temperature=0, max_tokens=max_tok)
+    extra = {'reasoning_effort': effort} if effort else {}
+    resp = llm_gateway.chat(MODEL, msg, timeout=180, tries=3, direct_fallback=False, temperature=0, max_tokens=max_tok, **extra)
     sec = time.time() - t0
     time.sleep(3)
     b1 = credits()
@@ -160,12 +205,13 @@ def ask(plan, kind, out, image=None, cap_usd=CAP_USD):
     if usd is None and b0 is not None and b1 is not None:
         usd = round(b0 - b1, 6)
     rec = {'plan': plan, 'kind': kind, 'model': MODEL, 'sec': round(sec, 1), 'finish': ch.get('finish_reason'),
-           'usage': usage, 'balance_before': b0, 'balance_after': b1, 'usd': usd, 'at': time.strftime('%H:%M:%S')}
+           'usage': usage, 'balance_before': b0, 'balance_after': b1, 'usd': usd, 'at': time.strftime('%H:%M:%S'),
+           'max_tokens': max_tok, **({'effort': effort} if effort else {})}
     with open(out / 'calls.jsonl', 'a') as f:
         f.write(json.dumps(rec, ensure_ascii=False) + '\n')
     (out / f'raw-{plan}-{kind}.txt').write_text(raw)
-    rec['max_tokens'] = max_tok
     print(json.dumps(rec, ensure_ascii=False))
+    return rec
 
 
 def _pairs(pairs):

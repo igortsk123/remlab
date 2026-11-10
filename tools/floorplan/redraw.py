@@ -196,7 +196,7 @@ def mask_labels(sheet_rgb, vdir: Path, plan: str):
     k = min(1.6, max(0.7, max(W, H) / 1334.0))
     g = cv2.cvtColor(np.array(sheet_rgb), cv2.COLOR_RGB2GRAY)
     cs = _comps(g, k)
-    p = Path(vdir) / f'raw-{plan}-labels2.txt'
+    p = Path(vdir) / f'raw-{plan}-{vlm.label_kind(vdir, plan)}.txt'
     d = (vlm.parse(p.read_text()) or {}) if p.exists() else {}
     boxes = []
     for r in d.get('rooms', []):
@@ -239,13 +239,16 @@ def mask_labels(sheet_rgb, vdir: Path, plan: str):
 # ── запрос: кусок листа + поля под пропорцию модели ───────────────────────────────────────────────────────────────
 
 def crop_box(W: int, H: int, vdir: Path, plan: str) -> list:
-    """Рамка запроса: объединение контуров панелей VLM (сетка 0–1000) + запас; нет панелей — весь лист."""
+    """Рамка запроса: объединение контуров панелей VLM (сетка 0–1000) + запас; нет панелей или ответ оборван лимитом
+    (`_truncated`: выжили не все этажи — Nethercote ушёл на перерисовку одной левой частью, T-27) — весь лист."""
     import vlm
     p = Path(vdir) / f'raw-{plan}-panels.txt'
     pts = []
-    if p.exists():
-        for q in (vlm.parse(p.read_text()) or {}).get('panels', []):
-            pts += [(x * W / 1000.0, y * H / 1000.0) for x, y in q.get('poly', [])]
+    d = (vlm.parse(p.read_text()) or {}) if p.exists() else {}
+    if d.get('_truncated'):
+        return [0, 0, W, H]
+    for q in d.get('panels', []):
+        pts += [(x * W / 1000.0, y * H / 1000.0) for x, y in q.get('poly', [])]
     if not pts:
         return [0, 0, W, H]
     xs, ys = [a for a, _ in pts], [b for _, b in pts]
