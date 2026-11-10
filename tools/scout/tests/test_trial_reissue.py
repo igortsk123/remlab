@@ -116,8 +116,8 @@ def test_target_room_without_old_furniture_is_honest_refusal_not_spinner():
 
 
 def test_living_picked_from_other_room_keeps_its_furniture_and_outcome():
-    """Гостиной с подписью в плане нет — сборщик берёт гостиной комнату вида `other` (прод 10.11: FYyX…, Jsfx…). Её мебель или отказ
-    переносятся, как у любой цели; раньше комнату пропускали по виду — сборщик оставлял «подбирается», `complete` становился False."""
+    """Гостиная с подписью, но вида `other` (разбор не узнал вид) — сборщик берёт её гостиной. Её мебель или отказ переносятся, как у
+    любой цели; раньше комнату пропускали по виду — сборщик оставлял «подбирается», `complete` становился False (T-20261110-10)."""
     flat = flat_with_bedrooms()
     next(r for r in flat['panels'][0]['rooms'] if r['id'] == 'r1')['kind'] = 'other'
     _, old = old_tour(flat)
@@ -136,6 +136,25 @@ def test_living_picked_from_other_room_keeps_its_furniture_and_outcome():
     assert (e['furniture_state'], e['furniture_outcome']) == ('refused', 'no_products') and e['furniture_text']
     assert 'living' in rep['kept_outcome'] and new['trial']['complete'] is True
     assert [v['items'] for v in new['variants'] if v['room_id'] == 'living'] == [[]]
+
+
+def test_guessed_living_without_label_is_not_resurrected():
+    """Прежний сборщик угадывал гостиной комнату `other` без подписи (прод 10.11, FYyX…/Jsfx…: ванная, отказ «гостиная мала»). Текущий
+    не угадывает (`no_living`, T-20261110-12) — «как есть» не переносит её прежний исход: комната без подписи — «не обставляем»."""
+    flat = flat_with_bedrooms()
+    r1 = next(r for r in flat['panels'][0]['rooms'] if r['id'] == 'r1')
+    r1['kind'] = 'other'
+    _, old = old_tour(flat)
+    assert next(r for r in old['apartment_rooms'] if r['id'] == 'living')['furniture_state'] == 'ready'
+    r1['name'] = ''                                          # тот же план, прочитанный без подписи гостиной
+    new, rep = RI.reissue(JOB, flat, old, ctx=CTX)
+    keys = RI.room_keys(new)
+    e = next(r for r in new['apartment_rooms'] if keys.get(r['id']) == ('p0', 'r1'))
+    assert e['kind'] == 'other' and e['furniture_state'] == 'not_furnished'
+    assert not [v for v in new['variants'] if v['room_id'] == e['id'] and v['items']]
+    assert e['id'] not in rep['kept_furniture'] + rep['kept_outcome'] and 'living' not in rep['renamed_rooms']
+    assert 'no_living' in new['trial']['flags'] and new['trial']['complete'] is True
+    assert furniture(new) == {k: v for k, v in furniture(old).items() if k[0] != ('p0', 'r1')}
 
 
 def test_waiting_and_consented_rooms_keep_their_state():

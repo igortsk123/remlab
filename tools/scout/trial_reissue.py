@@ -30,7 +30,6 @@ import trial_bundle as TB
 OUTCOME_KEYS = ('furniture_state', 'furniture_outcome', 'furniture_code', 'furniture_text', 'furniture_text_en')
 GEO_KEEP = ('w', 'd', 'openings', 'radiators')        # коробка под мебелью: предметы стоят в её координатах
 NO_SOURCE = 'reissue_no_source'
-FURNISHED_STATES = ('ready', 'refused', 'awaiting_check')   # у комнаты был подбор (или его решение) — переносим, какого бы вида она ни была
 
 
 def room_keys(bundle: dict) -> dict:
@@ -96,10 +95,10 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
         rid = e['id']
         oid = by_key.get(new_keys.get(rid))
         o = old_rooms.get(oid) if oid else None
-        # цель — по исходу, не только по виду: гостиной без подписи в плане сборщик берёт комнату вида `other` (прод 10.11, FYyX…),
-        # её «подбирается» от сборщика без переноса осталось бы навсегда (и `complete` — False)
-        target = (e['kind'] in TB.TARGET_KINDS or (o or {}).get('kind') in TB.TARGET_KINDS or e['furniture_state'] == 'pending'
-                  or (o or {}).get('furniture_state') in FURNISHED_STATES)
+        # цель — по виду или по «подбирается» текущего сборщика (гостиная с подписью у комнаты вида `other`); НЕ по прежнему исходу:
+        # гостиную без подписи сборщик больше не угадывает (T-20261110-12), и прежний отказ угаданной «гостиной» (FYyX…: ванная без
+        # подписи, «гостиная мала») иначе воскресал бы на безымянной комнате
+        target = (e['kind'] in TB.TARGET_KINDS or (o or {}).get('kind') in TB.TARGET_KINDS or e['furniture_state'] == 'pending')
         if not target:
             continue
         if o is None or o.get('furniture_state') not in TB.ROOM_STATES or o['furniture_state'] == 'pending':
