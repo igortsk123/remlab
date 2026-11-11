@@ -92,6 +92,14 @@ export interface DemoScene {
   select(index: number | null): void;
   /** Рамка выбранного — предупреждение (красная): повёрнутый кнопкой «Повернуть» предмет задевает соседний (T-20261111-05 п.7). */
   warn(on: boolean): void;
+  /** «Переместить» (T-20261111-05/4): начать перетаскивание предмета (номер как в `update`); false — предмета нет в сцене. */
+  moveBegin(index: number): boolean;
+  /** Сдвинуть черновик на (dx, dy) см от исходного места; под ним подсветка: `ok` — зелёная, иначе красная. */
+  moveBy(dx: number, dy: number, ok: boolean): void;
+  /** Закончить: `commit` — предмет остаётся (страница запишет место в расстановку), иначе возвращается, где стоял. */
+  moveEnd(commit: boolean): void;
+  /** Точка пола под экранной точкой, см (тянут палец или мышь); null — луч мимо пола (выше горизонта). */
+  floorAt(clientX: number, clientY: number): { x: number; y: number } | null;
   /** Повернуть взгляд прогулки на `deg` градусов (тап по краю сцены в «3D», demo-02 v3: поворот не только перетаскиванием). */
   turn(deg: number): void;
   /** Тап в «3D»: по предмету — его номер в расстановке; по полу (и ковру) — шаг туда (`viewer.goTo`, если `walk` не выключен) и -1. */
@@ -204,6 +212,8 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   let running: Promise<void> = ready;
   // выделенный предмет переживает пересборку расстановки (замена модели пересоздаёт объект — выделение ставим заново)
   let selected: number | null = null;
+  // «Переместить»: исходное место предмета в координатах движка — черновик двигаем от него на сдвиг пальца
+  let moveFrom: { x: number; y: number; rot: number } | null = null;
   const reselect = (): void => {
     if (selected == null) return;
     const id = [...slotIndex()].find(([, i]) => i === selected)?.[0];
@@ -294,6 +304,23 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
       viewer.start();
     },
     warn: (on) => viewer.setOutlineWarn(on),
+    moveBegin: (index) => {
+      const id = [...slotIndex()].find(([, i]) => i === index)?.[0];
+      moveFrom = id ? viewer.beginMove(id) : null;
+      viewer.start();
+      return moveFrom != null;
+    },
+    moveBy: (dx, dy, ok) => {
+      if (!moveFrom) return;
+      viewer.moveDraftTo(moveFrom.x + dx, moveFrom.y + dy, ok);
+      viewer.start();
+    },
+    moveEnd: (commit) => {
+      if (commit) viewer.endMove(); else viewer.cancelMove();
+      moveFrom = null;
+      viewer.start();
+    },
+    floorAt: (x, y) => viewer.floorPoint(x, y, canvas.getBoundingClientRect()),
     turn: (deg) => viewer.look(-deg / 0.22, 0),
     walkTap: (x, y) => {
       const rect = canvas.getBoundingClientRect();

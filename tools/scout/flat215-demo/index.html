@@ -1323,10 +1323,10 @@ body.tr-nogoods #shot .pinlist .row>.p{flex:0 0 40px}
    в 3D, и без этого правила сменить стиль на телефоне было негде. Место и вид те же (правый верх у «×»); пометка «Форма комнаты
    приблизительная» на телефоне — строкой ниже, под верхним рядом, чтобы не наезжать на плашку.
    В 3D место у «×» занято «Скрыть цены» (T-75) — плашка лежала под ней (T-37): в 3D тура она вторым рядом справа, пометка — третьим */
+/* T-05/4 (владелец TG 1502): «Сменить стиль» в 3D больше нет ни в туре, ни в /demo — только в «Фото» (тур теперь открывает «Фото»
+   всегда, п.2 T-05/1); пометка, ставшая «Подтвердите планировку», — вторым рядом под верхним */
 @media(max-width:700px){
-  body.trial #shot.vwalk:not(.vsheetfull) .vstyle:not([hidden]){display:inline-flex;top:58px;right:12px}
   body.trial #shot .vstage>.tr-approx{top:58px}
-  body.trial #shot.vwalk .vstage>.tr-approx{top:104px}
 }
 /* «мебель подбирается» — состояние, а не пустая готовая комната: карточка, план и окно комнаты */
 .tr-spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite;vertical-align:-3px;margin-right:8px}
@@ -1344,6 +1344,10 @@ body.tr-nogoods #shot .pinlist .row>.p{flex:0 0 40px}
 .hm-room[data-refused] .rb .sum small.tr-wait-tx,.hm-room[data-pending] .rb .sum small.tr-wait-tx{white-space:normal}
 .tr-approx{position:absolute;left:10px;top:10px;z-index:2;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.92);color:#8A4A1F;font-size:12px;line-height:1.3;border:1px dashed #C7652B;pointer-events:none}
 .vstage>.tr-approx{left:50%;top:14px;transform:translateX(-50%);z-index:5;white-space:nowrap}
+/* «Подтвердите планировку ›» (T-05/4) — та же плашка, но нажимается; в «Фото» тура с карточкой «Перейти к планировке» её нет: зов один */
+.vstage>.tr-confirm{pointer-events:auto;cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;padding:5px 12px}
+.vstage>.tr-confirm::after{content:" ›"}
+.vstage:has(.vtrph)>.tr-confirm{display:none}
 /* компьютер (T-20261110-40): по центру сверху — переключатель «Фото | 3D», слева сверху — «3D: тяните…»/«Фото нейросети…», справа —
    «Скрыть цены»; пометка — слева внизу над ракурсами (ракурсы по центру ниже), не пересекает верхние кнопки ни на одной ширине */
 @media(min-width:701px){body.trial #shot .vstage>.tr-approx{left:12px;top:auto;bottom:62px;transform:none}}
@@ -1721,6 +1725,19 @@ const roomApprox=id=>TRIAL()&&!!(((D.rooms_geo||{})[id]||{}).approx), approxTxt=
 // обставлена «как есть» по кнопке «Обустроить» (`apartment_rooms[].approx_consent`): размеры не подтверждены — говорим это на комнате
 const roomConsent=id=>!!(trRoom(id)||{}).approx_consent, consentTxt=()=>TR_EN()?'Approximate sizes':'Размеры примерные';
 const approxTag=id=>roomConsent(id)?`<span class="tr-approx" data-consent="1">${consentTxt()}</span>`:roomApprox(id)?`<span class="tr-approx">${approxTxt()}</span>`:'';
+// «ПОДТВЕРДИТЕ ПЛАНИРОВКУ» В ОКНЕ КОМНАТЫ (T-20261111-05/4, владелец TG 1502): вместо пометки «Форма комнаты приблизительная» / «Размеры
+// примерные», по тому же условию — кнопка-подсказка, ведёт на вкладку «План квартиры» (`trGoPlan`). Карточки главной — с прежней пометкой.
+// ОДНА ТОЧКА-ПРИЗНАК: размеры комнаты подтверждены агентом. Сейчас всегда «нет»; часть 2 плана `trial-confirm-plan-01` (кнопка
+// «Подтвердить планировку», флаг комнаты `USER_DIMS`) вернёт здесь «да» — и подсказка у этой комнаты пропадёт
+function trRoomConfirmed(id){ return false; }
+const confirmTag=id=>(roomConsent(id)||roomApprox(id))&&!trRoomConfirmed(id)
+  ?`<button class="tr-approx tr-confirm" type="button" data-tr-confirm="1">${TR_EN()?'Confirm the floor plan':'Подтвердите планировку'}</button>`:'';
+// на вкладку «План квартиры»: окно комнаты закрываем, страницу — наверх (там и правят планировку)
+function trGoPlan(){
+  const x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();
+  showTab('plan'); pageScrollTo(0);
+}
+document.addEventListener('click',e=>{ const b=e.target&&e.target.closest&&e.target.closest('[data-tr-confirm]'); if(!b)return; e.preventDefault(); trGoPlan(); });
 // ЦЕН В ПРОБЕ НЕТ (план agent-trial-08 В): каталог и рубли — не для агента; режимом — `fmtCard` отдаёт пусто, а места «сумма · N предметов»
 // собирают строку через `trJoin`, чтобы не оставалось «· » и пустых скобок
 const trJoin=(...a)=>a.filter(Boolean).join(' · ');
@@ -8571,6 +8588,8 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 .vmodes button.on{background:var(--surface);color:var(--ink);font-weight:600}
 /* «Сменить стиль» поверх фото — только телефон (владелец TG 475–477); на компьютере — строка вверху правой панели (`.vrow`) */
 .vstyle{display:none}
+/* «Другой стиль для комнаты» в шапке боковой панели — тоже только в «Фото» (T-05/4, владелец TG 1502): в 3D строка — одно название стиля */
+#shot.vwalk #vOther,#shot.vwalk .vrow-s{display:none}
 /* «Скрыть цены / Показать цены» — только в 3D (владелец TG 606, T-20261108-75): тёмная плашка как «Фото | 3D»; телефон — на месте
    «Сменить стиль» (ниже, в правилах телефона), компьютер — правый верх сцены, по высоте как «Фото | 3D» */
 .vprice{display:none;align-items:center;position:absolute;top:12px;right:12px;height:39px;padding:0 16px;border:0;border-radius:999px;background:var(--veil);
@@ -8751,11 +8770,18 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
 #shot.v2 .pinlist .row.hl::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:999px;background:var(--accent)}
 .vpin.sel{background:var(--accent);color:#fff;z-index:2}
 /* «Повернуть» у цены выбранного в 3D (T-20261111-05 п.7) — в тон ценника, но кнопка: рамка акцента, значок ↻ */
-.vrot{position:absolute;left:0;top:0;will-change:transform;display:inline-flex;align-items:center;gap:5px;background:var(--surface);color:var(--accent);
+/* «Переместить» рядом (T-05/4): обе кнопки одной связкой `.vacts`, ставится как одно целое; тянуть — за «Переместить» (`touch-action:none`) */
+.vacts{position:absolute;left:0;top:0;will-change:transform;display:inline-flex;gap:6px;pointer-events:none;z-index:3}
+.vacts[hidden]{display:none}
+.vrot,.vmove{display:inline-flex;align-items:center;gap:5px;background:var(--surface);color:var(--accent);
  border:1.5px solid var(--accent);border-radius:999px;padding:3px 10px 3px 8px;font-family:inherit;font-weight:600;font-size:12.5px;line-height:1.3;box-shadow:var(--e3);white-space:nowrap;
- pointer-events:auto;cursor:pointer;z-index:3}
-.vrot span{font-size:15px;line-height:1}
-.vrot[hidden]{display:none}
+ pointer-events:auto;cursor:pointer}
+.vmove{cursor:grab;touch-action:none}
+.vrot span,.vmove span{font-size:15px;line-height:1}
+/* размеры выбранного под его рамкой (T-05/4): тёмная плашка, как подсказка 3D, — читается на любом фоне */
+.vdims{position:absolute;left:0;top:0;will-change:transform;background:rgba(43,38,34,.82);color:#fff;border-radius:999px;padding:3px 10px;
+ font-size:12.5px;font-weight:600;line-height:1.3;white-space:nowrap;pointer-events:none;z-index:3;font-variant-numeric:tabular-nums}
+.vdims[hidden]{display:none}
 #shot.v2 .shotwrap .nav,#shot.v2 .shotwrap .viewno{display:none}
 /* новая картинка — плавно (200 мс), а не вспышкой */
 #shot .shotwrap .livecv{opacity:0;transition:opacity .2s}#shot .shotwrap .livecv.in{opacity:1}
@@ -8938,7 +8964,7 @@ function vwHtml(s, navs, list){
   // проба: мебель подбирается или товаров нет — ТО ЖЕ окно (T-20261109-35): пустая комната в 3D, ракурсы и шторка на месте, вместо списка —
   // строка по причине (`vwNoneHtml`); `data-empty` — для проверок, вид от него не зависит
   const v0=allVariants()[cur], empty=varRefused(v0)?'none':varPending(v0)?'pending':'';
-  return `<div class="vw"${empty?` data-empty="${empty}"`:''}><div class="vstage">${approxTag(roomIdOf(v0||{}))}<div class="shotwrap">${img}${navs}${old}</div>`+
+  return `<div class="vw"${empty?` data-empty="${empty}"`:''}><div class="vstage">${confirmTag(roomIdOf(v0||{}))}<div class="shotwrap">${img}${navs}${old}</div>`+
     `<div class="vmodes" role="tablist"><button data-vm="photo" class="${VW.mode==='photo'?'on':''}">Фото</button>`+
     // «Фото | 3D» без «План» (макет 373:7035, home-figma-02): план квартиры — на главной; режим `plan` в коде остаётся
     `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button></div>`+
@@ -9408,6 +9434,7 @@ function bubPlace(bub){
 function vwSelect(idx){
   VW.sel=idx==null||idx<0?null:idx;
   if(LIVE.scene&&LIVE.scene.select)LIVE.scene.select(VW.sel);
+  if(VW.mvArm&&!VW.mv)VW.mvArm=false;   // «взятый» для перемещения предмет — только пока он выбран
   if(VW.rotBase&&VW.rotBase.i!==VW.sel){VW.rotBase=null; if(LIVE.scene&&LIVE.scene.warn)LIVE.scene.warn(false);}   // красная рамка — у повёрнутого
   if(VW.sel==null)document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   try{vwPins();}catch(e){}
@@ -9515,29 +9542,58 @@ function vwCanRot(it){
   if(it.strategy==='procedural_plane'&&+it.h>+it.d)return false;   // картина, зеркало
   return !(k.hung||(+it.elev||0)>0||/^кухн/i.test(role));
 }
-function vwRotHide(){ if(PINS.rot)PINS.rot.hidden=true; }
+function vwRotHide(){ if(PINS.rot)PINS.rot.hidden=true; if(PINS.dims)PINS.dims.hidden=true; }
+// кнопки у цены выбранного — одной связкой «↻ Повернуть  ✥ Переместить» (T-05/4, владелец TG 1502): ставятся и прячутся вместе
+function vwActsNode(box){
+  let b=PINS.rot;
+  if(b&&b.isConnected)return b;
+  const EN=LANG==='en';
+  b=document.createElement('span'); b.className='vacts'; b._w=0;
+  b.innerHTML=`<button class="vrot" type="button" aria-label="${EN?'Rotate 45°':'Повернуть на 45°'}"><span aria-hidden="true">↻</span>${EN?'Rotate':'Повернуть'}</button>`+
+    `<button class="vmove" type="button" aria-label="${EN?'Move: drag along the floor':'Переместить: тяните по полу'}"><span aria-hidden="true">✥</span>${EN?'Move':'Переместить'}</button>`;
+  b.querySelector('.vmove').addEventListener('pointerdown',vwMoveDown);
+  box.appendChild(b); PINS.rot=b; return b;
+}
+// РАЗМЕРЫ ВЫБРАННОГО (T-05/4, владелец TG 1504: «видно, что мы считаем габариты»): одна плашка под рамкой — ширина × глубина × высота, см
+function vwDimsTxt(it){ const EN=LANG==='en', r=v=>Math.round(+v||0);
+  return EN?`W ${r(it.w)} × D ${r(it.d)} × H ${r(it.h)} cm`:`Ш ${r(it.w)} × Г ${r(it.d)} × В ${r(it.h)} см`; }
+function vwDimsPlace(box, fr, pad, kept, p, it, free0){
+  let d=PINS.dims;
+  if(!d||!d.isConnected){d=document.createElement('span'); d.className='vdims'; box.appendChild(d); PINS.dims=d;}
+  if(!it||!(+it.w>0)||!(+it.d>0)||!(+it.h>0)||!p||!p.visible||!p.box){d.hidden=true; return;}
+  const t=vwDimsTxt(it); if(d.textContent!==t){d.textContent=t; d._w=0;}
+  if(d.hidden||!d._w){d.hidden=false; d._w=d.offsetWidth; d._h=d.offsetHeight;}
+  const w=d._w, h=d._h, bx=p.box, cx=Math.round(Math.max(pad,Math.min(fr.width-w-pad,(bx[0]+bx[2])/2-w/2)));
+  // под рамкой; не влезает (низ кадра, шторка) — внутри рамки у нижнего края; выше — там ценник и кнопки
+  const at=[[cx,Math.round(bx[3]+6)],[cx,Math.round(bx[3]-h-6)],[cx,Math.round((bx[1]+bx[3])/2-h/2)]].find(([x,y])=>free0(x,y,w,h));
+  if(!at){d.hidden=true; return;}
+  d.style.transform=`translate(${at[0]}px,${at[1]}px)`;
+}
 function vwRotPlace(box, fr, pad, kept, all, hit, underHint){
   const i=VW.sel, it=i!=null?items[i]:null;
-  if(!it||!vwCanRot(it)||(typeof TR_NOGOODS==='function'&&TR_NOGOODS())){vwRotHide(); return;}
-  let b=PINS.rot;
-  if(!b||!b.isConnected){b=document.createElement('button'); b.type='button'; b.className='vrot';
-    const EN=LANG==='en'; b.setAttribute('aria-label',EN?'Rotate 45°':'Повернуть на 45°');
-    b.innerHTML='<span aria-hidden="true">↻</span>'+(EN?'Rotate':'Повернуть'); box.appendChild(b); PINS.rot=b; b._w=0;}
-  if(b.hidden){b.hidden=false; b._w=0;}
-  if(!b._w){b._w=b.offsetWidth; b._h=b.offsetHeight;}
-  const w=b._w, h=b._h, p=all.find(q=>q.index===i);
-  if(!p||!p.visible){vwRotHide(); return;}
-  const free=(x,y)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
+  if(!it||(typeof TR_NOGOODS==='function'&&TR_NOGOODS())){vwRotHide(); return;}
+  const p=all.find(q=>q.index===i);
+  const free0=(x,y,w,h)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
     return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k))
-      ||(underHint&&underHint(r)));};
-  // место: справа от цены, слева, над ней, под ней; цены нет (скрыты или не влезла) — над рамкой предмета, как ценник
-  const n=PINS.map.get(i), np=n&&!n.hidden&&n._x!=null;
-  const dy=np?Math.round(n._y+(n._h-h)/2):0;
-  const spots=np?[[n._x+n._w+6,dy],[n._x-6-w,dy],[Math.round(n._x+(n._w-w)/2),n._y-h-6],[Math.round(n._x+(n._w-w)/2),n._y+n._h+6]]
-    :pinSpots(p, w, h, fr.width, pad);
-  const at=spots.find(([x,y])=>free(x,y));
-  if(!at){vwRotHide(); return;}
-  b.style.transform=`translate(${at[0]}px,${at[1]}px)`;
+      ||(underHint&&underHint(r)))&&r;};
+  const acts=()=>{
+    if(!vwCanRot(it)||!p||!p.visible){if(PINS.rot)PINS.rot.hidden=true; return;}
+    const b=vwActsNode(box);
+    if(b.hidden){b.hidden=false; b._w=0;}
+    if(!b._w){b._w=b.offsetWidth; b._h=b.offsetHeight;}
+    const w=b._w, h=b._h;
+    // место: справа от цены, слева, над ней, под ней; цены нет (скрыты или не влезла) — над рамкой предмета, как ценник
+    const n=PINS.map.get(i), np=n&&!n.hidden&&n._x!=null;
+    const dy=np?Math.round(n._y+(n._h-h)/2):0;
+    const spots=np?[[n._x+n._w+6,dy],[n._x-6-w,dy],[Math.round(n._x+(n._w-w)/2),n._y-h-6],[Math.round(n._x+(n._w-w)/2),n._y+n._h+6]]
+      :pinSpots(p, w, h, fr.width, pad);
+    const at=spots.find(([x,y])=>free0(x,y,w,h));
+    if(!at){b.hidden=true; return;}
+    b.style.transform=`translate(${at[0]}px,${at[1]}px)`;
+    kept.push(free0(at[0],at[1],w,h)||{left:0,right:0,top:0,bottom:0});
+  };
+  acts();
+  vwDimsPlace(box, fr, pad, kept, p, it, free0);
 }
 // след предмета на плане — повёрнутый прямоугольник (см), чуть меньше (касание вплотную — не наезд)
 function fpPoly(it){ const a=-(+it.rot||0)*Math.PI/180, c=Math.cos(a), s=Math.sin(a), hw=Math.max(0,+it.w/2-1), hd=Math.max(0,+it.d/2-1);
@@ -9580,6 +9636,76 @@ function vwRotate(){
   try{draw();}catch(e){}
   liveShow();
   if(vwRotWarn())toast(LANG==='en'?ROT_HIT_EN:ROT_HIT_RU);
+}
+// «ПЕРЕМЕСТИТЬ» В 3D (T-20261111-05/4, владелец TG 1502): нажали кнопку и тянете — предмет едет по полу за пальцем или мышью (на
+// сдвиг пальца по полу), под ним подсветка места движка (`viewer.ensureGhost`): зелёная — встаёт, красная — нет: выходит за стену,
+// задевает соседний предмет (новый наезд, как у «Повернуть») или встаёт в зону открывания двери. Отпустили на зелёном — встал (правка
+// расстановки: ↶/↷, хранится в браузере, `editKeep`), на красном — вернулся, где стоял. Короткое нажатие без движения — «взял»:
+// следующее перетаскивание по сцене двигает предмет, а не взгляд
+// зона открывания двери, открывающейся в комнату: квадрат со стороной створки от петель (тот же расчёт, что дуга плана, `doorGeom`)
+function vwDoorPolys(R){
+  return (R&&R.openings||[]).filter(o=>o.kind==='door'&&o.into!==false).map(o=>{const g=doorGeom(o), r=g.r, h=g.hinge;
+    return [[h.x,h.y],[h.x+g.along.x*r,h.y+g.along.y*r],[h.x+g.along.x*r+g.open.x*r,h.y+g.along.y*r+g.open.y*r],[h.x+g.open.x*r,h.y+g.open.y*r]];});
+}
+function vwDoorHits(it, R){ const A=fpPoly(it); return vwDoorPolys(R).filter(P=>polyHit(A,P)).length; }
+// место (x, y) подходит предмету i: внутри комнаты, без новых наездов и без новой двери против исходного места (`VW.mv.base`)
+function vwMoveOk(i, x, y){
+  const it=items[i], R=curRoom(), m=VW.mv; if(!it||!R||!m)return false;
+  const px=it.x, py=it.y; it.x=x; it.y=y;
+  try{ const b=box(it);
+    if(b.x0<-0.5||b.y0<-0.5||b.x1>R.w+0.5||b.y1>R.d+0.5)return false;
+    if([...vwRotHits(i)].some(k=>!m.base.hits.has(k)))return false;
+    return vwDoorHits(it,R)<=m.base.door;
+  }finally{it.x=px; it.y=py;}
+}
+function vwMoveStart(e){
+  const i=VW.sel, it=i!=null?items[i]:null, sc=LIVE.scene;
+  if(!vwCanRot(it)||vwEditLock()||!sc||!sc.moveBegin||VW.mode!=='walk')return false;
+  // ОТСЧЁТ — ОТ ТОЧКИ ПОЛА У САМОГО ПРЕДМЕТА (низ его рамки на экране), а не под пальцем: кнопка стоит над предметом, часто на фоне
+  // стены, и луч оттуда уходит в пол далеко за стеной — малый жест давал метры. Сдвиг пальца переносим к этой точке
+  const cr=LIVE.canvas.getBoundingClientRect(), p=(sc.pins()||[]).find(q=>q.index===i);
+  const ax=cr.left+(p?(p.box?(p.box[0]+p.box[2])/2:p.x):cr.width/2), ay=cr.top+(p?(p.box?p.box[3]-4:p.y):cr.height*0.7);
+  const f0=sc.floorAt(ax,ay);
+  if(!f0||!sc.moveBegin(i))return false;
+  const R=curRoom();
+  VW.mv={i, ox:+it.x, oy:+it.y, f0, a:[ax,ay], c0:[e.clientX,e.clientY], x:+it.x, y:+it.y, ok:true, moved:false,
+    base:{hits:vwRotHits(i), door:R?vwDoorHits(it,R):0}};
+  VW.mvArm=false;
+  return true;
+}
+function vwMoveMove(e){
+  const m=VW.mv, sc=LIVE.scene; if(!m||!sc)return;
+  if(!m.moved&&Math.hypot(e.clientX-m.c0[0],e.clientY-m.c0[1])<6)return;
+  m.moved=true;
+  const f=sc.floorAt(m.a[0]+e.clientX-m.c0[0], m.a[1]+e.clientY-m.c0[1]); if(!f)return;   // выше горизонта — предмет стоит, где был
+  const dx=f.x-m.f0.x, dy=f.y-m.f0.y;
+  m.x=m.ox+dx; m.y=m.oy+dy; m.ok=vwMoveOk(m.i,m.x,m.y);
+  sc.moveBy(dx,dy,m.ok);
+  document.getElementById('shot').dataset.mv=m.ok?'ok':'bad';   // для проверок: цвет подсветки
+}
+function vwMoveUp(){
+  const m=VW.mv, sc=LIVE.scene; VW.mv=null; delete document.getElementById('shot').dataset.mv;
+  if(!m||!sc)return;
+  const EN=LANG==='en';
+  if(!m.moved){sc.moveEnd(false); VW.mvArm=true; toast(EN?'Now drag the item along the floor':'Теперь тяните предмет по полу'); return;}
+  if(m.x===m.ox&&m.y===m.oy){sc.moveEnd(false); return;}   // жест был, а сдвига по полу нет
+  if(!m.ok){sc.moveEnd(false); toast(EN?'It does not fit there, so it is back in place':'Там не помещается, вернули на место'); return;}
+  sc.moveEnd(true);
+  const it=items[m.i]; it.x=Math.round(m.x*10)/10; it.y=Math.round(m.y*10)/10;
+  VW.rotBase=null; if(sc.warn)sc.warn(false);   // поворот дальше — от нового места
+  histPush();
+  try{draw();}catch(e){}
+  liveShow();
+}
+function vwMoveDown(e){
+  if(e.button!=null&&e.button!==0)return;
+  e.preventDefault(); e.stopPropagation();
+  if(!vwMoveStart(e))return;
+  const el=e.currentTarget; try{el.setPointerCapture(e.pointerId);}catch(x){}
+  const mv=ev=>vwMoveMove(ev), up=ev=>{el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); el.removeEventListener('pointercancel',up);
+    if(ev.type==='pointercancel'&&VW.mv&&VW.mv.moved)VW.mv.ok=false;   // жест прервала система — предмет на прежнее место
+    vwMoveUp();};
+  el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
 }
 function vwMount(s){
   const shot=document.getElementById('shot'); shot.classList.add('v2');
@@ -9709,9 +9835,7 @@ function trPhotoStubUi(){
     :`<div class="vphcard"><b>${trPhT('ask')}</b><button class="btn primary" type="button" data-trph="plan">${trPhT('go')}</button>`+
       (trKey()?'':`<small>${trPhT('agent')}</small>`)+`</div>`;
   const b=el.querySelector('button');
-  b.onclick=()=>{ if(b.dataset.trph==='shot'){if(!VJ.job)vwRealistic(); return;}
-    const x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();
-    showTab('plan'); pageScrollTo(0); };
+  b.onclick=()=>{ if(b.dataset.trph==='shot'){if(!VJ.job)vwRealistic(); return;} trGoPlan(); };
   wrap.appendChild(el);
 }
 function vwMode(m){
@@ -10363,8 +10487,16 @@ function liveEngine(){
 function liveWire(){
   const cv=LIVE.canvas; if(!cv||cv._wired)return; cv._wired=true; cv.style.touchAction='none';
   let p0=null, last=null;
-  cv.addEventListener('pointerdown',e=>{p0={x:e.clientX,y:e.clientY}; last={...p0}; cv.setPointerCapture(e.pointerId);});
-  cv.addEventListener('pointermove',e=>{if(!p0||VW.mode!=='walk')return; LIVE.scene.look(e.clientX-last.x,e.clientY-last.y); last={x:e.clientX,y:e.clientY};});
+  // «Переместить» взят коротким нажатием (`VW.mvArm`): перетаскивание по сцене двигает предмет, а не взгляд (T-05/4)
+  cv.addEventListener('pointerdown',e=>{
+    if(VW.mvArm&&vwMoveStart(e)){p0=null; cv.setPointerCapture(e.pointerId); return;}
+    VW.mvArm=false;
+    p0={x:e.clientX,y:e.clientY}; last={...p0}; cv.setPointerCapture(e.pointerId);});
+  cv.addEventListener('pointermove',e=>{if(VW.mv){vwMoveMove(e); return;}
+    if(!p0||VW.mode!=='walk')return; LIVE.scene.look(e.clientX-last.x,e.clientY-last.y); last={x:e.clientX,y:e.clientY};});
+  cv.addEventListener('pointerup',e=>{if(!VW.mv)return; e.stopImmediatePropagation();
+    if(!VW.mv.moved){LIVE.scene.moveEnd(false); VW.mv=null; return;}   // нажали и не тянули — «взял» снят
+    vwMoveUp();});
   // КОНТРАКТ ЖЕСТОВ (demo-02 v3, Codex п.4): «Фото» — тап по предмету выбирает его (ракурс — кнопками и свайпом по фото, demo-26 Б); «3D» — движение > 8 px =
   // осмотр, короткий тап в крайних 20 % ширины = поворот на 30°, по предмету = выбор, по полу = шаг туда — только с мышью: на сенсорном
   // экране ходьбы нет (demo-20 Б6, владелец 22.10), остаются осмотр, повороты и ракурсы «со стороны двери / окна» (`walk` сцены)
