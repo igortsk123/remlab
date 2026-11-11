@@ -14,8 +14,7 @@ review_after: 2026-12-10
 
 # Проба агента — Tier 1
 
-Лендинг → фото/PDF плана (+ текст объявления) → ссылка сразу, всё появляется по готовности: стены → пустые комнаты → гостиная
-и все спальни по шаблонам → AI-фото. Итог — ровно `/demo` под план. Решения — ADR 09.11; задачи — мастер (tier2) и `agent-trial-08`.
+Лендинг → план (+ объявление) → ссылка сразу; по готовности стены → комнаты → гостиная и спальни → AI-фото. Итог — `/demo` под план.
 
 ## По коду
 - **Задание:** `app/try/page.tsx` → `POST /api/trial` → `trial_jobs` (`db/init/022-trial-jobs.sql`, колонки — 023, 024; `trial_rebuilds` — 025, `trial_photos` — 026);
@@ -24,10 +23,10 @@ review_after: 2026-12-10
   аренда — `lib/trial/repo-worker.ts` (скалярный `skip locked`). Не берёт при < 3 ГБ (`TRIAL_MEM_MIN_GB`), ≥ 2 в heavy-очереди,
   прод `/api/health` не 200.
 - **Стены:** `tools/floorplan/pipeline.py`; неуверенное — флаги (`_room_flags`); масштаб без подписей — по стене или площади
-  со статусом `not_verified`. Правила проёмов «Этажей» — только у листа застройщика (`tools/floorplan/bench.py:dev_sheet`);
-  проверка правок разбора — по комнатам против кода ДО правки (`tools/floorplan/regress.py`).
-- **Стадии:** `tools/floorplan/conveyor.py` — v1 без мебели → гостиная `trial_demo.py` → спальни `trial_bedroom.py`; `done` — всегда после
-  последней версии (`_finish`), недоделанное — только в журнал; сбой — отказ по комнате. Данные страницы — `tools/scout/trial_bundle.py`.
+  со статусом `not_verified`. Проёмы «Этажей» — только у листа застройщика (`tools/floorplan/bench.py:dev_sheet`);
+  регресс разбора — `tools/floorplan/regress.py`.
+- **Стадии:** `tools/floorplan/conveyor.py` — v1 без мебели → гостиная `trial_demo.py` → спальни `trial_bedroom.py`; `done` — после последней версии
+  (`_finish`), сбой — отказ по комнате. Данные страницы — `tools/scout/trial_bundle.py`.
 - **Размеры:** «не сошлось» или масштаб не подтверждён — `awaiting_check`, без мебели (`trial_bundle.py:SCALE_UNVERIFIED_AWAITS_CHECK`);
   «Обустроить» — `conveyor.Rebuild`.
 - **Тур:** `app/try/[id]/tour/[[...path]]/route.ts` (страница `/demo` под `TRIAL()`); версия — `lib/trial/tour-bundle.ts:ensureJobRelease`.

@@ -22,19 +22,18 @@ last_verified: 2026-11-06
 - Оценка стиля — файл `style-scores-bedroom.json`, не `product_style_scores`.
 
 ## Показ на /demo (с 06.11, T-20261106-77)
-- Спальня 1 и спальня 2 (13,2 м², чертёж №180) — варианты по стилям, 3D и фото нейросети.
+- Спальни 1 и 2 (чертёж №180) — варианты по стилям, 3D и фото.
 - **Набор:** сборщик `tools/scout/compose_bedroom.py` (правила `tools/scout/rules/bedroom-composition.json`) → кандидат
   `sets-bedroom.next.json`; ячейка `room_id|purpose|band|style|tier` (`tools/scout/room_identity.py:cell`); стиль без товаров ядра
   ночью не собирается (`compose_bedroom.py:core_skip`).
-- **Банк:** с 07.11 ночная цепочка спальни настоящая — prepare → pending → promote → писатель `sets-bedroom.json` (флаги
+- **Банк:** ночью prepare → pending → promote → писатель `sets-bedroom.json` (флаги
   `tools/scout/rules/bank-candidate.json:rooms.bedroom`, откат — флаги false + `bank_refresh.py --room bedroom rollback last`).
 - **Витрина** (`tools/scout/demo_bedroom.py` поверх общего `tools/scout/demo_room.py`): ведущие роли — поле `lead` профиля
   `tools/scout/rules/profiles/bedroom.json`; пустую роль добирает запас из других записей банка (`demo_room.py:role_spares`);
   лампы декора без моделей — `list_only` (в списке, не в 3D).
 - **Модель предмета** — одно правило с банком: `tools/scout/room_bindings.py:usable` (режим orient: ready или blocked только по
-  развороту), сцена грузит модель привязки (`room_bindings.py:scene_msid`). Изголовье кровати — сторож по геометрии
-  `tools/scout/bed_headboard.py` (`orient_worker.py --bed-guard` ночью до привязки): 90° с подтверждением формой — доворот,
-  иначе `orientation_mismatch` (блок).
+  развороту), сцена грузит модель привязки (`room_bindings.py:scene_msid`).
+  Изголовье — сторож `tools/scout/bed_headboard.py`.
 
 ## Стили и назначения
 - Шесть стилей в правилах; владелец 07.11: неоклассика — только в гостиной, нет стиля — молча похожий вариант
