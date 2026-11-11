@@ -151,7 +151,13 @@ remont-lab.online {
 		# не изменилось — 304 без тела, после публикации — новое тело; свежесть та же, что у no-store, повтор не качает 450 КБ заново
 		@live not path *.png *.jpg *.jpeg *.webp *.gif *.svg *.woff2 *.ico
 		header @live Cache-Control "no-cache"
-		file_server
+		# ЗАРАНЕЕ СЖАТЫЕ КОПИИ (T-20261110-43/2): публикация кладёт рядом с текстами `.br` (brotli 11) и `.gz` (gzip 9,
+		# `tools/scout/precompress.mjs`); file_server отдаёт копию по Accept-Encoding (br, иначе gzip) со своим ETag и
+		# `Vary: Accept-Encoding`, `encode` выше уже сжатое не пережимает. Разметка 411 → 290 КБ, данные 161 → 99 КБ против
+		# сжатия на лету (−0,7 с до первой карточки на 2 Мбит/с). Копии нет — как раньше, сжатие на лету.
+		file_server {
+			precompressed br gzip
+		}
 		header X-Robots-Tag "noindex, nofollow"
 	}
 
