@@ -4944,6 +4944,7 @@ function loadCams(){
 }
 function saveCams(){try{localStorage.setItem(camsKey(),JSON.stringify(cams));}catch(e){} try{vwPreSoon();}catch(e){}}   // камеры — часть ключа кадров заранее
 function drawCams(){
+  if(!cams&&camsDefer())return;
   if(!cams)cams=loadCams();
   clampCams();
   cams.forEach((c,i)=>{
@@ -6489,6 +6490,18 @@ function camsFor(v){
     w.postMessage({id:n, rid:roomIdOf(v), geo:JSON.parse(JSON.stringify(geo)), its}); });
   CAMW.by.set(id,p); return p;
 }
+// ЗАПУСК ТУРА БЕЗ ПАРЫ В ДАННЫХ (замер T-23: 3,5–5 с одной задачей при открытии на телефоне): план редактора (`draw` → `drawCams`)
+// подбирал пару открытого варианта сразу, хотя значки камер на главной не видны. В туре — значки потом: пара считается в потоке, по
+// ответу план перерисовывается. Сохранённая в браузере пара или пара из данных — как раньше; кто спросит камеры раньше ответа
+// (`cams||loadCams()`), подберёт их сам, как было
+function camsDefer(){
+  const v=TRIAL()&&D&&!D.one_layout?allVariants()[cur]:null;
+  if(!v||(Array.isArray(v.cams)&&v.cams.length===2)||v.mine||v.cid)return false;
+  try{if(localStorage.getItem(camsKey()))return false;}catch(e){}
+  if(!camWorker())return false;
+  camsFor(v).then(()=>{ if(!cams&&allVariants()[cur]===v)try{draw();}catch(e){} });
+  return true;
+}
 // у всех вариантов без пары — по очереди, в тишине (окно откроется с готовой парой, без перебора в главном потоке)
 async function camsFill(){ for(const v of allVariants()){ if(Array.isArray(v.cams)&&v.cams.length===2||v.mine||v.cid)continue;
   await bgQuiet(); if(!await camsFor(v)&&!camWorker())return; } }
@@ -6515,7 +6528,10 @@ async function trHomeShot(v){
   if(!(Array.isArray(v.cams)&&v.cams.length===2))await camsFor(v);   // нет пары в данных — подбор в Web Worker, не здесь
   const pose=trHsPose(v,its); if(!pose)return '';
   const M=await sceneModule(), rt=await rtMeshes();
-  await bgQuiet();                                                    // сборка сцены — тяжёлый шаг: только в тишине
+  // сборка сцены — тяжёлый шаг: только в тишине. Дальше «готова → кадр → освобождение» — БЕЗ ожиданий: живая сцена рисует каждый кадр
+  // экрана (`viewer.ts:tick`), и чем дольше она ждёт, тем дольше потом освобождение видеоконтекста (замер T-23: ожидание тишины перед
+  // `dispose` растянуло его до 5–48 с в одной задаче). Сцена живёт столько же, сколько раньше
+  await bgQuiet();
   const cv=document.createElement('canvas'); cv.width=1024; cv.height=723;
   const decor=clone(((v.decor)||[]).filter(x=>!isSoft(x.role)&&!x.list_only));   // как `liveDecor`
   // пол и стены — отделка застройщика, как в окне (`liveEngine`): снимок на карточке = то, что откроется в 3D, и те же адреса текстур в кэше
@@ -6525,10 +6541,9 @@ async function trHomeShot(v){
     let tm=0; const late=new Promise((_,no)=>{tm=setTimeout(()=>no(new Error('сцена снимка не собралась за '+TR_HS_MAX_MS/1000+' с')),TR_HS_MAX_MS);});
     try{await Promise.race([sc.ready, late]);}catch(e){return '';}finally{clearTimeout(tm);}
     if(!sc.capture)return '';
-    await bgQuiet();                                                  // кадр — тоже тяжёлый шаг
     const r=await sc.capture([pose],1024,723), b=r&&r.frames&&r.frames[0];
     return b?URL.createObjectURL(b):''; }
-  finally{ await bgQuiet(); try{sc.dispose();}catch(e){}             // и освобождение видеоконтекста
+  finally{ try{sc.dispose();}catch(e){}
     // `renderer.dispose` видеоконтекст не отпускает — на телефоне их мало: отпускаем сами
     try{const gl=cv.getContext('webgl2')||cv.getContext('webgl'), x=gl&&gl.getExtension('WEBGL_lose_context'); if(x)x.loseContext();}catch(e){} }
 }

@@ -23,23 +23,24 @@ function worker() {
 describe("подбор ракурсов в потоке (CAMWORK)", () => {
   it("та же пара, что у подбора сборки, в виде записи v.cams", () => {
     const { on, out } = worker();
-    const geo = fx.room, v = fx.variants[0];
+    const geo = fx.room, v = fx.variants[0]!;
     const its = v.items.map((it) => ({ ...it, x: +it.x, y: +it.y, w: +it.w, d: +it.d, rot: +it.rot || 0 }));
     on({ data: { D: { room: geo } } });
     on({ data: { id: 7, rid: "living", geo, its } });
     expect(out).toHaveLength(1);
-    expect(out[0].id).toBe(7);
+    const m = out[0]!;
+    expect(m.id).toBe(7);
     const api = new Function("D", `${block};return {camPairAll, POSE_VER};`)({ room: geo }) as {
       camPairAll: (L: It[][], W: number, H: number, cs: { x: number; y: number }[], o: object) => { level: number; cams: Cam[] }; POSE_VER: number };
     const W = geo.w, H = geo.d, p = 3;
     const pr = api.camPairAll([its], W, H, [{ x: p, y: p }, { x: W - p, y: p }, { x: W - p, y: H - p }, { x: p, y: H - p }], {});
-    const r = out[0].r;
+    const r = m.r;
     expect(r.err).toBeUndefined();
     expect(r.level).toBe(pr.level);
     expect(r.cams).toHaveLength(2);
     r.cams!.forEach((c, i) => {
-      expect(c).toMatchObject({ name: pr.cams[i].name, x: Math.round(pr.cams[i].x), y: Math.round(pr.cams[i].y), rot: Math.round(pr.cams[i].rot || 0),
-        fov: pr.cams[i].fov || 72, pose: api.POSE_VER });
+      const e = pr.cams[i]!;
+      expect(c).toMatchObject({ name: e.name, x: Math.round(e.x), y: Math.round(e.y), rot: Math.round(e.rot || 0), fov: e.fov || 72, pose: api.POSE_VER });
       for (const k of ["x", "y", "rot"] as const) expect(Number.isInteger(c[k])).toBe(true);
     });
   });
@@ -49,6 +50,6 @@ describe("подбор ракурсов в потоке (CAMWORK)", () => {
     on({ data: { D: { room: fx.room } } });
     on({ data: { id: 1, rid: "x", geo: null, its: [] } });
     expect(out).toHaveLength(1);
-    expect(out[0].r.err).toBeTruthy();
+    expect(out[0]!.r.err).toBeTruthy();
   });
 });
