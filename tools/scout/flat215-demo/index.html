@@ -339,6 +339,10 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 .hm-room .hm-ph{position:relative;aspect-ratio:2048/1446;background:var(--wash-2);cursor:pointer;display:block}
 .hm-room .hm-ph img{display:block;width:100%;height:100%;object-fit:cover}
 .hm-room .hm-ph picture{display:contents}
+/* полный кадр поверх миниатюры, пока не встал на её место (`hmHq`, вариант А T-20261111-01) */
+.hm-room .hm-ph img.hm-hq{position:absolute;inset:0;opacity:0;pointer-events:none}
+.hm-room .hm-ph img.hm-hq.in{opacity:1}
+@media(prefers-reduced-motion:no-preference){.hm-room .hm-ph img.hm-hq{transition:opacity .32s ease}}
 .hm-room .hm-ph .nopv{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:14px}
 .hm-room .hm-ph .ttl{position:absolute;left:0;right:0;bottom:0;padding:22px 12px 9px;color:#fff;font-weight:700;font-size:16px;
   background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none}
@@ -2555,8 +2559,8 @@ function homeUrlPick(){
 // кадров (`loadShots` → `drawHome`), и только тогда браузер начинал качать фото: на телефоне при 2 Мбит/с — +0,4 с после разбора
 // страницы, и канал к тому времени делили картинки товаров. Нарисовать карточку раньше не помогает: картинка, вставленная внутри
 // запуска, начинает грузиться только после него (замер T-43/2). Поэтому здесь, пока реестр уже разобран (`__shotsD`, <head>), считаем
-// фото ТЕМ ЖЕ выбором, что `drawHome` (комната из адреса → `bestShot` → `realisticPublishedShot`, миниатюра / полный кадр по
-// `HM_SIZES`), и ставим его в загрузку `<link rel=preload>` — `<img>` карточки потом берёт его из кэша. Вид страницы не меняется;
+// фото ТЕМ ЖЕ выбором, что `drawHome` (комната из адреса → `bestShot` → `realisticPublishedShot`, миниатюра — с неё карточка
+// начинает и на компьютере, `hmHq`), и ставим его в загрузку `<link rel=preload>` — `<img>` карточки потом берёт его из кэша. Вид страницы не меняется;
 // выбор квартиры (`HOME`) не пишется (`homeUrlPick`, `homeLayout(m, sel)`), кадры — только на время подсчёта. Не берёмся (обычный
 // путь): тур, реестр не пришёл, есть сохранённые правки комнат (их поднимает `editsBoot` позже — фото может быть другим)
 function homePreload(){
@@ -2570,10 +2574,10 @@ function homePreload(){
     const u=homeUrlPick(), L=homeLayout(homeModel(), u.sel), c=L.find(x=>x.rv&&x.r.id===u.room)||L.find(x=>x.rv), v=c&&allVariants()[c.rv.index];
     if(!v||varPending(v)||varRefused(v))return;
     const pc=posterCam(v), bs=bestShot(v,pc), sh=bs&&bs.quality==='realistic'?bs:realisticPublishedShot(v,pc);
-    const img=sh?thumbOf(sh):'', full=sh?sh.url:''; if(!img)return;
+    // карточка и на компьютере начинает с миниатюры (`hmHq`, вариант А T-20261111-01) — её и грузим; полный кадр — после неё
+    const img=sh?thumbOf(sh):''; if(!img)return;
     const l=document.createElement('link'); l.rel='preload'; l.as='image'; l.setAttribute('fetchpriority','high'); l.dataset.hmPreload='1';
-    if(full&&full!==img&&matchMedia('(min-width:900px)').matches){l.setAttribute('imagesrcset',`${img} 640w, ${full} 2048w`); l.setAttribute('imagesizes',HM_SIZES);}
-    else l.href=img;
+    l.href=img;
     document.head.appendChild(l);
   }catch(e){}
   finally{shots=keep.shots; SHOTS_LOADED=keep.loaded;}
@@ -6695,9 +6699,10 @@ function drawHome(force){
       // ЧЁТКО НА КОМПЬЮТЕРЕ (photo-sharp-keep-01, владелец 07.11 TG 349: «фото сжимается, пока не увеличишь»): миниатюра — 640 px,
       // карточка на 1440 — ~712 px (на экране ×2 — 1424): от 900 px браузер берёт по `sizes` миниатюру или полный кадр 2048, телефон —
       // миниатюру, как было (вес не растёт). Скрытые карточки (на компьютере видна одна) — `lazy`: полные кадры не тянутся впустую
-      // первая (видимая) — `fetchpriority=high` (T-20261110-43): её кадр идёт раньше движка 3D и картинок ниже экрана
-      (c.img?`<picture>${c.full&&c.full!==c.img?`<source media="(min-width:900px)" srcset="${escHtml(c.img)} 640w, ${escHtml(c.full)} 2048w" sizes="${HM_SIZES}">`:''}`+
-        `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?' fetchpriority="high"':' loading="lazy"'} data-url="${escHtml(c.full)}" `+
+      // первая (видимая) — `fetchpriority=high` (T-20261110-43): её кадр идёт раньше движка 3D и картинок ниже экрана.
+      // Видимая с полным кадром — сперва миниатюра, полный кадр подменяет её по приходу (`hmHq`, вариант А T-20261111-01)
+      (c.img?`<picture>${c.full&&c.full!==c.img&&!on?`<source media="(min-width:900px)" srcset="${escHtml(c.img)} 640w, ${escHtml(c.full)} 2048w" sizes="${HM_SIZES}">`:''}`+
+        `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?' fetchpriority="high"':' loading="lazy"'}${on&&c.full&&c.full!==c.img?' data-hq="1" onload="hmHq(this)"':''} data-url="${escHtml(c.full)}" `+
         `onerror="this.onerror=null;var s=this.parentNode.querySelector('source');if(s)s.remove();this.src=this.dataset.url"></picture>`
         :TRIAL()?`<div class="nopv tr-plan">${trialPlanSvg(c.v)}<span class="tr-3d">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</span></div>`   // проба: фото нет — план комнаты с мебелью
         :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
@@ -6719,6 +6724,33 @@ function drawHome(force){
   box.style.setProperty('--hm-rows',String(Math.max(1,box.querySelectorAll(':scope > .hm-stub, :scope > .hm-pick').length)));
 }
 // ——— ВОЗВРАТ «НАЗАД» (demo-16 шаг 3, Codex 18.10 п.5 и п.14). Адрес держит стиль и комнату (`?style=&room=`) и вариант или
+// ВИДИМАЯ КАРТОЧКА НА КОМПЬЮТЕРЕ — СПЕРВА МИНИАТЮРА, ПОТОМ ПОЛНЫЙ КАДР (вариант А, T-20261111-01, владелец TG 976). На плохой связи
+// полный кадр 2048 (~460 КБ) держал первую карточку пустой ~4,4 с (1280 на 2 Мбит/с, замер T-43/2); миниатюра 640 (~30 КБ, та же, что
+// у телефона) приходит сразу. Когда она показана (`onload`), полный кадр выбирается ТЕМ ЖЕ правилом, что `<source>` карточки
+// (`srcset` 640w/2048w + `HM_SIZES`: браузер может и оставить миниатюру), грузится отдельно, ложится поверх плавным проявлением (`.hm-hq`)
+// и затем в `<picture>` ставится прежний `<source>` — кадр берётся из памяти без мигания, накладка уходит: итог — та же разметка и
+// тот же кадр, что без варианта А. Телефон (< 900 px) — `<source>` сразу (на телефоне он не действует, как было). Кадр не пришёл —
+// остаётся миниатюра
+function hmHq(img){
+  if(!img||img.dataset.hq!=='1')return; img.dataset.hq='2';
+  const pic=img.parentNode, ph=pic&&pic.parentNode, thumb=img.getAttribute('src')||'', full=img.dataset.url||'';
+  if(!pic||!ph||!full||full===thumb)return;
+  const src=document.createElement('source'); src.media='(min-width:900px)'; src.srcset=`${thumb} 640w, ${full} 2048w`; src.sizes=HM_SIZES;
+  const put=()=>{if(img.isConnected&&src.parentNode!==pic)pic.insertBefore(src,img);};
+  if(!matchMedia('(min-width:900px)').matches){put(); return;}
+  const q=new Image(); q.className='hm-hq'; q.alt=''; q.setAttribute('aria-hidden','true'); q.setAttribute('fetchpriority','high');
+  q.sizes=HM_SIZES; q.srcset=src.srcset;
+  q.onload=()=>{
+    if(!img.isConnected)return;
+    if(q.currentSrc===img.currentSrc){put(); return;}   // по правилу браузер берёт миниатюру — подменять нечего
+    // без `q.decode()`: он раскладывает кадр в полный размер, и тот же кадр потом рисовался чуть иначе (±7 из 255), чем без варианта А;
+    // накладка встаёт прозрачной — раскладка под её размер идёт до проявления, мигания нет (под ней миниатюра)
+    ph.insertBefore(q,pic.nextSibling);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>q.classList.add('in')));
+    const slow=matchMedia('(prefers-reduced-motion:no-preference)').matches;
+    setTimeout(()=>{img.addEventListener('load',()=>q.remove(),{once:true}); setTimeout(()=>q.remove(),1500); put();},slow?360:40);
+  };
+}
 // коллекцию (`#v=`/`#c=`), `lang` и `s` не трогаются; запись истории (`history.state`) — снимок вида: окно варианта (вариант, режим,
 // ракурс, шторка, прокрутка списка) или главная (прокрутка, раскрыто ли избранное). Открытие избранного («Перейти →», ♡ N) —
 // новая запись (`pushState`), а перед ней снимок текущего вида пишется в ТЕКУЩУЮ запись (`replaceState`): `popstate` отдаёт
