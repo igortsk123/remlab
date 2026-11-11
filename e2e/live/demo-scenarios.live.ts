@@ -185,7 +185,7 @@ test("2.25–2.26 фото готово для этой расстановки �
 });
 
 // 2.27 (demo-09, дополнение 17.10): фото нейросети 13.10 сняты с прежних расстановок — карточка показывает кадр ТОЛЬКО своей расстановки
-test("2.27 карточка: кадр своей расстановки или «Откройте — покажем в 3D», не старое фото", async ({ page }) => {
+test("2.27 карточка: кадр своей расстановки или «Откройте, покажем в 3D», не старое фото", async ({ page }) => {
   await openDemo(page);
   await page.waitForFunction("shots.length > 0");
   // карточка комнаты каждого стиля (demo-16): вкладка → гостиная этого стиля
@@ -510,7 +510,7 @@ test("2.35 корзина: 0 на старте; первая гостиная в
     await expect(o.page.locator("#vsum .cs-ov")).toContainText(/выйдет за лимит на [\d\s  ]+₽/, { timeout: 30_000 });
     await o.page.evaluate(() => document.getElementById("vFav")!.click());
     await o.page.locator("#favOk").click();
-    await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽ — подтвердить\?/, { timeout: 30_000 });
+    await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽\. Подтвердить\?/, { timeout: 30_000 });
     await expect(o.page.locator("#favPop")).toContainText("Изменить расстановку");
     await o.page.mouse.click(3, 3);                                  // закрыть мимо — без подтверждения ничего не меняется
     const s4 = await basketState(o.page);
@@ -521,7 +521,7 @@ test("2.35 корзина: 0 на старте; первая гостиная в
     await o.page.keyboard.press("Escape");
     await o.page.evaluate("window.__basket.open('living')");
     await o.page.locator("#favGrid [data-finc]").first().click();
-    await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽ — подтвердить\?/);
+    await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽\. Подтвердить\?/);
     await o.page.locator("#favPop button.primary").click();
     const s5 = await basketState(o.page);
     expect(Object.keys(s5.inc).length).toBe(1);

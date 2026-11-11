@@ -108,7 +108,7 @@ const BUB=`(()=>{const b=document.querySelector('#hmCert .vpl-bub'); if(!b||b.hi
     ok(`${name}: пузырь окна открыт`,await p.evaluate(()=>{const x=document.getElementById('vplBub'); return !!x&&!x.hidden;}));
     await shot(p,name+'-i'); await p.context().close();}
   // 3. избранное: включить вариант сверх пакета — «Доплата N — подтвердить?»; мимо — корзина та же; «Подтвердить» — включён, доплата на полосе
-  for(const [name,re,cf] of [['ru-dlg',/Доплата [\d\s  ]+₽ — подтвердить\?/,'Подтвердить'],['uk-dlg',/Top-up £[\d,]+ — confirm\?/,'Confirm']]){
+  for(const [name,re,cf] of [['ru-dlg',/Доплата [\d\s  ]+₽\. Подтвердить\?/,'Подтвердить'],['uk-dlg',/Top-up £[\d,]+\. Confirm\?/,'Confirm']]){
     S[name]=name==='ru-dlg'?RU([[1,'living','living',[['furniture',200000]]],[4,'living','living',[['furniture',520000]]],[2,'kitchen','kitchen',[['fitout',150000]]]],[1,2])
       :UK([[1,'living','living',[['furniture',1200]]],[4,'living','living',[['furniture',5000]]],[2,'kitchen','kitchen',[['fitout',3000]]]],[1,2]);
     const p=await open(name);

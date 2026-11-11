@@ -5,7 +5,8 @@
 // Страница — index.html этой копии с НАСТОЯЩЕЙ обвязкой тура (`lib/trial/tour-page.ts:injectTour`, собрана esbuild), данные —
 // фикстура `tests/fixtures/trial-tour-furnished.json` (+ trial и photo_ok), движок/меши/картинки — прод `/demo/` (`?live=force`).
 // Годно: living/bedroom — PHOTO: заказ ушёл в ручку тура с `views` из 2 id, в `/api/render` — ни одного заказа, фото-заглушка
-// легла в ленту; untrusted — NOTE: кнопки нет, тихая строка «Фото — после уточнения размеров» видна, заказов и съёмки заранее нет.
+// легла в ленту; untrusted — ASK: в 3D та же кнопка «Сделать фото», что в /demo (T-20261111-05 п.2), нажатие открывает «Фото» с карточкой
+// «Чтобы сделать фото, подтвердите планировку»; заказов и съёмки заранее нет.
 // Плюс песочница: прямой POST страницы в `/api/render` получает 403 от обвязки тура (до сети не доходит).
 // REAL_FRAMES=1 — кадры уходят в бесплатную загрузку прода (`/api/render/frame`), тело заказа — `order-<комната>-….json`: по нему
 // платная проба шлёт заказ в копию сервиса кадров (сама проба по-прежнему ничего не заказывает).
@@ -149,11 +150,16 @@ async function untrusted(b) {
   // и программный вызов «Сделать реалистичнее» мимо кнопки — отказ без заказа
   const forced = await p.evaluate(() => vwRealistic());
   await p.waitForTimeout(1500);
-  const want = LANG === 'en' ? /Photo — after the sizes are confirmed/ : /Фото — после уточнения размеров/;
-  const r = { scenario: 'untrusted', lang: LANG, size: W + 'x' + H, rooms: out, forced, orders: p.orders.length, renders: p.renders,
+  // T-20261111-05 п.2: в 3D — та же кнопка «Сделать фото», что в /demo; нажатие без доверия — «Фото» с карточкой «подтвердите планировку»
+  await p.click('#vCta').catch(() => {}); await p.waitForTimeout(1500);
+  const stub = await p.evaluate(() => { const c = document.querySelector('#shot .vtrph'); return { mode: VW.mode, card: !!c, ok: c ? c.dataset.ok : null }; });
+  await p.screenshot({ path: OUT + `/untrusted-pressed-${LANG}-${W}.png` });
+  const want = LANG === 'en' ? /^Take photo$/ : /^Сделать фото$/;
+  const r = { scenario: 'untrusted', lang: LANG, size: W + 'x' + H, rooms: out, forced, stub, orders: p.orders.length, renders: p.renders,
     frames: p.frames.length, sandboxRender: await sandbox(p), console: p.log.filter(l => /error|Error/.test(l)).slice(-6) };
-  const ok = out.every(s => !s.cta && s.note && want.test(s.noteText || '')) && !p.orders.length && !p.renders.length && !p.frames.length && r.sandboxRender === 403;
-  r.verdict = ok ? 'NOTE' : 'FAIL' + (out.some(s => s.cta) ? '-BUTTON' : '') + (out.some(s => !s.note) ? '-NONOTE' : '')
+  const ok = out.every(s => s.cta && !s.note && want.test(s.ctaText || '')) && stub.mode === 'photo' && stub.card && stub.ok === 'false'
+    && !p.orders.length && !p.renders.length && !p.frames.length && r.sandboxRender === 403;
+  r.verdict = ok ? 'ASK' : 'FAIL' + (out.some(s => !s.cta) ? '-NOBUTTON' : '') + (out.some(s => s.note) ? '-NOTE' : '') + (stub.card ? '' : '-NOSTUB')
     + (p.orders.length ? '-ORDER' : '') + (p.frames.length ? '-PREFETCH' : '') + (p.renders.length ? '-RENDER' : '');
   res.push(r); console.log(JSON.stringify(r));
   await p.context().close();

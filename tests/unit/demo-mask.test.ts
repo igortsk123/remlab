@@ -77,7 +77,9 @@ describe("маска: названия страницы", () => {
     expect(page.maskName({ name: "X", name_en: "Диван" }, "диван 2", MASK, names, pageRoleEn)).toBe("Sofa");
     expect(page.maskName({ name: "Y" }, "роль-неизвестна", MASK, names, () => "")).toBe("Item");
     expect(page.maskName({ name: "Ваза Х — сейчас нет в витрине", unavailable: true }, "ваза", MASK, names, pageRoleEn))
-      .toBe("Vase X — no longer in the showroom");
+      .toBe("Vase X, no longer in the showroom");                                           // сохранённое до 11.11 с тире — понимаем
+    expect(page.maskName({ name: "Ваза Х, сейчас нет в витрине", unavailable: true }, "ваза", MASK, names, pageRoleEn))
+      .toBe("Vase X, no longer in the showroom");                                           // без длинного тире (TG 995)
   });
 
   // цвет (T-20261030-02/2): готовое поле сборки, а не хвост названия — разбор от текущего товара съедал «grey» у «grey woven fabric»

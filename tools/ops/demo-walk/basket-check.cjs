@@ -200,7 +200,7 @@ async function favSteps(b){
   const {nm:n1,c:c1}=await saveHeart(p), s1=await fst(p);
   ok('[избранное] имя по комнате «Гостиная #1»; поле имени в фокусе, каретка в конце',n1==='Гостиная #1'&&caretOk(c1),n1+' '+JSON.stringify(c1));
   ok('[избранное] первый вариант комнаты — включён сам',s1.n===1&&Object.keys(s1.inc).length===1&&s1.eligible>0,JSON.stringify({inc:s1.inc,eligible:s1.eligible}));
-  ok('[избранное] сообщение ««Гостиная #1» — в избранном, включено в сертификат, остаток N · Перейти →»',/Гостиная.#1» — в избранном, включено в сертификат, остаток [\d\s  ]+₽/.test(s1.toast)&&/Перейти/.test(s1.toast),s1.toast);
+  ok('[избранное] сообщение ««Гостиная #1»: в избранном, включено в сертификат, остаток N · Перейти →»',/Гостиная.#1»: в избранном, включено в сертификат, остаток [\d\s  ]+₽/.test(s1.toast)&&/Перейти/.test(s1.toast),s1.toast);
   await p.evaluate(()=>{const a=document.querySelector('#toast .toastact'); if(a&&!document.getElementById('toast').hidden)a.click(); else histGoFavs('living');}); await p.waitForTimeout(900);
   const atFav=await favScr(p);
   ok('[избранное] «Перейти →» — экран «Избранное» с «← Назад», окно закрыто, адрес #fav',!atFav.win&&atFav.fav&&atFav.back&&atFav.view==='favorites'&&atFav.hash==='#fav'&&!atFav.sec,JSON.stringify(atFav));
@@ -219,14 +219,14 @@ async function favSteps(b){
   ok('[избранное] «Да» — в расчёте второй вариант',s2.inc.living===fav2&&s2.eligible!==s1.eligible,JSON.stringify({inc:s2.inc,was:s1.eligible,now:s2.eligible}));
   ok('[избранное] без ошибок страницы',!p.errs.length,p.errs.slice(0,2).join(' | '));
   await p.context().close();
-  // не влезает при включении: пакет 100 000 → диалог «Доплата N — подтвердить?» (N = сумма − лимит), до ответа не включено
+  // не влезает при включении: пакет 100 000 → диалог «Доплата N. Подтвердить?» (N = сумма − лимит), до ответа не включено
   const q=await favPage(b,{limit:100000});
   await openWin(q,0);
   await heart(q); await q.waitForSelector('#favName'); await q.click('#favOk');
-  await q.waitForFunction("/Доплата .* — подтвердить\\?/.test((document.getElementById('favPop')||{}).innerText||'')",null,{timeout:30000}).catch(()=>{});
+  await q.waitForFunction("/Доплата .*\\. Подтвердить\\?/.test((document.getElementById('favPop')||{}).innerText||'')",null,{timeout:30000}).catch(()=>{});
   const s7=await fst(q), sum7=await q.evaluate(()=>{const f=window.__basket.state().favorites[0]; return f?f.quote.lines.filter(x=>x.settlement==='allowance').reduce((a,x)=>a+(x.amount||0),0):-1;});
   const over=Number((s7.pop.match(/Доплата ([\d\s  ]+)₽/)||[])[1]?.replace(/\D/g,''));
-  ok('[избранное] не влезает — диалог «Доплата N ₽ — подтвердить?», N = сумма − лимит, до ответа не включено',s7.n===1&&!Object.keys(s7.inc).length&&over===sum7-100000,JSON.stringify({n:s7.n,inc:s7.inc,over,sum7}));
+  ok('[избранное] не влезает — диалог «Доплата N ₽. Подтвердить?», N = сумма − лимит, до ответа не включено',s7.n===1&&!Object.keys(s7.inc).length&&over===sum7-100000,JSON.stringify({n:s7.n,inc:s7.inc,over,sum7}));
   await q.screenshot({path:OUT+W+'-fav-2-over.png'});
   await q.context().close();
 }

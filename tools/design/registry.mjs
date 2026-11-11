@@ -52,7 +52,7 @@ export const REGISTRY = [
   { figma: "Fav/Room chip", css: [".hm-fav-chip", ".hm-fav-chip.on"], sel: ".hm-fav-chip", states: ["default", "selected"], where: ["экран избранного"], desc: "капсула 32" },
   { figma: "Fav/Card", css: [".favcard", ".favcard.inc", ".favcard .fph", ".favcard .fb", ".favcard .nm", ".favcard .pr", ".favcard .inc-l", ".favcard .incw", ".favcard .acts"], sel: ".favcard", states: ["default", "included (рамка accent)", "без фото", "фото рисуется (.pwait)"], where: ["экран избранного"], desc: "карточка 3:2, имя, цена, «Включить в сертификат» (radio), ⇪ ⋯" },
   { figma: "Fav/Photo wait", css: [".pwait", ".pwait i", ".pwait span"], sel: ".pwait", states: ["waiting"], where: ["карточка избранного"], desc: "плашка с полосой и «осталось N с»" },
-  { figma: "Fav/Empty", css: [".fv-empty"], sel: "#favEmpty", states: ["empty"], where: ["экран избранного"], desc: "«Пока пусто — сердечко в окне расстановки»" },
+  { figma: "Fav/Empty", css: [".fv-empty"], sel: "#favEmpty", states: ["empty"], where: ["экран избранного"], desc: "«Пока пусто. Сердечко в окне расстановки»" },
   // ——— Окно варианта ———
   { figma: "Window/Frame", css: ["#shot", "#shot .box", "#shot.v2 .box", ".vw", ".vstage", ".vside"], sel: "#shot .box", states: ["3d", "photo", "plan", "phone: во весь экран + шторка", "desktop: сцена + колонка 410"], where: ["окно варианта"], desc: "модальное окно: сцена (3D/Фото/План) + список" },
   { figma: "Window/Mode switch", css: [".vmodes", ".vmodes button", ".vmodes button.on"], sel: ".vmodes", states: ["photo", "3d", "plan (выбранная — белая)"], where: ["окно, верх сцены"], desc: "капсула на вуали: Фото · 3D · План" },

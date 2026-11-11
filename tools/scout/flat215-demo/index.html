@@ -21,7 +21,7 @@ try{window.__shotsP=/^\/try\//.test(location.pathname)?null:fetch('/test/share/s
      полосы (опрос, подпись окна, шторка) уходили под полосу «домой». Боковые вырезы (телефон боком) — поле у `body` -->
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta http-equiv="cache-control" content="no-store">
-<title>Квартира — гостиная (демо)</title>
+<title>Квартира · гостиная (демо)</title>
 <style>
 /* ПАЛИТРА — ИЗ ДИЗАЙН-СИСТЕМЫ САЙТА (владелец 01.09: «у нас же дизайн-система есть»).
    Значения повторяют `styles/brand.css` (терракота-бренд, stone-нейтраль, кремовые фоны) и
@@ -333,7 +333,7 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 .hm-skel .sk{display:block;height:14px;border-radius:7px;width:42%}
 .hm-skel .sk.s2{width:22%;margin-left:auto}
 .hm-skel{pointer-events:none}
-@media(prefers-reduced-motion:no-preference){.hm-skel .hm-ph,.hm-skel .sk{animation:hmSkel 1.2s ease-in-out infinite alternate}}
+@media(prefers-reduced-motion:no-preference){.hm-skel .sk{animation:hmSkel 1.2s ease-in-out infinite alternate}}
 @keyframes hmSkel{from{opacity:1}to{opacity:.55}}
 .hm-room{background:var(--surface);border-radius:var(--radius);box-shadow:var(--e1);overflow:hidden}
 .hm-room .hm-ph{position:relative;aspect-ratio:2048/1446;background:var(--wash-2);cursor:pointer;display:block}
@@ -344,6 +344,15 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 .hm-room .hm-ph img.hm-hq.in{opacity:1}
 @media(prefers-reduced-motion:no-preference){.hm-room .hm-ph img.hm-hq{transition:opacity .32s ease}}
 .hm-room .hm-ph .nopv{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:14px}
+/* ФОТО КАРТОЧКИ В ПУТИ (T-20261111-05 п.1, владелец TG 985): место фото того же размера — тёплая подложка с мягким бликом, без плана
+   и без надписей; блик идёт и под скелетом до данных, и под фото, пока оно грузится (`.ok` — `hmPhLoaded`), и в заглушке снимка 3D тура
+   (`.hm-ld`). Фото непрозрачное и ложится поверх подложки — после загрузки вид прежний */
+.hm-room .hm-ph .nopv.hm-ld,.hm-room .hm-ph:not(.ok):has(>picture),.hm-skel .hm-ph{
+  background-color:var(--wash-2);background-image:linear-gradient(100deg,rgba(255,255,255,0) 30%,rgba(255,255,255,.55) 50%,rgba(255,255,255,0) 70%);
+  background-size:250% 100%;background-repeat:no-repeat;background-position:120% 0}
+@media(prefers-reduced-motion:no-preference){
+  .hm-room .hm-ph .nopv.hm-ld,.hm-room .hm-ph:not(.ok):has(>picture),.hm-skel .hm-ph{animation:hmLd 1.6s ease-in-out infinite}}
+@keyframes hmLd{from{background-position:120% 0}to{background-position:-20% 0}}
 .hm-room .hm-ph .ttl{position:absolute;left:0;right:0;bottom:0;padding:22px 12px 9px;color:#fff;font-weight:700;font-size:16px;
   background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none}
 .hm-room .hm-ph .ttl small{font-weight:500;opacity:.9}
@@ -1338,13 +1347,13 @@ body.tr-nogoods #shot .pinlist .row>.p{flex:0 0 40px}
 /* компьютер (T-20261110-40): по центру сверху — переключатель «Фото | 3D», слева сверху — «3D: тяните…»/«Фото нейросети…», справа —
    «Скрыть цены»; пометка — слева внизу над ракурсами (ракурсы по центру ниже), не пересекает верхние кнопки ни на одной ширине */
 @media(min-width:701px){body.trial #shot .vstage>.tr-approx{left:12px;top:auto;bottom:62px;transform:none}}
-/* карточка пробы без фото: план комнаты с мебелью (тот же рисунок, что план окна) и подпись «Откройте — покажем в 3D» */
+/* карточка пробы без фото: план комнаты с мебелью (тот же рисунок, что план окна) и подпись «Откройте, покажем в 3D» */
 .hm-room .hm-ph .nopv.tr-plan{background:var(--wash,#F3F0EA);padding:42px 14px 44px}
 .hm-room .hm-ph .nopv.tr-plan svg{width:100%;height:100%;display:block}
 /* окно «Другой стиль для комнаты» в пробе: фото нейросети нет — тот же план комнаты с мебелью (T-37/2) */
 .qz-ph .qz-img.tr-mxpv{display:flex;align-items:center;justify-content:center;background:var(--wash,#F3F0EA);padding:8px;box-sizing:border-box;overflow:hidden}
 .qz-ph .qz-img.tr-mxpv svg{width:100%;height:100%;display:block}
-/* узкий экран: «Форма приблизительная» (слева) и «Откройте — покажем в 3D» (справа) в одну строку не помещаются — вторым рядом */
+/* узкий экран: «Форма приблизительная» (слева) и «Откройте, покажем в 3D» (справа) в одну строку не помещаются — вторым рядом */
 @media(max-width:700px){.hm-ph:has(.tr-3d)>.tr-approx{top:44px}.hm-room .hm-ph:has(>.tr-approx) .nopv.tr-plan{padding-top:76px}}
 .vstub.tr-flat{background:var(--wash,#F3F0EA);padding:72px 20px 20px}
 .vstub.tr-flat .tr-plan{width:100%;height:100%;max-width:760px}.vstub.tr-flat svg{width:100%;height:100%;display:block}
@@ -1382,6 +1391,24 @@ body.trial #sheet:not(.open){visibility:hidden;transition:transform .22s ease,vi
 .tr-sizes textarea{display:block;width:100%;box-sizing:border-box;min-height:72px;resize:vertical;font:inherit;font-size:16px;line-height:1.4;padding:8px 10px;border:1px solid #D9D4CB;border-radius:10px;background:#fff;color:var(--ink)}
 .tr-sizes .tr-sz-st{margin:8px 0 0;color:#2F6B3F}.tr-sizes .tr-sz-st.bad{color:#96601F}
 .tr-sizes .btn{margin-top:8px;padding:6px 14px;font-size:14px;min-height:0}.tr-sizes .btn:disabled{opacity:.45;cursor:default}
+/* блок точности размеров под планом (`trPlanInfo`, T-20261111-05 п.4): строка-статус со значком, «Уточнить размеры» справа,
+   подробности и поле — раскрываются под строкой; тон — подписи /demo (`.hint`) */
+.tr-acc{flex:0 0 100%;margin-top:10px;font-size:clamp(14px,1.8vw,15px);line-height:1.4;color:var(--muted)}
+.tr-acc-row{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;min-height:32px}
+.tr-acc-ic{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#F3E7DA;color:#8A4A1F;font-weight:700;font-size:13px;line-height:1}
+.tr-acc.ok .tr-acc-ic{background:#E3EFE6;color:#2F6B3F}
+.tr-acc-st{flex:1 1 0;min-width:12em;border:0;background:none;padding:4px 0;font:inherit;color:var(--ink);text-align:left}
+button.tr-acc-st{cursor:pointer}
+.tr-acc-st i{font-style:normal;color:var(--muted);margin-left:6px;display:inline-block}
+@media(prefers-reduced-motion:no-preference){.tr-acc-st i{transition:transform .2s ease}}
+.tr-acc-st[aria-expanded="true"] i{transform:rotate(90deg)}
+.tr-acc-ask{flex:none;margin-left:auto;padding:4px 0}
+.tr-acc-more{flex:0 0 calc(100% - 32px);order:3;margin:0 0 0 32px;padding:0;list-style:none;font-size:14px}
+.tr-acc-more[hidden]{display:none}
+@media(max-width:600px){.tr-acc-more{order:1}.tr-acc-ask{order:2}}   /* телефон: кнопка переносится — подробности сразу под строкой, кнопка после них */
+.tr-acc-more li+li{margin-top:4px}
+.tr-acc .tr-sizes{margin-top:10px}
+.tr-acc .tr-sizes p{margin:0 0 8px}
 /* правка комнаты (T-20261110-36, макет T-31 v2): окошко по центру, на телефоне — шторка снизу */
 .tr-ed-back{position:fixed;inset:0;background:rgba(41,37,36,.38);z-index:9000;display:flex;align-items:center;justify-content:center}
 .tr-ed{background:var(--surface,#fff);border-radius:var(--radius,16px);box-shadow:0 12px 40px rgba(0,0,0,.18);width:min(440px,calc(100vw - 32px));
@@ -1487,7 +1514,7 @@ body.trial #sheet:not(.open){visibility:hidden;transition:transform .22s ease,vi
     <div class="fv-h"><b id="favTitle">Избранное</b><span class="s" id="favSub"></span></div></div>
   <div class="hm-fav-chips" id="favChips" role="tablist"></div>
   <div class="hm-fav-list" id="favGrid"></div>
-  <p class="fv-empty" id="favEmpty" hidden>Пока пусто — сердечко в окне расстановки</p>
+  <p class="fv-empty" id="favEmpty" hidden>Пока пусто. Сердечко в окне расстановки</p>
 </section>
 
 <section id="screen-plan" hidden>
@@ -1519,7 +1546,7 @@ body.trial #sheet:not(.open){visibility:hidden;transition:transform .22s ease,vi
     <div class="panel" id="basket">
       <div class="swaptop"><h3 id="basketHead">Мебель этого варианта</h3>
         <button class="btn" id="swapClose">Готово</button></div>
-      <div class="sub" id="basketSub">Меняйте предметы прямо здесь — план открывать не нужно.</div>
+      <div class="sub" id="basketSub">Меняйте предметы прямо здесь, план открывать не нужно.</div>
       <div id="blist">—</div>
       <div class="swapfoot" id="swapFoot" hidden>
         <button class="btn primary round" id="swapShot">Посмотреть фото с изменениями</button>
@@ -1636,14 +1663,14 @@ const trPhotoOk=id=>{const r=trRoom(id); return !!(r&&r.photo_ok===true);};
 const trPhotoHere=()=>TRIAL()&&trPhotoOk(roomIdOf(allVariants()[cur]||{}));
 // отказ заказа фото тура кодом сервера → текст на языке страницы; неизвестный код — пусто (общий текст отказа)
 function trPhotoErr(code){ const EN=TR_EN(), T={
-  photo_limit:['На сегодня фото по этому туру закончились — попробуйте завтра.','No more photos for this tour today — please try tomorrow.'],
-  photo_not_allowed:['Фото — после уточнения размеров.','Photo — after the sizes are confirmed.'],
-  stale:['Тур обновился — откройте его заново и попробуйте ещё раз.','The tour has been updated — reopen it and try again.'],
+  photo_limit:['На сегодня фото по этому туру закончились. Попробуйте завтра.','No more photos for this tour today. Please try tomorrow.'],
+  photo_not_allowed:['Фото будет после уточнения размеров.','A photo is possible once the sizes are confirmed.'],
+  stale:['Тур обновился. Откройте его заново и попробуйте ещё раз.','The tour has been updated. Reopen it and try again.'],
   no_views:['Фото делается из 3D, а 3D на этом устройстве не запустилось.','The photo is made from the 3D view, which did not start on this device.'],
   expired:['Срок этого тура истёк.','This tour has expired.'],
   // отказ сервиса кадров ДО оплаты: у товаров комнаты мало фото — модель рисовала бы их по названию (`improve_mode.paid_gate`)
-  no_product_sheet:['Для фото этой комнаты не хватает снимков товаров — попробуйте другой стиль.','There are not enough product pictures for a photo of this room — try another style.'],
-  failed:['Фото сейчас не получилось — попробуйте ещё раз через несколько минут.','The photo did not work this time — please try again in a few minutes.']}[code];
+  no_product_sheet:['Для фото этой комнаты не хватает снимков товаров. Попробуйте другой стиль.','There are not enough product pictures for a photo of this room. Try another style.'],
+  failed:['Фото сейчас не получилось. Попробуйте ещё раз через несколько минут.','The photo did not work this time. Please try again in a few minutes.']}[code];
   return T?T[EN?1:0]:''; }
 // комната «ждёт проверки», по которой идёт «Обустроить», — уже «подбирается» (крутилка, опрос версии), а не пустая с кнопкой
 function roomOutcome(id){ const r=trRoom(id); if(!r)return undefined;
@@ -1662,10 +1689,10 @@ const notFurnTxt=()=>TR_EN()?'We don’t furnish this room':'Эту комнат
 const unreadTxt=()=>TR_EN()?'We couldn’t read this room on the plan':'Не удалось разобрать эту комнату на плане', unreadShort=()=>TR_EN()?'not read':'не разобрана';
 // у комнаты на плане нет ни двери, ни прохода (`no_entry`, T-20261110-11) — говорим это, а не «не разобрана»
 const noEntryTxt=()=>TR_EN()?'We couldn’t find a door into this room':'Не нашли вход в комнату на плане', noEntryShort=()=>TR_EN()?'no door':'нет входа';
-const awaitTxt=()=>TR_EN()?'Size may be inaccurate — furniture not placed yet':'Размер может быть неточным — мебель пока не расставлена',
+const awaitTxt=()=>TR_EN()?'Size may be inaccurate, furniture not placed yet':'Размер может быть неточным, мебель пока не расставлена',
   awaitShort=()=>TR_EN()?'size unconfirmed':'размер не подтверждён';
 // места нет (решатель не нашёл, куда встать дивану и ТВ), а товары были; две двери и больше — «проходная» (T-20261110-09)
-const noSpaceTxt=walk=>walk?(TR_EN()?'Walk-through room — no space for a sofa and TV':'Проходная комната — не нашлось места под диван и ТВ')
+const noSpaceTxt=walk=>walk?(TR_EN()?'Walk-through room: no space for a sofa and TV':'Проходная комната: не нашлось места под диван и ТВ')
   :(TR_EN()?'No space for a sofa and TV':'Не нашлось места под диван и ТВ'), noSpaceShort=()=>TR_EN()?'no space':'нет места';
 // текст исхода комнаты по коду и языку: «не обставляется», «не разобрана», «нет места» и «нет подходящих товаров» — разные. Код причины без своей
 // надписи (масштаб, нет окна …) — текст сборщика на языке показа (`furniture_text_en`/`furniture_text`), нет его — «нет товаров»
@@ -1681,12 +1708,12 @@ const varNoneTxt=v=>v&&roomOutcome(roomIdOf(v))?outcomeTxt(roomIdOf(v),false):(v
 const varNoneShort=v=>v&&roomOutcome(roomIdOf(v))?outcomeTxt(roomIdOf(v),true):(varNotFurn(v)?notFurnShort():refusedShort());
 // масштаб плана (`D.trial.scale`: verified / listing / area / not_verified, `contracts/trial.ts`) не подтверждён — размеры примерные, говорим это
 const scaleUnconfirmed=()=>TRIAL()&&D.trial.scale==='not_verified';
-const scaleTxt=()=>TR_EN()?'Scale not confirmed — sizes are approximate':'Масштаб не подтверждён — размеры примерные';
+const scaleTxt=()=>TR_EN()?'Scale not confirmed, sizes are approximate':'Масштаб не подтверждён, размеры примерные';
 // масштаб по общей площади (`area`, T-20261109-26): комнаты обставлены, но размеры примерные — мягкая подпись сборщика
 // (`D.trial.scale_note` ru/en), нет её — та же фраза здесь; тон спокойнее плашки «не подтверждён»
 const scaleArea=()=>TRIAL()&&D.trial.scale==='area';
-const scaleAreaTxt=()=>{const n=(D.trial||{}).scale_note||{}, EN=TR_EN();
-  return (EN?n.en:n.ru)||(EN?'Sizes are based on the total floor area — approximate.':'Размеры по общей площади — примерные.');};
+// своя фраза страницы (T-20261111-05 п.4, TG 995 — без длинного тире): подпись сборщика `scale_note` («…площади — примерные.») не берём
+const scaleAreaTxt=()=>TR_EN()?'Approximate sizes, from the total floor area':'Размеры примерные, по общей площади';
 const scaleNoteHtml=cls=>scaleUnconfirmed()?`<${cls[0]} class="${cls[1]}" data-tr-scale="1">${scaleTxt()}</${cls[0]}>`
   :scaleArea()?`<${cls[0]} class="${cls[1]} tr-soft" data-tr-scale="area">${escHtml(scaleAreaTxt())}</${cls[0]}>`:'';
 // `rooms_geo[id].approx` — комната нарисована прямоугольником вместо настоящего контура: показываем это, а не выдаём за точные стены
@@ -1962,22 +1989,22 @@ function trRebuilding(id){ return TRB.state==='run'&&(TRB.want==='*'||(Array.isA
 // пока она идёт, второе нажатие всё равно гасится, видимая кнопка только путает (T-20261109-31)
 function trCanFurnish(){ return !!trKey()&&TRB.state!=='run'&&!trListingBusy()&&TRE.state!=='run'&&!TRO.on; }   // и не пока применяются размеры агента (Р2-текст) или правка комнаты
 const TRB_TXT={
-  stale:['Тур обновился, пока вы смотрели — обновите страницу и нажмите ещё раз','The tour was updated meanwhile — reload the page and try again','reload'],
-  nothing_to_furnish:['Эти комнаты уже обустроены — обновите страницу','These rooms are already furnished — reload the page','reload'],
-  bad_rooms:['Эти комнаты уже обустроены — обновите страницу','These rooms are already furnished — reload the page','reload'],
-  rebuild_limit:['На сегодня лимит «Обустроить» исчерпан — попробуйте завтра','Today’s “Furnish” limit is used up — try again tomorrow',''],
-  rate_limited:['Слишком часто — подождите минуту и нажмите ещё раз','Too many tries — wait a minute and try again',''],
-  forbidden:['Эта ссылка — только для просмотра. Откройте свою ссылку агента','This link is view-only. Open your agent link',''],
+  stale:['Тур обновился, пока вы смотрели. Обновите страницу и нажмите ещё раз','The tour was updated meanwhile. Reload the page and try again','reload'],
+  nothing_to_furnish:['Эти комнаты уже обустроены. Обновите страницу','These rooms are already furnished. Reload the page','reload'],
+  bad_rooms:['Эти комнаты уже обустроены. Обновите страницу','These rooms are already furnished. Reload the page','reload'],
+  rebuild_limit:['На сегодня лимит «Обустроить» исчерпан. Попробуйте завтра','Today’s “Furnish” limit is used up. Try again tomorrow',''],
+  rate_limited:['Слишком часто. Подождите минуту и нажмите ещё раз','Too many tries. Wait a minute and try again',''],
+  forbidden:['Эта ссылка только для просмотра. Откройте свою ссылку агента','This link is view-only. Open your agent link',''],
   expired:['Срок пробы истёк','This trial has expired',''],
-  not_ready:['Тур ещё собирается — подождите минуту и нажмите снова','The tour is still being built — wait a minute and try again','retry'],
-  offline:['Нет связи — проверьте интернет и нажмите ещё раз','No connection — check the internet and try again','retry'],
-  _:['Не получилось подобрать мебель — попробуйте ещё раз','Couldn’t pick the furniture — please try again','retry']};
+  not_ready:['Тур ещё собирается. Подождите минуту и нажмите снова','The tour is still being built. Wait a minute and try again','retry'],
+  offline:['Нет связи. Проверьте интернет и нажмите ещё раз','No connection. Check the internet and try again','retry'],
+  _:['Не получилось подобрать мебель. Попробуйте ещё раз','Couldn’t pick the furniture. Please try again','retry']};
 function trBanner(){
   const EN=TR_EN();
   if(TRE.state==='run')return `<div class="tr-rb" data-tr-rebuild="edit" role="status"><span class="tr-spin" aria-hidden="true"></span><div>`+
     `<b>${EN?'Rebuilding the room…':'Пересобираю комнату…'}</b><div class="st">${EN?'Usually under two minutes. The page will refresh by itself.':'Обычно до двух минут. Страница обновится сама.'}</div></div></div>`;
   if(TRE.state==='fail')return `<div class="tr-rb fail" data-tr-rebuild="edit-fail" data-code="${escHtml(TRE.err||'')}" role="alert"><div>`+
-    `${EN?'Couldn’t rebuild the room — reload the page and try again':'Не получилось пересобрать комнату — обновите страницу и попробуйте ещё раз'}</div>`+
+    `${EN?'Couldn’t rebuild the room. Reload the page and try again':'Не получилось пересобрать комнату. Обновите страницу и попробуйте ещё раз'}</div>`+
     `<button class="btn" type="button" data-tr-act="reload">${EN?'Reload':'Обновить'}</button></div>`;
   if(TRB.state==='run')return `<div class="tr-rb" data-tr-rebuild="run" role="status"><span class="tr-spin" aria-hidden="true"></span><div>`+
     `<b>${pendTxt()}</b><div class="st">${EN?'Usually a few minutes. The page will refresh by itself.':'Обычно несколько минут. Страница обновится сама.'}</div></div></div>`;
@@ -2033,13 +2060,57 @@ async function trRebuildInit(){
 // строкой с «Обустроить всё»; обставленные «как есть» — «≈ Размеры примерные». Без ключа — те же пометки, без кнопок
 function trPlanNotes(box){
   const EN=TR_EN(), k=trCanFurnish(), title=id=>{const r=trRoom(id)||{}; return (EN?r.titleEn:r.titleRu)||r.title||id;};
-  const wait=trAwaiting().filter(id=>!trRebuilding(id)), btn=(id,t)=>k?` — <button class="tr-lnk" type="button" data-tr-furnish="${escHtml(id)}">${t}</button>`:'';
+  const wait=trAwaiting().filter(id=>!trRebuilding(id)), btn=(id,t)=>k?`. <button class="tr-lnk" type="button" data-tr-furnish="${escHtml(id)}">${t}</button>`:'';
   if(wait.length===1)box.insertAdjacentHTML('beforeend',`<div class="hint tr-note" data-tr-await="1"><span class="dot"></span><span>`+
     `${escHtml(title(wait[0]))}: ${EN?'size may be inaccurate':'размер может быть неточным'}${btn(wait[0],EN?'Furnish':'Обустроить')}</span></div>`);
   else if(wait.length>1)box.insertAdjacentHTML('beforeend',`<div class="hint tr-note" data-tr-await="${wait.length}"><span class="dot"></span><span>`+
     `${EN?'Sizes not confirmed':'Размеры не подтверждены'}: ${wait.map(id=>escHtml(title(id))).join(', ')}${btn('*',EN?'Furnish all':'Обустроить всё')}</span></div>`);
-  if((D.apartment_rooms||[]).some(r=>r&&r.approx_consent))box.insertAdjacentHTML('beforeend',`<div class="hint" data-tr-consent="1">≈ ${EN?
-    'Furnished as is — sizes are approximate':'Обставлено «как есть» — размеры примерные'}</div>`);
+  // «обставлено как есть» — строкой статуса точности (`trPlanInfo`), не отдельной пометкой
+}
+// ТОЧНОСТЬ РАЗМЕРОВ ПОД ПЛАНОМ — ОДИН БЛОК (T-20261111-05 п.4, владелец TG 994: «продумай, сделай более профессионально»; было стопкой:
+// «≈ Форма комнаты приблизительная», «Размеры по общей площади — примерные», «Не нашли размеры комнат», «Напишите, что знаете…»).
+// Одна строка-статус со значком; у агента с ключом — «Уточнить размеры» (раскрывает поле «размеры своими словами», `trSizesForm`);
+// подробности (какие комнаты и почему) — по нажатию на строку. ADR-0299: минимум текста, суть видна на телефоне, служебное спрятано
+const TRA={more:false, ask:false};
+function trAccInfo(R){
+  const EN=TR_EN(), T=(ru,en)=>EN?en:ru, title=id=>{const r=trRoom(id)||{}; return (EN?r.titleEn:r.titleRu)||r.title||id;};
+  const names=ids=>ids.map(id=>title(id)).join(', ');
+  const shape=(R||[]).filter(r=>roomApprox(r.id)).map(r=>r.id), consent=(D.apartment_rooms||[]).filter(r=>r&&r.approx_consent).map(r=>r.id);
+  const outs=[...new Set((D.apartment_rooms||[]).filter(r=>/^(no_products|no_space|not_readable)$/.test(roomOutcome(r.id)||''))
+    .map(r=>outcomeTxt(r.id,true)+'. '+outcomeTxt(r.id,false)))];
+  const done=!!TRL.listing&&!trAskSizes();   // размеры агента применены, уточнять больше нечего
+  const st=done?{t:T('Размеры уточнены','Sizes confirmed'), ok:true}
+    :scaleUnconfirmed()?{t:scaleTxt()}:scaleArea()?{t:scaleAreaTxt()}:consent.length?{t:consentTxt()}
+    :shape.length?{t:T('Форма комнат примерная','Room shapes are approximate')}:null;
+  const more=[];
+  if(scaleUnconfirmed())more.push(T('Масштаб плана не подтверждён, поэтому размеры комнат примерные.','The plan scale is not confirmed, so the room sizes are approximate.'));
+  if(scaleArea())more.push(T('Размеров комнат на плане нет. Посчитали их по общей площади квартиры.','The plan has no room sizes. We worked them out from the total floor area.'));
+  if(consent.length)more.push(T('Обставлено «как есть», размеры не проверены: ','Furnished as is, sizes not checked: ')+names(consent)+'.');
+  if(shape.length)more.push(T('Форма приблизительная: ','Approximate shape: ')+names(shape)+'.');
+  outs.forEach(t=>more.push(t));
+  const ask=trKey()&&(trAskSizes()||!!TRL.listing);
+  return {st, more, ask, done};
+}
+function trPlanInfo(box,R){
+  const EN=TR_EN(), T=(ru,en)=>EN?en:ru, a=trAccInfo(R);
+  if(!a.st&&!a.ask&&!a.more.length)return;
+  if(trSizesState())TRA.ask=true;            // ответ на отправку (принято / ошибка) виден всегда — поле открыто
+  const ic=a.st&&a.st.ok?'✓':'≈';
+  const st=a.st?a.st.t:T('Размеры комнат','Room sizes');
+  box.insertAdjacentHTML('beforeend',`<div class="tr-acc${a.st&&a.st.ok?' ok':''}" data-tr-acc="1">`+
+    `<div class="tr-acc-row"><span class="tr-acc-ic" aria-hidden="true">${ic}</span>`+
+      (a.more.length?`<button class="tr-acc-st" type="button" data-tr-acc-more aria-expanded="${TRA.more}">${escHtml(st)}<i aria-hidden="true">›</i></button>`
+        :`<span class="tr-acc-st">${escHtml(st)}</span>`)+
+      (a.ask?`<button class="tr-lnk tr-acc-ask" type="button" data-tr-acc-ask aria-expanded="${TRA.ask}">${a.done?T('Уточнить ещё','Refine'):T('Уточнить размеры','Refine sizes')}</button>`:'')+
+      (a.more.length?`<ul class="tr-acc-more"${TRA.more?'':' hidden'}>${a.more.map(t=>`<li>${escHtml(t)}</li>`).join('')}</ul>`:'')+`</div>`+
+    (a.ask?trSizesForm(!TRA.ask):'')+`</div>`);
+  const acc=box.querySelector('[data-tr-acc]'); if(!acc)return;
+  const mb=acc.querySelector('[data-tr-acc-more]'), ab=acc.querySelector('[data-tr-acc-ask]');
+  if(mb)mb.onclick=e=>{e.stopPropagation(); TRA.more=!TRA.more; mb.setAttribute('aria-expanded',String(TRA.more)); acc.querySelector('.tr-acc-more').hidden=!TRA.more;};
+  if(ab)ab.onclick=e=>{e.stopPropagation(); TRA.ask=!TRA.ask; ab.setAttribute('aria-expanded',String(TRA.ask));
+    const f=acc.querySelector('[data-tr-sizes]'); if(f){f.hidden=!TRA.ask; if(TRA.ask){const ta=f.querySelector('textarea'); if(ta)ta.focus({preventScroll:true});}}};
+  ['click','pointerdown'].forEach(n=>acc.addEventListener(n,e=>e.stopPropagation()));   // нажатие в блоке — не по плану/комнате
+  trSizesWire(acc);
 }
 // «РАЗМЕРЫ СВОИМИ СЛОВАМИ» (план agent-trial-08, Р2-текст; T-20261109-33): размеров нет (масштаб `not_verified` / `area`) или комнаты ждут
 // проверки — у агента с ключом `k` под планом поле «напишите, что знаете». POST `/api/trial/<id>/listing` (вторая ручка, которую пускает
@@ -2051,15 +2122,15 @@ function trAskSizes(){ const s=(D.trial||{}).scale; return s==='not_verified'||s
 const TRL_TXT={
   accepted:['Приняли. Применим, когда план соберётся.','Got it. We’ll apply the sizes once the plan is built.'],
   applying:['Применяем размеры… Страница обновится сама.','Applying your sizes… The page will refresh by itself.'],
-  done:['Готово — тур обновлён.','Done — the tour is updated.'],
+  done:['Готово, тур обновлён.','Done, the tour is updated.'],
   failed:['Не получилось применить размеры. Попробуйте ещё раз.','We couldn’t apply the sizes. Please try again.'],
   source_gone:['Исходный план уже не хранится. Загрузите его заново.','The original plan is no longer stored. Please upload it again.'],
-  partial:['Применили. У части комнат размеров нет — они отмечены на плане.','Applied. Some rooms still have no sizes — they’re marked on the plan.'],
-  no_match:['Не смогли сопоставить размеры с комнатами плана. Напишите названия как на плане, например: «Спальня 1 — 3,2 на 4».',
+  partial:['Применили. У части комнат размеров нет, они отмечены на плане.','Applied. Some rooms still have no sizes; they’re marked on the plan.'],
+  no_match:['Не смогли сопоставить размеры с комнатами плана. Напишите названия как на плане, например: «Спальня 1: 3,2 на 4».',
     'We couldn’t match these sizes to rooms on the plan. Use the room names from the plan, e.g. “Bedroom 1 3.2 × 4”.'],
   busy:['Тур ещё обновляется. Попробуйте через минуту.','The tour is still updating. Try again in a minute.'],
   rebuild_limit:['Слишком много обновлений за сутки. Попробуйте завтра.','Too many updates today. Try again tomorrow.'],
-  forbidden:['Эта ссылка — только для просмотра. Откройте свою ссылку агента.','This link is view-only. Open your agent link.'],
+  forbidden:['Эта ссылка только для просмотра. Откройте свою ссылку агента.','This link is view-only. Open your agent link.'],
   _:['Не удалось отправить. Попробуйте ещё раз.','Couldn’t send. Please try again.']};
 function trSizesState(){
   if(TRL.err)return {t:TRL_TXT[TRL.err]||TRL_TXT._, bad:true};
@@ -2067,17 +2138,18 @@ function trSizesState(){
   if(TRL.listing==='done'&&trAskSizes())return {t:TRL_TXT.partial, bad:false};   // применили, но часть комнат всё ещё без размеров
   return TRL.listing&&TRL_TXT[TRL.listing]?{t:TRL_TXT[TRL.listing], bad:false}:null;
 }
-function trSizesBox(box){
-  if(!trKey()||!(trAskSizes()||TRL.listing))return;
+// поле «размеры своими словами» — внутри блока точности (`trPlanInfo`), закрыто до «Уточнить размеры»
+function trSizesForm(hide){
   const EN=TR_EN(), st=trSizesState(), off=TRL.busy||TRL.listing==='applying';
-  const ok=!!TRL.listing&&!trAskSizes();   // размеры применены и не нужны — «применили, можно уточнить» (и пока уточнение идёт/не легло); поле остаётся
-  const hd=ok?['Размеры применили','Sizes applied']:['Не нашли размеры комнат','We couldn’t find the room sizes'];
-  const tx=ok?['Можно уточнить — напишите ещё','You can refine — write more']:['Напишите, что знаете, в любом виде — уточним.','Write what you know, in any form — we’ll work it out.'];
-  box.insertAdjacentHTML('beforeend',`<form class="tr-sizes" data-tr-sizes="1"><b>${EN?hd[1]:hd[0]}</b>`+
+  const tx=['Напишите, что знаете, в любом виде. Уточним.','Write what you know, in any form. We’ll work it out.'];
+  return `<form class="tr-sizes" data-tr-sizes="1"${hide?' hidden':''}>`+
     `<p>${EN?tx[1]:tx[0]}</p>`+
     `<textarea maxlength="2000" aria-label="${EN?'Room sizes':'Размеры комнат'}" placeholder="${EN?'e.g. living room 4.8 × 3.6 m, bedroom 3 × 3 m':'например: гостиная 4,8 на 3,6, спальня 3×3'}"${TRL.busy?' disabled':''}>${escHtml(TRL.text)}</textarea>`+
     (st?`<p class="tr-sz-st${st.bad?' bad':''}" role="${st.bad?'alert':'status'}" data-tr-sizes-state="1">${EN?st.t[1]:st.t[0]}</p>`:'')+
-    `<button class="btn tr-fur" type="submit"${off||!(TRL.text||'').trim()?' disabled':''}>${TRL.busy?(EN?'Sending…':'Отправляем…'):(EN?'Send sizes':'Отправить размеры')}</button></form>`);
+    `<button class="btn tr-fur" type="submit"${off||!(TRL.text||'').trim()?' disabled':''}>${TRL.busy?(EN?'Sending…':'Отправляем…'):(EN?'Send sizes':'Отправить размеры')}</button></form>`;
+}
+function trSizesWire(box){
+  const off=TRL.busy||TRL.listing==='applying';
   const f=box.querySelector('[data-tr-sizes]'); if(!f)return;
   const ta=f.querySelector('textarea');
   const sb=f.querySelector('button[type=submit]');
@@ -2119,18 +2191,18 @@ const TRE_KINDS=[['Гостиная','Living room'],['Спальня','Bedroom']
   ['Прихожая','Entrance hall'],['Кладовая','Storage']];
 const TRE_PEN=['M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z','m15 5 4 4'], TRE_OK=['M20 6 9 17l-5-5'];
 const TRE_TXT={
-  stale:['Тур обновился, пока вы смотрели — обновите страницу и поправьте ещё раз','The tour was updated meanwhile — reload the page and edit again'],
-  busy:['Тур сейчас обновляется — подождите минуту и сохраните ещё раз','The tour is updating right now — wait a minute and save again'],
-  edit_limit:['На сегодня лимит правок исчерпан — попробуйте завтра','Today’s edit limit is used up — try again tomorrow'],
-  rate_limited:['Слишком часто — подождите минуту и сохраните ещё раз','Too many tries — wait a minute and save again'],
-  forbidden:['Эта ссылка — только для просмотра. Откройте свою ссылку агента','This link is view-only. Open your agent link'],
+  stale:['Тур обновился, пока вы смотрели. Обновите страницу и поправьте ещё раз','The tour was updated meanwhile. Reload the page and edit again'],
+  busy:['Тур сейчас обновляется. Подождите минуту и сохраните ещё раз','The tour is updating right now. Wait a minute and save again'],
+  edit_limit:['На сегодня лимит правок исчерпан. Попробуйте завтра','Today’s edit limit is used up. Try again tomorrow'],
+  rate_limited:['Слишком часто. Подождите минуту и сохраните ещё раз','Too many tries. Wait a minute and save again'],
+  forbidden:['Эта ссылка только для просмотра. Откройте свою ссылку агента','This link is view-only. Open your agent link'],
   expired:['Срок пробы истёк','This trial has expired'],
-  not_ready:['Тур ещё собирается — подождите минуту','The tour is still being built — wait a minute'],
-  bad_room:['Эту комнату уже нельзя править — обновите страницу','This room can’t be edited any more — reload the page'],
+  not_ready:['Тур ещё собирается. Подождите минуту','The tour is still being built. Wait a minute'],
+  bad_room:['Эту комнату уже нельзя править. Обновите страницу','This room can’t be edited any more. Reload the page'],
   name:['Напишите название комнаты','Enter the room name'],
-  dims:['Размеры — от 0,5 до 50 м','Sizes must be between 0.5 and 50 m'],
-  offline:['Нет связи — проверьте интернет и сохраните ещё раз','No connection — check the internet and save again'],
-  _:['Не получилось сохранить — попробуйте ещё раз','Couldn’t save — please try again']};
+  dims:['Размеры: от 0,5 до 50 м','Sizes must be between 0.5 and 50 m'],
+  offline:['Нет связи. Проверьте интернет и сохраните ещё раз','No connection. Check the internet and save again'],
+  _:['Не получилось сохранить. Попробуйте ещё раз','Couldn’t save. Please try again']};
 const TRE_KEY='tr-room-edit';
 // «правку сохраняли в этой вкладке» — «не получилось» показываем только тому, кто правил (как у «Обустроить»)
 function trEditMine(v){ try{ if(v===undefined)return !!sessionStorage.getItem(TRE_KEY); if(v)sessionStorage.setItem(TRE_KEY,'1'); else sessionStorage.removeItem(TRE_KEY); }catch(e){} return false; }
@@ -2176,7 +2248,7 @@ function trEditOpen(id){
     `<label for="tr-ed-w">${T('Ширина × длина, м','Width × length, m')}</label><div class="tr-ed-row"><input id="tr-ed-w" inputmode="decimal" value="${trFmt(W0,2)}">`+
     `<span>×</span><input id="tr-ed-l" inputmode="decimal" aria-label="${T('Длина, м','Length, m')}" value="${trFmt(L0,2)}"></div>`+
     `<label for="tr-ed-a">${T('Площадь, м²','Area, m²')}</label><input id="tr-ed-a" inputmode="decimal" value="${trFmt(A0,1)}">`+
-    `<p class="tr-ed-hint">${T('3D и мебель этой комнаты пересоберутся сами — обычно до двух минут','The 3D and furniture of this room will rebuild by themselves — usually under two minutes')}</p>`+
+    `<p class="tr-ed-hint">${T('3D и мебель этой комнаты пересоберутся сами, обычно до двух минут','The 3D and furniture of this room will rebuild by themselves, usually under two minutes')}</p>`+
     `<p class="tr-ed-err" role="alert" hidden></p>`+
     `<div class="tr-ed-acts"><button type="button" class="btn ghost" data-tr-ed="cancel">${T('Отмена','Cancel')}</button>`+
     `<button type="button" class="btn cta" data-tr-ed="save">${T('Сохранить','Save')}</button></div></div>`;
@@ -2235,7 +2307,7 @@ document.addEventListener('keydown',e=>{
 // проёмы); дальше — как у правки комнаты: «пересобираю», опрос `version.json`, перезагрузка
 const TRO_W={door:80, window:120}, TRO_MIN=30, TRO_MAX=600, TRO_TOL_PX=22, TRO_CHUNK=30;
 Object.assign(TRE_TXT,{
-  bad_opening:['План обновился — обновите страницу и поправьте ещё раз','The plan was updated — reload the page and edit again'],
+  bad_opening:['План обновился. Обновите страницу и поправьте ещё раз','The plan was updated. Reload the page and edit again'],
   too_many:['Слишком много правок окон и дверей в этом туре','Too many window and door edits in this tour']});
 const troPanels=()=>((D.trial||{}).panels||[]).filter(p=>p&&p.id&&(p.rooms||[]).some(r=>r&&r.bbox));
 const troTf=id=>(((D.plan||{}).trTf)||[]).find(t=>t.id===id)||null;
@@ -2283,7 +2355,7 @@ function troBarHtml(){
   if(!TRO.on)return trCanEdit()&&troPanels().length?`<div class="tr-op-open"><button class="btn" type="button" data-tr-op="open">${T('Окна и двери','Windows & doors')}</button></div>`:'';
   const op=TRO.ops[TRO.sel], n=troTouched().length;
   const st=op?`<b data-tr-op-info>${escHtml(troInfo(op))}</b>`:TRO.pick?`<b data-tr-op-info>${escHtml(T('Что поставить сюда?','What goes here?'))}</b>`
-    :T('Нажмите на стену — добавить окно или дверь. Нажмите на проём — тяните за края, двигайте за середину или удалите.',
+    :T('Нажмите на стену, чтобы добавить окно или дверь. Нажмите на проём, чтобы тянуть его за края, двигать за середину или удалить.',
       'Tap a wall to add a window or door. Tap an opening to stretch it by the ends, move it by the middle or delete it.');
   return `<div class="tr-op-bar" data-tr-op-bar><div class="st">${st}</div>`+(TRO.err?`<div class="err" role="alert">${escHtml((TRE_TXT[TRO.err]||TRE_TXT._)[EN?1:0])}</div>`:'')+
     `<div class="acts"><button class="btn ghost" type="button" data-tr-op="cancel"${TRO.busy?' disabled':''}>${T('Отмена','Cancel')}</button>`+
@@ -2389,8 +2461,10 @@ function troKind(kind){
   if(op){if(op.kind!==kind){op.kind=kind; op.touched=true; if(!(op.w>0))op.w=TRO_W[kind];}}
   else if(TRO.pick){const e=TRO.pick.edge, w=Math.min(TRO_W[kind],e.L), key='u'+trReqId().slice(0,12);
     const nw={panel:TRO.pick.panel, key, kind, w, edge:e, t:Math.max(w/2,Math.min(e.L-w/2,e.s)), c0:null, exterior:false, src:false, removed:false, touched:true};
-    TRO.ops[nw.panel+'|'+key]=nw; TRO.sel=nw.panel+'|'+key; TRO.pick=null;}
-  TRO.err=''; flatPlan();
+    TRO.ops[nw.panel+'|'+key]=nw; TRO.pick=null;}
+  // ВЫБОР ТИПА ЗАКРЫВАЕТ ОКОШКО (T-20261111-05 п.5, владелец TG 997: «нажимаю на окно или дверь — надо сразу закрывать»): как «Удалить» —
+  // выделение снято, ручки спрятаны, новый тип виден на плане сразу; тянуть края — новым нажатием на проём
+  TRO.sel=null; TRO.err=''; flatPlan();
 }
 function troDel(){ const op=TRO.ops[TRO.sel]; if(!op)return; op.removed=true; op.touched=true; TRO.sel=null; TRO.err=''; flatPlan(); }
 // «Сохранить»: по панели, кусками ≤ 30 проёмов, у каждого куска свой request_id; первый ставит пересборку, следующие ложатся в неё же
@@ -2443,7 +2517,7 @@ function dataFetch(){ const p=window.__dataP; window.__dataP=null; const own=()=
   return p?p.then(r=>r&&r.ok?r:own(),own):own(); }
 // ЗАПУСК — ПОСЛЕ ВСЕЙ РАЗМЕТКИ (T-20261110-43, дефект П1): данные просятся из <head> и на медленной сети или из кэша приходят раньше,
 // чем браузер дочитает 1,2 МБ разметки; `init` тогда звал функции и константы следующих <script> (`stateIdOf`, `LIVE`) до их
-// объявления — ReferenceError, `.catch` ниже глотал его, и главная /demo оставалась без фото («Откройте — покажем в 3D»)
+// объявления — ReferenceError, `.catch` ниже глотал его, и главная /demo оставалась без фото («Откройте, покажем в 3D»)
 const pageReady=()=>document.readyState==='loading'?new Promise(ok=>document.addEventListener('DOMContentLoaded',ok,{once:true})):Promise.resolve();
 dataFetch().then(r=>trDataEtag(r).json()).then(d=>pageReady().then(()=>d)).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();
   if(TRIAL()){window.__trialReady=1; document.dispatchEvent(new Event('trialready'));}})   // проба: опрос без карточки квартиры (`decide`)
@@ -2482,8 +2556,8 @@ function init(){
   // текст по самой вкладке: вкладка «Кухня» оживает, когда у квартиры есть варианты кухни (verify b2b-12)
   document.querySelectorAll('.tab.soon').forEach(t=>t.addEventListener('click',()=>{
     if(!t.classList.contains('soon'))return;
-    toast(/Кухня/.test(t.textContent)?'Кухня появится следующим шагом — варианты от партнёров застройщика.'
-      :'Спальни появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.');}));
+    toast(/Кухня/.test(t.textContent)?'Кухня появится следующим шагом: варианты от партнёров застройщика.'
+      :'Спальни появятся следующим шагом: подбор мебели по той же схеме, что в гостиной.');}));
   on('shotclose','onclick',closeShot);
   // «×» ЗАКРЫВАЕТ ВЕРХНИЙ СЛОЙ (demo-02 v5.2 п.6, владелец 18.10: «закрывает не то — это путает»): на телефоне при полной шторке
   // окна варианта — сворачивает список (как чип «⌄ Свернуть»), иначе закрывает окно. Программный `click()` (переход в избранное,
@@ -2529,7 +2603,7 @@ function init(){
   {const b=document.getElementById('hmShareMix'); if(b){b.insertAdjacentHTML('afterbegin',SHARE_SVG); b.onclick=shareInterior;}}
   // ♡ N в строке квартиры — экран «Избранное» (корзина); пусто — подсказка, куда нажать
   on('hmFav','onclick',()=>{const n=window.__fav&&window.__fav.list?window.__fav.list().length:0;
-    if(n&&window.__basket)histGoFavs(''); else toast(LANG==='en'?'Favourites are empty for now — tap ♡ on a room':'В избранном пока пусто — нажмите ♡ у комнаты');});
+    if(n&&window.__basket)histGoFavs(''); else toast(LANG==='en'?'Favourites are empty for now. Tap ♡ on a room':'В избранном пока пусто. Нажмите ♡ у комнаты');});
   // ВКЛАДКА ПО УМОЛЧАНИЮ — ГОСТИНАЯ (владелец 02.09: «страница должна открываться сразу на
   // вкладке гостиная»). Раньше без якоря открывался «План квартиры», и человек попадал не на
   // витрину обустройства, ради которой демо и сделано. `#plan` по-прежнему открывает план —
@@ -2700,7 +2774,7 @@ function homeBotShow(){
 function homeSelText(){
   const EN=LANG==='en', m=homeModel(), L=homeLayout(m).filter(x=>x.rv);
   return L.map(x=>{const v=allVariants()[x.rv.index], st=(m.styles.find(s=>s.id===styleIdOf(v))||{}).title||v.style||'';
-    return `${x.r.title} — ${st}, ${money(variantPrice(v))}`;})
+    return `${x.r.title}: ${st}, ${money(variantPrice(v))}`;})
     .concat([`${EN?'Total':'Итого'}: ${fmtCard(homeChosen())}`]);
 }
 function homeSend(){
@@ -2709,10 +2783,10 @@ function homeSend(){
   const EN=LANG==='en', r=homeMixReport(), sum=Math.round(homeChosen());
   if(window.__mgrSend&&window.__mgrSend({sum, styles:r.styles, rooms:r.rooms}))return;
   if(window.__EMBED){if(window.__embedEvent)window.__embedEvent('contact');
-    shotOpen('<div class="wait">'+(EN?'The developer will contact you — use the contact form on this page.':'Застройщик свяжется с вами — оставьте заявку в форме на этой странице.')+'</div>',''); return;}
+    shotOpen('<div class="wait">'+(EN?'The developer will contact you. Use the contact form on this page.':'Застройщик свяжется с вами. Оставьте заявку в форме на этой странице.')+'</div>',''); return;}
   shotOpen('<div class="wait"><b>'+(EN?'Your selection':'Ваш выбор')+'</b><div style="font-size:15px;line-height:1.5;margin:8px 0 12px">'+
     homeSelText().map(t=>`<div>${escHtml(t)}</div>`).join('')+'</div><span style="font-size:15px;color:var(--muted)">'+
-    (EN?'This button opens the developer’s consultation form — your selection goes into the request.':'Эта кнопка ведёт на форму консультации застройщика — выбор уйдёт в тексте заявки.')+'</span></div>','');
+    (EN?'This button opens the developer’s consultation form. Your selection goes into the request.':'Эта кнопка ведёт на форму консультации застройщика. Выбор уйдёт в тексте заявки.')+'</span></div>','');
 }
 // ПОДСКАЗКИ (макет 158:452 / 376:8149) — по одному разу: закрыли «×» — больше не показываем (`localStorage`, в try). Открытые комнаты —
 // там же, по квартире (`flat215-seen`): вторая подсказка вместо первой (чипа «✓ Просмотрено» на карточке с 08.11 нет, T-20261108-72)
@@ -2809,14 +2883,14 @@ function certBub(P,inc,add,head){
       `${EN?'Chosen':'Выбрано'} ${fmtCard(c)}. `+(over?`<span class="dop">${EN?'Top-up':'Доплата'} ${fmtCard(over)}</span>.`:`${EN?'Left':'Осталось'} <b>${fmtCard(P.total-c)}</b>.`)+`</div>`;}
   let anyOver=false;
   const rows=['furniture','fitout'].map(k=>{const Lm=P.limits[k], c=inc[k], t=c+add[k];
-    if(!(Lm>0))return `<div class="bub-row"><span class="lsw ${sw[k]}"></span><span>${NM[k]} — ${EN?'not included in the package':'не входит в пакет'}`+
+    if(!(Lm>0))return `<div class="bub-row"><span class="lsw ${sw[k]}"></span><span>${NM[k]}: ${EN?'not included in the package':'не входит в пакет'}`+
       (t?` · <span class="dop">${EN?'top-up':'доплата'} ${fmtCard(t)}</span>`:'')+`</span></div>`;
     const o=Math.max(0,t-Lm); if(o)anyOver=true;
     return `<div class="bub-row"><span class="lsw ${sw[k]}"></span><span>${NM[k]}: <b>${fmtCard(c)}</b> ${EN?'of':'из'} ${fmtCard(Lm)} · `+
       (o?`<span class="dop">${c>Lm?(EN?'top-up':'доплата'):(EN?'goes over by':'выйдет за лимит на')} ${fmtCard(o)}</span>`:`${EN?'left':'осталось'} <b>${fmtCard(Lm-t)}</b>`)+`</span></div>`+
       (add[k]?`<div class="bub-row" style="padding-left:18px;color:var(--muted)">${EN?'this layout adds':'эта расстановка добавит'} ${fmtCard(add[k])}</div>`:'');});
   return (head?`<div>${head}</div>`:'')+rows.join('')+
-    `<div class="bub-note">${EN?'No transfer between the budgets':'Перенос между бюджетами недоступен'}${anyOver?(EN?' — you pay the difference':' — разницу оплачиваете вы'):''}.</div>`;
+    `<div class="bub-note">${EN?'No transfer between the budgets':'Перенос между бюджетами недоступен'}${anyOver?(EN?', you pay the difference':', разницу оплачиваете вы'):''}.</div>`;
 }
 // ЛИПКИЙ НИЗ (home-figma-02): шкала ушла из липкой шапки в низ — `--hm-cert` = 0 (строка варианта встаёт сразу под шапкой), высота низа —
 // в `--hm-bot` (поле страницы снизу и место второй подсказки). Шкала в низу всегда компактная (класс `stuck`: легенда и перерасход — в «i»)
@@ -2934,7 +3008,7 @@ function copyLink(vid,btn){
   const url=variantLink(vid);
   // ПОДТВЕРЖДЕНИЕ ВИДНО ВСЕГДА (карта сценариев 2.14): подпись на кнопке плюс короткое сообщение внизу —
   // кнопка бывает вне экрана (окно кадра прокручено), и человек не понимал, сработало ли.
-  const say=()=>{ toast(LANG==='en'?'Link copied — paste it into a message':'Ссылка скопирована — вставьте её в сообщение');
+  const say=()=>{ toast(LANG==='en'?'Link copied. Paste it into a message':'Ссылка скопирована. Вставьте её в сообщение');
     if(!btn)return; const t=btn.textContent; btn.textContent='Ссылка скопирована';
     setTimeout(()=>{btn.textContent=t;},1600); };
   // без буфера обмена (старый браузер, страница не по https) показываем ссылку — её можно выделить
@@ -2968,8 +3042,8 @@ function applyHash(){
       const st=(D.variant_aliases||{})[vid];
       const j=st?allVariants().findIndex(v=>v.style===st):-1;
       if(j>=0){ i=j; vid=allVariants()[j].id;
-        setTimeout(()=>toast(LANG==='en'?'This layout has been updated — showing the current one in the same style':
-          'Эта расстановка обновилась — показываем текущую в том же стиле'),300);
+        setTimeout(()=>toast(LANG==='en'?'This layout has been updated. Showing the current one in the same style':
+          'Эта расстановка обновилась. Показываем текущую в том же стиле'),300);
         history.replaceState(history.state,'','#v='+encodeURIComponent(vid));
         // в отчёт застройщику: сколько заходов по устаревшим ссылкам (demo-05 п.10)
         setTimeout(()=>document.dispatchEvent(new CustomEvent('remlab:act',{detail:'stale_link'})),500); }
@@ -3135,12 +3209,9 @@ function flatPlan(){
   if(TRO_ON){const wr=document.createElement('div'); wr.className='tr-op-wrap'; wr.appendChild(svg); box.appendChild(wr); svg.setAttribute('data-tr-op-svg','1');
     svg.addEventListener('pointerdown',e=>{if(e.button>0)return; e.preventDefault(); troDown(svg,e);}); troPaint(svg);}
   else box.appendChild(svg);
-  if(TRIAL()&&R.some(r=>roomApprox(r.id)))box.insertAdjacentHTML('beforeend',`<div class="hint">≈ ${approxTxt()}</div>`);
-  // проба: расшифровка коротких меток отказа под планом — по одной строке на текст (кроме «не обставляется» — она понятна сама)
-  if(TRIAL())[...new Set((D.apartment_rooms||[]).filter(r=>/^(no_products|no_space|not_readable)$/.test(roomOutcome(r.id)||'')).map(r=>outcomeTxt(r.id,true)+' — '+outcomeTxt(r.id,false)))]
-    .forEach(t=>box.insertAdjacentHTML('beforeend',`<div class="hint">${escHtml(t)}</div>`));
-  box.insertAdjacentHTML('beforeend',scaleNoteHtml(['div','hint']));
-  if(TRIAL()){trPlanNotes(box); trSizesBox(box);}
+  // проба: под планом — «ждут проверки → Обустроить» и один блок точности размеров (`trPlanInfo`: форма комнат, масштаб, «как есть»,
+  // расшифровка меток отказа — в подробностях, поле «Уточнить размеры»), T-20261111-05 п.4
+  if(TRIAL()){trPlanNotes(box); trPlanInfo(box,R);}
 
 }
 // комнаты схемы плана ↔ комнаты реестра квартиры (`homeRooms`) — по id: у схемы id реестра (T-20261022-04; сборка падает, если
@@ -3164,7 +3235,7 @@ function applyKit(kit){            // комплект накладываетс�
     it.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,basis:p.basis};n++;});
   document.getElementById('sel').innerHTML=`Применён <b>${kit.title}</b>: товаров ${n}`+
     (kit.sum?` · сумма ${money(kit.sum)}`:'')+
-    ` · любой предмет можно заменить своим — выберите его и нажмите «Подобрать товар»`;
+    ` · любой предмет можно заменить своим: выберите его и нажмите «Подобрать товар»`;
   draw();}
 let baseRev='';                       // ревизия «как отдал движок» — по ней видно, правил ли человек
 function load(){const v=allVariants()[cur]||D.variants[0];items=clone(v.items);sel=null;
@@ -5211,7 +5282,7 @@ function devGroupHtml(g){
         (v.accent&&v.accent.material?`<i style="background:linear-gradient(90deg,${escHtml(m.colorHex||'#eee')} 0 50%,${escHtml(v.accent.material.colorHex||'#9a9')} 50% 100%)"></i>`
           :`<i style="background-color:${escHtml(m.colorHex||'#c8b49a')};background-image:url('${escHtml(m.previewUrl||m.baseColorUrl||'')}')"></i>`)+
         `<small>${escHtml(short(v))}</small></button>`;}).join('')+`</div>`+
-    `<div class="vfl-cur">${escHtml(cur.name)} — ${escHtml(cur.price.text)}</div><div class="vfl-gap"></div>`;
+    `<div class="vfl-cur">${escHtml(cur.name)} · ${escHtml(cur.price.text)}</div><div class="vfl-gap"></div>`;
 }
 // РАЗДЕЛ «ВСТРАИВАЕМОЕ» (v5): своя карточка, не плитка пола — название, состав, картинка или заглушка, цена; выбор — тем же
 // `data-fl`, что у пола. Сцену гостиной кухня не меняет (другая комната) — меняются строка-вход, состояние и ссылка
@@ -5337,7 +5408,7 @@ function loadFlatCard(){if(TRIAL()){trDevCard(); return;} const id=flatId(); if(
       av.textContent=(nm[0]||'').toUpperCase(); av.title=FLAT.complex||'';}
     drawFlatMore();
     const ft=document.getElementById('flatTitle'); if(ft)ft.textContent=flatTitle();
-    document.title=FLAT.kind+(LANG==='en'?' — living room (demo)':' — гостиная (демо)');
+    document.title=FLAT.kind+(LANG==='en'?' · living room (demo)':' · гостиная (демо)');
     drawVariants(); try{drawHome(true);}catch(e){}
     try{if(curScreen()==='plan')flatPlan();}catch(e){}   // открыли сразу план — подписи комнат из карточки (язык, состав)
     // суммы витрины, уже нарисованные до карточки, — в её валюте (британский двойник)
@@ -5349,7 +5420,7 @@ window.__loadFlatCard=loadFlatCard;
 // тип с площадью, дом целиком (этаж, корпус), условия цены. Строка дома не обрезается: не влезает слово — остаётся «⌄» (`fitMeta`)
 function drawFlatMore(){
   const box=document.getElementById('flatMore'); if(!box||!FLAT)return; const EN=LANG==='en';
-  const pay=EN?'The price is for full payment, without a mortgage or instalments':'Цена — при оплате 100 %: наличными, без ипотеки и рассрочки';
+  const pay=EN?'The price is for full payment, without a mortgage or instalments':'Цена при оплате 100 %: наличными, без ипотеки и рассрочки';
   // ЖК и сдача уже во второй строке — здесь остальное из полной строки дома (этаж, корпус)
   const rest=FLAT.metaShort&&String(FLAT.meta||'').indexOf(FLAT.metaShort)===0?String(FLAT.meta).slice(FLAT.metaShort.length).replace(/^ · /,''):(FLAT.meta||'');
   const flat=[FLAT.kind, FLAT.number?(EN?'flat ':'кв. ')+FLAT.number:'', rest].filter(Boolean).join(' · ');
@@ -5384,8 +5455,8 @@ function priceCard(sum, cnt){
     `<button class="btn round wide" id="pcSave">Сохранить список мебели и техники</button>`+
     `<div class="pc-note">3D-модель носит ознакомительный характер и может отличаться от
       фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать
-      у нашего менеджера. Цена и данные о доме — демонстрационные. Цены товаров — с сайтов магазинов
-      на дату проверки и могут измениться; точная цена — по ссылке в магазин.</div>`;
+      у нашего менеджера. Цена и данные о доме демонстрационные. Цены товаров взяты с сайтов магазинов
+      на дату проверки и могут измениться; точная цена по ссылке в магазин.</div>`;
   // У КАЖДОЙ КНОПКИ — СВОЯ ПОДПИСЬ (владелец 01.09). Обе вели один и тот же общий текст про
   // «демонстрацию блока»; человеку важно, КУДА ведёт именно эта кнопка.
   const say=t=>()=>shotOpen('<div class="wait">'+t+'</div>','');
@@ -5393,7 +5464,7 @@ function priceCard(sum, cnt){
   if(mort)mort.onclick=say('Эта ссылка ведет на условия ипотеки по квартире');
   // ВСТРОЕНО НА САЙТ ЗАСТРОЙЩИКА (b2b-07): консультацию ведёт сам сайт — отдаём ему событие «contact», он открывает свою форму
   if(cons)cons.onclick=window.__EMBED?()=>{if(window.__embedEvent)window.__embedEvent('contact');
-      shotOpen('<div class="wait">'+(LANG==='en'?'The developer will contact you — use the contact form on this page.':'Застройщик свяжется с вами — оставьте заявку в форме на этой странице.')+'</div>','');}
+      shotOpen('<div class="wait">'+(LANG==='en'?'The developer will contact you. Use the contact form on this page.':'Застройщик свяжется с вами. Оставьте заявку в форме на этой странице.')+'</div>','');}
     :say('Эта ссылка ведет на форму консультации застройщика');
   box.querySelector('#pcSave').onclick=openList;
 }
@@ -6134,7 +6205,7 @@ function drawColl(force){
       // телефоне грузится секундами. Не нашлась — подставляем полный, карточка не ломается.
       (sh?`<img class="pv" src="${thumbOf(sh)}" alt="${styleOf(sh)}" loading="lazy" `+
           `decoding="async" data-url="${sh.url}" onerror="this.onerror=null;this.src='${sh.url}'">`
-         :`<div class="nopv">${LANG==='en'?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
+         :`<div class="nopv">${LANG==='en'?'Open to see it in 3D':'Откройте, покажем в 3D'}</div>`)+
       (views>1?`<div class="badge2">${views} вида</div>`:'')+
       `</div>`+
       `<div class="body"><div class="nm">${v.style||v.title||('вариант '+(i+1))}</div>`+
@@ -6317,6 +6388,10 @@ function liveShot(v){ const u=v&&D&&LIVE_SHOTS.get(roomStateKey(v,variantStateOf
 const TR_HS={busy:false, off:false, by:new Map(), fail:new Set(), want:[], t:0};
 function trHsKey(v){ return roomStateKey(v,variantStateOf(v)); }
 function trHomeShotOf(v){ const r=v&&TR_HS.by.get(String(v.id||'')); return r?r.url:''; }
+// снимок ещё будет — карточка держит заглушку, а не план (T-20261111-05 п.1); 3D нет или этот снимок не вышел — план
+function trHsWaits(v){ return trHsOk()&&!TR_HS.fail.has(trHsKey(v)); }
+// сцена снимка не собралась за это время (модель не пришла, связь оборвалась) — снимок не вышел, карточка уходит на план
+const TR_HS_MAX_MS=90000;
 function trHsOk(){
   if(!TRIAL()||TR_HS.off||LIVE.ok===false||!D)return false;
   const c=navigator.connection; if(c&&(c.saveData||/(^|slow-)2g$/.test(c.effectiveType||'')))return false;
@@ -6324,7 +6399,7 @@ function trHsOk(){
 }
 // таймер не переставляем: главная перерисовывается часто, и сброс отодвигал бы съёмку без конца
 function trHomeShotsSoon(ms){ if(!trHsOk()||TR_HS.t)return;
-  TR_HS.t=setTimeout(()=>{ TR_HS.t=0; if(window.requestIdleCallback)requestIdleCallback(trHomeShotsRun,{timeout:3000}); else trHomeShotsRun(); },ms||800); }
+  TR_HS.t=setTimeout(()=>{ TR_HS.t=0; if(window.requestIdleCallback)requestIdleCallback(trHomeShotsRun,{timeout:3000}); else trHomeShotsRun(); },ms||(TR_HS.by.size?800:0)); }   // первый снимок — без паузы: это первое фото тура
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&TR_HS.want.length)trHomeShotsSoon(); });
 // точки съёмки варианта — тем же выбором, что у окна: сохранённые в браузере → готовая пара из данных → подбор. Правила камер читают
 // комнату открытого варианта (`camRoom` → `cur`), поэтому на время СИНХРОННОГО подбора подставляем этот вариант и возвращаем
@@ -6349,8 +6424,13 @@ async function trHomeShot(v){
   const M=await sceneModule(), rt=await rtMeshes();
   const cv=document.createElement('canvas'); cv.width=1024; cv.height=723;
   const decor=clone(((v.decor)||[]).filter(x=>!isSoft(x.role)&&!x.list_only));   // как `liveDecor`
-  const sc=M.createDemoScene(cv,{room, items:its, decor, base:location.href, runtimeMeshes:rt, lite:isTouchUI(), walk:false});
-  try{ sc.setSize(1024,723); await sc.ready; if(!sc.capture)return '';
+  // пол и стены — отделка застройщика, как в окне (`liveEngine`): снимок на карточке = то, что откроется в 3D, и те же адреса текстур в кэше
+  const sc=M.createDemoScene(cv,{room, items:its, decor, base:location.href, runtimeMeshes:rt, lite:isTouchUI(), walk:false,
+    floor:devFloor()||undefined, wall:devWall()||undefined});
+  try{ sc.setSize(1024,723);
+    let tm=0; const late=new Promise((_,no)=>{tm=setTimeout(()=>no(new Error('сцена снимка не собралась за '+TR_HS_MAX_MS/1000+' с')),TR_HS_MAX_MS);});
+    try{await Promise.race([sc.ready, late]);}catch(e){return '';}finally{clearTimeout(tm);}
+    if(!sc.capture)return '';
     const r=await sc.capture([pose],1024,723), b=r&&r.frames&&r.frames[0];
     return b?URL.createObjectURL(b):''; }
   finally{ try{sc.dispose();}catch(e){}
@@ -6362,14 +6442,41 @@ async function trHomeShotsRun(){
   if(document.hidden)return;                                                      // вернётся — `visibilitychange`
   if(document.getElementById('shot').classList.contains('on')){trHomeShotsSoon(4000); return;}
   const q=TR_HS.want.filter(v=>{const k=trHsKey(v), r=TR_HS.by.get(String(v.id||'')); return !TR_HS.fail.has(k)&&!(r&&r.key===k);});
-  const v=q.find(x=>roomIdOf(x)===HOME.room)||q[0]; if(!v)return;
-  const key=trHsKey(v); TR_HS.busy=true;
+  const sr=homeShownRoom()||HOME.room, v=q.find(x=>roomIdOf(x)===sr)||q[0]; if(!v)return;
+  const key=trHsKey(v); TR_HS.busy=true; let shown=false;
   try{ const url=await trHomeShot(v);
-    if(!url)TR_HS.fail.add(key);
-    else{ const id=String(v.id||''), old=TR_HS.by.get(id); TR_HS.by.set(id,{key,url}); if(old)try{URL.revokeObjectURL(old.url);}catch(e){} drawHome(); } }
-  catch(e){ TR_HS.off=true; try{console.info('снимок 3D для карточки не снят:',String(e&&e.message||e));}catch(_){} }
+    if(!url){TR_HS.fail.add(key); drawHome();}   // заглушка этой карточки — на план
+    else{ const id=String(v.id||''), old=TR_HS.by.get(id); TR_HS.by.set(id,{key,url}); if(old)try{URL.revokeObjectURL(old.url);}catch(e){} drawHome(); shown=true; } }
+  catch(e){ TR_HS.off=true; try{console.info('снимок 3D для карточки не снят:',String(e&&e.message||e));}catch(_){} drawHome(); }
   finally{ TR_HS.busy=false; }
+  // фото показанной комнаты встало — сперва её 3D в фоне (окно откроется сразу), потом снимки остальных комнат
+  if(shown&&roomIdOf(v)===homeShownRoom())await homePre3d(v);
   trHomeShotsSoon();
+}
+// 3D КОМНАТЫ — В ФОНЕ ПОСЛЕ ЕЁ ФОТО (T-20261111-05 п.1, владелец TG 985): фото карточки показано — качаем в кэш браузера всё, что
+// возьмёт окно этой комнаты в 3D (оболочка: пол, стены, вид за окном, транскодер; потом модели) — тем же списком, что подгрузка из окна
+// (`livePrefetch`, demo-26: `sceneAssetUrls` с отделкой застройщика и тем же `lite`), общий учёт скачанного `PRE.done` — окно второй раз
+// не качает. Низкий приоритет, по 2 запроса, только после фото: первое фото и ленты не ждут. Без видеоконтекста (на телефоне контекст
+// до «3D» — память). Экономия трафика / 2g / 3D нет — ничего заранее. Тур — после снимка 3D карточки, /demo — после загрузки фото карточки
+const HPRE={vid:'', n:{ok:0, fail:0}, urls:0, doneAt:0};
+// комната показанной карточки главной (на компьютере видна одна — `.on`; телефон — первая в столбце, она же `.on`)
+function homeShownRoom(){ const a=document.querySelector('#hmRooms .hm-room.on'); return a?a.getAttribute('data-room')||'':''; }
+async function homePre3d(v){
+  const c=navigator.connection; if(!v||!D||LIVE.ok===false||(c&&(c.saveData||/(^|slow-)2g$/.test(c.effectiveType||''))))return;
+  const vid=String(v.id||''); if(HPRE.vid===vid)return; HPRE.vid=vid; HPRE.doneAt=0;
+  const soft=liveSoftGL(); if(soft&&!LIVE.force)return;
+  let urls;
+  try{ const room=roomOf(v), M=await sceneModule(); if(!room||!M.sceneAssetUrls)return;
+    const a=M.sceneAssetUrls({room, items:clone(variantItems(v)), decor:clone((v.decor||[]).filter(x=>!isSoft(x.role)&&!x.list_only)),
+      base:location.href, runtimeMeshes:await rtMeshes(), lite:isTouchUI()||soft, floor:devFloor()||undefined, wall:devWall()||undefined});
+    urls=[...a.shell, ...a.meshes]; }
+  catch(e){ return; }
+  const q=urls.filter(u=>!PRE.done.has(u)); HPRE.urls=q.length;
+  const one=async()=>{ for(let u; (u=q.shift());){
+    try{ const r=await fetch(u,{priority:'low'}); if(!r.ok)throw new Error(r.status); await r.arrayBuffer(); PRE.done.add(u); HPRE.n.ok++; }
+    catch(e){ HPRE.n.fail++; } } };
+  await Promise.all(Array.from({length:Math.min(2,q.length)},one));
+  HPRE.doneAt=Math.round(performance.now());
 }
 // ШИРИНА КАРТОЧКИ КОМНАТЫ НА КОМПЬЮТЕРЕ (для `sizes`): две трети `.wrap` за вычетом полей и щелей сетки (стили `.hm-rooms` ≥900 px)
 const HM_SIZES='(min-width:2200px) 1045px, (min-width:1600px) 940px, (min-width:1100px) 712px, 65vw';
@@ -6567,7 +6674,7 @@ function mixRender(){
   const quiz=!one&&typeof window.__quizCan==='function'&&window.__quizCan();
   c.innerHTML=`<button class="mx-x" type="button" data-mx="close" aria-label="${EN?'Close':'Закрыть'}">×</button>`+
     `<h2 class="qz-h" id="mixH">${one?(EN?'Another style for this room':'Другой стиль для комнаты'):(EN?'Choose a style':'Выберите стиль')}</h2>`+
-    (one?`<p class="qz-sub">${EN?'Only this room changes — the other rooms stay as they are':'Меняется только эта комната, остальные — как были'}</p>`:'')+
+    (one?`<p class="qz-sub">${EN?'Only this room changes, the other rooms stay as they are':'Меняется только эта комната, остальные остаются как были'}</p>`:'')+
     `<div class="qz-photos">${L.map(s=>{const on=MIX.pick.includes(s.id), off=!ready;
       return `<button class="qz-ph" type="button" data-mx-ph="${escHtml(s.id)}" aria-pressed="${on}"${off?' disabled':''}>`+
         (ready&&s.img?`<img class="qz-img" alt="" src="${escHtml(s.img)}">`:s.pv?`<span class="qz-img tr-mxpv">${s.pv}</span>`:'<span class="qz-img"></span>')+
@@ -6654,14 +6761,15 @@ function drawHome(force){
     const stale=!!sh&&!own&&typeof editShelf==='function'&&editShelf(v)&&variantStateOf(v)!==pubStateOf(v);
     // на пометке — две кнопки, как в окне (T-20261108-71/2): «Вернуть как было» — только если есть к чему (тот же выбор, что в окне, `vwStalePick`)
     const pk=stale&&typeof vwStalePick==='function'?vwStalePick(v):null, back=!!pk&&(pk.to>=0||pk.to===-2);
-    // проба без фото — снимок 3D «со стороны двери» (`trHomeShot`); пока не снят или 3D нет — схема плана ниже
-    let img=sh?thumbOf(sh):'', full=sh?sh.url:'';
-    if(!sh&&TRIAL()){const u=trHomeShotOf(v); if(u)img=full=u; TR_HS.want.push(v);}
-    return {r, i:rv.index, v, want, img, full, n:variantCount(v), sum:variantPrice(v), stale, back};
+    // проба без фото — снимок 3D «со стороны двери» (`trHomeShot`); пока снимается — заглушка в тон (`.hm-ld`, T-20261111-05 п.1:
+    // сразу только фото комнаты, без плана под ним); 3D на устройстве нет или снимок не вышел — схема плана, как было
+    let img=sh?thumbOf(sh):'', full=sh?sh.url:'', ld=false;
+    if(!sh&&TRIAL()){const u=trHomeShotOf(v); if(u)img=full=u; else ld=trHsWaits(v); TR_HS.want.push(v);}
+    return {r, i:rv.index, v, want, img, full, ld, n:variantCount(v), sum:variantPrice(v), stale, back};
   });
   if(TRIAL()&&TR_HS.want.length)trHomeShotsSoon();
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
-  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.n,c.sum,c.stale,c.back]), m.rooms.map(r=>[r.title,r.areaM2])]);
+  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.ld,c.n,c.sum,c.stale,c.back]), m.rooms.map(r=>[r.title,r.areaM2])]);
   homeFavUi(); homeCertDraw(); homeTips();
   if(!force&&sig===HOME.sig)return; HOME.sig=sig;
   const plural=n=>EN?(n===1?'item':'items'):(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
@@ -6687,7 +6795,7 @@ function drawHome(force){
       return `<button class="hm-pick${on?' on':''}" type="button" data-room-pick="${c.i}" aria-pressed="${on}"><b>${t}</b><span>${mark}${c.pending?msg:varNoneShort(c.v)}</span></button>`+
       `<article class="hm-room${on?' on':''}" data-room="${c.r.id}" data-style="${c.want}" data-variant="${escHtml(c.v.id)}" data-open="${c.i}" ${c.pending?'data-pending':'data-refused'}="1">`+
       `<div class="hm-ph" data-open="${c.i}">`+
-        (pl?`<div class="nopv tr-plan">${pl}<span class="tr-3d">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</span></div>`:`<div class="nopv tr-wait">${mark}<span>${msg}</span></div>`)+
+        (pl?`<div class="nopv tr-plan">${pl}<span class="tr-3d">${EN?'Open to see it in 3D':'Откройте, покажем в 3D'}</span></div>`:`<div class="nopv tr-wait">${mark}<span>${msg}</span></div>`)+
         `${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
       `<div class="rb"><div class="sum"><small class="tr-wait-tx">${mark}${msg}</small></div>`+
       // ждёт проверки размера — у агента с ключом «Обустроить» прямо на карточке (Р1)
@@ -6705,8 +6813,9 @@ function drawHome(force){
       (c.img?`<picture>${c.full&&c.full!==c.img&&!on?`<source media="(min-width:900px)" srcset="${escHtml(c.img)} 640w, ${escHtml(c.full)} 2048w" sizes="${HM_SIZES}">`:''}`+
         `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?' fetchpriority="high"':' loading="lazy"'}${on&&c.full&&c.full!==c.img?' data-hq="1" onload="hmHq(this)"':''} data-url="${escHtml(c.full)}" `+
         `onerror="this.onerror=null;var s=this.parentNode.querySelector('source');if(s)s.remove();this.src=this.dataset.url"></picture>`
-        :TRIAL()?`<div class="nopv tr-plan">${trialPlanSvg(c.v)}<span class="tr-3d">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</span></div>`   // проба: фото нет — план комнаты с мебелью
-        :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
+        :c.ld?`<div class="nopv hm-ld" aria-hidden="true"></div>`   // проба: снимок 3D в пути — заглушка того же размера
+        :TRIAL()?`<div class="nopv tr-plan">${trialPlanSvg(c.v)}<span class="tr-3d">${EN?'Open to see it in 3D':'Откройте, покажем в 3D'}</span></div>`   // проба: 3D нет — план комнаты с мебелью
+        :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте, покажем в 3D'}</div>`)+
       // макет 07.11: сердечка и «Поделиться» на карточке нет; чипа «✓ Просмотрено» нет (владелец 08.11 TG 592, T-20261108-72)
       `${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
       // пометка «Вы изменили комнату» — полосой ПОД фото, не поверх (T-20261108-78, владелец TG 643: «чтобы человек случайно не нажал»)
@@ -6751,6 +6860,15 @@ function hmHq(img){
     setTimeout(()=>{img.addEventListener('load',()=>q.remove(),{once:true}); setTimeout(()=>q.remove(),1500); put();},slow?360:40);
   };
 }
+// ФОТО КАРТОЧКИ ПРИШЛО (T-20261111-05 п.1): блик подложки гаснет (`.ok`); у показанной карточки /demo — 3D её комнаты в фоне, тем же
+// правилом, что в туре после снимка 3D (`homePre3d`; тур зовёт его сам из `trHomeShotsRun`). Ошибка картинки — блик тоже гаснет
+function hmPhLoaded(e){ const im=e.target; if(!im||im.tagName!=='IMG'||im.classList.contains('hm-hq'))return;
+  const ph=im.closest&&im.closest('#hmRooms .hm-ph'); if(!ph)return; ph.classList.add('ok');
+  if(e.type!=='load'||TRIAL())return;
+  const a=ph.closest('.hm-room.on'), v=a&&allVariants()[+a.getAttribute('data-open')];
+  if(v)setTimeout(()=>{ if(window.requestIdleCallback)requestIdleCallback(()=>homePre3d(v),{timeout:3000}); else homePre3d(v); },600);
+}
+document.addEventListener('load',hmPhLoaded,true); document.addEventListener('error',hmPhLoaded,true);
 // ——— ВОЗВРАТ «НАЗАД» (demo-16 шаг 3, Codex 18.10 п.5 и п.14). Адрес держит стиль и комнату (`?style=&room=`) и вариант или
 // коллекцию (`#v=`/`#c=`), `lang` и `s` не трогаются; запись истории (`history.state`) — снимок вида: окно варианта (вариант, режим,
 // ракурс, шторка, прокрутка списка) или главная (прокрутка, раскрыто ли избранное). Открытие избранного («Перейти →», ♡ N) —
@@ -6920,8 +7038,8 @@ function openCons(mode){
   let hint=document.getElementById('consHint');
   if(!hint){hint=document.createElement('div');hint.id='consHint';hint.className='cons-hint';}
   hint.textContent=isTouchUI()
-    ?'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Готово — посмотреть в окне» внизу.'
-    :'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Готово — посмотреть в окне» внизу.';
+    ?'Удерживайте предмет полсекунды и тяните, он переедет. Короткое касание покажет стрелки поворота. Когда готово, нажмите «Готово, посмотреть в окне» внизу.'
+    :'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете выбирает другой товар. Когда готово, нажмите «Готово, посмотреть в окне» внизу.';
   body.appendChild(hint);
   document.getElementById('cons').classList.add('on');
   requestAnimationFrame(()=>{draw();updateConsShot();});
@@ -6937,7 +7055,7 @@ function closeCons(){
 function updateConsShot(){
   const b=document.getElementById('consShot');
   if(b)b.hidden=!(baseRev&&items.length&&revision()!==baseRev);
-  if(b)b.textContent='Готово — посмотреть в окне';
+  if(b)b.textContent='Готово, посмотреть в окне';
   const f=document.getElementById('swapFoot');
   if(f)f.hidden=!(baseRev&&items.length&&revision()!==baseRev);
 }
@@ -6997,7 +7115,7 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
   const trialPhoto=TRIAL()&&quality==='realistic'&&!!opt.bg&&!!(opt.extra&&opt.extra.views)&&trPhotoHere();
   if(TRIAL()&&!trialPhoto){if(opt.fail)opt.fail(trPhotoErr(trPhotoHere()?'no_views':'photo_not_allowed'),'trial');return;}
   const wait=(html,cap)=>{if(opt.bg){const t=document.createElement('div'); t.innerHTML=html; opt.fail(t.textContent.trim()); return;} shotOpen(html,cap);};
-  if(busy){wait('<div class="wait">Один кадр уже считается — дождитесь его.</div>','');return;}
+  if(busy){wait('<div class="wait">Один кадр уже считается, дождитесь его.</div>','');return;}
   busy=true; warmUp();
   const t0=Date.now(), rev=revision();
   // ЗАПРОС КАДРА ЗАМОРАЖИВАЕТСЯ ДО ОТПРАВКИ (demo-02, разбор Codex 14.10): вариант, товары, номер состояния и позы камер
@@ -7040,7 +7158,7 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
       const limitMin = quality==='realistic' ? 16 : 12, deadline = Date.now() + limitMin*60000;
       for(;;){
         await new Promise(res=>setTimeout(res,3000));
-        if(Date.now()>deadline)throw new Error('кадр не успел за '+limitMin+' мин — попробуйте ещё раз');
+        if(Date.now()>deadline)throw new Error('кадр не успел за '+limitMin+' мин. Попробуйте ещё раз');
         let jj=null;
         try{
           const rr=await fetch('/api/job?id='+encodeURIComponent(jid),{cache:'no-store'});
@@ -7050,7 +7168,7 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
           // на сервере файлом и досчитается. Спрашиваем ТОТ ЖЕ номер (новое задание = риск второй оплаты, разбор
           // Codex), но не молча: человек видит, что происходит. Предел — общий срок выше.
           ++miss;
-          const q=document.getElementById('qinfo'), t=miss>=2?'Нет связи с сервером — ждём, кадр не потерян ('+miss*3+' с)':'';
+          const q=document.getElementById('qinfo'), t=miss>=2?'Нет связи с сервером. Ждём, кадр не потерян ('+miss*3+' с)':'';
           if(opt.bg){if(t)opt.progress(t);} else if(q)q.textContent=t;
           continue;
         }
@@ -7098,7 +7216,7 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
     const net=/load failed|failed to fetch|networkerror|aborted/i.test(String(err.message||err));
     if(net&&srcId&&!opt.bg){
       shotOpen('<div class="wait"><div class="spin"></div>Связь прервалась. Забираем готовый '+
-        'кадр с сервера…</div>','это бесплатно — фотография уже сделана');
+        'кадр с сервера…</div>','это бесплатно: фотография уже сделана');
       await new Promise(r=>setTimeout(r,1500));
       return makePhoto(quality, srcId, replaceBatch);
     }
@@ -7143,7 +7261,7 @@ function fxRateOf(f){
 function fxKeyOf(f){
   if(!(f&&f.fx))return '';
   const m=maskOf(f); return f.fx.rate+'@'+f.fx.asOf+(m&&+m.priceMarkup>0&&+m.priceMarkup!==1?'x'+m.priceMarkup:'');}
-const MASK_GONE=/ — (сейчас нет в витрине|no longer in the showroom)$/;
+const MASK_GONE=/(?: —|,) (сейчас нет в витрине|no longer in the showroom)$/;   // «—» — у сохранённых до 11.11
 // sid → name_en и название → name_en по всем местам витрины (варианты, комплекты, ленты, диваны, спальня); так же цвет `colour_en`
 function namesEnOf(d){
   const by={sid:{}, name:{}, colSid:{}, colName:{}};
@@ -7158,7 +7276,7 @@ function maskName(p, role, m, names, roleEn){
   const nm=String((p&&p.name)||'').replace(MASK_GONE,''), sid=p&&p.sid;
   let n=(sid&&names.sid[sid])||(nm&&names.name[nm])||(p&&p.name_en)||'';
   if(!n||/[А-Яа-яЁё]/.test(n)){const r=String((roleEn&&roleEn(role))||''); n=r&&!/[А-Яа-яЁё]/.test(r)?r.charAt(0).toUpperCase()+r.slice(1):'Item';}
-  return n+(p&&p.unavailable?' — no longer in the showroom':'');}
+  return n+(p&&p.unavailable?', no longer in the showroom':'');}
 // цвет товара по-английски — готовое поле сборки `colour_en` (по `sid`, затем по названию, затем свой); нет — пусто, подпись разберут из названия
 function maskColour(p, m, names){
   if(!m||!m.englishNames||!p)return '';
@@ -7580,7 +7698,7 @@ function shareOpen(list){
       (chan==='telegram'
         // Telegram — без поля: бот ответит тому, кто нажмёт «Старт» (контакт не нужен, b2b-05 п.5b)
         ?`<div class="linkbox"><button class="btn primary" id="shGo">Получить в Telegram</button></div>`+
-         `<div class="hint">Откроется наш бот — нажмите «Старт», и он пришлёт ссылку на подборку.</div>`
+         `<div class="hint">Откроется наш бот. Нажмите «Старт», и он пришлёт ссылку на подборку.</div>`
         :`<div class="linkbox"><input id="shTo" placeholder="${(CHAN.find(c=>c.id===chan)||{}).ph}">
         <button class="btn primary" id="shGo">Отправить</button></div>`+
       `<div class="hint">Пришлём подборку в ${(CHAN.find(c=>c.id===chan)||{}).t}. Контакт нужен
@@ -7621,7 +7739,7 @@ function shareOpen(list){
       if(j.error)throw new Error(j.error);
       reportAct('share');
       if(j.tg_link){
-        shotOpen(`<div class="wait">Подборка готова. Откройте бота и нажмите «Старт» — он пришлёт ссылку на неё.<br>
+        shotOpen(`<div class="wait">Подборка готова. Откройте бота и нажмите «Старт», он пришлёт ссылку на неё.<br>
           <a class="btn round cta" style="display:inline-block;margin-top:14px;text-decoration:none" href="${j.tg_link}" target="_blank" rel="noopener">Открыть Telegram</a></div>`,
           `в избранном: ${sel.length}`);
         return;
@@ -7985,7 +8103,7 @@ function grid(){
   const head=n=>{document.getElementById('sh-title').textContent=`Выбрать ${base} (${n})`;};
   // тур: замен нет — честно «под это место в библиотеке больше нет» под карточкой «сейчас» (T-40, TG 872)
   const trNone=()=>{trNowCard(g,base); g.insertAdjacentHTML('beforeend',`<div class="hint">${TR_EN()?'There are no other items with a 3D model for this spot and style in our library yet.':'Других товаров с 3D-моделью под это место и стиль в библиотеке пока нет.'}</div>`);};
-  if(!list.length){head(0); if(TRIAL()){trNone(); return;} g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
+  if(!list.length){head(0); if(TRIAL()){trNone(); return;} g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет. Каталог узкий, не логика.</div>';return;}
   // своего стиля для роли нет — лента из похожих других стилей, говорим прямо (`feedFor`, T-20261111-01)
   if(fi.noStyle)g.insertAdjacentHTML('beforeend',`<div class="hint st-none">В стиле ${escHtml(fi.noStyle)} пока нет. Вот похожие</div>`);
   const isCur=p=>!!(sel&&sel.sku&&sel.sku.name===p.name);
@@ -8002,7 +8120,7 @@ function grid(){
   list.sort((a,b)=>F.sort==='price'?((a.price||0)-(b.price||0))
                                    :(rank(a)-rank(b)||(a.price||0)-(b.price||0)));
   if(!list.length){head(0); if(TRIAL())trNowCard(g,base);
-    g.insertAdjacentHTML('beforeend','<div class="hint">Под фильтры ничего не подошло — снимите ограничения.</div>');return;}
+    g.insertAdjacentHTML('beforeend','<div class="hint">Под фильтры ничего не подошло. Снимите ограничения.</div>');return;}
   // ЦВЕТА ОДНОЙ МОДЕЛИ — ЧИПАМИ, ПЕРВЫМИ — ДРУГИЕ МОДЕЛИ (приёмка владельцем 16.10 п.11а): первые три кандидата сканди-дивана были
   // цветами того же «Викс» — одна модель, и замена выглядела несработавшей. Цвета текущей модели — строкой чипов сверху, другие
   // модели — по одной карточке с пометкой «ещё N цветов»; цвет на сцене — подкраской (`sku.tint`)
@@ -8078,7 +8196,7 @@ let TRY_LAST={n:1, base:''};   // последняя замена: скольк�
 function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.role==='диван'); TRY_LAST={n:1, base:''};
   if(!s){toast('Сначала коснитесь предмета на плане');return;}
   const soft=s.dec!==undefined&&isSoft(s.role);      // мягкое не примеряется на пол — габариты ему не нужны (demo-24)
-  if(!soft&&(!p.w||!p.d)){toast('У этого товара в фиде нет габаритов — примерка была бы выдумкой');return;}
+  if(!soft&&(!p.w||!p.d)){toast('У этого товара в фиде нет габаритов, примерка была бы выдумкой');return;}
   // ЗАМЕНА ДЕКОРА ПИШЕТСЯ В СПИСОК ВАРИАНТА, А НЕ В РАССТАНОВКУ (08.09): места на полу у вазы
   // нет, она стоит на столешнице. Список и сумма пересчитываются сразу — это и есть отклик на
   // кнопку «Заменить», которого раньше не было.
@@ -8153,7 +8271,7 @@ function hintFor(it){
     const other=items.find(o=>{
       if(o===it||o.role.startsWith('ковёр'))return false;const a=box(o);
       return Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0))*Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0))>400;});
-    if(other)return `${name} наезжает на «${other.role}» — разведите предметы.`;
+    if(other)return `${name} наезжает на «${other.role}». Разведите предметы.`;
   }
   const door=(curRoom().openings||[]).find(o=>o.kind==='door');
   if(door&&!isRug){                                               // 2) зона открывания двери
@@ -8168,7 +8286,7 @@ function hintFor(it){
     const now=routeWidth();
     if(now<floor&&routeWidth(it)>now){
       const s=shiftFix(it,()=>routeWidth()<floor);
-      return `${name} сейчас перекрывает главный проход — там нужно ${floor} см, сейчас ${now}.`
+      return `${name} сейчас перекрывает главный проход: там нужно ${floor} см, сейчас ${now}.`
         +(s?` Рекомендуем сдвинуть примерно на ${s} см.`:' Попробуйте поставить его вдоль стены.');}
   }
   const rad=(curRoom().radiators||[])[0];
@@ -8178,32 +8296,32 @@ function hintFor(it){
       const near=Math.max(0,Math.min(c.x1,rb.x1)-Math.max(c.x0,rb.x0))>20||Math.max(0,Math.min(c.y1,rb.y1)-Math.max(c.y0,rb.y0))>20;
       return near&&g<R.radiator_min_cm;};
     if(bad()){const g=Math.round(gap(b,rb)),s=shiftFix(it,bad);
-      return `${name} в ${g} см от радиатора — тёплому воздуху нужно ${R.radiator_min_cm} см.`+(s?` Отодвиньте примерно на ${s} см.`:'');}
+      return `${name} в ${g} см от радиатора. Тёплому воздуху нужно ${R.radiator_min_cm} см.`+(s?` Отодвиньте примерно на ${s} см.`:'');}
   }
   const tbl=get('столик');
   if(sofa&&tbl&&(it===tbl||it===sofa)){                           // 5) диван ↔ столик
     const g=Math.round(gap(box(sofa),box(tbl)));
     let lo=R.sofa_table_hard[0];const hi=R.sofa_table_hard[1],plo=R.sofa_table_pref[0],phi=R.sofa_table_pref[1];
     if(sofa.corner)lo=R.corner_sofa_table_min_cm;
-    if(g<lo)return `между диваном и столиком ${g} см — ноги не проходят. Отодвиньте примерно на ${Math.max(5,Math.round(plo-g))} см.`;
-    if(g>hi)return `между диваном и столиком ${g} см — до чашки не дотянуться. Придвиньте примерно на ${Math.round(g-phi)} см.`;
-    if(!sofa.corner&&g<plo)return `между диваном и столиком ${g} см — удобно ${plo}–${phi}. Отодвиньте примерно на ${Math.round(plo-g)} см.`;
-    if(!sofa.corner&&g>phi)return `между диваном и столиком ${g} см — удобно ${plo}–${phi}. Придвиньте примерно на ${Math.round(g-phi)} см.`;
+    if(g<lo)return `между диваном и столиком ${g} см: ноги не проходят. Отодвиньте примерно на ${Math.max(5,Math.round(plo-g))} см.`;
+    if(g>hi)return `между диваном и столиком ${g} см: до чашки не дотянуться. Придвиньте примерно на ${Math.round(g-phi)} см.`;
+    if(!sofa.corner&&g<plo)return `между диваном и столиком ${g} см, удобно ${plo}–${phi}. Отодвиньте примерно на ${Math.round(plo-g)} см.`;
+    if(!sofa.corner&&g>phi)return `между диваном и столиком ${g} см, удобно ${plo}–${phi}. Придвиньте примерно на ${Math.round(g-phi)} см.`;
   }
   if(sofa&&tv&&(it===sofa||it===tv)){                             // 6) диван ↔ экран
     const g=Math.round(gap(box(sofa),box(tv)));let lo=R.sofa_tv_cm[0];const hi=R.sofa_tv_cm[1];
     if(sofa.corner)lo=R.corner_sofa_tv_min_cm;
-    if(g<lo)return `от дивана до экрана ${g} см — глазам нужно от ${lo}. Отодвиньте примерно на ${lo-g} см.`;
-    if(g>hi)return `от дивана до экрана ${g} см — дальше ${hi} см мелко видно. Придвиньте примерно на ${g-hi} см.`;
+    if(g<lo)return `от дивана до экрана ${g} см, глазам нужно от ${lo}. Отодвиньте примерно на ${lo-g} см.`;
+    if(g>hi)return `от дивана до экрана ${g} см: дальше ${hi} см мелко видно. Придвиньте примерно на ${g-hi} см.`;
   }
   if(sofa&&rug&&(it===rug||it===sofa)){                           // 7) ковёр под диваном
     const rl=Math.max(rug.w,rug.d);
-    if(rl<sofa.w)return `ковёр короче дивана на ${Math.round(sofa.w-rl)} см — зона не читается. Здесь нужен ковёр пошире.`;
+    if(rl<sofa.w)return `ковёр короче дивана на ${Math.round(sofa.w-rl)} см: зона не читается. Здесь нужен ковёр пошире.`;
     const a=box(sofa),c=box(rug);
     const ovd=Math.max(0,Math.min(a.y1,c.y1)-Math.max(a.y0,c.y0));
     const cross=Math.max(0,Math.min(a.x1,c.x1)-Math.max(a.x0,c.x0));
     if(cross>50&&ovd<R.rug_front_legs_cm)
-      return `передние ножки дивана должны стоять на ковре на ${R.rug_front_legs_cm} см — сейчас ${Math.round(ovd)}. Придвиньте ковёр примерно на ${Math.round(R.rug_front_legs_cm-ovd)} см.`;
+      return `передние ножки дивана должны стоять на ковре на ${R.rug_front_legs_cm} см, сейчас ${Math.round(ovd)}. Придвиньте ковёр примерно на ${Math.round(R.rug_front_legs_cm-ovd)} см.`;
   }
   return null;
 }
@@ -8740,8 +8858,8 @@ function vwSum(){
   const t=S?S([{amount:sumC,settlement:'allowance',budgetBucket:'furniture'}].concat(dl),{mode:pkg.mode,limits:pkg.limits}):null;
   const over=t?t.allowanceOverage:Math.max(0,sumC-cert);
   const grp=k=>dl.filter(l=>l.settlement===k).map(l=>String(l.group).toLowerCase()).join(', ');
-  const extra=t?[t.developerSurcharge?`<div class="vpl-dev">+<span data-k="dev" data-to="${t.developerSurcharge}">${money(t.developerSurcharge)}</span> — ${EN?'paid to the developer for the ':'доплата застройщику за '}${grp('developer_surcharge')}${cert?(EN?', not from the allowance':', не из сертификата'):''}</div>`:'',
-    t.propertyPriceDelta?`<div class="vpl-dev">+<span data-k="prop" data-to="${t.propertyPriceDelta}">${money(t.propertyPriceDelta)}</span> — ${EN?'added to the property price: ':'к цене квартиры: '}${grp('property_price')}</div>`:'',
+  const extra=t?[t.developerSurcharge?`<div class="vpl-dev">+<span data-k="dev" data-to="${t.developerSurcharge}">${money(t.developerSurcharge)}</span>: ${EN?'paid to the developer for the ':'доплата застройщику за '}${grp('developer_surcharge')}${cert?(EN?', not from the allowance':', не из сертификата'):''}</div>`:'',
+    t.propertyPriceDelta?`<div class="vpl-dev">+<span data-k="prop" data-to="${t.propertyPriceDelta}">${money(t.propertyPriceDelta)}</span>: ${EN?'added to the property price: ':'к цене квартиры: '}${grp('property_price')}</div>`:'',
     t.onRequest.length?`<div class="vpl-dev">${EN?'price on request: ':'цена уточняется у менеджера: '}${t.onRequest.map(escHtml).join(', ')}</div>`:''].join(''):'';
   // ПЛАШКА СЕРТИФИКАТА (demo-02 v3, владелец 16.10: «явно и ярко: сертификат на N, выбрано столько-то, остаток такой-то»):
   // отдельный элемент над шторкой (телефон) / шапкой колонки (компьютер), вне прокрутки — сумма видна при замене из глубины списка
@@ -8786,10 +8904,10 @@ function vwChipText(){ const v=allVariants()[cur]||{}, n=variantCount(v);
 // СТРОКА ВМЕСТО СПИСКА ТОВАРОВ (T-20261109-35): комната без мебели — почему (по коду исхода, RU/EN) и что можно сделать: агенту с ключом —
 // «Обустроить», если комната ждёт проверки размера (та же кнопка, что на карточке и плане, `data-tr-furnish`)
 function vwNoneHtml(){ const v=allVariants()[cur], EN=LANG==='en';
-  if(varPending(v))return `<div class="vnone"><p>${pendSpin}${EN?'Choosing furniture — it will appear here':'Подбираем мебель — она появится здесь'}</p></div>`;
+  if(varPending(v))return `<div class="vnone"><p>${pendSpin}${EN?'Choosing furniture, it will appear here':'Подбираем мебель, она появится здесь'}</p></div>`;
   if(!varRefused(v))return '';
   const id=roomIdOf(v), aw=roomOutcome(id)==='awaiting'&&trCanFurnish();
-  return `<div class="vnone" data-outcome="${escHtml(roomOutcome(id)||'')}"><p>${escHtml(varNoneTxt(v))}${aw?(EN?'. You can furnish it as is — sizes will be approximate.':'. Можно обустроить как есть — размеры будут примерными.'):''}</p>`+
+  return `<div class="vnone" data-outcome="${escHtml(roomOutcome(id)||'')}"><p>${escHtml(varNoneTxt(v))}${aw?(EN?'. You can furnish it as is, sizes will be approximate.':'. Можно обустроить как есть, размеры будут примерными.'):''}</p>`+
     (aw?`<button class="btn tr-fur" type="button" data-tr-furnish="${escHtml(id)}">${EN?'Furnish':'Обустроить'}</button>`:'')+`</div>`; }
 // СТРОКА ШТОРКИ (макет 373:7035, владелец TG 447–448, 451): «Сканди · Другой стиль для комнаты ›» — видна сразу, в свёрнутой шторке; название стиля этой комнаты, у сохранённой расстановки — её имя;
 // «Другой стиль для комнаты» — окно выбора только для этой комнаты (`mixOpen(комната)`), если у комнаты есть другой стиль
@@ -8824,7 +8942,7 @@ function vwHtml(s, navs, list){
     // подписи — по месту камеры (`vwCamNames`); ← → на компьютере остаются (`vwPhoto`), свайп по фото ракурс не листает (demo-22)
     `<div class="vcams" id="vCams" role="tablist">${vwCamLabels().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
     `<div class="vplanbox" id="vPlan"></div>`+
-    `<div class="vstub" id="vStub"><p>${EN?'3D does not open on this device — open the link on another phone or a computer.':'3D на этом устройстве не открывается — откройте ссылку на другом телефоне или компьютере.'}</p>`+
+    `<div class="vstub" id="vStub"><p>${EN?'3D does not open on this device. Open the link on another phone or a computer.':'3D на этом устройстве не открывается. Откройте ссылку на другом телефоне или компьютере.'}</p>`+
     `<button class="btn" id="vStubLink" type="button">${EN?'Copy the link':'Скопировать ссылку'}</button></div>`+
     `<div class="vhist" hidden><button id="vhBack" aria-label="Отменить изменение" title="Отменить изменение">↶</button><span id="vhTxt"></span>`+
     `<button id="vhFwd" aria-label="Вернуть изменение" title="Вернуть изменение">↷</button></div><div class="vpins" id="vpins"></div>`+
@@ -8961,7 +9079,7 @@ function vwZoom(url, list, onPick){
   z.onwheel=e=>{e.preventDefault(); zoomAt(k*(e.deltaY<0?1.15:0.87),e.clientX,e.clientY,false);};
   let seen=false; try{seen=!!localStorage.getItem('remlab-zoom-hint-v2');}catch(e){}
   if(!seen){const h=document.createElement('div'); h.className='vzh';
-    h.textContent=LANG==='en'?'Double tap to zoom · pinch · swipe down to close':'Двойной тап — увеличить · щипок · свайп вниз — закрыть';
+    h.textContent=LANG==='en'?'Double tap to zoom · pinch · swipe down to close':'Двойной тап: увеличить · щипок · свайп вниз: закрыть';
     z.appendChild(h); setTimeout(()=>h.remove(),3500); try{localStorage.setItem('remlab-zoom-hint-v2','1');}catch(e){}}
 }
 // ФОТО НА ТЕЛЕФОНЕ ЗАПОЛНЯЕТ ОБЛАСТЬ СЦЕНЫ (demo-09, владелец 17.10: полосы сверху и снизу — убрать): картинка по высоте области,
@@ -9160,7 +9278,7 @@ function vwTipPlace(t){
 }
 function vwSheetState(pos){
   const g=document.getElementById('vgrip'), c=document.getElementById('vchip'), sc=document.getElementById('vscroll'), EN=LANG==='en';
-  if(g){g.setAttribute('aria-expanded',String(pos>0)); g.setAttribute('aria-label',pos===3?(EN?'Collapse':'Свернуть'):(TRIAL()?(EN?'Furniture — open':'Мебель — открыть'):(EN?'Furniture and finishes — open':'Мебель и отделка — открыть')));}
+  if(g){g.setAttribute('aria-expanded',String(pos>0)); g.setAttribute('aria-label',pos===3?(EN?'Collapse':'Свернуть'):(TRIAL()?(EN?'Furniture: open':'Мебель: открыть'):(EN?'Furniture and finishes: open':'Мебель и отделка: открыть')));}
   if(c)c.textContent=pos===3?(EN?'⌄ Collapse':'⌄ Свернуть'):vwChipText();
   if(sc){sc.style.overflowY=pos===3?'auto':'hidden'; sc.style.touchAction=pos===3?'pan-y':'none';}
   const x=document.getElementById('shotx');   // «×» при полной — «свернуть список» (v5.2 п.6, `vwXCollapses`)
@@ -9397,6 +9515,7 @@ function vwMount(s){
   // «Сделать реалистичнее» — в 3D (demo-09): фоновое задание, окно не трогаем; «План» — «Изменить план»
   if(cta)cta.onclick=()=>{
     if(VW.mode==='plan'){if(vwEditLock())return; const ed=document.getElementById('shEdit'); if(ed&&ed.onclick)ed.onclick(); return;}
+    if(TRIAL()&&!trPhotoHere()){vwMode('photo'); return;}   // тур, фото нельзя: «Фото» с карточкой, как его получить (T-20261111-05 п.2)
     vwRealistic();};
   const sl=document.getElementById('vStubLink'); if(sl)sl.onclick=()=>{if(window.__fav)window.__fav.share();};
   vwSheetWire();
@@ -9421,8 +9540,8 @@ function vwMount(s){
         // В «ФОТО» ПАЛЕЦ ДВИГАЕТ ФОТО, У КРАЯ — ДРУГОЙ ВИД (photo-swipe-pan-01; было «свайп — другой ракурс», demo-26 Б): подсказка называет
         // оба жеста — фото и шторку, если видов два; текст — по режиму в момент показа, сменили режим, пока она видна, — уходит («уже видел» не ставится)
         const ph=VW.mode==='photo'&&vwPhotoShots().length>1;
-        t.textContent=LANG==='en'?(ph?'Drag the photo · at the edge — another view · pull the sheet — items and swaps':'Pull or tap — items and swaps')
-          :(ph?'Двигайте фото пальцем · у края — другой вид · шторку — товары и замены':'Потяните или нажмите — товары и замены');
+        t.textContent=LANG==='en'?(ph?'Drag the photo · at the edge: another view · pull the sheet: items and swaps':'Pull or tap: items and swaps')
+          :(ph?'Двигайте фото пальцем · у края: другой вид · шторку: товары и замены':'Потяните или нажмите: товары и замены');
         // части — строками: разделитель « · » в тексте остаётся, на экране он — перенос (точка не висит в конце строки); три строки —
         // «двигайте фото / у края — другой вид / шторку…» (на 375 фраза о фото одной строкой не влезала, рвалась посреди, photo-swipe-pan-01)
         if(ph){const parts=t.textContent.split(' · '); t.textContent=''; parts.forEach((x,k)=>{if(k){const br=document.createElement('span'); br.className='vtip-br'; br.textContent=' · '; t.append(br);} t.append(x);});}
@@ -9732,13 +9851,11 @@ function vwCtaUi(){
     const sm=cta.querySelector('small'); sm.textContent=nt; sm.hidden=!nt; cta.dataset.left=w.left;}
   else{cta.classList.remove('busy'); cta.textContent=EN?CTA_REAL_EN:CTA_REAL;}
   if(!VJ.job||m==='plan')delete cta.dataset.left;
-  // ТУР ПРОБЫ (T-20261109-34): кнопка фото — только комнате с доверием к размерам, иначе вместо неё тихая строка; «Изменить план» в туре нет
-  const trNo=TRIAL()&&!trPhotoHere();
-  if(TRIAL()&&(m==='plan'||trNo))cta.hidden=true;
-  let tn=document.getElementById('vCtaNote');
-  if(trNo&&m==='walk'){if(!tn){tn=document.createElement('p'); tn.id='vCtaNote'; tn.className='vcta-note'; cta.after(tn);}
-    tn.textContent=trPhT('ask');}   // те же слова, что на «Фото» (TG 930)
-  else if(tn)tn.remove();
+  // ТУР ПРОБЫ: «Изменить план» в туре нет. «СДЕЛАТЬ ФОТО» В 3D — КАК В /demo (T-20261111-05 п.2, владелец TG 991): та же кнопка на том же
+  // месте и тем же словом, и когда фото сделать нельзя (размерам не верим, планировка не подтверждена; было — тихая строка вместо кнопки,
+  // T-20261109-34). Нажатие тогда не заказывает фото, а открывает «Фото» с карточкой «Чтобы сделать фото, подтвердите планировку» (`trPhotoStubUi`)
+  if(TRIAL()&&m==='plan')cta.hidden=true;
+  const tn=document.getElementById('vCtaNote'); if(tn)tn.remove();
   let er=document.getElementById('vCtaErr');
   if(VJ.err&&m!=='photo'){if(!er){er=document.createElement('p'); er.id='vCtaErr'; er.className='vcta-err'; cta.after(er);} er.textContent=VJ.err;}
   else if(er)er.remove();
@@ -10306,8 +10423,8 @@ async function liveShotTake(){
     if(M.whatsapp)links.push(['whatsapp','WhatsApp','https://wa.me/'+String(M.whatsapp).replace(/\D/g,'')+'?text='+encodeURIComponent(text)]);
     if(M.telegram)links.push(['telegram','Telegram','https://t.me/'+encodeURIComponent(String(M.telegram).replace(/^@/,''))+'?text='+encodeURIComponent(text)]);
     if(M.phone)links.push(['phone','Позвонить '+M.phone,'tel:'+String(M.phone).replace(/[^\d+]/g,'')]);
-    var hint=(M.whatsapp||M.telegram)?'В WhatsApp и Telegram сообщение уже написано — останется отправить.':'Позвоните — менеджер видит, что вы смотрели.';
-    shotOpen('<div class="wait"><b>'+esc(M.name)+'</b> — ваш менеджер.<br><span style="font-size:15px;color:var(--muted)">'+hint+'</span>'+
+    var hint=(M.whatsapp||M.telegram)?'В WhatsApp и Telegram сообщение уже написано, останется отправить.':'Позвоните: менеджер видит, что вы смотрели.';
+    shotOpen('<div class="wait"><b>'+esc(M.name)+'</b>, ваш менеджер.<br><span style="font-size:15px;color:var(--muted)">'+hint+'</span>'+
       '<div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">'+
       links.map(function(l){return '<a class="btn round cta" style="text-decoration:none;text-align:center" data-ch="'+l[0]+'" href="'+esc(l[2])+'" target="_blank" rel="noopener">'+esc(l[1])+'</a>';}).join('')+
       '</div></div>','');
@@ -10357,7 +10474,7 @@ async function liveShotTake(){
     if(!j||!j.ok){
       var b=document.createElement('div');
       b.style.cssText='background:#FFF4E5;color:#7A4B00;padding:10px 16px;text-align:center;font-size:15px';
-      b.textContent='Ссылка недействительна или отозвана. Попросите у менеджера новую — ниже демонстрация без вашей подборки.';
+      b.textContent='Ссылка недействительна или отозвана. Попросите у менеджера новую. Ниже демонстрация без вашей подборки.';
       document.body.insertBefore(b,document.body.firstChild); return;}
     CARD=j.card; if(!PREVIEW)window.__sendId=SEND; mount(); ev('designer_open',state());
     // квартира — та, что в ссылке менеджера, а не из данных сборки (b2b-06)
@@ -10585,10 +10702,10 @@ function quizPick(rule, answers, available, styleColours){
     var c=FLAT&&FLAT.certificate, amt=c&&c.amount?fmtCard(c.amount):'', N=total();
     var W=EN()?['One question','Two questions','Three questions','Four questions','Five questions']:['Один вопрос','Два вопроса','Три вопроса','Четыре вопроса','Пять вопросов'];
     var qn=W[Math.max(1,Math.min(5,N))-1];
-    var txt=EN()?(amt?'The developer is giving you a <b>'+esc(amt)+'</b> furnishing allowance. '+qn+' — and we will show ready-made designs for your apartment.'
-        :qn+' — and we will show ready-made designs for your apartment.')
-      :(amt?'Застройщик дарит вам сертификат на обстановку <b>'+esc(amt)+'</b>. '+qn+' — и покажем готовые варианты вашей квартиры.'
-        :qn+' — и покажем готовые варианты вашей квартиры.');
+    var txt=EN()?(amt?'The developer is giving you a <b>'+esc(amt)+'</b> furnishing allowance. '+qn+', and we will show ready-made designs for your apartment.'
+        :qn+', and we will show ready-made designs for your apartment.')
+      :(amt?'Застройщик дарит вам сертификат на обстановку <b>'+esc(amt)+'</b>. '+qn+', и покажем готовые варианты вашей квартиры.'
+        :qn+', и покажем готовые варианты вашей квартиры.');
     // заголовок — смысл «узнаем ваш стиль» (владелец 06.11, T-20261106-94): опрос про человека, а не «что понравилось»
     return page('<h2 class="qz-h" id="qzH">'+(EN()?'Let’s find your style':'Давайте узнаем ваш стиль')+'</h2><p class="qz-txt">'+txt+'</p>',
       '<button class="btn primary qz-next" type="button" data-qz="next" style="min-height:48px;font-weight:600">'+(EN()?'Start':'Начать')+'</button>'+
@@ -10612,7 +10729,7 @@ function quizPick(rule, answers, available, styleColours){
     // контур; выбрано — залито цветом акцента (видно до перехода, ~300 мс) и после «Назад». Нажимается всё фото (одна кнопка:
     // кнопка в кнопке недопустима), подпись для чтения с экрана — «Нравится — Вариант N»
     var tiles=pr.map(function(id){var s=L.filter(function(x){return x.id===id;})[0]||{id:id, img:''}, on=cur===id, nm=optName(id);
-      return '<button class="qz-ph" type="button" data-pp="'+esc(id)+'" aria-pressed="'+on+'" aria-label="'+esc((EN()?'Like — ':'Нравится — ')+nm)+'"'+
+      return '<button class="qz-ph" type="button" data-pp="'+esc(id)+'" aria-pressed="'+on+'" aria-label="'+esc((EN()?'Like: ':'Нравится: ')+nm)+'"'+
         (ready&&s.img?'':' disabled')+'><span class="qz-fr">'+
         (ready&&s.img?'<img class="qz-img" alt="" src="'+esc(s.img)+'">':'<span class="qz-img"></span>')+
         '<span class="qz-heart" aria-hidden="true">'+HEART_SVG+'</span></span><b>'+esc(nm)+'</b></button>';}).join('');
@@ -10864,7 +10981,7 @@ function quizPick(rule, answers, available, styleColours){
     function draw(){
       var cur=pick(), v=g.variants.find(function(x){return x.id===cur;});
       sec.innerHTML='<div class="panel"><h2 style="margin:0 0 4px">'+esc(g.title)+'</h2>'+
-        '<div class="sub" style="margin-bottom:14px">Выбранный вариант: <b>'+esc(v.name)+'</b> — '+esc(v.price.text)+'</div>'+
+        '<div class="sub" style="margin-bottom:14px">Выбранный вариант: <b>'+esc(v.name)+'</b> · '+esc(v.price.text)+'</div>'+
         '<div style="display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">'+
         g.variants.map(function(x){var on=x.id===cur;
           return '<button class="btn" data-opt="'+esc(x.id)+'" style="text-align:left;padding:14px;border-radius:12px;white-space:normal;'+
@@ -10916,13 +11033,13 @@ function quizPick(rule, answers, available, styleColours){
   var EN=function(){return window.__LANG==='en';};
   // тип комнаты → подписи и порядок ролей каталога (роли — профили `tools/scout/rules/profiles/<тип>.json`)
   var ROOMS={
-    bedroom:{head:['Спальня — каталог','Bedroom — catalogue'],
-      sub:['Кровати, тумбы, шкафы и комоды магазинов-партнёров. Расстановка спальни в 3D — позже.',
+    bedroom:{head:['Спальня: каталог','Bedroom: catalogue'],
+      sub:['Кровати, тумбы, шкафы и комоды магазинов-партнёров. Расстановка спальни в 3D будет позже.',
         'Beds, bedside tables, wardrobes and chests from partner shops. The 3D layout of the bedroom is coming later.'],
       titles:{'кровать':['Кровати','Beds'],'тумба прикроватная':['Прикроватные тумбы','Bedside tables'],
         'комод':['Комоды','Chests of drawers'],'шкаф':['Шкафы','Wardrobes'],'туалетный столик':['Туалетные столики','Dressing tables']},
       order:['кровать','тумба прикроватная','шкаф','комод','туалетный столик']},
-    hall:{head:['Прихожая — каталог','Hallway — catalogue'],
+    hall:{head:['Прихожая: каталог','Hallway: catalogue'],
       sub:['Шкафы, обувницы, банкетки, вешалки и зеркала магазинов-партнёров.',
         'Wardrobes, shoe cabinets, benches, coat racks and mirrors from partner shops.'],
       titles:{'шкаф-купе':['Шкафы-купе','Sliding wardrobes'],'прихожая':['Прихожие','Hallway units'],'обувница':['Обувницы','Shoe cabinets'],
@@ -11002,7 +11119,7 @@ function quizPick(rule, answers, available, styleColours){
     var fix=function(sk){if(!sk)return sk;var p=cur[sk.sid]||{};var o=Object.assign({},sk);
       // пропавший из витрины товар остаётся на месте с пометкой и в сумму не входит; витрина не ответила —
       // остаётся цена из снимка (без даты)
-      if(p.unavailable){o.price=0;o.unavailable=true;o.name=(o.name||'')+(EN()?' — no longer in the showroom':' — сейчас нет в витрине');}
+      if(p.unavailable){o.price=0;o.unavailable=true;o.name=(o.name||'')+(EN()?', no longer in the showroom':', сейчас нет в витрине');}
       else if(p.price){o.price=p.price;o.price_at=p.priceAt;if(p.name)o.name=p.name;if(p.url)o.url=p.url;if(p.img)o.img=p.img;}
       return o;};
     var own=(list().find(function(x){return x.id===c.id;})||{}).own;
@@ -11225,8 +11342,8 @@ function quizPick(rule, answers, available, styleColours){
   // без него корзина не меняется. Текст коротко (правило владельца: минимум текста): «Доплата N — подтвердить?»; вторая кнопка — к правке
   // расстановки (уменьшить сумму), закрыть мимо — ничего не меняется
   function topupAsk(f,overBy,onYes){
-    dlg(EN()?'Top-up '+fmtCard(overBy)+' — confirm?':'Доплата '+fmtCard(overBy)+' — подтвердить?',
-      EN()?'This layout goes over the allowance — you pay the difference.':'Вариант выходит за лимит сертификата — разницу оплачиваете вы.',
+    dlg(EN()?'Top-up '+fmtCard(overBy)+'. Confirm?':'Доплата '+fmtCard(overBy)+'. Подтвердить?',
+      EN()?'This layout goes over the allowance. You pay the difference.':'Вариант выходит за лимит сертификата. Разницу оплачиваете вы.',
       [{label:EN()?'Confirm':'Подтвердить',primary:true,fn:onYes},{label:EN()?'Change layout':'Изменить расстановку',fn:function(){if(f)editLayout(f.favoriteId);}}]);}
   function includeTopup(id,again){var r=BK.mod.include(BK.b,id,BK.limit,{confirmTopup:true});
     if(r.result==='included'||r.result==='included_with_topup'){bkPut(r.basket); toast(incText(favOf(id)),again);} else favDraw();}
@@ -11237,8 +11354,8 @@ function quizPick(rule, answers, available, styleColours){
     // «Гостиная #1» без «Гостиная» дважды; сравниваем имя ДО неразрывных пробелов — иначе «Living room» из двух слов не узнавалось
     var who=(room&&raw.toLowerCase().indexOf(room.toLowerCase())!==0?room+' ':'')+(EN()?'“'+nm+'”':'«'+nm+'»');
     var tail=top?(EN()?'top-up '+fmtCard(top):'доплата '+fmtCard(top)):(EN()?fmtCard(left)+' left':'остаток '+fmtCard(left));
-    return who+(EN()?(added?' — in favourites and ':' — ')+'included in the allowance, '+tail
-      :(added?' — в избранном, ':' — ')+'включено в сертификат, '+tail);
+    return who+(EN()?(added?': in favourites and ':': ')+'included in the allowance, '+tail
+      :(added?': в избранном, ':': ')+'включено в сертификат, '+tail);
   }
   // РЕШЕНИЕ ПОСЛЕ ДОБАВЛЕНИЯ (владелец 18.10): первый вариант комнаты влезает — включается сам; в комнате уже есть включённый — вопрос
   // «вместо …?»; не влезает — в избранном без включения, сумма превышения и переход к правке; цены не досчитаны — не включаем
@@ -11266,7 +11383,7 @@ function quizPick(rule, answers, available, styleColours){
     if(d.kind==='included_with_topup'){topupAsk(f,d.overBy,function(){includeTopup(f.favoriteId,goFav(f.roomId));}); return;}
     // цена неизвестна — причину называем (demo-19 А1); сама она позже не включится, поэтому обещания «включим» нет
     var why=pendingWhy(f.quote);
-    toast(added+'. '+(why||(EN()?'Include it in the allowance from Favourites':'Включить в сертификат — в избранном')),goFav(f.roomId));
+    toast(added+'. '+(why||(EN()?'Include it in the allowance from Favourites':'Включить в сертификат можно в избранном')),goFav(f.roomId));
   }
   // АВТОФОТО ИЗБРАННОГО (demo-19 В3, владелец 20.10): сохранили вариант без улучшенного фото — оно рисуется в фоне тем же путём, что
   // «Сделать реалистичнее» (`vwRealistic`), на карточке — плашка с отсчётом, готовое встаёт картинкой. Одно фото на состояние: номер
@@ -11348,20 +11465,20 @@ function quizPick(rule, answers, available, styleColours){
     toast(EN()?'Removed from favourites':'Убрано из избранного');}
   // «Не включать в сертификат»: комната уходит из расчёта, вариант остаётся в избранном; включить снова — переключателем (те же ворота)
   function excludeFav(id){ var f=favOf(id); if(!f||!BK.mod||BK.b.includedByRoom[f.roomId]!==id)return; bkPut(BK.mod.exclude(BK.b,f.roomId));
-    toast(EN()?'Not included in the allowance — the total is updated':'Не включено в сертификат — шкала пересчитана');}
+    toast(EN()?'Not included in the allowance. The total is updated':'Не включено в сертификат. Шкала пересчитана');}
   // ПОЧЕМУ ВАРИАНТ НЕ ВКЛЮЧАЕТСЯ (demo-19 А1): называем причину — товара нет в продаже, цену даёт менеджер, коллекции больше нет;
   // null — строки ещё не прочитаны с сервера (их перечитываем, а не просим «попробовать через минуту»)
   function pendingWhy(q){
-    var EF=EN(), clean=function(t){t=String(t||'').replace(/ — (сейчас нет в витрине|no longer in the showroom)$/,'');
+    var EF=EN(), clean=function(t){t=String(t||'').replace(/(?: —|,) (сейчас нет в витрине|no longer in the showroom)$/,'');
       return MASK()?itemName({name:t},t):t;};   // маска (demo-31): строка корзины хранит исходное название — показываем английское
-    if(q&&q.status==='unavailable')return EF?'This layout is no longer available — choose another one':'Эта расстановка больше недоступна — выберите другую';
+    if(q&&q.status==='unavailable')return EF?'This layout is no longer available. Choose another one':'Эта расстановка больше недоступна. Выберите другую';
     if(!q||q.status!=='fresh')return null;
     var of=function(st){return q.lines.filter(function(l){return l.settlement==='allowance'&&l.priceStatus===st;}).map(function(l){return '«'+clean(l.label)+'»';});};
     var gone=of('unavailable'), ask=of('on_request');
-    if(gone.length)return EF?(gone.join(', ')+(gone.length>1?' are':' is')+' no longer on sale — replace '+(gone.length>1?'them':'it')+' in the layout')
-      :((gone.length>1?'Товаров ':'Товара ')+gone.join(', ')+' нет в продаже — замените '+(gone.length>1?'их':'его')+' в расстановке');
-    if(ask.length)return EF?('The price of '+ask.join(', ')+' comes from the manager — it can be included after their reply')
-      :('Цену '+ask.join(', ')+' уточняет менеджер — включить можно после его ответа');
+    if(gone.length)return EF?(gone.join(', ')+(gone.length>1?' are':' is')+' no longer on sale. Replace '+(gone.length>1?'them':'it')+' in the layout')
+      :((gone.length>1?'Товаров ':'Товара ')+gone.join(', ')+' нет в продаже. Замените '+(gone.length>1?'их':'его')+' в расстановке');
+    if(ask.length)return EF?('The price of '+ask.join(', ')+' comes from the manager, it can be included after their reply')
+      :('Цену '+ask.join(', ')+' уточняет менеджер, включить можно после его ответа');
     return null;
   }
   // «Включить в сертификат» в избранном: ворота модуля — не влезает или цена неизвестна — переключатель не двигается
@@ -11371,7 +11488,7 @@ function quizPick(rule, answers, available, styleColours){
     if(r.result==='topup_unconfirmed'){topupAsk(favOf(id),r.overBy||0,function(){includeTopup(id);}); return;}
     var f=favOf(id), why=pendingWhy(f&&f.quote);
     if(why){toast(why); return;}
-    var offline=function(){toast(EN()?'No connection to the server — check the internet and tap again':'Нет связи с сервером — проверьте интернет и нажмите ещё раз');};
+    var offline=function(){toast(EN()?'No connection to the server. Check the internet and tap again':'Нет связи с сервером. Проверьте интернет и нажмите ещё раз');};
     if(again){offline(); return;}
     // строки не прочитаны (сеть или лимит при открытии) — перечитываем эту коллекцию и пробуем ещё раз
     readColls([id]).then(function(x){var v=x.vs[0];
@@ -11395,7 +11512,7 @@ function quizPick(rule, answers, available, styleColours){
     reportAct('share');
     var t=(title?cap(styleOfV({style:title})):'')||document.title;
     if(navigator.share){navigator.share({title:t, url:url}).catch(function(){}); return;}
-    var say=function(){toast(EN()?'Link copied — paste it into a message':'Ссылка скопирована — вставьте её в сообщение');};
+    var say=function(){toast(EN()?'Link copied. Paste it into a message':'Ссылка скопирована. Вставьте её в сообщение');};
     if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(url).then(say,function(){prompt(EN()?'Link:':'Ссылка:',url);});
     else prompt(EN()?'Link:':'Ссылка:',url);
   }
@@ -11458,7 +11575,7 @@ function quizPick(rule, answers, available, styleColours){
     document.getElementById('favTitle').textContent=(EN()?'Favourites':'Избранное')+(l.length?' · '+l.length:'');
     document.getElementById('favBack').textContent=EN()?'← Back':'← Назад';
     var empty=document.getElementById('favEmpty'); empty.hidden=!!l.length||!BK.b;   // корзина ещё в пути — не «пусто»
-    empty.textContent=EN()?'Nothing here yet — tap the heart in a layout window':'Пока пусто — сердечко в окне расстановки';
+    empty.textContent=EN()?'Nothing here yet. Tap the heart in a layout window':'Пока пусто. Сердечко в окне расстановки';
     if(!l.length){grid.innerHTML=''; chips.innerHTML=''; document.getElementById('favSub').textContent=''; return;}
     var e=escHtml, rooms=homeRooms(), inc=BK.b.includedByRoom;
     var groups=rooms.filter(function(r){return l.some(function(f){return f.roomId===r.id;});});
@@ -11574,10 +11691,10 @@ function quizPick(rule, answers, available, styleColours){
     'Посмотреть варианты интерьера':'See interior options','Коллекции расстановок':'Room collections','Выберите готовый вариант или создайте свой':'Pick a ready option or create your own',
     'Открыть':'Open','Ссылка':'Link','Добавить новую расстановку':'Add a new layout','план комнаты, перестановка мебели, свои размеры':'room plan, move furniture, your own sizes',
     'Избранное':'Favourites','Поделиться интерьером':'Share the interior','Поделиться':'Share','Интерьер':'Interior','Выбрать другой':'Choose another',
-    'Вы можете менять мебель, отделку и встраиваемое':'You can change the furniture, finishes and built-ins','Готово':'Done','Меняйте предметы прямо здесь — план открывать не нужно.':'Swap items right here — no need to open the plan.',
+    'Вы можете менять мебель, отделку и встраиваемое':'You can change the furniture, finishes and built-ins','Готово':'Done','Меняйте предметы прямо здесь, план открывать не нужно.':'Swap items right here, no need to open the plan.',
     'Заменить':'Replace','В магазин':'To shop','Сохранить':'Save','Цвет:':'Colour:','Нет в наличии':'Out of stock','Посмотреть в 3D':'View in 3D','Посмотреть фото с изменениями':'See the photo with changes',
     'Фотография пока с прежней расстановкой.':'The photo still shows the previous layout.',
-    'Расстановка готова, но можно сделать реалистичнее.':'The layout is ready — the photo can be made more realistic.',
+    'Расстановка готова, но можно сделать реалистичнее.':'The layout is ready, but the photo can be made more realistic.',
     'Стоимость представленной мебели и техники:':'Furniture shown costs:','Сохранить список мебели и техники':'Save the furniture list',
     'Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.':'Drag an item to move it. Pick a product with the icon on the item.',
     'Дверь:':'Door:','петли справа':'hinges on the right','петли слева':'hinges on the left','открывается внутрь':'opens inwards','открывается наружу':'opens outwards',
@@ -11591,33 +11708,33 @@ function quizPick(rule, answers, available, styleColours){
     'Планировка':'Layout','Улучшаю фото…':'Enhancing the photo…',
     'Собираем кадр по вашей расстановке…':'Building a shot of your layout…',
     'обычно 20–25 секунд':'usually 20–25 seconds','с':'s','Не получилось собрать кадр.':'Could not build the shot.',
-    'попробуйте ещё раз':'please try again','Один кадр уже считается — дождитесь его.':'A shot is already being made — please wait for it.',
+    'попробуйте ещё раз':'please try again','Один кадр уже считается, дождитесь его.':'A shot is already being made. Please wait for it.',
     'Ссылка скопирована':'Link copied','Ракурс':'View','План':'Plan','Товары и замены ⌃':'Items & swaps ⌃','⌄ Свернуть':'⌄ Collapse',
     'Сделать фотореалистичное фото':'Make a photorealistic photo','нейросеть · 2–4 мин · бесплатно для вас':'AI · 2–4 min · free for you',
     'Сделать фото':'Take photo','Отменить изменение':'Undo the change','Вернуть изменение':'Redo the change',
-    'Потяните или нажмите — товары и замены':'Pull or tap — items and swaps','Двигайте фото пальцем · у края — другой вид · шторку — товары и замены':'Drag the photo · at the edge — another view · pull the sheet — items and swaps','Фото нейросети · расстановка могла отличаться':'AI photo · the layout may differ','Собираем сцену…':'Building the scene…','⤢ во весь экран':'⤢ full screen','Двигайте пальцем · щипок — увеличить · двойной тап — назад':'Drag to move · pinch to zoom · double tap to go back','Ракурс 1':'View 1','Ракурс 2':'View 2','Загружаем модели…':'Loading models…','Обновляем…':'Updating…','Загружаем модель…':'Loading the model…','Сервер рисует эскиз…':'The server is drawing a sketch…','Эскиз с сервера · у устройства нет видеокарты':'Server sketch · your device has no graphics card','Готово — посмотреть в окне':'Done — view in the window','Расставляем мебель…':'Placing furniture…','Предыдущая расстановка':'Previous layout','Следующая расстановка':'Next layout',
-    'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Готово — посмотреть в окне» внизу.':
-      'Hold an item for half a second and drag it to move. A short tap shows rotation arrows. When ready, tap “Done — view in the window” below.',
-    'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Готово — посмотреть в окне» внизу.':
-      'Drag an item with the mouse, rotate it by the corner. The circle on an item picks another product. When ready, press “Done — view in the window” below.','Повторить':'Retry',
-    'Улучшение фото сейчас недоступно: у сервиса картинок закончился баланс. Черновое фото работает — его можно снять как обычно.':
+    'Потяните или нажмите: товары и замены':'Pull or tap: items and swaps','Двигайте фото пальцем · у края: другой вид · шторку: товары и замены':'Drag the photo · at the edge: another view · pull the sheet: items and swaps','Фото нейросети · расстановка могла отличаться':'AI photo · the layout may differ','Собираем сцену…':'Building the scene…','⤢ во весь экран':'⤢ full screen','Двигайте пальцем · щипок: увеличить · двойной тап: назад':'Drag to move · pinch to zoom · double tap to go back','Ракурс 1':'View 1','Ракурс 2':'View 2','Загружаем модели…':'Loading models…','Обновляем…':'Updating…','Загружаем модель…':'Loading the model…','Сервер рисует эскиз…':'The server is drawing a sketch…','Эскиз с сервера · у устройства нет видеокарты':'Server sketch · your device has no graphics card','Готово, посмотреть в окне':'Done, view in the window','Расставляем мебель…':'Placing furniture…','Предыдущая расстановка':'Previous layout','Следующая расстановка':'Next layout',
+    'Удерживайте предмет полсекунды и тяните, он переедет. Короткое касание покажет стрелки поворота. Когда готово, нажмите «Готово, посмотреть в окне» внизу.':
+      'Hold an item for half a second and drag it to move. A short tap shows rotation arrows. When ready, tap “Done, view in the window” below.',
+    'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете выбирает другой товар. Когда готово, нажмите «Готово, посмотреть в окне» внизу.':
+      'Drag an item with the mouse, rotate it by the corner. The circle on an item picks another product. When ready, press “Done, view in the window” below.','Повторить':'Retry',
+    'Улучшение фото сейчас недоступно: у сервиса картинок закончился баланс. Черновое фото работает, его можно снять как обычно.':
       'Photo enhancement is unavailable right now: the image service has run out of balance. Draft photos still work.',
-    'Улучшение фото сейчас недоступно: сервер улучшения не отвечает. Черновое фото работает — попробуйте улучшить позже.':
-      'Photo enhancement is unavailable right now: the enhancement server is not responding. Draft photos still work — try again later.',
-    'задание не найдено — нажмите «Повторить»':'The job was lost — press “Retry”',
-    'Задание прервалось при обновлении сервера — нажмите «Повторить».':'The job was interrupted by a server update — press “Retry”.',
-    'Улучшение прервалось: сервер обновлялся. Результат неизвестен — повтор может потребовать новую оплату. Нажмите «Повторить», если фото всё ещё нужно.':
-      'Enhancement was interrupted by a server update. The result is unknown — a retry may be charged again. Press “Retry” if you still need the photo.','Сделать фото · ~25 сек':'Take a photo · ~25 s','Посмотреть изменения на фото · ~25 сек':'See changes in a photo · ~25 s','Комплект: —':'Set: —',
+    'Улучшение фото сейчас недоступно: сервер улучшения не отвечает. Черновое фото работает. Попробуйте улучшить позже.':
+      'Photo enhancement is unavailable right now: the enhancement server is not responding. Draft photos still work. Try again later.',
+    'задание не найдено. Нажмите «Повторить»':'The job was lost. Press “Retry”',
+    'Задание прервалось при обновлении сервера. Нажмите «Повторить».':'The job was interrupted by a server update. Press “Retry”.',
+    'Улучшение прервалось: сервер обновлялся. Результат неизвестен. Повтор может потребовать новую оплату. Нажмите «Повторить», если фото всё ещё нужно.':
+      'Enhancement was interrupted by a server update. The result is unknown. A retry may be charged again. Press “Retry” if you still need the photo.','Сделать фото · ~25 сек':'Take a photo · ~25 s','Посмотреть изменения на фото · ~25 сек':'See changes in a photo · ~25 s','Комплект: —':'Set: —',
     'Кухня от партнёров застройщика':"Kitchen from the developer's partners",
-    'Спальни появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.':'Bedrooms are coming next — furnished the same way as the living room.',
-    'Кухня появится следующим шагом — варианты от партнёров застройщика.':"The kitchen is coming next — options from the developer's partners.",
+    'Спальни появятся следующим шагом: подбор мебели по той же схеме, что в гостиной.':'Bedrooms are coming next, furnished the same way as the living room.',
+    'Кухня появится следующим шагом: варианты от партнёров застройщика.':"The kitchen is coming next: options from the developer's partners.",
     'Сначала коснитесь предмета на плане':'Tap an item on the plan first',
 
-    'У этого товара в фиде нет габаритов — примерка была бы выдумкой':'The shop gives no dimensions for this product — a try-on would be made up','Сохранить коллекцию':'Save collection',
-    '3D-модель носит ознакомительный характер и может отличаться от фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать у нашего менеджера. Цена и данные о доме — демонстрационные. Цены товаров — с сайтов магазинов на дату проверки и могут измениться; точная цена — по ссылке в магазин.':
+    'У этого товара в фиде нет габаритов, примерка была бы выдумкой':'The shop gives no dimensions for this product, so a try-on would be made up','Сохранить коллекцию':'Save collection',
+    '3D-модель носит ознакомительный характер и может отличаться от фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать у нашего менеджера. Цена и данные о доме демонстрационные. Цены товаров взяты с сайтов магазинов на дату проверки и могут измениться; точная цена по ссылке в магазин.':
       'The 3D model is for illustration and may differ from the actual specification. Ask our manager for the exact details of your future home. The price and building details are for demonstration. Product prices are taken from shop websites on the check date and may change; see the shop link for the exact price.',
-    'Комната с вашей расстановкой: наши 3D-модели · вращайте мышью, колесо — масштаб · серые блоки — модель готовится':
-      'Your room layout: our 3D models · rotate with the mouse, wheel to zoom · grey blocks — model in progress','Выбранный вариант:':'Selected:',
+    'Комната с вашей расстановкой: наши 3D-модели · вращайте мышью, колесо: масштаб · серые блоки: модель готовится':
+      'Your room layout: our 3D models · rotate with the mouse, wheel to zoom · grey blocks: model in progress','Выбранный вариант:':'Selected:',
     'Варианты демонстрационные: настоящие кухни партнёров застройщика появятся при подключении. Состав и цену уточняйте у менеджера.':
       "Demo options: the developer's partner kitchens appear once connected. Ask your manager for contents and price.",'размеры не указаны магазином':'sizes not provided by the shop',
     // приёмка владельцем 16.10 п.9: подсказки кнопок шапки без ссылки менеджера и бейджи ленты были по-русски в EN
@@ -11655,8 +11772,8 @@ function quizPick(rule, answers, available, styleColours){
     [/^до (\d+) тыс$/,function(m){return 'under '+m[1]+'k';}],[/^(\d+)–(\d+) тыс$/,function(m){return m[1]+'–'+m[2]+'k';}],
     [/^(\d+)\+ тыс$/,function(m){return m[1]+'k+';}],[/^(\d+) из (\d+)$/,function(m){return m[1]+' of '+m[2];}],
     [/^Товары на фото · (\d+)$/,function(m){return 'Items in the photo · '+m[1];}],[/^Камера (\d+)$/,function(m){return 'Camera '+m[1];}],
-    [/^Стиль «(.+?)»: сейчас нет полного набора в наличии \(не хватает: (.+)\) — покажем, как только появится\.$/,function(m){
-      return 'Style “'+(STYLE[m[1]]||m[1])+'”: no complete set in stock right now (missing: '+m[2].split(', ').map(function(x){return role(x)||x;}).join(', ')+') — we will show it once available.';}],
+    [/^Стиль «(.+?)»: сейчас нет полного набора в наличии \(не хватает: (.+)\)(?: —|\.) [пП]окажем, как только появится\.$/,function(m){
+      return 'Style “'+(STYLE[m[1]]||m[1])+'”: no complete set in stock right now (missing: '+m[2].split(', ').map(function(x){return role(x)||x;}).join(', ')+'). We will show it once available.';}],
     [/^Комплект: (.+)$/,function(m){return 'Set: '+m[1];}],
     [/^Расстановка (\d+) из (\d+)$/,function(m){return 'Layout '+m[1]+' of '+m[2];}],
     [/^Загружаем модели (\d+) из (\d+)$/,function(m){return 'Loading models '+m[1]+' of '+m[2];}],
@@ -11664,20 +11781,23 @@ function quizPick(rule, answers, available, styleColours){
     [/^Заменено: (.+?)( ×\d+)?( · .+)?$/,function(m){var one=m[1];if(m[2]&&typeof TRY_PLURAL!=='undefined')for(var k in TRY_PLURAL)if(TRY_PLURAL[k]===m[1])one=k;return 'Replaced: '+(role(one)||m[1])+(m[2]||'')+(m[3]||'');}],
     [/^В очереди: (\d+)(?: · примерно (\d+) с)?$/,function(m){return 'In queue: '+m[1]+(m[2]?' · about '+m[2]+' s':'');}],
     [/^осталось примерно (\d+) с$/,function(m){return 'about '+m[1]+' s left';}],
-    [/^Нет связи с сервером — ждём, кадр не потерян \((\d+) с\)$/,function(m){return 'No connection to the server — waiting, the shot is not lost ('+m[1]+' s)';}],
+    [/^Нет связи с сервером. Ждём, кадр не потерян \((\d+) с\)$/,function(m){return 'No connection to the server. Waiting, the shot is not lost ('+m[1]+' s)';}],
     [/^Выбранный вариант: (.+)$/,function(m){return 'Selected: '+m[1];}],
     [/^Нажмите «(.+)», чтобы увидеть изменения$/,function(m){return 'Tap “'+(EX[m[1]]||m[1])+'” to see the changes';}],   // `softSwapToast`
     [/^(\d+(?:[.,]\d)?)\s*м²$/,function(m){return m[1].replace(',','.')+' m²';}],
     [/^Ваш менеджер: (.+)$/,function(m){return 'Your manager: '+m[1];}],
     [/^Позвонить (.+)$/,function(m){return 'Call '+m[1];}],
     [/^(.+) стоит в зоне открывания двери\.(.*)$/,function(m){return m[1]+' is in the door swing zone.'+m[2].replace(/Рекомендуем сдвинуть примерно на (\d+) см\./,' Move it about $1 cm.').replace('Поставьте его в стороне от двери.',' Place it away from the door.');}],
-    [/^(.+) сейчас перекрывает главный проход — там нужно (\d+) см, сейчас (.+)\.$/,function(m){return m[1]+' blocks the main walkway — it needs '+m[2]+' cm, now '+cm(m[3])+'.';}],
-    [/^(.+) в (\d+) см от радиатора — тёплому воздуху нужно (\d+) см\.(.*)$/,function(m){return m[1]+' is '+m[2]+' cm from the radiator — warm air needs '+m[3]+' cm.'+m[4].replace(/Отодвиньте примерно на (\d+) см\./,' Move it about $1 cm away.');}]
+    [/^(.+) сейчас перекрывает главный проход: там нужно (\d+) см, сейчас (.+)\.$/,function(m){return m[1]+' blocks the main walkway: it needs '+m[2]+' cm, now '+cm(m[3])+'.';}],
+    [/^(.+) в (\d+) см от радиатора. Тёплому воздуху нужно (\d+) см\.(.*)$/,function(m){return m[1]+' is '+m[2]+' cm from the radiator. Warm air needs '+m[3]+' cm.'+m[4].replace(/Отодвиньте примерно на (\d+) см\./,' Move it about $1 cm away.');}]
   ];
   window.__trText=function(t){return tr(t);};   // перевод для холста (список в JPG)
   function tr(t){
     var k=t.replace(/\s+/g,' ').trim(); if(!/[А-Яа-яЁё]/.test(k))return null;
     if(EX[k])return EX[k]; if(ROOM[k])return ROOM[k]; if(STYLE[k])return STYLE[k]; var r=role(k); if(r)return r;
+    if(k.indexOf(' — ')>0){   // текст старого сервера с тире (до 11.11, TG 995): ключи словаря теперь через точку или запятую
+      var k2=k.replace(/ — (.)/g,function(_,c){return '. '+c.toUpperCase();}); if(EX[k2])return EX[k2];
+      var k3=k.replace(/ — /g,', '); if(EX[k3])return EX[k3];}
     for(var i=0;i<P.length;i++){var m=k.match(P[i][0]); if(m){var o=P[i][1](m); if(o)return o;}}
     return null;
   }
