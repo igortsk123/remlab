@@ -9331,6 +9331,8 @@ function vwSheetApply(vis, anim){
   sd.style.transform=`translateY(${Math.round(e.max-vis)}px)`;
   // точки ракурсов — над текущим верхом шторки при любой высоте (приёмка d8 17.10: в средней остановке прятались за шторкой)
   const dots=document.getElementById('vCams'); if(dots){dots.style.transition=anim&&!VW_SLOW()?'':'none'; dots.style.bottom=Math.round(vis+12)+'px';}
+  // полоска переноса (T-05/9) — на месте переключателя: над шторкой и при поднятой шторке, а не над свёрнутой (`--vsh`)
+  const cbar=document.getElementById('vcarry'); if(cbar)cbar.style.bottom=Math.round(vis+12)+'px';
   // `--vsv` — видимая высота шторки сейчас (`--vsh` — свёрнутой): по ней ход «Улучшаю…» и «Вы изменили комнату» стоят по центру
   // видимого кадра и при поднятой шторке (T-20261108-78: после «Сделать реалистичнее» из 3D шторка на середине — карточка ложилась на ракурсы)
   const vwEl=document.querySelector('#shot .vw'); if(vwEl)vwEl.style.setProperty('--vsv',Math.round(vis)+'px');
@@ -9941,6 +9943,8 @@ function vwCarryBar(){
     b.querySelector('.vcrot').addEventListener('click',e=>{e.stopPropagation(); vwCarryRotate();});
     b.querySelector('.vcx').addEventListener('click',e=>{e.stopPropagation(); vwCarryCancel();});
     host.appendChild(b);}
+  // телефон: над текущим верхом шторки, как переключатель ракурсов (`vwSheetApply` двигает обоих); компьютер — по CSS
+  b.style.bottom=VW_PHONE()&&VW.sheetVis!=null?Math.round(VW.sheetVis+12)+'px':'';
   b.hidden=false; b.classList.toggle('bad',!m.ok);
   const touch=isTouchUI();
   const txt=!m.ok?(EN?'It does not fit here':'Здесь не помещается')
