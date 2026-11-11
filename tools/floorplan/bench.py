@@ -308,6 +308,7 @@ def arrow_in_opening(g, lab_g, arr, wall, t):
     H, W = wall.shape
     bs = np.arange(-int(hb), int(hb) + 1)
     hit = None
+    best = (0.0, 0)
     for d in range(1, int(ARROW_GAP_T * t) + 1):
         p = c[None, :] + u[None, :] * s * (aa.max() + d) + n[None, :] * bs[:, None]
         px, py = np.round(p[:, 0]).astype(int), np.round(p[:, 1]).astype(int)
@@ -315,27 +316,89 @@ def arrow_in_opening(g, lab_g, arr, wall, t):
         if not ok.any():
             break
         px, py = px[ok], py[ok]
-        if ((wall[py, px] > 0) & (arr[py, px] == 0)).mean() >= 0.5:
+        fr = float(((wall[py, px] > 0) & (arr[py, px] == 0)).mean())
+        best = max(best, (fr, d))
+        if fr >= 0.5:
             hit = aa.max() + d
             break
+    if os.environ.get('FP_ARROW_DBG'):
+        print(f'[arrow]   разрыв {g.id}: стрелка в полосе {int(ina.sum())} px, за ней стена {best[0]:.2f} на {best[1]} px, '
+              f'hb {hb:.1f}, ось ({u[0]:.2f}, {u[1]:.2f})', file=sys.stderr)
     if hit is None:
         return None
     lo, hi = float(ga.min()), float(hit) - 1.0         # от ближнего торца (край разрыва) до дальнего торца за стрелкой
-    m = c + u * s * (lo + hi) / 2.0
-    return float(m[0]), float(m[1]), hi - lo + 1.0
+    # в осях c, u: пролёт [lo, hi] по направлению s·u → по u
+    a0, a1 = sorted((s * lo, s * hi))
+    return c, u, n, a0, a1, hb
 
 
-def arrow_doors(gaps, lab_g, arrows, t, wall=None):
+ARC_TRIM = 0.9      # дуга створки короче 0,9 пролёта — дверь шириной по дуге (остальное — простенок/стрелка)
+ARC_TRIM_MIN = 0.4  # дугу короче 0,4 пролёта не берём: это чужая дверь или мебель
+
+
+def arc_trim(thin, c, u, n, a0, a1, hb, thr=None):
+    """T-20261111-13/3: пролёт слитой двери [a0, a1] по оси u от c → по дуге створки (если есть): петля у одного конца, радиус R
+    по линиям листа (`thin`), как `fpcore.door_evidence` (одна створка, петля на грани стены). Дуга найдена (доля ≥ DOOR_EV) и
+    R < ARC_TRIM·пролёта — дверь от петли длиной R (rgK, Cupboard: пролёт со стрелкой 96 см при дуге ~70–80). Нет дуги или
+    дуга во весь пролёт — пролёт как был. → (a0, a1, R или None)."""
+    if thin is None:
+        return a0, a1, None
+    thr = DOOR_EV if thr is None else thr
+    L = a1 - a0 + 1.0
+    H, W = thin.shape
+    th = np.radians(np.arange(0, 91, 5))
+    cand = []
+    for s in (n, -n):
+        for end, dsg in ((a0, 1.0), (a1, -1.0)):
+            h = c + u * end + s * hb
+            d = u * dsg
+            for f in np.arange(ARC_TRIM_MIN, 1.06, 0.05):
+                R = f * L
+                pts = h[None, :] + R * (np.cos(th)[:, None] * d[None, :] + np.sin(th)[:, None] * s[None, :])
+                hit = 0
+                for x, y in pts:
+                    xi, yi = int(round(x)), int(round(y))
+                    y0, y1, x0, x1 = max(0, yi - 2), min(H, yi + 3), max(0, xi - 2), min(W, xi + 3)
+                    if y1 > y0 and x1 > x0 and thin[y0:y1, x0:x1].any():
+                        hit += 1
+                cand.append((hit / len(pts), R, end, dsg))
+    good = [k for k in cand if k[0] >= thr]
+    if not good:
+        return a0, a1, None
+    top = max(k[0] for k in good)
+    sc, R, end, dsg = max((k for k in good if k[0] >= top - 0.05), key=lambda k: k[1])   # окно 5×5 прощает ±2 px — берём больший R
+    if R >= ARC_TRIM * L:
+        return a0, a1, R
+    return (a0, a0 + R - 1.0, R) if dsg > 0 else (a1 - R + 1.0, a1, R)
+
+
+def _door_quad(c, u, n, a0, a1, hb):
+    """Прямоугольник двери: пролёт [a0, a1] по u, ±hb по n → 4 угла (x, y)."""
+    return np.array([c + u * a + n * b for a, b in ((a0, -hb), (a1, -hb), (a1, hb), (a0, hb))], float)
+
+
+def arrow_doors(gaps, lab_g, arrows, t, wall=None, thin=None):
     """T-20261111-13: короткие (≤ ARROW_GAP_T·t) дверные разрывы у залитой стрелки. Один такой у стрелки — щель «торец стены ↔
     стрелка», не проём (rgK, Bedroom 3: стрелка «→» в коридоре в 23 см от угла спальни давала «дверь» 43 см, ядро её резало —
     opening_cut_by_core), если только стрелка не стоит в проёме стены (`arrow_in_opening`, нужна маска стен `wall`): тогда дверь —
     проём от торца до торца. Два и больше на одной прямой со стрелкой — стрелка делит проём надвое: один проём (разрывы и стрелка
     вместе). Не на одной прямой — как были. Длинные разрывы (закрытия у лестниц, широкие проёмы) — как были: снятие и слияние их
-    меняло ядра (rgK Drawing room) и оставляло комнату без двери (Eaves).
-    → (снятые id, слитые [(cx, cy, длина px, exterior)], id слитых)."""
+    меняло ядра (rgK Drawing room) и оставляло комнату без двери (Eaves). Ширина слитой двери — по дуге створки, если она есть
+    (`arc_trim`, нужны линии листа `thin`). Прямоугольник двери (quad) — чтобы в 3D снять стрелку из стены в проёме (/3).
+    → (снятые id, слитые [(cx, cy, длина px, exterior, quad 4×2)], id слитых)."""
     drop, merged, used = set(), [], set()
     if arrows is None or not arrows.any() or not t:
         return drop, merged, used
+    dbg = os.environ.get('FP_ARROW_DBG')
+
+    def add(c, u, n, a0, a1, hb, ext, ids):
+        b0, b1, R = arc_trim(thin, c, u, n, a0, a1, hb)
+        m = c + u * (b0 + b1) / 2.0
+        merged.append((float(m[0]), float(m[1]), b1 - b0 + 1.0, ext, _door_quad(c, u, n, b0, b1, hb + 1.0)))
+        used.update(ids)
+        if dbg:
+            print(f'[arrow] слита {sorted(ids)} пролёт {a1 - a0 + 1:.1f} → {b1 - b0 + 1:.1f} px, дуга R {R}, '
+                  f'центр ({m[0]:.0f}, {m[1]:.0f}), hb {hb:.1f}', file=sys.stderr)
     _, al = cv2.connectedComponents(arrows.astype(np.uint8), connectivity=8)
     near = cv2.dilate(al.astype(np.uint16), np.ones((5, 5), np.uint8))       # метка стрелки на 2 px вокруг неё
     by = {}
@@ -349,18 +412,20 @@ def arrow_doors(gaps, lab_g, arrows, t, wall=None):
         if len(gs) == 1:
             g = gs[0]
             d = arrow_in_opening(g, lab_g, al == a, wall, t) if wall is not None else None
+            if dbg:
+                print(f'[arrow] один разрыв {g.id} L {g.length:.1f} глуб {g.depth:.1f} ({g.cx:.0f}, {g.cy:.0f}) t {t:.1f} → '
+                      f'{"в проёме" if d else "снят"}', file=sys.stderr)
             if d is None:
                 drop.add(g.id)
             else:
-                merged.append((d[0], d[1], d[2], g.exterior))
-                used.add(g.id)
+                add(*d, g.exterior, {g.id})
             continue
         ys, xs = np.nonzero((al == a) | np.isin(lab_g, [g.id for g in gs]))
-        c, _, _, L, depth = fc.gap_axes(ys, xs)
+        c, u, n, L, depth = fc.gap_axes(ys, xs)
         if L < sum(g.length for g in gs) or depth > 1.5 * max(max(g.depth for g in gs), t):
             continue                                   # не на одной прямой — не один проём
-        merged.append((float(c[0]), float(c[1]), L, any(g.exterior for g in gs)))
-        used |= {g.id for g in gs}
+        add(c, u, n, -(L - 1.0) / 2.0, (L - 1.0) / 2.0, max(max(g.depth for g in gs), float(t)) / 2.0,
+            any(g.exterior for g in gs), {g.id for g in gs})
     return drop - used, merged, used
 
 
@@ -1406,6 +1471,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         out_panels.append(P)
         if arrows is not None:                          # T-13: стрелки панели — для проёмов (`arrow_doors`)
             r['arrows'], r['arrows_t'] = arrows[Y0:Y1, X0:X1], t
+            r['arrows_thin'] = fc.thin_lines(sub_gray, r['wall'], cfg['thin'])     # дуги створок — ширина слитой двери (/3)
         export_panel(outdir, plan, pi, P, r, sub_img, sub_wall, fams, groom, gopen)
     # площади против листа
     areas = []
@@ -1719,7 +1785,12 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     doors = np.zeros_like(add)
     wins = np.zeros_like(add)
     notch = np.zeros_like(add)
-    a_drop, a_merged, a_used = arrow_doors(r['gaps'], lab_g, r.get('arrows'), r.get('arrows_t'), r['wall'])
+    a_drop, a_merged, a_used = arrow_doors(r['gaps'], lab_g, r.get('arrows'), r.get('arrows_t'), r['wall'], r.get('arrows_thin'))
+    a_cut = np.zeros_like(add)                         # /3: стрелка внутри слитой двери — проём, не столбик стены в 3D
+    for *_, quad in a_merged:
+        cv2.fillPoly(a_cut, [np.round(quad).astype(np.int32)], 1)
+    if a_merged:
+        a_cut &= (r['arrows'] > 0).astype(a_cut.dtype)
     for g in r['gaps']:
         if g.id in a_drop:                             # разрыв «стена ↔ стрелка» — не проём, перемычки над ним нет
             continue
@@ -1731,6 +1802,10 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     solid = (((r['wall'] > 0) | (notch > 0)) & (final > 0)).astype(np.uint8)    # зазубрина/узкий просвет — стена
     if r.get('drawn') is not None:                    # разрез min-cut вдоль нарисованной линии — тонкая стена
         solid |= cv2.dilate(r['drawn'].astype(np.uint8), np.ones((2, 2), np.uint8))
+    if r.get('arrows') is not None:                    # /3: стрелка — значок, не стена: в 3D ни столбика в проёме, ни на лестнице
+        solid[r['arrows'] > 0] = 0                     # (разбор комнат её по-прежнему видит стеной; пол под ней есть)
+    if a_cut.any():                                    # стрелка в проёме: снизу пусто, сверху перемычка, как у двери
+        doors[a_cut > 0] = 1
     # стена монолитом на всю высоту; под окном — подоконная часть, над окном и дверью — перемычка (без горизонтальных швов)
     bands = [(0.0, H_WALL, solid), (0.0, SILL, wins & (solid == 0)), (HEAD, H_WALL, (wins | doors) & (solid == 0))]
     off = (0, 0)
@@ -1791,7 +1866,7 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
                  'walls_after': fc.skew_stats(new_w, fp, min_len, fams_of=wall_fams_of),
                  'straight': {k: fc.STRAIGHT_STATS[k] - st0[k] for k in st0}}
     model['skew'] = P['skew']
-    for cx, cy, L, ext in a_merged:                    # T-13: проём, разделённый стрелкой, — один
+    for cx, cy, L, ext, _ in a_merged:                 # T-13: проём, разделённый стрелкой, — один
         model['openings'].append({'kind': 'door', 'c': [round(cx / ppm, 3), round(cy / ppm, 3)], 'width_m': round(L / ppm, 3),
                                   'glaze': 0.0, 'exterior': ext})
     for g in r['gaps']:

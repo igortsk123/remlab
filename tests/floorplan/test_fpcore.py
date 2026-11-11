@@ -720,7 +720,7 @@ def test_arrow_doors_drop_wall_arrow_gap_merge_split_doorway():
     gaps = [fc.Gap(i, 0, 0, lens[i], 8, 'door', 0.0, False, (0, 0, 0, 0)) for i in lens]
     drop, merged, used = bench.arrow_doors(gaps, lab_g, arrows, 8)
     assert drop == {1} and used == {2, 3} and len(merged) == 1     # длинное закрытие 5 (> 3 t) — как было
-    cx, cy, L, ext = merged[0]
+    cx, cy, L, ext, quad = merged[0]
     assert abs(cx - 86.5) <= 1.5 and abs(L - 42) <= 2 and not ext
     assert bench.arrow_doors(gaps, lab_g, None, 8) == (set(), [], set())
 
@@ -746,6 +746,26 @@ def test_arrow_doors_single_gap_arrow_in_doorway_is_whole_door():
             fc.Gap(2, 0, 0, 6, 9, 'door', 0.0, False, (0, 0, 0, 0))]
     drop, merged, used = bench.arrow_doors(gaps, lab_g, arrows, t, wall)
     assert drop == {2} and used == {1} and len(merged) == 1
-    cx, cy, L, ext = merged[0]
+    cx, cy, L, ext, quad = merged[0]
     assert abs(cx - 39.5) <= 1.5 and abs(cy - 44) <= 1.5 and abs(L - 20) <= 2 and not ext
     assert bench.arrow_doors(gaps, lab_g, arrows, t)[0] == {1, 2}    # без маски стен — как раньше
+    q = np.zeros_like(arrows)
+    cv2.fillPoly(q, [np.round(quad).astype(np.int32)], 1)
+    assert q[40:49, 37:44].all()                                    # стрелка в проёме внутри двери — её снимут из стены в 3D
+
+
+def test_arc_trim_door_width_by_leaf_arc():
+    """T-20261111-13/3 (rgK, Cupboard): пролёт со стрелкой шире двери. Дуга створки на листе (петля у торца, R 20 px при пролёте
+    30) — дверь от петли шириной R; без дуги — пролёт как был; дуга во весь пролёт — тоже как был."""
+    import bench
+    thin = np.zeros((120, 120), np.uint8)
+    c, u, n = np.array([60.0, 50.0]), np.array([1.0, 0.0]), np.array([0.0, 1.0])
+    a0, a1, hb = -14.5, 14.5, 4.5                                   # пролёт x 45.5..74.5 (30 px), стена y 45.5..54.5
+    cv2.ellipse(thin, (75, 55), (20, 20), 0, 90, 180, 1, 1)         # петля у правого торца, створка в комнату вниз, R 20
+    b0, b1, R = bench.arc_trim(thin, c, u, n, a0, a1, hb)
+    assert R is not None and abs(R - 20) <= 2.5 and abs(b1 - a1) < 1e-6 and abs((b1 - b0 + 1) - R) < 1e-6
+    assert bench.arc_trim(np.zeros_like(thin), c, u, n, a0, a1, hb) == (a0, a1, None)
+    full = np.zeros_like(thin)
+    cv2.ellipse(full, (75, 55), (30, 30), 0, 90, 180, 1, 1)
+    b0, b1, R = bench.arc_trim(full, c, u, n, a0, a1, hb)
+    assert (b0, b1) == (a0, a1) and R is not None
