@@ -214,12 +214,15 @@ ok "приоритет не обходит порог памяти: при 5 Г�
   "$(yes_if '[ $held_mem = 0 ] && [ $early = 0 ] && [ "$o" = "r|n|" ] && grep -q "m-r .*держит очередь, ждёт память" "$HEAVY_SLOT_LOG"')"
 
 # держатель, ещё ждущий память, отдаёт слот пришедшему старшего класса сразу и встаёт со СВОИМ билетом: при 5 ГБ обычный y-h
-# (порог 7) держит слот в ожидании памяти, за ним обычный y-n (порог 1); пришёл y-r (2, порог 1) — идёт сразу; дальше голова
-# снова y-h (номер раньше y-n): y-n при 5 ГБ не стартует; 8 ГБ — y-h, потом y-n. Встань y-h в конец — было бы r|n|h
+# (порог 7) держит слот в ожидании памяти, за ним обычный y-n (порог 3); пришёл y-r (2, порог 1) — идёт сразу; дальше голова
+# снова y-h (номер раньше y-n): y-n при 5 ГБ не стартует; 8 ГБ — y-h, потом y-n. Встань y-h в конец — было бы r|n|h.
+# Порог y-n 3, не 1 (T-20261111-10): пока y-r держит слот 1, место рядом с ним 5 − 1 − запас 1,5 = 2,5 — y-n с порогом 1
+# по праву ОБГОНА (T-79: голова y-h не проходит, хвост проходит) брал слот 2 при 5 ГБ; мигало ~1 из 4 — когда опрос y-n
+# попадал в доли секунды держания y-r. 3 > 2,5 — обгона нет, проверяется только возврат y-h со своим билетом
 mem 5
 "$S" y-h --min-gb 7 -- sh -c "echo h >> $T/order-p4" & pyh=$!
 until_f '"$S" --status | grep -q "^ДЕРЖИТ: y-h .* память "'; yh_mem=$?
-"$S" y-n --min-gb 1 -- sh -c "echo n >> $T/order-p4" & pyn=$!; sleep 0.3
+"$S" y-n --min-gb 3 -- sh -c "echo n >> $T/order-p4" & pyn=$!; sleep 0.3
 "$S" y-r --min-gb 1 --prio 2 -- sh -c "echo r >> $T/order-p4" & pyr=$!
 wait $pyr
 sleep 0.8
@@ -352,6 +355,7 @@ while True:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         break
     except BlockingIOError:
+        open(out + '.tick', 'a').write('t\n')   # самопроверке: «только что опросил» — следующий опрос через 1 с
         time.sleep(1.0)
 os.unlink(w)
 kv(os.path.join(d, 'holder'), dict(me, stage='работает'))
@@ -361,13 +365,24 @@ os.unlink(os.path.join(d, 'holder'))
 OLDW
 export HEAVY_SLOT_HEAD_POLL=0.005
 # (двое старых между собой порядок не держат — билетов не читают; поэтому в каждом случае старый один)
-"$S" o-hold -- sleep 1.5 &
+# детерминированно (T-20261111-10; было sleep 1,5 / 0,3 — мигало): старый ловит замок опросом раз в 1 с, и когда его опрос
+# совпадал с отпусканием o-hold, он брал слот раньше n1 (o1|n1|n2) — та самая оговорка «переходного периода» из heavy_slot.py,
+# не поломка очереди. Поэтому приход — по факту (строка «ждёт очередь» / файл wait/<pid>), а o-hold отпускает сразу ПОСЛЕ
+# очередного опроса старого: до следующего у n1 (опрос раз в 5 мс) целая секунда
+ticks() { cat "$1" 2>/dev/null | wc -l; }
+"$S" o-hold -- sh -c "$(gate o-go)" &
 poh=$!
 until_held
-"$S" n1 -- sh -c "echo n1 >> $T/order4" & pn1=$!; sleep 0.3
-python3 "$T/old_waiter.py" o1 "$T/order4" & po1=$!; sleep 0.3
-"$S" n2 -- sh -c "echo n2 >> $T/order4" & pn2=$!; sleep 0.3
+"$S" n1 -- sh -c "echo n1 >> $T/order4" & pn1=$!
+until_f 'grep -q " n1 pid=[0-9]* ждёт очередь" "$HEAVY_SLOT_LOG"'
+python3 "$T/old_waiter.py" o1 "$T/order4" & po1=$!
+until_f "[ -e $HEAVY_SLOT_DIR/wait/$po1 ]"
+"$S" n2 -- sh -c "echo n2 >> $T/order4" & pn2=$!
+until_f 'grep -q " n2 pid=[0-9]* ждёт очередь" "$HEAVY_SLOT_LOG"'
 st=$("$S" --status)
+t0k=$(ticks "$T/order4.tick")
+until_f "[ \$(ticks $T/order4.tick) -gt $t0k ]"
+touch "$T/o-go"
 ok "--status: пришедший без билета получил билет по времени прихода (n1, o1, n2)" \
   "$(yes_if 'grep -q "^ЖДУТ: 3 " <<<"$st" && grep -q "^  1\. n1 " <<<"$st" && grep -q "^  2\. o1 .*за старую версию" <<<"$st" && grep -q "^  3\. n2 " <<<"$st" && ! grep -q "без билета$" <<<"$st"')"
 wait $poh $pn1 $po1 $pn2
@@ -376,7 +391,8 @@ ok "без билета не обгоняет пришедшего раньше 
 "$S" o-hold2 -- sleep 1 &
 poh=$!
 until_held
-python3 "$T/old_waiter.py" o0 "$T/order5" & po0=$!; sleep 0.3
+python3 "$T/old_waiter.py" o0 "$T/order5" & po0=$!
+until_f "[ -e $HEAVY_SLOT_DIR/wait/$po0 ]"
 "$S" n3 -- sh -c "echo n3 >> $T/order5" & pn3=$!
 wait $poh $po0 $pn3
 o=$(tr '\n' '|' < "$T/order5")
