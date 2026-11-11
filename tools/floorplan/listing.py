@@ -502,32 +502,45 @@ def pick_area(text_a: dict | None, sheet_a: dict | None, tol: float = 0.05) -> t
 
 
 # T-20261110-38: высота потолков из текста объявления («Высота потолков 3,1 м» — Этажи, ЦИАН; «Ceiling height 2.6 m») → высота
-# стен тура. Число — в той же строке, что ключ, или строкой ниже (карточка: «Высота потолков» / «3,1 м»); единицы — м или см
+# стен тура. Число — в той же фразе, что ключ (до «;», «, », «. », « - »), или строкой ниже, если там ТОЛЬКО число (карточка:
+# «Высота потолков» / «3,1 м»); единицы — м или см. T-20261111-07: «Cloak Room - Floor to ceiling tiles» + строкой ниже
+# «Reception - 4.45m x 3.99m» давало потолок 4,45 м — «от пола до потолка» не высота, размер комнаты «A x B» не высота.
 CEIL_KEY = re.compile(r'высот\w*\s+потолк\w*|потолк\w*|ceiling\s+heights?|ceilings?', re.I)
 CEIL_NUM = re.compile(r'(\d{1,3}(?:[.,]\d{1,2})?)\s*(м\b|м\.|m\b|cm\b|см\b|mm\b|мм\b)?', re.I)
-CEIL_M = (2.2, 5.0)              # жилое помещение; вне — не высота потолка (опечатка, этажность, площадь)
+CEIL_ONLY = re.compile(r'^\d{1,3}(?:[.,]\d{1,2})?\s*(?:м|м\.|m|cm|см|mm|мм)?$', re.I)   # строка-значение карточки
+CEIL_FLOOR_TO = re.compile(r'(?:floor|пол\w*)[\s-]+(?:to|до)[\s-]+$', re.I)            # «floor to ceiling», «от пола до потолка»
+CEIL_HEIGHT = re.compile(r'высот|height', re.I)                                          # …но «высота от пола до потолка 2,7 м» — высота
+CEIL_STOP = re.compile(r';|[.,](?=\s)|\s[-–—]\s')                                        # конец фразы (не десятичная точка/запятая)
+CEIL_SEP = ' :=-–—'
+CEIL_GAP = 40                    # число не дальше стольких знаков от ключа («Высота потолков в квартире составляет 2,7 м»)
+CEIL_DIMS = re.compile(r'^\s*[x×х]\s*\d', re.I)                                         # «4.45m x 3.99m» — размер комнаты
+CEIL_M = (2.2, 4.0)              # жилое помещение; вне — не высота потолка (опечатка, этажность, площадь, размер комнаты)
 
 
 def ceiling_height(text: str) -> float | None:
-    """Высота потолков, м, или None (нет ключа, нет числа, вне CEIL_M, несколько разных высот)."""
+    """Высота потолков, м, или None (нет ключа, нет числа в той же фразе, вне CEIL_M, несколько разных высот)."""
     if not text or not text.strip():
         return None
     lines = [' '.join(ln.split()) for ln in text.splitlines()]
     vals = []
     for i, s in enumerate(lines):
-        k = CEIL_KEY.search(s)
-        if not k:
-            continue
-        tail = s[k.end():]
-        if not CEIL_NUM.search(tail) and i + 1 < len(lines):
-            tail = lines[i + 1]
-        m = CEIL_NUM.search(tail)
-        if not m:
-            continue
-        v = float(m.group(1).replace(',', '.'))
-        u = (m.group(2) or '').lower().rstrip('.')
-        v = v / 100 if u in ('cm', 'см') or (not u and v >= 100) else v / 1000 if u in ('mm', 'мм') else v
-        if CEIL_M[0] <= v <= CEIL_M[1]:
-            vals.append(round(v, 2))
+        for k in CEIL_KEY.finditer(s):
+            pre = s[:k.start()]
+            if CEIL_FLOOR_TO.search(pre) and not CEIL_HEIGHT.search(pre[-30:] + k.group(0)):    # «floor to ceiling tiles» — отделка
+                continue
+            rest = s[k.end():].lstrip(CEIL_SEP)
+            if not rest and i + 1 < len(lines) and CEIL_ONLY.match(lines[i + 1]):
+                tail = lines[i + 1]
+            else:
+                st = CEIL_STOP.search(rest)
+                tail = rest[:st.start()] if st else rest
+            m = CEIL_NUM.search(tail)
+            if not m or m.start() > CEIL_GAP or CEIL_DIMS.match(tail[m.end():]):
+                continue
+            v = float(m.group(1).replace(',', '.'))
+            u = (m.group(2) or '').lower().rstrip('.')
+            v = v / 100 if u in ('cm', 'см') or (not u and v >= 100) else v / 1000 if u in ('mm', 'мм') else v
+            if CEIL_M[0] <= v <= CEIL_M[1]:
+                vals.append(round(v, 2))
     vals = sorted(set(vals))
     return vals[0] if len(vals) == 1 else None

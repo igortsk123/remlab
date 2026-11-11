@@ -120,6 +120,25 @@ def test_ceiling_height(text, want):
     assert listing.ceiling_height(text) == want
 
 
+FERNDALE = ('Entrance Hall  - 4.75m x 2.08m (15\'7 x 6\'10) - uPVC door to side with side glazed panel, stairs to first floor landing.\n'
+            'Cloak Room  - Floor to ceiling tiles, built-in W.C., wash hand basin, wall mounted radiator, spot lights.\n'
+            'Reception  - 4.45m x 3.99m (14\'7 x 13\'1) - uPVC double glazed window to front, radiator, decorative fireplace.\n')
+
+
+@pytest.mark.parametrize('text, want', [
+    (FERNDALE, None),                                                    # T-20261111-07 (T-04 №8): было 4,45 — число со строки ниже
+    ('Ceiling height 2.6m', 2.6), ('Ceiling height: 2.6m.', 2.6), ('Ceiling height - 2.6 m', 2.6),
+    (FERNDALE + 'Ceiling height 2.6m\n', 2.6),                            # «floor to ceiling» не мешает настоящей высоте
+    ('Floor-to-ceiling windows 2.8m wide', None), ('Высота от пола до потолка 2,7 м', 2.7), ('Floor to ceiling height 2.7m', 2.7),
+    ('Lounge with high ceilings, 4.45m x 3.99m', None),                  # число — в другой фразе
+    ('Ceiling 4.45m x 3.99m', None),                                     # размер комнаты, не высота
+    ('Ceiling height 4.2m', None), ('Потолки 3,9 м', 3.9),               # пределы 2,2–4,0 м
+    ('Высота потолков в квартире составляет 2,7 м', 2.7),
+])
+def test_ceiling_height_same_phrase_only(text, want):
+    assert listing.ceiling_height(text) == want
+
+
 def test_total_area_plain_ploshchad_key_but_not_kitchen():
     assert listing.total_area('Площадь\n68,8 м2')['m2'] == 68.8
     assert listing.total_area('Площадь кухни\n12 м2') is None
