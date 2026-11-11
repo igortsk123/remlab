@@ -259,24 +259,61 @@ def build_mask(img, cfg):
         if info['thin']:
             cfg['thin_hi'] = tm[1]
             return m2
-    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
     if os.environ.get('FP_GREY', '1') != '0' and k[2] >= 5:
         # T-20261110-38: серые перегородки при толстых чёрных стенах (`fpcore.grey_partitions`; FP_GREY=0 — как до T-38)
+        g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
         add, info = fc.grey_partitions(g, m, k[1])
         cfg['grey_info'] = info
         if info['used']:
-            return drop_arrows(fc.remove_small(m | add, cfg['min_area']), g, k[1], cfg)
-    return drop_arrows(m, g, k[1], cfg)
+            return fc.remove_small(m | add, cfg['min_area'])
+    return m
 
 
-def drop_arrows(m, gray, thr, cfg):
-    """T-20261111-13: снять с маски тёмного листа залитые стрелки входа/лестницы (`fpcore.arrow_glyphs`) — иначе кусок стрелки
-    у торца стены даёт ложную дверь или делит проём. Толщина — как у `sheet_thickness`. FP_ARROWS=0 — как до T-13."""
-    if os.environ.get('FP_ARROWS', '1') == '0':
-        return m
-    drop = fc.arrow_glyphs(m, gray, thr, sheet_thickness(m, cfg))
-    cfg['arrows'] = int(cv2.connectedComponents(drop)[0] - 1) if drop.any() else 0
-    return np.where(drop > 0, 0, m).astype(m.dtype) if drop.any() else m
+def sheet_arrows(img, wall, cfg, t):
+    """T-20261111-13: залитые стрелки входа/лестницы тёмного листа (`fpcore.arrow_glyphs`) → маска листа или None.
+    Маска стен не меняется: снятие стрелок с маски перекраивало комнаты rgK (стрелки у лестниц и в открытых зонах держали
+    разбиение — кухня, коридор, санузел теряли комнату или двери). Стрелки правят только проёмы (`arrow_doors`).
+    FP_ARROWS=0 — как до T-13."""
+    if os.environ.get('FP_ARROWS', '1') == '0' or cfg['mask'][0] != 'dark' or cfg.get('thin_hi'):
+        return None
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+    arr = fc.arrow_glyphs(wall, g, cfg['mask'][1], t)
+    return arr if arr.any() else None
+
+
+ARROW_GAP_T = 3.0   # разрыв у стрелки не длиннее 3 t — щель «стена ↔ стрелка»; длиннее — закрытие проёма или зоны, его не трогаем
+
+
+def arrow_doors(gaps, lab_g, arrows, t):
+    """T-20261111-13: короткие (≤ ARROW_GAP_T·t) дверные разрывы у залитой стрелки. Один такой у стрелки — щель «торец стены ↔
+    стрелка», не проём (rgK, Bedroom 3: стрелка «→» в коридоре в 23 см от угла спальни давала «дверь» 43 см, ядро её резало —
+    opening_cut_by_core). Два и больше на одной прямой со стрелкой — стрелка делит проём надвое: один проём (разрывы и стрелка
+    вместе). Не на одной прямой — как были. Длинные разрывы (закрытия у лестниц, широкие проёмы) — как были: снятие и слияние их
+    меняло ядра (rgK Drawing room) и оставляло комнату без двери (Eaves).
+    → (снятые id, слитые [(cx, cy, длина px, exterior)], id слитых)."""
+    drop, merged, used = set(), [], set()
+    if arrows is None or not arrows.any() or not t:
+        return drop, merged, used
+    _, al = cv2.connectedComponents(arrows.astype(np.uint8), connectivity=8)
+    near = cv2.dilate(al.astype(np.uint16), np.ones((5, 5), np.uint8))       # метка стрелки на 2 px вокруг неё
+    by = {}
+    for g in gaps:
+        if g.kind != 'door' or g.length > ARROW_GAP_T * t:
+            continue
+        ids = np.unique(near[lab_g == g.id])
+        for a in ids[ids > 0]:
+            by.setdefault(int(a), []).append(g)
+    for a, gs in by.items():
+        if len(gs) == 1:
+            drop.add(gs[0].id)
+            continue
+        ys, xs = np.nonzero((al == a) | np.isin(lab_g, [g.id for g in gs]))
+        c, _, _, L, depth = fc.gap_axes(ys, xs)
+        if L < sum(g.length for g in gs) or depth > 1.5 * max(max(g.depth for g in gs), t):
+            continue                                   # не на одной прямой — не один проём
+        merged.append((float(c[0]), float(c[1]), L, any(g.exterior for g in gs)))
+        used |= {g.id for g in gs}
+    return drop - used, merged, used
 
 
 def sheet_thickness(wall, cfg) -> float:
@@ -1118,6 +1155,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         cfg = auto_cfg(img) if os.environ.get('FP_AUTO', '0') != '0' else dict(CFG[plan])
     wall = build_mask(img, cfg)
     t = sheet_thickness(wall, cfg)
+    arrows = sheet_arrows(img, wall, cfg, t)
     fams = fc.angle_families(wall)
     regions = plan_regions(wall, t, fams)
     log = {'plan': plan, 'thickness_px': round(t, 2), 'families_deg': [round(f, 1) for f in fams], 'regions': regions}
@@ -1318,6 +1356,8 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
              'gold_panels': sorted({g['panel'] for g in groom}), 'dims': dims,
              'fams_panel': fc.panel_families(r['wall'], 2 * 1.5 * ppm), 'image': str(Path(inputs) / gold['image'])}
         out_panels.append(P)
+        if arrows is not None:                          # T-13: стрелки панели — для проёмов (`arrow_doors`)
+            r['arrows'], r['arrows_t'] = arrows[Y0:Y1, X0:X1], t
         export_panel(outdir, plan, pi, P, r, sub_img, sub_wall, fams, groom, gopen)
     # площади против листа
     areas = []
@@ -1631,7 +1671,10 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     doors = np.zeros_like(add)
     wins = np.zeros_like(add)
     notch = np.zeros_like(add)
+    a_drop, a_merged, a_used = arrow_doors(r['gaps'], lab_g, r.get('arrows'), r.get('arrows_t'))
     for g in r['gaps']:
+        if g.id in a_drop:                             # разрыв «стена ↔ стрелка» — не проём, перемычки над ним нет
+            continue
         (wins if g.kind == 'window' else notch if g.kind == 'wall' else doors)[lab_g == g.id] = 1
     if r.get('add_extra') is not None:                 # закрытия локального пересчёта (T-03) — как двери
         doors |= r['add_extra']
@@ -1700,8 +1743,11 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
                  'walls_after': fc.skew_stats(new_w, fp, min_len, fams_of=wall_fams_of),
                  'straight': {k: fc.STRAIGHT_STATS[k] - st0[k] for k in st0}}
     model['skew'] = P['skew']
+    for cx, cy, L, ext in a_merged:                    # T-13: проём, разделённый стрелкой, — один
+        model['openings'].append({'kind': 'door', 'c': [round(cx / ppm, 3), round(cy / ppm, 3)], 'width_m': round(L / ppm, 3),
+                                  'glaze': 0.0, 'exterior': ext})
     for g in r['gaps']:
-        if g.kind == 'wall':
+        if g.kind == 'wall' or g.id in a_drop or g.id in a_used:
             continue
         for cx, cy, L in split_by_drawn(g, lab_g, r.get('drawn')):
             model['openings'].append({'kind': g.kind, 'c': [round(cx / ppm, 3), round(cy / ppm, 3)],

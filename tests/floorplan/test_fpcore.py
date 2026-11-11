@@ -700,3 +700,26 @@ def test_arrow_glyphs_drop_arrows_keep_wall_bits():
     assert fc.arrow_profile([1, 2, 3, 4, 5, 7, 8, 9, 5, 5, 5, 5, 5, 5])
     assert not fc.arrow_profile([5] * 14)                           # прямоугольник
     assert not fc.arrow_profile([16] * 8 + [8] * 12)                # уступ без нарастания
+
+
+def test_arrow_doors_drop_wall_arrow_gap_merge_split_doorway():
+    """T-20261111-13: стрелки правят только проёмы (`bench.arrow_doors`): разрыв «торец стены ↔ стрелка» (rgK, Bedroom 3) — не
+    проём; стрелка посреди проёма делит его на два разрыва — один проём во всю ширину; разрыв без стрелки — как был."""
+    import bench
+    lab_g = np.zeros((100, 200), np.int32)
+    arrows = np.zeros((100, 200), np.uint8)
+    arrows[20:28, 40:54] = 1                                        # стрелка 1: у торца стены, разрыв 1 — между ними
+    lab_g[20:28, 30:40] = 1
+    arrows[60:68, 80:94] = 1                                        # стрелка 2 посреди проёма: разрывы 2 и 3 по бокам
+    lab_g[60:68, 66:80] = 2
+    lab_g[60:68, 94:108] = 3
+    lab_g[60:68, 150:176] = 4                                       # обычная дверь
+    arrows[85:93, 150:164] = 1                                      # стрелка 3 у длинного закрытия (зона у лестницы)
+    lab_g[93:99, 120:190] = 5
+    lens = {1: 10, 2: 14, 3: 14, 4: 26, 5: 70}
+    gaps = [fc.Gap(i, 0, 0, lens[i], 8, 'door', 0.0, False, (0, 0, 0, 0)) for i in lens]
+    drop, merged, used = bench.arrow_doors(gaps, lab_g, arrows, 8)
+    assert drop == {1} and used == {2, 3} and len(merged) == 1     # длинное закрытие 5 (> 3 t) — как было
+    cx, cy, L, ext = merged[0]
+    assert abs(cx - 86.5) <= 1.5 and abs(L - 42) <= 2 and not ext
+    assert bench.arrow_doors(gaps, lab_g, None, 8) == (set(), [], set())
