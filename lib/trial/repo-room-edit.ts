@@ -60,6 +60,12 @@ export function nextDims(now: RoomNow, w: number, d: number): { w: number; d: nu
   return Math.abs(nw - now.orig.w) < 1 && Math.abs(nd - now.orig.d) < 1 ? null : { w: r1(nw), d: r1(nd) };
 }
 
+/** Итоговые габариты (`nextDims`) = построенные, до целого см. Прочитанный охват дробный (350.7), а правка хранит целые: без округления
+ *  обеих сторон «вернули как было» не узнавалось и черновик не снимался (T-20261111-19/2, тур «Этажи»). */
+export function sameAsBuilt(now: RoomNow, dims: { w: number; d: number } | null): boolean {
+  return r1(dims?.w ?? now.orig.w) === r1(now.w) && r1(dims?.d ?? now.orig.d) === r1(now.d);
+}
+
 export async function askRoomEdit(id: string, inp: TrialRoomEditIn, dir = trialDir()): Promise<RoomEditAsk> {
   return db().transaction(async (tx): Promise<RoomEditAsk> => {
     const [job] = await q<JobRow>(tx, sql`select status, edit_key_hash, bundle_version,
@@ -80,7 +86,7 @@ export async function askRoomEdit(id: string, inp: TrialRoomEditIn, dir = trialD
     try { now = text === null ? null : roomNow(JSON.parse(text), inp.room); } catch { now = null; }
     if (!now) return no(422, "bad_room");
     const dims = nextDims(now, inp.w_cm, inp.d_cm);
-    const sameDims = (dims?.w ?? now.orig.w) === r1(now.w) && (dims?.d ?? now.orig.d) === r1(now.d);
+    const sameDims = sameAsBuilt(now, dims);
     // окошко показывает подпись страницы (`titleRu`), сборщик хранит подпись плана (`name`) — любое из них = имя не меняли
     const sameName = inp.name === now.name || inp.name === now.title;
     const roomKey = `${now.panel}|${now.srcId}`;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { trialRoomEditIn } from "@/contracts/trial";
-import { nextDims, roomNow } from "@/lib/trial/repo-room-edit";
+import { nextDims, roomNow, sameAsBuilt } from "@/lib/trial/repo-room-edit";
 import { roomKindOf } from "@/lib/trial/room-kind";
 import { injectTour, roomEditPath } from "@/lib/trial/tour-page";
 
@@ -45,6 +45,17 @@ describe("правка комнаты: контракт и правила", () =
     expect(nextDims(now, 430, 305)).toEqual({ w: 430, d: 310 });
     expect(nextDims(now, 400, 300)).toBeNull();
     expect(nextDims(now, 380.4, 290)).toEqual({ w: 380, d: 290 });
+  });
+
+  it("«как построено» до целого см: дробный прочитанный охват (350.7 × 518.6) узнаётся по целым, что шлёт окошко (T-19/2)", () => {
+    const frac = { trial: { panels: [{ id: "p0", rooms: [{ id: "bedroom-1", src_id: "r2", name: "B1", kind: "bedroom",
+      bbox: { x: 0, y: 0, w: 350.7, d: 518.6 } }] }] } };
+    const now = roomNow(frac, "bedroom-1")!;
+    expect(sameAsBuilt(now, nextDims(now, 351, 519))).toBe(true);
+    expect(sameAsBuilt(now, nextDims(now, 401, 519))).toBe(false);
+    const edited = roomNow(bundle, "bedroom-1")!;                       // правка 420 × 310 поверх прочитанного 400 × 300
+    expect(sameAsBuilt(edited, nextDims(edited, 425, 312))).toBe(true);
+    expect(sameAsBuilt(edited, nextDims(edited, 400, 300))).toBe(false); // вернуть к прочитанному — это изменение
   });
 
   it("песочница тура пропускает ручку правки ЭТОГО задания и только её", () => {
