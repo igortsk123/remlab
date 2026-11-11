@@ -20,8 +20,9 @@ export async function POST(req: Request): Promise<Response> {
   if (body.paused) return trialJson({ ok: true, job: null });
   if (!body.rebuilds) return trialJson({ ok: true, job: await claim(body.workerId) });
   const first = await rebuildFirst();
-  // пересборки по тексту агента (Р2-текст) и правки комнат (T-20261110-36) — только воркеру, который их умеет
-  const can = { listing: body.listing === true, edit: body.edit === true };
+  // пересборки по тексту агента (Р2-текст), правки комнат (T-20261110-36) и «перечитать планировку» оператора (T-20261111-02) —
+  // только воркеру, который их умеет
+  const can = { listing: body.listing === true, edit: body.edit === true, reparse: body.reparse === true };
   if (first) {
     const rebuild = await claimRebuild(body.workerId, can);
     if (rebuild) return trialJson({ ok: true, job: null, rebuild });

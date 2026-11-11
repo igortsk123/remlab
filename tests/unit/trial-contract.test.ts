@@ -49,8 +49,8 @@ describe("floorplanResult (Zod)", () => {
     });
     expect(Object.keys(v).sort()).toEqual(
       ["askSizes", "bundleVersion", "createdAt", "elapsedSec", "errorCode", "finishedAt", "id", "listing", "listingError", "queueAhead", "rebuild",
-        "rebuildError", "resultVersion", "roomEdit", "roomEditError", "stage", "stages", "status", "workerAlive"]);
-    expect(v).toMatchObject({ rebuild: null, rebuildError: null, roomEdit: null, roomEditError: null });
+        "rebuildError", "resultVersion", "roomEdit", "roomEditError", "stage", "stages", "status", "tourUpdate", "workerAlive"]);
+    expect(v).toMatchObject({ rebuild: null, rebuildError: null, roomEdit: null, roomEditError: null, tourUpdate: null });
   });
 
   it("«Обустроить»: тело кнопки — ключ, повтор, версия, комнаты или all; лишнее и кривое — отказ", () => {

@@ -104,9 +104,29 @@ export const trialReissueIn = z.object({
   baseVersion: z.number().int().positive(), bundle: z.string().min(2), sha256: z.string().regex(/^[0-9a-f]{64}$/),
 });
 
+/** «Перечитать планировку» (оператор, T-20261111-02): какой тур; `requestId` — повтор постановки даёт ту же строку очереди. */
+export const trialReparseIn = z.object({
+  jobId: z.string().regex(/^[A-Za-z0-9_-]{22}$/), requestId: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+});
+
 /** Итог пересборки «Обустроить» (план agent-trial-08, Р1): `id` — id пересборки (её аренда), `jobId` — задание, чья это версия.
  *  `result` — только у пересборки по тексту агента (Р2-текст): план перечитан с размерами из текста, новый `floorplanResult` задания. */
+const OP_KEY = /^(s\d{1,3}|u[A-Za-z0-9_-]{6,32})$/;   // = contracts/trial.ts:trialOpeningEditIn.key
 export const trialRebuildPublishIn = z.object({
   ...lease, jobId: z.string().regex(/^[A-Za-z0-9_-]{22}$/), bundle: z.string().min(2), sha256: z.string().regex(/^[0-9a-f]{64}$/),
   spentUsd: z.number().nonnegative().max(100).optional(), result: z.unknown().optional(),
+  /** Только `reparse` (T-20261111-02): карта перечитанного плана — снятые комнаты новыми id страницы (ЗАМЕНЯЮТ накопленные) и правки
+   *  агента, чьи комнаты/проёмы сменили номер (строки правок переписываются на новые id той же транзакцией, что и версия). */
+  reparse: z.object({
+    released: z.array(z.string().regex(/^[a-z0-9-]{1,40}$/)).max(40),
+    rooms: z.array(z.object({
+      panel: z.string().min(1).max(40), from: z.string().min(1).max(60), to: z.string().min(1).max(60),
+      anchor: z.object({ x: z.number().finite(), y: z.number().finite() }),
+    })).max(100),
+    openings: z.array(z.object({
+      panel: z.string().min(1).max(40), key: z.string().regex(OP_KEY), to: z.string().regex(OP_KEY), srcIdx: z.number().int().nonnegative().nullable(),
+      srcC: z.tuple([z.number().finite(), z.number().finite()]).nullable(), c: z.tuple([z.number().finite(), z.number().finite()]),
+    })).max(200),
+  }).optional(),
 });
+export type TrialReparseMap = NonNullable<z.infer<typeof trialRebuildPublishIn>["reparse"]>;

@@ -43,8 +43,9 @@ export async function askListing(id: string, inp: TrialListingIn, env = process.
       return { ok: true, repeated: false, replaced: true, listing: { id: active.id, status: "queued" } };
     }
     if (active) return no(409, "busy");
+    // правки — свой счёт (`repo-room-edit.ts`), «перечитать планировку» оператора (T-20261111-02) — вне лимита агента
     const [day] = await q<{ n: number }>(tx, sql`select count(*)::int as n from trial_rebuilds
-        where job_id = ${id} and kind <> 'edit' and created_at > now() - interval '24 hours'`);  // правки — свой счёт
+        where job_id = ${id} and kind not in ('edit', 'reparse') and created_at > now() - interval '24 hours'`);
     if ((day?.n ?? 0) >= trialRebuildDaily(env)) return no(429, "rebuild_limit");
     const rid = randomToken();
     await tx.execute(sql`insert into trial_rebuilds (id, job_id, request_id, rooms, base_version, kind, listing_text)

@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 // Итог пересборки «Обустроить» — ОДНА новая версия данных страницы (план agent-trial-08, Р1). Те же проверки, что у версий задания
 // (`checkBundle`); `base_version` сверяется ещё раз под замком: страница успела смениться — 409 `stale`, ничего не пишем, пересборка failed.
 // 409 `lease_lost` — аренда потеряна; повтор того же тела той же аренды — 200 `repeated`.
-// Пересборка по тексту агента (Р2-текст) шлёт и новый `result` задания — та же схема и потолок, что у `/worker/result`.
+// Пересборка по тексту агента (Р2-текст) и «перечитать планировку» (`reparse`, T-20261111-02) шлют и новый `result` задания — та же схема и
+// потолок, что у `/worker/result`; `reparse` — ещё и карту перечитанного плана (`reparse`: снятые комнаты и правки агента на новых номерах).
 export async function POST(req: Request): Promise<Response> {
   const denied = workerGuard(req);
   if (denied) return denied;
@@ -30,7 +31,7 @@ export async function POST(req: Request): Promise<Response> {
     if (!parsed.success) return trialJson({ ok: false, error: "invalid_result", issues: parsed.error.issues.slice(0, 5) }, 422);
     result = { json, hash: createHash("sha256").update(json).digest("hex") };
   }
-  const r = await publishRebuild(body, body.bundle, checked.hash, undefined, undefined, result);
+  const r = await publishRebuild(body, body.bundle, checked.hash, undefined, undefined, result, body.reparse);
   if (r === "lease_lost" || r === "stale") return fail(409, r);
   if (r === "result_unexpected") return fail(422, r);
   return trialJson({ ok: true, version: r.version, repeated: r.repeated, ...(r.release === "failed" ? { warning: "release_pin_failed" } : {}) });

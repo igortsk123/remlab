@@ -31,5 +31,6 @@ create table if not exists trial_room_edits (
   constraint trial_room_edits_dims check ((w_cm is null) = (d_cm is null) and (w_cm is null or (w_cm between 50 and 5000 and d_cm between 50 and 5000)))
 );
 
+-- набор видов — как в `025`/`031` (`reparse` — перечитать планировку, T-20261111-02): файлы применяются по порядку на каждом деплое
 alter table trial_rebuilds drop constraint if exists trial_rebuilds_kind_chk;
-alter table trial_rebuilds add constraint trial_rebuilds_kind_chk check (kind in ('furnish', 'listing', 'edit'));
+alter table trial_rebuilds add constraint trial_rebuilds_kind_chk check (kind in ('furnish', 'listing', 'edit', 'reparse'));

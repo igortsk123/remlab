@@ -13,11 +13,12 @@ type ViewRow = {
   worker_alive: boolean; rebuild: Last | string | null; scale_status: string | null;
 };
 type Last = { status?: string; code?: string | null; kind?: string };
-type RebuildPart = Pick<TrialJobView, "rebuild" | "rebuildError" | "listing" | "listingError" | "roomEdit" | "roomEditError">;
+type RebuildPart = Pick<TrialJobView, "rebuild" | "rebuildError" | "listing" | "listingError" | "roomEdit" | "roomEditError" | "tourUpdate">;
 
 const REBUILD_ERRORS = new Set(["stale", "lease_lost", "timeout", "pipeline_error", "internal"]);
 const LISTING_ERRORS = new Set([...REBUILD_ERRORS, "source_gone", "no_match"]);
-const NONE: RebuildPart = { rebuild: null, rebuildError: null, listing: null, listingError: null, roomEdit: null, roomEditError: null };
+const NONE: RebuildPart = { rebuild: null, rebuildError: null, listing: null, listingError: null, roomEdit: null, roomEditError: null,
+  tourUpdate: null };
 const errOf = (r: Last, known: Set<string>) => (r.status === "failed" ? (known.has(r.code ?? "") ? r.code : "internal") : null);
 
 /** Последняя пересборка задания → видимое состояние. «Обустроить»: `done` — уже не важно (новая версия пришла), ошибка — закрытым кодом.
@@ -30,6 +31,8 @@ function rebuildOf(raw: ViewRow["rebuild"], jobStatus: string): RebuildPart {
       : r.status === "queued" || r.status === "running" ? "applying" : r.status === "done" ? "done" : r.status === "failed" ? "failed" : null;
     return { ...NONE, listing, listingError: errOf(r, LISTING_ERRORS) as TrialJobView["listingError"] };
   }
+  // «перечитать планировку» оператора (T-20261111-02): нейтрально «обновляем тур»; итог виден новой версией, неудача — тур прежний (без кода)
+  if (r.kind === "reparse") return { ...NONE, tourUpdate: r.status === "queued" || r.status === "running" ? "applying" : null };
   if (r.kind === "edit") {                    // правка комнаты (T-20261110-36): страница держит «Пересобираю комнату…», пока не `done`
     const roomEdit = r.status === "queued" || r.status === "running" ? "applying" : r.status === "done" ? "done" : r.status === "failed" ? "failed" : null;
     return { ...NONE, roomEdit, roomEditError: errOf(r, REBUILD_ERRORS) as TrialJobView["roomEditError"] };

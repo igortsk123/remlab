@@ -8,6 +8,7 @@ import { listingDbTests } from "./_trial-listing-db";
 import { photoDbTests } from "./_trial-photo-db";
 import { rebuildDbTests } from "./_trial-rebuild-db";
 import { reissueDbTests } from "./_trial-reissue-db";
+import { reparseDbTests } from "./_trial-reparse-db";
 import { openingEditDbTests } from "./_trial-opening-edit-db";
 import { roomEditDbTests } from "./_trial-room-edit-db";
 import { png, sampleResult, withOneRowStats } from "./_trial-helpers";
@@ -453,6 +454,7 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
   photoDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR }));
   listingDbTests(() => ({ pg, repo: L.repo, seed, row, dir: DIR, token: TOKEN }));
   reissueDbTests(() => ({ pg, repo: L.repo, seed, row, dir: DIR, token: TOKEN }));
+  reparseDbTests(() => ({ pg, repo: L.repo, seed, row, dir: DIR, token: TOKEN }));
   roomEditDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR, token: TOKEN }));
   openingEditDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR, token: TOKEN }));
 });

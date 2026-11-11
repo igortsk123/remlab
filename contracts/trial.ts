@@ -47,6 +47,8 @@ export const trialJobView = z.object({
   /** Правка комнаты (T-20261110-36): пересобирается / готово (новая версия пришла) / не удалась. */
   roomEdit: z.enum(["applying", "done", "failed"]).nullable().default(null),
   roomEditError: z.enum(["stale", "lease_lost", "timeout", "pipeline_error", "internal"]).nullable().default(null),
+  /** «Перечитать планировку» оператором (T-20261111-02): тур обновляется — нейтрально, без кода ошибки (не удалась — тур прежний). */
+  tourUpdate: z.enum(["applying"]).nullable().default(null),
 });
 export type TrialJobView = z.infer<typeof trialJobView>;
 
@@ -74,9 +76,12 @@ export const trialPhotoIn = z.looseObject({
 });
 export type TrialPhotoIn = z.infer<typeof trialPhotoIn>;
 /** Коды сбоя пересборки от воркера (наружу — `trialJobView.rebuildError` / `listingError`); `source_gone` — исходного листа (или
- *  кэша чтения плана) уже нет; `no_match` — текст агента ни к одной комнате плана не подошёл (страница остаётся как была). */
+ *  кэша чтения плана) уже нет; `no_match` — текст агента ни к одной комнате плана не подошёл (страница остаётся как была).
+ *  Только у «перечитать планировку» (`reparse`, T-20261111-02; наружу не выходят — тур прежний): `cache_miss` — кэша чтения плана нет
+ *  (платно не читаем), `edits_conflict` — правка агента не нашла однозначной пары, `regress` — сторож регресса нашёл потери. */
 export const trialRebuildFailCode = z.enum([
   "stale", "timeout", "pipeline_error", "internal", "waiting_capacity", "nothing_to_furnish", "source_gone", "no_match",
+  "cache_miss", "edits_conflict", "regress",
 ]);
 
 // ── «Размеры своими словами» (план agent-trial-08, Р2-текст; `db/init/025-trial-listing-text.sql`) ─────────────────
@@ -215,6 +220,8 @@ export const trialClaimIn = z.object({
   listing: z.boolean().optional(),
   /** true — воркер умеет правки комнат (`kind: "edit"` и `edits` в каждой пересборке); без этого строки `edit` ему не отдаются. */
   edit: z.boolean().optional(),
+  /** true — воркер умеет «перечитать планировку» (`kind: "reparse"`, оператор; T-20261111-02); без этого такие строки ему не отдаются. */
+  reparse: z.boolean().optional(),
 });
 /** Аренда пересборки: `id` — id строки `trial_rebuilds` (не задания). */
 export const trialRebuildLeaseIn = z.object({ ...lease, spentUsd: spent });
@@ -230,7 +237,10 @@ export type TrialRebuildClaimed = {
   id: string; jobId: string; attempt: number; leaseToken: string; leaseUntil: string; rooms: string[]; baseVersion: number;
   result: unknown;
   /** `listing` — пересборка по тексту агента: `listingText` — его текст (только воркеру), `baseVersion` — версия данных на момент claim. */
-  kind: "furnish" | "listing" | "edit"; listingText?: string; inputMime?: string;
+  kind: "furnish" | "listing" | "edit" | "reparse"; listingText?: string; inputMime?: string;
+  /** `reparse` (оператор, T-20261111-02): `listingText` — ИСХОДНЫЙ текст объявления задания (может быть пустым), `bundle` — точные байты
+   *  текущей версии данных страницы (`baseVersion`): сторож регресса сравнивает с ней новую страницу. */
+  bundle?: string;
   /** Правки комнат задания (только воркеру, умеющему `edit`): накладываются на копию `result` перед любой сборкой. */
   edits?: TrialRoomEdit[];
   /** Окна и двери агента (тому же воркеру): накладываются после правок комнат. */
