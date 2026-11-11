@@ -1179,6 +1179,14 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     for g in gaps:
         if bay.any() and bay[lab_g == g.id].any():
             g.kind = 'window'
+            if DOORLESS and g.exterior:
+                # T-11/5: дуга открывания у «эркера» — кандидатка в дверь, только для комнаты без дверей (`doorless_doors`, ярус
+                # окна с дугой); rgK5f3 p0 Cupboard у кухни: дверь с дугой наружу принята за эркер, комната без входа
+                ys, xs = np.nonzero(lab_g == g.id)
+                c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
+                ev = fc.door_evidence(thin, c, u, nrm, L, dpt, wall=wall_drawn)
+                if ev >= DOOR_EV:
+                    glazed.append((g.id, float(ev)))
         elif not g.exterior and fc.is_notch(g, t) and not (g.depth >= fc.THIN_PART_MIN_PX
                                                            and fc.passes_through(wall, *np.nonzero(lab_g == g.id))):
             # T-36: зазубрина грани стены (водяной знак, сжатие) — не проём; наружные не трогаем: рама окна серым в линии стены
