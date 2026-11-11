@@ -754,6 +754,78 @@ def test_arrow_doors_single_gap_arrow_in_doorway_is_whole_door():
     assert q[40:49, 37:44].all()                                    # стрелка в проёме внутри двери — её снимут из стены в 3D
 
 
+def _leaf_scene(gap_x, arc):
+    """Проём 26 px (~87 см при 30 px/м) между торцом вертикальной стены (x 40..48, до y 40) и гранью горизонтальной (y 66);
+    разрыв 1 — x gap_x..gap_x+8, y 40..52; стрелка «←» к нему сбоку, вне полосы стены (как у Family: стрелка рядом с линией
+    проёма). arc: None | 'left' (петля у торца, створка влево)."""
+    wall = np.zeros((110, 120), np.uint8)
+    thin = np.zeros_like(wall)
+    lab_g = np.zeros((110, 120), np.int32)
+    arrows = np.zeros_like(wall)
+    wall[0:40, 40:48] = 1
+    wall[66:74, 0:120] = 1
+    lab_g[40:52, gap_x:gap_x + 8] = 1
+    arrows[44:52, gap_x + 8:gap_x + 22] = 1
+    wall |= arrows
+    if arc:
+        cv2.ellipse(thin, (40, 40), (26, 26), 0, 90, 180, 1, 1)      # петля (40, 40), R 26: от (40, 66) до (14, 40)
+    gaps = [fc.Gap(1, gap_x + 4, 46, 12, 8, 'door', 0.0, False, (0, 0, 0, 0))]
+    return gaps, lab_g, arrows, wall, thin
+
+
+def test_arrow_doors_single_gap_with_leaf_arc_is_door_by_arc():
+    """T-20261111-13/4: одиночный короткий разрыв у стрелки не снимается, если рядом дуга створки: дверь от торца по дуге, ширина
+    = радиус (rgK p0 Family ↔ Utility: разрыв 42 см в проёме 86 см; p2 Bedroom 8 ↔ Playroom: разрыв у стрелки ступеней в 40 см от
+    настоящей двери). Дуги нет — снимается, как в /2."""
+    import bench
+    t, ppm = 8, 30.0
+    for gap_x in (40, 24):                                           # разрыв в самом проёме (Family) и в 16 px сбоку (Bedroom 8)
+        gaps, lab_g, arrows, wall, thin = _leaf_scene(gap_x, 'left')
+        drop, merged, used = bench.arrow_doors(gaps, lab_g, arrows, t, wall, thin, ppm)
+        assert drop == set() and used == {1} and len(merged) == 1, gap_x
+        cx, cy, L, ext, quad = merged[0]
+        assert abs(L - 26) <= 2.5 and abs(cx - 44) <= 2 and abs(cy - 53) <= 2.5, (gap_x, cx, cy, L)
+        gaps, lab_g, arrows, wall, thin = _leaf_scene(gap_x, None)
+        assert bench.arrow_doors(gaps, lab_g, arrows, t, wall, thin, ppm)[:2] == ({1}, [])
+    gaps, lab_g, arrows, wall, thin = _leaf_scene(40, 'left')
+    lab_g[54:66, 40:48] = 2                                          # на месте двери уже есть другой проём — не дублируем
+    gaps.append(fc.Gap(2, 44, 60, 12, 8, 'door', 0.0, False, (0, 0, 0, 0)))
+    assert bench.arrow_doors(gaps, lab_g, arrows, t, wall, thin, ppm)[:2] == ({1}, [])
+    gaps, lab_g, arrows, wall, thin = _leaf_scene(40, None)
+    for i in range(6):                                               # ступени лестницы вместо дуги (rgK p0 Hall) — не дверь
+        cv2.line(thin, (6, 42 + 5 * i), (39, 42 + 5 * i), 1, 1)
+    cv2.line(thin, (6, 42), (6, 66), 1, 1)
+    assert bench.arrow_doors(gaps, lab_g, arrows, t, wall, thin, ppm)[:2] == ({1}, [])
+
+
+def test_arrow_doors_merged_needs_wall_ends_both_sides():
+    """T-20261111-13/4 (rgK p1, Corridor у Bedroom 3): стрелка на тонкой черте поперёк коридора — разрывы 43 + 46 см между гранями
+    стен коридора. Торцов стен по краям пролёта нет — не проём, открытый проход: разрывы снимаются, двери нет. Стрелка посреди
+    проёма в линии стены (торцы с обеих сторон) — одна дверь во всю ширину, как было."""
+    import bench
+    t = 8
+    wall = np.zeros((110, 120), np.uint8)
+    lab_g = np.zeros((110, 120), np.int32)
+    arrows = np.zeros_like(wall)
+    wall[20:28, :] = 1                                              # коридор между гранями y 28 и y 60
+    wall[60:68, :] = 1
+    arrows[38:50, 56:64] = 1
+    lab_g[28:38, 56:64] = 1
+    lab_g[50:60, 56:64] = 2
+    wall[90:98, 0:40] = 1                                           # стена с проёмом x 40..72, стрелка посреди
+    wall[90:98, 72:120] = 1
+    arrows[88:100, 52:60] = 1
+    lab_g[90:98, 40:52] = 3
+    lab_g[90:98, 60:72] = 4
+    wall |= arrows
+    gaps = [fc.Gap(i, 0, 0, ln, 8, 'door', 0.0, False, (0, 0, 0, 0)) for i, ln in ((1, 10), (2, 10), (3, 12), (4, 12))]
+    drop, merged, used = bench.arrow_doors(gaps, lab_g, arrows, t, wall)
+    assert drop == {1, 2} and used == {3, 4} and len(merged) == 1
+    cx, cy, L, ext, quad = merged[0]
+    assert abs(cx - 55.5) <= 1.5 and abs(cy - 94) <= 2 and abs(L - 32) <= 2
+    assert bench.arrow_doors(gaps, lab_g, arrows, t)[2] == {1, 2, 3, 4}   # без маски стен — как в /2: оба слиты
+
+
 def test_arc_trim_door_width_by_leaf_arc():
     """T-20261111-13/3 (rgK, Cupboard): пролёт со стрелкой шире двери. Дуга створки на листе (петля у торца, R 20 px при пролёте
     30) — дверь от петли шириной R; без дуги — пролёт как был; дуга во весь пролёт — тоже как был."""
