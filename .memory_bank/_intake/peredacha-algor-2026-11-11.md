@@ -46,7 +46,7 @@
   листы не прогнались (QFfI, FjiO, UwBX, FYyX: перегнать из `before/<id>/sheet.png` через `--cases`). rgK: Bedroom 4, 8, новая Bedroom 9 (p2)
   получили ядро; Bedroom 3 — нет (дверей 3 вместо 4); p3/Bedroom 5 снова в отказе (было ядро 515×375 в after1) — виновник `wedge_tails` или
   проверка по стене, разобрать `.t03/replay.py`. Дверей rgK 161→107, «Этажи» без изменений. Дальше: Bedroom 5 → Bedroom 3 → перегон 4
-  листов → снимки `.t03/pair.py` → pytest2 → влить.
+  листов → снимки `.t03/pair.py` → влить. pytest2 `tests/floorplan` на 39ca6e8c — 380/380 (`~/remlab-logs/t03-1111/0631/pytest2.txt`).
 - **T-06 partial** (`worktree-kitchen-living`): В — `623cf00a` wip: `trial_bedroom.fit_extras` вместо `kit_ladder` (шкаф/комод от широкого к
   узкому до 4 размеров), 174 теста; регресс досчитан (`~/remlab-logs/t06-1111/0742-regB/table.txt`): 15 туров со спальнями, 40 комнат —
   лучше 12 / так же 27 / **хуже 1** (Jsfx20 bedroom-1 19,34 м²: 30→25 предметов, упёрлась в `ROOM_BUDGET_S` 30 с); шкафов 99→133, комодов
