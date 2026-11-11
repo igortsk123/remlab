@@ -192,6 +192,11 @@ def _openings_plan(panel: dict, room: dict, cfg: dict) -> tuple[list, list, list
             continue
         if _covers(poly, op, near, k) and d0 <= near:
             mine(op, j, d0, c)
+            if not poly.contains(c) and sum(1 for o in others if o.contains(c)) >= 2:
+                # T-20261111-03/2: центр вне нашего пола и в полу двух соседей — дверь, скорее всего, между ними (rgK5… p3: дверь
+                # Shower Room ↔ Hall / Stairs; контур Bedroom 5 дотянулся до неё щепкой 20 см у торца стены). Остаётся нашей
+                # (дугу проверяет post_check), но если ядру её поставить некуда — не отказ `opening_unplaced` (`core_candidate`)
+                ours[-1]['_between'] = True
             continue
         if any(o.exterior.distance(c) <= near and _covers(o, op, near, k) for o in others):
             continue                                   # целиком у соседа — его проём
@@ -484,7 +489,7 @@ def _place_opening(P: Polygon, op: dict, T, cfg: dict) -> dict:
     w = float(op['widthCm'])
     kind = op['kind']
     o = {'kind': kind, 'c': (round(c[0], 1), round(c[1], 1)), 'w': w, 'axis': 'x' if ux else 'y', 'n_in': nin,
-         'exterior': bool(op.get('exterior')), 'src': op['_idx'], 'edge_q': (q.x, q.y)}
+         'exterior': bool(op.get('exterior')), 'src': op['_idx'], 'edge_q': (q.x, q.y), 'between': bool(op.get('_between'))}
     if kind == 'door':
         o['leaf'] = min(w / 2 if w >= cfg['double_door_min_cm'] else w, cfg['door_leaf_max_cm'])
     return o
@@ -696,7 +701,9 @@ def core_candidate(P: Polygon, rect, ops: list, need: dict, cfg: dict) -> dict:
                 res['openings'].append(via['o']['src'])
     placed = {id(x['o']) for x in cand['openings']}
     in_res = {o['src'] for r in cand['residues'] for o in rest_ops if o['src'] in r['openings']}
-    lost = [o for o in rest_ops if id(o) not in placed and o['src'] not in in_res]
+    # дверь между двумя соседями (`_openings_plan`: центр вне нашего пола, в полу двух других) — не наш вход: места на ядре и в
+    # остатках ей может не быть, это не отказ (T-20261111-03/2)
+    lost = [o for o in rest_ops if id(o) not in placed and o['src'] not in in_res and not o.get('between')]
     if lost:
         cand['reasons'].append('opening_unplaced:' + ','.join(f"{o['kind']}{o['src']}" for o in lost))
     has_entry = any(x['o']['kind'] in ('door', 'opening') for x in cand['openings']) or \

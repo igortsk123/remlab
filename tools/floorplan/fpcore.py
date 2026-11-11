@@ -911,6 +911,10 @@ def passes_through(wall: np.ndarray, ys: np.ndarray, xs: np.ndarray, k: int = 3)
 FACE_ON = 0.8      # доля длины, где сразу за длинной стороной стена: не меньше — сторона лежит на грани стены
 FACE_OFF = 0.2     # и не больше этого у другой стороны — она открыта в комнату (щель между двумя стенами — не клин)
 FACE_ELONG = 0.35  # глубина не больше этой доли длины: вытянут вдоль грани (слитые косые закрытия глубже — не трогаем)
+# T-20261111-03/2: грань ищем на 1..3 px за краем разрыва, не 1..2. Между клином и НАРИСОВАННОЙ стеной бывает шов в 2 px (rgK5… p3
+# Bedroom 5: клин 1,55 м вдоль правой стены касается её на 0,42 длины при k=2 и на 1,00 при k=3 — «дверь» резала ядро спальни).
+# Продления торцов (`extend_corners`) шов тоже закрывают, но они же ложатся вдоль настоящей двери (QFfI… Bedroom 2: 0,05 → 0,89).
+FACE_K = 3
 
 
 def face_contact(wall: np.ndarray, ys: np.ndarray, xs: np.ndarray, k: int = 2) -> tuple[float, float]:
@@ -947,7 +951,7 @@ def along_face(wall: np.ndarray, ys: np.ndarray, xs: np.ndarray) -> bool:
     _, _, _, L, d = gap_axes(ys, xs)
     if d > FACE_ELONG * L:
         return False
-    f1, f2 = face_contact(wall, ys, xs)
+    f1, f2 = face_contact(wall, ys, xs, FACE_K)
     return max(f1, f2) >= FACE_ON and min(f1, f2) <= FACE_OFF
 
 

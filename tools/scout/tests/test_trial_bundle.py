@@ -1215,3 +1215,22 @@ def test_main_out_prints_json_last(tmp_path, monkeypatch, capsys):
     assert TB.main() == 0
     lines = capsys.readouterr().out.strip().splitlines()
     assert lines[0].startswith('ракурсы окна') and json.loads(lines[-1])['ok'] is True
+
+
+def test_door_between_two_neighbours_does_not_refuse_core():
+    """T-20261111-03/2 (rgK5… p3 Bedroom 5): контур спальни дотянулся щепкой 20 см у торца стены до двери душевой в холл —
+    центр двери вне пола спальни, в полу двух соседей. Дверь «наша» (вся ширина у контура), но ядру поставить её некуда —
+    был отказ ядра (`opening_unplaced`). Теперь ядро есть; дверь в полу одного соседа (общая стена) по-прежнему обязана встать."""
+    bed = room('b', 'bedroom', [(0, 100), (300, 100), (300, 60), (320, 60), (320, 100), (400, 100), (400, 500), (0, 500)],
+               name='Bedroom 5')
+    shower = room('s', 'other', [(200, 0), (330, 0), (330, 80), (200, 80)], name='Shower Room')
+    hall = room('h', 'hall', [(322, 0), (500, 0), (500, 98), (322, 98)], name='Hall')
+    own = [op('door', (100, 500), 90), op('window', (0, 300), 120, True)]
+    p = panel('p3', [bed, shower, hall], own + [op('door', (325, 75), 50)])
+    ours, _ = TB.TR._openings_of(p, bed, TB.TR.rules())
+    assert [o['_idx'] for o in ours if o.get('_between')] == [2]
+    g = TB.core_geometry(p, bed, TB.TR.rules())
+    assert (round(float(g['w'])), round(float(g['d']))) == (400, 400)
+    lone = panel('p3', [bed, hall], own + [op('door', (325, 75), 50)])     # в полу одного соседа — своя дверь общей стены
+    with pytest.raises(TB.TR.Refusal):
+        TB.core_geometry(lone, bed, TB.TR.rules())

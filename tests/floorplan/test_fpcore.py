@@ -476,6 +476,26 @@ def test_along_face_wedge_vs_door_through_wall():
     assert not fc.along_face(thick, *np.nonzero(np.pad(np.ones((30, 30), bool), ((60, 210), (100, 170)))))
 
 
+def test_along_face_wedge_behind_seam():
+    """T-20261111-03/2 (rgK5… p3 Bedroom 5): клин 1,55 м вдоль правой стены отделён от НАРИСОВАННОЙ стены швом в 2 px — при поиске
+    грани на 1..2 px за краем он касался стены на 0,42 длины, оставался «дверью» и резал ядро спальни (отказ opening_ambiguous).
+    Грань ищем на 1..FACE_K=3 px: клин за швом — вдоль грани; щель между двумя стенами и дверь сквозь стену — по-прежнему нет."""
+    wall = np.zeros((300, 300), np.uint8)
+    wall[20:280, 100:108] = 1
+    wedge = np.zeros_like(wall)
+    for y in range(140, 200):                                       # треугольник за швом (столбцы 108–109 пусты): глубина 1 → 7 px
+        wedge[y, 110:111 + (y - 140) * 6 // 60] = 1
+    ys, xs = np.nonzero(wedge)
+    assert max(fc.face_contact(wall, ys, xs, 2)) < fc.FACE_ON     # прежний поиск 1..2 px шва не перешагивал
+    assert fc.along_face(wall, ys, xs)
+    slot = wall.copy()
+    slot[20:280, 116:124] = 1                                       # щель между двумя стенами, швы по 2 px с обеих сторон — не клин
+    assert not fc.along_face(slot, *np.nonzero(np.pad(np.ones((60, 4), bool), ((140, 100), (110, 186)))))
+    door = wall.copy()
+    door[60:84, 100:108] = 0
+    assert not fc.along_face(door, *np.nonzero(np.pad(np.ones((24, 8), bool), ((60, 216), (100, 192)))))
+
+
 def test_tilted_family_wedges_are_not_doors():
     """T-20261111-03 (тур rgK5…): семейство углов листа с наклоном 3,2° (повёрнутый флигель) закрывает вдоль граней прямых стен
     клинья по 1,2–1,7 м; в залитых комнатах «стекло» у них высокое, и межкомнатные становились «дверями» (Bedroom 8 — 7 при одной).
