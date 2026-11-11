@@ -750,31 +750,36 @@ def doorless_doors(r: dict, ppm: float) -> list:
         if any(y0 <= int(round(cy)) < y1 and x0 <= int(round(cx)) < x1
                and dist[int(round(cy)) - y0, int(round(cx)) - x0] <= tol for cx, cy in door_c):
             continue
+        # сперва прежнее правило, окно с дугой — последним; по убыванию доли. Кандидатка, которую не поставить (все её пиксели
+        # уже заняты другим разрывом), — следующая (T-11/4: rgK5f3 Cupboard у кухни оставался без двери)
+        order = sorted((c for c in cands if zone[c[0], c[1]].any()), key=lambda c: (c[4], -c[2]))
         best = None
-        for c in cands:
-            inz = zone[c[0], c[1]]
-            if not inz.any() or (c[4] and inz.mean() < 0.5):      # окно с дугой — своё, не соседней комнаты у угла
+        for c in order:
+            if c[4] and zone[c[0], c[1]].mean() < 0.5:              # окно с дугой — своё, не соседней комнаты у угла
                 continue
-            if best is None or (c[4], -c[2]) < (best[4], -best[2]):   # сперва прежнее правило, окно с дугой — последним
-                best = c
+            ys, xs, ev, gid, _ = c
+            if gid is not None:
+                if byid[gid].kind != 'window':
+                    continue
+                byid[gid].kind = 'door'
+            else:
+                free = lab_g[ys, xs] == 0
+                if not free.any():
+                    continue
+                ys, xs = ys[free], xs[free]
+                gid = int(lab_g.max()) + 1
+                lab_g[ys, xs] = gid
+                g = fc.regap(fc.Gap(gid, 0.0, 0.0, 0.0, 0.0, 'door', 0.0, bool(out_near[ys, xs].any()), (0, 0, 0, 0)),
+                             ys, xs)
+                gaps.append(g)
+                byid[gid] = g
+            best = c
+            break
         if best is None:
             continue
-        ys, xs, ev, gid, _ = best
-        if gid is not None:
-            byid[gid].kind = 'door'
-        else:
-            free = lab_g[ys, xs] == 0
-            if not free.any():
-                continue
-            ys, xs = ys[free], xs[free]
-            gid = int(lab_g.max()) + 1
-            lab_g[ys, xs] = gid
-            g = fc.regap(fc.Gap(gid, 0.0, 0.0, 0.0, 0.0, 'door', 0.0, bool(out_near[ys, xs].any()), (0, 0, 0, 0)), ys, xs)
-            gaps.append(g)
-            byid[gid] = g
         door_c.append((byid[gid].cx, byid[gid].cy))
         cands = [c for c in cands if c is not best]
-        added.append((int(rid), round(ev, 2)))
+        added.append((int(rid), round(best[2], 2)))
     return added
 
 
@@ -888,6 +893,17 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     def alt_of(ys_, xs_, c_, u_, n_, L_, d_):
         if not DOORLESS or fc.arc_pure() is None:
             return
+        if fc.along_face(wall_drawn, ys_, xs_) or not fc.passes_through(wall_drawn, ys_, xs_):
+            # T-11/4: клин вдоль грани стены и закрытие не насквозь стены (с одной стороны тело стены) — не проём (как у
+            # классификации T-03): rgK5f3 Tool store получал «двери»-полоски у правой стены вместо своей двери с дугой, Cinema —
+            # клин у косой стены
+            return
+        tail = fc.wedge_tails(wall_drawn, ys_, xs_, ppm)
+        if tail is not None:
+            if (~tail).sum() < 3:
+                return
+            ys_, xs_ = ys_[~tail], xs_[~tail]
+            c_, u_, n_, L_, d_ = fc.gap_axes(ys_, xs_)
         raw = fc.door_evidence(thin, c_, u_, n_, L_, d_, pure_check=False)
         if raw >= DOOR_EV:
             alts.append((ys_, xs_, float(raw)))

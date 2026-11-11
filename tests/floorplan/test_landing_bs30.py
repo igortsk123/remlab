@@ -207,6 +207,19 @@ def test_doorless_room_counts_doors_by_middle(monkeypatch):
     assert 3 in [a[0] for a in added] and r['gaps'][1].kind == 'door'
 
 
+def test_doorless_room_takes_next_candidate_when_first_occupied(monkeypatch):
+    """T-11/4 (rgK5f3 Cupboard у кухни): лучшую кандидатку не поставить (её пиксели заняты другим разрывом) — берётся следующая,
+    комната не остаётся без двери."""
+    r = doorless_case()
+    r['lab_g'][20:30, 190:192] = 5
+    r['gaps'].append(fc.regap(fc.Gap(5, 0, 0, 0, 0, 'wall', 0.0, False, (0, 0, 0, 0)), *np.nonzero(r['lab_g'] == 5)))
+    yo, xo = np.nonzero(r['lab_g'] == 5)
+    r['alts'].append((yo, xo, 0.99))
+    monkeypatch.setattr(bench, 'DOORLESS', True)
+    added = bench.doorless_doors(r, 30.0)
+    assert (3, 0.9) in added and r['gaps'][1].kind == 'door'
+
+
 def test_doorless_room_shared_candidate_serves_both(monkeypatch):
     """Кандидатка между двумя комнатами без дверей — одна дверь на обе (вторая комната её видит и не берёт ещё одну)."""
     r = doorless_case(c0=125)
