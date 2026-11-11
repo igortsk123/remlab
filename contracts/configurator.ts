@@ -23,6 +23,11 @@ export const material = z.object({
   titleEn: z.string(),
   /** Базовый цвет — файл (webp/ktx2) или сплошной цвет как честный фолбэк. */
   baseColorUrl: z.string().optional(),
+  /**
+   * Та же карта цвета 512² для телефона и лёгкого режима (`LITE_QUALITY`, без карт нормалей и шероховатости): урок 416 —
+   * телефон упирается в видеопамять текстур. Нет поля — берётся `baseColorUrl` (T-20261111-24/2, полы из сканов).
+   */
+  baseColorLiteUrl: z.string().optional(),
   normalUrl: z.string().optional(),
   roughnessUrl: z.string().optional(),
   aoUrl: z.string().optional(),

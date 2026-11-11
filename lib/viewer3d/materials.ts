@@ -148,9 +148,11 @@ export function baseMaterial(ctx: MaterialCtx, m: Material): THREE.MeshStandardM
     roughness: m.roughness,
     metalness: m.metalness,
   });
-  if (ctx.useMaps && m.baseColorUrl) {
+  // телефон и лёгкий режим (без доп. карт) берут цвет 512², если он есть (T-20261111-24/2, урок 416)
+  const colorUrl = !ctx.extraMaps && m.baseColorLiteUrl ? m.baseColorLiteUrl : m.baseColorUrl;
+  if (ctx.useMaps && colorUrl) {
     // ковёр — фото карточки товара: белые поля вокруг не тянем на плиту (T-20261111-15, TG 1455)
-    mat.map = attachTexture(ctx, mat, "map", m.baseColorUrl, true, m.colorHex, m.surfaces.includes("rug"));
+    mat.map = attachTexture(ctx, mat, "map", colorUrl, true, m.colorHex, m.surfaces.includes("rug"));
     mat.color.set("#ffffff"); // цвет уже в текстуре, иначе двойное умножение
   }
   if (ctx.useMaps && ctx.extraMaps && m.normalUrl) {

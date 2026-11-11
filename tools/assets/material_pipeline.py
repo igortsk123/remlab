@@ -150,7 +150,10 @@ def warp_perspective(img: np.ndarray, corners: list[tuple[float, float]], size: 
 
 
 def _wood_grain(seed: int, stretch: int = 14) -> np.ndarray:
-    """Древесное волокно: шум, вытянутый вдоль доски, плюс тонкие тёмные жилы."""
+    """Древесное волокно: шум, вытянутый вдоль доски, и мелкая рябь.
+
+    Тёмных «жил» (`|sin(шум·9π)|⁸`) больше нет (T-20261111-24/2): на полу они читались густыми чёрными штрихами, а не дубом.
+    """
     base = _fbm((TILE, TILE), seed, octaves=6, persistence=0.55)
     stretched = np.asarray(
         Image.fromarray((base * 255).astype(np.uint8))
@@ -159,49 +162,73 @@ def _wood_grain(seed: int, stretch: int = 14) -> np.ndarray:
         np.float32,
     ) / 255.0
     fine = _fbm((TILE, TILE), seed + 91, octaves=7, persistence=0.68)
-    # жилы: узкие тёмные линии там, где растянутый шум проходит через уровни
-    rings = np.abs(np.sin(stretched * math.pi * 9.0))
-    veins = np.clip(1.0 - rings, 0, 1) ** 8
-    return np.clip(stretched * 0.72 + fine * 0.28 - veins * 0.30, 0, 1)
+    return np.clip(stretched * 0.78 + fine * 0.22, 0, 1)
+
+
+# Шов доски (T-20261111-24/2): у ламината и инженерной доски стык — волосяная линия 0,1–0,2 см, чуть темнее доски.
+# Прежний шов 0,9 см ×0,45 по цвету рисовал на полу чёрную решётку.
+PLANK_GAP_CM = 0.18
+PLANK_SEAM_SHADE = 0.86
+
+
+def plank_layout(plank_cm: float, tile_cm: float, gap_cm: float = PLANK_GAP_CM) -> tuple[int, float, int, int]:
+    """Раскладка досок в тайле: (рядов, высота тайла см, шов поперёк рядов px, торцевой шов px).
+
+    Ширина доски — РОВНО заданная: высота тайла подгоняется под целое число рядов (`рядов × plank_cm`), а не доска под
+    делитель 1024 px (прежнее `while TILE % pw` давало 15 см вместо 19). Шов — целое число пикселей не шире `gap_cm`,
+    но не меньше одного пикселя: на 1024 px тайла 1,1–1,2 м это 0,11–0,12 см.
+    """
+    rows = max(1, int(round(tile_cm / plank_cm)))
+    tile_y = rows * plank_cm
+    seam_y = max(1, int(gap_cm * TILE / tile_y))
+    seam_x = max(1, int(gap_cm * TILE / tile_cm))
+    return rows, tile_y, seam_y, seam_x
 
 
 def gen_planks(seed: int, base_rgb: tuple[int, int, int], plank_cm: float, tile_cm: float,
-               contrast: float = 0.20, gap: float = 0.9) -> tuple[np.ndarray, np.ndarray]:
-    """Доска (ламинат/паркет/LVT): ряды со смещением, продольное волокно, тёмный шов.
+               contrast: float = 0.20, gap: float = PLANK_GAP_CM) -> tuple[np.ndarray, np.ndarray]:
+    """Доска (ламинат/паркет/LVT): ряды со смещением, продольное волокно, тонкий шов.
 
-    Тайлится ПО ПОСТРОЕНИЮ: высота доски — делитель TILE, смещение рядов кратно ширине,
-    шум `_fbm` сам по себе бесшовный. Поэтому `make_seamless` к процедурным образцам не
-    применяется — он давал светлую полосу поперёк пола (замер 28.09).
+    Тайл — `tile_cm` по X и `plank_layout(...)[1]` по Y (целое число досок заданной ширины). Тайлится ПО ПОСТРОЕНИЮ:
+    границы рядов делят 1024 px поровну (с точностью до пикселя), смещение рядов — доля тайла, шум `_fbm` бесшовный.
+    Поэтому `make_seamless` к процедурным образцам не применяется — он давал светлую полосу поперёк пола (замер 28.09).
+    Рельеф — только у шва: волокно в карту высот не идёт (иначе нормали рисовали «жилы» и при ровной картинке, 11.11).
     """
-    px_per_cm = TILE / tile_cm
-    pw = max(8, int(round(plank_cm * px_per_cm)))
-    while TILE % pw:  # ряд обязан укладываться целое число раз, иначе шов внизу
-        pw -= 1
+    rows, _tile_y, seam_y, seam_x = plank_layout(plank_cm, tile_cm, gap)
     rng = _rng(seed)
     col = np.zeros((TILE, TILE, 3), np.float32)
     height = np.zeros((TILE, TILE), np.float32)
-    grain = _wood_grain(seed + 7)
-    g = max(1, int(round(gap * px_per_cm)))
+    # крупные пятна тона — бесшовный по обеим осям `_fbm`. `_wood_grain` здесь не годится (24/2): его волокно вытянуто по y,
+    # т.е. поперёк доски, и растяжка без заворота даёт шов на краю тайла, если повернуть её вдоль доски
+    grain = _fbm((TILE, TILE), seed + 7, octaves=4, persistence=0.5)
+    # тонкие продольные полосы волокна (вместо прежних тёмных жил): белый шум по строкам, плавно меняющийся вдоль x
+    # (узлы через 32 px, интерполяция по кругу — край тайла сходится без шва)
+    knots = TILE // 32
+    noise = rng.random((TILE, knots)).astype(np.float32)
+    noise = (noise + np.roll(noise, 1, axis=0)) / 2.0                 # полоса толщиной ~2 px, не 1
+    xs = np.arange(TILE, dtype=np.float32) / 32.0
+    i0 = np.floor(xs).astype(np.int64) % knots
+    fr = (xs - np.floor(xs))[None, :]
+    fr = fr * fr * (3 - 2 * fr)
+    streak = noise[:, i0] * (1 - fr) + noise[:, (i0 + 1) % knots] * fr
     # ДЛИНА ДОСКИ = длина тайла (на замере 28.09 четыре торцевых шва на тайл давали «кирпичики»,
     # а не половую доску: при tile_cm=120 доска выходила 30 см). Один торцевой шов на ряд,
     # смещение по рядам — треть тайла, узор не повторяется построчно.
-    step_x = TILE
-
-    for row, y0 in enumerate(range(0, TILE, pw)):
-        y1 = y0 + pw
+    for row in range(rows):
+        y0, y1 = round(row * TILE / rows), round((row + 1) * TILE / rows)
         shift = (row * (TILE // 3)) % TILE
         band = np.roll(grain[y0:y1, :], shift, axis=1)
+        st = np.roll(streak[y0:y1, :], shift, axis=1)
         tone = 1.0 + float(rng.normal(0, contrast * 0.30))
-        v = np.clip(tone * (1.0 + (band - 0.5) * contrast), 0.6, 1.4)
+        v = np.clip(tone * (1.0 + (band - 0.5) * contrast + (st - 0.5) * contrast * 1.2), 0.6, 1.4)
         for c in range(3):
             col[y0:y1, :, c] = base_rgb[c] * v
-        height[y0:y1, :] = np.clip(band, 0, 1) * 255
-        if pw < TILE:  # цельная плита (столешница) швов не имеет
-            col[y0 : y0 + g, :, :] *= 0.45          # продольный шов
-            height[y0 : y0 + g, :] *= 0.3
-            for x in range(shift % step_x, TILE, step_x):  # торцевые швы
-                col[y0:y1, x : x + g, :] *= 0.5
-                height[y0:y1, x : x + g] *= 0.35
+        height[y0:y1, :] = 200.0 + (st - 0.5) * 12.0
+        if rows > 1:  # цельная плита (столешница) швов не имеет
+            col[y0 : y0 + seam_y, :, :] *= PLANK_SEAM_SHADE          # продольный шов
+            height[y0 : y0 + seam_y, :] = 150.0
+            col[y0:y1, shift : shift + seam_x, :] *= PLANK_SEAM_SHADE  # торцевой шов
+            height[y0:y1, shift : shift + seam_x] = 150.0
     return np.clip(col, 0, 255).astype(np.uint8), height.astype(np.uint8)
 
 
@@ -453,8 +480,11 @@ def write_material(out_dir: str, mid: str, colour: np.ndarray, height: np.ndarra
                    tile_cm: tuple[float, float], title_ru: str, title_en: str,
                    roughness_base: float, roughness_spread: float, metalness: float,
                    normal_strength: float, quality: int = 82, make_maps: bool = True,
-                   seamless: bool = True) -> dict:
+                   seamless: bool = True, stem: str | None = None) -> dict:
+    """Карты материала в `out_dir` и запись манифеста. `stem` — основа имён файлов (по умолчанию id): версия в имени
+    (`<id>-v2`) нужна, когда образец перерисован — кэш карт пола у сервиса кадров ключуется именем файла (T-20261111-24/2)."""
     os.makedirs(out_dir, exist_ok=True)
+    stem = stem or mid
     if seamless:
         # только для фото: процедурные образцы тайлятся по построению, а сшивка добавляла
         # им светлую полосу поперёк (замер 28.09)
@@ -462,30 +492,30 @@ def write_material(out_dir: str, mid: str, colour: np.ndarray, height: np.ndarra
         height = make_seamless(np.stack([height] * 3, -1))[..., 0]
 
     paths: dict[str, str] = {}
-    Image.fromarray(colour).save(os.path.join(out_dir, f"{mid}.webp"), quality=quality, method=6)
-    paths["baseColorUrl"] = f"{mid}.webp"
+    Image.fromarray(colour).save(os.path.join(out_dir, f"{stem}.webp"), quality=quality, method=6)
+    paths["baseColorUrl"] = f"{stem}.webp"
 
     if make_maps:
         nrm = normal_from_height(height, normal_strength)
         Image.fromarray(nrm).resize((512, 512), Image.LANCZOS).save(
-            os.path.join(out_dir, f"{mid}-n.webp"), quality=78, method=6
+            os.path.join(out_dir, f"{stem}-n.webp"), quality=78, method=6
         )
-        paths["normalUrl"] = f"{mid}-n.webp"
+        paths["normalUrl"] = f"{stem}-n.webp"
         rgh = roughness_from_height(height, roughness_base, roughness_spread)
         Image.fromarray(rgh).resize((512, 512), Image.LANCZOS).save(
-            os.path.join(out_dir, f"{mid}-r.webp"), quality=70, method=6
+            os.path.join(out_dir, f"{stem}-r.webp"), quality=70, method=6
         )
-        paths["roughnessUrl"] = f"{mid}-r.webp"
+        paths["roughnessUrl"] = f"{stem}-r.webp"
         ao = ao_from_height(height)
         Image.fromarray(ao).resize((512, 512), Image.LANCZOS).save(
-            os.path.join(out_dir, f"{mid}-ao.webp"), quality=70, method=6
+            os.path.join(out_dir, f"{stem}-ao.webp"), quality=70, method=6
         )
-        paths["aoUrl"] = f"{mid}-ao.webp"
+        paths["aoUrl"] = f"{stem}-ao.webp"
 
     Image.fromarray(colour).resize((PREVIEW, PREVIEW), Image.LANCZOS).save(
-        os.path.join(out_dir, f"{mid}-preview.webp"), quality=80, method=6
+        os.path.join(out_dir, f"{stem}-preview.webp"), quality=80, method=6
     )
-    paths["previewUrl"] = f"{mid}-preview.webp"
+    paths["previewUrl"] = f"{stem}-preview.webp"
 
     mean = colour.reshape(-1, 3).mean(0).astype(int)
     return {
@@ -538,7 +568,8 @@ PRESETS: dict[str, dict] = {
                                   en="Light concrete plaster", rough=0.85, spread=0.12, nrm=1.0, surf=["wall"]),
     # ёлочка (demo-06): планка 10×60 см под 45°, тайл — два периода узора (≈170 см)
     "parquet-herringbone": dict(gen="herringbone45", rgb=(180, 144, 104), plank=10, ratio=6, contrast=0.24,
-                                ru="Паркет «Ёлочка дуб»", en="Oak herringbone parquet", rough=0.48, spread=0.20, nrm=2.4),
+                                ru="Паркет «Ёлочка дуб»", en="Oak herringbone parquet", rough=0.48, spread=0.20, nrm=2.4,
+                                surf=["floor"]),
     "carpet-grey": dict(gen="carpet", rgb=(136, 134, 130), ru="Ковролин серый", en="Grey carpet",
                         rough=0.95, spread=0.08, nrm=1.4, tile=60),
     "carpet-beige": dict(gen="carpet", rgb=(186, 172, 150), ru="Ковролин бежевый", en="Beige carpet",
@@ -570,6 +601,12 @@ PRESETS: dict[str, dict] = {
 }
 
 
+# Версия рисунка генератора → суффикс имён файлов (`<id>-v2.webp`). Поднимать, когда меняется картинка: сервис кадров
+# кэширует карту пола по имени файла (`tools/scout/draft_render.py:_floor_image`), без нового имени он рисовал бы старую.
+# v2 (T-20261111-24/2): доска без жил, ровно заданной ширины, шов 0,1–0,2 см.
+GEN_VERSION: dict[str, int] = {"planks": 2, "herringbone": 2, "herringbone45": 2}
+
+
 def build_preset(name: str, out_dir: str) -> dict:
     p = PRESETS[name]
     seed = zlib.crc32(name.encode()) % 10_000   # hash() строк в Python случаен от запуска к запуску — образец плавал
@@ -598,11 +635,14 @@ def build_preset(name: str, out_dir: str) -> dict:
         colour, height = gen_carpet(seed, p["rgb"])
     else:
         colour, height = gen_stone(seed, p["rgb"], float(p.get("vein", 0.4)))
+    tile_y = plank_layout(float(p["plank"]), tile_cm)[1] if p["gen"] == "planks" else tile_cm
+    ver = GEN_VERSION.get(p["gen"], 1)
     entry = write_material(
         out_dir, name, colour, height,
-        tile_cm=(tile_cm, tile_cm), title_ru=p["ru"], title_en=p["en"],
+        tile_cm=(tile_cm, tile_y), title_ru=p["ru"], title_en=p["en"],
         roughness_base=float(p["rough"]), roughness_spread=float(p["spread"]),
         metalness=0.0, normal_strength=float(p["nrm"]), seamless=False,
+        stem=f"{name}-v{ver}" if ver > 1 else name,
     )
     if p.get("surf"):                       # где материал уместен (`resolve.ts`: применимость поверхности)
         entry["surfaces"] = list(p["surf"])
@@ -692,7 +732,8 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 — битый манифест не должен терять новую работу
             print(f"внимание: манифест не прочитан ({exc}), пересобираю", file=sys.stderr)
     for e in entries:
-        existing[e["id"]] = e
+        # поля, которых генератор не знает (`surfaces`, `source`), остаются: пересборка образца их не стирает (24/2)
+        existing[e["id"]] = {**existing.get(e["id"], {}), **e}
     payload = {
         "_about": "Материалы покрытий. Собрано tools/assets/material_pipeline.py — руками не править.",
         "baseUrl": "/flat3d/materials/",

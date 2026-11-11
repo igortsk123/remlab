@@ -1,0 +1,27 @@
+{
+ "asset": "herringbone_parquet",
+ "title": "Herringbone Parquet",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/herringbone_parquet",
+ "files": {
+  "diff": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/herringbone_parquet/herringbone_parquet_diff_1k.jpg",
+  "nor_gl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/herringbone_parquet/herringbone_parquet_nor_gl_1k.jpg",
+  "rough": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/herringbone_parquet/herringbone_parquet_rough_1k.jpg"
+ },
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Jenelle van Heerden": "Processing",
+  "Sergej Majboroda": "Photography"
+ },
+ "realMm": [
+  3400.0,
+  3400.0
+ ],
+ "downloaded": "2026-11-11",
+ "sha256": {
+  "diff.jpg": "d6c66492a6c4cfd4e8ed18c9cdd4e0303f3de4e04613d2adca8bc2b8f2dd2350",
+  "nor_gl.jpg": "af6a822100fd6369bb75e43bb764f4a71ca41f521538ac796e92e681e3ad38f5",
+  "rough.jpg": "6058f5a1d27cef64f40057370188fec65c34998868d202a944f346ad9866ed62"
+ }
+}

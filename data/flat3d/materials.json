@@ -6,18 +6,18 @@
    "id": "board-oak-natural",
    "titleRu": "Инженерная доска «Дуб натуральный»",
    "titleEn": "Natural oak engineered board",
-   "colorHex": "#ae8d69",
+   "colorHex": "#b99770",
    "roughness": 0.5,
    "metalness": 0.0,
    "tileCm": [
     120.0,
-    120.0
+    114.0
    ],
-   "baseColorUrl": "board-oak-natural.webp",
-   "normalUrl": "board-oak-natural-n.webp",
-   "roughnessUrl": "board-oak-natural-r.webp",
-   "aoUrl": "board-oak-natural-ao.webp",
-   "previewUrl": "board-oak-natural-preview.webp",
+   "baseColorUrl": "board-oak-natural-v2.webp",
+   "normalUrl": "board-oak-natural-v2-n.webp",
+   "roughnessUrl": "board-oak-natural-v2-r.webp",
+   "aoUrl": "board-oak-natural-v2-ao.webp",
+   "previewUrl": "board-oak-natural-v2-preview.webp",
    "surfaces": [
     "floor"
    ],
@@ -418,18 +418,18 @@
    "id": "laminate-oak-light",
    "titleRu": "Ламинат «Дуб светлый»",
    "titleEn": "Light oak laminate",
-   "colorHex": "#c2ad91",
+   "colorHex": "#cbb597",
    "roughness": 0.58,
    "metalness": 0.0,
    "tileCm": [
     120.0,
-    120.0
+    114.0
    ],
-   "baseColorUrl": "laminate-oak-light.webp",
-   "normalUrl": "laminate-oak-light-n.webp",
-   "roughnessUrl": "laminate-oak-light-r.webp",
-   "aoUrl": "laminate-oak-light-ao.webp",
-   "previewUrl": "laminate-oak-light-preview.webp",
+   "baseColorUrl": "laminate-oak-light-v2.webp",
+   "normalUrl": "laminate-oak-light-v2-n.webp",
+   "roughnessUrl": "laminate-oak-light-v2-r.webp",
+   "aoUrl": "laminate-oak-light-v2-ao.webp",
+   "previewUrl": "laminate-oak-light-v2-preview.webp",
    "surfaces": [
     "floor"
    ],
@@ -441,18 +441,18 @@
    "id": "laminate-oak-top",
    "titleRu": "Столешница дуб",
    "titleEn": "Oak worktop",
-   "colorHex": "#c09d73",
+   "colorHex": "#b4936c",
    "roughness": 0.38,
    "metalness": 0.0,
    "tileCm": [
     128.0,
     128.0
    ],
-   "baseColorUrl": "laminate-oak-top.webp",
-   "normalUrl": "laminate-oak-top-n.webp",
-   "roughnessUrl": "laminate-oak-top-r.webp",
-   "aoUrl": "laminate-oak-top-ao.webp",
-   "previewUrl": "laminate-oak-top-preview.webp",
+   "baseColorUrl": "laminate-oak-top-v2.webp",
+   "normalUrl": "laminate-oak-top-v2-n.webp",
+   "roughnessUrl": "laminate-oak-top-v2-r.webp",
+   "aoUrl": "laminate-oak-top-v2-ao.webp",
+   "previewUrl": "laminate-oak-top-v2-preview.webp",
    "surfaces": [
     "worktop"
    ],
@@ -464,18 +464,18 @@
    "id": "oak-grey",
    "titleRu": "Ламинат «Дуб серый»",
    "titleEn": "Grey oak laminate",
-   "colorHex": "#9f988c",
+   "colorHex": "#ada498",
    "roughness": 0.56,
    "metalness": 0.0,
    "tileCm": [
     120.0,
-    120.0
+    114.0
    ],
-   "baseColorUrl": "oak-grey.webp",
-   "normalUrl": "oak-grey-n.webp",
-   "roughnessUrl": "oak-grey-r.webp",
-   "aoUrl": "oak-grey-ao.webp",
-   "previewUrl": "oak-grey-preview.webp",
+   "baseColorUrl": "oak-grey-v2.webp",
+   "normalUrl": "oak-grey-v2-n.webp",
+   "roughnessUrl": "oak-grey-v2-r.webp",
+   "aoUrl": "oak-grey-v2-ao.webp",
+   "previewUrl": "oak-grey-v2-preview.webp",
    "surfaces": [
     "floor"
    ],
@@ -487,18 +487,18 @@
    "id": "oak-light",
    "titleRu": "Дуб светлый (LVT)",
    "titleEn": "Light oak LVT",
-   "colorHex": "#bc9f7c",
+   "colorHex": "#bb9e7b",
    "roughness": 0.58,
    "metalness": 0.0,
    "tileCm": [
     120.0,
-    120.0
+    114.0
    ],
-   "baseColorUrl": "oak-light.webp",
-   "normalUrl": "oak-light-n.webp",
-   "roughnessUrl": "oak-light-r.webp",
-   "aoUrl": "oak-light-ao.webp",
-   "previewUrl": "oak-light-preview.webp",
+   "baseColorUrl": "oak-light-v2.webp",
+   "normalUrl": "oak-light-v2-n.webp",
+   "roughnessUrl": "oak-light-v2-r.webp",
+   "aoUrl": "oak-light-v2-ao.webp",
+   "previewUrl": "oak-light-v2-preview.webp",
    "surfaces": [
     "floor"
    ],
@@ -510,18 +510,18 @@
    "id": "oak-natural",
    "titleRu": "Дуб натуральный",
    "titleEn": "Natural oak",
-   "colorHex": "#a17d57",
+   "colorHex": "#a8825a",
    "roughness": 0.52,
    "metalness": 0.0,
    "tileCm": [
     120.0,
-    120.0
+    114.0
    ],
-   "baseColorUrl": "oak-natural.webp",
-   "normalUrl": "oak-natural-n.webp",
-   "roughnessUrl": "oak-natural-r.webp",
-   "aoUrl": "oak-natural-ao.webp",
-   "previewUrl": "oak-natural-preview.webp",
+   "baseColorUrl": "oak-natural-v2.webp",
+   "normalUrl": "oak-natural-v2-n.webp",
+   "roughnessUrl": "oak-natural-v2-r.webp",
+   "aoUrl": "oak-natural-v2-ao.webp",
+   "previewUrl": "oak-natural-v2-preview.webp",
    "surfaces": [
     "floor"
    ],
@@ -533,18 +533,18 @@
    "id": "parquet-blocks",
    "titleRu": "Паркет модульный",
    "titleEn": "Parquet blocks",
-   "colorHex": "#b7956e",
+   "colorHex": "#ae8d69",
    "roughness": 0.5,
    "metalness": 0.0,
    "tileCm": [
     96.0,
     96.0
    ],
-   "baseColorUrl": "parquet-blocks.webp",
-   "normalUrl": "parquet-blocks-n.webp",
-   "roughnessUrl": "parquet-blocks-r.webp",
-   "aoUrl": "parquet-blocks-ao.webp",
-   "previewUrl": "parquet-blocks-preview.webp",
+   "baseColorUrl": "parquet-blocks-v2.webp",
+   "normalUrl": "parquet-blocks-v2-n.webp",
+   "roughnessUrl": "parquet-blocks-v2-r.webp",
+   "aoUrl": "parquet-blocks-v2-ao.webp",
+   "previewUrl": "parquet-blocks-v2-preview.webp",
    "surfaces": [
     "floor"
    ],
@@ -556,18 +556,24 @@
    "id": "parquet-herringbone",
    "titleRu": "Паркет «Ёлочка дуб»",
    "titleEn": "Oak herringbone parquet",
-   "colorHex": "#ae8b64",
+   "colorHex": "#af8c65",
    "roughness": 0.48,
    "metalness": 0.0,
    "tileCm": [
     169.7056274847714,
     169.7056274847714
    ],
-   "baseColorUrl": "parquet-herringbone.webp",
-   "normalUrl": "parquet-herringbone-n.webp",
-   "roughnessUrl": "parquet-herringbone-r.webp",
-   "aoUrl": "parquet-herringbone-ao.webp",
-   "previewUrl": "parquet-herringbone-preview.webp"
+   "baseColorUrl": "parquet-herringbone-v2.webp",
+   "normalUrl": "parquet-herringbone-v2-n.webp",
+   "roughnessUrl": "parquet-herringbone-v2-r.webp",
+   "aoUrl": "parquet-herringbone-v2-ao.webp",
+   "previewUrl": "parquet-herringbone-v2-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "quartz-white",
@@ -591,6 +597,254 @@
    ],
    "source": {
     "kind": "procedural"
+   }
+  },
+  {
+   "id": "scan-board-oak-natural",
+   "titleRu": "Инженерная доска «Дуб натуральный»",
+   "titleEn": "Natural oak engineered board",
+   "colorHex": "#b8966f",
+   "roughness": 0.588,
+   "metalness": 0.0,
+   "tileCm": [
+    170.0,
+    170.0
+   ],
+   "baseColorUrl": "scan-board-oak-natural-v1.webp",
+   "baseColorLiteUrl": "scan-board-oak-natural-v1-lite.webp",
+   "normalUrl": "scan-board-oak-natural-v1-n.webp",
+   "roughnessUrl": "scan-board-oak-natural-v1-r.webp",
+   "previewUrl": "scan-board-oak-natural-v1-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://polyhaven.com/a/laminate_floor_02",
+    "licence": "CC0-1.0",
+    "method": "scan:laminate_floor_02@v1 tint→board-oak-natural",
+    "note": "Poly Haven: Laminate Floor 02 (Dario Barresi, Charlotte Baglioni); оттенок — под «Инженерная доска «Дуб натуральный»»",
+    "realCm": [
+     170.0,
+     170.0
+    ]
+   }
+  },
+  {
+   "id": "scan-laminate-oak-light",
+   "titleRu": "Ламинат «Дуб светлый»",
+   "titleEn": "Light oak laminate",
+   "colorHex": "#cab497",
+   "roughness": 0.682,
+   "metalness": 0.0,
+   "tileCm": [
+    170.0,
+    170.0
+   ],
+   "baseColorUrl": "scan-laminate-oak-light-v1.webp",
+   "baseColorLiteUrl": "scan-laminate-oak-light-v1-lite.webp",
+   "normalUrl": "scan-laminate-oak-light-v1-n.webp",
+   "roughnessUrl": "scan-laminate-oak-light-v1-r.webp",
+   "previewUrl": "scan-laminate-oak-light-v1-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://polyhaven.com/a/laminate_floor_02",
+    "licence": "CC0-1.0",
+    "method": "scan:laminate_floor_02@v1 tint→laminate-oak-light",
+    "note": "Poly Haven: Laminate Floor 02 (Dario Barresi, Charlotte Baglioni); оттенок — под «Ламинат «Дуб светлый»»",
+    "realCm": [
+     170.0,
+     170.0
+    ]
+   }
+  },
+  {
+   "id": "scan-oak-grey",
+   "titleRu": "Ламинат «Дуб серый»",
+   "titleEn": "Grey oak laminate",
+   "colorHex": "#ada398",
+   "roughness": 0.659,
+   "metalness": 0.0,
+   "tileCm": [
+    170.0,
+    170.0
+   ],
+   "baseColorUrl": "scan-oak-grey-v1.webp",
+   "baseColorLiteUrl": "scan-oak-grey-v1-lite.webp",
+   "normalUrl": "scan-oak-grey-v1-n.webp",
+   "roughnessUrl": "scan-oak-grey-v1-r.webp",
+   "previewUrl": "scan-oak-grey-v1-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://polyhaven.com/a/laminate_floor_02",
+    "licence": "CC0-1.0",
+    "method": "scan:laminate_floor_02@v1 tint→oak-grey",
+    "note": "Poly Haven: Laminate Floor 02 (Dario Barresi, Charlotte Baglioni); оттенок — под «Ламинат «Дуб серый»»",
+    "realCm": [
+     170.0,
+     170.0
+    ]
+   }
+  },
+  {
+   "id": "scan-oak-light",
+   "titleRu": "Дуб светлый (LVT)",
+   "titleEn": "Light oak LVT",
+   "colorHex": "#ba9d7b",
+   "roughness": 0.682,
+   "metalness": 0.0,
+   "tileCm": [
+    170.0,
+    170.0
+   ],
+   "baseColorUrl": "scan-oak-light-v1.webp",
+   "baseColorLiteUrl": "scan-oak-light-v1-lite.webp",
+   "normalUrl": "scan-oak-light-v1-n.webp",
+   "roughnessUrl": "scan-oak-light-v1-r.webp",
+   "previewUrl": "scan-oak-light-v1-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://polyhaven.com/a/laminate_floor_02",
+    "licence": "CC0-1.0",
+    "method": "scan:laminate_floor_02@v1 tint→oak-light",
+    "note": "Poly Haven: Laminate Floor 02 (Dario Barresi, Charlotte Baglioni); оттенок — под «Дуб светлый (LVT)»",
+    "realCm": [
+     170.0,
+     170.0
+    ]
+   }
+  },
+  {
+   "id": "scan-oak-natural",
+   "titleRu": "Дуб натуральный",
+   "titleEn": "Natural oak",
+   "colorHex": "#a8825a",
+   "roughness": 0.612,
+   "metalness": 0.0,
+   "tileCm": [
+    170.0,
+    170.0
+   ],
+   "baseColorUrl": "scan-oak-natural-v1.webp",
+   "baseColorLiteUrl": "scan-oak-natural-v1-lite.webp",
+   "normalUrl": "scan-oak-natural-v1-n.webp",
+   "roughnessUrl": "scan-oak-natural-v1-r.webp",
+   "previewUrl": "scan-oak-natural-v1-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://polyhaven.com/a/laminate_floor_02",
+    "licence": "CC0-1.0",
+    "method": "scan:laminate_floor_02@v1 tint→oak-natural",
+    "note": "Poly Haven: Laminate Floor 02 (Dario Barresi, Charlotte Baglioni); оттенок — под «Дуб натуральный»",
+    "realCm": [
+     170.0,
+     170.0
+    ]
+   }
+  },
+  {
+   "id": "scan-parquet-herringbone",
+   "titleRu": "Паркет «Ёлочка дуб»",
+   "titleEn": "Oak herringbone parquet",
+   "colorHex": "#af8c64",
+   "roughness": 0.565,
+   "metalness": 0.0,
+   "tileCm": [
+    340.0,
+    340.0
+   ],
+   "baseColorUrl": "scan-parquet-herringbone-v1.webp",
+   "baseColorLiteUrl": "scan-parquet-herringbone-v1-lite.webp",
+   "normalUrl": "scan-parquet-herringbone-v1-n.webp",
+   "roughnessUrl": "scan-parquet-herringbone-v1-r.webp",
+   "previewUrl": "scan-parquet-herringbone-v1-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://polyhaven.com/a/herringbone_parquet",
+    "licence": "CC0-1.0",
+    "method": "scan:herringbone_parquet@v1 tint→parquet-herringbone",
+    "note": "Poly Haven: Herringbone Parquet (Jenelle van Heerden, Sergej Majboroda); оттенок — под «Паркет «Ёлочка дуб»»",
+    "realCm": [
+     340.0,
+     340.0
+    ]
+   }
+  },
+  {
+   "id": "scan-vinyl-stone-grey",
+   "titleRu": "Кварцвинил «Камень серый»",
+   "titleEn": "Grey stone SPC vinyl",
+   "colorHex": "#a9a7a3",
+   "roughness": 0.494,
+   "metalness": 0.0,
+   "tileCm": [
+    150.0,
+    150.0
+   ],
+   "baseColorUrl": "scan-vinyl-stone-grey-v1.webp",
+   "baseColorLiteUrl": "scan-vinyl-stone-grey-v1-lite.webp",
+   "normalUrl": "scan-vinyl-stone-grey-v1-n.webp",
+   "roughnessUrl": "scan-vinyl-stone-grey-v1-r.webp",
+   "previewUrl": "scan-vinyl-stone-grey-v1-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://polyhaven.com/a/marble_01",
+    "licence": "CC0-1.0",
+    "method": "scan:marble_01@v1 tint→vinyl-stone-grey",
+    "note": "Poly Haven: Marble 01 (Rob Tuytel); оттенок — под «Кварцвинил «Камень серый»»",
+    "realCm": [
+     150.0,
+     150.0
+    ]
+   }
+  },
+  {
+   "id": "scan-walnut-dark",
+   "titleRu": "Орех тёмный",
+   "titleEn": "Dark walnut",
+   "colorHex": "#694935",
+   "roughness": 0.529,
+   "metalness": 0.0,
+   "tileCm": [
+    170.0,
+    170.0
+   ],
+   "baseColorUrl": "scan-walnut-dark-v1.webp",
+   "baseColorLiteUrl": "scan-walnut-dark-v1-lite.webp",
+   "normalUrl": "scan-walnut-dark-v1-n.webp",
+   "roughnessUrl": "scan-walnut-dark-v1-r.webp",
+   "previewUrl": "scan-walnut-dark-v1-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://polyhaven.com/a/laminate_floor_02",
+    "licence": "CC0-1.0",
+    "method": "scan:laminate_floor_02@v1 tint→walnut-dark",
+    "note": "Poly Haven: Laminate Floor 02 (Dario Barresi, Charlotte Baglioni); оттенок — под «Орех тёмный»",
+    "realCm": [
+     170.0,
+     170.0
+    ]
    }
   },
   {
@@ -908,18 +1162,18 @@
    "id": "walnut-dark",
    "titleRu": "Орех тёмный",
    "titleEn": "Dark walnut",
-   "colorHex": "#6b4b35",
+   "colorHex": "#6a4a35",
    "roughness": 0.45,
    "metalness": 0.0,
    "tileCm": [
     110.0,
-    110.0
+    102.0
    ],
-   "baseColorUrl": "walnut-dark.webp",
-   "normalUrl": "walnut-dark-n.webp",
-   "roughnessUrl": "walnut-dark-r.webp",
-   "aoUrl": "walnut-dark-ao.webp",
-   "previewUrl": "walnut-dark-preview.webp",
+   "baseColorUrl": "walnut-dark-v2.webp",
+   "normalUrl": "walnut-dark-v2-n.webp",
+   "roughnessUrl": "walnut-dark-v2-r.webp",
+   "aoUrl": "walnut-dark-v2-ao.webp",
+   "previewUrl": "walnut-dark-v2-preview.webp",
    "surfaces": [
     "floor"
    ],

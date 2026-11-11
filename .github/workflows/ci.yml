@@ -165,6 +165,7 @@ jobs:
       - run: pip install numpy pillow opencv-python-headless
       - run: python tools/assets/scene_extras_golden.py --check   # авто-ТВ и декор: сервер = эталон живой сцены (demo-05 п.9)
       - run: python tools/assets/tests/test_demo_ids.py   # лёгкие копии /rt/: все комнаты витрины, лента по типу комнаты, ковёр по стратегии (T-20261106-77)
+      - run: python tools/assets/tests/test_floor_materials.py   # пол: доска ровно заданной ширины, шов ≤ 0,2 см без жил; CC0-сканы — тип → скан → размер → оттенок, лицензия и sha256, ≤ 1,5 МБ, цвет 512 телефону (T-20261111-24/2)
       - run: python tools/assets/tests/test_rt_texture_guard.py   # битая текстура лёгкой копии (gltfpack «ERR/» при квоте /tmp) — перепаковка без KTX2 или копию не пишем (T-20261107-15)
       - run: python tools/scout/tests/test_browser_sheet.py   # лист из кадров браузера: размер, полоса, порядок, ключ ответа (demo-10)
       - run: python tools/scout/tests/test_registry_protect.py   # реестр кадров не выкидывает кадры главной из списка прогрева (×3 вариантов, 5 ночей), счётчики shots-trim.json, _registry_add целиком; здесь — draft_service тянет planner+numpy+PIL (T-20261107-17)

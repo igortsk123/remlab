@@ -6,6 +6,7 @@ import { perM2Amount, settlementOf } from "@/lib/configurator/settlement";
 import { partner as partnerSchema, type ApartmentCard, type ApartmentRef, type Complex, type Lang, type OptionGroup, type Partner } from "@/contracts/partner";
 import { loadFlat3d } from "@/lib/configurator/data";
 import { certificateAmount, resolveIncentive } from "@/lib/partners/incentive";
+import floorScansJson from "@/data/flat3d/floor-scans.json";
 import demoJson from "@/data/partners/demo.json";
 import demoUkJson from "@/data/partners/demo-uk.json";
 
@@ -85,9 +86,15 @@ function optionPrice(p: Partner, pr: OptionGroup["variants"][number]["pricing"],
   return { type, amount, text };
 }
 
-/** Материал отделки из каталога 3D (`data/flat3d/materials.json`); неизвестный id ловит тест реестра. */
-function materialOf(id: string): Record<string, unknown> | null {
-  const m = loadFlat3d().catalogue.materials.find((x) => x.id === id);
+/**
+ * Материал отделки из каталога 3D (`data/flat3d/materials.json`); неизвестный id ловит тест реестра.
+ * ПОЛ ИЗ СКАНА (T-20261111-24/2, владелец TG 1655): при флаге `data/flat3d/floor-scans.json` → `enabled` и собранном
+ * `scan-<id>` (`tools/assets/material_from_scan.py`: тип покрытия → CC0-скан → размер → оттенок варианта) покупатель
+ * видит скан; флаг выключен или скана для типа нет — прежний процедурный материал. Id варианта (`materialId`) не меняется.
+ */
+export function materialOf(id: string, scans: { enabled: boolean } = floorScansJson): Record<string, unknown> | null {
+  const all = loadFlat3d().catalogue.materials;
+  const m = (scans.enabled ? all.find((x) => x.id === `scan-${id}`) : undefined) ?? all.find((x) => x.id === id);
   return m ? { ...m } : null;
 }
 

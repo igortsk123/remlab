@@ -1,0 +1,10 @@
+{
+ "_about": "Пол из CC0-сканов (T-20261111-24/2, владелец TG 1643/1655). enabled — флаг одной строкой: true = покупатель видит скан (scan-<id>), false = прежний процедурный пол. types — тип покрытия (генератор пресета tools/assets/material_pipeline.py) → скан из data/flat3d/scans/<scan>/; типа нет в списке — пол остаётся процедурным. version — в имени файлов карт (кэш сервиса кадров). Пересборка: tools/assets/material_from_scan.py build.",
+ "enabled": true,
+ "version": 1,
+ "types": {
+  "planks": {"scan": "laminate_floor_02", "contrast": 0.75, "chroma": 0.5, "flatten": 0.8, "normal": 0.8, "roughSpread": 0.6},
+  "herringbone45": {"scan": "herringbone_parquet", "contrast": 0.75, "chroma": 0.5, "flatten": 0.9, "normal": 0.8, "roughSpread": 0.6},
+  "tiles": {"scan": "marble_01", "contrast": 0.8, "chroma": 0.3, "flatten": 0.9, "normal": 0.8, "roughSpread": 0.5}
+ }
+}

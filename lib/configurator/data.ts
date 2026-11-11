@@ -27,6 +27,7 @@ export function loadFlat3d(): { apartment: Apartment; catalogue: Catalogue } {
     return {
       ...m,
       baseColorUrl: withBase(base, m.baseColorUrl as string | undefined),
+      baseColorLiteUrl: withBase(base, m.baseColorLiteUrl as string | undefined),
       normalUrl: withBase(base, m.normalUrl as string | undefined),
       roughnessUrl: withBase(base, m.roughnessUrl as string | undefined),
       aoUrl: withBase(base, m.aoUrl as string | undefined),

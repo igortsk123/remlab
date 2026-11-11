@@ -183,7 +183,8 @@ export function sceneAssetUrls(opts: PrefetchOptions): { meshes: string[]; shell
   const rugIds = new Set(specs.flatMap((s) => ((s.kind === "rug" || s.kind === "wall-plane") && s.materialId ? [s.materialId] : [])));
   const mats = [...sc.surfaces.flatMap((s) => (s.accent ? [s.material, s.accent.material] : [s.material])),
     ...catalogue.materials.filter((m) => rugIds.has(m.id))];
-  const maps = mats.flatMap((m) => [m.baseColorUrl, ...(lite ? [] : [m.normalUrl, m.roughnessUrl])]);
+  // лёгкий режим качает тот же файл цвета, что возьмёт `baseMaterial` (512², если есть), — без лишней 1024
+  const maps = mats.flatMap((m) => (lite ? [m.baseColorLiteUrl ?? m.baseColorUrl] : [m.baseColorUrl, m.normalUrl, m.roughnessUrl]));
   const views = apartment.rooms.filter((r) => r.openings.some((o) => o.kind === "window")).map((r) => windowView(r.windowView).view.url);
   const shell = [...new Set([...(meshes.some((u) => u.startsWith(RUNTIME_BASE)) ? BASIS : []), ...maps, ...views, PANORAMA]
     .filter((u): u is string => !!u))];

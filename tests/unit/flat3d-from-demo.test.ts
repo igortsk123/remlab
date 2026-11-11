@@ -188,14 +188,15 @@ describe("пол от застройщика в /flat", () => {
     expect(floor.optionIds).toHaveLength(5);
     expect(floor.defaultOptionId).toBe("opt:floor:laminate-oak-light");
     // оболочка красится материалом пола по умолчанию — он среди первых материалов каталога
-    expect(r.catalogue.materials[1]!.id).toBe("laminate-oak-light");
+    // (при флаге пола из сканов `data/flat3d/floor-scans.json` — его скан `scan-<id>`, T-20261111-24/2)
+    expect(r.catalogue.materials[1]!.id).toMatch(/^(scan-)?laminate-oak-light$/);
     const base = resolveScene(r.apartment, r.catalogue, defaultConfiguration(r.apartment, r.catalogue));
     expect(base.totals.bySettlement.developer_surcharge).toBe(0);
     const sel = developerSelections(hit, r.apartment, parseOptParam("flooring:parquet-herringbone,bad,x:"));
     expect(sel).toEqual({ floor: "opt:floor:parquet-herringbone" });
     const cfg = defaultConfiguration(r.apartment, r.catalogue);
     const sc = resolveScene(r.apartment, r.catalogue, { ...cfg, selections: { ...cfg.selections, ...sel } });
-    expect(sc.surfaces.find((s) => s.slotId === "floor")!.material.id).toBe("parquet-herringbone");
+    expect(sc.surfaces.find((s) => s.slotId === "floor")!.material.id).toMatch(/^(scan-)?parquet-herringbone$/);
     expect(sc.totals.bySettlement.developer_surcharge).toBe(86000);
     expect(sc.totals.bySettlement.allowance).toBe(base.totals.bySettlement.allowance);   // сертификат не тронут
     expect(sc.totals.upgrades).toBe(base.totals.upgrades + 86000);

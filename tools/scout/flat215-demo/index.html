@@ -5672,10 +5672,11 @@ function devWallReq(){ const w=devWall(); if(!w)return null; const side=typeof L
   return {id:w.material.id, colorHex:w.material.colorHex, title:v?v.name:'', ...(w.accent&&side?{accent:{side, colorHex:w.accent.material.colorHex}}:{})}; }
 function devApply(){ if(typeof LIVE==='undefined'||!LIVE.scene)return; LIVE.scene.setFloor(devFloor());
   if(LIVE.scene.setWall&&devGroupFor('wall'))LIVE.scene.setWall(devWall()); }
-// пять картинок пола — заранее: клик по образцу меняет пол без ожидания сети (на телефоне — только цвет, без карт рельефа)
+// пять картинок пола — заранее: клик по образцу меняет пол без ожидания сети (на телефоне — только цвет 512, без карт рельефа:
+// лёгкий режим сцены берёт `baseColorLiteUrl`, `lib/viewer3d/materials.ts:baseMaterial`)
 const DEV_PRE=new Set();
 function devPreload(){ devGroups().forEach(g=>g.variants.forEach(v=>{const m=v.material||{};
-    [m.baseColorUrl].concat(isTouchUI()?[]:[m.normalUrl,m.roughnessUrl,m.aoUrl]).filter(Boolean).forEach(u=>{
+    (isTouchUI()?[m.baseColorLiteUrl||m.baseColorUrl]:[m.baseColorUrl,m.normalUrl,m.roughnessUrl,m.aoUrl]).filter(Boolean).forEach(u=>{
       if(DEV_PRE.has(u))return; DEV_PRE.add(u); const im=new Image(); im.decoding='async'; im.src=u;});})); }
 // РАЗДЕЛ «ОТДЕЛКА»: по блоку на группу застройщика (пол, стены) — пять образцов с ценой и подпись текущего
 function devFloorHtml(){ return devFinish().map(devGroupHtml).join(''); }

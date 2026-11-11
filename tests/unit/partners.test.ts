@@ -253,8 +253,11 @@ describe("опции отделки: пол", () => {
     expect(g.settlement).toBe("developer_surcharge");
     expect(g.slotIds).toEqual(["floor"]);
     expect(g.variants.every((v) => v.materialId && mats.has(v.materialId))).toBe(true);
-    // материал едет в карточке целиком, адреса карт — от корня сайта (окно демо живёт в /demo/)
-    expect(g.variants.every((v) => v.material?.id === v.materialId && String(v.material?.baseColorUrl).startsWith("/flat3d/materials/"))).toBe(true);
+    // материал едет в карточке целиком, адреса карт — от корня сайта (окно демо живёт в /demo/); при флаге сканов — `scan-<id>`
+    const scansOn = (JSON.parse(readFileSync("data/flat3d/floor-scans.json", "utf8")) as { enabled: boolean }).enabled;
+    expect(g.variants.every((v) => [v.materialId, scansOn ? `scan-${v.materialId}` : ""].includes(String(v.material?.id))
+      && String(v.material?.baseColorUrl).startsWith("/flat3d/materials/"))).toBe(true);
+    expect(g.variants.map((v) => v.materialId)).toEqual(["laminate-oak-light", "oak-grey", "board-oak-natural", "parquet-herringbone", "vinyl-stone-grey"]);
     expect(g.variants[0]!.price.type).toBe("included");
     expect(g.variants[1]!.price).toMatchObject({ type: "surcharge", amount: 18000 });
   });
@@ -267,6 +270,30 @@ describe("опции отделки: пол", () => {
     fl.enabled = true;
     delete fl.variants[1].materialId;
     expect(() => partners([raw])).toThrow();
+  });
+  // T-20261111-24/2: тип покрытия → CC0-скан → размер → оттенок; флаг одной строкой; без скана — процедурный запасной путь
+  it("пол из скана: флаг включает scan-<id> (CC0, размер скана, цвет 512 для телефона), выключенный — прежний материал", async () => {
+    const { materialOf } = await import("@/lib/partners/registry");
+    for (const id of ["laminate-oak-light", "oak-grey", "board-oak-natural", "parquet-herringbone", "vinyl-stone-grey"]) {
+      const on = materialOf(id, { enabled: true }) as { id: string; tileCm: number[]; baseColorUrl: string; baseColorLiteUrl?: string;
+        colorHex: string; source?: { kind: string; licence?: string; sourceUrl?: string } };
+      const off = materialOf(id, { enabled: false }) as { id: string; colorHex: string; baseColorUrl: string };
+      expect(on.id).toBe(`scan-${id}`);
+      expect(off.id).toBe(id);
+      expect(on.source).toMatchObject({ kind: "photo-material", licence: "CC0-1.0" });
+      expect(on.source?.sourceUrl).toMatch(/^https:\/\/polyhaven\.com\/a\//);
+      expect(on.baseColorLiteUrl).toMatch(/^\/flat3d\/materials\/scan-.*-v\d+-lite\.webp$/);
+      expect(on.baseColorUrl).toMatch(/-v\d+\.webp$/);   // версия в имени — кэш карт сервиса кадров
+      // оттенок — цвет варианта: средний цвет скана в пределах 3 единиц на канал от процедурного материала того же id
+      const ch = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+      ch(on.colorHex).forEach((c, i) => expect(Math.abs(c - ch(off.colorHex)[i]!)).toBeLessThanOrEqual(3));
+    }
+    // плитку и камень дубом не подменяем: «камень серый» — со скана камня, ёлочка — со скана ёлочки
+    expect(String((materialOf("vinyl-stone-grey", { enabled: true }) as { source: { sourceUrl: string } }).source.sourceUrl)).toContain("marble");
+    expect(String((materialOf("parquet-herringbone", { enabled: true }) as { source: { sourceUrl: string } }).source.sourceUrl)).toContain("herringbone");
+    // тип без скана (модульный паркет) и стены — прежние материалы
+    expect((materialOf("parquet-blocks", { enabled: true }) as { id: string }).id).toBe("parquet-blocks");
+    expect((materialOf("wall-paint-white", { enabled: true }) as { id: string }).id).toBe("wall-paint-white");
   });
 });
 
