@@ -39,15 +39,16 @@ def anchor_of(panel: dict, room: dict) -> tuple[float, float]:
     return (b['x'] + b['w'] / 2 - x0) / sx, (b['y'] + b['d'] / 2 - y0) / sy
 
 
-def find(result: dict, edit: dict, taken: set) -> tuple[dict, dict] | None:
-    """→ (панель, комната) правки или None."""
+def find(result: dict, edit: dict, taken: set, strict: bool = False) -> tuple[dict, dict] | None:
+    """→ (панель, комната) правки или None. `strict` («перечитать планировку», T-20261111-02) — только точный id плана: правку туда
+    уже перевела однозначная пара комнат (`translate`), ближайший центр мог бы положить её на чужую комнату."""
     pan = next((p for p in result.get('panels') or [] if p.get('id') == edit.get('panel')), None)
     if pan is None:
         return None
     rooms = [r for r in pan.get('rooms') or [] if r.get('bbox') and id(r) not in taken]
     hit = next((r for r in rooms if str(r.get('id')) == str(edit.get('srcId'))), None)
-    if hit is not None:
-        return pan, hit
+    if hit is not None or strict:
+        return (pan, hit) if hit is not None else None
     a = edit.get('anchor') or {}
     try:
         ax, ay = float(a['x']), float(a['y'])
@@ -76,13 +77,13 @@ def _scaled(room: dict, w: float, d: float) -> None:
         room['flags'] = list(room.get('flags') or []) + [USER_DIMS]
 
 
-def apply(result: dict, edits: list | None) -> tuple[dict, list]:
+def apply(result: dict, edits: list | None, strict: bool = False) -> tuple[dict, list]:
     """Копия результата с правками → (результат, [(правка, панель, id комнаты плана)] — приложенные). Неприложимая правка
-    (комнаты нет) — пропуск: страница её не покажет как правленую, остальные идут."""
+    (комнаты нет) — пропуск: страница её не покажет как правленую, остальные идут. `strict` — см. `find`."""
     res = copy.deepcopy(result)
     hits, taken = [], set()
     for e in edits or []:                        # сперва все комнаты по НЕТРОНУТЫМ охватам (центр в долях панели — как у сервера)
-        got = find(res, e, taken)
+        got = find(res, e, taken, strict)
         if got is not None:
             taken.add(id(got[1]))
             hits.append((e, *got))
@@ -99,6 +100,33 @@ def apply(result: dict, edits: list | None) -> tuple[dict, list]:
             _scaled(room, float(w), float(d))
         done.append((e, pan['id'], str(room['id'])))
     return res, done
+
+
+def translate(edits: list | None, old: dict, new: dict, pairs: dict) -> tuple[list, list, list]:
+    """«Перечитать планировку» (T-20261111-02): правки прежнего плана → на перечитанный по однозначным парам комнат
+    (`regress.pair_canon`: {(панель, id старой): id новой}). Комната правки ищется в ПРЕЖНЕМ плане строго по id. → (правки с новыми
+    id и центрами охвата, карта для публикации [{panel, from, to, anchor}], не легли [(правка, почему)])."""
+    oldp = {p.get('id'): p for p in old.get('panels') or []}
+    newp = {p.get('id'): p for p in new.get('panels') or []}
+    out, cmap, bad = [], [], []
+    for e in edits or []:
+        pid, sid = e.get('panel'), str(e.get('srcId'))
+        if not any(str(r.get('id')) == sid for r in (oldp.get(pid) or {}).get('rooms') or []):
+            bad.append((e, 'комнаты правки нет в прежнем плане'))
+            continue
+        nid = pairs.get((pid, sid))
+        if nid is None:
+            bad.append((e, 'у комнаты правки нет однозначной пары'))
+            continue
+        room = next(r for r in newp[pid]['rooms'] if str(r.get('id')) == nid)
+        if not room.get('bbox'):
+            bad.append((e, 'у новой комнаты нет охвата'))
+            continue
+        ax, ay = anchor_of(newp[pid], room)
+        anchor = {'x': round(ax, 4), 'y': round(ay, 4)}
+        out.append({**e, 'srcId': nid, 'anchor': anchor})
+        cmap.append({'panel': pid, 'from': sid, 'to': nid, 'anchor': anchor})
+    return out, cmap, bad
 
 
 def dirty_keys(done: list) -> set:

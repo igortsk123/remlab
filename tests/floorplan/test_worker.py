@@ -44,6 +44,9 @@ if mode in ('no_plan', 'capacity'):
 if '--cache-only' in a:                  # план заново с текстом агента (Р2-текст): «лёг», если в тексте «A на B»
     if os.environ.get('FAKE_CACHE') == 'gone':
         put('error.json', json.dumps({'code': 'source_gone', 'retryable': False, 'detail': 'vlm cache missing'})); sys.exit(3)
+    if os.environ.get('FAKE_REREAD'):    # «перечитать планировку» (T-20261111-02): заданный перечитанный результат
+        open(os.path.join(W, 'listing-seen.txt'), 'w').write(open(a[a.index('--listing-file') + 1], encoding='utf-8').read())
+        put('result.json', open(os.environ['FAKE_REREAD'], encoding='utf-8').read()); sys.exit(0)
     if os.environ.get('FAKE_NAMES'):     # подписи плана с этими именами; текст — настоящим разбором `listing` (как bench.blind_gold)
         sys.path.insert(0, os.environ['FAKE_FP'])
         import listing
@@ -226,7 +229,7 @@ def make_handler(prod: Prod):
                 return self.send(200, raw=prod.input)
             if self.path.startswith('/api/trial/worker/rebuild/') and self.path.endswith('/input'):   # = rebuild/[id]/input
                 L = prod.lease
-                if not L or self.path != f'/api/trial/worker/rebuild/{L["id"]}/input' or L.get('kind') != 'listing' or \
+                if not L or self.path != f'/api/trial/worker/rebuild/{L["id"]}/input' or L.get('kind') not in ('listing', 'reparse') or \
                         self.headers.get('X-Trial-Lease') != L['leaseToken'] or self.headers.get('X-Trial-Attempt') != str(L['attempt']):
                     return self.send(409, {'error': 'lease_lost'})
                 if prod.input_status != 200:
@@ -243,7 +246,8 @@ def make_handler(prod: Prod):
                 return self.send(401, {'ok': False})
             if self.path == '/api/trial/worker/claim':
                 if not b.get('paused') and not prod.jobs and prod.rebuilds and b.get('rebuilds') and \
-                        (prod.rebuilds[0].get('kind') != 'listing' or b.get('listing')):
+                        (prod.rebuilds[0].get('kind') != 'listing' or b.get('listing')) and \
+                        (prod.rebuilds[0].get('kind') != 'reparse' or b.get('reparse')):
                     prod.lease = prod.rebuilds.pop(0)
                     return self.send(200, {'ok': True, 'job': None, 'rebuild': prod.lease})
                 if b.get('paused') or not prod.jobs:
@@ -259,10 +263,13 @@ def make_handler(prod: Prod):
                 if prod.rebuild_codes:
                     code, err = prod.rebuild_codes.pop(0)
                     return self.send(code, {'error': err})
-                if 'result' in b and prod.lease.get('kind') != 'listing':
+                if ('result' in b and prod.lease.get('kind') not in ('listing', 'reparse')) or \
+                        ('reparse' in b and prod.lease.get('kind') != 'reparse'):
                     return self.send(422, {'error': 'result_unexpected'})
+                if b['sha256'] == prod.lease.get('baseSha') and 'result' not in b:    # та же страница и тот же result — `same`
+                    return self.send(200, {'ok': True, 'version': prod.lease.get('baseVersion'), 'repeated': True})
                 with prod.lock:
-                    prod.bundles.append({'sha': b['sha256'], 'data': json.loads(raw), 'result': b.get('result')})
+                    prod.bundles.append({'sha': b['sha256'], 'data': json.loads(raw), 'result': b.get('result'), 'reparse': b.get('reparse')})
                     return self.send(200, {'ok': True, 'version': len(prod.bundles), 'repeated': False})
             if self.path in ('/api/trial/worker/rebuild/heartbeat', '/api/trial/worker/rebuild/fail'):
                 if prod.hb_status != 200 or not self.fenced(b):

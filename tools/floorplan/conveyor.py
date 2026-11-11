@@ -619,6 +619,158 @@ class ListingRebuild(Rebuild):
         return 'failed:pipeline_error'
 
 
+SLOT_PRIO_OPERATOR = 0                       # «перечитать планировку» — оператор, класс обычных прогонов: ниже загрузок и кнопок агентов
+
+
+class Reparse(ListingRebuild):
+    """«Перечитать планировку» по оператору (план trial-reparse-01; T-20261111-02): исходный лист готового тура заново через ТЕКУЩИЙ
+    разбор — с ИСХОДНЫМ текстом объявления (`listingText` claim: площадь и потолок берутся из него) и прошлыми размерами агента
+    (`carry_over`), только кэш VLM (0 $; промах — `cache_miss`, тур прежний) → мебель обычным конвейером → ОДНА версия вместе с новым
+    `result` — только если сторож (`regress.guard_canon` / `guard_page`) не нашёл разницы или вся разница одобрена ведущим
+    (`<base>/reparse-approve/<id задания>.json`, ключи находок); иначе `regress` с разбором в `error_detail`.
+
+    Номера комнат и проёмов после перечитывания могут смениться: правки агента переводятся по ОДНОЗНАЧНЫМ геометрическим парам
+    (`regress.pair_canon`, `room_edits.translate`, `opening_edits.translate`) и ложатся строго (`strict`); хоть одна не легла —
+    `edits_conflict`. Снятые агентом комнаты (`rooms` claim, `*` — те, что были на странице) — через ту же карту; новые комнаты не снимаются.
+    Карта уходит с публикацией (`reparse`), сервер той же транзакцией переписывает правки на новые номера (`lib/trial/repo-reparse-map.ts`).
+    Прочитано то же самое (`regress.same_canon`) — публикуются прежние байты страницы: сервер отвечает «та же версия», новой нет."""
+
+    PRIO = SLOT_PRIO_OPERATOR
+
+    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, text: str, mime: str, ext: str,
+                 bundle: str | None, edits=None, opening_edits=None, approved=()):
+        # правки не накладываем на прежний канон: их сперва переводим на перечитанный (`translate`), потом строго (`overlay`)
+        super().__init__(w, lease, wd, hb, result_path, job_id, [], text, mime, ext)
+        self.old_bundle = bundle
+        self.released = [str(x) for x in rooms or []]
+        self.edits_in, self.ops_in = list(edits or []), list(opening_edits or [])
+        self.approved = set(approved or ())
+        self.findings: list = []
+        self.left: list = []
+        self.detail = ''
+        self.pc: dict | None = None
+        self.map: dict | None = None
+
+    def overlay(self) -> None:
+        if not self.edits and not self.opening_edits:
+            return
+        import opening_edits
+        import room_edits
+        res, self.applied = room_edits.apply(self.canon, self.edits, strict=True)
+        res, self.applied_ops = opening_edits.apply(res, self.opening_edits, strict=True)
+        self.result_path = self._write('result-edited.json', res)
+        self.result = res
+
+    def reread(self, inp: Path) -> str | None:
+        bad = super().reread(inp)
+        return 'failed:cache_miss' if bad == 'failed:source_gone' else bad    # лист есть (его дал сервер) — нет кэша чтения
+
+    def publish_extra(self) -> dict:
+        return {**super().publish_extra(), **({'reparse': self.map} if self.map is not None else {})}
+
+    def _released_new(self, cur: dict) -> list[str]:
+        """Снятые агентом комнаты (id страницы прежней версии) → id страницы новой версии `cur` через пары комнат; `*` — все комнаты
+        прежней страницы (новая, раньше не бывшая комната так не снимается)."""
+        old = json.loads(self.old_bundle or '{}')
+        src = {x['id']: (p['id'], str(x.get('src_id'))) for p in (old.get('trial') or {}).get('panels') or [] for x in p.get('rooms') or []}
+        page = {(p['id'], str(x.get('src_id'))): x['id'] for p in cur['trial']['panels'] for x in p['rooms']}
+        want = list(src) if '*' in self.released else [r for r in self.released if r in src]
+        out = []
+        for r in want:
+            pid, sid = src[r]
+            nid = self.pc['pairs'].get((pid, sid))
+            if nid is not None and (pid, nid) in page:
+                out.append(page[(pid, nid)])
+        return list(dict.fromkeys(out))
+
+    def judge(self, page: dict | None) -> str | None:
+        """Сторож: находки разбора (+ страницы) → None (публиковать) или 'failed:regress' (разбор — `self.detail`)."""
+        import regress
+        self.findings = regress.guard_canon(self.canon_old, self.new_result, self.pc)
+        if page is not None and self.old_bundle:
+            self.findings += regress.guard_page(json.loads(self.old_bundle), page, self.pc)
+        v, self.left = regress.verdict(self.findings, self.approved)
+        self.log(f'сторож: {v}, находок {len(self.findings)}, не одобрено {len(self.left)}')
+        if v in ('clean', 'approved'):
+            return None
+        self.detail = regress.detail_of(self.left)
+        return 'failed:regress'
+
+    def publish(self, tag: str, data: bytes) -> bool:
+        bad = self.judge(json.loads(data))
+        if bad:
+            self.outcome = 'regress'
+            return False
+        return self.send(tag, data)
+
+    def send(self, tag: str, data: bytes) -> bool:
+        """Отправка версии (пробный прогон оператора подменяет — `reissue.py --reparse --dry-run`)."""
+        return Rebuild.publish(self, tag, data)
+
+    def rebuild(self) -> str:
+        import opening_edits
+        import regress
+        import room_edits
+        t0 = time.time()
+        if not self.old_bundle:
+            self.log('нет байтов прежней версии — сравнивать страницу не с чем')
+            return 'failed:internal'
+        inp = self.source()
+        if isinstance(inp, str):
+            return inp
+        self.canon_old = self.canon
+        self.carried, self.hit = carry_over(self.canon, self.text)
+        self.log(f'перечитываю: исходный текст {len(self.text)} зн., прошлые размеры агента {len(self.carried)}')
+        bad = self.reread(inp)
+        if bad:
+            return bad
+        old, new = self.canon_old, self.new_result
+        self.pc = regress.pair_canon(old, new)
+        self.log(f'пары комнат {len(self.pc["pairs"])}, без пары {len(self.pc["lost"])}, новых {len(self.pc["added"])}, '
+                 f'масштаб ×{self.pc["k"]:.4f}')
+        if regress.same_canon(old, new):
+            self.log('прочитано то же самое — прежние байты страницы (новой версии не будет)')
+            self.new_result, self.map = None, None
+            self.final_only = True
+            self.send('same', self.old_bundle.encode('utf-8'))
+            return self.outcome if self.outcome in ('published', 'stale') else (self.stopped or 'failed:pipeline_error')
+        if self.judge(None):                         # разбор уже хуже — мебель не подбираем
+            return 'failed:regress'
+        self.edits, rmap, rbad = room_edits.translate(self.edits_in, old, new, self.pc['pairs'])
+        self.opening_edits, omap, obad = opening_edits.translate(self.ops_in, old, new, self.pc['k'])
+        self.result_path = self._write('result-reparse.json', new)
+        self.result = self.canon = new
+        self.overlay()
+        miss = rbad + obad + [(e, 'не легла строго') for e in self.edits if not any(a[0] is e for a in self.applied)] + \
+            [(e, 'не лёг строго') for e in self.opening_edits if not any(a[0] is e for a in self.applied_ops)]
+        if miss:
+            self.detail = '\n'.join(f"{e.get('panel')}/{e.get('srcId') or e.get('key')}: {why}" for e, why in miss)[:2000]
+            self.log(f'правки агента не легли на перечитанный план: {len(miss)}')
+            return 'failed:edits_conflict'
+        got = self.chosen()                          # версия-проверка: id страницы новых комнат, кто ждёт проверки
+        if self.stopped:
+            return self.stopped
+        if got is None:
+            return 'failed:pipeline_error'
+        _, cur = got
+        rel = self._released_new(cur)
+        self.map = {'released': rel, 'rooms': rmap, 'openings': omap}
+        waiting = {r['id'] for r in cur['apartment_rooms'] if r.get('furniture_state') == 'awaiting_check'}
+        pick = [r for r in rel if r in waiting]
+        if pick:
+            self.consent(cur, pick)
+        self.run(pick or None)
+        self.timings['rebuild_s'] = round(time.time() - t0, 1)
+        if self.stopped:
+            return self.stopped
+        self.log(f'перечитать планировку: {self.outcome}, время {json.dumps(self.timings)}')
+        if self.outcome == 'regress':
+            return 'failed:regress'
+        if self.outcome in ('published', 'stale'):
+            return self.outcome
+        return 'failed:pipeline_error'
+
+
 class EditRebuild(Rebuild):
     """Правка комнаты агентом в туре (план trial-room-edit-01, Е3; T-20261110-36): имя / ширина × длина → ОДНА итоговая версия ≤ 2 мин.
 

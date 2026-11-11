@@ -53,7 +53,9 @@ EXT = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/
 INPUT_MAX = 15 * 1024 * 1024
 STAGES = ('raster', 'labels', 'walls', 'repair', 'export')
 # = contracts/trial.ts:trialRebuildFailCode — коды сбоя пересборки «Обустроить»
-REBUILD_CODES = ('stale', 'timeout', 'pipeline_error', 'internal', 'waiting_capacity', 'nothing_to_furnish', 'source_gone', 'no_match')
+REBUILD_CODES = ('stale', 'timeout', 'pipeline_error', 'internal', 'waiting_capacity', 'nothing_to_furnish', 'source_gone', 'no_match',
+                 'cache_miss', 'edits_conflict', 'regress')   # последние три — «перечитать планировку» (T-20261111-02)
+CLAIM_READ_MAX = 24 * 1024 * 1024    # claim `reparse` несёт и точные байты версии (≤ 8 МБ, экранированные в JSON) — как `reissue.READ_MAX`
 USER_CODES = {'pdf_unreadable', 'unsupported', 'too_large', 'no_plan', 'budget'}   # вина файла, не DEV: в серию сбоев не идут
 
 
@@ -290,7 +292,8 @@ class Worker:
             try:
                 st, body = self.api.call('POST', '/api/trial/worker/claim',
                                          {'workerId': self.cfg.worker_id, 'version': VERSION, 'paused': bool(reason),
-                                          **({'rebuilds': True, 'listing': True, 'edit': True} if self.cfg.furnish else {})})
+                                          **({'rebuilds': True, 'listing': True, 'edit': True, 'reparse': True} if self.cfg.furnish else {})},
+                                         read_max=CLAIM_READ_MAX)
             except NetError as e:
                 log(f'claim: {e}')
                 self.stop.wait(max(self.cfg.poll_s, 5))
@@ -494,7 +497,7 @@ class Worker:
         wd.mkdir(parents=True, exist_ok=True)
         res_p = wd / 'result.json'
         res_p.write_text(json.dumps(rb['result'], ensure_ascii=False))
-        text, edit = rb.get('kind') == 'listing', rb.get('kind') == 'edit'
+        text, edit, reparse = rb.get('kind') == 'listing', rb.get('kind') == 'edit', rb.get('kind') == 'reparse'
         edits = rb.get('edits') if isinstance(rb.get('edits'), list) else []    # правки комнат агента — к любой пересборке (T-20261110-36)
         ops = rb.get('openingEdits') if isinstance(rb.get('openingEdits'), list) else []   # окна и двери агента — так же (T-20261110-39)
         mime = rb.get('inputMime')
@@ -502,15 +505,25 @@ class Worker:
             log(f'claim: пересборка по тексту {rid} без листа/текста ({mime!r})')
             self.fail_rebuild(lease, wd, 'internal', False, 'listing rebuild without mime or text')
             return
+        if reparse and (mime not in EXT or not isinstance(rb.get('bundle'), str)):
+            log(f'claim: «перечитать планировку» {rid} без листа/версии ({mime!r})')
+            self.fail_rebuild(lease, wd, 'internal', False, 'reparse without mime or bundle')
+            return
         # текст агента в журнал не пишем — только его длину
-        what = f'текст агента ({len(rb["listingText"])} зн.)' if text else ('правка комнаты' if edit else '«Обустроить»')
+        what = f'текст агента ({len(rb["listingText"])} зн.)' if text else ('правка комнаты' if edit else
+                                                                          '«перечитать планировку»' if reparse else '«Обустроить»')
         log(f'{jid}: {what} {rid} (попытка {lease["attempt"]}, комнаты {rb.get("rooms")}, правок {len(edits)}, проёмов {len(ops)}, '
             f'версия страницы {rb.get("baseVersion")})')
         hb = Heartbeat(self, lease, wd, path='/api/trial/worker/rebuild/heartbeat', with_stage=False)
         hb.start()
         t0 = time.time()
+        cv = None
         try:
-            if text:
+            if reparse:
+                cv = conveyor.Reparse(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], str(rb.get('listingText') or ''), mime,
+                                      EXT[mime], rb['bundle'], edits=edits, opening_edits=ops, approved=self.reparse_approved(jid))
+                end = cv.rebuild()
+            elif text:
                 end = conveyor.ListingRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], str(rb['listingText']),
                                               mime, EXT[mime], edits=edits, opening_edits=ops).rebuild()
             elif edit:
@@ -533,7 +546,16 @@ class Worker:
             self.fail_rebuild(lease, wd, 'waiting_capacity', True, 'worker stopping')
         else:
             code = end.split(':', 1)[1] if end.startswith('failed:') else 'pipeline_error'
-            self.fail_rebuild(lease, wd, code, code in ('pipeline_error', 'internal'), end)
+            self.fail_rebuild(lease, wd, code, code in ('pipeline_error', 'internal'), getattr(cv, 'detail', '') or end)
+
+    def reparse_approved(self, jid: str) -> list:
+        """Одобренные ведущим находки сторожа «перечитать планировку» для тура (файл DEV `<base>/reparse-approve/<id>.json` — ключи
+        `regress.guard_*`; пишет `reissue.py --reparse --approve`). Нет файла / битый — одобрений нет (разница не выходит)."""
+        try:
+            got = json.loads((self.cfg.base / 'reparse-approve' / f'{jid}.json').read_text(encoding='utf-8'))
+            return [str(k) for k in got.get('keys') or []] if isinstance(got, dict) else []
+        except (OSError, ValueError):
+            return []
 
     def fail_rebuild(self, lease: dict, wd: Path, code: str, retryable: bool, detail: str = '') -> None:
         code = code if code in REBUILD_CODES else 'pipeline_error'

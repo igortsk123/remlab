@@ -304,6 +304,245 @@ def compare(A: dict, B: dict, page=None, accept: dict | None = None) -> tuple[li
     return rows, tot
 
 
+# ───────────────────────── сторож «перечитать планировку» (T-20261111-02) ─────────────────────────
+# Гейт, а не отчёт: прежний `result` тура и перечитанный → пары комнат (по геометрии в пикселях листа, не по имени и номеру) и находки.
+# Находка — {'key', 'level': 'block'|'change', 'text'}; ключ стабилен для того же кода и кэша (значения в нём), по нему ведущий одобряет
+# КОНКРЕТНУЮ разницу тура (`approved`). Блок — потеря: у жилой комнаты нет пары / слилась, сменился жилой тип, площадь разошлась больше
+# max(2 м², 20 %), пропали все двери или окна, обставленная стала отказом / ждёт проверки, пропали товары, цены или ссылки. Прочее
+# (число проёмов, масштаб, новые и пропавшие нежилые комнаты) — «изменение»: тоже не выходит без одобрения.
+
+LIVING = ('living', 'bedroom')
+PAIR_IOU = 0.5           # пара комнат: пересечение / объединение контуров в пикселях листа
+AREA_ABS, AREA_REL = 2.0, 0.20
+SCALE_REL = 0.01
+
+
+def _px(res: dict) -> float | None:
+    """см → пиксели листа: см·ppm/100; без масштаба — None."""
+    try:
+        return float((res.get('scale') or {}).get('ppm') or 0) / 100.0 or None
+    except (TypeError, ValueError):
+        return None
+
+
+def _poly(room: dict, k: float):
+    from shapely.geometry import Polygon
+    pts = room.get('contour') or []
+    if len(pts) < 3:
+        return None
+    p = Polygon([(float(x) * k, float(y) * k) for x, y in pts]).buffer(0)
+    return p if not p.is_empty and p.area > 0 else None
+
+
+def _room_ops(panel: dict, room: dict) -> tuple[int, int]:
+    """(двери, окна) у стены комнаты — как `summarize` (проём в ROOM_TOL_CM от контура)."""
+    from shapely.geometry import Point, Polygon
+    pts = room.get('contour') or []
+    if len(pts) < 3:
+        return 0, 0
+    ring = Polygon(pts).buffer(0).boundary
+    near = [o.get('kind') for o in panel.get('openings') or [] if ring.distance(Point(o['c'])) <= ROOM_TOL_CM]
+    return sum(1 for k in near if k in ('door', 'opening')), sum(1 for k in near if k == 'window')
+
+
+def _rooms_of(res: dict) -> list[tuple[dict, dict]]:
+    return [(p, r) for p in res.get('panels') or [] for r in p.get('rooms') or []]
+
+
+def _norm(x):
+    """Числа — одним видом: `result` из Postgres (jsonb) приходит с 310 вместо 310.0 и с другим порядком ключей."""
+    if isinstance(x, dict):
+        return {k: _norm(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_norm(v) for v in x]
+    if isinstance(x, (int, float)) and not isinstance(x, bool):
+        return round(float(x), 6)
+    return x
+
+
+def same_canon(a: dict, b: dict) -> bool:
+    """Прочитано то же самое: результат без времени и расхода (они меняются от прогона к прогону)."""
+    def strip(x):
+        return _norm({k: v for k, v in x.items() if k not in ('timings', 'costUsd')})
+    return json.dumps(strip(a), sort_keys=True) == json.dumps(strip(b), sort_keys=True)
+
+
+def pair_canon(old: dict, new: dict) -> dict:
+    """Пары комнат прежнего и перечитанного `result` той же панели: один-к-одному по пересечению контуров в пикселях листа (масштаб мог
+    смениться — см у сторон разные), не меньше PAIR_IOU. → {'pairs': {(панель, id старой): id новой}, 'lost': {(панель, id): почему},
+    'added': [(панель, id новой)], 'k': см нового на см старого}."""
+    ko, kn = _px(old), _px(new)
+    if ko is None or kn is None:                 # у одной стороны масштаба нет — сравнение в см как есть
+        ko = kn = 1.0
+    O = [(p['id'], r, _poly(r, ko)) for p, r in _rooms_of(old)]
+    N = [(p['id'], r, _poly(r, kn)) for p, r in _rooms_of(new)]
+    cand = []
+    for i, (po, ro, a) in enumerate(O):
+        for j, (pn, rn, b) in enumerate(N):
+            if po == pn and a is not None and b is not None and a.intersects(b):
+                inter = a.intersection(b).area
+                cand.append((inter / a.union(b).area, i, j))
+    pairs, used_o, used_n = {}, set(), set()
+    for iou, i, j in sorted(cand, reverse=True):
+        if iou >= PAIR_IOU and i not in used_o and j not in used_n:
+            used_o.add(i)
+            used_n.add(j)
+            pairs[(O[i][0], str(O[i][1]['id']))] = str(N[j][1]['id'])
+    by_new = {(N[j][0], str(N[j][1]['id'])): j for j in range(len(N))}
+    owner = {by_new[(po, nid)]: (po, oid) for (po, oid), nid in pairs.items()}
+    lost = {}
+    for i, (po, ro, a) in enumerate(O):
+        if i in used_o:
+            continue
+        why = 'нет контура' if a is None else 'нет пары'
+        if a is not None:
+            cover = sorted(((a.intersection(b).area / a.area, j) for j, (pn, _, b) in enumerate(N) if pn == po and b is not None
+                            and a.intersects(b)), reverse=True)
+            parts = sorted(j for f, j in cover if f >= 0.2 and N[j][2].intersection(a).area / N[j][2].area >= 0.5)
+            if cover and cover[0][0] >= 0.5 and cover[0][1] in owner:
+                other = next(r for p, r in _rooms_of(old) if (p['id'], str(r['id'])) == owner[cover[0][1]])
+                why = f"слилась с «{other.get('name') or other['id']}»"
+            elif len(parts) >= 2:
+                why = 'распалась на ' + ' + '.join(f"«{N[j][1].get('name') or N[j][1]['id']}»" for j in parts)
+        lost[(po, str(ro['id']))] = why
+    added = [(pn, str(rn['id'])) for j, (pn, rn, _) in enumerate(N) if j not in used_n]
+    return {'pairs': pairs, 'lost': lost, 'added': added, 'k': (ko / kn) if kn else 1.0}
+
+
+def _f(key: str, level: str, text: str) -> dict:
+    return {'key': key, 'level': level, 'text': text}
+
+
+def guard_canon(old: dict, new: dict, pc: dict) -> list[dict]:
+    """Находки по разбору (прежний и перечитанный `result`, пары `pair_canon`)."""
+    out = []
+    so, sn = old.get('scale') or {}, new.get('scale') or {}
+    po_, pn_ = float(so.get('ppm') or 0), float(sn.get('ppm') or 0)
+    if so.get('status') != sn.get('status') or (po_ and pn_ and abs(pn_ / po_ - 1) > SCALE_REL):
+        out.append(_f(f"scale:{so.get('status')}/{po_:.1f}→{sn.get('status')}/{pn_:.1f}", 'change',
+                      f"масштаб {so.get('status')} {po_:.1f} → {sn.get('status')} {pn_:.1f} пикс/м"))
+    if old.get('ceilingCm') != new.get('ceilingCm'):
+        out.append(_f(f"ceiling:{old.get('ceilingCm')}→{new.get('ceilingCm')}", 'change',
+                      f"потолок {old.get('ceilingCm')} → {new.get('ceilingCm')} см"))
+    newp = {p['id']: p for p in new.get('panels') or []}
+    for p, r in _rooms_of(old):
+        k = (p['id'], str(r['id']))
+        name, kind = r.get('name') or r['id'], r.get('kind')
+        live = kind in LIVING
+        tag = f"{p['id']}/{r['id']}"
+        if k in pc['lost']:
+            out.append(_f(f'{tag}:lost', 'block' if live else 'change', f"«{name}» ({kind}): {pc['lost'][k]}"))
+            continue
+        nid = pc['pairs'][k]
+        np_ = newp[p['id']]
+        nr = next(x for x in np_['rooms'] if str(x['id']) == nid)
+        if nr.get('kind') != kind:
+            out.append(_f(f"{tag}:kind:{kind}→{nr.get('kind')}", 'block' if live else 'change',
+                          f"«{name}»: тип {kind} → {nr.get('kind')}"))
+        ao, an = float(r.get('areaM2') or 0), float(nr.get('areaM2') or 0)
+        if abs(an - ao) > max(AREA_ABS, AREA_REL * ao):
+            out.append(_f(f'{tag}:area:{ao:.1f}→{an:.1f}', 'block' if live else 'change', f"«{name}»: площадь {ao:.1f} → {an:.1f} м²"))
+        (do, wo), (dn, wn) = _room_ops(p, r), _room_ops(np_, nr)
+        if do > 0 and dn == 0:
+            out.append(_f(f'{tag}:doors:{do}→0', 'block', f"«{name}»: пропали все двери ({do} → 0)"))
+        elif do != dn:
+            out.append(_f(f'{tag}:doors:{do}→{dn}', 'change', f"«{name}»: дверей {do} → {dn}"))
+        if wo > 0 and wn == 0:
+            out.append(_f(f'{tag}:windows:{wo}→0', 'block', f"«{name}»: пропали все окна ({wo} → 0)"))
+        elif wo != wn:
+            out.append(_f(f'{tag}:windows:{wo}→{wn}', 'change', f"«{name}»: окон {wo} → {wn}"))
+    for pid, nid in pc['added']:
+        nr = next(x for x in newp[pid]['rooms'] if str(x['id']) == nid)
+        out.append(_f(f"{pid}/+{nid}:new:{nr.get('kind')}", 'change', f"новая комната «{nr.get('name') or nid}» ({nr.get('kind')})"))
+    return out
+
+
+def page_rooms(bundle: dict) -> dict:
+    """Страница тура → {(панель, id плана): {'page', 'kind', 'state', 'outcome', 'goods', 'bad'}}: товары с ценой и ссылкой, `bad` —
+    без цены или ссылки."""
+    src = {x['id']: (p['id'], str(x.get('src_id'))) for p in (bundle.get('trial') or {}).get('panels') or [] for x in p.get('rooms') or []}
+    goods: dict = {}
+    for v in bundle.get('variants') or []:
+        g = goods.setdefault(v.get('room_id'), [0, 0])
+        for it in v.get('items') or []:
+            s = it.get('sku') or {}
+            g[0 if (s.get('price') or 0) > 0 and s.get('url') else 1] += 1
+    out = {}
+    for r in bundle.get('apartment_rooms') or []:
+        if r['id'] in src:
+            g = goods.get(r['id'], [0, 0])
+            out[src[r['id']]] = {'page': r['id'], 'kind': r.get('kind'), 'state': r.get('furniture_state'),
+                                 'outcome': r.get('furniture_outcome'), 'goods': g[0], 'bad': g[1]}
+    return out
+
+
+def _furnished(x: dict | None) -> bool:
+    return bool(x) and x['state'] == 'ready' and x['outcome'] == 'furnished'
+
+
+def guard_page(old_b: dict, new_b: dict, pc: dict) -> list[dict]:
+    """Находки по готовой странице ПОСЛЕ правок агента: обставленная комната осталась обставленной, с товарами, ценами и ссылками."""
+    out = []
+    po, pn = page_rooms(old_b), page_rooms(new_b)
+    for k, x in po.items():
+        if not _furnished(x) and not x['goods']:
+            continue
+        tag = f'{k[0]}/{k[1]}'
+        y = pn.get((k[0], pc['pairs'].get(k))) if k in pc['pairs'] else None
+        if y is None:
+            out.append(_f(f'{tag}:page:lost', 'block', f"{x['page']}: комнаты нет на новой странице"))
+            continue
+        if _furnished(x) and not _furnished(y):
+            out.append(_f(f"{tag}:page:{y['state']}/{y['outcome']}", 'block',
+                          f"{x['page']}: была обставлена → {y['state']} / {y['outcome']}"))
+        elif x['goods'] and not y['goods']:
+            out.append(_f(f'{tag}:page:goods:{x["goods"]}→0', 'block', f"{x['page']}: товаров {x['goods']} → 0"))
+        if y['bad'] > x['bad']:
+            out.append(_f(f"{tag}:page:bad:{x['bad']}→{y['bad']}", 'block', f"{x['page']}: товаров без цены или ссылки {x['bad']} → {y['bad']}"))
+    return out
+
+
+def verdict(findings: list[dict], approved=()) -> tuple[str, list[dict]]:
+    """→ (итог, неодобренные находки): 'clean' — разницы нет; 'approved' — вся разница одобрена; 'block' — есть неодобренная потеря;
+    'change' — неодобренное изменение (нужна приёмка ведущего)."""
+    left = [f for f in findings if f['key'] not in set(approved)]
+    if not findings:
+        return 'clean', []
+    if not left:
+        return 'approved', []
+    return ('block' if any(f['level'] == 'block' for f in left) else 'change'), left
+
+
+def detail_of(left: list[dict], limit: int = 2000) -> str:
+    """Разбор для `error_detail` пересборки (≤ 2000 знаков): блоки первыми, ключ — для файла одобрения."""
+    lines = [f"{'БЛОК' if f['level'] == 'block' else 'изм.'} {f['text']} [{f['key']}]"
+             for f in sorted(left, key=lambda f: f['level'] != 'block')]
+    s = '\n'.join(lines)
+    return s if len(s) <= limit else s[:limit - 1] + '…'
+
+
+def table_rows(old: dict, new: dict, pc: dict, old_b: dict | None = None, new_b: dict | None = None) -> list[dict]:
+    """Таблица оператору «комната: было → стало» (пара, тип, площадь, двери, окна, обставлена, товары)."""
+    po, pn = page_rooms(old_b or {}), page_rooms(new_b or {})
+    newp = {p['id']: p for p in new.get('panels') or []}
+    rows = []
+
+    def side(p, r, pg):
+        d, w = _room_ops(p, r)
+        return {'id': str(r['id']), 'name': r.get('name'), 'kind': r.get('kind'), 'area': round(float(r.get('areaM2') or 0), 1),
+                'doors': d, 'windows': w, 'state': (pg or {}).get('outcome') or (pg or {}).get('state'), 'goods': (pg or {}).get('goods')}
+    for p, r in _rooms_of(old):
+        k = (p['id'], str(r['id']))
+        nid = pc['pairs'].get(k)
+        nr = next((x for x in newp[p['id']]['rooms'] if str(x['id']) == nid), None) if nid else None
+        rows.append({'panel': p['id'], 'was': side(p, r, po.get(k)), 'now': side(newp[p['id']], nr, pn.get((p['id'], nid))) if nr else None,
+                     'why': pc['lost'].get(k)})
+    for pid, nid in pc['added']:
+        nr = next(x for x in newp[pid]['rooms'] if str(x['id']) == nid)
+        rows.append({'panel': pid, 'was': None, 'now': side(newp[pid], nr, pn.get((pid, nid))), 'why': 'новая'})
+    return rows
+
+
 def load_page(code: Path | None = None):
     """Код страницы тура (`trial_bundle.core_geometry`) — один для обеих сторон: сравниваем разбор, а не страницу."""
     sc = str(Path(code or HERE.parents[1]) / 'tools' / 'scout')
