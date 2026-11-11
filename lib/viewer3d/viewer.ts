@@ -28,7 +28,8 @@ import { outlineFrame } from "@/lib/viewer3d/outline";
 import { renderThumbs } from "@/lib/viewer3d/thumbs";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { boxPoints, livePitchDeg, liveSpot, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
-import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
+import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
+import { followRoute, newRoute, planRoute, slideStep, type RouteState } from "@/lib/viewer3d/walk-motion";
 
 // ВХОД БЕЗ ФЛАГА (T-20261106-72): прихожая без проёма `isEntrance` — вход угадан стеной; говорим об этом один раз на комнату
 const entranceWarned = new Set<string>();
@@ -215,9 +216,10 @@ export class FlatViewer {
   private heading = 0; // градусы, 0 = смотрим в +y
   private pitch = 0;
   private keys = new Set<string>();
-  private moveTarget: THREE.Vector2 | null = null;
-  /** Ход к точке: ближе всего к цели, см, и сколько кадров подряд без продвижения (`tick`, demo-20 Б6). */
-  private moveProgress = { best: Infinity, idle: 0 };
+  /** Путь «иди сюда» (тап по полу): точки поворота в обход мебели и счётчик упора (`walk-motion.ts:followRoute`). */
+  private moveTarget: RouteState | null = null;
+  /** Плавный вход в прогулку из точки ракурса (T-20261111-14): с какого угла обзора, высоты глаз и сдвига камера доезжает до своих. */
+  private walkBlend: { t0: number; ms: number; fov: number; eye: number; dx: number; dy: number } | null = null;
   private currentRoom: string | null = null;
   /**
    * Режим камеры: прогулка или «кукольный дом» — вид сверху под углом (владелец 29.09).
@@ -610,6 +612,7 @@ export class FlatViewer {
   setViewMode(mode: "walk" | "top"): void {
     if (this.viewMode === mode) return;
     this.viewMode = mode;
+    this.walkBlend = null;
     this.photo = null;
     applyPhotoShift(this.camera, 0); // сдвиг объектива — только у фото-позы
     this.scene.traverse((o) => {
@@ -635,6 +638,8 @@ export class FlatViewer {
    */
   walkFrom(pose: PhotoPose): void {
     this.setViewMode("walk");
+    this.walkBlend = null;
+    if (Math.abs(this.camera.fov - this.quality.fov) > 0.01) { this.camera.fov = this.quality.fov; this.camera.updateProjectionMatrix(); }
     const spot = nearestStandable(this.area, pose.x, pose.y, 8, 12) ?? { x: pose.x, y: pose.y };
     this.pos.set(spot.x, spot.y);
     const room = roomAt(this.apartment, spot.x, spot.y);
@@ -668,6 +673,7 @@ export class FlatViewer {
       });
     }
     this.viewMode = "photo";
+    this.walkBlend = null;
   }
 
   setTilt(on: boolean): void {
@@ -774,14 +780,19 @@ export class FlatViewer {
   photoToWalk(): void {
     const p = this.viewMode === "photo" ? this.livePose() : null;
     if (!p) return;
+    // ПЛАВНЫЙ ВХОД (T-20261111-14): у ракурса угол обзора уже (72° по горизонтали), глаз ниже (152 против 162 см), а точка может
+    // стоять ближе к мебели, чем пускает прогулка. Раньше всё это менялось одним кадром — первый шаг дёргал экран. Теперь
+    // камера доезжает до прогулочных за 0,5 с (`tick`)
+    const eye0 = this.photo ? this.liveRay(this.photo).eye[1] : EYE_CM;
+    const fov0 = this.camera.fov;
     this.viewMode = "walk";
     this.photo = null;
     this.poseAnim = null;
     applyPhotoShift(this.camera, 0);
-    this.camera.fov = this.quality.fov;
     this.camera.updateProjectionMatrix();
     const spot = nearestStandable(this.area, p.x, p.y, 8, 12) ?? { x: p.x, y: p.y };
     this.pos.set(spot.x, spot.y);
+    this.walkBlend = { t0: performance.now(), ms: 500, fov: fov0, eye: eye0, dx: p.x - spot.x, dy: p.y - spot.y };
     this.heading = (540 - p.rot) % 360;
     this.pitch = Math.max(-55, Math.min(45, p.pitch));
     this.moveTarget = null;
@@ -953,8 +964,9 @@ export class FlatViewer {
   goTo(xCm: number, yCm: number): void {
     const target = nearestStandable(this.area, xCm, yCm);
     if (!target) return;
-    this.moveTarget = new THREE.Vector2(target.x, target.y);
-    this.moveProgress = { best: Infinity, idle: 0 };
+    // путь в обход мебели (T-20261111-14): прежде шаг к цели огибал предмет сам и метался «вбок — назад» у косяков и мебели
+    const from = { x: this.pos.x, y: this.pos.y };
+    this.moveTarget = newRoute(planRoute(this.area, from, target) ?? [target]);
   }
 
   /**
@@ -1399,33 +1411,25 @@ export class FlatViewer {
       const len = Math.hypot(fx, fy) || 1;
       const mx = ((dirX * fy + dirY * fx) / len) * speed;
       const my = ((dirY * fy - dirX * fx) / len) * speed;
-      const next = stepWithSlide(this.area, { x: this.pos.x, y: this.pos.y }, mx, my);
+      // упор в стену, косяк, мебель — скольжение вдоль преграды, без шага назад (T-20261111-14, `walk-motion.ts:slideStep`)
+      const next = slideStep(this.area, { x: this.pos.x, y: this.pos.y }, mx, my);
       this.pos.set(next.x, next.y);
       this.updateRoom();
     } else if (this.moveTarget) {
-      const dx = this.moveTarget.x - this.pos.x;
-      const dy = this.moveTarget.y - this.pos.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 6) {
-        this.moveTarget = null;
-      } else {
-        const step = Math.min(dist, 260 * dt);
-        const next = stepWithSlide(this.area, { x: this.pos.x, y: this.pos.y }, (dx / dist) * step, (dy / dist) * step);
-        if (next.x === this.pos.x && next.y === this.pos.y) this.moveTarget = null;
-        // ДРОЖЬ У СТЕНЫ И МЕБЕЛИ (demo-20 Б6, владелец 22.10: «шаг к двери — мелкая дрожь забила сцену»): обход упирался и метался
-        // «вбок — назад» каждый кадр, а курс крутился за ним. Курс — только если шаг приблизил к цели; 9 кадров подряд без
-        // продвижения хотя бы на четверть шага — стоп: дошли, куда можно
-        const left = Math.hypot(this.pos.x + dx - next.x, this.pos.y + dy - next.y);
-        const mp = this.moveProgress;
-        if (left <= mp.best - step / 4) { mp.best = left; mp.idle = 0; } else if (++mp.idle >= 9) this.moveTarget = null;
-        this.pos.set(next.x, next.y);
-        if (left < dist) {
-          const targetHeading = (Math.atan2(dx, dy) * 180) / Math.PI;
-          const diff = ((targetHeading - this.heading + 540) % 360) - 180;
+      // ДРОЖЬ У СТЕНЫ И МЕБЕЛИ (demo-20 Б6; T-20261111-14): идём по пути в обход мебели (`goTo` → `planRoute`), взгляд плавно
+      // поворачивается к точке в 60 см впереди по пути — на изломах курс не дёргается; упор 9 кадров подряд — стоп
+      const r = followRoute(this.area, { x: this.pos.x, y: this.pos.y }, this.moveTarget, 260 * dt);
+      this.pos.set(r.pos.x, r.pos.y);
+      if (r.aim) {
+        const dx = r.aim.x - this.pos.x;
+        const dy = r.aim.y - this.pos.y;
+        if (Math.hypot(dx, dy) > 15) {
+          const diff = (((Math.atan2(dx, dy) * 180) / Math.PI - this.heading + 540) % 360) - 180;
           this.heading = (this.heading + diff * Math.min(1, dt * 4) + 360) % 360;
         }
-        this.updateRoom();
       }
+      if (r.done) this.moveTarget = null;
+      this.updateRoom();
     }
 
     if (this.viewMode === "photo" && this.photo) {
@@ -1461,7 +1465,21 @@ export class FlatViewer {
       return;
     }
     const pitchRad = (this.pitch * Math.PI) / 180;
-    this.camera.position.set(this.pos.x * CM, EYE_CM * CM, this.pos.y * CM);
+    let eye = EYE_CM;
+    let ox = 0;
+    let oy = 0;
+    const wb = this.walkBlend;
+    if (wb) {
+      const t = Math.min(1, (performance.now() - wb.t0) / wb.ms);
+      const left = Math.pow(1 - t, 3); // как у перехода ракурсов (`livePose`)
+      eye = EYE_CM + (wb.eye - EYE_CM) * left;
+      ox = wb.dx * left;
+      oy = wb.dy * left;
+      this.camera.fov = this.quality.fov + (wb.fov - this.quality.fov) * left;
+      this.camera.updateProjectionMatrix();
+      if (t >= 1) this.walkBlend = null;
+    }
+    this.camera.position.set((this.pos.x + ox) * CM, eye * CM, (this.pos.y + oy) * CM);
     const look = new THREE.Vector3(
       this.camera.position.x + Math.sin(rad) * Math.cos(pitchRad),
       this.camera.position.y + Math.sin(pitchRad),

@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { loadFlat3d } from "@/lib/configurator/data";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { isExtra, planObjects } from "@/lib/viewer3d/build-scene";
-import { canStand, nearestStandable, passages, stepWithSlide, walkArea, type Obstacle } from "@/lib/viewer3d/walk";
+import { canStand, nearestStandable, passages, walkArea, type Obstacle } from "@/lib/viewer3d/walk";
+import { followRoute, newRoute, planRoute, slideStep } from "@/lib/viewer3d/walk-motion";
 
 // СТОРОЖ ПРОХОДИМОСТИ. Из гостиной нельзя было выйти в коридор (жалоба владельца 30.09): между
 // «внутри комнаты с отступом 28 см» и «в проёме ±20 см» оставалась мёртвая полоса 8 см, и шаг в
@@ -44,14 +45,16 @@ describe("прогулка по квартире", () => {
     const cy = living.y + living.d / 2;
     const table: Obstacle = { x: cx, y: cy, w: 120, d: 60, rot: 0 };
     const area = walkArea(apartment, 28, [table]);
-    const out = stepWithSlide(area, { x: cx, y: cy }, 0, -5);
+    const out = slideStep(area, { x: cx, y: cy }, 0, -5);
     expect(out.y).toBeLessThan(cy); // из центра столика шагнули наружу
-    // идём «прямо сквозь» столик к точке за ним: должны оказаться за ним, а не застрять перед
+    // «иди сюда» прямо сквозь столик к точке за ним: путь огибает столик, и мы оказываемся за ним, а не застреваем перед
     let p = { x: cx, y: cy + 90 };
     const goal = { x: cx, y: cy - 90 };
-    for (let i = 0; i < 300 && Math.hypot(goal.x - p.x, goal.y - p.y) > 6; i++) {
-      const a = Math.atan2(goal.x - p.x, goal.y - p.y);
-      p = stepWithSlide(area, p, Math.sin(a) * 4, Math.cos(a) * 4);
+    const route = newRoute(planRoute(area, p, goal) ?? [goal]);
+    for (let i = 0; i < 300; i++) {
+      const r = followRoute(area, p, route, 4);
+      p = r.pos;
+      if (r.done) break;
     }
     expect(p.y, "обошли столик и вышли по ту сторону").toBeLessThan(cy - 30 - 20);
   });

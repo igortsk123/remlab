@@ -121,45 +121,8 @@ export function canStand(area: WalkArea, x: number, y: number): boolean {
   return false;
 }
 
-/**
- * Шаг с «скольжением вдоль стены»: если прямой ход упёрся, пробуем идти только по X или
- * только по Y. Так человек не залипает в углу — приём взят из перетаскивания мебели в демо.
- */
-export function stepWithSlide(
-  area: WalkArea,
-  from: { x: number; y: number },
-  dx: number,
-  dy: number,
-): { x: number; y: number } {
-  const direct = { x: from.x + dx, y: from.y + dy };
-  if (canStand(area, direct.x, direct.y)) return direct;
-  // уже стоим в следе предмета (поставили туда, предмет передвинули рядом) — выйти можно, лишь бы не в стену
-  if (!canStand(area, from.x, from.y) && inRooms(area, direct.x, direct.y)) return direct;
-  const pad = area.bodyCm ?? BODY_CM;
-  const block = area.obstacles?.find((o) => insideObstacle(o, direct.x, direct.y, pad));
-  const slide = (): { x: number; y: number } | null => {
-    // шаг вдоль оси с ничтожной длиной (sin π ≈ 1e-16) — это «стоять на месте», а не скольжение: пропускаем,
-    // иначе человек замирал перед препятствием, идя строго по оси
-    const alongX = { x: from.x + dx, y: from.y };
-    if (Math.abs(dx) > 1e-3 && canStand(area, alongX.x, alongX.y)) return alongX;
-    const alongY = { x: from.x, y: from.y + dy };
-    if (Math.abs(dy) > 1e-3 && canStand(area, alongY.x, alongY.y)) return alongY;
-    return null;
-  };
-  // ОБХОД МЕБЕЛИ (demo-05 п.5): путь перегородил ПРЕДМЕТ — отклоняемся на 30…120° сначала в ту сторону, куда человек
-  // уже смещён от центра предмета (иначе шаг метался бы «вбок — снова прямо»); скольжение вдоль осей — для стен, у
-  // предмета оно тянуло обратно к его середине
-  const detour = (): { x: number; y: number } | null => {
-    const side = block ? Math.sign(dx * (from.y - block.y) - dy * (from.x - block.x)) || 1 : 1;
-    for (const deg of [30, 60, 90, 120].map((d) => side * d).concat([30, 60, 90, 120].map((d) => -side * d))) {
-      const r = (deg * Math.PI) / 180;
-      const p = { x: from.x + dx * Math.cos(r) - dy * Math.sin(r), y: from.y + dx * Math.sin(r) + dy * Math.cos(r) };
-      if (canStand(area, p.x, p.y)) return p;
-    }
-    return null;
-  };
-  return (block ? detour() ?? slide() : slide() ?? detour()) ?? from;
-}
+// Шаг прогулки со скольжением вдоль преграды и путь «иди сюда» в обход мебели — `walk-motion.ts` (T-20261111-14: прежний
+// `stepWithSlide` с поворотами шага на 30…120° качался «вбок — назад» у косяков и мебели).
 
 /** Ближайшая точка, где можно стоять — для телепорта в комнату и для тапа мимо пола. */
 export function nearestStandable(
