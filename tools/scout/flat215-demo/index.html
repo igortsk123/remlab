@@ -7919,7 +7919,7 @@ function feedFor(base,info){   // `info.noStyle` — стиль, товаров 
   // СВОЕГО СТИЛЯ ДЛЯ РОЛИ НЕТ — ЧЕСТНО (T-20261111-01, владелец TG 976): заменить в этом стиле не на что (своих нет или свой — только
   // то, что стоит; так в пробе старой сборки — спальня неоклассики, торшер сканди) — лента из товаров других стилей той же роли, но
   // под чипом «Только стиль <стиль>» они выглядели товарами этого стиля (14–52 чужих). Теперь чипа нет (`filters`), над лентой —
-  // «В стиле <стиль> пока нет — вот похожие» (`grid`). Правило общее — любой стиль и роль, /demo и проба
+  // «В стиле <стиль> пока нет. Вот похожие» (`grid`; без длинного тире, TG 995). Правило общее — любой стиль и роль, /demo и проба
   if(!mine.some(p=>!(sel&&sel.sku&&sel.sku.name===p.name))){if(info)info.noStyle=st; return all;}
   if(F.anyStyle)return all;
   // ЦВЕТ НЕ В СТИЛЕ — В КОНЕЦ (style-color-01 шаг 2а): `color_low` ставит сборка (`demo_fill.lane_color`), порядок остальных прежний
@@ -7987,7 +7987,7 @@ function grid(){
   const trNone=()=>{trNowCard(g,base); g.insertAdjacentHTML('beforeend',`<div class="hint">${TR_EN()?'There are no other items with a 3D model for this spot and style in our library yet.':'Других товаров с 3D-моделью под это место и стиль в библиотеке пока нет.'}</div>`);};
   if(!list.length){head(0); if(TRIAL()){trNone(); return;} g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
   // своего стиля для роли нет — лента из похожих других стилей, говорим прямо (`feedFor`, T-20261111-01)
-  if(fi.noStyle)g.insertAdjacentHTML('beforeend',`<div class="hint st-none">В стиле ${escHtml(fi.noStyle)} пока нет — вот похожие</div>`);
+  if(fi.noStyle)g.insertAdjacentHTML('beforeend',`<div class="hint st-none">В стиле ${escHtml(fi.noStyle)} пока нет. Вот похожие</div>`);
   const isCur=p=>!!(sel&&sel.sku&&sel.sku.name===p.name);
   list=list.filter(p=>{
     const pr=p.price||0;
@@ -11651,7 +11651,7 @@ function quizPick(rule, answers, available, styleColours){
     [/^(my collection|shared collection) · (.+)$/,function(m){return m[1]+' · '+(STYLE[m[2]]||m[2]);}],
     [/^Выбрать (.+) \((\d+)\)$/,function(m){return 'Choose a '+(role(m[1])||m[1])+' ('+m[2]+')';}],
     [/^Только стиль (.+)$/,function(m){return 'Only '+(STYLE[m[1]]||m[1])+' style';}],
-    [/^В стиле (.+) пока нет — вот похожие$/,function(m){return 'No '+(STYLE[m[1]]||m[1])+' pieces yet — similar ones';}],   // `grid`, T-20261111-01
+    [/^В стиле (.+) пока нет\. Вот похожие$/,function(m){return 'No '+(STYLE[m[1]]||m[1])+' pieces yet. Similar ones';}],   // `grid`, T-20261111-01
     [/^до (\d+) тыс$/,function(m){return 'under '+m[1]+'k';}],[/^(\d+)–(\d+) тыс$/,function(m){return m[1]+'–'+m[2]+'k';}],
     [/^(\d+)\+ тыс$/,function(m){return m[1]+'k+';}],[/^(\d+) из (\d+)$/,function(m){return m[1]+' of '+m[2];}],
     [/^Товары на фото · (\d+)$/,function(m){return 'Items in the photo · '+m[1];}],[/^Камера (\d+)$/,function(m){return 'Camera '+m[1];}],
