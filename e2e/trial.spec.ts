@@ -89,8 +89,8 @@ async function publish(api: APIRequestContext, lease: { id: string; attempt: num
 
 // Next срезает косую в конце (`/tour/` → `/tour`); страница тура возвращает её сама (ветка worktree-demo-template, `injectTour`)
 const tourUrl = (id: string, lang: string) => new RegExp(`/try/${id}/tour/?\\?lang=${lang}&k=[A-Za-z0-9_-]{22}$`);
-// ссылка «Открыть тур» у агента несёт его ключ правки (`tourHref`, Р1)
-const tourHrefRe = (id: string, lang: string) => new RegExp(`^/try/${id}/tour/\\?lang=${lang}&k=[A-Za-z0-9_-]{22}$`);
+// ссылка «Открыть тур» у агента несёт его ключ правки (`tourHref`, Р1); без косой перед `?` — без перехода 308 (T-20261111-23)
+const tourHrefRe = (id: string, lang: string) => new RegExp(`^/try/${id}/tour\\?lang=${lang}&k=[A-Za-z0-9_-]{22}$`);
 
 test("загрузка → задание в базе → шаги → готово → переход в тур", async ({ page, request }) => {
   const id = await upload(page);
