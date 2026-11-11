@@ -9490,6 +9490,9 @@ function vwHighlight(idx, opt){
   const rr=r.getBoundingClientRect(), sr=sc.getBoundingClientRect();
   const gap=sc.clientHeight/6;          // кнопка — вне списка (v5.2), строку она не закрывает
   sc.scrollTo({top:Math.max(0,sc.scrollTop+(rr.top-sr.top)-gap),behavior:VW_PHONE()||VW_SLOW()?'auto':'smooth'});
+  // компьютер: плавную прокрутку может оборвать перерисовка списка (миниатюры, суммы), и строка остаётся за нижним краем
+  // (проба T-05/7: прокрутка 0, низ строки за окном) — через 0,8 с строку выбранного, если она ещё не целиком видна, доводим (`vwRowShow`)
+  if(!VW_PHONE()){clearTimeout(VW.rowT); VW.rowT=setTimeout(()=>{const x=VW.sel===idx&&vwRowOf(items[idx]); if(x)vwRowShow(x);},800);}
 }
 // ЦЕННИКИ НАД МЕБЕЛЬЮ В 3D (demo-09, Codex 17.10): метки — постоянные узлы, двигаются `transform` на каждом кадре; точки предметов —
 // из кэша движка (`viewer.projectSlot`), замеры окна и кнопок — 12 раз в секунду, не на каждом кадре. В «Фото» (снимок нейросети)
@@ -9561,12 +9564,20 @@ function vwPinsTick(now){
   PINS.map.forEach((n,i)=>{if(!seen.has(i)){n.remove(); PINS.map.delete(i);}});
   PINS.raf=requestAnimationFrame(vwPinsTick);
 }
-// «ПОВЕРНУТЬ» В 3D (T-20261111-05 п.7, владелец TG 1021): кнопка ↻ рядом с ценой выбранного предмета, каждое нажатие — 45° по часовой
-// вокруг его центра (на плане мебель рисуется `rotate(-rot)`: по часовой = минус). Правило — как у стрелок плана (`rotate90`): у стены
-// предмет заводится внутрь комнаты; не помещается и так — поворот не делаем, говорим. Наезд на соседа РАЗРЕШЁН (как на плане, владелец
-// 31.08): рамка становится красной (`scene.warn`), соседей не двигаем. Поворот — правка расстановки: история ↶/↷, хранится в браузере
-// (`editKeep`), кадр «Сделать фото» после него — новый (номер состояния учитывает `rot`). Висящее на стене и кухню не крутим
-const ROT_STEP=45;
+// «ПОВЕРНУТЬ» В 3D (T-20261111-05 п.7, владелец TG 1021; шаг 90°, а не 45° — владелец TG 1586 «45 я ошибся»): кнопка ↻ рядом с ценой
+// выбранного предмета и клавиша R, каждое нажатие — 90° по часовой вокруг его центра (на плане мебель рисуется `rotate(-rot)`: по часовой
+// = минус). Предмет под косым углом (старая правка на 45°, угол из данных) первым нажатием встаёт ровно по стенам — на ближайший кратный
+// 90° по часовой (`rotNext`). Правило — как у стрелок плана (`rotate90`): у стены предмет заводится внутрь комнаты; не помещается и так —
+// поворот не делаем, говорим. Наезд на соседа РАЗРЕШЁН (как на плане, владелец 31.08): рамка становится красной (`scene.warn`), соседей
+// не двигаем. Поворот — правка расстановки: история ↶/↷, хранится в браузере (`editKeep`), кадр «Сделать фото» после него — новый (номер
+// состояния учитывает `rot`). Висящее на стене и кухню не крутим
+// ROTSTEP START
+const ROT_STEP=90;
+function rotNext(rot){
+  const r=(((+rot||0)%360)+360)%360, k=Math.round(r/ROT_STEP), on=Math.abs(r-k*ROT_STEP)<0.5;
+  return ((((on?k*ROT_STEP:Math.ceil(r/ROT_STEP)*ROT_STEP)-ROT_STEP)%360)+360)%360;
+}
+// ROTSTEP END
 function vwCanRot(it){
   if(!it||!(+it.w>0)||!(+it.d>0))return false;
   const role=String(it.role||''), k=it.sku||{};
@@ -9660,10 +9671,27 @@ function vwRowSync(){
   const it=VW.sel!=null?items[VW.sel]:null; if(!it)return;
   const r=vwRowOf(it); if(!r||r.classList.contains('hl'))return;
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl')); r.classList.add('hl');
-  if(VW_PHONE())return;
-  const sc=document.getElementById('vscroll'); if(!sc)return;
-  const rr=r.getBoundingClientRect(), sr=sc.getBoundingClientRect();
-  if(rr.top<sr.top||rr.bottom>sr.bottom)sc.scrollTo({top:Math.max(0,sc.scrollTop+(rr.top-sr.top)-sc.clientHeight/6),behavior:VW_SLOW()?'auto':'smooth'});
+  if(!VW_PHONE())vwRowShow(r);
+}
+// ВИДИМАЯ ЧАСТЬ ЭЛЕМЕНТА ПО ВЕРТИКАЛИ (T-05/7): его рамка, обрезанная каждым обрезающим предком и окном. Рамка самого списка
+// (`#vscroll`) бывает ниже видимого края окна кадра, и строка «по рамке видна», а на экране — наполовину за краем
+function vwVisY(el){
+  const r=el.getBoundingClientRect(); let t=r.top, b=r.bottom;
+  for(let p=el.parentElement; p&&p!==document.body; p=p.parentElement){
+    if(!/(auto|scroll|hidden|clip)/.test(getComputedStyle(p).overflowY))continue;
+    const q=p.getBoundingClientRect(); t=Math.max(t,q.top); b=Math.min(b,q.bottom);}
+  return {top:Math.max(t,0), bottom:Math.min(b,innerHeight)};
+}
+// строка — целиком в видимой части списка: сдвиг на ближайшее (как `block:'nearest'`), и только у настоящего прокручиваемого предка
+function vwRowShow(r){
+  let sc=r.parentElement;
+  while(sc&&sc!==document.body&&!(/(auto|scroll)/.test(getComputedStyle(sc).overflowY)&&sc.scrollHeight>sc.clientHeight+1))sc=sc.parentElement;
+  if(!sc||sc===document.body)return;
+  const v=vwVisY(sc), rr=r.getBoundingClientRect(), m=8;
+  const d=rr.top<v.top+m?rr.top-v.top-m:rr.bottom>v.bottom-m?Math.min(rr.bottom-v.bottom+m, rr.top-v.top-m):0;
+  // сразу, без плавности: плавную прокрутку обрывает первая же смена вёрстки — на первом пикселе шапка над списком получает линию
+  // (`e2Head`), и проба T-05/7 застревала на прокрутке 1 со строкой за краем
+  if(Math.abs(d)>=1)sc.scrollTop=Math.max(0,sc.scrollTop+d);
 }
 // клик по строке списка (компьютер, «3D») выбирает предмет на сцене; повторный — снимает выбор, как тап по предмету. Кнопки, ссылки,
 // образцы цвета, название и картинка (карточка товара, `icHit`, demo-26 Д) в строке — свои
