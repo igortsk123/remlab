@@ -5,8 +5,20 @@
 # с меньшим порогом (≤ 3 раз). Реализация одна — `tools/ops/heavy_slot.py` (замок flock и файлы состояния общие с питоновым
 # `with heavy_slot(...)`).
 #
-#   tools/ops/heavy-slot.sh <метка> [--min-gb N] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…>   rc; 124 — не дождался
-#   tools/ops/heavy-slot.sh --status                                                       кто держит, кто ждёт, память
+# Ядра (T-20261111-17): `--cores N` — сколько ядер займёт задача (без ключа 2); новая не стартует, пока Σ ядер держателей
+# + свои > бюджета (HEAVY_SLOT_CORES_BUDGET, иначе nproc; память — как прежде, ядра — дополнительно); шире бюджета — одна.
+# Долгие (`--long`; без ключа — по признаку: regress.py, playwright, pnpm e2e; `--short` — не считать долгой) идут с nice 10.
+#
+#   tools/ops/heavy-slot.sh <метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2] [--no-slot] \
+#       -- <команда…>                                                                     rc; 124 — не дождался
+#   tools/ops/heavy-slot.sh --status                                                       кто держит, кто ждёт, память, ядра
+#
+# Пороги — реальные, не по умолчанию (6 ГБ держит других зря):
+#   --min-gb: регресс разбора / pytest / typecheck / vitest — 2; сборка / Playwright — 3.
+#   --cores:  регресс разбора `regress.py run … -j K` — K (без -j — 4); pnpm test / vitest / pytest — 3 (замер 11.11:
+#             2,6 ядра в среднем за 4 мин, но vitest пускает до nproc − 1 = 14 процессов; узко — `pnpm test --maxWorkers=3`);
+#             pnpm typecheck — 2 (замер 1,75); Playwright с 3D — 6–7 (без видеокарты страницу рисует процессор), без 3D — 2.
+#             Без --cores обёртка пишет «подсказка: … укажи --cores K».
 #   tools/ops/heavy-slot.sh --stats                                                        замеры: пик памяти и держание по типу задачи
 #   tools/ops/heavy-slot-selftest.sh                                                       самопроверка (во временной папке)
 # Пример: tools/ops/heavy-slot.sh t36-vlm --min-gb 7 -- ~/venvs/scout/bin/python launch.py keys.txt 8

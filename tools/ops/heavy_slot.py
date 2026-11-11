@@ -6,7 +6,8 @@
 `remlab-render` (живое демо). Здесь — одна очередь: замок `flock` (держит процесс; умер — ядро отпускает само), взявший
 очередь ждёт порога памяти и только потом стартует; кто держит и кто ждёт — `--status`, журнал — `~/remlab-logs/heavy-slot.log`.
 
-  tools/ops/heavy-slot.sh <метка> [--min-gb N] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…>  # rc команды наружу
+  tools/ops/heavy-slot.sh <метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2] [--no-slot] \
+      -- <команда…>                                                                       # rc команды наружу
   tools/ops/heavy-slot.sh --status                                                       # кто держит, кто ждёт, память
   from heavy_slot import heavy_slot                                                       # из питона — на ОДИН шаг:
   with heavy_slot('t51-look', min_gb=6):                                                  #   длинный цикл берёт слот на
@@ -77,12 +78,36 @@
     Поэтому сверх HEAVY_SLOT_SLOTS есть HEAVY_SLOT_PRIO_SLOTS (1) слот(ов) `slot<k>.lock`, которые берут ТОЛЬКО билеты класса ≥ 1;
     допуск — как в дополнительный слот (по памяти по факту, с долями всех держателей и запасом), долю держателя резерва считают все.
     Свободен только резерв — обычные впереди не мешают обгону (он не их), защита головы его не закрывает.
+  * ЯДРА (T-20261111-17, владелец TG 1488: 11.11 в 13:55 нагрузка 24 на 15 ядрах — 3D в Playwright ~7 ядер, три регресса
+    по -j 3 и ещё два прогона; память была, процессора нет). `--cores N` / `heavy_slot(cores=N)` — сколько ядер займёт задача,
+    без ключа CORES_DEFAULT = 2 (старые вызовы: 5 слотов + резерв × 2 = 12 ≤ 15 — пускаются, как раньше). Бюджет —
+    HEAVY_SLOT_CORES_BUDGET, иначе `nproc`. Допуск — ДОПОЛНИТЕЛЬНОЕ условие к памяти, везде, где проверяется память (слот 1,
+    дополнительный слот, обгон, уступка): Σ ядер других держателей + свои ≤ бюджета. Держатель слота 1, ждущий память/ядра,
+    считается целиком — его ядра забронированы, обгоняющие их не займут. ШИРЕ БЮДЖЕТА (N > бюджета) — только одна: в
+    дополнительный слот не идёт никогда, ждёт слот 1 и в нём — ухода всех держателей; бронь шире бюджета закрывает старт новым,
+    слоты стекают — не ждёт вечно. Класс ≥ 1 (проба агента) бюджет ядер не ждёт (как резерв обходит потолок слотов), его ядра
+    другие считают. ОБГОН с ядрами: голова может не проходить по ядрам (7 при занятых 10 из 15) — следующий, кто проходит и по
+    памяти, и по ядрам, берёт дополнительный слот; впереди проходящий (по обоим) — его очередь. Голова НЕ держатель слота 1
+    ядра не бронирует — мелкие могут обгонять её, пока работает защита 20 мин (как с памятью); стала держателем слота 1 —
+    бронь, и обгон уже не отнимает её ядра. `--status` — ядра у каждого держателя и ожидающего, строка ЯДРА (сумма из бюджета,
+    нагрузка за 1 мин). Подсказки (`cores_hint`; без --cores обёртка пишет «подсказка: … укажи --cores K»):
+        регресс разбора `regress.py run … -j K` → K (без -j — 4, умолчание regress.py);
+        pnpm test / vitest / pytest → 3 (замер 11.11: 2,6 ядра в среднем, vitest пускает до nproc − 1 процессов);
+        pnpm typecheck → 2 (замер 1,75);
+        Playwright с 3D (страница демо/тура, без видеокарты рисует процессор) → 6–7; без 3D — 2.
+  * ДОЛГИЕ (T-20261111-17, владелец TG 1490/1491: «работай с тем, что дали, оптимизируй»): `--long` — обёртка после
+    взятия слота ставит себе nice +HEAVY_SLOT_LONG_NICE (10), команда наследует: вливания и короткие тесты получают
+    процессор первыми. Без ключа долгая — по признаку в команде (`long_auto`): `regress.py`, `playwright`, `pnpm e2e`, скрипт
+    js/cjs/mjs/ts/py из команды, который подключает playwright; `--short` — признак не брать. Очередь и допуск долгая не меняет.
+    В питоне (`heavy_slot(long=True)`) — только метка: свой процесс обратно не повысить. `--status`: «· долгая, nice 10» —
+    nice фактический, из /proc держателя.
 Переменные (для самопроверки и особых случаев): HEAVY_SLOT_DIR (замок и состояние, по умолчанию ~/.cache/remlab-heavy-slot —
 одинаково в кроне и в сессии, не в репо), HEAVY_SLOT_LOG, HEAVY_SLOT_MEMINFO (подмена /proc/meminfo), HEAVY_SLOT_POLL (с, 30),
 HEAVY_SLOT_REPORT (строка «ждёт» в журнал раз в N с, 300), HEAVY_SLOT_YIELD, HEAVY_SLOT_MAX_YIELDS, HEAVY_SLOT_SLOTS,
 HEAVY_SLOT_RESERVE_GB, HEAVY_SLOT_HEAD_POLL, HEAVY_SLOT_SAMPLE, HEAVY_SLOT_LONG_S, HEAVY_SLOT_MEASURE_MIN_S,
 HEAVY_SLOT_EFF_FLOOR_GB, HEAVY_SLOT_MEM_STUB (файл «метка ГБ» — подмена замера памяти дерева для самопроверки),
-HEAVY_SLOT_BACKFILL_MIN, HEAVY_SLOT_PRIO, HEAVY_SLOT_PRIO_AGE_MIN, HEAVY_SLOT_PRIO_SLOTS.
+HEAVY_SLOT_BACKFILL_MIN, HEAVY_SLOT_PRIO, HEAVY_SLOT_PRIO_AGE_MIN, HEAVY_SLOT_PRIO_SLOTS, HEAVY_SLOT_CORES_BUDGET,
+HEAVY_SLOT_LONG_NICE.
 """
 from __future__ import annotations
 
@@ -144,6 +169,84 @@ def prio_slots() -> int:
 def all_slots() -> int:
     """Все слоты: обычные + резерв пробы (его держателей считают все — их доля памяти)."""
     return slots() + prio_slots()
+
+
+CORES_DEFAULT = 2.0                              # T-20261111-17: столько ядер считает задача без --cores (старые вызовы)
+
+
+def cores_budget() -> float:
+    """Бюджет ядер (T-20261111-17): HEAVY_SLOT_CORES_BUDGET, иначе ядер, доступных процессу (= `nproc`)."""
+    v = os.environ.get('HEAVY_SLOT_CORES_BUDGET')
+    if v:
+        with contextlib.suppress(ValueError):
+            return max(float(v), 0.0)
+    try:
+        return float(len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return float(os.cpu_count() or 1)
+
+
+def cores_of(kv: dict) -> float:
+    """Ядра из записи держателя/билета; нет поля (процесс старой версии) или мусор — CORES_DEFAULT."""
+    try:
+        return max(float(kv.get('cores') or CORES_DEFAULT), 0.0)
+    except (TypeError, ValueError):
+        return CORES_DEFAULT
+
+
+def long_nice() -> int:
+    """На сколько понижать приоритет долгой задачи (HEAVY_SLOT_LONG_NICE, 10)."""
+    return int(_env_f('HEAVY_SLOT_LONG_NICE', 10))
+
+
+def _nice_of(pid: int) -> int | None:
+    """Фактический nice процесса (поле 19 /proc/pid/stat); нет процесса — None."""
+    try:
+        with open(f'/proc/{pid}/stat', encoding='utf-8', errors='replace') as f:
+            return int(f.read().rsplit(')', 1)[1].split()[16])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+_LONG_RE = re.compile(r'regress\.py|playwright|pnpm\s+(?:run\s+)?e2e')
+_SCRIPT_EXT = ('.js', '.cjs', '.mjs', '.ts', '.py')
+
+
+def _uses_playwright(cmd: list) -> str:
+    """Скрипт из команды (первые 8 аргументов с расширением js/cjs/mjs/ts/py) подключает playwright → его имя, иначе ''."""
+    for a in cmd[:8]:
+        if a.endswith(_SCRIPT_EXT) and os.path.isfile(a):
+            with contextlib.suppress(OSError):
+                with open(a, encoding='utf-8', errors='replace') as f:
+                    if 'playwright' in f.read(262144):
+                        return a
+    return ''
+
+
+def long_auto(cmd: list) -> str:
+    """Признак долгой задачи по команде (T-20261111-17) → пояснение или '': регресс разбора (`regress.py`), Playwright
+    (`playwright`, `pnpm e2e`, скрипт, который подключает playwright)."""
+    m = _LONG_RE.search(' '.join(cmd))
+    if m:
+        return f'в команде «{m.group(0)}»'
+    s = _uses_playwright(cmd)
+    return f'скрипт {os.path.basename(s)} подключает playwright' if s else ''
+
+
+def cores_hint(cmd: list) -> tuple[float, str]:
+    """Сколько ядер обычно берёт такая команда (подсказка, если --cores не указан) → (ядер, почему); не знаю — (0, '')."""
+    s = ' '.join(cmd)
+    if 'regress.py' in s:
+        m = re.search(r'(?:^|\s)(?:-j\s*|--jobs[\s=])(\d+)', s)
+        k = int(m.group(1)) if m else 4
+        return float(k), f'регресс разбора -j {k}' + ('' if m else ' (по умолчанию в regress.py)')
+    if re.search(r'playwright|pnpm\s+(?:run\s+)?e2e', s) or _uses_playwright(cmd):
+        return 6.0, 'Playwright: 3D без видеокарты рисует процессор, 6–7 ядер на страницу'
+    if re.search(r'pnpm\s+(?:run\s+)?test\b|vitest|pytest', s):
+        # замер 11.11 (нагрузка 10–15): pnpm test — 638 с процессора за 245 с = 2,6 ядра в среднем, но vitest 2 пускает
+        # до nproc − 1 = 14 процессов сразу (пик в начале); typecheck — 1,75 ядра (по умолчанию 2 хватает)
+        return 3.0, 'pnpm test / vitest / pytest — по замеру 2,6 ядра в среднем, всплеск до 14 процессов'
+    return 0.0, ''
 
 
 def reserve_gb() -> float:
@@ -428,12 +531,14 @@ def _my_turn(d: str, ticket: str) -> bool:
     return bool(live) and live[0][1] == ticket
 
 
-def _fits_now(d: str, ticket_pid: int, room: float) -> dict | None:
+def _fits_now(d: str, ticket_pid: int, room: float, croom: float = float('inf')) -> dict | None:
     """Ожидающий (не я), которому памяти хватает уже сейчас (его порог ≤ room — свободно минус доля других держателей и
-    запас, без других — просто свободно; я — держатель слота 1 — уступаю и не считаюсь), — ради него держатель уступает."""
+    запас, без других — просто свободно; я — держатель слота 1 — уступаю и не считаюсь), — ради него держатель уступает.
+    Ядра (T-20261111-17): его ядра ≤ croom (бюджет минус ядра других держателей), класс ≥ 1 бюджет ядер не ждёт."""
     for _, _, kv in _tickets(d):
         try:
-            if int(kv['pid']) != ticket_pid and float(kv.get('eff_gb') or kv.get('min_gb', 1e9)) <= room:
+            if (int(kv['pid']) != ticket_pid and float(kv.get('eff_gb') or kv.get('min_gb', 1e9)) <= room
+                    and (cores_of(kv) <= croom or prio_clamp(kv.get('prio') or 0) >= 1)):
                 return kv
         except (KeyError, ValueError):
             continue
@@ -707,36 +812,76 @@ def _holders_need(d: str, k: int, n: int) -> tuple[float, str, bool]:
     return total, ('держатели ' + ' + '.join(parts)) if parts else '', bool(parts)
 
 
-def _need(d: str, k: int, own: float, n: int) -> tuple[bool, str, float]:
+def _holders_cores(d: str, k: int, n: int, strict: bool = True) -> tuple[float, bool]:
+    """Ядра ДРУГИХ держателей (кроме слота k) → (сумма, есть ли держатели). Запись без `cores` (старая версия) —
+    CORES_DEFAULT. Замок без записи — чужая ПРОБА слота (ожидающий взял замок на время допуска и отпустит) или новый держатель
+    до записи: для допуска (strict) — CORES_DEFAULT, осторожно, как память считает его бесконечным (иначе двое,
+    проверяющие одновременно, не видят друг друга); для `--status` (strict=False) — не считается: проба мгновенная, сумма
+    показывает только держателей. Держатель слота 1, ещё ждущий память/ядра, считается целиком: его ядра забронированы,
+    обгоняющие их не займут (T-20261111-17)."""
+    total, any_h = 0.0, False
+    for j in range(1, n + 1):
+        if j == k or not is_held(j):
+            continue
+        h = _read_kv(_holder_file(d, j))
+        if h is None and not strict:
+            continue
+        total += cores_of(h or {})
+        any_h = True
+    return total, any_h
+
+
+def _cores_ok(d: str, k: int, n: int, cores: float, prio: int) -> tuple[bool, str]:
+    """Допуск по ядрам (T-20261111-17), дополнительное условие к памяти: Σ ядер других держателей + свои ≤ бюджета.
+    Шире бюджета (свои > бюджета) — только одна: других держателей нет. Класс ≥ 1 (проба агента: секунды, человек ждёт)
+    бюджет не ждёт — как резерв пробы обходит потолок слотов; его ядра другие считают. → (да/нет, пояснение)."""
+    budget = cores_budget()
+    used, any_h = _holders_cores(d, k, n)
+    if prio >= 1:
+        return True, f'ядра {used:g} + свои {cores:g} из {budget:g} (приоритет {prio} — бюджет ядер не ждёт)'
+    if cores > budget:
+        return (not any_h), (f'ядра: свои {cores:g} > бюджета {budget:g} — только одна, '
+                             + ('других нет' if not any_h else f'жду, пока уйдут держатели (у них {used:g})'))
+    ok = used + cores <= budget
+    return ok, f"ядра {used:g} + свои {cores:g} {'≤' if ok else '>'} {budget:g}"
+
+
+def _need(d: str, k: int, own: float, n: int, cores: float = CORES_DEFAULT, prio: int = 0) -> tuple[bool, str, float, str]:
     """Допуск держателя слота k. Параллельно с другими: MemAvailable ≥ Σ по другим max(порог_h − память_h, 0) + свой порог
     + запас. Одиночный (других держателей нет) — как до T-74: MemAvailable ≥ свой порог, без запаса (ведущий 06.11: иначе
     порог 7 при свободных 8 встаёт навсегда). Сторож для всех: MemAvailable < запаса — нового нет при любом пороге
-    (идущих не трогаем). → (да/нет, пояснение, свободно ГБ)."""
+    (идущих не трогаем). И ядра (`_cores_ok`, T-20261111-17). → (да/нет, пояснение, свободно ГБ, чего ждёт: память|ядра)."""
     free, res = mem_available_gb(), reserve_gb()
     if free < res:
-        return False, f'сторож: свободно {free:.1f} ГБ < запаса {res:.1f} — новых не пускаю', free
+        return False, f'сторож: свободно {free:.1f} ГБ < запаса {res:.1f} — новых не пускаю', free, 'память'
     others, why, any_h = _holders_need(d, k, n)
-    ok = free >= (others + own + res if any_h else own)
-    return ok, (f"свободно {free:.1f} ГБ {'≥' if ok else '<'} свой {own:g}"
-                + (f' + {why} + запас {res:.1f}' if any_h else ' (одиночный — без запаса)')), free
+    mok = free >= (others + own + res if any_h else own)
+    cok, cwhy = _cores_ok(d, k, n, cores, prio)
+    return mok and cok, (f"свободно {free:.1f} ГБ {'≥' if mok else '<'} свой {own:g}"
+                         + (f' + {why} + запас {res:.1f}' if any_h else ' (одиночный — без запаса)')
+                         + f'; {cwhy}'), free, ('память' if not mok else 'ядра')
 
 
-def _admit(d: str, k: int, own: float, n: int) -> tuple[bool, str, float]:
+def _admit(d: str, k: int, own: float, n: int, cores: float = CORES_DEFAULT, prio: int = 0) -> tuple[bool, str, float]:
     """Можно ли занять только что взятый слот k ≥ 2: только при занятом другом слоте и по допуску `_need` ПО ФАКТУ сейчас
-    (ждать память в дополнительном слоте нельзя — стартует сразу)."""
+    (ждать память и ядра в дополнительном слоте нельзя — стартует сразу)."""
     if not any(is_held(j) for j in range(1, n + 1) if j != k):
         return False, 'другие слоты свободны', 0.0
-    return _need(d, k, own, n)
+    return _need(d, k, own, n, cores, prio)[:3]
 
 
 @contextlib.contextmanager
 def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no_slot: bool = False,
                poll: float | None = None, report: float | None = None, say=None, cmd: str = '',
-               yield_after: float | None = None, max_yields: int | None = None, prio: int | None = None):
-    """Взять общую очередь, дождаться памяти по допуску (`_need`: свой порог + доля других держателей + запас), выполнить
-    тело, отпустить (пик памяти дерева и время — в журнал и `peaks.tsv`). → info: waited_s, free_gb, fd, eff_gb, prio.
-    Таймаут (очередь + память) — SlotTimeout. `say(msg)` — дублировать строки ожидания в свой журнал. `prio` — класс
-    приоритета 0…2 (None — из HEAVY_SLOT_PRIO): меняет только место в очереди, не порог памяти."""
+               yield_after: float | None = None, max_yields: int | None = None, prio: int | None = None,
+               cores: float | None = None, long: bool = False):
+    """Взять общую очередь, дождаться памяти по допуску (`_need`: свой порог + доля других держателей + запас) и ядер
+    (`_cores_ok`: Σ ядер держателей + свои ≤ бюджета), выполнить тело, отпустить (пик памяти дерева и время — в журнал и
+    `peaks.tsv`). → info: waited_s, free_gb, fd, eff_gb, prio, cores, long. Таймаут (очередь + память) — SlotTimeout.
+    `say(msg)` — дублировать строки ожидания в свой журнал. `prio` — класс приоритета 0…2 (None — из HEAVY_SLOT_PRIO):
+    меняет только место в очереди, не порог памяти. `cores` — сколько ядер займёт тело (None — CORES_DEFAULT, 2).
+    `long` — метка «долгая» в записи держателя; nice ставит только обёртка (`run`): в питоне понизить свой процесс
+    обратно нельзя, поэтому `with` приоритет не трогает."""
     poll = _env_f('HEAVY_SLOT_POLL', 30) if poll is None else poll
     report = _env_f('HEAVY_SLOT_REPORT', 300) if report is None else report
 
@@ -745,8 +890,9 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         if say:
             say(msg)
     pr = prio_env() if prio is None else prio_clamp(prio)
+    cores = CORES_DEFAULT if cores is None else max(float(cores), 0.0)
     info = {'label': label, 'waited_s': 0.0, 'free_gb': None, 'fd': None, 'nested': None, 'no_slot': no_slot, 'yields': 0,
-            'prio': pr}
+            'prio': pr, 'cores': cores, 'long': bool(long)}
     said_starve = False
     free_by = None if no_slot else _noslot_parent()
     if no_slot or free_by:
@@ -790,7 +936,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
     if eff_why:
         note(eff_why)
     me = {'label': label, 'pid': os.getpid(), 'since': int(t0), 'min_gb': min_gb, 'eff_gb': round(own, 3), 'type': typ,
-          'bf': 1, 'cmd': cmd[:300], 'prio': pr}
+          'bf': 1, 'cmd': cmd[:300], 'prio': pr, 'cores': f'{cores:g}', 'long': int(bool(long))}
     got, ticket, yields, t_lock, extra_why, said_closed = False, None, 0, 0.0, '', False
     keep = None                                       # номер билета, с которым вернуться после уступки старшему классу
 
@@ -811,7 +957,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 return -1
             if k == 1:
                 return 1
-            ok, why, free_k = _admit(d, k, own, n)
+            ok, why, free_k = _admit(d, k, own, n, cores, pr)
             if ok:
                 extra_why = why
                 _write_kv(_holder_file(d, k), dict(me, since=int(time.time()), stage='работает', free_gb=round(free_k, 1),
@@ -853,6 +999,11 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             room = mem_available_gb() - others - res
             if own > room:
                 return 0
+            # ядра (T-20261111-17): обгоняет только тот, кто проходит и по ядрам; впереди проходящий — и по памяти, и по
+            # ядрам (класс ≥ 1 бюджет ядер не ждёт; шире бюджета при держателях не проходит никогда — ждёт слот 1)
+            croom = cores_budget() - _holders_cores(d, 0, n)[0]
+            if pr < 1 and cores > croom:
+                return 0
             for i, (_, _, kv) in enumerate(live[:pos]):
                 if kv.get('proxy') == '1' or (i > 0 and kv.get('bf') != '1'):
                     continue                          # старая версия не в голове сама не обгоняет — её не ждём
@@ -862,7 +1013,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     th = float(kv.get('eff_gb') or kv['min_gb'])
                 except (KeyError, ValueError):
                     continue
-                if th <= room:
+                if th <= room and (cores_of(kv) <= croom or prio_clamp(kv.get('prio') or 0) >= 1):
                     return 0                          # впереди тот, кто проходит, — его очередь
             hd = live[0][2]
             for k in free_k:
@@ -870,10 +1021,17 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     fcntl.flock(fds[k], fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
                     continue
-                ok, why, free_k_gb = _admit(d, k, own, n)
+                ok, why, free_k_gb = _admit(d, k, own, n, cores, pr)
                 if ok:
-                    extra_why = (f"обогнал голову {hd.get('label', '?')} (порог {_num(hd.get('eff_gb') or hd.get('min_gb'))} не "
-                                 f"проходит: место {room:.1f} ГБ; голова ждёт {waited / 60:.0f} мин из {lim / 60:g}); {why}")
+                    h_th = _num(hd.get('eff_gb') or hd.get('min_gb'))
+                    try:
+                        h_mem = float(hd.get('eff_gb') or hd.get('min_gb')) <= room
+                    except (TypeError, ValueError):
+                        h_mem = False
+                    blk = (f'ядер {cores_of(hd):g} не проходит: свободно ядер {croom:g} из {cores_budget():g}, '
+                           f'место {room:.1f} ГБ' if h_mem else f'порог {h_th} не проходит: место {room:.1f} ГБ')
+                    extra_why = (f"обогнал голову {hd.get('label', '?')} ({blk}; "
+                                 f"голова ждёт {waited / 60:.0f} мин из {lim / 60:g}); {why}")
                     _write_kv(_holder_file(d, k), dict(me, since=int(time.time()), stage='работает',
                                                        free_gb=round(free_k_gb, 1), yields=yields, slot=k, backfill=1,
                                                        over=hd.get('label', '?')))
@@ -922,18 +1080,21 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             _write_kv(holder_p, dict(me, since=int(t_mem), stage='память', yields=yields))
             _unlink(ticket)                           # после записи держателя: следующий первый уже видит мой порог
             ticket = None
-            last, yielded = -1e9, False
-            ok, why, free = _need(d, 1, own, n)
+            last, yielded, what0 = -1e9, False, ''
+            ok, why, free, what = _need(d, 1, own, n, cores, pr)
             while not ok:
-                if time.time() - last >= report:
-                    note(f'держит очередь, ждёт память: {why} (опрос раз в {poll:g} с; живое демо важнее)')
-                    last = time.time()
+                if time.time() - last >= report or what != what0:
+                    note(f'держит очередь, ждёт {what}: {why} (опрос раз в {poll:g} с; '
+                         + ('живое демо важнее)' if what == 'память' else 'без толкучки на процессоре)'))
+                    last, what0 = time.time(), what
                 if timeout is not None and time.time() - t0 >= timeout:
                     note(f'не дождался памяти за {round(time.time() - t0)} с (--timeout {timeout:g}) — не запускаю')
                     raise SlotTimeout(label)
                 if time.time() - t_mem >= yield_s:
                     oth, _, any_h = _holders_need(d, 1, n)
-                    w = _fits_now(d, os.getpid(), free - oth - reserve_gb() if any_h else free) if yields < max_y else None
+                    croom = cores_budget() - _holders_cores(d, 1, n)[0]
+                    w = (_fits_now(d, os.getpid(), free - oth - reserve_gb() if any_h else free, croom)
+                         if yields < max_y else None)
                     if w:
                         yields += 1
                         note(f"уступил очередь: ждал память {_sec(time.time() - t_mem)} с, {why}; "
@@ -966,16 +1127,17 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     fcntl.flock(fd, fcntl.LOCK_UN)
                     got, yielded, keep = False, True, my_n
                     break
-                ok, why, free = _need(d, 1, own, n)
+                ok, why, free, what = _need(d, 1, own, n, cores, pr)
             if not yielded:
                 break
         waited = time.time() - t0
         if slot == 1:
             _write_kv(holder_p, dict(me, since=int(time.time()), stage='работает', free_gb=round(free, 1), yields=yields))
         note(f'взял: ждал {_sec(waited)} с (очередь {_sec(t_lock)}, память {_sec(waited - t_lock)}), свободно {free:.1f} ГБ'
-             + (f', уступок {yields}' if yields else '') + (f', приоритет {pr}' if pr else '')
+             + (f', уступок {yields}' if yields else '') + f', ядер {cores:g}' + (', долгая' if long else '')
+             + (f', приоритет {pr}' if pr else '')
              + (f'; слот {slot}: {extra_why}' if slot > 1 else ''))
-        info.update(waited_s=round(waited, 1), free_gb=free, fd=fd, yields=yields, eff_gb=own)
+        info.update(waited_s=round(waited, 1), free_gb=free, fd=fd, yields=yields, eff_gb=own, slot=slot)
         old = os.environ.get('HEAVY_SLOT_HELD')
         os.environ['HEAVY_SLOT_HELD'] = str(os.getpid())
         long_s = _env_f('HEAVY_SLOT_LONG_S', 2700)
@@ -1086,8 +1248,10 @@ def status(out=sys.stdout) -> int:
             if h.get('peak_gb'):
                 with contextlib.suppress(ValueError):
                     eff_s += f" · превысил порог: пик {float(h['peak_gb']):.2f} ГБ — доля по факту"
+            cpu_s = (f" · ядер {cores_of(h):g}" + (' (старая версия — по умолчанию)' if 'cores' not in h else '')
+                     + (f" · долгая, nice {_nice_of(int(h['pid']))}" if h.get('long') == '1' else ''))
             pr(f"ДЕРЖИТ: {h['label']} · pid {h['pid']} · {h.get('stage', '?')} {_ago(h.get('since'))} · порог {h.get('min_gb')} ГБ"
-               + eff_s + (f" · уступок {h['yields']}" if h.get('yields') not in (None, '0') else '')
+               + eff_s + cpu_s + (f" · уступок {h['yields']}" if h.get('yields') not in (None, '0') else '')
                + (f" · обогнал голову {h.get('over', '?')}" if h.get('backfill') == '1' else '') + tag)
             a, b = tree_mem(int(h['pid']), h['label'])
             pr(f"  процесс: {_proc(int(h['pid']))}")
@@ -1109,7 +1273,8 @@ def status(out=sys.stdout) -> int:
     pr(f'ЖДУТ: {len(waiters)}' + ((' (по порядку выдачи: приоритет, потом приход)' if anyp else ' (по порядку прихода)')
                                   if waiters else '')
        + ''.join(f"\n  {k}. {w['label']} · pid {w['pid']} · {w.get('stage')} {_ago(w.get('since'))}"
-                 f" · порог {w.get('min_gb')} ГБ · билет {w.get('ticket')}"
+                 f" · порог {w.get('min_gb')} ГБ · ядер {cores_of(w):g}" + (' · долгая' if w.get('long') == '1' else '')
+                 + f" · билет {w.get('ticket')}"
                  + (f" · приоритет {w['prio']}" if prio_clamp(w.get('prio') or 0) else '')
                  + (f" · уступок {w['yields']}" if w.get('yields') not in (None, '0') else '')
                  for k, w in enumerate(waiters, 1))
@@ -1121,12 +1286,22 @@ def status(out=sys.stdout) -> int:
         elif who and w >= lim:
             pr(f'ОБГОН: обгон закрыт: голова {who} ждёт {w / 60:.0f} мин (≥ {lim / 60:g}) — новые не стартуют, слоты стекают к ней')
         elif who:
-            pr(f'ОБГОН: открыт — голова {who} ждёт {w / 60:.0f} мин из {lim / 60:g}; не проходит по памяти — свободный '
+            pr(f'ОБГОН: открыт — голова {who} ждёт {w / 60:.0f} мин из {lim / 60:g}; не проходит по памяти или ядрам — свободный '
                'дополнительный слот берёт следующий, кто проходит')
     try:
         pr(f'ПАМЯТЬ: свободно {mem_available_gb():.1f} ГБ')
     except (OSError, RuntimeError) as e:
         pr(f'ПАМЯТЬ: не прочитать ({e})')
+    used, _ = _holders_cores(d, 0, n, strict=False)
+    budget = cores_budget()
+    try:
+        with open('/proc/loadavg', encoding='ascii') as f:
+            la = f.read().split()[0]
+    except (OSError, IndexError):
+        la = '?'
+    src = 'HEAVY_SLOT_CORES_BUDGET' if os.environ.get('HEAVY_SLOT_CORES_BUDGET') else 'nproc'
+    pr(f'ЯДРА: держатели {used:g} из {budget:g} ({src}; новый ждёт, если держатели + свои > {budget:g}; долгие — nice '
+       f'{long_nice()}) · нагрузка за 1 мин {la}')
     if slots() > 1:
         res = reserve_gb()
         line = (f'СЛОТОВ: {slots()} (дополнительный — только пока занят другой и свободно ≥ Σ держателей max(порог − память, 0)'
@@ -1188,15 +1363,18 @@ def child_env() -> dict:
 
 
 def run(argv: list) -> int:
-    """`<метка> [--min-gb N] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…>` → rc команды (124 — не дождался)."""
-    use = '<метка> [--min-gb N] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…> | --status | --stats'
+    """`<метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…>` → rc
+    команды (124 — не дождался). Долгая (`--long` или по признаку в команде — `long_auto`; `--short` — признак не брать)
+    запускается с nice +HEAVY_SLOT_LONG_NICE (10): обёртка понижает себя после взятия слота, команда наследует."""
+    use = ('<метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…> '
+           '| --status | --stats')
     if '--' not in argv or argv.index('--') < 1 or argv.index('--') == len(argv) - 1:
         print(f'heavy-slot: {use}', file=sys.stderr)
         return 2
     i = argv.index('--')
     opts, cmd = argv[:i], argv[i + 1:]
     label, opts = opts[0], opts[1:]
-    min_gb, timeout, no_slot, prio = 6.0, None, False, None
+    min_gb, timeout, no_slot, prio, cores, long_flag = 6.0, None, False, None, None, None
     k = 0
     while k < len(opts):
         o = opts[k]
@@ -1205,26 +1383,51 @@ def run(argv: list) -> int:
                 print(f'heavy-slot: --prio {opts[k + 1]!r} — нужно 0…{PRIO_MAX}', file=sys.stderr)
                 return 2
             prio, k = int(opts[k + 1]), k + 2
-        elif o in ('--min-gb', '--timeout') and k + 1 < len(opts):
+        elif o in ('--min-gb', '--timeout', '--cores') and k + 1 < len(opts):
             try:
                 v = float(opts[k + 1])
+                if o == '--cores' and not 0 <= v < 1e6:
+                    raise ValueError
             except ValueError:
-                print(f'heavy-slot: {o} {opts[k + 1]!r} — нужно число', file=sys.stderr)
+                print(f'heavy-slot: {o} {opts[k + 1]!r} — нужно число' + (' ≥ 0' if o == '--cores' else ''), file=sys.stderr)
                 return 2
-            min_gb, timeout = (v, timeout) if o == '--min-gb' else (min_gb, v)
+            if o == '--min-gb':
+                min_gb = v
+            elif o == '--timeout':
+                timeout = v
+            else:
+                cores = v
             k += 2
+        elif o in ('--long', '--short'):
+            long_flag, k = o == '--long', k + 1
         elif o == '--no-slot':
             no_slot, k = True, k + 1
         else:
             print(f'heavy-slot: неизвестный ключ {o}', file=sys.stderr)
             return 2
+    auto = long_auto(cmd) if long_flag is None else ''
+    is_long = bool(auto) if long_flag is None else long_flag
+    if auto:
+        log(label, f'долгая по признаку ({auto}) — пойдёт с nice {long_nice()}; не так — ключ --short')
+    if cores is None:
+        hk, hwhy = cores_hint(cmd)
+        if hk > CORES_DEFAULT:
+            msg = f'подсказка: {hwhy} — укажи --cores {hk:g} (без ключа считаю {CORES_DEFAULT:g})'
+            log(label, msg)
+            print(f'heavy-slot: {label}: {msg}', file=sys.stderr)
 
     def _term(sig, _frm):
         raise SystemExit(128 + sig)               # чтобы finally убрал записи держателя/ожидающего
     for s in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(s, _term)
     try:
-        with heavy_slot(label, min_gb=min_gb, timeout=timeout, no_slot=no_slot, cmd=' '.join(cmd), prio=prio) as info:
+        with heavy_slot(label, min_gb=min_gb, timeout=timeout, no_slot=no_slot, cmd=' '.join(cmd), prio=prio,
+                        cores=cores, long=is_long) as info:
+            if is_long and long_nice() > 0:
+                try:                              # себя (команда унаследует при запуске): вливания и короткие тесты — первыми
+                    os.nice(long_nice())
+                except OSError as e:
+                    log(label, f'nice не поставился ({e.__class__.__name__}) — иду с обычным приоритетом')
             p = subprocess.Popen(cmd, pass_fds=(info['fd'],) if info['fd'] is not None else (), env=child_env())
 
             def _fwd(sig, _frm):

@@ -18,6 +18,10 @@
 # ждущий память, отдаёт слот старшему классу сразу и возвращается со своим билетом; ждущий дольше
 # HEAVY_SLOT_PRIO_AGE_MIN — старший класс (голодания нет); класс вне 0…2 — отказ / в границы. T-20261110-29: резерв пробы
 # (HEAVY_SLOT_PRIO_SLOTS) — класс ≥ 1 идёт сразу при занятых обычных слотах, обычный ждёт; `waiting(1)` — только класс ≥ 1.
+# T-20261111-17: ядра — `--cores N` (без ключа 2), бюджет HEAVY_SLOT_CORES_BUDGET (по умолчанию nproc; здесь подменён):
+# сверх бюджета ждёт при лишней памяти, в бюджете — параллельно; шире бюджета — ждёт в слоте 1 ухода держателей, бронь не
+# пускает новых, идёт одна; класс ≥ 1 бюджет не ждёт; обгон по ядрам и защита головы; --status — ядра и строка ЯДРА.
+# Долгие — `--long` / признак в команде (regress.py, playwright) → nice +10, `--short` — нет; подсказка `--cores` по команде.
 # Временная папка — в REMLAB_TMP на диске (T-20261107-13: в /tmp их скопилось 25); успех — удаляется, провал или
 # REMLAB_KEEP_TMP=1 — остаётся, путь в конце.
 set -uo pipefail
@@ -27,7 +31,10 @@ S="$DIR/heavy-slot.sh"
 T=$(remlab_tmp_dir heavy-slot-selftest) || { echo "heavy-slot selftest: нет временной папки в $REMLAB_TMP"; exit 1; }
 remlab_tmp_trap "$T"
 export HEAVY_SLOT_DIR="$T/slot" HEAVY_SLOT_LOG="$T/heavy-slot.log" HEAVY_SLOT_MEMINFO="$T/meminfo" HEAVY_SLOT_POLL=0.1 HEAVY_SLOT_REPORT=0
-unset HEAVY_SLOT_HELD
+# бюджет ядер — подменой, не nproc машины (T-20261111-17): в CI 2–4 ядра, и до-ядерные случаи (по 2 ядра на задачу,
+# до 6 держателей) упирались бы в процессор раннера; ядерные случаи ставят свой бюджет явно
+export HEAVY_SLOT_CORES_BUDGET=64
+unset HEAVY_SLOT_HELD HEAVY_SLOT_NOSLOT HEAVY_SLOT_PRIO
 fails=0
 ok() {
   if [ "$2" = 0 ]; then echo "  [ ok ] $1"; return; fi
@@ -400,14 +407,18 @@ ok "без билета, пришедший раньше, получает би�
   "$(yes_if '[ "$o" = "o0|n3|" ] && [ -z "$(ls $HEAVY_SLOT_DIR/wait)" ]')"
 unset HEAVY_SLOT_HEAD_POLL
 
-pair() {   # <файл> <метка1> <порог1> <метка2> <порог2> → порядок start/end двух задач; --status — в <файл>.st
+pair() { pairx "$1" "$2" "--min-gb $3" "$4" "--min-gb $5"; }   # <файл> <метка1> <порог1> <метка2> <порог2>
+pairx() {  # <файл> <метка1> "<ключи1>" <метка2> "<ключи2>" → порядок start/end двух задач; --status — в <файл>.st
   # детерминированно (T-80; было sleep 0,4 / 0,8 — мигало под нагрузкой): команда держит слот до своего флага «отпускай»;
   # снимок --status — когда второй стартовал или, попробовав допуск, встал ждать («ждёт очередь» пишется после первой
-  # неудачной попытки; память подменена и не меняется — дальше так же); отпускаем по одному: сперва первый, потом второй
+  # неудачной попытки; память и бюджет ядер подменены и не меняются — дальше так же); отпускаем по одному: сперва первый,
+  # потом второй
   local f="$T/$1"
-  "$S" "$2" --min-gb "$3" -- sh -c "$(holdp "$2" "$1")" & local p1=$!
+  # shellcheck disable=SC2086  # ключи — строкой, делим на слова намеренно
+  "$S" "$2" $3 -- sh -c "$(holdp "$2" "$1")" & local p1=$!
   until_f "[ -e $f.up-$2 ]"
-  "$S" "$4" --min-gb "$5" -- sh -c "$(holdp "$4" "$1")" & local p2=$!
+  # shellcheck disable=SC2086
+  "$S" "$4" $5 -- sh -c "$(holdp "$4" "$1")" & local p2=$!
   until_f "[ -e $f.up-$4 ] || grep -q ' $4 pid=[0-9]* ждёт очередь' '$HEAVY_SLOT_LOG'"
   "$S" --status > "$f.st"
   touch "$f.go-$2"
@@ -612,6 +623,128 @@ st=$(HEAVY_SLOT_LONG_S=0.4 "$S" --stats)
 ok "--stats: множитель на тип — parity 3 засчитано: 6 → 0.75 (× 1,5); shadow 1 замер: 5 → 1.56 (× 2); build (держал < 30 с) — нет засчитанных; долгие" \
   "$(yes_if 'grep -q "^parity .* ( 3) .*6 → 0.75  (× 1.5)" <<<"$st" && grep -q "^shadow .* 1 ( 1) .*5 → 1.56  (× 2 — 1–2 замера)" <<<"$st" && grep -q "^build .*(нет засчитанных)" <<<"$st" && grep -q "^ДОЛГИЕ" <<<"$st"')"
 ok "тип задачи по метке" "$(yes_if '[ "$(python3 -c "import sys; sys.path.insert(0, \"$DIR\"); from heavy_slot import task_type as t; print(\" \".join(t(x) for x in [\"parity-72\", \"parity-hall-exam\", \"t73-build\", \"t69-live\", \"parity-living-demo\", \"t51-look\", \"t73-hall-snap2\"]))")" = "parity exam build live parity look hall-snap" ]')"
+
+# --- T-20261111-17: ядра (--cores, бюджет HEAVY_SLOT_CORES_BUDGET подменён — не nproc раннера) и долгие (nice).
+# Детерминированно: память подменена с запасом (14 ГБ, пороги 1), бюджет фиксирован; каждый держатель — до своего флага
+# «отпускай»; снимки и проверки — по факту (флаг «стартовал», строка журнала «ждёт очередь/ядра»), без sleep
+mem 14
+gone() { until_f "grep -qx 'e$1' '$T/$2'"; }   # <метка> <файл>: держатель отпустил (строка «e<метка>» в файле порядка)
+export HEAVY_SLOT_CORES_BUDGET=4
+o=$(pairx cpu1 k-a "--min-gb 1 --cores 3" k-b "--min-gb 1 --cores 2")
+ok "ядра: бюджет 4, держит 3 — второй (2) ждёт при лишней памяти, идёт после ($o); --status: ядра держателя, ожидающего и сумма" \
+  "$(yes_if '[ "$o" = "sk-a|ek-a|sk-b|ek-b|" ] && grep -q "^ДЕРЖИТ: k-a .* · ядер 3$" "$T/cpu1.st" && grep -q "^  1\. k-b .* · ядер 2 · билет" "$T/cpu1.st" && grep -q "^ЯДРА: держатели 3 из 4 (HEAVY_SLOT_CORES_BUDGET; новый ждёт, если держатели + свои > 4" "$T/cpu1.st"')"
+export HEAVY_SLOT_CORES_BUDGET=5
+o=$(pairx cpu2 k-c "--min-gb 1 --cores 3" k-d "--min-gb 1 --cores 2")
+ok "ядра: бюджет 5 — 3 + 2 ≤ 5, второй параллельно ($o), в журнале «ядра 3 + свои 2 ≤ 5»; ЯДРА 5 из 5" \
+  "$(yes_if '[ "$o" = "sk-c|sk-d|ek-c|ek-d|" ] && grep -q "k-d .*взял: .*ядер 2; слот 2: свободно 14.0 ГБ ≥ .*; ядра 3 + свои 2 ≤ 5" "$HEAVY_SLOT_LOG" && grep -q "^ЯДРА: держатели 5 из 5 " "$T/cpu2.st"')"
+export HEAVY_SLOT_CORES_BUDGET=4
+o=$(pairx cpu3 k-e "--min-gb 1" k-f "--min-gb 1")
+ok "без --cores — по 2 (старые вызовы как раньше): бюджет 4 — двое параллельно ($o)" \
+  "$(yes_if '[ "$o" = "sk-e|sk-f|ek-e|ek-f|" ] && [ $(grep -c "^ДЕРЖИТ: k-[ef] .* · ядер 2" "$T/cpu3.st") = 2 ] && grep -q "^ЯДРА: держатели 4 из 4 " "$T/cpu3.st"')"
+r=$(env -u HEAVY_SLOT_CORES_BUDGET python3 -c "
+import os, sys; sys.path.insert(0, '$DIR'); import heavy_slot as H
+print(int(H.cores_budget() == len(os.sched_getaffinity(0))), H.cores_of({}), H.cores_of({'cores': '7'}), H.cores_of({'cores': 'x'}))")
+ok "бюджет по умолчанию — nproc; запись без ядер (старая версия) и мусор — 2 ($r)" "$(yes_if '[ "$r" = "1 2.0 7.0 2.0" ]')"
+
+# шире бюджета (6 > 4): в дополнительный слот не идёт; дошла очередь — берёт слот 1 и бронирует ядра: новый (1 ядро) рядом не
+# встаёт, хотя 1 + 1 ≤ 4 было бы; держатели стекли — идёт одна; после неё — новый. Не ждёт вечно
+"$S" w-a --min-gb 1 --cores 1 -- sh -c "$(holdp w-a wide)" & pwa=$!
+until_f "[ -e $T/wide.up-w-a ]"
+"$S" w-b --min-gb 1 --cores 1 -- sh -c "$(holdp w-b wide)" & pwb=$!
+until_f "[ -e $T/wide.up-w-b ]"
+"$S" w-w --min-gb 1 --cores 6 -- sh -c "$(holdp w-w wide)" & pww=$!
+until_f 'grep -q " w-w pid=[0-9]* ждёт очередь" "$HEAVY_SLOT_LOG"'
+touch "$T/wide.go-w-a"; gone w-a wide
+until_f 'grep -q "w-w .*держит очередь, ждёт ядра: .*ядра: свои 6 > бюджета 4 — только одна, жду, пока уйдут держатели (у них 1)" "$HEAVY_SLOT_LOG"'; w_wait=$?
+"$S" w-c --min-gb 1 --cores 1 -- sh -c "$(holdp w-c wide)" & pwc=$!
+until_f 'grep -q " w-c pid=[0-9]* ждёт очередь" "$HEAVY_SLOT_LOG"'
+c_early=$([ -e "$T/wide.up-w-c" ] && echo 1 || echo 0)
+touch "$T/wide.go-w-b"
+until_f "[ -e $T/wide.up-w-w ]"; w_up=$?
+"$S" --status > "$T/wide.st"
+c_mid=$([ -e "$T/wide.up-w-c" ] && echo 1 || echo 0)
+touch "$T/wide.go-w-w"; until_f "[ -e $T/wide.up-w-c ]"; touch "$T/wide.go-w-c"
+wait $pwa $pwb $pww $pwc
+o=$(tr '\n' '|' < "$T/wide")
+ok "шире бюджета (6 > 4): ждёт ухода держателей в слоте 1, бронь не даёт встать новому, идёт одна, потом новый ($o)" \
+  "$(yes_if '[ $w_wait = 0 ] && [ $w_up = 0 ] && [ $c_early = 0 ] && [ $c_mid = 0 ] && [ "$o" = "sw-a|sw-b|ew-a|ew-b|sw-w|ew-w|sw-c|ew-c|" ] && [ $(grep -c "^ДЕРЖИТ: " "$T/wide.st") = 1 ] && grep -q "^ДЕРЖИТ: w-w .* · ядер 6$" "$T/wide.st" && grep -q "^ЯДРА: держатели 6 из 4 " "$T/wide.st"')"
+
+# класс ≥ 1 (проба агента) бюджет ядер не ждёт: бюджет 2 занят целиком — обычный ждёт, проба идёт сразу
+export HEAVY_SLOT_CORES_BUDGET=2
+"$S" x-h --min-gb 1 --cores 2 -- sh -c "$(holdp x-h prc)" & pxh=$!
+until_f "[ -e $T/prc.up-x-h ]"
+"$S" x-n --min-gb 1 --cores 1 -- sh -c "echo n >> $T/prc" & pxn=$!
+until_f 'grep -q " x-n pid=[0-9]* ждёт очередь" "$HEAVY_SLOT_LOG"'
+"$S" x-u --min-gb 1 --cores 1 --prio 1 -- sh -c "echo u >> $T/prc"; rc_u=$?
+early=$(tr '\n' '|' < "$T/prc")
+touch "$T/prc.go-x-h"
+wait $pxh $pxn
+o=$(tr '\n' '|' < "$T/prc")
+ok "приоритет 1 бюджет ядер не ждёт (бюджет 2 занят): проба сразу, обычный — после держателя ($early → $o)" \
+  "$(yes_if '[ $rc_u = 0 ] && [ "$early" = "sx-h|u|" ] && [ "$o" = "sx-h|u|ex-h|n|" ] && grep -q "x-u .*взял: .*; ядра 2 + свои 1 из 2 (приоритет 1 — бюджет ядер не ждёт)" "$HEAVY_SLOT_LOG"')"
+
+# обгон по ядрам (T-79 + ядра): голова (3 ядра) не проходит при держателе 2 из 4, хвост (2) проходит — идёт рядом; голова после
+export HEAVY_SLOT_CORES_BUDGET=4
+cbf_case() {   # <имя>: держатель <имя>-h (2 ядра) до флага; голова <имя>-a (3) первой в очереди; хвост <имя>-b (2) за ней
+  local f=$1
+  "$S" "$f-h" --min-gb 1 --cores 2 -- sh -c "$(holdp "$f-h" "$f")" & eval "pch_$f=$!"
+  until_f "[ -e $T/$f.up-$f-h ]"
+  "$S" "$f-a" --min-gb 1 --cores 3 -- sh -c "echo s$f-a >> $T/$f" & eval "pca_$f=$!"
+  until_f '"$S" --status | grep -q "^  1\. '"$f"'-a "'
+  "$S" "$f-b" --min-gb 1 --cores 2 -- sh -c "$(holdp "$f-b" "$f")" & eval "pcb_$f=$!"
+}
+cbf_case cbo
+until_f "[ -e $T/cbo.up-cbo-b ]"; tail_up=$?
+"$S" --status > "$T/cbo.st"
+a_early=$(grep -q '^scbo-a$' "$T/cbo" && echo 1 || echo 0)
+touch "$T/cbo.go-cbo-h" "$T/cbo.go-cbo-b"
+wait $pch_cbo $pca_cbo $pcb_cbo
+o=$(tr '\n' '|' < "$T/cbo")
+ok "обгон по ядрам: голова 3 не проходит (2 + 3 > 4), хвост 2 проходит — рядом с держателем, голова после ($o)" \
+  "$(yes_if '[ $tail_up = 0 ] && [ $a_early = 0 ] && [[ "$o" =~ ^scbo-h\|scbo-b\|(ecbo-[hb]\|){2}scbo-a\|$ ]] && grep -q "cbo-b .*взял: .*обогнал голову cbo-a (ядер 3 не проходит: свободно ядер 2 из 4" "$HEAVY_SLOT_LOG" && grep -q "^ДЕРЖИТ: cbo-b .* · ядер 2 · обогнал голову cbo-a · слот 2$" "$T/cbo.st" && grep -q "^ЯДРА: держатели 4 из 4 " "$T/cbo.st"')"
+export HEAVY_SLOT_BACKFILL_MIN=0.0002             # защита головы T-79 действует и для ядер
+cbf_case cbc
+until_f 'grep -q "cbc-b .*обгон закрыт: голова cbc-a ждёт" "$HEAVY_SLOT_LOG"'; closed=$?
+b_early=$([ -e "$T/cbc.up-cbc-b" ] && echo 1 || echo 0)
+touch "$T/cbc.go-cbc-h"; until_f "grep -qx 'scbc-a' '$T/cbc'"; until_f "[ -e $T/cbc.up-cbc-b ]"; touch "$T/cbc.go-cbc-b"
+wait $pch_cbc $pca_cbc $pcb_cbc
+unset HEAVY_SLOT_BACKFILL_MIN
+o=$(tr '\n' '|' < "$T/cbc")
+ok "защита головы и для ядер: голова ждёт дольше HEAVY_SLOT_BACKFILL_MIN — хвост не обгоняет ($o)" \
+  "$(yes_if '[ $closed = 0 ] && [ $b_early = 0 ] && [ "$o" = "scbc-h|ecbc-h|scbc-a|scbc-b|ecbc-b|" ]')"
+export HEAVY_SLOT_CORES_BUDGET=64
+
+# долгие: --long / по признаку в команде → nice +10 у команды; --short — признак не брать; обычная — как есть
+b0=$(nice); bl=$(( b0 + 10 > 19 ? 19 : b0 + 10 ))
+echo "const { chromium } = require('playwright');" > "$T/pw.cjs"
+"$S" lg-a --min-gb 1 --long -- sh -c "nice > $T/nice-a"
+"$S" lg-b --min-gb 1 -- sh -c "nice > $T/nice-b" regress.py 2>/dev/null           # stderr — подсказка по ядрам
+"$S" lg-c --min-gb 1 --short -- sh -c "nice > $T/nice-c" regress.py 2>/dev/null
+"$S" lg-d --min-gb 1 -- sh -c "nice > $T/nice-d"
+"$S" lg-p --min-gb 1 -- sh -c "nice > $T/nice-p" "$T/pw.cjs" 2>/dev/null
+r="$(cat "$T/nice-a") $(cat "$T/nice-b") $(cat "$T/nice-c") $(cat "$T/nice-d") $(cat "$T/nice-p")"
+ok "долгие: --long, regress.py, скрипт с playwright → nice $bl; --short и обычная → $b0 ($r)" \
+  "$(yes_if '[ "$r" = "$bl $bl $b0 $b0 $bl" ] && grep -q "lg-b .*долгая по признаку (в команде «regress.py») — пойдёт с nice 10" "$HEAVY_SLOT_LOG" && grep -q "lg-p .*долгая по признаку (скрипт pw.cjs подключает playwright)" "$HEAVY_SLOT_LOG" && grep -q "lg-a .*взял: .*, ядер 2, долгая" "$HEAVY_SLOT_LOG" && ! grep -q "lg-c .*долгая" "$HEAVY_SLOT_LOG"')"
+export HEAVY_SLOT_CORES_BUDGET=4                   # 3 + 2 > 4: второй долгий ждёт — виден в очереди
+"$S" lg-s --min-gb 1 --long --cores 3 -- sh -c "$(holdp lg-s lgs)" & pls=$!
+until_f "[ -e $T/lgs.up-lg-s ]"
+"$S" lg-w --min-gb 1 --long -- true & plw=$!
+until_f '"$S" --status | grep -q "^  1\. lg-w "'
+"$S" --status > "$T/lgs.st"
+touch "$T/lgs.go-lg-s"
+wait $pls $plw
+export HEAVY_SLOT_CORES_BUDGET=64
+ok "--status: у долгого держателя «ядер 3 · долгая, nice $bl», у ожидающего «долгая»" \
+  "$(yes_if 'grep -q "^ДЕРЖИТ: lg-s .* · ядер 3 · долгая, nice $bl$" "$T/lgs.st" && grep -q "^  1\. lg-w .* · ядер 2 · долгая · билет" "$T/lgs.st"')"
+
+# подсказка по ядрам без --cores; кривой --cores — отказ
+"$S" hint-j --min-gb 1 -- sh -c true regress.py run x -j 3 2>"$T/hint.err"
+"$S" hint-k --min-gb 1 --cores 3 -- sh -c true regress.py run x -j 3 2>"$T/hint2.err"
+"$S" bad-c1 --cores abc -- true 2>"$T/badc.err"; rc1=$?
+"$S" bad-c2 --cores -1 -- true 2>>"$T/badc.err"; rc2=$?
+ok "подсказка: regress.py -j 3 без --cores → «укажи --cores 3»; с --cores — молчит; --cores abc / -1 → rc 2" \
+  "$(yes_if 'grep -q "подсказка: регресс разбора -j 3 — укажи --cores 3 (без ключа считаю 2)" "$T/hint.err" && grep -q "hint-j .*подсказка" "$HEAVY_SLOT_LOG" && ! grep -q подсказка "$T/hint2.err" && [ $rc1 = 2 ] && [ $rc2 = 2 ] && [ $(grep -c "нужно число ≥ 0" "$T/badc.err") = 2 ]')"
+mem 8
 
 st=$("$S" --status)
 ok "после всех: очередь свободна, ожидающих нет" "$(yes_if 'grep -q "^СВОБОДНО" <<<"$st" && grep -q "^ЖДУТ: 0" <<<"$st"')"

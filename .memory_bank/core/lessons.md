@@ -3,7 +3,7 @@ tier: 1
 topic: lessons
 scope: Уроки перед планированием — что НЕ сработало
 tier2: "../lessons/README.md"
-updated: 2026-11-10
+updated: 2026-11-11
 importance: high
 source: manual
 review_after: 2026-12-05
@@ -27,6 +27,7 @@ last_verified: 2026-09-05
 ## Критичные сейчас
 - Пул: `autostart_policy` поднимает при создании (481); «нет денег» — лишь `no_credits_available` (519); в отчёте — ограничитель (568).
 - Деплой: приёмка — по `version` в `/api/health` (513).
-- DEV: код кронов — в worktree (516); worktree без игнорируемых входов врёт, «сухой» — проверить (525, 527); тяжёлое — heavy-slot (573).
+- DEV: код кронов — в worktree (516); worktree без игнорируемых входов врёт, «сухой» — проверить (525, 527); тяжёлое — heavy-slot (573) с реальными `--min-gb` и `--cores`
+  (11.11, TG 1488: память была, а 15 ядер забили регрессы `-j 3` и 3D в Playwright; подсказки — шапка `tools/ops/heavy-slot.sh`).
 
 Номера — `lessons/README.md`; антипаттерны — `anti-patterns.md`.
