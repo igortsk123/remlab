@@ -1623,6 +1623,46 @@ def add_cams(path: str, tokens: list, runner=None) -> str:
     return line
 
 
+# СТОРОЖ ЛЁГКИХ КОПИЙ (T-20261111-23): мебель тура подбирается из банков пробы, а копии (`tools/assets/runtime_mesh.py`) ночь делает
+# только моделям вариантов /demo (`demo_rt.sh`). Тур aOv8: 4 модели гостиной без копии — браузер тянул исходники по 3,4–3,9 МБ
+# (`lib/configurator/mesh-url.ts:meshUrl`). Сборка тура пишет такие модели в очередь ночи, ночь собирает и выкладывает их копии
+# вместе с копиями витрины, а тур берёт новые записи таблицы витрины (`lib/trial/tour.ts:withNewCopies`).
+RT_TABLE = os.path.expanduser('~/scout-scenes/flat3d-rt/runtime-meshes.json')
+RT_QUEUE = os.path.expanduser('~/scout-scenes/rt-queue/trial.txt')
+
+
+def rt_watch(path: str, table: str | None = None, queue: str | None = None) -> str:
+    """Модели вариантов тура без лёгкой копии (обеих: 1024 и `-lite`) → в очередь ночи (без повторов) и строка лога сборки.
+    Не валит сборку: сбой чтения — строка WARN."""
+    table = table or os.environ.get('RT_MANIFEST') or RT_TABLE
+    queue = queue or os.environ.get('RT_QUEUE') or RT_QUEUE
+    try:
+        assets = os.path.abspath(os.path.join(HERE, '..', 'assets'))
+        if assets not in sys.path:
+            sys.path.insert(0, assets)
+        from runtime_mesh import demo_ids
+        var, _ = demo_ids(path)
+        with open(table, encoding='utf-8') as f:
+            tab = json.load(f).get('meshes') or {}
+    except Exception as e:  # noqa: BLE001 — сторож не валит сборку, но молчать нельзя
+        return f'WARN:trial_rt: сторож лёгких копий не сработал: {type(e).__name__}: {str(e)[:160]}'
+    miss = [m for m in var if not ((tab.get(m) or {}).get('size') and (tab.get(m) or {}).get('size-lite'))]
+    if not miss:
+        return f'лёгкие копии моделей тура: {len(var)} из {len(var)}'
+    try:
+        os.makedirs(os.path.dirname(queue), exist_ok=True)
+        have = set(open(queue, encoding='utf-8').read().split()) if os.path.exists(queue) else set()
+        new = [m for m in miss if m not in have]
+        if new:
+            with open(queue, 'a', encoding='utf-8') as f:
+                f.write(''.join(f'{m}\n' for m in new))
+        where = f'в очередь ночи {len(new)} новых ({queue})'
+    except OSError as e:
+        where = f'очередь не записана: {type(e).__name__}'
+    return (f'WARN:trial_rt: без лёгкой копии {len(miss)} из {len(var)} моделей тура (браузер берёт исходник 3–10 МБ): '
+            f'{" ".join(miss[:8])} — {where}')
+
+
 def feeds_line(stats: dict) -> str:
     """Строка журнала сборки: товаров в лентах по позициям и `feeds_short` (позиция → стиль → n, где меньше 20)."""
     return 'feeds ' + json.dumps(stats.get('feeds') or {}, ensure_ascii=False) + ' feeds_short ' + \
@@ -1665,6 +1705,7 @@ def main() -> int:
         write_atomic(out, data)
         if cams:
             print(add_cams(out, shop_tokens(scene)), flush=True)   # до итоговой строки: конвейер читает последнюю
+            print(rt_watch(out), flush=True)                       # версия для страницы — её модели без копии в очередь ночи
         print(feeds_line(stats), flush=True)
         print(json.dumps({'ok': True, 'rooms': list(data['rooms_geo']), 'variants': len(data['variants'])}, ensure_ascii=False))
     else:

@@ -1219,6 +1219,23 @@ def test_cams_budget_scales_with_rounds_and_fits_stage():
     assert TB.CAMS_MAX_S + TB.CAMS_TAIL_S <= float(re.search(r'bundle_timeout_s: float = ([\d.]+)', src).group(1))
 
 
+def test_rt_watch_queues_models_without_copy(tmp_path):
+    """Сторож лёгких копий (T-20261111-23): модели вариантов без обеих копий — в очередь ночи без повторов, строка WARN с числом."""
+    data = tmp_path / 'bundle.json'
+    item = lambda m: {'role': 'диван', 'sku': {'msid': m}}  # noqa: E731
+    TB.write_atomic(str(data), {'rules': {}, 'variants': [{'id': 's1', 'items': [item('1_a'), item('1_b')]}, {'id': 's2', 'items': [item('1_c')]}]})
+    tab = tmp_path / 'rt.json'
+    tab.write_text(json.dumps({'meshes': {'1_a': {'size': 1, 'size-lite': 1}, '1_b': {'size': 1}}}), encoding='utf-8')
+    q = tmp_path / 'q' / 'trial.txt'
+    line = TB.rt_watch(str(data), str(tab), str(q))
+    assert line.startswith('WARN:trial_rt: без лёгкой копии 2 из 3') and '1_b 1_c' in line and '2 новых' in line, line
+    assert TB.rt_watch(str(data), str(tab), str(q)).endswith(f'0 новых ({q})')
+    assert q.read_text().split() == ['1_b', '1_c']
+    tab.write_text(json.dumps({'meshes': {m: {'size': 1, 'size-lite': 1} for m in ('1_a', '1_b', '1_c')}}), encoding='utf-8')
+    assert TB.rt_watch(str(data), str(tab), str(q)) == 'лёгкие копии моделей тура: 3 из 3'
+    assert TB.rt_watch(str(data), str(tmp_path / 'нет.json'), str(q)).startswith('WARN:trial_rt: сторож')
+
+
 def test_cams_jobs_respects_outer_slot(monkeypatch):
     monkeypatch.delenv('TRIAL_CAMS_JOBS', raising=False)
     monkeypatch.delenv('HEAVY_SLOT_CORES', raising=False)

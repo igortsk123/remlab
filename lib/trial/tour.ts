@@ -7,7 +7,7 @@ import path from "node:path";
 
 import type { TrialJobView } from "@/contracts/trial";
 import type { LatestBundle } from "@/lib/trial/repo-bundle";
-import { TRIAL_HEADERS, trialDir } from "@/lib/trial/config";
+import { TRIAL_HEADERS, trialDemoDir, trialDir } from "@/lib/trial/config";
 import { validId } from "@/lib/trial/http";
 import { acceptsBrotli, brotliPage } from "@/lib/trial/tour-brotli";
 import { contentTag, encodedTag, IMMUTABLE, REVALIDATE, tagMatches } from "@/lib/trial/tour-cache";
@@ -68,8 +68,41 @@ export type TourDeps = {
   keyed?: boolean;
   /** Accept-Encoding запроса: страница — brotli, если клиент просит (`tour-brotli.ts`). */
   acceptEncoding?: string | null;
+  /** Папка витрины (`trialDemoDir`): из её таблицы лёгких копий тур добирает модели, которых нет в закреплённой (T-23). */
+  demoDir?: string;
 };
 const NO_LATEST = async (): Promise<LatestBundle> => "not_ready";
+
+const RT_TABLE = "rt-meshes.json";
+
+/**
+ * ЛЁГКИЕ КОПИИ, ПОЯВИВШИЕСЯ ПОСЛЕ ЗАКРЕПЛЕНИЯ ТУРА (T-20261111-23): таблица `rt-meshes.json` закреплена с витриной на день публикации
+ * тура, а мебель тура подбирается из банков пробы, не из вариантов /demo, — копий её моделей в таблице могло не быть (тур aOv8:
+ * 4 модели гостиной — исходники по 3,4–3,9 МБ вместо копий 0,2 МБ). Записи закреплённой таблицы не меняем (пересобранная копия
+ * другого отпечатка — та же модель), а моделям, которых в ней нет, добавляем записи текущей таблицы витрины: её публикация
+ * выкладывает файлы на `/rt/` до таблицы (`tools/assets/publish_rt.sh`), поэтому запись в ней = файл уже отдаётся.
+ * Витрины нет или таблица битая — закреплённая как есть.
+ */
+async function withNewCopies(pinned: Buffer, demoDir: string): Promise<Buffer> {
+  const cur = await readRegular(path.join(demoDir, RT_TABLE));
+  if (!cur) return pinned;
+  try {
+    const a = JSON.parse(pinned.toString("utf8")) as { meshes?: Record<string, unknown> };
+    const b = JSON.parse(cur.toString("utf8")) as { meshes?: Record<string, unknown> };
+    if (!a || typeof a !== "object" || !b?.meshes || typeof b.meshes !== "object") return pinned;
+    const meshes = { ...(a.meshes ?? {}) };
+    let added = 0;
+    for (const [id, e] of Object.entries(b.meshes)) {
+      if (!(id in meshes)) {
+        meshes[id] = e;
+        added += 1;
+      }
+    }
+    return added ? Buffer.from(JSON.stringify({ ...a, meshes })) : pinned;
+  } catch {
+    return pinned;
+  }
+}
 
 /** Ответ, который браузер хранит со сверкой (`tour-cache.ts`): метка совпала — 304 без тела с теми же заголовками, нет — тело. */
 function cached(body: Uint8Array | string, tag: string, type: string, deps: TourDeps, cacheControl = REVALIDATE): Response {
@@ -119,6 +152,9 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
   if (!validId(id)) return notOpen(page, 404, "not found", "missing", id, deps);
   const target = tourTarget(parts);
   if (!target) return text(404, "not found");
+  // общие плитки витрины — переход без запроса к базе (T-20261111-23: 0,2–0,35 с на каждую; новая страница тура берёт их с `/demo/img/`
+  // сама, `index.html:trImgAbs`, — переход остаётся для страниц, закреплённых раньше); личного в них нет, задание не нужно
+  if (target.kind === "shared") return new Response(null, { status: 302, headers: headers({ Location: target.url }) });
   const view = await deps.view(id);
   if (view === undefined) return notOpen(page, 404, "not found", "missing", id, deps);
   if (view === "expired") return notOpen(page, 410, "expired", "expired", id, deps);
@@ -130,7 +166,6 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
       tourUpdate: view.tourUpdate };
     return new Response(JSON.stringify(v), { headers: headers({ "Content-Type": JSON_TYPE }) });
   }
-  if (target.kind === "shared") return new Response(null, { status: 302, headers: headers({ Location: target.url }) });
   const dir = deps.dir ?? trialDir();
   const release = await releaseOf(dir, id, view, deps.pin);
   // задание идёт (или версия есть, а закрепить не вышло) — «готовится»; закрыто без тура — «не получилось»
@@ -149,8 +184,9 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
     if (data.version <= 0) return new Response(new Uint8Array(data.body), { headers: headers({ "Content-Type": JSON_TYPE, ETag: '"v0"' }) });
     return cached(data.body, `"v${data.version}"`, JSON_TYPE, deps);
   }
-  const body = await readRegular(path.join(releaseDir(dir, release), target.rel));
-  if (!body) return text(404, "not found");
+  const pinned = await readRegular(path.join(releaseDir(dir, release), target.rel));
+  if (!pinned) return text(404, "not found");
+  const body = target.rel === RT_TABLE ? await withNewCopies(pinned, deps.demoDir ?? trialDemoDir()) : pinned;
   // движок 3D и корзина — хеш содержимого в имени, навсегда; `lib/scene.json` и `rt-meshes.json` — со сверкой (релиз их не меняет)
   const hashed = SCENE_JS.test(target.rel) || BASKET_JS.test(target.rel);
   return cached(body, contentTag(body), target.type, deps, hashed ? IMMUTABLE : REVALIDATE);

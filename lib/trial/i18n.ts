@@ -36,8 +36,10 @@ export function withLang(href: string, lang: TrialLang): string {
 
 /** Тур задания (`/try/<id>/tour/` — страница `/demo` под план, план agent-trial-08) на выбранном языке. */
 /** `k` — ключ правки агента (Р1): только в его ссылке, кривой не переносим; ссылка покупателя строится без него. */
+/** Без косой перед `?` (T-20261111-23): сервер отвечал на `/tour/` переходом 308 на `/tour` — лишние ~0,3 с на телефоне; относительные
+ *  адреса страницы чинит первый скрипт тура (`tour-page.ts:injectTour`, `history.replaceState` с косой) — как и после перехода. */
 export const tourHref = (id: string, lang: TrialLang, k?: string | null): string =>
-  `/try/${encodeURIComponent(id)}/tour/?lang=${lang}${k && /^[A-Za-z0-9_-]{22}$/.test(k) ? `&k=${k}` : ""}`;
+  `/try/${encodeURIComponent(id)}/tour?lang=${lang}${k && /^[A-Za-z0-9_-]{22}$/.test(k) ? `&k=${k}` : ""}`;
 
 /** Русское число: 1 комната, 2 комнаты, 5 комнат. */
 export function ruPlural(n: number, one: string, few: string, many: string): string {

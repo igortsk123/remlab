@@ -59,12 +59,12 @@ describe("тур пробы: вставка песочницы", () => {
     for (const p of ["/demo/img/a.jpg", "/try/x/tour/demo-data.json", "/rt/x.glb"]) expect(re.test(p), p).toBe(false);
   });
   it("две ссылки задания: агент без опроса, покупатель с опросом", () => {
-    expect(tourLinks(ID)).toEqual({ agent: `/try/${ID}/tour/?quiz=0`, buyer: `/try/${ID}/tour/?quiz=1` });
+    expect(tourLinks(ID)).toEqual({ agent: `/try/${ID}/tour?quiz=0`, buyer: `/try/${ID}/tour?quiz=1` });
   });
   it("ключ правки — только в ссылке агента; кривой ключ не переносится", () => {
     const k = "K".repeat(22);
-    expect(tourLinks(ID, k)).toEqual({ agent: `/try/${ID}/tour/?quiz=0&k=${k}`, buyer: `/try/${ID}/tour/?quiz=1` });
-    expect(tourLinks(ID, "<x>").agent).toBe(`/try/${ID}/tour/?quiz=0`);
+    expect(tourLinks(ID, k)).toEqual({ agent: `/try/${ID}/tour?quiz=0&k=${k}`, buyer: `/try/${ID}/tour?quiz=1` });
+    expect(tourLinks(ID, "<x>").agent).toBe(`/try/${ID}/tour?quiz=0`);
   });
   it("песочница пропускает «Обустроить», «размеры словами» и фото этого задания, кадры и опрос задания — только через fetch", async () => {
     const boot = injectTour(html, ID).match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
@@ -198,6 +198,33 @@ describe("тур пробы: ответы и закреплённая верси
     expect(r.headers.get("cache-control")).toBe("private, no-store");
   });
 
+  it("картинка витрины — переход без запроса к базе (T-20261111-23)", async () => {
+    let asked = 0;
+    const r = await tourResponse(ID, ["img", "a1.jpg"], { view: async () => { asked++; return undefined; }, dir });
+    expect(r.status).toBe(302);
+    expect(asked).toBe(0);
+  });
+
+  it("таблица лёгких копий: закреплённые записи как есть, новые модели — из текущей витрины (T-20261111-23)", async () => {
+    const rd = releaseDir(dir, release);
+    const pinned = readFileSync(join(rd, "rt-meshes.json"));
+    const demo2 = join(root, "demo-now");
+    mkdirSync(demo2, { recursive: true });
+    try {
+      writeFileSync(join(rd, "rt-meshes.json"), JSON.stringify({ baseUrl: "/rt/", meshes: { a: { size: 1, src_sha: "old" } } }));
+      writeFileSync(join(demo2, "rt-meshes.json"), JSON.stringify({ meshes: { a: { size: 2, src_sha: "new" }, b: { size: 3 } } }));
+      const r = await tourResponse(ID, ["rt-meshes.json"], { view, dir, demoDir: demo2 });
+      expect(await r.json()).toEqual({ baseUrl: "/rt/", meshes: { a: { size: 1, src_sha: "old" }, b: { size: 3 } } });
+      writeFileSync(join(demo2, "rt-meshes.json"), "{битый");
+      const same = await tourResponse(ID, ["rt-meshes.json"], { view, dir, demoDir: demo2 });
+      expect((await same.json()).meshes).toEqual({ a: { size: 1, src_sha: "old" } });
+      const none = await tourResponse(ID, ["rt-meshes.json"], { view, dir, demoDir: join(root, "нет") });
+      expect((await none.json()).meshes).toEqual({ a: { size: 1, src_sha: "old" } });
+    } finally {
+      writeFileSync(join(rd, "rt-meshes.json"), pinned);
+    }
+  });
+
   it("нет задания / кривой id / срок вышел / нет бандла", async () => {
     expect((await tourResponse(ID, [], { view: async () => undefined, dir })).status).toBe(404);
     expect((await tourResponse("../../etc", [], { view, dir })).status).toBe(404);
@@ -318,7 +345,7 @@ describe("тур пробы: ответы и закреплённая верси
     expect(html).toContain('data-stub="wait"');
     expect(html).toContain("Тур ещё готовится");
     expect(html).not.toContain("not ready");
-    expect(html).toContain(`href="/try/${J}/tour/?lang=ru&amp;k=${K}"`);
+    expect(html).toContain(`href="/try/${J}/tour?lang=ru&amp;k=${K}"`);
     expect(html).toContain(`href="/try/${J}?k=${K}&amp;lang=ru"`);
     const d = await tourResponse(J, ["demo-data.json"], { view: as({ status: "running" }), dir, stub: { lang: "ru" } });
     expect(d.status).toBe(404);

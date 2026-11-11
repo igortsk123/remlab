@@ -42,8 +42,8 @@ describe("язык в адресе", () => {
   });
 
   it("тур — тот же язык", () => {
-    expect(tourHref("AbC_-1", "ru")).toBe("/try/AbC_-1/tour/?lang=ru");
-    expect(tourHref("AbC_-1", "en")).toBe("/try/AbC_-1/tour/?lang=en");
+    expect(tourHref("AbC_-1", "ru")).toBe("/try/AbC_-1/tour?lang=ru");
+    expect(tourHref("AbC_-1", "en")).toBe("/try/AbC_-1/tour?lang=en");
   });
 });
 

@@ -17,6 +17,19 @@ export RT_TABLE_OUT=${RT_TABLE_OUT:-$(dirname "$DATA")/rt-meshes.json}
 [ -f "$M" ] || cp data/flat3d/runtime-meshes.json "$M"
 # итог и строки WARN сторожа текстур (T-20261107-15: битая копия не пишется, без KTX2 — запасная JPEG) — в сводку ночи
 SUM='^(WARN:|готово:|вес:)'
+# ОЧЕРЕДЬ ТУРОВ (T-20261111-23): модели мебели туров без копии (`trial_bundle.rt_watch` пишет их при сборке тура) — собрать здесь же,
+# их копии уедут на /rt/ той же выкладкой, а таблица витрины даст их и турам, закреплённым раньше (`lib/trial/tour.ts:withNewCopies`).
+# Очередь забираем переименованием (сборка тура в это время пишет уже в новый файл); ворота публикации демо от неё не зависят
+Q=${RT_QUEUE:-$HOME/scout-scenes/rt-queue/trial.txt}
+if [ -s "$Q" ] && mv -f "$Q" "$Q.taking"; then
+  QIDS=()
+  while read -r m; do QIDS+=(--id "$m"); done < <(grep -E '^[0-9]+_[0-9]+$' "$Q.taking" | sort -u | head -200)
+  if [ ${#QIDS[@]} -gt 0 ]; then
+    echo "очередь туров: моделей $(( ${#QIDS[@]} / 2 ))"
+    "$PY" tools/assets/runtime_mesh.py "${QIDS[@]}" --manifest "$M" --out "$OUT" --size 1024 2>&1 | grep -E "$SUM" | sed 's/^/туры: /'
+    "$PY" tools/assets/runtime_mesh.py "${QIDS[@]}" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite 2>&1 | grep -E "$SUM" | sed 's/^/туры: /'
+  fi
+fi
 "$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 1024 2>&1 | grep -E "$SUM"
 "$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite 2>&1 | grep -E "$SUM"
 bad=0

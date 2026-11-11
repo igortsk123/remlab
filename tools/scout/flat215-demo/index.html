@@ -2540,7 +2540,15 @@ function dataFetch(){ const p=window.__dataP; window.__dataP=null; const own=()=
 // чем браузер дочитает 1,2 МБ разметки; `init` тогда звал функции и константы следующих <script> (`stateIdOf`, `LIVE`) до их
 // объявления — ReferenceError, `.catch` ниже глотал его, и главная /demo оставалась без фото («Откройте, покажем в 3D»)
 const pageReady=()=>document.readyState==='loading'?new Promise(ok=>document.addEventListener('DOMContentLoaded',ok,{once:true})):Promise.resolve();
-dataFetch().then(r=>trDataEtag(r).json()).then(d=>pageReady().then(()=>d)).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();
+// ФОТО ТОВАРОВ ТУРА — ПРЯМО С ВИТРИНЫ (T-20261111-23): плитки общие с /demo (`img/<md5>.jpg`), и тур отдавал их переходом 302 через
+// сервер приложения с запросом к базе (`lib/trial/tour.ts:SHARED_IMG`) — 0,2–0,35 с на каждую на телефоне. Адрес плитки в данных тура
+// ведём сразу на `/demo/img/`: тот же файл, без перехода. Только поле `img` с именем плитки; прочие адреса не трогаем
+const TR_IMG=/^img\/[0-9a-f]{16}(?:-l)?\.jpg$/;
+function trImgAbs(o){ if(Array.isArray(o)){o.forEach(trImgAbs); return o;}
+  if(o&&typeof o==='object')for(const k of Object.keys(o)){const x=o[k];
+    if(k==='img'&&typeof x==='string'&&TR_IMG.test(x))o[k]='/demo/'+x; else if(x&&typeof x==='object')trImgAbs(x);}
+  return o; }
+dataFetch().then(r=>trDataEtag(r).json()).then(d=>pageReady().then(()=>d)).then(d=>{D=roomsAlias(d);if(TRIAL()){trImgAbs(D);trialSetup();}init();
   if(TRIAL()){window.__trialReady=1; document.dispatchEvent(new Event('trialready'));}})   // проба: опрос без карточки квартиры (`decide`)
   .catch(e=>{try{console.error('запуск страницы:',e);}catch(_){}   // сбой запуска виден в консоли, а не только надписью (T-43)
     const b=document.getElementById('sub'), msg=(pageEn()?'Could not load the data: ':'Не удалось загрузить данные: ')+String(e.message||e).slice(0,140);
@@ -5931,7 +5939,8 @@ function payload(){
   // не попадали. Товар куплен, а на фото его нет.
   // пол и прочие опции застройщика (demo-06): выбор — парами, пол — id материала для кадра
   // фото декора и мягкого — из кэша сборки (`img/…`, demo-24): сервер берёт его по полному адресу, как фото предметов ниже
-  const absImg=u=>u&&!/^(https?:)?\/\//.test(u)?base+u:u;
+  // адрес от корня (`/demo/img/…` в туре, T-20261111-23) — от сайта, относительный — от папки страницы
+  const absImg=u=>u&&!/^(https?:)?\/\//.test(u)?new URL(u,base).href:u;
   // назначение комнаты (ячейка банка: `couple`, `child:7-12`…) — сервер берёт свой промпт фото, если он есть (детская, T-20261107-46/1)
   return {room:roomOf(v), room_id:roomIdOf(v), ...(v.purpose?{purpose:String(v.purpose)}:{}), variant_id:v.id||'', style:v.style||'', variant:v.title||'', developerOptions:clone(DEVOPT),
     decor:(v.decor||[]).map(d=>d&&d.sku&&d.sku.img?Object.assign({},d,{sku:Object.assign({},d.sku,{img:absImg(d.sku.img)})}):d),
@@ -5956,7 +5965,7 @@ function payload(){
     pack:(it.sku&&it.sku.pack)||1,          // «стул 2 шт.» — два слота это одна покупка
     price:(it.sku&&it.sku.price)||null, url:(it.sku&&it.sku.url)||null,
     shop:(it.sku&&it.sku.shop)||null,
-    img:(it.sku&&it.sku.img)?(/^https?:/.test(it.sku.img)?it.sku.img:base+it.sku.img):null}))};
+    img:(it.sku&&it.sku.img)?absImg(it.sku.img):null}))};
 }
 // ——— хранилище кадров: НИЧЕГО НЕ УДАЛЯЕМ (владелец 26.08), переживает перезагрузку страницы
 // РЕЕСТР С СЕРВЕРА — ОСНОВНОЙ ИСТОЧНИК КОЛЛЕКЦИИ (владелец 01.09: «фото должны храниться на
