@@ -9599,7 +9599,7 @@ function vwActsNode(box){
   b=document.createElement('span'); b.className='vacts'; b._w=0;
   // цена выбранного — первым отрезком плашки (T-05/6, владелец TG 1558); отдельный ценник предмета тогда не рисуется (`vwPinsTick`)
   b.innerHTML=`<span class="vcost"></span>`+
-    `<button class="vrot" type="button" title="${EN?'Rotate (R)':'Повернуть (R)'}" aria-label="${EN?'Rotate 45°':'Повернуть на 45°'}"><span class="vic" aria-hidden="true">↻</span><span class="vlb">${EN?'Rotate':'Повернуть'}</span></button>`+
+    `<button class="vrot" type="button" title="${EN?'Rotate (R)':'Повернуть (R)'}" aria-label="${EN?'Rotate 90°':'Повернуть на 90°'}"><span class="vic" aria-hidden="true">↻</span><span class="vlb">${EN?'Rotate':'Повернуть'}</span></button>`+
     `<button class="vmove" type="button" title="${EN?'Move (M)':'Переместить (M)'}" aria-label="${EN?'Move: drag along the floor':'Переместить: тяните по полу'}"><span class="vic" aria-hidden="true">✥</span><span class="vlb">${EN?'Move':'Переместить'}</span></button>`+
     `<button class="vsize" type="button" aria-label="${EN?'Size':'Размеры'}"><span class="vic" aria-hidden="true">⤢</span><span class="vsz-s"></span><span class="vsz-f"></span></button>`;
   b.querySelector('.vmove').addEventListener('pointerdown',e=>{vwPeek(e.currentTarget); vwMoveDown(e);});
@@ -9754,8 +9754,9 @@ function vwRotate(){
   const i=VW.sel, it=i!=null?items[i]:null; if(!vwCanRot(it)||vwEditLock())return;
   if(!VW.rotBase||VW.rotBase.i!==i)VW.rotBase={i, hits:vwRotHits(i), x:+it.x, y:+it.y};
   const R=curRoom(), prev=it.rot, px=it.x, py=it.y, o=VW.rotBase;
-  it.rot=((((+it.rot||0)-ROT_STEP)%360)+360)%360;
-  // от места ДО первого поворота: иначе сдвиг от стены под 45° копился, и после полного круга предмет стоял не там, где был
+  it.rot=rotNext(it.rot);
+  // от места ДО первого поворота: иначе сдвиг от стены копился, и после полного круга предмет стоял не там, где был. Зажим в комнату
+  // по рамке после поворота: стоял у стены — после 90° встаёт к той же стене вплотную (рамка касается стены, а не заходит за неё)
   if(R){let b=box(it);
     it.x=Math.max(b.w/2,Math.min(R.w-b.w/2,o.x)); it.y=Math.max(b.d/2,Math.min(R.d-b.d/2,o.y)); b=box(it);
     if(b.x0<-0.5||b.y0<-0.5||b.x1>R.w+0.5||b.y1>R.d+0.5){it.rot=prev; it.x=px; it.y=py;
