@@ -216,7 +216,7 @@ def make_handler(prod: Prod):
                 return self.send(prod.health, {'ok': prod.health == 200})
             if self.headers.get('Authorization') != f'Bearer {TOKEN}':
                 return self.send(401, {'ok': False})
-            if self.path == f'/api/trial/worker/{JID}/input':
+            if self.path == f'/api/trial/worker/{(prod.lease or {}).get("id") or JID}/input':
                 L = prod.lease
                 if not L or self.headers.get('X-Trial-Lease') != L['leaseToken'] or \
                         self.headers.get('X-Trial-Attempt') != str(L['attempt']):
@@ -500,6 +500,40 @@ def test_bad_job_id_is_not_used_as_path(prod, mk):
     w.loop(max_iter=1)
     assert not (w.cfg.base.parent / 'etc').exists()
     assert w.done and w.done[0][1].startswith('fail:internal')
+
+
+DASH_JID = '-Z81ShbmyuxJFYL9xYLe8Q'          # T-04 №1: base64url-id с «-» в начале (~1 из 64) — дом Hanham упал в raster
+
+
+def _pipeline_args(argv: list, monkeypatch) -> dict:
+    """Разбор командной строки настоящим `pipeline.main` (без запуска стенда): argparse стенда видит ровно то, что дал воркер."""
+    import pipeline as pl
+    got = {}
+    monkeypatch.setattr(pl, 'job_main', lambda a: got.update(vars(a)) or 0)
+    assert pl.main(argv) == 0
+    return got
+
+
+def test_job_id_with_leading_dash_reaches_pipeline_as_value(prod, mk, monkeypatch):
+    """T-20261111-07: `'--job-id', jid` двумя аргументами → argparse стенда «expected one argument» на id `-Z81…`; `--job-id=<id>` — значение."""
+    prod.add_job(id=DASH_JID)
+    w = mk()
+    w.loop(max_iter=2)
+    assert w.done == [(DASH_JID, 'done')]
+    argv = json.loads((next((w.cfg.base / DASH_JID).iterdir()) / 'argv.json').read_text())
+    a = _pipeline_args(argv, monkeypatch)
+    assert a['cmd'] == 'job' and a['job_id'] == DASH_JID and a['mime'] == 'image/png' and a['cap_usd'] == pytest.approx(0.1)
+
+
+def test_reread_job_id_with_leading_dash_reaches_pipeline_as_value(prod, mk, monkeypatch, tmp_path):
+    """То же для плана заново по тексту (`conveyor.ListingRebuild.reread`)."""
+    _listing(prod, jobId=DASH_JID)
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')]
+    argv = json.loads((next((tmp_path / 'trial' / DASH_JID).glob('r1-*')) / 'plan' / 'argv.json').read_text())
+    a = _pipeline_args(argv, monkeypatch)
+    assert a['job_id'] == DASH_JID and a['cache_only'] and a['cap_usd'] == 0
 
 
 def test_janitor_removes_old_job_dirs_only(mk, tmp_path):

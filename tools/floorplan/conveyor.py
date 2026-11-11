@@ -557,7 +557,7 @@ class ListingRebuild(Rebuild):
         lst = pw / 'listing.txt'
         lst.write_text('\n'.join(self.carried + [self.text[:5000]]), encoding='utf-8')
         cmd = self.cfg.pipeline + ['job', '--input', str(inp), '--mime', self.mime, '--workdir', str(pw),
-                                   '--vlm-root', str(self.cfg.vlm_root), '--job-id', self.jid, '--cap-usd', '0', '--cache-only',
+                                   '--vlm-root', str(self.cfg.vlm_root), f'--job-id={self.jid}', '--cap-usd', '0', '--cache-only',
                                    '--listing-file', str(lst)]
         if self.cfg.an_cache:
             cmd += ['--an-cache', self.cfg.an_cache]

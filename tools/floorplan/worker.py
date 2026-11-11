@@ -438,7 +438,7 @@ class Worker:
         if (info or {}).get('too_large'):
             return self.fail(lease, wd, 'too_large', False, f'input > {INPUT_MAX} B')
         cmd = self.cfg.pipeline + ['job', '--input', str(inp), '--mime', mime, '--workdir', str(wd),
-                                   '--vlm-root', str(self.cfg.vlm_root), '--job-id', jid,
+                                   '--vlm-root', str(self.cfg.vlm_root), f'--job-id={jid}',   # id с «-» в начале — не флаг (T-20261111-07)
                                    '--cap-usd', str(min(float(job.get('budgetUsd') or 0.10), 0.10))]
         if job.get('listingText'):
             (wd / 'listing.txt').write_text(str(job['listingText'])[:5000])
