@@ -384,6 +384,157 @@ def pick_role(role: str, bank: list, style: str, mesh_ok, defect, used: set):
     return None
 
 
+EXTRA_ROLES = ('шкаф', 'комод')                    # «по месту» (владелец 11.11, TG 992): шкаф главнее комода (вес решателя 3 против 2)
+EXTRA_SIZES = 3                                    # разных размеров на роль: от самого широкого, что влезает в стену ядра, к узкому
+EXTRA_TRIES = 4                                    # проб размеров на вариант сверх обязательных (`fit_extras`): 4 размера и без потолка
+#                                                    перебор съедал бюджет большой спальни (T-20261111-06/2: Jsfx20 30 → 25 предметов)
+EXTRA_SLICE_S = 4.0                                # потолок времени подбора размеров на вариант (страховка; обычно раньше — EXTRA_TRIES):
+#                                                    вышел — лучшее найденное
+EXTRA_GIVEUP = 4                                   # роль столько проб на ядре ломала шаблон «не у стены» и ни разу не встала — дальше
+#                                                    её не пробуем (кроме первой пробы варианта): «Этажи» спальня 1 — каждый шкаф и
+#                                                    комод «в воздухе» (`back_off_wall`), 25 проб впустую, ×2,4 времени
+
+
+def role_sizes(role: str, bank: list, style: str, mesh_ok, defect, used: set, wall_max: float) -> list:
+    """ШКАФ И КОМОД ПО МЕСТУ (владелец 11.11, TG 992: «шкаф в спальню ставится шаблоном, где влезает?»), как кровати по размеру:
+    кандидаты роли — по одному на размер w×d×h, от самого широкого, что не длиннее самой длинной стены ядер (`wall_max`), к узкому.
+    Сперва свой стиль (от широкого к узкому), за ним — товары соседних стилей УЖЕ самого узкого своего (запас на тесную стену,
+    не подмена стиля); при равном размере — незанятые другими спальнями раньше занятых. Не больше EXTRA_SIZES. Встанет ли —
+    решает солвер (`fit_extras`)."""
+    out, seen, own_min = [], set(), None
+    for k, st in enumerate([style] + R.neighbour_styles(style)):
+        rows = [it for it in bank_pool(bank, st, role) if _ready(it, mesh_ok, defect) and float(it['w']) <= wall_max]
+        rows.sort(key=lambda it: (-float(it['w']), -float(it['d']), _sid(it) in used))
+        for it in rows:
+            if k and own_min is not None and float(it['w']) >= own_min:
+                continue
+            key = size_key(it)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(dict(it, **({'_borrowed': st} if k else {})))
+        if k == 0 and out:
+            own_min = min(float(it['w']) for it in out)
+    return _cap_sizes(out)
+
+
+def _cap_sizes(rows: list) -> list:
+    """Свои размеры — до EXTRA_SIZES − 1, последнее место — самому узкому из соседних стилей (если он есть): иначе при EXTRA_SIZES своих
+    широких шкафах узкий запас не пробовался бы никогда."""
+    own = [it for it in rows if not it.get('_borrowed')]
+    far = sorted((it for it in rows if it.get('_borrowed')), key=lambda it: -float(it['w']))     # стабильно: внутри ширины — порядок стилей
+    if not own:
+        return far[:EXTRA_SIZES]
+    if not far:
+        return own[:EXTRA_SIZES]
+    own = own[:EXTRA_SIZES - 1]
+    n = EXTRA_SIZES - len(own)                     # свободные места — соседним стилям: от широкого, последнее — самому узкому
+    return own + (far[:n - 1] + far[-1:] if len(far) > n else far)
+
+
+def cramped(dims: dict, failed: dict) -> bool:
+    """Набор не меньше того, где шкаф или комод уже не встал на этом ядре: те же роли есть, каждая не уже и не мельче (w, d) —
+    теснее не станет просторнее, проба не нужна (как `dominated` у кроватей)."""
+    return all(r in dims and dims[r][0] >= w and dims[r][1] >= d for r, (w, d) in failed.items())
+
+
+def fit_extras(ad: dict, cand: dict, cfg: dict, core_kit: dict, extras: dict, tpl: dict, deadline: float) -> tuple[dict, dict]:
+    """Шкаф и комод поверх выполненного шаблона (кровать + тумбы) — ПО МЕСТУ, от широкого к узкому (`extras` — `role_sizes`).
+    Лучшее — больше вставших предметов, при равном — со шкафом (вес решателя 3 против 2), затем шире; солвер сам снимает
+    необязательное без места (`skipped_optional`), поэтому в набор варианта идут только вставшие роли.
+      1) самые широкие шкаф и комод вместе — всегда (как полный набор прежней лестницы `kit_ladder`); встали оба — готово;
+      2) шкаф не встал — самый узкий шкаф при комоде, что встал (или самом узком): не встал — шире не пробуем, встал — шире его
+         от широкого (`fit_role`); так же комод при шкафе, что встал; шкаф есть, а комода нет — самый узкий шкаф с самым узким
+         комодом. Не больше EXTRA_TRIES проб и EXTRA_SLICE_S секунд (и не позже `deadline` стиля): вышло — лучшее найденное;
+         набор не меньше того, где на этом ядре что-то уже не встало (у прошлого стиля тоже), не пробуется (`cramped`); роль,
+         что на ядре EXTRA_GIVEUP проб ломала шаблон (проверка назвала её, например `back_off_wall`) и ни разу не встала, дальше
+         не пробуется (`hopeless`);
+      3) не встало ни одного (шаблон ломался набором, например шкаф не у стены) — КОМОД БЕЗ ШКАФА, затем шкаф без комода, тоже
+         вне потолка проб и времени (пропуск — только `cramped` и `hopeless`): со шкафом комната не теряет предметы, что прежняя лестница
+         ставила (T-20261111-06/2).
+    → (расстановка, набор)."""
+    purpose = tpl['purpose']
+    wards, dressers = extras.get('шкаф') or [], extras.get('комод') or []
+    want = bool(wards) + bool(dressers)
+    stop = min(deadline, time.time() + EXTRA_SLICE_S)
+    best = {'rank': (0, False, 0.0, 0.0), 'res': solve_kit(ad, cand, cfg, core_kit, purpose), 'kit': dict(core_kit)}
+    tried, left = set(), [EXTRA_TRIES]
+    # пробы ядра, где чего-то из шкафа и комода не встало, — общие для стилей комнаты (ядро у них одно); петли у первого стиля —
+    # обе, дальше — одна его (`furnish_room`): не встало при обеих — не встанет и при одной
+    core_key = (tuple(cand.get('rect') or ()), purpose)
+    fails = ad.setdefault('extra_fail', {}).setdefault(core_key, [])
+    # по роли на ядре: [сколько проб не встала, вставала ли хоть раз]
+    stat = ad.setdefault('extra_stat', {}).setdefault(core_key, {r: [0, False] for r in EXTRA_ROLES})
+
+    def hopeless(role):
+        return stat[role][0] >= EXTRA_GIVEUP and not stat[role][1]
+
+    def run(ward, dresser, must=False) -> None:
+        if must != 'always':                            # безнадёжную на этом ядре роль не берём в пробу (`EXTRA_GIVEUP`)
+            ward, dresser = (None if hopeless('шкаф') else ward), (None if hopeless('комод') else dresser)
+        key = (size_key(ward) if ward else None, size_key(dresser) if dresser else None)
+        if key == (None, None) or key in tried:
+            return
+        kit = dict(core_kit, **{r: it for r, it in (('шкаф', ward), ('комод', dresser)) if it})
+        dims = {r: (float(it['w']), float(it['d'])) for r, it in kit.items()}
+        if must != 'always' and any(cramped(dims, f) for f in fails):
+            return
+        if not must:
+            if left[0] <= 0 or time.time() > stop:
+                return
+            left[0] -= 1
+        tried.add(key)
+        res = solve_kit(ad, cand, cfg, kit, purpose)
+        ok = template_ok(res, tpl)
+        got = {base_role(p.role) for p in res['placements']} & set(EXTRA_ROLES) if ok else set()
+        lost = (set(kit) & set(EXTRA_ROLES)) - got
+        if lost:
+            fails.append(dims)
+        # шаблон сломан, и проверка по контуру назвала роль (`back_off_wall` — решатель ставит её к стороне ядра, за которой не
+        # стена): это про место, а не размер — уже не поможет. Не встала по месту (снята решателем) — не считаем: уже может встать
+        named = {base_role(p.get('role') or '') for p in ((res or {}).get('post') or {}).get('problems') or []} & lost
+        for r in set(kit) & set(EXTRA_ROLES):
+            if r in got:
+                stat[r][1] = True
+            elif not ok and r in named:
+                stat[r][0] += 1
+        if not ok:
+            return
+        rank = (len(got), 'шкаф' in got) + tuple(float(kit[r]['w']) if r in got else 0.0 for r in EXTRA_ROLES)
+        if rank > best['rank']:
+            best.update(rank=rank, res=res, kit={r: it for r, it in kit.items() if r not in EXTRA_ROLES or r in got})
+
+    def has(role):
+        return role in best['kit']
+
+    def fit_role(role, sizes, other):
+        """Роль не встала самой широкой: сперва самая узкая (не встала — шире не встанут, проба одна), встала — шире её от широкого."""
+        if not sizes or has(role) or hopeless(role):
+            return
+        kit = (lambda it: (it, other) if role == 'шкаф' else (other, it))
+        run(*kit(sizes[-1]))
+        if has(role):
+            for it in sizes[1:-1]:
+                run(*kit(it))
+                if best['kit'].get(role) is it:
+                    break
+
+    if not want:
+        return best['res'], best['kit']
+    run(wards[0] if wards else None, dressers[0] if dressers else None, must='always')
+    fit_role('шкаф', wards, best['kit'].get('комод') or (dressers[-1] if dressers else None))
+    ward = best['kit'].get('шкаф')
+    fit_role('комод', dressers, ward)
+    if ward and dressers and not has('комод') and not hopeless('комод') and float(wards[-1]['w']) < float(ward['w']):
+        run(wards[-1], dressers[-1])                    # шкаф встал, комод ни один — самый узкий шкаф с самым узким комодом
+    if best['rank'][0] == 0:
+        if dressers:
+            run(None, dressers[0], must=True)
+        if best['rank'][0] == 0 and wards:
+            run(wards[-1], None, must=True)
+    return best['res'], best['kit']
+
+
 # ───────────────────────── солвер: кровать → проверка ─────────────────────────
 
 def build_room(cand: dict, cfg: dict, hinge: str, purpose: str):
@@ -488,12 +639,13 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
     `too_small` (ни одно ядро меньше нормы кровати шаблона — `bed_need`; длина — по самой короткой готовой раме ширины, `frames_len`) /
     `no_bed` / `frame_too_wide` (кровати ширины есть, но рама с проходами не встаёт ни на одно ядро — `frame_need`; отсев ДО среза
     `BEDS_PER_TEMPLATE`, T-20261110-20) / `no_nightstand` (товаров нет) / `no_fit` (не встали) / `budget` (не дошли). Код стиля: что-то не встало (`no_fit` или `frame_too_wide`) — `bed_no_fit`; все шаблоны больше комнаты — `room_too_small`;
-    иначе — `no_products` (подходящих по размеру товаров нет). Шкаф и комод — по месту (`kit_ladder`)."""
+    иначе — `no_products` (подходящих по размеру товаров нет). Шкаф и комод — по месту (`fit_extras`: от самого широкого, что встаёт, к узкому)."""
     cores = ad['candidates'][:MAX_CORES]
     area = max(c['area_m2'] for c in cores)
     short = max(min(c['w'], c['d']) for c in cores)
-    others = {r: pick_role(r, ctx['bank'], style, ctx['mesh_ok'], ctx['defect'], used) for r in ROOM_ROLES[1:]}
-    stand = others['тумба прикроватная']
+    stand = pick_role('тумба прикроватная', ctx['bank'], style, ctx['mesh_ok'], ctx['defect'], used)
+    wall_max = max(max(c['w'], c['d']) for c in cores)
+    extras = {r: role_sizes(r, ctx['bank'], style, ctx['mesh_ok'], ctx['defect'], used, wall_max) for r in EXTRA_ROLES}
     log = []
     for tpl in templates(area, short):
         need = bed_need(tpl['sleep_w'], tpl['purpose'])
@@ -547,10 +699,8 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
                             tries = tries[:i] + [b for b in tries[i:] if not dominated(b, bed, lim)] + low
                             low_frames = True
                     continue
-                for kit in kit_ladder(bed, others):
-                    res = solve_kit(ad, cand, cfg, kit, tpl['purpose'])
-                    if template_ok(res, tpl):
-                        return dict(variant_from(res, ad, cand, ci, style, bed, others, tpl, ctx), templates_tried=log), None
+                res, kit = fit_extras(ad, cand, cfg, core_kit, extras, tpl, deadline)
+                return dict(variant_from(res, ad, cand, ci, style, kit, extras, tpl, ctx), templates_tried=log), None
         # low_frames — мешала высота рамы у окна (проба `window_low_beds`), низкие тоже не встали: подсказка спросу на низкие кровати
         log.append({'template': tpl['id'], 'why': why, **({'low_frames': True} if low_frames else {})})
         if why == 'budget':
@@ -611,27 +761,18 @@ def window_low_beds(ad: dict, cand: dict, cfg: dict, core_kit: dict, tpl: dict, 
     return lim, [b for b in fit if float(b.get('h') or 0) <= lim and size_key(b) not in seen][:BEDS_PER_TEMPLATE]
 
 
-def kit_ladder(bed: dict, others: dict) -> list:
-    """Наборы шаблона от полного к минимальному: необязательный шкаф или комод, из-за которого расстановка не проходит, снимается;
-    последний — кровать с тумбами (обязательное шаблона)."""
-    have = {r: it for r, it in others.items() if it}
-    out = []
-    for drop in ((), ('комод',), ('шкаф',), ('шкаф', 'комод')):
-        kit = {'кровать': bed, **{r: it for r, it in have.items() if r not in drop}}
-        if kit not in out:
-            out.append(kit)
-    return out
-
-
-def variant_from(res: dict, ad: dict, cand: dict, ci: int, style: str, bed: dict, others: dict, tpl: dict, ctx: dict) -> dict:
+def variant_from(res: dict, ad: dict, cand: dict, ci: int, style: str, kit: dict, extras: dict, tpl: dict, ctx: dict) -> dict:
+    """Вариант из расстановки набора `kit` (кровать, тумба и вставшие по месту шкаф/комод). Роли нет — `no_model`, если у стиля нет
+    годного товара роли (`extras` пуст), иначе `no_space` (ни один размер не встал)."""
     x0, y0 = cand['rect'][0], cand['rect'][1]
-    kit = {'кровать': bed, **{r: it for r, it in others.items() if it}}
+    bed = kit['кровать']
     items, msid = [], ctx['msid']
     for p in res['placements']:
         it = kit[base_role(p.role)]
         items.append(public_item(p, it, msid(_sid(it))))
     placed = {base_role(p.role) for p in res['placements']}
-    missing = [{'role': r, 'why': 'no_model' if r not in kit else 'no_space'} for r in ROOM_ROLES if r not in placed]
+    have = set(kit) | {r for r, xs in (extras or {}).items() if xs}
+    missing = [{'role': r, 'why': 'no_model' if r not in have else 'no_space'} for r in ROOM_ROLES if r not in placed]
     return {'style': style, 'style_id': STYLE_ID.get(style, ''), 'purpose': tpl['purpose'], 'template': tpl['id'], 'core_index': ci,
             'hinge': res['hinge'], 'bed_sleep_w': round(_sleep_w(bed)), 'bed_borrowed_style': bed.get('_borrowed'),
             'items': items, 'missing_item': missing, 'fill_pct': res['floor_pct'], 'hard': [], 'post_ok': res['post']['ok'],

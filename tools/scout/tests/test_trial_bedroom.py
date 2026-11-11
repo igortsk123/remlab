@@ -595,3 +595,55 @@ def test_user_dims_is_consent_without_approx_flag():
     a, b = job['rooms']
     assert a['outcome']['state'] == 'scale_unverified'
     assert b['outcome']['state'] == 'furnished' and 'approx_consent' not in b['flags']
+
+
+def _bank_with_dresser():
+    bank = full_bank()
+    for i, r in enumerate(bank):
+        r['items']['комод'] = item(f'k{i}', 80, 45, 80)
+    return bank
+
+
+def test_dresser_without_wardrobe_when_wardrobe_breaks_template(monkeypatch):
+    """T-20261111-06/2: шкаф ломает шаблон (любой набор со шкафом — с проблемой по контуру), комод встаёт — комната не теряет
+    предмет: вариант «комод без шкафа», шкаф в `missing_item` как `no_space` (модель есть, места нет)."""
+    real = TB._solve_kit
+
+    def fake(ad, cand, cfg, kit, purpose):
+        res = real(ad, cand, cfg, kit, purpose)
+        return dict(res, score=(1, res['score'][1])) if res and 'шкаф' in kit else res
+    monkeypatch.setattr(TB, '_solve_kit', fake)
+    r = TB.build('t40', plan(sizes=((420, 380),)), ctx(_bank_with_dresser()))['rooms'][0]
+    assert r['outcome']['state'] == 'furnished' and len(r['variants']) == len(TB.STYLES)
+    for v in r['variants']:
+        roles = {TB.base_role(i['role']) for i in v['items']}
+        assert 'комод' in roles and 'шкаф' not in roles
+        assert {m['role']: m['why'] for m in v['missing_item']} == {'шкаф': 'no_space'}
+
+
+def test_wardrobe_and_dresser_both_when_room_allows():
+    """Просторная спальня: шкаф и комод стоят вместе (первая проба — самые широкие оба)."""
+    r = TB.build('t41', plan(sizes=((460, 420),)), ctx(_bank_with_dresser()))['rooms'][0]
+    assert r['outcome']['state'] == 'furnished'
+    for v in r['variants']:
+        roles = {TB.base_role(i['role']) for i in v['items']}
+        assert {'шкаф', 'комод'} <= roles, v['missing_item']
+
+
+def test_fit_extras_tries_bounded(monkeypatch):
+    """Ничего не встаёт: проб не больше обязательных (широкие оба, комод без шкафа, шкаф без комода) + EXTRA_TRIES, и «комод без
+    шкафа» среди них есть — перебор размеров не съедает бюджет комнаты (Jsfx20: 30 → 25 предметов на 4 размерах без потолка)."""
+    calls = []
+
+    def fake(ad, cand, cfg, kit, purpose):
+        calls.append(set(kit))
+        return None
+    monkeypatch.setattr(TB, 'solve_kit', fake)
+    extras = {'шкаф': [item(f'w{i}', 200 - 40 * i, 60, 210) for i in range(3)],
+              'комод': [item(f'k{i}', 120 - 20 * i, 45, 80) for i in range(3)]}
+    core = {'кровать': item('b', 170, sleep=160), 'тумба прикроватная': item('s', 45, 40, 50)}
+    res, kit = TB.fit_extras({}, {}, {}, core, extras, {'purpose': 'couple', 'nightstands': 2}, deadline=float('inf'))
+    tries = calls[1:]                                  # первый вызов — сам шаблон (кровать и тумбы)
+    assert len(tries) <= 3 + TB.EXTRA_TRIES
+    assert any('комод' in k and 'шкаф' not in k for k in tries) and any('шкаф' in k and 'комод' not in k for k in tries)
+    assert set(kit) == set(core) and res is None
