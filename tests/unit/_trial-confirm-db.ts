@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type postgresT from "postgres";
+import type { TrialReparseMap } from "@/contracts/trial-bundle";
 
 import { bundleOf } from "./_trial-bundle-db";
 import { sampleResult } from "./_trial-helpers";
@@ -12,7 +13,7 @@ import { sampleResult } from "./_trial-helpers";
 // ровно одна пересборка `edit` (и пустая), повтор `request_id` — тот же ответ, конкурирующая — `busy`, устаревшая — `stale`; публикация
 // помечает построенными только правки своей пересборки (черновик, пришедший во время сборки, остаётся черновиком); галочки «размеры верны»
 // → `dimsOk` в claim; ход по комнатам с оценкой времени, пульс воркера, замеры на публикации; `GET edits` / `GET rebuild-status`;
-// черновики проёмов; лимит черновиков. Подключается внутрь `describe` trial-claim.test.ts (тот чистит таблицы перед каждым тестом).
+// черновики проёмов; лимит черновиков; «перечитать» с черновиками и снятый неподтверждённым черновиком свой проём (T-16/2). Подключается внутрь `describe` trial-claim.test.ts (тот чистит таблицы перед каждым тестом).
 
 type Ctx = {
   pg: ReturnType<typeof postgresT>;
@@ -229,6 +230,94 @@ export function confirmDbTests(c: () => Ctx): void {
       expect(await post("opening-edit", id, ops([{ key: "s0", kind: "door", c: [400, 150], w_cm: 80, removed: false },
         { key: "uNEWWIN01", kind: "window", c: [100, 0], w_cm: 120, removed: true }]))).toMatchObject({ status: 200, body: { unchanged: true } });
       expect(await c().pg`select op_key from trial_opening_edits where job_id = ${id}`).toEqual([]);
+    });
+
+    const ops = (o: Record<string, unknown>[], over: Record<string, unknown> = {}) =>
+      ({ k: KEY, request_id: rq(), base_version: 1, panel: "p0", draft: true, ops: o, ...over });
+    const opRows = (id: string) => c().pg`select op_key, c, width_cm, removed, built, confirmed_at is not null as confirmed, draft
+      from trial_opening_edits where job_id = ${id} order by op_key`;
+    /** «Перечитать» поставлена (как оператор) и взята воркером с reparse. */
+    const reparseLeased = async (id: string) => {
+      await c().pg`insert into trial_rebuilds (id, job_id, request_id, rooms, base_version, kind)
+        values (${`rp-${id}`}, ${id}, ${`reparse-${id.slice(0, 8)}`}, '[]', 1, 'reparse')`;
+      return (await (await W()).claimRebuild("w1", { edit: true, reparse: true }))!;
+    };
+
+    it("перечитать: черновики едут той же картой, не легшие и пришедшие во время — сняты с причиной в GET edits; после кнопки причин нет", async () => {
+      const id = await doneJob();
+      // подтверждённые: спальня 1 (p0|r2) и дверь s0; пересборка прошла
+      await post("room-edit", id, draft());
+      await post("opening-edit", id, ops([{ key: "s0", kind: "door", c: [400, 150], w_cm: 90, removed: false }]));
+      await post("confirm", id, confirm());
+      await c().pg`update trial_rebuilds set status = 'done' where job_id = ${id}`;
+      await c().pg`update trial_room_edits set built = true where job_id = ${id}`;
+      await c().pg`update trial_opening_edits set built = true where job_id = ${id}`;
+      // черновики: изменение подтверждённых (в `draft`) и новые строки
+      await post("room-edit", id, draft({ w_cm: 500 }));
+      await post("opening-edit", id, ops([{ key: "s0", kind: "door", c: [400, 150], w_cm: 120, removed: false }]));
+      await post("room-edit", id, draft({ room: "living", name: "Зал" }));
+      await post("room-edit", id, draft({ room: "bedroom-2", name: "Кабинет" }));
+      await post("opening-edit", id, ops([{ key: "uNEWWIN01", kind: "window", c: [100, 0], w_cm: 120, removed: false }]));
+      const g = await reparseLeased(id);
+      expect(g.edits?.map((e) => e.srcId)).toEqual(["r2"]);
+      expect(g.draftEdits?.map((e) => [e.srcId, e.name])).toEqual([["r1", "Зал"], ["r3", "Кабинет"]]);
+      expect(g.openingEdits?.map((e) => [e.key, e.widthCm])).toEqual([["s0", 90]]);
+      expect(g.draftOpeningEdits?.map((e) => e.key)).toEqual(["uNEWWIN01"]);
+      // во время перечитывания — новый черновик проёма: воркер его не видел
+      await post("opening-edit", id, ops([{ key: "uLATEWIN1", kind: "window", c: [900, 0], w_cm: 100, removed: false }]));
+      const out = JSON.stringify(bundleOf(id, { rev: "reparsed" }));
+      const map: TrialReparseMap = { released: [], k: 1.5,
+        rooms: [{ panel: "p0", from: "r2", to: "r1", anchor: { x: 0.1, y: 0.2 } }],
+        openings: [{ panel: "p0", key: "s0", to: "s1", srcIdx: 1, srcC: [600, 225], c: [600, 225] }],
+        drafts: {
+          rooms: [{ panel: "p0", from: "r1", to: "r2", anchor: { x: 0.3, y: 0.4 } }],     // обмен номерами с подтверждённой
+          openings: [{ panel: "p0", key: "uNEWWIN01", to: "uNEWWIN01", srcIdx: null, srcC: null, c: [150, 0] }],
+          dropped: [{ kind: "room", panel: "p0", key: "r3", why: "у комнаты правки нет однозначной пары" }] } };
+      const w = await W();
+      const pub = await w.publishRebuild(lease(g, id), out, sha(out), c().dir, PIN, undefined, map);
+      expect(pub).toMatchObject({ repeated: false });
+      const ver = (pub as { version: number }).version;
+      expect(await c().pg`select room_key, name, anchor, confirmed_at is not null as confirmed, draft->'anchor' as da, draft->'w_cm' as dw
+          from trial_room_edits where job_id = ${id} order by room_key`).toEqual([
+        { room_key: "p0|r1", name: expect.any(String), anchor: { x: 0.1, y: 0.2 }, confirmed: true, da: { x: 0.1, y: 0.2 }, dw: 500 },
+        { room_key: "p0|r2", name: "Зал", anchor: { x: 0.3, y: 0.4 }, confirmed: false, da: null, dw: null }]);
+      // центр в черновике подтверждённого проёма — в масштабе перечитанного плана (× k)
+      expect(await opRows(id)).toMatchObject([
+        { op_key: "p0|s1", c: [600, 225], width_cm: 90, confirmed: true, draft: { c: [600, 225], width_cm: 120 } },
+        { op_key: "p0|uNEWWIN01", c: [150, 0], confirmed: false }]);
+      const gone = [
+        { kind: "room", panel: "p0", key: "r3", name: "Кабинет", code: "gone", why: "у комнаты правки нет однозначной пары" },
+        { kind: "opening", panel: "p0", key: "uLATEWIN1", name: "window", code: "late", why: "план перечитан, пока правка ждала подтверждения" }];
+      const v = (await get("edits", id)).body;
+      expect(v).toMatchObject({ version: ver, drafts: 4, dropped: gone });
+      expect(await post("confirm", id, confirm({ base_version: ver }))).toMatchObject({ status: 202, body: { confirmed: { rooms: 2, openings: 2 } } });
+      expect((await get("edits", id)).body).toMatchObject({ drafts: 0, dropped: [] });
+    });
+
+    it("перечитать старым воркером (карта без `drafts`): черновики не трогаются, причин нет", async () => {
+      const id = await doneJob();
+      await post("room-edit", id, draft({ room: "living", name: "Зал" }));
+      const g = await reparseLeased(id);
+      const out = JSON.stringify(bundleOf(id, { rev: "old-worker" }));
+      await (await W()).publishRebuild(lease(g, id), out, sha(out), c().dir, PIN, undefined, { released: [], rooms: [], openings: [] });
+      expect(await edits(id)).toMatchObject([{ room_key: "p0|r1", confirmed: false }]);
+      expect((await get("edits", id)).body).toMatchObject({ drafts: 1, dropped: [] });
+    });
+
+    it("свой проём подтверждён, но не построен (пересборка упала), затем снят черновиком: после кнопки его нет ни в сборке, ни в edits", async () => {
+      const id = await doneJob();
+      await post("opening-edit", id, ops([{ key: "uWINDOW01", kind: "window", c: [100, 0], w_cm: 120, removed: false }]));
+      await post("confirm", id, confirm());
+      await c().pg`update trial_rebuilds set status = 'failed', error_code = 'boom' where job_id = ${id}`;
+      expect(await opRows(id)).toMatchObject([{ op_key: "p0|uWINDOW01", confirmed: true, built: false, removed: false }]);
+      // в версии его нет: снятие — черновик «снят» на подтверждённой строке, а не «вернули как было»
+      expect(await post("opening-edit", id, ops([{ key: "uWINDOW01", kind: "window", c: [100, 0], w_cm: 120, removed: true }])))
+        .toMatchObject({ status: 200, body: { draft: true } });
+      expect((await get("edits", id)).body).toMatchObject({ drafts: 1, openings: [{ key: "uWINDOW01", removed: true }] });
+      expect(await post("confirm", id, confirm())).toMatchObject({ status: 202, body: { confirmed: { rooms: 0, openings: 0 } } });
+      expect(await opRows(id)).toEqual([]);
+      expect((await get("edits", id)).body).toMatchObject({ drafts: 0, openings: [] });
+      expect((await (await W()).claimRebuild("w1", { edit: true }))).toMatchObject({ kind: "edit", openingEdits: [] });
     });
 
     it("лимит черновиков: сверх — 429 draft_limit, порция откатывается; кнопка подтверждает все", async () => {

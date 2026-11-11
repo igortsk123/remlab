@@ -290,6 +290,34 @@ def test_reparse_edit_without_pair_is_conflict(prod, mk, monkeypatch, tmp_path):
     assert 'p0/k1: у комнаты правки нет однозначной пары' in prod.by('/api/trial/worker/rebuild/fail')[0]['detail']
 
 
+def test_reparse_drafts_follow_map_and_lost_ones_are_dropped_with_reason(prod, mk, monkeypatch, tmp_path):
+    """Черновики (T-20261111-16/2): в сборку не идут, но переводятся той же картой; черновик кухни, которой больше нет, и проём, номер
+    которого взял подтверждённый, перечитывание НЕ валят: они в `drafts.dropped` с причиной. В карте — масштаб `k`."""
+    new = plan(ids=('n1', 'n2', 'n3'), order=(2, 1, 0), ops_order=(3, 2, 1, 0), drop=('kitchen',))
+    drafts = [{'panel': 'p0', 'srcId': 'r1', 'anchor': {'x': 0.31, 'y': 0.29}, 'name': 'Зал', 'kind': 'living', 'built': False},
+              {'panel': 'p0', 'srcId': 'k1', 'anchor': {'x': 0.2, 'y': 0.8}, 'name': 'Кухня-столовая', 'built': False}]
+    ops = [{'panel': 'p0', 'key': 's0', 'srcIdx': 0, 'srcC': [500, 200], 'kind': 'door', 'c': [500, 210], 'widthCm': 80, 'built': True}]
+    dops = [{'panel': 'p0', 'key': 's1', 'srcIdx': 1, 'srcC': [250, 0], 'kind': 'window', 'c': [260, 0], 'widthCm': 150, 'built': False},
+            {'panel': 'p0', 'key': 's0', 'srcIdx': 0, 'srcC': [500, 200], 'kind': 'door', 'c': [500, 220], 'widthCm': 80, 'built': False}]
+    reparse(prod, monkeypatch, tmp_path, new, ops=ops, draftEdits=drafts, draftOpeningEdits=dops)
+    w = mk(furnish=True)
+    d = w.cfg.base / 'reparse-approve'
+    d.mkdir(parents=True)
+    (d / f'{JID}.json').write_text(json.dumps({'keys': ['p0/k1:lost', 'p0/r1:doors:2→1']}))
+    w.loop(max_iter=1)
+    assert fails(prod) == [] and w.done == [(RID, 'rebuilt')]
+    m = prod.by('/api/trial/worker/rebuild/publish')[0]['reparse']
+    assert m['k'] == pytest.approx(1.0) and [(x['key'], x['to']) for x in m['openings']] == [('s0', 's3')]
+    dr = m['drafts']
+    assert [(x['from'], x['to']) for x in dr['rooms']] == [('r1', 'n1')]
+    assert [(x['key'], x['to']) for x in dr['openings']] == [('s1', 's2')]
+    assert [(x['kind'], x['key'], x['why']) for x in dr['dropped']] == [
+        ('room', 'k1', 'у комнаты правки нет однозначной пары'), ('opening', 's0', 'два проёма на одном')]
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    ed = json.loads((wd / 'result-edited.json').read_text())          # в сборку легла только подтверждённая дверь, черновики — нет
+    assert 'Зал' not in {r['name'] for r in ed['panels'][0]['rooms']} and [o.get('user') for o in ed['panels'][0]['openings']].count(True) == 1
+
+
 def test_reparse_without_bundle_bytes_fails_internal(prod, mk, monkeypatch, tmp_path):
     reparse(prod, monkeypatch, tmp_path, plan(), bundle=None)
     w = mk(furnish=True)

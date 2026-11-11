@@ -112,6 +112,15 @@ export const trialReparseIn = z.object({
 /** Итог пересборки «Обустроить» (план agent-trial-08, Р1): `id` — id пересборки (её аренда), `jobId` — задание, чья это версия.
  *  `result` — только у пересборки по тексту агента (Р2-текст): план перечитан с размерами из текста, новый `floorplanResult` задания. */
 const OP_KEY = /^(s\d{1,3}|u[A-Za-z0-9_-]{6,32})$/;   // = contracts/trial.ts:trialOpeningEditIn.key
+const pt2 = z.tuple([z.number().finite(), z.number().finite()]);
+const reparseRooms = z.array(z.object({
+  panel: z.string().min(1).max(40), from: z.string().min(1).max(60), to: z.string().min(1).max(60),
+  anchor: z.object({ x: z.number().finite(), y: z.number().finite() }),
+})).max(100);
+const reparseOpenings = z.array(z.object({
+  panel: z.string().min(1).max(40), key: z.string().regex(OP_KEY), to: z.string().regex(OP_KEY), srcIdx: z.number().int().nonnegative().nullable(),
+  srcC: pt2.nullable(), c: pt2,
+})).max(200);
 export const trialRebuildPublishIn = z.object({
   ...lease, jobId: z.string().regex(/^[A-Za-z0-9_-]{22}$/), bundle: z.string().min(2), sha256: z.string().regex(/^[0-9a-f]{64}$/),
   spentUsd: z.number().nonnegative().max(100).optional(), result: z.unknown().optional(),
@@ -121,14 +130,16 @@ export const trialRebuildPublishIn = z.object({
    *  агента, чьи комнаты/проёмы сменили номер (строки правок переписываются на новые id той же транзакцией, что и версия). */
   reparse: z.object({
     released: z.array(z.string().regex(/^[a-z0-9-]{1,40}$/)).max(40),
-    rooms: z.array(z.object({
-      panel: z.string().min(1).max(40), from: z.string().min(1).max(60), to: z.string().min(1).max(60),
-      anchor: z.object({ x: z.number().finite(), y: z.number().finite() }),
-    })).max(100),
-    openings: z.array(z.object({
-      panel: z.string().min(1).max(40), key: z.string().regex(OP_KEY), to: z.string().regex(OP_KEY), srcIdx: z.number().int().nonnegative().nullable(),
-      srcC: z.tuple([z.number().finite(), z.number().finite()]).nullable(), c: z.tuple([z.number().finite(), z.number().finite()]),
-    })).max(200),
+    rooms: reparseRooms,
+    openings: reparseOpenings,
+    /** T-20261111-16/2: масштаб перечитанного (см нового на см прежнего) — им сервер переводит центр проёма в `draft` подтверждённой строки. */
+    k: z.number().finite().positive().optional(),
+    /** Черновики, ни разу не подтверждённые: та же карта (`rooms`/`openings`) и не легшие с причиной (`dropped`: строка снимается). */
+    drafts: z.object({
+      rooms: reparseRooms, openings: reparseOpenings,
+      dropped: z.array(z.object({ kind: z.enum(["room", "opening"]), panel: z.string().min(1).max(40), key: z.string().min(1).max(60),
+        why: z.string().max(200) })).max(200),
+    }).optional(),
   }).optional(),
 });
 export type TrialReparseMap = NonNullable<z.infer<typeof trialRebuildPublishIn>["reparse"]>;

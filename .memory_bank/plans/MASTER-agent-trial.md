@@ -4,7 +4,7 @@ slug: MASTER-agent-trial
 title: МЕТАПЛАН — «Попробовать бесплатно» для агента недвижимости UK: лендинг → план (фото/PDF) → 3D-тур с мебелью и товарами ≤ 3 мин
 status: in_progress
 created: 2026-11-09
-updated: 2026-11-10
+updated: 2026-11-11
 completed:
 plan_kind: track_master
 parent_plan: MASTER-cost-first
@@ -97,6 +97,29 @@ TG 331: ссылка агента — «посмотреть какой-то в�
   приняты как есть (TG 517 «спешим сделать демо»).
 - **Перерисовка шумного плана нейросетью** (TG 598/600/602, идея владельца): только подсказка «где стены» со сверкой с оригиналом;
   проба ступенями 1 → 5 → 10 планов, каждая — картинки до/после владельцу. Итоги ступеней — 10.11 (вне этого свода).
+
+## Правка тура: черновики и «Подтвердить планировку» (план `trial-confirm-plan-01`, T-20261111-16, 11.11)
+- **Таблицы:** `trial_room_edits` и `trial_opening_edits` (028/029) + `db/init/032-trial-plan-confirm.sql`: `confirmed_at`, `rebuild_id`,
+  `draft` (неподтверждённое изменение уже подтверждённой строки), `dims_ok` (галочка «размеры верны»); `trial_rebuilds.progress` (ход).
+  Прежние строки 032 считает подтверждёнными.
+- **Черновик:** правка с `draft: true` (`lib/trial/repo-room-edit.ts`, `lib/trial/repo-opening-edit.ts`) пишет строку без `confirmed_at` или
+  `draft` у подтверждённой (`lib/trial/repo-draft.ts`), пересборку не ставит, суточный лимит не тратит. Лимит черновиков 80
+  (`lib/trial/upload-limits.ts:TRIAL_ROOM_EDIT_LIMITS`, сверх него 429 `draft_limit`). В сборку едут только подтверждённые
+  (`lib/trial/repo-rebuild-worker.ts:editsOf`). Свой новый проём (`u…`), подтверждённый, но не построенный, и снятый черновиком, при
+  подтверждении удаляется целиком (`repo-draft.ts:confirmDrafts`): его нет ни в сборке, ни в `GET edits`.
+- **Кнопка:** `POST /api/trial/[id]/confirm` (`app/api/trial/[id]/confirm/route.ts`, `lib/trial/repo-confirm.ts:askConfirm`): все черновики
+  подтверждаются под ОДНУ пересборку `edit` (`progress.confirm`), пустая тоже; повтор `request_id` даёт тот же ответ, при активной пересборке `busy`.
+  Галочки `rooms_ok` → `dims_ok` → воркеру `dimsOk` → флаг `user_dims` (`tools/floorplan/room_edits.py`). Публикация помечает `built`
+  только правки своей пересборки (`repo-rebuild-worker.ts:publishRebuild`).
+- **Чтение страницей** (право по `k`; `lib/trial/repo-plan-status.ts`, пути в `KEYED` из `lib/trial/tour-page.ts`): `GET edits` (черновики,
+  галочки, время подтверждения, `dropped`), `GET rebuild-status` (комнаты «в очереди / считаем / готово», «N из M», оценка и сколько прошло).
+- **Ход и оценка:** воркер пишет ход по комнатам (`tools/floorplan/conveyor.py:EditRebuild._progress_init`, `_progress_mark`) через пульс
+  (`tools/floorplan/worker.py:Heartbeat.progress`, `repo-rebuild-worker.ts:heartbeatRebuild`); оценка времени по замерам стадий прошлых
+  пересборок (`lib/trial/rebuild-eta.ts:stageEst`, `etaOf`; замеры пишет публикация в `progress.timings`).
+- **Перечитать (T-16/2):** воркер получает черновики отдельно (`draftEdits`, `draftOpeningEdits`) и переводит их той же картой
+  (`conveyor.py:Reparse.draft_map`); сервер переписывает их ключи (`lib/trial/repo-reparse-map.ts:applyReparseMap`), не легшие и
+  пришедшие во время перечитывания снимает, причины кладёт в `trial_rebuilds.progress.dropped_drafts`; `GET edits.dropped` показывает их до
+  следующего подтверждения. Карта старого воркера без `drafts` черновики не трогает.
 
 ## Скоуп — НЕ входит
 Оплата/тарифы для агентов (решение человека), личный кабинет, CRM-интеграции агентств, генерация новых мешей на лету, юр. тексты (TODO).

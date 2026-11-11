@@ -59,20 +59,22 @@ export type RebuildSkills = boolean | { listing?: boolean; edit?: boolean; repar
 
 /** Правки комнат задания — воркеру, который их умеет: он накладывает их на копию `result` перед любой сборкой. ТОЛЬКО подтверждённые
  *  (T-20261111-16): строка-черновик (`confirmed_at` null) не едет ни в одну сборку, у подтверждённой с черновиком — её подтверждённые
- *  значения (черновик лежит в `draft`). */
-export async function editsOf(jobId: string): Promise<TrialRoomEdit[]> {
+ *  значения (черновик лежит в `draft`). `drafts` — наоборот, только строки-черновики: их получает `reparse`, чтобы перевести на новые
+ *  номера той же картой (T-20261111-16/2), в сборку они не идут. */
+export async function editsOf(jobId: string, drafts = false): Promise<TrialRoomEdit[]> {
   const got = await rows<EditRow>(sql`select panel, src_id, anchor, name, kind, w_cm, d_cm, built, dims_ok from trial_room_edits
-    where job_id = ${jobId} and confirmed_at is not null order by created_at, room_key`);
+    where job_id = ${jobId} and confirmed_at is ${drafts ? sql`null` : sql`not null`} order by created_at, room_key`);
   return got.map((e) => ({ panel: e.panel, srcId: e.src_id, anchor: jsonOf<{ x: number; y: number }>(e.anchor), name: e.name, kind: e.kind,
     wCm: e.w_cm, dCm: e.d_cm, built: e.built, dimsOk: e.dims_ok }));
 }
 
 type OpeningRow = { op_key: string; panel: string; src_idx: number | null; src_c: unknown; kind: "door" | "window"; c: unknown;
   width_cm: number; removed: boolean; built: boolean };
-/** Окна и двери агента (T-20261110-39) — тому же воркеру: накладываются на копию `result` после правок комнат. Только подтверждённые. */
-export async function openingEditsOf(jobId: string): Promise<TrialOpeningEdit[]> {
+/** Окна и двери агента (T-20261110-39) — тому же воркеру: накладываются на копию `result` после правок комнат. Только подтверждённые
+ *  (`drafts` — только черновики, как у `editsOf`). */
+export async function openingEditsOf(jobId: string, drafts = false): Promise<TrialOpeningEdit[]> {
   const got = await rows<OpeningRow>(sql`select op_key, panel, src_idx, src_c, kind, c, width_cm, removed, built from trial_opening_edits
-    where job_id = ${jobId} and confirmed_at is not null order by created_at, op_key`);
+    where job_id = ${jobId} and confirmed_at is ${drafts ? sql`null` : sql`not null`} order by created_at, op_key`);
   return got.map((e) => ({ panel: e.panel, key: e.op_key.slice(e.panel.length + 1), srcIdx: e.src_idx,
     srcC: e.src_c === null ? null : jsonOf<[number, number]>(e.src_c), kind: e.kind, c: jsonOf<[number, number]>(e.c), widthCm: e.width_cm,
     removed: e.removed, built: e.built }));
@@ -109,6 +111,7 @@ export async function claimRebuild(workerId: string, skills: RebuildSkills = fal
     ...(r.kind === "reparse" ? { listingText: j?.listing_text ?? "", inputMime: j?.input_mime ?? "",
       bundle: (await readBundle(dir, r.job_id, r.base_version)) ?? undefined } : {}),
     ...(edit ? { edits: await editsOf(r.job_id), openingEdits: await openingEditsOf(r.job_id) } : {}),
+    ...(r.kind === "reparse" ? { draftEdits: await editsOf(r.job_id, true), draftOpeningEdits: await openingEditsOf(r.job_id, true) } : {}),
     ...(r.kind === "edit" && r.confirm ? { confirm: true } : {}),
   };
 }
@@ -172,7 +175,13 @@ export async function publishRebuild(
         ${result ? sql`, result = ${result.json}::jsonb, result_hash = ${result.hash}` : sql``} where id = ${cur.job_id}`);
     await tx.execute(sql`update trial_rebuilds set status = 'done', bundle_hash = ${hash}, result_version = ${next}, ${doneSet},
         progress = ${progressDone(f.timings)} where id = ${f.id}`);
-    if (map) await applyReparseMap(tx, cur.job_id, map);
+    if (map) {
+      const dropped = await applyReparseMap(tx, cur.job_id, map);
+      if (dropped.length) {
+        await tx.execute(sql`update trial_rebuilds set progress = coalesce(progress, '{}'::jsonb)
+            || jsonb_build_object('dropped_drafts', ${JSON.stringify(dropped)}::jsonb) where id = ${f.id}`);
+      }
+    }
     // правки вошли в версию — только те, что воркер получил при claim (T-20261111-16): подтверждённые под эту пересборку (`rebuild_id`)
     // и подтверждённые до её постановки (прошлая пересборка не удалась). Черновики и правки, пришедшие во время сборки, остаются `built=false`.
     for (const t of [sql`trial_room_edits`, sql`trial_opening_edits`]) {

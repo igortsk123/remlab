@@ -13,6 +13,7 @@ import { trialDir } from "@/lib/trial/config";
 import { editKeyMatches } from "@/lib/trial/edit-key";
 import { checkDraftLimit, DraftLimit, dropOpeningDraft, seenRequest, writeOpeningDraft } from "@/lib/trial/repo-draft";
 import { q, type Tx } from "@/lib/trial/repo-rebuild";
+import { jsonOf } from "@/lib/trial/sql";
 import { editGate, queueEdit, type RoomEditAsk } from "@/lib/trial/repo-room-edit";
 
 /** Проёмов-правок на задание всего (добавленные + правленые распознанные): больше — `too_many`. */
@@ -87,6 +88,14 @@ export async function askOpeningEdit(id: string, inp: TrialOpeningEditIn, dir = 
     const rows = openingRows(now, inp.ops);
     if (rows === "bad_opening") return no(422, "bad_opening");
     if (inp.draft) {                                         // черновик: без пересборки и без суточного счёта (T-20261111-16)
+      // свой проём (`u…`), подтверждённый, но в сборку ещё не вошедший (в версии его нет), сняли: черновик «снят» на его строку —
+      // «Подтвердить» уберёт строку целиком (`confirmDrafts`), иначе он построился бы (T-20261111-16/2)
+      const inBuild = new Set(now.openings.map((x) => x.key));
+      for (const op of inp.ops.filter((o) => o.removed && o.key.startsWith("u") && !inBuild.has(o.key))) {
+        const [u] = await q<{ kind: "door" | "window"; c: unknown; width_cm: number }>(tx, sql`select kind, c, width_cm from trial_opening_edits
+            where job_id = ${id} and op_key = ${`${inp.panel}|${op.key}`} and confirmed_at is not null and not built`);
+        if (u) rows.push({ key: op.key, srcIdx: null, srcC: null, kind: u.kind, c: jsonOf<Pt>(u.c), w: u.width_cm, removed: true });
+      }
       const changed = new Set(rows.map((r) => r.key));
       for (const op of inp.ops) if (!changed.has(op.key)) await dropOpeningDraft(tx, id, inp.panel, op.key);   // вернули к построенному
       for (const r of rows) await writeOpeningDraft(tx, id, inp.panel, r, inp.request_id);

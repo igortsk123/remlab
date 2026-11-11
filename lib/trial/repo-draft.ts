@@ -91,6 +91,10 @@ export async function checkDraftLimit(tx: Tx, id: string): Promise<void> {
 /** Подтвердить все черновики задания под пересборку `rid`: значения `draft` → в основные колонки, `confirmed_at`, `rebuild_id`,
  *  `built = false`. → сколько строк комнат и проёмов подтверждено. */
 export async function confirmDrafts(tx: Tx, id: string, rid: string): Promise<{ rooms: number; openings: number }> {
+  // свой новый проём (`u…`), подтверждённый, но ещё ни в одну версию не вошедший (`built` false), и снятый черновиком: строка уходит
+  // целиком, ни в сборку, ни в `GET edits` (T-20261111-16/2). Построенный и снятый остаётся с `removed`: стены его комнат пересоберутся.
+  await tx.execute(sql`delete from trial_opening_edits where job_id = ${id} and confirmed_at is not null and not built
+      and split_part(op_key, '|', 2) like 'u%' and (draft->>'removed')::boolean is true`);
   const rooms = await q<{ k: string }>(tx, sql`update trial_room_edits set
       name = coalesce(draft->>'name', name), kind = coalesce(draft->>'kind', kind),
       w_cm = case when draft is null then w_cm else (draft->>'w_cm')::int end,

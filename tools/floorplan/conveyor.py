@@ -642,12 +642,14 @@ class Reparse(ListingRebuild):
     PRIO = SLOT_PRIO_OPERATOR
 
     def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, text: str, mime: str, ext: str,
-                 bundle: str | None, edits=None, opening_edits=None, approved=()):
+                 bundle: str | None, edits=None, opening_edits=None, approved=(), draft_edits=None, draft_opening_edits=None):
         # правки не накладываем на прежний канон: их сперва переводим на перечитанный (`translate`), потом строго (`overlay`)
         super().__init__(w, lease, wd, hb, result_path, job_id, [], text, mime, ext)
         self.old_bundle = bundle
         self.released = [str(x) for x in rooms or []]
         self.edits_in, self.ops_in = list(edits or []), list(opening_edits or [])
+        # черновики, ни разу не подтверждённые (T-20261111-16/2): в сборку не идут, но переводятся на новые номера той же картой
+        self.drafts_in, self.dops_in = list(draft_edits or []), list(draft_opening_edits or [])
         self.approved = set(approved or ())
         self.findings: list = []
         self.left: list = []
@@ -671,6 +673,27 @@ class Reparse(ListingRebuild):
 
     def publish_extra(self) -> dict:
         return {**super().publish_extra(), **({'reparse': self.map} if self.map is not None else {})}
+
+    def draft_map(self, old: dict, new: dict, omap: list) -> dict:
+        """Черновики (строки без подтверждения) → на перечитанный план теми же `translate`, что подтверждённые; в сборку не идут, поэтому
+        не легший черновик реверс не валит, а уходит в `dropped` с причиной (сервер снимает строку, страница видит причину в `GET edits`).
+        Проём черновика не может занять номер, который уже взял подтверждённый проём (`omap`)."""
+        import opening_edits
+        import room_edits
+        _, rmap, rbad = room_edits.translate(self.drafts_in, old, new, self.pc['pairs'])
+        _, dmap, obad = opening_edits.translate(self.dops_in, old, new, self.pc['k'])
+        taken = {(m['panel'], m['to']) for m in omap}
+        dropped = [{'kind': 'room', 'panel': str(e.get('panel')), 'key': str(e.get('srcId')), 'why': why} for e, why in rbad]
+        dropped += [{'kind': 'opening', 'panel': str(e.get('panel')), 'key': str(e.get('key')), 'why': why} for e, why in obad]
+        ok = []
+        for m in dmap:
+            if (m['panel'], m['to']) in taken:
+                dropped.append({'kind': 'opening', 'panel': m['panel'], 'key': m['key'], 'why': 'два проёма на одном'})
+            else:
+                ok.append(m)
+        if self.drafts_in or self.dops_in:
+            self.log(f'черновики: комнат {len(self.drafts_in)}, проёмов {len(self.dops_in)}, не легли {len(dropped)}')
+        return {'rooms': rmap, 'openings': ok, 'dropped': dropped}
 
     def _released_new(self, cur: dict) -> list[str]:
         """Снятые агентом комнаты (id страницы прежней версии) → id страницы новой версии `cur` через пары комнат; `*` — все комнаты
@@ -758,7 +781,8 @@ class Reparse(ListingRebuild):
             return 'failed:pipeline_error'
         _, cur = got
         rel = self._released_new(cur)
-        self.map = {'released': rel, 'rooms': rmap, 'openings': omap}
+        self.map = {'released': rel, 'rooms': rmap, 'openings': omap, 'k': self.pc['k'],
+                    'drafts': self.draft_map(old, new, omap)}
         waiting = {r['id'] for r in cur['apartment_rooms'] if r.get('furniture_state') == 'awaiting_check'}
         pick = [r for r in rel if r in waiting]
         if pick:

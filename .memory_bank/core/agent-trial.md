@@ -34,6 +34,9 @@ review_after: 2026-12-10
 - **Фото:** при `trial_bundle.py:photo_ok`, ≤ 10 на задание за 24 ч (`trialPhotoDaily`).
 
 - **Правка агентом (ссылка с `k`):** комната — `tools/floorplan/room_edits.py` (028), проёмы — `opening_edits.py` (029); пересобираются задетые комнаты.
+  Правка идёт черновиком без пересборки (`lib/trial/repo-draft.ts`, 032; до 80 штук: `upload-limits.ts:TRIAL_ROOM_EDIT_LIMITS`); одна пересборка
+  по кнопке «Подтвердить планировку» (`lib/trial/repo-confirm.ts:askConfirm`); черновики и ход с оценкой времени страница читает из `GET edits`
+  и `GET rebuild-status` (`lib/trial/repo-plan-status.ts`). «Перечитать» переводит черновики той же картой (`lib/trial/repo-reparse-map.ts`).
 - **Ленты /demo:** `tools/scout/demo_feeds.py`. Перевыпуск: `publish_demo.sh`, затем `tools/floorplan/reissue.py --days 14`.
 
 ## Хранение

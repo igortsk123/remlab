@@ -4,7 +4,7 @@
 // «N из M», оценка времени и сколько прошло). Только чтение, без замков.
 
 import { sql } from "drizzle-orm";
-import type { TrialEditsView, TrialRebuildStatus, TrialRoomStatus } from "@/contracts/trial";
+import type { TrialDroppedDraft, TrialEditsView, TrialRebuildStatus, TrialRoomStatus } from "@/contracts/trial";
 import { readBundle } from "@/lib/trial/bundle";
 import { trialDir } from "@/lib/trial/config";
 import { editKeyMatches } from "@/lib/trial/edit-key";
@@ -41,9 +41,16 @@ export async function editsView(id: string, k: string, dir = trialDir()): Promis
       where job_id = ${id} and ${PENDING} order by created_at, op_key`);
   const [last] = await rows<{ at: string | null }>(sql`select ${iso(sql`max(created_at)`)} as at from trial_rebuilds
       where job_id = ${id} and kind = 'edit' and (progress->>'confirm')::boolean`);
+  // черновики, снятые перечитыванием плана (`repo-reparse-map.ts`) после последнего подтверждения: страница говорит агенту, что и почему
+  const gone = await rows<{ d: unknown }>(sql`select progress->'dropped_drafts' as d from trial_rebuilds
+      where job_id = ${id} and kind = 'reparse' and status = 'done' and jsonb_typeof(progress->'dropped_drafts') = 'array'
+        and finished_at > coalesce((select max(created_at) from trial_rebuilds where job_id = ${id} and kind = 'edit'
+          and (progress->>'confirm')::boolean), '-infinity'::timestamptz)
+      order by finished_at`);
   const pend = rr.filter((r) => r.pending);
   return {
     ok: true, version: job.bundle_version, drafts: pend.length + or.length, confirmedAt: last?.at ?? null,
+    dropped: gone.flatMap((g) => jsonOf<TrialDroppedDraft[]>(g.d)),
     roomsOk: rr.filter((r) => r.dims_ok).flatMap((r) => roomByKey(rooms, r.room_key)?.id ?? []),
     rooms: pend.map((r) => {
       const d = r.draft ? jsonOf<Record<string, unknown>>(r.draft) : null;

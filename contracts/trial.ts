@@ -186,8 +186,15 @@ export type TrialRebuildStatus = {
 };
 /** Что отдаёт `GET /api/trial/<id>/edits?k=`: черновики правок (рисуются поверх плана с пометкой «не подтверждено»), комнаты с
  *  галочкой «размеры верны» и время последнего подтверждения. `room` — id комнаты страницы в текущей версии (null — не нашлась). */
+/** Черновик, снятый при «Перечитать планировку» (T-20261111-16/2): `key` — id комнаты прочитанного плана или ключ проёма, `name` — имя
+ *  комнаты из черновика или вид проёма (`door`/`window`); `code`: `gone` — комнаты или проёма в перечитанном плане нет (`why` — почему),
+ *  `late` — правка пришла, пока план перечитывали. */
+export type TrialDroppedDraft = { kind: "room" | "opening"; panel: string; key: string; name: string; code: "gone" | "late"; why: string };
+
 export type TrialEditsView = {
   ok: true; version: number; drafts: number; confirmedAt: string | null; roomsOk: string[];
+  /** Черновики, снятые перечитыванием плана после последнего подтверждения (пусто — ничего не снято). */
+  dropped: TrialDroppedDraft[];
   rooms: { room: string | null; panel: string; srcId: string; name: string; kind: string; w_cm: number | null; d_cm: number | null }[];
   openings: { panel: string; key: string; kind: "door" | "window"; c: [number, number]; w_cm: number; removed: boolean }[];
 };
@@ -294,6 +301,9 @@ export type TrialRebuildClaimed = {
   edits?: TrialRoomEdit[];
   /** Окна и двери агента (тому же воркеру): накладываются после правок комнат. */
   openingEdits?: TrialOpeningEdit[];
+  /** Только `reparse` (T-20261111-16/2): черновики, ни разу не подтверждённые, — в сборку не идут, их только переводят на новые номера. */
+  draftEdits?: TrialRoomEdit[];
+  draftOpeningEdits?: TrialOpeningEdit[];
   /** `edit` от «Подтвердить планировку» (T-20261111-16): пересобрать и без правленых комнат (пересчёт фото-права), не `no_match`. */
   confirm?: boolean;
 };

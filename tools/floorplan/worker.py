@@ -534,7 +534,9 @@ class Worker:
         try:
             if reparse:
                 cv = conveyor.Reparse(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], str(rb.get('listingText') or ''), mime,
-                                      EXT[mime], rb['bundle'], edits=edits, opening_edits=ops, approved=self.reparse_approved(jid))
+                                      EXT[mime], rb['bundle'], edits=edits, opening_edits=ops, approved=self.reparse_approved(jid),
+                                      draft_edits=rb.get('draftEdits') if isinstance(rb.get('draftEdits'), list) else [],
+                                      draft_opening_edits=rb.get('draftOpeningEdits') if isinstance(rb.get('draftOpeningEdits'), list) else [])
                 end = cv.rebuild()
             elif text:
                 end = conveyor.ListingRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], str(rb['listingText']),
