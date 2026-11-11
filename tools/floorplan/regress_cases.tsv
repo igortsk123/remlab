@@ -5,3 +5,6 @@ aRQ-r1-listing	~/remlab-logs/trial/aRQVC9nJ1g1WqBTXeA6VqA/r1-1bc0cf-141102/plan/
 oTlAl0jUZ7CYI_WwyESjUw-a1-215833	~/remlab-logs/t38/2244/sheets/oTlA-215833.png	-	~/remlab-logs/trial/vlm-cache/ed644cded074cbbff9b5846844c1fa02
 # T-38: план застройщика РФ «Этажи» (серые перегородки, площади подписями) — кэш labels4 вне общего
 etagi-1642	~/remlab-logs/t38/1642/job/sheet.png	~/remlab-logs/t38/1642/job/listing.txt	~/remlab-logs/t38/vlm4/etagi
+# T-20261111-09: лист Giraffe360 (TGva…, flat-se2 из T-04) — окна во всю толщину стены: обломки стены в отдельных «планах», наружа
+# заливала квартиру, 0 дверей. Растр и объявление — копия загрузки a1-065715, кэш VLM по хешу листа
+giraffe-TGva-065715	~/remlab-logs/giraffe-1111/sheets/TGva-065715.png	~/remlab-logs/giraffe-1111/sheets/TGva-065715-listing.txt	~/remlab-logs/trial/vlm-cache/582415a45afbb5605089e48be5c7d74e

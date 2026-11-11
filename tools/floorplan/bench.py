@@ -44,6 +44,9 @@ FAINT_GRAY = 230  # бледная линия рамы окна (на белом
 HULL_M = float(os.environ.get('FP_HULL_M', '4.0'))   # грубый контур постройки для снятия перемычек между постройками, м
 PANEL_R_M = float(os.environ.get('FP_PANEL_R_M', '2.5'))   # запас контура панели VLM, м (до соседнего контура)
 LB_M = float(os.environ.get('FP_LB_M', '6.0'))   # наибольший закрываемый наружный разрыв, м (длиннее 3,6 м — только по раме)
+ENV_GEO = os.environ.get('FP_ENV_GEO', '1') != '0'   # T-20261111-09: полоса контура — по свободному месту (0 — по прямой, как до)
+SPLIT_DEEP = os.environ.get('FP_SPLIT', '1') != '0'  # T-20261111-09: разрыв глубже ENV_DMAX·t — делить по закрытиям (0 — как до)
+PS_TAIL = os.environ.get('FP_PS_TAIL', '1') != '0'   # T-20261111-09: малый разрыв без дуги — срезать хвост-клин и проверить снова
 
 
 # T-20261110-38: тип комнаты из ответа labels4 → имя для комнаты без названия на листе (английское: его понимают
@@ -306,7 +309,7 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
     for a in (wall, gray):
         h.update(np.ascontiguousarray(a).tobytes()); h.update(str(a.shape).encode())
     h.update(repr((round(float(ppm), 6), [round(float(f), 4) for f in fams], round(float(t), 4), regions, thin_thr,
-                   glaze_thr)).encode())
+                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL)).encode())
     h.update(inspect.getsource(_analyze).encode() + inspect.getsource(bay_windows).encode())
     p = Path(cdir) / f'an-{h.hexdigest()[:20]}.pkl'
     if p.exists():
@@ -409,6 +412,14 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     _, _, out1 = fc.free_components(wall | cand_s | allb)
     near_thin = None
     keep = np.zeros_like(wall)
+    kid = np.zeros(wall.shape, np.int32)            # номер закрытия (T-20261111-09: делить сросшиеся углами, `fpcore.split_composite`)
+
+    nkid = [0]
+
+    def mark(ys, xs):
+        nkid[0] += 1
+        kid[ys, xs] = nkid[0]
+        keep[ys, xs] = 1
     # малые разрывы: закрываем, только если есть след проёма — рама окна в толщине стены или дуга двери
     for p in ps_s:
         lab_s, gs = fc.gap_components(p, dark, out1)
@@ -426,10 +437,20 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                     ys2, xs2 = mm
                     c2, u2, n2, L2, d2 = fc.gap_axes(ys2, xs2)
                     if d2 <= max_depth and L2 >= 0.4 * ppm and fc.door_evidence(thin, c2, u2, n2, L2, d2) >= DOOR_EV:
-                        keep[ys2, xs2] = 1
+                        mark(ys2, xs2)
                 continue
             if win or g.glaze >= GLAZE_MIN or ev >= DOOR_EV:
-                keep[ys, xs] = 1
+                mark(ys, xs)
+            elif PS_TAIL:
+                # T-20261111-09: дверь в тонкой стене, чей кусок за проёмом тоньше куска над ним, — перемычка шла и вдоль тонкого
+                # куска (щель у его грани), и дуга мерилась по «двери» 1,5 м (TGva…, кухня: 0,73 м двери + 0,77 м щели). Срезать
+                # хвост-клин (`fpcore.wedge_tails`, как у классификации T-03) и проверить дугу у остатка
+                tail = fc.wedge_tails(wall_drawn, ys, xs, ppm)
+                if tail is not None and (~tail).sum() >= 3:
+                    ys3, xs3 = ys[~tail], xs[~tail]
+                    c3, u3, n3, L3, d3 = fc.gap_axes(ys3, xs3)
+                    if d3 <= max_depth and fc.door_evidence(thin, c3, u3, n3, L3, d3) >= DOOR_EV:
+                        mark(ys3, xs3)
     # большие (окна, эркеры): обе стороны — длинная стена, снаружи, рама в разрыве или сразу за ним
     for p in ps_b:
         p = p & (cand_s == 0)
@@ -441,7 +462,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             k = max(int(2 * g.depth), int(1.4 * ppm)) | 1      # эркер: рама в ~0,5 м снаружи стены
             near = cv2.dilate(thin, np.ones((k, k), np.uint8))
             if g.glaze >= GLAZE_MIN or (g.length <= 3.6 * ppm and near[m].mean() >= 0.5):   # шире 3,6 м — только по раме
-                keep |= m.astype(np.uint8)
+                mark(*np.nonzero(m))
     # T-20261110-03: косая дверь в углу комнаты (`fpcore.corner_cut_doors`) — отрезок между торцами двух стен угла. Правило — как у
     # прямой межкомнатной: ширина в [DOOR_MIN_M; Ls] и нарисована дуга/створка (DOOR_EV); проход/арка без створки — не закрываем
     H_, W_ = wall.shape
@@ -454,7 +475,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             ys, xs = ys + Y0, xs + X0
             c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
             if fc.DOOR_MIN_M * ppm <= L <= Ls and fc.door_evidence(thin, c, u, nrm, L, dpt) >= DOOR_EV:
-                keep[ys, xs] = 1
+                mark(ys, xs)
         # T-20261110-03/2: стены угла кончаются скосом 45° с точкой-косяком (`fpcore.bevel_corner_doors`). Правило то же; петля
         # створки — сама точка-косяк, поэтому дуга ищется и от точек торцов (радиус — до другой точки), не только от граней разрыва
         ends_r = [dict(e, p=e['p'] - (X0, Y0)) for e in ends if X0 <= e['p'][0] < X1 and Y0 <= e['p'][1] < Y1]
@@ -472,7 +493,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             ev = max(fc.door_evidence(thin, c, u, nrm, L, dpt),
                      fc.door_evidence(thin, (q1 + q2) / 2, ut, np.array([-ut[1], ut[0]]), D, 0.0))
             if ev >= DOOR_EV:
-                keep[ys, xs] = 1
+                mark(ys, xs)
     # T-20261110-33: дверь между короткими выступами ТОНКОЙ перегородки при толстых наружных стенах (aRQVC9: t листа 34 px,
     # перегородки 8–10, косяки двери спальни 3 — выступы 13–22 px при флангах 1,5·t = 51 px — не закрывалась, спальня слипалась
     # с площадкой). Только на листах со смешанной толщиной (`fpcore.thin_partition_t`): фланг — от толщины перегородок, правило
@@ -506,7 +527,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                             or not fc.passes_through(wall | keep, ys, xs):
                         continue
                     if fc.door_evidence(thin, c, u, nrm, L, dpt) >= DOOR_EV:
-                        keep[ys, xs] = 1
+                        mark(ys, xs)
                         thin_keep[ys, xs] = 1
     # наружный контур: закрытие ~1,8 м по каждому куску листа — наружные окна/двери закрываются без «следа» проёма
     final0 = (wall | keep).astype(np.uint8)
@@ -522,6 +543,12 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
         return out                                    # не выходя за кусок
 
     def env_strip(closed_):
+        if ENV_GEO:
+            # T-20261111-09: полоса — по свободному месту от наружи (через проём), не по прямой сквозь стену. Пока комната
+            # «наружа» (проём ещё не закрыт), у тонкой наружной стены прямая мера давала изнутри щепу ~0,3 t вдоль всей стены;
+            # она срасталась с полосой окна в Г, и окно отбрасывалось по глубине (TGva…, окно ванной: Г 2,1 × 1,3 м)
+            near = fc.grow_within(closed_ == 0, final0 == 0, int(round(1.3 * t))) > 0
+            return (closed_ > 0) & (out0 > 0) & (final0 == 0) & near
         d = cv2.distanceTransform((closed_ > 0).astype(np.uint8), cv2.DIST_L2, 5)
         return (closed_ > 0) & (out0 > 0) & (final0 == 0) & (d <= 1.3 * t)   # только полоса по наружному контуру
     E = env_strip(region_close(final0, 1.8))
@@ -563,7 +590,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             print('ENV', xs.min(), ys.min(), xs.max(), ys.max(), 'L', round(L), 'd', round(dpt), 'ppm', round(ppm, 1))
         # нижняя граница глубины — 2 px, не 0,5t: у французских дверей в тонкой стене (C, гостиная) полоса ~3 px
         if min(2.0, 0.5 * t) <= dpt <= ENV_DMAX * t and 0.4 * ppm <= L <= 3.6 * ppm:
-            keep[ys, xs] = 1
+            mark(ys, xs)
             ext_ids.append((c, u, nrm, L, dpt))
     # щель между двумя закрытиями (уже 0,6 м) у наружного контура — не комната, а толща стены
     if ext_ids:
@@ -608,6 +635,8 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             g.id += off
         lab_g = np.where(lab2 > 0, lab2 + off, lab_g)
         gaps += g2
+    if SPLIT_DEEP:
+        lab_g, gaps = fc.split_composite(lab_g, gaps, kid, dark, outside, ENV_DMAX * t)
     tails = []                                     # хвосты-клинья, срезанные с дверей (T-20261111-03)
     for g in gaps:
         if bay.any() and bay[lab_g == g.id].any():
@@ -1044,6 +1073,15 @@ def gia_px(res, t):
     return float(foot.sum() - ext_wall.sum()), t_ext
 
 
+def plan_regions(wall, t, fams):
+    """Отдельные планы листа/панели (`fpcore.xy_cut` по пустым полосам) — разрывы между ними не закрываются. Обломки стены,
+    отрезанные окнами во всю толщину стены, — к ближайшему плану (`fpcore.merge_fragments`, T-20261111-09; FP_FRAG=0 — как до)."""
+    regions = fc.xy_cut(wall, max(40, int(3 * t)))
+    if os.environ.get('FP_FRAG', '1') != '0':
+        regions = fc.merge_fragments(wall, regions, t, fams)
+    return regions
+
+
 def run_plan(plan, inputs, outdir, gold=None, cfg=None):
     """gold/cfg — для слепого плана (T-04): «золото» собрано из подписей VLM + текста объявления (`blind_gold`),
     маска — `auto_cfg`; иначе — `gold/<план>.json` и CFG стенда."""
@@ -1056,7 +1094,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
     wall = build_mask(img, cfg)
     t = sheet_thickness(wall, cfg)
     fams = fc.angle_families(wall)
-    regions = fc.xy_cut(wall, max(40, int(3 * t)))
+    regions = plan_regions(wall, t, fams)
     log = {'plan': plan, 'thickness_px': round(t, 2), 'families_deg': [round(f, 1) for f in fams], 'regions': regions}
     # 1) перебор гипотез масштаба по всему листу → лучшая по числу инлаеров подписей
     sweep = []
@@ -1171,7 +1209,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         sub_wall[:2, :] = 0; sub_wall[-2:, :] = 0; sub_wall[:, :2] = 0; sub_wall[:, -2:] = 0
         ppm = ppm0
         fit = None
-        sub_regions = fc.xy_cut(sub_wall, max(40, int(3 * t)))      # отдельные постройки внутри панели не сшивать
+        sub_regions = plan_regions(sub_wall, t, fams)               # отдельные постройки внутри панели не сшивать
         for _ in range(2):
             r = analyze(sub_img, sub_gray, sub_wall, ppm, fams, t, sub_regions, cfg['thin'], cfg['glaze'])
             hit, obs = match_gold(r, groom, fams)

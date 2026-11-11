@@ -460,6 +460,53 @@ def xy_cut(mask: np.ndarray, min_gap: int, box=None, depth: int = 0) -> list[tup
     return [(x0, y0, x1, y1)]
 
 
+FRAG_T = 4.0          # кусок xy_cut меньше 4 толщин стены по меньшей стороне — в нём не поместится комната: обломок стены, не план
+FRAG_STROKE_T = 3.0   # «стена»: прямой штрих длиной ≥ 3 t …
+FRAG_THICK = (0.5, 1.6)  # … и толщиной 0,5–1,6 t (буквы, роза ветров, тонкая рамка — не стены)
+
+
+def merge_fragments(mask: np.ndarray, regions: list[tuple], t: float, angles=(0.0, 90.0)) -> list[tuple]:
+    """T-20261111-09: обломки стены, отрезанные `xy_cut`, — к ближайшему куску. Окна во всю толщину стены (Giraffe360 рисует их
+    белым прямоугольником) рвут стену; у гостиной TGva… окна в левой и правой стене на одной высоте — полоса без стены через всю
+    панель, и верхняя стена гостиной ушла в отдельные «планы» 2,1 t и 2,6 t высотой: окна между кусками не закрывались, наружа
+    залила гостиную и прихожую, все двери стали «наружными» → окнами. Кусок — обломок, если по меньшей стороне < FRAG_T·t (комната
+    не поместится) и это стена: прямой штрих ≥ FRAG_STROKE_T·t толщиной FRAG_THICK·t. Буквы, роза ветров — остаются отдельно.
+    Слитый кусок — общей рамкой с ближайшим (по зазору рамок); повтор, пока сливается."""
+    if t <= 0 or len(regions) < 2:
+        return list(regions)
+    regs = [tuple(int(v) for v in r) for r in regions]
+
+    def fragment(r):
+        x0, y0, x1, y1 = r
+        if min(x1 - x0, y1 - y0) >= FRAG_T * t:
+            return False
+        m = np.pad(mask[y0:y1, x0:x1] > 0, 1)          # рамка — по краю стены: без поля толщина у края удваивается
+        ls = long_strokes(m, int(round(FRAG_STROKE_T * t)), angles)
+        if not ls.any():
+            return False
+        th = stroke_thickness(ls)
+        return FRAG_THICK[0] * t <= th <= FRAG_THICK[1] * t
+
+    def gap(a, b):
+        dx = max(0, max(a[0], b[0]) - min(a[2], b[2]))
+        dy = max(0, max(a[1], b[1]) - min(a[3], b[3]))
+        return math.hypot(dx, dy)
+
+    changed, merged = True, False
+    while changed and len(regs) > 1:
+        changed = False
+        for i, r in enumerate(regs):
+            if not fragment(r):
+                continue
+            j = min((k for k in range(len(regs)) if k != i), key=lambda k: gap(r, regs[k]))
+            o = regs[j]
+            u = (min(r[0], o[0]), min(r[1], o[1]), max(r[2], o[2]), max(r[3], o[3]))
+            regs = [q for k, q in enumerate(regs) if k not in (i, j)] + [u]
+            changed = merged = True
+            break
+    return regs if merged else list(regions)
+
+
 def rotate_mask(m: np.ndarray, angle_deg: float, shape=None, inverse_of=None):
     """Поворот маски вокруг центра с расширением холста; возвращает (маска, матрица). Обратный — `unrotate_mask`."""
     h, w = m.shape
@@ -1013,6 +1060,51 @@ def regap(g: Gap, ys: np.ndarray, xs: np.ndarray) -> Gap:
     g.cx, g.cy, g.length, g.depth = float(cx), float(cy), float(max(w, h) + 1), float(min(w, h) + 1)
     g.bbox = (int(xs.min()), int(ys.min()), int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1))
     return g
+
+
+def split_composite(lab_g: np.ndarray, gaps: list, kid: np.ndarray, dark: np.ndarray, outside: np.ndarray,
+                    min_depth: float) -> tuple[np.ndarray, list]:
+    """T-20261111-09: разрыв глубже `min_depth` (толще любой стены) — не один проём, а несколько закрытий, сросшихся углами
+    (TGva…: вход, дверь спальни 2 и перемычки узкой прихожей — одна «наружная» фигура 2,6 × 1,7 м, итог — «окно»). Делим по
+    номеру закрытия `kid` (кто его поставил в `bench._analyze`); пиксели без номера — к ближайшему куску. Геометрия, «рама» и
+    «наружный» — заново, как в `gap_components`. Разрыв из одного закрытия и внутренний не трогаем: широкий внутренний проём
+    закрывают несколькими перемычками, и по номерам он дробился на «двери» (4y0o… спальня 1: дверей 2 → 3, ядро — отказ).
+    → (lab_g, gaps) с новыми кусками."""
+    out = []
+    near_out = None
+    nid = int(lab_g.max()) + 1
+    for g in gaps:
+        if g.depth <= min_depth or not g.exterior:
+            out.append(g)
+            continue
+        ys, xs = np.nonzero(lab_g == g.id)
+        ids = kid[ys, xs]
+        uniq = [int(i) for i in np.unique(ids) if i > 0]
+        if len(uniq) < 2:
+            out.append(g)
+            continue
+        if (ids == 0).any():                        # без номера — к ближайшему пикселю с номером
+            y0, x0 = ys.min(), xs.min()
+            crop = np.zeros((ys.max() - y0 + 1, xs.max() - x0 + 1), np.int32)
+            crop[ys - y0, xs - x0] = ids
+            src = (crop == 0).astype(np.uint8)
+            _, labels = cv2.distanceTransformWithLabels(src, cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_PIXEL)
+            zy, zx = np.nonzero(src == 0)             # нули src (пиксели с номером) — в порядке строк, как метки 1..n
+            lut = np.concatenate(([0], crop[zy, zx]))
+            ids = lut[labels[ys - y0, xs - x0]]
+        if near_out is None:
+            near_out = cv2.dilate(outside.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+        for i in uniq:
+            sel = ids == i
+            if sel.sum() < 3:
+                continue
+            py, px = ys[sel], xs[sel]
+            lab_g[py, px] = nid
+            p = regap(Gap(nid, 0.0, 0.0, 0.0, 0.0, '', frame_coverage(py, px, dark), bool(near_out[py, px].any()), ()),
+                      py, px)
+            out.append(p)
+            nid += 1
+    return lab_g, out
 
 
 def thin_lines(gray: np.ndarray, wall: np.ndarray, delta: int = 15, k: int = 7) -> np.ndarray:

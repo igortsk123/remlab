@@ -540,3 +540,104 @@ def test_wedge_tails_cut_from_door():
     knee = door.copy()
     knee[109:160, 150:174] = 1                                      # Г: колено толще проёма — не клин
     assert fc.wedge_tails(wall, *np.nonzero(knee), ppm) is None
+
+
+def test_thin_light_arc_is_seen_as_door():
+    """T-20261111-09 (Giraffe360, TGva…): дуга двери тонкая (1 px) и светлая (серый ~100 на заливке 244) — «чёрная шляпа»
+    её берёт целиком, door_evidence — дверь. Причина 0 дверей на листе была не в дуге (см. тесты ниже)."""
+    g = np.full((200, 200), 244, np.uint8)
+    cv2.ellipse(g, (60, 100), (60, 60), 0, 0, 90, 100, 1)
+    cv2.line(g, (60, 100), (60, 160), 100, 1)
+    wall = np.zeros_like(g)
+    wall[96:104, :60] = 1; wall[96:104, 121:] = 1
+    thin = fc.thin_lines(g, wall)
+    ys, xs = np.mgrid[97:104, 60:121]
+    c, u, n, L, d = fc.gap_axes(ys.ravel(), xs.ravel())
+    assert fc.door_evidence(thin, c, u, n, L, d) >= 0.75
+
+
+def _giraffe_flat(t=8):
+    """Квартира 400×280 px, стена t; окна во всю толщину стены слева и справа на одной высоте (как рисует Giraffe360) —
+    полоса без стены через весь лист под верхней стеной; ниже — перегородка с дверью 0,8 м и дугой."""
+    g = np.full((340, 460), 255, np.uint8)
+    cv2.rectangle(g, (20, 20), (439, 319), 244, -1)
+    wall = np.zeros_like(g)
+    wall[20:20 + t, 20:440] = 1; wall[320 - t:320, 20:440] = 1
+    wall[20:320, 20:20 + t] = 1; wall[20:320, 440 - t:440] = 1
+    wall[180:180 + t, 20:440] = 1                                   # перегородка
+    wall[40:110, 20:20 + t] = 0; wall[40:110, 440 - t:440] = 0      # окна 1,75 м слева и справа на одной высоте
+    wall[180:180 + t, 200:232] = 0                                  # дверь 0,8 м
+    g[wall > 0] = 0
+    for x in (22, 25):
+        cv2.line(g, (x, 40), (x, 109), 120, 1)
+        cv2.line(g, (x + 412, 40), (x + 412, 109), 120, 1)
+    cv2.ellipse(g, (200, 180 + t), (32, 32), 0, 0, 90, 90, 1)      # дуга двери вниз
+    cv2.line(g, (200, 180 + t), (200, 180 + t + 32), 90, 1)
+    return g, wall
+
+
+def test_merge_fragments_joins_wall_cut_by_windows_keeps_letters():
+    """T-20261111-09: `xy_cut` отрезает верхнюю стену (2 t высотой) в отдельный «план» — она сливается с квартирой;
+    подпись (буквы тоньше стены) и большой отдельный план — остаются сами по себе."""
+    t = 8
+    _, wall = _giraffe_flat(t)
+    regs = fc.xy_cut(wall, max(40, 3 * t))
+    assert len(regs) == 2
+    merged = fc.merge_fragments(wall, regs, t)
+    assert merged == [(20, 20, 440, 320)]
+    sheet = np.zeros((340, 900), np.uint8)
+    sheet[:, :460] = wall
+    cv2.putText(sheet, 'NORTH', (560, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1, 1)
+    sheet[200:320, 560:840] = box_room(264, 104, t=8, pad=0)
+    regs2 = fc.xy_cut(sheet, 40)
+    out = fc.merge_fragments(sheet, regs2, t)
+    assert (20, 20, 440, 320) in out
+    assert len(out) == len(regs2) - 1                               # слился только обломок стены
+
+
+def test_windows_on_one_line_do_not_flood_flat():
+    """T-20261111-09: с обломком стены в отдельном «плане» окна не закрывались, наружа заливала комнату, дверь становилась
+    «наружной» (лист TGva…: 0 дверей). С `plan_regions` — окна закрыты, дверь — внутренняя."""
+    import bench
+    ppm, t = 40.0, 8
+    g, wall = _giraffe_flat(t)
+    fams = fc.angle_families(wall)
+    img = cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
+    regs = bench.plan_regions(wall, t, fams)
+    assert len(regs) == 1
+    run = lambda rg: bench.analyze(img, g, wall, ppm, fams, t, rg, 15, 200)   # noqa: E731  пороги auto_cfg листа TGva
+    r = run(regs)
+    doors = [q for q in r['gaps'] if q.kind == 'door']
+    assert len(doors) == 1 and not doors[0].exterior and 195 <= doors[0].cx <= 237
+    assert r['add'][60:90, 20:28].mean() > 0.5 and r['add'][60:90, 432:440].mean() > 0.5
+    assert not r['outside'][100, 230]
+    r0 = run(fc.xy_cut(wall, max(40, 3 * t)))                       # как до: обломок стены — отдельный план
+    assert r0['outside'][100, 230] and not [q for q in r0['gaps'] if q.kind == 'door' and not q.exterior]
+
+
+def test_split_composite_divides_merged_closures():
+    """T-20261111-09: два закрытия, сросшиеся углом (Г 50×70 px), — два разрыва; пиксели без номера — к ближайшему закрытию,
+    одно закрытие и мелкий разрыв не трогаются."""
+    add = np.zeros((120, 120), np.uint8)
+    kid = np.zeros((120, 120), np.int32)
+    add[10:18, 10:61] = 1; kid[10:18, 10:61] = 1                    # закрытие 1 — по горизонтали
+    add[18:81, 53:61] = 1; kid[18:81, 53:61] = 2                    # закрытие 2 — по вертикали
+    add[18:22, 10:14] = 1                                           # без номера у закрытия 1
+    add[76:81, 47:53] = 1                                           # без номера у закрытия 2
+    add[100:106, 90:110] = 1; kid[100:106, 90:110] = 3              # отдельный мелкий разрыв
+    outside = np.zeros_like(add); outside[:, :9] = 1
+    lab, gaps = fc.gap_components(add, np.zeros_like(add), outside)
+    assert len(gaps) == 2
+    inner = [fc.Gap(q.id, q.cx, q.cy, q.length, q.depth, q.kind, q.glaze, False, q.bbox) for q in gaps]
+    assert len(fc.split_composite(lab.copy(), inner, kid, np.zeros_like(add), outside, 20)[1]) == 2   # внутренний — не делим
+    lab2, out = fc.split_composite(lab.copy(), gaps, kid, np.zeros_like(add), outside, 20)
+    assert len(out) == 3
+    a, b = lab2[12, 20], lab2[50, 56]
+    assert a != b and a > 0 and b > 0
+    assert lab2[20, 11] == a and lab2[78, 49] == b                  # пиксели без номера — к ближайшему
+    small = [q for q in out if q.cx > 85]
+    assert len(small) == 1 and small[0].id == lab[102, 100]
+    horiz = next(q for q in out if q.id == a)
+    assert horiz.exterior and 49 <= horiz.length <= 53
+    vert = next(q for q in out if q.id == b)
+    assert not vert.exterior and 62 <= vert.length <= 66
