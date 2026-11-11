@@ -21,7 +21,7 @@ import threading
 import time
 import uuid
 
-LOST_PAID = ('Улучшение прервалось: сервер обновлялся. Результат неизвестен — повтор может потребовать '
+LOST_PAID = ('Улучшение прервалось: сервер обновлялся. Результат неизвестен. Повтор может потребовать '
              'новую оплату. Нажмите «Повторить», если фото всё ещё нужно.')
 
 
@@ -72,7 +72,7 @@ class JobStore:
                     self.jobs[jid] = {'status': 'error', 'ts': j.get('ts', time.time()),
                                       'quality': j.get('quality', 'draft'), 'code': 'lost', 'error': LOST_PAID
                                       if j.get('quality') == 'realistic' else
-                                      'Задание прервалось при обновлении сервера — нажмите «Повторить».'}
+                                      'Задание прервалось при обновлении сервера. Нажмите «Повторить».'}
                 else:
                     j.pop('started', None)
                     resume.append(jid)

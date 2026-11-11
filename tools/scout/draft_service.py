@@ -41,7 +41,7 @@ from draft_jobs import JobStore, public_view  # noqa: E402
 import draft_trial as DT  # noqa: E402
 # фото тура пробы (T-20261109-34): суточный счёт по заданию — файлом рядом с реестром кадров (на проде — том share, переживает выкладку)
 TRIAL_DAY = DT.TrialDaily(os.path.join(os.path.dirname(DR.FRAMES_DIR), 'trial-photos.json'), DT.daily_limit())
-TRIAL_LIMIT_TEXT = 'На сегодня фото по этому туру закончились — попробуйте завтра.'
+TRIAL_LIMIT_TEXT = 'На сегодня фото по этому туру закончились. Попробуйте завтра.'
 SHARE_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>{{TITLE}} — подборка</title>
@@ -395,7 +395,7 @@ def _paid_gate():
                 st = None
         if st is None or not st.get('key'):
             return ('unavailable', 'Улучшение фото сейчас недоступно: сервер улучшения не отвечает. '
-                                   'Черновое фото работает — попробуйте улучшить позже.')
+                                   'Черновое фото работает. Попробуйте улучшить позже.')
     bal = st.get('balance')
     if bal is None:
         return None
@@ -422,7 +422,7 @@ def _work(jid: str) -> None:
     import urllib.request as _u
     body = dict(JOBS.body(jid) or {})
     if not body:
-        return JOBS.fail(jid, 'задание без запроса — нажмите «Повторить»', 'lost')
+        return JOBS.fail(jid, 'задание без запроса. Нажмите «Повторить»', 'lost')
     body['_job'] = jid                     # внутренний номер: локальный рендер ставит задание в очередь
     try:
         _port = int(os.environ.get('DRAFT_PORT', 8099))
@@ -547,7 +547,7 @@ class H(BaseHTTPRequestHandler):
             jid = (parse_qs(urlparse(self.path).query).get('id') or [''])[0]
             j = JOBS.get(jid)
             if not j:
-                return self._send(404, {'error': 'задание не найдено — нажмите «Повторить»', 'code': 'not_found'})
+                return self._send(404, {'error': 'задание не найдено. Нажмите «Повторить»', 'code': 'not_found'})
             if j['status'] == 'running':
                 st = {'status': 'running', 'sec': round(time.time() - j['ts'], 1)}
                 pos = JOBS.wait_pos(jid)
@@ -599,7 +599,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(400, {'error': 'неверный номер тура', 'code': 'bad_trial'})
         if tid:
             if not DT.has_views(payload):
-                return self._send(422, {'error': 'Фото делается из 3D: кадры не пришли — откройте 3D и попробуйте ещё раз.',
+                return self._send(422, {'error': 'Фото делается из 3D: кадры не пришли. Откройте 3D и попробуйте ещё раз.',
                                         'code': 'no_views'})
             payload.update(quality='realistic', no_registry=1)
             payload.pop('src_id', None)
@@ -666,7 +666,7 @@ class H(BaseHTTPRequestHandler):
                         return self._send(e.code, j)
                 elif payload.get('quality') == 'realistic' and not _has_gw_key():
                     return self._send(503, {'error': 'Улучшение фото сейчас недоступно: сервер улучшения не '
-                                                     'отвечает. Черновое фото работает — попробуйте улучшить позже.',
+                                                     'отвечает. Черновое фото работает. Попробуйте улучшить позже.',
                                             'code': 'unavailable'})
                 if tid:                     # тур пробы: запасного рендера нет — фото товаров и кадры есть только у DEV
                     return self._send(503, {'error': 'Фото сейчас недоступно: сервер улучшения не отвечает. Попробуйте позже.',
@@ -686,7 +686,7 @@ class H(BaseHTTPRequestHandler):
             finally:
                 JOBS.wait_remove(jid)
             if not got:
-                return self._send(503, {'error': f'очередь кадров не сдвинулась за {QUEUE_WAIT_S // 60} мин — попробуйте позже'})
+                return self._send(503, {'error': f'очередь кадров не сдвинулась за {QUEUE_WAIT_S // 60} мин. Попробуйте позже'})
             JOBS.mark(jid, started=time.time())
         elif not _LOCK.acquire(blocking=False):
             return self._send(429, {'error': 'сейчас считается другой рендер, попробуйте через минуту'})
@@ -759,7 +759,7 @@ class H(BaseHTTPRequestHandler):
         shots = [s for s in (payload.get('shots') or [])
                  if isinstance(s, dict) and safe_url(s.get('url'))][:24]
         if not shots:
-            return self._send(400, {'error': 'нечего отправлять — список кадров пуст'})
+            return self._send(400, {'error': 'нечего отправлять: список кадров пуст'})
         sid = hashlib.sha1((json.dumps(shots, ensure_ascii=False, sort_keys=True)
                             + str(time.time())).encode()).hexdigest()[:10]
         d = os.path.join(SHARE_DIR, sid)
@@ -783,7 +783,7 @@ class H(BaseHTTPRequestHandler):
         if contact and not saved:
             # Честно (разбор Codex 13.10): без записи в базу доставки не будет — нельзя
             # показывать человеку «придёт в течение минуты».
-            return self._send(503, {'error': 'не удалось сохранить контакт — попробуйте ещё раз через минуту'})
+            return self._send(503, {'error': 'не удалось сохранить контакт. Попробуйте ещё раз через минуту'})
         self._send(200, {'id': sid, 'count': len(shots), 'channel': chan,
                          'pending': not ready, 'saved': saved,
                          # Telegram: покупатель жмёт кнопку → бот → «Старт» → бот присылает ссылку (контакт не нужен)
