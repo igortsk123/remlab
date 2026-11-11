@@ -373,6 +373,9 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     Ls, Lb, fl = int(1.7 * ppm), int(LB_M * ppm), max(3, int(round(1.5 * t)))   # Lb: окна/французские двери
     # T-20261110-03/2: торцы со скосом (`fpcore.bevel_end_zone`) не продлеваем — их закрывают bridge_lines и шаг косых дверей
     ends = fc.wall_ends(wall, t)                     # скелет — один раз на стену листа (запомнен), не на гипотезу масштаба
+    # T-20261111-03: клин ищем у грани НАРИСОВАННОЙ стены. Продление торца (`extend_corners`) — догадка: у QFfI… дверь спальни 2
+    # между торцом стены и косяком лежит вдоль продления — по маске с продлениями она «клин», а это дверь
+    wall_drawn = wall
     corner = fc.extend_corners(wall, int(0.6 * ppm), fl, fc.bevel_end_zone(wall, t, Ls))
     wall = (wall | corner).astype(np.uint8)
     thin = fc.thin_lines(gray, wall, thin_thr)
@@ -605,6 +608,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             g.id += off
         lab_g = np.where(lab2 > 0, lab2 + off, lab_g)
         gaps += g2
+    tails = []                                     # хвосты-клинья, срезанные с дверей (T-20261111-03)
     for g in gaps:
         if bay.any() and bay[lab_g == g.id].any():
             g.kind = 'window'
@@ -618,8 +622,22 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             # T-36: межкомнатная уже нормы (с запасом на недомер) — просвет/шум, не дверь; закрытие остаётся стеной.
             # Нарисована створка (дуга) — дверца кладовки/шкафа (UK 457/533 мм): остаётся дверью.
             g.kind = 'door'
+            ys, xs = np.nonzero(lab_g == g.id)
+            if fc.along_face(wall_drawn, ys, xs):
+                # T-20261111-03: клин вдоль грани стены (закрытие по наклонному семейству углов листа) — не проём: одна длинная
+                # сторона на стене, другая в комнате. rgK5…: у Bedroom 8 семь «дверей» при одной настоящей — ядра спален не было
+                g.kind = 'wall'
+                continue
+            tail = fc.wedge_tails(wall_drawn, ys, xs, ppm)
+            if tail is not None:
+                # T-20261111-03: дверь, слитая с клином вдоль грани (rgK5… Bedroom 3: 0,75 м двери + 0,9 м клина) — клин отдельным
+                # разрывом-стеной, дверь — своей шириной (иначе «дверь» 1,5–1,7 м режет ядро спальни)
+                nid = int(lab_g.max()) + 1
+                lab_g[ys[tail], xs[tail]] = nid
+                tails.append(fc.regap(dataclasses.replace(g, id=nid, kind='wall'), ys[tail], xs[tail]))
+                ys, xs = ys[~tail], xs[~tail]
+                fc.regap(g, ys, xs)
             if g.length < fc.DOOR_MIN_M * ppm:
-                ys, xs = np.nonzero(lab_g == g.id)
                 c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
                 if fc.door_evidence(thin, c, u, nrm, L, dpt) < DOOR_EV:
                     g.kind = 'wall'
@@ -638,6 +656,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             ys, xs = np.nonzero(lab_g == g.id)
             c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
             g.kind = 'door' if fc.door_evidence(thin, c, u, nrm, L, dpt) >= DOOR_EV else 'window'
+    gaps += tails
     if os.environ.get('FP_DEBUG_ENV', '').startswith('/'):
         vis = np.full(wall.shape + (3,), 255, np.uint8)
         vis[outside > 0] = (200, 200, 255)

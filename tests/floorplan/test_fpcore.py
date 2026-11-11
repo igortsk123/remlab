@@ -453,3 +453,70 @@ def test_regularize_contour_snaps_to_family():
     d = np.diff(np.vstack([outer, outer[:1]]), axis=0)
     ang = np.degrees(np.arctan2(d[:, 1], d[:, 0])) % 90
     assert np.all(np.minimum(ang, 90 - ang) < 0.5)
+
+
+def test_along_face_wedge_vs_door_through_wall():
+    """T-20261111-03: клин вдоль грани стены (одна длинная сторона на стене, другая в комнате) — вдоль грани; дверь сквозь стену
+    (стена у торцов), щель между двумя стенами и проём в толстой стене (глубина ~ длина) — нет."""
+    wall = np.zeros((300, 300), np.uint8)
+    wall[20:280, 100:108] = 1
+    wedge = np.zeros_like(wall)
+    for y in range(150, 200):                                       # треугольник у правой грани: глубина 0 → 6 px
+        wedge[y, 108:108 + 1 + (y - 150) * 6 // 50] = 1
+    assert fc.along_face(wall, *np.nonzero(wedge))
+    door = wall.copy()
+    door[60:84, 100:108] = 0                                        # дверь 0,8 м сквозь толщину
+    assert not fc.along_face(door, *np.nonzero(np.pad(np.ones((24, 8), bool), ((60, 216), (100, 192)))))
+    slot = wall.copy()
+    slot[20:280, 114:122] = 1                                       # вторая стена в 6 px — щель между двумя стенами
+    assert not fc.along_face(slot, *np.nonzero(np.pad(np.ones((50, 6), bool), ((150, 100), (108, 186)))))
+    thick = np.zeros_like(wall)
+    thick[20:280, 100:130] = 1
+    thick[60:90, 100:130] = 0                                       # проём 30 px в стене 30 px
+    assert not fc.along_face(thick, *np.nonzero(np.pad(np.ones((30, 30), bool), ((60, 210), (100, 170)))))
+
+
+def test_tilted_family_wedges_are_not_doors():
+    """T-20261111-03 (тур rgK5…): семейство углов листа с наклоном 3,2° (повёрнутый флигель) закрывает вдоль граней прямых стен
+    клинья по 1,2–1,7 м; в залитых комнатах «стекло» у них высокое, и межкомнатные становились «дверями» (Bedroom 8 — 7 при одной).
+    Клинья — стена, настоящая дверь перегородки — дверь."""
+    import bench
+    ppm, t = 30.0, 8
+    g = np.full((300, 520), 255, np.uint8)
+    cv2.rectangle(g, (20, 20), (500, 280), 210, -1)                 # заливка комнат
+    wall = np.zeros_like(g)
+    wall[20:28, 20:500] = 1; wall[272:280, 20:500] = 1; wall[20:280, 20:28] = 1; wall[20:280, 492:500] = 1
+    wall[20:280, 256:264] = 1
+    wall[60:84, 256:264] = 0                                        # дверь 0,8 м
+    cv2.ellipse(g, (264, 60), (24, 24), 0, 0, 90, 0, 1); cv2.line(g, (264, 60), (288, 60), 0, 1)
+    g[wall > 0] = 0
+    fams = list(fc.angle_families(wall)) + [3.2, 93.2]
+    r = bench._analyze(cv2.cvtColor(g, cv2.COLOR_GRAY2BGR), g, wall, ppm, fams, t)
+    doors = [q for q in r['gaps'] if q.kind == 'door']
+    assert len(r['gaps']) > 3                                       # клинья закрыты (комнаты те же), но не двери
+    assert [(round(q.cx), round(q.cy)) for q in doors] == [(260, 72)]
+
+
+def test_wedge_tails_cut_from_door():
+    """T-20261111-03 (rgK5… Bedroom 3): дверь 0,8 м сквозь перегородку, слитая с клином 1 м вдоль её грани, — «дверь» 1,8 м резала
+    ядро спальни. Хвост-клин (срезы со стеной с одной стороны, не толще проёма) срезается; дверь без клина и Г-образное закрытие
+    (толстое «колено») — не трогаются."""
+    ppm = 30.0
+    wall = np.zeros((220, 320), np.uint8)
+    wall[100:109, 20:300] = 1
+    wall[100:109, 150:174] = 0                                      # проём 24 px = 0,8 м
+    door = np.zeros_like(wall)
+    door[100:109, 150:174] = 1
+    assert fc.wedge_tails(wall, *np.nonzero(door), ppm) is None
+    gap = door.copy()
+    for x in range(174, 204):                                       # клин под гранью: глубина 3 → 1 px
+        gap[109:109 + 3 - (x - 174) // 11, x] = 1
+    ys, xs = np.nonzero(gap)
+    tail = fc.wedge_tails(wall, ys, xs, ppm)
+    assert tail is not None
+    assert xs[tail].min() >= 172 and (xs[tail] >= 176).sum() >= 0.9 * ((xs >= 176).sum())
+    g = fc.regap(fc.Gap(1, 0, 0, 0, 0, 'door', 0.0, False, (0, 0, 0, 0)), ys[~tail], xs[~tail])
+    assert abs(g.length - 24) <= 3
+    knee = door.copy()
+    knee[109:160, 150:174] = 1                                      # Г: колено толще проёма — не клин
+    assert fc.wedge_tails(wall, *np.nonzero(knee), ppm) is None

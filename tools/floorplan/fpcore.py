@@ -904,6 +904,113 @@ def passes_through(wall: np.ndarray, ys: np.ndarray, xs: np.ndarray, k: int = 3)
     return hit >= 2
 
 
+# T-20261111-03: клин вдоль грани стены. Закрытие по семейству углов листа, наклонённому на 3–4° к стенам куска (rgK5…: семейство
+# 3,2° от повёрнутого флигеля), идёт вдоль грани стены, выходит из неё и входит обратно через ≤ Ls — треугольник/трапеция длиной
+# 1,4–1,7 м с одной стороной на грани стены. Дверь пересекает стену: стена у неё по ТОРЦАМ (вдоль длины), а обе длинные стороны
+# открыты в помещения; у клина одна длинная сторона целиком лежит на стене, другая открыта в комнату.
+FACE_ON = 0.8      # доля длины, где сразу за длинной стороной стена: не меньше — сторона лежит на грани стены
+FACE_OFF = 0.2     # и не больше этого у другой стороны — она открыта в комнату (щель между двумя стенами — не клин)
+FACE_ELONG = 0.35  # глубина не больше этой доли длины: вытянут вдоль грани (слитые косые закрытия глубже — не трогаем)
+
+
+def face_contact(wall: np.ndarray, ys: np.ndarray, xs: np.ndarray, k: int = 2) -> tuple[float, float]:
+    """Доля длины разрыва (19 срезов поперёк в пределах ±0,45 L), где сразу за краем разрыва по нормали (1..k px) стена, — по
+    каждой из двух длинных сторон. Край — свой на каждом срезе (у клина глубина меняется вдоль длины)."""
+    c, u, n, L, d = gap_axes(ys, xs)
+    H, W = wall.shape
+    P = np.column_stack([xs, ys]).astype(float) - c
+    a, b = P @ u, P @ n
+    out = []
+    for sg in (-1.0, 1.0):
+        hit = tot = 0
+        for s in np.linspace(-0.45, 0.45, 19):
+            sel = np.abs(a - s * L) <= 1.0
+            if not sel.any():
+                continue
+            edge = b[sel].max() if sg > 0 else b[sel].min()
+            tot += 1
+            for j in range(1, k + 1):
+                x, y = np.round(c + s * L * u + (edge + sg * j) * n).astype(int)
+                if 0 <= x < W and 0 <= y < H and wall[y, x]:
+                    hit += 1
+                    break
+        out.append(hit / tot if tot else 0.0)
+    return out[0], out[1]
+
+
+def along_face(wall: np.ndarray, ys: np.ndarray, xs: np.ndarray) -> bool:
+    """T-20261111-03: разрыв лежит вдоль грани стены, а не поперёк неё (клин): вытянут (глубина ≤ FACE_ELONG·L), одна длинная
+    сторона на стене (≥ FACE_ON длины), другая открыта (≤ FACE_OFF). Дверь сквозь стену — стена только у торцов: обе стороны
+    открыты; проём в толстой стене (глубина ~ длина) — не вытянут."""
+    if len(ys) < 3:
+        return False
+    _, _, _, L, d = gap_axes(ys, xs)
+    if d > FACE_ELONG * L:
+        return False
+    f1, f2 = face_contact(wall, ys, xs)
+    return max(f1, f2) >= FACE_ON and min(f1, f2) <= FACE_OFF
+
+
+TAIL_MIN_M = 0.25   # хвост-клин короче — не срезаем (скругление косяка, 1–2 среза у торца есть у любой двери)
+
+
+def wedge_tails(wall: np.ndarray, ys: np.ndarray, xs: np.ndarray, ppm: float, k: int = 2) -> np.ndarray | None:
+    """T-20261111-03: дверь, слитая с клином вдоль грани стены (rgK5… Bedroom 3: дверь 0,75 м + клин 0,9 м = «дверь» 1,7 м,
+    ядро спальни резалось). Срезы поперёк оси (шаг 1 px): у проёма сразу за обоими краями среза — не стена (помещения), у клина
+    хотя бы с одной стороны — стена. Проём — самый длинный сплошной ряд срезов без стены (не короче DOOR_MIN_M); хвост за ним
+    длиннее TAIL_MIN_M, где срезы со стеной — большинство, — клин. Ответ — маска пикселей хвостов (по ys/xs) или None."""
+    if len(ys) < 3:
+        return None
+    c, u, n, L, d = gap_axes(ys, xs)
+    H, W = wall.shape
+    P = np.column_stack([xs, ys]).astype(float) - c
+    a = np.round(P @ u).astype(int)
+    b = P @ n
+    ss = np.arange(a.min(), a.max() + 1)
+    walled = np.zeros(len(ss), bool)
+    present = np.zeros(len(ss), bool)
+    dep = np.zeros(len(ss))
+    for i, s in enumerate(ss):
+        sel = a == s
+        if not sel.any():
+            continue
+        present[i] = True
+        dep[i] = b[sel].max() - b[sel].min() + 1
+        for sg, e in ((-1.0, b[sel].min()), (1.0, b[sel].max())):
+            for j in range(1, k + 1):
+                x, y = np.round(c + s * u + (e + sg * j) * n).astype(int)
+                if 0 <= x < W and 0 <= y < H and wall[y, x]:
+                    walled[i] = True
+                    break
+    best, run, best_end = 0, 0, -1
+    for i in range(len(ss)):
+        run = run + 1 if present[i] and not walled[i] else 0
+        if run > best:
+            best, best_end = run, i
+    if best < DOOR_MIN_M * ppm:
+        return None
+    i0, i1 = best_end - best + 1, best_end
+    d_run = np.median(dep[i0:i1 + 1])
+    drop = np.zeros(len(ss), bool)
+    for lo, hi in ((0, i0), (i1 + 1, len(ss))):
+        seg = slice(lo, hi)
+        m = present[seg]
+        # хвост не толще проёма: клин сходит на нет вдоль грани; толстый «хвост» — колено Г-образного закрытия, не клин
+        if hi - lo >= TAIL_MIN_M * ppm and m.any() and walled[seg][m].mean() >= 0.5 and np.median(dep[seg][m]) <= d_run:
+            drop[seg] = True
+    if not drop.any():
+        return None
+    return drop[a - ss[0]]
+
+
+def regap(g: Gap, ys: np.ndarray, xs: np.ndarray) -> Gap:
+    """Геометрия разрыва заново по его пикселям (после среза хвоста) — как в gap_components."""
+    (cx, cy), (w, h), _ = cv2.minAreaRect(np.column_stack([xs, ys]).astype(np.float32))
+    g.cx, g.cy, g.length, g.depth = float(cx), float(cy), float(max(w, h) + 1), float(min(w, h) + 1)
+    g.bbox = (int(xs.min()), int(ys.min()), int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1))
+    return g
+
+
 def thin_lines(gray: np.ndarray, wall: np.ndarray, delta: int = 15, k: int = 7) -> np.ndarray:
     """Тонкая графика (рамы окон, дуги дверей, мебель, текст): «чёрная шляпа» — линия темнее своего фона на delta
     и уже k px; мягкие тени у стен и заливки комнат сюда не попадают. Минус стены."""
