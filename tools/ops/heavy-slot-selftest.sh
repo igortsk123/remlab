@@ -29,7 +29,12 @@ remlab_tmp_trap "$T"
 export HEAVY_SLOT_DIR="$T/slot" HEAVY_SLOT_LOG="$T/heavy-slot.log" HEAVY_SLOT_MEMINFO="$T/meminfo" HEAVY_SLOT_POLL=0.1 HEAVY_SLOT_REPORT=0
 unset HEAVY_SLOT_HELD
 fails=0
-ok() { if [ "$2" = 0 ]; then echo "  [ ok ] $1"; else echo "  [FAIL] $1"; fails=$((fails + 1)); fi; }
+ok() {
+  if [ "$2" = 0 ]; then echo "  [ ok ] $1"; return; fi
+  echo "  [FAIL] $1"; fails=$((fails + 1))
+  # в CI — строкой-аннотацией: журнал шага без входа в GitHub не прочесть, аннотации видны публично (11.11)
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::error title=heavy-slot selftest::FAIL: $1" || true
+}
 yes_if() { if eval "$1"; then echo 0; else echo 1; fi; }
 # подмена /proc/meminfo — подменой файла (T-80): `>` сперва обнуляет, и ожидающий под нагрузкой читал пустой файл → «нет MemAvailable»
 mem() { printf 'MemTotal:       16000000 kB\nMemAvailable:   %d kB\n' "$(( $1 * 1048576 ))" > "$HEAVY_SLOT_MEMINFO.tmp" && mv -f "$HEAVY_SLOT_MEMINFO.tmp" "$HEAVY_SLOT_MEMINFO"; }
