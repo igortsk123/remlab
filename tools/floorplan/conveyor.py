@@ -117,6 +117,7 @@ class Conveyor:
         self.final_only = False                      # пересборка: промежуточные версии не публикуются, только итог
         self.release: list = []
         self.timings: dict = {}
+        self.t_start = time.time()                   # от claim: `publish_s` — сколько прошло до отправки итога (оценка таймера)
         self.stopped = None                          # 'lost' | 'stop' — дальше ничего не пишем
 
     def log(self, msg: str) -> None:
@@ -395,9 +396,12 @@ class Rebuild(Conveyor):
     def publish(self, tag: str, data: bytes) -> bool:
         sha = hashlib.sha256(data).hexdigest()
         body = json.loads(data)
+        # замеры стадий — серверу: по ним оценка времени следующих пересчётов (таймер страницы, `lib/trial/rebuild-eta.ts`)
+        timings = {k: float(v) for k, v in self.timings.items() if isinstance(v, (int, float)) and 0 <= v <= 86400}
+        timings['publish_s'] = round(time.time() - self.t_start, 1)
         st, resp = self.w.post_json('/api/trial/worker/rebuild/publish',
                                     {**self.lease, 'jobId': self.jid, 'bundle': data.decode('utf-8'), 'sha256': sha,
-                                     'spentUsd': self.w.spent(self.wd), **self.publish_extra()})
+                                     'spentUsd': self.w.spent(self.wd), 'timings': timings, **self.publish_extra()})
         err = (resp or {}).get('error')
         if st == 200:
             self.last, self.outcome = body, 'published'
@@ -778,15 +782,67 @@ class EditRebuild(Rebuild):
     только то, чего правка коснулась (`dirty` — правки с `built` false): спальни — стадией с повторным использованием прежних записей
     неправленых спален (`trial_bedroom.build(reuse=…)`, их мебель та же); гостиная — прежняя сцена, если главная гостиная не правлена
     и та же, что в сцене (`reuse_scene`), иначе стадия. Комнаты, с которых агент раньше снял проверку (`rooms` claim), снимаются и сейчас.
-    Промежуточные версии не публикуются и без ракурсов; итог — с ракурсами."""
+    Промежуточные версии не публикуются и без ракурсов; итог — с ракурсами.
 
-    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, edits, opening_edits=None):
+    «Подтвердить планировку» (`confirm`, T-20261111-16): пересборка и без правленых комнат (пересчёт фото-права: неправленое — готовым);
+    ход по комнатам — файл `<папка>/progress.json` ({rooms: {id страницы: queued|building|ready}, done, total}), его шлёт пульс аренды
+    (`worker.Heartbeat`) на `…/rebuild/heartbeat`: страница показывает «Пересчитываем: N из M» и состояние на плитках."""
+
+    def __init__(self, w, lease: dict, wd: Path, hb, result_path: Path, job_id: str, rooms, edits, opening_edits=None, confirm=False):
         super().__init__(w, lease, wd, hb, result_path, job_id=job_id, rooms=rooms, edits=edits, opening_edits=opening_edits)
         self.final_only = True
+        self.confirm = bool(confirm)
+        self.prog: dict | None = None                # ход по комнатам страницы (после версии стен — по ней id страницы)
+        self.prog_kind: dict = {}                    # id страницы → 'living' (главная гостиная) | 'bedroom' | 'other'
         import opening_edits as OE
         import room_edits
         # правленые комнаты и комнаты, чьих стен коснулись окна и двери агента (обе стороны стены, T-20261110-39)
         self.dirty = room_edits.dirty_keys(self.applied) | OE.dirty_rooms(self.result, self.applied_ops)
+
+    # ── ход по комнатам (T-20261111-16) ──
+    def _progress_write(self) -> None:
+        if self.prog is None:
+            return
+        rooms = self.prog
+        body = {'rooms': rooms, 'done': sum(1 for s in rooms.values() if s == 'ready'), 'total': len(rooms)}
+        tmp = self.wd / 'progress.json.tmp'
+        tmp.write_text(json.dumps(body, ensure_ascii=False))
+        os.replace(tmp, self.wd / 'progress.json')
+
+    def _progress_init(self) -> None:
+        """По первой собранной версии: правленые комнаты (панель, id плана) → id страницы; стадийные — «в очереди», прочие — «считаем»
+        (они готовы с итоговой версией)."""
+        if self.prog is not None or self.cur is None:
+            return
+        self.prog, self.prog_kind = {}, {}
+        page_kind = {a.get('id'): a.get('kind') for a in self.cur.get('apartment_rooms') or []}   # вид — и по списку комнат страницы
+        for p in (self.cur.get('trial') or {}).get('panels') or []:
+            for r in p.get('rooms') or []:
+                if (p.get('id'), str(r.get('src_id'))) not in self.dirty or not r.get('id'):
+                    continue
+                kind = 'living' if r['id'] == 'living' else 'bedroom' if (r.get('kind') or page_kind.get(r['id'])) == BEDROOM else 'other'
+                self.prog_kind[r['id']] = kind
+                self.prog[r['id']] = 'building' if kind == 'other' else 'queued'
+        self._progress_write()
+
+    def _progress_mark(self, kind: str, state: str) -> None:
+        if self.prog is None:
+            return
+        for rid, k in self.prog_kind.items():
+            if k == kind:
+                self.prog[rid] = state
+        self._progress_write()
+
+    def step(self, tag: str, scene, parts, fallback, publish: bool = True):
+        got = super().step(tag, scene, parts, fallback, publish)
+        self._progress_init()
+        return got
+
+    def bedrooms(self) -> Path:
+        self._progress_mark('bedroom', 'building')
+        out = super().bedrooms()
+        self._progress_mark('bedroom', 'ready')
+        return out
 
     def bedroom_extra(self) -> list:
         return [str(self._write('edit-dirty.json', sorted([list(k) for k in self.dirty])))]
@@ -819,14 +875,17 @@ class EditRebuild(Rebuild):
             self.timings['living_s'] = 0.0
             self.log('living: гостиная не правлена — прежняя сцена')
             return got
-        return super().living()
+        self._progress_mark('living', 'building')
+        out = super().living()
+        self._progress_mark('living', 'ready')
+        return out
 
     def rebuild(self) -> str:
         t0 = time.time()
-        if not self.dirty:
+        if not self.dirty and not self.confirm:
             self.log(f'правки не к чему приложить: правок {len(self.edits)}, приложено {len(self.applied)}')
             return 'failed:no_match'
-        self.log(f'правленые комнаты {sorted(self.dirty)}')
+        self.log(f'правленые комнаты {sorted(self.dirty)}' if self.dirty else 'подтверждение без правленых комнат — пересчёт фото-права')
         pick = None
         if self.want:                                # снятые раньше комнаты — снять и сейчас (если ещё ждут проверки)
             got = self.chosen()

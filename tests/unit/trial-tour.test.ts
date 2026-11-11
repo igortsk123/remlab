@@ -101,11 +101,20 @@ describe("тур пробы: вставка песочницы", () => {
     for (const p of ["/api/apartments/flat215", "/api/apartments/flat215?lang=ru", "/api/apartments/flat215?lang=de&demo=1",
       "/api/apartments/flat215?lang=ru&demo=1&x=1", "/api/apartments/demo-uk-1?lang=en&demo=1", "/api/apartments/flat215/x?lang=ru&demo=1"])
       expect((await f(p)).status, p).toBe(403);
+    // «Подтвердить планировку» (T-20261111-16): кнопка — без параметров; черновики и ход — GET только с `?k=<22 знака>`
+    const K = "K".repeat(22);
+    expect((await f(`/api/trial/${ID}/confirm`)).status).toBe(200);
+    expect((await f(`/api/trial/${ID}/edits?k=${K}`)).status).toBe(200);
+    expect((await f(`/api/trial/${ID}/rebuild-status?k=${K}`)).status).toBe(200);
+    for (const p of [`/api/trial/${OTHER}/confirm`, `/api/trial/${ID}/confirm?x=1`, `/api/trial/${ID}/edits`, `/api/trial/${ID}/rebuild-status`,
+      `/api/trial/${ID}/edits?k=short`, `/api/trial/${ID}/edits?k=${K}&x=1`, `/api/trial/${OTHER}/edits?k=${K}`,
+      `/api/trial/${ID}/rebuild-status?k=${K}x`, `/api/trial/${ID}/confirm?k=${K}`]) expect((await f(p)).status, p).toBe(403);
     (nav.sendBeacon as (u: string) => boolean)(`/api/trial/${ID}/rebuild`);
     (nav.sendBeacon as (u: string) => boolean)("/api/render/frame");
     (nav.sendBeacon as (u: string) => boolean)(`/api/trial/${ID}/listing`);
     expect(seen).toEqual([`/api/trial/${ID}/rebuild`, `/api/trial/${ID}/listing`, `/api/trial/${ID}/photo`, "/api/render/frame",
-      "/api/job?id=abc123", "/api/apartments/flat215?lang=ru&demo=1", "/api/apartments/demo-uk-215?lang=en&demo=1"]);
+      "/api/job?id=abc123", "/api/apartments/flat215?lang=ru&demo=1", "/api/apartments/demo-uk-215?lang=en&demo=1",
+      `/api/trial/${ID}/confirm`, `/api/trial/${ID}/edits?k=${"K".repeat(22)}`, `/api/trial/${ID}/rebuild-status?k=${"K".repeat(22)}`]);
   });
   it("мусор в id — отказ", () => {
     expect(() => injectTour(html, "<script>")).toThrow();

@@ -5,7 +5,9 @@
 // новой версии. Приоритет над новыми загрузками — с квотой (`rebuildFirst`).
 
 import { sql, type SQL } from "drizzle-orm";
-import type { TrialOpeningEdit, TrialRebuildClaimed, TrialRebuildFailIn, TrialRebuildLease, TrialRoomEdit } from "@/contracts/trial";
+import type {
+  TrialOpeningEdit, TrialRebuildClaimed, TrialRebuildFailIn, TrialRebuildLease, TrialRebuildProgressIn, TrialRoomEdit,
+} from "@/contracts/trial";
 import type { TrialReparseMap } from "@/contracts/trial-bundle";
 import { db } from "@/lib/db";
 import { randomToken } from "@/lib/token";
@@ -20,6 +22,11 @@ const fenceR = (f: TrialRebuildLease) => sql`id = ${f.id} and status = 'running'
   and attempt = ${f.attempt} and lease_token = ${f.leaseToken} and lease_until > now()`;
 // конец пересборки: текст агента (`listing`) больше не нужен — не храним
 const doneSet = sql`finished_at = now(), lease_until = null, listing_text = null`;
+/** Ход на публикации: все комнаты хода посчитаны (`done = total`), замеры стадий — для оценки следующих пересборок (`rebuild-eta.ts`). */
+const progressDone = (timings?: Record<string, number>): SQL => sql`(select p || jsonb_build_object('done', coalesce(p->'total', '0'::jsonb),
+    'rooms', coalesce((select jsonb_object_agg(k, to_jsonb('ready'::text)) from jsonb_object_keys(coalesce(p->'rooms', '{}'::jsonb)) k), '{}'::jsonb))
+    ${timings ? sql`|| jsonb_build_object('timings', ${JSON.stringify(timings)}::jsonb)` : sql``}
+  from (select coalesce(progress, '{}'::jsonb) as p) x)`;
 const union = (a: unknown, b: unknown): string[] => [...new Set([...jsonOf<string[]>(a ?? []), ...jsonOf<string[]>(b ?? [])])];
 
 /** Исчерпанные попытки с истёкшей арендой → failed/lease_lost; ждущие пересборки снятого (не `done`) задания → failed/stale. Текст агента
@@ -42,27 +49,30 @@ export async function rebuildFirst(env = process.env): Promise<boolean> {
 
 type ClaimRow = {
   id: string; job_id: string; attempt: number; lease_token: string; lease_until: string; rooms: unknown; base_version: number;
-  kind: "furnish" | "listing" | "edit" | "reparse"; listing_text: string | null;
+  kind: "furnish" | "listing" | "edit" | "reparse"; listing_text: string | null; confirm: boolean;
 };
-type EditRow = { panel: string; src_id: string; anchor: unknown; name: string; kind: string; w_cm: number | null; d_cm: number | null; built: boolean };
+type EditRow = { panel: string; src_id: string; anchor: unknown; name: string; kind: string; w_cm: number | null; d_cm: number | null; built: boolean;
+  dims_ok: boolean };
 /** Что умеет воркер: `listing` — пересборки по тексту агента (Р2-текст), `edit` — правки комнат (T-20261110-36), `reparse` — перечитать
  *  планировку по оператору (T-20261111-02; только вместе с `edit`: правки агента к ней обязательны). `true` — старая форма: listing. */
 export type RebuildSkills = boolean | { listing?: boolean; edit?: boolean; reparse?: boolean };
 
-/** Правки комнат задания — воркеру, который их умеет: он накладывает их на копию `result` перед любой сборкой. */
+/** Правки комнат задания — воркеру, который их умеет: он накладывает их на копию `result` перед любой сборкой. ТОЛЬКО подтверждённые
+ *  (T-20261111-16): строка-черновик (`confirmed_at` null) не едет ни в одну сборку, у подтверждённой с черновиком — её подтверждённые
+ *  значения (черновик лежит в `draft`). */
 export async function editsOf(jobId: string): Promise<TrialRoomEdit[]> {
-  const got = await rows<EditRow>(sql`select panel, src_id, anchor, name, kind, w_cm, d_cm, built from trial_room_edits
-    where job_id = ${jobId} order by created_at, room_key`);
+  const got = await rows<EditRow>(sql`select panel, src_id, anchor, name, kind, w_cm, d_cm, built, dims_ok from trial_room_edits
+    where job_id = ${jobId} and confirmed_at is not null order by created_at, room_key`);
   return got.map((e) => ({ panel: e.panel, srcId: e.src_id, anchor: jsonOf<{ x: number; y: number }>(e.anchor), name: e.name, kind: e.kind,
-    wCm: e.w_cm, dCm: e.d_cm, built: e.built }));
+    wCm: e.w_cm, dCm: e.d_cm, built: e.built, dimsOk: e.dims_ok }));
 }
 
 type OpeningRow = { op_key: string; panel: string; src_idx: number | null; src_c: unknown; kind: "door" | "window"; c: unknown;
   width_cm: number; removed: boolean; built: boolean };
-/** Окна и двери агента (T-20261110-39) — тому же воркеру: накладываются на копию `result` после правок комнат. */
+/** Окна и двери агента (T-20261110-39) — тому же воркеру: накладываются на копию `result` после правок комнат. Только подтверждённые. */
 export async function openingEditsOf(jobId: string): Promise<TrialOpeningEdit[]> {
   const got = await rows<OpeningRow>(sql`select op_key, panel, src_idx, src_c, kind, c, width_cm, removed, built from trial_opening_edits
-    where job_id = ${jobId} order by created_at, op_key`);
+    where job_id = ${jobId} and confirmed_at is not null order by created_at, op_key`);
   return got.map((e) => ({ panel: e.panel, key: e.op_key.slice(e.panel.length + 1), srcIdx: e.src_idx,
     srcC: e.src_c === null ? null : jsonOf<[number, number]>(e.src_c), kind: e.kind, c: jsonOf<[number, number]>(e.c), widthCm: e.width_cm,
     removed: e.removed, built: e.built }));
@@ -88,7 +98,7 @@ export async function claimRebuild(workerId: string, skills: RebuildSkills = fal
         and (x.kind = 'furnish' or (x.kind = 'listing' and ${listing}) or (x.kind = 'edit' and ${edit}) or (x.kind = 'reparse' and ${reparse}))
       order by x.created_at, x.id for update of x skip locked limit 1)
     returning r.id, r.job_id, r.attempt, r.lease_token, ${iso(sql`r.lease_until`)} as lease_until, r.rooms, r.base_version, r.kind,
-      r.listing_text`);
+      r.listing_text, coalesce((r.progress->>'confirm')::boolean, false) as confirm`);
   if (!r) return null;
   const [j] = await rows<{ result: unknown; released_rooms: unknown; input_mime: string; listing_text: string | null }>(sql`select result,
     released_rooms, input_mime, listing_text from trial_jobs where id = ${r.job_id}`);
@@ -99,6 +109,7 @@ export async function claimRebuild(workerId: string, skills: RebuildSkills = fal
     ...(r.kind === "reparse" ? { listingText: j?.listing_text ?? "", inputMime: j?.input_mime ?? "",
       bundle: (await readBundle(dir, r.job_id, r.base_version)) ?? undefined } : {}),
     ...(edit ? { edits: await editsOf(r.job_id), openingEdits: await openingEditsOf(r.job_id) } : {}),
+    ...(r.kind === "edit" && r.confirm ? { confirm: true } : {}),
   };
 }
 
@@ -112,9 +123,12 @@ export async function leasedRebuildInput(f: TrialRebuildLease): Promise<{ name: 
   return r ? { name: r.input_path, mime: r.input_mime } : undefined;
 }
 
-export async function heartbeatRebuild(f: TrialRebuildLease): Promise<{ leaseUntil: string } | null> {
+/** Продление аренды; `progress` (T-20261111-16) — ход по комнатам от воркера: поверх хода строки (оценку времени сервера не трогает). */
+export async function heartbeatRebuild(f: TrialRebuildLease & { progress?: TrialRebuildProgressIn }): Promise<{ leaseUntil: string } | null> {
+  const p = f.progress ? sql`, progress = coalesce(progress, '{}'::jsonb) || ${JSON.stringify(f.progress)}::jsonb` : sql``;
   const [r] = await rows<{ lease_until: string }>(sql`update trial_rebuilds set heartbeat_at = now(),
-      lease_until = now() + make_interval(secs => ${TRIAL_LEASE_SEC}::int) where ${fenceR(f)} returning ${iso(sql`lease_until`)} as lease_until`);
+      lease_until = now() + make_interval(secs => ${TRIAL_LEASE_SEC}::int) ${p} where ${fenceR(f)}
+      returning ${iso(sql`lease_until`)} as lease_until`);
   return r ? { leaseUntil: r.lease_until } : null;
 }
 
@@ -130,8 +144,8 @@ type PublishOut = Published | "lease_lost" | "stale" | "result_unexpected";
  *  «Та же версия» — только если совпали ОБА хэша (страница и `result`): новый канон при тех же байтах страницы — всё равно новая версия.
  *  `map` (только `reparse`): снятые комнаты новыми id страницы (заменяют накопленные) и правки агента на новые номера комнат/проёмов. */
 export async function publishRebuild(
-  f: TrialRebuildLease & { jobId: string }, json: string, hash: string, dir = trialDir(), pin = ensureJobRelease, result?: NewResult,
-  map?: TrialReparseMap,
+  f: TrialRebuildLease & { jobId: string; timings?: Record<string, number> }, json: string, hash: string, dir = trialDir(),
+  pin = ensureJobRelease, result?: NewResult, map?: TrialReparseMap,
 ): Promise<PublishOut> {
   const out = await db().transaction(async (tx): Promise<PublishOut> => {
     const ex = async <T>(q: SQL) => (await tx.execute(q)) as unknown as T[];
@@ -156,12 +170,15 @@ export async function publishRebuild(
     await tx.execute(sql`update trial_jobs set released_rooms = ${released}::jsonb
         ${same ? sql`` : sql`, result_version = ${next}, bundle_version = ${next}, bundle_hash = ${hash}`}
         ${result ? sql`, result = ${result.json}::jsonb, result_hash = ${result.hash}` : sql``} where id = ${cur.job_id}`);
-    await tx.execute(sql`update trial_rebuilds set status = 'done', bundle_hash = ${hash}, result_version = ${next}, ${doneSet}
-        where id = ${f.id}`);
+    await tx.execute(sql`update trial_rebuilds set status = 'done', bundle_hash = ${hash}, result_version = ${next}, ${doneSet},
+        progress = ${progressDone(f.timings)} where id = ${f.id}`);
     if (map) await applyReparseMap(tx, cur.job_id, map);
-    // правки комнат вошли в версию (воркер наложил все, что получил при claim; пока пересборка идёт, новых не принимают — `busy`)
-    await tx.execute(sql`update trial_room_edits set built = true where job_id = ${cur.job_id} and not built`);
-    await tx.execute(sql`update trial_opening_edits set built = true where job_id = ${cur.job_id} and not built`);
+    // правки вошли в версию — только те, что воркер получил при claim (T-20261111-16): подтверждённые под эту пересборку (`rebuild_id`)
+    // и подтверждённые до её постановки (прошлая пересборка не удалась). Черновики и правки, пришедшие во время сборки, остаются `built=false`.
+    for (const t of [sql`trial_room_edits`, sql`trial_opening_edits`]) {
+      await tx.execute(sql`update ${t} set built = true where job_id = ${cur.job_id} and not built and confirmed_at is not null
+          and (rebuild_id = ${f.id} or confirmed_at < (select created_at from trial_rebuilds where id = ${f.id}))`);
+    }
     return { version: next, repeated: same };
   });
   if (out === "lease_lost" || out === "stale" || out === "result_unexpected") return out;

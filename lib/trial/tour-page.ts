@@ -27,6 +27,11 @@ export const photoPath = (id: string): string => `/api/trial/${id}/photo`;
 export const roomEditPath = (id: string): string => `/api/trial/${id}/room-edit`;
 /** Окна и двери ЭТОГО задания (T-20261110-39): проёмы одной панели плана тура; право — ключом на сервере. */
 export const openingEditPath = (id: string): string => `/api/trial/${id}/opening-edit`;
+/** «Подтвердить планировку» ЭТОГО задания (T-20261111-16): одна пересборка на все черновики правок; право — ключом на сервере. */
+export const confirmPath = (id: string): string => `/api/trial/${id}/confirm`;
+/** Чтение черновиков правок и хода пересборки ЭТОГО задания (T-20261111-16) — GET только с `?k=<ключ правки>` (и ничем больше). */
+export const editsPath = (id: string): string => `/api/trial/${id}/edits`;
+export const rebuildStatusPath = (id: string): string => `/api/trial/${id}/rebuild-status`;
 const FRAME_PATH = "/api/render/frame";
 const JOB_PATH = "/api/job";
 
@@ -61,8 +66,8 @@ P.key=function(i){var k=own(this)[i];return k==null?null:k.slice(PRE.length);};
 P.clear=function(){own(this).forEach(function(k){R.call(this,k);},this);};
 Object.defineProperty(P,'length',{configurable:true,enumerable:true,get:function(){return own(this).length;}});
 var BLOCK=${BLOCK};
-var OK=${JSON.stringify([rebuildPath(id), listingPath(id), photoPath(id), roomEditPath(id), openingEditPath(id), FRAME_PATH])},JOB=${JSON.stringify(JOB_PATH)},DEV=${JSON.stringify(devCardPaths())};
-function fine(x){return x.search?((x.pathname===JOB&&/^\\?id=[A-Za-z0-9_-]{1,64}$/.test(x.search))||(DEV.indexOf(x.pathname)>=0&&/^\\?lang=(?:ru|en)&demo=1$/.test(x.search))):OK.indexOf(x.pathname)>=0;}
+var OK=${JSON.stringify([rebuildPath(id), listingPath(id), photoPath(id), roomEditPath(id), openingEditPath(id), confirmPath(id), FRAME_PATH])},JOB=${JSON.stringify(JOB_PATH)},DEV=${JSON.stringify(devCardPaths())},KEYED=${JSON.stringify([editsPath(id), rebuildStatusPath(id)])};
+function fine(x){return x.search?((x.pathname===JOB&&/^\\?id=[A-Za-z0-9_-]{1,64}$/.test(x.search))||(DEV.indexOf(x.pathname)>=0&&/^\\?lang=(?:ru|en)&demo=1$/.test(x.search))||(KEYED.indexOf(x.pathname)>=0&&/^\\?k=[A-Za-z0-9_-]{22}$/.test(x.search))):OK.indexOf(x.pathname)>=0;}
 function bad(u,ok){try{var x=new URL(String(u),document.baseURI);return x.origin===location.origin&&BLOCK.test(x.pathname)&&!(ok&&fine(x));}catch(e){return false;}}
 var F=window.fetch;
 window.fetch=function(i,o){if(bad(i&&i.url||i,1))return Promise.resolve(new Response('{"ok":false,"error":"trial"}',{status:403,headers:{'content-type':'application/json'}}));return F.call(window,i,o);};

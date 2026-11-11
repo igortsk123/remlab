@@ -3,6 +3,8 @@
 // страница (иначе `stale`) → комната есть в этой версии → порог 10 см по каждой оси от ПОСЛЕДНЕЙ построенной геометрии (меньше — ось как
 // была; ничего не изменилось — `unchanged`, без работы) → правка в таблицу (одна на комнату, новая заменяет) → пересборка `edit`: ждущая
 // правка уже стоит — новая едет с ней (без второй работы и без счёта), другая активная — `busy` → суточный лимит правок → вставка.
+// Черновик (`draft: true`, T-20261111-16; `repo-draft.ts`): тот же разбор, но без пересборки, суточного счёта и `busy` (можно и во время
+// идущей пересборки — публикация её не пометит: `built` ставится только подтверждённым); вернули к построенному — черновик снимается.
 
 import { sql } from "drizzle-orm";
 import type { TrialRoomEditIn } from "@/contracts/trial";
@@ -11,6 +13,7 @@ import { randomToken } from "@/lib/token";
 import { readBundle } from "@/lib/trial/bundle";
 import { trialDir } from "@/lib/trial/config";
 import { editKeyMatches } from "@/lib/trial/edit-key";
+import { checkDraftLimit, DraftLimit, dropRoomDraft, seenRequest, writeRoomDraft } from "@/lib/trial/repo-draft";
 import { q, type Tx } from "@/lib/trial/repo-rebuild";
 import { roomKindOf } from "@/lib/trial/room-kind";
 import { TRIAL_ROOM_EDIT_LIMITS } from "@/lib/trial/upload-limits";
@@ -18,7 +21,7 @@ import { TRIAL_ROOM_EDIT_LIMITS } from "@/lib/trial/upload-limits";
 export const EDIT_THRESHOLD_CM = 10;
 
 export type RoomEditAsk =
-  | { ok: true; repeated: boolean; unchanged: boolean; edit: { id: string; status: string } | null }
+  | { ok: true; repeated: boolean; unchanged: boolean; edit: { id: string; status: string } | null; draft?: true }
   | { ok: false; status: number; error: string; version?: number };
 
 type Box = { x: number; y: number; w: number; d: number };
@@ -58,14 +61,14 @@ export function nextDims(now: RoomNow, w: number, d: number): { w: number; d: nu
 }
 
 export async function askRoomEdit(id: string, inp: TrialRoomEditIn, dir = trialDir()): Promise<RoomEditAsk> {
-  return db().transaction(async (tx) => {
+  return db().transaction(async (tx): Promise<RoomEditAsk> => {
     const [job] = await q<JobRow>(tx, sql`select status, edit_key_hash, bundle_version,
         coalesce(result_expires_at < now(), false) as past_term from trial_jobs where id = ${id} for update`);
     if (!job) return no(404, "not_found");
     if (job.status === "expired" || job.past_term) return no(410, "expired");
     if (!editKeyMatches(inp.k, job.edit_key_hash)) return no(403, "forbidden");
-    const [same] = await q<{ one: number }>(tx, sql`select 1 as one from trial_room_edits where job_id = ${id} and request_id = ${inp.request_id}`);
-    if (same) {
+    if (await seenRequest(tx, "room", id, inp.request_id)) {
+      if (inp.draft) return { ok: true, repeated: true, unchanged: false, edit: null, draft: true };
       const [last] = await q<{ id: string; status: string }>(tx, sql`select id, status from trial_rebuilds where job_id = ${id} and kind = 'edit'
           order by created_at desc, id desc limit 1`);
       return { ok: true, repeated: true, unchanged: false, edit: last ?? null };
@@ -80,17 +83,34 @@ export async function askRoomEdit(id: string, inp: TrialRoomEditIn, dir = trialD
     const sameDims = (dims?.w ?? now.orig.w) === r1(now.w) && (dims?.d ?? now.orig.d) === r1(now.d);
     // окошко показывает подпись страницы (`titleRu`), сборщик хранит подпись плана (`name`) — любое из них = имя не меняли
     const sameName = inp.name === now.name || inp.name === now.title;
-    if (sameName && sameDims) return { ok: true, repeated: false, unchanged: true, edit: null };
-    const gate = await editGate(tx, id);
-    if (!gate.ok) return gate;
+    const roomKey = `${now.panel}|${now.srcId}`;
+    if (sameName && sameDims) {
+      if (inp.draft) await dropRoomDraft(tx, id, roomKey);       // вернули к построенному — черновика больше нет
+      return { ok: true, repeated: false, unchanged: true, edit: null };
+    }
     const kind = sameName ? now.kind : roomKindOf(inp.name);
     const name = (sameName ? now.name || now.title : inp.name).slice(0, 60) || inp.name;
-    await tx.execute(sql`insert into trial_room_edits (job_id, room_key, panel, src_id, anchor, name, kind, w_cm, d_cm, built, request_id)
-        values (${id}, ${`${now.panel}|${now.srcId}`}, ${now.panel}, ${now.srcId}, ${JSON.stringify(now.anchor)}::jsonb, ${name}, ${kind},
-          ${dims?.w ?? null}, ${dims?.d ?? null}, false, ${inp.request_id})
+    if (inp.draft) {                                             // черновик: без пересборки и без суточного счёта (T-20261111-16)
+      await writeRoomDraft(tx, id, { roomKey, panel: now.panel, srcId: now.srcId, anchor: now.anchor, name, kind, w: dims?.w ?? null,
+        d: dims?.d ?? null, requestId: inp.request_id });
+      await checkDraftLimit(tx, id);
+      return { ok: true, repeated: false, unchanged: false, edit: null, draft: true };
+    }
+    const gate = await editGate(tx, id);
+    if (!gate.ok) return gate;
+    const edit = await queueEdit(tx, id, inp.request_id, job.bundle_version, gate.active);
+    // старая страница (без `draft`): правка подтверждена сразу и едет с этой пересборкой; черновик этой комнаты (если был) она заменяет
+    await tx.execute(sql`insert into trial_room_edits (job_id, room_key, panel, src_id, anchor, name, kind, w_cm, d_cm, built, request_id,
+          confirmed_at, rebuild_id)
+        values (${id}, ${roomKey}, ${now.panel}, ${now.srcId}, ${JSON.stringify(now.anchor)}::jsonb, ${name}, ${kind},
+          ${dims?.w ?? null}, ${dims?.d ?? null}, false, ${inp.request_id}, now(), ${edit.id})
         on conflict (job_id, room_key) do update set name = excluded.name, kind = excluded.kind, w_cm = excluded.w_cm, d_cm = excluded.d_cm,
-          anchor = excluded.anchor, built = false, request_id = excluded.request_id, updated_at = now()`);
-    return { ok: true, repeated: false, unchanged: false, edit: await queueEdit(tx, id, inp.request_id, job.bundle_version, gate.active) };
+          anchor = excluded.anchor, built = false, request_id = excluded.request_id, updated_at = now(), confirmed_at = now(),
+          rebuild_id = excluded.rebuild_id, draft = null`);
+    return { ok: true, repeated: false, unchanged: false, edit };
+  }).catch((e: unknown): RoomEditAsk => {
+    if (e instanceof DraftLimit) return no(429, "draft_limit");
+    throw e;
   });
 }
 

@@ -10,5 +10,7 @@ export const TRIAL_UPLOAD_LIMITS = {
 } as const;
 
 /** Правка комнаты в туре (T-20261110-36, `lib/trial/repo-room-edit.ts`): пересборок вида `edit` на задание за сутки. Свой счёт — правки
- *  не съедают «Обустроить» и текст размеров (`config.ts:trialRebuildDaily`); ждущая пересборка правки забирает новые правки без счёта. */
-export const TRIAL_ROOM_EDIT_LIMITS = { day: 30 } as const;
+ *  не съедают «Обустроить» и текст размеров (`config.ts:trialRebuildDaily`); ждущая пересборка правки забирает новые правки без счёта.
+ *  `drafts` — черновиков правок (комнаты + проёмы) до «Подтвердить планировку» (T-20261111-16, `lib/trial/repo-draft.ts`): черновик
+ *  пересборку не ставит и суточный счёт не тратит; перезапись той же комнаты или проёма — та же строка. */
+export const TRIAL_ROOM_EDIT_LIMITS = { day: 30, drafts: 80 } as const;

@@ -1187,6 +1187,50 @@ def test_edit_without_room_fails_no_match(prod, mk):
     assert [f['code'] for f in fails] == ['no_match'] and prod.bundles == []
 
 
+# ───────────────────────── «Подтвердить планировку» (confirm, ход по комнатам, замеры; T-20261111-16) ─────────────────────────
+
+def test_confirm_without_edits_publishes_one_version_not_no_match(prod, mk, tmp_path):
+    """Пустое подтверждение (только пересчёт фото-права): не `no_match`, одна итоговая версия; ход — пустой, замеры — в публикации."""
+    _old_scene(tmp_path)
+    _edit_rebuild(prod, [], confirm=True)
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')] and prod.by('/api/trial/worker/rebuild/fail') == []
+    sent = prod.by('/api/trial/worker/rebuild/publish')
+    assert len(sent) == 1 and len(prod.bundles) == 1
+    t = sent[0]['timings']
+    assert {'v1_s', 'publish_s'} <= set(t) and all(isinstance(v, (int, float)) and v >= 0 for v in t.values())
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    assert json.loads((wd / 'progress.json').read_text()) == {'rooms': {}, 'done': 0, 'total': 0}
+
+
+def test_confirm_bedroom_progress_file_and_heartbeat(prod, mk, tmp_path):
+    """Правка спальни 2 под кнопкой: ход по комнатам страницы в `progress.json` (в конце — «готова», 1 из 1), пульс аренды несёт его
+    серверу (`progress`); гостиная не правлена — её в ходе нет."""
+    _old_scene(tmp_path)
+    _edit_rebuild(prod, [_edit('b1', built=True), {**_edit('b2', 450, 300), 'dimsOk': True}], confirm=True)
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')]
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    prog = json.loads((wd / 'progress.json').read_text())
+    assert prog['total'] == 1 and prog['done'] == 1 and list(prog['rooms'].values()) == ['ready'] and 'living' not in prog['rooms']
+    beats = [h['progress'] for h in prod.by('/api/trial/worker/rebuild/heartbeat') if 'progress' in h]
+    assert beats and all(set(b) == {'rooms', 'done', 'total'} and b['total'] == 1 for b in beats)
+    assert 'bedrooms_s' in prod.by('/api/trial/worker/rebuild/publish')[0]['timings']
+
+
+def test_confirm_dims_ok_gives_trust_flag_in_copy(prod, mk, tmp_path):
+    """Галочка «размеры верны» без размеров (`dimsOk`): в копии результата у комнаты флаг `user_dims`, геометрия как прочитана."""
+    _old_scene(tmp_path)
+    _edit_rebuild(prod, [{**_edit('b1'), 'dimsOk': True}], confirm=True)
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    wd = next((tmp_path / 'trial' / JID).glob('r1-*'))
+    b1 = {r['id']: r for r in json.loads((wd / 'result-edited.json').read_text())['panels'][0]['rooms']}['b1']
+    assert w.done == [(RID, 'rebuilt')] and 'user_dims' in b1['flags'] and 'edited' not in b1 and b1['bbox']['w'] == 400
+
+
 # ───────────────────────── окна и двери агента (opening_edits поверх копии, T-20261110-39) ─────────────────────────
 
 def _opening(key, kind='door', c=(400, 575), w=80, removed=False, built=False, src_c=None):

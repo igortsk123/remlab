@@ -115,6 +115,8 @@ const OP_KEY = /^(s\d{1,3}|u[A-Za-z0-9_-]{6,32})$/;   // = contracts/trial.ts:tr
 export const trialRebuildPublishIn = z.object({
   ...lease, jobId: z.string().regex(/^[A-Za-z0-9_-]{22}$/), bundle: z.string().min(2), sha256: z.string().regex(/^[0-9a-f]{64}$/),
   spentUsd: z.number().nonnegative().max(100).optional(), result: z.unknown().optional(),
+  /** Замеры стадий конвейера, с (`conveyor.py:timings`): хранятся в `trial_rebuilds.progress.timings` — по ним оценка следующих (T-20261111-16). */
+  timings: z.record(z.string().max(40), z.number().nonnegative().max(86_400)).refine((t) => Object.keys(t).length <= 30).optional(),
   /** Только `reparse` (T-20261111-02): карта перечитанного плана — снятые комнаты новыми id страницы (ЗАМЕНЯЮТ накопленные) и правки
    *  агента, чьи комнаты/проёмы сменили номер (строки правок переписываются на новые id той же транзакцией, что и версия). */
   reparse: z.object({

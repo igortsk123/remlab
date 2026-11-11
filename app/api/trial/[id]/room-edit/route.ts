@@ -11,6 +11,8 @@ export const dynamic = "force-dynamic";
 // комнаты на плане тура → воркер пересобирает её 3D и мебель сам (`kind: edit`). 202 — принято (или тот же `request_id`, или правка
 // поехала с ещё не взятой пересборкой правок), 200 `unchanged` — ничего не изменилось (порог 10 см), 403 — нет права, 409 — `not_ready` /
 // `stale` (страница устарела — перечитать) / `busy` (идёт другая пересборка), 422 — нет такой комнаты, 429 — лимит правок в сутки.
+// Черновик (`draft: true`, T-20261111-16): 200 `{draft: true, edit: null}` — сохранён без пересборки (до «Подтвердить планировку»;
+// `busy` и суточный лимит не действуют), 429 `draft_limit` — черновиков слишком много.
 // Ручка `/api/*`, которую пропускает песочница тура (`lib/trial/tour-page.ts:roomEditPath`).
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   if (foreignOrigin(req)) return fail(403, "forbidden");
@@ -22,5 +24,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (body instanceof Response) return body;
   const r = await askRoomEdit(id, body);
   if (!r.ok) return trialJson({ ok: false, error: r.error, ...(r.version !== undefined ? { version: r.version } : {}) }, r.status);
-  return trialJson({ ok: true, repeated: r.repeated, unchanged: r.unchanged, edit: r.edit }, r.unchanged ? 200 : 202);
+  return trialJson({ ok: true, repeated: r.repeated, unchanged: r.unchanged, edit: r.edit, ...(r.draft ? { draft: true } : {}) },
+    r.unchanged || r.draft ? 200 : 202);
 }

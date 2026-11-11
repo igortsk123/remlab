@@ -56,3 +56,16 @@ def test_far_anchor_and_unknown_panel_skipped():
 def test_built_edits_not_dirty():
     _, done = RE.apply(_res(), [_e('a', w=520, d=400, built=True), _e('b', w=320, d=400)])
     assert RE.dirty_keys(done) == {('p0', 'b')}
+
+
+def test_dims_ok_without_dims_only_trust_flag():
+    """«Размеры верны» в окне «Подтвердить планировку» (T-20261111-16): геометрия, площадь и имя как прочитаны, флаг `user_dims` —
+    один раз; без галочки и без размеров — флага нет; размеры с галочкой — обычный масштаб (галочка не мешает)."""
+    res, done = RE.apply(_res(), [{**_e('b'), 'dimsOk': True}, {**_e('a', panel='p1'), 'dimsOk': False}])
+    b, p1 = res['panels'][0]['rooms'][1], res['panels'][1]['rooms'][0]
+    assert len(done) == 2 and b['flags'] == ['dims_mismatch', 'user_dims'] and b['bbox'] == _res()['panels'][0]['rooms'][1]['bbox']
+    assert 'plan' not in b and 'edited' not in b and b['areaM2'] == 12.0 and 'user_dims' not in p1['flags']
+    res2, _ = RE.apply(res, [{**_e('b'), 'dimsOk': True}])
+    assert res2['panels'][0]['rooms'][1]['flags'].count('user_dims') == 1
+    res3, _ = RE.apply(_res(), [{**_e('b', w=360, d=320), 'dimsOk': True}])
+    assert res3['panels'][0]['rooms'][1]['edited'] == {'w': 360, 'd': 320}

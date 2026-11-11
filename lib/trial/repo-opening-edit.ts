@@ -2,7 +2,8 @@
 // как у правки комнаты (`repo-room-edit.ts`), под блокировкой строки задания: ключ → повтор `request_id` → задание готово → версия
 // данных та, что видит страница (иначе `stale`) → панель и проёмы есть в этой версии → что изменилось (меньше 1 см и тот же тип —
 // без правки; ничего — `unchanged`, без работы) → пересборка `edit` (`editGate`: ждущая забирает, другая активная — `busy`, лимит суток)
-// → строки правок (одна на проём, новая заменяет) → пересборка.
+// → строки правок (одна на проём, новая заменяет) → пересборка. Черновик (`draft: true`, T-20261111-16; `repo-draft.ts`): без пересборки,
+// счёта и `busy`; проём из тела, равный построенному, снимает свой черновик.
 
 import { sql } from "drizzle-orm";
 import type { TrialOpeningEditIn } from "@/contracts/trial";
@@ -10,7 +11,8 @@ import { db } from "@/lib/db";
 import { readBundle } from "@/lib/trial/bundle";
 import { trialDir } from "@/lib/trial/config";
 import { editKeyMatches } from "@/lib/trial/edit-key";
-import { q } from "@/lib/trial/repo-rebuild";
+import { checkDraftLimit, DraftLimit, dropOpeningDraft, seenRequest, writeOpeningDraft } from "@/lib/trial/repo-draft";
+import { q, type Tx } from "@/lib/trial/repo-rebuild";
 import { editGate, queueEdit, type RoomEditAsk } from "@/lib/trial/repo-room-edit";
 
 /** Проёмов-правок на задание всего (добавленные + правленые распознанные): больше — `too_many`. */
@@ -70,8 +72,8 @@ export async function askOpeningEdit(id: string, inp: TrialOpeningEditIn, dir = 
     if (!job) return no(404, "not_found");
     if (job.status === "expired" || job.past_term) return no(410, "expired");
     if (!editKeyMatches(inp.k, job.edit_key_hash)) return no(403, "forbidden");
-    const [same] = await q<{ one: number }>(tx, sql`select 1 as one from trial_opening_edits where job_id = ${id} and request_id = ${inp.request_id} limit 1`);
-    if (same) {
+    if (await seenRequest(tx, "opening", id, inp.request_id)) {
+      if (inp.draft) return { ok: true, repeated: true, unchanged: false, edit: null, draft: true };
       const [last] = await q<{ id: string; status: string }>(tx, sql`select id, status from trial_rebuilds where job_id = ${id} and kind = 'edit'
           order by created_at desc, id desc limit 1`);
       return { ok: true, repeated: true, unchanged: false, edit: last ?? null };
@@ -84,23 +86,41 @@ export async function askOpeningEdit(id: string, inp: TrialOpeningEditIn, dir = 
     if (!now) return no(422, "bad_opening");
     const rows = openingRows(now, inp.ops);
     if (rows === "bad_opening") return no(422, "bad_opening");
+    if (inp.draft) {                                         // черновик: без пересборки и без суточного счёта (T-20261111-16)
+      const changed = new Set(rows.map((r) => r.key));
+      for (const op of inp.ops) if (!changed.has(op.key)) await dropOpeningDraft(tx, id, inp.panel, op.key);   // вернули к построенному
+      for (const r of rows) await writeOpeningDraft(tx, id, inp.panel, r, inp.request_id);
+      await checkOpeningsMax(tx, id);
+      await checkDraftLimit(tx, id);
+      return rows.length ? { ok: true, repeated: false, unchanged: false, edit: null, draft: true }
+        : { ok: true, repeated: false, unchanged: true, edit: null };
+    }
     if (!rows.length) return { ok: true, repeated: false, unchanged: true, edit: null };
     const gate = await editGate(tx, id);
     if (!gate.ok) return gate;
+    const edit = await queueEdit(tx, id, inp.request_id, job.bundle_version, gate.active);
+    // старая страница (без `draft`): правки подтверждены сразу и едут с этой пересборкой; черновик того же проёма они заменяют
     for (const r of rows) {
-      await tx.execute(sql`insert into trial_opening_edits (job_id, op_key, panel, src_idx, src_c, kind, c, width_cm, removed, built, request_id)
+      await tx.execute(sql`insert into trial_opening_edits (job_id, op_key, panel, src_idx, src_c, kind, c, width_cm, removed, built, request_id,
+            confirmed_at, rebuild_id)
           values (${id}, ${`${inp.panel}|${r.key}`}, ${inp.panel}, ${r.srcIdx}, ${r.srcC ? JSON.stringify(r.srcC) : null}::jsonb, ${r.kind},
-            ${JSON.stringify(r.c)}::jsonb, ${r.w}, ${r.removed}, false, ${inp.request_id})
+            ${JSON.stringify(r.c)}::jsonb, ${r.w}, ${r.removed}, false, ${inp.request_id}, now(), ${edit.id})
           on conflict (job_id, op_key) do update set kind = excluded.kind, c = excluded.c, width_cm = excluded.width_cm,
-            removed = excluded.removed, built = false, request_id = excluded.request_id, updated_at = now()`);
+            removed = excluded.removed, built = false, request_id = excluded.request_id, updated_at = now(), confirmed_at = now(),
+            rebuild_id = excluded.rebuild_id, draft = null`);
     }
-    const [n] = await q<{ n: number }>(tx, sql`select count(*)::int as n from trial_opening_edits where job_id = ${id}`);
-    if ((n?.n ?? 0) > OPENING_EDITS_MAX) throw new TooMany();
-    return { ok: true, repeated: false, unchanged: false, edit: await queueEdit(tx, id, inp.request_id, job.bundle_version, gate.active) };
+    await checkOpeningsMax(tx, id);
+    return { ok: true, repeated: false, unchanged: false, edit };
   }).catch((e: unknown): RoomEditAsk => {
     if (e instanceof TooMany) return no(422, "too_many");
+    if (e instanceof DraftLimit) return no(429, "draft_limit");
     throw e;
   });
+}
+
+async function checkOpeningsMax(tx: Tx, id: string): Promise<void> {
+  const [n] = await q<{ n: number }>(tx, sql`select count(*)::int as n from trial_opening_edits where job_id = ${id}`);
+  if ((n?.n ?? 0) > OPENING_EDITS_MAX) throw new TooMany();
 }
 
 /** Сверх `OPENING_EDITS_MAX` — откат всей транзакции (строки уже вставлены). */

@@ -110,12 +110,17 @@ export const trialRoomEditIn = z.object({
   name: z.string().trim().min(1).max(TRIAL_ROOM_NAME_MAX),
   w_cm: z.number().finite().min(TRIAL_ROOM_CM_MIN).max(TRIAL_ROOM_CM_MAX),
   d_cm: z.number().finite().min(TRIAL_ROOM_CM_MIN).max(TRIAL_ROOM_CM_MAX),
+  /** true — черновик (T-20261111-16): правка сохраняется без пересборки, в сборку идёт по «Подтвердить планировку» (`confirm`).
+   *  Новая страница шлёт всегда; без поля (старая страница) — как раньше: правка подтверждена и сразу ставит пересборку `edit`. */
+  draft: z.boolean().optional(),
 });
 export type TrialRoomEditIn = z.infer<typeof trialRoomEditIn>;
 /** Правка, как её получает воркер при claim любой пересборки (накладывает на копию `result` перед сборкой). */
 export type TrialRoomEdit = {
   panel: string; srcId: string; anchor: { x: number; y: number }; name: string; kind: string; wCm: number | null; dCm: number | null;
   built: boolean;
+  /** «размеры верны» в окне подтверждения (T-20261111-16): сборка ставит комнате `user_dims` и без правки размера */
+  dimsOk: boolean;
 };
 
 // ── Окна и двери агента на плане тура (план trial-room-edit-01, Е4; `db/init/029-trial-opening-edits.sql`) ─────────────────
@@ -138,12 +143,53 @@ export const trialOpeningEditIn = z.object({
   base_version: z.number().int().positive(),
   panel: z.string().min(1).max(40),
   ops: z.array(trialOpeningOpIn).min(1).max(TRIAL_OPENING_OPS_MAX),
+  /** true — черновик (как у `trialRoomEditIn.draft`): без пересборки до «Подтвердить планировку». */
+  draft: z.boolean().optional(),
 });
 export type TrialOpeningEditIn = z.infer<typeof trialOpeningEditIn>;
 /** Правка проёма, как её получает воркер при claim любой пересборки (`tools/floorplan/opening_edits.py`). */
 export type TrialOpeningEdit = {
   panel: string; key: string; srcIdx: number | null; srcC: [number, number] | null; kind: "door" | "window"; c: [number, number];
   widthCm: number; removed: boolean; built: boolean;
+};
+
+// ── «Подтвердить планировку» (план trial-confirm-plan-01; `db/init/032-trial-plan-confirm.sql`; T-20261111-16) ─────────────────
+/** Кнопка: все черновики правок → подтверждены, ОДНА пересборка `edit` (и без черновиков). `rooms_ok` — комнаты страницы с галочкой
+ *  «размеры верны» (их сборка получает `user_dims`: проверка размера снята, фото можно); комнаты без галочки — без этого флага
+ *  (правка размера агентом — `user_dims` всегда). `request_id` — повтор нажатия даёт тот же ответ. */
+export const trialConfirmIn = z.object({
+  k: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
+  request_id: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+  base_version: z.number().int().positive(),
+  rooms_ok: z.array(trialPageRoomId).max(40),
+});
+export type TrialConfirmIn = z.infer<typeof trialConfirmIn>;
+/** Состояние комнаты страницы в пересборке: ждёт / считается / посчитана (видна — с итоговой версией). */
+export const trialRoomStatus = z.enum(["queued", "building", "ready"]);
+export type TrialRoomStatus = z.infer<typeof trialRoomStatus>;
+/** Ход пересборки от воркера (пульс аренды `…/rebuild/heartbeat`): состояния правленых комнат страницы и «N из M». */
+export const trialRebuildProgressIn = z.object({
+  rooms: z.record(trialPageRoomId, trialRoomStatus).refine((r) => Object.keys(r).length <= 60, { message: "too many rooms" }),
+  done: z.number().int().nonnegative().max(60),
+  total: z.number().int().nonnegative().max(60),
+});
+export type TrialRebuildProgressIn = z.infer<typeof trialRebuildProgressIn>;
+/** Что отдаёт `GET /api/trial/<id>/rebuild-status?k=`: последняя пересборка тура (null — не было). Обратный отсчёт страница ведёт сама:
+ *  от `elapsedS` (секунд с постановки на момент ответа) к `etaS` (оценка всего пересчёта; по комнате — `roomEtaS`). */
+export type TrialRebuildStatus = {
+  ok: true; version: number;
+  rebuild: null | {
+    id: string; kind: string; status: "queued" | "running" | "done" | "failed"; error: string | null;
+    createdAt: string; startedAt: string | null; finishedAt: string | null; elapsedS: number;
+    rooms: Record<string, TrialRoomStatus>; done: number; total: number; etaS: number | null; roomEtaS: Record<string, number>;
+  };
+};
+/** Что отдаёт `GET /api/trial/<id>/edits?k=`: черновики правок (рисуются поверх плана с пометкой «не подтверждено»), комнаты с
+ *  галочкой «размеры верны» и время последнего подтверждения. `room` — id комнаты страницы в текущей версии (null — не нашлась). */
+export type TrialEditsView = {
+  ok: true; version: number; drafts: number; confirmedAt: string | null; roomsOk: string[];
+  rooms: { room: string | null; panel: string; srcId: string; name: string; kind: string; w_cm: number | null; d_cm: number | null }[];
+  openings: { panel: string; key: string; kind: "door" | "window"; c: [number, number]; w_cm: number; removed: boolean }[];
 };
 
 const num = z.number().finite();
@@ -227,7 +273,7 @@ export const trialClaimIn = z.object({
   reparse: z.boolean().optional(),
 });
 /** Аренда пересборки: `id` — id строки `trial_rebuilds` (не задания). */
-export const trialRebuildLeaseIn = z.object({ ...lease, spentUsd: spent });
+export const trialRebuildLeaseIn = z.object({ ...lease, spentUsd: spent, progress: trialRebuildProgressIn.optional() });
 export const trialRebuildFailIn = z.object({
   ...lease, code: trialRebuildFailCode, retryable: z.boolean(), detail: z.string().max(2000).optional(), spentUsd: spent,
 });
@@ -248,6 +294,8 @@ export type TrialRebuildClaimed = {
   edits?: TrialRoomEdit[];
   /** Окна и двери агента (тому же воркеру): накладываются после правок комнат. */
   openingEdits?: TrialOpeningEdit[];
+  /** `edit` от «Подтвердить планировку» (T-20261111-16): пересобрать и без правленых комнат (пересчёт фото-права), не `no_match`. */
+  confirm?: boolean;
 };
 export const trialHeartbeatIn = z.object({ ...lease, stage: trialStage, spentUsd: spent });
 export const trialResultIn = z.object({ ...lease, result: z.unknown(), spentUsd: spent });

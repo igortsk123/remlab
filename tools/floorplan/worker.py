@@ -211,10 +211,23 @@ class Heartbeat(threading.Thread):
             s = ''
         return s if s in STAGES else 'raster'
 
+    def progress(self) -> dict | None:
+        """Ход пересборки по комнатам (`<папка>/progress.json`, пишет `conveyor.EditRebuild`; T-20261111-16) — только у пересборки."""
+        if self.with_stage:
+            return None
+        try:
+            got = json.loads((self.wd / 'progress.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return None
+        return got if isinstance(got, dict) and isinstance(got.get('rooms'), dict) else None
+
     def beat(self) -> None:
         body = {**self.lease, 'spentUsd': self.w.spent(self.wd)}
         if self.with_stage:
             body['stage'] = self.stage()
+        prog = self.progress()
+        if prog is not None:
+            body['progress'] = prog
         self.sent.append((time.time(), body.get('stage')))
         try:
             st, _ = self.w.api.call('POST', self.path, body)
@@ -232,7 +245,7 @@ class Heartbeat(threading.Thread):
         только на heartbeat, `lib/trial/repo-worker.ts:heartbeat`) и не реже раза в heartbeat_s."""
         last_t, last_s = 0.0, None
         while not self.stop_ev.is_set() and not self.lost.is_set():
-            s = self.stage()
+            s = (self.stage(), json.dumps(self.progress(), sort_keys=True))   # смена хода по комнатам — тоже удар сразу
             if s != last_s or time.time() - last_t >= self.w.cfg.heartbeat_s:
                 self.beat()
                 last_t, last_s = time.time(), s
@@ -527,7 +540,8 @@ class Worker:
                 end = conveyor.ListingRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], str(rb['listingText']),
                                               mime, EXT[mime], edits=edits, opening_edits=ops).rebuild()
             elif edit:
-                end = conveyor.EditRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], edits, opening_edits=ops).rebuild()
+                end = conveyor.EditRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], edits, opening_edits=ops,
+                                           confirm=rb.get('confirm') is True).rebuild()
             else:
                 end = conveyor.Rebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], edits=edits, opening_edits=ops).rebuild()
         except Exception as e:                       # noqa: BLE001 — сбой кода конвейера: пересборка failed с кодом, воркер живёт

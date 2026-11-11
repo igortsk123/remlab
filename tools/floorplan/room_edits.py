@@ -11,7 +11,8 @@
   * имя и вид — как у правки (вид по имени считает сервер, `lib/trial/room-kind.ts`); `user_name` — имя сменил агент;
   * ширина × длина (`w_cm`×`d_cm` — охват контура по осям листа): контур масштабируется от центра охвата (sx = W/w, sy = D/d), площадь —
     в sx·sy; исходные охват и контур — в `plan` (2D-план тура и привязка проёмов — по ним: `trial_room.openings_of`, `trial_bundle`),
-    `edited` = {w, d}, флаг `user_dims` — размер дал человек: проверка размера снята, фото можно (`trial_bundle.size_check/photo_ok`).
+    `edited` = {w, d}, флаг `user_dims` — размер дал человек: проверка размера снята, фото можно (`trial_bundle.size_check/photo_ok`);
+  * без размеров, но с `dimsOk` (галочка «размеры верны» при «Подтвердить планировку», T-20261111-16) — только флаг `user_dims`.
 Проёмы панели не двигаются: привязка считается по исходным контурам, центр проёма своей комнаты переносится тем же масштабом.
 Будущие правки проёмов (окно/дверь руками, часть 3) — своя таблица и свой шаг поверх этого, комнаты их не касаются.
 """
@@ -103,6 +104,10 @@ def apply(result: dict, edits: list | None, strict: bool = False) -> tuple[dict,
         w, d = e.get('wCm'), e.get('dCm')
         if isinstance(w, (int, float)) and isinstance(d, (int, float)) and w > 0 and d > 0 and room['bbox']['w'] > 0 and room['bbox']['d'] > 0:
             _scaled(room, float(w), float(d))
+        elif e.get('dimsOk') is True and USER_DIMS not in (room.get('flags') or []):
+            # «размеры верны» в окне «Подтвердить планировку» (T-20261111-16): размер как прочитан, но его подтвердил человек —
+            # то же доверие, что у правки размера (проверка снята, фото можно); геометрия, площадь и подпись не меняются
+            room['flags'] = list(room.get('flags') or []) + [USER_DIMS]
         done.append((e, pan['id'], str(room['id'])))
     return res, done
 

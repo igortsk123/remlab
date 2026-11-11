@@ -13,6 +13,12 @@ export function newEditKey(): { key: string; hash: string } {
   return { key, hash: editKeyHash(key) };
 }
 
+/** Ключ правки из адреса чтения (`?k=`, T-20261111-16: `edits`, `rebuild-status`); null — нет или не того вида. */
+export function editKeyParam(req: Request): string | null {
+  const k = new URL(req.url).searchParams.get("k");
+  return k !== null && TOKEN_RE.test(k) ? k : null;
+}
+
 /** Ключ из ссылки подходит к заданию. Нет хэша (старое задание) — правки нет ни у кого. */
 export function editKeyMatches(key: string, hash: string | null): boolean {
   return !!hash && TOKEN_RE.test(key) && safeEqual(editKeyHash(key), hash);
