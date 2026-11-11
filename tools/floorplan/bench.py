@@ -47,6 +47,8 @@ LB_M = float(os.environ.get('FP_LB_M', '6.0'))   # наибольший закр
 ENV_GEO = os.environ.get('FP_ENV_GEO', '1') != '0'   # T-20261111-09: полоса контура — по свободному месту (0 — по прямой, как до)
 SPLIT_DEEP = os.environ.get('FP_SPLIT', '1') != '0'  # T-20261111-09: разрыв глубже ENV_DMAX·t — делить по закрытиям (0 — как до)
 PS_TAIL = os.environ.get('FP_PS_TAIL', '1') != '0'   # T-20261111-09: малый разрыв без дуги — срезать хвост-клин и проверить снова
+ARC_SPAN = os.environ.get('FP_ARC_SPAN', '1') != '0'  # T-20261111-09: внутренняя малая перемычка — дуга чистая и до другого торца
+ARC_SPAN_MIN = 0.7    # `fpcore.arc_spans_gap`: ложные перемычки прихожей TGva 0,53/0,63, настоящие двери листа 0,74–1,0
 
 
 # T-20261110-38: тип комнаты из ответа labels4 → имя для комнаты без названия на листе (английское: его понимают
@@ -309,7 +311,7 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
     for a in (wall, gray):
         h.update(np.ascontiguousarray(a).tobytes()); h.update(str(a.shape).encode())
     h.update(repr((round(float(ppm), 6), [round(float(f), 4) for f in fams], round(float(t), 4), regions, thin_thr,
-                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL)).encode())
+                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL, ARC_SPAN, ARC_SPAN_MIN)).encode())
     h.update(inspect.getsource(_analyze).encode() + inspect.getsource(bay_windows).encode())
     p = Path(cdir) / f'an-{h.hexdigest()[:20]}.pkl'
     if p.exists():
@@ -420,6 +422,11 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
         nkid[0] += 1
         kid[ys, xs] = nkid[0]
         keep[ys, xs] = 1
+
+    def span_ok(g, c, u, nrm, L, dpt):
+        # T-20261111-09: внутренняя перемычка поперёк прохода — «дверь» по буквам подписи и по чужой дуге рядом (TGva…, прихожая
+        # 0,9 м: две ложные «двери» резали её на три куска). Дуга должна быть чистой и доходить до другого торца (`arc_spans_gap`)
+        return g.exterior or not ARC_SPAN or fc.arc_spans_gap(thin, c, u, nrm, L, dpt) >= ARC_SPAN_MIN
     # малые разрывы: закрываем, только если есть след проёма — рама окна в толщине стены или дуга двери
     for p in ps_s:
         lab_s, gs = fc.gap_components(p, dark, out1)
@@ -439,9 +446,9 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                     if d2 <= max_depth and L2 >= 0.4 * ppm and fc.door_evidence(thin, c2, u2, n2, L2, d2) >= DOOR_EV:
                         mark(ys2, xs2)
                 continue
-            if win or g.glaze >= GLAZE_MIN or ev >= DOOR_EV:
+            if win or g.glaze >= GLAZE_MIN or (ev >= DOOR_EV and span_ok(g, c, u, nrm, L, dpt)):
                 mark(ys, xs)
-            elif PS_TAIL:
+            elif PS_TAIL and ev < DOOR_EV:
                 # T-20261111-09: дверь в тонкой стене, чей кусок за проёмом тоньше куска над ним, — перемычка шла и вдоль тонкого
                 # куска (щель у его грани), и дуга мерилась по «двери» 1,5 м (TGva…, кухня: 0,73 м двери + 0,77 м щели). Срезать
                 # хвост-клин (`fpcore.wedge_tails`, как у классификации T-03) и проверить дугу у остатка
@@ -449,7 +456,8 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                 if tail is not None and (~tail).sum() >= 3:
                     ys3, xs3 = ys[~tail], xs[~tail]
                     c3, u3, n3, L3, d3 = fc.gap_axes(ys3, xs3)
-                    if d3 <= max_depth and fc.door_evidence(thin, c3, u3, n3, L3, d3) >= DOOR_EV:
+                    if d3 <= max_depth and fc.door_evidence(thin, c3, u3, n3, L3, d3) >= DOOR_EV \
+                            and span_ok(g, c3, u3, n3, L3, d3):
                         mark(ys3, xs3)
     # большие (окна, эркеры): обе стороны — длинная стена, снаружи, рама в разрыве или сразу за ним
     for p in ps_b:
@@ -636,7 +644,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
         lab_g = np.where(lab2 > 0, lab2 + off, lab_g)
         gaps += g2
     if SPLIT_DEEP:
-        lab_g, gaps = fc.split_composite(lab_g, gaps, kid, dark, outside, ENV_DMAX * t)
+        lab_g, gaps = fc.split_composite(lab_g, gaps, kid, dark, outside, max_depth)
     tails = []                                     # хвосты-клинья, срезанные с дверей (T-20261111-03)
     for g in gaps:
         if bay.any() and bay[lab_g == g.id].any():

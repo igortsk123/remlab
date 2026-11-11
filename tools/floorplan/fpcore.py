@@ -1064,8 +1064,9 @@ def regap(g: Gap, ys: np.ndarray, xs: np.ndarray) -> Gap:
 
 def split_composite(lab_g: np.ndarray, gaps: list, kid: np.ndarray, dark: np.ndarray, outside: np.ndarray,
                     min_depth: float) -> tuple[np.ndarray, list]:
-    """T-20261111-09: разрыв глубже `min_depth` (толще любой стены) — не один проём, а несколько закрытий, сросшихся углами
-    (TGva…: вход, дверь спальни 2 и перемычки узкой прихожей — одна «наружная» фигура 2,6 × 1,7 м, итог — «окно»). Делим по
+    """T-20261111-09: разрыв глубже `min_depth` (толще стены) и в SPLIT_RATIO раз глубже своих кусков — не один проём, а несколько
+    закрытий, сросшихся углами (TGva…: вход, дверь спальни 2 и перемычки узкой прихожей — одна «наружная» фигура 2,6 × 1,7 м,
+    итог — «окно»; без перемычек — вход и дверь спальни 2, 1,2 м × 85 px). Делим по
     номеру закрытия `kid` (кто его поставил в `bench._analyze`); пиксели без номера — к ближайшему куску. Геометрия, «рама» и
     «наружный» — заново, как в `gap_components`. Разрыв из одного закрытия и внутренний не трогаем: широкий внутренний проём
     закрывают несколькими перемычками, и по номерам он дробился на «двери» (4y0o… спальня 1: дверей 2 → 3, ядро — отказ).
@@ -1094,17 +1095,75 @@ def split_composite(lab_g: np.ndarray, gaps: list, kid: np.ndarray, dark: np.nda
             ids = lut[labels[ys - y0, xs - x0]]
         if near_out is None:
             near_out = cv2.dilate(outside.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+        pieces = []
         for i in uniq:
             sel = ids == i
             if sel.sum() < 3:
                 continue
             py, px = ys[sel], xs[sel]
+            pieces.append((py, px, regap(Gap(0, 0.0, 0.0, 0.0, 0.0, '', frame_coverage(py, px, dark),
+                                             bool(near_out[py, px].any()), ()), py, px)))
+        # куски вдоль одной линии (окно, закрытое двумя проходами) — один проём; делим, только если фигура много глубже кусков
+        if len(pieces) < 2 or g.depth <= SPLIT_RATIO * max(p.depth for _, _, p in pieces):
+            out.append(g)
+            continue
+        for py, px, p in pieces:
             lab_g[py, px] = nid
-            p = regap(Gap(nid, 0.0, 0.0, 0.0, 0.0, '', frame_coverage(py, px, dark), bool(near_out[py, px].any()), ()),
-                      py, px)
+            p.id = nid
             out.append(p)
             nid += 1
     return lab_g, out
+
+
+SPLIT_RATIO = 1.5     # `split_composite`: фигура глубже самого глубокого куска в 1,5 раза — куски сошлись углом, не в линию
+
+
+ARC_SPAN_TOL = 0.2    # дуга створки доходит до другого торца: |R − ширина от петли| ≤ 0,2 L
+
+
+def arc_spans_gap(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5) -> float:
+    """T-20261111-09: строгая проверка дуги для перемычки поперёк прохода (TGva…, прихожая 0,9 м: «дверь» по буквам подписи
+    «Hallway» и по дуге входной двери, лежащей ниже). Как `door_evidence`, но (1) дуга одной створки доходит до другого торца
+    разрыва (радиус ≈ расстояние от петли до него, ±ARC_SPAN_TOL·L) — чужая дуга рядом другого радиуса не годится; (2) точка
+    засчитана, только если дуга «чистая»: на том же луче на 0,8R и 1,2R линий нет вместе (буквы, штриховка задевают все три,
+    правило `_tangent_evidence`). Две створки — по R≈L/2 от каждого торца, обе. Спасения «по створке» нет: вдоль грани стены
+    тонкая линия есть почти всегда (кайма маски), у прихожей TGva она и давала «створку». → доля 0..1."""
+    H, W = thin.shape
+    th = np.radians(np.arange(0, 91, step_deg))
+    m = int(2.5 * L + depth) + 8
+    cx, cy = int(round(float(c[0]))), int(round(float(c[1])))
+    x0, y0 = max(0, cx - m), max(0, cy - m)
+    crop = np.pad((thin[y0:min(H, cy + m + 1), x0:min(W, cx + m + 1)] > 0).astype(np.uint8), 2)
+    dil = cv2.dilate(crop, np.ones((5, 5), np.uint8))
+    hh, ww = dil.shape
+    off = np.array([x0 - 2, y0 - 2], float)
+
+    def at(P):
+        q = np.rint(P - off).astype(int)
+        ok = (q[..., 0] >= 0) & (q[..., 0] < ww) & (q[..., 1] >= 0) & (q[..., 1] < hh)
+        r = np.zeros(q.shape[:-1], bool)
+        r[ok] = dil[q[..., 1][ok], q[..., 0][ok]] > 0
+        return r
+
+    def pure(h, d, s, R):
+        ray = np.cos(th)[:, None] * d[None, :] + np.sin(th)[:, None] * s[None, :]
+        on = at(h + R * ray)
+        clutter = at(h + TANGENT_PURE[0] * R * ray) & at(h + TANGENT_PURE[1] * R * ray)
+        return float((on & ~clutter).mean())
+
+    best = 0.0
+    for s in (n, -n):
+        face = c + s * depth / 2
+        for j in (0.0, 0.1, 0.2, 0.3):
+            e1, e2 = face - u * L * (0.5 - j), face + u * L * (0.5 - j)
+            span = (1.0 - j) * L
+            for f in np.arange(0.5, 1.06, 0.05):
+                R = f * L
+                if abs(R - span) <= ARC_SPAN_TOL * L:
+                    best = max(best, pure(e1, u, s, R), pure(e2, -u, s, R))
+                if abs(R / 2 - (0.5 - j) * L) <= ARC_SPAN_TOL * L / 2:     # створки сходятся посередине
+                    best = max(best, min(pure(e1, u, s, R / 2), pure(e2, -u, s, R / 2)))
+    return best
 
 
 def thin_lines(gray: np.ndarray, wall: np.ndarray, delta: int = 15, k: int = 7) -> np.ndarray:

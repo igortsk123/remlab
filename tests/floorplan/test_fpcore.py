@@ -641,3 +641,24 @@ def test_split_composite_divides_merged_closures():
     assert horiz.exterior and 49 <= horiz.length <= 53
     vert = next(q for q in out if q.id == b)
     assert not vert.exterior and 62 <= vert.length <= 66
+    line = np.zeros_like(add); kl = np.zeros_like(kid)                # окно, закрытое двумя проходами в линию, — один проём
+    line[10:18, 10:61] = 1; kl[10:18, 10:35] = 1; kl[10:18, 35:61] = 2
+    lab3, g3 = fc.gap_components(line, np.zeros_like(add), outside)
+    assert len(fc.split_composite(lab3, g3, kl, np.zeros_like(add), outside, 5)[1]) == 1
+
+
+def test_arc_spans_gap_rejects_label_text_and_foreign_arc():
+    """T-20261111-09 (прихожая TGva…): перемычка поперёк прохода 0,9 м получала «дверь» по буквам подписи «Hallway» и по дуге
+    входной двери ниже. Строгая проверка: дуга чистая и доходит до другого торца — своя дуга да, буквы и чужая дуга нет."""
+    ys, xs = np.mgrid[97:104, 60:121]
+    c, u, n, L, d = fc.gap_axes(ys.ravel(), xs.ravel())
+    own = np.zeros((260, 200), np.uint8)
+    cv2.ellipse(own, (60, 100), (60, 60), 0, 0, 90, 1, 1)
+    assert fc.arc_spans_gap(own, c, u, n, L, d) >= 0.9
+    text = np.zeros_like(own)
+    for k, s in enumerate(('Hallway', "2'11 x 12'5", '0.90 x 3.80 m')):
+        cv2.putText(text, s, (40, 125 + 22 * k), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1, 2)
+    assert fc.door_evidence(text, c, u, n, L, d) >= 0.75 and fc.arc_spans_gap(text, c, u, n, L, d) < 0.7   # прежняя мера — «дверь»
+    foreign = np.zeros_like(own)
+    cv2.ellipse(foreign, (121, 190), (60, 60), 0, 180, 270, 1, 1)  # дуга двери на 0,9 L ниже, петля у другого торца
+    assert fc.arc_spans_gap(foreign, c, u, n, L, d) < 0.7
