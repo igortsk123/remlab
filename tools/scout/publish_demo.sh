@@ -11,7 +11,8 @@
 # публиковать (по умолчанию ~/scout-scenes/flat215-demo); PUB_KEEP — сколько копий хранить (3); PUB_TMP — где собрать архив
 # (по умолчанию ~/.cache/remlab-publish, на диске); PUB_PHOTOS_DONE=1 — фото нейросети этой сборки уже сняты (ставит ночь),
 # без неё выкладка главной сперва снимает их (ниже, T-20261107-34). Для самопроверки —
-# PUB_ROOT, PUB_RTMP, PUB_CHOWN, PUB_URL, PUB_PHOTOS_CMD, PUB_OFF_FLAG (`tests/test_publish_demo.py`, ssh/scp/curl и съёмка подменены).
+# PUB_ROOT, PUB_RTMP, PUB_CHOWN, PUB_URL, PUB_PHOTOS_CMD, PUB_OFF_FLAG, PUB_PRECOMPRESS_CMD (`tests/test_publish_demo.py`, ssh/scp/curl,
+# съёмка и сжатие подменены).
 #
 # ТОП-СПРАЙТЫ ПЕРЕЖИВАЮТ ПУБЛИКАЦИЮ (01.09). `rm -rf flat215-demo` чистил и `topsprites/`,
 # а туда виды сверху приезжают ОТДЕЛЬНО, прямым scp из мешевого конвейера
@@ -212,6 +213,22 @@ if [ "$PUB_DIR" = demo ] && [ "${PUB_PHOTOS_DONE:-0}" != 1 ]; then
     DEMO_LOCAL="$PUB_SRC" bash "${PUB_PHOTOS_CMD:-$HERE/../ops/demo-real.sh}" || photos_rc=$?
     [ "$photos_rc" = 0 ] || echo "WARN:publish_demo: досъёмка фото — код $photos_rc; публикую, не досняли — варианты покажут прежнее фото"
   fi
+fi
+# ЗАРАНЕЕ СЖАТЫЕ КОПИИ (T-20261110-43/2): рядом с текстами сборки — `.br` (brotli 11) и `.gz` (gzip 9), Caddy отдаёт их по
+# `precompressed` (разметка /demo 411 → 290 КБ, данные 161 → 99 КБ против сжатия на лету). Копии пересоздаются, когда исходник
+# переписан, сироты убираются (`precompress.mjs`). Не вышло целиком (нет node и т.п.) — убираем ВСЕ наши копии: устаревшая сжатая
+# копия хуже сжатия на лету (Caddy отдал бы старый текст). PUB_PRECOMPRESS_CMD — подмена для самопроверки.
+# node: в кроне PATH короткий (/usr/bin:/bin), а node на DEV — /usr/local/bin; нет нигде — ветка WARN ниже (как раньше)
+NODE_BIN=$(command -v node 2>/dev/null || true)
+if [ -z "$NODE_BIN" ] && [ -x /usr/local/bin/node ]; then NODE_BIN=/usr/local/bin/node; fi
+PRECOMPRESS=("${NODE_BIN:-node}" "$HERE/precompress.mjs")
+if [ -n "${PUB_PRECOMPRESS_CMD:-}" ]; then PRECOMPRESS=("$PUB_PRECOMPRESS_CMD"); fi
+if ! "${PRECOMPRESS[@]}" "$PUB_SRC"; then
+  echo "WARN:publish_demo: заранее сжать не вышло — сжатые копии убраны, Caddy сожмёт на лету"
+  find "$PUB_SRC" \( -path "$PUB_SRC/topsprites" -o -path "$PUB_SRC/img" \) -prune -o -type f \
+    \( -name '*.html.br' -o -name '*.html.gz' -o -name '*.json.br' -o -name '*.json.gz' -o -name '*.js.br' -o -name '*.js.gz' \
+       -o -name '*.mjs.br' -o -name '*.mjs.gz' -o -name '*.css.br' -o -name '*.css.gz' -o -name '*.svg.br' -o -name '*.svg.gz' \) \
+    -exec rm -f -- {} +
 fi
 mkdir -p "$PUB_TMP"
 # место под архив: сборка в основном картинки — сжатие почти не уменьшает, берём её размер + 20 МБ запаса

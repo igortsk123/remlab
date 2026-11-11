@@ -68,6 +68,8 @@ def shims(bin_dir):
         'curl': '#!/usr/bin/env bash\necho "curl $*" >> "$SHIM_LOG"\nprintf %s "${FAKE_HTTP:-200}"\n',
         # вместо `tools/ops/demo-real.sh` (ПЛАТНО) — запись «что сняли бы» и код FAKE_PHOTOS_RC (T-20261107-34)
         'photos': '#!/usr/bin/env bash\necho "photos DEMO_LOCAL=$DEMO_LOCAL $*" >> "$SHIM_LOG"\nexit "${FAKE_PHOTOS_RC:-0}"\n',
+        # сжатие упало целиком (нет node и т.п., T-20261110-43/2) — ничего не сделав
+        'precompress-fail': '#!/usr/bin/env bash\necho "precompress-fail $*" >> "$SHIM_LOG"\nexit 1\n',
         # FAKE_TAR_FAIL=1 — упаковка (czf) падает молча с кодом 2, как `tar` при забитом /tmp, когда и его сообщение
         # некуда записать (T-20261106-87); иначе — настоящий tar (распаковка на «сервере» тоже идёт через него)
         'tar': '#!/usr/bin/env bash\nif [ -n "${FAKE_TAR_FAIL:-}" ] && [ "${1:-}" = czf ]; then exit 2; fi\n'
@@ -297,6 +299,30 @@ def main():
     os.remove(os.path.join(base, 'openai.off'))
     ok(r.returncode == 0 and tree(live) == v12 and 'WARN:publish_demo: платные шаги выключены (openai.off)' in r.stdout
        and not any(ln.startswith('photos ') for ln in shim_since(n0)), 'openai.off — без съёмки, с WARN, публикация есть')
+
+    # 16. ЗАРАНЕЕ СЖАТЫЕ КОПИИ (T-20261110-43/2): тексты ≥ 1 КБ уезжают с `.br`/`.gz` рядом (Caddy `precompressed`); исходник
+    # переписан — копии новые; сжатие упало целиком — старые копии сборки убраны и на витрину не едут (устаревшая копия хуже
+    # сжатия на лету: Caddy отдал бы старый текст); мелкие файлы (случаи выше) — без копий
+    import gzip
+    big = lambda v: '<html>' + f'<p>версия {v}</p>' * 300 + '</html>'   # noqa: E731
+    build(13, extra={'index.html': big(13)})
+    r = run(PUB_PHOTOS_DONE='1')
+    gz = os.path.join(live, 'index.html.gz')
+    ok(r.returncode == 0 and os.path.isfile(os.path.join(live, 'index.html.br')) and os.path.isfile(gz)
+       and gzip.decompress(open(gz, 'rb').read()).decode() == big(13), f'сжатые копии разметки на витрине ({r.stdout[-200:]!r})')
+    ok(not os.path.exists(os.path.join(live, 'demo-data.json.br')), 'файл < 1 КБ — без сжатой копии')
+    ok(tree(live) == tree(src), 'витрина = сборка вместе со сжатыми копиями')
+    build(14, extra={'index.html': big(14)})
+    r = run(PUB_PHOTOS_DONE='1')
+    ok(r.returncode == 0 and gzip.decompress(open(gz, 'rb').read()).decode() == big(14), 'новая сборка — копии пересжаты')
+    build(15, extra={'index.html': big(15)})
+    put(os.path.join(src, 'index.html.br'), 'старая копия')
+    put(os.path.join(src, 'index.html.gz'), 'старая копия')
+    r = run(PUB_PHOTOS_DONE='1', PUB_PRECOMPRESS_CMD=os.path.join(bin_dir, 'precompress-fail'))
+    ok(r.returncode == 0 and 'WARN:publish_demo: заранее сжать не вышло' in r.stdout
+       and not os.path.exists(os.path.join(live, 'index.html.br')) and not os.path.exists(gz)
+       and open(os.path.join(live, 'index.html'), encoding='utf-8').read() == big(15),
+       f'сжатие упало — публикация есть, старых сжатых копий на витрине нет ({r.stdout[-200:]!r})')
 
     # 14. запреты (код 2 из проверок) не печатают ложный «сбой в строке»
     r = run(PUB_DIR='caddy')
