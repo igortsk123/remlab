@@ -8596,8 +8596,6 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
  border-radius:var(--radius);box-shadow:var(--e4);font-size:14px;color:var(--ink)}
 .vload i{width:34px;height:34px;border-radius:50%;border:3px solid var(--accent-soft);border-top-color:var(--accent);
  animation:sp .8s linear infinite}
-/* подпись кадра — под переключателем ракурсов, а не рядом: длинная русская строка залезала под него (прогон 14.10) */
-#shot.v2 .shotwrap .livebadge{top:60px}
 .vold{position:absolute;left:12px;top:60px;background:var(--veil);color:#fff;font-size:13px;padding:5px 10px;border-radius:999px;z-index:calc(var(--zl-scene) + 1)}
 .vtop{padding:10px 18px 10px;flex:none}
 /* ШАПКА ШТОРКИ НАД ПРОКРУТКОЙ (demo-21 п.3, владелец TG 846: «шапка липкая и контент — некрасиво»): линия и тень `--e2` у последнего
@@ -8800,7 +8798,6 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
   .vhist{top:58px;bottom:auto;left:10px}
   /* сцена — только над шторкой: под полуоткрытой шторкой мебель иначе пряталась, а видно было потолок */
   .vstage .shotwrap{bottom:var(--vsh,320px)}
-  #shot.v2 .shotwrap .livebadge{display:none}
   .vcams{bottom:calc(var(--vsh,320px) + 12px);transition:bottom .3s cubic-bezier(.32,.72,0,1)}   /* над верхом шторки — `vwSheetApply` */
   .vcams button{font-size:12px;padding:8px 10px}
   /* «⤢ во весь экран» в «Фото» пряталась за переключатель ракурсов (самопроверка 18.10) — справа сверху, под ⇪ ♡ × */
@@ -8829,7 +8826,9 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
   #shot.v2 .vstage .shotwrap img.vblur{display:none}
   /* «3D» — холст на весь экран под шторкой; «Фото»/«План» — постоянная зона над свёрнутой шторкой (при жесте не меняется) */
   #shot.vwalk .vstage .shotwrap{bottom:0}
-  #shot.v2 .shotwrap .livebadge,#shot.v2 .shotwrap .vold{top:auto;bottom:10px;left:10px}
+  #shot.v2 .shotwrap .vold{top:auto;bottom:10px;left:10px}
+  /* подсказка 3D — по центру видимой части сцены над свёрнутой шторкой (холст в «3D» уходит под шторку) */
+  #shot.v2 .shotwrap .livebadge{top:calc((100% - var(--vsh,320px)) / 2)}
 }
 </style>
 <script>
@@ -10099,8 +10098,15 @@ const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пу�
 #shot .shotwrap:has(.livecv){background:linear-gradient(#ebe8e3,#e4ded4)}   /* поля вокруг кадра 3:2 — тоном комнаты */
 /* под живой сценой фото не нужно: в полях кадра 3:2 его размытая копия (другой расстановки) отвлекала */
 #shot .shotwrap:has(.livecv.in) .vblur,#shot .shotwrap:has(.livecv.in) .vpan{visibility:hidden}
-#shot .shotwrap .livebadge{position:absolute;left:10px;top:10px;background:rgba(43,38,34,.82);color:#fff;font-size:13px;
- padding:5px 10px;border-radius:999px;pointer-events:none}
+/* ПОДСКАЗКА 3D (T-20261111-05 п.6, владелец TG 1019): всплывает по центру сцены, когда она готова, и через 5 с гаснет (`liveHint`).
+   Раньше висела в углу постоянно; на телефоне была скрыта */
+#shot .shotwrap .livebadge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(43,38,34,.82);color:#fff;
+ font-size:14px;padding:8px 14px;border-radius:999px;pointer-events:none;white-space:nowrap;z-index:calc(var(--zl-scene) + 1);opacity:0;
+ visibility:hidden}
+#shot .shotwrap .livebadge.on{opacity:1;visibility:visible}
+#shot .shotwrap .livebadge.on.gone{opacity:0;visibility:hidden}
+@media(prefers-reduced-motion:no-preference){#shot .shotwrap .livebadge{transition:opacity .5s ease,visibility 0s linear .5s}
+ #shot .shotwrap .livebadge.on:not(.gone){transition:opacity .3s ease,visibility 0s}}
 </style>
 <script>
 /* ——— ЖИВАЯ СЦЕНА В ОКНЕ КАДРА (план demo-01, владелец 14.10: «заменили диван — сразу, без кнопки, показывается новая
@@ -10312,6 +10318,13 @@ function liveBand(r){
   const top=r.top+Math.min(64,r.height*0.1);
   return {top:(top-r.top)/r.height, bottom:Math.max(0.3,(bot-r.top)/r.height)};
 }
+// подсказка «3D: тяните…» — при каждом входе в «3D», когда сцена готова (не поверх «Загружаем модели…»), гаснет через 5 с
+let _liveHintT=0;
+function liveHint(){
+  const b=LIVE.badge; if(!b)return;
+  clearTimeout(_liveHintT); b.classList.remove('on','gone'); void b.offsetWidth; b.classList.add('on');
+  _liveHintT=setTimeout(()=>b.classList.add('gone'),5000);
+}
 async function liveShow(){
   if(VW.mode==='plan'){liveHide(); vwPlanDraw(); return;}   // в «План» сцены нет — после правки перерисовывается план
   // «Фото» — только снимок нейросети (demo-09): живая сцена — в «3D»
@@ -10353,6 +10366,7 @@ async function liveShow(){
     const how=sc.frameItem?sc.frameItem(k):(sc.focus&&sc.focus(k),'turn'); LIVE.framed=how; VW.free=true; vwCamsUi(); sc.start();}
   LIVE.focus=null;
   LIVE.state='ready'; vwLoad(false);
+  if(entering&&VW.mode==='walk')liveHint();
   liveShotSoon(); vwPreSoon(); trThumbs();   // проба: миниатюры строк — из готовой сцены (T-20261109-35/2)
 }
 // кадр правленой расстановки для карточки главной (`liveShot`): точка 1, без наклона — `capture`, как кадры нейросети, но без отправки.
