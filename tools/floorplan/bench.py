@@ -724,14 +724,28 @@ def doorless_doors(r: dict, ppm: float) -> list:
                     cands.append((ys, xs, ev, gid, tier))
     if not cands:
         return []
-    # дверь «у комнаты» — по середине (как проём у комнаты в туре и в `regress`: середина не дальше ROOM_TOL_CM от контура).
-    # T-11/4: по касанию пикселей ложное широкое наружное закрытие у стены (rgK5f3 Tool store: 2,26 м, глубина 1,3 м, середина
-    # в 45 см от пола) «давало» кладовой дверь, которой в туре у неё нет
-    door_c = [(g.cx, g.cy) for g in gaps if g.kind == 'door']
+    # дверь «у комнаты» — по ближайшим пикселям, но лицом, а не краем (T-11/5): часть двери не дальше допуска от пола тянется
+    # не меньше чем на половину её ширины. По середине (T-11/4) глубокий проём ванной rgK5f3 p1 (24×24 px, середина в 10,8 px
+    # при допуске 9,1) не считался, и её окно с дугой становилось второй дверью; по касанию одного пикселя ложное закрытие
+    # углом у пола (rgK5f3 Tool store) или торцом чужая дверь «давали» комнате дверь, которой в туре у неё нет
+    doors = [np.nonzero(lab_g == g.id) + (g.length,) for g in gaps if g.kind == 'door']
     if r.get('add_extra') is not None and r['add_extra'].any():
-        ne, _, _, cen = cv2.connectedComponentsWithStats(r['add_extra'].astype(np.uint8), connectivity=8)
-        door_c += [tuple(cen[i]) for i in range(1, ne)]
+        ne, cl = cv2.connectedComponents(r['add_extra'].astype(np.uint8), connectivity=8)
+        for i in range(1, ne):
+            ys_, xs_ = np.nonzero(cl == i)
+            doors.append((ys_, xs_, fc.gap_axes(ys_, xs_)[3]))
     tol = DOORLESS_TOL_M * ppm
+
+    def faces(ys_, xs_, width, dist, y0, x0):
+        h, w = dist.shape
+        m = (ys_ >= y0) & (ys_ < y0 + h) & (xs_ >= x0) & (xs_ < x0 + w)
+        if not m.any():
+            return False
+        ys_, xs_ = ys_[m], xs_[m]
+        near = dist[ys_ - y0, xs_ - x0] <= tol
+        if not near.any():
+            return False
+        return float(np.hypot(np.ptp(ys_[near]), np.ptp(xs_[near]))) + 1 >= 0.5 * width
     k = 2 * max(2, int(round(DOORLESS_TOL_M * ppm))) + 1
     ker = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
     out_near = cv2.dilate((r['outside'] > 0).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0 \
@@ -747,8 +761,7 @@ def doorless_doors(r: dict, ppm: float) -> list:
         own = (lab[y0:y1, x0:x1] == rid).astype(np.uint8)
         zone[y0:y1, x0:x1] = cv2.dilate(own, ker) > 0
         dist = cv2.distanceTransform(1 - own, cv2.DIST_L2, 3)       # до пола комнаты, px
-        if any(y0 <= int(round(cy)) < y1 and x0 <= int(round(cx)) < x1
-               and dist[int(round(cy)) - y0, int(round(cx)) - x0] <= tol for cx, cy in door_c):
+        if any(faces(ys_, xs_, w_, dist, y0, x0) for ys_, xs_, w_ in doors):
             continue
         # сперва прежнее правило, окно с дугой — последним; по убыванию доли. Кандидатка, которую не поставить (все её пиксели
         # уже заняты другим разрывом), — следующая (T-11/4: rgK5f3 Cupboard у кухни оставался без двери)
@@ -777,7 +790,7 @@ def doorless_doors(r: dict, ppm: float) -> list:
             break
         if best is None:
             continue
-        door_c.append((byid[gid].cx, byid[gid].cy))
+        doors.append(np.nonzero(lab_g == gid) + (byid[gid].length,))
         cands = [c for c in cands if c is not best]
         added.append((int(rid), round(best[2], 2)))
     return added

@@ -195,16 +195,28 @@ def test_doorless_room_glazed_window_with_arc_becomes_door(monkeypatch):
     assert [a[0] for a in added] == [2, 3] and r2['gaps'][1].kind == 'door'   # C: своё окно с дугой → дверь
 
 
-def test_doorless_room_counts_doors_by_middle(monkeypatch):
-    """T-11/4 (rgK5f3 Tool store): дверь «у комнаты» — по середине (не дальше 30 см от пола, как в туре и `regress`), не по
-    касанию: глубокое широкое закрытие, лишь краем у пола, комнате дверь не даёт — она получает свою."""
+def test_doorless_room_door_by_corner_does_not_count(monkeypatch):
+    """T-11/4 (rgK5f3 Tool store): закрытие, лишь углом у пола комнаты (ближний пиксель в 6 px, но у пола — кусок меньше
+    половины его ширины), комнате дверь не даёт — она получает свою (окно C с дугой → дверь)."""
     r = doorless_case()
     r['lab'][10:25, 140:190] = 0                                     # C — строки 25..49
-    r['lab_g'][0:24, 150:170] = 4                                    # «дверь» над C: край у пола, середина в 13 px (> 9)
+    r['lab_g'][0:20, 190:200] = 4                                    # «дверь» над правым углом C
     r['gaps'].append(fc.regap(fc.Gap(4, 0, 0, 0, 0, 'door', 0.0, True, (0, 0, 0, 0)), *np.nonzero(r['lab_g'] == 4)))
     monkeypatch.setattr(bench, 'DOORLESS', True)
     added = bench.doorless_doors(r, 30.0)
     assert 3 in [a[0] for a in added] and r['gaps'][1].kind == 'door'
+
+
+def test_doorless_room_counts_deep_door_by_its_face(monkeypatch):
+    """T-11/5 (rgK5f3 p1 Bathroom): глубокий проём 24×24 px лицом к полу комнаты — её дверь, хотя середина в 12 px (> допуска
+    9): окно C с дугой остаётся окном, второй двери у C нет."""
+    r = doorless_case()
+    r['lab'][10:25, 140:190] = 0                                     # C — строки 25..49
+    r['lab_g'][1:25, 150:174] = 4
+    r['gaps'].append(fc.regap(fc.Gap(4, 0, 0, 0, 0, 'door', 0.0, False, (0, 0, 0, 0)), *np.nonzero(r['lab_g'] == 4)))
+    monkeypatch.setattr(bench, 'DOORLESS', True)
+    added = bench.doorless_doors(r, 30.0)
+    assert 3 not in [a[0] for a in added] and r['gaps'][1].kind == 'window'
 
 
 def test_doorless_room_takes_next_candidate_when_first_occupied(monkeypatch):
