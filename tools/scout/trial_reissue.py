@@ -127,7 +127,9 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
             # пристройки 3D (T-20261111-08) — по ПРЕЖНЕЙ коробке: посчитанные сборщиком для новой коробки к ней не подходят
             key = new_keys.get(rid)
             if key in plan_room:
-                ax = TB.annexes_of(panel_of[key[0]], plan_room[key], geo, TB.TR.rules())
+                cfg = TB.TR.rules()
+                ax = TB.annexes_of(panel_of[key[0]], plan_room[key], geo, cfg)
+                ax += TB.outdoor_of(panel_of[key[0]], plan_room[key], geo, cfg, ax)   # и балкон за стеной (T-20261111-20/2)
                 if ax:
                     geo['annexes'] = ax
             new['rooms_geo'][rid] = geo

@@ -51,6 +51,13 @@ export const annex = z.object({
   w: z.number().positive(),
   d: z.number().positive(),
   openings: z.array(opening).default([]),
+  /**
+   * БАЛКОН (лоджия, терраса) за наружной стеной комнаты (T-20261111-20/2, владелец TG 1624): плита и уличное ограждение, без стен
+   * и потолка (`rooms.ts:buildOutdoor`); выход — дверь в стене самой комнаты. `wall` — сторона комнаты, к которой примыкает плита:
+   * с неё ограждения нет. Считает сборщик (`tools/scout/trial_bundle.py:outdoor_of`).
+   */
+  outdoor: z.boolean().optional(),
+  wall: wallSide.optional(),
 });
 export type Annex = z.infer<typeof annex>;
 

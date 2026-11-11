@@ -19,6 +19,7 @@ import { jointStrips } from "@/lib/viewer3d/joints";
 import { ceilingLampIR, wallFixturesIR } from "@/lib/viewer3d/fixtures-ir";
 import { buildOpenings, meshesFromBoxes } from "@/lib/viewer3d/openings";
 import { openingIR, wallRects } from "@/lib/viewer3d/opening-ir";
+import { buildOutdoor, outdoorRects, touchesOutdoor, type Rect } from "@/lib/viewer3d/outdoor";
 
 const CM = 0.01;
 const INSET_CM = 1;
@@ -76,7 +77,7 @@ export interface RoomVisual {
 export function joineryOf(
   room: Room,
   side: WallSide,
-  opts: { entranceWall?: string; doorsClosed?: boolean } = {},
+  opts: { entranceWall?: string; doorsClosed?: boolean; outdoors?: Rect[] } = {},
 ): THREE.Group | null {
   const wallOpenings = openingsOnSide(room, side);
   if (wallOpenings.length === 0) return null;
@@ -87,6 +88,7 @@ export function joineryOf(
     doorsClosed: opts.doorsClosed,
     windowView: room.windowView,
     lengthCm: f.lengthCm,
+    noView: touchesOutdoor(room, side, opts.outdoors ?? outdoorRects(room)),   // за стеной балкон — сквозь окно и дверь видна сцена, не картинка (T-20261111-20/2)
   });
   joinery.position.set(f.ox * CM, 0, f.oy * CM);
   joinery.rotation.y = f.rotY;
@@ -99,7 +101,11 @@ export function buildRoom(
   room: Room,
   floorMat: Material,
   wallMat: Material,
-  opts: { ceiling?: boolean; lamp?: boolean; entranceWall?: string; doorsClosed?: boolean; accent?: { side: WallSide; material: Material } } = {},
+  opts: {
+    ceiling?: boolean; lamp?: boolean; entranceWall?: string; doorsClosed?: boolean; accent?: { side: WallSide; material: Material };
+    /** Балконы комнаты (координаты квартиры) — для пристройки, у которой своих `annexes` нет; не задано — из `room.annexes`. */
+    outdoors?: Rect[];
+  } = {},
 ): RoomVisual {
   const group = new THREE.Group();
   group.name = `room:${room.id}`;
@@ -181,10 +187,15 @@ export function buildRoom(
   // ПРИСТРОЙКИ (T-20261111-08, владелец TG 1006): остаток контура за порталом-стыком — своя коробка той же отделки (пол, стены,
   // потолок без люстры), его двери закрыты (ведут в соседние комнаты, которых в сцене нет). Без неё за порталом была улица.
   // Пол пристройки — не пол комнаты для прогулки (`floor` — только свой): точка обзора остаётся в комнате
+  // Балкон (`outdoor`, T-20261111-20/2) — не коробка: плита с ограждением под открытым небом (`outdoor.ts`)
   (room.annexes ?? []).forEach((a, i) => {
+    if (a.outdoor) {
+      group.add(buildOutdoor(room, a, i));
+      return;
+    }
     const sub: Room = { ...room, id: `${room.id}~${i}`, x: room.x + a.x, y: room.y + a.y, w: a.w, d: a.d, openings: a.openings };
     delete sub.annexes;
-    group.add(buildRoom(ctx, sub, floorMat, wallMat, { ceiling: opts.ceiling !== false, doorsClosed: true, lamp: false }).group);
+    group.add(buildRoom(ctx, sub, floorMat, wallMat, { ceiling: opts.ceiling !== false, doorsClosed: true, lamp: false, outdoors: outdoorRects(room) }).group);
   });
 
   return { group, floor };

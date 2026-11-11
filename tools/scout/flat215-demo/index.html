@@ -1663,6 +1663,10 @@ const TR_OUT={furnished:'furnished',ready:'furnished',partial:'furnished',pendin
   not_furnished:'not_furnished',none:'not_furnished',largest_living_only:'not_furnished',room_kind_not_furnished:'not_furnished',one_living_furnished:'not_furnished',
   size_unverified:'awaiting',awaiting_check:'awaiting'};   // «ждёт проверки размера» (Р1): без мебели, агент может нажать «Обустроить»
 const trRoom=id=>TRIAL()?(D.apartment_rooms||[]).find(x=>x&&x.id===id):undefined;
+// БАЛКОН, ЛОДЖИЯ, ТЕРРАСА (T-20261111-20/2, владелец TG 1624: «все элементы, как на плане»): уличное помещение (`apartment_rooms[].outdoor`,
+// сборщик `trial_bundle.py`) — на плане тонкой обводкой ограждения без стен дома и без строки состояния (`flatPlan`), в 3D — плитой с
+// ограждением у комнаты с выходом (`lib/viewer3d/outdoor.ts`); в списке комнат главной его нет: обставлять там нечего, цены нет
+const trOutdoor=id=>!!(trRoom(id)||{}).outdoor;
 // ФОТО НЕЙРОСЕТИ В ТУРЕ (T-20261109-34, план agent-trial-08 § «Правило фото»): только комнате, размерам которой верим — поле сборщика
 // `photo_ok` (`trial_bundle.photo_ok`: обставлена, масштаб verified/listing, без флага размера, не «как есть»). То же правило проверяет
 // сервер (`/api/trial/<id>/photo`). Нет доверия — кнопки нет, вместо неё тихая строка «Фото — после уточнения размеров»
@@ -1798,7 +1802,7 @@ function trPlanLayout(PN){
     const x0=Math.min(...rs.map(r=>r.bbox.x)), y0=Math.min(...rs.map(r=>r.bbox.y)), x1=Math.max(...rs.map(r=>r.bbox.x+r.bbox.w));
     const px=x=>ox+m(x-x0), py=y=>top+m(y-y0);
     rs.forEach(r=>{const b=r.bbox;
-      rooms.push({id:r.id, x:px(b.x), y:py(b.y), w:m(b.w), d:m(b.d),
+      rooms.push({id:r.id, x:px(b.x), y:py(b.y), w:m(b.w), d:m(b.d), outdoor:(r.flags||[]).includes('outdoor')||trOutdoor(r.id),
         poly:(r.contour||[]).length>=3?r.contour.map(q=>[+px(q[0]).toFixed(3), +py(q[1]).toFixed(3)]):null});});
     const cv=q=>[+px(q[0]).toFixed(3), +py(q[1]).toFixed(3)];
     trOpeningsOf(p,rs).forEach(o=>ops.push(Object.assign(o,{pts:o.pts.map(cv), more:(o.more||[]).map(s=>s.map(cv)), t:+m(o.t).toFixed(3), panel:p.id})));
@@ -3130,7 +3134,8 @@ function flatPlan(){
   // комнат с обводкой TR_EXT наружу; изнутри её закрывают заливки комнат, видна только толстая кромка снаружи (как контур /demo
   // толщиной WALL), щели между контурами уже ~25 см закрашиваются стеной
   const TR_EXT=WALL-PART/2;
-  if(TRIAL()&&!(P.contour&&P.contour.length))R.forEach(r=>{const q=r.poly&&r.poly.length>=3?r.poly:[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.d],[r.x,r.y+r.d]];
+  if(TRIAL()&&!(P.contour&&P.contour.length))R.forEach(r=>{if(r.outdoor)return;   // балкон — за стеной дома, своей стены у него нет
+    const q=r.poly&&r.poly.length>=3?r.poly:[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.d],[r.x,r.y+r.d]];
     el('polygon',{points:q.map(p=>p.join(',')).join(' '),fill:'#585E58',stroke:'#585E58','stroke-width':TR_EXT*2,'stroke-linejoin':'miter','data-tr-wall':'1'});});
   // КОМНАТА = КНОПКА, «ЧТО Я ОБУСТРОИЛ» С ПЛАНА (владелец 22.10, demo-20 А8): в сертификате есть вариант комнаты — вместо площади его
   // название и сумма, клик открывает его; нет — готовая комната открывает вариант текущего стиля.
@@ -3146,7 +3151,9 @@ function flatPlan(){
     const g=el('g',{},svg); g.style.cursor=go&&!TRO_ON?'pointer':'default';
     // контур комнаты (план пробы, `poly`) — многоугольником; схема демо — прямоугольниками, как было
     const pts=r.poly&&r.poly.length>=3?r.poly.map(p=>p.join(',')).join(' '):'';
-    if(pts){el('polygon',{points:pts,fill:go?'#E7F0F7':'#FBFAF7',stroke:'#585E58','stroke-width':PART,'stroke-linejoin':'miter'},g);
+    if(r.outdoor){const q=pts||[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.d],[r.x,r.y+r.d]].map(p=>p.join(',')).join(' ');   // балкон: плита
+      el('polygon',{points:q,fill:'#F1EFE9',stroke:'#6E756F','stroke-width':PART*0.45,'stroke-linejoin':'miter','data-outdoor':'1'},g);}  // и ограждение тонкой линией
+    else if(pts){el('polygon',{points:pts,fill:go?'#E7F0F7':'#FBFAF7',stroke:'#585E58','stroke-width':PART,'stroke-linejoin':'miter'},g);
       // кликабельная комната — как /demo: стены серые, внутри тонкая синяя кромка (у /demo — рамка со сдвигом PART/2); у контура —
       // синяя обводка, обрезанная по комнате, поверх неё снова серая стена (прежде вся стена комнаты была синей, T-20261110-41)
       if(go){const cid='trgo'+(++TR_CLIP); el('polygon',{points:pts},el('clipPath',{id:cid},g));
@@ -3178,6 +3185,7 @@ function flatPlan(){
         :aw?{t:awaitShort(),k:0.85,a:{fill:'#96601F','data-outcome':'awaiting'}}:pend?{t:pendTxt(),k:0.85,a:{fill:'#5C655E'}}:none?{t:varNoneShort(allVariants()[rv.index]),k:0.85,a:{fill:'#8A4A1F','data-refused':'1'}}:go?{t:'Обустроить →',k:0.9,a:{fill:'#3B76A2','font-weight':'600'}}
         :o==='pending'?{t:pendTxt(),k:0.85,a:{fill:'#5C655E','data-outcome':o}}:o&&TR_NONE.test(o)?{t:outcomeTxt(br.id,true),k:0.85,a:{fill:o==='not_furnished'?'#9AA098':'#8A4A1F','data-outcome':o}}:{t:'скоро',k:0.85,a:{fill:'#9AA098'}});
     }
+    if(r.outdoor&&!f)L.length=Math.min(L.length,2);   // балкон: имя и площадь, без «не обставляется» — и так видно, что он на улице
     // проба, агент с ключом: карандаш у имени (правка комнаты, T-20261110-36); правленая — «✓ скорректировано» под площадью
     if(TRIAL()&&br&&trCanEdit()&&!TRO_ON&&trPanelRoom(br.id)){L[0].t+=TRE_PAD; L[0].a=Object.assign({},L[0].a,{'data-tr-ic':'pen','data-tr-room':br.id});}
     if(TRIAL()&&br&&trEditable()&&trEdited(br.id))L.splice(f?1:2,0,{t:TRE_PAD+(TR_EN()?'adjusted':'скорректировано'),k:0.75,a:{fill:'#2F7D4F','font-weight':'600','data-tr-ic':'ok'}});
@@ -6892,6 +6900,7 @@ function drawHome(force){
   box.removeAttribute('aria-busy');   // скелет до данных (T-20261110-40) заменяется карточками
   box.innerHTML=cards.map(c=>{
     if(c.stub&&homeTiny(c.r))return '';   // безымянная кладовка 1,5 м² — только на плане, список не засоряет (T-20261109-20/3)
+    if(c.stub&&trOutdoor(c.r.id))return '';   // балкон — на плане и в 3D, в списке комнат «обставить» его нет (T-20261111-20/2)
     const t=`${escHtml(c.r.title)}${c.r.areaM2?` <small>· ${homeM2(c.r.areaM2)}</small>`:''}`;
     if(c.stub){const o=roomOutcome(c.r.id), tx=o==='pending'?pendSpin+pendTxt():o&&TR_NONE.test(o)?outcomeTxt(c.r.id,true):(EN?'coming in the next step':'появится следующим шагом');   // проба: исход комнаты по коду
       // ждёт проверки размера, а коробки нет (ядро не построилось по угаданному масштабу, T-20261110-29) — «Обустроить» и здесь, как у карточки

@@ -29,8 +29,9 @@ export type RoomGeo = {
     kind?: string; wall?: string; offset_cm?: number; width_cm?: number; sill_cm?: number; height_cm?: number;
     swing_cm?: number; hinge?: string; into?: boolean; is_entrance?: boolean;
   }[];
-  /** Пристройки тура (`contracts/apartment.ts:annex`, T-20261111-08): остаток контура за порталом, с его проёмами. */
-  annexes?: { x?: number; y?: number; w?: number; d?: number; openings?: RoomGeo["openings"] }[];
+  /** Пристройки тура (`contracts/apartment.ts:annex`, T-20261111-08): остаток контура за порталом, с его проёмами;
+   *  `outdoor` — балкон за наружной стеной `wall` комнаты (T-20261111-20/2). */
+  annexes?: { x?: number; y?: number; w?: number; d?: number; openings?: RoomGeo["openings"]; outdoor?: boolean; wall?: string }[];
 };
 type Variant = { id?: string; style?: string; room_id?: string; room_type?: string };
 type RoomMeta = { id?: string; kind?: string; ordinal?: number; titleRu?: string; titleEn?: string };

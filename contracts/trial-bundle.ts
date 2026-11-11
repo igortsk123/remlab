@@ -12,8 +12,10 @@ const geo = z.looseObject({
   title_ru: z.string().max(200).optional(), title_en: z.string().max(200).optional(), approx: z.boolean().optional(),
   openings: z.array(opening).max(200),
   radiators: z.array(z.unknown()).max(50),
-  // остаток контура за порталом — коробка 3D с его дверями (`trial_room.annexes`, T-20261111-08); x, y — от угла комнаты
-  annexes: z.array(z.looseObject({ x: num, y: num, w: num.positive(), d: num.positive(), openings: z.array(opening).max(50) })).max(20).optional(),
+  // остаток контура за порталом — коробка 3D с его дверями (`trial_room.annexes`, T-20261111-08); x, y — от угла комнаты;
+  // `outdoor` — балкон за наружной стеной: плита с ограждением, `wall` — сторона комнаты (`trial_bundle.outdoor_of`, T-20261111-20/2)
+  annexes: z.array(z.looseObject({ x: num, y: num, w: num.positive(), d: num.positive(), openings: z.array(opening).max(50),
+    outdoor: z.boolean().optional(), wall: wall.optional() })).max(20).optional(),
 });
 const variant = z.looseObject({
   id: z.string().min(1).max(80), room_id: z.string().regex(/^[a-z0-9-]{1,40}$/), style: z.string().min(1).max(40),

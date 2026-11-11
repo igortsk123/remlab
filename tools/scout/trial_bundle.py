@@ -636,18 +636,25 @@ def annexes_of(panel: dict, room: dict, geo: dict, cfg: dict) -> list:
     по контуру комнаты — то, у которого те же размеры и те же порталы-стыки. Так одно правило и у новой сборки, и у пересборки
     (`trial_reissue`: коробка прежняя, ядра в ней нет), без нового поля в записях стадий. Порталов нет — пристроек нет (быстро);
     ядро не нашлось (гостиная, расширенная мебелью к стенам ниш, `core_extended`) или проёмы неоднозначны — пусто, портал как был."""
-    want = _portals(geo.get('openings') or [])
-    if not want:
+    if not _portals(geo.get('openings') or []):
         return []
+    m = _core_of(panel, room, geo, cfg)
+    return TR.annexes(m[0], m[1], cfg) if m else []
+
+
+def _core_of(panel: dict, room: dict, geo: dict, cfg: dict):
+    """Ядро ГОТОВОЙ коробки `geo` в кадре контура комнаты: прямоугольник тех же размеров с теми же порталами-стыками →
+    (кандидат ядра, проёмы в кадре, кадр `ortho_frame`); не нашлось или проёмы неоднозначны — None."""
+    want = _portals(geo.get('openings') or [])
     from planner.geometry import largest_free_rectangles
     try:
         ours, amb = TR._openings_of(panel, room, cfg)
         if amb:
-            return []
+            return None
         fr = TR.ortho_frame(room['contour'], cfg)
         ops = [TR._place_opening(fr['poly'], o, fr['T'], cfg) for o in ours]
     except TR.Refusal:
-        return []
+        return None
     seen = set()
     for side in (float(cfg['core_min_side_cm']), 150.0):         # 150 — ядра спален уже порога гостиной (`trial_bedroom`)
         for g in largest_free_rectangles(fr['poly'], min_side_cm=side, limit=48):
@@ -661,8 +668,60 @@ def annexes_of(panel: dict, room: dict, geo: dict, cfg: dict) -> list:
             got = _portals(TR.solver_openings(cand, cfg))
             if len(got) == len(want) and all(p[0] == q[0] and abs(p[1] - q[1]) <= ANNEX_TOL_CM and abs(p[2] - q[2]) <= ANNEX_TOL_CM
                                              for p, q in zip(got, want)):
-                return TR.annexes(cand, ops, cfg)
-    return []
+                return cand, ops, fr
+    return None
+
+
+OUTDOOR_GAP_MAX_CM = 80.0        # наружная стена между ядром и балконом: толщина стены листа с запасом
+OUTDOOR_OVERLAP_MIN_CM = 60.0    # общая часть стороны ядра и балкона: меньше — балкон соседней комнаты, виден лишь углом
+
+
+def outdoor_of(panel: dict, room: dict, geo: dict, cfg: dict, annexes: list = ()) -> list:
+    """БАЛКОН В 3D КОМНАТЫ (T-20261111-20/2, владелец TG 1624: «все элементы, как на плане»): уличное помещение панели
+    (флаг `outdoor`) за стороной ядра комнаты или её пристройки `annexes` (терраса у хвоста Г-образной гостиной) → пристройка `outdoor: true` той же формы, что `annexes` (x, y — от юго-западного угла
+    ядра, оси те же). Рисует `lib/viewer3d/rooms.ts:buildOutdoor`: плита и ограждение, без стен и потолка; выход — дверь в стене самой
+    комнаты (её проёмы), поэтому у пристройки проёмов нет. Толщина наружной стены между ними (`OUTDOOR_GAP_MAX_CM`) снимается:
+    плита примыкает к стене комнаты. Балкон у стены нескольких комнат — в 3D каждой; меньше `OUTDOOR_OVERLAP_MIN_CM` общей стороны —
+    не её балкон. Нет уличных помещений или ядра — пусто."""
+    outs = [r for r in panel.get('rooms') or [] if OUTDOOR in (r.get('flags') or []) and r is not room]
+    if not outs:
+        return []
+    m = _core_of(panel, room, geo, cfg)
+    if m is None:
+        return []
+    from shapely.geometry import Polygon
+    cx, cy = m[0]['rect'][:2]
+    T = m[2]['T']
+    # части комнаты в 3D: ядро и её пристройки (хвост Г-образной гостиной у террасы — TGva) — в кадре контура
+    parts = [tuple(m[0]['rect'])] + [(cx + a['x'], cy + a['y'], cx + a['x'] + a['w'], cy + a['y'] + a['d'])
+                                     for a in annexes if not a.get('outdoor')]
+    res = []
+    for o in outs:
+        b = o.get('bbox') or {}
+        ring = o.get('contour') or ([[b['x'], b['y']], [b['x'] + b['w'], b['y']], [b['x'] + b['w'], b['y'] + b['d']],
+                                     [b['x'], b['y'] + b['d']]] if b else None)
+        if not ring:
+            continue
+        bx0, by0, bx1, by1 = Polygon([T(p) for p in ring]).buffer(0).bounds
+        w, d = bx1 - bx0, by1 - by0
+        hit = None
+        for x0, y0, x1, y1 in parts:
+            sides = {'south': (max(bx0, x0), min(bx1, x1), y0 - by1), 'north': (max(bx0, x0), min(bx1, x1), by0 - y1),
+                     'west': (max(by0, y0), min(by1, y1), x0 - bx1), 'east': (max(by0, y0), min(by1, y1), bx0 - x1)}
+            for wall, (lo, hi, gap) in sides.items():
+                if hi - lo >= OUTDOOR_OVERLAP_MIN_CM and -ANNEX_TOL_CM <= gap <= OUTDOOR_GAP_MAX_CM:
+                    # плита примыкает к стороне части вплотную (толщина стены снята); координаты — от угла ядра
+                    x = {'west': x0 - w, 'east': x1}.get(wall, bx0) - cx
+                    y = {'south': y0 - d, 'north': y1}.get(wall, by0) - cy
+                    hit = (x, y, wall)
+                    break
+            if hit:
+                break
+        if hit:
+            # `wall` — сторона КОМНАТЫ (её части), к которой примыкает плита: с неё ограждения нет, там стена дома с дверью
+            res.append({'x': _num(hit[0]), 'y': _num(hit[1]), 'w': _num(w), 'd': _num(d), 'outdoor': True, 'wall': hit[2],
+                        'openings': []})
+    return res
 
 
 # ───────────────────────── очистка ─────────────────────────
@@ -1373,7 +1432,9 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
         full = {'w': geo['w'], 'd': geo['d'], **_geo_titles(room, geo, kind), 'openings': geo['openings'], 'radiators': [],
                 'approx': _approx(room, geo)}
         # за порталом-стыком — остаток комнаты с его дверями, а не пустота (T-20261111-08, `annexes_of`)
+        # и балкон за наружной стеной — плитой с ограждением (T-20261111-20/2, `outdoor_of`)
         ax = annexes_of(panel, room, full, cfg)
+        ax += outdoor_of(panel, room, full, cfg, ax)
         if ax:
             full['annexes'] = ax
         # ВИД КОМНАТЫ — В КОРОБКУ, КАК У /demo (T-20261110-16/3): правила ракурсов (`index.html:camZ`, ими же `demo-cams.mjs` при

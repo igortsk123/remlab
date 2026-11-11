@@ -323,6 +323,34 @@ def test_annex_only_for_the_box_it_was_found_in():
     assert TB.annexes_of(p, r, dict(geo, openings=moved), cfg) == []
 
 
+def balcony(y0=-190, y1=-30, x0=100, x1=400):
+    b = room('o1', 'other', [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], name='Balcony', area=4.8)
+    b['flags'] = ['outdoor', 'outdoor_outline']
+    return b
+
+
+def test_balcony_behind_outer_wall_goes_into_room_3d():
+    """T-20261111-20/2 (владелец TG 1624: «все элементы, как на плане»): балкон за наружной стеной (30 см) — пристройка `outdoor` комнаты
+    в её 3D: плита вплотную к стене (толщина стены снята), координаты — от угла ядра, `wall` — сторона комнаты; в список обставляемых
+    комнат он не идёт (`apartment_rooms[].outdoor`, вида other)."""
+    res = result(panel('p0', [room('r1', 'living', name='Lounge'), balcony()], [WINDOW, DOOR]))
+    data = build(res)
+    out = [a for a in data['rooms_geo']['living'].get('annexes') or [] if a.get('outdoor')]
+    assert out == [{'x': 100, 'y': -160, 'w': 300, 'd': 160, 'outdoor': True, 'wall': 'south', 'openings': []}]
+    assert set(data['rooms_geo']) == {'living'}                    # у балкона своей 3D-комнаты нет
+    (e,) = [r for r in data['apartment_rooms'] if r.get('outdoor')]
+    assert e['kind'] == 'other' and not [v for v in data['variants'] if v.get('room_id') == e['id']]
+
+
+@pytest.mark.parametrize('b', [balcony(-300, -150), balcony(x0=460, x1=700)])
+def test_balcony_far_or_beside_is_not_this_rooms(b):
+    """Дальше толщины стены (`OUTDOOR_GAP_MAX_CM`) или с общей стороной меньше `OUTDOOR_OVERLAP_MIN_CM` — не балкон этой комнаты."""
+    p = panel('p0', [room('r1', 'living', name='Lounge'), b], [WINDOW, DOOR])
+    cfg = TB.TR.rules()
+    geo = TB.core_geometry(p, p['rooms'][0], cfg)
+    assert TB.outdoor_of(p, p['rooms'][0], geo, cfg) == []
+
+
 def test_scene_core_and_junctions_for_page():
     res = simple()
     scene = scene_for(res)

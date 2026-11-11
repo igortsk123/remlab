@@ -203,7 +203,12 @@ export function openings(room: DemoRoom): Opening[] {
 export function annexes(room: DemoRoom): Annex[] {
   return (room.annexes ?? [])
     .filter((a) => typeof a.x === "number" && typeof a.y === "number" && (a.w ?? 0) > 0 && (a.d ?? 0) > 0)
-    .map((a) => ({ x: a.x as number, y: a.y as number, w: a.w as number, d: a.d as number, openings: openings({ openings: a.openings }) }));
+    .map((a) => ({
+      x: a.x as number, y: a.y as number, w: a.w as number, d: a.d as number, openings: openings({ openings: a.openings }),
+      // балкон за наружной стеной (T-20261111-20/2): плита с ограждением, сторона комнаты — без ограждения
+      ...(a.outdoor === true ? { outdoor: true } : {}),
+      ...(a.outdoor === true && a.wall ? { wall: wallOf(a.wall) } : {}),
+    }));
 }
 
 /**

@@ -179,6 +179,9 @@ export interface OpeningVisualOpts {
   windowView?: string;
   /** Длина стены — плоскость вида не выходит за её концы. */
   lengthCm?: number;
+  /** Без картинки вида за проёмами: за стеной балкон (`outdoor.ts`), через окно и дверь видна сама сцена — плита, ограждение,
+   *  панорама вокруг дома (T-20261111-20/2; картинка в 30 см за окном закрывала балкон). */
+  noView?: boolean;
 }
 
 /** Полотно закрыто: все двери закрыты (комната без соседей), проём — вход по флагу `isEntrance`, или стена входа по прежней
@@ -195,7 +198,7 @@ export function buildOpenings(openings: Opening[], side: string, opts: OpeningVi
   openings.forEach((o, i) => {
     const ir = openingIR(o, {
       wallHeightCm: opts.heightCm, entrance: closedLeaf(o, side, opts),
-      view: { assetId: id, horizon01: view.horizon01, aspect: view.aspect }, viewRoomLo: rooms[i]!.lo, viewRoomHi: rooms[i]!.hi,
+      view: opts.noView ? undefined : { assetId: id, horizon01: view.horizon01, aspect: view.aspect }, viewRoomLo: rooms[i]!.lo, viewRoomHi: rooms[i]!.hi,
     });
     const m = meshesFromIR(ir);
     if (ir.backdrop) m.add(skirtMesh(ir.backdrop, i));
