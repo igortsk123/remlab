@@ -1784,7 +1784,8 @@ function trPlanLayout(PN){
     trOpeningsOf(p,rs).forEach(o=>ops.push(Object.assign(o,{pts:o.pts.map(cv), more:(o.more||[]).map(s=>s.map(cv)), t:+m(o.t).toFixed(3), panel:p.id})));
     tf.push({id:p.id, ox, top, x0, y0});
     const n=(p.storey!=null?+p.storey:k)+1;
-    if(many)labels.push({x:ox, y:top-0.25, t:TR_EN()?(p.title||'Floor '+n):'Этаж '+n});
+    // часть дома не этаж (гараж, T-20261111-11): подпись — её имя (`trial_bundle.panel_part` → `titleRu/titleEn`), иначе «Этаж N»
+    if(many)labels.push({x:ox, y:top-0.25, t:TR_EN()?(p.titleEn||p.title||'Floor '+n):(p.titleRu||'Этаж '+n)});
     ox+=m(x1-x0)+1.5;
   });
   return {rooms, labels, ops, tf};
