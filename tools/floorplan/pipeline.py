@@ -478,9 +478,10 @@ def scale_by_labels(panels: list) -> list:
     """T-20261111-12: сверка МАСШТАБА по подписанным площадям комнат: ошибка масштаба k меняет все площади в k² раз, ошибка
     контура — одну-две. Медиана √(контур/подпись) по комнатам, где подпись показана (`area_from_label`), дальше
     AREA_LABELS_SCALE_REL от 1 — флаг результата `scale_labels_off`, в допуске — `scale_labels_ok`; меньше AREA_LABELS_SCALE_N
-    комнат — ничего. Статус масштаба не меняет (только флаг)."""
+    комнат — ничего. Статус масштаба не меняет (только флаг). Уличные (`outdoor`, T-20261111-20) не участвуют: контур балкона
+    по тонким линиям за стеной, а подпись у застройщиков бывает и с понижающим."""
     ks = sorted(math.sqrt(r['areaContourM2'] / r['areaM2']) for p in panels for r in p['rooms']
-                if 'area_from_label' in r['flags'] and r.get('areaContourM2') and r['areaM2'] > 0)
+                if 'area_from_label' in r['flags'] and 'outdoor' not in r['flags'] and r.get('areaContourM2') and r['areaM2'] > 0)
     if len(ks) < AREA_LABELS_SCALE_N:
         return []
     med = ks[len(ks) // 2] if len(ks) % 2 else (ks[len(ks) // 2 - 1] + ks[len(ks) // 2]) / 2
@@ -705,9 +706,12 @@ def _scale_labels(log: dict, G: dict, guess: bool) -> dict:
     return {'status': status, 'ppm': ppm, 'inliers': plan_inl + text_inl, 'n': n}
 
 
-def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: int = 1, pockets: bool = False) -> dict:
+def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: int = 1, pockets: bool = False,
+                 sheet: dict | None = None) -> dict:
     """Панель журнала стенда → панель `floorplanResult`. `pockets` — лист застройщика (`bench.dev_sheet`): полость без подписи
-    меньше POCKET_M2 — не комната."""
+    меньше POCKET_M2 — не комната. `sheet` — {'gray': лист, 't': толщина стен px, 'k': множитель метров модели}: по нему
+    достраиваются уличные помещения за наружной стеной (`outdoor.build`, T-20261111-20); без него — как раньше."""
+    import outdoor
     dims_by = {d['id']: d for d in P.get('dims') or []}
     spaces = {}
     for q in P.get('label_report') or []:
@@ -746,6 +750,8 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
             kind = room_kind(_alias(shown[0]))                # «ES» = en-suite, «W.C.» = wc — синонимы `listing.alias_key`
         kind, kfl = vlm_kind(kind, g1)
         fl += kfl
+        if 'outdoor' not in fl and outdoor.is_outdoor(g1, shown[0] if shown else ''):
+            fl.append('outdoor')                      # T-20: балкон/терраса, обведённые стеной, — тоже уличные (по названию)
         got = float(mr.get('area_m2') or 0.0)
         area, afl = area_shown(names, G_by, got)          # T-20261111-12: подписанная площадь — для показа, контур — сверка
         fl += afl
@@ -766,6 +772,12 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
             fl.append('dims_estimated')             # размера нет ни на плане, ни в тексте — мерка по масштабу листа
         rooms.append(room)
     rooms.sort(key=lambda r: -r['areaM2'])
+    built, ofl = (outdoor.build(P, model, G_by, sheet['gray'], float(sheet.get('t') or 0), float(sheet.get('k') or 1.0))
+                  if sheet and sheet.get('gray') is not None else ([], []))
+    for j, b in enumerate(built):                     # после отсортированных: id прежних комнат в туре не сдвигаются
+        room = outdoor_room(pi, j, b, G_by, dims_by_of(P), scale_ok, nd)
+        if room:
+            rooms.append(room)
     walls = []
     for b in model.get('bands', [])[:20]:
         polys = []
@@ -783,9 +795,51 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
         if wcm > 0 and all(math.isfinite(v) for v in c):
             openings.append({'kind': o['kind'] if o.get('kind') in ('door', 'window') else 'opening', 'c': c,
                              'widthCm': wcm, 'exterior': bool(o.get('exterior'))})
+    if sheet and sheet.get('gray') is not None and float(P.get('ppm') or 0) > 0:
+        # выход на уличное помещение: окно у балкона без двери — балконный блок / дверь (`outdoor.exits`)
+        ppm_cm = float(P['ppm']) / float(sheet.get('k') or 1.0) / 100
+        X0, Y0 = int(P['bbox_px'][0]), int(P['bbox_px'][1])
+        inner = [r for r in rooms if 'outdoor' not in r['flags']]
+        for r in rooms:
+            if 'outdoor' in r['flags']:
+                openings, how = outdoor.exits(openings, inner, r, sheet['gray'], ppm_cm, X0, Y0)
+                if how:
+                    r['flags'] = (r['flags'] + [f'outdoor_exit_{how}'])[:30]
     title = str(P.get('vlm_title') or P.get('panel') or f'Plan {pi + 1}')
     return {'id': f'p{pi}', 'title': title[:120], 'rooms': rooms[:MAX_ROOMS], 'walls': walls,
-            'openings': openings[:MAX_OPENINGS], '_trunc': len(rooms) > MAX_ROOMS}
+            'openings': openings[:MAX_OPENINGS], '_trunc': len(rooms) > MAX_ROOMS, '_flags': ofl}
+
+
+def dims_by_of(P: dict) -> dict:
+    return {d['id']: d for d in P.get('dims') or []}
+
+
+def outdoor_room(pi: int, j: int, b: dict, G_by: dict, dims_by: dict, scale_ok: bool, nd: int = 1) -> dict | None:
+    """Уличное помещение, достроенное по тонким линиям листа (`outdoor.build`) → комната результата: вид `other` + `outdoor`,
+    `outdoor_outline`; площадь для показа — подпись листа (полная), контур — `areaContourM2`."""
+    contour = _ring(b['contour_m'], nd)
+    if not contour:
+        return None
+    xs, ys = [p[0] for p in contour], [p[1] for p in contour]
+    w, d = round(max(xs) - min(xs), nd), round(max(ys) - min(ys), nd)
+    if w <= 0 or d <= 0:
+        return None
+    g = b['g'] or {}
+    name = str(g.get('name0') or b['name'])
+    fl = _room_flags([b['name']], G_by, dims_by, scale_ok)
+    _, kfl = vlm_kind(room_kind(name), g)            # вид — всегда `other` (контракт: enum без балкона), флаги типа VLM — свои
+    fl += ['outdoor'] + [f for f in kfl if f != 'outdoor'] + ['outdoor_outline']
+    got = float(b['area_m2'])
+    area, afl = area_shown([b['name']], G_by, got)
+    fl += afl
+    if 'dims_estimated' not in fl:
+        fl.append('dims_estimated')
+    room = {'id': f'p{pi}-o{j}'[:40], 'name': name[:80], 'kind': 'other', 'contour': contour,
+            'bbox': {'x': min(xs), 'y': min(ys), 'w': w, 'd': d}, 'areaM2': max(0.0, round(area, 2)),
+            'flags': list(dict.fromkeys(fl))[:30]}
+    if 'area_from_label' in afl:
+        room['areaContourM2'] = max(0.0, round(got, 2))
+    return room
 
 
 def _models(out: Path, plan: str) -> dict:
@@ -794,6 +848,17 @@ def _models(out: Path, plan: str) -> dict:
         m = json.loads(p.read_text())
         ms[tuple(m['bbox_px'])] = m
     return ms
+
+
+def _sheet_gray(log: dict):
+    """Лист (серый) для достройки уличных помещений; `FP_OUTDOOR=0` — выкл. (как до T-20261111-20). Нет листа — None."""
+    if os.environ.get('FP_OUTDOOR', '1') == '0':
+        return None
+    path = next((P.get('image') for P in log.get('panels') or [] if P.get('image')), None)
+    if not path or not Path(path).exists():
+        return None
+    import cv2
+    return cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
 
 
 def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: float, timings: dict, flags: list,
@@ -810,13 +875,17 @@ def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: floa
     flags += log.get('panel_flags') or []        # T-27/2: делёж листа без опоры (panel_title_guess, panel_titles_merged, vlm_panels_disagree)
     if not G['rooms']:
         flags.append('no_labels')
+    gray = _sheet_gray(log)
     for nd in (1, 0):
         panels = []
         for pi, P in enumerate(log['panels']):
             m = models.get(tuple(P['bbox_px']))
             if m is None:
                 continue
-            panels.append(panel_result(pi, P, m, G_by, scale['status'] != 'not_verified', nd, bool(log.get('dev_sheet'))))
+            sheet = {'gray': gray, 't': log.get('thickness_px'), 'k': k.get(tuple(P['bbox_px']), 1.0)} if gray is not None else None
+            panels.append(panel_result(pi, P, m, G_by, scale['status'] != 'not_verified', nd, bool(log.get('dev_sheet')), sheet))
+        for p in panels:
+            flags += [f for f in p.pop('_flags', []) if f not in flags]
         panels = [p for p in panels if p['rooms'] or any(w['polys'] for w in p['walls'])]
         if not any(p['rooms'] for p in panels):
             raise TrialError('no_plan', False, 'no rooms found')

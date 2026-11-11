@@ -96,6 +96,9 @@ APPROX_CONSENT = 'approx_consent'
 # флаг комнаты с размером, который агент задал правкой комнаты в туре (`tools/floorplan/room_edits.py`, T-20261110-36): размер дал
 # человек — проверка размера снята (и масштаба квартиры для неё), «примерно» не пишем, фото можно
 USER_DIMS = 'user_dims'
+# флаг уличного помещения (балкон, лоджия, терраса) из распознавания (`tools/floorplan/pipeline.py:outdoor_room`, T-20261111-20): вид
+# `other` (не обставляется), в `apartment_rooms[]` — `outdoor: true`
+OUTDOOR = 'outdoor'
 OUTCOME_TEXT = {
     'size_unverified': ('Размер может быть неточным — поправьте и нажмите «Обустроить».',
                         'Size may be approximate — adjust and tap “Furnish”.'),
@@ -1342,8 +1345,10 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     for p in panels:
         for r in p['rooms']:
             if id(r) not in ids:
-                counters[r['kind']] = counters.get(r['kind'], 0) + 1
-                ids[id(r)] = f"{r['kind']}-{counters[r['kind']]}"
+                # уличные — свой счёт `outdoor-N` (T-20261111-20): новый балкон не сдвигает номера `other-N` кладовых и гардеробных
+                key = OUTDOOR if OUTDOOR in (r.get('flags') or []) else r['kind']
+                counters[key] = counters.get(key, 0) + 1
+                ids[id(r)] = f"{key}-{counters[key]}"
     goods = _Goods(ctx.get('goods'))                 # товар как в /demo — из каталога по `sid` (контекст теста без него — без товаров)
     pmap = _map_parts(parts, panels, ids, {id(r) for _, r in livings}, goods)
     storey_map, storey_flags = storeys(panels)
@@ -1474,6 +1479,8 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
         entry['photo_ok'] = photo_ok(result, r, kind, entry['furniture_state'], consented(r, rid))
         if r.get('edited') or r.get('user_name'):
             entry['edited'] = True                          # страница: «✓ скорректировано» у подписи на плане
+        if OUTDOOR in (r.get('flags') or []):
+            entry['outdoor'] = True                         # балкон/лоджия/терраса (T-20261111-20): страница рисует уличным, не обставляется
         apartment_rooms.append(entry)
     if not variants:                                 # ни одной комнаты с коробкой — странице нечего открыть (контракт: ≥1 вариант)
         if refused:

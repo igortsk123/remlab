@@ -207,6 +207,8 @@ const flags = z.array(z.string().max(60)).max(30);
 const room = z.object({
   id: z.string().min(1).max(40),
   name: z.string().max(80),
+  /** балкон / лоджия / терраса — `other` + флаг `outdoor` (за наружной стеной по тонким линиям листа — ещё `outdoor_outline`,
+   *  `tools/floorplan/outdoor.py`, T-20261111-20): не обставляется, в масштаб квартиры не входит */
   kind: z.enum(["living", "bedroom", "kitchen", "bathroom", "hall", "other"]),
   contour: ring,
   bbox: z.object({ x: num, y: num, w: num.positive(), d: num.positive() }),
