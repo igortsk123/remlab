@@ -3,7 +3,7 @@ tier: 1
 topic: agent-trial
 scope: Проба для агента недвижимости (UK) — лендинг, загрузка плана, задание, воркер DEV, конвейер стадий, тур /try под план
 tier2: "../plans/MASTER-agent-trial.md"
-updated: 2026-11-10
+updated: 2026-11-11
 importance: high
 source: _intake/session-scratch.md
 status: working
@@ -24,7 +24,8 @@ review_after: 2026-12-10
   аренда — `lib/trial/repo-worker.ts` (скалярный `skip locked`). Не берёт при < 3 ГБ (`TRIAL_MEM_MIN_GB`), ≥ 2 в heavy-очереди,
   прод `/api/health` не 200.
 - **Стены:** `tools/floorplan/pipeline.py`; неуверенное — флаги (`_room_flags`); масштаб без подписей — по стене или площади
-  со статусом `not_verified`.
+  со статусом `not_verified`. Правила проёмов «Этажей» — только у листа застройщика (`tools/floorplan/bench.py:dev_sheet`);
+  проверка правок разбора — по комнатам против кода ДО правки (`tools/floorplan/regress.py`).
 - **Стадии:** `tools/floorplan/conveyor.py` — v1 без мебели → гостиная `trial_demo.py` → спальни `trial_bedroom.py`; `done` — всегда после
   последней версии (`_finish`), недоделанное — только в журнал; сбой — отказ по комнате. Данные страницы — `tools/scout/trial_bundle.py`.
 - **Размеры:** «не сошлось» или масштаб не подтверждён — `awaiting_check`, без мебели (`trial_bundle.py:SCALE_UNVERIFIED_AWAITS_CHECK`);

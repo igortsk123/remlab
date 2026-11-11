@@ -13,7 +13,7 @@
 | Файл | topic | Когда читать (scope) | Tier 2 | updated |
 |------|-------|----------------------|--------|---------|
 | `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-11-10 |
-| `agent-trial.md` | agent-trial | Проба для агента недвижимости (UK) — лендинг, загрузка плана, задание, воркер DEV, конвейер стадий, тур /try под план | `../plans/MASTER-agent-trial.md` | 2026-11-10 |
+| `agent-trial.md` | agent-trial | Проба для агента недвижимости (UK) — лендинг, загрузка плана, задание, воркер DEV, конвейер стадий, тур /try под план | `../plans/MASTER-agent-trial.md` | 2026-11-11 |
 | `apartment-configurator.md` | apartment-configurator | 3D-конфигуратор квартиры — что это, из чего собран, где детали | `../domain/flat3d-configurator.md` | 2026-11-10 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-11-10 |
 | `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-11-10 |
@@ -44,7 +44,7 @@
 | `stock-and-dims.md` | stock-and-dims | Наличие и честность размеров — состояния, парсер, footprint | `../domain/stock-and-dims.md` | 2026-11-10 |
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-11-10 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, аналитика | `../domain/user-flow-details.md` | 2026-11-06 |
-| `bedroom.md` | bedroom | Спальня — каталог, банк наборов, показ на /demo (с 06.11), детская; что дальше | `../domain/pipeline-order-details.md` | 2026-11-10 |
+| `bedroom.md` | bedroom | Спальня — каталог, банк наборов, показ на /demo (с 06.11), детская; что дальше | `../domain/pipeline-order-details.md` | 2026-11-11 |
 | `design-figma.md` | design-figma | Дизайн демо в Фигме для дизайнера — книги, страницы, как пересобрать, что правлено руками | `../completed_plans/design-01-figma-export.md` | 2026-11-10 |
 | `lr-checklist.md` | lr-checklist | Состав гостиной — роли и пригодность | `../domain/living-room-checklist.md` | 2026-10-18 |
 | `onboarding-quiz.md` | onboarding-quiz | Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат | `../domain/onboarding-quiz.md` | 2026-11-10 |

@@ -3,7 +3,7 @@ tier: 1
 topic: bedroom
 scope: Спальня — каталог, банк наборов, показ на /demo (с 06.11), детская; что дальше
 tier2: "../domain/pipeline-order-details.md"
-updated: 2026-11-10
+updated: 2026-11-11
 importance: med
 source: manual
 status: working
@@ -32,7 +32,9 @@ last_verified: 2026-11-06
   `tools/scout/rules/profiles/bedroom.json`; пустую роль добирает запас из других записей банка (`demo_room.py:role_spares`);
   лампы декора без моделей — `list_only` (в списке, не в 3D).
 - **Модель предмета** — одно правило с банком: `tools/scout/room_bindings.py:usable` (режим orient: ready или blocked только по
-  развороту), сцена грузит модель привязки (`room_bindings.py:scene_msid`).
+  развороту), сцена грузит модель привязки (`room_bindings.py:scene_msid`). Изголовье кровати — сторож по геометрии
+  `tools/scout/bed_headboard.py` (`orient_worker.py --bed-guard` ночью до привязки): 90° с подтверждением формой — доворот,
+  иначе `orientation_mismatch` (блок).
 
 ## Стили и назначения
 - Шесть стилей в правилах; владелец 07.11: неоклассика — только в гостиной, нет стиля — молча похожий вариант
