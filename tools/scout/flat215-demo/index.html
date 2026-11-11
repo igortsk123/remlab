@@ -9574,16 +9574,19 @@ function vwActsNode(box){
 }
 // узкий экран группы (< 600 px, как правило `.vacts` в CSS); `VW_PHONE` (≤ 700) — про шторку, не про подписи
 const VW_NARROW=()=>!!(window.matchMedia&&matchMedia('(max-width:599px)').matches);
-// подпись значка на телефоне — на 1,5 с; ширина группы меняется — мерим заново (`_w`), место пересчитает следующий кадр `vwPinsTick`
+// ширина группы поменялась (подпись, размеры) — место пересчитываем СРАЗУ, в той же задаче: без 3D-видеокарты кадр идёт сотни мс, и до
+// следующего `vwPinsTick` широкая группа успевала показаться за краем экрана (проба 375: правый край 399)
+function vwPinsNow(){ if(PINS.raf){cancelAnimationFrame(PINS.raf); PINS.raf=0;} vwPinsTick(performance.now()); }
+// подпись значка на телефоне — на 1,5 с; ширина группы меняется — мерим заново (`_w`)
 function vwPeek(btn){
   if(!btn||!VW_NARROW())return;
   const g=btn.closest('.vacts'); if(!g)return;
   g.querySelectorAll('.vpeek').forEach(o=>{if(o!==btn)o.classList.remove('vpeek');});
   btn.classList.add('vpeek'); g._w=0; clearTimeout(btn._peek);
-  btn._peek=setTimeout(()=>{btn.classList.remove('vpeek'); g._w=0; vwPins();},1500);
-  vwPins();
+  btn._peek=setTimeout(()=>{btn.classList.remove('vpeek'); g._w=0; vwPinsNow();},1500);
+  vwPinsNow();
 }
-function vwSizeToggle(btn){ const g=btn&&btn.closest('.vacts'); if(!g)return; g.classList.toggle('vszopen'); g._w=0; vwPins(); }
+function vwSizeToggle(btn){ const g=btn&&btn.closest('.vacts'); if(!g)return; g.classList.toggle('vszopen'); g._w=0; vwPinsNow(); }
 function vwRotPlace(box, fr, pad, kept, all, hit, underHint){
   const i=VW.sel, it=i!=null?items[i]:null;
   if(!it||(typeof TR_NOGOODS==='function'&&TR_NOGOODS())){vwRotHide(); return;}
