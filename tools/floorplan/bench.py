@@ -48,6 +48,8 @@ ENV_GEO = os.environ.get('FP_ENV_GEO', '1') != '0'   # T-20261111-09: полос
 SPLIT_DEEP = os.environ.get('FP_SPLIT', '1') != '0'  # T-20261111-09: наружный разрыв из закрытий, сошедшихся углом, — делить (0 — как до)
 PS_TAIL = os.environ.get('FP_PS_TAIL', '1') != '0'   # T-20261111-09: малый разрыв без дуги — срезать хвост-клин и проверить снова
 TEXT_MASK = os.environ.get('FP_TEXT_MASK', '1') != '0'  # T-20261111-09: дуга внутренней перемычки — без букв подписей
+ISLE_M = float(os.environ.get('FP_ISLE_M', '0.5'))   # T-20261111-09/3: отдельный кусок маски не больше — значок, не опора закрытия (0 — как до)
+PPM_MUL = float(os.environ.get('FP_PPM_MUL', '1'))   # T-20261111-09/3: проверка устойчивости — масштаб панели ×k после подгонки
 TEXT_EV_MIN = 0.5   # без строк подписей дуги должно остаться хоть половина: прихожая TGva 0,95 → 0,26 (дугу давали буквы);
                     # кухня 4y0o 0,80 → 0,63 (настоящая дверь, разрыв длиннее двери, часть точек попадала на подпись)
 
@@ -628,7 +630,7 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
     for a in (wall, gray):
         h.update(np.ascontiguousarray(a).tobytes()); h.update(str(a.shape).encode())
     h.update(repr((round(float(ppm), 6), [round(float(f), 4) for f in fams], round(float(t), 4), regions, thin_thr,
-                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL, TEXT_MASK, TEXT_EV_MIN, 'tm1')).encode())
+                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL, TEXT_MASK, TEXT_EV_MIN, ISLE_M, 'tm1')).encode())
     h.update(inspect.getsource(_analyze).encode() + inspect.getsource(bay_windows).encode())
     p = Path(cdir) / f'an-{h.hexdigest()[:20]}.pkl'
     if p.exists():
@@ -888,8 +890,14 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     # T-20261111-03: клин ищем у грани НАРИСОВАННОЙ стены. Продление торца (`extend_corners`) — догадка: у QFfI… дверь спальни 2
     # между торцом стены и косяком лежит вдоль продления — по маске с продлениями она «клин», а это дверь
     wall_drawn = wall
-    corner = fc.extend_corners(wall, int(0.6 * ppm), fl, fc.bevel_end_zone(wall, t, Ls))
+    # T-20261111-09/3: мелкий отдельный кусок маски (стрелка высоты скоса ~0,2 × 0,4 м) — не опора закрытия. rgK5… Bedroom 5:
+    # цепочка закрытий шла от стены санузла через две стрелки посреди спальни и отрезала её от площадки — при сдвиге масштаба
+    # на 0,3 % (дверь ↔ стена). Кусок остаётся в маске (препятствие), но закрытия строим по стене без него
+    isle = fc.islands(wall, ISLE_M * ppm) if ISLE_M > 0 else np.zeros(wall.shape, bool)
+    anchor = np.where(isle, 0, wall).astype(wall.dtype)
+    corner = fc.extend_corners(anchor, int(0.6 * ppm), fl, fc.bevel_end_zone(anchor, t, Ls))
     wall = (wall | corner).astype(np.uint8)
+    wall_a = (anchor | corner).astype(np.uint8)
     thin = fc.thin_lines(gray, wall, thin_thr)
     dark = (((gray < glaze_thr) | (thin > 0)) & (wall == 0)).astype(np.uint8)
     max_depth = max(1.6 * t, 0.45 * ppm)         # глубже толщины стены — это не проём, а залитая комната
@@ -898,17 +906,17 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
 
     def per_region_parts(L, both):
         if not regions:
-            return parts(wall, L, both)
+            return [p & (wall == 0) for p in parts(wall_a, L, both)]
         acc = None
         H, W = wall.shape
         for x0, y0, x1, y1 in regions:
             X0, Y0, X1, Y1 = max(0, x0 - 2), max(0, y0 - 2), min(W, x1 + 2), min(H, y1 + 2)
-            ps = parts(wall[Y0:Y1, X0:X1], L, both)
+            ps = parts(wall_a[Y0:Y1, X0:X1], L, both)
             if acc is None:
                 acc = [np.zeros_like(wall) for _ in ps]
             for k, p in enumerate(ps):
                 acc[k][Y0:Y1, X0:X1] |= p
-        return acc
+        return [p & (wall == 0) for p in acc]
 
     ps_s = per_region_parts(Ls, False)
     ps_b = per_region_parts(Lb, True)
@@ -1039,7 +1047,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     H_, W_ = wall.shape
     for x0, y0, x1, y1 in (regions or [(0, 0, W_, H_)]):
         X0, Y0, X1, Y1 = max(0, x0 - 2), max(0, y0 - 2), min(W_, x1 + 2), min(H_, y1 + 2)
-        for m in fc.corner_cut_doors(wall[Y0:Y1, X0:X1], (wall | keep)[Y0:Y1, X0:X1], Ls, fl, t, ang):
+        for m in fc.corner_cut_doors(wall_a[Y0:Y1, X0:X1], (wall | keep)[Y0:Y1, X0:X1], Ls, fl, t, ang):
             ys, xs = np.nonzero(m)
             if len(ys) < 3:
                 continue
@@ -1055,7 +1063,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
         # T-20261110-03/2: стены угла кончаются скосом 45° с точкой-косяком (`fpcore.bevel_corner_doors`). Правило то же; петля
         # створки — сама точка-косяк, поэтому дуга ищется и от точек торцов (радиус — до другой точки), не только от граней разрыва
         ends_r = [dict(e, p=e['p'] - (X0, Y0)) for e in ends if X0 <= e['p'][0] < X1 and Y0 <= e['p'][1] < Y1]
-        for m, p1, p2 in fc.bevel_corner_doors(wall[Y0:Y1, X0:X1], (wall | keep)[Y0:Y1, X0:X1], Ls, t, ends_r):
+        for m, p1, p2 in fc.bevel_corner_doors(wall_a[Y0:Y1, X0:X1], (wall | keep)[Y0:Y1, X0:X1], Ls, t, ends_r):
             ys, xs = np.nonzero(m)
             if len(ys) < 3:
                 continue
@@ -1082,7 +1090,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
         fl2 = max(3, int(round(1.5 * tp)))
         for x0, y0, x1, y1 in (regions or [(0, 0, W_, H_)]):
             X0, Y0, X1, Y1 = max(0, x0 - 2), max(0, y0 - 2), min(W_, x1 + 2), min(H_, y1 + 2)
-            for p in fc.bridge_parts(wall[Y0:Y1, X0:X1], Ls, fl2, ang):
+            for p in fc.bridge_parts(wall_a[Y0:Y1, X0:X1], Ls, fl2, ang):
                 pp = np.zeros_like(wall)
                 pp[Y0:Y1, X0:X1] = p
                 pp &= ((wall | keep) == 0).astype(pp.dtype)
@@ -1830,6 +1838,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
             fit = fc.fit_scale(obs)
             if fit:
                 ppm = 1 / fit['s']
+        ppm *= PPM_MUL
         r = analyze(sub_img, sub_gray, sub_wall, ppm, fams, t, sub_regions, cfg['thin'], cfg['glaze'])
         splits = []
         rep_log, rep_labels = [], []

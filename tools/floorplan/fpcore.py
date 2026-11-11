@@ -657,6 +657,15 @@ def bridge_parts(wall: np.ndarray, max_gap: int, min_flank: int, angles=(0.0,), 
     return [(p & (wall == 0)).astype(np.uint8) for p in parts]
 
 
+def islands(wall: np.ndarray, max_px: float) -> np.ndarray:
+    """Отдельные куски маски стены не больше max_px по обеим сторонам рамки — значки на полу (стрелки высоты скоса, точки
+    размерных линий), не стена: от них проём не закрываем (T-20261111-09/3). → маска таких кусков."""
+    n, lab, st, _ = cv2.connectedComponentsWithStats((wall > 0).astype(np.uint8), connectivity=8)
+    small = np.zeros(n, bool)
+    small[1:] = np.maximum(st[1:, cv2.CC_STAT_WIDTH], st[1:, cv2.CC_STAT_HEIGHT]) <= max_px
+    return small[lab]
+
+
 def bridge_all(wall: np.ndarray, max_gap: int, min_flank: int, angles=(0.0,), both_flanks=False,
                reach: float | None = None) -> np.ndarray:
     add = np.zeros_like(wall, dtype=np.uint8)

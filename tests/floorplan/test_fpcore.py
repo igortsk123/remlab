@@ -841,3 +841,18 @@ def test_arc_trim_door_width_by_leaf_arc():
     cv2.ellipse(full, (75, 55), (30, 30), 0, 90, 180, 1, 1)
     b0, b1, R = bench.arc_trim(full, c, u, n, a0, a1, hb)
     assert (b0, b1) == (a0, a1) and R is not None
+
+
+def test_islands_are_not_bridge_anchors():
+    """T-20261111-09/3 (rgK5… Bedroom 5): от торца стены закрытие шло к стрелке высоты скоса (кусок маски 0,2 × 0,4 м посреди
+    комнаты) и резало спальню. Мелкий отдельный кусок — `islands`; закрытия по стене без него до значка не доходят."""
+    ppm = 30.0
+    wall = np.zeros((160, 120), np.uint8)
+    wall[0:60, 50:57] = 1                     # стена сверху, торец на y = 60
+    wall[0:7, 0:120] = 1
+    wall[90:102, 51:57] = 1                   # стрелка 6 × 12 px в 30 px от торца
+    isle = fc.islands(wall, 0.5 * ppm)
+    assert isle[95, 53] and not isle[30, 53] and isle.sum() == 72
+    assert fc.bridge_all(wall, int(1.7 * ppm), 9)[75, 53]                      # прежде: перемычка торец → стрелка
+    anchor = np.where(isle, 0, wall).astype(np.uint8)
+    assert not fc.bridge_all(anchor, int(1.7 * ppm), 9)[60:90].any()
