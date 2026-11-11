@@ -259,14 +259,24 @@ def build_mask(img, cfg):
         if info['thin']:
             cfg['thin_hi'] = tm[1]
             return m2
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
     if os.environ.get('FP_GREY', '1') != '0' and k[2] >= 5:
         # T-20261110-38: серые перегородки при толстых чёрных стенах (`fpcore.grey_partitions`; FP_GREY=0 — как до T-38)
-        g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
         add, info = fc.grey_partitions(g, m, k[1])
         cfg['grey_info'] = info
         if info['used']:
-            return fc.remove_small(m | add, cfg['min_area'])
-    return m
+            return drop_arrows(fc.remove_small(m | add, cfg['min_area']), g, k[1], cfg)
+    return drop_arrows(m, g, k[1], cfg)
+
+
+def drop_arrows(m, gray, thr, cfg):
+    """T-20261111-13: снять с маски тёмного листа залитые стрелки входа/лестницы (`fpcore.arrow_glyphs`) — иначе кусок стрелки
+    у торца стены даёт ложную дверь или делит проём. Толщина — как у `sheet_thickness`. FP_ARROWS=0 — как до T-13."""
+    if os.environ.get('FP_ARROWS', '1') == '0':
+        return m
+    drop = fc.arrow_glyphs(m, gray, thr, sheet_thickness(m, cfg))
+    cfg['arrows'] = int(cv2.connectedComponents(drop)[0] - 1) if drop.any() else 0
+    return np.where(drop > 0, 0, m).astype(m.dtype) if drop.any() else m
 
 
 def sheet_thickness(wall, cfg) -> float:

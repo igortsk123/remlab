@@ -218,7 +218,90 @@ def stroke_thickness(mask: np.ndarray) -> float:
     return float(2 * np.median(v)) if v.size else 0.0
 
 
-THIN_PART_REL = 0.4      # T-20261110-33: перегородки тоньше этой доли t листа — «смешанная толщина» (aRQVC9: 8–10 px при t 34)
+# --- залитые стрелки «вход / вверх по лестнице» (T-20261111-13) --------------------------------------------------------
+# Британские листы рисуют входы и лестничные марши залитыми чёрными стрелками ~1,5 t × 1 t — после порога и открытия маски это
+# отдельный кусок «стены». rgK5… (Nethercote, 23 таких куска — все стрелки): стрелка «→» в коридоре под Bedroom 3 и торец его
+# стены давали «дверь» 43 см у угла спальни — ядро её резало (отказ opening_cut_by_core), спальня без мебели; стрелка в проёме
+# Bedroom 8 → Playroom делила проём надвое. Признак — форма, не размер: малые отдельные куски бывают и стенами (столб, обрубок
+# перегородки — iT0XpK…, 4y0opq…). Стрелка — головка-треугольник (ширина поперёк оси плавно сходит на нет) и древко уже головки.
+ARROW_L_T = 3.0       # кусок не длиннее 3 толщин стены листа (стрелки rgK — 1,5 t)
+ARROW_HEAD_T = (0.75, 1.6)  # ширина головки в толщинах стены листа (rgK — 1–1,1 t); уже — штрих/полоска (4y0opq, QFfI: 0,5 t)
+ARROW_LEN_HEAD = 1.3  # длина стрелки — не меньше стольких ширин головки (rgK — 1,5–1,75; квадратные пятна — ~1,1)
+ARROW_TIP = 0.35      # кончик головки — не шире этой доли наибольшей ширины
+ARROW_PEAK = 0.85     # «наибольшая ширина» — срезы не уже этой доли максимума
+ARROW_RISE = 0.35     # головка нарастает от кончика до наибольшей ширины не меньше чем за эту долю ширины (≥ 3 срезов) — треугольник
+ARROW_SHAFT = 0.75    # древко (срезы после головки) — по медиане не шире этой доли наибольшей ширины
+ARROW_SHAFT_LEN = 0.3  # древко — не короче этой доли длины
+ARROW_FLAT = 0.7      # доля срезов древка в пределах ±max(1 px, 0,15 ширины) от его медианы — древко ровное
+
+
+def _axis_profile(ys: np.ndarray, xs: np.ndarray) -> np.ndarray:
+    """Ширина пятна поперёк главной оси: число пикселей в каждом срезе толщиной 1 px вдоль неё."""
+    pts = np.column_stack([xs, ys]).astype(float)
+    c = pts.mean(0)
+    if len(pts) < 3:
+        return np.zeros(0, int)
+    _, v = np.linalg.eigh(np.cov((pts - c).T))
+    s = np.round((pts - c) @ v[:, 1]).astype(int)
+    return np.bincount(s - s.min())
+
+
+def arrow_profile(prof, t: float | None = None) -> bool:
+    """Профиль ширины (`_axis_profile`) — стрелка: кончик ≤ ARROW_TIP ширины, головка плавно (≥ ARROW_RISE ширины срезов, без
+    сужений) нарастает до наибольшей ширины, держит её не дольше, чем нарастала (±1 срез), затем ровное древко (≥ ARROW_SHAFT_LEN длины,
+    медиана ≤ ARROW_SHAFT ширины). С `t` — ширина головки в ARROW_HEAD_T толщин стены. Прямоугольник (столб, обрубок стены) —
+    ширина постоянна; уступ (Г-обрубок) — головка без нарастания; квадратное пятно — короче ARROW_LEN_HEAD ширин."""
+    prof = np.asarray(prof, float)
+    n = len(prof)
+    if n < 5:
+        return False
+    m = float(prof.max())
+    if n < ARROW_LEN_HEAD * m:
+        return False
+    if t and not (ARROW_HEAD_T[0] * t <= m <= ARROW_HEAD_T[1] * t):
+        return False
+    tol = max(1.0, 0.15 * m)
+    for p in (prof, prof[::-1]):                      # кончик — в начале p
+        if p[0] > ARROW_TIP * m:
+            continue
+        peak = np.flatnonzero(p >= ARROW_PEAK * m)
+        j, k = int(peak[0]), int(peak[-1])
+        if j < max(3, ARROW_RISE * m) or k - j > j:
+            continue
+        if np.any(np.diff(p[:j + 1]) < -max(1.0, 0.1 * m)):
+            continue
+        shaft = p[k + 1:]
+        if len(shaft) < ARROW_SHAFT_LEN * n:
+            continue
+        med = float(np.median(shaft))
+        if med <= ARROW_SHAFT * m and np.mean(np.abs(shaft - med) <= tol) >= ARROW_FLAT:
+            return True
+    return False
+
+
+def arrow_glyphs(wall: np.ndarray, gray: np.ndarray, thr: int, t: float) -> np.ndarray:
+    """Отдельные куски маски стен — залитые стрелки (`arrow_profile`) → маска к снятию. Форма — по пикселям серого темнее порога
+    маски (`thr`) у куска, а не по маске: открытие маски скругляет кончик головки."""
+    out = np.zeros(np.shape(wall), np.uint8)
+    if empty_img(wall, gray) or t <= 0:
+        return out
+    n, lab, st, _ = cv2.connectedComponentsWithStats(wall.astype(np.uint8), connectivity=8)
+    H, W = wall.shape
+    for i in range(1, n):
+        x, y, w, h, _ = st[i]
+        if max(w, h) > ARROW_L_T * t:
+            continue
+        X0, Y0, X1, Y1 = max(0, x - 2), max(0, y - 2), min(W, x + w + 2), min(H, y + h + 2)
+        dark = (gray[Y0:Y1, X0:X1] < thr).astype(np.uint8)
+        k, lk = cv2.connectedComponents(dark, connectivity=8)
+        ids = np.unique(lk[(lab[Y0:Y1, X0:X1] == i) & (dark > 0)])
+        ys, xs = np.nonzero(np.isin(lk, ids[ids > 0]))
+        if len(ys) and arrow_profile(_axis_profile(ys, xs), t):
+            out[Y0:Y1, X0:X1][lab[Y0:Y1, X0:X1] == i] = 1
+    return out
+
+
+THIN_PART_REL = 0.4     # T-20261110-33: перегородки тоньше этой доли t листа — «смешанная толщина» (aRQVC9: 8–10 px при t 34)
 THIN_PART_MIN_PX = 4.0   # тоньше — волосяные линии, не стены
 THIN_PART_SHARE = 0.03   # доля пикселей стен в таких перегородках, ниже — шум маски
 

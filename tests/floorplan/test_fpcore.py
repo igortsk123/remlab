@@ -668,3 +668,35 @@ def test_text_mask_drops_label_lines_keeps_door_arcs():
     cv2.line(door, (10, 240), (90, 240), 1, 2)                                 # прямая створка в стене с засечкой
     cv2.line(door, (50, 234), (50, 240), 1, 2)
     assert not fc.text_mask(door, ppm).any()
+
+
+def _arrow(img, x, y, vertical=False):
+    """Залитая стрелка «→» как на листах rgK5… (t 8): древко 7×5 px, головка-треугольник 9 px в основании, длина 14 px."""
+    pts = np.array([[0, 2], [6, 2], [6, 0], [13, 4], [6, 8], [6, 6], [0, 6]])
+    if vertical:
+        pts = pts[:, ::-1]
+    cv2.fillPoly(img, [pts + [x, y]], 0)
+
+
+def test_arrow_glyphs_drop_arrows_keep_wall_bits():
+    """T-20261111-13 (rgK5… Bedroom 3): залитая стрелка у торца стены давала ложную дверь у угла спальни. Отдельный кусок маски
+    в форме стрелки (головка-треугольник + древко уже головки) снимается; столб, тонкая полоска, Г-обрубок и стены — нет."""
+    t = 8
+    gray = np.full((200, 300), 255, np.uint8)
+    cv2.rectangle(gray, (10, 10), (289, 189), 0, t)                 # наружные стены
+    _arrow(gray, 60, 60)
+    _arrow(gray, 120, 60, vertical=True)
+    gray[60:72, 180:188] = 0                                        # столб 8×12
+    gray[120:125, 60:78] = 0                                        # полоска 18×5 (тоньше стены)
+    gray[120:128, 180:200] = 0                                      # Г-обрубок: стена 8 × 20 + «пятка» 8 × 8
+    gray[128:136, 180:188] = 0
+    wall = (gray < 100).astype(np.uint8)
+    drop = fc.arrow_glyphs(wall, gray, 100, t)
+    n = cv2.connectedComponents(drop)[0] - 1
+    assert n == 2
+    assert drop[60:69, 60:74].sum() > 0 and drop[60:74, 120:129].sum() > 0
+    assert drop[:, 170:].sum() == 0 and drop[115:130, 55:80].sum() == 0 and drop[10:18, :].sum() == 0
+    assert fc.arrow_glyphs(wall, gray, 100, 20).sum() == 0         # при t 20 головка 9 px — штрих, не стрелка
+    assert fc.arrow_profile([1, 2, 3, 4, 5, 7, 8, 9, 5, 5, 5, 5, 5, 5])
+    assert not fc.arrow_profile([5] * 14)                           # прямоугольник
+    assert not fc.arrow_profile([16] * 8 + [8] * 12)                # уступ без нарастания
