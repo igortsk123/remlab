@@ -19,14 +19,21 @@ const CORNER_SPREAD = 18;
 /** Срезанное меньше этой доли фото — подозрительно (не ковёр, а узор на ковре): фото не трогаем. */
 const MIN_SHARE = 0.3;
 
-function cornerMean(px: ArrayLike<number>, w: number, x0: number, y0: number, k: number): { c: number[]; spread: number } {
-  const c = [0, 0, 0];
-  for (let y = y0; y < y0 + k; y++) for (let x = x0; x < x0 + k; x++) for (let j = 0; j < 3; j++) c[j] += px[(y * w + x) * 4 + j];
-  for (let j = 0; j < 3; j++) c[j] /= k * k;
+type Rgb = [number, number, number];
+
+/** Средний цвет угла k×k и наибольшее отклонение пикселя от него. */
+function cornerMean(px: ArrayLike<number>, w: number, x0: number, y0: number, k: number): { c: Rgb; spread: number } {
+  const at = (n: number): number => px[n] ?? 0;
+  let r = 0, g = 0, b = 0;
+  for (let y = y0; y < y0 + k; y++) for (let x = x0; x < x0 + k; x++) {
+    const i = (y * w + x) * 4;
+    r += at(i); g += at(i + 1); b += at(i + 2);
+  }
+  const c: Rgb = [r / (k * k), g / (k * k), b / (k * k)];
   let spread = 0;
   for (let y = y0; y < y0 + k; y++) for (let x = x0; x < x0 + k; x++) {
     const i = (y * w + x) * 4;
-    spread = Math.max(spread, Math.hypot(px[i] - c[0], px[i + 1] - c[1], px[i + 2] - c[2]));
+    spread = Math.max(spread, Math.hypot(at(i) - c[0], at(i + 1) - c[1], at(i + 2) - c[2]));
   }
   return { c, spread };
 }
@@ -41,21 +48,24 @@ export function contentBox(px: ArrayLike<number>, w: number, h: number): Box | n
   const cs = [cornerMean(px, w, 0, 0, k), cornerMean(px, w, w - k, 0, k), cornerMean(px, w, 0, h - k, k), cornerMean(px, w, w - k, h - k, k)];
   if (cs.some((q) => q.spread > CORNER_SPREAD * 2)) return null;
   for (const a of cs) for (const b of cs) if (Math.hypot(a.c[0] - b.c[0], a.c[1] - b.c[1], a.c[2] - b.c[2]) > CORNER_SPREAD) return null;
-  const bg = [0, 1, 2].map((j) => cs.reduce((s, q) => s + q.c[j], 0) / 4);
-  const fg = new Uint8Array(w * h);
-  const rows = new Float64Array(h);
-  const cols = new Float64Array(w);
+  const avg = (j: number): number => cs.reduce((s, q) => s + (q.c[j] ?? 0), 0) / 4;
+  const bg: Rgb = [avg(0), avg(1), avg(2)];
+  const at = (n: number): number => px[n] ?? 0;
+  // сколько «не фона» в каждой строке и столбце
+  const rows = new Array<number>(h).fill(0);
+  const cols = new Array<number>(w).fill(0);
   const lim = FG_DIST * FG_DIST;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = (y * w + x) * 4;
-    const dr = px[i] - bg[0], dg = px[i + 1] - bg[1], db = px[i + 2] - bg[2];
-    if (dr * dr + dg * dg + db * db > lim) { fg[y * w + x] = 1; rows[y]++; cols[x]++; }
+    const dr = at(i) - bg[0], dg = at(i + 1) - bg[1], db = at(i + 2) - bg[2];
+    if (dr * dr + dg * dg + db * db > lim) { rows[y] = (rows[y] ?? 0) + 1; cols[x] = (cols[x] ?? 0) + 1; }
   }
+  const field = (a: number[], i: number, n: number): boolean => (a[i] ?? 0) < EDGE_FRAC * n;
   let y0 = 0, y1 = h, x0 = 0, x1 = w;
-  while (y0 < h && rows[y0] < EDGE_FRAC * w) y0++;
-  while (y1 > y0 && rows[y1 - 1] < EDGE_FRAC * w) y1--;
-  while (x0 < w && cols[x0] < EDGE_FRAC * h) x0++;
-  while (x1 > x0 && cols[x1 - 1] < EDGE_FRAC * h) x1--;
+  while (y0 < h && field(rows, y0, w)) y0++;
+  while (y1 > y0 && field(rows, y1 - 1, w)) y1--;
+  while (x0 < w && field(cols, x0, h)) x0++;
+  while (x1 > x0 && field(cols, x1 - 1, h)) x1--;
   if (x1 <= x0 || y1 <= y0) return null;
   const inset = Math.max(1, Math.round(Math.min(x1 - x0, y1 - y0) * 0.006));
   [x0, y0, x1, y1] = [x0 + inset, y0 + inset, x1 - inset, y1 - inset];
