@@ -21,7 +21,8 @@
 # T-20261111-17: ядра — `--cores N` (без ключа 2), бюджет HEAVY_SLOT_CORES_BUDGET (по умолчанию nproc; здесь подменён):
 # сверх бюджета ждёт при лишней памяти, в бюджете — параллельно; шире бюджета — ждёт в слоте 1 ухода держателей, бронь не
 # пускает новых, идёт одна; класс ≥ 1 бюджет не ждёт; обгон по ядрам и защита головы; --status — ядра и строка ЯДРА.
-# Долгие — `--long` / признак в команде (regress.py, playwright) → nice +10, `--short` — нет; подсказка `--cores` по команде.
+# Долгие — `--long` / признак в команде (regress.py, playwright) → nice +10, `--short` — нет. T-17/2: без --cores ядра
+# выводятся из команды, команда получает HEAVY_SLOT_CORES (целое ≤ объявленного, ≥ 1).
 # Временная папка — в REMLAB_TMP на диске (T-20261107-13: в /tmp их скопилось 25); успех — удаляется, провал или
 # REMLAB_KEEP_TMP=1 — остаётся, путь в конце.
 set -uo pipefail
@@ -34,7 +35,7 @@ export HEAVY_SLOT_DIR="$T/slot" HEAVY_SLOT_LOG="$T/heavy-slot.log" HEAVY_SLOT_ME
 # бюджет ядер — подменой, не nproc машины (T-20261111-17): в CI 2–4 ядра, и до-ядерные случаи (по 2 ядра на задачу,
 # до 6 держателей) упирались бы в процессор раннера; ядерные случаи ставят свой бюджет явно
 export HEAVY_SLOT_CORES_BUDGET=64
-unset HEAVY_SLOT_HELD HEAVY_SLOT_NOSLOT HEAVY_SLOT_PRIO
+unset HEAVY_SLOT_HELD HEAVY_SLOT_NOSLOT HEAVY_SLOT_PRIO HEAVY_SLOT_CORES
 fails=0
 ok() {
   if [ "$2" = 0 ]; then echo "  [ ok ] $1"; return; fi
@@ -718,10 +719,10 @@ export HEAVY_SLOT_CORES_BUDGET=64
 b0=$(nice); bl=$(( b0 + 10 > 19 ? 19 : b0 + 10 ))
 echo "const { chromium } = require('playwright');" > "$T/pw.cjs"
 "$S" lg-a --min-gb 1 --long -- sh -c "nice > $T/nice-a"
-"$S" lg-b --min-gb 1 -- sh -c "nice > $T/nice-b" regress.py 2>/dev/null           # stderr — подсказка по ядрам
-"$S" lg-c --min-gb 1 --short -- sh -c "nice > $T/nice-c" regress.py 2>/dev/null
+"$S" lg-b --min-gb 1 -- sh -c "nice > $T/nice-b" regress.py
+"$S" lg-c --min-gb 1 --short -- sh -c "nice > $T/nice-c" regress.py
 "$S" lg-d --min-gb 1 -- sh -c "nice > $T/nice-d"
-"$S" lg-p --min-gb 1 -- sh -c "nice > $T/nice-p" "$T/pw.cjs" 2>/dev/null
+"$S" lg-p --min-gb 1 -- sh -c "nice > $T/nice-p" "$T/pw.cjs"
 r="$(cat "$T/nice-a") $(cat "$T/nice-b") $(cat "$T/nice-c") $(cat "$T/nice-d") $(cat "$T/nice-p")"
 ok "долгие: --long, regress.py, скрипт с playwright → nice $bl; --short и обычная → $b0 ($r)" \
   "$(yes_if '[ "$r" = "$bl $bl $b0 $b0 $bl" ] && grep -q "lg-b .*долгая по признаку (в команде «regress.py») — пойдёт с nice 10" "$HEAVY_SLOT_LOG" && grep -q "lg-p .*долгая по признаку (скрипт pw.cjs подключает playwright)" "$HEAVY_SLOT_LOG" && grep -q "lg-a .*взял: .*, ядер 2, долгая" "$HEAVY_SLOT_LOG" && ! grep -q "lg-c .*долгая" "$HEAVY_SLOT_LOG"')"
@@ -737,13 +738,28 @@ export HEAVY_SLOT_CORES_BUDGET=64
 ok "--status: у долгого держателя «ядер 3 · долгая, nice $bl», у ожидающего «долгая»" \
   "$(yes_if 'grep -q "^ДЕРЖИТ: lg-s .* · ядер 3 · долгая, nice $bl$" "$T/lgs.st" && grep -q "^  1\. lg-w .* · ядер 2 · долгая · билет" "$T/lgs.st"')"
 
-# подсказка по ядрам без --cores; кривой --cores — отказ
-"$S" hint-j --min-gb 1 -- sh -c true regress.py run x -j 3 2>"$T/hint.err"
-"$S" hint-k --min-gb 1 --cores 3 -- sh -c true regress.py run x -j 3 2>"$T/hint2.err"
+# T-17/2: без --cores ядра ВЫВОДЯТСЯ из команды (регресс -j K → K, без -j → 4; playwright → 6; pnpm test/vitest/pytest → 3;
+# прочее → 2), команда получает HEAVY_SLOT_CORES (vitest берёт из неё число воркеров); --cores перекрывает вывод
+cenv() { echo "printf %s \"\$HEAVY_SLOT_CORES\" > $T/cenv-$1"; }
+"$S" ci-j --min-gb 1 -- sh -c "$(cenv j)" regress.py run x -j 3
+"$S" ci-4 --min-gb 1 -- sh -c "$(cenv 4)" regress.py run x
+"$S" ci-p --min-gb 1 -- sh -c "$(cenv p)" "$T/pw.cjs"
+"$S" ci-t --min-gb 1 -- sh -c "$(cenv t)" vitest run
+"$S" ci-o --min-gb 1 -- sh -c "$(cenv o)"
+"$S" ci-k --min-gb 1 --cores 5 -- sh -c "$(cenv k)" regress.py run x -j 3
+r="$(cat "$T/cenv-j") $(cat "$T/cenv-4") $(cat "$T/cenv-p") $(cat "$T/cenv-t") $(cat "$T/cenv-o") $(cat "$T/cenv-k")"
+ok "ядра выведены из команды: регресс -j 3 → 3, без -j → 4, playwright → 6, vitest → 3, прочее → 2, --cores 5 перекрывает; HEAVY_SLOT_CORES у команды ($r)" \
+  "$(yes_if '[ "$r" = "3 4 6 3 2 5" ] && grep -q "ci-j .*ядра выведены: 3 (по регрессу разбора -j 3)" "$HEAVY_SLOT_LOG" && grep -q "ci-4 .*ядра выведены: 4 (по регрессу разбора -j 4, умолчание regress.py)" "$HEAVY_SLOT_LOG" && grep -q "ci-p .*ядра выведены: 6 (по Playwright" "$HEAVY_SLOT_LOG" && grep -q "ci-j .*взял: .*, ядер 3," "$HEAVY_SLOT_LOG" && ! grep -q "ci-[ok] .*ядра выведены" "$HEAVY_SLOT_LOG" && [ -z "${HEAVY_SLOT_CORES:-}" ]')"
+r=$(python3 -c "
+import os, sys; sys.path.insert(0, '$DIR'); import heavy_slot as H
+os.environ.pop('HEAVY_SLOT_CORES', None)
+with H.heavy_slot('ce-py', min_gb=1, cores=2.7) as a:
+    inside = os.environ.get('HEAVY_SLOT_CORES')
+print(inside, os.environ.get('HEAVY_SLOT_CORES'), H.cores_env(0.3))")
+ok "питон: на время with HEAVY_SLOT_CORES = целое ≤ объявленного (2,7 → 2), после — снята; меньше 1 → 1 ($r)" "$(yes_if '[ "$r" = "2 None 1" ]')"
 "$S" bad-c1 --cores abc -- true 2>"$T/badc.err"; rc1=$?
 "$S" bad-c2 --cores -1 -- true 2>>"$T/badc.err"; rc2=$?
-ok "подсказка: regress.py -j 3 без --cores → «укажи --cores 3»; с --cores — молчит; --cores abc / -1 → rc 2" \
-  "$(yes_if 'grep -q "подсказка: регресс разбора -j 3 — укажи --cores 3 (без ключа считаю 2)" "$T/hint.err" && grep -q "hint-j .*подсказка" "$HEAVY_SLOT_LOG" && ! grep -q подсказка "$T/hint2.err" && [ $rc1 = 2 ] && [ $rc2 = 2 ] && [ $(grep -c "нужно число ≥ 0" "$T/badc.err") = 2 ]')"
+ok "кривой --cores: abc / -1 → rc 2" "$(yes_if '[ $rc1 = 2 ] && [ $rc2 = 2 ] && [ $(grep -c "нужно число ≥ 0" "$T/badc.err") = 2 ]')"
 mem 8
 
 st=$("$S" --status)

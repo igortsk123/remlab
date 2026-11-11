@@ -79,8 +79,12 @@
     допуск — как в дополнительный слот (по памяти по факту, с долями всех держателей и запасом), долю держателя резерва считают все.
     Свободен только резерв — обычные впереди не мешают обгону (он не их), защита головы его не закрывает.
   * ЯДРА (T-20261111-17, владелец TG 1488: 11.11 в 13:55 нагрузка 24 на 15 ядрах — 3D в Playwright ~7 ядер, три регресса
-    по -j 3 и ещё два прогона; память была, процессора нет). `--cores N` / `heavy_slot(cores=N)` — сколько ядер займёт задача,
-    без ключа CORES_DEFAULT = 2 (старые вызовы: 5 слотов + резерв × 2 = 12 ≤ 15 — пускаются, как раньше). Бюджет —
+    по -j 3 и ещё два прогона; память была, процессора нет). `--cores N` / `heavy_slot(cores=N)` — сколько ядер займёт задача;
+    без ключа обёртка ВЫВОДИТ ядра из команды (T-17/2, `cores_hint`, строка журнала «ядра выведены: N (по …)»), не узнала —
+    CORES_DEFAULT = 2 (прочие старые вызовы: 5 слотов + резерв × 2 = 12 ≤ 15 — пускаются, как раньше); в питоне без
+    `cores` — 2. ОГРАНИЧЕНИЕ САМИХ ПРОЦЕССОВ (T-17/2): на время тела `HEAVY_SLOT_CORES` = целое ≤ N (≥ 1) в окружении —
+    команда наследует; `vitest.config.ts` берёт из неё maxWorkers/minWorkers (без переменной — как прежде: CI и сборка
+    не меняются); `regress.py -j` задаёт сама команда; pytest-xdist на DEV не стоит (`-n` нет). Бюджет —
     HEAVY_SLOT_CORES_BUDGET, иначе `nproc`. Допуск — ДОПОЛНИТЕЛЬНОЕ условие к памяти, везде, где проверяется память (слот 1,
     дополнительный слот, обгон, уступка): Σ ядер других держателей + свои ≤ бюджета. Держатель слота 1, ждущий память/ядра,
     считается целиком — его ядра забронированы, обгоняющие их не займут. ШИРЕ БЮДЖЕТА (N > бюджета) — только одна: в
@@ -90,11 +94,11 @@
     памяти, и по ядрам, берёт дополнительный слот; впереди проходящий (по обоим) — его очередь. Голова НЕ держатель слота 1
     ядра не бронирует — мелкие могут обгонять её, пока работает защита 20 мин (как с памятью); стала держателем слота 1 —
     бронь, и обгон уже не отнимает её ядра. `--status` — ядра у каждого держателя и ожидающего, строка ЯДРА (сумма из бюджета,
-    нагрузка за 1 мин). Подсказки (`cores_hint`; без --cores обёртка пишет «подсказка: … укажи --cores K»):
+    нагрузка за 1 мин). Вывод ядер из команды (`cores_hint`; --cores перекрывает):
         регресс разбора `regress.py run … -j K` → K (без -j — 4, умолчание regress.py);
-        pnpm test / vitest / pytest → 3 (замер 11.11: 2,6 ядра в среднем, vitest пускает до nproc − 1 процессов);
-        pnpm typecheck → 2 (замер 1,75);
-        Playwright с 3D (страница демо/тура, без видеокарты рисует процессор) → 6–7; без 3D — 2.
+        pnpm test / vitest / pytest → 3 (замер 11.11: 2,6 ядра в среднем; без HEAVY_SLOT_CORES vitest пускал до nproc − 1);
+        pnpm typecheck и прочее → 2 (typecheck — замер 1,75);
+        Playwright (`playwright`, `pnpm e2e`, скрипт с playwright) → 6 (3D без видеокарты рисует процессор); без 3D — укажи 2.
   * ДОЛГИЕ (T-20261111-17, владелец TG 1490/1491: «работай с тем, что дали, оптимизируй»): `--long` — обёртка после
     взятия слота ставит себе nice +HEAVY_SLOT_LONG_NICE (10), команда наследует: вливания и короткие тесты получают
     процессор первыми. Без ключа долгая — по признаку в команде (`long_auto`): `regress.py`, `playwright`, `pnpm e2e`, скрипт
@@ -194,6 +198,11 @@ def cores_of(kv: dict) -> float:
         return CORES_DEFAULT
 
 
+def cores_env(cores: float) -> str:
+    """Значение HEAVY_SLOT_CORES для команды (T-17/2): целое, не больше объявленного, не меньше 1 (воркеров 0 не бывает)."""
+    return str(max(1, int(cores)))
+
+
 def long_nice() -> int:
     """На сколько понижать приоритет долгой задачи (HEAVY_SLOT_LONG_NICE, 10)."""
     return int(_env_f('HEAVY_SLOT_LONG_NICE', 10))
@@ -234,18 +243,20 @@ def long_auto(cmd: list) -> str:
 
 
 def cores_hint(cmd: list) -> tuple[float, str]:
-    """Сколько ядер обычно берёт такая команда (подсказка, если --cores не указан) → (ядер, почему); не знаю — (0, '')."""
+    """Сколько ядер обычно берёт такая команда (T-17/2: без --cores обёртка берёт это значение) → (ядер, по чему);
+    не знаю — (0, ''), тогда CORES_DEFAULT."""
     s = ' '.join(cmd)
     if 'regress.py' in s:
         m = re.search(r'(?:^|\s)(?:-j\s*|--jobs[\s=])(\d+)', s)
         k = int(m.group(1)) if m else 4
-        return float(k), f'регресс разбора -j {k}' + ('' if m else ' (по умолчанию в regress.py)')
+        return float(k), f'регрессу разбора -j {k}' + ('' if m else ', умолчание regress.py')
     if re.search(r'playwright|pnpm\s+(?:run\s+)?e2e', s) or _uses_playwright(cmd):
         return 6.0, 'Playwright: 3D без видеокарты рисует процессор, 6–7 ядер на страницу'
     if re.search(r'pnpm\s+(?:run\s+)?test\b|vitest|pytest', s):
         # замер 11.11 (нагрузка 10–15): pnpm test — 638 с процессора за 245 с = 2,6 ядра в среднем, но vitest 2 пускает
-        # до nproc − 1 = 14 процессов сразу (пик в начале); typecheck — 1,75 ядра (по умолчанию 2 хватает)
-        return 3.0, 'pnpm test / vitest / pytest — по замеру 2,6 ядра в среднем, всплеск до 14 процессов'
+        # до nproc − 1 = 14 процессов сразу (пик в начале) — поэтому vitest.config.ts берёт число воркеров из HEAVY_SLOT_CORES;
+        # typecheck — 1,75 ядра (по умолчанию 2 хватает)
+        return 3.0, 'pnpm test / vitest / pytest: замер 2,6 ядра в среднем, воркеры vitest — по HEAVY_SLOT_CORES'
     return 0.0, ''
 
 
@@ -903,14 +914,17 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             note(f'без очереди по предку pid={free_by} (--no-slot)')
         # признак потомкам: их вложенные вызовы слота тоже идут мимо очереди (иначе шаги команды под --no-slot встают в очередь)
         old = os.environ.get('HEAVY_SLOT_NOSLOT')
+        old_c = os.environ.get('HEAVY_SLOT_CORES')
         os.environ['HEAVY_SLOT_NOSLOT'] = str(free_by or os.getpid())
+        os.environ['HEAVY_SLOT_CORES'] = cores_env(cores)   # мимо очереди — но процессы ограничены так же (T-17/2)
         try:
             yield info
         finally:
-            if old is None:
-                os.environ.pop('HEAVY_SLOT_NOSLOT', None)
-            else:
-                os.environ['HEAVY_SLOT_NOSLOT'] = old
+            for k_, v_ in (('HEAVY_SLOT_NOSLOT', old), ('HEAVY_SLOT_CORES', old_c)):
+                if v_ is None:
+                    os.environ.pop(k_, None)
+                else:
+                    os.environ[k_] = v_
         return
     parent = _nested()
     if parent:
@@ -1140,6 +1154,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         info.update(waited_s=round(waited, 1), free_gb=free, fd=fd, yields=yields, eff_gb=own, slot=slot)
         old = os.environ.get('HEAVY_SLOT_HELD')
         os.environ['HEAVY_SLOT_HELD'] = str(os.getpid())
+        old_c = os.environ.get('HEAVY_SLOT_CORES')
+        os.environ['HEAVY_SLOT_CORES'] = cores_env(cores)   # T-17/2: ребёнок ограничивает себя (vitest — maxWorkers)
         long_s = _env_f('HEAVY_SLOT_LONG_S', 2700)
         meter = _Meter(label, os.getpid(), max(0.05, _env_f('HEAVY_SLOT_SAMPLE', 5)), long_s, holder_p, own)
         meter.start()
@@ -1151,6 +1167,10 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 os.environ.pop('HEAVY_SLOT_HELD', None)
             else:
                 os.environ['HEAVY_SLOT_HELD'] = old
+            if old_c is None:
+                os.environ.pop('HEAVY_SLOT_CORES', None)
+            else:
+                os.environ['HEAVY_SLOT_CORES'] = old_c
             peak, peak_rss = meter.stop()
             hold = time.time() - t_run
             log(label, f'отпустил: держал {_sec(hold)} с; пик памяти дерева {peak:.2f} ГБ (RSS {peak_rss:.2f}), тип {typ}, '
@@ -1409,12 +1429,11 @@ def run(argv: list) -> int:
     is_long = bool(auto) if long_flag is None else long_flag
     if auto:
         log(label, f'долгая по признаку ({auto}) — пойдёт с nice {long_nice()}; не так — ключ --short')
-    if cores is None:
+    if cores is None:                             # T-17/2: без ключа — выведенное из команды, не 2 (помощники не помнят)
         hk, hwhy = cores_hint(cmd)
-        if hk > CORES_DEFAULT:
-            msg = f'подсказка: {hwhy} — укажи --cores {hk:g} (без ключа считаю {CORES_DEFAULT:g})'
-            log(label, msg)
-            print(f'heavy-slot: {label}: {msg}', file=sys.stderr)
+        if hk > 0:
+            cores = hk
+            log(label, f'ядра выведены: {hk:g} (по {hwhy}); не так — ключ --cores N')
 
     def _term(sig, _frm):
         raise SystemExit(128 + sig)               # чтобы finally убрал записи держателя/ожидающего
