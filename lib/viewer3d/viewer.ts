@@ -1536,7 +1536,9 @@ export class FlatViewer {
    */
   async capturePhoto(pose: PhotoPose, width: number, height: number, quality = 0.85, opts: { tilt?: boolean } = {}): Promise<Blob> {
     const t0 = performance.now();
-    while (this.pendingUrls.size && performance.now() - t0 < 20000) await new Promise((ok) => setTimeout(ok, 100));
+    // и картинок материалов (ковёр, картина, пол): `ready` сцены ждёт только модели, а текстура, не пришедшая к кадру, — чёрная
+    // (ковёр на карточке тура, T-20261111-05, TG 1453). Не пришла совсем — `materials.ts:dropTexture` вернёт ровный цвет
+    while ((this.pendingUrls.size || this.matCtx.loading.size) && performance.now() - t0 < 20000) await new Promise((ok) => setTimeout(ok, 100));
     const cam = new THREE.PerspectiveCamera(verticalFov(pose.fov ?? 72, width / height), width / height, this.camera.near, this.camera.far);
     applyPhotoShift(cam, photoShift(pose, width / height));
     cam.updateProjectionMatrix();

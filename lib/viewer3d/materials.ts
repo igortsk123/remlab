@@ -26,6 +26,12 @@ export interface MaterialCtx {
    * покупателю (чёрная дверь шкафа, 29.09).
    */
   uses: Map<string, { mat: THREE.MeshStandardMaterial; slot: MapSlot; hex?: string }[]>;
+  /**
+   * Картинки, которые ещё качаются (ключ текстуры). Кадр для карточки и нейросети ждёт, пока список опустеет
+   * (`viewer.ts:capturePhoto`): снятая раньше текстура рисуется ЧЁРНОЙ — ковёр на карточке тура был чёрным, а в
+   * открытом 3D (через секунду) светлым с узором (T-20261111-05, владелец TG 1453).
+   */
+  loading: Set<string>;
   anisotropy: number;
   useMaps: boolean;
   /** Лёгкий режим (телефон): только цветовая карта, без normal/roughness/AO. */
@@ -39,6 +45,7 @@ export function createMaterialCtx(anisotropy: number, useMaps: boolean, extraMap
     materials: new Map(),
     copies: new Map(),
     uses: new Map(),
+    loading: new Set(),
     anisotropy,
     useMaps,
     extraMaps,
@@ -54,6 +61,7 @@ function dropTexture(ctx: MaterialCtx, key: string): void {
   }
   ctx.uses.delete(key);
   ctx.copies.delete(key);
+  ctx.loading.delete(key);
 }
 
 function texture(ctx: MaterialCtx, url: string, srgb: boolean, trim = false): THREE.Texture {
@@ -63,6 +71,7 @@ function texture(ctx: MaterialCtx, url: string, srgb: boolean, trim = false): TH
   if (hit) return hit;
   // Когда картинка приедет, раздаём её копиям: они снимались с ещё пустой текстуры и сами
   // обновиться не могут (three не связывает клон с оригиналом).
+  ctx.loading.add(key);
   const t = ctx.loader.load(
     url,
     (loaded) => {
@@ -73,6 +82,7 @@ function texture(ctx: MaterialCtx, url: string, srgb: boolean, trim = false): TH
       }
       ctx.copies.delete(key);
       ctx.uses.delete(key);
+      ctx.loading.delete(key);
     },
     undefined,
     () => {
@@ -91,6 +101,7 @@ function texture(ctx: MaterialCtx, url: string, srgb: boolean, trim = false): TH
           }
           ctx.copies.delete(key);
           ctx.uses.delete(key);
+          ctx.loading.delete(key);
         },
         undefined,
         () => dropTexture(ctx, key),
@@ -206,6 +217,7 @@ export function disposeMaterialCtx(ctx: MaterialCtx): void {
   for (const list of ctx.copies.values()) for (const t of list) t.dispose();
   ctx.copies.clear();
   ctx.uses.clear();
+  ctx.loading.clear();
   for (const t of ctx.cache.values()) t.dispose();
   for (const m of ctx.materials.values()) m.dispose();
   ctx.cache.clear();
