@@ -400,14 +400,14 @@ o=$(pair two c1 4 c2 4)
 ok "два слота: памяти хватает (14 ≥ 4 + (4 − память c1) + запас 1,5 — 10 % от 15,3 ГБ) — второй идёт параллельно ($o)" \
   "$(yes_if '[ "$o" = "sc1|sc2|ec1|ec2|" ] && grep -q "c2 .*взял: .*слот 2: свободно 14.0 ГБ ≥ свой 4 + держатели c1 4−0.0=4.0 + запас 1.5" "$HEAVY_SLOT_LOG"')"
 ok "--status: оба держателя (второй — «слот 2») и число слотов" \
-  "$(yes_if 'grep -q "^ДЕРЖИТ: c1 · pid .* работает с " "$T/two.st" && grep -q "^ДЕРЖИТ: c2 · pid .* работает с .* · слот 2$" "$T/two.st" && grep -q "^СЛОТОВ: 3 .*запас 1.5 ГБ" "$T/two.st" && ! grep -q "^СВОБОДНО" "$T/two.st"')"
+  "$(yes_if 'grep -q "^ДЕРЖИТ: c1 · pid .* работает с " "$T/two.st" && grep -q "^ДЕРЖИТ: c2 · pid .* работает с .* · слот 2$" "$T/two.st" && grep -q "^СЛОТОВ: 5 .*запас 1.5 ГБ" "$T/two.st" && ! grep -q "^СВОБОДНО" "$T/two.st"')"
 mem 8
 o=$(pair short c3 4 c4 4)
 ok "два слота: памяти мало (8 < 4 + 4 + 1,5) — строго по одному ($o)" "$(yes_if '[ "$o" = "sc3|ec3|sc4|ec4|" ]')"
 memt 40 11
 o=$(pair res c5 4 c6 4)
 ok "запас не меньше 10 % памяти: при 40 ГБ запас 4 — 11 < 4 + 4 + 4, по одному (при 5 % пошли бы вдвоём) ($o)" \
-  "$(yes_if '[ "$o" = "sc5|ec5|sc6|ec6|" ] && grep -q "^СЛОТОВ: 3 .*запас 4.0 ГБ" "$T/res.st"')"
+  "$(yes_if '[ "$o" = "sc5|ec5|sc6|ec6|" ] && grep -q "^СЛОТОВ: 5 .*запас 4.0 ГБ" "$T/res.st"')"
 mem 14
 o=$(HEAVY_SLOT_SLOTS=1; export HEAVY_SLOT_SLOTS; pair one c7 4 c8 4)
 ok "HEAVY_SLOT_SLOTS=1: по одному даже при лишней памяти, --status без строки слотов ($o)" \
@@ -437,22 +437,23 @@ o=$(pair dbl2 dc-h2 6 dc-y 4)
 ok "без двойного счёта, обратная сторона: держатель взял 1 из 6 — 8 < 5 + 4 + 1,5, по одному ($o)" "$(yes_if '[ "$o" = "sdc-h2|edc-h2|sdc-y|edc-y|" ]')"
 
 mem 14
-printf 's3-a 3.5\ns3-b 3.5\ns3-c 3.5\n' >> "$HEAVY_SLOT_MEM_STUB"
+printf 's3-a 3.5\ns3-b 3.5\ns3-c 3.5\ns3-d 3.5\ns3-e 3.5\n' >> "$HEAVY_SLOT_MEM_STUB"
 # детерминированно (T-74/3: на занятой машине снимок по sleep мигал): каждая команда ставит флаг «стартовала» и держит слот,
-# пока нет флага «отпускай»; снимок --status — когда трое стартовали и четвёртый стоит первым в очереди
+# пока нет флага «отпускай»; снимок --status — когда пятеро стартовали и шестой стоит первым в очереди.
+# Слотов по умолчанию 5 (владелец 11.11, T-20261111-07; было 3 — T-74)
 hold3() { echo "echo s$1 >> $T/$2; touch $T/up-$2-$1; while [ ! -e $T/go-$2 ]; do sleep 0.05; done; echo e$1 >> $T/$2"; }
-for x in a b c d; do
+for x in a b c d e f; do
   "$S" "s3-$x" --min-gb 4 -- sh -c "$(hold3 $x three)" & eval "p3_$x=$!"
-  [ $x = d ] || until_f "[ -e $T/up-three-$x ]"
+  [ $x = f ] || until_f "[ -e $T/up-three-$x ]"
 done
-until_f '"$S" --status | grep -q "^  1\. s3-d "'
+until_f '"$S" --status | grep -q "^  1\. s3-f "'
 "$S" --status > "$T/three.st"
-d_early=$([ -e "$T/up-three-d" ] && echo 1 || echo 0)
+f_early=$([ -e "$T/up-three-f" ] && echo 1 || echo 0)
 touch "$T/go-three"
-wait $p3_a $p3_b $p3_c $p3_d
+wait $p3_a $p3_b $p3_c $p3_d $p3_e $p3_f
 o=$(tr '\n' '|' < "$T/three")
-ok "три слота: 14 ≥ 0,5 + 0,5 + 4 + 1,5 — трое параллельно, четвёртый ждёт слот ($o)" \
-  "$(yes_if '[ $d_early = 0 ] && [[ "$o" =~ ^sa\|sb\|sc\|(e[abc]\|)+sd\| ]] && [ $(grep -c "^ДЕРЖИТ" "$T/three.st") = 3 ] && grep -q "^ДЕРЖИТ: s3-c .* · слот 3$" "$T/three.st" && grep -q "^  1\. s3-d " "$T/three.st"')"
+ok "пять слотов (по умолчанию): 14 ≥ 4 × 0,5 + 4 + 1,5 — пятеро параллельно, шестой ждёт слот ($o)" \
+  "$(yes_if '[ $f_early = 0 ] && [[ "$o" =~ ^sa\|sb\|sc\|sd\|se\|(e[abcde]\|)+sf\| ]] && [ $(grep -c "^ДЕРЖИТ" "$T/three.st") = 5 ] && grep -q "^ДЕРЖИТ: s3-e .* · слот 5$" "$T/three.st" && grep -q "^  1\. s3-f " "$T/three.st"')"
 export HEAVY_SLOT_SLOTS=2
 for x in a b c; do
   "$S" "s3-$x" --min-gb 4 -- sh -c "$(hold3 $x two3)" & eval "q_$x=$!"
