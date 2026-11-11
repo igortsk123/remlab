@@ -575,6 +575,7 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
 #grid{padding:4px 14px 24px;display:grid;gap:12px;
  grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
 /* цвета текущей модели — строка чипов во всю ширину ленты (приёмка 16.10 п.11а) */
+#grid>.hint.st-none{grid-column:1/-1;margin-top:0}
 #grid .colrow{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 #grid .colrow b{flex-basis:100%;font-size:13px;color:var(--muted);font-weight:600}
 #grid .colchip{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 3px;border:1px solid var(--line);border-radius:999px;
@@ -6723,7 +6724,6 @@ function drawHome(force){
   // уезжают строкой под неё (второй санузел, T-20261022-04)
   box.style.setProperty('--hm-rows',String(Math.max(1,box.querySelectorAll(':scope > .hm-stub, :scope > .hm-pick').length)));
 }
-// ——— ВОЗВРАТ «НАЗАД» (demo-16 шаг 3, Codex 18.10 п.5 и п.14). Адрес держит стиль и комнату (`?style=&room=`) и вариант или
 // ВИДИМАЯ КАРТОЧКА НА КОМПЬЮТЕРЕ — СПЕРВА МИНИАТЮРА, ПОТОМ ПОЛНЫЙ КАДР (вариант А, T-20261111-01, владелец TG 976). На плохой связи
 // полный кадр 2048 (~460 КБ) держал первую карточку пустой ~4,4 с (1280 на 2 Мбит/с, замер T-43/2); миниатюра 640 (~30 КБ, та же, что
 // у телефона) приходит сразу. Когда она показана (`onload`), полный кадр выбирается ТЕМ ЖЕ правилом, что `<source>` карточки
@@ -6751,6 +6751,7 @@ function hmHq(img){
     setTimeout(()=>{img.addEventListener('load',()=>q.remove(),{once:true}); setTimeout(()=>q.remove(),1500); put();},slow?360:40);
   };
 }
+// ——— ВОЗВРАТ «НАЗАД» (demo-16 шаг 3, Codex 18.10 п.5 и п.14). Адрес держит стиль и комнату (`?style=&room=`) и вариант или
 // коллекцию (`#v=`/`#c=`), `lang` и `s` не трогаются; запись истории (`history.state`) — снимок вида: окно варианта (вариант, режим,
 // ракурс, шторка, прокрутка списка) или главная (прокрутка, раскрыто ли избранное). Открытие избранного («Перейти →», ♡ N) —
 // новая запись (`pushState`), а перед ней снимок текущего вида пишется в ТЕКУЩУЮ запись (`replaceState`): `popstate` отдаёт
@@ -7896,7 +7897,7 @@ function sameShape(p,place){
 // КОВЁР НЕ КОРОЧЕ ДИВАНА (demo-18 п.2, контракт зонного ковра `demo_fill.rug_fits`): длинная сторона ≥ ширины дивана расстановки —
 // текущего, после его замены тоже; правило — как у /flat (`lib/configurator/demo-feeds.ts:placeOf`)
 function rugFitsSofa(p){const sofa=items.find(i=>i.role==='диван'); return !sofa||Math.max(p.w||0,p.d||0)>=(sofa.w||0);}
-function feedFor(base){
+function feedFor(base,info){   // `info.noStyle` — стиль, товаров которого для роли нет (лента — похожие других стилей)
   const all=(byRoom(D.feeds,base)||[]).filter(p=>(base!=='диван'||!sel||sameShape(p,sel))&&(base!=='ковёр'||rugFitsSofa(p)));
   const st=plainStyle((allVariants()[cur]||{}).style);
   // МЯГКОЕ — ЛЕНТА ВСЕХ СТИЛЕЙ (demo-24 правки): ленты подушек и штор собраны из наборов банка — по одной-две на стиль, и в своём
@@ -7904,8 +7905,8 @@ function feedFor(base){
   // ПРОБА: лента — только товары вариантов тура (`trial_bundle._feeds`), по товару на роль в каждом стиле; в «своём» стиле один — текущий,
   // и лента с фильтром стиля всегда пустела («Выбрать диван (0)», T-20261109-35/3). Замена в туре — на предмет другого стиля
   // …С ЛЕНТАМИ /demo ПОД МЕСТО (T-20261110-37 А: `trial_bundle.feeds_for`) — фильтр стиля, как в /demo; данные старой сборки (в своём стиле
-  // один текущий товар) — прежняя лента всех стилей (ниже, `mine.length<2`)
-  if(TR_NOGOODS()||F.anyStyle||!st||isSoft(base))return all;
+  // один текущий товар) — лента всех стилей с честной строкой (ниже, `info.noStyle`)
+  if(TR_NOGOODS()||!st||isSoft(base))return all;
   // у товара стилей может быть несколько (`styles`) — он подходит и неоклассике, и современному
   // ЧУЖИЕ СЕТЫ НЕ ПОКАЗЫВАЕМ (13.10). Товары рекомендованных наборов видны всегда — это правило
   // владельца 08.09 про «изначальный набор». Но наборов шесть, и в ленту неоклассики падали
@@ -7915,10 +7916,15 @@ function feedFor(base){
   // Исключение (demo-18 п.2): товар чужого набора, который пул отобрал и для этого стиля по баллу, — в `styles` (`flat215_demo.glue`):
   // ковёр «Котри» сканди с баллом джапанди 7.0 был скрыт в джапанди. Правило — как у /flat (`demo-feeds.ts:feedForStyle`)
   const mine=all.filter(p=>p.styles?p.styles.indexOf(st)>=0:(!p.style||p.style===st));
+  // СВОЕГО СТИЛЯ ДЛЯ РОЛИ НЕТ — ЧЕСТНО (T-20261111-01, владелец TG 976): заменить в этом стиле не на что (своих нет или свой — только
+  // то, что стоит; так в пробе старой сборки — спальня неоклассики, торшер сканди) — лента из товаров других стилей той же роли, но
+  // под чипом «Только стиль <стиль>» они выглядели товарами этого стиля (14–52 чужих). Теперь чипа нет (`filters`), над лентой —
+  // «В стиле <стиль> пока нет — вот похожие» (`grid`). Правило общее — любой стиль и роль, /demo и проба
+  if(!mine.some(p=>!(sel&&sel.sku&&sel.sku.name===p.name))){if(info)info.noStyle=st; return all;}
+  if(F.anyStyle)return all;
   // ЦВЕТ НЕ В СТИЛЕ — В КОНЕЦ (style-color-01 шаг 2а): `color_low` ставит сборка (`demo_fill.lane_color`), порядок остальных прежний
   const low=p=>!!(p.color_low&&p.color_low.indexOf(st)>=0);
-  if(TRIAL()&&mine.length<2)return all;
-  return mine.length?mine.filter(p=>!low(p)).concat(mine.filter(low)):all;
+  return mine.filter(p=>!low(p)).concat(mine.filter(low));
 }
 // ВЫБРАННЫЙ ДЕКОР — не предмет расстановки, а строка списка варианта. Заворачиваем её в такой же
 // объект, какой ждёт лист подбора, и помечаем `dec` — по нему замена пишется в декор, а не в
@@ -7958,8 +7964,9 @@ function filters(){
   // ПОДПИСИ ЧИПОВ НЕ МЕНЯЮТСЯ ПРИ НАЖАТИИ (владелец 22.10, demo-20 А4): прежний «только сканди» ↔ «все стили» путал — включён = фильтр
   // действует, снят = показываем всё
   add('Подходящие по размеру',F.fitOnly,()=>F.fitOnly=!F.fitOnly);
-  const st=plainStyle((allVariants()[cur]||{}).style);
-  if(st&&!TR_NOGOODS())add('Только стиль '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);   // проба старой сборки: стиль ленту не режет (`feedFor`)
+  const st=plainStyle((allVariants()[cur]||{}).style), fi={};
+  if(st&&!TR_NOGOODS())feedFor(sel?sel.role.replace(/\s+\d+$/,''):'диван',fi);   // своего стиля для роли нет — чип не притворяется (T-20261111-01)
+  if(st&&!TR_NOGOODS()&&!fi.noStyle)add('Только стиль '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);   // проба старой сборки: стиль ленту не режет (`feedFor`)
   // пороги — рубли витрины; подписи — в валюте карточки (британский двойник: £)
   const fx=fxRate(), EN=LANG==='en';
   if(!TR_NOGOODS()){   // проба: цен нет — и отбора по цене нет
@@ -7971,13 +7978,16 @@ function filters(){
 function grid(){
   const g=document.getElementById('grid');g.innerHTML='';
   const base=sel?sel.role.replace(/\s+\d+$/,''):'диван';
-  let list=feedFor(base).slice();
+  const fi={};
+  let list=feedFor(base,fi).slice();
   // ШАПКА — «Выбрать <роль> (N)»: роль без номера слота, N — моделей ПОСЛЕ фильтров, сколько видно в ленте: цвета одной модели — одна
   // (владелец 22.10, demo-20 А3)
   const head=n=>{document.getElementById('sh-title').textContent=`Выбрать ${base} (${n})`;};
   // тур: замен нет — честно «под это место в библиотеке больше нет» под карточкой «сейчас» (T-40, TG 872)
   const trNone=()=>{trNowCard(g,base); g.insertAdjacentHTML('beforeend',`<div class="hint">${TR_EN()?'There are no other items with a 3D model for this spot and style in our library yet.':'Других товаров с 3D-моделью под это место и стиль в библиотеке пока нет.'}</div>`);};
   if(!list.length){head(0); if(TRIAL()){trNone(); return;} g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
+  // своего стиля для роли нет — лента из похожих других стилей, говорим прямо (`feedFor`, T-20261111-01)
+  if(fi.noStyle)g.insertAdjacentHTML('beforeend',`<div class="hint st-none">В стиле ${escHtml(fi.noStyle)} пока нет — вот похожие</div>`);
   const isCur=p=>!!(sel&&sel.sku&&sel.sku.name===p.name);
   list=list.filter(p=>{
     const pr=p.price||0;
@@ -11641,6 +11651,7 @@ function quizPick(rule, answers, available, styleColours){
     [/^(my collection|shared collection) · (.+)$/,function(m){return m[1]+' · '+(STYLE[m[2]]||m[2]);}],
     [/^Выбрать (.+) \((\d+)\)$/,function(m){return 'Choose a '+(role(m[1])||m[1])+' ('+m[2]+')';}],
     [/^Только стиль (.+)$/,function(m){return 'Only '+(STYLE[m[1]]||m[1])+' style';}],
+    [/^В стиле (.+) пока нет — вот похожие$/,function(m){return 'No '+(STYLE[m[1]]||m[1])+' pieces yet — similar ones';}],   // `grid`, T-20261111-01
     [/^до (\d+) тыс$/,function(m){return 'under '+m[1]+'k';}],[/^(\d+)–(\d+) тыс$/,function(m){return m[1]+'–'+m[2]+'k';}],
     [/^(\d+)\+ тыс$/,function(m){return m[1]+'k+';}],[/^(\d+) из (\d+)$/,function(m){return m[1]+' of '+m[2];}],
     [/^Товары на фото · (\d+)$/,function(m){return 'Items in the photo · '+m[1];}],[/^Камера (\d+)$/,function(m){return 'Camera '+m[1];}],
