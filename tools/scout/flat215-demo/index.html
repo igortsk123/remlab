@@ -11298,7 +11298,8 @@ async function liveShow(){
   const s2=shots[shotAt];
   if(!wrap||at!==shotAt||!document.getElementById('shot').classList.contains('on')||VW.mode!=='walk'||!s2)return;
   if(LIVE.canvas.parentNode!==wrap){LIVE.canvas.classList.remove('in'); wrap.appendChild(LIVE.canvas); wrap.appendChild(LIVE.badge);
-    requestAnimationFrame(()=>requestAnimationFrame(()=>LIVE.canvas.classList.add('in')));}
+    // холст — свой, не LIVE.canvas: за два кадра сцену могли сбросить (liveDrop при смене комнаты) — было «null.classList» (T-20261111-22/2)
+    const cvIn=LIVE.canvas; requestAnimationFrame(()=>requestAnimationFrame(()=>cvIn.classList.add('in')));}
   liveFit(wrap);
   const c=(cams||loadCams())[VW.photo]||(cams||loadCams())[0]||{};
   // «3D» СТОИТ В ТОЧКЕ СЪЁМКИ (demo-09): тот же кадр, что снимет «Сделать реалистичнее»; тянуть — повернуть взгляд, стрелки —

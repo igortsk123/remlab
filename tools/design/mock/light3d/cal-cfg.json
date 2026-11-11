@@ -1,0 +1,7 @@
+[
+  { "name": "a-v3", "exposure": 1.0, "env": 0.55, "hemi": 0.9, "sun": 2.0, "sunColor": "#fff8ee", "fill": 0.3, "win": 0 },
+  { "name": "f-codex-e90", "exposure": 0.9, "env": 0.42, "hemi": 0.8, "sun": 1.05, "sunColor": "#fffaf2", "fill": 0.12, "win": 0 },
+  { "name": "g-codex-okno-e90", "exposure": 0.9, "env": 0.42, "hemi": 0.5, "sun": 1.05, "sunColor": "#fffaf2", "fill": 0.1, "win": 6, "winDecay": 1.5, "winColor": "#fff6ea" },
+  { "name": "h-london-e92", "hdr": "photo_studio_london_hall_1k", "exposure": 0.92, "env": 0.8, "hemi": 0.35, "sun": 1.0, "sunColor": "#fffaf2", "fill": 0.08, "win": 0 },
+  { "name": "i-london-okno-e92", "hdr": "photo_studio_london_hall_1k", "exposure": 0.92, "env": 0.75, "hemi": 0.25, "sun": 1.0, "sunColor": "#fffaf2", "fill": 0.06, "win": 5, "winDecay": 1.5, "winColor": "#fff6ea" }
+]

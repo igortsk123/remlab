@@ -27,7 +27,7 @@ async function one(b, vi, light) {
   const ctx = await b.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: PHONE ? 2 : 1, isMobile: PHONE, hasTouch: PHONE, locale: "ru-RU" });
   const p = await ctx.newPage();
   const errs = [];
-  p.on("pageerror", (e) => errs.push(String(e)));
+  p.on("pageerror", (e) => errs.push(String(e.stack || e).slice(0, 900)));
   p.on("console", (m) => { if (/L3D|живая сцена/.test(m.text())) errs.push("console: " + m.text()); });
   await p.route("**/*", (r) => {
     const q = r.request(), u = q.url();

@@ -41,6 +41,14 @@ export interface DemoSceneOptions {
   /** Тап по полу ведёт туда (по умолчанию да). Сенсорный экран — нет (demo-20 Б6, владелец 22.10): на телефоне только осмотр,
    *  повороты и ракурсы «со стороны двери / окна»; тап по предмету по-прежнему выбирает его. */
   walk?: boolean;
+  /** Декоративные шторы у окон (T-20261111-22, владелец TG 1643). Нет — адрес страницы (`curtainsFromUrl`), иначе по умолчанию вкл. */
+  curtains?: boolean;
+}
+
+/** Выключатель штор в адресе страницы: `?curtains=0` — без штор (откат без выкладки), `?curtains=1` — со шторами; нет — решает движок. */
+export function curtainsFromUrl(search: string = (globalThis as { location?: { search?: string } }).location?.search ?? ""): boolean | undefined {
+  const m = /[?&]curtains=([01])(&|$)/.exec(search);
+  return m ? m[1] === "1" : undefined;
 }
 
 type Mat = Record<string, unknown> & { id: string };
@@ -194,7 +202,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   const viewer = new FlatViewer(canvas, first.apartment, first.catalogue, opts.lite ? LITE_QUALITY : DESKTOP_QUALITY, {
     onProgress: (l, t) => emit("progress", l, t),
     onContextLost: () => emit("contextlost"),
-  });
+  }, { curtains: opts.curtains ?? curtainsFromUrl() });
   const resolved = (a: Apartment, c: Catalogue) => resolveScene(a, c, defaultConfiguration(a, c));
   // сторона акцентной стены — из расчёта сцены; меняется, когда переставили диван, — тогда оболочку перестраиваем
   const sideOf = (sc: ReturnType<typeof resolved>): string | null => sc.surfaces.find((x) => x.surface === "wall")?.accent?.side ?? null;

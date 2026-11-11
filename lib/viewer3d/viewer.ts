@@ -10,6 +10,7 @@
 
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
 
 import type { Apartment, Placement, Room } from "@/contracts/apartment";
 import { entranceOf, findRoom, isIsolatedRoom, roomAt, roomCentre } from "@/contracts/apartment";
@@ -23,7 +24,9 @@ import { buildTv } from "@/lib/viewer3d/kits/tv";
 import { buildWallPlane } from "@/lib/viewer3d/kits/wall-plane";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
+import { ContactShadow, roomsBounds } from "@/lib/viewer3d/contact-shadow";
 import { fadeForMove, floorFootprint } from "@/lib/viewer3d/footprint";
+import { buildCurtains, LIGHT, sunPose, windowLightSpots } from "@/lib/viewer3d/window-light";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { outlineFrame } from "@/lib/viewer3d/outline";
 import { renderThumbs } from "@/lib/viewer3d/thumbs";
@@ -99,6 +102,14 @@ export interface ViewerEvents {
   /** Видеоконтекст потерян (мало памяти GPU, вкладка в фоне на телефоне) — обёртка переходит на запасной путь. */
   onContextLost?: () => void;
 }
+
+export interface ViewerOptions {
+  /** Декоративные шторы у окон (T-20261111-22). Нет — `CURTAINS_DEFAULT`. */
+  curtains?: boolean;
+}
+
+/** Шторы по умолчанию ВКЛ (владелец TG 1643 «Шторы ставь»). Откат — `false` здесь или `?curtains=0` в адресе демо. */
+export const CURTAINS_DEFAULT = true;
 
 /**
  * ФОТО-ПОЗА — ТА ЖЕ КАМЕРА, ЧТО У СЕРВЕРНОГО КАДРА (план demo-01 п.3, урок 414): точка на плане (см), `rot` — как у
@@ -254,6 +265,15 @@ export class FlatViewer {
   /** Последняя разрешённая сцена — по ней догружаем комнату, в которую вошли. */
   private lastScene: ResolvedScene | null = null;
   private syncing = false;
+  private options: ViewerOptions;
+  /** Солнце и заполняющий — их ставит `aimLights` по окну комнаты. */
+  private sun: THREE.DirectionalLight | null = null;
+  private fill: THREE.DirectionalLight | null = null;
+  /** Свет окон (`LIGHT.win`): точки у проёмов, пересоздаются с оболочкой. */
+  private windowLights: THREE.PointLight[] = [];
+  /** Запечённая тень мебели на полу (`contact-shadow.ts`); пересоздаётся с оболочкой. */
+  private contact: ContactShadow | null = null;
+  private curtains: THREE.Group | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -261,11 +281,13 @@ export class FlatViewer {
     catalogue: Catalogue,
     quality: QualityProfile,
     events: ViewerEvents = {},
+    options: ViewerOptions = {},
   ) {
     this.apartment = apartment;
     this.catalogue = catalogue;
     this.quality = quality;
     this.events = events;
+    this.options = options;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.name === "desktop", powerPreference: "high-performance" });
     canvas.addEventListener("webglcontextlost", (e) => {
@@ -288,14 +310,15 @@ export class FlatViewer {
     // до бежевого (замер 29.09: насыщенность 74 из 255 при цели 151). Здесь человек выбирает
     // товар по цвету, поэтому цвет важнее «киношной» картинки.
     this.renderer.toneMapping = THREE.NeutralToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    // калибровка по эталону — `window-light.ts:LIGHT` (T-20261111-22/2); при 1.05+ белый шкаф терял рельеф дверей
+    this.renderer.toneMappingExposure = LIGHT.exposure;
     if (quality.shadows) {
       this.renderer.shadowMap.enabled = true;
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     }
 
     this.camera = new THREE.PerspectiveCamera(quality.fov, 1, 0.05, 80);
-    this.scene.background = new THREE.Color(0xd9e4ec);
+    this.scene.background = new THREE.Color(0xeef2f5);
 
     this.matCtx = createMaterialCtx(quality.anisotropy, true);
     this.matCtx.extraMaps = quality.extraMaps;
@@ -317,6 +340,29 @@ export class FlatViewer {
     this.scene.add(buildSurroundings(apartment.rooms));
   }
 
+  /**
+   * Окружение из HDRI-снимка интерьера вместо процедурной `RoomEnvironment` (T-20261111-22/2, проба владельца TG 1673): отражения и
+   * рассеянный свет; фон сцены не меняется. Не загрузилось — остаётся прежнее. Время загрузки и сборки — в ответе, для замеров.
+   */
+  async loadEnvironment(url: string, intensity?: number): Promise<{ ok: boolean; ms: number }> {
+    const t0 = performance.now();
+    try {
+      const tex = await new HDRLoader().loadAsync(url);
+      if (this.disposed) { tex.dispose(); return { ok: false, ms: 0 }; }
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      const prev = this.scene.environment;
+      this.scene.environment = pmrem.fromEquirectangular(tex).texture;
+      if (intensity != null) this.scene.environmentIntensity = intensity;
+      pmrem.dispose();
+      tex.dispose();
+      prev?.dispose();
+      return { ok: true, ms: performance.now() - t0 };
+    } catch {
+      return { ok: false, ms: performance.now() - t0 };
+    }
+  }
+
   private addLights(): void {
     // ОКРУЖЕНИЕ (environment): без него PBR-материалы выглядят плоско — у них нечего отражать
     // (замечание Codex 28.09). `RoomEnvironment` — процедурная комната из three, файлов не тянет.
@@ -324,14 +370,17 @@ export class FlatViewer {
       const pmrem = new THREE.PMREMGenerator(this.renderer);
       const env = new RoomEnvironment();
       this.scene.environment = pmrem.fromScene(env, 0.04).texture;
-      this.scene.environmentIntensity = 0.55;
+      this.scene.environmentIntensity = LIGHT.env;
       env.dispose?.();
       pmrem.dispose();
     } catch {
       /* старый GPU/программный рендер — живём без окружения */
     }
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0xb6b0a6, 1.05));
-    const sun = new THREE.DirectionalLight(0xfff3e2, 1.25);
+    // КАЛИБРОВКА T-20261111-22 («нейтральная», прототип `tools/design/mock/light3d/`): белое небо и светлый отскок от пола —
+    // стены белые, как в эталоне владельца (тёплые оттенки делали их кремовыми и сдвигали цвет товара, Δab 2 → 6); солнце ярче
+    // и бьёт из окна (`aimLights`), его тень мягкая и светлая — серая полутень, не чёрное пятно
+    this.scene.add(new THREE.HemisphereLight(LIGHT.hemiSky, LIGHT.hemiGround, LIGHT.hemi));
+    const sun = new THREE.DirectionalLight(LIGHT.sunColor, LIGHT.sun);
     sun.position.set(-6, 9, -4);
     if (this.quality.shadows) {
       sun.castShadow = true;
@@ -344,12 +393,51 @@ export class FlatViewer {
       sun.shadow.camera.top = s;
       sun.shadow.camera.bottom = -s;
       sun.shadow.bias = -0.0008;
+      sun.shadow.radius = 6;
+      sun.shadow.intensity = 0.5;
     }
     this.scene.add(sun);
-    // мягкая подсветка снизу, чтобы мебель не проваливалась в чёрное на телефоне
-    const fill = new THREE.DirectionalLight(0xdfe7ee, 0.35);
+    // мягкая подсветка с комнатной стороны (отражённый от стен свет), чтобы мебель не проваливалась в чёрное на телефоне
+    const fill = new THREE.DirectionalLight(0xf3f1ec, LIGHT.fill);
     fill.position.set(5, 3, 6);
     this.scene.add(fill);
+    this.sun = sun;
+    this.fill = fill;
+  }
+
+  /** Солнце — за окном комнаты, светит в её середину; заполняющий — с другой стороны (`window-light.ts:sunPose`). Окон нет — как было. */
+  private aimLights(): void {
+    for (const l of this.windowLights) this.scene.remove(l);
+    this.windowLights = LIGHT.win > 0 ? windowLightSpots(this.apartment.rooms).map((at) => {
+      const l = new THREE.PointLight(LIGHT.winColor, LIGHT.win, LIGHT.winDist, LIGHT.winDecay);
+      l.position.set(...at);
+      this.scene.add(l);
+      return l;
+    }) : [];
+    const pose = sunPose(this.apartment.rooms);
+    if (!pose || !this.sun || !this.fill) return;
+    this.sun.position.set(...pose.sun);
+    this.sun.target.position.set(...pose.target);
+    this.sun.target.updateMatrixWorld();
+    this.fill.position.set(...pose.fill);
+    if (this.sun.castShadow) {
+      const c = this.sun.shadow.camera;
+      Object.assign(c, { left: -pose.half, right: pose.half, top: pose.half, bottom: -pose.half, near: 1, far: 20 });
+      c.updateProjectionMatrix();
+    }
+  }
+
+  /** Мебель, что даёт тень на пол: без ковров и плоского на стене, без ТВ на стене и без предмета «в руке» (его место — след переноса). */
+  private shadowCasters(): THREE.Object3D[] {
+    const inHand = this.moving?.slotId;
+    return [...this.placed.values()]
+      .filter((p) => p.spec.slotId !== inHand && !isFlatOnSurface(p.spec) && !(p.spec.kind === "tv" && p.spec.hung))
+      .map((p) => p.group);
+  }
+
+  /** Запечь тень мебели в простое браузера (повторные вызовы до запекания сливаются в одно). */
+  private bakeContact(): void {
+    this.contact?.schedule(() => this.shadowCasters());
   }
 
   // ── сцена ────────────────────────────────────────────────────────────────
@@ -385,6 +473,26 @@ export class FlatViewer {
       this.roomGroups.set(room.id, group);
       this.floors.push(floor);
     }
+    this.aimLights();
+    this.shellExtras();
+  }
+
+  /** Тень мебели на полу и шторы — по комнатам квартиры; пересоздаются с оболочкой (комнаты могли смениться). */
+  private shellExtras(): void {
+    this.contact?.dispose();
+    this.contact = null;
+    const b = roomsBounds(this.apartment.rooms);
+    if (b) this.contact = new ContactShadow(this.renderer, this.scene, b, { res: this.quality.name === "lite" ? 256 : 512 });
+    if (this.curtains) {
+      this.scene.remove(this.curtains);
+      disposeObject(this.curtains);
+      this.curtains = null;
+    }
+    if (this.options.curtains ?? CURTAINS_DEFAULT) {
+      this.curtains = buildCurtains(this.apartment.rooms);
+      this.scene.add(this.curtains);
+    }
+    if (this.placed.size) this.bakeContact();   // смена отделки при готовой мебели; первую тень запечёт `syncObjects`
   }
 
   /**
@@ -446,6 +554,8 @@ export class FlatViewer {
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
+    // тень — по ГОТОВОЙ расстановке (модели пришли, места новые): в простое, первый кадр её не ждёт
+    if (!this.disposed) this.bakeContact();
   }
 
   /** Порядок загрузки: текущая комната, потом соседние — «сначала то, где человек стоит». */
@@ -1196,6 +1306,8 @@ export class FlatViewer {
     this.ensureGhost(p.group, pl.wCm, pl.dCm);
     this.fadeModel(p.group);
     this.applyMove(true);
+    // тень предмета «в руке» снимаем: на старом месте она висела бы пятном, под ним самим — след переноса
+    this.bakeContact();
     return from;
   }
 
@@ -1294,6 +1406,7 @@ export class FlatViewer {
     const out = { slotId: this.moving.slotId, ...this.moving.now };
     this.clearMove();
     this.showOutline(out.slotId);
+    this.bakeContact();   // тень — на новом месте (страница затем пересоберёт расстановку — запекание сольётся в одно)
     return out;
   }
 
@@ -1305,6 +1418,7 @@ export class FlatViewer {
     this.applyMove(true);
     this.clearMove();
     this.showOutline(slotId);
+    this.bakeContact();   // предмет вернулся — тень тоже
   }
 
   private clearMove(): void {
@@ -1892,6 +2006,10 @@ export class FlatViewer {
     this.placed.clear();
     for (const g of this.roomGroups.values()) disposeObject(g);
     this.roomGroups.clear();
+    this.contact?.dispose();
+    this.contact = null;
+    if (this.curtains) disposeObject(this.curtains);
+    this.curtains = null;
     this.meshes.dispose();
     disposeMaterialCtx(this.matCtx);
     this.renderer.dispose();
