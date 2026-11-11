@@ -5,6 +5,7 @@
 import * as THREE from "three";
 
 import type { Material } from "@/contracts/configurator";
+import { trimTextureToContent } from "@/lib/viewer3d/rug-crop";
 
 type MapSlot = "map" | "normalMap" | "roughnessMap" | "aoMap";
 
@@ -55,8 +56,9 @@ function dropTexture(ctx: MaterialCtx, key: string): void {
   ctx.copies.delete(key);
 }
 
-function texture(ctx: MaterialCtx, url: string, srgb: boolean): THREE.Texture {
-  const key = `${url}|${srgb ? "srgb" : "lin"}`;
+function texture(ctx: MaterialCtx, url: string, srgb: boolean, trim = false): THREE.Texture {
+  // `trim` — фото ковра: поля карточки срезаются по приезде (`rug-crop.ts`); тот же адрес без среза — другая текстура
+  const key = `${url}|${srgb ? "srgb" : "lin"}${trim ? "|trim" : ""}`;
   const hit = ctx.cache.get(key);
   if (hit) return hit;
   // Когда картинка приедет, раздаём её копиям: они снимались с ещё пустой текстуры и сами
@@ -64,6 +66,7 @@ function texture(ctx: MaterialCtx, url: string, srgb: boolean): THREE.Texture {
   const t = ctx.loader.load(
     url,
     (loaded) => {
+      if (trim) trimTextureToContent(loaded);
       for (const copy of ctx.copies.get(key) ?? []) {
         copy.image = loaded.image;
         copy.needsUpdate = true;
@@ -79,6 +82,7 @@ function texture(ctx: MaterialCtx, url: string, srgb: boolean): THREE.Texture {
       setTimeout(() => ctx.loader.load(
         url,
         (loaded) => {
+          if (trim) trimTextureToContent(loaded);
           t.image = loaded.image;
           t.needsUpdate = true;
           for (const copy of ctx.copies.get(key) ?? []) {
@@ -110,8 +114,9 @@ function attachTexture(
   url: string,
   srgb: boolean,
   hex?: string,
+  trim = false,
 ): THREE.Texture {
-  const t = texture(ctx, url, srgb);
+  const t = texture(ctx, url, srgb, trim);
   const key = t.userData.texKey as string;
   const list = ctx.uses.get(key);
   if (list) list.push({ mat, slot, hex });
@@ -133,7 +138,8 @@ export function baseMaterial(ctx: MaterialCtx, m: Material): THREE.MeshStandardM
     metalness: m.metalness,
   });
   if (ctx.useMaps && m.baseColorUrl) {
-    mat.map = attachTexture(ctx, mat, "map", m.baseColorUrl, true, m.colorHex);
+    // ковёр — фото карточки товара: белые поля вокруг не тянем на плиту (T-20261111-15, TG 1455)
+    mat.map = attachTexture(ctx, mat, "map", m.baseColorUrl, true, m.colorHex, m.surfaces.includes("rug"));
     mat.color.set("#ffffff"); // цвет уже в текстуре, иначе двойное умножение
   }
   if (ctx.useMaps && ctx.extraMaps && m.normalUrl) {
