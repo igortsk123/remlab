@@ -2548,7 +2548,7 @@ function trImgAbs(o){ if(Array.isArray(o)){o.forEach(trImgAbs); return o;}
   if(o&&typeof o==='object')for(const k of Object.keys(o)){const x=o[k];
     if(k==='img'&&typeof x==='string'&&TR_IMG.test(x))o[k]='/demo/'+x; else if(x&&typeof x==='object')trImgAbs(x);}
   return o; }
-dataFetch().then(r=>trDataEtag(r).json()).then(d=>pageReady().then(()=>d)).then(d=>{D=roomsAlias(d);if(TRIAL()){trImgAbs(D);trialSetup();}init();
+dataFetch().then(r=>trDataEtag(r).json()).then(d=>pageReady().then(()=>d)).then(d=>{D=roomsAlias(d);if(TRIAL()){trImgAbs(D);trialSetup();}init();camsFill();
   if(TRIAL()){window.__trialReady=1; document.dispatchEvent(new Event('trialready'));}})   // проба: опрос без карточки квартиры (`decide`)
   .catch(e=>{try{console.error('запуск страницы:',e);}catch(_){}   // сбой запуска виден в консоли, а не только надписью (T-43)
     const b=document.getElementById('sub'), msg=(pageEn()?'Could not load the data: ':'Не удалось загрузить данные: ')+String(e.message||e).slice(0,140);
@@ -6418,8 +6418,6 @@ function liveShot(v){ const u=v&&D&&LIVE_SHOTS.get(roomStateKey(v,variantStateOf
 const TR_HS={busy:false, off:false, by:new Map(), fail:new Set(), want:[], t:0};
 function trHsKey(v){ return roomStateKey(v,variantStateOf(v)); }
 function trHomeShotOf(v){ const r=v&&TR_HS.by.get(String(v.id||'')); return r?r.url:''; }
-// снимок ещё будет — карточка держит заглушку, а не план (T-20261111-05 п.1); 3D нет или этот снимок не вышел — план
-function trHsWaits(v){ return trHsOk()&&!TR_HS.fail.has(trHsKey(v)); }
 // сцена снимка не собралась за это время (модель не пришла, связь оборвалась) — снимок не вышел, карточка уходит на план
 const TR_HS_MAX_MS=90000;
 function trHsOk(){
@@ -6427,10 +6425,74 @@ function trHsOk(){
   const c=navigator.connection; if(c&&(c.saveData||/(^|slow-)2g$/.test(c.effectiveType||'')))return false;
   return !(liveSoftGL()&&!LIVE.force);
 }
+// ФОНОВОЕ 3D НЕ ДЕРЖИТ НАЖАТИЯ (T-20261111-23 п.6, владелец TG 1609: «когда страницу загружаешь, кнопки не реагируют»). Снимок
+// карточки — сборка сцены, разбор моделей и кадр WebGL: куски по 0,5–5 с в главном потоке (замер T-21, телефон), разбить их внутри
+// движка нельзя. Поэтому каждый тяжёлый шаг фона (`trHomeShot`, `homePre3d`) начинается только в тишине: BG_QUIET_MS без нажатий,
+// касаний, клавиш и прокрутки — и в простое браузера (`requestIdleCallback`); между шагами — снова ждём тишину. Нажатие посреди
+// фона откладывает следующий шаг; первый снимок — не раньше BG_FIRST_MS после запуска: карточка уже показывает план (выше), спешить
+// незачем, а первые секунды человек осматривается и нажимает
+const BG={t:0, n:0}, BG_QUIET_MS=1500, BG_FIRST_MS=2500;
+['pointerdown','keydown','touchstart','wheel'].forEach(ev=>addEventListener(ev,()=>{BG.t=performance.now(); BG.n++;},{capture:true, passive:true}));
+function bgQuiet(){ return new Promise(ok=>{ const go=()=>{
+    const w=Math.max(BG_QUIET_MS-(performance.now()-BG.t), BG_FIRST_MS-performance.now());
+    if(w>0||document.hidden){setTimeout(go,Math.max(w,250)+30); return;}
+    const n=BG.n, done=()=>BG.n===n&&performance.now()-BG.t>=BG_QUIET_MS?ok():go();
+    if(window.requestIdleCallback)requestIdleCallback(done,{timeout:2000}); else setTimeout(done,0); };
+  go(); }); }
 // таймер не переставляем: главная перерисовывается часто, и сброс отодвигал бы съёмку без конца
 function trHomeShotsSoon(ms){ if(!trHsOk()||TR_HS.t)return;
-  TR_HS.t=setTimeout(()=>{ TR_HS.t=0; if(window.requestIdleCallback)requestIdleCallback(trHomeShotsRun,{timeout:3000}); else trHomeShotsRun(); },ms||(TR_HS.by.size?800:0)); }   // первый снимок — без паузы: это первое фото тура
+  TR_HS.t=setTimeout(()=>{ TR_HS.t=0; bgQuiet().then(trHomeShotsRun); },ms||(TR_HS.by.size?800:0)); }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&TR_HS.want.length)trHomeShotsSoon(); });
+// CAMWORK START — ЗАПАСНОЙ ПОДБОР РАКУРСОВ В WEB WORKER (T-20261111-23, Codex и владелец TG 1617: тяжёлое — не в главном потоке).
+// Пары ракурсов считает сборка (`tools/scout/cams_par.py`); не успела к сроку — у части вариантов пары в данных нет, и страница
+// перебирала точки сама, секунды на вариант посреди нажатий (замер T-21: 5,3 с на телефоне при открытии). Теперь — в отдельном потоке
+// тем же блоком CAMFIT и тем же вызовом, что сборка (`tools/flat3d/demo-cams.mjs`: `camPairAll([мебель], W, H, углы)`; общая пара
+// комнаты `one_layout` — не здесь, как было). Блок берём из текста этой же страницы. Worker не завёлся — `camsFor` отвечает null, и
+// дальше всё как раньше (подбор при открытии окна). Итог — в `v.cams`/`v.cam_level`, только если пары всё ещё нет
+// источник потока: тело — чистая функция, её же исполняет тест (`tests/unit/demo-cam-worker.test.ts`)
+function camWorkerSrc(block){
+  return `const B=${JSON.stringify(block)}; const API=new Map(); let D=null;
+onmessage=e=>{const m=e.data||{}; if(m.D){D=m.D; API.clear(); return;}
+  let r=null; try{ let api=API.get(m.rid); if(!api){api=(new Function('D',B+';\\nreturn {camPairAll, POSE_VER};'))({...D, room:m.geo}); API.set(m.rid,api);}
+    const p=3, W=m.geo.w, H=m.geo.d, pr=api.camPairAll([m.its],W,H,[{x:p,y:p},{x:W-p,y:p},{x:W-p,y:H-p},{x:p,y:H-p}],{});
+    r={level:pr.level, cams:pr.cams.map(c=>({name:c.name, x:Math.round(c.x), y:Math.round(c.y), rot:Math.round(c.rot||0), fov:c.fov||72, pose:api.POSE_VER,
+      ...(typeof c.pshift==='number'?{pshift:c.pshift}:{}), ...(c.crop?{crop:c.crop}:{}), ...(c.poster?{poster:true}:{})}))}; }
+  catch(x){ r={err:String(x&&x.message||x)}; }
+  postMessage({id:m.id, r}); };`;
+}
+const CAMW={w:null, id:0, wait:new Map(), by:new Map()};
+function camWorker(){
+  if(CAMW.w!==null)return CAMW.w;
+  CAMW.w=false;
+  // метки собираем из частей: иначе этот текст сам нашёлся бы как блок
+  const A='// CAMFIT '+'START', Z='// CAMFIT '+'END';
+  try{ const t=[...document.scripts].map(x=>x.textContent||'').find(x=>x.includes(A)&&x.includes(Z));
+    if(!t||typeof Worker!=='function')return false;
+    const w=new Worker(URL.createObjectURL(new Blob([camWorkerSrc(t.slice(t.indexOf(A),t.indexOf(Z)))],{type:'text/javascript'})));
+    w.onmessage=e=>{const f=CAMW.wait.get(e.data&&e.data.id); if(f){CAMW.wait.delete(e.data.id); f(e.data.r);}};
+    w.onerror=()=>{CAMW.wait.forEach(f=>f(null)); CAMW.wait.clear(); CAMW.w=false;};
+    // данные — один раз (правила камер читают `D.rules` и прочее); вариант — комната и мебель
+    w.postMessage({D:JSON.parse(JSON.stringify({...D, variants:[], feeds:{}, sofa_feed:[]}))});
+    CAMW.w=w; }
+  catch(e){ CAMW.w=false; }
+  return CAMW.w;
+}
+// пара ракурсов варианта в потоке → true (пара легла в `v.cams`) / false; один запрос на вариант
+function camsFor(v){
+  const id=String(v&&v.id||''); if(!v||!D||D.one_layout||(Array.isArray(v.cams)&&v.cams.length===2))return Promise.resolve(!!v);
+  if(CAMW.by.has(id))return CAMW.by.get(id);
+  const geo=roomGeoOf(v), w=geo&&camWorker();
+  const p=!w?Promise.resolve(false):new Promise(ok=>{ const n=++CAMW.id;
+    const its=(v.items||[]).map(it=>({...it, x:+it.x, y:+it.y, w:+it.w, d:+it.d, rot:+it.rot||0}));
+    CAMW.wait.set(n,r=>{ if(r&&Array.isArray(r.cams)&&r.cams.length===2&&!(Array.isArray(v.cams)&&v.cams.length===2)){v.cams=r.cams; v.cam_level=r.level;}
+      ok(Array.isArray(v.cams)&&v.cams.length===2); });
+    w.postMessage({id:n, rid:roomIdOf(v), geo:JSON.parse(JSON.stringify(geo)), its}); });
+  CAMW.by.set(id,p); return p;
+}
+// у всех вариантов без пары — по очереди, в тишине (окно откроется с готовой парой, без перебора в главном потоке)
+async function camsFill(){ for(const v of allVariants()){ if(Array.isArray(v.cams)&&v.cams.length===2||v.mine||v.cid)continue;
+  await bgQuiet(); if(!await camsFor(v)&&!camWorker())return; } }
+// CAMWORK END
 // точки съёмки варианта — тем же выбором, что у окна: сохранённые в браузере → готовая пара из данных → подбор. Правила камер читают
 // комнату открытого варианта (`camRoom` → `cur`), поэтому на время СИНХРОННОГО подбора подставляем этот вариант и возвращаем
 function trHsPose(v,its){
@@ -6450,8 +6512,10 @@ function trHsPose(v,its){
 }
 async function trHomeShot(v){
   const its=clone(variantItems(v)), room=roomOf(v); if(!room||!its.length)return '';
+  if(!(Array.isArray(v.cams)&&v.cams.length===2))await camsFor(v);   // нет пары в данных — подбор в Web Worker, не здесь
   const pose=trHsPose(v,its); if(!pose)return '';
   const M=await sceneModule(), rt=await rtMeshes();
+  await bgQuiet();                                                    // сборка сцены — тяжёлый шаг: только в тишине
   const cv=document.createElement('canvas'); cv.width=1024; cv.height=723;
   const decor=clone(((v.decor)||[]).filter(x=>!isSoft(x.role)&&!x.list_only));   // как `liveDecor`
   // пол и стены — отделка застройщика, как в окне (`liveEngine`): снимок на карточке = то, что откроется в 3D, и те же адреса текстур в кэше
@@ -6461,9 +6525,10 @@ async function trHomeShot(v){
     let tm=0; const late=new Promise((_,no)=>{tm=setTimeout(()=>no(new Error('сцена снимка не собралась за '+TR_HS_MAX_MS/1000+' с')),TR_HS_MAX_MS);});
     try{await Promise.race([sc.ready, late]);}catch(e){return '';}finally{clearTimeout(tm);}
     if(!sc.capture)return '';
+    await bgQuiet();                                                  // кадр — тоже тяжёлый шаг
     const r=await sc.capture([pose],1024,723), b=r&&r.frames&&r.frames[0];
     return b?URL.createObjectURL(b):''; }
-  finally{ try{sc.dispose();}catch(e){}
+  finally{ await bgQuiet(); try{sc.dispose();}catch(e){}             // и освобождение видеоконтекста
     // `renderer.dispose` видеоконтекст не отпускает — на телефоне их мало: отпускаем сами
     try{const gl=cv.getContext('webgl2')||cv.getContext('webgl'), x=gl&&gl.getExtension('WEBGL_lose_context'); if(x)x.loseContext();}catch(e){} }
 }
@@ -6502,7 +6567,8 @@ async function homePre3d(v){
     urls=[...a.shell, ...a.meshes]; }
   catch(e){ return; }
   const q=urls.filter(u=>!PRE.done.has(u)); HPRE.urls=q.length;
-  const one=async()=>{ for(let u; (u=q.shift());){
+  // по простою и без нажатий (T-20261111-23 п.6): каждый следующий файл — после тишины, нажатие ставит подгрузку на паузу
+  const one=async()=>{ for(let u; (await bgQuiet(), u=q.shift());){
     try{ const r=await fetch(u,{priority:'low'}); if(!r.ok)throw new Error(r.status); await r.arrayBuffer(); PRE.done.add(u); HPRE.n.ok++; }
     catch(e){ HPRE.n.fail++; } } };
   await Promise.all(Array.from({length:Math.min(2,q.length)},one));
@@ -6791,10 +6857,10 @@ function drawHome(force){
     const stale=!!sh&&!own&&typeof editShelf==='function'&&editShelf(v)&&variantStateOf(v)!==pubStateOf(v);
     // на пометке — две кнопки, как в окне (T-20261108-71/2): «Вернуть как было» — только если есть к чему (тот же выбор, что в окне, `vwStalePick`)
     const pk=stale&&typeof vwStalePick==='function'?vwStalePick(v):null, back=!!pk&&(pk.to>=0||pk.to===-2);
-    // проба без фото — снимок 3D «со стороны двери» (`trHomeShot`); пока снимается — заглушка в тон (`.hm-ld`, T-20261111-05 п.1:
-    // сразу только фото комнаты, без плана под ним); 3D на устройстве нет или снимок не вышел — схема плана, как было
+    // проба без фото — снимок 3D «со стороны двери» (`trHomeShot`); пока его нет — СРАЗУ схема плана комнаты с мебелью (T-20261111-23,
+    // владелец TG 1617 и Codex: заглушка с ожиданием до 90 с — хуже плана; снимок встаёт на место плана, когда готов)
     let img=sh?thumbOf(sh):'', full=sh?sh.url:'', ld=false;
-    if(!sh&&TRIAL()){const u=trHomeShotOf(v); if(u)img=full=u; else ld=trHsWaits(v); TR_HS.want.push(v);}
+    if(!sh&&TRIAL()){const u=trHomeShotOf(v); if(u)img=full=u; TR_HS.want.push(v);}
     return {r, i:rv.index, v, want, img, full, ld, n:variantCount(v), sum:variantPrice(v), stale, back};
   });
   if(TRIAL()&&TR_HS.want.length)trHomeShotsSoon();
