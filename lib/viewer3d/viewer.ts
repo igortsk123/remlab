@@ -29,7 +29,7 @@ import { renderThumbs } from "@/lib/viewer3d/thumbs";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { boxPoints, livePitchDeg, liveSpot, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
-import { followRoute, newRoute, planRoute, slideStep, type RouteState } from "@/lib/viewer3d/walk-motion";
+import { followRoute, newRoute, planRoute, slideStep, type RouteState, type SlideMemo } from "@/lib/viewer3d/walk-motion";
 
 // ВХОД БЕЗ ФЛАГА (T-20261106-72): прихожая без проёма `isEntrance` — вход угадан стеной; говорим об этом один раз на комнату
 const entranceWarned = new Set<string>();
@@ -218,6 +218,8 @@ export class FlatViewer {
   private keys = new Set<string>();
   /** Путь «иди сюда» (тап по полу): точки поворота в обход мебели и счётчик упора (`walk-motion.ts:followRoute`). */
   private moveTarget: RouteState | null = null;
+  /** Сторона обхода «почти в лоб» при ходьбе клавишами — липкая, чтобы обход не метался (`walk-motion.ts:slideStep`). */
+  private slideMemo: SlideMemo = { side: 0, free: 0 };
   /** Плавный вход в прогулку из точки ракурса (T-20261111-14): с какого угла обзора, высоты глаз и сдвига камера доезжает до своих. */
   private walkBlend: { t0: number; ms: number; fov: number; eye: number; dx: number; dy: number } | null = null;
   private currentRoom: string | null = null;
@@ -1412,7 +1414,7 @@ export class FlatViewer {
       const mx = ((dirX * fy + dirY * fx) / len) * speed;
       const my = ((dirY * fy - dirX * fx) / len) * speed;
       // упор в стену, косяк, мебель — скольжение вдоль преграды, без шага назад (T-20261111-14, `walk-motion.ts:slideStep`)
-      const next = slideStep(this.area, { x: this.pos.x, y: this.pos.y }, mx, my);
+      const next = slideStep(this.area, { x: this.pos.x, y: this.pos.y }, mx, my, this.slideMemo);
       this.pos.set(next.x, next.y);
       this.updateRoom();
     } else if (this.moveTarget) {

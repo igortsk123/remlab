@@ -49,10 +49,44 @@ function freeNormal(area: WalkArea, x: number, y: number): Pt | null {
  * если вдоль преграды хода по желаемому направлению нет (упёрлись в лоб или в угол) — стоим у преграды.
  * Стоим вне проходимого (поставили в след предмета) — выйти можно, лишь бы не в стену.
  */
-export function slideStep(area: WalkArea, from: Pt, dx: number, dy: number): Pt {
+export function slideStep(area: WalkArea, from: Pt, dx: number, dy: number, memo?: SlideMemo): Pt {
   const direct = { x: from.x + dx, y: from.y + dy };
-  if (canStand(area, direct.x, direct.y)) return direct;
+  if (canStand(area, direct.x, direct.y)) {
+    // сторону забываем не сразу: у скошенного края прямой ход открывается на кадр-другой — иначе обход метался бы
+    if (memo && ++memo.free >= 12) memo.side = 0;
+    return direct;
+  }
+  if (memo) memo.free = 0;
   if (!canStand(area, from.x, from.y)) return inRooms(area, direct.x, direct.y) ? direct : { ...from };
+  const slid = slideAlong(area, from, dx, dy);
+  const len = Math.hypot(dx, dy);
+  if (!memo || Math.hypot(slid.x - from.x, slid.y - from.y) >= 0.15 * len) return slid;
+  // ПОЧТИ В ЛОБ (касательной нет): предмет у двери перегородил часть проёма (гарнитур кухни /flat). Отклоняемся на 25…45° —
+  // всегда вперёд, сторона ЛИПКАЯ (`memo`), пока прямой ход снова не откроется: качелей «влево — вправо» не будет
+  const sides = memo.side ? [memo.side] : [1, -1];
+  for (const s of sides) {
+    for (const deg of [25, 45]) {
+      const r = (s * deg * Math.PI) / 180;
+      const ex = dx * Math.cos(r) - dy * Math.sin(r);
+      const ey = dx * Math.sin(r) + dy * Math.cos(r);
+      if (canStand(area, from.x + ex, from.y + ey) && canStand(area, from.x + ex * 3, from.y + ey * 3)) {
+        memo.side = s;
+        return { x: from.x + ex, y: from.y + ey };
+      }
+    }
+  }
+  return slid;
+}
+
+/** Сторона обхода «почти в лоб» (+1 / −1, 0 — не выбрана): держит владелец шага (`viewer`), чтобы отклонение не металось. */
+export interface SlideMemo {
+  side: number;
+  /** Кадров подряд со свободным прямым ходом. */
+  free: number;
+}
+
+/** До преграды и дальше вдоль неё: касательная составляющая остатка хода; назад не идёт. */
+function slideAlong(area: WalkArea, from: Pt, dx: number, dy: number): Pt {
   const t = reach(area, from, dx, dy);
   const contact = { x: from.x + dx * t, y: from.y + dy * t };
   const n = freeNormal(area, from.x + dx * Math.min(1, t + 0.02), from.y + dy * Math.min(1, t + 0.02));
@@ -154,18 +188,22 @@ export function planRoute(area: WalkArea, from: Pt, to: Pt, cellCm = 10): Pt[] |
   };
   const s = near(from);
   const g = near(to);
-  if (s < 0 || g < 0) return null;
+  if (s < 0) return null;
   const cost = new Float32Array(nx * ny).fill(Infinity);
   const prev = new Int32Array(nx * ny).fill(-1);
   const heap: [number, number][] = [];
-  const hz = (i: number): number => Math.hypot(cx(i) - cx(g), cy(i) - cy(g));
+  const hz = (i: number): number => Math.hypot(cx(i) - to.x, cy(i) - to.y);
   cost[s] = 0;
   heapPush(heap, [hz(s), s]);
+  // цель за мебелью, куда не пройти (тап по полу за диваном у стены): идём к ближайшей к ней достижимой точке и встаём,
+  // а не упираемся в спинку — прежде тут шаг качался «вперёд — назад» (тур «Этажи», гостиная: 199,214 ↔ 186,215)
+  let closest = s;
   const STEPS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
   for (let top = heapPop(heap); top; top = heapPop(heap)) {
     const i = top[1];
     if (i === g) break;
     if (top[0] > cost[i]! + hz(i) + 1e-3) continue;
+    if (hz(i) < hz(closest)) closest = i;
     const ix = i % nx;
     const iy = Math.floor(i / nx);
     for (const [dx, dy] of STEPS) {
@@ -183,11 +221,12 @@ export function planRoute(area: WalkArea, from: Pt, to: Pt, cellCm = 10): Pt[] |
       }
     }
   }
-  if (prev[g] === -1 && g !== s) return null;
+  const reached = g >= 0 && (g === s || prev[g] !== -1);
+  const end = reached ? g : closest;
   const cells: Pt[] = [];
-  for (let i = g; i !== -1; i = prev[i]!) cells.push({ x: cx(i), y: cy(i) });
+  for (let i = end; i !== -1; i = prev[i]!) cells.push({ x: cx(i), y: cy(i) });
   cells.reverse();
-  cells.push({ ...to });
+  if (reached) cells.push({ ...to });
   // натянутая нить: из текущей точки — к самой дальней точке пути, видимой по прямой
   const out: Pt[] = [];
   let cur: Pt = from;
