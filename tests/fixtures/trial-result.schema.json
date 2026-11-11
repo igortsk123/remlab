@@ -195,6 +195,10 @@
                   "type": "number",
                   "minimum": 0
                 },
+                "areaContourM2": {
+                  "type": "number",
+                  "minimum": 0
+                },
                 "dims": {
                   "type": "object",
                   "properties": {
