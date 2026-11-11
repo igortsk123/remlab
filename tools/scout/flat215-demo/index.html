@@ -9477,9 +9477,12 @@ function vwPinsTick(now){
   if(!on){PINS.map.forEach(n=>n.remove()); PINS.map.clear(); if(!live||VW.sel==null){vwRotHide(); return;}}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
     PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready')]
-      .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);}
+      .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);
+    PINS.hint=LIVE.badge&&LIVE.badge.isConnected?LIVE.badge.getBoundingClientRect():null;}
   const fr=PINS.fr, pad=4, seen=new Set(), cand=[];
   const hit=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
+  // подсказка «3D: тяните…» видна (5 с) — ценник, который она накрыла бы, ждёт, пока она погаснет (T-05/3: показ по очереди, не внахлёст)
+  const hintR=liveHintOn()&&PINS.hint&&PINS.hint.width>0?PINS.hint:null, underHint=r=>!!(hintR&&hit(r,hintR));
   const all=LIVE.scene.pins();
   if(on)all.forEach(p=>{if(!p.visible)return; const it=items[p.index], pr=it&&(skuOf(it)||{}).price; if(!pr)return;
     let n=PINS.map.get(p.index); const txt=money(pr);
@@ -9492,11 +9495,12 @@ function vwPinsTick(now){
     const free=(x,y)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
       return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k)))&&r;};
     const at=pinSpots(c.p, w, h, fr.width, pad).find(([x,y])=>free(x,y)), r=at&&free(at[0],at[1]);
+    if(r&&underHint(r)){c.n.hidden=true; return;}
     c.n.hidden=!r; if(!r)return; kept.push(r);
     const sel=c.p.index===VW.sel; c.n.classList.toggle('sel',sel); c.n._x=at[0]; c.n._y=at[1];
     c.n.style.transform=`translate(${at[0]}px,${at[1]}px)${sel?' scale(1.08)':''}`;});
   PINS.map.forEach((n,i)=>{if(!seen.has(i)){n.remove(); PINS.map.delete(i);}});
-  vwRotPlace(box, fr, pad, kept, all, hit);
+  vwRotPlace(box, fr, pad, kept, all, hit, underHint);
   PINS.raf=requestAnimationFrame(vwPinsTick);
 }
 // «ПОВЕРНУТЬ» В 3D (T-20261111-05 п.7, владелец TG 1021): кнопка ↻ рядом с ценой выбранного предмета, каждое нажатие — 45° по часовой
@@ -9512,7 +9516,7 @@ function vwCanRot(it){
   return !(k.hung||(+it.elev||0)>0||/^кухн/i.test(role));
 }
 function vwRotHide(){ if(PINS.rot)PINS.rot.hidden=true; }
-function vwRotPlace(box, fr, pad, kept, all, hit){
+function vwRotPlace(box, fr, pad, kept, all, hit, underHint){
   const i=VW.sel, it=i!=null?items[i]:null;
   if(!it||!vwCanRot(it)||(typeof TR_NOGOODS==='function'&&TR_NOGOODS())){vwRotHide(); return;}
   let b=PINS.rot;
@@ -9524,7 +9528,8 @@ function vwRotPlace(box, fr, pad, kept, all, hit){
   const w=b._w, h=b._h, p=all.find(q=>q.index===i);
   if(!p||!p.visible){vwRotHide(); return;}
   const free=(x,y)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
-    return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k)));};
+    return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k))
+      ||(underHint&&underHint(r)));};
   // место: справа от цены, слева, над ней, под ней; цены нет (скрыты или не влезла) — над рамкой предмета, как ценник
   const n=PINS.map.get(i), np=n&&!n.hidden&&n._x!=null;
   const dy=np?Math.round(n._y+(n._h-h)/2):0;
@@ -9551,9 +9556,13 @@ function vwRotHits(i){
   return out;
 }
 // красная рамка — только за НОВЫЕ наезды, появившиеся поворотом: стулья под обеденным столом стоят так по расстановке
+const ROT_HIT_RU='Задевает соседний предмет: рамка красная', ROT_HIT_EN='It now touches another item: the frame is red';
 function vwRotWarn(){
   const r=VW.rotBase, on=!!(r&&VW.sel===r.i&&[...vwRotHits(r.i)].some(k=>!r.hits.has(k)));
   if(LIVE.scene&&LIVE.scene.warn)LIVE.scene.warn(on);
+  // наезда больше нет — сообщение о нём уходит сразу, не дожидаясь своих 2 с (T-05/3)
+  const t=document.getElementById('toast');
+  if(!on&&t&&!t.hidden&&(t.textContent===ROT_HIT_RU||t.textContent===ROT_HIT_EN)){clearTimeout(t._t); t.hidden=true; t.classList.remove('out');}
   return on;
 }
 document.addEventListener('remlab:hist',()=>{ if(VW.rotBase)vwRotWarn(); });
@@ -9570,7 +9579,7 @@ function vwRotate(){
   histPush();
   try{draw();}catch(e){}
   liveShow();
-  if(vwRotWarn())toast(LANG==='en'?'It now touches another item: the frame is red':'Задевает соседний предмет: рамка красная');
+  if(vwRotWarn())toast(LANG==='en'?ROT_HIT_EN:ROT_HIT_RU);
 }
 function vwMount(s){
   const shot=document.getElementById('shot'); shot.classList.add('v2');
@@ -9614,7 +9623,8 @@ function vwMount(s){
       // не показываем вовсе (T-20261018-09: поверх загрузки она хуже, чем никакой; покажем при следующем открытии окна)
       const at=Date.now(), isBusy=()=>{const vl=document.getElementById('vload');
         // занято: 3D ещё грузит модели или на экране крутилка (окно могло само уйти в «Фото», пока грузилась сцена — 2.25)
-        return (VW.mode==='walk'&&typeof LIVE!=='undefined'&&LIVE.ok!==false&&LIVE.state!=='ready')||!!(vl&&vl.classList.contains('on'));};
+        // и пока видна подсказка 3D «тяните…» (T-05/3): две подсказки по очереди, не одновременно
+        return (VW.mode==='walk'&&typeof LIVE!=='undefined'&&LIVE.ok!==false&&(LIVE.state!=='ready'||liveHintOn()))||!!(vl&&vl.classList.contains('on'));};
       // первый показ — через 0,7 с: человек успевает переключить «Фото»/«3D», и подсказка не встаёт поверх загрузки
       (function tip(){
         if(!shot.classList.contains('on'))return;
@@ -10404,12 +10414,17 @@ function liveBand(r){
   const top=r.top+Math.min(64,r.height*0.1);
   return {top:(top-r.top)/r.height, bottom:Math.max(0.3,(bot-r.top)/r.height)};
 }
-// подсказка «3D: тяните…» — при каждом входе в «3D», когда сцена готова (не поверх «Загружаем модели…»), гаснет через 5 с
-let _liveHintT=0;
+// подсказка «3D: тяните…» — при каждом входе в «3D», когда сцена готова (не поверх «Загружаем модели…»), гаснет через 5 с.
+// 5 с считаем с ПЕРВОГО НАРИСОВАННОГО кадра (T-05/3): на слабом устройстве первые кадры сцены идут секундами, и подсказка гасла,
+// почти не показавшись. Пока она видна, ценники и «Повернуть» под ней не рисуются (`vwPinsTick`), подсказка шторки ждёт (`vwMount`)
+let _liveHintT=0, _liveHintN=0;
+function liveHintOn(){ const b=LIVE.badge; return !!(b&&b.isConnected&&b.classList.contains('on')&&!b.classList.contains('gone')); }
 function liveHint(){
   const b=LIVE.badge; if(!b)return;
-  clearTimeout(_liveHintT); b.classList.remove('on','gone'); void b.offsetWidth; b.classList.add('on');
-  _liveHintT=setTimeout(()=>b.classList.add('gone'),5000);
+  clearTimeout(_liveHintT); b.classList.remove('on','gone'); void b.offsetWidth; b.classList.add('on'); vwPins();
+  const n=++_liveHintN;   // новый показ отменяет отсчёт прежнего
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ if(n!==_liveHintN)return;
+    _liveHintT=setTimeout(()=>{b.classList.add('gone'); vwPins();},5000); }));
 }
 async function liveShow(){
   if(VW.mode==='plan'){liveHide(); vwPlanDraw(); return;}   // в «План» сцены нет — после правки перерисовывается план
