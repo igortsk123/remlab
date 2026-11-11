@@ -1326,10 +1326,22 @@ export class FlatViewer {
       this.outline.visible = false;
       return;
     }
-    const { size, centre } = outlineFrame(placed.group, this._bb);
+    const { size, centre, yaw } = outlineFrame(placed.group, this._bb);
     this.outline.scale.copy(size);
     this.outline.position.copy(centre);
+    this.outline.rotation.y = yaw;
+    (this.outline.material as THREE.LineBasicMaterial).color.setHex(this.outlineWarn ? 0xd2453a : 0xc8805c);
     this.outline.visible = true;
+  }
+
+  /** Рамка-предупреждение (T-20261111-05 п.7): повёрнутый предмет задевает соседний — рамка красная, сам поворот не отменяется. */
+  private outlineWarn = false;
+
+  setOutlineWarn(on: boolean): void {
+    if (this.outlineWarn === on) return;
+    this.outlineWarn = on;
+    if (this.outline) (this.outline.material as THREE.LineBasicMaterial).color.setHex(on ? 0xd2453a : 0xc8805c);
+    this.start();
   }
 
   /** Выбранное место — его рамку и подсветку пересчитываем, когда объект места пересобран или сдвинут. */

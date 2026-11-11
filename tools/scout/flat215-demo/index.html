@@ -8749,6 +8749,12 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
  border-radius:var(--radius-sm);border-top-color:transparent;transition:background .3s}
 #shot.v2 .pinlist .row.hl::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:999px;background:var(--accent)}
 .vpin.sel{background:var(--accent);color:#fff;z-index:2}
+/* «Повернуть» у цены выбранного в 3D (T-20261111-05 п.7) — в тон ценника, но кнопка: рамка акцента, значок ↻ */
+.vrot{position:absolute;left:0;top:0;will-change:transform;display:inline-flex;align-items:center;gap:5px;background:var(--surface);color:var(--accent);
+ border:1.5px solid var(--accent);border-radius:999px;padding:3px 10px 3px 8px;font-family:inherit;font-weight:600;font-size:12.5px;line-height:1.3;box-shadow:var(--e3);white-space:nowrap;
+ pointer-events:auto;cursor:pointer;z-index:3}
+.vrot span{font-size:15px;line-height:1}
+.vrot[hidden]{display:none}
 #shot.v2 .shotwrap .nav,#shot.v2 .shotwrap .viewno{display:none}
 /* новая картинка — плавно (200 мс), а не вспышкой */
 #shot .shotwrap .livecv{opacity:0;transition:opacity .2s}#shot .shotwrap .livecv.in{opacity:1}
@@ -9401,6 +9407,7 @@ function bubPlace(bub){
 function vwSelect(idx){
   VW.sel=idx==null||idx<0?null:idx;
   if(LIVE.scene&&LIVE.scene.select)LIVE.scene.select(VW.sel);
+  if(VW.rotBase&&VW.rotBase.i!==VW.sel){VW.rotBase=null; if(LIVE.scene&&LIVE.scene.warn)LIVE.scene.warn(false);}   // красная рамка — у повёрнутого
   if(VW.sel==null)document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   try{vwPins();}catch(e){}
 }
@@ -9461,15 +9468,19 @@ function vwPinsTick(now){
   PINS.raf=0;
   const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
   if(box!==PINS.box){PINS.box=box; PINS.map.clear(); PINS.fr=null;
-    box.onclick=e=>{const b=e.target.closest&&e.target.closest('[data-pi]'); if(b)vwHighlight(+b.dataset.pi);};}
-  const on=shot.classList.contains('on')&&VW.mode==='walk'&&!PRICES_OFF&&!TR_NOGOODS()&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;   // проба: ценников нет
-  if(!on){if(box.childElementCount)box.innerHTML=''; PINS.map.clear(); return;}
+    box.onclick=e=>{const r=e.target.closest&&e.target.closest('.vrot'); if(r){vwRotate(); return;}
+      const b=e.target.closest&&e.target.closest('[data-pi]'); if(b)vwHighlight(+b.dataset.pi);};}
+  const live=shot.classList.contains('on')&&VW.mode==='walk'&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
+  const on=live&&!PRICES_OFF&&!TR_NOGOODS();   // проба: ценников нет
+  // цены скрыты — ценников нет, а «Повернуть» у выбранного остаётся (`vwRotPlace`)
+  if(!on){PINS.map.forEach(n=>n.remove()); PINS.map.clear(); if(!live||VW.sel==null){vwRotHide(); return;}}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
     PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready')]
       .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);}
   const fr=PINS.fr, pad=4, seen=new Set(), cand=[];
   const hit=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
-  LIVE.scene.pins().forEach(p=>{if(!p.visible)return; const it=items[p.index], pr=it&&(skuOf(it)||{}).price; if(!pr)return;
+  const all=LIVE.scene.pins();
+  if(on)all.forEach(p=>{if(!p.visible)return; const it=items[p.index], pr=it&&(skuOf(it)||{}).price; if(!pr)return;
     let n=PINS.map.get(p.index); const txt=money(pr);
     if(!n){n=document.createElement('span'); n.className='vpin'; n.dataset.pi=String(p.index); box.appendChild(n); PINS.map.set(p.index,n);}
     if(n.textContent!==txt){n.textContent=txt; n._w=0;}
@@ -9481,10 +9492,83 @@ function vwPinsTick(now){
       return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k)))&&r;};
     const at=pinSpots(c.p, w, h, fr.width, pad).find(([x,y])=>free(x,y)), r=at&&free(at[0],at[1]);
     c.n.hidden=!r; if(!r)return; kept.push(r);
-    const sel=c.p.index===VW.sel; c.n.classList.toggle('sel',sel);
+    const sel=c.p.index===VW.sel; c.n.classList.toggle('sel',sel); c.n._x=at[0]; c.n._y=at[1];
     c.n.style.transform=`translate(${at[0]}px,${at[1]}px)${sel?' scale(1.08)':''}`;});
   PINS.map.forEach((n,i)=>{if(!seen.has(i)){n.remove(); PINS.map.delete(i);}});
+  vwRotPlace(box, fr, pad, kept, all, hit);
   PINS.raf=requestAnimationFrame(vwPinsTick);
+}
+// «ПОВЕРНУТЬ» В 3D (T-20261111-05 п.7, владелец TG 1021): кнопка ↻ рядом с ценой выбранного предмета, каждое нажатие — 45° по часовой
+// вокруг его центра (на плане мебель рисуется `rotate(-rot)`: по часовой = минус). Правило — как у стрелок плана (`rotate90`): у стены
+// предмет заводится внутрь комнаты; не помещается и так — поворот не делаем, говорим. Наезд на соседа РАЗРЕШЁН (как на плане, владелец
+// 31.08): рамка становится красной (`scene.warn`), соседей не двигаем. Поворот — правка расстановки: история ↶/↷, хранится в браузере
+// (`editKeep`), кадр «Сделать фото» после него — новый (номер состояния учитывает `rot`). Висящее на стене и кухню не крутим
+const ROT_STEP=45;
+function vwCanRot(it){
+  if(!it||!(+it.w>0)||!(+it.d>0))return false;
+  const role=String(it.role||''), k=it.sku||{};
+  if(it.strategy==='procedural_plane'&&+it.h>+it.d)return false;   // картина, зеркало
+  return !(k.hung||(+it.elev||0)>0||/^кухн/i.test(role));
+}
+function vwRotHide(){ if(PINS.rot)PINS.rot.hidden=true; }
+function vwRotPlace(box, fr, pad, kept, all, hit){
+  const i=VW.sel, it=i!=null?items[i]:null;
+  if(!it||!vwCanRot(it)||(typeof TR_NOGOODS==='function'&&TR_NOGOODS())){vwRotHide(); return;}
+  let b=PINS.rot;
+  if(!b||!b.isConnected){b=document.createElement('button'); b.type='button'; b.className='vrot';
+    const EN=LANG==='en'; b.setAttribute('aria-label',EN?'Rotate 45°':'Повернуть на 45°');
+    b.innerHTML='<span aria-hidden="true">↻</span>'+(EN?'Rotate':'Повернуть'); box.appendChild(b); PINS.rot=b; b._w=0;}
+  if(b.hidden){b.hidden=false; b._w=0;}
+  if(!b._w){b._w=b.offsetWidth; b._h=b.offsetHeight;}
+  const w=b._w, h=b._h, p=all.find(q=>q.index===i);
+  if(!p||!p.visible){vwRotHide(); return;}
+  const free=(x,y)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
+    return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k)));};
+  // место: справа от цены, слева, над ней, под ней; цены нет (скрыты или не влезла) — над рамкой предмета, как ценник
+  const n=PINS.map.get(i), np=n&&!n.hidden&&n._x!=null;
+  const dy=np?Math.round(n._y+(n._h-h)/2):0;
+  const spots=np?[[n._x+n._w+6,dy],[n._x-6-w,dy],[Math.round(n._x+(n._w-w)/2),n._y-h-6],[Math.round(n._x+(n._w-w)/2),n._y+n._h+6]]
+    :pinSpots(p, w, h, fr.width, pad);
+  const at=spots.find(([x,y])=>free(x,y));
+  if(!at){vwRotHide(); return;}
+  b.style.transform=`translate(${at[0]}px,${at[1]}px)`;
+}
+// след предмета на плане — повёрнутый прямоугольник (см), чуть меньше (касание вплотную — не наезд)
+function fpPoly(it){ const a=-(+it.rot||0)*Math.PI/180, c=Math.cos(a), s=Math.sin(a), hw=Math.max(0,+it.w/2-1), hd=Math.max(0,+it.d/2-1);
+  return [[-hw,-hd],[hw,-hd],[hw,hd],[-hw,hd]].map(([u,v])=>[+it.x+u*c-v*s, +it.y+u*s+v*c]); }
+function polyHit(A,B){
+  for(const P of [A,B])for(let k=0;k<P.length;k++){const p=P[k], q=P[(k+1)%P.length], nx=q[1]-p[1], ny=p[0]-q[0];
+    const pr=Q=>Q.reduce((m,t)=>{const d=t[0]*nx+t[1]*ny; return [Math.min(m[0],d),Math.max(m[1],d)];},[Infinity,-Infinity]);
+    const a=pr(A), b=pr(B); if(a[1]<=b[0]||b[1]<=a[0])return false;}
+  return true;
+}
+// плоское (ковёр), висящее и картины соседями не считаются: под ковром мебель стоит по замыслу
+function vwFlat(o){ return /^ковёр/i.test(String(o.role||''))||o.strategy==='procedural_plane'||(+o.elev||0)>0; }
+function vwRotHits(i){
+  const it=items[i], out=new Set(); if(!it||vwFlat(it))return out;
+  const A=fpPoly(it); items.forEach((o,k)=>{if(k!==i&&o&&+o.w>0&&+o.d>0&&!vwFlat(o)&&polyHit(A,fpPoly(o)))out.add(k);});
+  return out;
+}
+// красная рамка — только за НОВЫЕ наезды, появившиеся поворотом: стулья под обеденным столом стоят так по расстановке
+function vwRotWarn(){
+  const r=VW.rotBase, on=!!(r&&VW.sel===r.i&&[...vwRotHits(r.i)].some(k=>!r.hits.has(k)));
+  if(LIVE.scene&&LIVE.scene.warn)LIVE.scene.warn(on);
+  return on;
+}
+document.addEventListener('remlab:hist',()=>{ if(VW.rotBase)vwRotWarn(); });
+function vwRotate(){
+  const i=VW.sel, it=i!=null?items[i]:null; if(!vwCanRot(it)||vwEditLock())return;
+  if(!VW.rotBase||VW.rotBase.i!==i)VW.rotBase={i, hits:vwRotHits(i)};
+  const R=curRoom(), prev=it.rot, px=it.x, py=it.y;
+  it.rot=((((+it.rot||0)-ROT_STEP)%360)+360)%360;
+  if(R){let b=box(it);
+    it.x=Math.max(b.w/2,Math.min(R.w-b.w/2,it.x)); it.y=Math.max(b.d/2,Math.min(R.d-b.d/2,it.y)); b=box(it);
+    if(b.x0<-0.5||b.y0<-0.5||b.x1>R.w+0.5||b.y1>R.d+0.5){it.rot=prev; it.x=px; it.y=py;
+      toast(LANG==='en'?'At this angle it does not fit the room':'Под этим углом не помещается в комнату'); return;}}
+  histPush();
+  try{draw();}catch(e){}
+  liveShow();
+  if(vwRotWarn())toast(LANG==='en'?'It now touches another item: the frame is red':'Задевает соседний предмет: рамка красная');
 }
 function vwMount(s){
   const shot=document.getElementById('shot'); shot.classList.add('v2');
