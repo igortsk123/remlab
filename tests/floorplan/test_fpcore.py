@@ -656,7 +656,7 @@ def test_text_mask_drops_label_lines_keeps_door_arcs():
     text = np.zeros((260, 200), np.uint8)
     for k, s in enumerate(('Hallway', "2'11 x 12'5", '0.90 x 3.80 m')):
         cv2.putText(text, s, (40, 125 + 22 * k), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1, 2)
-    assert fc.door_evidence(text, c, u, n, L, d) >= 0.75                       # прежде — «дверь»
+    assert fc.door_evidence(text, c, u, n, L, d, pure_check=False) >= 0.75     # прежде — «дверь» (T-11: «чистота» дуги — 0,63)
     tm = fc.text_mask(text, ppm)
     assert tm.sum() >= 0.8 * (text > 0).sum()
     assert fc.door_evidence(np.where(tm, 0, text).astype(np.uint8), c, u, n, L, d) < 0.5     # bench.TEXT_EV_MIN

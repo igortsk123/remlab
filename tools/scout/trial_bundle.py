@@ -549,12 +549,29 @@ def storey_of(title: str | None) -> int | None:
     return found.pop() if len(found) == 1 else None
 
 
+def panel_part(title: str | None) -> tuple[str, str] | None:
+    """Панель — не этаж, а отдельная часть дома с именем помещения («Garage», «Гараж»): → (по-русски, по-английски), иначе None.
+    T-20261111-11 (bs30): панель «Garage» на плане тура подписывалась «Этаж 3» и снимала подтверждение этажей дома."""
+    src = re.sub(r'\s+', ' ', str(title or '').strip())
+    if not src or storey_of(src) is not None:
+        return None
+    if src.isupper():
+        src = ' '.join(w if len(w) <= 3 else w[:1] + w[1:].lower() for w in src.split(' '))
+    if _CYR.search(src):
+        en = _tr_room(src, ROOM_RU_EN, 'and')
+        return (src[:1].upper() + src[1:], en[:1].upper() + en[1:]) if en and not _CYR.search(en) else None
+    ru = _tr_room(src, ROOM_EN_RU, 'и')
+    return (ru[:1].upper() + ru[1:], src) if ru else None
+
+
 def storeys(panels: list) -> tuple[dict, list]:
-    """Индекс панели → этаж. Этаж считается подтверждённым, только если подписаны ВСЕ панели и разными этажами."""
-    vals = [storey_of(p.get('title')) for p in panels]
-    if any(v is None for v in vals) or len(set(vals)) != len(vals):
-        return {}, ['storey_unconfirmed'] if len(panels) > 1 else []
-    return dict(enumerate(vals)), []
+    """Индекс панели → этаж. Этаж считается подтверждённым, только если подписаны ВСЕ панели этажей и разными этажами; панель —
+    часть дома с именем помещения (`panel_part`: гараж) — не этаж, этажа у неё нет и подтверждение она не снимает."""
+    idx = [i for i, p in enumerate(panels) if panel_part(p.get('title')) is None]
+    vals = [storey_of(panels[i].get('title')) for i in idx]
+    if not idx or any(v is None for v in vals) or len(set(vals)) != len(vals):
+        return {}, ['storey_unconfirmed'] if len(idx) > 1 else []
+    return dict(zip(idx, vals)), []
 
 
 _NUMBERED = re.compile(r'^(.*?)\s*(\d{1,3})$')
@@ -1573,6 +1590,8 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
              'refused_rooms': [{'room_id': ids[id(x['room'])], 'code': x['code'], 'detail': x['detail']} for x in refused],
              'panels': [{'id': p['id'], 'title': p['title'],
                          **({'storey': storey_map[i]} if i in storey_map else {}),
+                         # T-20261111-11: панель-часть дома (гараж) — своя подпись над планом вместо «Этаж N»
+                         **(dict(zip(('titleRu', 'titleEn'), panel_part(p.get('title')))) if panel_part(p.get('title')) else {}),
                          # 2D-план — как прочитан (стены и проёмы панели не двигаются); правленая комната — исходные охват и контур
                          # (`plan`) и размер агента `edited` {w, d} (окошко правки показывает его)
                          'rooms': [{'id': ids[id(r)], 'src_id': r['id'], 'name': r.get('name'), 'kind': r['kind'], 'areaM2': r.get('areaM2'),

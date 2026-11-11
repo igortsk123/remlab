@@ -238,6 +238,31 @@ def test_unconfirmed_storeys_are_not_published(titles):
     assert all('storey' not in p for p in d['trial']['panels'])
 
 
+@pytest.mark.parametrize('title,want', [
+    ('Garage', ('Гараж', 'Garage')), ('GARAGE', ('Гараж', 'Garage')), ('Гараж', ('Гараж', 'Garage')), ('Workshop', ('Мастерская', 'Workshop')),
+    ('Ground Floor', None), ('First Floor', None), ('Plan 1', None), ('', None), (None, None),
+])
+def test_panel_part_title(title, want):
+    assert TB.panel_part(title) == want
+
+
+def test_garage_panel_is_not_a_storey():
+    """T-20261111-11 (bs30): панели «GROUND FLOOR», «FIRST FLOOR» и «Garage». Гараж — не этаж: этажи дома остаются
+    подтверждёнными, у гаража своя подпись (`titleRu`/`titleEn`) вместо «Этаж 3»."""
+    p0 = panel('p0', [room('r1', 'living')], [WINDOW, DOOR], title='GROUND FLOOR')
+    p1 = panel('p1', [room('r1', 'bedroom')], [WINDOW, DOOR], title='FIRST FLOOR')
+    p2 = panel('p2', [room('r1', 'other', name='Garage')], [WINDOW, DOOR], title='Garage')
+    assert TB.storeys([p0, p1, p2]) == ({0: 0, 1: 1}, [])
+    d = build(result(p0, p1, p2))
+    assert 'storey_unconfirmed' not in d['trial']['flags']
+    pp = d['trial']['panels']
+    assert [p.get('storey') for p in pp] == [0, 1, None]
+    assert pp[2]['titleRu'] == 'Гараж' and pp[2]['titleEn'] == 'Garage' and 'titleRu' not in pp[0]
+    garage_ids = {r['id'] for r in pp[2]['rooms']}
+    assert all('storey' not in r for r in d['apartment_rooms'] if r['id'] in garage_ids)
+    assert TB.storeys([p2]) == ({}, [])
+
+
 def test_room_order_numbers_within_same_name_and_storeys_bottom_up():
     """T-20261110-04: «Bedroom 2» шла раньше «Bedroom 1» (порядок чертежа). Одноимённые с номером — по номеру на своих местах, прочие
     не двигаются; этажи — снизу вверх по подтверждённому этажу; id комнат не меняются (по ним живут куски стадий)."""

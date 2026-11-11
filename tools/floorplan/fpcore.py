@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 
 import cv2
@@ -515,9 +516,13 @@ def extend_corners(wall: np.ndarray, reach: int, min_flank: int, skip: np.ndarra
     return ((add | addT.T) & (wall == 0)).astype(np.uint8)
 
 
-def xy_cut(mask: np.ndarray, min_gap: int, box=None, depth: int = 0) -> list[tuple]:
+def xy_cut(mask: np.ndarray, min_gap: int, box=None, depth: int = 0, max_open: int | None = None) -> list[tuple]:
     """Рекурсивная нарезка листа по пустым полосам (нет ни одного пикселя стены) шириной ≥ min_gap → рамки
-    (x0, y0, x1, y1). Проёмы и окна полосы через всю панель не дают — режутся только отдельные планы."""
+    (x0, y0, x1, y1). Проёмы и окна полосы через всю панель не дают — режутся только отдельные планы.
+    T-20261111-11: у узкой постройки окно и ворота друг напротив друга (гараж bs30: окно 1,5 м сверху, ворота 1,9 м снизу)
+    дают пустую полосу через всю постройку — её края не стены вдоль полосы, а торцы стен поперёк неё, попарно на одной линии
+    (`opening_band`). Такая полоса не шире `max_open` — проёмы, а не промежуток между планами: не режем (None — режем всё,
+    как прежде)."""
     if box is None:
         box = (0, 0, mask.shape[1], mask.shape[0])
     x0, y0, x1, y1 = box
@@ -532,18 +537,19 @@ def xy_cut(mask: np.ndarray, min_gap: int, box=None, depth: int = 0) -> list[tup
     for axis in (0, 1):
         prof = sub.any(axis=axis)            # axis=0 → по столбцам
         s, e = _runs(~prof)
-        cuts = [(a, b) for a, b in zip(s, e) if b - a >= min_gap and a > 0 and b < len(prof)]
+        cuts = [(a, b) for a, b in zip(s, e) if b - a >= min_gap and a > 0 and b < len(prof)
+                and not (max_open and b - a <= max_open and opening_band(sub if axis == 0 else sub.T, a, b, min_gap))]
         if cuts:
             out, prev = [], 0
             for a, b in cuts + [(len(prof), len(prof))]:
                 nb = (x0 + prev, y0, x0 + a, y1) if axis == 0 else (x0, y0 + prev, x1, y0 + a)
-                out += xy_cut(mask, min_gap, nb, depth + 1)
+                out += xy_cut(mask, min_gap, nb, depth + 1, max_open)
                 prev = b
             return out
     return [(x0, y0, x1, y1)]
 
 
-FRAG_T = 4.0          # кусок xy_cut меньше 4 толщин стены по меньшей стороне — в нём не поместится комната: обломок стены, не план
+FRAG_T = 4.0         # кусок xy_cut меньше 4 толщин стены по меньшей стороне — в нём не поместится комната: обломок стены, не план
 FRAG_STROKE_T = 3.0   # «стена»: прямой штрих длиной ≥ 3 t …
 FRAG_THICK = (0.5, 1.6)  # … и толщиной 0,5–1,6 t (буквы, роза ветров, тонкая рамка — не стены)
 
@@ -588,6 +594,33 @@ def merge_fragments(mask: np.ndarray, regions: list[tuple], t: float, angles=(0.
             changed = merged = True
             break
     return regs if merged else list(regions)
+
+
+OPEN_EDGE_MAX = 0.5    # полоса-проём: строки с торцами с обеих сторон — не больше половины высоты постройки
+
+
+def opening_band(sub: np.ndarray, a: int, b: int, min_gap: int) -> bool:
+    """Пустая полоса столбцов [a, b) маски `sub` — проём(ы) одной постройки (T-20261111-11): строки, где стена есть у края
+    полосы с ОБЕИХ сторон (в полосе шириной min_gap/2), — это торцы стен поперёк полосы на одной линии; их ≥ 2 куска (стена
+    сверху и снизу) и вместе ≤ OPEN_EDGE_MAX высоты. Два отдельных плана рядом: их боковые стены вдоль полосы дают общие
+    строки сплошь (один кусок на большую часть высоты). Край — min_gap/2, не сама кромка: проёмы напротив бывают разной
+    ширины (гараж bs30: окно 1,5 м, ворота 1,9 м — торец ворот на 0,3 м дальше края полосы); боковая стена узкой постройки
+    в ту же полосу попадает только с одной стороны.
+    Торцы — по краям постройки: первый кусок у начала, последний у конца того, что есть у краёв полосы (стены по бокам
+    проёма). Надпись над планом (заголовок «First Floor» напротив верхней стены с окнами) стоит посередине — это не проём
+    (T-11/2: лист 4y0opq склеивал заголовок и подвал с планом)."""
+    k = max(3, min_gap // 2)
+    left = sub[:, max(0, a - k):a].any(axis=1)
+    right = sub[:, b:b + k].any(axis=1)
+    span = int(np.count_nonzero(sub.any(axis=1)))
+    both = left & right
+    if not span or both.sum() > OPEN_EDGE_MAX * span:
+        return False
+    s, e = _runs(both)
+    if len(s) < 2:
+        return False
+    ext = np.flatnonzero(left | right)
+    return bool(s[0] <= ext[0] + 2 * k and e[-1] >= ext[-1] + 1 - 2 * k)
 
 
 def rotate_mask(m: np.ndarray, angle_deg: float, shape=None, inverse_of=None):
@@ -1286,6 +1319,41 @@ def frame_coverage(ys: np.ndarray, xs: np.ndarray, line: np.ndarray) -> float:
     return float(best)
 
 
+STAIR_LINES = 3          # T-20261111-11: столько параллельных разрыву линий по одну сторону — ступени марша
+STAIR_REACH_M = 0.8      # ищем их на этой глубине от грани разрыва, м
+STAIR_COVER = 0.75       # линия: покрыта ≥ 75 % средней части разрыва (рама эркера — частично, ~0,6)
+STAIR_STEP_M = 0.15      # линии ближе этого (м) друг к другу — одна (рама окна, эркер bs30: 0,16 м), ступени дальше (0,2–0,3)
+
+
+def stair_edge(thin: np.ndarray, c, u, n, L: float, depth: float, ppm: float) -> bool:
+    """Край марша: по одну сторону разрыва — ≥ STAIR_LINES параллельных ему линий (ступени) в STAIR_REACH_M. Линия в самом
+    разрыве у верха лестницы — первая ступень, не рама: внутренний разрыв с такой «рамой» не закрываем (T-20261111-11, bs30:
+    верх лестницы отрезан от площадки и назван «Cupboard»)."""
+    H, W = thin.shape
+    c, u, n = (np.asarray(v, float) for v in (c, u, n))
+    t = np.linspace(-0.4 * L, 0.4 * L, max(5, int(0.8 * L)))
+    for s in (n, -n):
+        rows = []
+        for o in np.arange(depth / 2 + 2, depth / 2 + STAIR_REACH_M * ppm):
+            P = c[None, :] + s[None, :] * o + u[None, :] * t[:, None]
+            xi, yi = np.rint(P[:, 0]).astype(int), np.rint(P[:, 1]).astype(int)
+            ok = (xi >= 0) & (xi < W) & (yi >= 0) & (yi < H)
+            hit = np.zeros(len(t), bool)
+            hit[ok] = thin[yi[ok], xi[ok]] > 0
+            rows.append(hit.mean() >= STAIR_COVER)
+        if not rows:
+            continue
+        st = _runs(np.array(rows))[0]
+        # ступени — через 0,2–0,3 м; линии рамы окна (двойные, тройные) — через несколько px: их считаем одной
+        n_lines, last = 0, -1e9
+        for a in st:
+            if a - last >= STAIR_STEP_M * ppm:
+                n_lines, last = n_lines + 1, a
+        if n_lines >= STAIR_LINES:
+            return True
+    return False
+
+
 def gap_axes(ys: np.ndarray, xs: np.ndarray):
     """Пиксели разрыва → центр, единичный вектор вдоль разрыва (главная ось), нормаль, длина, глубина."""
     P = np.column_stack([xs, ys]).astype(float)
@@ -1323,55 +1391,165 @@ def mouth_strip(comp: np.ndarray, wall: np.ndarray, t: float):
     return sy + y0, sx + x0
 
 
-def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5, tangent_only: bool = False) -> float:
+def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5, tangent_only: bool = False,
+                  want_px: bool = False, wall: np.ndarray | None = None, pure_check: bool = True):
     """Есть ли у разрыва дуга двери: доля углов 0–90°, где на радиусе створки от петли (конец разрыва, грань стены)
     лежит тонкая линия. Створка одна (радиус L) или две (по L/2 от каждого конца, обе дуги). → лучшая доля 0..1.
     `tangent_only` — только «вогнутая» дуга створки, нарисованной закрытой в линии стены (T-20261110-11): касается грани
-    у торца, центр в комнате на глубине R; её первые ~35° (у самой грани, где лежат линии рамы окна) не считаются."""
+    у торца, центр в комнате на глубине R; её первые ~35° (у самой грани, где лежат линии рамы окна) не считаются.
+    `want_px` → (доля, пиксели рисунка `_evidence_px`) — для «одна дуга — одна дверь» (T-20261111-11).
+    `wall` (маска стен) — створка вплотную к грани стены (ближе LEAF_WALL·R) не засчитывается: это обвод стены или
+    тетива лестницы у неё, а «разрыв» упирается в стену поперёк (T-20261111-11, bs30: площадка у санузла, верх лестницы).
+    `pure_check=False` — прежнее правило без «чистоты» (запасная дверь комнаты без дверей, `bench.doorless_doors`, T-11/3)."""
     if tangent_only:
-        return _tangent_evidence(thin, c, u, n, L, depth, step_deg)
+        v = _tangent_evidence(thin, c, u, n, L, depth, step_deg)
+        return (v, frozenset()) if want_px else v
     H, W = thin.shape
     th = np.radians(np.arange(0, 91, step_deg))
+    c = np.asarray(c, float)
+    # T-20261111-11: один вырез вокруг разрыва, расширенный на окно 5×5 (точка «у линии» — линия в её окне; за краем листа
+    # пусто) — как у `_tangent_evidence`; точки дальше выреза — за краем листа
+    m = int(2.5 * L + depth) + 8
+    cx, cy = int(round(float(c[0]))), int(round(float(c[1])))
+    ox, oy = max(0, cx - m), max(0, cy - m)
+    crop = np.pad((thin[oy:min(H, cy + m + 1), ox:min(W, cx + m + 1)] > 0).astype(np.uint8), 2)
+    dil = cv2.dilate(crop, np.ones((5, 5), np.uint8)) > 0
+    hh, ww = dil.shape
+    pure = arc_pure() if pure_check else None
+    wcrop = None
+    if wall is not None and pure:
+        wcrop = np.pad(wall[oy:min(H, cy + m + 1), ox:min(W, cx + m + 1)] > 0, 2)
+    # T-11/2: пол заштрихован целиком (паркет «ёлочкой», лист aOv8kT: пунктирная дуга тонет в штриховке) — линии на 0,8R/1,2R
+    # и по бокам створки есть везде, «чистота» гасит любую дверь: прежнее правило. Ступени и надписи (bs30) — пятно, не весь пол
+    if pure and (dil[~wcrop] if wcrop is not None else dil).mean() >= FLOOR_HATCH:
+        pure, wcrop = None, None
+
+    def on(P, src=None):
+        src = dil if src is None else src
+        xi = np.rint(P[..., 0]).astype(int) - ox + 2
+        yi = np.rint(P[..., 1]).astype(int) - oy + 2
+        ok = (xi >= 0) & (xi < ww) & (yi >= 0) & (yi < hh)
+        r = np.zeros(xi.shape, bool)
+        r[ok] = src[yi[ok], xi[ok]]
+        return r
+
+    def arc_pts(h, d, s, R):
+        return h[None, :] + R * (np.cos(th)[:, None] * d[None, :] + np.sin(th)[:, None] * s[None, :])
+
+    def cov_mask(h, d, s, R):
+        """Засчитанные точки дуги. T-20261111-11: «чистая дуга» — на том же луче от петли на 0,8R и 1,2R линий нет вместе
+        (`ARC_PURE`): текст подписи и ступени лестницы — сплошная штриховка, задевают все три радиуса (bs30: «двери» площадки
+        по надписи Landing и по ступеням)."""
+        hit = on(arc_pts(h, d, s, R))
+        if pure:
+            # у малой дуги (дверца 0,4 м, R ~ 15 px) 0,2R внутри окна 5×5 самой линии — сдвиг не меньше PURE_MIN_PX
+            k = max(PURE_MIN_PX, (1 - pure[0]) * R)
+            hit &= ~(on(arc_pts(h, d, s, R - k)) & on(arc_pts(h, d, s, R + k)))
+        return hit
 
     def cov(h, d, s, R):
-        pts = h[None, :] + R * (np.cos(th)[:, None] * d[None, :] + np.sin(th)[:, None] * s[None, :])
-        hit = 0
-        for x, y in pts:
-            xi, yi = int(round(x)), int(round(y))
-            y0, y1, x0, x1 = max(0, yi - 2), min(H, yi + 3), max(0, xi - 2), min(W, xi + 3)
-            if y1 > y0 and x1 > x0 and thin[y0:y1, x0:x1].any():
-                hit += 1
-        return hit / len(pts)
+        return float(cov_mask(h, d, s, R).mean())
 
-    def leaf(h, s, R):
+    def leaf_pts(h, s, R):
+        return h[None, :] + s[None, :] * np.linspace(0.15 * R, 0.95 * R, 12)[:, None]
+
+    def leaf_mask(h, s, R, w):
+        """Засчитанные точки створки. T-20261111-11: «чистая» — сбоку (вдоль стены, ±LEAF_PURE·R) линий нет вместе: текст и
+        ступени лестницы — сплошные, их «створка» задевает обе стороны."""
+        Q = leaf_pts(h, s, R)
+        hit = on(Q)
+        if pure:
+            k = max(PURE_MIN_PX, LEAF_PURE * R)
+            hit &= ~(on(Q + w[None, :] * k) & on(Q - w[None, :] * k))
+        if wcrop is not None:
+            for t in (0.5, 1.0):
+                for sg in (1, -1):
+                    hit &= ~on(Q + sg * t * LEAF_WALL * R * w[None, :], wcrop)
+        return hit
+
+    def leaf(h, s, R, w):
         """Створка: прямая тонкая линия от петли поперёк стены длиной ~R (доля покрытых точек)."""
-        rs = np.linspace(0.15 * R, 0.95 * R, 12)
-        hit = 0
-        for r in rs:
-            x, y = h + s * r
-            xi, yi = int(round(x)), int(round(y))
-            y0, y1, x0, x1 = max(0, yi - 2), min(H, yi + 3), max(0, xi - 2), min(W, xi + 3)
-            if y1 > y0 and x1 > x0 and thin[y0:y1, x0:x1].any():
-                hit += 1
-        return hit / len(rs)
+        return float(leaf_mask(h, s, R, w).mean())
 
-    best = 0.0
+    best, how = 0.0, None
     for s in (n, -n):
         face = c + s * depth / 2
         for j in (0.0, 0.1, 0.2, 0.3):               # петля чуть внутри разрыва (торец рисуют с наличником)
             e1, e2 = face - u * L * (0.5 - j), face + u * L * (0.5 - j)
             for f in np.arange(0.5, 1.06, 0.05):
                 R = f * L
-                a1, a2 = cov(e1, u, s, R), cov(e2, -u, s, R)
-                single = max(a1, a2)
-                double = min(cov(e1, u, s, R / 2), cov(e2, -u, s, R / 2))
-                best = max(best, single, double)
+                m1, m2 = cov_mask(e1, u, s, R), cov_mask(e2, -u, s, R)
+                a1, a2 = float(m1.mean()), float(m2.mean())
+                d1, d2 = cov(e1, u, s, R / 2), cov(e2, -u, s, R / 2)
+                for v, w in ((a1, ('arc', e1, u, s, R)), (a2, ('arc', e2, -u, s, R)),
+                             (min(d1, d2), ('double', e1, e2, u, s, R / 2))):
+                    if v > best:
+                        best, how = v, w
                 # второй признак: створка у петли + дуга хотя бы частично (её конец бывает срезан стеной)
                 if best < LEAF_SCORE:
-                    for a, e in ((a1, e1), (a2, e2)):
-                        if a >= LEAF_ARC_MIN and leaf(e, s, R) >= LEAF_MIN:
-                            best = max(best, LEAF_SCORE)
+                    for a, e, d in ((a1, e1, u), (a2, e2, -u)):
+                        if a >= LEAF_ARC_MIN and leaf(e, s, R, u) >= LEAF_MIN:
+                            best, how = LEAF_SCORE, ('leaf', e, d, s, R, s, u)
+                # T-20261111-11: створка приоткрыта (дверцы шкафов, bs30: шкаф у площадки — на ~37°) — дуга 0–φ почти целиком
+                # и прямая створка под углом φ (HALF_ANGLES)
+                if best < LEAF_SCORE and pure:
+                    for m_, e, d in ((m1, e1, u), (m2, e2, -u)):
+                        for phi in HALF_ANGLES:
+                            k = phi // step_deg + 1
+                            if k > len(m_) or m_[:k].mean() < HALF_ARC_MIN:
+                                continue
+                            a_ = np.radians(phi)
+                            q = np.cos(a_) * d + np.sin(a_) * s
+                            wq = np.sin(a_) * d - np.cos(a_) * s
+                            if leaf(e, q, R, wq) >= LEAF_MIN:
+                                best, how = LEAF_SCORE, ('leaf', e, d, s, R, q, wq)
+                                break
+    if want_px:
+        return best, _evidence_px(thin, how, cov_mask, arc_pts, leaf_mask, leaf_pts)
     return best
+
+
+def _evidence_px(thin, how, cov_mask, arc_pts, leaf_mask, leaf_pts) -> frozenset:
+    """Пиксели тонкой графики, на которых держится лучший рисунок `door_evidence` (дуга, две дуги или створка с дугой):
+    линии в окнах 5×5 засчитанных точек → множество индексов y·W + x листа (для «одна дуга — одна дверь», `bench`)."""
+    if how is None:
+        return frozenset()
+    pts = []
+    if how[0] == 'double':
+        _, e1, e2, u, s, R = how
+        for h, d in ((e1, u), (e2, -u)):
+            P = arc_pts(h, d, s, R)
+            pts.append(P[cov_mask(h, d, s, R)])
+    else:
+        _, h, d, s, R = how[:5]
+        P = arc_pts(h, d, s, R)
+        pts.append(P[cov_mask(h, d, s, R)])
+        if how[0] == 'leaf':
+            q, wq = how[5:]
+            pts.append(leaf_pts(h, q, R)[leaf_mask(h, q, R, wq)])
+    H, W = thin.shape
+    out = set()
+    for P in pts:
+        for x, y in np.rint(P).astype(int):
+            y0, y1, x0, x1 = max(0, y - 2), min(H, y + 3), max(0, x - 2), min(W, x + 3)
+            if y1 > y0 and x1 > x0:
+                yy, xx = np.nonzero(thin[y0:y1, x0:x1])
+                out.update(((yy + y0) * W + xx + x0).tolist())
+    return frozenset(out)
+
+
+ARC_PURE = (0.8, 1.2)   # T-20261111-11: радиусы проверки «чистой дуги» у `door_evidence` (как TANGENT_PURE у «вогнутой»)
+LEAF_PURE = 0.2         # T-20261111-11: сдвиг вбок (доля R) для проверки «чистой створки»
+PURE_MIN_PX = float(os.environ.get('FP_PURE_MIN_PX', '6'))   # T-20261111-11: сдвиг проверки «чистоты» не меньше 6 px (окно 5×5 + толщина линии с JPEG)
+FLOOR_HATCH = float(os.environ.get('FP_FLOOR_HATCH', '0.4'))   # T-11/2: тонкая графика (окно 5×5) покрывает ≥ 40 % пола у разрыва — пол заштрихован (паркет), «чистота» не различает
+LEAF_WALL = 0.12        # T-20261111-11: створка ближе этой доли R к грани стены — обвод стены, не створка
+HALF_ARC_MIN = 0.75     # T-20261111-11: приоткрытая створка (угол φ) — дуга 0–φ покрыта не меньше чем на 75 %
+HALF_ANGLES = tuple(range(30, 61, 5))   # углы приоткрытой створки, °
+
+
+def arc_pure():
+    """Радиусы «чистой дуги» `door_evidence`; FP_ARC_PURE=0 — без проверки (прежнее правило, сравнение)."""
+    return None if os.environ.get('FP_ARC_PURE', '1') == '0' else ARC_PURE
 
 
 def _tangent_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5) -> float:

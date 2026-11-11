@@ -689,6 +689,129 @@ def pocket_doors(gaps, lab_g, lab, final, outside, areas, pocket_px: float, pock
             g.kind = 'wall'                           # межкомнатная с одним помещением по сторонам (закрытие у ванны в стену)
 
 
+OWN_SHARE = 0.5     # T-20261111-11: заявка, у которой не меньше этой доли рисунка уже у более сильной двери, — не дверь
+# T-20261111-11: полоса-проём `fpcore.xy_cut` — не шире малого закрытия (Ls = 1,7 м, его разбор и закрывает: окно и ворота
+# гаража bs30 — полоса 1,5 м). Шире — эркер/зимний сад из окон (bs30: боковые окна 2,8 м): там лучше «рамка» починки по подписи,
+# поэтому такие полосы режем, как прежде
+OPEN_MAX_M = 1.7
+OPEN_MAX_T = 8.5    # на всём листе масштаба ещё нет: 8,5 толщин стены ≈ 1,7 м при стене ~0,2 м
+STAIR_EDGE = os.environ.get('FP_STAIR_EDGE', '1') != '0'   # T-20261111-11: верх марша не закрываем «рамой» (`fpcore.stair_edge`)
+DOORLESS = os.environ.get('FP_DOORLESS', '1') != '0'       # T-11/3: запасная дверь комнаты без дверей (`doorless_doors`); 0 — без неё
+BAY_OLD = os.environ.get('FP_BAY_OLD', '1') != '0'         # T-11/3: дверь у «эркера» — прежнее правило (`bay_windows`); 0 — с «чистотой»
+DOORLESS_TOL_M = 0.3    # проём «у комнаты» — не дальше от её пола (как ROOM_TOL_CM сравнения `regress`)
+
+
+def doorless_doors(r: dict, ppm: float) -> list:
+    """Страховка на уровне комнаты (T-11/3). «Чистота» дуги (`fpcore.door_evidence`, T-11) снимает ложные двери по тексту
+    и ступеням, но на мелком загромождённом листе (rgK5f3, ~30 px/м) — и все двери отдельных комнат: кухня, кладовые, WC
+    оставались без единого прохода, в туре недоступны (прогулка, расстановка) — хуже лишней двери. Комнате без двери
+    (ни одной двери не дальше DOORLESS_TOL_M от пола) возвращается лучшая по прежнему правилу кандидатка у неё:
+    закрытие, снятое только «чистотой» (`alts` из `_analyze`), или наружный разрыв, ставший окном только по ней (`retype`).
+    T-11/4 (правило владельца «все элементы, как на плане»; rgK5f3 Tool store): нет таких — окно с «рамой» и дугой открывания
+    у этой комнаты (`glazed`: серая заливка проёма — та же «рама», дуга наружу), не меньше половины проёма у её пола; окно
+    без дуги в `glazed` не попадает и остаётся окном. Правит r['gaps']/r['lab_g'] на месте → [(id комнаты, доля)]."""
+    alts, ret, glz = r.get('alts') or [], r.get('retype') or [], r.get('glazed') or []
+    if not DOORLESS or not (alts or ret or glz) or not r.get('rooms'):
+        return []
+    lab, lab_g, gaps = r['lab'], r['lab_g'], r['gaps']
+    byid = {g.id: g for g in gaps}
+    cands = [(ys, xs, ev, None, 0) for ys, xs, ev in alts]
+    for tier, lst in ((0, ret), (1, glz)):
+        for gid, ev in lst:
+            if gid in byid and byid[gid].kind == 'window':
+                ys, xs = np.nonzero(lab_g == gid)
+                if len(ys):
+                    cands.append((ys, xs, ev, gid, tier))
+    if not cands:
+        return []
+    # дверь «у комнаты» — по середине (как проём у комнаты в туре и в `regress`: середина не дальше ROOM_TOL_CM от контура).
+    # T-11/4: по касанию пикселей ложное широкое наружное закрытие у стены (rgK5f3 Tool store: 2,26 м, глубина 1,3 м, середина
+    # в 45 см от пола) «давало» кладовой дверь, которой в туре у неё нет
+    door_c = [(g.cx, g.cy) for g in gaps if g.kind == 'door']
+    if r.get('add_extra') is not None and r['add_extra'].any():
+        ne, _, _, cen = cv2.connectedComponentsWithStats(r['add_extra'].astype(np.uint8), connectivity=8)
+        door_c += [tuple(cen[i]) for i in range(1, ne)]
+    tol = DOORLESS_TOL_M * ppm
+    k = 2 * max(2, int(round(DOORLESS_TOL_M * ppm))) + 1
+    ker = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    out_near = cv2.dilate((r['outside'] > 0).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0 \
+        if r.get('outside') is not None else np.zeros(lab.shape, bool)
+    added = []
+    for rid in r['rooms']:
+        ys0, xs0 = np.nonzero(lab == rid)
+        if not len(ys0):
+            continue
+        y0, y1 = max(0, ys0.min() - k), min(lab.shape[0], ys0.max() + k + 1)
+        x0, x1 = max(0, xs0.min() - k), min(lab.shape[1], xs0.max() + k + 1)
+        zone = np.zeros(lab.shape, bool)
+        own = (lab[y0:y1, x0:x1] == rid).astype(np.uint8)
+        zone[y0:y1, x0:x1] = cv2.dilate(own, ker) > 0
+        dist = cv2.distanceTransform(1 - own, cv2.DIST_L2, 3)       # до пола комнаты, px
+        if any(y0 <= int(round(cy)) < y1 and x0 <= int(round(cx)) < x1
+               and dist[int(round(cy)) - y0, int(round(cx)) - x0] <= tol for cx, cy in door_c):
+            continue
+        best = None
+        for c in cands:
+            inz = zone[c[0], c[1]]
+            if not inz.any() or (c[4] and inz.mean() < 0.5):      # окно с дугой — своё, не соседней комнаты у угла
+                continue
+            if best is None or (c[4], -c[2]) < (best[4], -best[2]):   # сперва прежнее правило, окно с дугой — последним
+                best = c
+        if best is None:
+            continue
+        ys, xs, ev, gid, _ = best
+        if gid is not None:
+            byid[gid].kind = 'door'
+        else:
+            free = lab_g[ys, xs] == 0
+            if not free.any():
+                continue
+            ys, xs = ys[free], xs[free]
+            gid = int(lab_g.max()) + 1
+            lab_g[ys, xs] = gid
+            g = fc.regap(fc.Gap(gid, 0.0, 0.0, 0.0, 0.0, 'door', 0.0, bool(out_near[ys, xs].any()), (0, 0, 0, 0)), ys, xs)
+            gaps.append(g)
+            byid[gid] = g
+        door_c.append((byid[gid].cx, byid[gid].cy))
+        cands = [c for c in cands if c is not best]
+        added.append((int(rid), round(ev, 2)))
+    return added
+
+
+def open_max(px: int) -> int | None:
+    """Предел полосы-проёма `fpcore.xy_cut`; FP_OPEN_BAND=0 — режем по любой пустой полосе (прежнее правило)."""
+    return None if os.environ.get('FP_OPEN_BAND', '1') == '0' else px
+
+
+def own_arcs(claims: list, keep_other: np.ndarray, share: float = OWN_SHARE) -> np.ndarray | None:
+    """«Одна дуга — одна дверь» (T-20261111-11). Заявки закрытий по дуге (ys, xs, доля, пиксели рисунка `door_evidence`)
+    по убыванию доли забирают свой рисунок; заявка, у которой ≥ `share` рисунка уже забрала более сильная, — дугу чужой двери
+    приняли за свою: её закрытие снимается. bs30 (площадка 2-го этажа): поперёк коридора у шкафа — «двери» по дуге и створке
+    дверцы шкафа (0,8 против 1,0 у самой дверцы), коридор резался на куски, площадка — 0,74 м² вместо L-образной ~4,7.
+    → маска снимаемых пикселей (кроме пикселей принятых заявок и закрытий не по дуге `keep_other`) или None.
+    FP_ARC_OWN=0 — без правила (сравнение)."""
+    if not claims or os.environ.get('FP_ARC_OWN', '1') == '0':
+        return None
+    order = sorted(range(len(claims)), key=lambda i: -claims[i][2])        # устойчиво: при равной доле — порядок проходов
+    owned, lost, kept = set(), [], []
+    for i in order:
+        px = claims[i][3]
+        if px and len(px & owned) >= share * len(px):
+            lost.append(i)
+        else:
+            owned |= px
+            kept.append(i)
+    if not lost:
+        return None
+    drop = np.zeros(keep_other.shape, bool)
+    for i in lost:
+        drop[claims[i][0], claims[i][1]] = True
+    for i in kept:
+        drop[claims[i][0], claims[i][1]] = False
+    drop &= keep_other == 0
+    return drop if drop.any() else None
+
+
 def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr=215):
     """Один проход при гипотезе масштаба ppm (px на метр): разрывы → комнаты → проёмы."""
     ang = rot_angles(fams)
@@ -731,7 +854,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     _, _, out1 = fc.free_components(wall | cand_s | allb)
     near_thin = None
     keep = np.zeros_like(wall)
-    kid = np.zeros(wall.shape, np.int32)            # номер закрытия (T-20261111-09: делить сросшиеся углами, `fpcore.split_composite`)
+    kid =np.zeros(wall.shape, np.int32)            # номер закрытия (T-20261111-09: делить сросшиеся углами, `fpcore.split_composite`)
 
     nkid = [0]
 
@@ -750,6 +873,25 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
         if not no_text:
             no_text.append(np.where(fc.text_mask(thin, ppm), 0, thin).astype(thin.dtype))
         return fc.door_evidence(no_text[0], c, u, nrm, L, dpt) >= TEXT_EV_MIN
+
+    # T-20261111-11: закрытия «по дуге» (малые, устье каморки, угловые, тонкие перегородки) — заявки с пикселями рисунка; одна
+    # дуга — одна дверь (`own_arcs` ниже). keep_other — закрытия не по дуге (рама окна, большие проёмы): их не трогаем
+    claims, keep_other = [], np.zeros_like(wall)
+
+    def ev_of(c_, u_, n_, L_, d_):
+        return fc.door_evidence(thin, c_, u_, n_, L_, d_, want_px=True, wall=wall_drawn)
+
+    # T-11/3: закрытие, которое сняла только «чистота» дуги (прежнее правило — дверь), — запасная дверь комнаты, оставшейся
+    # без дверей (`doorless_doors`)
+    alts = []
+
+    def alt_of(ys_, xs_, c_, u_, n_, L_, d_):
+        if not DOORLESS or fc.arc_pure() is None:
+            return
+        raw = fc.door_evidence(thin, c_, u_, n_, L_, d_, pure_check=False)
+        if raw >= DOOR_EV:
+            alts.append((ys_, xs_, float(raw)))
+
     # малые разрывы: закрываем, только если есть след проёма — рама окна в толщине стены или дуга двери
     for p in ps_s:
         lab_s, gs = fc.gap_components(p, dark, out1)
@@ -759,29 +901,48 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             win = g.glaze >= GLAZE_MIN and g.exterior and dpt <= 2.2 * t
             if dpt > 2.2 * t:
                 continue
-            ev = fc.door_evidence(thin, c, u, nrm, L, dpt)
+            ev, px = ev_of(c, u, nrm, L, dpt)
             if dpt > max_depth and not win and ev < DOOR_EV:
                 # каморка (шкаф, кладовка) залита перемычкой целиком — проём ищем только в её «устье» у соседа
                 mm = fc.mouth_strip(lab_s == g.id, wall, t)
                 if mm is not None:
                     ys2, xs2 = mm
                     c2, u2, n2, L2, d2 = fc.gap_axes(ys2, xs2)
-                    if d2 <= max_depth and L2 >= 0.4 * ppm and fc.door_evidence(thin, c2, u2, n2, L2, d2) >= DOOR_EV:
-                        mark(ys2, xs2)
+                    if d2 <= max_depth and L2 >= 0.4 * ppm:
+                        ev2, px2 = ev_of(c2, u2, n2, L2, d2)
+                        if ev2 >= DOOR_EV:
+                            mark(ys2, xs2)
+                            claims.append((ys2, xs2, ev2, px2))
+                        else:
+                            alt_of(ys2, xs2, c2, u2, n2, L2, d2)
                 continue
-            if win or g.glaze >= GLAZE_MIN or (ev >= DOOR_EV and span_ok(g, c, u, nrm, L, dpt)):
+            # T-20261111-11: внутренний разрыв с линией у края марша (ступени по одну сторону) — верх лестницы, не рама
+            stair = not g.exterior and g.glaze >= GLAZE_MIN and STAIR_EDGE and fc.stair_edge(thin, c, u, nrm, L, dpt, ppm)
+            if win or (g.glaze >= GLAZE_MIN and not stair):
                 mark(ys, xs)
-            elif PS_TAIL and ev < DOOR_EV:
-                # T-20261111-09: дверь в тонкой стене, чей кусок за проёмом тоньше куска над ним, — перемычка шла и вдоль тонкого
-                # куска (щель у его грани), и дуга мерилась по «двери» 1,5 м (TGva…, кухня: 0,73 м двери + 0,77 м щели). Срезать
-                # хвост-клин (`fpcore.wedge_tails`, как у классификации T-03) и проверить дугу у остатка
-                tail = fc.wedge_tails(wall_drawn, ys, xs, ppm)
-                if tail is not None and (~tail).sum() >= 3:
-                    ys3, xs3 = ys[~tail], xs[~tail]
-                    c3, u3, n3, L3, d3 = fc.gap_axes(ys3, xs3)
-                    if d3 <= max_depth and fc.door_evidence(thin, c3, u3, n3, L3, d3) >= DOOR_EV \
-                            and span_ok(g, c3, u3, n3, L3, d3):
-                        mark(ys3, xs3)
+                keep_other[ys, xs] = 1
+            elif ev >= DOOR_EV:
+                if not stair and span_ok(g, c, u, nrm, L, dpt):   # T-11/2: не стрелка «Down» поперёк ступеней; T-09: не буквы
+                    mark(ys, xs)
+                    claims.append((ys, xs, ev, px))
+            elif not stair:
+                done = False
+                if PS_TAIL:
+                    # T-20261111-09: дверь в тонкой стене, чей кусок за проёмом тоньше куска над ним, — перемычка шла и вдоль
+                    # тонкого куска (щель у его грани), и дуга мерилась по «двери» 1,5 м (TGva…, кухня: 0,73 м двери + 0,77 м щели).
+                    # Срезать хвост-клин (`fpcore.wedge_tails`, как у классификации T-03) и проверить дугу у остатка
+                    tail = fc.wedge_tails(wall_drawn, ys, xs, ppm)
+                    if tail is not None and (~tail).sum() >= 3:
+                        ys3, xs3 = ys[~tail], xs[~tail]
+                        c3, u3, n3, L3, d3 = fc.gap_axes(ys3, xs3)
+                        if d3 <= max_depth:
+                            ev3, px3 = fc.door_evidence(thin, c3, u3, n3, L3, d3, want_px=True)
+                            if ev3 >= DOOR_EV and span_ok(g, c3, u3, n3, L3, d3):
+                                mark(ys3, xs3)
+                                claims.append((ys3, xs3, ev3, px3))
+                                done = True
+                if not done and dpt <= max_depth:
+                    alt_of(ys, xs, c, u, nrm, L, dpt)
     # большие (окна, эркеры): обе стороны — длинная стена, снаружи, рама в разрыве или сразу за ним
     for p in ps_b:
         p = p & (cand_s == 0)
@@ -794,6 +955,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             near = cv2.dilate(thin, np.ones((k, k), np.uint8))
             if g.glaze >= GLAZE_MIN or (g.length <= 3.6 * ppm and near[m].mean() >= 0.5):   # шире 3,6 м — только по раме
                 mark(*np.nonzero(m))
+                keep_other |= m.astype(np.uint8)
     # T-20261110-03: косая дверь в углу комнаты (`fpcore.corner_cut_doors`) — отрезок между торцами двух стен угла. Правило — как у
     # прямой межкомнатной: ширина в [DOOR_MIN_M; Ls] и нарисована дуга/створка (DOOR_EV); проход/арка без створки — не закрываем
     H_, W_ = wall.shape
@@ -805,8 +967,13 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                 continue
             ys, xs = ys + Y0, xs + X0
             c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
-            if fc.DOOR_MIN_M * ppm <= L <= Ls and fc.door_evidence(thin, c, u, nrm, L, dpt) >= DOOR_EV:
-                mark(ys, xs)
+            if fc.DOOR_MIN_M * ppm <= L <= Ls:
+                ev, px = ev_of(c, u, nrm, L, dpt)
+                if ev >= DOOR_EV:
+                    mark(ys, xs)
+                    claims.append((ys, xs, ev, px))
+                else:
+                    alt_of(ys, xs, c, u, nrm, L, dpt)
         # T-20261110-03/2: стены угла кончаются скосом 45° с точкой-косяком (`fpcore.bevel_corner_doors`). Правило то же; петля
         # створки — сама точка-косяк, поэтому дуга ищется и от точек торцов (радиус — до другой точки), не только от граней разрыва
         ends_r = [dict(e, p=e['p'] - (X0, Y0)) for e in ends if X0 <= e['p'][0] < X1 and Y0 <= e['p'][1] < Y1]
@@ -821,10 +988,11 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             q1, q2 = p1 + (X0, Y0), p2 + (X0, Y0)
             D = float(np.hypot(*(q2 - q1)))
             ut = (q2 - q1) / D
-            ev = max(fc.door_evidence(thin, c, u, nrm, L, dpt),
-                     fc.door_evidence(thin, (q1 + q2) / 2, ut, np.array([-ut[1], ut[0]]), D, 0.0))
+            ev, px = max(ev_of(c, u, nrm, L, dpt), ev_of((q1 + q2) / 2, ut, np.array([-ut[1], ut[0]]), D, 0.0),
+                         key=lambda x: x[0])
             if ev >= DOOR_EV:
                 mark(ys, xs)
+                claims.append((ys, xs, ev, px))
     # T-20261110-33: дверь между короткими выступами ТОНКОЙ перегородки при толстых наружных стенах (aRQVC9: t листа 34 px,
     # перегородки 8–10, косяки двери спальни 3 — выступы 13–22 px при флангах 1,5·t = 51 px — не закрывалась, спальня слипалась
     # с площадкой). Только на листах со смешанной толщиной (`fpcore.thin_partition_t`): фланг — от толщины перегородок, правило
@@ -857,9 +1025,18 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                     if not 0.6 * tp <= dpt <= 3 * tp or not fc.DOOR_MIN_M * ppm <= L <= THIN_DOOR_MAX_M * ppm \
                             or not fc.passes_through(wall | keep, ys, xs):
                         continue
-                    if fc.door_evidence(thin, c, u, nrm, L, dpt) >= DOOR_EV:
+                    ev, px = ev_of(c, u, nrm, L, dpt)
+                    if ev >= DOOR_EV:
                         mark(ys, xs)
                         thin_keep[ys, xs] = 1
+                        claims.append((ys, xs, ev, px))
+                    else:
+                        alt_of(ys, xs, c, u, nrm, L, dpt)
+    drop = own_arcs(claims, keep_other)
+    if drop is not None:
+        keep[drop] = 0
+        kid[drop] = 0
+        thin_keep[drop] = 0
     # наружный контур: закрытие ~1,8 м по каждому куску листа — наружные окна/двери закрываются без «следа» проёма
     final0 = (wall | keep).astype(np.uint8)
     _, _, out0 = fc.free_components(final0)
@@ -969,6 +1146,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     if SPLIT_DEEP:
         lab_g, gaps = fc.split_composite(lab_g, gaps, kid, dark, outside, max_depth)
     tails = []                                     # хвосты-клинья, срезанные с дверей (T-20261111-03)
+    retype, glazed = [], []
     for g in gaps:
         if bay.any() and bay[lab_g == g.id].any():
             g.kind = 'window'
@@ -999,7 +1177,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                 fc.regap(g, ys, xs)
             if g.length < fc.DOOR_MIN_M * ppm:
                 c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
-                if fc.door_evidence(thin, c, u, nrm, L, dpt) < DOOR_EV:
+                if fc.door_evidence(thin, c, u, nrm, L, dpt, wall=wall_drawn) < DOOR_EV:
                     g.kind = 'wall'
         elif g.glaze >= GLAZE_MIN:
             # наружный с «рамой» — окно. Но створку рисуют и закрытой в линии стены: «рама» есть, а дуга «вогнутая» —
@@ -1007,15 +1185,25 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             # окнами). Прежние рисунки дуги у рам окон ложно доходят до 1,0 (линии рамы, размерные снаружи — листы A, B, T),
             # поэтому здесь проверяется только этот рисунок
             g.kind = 'window'
-            if GLAZED_ARC:
+            if GLAZED_ARC or DOORLESS:
                 ys, xs = np.nonzero(lab_g == g.id)
                 c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
-                if fc.door_evidence(thin, c, u, nrm, L, dpt, tangent_only=True) >= DOOR_EV_GLAZED:
-                    g.kind = 'door'
+            if GLAZED_ARC and fc.door_evidence(thin, c, u, nrm, L, dpt, tangent_only=True) >= DOOR_EV_GLAZED:
+                g.kind = 'door'
+            if g.kind == 'window' and DOORLESS:
+                # T-11/4: дуга открывания у «окна» (rgK5f3: проёмы залиты серым, дуга наружу) — дверью только у комнаты без
+                # дверей (`doorless_doors`): у рам окон прежний рисунок дуги ложно доходит до 1,0 (A, B, T)
+                ev = fc.door_evidence(thin, c, u, nrm, L, dpt, wall=wall_drawn)
+                if ev >= DOOR_EV:
+                    glazed.append((g.id, float(ev)))
         else:                                        # наружный без рамы: дуга створки → дверь, иначе окно
             ys, xs = np.nonzero(lab_g == g.id)
             c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
-            g.kind = 'door' if fc.door_evidence(thin, c, u, nrm, L, dpt) >= DOOR_EV else 'window'
+            g.kind = 'door' if fc.door_evidence(thin, c, u, nrm, L, dpt, wall=wall_drawn) >= DOOR_EV else 'window'
+            if g.kind == 'window' and DOORLESS and fc.arc_pure() is not None:
+                raw = fc.door_evidence(thin, c, u, nrm, L, dpt, pure_check=False)
+                if raw >= DOOR_EV:
+                    retype.append((g.id, float(raw)))     # T-11/3: запасная дверь (`doorless_doors`) — окно только по «чистоте»
     gaps += tails
     if os.environ.get('FP_DEBUG_ENV', '').startswith('/'):
         vis = np.full(wall.shape + (3,), 255, np.uint8)
@@ -1027,7 +1215,8 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     min_room = 0.3 * ppm * ppm
     rooms = [i for i in range(1, n) if areas[i] >= min_room and not outside[lab == i].any()]
     return {'wall': wall, 'final': final, 'add': add, 'lab': lab, 'outside': outside, 'rooms': rooms, 'areas': areas,
-            'lab_g': lab_g, 'gaps': gaps, 'ppm': ppm, 'bay_in': bay_in}
+            'lab_g': lab_g, 'gaps': gaps, 'ppm': ppm, 'bay_in': bay_in, 'alts': alts, 'retype': retype,
+            'glazed': glazed}
 
 
 def bay_windows(wall, keep, thin, dark, ppm, t):
@@ -1062,7 +1251,10 @@ def bay_windows(wall, keep, thin, dark, ppm, t):
         kmask = np.isin(labK, ks)
         kys, kxs = np.nonzero(kmask)
         kc, ku, kn, kL, kd = fc.gap_axes(kys, kxs)
-        if fc.door_evidence(thin, kc, ku, kn, kL, kd) >= DOOR_EV:   # проём с дугой створки (дверь) — не эркер
+        # проём с дугой створки (дверь) — не эркер. T-11/3: по прежнему правилу, без «чистоты» — она для закрытий в комнате
+        # (текст, ступени); здесь ошибка «дверь» лишь оставляет проём проёмом, а снятая ею дверь превращала кладовую в «эркер»
+        # (rgK5f3: Store 7,67×2,50 — левая часть за дверью стала наружей)
+        if fc.door_evidence(thin, kc, ku, kn, kL, kd, wall=wall, pure_check=not BAY_OLD) >= DOOR_EV:
             continue
         if os.environ.get('FP_DEBUG_ENV'):
             print('BAY', wall.shape, xs.min(), ys.min(), xs.max(), ys.max(), 'keep', kxs.min(), kys.min(), kxs.max(), kys.max())
@@ -1404,10 +1596,11 @@ def gia_px(res, t):
     return float(foot.sum() - ext_wall.sum()), t_ext
 
 
-def plan_regions(wall, t, fams):
+def plan_regions(wall, t, fams, max_open=None):
     """Отдельные планы листа/панели (`fpcore.xy_cut` по пустым полосам) — разрывы между ними не закрываются. Обломки стены,
-    отрезанные окнами во всю толщину стены, — к ближайшему плану (`fpcore.merge_fragments`, T-20261111-09; FP_FRAG=0 — как до)."""
-    regions = fc.xy_cut(wall, max(40, int(3 * t)))
+    отрезанные окнами во всю толщину стены, — к ближайшему плану (`fpcore.merge_fragments`, T-20261111-09; FP_FRAG=0 — как до).
+    `max_open` — полоса-проём не шире (окно и ворота друг напротив друга) постройку не режет (T-20261111-11, `open_max`)."""
+    regions = fc.xy_cut(wall, max(40, int(3 * t)), max_open=max_open)
     if os.environ.get('FP_FRAG', '1') != '0':
         regions = fc.merge_fragments(wall, regions, t, fams)
     return regions
@@ -1426,7 +1619,9 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
     t = sheet_thickness(wall, cfg)
     arrows = sheet_arrows(img, wall, cfg, t)
     fams = fc.angle_families(wall)
-    regions = plan_regions(wall, t, fams)
+    # T-20261111-11: полоса-проём (окно и ворота друг напротив друга) постройку не режет; масштаба ещё нет — предел по толщине
+    # стены (OPEN_MAX_T · t ≈ 1,7 м при стене ~0,2 м)
+    regions = plan_regions(wall, t, fams, max_open=open_max(int(OPEN_MAX_T * t)))
     log = {'plan': plan, 'thickness_px': round(t, 2), 'families_deg': [round(f, 1) for f in fams], 'regions': regions}
     # 1) перебор гипотез масштаба по всему листу → лучшая по числу инлаеров подписей
     sweep = []
@@ -1541,7 +1736,8 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         sub_wall[:2, :] = 0; sub_wall[-2:, :] = 0; sub_wall[:, :2] = 0; sub_wall[:, -2:] = 0
         ppm = ppm0
         fit = None
-        sub_regions = plan_regions(sub_wall, t, fams)               # отдельные постройки внутри панели не сшивать
+        # отдельные постройки внутри панели не сшивать; полоса-проём до OPEN_MAX_M — не промежуток (T-20261111-11, гараж bs30)
+        sub_regions = plan_regions(sub_wall, t, fams, max_open=open_max(int(OPEN_MAX_M * ppm0)))
         for _ in range(2):
             r = analyze(sub_img, sub_gray, sub_wall, ppm, fams, t, sub_regions, cfg['thin'], cfg['glaze'])
             hit, obs = match_gold(r, groom, fams)
@@ -1570,6 +1766,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         if cfg.get('dev_sheet'):
             pocket_doors(r['gaps'], r['lab_g'], r['lab'], r['final'], r['outside'], r['areas'], POCKET_M2 * ppm * ppm,
                          POCKET_W_M * ppm)
+        doorless = doorless_doors(r, ppm)              # T-11/3: комнате без дверей — лучшая дверь прежнего правила
         hit, obs = match_gold(r, groom, fams, core=True)
         fit = fc.fit_scale(obs)
         loo = fc.leave_one_out(obs)
@@ -1618,7 +1815,7 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
              'loo_clean': fc.loo_summary(loo, 'near_clean'), 'label_flags': [l['id'] for l in loo if l.get('flag_label')],
              'topology': topo, 'false_splits': [s for s in splits if s['false']], 'split_checks': len(splits),
              'label_splits': r.get('label_splits', []), 'repairs': rep_log, 'label_report': rep_labels,
-             'absorbed': r.get('absorbed', []),
+             'absorbed': r.get('absorbed', []), 'doorless': doorless,
              'vlm_title': (pan_title[pi] if pi < len(pan_title) else
                            vl['panels'][pi]['title'] if vl and vl['panels'] and log.get('panels_src') == 'vlm' and pi < len(vl['panels']) else None),
              'gia_m2': gpx / ppm / ppm, 't_ext_px': t_ext, 'openings': op, 'angles': angles,
