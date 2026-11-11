@@ -9,6 +9,8 @@ import type { TrialJobView } from "@/contracts/trial";
 import type { LatestBundle } from "@/lib/trial/repo-bundle";
 import { TRIAL_HEADERS, trialDir } from "@/lib/trial/config";
 import { validId } from "@/lib/trial/http";
+import { acceptsBrotli, brotliPage } from "@/lib/trial/tour-brotli";
+import { contentTag, encodedTag, IMMUTABLE, REVALIDATE, tagMatches } from "@/lib/trial/tour-cache";
 import { MARKET_LANG, tourHref } from "@/lib/trial/i18n";
 import { jobRelease, readRegular, readTourData, releaseDir } from "@/lib/trial/tour-files";
 import { injectTour } from "@/lib/trial/tour-page";
@@ -28,6 +30,7 @@ export type TourTarget =
 
 const JS = "text/javascript; charset=utf-8";
 const JSON_TYPE = "application/json; charset=utf-8";
+const HTML = "text/html; charset=utf-8";
 
 /** Адрес внутри тура → что отдать. Всё, что не в списке, — null (404): обход `..`, чужие расширения и папки не проходят. */
 export function tourTarget(parts: readonly string[]): TourTarget | null {
@@ -60,15 +63,40 @@ export type TourDeps = {
   pin?: (id: string, dir: string) => Promise<unknown>;
   dir?: string;
   stub?: StubOpts;
+  /** Сверка кэша (T-20261110-43): If-None-Match запроса; `keyed` — в адресе страницы ключ агента `k` (такая страница не хранится). */
+  ifNoneMatch?: string | null;
+  keyed?: boolean;
+  /** Accept-Encoding запроса: страница — brotli, если клиент просит (`tour-brotli.ts`). */
+  acceptEncoding?: string | null;
 };
 const NO_LATEST = async (): Promise<LatestBundle> => "not_ready";
+
+/** Ответ, который браузер хранит со сверкой (`tour-cache.ts`): метка совпала — 304 без тела с теми же заголовками, нет — тело. */
+function cached(body: Uint8Array | string, tag: string, type: string, deps: TourDeps, cacheControl = REVALIDATE): Response {
+  const h = headers({ "Content-Type": type, "Cache-Control": cacheControl, ETag: tag });
+  if (tagMatches(deps.ifNoneMatch, tag)) return new Response(null, { status: 304, headers: h });
+  return new Response(typeof body === "string" ? body : new Uint8Array(body), { headers: h });
+}
+
+/** Страница тура: метка по телу; brotli, если клиент просит; с ключом `k` — не хранится (как раньше), без ключа — со сверкой. */
+async function pageResponse(out: string, deps: TourDeps): Promise<Response> {
+  const tag = contentTag(out);
+  const br = acceptsBrotli(deps.acceptEncoding);
+  const h = headers({ "Content-Type": HTML, Vary: "Accept-Encoding" });
+  if (!deps.keyed) {
+    Object.assign(h, { "Cache-Control": REVALIDATE, ETag: br ? encodedTag(tag, "br") : tag });
+    if (tagMatches(deps.ifNoneMatch, tag)) return new Response(null, { status: 304, headers: h });
+  }
+  if (!br) return new Response(out, { headers: h });
+  return new Response(new Uint8Array(await brotliPage(tag, out)), { headers: { ...h, "Content-Encoding": "br" } });
+}
 
 /** Тур не открывается: адрес страницы — человеку короткая страница (`tour-stub.ts`), машинным адресам — текст, как раньше. */
 function notOpen(page: boolean, status: number, body: string, kind: StubKind, id: string, deps: TourDeps): Response {
   if (!page) return text(status, body);
   const o = deps.stub ?? { lang: MARKET_LANG };
   return new Response(stubHtml(kind, id, tourHref(id, o.lang, o.k), o),
-    { status, headers: headers({ "Content-Type": "text/html; charset=utf-8" }) });
+    { status, headers: headers({ "Content-Type": HTML }) });
 }
 
 /** Закрепление страницы тура: есть — его версия; нет, но версия данных опубликована — закрепить сейчас (сбой — null). */
@@ -110,14 +138,19 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
   if (target.kind === "page") {
     const html = await readRegular(path.join(releaseDir(dir, release), "index.html"));
     if (!html) return notOpen(true, 404, "not ready", "wait", id, deps);
-    return new Response(injectTour(html.toString("utf8"), id, view.resultVersion), { headers: headers({ "Content-Type": "text/html; charset=utf-8" }) });
+    const out = injectTour(html.toString("utf8"), id, view.resultVersion);
+    return pageResponse(out, deps);
   }
   if (target.kind === "data") {
     const data = await readTourData(dir, id, deps.latest ?? NO_LATEST);
     if (!data) return text(404, "not found");
-    return new Response(new Uint8Array(data.body), { headers: headers({ "Content-Type": JSON_TYPE, ETag: `"v${data.version}"` }) });
+    // версия данных неизменна (`repo-bundle.ts:latestBundle`) — метка `"v<N>"`; запасной файл без версии (v0) — как раньше, не хранится
+    if (data.version <= 0) return new Response(new Uint8Array(data.body), { headers: headers({ "Content-Type": JSON_TYPE, ETag: '"v0"' }) });
+    return cached(data.body, `"v${data.version}"`, JSON_TYPE, deps);
   }
   const body = await readRegular(path.join(releaseDir(dir, release), target.rel));
   if (!body) return text(404, "not found");
-  return new Response(new Uint8Array(body), { headers: headers({ "Content-Type": target.type }) });
+  // движок 3D и корзина — хеш содержимого в имени, навсегда; `lib/scene.json` и `rt-meshes.json` — со сверкой (релиз их не меняет)
+  const hashed = SCENE_JS.test(target.rel) || BASKET_JS.test(target.rel);
+  return cached(body, contentTag(body), target.type, deps, hashed ? IMMUTABLE : REVALIDATE);
 }

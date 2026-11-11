@@ -5,7 +5,12 @@ window.__collHash=(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1
 window.__hash0=String(location.hash); window.__search0=String(location.search);
 /* ДАННЫЕ — СРАЗУ, ПАРАЛЛЕЛЬНО С РАЗМЕТКОЙ (T-20261110-40, владелец TG 915): запрос стоял в конце 1,2 МБ разметки и уходил только после
    её загрузки; ответ забирает основной скрипт (`dataFetch`). Песочница тура (`lib/trial/tour-page.ts`) встаёт раньше этой строки */
-try{window.__dataP=fetch('demo-data.json?v='+Date.now()); window.__dataP.catch(function(){});}catch(e){window.__dataP=null;}</script>
+/* БЕЗ МЕТКИ ВРЕМЕНИ В АДРЕСЕ (T-20261110-43): данные хранятся со сверкой (тур — `lib/trial/tour-cache.ts`, /demo — Caddy), свежесть
+   держит сервер (304 без тела или новое тело); `?v=<время>` давал каждому открытию новый адрес — повторное качало всё заново */
+try{window.__dataP=fetch('demo-data.json'); window.__dataP.catch(function(){});}catch(e){window.__dataP=null;}
+/* РЕЕСТР КАДРОВ — ТОЖЕ СРАЗУ (T-20261110-43): фото первой карточки /demo ждало его запроса после всей разметки (+0,3 с на 8 Мбит/с);
+   забирает `loadServerShots`. Тур (`/try/…`) реестр не читает (`loadShots`), его песочница этот адрес и так закрывает */
+try{window.__shotsP=/^\/try\//.test(location.pathname)?null:fetch('/test/share/shots.json?v='+Date.now(),{cache:'no-store'}); if(window.__shotsP)window.__shotsP.catch(function(){});}catch(e){window.__shotsP=null;}</script>
 <meta charset="utf-8"><!-- ЗУМ РАЗРЕШЁН (аудит 01.09, Б1): запрет масштабирования на странице с планом и мелкими
      подписями — прямой вред. Жесты на самом плане изолированы `touch-action:none` у #stage,
      поэтому перетаскивание предметов от зума страницы не страдает. -->
@@ -1939,7 +1944,8 @@ const trJobId=()=>(location.pathname.match(/\/try\/([A-Za-z0-9_-]{22})\/tour\//)
 const TRB_KEY='tr-rebuild';
 function trSave(v){ try{ if(v)sessionStorage.setItem(TRB_KEY,JSON.stringify(v)); else sessionStorage.removeItem(TRB_KEY); }catch(e){} }
 function trLoad(){ try{ return JSON.parse(sessionStorage.getItem(TRB_KEY)||'null'); }catch(e){ return null; } }
-function trDataEtag(r){ try{ const m=String(r.headers.get('etag')||'').match(/^(?:W\/)?"v(\d+)"$/); if(m)TRB.base=+m[1]; }catch(e){} return r; }
+// сжатый ответ Caddy помечает суффиксом (`"v9-zstd"`, `"v9-gzip"`) — номер версии тот же
+function trDataEtag(r){ try{ const m=String(r.headers.get('etag')||'').match(/^(?:W\/)?"v(\d+)(?:-[a-z]+)?"$/); if(m)TRB.base=+m[1]; }catch(e){} return r; }
 // комнаты, что ждут проверки (по данным, без учёта идущего «Обустроить»)
 function trAwaiting(){ if(!TRIAL())return [];
   return (D.apartment_rooms||[]).filter(r=>r&&(TR_OUT[r.furniture_outcome]||TR_OUT[r.furniture_code]||TR_OUT[r.furniture_state])==='awaiting').map(r=>r.id); }
@@ -2425,7 +2431,7 @@ function pageEn(){ try{return LANG==='en';}catch(e){}
   const m=location.search.match(/[?&]lang=(ru|en)(?:&|$)/); if(m)return m[1]==='en';
   try{return localStorage.getItem('remlab-lang')==='en';}catch(e){return false;} }
 // запрос данных ушёл ещё из <head> (`__dataP`, T-20261110-40); не ушёл или сорвался — обычный запрос здесь
-function dataFetch(){ const p=window.__dataP; window.__dataP=null; const own=()=>fetch('demo-data.json?v='+Date.now());
+function dataFetch(){ const p=window.__dataP; window.__dataP=null; const own=()=>fetch('demo-data.json');
   return p?p.then(r=>r&&r.ok?r:own(),own):own(); }
 // ЗАПУСК — ПОСЛЕ ВСЕЙ РАЗМЕТКИ (T-20261110-43, дефект П1): данные просятся из <head> и на медленной сети или из кэша приходят раньше,
 // чем браузер дочитает 1,2 МБ разметки; `init` тогда звал функции и константы следующих <script> (`stateIdOf`, `LIVE`) до их
@@ -5827,7 +5833,9 @@ function payload(){
 let SHOTS_LOADED=false;   // реестр кадров пришёл с сервера (главная отсеивает варианты без кадра, `homeModel`)
 async function loadServerShots(){
   try{
-    const r=await fetch('/test/share/shots.json?v='+Date.now(),{cache:'no-store'});
+    // запрос ушёл ещё из <head> (`__shotsP`); не ушёл или сорвался — обычный запрос здесь
+    const p=window.__shotsP, own=()=>fetch('/test/share/shots.json?v='+Date.now(),{cache:'no-store'}); window.__shotsP=null;
+    const r=await (p?p.then(x=>x&&x.ok?x:own(),own):own());
     if(!r.ok)return [];
     const data=await r.json(); SHOTS_LOADED=Array.isArray(data);
     const out=[];
@@ -6636,8 +6644,9 @@ function drawHome(force){
       // ЧЁТКО НА КОМПЬЮТЕРЕ (photo-sharp-keep-01, владелец 07.11 TG 349: «фото сжимается, пока не увеличишь»): миниатюра — 640 px,
       // карточка на 1440 — ~712 px (на экране ×2 — 1424): от 900 px браузер берёт по `sizes` миниатюру или полный кадр 2048, телефон —
       // миниатюру, как было (вес не растёт). Скрытые карточки (на компьютере видна одна) — `lazy`: полные кадры не тянутся впустую
+      // первая (видимая) — `fetchpriority=high` (T-20261110-43): её кадр идёт раньше движка 3D и картинок ниже экрана
       (c.img?`<picture>${c.full&&c.full!==c.img?`<source media="(min-width:900px)" srcset="${escHtml(c.img)} 640w, ${escHtml(c.full)} 2048w" sizes="${HM_SIZES}">`:''}`+
-        `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?'':' loading="lazy"'} data-url="${escHtml(c.full)}" `+
+        `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?' fetchpriority="high"':' loading="lazy"'} data-url="${escHtml(c.full)}" `+
         `onerror="this.onerror=null;var s=this.parentNode.querySelector('source');if(s)s.remove();this.src=this.dataset.url"></picture>`
         :TRIAL()?`<div class="nopv tr-plan">${trialPlanSvg(c.v)}<span class="tr-3d">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</span></div>`   // проба: фото нет — план комнаты с мебелью
         :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+

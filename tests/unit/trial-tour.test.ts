@@ -10,6 +10,10 @@ import { ensureJobRelease, pinJobRelease, pinRelease, writeTourData } from "@/li
 import { jobDir, releaseDir } from "@/lib/trial/tour-files";
 import { devCardPaths, injectTour, tourLinks } from "@/lib/trial/tour-page";
 import { tourResponse, tourTarget } from "@/lib/trial/tour";
+import { acceptsBrotli, BROTLI_CACHE_MAX_BYTES, brotliCacheReset, brotliCacheStats, brotliPage } from "@/lib/trial/tour-brotli";
+import { tagMatches } from "@/lib/trial/tour-cache";
+import { randomBytes } from "node:crypto";
+import { brotliDecompressSync } from "node:zlib";
 
 const ID = "AbCdEfGhIjKlMnOpQrStUv";
 const OTHER = "ZZZZZZZZZZZZZZZZZZZZZZ";
@@ -132,7 +136,7 @@ describe("тур пробы: ответы и закреплённая верси
   it("страница: закреплённая версия + песочница, заголовки пробы", async () => {
     const r = await get([]);
     expect(r.status).toBe(200);
-    expect(r.headers.get("cache-control")).toBe("private, no-store");
+    expect(r.headers.get("cache-control")).toBe("private, no-cache");
     expect(r.headers.get("x-robots-tag")).toContain("noindex");
     expect(r.headers.get("referrer-policy")).toBe("no-referrer");
     const body = await r.text();
@@ -221,6 +225,63 @@ describe("тур пробы: ответы и закреплённая верси
     const old = await tourResponse(ID, ["demo-data.json"], { view, dir, latest: async () => "not_ready" });
     expect(old.headers.get("etag")).toBe('"v0"');
     expect((await old.json()).trial.id).toBe(ID);
+  });
+
+  // T-20261110-43: повторное открытие без повторной загрузки — хранить со сверкой (304 без тела); с ключом агента — не хранить
+  it("кэш: страница без ключа — метка по телу и 304; с ключом `k` — не хранится; новая версия тура — новая метка", async () => {
+    const r = await get([]);
+    const tag = r.headers.get("etag") ?? "";
+    expect(tag).toMatch(/^"h[\w-]{22}"$/);
+    const again = await tourResponse(ID, [], { view, dir, ifNoneMatch: tag });
+    expect(again.status).toBe(304);
+    expect(await again.text()).toBe("");
+    expect(again.headers.get("etag")).toBe(tag);
+    expect(again.headers.get("cache-control")).toBe("private, no-cache");
+    expect((await tourResponse(ID, [], { view, dir, ifNoneMatch: `"x", W/${tag}` })).status).toBe(304);
+    expect((await tourResponse(ID, [], { view, dir, ifNoneMatch: '"x"' })).status).toBe(200);
+    const keyed = await tourResponse(ID, [], { view, dir, keyed: true, ifNoneMatch: tag });
+    expect(keyed.status).toBe(200);
+    expect(keyed.headers.get("cache-control")).toBe("private, no-store");
+    expect(keyed.headers.get("etag")).toBeNull();
+    const v8 = (async () => ({ id: ID, status: "done", resultVersion: 8 }) as unknown as TrialJobView) as (id: string) => Promise<TrialJobView>;
+    const next = await tourResponse(ID, [], { view: v8, dir, ifNoneMatch: tag });
+    expect(next.status).toBe(200);
+    expect(next.headers.get("etag")).not.toBe(tag);
+  });
+
+  it("кэш: данные версии — метка v<N> и 304; запасной файл без версии не хранится; движок — навсегда, scene.json — со сверкой", async () => {
+    const latest = async () => ({ version: 3, json: '{"rev":3}' });
+    const d = await tourResponse(ID, ["demo-data.json"], { view, dir, latest });
+    expect(d.headers.get("cache-control")).toBe("private, no-cache");
+    const same = await tourResponse(ID, ["demo-data.json"], { view, dir, latest, ifNoneMatch: '"v3"' });
+    expect(same.status).toBe(304);
+    expect(await same.text()).toBe("");
+    expect((await tourResponse(ID, ["demo-data.json"], { view, dir, latest, ifNoneMatch: '"v2"' })).status).toBe(200);
+    const old = await tourResponse(ID, ["demo-data.json"], { view, dir, ifNoneMatch: '"v0"' });
+    expect(old.status).toBe(200);
+    expect(old.headers.get("cache-control")).toBe("private, no-store");
+    expect((await get(["lib", "scene.abc123.js"])).headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    const man = await get(["lib", "scene.json"]);
+    expect(man.headers.get("cache-control")).toBe("private, no-cache");
+    expect((await tourResponse(ID, ["lib", "scene.json"], { view, dir, ifNoneMatch: man.headers.get("etag") })).status).toBe(304);
+    expect((await get(["version.json"])).headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("brotli: страница сжата, если клиент просит, метка «-br» и 304 по ней; без br — как было; с ключом — сжата, но не хранится", async () => {
+    brotliCacheReset();
+    const plain = await get([]);
+    const body = await plain.text();
+    const br = await tourResponse(ID, [], { view, dir, acceptEncoding: "gzip, deflate, br, zstd" });
+    expect(br.headers.get("content-encoding")).toBe("br");
+    expect(br.headers.get("vary")).toContain("Accept-Encoding");
+    expect(br.headers.get("etag")).toBe(`${(plain.headers.get("etag") ?? "").slice(0, -1)}-br"`);
+    expect(brotliDecompressSync(Buffer.from(await br.arrayBuffer())).toString("utf8")).toBe(body);
+    expect((await tourResponse(ID, [], { view, dir, acceptEncoding: "br", ifNoneMatch: br.headers.get("etag") })).status).toBe(304);
+    expect((await tourResponse(ID, [], { view, dir, acceptEncoding: "gzip, br;q=0" })).headers.get("content-encoding")).toBeNull();
+    const keyed = await tourResponse(ID, [], { view, dir, keyed: true, acceptEncoding: "br" });
+    expect(keyed.headers.get("content-encoding")).toBe("br");
+    expect(keyed.headers.get("cache-control")).toBe("private, no-store");
+    expect(keyed.headers.get("etag")).toBeNull();
   });
 
   it("закрепление страницы при первой версии: гонка трёх публикаций — один release; повтор — exists; нет витрины — ошибка", async () => {
@@ -371,5 +432,33 @@ describe("фикстуры тура пробы", () => {
     const scale = (f: string) => (read(f).trial as { scale?: string }).scale;
     expect(scale("trial-tour-empty.json")).toBe("not_verified");
     expect(scale("trial-tour-furnished.json")).toBe("verified");
+  });
+});
+
+describe("тур пробы: brotli и метки (T-20261110-43)", () => {
+  it("Accept-Encoding: br, br;q=0.5 — да; br;q=0, нет br — нет", () => {
+    expect(acceptsBrotli("gzip, deflate, br, zstd")).toBe(true);
+    expect(acceptsBrotli("br;q=0.5")).toBe(true);
+    expect(acceptsBrotli("gzip, br;q=0")).toBe(false);
+    expect(acceptsBrotli("gzip")).toBe(false);
+    expect(acceptsBrotli(null)).toBe(false);
+  });
+  it("сверка меток: список, W/, суффикс сжатия, *", () => {
+    expect(tagMatches('"a", W/"hX"', '"hX"')).toBe(true);
+    expect(tagMatches('"hX-br"', '"hX"')).toBe(true);
+    expect(tagMatches('"v9-gzip"', '"v9"')).toBe(true);
+    expect(tagMatches("*", '"v9"')).toBe(true);
+    expect(tagMatches('"v91"', '"v9"')).toBe(false);
+    expect(tagMatches(null, '"v9"')).toBe(false);
+  });
+  it("память сжатых страниц — не больше предела: старые записи вытесняются", async () => {
+    brotliCacheReset();
+    // случайные байты в base64 сжимаются до ~75 %: 12 записей по 4 МБ ≈ 36 МБ сжатого > 32 МБ
+    for (let i = 0; i < 12; i++) await brotliPage(`"t${i}"`, randomBytes(3 * 1024 * 1024).toString("base64"));
+    const st = brotliCacheStats();
+    expect(st.bytes).toBeLessThanOrEqual(BROTLI_CACHE_MAX_BYTES);
+    expect(st.entries).toBeLessThan(12);
+    expect(st.entries).toBeGreaterThan(5);
+    brotliCacheReset();
   });
 });

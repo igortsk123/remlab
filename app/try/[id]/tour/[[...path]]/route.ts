@@ -14,5 +14,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string; pat
   const { id, path } = await ctx.params;
   const q = new URL(req.url).searchParams;
   const lang = parseLang(q.get("lang")) ?? langFromAccept(req.headers.get("accept-language"));
-  return tourResponse(id, path ?? [], { view: jobView, latest: latestBundle, pin: ensureJobRelease, stub: { lang, k: q.get("k") } });
+  return tourResponse(id, path ?? [], { view: jobView, latest: latestBundle, pin: ensureJobRelease, stub: { lang, k: q.get("k") },
+    ifNoneMatch: req.headers.get("if-none-match"), keyed: q.has("k"), acceptEncoding: req.headers.get("accept-encoding") });
 }
