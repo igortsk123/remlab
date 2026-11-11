@@ -305,6 +305,23 @@ def test_old_worker_skill_off_gets_no_reparse(prod, mk, monkeypatch, tmp_path):
     assert 'reparse' not in prod.by('/api/trial/worker/claim')[0] and prod.rebuilds
 
 
+def test_dry_run_refuses_without_furniture_banks(monkeypatch, tmp_path):
+    """Пробный прогон без банков мебели (worktree: они вне git) не идёт: иначе все комнаты `refused/no_products` — ложный блок
+    (T-20261111-02/2, FjiO/UwBX в первом прогоне)."""
+    from types import SimpleNamespace
+    import reissue
+    import worker as wk
+    for k in ('TRIAL_SETS', 'TRIAL_BEDROOM_SETS', 'BEDROOM_STYLE_SCORES'):
+        monkeypatch.setenv(k, str(tmp_path / f'{k}.json'))
+    assert len(reissue.missing_banks()) == 3
+    cfg = wk.Cfg.from_env({'TRIAL_WORKER_TOKEN': 'w' * 40, 'TRIAL_WORK_DIR': str(tmp_path / 'w')})
+    a = SimpleNamespace(dry_run=True, out=str(tmp_path / 'out'), approve=None, sheets=None)
+    assert reissue.reparse_main(a, None, cfg, [JID]) == 2 and not (tmp_path / 'out').exists()
+    for k in ('TRIAL_SETS', 'TRIAL_BEDROOM_SETS', 'BEDROOM_STYLE_SCORES'):
+        (tmp_path / f'{k}.json').write_text('{}')
+    assert reissue.missing_banks() == []
+
+
 def test_copy_is_untouched():
     """Перевод правок не меняет входные правки (их же шлёт сервер повторно при новой попытке)."""
     e = [{'panel': 'p0', 'key': 's0', 'srcIdx': 0, 'srcC': [500, 200], 'kind': 'door', 'c': [500, 210], 'widthCm': 80}]
