@@ -128,7 +128,8 @@ class Conveyor:
         return {**os.environ, 'TRIAL_SCENES_ROOT': str(self.cfg.scenes_root), 'HEAVY_SLOT_PRIO': str(self.PRIO)}
 
     def _stage(self, name: str, cmd: list, timeout: float) -> tuple[int | None, str | None]:
-        rc, why = self.w.run_child(cmd, self.wd / f'{name}.log', timeout, self.hb, env=self._env())
+        # срок стадии — в окружение: сборка тура кладёт подбор ракурсов в него, а не за него (T-20261111-23, `trial_bundle.cams_budget`)
+        rc, why = self.w.run_child(cmd, self.wd / f'{name}.log', timeout, self.hb, env={**self._env(), 'TRIAL_STAGE_TIMEOUT_S': f'{timeout:g}'})
         if why in ('lost', 'stop'):
             self.stopped = why
         return rc, why

@@ -60,7 +60,8 @@ def build(cfg: wk.Cfg, jid: str, d: Path, result: dict, old: str, cmd: list | No
     with open(log_p, 'wb') as out:
         try:
             rc = subprocess.run(cmd, stdout=out, stderr=subprocess.STDOUT, cwd=str(HERE.parent.parent), timeout=cfg.bundle_timeout_s,
-                                env={**os.environ, 'PYTHONUNBUFFERED': '1'}).returncode
+                                # срок стадии — подбор ракурсов кладёт себя в него (T-20261111-23, `trial_bundle.cams_budget`)
+                                env={**os.environ, 'PYTHONUNBUFFERED': '1', 'TRIAL_STAGE_TIMEOUT_S': f'{cfg.bundle_timeout_s:g}'}).returncode
         except subprocess.TimeoutExpired:
             return -1, {'why': f'timeout {cfg.bundle_timeout_s:g} s'}, new_p
     lines = [x for x in log_p.read_text(encoding='utf-8', errors='replace').splitlines() if x.strip()]

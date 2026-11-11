@@ -1158,16 +1158,13 @@ def test_fetch_images_failure_reasons_counted(monkeypatch, tmp_path):
 # ───────── ракурсы в данных тура (T-20261110-32): страница не перебирает точки при открытии ─────────
 
 def _cams_node(cams_of):
-    """Подмена запуска `demo-cams.mjs`: дописывает `v.cams` в файл, как node, и отвечает кодом 0."""
-    import subprocess
-
-    def run(cmd, **kw):
-        path = cmd[-1].rsplit('"', 2)[-2]
+    """Подмена подбора (`_cams_run`): дописывает `v.cams` в файл, как node, и отдаёт строку лога."""
+    def run(path):
         d = json.load(open(path, encoding='utf-8'))
         for v in d['variants']:
             v['cams'], v['cam_level'] = cams_of(v), 0
         json.dump(d, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
-        return subprocess.CompletedProcess(cmd, 0, f'ракурсы окна в данных: вариантов {len(d["variants"])}\n', '')
+        return f'ракурсы окна в данных: вариантов {len(d["variants"])} из {len(d["variants"])}'
     return run
 
 
@@ -1175,7 +1172,7 @@ def test_add_cams_writes_pairs_and_keeps_bundle_public(tmp_path):
     p = tmp_path / 'bundle.json'
     TB.write_atomic(str(p), {'variants': [{'id': 'set1', 'items': [], 'cams': []}]})
     pair = [{'name': 'C1', 'x': 3, 'y': 3, 'rot': 138, 'fov': 72}, {'name': 'C2', 'x': 165, 'y': 190, 'rot': -39, 'fov': 72}]
-    line = TB.add_cams(str(p), [], run=_cams_node(lambda v: pair))
+    line = TB.add_cams(str(p), [], runner=_cams_node(lambda v: pair))
     assert line.startswith('ракурсы окна в данных'), line
     assert json.load(open(p))['variants'][0]['cams'] == pair
 
@@ -1184,25 +1181,52 @@ def test_add_cams_leak_restores_bundle_without_cams(tmp_path):
     p = tmp_path / 'bundle.json'
     TB.write_atomic(str(p), {'variants': [{'id': 'set1', 'items': [], 'cams': []}]})
     before = p.read_bytes()
-    line = TB.add_cams(str(p), [], run=_cams_node(lambda v: [{'name': 'C1', 'href': 'https://shop.example/x'}]))
+    line = TB.add_cams(str(p), [], runner=_cams_node(lambda v: [{'name': 'C1', 'href': 'https://shop.example/x'}]))
     assert line.startswith('WARN:trial_cams:'), line
     assert p.read_bytes() == before                      # прежние байты: версия уходит без ракурсов, а не с утечкой
 
 
-def test_add_cams_timeout_keeps_bundle(tmp_path):
-    import subprocess
+def test_add_cams_partial_still_checked_for_leak(tmp_path):
+    """Часть пар к сроку (строка WARN, файл изменён) — проверка публичности всё равно идёт (T-20261111-23)."""
+    p = tmp_path / 'bundle.json'
+    TB.write_atomic(str(p), {'variants': [{'id': 'set1', 'items': [], 'cams': []}, {'id': 'set2', 'items': [], 'cams': []}]})
+    before = p.read_bytes()
+
+    def run(path):
+        _cams_node(lambda v: [{'name': 'C1', 'href': 'https://shop.example/x'}] if v['id'] == 'set1' else [])(path)
+        return 'WARN:trial_cams: ракурсы окна в данных: вариантов 1 из 2 — без пары (посчитает страница): set2'
+    assert TB.add_cams(str(p), [], runner=run).startswith('WARN:trial_cams: ракурсы сняты')
+    assert p.read_bytes() == before
+
+
+def test_add_cams_none_keeps_bundle(tmp_path):
     p = tmp_path / 'bundle.json'
     TB.write_atomic(str(p), {'variants': [{'id': 'set1', 'items': [], 'cams': []}]})
     before = p.read_bytes()
-    seen = {}
+    line = TB.add_cams(str(p), [], runner=lambda path: 'WARN:trial_cams: ракурсы 0 из 1 вариантов (срок 50 с, процессов 1)')
+    assert line.startswith('WARN:trial_cams: ракурсы 0 из 1') and p.read_bytes() == before
 
-    def run(cmd, **kw):
-        seen.update(kw)
-        raise subprocess.TimeoutExpired(cmd, kw.get('timeout'))
-    line = TB.add_cams(str(p), [], run=run)
-    assert line.startswith('WARN:demo_cams:') and 'таймаут 120 с' in line, line
-    assert seen['timeout'] == TB.CAMS_TIMEOUT < 180       # меньше срока стадии сборки (`worker.Cfg.bundle_timeout_s`)
-    assert p.read_bytes() == before
+
+def test_cams_budget_scales_with_rounds_and_fits_stage():
+    """Срок растёт с числом кругов (кусков на процесс), но не выходит за срок стадии минус прошедшее и хвост (T-20261111-23)."""
+    assert TB.cams_budget(3, 4) == TB.CAMS_BASE_S + TB.CAMS_ROUND_S             # один круг
+    assert TB.cams_budget(8, 4) == TB.CAMS_BASE_S + 2 * TB.CAMS_ROUND_S
+    assert TB.cams_budget(17, 4) == TB.CAMS_MAX_S                                # aOv8: 5 кругов — потолок
+    assert TB.cams_budget(17, 4, stage_s=180, elapsed=40) == 180 - 40 - TB.CAMS_TAIL_S
+    assert TB.cams_budget(17, 4, stage_s=180, elapsed=200) == 0
+    import re                                                                    # срок стадии сборки конвейера и перевыпуска
+    src = open(os.path.join(HERE, '..', '..', 'floorplan', 'worker.py'), encoding='utf-8').read()
+    assert TB.CAMS_MAX_S + TB.CAMS_TAIL_S <= float(re.search(r'bundle_timeout_s: float = ([\d.]+)', src).group(1))
+
+
+def test_cams_jobs_respects_outer_slot(monkeypatch):
+    monkeypatch.delenv('TRIAL_CAMS_JOBS', raising=False)
+    monkeypatch.delenv('HEAVY_SLOT_CORES', raising=False)
+    assert TB.cams_jobs() == TB.CAMS_JOBS
+    monkeypatch.setenv('HEAVY_SLOT_CORES', '2')
+    assert TB.cams_jobs() == 2
+    monkeypatch.setenv('TRIAL_CAMS_JOBS', '1')
+    assert TB.cams_jobs() == 1
 
 
 def test_main_out_prints_json_last(tmp_path, monkeypatch, capsys):

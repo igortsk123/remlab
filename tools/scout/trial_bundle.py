@@ -49,7 +49,9 @@ import json
 import math
 import os
 import re
+import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -1529,18 +1531,85 @@ def write_atomic(path: str, data: dict) -> None:
 # РАКУРСЫ — В ДАННЫЕ ТУРА ПРИ СБОРКЕ (T-20261110-32, владелец 10.11 TG 806: тур «загрузился еле-еле»): как у /demo, страница берёт
 # готовую пару варианта (`index.html:defaultCams`), а не перебирает точки в главном потоке при открытии (замер 10.11: 16 с у пустой
 # спальни, 3,7 с у обставленной гостиной). Срок — меньше срока стадии сборки у конвейера и перевыпуска (`worker.Cfg.bundle_timeout_s` 180)
-CAMS_TIMEOUT = 120.0
+# ПАРАЛЛЕЛЬНО И К СРОКУ (T-20261111-23): тур aOv8 — 17 вариантов, один процесс 140 с при сроке 120 → ни одной пары. Теперь куски
+# (`cams_par`) считают CAMS_JOBS процессов под общей очередью машины (`heavy_slot`, ядра = процессы); срок растёт с числом кругов
+# (кусков на процесс), но не выходит за срок стадии (TRIAL_STAGE_TIMEOUT_S от конвейера и перевыпуска минус уже прошедшее и хвост):
+# к сроку готовые пары идут в данные, остальные досчитает страница. Замер aOv8 — в отчёте T-23.
+_T0 = time.monotonic()
+CAMS_JOBS = 4               # процессов node (TRIAL_CAMS_JOBS; внутри чужого слота — не больше его HEAVY_SLOT_CORES)
+CAMS_BASE_S = 20.0          # запуск и разбор страницы у каждого процесса
+CAMS_ROUND_S = 30.0         # круг = по куску на процесс: вариант 8–16 с (aOv8, спальня без мебели дольше), под нагрузкой — больше
+CAMS_MAX_S = 150.0          # без срока стадии (ручной запуск) — не дольше
+CAMS_TAIL_S = 15.0          # после ракурсов: проверка публичности, итоговые строки, выход
+CAMS_SLOT_GB = 1.0          # свободной памяти: замер aOv8 — пик дерева 0,36 ГБ на 4 процесса
+CAMS_SLOT_WAIT_S = 30.0     # очередь машины дольше — считаем одним процессом без слота (как до T-23)
 
 
-def add_cams(path: str, tokens: list, run=None) -> str:
-    """Пара ракурсов каждого варианта — в файл версии тем же `flat215_demo.demo_cams` (`tools/flat3d/demo-cams.mjs` → `v.cams`), что
-    у /demo. НЕ ВАЛИТ СБОРКУ: таймаут или сбой — версия без ракурсов (страница посчитает сама, как раньше). Ракурсы дописаны — версия
-    ещё раз проходит `assert_public`; не прошла — возвращаются прежние байты. → строка лога."""
-    import flat215_demo as FD
+def cams_jobs() -> int:
+    try:
+        n = int(os.environ.get('TRIAL_CAMS_JOBS') or CAMS_JOBS)
+    except ValueError:
+        n = CAMS_JOBS
+    held = os.environ.get('HEAVY_SLOT_CORES')    # уже внутри слота (ручной запуск под heavy-slot.sh) — его ядра
+    if held and held.isdigit():
+        n = min(n, int(held))
+    return max(1, n)
+
+
+def cams_budget(units: int, jobs: int, stage_s: float | None = None, elapsed: float = 0.0) -> float:
+    """Срок подбора ракурсов, с: база + круги × CAMS_ROUND_S (≤ CAMS_MAX_S), но не дальше срока стадии минус прошедшее и хвост."""
+    b = min(CAMS_MAX_S, CAMS_BASE_S + CAMS_ROUND_S * -(-max(units, 1) // max(jobs, 1)))
+    if stage_s:
+        b = min(b, stage_s - elapsed - CAMS_TAIL_S)
+    return max(b, 0.0)
+
+
+def _stage_s() -> float | None:
+    try:
+        return float(os.environ['TRIAL_STAGE_TIMEOUT_S'])
+    except (KeyError, ValueError):
+        return None
+
+
+def _cams_run(path: str) -> str:
+    """Куски → слот машины (ядра = процессы) → параллельный подбор к сроку. Очередь не дала слот за CAMS_SLOT_WAIT_S или модуля
+    очереди нет — один процесс без слота (как до T-23)."""
+    import cams_par as CP
+    root = os.path.abspath(os.path.join(HERE, '..', '..'))
+    try:
+        units = CP.units_of(root, path)
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as e:
+        return f'WARN:trial_cams: куски ракурсов не получены — ракурсы считает страница: {type(e).__name__}: {str(e)[:160]}'
+    jobs = min(cams_jobs(), len(units) or 1)
+    budget = cams_budget(len(units), jobs, _stage_s(), time.monotonic() - _T0)
+    if budget < CAMS_BASE_S:
+        return f'WARN:trial_cams: на ракурсы не осталось срока стадии ({budget:.0f} с) — ракурсы считает страница'
+    deadline = time.monotonic() + budget
+    ops = os.path.abspath(os.path.join(HERE, '..', 'ops'))
+    if ops not in sys.path:
+        sys.path.insert(0, ops)
+    try:
+        import heavy_slot as HS
+        with HS.heavy_slot('trial_cams', min_gb=CAMS_SLOT_GB, timeout=min(CAMS_SLOT_WAIT_S, budget / 3), cores=jobs,
+                           cmd=f'trial_cams {os.path.basename(path)} ×{jobs}'):
+            return CP.cams(root, path, jobs, deadline - time.monotonic(), units=units)
+    except ImportError:
+        pass
+    except Exception as e:                       # SlotTimeout и сбой очереди — не повод оставлять тур без ракурсов
+        if type(e).__name__ != 'SlotTimeout':
+            print(f'WARN:trial_cams: очередь машины: {type(e).__name__}: {str(e)[:120]}', flush=True)
+    line = CP.cams(root, path, 1, deadline - time.monotonic(), units=units)
+    return line + ' (без слота машины, одним процессом)'
+
+
+def add_cams(path: str, tokens: list, runner=None) -> str:
+    """Пара ракурсов каждого варианта — в файл версии тем же подбором (`tools/flat3d/demo-cams.mjs` → `v.cams`), что у /demo,
+    параллельно и к сроку (`_cams_run`). НЕ ВАЛИТ СБОРКУ: ни одной пары — версия без ракурсов (страница посчитает сама). Ракурсы
+    дописаны (все или часть) — версия ещё раз проходит `assert_public`; не прошла — возвращаются прежние байты. → строка лога."""
     with open(path, 'rb') as f:
         before = f.read()
-    line = FD.demo_cams(os.path.abspath(os.path.join(HERE, '..', '..')), path, timeout=CAMS_TIMEOUT, **({'run': run} if run else {}))
-    if line.startswith('WARN:'):
+    line = (runner or _cams_run)(path)
+    if line.startswith('WARN:') and before == open(path, 'rb').read():
         return line
     try:
         with open(path, encoding='utf-8') as f:

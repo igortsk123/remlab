@@ -18,12 +18,22 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const html = readFileSync(join(ROOT, "tools/scout/flat215-demo/index.html"), "utf8");
 const block = html.slice(html.indexOf("// CAMFIT START"), html.indexOf("// CAMFIT END"));
-const file = process.argv[2];
+// ПАРАЛЛЕЛЬНО ПО КУСКАМ (T-20261111-23, тур aOv8: 17 вариантов — 140 с одним процессом при сроке 120, ни одной пары в данных):
+//   --units                 только напечатать куски (JSON: список списков id; общая пара комнаты — один кусок), файл не трогать
+//   --only id,id --part P   посчитать только эти варианты, итог — в P ({vars: {id: {cams, cam_level, cam_cover}}, shared}),
+//                           файл данных не трогать; сводит куски `tools/scout/cams_par.py`
+const argv = process.argv.slice(2);
+const opt = (k) => { const i = argv.indexOf(k); if (i < 0) return null; const v = argv[i + 1]; argv.splice(i, 2); return v ?? ""; };
+const UNITS = argv.includes("--units");
+if (UNITS) argv.splice(argv.indexOf("--units"), 1);
+const ONLY = opt("--only"), PART = opt("--part");
+const file = argv[0];
 if (!file) {
   console.error("нужен путь к demo-data.json");
   process.exit(2);
 }
 const D = JSON.parse(readFileSync(file, "utf8"));
+if (ONLY != null) { const only = new Set(ONLY.split(",").filter(Boolean)); D.variants = (D.variants ?? []).filter((v) => only.has(String(v.id))); }
 // КОМНАТА ВАРИАНТА (onb-07 основа, ADR-0330 п.3): точки подбираются в геометрии комнаты варианта — `D.rooms_geo[v.room_id]`,
 // правило то же, что `index.html:roomGeoOf`: нет `rooms_geo` или вариант гостиной — `D.room`; комнаты нет в данных — вариант пропускаем
 const roomIdOf = (v) => String(v.room_id || "living");
@@ -42,6 +52,16 @@ for (const v of vars) {
   const k = roomIdOf(v);
   if (!groups.has(k)) groups.set(k, { geo, list: [] });
   groups.get(k).list.push(v);
+}
+// куски для параллельного подбора: общая пара комнаты (как `shared` ниже) — одним куском, иначе по варианту
+if (UNITS) {
+  const units = [];
+  for (const [, { geo, list }] of groups) {
+    if (!!D.one_layout && list.length > 1 && !geo.cams_own) units.push(list.map((v) => String(v.id)));
+    else for (const v of list) units.push([String(v.id)]);
+  }
+  console.log(JSON.stringify(units));
+  process.exit(0);
 }
 D.cams_shared = false;
 for (const [rid, { geo, list }] of groups) {
@@ -152,7 +172,11 @@ for (const [vi, v] of list.entries()) {
 if (cutWarn.length) console.log(`WARN:demo_cams: ${rid} — крупное срезано краем живого 3D (кусок ≥ ${CUT_WARN * 100} % кадра): ${cutWarn.join("; ")} — пары чище подбор не нашёл`);
 }
 // подменой, не обрезкой (T-20261105-59): оборвался процесс посреди записи — demo-data.json остаётся вчерашним целиком
-const tmp = `${file}.cams-${process.pid}.tmp`;
-writeFileSync(tmp, JSON.stringify(D, null, 1));
-renameSync(tmp, file);
+const out = PART ?? file;
+const tmp = `${out}.cams-${process.pid}.tmp`;
+writeFileSync(tmp, PART
+  ? JSON.stringify({ shared: D.cams_shared, vars: Object.fromEntries((D.variants ?? []).filter((v) => v.cam_cover)
+    .map((v) => [String(v.id), { cams: v.cams, cam_level: v.cam_level, cam_cover: v.cam_cover }])) })
+  : JSON.stringify(D, null, 1));
+renameSync(tmp, out);
 console.log(`ракурсы окна в данных: вариантов ${n} (${(D.variants ?? []).map((v) => `${v.id} ступень ${v.cam_level}`).join(", ")})`);
