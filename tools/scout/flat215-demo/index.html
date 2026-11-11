@@ -10,7 +10,10 @@ window.__hash0=String(location.hash); window.__search0=String(location.search);
 try{window.__dataP=fetch('demo-data.json'); window.__dataP.catch(function(){});}catch(e){window.__dataP=null;}
 /* РЕЕСТР КАДРОВ — ТОЖЕ СРАЗУ (T-20261110-43): фото первой карточки /demo ждало его запроса после всей разметки (+0,3 с на 8 Мбит/с);
    забирает `loadServerShots`. Тур (`/try/…`) реестр не читает (`loadShots`), его песочница этот адрес и так закрывает */
-try{window.__shotsP=/^\/try\//.test(location.pathname)?null:fetch('/test/share/shots.json?v='+Date.now(),{cache:'no-store'}); if(window.__shotsP)window.__shotsP.catch(function(){});}catch(e){window.__shotsP=null;}</script>
+/* …И РАЗБОР — СРАЗУ ПО ПРИХОДУ (T-20261110-43/2): на плохой связи реестр приходит раньше конца разметки, но разбирался только после
+   запуска (+0,2 с на телефоне до запроса фото). Разобранный лежит в `__shotsD` — запуск берёт его готовым (`loadShots`, синхронно) */
+try{window.__shotsP=/^\/try\//.test(location.pathname)?null:fetch('/test/share/shots.json?v='+Date.now(),{cache:'no-store'}); if(window.__shotsP){window.__shotsP.catch(function(){});
+  window.__shotsJ=window.__shotsP.then(function(r){return r&&r.ok?r.json():null;}).then(function(d){window.__shotsD=Array.isArray(d)?d:null; return d;},function(){return null;});}}catch(e){window.__shotsP=null; window.__shotsJ=null;}</script>
 <meta charset="utf-8"><!-- ЗУМ РАЗРЕШЁН (аудит 01.09, Б1): запрет масштабирования на странице с планом и мелкими
      подписями — прямой вред. Жесты на самом плане изолированы `touch-action:none` у #stage,
      поэтому перетаскивание предметов от зума страницы не страдает. -->
@@ -2455,6 +2458,7 @@ function init(){
   {const R=curRoom(); if(sb&&R)sb.textContent=`${R.title} · ${R.w}×${R.d} см`;}
   // тип квартиры и площадь — из данных плана, а не из строки в разметке
   loadFlatCard();
+  homePreload();   // фото первой карточки главной — в загрузку сейчас, до тяжёлого запуска (T-20261110-43/2)
   // ВАРИАНТ = РАССТАНОВКА + ЕЁ КОМПЛЕКТ ТОВАРОВ, ОДНОЙ КНОПКОЙ С ЦЕНОЙ (владелец 26.08:
   // «убери кнопки „Комплект 1 · 103 тыс“, просто подпиши Вариант 1 · 103 т.р.»). Вариантов не
   // больше четырёх плюс сохранённый человеком.
@@ -2530,17 +2534,49 @@ function init(){
   if(typeof editsBoot==='function')editsBoot();   // сохранённые правки комнат (photo-sharp-keep-01) — до первой загрузки и кадров
   loadShots();
   load();
-  // ВЫБОР КВАРТИРЫ ИЗ АДРЕСА (home-mix-01; было demo-16 `?style=`): смесь `mix=` → старая `?style=loft` (этот стиль во всех комнатах).
-  // Ссылка на комнату `#v=` без них — квартира в стиле этой комнаты (как раньше вкладка шла за открытым вариантом); `#c=` — по умолчанию.
-  // Комната главной — `?room=` (её пишет `syncHomeParam`); окно `#v=`/`#c=` откроет `applyHash`, нижний список — его вариант
-  {const p=HOME.url, hv=p.open==='v'?decodeURIComponent(location.hash.slice(3)):'';
-    const v=hv?allVariants().find(x=>(x.id||'')===hv):null, al=hv&&!v?String((D.variant_aliases||{})[hv]||'').toLowerCase():'';
-    const vs=v&&!v.mine&&!v.cid?styleIdOf(v):(STYLE_IDS[al]||'');
-    HOME.sel=p.sel||(vs?mixSel([vs],{}):null); HOME.room=p.room||homeDefRoom();
+  // ВЫБОР КВАРТИРЫ ИЗ АДРЕСА — разбор в `homeUrlPick`; здесь единственная запись на входе
+  {const u=homeUrlPick(), p=u.p; HOME.sel=u.sel; HOME.room=u.room;
     if(!p.open){const L=homeLayout(homeModel()), c=L.find(x=>x.rv&&x.r.id===HOME.room)||L.find(x=>x.rv&&x.r.id==='living');
       if(c&&c.rv.index!==cur){cur=c.rv.index; load();}}}
   applyHash();
   HOME.ready=true; drawHome(true);
+}
+// ВЫБОР КВАРТИРЫ ИЗ АДРЕСА (home-mix-01; было demo-16 `?style=`): смесь `mix=` → старая `?style=loft` (этот стиль во всех комнатах).
+// Ссылка на комнату `#v=` без них — квартира в стиле этой комнаты (как раньше вкладка шла за открытым вариантом); `#c=` — по умолчанию.
+// Комната главной — `?room=` (её пишет `syncHomeParam`); окно `#v=`/`#c=` откроет `applyHash`, нижний список — его вариант.
+// Только считает, ничего не пишет: его же зовёт `homePreload` в начале запуска (тот же выбор, T-20261110-43/2)
+function homeUrlPick(){
+  const p=HOME.url, hv=p.open==='v'?decodeURIComponent(location.hash.slice(3)):'';
+  const v=hv?allVariants().find(x=>(x.id||'')===hv):null, al=hv&&!v?String((D.variant_aliases||{})[hv]||'').toLowerCase():'';
+  const vs=v&&!v.mine&&!v.cid?styleIdOf(v):(STYLE_IDS[al]||'');
+  return {p, sel:p.sel||(vs?mixSel([vs],{}):null), room:p.room||homeDefRoom()};
+}
+// ФОТО ПЕРВОЙ КАРТОЧКИ — В ЗАГРУЗКУ В НАЧАЛЕ ЗАПУСКА (T-20261110-43/2). Карточка с фото рисуется после всего запуска и разбора реестра
+// кадров (`loadShots` → `drawHome`), и только тогда браузер начинал качать фото: на телефоне при 2 Мбит/с — +0,4 с после разбора
+// страницы, и канал к тому времени делили картинки товаров. Нарисовать карточку раньше не помогает: картинка, вставленная внутри
+// запуска, начинает грузиться только после него (замер T-43/2). Поэтому здесь, пока реестр уже разобран (`__shotsD`, <head>), считаем
+// фото ТЕМ ЖЕ выбором, что `drawHome` (комната из адреса → `bestShot` → `realisticPublishedShot`, миниатюра / полный кадр по
+// `HM_SIZES`), и ставим его в загрузку `<link rel=preload>` — `<img>` карточки потом берёт его из кэша. Вид страницы не меняется;
+// выбор квартиры (`HOME`) не пишется (`homeUrlPick`, `homeLayout(m, sel)`), кадры — только на время подсчёта. Не берёмся (обычный
+// путь): тур, реестр не пришёл, есть сохранённые правки комнат (их поднимает `editsBoot` позже — фото может быть другим)
+function homePreload(){
+  if(TRIAL()||!D||!Array.isArray(window.__shotsD)||document.querySelector('link[data-hm-preload]'))return;
+  const keep={shots, loaded:SHOTS_LOADED};
+  try{
+    if(Object.keys(editsAll()).length)return;
+    const vidOf=shotVidFn();
+    shots=srvShotsOf(window.__shotsD).filter(s=>{const id=vidOf(s); if(!id)return false; s.vid=id; s.pick=false; s.orphan=false; return true;});
+    SHOTS_LOADED=true;
+    const u=homeUrlPick(), L=homeLayout(homeModel(), u.sel), c=L.find(x=>x.rv&&x.r.id===u.room)||L.find(x=>x.rv), v=c&&allVariants()[c.rv.index];
+    if(!v||varPending(v)||varRefused(v))return;
+    const pc=posterCam(v), bs=bestShot(v,pc), sh=bs&&bs.quality==='realistic'?bs:realisticPublishedShot(v,pc);
+    const img=sh?thumbOf(sh):'', full=sh?sh.url:''; if(!img)return;
+    const l=document.createElement('link'); l.rel='preload'; l.as='image'; l.setAttribute('fetchpriority','high'); l.dataset.hmPreload='1';
+    if(full&&full!==img&&matchMedia('(min-width:900px)').matches){l.setAttribute('imagesrcset',`${img} 640w, ${full} 2048w`); l.setAttribute('imagesizes',HM_SIZES);}
+    else l.href=img;
+    document.head.appendChild(l);
+  }catch(e){}
+  finally{shots=keep.shots; SHOTS_LOADED=keep.loaded;}
 }
 // ——— ВАРИАНТЫ: расстановка вместе со своим комплектом, ценой и сохранением своего
 // все опубликованные стили (до шести): было 4 — пятый стиль («джапанди», 13.10) собирался, но не показывался (b2b-12)
@@ -5833,11 +5869,28 @@ function payload(){
 let SHOTS_LOADED=false;   // реестр кадров пришёл с сервера (главная отсеивает варианты без кадра, `homeModel`)
 async function loadServerShots(){
   try{
-    // запрос ушёл ещё из <head> (`__shotsP`); не ушёл или сорвался — обычный запрос здесь
-    const p=window.__shotsP, own=()=>fetch('/test/share/shots.json?v='+Date.now(),{cache:'no-store'}); window.__shotsP=null;
-    const r=await (p?p.then(x=>x&&x.ok?x:own(),own):own());
-    if(!r.ok)return [];
-    const data=await r.json(); SHOTS_LOADED=Array.isArray(data);
+    // запрос и разбор ушли ещё из <head> (`__shotsJ`, T-20261110-43/2); не ушли или сорвались — обычный запрос здесь
+    const j=window.__shotsJ, own=()=>fetch('/test/share/shots.json?v='+Date.now(),{cache:'no-store'}); window.__shotsJ=null; window.__shotsP=null;
+    let data=j?await j:null;
+    if(data==null){const r=await own(); if(!r.ok)return []; data=await r.json();}
+    SHOTS_LOADED=Array.isArray(data);
+    return srvShotsOf(data);
+  }catch(e){ return []; }
+}
+// кадр реестра → номер варианта витрины (`loadShots`, `homePreload`)
+function shotVidFn(){
+  const list=allVariants(), byTitle={}, byStyle={};
+  // СТИЛЬ ОДИН НА ВСЕ КОМНАТЫ (onb-07 основа): кадр без комнаты в записи (весь нынешний реестр) — кадр гостиной, его ищем по стилю
+  // только среди вариантов гостиной (как было — и после того, как реестр начнёт писать комнату: номер `set2` после пересборки
+  // уходит, стиль остаётся); кадр другой комнаты — по номеру варианта, иначе по стилю среди вариантов этой комнаты
+  list.forEach(v=>{if(roomIdOf(v)!=='living')return; byTitle[v.title||'']=v.id; if(v.style)byStyle[v.style]=v.id;});
+  return s=>{
+    if(!s.room_id||s.room_id==='living')return byStyle[s.style||'']||byTitle[s.variant||''];
+    const inRoom=list.filter(v=>roomIdOf(v)===s.room_id), byId=s.variant_id&&inRoom.find(v=>v.id===s.variant_id);
+    return (byId||inRoom.find(v=>v.style&&v.style===s.style)||inRoom.find(v=>(v.title||'')===s.variant)||{}).id;};
+}
+// записи реестра → кадры страницы
+function srvShotsOf(data){
     const out=[];
     (data||[]).forEach(rec=>{
       const batch='srv'+rec.ts;
@@ -5852,7 +5905,6 @@ async function loadServerShots(){
         model:rec.model||'',sources:rec.sources||'',srv:true}));
     });
     return out;
-  }catch(e){ return []; }
 }
 function loadShots(){
   if(TRIAL()){shots=[];return;}   // проба: общий реестр подбирает кадры по стилю и названию — чужие фото; своих у задания пока нет
@@ -5863,15 +5915,7 @@ function loadShots(){
   // то, что лежит в реестре `shots.json`; снятое в этой вкладке живёт до перезагрузки, а после
   // приходит с сервера (реестр пополняет `draft_service._registry_add`).
   shots=[];
-  const list=allVariants(), byTitle={}, byStyle={};
-  // СТИЛЬ ОДИН НА ВСЕ КОМНАТЫ (onb-07 основа): кадр без комнаты в записи (весь нынешний реестр) — кадр гостиной, его ищем по стилю
-  // только среди вариантов гостиной (как было — и после того, как реестр начнёт писать комнату: номер `set2` после пересборки
-  // уходит, стиль остаётся); кадр другой комнаты — по номеру варианта, иначе по стилю среди вариантов этой комнаты
-  list.forEach(v=>{if(roomIdOf(v)!=='living')return; byTitle[v.title||'']=v.id; if(v.style)byStyle[v.style]=v.id;});
-  const shotVid=s=>{
-    if(!s.room_id||s.room_id==='living')return byStyle[s.style||'']||byTitle[s.variant||''];
-    const inRoom=list.filter(v=>roomIdOf(v)===s.room_id), byId=s.variant_id&&inRoom.find(v=>v.id===s.variant_id);
-    return (byId||inRoom.find(v=>v.style&&v.style===s.style)||inRoom.find(v=>(v.title||'')===s.variant)||{}).id;};
+  const shotVid=shotVidFn();
   loadServerShots().then(srv=>{
     let skipped=0;
     // СНЯТОЕ ВО ВКЛАДКЕ НЕ ТЕРЯЕМ (разбор Codex 14.10): реестр приходит позже, и присваивание `shots=srv` стирало кадр,
@@ -5890,15 +5934,22 @@ function loadShots(){
       if(k>=0||k2>=0)shotAt=k>=0?k:k2;
       // сцена, начатая до реестра, сверяет номер кадра после загрузки моделей и, увидев новый, бросает работу — запускаем заново
       if(shotAt!==was&&document.getElementById('shot').classList.contains('on')&&typeof liveShow==='function')setTimeout(()=>liveShow(),0);}
-    Object.keys(COLL_SHOTS).forEach(cid=>attachCollShot(cid,COLL_SHOTS[cid]));
-    // ОКНО ОТКРЫТО ДО РЕЕСТРА (T-20261106-77/4): вкладка «Фото» считалась по пустому списку кадров и не появлялась, пока окно не
-    // перерисуют (спальня 1 × сканди при первом открытии) — пересчитываем вкладки открытого окна по пришедшим кадрам
-    const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('on')&&sh.classList.contains('v2')&&typeof vwModeUi==='function'){
-      // …и окно, открытое в 3D только потому, что кадров ещё не было, встаёт на «Фото» (T-20261107-66 А: так окно ждало в 3D с 2 фото)
-      if(VW.wantPhoto&&VW.mode==='walk'&&!VJ.job&&vwPhotoShots().length){VW.wantPhoto=0; vwMode('photo');} else vwModeUi();}
-    drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
-    try{drawHome();}catch(e){}   // карточки главной — по кадрам опубликованного состояния (demo-20 Б2)
-    openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
+    // КАРТОЧКИ ГЛАВНОЙ — СРАЗУ, ОСТАЛЬНЫЕ ПЕРЕРИСОВКИ — СЛЕДУЮЩИМ ШАГОМ (T-20261110-43/2): реестр теперь разобран заранее (`__shotsJ`),
+    // и всё ниже шло одним куском с запуском страницы — экран не обновлялся (на телефоне ~0,2 с), карточка с уже пришедшим фото
+    // (`homePreload`) ждала конца. Главной нужны только кадры (опубликованное состояние, demo-20 Б2); после — ещё раз, как было
+    // (ничего не изменилось — не перерисовывает)
+    try{drawHome();}catch(e){}
+    setTimeout(()=>{
+      Object.keys(COLL_SHOTS).forEach(cid=>attachCollShot(cid,COLL_SHOTS[cid]));
+      // ОКНО ОТКРЫТО ДО РЕЕСТРА (T-20261106-77/4): вкладка «Фото» считалась по пустому списку кадров и не появлялась, пока окно не
+      // перерисуют (спальня 1 × сканди при первом открытии) — пересчитываем вкладки открытого окна по пришедшим кадрам
+      const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('on')&&sh.classList.contains('v2')&&typeof vwModeUi==='function'){
+        // …и окно, открытое в 3D только потому, что кадров ещё не было, встаёт на «Фото» (T-20261107-66 А: так окно ждало в 3D с 2 фото)
+        if(VW.wantPhoto&&VW.mode==='walk'&&!VJ.job&&vwPhotoShots().length){VW.wantPhoto=0; vwMode('photo');} else vwModeUi();}
+      drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
+      try{drawHome();}catch(e){}   // карточки главной — по кадрам опубликованного состояния (demo-20 Б2)
+      openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
+    },0);
   });
   drawFeed();
 }
@@ -6426,8 +6477,8 @@ function quizPairs(pairs, ok, max){
 // (`cur`, `#v`/`#c`) — только окно, раскладку и выбор не меняет (раньше `homeActive` писал стиль открытого окна в `HOME.styleId`).
 // `HOME.styleId` — основной выбранный стиль, для старых читателей (события менеджеру, снимок избранного)
 function homeSel(m){ const e=mixEff(HOME.sel,m.styles.map(s=>s.id)); HOME.styleId=e.selected[0]||''; return e; }
-function homeLayout(m){
-  const e=homeSel(m), fb=(D&&D.room_style_fallback)||{};
+function homeLayout(m, sel){   // `sel` — посчитать по этому выбору, не трогая текущий (`homePreload`)
+  const e=sel!==undefined?mixEff(sel,m.styles.map(s=>s.id)):homeSel(m), fb=(D&&D.room_style_fallback)||{};
   return m.rooms.map(r=>{const x=r.contentState==='ready'?mixShown(m.roomVariants,fb,e,r):{rv:null, want:mixWant(e,r)[0]||''};
     return {r, rv:x.rv, want:x.want};});
 }
