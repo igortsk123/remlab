@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -148,7 +149,8 @@ def run_cases(code: Path, out: Path, cases: list[dict], jobs: int = 4, extra_env
     store = fpr = None
     if why is None:
         store, fpr = RC.Store(cache_dir), RC.Fingerprint(code, PY, env, extra_env)
-        man['cache'] = {'dir': str(cache_dir), 'fingerprint': fpr.digest[:16]}
+        man['cache'] = {'dir': str(cache_dir), 'fingerprint': fpr.digest[:16],
+                        'parts': {k: v[:12] for k, v in fpr.parts.items()}}   # не попал в кэш — видно, какая часть сменилась
     else:
         man['cache'] = {'off': why}
         print(f'кэш не используем: {why}', flush=True)
@@ -162,6 +164,10 @@ def run_cases(code: Path, out: Path, cases: list[dict], jobs: int = 4, extra_env
             k1 = RC.case_key(fpr, cmd, c, wd) if fpr else None
         except OSError:                                            # листа/объявления нет — разбор сам скажет, кэш мимо
             k1 = None
+        with store.lock(k1) if k1 else contextlib.nullcontext():   # тот же лист у соседа в работе — ждём его запись
+            return parse(c, wd, log_p, t0, cmd, k1)
+
+    def parse(c, wd, log_p, t0, cmd, k1):
         hit = store.get(k1) if k1 else None
         if hit:
             e = store.restore(hit[1], wd, log_p, hit[0])

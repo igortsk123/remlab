@@ -17,6 +17,8 @@ import hashlib, json, os, shutil, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scout'))
 import helper_mod
+MODEL = os.environ.get('FLOORPLAN_VLM_MODEL')       # переменная, которую код читает, — в ключе
+HELD = os.environ.get('HEAVY_SLOT_HELD')            # учёт очереди — нет
 
 
 class TrialError(Exception):
@@ -49,6 +51,9 @@ if __name__ == '__main__':
     src = Path(a['--input']).read_bytes()
     if src.startswith(b'CRASH'):
         sys.exit(1)
+    if src.startswith(b'NORESULT'):                 # rc 0 без итога — неполная запись
+        sys.exit(0)
+    time.sleep(float(os.environ.get('STUB_SLEEP') or 0))
     (wd / 'sheet.png').write_bytes(src)
     v = Path(a['--vlm-root']) / hashlib.sha256(src).hexdigest()[:32] / 'raw-T-labels.txt'
     if not v.exists():
@@ -70,6 +75,9 @@ def _tree(tmp: Path) -> tuple[Path, Path]:
     (code / 'tools' / 'floorplan' / 'bench.py').write_text('x = 1\n')
     (code / 'tools' / 'scout' / 'helper_mod.py').write_text('K = 1\n')
     (code / 'tools' / 'scout' / 'unrelated.py').write_text('Z = 1\n')
+    (code / 'tools' / 'ops').mkdir()
+    (code / 'tools' / 'ops' / 'other_ops.py').write_text('Y = 1\n')                # снимок кладёт tools/ops целиком
+    (code / 'tools' / 'ops' / 'check.mjs').write_text('// не питон\n')
     data = tmp / 'data'
     data.mkdir()
     for n in ('a', 'b'):
@@ -141,6 +149,12 @@ def test_any_parse_input_change_misses(tmp_path, monkeypatch):
     assert e.run()[2] == 3
     (e.code / 'tools' / 'scout' / 'helper_mod.py').write_text('K = 1\n\n')            # импортируемый из scout
     assert e.run()[2] == 3
+    (e.code / 'tools' / 'ops' / 'other_ops.py').write_text('Y = 2\n')                 # вне floorplan, из списка снимка
+    assert e.run()[2] == 3
+    (e.code / 'tools' / 'ops' / 'json.py').write_text('# заслонил бы stdlib\n')       # новый модуль в sys.path разбора
+    assert e.run()[2] == 3
+    (e.code / 'tools' / 'ops' / 'check.mjs').write_text('// правка не питона\n')     # не импортируется питоном
+    assert e.run()[2] == 0
     assert e.run()[2] == 0
     assert e.run('--env', 'FP_X=1')[2] == 3                                           # переключатель --env
     assert e.run('--env', 'FP_X=1')[2] == 0
@@ -188,11 +202,38 @@ def test_no_cache_and_side_output_env_bypass(tmp_path, monkeypatch):
     assert parsed == 3 and man['cache']['off'] == '--env FP_DUMP'
 
 
-def test_crash_is_not_cached(tmp_path, monkeypatch):
+def test_queue_pid_env_ignored_code_env_counts(tmp_path, monkeypatch):
+    """Замер T-18: под очередью у каждого прогона свой HEAVY_SLOT_HELD (pid) — тёплый прогон не попадал в кэш."""
+    e = Env(tmp_path, monkeypatch)
+    monkeypatch.setenv('HEAVY_SLOT_HELD', '111')
+    e.run()
+    monkeypatch.setenv('HEAVY_SLOT_HELD', '222')
+    monkeypatch.setenv('HEAVY_SLOT_NOSLOT', '333')
+    assert e.run()[2] == 0
+    monkeypatch.setenv('FLOORPLAN_VLM_MODEL', 'другая')
+    assert e.run()[2] == 3
+
+
+def test_crash_and_incomplete_are_not_cached(tmp_path, monkeypatch):
     e = Env(tmp_path, monkeypatch)
     (tmp_path / 'data' / 'b.png').write_text('CRASH')
+    (tmp_path / 'data' / 'c.png').write_text('NORESULT')
     e.run()
-    assert e.run()[2] == 1                                                            # rc 1 — заново каждый раз
+    assert e.run()[2] == 2                                                            # rc 1 и rc 0 без result.json — заново
+
+
+def test_two_helpers_same_sheets_parse_once(tmp_path, monkeypatch):
+    """Два помощника одновременно с одной базой: замок листа — каждый лист разобран один раз, второй берёт запись первого."""
+    e = Env(tmp_path, monkeypatch)
+    monkeypatch.setenv('STUB_SLEEP', '1')
+    outs, rcs = [tmp_path / 'h1', tmp_path / 'h2'], []
+    ts = [threading.Thread(target=lambda o=o: rcs.append(rg.main(
+        ['run', str(e.code), str(o), '--no-trial', '--cases', str(e.cases), '-j', '2', '--cache-dir', str(e.cache)])))
+        for o in outs]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert rcs == [0, 0] and e.runs.read_text().count('\n') == 3                      # 3 листа, а не 6
+    assert _files(outs[0]) == _files(outs[1])
 
 
 def test_concurrent_put_same_key_one_entry(tmp_path):
@@ -219,7 +260,7 @@ def test_real_code_fingerprint_covers_loaded_modules():
     fs = RC.code_files(ROOT)
     for f in ('bench', 'fpcore', 'listing', 'openroom', 'partition', 'repair', 'vlm', 'pipeline', 'redraw'):
         assert f'tools/floorplan/{f}.py' in fs
-    for f in ('tools/ops/heavy_slot.py', 'tools/scout/llm_gateway.py', 'tools/scout/env_keys.py'):
+    for f in ('tools/ops/heavy_slot.py', 'tools/ops/ci_status.py', 'tools/scout/llm_gateway.py', 'tools/scout/env_keys.py'):
         assert fs.get(f) is not None
     assert 'tools/scout/trial_bundle.py' not in fs and 'tools/scout/pipeline.py' not in fs
 
