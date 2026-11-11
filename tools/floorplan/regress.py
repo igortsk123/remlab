@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Регресс разбора планировок ПО КОМНАТАМ (T-20261110-38/3): два кода на одних листах → комнаты, двери, окна и ядро спальни.
   python tools/floorplan/regress.py snapshot <коммит> <папка>              код коммита (`git archive`) — сторона «до»
-  python tools/floorplan/regress.py run <код> <папка> [--cases f.tsv] [--no-trial] [--only a,b] [-j 4] [--env K=V]
-                                                                        прогон листов из кэша VLM (0 $) → <папка>/<лист>/result.json
+  python tools/floorplan/regress.py run <код> <папка> [--cases f.tsv] [--no-trial] [--only a,b] [-j 4] [--env K=V] [--no-cache]
+                                                                        прогон листов из кэша VLM (0 $) → <папка>/<лист>/result.json;
+                                         лист с тем же отпечатком входов (код разбора, --env, питон и пакеты, лист, ответы VLM) —
+                                         готовым из общего кэша `~/remlab-logs/regress-cache` (`regress_cache.py`, T-20261111-18)
   python tools/floorplan/regress.py cmp <до> <после> [--accept f.tsv] [--all]   таблица; rc 1 — есть «сломано», 3 — один и тот же код
 
 Листы — `~/remlab-logs/trial/*/a1-*` (загрузки проб, как T-38) и строки `--cases` (TSV: имя, лист, объявление|-, [папка VLM]).
@@ -31,6 +33,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 TRIAL = Path(os.path.expanduser('~/remlab-logs/trial'))
 VLM_CACHE = TRIAL / 'vlm-cache'
+CACHE_DIR = Path(os.path.expanduser('~/remlab-logs/regress-cache'))   # общий кэш листов (`regress_cache.py`)
 PY = os.environ.get('FP_PY') or sys.executable
 ROOM_TOL_CM = 30.0      # проём относится к комнате, если его середина не дальше от её контура (полстены + запас)
 TIMEOUT_S = 1800
@@ -64,7 +67,9 @@ def snapshot(rev: str, out: Path, repo: Path = HERE.parents[1]) -> Path:
     """Код коммита `rev` (разбор, очередь тяжёлых, шлюз VLM) → `out` + файл REV."""
     out.mkdir(parents=True, exist_ok=False)
     full = subprocess.run(['git', '-C', str(repo), 'rev-parse', rev], capture_output=True, text=True, check=True).stdout.strip()
-    arc = subprocess.run(['git', '-C', str(repo), 'archive', full, 'tools/floorplan', 'tools/ops', 'tools/scout/llm_gateway.py'],
+    # scout — все модули верхнего уровня: разбор берёт оттуда шлюз VLM и его зависимости (env_keys …); отпечаток кэша
+    # (`regress_cache.code_files`) у снимка тогда тот же, что у рабочей копии того же коммита
+    arc = subprocess.run(['git', '-C', str(repo), 'archive', full, 'tools/floorplan', 'tools/ops', ':(glob)tools/scout/*.py'],
                          capture_output=True, check=True).stdout
     subprocess.run(['tar', '-x', '-C', str(out)], input=arc, check=True)
     (out / 'REV').write_text(full[:8] + '\n')
@@ -130,30 +135,60 @@ def clean_env(extra: dict) -> dict:
     return env
 
 
-def run_cases(code: Path, out: Path, cases: list[dict], jobs: int = 4, extra_env: dict | None = None) -> dict:
+def run_cases(code: Path, out: Path, cases: list[dict], jobs: int = 4, extra_env: dict | None = None,
+              cache_dir: Path | None = None) -> dict:
+    """`cache_dir` — общий кэш листов (`regress_cache.py`, T-20261111-18); None — без кэша (`--no-cache`)."""
+    import regress_cache as RC
     code, out = Path(code).resolve(), Path(out)
     out.mkdir(parents=True, exist_ok=False)                        # новая папка: старые выводы не трогаем
     env = clean_env(extra_env or {})
     man = {'code': str(code), 'code_sha': code_sha(code), 'rev': code_rev(code), 'env': extra_env or {},
            'started': time.strftime('%Y-%m-%d %H:%M:%S'), 'cases': {}}
+    why = 'выключен (--no-cache)' if cache_dir is None else RC.bypass_reason(extra_env)
+    store = fpr = None
+    if why is None:
+        store, fpr = RC.Store(cache_dir), RC.Fingerprint(code, PY, env, extra_env)
+        man['cache'] = {'dir': str(cache_dir), 'fingerprint': fpr.digest[:16]}
+    else:
+        man['cache'] = {'off': why}
+        print(f'кэш не используем: {why}', flush=True)
 
     def one(c):
         wd = out / c['id']
+        log_p = Path(str(wd) + '.log')
         t0 = time.time()
-        with open(str(wd) + '.log', 'w') as log:
+        cmd = case_cmd(code, c, wd)
+        try:
+            k1 = RC.case_key(fpr, cmd, c, wd) if fpr else None
+        except OSError:                                            # листа/объявления нет — разбор сам скажет, кэш мимо
+            k1 = None
+        hit = store.get(k1) if k1 else None
+        if hit:
+            e = store.restore(hit[1], wd, log_p, hit[0])
+            print(f"{time.strftime('%H:%M:%S')} {c['id']} rc={e['rc']} кэш {hit[0][:12]}", flush=True)
+            return c['id'], {'image': c['image'], 'listing': c.get('listing'), 'vlm_dir': c.get('vlm_dir'), 'rc': e['rc'],
+                             'sec': round(time.time() - t0, 1), 'cached': hit[0][:16], 'parse_sec': e.get('sec')}
+        with open(log_p, 'w') as log:
             try:
-                rc = subprocess.run(case_cmd(code, c, wd), stdout=log, stderr=subprocess.STDOUT, env=env, cwd=str(code),
+                rc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, env=env, cwd=str(code),
                                     timeout=TIMEOUT_S).returncode
             except subprocess.TimeoutExpired:
                 rc = 124
-        print(f"{time.strftime('%H:%M:%S')} {c['id']} rc={rc} {time.time() - t0:.0f} с", flush=True)
-        return c['id'], {'image': c['image'], 'listing': c.get('listing'), 'vlm_dir': c.get('vlm_dir'), 'rc': rc,
-                         'sec': round(time.time() - t0, 1)}
+        sec = round(time.time() - t0, 1)
+        k2 = None
+        if k1 and rc in RC.CACHED_RC:
+            k2 = store.put(k1, RC.vlm_deps(c, wd, VLM_CACHE), wd, log_p,
+                           {'case': c['id'], 'rc': rc, 'sec': sec, 'rev': man['rev'], 'code': str(code)})
+        print(f"{time.strftime('%H:%M:%S')} {c['id']} rc={rc} {sec:.0f} с", flush=True)
+        return c['id'], {'image': c['image'], 'listing': c.get('listing'), 'vlm_dir': c.get('vlm_dir'), 'rc': rc, 'sec': sec,
+                         'cached': None, 'stored': k2 and k2[:16]}
 
     with ThreadPoolExecutor(max(1, jobs)) as ex:
         for k, v in ex.map(one, cases):
             man['cases'][k] = v
     man['finished'] = time.strftime('%Y-%m-%d %H:%M:%S')
+    hits = sum(1 for v in man['cases'].values() if v.get('cached'))
+    man['cache'].update(hits=hits, parsed=len(man['cases']) - hits)
     (out / 'manifest.json').write_text(json.dumps(man, ensure_ascii=False, indent=1))
     return man
 
@@ -570,6 +605,8 @@ def main(argv=None) -> int:
     r.add_argument('--only', help='имена листов через запятую')
     r.add_argument('-j', '--jobs', type=int, default=4)
     r.add_argument('--env', action='append', default=[], help='K=V для прогона (FP_* из оболочки не берутся)')
+    r.add_argument('--no-cache', action='store_true', help='разобрать всё заново, кэш не читать и не писать')
+    r.add_argument('--cache-dir', default=str(CACHE_DIR), help='общий кэш листов (по умолчанию ~/remlab-logs/regress-cache)')
     c = sp.add_parser('cmp')
     c.add_argument('before')
     c.add_argument('after')
@@ -593,9 +630,13 @@ def main(argv=None) -> int:
             print('нет листов', file=sys.stderr)
             return 2
         env = dict(kv.split('=', 1) for kv in a.env)
-        man = run_cases(Path(a.code), Path(a.out), cases, a.jobs, env)
+        man = run_cases(Path(a.code), Path(a.out), cases, a.jobs, env,
+                        None if a.no_cache else Path(os.path.expanduser(a.cache_dir)))
         bad = [k for k, v in man['cases'].items() if v['rc'] not in (0, 3)]
+        cc = man['cache']
         print(f"листов {len(cases)} · код {man['rev']} ({man['code_sha']}) · сбоев {len(bad)} {bad}")
+        print(f"кэш: из кэша {cc.get('hits', 0)}, разобрано {cc.get('parsed', len(cases))}"
+              + (f" (кэш не используем: {cc['off']})" if cc.get('off') else ''))
         return 1 if bad else 0
     ma, A = load_side(Path(a.before))
     mb, B = load_side(Path(a.after))
