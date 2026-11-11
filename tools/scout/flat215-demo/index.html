@@ -1436,6 +1436,73 @@ button.tr-acc-st{cursor:pointer}
 /* окна и двери агента на плане (T-20261110-39): кнопка режима, полоса режима над планом, всплывашка у проёма */
 .tr-op-open{width:100%;display:flex;justify-content:flex-end}
 .tr-op-open .btn{padding:6px 14px;font-size:14px;min-height:0}
+/* «ПОДТВЕРДИТЬ ПЛАНИРОВКУ» (T-20261111-19/4; макет T-19 принят, TG 1534): кнопка над планом, окно со списком комнат, ход пересчёта,
+   плашки на плитках и в открытой комнате. Только токены `:root`, кнопки — `.btn` / `.btn.cta`, окно — как «Изменить комнату» (`.tr-ed`) */
+.tr-op-open.tcf-bar{justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.tcf-bar .btn{padding:7px 14px;font-size:14px;min-height:40px}
+.tcf-bar .tcf-go{font-weight:600}
+.tcf-bar .tcf-go small{font-size:13px;font-weight:500;opacity:.85;margin-left:4px}
+.tcf-bar .tcf-go.tcf-ok{background:var(--ok-bg);border-color:transparent;color:var(--ok-ink)}
+.tcf-bar .tcf-go.tcf-ok:hover{background:var(--ok-bg);border-color:var(--ok-ink)}
+/* телефон: «Окна и двери» на своём месте справа, под ней «Подтвердить планировку» во всю ширину одной строкой */
+@media(max-width:700px){.tcf-bar [data-tr-op="open"]{order:-1;margin-left:auto}
+  .tcf-bar .tcf-go{flex:1 1 100%;min-height:44px}}
+.tcf-dlg h3{margin:0 0 4px}
+.tcf-dlg .tcf-sub{margin:0 0 12px;font-size:14px;color:var(--muted);line-height:1.4}
+.tcf-dlg .tcf-say{margin:10px 0 0;font-size:14px;color:var(--muted)}
+.tcf-head{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);padding:0 2px 6px;border-bottom:1px solid var(--line)}
+.tcf-list{list-style:none;margin:0;padding:0;max-height:min(52vh,420px);overflow:auto}
+.tcf-dlg .tcf-row label{display:contents;color:var(--ink);font-size:inherit;margin:0}
+.tcf-row{display:flex;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid var(--line);cursor:pointer}
+.tcf-row:last-child{border-bottom:0}
+.tcf-row .tcf-t{flex:1;min-width:0;font-size:15px;line-height:1.3}
+.tcf-row .tcf-t b{font-weight:600}
+.tcf-row .tcf-t .tcf-sz{display:block;color:var(--muted);font-size:14px;font-variant-numeric:tabular-nums}
+.tcf-row .tcf-chg{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-dark);font-size:12px;font-weight:600;vertical-align:1px}
+.tcf-row .tcf-chk{display:block;color:var(--warn-ink);font-size:13px}
+.tcf-row .tcf-chk[hidden]{display:none}
+.tcf-row input{flex:none;width:22px;height:22px;margin:0;accent-color:var(--accent);cursor:pointer}
+/* ход пересчёта над планом: одна плашка постоянной высоты — ожидание и «Готово» сменяют друг друга без прыжка вёрстки */
+.tcf-run{width:100%;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:10px 12px;min-height:58px;border-radius:var(--radius-sm,12px);
+  background:var(--wash-3);font-size:14px;line-height:1.35;transition:background-color .4s ease}
+.tcf-run .tr-spin{width:18px;height:18px;margin:0;flex:none}
+.tcf-run .tcf-tx{flex:1;min-width:0}
+.tcf-run .tcf-tx b{font-weight:600}
+.tcf-run .tcf-pr{display:flex;align-items:center;gap:10px;margin-top:5px}
+.tcf-run .tcf-pr .tcf-bar-p{flex:1;margin:0}
+.tcf-run .tcf-eta{flex:none;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:3.6em;text-align:right}
+.tcf-run .tcf-st{color:var(--muted);font-size:13px}
+.tcf-run .btn{flex:none;padding:7px 14px;font-size:14px;min-height:40px}
+.tcf-bar-p{position:relative;height:4px;margin-top:7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 14%,transparent);overflow:hidden}
+.tcf-bar-p i{position:absolute;left:0;top:0;bottom:0;width:4%;border-radius:999px;background:var(--accent);transition:width 1s linear}
+/* дольше оценки — без чисел: мягкий бегущий отрезок вместо застывшей полосы */
+.tcf-bar-p.tcf-more i{width:35%!important;animation:tcfMore 1.6s ease-in-out infinite;transition:none}
+@keyframes tcfMore{from{left:-35%}to{left:100%}}
+.tcf-run.tcf-done{background:var(--ok-bg)}
+.tcf-run.tcf-done .tcf-tick{flex:none;width:22px;height:22px;border-radius:50%;background:var(--ok-ink);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
+@media(prefers-reduced-motion:reduce){.tcf-bar-p i{transition:none}.tcf-bar-p.tcf-more i{animation:none;left:0;width:100%!important;opacity:.5}}
+/* плитка правленой комнаты (Главная): таймер над подписью комнаты (верх карточки занят подсказкой `homeTips`), фото чуть приглушено */
+.tcf-tile{position:absolute;left:10px;bottom:50px;z-index:3;display:inline-flex;align-items:center;gap:6px;padding:5px 11px 5px 8px;border-radius:999px;
+  background:rgba(255,255,255,.94);color:var(--ink);font-size:13px;line-height:1.2;box-shadow:0 1px 6px rgba(0,0,0,.12);pointer-events:none;font-variant-numeric:tabular-nums}
+.tcf-tile .tr-spin{width:13px;height:13px;border-width:2px;margin:0}
+.tcf-tile .tcf-q{width:9px;height:9px;border-radius:50%;border:2px solid var(--accent);opacity:.7}
+.tcf-tile b{font-weight:600}
+.tcf-tile.tcf-ready{background:var(--ok-bg);color:var(--ok-ink)}
+.hm-room .hm-ph.tcf-dim>picture,.hm-room .hm-ph.tcf-dim>.nopv{filter:saturate(.6);opacity:.72;transition:opacity .4s ease,filter .4s ease}
+.hm-pick .tcf-pk{display:block;color:var(--accent-dark);font-size:12.5px;margin-top:2px;font-variant-numeric:tabular-nums}
+.hm-pick .tcf-pk.tcf-ready{color:var(--ok-ink)}
+/* открытая правленая комната: таймер плашкой у верха сцены; «Готово» — на его месте кнопкой, без перезагрузки */
+.tcf-in{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:6;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;
+  padding:6px 13px 6px 10px;border-radius:999px;background:rgba(255,255,255,.95);color:var(--ink);font-size:13px;line-height:1.25;
+  box-shadow:0 1px 8px rgba(0,0,0,.14);pointer-events:none;font-variant-numeric:tabular-nums}
+.tcf-in .tr-spin{width:13px;height:13px;border-width:2px;margin:0}
+.tcf-in b{font-weight:600}
+.tcf-toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:7;display:inline-flex;align-items:center;gap:10px;white-space:nowrap;
+  padding:7px 7px 7px 14px;border-radius:999px;background:var(--surface);color:var(--ink);font-size:14px;box-shadow:0 4px 18px rgba(0,0,0,.18);
+  animation:tcfUp .35s ease-out}
+.tcf-toast b{color:var(--ok-ink);font-weight:600}
+.tcf-toast .btn{padding:6px 14px;font-size:14px;min-height:36px;border-radius:999px}
+@keyframes tcfUp{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
 /* полоса режима — липкая сразу под шапкой тура: план прокручен к верху — «Отмена / Сохранить» не уходят под шапку (T-20261110-39/3);
    всплывашка проёма — над полосой, шапка — над обеими */
 .tr-op-bar{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:var(--radius-sm,12px);background:var(--wash-3,#F4F2ED);font-size:14px;line-height:1.4;
@@ -1736,7 +1803,7 @@ const approxTag=id=>roomConsent(id)?`<span class="tr-approx" data-consent="1">${
 // примерные», по тому же условию — кнопка-подсказка, ведёт на вкладку «План квартиры» (`trGoPlan`). Карточки главной — с прежней пометкой.
 // ОДНА ТОЧКА-ПРИЗНАК: размеры комнаты подтверждены агентом. Сейчас всегда «нет»; часть 2 плана `trial-confirm-plan-01` (кнопка
 // «Подтвердить планировку», флаг комнаты `USER_DIMS`) вернёт здесь «да» — и подсказка у этой комнаты пропадёт
-function trRoomConfirmed(id){ return false; }
+function trRoomConfirmed(id){ return !!(TCF.ed&&(TCF.ed.roomsOk||[]).indexOf(id)>=0); }   // галочка «размеры верны» (`GET edits`)
 const confirmTag=id=>(roomConsent(id)||roomApprox(id))&&!trRoomConfirmed(id)
   ?`<button class="tr-approx tr-confirm" type="button" data-tr-confirm="1">${TR_EN()?'Confirm the floor plan':'Подтвердите планировку'}</button>`:'';
 // на вкладку «План квартиры»: окно комнаты закрываем, страницу — наверх (там и правят планировку)
@@ -1782,6 +1849,7 @@ function trialSetup(){
   trialHead();
   trialPoll();
   trRebuildInit();
+  tcfInit();   // агент с ключом: черновики правок и ход пересчёта «Подтвердить планировку»
 }
 // ПЛАН КВАРТИРЫ ПРОБЫ (T-20261109-20/3): своей схемы плана (`D.plan.rooms`) сборка задания не даёт — рисуем из этажей распознавания
 // (`trial.panels[].rooms[]`: контур и рамка комнаты в см, id — те же, что в `apartment_rooms`). Схема плана — в метрах; этажи — рядом
@@ -1978,7 +2046,7 @@ async function trPollGo(){
     const r=await fetch('version.json?ts='+Date.now(),{cache:'no-store'});
     if(r.status===404||r.status===410)return;
     const j=await r.json();
-    if(+j.version>base){trSave(null); location.reload(); return;}
+    if(+j.version>base){if(tcfBusy())return; trSave(null); location.reload(); return;}   // пересчёт правок: обновит `tcfTick` (в 3D — по кнопке)
     if(lb)trListingSeen(j);
     if(rb&&trRebuildSeen(j))return;
     if(ed&&trEditSeen(j))return;
@@ -2012,7 +2080,7 @@ function trAwaiting(){ if(!TRIAL())return [];
 function trRebuilding(id){ return TRB.state==='run'&&(TRB.want==='*'||(Array.isArray(TRB.want)&&TRB.want.indexOf(id)>=0)); }
 // кнопки «Обустроить» / «Обустроить всё» (шапка, пометка под планом, план, карточка): у агента с ключом и не во время пересборки —
 // пока она идёт, второе нажатие всё равно гасится, видимая кнопка только путает (T-20261109-31)
-function trCanFurnish(){ return !!trKey()&&TRB.state!=='run'&&!trListingBusy()&&TRE.state!=='run'&&!TRO.on; }   // и не пока применяются размеры агента (Р2-текст) или правка комнаты
+function trCanFurnish(){ return !!trKey()&&TRB.state!=='run'&&!trListingBusy()&&TRE.state!=='run'&&!TRO.on&&!tcfBusy(); }   // и не пока применяются размеры агента (Р2-текст) или правка комнаты
 const TRB_TXT={
   stale:['Тур обновился, пока вы смотрели. Обновите страницу и нажмите ещё раз','The tour was updated meanwhile. Reload the page and try again','reload'],
   nothing_to_furnish:['Эти комнаты уже обустроены. Обновите страницу','These rooms are already furnished. Reload the page','reload'],
@@ -2074,7 +2142,7 @@ async function trRebuildInit(){
     const v=await (await fetch('version.json?ts='+Date.now(),{cache:'no-store'})).json();
     if(!TRB.base)TRB.base=+v.bundle||0;
     if(trKey()&&v.listing){trListingSeen(v); if(trListingBusy())trialPoll(4000);}   // текст агента (Р2-текст) ждёт или применяется
-    if(trKey()&&v.roomEdit==='applying'){TRE.state='run'; trRedraw(); trialPoll(3000); return;}   // правка комнаты (своя или из другой вкладки) пересобирается
+    if(trKey()&&v.roomEdit==='applying')return;   // идёт пересчёт правок: ход показывает «Подтвердить планировку» (`tcfInit`), без перезагрузки
     if(trKey()&&v.roomEdit==='failed'&&trEditMine()){TRE.state='fail'; TRE.err=v.roomEditError||'_'; trEditMine(false); trRedraw(); return;}
     if(v.rebuild==='queued'||v.rebuild==='running'){TRB.state='run'; TRB.want=(saved&&saved.want)||'*'; trRedraw(); trialPoll(4000); return;}
     if(v.rebuild==='failed'&&saved){trFail(v.rebuildError||'_'); return;}
@@ -2232,7 +2300,7 @@ const TRE_KEY='tr-room-edit';
 // «правку сохраняли в этой вкладке» — «не получилось» показываем только тому, кто правил (как у «Обустроить»)
 function trEditMine(v){ try{ if(v===undefined)return !!sessionStorage.getItem(TRE_KEY); if(v)sessionStorage.setItem(TRE_KEY,'1'); else sessionStorage.removeItem(TRE_KEY); }catch(e){} return false; }
 const trEditable=()=>TRIAL()&&!!trKey()&&!!trJobId()&&window.__TOUR_VER!=null;
-const trCanEdit=()=>trEditable()&&TRB.state!=='run'&&!trListingBusy()&&TRE.state!=='run';
+const trCanEdit=()=>trEditable()&&TRB.state!=='run'&&!trListingBusy()&&TRE.state!=='run'&&!tcfBusy();   // и не во время пересчёта «Подтвердить планировку»
 // комната страницы → её комната распознавания (панель плана): габариты сейчас (правка или как прочитано), см
 function trPanelRoom(id){
   for(const p of ((D.trial||{}).panels||[]))for(const r of ((p&&p.rooms)||[]))if(r&&r.id===id&&r.bbox)
@@ -2263,17 +2331,20 @@ function trEditOpen(id){
   if(!trCanEdit()||document.querySelector('[data-tr-edit]'))return;
   const pr=trPanelRoom(id); if(!pr)return;
   const EN=TR_EN(), ar=trRoom(id)||{}, hr=homeRooms().find(x=>x.id===id)||{};
-  const title=String(hr.title||(EN?ar.titleEn:ar.titleRu)||ar.titleRu||'');
-  const W0=pr.w/100, L0=pr.d/100, A0=+ar.areaM2||+hr.areaM2||W0*L0, rid=trReqId();
+  const dr=TCF.rooms[id]||null;   // черновик (`GET edits`): окно открывается с его именем и размерами
+  const title=dr&&dr.name?dr.name:String(hr.title||(EN?ar.titleEn:ar.titleRu)||ar.titleRu||'');
+  const W0=pr.w/100, L0=pr.d/100, A0=+ar.areaM2||+hr.areaM2||W0*L0;
+  let rid='', sent='';
+  const W1=dr&&dr.w?dr.w/100:W0, L1=dr&&dr.d?dr.d/100:L0;
   const T=(ru,en)=>EN?en:ru, base=title.replace(/\s*\d+$/,'');
   const bk=document.createElement('div'); bk.className='tr-ed-back'; bk.setAttribute('data-tr-edit',id);
   bk.innerHTML=`<div class="tr-ed" role="dialog" aria-modal="true" aria-labelledby="tr-ed-h"><h3 id="tr-ed-h">${escHtml(title||T('Комната','Room'))}</h3>`+
     `<label for="tr-ed-n">${T('Название','Name')}</label><input id="tr-ed-n" maxlength="60" autocomplete="off" value="${escHtml(title)}" placeholder="${T('Например, кабинет','e.g. study')}">`+
     `<div class="tr-ed-kinds">${TRE_KINDS.map(k=>`<button type="button" class="chip${base===k[0]||base===k[1]?' on':''}">${EN?k[1]:k[0]}</button>`).join('')}</div>`+
-    `<label for="tr-ed-w">${T('Ширина × длина, м','Width × length, m')}</label><div class="tr-ed-row"><input id="tr-ed-w" inputmode="decimal" value="${trFmt(W0,2)}">`+
-    `<span>×</span><input id="tr-ed-l" inputmode="decimal" aria-label="${T('Длина, м','Length, m')}" value="${trFmt(L0,2)}"></div>`+
-    `<label for="tr-ed-a">${T('Площадь, м²','Area, m²')}</label><input id="tr-ed-a" inputmode="decimal" value="${trFmt(A0,1)}">`+
-    `<p class="tr-ed-hint">${T('3D и мебель этой комнаты пересоберутся сами, обычно до двух минут','The 3D and furniture of this room will rebuild by themselves, usually under two minutes')}</p>`+
+    `<label for="tr-ed-w">${T('Ширина × длина, м','Width × length, m')}</label><div class="tr-ed-row"><input id="tr-ed-w" inputmode="decimal" value="${trFmt(W1,2)}">`+
+    `<span>×</span><input id="tr-ed-l" inputmode="decimal" aria-label="${T('Длина, м','Length, m')}" value="${trFmt(L1,2)}"></div>`+
+    `<label for="tr-ed-a">${T('Площадь, м²','Area, m²')}</label><input id="tr-ed-a" inputmode="decimal" value="${trFmt(tcfArea(A0,W0,L0,W1,L1),1)}">`+
+    `<p class="tr-ed-hint">${T('3D пересчитаем, когда нажмёте «Подтвердить планировку» над планом','We’ll rebuild the 3D when you press “Confirm the layout” above the plan')}</p>`+
     `<p class="tr-ed-err" role="alert" hidden></p>`+
     `<div class="tr-ed-acts"><button type="button" class="btn ghost" data-tr-ed="cancel">${T('Отмена','Cancel')}</button>`+
     `<button type="button" class="btn cta" data-tr-ed="save">${T('Сохранить','Save')}</button></div></div>`;
@@ -2299,17 +2370,19 @@ function trEditOpen(id){
     if(!name)return say('name');
     if(!(w>=0.5&&w<=50&&l>=0.5&&l<=50))return say('dims');
     sv.disabled=true; sv.textContent=T('Сохраняю…','Saving…'); say('');
-    let r, j={};
-    try{
-      if(!TRB.base){const v=await (await fetch('version.json?ts='+Date.now(),{cache:'no-store'})).json(); TRB.base=+v.bundle||0;}
-      r=await fetch('/api/trial/'+trJobId()+'/room-edit',{method:'POST',headers:{'content-type':'application/json'},cache:'no-store',
-        body:JSON.stringify({k:trKey(), request_id:rid, base_version:TRB.base||1, room:id, name, w_cm:Math.round(w*100), d_cm:Math.round(l*100)})});
-      try{j=await r.json();}catch(e){}
-    }catch(e){ r=null; }
+    const w_cm=Math.round(w*100), d_cm=Math.round(l*100), val=JSON.stringify([name,w_cm,d_cm]);
+    if(val!==sent){sent=val; rid=trReqId();}                          // те же значения — тот же request_id (второй работы не будет), новые — новый
+    // ЧЕРНОВИК (план trial-confirm-plan-01): пересчёта нет, он — по «Подтвердить планировку»; 502 / обрыв — повтор с паузами (`tcfPost`)
+    const {r,j}=await tcfPost('room-edit',{k:trKey(), request_id:rid, room:id, name, w_cm, d_cm, draft:true});
     sv.disabled=false; sv.textContent=T('Сохранить','Save');
-    if(!r)return say('offline');                                      // тот же request_id при повторе — второй работы не будет
-    if(r.status===200&&j.unchanged){close(); return;}                 // меньше 10 см и то же имя — менять нечего
-    if(r.status===202||(r.status===200&&j.ok)){close(); TRE.state='run'; TRE.err=''; trEditMine(true); trRedraw(); trialPoll(1500); return;}
+    if(!r)return say('offline');
+    const had=!!TCF.rooms[id];
+    if(r.status===200&&j.unchanged){                                   // вернули как было (меньше 10 см и то же имя) — черновик снят
+      close(); delete TCF.rooms[id]; if(had&&TCF.ed)TCF.ed.drafts=Math.max(0,tcfCount()-1); tcfRedraw(); tcfRefresh(); return;}
+    if(r.status===200&&j.ok){close(); TCF.rooms[id]={name, w:w_cm, d:d_cm};
+      if(!had)TCF.ed=Object.assign({drafts:0, roomsOk:[], openings:[], rooms:[]},TCF.ed||{},{drafts:tcfCount()+1});
+      tcfRedraw(); tcfRefresh(); return;}
+    if(r.status===202){close(); TRE.state='run'; TRE.err=''; trEditMine(true); trRedraw(); trialPoll(1500); return;}   // сервер без черновиков (старый)
     say(j.error||'_');
   };
   setTimeout(()=>{try{N.focus({preventScroll:true});}catch(e){}},0);
@@ -2334,7 +2407,7 @@ const TRO_W={door:80, window:120}, TRO_MIN=30, TRO_MAX=600, TRO_TOL_PX=22, TRO_C
 Object.assign(TRE_TXT,{
   bad_opening:['План обновился. Обновите страницу и поправьте ещё раз','The plan was updated. Reload the page and edit again'],
   too_many:['Слишком много правок окон и дверей в этом туре','Too many window and door edits in this tour']});
-const troPanels=()=>((D.trial||{}).panels||[]).filter(p=>p&&p.id&&(p.rooms||[]).some(r=>r&&r.bbox));
+const troPanels=()=>tcfPanels().filter(p=>p&&p.id&&(p.rooms||[]).some(r=>r&&r.bbox));   // проёмы — с черновиками агента (`tcfPanels`)
 const troTf=id=>(((D.plan||{}).trTf)||[]).find(t=>t.id===id)||null;
 const troToM=(tf,p)=>[tf.ox+(p[0]-tf.x0)/100, tf.top+(p[1]-tf.y0)/100];
 const troToCm=(tf,p)=>[(p[0]-tf.ox)*100+tf.x0, (p[1]-tf.top)*100+tf.y0];
@@ -2355,7 +2428,7 @@ function troInit(){
     const c=o&&o.c, w=+(o&&o.widthCm); if(!Array.isArray(c)||!(w>0)||!/^(door|window|opening)$/.test(o.kind))return;
     const key=typeof o.key==='string'?o.key:'s'+i, e=troEdge(p,c,Math.min(w*0.5,60));
     if(!e||e.d>TR_WALL_NEAR)return;                                       // на плане не нарисован — и править нечего
-    TRO.ops[p.id+'|'+key]={panel:p.id, key, kind:o.kind, w, edge:e, t:e.s, c0:[+c[0],+c[1]], exterior:!!o.exterior, src:true, removed:false, touched:false};
+    TRO.ops[p.id+'|'+key]={panel:p.id, key, kind:o.kind, w, edge:e, t:e.s, c0:[+c[0],+c[1]], exterior:!!o.exterior, src:true, draft:!!o.draft, removed:false, touched:false};
   }));
 }
 const troC=op=>op.touched?troAt(op.edge,op.t).map(v=>Math.round(v*10)/10):op.c0;
@@ -2365,7 +2438,7 @@ function troLayoutOps(){
     .map(op=>({kind:op.kind, c:troC(op), widthCm:op.w, exterior:op.exterior, key:op.key}))}));
   return trPlanLayout(PN).ops;
 }
-const troTouched=()=>Object.values(TRO.ops).filter(op=>op.touched&&!(op.removed&&!op.src));
+const troTouched=()=>Object.values(TRO.ops).filter(op=>op.touched&&!(op.removed&&!op.src&&!op.draft));   // снятый черновик — тоже правка
 // подпись: тип · ширина · до ближнего угла (по ребру)
 function troInfo(op){
   const EN=TR_EN(), gap=Math.max(0,Math.min(op.t-op.w/2, op.edge.L-op.t-op.w/2));
@@ -2377,7 +2450,8 @@ function troExit(){ TRO.on=false; TRO.ops={}; TRO.sel=null; TRO.drag=null; TRO.p
 // полоса над планом: вне режима — кнопка «Окна и двери», в режиме — подсказка / подпись выбранного, ошибка, «Отмена» и «Сохранить»
 function troBarHtml(){
   const EN=TR_EN(), T=(ru,en)=>EN?en:ru;
-  if(!TRO.on)return trCanEdit()&&troPanels().length?`<div class="tr-op-open"><button class="btn" type="button" data-tr-op="open">${T('Окна и двери','Windows & doors')}</button></div>`:'';
+  // вне режима — «Подтвердить планировку» и «Окна и двери» одной полосой; во время пересчёта — его ход (`tcfBarHtml`)
+  if(!TRO.on)return tcfBarHtml(trCanEdit()&&troPanels().length?`<button class="btn" type="button" data-tr-op="open">${T('Окна и двери','Windows & doors')}</button>`:'');
   const op=TRO.ops[TRO.sel], n=troTouched().length;
   const st=op?`<b data-tr-op-info>${escHtml(troInfo(op))}</b>`:TRO.pick?`<b data-tr-op-info>${escHtml(T('Что поставить сюда?','What goes here?'))}</b>`
     :T('Нажмите на стену, чтобы добавить окно или дверь. Нажмите на проём, чтобы тянуть его за края, двигать за середину или удалить.',
@@ -2492,30 +2566,30 @@ function troKind(kind){
   TRO.sel=null; TRO.err=''; flatPlan();
 }
 function troDel(){ const op=TRO.ops[TRO.sel]; if(!op)return; op.removed=true; op.touched=true; TRO.sel=null; TRO.err=''; flatPlan(); }
-// «Сохранить»: по панели, кусками ≤ 30 проёмов, у каждого куска свой request_id; первый ставит пересборку, следующие ложатся в неё же
+// «Сохранить»: черновиком (`draft: true`, пересчёт — по «Подтвердить планировку»), по панели, кусками ≤ 30 проёмов, у каждого куска свой
+// request_id; 502 / обрыв связи — повтор того же куска (`tcfPost`), на кнопке «Сохраняю…». Проём вернули как было — сервер снимает черновик
 async function troSave(){
   const ops=troTouched(); if(!ops.length||TRO.busy)return;
   TRO.busy=true; TRO.err=''; flatPlan();
   let queued=false, err='';
   try{
-    if(!TRB.base){const v=await (await fetch('version.json?ts='+Date.now(),{cache:'no-store'})).json(); TRB.base=+v.bundle||0;}
     const by={}; ops.forEach(op=>(by[op.panel]=by[op.panel]||[]).push(op));
     outer: for(const panel of Object.keys(by))for(let i=0;i<by[panel].length;i+=TRO_CHUNK){
       const part=by[panel].slice(i,i+TRO_CHUNK).map(op=>({key:op.key, kind:op.kind==='window'?'window':'door', c:troC(op),
         w_cm:Math.max(TRO_MIN,Math.min(TRO_MAX,Math.round(op.w))), removed:!!op.removed}));
-      let r=null, j={};
-      try{ r=await fetch('/api/trial/'+trJobId()+'/opening-edit',{method:'POST',headers:{'content-type':'application/json'},cache:'no-store',
-        body:JSON.stringify({k:trKey(), request_id:trReqId(), base_version:TRB.base||1, panel, ops:part})}); try{j=await r.json();}catch(e){} }catch(e){ r=null; }
+      const {r,j}=await tcfPost('opening-edit',{k:trKey(), request_id:trReqId(), panel, ops:part, draft:true});
       if(!r){err='offline'; break outer;}
-      if(r.status===202||(r.status===200&&j.ok&&!j.unchanged)){queued=true; continue;}
-      if(r.status===200&&j.unchanged)continue;
+      if(r.status===200&&j.ok)continue;                                   // черновик записан или снят («как было»)
+      if(r.status===202){queued=true; continue;}                          // сервер без черновиков (старый) — пересборка, как раньше
       err=j.error||'_'; break outer;
     }
   }catch(e){ err='offline'; }
   TRO.busy=false;
   if(queued){TRO.on=false; TRO.ops={}; TRO.sel=null; TRO.pick=null; TRE.state='run'; TRE.err=''; trEditMine(true); trRedraw(); trialPoll(1500); return;}
-  if(!err){troExit(); return;}                                            // менять было нечего
-  TRO.err=err; flatPlan();
+  if(err){TRO.err=err; flatPlan(); return;}
+  TRO.on=false; TRO.ops={}; TRO.sel=null; TRO.pick=null;
+  const ed=await tcfGet('edits'); if(ed)tcfApply(ed);                   // черновики с сервера → проёмы плана и «N правок»
+  tcfRedraw();
 }
 document.addEventListener('click',e=>{
   const b=e.target&&e.target.closest&&e.target.closest('[data-tr-op],[data-tr-op-kind]'); if(!b||!TRIAL())return;
@@ -2523,6 +2597,296 @@ document.addEventListener('click',e=>{
   const k=b.getAttribute('data-tr-op-kind'); if(k)return troKind(k);
   const a=b.getAttribute('data-tr-op');
   if(a==='open')troEnter(); else if(a==='cancel'){if(!TRO.busy)troExit();} else if(a==='save')troSave(); else if(a==='del')troDel();
+},true);
+// «ПОДТВЕРДИТЬ ПЛАНИРОВКУ» (план trial-confirm-plan-01, часть 2; T-20261111-19/4; макет T-19 — владелец TG 1534 «ок»). Правки агента —
+// черновиком (`room-edit` / `opening-edit` с `draft: true`): пересчёта нет, на плане — пометка «не подтверждено», после перезагрузки
+// черновики приходят из `GET edits`. Кнопка над планом «Подтвердить планировку (N правок)» → окно со списком комнат и галочкой «размеры
+// верны» → POST `confirm` → ОДИН пересчёт; ход — `GET rebuild-status` (очередь → считаем → готово, «N из M комнат» и оценка времени),
+// обратный отсчёт страница ведёт сама между опросами. Готово: без открытого 3D — страница обновляется сама, в 3D — «Готово · Обновить».
+// Запросы переживают 502 первой минуты после выкладки и обрыв связи (T-19/3): повтор с паузами 2–4–8 с, тот же `request_id`.
+// TCF PURE START
+const TCF_WAIT=[2000,4000,8000,8000,8000];
+// запрос с повтором: нет ответа (сеть) или 502/503/504 — пауза и ещё раз, до 5 повторов; `say(n)` — перед n-й паузой
+async function tcfRetry(go,wait,say){
+  for(let i=0;;i++){
+    let r=null; try{r=await go();}catch(e){r=null;}
+    if(r&&!(r.status>=502&&r.status<=504))return r;
+    if(i>=TCF_WAIT.length)return r;
+    if(say)say(i+1);
+    await wait(TCF_WAIT[i]);
+  }
+}
+const tcfClock=s=>{s=Math.max(0,Math.round(s)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
+// сколько осталось: оценка от начала пересборки − прошло по серверу − прошло с ответа; меньше нуля не бывает — «ещё немного»
+const tcfLeft=(eta,el,sinceMs)=>eta==null?null:eta-(el||0)-(sinceMs||0)/1000;
+const tcfEtaTxt=(left,en)=>left==null?'':left<=0?(en?'almost there':'ещё немного'):'≈ '+tcfClock(left);
+const tcfPlural=(n,en)=>en?(n===1?'edit':'edits'):(n%10===1&&n%100!==11?'правка':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'правки':'правок'));
+// площадь правленой комнаты — пропорцией от построенной (у непрямоугольной площадь ≠ ширина × длина), как в окне правки
+const tcfArea=(a0,w0,d0,w,d)=>a0>0&&w0>0&&d0>0&&w>0&&d>0?a0*(w/w0)*(d/d0):a0;
+// галочка «размеры верны» по умолчанию: правил агент, уже подтверждал или масштаб плана проверен (`verified` / `listing`)
+const tcfDefaultOk=(draft,was,scale)=>!!draft||!!was||/^(verified|listing)$/.test(scale||'');
+// ответ `rebuild-status` → что показать. Пересчёт правок — вид `edit` (другие — «Обустроить» и текст размеров, у них свой показ).
+// `was` — пересчёт шёл на глазах этой вкладки (или его запускали здесь): «готово» / «не получилось» только ему
+function tcfModel(j,ver,was){
+  const b=j&&j.rebuild;
+  if(!b||b.kind!=='edit')return {st:'idle'};
+  if(b.status==='failed')return was?{st:'fail', err:b.error||'_'}:{st:'idle'};
+  if(b.status==='done')return was||+j.version>ver?{st:'done'}:{st:'idle'};
+  const R=b.rooms||{}, E=b.roomEtaS||{}, rooms={};
+  Object.keys(R).forEach(id=>{rooms[id]={st:R[id], eta:typeof E[id]==='number'?E[id]:null};});
+  return {st:'run', queued:b.status==='queued', done:+b.done||0, total:+b.total||0, eta:typeof b.etaS==='number'?b.etaS:null, el:+b.elapsedS||0, rooms};
+}
+// TCF PURE END
+const TCF={ed:null, rooms:{}, hit:{}, st:'idle', m:null, at:0, sig:'', poll:0, tick:0, doneAt:0, rid:'', busy:false};
+const TCF_KEY='tr-confirm';
+function tcfMine(v){ try{ if(v===undefined)return !!sessionStorage.getItem(TCF_KEY); if(v)sessionStorage.setItem(TCF_KEY,'1'); else sessionStorage.removeItem(TCF_KEY); }catch(e){} return false; }
+const tcfSleep=ms=>new Promise(ok=>setTimeout(ok,ms));
+const tcfBusy=()=>TCF.st==='run'||TCF.st==='done';
+const tcfCount=()=>TCF.ed?+TCF.ed.drafts||0:0;
+Object.assign(TRE_TXT,{
+  draft_limit:['Много неподтверждённых правок. Нажмите «Подтвердить планировку» и правьте дальше','Too many unconfirmed edits. Press “Confirm the layout” and go on'],
+  bad_rooms:['Тур обновился. Обновите страницу и подтвердите ещё раз','The tour was updated. Reload the page and confirm again']});
+async function tcfBase(){
+  if(TRB.base)return;
+  const r=await tcfRetry(()=>fetch('version.json?ts='+Date.now(),{cache:'no-store'}),tcfSleep);
+  try{if(r&&r.ok){const v=await r.json(); TRB.base=+v.bundle||0;}}catch(e){}
+}
+// POST правки / подтверждения: тело собрано один раз — повтор идёт с тем же `request_id` (сервер второй работы не сделает)
+async function tcfPost(path,body){
+  await tcfBase();
+  const b=JSON.stringify(Object.assign({},body,{base_version:TRB.base||1}));
+  const r=await tcfRetry(()=>fetch('/api/trial/'+trJobId()+'/'+path,{method:'POST',headers:{'content-type':'application/json'},cache:'no-store',body:b}),tcfSleep);
+  let j={}; if(r){try{j=await r.json();}catch(e){}}
+  return {r,j};
+}
+// GET с ключом: песочница тура пускает только `?k=<ключ>` (без отметки времени), свежесть — `no-store`; опрос хода — без повторов
+async function tcfGet(path,once){
+  const go=()=>fetch('/api/trial/'+trJobId()+'/'+path+'?k='+trKey(),{cache:'no-store'});
+  let r=null; try{r=once?await go():await tcfRetry(go,tcfSleep);}catch(e){r=null;}
+  if(!r||!r.ok)return null;
+  try{return await r.json();}catch(e){return null;}
+}
+// проёмы панелей с черновиками агента: изменённый — новыми значениями, снятый — не рисуем, свой новый (`u…`) — добавлен.
+// Ключ каждого проёма — явный (у сборки без ключа — `s<номер>`): снятый не сдвигает номера соседей
+function tcfPanels(){
+  const PN=(D.trial||{}).panels||[], ops=(TCF.ed&&TCF.ed.openings)||[];
+  if(!ops.length)return PN;
+  return PN.map(p=>{
+    const mine=p&&p.id?ops.filter(o=>o.panel===p.id):[]; if(!mine.length)return p;
+    const seen=new Set(), out=[];
+    (p.openings||[]).forEach((o,i)=>{const key=typeof o.key==='string'?o.key:'s'+i, d=mine.find(x=>x.key===key);
+      if(!d){out.push(Object.assign({},o,{key})); return;}
+      seen.add(key); if(d.removed)return;
+      out.push(Object.assign({},o,{key, kind:d.kind, c:d.c, widthCm:d.w_cm, draft:true}));});
+    mine.filter(d=>!seen.has(d.key)&&!d.removed&&Array.isArray(d.c)).forEach(d=>out.push({key:d.key, kind:d.kind, c:d.c, widthCm:d.w_cm, exterior:false, draft:true}));
+    return Object.assign({},p,{openings:out});
+  });
+}
+// черновики с сервера → комнаты (имя и размеры по id страницы) и проёмы плана
+function tcfApply(ed){
+  if(!ed||!ed.ok)return;
+  const had=!!(TCF.ed&&(TCF.ed.openings||[]).length);
+  TCF.ed=ed; TCF.rooms={};
+  (ed.rooms||[]).forEach(r=>{if(r&&r.room)TCF.rooms[r.room]={name:String(r.name||''), w:+r.w_cm||0, d:+r.d_cm||0};});
+  if((had||(ed.openings||[]).length)&&D.plan&&D.plan.trTf){try{D.plan.trOpenings=trPlanLayout(tcfPanels()).ops;}catch(e){}}
+}
+const tcfPlanRedraw=()=>{try{if(curScreen()==='plan')flatPlan();}catch(e){}};
+async function tcfRefresh(){ const ed=await tcfGet('edits'); if(ed){tcfApply(ed); tcfPlanRedraw();} }
+// при загрузке (агент с ключом): черновики, затем ход последней пересборки
+async function tcfInit(){
+  if(!trEditable())return;
+  const ed=await tcfGet('edits'); if(ed)tcfApply(ed);
+  const j=await tcfGet('rebuild-status');
+  if(j&&j.ok)tcfSeen(j,true);
+  if(TCF.st==='run')tcfWatch(3000);
+  else if(ed)tcfPlanRedraw();
+}
+// ход пересборки: изменилось видимое (состояние, «N из M», комнаты) — перерисовка; таймеры между опросами идут сами (`tcfTick`)
+function tcfSeen(j,boot){
+  const was=TCF.st==='run'||tcfMine(), m=tcfModel(j,window.__TOUR_VER||0,was);
+  if(boot&&m.st==='done'&&!was)return;                    // итог чужого пересчёта при загрузке — страница уже с ним
+  TCF.m=m; TCF.at=Date.now();
+  if(m.st==='run')Object.keys(m.rooms||{}).forEach(id=>{TCF.hit[id]=1;});   // какие комнаты пересчитывались — для «Готово»
+  const sig=JSON.stringify([m.st,m.done,m.total,m.queued,Object.keys(m.rooms||{}).map(k=>k+':'+m.rooms[k].st)]);
+  if(m.st==='fail'||m.st==='done')tcfMine(false);
+  if(sig===TCF.sig&&m.st===TCF.st)return;
+  if(m.st==='done'&&TCF.st!=='done')TCF.doneAt=Date.now();
+  TCF.st=m.st; TCF.sig=sig;
+  if(tcfBusy())tcfTickOn();
+  tcfRedraw();
+}
+// перерисовка без пересборки плиток Главной (картинки не мигают): шапка, план, плашки плиток и комнаты
+function tcfRedraw(){ try{trialHead();}catch(e){} tcfPlanRedraw(); tcfTiles(); tcfRoomOv(); }
+function tcfWatch(ms){ clearTimeout(TCF.poll); TCF.poll=setTimeout(tcfPoll,ms==null?3000:ms); tcfTickOn(); }
+async function tcfPoll(){
+  if(document.visibilityState!=='visible')return tcfWatch(4000);
+  const j=await tcfGet('rebuild-status',true);   // сорвался (502 после выкладки, нет связи) — тихо спросим снова
+  if(j&&j.ok)tcfSeen(j);
+  if(TCF.st==='run')tcfWatch(3000);
+}
+function tcfTickOn(){ if(!TCF.tick)TCF.tick=setInterval(tcfTick,1000); }
+const tcfIn3D=()=>{const s=document.getElementById('shot'); return !!(s&&s.classList.contains('on'));};
+function tcfLeftOf(id){
+  const m=TCF.m; if(!m||m.st!=='run')return null;
+  const e=id==='*'?m.eta:((m.rooms||{})[id]||{}).eta;
+  return tcfLeft(e,m.el,Date.now()-TCF.at);
+}
+// раз в секунду: таймеры и полоса; открытая комната — плашка; готово и 3D закрыто — обновить страницу
+function tcfTick(){
+  if(!tcfBusy()){clearInterval(TCF.tick); TCF.tick=0; return;}
+  const EN=TR_EN();
+  document.querySelectorAll('[data-tcf-eta]').forEach(e=>{const t=tcfEtaTxt(tcfLeftOf(e.getAttribute('data-tcf-eta')),EN);
+    e.textContent=(e.getAttribute('data-tcf-pre')||'')+t;});
+  document.querySelectorAll('.tcf-bar-p').forEach(tcfProg);
+  tcfRoomOv();
+  if(TCF.st==='done'&&!tcfIn3D()&&!document.querySelector('.tr-ed-back')&&Date.now()-TCF.doneAt>3000)tcfReload();
+}
+function tcfReload(){ clearInterval(TCF.tick); TCF.tick=0; trSave(null); location.reload(); }
+function tcfProg(p){
+  const m=TCF.m||{}, l=tcfLeftOf('*'), over=l==null||l<=0, i=p.firstChild;
+  p.classList.toggle('tcf-more',over);
+  if(i)i.style.width=(over?35:Math.max(4,Math.min(100,100*(1-l/Math.max(1,m.eta)))))+'%';
+}
+const tcfT=(ru,en)=>TR_EN()?en:ru;
+// полоса над планом: кнопка «Подтвердить планировку» (рядом «Окна и двери») или ход пересчёта / «Готово» / «не получилось»
+function tcfBarHtml(ob){
+  const T=tcfT;
+  if(TCF.st==='run'){const m=TCF.m||{}, k=m.total;
+    const head=k?`${T('Пересчитываем','Recalculating')}: ${Math.min(m.done,k)} ${T('из','of')} ${k} ${T(k===1?'комнаты':'комнат',k===1?'room':'rooms')}`:T('Пересчитываем планировку','Recalculating the layout');
+    return `<div class="tcf-run" data-tcf="run" role="status"><span class="tr-spin" aria-hidden="true"></span><div class="tcf-tx"><b>${escHtml(head)}</b>`+
+      `<div class="tcf-pr"><div class="tcf-bar-p" aria-hidden="true"><i></i></div><span class="tcf-eta" data-tcf-eta="*">${tcfEtaTxt(tcfLeftOf('*'),TR_EN())}</span></div></div></div>`;}
+  if(TCF.st==='done')return `<div class="tcf-run tcf-done" data-tcf="done" role="status"><span class="tcf-tick" aria-hidden="true">✓</span><div class="tcf-tx"><b>${T('Готово','Done')}</b>`+
+    `<div class="tcf-st">${T('Комнаты пересчитаны','Rooms recalculated')}</div></div><button class="btn cta" type="button" data-tcf-act="reload">${T('Обновить','Refresh')}</button></div>`;
+  if(TCF.st==='fail')return `<div class="tcf-run tcf-fail" data-tcf="fail" data-code="${escHtml((TCF.m||{}).err||'')}" role="status"><div class="tcf-tx"><b>${T('Не получилось пересчитать','Couldn’t recalculate')}</b>`+
+    `<div class="tcf-st">${T('Правки сохранены. Попробуйте ещё раз','Your edits are saved. Please try again')}</div></div><button class="btn" type="button" data-tcf-act="open">${T('Ещё раз','Try again')}</button></div>`;
+  if(!trEditable())return ob?`<div class="tr-op-open">${ob}</div>`:'';
+  const n=tcfCount(), ok=!n&&!!(TCF.ed&&TCF.ed.confirmedAt);
+  const go=ok?`<button class="btn tcf-go tcf-ok" type="button" data-tcf-act="open">${T('Планировка подтверждена ✓','Layout confirmed ✓')}</button>`
+    :`<button class="btn cta tcf-go" type="button" data-tcf-act="open">${T('Подтвердить планировку','Confirm the layout')}${n?` <small>(${n} ${tcfPlural(n,TR_EN())})</small>`:''}</button>`;
+  return `<div class="tr-op-open tcf-bar">${go}${ob}</div>`;
+}
+// строка под подписью комнаты на плане: черновик — «не подтверждено», пересчёт — «в очереди / считаем · ≈ 0:45», готово — «✓ готово»
+function tcfPlanLine(id){
+  const T=tcfT, m=TCF.m, r=m&&m.st==='run'?(m.rooms||{})[id]:null;
+  if(r){if(r.st==='ready')return {t:'✓ '+T('готово','ready'),k:0.75,a:{fill:'#2F7D4F','font-weight':'600','data-tcf-room':id}};
+    const pre=(r.st==='queued'?T('в очереди','queued'):T('считаем','updating'))+' · ';
+    return {t:pre+tcfEtaTxt(tcfLeftOf(id),TR_EN()),k:0.75,a:{fill:'#9A5A3D','font-weight':'600','data-tcf-room':id,'data-tcf-eta':id,'data-tcf-pre':pre}};}
+  if(TCF.st==='done'&&TCF.hit[id])return {t:'✓ '+T('готово','ready'),k:0.75,a:{fill:'#2F7D4F','font-weight':'600','data-tcf-room':id}};
+  if(TCF.rooms[id]&&!tcfBusy())return {t:T('не подтверждено','not confirmed'),k:0.75,a:{fill:'#96601F','font-weight':'600','data-tcf-room':id,'data-tcf-draft':'1'}};
+  return null;
+}
+// имя и площадь комнаты на плане с учётом черновика
+function tcfLabel(id,title,a0){
+  const d=TCF.rooms[id], pr=d&&trPanelRoom(id);
+  if(!d)return {title, a:a0};
+  return {title:d.name||title, a:pr?Math.round(tcfArea(+a0||0,pr.w,pr.d,d.w,d.d)*100)/100:a0};   // как в данных: до сотых
+}
+// Главная: плашка с таймером на фото правленой комнаты, фото приглушено («это прежняя версия»); строка в плитке выбора (компьютер)
+function tcfTiles(){
+  document.querySelectorAll('#hmRooms .tcf-tile,#hmRooms .tcf-pk').forEach(e=>e.remove());
+  document.querySelectorAll('#hmRooms .tcf-dim').forEach(e=>e.classList.remove('tcf-dim'));
+  document.querySelectorAll('#hmRooms .hm-ph>.tr-approx[data-tcf-hide]').forEach(e=>{e.hidden=false; e.removeAttribute('data-tcf-hide');});
+  const m=TCF.m; if(!m||!tcfBusy())return;
+  const T=tcfT, EN=TR_EN(), ids=m.st==='run'?Object.keys(m.rooms||{}):Object.keys(TCF.hit);
+  ids.forEach(id=>{
+    const art=document.querySelector(`#hmRooms article.hm-room[data-room="${CSS.escape(id)}"]`); if(!art)return;
+    const ph=art.querySelector('.hm-ph'); if(!ph)return;
+    const r=m.st==='run'?m.rooms[id]:{st:'ready'}, ready=r.st==='ready', q=r.st==='queued', i=art.getAttribute('data-open');
+    const pill=document.createElement('span'); pill.className='tcf-tile'+(ready?' tcf-ready':''); pill.setAttribute('aria-hidden','true');
+    if(ready)pill.innerHTML=`<span>✓ ${T('Готово','Ready')}</span>`;
+    else{ph.classList.add('tcf-dim');
+      pill.innerHTML=(q?'<i class="tcf-q"></i>':'<i class="tr-spin"></i>')+`<span>${q?T('В очереди','Queued'):T('Пересчитываем','Updating')} <b data-tcf-eta="${escHtml(id)}">${tcfEtaTxt(tcfLeftOf(id),EN)}</b></span>`;}
+    const ap=ph.querySelector(':scope>.tr-approx'); if(ap&&!ap.hidden){ap.hidden=true; ap.setAttribute('data-tcf-hide','1');}   // одна плашка: таймер важнее «Формы»
+    ph.appendChild(pill);
+    const pk=i!=null&&document.querySelector(`#hmRooms .hm-pick[data-room-pick="${i}"]`);
+    if(pk){const s=document.createElement('span'); s.className='tcf-pk'+(ready?' tcf-ready':'');
+      if(ready)s.textContent='✓ '+T('готово','ready');
+      else{const pre=(q?T('в очереди','queued'):T('пересчитываем','updating'))+' · '; s.setAttribute('data-tcf-eta',id); s.setAttribute('data-tcf-pre',pre); s.textContent=pre+tcfEtaTxt(tcfLeftOf(id),EN);}
+      pk.appendChild(s);}
+  });
+}
+// открытая правленая комната: таймер плашкой у верха сцены; «Готово · Обновить» — на его месте (без перезагрузки, пока смотрят 3D)
+function tcfRoomOv(){
+  const st=document.querySelector('#shot.on .vstage'), old=document.querySelectorAll('.tcf-in,.tcf-toast');
+  const m=TCF.m, id=st&&tcfBusy()&&m?(()=>{try{return roomIdOf(allVariants()[cur]);}catch(e){return '';}})():'';
+  const r=id&&m.st==='run'?(m.rooms||{})[id]:null, done=id&&m.st==='done'&&!!TCF.hit[id];
+  const want=r?(r.st==='ready'?'ready':r.st):done?'done':'';
+  old.forEach(e=>{if(e.parentNode!==st||e.getAttribute('data-tcf-ov')!==want+'|'+id)e.remove();});
+  if(!want||st.querySelector('.tcf-in,.tcf-toast'))return;
+  const T=tcfT, p=document.createElement('div'); p.setAttribute('role','status'); p.setAttribute('data-tcf-ov',want+'|'+id);
+  if(want==='done'){p.className='tcf-toast';
+    p.innerHTML=`<span><b>✓ ${T('Готово','Done')}</b></span><button class="btn cta" type="button" data-tcf-act="reload">${T('Обновить','Refresh')}</button>`;}
+  else{p.className='tcf-in';
+    const txt=want==='ready'?T('Комната пересчитана, ждём остальные','Room ready, finishing the rest'):want==='queued'?T('Комната в очереди на пересчёт','Room is queued'):T('Пересчитываем комнату','Updating this room');
+    p.innerHTML=(want==='building'?'<i class="tr-spin" aria-hidden="true"></i>':'')+`<span>${txt}`+(want==='ready'?'':` <b data-tcf-eta="${escHtml(id)}">${tcfEtaTxt(tcfLeftOf(id),TR_EN())}</b>`)+`</span>`;}
+  st.appendChild(p); p.style.top=tcfFreeTop(st)+'px';
+}
+// место под плашку по центру сцены: ниже кнопок окна и плашки «Форма комнаты…», что стоят у верхнего края
+function tcfFreeTop(st){
+  const S0=st.getBoundingClientRect(), cx=S0.left+S0.width/2, band=130;
+  let y=S0.top+14;
+  document.querySelectorAll('#shot button,#shot .tr-approx,#shot [role=tablist]').forEach(e=>{
+    if(e.closest('.tcf-in,.tcf-toast')||!e.offsetParent)return;
+    const r=e.getBoundingClientRect();
+    if(r.height>90||r.top>S0.top+220||r.bottom<S0.top||r.right<cx-band||r.left>cx+band)return;
+    y=Math.max(y,r.bottom+8);});
+  return Math.round(y-S0.top);
+}
+// окно подтверждения: комнаты (обставленные и правленые) с размерами и галочкой «размеры верны»
+function tcfDialog(){
+  if(!trEditable()||tcfBusy()||document.querySelector('.tr-ed-back'))return;
+  const T=tcfT, EN=TR_EN(), scale=(D.trial||{}).scale||'', was=(TCF.ed&&TCF.ed.roomsOk)||[];
+  const ids=homeRooms().filter(r=>(r.contentState==='ready'||TCF.rooms[r.id])&&trPanelRoom(r.id)).map(r=>r);
+  const num=(v,n)=>{const t=(Math.round(v*Math.pow(10,n))/Math.pow(10,n)).toFixed(n); return EN?t:t.replace('.',',');};
+  const rows=ids.map(r=>{
+    const d=TCF.rooms[r.id], pr=trPanelRoom(r.id), L=tcfLabel(r.id,String(r.title||r.id),+r.areaM2||0);
+    const w=(d?d.w:pr.w)/100, l=(d?d.d:pr.d)/100, a=L.a||w*l, on=tcfDefaultOk(d,was.indexOf(r.id)>=0,scale);
+    return `<li class="tcf-row"><label><span class="tcf-t"><b>${escHtml(L.title)}</b>`+(d?`<span class="tcf-chg">${T('изменено','edited')}</span>`:'')+
+      `<span class="tcf-sz">${num(w,2)} × ${num(l,2)} ${T('м','m')} · ${num(a,1)} ${T('м²','m²')}</span>`+
+      `<span class="tcf-chk"${on?' hidden':''}>${T('Проверьте по плану','Check against the plan')}</span>`+
+      `</span><input type="checkbox" data-tcf-room="${escHtml(r.id)}"${on?' checked':''} aria-label="${T('Размеры верны','Sizes are right')}"></label></li>`;
+  }).join('');
+  const bk=document.createElement('div'); bk.className='tr-ed-back tcf-back'; bk.setAttribute('data-tcf-dlg','1');
+  bk.innerHTML=`<div class="tr-ed tcf-dlg" role="dialog" aria-modal="true" aria-labelledby="tcf-h"><h3 id="tcf-h">${T('Подтвердить планировку','Confirm the layout')}</h3>`+
+    `<p class="tcf-sub">${T('Отметьте комнаты с верными размерами. По ним пересчитаем 3D, обычно 1–2 минуты.','Tick the rooms whose sizes are right. We’ll rebuild the 3D, usually 1–2 minutes.')}</p>`+
+    (rows?`<div class="tcf-head"><span>${T('Комната','Room')}</span><span>${T('Размеры верны','Sizes right')}</span></div><ul class="tcf-list">${rows}</ul>`:'')+
+    `<p class="tcf-say" role="status" hidden></p><p class="tr-ed-err" role="alert" hidden></p>`+
+    `<div class="tr-ed-acts"><button type="button" class="btn ghost" data-tcf-dlg-act="cancel">${T('Отмена','Cancel')}</button>`+
+    `<button type="button" class="btn cta" data-tcf-dlg-act="go">${T('Подтвердить','Confirm')}</button></div></div>`;
+  document.body.appendChild(bk);
+  const q=s=>bk.querySelector(s), go=q('[data-tcf-dlg-act=go]'), err=q('.tr-ed-err'), say=q('.tcf-say');
+  bk.querySelectorAll('input[data-tcf-room]').forEach(c=>c.onchange=()=>{const h=c.closest('.tcf-row').querySelector('.tcf-chk'); if(h)h.hidden=c.checked;});
+  const close=()=>{bk.remove(); document.removeEventListener('keydown',esc,true);};
+  const esc=e=>{if(e.key==='Escape'&&!go.disabled){e.stopPropagation(); close();}};
+  document.addEventListener('keydown',esc,true);
+  bk.onclick=e=>{if(e.target===bk&&!go.disabled)close();};
+  ['click','pointerdown','keydown'].forEach(n=>q('.tr-ed').addEventListener(n,e=>e.stopPropagation()));
+  q('[data-tcf-dlg-act=cancel]').onclick=()=>{if(!go.disabled)close();};
+  go.onclick=()=>tcfSend(bk,close,{go,err,say});
+  setTimeout(()=>{try{go.focus({preventScroll:true});}catch(e){}},0);
+  return bk;
+}
+async function tcfSend(bk,close,u){
+  if(TCF.busy)return;
+  const T=tcfT, ok=[...bk.querySelectorAll('input[data-tcf-room]:checked')].map(c=>c.getAttribute('data-tcf-room')).slice(0,40);
+  TCF.busy=true; TCF.rid=TCF.rid||trReqId(); u.go.disabled=true; u.go.textContent=T('Сохраняю…','Saving…'); u.err.hidden=true;
+  const {r,j}=await tcfPost('confirm',{k:trKey(), request_id:TCF.rid, rooms_ok:ok});
+  TCF.busy=false; u.go.disabled=false; u.go.textContent=T('Подтвердить','Confirm');
+  if(r&&(r.status===202||(r.status===200&&j.ok))||(r&&r.status===409&&j.error==='busy')){
+    TCF.rid=''; close(); tcfMine(true);
+    if(TCF.ed)TCF.ed=Object.assign({},TCF.ed,{drafts:0});
+    Object.keys(TCF.rooms).forEach(id=>{TCF.hit[id]=1;});
+    TCF.m={st:'run', queued:true, done:0, total:0, eta:null, el:0, rooms:{}}; TCF.at=Date.now(); TCF.st='run'; TCF.sig='';
+    tcfRedraw(); tcfWatch(400); return;
+  }
+  const c=r?(j.error||'_'):'offline';
+  u.err.hidden=false; u.err.textContent=(TRE_TXT[c]||TRE_TXT._)[TR_EN()?1:0];
+}
+document.addEventListener('click',e=>{
+  const b=e.target&&e.target.closest&&e.target.closest('[data-tcf-act]'); if(!b||!TRIAL())return;
+  e.preventDefault(); e.stopPropagation();
+  const a=b.getAttribute('data-tcf-act');
+  if(a==='reload')tcfReload(); else if(a==='open')tcfDialog();
 },true);
 const stage=document.getElementById('stage'), NS='http://www.w3.org/2000/svg';
 const el=(t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);return n;};
@@ -3165,7 +3529,8 @@ function flatPlan(){
       stroke:'#3B76A2','stroke-width':0.05},g);
     if(pts&&roomApprox(r.id))el('polygon',{points:pts,fill:'none',stroke:'#C7652B','stroke-width':0.04,'stroke-dasharray':'0.18 0.12','data-approx':'1'},g);
     else if(roomApprox(r.id))el('rect',{x:r.x+PART,y:r.y+PART,width:r.w-PART*2,height:r.d-PART*2,fill:'none',stroke:'#C7652B','stroke-width':0.04,'stroke-dasharray':'0.18 0.12','data-approx':'1'},g);   // проба: прямоугольник вместо контура — пунктиром
-    const name=(roomApprox(r.id)||roomConsent(r.id)?'≈ ':'')+(room.title||r.id);
+    const TL=TRIAL()?tcfLabel(r.id,room.title||r.id,room.areaM2):{title:room.title||r.id, a:room.areaM2};   // проба: черновик агента — его имя и площадь
+    const name=(roomApprox(r.id)||roomConsent(r.id)?'≈ ':'')+TL.title;
     let cx=r.x+r.w/2, cy=r.y+r.d/2;
     // узкая комната (санузлы 0,8 м): имя по ширине комнаты, иначе соседние «Санузел» слипались через стену
     let fs=Math.min(Math.max(0.2,Math.min(0.32,Math.min(r.w,r.d)/4.4)),r.w*0.84/(name.length*0.62));
@@ -3175,7 +3540,7 @@ function flatPlan(){
       wrap2(f.name,r.w*0.9/(fs*0.95*0.56)).forEach(t=>L.push({t,k:0.95,a:{fill:'#2A2F2C'}}));
       L.push({t:(f.sumText?f.sumText+' ':'')+'→',k:0.95,a:{fill:'#3B76A2','font-weight':'700'}});
     }else{
-      L.push({t:homeM2(room.areaM2),k:0.95,a:{fill:'#5C655E'}});
+      L.push({t:homeM2(TL.a),k:0.95,a:{fill:'#5C655E'}});
       const o=TRIAL()&&!rv&&br?roomOutcome(br.id):'';   // проба: комната без варианта — исход по коду (не обставляется / подбирается)
       // проба: ждёт проверки размера — причина строкой; у агента с ключом ниже действие «Обустроить как есть» (Р1). Не «Обустроить →»:
       // на плане эта надпись значит «открыть обстановку» обставленной комнаты — одно слово для двух действий путало бы
@@ -3188,7 +3553,10 @@ function flatPlan(){
     if(r.outdoor&&!f)L.length=Math.min(L.length,2);   // балкон: имя и площадь, без «не обставляется» — и так видно, что он на улице
     // проба, агент с ключом: карандаш у имени (правка комнаты, T-20261110-36); правленая — «✓ скорректировано» под площадью
     if(TRIAL()&&br&&trCanEdit()&&!TRO_ON&&trPanelRoom(br.id)){L[0].t+=TRE_PAD; L[0].a=Object.assign({},L[0].a,{'data-tr-ic':'pen','data-tr-room':br.id});}
-    if(TRIAL()&&br&&trEditable()&&trEdited(br.id))L.splice(f?1:2,0,{t:TRE_PAD+(TR_EN()?'adjusted':'скорректировано'),k:0.75,a:{fill:'#2F7D4F','font-weight':'600','data-tr-ic':'ok'}});
+    // «Подтвердить планировку»: черновик — «не подтверждено», пересчёт — «считаем · ≈ 0:45», готово — «✓ готово» (вместо «скорректировано»)
+    const TCL=TRIAL()&&br&&trEditable()?tcfPlanLine(br.id):null;
+    if(TCL)L.splice(f?1:2,0,TCL);
+    else if(TRIAL()&&br&&trEditable()&&trEdited(br.id))L.splice(f?1:2,0,{t:TRE_PAD+(TR_EN()?'adjusted':'скорректировано'),k:0.75,a:{fill:'#2F7D4F','font-weight':'600','data-tr-ic':'ok'}});
     if(TRLB){const z=trFitLabel(TRLB[r.id],L,r); if(z){fs=z.fs; cx=z.cx; cy=z.cy; L.length=z.n;}}   // проба: подпись целиком в стенах
     const LH=fs*1.2; let y=cy-LH*(L.length-1)/2+fs*0.35;
     L.forEach(l=>{el('text',Object.assign({x:cx,y,'text-anchor':'middle','font-size':fs*l.k},l.a),g).textContent=l.t;
@@ -6952,6 +7320,7 @@ function drawHome(force){
   // компьютер: карточка гостиной слева на столько рядов, сколько плашек справа (комнаты реестра + «План квартиры») — иначе лишние
   // уезжают строкой под неё (второй санузел, T-20261022-04)
   box.style.setProperty('--hm-rows',String(Math.max(1,box.querySelectorAll(':scope > .hm-stub, :scope > .hm-pick').length)));
+  if(TRIAL()&&tcfBusy())tcfTiles();   // пересчёт правок: таймеры на плитках поверх новой разметки
 }
 // ВИДИМАЯ КАРТОЧКА НА КОМПЬЮТЕРЕ — СПЕРВА МИНИАТЮРА, ПОТОМ ПОЛНЫЙ КАДР (вариант А, T-20261111-01, владелец TG 976). На плохой связи
 // полный кадр 2048 (~460 КБ) держал первую карточку пустой ~4,4 с (1280 на 2 Мбит/с, замер T-43/2); миниатюра 640 (~30 КБ, та же, что
