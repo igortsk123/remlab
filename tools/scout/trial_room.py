@@ -750,6 +750,70 @@ def solver_openings(cand: dict, cfg: dict, hinge: str = 'left') -> list:
     return out
 
 
+OPPOSITE = {'south': 'north', 'north': 'south', 'west': 'east', 'east': 'west'}
+
+
+def annexes(cand: dict, ops: list, cfg: dict) -> list:
+    """ПРИСТРОЙКИ ЯДРА ДЛЯ 3D (T-20261111-08, владелец TG 1006: «когда 3D план делаешь — двери не вставляешь»). Стык ядра с
+    остатком-проходом или хвостом страница рисует порталом (`solver_openings`: `door` без полотна → `opening`), а сам остаток в
+    3D-комнату не входил: за порталом — пустота (улица изолированной сцены), двери остатка (вход из коридора, ванная, гардеробная —
+    «Этажи», спальня 1) пропадали. Пристройка — прямоугольник остатка за стыком (охват части остатка по ту сторону стороны ядра) в
+    координатах ядра (юго-западный угол ядра = 0, оси те же, что у `openings`), с проёмами в формате страницы: портал стыка на
+    стороне к ядру и проёмы остатка — каждый на ближайшую стену пристройки своей оси (дверь — с полотном, как в ядре; окно — как
+    в ядре). Портал из остатка (`opening` распознавания) не ставим: за ним снова пустота — стена честнее. Две пристройки не
+    перекрываются (второй стык того же угла остаётся порталом). Эркер (`bay`) — окно-пролёт ядра, пристройки нет."""
+    x0, y0, x1, y1 = cand['rect']
+    by_src = {o['src']: o for o in ops}
+    out, boxes = [], []
+    big = 1e5
+    for r in cand['residues']:
+        if r['kind'] not in ('passage', 'tail') or r.get('poly') is None:
+            continue
+        for wall, a, b in r['junctions']:
+            if b - a < 5:
+                continue
+            hp = {'north': box(-big, y1, big, big), 'south': box(-big, -big, big, y0),
+                  'east': box(x1, -big, big, big), 'west': box(-big, -big, x0, big)}[wall]
+            part = r['poly'].intersection(hp)
+            if part.is_empty or part.area < 100.0:
+                continue
+            ax0, ay0, ax1, ay1 = part.bounds
+            if min(ax1 - ax0, ay1 - ay0) < 5 or any(box(ax0, ay0, ax1, ay1).intersection(q).area > 1.0 for q in boxes):
+                continue
+            boxes.append(box(ax0, ay0, ax1, ay1))
+            aw, ad = ax1 - ax0, ay1 - ay0
+            axis, _, A, _, _ = _side(cand['rect'], wall)
+            near_side = OPPOSITE[wall]
+            start = ax0 if axis == 'x' else ay0
+            span = aw if axis == 'x' else ad
+            u0 = max(0.0, A + a - start)
+            ops_out = [{'kind': 'opening', 'wall': near_side, 'offset_cm': round(u0, 1), 'width_cm': round(min(b - a, span - u0), 1)}]
+            for src in r['openings']:
+                o = by_src.get(src)
+                if o is None or o['kind'] not in ('door', 'window'):
+                    continue
+                cx, cy = o['c']
+                if o['axis'] == 'x':
+                    side = min((('south', abs(cy - ay0)), ('north', abs(cy - ay1))), key=lambda t: t[1])[0]
+                    along, lo, ln = cx, ax0, aw
+                else:
+                    side = min((('west', abs(cx - ax0)), ('east', abs(cx - ax1))), key=lambda t: t[1])[0]
+                    along, lo, ln = cy, ay0, ad
+                w = min(float(o['w']), ln)
+                off = min(max(along - w / 2 - lo, 0.0), ln - w)
+                if side == near_side and off < u0 + (b - a) and off + w > u0:
+                    continue                                  # на стыке с ядром — это и есть портал
+                base = {'wall': side, 'offset_cm': round(off, 1), 'width_cm': round(w, 1)}
+                if o['kind'] == 'window':
+                    ops_out.append(dict(base, kind='window', sill_cm=cfg['window_sill_cm'], height_cm=cfg['window_height_cm']))
+                else:
+                    ent = bool(o['exterior']) and o['w'] < cfg['patio_door_min_cm']
+                    ops_out.append(dict(base, kind='door', swing_cm=round(min(o['leaf'], w)), hinge='left', is_entrance=ent))
+            out.append({'x': round(ax0 - x0, 1), 'y': round(ay0 - y0, 1), 'w': round(aw, 1), 'd': round(ad, 1),
+                        'junction': wall, 'openings': ops_out})
+    return out
+
+
 APPROX_CONSENT = 'approx_consent'                            # = trial_bundle.APPROX_CONSENT
 
 

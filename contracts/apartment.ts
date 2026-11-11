@@ -38,6 +38,22 @@ export type Opening = z.infer<typeof opening>;
  */
 export const DEFAULT_CEILING_CM = 270;
 
+/**
+ * ПРИСТРОЙКА КОМНАТЫ (T-20261111-08, владелец TG 1006: «когда 3D план делаешь — двери не вставляешь»). Комната тура — прямоугольник-
+ * ядро контура; остаток контура за проходом (тамбур с дверями в коридор, ванную, гардеробную; хвост Г-образной комнаты) раньше в 3D
+ * не входил — за порталом стыка была улица. Пристройка — прямоугольник этого остатка: `x`, `y` — его юго-западный угол ОТ угла
+ * комнаты (может быть отрицательным), оси и проёмы — как у комнаты (портал стыка — на её стороне к комнате). Считает сборщик тура
+ * (`tools/scout/trial_room.py:annexes`); рисует `lib/viewer3d/rooms.ts:buildRoom` — пол, стены, потолок, двери закрыты.
+ */
+export const annex = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number().positive(),
+  d: z.number().positive(),
+  openings: z.array(opening).default([]),
+});
+export type Annex = z.infer<typeof annex>;
+
 export const room = z.object({
   id: z.string(),
   kind: roomKind,
@@ -49,6 +65,8 @@ export const room = z.object({
   d: z.number().positive(),
   heightCm: z.number().positive().default(DEFAULT_CEILING_CM),
   openings: z.array(opening).default([]),
+  /** Остаток контура за порталами-стыками (`annex`); нет — комната только прямоугольник. */
+  annexes: z.array(annex).optional(),
   /** Паспорт отделки (`lib/viewer3d/finish-passport.ts`): стены, пол, потолок, плинтус — id и цвет; нет — набор по умолчанию. */
   finish: z.object({
     wall: z.object({ id: z.string(), colorHex: z.string() }).partial(),

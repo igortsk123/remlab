@@ -291,6 +291,38 @@ def test_scene_variants_replace_pending_ready_first_and_mapped():
     assert d['sofa_feed'] == d['feeds']['диван']
 
 
+L_ROOM = [(0, 0), (600, 0), (600, 400), (250, 400), (250, 650), (0, 650)]
+
+
+def l_flat():
+    return result(panel('p0', [room('r1', 'living', L_ROOM, name='Lounge', area=30.25)],
+                        [op('window', (300, 0), 150, True), op('door', (125, 650), 90)]))
+
+
+def test_tail_behind_portal_is_annex_with_its_door():
+    """T-20261111-08 (владелец TG 1006: «когда 3D план делаешь — двери не вставляешь»): за порталом-стыком в 3D была улица, дверь
+    хвоста пропадала. Коробка с порталом несёт пристройку — остаток контура с его дверью; без порталов пристроек нет."""
+    geo = build(l_flat())['rooms_geo']['living']
+    assert (geo['w'], geo['d']) == (600, 400)
+    assert [(o['kind'], o['wall']) for o in geo['openings'] if o['kind'] == 'opening'] == [('opening', 'north')]
+    (a,) = geo['annexes']
+    assert (a['x'], a['y'], a['w'], a['d']) == (0, 400, 250, 250)
+    assert [(o['kind'], o['wall']) for o in a['openings']] == [('opening', 'south'), ('door', 'north')]
+    assert 'annexes' not in build(simple())['rooms_geo']['living']
+
+
+def test_annex_only_for_the_box_it_was_found_in():
+    """Пристройку ищем по ГОТОВОЙ коробке (размеры и порталы); ядра с такой коробкой в контуре нет — пристройки нет, портал как был."""
+    res = l_flat()
+    p, r = res['panels'][0], res['panels'][0]['rooms'][0]
+    cfg = TB.TR.rules()
+    geo = TB.core_geometry(p, r, cfg)
+    assert len(TB.annexes_of(p, r, geo, cfg)) == 1
+    assert TB.annexes_of(p, r, dict(geo, w=590), cfg) == []
+    moved = [dict(o, offset_cm=o['offset_cm'] + 40) if o['kind'] == 'opening' else o for o in geo['openings']]
+    assert TB.annexes_of(p, r, dict(geo, openings=moved), cfg) == []
+
+
 def test_scene_core_and_junctions_for_page():
     res = simple()
     scene = scene_for(res)

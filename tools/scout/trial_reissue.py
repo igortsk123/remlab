@@ -86,6 +86,7 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
     new = TB.build(job_id, res, None, ctx=ctx)
     new_keys = room_keys(new)
     plan_room = {(p['id'], r['id']): r for p in res['panels'] for r in p['rooms']}
+    panel_of = {p['id']: p for p in res['panels']}
     old_vars: dict = {}
     for v in old.get('variants') or []:
         old_vars.setdefault(v.get('room_id'), []).append(v)
@@ -122,7 +123,14 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
         # коробка — прежняя у ЛЮБОЙ перенесённой комнаты (обставленной и пустой «ждёт проверки»/отказ): её считала стадия подбора, текущий
         # сборщик без стадии считает проёмы иначе (прод 10.11: петля двери пустой спальни FYyX… переворачивалась); подписи — текущим кодом
         if og and vs:
-            new['rooms_geo'][rid] = {**og, **{k: v for k, v in (ng or {}).items() if k not in GEO_KEEP}}
+            geo = {**{k: v for k, v in og.items() if k != 'annexes'}, **{k: v for k, v in (ng or {}).items() if k not in GEO_KEEP + ('annexes',)}}
+            # пристройки 3D (T-20261111-08) — по ПРЕЖНЕЙ коробке: посчитанные сборщиком для новой коробки к ней не подходят
+            key = new_keys.get(rid)
+            if key in plan_room:
+                ax = TB.annexes_of(panel_of[key[0]], plan_room[key], geo, TB.TR.rules())
+                if ax:
+                    geo['annexes'] = ax
+            new['rooms_geo'][rid] = geo
         (report['kept_furniture'] if furnished else report['kept_outcome']).append(rid)
         r = plan_room.get(new_keys.get(rid))
         if r is not None:

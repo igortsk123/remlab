@@ -66,6 +66,28 @@ def test_box_under_furniture_kept_titles_from_current_code():
     assert (g['w'], g['d']) == (777, 333) and g['title'] != 'старая подпись' and g['title_en'].startswith('Bedroom')
 
 
+def test_annexes_recomputed_for_kept_box():
+    """T-20261111-08: старый тур без пристроек получает их при пересборке — по ПРЕЖНЕЙ коробке (мебель стоит в её координатах);
+    прежняя коробка, которой в контуре нет, — без пристроек (не по новой коробке сборщика)."""
+    from test_trial_bundle import l_flat
+    flat = l_flat()
+    geo = TB.core_geometry(flat['panels'][0], flat['panels'][0]['rooms'][0], TB.TR.rules())
+    scene = scene_for(flat)
+    scene['core'].update(rect=[0, 0, 600, 400], w=600.0, d=400.0)
+    ops = [dict(o, kind='door', swing_cm=0) if o['kind'] == 'opening' else o for o in geo['openings']]
+    scene['openings_core'] = ops
+    scene['geometries'][0]['openings_core'] = ops
+    old = TB.build(JOB, flat, scene, ctx=CTX)
+    for g in old['rooms_geo'].values():
+        g.pop('annexes', None)
+    new, _ = RI.reissue(JOB, flat, old, ctx=CTX)
+    (a,) = new['rooms_geo']['living']['annexes']
+    assert (a['x'], a['y'], a['w'], a['d']) == (0, 400, 250, 250)
+    old['rooms_geo']['living']['w'] = 590
+    new, _ = RI.reissue(JOB, flat, old, ctx=CTX)
+    assert new['rooms_geo']['living']['w'] == 590 and 'annexes' not in new['rooms_geo']['living']
+
+
 def test_box_of_empty_carried_room_kept_too():
     """Пустая перенесённая комната («ждёт проверки» / отказ) — коробку тоже не пересчитываем: её проёмы считала стадия подбора, текущий
     сборщик без стадии считает иначе (прод 10.11: петля двери пустой спальни переворачивалась)."""

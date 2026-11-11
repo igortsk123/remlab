@@ -99,7 +99,7 @@ export function buildRoom(
   room: Room,
   floorMat: Material,
   wallMat: Material,
-  opts: { ceiling?: boolean; entranceWall?: string; doorsClosed?: boolean; accent?: { side: WallSide; material: Material } } = {},
+  opts: { ceiling?: boolean; lamp?: boolean; entranceWall?: string; doorsClosed?: boolean; accent?: { side: WallSide; material: Material } } = {},
 ): RoomVisual {
   const group = new THREE.Group();
   group.name = `room:${room.id}`;
@@ -170,11 +170,22 @@ export function buildRoom(
     ceil.position.set((room.x + room.w / 2) * CM, room.heightCm * CM, (room.y + room.d / 2) * CM);
     ceil.name = `ceiling:${room.id}`;
     group.add(ceil);
-    const lamp = meshesFromBoxes(ceilingLampIR(room.w, room.d, room.heightCm));
-    lamp.position.set(room.x * CM, 0, room.y * CM);
-    lamp.name = `ceiling:${room.id}:lamp`;   // имя с «ceiling:» — прячется вместе с потолком в виде сверху
-    group.add(lamp);
+    if (opts.lamp !== false) {
+      const lamp = meshesFromBoxes(ceilingLampIR(room.w, room.d, room.heightCm));
+      lamp.position.set(room.x * CM, 0, room.y * CM);
+      lamp.name = `ceiling:${room.id}:lamp`;   // имя с «ceiling:» — прячется вместе с потолком в виде сверху
+      group.add(lamp);
+    }
   }
+
+  // ПРИСТРОЙКИ (T-20261111-08, владелец TG 1006): остаток контура за порталом-стыком — своя коробка той же отделки (пол, стены,
+  // потолок без люстры), его двери закрыты (ведут в соседние комнаты, которых в сцене нет). Без неё за порталом была улица.
+  // Пол пристройки — не пол комнаты для прогулки (`floor` — только свой): точка обзора остаётся в комнате
+  (room.annexes ?? []).forEach((a, i) => {
+    const sub: Room = { ...room, id: `${room.id}~${i}`, x: room.x + a.x, y: room.y + a.y, w: a.w, d: a.d, openings: a.openings };
+    delete sub.annexes;
+    group.add(buildRoom(ctx, sub, floorMat, wallMat, { ceiling: opts.ceiling !== false, doorsClosed: true, lamp: false }).group);
+  });
 
   return { group, floor };
 }

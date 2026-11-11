@@ -6,11 +6,14 @@ import { z } from "zod";
 const num = z.number().finite();
 const wall = z.enum(["north", "south", "east", "west"]);
 // подпись комнаты: `title` — по-русски (как в живом `/demo`), `title_ru`/`title_en` — оба языка, `approx` — ядро заметно меньше контура
+const opening = z.looseObject({ kind: z.enum(["door", "window", "opening"]), wall, offset_cm: num, width_cm: num.positive() });
 const geo = z.looseObject({
   w: num.positive(), d: num.positive(), title: z.string().max(200),
   title_ru: z.string().max(200).optional(), title_en: z.string().max(200).optional(), approx: z.boolean().optional(),
-  openings: z.array(z.looseObject({ kind: z.enum(["door", "window", "opening"]), wall, offset_cm: num, width_cm: num.positive() })).max(200),
+  openings: z.array(opening).max(200),
   radiators: z.array(z.unknown()).max(50),
+  // остаток контура за порталом — коробка 3D с его дверями (`trial_room.annexes`, T-20261111-08); x, y — от угла комнаты
+  annexes: z.array(z.looseObject({ x: num, y: num, w: num.positive(), d: num.positive(), openings: z.array(opening).max(50) })).max(20).optional(),
 });
 const variant = z.looseObject({
   id: z.string().min(1).max(80), room_id: z.string().regex(/^[a-z0-9-]{1,40}$/), style: z.string().min(1).max(40),

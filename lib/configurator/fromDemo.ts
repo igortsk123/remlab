@@ -17,7 +17,7 @@ import { alternatives, feedForStyle, placeOf, roomFeedKey, type FeedItem } from 
 import { planRooms, type RoomAt, type RoomGeo } from "@/lib/configurator/demo-rooms";
 import { maskedName, roleEn, styleEn } from "@/lib/configurator/demo-mask";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
-import { DEFAULT_CEILING_CM, apartment as apartmentSchema, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
+import { DEFAULT_CEILING_CM, apartment as apartmentSchema, type Annex, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
 
 /** Чья квартира и в какой валюте: из реестра застройщиков (b2b-06), не из файла витрины. */
@@ -199,6 +199,13 @@ export function openings(room: DemoRoom): Opening[] {
     }));
 }
 
+/** Пристройки комнаты тура (T-20261111-08): остаток контура за порталом — с размерами, проёмы тем же переводом, что у комнаты. */
+export function annexes(room: DemoRoom): Annex[] {
+  return (room.annexes ?? [])
+    .filter((a) => typeof a.x === "number" && typeof a.y === "number" && (a.w ?? 0) > 0 && (a.d ?? 0) > 0)
+    .map((a) => ({ x: a.x as number, y: a.y as number, w: a.w as number, d: a.d as number, openings: openings({ openings: a.openings }) }));
+}
+
 /**
  * НАСТЕННАЯ ПЛОСКОСТЬ (T-20261106-73, план hall-demo-01 этап 2): предмет стратегии `procedural_plane`, который выше своей
  * глубины, — зеркало или картина на стене. Признак — стратегия и геометрия, не список ролей: ковёр той же стратегии лежит
@@ -298,6 +305,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       ...(r.geo.window_view && /^[a-z0-9-]{1,32}$/.test(r.geo.window_view) ? { windowView: r.geo.window_view } : {}),
       ...(r.geo.finish ? { finish: finishPassport(r.geo.finish) } : {}),
       openings: openings(r.geo),
+      ...(annexes(r.geo).length ? { annexes: annexes(r.geo) } : {}),
     })),
     slots: parts.flatMap((x) => x.slots),
     cameras: parts.flatMap((x) => x.cameras),

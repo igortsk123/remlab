@@ -618,6 +618,48 @@ def core_geometry(panel: dict, room: dict, cfg: dict) -> dict:
     return {'w': _num(best['w']), 'd': _num(best['d']), 'openings': _openings_for_page(TR.solver_openings(best, cfg))}
 
 
+ANNEX_TOL_CM = 1.5
+
+
+def _portals(ops: list) -> list:
+    return sorted((o['wall'], float(o['offset_cm']), float(o['width_cm'])) for o in ops
+                  if o.get('kind') == 'opening' or (o.get('kind') == 'door' and o.get('swing_cm') == 0))
+
+
+def annexes_of(panel: dict, room: dict, geo: dict, cfg: dict) -> list:
+    """Пристройки 3D-комнаты (`trial_room.annexes`, T-20261111-08) для ГОТОВОЙ коробки `geo` (w, d, openings): ядро ищется заново
+    по контуру комнаты — то, у которого те же размеры и те же порталы-стыки. Так одно правило и у новой сборки, и у пересборки
+    (`trial_reissue`: коробка прежняя, ядра в ней нет), без нового поля в записях стадий. Порталов нет — пристроек нет (быстро);
+    ядро не нашлось (гостиная, расширенная мебелью к стенам ниш, `core_extended`) или проёмы неоднозначны — пусто, портал как был."""
+    want = _portals(geo.get('openings') or [])
+    if not want:
+        return []
+    from planner.geometry import largest_free_rectangles
+    try:
+        ours, amb = TR._openings_of(panel, room, cfg)
+        if amb:
+            return []
+        fr = TR.ortho_frame(room['contour'], cfg)
+        ops = [TR._place_opening(fr['poly'], o, fr['T'], cfg) for o in ours]
+    except TR.Refusal:
+        return []
+    seen = set()
+    for side in (float(cfg['core_min_side_cm']), 150.0):         # 150 — ядра спален уже порога гостиной (`trial_bedroom`)
+        for g in largest_free_rectangles(fr['poly'], min_side_cm=side, limit=48):
+            rect = tuple(round(v, 1) for v in g.bounds)
+            if rect in seen:
+                continue
+            seen.add(rect)
+            if abs(rect[2] - rect[0] - float(geo['w'])) > ANNEX_TOL_CM or abs(rect[3] - rect[1] - float(geo['d'])) > ANNEX_TOL_CM:
+                continue
+            cand = TR.core_candidate(fr['poly'], g.bounds, ops, TR.need_group(), cfg)
+            got = _portals(TR.solver_openings(cand, cfg))
+            if len(got) == len(want) and all(p[0] == q[0] and abs(p[1] - q[1]) <= ANNEX_TOL_CM and abs(p[2] - q[2]) <= ANNEX_TOL_CM
+                                             for p, q in zip(got, want)):
+                return TR.annexes(cand, ops, cfg)
+    return []
+
+
 # ───────────────────────── очистка ─────────────────────────
 
 def _base_role(role: str) -> str:
@@ -1319,6 +1361,10 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     def put_geo(panel, room, rid, geo, kind):
         full = {'w': geo['w'], 'd': geo['d'], **_geo_titles(room, geo, kind), 'openings': geo['openings'], 'radiators': [],
                 'approx': _approx(room, geo)}
+        # за порталом-стыком — остаток комнаты с его дверями, а не пустота (T-20261111-08, `annexes_of`)
+        ax = annexes_of(panel, room, full, cfg)
+        if ax:
+            full['annexes'] = ax
         # ВИД КОМНАТЫ — В КОРОБКУ, КАК У /demo (T-20261110-16/3): правила ракурсов (`index.html:camZ`, ими же `demo-cams.mjs` при
         # сборке) берут зону по `kind` коробки, без него — гостиную: у спальни искали диван, и точка 1 смотрела в угол без мебели
         # (yb3_DQp3 «Спальня 2»: покрыто 0 из 5). Гостиной поле не пишем — у /demo его нет, зона по умолчанию та же

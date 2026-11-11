@@ -79,6 +79,27 @@ def test_l_room_core_and_tail_passage():
     assert [o['kind'] for o in sop if not o.get('_junction')] == ['window']
 
 
+def test_l_room_tail_annex_carries_tail_door():
+    """T-20261111-08 (владелец TG 1006: «двери не вставляешь»): хвост за стыком — пристройка 3D-комнаты в координатах ядра, с порталом
+    к ядру и дверью хвоста на ближней стене своей оси; без неё за порталом была улица, а дверь хвоста пропадала."""
+    ad = TR.adapt(l_result())
+    c = ad['candidates'][0]
+    ax = TR.annexes(c, ad['ops'], TR.rules())
+    assert len(ax) == 1
+    a = ax[0]
+    assert (a['x'], a['y'], a['w'], a['d'], a['junction']) == (0, 400, 250, 250, 'north')
+    assert a['openings'][0] == {'kind': 'opening', 'wall': 'south', 'offset_cm': 0, 'width_cm': 250}
+    door = a['openings'][1]
+    assert (door['kind'], door['wall'], door['offset_cm'], door['width_cm'], door['swing_cm']) == ('door', 'north', 80, 90, 90)
+    assert len(a['openings']) == 2                                  # окно ядра в пристройку не попадает
+
+
+def test_rect_room_has_no_annex():
+    """Комната-прямоугольник — без пристроек: остатков за ядром нет."""
+    ad = TR.adapt(result([room('r1', 'living', RECT)], [op('window', (250, 0), 150, True), op('door', (500, 200), 90)]))
+    assert TR.annexes(ad['candidates'][0], ad['ops'], TR.rules()) == []
+
+
 def test_l_room_post_check_route():
     ad = TR.adapt(l_result())
     c = ad['candidates'][0]
