@@ -94,8 +94,12 @@ export interface DemoScene {
   warn(on: boolean): void;
   /** «Переместить» (T-20261111-05/4): начать перетаскивание предмета (номер как в `update`); false — предмета нет в сцене. */
   moveBegin(index: number): boolean;
-  /** Сдвинуть черновик на (dx, dy) см от исходного места; под ним подсветка: `ok` — зелёная, иначе красная. */
-  moveBy(dx: number, dy: number, ok: boolean): void;
+  /** Сдвинуть черновик на (dx, dy) см от исходного места; под ним след на полу: `ok` — зелёный, иначе красный. `rot` — новый угол
+   *  предмета в градусах расстановки (поворот «в руке», колесо или R, T-20261111-05/8); не задан — прежний. */
+  moveBy(dx: number, dy: number, ok: boolean, rot?: number): void;
+  /** Исходное место переносимого предмета в координатах сцены, см (как у `floorAt`); null — переноса нет. Страница по нему
+   *  ставит предмет центром под курсор: место = исходное + (точка пола − это место). */
+  moveOrigin(): { x: number; y: number } | null;
   /** Закончить: `commit` — предмет остаётся (страница запишет место в расстановку), иначе возвращается, где стоял. */
   moveEnd(commit: boolean): void;
   /** Точка пола под экранной точкой, см (тянут палец или мышь); null — луч мимо пола (выше горизонта). */
@@ -310,11 +314,12 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
       viewer.start();
       return moveFrom != null;
     },
-    moveBy: (dx, dy, ok) => {
+    moveBy: (dx, dy, ok, rot) => {
       if (!moveFrom) return;
-      viewer.moveDraftTo(moveFrom.x + dx, moveFrom.y + dy, ok);
+      viewer.moveDraftTo(moveFrom.x + dx, moveFrom.y + dy, ok, rot);
       viewer.start();
     },
+    moveOrigin: () => (moveFrom ? { x: moveFrom.x, y: moveFrom.y } : null),
     moveEnd: (commit) => {
       if (commit) viewer.endMove(); else viewer.cancelMove();
       moveFrom = null;

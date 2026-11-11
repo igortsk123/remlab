@@ -23,7 +23,7 @@ import { buildTv } from "@/lib/viewer3d/kits/tv";
 import { buildWallPlane } from "@/lib/viewer3d/kits/wall-plane";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
-import { floorFootprint } from "@/lib/viewer3d/footprint";
+import { fadeForMove, floorFootprint } from "@/lib/viewer3d/footprint";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { outlineFrame } from "@/lib/viewer3d/outline";
 import { renderThumbs } from "@/lib/viewer3d/thumbs";
@@ -1193,10 +1193,28 @@ export class FlatViewer {
     const from = { x: pl.x, y: pl.y, rot: pl.rot };
     const base = { posX: p.group.position.x, posZ: p.group.position.z, rotY: p.group.rotation.y };
     this.moving = { slotId, from, now: { ...from }, base };
-    this.showOutline(slotId);
     this.ensureGhost(p.group, pl.wCm, pl.dCm);
+    this.fadeModel(p.group);
     this.applyMove(true);
     return from;
+  }
+
+  /** Вернуть модели переносимого предмета её материалы (`fadeModel`). */
+  private moveFade: (() => void)[] = [];
+
+  /**
+   * Предмет «в руке» — полупрозрачный (T-20261111-05/8, владелец TG 1588–1591: как в Sims 2): след на полу под ним виден целиком.
+   * Материалы КОПИРУЕМ на время переноса: одна модель в сцене бывает дважды (два одинаковых стула) с общими материалами — второй
+   * не должен бледнеть. Глубину модель не пишет и рисуется после следа (`renderOrder`): след не прячется за сиденьем.
+   */
+  private fadeModel(group: THREE.Object3D): void {
+    this.unfadeModel();
+    this.moveFade.push(fadeForMove(group, MOVE_MODEL_ALPHA, 999));
+  }
+
+  private unfadeModel(): void {
+    this.moveFade.forEach((f) => f());
+    this.moveFade = [];
   }
 
   /**
@@ -1210,7 +1228,14 @@ export class FlatViewer {
       this.ghost.geometry.dispose();
     }
     const geo = floorFootprint(group) ?? new THREE.PlaneGeometry(wCm * CM, dCm * CM).rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x3aa55c, transparent: true, opacity: 0.4, depthTest: false, side: THREE.DoubleSide });
+    // СЛЕД — НА ПОЛУ (T-20261111-05/8, владелец TG 1588: «зелёное лежит на высоте и проступает сквозь сиденья»): прежде он рисовался
+    // поверх всего (`depthTest: false`) и читался пятном на сиденье. Теперь он проверяет глубину, как пол: стены и соседняя мебель его
+    // закрывают, а свой предмет — нет (тот полупрозрачный и глубину не пишет, `fadeModel`). Над полом и ковром (ворс до 3 см) — на
+    // `GHOST_LIFT_CM`, плюс сдвиг глубины: без мерцания стыка с полом
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x3aa55c, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder = 998;
     this.ghost = mesh;
@@ -1218,10 +1243,11 @@ export class FlatViewer {
   }
 
   /** Перенести черновик в новую точку. `ok` решает вызывающая сторона (проверка места). */
-  moveDraftTo(x: number, y: number, ok: boolean): void {
+  moveDraftTo(x: number, y: number, ok: boolean, rot?: number): void {
     if (!this.moving) return;
     this.moving.now.x = x;
     this.moving.now.y = y;
+    if (rot !== undefined && Number.isFinite(rot)) this.moving.now.rot = ((rot % 360) + 360) % 360;
     this.applyMove(ok);
   }
 
@@ -1242,17 +1268,17 @@ export class FlatViewer {
       // ровно туда, где он стоял, без накопления ошибки за время перетаскивания
       p.group.position.x = base.posX + (x - from.x) * CM;
       p.group.position.z = base.posZ + (y - from.y) * CM;
-      // наш угол растёт по часовой стрелке, в сцене — против: отсюда минус
-      p.group.rotation.y = base.rotY - ((rot - from.rot) * Math.PI) / 180;
+      // тот же знак, что у постановки предмета (`placeGroup`: rotation.y = rot): поставленный после переноса предмет не прыгает
+      p.group.rotation.y = base.rotY + ((rot - from.rot) * Math.PI) / 180;
     }
     if (this.ghost && p) {
-      // след — там же, где группа предмета, и повёрнут, как она: модель, рамка и подсветка опираются на одно место
-      this.ghost.position.set(p.group.position.x, 0.02, p.group.position.z);
+      // след — там же, где группа предмета, и повёрнут, как она: модель и след опираются на одно место
+      this.ghost.position.set(p.group.position.x, GHOST_LIFT_CM * CM, p.group.position.z);
       this.ghost.rotation.y = p.group.rotation.y;
       (this.ghost.material as THREE.MeshBasicMaterial).color.set(ok ? 0x3aa55c : 0xc0392b);
     }
-    // контур обязан ехать вместе с предметом — иначе он «отстаёт» и показывает старое место
-    this.showOutline(this.moving.slotId);
+    // рамку на время переноса прячем: предмет «в руке» показан полупрозрачной моделью и следом на полу (как в Sims, TG 1588)
+    if (this.outline) this.outline.visible = false;
   }
 
   /** Текущее положение черновика. */
@@ -1265,6 +1291,7 @@ export class FlatViewer {
     if (!this.moving) return null;
     const out = { slotId: this.moving.slotId, ...this.moving.now };
     this.clearMove();
+    this.showOutline(out.slotId);
     return out;
   }
 
@@ -1280,6 +1307,7 @@ export class FlatViewer {
 
   private clearMove(): void {
     this.moving = null;
+    this.unfadeModel();
     if (this.ghost) {
       this.scene.remove(this.ghost);
       this.ghost.geometry.dispose();
@@ -1891,6 +1919,10 @@ function farFromDoor(room: Room, p: Placement): "start" | "end" {
 /** Место и поворот предмета — во внешнюю группу (центр следа на плане, низ на полу + подъём). */
 /** Сколько ждать модель, прежде чем показать на её месте серую коробку. */
 const STUB_SHOW_MS = 15_000;
+/** Предмет «в руке» при переносе — во сколько раз прозрачнее (T-20261111-05/8): след на полу под ним должен читаться целиком. */
+const MOVE_MODEL_ALPHA = 0.3;
+/** След переноса над полом, см: выше ворса ковра (до 3 см, `kits` ковра), чтобы ковёр его не закрывал. */
+const GHOST_LIFT_CM = 3.5;
 
 function placeGroup(g: THREE.Object3D, p: Placement): void {
   g.position.set(p.x * CM, (p.elevCm ?? 0) * CM, p.y * CM);

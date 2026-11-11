@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
-import { floorFootprint, footprintArea } from "@/lib/viewer3d/footprint";
+import { fadeForMove, floorFootprint, footprintArea } from "@/lib/viewer3d/footprint";
 
 // СЛЕД МОДЕЛИ ДЛЯ «ПЕРЕМЕСТИТЬ» (T-20261111-05/5): подсветка места — по самой модели, а не по прямоугольнику габарита.
 // У Г-дивана прямоугольник наполовину лежал на пустом полу, и «зелёное не под диваном».
@@ -51,5 +51,41 @@ describe("след модели на полу", () => {
 
   it("пустая группа — null (вызывающий рисует прямоугольник габарита)", () => {
     expect(floorFootprint(new THREE.Group())).toBeNull();
+  });
+});
+
+// ПРЕДМЕТ «В РУКЕ» (T-20261111-05/8, владелец TG 1588–1591): модель полупрозрачная и не закрывает след на полу; соседний экземпляр той же
+// модели (общий материал) не бледнеет; после переноса всё как было.
+describe("предмет в руке при переносе", () => {
+  it("копии материалов полупрозрачные, без записи глубины, поверх следа; общий материал не тронут; откат возвращает всё", () => {
+    const shared = new THREE.MeshStandardMaterial({ color: 0x886644 });
+    const a = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), shared);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), shared);   // второй стул той же модели — не в группе
+    const g = new THREE.Group();
+    g.add(a);
+    const undo = fadeForMove(g, 0.3, 999);
+    const f = a.material as THREE.MeshStandardMaterial;
+    expect(f).not.toBe(shared);
+    expect(f.transparent).toBe(true);
+    expect(f.opacity).toBeCloseTo(0.3, 6);
+    expect(f.depthWrite).toBe(false);
+    expect(a.renderOrder).toBe(999);
+    expect(b.material).toBe(shared);
+    expect(shared.transparent).toBe(false);
+    expect(shared.opacity).toBe(1);
+    undo();
+    expect(a.material).toBe(shared);
+    expect(a.renderOrder).toBe(0);
+  });
+  it("уже полупрозрачный материал (стекло) становится ещё прозрачнее, а не непрозрачным; массив материалов — каждый", () => {
+    const glass = new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.5 });
+    const wood = new THREE.MeshStandardMaterial();
+    const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [glass, wood]);
+    const undo = fadeForMove(m, 0.3, 999);
+    const list = m.material as THREE.MeshStandardMaterial[];
+    expect(list[0]!.opacity).toBeCloseTo(0.15, 6);
+    expect(list[1]!.opacity).toBeCloseTo(0.3, 6);
+    undo();
+    expect(m.material).toEqual([glass, wood]);
   });
 });

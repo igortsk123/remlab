@@ -6,6 +6,37 @@
 
 import * as THREE from "three";
 
+/**
+ * Предмет «в руке» при переносе (T-20261111-05/8, как в Sims 2): модель полупрозрачная (`alpha` от её прозрачности), глубину не пишет
+ * и рисуется после следа (`order`), поэтому след на полу под ней виден целиком. Материалы КОПИРУЮТСЯ: одна модель в сцене бывает
+ * дважды (два одинаковых стула) с общими материалами — второй экземпляр бледнеть не должен. → функция, возвращающая всё как было.
+ */
+export function fadeForMove(obj: THREE.Object3D, alpha: number, order: number): () => void {
+  const undo: (() => void)[] = [];
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.material) return;
+    const orig = m.material, ro = m.renderOrder;
+    const fade = (x: THREE.Material): THREE.Material => {
+      const c = x.clone();
+      c.transparent = true;
+      c.opacity = Math.min(1, x.opacity ?? 1) * alpha;
+      c.depthWrite = false;
+      c.needsUpdate = true;
+      return c;
+    };
+    const made = Array.isArray(orig) ? orig.map(fade) : fade(orig);
+    m.material = made;
+    m.renderOrder = order;
+    undo.push(() => {
+      (Array.isArray(made) ? made : [made]).forEach((c) => c.dispose());
+      m.material = orig;
+      m.renderOrder = ro;
+    });
+  });
+  return () => undo.forEach((f) => f());
+}
+
 /** Клеток по длинной стороне: ~8 см у дивана 2 м — угол «Г» и ножки читаются, геометрия — сотни полос, не тысячи. */
 const CELLS = 24;
 

@@ -8795,6 +8795,25 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
 .vacts.vtight .vlb,.vacts.vtight .vsz-f{display:none}.vacts.vtight .vsz-s{display:inline}
 /* чужой ценник, который плашка выбранного всё же накрывает, — приглушён, а не спрятан */
 .vpin.vdim{opacity:.35}
+/* ПРЕДМЕТ «В РУКЕ» (T-05/8, как в Sims): плашка выбранного не мешает — прозрачна и не ловит нажатий (кнопка, с которой взяли, держит
+   захват указателя — убирать её из раскладки нельзя); ценники не перехватывают щелчок «поставить»; внизу сцены — полоска переноса */
+#shot.vcarrying .vacts{opacity:0;pointer-events:none}
+#shot.vcarrying #vpins,#shot.vcarrying #vpins *{pointer-events:none}
+#shot.vcarrying .livecv{cursor:grabbing}
+#shot.vcarrying .vcams{display:none!important}   /* полоска переноса — на месте переключателя ракурсов: ракурс с предметом в руке не меняем */
+.vcarry{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:var(--zl-float);display:inline-flex;align-items:center;gap:2px;
+ max-width:calc(100% - 24px);background:var(--surface);border-radius:999px;box-shadow:var(--e3);padding:3px 3px 3px 14px;
+ font-size:13.5px;line-height:1.3;color:var(--ink);pointer-events:auto}
+.vcarry[hidden]{display:none}
+.vcarry .vct{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;padding-right:8px}
+.vcarry.bad .vct{color:#c0392b;font-weight:600}
+.vcarry.flash{animation:vcflash .45s ease}
+@keyframes vcflash{0%,100%{transform:translateX(-50%)}25%{transform:translateX(calc(-50% - 6px))}75%{transform:translateX(calc(-50% + 6px))}}
+.vcarry button{border:0;background:none;font-family:inherit;font-size:14px;font-weight:600;color:var(--accent);min-height:32px;
+ padding:0 12px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.vcarry .vcrot{font-size:17px;padding:0 10px;border-left:1px solid var(--line);border-radius:0}
+.vcarry .vcx{background:var(--accent);color:#fff}
+@media (max-width:599px){.vcarry{font-size:12.5px;padding-left:12px}.vcarry button{min-height:30px;font-size:13px;padding:0 10px}}
 /* телефон: только значки и короткие размеры; подпись значка — на 1,5 с после нажатия (`.vpeek`), полные размеры — по нажатию (`.vszopen`) */
 @media (max-width:599px){
   .vrot,.vmove,.vsize{min-height:0;padding:5px 10px;font-size:12.5px;gap:4px}
@@ -8855,6 +8874,7 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
   /* сцена — только над шторкой: под полуоткрытой шторкой мебель иначе пряталась, а видно было потолок */
   .vstage .shotwrap{bottom:var(--vsh,320px)}
   .vcams{bottom:calc(var(--vsh,320px) + 12px);transition:bottom .3s cubic-bezier(.32,.72,0,1)}   /* над верхом шторки — `vwSheetApply` */
+  .vcarry{bottom:calc(var(--vsh,320px) + 12px)}   /* полоска переноса — на месте переключателя ракурсов, над шторкой */
   .vcams button{font-size:12px;padding:8px 10px}
   /* «⤢ во весь экран» в «Фото» пряталась за переключатель ракурсов (самопроверка 18.10) — справа сверху, под ⇪ ♡ × */
   #shot.v2 .vzbtn{top:62px;bottom:auto;right:10px}
@@ -9457,7 +9477,7 @@ function bubPlace(bub){
 function vwSelect(idx){
   VW.sel=idx==null||idx<0?null:idx;
   if(LIVE.scene&&LIVE.scene.select)LIVE.scene.select(VW.sel);
-  if(VW.mvArm&&!VW.mv)VW.mvArm=false;   // «взятый» для перемещения предмет — только пока он выбран
+  if(VW.mv&&VW.mv.i!==VW.sel)vwCarryCancel();   // предмет «в руке» — только пока он выбран
   if(VW.rotBase&&VW.rotBase.i!==VW.sel){VW.rotBase=null; if(LIVE.scene&&LIVE.scene.warn)LIVE.scene.warn(false);}   // красная рамка — у повёрнутого
   if(VW.sel==null)document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   try{vwPins();}catch(e){}
@@ -9530,7 +9550,7 @@ function vwPinsTick(now){
   // цены скрыты — ценников нет, а «Повернуть» у выбранного остаётся (`vwRotPlace`)
   if(!on){PINS.map.forEach(n=>n.remove()); PINS.map.clear(); if(!live||VW.sel==null){vwRotHide(); return;}}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
-    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready, #shot .vstage>.tr-confirm')]
+    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready, #shot .vstage>.tr-confirm, #vcarry:not([hidden])')]
       .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);
     PINS.hint=LIVE.badge&&LIVE.badge.isConnected?LIVE.badge.getBoundingClientRect():null;
     vwRowSync();}
@@ -9704,8 +9724,8 @@ document.addEventListener('click',e=>{
   vwSelect(ix);
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl')); row.classList.add('hl');
 });
-// КЛАВИШИ В «3D» (компьютер, T-05/6 п.4): R — повернуть выбранный, M — «Переместить» (как короткое нажатие ✥: дальше тянуть по полу),
-// Esc — отменить перемещение, затем снять выбор; окно Esc закрывает, только когда отменять нечего. По коду клавиши — и в русской раскладке
+// КЛАВИШИ В «3D» (компьютер, T-05/6 п.4; перенос как в Sims — T-05/8): R — повернуть выбранный (в руке — повернуть его), M — взять
+// в руку (второе M — отмена), Esc — отменить перенос, затем снять выбор; окно Esc закрывает, только когда отменять нечего. По коду клавиши — и в русской раскладке
 document.addEventListener('keydown',e=>{
   const sh=document.getElementById('shot');
   if(!sh||!sh.classList.contains('on')||!sh.classList.contains('v2')||VW.mode!=='walk'||e.defaultPrevented||e.ctrlKey||e.metaKey||e.altKey)return;
@@ -9713,15 +9733,14 @@ document.addEventListener('keydown',e=>{
   if(PAGE_LAYERS.some(([id,c])=>{if(id==='shot')return false; const el=document.getElementById(id); return el&&el.classList.contains(c);})
     ||document.getElementById('favPop'))return;   // сверху открыт другой слой — Esc и клавиши его
   if(e.key==='Escape'){
-    if(VW.mv){const sc=LIVE.scene; VW.mv=null; delete sh.dataset.mv; if(sc&&sc.moveEnd)sc.moveEnd(false);}
-    else if(VW.mvArm)VW.mvArm=false;
+    if(VW.mv)vwCarryCancel();
     else if(VW.sel!=null)vwSelect(null);
     else return;
     e.preventDefault(); return;}
   if(VW.sel==null||e.repeat)return;
-  if(e.code==='KeyR'){e.preventDefault(); vwRotate();}
-  else if(e.code==='KeyM'){const it=items[VW.sel]; if(!vwCanRot(it)||vwEditLock()||VW.mv)return; e.preventDefault();
-    VW.mvArm=true; toast(LANG==='en'?'Now drag the item along the floor':'Теперь тяните предмет по полу');}
+  if(e.code==='KeyR'){e.preventDefault(); if(VW.mv)vwCarryRotate(); else vwRotate();}
+  else if(e.code==='KeyM'){if(VW.mv){e.preventDefault(); vwCarryCancel(); return;}   // второе M — отмена
+    if(vwCarryStart(true))e.preventDefault();}
 });
 // след предмета на плане — повёрнутый прямоугольник (см), чуть меньше (касание вплотную — не наезд)
 function fpPoly(it){ const a=-(+it.rot||0)*Math.PI/180, c=Math.cos(a), s=Math.sin(a), hw=Math.max(0,+it.w/2-1), hd=Math.max(0,+it.d/2-1);
@@ -9766,76 +9785,181 @@ function vwRotate(){
   liveShow();
   if(vwRotWarn())toast(LANG==='en'?ROT_HIT_EN:ROT_HIT_RU);
 }
-// «ПЕРЕМЕСТИТЬ» В 3D (T-20261111-05/4, владелец TG 1502): нажали кнопку и тянете — предмет едет по полу за пальцем или мышью (на
-// сдвиг пальца по полу), под ним подсветка места движка (`viewer.ensureGhost`): зелёная — встаёт, красная — нет: выходит за стену,
-// задевает соседний предмет (новый наезд, как у «Повернуть») или встаёт в зону открывания двери. Отпустили на зелёном — встал (правка
-// расстановки: ↶/↷, хранится в браузере, `editKeep`), на красном — вернулся, где стоял. Короткое нажатие без движения — «взял»:
-// следующее перетаскивание по сцене двигает предмет, а не взгляд
+// «ПЕРЕМЕСТИТЬ» В 3D — КАК В SIMS 2 (T-20261111-05/8, владелец TG 1588–1591; было T-05/4, TG 1502). «✥ Переместить» или клавиша M —
+// предмет «в руке»: он полупрозрачный, под ним на ПОЛУ его след по форме модели (`viewer.ensureGhost`, `footprint.ts`) — зелёный, если
+// встаёт, красный, если нет: выходит за стену, задевает соседний предмет (новый наезд, как у «Повернуть»; наезд, появившийся поворотом,
+// не прощается — `vwCarryBase`) или встаёт в зону открывания двери. Мышь: предмет идёт центром за курсором по полу, щелчок — поставить;
+// палец: тянуть по полу (взгляд при этом не крутится), отпустить — поставить. На красном не ставим: предмет остаётся в руке. Колесо
+// или R — поворот на 90°, у стены ближе `SNAP_CM` — встаёт к ней вплотную. Esc, второе нажатие M или «Отмена» на полоске внизу — назад,
+// где стоял. Поставленный — правка расстановки: ↶/↷, хранится в браузере (`editKeep`)
+// MOVESNAP START
+const SNAP_CM=10;
+// рамка предмета (b: x0, y0, x1, y1, см) у стены комнаты W×D ближе `tol` — или зашла за неё не дальше — встаёт вплотную: → поправка {dx, dy}
+function snapWall(b, W, D, tol){
+  const t=tol==null?SNAP_CM:tol; let dx=0, dy=0;
+  if(Math.abs(b.x0)<=t)dx=-b.x0; else if(Math.abs(W-b.x1)<=t)dx=W-b.x1;
+  if(Math.abs(b.y0)<=t)dy=-b.y0; else if(Math.abs(D-b.y1)<=t)dy=D-b.y1;
+  return {dx, dy};
+}
+// MOVESNAP END
 // зона открывания двери, открывающейся в комнату: квадрат со стороной створки от петель (тот же расчёт, что дуга плана, `doorGeom`)
 function vwDoorPolys(R){
   return (R&&R.openings||[]).filter(o=>o.kind==='door'&&o.into!==false).map(o=>{const g=doorGeom(o), r=g.r, h=g.hinge;
     return [[h.x,h.y],[h.x+g.along.x*r,h.y+g.along.y*r],[h.x+g.along.x*r+g.open.x*r,h.y+g.along.y*r+g.open.y*r],[h.x+g.open.x*r,h.y+g.open.y*r]];});
 }
 function vwDoorHits(it, R){ const A=fpPoly(it); return vwDoorPolys(R).filter(P=>polyHit(A,P)).length; }
-// место (x, y) подходит предмету i: внутри комнаты, без новых наездов и без новой двери против исходного места (`VW.mv.base`)
-function vwMoveOk(i, x, y){
+// место (x, y) под углом rot подходит предмету i: внутри комнаты, без новых наездов и без новой двери против исходного места (`VW.mv.base`)
+function vwMoveOk(i, x, y, rot){
   const it=items[i], R=curRoom(), m=VW.mv; if(!it||!R||!m)return false;
-  const px=it.x, py=it.y; it.x=x; it.y=y;
+  const px=it.x, py=it.y, pr=it.rot; it.x=x; it.y=y; if(rot!=null)it.rot=rot;
   try{ const b=box(it);
     if(b.x0<-0.5||b.y0<-0.5||b.x1>R.w+0.5||b.y1>R.d+0.5)return false;
     if([...vwRotHits(i)].some(k=>!m.base.hits.has(k)))return false;
     return vwDoorHits(it,R)<=m.base.door;
-  }finally{it.x=px; it.y=py;}
+  }finally{it.x=px; it.y=py; it.rot=pr;}
 }
-function vwMoveStart(e){
+// какие наезды прощаем при переносе: те, что есть по расстановке (стулья под обеденным столом). Наезд, который дал «Повернуть» (рамка
+// уже красная, `VW.rotBase`), — не прощаем: красный след честно показывает, что так поставить нельзя (замечание ведущего к T-05/7)
+function vwCarryBase(i){
+  const it=items[i], R=curRoom(), rb=VW.rotBase&&VW.rotBase.i===i?VW.rotBase:null;
+  const now=vwRotHits(i), hits=rb?new Set([...now].filter(k=>rb.hits.has(k))):now;
+  return {hits, door:R?vwDoorHits(it,R):0};
+}
+// взять выбранный предмет «в руку»; true — взят
+function vwCarryStart(viaKey){
   const i=VW.sel, it=i!=null?items[i]:null, sc=LIVE.scene;
-  if(!vwCanRot(it)||vwEditLock()||!sc||!sc.moveBegin||VW.mode!=='walk')return false;
-  // ОТСЧЁТ — ОТ ТОЧКИ ПОЛА У САМОГО ПРЕДМЕТА (низ его рамки на экране), а не под пальцем: кнопка стоит над предметом, часто на фоне
-  // стены, и луч оттуда уходит в пол далеко за стеной — малый жест давал метры. Сдвиг пальца переносим к этой точке
-  const cr=LIVE.canvas.getBoundingClientRect(), p=(sc.pins()||[]).find(q=>q.index===i);
-  const ax=cr.left+(p?(p.box?(p.box[0]+p.box[2])/2:p.x):cr.width/2), ay=cr.top+(p?(p.box?p.box[3]-4:p.y):cr.height*0.7);
-  const f0=sc.floorAt(ax,ay);
-  if(!f0||!sc.moveBegin(i))return false;
-  const R=curRoom();
-  VW.mv={i, ox:+it.x, oy:+it.y, f0, a:[ax,ay], c0:[e.clientX,e.clientY], x:+it.x, y:+it.y, ok:true, moved:false,
-    base:{hits:vwRotHits(i), door:R?vwDoorHits(it,R):0}};
-  VW.mvArm=false;
+  if(VW.mv||!vwCanRot(it)||vwEditLock()||!sc||!sc.moveBegin||!sc.moveOrigin||VW.mode!=='walk')return false;
+  const base=vwCarryBase(i);
+  if(!sc.moveBegin(i))return false;
+  const org=sc.moveOrigin(); if(!org){sc.moveEnd(false); return false;}
+  VW.mv={i, ox:+it.x, oy:+it.y, orot:+it.rot||0, org, x:+it.x, y:+it.y, rot:+it.rot||0, wx:+it.x, wy:+it.y, ok:true, base, drag:null};
+  const sh=document.getElementById('shot'); sh.classList.add('vcarrying'); sh.dataset.mv='ok';
+  vwCarryBar();
+  // клавиша M, курсор уже над сценой — предмет сразу встаёт под него (как в Sims); взяли кнопкой — стоит, пока курсор не сдвинется
+  const p=VW.lastPtr; if(viaKey&&p&&p.mouse&&vwInCanvas(p.x,p.y))vwCarryAt(p.x,p.y);
   return true;
 }
-function vwMoveMove(e){
-  const m=VW.mv, sc=LIVE.scene; if(!m||!sc)return;
-  if(!m.moved&&Math.hypot(e.clientX-m.c0[0],e.clientY-m.c0[1])<6)return;
-  m.moved=true;
-  const f=sc.floorAt(m.a[0]+e.clientX-m.c0[0], m.a[1]+e.clientY-m.c0[1]); if(!f)return;   // выше горизонта — предмет стоит, где был
-  const dx=f.x-m.f0.x, dy=f.y-m.f0.y;
-  m.x=m.ox+dx; m.y=m.oy+dy; m.ok=vwMoveOk(m.i,m.x,m.y);
-  sc.moveBy(dx,dy,m.ok);
-  document.getElementById('shot').dataset.mv=m.ok?'ok':'bad';   // для проверок: цвет подсветки
+function vwInCanvas(x, y){ const c=LIVE.canvas, r=c&&c.getBoundingClientRect(); return !!(r&&x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom); }
+// желаемое место (wx, wy) → прилипание к стене → проверка → след зелёный/красный
+function vwCarrySet(wx, wy){
+  const m=VW.mv, sc=LIVE.scene, R=curRoom(); if(!m||!sc)return;
+  // курсор над стеной: луч уходит в пол далеко за ней, и предмет пропадал из вида. Центр держим в комнате — предмет у стены, наполовину
+  // в ней, след красный: видно, почему нельзя
+  if(R){wx=Math.max(0,Math.min(R.w,wx)); wy=Math.max(0,Math.min(R.d,wy));}
+  m.wx=wx; m.wy=wy;
+  let x=wx, y=wy;
+  if(R){const it=items[m.i], px=it.x, py=it.y, pr=it.rot; it.x=x; it.y=y; it.rot=m.rot;
+    try{const s=snapWall(box(it),R.w,R.d); x+=s.dx; y+=s.dy;}finally{it.x=px; it.y=py; it.rot=pr;}}
+  m.x=Math.round(x*10)/10; m.y=Math.round(y*10)/10; m.ok=vwMoveOk(m.i,m.x,m.y,m.rot);
+  sc.moveBy(m.x-m.ox, m.y-m.oy, m.ok, m.rot);
+  document.getElementById('shot').dataset.mv=m.ok?'ok':'bad';   // для проверок: цвет следа
+  vwCarryBar();
 }
-function vwMoveUp(){
-  const m=VW.mv, sc=LIVE.scene; VW.mv=null; delete document.getElementById('shot').dataset.mv;
-  if(!m||!sc)return;
-  const EN=LANG==='en';
-  if(!m.moved){sc.moveEnd(false); VW.mvArm=true; toast(EN?'Now drag the item along the floor':'Теперь тяните предмет по полу'); return;}
-  if(m.x===m.ox&&m.y===m.oy){sc.moveEnd(false); return;}   // жест был, а сдвига по полу нет
-  if(!m.ok){sc.moveEnd(false); toast(EN?'It does not fit there, so it is back in place':'Там не помещается, вернули на место'); return;}
+// мышь: центр предмета — в точку пола под курсором
+function vwCarryAt(cx, cy){
+  const m=VW.mv, sc=LIVE.scene; if(!m||!sc)return;
+  const f=sc.floorAt(cx,cy); if(!f)return;   // выше горизонта — предмет стоит, где был
+  vwCarrySet(m.ox+f.x-m.org.x, m.oy+f.y-m.org.y);
+}
+function vwCarryRotate(){
+  const m=VW.mv; if(!m)return;
+  m.rot=rotNext(m.rot); vwCarrySet(m.wx,m.wy);
+}
+function vwCarryEnd(){
+  VW.mv=null;
+  const sh=document.getElementById('shot'); sh.classList.remove('vcarrying'); delete sh.dataset.mv;
+  vwCarryBar();
+}
+function vwCarryCancel(){
+  const sc=LIVE.scene; if(!VW.mv)return;
+  if(sc&&sc.moveEnd)sc.moveEnd(false);
+  vwCarryEnd();
+}
+// поставить: на зелёном — встал (правка расстановки), на красном — остаётся в руке
+function vwCarryDrop(){
+  const m=VW.mv, sc=LIVE.scene; if(!m||!sc)return;
+  // красный — не ставим; полоска переноса уже говорит «Здесь не помещается» (всплывашка легла бы на неё же), мигнём ею
+  if(!m.ok){const b=document.getElementById('vcarry'); if(b){b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash');} return;}
+  vwCarryEnd();
+  if(m.x===m.ox&&m.y===m.oy&&m.rot===m.orot){sc.moveEnd(false); return;}   // поставили, где стоял
   sc.moveEnd(true);
-  const it=items[m.i]; it.x=Math.round(m.x*10)/10; it.y=Math.round(m.y*10)/10;
+  const it=items[m.i]; it.x=m.x; it.y=m.y; it.rot=m.rot;
   VW.rotBase=null; if(sc.warn)sc.warn(false);   // поворот дальше — от нового места
   histPush();
   try{draw();}catch(e){}
   liveShow();
 }
+// нажатие во время переноса (холст или кнопка «Переместить»): мышь — поставить по отпусканию; палец — тянуть от точки пола у самого
+// предмета (низ его рамки на экране): кнопка и палец часто над стеной, луч оттуда уходит в пол далеко за ней — малый жест давал метры
+function vwCarryDown(e, fromBtn){
+  const m=VW.mv, sc=LIVE.scene; if(!m||!sc)return;
+  const touch=e.pointerType!=='mouse';
+  let a=[e.clientX,e.clientY];
+  if(touch){const cr=LIVE.canvas.getBoundingClientRect(), p=(sc.pins()||[]).find(q=>q.index===m.i);
+    if(p&&p.box)a=[cr.left+(p.box[0]+p.box[2])/2, cr.top+p.box[3]-4];}
+  m.drag={id:e.pointerId, c0:[e.clientX,e.clientY], a, f0:touch?sc.floorAt(a[0],a[1]):null, x0:m.wx, y0:m.wy, moved:false, touch, fromBtn:!!fromBtn};
+}
+function vwCarryMove(e){
+  const m=VW.mv; if(!m)return;
+  const d=m.drag;
+  if(d&&d.id===e.pointerId){
+    if(!d.moved&&Math.hypot(e.clientX-d.c0[0],e.clientY-d.c0[1])<6)return;
+    d.moved=true;
+    if(d.touch){if(!d.f0)return; const f=LIVE.scene.floorAt(d.a[0]+e.clientX-d.c0[0], d.a[1]+e.clientY-d.c0[1]); if(!f)return;
+      vwCarrySet(d.x0+f.x-d.f0.x, d.y0+f.y-d.f0.y); return;}
+  }
+  if(e.pointerType==='mouse'&&vwInCanvas(e.clientX,e.clientY))vwCarryAt(e.clientX,e.clientY);
+}
+function vwCarryUp(e){
+  const m=VW.mv, d=m&&m.drag; if(!d||d.id!==e.pointerId)return;
+  m.drag=null;
+  if(e.type==='pointercancel')return;            // жест прервала система — предмет остаётся в руке
+  if(d.fromBtn&&!d.moved)return;                  // нажали «Переместить» — только взяли
+  if(d.touch&&!d.moved)return;                    // тап без движения — подсказка на полоске: тянуть по полу
+  vwCarryDrop();
+}
 function vwMoveDown(e){
   if(e.button!=null&&e.button!==0)return;
   e.preventDefault(); e.stopPropagation();
-  if(!vwMoveStart(e))return;
+  if(VW.mv){vwCarryCancel(); return;}            // второе нажатие «Переместить» — отмена
+  if(!vwCarryStart())return;
   const el=e.currentTarget; try{el.setPointerCapture(e.pointerId);}catch(x){}
-  const mv=ev=>vwMoveMove(ev), up=ev=>{el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); el.removeEventListener('pointercancel',up);
-    if(ev.type==='pointercancel'&&VW.mv&&VW.mv.moved)VW.mv.ok=false;   // жест прервала система — предмет на прежнее место
-    vwMoveUp();};
-  el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
+  vwCarryDown(e,true);
+  const up=ev=>{el.removeEventListener('pointerup',up); el.removeEventListener('pointercancel',up); vwCarryUp(ev);};
+  el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
 }
+// ПОЛОСКА ПЕРЕНОСА внизу сцены: что делать сейчас и «Отмена» (на телефоне Esc нет); красный след — «здесь не помещается»
+function vwCarryBar(){
+  // родитель — тот же, что у переключателя ракурсов (`#vCams`): полоска встаёт на его место и на телефоне идёт над шторкой, как он
+  const m=VW.mv, cv=LIVE.canvas, vc=document.getElementById('vCams'), host=vc&&vc.parentNode||cv&&cv.parentNode; let b=document.getElementById('vcarry');
+  if(!m||!host){if(b)b.hidden=true; return;}
+  const EN=LANG==='en';
+  if(!b||b.parentNode!==host){if(b)b.remove(); b=document.createElement('div'); b.id='vcarry'; b.className='vcarry';
+    b.innerHTML=`<span class="vct"></span><button type="button" class="vcrot" title="${EN?'Rotate (R)':'Повернуть (R)'}" aria-label="${EN?'Rotate 90°':'Повернуть на 90°'}"><span aria-hidden="true">↻</span></button>`+
+      `<button type="button" class="vcx">${EN?'Cancel':'Отмена'}</button>`;
+    b.addEventListener('pointerdown',e=>e.stopPropagation());
+    b.querySelector('.vcrot').addEventListener('click',e=>{e.stopPropagation(); vwCarryRotate();});
+    b.querySelector('.vcx').addEventListener('click',e=>{e.stopPropagation(); vwCarryCancel();});
+    host.appendChild(b);}
+  b.hidden=false; b.classList.toggle('bad',!m.ok);
+  const touch=isTouchUI();
+  const txt=!m.ok?(EN?'It does not fit here':'Здесь не помещается')
+    :touch?(EN?'Drag on the floor, then release':'Тяните по полу и отпустите')
+    :(EN?'Click to place · R or wheel: rotate · Esc: cancel':'Щелчок: поставить · R или колесо: повернуть · Esc: отмена');
+  const t=b.querySelector('.vct'); if(t.textContent!==txt)t.textContent=txt;
+}
+// курсор и колесо — на уровне документа: над сценой лежат ценники и полоска, а предмет должен идти за курсором и над ними
+document.addEventListener('pointermove',e=>{
+  VW.lastPtr={x:e.clientX, y:e.clientY, mouse:e.pointerType==='mouse'};
+  if(VW.mv)vwCarryMove(e);
+},true);
+document.addEventListener('wheel',e=>{
+  if(!VW.mv||!vwInCanvas(e.clientX,e.clientY))return;
+  e.preventDefault();
+  const now=performance.now(); if(now-(VW.wheelT||0)<250)return;   // один щелчок колеса — один поворот (тачпад шлёт десятки событий)
+  VW.wheelT=now; vwCarryRotate();
+},{passive:false});
+document.addEventListener('remlab:hist',()=>{ if(VW.mv)vwCarryCancel(); });
 function vwMount(s){
   const shot=document.getElementById('shot'); shot.classList.add('v2');
   shot.classList.toggle('nolive',LIVE.ok===false); shot.classList.toggle('vwalk',VW.mode==='walk');
@@ -10616,16 +10740,15 @@ function liveEngine(){
 function liveWire(){
   const cv=LIVE.canvas; if(!cv||cv._wired)return; cv._wired=true; cv.style.touchAction='none';
   let p0=null, last=null;
-  // «Переместить» взят коротким нажатием (`VW.mvArm`): перетаскивание по сцене двигает предмет, а не взгляд (T-05/4)
+  // предмет «в руке» (`VW.mv`, T-05/8): нажатие и перетаскивание по сцене — перенос предмета, а не взгляд и не выбор (курсор и
+  // перемещение пальца — `vwCarryMove` на уровне документа)
   cv.addEventListener('pointerdown',e=>{
-    if(VW.mvArm&&vwMoveStart(e)){p0=null; cv.setPointerCapture(e.pointerId); return;}
-    VW.mvArm=false;
+    if(VW.mv){if(e.button!=null&&e.button!==0)return; p0=null; cv.setPointerCapture(e.pointerId); vwCarryDown(e,false); return;}
     p0={x:e.clientX,y:e.clientY}; last={...p0}; cv.setPointerCapture(e.pointerId);});
-  cv.addEventListener('pointermove',e=>{if(VW.mv){vwMoveMove(e); return;}
+  cv.addEventListener('pointermove',e=>{if(VW.mv)return;
     if(!p0||VW.mode!=='walk')return; LIVE.scene.look(e.clientX-last.x,e.clientY-last.y); last={x:e.clientX,y:e.clientY};});
-  cv.addEventListener('pointerup',e=>{if(!VW.mv)return; e.stopImmediatePropagation();
-    if(!VW.mv.moved){LIVE.scene.moveEnd(false); VW.mv=null; return;}   // нажали и не тянули — «взял» снят
-    vwMoveUp();});
+  const up=e=>{if(!VW.mv||!VW.mv.drag)return; e.stopImmediatePropagation(); vwCarryUp(e);};
+  cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
   // КОНТРАКТ ЖЕСТОВ (demo-02 v3, Codex п.4): «Фото» — тап по предмету выбирает его (ракурс — кнопками и свайпом по фото, demo-26 Б); «3D» — движение > 8 px =
   // осмотр, короткий тап в крайних 20 % ширины = поворот на 30°, по предмету = выбор, по полу = шаг туда — только с мышью: на сенсорном
   // экране ходьбы нет (demo-20 Б6, владелец 22.10), остаются осмотр, повороты и ракурсы «со стороны двери / окна» (`walk` сцены)
@@ -10641,6 +10764,7 @@ function liveWire(){
       if(i>=0)vwHighlight(i); else vwSelect(null); LIVE.scene.start();}});
 }
 function liveHide(){
+  if(VW.mv)vwCarryCancel();   // окно закрыли с предметом «в руке» — он на прежнем месте
   if(LIVE.canvas&&LIVE.canvas.parentNode)LIVE.canvas.remove();
   if(LIVE.badge&&LIVE.badge.parentNode)LIVE.badge.remove();
   if(LIVE.scene)LIVE.scene.stop();
