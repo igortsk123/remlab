@@ -48,6 +48,8 @@ ENV_GEO = os.environ.get('FP_ENV_GEO', '1') != '0'   # T-20261111-09: полос
 SPLIT_DEEP = os.environ.get('FP_SPLIT', '1') != '0'  # T-20261111-09: наружный разрыв из закрытий, сошедшихся углом, — делить (0 — как до)
 PS_TAIL = os.environ.get('FP_PS_TAIL', '1') != '0'   # T-20261111-09: малый разрыв без дуги — срезать хвост-клин и проверить снова
 TEXT_MASK = os.environ.get('FP_TEXT_MASK', '1') != '0'  # T-20261111-09: дуга внутренней перемычки — без букв подписей
+TEXT_EV_MIN = 0.5   # без строк подписей дуги должно остаться хоть половина: прихожая TGva 0,95 → 0,26 (дугу давали буквы);
+                    # кухня 4y0o 0,80 → 0,63 (настоящая дверь, разрыв длиннее двери, часть точек попадала на подпись)
 
 
 # T-20261110-38: тип комнаты из ответа labels4 → имя для комнаты без названия на листе (английское: его понимают
@@ -310,7 +312,7 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
     for a in (wall, gray):
         h.update(np.ascontiguousarray(a).tobytes()); h.update(str(a.shape).encode())
     h.update(repr((round(float(ppm), 6), [round(float(f), 4) for f in fams], round(float(t), 4), regions, thin_thr,
-                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL, TEXT_MASK, 'tm1')).encode())
+                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL, TEXT_MASK, TEXT_EV_MIN, 'tm1')).encode())
     h.update(inspect.getsource(_analyze).encode() + inspect.getsource(bay_windows).encode())
     p = Path(cdir) / f'an-{h.hexdigest()[:20]}.pkl'
     if p.exists():
@@ -431,7 +433,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             return True
         if not no_text:
             no_text.append(np.where(fc.text_mask(thin, ppm), 0, thin).astype(thin.dtype))
-        return fc.door_evidence(no_text[0], c, u, nrm, L, dpt) >= DOOR_EV
+        return fc.door_evidence(no_text[0], c, u, nrm, L, dpt) >= TEXT_EV_MIN
     # малые разрывы: закрываем, только если есть след проёма — рама окна в толщине стены или дуга двери
     for p in ps_s:
         lab_s, gs = fc.gap_components(p, dark, out1)

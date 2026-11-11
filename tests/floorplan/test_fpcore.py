@@ -659,7 +659,7 @@ def test_text_mask_drops_label_lines_keeps_door_arcs():
     assert fc.door_evidence(text, c, u, n, L, d) >= 0.75                       # прежде — «дверь»
     tm = fc.text_mask(text, ppm)
     assert tm.sum() >= 0.8 * (text > 0).sum()
-    assert fc.door_evidence(np.where(tm, 0, text).astype(np.uint8), c, u, n, L, d) < 0.75
+    assert fc.door_evidence(np.where(tm, 0, text).astype(np.uint8), c, u, n, L, d) < 0.5     # bench.TEXT_EV_MIN
     door = np.zeros_like(text)
     cv2.ellipse(door, (60, 100), (60, 60), 0, 0, 90, 1, 2)                     # сплошная дуга
     cv2.line(door, (60, 100), (60, 160), 1, 2)                                 # створка
