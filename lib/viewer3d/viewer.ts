@@ -23,6 +23,7 @@ import { buildTv } from "@/lib/viewer3d/kits/tv";
 import { buildWallPlane } from "@/lib/viewer3d/kits/wall-plane";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
+import { floorFootprint } from "@/lib/viewer3d/footprint";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { outlineFrame } from "@/lib/viewer3d/outline";
 import { renderThumbs } from "@/lib/viewer3d/thumbs";
@@ -1193,21 +1194,24 @@ export class FlatViewer {
     const base = { posX: p.group.position.x, posZ: p.group.position.z, rotY: p.group.rotation.y };
     this.moving = { slotId, from, now: { ...from }, base };
     this.showOutline(slotId);
-    this.ensureGhost(pl.wCm, pl.dCm);
+    this.ensureGhost(p.group, pl.wCm, pl.dCm);
     this.applyMove(true);
     return from;
   }
 
-  /** Подсветка места под предметом: зелёная — можно ставить, красная — нельзя. */
-  private ensureGhost(wCm: number, dCm: number): void {
+  /**
+   * Подсветка места под предметом: зелёная — можно ставить, красная — нельзя. Форма — СЛЕД САМОЙ МОДЕЛИ на полу
+   * (`footprint.floorFootprint`, T-20261111-05/5): прямоугольник габарита у Г-дивана наполовину лежал на пустом полу.
+   * Нет треугольников — прямоугольник габарита, как раньше. Геометрия — в осях предмета; место и поворот берёт у группы.
+   */
+  private ensureGhost(group: THREE.Object3D, wCm: number, dCm: number): void {
     if (this.ghost) {
       this.scene.remove(this.ghost);
       this.ghost.geometry.dispose();
     }
-    const geo = new THREE.PlaneGeometry(wCm * CM, dCm * CM);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x3aa55c, transparent: true, opacity: 0.35, depthTest: false });
+    const geo = floorFootprint(group) ?? new THREE.PlaneGeometry(wCm * CM, dCm * CM).rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x3aa55c, transparent: true, opacity: 0.4, depthTest: false, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.rotation.x = -Math.PI / 2;
     mesh.renderOrder = 998;
     this.ghost = mesh;
     this.scene.add(mesh);
@@ -1241,9 +1245,10 @@ export class FlatViewer {
       // наш угол растёт по часовой стрелке, в сцене — против: отсюда минус
       p.group.rotation.y = base.rotY - ((rot - from.rot) * Math.PI) / 180;
     }
-    if (this.ghost) {
-      this.ghost.position.set(x * CM, 0.02, y * CM);
-      this.ghost.rotation.z = (-rot * Math.PI) / 180;
+    if (this.ghost && p) {
+      // след — там же, где группа предмета, и повёрнут, как она: модель, рамка и подсветка опираются на одно место
+      this.ghost.position.set(p.group.position.x, 0.02, p.group.position.z);
+      this.ghost.rotation.y = p.group.rotation.y;
       (this.ghost.material as THREE.MeshBasicMaterial).color.set(ok ? 0x3aa55c : 0xc0392b);
     }
     // контур обязан ехать вместе с предметом — иначе он «отстаёт» и показывает старое место
