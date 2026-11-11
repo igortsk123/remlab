@@ -657,12 +657,19 @@ def bridge_parts(wall: np.ndarray, max_gap: int, min_flank: int, angles=(0.0,), 
     return [(p & (wall == 0)).astype(np.uint8) for p in parts]
 
 
+ISLE_ASPECT = 1.3   # стрелка вытянута (7×12, 9×13 px); угол стены между двумя проёмами, колонна — почти квадрат (13×13)
+ISLE_FILL = 0.9     # и не сплошной прямоугольник (стрелки 0,65–0,89); простенок между стеклянными дверьми — 0,90–0,97
+
+
 def islands(wall: np.ndarray, max_px: float) -> np.ndarray:
-    """Отдельные куски маски стены не больше max_px по обеим сторонам рамки — значки на полу (стрелки высоты скоса, точки
-    размерных линий), не стена: от них проём не закрываем (T-20261111-09/3). → маска таких кусков."""
+    """Отдельные куски маски стены не больше max_px по обеим сторонам рамки, вытянутые и не сплошные, — значки на полу
+    (стрелки высоты скоса и лестниц), не стена: от них проём не закрываем (T-20261111-09/3). Квадратный кусок (угол стены
+    между дверью и окном — rgK5… Pool room, колонна) и сплошной простенок — стена. → маска значков."""
     n, lab, st, _ = cv2.connectedComponentsWithStats((wall > 0).astype(np.uint8), connectivity=8)
+    w, h, a = st[1:, cv2.CC_STAT_WIDTH], st[1:, cv2.CC_STAT_HEIGHT], st[1:, cv2.CC_STAT_AREA]
+    lo, hi = np.minimum(w, h), np.maximum(w, h)
     small = np.zeros(n, bool)
-    small[1:] = np.maximum(st[1:, cv2.CC_STAT_WIDTH], st[1:, cv2.CC_STAT_HEIGHT]) <= max_px
+    small[1:] = (hi <= max_px) & (hi >= ISLE_ASPECT * lo) & (a < ISLE_FILL * w * h)
     return small[lab]
 
 

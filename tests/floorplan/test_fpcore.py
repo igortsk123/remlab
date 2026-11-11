@@ -850,9 +850,12 @@ def test_islands_are_not_bridge_anchors():
     wall = np.zeros((160, 120), np.uint8)
     wall[0:60, 50:57] = 1                     # стена сверху, торец на y = 60
     wall[0:7, 0:120] = 1
-    wall[90:102, 51:57] = 1                   # стрелка 6 × 12 px в 30 px от торца
+    wall[90:97, 53:55] = 1                    # стрелка 6 × 12 px в 30 px от торца: древко + треугольник
+    cv2.fillPoly(wall, [np.array([[51, 97], [56, 97], [54, 101], [53, 101]])], 1)
+    wall[120:133, 90:103] = 1                 # квадратный кусок 13 × 13 (угол стены между проёмами, колонна) — стена
+    wall[140:150, 20:39] = 1                  # сплошной простенок 19 × 10 — стена
     isle = fc.islands(wall, 0.5 * ppm)
-    assert isle[95, 53] and not isle[30, 53] and isle.sum() == 72
+    assert isle[95, 53] and not isle[30, 53] and not isle[125, 95] and not isle[145, 30]
     assert fc.bridge_all(wall, int(1.7 * ppm), 9)[75, 53]                      # прежде: перемычка торец → стрелка
     anchor = np.where(isle, 0, wall).astype(np.uint8)
     assert not fc.bridge_all(anchor, int(1.7 * ppm), 9)[60:90].any()
