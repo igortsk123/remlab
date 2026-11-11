@@ -33,13 +33,11 @@ review_after: 2026-12-10
 - **Товары:** как в /demo (`trial_bundle.py:catalog_goods`); EN — £ ×1,5 без магазина (`uk_money`); фото — плитка /demo (`demo_img`).
 - **Фото:** при `trial_bundle.py:photo_ok`, ≤ 10 на задание за 24 ч (`trialPhotoDaily`).
 
-- **Правка агентом (ссылка с `k`):** комната — `tools/floorplan/room_edits.py` (028), проёмы — `opening_edits.py` (029); пересобираются задетые комнаты.
-  Правка идёт черновиком без пересборки (`lib/trial/repo-draft.ts`, 032; до 80 штук: `upload-limits.ts:TRIAL_ROOM_EDIT_LIMITS`); одна пересборка
-  по кнопке «Подтвердить планировку» (`lib/trial/repo-confirm.ts:askConfirm`); черновики и ход с оценкой времени страница читает из `GET edits`
-  и `GET rebuild-status` (`lib/trial/repo-plan-status.ts`). «Перечитать» переводит черновики той же картой (`lib/trial/repo-reparse-map.ts`).
-- **Ленты /demo:** `tools/scout/demo_feeds.py`. Перевыпуск: `publish_demo.sh`, затем `tools/floorplan/reissue.py --days 14`.
+- **Правка агентом (ссылка с `k`):** комната — `tools/floorplan/room_edits.py`, проёмы — `opening_edits.py`; черновиком
+  (`lib/trial/repo-draft.ts`, 032), одна пересборка по «Подтвердить планировку» (`lib/trial/repo-confirm.ts`); детали — Tier 2 § черновики.
+- **Ленты /demo:** `tools/scout/demo_feeds.py`; перевыпуск — `publish_demo.sh` → `tools/floorplan/reissue.py --days 14`.
 
 ## Хранение
-План и тур — 30 дн, правка плана в этот срок (`lib/trial/config.ts:trialFileHours`); с адреса 10/ч и 30/сутки (`lib/trial/upload-limits.ts`); наши машины — `lib/trial/own-key.ts`; email и ip_hash не храним.
+30 дн (`lib/trial/config.ts:trialFileHours`); лимиты — `lib/trial/upload-limits.ts`; наши машины — `lib/trial/own-key.ts`; email и ip_hash не храним.
 
 Уроки — `lessons/floorplan-trial.md`.
