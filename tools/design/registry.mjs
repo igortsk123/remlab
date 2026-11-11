@@ -59,6 +59,8 @@ export const REGISTRY = [
   { figma: "Window/Camera switch", css: [".vcams", ".vcams button", ".vcams button.on"], sel: ".vcams", states: ["default (выбранная — белая)"], where: ["окно, низ сцены"], desc: "«Со стороны окна / двери», blur" },
   { figma: "Window/History", css: [".vhist", ".vhist button", ".vhist button:disabled"], sel: ".vhist", states: ["default", "disabled ↶↷"], where: ["окно — после изменений"], desc: "↶ ↷ на вуали" },
   { figma: "Window/Price pin", css: [".vpin", ".vpin.sel"], sel: ".vpin", states: ["default", "selected (accent)"], where: ["3D-сцена"], desc: "ценник над мебелью" },
+  { figma: "Window/Rotate button", css: [".vrot", ".vrot span"], sel: ".vrot", states: ["default (у цены выбранного)"], where: ["3D-сцена — выбран предмет"], desc: "«↻ Повернуть» на 45°, рамка accent (T-05 п.7)" },
+  { figma: "Window/3D hint", css: ["#shot .shotwrap .livebadge", "#shot .shotwrap .livebadge.on"], sel: ".livebadge", states: ["shown 5 с", "gone"], where: ["3D-сцена — вход"], desc: "«3D: тяните, чтобы осмотреться» по центру, гаснет (T-05 п.6)" },
   { figma: "Window/Loader", css: [".vload", ".vload div", ".vload i", ".vload.corner"], sel: ".vload", states: ["loading (центр)", "corner (обновление)"], where: ["окно — загрузка 3D"], desc: "крутилка на белой плашке" },
   { figma: "Window/Zoom button", css: [".vzbtn"], sel: "#vzBtn", states: ["default"], where: ["окно — Фото"], desc: "«⤢ во весь экран» на вуали" },
   { figma: "Window/Stub", css: [".vstub", ".vstub p"], sel: ".vstub", states: ["без 3D (?live=0)"], where: ["окно без 3D"], desc: "заглушка wash-2" },

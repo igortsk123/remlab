@@ -9559,11 +9559,12 @@ function vwRotWarn(){
 document.addEventListener('remlab:hist',()=>{ if(VW.rotBase)vwRotWarn(); });
 function vwRotate(){
   const i=VW.sel, it=i!=null?items[i]:null; if(!vwCanRot(it)||vwEditLock())return;
-  if(!VW.rotBase||VW.rotBase.i!==i)VW.rotBase={i, hits:vwRotHits(i)};
-  const R=curRoom(), prev=it.rot, px=it.x, py=it.y;
+  if(!VW.rotBase||VW.rotBase.i!==i)VW.rotBase={i, hits:vwRotHits(i), x:+it.x, y:+it.y};
+  const R=curRoom(), prev=it.rot, px=it.x, py=it.y, o=VW.rotBase;
   it.rot=((((+it.rot||0)-ROT_STEP)%360)+360)%360;
+  // от места ДО первого поворота: иначе сдвиг от стены под 45° копился, и после полного круга предмет стоял не там, где был
   if(R){let b=box(it);
-    it.x=Math.max(b.w/2,Math.min(R.w-b.w/2,it.x)); it.y=Math.max(b.d/2,Math.min(R.d-b.d/2,it.y)); b=box(it);
+    it.x=Math.max(b.w/2,Math.min(R.w-b.w/2,o.x)); it.y=Math.max(b.d/2,Math.min(R.d-b.d/2,o.y)); b=box(it);
     if(b.x0<-0.5||b.y0<-0.5||b.x1>R.w+0.5||b.y1>R.d+0.5){it.rot=prev; it.x=px; it.y=py;
       toast(LANG==='en'?'At this angle it does not fit the room':'Под этим углом не помещается в комнату'); return;}}
   histPush();
