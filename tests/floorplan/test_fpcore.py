@@ -647,18 +647,24 @@ def test_split_composite_divides_merged_closures():
     assert len(fc.split_composite(lab3, g3, kl, np.zeros_like(add), outside, 5)[1]) == 1
 
 
-def test_arc_spans_gap_rejects_label_text_and_foreign_arc():
-    """T-20261111-09 (прихожая TGva…): перемычка поперёк прохода 0,9 м получала «дверь» по буквам подписи «Hallway» и по дуге
-    входной двери ниже. Строгая проверка: дуга чистая и доходит до другого торца — своя дуга да, буквы и чужая дуга нет."""
+def test_text_mask_drops_label_lines_keeps_door_arcs():
+    """T-20261111-09 (прихожая TGva…): перемычка поперёк прохода 0,9 м получала «дверь» 0,95 по буквам подписи «Hallway…».
+    Строки подписей уходят из тонких линий (`text_mask`); дуга двери — сплошная и пунктирная — и прямая створка остаются."""
+    ppm = 100.0
     ys, xs = np.mgrid[97:104, 60:121]
     c, u, n, L, d = fc.gap_axes(ys.ravel(), xs.ravel())
-    own = np.zeros((260, 200), np.uint8)
-    cv2.ellipse(own, (60, 100), (60, 60), 0, 0, 90, 1, 1)
-    assert fc.arc_spans_gap(own, c, u, n, L, d) >= 0.9
-    text = np.zeros_like(own)
+    text = np.zeros((260, 200), np.uint8)
     for k, s in enumerate(('Hallway', "2'11 x 12'5", '0.90 x 3.80 m')):
         cv2.putText(text, s, (40, 125 + 22 * k), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1, 2)
-    assert fc.door_evidence(text, c, u, n, L, d) >= 0.75 and fc.arc_spans_gap(text, c, u, n, L, d) < 0.7   # прежняя мера — «дверь»
-    foreign = np.zeros_like(own)
-    cv2.ellipse(foreign, (121, 190), (60, 60), 0, 180, 270, 1, 1)  # дуга двери на 0,9 L ниже, петля у другого торца
-    assert fc.arc_spans_gap(foreign, c, u, n, L, d) < 0.7
+    assert fc.door_evidence(text, c, u, n, L, d) >= 0.75                       # прежде — «дверь»
+    tm = fc.text_mask(text, ppm)
+    assert tm.sum() >= 0.8 * (text > 0).sum()
+    assert fc.door_evidence(np.where(tm, 0, text).astype(np.uint8), c, u, n, L, d) < 0.75
+    door = np.zeros_like(text)
+    cv2.ellipse(door, (60, 100), (60, 60), 0, 0, 90, 1, 2)                     # сплошная дуга
+    cv2.line(door, (60, 100), (60, 160), 1, 2)                                 # створка
+    for a0 in range(0, 90, 10):                                                # пунктирная дуга соседней двери
+        cv2.ellipse(door, (140, 30), (45, 45), 0, a0, a0 + 5, 1, 2)
+    cv2.line(door, (10, 240), (90, 240), 1, 2)                                 # прямая створка в стене с засечкой
+    cv2.line(door, (50, 234), (50, 240), 1, 2)
+    assert not fc.text_mask(door, ppm).any()

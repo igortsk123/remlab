@@ -1118,52 +1118,43 @@ def split_composite(lab_g: np.ndarray, gaps: list, kid: np.ndarray, dark: np.nda
 SPLIT_RATIO = 1.5     # `split_composite`: фигура глубже самого глубокого куска в 1,5 раза — куски сошлись углом, не в линию
 
 
-ARC_SPAN_TOL = 0.2    # дуга створки доходит до другого торца: |R − ширина от петли| ≤ 0,2 L
+TEXT_H_M = (0.06, 0.35)   # высота буквы или слова подписи в метрах плана (TGva…: 0,16–0,24 м)
+TEXT_ROW_H = 1.4          # строка (буквы с хвостами вниз) — до 1,4 наибольшей высоты буквы (TGva «Hallway»: 0,28 м)
+TEXT_GAP_M = 0.12         # буквы и слова одной строки — через ≤ 12 см по горизонтали (пробел «2'11" x 12'5"»)
+TEXT_ASPECT = 2.5         # строка вытянута по горизонтали: ширина ≥ 2,5 высоты
+TEXT_RUNS = 0.7           # и пересекает свою середину часто: штрихов ≥ 0,7 на высоту строки по ширине (у «Hallway» ~2,5,
+                          # у прямой линии створки с засечкой 1, у верха дуги 2 на всю ширину)
 
 
-def arc_spans_gap(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5) -> float:
-    """T-20261111-09: строгая проверка дуги для перемычки поперёк прохода (TGva…, прихожая 0,9 м: «дверь» по буквам подписи
-    «Hallway» и по дуге входной двери, лежащей ниже). Как `door_evidence`, но (1) дуга одной створки доходит до другого торца
-    разрыва (радиус ≈ расстояние от петли до него, ±ARC_SPAN_TOL·L) — чужая дуга рядом другого радиуса не годится; (2) точка
-    засчитана, только если дуга «чистая»: на том же луче на 0,8R и 1,2R линий нет вместе (буквы, штриховка задевают все три,
-    правило `_tangent_evidence`). Две створки — по R≈L/2 от каждого торца, обе. Спасения «по створке» нет: вдоль грани стены
-    тонкая линия есть почти всегда (кайма маски), у прихожей TGva она и давала «створку». → доля 0..1."""
+def text_mask(thin: np.ndarray, ppm: float) -> np.ndarray:
+    """T-20261111-09: тонкие линии, которые — строки подписей (буквы, цифры размеров), а не дуги и створки дверей. Буква или
+    слово — кусок высотой TEXT_H_M; куски, сросшиеся по горизонтали через ≤ TEXT_GAP_M, — строка, если она вытянута (ширина
+    ≥ TEXT_ASPECT высоты) и середину её пересекает много вертикальных штрихов (TEXT_RUNS). Строка берётся прямоугольником с
+    полем 0,03 м — с ней уходят и крапины сглаживания вокруг букв. У прихожей TGva… подпись «Hallway 2'11" x 12'5" 0.90 x 3.80 m»
+    давала перемычке поперёк прохода «дугу» 0,95. Дуга двери строкой не станет: она выше TEXT_H_M или пересекается дважды."""
+    on = (thin > 0).astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(on, connectivity=8)
+    hmin, hmax = TEXT_H_M[0] * ppm, TEXT_H_M[1] * ppm
+    out = np.zeros(thin.shape, bool)
+    h_ = st[1:, cv2.CC_STAT_HEIGHT]
+    ok = np.zeros(n, bool)
+    ok[1:] = (h_ >= hmin) & (h_ <= hmax)
+    if not ok.any():
+        return out
+    k = max(3, int(round(TEXT_GAP_M * ppm)))
+    row = cv2.dilate(ok[lab].astype(np.uint8), np.ones((1, k), np.uint8))
+    m, _, rs, _ = cv2.connectedComponentsWithStats(row, connectivity=8)
+    pad = max(1, int(round(0.03 * ppm)))
     H, W = thin.shape
-    th = np.radians(np.arange(0, 91, step_deg))
-    m = int(2.5 * L + depth) + 8
-    cx, cy = int(round(float(c[0]))), int(round(float(c[1])))
-    x0, y0 = max(0, cx - m), max(0, cy - m)
-    crop = np.pad((thin[y0:min(H, cy + m + 1), x0:min(W, cx + m + 1)] > 0).astype(np.uint8), 2)
-    dil = cv2.dilate(crop, np.ones((5, 5), np.uint8))
-    hh, ww = dil.shape
-    off = np.array([x0 - 2, y0 - 2], float)
-
-    def at(P):
-        q = np.rint(P - off).astype(int)
-        ok = (q[..., 0] >= 0) & (q[..., 0] < ww) & (q[..., 1] >= 0) & (q[..., 1] < hh)
-        r = np.zeros(q.shape[:-1], bool)
-        r[ok] = dil[q[..., 1][ok], q[..., 0][ok]] > 0
-        return r
-
-    def pure(h, d, s, R):
-        ray = np.cos(th)[:, None] * d[None, :] + np.sin(th)[:, None] * s[None, :]
-        on = at(h + R * ray)
-        clutter = at(h + TANGENT_PURE[0] * R * ray) & at(h + TANGENT_PURE[1] * R * ray)
-        return float((on & ~clutter).mean())
-
-    best = 0.0
-    for s in (n, -n):
-        face = c + s * depth / 2
-        for j in (0.0, 0.1, 0.2, 0.3):
-            e1, e2 = face - u * L * (0.5 - j), face + u * L * (0.5 - j)
-            span = (1.0 - j) * L
-            for f in np.arange(0.5, 1.06, 0.05):
-                R = f * L
-                if abs(R - span) <= ARC_SPAN_TOL * L:
-                    best = max(best, pure(e1, u, s, R), pure(e2, -u, s, R))
-                if abs(R / 2 - (0.5 - j) * L) <= ARC_SPAN_TOL * L / 2:     # створки сходятся посередине
-                    best = max(best, min(pure(e1, u, s, R / 2), pure(e2, -u, s, R / 2)))
-    return best
+    for i in range(1, m):
+        x, y, w, h = rs[i, cv2.CC_STAT_LEFT], rs[i, cv2.CC_STAT_TOP], rs[i, cv2.CC_STAT_WIDTH], rs[i, cv2.CC_STAT_HEIGHT]
+        if h < hmin or h > TEXT_ROW_H * hmax or w < TEXT_ASPECT * h:
+            continue
+        box = on[y:y + h, x:x + w]
+        runs = max(int((np.diff(np.r_[0, box[int(f * h)], 0].astype(np.int8)) == 1).sum()) for f in (0.35, 0.5, 0.65))
+        if runs >= max(3, TEXT_RUNS * w / h):
+            out[max(0, y - pad):min(H, y + h + pad), max(0, x - pad):min(W, x + w + pad)] = True
+    return out & (on > 0)
 
 
 def thin_lines(gray: np.ndarray, wall: np.ndarray, delta: int = 15, k: int = 7) -> np.ndarray:

@@ -45,10 +45,9 @@ HULL_M = float(os.environ.get('FP_HULL_M', '4.0'))   # грубый контур
 PANEL_R_M = float(os.environ.get('FP_PANEL_R_M', '2.5'))   # запас контура панели VLM, м (до соседнего контура)
 LB_M = float(os.environ.get('FP_LB_M', '6.0'))   # наибольший закрываемый наружный разрыв, м (длиннее 3,6 м — только по раме)
 ENV_GEO = os.environ.get('FP_ENV_GEO', '1') != '0'   # T-20261111-09: полоса контура — по свободному месту (0 — по прямой, как до)
-SPLIT_DEEP = os.environ.get('FP_SPLIT', '1') != '0'  # T-20261111-09: разрыв глубже ENV_DMAX·t — делить по закрытиям (0 — как до)
+SPLIT_DEEP = os.environ.get('FP_SPLIT', '1') != '0'  # T-20261111-09: наружный разрыв из закрытий, сошедшихся углом, — делить (0 — как до)
 PS_TAIL = os.environ.get('FP_PS_TAIL', '1') != '0'   # T-20261111-09: малый разрыв без дуги — срезать хвост-клин и проверить снова
-ARC_SPAN = os.environ.get('FP_ARC_SPAN', '1') != '0'  # T-20261111-09: внутренняя малая перемычка — дуга чистая и до другого торца
-ARC_SPAN_MIN = 0.7    # `fpcore.arc_spans_gap`: ложные перемычки прихожей TGva 0,53/0,63, настоящие двери листа 0,74–1,0
+TEXT_MASK = os.environ.get('FP_TEXT_MASK', '1') != '0'  # T-20261111-09: дуга внутренней перемычки — без букв подписей
 
 
 # T-20261110-38: тип комнаты из ответа labels4 → имя для комнаты без названия на листе (английское: его понимают
@@ -311,7 +310,7 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
     for a in (wall, gray):
         h.update(np.ascontiguousarray(a).tobytes()); h.update(str(a.shape).encode())
     h.update(repr((round(float(ppm), 6), [round(float(f), 4) for f in fams], round(float(t), 4), regions, thin_thr,
-                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL, ARC_SPAN, ARC_SPAN_MIN)).encode())
+                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL, TEXT_MASK, 'tm1')).encode())
     h.update(inspect.getsource(_analyze).encode() + inspect.getsource(bay_windows).encode())
     p = Path(cdir) / f'an-{h.hexdigest()[:20]}.pkl'
     if p.exists():
@@ -423,10 +422,16 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
         kid[ys, xs] = nkid[0]
         keep[ys, xs] = 1
 
+    no_text = []
+
     def span_ok(g, c, u, nrm, L, dpt):
-        # T-20261111-09: внутренняя перемычка поперёк прохода — «дверь» по буквам подписи и по чужой дуге рядом (TGva…, прихожая
-        # 0,9 м: две ложные «двери» резали её на три куска). Дуга должна быть чистой и доходить до другого торца (`arc_spans_gap`)
-        return g.exterior or not ARC_SPAN or fc.arc_spans_gap(thin, c, u, nrm, L, dpt) >= ARC_SPAN_MIN
+        # T-20261111-09: внутренняя перемычка поперёк прохода — «дверь» по буквам подписи (TGva…, прихожая 0,9 м: «Hallway 2'11"…»
+        # давала дугу 0,95). Дугу внутренней перемычки мерим по тонким линиям без строк подписей (`fpcore.text_mask`)
+        if g.exterior or not TEXT_MASK:
+            return True
+        if not no_text:
+            no_text.append(np.where(fc.text_mask(thin, ppm), 0, thin).astype(thin.dtype))
+        return fc.door_evidence(no_text[0], c, u, nrm, L, dpt) >= DOOR_EV
     # малые разрывы: закрываем, только если есть след проёма — рама окна в толщине стены или дуга двери
     for p in ps_s:
         lab_s, gs = fc.gap_components(p, dark, out1)
