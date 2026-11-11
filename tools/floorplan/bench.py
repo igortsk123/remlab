@@ -284,10 +284,52 @@ def sheet_arrows(img, wall, cfg, t):
 ARROW_GAP_T = 3.0   # разрыв у стрелки не длиннее 3 t — щель «стена ↔ стрелка»; длиннее — закрытие проёма или зоны, его не трогаем
 
 
-def arrow_doors(gaps, lab_g, arrows, t):
+def arrow_in_opening(g, lab_g, arr, wall, t):
+    """T-20261111-13/2: одиночный короткий разрыв у стрелки — стрелка стоит в проёме стены? Идём по линии разрыва за стрелку
+    (до ARROW_GAP_T·t): упёрлись в стену (не стрелку) — да, проём от торца до торца: стрелка посреди двери, второй разрыв не нашёлся
+    (rgK p1, санузел/Cupboard: дверь 66 см, стрелка «↓» в ней, разрыв только справа 26 см). Нет стены — стрелка на открытом месте
+    у торца стены (щель «торец ↔ стрелка»), не проём. → (cx, cy, длина px) или None."""
+    ys, xs = np.nonzero(lab_g == g.id)
+    ay, ax = np.nonzero(arr)
+    if len(ys) < 3 or not len(ay):
+        return None
+    c, u, n, _, _ = fc.gap_axes(ys, xs)
+    v = np.array([ax.mean(), ay.mean()]) - c
+    if abs(v @ n) > abs(v @ u):                        # ось разрыва — вдоль стены, к стрелке
+        u, n = n, u
+    s = 1.0 if v @ u >= 0 else -1.0
+    hb = max(float(g.depth), float(t)) / 2.0
+    Pg = np.column_stack([xs, ys]) - c
+    Pa = np.column_stack([ax, ay]) - c
+    ina = np.abs(Pa @ n) <= hb + 1                     # стрелка в полосе стены
+    if ina.sum() < 3:
+        return None
+    ga, aa = s * (Pg @ u), s * (Pa[ina] @ u)
+    H, W = wall.shape
+    bs = np.arange(-int(hb), int(hb) + 1)
+    hit = None
+    for d in range(1, int(ARROW_GAP_T * t) + 1):
+        p = c[None, :] + u[None, :] * s * (aa.max() + d) + n[None, :] * bs[:, None]
+        px, py = np.round(p[:, 0]).astype(int), np.round(p[:, 1]).astype(int)
+        ok = (px >= 0) & (px < W) & (py >= 0) & (py < H)
+        if not ok.any():
+            break
+        px, py = px[ok], py[ok]
+        if ((wall[py, px] > 0) & (arr[py, px] == 0)).mean() >= 0.5:
+            hit = aa.max() + d
+            break
+    if hit is None:
+        return None
+    lo, hi = float(ga.min()), float(hit) - 1.0         # от ближнего торца (край разрыва) до дальнего торца за стрелкой
+    m = c + u * s * (lo + hi) / 2.0
+    return float(m[0]), float(m[1]), hi - lo + 1.0
+
+
+def arrow_doors(gaps, lab_g, arrows, t, wall=None):
     """T-20261111-13: короткие (≤ ARROW_GAP_T·t) дверные разрывы у залитой стрелки. Один такой у стрелки — щель «торец стены ↔
     стрелка», не проём (rgK, Bedroom 3: стрелка «→» в коридоре в 23 см от угла спальни давала «дверь» 43 см, ядро её резало —
-    opening_cut_by_core). Два и больше на одной прямой со стрелкой — стрелка делит проём надвое: один проём (разрывы и стрелка
+    opening_cut_by_core), если только стрелка не стоит в проёме стены (`arrow_in_opening`, нужна маска стен `wall`): тогда дверь —
+    проём от торца до торца. Два и больше на одной прямой со стрелкой — стрелка делит проём надвое: один проём (разрывы и стрелка
     вместе). Не на одной прямой — как были. Длинные разрывы (закрытия у лестниц, широкие проёмы) — как были: снятие и слияние их
     меняло ядра (rgK Drawing room) и оставляло комнату без двери (Eaves).
     → (снятые id, слитые [(cx, cy, длина px, exterior)], id слитых)."""
@@ -305,7 +347,13 @@ def arrow_doors(gaps, lab_g, arrows, t):
             by.setdefault(int(a), []).append(g)
     for a, gs in by.items():
         if len(gs) == 1:
-            drop.add(gs[0].id)
+            g = gs[0]
+            d = arrow_in_opening(g, lab_g, al == a, wall, t) if wall is not None else None
+            if d is None:
+                drop.add(g.id)
+            else:
+                merged.append((d[0], d[1], d[2], g.exterior))
+                used.add(g.id)
             continue
         ys, xs = np.nonzero((al == a) | np.isin(lab_g, [g.id for g in gs]))
         c, _, _, L, depth = fc.gap_axes(ys, xs)
@@ -1671,7 +1719,7 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     doors = np.zeros_like(add)
     wins = np.zeros_like(add)
     notch = np.zeros_like(add)
-    a_drop, a_merged, a_used = arrow_doors(r['gaps'], lab_g, r.get('arrows'), r.get('arrows_t'))
+    a_drop, a_merged, a_used = arrow_doors(r['gaps'], lab_g, r.get('arrows'), r.get('arrows_t'), r['wall'])
     for g in r['gaps']:
         if g.id in a_drop:                             # разрыв «стена ↔ стрелка» — не проём, перемычки над ним нет
             continue

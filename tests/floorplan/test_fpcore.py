@@ -723,3 +723,29 @@ def test_arrow_doors_drop_wall_arrow_gap_merge_split_doorway():
     cx, cy, L, ext = merged[0]
     assert abs(cx - 86.5) <= 1.5 and abs(L - 42) <= 2 and not ext
     assert bench.arrow_doors(gaps, lab_g, None, 8) == (set(), [], set())
+
+
+def test_arrow_doors_single_gap_arrow_in_doorway_is_whole_door():
+    """T-20261111-13/2 (rgK p1, санузел/Cupboard): стрелка «↓» стоит посреди двери 66 см, разрыв нашёлся только с одной стороны
+    (26 см). За стрелкой по линии стены — торец стены: дверь от торца до торца, не снятие. Стрелка у торца на открытом месте
+    (за ней стены нет) — щель «торец ↔ стрелка», снимается, как раньше."""
+    import bench
+    t = 9
+    wall = np.zeros((100, 120), np.uint8)
+    lab_g = np.zeros((100, 120), np.int32)
+    arrows = np.zeros((100, 120), np.uint8)
+    wall[40:49, 0:30] = 1                                           # стена с дверью 30..49 (20 px)
+    wall[40:49, 50:120] = 1
+    arrows[34:53, 37:44] = 1                                        # стрелка поперёк стены посреди двери
+    lab_g[40:49, 44:50] = 1                                         # разрыв только справа от стрелки
+    wall[70:79, 0:30] = 1                                           # торец стены, дальше открыто
+    arrows[70:79, 36:48] = 1                                        # стрелка «→» на открытом месте у торца
+    lab_g[70:79, 30:36] = 2
+    wall |= arrows
+    gaps = [fc.Gap(1, 0, 0, 6, 9, 'door', 0.0, False, (0, 0, 0, 0)),
+            fc.Gap(2, 0, 0, 6, 9, 'door', 0.0, False, (0, 0, 0, 0))]
+    drop, merged, used = bench.arrow_doors(gaps, lab_g, arrows, t, wall)
+    assert drop == {2} and used == {1} and len(merged) == 1
+    cx, cy, L, ext = merged[0]
+    assert abs(cx - 39.5) <= 1.5 and abs(cy - 44) <= 1.5 and abs(L - 20) <= 2 and not ext
+    assert bench.arrow_doors(gaps, lab_g, arrows, t)[0] == {1, 2}    # без маски стен — как раньше
