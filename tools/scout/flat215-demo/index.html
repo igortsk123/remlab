@@ -2427,9 +2427,14 @@ function pageEn(){ try{return LANG==='en';}catch(e){}
 // запрос данных ушёл ещё из <head> (`__dataP`, T-20261110-40); не ушёл или сорвался — обычный запрос здесь
 function dataFetch(){ const p=window.__dataP; window.__dataP=null; const own=()=>fetch('demo-data.json?v='+Date.now());
   return p?p.then(r=>r&&r.ok?r:own(),own):own(); }
-dataFetch().then(r=>trDataEtag(r).json()).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();
+// ЗАПУСК — ПОСЛЕ ВСЕЙ РАЗМЕТКИ (T-20261110-43, дефект П1): данные просятся из <head> и на медленной сети или из кэша приходят раньше,
+// чем браузер дочитает 1,2 МБ разметки; `init` тогда звал функции и константы следующих <script> (`stateIdOf`, `LIVE`) до их
+// объявления — ReferenceError, `.catch` ниже глотал его, и главная /demo оставалась без фото («Откройте — покажем в 3D»)
+const pageReady=()=>document.readyState==='loading'?new Promise(ok=>document.addEventListener('DOMContentLoaded',ok,{once:true})):Promise.resolve();
+dataFetch().then(r=>trDataEtag(r).json()).then(d=>pageReady().then(()=>d)).then(d=>{D=roomsAlias(d);if(TRIAL())trialSetup();init();
   if(TRIAL()){window.__trialReady=1; document.dispatchEvent(new Event('trialready'));}})   // проба: опрос без карточки квартиры (`decide`)
-  .catch(e=>{const b=document.getElementById('sub'), msg=(pageEn()?'Could not load the data: ':'Не удалось загрузить данные: ')+String(e.message||e).slice(0,140);
+  .catch(e=>{try{console.error('запуск страницы:',e);}catch(_){}   // сбой запуска виден в консоли, а не только надписью (T-43)
+    const b=document.getElementById('sub'), msg=(pageEn()?'Could not load the data: ':'Не удалось загрузить данные: ')+String(e.message||e).slice(0,140);
     if(b)b.textContent=msg;
     // скелет карточек не мерцает вечно: вместо него — та же надпись
     const hr=document.getElementById('hmRooms'); if(hr&&hr.querySelector('.hm-skel')){hr.removeAttribute('aria-busy'); hr.innerHTML=`<div class="hm-stub"><span>${escHtml(msg)}</span></div>`;}});
