@@ -157,7 +157,10 @@ const room = z.object({
   kind: z.enum(["living", "bedroom", "kitchen", "bathroom", "hall", "other"]),
   contour: ring,
   bbox: z.object({ x: num, y: num, w: num.positive(), d: num.positive() }),
+  /** площадь для показа: напечатанная на листе, если есть и годна (флаг `area_from_label`), иначе по контуру */
   areaM2: num.nonnegative(),
+  /** площадь по контуру, когда показана подпись листа (`tools/floorplan/pipeline.py:area_shown`, T-20261111-12) */
+  areaContourM2: num.nonnegative().optional(),
   dims: z.object({ w: num.positive(), d: num.positive(), src: z.enum(["plan", "listing"]) }).optional(),
   flags,
 }).refine((r) => {

@@ -70,8 +70,13 @@ def _scaled(room: dict, w: float, d: float) -> None:
     room['plan'] = {'bbox': dict(b), 'contour': [list(p) for p in room.get('contour') or []], 'sx': sx, 'sy': sy, 'cx': cx, 'cy': cy}
     room['contour'] = [[round(cx + (p[0] - cx) * sx, 1), round(cy + (p[1] - cy) * sy, 1)] for p in room.get('contour') or []]
     room['bbox'] = {'x': round(cx - w / 2, 1), 'y': round(cy - d / 2, 1), 'w': float(w), 'd': float(d)}
-    if room.get('areaM2'):
-        room['areaM2'] = round(float(room['areaM2']) * sx * sy, 2)
+    # T-20261111-12: площадь — от КОНТУРА (`areaContourM2`, если показ шёл по подписи листа): агент задал стороны — его мерка
+    # истина, подпись листа к растянутому контуру больше не относится (`area_from_label` снимается)
+    base = room.get('areaContourM2') or room.get('areaM2')
+    if base:
+        room['areaM2'] = round(float(base) * sx * sy, 2)
+    if room.pop('areaContourM2', None) is not None:
+        room['flags'] = [f for f in room.get('flags') or [] if f != 'area_from_label']
     room['edited'] = {'w': int(w), 'd': int(d)}
     if USER_DIMS not in (room.get('flags') or []):
         room['flags'] = list(room.get('flags') or []) + [USER_DIMS]

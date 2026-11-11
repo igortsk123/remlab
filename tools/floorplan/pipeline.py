@@ -451,6 +451,42 @@ def area_label_off(names: list, G_by: dict, got_m2: float) -> str | None:
     return 'area_label_off' if abs(got_m2 - want) > max(AREA_LABEL_M2, AREA_LABEL_REL * want) else 'area_label_ok'
 
 
+AREA_LABEL_TRUST = 2.0     # контур против подписи дальше чем вдвое — подпись не про эту комнату или прочитана не так (футы как м²)
+
+
+def area_shown(names: list, G_by: dict, got_m2: float) -> tuple[float, list]:
+    """T-20261111-12: площадь комнаты для показа. Напечатанная на листе площадь (labels4 `area_m2`; у слитых — сумма) — истина
+    для показа: застройщик мерил по чистовым стенам, а наш контур на открытых проходах — догадка (Этажи: закрытие коридор →
+    кухня-гостиная наискось, коридор 4,20 против 3,80). Контур не подгоняется: его площадь остаётся `areaContourM2`, расхождение
+    больше AREA_LABEL_REL — флаг `area_label_off` (страница: «форма приблизительная», `trial_bundle._approx`). Подпись не берётся, если хоть одна из слитых прочитана
+    неуверенно (`unsure`) или контур дальше AREA_LABEL_TRUST раз — тогда показ по контуру и тот же флаг сверки.
+    → (площадь для показа, флаги: сверка + `area_from_label`, если показана подпись)"""
+    off = area_label_off(names, G_by, got_m2)
+    if off is None:
+        return got_m2, []
+    gs = [G_by.get(n, {}) for n in names]
+    want = float(sum(g['area_m2'] for g in gs))
+    if any(g.get('unsure') for g in gs) or got_m2 <= 0 or not (1 / AREA_LABEL_TRUST <= got_m2 / want <= AREA_LABEL_TRUST):
+        return got_m2, [off]
+    return want, [off, 'area_from_label']
+
+
+AREA_LABELS_SCALE_N, AREA_LABELS_SCALE_REL = 3, 0.05   # ≥ 3 подписанных комнаты; медиана √(контур/подпись) дальше 5 % — масштаб под вопросом
+
+
+def scale_by_labels(panels: list) -> list:
+    """T-20261111-12: сверка МАСШТАБА по подписанным площадям комнат: ошибка масштаба k меняет все площади в k² раз, ошибка
+    контура — одну-две. Медиана √(контур/подпись) по комнатам, где подпись показана (`area_from_label`), дальше
+    AREA_LABELS_SCALE_REL от 1 — флаг результата `scale_labels_off`, в допуске — `scale_labels_ok`; меньше AREA_LABELS_SCALE_N
+    комнат — ничего. Статус масштаба не меняет (только флаг)."""
+    ks = sorted(math.sqrt(r['areaContourM2'] / r['areaM2']) for p in panels for r in p['rooms']
+                if 'area_from_label' in r['flags'] and r.get('areaContourM2') and r['areaM2'] > 0)
+    if len(ks) < AREA_LABELS_SCALE_N:
+        return []
+    med = ks[len(ks) // 2] if len(ks) % 2 else (ks[len(ks) // 2 - 1] + ks[len(ks) // 2]) / 2
+    return ['scale_labels_off' if abs(med - 1) > AREA_LABELS_SCALE_REL else 'scale_labels_ok']
+
+
 def outdoor_share(G: dict, area: dict | None) -> tuple[dict | None, list]:
     """T-20261110-38: общая площадь объявления часто включает балкон/лоджию с понижающим (Этажи: 68,0 + 0,3·2,70 = 68,8), а
     в модели их нет (снаружи наружной стены) — масштаб по общей площади раздувал бы квартиру на эту долю. Если на листе
@@ -710,14 +746,16 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
             kind = room_kind(_alias(shown[0]))                # «ES» = en-suite, «W.C.» = wc — синонимы `listing.alias_key`
         kind, kfl = vlm_kind(kind, g1)
         fl += kfl
-        off = area_label_off(names, G_by, float(mr.get('area_m2') or 0.0))
-        if off:
-            fl.append(off)
+        got = float(mr.get('area_m2') or 0.0)
+        area, afl = area_shown(names, G_by, got)          # T-20261111-12: подписанная площадь — для показа, контур — сверка
+        fl += afl
         room = {'id': f'p{pi}-r{rid}'[:40], 'name': ' + '.join(dict.fromkeys(shown))[:80],
                 'kind': kind, 'contour': contour,
                 # bbox — проекция контура (refine контракта: расхождение < 1 см)
                 'bbox': {'x': min(xs), 'y': min(ys), 'w': w, 'd': d},
-                'areaM2': max(0.0, round(float(mr.get('area_m2') or 0.0), 2)), 'flags': fl}
+                'areaM2': max(0.0, round(area, 2)), 'flags': fl}
+        if 'area_from_label' in afl:
+            room['areaContourM2'] = max(0.0, round(got, 2))
         g = G_by.get(names[0]) if len(names) == 1 else None
         if g and g.get('dims_m') and min(g['dims_m']) > 0:
             a, b = (round(v * 100, 1) for v in g['dims_m'][:2])
@@ -782,7 +820,7 @@ def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: floa
         panels = [p for p in panels if p['rooms'] or any(w['polys'] for w in p['walls'])]
         if not any(p['rooms'] for p in panels):
             raise TrialError('no_plan', False, 'no rooms found')
-        fl = list(flags)
+        fl = list(flags) + scale_by_labels(panels)
         if len(panels) > MAX_PANELS:
             fl.append('panels_truncated')
             keep = sorted(range(len(panels)), key=lambda i: -sum(r['areaM2'] for r in panels[i]['rooms']))[:MAX_PANELS]

@@ -915,7 +915,11 @@ def _geo_titles(room: dict, geo: dict, kind: str) -> dict:
 
 
 def _approx(room: dict, geo: dict) -> bool:
-    """Комната показана ядром-прямоугольником заметно меньше контура (Г-образная, скошенная) — `approx`: страница помечает видимо."""
+    """Комната показана ядром-прямоугольником заметно меньше контура (Г-образная, скошенная) — `approx`: страница помечает видимо.
+    Так же — контур разошёлся с площадью, напечатанной на листе (`area_label_off`, `pipeline.area_shown`, T-20261111-12): подпись
+    показана числом, а нарисованная форма — приблизительная."""
+    if 'area_label_off' in (room.get('flags') or []):
+        return True
     from shapely.geometry import Polygon
     try:
         area = Polygon(room['contour']).area
