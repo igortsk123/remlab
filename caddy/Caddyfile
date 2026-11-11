@@ -67,9 +67,21 @@ remont-lab.online {
 	header @trialpage {
 		defer
 		Referrer-Policy "no-referrer"
-		Cache-Control "private, no-store"
 		X-Robots-Tag "noindex, nofollow"
 	}
+	# КЭШ ПРОБЫ (T-20261110-43): тур `/try/<id>/tour…` решает сам (`lib/trial/tour-cache.ts`) — без ключа агента хранить со сверкой
+	# (`private, no-cache` + ETag, повторное открытие — 304 без тела), с ключом `k` и всё прочее — `private, no-store`; ответ тура без
+	# своего Cache-Control — «не хранить». Остальное /try — безусловно «не хранить», как было. «?» — отдельной директивой (см. выше).
+	@trialstrict {
+		path /try /try/*
+		not path_regexp ^/try/[A-Za-z0-9_-]+/tour(?:/.*)?$
+	}
+	header @trialstrict {
+		defer
+		Cache-Control "private, no-store"
+	}
+	@trialtour path_regexp ^/try/[A-Za-z0-9_-]+/tour(?:/.*)?$
+	header @trialtour ?Cache-Control "private, no-store"
 
 	# ВНУТРЕННИЕ РУЧКИ ПРИЛОЖЕНИЯ (план b2b-01): их зовут только соседние контейнеры по сети
 	# remlab-net (сервис кадров кладёт заявку «отправить себе» в базу). Снаружи — как будто их нет.
@@ -128,15 +140,17 @@ remont-lab.online {
 	# ДЕМО ДЛЯ ПАРТНЁРА (08.09, план demo-permalink). Переехало из служебной /test/buildup:
 	# у демо теперь свой адрес и своя папка (`./demo` → /srv/demo), в общем списке /test/ его нет.
 	# Кэш по типам: картинки и спрайты (98 % веса — 74 МБ видов сверху) живут неделю, поэтому со
-	# второго захода демо открывается почти мгновенно; страница, данные и скрипты — БЕЗ кэша,
-	# иначе после публикации у партнёра осталась бы старая вёрстка с новыми данными.
+	# второго захода демо открывается почти мгновенно; страница, данные и скрипты — со сверкой каждый раз
+	# (no-cache, не max-age), иначе после публикации у партнёра осталась бы старая вёрстка с новыми данными.
 	redir /demo /demo/ 301
 	handle_path /demo/* {
 		root * /srv/demo
 		@img path *.png *.jpg *.jpeg *.webp *.gif *.svg *.woff2 *.ico
 		header @img Cache-Control "public, max-age=604800"
+		# страница, данные, скрипты — хранить со сверкой (T-20261110-43): каждое открытие спрашивает сервер по ETag (file_server),
+		# не изменилось — 304 без тела, после публикации — новое тело; свежесть та же, что у no-store, повтор не качает 450 КБ заново
 		@live not path *.png *.jpg *.jpeg *.webp *.gif *.svg *.woff2 *.ico
-		header @live Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+		header @live Cache-Control "no-cache"
 		file_server
 		header X-Robots-Tag "noindex, nofollow"
 	}
@@ -182,6 +196,16 @@ remont-lab.online {
 	# no-cache = браузер хранит файл и перепроверяет по ETag (ответ 304 без тела): свежесть та же, повторной закачки нет.
 	handle_path /test/mesh-pilot10/* {
 		root * /srv/test/mesh-pilot10
+		file_server browse
+		header X-Robots-Tag "noindex, nofollow"
+		header Cache-Control "public, no-cache"
+	}
+
+	# КАДРЫ ДЕМО (T-20261110-43): фото карточек /demo — из общего /test/* шли с no-store, повторное открытие качало кадр
+	# главной заново (на компьютере 2048 px ≈ 460 КБ). Имена кадров уникальны; no-cache — хранить и сверять по ETag (304
+	# без тела), удалённый кадр — 404, как и раньше. Остальное /test — как было (ниже).
+	handle_path /test/share/frames/* {
+		root * /srv/test/share/frames
 		file_server browse
 		header X-Robots-Tag "noindex, nofollow"
 		header Cache-Control "public, no-cache"
