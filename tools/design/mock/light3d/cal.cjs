@@ -17,10 +17,9 @@ const patch = (js, win) => {
   if (!js.includes(HOOK)) throw new Error("нет addLights в сборке");
   let out = js.replace(HOOK, HOOK + "globalThis.__V=this,");
   if (!PHONE) out = out.replace(SOFT, "return!1&&/x/i.test(");
-  if (win) {   // свет окон в сборке ветки выключен (win:0) — для подбора включаем, сила задаётся на лету
-    if (!/win:0,/.test(out)) throw new Error("нет LIGHT.win в сборке");
-    out = out.replace(/win:0,/, "win:1,");
-  }
+  // свет окон (LIGHT.win) есть только в сборке коммита «состояние пробы»; в итоговой его нет — варианты с win просто без него,
+  // как и с hdr (loadEnvironment тоже только там)
+  if (win && /win:0,/.test(out)) out = out.replace(/win:0,/, "win:1,");
   return out;
 };
 

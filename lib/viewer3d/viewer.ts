@@ -10,7 +10,6 @@
 
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
 
 import type { Apartment, Placement, Room } from "@/contracts/apartment";
 import { entranceOf, findRoom, isIsolatedRoom, roomAt, roomCentre } from "@/contracts/apartment";
@@ -26,7 +25,7 @@ import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
 import { ContactShadow, roomsBounds } from "@/lib/viewer3d/contact-shadow";
 import { fadeForMove, floorFootprint } from "@/lib/viewer3d/footprint";
-import { buildCurtains, LIGHT, sunPose, windowLightSpots } from "@/lib/viewer3d/window-light";
+import { buildCurtains, LIGHT, sunPose } from "@/lib/viewer3d/window-light";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { outlineFrame } from "@/lib/viewer3d/outline";
 import { renderThumbs } from "@/lib/viewer3d/thumbs";
@@ -269,8 +268,6 @@ export class FlatViewer {
   /** Солнце и заполняющий — их ставит `aimLights` по окну комнаты. */
   private sun: THREE.DirectionalLight | null = null;
   private fill: THREE.DirectionalLight | null = null;
-  /** Свет окон (`LIGHT.win`): точки у проёмов, пересоздаются с оболочкой. */
-  private windowLights: THREE.PointLight[] = [];
   /** Запечённая тень мебели на полу (`contact-shadow.ts`); пересоздаётся с оболочкой. */
   private contact: ContactShadow | null = null;
   private curtains: THREE.Group | null = null;
@@ -340,29 +337,6 @@ export class FlatViewer {
     this.scene.add(buildSurroundings(apartment.rooms));
   }
 
-  /**
-   * Окружение из HDRI-снимка интерьера вместо процедурной `RoomEnvironment` (T-20261111-22/2, проба владельца TG 1673): отражения и
-   * рассеянный свет; фон сцены не меняется. Не загрузилось — остаётся прежнее. Время загрузки и сборки — в ответе, для замеров.
-   */
-  async loadEnvironment(url: string, intensity?: number): Promise<{ ok: boolean; ms: number }> {
-    const t0 = performance.now();
-    try {
-      const tex = await new HDRLoader().loadAsync(url);
-      if (this.disposed) { tex.dispose(); return { ok: false, ms: 0 }; }
-      tex.mapping = THREE.EquirectangularReflectionMapping;
-      const pmrem = new THREE.PMREMGenerator(this.renderer);
-      const prev = this.scene.environment;
-      this.scene.environment = pmrem.fromEquirectangular(tex).texture;
-      if (intensity != null) this.scene.environmentIntensity = intensity;
-      pmrem.dispose();
-      tex.dispose();
-      prev?.dispose();
-      return { ok: true, ms: performance.now() - t0 };
-    } catch {
-      return { ok: false, ms: performance.now() - t0 };
-    }
-  }
-
   private addLights(): void {
     // ОКРУЖЕНИЕ (environment): без него PBR-материалы выглядят плоско — у них нечего отражать
     // (замечание Codex 28.09). `RoomEnvironment` — процедурная комната из three, файлов не тянет.
@@ -377,8 +351,8 @@ export class FlatViewer {
       /* старый GPU/программный рендер — живём без окружения */
     }
     // КАЛИБРОВКА T-20261111-22 («нейтральная», прототип `tools/design/mock/light3d/`): белое небо и светлый отскок от пола —
-    // стены белые, как в эталоне владельца (тёплые оттенки делали их кремовыми и сдвигали цвет товара, Δab 2 → 6); солнце ярче
-    // и бьёт из окна (`aimLights`), его тень мягкая и светлая — серая полутень, не чёрное пятно
+    // стены белые, как в эталоне владельца (тёплые оттенки делали их кремовыми и сдвигали цвет товара, Δab 2 → 6); солнце бьёт
+    // из окна (`aimLights`), его тень мягкая и светлая — серая полутень, не чёрное пятно; числа — `window-light.ts:LIGHT`
     this.scene.add(new THREE.HemisphereLight(LIGHT.hemiSky, LIGHT.hemiGround, LIGHT.hemi));
     const sun = new THREE.DirectionalLight(LIGHT.sunColor, LIGHT.sun);
     sun.position.set(-6, 9, -4);
@@ -407,13 +381,6 @@ export class FlatViewer {
 
   /** Солнце — за окном комнаты, светит в её середину; заполняющий — с другой стороны (`window-light.ts:sunPose`). Окон нет — как было. */
   private aimLights(): void {
-    for (const l of this.windowLights) this.scene.remove(l);
-    this.windowLights = LIGHT.win > 0 ? windowLightSpots(this.apartment.rooms).map((at) => {
-      const l = new THREE.PointLight(LIGHT.winColor, LIGHT.win, LIGHT.winDist, LIGHT.winDecay);
-      l.position.set(...at);
-      this.scene.add(l);
-      return l;
-    }) : [];
     const pose = sunPose(this.apartment.rooms);
     if (!pose || !this.sun || !this.fill) return;
     this.sun.position.set(...pose.sun);
