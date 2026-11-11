@@ -544,12 +544,29 @@ def build_room(cand: dict, cfg: dict, hinge: str, purpose: str):
                 purpose=purpose), ops
 
 
+def room_edge(ad: dict, cand: dict):
+    """Стены комнаты так, как их видит ядро: граница «ядро ∪ его остатки» (`TR._residue_parts`). Щель уже `TR.SLIVER_CM` между стороной
+    ядра и стеной контура — дрожь стены после выпрямления или пилястра (Этажи, спальня 1: выступ перегородки 20 см у нижнего угла, ядро
+    330 при стене 350) — остатком не считается: у ядра там стена, и 3D-коробка комнаты (`rooms_geo` — ядро и пристройки-остатки) рисует
+    стену там же. Без этого шкаф у правой стороны ядра — «в воздухе» (`back_off_wall`), хотя в 3D он у стены. Ниша глубже — остаток,
+    граница — её дальняя стена (кадр D: щель 57 см за кроватью по-прежнему «в воздухе»). Память — `ad['edge']` по ядру."""
+    memo = ad.setdefault('edge', {})
+    key = tuple(cand['rect'])
+    if key not in memo:
+        from shapely.geometry import box
+        from shapely.ops import unary_union
+        g = unary_union([box(*cand['rect'])] + [r['poly'] for r in cand['residues'] if r.get('poly') is not None])
+        memo[key] = g.boundary
+    return memo[key]
+
+
 def back_off_wall(ad: dict, cand: dict, placements: list) -> list:
-    """Спинка кровати, шкафа, комода — у настоящей стены ПОЛНОГО контура. Ядро — прямоугольник: его сторона бывает «стеной» солвера и над нишей
-    комнаты, тогда кровать стоит изголовьем в воздух (кадр D, спальня 2: щель 57 см за кроватью). Доля точек задней кромки дальше `BACK_GAP_CM` от стены → роль."""
+    """Спинка кровати, шкафа, комода — у стены комнаты (`room_edge`: полный контур без щелей уже `TR.SLIVER_CM`). Ядро — прямоугольник: его
+    сторона бывает «стеной» солвера и над нишей комнаты, тогда кровать стоит изголовьем в воздух (кадр D, спальня 2: щель 57 см за
+    кроватью). Доля точек задней кромки дальше `BACK_GAP_CM` от стены → роль."""
     from shapely.geometry import Point
     x0, y0 = cand['rect'][0], cand['rect'][1]
-    edge = ad['poly'].exterior
+    edge = room_edge(ad, cand)
     bad = []
     for p in placements:
         if base_role(p.role) not in BACK_ROLES or p.item is None:

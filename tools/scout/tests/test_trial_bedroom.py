@@ -647,3 +647,25 @@ def test_fit_extras_tries_bounded(monkeypatch):
     assert len(tries) <= 3 + TB.EXTRA_TRIES
     assert any('комод' in k and 'шкаф' not in k for k in tries) and any('шкаф' in k and 'комод' not in k for k in tries)
     assert set(kit) == set(core) and res is None
+
+
+def test_sliver_gap_is_wall_for_back_check():
+    """T-20261111-13 («Этажи», спальня 1): выступ перегородки 20 см у правой стены — ядро 330 при стене 350. Щель уже `TR.SLIVER_CM`
+    остатком не считается, у ядра там стена (и в 3D тоже), поэтому шкаф и комод у этой стороны — у стены, не «в воздухе»
+    (`room_edge`): спальня получает шкаф и комод. Ниша глубже (55 см, `test_bed_head_not_against_niche_air`) — по-прежнему воздух."""
+    from shapely.geometry import Point, Polygon
+    c = [[0, 0], [350, 0], [350, 280], [330, 280], [330, 395], [350, 395], [350, 520], [180, 520], [180, 390], [0, 390]]
+    room = {'id': 'r1', 'name': 'Bedroom 1', 'kind': 'bedroom', 'contour': c, 'bbox': {'x': 0, 'y': 0, 'w': 350, 'd': 520},
+            'areaM2': 14.9, 'flags': []}
+    panel = {'id': 'p0', 'title': 'x', 'rooms': [room], 'walls': [],
+             'openings': [{'kind': 'door', 'c': [265, 520], 'widthCm': 80, 'exterior': False},
+                          {'kind': 'window', 'c': [175, 0], 'widthCm': 150, 'exterior': True}]}
+    ad = TB.adapt_room(panel, room, TB.TR.rules())
+    cand = next(k for k in ad['candidates'] if abs(k['rect'][2] - k['rect'][0] - 330) <= 1 and k['rect'][3] - k['rect'][1] > 300)
+    side = Point(cand['rect'][2], (cand['rect'][1] + 280) / 2)       # правая сторона ядра против щели 20 см
+    assert Polygon(c).exterior.distance(side) > TB.BACK_GAP_CM
+    assert TB.room_edge(ad, cand).distance(side) <= 1
+    p = {'version': 1, 'units': 'cm', 'scale': {'status': 'verified', 'ppm': 100, 'inliers': 3, 'n': 3}, 'flags': [], 'panels': [panel]}
+    r = TB.build('t42', p, ctx(_bank_with_dresser()))['rooms'][0]
+    assert r['outcome']['state'] == 'furnished'
+    assert any({'шкаф', 'комод'} <= {TB.base_role(i['role']) for i in v['items']} for v in r['variants'])
