@@ -82,7 +82,7 @@ COL = {'кровать': (196, 160, 120), 'тумба прикроватная':
 def draw(room, lay, res: dict, path: str):
     from PIL import Image, ImageDraw, ImageFont
 
-    from planner.bedroom_checks import _zone_clear, bed_zones, bedroom_spec, both_sides
+    from planner.bedroom_checks import bed_zones, bedroom_spec, both_sides, side_clear
     from planner.geometry import (access_zone, base_role, footprint, opening_polygon, radiator_polygon, room_polygon,
                                   swing_polygon)
     k, pad, top = 1.4, 30, 64
@@ -104,7 +104,8 @@ def draw(room, lay, res: dict, path: str):
         if base_role(p.role) == 'кровать':
             z = bed_zones(p)
             others = [o for o in lay.placements if o is not p]
-            keys = ['foot'] + [s for s in ('left', 'right') if both_sides(room, p) or _zone_clear(room, z[s], others)]
+            sides = [s for s in ('left', 'right') if both_sides(room, p) or side_clear(room, z, s, others)]
+            keys = ['foot'] + sides + [f'{s}_head' for s in sides if f'{s}_head' in z]   # у изголовья — T-20261112-31
             for key in keys:
                 for q in P(z[key]):
                     g.polygon(q, fill=(120, 180, 120, 50), outline=(90, 150, 90, 120))

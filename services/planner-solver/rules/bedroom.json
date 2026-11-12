@@ -60,6 +60,8 @@
  "switches": {
   "_about": "ВЫКЛЮЧАТЕЛИ правил спальни (T-20261112-31): on=false — прежнее поведение байт в байт. Чисел норм здесь нет (они — occupancy.json distances_cm).",
   "bed_side_back": {"on": true, "deny_purposes": ["couple"], "added": "2026-11-12",
-                    "_why": "признак Item.side_back учитывается: угловая кровать — в угол спинкой к стене (BED_SIDE_BACK_OFF_WALL), паре — нет (BED_SIDE_BACK_COUPLE); признак ставит сборщик по мешу (`tools/scout/bed_headboard.py:infer_side_back`) и подсказкой по названию (`tools/scout/rules/bedroom-roles.json` bed_side_back)"}
+                    "_why": "признак Item.side_back учитывается: угловая кровать — в угол спинкой к стене (BED_SIDE_BACK_OFF_WALL), паре — нет (BED_SIDE_BACK_COUPLE); признак ставит сборщик по мешу (`tools/scout/bed_headboard.py:infer_side_back`) и подсказкой по названию (`tools/scout/rules/bedroom-roles.json` bed_side_back)"},
+  "bed_side_passage_full": {"on": true, "head_exempt_roles": ["тумба прикроватная", "лампа"], "added": "2026-11-12",
+                            "_why": "проход у бока кровати (BED_SIDE_PASSAGE, ширина — distances_cm.bed_side_passage) — на ВСЮ длину кровати: прежде полоса начиналась за местом тумбы у изголовья (bed_head_zone), и комод вставал вплотную к тумбе, закрывая подход к изголовью (T-27: 6 наборов спальни 1). У изголовья в полосе — только роли head_exempt_roles; то же в солвере (`planner/bedroom.py:_keepouts/_fits`) и проверке (`planner/bedroom_checks.py:side_clear`). T-20261112-31"}
  }
 }

@@ -14,9 +14,9 @@ from shapely.affinity import rotate as _rot
 from shapely.geometry import Point
 from shapely.ops import unary_union
 
-from .bedroom_checks import (AREA_EPS, _zone_clear, bed_zones, bedroom_role, bedroom_rules, bedroom_spec, both_sides,
-                             check_bed, is_double, light_side, nightstand_ok, num, same_group, side_back, side_back_denied,
-                             validate_bedroom)
+from .bedroom_checks import (AREA_EPS, bed_zones, bedroom_role, bedroom_rules, bedroom_spec, both_sides,
+                             check_bed, head_exempt, is_double, light_side, nightstand_ok, num, same_group, side_back,
+                             side_back_denied, side_clear, validate_bedroom)
 from .geometry import (SAFE_GAP_CM, _wall_point, _wall_strip, access_zone, footprint, opening_polygon,
                        radiator_polygon, room_edges, room_polygon, swing_polygon)
 from .models import Item, Layout, Placement, Room, Severity
@@ -103,18 +103,25 @@ def _place(role: str, item: Item, x: float, y: float, rot: int, tpl: str = "") -
     return Placement(role=role, x=x, y=y, rot=rot, item=item, tpl_id=tpl, tpl_version="bedroom-v1" if tpl else "")
 
 
-def _keepouts(p: Placement, placed: list[Placement], room: Room):
-    """Полосы, которые предмет держит свободными после постановки (проходы кровати, фронт хранения)."""
+NONE: frozenset = frozenset()
+
+
+def _keepouts(p: Placement, placed: list[Placement], room: Room) -> list[tuple]:
+    """Полосы, которые предмет держит свободными после постановки (проходы кровати, фронт хранения) —
+    [(полоса, роли-исключения)]. Исключения есть только у части прохода у изголовья (`bed_zones` *_head, выключатель
+    `switches.bed_side_passage_full`): там можно тумбе и лампе (`head_exempt`), прочим — нет."""
     if bedroom_role(p.role) == "кровать":
         z = bed_zones(p)
         others = [o for o in placed if o is not p]
-        sides = [z[s] for s in ("left", "right")]
+
+        def strip(s: str) -> list[tuple]:
+            return [(z[s], NONE)] + ([(z[f"{s}_head"], head_exempt())] if f"{s}_head" in z else [])
         if both_sides(room, p):
-            return [z["foot"]] + sides
-        clear = [s for s in sides if _zone_clear(room, s, others)]
-        return [z["foot"]] + clear[:1]
+            return [(z["foot"], NONE)] + strip("left") + strip("right")
+        clear = [s for s in ("left", "right") if side_clear(room, z, s, others)]
+        return [(z["foot"], NONE)] + (strip(clear[0]) if clear else [])
     spec = bedroom_spec(p.role)
-    return [access_zone(p, spec=spec)] if spec is not None else []
+    return [(access_zone(p, spec=spec), NONE)] if spec is not None else []
 
 
 class _State:
@@ -140,16 +147,16 @@ def _fits(st: _State, S: _Statics, p: Placement) -> bool:
     for q in st.placed:
         if fp.intersection(footprint(q)).area > 1.0:
             return False
-    for owner, z in st.keep:
-        if same_group(owner, p.role):
+    for owner, z, ex in st.keep:
+        if same_group(owner, p.role) or bedroom_role(p.role) in ex:
             continue
         if fp.intersection(z).area > AREA_EPS:
             return False
-    for z in _keepouts(p, st.placed + [p], S.room):
+    for z, ex in _keepouts(p, st.placed + [p], S.room):
         if z.difference(S.poly).area > AREA_EPS:
             return False
         for q in st.placed:
-            if not same_group(p.role, q.role) and z.intersection(footprint(q)).area > AREA_EPS:
+            if not same_group(p.role, q.role) and bedroom_role(q.role) not in ex and z.intersection(footprint(q)).area > AREA_EPS:
                 return False
     return True
 
@@ -289,7 +296,7 @@ def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, 
                     continue
                 if not _fits(st, S, p):
                     continue
-                keep = st.keep + [(role, z) for z in _keepouts(p, st.placed + [p], room)]
+                keep = st.keep + [(role, z, ex) for z, ex in _keepouts(p, st.placed + [p], room)]
                 nxt.append(_State(st.placed + [p], keep, st.score + pref, st.skipped))
             if not must:
                 nxt.append(_State(st.placed, st.keep, st.score - WEIGHT.get(bedroom_role(role), 1.0) * 10,

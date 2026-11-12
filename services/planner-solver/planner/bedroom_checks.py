@@ -109,11 +109,13 @@ def _local(p: Placement, x0: float, y0: float, x1: float, y1: float):
 
 
 def bed_zones(p: Placement) -> dict:
-    """Полосы прохода кровати: левый/правый бок (без места тумбы у изголовья) и изножье."""
+    """Полосы прохода кровати: левый/правый бок (без места тумбы у изголовья) и изножье. Выключатель
+    `switches.bed_side_passage_full` (T-20261112-31) добавляет часть полосы У ИЗГОЛОВЬЯ (`left_head`/`right_head`): проход
+    тянется на всю длину кровати, у изголовья в нём может стоять только тумба и лампа (`head_exempt_roles`), не комод."""
     w, d = p.item.w_cm, p.item.d_cm
     side, foot, head = num("bed_side_passage", 75), num("bed_foot_min", 60), num("bed_head_zone", 50)
     head = min(head, d)
-    return {
+    z = {
         "left": _local(p, -w / 2 - side, -d / 2 + head, -w / 2, d / 2),
         "right": _local(p, w / 2, -d / 2 + head, w / 2 + side, d / 2),
         "foot": _local(p, -w / 2, d / 2, w / 2, d / 2 + foot),
@@ -121,6 +123,15 @@ def bed_zones(p: Placement) -> dict:
         "right_wall": _local(p, w / 2, -d / 2, w / 2 + WALL_GAP_CM, d / 2),
         "back": back_strip(p),
     }
+    if switch("bed_side_passage_full"):
+        z["left_head"] = _local(p, -w / 2 - side, -d / 2, -w / 2, -d / 2 + head)
+        z["right_head"] = _local(p, w / 2, -d / 2, w / 2 + side, -d / 2 + head)
+    return z
+
+
+def head_exempt() -> frozenset:
+    """Роли, которым можно стоять в полосе прохода У ИЗГОЛОВЬЯ (тумба, лампа) — `switches.bed_side_passage_full`."""
+    return frozenset(switch("bed_side_passage_full").get("head_exempt_roles") or ())
 
 
 def _zone_clear(room: Room, zone, others: list[Placement]) -> bool:
@@ -131,6 +142,20 @@ def _zone_clear(room: Room, zone, others: list[Placement]) -> bool:
         if zone.intersection(radiator_polygon(room, r)).area > AREA_EPS:
             return False
     return not any(zone.intersection(footprint(o)).area > AREA_EPS for o in others if not is_flat_floor(o))
+
+
+def side_clear(room: Room, z: dict, s: str, others: list[Placement]) -> bool:
+    """Проход у бока s ('left'|'right') свободен: тело полосы — целиком (`_zone_clear`); часть у изголовья (есть при
+    `switches.bed_side_passage_full`) — от мебели, кроме ролей `head_exempt` (тумба, лампа). Радиатор у стены изголовья
+    там не мешает: он не глубже тумбы, а тумбе там место."""
+    if not _zone_clear(room, z[s], others):
+        return False
+    hz = z.get(f"{s}_head")
+    if hz is None:
+        return True
+    ex = head_exempt()
+    return not any(hz.intersection(footprint(o)).area > AREA_EPS for o in others
+                   if not is_flat_floor(o) and bedroom_role(o.role) not in ex)
 
 
 def _against_wall(room: Room, strip) -> bool:
@@ -159,7 +184,7 @@ def check_bed(room: Room, ps: list[Placement]) -> list[Violation]:
     for b in [p for p in ps if is_bed(p) and p.item is not None]:
         z = bed_zones(b)
         others = [o for o in ps if o is not b]
-        sides = {s: _zone_clear(room, z[s], others) for s in ("left", "right")}
+        sides = {s: side_clear(room, z, s, others) for s in ("left", "right")}
         need = num("bed_side_passage", 75)
         if both_sides(room, b):
             for s, ok in sides.items():
