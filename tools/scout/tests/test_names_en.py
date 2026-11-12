@@ -98,6 +98,31 @@ def main():
     r = N.translate('Кресло mnogomebeli.com Ӧлӧ', 'кресло', D)
     check('осталась кириллица вне таблицы — нейтральное по роли', r['how'] == 'neutral' and r['name'] == 'Armchair', r)
     check('нейтральное у роли с номером («стул 2») и без роли', N.neutral('стул 2', D) == 'Chair' and N.neutral('', D))
+    # 3б) НЕ ТРАНСЛИТ (T-20261112-116, владелец TG 1337/1341): обычное слово — английским словом, транслит — только имя модели
+    check('связка «Модель-Цвет»: цвет словом', N.translate('Ковер divan.ru Пандора-Серый 160x230', 'ковёр', D)['name'] == 'Pandora rug 160x230, grey')
+    r = N.translate('Тумба прикроватная divan.ru Висмар 43x48 Темно-зеленый', '', D)['name']
+    check('«Темно-зеленый» вне готовой фразы — dark green, не «Temno»', r == 'Wismar bedside table 43x48, dark green', r)
+    r = N.translate('Пуф Glasar чёрный с ёжиком 40х40х45 см', 'пуф', D)
+    check('обычное слово вне словаря — не транслит (выпадает, в отчёт)', 'Ezhik' not in r['name'] and 'ёжиком' in r['translit'], r)
+    check('ручной перевод с транслитом знакомого слова — не берём', N.name_en(
+        {'name': 'Ковер divan.ru Пандора-Серый 160x230'}, 'ковёр', {'Ковер divan.ru Пандора-Серый 160x230': {
+            'ru': 'Ковер divan.ru Пандора-Серый 160x230', 'name': 'Pandora-Seryy rug 160x230'}}, D)['how'] == 'dict')
+    # на всех названиях витрины (снимок в репо + живая, если есть): ни одного обычного слова транслитом — новое слово фида
+    # без перевода валит проверку, а не уходит покупателю «Kushetka»
+    ru_all = [v['ru'] for v in M.values()]
+    if os.path.exists(LIVE):
+        ru_all += [p['name'] for p, _ in N.products(json.load(open(LIVE, encoding='utf-8')))]
+    lower, leak = {}, {}
+    for ru in dict.fromkeys(ru_all):
+        r = N.name_en({'name': ru, 'sid': None}, '', M, D)
+        for w in r['translit']:
+            if w[:1].islower():
+                lower.setdefault(w, ru)
+        if N.leaks(r['name'], ru, D):
+            leak[ru] = r['name']
+    check(f'витрина ({len(set(ru_all))} названий): обычные слова — словарём, не транслитом (дописать в names-en-dict.json)',
+          not lower, list(lower.items())[:8])
+    check('витрина: в английском названии нет транслита слова, которое словарь знает', not leak, list(leak.items())[:5])
     # 4) ручной перевод берётся, только пока русское название то же
     sid, v = next(iter(M.items()))
     p = {'sid': sid, 'name': v['ru'], 'price': 1}

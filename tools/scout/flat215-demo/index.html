@@ -13534,7 +13534,9 @@ function quizPick(rule, answers, available, styleColours){
     'впритык':'a tight fit','габарит не указан':'size not given','Цвета этой модели':'Colours of this model','Фото':'Photo',
     'Изменить план':'Edit the plan','Фото сейчас не сделать: у сервиса картинок закончился баланс. Попробуйте позже.':'The photo cannot be made right now: the image service has run out of balance. Please try later.',
     'Фото сейчас не сделать: сервер улучшения не отвечает. Попробуйте позже.':'The photo cannot be made right now: the enhancement server is not responding. Please try later.','Отделка и ремонт':'Options & upgrades','Встраиваемое':'Fitted & integrated','← Назад':'← Back',
-    'Изменено вами':'Changed by you'};
+    'Изменено вами':'Changed by you',
+    // T-20261112-116 (владелец TG 1337): русское в EN, найденное обходом `tools/ops/demo-walk/lang-check.cjs`
+    'Для этой роли товаров с фото в банке пока нет. Каталог узкий, не логика.':'No products with photos for this item yet.'};
   var ATTR={'Что значит оплата 100%':'What does full payment mean','наличие по данным магазина, карточка не проверена':'stock as reported by the shop; product page not checked','Цена, подробнее':'Price details','Стили':'Styles','Что показать':'What to show','Избранное':'Favourites','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
     'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
     'Следующий вид':'Next view','скоро':'soon'};
@@ -13547,7 +13549,8 @@ function quizPick(rule, answers, available, styleColours){
     [/^(.+?) · (.+?) · (\d+) шт\.$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]+' · '+m[3]+' pcs':null;}],
     // та же строка без магазина (английская маска его прячет, demo-31): «стул · 2 шт.» оставалась по-русски (T-20261110-25)
     [/^(.+?) · (\d+) шт\.$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]+' pcs':null;}],
-    [/^(\d+(?:×\d+)+)\s*см( · .+)?$/,function(m){return m[1]+' cm'+(m[2]||'');}],
+    // и « ·» в конце: дальше в той же строке — отдельный узел «ещё N цветов» (лента подбора, T-20261112-116: «90×38×40 см ·» в EN)
+    [/^(\d+(?:×\d+)+)\s*см((?: ·.*)?)$/,function(m){return m[1]+' cm'+m[2];}],
     [/^больше места на (\d+) см$/,function(m){return 'needs '+m[1]+' cm more room';}],
     [/^ещё (\d+) цвет(?:а|ов)?$/,function(m){return '+'+m[1]+' more colour'+(m[1]==='1'?'':'s');}],
     [/^(.+?) · (.+\.[a-z]{2,})$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]:null;}],
@@ -13559,7 +13562,9 @@ function quizPick(rule, answers, available, styleColours){
     [/^Итого (\d+) товар\S*$/,function(m){return 'Total '+m[1]+' items';}],
     [/^Мебель варианта «(.+)»$/,function(m){return 'Furniture: '+m[1].split(' · ').map(function(x){return STYLE[x]||x;}).join(' · ');}],
     [/^(my collection|shared collection) · (.+)$/,function(m){return m[1]+' · '+(STYLE[m[2]]||m[2]);}],
-    [/^Выбрать (.+) \((\d+)\)$/,function(m){return 'Choose a '+(role(m[1])||m[1])+' ('+m[2]+')';}],
+    // артикль по слову (T-116): «Choose curtains», «Choose wall art», «Choose an armchair», «Choose a sofa»
+    [/^Выбрать (.+) \((\d+)\)$/,function(m){var r=role(m[1])||m[1];
+      return 'Choose '+(/[^s]s$|^(wall art|shelving|bedding|lighting|decor)$/.test(r)?'':/^[aeiou]/i.test(r)?'an ':'a ')+r+' ('+m[2]+')';}],
     [/^Только стиль (.+)$/,function(m){return 'Only '+(STYLE[m[1]]||m[1])+' style';}],
     [/^В стиле (.+) пока нет\. Вот похожие$/,function(m){return 'No '+(STYLE[m[1]]||m[1])+' pieces yet. Similar ones';}],   // `grid`, T-20261111-01
     [/^до (\d+) тыс$/,function(m){return 'under '+m[1]+'k';}],[/^(\d+)–(\d+) тыс$/,function(m){return m[1]+'–'+m[2]+'k';}],

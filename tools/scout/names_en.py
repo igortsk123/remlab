@@ -103,7 +103,7 @@ def translate(name: str, role: str = '', D: dict | None = None) -> dict:
     if best:
         _, _, ru, type_en = best
         s = re.sub(r'(?<![\w-])' + re.escape(ru) + r'(?![\w-])', ' ', s, flags=re.I)   # и повтор в хвосте («… Латте Комод»)
-    toks = re.findall(r'[^\s,/()+]+|[,/]', s)
+    toks = re.findall(r'[^\s,/()+:]+|[,/]', s)   # «(Ткань: Велюр …)» — двоеточие не часть слова (T-116: было «Tkan:»)
     groups = [('colour', D['colours']), ('material', D['materials']), ('pattern', D['patterns']), ('model', D['models']),
               ('word', D['words'])]
     items, gone, i = [], [], 0
@@ -129,11 +129,22 @@ def translate(name: str, role: str = '', D: dict | None = None) -> dict:
             m = SIZE.match(t)
             items.append(('size', m.group(1) + (' ' + UNIT[m.group(2)] if m.group(2) else '')))
         elif '-' in t and all(x.lower() in D['colours'] for x in t.split('-')):
-            items.append(('colour', '-'.join(D['colours'][x.lower()] for x in t.split('-'))))
+            items.append(('colour', re.sub(r'^(dark|light)-', r'\1 ', '-'.join(D['colours'][x.lower()] for x in t.split('-')))))
+        elif '-' in t and CYR.search(t) and t.rsplit('-', 1)[1].lower() in D['colours']:
+            # «Пандора-Серый» — модель и цвет через дефис (T-20261112-116): модель — именем, цвет — словом, не «Pandora-Seryy»
+            head_t, col = t.rsplit('-', 1)
+            if CYR.search(head_t):
+                gone.append(head_t)
+            items.append(('model', translit(head_t, D['translit']) if CYR.search(head_t) else head_t))
+            items.append(('colour', D['colours'][col.lower()]))
         elif NUM.match(t):
             items.append(('num', t))
-        elif CYR.search(t):
+        elif CYR.search(t) and t[:1].islower():
+            # обычное слово без перевода (со строчной: «с золотом», «настенная») — НЕ транслит (T-20261112-116, владелец TG 1337:
+            # «на английском всегда английские слова»): в название не идёт, в отчёт — чтобы дописать словарь; сторож — `test_names_en`
             gone.append(t)
+        elif CYR.search(t):
+            gone.append(t)                                   # имя модели («Сорен», «Пандора») — транслитом, это имя собственное
             items.append(('model', translit(t, D['translit'])))
         else:
             items.append(('latin', t))
@@ -155,7 +166,7 @@ def translate(name: str, role: str = '', D: dict | None = None) -> dict:
         tail = tail[k:] + tail[:k]
     joined = lambda xs: re.sub(r'\s*/\s*', '/', re.sub(r'\s+,', ',', ' '.join(v for _, v in xs))).strip(' ,/')  # noqa: E731
     # «Glasar с ручками» → «Glasar vase with handles»: уточнение «с …» — после типа
-    w = next((k for k, (c, v) in enumerate(head) if (c, v) == ('word', 'with')), len(head))
+    w = next((k for k, (c, v) in enumerate(head) if c == 'word' and v in ('with', 'without')), len(head))   # и «без ПМ» (T-116)
     head_s = ' '.join(x for x in [joined(head[:w]), type_en, joined(head[w:]), ' '.join(sizes)] if x).strip()
     tail_s = joined(tail)
     if not head_s:
@@ -172,11 +183,27 @@ def bad(s: str, D: dict) -> bool:
     return bool(CYR.search(s) or DOMAIN.search(s) or shops_re(D).search(s))
 
 
+_KNOWN = ('types', 'colours', 'materials', 'patterns', 'words')
+
+
+def leaks(en: str, ru: str, D: dict) -> list:
+    """Транслит слов, у которых в словаре есть перевод: «Pandora-Seryy» при «серый» → grey (T-20261112-116). → [русские слова]"""
+    words = set(re.findall(r'[A-Za-z]+', en.lower()))
+    out = []
+    for t in re.findall(r'[А-Яа-яЁё]+', ru):
+        low = t.lower()
+        if any(low in D[c] for c in _KNOWN) and translit(low, D['translit']).lower() in words \
+                and translit(low, D['translit']).lower() not in {v.lower() for c in _KNOWN for v in [D[c].get(low, '')]}:
+            out.append(t)
+    return out
+
+
 def name_en(p: dict, role: str, M: dict, D: dict) -> dict:
-    """Английское название товара: сперва ручной перевод (по `sid`, иначе по названию, если русское то же), потом словарь."""
+    """Английское название товара: сперва ручной перевод (по `sid`, иначе по названию, если русское то же), потом словарь.
+    Ручной перевод с транслитом слова, которое словарь знает («Pandora-Seryy»), не берём — словарь переведёт словом."""
     ru = p.get('name') or ''
     hit = M.get(p.get('sid') or '') or M.get(ru)
-    if hit and hit.get('ru') == ru and hit.get('name') and not bad(hit['name'], D):
+    if hit and hit.get('ru') == ru and hit.get('name') and not bad(hit['name'], D) and not leaks(hit['name'], ru, D):
         return {'name': hit['name'], 'colour': hit.get('colour') or '', 'how': 'map', 'translit': []}
     return translate(ru, role, D)
 
