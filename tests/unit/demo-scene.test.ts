@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { isExtra, planObjects } from "@/lib/viewer3d/build-scene";
 import { liveApartment, sceneAssetUrls, sceneMeshUrls } from "@/lib/viewer3d/demo-scene";
+import { TV_GAP_MIN_CM, TV_STAND_HANG_CM, TV_STAND_HANG_MIN_CM } from "@/lib/viewer3d/scene-extras";
 
 // ЖИВАЯ СЦЕНА ДЕМО (план demo-01): расстановка страницы → квартира и каталог движка. Без WebGL: проверяем то, что
 // уходит в сцену, — все предметы на местах, ковёр фотографией на полу, свои стены и пол (живая проверка 14.10:
@@ -62,13 +63,15 @@ describe("живая сцена демо: авто-ТВ и декор", () => {
     expect(plan(items).some((s) => s.kind === "tv")).toBe(false); // тумбы нет — телевизора нет
   });
 
-  it("подвесная тумба поднимается на 40 см, телевизор — на стене над ней", () => {
+  it("подвесная тумба поднимается по норме hung_furniture (T-20261112-91), телевизор — на стене над ней", () => {
     const hung = { ...stand, h: 30, sku: { ...stand.sku, name: "ТВ-тумба подвесная Харис 160x30" } };
     const specs = plan([...items, hung]);
-    expect(specs.find((s) => s.slotId === "тв-тумба#0")!.placement.elevCm).toBe(40);
+    const elev = specs.find((s) => s.slotId === "тв-тумба#0")!.placement.elevCm!;
+    expect(elev).toBeLessThanOrEqual(TV_STAND_HANG_CM);
+    expect(elev).toBeGreaterThanOrEqual(TV_STAND_HANG_MIN_CM);
     const tv = specs.find((s) => s.kind === "tv")!;
     expect(tv.kind === "tv" && tv.hung).toBe(true);
-    expect(tv.placement.elevCm).toBeGreaterThanOrEqual(80);
+    expect(tv.placement.elevCm!).toBeGreaterThanOrEqual(elev + 30 + TV_GAP_MIN_CM - 0.05);
   });
 
   it("ваза — на столике, подъём — его высота; без опоры — не в сцене", () => {

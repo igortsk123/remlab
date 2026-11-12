@@ -46,6 +46,20 @@ TV_SCENES = [
     {"name": "ни дивана, ни кресла — 300 см", "items": [{**STAND, "rot": 270, "x": 410, "y": 160}]},
     {"name": "свой ТВ есть — авто не ставится", "items": [SOFA, STAND, {"role": "тв", "x": 220, "y": 20, "w": 120, "d": 8, "h": 70}]},
     {"name": "тумбы нет", "items": [SOFA]},
+    # T-20261112-91: центр ТВ выше нормы — подвесная тумба опускается (75″ над корпусом 30 — немного; 85″ над 45 — до минимума)
+    {"name": "подвесная под 75″ — ниже нормы", "items": [{**SOFA, "y": 345}, {**HUNG, "w": 200}]},
+    {"name": "подвесная высокая под 85″ — до минимума", "items": [{**SOFA, "y": 420}, {**HUNG, "w": 260, "h": 45}]},
+]
+
+# T-20261112-91: высота подвеса по роли (`draft_render.hung_lift_cm` ↔ `scene-extras.ts:hungLiftCm`)
+LIFT_CASES = [
+    {"role": "комод", "h": 25, "name": "Тумба подвесная Сайрис 98x25"},
+    {"role": "тумба прикроватная", "h": 20, "name": "Тумба прикроватная подвесная Кимбол 50x20"},
+    {"role": "тумба прикроватная 2", "h": 45, "name": "Тумба прикроватная подвесная Высокая 45x45"},
+    {"role": "тв-тумба", "h": 30, "name": "ТВ-тумба подвесная Харис 160x30"},
+    {"role": "тумба", "h": 40, "name": "Тумба навесная 80x40"},
+    {"role": "комод", "h": 80, "name": "Комод Сайрис 98x80"},
+    {"role": "полка", "h": 20, "name": "Полка настенная 60x20"},
 ]
 
 TABLE = {"role": "столик", "x": 220, "y": 160, "rot": 0, "w": 100, "d": 60, "h": 40}
@@ -86,8 +100,14 @@ def build() -> dict:
                       "placed": [{"i": dc["decor"].index(p["decor"]), **{k: round(float(p[k]), 4) for k in ("x", "y", "rot", "elev", "w", "d", "h")}}
                                  for p in placed],
                       "rest": [dc["decor"].index(r) for r in rest]})
-    return {"_about": "Эталон авто-ТВ и декора из draft_render (tv_spec, scene_from_request, decor_layout). Пересобрать: "
-                      "~/venvs/scout/bin/python tools/assets/scene_extras_golden.py", "tv": tv, "scenes": scenes, "decor": decor}
+    from planner.models import Item, Placement
+    lifts = []
+    for c in LIFT_CASES:
+        p = Placement(role=c["role"], x=0, y=0, item=Item(role=c["role"], name=c["name"], w_cm=50, d_cm=30, h_cm=c["h"]))
+        lifts.append({**c, "lift": DR.hung_lift_cm(p)})
+    return {"_about": "Эталон авто-ТВ и декора из draft_render (tv_spec, scene_from_request, decor_layout, hung_lift_cm). Пересобрать: "
+                      "~/venvs/scout/bin/python tools/assets/scene_extras_golden.py", "tv": tv, "scenes": scenes, "decor": decor,
+            "lifts": lifts}
 
 
 if __name__ == "__main__":

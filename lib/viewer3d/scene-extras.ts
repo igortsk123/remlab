@@ -5,16 +5,25 @@
 // `tools/assets/scene_extras_golden.py` тем же серверным кодом, и TS-тест обязан с ним совпасть.
 // Чистые функции, без three.js.
 
+// Норма подвесной мебели и ТВ над ней — ОДНО место для /demo, туров и серверного кадра: `occupancy.json` → `hung_furniture`
+// (T-20261112-91, владелец TG 874). Именованный импорт верхнего ключа: esbuild-сборка сцены берёт только этот раздел, не весь файл.
+import { hung_furniture as HUNG } from "@/services/planner-solver/rules/occupancy.json";
+
 /** Расстояние до экрана → диагональ (дюймы); таблица владельца 01.09 (`draft_render.TV_BY_DIST_CM`). */
 export const TV_BY_DIST_CM: readonly (readonly [number, number])[] = [[150, 43], [200, 50], [250, 55], [300, 65], [350, 75], [Infinity, 85]];
-/** Центр экрана на уровне глаз сидящего — норма установки. */
-export const TV_SEAT_EYE_CM = 105;
+/** Центр экрана на уровне глаз сидящего — норма установки (`hung_furniture.tv_center_cm`). */
+export const TV_SEAT_EYE_CM: number = HUNG.tv_center_cm;
+/** Выше этого центра ТВ над подвесной тумбой уже высоко — тумбу опускают (`hung_furniture.tv_center_range_cm`). */
+export const TV_CENTER_HIGH_CM: number = Math.max(...HUNG.tv_center_range_cm);
+/** Зазор верх тумбы → низ экрана на стене, не меньше (`hung_furniture.tv_gap_min_cm`). */
+export const TV_GAP_MIN_CM: number = HUNG.tv_gap_min_cm;
 /** Выше этого центра шею задирают: телевизор вешают, а не ставят. */
 export const TV_MAX_CENTER_CM = 125;
 /** Экран не шире этой доли тумбы (владелец 01.09: «не более длины тв-тумбы», и с полями). */
 export const TV_MAX_STAND_FRAC = 0.9;
-/** Низ подвесной тумбы от пола. */
-export const TV_STAND_HANG_CM = 40;
+/** Низ подвесной тумбы от пола (`hung_furniture.tv_stand_bottom_cm`); под крупным ТВ — ниже, до `TV_STAND_HANG_MIN_CM`. */
+export const TV_STAND_HANG_CM: number = HUNG.tv_stand_bottom_cm;
+export const TV_STAND_HANG_MIN_CM: number = HUNG.tv_stand_bottom_min_cm;
 
 export interface TvSpec {
   inch: number;
@@ -63,7 +72,7 @@ export function tvSpec(distCm: number, standWCm: number, standHCm: number, hung 
   if (!hung && standHCm + h / 2 <= TV_MAX_CENTER_CM) {
     return { inch, wCm: round1(w), hCm: round1(h), elevCm: round1(standHCm), how: "на тумбе" };
   }
-  const elev = Math.max(standHCm + 10, TV_SEAT_EYE_CM - h / 2);
+  const elev = Math.max(standHCm + TV_GAP_MIN_CM, TV_SEAT_EYE_CM - h / 2);
   return { inch, wCm: round1(w), hCm: round1(h), elevCm: round1(elev), how: "на стене" };
 }
 
@@ -78,14 +87,31 @@ export function isHungStand(name: string | undefined, hung?: boolean): boolean {
 export const baseRole = (role: string | undefined): string => String(role ?? "").replace(/\s+\d+$/, "").trim();
 
 /**
- * Подвесная тумба этих ролей висит низом на `TV_STAND_HANG_CM` (T-20261112-43, владелец TG 1052; `draft_render.HUNG_CABINET_ROLES`):
- * комод и прикроватная «подвесная» стояли на полу. Полка и кашпо «настенные» — не тумбы, высоты им правило не задаёт.
+ * Подвесная тумба этих ролей висит (T-20261112-43, владелец TG 1052; `draft_render.HUNG_CABINET_ROLES`): комод и прикроватная
+ * «подвесная» стояли на полу. Полка и кашпо «настенные» — не тумбы, высоты им правило не задаёт. Высота — по роли (T-20261112-91).
  */
 export const HUNG_CABINET_ROLES: readonly string[] = ["тв-тумба", "комод", "тумба прикроватная", "тумба"];
 
-/** На сколько поднять предмет над полом: подвесная тумба — `TV_STAND_HANG_CM`, остальное — 0 (стоит, где стоял). */
-export function hungLiftCm(role: string | undefined, name: string | undefined, hung?: boolean): number {
-  return HUNG_CABINET_ROLES.includes(baseRole(role)) && isHungStand(name, hung) ? TV_STAND_HANG_CM : 0;
+/**
+ * На сколько поднять предмет над полом (`hung_furniture`, `draft_render.hung_lift_cm`): подвесная ТВ-тумба — `tv_stand_bottom_cm`
+ * (под ТВ уточняет `autoTv`), комод — `dresser_bottom_cm`, прикроватная — верхом вровень с матрасом (`bedside_top_cm` − высота
+ * корпуса, не ниже `bedside_bottom_min_cm`; высоты нет — как ТВ-тумба); не подвесное — 0 (стоит, где стоял).
+ */
+export function hungLiftCm(role: string | undefined, name: string | undefined, hung?: boolean, hCm?: number): number {
+  const r = baseRole(role);
+  if (!HUNG_CABINET_ROLES.includes(r) || !isHungStand(name, hung)) return 0;
+  if (r === "комод") return HUNG.dresser_bottom_cm;
+  if (r === "тумба прикроватная" && hCm) return Math.max(HUNG.bedside_bottom_min_cm, HUNG.bedside_top_cm - hCm);
+  return TV_STAND_HANG_CM;
+}
+
+/**
+ * Низ подвесной ТВ-тумбы под телевизором (`draft_render.hung_tv_stand_bottom_cm`): норма `TV_STAND_HANG_CM`; если экран высотой
+ * `tvHCm` над корпусом `standHCm` (зазор `TV_GAP_MIN_CM`) вышел бы центром выше `TV_CENTER_HIGH_CM` — тумба ниже, но не ниже
+ * `TV_STAND_HANG_MIN_CM` (Codex 12.11: крупный экран и высокий корпус иначе задирают ТВ).
+ */
+export function hungTvStandBottomCm(standHCm: number, tvHCm: number): number {
+  return Math.min(TV_STAND_HANG_CM, Math.max(TV_STAND_HANG_MIN_CM, TV_CENTER_HIGH_CM - TV_GAP_MIN_CM - standHCm - tvHCm / 2));
 }
 
 export interface ExtraItem {
@@ -117,13 +143,13 @@ export interface AutoTv {
   wall: boolean;
   inch: number;
   how: TvSpec["how"];
-  /** Подъём самой тумбы (подвесная висит на 40 см) — `undefined`, если тумба стоит на полу. */
+  /** Подъём самой тумбы (подвесная — `hungTvStandBottomCm`, норма `hung_furniture`) — `undefined`, если тумба стоит на полу. */
   standElevCm?: number;
 }
 
 /**
  * Авто-ТВ над тумбой (`draft_render.scene_from_request`): есть «тв-тумба» и нет своего «тв» → телевизор по расстоянию до дивана
- * (иначе кресла, иначе 300 см). Подвесная тумба поднимается на 40 см, телевизор — всегда на стене, панель 8 см; на тумбе —
+ * (иначе кресла, иначе 300 см). Подвесная тумба поднимается по норме `hung_furniture` (25 см, под крупным ТВ ниже), телевизор — всегда на стене, панель 8 см; на тумбе —
  * с подставкой, глубина 22 см. На стене — значит у стены (T-20261112-43, владелец TG 1052): панель задом к задней плоскости
  * тумбы, а не над её серединой (висела в полглубины тумбы от стены, сверху — «воткнут в тумбу»).
  */
@@ -138,8 +164,9 @@ export function autoTv(items: readonly ExtraItem[]): AutoTv | null {
   let top = stand.h || 45;
   let standElevCm: number | undefined;
   if (hung) {
-    standElevCm = TV_STAND_HANG_CM;
-    top = TV_STAND_HANG_CM + top;
+    // размер экрана от высоты тумбы не зависит — сперва он, потом низ тумбы под него
+    standElevCm = hungTvStandBottomCm(top, tvSpec(dist, stand.w as number, TV_STAND_HANG_CM + top, true).hCm);
+    top = standElevCm + top;
   }
   const s = tvSpec(dist, stand.w as number, top, hung);
   const wall = hung || s.how === "на стене";

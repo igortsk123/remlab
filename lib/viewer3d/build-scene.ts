@@ -205,7 +205,7 @@ export function isFlatOnSurface(spec: ObjectSpec): boolean {
 /**
  * Авто-ТВ над тумбой — тем же правилом, что серверный кадр (`scene-extras.ts`, план demo-05 п.9). Считается из ТЕКУЩЕЙ
  * расстановки после выбора покупателя: передвинул, заменил или убрал тумбу — телевизор следует за ней без своего
- * состояния. Подвесная тумба (по названию товара) поднимается на 40 см, как на серверном кадре.
+ * состояния. Подвесная тумба (по названию товара) поднимается по норме `occupancy.json` → `hung_furniture`, как на серверном кадре.
  */
 export function sceneExtras(scene: ResolvedScene, specs: ObjectSpec[]): ObjectSpec[] {
   const extras: ObjectSpec[] = [];
@@ -213,10 +213,15 @@ export function sceneExtras(scene: ResolvedScene, specs: ObjectSpec[]): ObjectSp
   for (const roomId of rooms) {
     const items = scene.items.filter((i) => i.roomId === roomId && i.photoRole);
     // подвесная тумба любой роли висит (T-20261112-43): комод и прикроватная «подвесная» стояли на полу, как серверный кадр — тоже
+    // поднятые здесь — по норме роли; ТВ-тумбу под авто-ТВ ниже уточняет `autoTv` (крупный экран → тумба ниже, T-20261112-91)
+    const lifted = new Set<string>();
     for (const it of items) {
-      const lift = hungLiftCm(it.photoRole ?? undefined, it.titleRu);
+      const lift = hungLiftCm(it.photoRole ?? undefined, it.titleRu, undefined, it.placement.hCm);
       const spec = lift ? specs.find((sp) => sp.slotId === it.slotId) : undefined;
-      if (spec && !spec.placement.elevCm) spec.placement = { ...spec.placement, elevCm: lift };
+      if (spec && !spec.placement.elevCm) {
+        spec.placement = { ...spec.placement, elevCm: lift };
+        lifted.add(spec.slotId);
+      }
     }
     const tv = autoTv(items.map((i) => ({ role: i.photoRole ?? undefined, x: i.placement.x, y: i.placement.y, rot: i.placement.rot,
       w: i.placement.wCm, d: i.placement.dCm, h: i.placement.hCm, elev: i.placement.elevCm, name: i.titleRu })));
@@ -224,7 +229,7 @@ export function sceneExtras(scene: ResolvedScene, specs: ObjectSpec[]): ObjectSp
     if (tv.standElevCm !== undefined) {
       const stand = items.find((i) => baseRole(i.photoRole ?? undefined) === "тв-тумба");
       const spec = specs.find((sp) => sp.slotId === stand?.slotId);
-      if (spec && !spec.placement.elevCm) spec.placement = { ...spec.placement, elevCm: tv.standElevCm };
+      if (spec && (!spec.placement.elevCm || lifted.has(spec.slotId))) spec.placement = { ...spec.placement, elevCm: tv.standElevCm };
     }
     extras.push({ kind: "tv", slotId: `${EXTRA_PREFIX}tv:${roomId}`, roomId, titleRu: `Телевизор ${tv.inch}″`, hung: tv.wall,
       placement: { x: tv.x, y: tv.y, rot: tv.rot, wCm: tv.wCm, dCm: tv.dCm, hCm: tv.hCm, elevCm: tv.elevCm } });

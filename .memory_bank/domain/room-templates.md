@@ -132,6 +132,23 @@ E4 — London Housing Design Standards LPG 2023 (Лондон: 90 % M4(2)); S1 �
 («at least 600 mm, preferably 750 mm, around the bed»); P2 — NKBA Kitchen Planning Guidelines (81/91/112). Не подтверждено первоисточником:
 Panero / Time-Saver Standards, числа Нойферта для гостиной и столовой.
 
+## Подвесная мебель и ТВ (T-20261112-91, владелец TG 874; одно правило для /demo, туров и серверного кадра)
+Числа — только в `services/planner-solver/rules/occupancy.json` → `hung_furniture` (меняются там одной строкой, без кода); читают
+`lib/viewer3d/scene-extras.ts` (`hungLiftCm`, `hungTvStandBottomCm`, `tvSpec`) и `tools/scout/draft_render.py` (`hung_lift_cm`,
+`hung_tv_stand_bottom_cm`, `tv_spec`); паритет — эталон `tests/fixtures/scene-extras-golden.json` + `tests/unit/hung-cabinet.test.ts`.
+| Что | Норма | Диапазон | Источники |
+|---|---|---|---|
+| Низ подвесной ТВ-тумбы | 25 | 15–30 | e-1.ru 15–25; komodmsk.ru верх 40–50; mokebo.de под бордом 15–20; fufugaga.com 10–12″; povison.com верх 20–24″ |
+| Зазор верх тумбы → низ ТВ | ≥ 15 | 10–20 (саундбар ≥ 15); 15 — по референсу владельца ref1 (TG 903, ~20) | uk.houlte.com 4–6″; fufugaga, mokebo 10–20; komodmsk 15–25 |
+| Центр экрана (сидя) | 105 | 100–110 | komodmsk, LG RU 100–120; fufugaga 42″; houlte 40–42″; povison ~40″ |
+| Центр вышел > 110 | тумба ниже, до 15 | — | Codex 12.11: крупный экран и высокий корпус иначе задирают ТВ |
+| Подвесной комод, низ | 25 | — | эвристика: livarea.de «между коленом и бедром» — верх 50–85 при корпусе 25–60 |
+| Подвесная прикроватная | верх = матрас 55 | ±5 | thuma.co, sicotas.com, by-crea.com; низ = 55 − корпус, не ниже 15 |
+| Розетка ТВ на стене | центр +5…+20 (110–125) | ≥ 5 от края экрана | remplanner.ru (считать от экрана), Codex 12.11; было 120–140 — видна над 43″ |
+Паспорт гостиной (`living.json`, место «экран» → `distances_cm.mounting.tv_screen`) — на той же вилке 100–110 (зеркало
+`hung_furniture.tv_center_range_cm`, сторож `services/planner-solver/tests/test_room_templates_living.py:test_mounting_mirrors_equal`);
+`heights_cm.tv_center_ru` 120–130 — сырой факт источника «ТВ на стене вообще», не для дивана.
+
 ## Состояние по комнатам (12.11)
 - **Спальня** — паспорт `bedroom.json` есть, движок групп включён по умолчанию (`services/planner-solver/rules/bedroom.json` `_meta.engine: "groups"`, T-47, f6df9aec);
   выбор (`services/planner-solver/planner/bedroom_checks.py:engine`): аргумент → env `BEDROOM_ENGINE` (`items` — откат на прогон) → `_meta.engine`

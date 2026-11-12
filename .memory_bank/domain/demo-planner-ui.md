@@ -811,9 +811,12 @@ Playwright «подвинул диван → сохранил → открыл �
   обновлена). Снимки для RU — Playwright с `locale: 'ru-RU'` (без него страница по-английски).
 
 ## Подвесное и картины в 3D (12.11, T-20261112-43, T-20261112-45)
-- **Подвесная тумба** (ТВ-тумба, комод, тумба, прикроватная с «подвесная/навесная/настенная» в названии или `hung`) висит низом на
-  `TV_STAND_HANG_CM` 40 см — `lib/viewer3d/scene-extras.ts:hungLiftCm`, `HUNG_CABINET_ROLES` (то же в кадре — `tools/scout/draft_render.py:_hung_stand`);
-  телевизор над подвесной или высокой — только на стене, задом к стене (`scene-extras.ts:autoTv`).
+- **Подвесная тумба** (ТВ-тумба, комод, тумба, прикроватная с «подвесная/навесная/настенная» в названии или `hung`) висит по норме
+  `occupancy.json` → `hung_furniture` (T-20261112-91; было 40 см): ТВ-тумба и комод низом на 25, под крупным ТВ тумба ниже (до 15),
+  прикроватная — верхом вровень с матрасом (55) — `lib/viewer3d/scene-extras.ts:hungLiftCm`, `hungTvStandBottomCm`, `HUNG_CABINET_ROLES`
+  (то же в кадре — `tools/scout/draft_render.py:hung_lift_cm`, `hung_tv_stand_bottom_cm`); телевизор над подвесной или высокой — только
+  на стене, задом к стене, центр 105, зазор от тумбы ≥ 15 (`scene-extras.ts:autoTv`). Норма и источники — `domain/room-templates.md`
+  § «Подвесная мебель и ТВ».
 - **«Заменить»:** предмет, стоявший задом у стены, остаётся задом у стены при другой глубине нового товара (`index.html:swapKeepBack`,
   тест `tests/unit/demo-swap-back.test.ts`).
 - **Картина выбирается в 3D как мебель:** номер в сцене = `items.length` + номер в `liveDecor()` (`lib/viewer3d/demo-scene.ts:sceneSlotIndex`,

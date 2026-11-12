@@ -182,8 +182,9 @@ def test_mounting_mirrors_equal():
              (m["chandelier"]["above_dining_table"], h["chandelier_above_dining_table"]),
              (m["chandelier"]["over_seating_bottom"], h["pendant_over_sofa"]),
              (m["wall_planter"]["over_passage_bottom_min"], h["chandelier_bottom_min"]),
-             (m["tv_screen"]["center_from_floor"], h["tv_center_ru"]),
-             (m["tv_screen"]["center_from_floor_over55inch"], h["tv_center_ru_over55inch"])]
+             # T-20261112-91: экран паспорта — на той же норме, что живая сцена и серверный кадр (occupancy.hung_furniture)
+             (m["tv_screen"]["center_from_floor"], occ["hung_furniture"]["tv_center_range_cm"]),
+             (m["tv_screen"]["center_from_floor_over55inch"], occ["hung_furniture"]["tv_center_range_cm"])]
     for a, b in pairs:
         assert a == b
     ts = (ROOT / "lib" / "viewer3d" / "scene-extras.ts").read_text(encoding="utf-8")

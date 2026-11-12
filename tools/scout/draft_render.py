@@ -398,10 +398,13 @@ def scene_from_request(payload: dict) -> tuple:
     # промпте, модель вешала его на любую понравившуюся стену. Теперь это пронумерованная панель
     # на стене над тумбой: у неё есть место, размер и разворот, как у любого другого предмета.
     # ПОДВЕСНАЯ ТУМБА ЛЮБОЙ РОЛИ ВИСИТ (T-20261112-43, владелец TG 1052): не только ТВ-тумба — комод и прикроватная
-    # «подвесная» тоже стояли на полу. Низ — те же 40 см, что у ТВ-тумбы (`HUNG_CABINET_ROLES`, порт — `scene-extras.ts`)
+    # «подвесная» тоже стояли на полу. Высота — по роли из нормы `occupancy.json` → `hung_furniture` (T-20261112-91,
+    # `hung_lift_cm`; порт — `scene-extras.ts:hungLiftCm`)
     for p in placements:
-        if _base_role(p.role) in HUNG_CABINET_ROLES and _hung_stand(p) and not p.elev_cm:
-            p.elev_cm = float(os.environ.get('TV_STAND_HANG_CM', 40))
+        if not p.elev_cm:
+            lift = hung_lift_cm(p)
+            if lift:
+                p.elev_cm = lift
     stand = next((p for p in placements if _base_role(p.role) == 'тв-тумба'), None)
     if stand is not None and not any(_base_role(p.role) == 'тв' for p in placements):
         seat = next((p for p in placements if _base_role(p.role) == 'диван'), None) \
@@ -411,10 +414,12 @@ def scene_from_request(payload: dict) -> tuple:
         # ПОДВЕСНАЯ ТУМБА ВИСИТ, И ЕЁ ВЫСОТА — ЭТО ТОЛЩИНА, А НЕ УРОВЕНЬ ВЕРХА (владелец 02.09:
         # «в современном тумба подвесная, значит телек не на ней, а над ней должен висеть»).
         # Мы читали 22 см как «верх тумбы на 22 см от пола» и ставили телевизор почти на пол.
-        # У подвесной тумбы от пола до низа — стандартные 40 см, значит верх на 40 + толщина.
+        # У подвесной тумбы от пола до низа — норма `hung_furniture` (25 см, под крупным ТВ ниже — T-20261112-91), верх — низ + толщина.
         top = float(stand.item.h_cm or 45)
         if _hung_stand(stand):
-            base = float(os.environ.get('TV_STAND_HANG_CM', 40))
+            # размер экрана от высоты тумбы не зависит — сперва он, потом низ тумбы под него
+            tv_h = tv_spec(dist, float(stand.item.w_cm), TV_STAND_HANG_CM + top, hung=True)[2]
+            base = hung_tv_stand_bottom_cm(top, tv_h)
             stand.elev_cm = base                     # сама тумба тоже поднимается на стену
             top = base + top
         inch, w, h, elev, how = tv_spec(dist, float(stand.item.w_cm), top, hung=_hung_stand(stand))
@@ -542,12 +547,54 @@ def _decor_places(payload, photos) -> list:
 # Таблица владельца (01.09). Расстояние до экрана → рекомендуемая диагональ. Это ходовая норма
 # для 4K: смотреть с 1.5 м на 85″ невозможно, а с 4 м на 43″ ничего не видно.
 TV_BY_DIST_CM = ((150, 43), (200, 50), (250, 55), (300, 65), (350, 75), (10 ** 9, 85))
-TV_SEAT_EYE_CM = 105.0     # центр экрана на уровне глаз сидящего — норма установки
 TV_MAX_CENTER_CM = 125.0   # выше этого шею уже задирают: значит вешаем, а не ставим
 
 
-# подвесная тумба этих ролей висит низом на TV_STAND_HANG_CM (T-20261112-43); полка и кашпо «настенные» — не тумбы, высота им не задана
+def _hung_norm() -> dict:
+    """Норма подвесной мебели и ТВ над ней — `occupancy.json` → `hung_furniture` (T-20261112-91): одно место для /demo, туров
+    и этого кадра (порт — `lib/viewer3d/scene-extras.ts`). Путь — от этого файла (не от `sys.path`: там первым жёстко основная
+    копия, и worktree читал бы чужие правила): в репо `services/planner-solver/rules/`, в образе `remlab-draft` — `/app/rules/`
+    (`infra/draft/Dockerfile` копирует папку правил целиком). `tools/scout/occupancy.json` — другой, старый файл, не он."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.join(here, '..', '..', 'services', 'planner-solver', 'rules', 'occupancy.json'),
+                 os.path.join(here, 'rules', 'occupancy.json')):
+        if os.path.exists(path):
+            with open(path, encoding='utf-8') as f:
+                return json.load(f)['hung_furniture']
+    raise FileNotFoundError('occupancy.json (hung_furniture) не найден рядом с draft_render.py')
+
+
+HUNG = _hung_norm()
+TV_SEAT_EYE_CM = float(HUNG['tv_center_cm'])            # центр экрана на уровне глаз сидящего — норма установки
+TV_CENTER_HIGH_CM = float(max(HUNG['tv_center_range_cm']))  # выше — ТВ над подвесной тумбой высоко, тумбу опускаем
+TV_GAP_MIN_CM = float(HUNG['tv_gap_min_cm'])            # зазор верх тумбы → низ экрана на стене, не меньше
+TV_STAND_HANG_CM = float(HUNG['tv_stand_bottom_cm'])    # низ подвесной ТВ-тумбы
+TV_STAND_HANG_MIN_CM = float(HUNG['tv_stand_bottom_min_cm'])
+
+
+# подвесная тумба этих ролей висит (T-20261112-43); полка и кашпо «настенные» — не тумбы, высота им не задана
 HUNG_CABINET_ROLES = ('тв-тумба', 'комод', 'тумба прикроватная', 'тумба')
+
+
+def hung_lift_cm(p) -> float:
+    """На сколько поднять предмет над полом (`scene-extras.ts:hungLiftCm`): подвесная ТВ-тумба — `tv_stand_bottom_cm` (под ТВ
+    уточняет `hung_tv_stand_bottom_cm`), комод — `dresser_bottom_cm`, прикроватная — верхом вровень с матрасом
+    (`bedside_top_cm` − высота корпуса, не ниже `bedside_bottom_min_cm`; высоты нет — как ТВ-тумба); не подвесное — 0."""
+    r = _base_role(p.role)
+    if r not in HUNG_CABINET_ROLES or not _hung_stand(p):
+        return 0.0
+    if r == 'комод':
+        return float(HUNG['dresser_bottom_cm'])
+    h = float(getattr(p.item, 'h_cm', 0) or 0)
+    if r == 'тумба прикроватная' and h:
+        return float(max(HUNG['bedside_bottom_min_cm'], HUNG['bedside_top_cm'] - h))
+    return TV_STAND_HANG_CM
+
+
+def hung_tv_stand_bottom_cm(stand_h_cm: float, tv_h_cm: float) -> float:
+    """Низ подвесной ТВ-тумбы под телевизором (`scene-extras.ts:hungTvStandBottomCm`): норма; если экран над корпусом с зазором
+    вышел бы центром выше `TV_CENTER_HIGH_CM` — тумба ниже, но не ниже `TV_STAND_HANG_MIN_CM` (Codex 12.11)."""
+    return min(TV_STAND_HANG_CM, max(TV_STAND_HANG_MIN_CM, TV_CENTER_HIGH_CM - TV_GAP_MIN_CM - stand_h_cm - tv_h_cm / 2))
 
 
 def _hung_stand(stand) -> bool:
@@ -589,7 +636,7 @@ def tv_spec(dist_cm: float, stand_w_cm: float, stand_h_cm: float, hung: bool = F
     # Над подвесной тумбой телевизор НЕ СТОИТ никогда — только на стене (владелец 02.09).
     if not hung and stand_h_cm + h / 2 <= TV_MAX_CENTER_CM:
         return inch, round(w, 1), round(h, 1), round(stand_h_cm, 1), 'на тумбе'
-    elev = max(stand_h_cm + 10.0, TV_SEAT_EYE_CM - h / 2)
+    elev = max(stand_h_cm + TV_GAP_MIN_CM, TV_SEAT_EYE_CM - h / 2)
     return inch, round(w, 1), round(h, 1), round(elev, 1), 'на стене'
 
 def _cam_score(room, placements, cam) -> dict:

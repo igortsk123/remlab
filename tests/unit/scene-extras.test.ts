@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { autoTv, decorLayout, tvSpec, type DecorIn, type ExtraItem } from "@/lib/viewer3d/scene-extras";
+import { autoTv, decorLayout, hungLiftCm, tvSpec, type DecorIn, type ExtraItem } from "@/lib/viewer3d/scene-extras";
 
 // ТВ И ДЕКОР ЖИВОЙ СЦЕНЫ = СЕРВЕРНЫЙ КАДР (план demo-05 п.9). Эталон считает сам `draft_render.py`
 // (`tools/assets/scene_extras_golden.py`); порт обязан совпасть до 0,05 см.
@@ -10,6 +10,7 @@ type Golden = {
   tv: { in: [number, number, number, boolean]; out: { inch: number; wCm: number; hCm: number; elevCm: number; how: string } }[];
   scenes: { name: string; items: ExtraItem[]; tv: null | { x: number; y: number; rot: number; wCm: number; dCm: number; hCm: number; elevCm: number; standElevCm: number | null } }[];
   decor: { name: string; items: ExtraItem[]; decor: DecorIn[]; placed: ({ i: number } & Record<"x" | "y" | "rot" | "elev" | "w" | "d" | "h", number>)[]; rest: number[] }[];
+  lifts: { role: string; h: number; name: string; lift: number }[];
 };
 const golden = JSON.parse(readFileSync("tests/fixtures/scene-extras-golden.json", "utf8")) as Golden;
 const close = (a: number, b: number): void => expect(Math.abs(a - b)).toBeLessThan(0.05);
@@ -36,6 +37,11 @@ describe("авто-ТВ и декор — как серверный кадр", (
       for (const k of ["x", "y", "rot", "wCm", "dCm", "hCm", "elevCm"] as const) close(tv![k], sc.tv[k]);
       expect(tv!.standElevCm ?? null, sc.name).toEqual(sc.tv.standElevCm);
     }
+  });
+
+  it("высота подвеса по роли (hung_lift_cm, T-20261112-91)", () => {
+    expect(golden.lifts.length).toBeGreaterThan(0);
+    for (const c of golden.lifts) expect(hungLiftCm(c.role, c.name, undefined, c.h), c.name).toBe(c.lift);
   });
 
   it("настольный декор: опора, ряд, не влезло — не в сцене", () => {
