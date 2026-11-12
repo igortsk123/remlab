@@ -102,6 +102,9 @@ def one(api: wk.Api, cfg: wk.Cfg, jid: str, run_dir: Path, dry: bool, cmd: list 
     st, r = api.call('POST', f'/api/trial/worker/reissue/{jid}',
                      {'baseVersion': base, 'bundle': data.decode('utf-8'), 'sha256': hashlib.sha256(data).hexdigest()})
     if st == 200 and isinstance(r, dict) and r.get('ok'):
+        if cfg.cards:                        # готовые снимки карточек под новую витрину и данные — в фоне (`cards.spawn`, T-20261112-29)
+            import cards as CD
+            CD.spawn(jid, cfg.base / 'cards', python=cfg.python, log=lambda m: print(m, flush=True))
         return {**row, 'status': 'published', 'version': r.get('version'), 'repeated': r.get('repeated'), 'release': r.get('release'),
                 'previous': r.get('previous')}
     why = (r or {}).get('error') if isinstance(r, dict) else None

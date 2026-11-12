@@ -231,7 +231,7 @@ def _alias_key(name: str) -> str:
 ITEM_KEYS = {'role', 'x', 'y', 'rot', 'w', 'd', 'h', 'dims_src', 'sku', 'corner', 'corner_left', 'section', 'elev'}
 SKU_KEYS = {'name', 'name_en', 'colour_en', 'colour_ru', 'msid', 'w', 'd', 'h', 'sleep_w'}
 # товар как в /demo (см. шапку): цена (₽ витрины), фото — плитка витрины `img/<md5>.jpg`, ссылка — та же партнёрская, магазин
-PRODUCT_KEYS = {'price', 'img', 'url', 'shop'}
+PRODUCT_KEYS = {'price', 'img', 'url', 'shop', 'swatch'}       # swatch — цвет товара по фото (`put_swatches`, T-20261112-29)
 PUBLIC_SKU_KEYS = SKU_KEYS | PRODUCT_KEYS
 # куски стадий (внутренние файлы DEV, в выход не идут): плюс ключ товара `sid` — по нему сборщик берёт товар из каталога
 STAGE_SKU_KEYS = SKU_KEYS | {'sid'}
@@ -522,6 +522,30 @@ def attach_goods(sku: dict, sid, role: str, goods) -> dict:
     if g:
         sku.update({k: v for k, v in g.items() if v not in (None, '')})
     return sku
+
+
+def put_swatches(variants: list, swatch=None) -> int:
+    """ЦВЕТ ТОВАРА НА ПЛАНЕ (T-20261112-29, владелец: «на схеме диван фиолетовый, а в 3D бежевый»): каждому предмету с плиткой витрины —
+    `sku.swatch` '#rrggbb' тем же правилом, что образцы цвета /demo (`flat215_demo.swatch_hex` → `_swatch_tone`: цвет ткани по фото).
+    Схема комнаты и план рисуют предмет этим цветом (`index.html:planCol`); нет плитки — нейтральный цвет роли. → сколько отмечено."""
+    if swatch is None:
+        try:
+            import flat215_demo as FD
+        except Exception:  # noqa: BLE001 — без модуля витрины (тесты без окружения) план рисует нейтральным цветом роли
+            return 0
+        cache: dict = {}
+        swatch = lambda img: FD.swatch_hex(img, FD.OUT, cache)   # noqa: E731
+    n = 0
+    for v in variants:
+        for it in (v.get('items') or []) + (v.get('decor') or []):
+            sk = it.get('sku') if isinstance(it, dict) else None
+            if not isinstance(sk, dict) or not sk.get('img') or sk.get('swatch'):
+                continue
+            h = swatch(sk['img'])
+            if h:
+                sk['swatch'] = h
+                n += 1
+    return n
 
 
 def goods_meta(variants: list, money_en) -> dict:
@@ -950,6 +974,8 @@ def _goods_ok(k: str, v) -> bool:
         return isinstance(v, str) and bool(IMG_RE.fullmatch(v))
     if k == 'url':
         return isinstance(v, str) and bool(URL_RE.fullmatch(v))
+    if k == 'swatch':                                 # цвет товара по фото (`put_swatches`) — только '#rrggbb'
+        return isinstance(v, str) and bool(re.fullmatch(r'#[0-9a-f]{6}', v))
     if k == 'shop':
         return isinstance(v, str) and 0 < len(v) <= 80 and not re.search(r'[<>"`\\]', v)
     return False
@@ -1577,6 +1603,8 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     bands: dict = {}
     feeds, short = feeds_for(variants, demo, geo=rooms_geo, bands=bands)
     rules['slot_band_cm'] = {**(rules.get('slot_band_cm') or {}), **bands}   # полоса «по размеру» — от места, как у ленты (T-40)
+    # цвет предмета на плане — цвет товара по фото, не условная палитра (T-20261112-29): у предметов вариантов и у товаров лент (замена)
+    put_swatches(variants + [{'items': [{'sku': f} for f in lst if isinstance(f, dict)]} for lst in feeds.values()])
     if stats is not None:
         stats.update(feeds={k: len(v) for k, v in feeds.items()}, feeds_short=short, goods_from_feeds=got)
     note =SCALE_NOTE.get(result['scale']['status'])

@@ -341,7 +341,15 @@ class Conveyor:
         if not complete:
             # не должно случаться (у каждой стадии есть отказ кодом); не держим задание вечно — `done`, а код в журнале
             self.log('incomplete: в последней принятой версии есть комнаты pending')
+        self.cards()
         return 'result'
+
+    def cards(self) -> None:
+        """Готовые снимки карточек комнат (T-20261112-29): после принятой в этом прогоне версии — в фоне, воркер не ждёт (`cards.spawn`)."""
+        if not getattr(self.cfg, 'cards', False) or self.last is None or self.stopped:
+            return
+        import cards as CD
+        CD.spawn(self.jid, Path(self.cfg.base) / 'cards', python=self.cfg.python, log=self.log)
 
 
 APPROX_CONSENT = 'approx_consent'            # = trial_bundle.APPROX_CONSENT

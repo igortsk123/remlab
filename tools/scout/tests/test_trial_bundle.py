@@ -1346,3 +1346,17 @@ def test_door_between_two_neighbours_does_not_refuse_core():
     lone = panel('p3', [bed, hall], own + [op('door', (325, 75), 50)])     # в полу одного соседа — своя дверь общей стены
     with pytest.raises(TB.TR.Refusal):
         TB.core_geometry(lone, bed, TB.TR.rules())
+
+
+def test_swatch_on_plan_goods_only_hex():
+    """T-20261112-29: цвет товара по фото — каждому предмету с плиткой; в данных страницы только '#rrggbb' на месте товара."""
+    vs = [{'items': [{'sku': {'img': 'img/a.jpg'}}, {'sku': {'img': 'img/b.jpg', 'swatch': '#010203'}}, {'sku': {}}],
+           'decor': [{'sku': {'img': 'img/c.jpg'}}]}]
+    n = TB.put_swatches(vs, lambda img: {'img/a.jpg': '#aabbcc', 'img/c.jpg': '#112233'}.get(img))
+    assert n == 2 and vs[0]['items'][0]['sku']['swatch'] == '#aabbcc' and vs[0]['items'][1]['sku']['swatch'] == '#010203'
+    assert 'swatch' not in vs[0]['items'][2]['sku'] and vs[0]['decor'][0]['sku']['swatch'] == '#112233'
+    ok = {'variants': [{'items': [{'sku': {'swatch': '#aabbcc'}}]}]}
+    TB.assert_public(ok, [], goods=True)
+    for bad in ('red', '#AABBCC', '#aabbcc"', 7):
+        with pytest.raises(TB.BundleRefused):
+            TB.assert_public({'variants': [{'items': [{'sku': {'swatch': bad}}]}]}, [], goods=True)

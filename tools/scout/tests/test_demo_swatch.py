@@ -4,7 +4,7 @@
   1) образец (`_swatch_tone`) — светлый, как обивка; прежнее среднее (`_tone`) серит — тень и ножки в нём;
   2) белая обивка внутри предмета не считается фоном (фон — только почти белое, связанное с краем кадра);
   3) тёмный предмет остаётся тёмным, цветной — своего цвета (не высветляется до белого);
-  4) `annotate_swatch` кладёт образец только моделям с ≥ 2 цветами.
+  4) `annotate_swatch` кладёт образец каждому товару с фото (цвет предмета на плане, T-20261112-29); нет плитки — без образца.
     ~/venvs/scout/bin/python tools/scout/tests/test_demo_swatch.py"""
 import os
 import sys
@@ -60,12 +60,26 @@ def main():
     sofa(red, (120, 40, 50))
     r = F._swatch_tone(red)
     check('бордовый — своего цвета: красный канал заметно больше зелёного', r and r[0] - r[1] >= 0.2, r)
+    # T-20261112-29: стол-рамка — тёмный контур, внутри белый просвет (≈30 % предмета): просвет — фон, образец тёмный, не белый
+    from PIL import Image, ImageDraw
+    frame = os.path.join(tmp, 'frame.jpg')
+    im = Image.new('RGB', (400, 300), (255, 255, 255))
+    ImageDraw.Draw(im).rectangle([40, 60, 360, 240], fill=(40, 40, 42))
+    ImageDraw.Draw(im).rectangle([100, 110, 300, 200], fill=(255, 255, 255))
+    im.save(frame)
+    t = F._swatch_tone(frame)
+    check('тёмная рамка с белым просветом — образец тёмный (яркость ≤ 0,3)', t and lum(t) <= 0.3, t)
     data = {'variants': [{'items': [{'sku': {'sid': 'a', 'msid': 'm', 'img': 'milk.jpg'}}]}],
             'feeds': {'f': [{'sid': 'b', 'msid': 'm', 'img': 'dark.jpg'}, {'sid': 'c', 'msid': 'solo', 'img': 'red.jpg'}]}}
     n = F.annotate_swatch(data, tmp)
     feed = data['feeds']['f']
-    check('annotate_swatch: образец у двух цветов одной модели, у одиночки нет', n == 2 and 'swatch' not in feed[1]
+    # T-20261112-29: образец — у каждого товара с фото (цвет предмета на плане); кружки по-прежнему только у моделей с ≥ 2 цветами
+    check('annotate_swatch: образец у каждого товара с фото, у одиночки тоже — своего цвета', n == 3
+          and feed[1]['swatch'].startswith('#') and int(feed[1]['swatch'][1:3], 16) > int(feed[1]['swatch'][3:5], 16) + 40
           and feed[0]['swatch'].startswith('#') and data['variants'][0]['items'][0]['sku']['swatch'] > '#d0', (n, data))
+    nophoto = {'variants': [{'items': [{'sku': {'sid': 'z', 'msid': 'z', 'img': 'nope.jpg'}}, {'sku': {'sid': 'y', 'img': 'https://x/y.jpg'}}]}]}
+    check('annotate_swatch: нет файла плитки или адрес в сети — без образца', F.annotate_swatch(nophoto, tmp) == 0
+          and all('swatch' not in it['sku'] for it in nophoto['variants'][0]['items']), nophoto)
     check('annotate_swatch: семья не та, что у модели, — поля fam нет', all('fam' not in p for p in feed), feed)
     # T-20261106-77/5: у цвета своя 3D-модель (правило привязки) — семья та же, по представителю; кружки не пропадают
     keep = F._MESH_REP

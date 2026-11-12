@@ -1704,10 +1704,19 @@ button.tr-acc-st{cursor:pointer}
        занимали место постоянно; на телефоне это заметная часть экрана. -->
   <div id="sheetscroll"><div id="filters"></div><div id="grid"></div></div></div>
 <script>
-const COL={'диван':'#7B7BC0','диван 2':'#8f8fd0','кресло':'#C09A90','кресло 2':'#c9a79d','столик':'#96795A',
- 'ковёр':'#C9C4BA','тв-тумба':'#9E9E9E','стенка':'#9E9E9E','торшер':'#4A4A4A','пуф':'#AAAA96',
- 'стеллаж':'#B0A48F','комод':'#B0A48F','витрина':'#B7AFA0','кашпо':'#AA8CA9','камин':'#8C6A5A',
- 'стол обеденный':'#A08867','стул':'#BDBDBD','стул 2':'#BDBDBD','приставной':'#B9B3A8','банкетка':'#B5AE9E'};
+// ЦВЕТ ПРЕДМЕТА НА ПЛАНЕ (T-20261112-29, владелец: «на схеме диван фиолетовый, а в 3D бежевый») — цвет самого товара по фото
+// (`sku.swatch`, сборка: `flat215_demo.annotate_swatch` / `trial_bundle.put_swatches`), см. `planCol`. COL — только запасной цвет,
+// когда фото товара нет: НЕЙТРАЛЬНЫЙ по роли (ткань — тёплый светло-серый, дерево — светлое дерево, металл — графит), не условная
+// палитра (прежде диван был фиолетовым, кресло розовым, кашпо сиреневым)
+const COL={'диван':'#C9C2B6','диван 2':'#D2CCC2','кресло':'#C4BBAE','кресло 2':'#CCC4B8','столик':'#A88E70',
+ 'ковёр':'#D6D0C4','тв-тумба':'#A8A39B','стенка':'#A8A39B','торшер':'#5A5753','пуф':'#BDB6A8',
+ 'стеллаж':'#B0A48F','комод':'#B0A48F','витрина':'#B7AFA0','кашпо':'#9C9384','камин':'#8C7A6E',
+ 'стол обеденный':'#A88E70','стул':'#BDBDBD','стул 2':'#BDBDBD','приставной':'#B9B3A8','банкетка':'#B5AE9E'};
+// цвет предмета: цвет товара (`swatch`; у экземпляра комплекта без своего товара — товар базовой роли, `skuOf`), нет — нейтральный роли
+function planCol(it, base){
+  const s=it.sku&&it.sku.name?it.sku:(typeof skuOf==='function'?skuOf(it):it.sku), c=s&&s.swatch;
+  return typeof c==='string'&&/^#[0-9a-fA-F]{6}$/.test(c)?c:(COL[base]||'#C8C8C8');
+}
 let D=null, cur=0, items=[], sel=null, S=1, PAD=18;
 // РЕЖИМ ПРОБЫ (agent-trial-08, «демо = шаблон»): страница та же, а поле данных `D.trial` (в живом `/demo` его нет) выключает всё, что
 // относится к застройщику и стоит денег. Запреты сети и хранилище — в «песочнице» адреса `/try/<id>/tour` (`lib/trial/tour-page.ts`).
@@ -2023,7 +2032,10 @@ function trialPlanSvg(v){
     (R.openings||[]).forEach(o=>{const W0=R.w,H0=R.d,f=o.offset_cm||0,l=o.width_cm||0,
       p=o.wall==='south'?{x1:f,y1:0,x2:f+l,y2:0}:o.wall==='north'?{x1:f,y1:H0,x2:f+l,y2:H0}:o.wall==='west'?{x1:0,y1:f,x2:0,y2:f+l}:{x1:W0,y1:f,x2:W0,y2:f+l};
       svg.appendChild(el('line',{x1:X(p.x1),y1:Y(p.y1),x2:X(p.x2),y2:Y(p.y2),stroke:o.kind==='door'?'#C8783C':'#5A9BD4','stroke-width':7}));});
-    its.slice().sort((a,b)=>(a.role.startsWith('ковёр')?0:1)-(b.role.startsWith('ковёр')?0:1)).forEach(it=>{try{svg.appendChild(shape(it));}catch(e){}});
+    // экземпляр комплекта без своего товара — цвет товара базовой роли ЭТОГО варианта (`skuOf` смотрит открытый в окне, не этот)
+    const own={}; its.forEach(it=>{const b=baseRole(it.role); if(it.sku&&it.sku.name&&!own[b])own[b]=it.sku;});
+    its.slice().sort((a,b)=>(a.role.startsWith('ковёр')?0:1)-(b.role.startsWith('ковёр')?0:1)).forEach(it=>{
+      const s=it.sku&&it.sku.name?null:own[baseRole(it.role)]; try{svg.appendChild(shape(s?{...it,sku:s}:it));}catch(e){}});
     out=svg.outerHTML;
   }catch(e){ out=''; }
   finally{ S=s0; PAD=p0; sel=sel0; }
@@ -6048,7 +6060,7 @@ function kind(it){                       // модель выбирается П
 function shape(it){
   const base=it.role.split(' ')[0], w=it.w*S, d=it.d*S, g=el('g',{}), K=kind(it);
   g.setAttribute('transform',`translate(${X(it.x)},${Y(it.y)}) rotate(${-it.rot})`);
-  const col=COL[base]||'#C8C8C8', line=sel===it?'#111':'#3A3A3A', sw=sel===it?2.5:1.1;
+  const col=planCol(it,base), line=sel===it?'#111':'#3A3A3A', sw=sel===it?2.5:1.1;
   const R=(x,y,ww,hh,rx,f,st,o)=>el('rect',{x:x,y:y,width:Math.max(ww,1),height:Math.max(hh,1),rx:rx||2,
       fill:f||col,stroke:st||line,'stroke-width':sw,opacity:o===undefined?1:o});
   const C=(cx,cy,r,f,st)=>el('circle',{cx:cx,cy:cy,r:Math.max(r,1),fill:f||col,stroke:st||line,'stroke-width':sw});
@@ -6820,6 +6832,11 @@ function liveShot(v){ const u=v&&D&&LIVE_SHOTS.get(roomStateKey(v,variantStateOf
 const TR_HS={busy:false, off:false, by:new Map(), fail:new Set(), want:[], t:0};
 function trHsKey(v){ return roomStateKey(v,variantStateOf(v)); }
 function trHomeShotOf(v){ const r=v&&TR_HS.by.get(String(v.id||'')); return r?r.url:''; }
+// ГОТОВЫЙ СНИМОК С СЕРВЕРА (T-20261112-29, владелец: «сначала план-схема, потом 3D-фото»): тот же кадр `trHomeShot` снимается
+// один раз на DEV после сборки тура (`tools/scout/trial_cards.mjs` → `tools/floorplan/cards.py`), сервер кладёт карту «ключ
+// расстановки → файл» в страницу (`window.__TOUR_CARDS`, `lib/trial/tour-page.ts:injectTour`). Ключ совпал (`trHsKey`: комната,
+// вариант, номер состояния) — карточка сразу с картинкой, без схемы и без съёмки в браузере; расстановку правили — ключа нет, как раньше
+function trCardOf(v){ const m=window.__TOUR_CARDS, u=m&&v&&m[trHsKey(v)]; return typeof u==='string'&&/^cards\/[a-f0-9]{16}\.jpg$/.test(u)?u:''; }
 // сцена снимка не собралась за это время (модель не пришла, связь оборвалась) — снимок не вышел, карточка уходит на план
 const TR_HS_MAX_MS=90000;
 function trHsOk(){
@@ -7275,9 +7292,10 @@ function drawHome(force){
     const pk=stale&&typeof vwStalePick==='function'?vwStalePick(v):null, back=!!pk&&(pk.to>=0||pk.to===-2);
     // проба без фото — снимок 3D «со стороны двери» (`trHomeShot`); пока его нет — СРАЗУ схема плана комнаты с мебелью (T-20261111-23,
     // владелец TG 1617 и Codex: заглушка с ожиданием до 90 с — хуже плана; снимок встаёт на место плана, когда готов)
-    let img=sh?thumbOf(sh):'', full=sh?sh.url:'', ld=false;
-    if(!sh&&TRIAL()){const u=trHomeShotOf(v); if(u)img=full=u; TR_HS.want.push(v);}
-    return {r, i:rv.index, v, want, img, full, ld, n:variantCount(v), sum:variantPrice(v), stale, back};
+    let img=sh?thumbOf(sh):'', full=sh?sh.url:'', ld=false, card=false;
+    // готовый снимок с сервера (`trCardOf`) — сразу, браузер не снимает; нет — снимок браузера, пока его нет — схема (как было)
+    if(!sh&&TRIAL()){const c=trCardOf(v), u=c||trHomeShotOf(v); if(u)img=full=u; card=!!c; if(!c)TR_HS.want.push(v);}
+    return {r, i:rv.index, v, want, img, full, ld, card, n:variantCount(v), sum:variantPrice(v), stale, back};
   });
   if(TRIAL()&&TR_HS.want.length)trHomeShotsSoon();
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
@@ -7324,7 +7342,7 @@ function drawHome(force){
       // первая (видимая) — `fetchpriority=high` (T-20261110-43): её кадр идёт раньше движка 3D и картинок ниже экрана.
       // Видимая с полным кадром — сперва миниатюра, полный кадр подменяет её по приходу (`hmHq`, вариант А T-20261111-01)
       (c.img?`<picture>${c.full&&c.full!==c.img&&!on?`<source media="(min-width:900px)" srcset="${escHtml(c.img)} 640w, ${escHtml(c.full)} 2048w" sizes="${HM_SIZES}">`:''}`+
-        `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?' fetchpriority="high"':' loading="lazy"'}${on&&c.full&&c.full!==c.img?' data-hq="1" onload="hmHq(this)"':''} data-url="${escHtml(c.full)}" `+
+        `<img src="${escHtml(c.img)}" alt="${alt}" decoding="async"${on?' fetchpriority="high"':' loading="lazy"'}${on&&c.full&&c.full!==c.img?' data-hq="1" onload="hmHq(this)"':''}${c.card?' data-card="1"':''} data-url="${escHtml(c.full)}" `+
         `onerror="this.onerror=null;var s=this.parentNode.querySelector('source');if(s)s.remove();this.src=this.dataset.url"></picture>`
         :c.ld?`<div class="nopv hm-ld" aria-hidden="true"></div>`   // проба: снимок 3D в пути — заглушка того же размера
         :TRIAL()?`<div class="nopv tr-plan">${trialPlanSvg(c.v)}<span class="tr-3d">${EN?'Open to see it in 3D':'Откройте, покажем в 3D'}</span></div>`   // проба: 3D нет — план комнаты с мебелью
@@ -7378,7 +7396,11 @@ function hmHq(img){
 // правилом, что в туре после снимка 3D (`homePre3d`; тур зовёт его сам из `trHomeShotsRun`). Ошибка картинки — блик тоже гаснет
 function hmPhLoaded(e){ const im=e.target; if(!im||im.tagName!=='IMG'||im.classList.contains('hm-hq'))return;
   const ph=im.closest&&im.closest('#hmRooms .hm-ph'); if(!ph)return; ph.classList.add('ok');
-  if(e.type!=='load'||TRIAL())return;
+  // готовый снимок тура не пришёл (файл сняли, сеть) — карточка уходит на прежний путь: схема и снимок браузера
+  if(e.type==='error'&&im.dataset.card&&window.__TOUR_CARDS){const a=ph.closest('.hm-room'), v=a&&allVariants()[+a.getAttribute('data-open')];
+    if(v){delete window.__TOUR_CARDS[trHsKey(v)]; drawHome(true);} return;}
+  // тур: после готового снимка с сервера (`data-card`) — 3D комнаты в фоне так же, как у /demo; после снимка браузера — зовёт `trHomeShotsRun`
+  if(e.type!=='load'||(TRIAL()&&!im.dataset.card))return;
   const a=ph.closest('.hm-room.on'), v=a&&allVariants()[+a.getAttribute('data-open')];
   if(v)setTimeout(()=>{ if(window.requestIdleCallback)requestIdleCallback(()=>homePre3d(v),{timeout:3000}); else homePre3d(v); },600);
 }

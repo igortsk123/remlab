@@ -40,6 +40,8 @@ tools/scout/*
 !tools/scout/README.md
 # заранее сжатые копии витрины /demo — код публикации (`publish_demo.sh` зовёт его), T-20261110-43/2
 !tools/scout/precompress.mjs
+# снимальщик карточек комнат тура — код воркера (`tools/floorplan/cards.py` зовёт его), T-20261112-29
+!tools/scout/trial_cards.mjs
 # паспорта стилей — канон (core/styles.md), их читает сервис кадров: в git (b2b-08, 13.10 — жили только на DEV)
 !tools/scout/styles.json
 !tools/scout/pages/

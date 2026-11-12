@@ -2441,9 +2441,15 @@ def _swatch_tone(path: str):
         from scipy import ndimage as _nd
         from scipy.cluster.vq import kmeans2 as _km
         a = _np.asarray(_Im.open(path).convert('RGB').resize((128, 96)), _np.float32)
-        lab, _n = _nd.label(a.min(axis=2) >= 244)
+        white = a.min(axis=2) >= 244
+        lab, _n = _nd.label(white)
         edge = set(_np.unique(_np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]).tolist())) - {0}
-        px = a[~_np.isin(lab, list(edge))]
+        obj = ~_np.isin(lab, list(edge))
+        # просветы тонкого предмета (стол на ножках, открытые полки, кашпо на подставке) — тоже фон: замкнутого почти белого 15–60 %
+        # предмета → не берём (T-20261112-29: чёрный стол и графитовая тумба давали белый образец); меньше — белая вставка обивки,
+        # больше — белый предмет. Замер на 325 товарах тура: меняются только такие случаи
+        encl = float((obj & white).sum()) / max(1, int(obj.sum()))
+        px = a[obj & ~white] if 0.15 <= encl < 0.6 else a[obj]
         if len(px) < 200:
             return _tone(path)
         _c, lb = _km(px, 4, seed=_np.random.default_rng(0), minit='++')
@@ -2456,10 +2462,26 @@ def _swatch_tone(path: str):
         return _tone(path)
 
 
+def swatch_hex(img, out_dir: str = OUT, cache: dict | None = None) -> str | None:
+    """Цвет товара '#rrggbb' по его плитке витрины (`img/<md5>.jpg` в `out_dir`) — `_swatch_tone`. Адрес http(s), нет файла — None."""
+    if not img or str(img).startswith(('http:', 'https:', '//')):
+        return None
+    if cache is not None and img in cache:
+        return cache[img]
+    p = os.path.join(out_dir, str(img))
+    t = _swatch_tone(p) if os.path.isfile(p) else None
+    h = '#%02x%02x%02x' % tuple(max(0, min(255, round(x * 255))) for x in t) if t else None
+    if cache is not None:
+        cache[img] = h
+    return h
+
+
 def annotate_swatch(data: dict, out_dir: str = OUT) -> int:
-    """ОБРАЗЕЦ ЦВЕТА (demo-28, владелец 23.10): у товара, чья модель (`msid`) есть в данных хотя бы в двух цветах (разные `sid`), —
-    `sku.swatch` = '#rrggbb', цвет ткани по фото (`_swatch_tone`: главная группа цвета без фона, её освещённая часть). Это кружки
-    цвета в строке списка и в карточке товара. Нет фото — без образца: страница рисует кружок из самого фото.
+    """ОБРАЗЕЦ ЦВЕТА (demo-28, владелец 23.10): у КАЖДОГО товара с фото — `sku.swatch` = '#rrggbb', цвет ткани по фото (`_swatch_tone`:
+    главная группа цвета без фона, её освещённая часть). Это кружки цвета в строке списка и в карточке товара (они — только у модели
+    хотя бы в двух цветах, `index.html:colourFam`) и ЦВЕТ ПРЕДМЕТА НА ПЛАНЕ (T-20261112-29, владелец: «на схеме диван фиолетовый, а в 3D
+    бежевый» — схема рисовала условной палитрой по роли, `index.html:shape`). Нет фото — без образца: кружок из самого фото, на плане —
+    нейтральный цвет роли.
     СЕМЬЯ ЦВЕТОВ — по представителю семьи (`_mesh_rep`), а не по модели сцены (T-20261106-77/5): с правилом привязки у цвета бывает
     своя 3D-модель (`scene_msid`), и группировка по `msid` разбивала семью — кружки пропадали у 34 товаров лент. Где семья
     отличается от `msid`, она пишется в `sku.fam` — по ней же страница собирает «Цвета этой модели» (`famKey`)."""
@@ -2478,14 +2500,9 @@ def annotate_swatch(data: dict, out_dir: str = OUT) -> int:
     n = 0
     for sk in skus:
         sk.pop('swatch', None)
-        sid, img = sk.get('sid'), sk.get('img')
-        key = sk.get('fam') or sk.get('msid')
-        if not sid or len(fam.get(key, ())) < 2 or not img or str(img).startswith('http'):
-            continue
-        if sid not in tone:
-            tone[sid] = _swatch_tone(os.path.join(out_dir, img))
-        if tone[sid]:
-            sk['swatch'] = '#%02x%02x%02x' % tuple(round(x * 255) for x in tone[sid])
+        h = swatch_hex(sk.get('img'), out_dir, tone)
+        if h:
+            sk['swatch'] = h
             n += 1
     return n
 

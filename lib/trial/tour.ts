@@ -12,6 +12,7 @@ import { validId } from "@/lib/trial/http";
 import { acceptsBrotli, brotliPage } from "@/lib/trial/tour-brotli";
 import { contentTag, encodedTag, IMMUTABLE, REVALIDATE, tagMatches } from "@/lib/trial/tour-cache";
 import { MARKET_LANG, tourHref } from "@/lib/trial/i18n";
+import { pageCards, readCard } from "@/lib/trial/tour-cards";
 import { jobRelease, readRegular, readTourData, releaseDir } from "@/lib/trial/tour-files";
 import { injectTour } from "@/lib/trial/tour-page";
 import { stubHtml, type StubKind, type StubOpts } from "@/lib/trial/tour-stub";
@@ -20,13 +21,16 @@ const SCENE_JS = /^lib\/scene\.[a-f0-9]{6,64}\.js$/;
 const BASKET_JS = /^lib\/basket\.[a-f0-9]{6,64}\.js$/;
 // общие картинки витрины — только имя файла в одной папке, без подкаталогов
 const SHARED_IMG = /^(img|topsprites)\/([\w.-]{1,160}\.(?:jpe?g|png|webp))$/;
+// готовый снимок карточки комнаты этого задания (T-20261112-29, `tour-cards.ts`): имя — хеш содержимого
+const CARD_IMG = /^cards\/([a-f0-9]{16}\.jpg)$/;
 
 export type TourTarget =
   | { kind: "page" }
   | { kind: "data" }
   | { kind: "version" }
   | { kind: "release"; rel: string; type: string }
-  | { kind: "shared"; url: string };
+  | { kind: "shared"; url: string }
+  | { kind: "card"; file: string };
 
 const JS = "text/javascript; charset=utf-8";
 const JSON_TYPE = "application/json; charset=utf-8";
@@ -42,6 +46,8 @@ export function tourTarget(parts: readonly string[]): TourTarget | null {
   if (rel === "lib/scene.json" || rel === "rt-meshes.json") return { kind: "release", rel, type: JSON_TYPE };
   if (SCENE_JS.test(rel) || BASKET_JS.test(rel)) return { kind: "release", rel, type: JS };
   if (SHARED_IMG.test(rel)) return { kind: "shared", url: `/demo/${rel}` }; // картинки товаров общие (103 МБ на витрине), личного в них нет
+  const card = CARD_IMG.exec(rel);
+  if (card) return { kind: "card", file: card[1]! };
   return null;
 }
 
@@ -174,7 +180,8 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
   if (target.kind === "page") {
     const html = await readRegular(path.join(releaseDir(dir, release), "index.html"));
     if (!html) return notOpen(true, 404, "not ready", "wait", id, deps);
-    const out = injectTour(html.toString("utf8"), id, view.resultVersion);
+    // карта готовых снимков карточек — в саму страницу: карточка с картинкой с первого кадра (T-20261112-29)
+    const out = injectTour(html.toString("utf8"), id, view.resultVersion, await pageCards(dir, id));
     return pageResponse(out, deps);
   }
   if (target.kind === "data") {
@@ -183,6 +190,11 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
     // версия данных неизменна (`repo-bundle.ts:latestBundle`) — метка `"v<N>"`; запасной файл без версии (v0) — как раньше, не хранится
     if (data.version <= 0) return new Response(new Uint8Array(data.body), { headers: headers({ "Content-Type": JSON_TYPE, ETag: '"v0"' }) });
     return cached(data.body, `"v${data.version}"`, JSON_TYPE, deps);
+  }
+  if (target.kind === "card") {
+    const jpg = await readCard(dir, id, target.file);
+    if (!jpg) return text(404, "not found");
+    return cached(jpg, contentTag(jpg), "image/jpeg", deps, IMMUTABLE);   // имя = хеш содержимого — не меняется
   }
   const pinned = await readRegular(path.join(releaseDir(dir, release), target.rel));
   if (!pinned) return text(404, "not found");

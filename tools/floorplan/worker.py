@@ -99,6 +99,9 @@ class Cfg:
     bundle_timeout_s: float = 180.0
     bundle_max_bytes: int = conveyor.BUNDLE_MAX_BYTES
     stage_cmds: dict | None = None               # тесты: свои команды стадий; None — настоящие скрипты
+    # готовые снимки карточек комнат после итоговой версии (`cards.spawn`, T-20261112-29); по умолчанию выкл. — тесты не зовут systemd-run,
+    # боевой воркер и перевыпуск включают из окружения (`from_env`, TRIAL_CARDS=0 — выключить)
+    cards: bool = False
 
     @classmethod
     def from_env(cls, env=os.environ) -> 'Cfg':
@@ -115,7 +118,8 @@ class Cfg:
                    keep_hours=f('TRIAL_DEV_KEEP_HOURS', 24.0), an_cache=env.get('TRIAL_FP_CACHE') or None,
                    furnish=env.get('TRIAL_FURNISH', '1') != '0',
                    scenes_root=Path(env.get('TRIAL_SCENES_ROOT') or '~/scout-scenes/trial').expanduser(),
-                   living_timeout_s=f('TRIAL_LIVING_TIMEOUT_S', 1800.0), bedroom_timeout_s=f('TRIAL_BEDROOM_TIMEOUT_S', 1800.0))
+                   living_timeout_s=f('TRIAL_LIVING_TIMEOUT_S', 1800.0), bedroom_timeout_s=f('TRIAL_BEDROOM_TIMEOUT_S', 1800.0),
+                   cards=env.get('TRIAL_CARDS', '1') != '0')
 
     @property
     def vlm_root(self) -> Path:

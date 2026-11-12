@@ -2,6 +2,7 @@
 // выполняется ДО любого кода страницы (первый скрипт читает адрес, `?s=` и хранилище раньше, чем придут данные).
 // Режим показа включается полем данных `D.trial`; здесь — только то, что должно действовать всегда и с первого байта.
 
+import { CARD_KEY_RE } from "@/contracts/trial-cards";
 import { partners } from "@/lib/partners/registry";
 import { TOKEN_RE } from "@/lib/token";
 
@@ -48,14 +49,22 @@ export function devCardPaths(list = partners()): string[] {
   return [...ids].filter((id) => /^[a-z0-9-]{2,40}$/.test(id)).sort().map((id) => `/api/apartments/${id}`);
 }
 
-/** `version` — номер результата на момент отдачи HTML: страница опрашивает `version.json` и обновляется, когда он вырастет. */
-export function injectTour(html: string, id: string, version = 0): string {
+/** Карта готовых снимков карточек в скрипт: только проверенные ключи и адреса, `<` экранирован (не закроет `<script>`). */
+function cardsJs(cards: Record<string, string>): string {
+  const ok = Object.entries(cards).filter(([k, u]) => CARD_KEY_RE.test(k) && /^cards\/[a-f0-9]{16}\.jpg$/.test(u));
+  return JSON.stringify(Object.fromEntries(ok)).replace(/</g, "\\u003c");
+}
+
+/** `version` — номер результата на момент отдачи HTML: страница опрашивает `version.json` и обновляется, когда он вырастет.
+ *  `cards` — готовые снимки карточек комнат «ключ расстановки → адрес» (`tour-cards.ts:pageCards`, T-20261112-29). */
+export function injectTour(html: string, id: string, version = 0, cards: Record<string, string> = {}): string {
   if (!TOKEN_RE.test(id)) throw new Error("bad id");
   const m = html.match(/<head[^>]*>/i);
   if (!m || m.index === undefined) throw new Error("no head");
   const prefix = `trial:${id}:`;
   const boot = `<script>(function(){
 window.__TOUR_VER=${Number.isInteger(version) ? version : 0};
+window.__TOUR_CARDS=${cardsJs(cards)};
 var PRE=${JSON.stringify(prefix)};
 if(!/\\/$/.test(location.pathname))history.replaceState(history.state,'',location.pathname+'/'+location.search+location.hash);
 var P=Storage.prototype,G=P.getItem,S=P.setItem,R=P.removeItem,K=P.key,L=Object.getOwnPropertyDescriptor(P,'length');
