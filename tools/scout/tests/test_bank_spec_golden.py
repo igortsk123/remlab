@@ -36,7 +36,10 @@ MODULES = ('bank_prepare', 'bank_pending', 'bank_promote', 'bank_refresh', 'bank
            'room_bank_spec')
 FIXED = 1793450000.0          # заморожённое «сейчас» (2026-10-31, UTC)
 CLEAR = ('BANK_CANDIDATE', 'BANK_PREPARE_REPORT', 'BANK_PENDING', 'DEMO_DATA', 'BANK_PROMOTE', 'BANK_PROMOTE_DIR',
-         'BANK_GENERATIONS', 'BANK_MAX_PROMOTE_SHARE', 'SETS_BANK', 'SETS_OUTPUT', 'ACC_REPORT_SUFFIX', 'BANK_KEEP_FROM')
+         'BANK_GENERATIONS', 'BANK_MAX_PROMOTE_SHARE', 'SETS_BANK', 'SETS_OUTPUT', 'ACC_REPORT_SUFFIX', 'BANK_KEEP_FROM',
+         # временное сценария — в песочнице (`TMPDIR=<T>/tmp`, `run_story`); REMLAB_TMP перебивает TMPDIR у `remlab_tmp.root`,
+         # и prepush (`tools/ops/prepush_check.py:run_units` ставит её) уводил «снимок прежнего» в ~/remlab-scratch/tmp (T-20261112-87, урок 635)
+         'REMLAB_TMP')
 
 # ——— синтетический банк ———
 TIERS = ('эконом', 'комфорт', 'премиум')
@@ -273,8 +276,16 @@ def sandbox(rev: str | None, rules: str) -> str:
 
 def norm(b: bytes, T: str) -> bytes:
     import re
+    b = b.replace(T.encode(), b'<T>')
+    # временное ВНЕ песочницы (запасной путь, если сценарий всё же ушёл в общую временную папку: $REMLAB_TMP, `remlab_tmp.root`,
+    # системная) — тот же вид, что у песочницы: эталон не зависит от того, где лежит временное машины (T-20261112-87, урок 635)
+    # (уже приведённое `<T>/tmp/…` не трогаем — корнем может быть и голый /tmp)
+    roots = {p for x in (os.environ.get('REMLAB_TMP'), remlab_tmp.root(), tempfile.gettempdir(), os.environ.get('TMPDIR')) if x
+             for p in (x.rstrip('/'), os.path.realpath(x).rstrip('/')) if len(p) > 1}
+    for r in sorted(roots, key=len, reverse=True):
+        b = re.sub(rb'(?<!<T>)' + re.escape(r.encode()) + rb'/', b'<T>/tmp/', b)
     # папка сессии помощника временного (remlab_tmp.use → rt-<имя>-xxxx) — служебный уровень, в эталоне её нет (T-20261107-13)
-    return re.sub(rb'<T>/tmp/(?:rt-[^/\s\'"]+/)?[^/\s\'"]+', b'<T>/tmp/<tmp>', b.replace(T.encode(), b'<T>'))
+    return re.sub(rb'<T>/tmp/(?:rt-[^/\s\'"]+/)?[^/\s\'"]+', b'<T>/tmp/<tmp>', b)
 
 
 def run_story(name: str, rev: str | None) -> dict:
