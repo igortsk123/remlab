@@ -255,3 +255,10 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	.memory_bank/core/room-templates.md	code	8	0	0	
 2026-11-12	.memory_bank/domain/room-templates.md	code	16	2	2	
 2026-11-12	.memory_bank/core/apartment-configurator.md	code	17	0	0	
+2026-11-12	.memory_bank/core/manager-links.md	drift	32	1	1	
+2026-11-12	.memory_bank/domain/observability.md	code	66	1	1	
+2026-11-12	.memory_bank/domain/stock-and-dims.md	code	80	3	3	
+2026-11-12	.memory_bank/domain/viz-fidelity-playbook.md	code	100	6	6	
+2026-11-12	.memory_bank/domain/demo-scenario-map.md	code	80	10	10	
+2026-11-12	.memory_bank/core/demo-scenarios.md	code	29	0	0	
+2026-11-12	.memory_bank/domain/pipeline-order-details.md	code	138	11	11	

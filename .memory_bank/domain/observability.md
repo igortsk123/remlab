@@ -13,7 +13,7 @@ last_verified: 2026-11-12
 
 # Observability — детали (Tier 2 к [[observability-tracing]])
 
-> Сверено с кодом 2026-10-18 (verify-агент). Tier 1: `../core/observability-tracing.md`.
+> Сверено с кодом 2026-11-12 (verify-агент, T-20261112-84). Tier 1: `../core/observability-tracing.md`.
 
 ## Сущности БД — детали (`db/schema.ts`, `db/init/003-traces.sql`, `tools/migrate.mjs`)
 - `generation_runs` — прогон = один запуск превью. `seq` из sequence `generation_seq` —
@@ -104,7 +104,11 @@ imagor читает файл из `FILE_LOADER_BASE_DIR` (= том TRACE_DIR) п
   не пишется** — его делает DEV-сервис `remlab-render` (`tools/scout/draft_render.py`,
   без `lib/trace`). Время шагов — строка `ФОТО-ЗАМЕР` в `~/scout-scenes/dev-render.log` (`draft_render.py:photo_mark`: путь, подготовка,
   модель, сохранение, исход); сводка и сторож скорости — `tools/ops/photo-speed.py` по `tools/scout/rules/photo-speed.json`, ночью из
-  `refresh_daily.sh`. Цена одного фото в журнал не пишется — считаем по счёту шлюза (Tier 2 `viz-fidelity-playbook.md` § «Фото нейросети»).
+  `refresh_daily.sh`. Цена каждого платного кадра — строка JSON в `~/scout-scenes/photo-cost.jsonl` (env `PHOTO_COST_LOG`): обёртка
+  `draft_render.py:_photo_cost` на `gpt_edit` и `_chat_edit` (вложенный вызов — один раз), цена = разница баланса ключа шлюза до/после
+  (`cost_source: balance_delta`; «после» — в фоне через `PHOTO_COST_SETTLE_S`, по умолчанию 2,5 с); параллельный платный вызов —
+  `overlap: true`; баланс не снизился или не узнан — `cost_note`; метка — `cost_label` (demo/trial), иначе `PHOTO_COST_LABEL`, иначе
+  имя скрипта. Отчёт — `tools/ops/photo-cost.py` (кадры с overlap в среднее не входят; T-20261109-28).
 - **VLM ориентации** (`tools/scout/orient_worker.py`, qwen3-vl через шлюз): расход — оценкой по `tools/scout/rules/openai_prices.json`
   (`openai_budget.log_spend`), дневной лимит `openai_budget.allow`; не влезло — пачка без VLM (`vlm_pending`).
 
