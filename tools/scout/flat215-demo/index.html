@@ -997,15 +997,18 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 /* ОКОШКО ИМЕНИ ИЗБРАННОГО (demo-15 п.4) */
 /* ВСПЛЫВАЮЩЕЕ СООБЩЕНИЕ (demo-19 Б4, владелец 20.10): полупрозрачная светлая плашка в тон страницы (как кнопки поверх фото), длинная —
    во всю ширину телефона, на компьютере до 560 px; действие («Перейти →») — терракотой в той же строке */
-.msg{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);width:min(92vw,560px);box-sizing:border-box;z-index:var(--z-toast);
+.msg{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);width:max-content;max-width:min(86vw,420px);box-sizing:border-box;
+  z-index:var(--z-toast);
   background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(14px) saturate(1.3);backdrop-filter:blur(14px) saturate(1.3);
-  color:var(--ink);border:1px solid rgba(28,25,23,.08);border-radius:var(--radius);box-shadow:var(--e4);
-  padding:11px 16px;font-size:15px;line-height:1.35;text-align:center;white-space:normal;transition:opacity .25s ease}
+  color:var(--ink);border:1px solid rgba(28,25,23,.08);border-radius:16px;box-shadow:0 2px 10px rgba(28,25,23,.12);
+  padding:6px 14px;font-size:13px;line-height:1.3;text-align:center;white-space:normal;transition:opacity .25s ease}
+/* КОМПАКТНО (T-20261112-117, владелец TG 1357: «подсказки компактнее и быстрее исчезают — это сопровождение»): строка по ширине текста,
+   13 px; длинное (ошибки) — вторая строка, не многоточие: смысл ошибки не обрезаем */
 .msg[hidden]{display:none}
 /* гаснет плавно (demo-20 Б4, владелец 22.10): `.out` — прозрачность до нуля, потом `hidden` */
 .msg.out{opacity:0}
 @media (prefers-reduced-motion:reduce){.msg{transition:none}}
-.msg .toastact{margin-left:10px;background:none;border:0;color:var(--accent);font:inherit;font-weight:700;cursor:pointer;padding:4px 0;min-height:0}
+.msg .toastact{margin-left:8px;background:none;border:0;color:var(--accent);font:inherit;font-weight:700;cursor:pointer;padding:0;min-height:0}
 .favpop{position:fixed;inset:0;z-index:var(--z-modal);background:rgba(20,16,12,.38);display:flex;align-items:center;justify-content:center;padding:16px}
 .favbox{background:var(--surface);color:var(--ink);border-radius:16px;padding:18px 16px 14px;width:min(380px,100%);box-shadow:var(--e5);
  display:flex;flex-direction:column;gap:12px}
@@ -6143,12 +6146,16 @@ function reportAct(kind){
 const CTA_REAL='Сделать фото', CTA_REAL_EN='Take photo';
 // ЗАМЕНА МЯГКОГО (владелец 23.10): в 3D подушки нет — обычный затухающий тост «Нажмите «<кнопка>», чтобы увидеть изменения»
 function softSwapToast(){toast(`Нажмите «${CTA_REAL}», чтобы увидеть изменения`);}
+// СКОЛЬКО ВИДНО (T-20261112-117, владелец TG 1357: «исчезать в течение двух секунд»): сопровождение — 2 с вместе с угасанием 0,25 с;
+// ошибка и подсказка с кнопкой («Фото готово · Смотреть», «Добавлено · Перейти») — 4 с: прочитать причину / успеть нажать
+const TOAST_MS=2000, TOAST_LONG_MS=4000, TOAST_FADE_MS=250;
+function toastErr(t){toast(t,{err:true});}
 function toast(t,act){let el=document.getElementById('toast');
   if(!el){el=document.createElement('div');el.id='toast';el.className='msg';el.setAttribute('role','status');
     document.body.appendChild(el);}
-  el.textContent=t; el.hidden=false; el.classList.remove('out'); clearTimeout(el._t);
-  el._t=setTimeout(()=>{el.classList.add('out'); el._t=setTimeout(()=>{el.hidden=true; el.classList.remove('out');},250);},
-    (act&&act.ms)||(act?2250:1750)+(String(t).length>60?750:0));   // `act.ms` — своя длительность (готовое фото, demo-20 Г5)
+  el.textContent=t; el.hidden=false; el.classList.remove('out'); el.classList.toggle('err',!!(act&&act.err)); clearTimeout(el._t);
+  el._t=setTimeout(()=>{el.classList.add('out'); el._t=setTimeout(()=>{el.hidden=true; el.classList.remove('out');},TOAST_FADE_MS);},
+    (act?TOAST_LONG_MS:TOAST_MS)-TOAST_FADE_MS);
   // ОКНО ВАРИАНТА НА ТЕЛЕФОНЕ (demo-02 v5.2): сообщение — над шторкой и переключателем ракурсов, а не поверх кнопки
   // «Сделать реалистичнее» (после замены «Заменено: …» закрывало её на 3,5 с). Положение — по цели сдвига шторки, не по кадру анимации
   el.style.bottom='24px'; el.style.left=el.style.width=el.style.maxWidth='';
@@ -6156,19 +6163,24 @@ function toast(t,act){let el=document.getElementById('toast');
     const win=sh&&sh.classList.contains('on')&&sh.classList.contains('v2');
     if(win&&VW_PHONE()&&VW.sheetVis&&VW.sheetVis<innerHeight/2){
       const cm=document.getElementById('vCams'), cv=cm&&getComputedStyle(cm).display!=='none'?cm.offsetHeight+10:0;
-      el.style.bottom=Math.round(VW.sheetVis+12+cv)+'px';}
+      el.style.bottom=Math.max(Math.round(VW.sheetVis+12+cv),toastAbove('vSlots'))+'px';}
     // ОКНО НА КОМПЬЮТЕРЕ (demo-20 Г5, приёмка ведущего 22.10: по центру всего экрана тост срезал переключатель ракурсов, заходил на
     // правую панель и за нижний край окна): внутри области 3D/фото, по её центру, на 8 px выше переключателя ракурсов (его нет — выше
     // низа области), ширина по тексту, не шире 70 % области
     else if(win&&!VW_PHONE()){const st=sh.querySelector('.vstage'), r=st&&st.getBoundingClientRect();
       if(r&&r.width>0&&r.height>0){
         const cm=document.getElementById('vCams'), cr=cm&&getComputedStyle(cm).display!=='none'?cm.getBoundingClientRect():null;
-        const top=cr&&cr.height>0?cr.top:r.bottom-8;
+        const sr=toastBox('vSlots'), top=Math.min(cr&&cr.height>0?cr.top:r.bottom-8, sr?sr.top:Infinity);
         el.style.left=Math.round(r.left+r.width/2)+'px'; el.style.width='max-content'; el.style.maxWidth=Math.round(r.width*0.7)+'px';
         el.style.bottom=Math.round(innerHeight-top+8)+'px';}}}catch(e){}
   // ДЕЙСТВИЕ В СООБЩЕНИИ (demo-16 шаг 2, владелец 18.10: «Добавлено в избранное · Перейти →» на несколько секунд)
-  if(act){const b=document.createElement('button'); b.type='button'; b.className='toastact'; b.textContent=act.label;
+  if(act&&act.label){const b=document.createElement('button'); b.type='button'; b.className='toastact'; b.textContent=act.label;
     b.onclick=()=>{el.hidden=true; act.fn();}; el.appendChild(b);}}
+// НАД ОКОШКАМИ РАКУРСОВ (T-20261112-117): на снимке 375 подсказка лежала на окошках «1/2» слева внизу, на 1280 ошибка в две строки —
+// на окошке 2. Подсказка встаёт на 8 px выше их верха; окошек нет (скрыты, не в 3D) — прежнее место
+function toastBox(id){const e=document.getElementById(id); if(!e||e.hidden||getComputedStyle(e).display==='none')return null;
+  const r=e.getBoundingClientRect(); return r.width>0&&r.height>0?r:null;}
+function toastAbove(id){const r=toastBox(id); return r?Math.round(innerHeight-r.top+8):0;}
 // СПИСОК В JPG (b2b-12): текст на холсте — картинки магазинов чужого домена «запачкали» бы холст и
 // сохранить его было бы нельзя. Те же данные, что на странице списка: товары, количество, цена, магазин, итог.
 function listJpg(){
@@ -6196,7 +6208,7 @@ function listJpg(){
   txt(EN?'Total':'Итого',56,yb,'700 32px system-ui');
   g.textAlign='right'; txt(money(LAST_SUM),W-56,yb,'700 32px system-ui'); g.textAlign='left';
   txt(location.href.split('#')[0]+(location.hash||''),56,yb+56,'400 20px system-ui','#7a716a',W-112);
-  c.toBlob(b=>{if(!b){toast(EN?'Could not create the image':'Не получилось сделать картинку');return;}
+  c.toBlob(b=>{if(!b){toastErr(EN?'Could not create the image':'Не получилось сделать картинку');return;}
     const a=document.createElement('a'); a.href=URL.createObjectURL(b);
     a.download=(EN?'remont-lab-list':'remont-lab-список')+'.jpg'; document.body.appendChild(a); a.click();
     setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},1000);},'image/jpeg',0.92);
@@ -9011,9 +9023,9 @@ function swapKeepBack(it, d0, R){
 }
 // SWAPBACK END
 function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.role==='диван'); TRY_LAST={n:1, base:''};
-  if(!s){toast('Сначала коснитесь предмета на плане');return;}
+  if(!s){toastErr('Сначала коснитесь предмета на плане');return;}
   const soft=s.dec!==undefined&&isSoft(s.role);      // мягкое не примеряется на пол — габариты ему не нужны (demo-24)
-  if(!soft&&(!p.w||!p.d)){toast('У этого товара в фиде нет габаритов, примерка была бы выдумкой');return;}
+  if(!soft&&(!p.w||!p.d)){toastErr('У этого товара в фиде нет габаритов, примерка была бы выдумкой');return;}
   // ЗАМЕНА ДЕКОРА ПИШЕТСЯ В СПИСОК ВАРИАНТА, А НЕ В РАССТАНОВКУ (08.09): места на полу у вазы
   // нет, она стоит на столешнице. Список и сумма пересчитываются сразу — это и есть отклик на
   // кнопку «Заменить», которого раньше не было.
@@ -10442,7 +10454,9 @@ function vwHighlight(idx, opt){
 const PINS={map:new Map(), box:null, t:0, fr:null, busy:[], raf:0};
 // ЦЕНЫ СКРЫТЫ (владелец TG 606, T-20261108-75): кнопка вверху 3D «Скрыть цены» ⇄ «Показать цены» убирает все ценники, и выбранный тоже;
 // выбор предмета, замена, шторка и суммы — как прежде. Выбор — на визит (вкладка: sessionStorage), новый визит — цены показаны
-var PRICES_OFF=false; try{PRICES_OFF=sessionStorage.getItem('remlab-prices-off')==='1';}catch(e){}
+// ТЕЛЕФОН — ЦЕНЫ СКРЫТЫ ПО УМОЛЧАНИЮ (T-20261112-117, владелец TG 1357: «на телефоне мало места, цены шумят»; ПК — видны). Признак —
+// тот же `VW_PHONE`, что делит вёрстку; выбор человека (кнопка) — на вкладку и важнее умолчания: «0» — показаны, «1» — скрыты
+var PRICES_OFF=VW_PHONE(); try{const v=sessionStorage.getItem('remlab-prices-off'); if(v==='1'||v==='0')PRICES_OFF=v==='1';}catch(e){}
 function vwPriceLabel(){const EN=LANG==='en'; return PRICES_OFF?(EN?'Show prices':'Показать цены'):(EN?'Hide prices':'Скрыть цены');}
 function vwPricesToggle(){PRICES_OFF=!PRICES_OFF; try{sessionStorage.setItem('remlab-prices-off',PRICES_OFF?'1':'0');}catch(e){}
   const b=document.getElementById('vPriceTop'); if(b){b.textContent=vwPriceLabel(); b.dataset.off=PRICES_OFF?'1':'0';}
@@ -10747,11 +10761,11 @@ function vwRotate(){
   if(R){let b=box(it);
     it.x=Math.max(b.w/2,Math.min(R.w-b.w/2,o.x)); it.y=Math.max(b.d/2,Math.min(R.d-b.d/2,o.y)); b=box(it);
     if(b.x0<-0.5||b.y0<-0.5||b.x1>R.w+0.5||b.y1>R.d+0.5){it.rot=prev; it.x=px; it.y=py;
-      toast(LANG==='en'?'At this angle it does not fit the room':'Под этим углом не помещается в комнату'); return;}}
+      toastErr(LANG==='en'?'At this angle it does not fit the room':'Под этим углом не помещается в комнату'); return;}}
   histPush();
   try{draw();}catch(e){}
   liveShow();
-  if(vwRotWarn())toast(LANG==='en'?ROT_HIT_EN:ROT_HIT_RU);
+  if(vwRotWarn())toastErr(LANG==='en'?ROT_HIT_EN:ROT_HIT_RU);
 }
 // «ПЕРЕМЕСТИТЬ» В 3D — КАК В SIMS 2 (T-20261111-05/8, владелец TG 1588–1591; было T-05/4, TG 1502). «✥ Переместить» или клавиша M —
 // предмет «в руке»: он полупрозрачный, под ним на ПОЛУ его след по форме модели (`viewer.ensureGhost`, `footprint.ts`) — зелёный, если
@@ -11328,7 +11342,7 @@ function vwSlotTap(k){
   if(VW.free){vwSlotSet(k); vwSlotTip(LANG==='en'?'View '+(k+1)+' saved':'Ракурс '+(k+1)+' запомнен'); return;}
   vwCamGo(k);
 }
-function vwSlotTip(note){ VSL.tipNote=note||''; VSL.tipUntil=Date.now()+(note?3500:5000); clearTimeout(VSL.tipT); VSL.tipT=setTimeout(vwSlotsUi,(note?3500:5000)+50); vwSlotsUi(); }
+function vwSlotTip(note){ VSL.tipNote=note||''; VSL.tipUntil=Date.now()+(note?TOAST_MS:5000); clearTimeout(VSL.tipT); VSL.tipT=setTimeout(vwSlotsUi,(note?TOAST_MS:5000)+50); vwSlotsUi(); }
 // миниатюры — кадры тех же поз, что уйдут в фото, уменьшенные под окошко (240×164).
 // КАДРЫ ФОТО ЗАРАНЕЕ — ПЕРВЫМИ (T-20261112-76/4): съёмка кадров фото (`vwViewsRun`) начинается ещё до готовой сцены и занимает общую
 // очередь (`vwSceneQ`); своя съёмка окошек вставала за ней и снимала те же позы второй раз — на ПК окошки пустовали 20–35 с (живой /demo
@@ -11417,7 +11431,7 @@ function vwJobHere(){ try{return !!(VJ.job&&VJ.job.stateId===curStateId());}catc
 // смотреть 3D/план и вращать взгляд можно. Правка — `if(vwEditLock())return;` в начале каждой точки входа
 function vwEditLock(){
   if(!vwJobHere())return false;
-  toast(LANG==='en'?'You can change things once the enhancement is finished':'Менять можно, когда улучшение закончится');
+  toastErr(LANG==='en'?'You can change things once the enhancement is finished':'Менять можно, когда улучшение закончится');
   return true;
 }
 // КАДР ПОД «УЛУЧШАЮ…» (fable-lead 22.10: ход — поверх расстановки, не на пустом фоне): вид 3D, каким его видел человек; живой
@@ -11673,7 +11687,7 @@ async function vwRealistic(o){
   return true;
 }
 function vwPhotoReady(fn){
-  const EN=LANG==='en'; toast(EN?'Photo ready':'Фото готово',{label:EN?'View':'Смотреть', fn, ms:12000});
+  const EN=LANG==='en'; toast(EN?'Photo ready':'Фото готово',{label:EN?'View':'Смотреть', fn});
 }
 // «Фото готово для прежней расстановки» — ненавязчиво, в углу сцены; тап — снимок во весь экран; сама уходит через 12 с
 function vwReady(url){
@@ -11999,7 +12013,7 @@ function liveHint(){
   clearTimeout(_liveHintT); b.classList.remove('on','gone'); void b.offsetWidth; b.classList.add('on'); vwPins();
   const n=++_liveHintN;   // новый показ отменяет отсчёт прежнего
   requestAnimationFrame(()=>requestAnimationFrame(()=>{ if(n!==_liveHintN)return;
-    _liveHintT=setTimeout(()=>{b.classList.add('gone'); vwPins();},5000); }));
+    _liveHintT=setTimeout(()=>{b.classList.add('gone'); vwPins();},3000); }));   // 3 с (T-20261112-117; было 5)
 }
 async function liveShow(){
   if(VW.mode==='plan'){liveHide(); vwPlanDraw(); return;}   // в «План» сцены нет — после правки перерисовывается план
@@ -13139,7 +13153,7 @@ function quizPick(rule, answers, available, styleColours){
       // нет фото этой расстановки — автофото (одно на состояние, лимит суток); карточка до него — «Фото готовится»
       return (snap.shot?Promise.resolve(false):autoPhoto(f)).then(function(){return afterSave(j.id,snap);})
         .then(function(){bkRefresh(); bkRedraw();});
-    }).catch(function(){toast(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.');});
+    }).catch(function(){toastErr(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.');});
   }
   function rename(id,name){
     name=String(name||'').trim().slice(0,80); var f=favOf(id); if(!name||!f||!BK.mod)return Promise.resolve();
@@ -13149,7 +13163,7 @@ function quizPick(rule, answers, available, styleColours){
     // сервер не принял (лимит, сеть) — имя и признак автоимени возвращаются: здесь и по ссылке имя не разойдётся (Codex 18.10)
     var back=function(){var g=favOf(id); if(g&&g.displayName===name)bkPut(Object.assign({},BK.b,{favorites:BK.b.favorites.map(function(x){
         return x.favoriteId===id?Object.assign({},x,was):x;})}));
-      toast(EN()?'Could not rename, please try again.':'Не получилось переименовать, попробуйте ещё раз.');};
+      toastErr(EN()?'Could not rename, please try again.':'Не получилось переименовать, попробуйте ещё раз.');};
     return fetch('/api/collections/'+id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({displayName:name,editToken:f.editToken})})
       .then(function(r){if(!r.ok)back();},back);
   }
@@ -13179,12 +13193,12 @@ function quizPick(rule, answers, available, styleColours){
     favDraw();
     if(r.result==='topup_unconfirmed'){topupAsk(favOf(id),r.overBy||0,function(){includeTopup(id);}); return;}
     var f=favOf(id), why=pendingWhy(f&&f.quote);
-    if(why){toast(why); return;}
-    var offline=function(){toast(EN()?'No connection to the server. Check the internet and tap again':'Нет связи с сервером. Проверьте интернет и нажмите ещё раз');};
+    if(why){toastErr(why); return;}
+    var offline=function(){toastErr(EN()?'No connection to the server. Check the internet and tap again':'Нет связи с сервером. Проверьте интернет и нажмите ещё раз');};
     if(again){offline(); return;}
     // строки не прочитаны (сеть или лимит при открытии) — перечитываем эту коллекцию и пробуем ещё раз
     readColls([id]).then(function(x){var v=x.vs[0];
-      if(!v){if(!COLL_GONE[id]){offline(); return;} bkRefresh(); bkRedraw(); toast(pendingWhy({status:'unavailable'})); return;}
+      if(!v){if(!COLL_GONE[id]){offline(); return;} bkRefresh(); bkRedraw(); toastErr(pendingWhy({status:'unavailable'})); return;}
       if(!MINE.some(function(m){return m.cid===id;}))MINE.push(v);
       bkRefresh(); includeFav(id,true);}).catch(offline);
   }
@@ -13210,7 +13224,7 @@ function quizPick(rule, answers, available, styleColours){
   }
   function share(){var v=allVariants()[cur]||{}, f=ofState(curStateId());
     shareUrl().then(function(u){shareOpenUrl(u,(f&&f.displayName)||styleOfV(v));})
-      .catch(function(){toast(EN()?'Could not make a link, please try again.':'Не получилось сделать ссылку, попробуйте ещё раз.');});}
+      .catch(function(){toastErr(EN()?'Could not make a link, please try again.':'Не получилось сделать ссылку, попробуйте ещё раз.');});}
   // ОКОШКО ИМЕНИ (demo-15 п.4): новое — «<Комната> #N» (`BK.mod.nextName`), можно дописать; в избранном — переименовать или убрать
   function pop(f){
     var old=document.getElementById('favPop'); if(old)old.remove();
