@@ -30,6 +30,7 @@ import { buildCurtains, LIGHT, sunPose } from "@/lib/viewer3d/window-light";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { outlineFrame } from "@/lib/viewer3d/outline";
 import { renderThumbs } from "@/lib/viewer3d/thumbs";
+import { SwapGhosts } from "@/lib/viewer3d/swap-ghost";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { boxPoints, livePitchDeg, liveSpot, lookPitchRange, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, walkRoomAt, type WalkArea } from "@/lib/viewer3d/walk";
@@ -222,6 +223,8 @@ export class FlatViewer {
   private roomGroups = new Map<string, THREE.Group>();
   private floors: THREE.Mesh[] = [];
   private placed = new Map<string, Placed>();
+  /** Заменяемые предметы: прежний мерцает, пока грузится новый (T-20261112-109, `swap-ghost.ts`). */
+  private ghosts = new SwapGhosts<Placed>(this.scene);
   private pendingUrls = new Set<string>();
   private loadedCount = 0;
   private totalCount = 0;
@@ -502,12 +505,19 @@ export class FlatViewer {
     this.loadedCount = specs.filter((sp) => this.placed.get(sp.slotId)?.signature === signatureOf(sp)).length;
     this.events.onProgress?.(Math.min(this.loadedCount, this.totalCount), this.totalCount);
 
+    // замена в загружаемой комнате — прежний предмет остаётся призраком до прихода нового (T-20261112-109); убран совсем
+    // или комната не грузится — как раньше, сразу
+    const loading = new Set(specs.map((s) => s.slotId));
     for (const [slotId, p] of [...this.placed]) {
       const next = wanted.get(slotId);
       if (!next || signatureOf(next) !== p.signature) {
-        this.scene.remove(p.group);
-        disposeObject(p.group);
         this.placed.delete(slotId);
+        if (next && loading.has(slotId)) this.ghosts.hold(slotId, p, p.status !== "pending", performance.now());
+        else {
+          this.scene.remove(p.group);
+          disposeObject(p.group);
+          this.ghosts.drop(slotId);
+        }
       } else {
         // ДВИЖЕНИЕ БЕЗ ПЕРЕСОЗДАНИЯ (demo-01 п.4): сменились только место/поворот — двигаем внешнюю группу; модель,
         // её загрузка и материалы остаются. Раньше координаты входили в подпись, и каждый сдвиг удалял объект.
@@ -558,9 +568,8 @@ export class FlatViewer {
     const prev = this.placed.get(spec.slotId);
     if (prev) {
       if (prev.signature === signatureOf(spec)) return;
-      this.scene.remove(prev.group);
-      disposeObject(prev.group);
       this.placed.delete(spec.slotId);
+      this.ghosts.hold(spec.slotId, prev, prev.status !== "pending", performance.now());
     }
 
     if (spec.kind === "mesh") {
@@ -599,6 +608,7 @@ export class FlatViewer {
           disposeObject(stub);
           outer.add(real);
           cur.status = "loaded";
+          this.ghosts.release(spec.slotId, outer, performance.now());
           this.refreshSelection(spec.slotId);
         } else {
           // пока грузилась, предмет заменили или убрали: эта группа больше не нужна — не оставляем её в сцене
@@ -606,10 +616,16 @@ export class FlatViewer {
           disposeObject(outer);
         }
       } catch {
-        // модель не пришла — остаётся честная серая коробка, как в демо
+        // модель не пришла — остаётся честная серая коробка, как в демо; при замене — прежний предмет целиком (T-20261112-109)
         stub.visible = true;
         const cur = this.placed.get(spec.slotId);
-        if (cur && cur.group === outer) cur.status = "stub";
+        const back = cur && cur.group === outer ? this.ghosts.restore(spec.slotId) : null;
+        if (back) {
+          this.scene.remove(outer);
+          disposeObject(outer);
+          this.placed.set(spec.slotId, back);
+          this.refreshSelection(spec.slotId);
+        } else if (cur && cur.group === outer) cur.status = "stub";
       } finally {
         clearTimeout(showStub);
         this.pendingUrls.delete(spec.url);
@@ -684,6 +700,7 @@ export class FlatViewer {
     group.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
     this.scene.add(group);
     this.placed.set(spec.slotId, { spec, group, signature: signatureOf(spec), status: "loaded" });
+    this.ghosts.release(spec.slotId, group, performance.now());
     this.refreshSelection(spec.slotId);
     this.loadedCount += 1;
     this.events.onProgress?.(Math.min(this.loadedCount, this.totalCount), this.totalCount);
@@ -1648,7 +1665,7 @@ export class FlatViewer {
       this.outline.visible = false;
       return;
     }
-    const { size, centre, yaw } = outlineFrame(placed.group, this._bb);
+    const { size, centre, yaw } = this.ghosts.atFullSize(placed.group, () => outlineFrame(placed.group, this._bb));
     // люстра (T-20261112-66): лишний подвес уходит выше потолка и потолком спрятан — рамку (она поверх всего) режем по потолку
     const top = slotId ? this.ceilingTopM(slotId) : Infinity, bottom = centre.y - size.y / 2;
     if (centre.y + size.y / 2 > top && top > bottom) {
@@ -1738,6 +1755,7 @@ export class FlatViewer {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.tick);
     const dt = Math.min(0.05, this.clock.getDelta());
+    this.ghosts.tick(performance.now());
     // кольцо «сюда пойдём» (T-20261112-36): пульс; цель пути гаснет, когда путь кончился (дошли, клавиши, ракурс), в виде сверху — нет
     if (this.walkMarker?.visible) {
       if (this.viewMode === "top" || (this.markerMode === "route" && !this.moveTarget)) this.hideWalkTarget(true);
@@ -1942,6 +1960,7 @@ export class FlatViewer {
    * в свой 2D-холст → размер вернули → видимый вид перерисован. Сжатие (`toBlob`) — уже копии, асинхронно; пиксели кадра те же.
    */
   private async frameBlob(width: number, height: number, type: string, quality: number, draw: () => void): Promise<Blob> {
+    this.ghosts.settle();   // гаснущий призрак замены и подрастающая модель — не в сохранённый кадр (T-20261112-109)
     const canvas = this.renderer.domElement;
     const prev = new THREE.Vector2();
     this.renderer.getSize(prev);
@@ -2216,6 +2235,7 @@ export class FlatViewer {
     }
     for (const p of this.placed.values()) disposeObject(p.group);
     this.placed.clear();
+    this.ghosts.disposeAll();
     for (const g of this.roomGroups.values()) disposeObject(g);
     this.roomGroups.clear();
     this.contact?.dispose();

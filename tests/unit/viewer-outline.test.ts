@@ -8,6 +8,7 @@ import { buildRug } from "@/lib/viewer3d/kits/bedroom";
 import { createMaterialCtx } from "@/lib/viewer3d/materials";
 import { outlineFrame } from "@/lib/viewer3d/outline";
 import { FlatViewer } from "@/lib/viewer3d/viewer";
+import { SwapGhosts } from "@/lib/viewer3d/swap-ghost";
 
 // РАМКА ВЫДЕЛЕНИЯ КОВРА ПОСЛЕ ЗАМЕНЫ (T-20261019-02, приёмка): в /flat ковёр заменили на 200×140, а рамка осталась
 // по месту 230×160 и торчала за край плиты. Рамка строится по объекту сцены, объект — по размеру товара из
@@ -56,8 +57,9 @@ describe("рамка выделения ковра", () => {
     const cfg = defaultConfiguration(r.apartment, r.catalogue);
     // без WebGL: только сцена, карта предметов и наборы, которые им нужны (рендерер в проверке не участвует)
     const v = Object.create(FlatViewer.prototype) as FlatViewer;
+    const scene = new THREE.Scene();
     Object.assign(v, {
-      scene: new THREE.Scene(), placed: new Map(), pendingUrls: new Set(), loadedCount: 0, totalCount: 0, disposed: false,
+      scene, ghosts: new SwapGhosts(scene), placed: new Map(), pendingUrls: new Set(), loadedCount: 0, totalCount: 0, disposed: false,
       apartment: r.apartment, catalogue: r.catalogue, quality: { name: "desktop", preloadRooms: 9 }, events: {},
       pos: new THREE.Vector2(200, 200), currentRoom: null, outline: null, selectedSlot: null, _bb: new THREE.Box3(),
       meshes: { load: () => Promise.reject(new Error("нет сети")) },
