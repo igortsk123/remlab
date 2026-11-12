@@ -17,8 +17,8 @@
 Шаблон добавляет только СОСТАВ (уровни паспорта) и предпочтения мест (хранение у глухой стены / в нише, обувь у входа,
 зеркало над низким, консоль напротив хранения в холле). Движок прихожей и пороги этот скрипт не меняет.
 
-Итог шаблона дополнительно проходит честную растровую мерку пути `hall_passage_min` от входа: `hall_checks.route_ok` склеивает
-куски свободного пола через зону у входа и пропускает щель 80 у самой двери как 85 (найдено T-70; движок не менялся).
+Итог шаблона дополнительно проходит растровую мерку пути `hall_passage_min` от входа (старт — шаг из двери, как у движка:
+`hall_checks._entry_step`; щель у входа, которую движок пропускал как 85, найдена в T-70 и починена в T-20261112-93).
 
   ~/venvs/scout/bin/python hall_schemes.py OUT_DIR [--only id,id] [--jobs N]
   # → OUT_DIR/<комната>.png, sheet-N.png, matrix.md, results.json
@@ -47,7 +47,7 @@ from planner import room_templates as RT  # noqa: E402
 from planner.bedroom import _slots, _wall_point  # noqa: E402
 from planner.geometry import base_role, footprint, room_polygon, swing_polygon  # noqa: E402
 from planner.hall import ORDER, WEIGHT, _fits, _pass_ok, _place, _State, _Statics, _zone, solve_hall  # noqa: E402
-from planner.hall_checks import (door_front, entrance, entry_landing, is_low, is_wall_mirror,  # noqa: E402
+from planner.hall_checks import (_entry_step, door_front, entrance, entry_landing, is_low, is_wall_mirror,  # noqa: E402
                                  validate_hall)
 from planner.models import Item, Opening, Radiator, Room, Severity  # noqa: E402
 
@@ -306,8 +306,8 @@ def search_level(r, room, S, tid, lv, by, base=None):
             return None, f'«{RU.get(role, role)}» встаёт только поперёк прохода {P_HARD:.0f} от входа'
         states = kept
     need = min(P_HARD, float(best_width(room, [])) or P_HARD)   # стены уже нормы — мерка по пустой комнате (как у движка)
-    # итог — проверки движка + честная мерка пути (растр): `hall_checks.route_ok` склеивает куски свободного пола через
-    # «рот» входа глубиной ~87 см, и щель 80 у входа проходит как 85 (подтверждено на c160/bath150/corner, T-70)
+    # итог — проверки движка + растровая мерка пути (вторая, независимая от многоугольников: шаг сетки, диагонали);
+    # дефект «рта» входа (щель 80 у двери сходила за 85, T-70) починен в движке — T-20261112-93
     for st in states:
         lay = validate_hall(room, st.placed)
         if any(v.severity is Severity.HARD for v in lay.violations):
@@ -423,7 +423,9 @@ def route_paths(room: Room, placed, need=P_HARD):
     ent = entrance(room)
     if ent is None:
         return [], None
-    mouth = door_front(room, ent)
+    # старт — шаг из входной двери (`hall_checks._entry_step`, T-20261112-93), не полоса 76: она дотягивалась за узкое место
+    # у самой двери, и растр завышал проход (corner/sq200 «90» при щели 73–81 у входа)
+    mouth = _entry_step(room, ent, need).buffer(G)
     ok = edt >= need / 2 - G          # растр 2 см: допуск в одну клетку, иначе мерка занижает на 5 см
     lab, _n = ndimage.label(ok)
     sm = contains_xy(mouth, X, Y) & ok

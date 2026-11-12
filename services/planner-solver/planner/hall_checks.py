@@ -186,8 +186,19 @@ def check_hall_access(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+ENTRY_STEP_CM = 5.0        # см: насколько дальше need/2 от стены входа ищем центр человека, шагнувшего из двери
+
+
 def _mouth(room: Room, op: Opening, need: float):
+    """Полоса перед дверью глубиной need: центр прохода, дошедший сюда, — у двери. Для ЦЕЛЕВЫХ дверей."""
     return _wall_strip(room, op.wall, op.offset_cm, op.width_cm, need + 2.0)
+
+
+def _entry_step(room: Room, op: Opening, need: float):
+    """Где стоит центр человека шириной need, только что шагнувшего из входной двери: ширина проёма × глубина
+    need/2 + `ENTRY_STEP_CM` (ближе центр к стене не подойдёт). Глубокая полоса `_mouth` (need + 2) здесь не годится: она
+    дотягивается за узкое место у самой двери, и кусок пола за щелью «касается входа» — щель 80 сходила за 85 (T-20261112-93)."""
+    return _wall_strip(room, op.wall, op.offset_cm, op.width_cm, need / 2 + ENTRY_STEP_CM)
 
 
 def passage_core(room: Room, ps: list[Placement], need: float):
@@ -213,7 +224,7 @@ def route_ok(room: Room, ps: list[Placement], need: float) -> tuple[bool, list[O
     if ent is None:
         main = max(parts, key=lambda g: g.area) if parts else None
         return main is not None, [], main
-    em = _mouth(room, ent, need)
+    em = _entry_step(room, ent, need)
     touching = [g for g in parts if g.intersects(em)]
     if not touching:
         return False, [op for op in doors if op is not ent], None
