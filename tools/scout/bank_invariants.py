@@ -53,6 +53,21 @@ def core_missing(s: dict) -> list[str]:
     return out
 
 
+# ПРИЗНАК СТОЛОВОЙ — ОДИН НА ДВА МЕСТА (T-20261112-100): сторож доли столовой ночного экзамена
+# (`services/planner-solver/tests/test_contour_features.py:test_dining_share_watchdog`) и экзамен продвижения ячейки
+# (`bank_promote.exam_verdict`: у живого банка столовая встала, у смешанного — нет → провал). Второе определение не заводить.
+def has_dining_table(s: dict) -> bool:
+    """В сете есть обеденный стол (слот «стол обеденный…»): без него столовой в сцене быть не может."""
+    it = s.get('items') or {}
+    roles = list(it) if isinstance(it, dict) else [i.get('role') or '' for i in it]
+    return any((r or '').startswith('стол обеден') for r in roles)
+
+
+def dining_placed(row: dict | None) -> bool:
+    """Столовая встала в сцене экзамена: тег `+din` в `templates` строки отчёта `acceptance-report-*.json[l]`."""
+    return '+din' in ((row or {}).get('templates') or '')
+
+
 # СЛОТ ↔ РОЛЬ КАТАЛОГА (T-20261105-53/2, Codex 05.11): товар держит слот, только пока его текущая `products.cat_role`
 # совместима со слотом. Иначе после смены роли в каталоге («Босс пуф» был креслом → стал пуфом) удержание прошлого
 # кандидата (`compose2._keep_check`), инварианты и строгий promote (`bank_promote.strict`) его не замечали: сборка выбирает

@@ -179,10 +179,13 @@ def _exam_scout():
     return os.environ.get('EXAM_SCOUT_DIR') or os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout')
 
 
-def _has_dining_table(s: dict) -> bool:
-    it = s.get('items') or {}
-    roles = list(it) if isinstance(it, dict) else [i.get('role') or '' for i in it]
-    return any((r or '').startswith('стол обеден') for r in roles)
+def _bank_invariants():
+    """Признак столовой — один на сторож и экзамен продвижения банка (`tools/scout/bank_invariants.py`, T-20261112-100)."""
+    import importlib, os, sys
+    code = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout')
+    if code not in sys.path:
+        sys.path.insert(0, code)
+    return importlib.import_module('bank_invariants')
 
 
 def test_dining_share_watchdog():
@@ -205,11 +208,12 @@ def test_dining_share_watchdog():
             rows[r.get('scene')] = r
     base = [s for s in scenes if s['id'] in rows]   # пакет H: планка — по стабильным №1-252; новые №253+ отдельно
     assert len(base) == 252, f'отчёт неполный по базовым сценам: {len(base)}'
+    BI = _bank_invariants()
     eligible = din = 0
     phantom, silent = [], []
     for sc in base:
-        has_din = '+din' in (rows[sc['id']].get('templates') or '')
-        if not _has_dining_table(sets_[sc['set'] - 1]):
+        has_din = BI.dining_placed(rows[sc['id']])
+        if not BI.has_dining_table(sets_[sc['set'] - 1]):
             if has_din:
                 phantom.append(sc['id'])
             continue

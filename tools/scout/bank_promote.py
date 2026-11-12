@@ -201,8 +201,14 @@ def _fail_kinds(rec: dict) -> set:
     return {(re.match(r'FAIL\s*[:\-]?\s*(\S+)', f) or [None, f])[1] for f in (rec or {}).get('fails') or []}
 
 
-def exam_verdict(old: dict, new: dict, ids: list) -> tuple[bool, list]:
-    """Сцены сета: старый банк против смешанного. Новый hard-провал, TIMEOUT, сбой или больше неразмещённых — провал."""
+def exam_verdict(old: dict, new: dict, ids: list, tables: dict | None = None) -> tuple[bool, list]:
+    """Сцены сета: старый банк против смешанного. Новый hard-провал, TIMEOUT, сбой или больше неразмещённых — провал.
+
+    Потеря столовой — тоже провал (T-20261112-100): у живого банка столовая встала (`+din`), у смешанного — нет. Отчёт
+    такую сцену не помечает (стол и стулья — законный отказ зоны, `missing` и `fails` пусты), и без этого правила крупный
+    стол/диван продвигаемой ячейки тихо снижал долю столовой ночного экзамена. `tables` — {сцена: в сете смешанного банка
+    есть обеденный стол}: стола нет — столовой быть не может, не провал; сцены нет в `tables` — считаем, что стол есть."""
+    tables = tables or {}
     why = []
     if not ids:
         return False, ['нет сцен экзамена']
@@ -221,6 +227,8 @@ def exam_verdict(old: dict, new: dict, ids: list) -> tuple[bool, list]:
             why.append(f'{i}: новый hard {sorted(add)}')
         if len(nw.get('missing') or []) > len(o.get('missing') or []):
             why.append(f"{i}: не размещено {len(nw.get('missing') or [])} (было {len(o.get('missing') or [])})")
+        if BI.dining_placed(o) and not BI.dining_placed(nw) and tables.get(i, True):
+            why.append(f"{i}: столовая пропала ({o.get('templates')} → {nw.get('templates')})")
     return not why, why
 
 
@@ -413,7 +421,8 @@ def make_exam(live_path: str, R: dict, work: str):
             recs[side] = {r['scene']: r for r in rep}
         cells = {}
         for n in ns:
-            ok, why = exam_verdict(recs['old'], recs['new'], by[n])
+            ok, why = exam_verdict(recs['old'], recs['new'], by[n],
+                                   {i: BI.has_dining_table(hybrid[n - 1]) for i in by[n]})
             cells[n] = {'ok': ok, 'why': why, 'scenes': by[n],
                         'new_ok': sum(1 for i in by[n] if (recs['new'].get(i) or {}).get('ok')),
                         'old_ok': sum(1 for i in by[n] if (recs['old'].get(i) or {}).get('ok'))}
@@ -744,6 +753,14 @@ def _selftest() -> int:
        and not exam_verdict({}, {'a': {'fails': ['TIMEOUT']}}, ['a'])[0]
        and exam_verdict({'a': {'fails': ['FAIL wall: y']}}, {'a': {'fails': ['FAIL wall: z']}}, ['a'])[0]
        and not exam_verdict({}, {}, [])[0])
+    d_old, d_new = {'a': {'templates': 'sofa_lamp+tpl+tv+din'}}, {'a': {'templates': 'sofa_lamp+tpl+tv+dc'}}
+    ok('экзамен: столовая пропала (+din → без) — провал; стола в сете смешанного нет — не провал; была без — не провал',
+       not exam_verdict(d_old, d_new, ['a'])[0]
+       and 'столовая пропала' in exam_verdict(d_old, d_new, ['a'], {'a': True})[1][0]
+       and exam_verdict(d_old, d_new, ['a'], {'a': False})[0]
+       and exam_verdict(d_new, d_new, ['a'])[0] and exam_verdict(d_old, d_old, ['a'])[0])
+    ok('признак стола — роль «стол обеденный…»',
+       BI.has_dining_table({'items': {'стол обеденный': {}}}) and not BI.has_dining_table({'items': {'столик': {}}}))
     g = {'sofa_armchair': {'footprint_m2': 8.4}}
     s = {'m2': 15, 'usable_m2': 12.9, 'group': 'sofa_armchair', 'items': {}, 'gaps': []}
     ok('итог без запасных (alt) — как у сборщика', total_of({'items': {'a': {'price': 10, 'qty': 2}, 'b': {'price': 5, 'alt': True}}}) == 20)
