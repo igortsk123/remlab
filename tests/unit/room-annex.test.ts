@@ -54,7 +54,7 @@ describe("пристройка комнаты тура (остаток конт�
       annexes: [{ x: 180, y: 390, w: 170, d: 130, openings: annexes(GEO)[0]!.openings }] });
     const { group, floor } = buildRoom(createMaterialCtx(1, false), r, MAT, MAT);
     const n = names(group);
-    expect(floor.name).toBe("floor:bedroom-1");                     // прогулка — по полу комнаты, пристройка не её пол
+    expect(floor.name).toBe("floor:bedroom-1");                     // пол ядра; пол прогулки — и пристройки (`floors`, T-36)
     expect(n).toContain("floor:bedroom-1~0");
     expect(n).toContain("ceiling:bedroom-1~0");                     // прячется в виде сверху вместе с потолком комнаты
     expect(n).not.toContain("ceiling:bedroom-1~0:lamp");

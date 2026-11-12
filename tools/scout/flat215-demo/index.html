@@ -11351,7 +11351,7 @@ function liveEngine(){
       const rt=await rtMeshes();
       const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
       const sc=window.RemlabScene.createDemoScene(cv,{room, items:clone(items), decor:liveDecor(), base:location.href,
-        runtimeMeshes:rt, lite:isTouchUI(), walk:!isTouchUI(), floor:devFloor()||undefined, wall:devWall()||undefined});
+        runtimeMeshes:rt, lite:isTouchUI(), walk:true, floor:devFloor()||undefined, wall:devWall()||undefined});
       sc.on('contextlost',()=>liveOff('видеоконтекст потерян'));
       // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Загружаем модель…» при замене
       sc.on('progress',(l,t)=>{if(LIVE.state==='warming')vwLoad(true,(LANG==='en'?'Loading models ':'Загружаем модели ')+l+(LANG==='en'?' of ':' из ')+t);
@@ -11366,7 +11366,7 @@ function liveEngine(){
       if(!LIVE.force&&!pr.software&&!isTouchUI()&&pr.p95Ms>60&&pr.p95Ms<=120){
         sc.dispose();
         const cv2=document.createElement('canvas'); cv2.className='livecv'; cv2.width=896; cv2.height=597;
-        const sc2=window.RemlabScene.createDemoScene(cv2,{room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true, walk:!isTouchUI(),
+        const sc2=window.RemlabScene.createDemoScene(cv2,{room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true, walk:true,
           floor:devFloor()||undefined, wall:devWall()||undefined});
         sc2.on('contextlost',()=>liveOff('видеоконтекст потерян'));
         sc2.setSize(896,597); await sc2.ready;
@@ -11395,13 +11395,19 @@ function liveWire(){
   cv.addEventListener('pointerdown',e=>{
     if(VW.mv){if(e.button!=null&&e.button!==0)return; p0=null; cv.setPointerCapture(e.pointerId); vwCarryDown(e,false); return;}
     p0={x:e.clientX,y:e.clientY}; last={...p0}; cv.setPointerCapture(e.pointerId);});
+  // КОЛЬЦО «СЮДА МОЖНО ПРОЙТИ» (T-20261112-36, владелец TG 1737): мышь без нажатия над полом в «3D» — пульсирующее кольцо там, куда
+  // пойдём (`previewWalk`); у краёв кадра тап — поворот, кольца нет; нажали и тянут (осмотр) или ушли со сцены — кольцо убираем
+  const hint=e=>{const s=LIVE.scene; if(!s||!s.previewWalk)return; const r=cv.getBoundingClientRect(), fx=(e.clientX-r.left)/Math.max(1,r.width);
+    if(e.pointerType==='mouse'&&VW.mode==='walk'&&fx>=0.2&&fx<=0.8)s.previewWalk(e.clientX,e.clientY); else s.hideWalkHint();};
+  cv.addEventListener('pointerleave',()=>{if(LIVE.scene&&LIVE.scene.hideWalkHint)LIVE.scene.hideWalkHint();});
   cv.addEventListener('pointermove',e=>{if(VW.mv)return;
-    if(!p0||VW.mode!=='walk')return; LIVE.scene.look(e.clientX-last.x,e.clientY-last.y); last={x:e.clientX,y:e.clientY};});
+    if(!p0){hint(e); return;}
+    if(VW.mode!=='walk')return; if(LIVE.scene.hideWalkHint)LIVE.scene.hideWalkHint(); LIVE.scene.look(e.clientX-last.x,e.clientY-last.y); last={x:e.clientX,y:e.clientY};});
   const up=e=>{if(!VW.mv||!VW.mv.drag)return; e.stopImmediatePropagation(); vwCarryUp(e);};
   cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
   // КОНТРАКТ ЖЕСТОВ (demo-02 v3, Codex п.4): «Фото» — тап по предмету выбирает его (ракурс — кнопками и свайпом по фото, demo-26 Б); «3D» — движение > 8 px =
-  // осмотр, короткий тап в крайних 20 % ширины = поворот на 30°, по предмету = выбор, по полу = шаг туда — только с мышью: на сенсорном
-  // экране ходьбы нет (demo-20 Б6, владелец 22.10), остаются осмотр, повороты и ракурсы «со стороны двери / окна» (`walk` сцены)
+  // осмотр, короткий тап в крайних 20 % ширины = поворот на 30°, по окну = подойти, по предмету = выбор, по полу = шаг туда с кольцом
+  // в точке, где встанем, — и пальцем (T-20261112-36, владелец «да» TG 1791; прежде, demo-20 Б6, на сенсорном экране ходьбы не было)
   cv.addEventListener('pointerup',e=>{if(!p0)return; const dx=e.clientX-p0.x, dy=e.clientY-p0.y, tap=Math.hypot(dx,dy)<8; p0=null;
     if(!LIVE.scene)return;
     if(VW.mode==='photo'){

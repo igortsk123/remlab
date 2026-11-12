@@ -84,8 +84,33 @@ export interface WalkArea {
  */
 export const BODY_CM = 30;
 
+/**
+ * ПОЛ, ПО КОТОРОМУ ХОДЯТ: комнаты и их пристройки (T-20261112-36, владелец TG 1737: «в закуток пройти нельзя»). Пристройка — остаток
+ * контура за порталом-стыком (`contracts/apartment.ts:annex`), её коробку с полом рисует `rooms.ts:buildRoom`, а зона прогулки брала
+ * только прямоугольники комнат — видимый пол закутка был «стеной». Прямоугольник пристройки — в координатах квартиры, id как у её
+ * коробки (`<комната>~<номер>`). Двери пристройки закрыты (ведут в комнаты, которых в сцене нет) — проходов не дают; портал стыка
+ * (`opening`) даёт. Балкон (`outdoor`) — не пол комнаты: выход на него — дверь самой комнаты, как прежде.
+ */
+export function walkRooms(a: Apartment): Room[] {
+  return a.rooms.flatMap((r) => [r, ...(r.annexes ?? []).flatMap((p, i): Room[] => {
+    if (p.outdoor) return [];
+    const sub: Room = { ...r, id: `${r.id}~${i}`, x: r.x + p.x, y: r.y + p.y, w: p.w, d: p.d,
+      openings: p.openings.filter((o) => o.kind !== "door" && o.kind !== "balcony") };
+    delete sub.annexes;
+    return [sub];
+  })]);
+}
+
+/** Комната квартиры под точкой, пристройка — её комната (`walkRooms`): по ней прогулка сообщает «где я» и догружает обстановку. */
+export function walkRoomAt(a: Apartment, x: number, y: number): string | null {
+  const r = walkRooms(a).find((q) => x > q.x && x < q.x + q.w && y > q.y && y < q.y + q.d);
+  return r ? r.id.split("~")[0]! : null;
+}
+
 export function walkArea(a: Apartment, marginCm = 28, obstacles: Obstacle[] = [], bodyCm = BODY_CM): WalkArea {
-  return { rooms: a.rooms, passages: passages(a), marginCm, obstacles, bodyCm };
+  // проходы — между комнатами и пристройками (портал стыка): `passages` видит пристройку «комнатой с той стороны»
+  const rooms = walkRooms(a);
+  return { rooms, passages: passages({ ...a, rooms }), marginCm, obstacles, bodyCm };
 }
 
 function insideObstacle(o: Obstacle, x: number, y: number, pad: number): boolean {

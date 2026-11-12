@@ -31,8 +31,10 @@ import { outlineFrame } from "@/lib/viewer3d/outline";
 import { renderThumbs } from "@/lib/viewer3d/thumbs";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { boxPoints, livePitchDeg, liveSpot, lookPitchRange, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
-import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
+import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, walkRoomAt, type WalkArea } from "@/lib/viewer3d/walk";
 import { followRoute, newRoute, planRoute, slideStep, type RouteState, type SlideMemo } from "@/lib/viewer3d/walk-motion";
+import { chooseAim, type WalkHits } from "@/lib/viewer3d/walk-aim";
+import { createWalkMarker, placeWalkMarker, pulseWalkMarker, type WalkMarker } from "@/lib/viewer3d/walk-marker";
 import { windowAtPoint, windowGap, windowSpot } from "@/lib/viewer3d/window-walk";
 
 // ВХОД БЕЗ ФЛАГА (T-20261106-72): прихожая без проёма `isEntrance` — вход угадан стеной; говорим об этом один раз на комнату
@@ -232,6 +234,9 @@ export class FlatViewer {
   private moveTarget: RouteState | null = null;
   /** Куда повернуться, дойдя до окна (`walkToWindow`): курс и наклон; взгляд рукой, тап по полу, клавиши, ракурс — снимают. */
   private faceAt: { heading: number; pitch: number } | null = null;
+  /** Кольцо «сюда пойдём» (T-20261112-36, `walk-marker.ts`): `hover` — под мышью, `route` — цель идущего пути, гаснет, дойдя. */
+  private walkMarker: WalkMarker | null = null;
+  private markerMode: "hover" | "route" | null = null;
   /** Сторона обхода «почти в лоб» при ходьбе клавишами — липкая, чтобы обход не метался (`walk-motion.ts:slideStep`). */
   private slideMemo: SlideMemo = { side: 0, free: 0 };
   /** Плавный вход в прогулку из точки ракурса (T-20261111-14): с какого угла обзора, высоты глаз и сдвига камера доезжает до своих. */
@@ -435,13 +440,13 @@ export class FlatViewer {
       const entranceWall = ent.fallbackWall;
       const doorsClosed = isIsolatedRoom(this.apartment, room);
       const accent = s.wall?.accent;
-      const { group, floor } = buildRoom(this.matCtx, room, floorMat, wallMat, { entranceWall, doorsClosed, ...(accent ? { accent } : {}) });
+      const { group, floors } = buildRoom(this.matCtx, room, floorMat, wallMat, { entranceWall, doorsClosed, ...(accent ? { accent } : {}) });
       group.userData.roomId = room.id;
-      floor.userData.roomId = room.id;
+      for (const f of floors) f.userData.roomId = room.id;   // пол пристройки — пол её комнаты (T-20261112-36)
       if (this.viewMode === "top") group.traverse((o) => { if (o.name === "window-view:skirt") o.visible = false; });
       this.scene.add(group);
       this.roomGroups.set(room.id, group);
-      this.floors.push(floor);
+      this.floors.push(...floors);
     }
     this.aimLights();
     this.shellExtras();
@@ -1060,14 +1065,90 @@ export class FlatViewer {
     return Math.max(lo, Math.min(hi, pitch));
   }
 
-  /** Тап по полу — «иди сюда» (мобильный сценарий из ТЗ). */
-  goTo(xCm: number, yCm: number): void {
+  /**
+   * Тап по полу — «иди сюда» (мобильный сценарий из ТЗ). Ответ — где встанем: цель недостижима (за мебелью, отрезана) — путь
+   * ведёт к ближайшей достижимой точке (`planRoute`), там и кольцо «сюда пойдём» (T-20261112-36); рядом с собой — null, стоим.
+   */
+  goTo(xCm: number, yCm: number): { x: number; y: number } | null {
     const target = nearestStandable(this.area, xCm, yCm);
-    if (!target) return;
+    if (!target) return null;
     this.faceAt = null;
     // путь в обход мебели (T-20261111-14): прежде шаг к цели огибал предмет сам и метался «вбок — назад» у косяков и мебели
     const from = { x: this.pos.x, y: this.pos.y };
-    this.moveTarget = newRoute(planRoute(this.area, from, target) ?? [target]);
+    const pts = planRoute(this.area, from, target) ?? [target];
+    this.moveTarget = newRoute(pts);
+    const end = pts.at(-1) ?? target;
+    if (Math.hypot(end.x - from.x, end.y - from.y) < 20) {
+      this.hideWalkTarget(true);
+      return null;
+    }
+    this.markWalk(end.x, end.y, "route");
+    return end;
+  }
+
+  /** Кольцо на полу в точке плана (см): `hover` — под мышью, `route` — цель пути (гаснет, когда путь кончился, — `tick`). */
+  private markWalk(xCm: number, yCm: number, mode: "hover" | "route"): void {
+    if (!this.walkMarker) {
+      this.walkMarker = createWalkMarker();
+      this.scene.add(this.walkMarker);
+    }
+    placeWalkMarker(this.walkMarker, xCm, yCm);
+    this.markerMode = mode;
+  }
+
+  /** Убрать кольцо: по умолчанию только «под мышью» (мышь ушла, начали поворот); `all` — и цель пути. */
+  hideWalkTarget(all = false): void {
+    if (!this.walkMarker || (!all && this.markerMode !== "hover")) return;
+    this.walkMarker.visible = false;
+    this.markerMode = null;
+  }
+
+  /**
+   * ЧТО ПОД ТОЧКОЙ ЭКРАНА В ПРОГУЛКЕ (T-20261112-36): по лучу ближайшее — окно, предмет (`selectable`: страница выбирает не всё,
+   * ковёр и картину — нет), пол комнаты или её пристройки; стена, дверь или невыбираемый предмет ближе — ничего (`walk-aim.ts`).
+   * У пола — точка, где можно встать (до 50 см от курсора, `nearestStandable`), иначе ничего.
+   */
+  walkAim(clientX: number, clientY: number, rect: DOMRect, selectable: (slotId: string) => boolean = (id) => !isExtra(id)):
+    { kind: "window" } | { kind: "item"; slotId: string } | { kind: "floor"; x: number; y: number } | { kind: "none" } {
+    if (this.viewMode === "top" || !rect.width || !rect.height) return { kind: "none" };
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const shown = (o: THREE.Object3D | null): boolean => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
+    const hits: WalkHits = {};
+    let slotId = "";
+    for (const h of this.raycaster.intersectObjects([...this.placed.values()].map((p) => p.group), true)) {
+      if (!shown(h.object)) continue;
+      let o: THREE.Object3D | null = h.object;
+      while (o && !o.userData?.slotId) o = o.parent;
+      const id = o?.userData?.slotId ? String(o.userData.slotId) : "";
+      const spec = this.placed.get(id)?.spec;
+      if (id && selectable(id) && !isExtra(id)) { hits.item = h.distance; slotId = id; break; }
+      if (spec && !isFlatOnSurface(spec) && hits.block === undefined) hits.block = h.distance;   // ТВ над тумбой закрывает пол за ним
+    }
+    let floorAt: THREE.Vector3 | null = null;
+    const shell = this.raycaster.intersectObjects([...this.roomGroups.values()], true).find((h) => shown(h.object));
+    if (shell && this.floors.includes(shell.object as THREE.Mesh)) {
+      hits.floor = shell.distance;
+      floorAt = shell.point;
+    } else if (shell && windowAtPoint(this.apartment.rooms, shell.point.x / CM, shell.point.z / CM, shell.point.y / CM)) {
+      hits.window = shell.distance;
+    } else if (shell) hits.block = Math.min(hits.block ?? Infinity, shell.distance);
+    const kind = chooseAim(hits);
+    if (kind === "item") return { kind, slotId };
+    if (kind === "window") return { kind };
+    if (kind !== "floor" || !floorAt) return { kind: "none" };
+    const spot = nearestStandable(this.area, floorAt.x / CM, floorAt.z / CM, 10, 5);
+    return spot ? { kind, x: spot.x, y: spot.y } : { kind: "none" };
+  }
+
+  /** Мышь над сценой (T-20261112-36): над полом — кольцо там, куда пойдём; над предметом, окном, стеной — без кольца. Пока идём к
+   *  цели — её кольцо остаётся. Ответ — что под курсором. */
+  previewWalk(clientX: number, clientY: number, rect: DOMRect, selectable?: (slotId: string) => boolean): "window" | "item" | "floor" | "none" {
+    if (this.moveTarget && this.markerMode === "route") return "none";
+    const aim = this.walkAim(clientX, clientY, rect, selectable);
+    if (aim.kind === "floor") this.markWalk(aim.x, aim.y, "hover");
+    else this.hideWalkTarget();
+    return aim.kind;
   }
 
   /**
@@ -1090,6 +1171,7 @@ export class FlatViewer {
     if (this.viewMode === "photo") this.photoToWalk();   // 3D из точки съёмки — уже прогулка, как шаг по полу
     const from = { x: this.pos.x, y: this.pos.y };
     this.moveTarget = newRoute(planRoute(this.area, from, spot) ?? [spot]);
+    this.markWalk(spot.x, spot.y, "route");   // кольцо «сюда пойдём» — и у окна (T-20261112-36)
     // середина видимой полосы (у телефона она выше середины холста — `lookPitchRange` с пределом 0 даёт сдвиг) — на середину окна;
     // наклон камеры в конце — 0…−5° (ведущий, T-30/2): почти прямо, рама и подоконник в кадре, не пол и не потолок
     const aim = (Math.atan2((w.sill + w.top) / 2 - EYE_CM, spot.gapCm) * 180) / Math.PI;
@@ -1560,13 +1642,19 @@ export class FlatViewer {
 
   /** Комната по положению человека — работает при ХОДЬБЕ. */
   private updateRoom(): void {
-    this.roomChanged(roomAt(this.apartment, this.pos.x, this.pos.y)?.id ?? null);
+    // в пристройке (закуток за порталом) — её комната, не «нигде» (T-20261112-36)
+    this.roomChanged(walkRoomAt(this.apartment, this.pos.x, this.pos.y));
   }
 
   private tick = (): void => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.tick);
     const dt = Math.min(0.05, this.clock.getDelta());
+    // кольцо «сюда пойдём» (T-20261112-36): пульс; цель пути гаснет, когда путь кончился (дошли, клавиши, ракурс), в виде сверху — нет
+    if (this.walkMarker?.visible) {
+      if (this.viewMode === "top" || (this.markerMode === "route" && !this.moveTarget)) this.hideWalkTarget(true);
+      else pulseWalkMarker(this.walkMarker, performance.now());
+    }
 
     const speed = (this.keys.has("ShiftLeft") ? 420 : 240) * dt; // см/с
     let fx = 0;
@@ -1746,7 +1834,8 @@ export class FlatViewer {
         undo.push(() => { mat.transparent = true; mat.opacity = op; mat.needsUpdate = true; });
       });
     }
-    for (const o of [this.outline, this.ghost]) if (o && o.visible) { o.visible = false; undo.push(() => { o.visible = true; }); }
+    // рамка выбора, след переноса и кольцо «сюда пойдём» (T-36) — подсказки глазу, не в кадр нейросети
+    for (const o of [this.outline, this.ghost, this.walkMarker]) if (o && o.visible) { o.visible = false; undo.push(() => { o.visible = true; }); }
     // кайма вида за окном — только для глаза «3D» (`openings.ts:skirtMesh`); кадр нейросети — как у сервера, по плоскости вида
     this.scene.traverse((o) => { if (o.name === "window-view:skirt" && o.visible) { o.visible = false; undo.push(() => { o.visible = true; }); } });
     // тёплая подсветка выбранного — не в кадр нейросети; снимаем и возвращаем в той же задаче, что и кадр (T-20261109-32/2:
@@ -1827,13 +1916,16 @@ export class FlatViewer {
   async exportFrame(width: number, height: number, type = "image/jpeg", quality = 0.9): Promise<Blob> {
     const prevAspect = this.camera.aspect;
     const prevFov = this.camera.fov;
+    const ring = this.walkMarker?.visible ? this.walkMarker : null;   // кольцо «сюда пойдём» — не в сохранённый кадр (T-36)
     return this.frameBlob(width, height, type, quality, () => {
       try {
+        if (ring) ring.visible = false;
         this.camera.aspect = width / height;
         if (this.photo) this.camera.fov = verticalFov(this.photo.fov ?? 72, this.camera.aspect);
         this.camera.updateProjectionMatrix();
         this.renderer.render(this.scene, this.camera);
       } finally {
+        if (ring) ring.visible = true;
         this.camera.aspect = prevAspect;
         this.camera.fov = prevFov;
         this.camera.updateProjectionMatrix();
@@ -2027,6 +2119,10 @@ export class FlatViewer {
     if (this.outline) {
       this.outline.geometry.dispose();
       (this.outline.material as THREE.Material).dispose();
+    }
+    if (this.walkMarker) {
+      this.walkMarker.geometry.dispose();
+      this.walkMarker.material.dispose();
     }
     for (const p of this.placed.values()) disposeObject(p.group);
     this.placed.clear();

@@ -40,8 +40,8 @@ export interface DemoSceneOptions {
   floor?: Record<string, unknown> & { id: string };
   /** Стены застройщика (demo-07): материал и необязательная акцентная стена «за диваном». */
   wall?: DemoWall;
-  /** Тап по полу ведёт туда (по умолчанию да). Сенсорный экран — нет (demo-20 Б6, владелец 22.10): на телефоне только осмотр,
-   *  повороты и ракурсы «со стороны двери / окна»; тап по предмету по-прежнему выбирает его. */
+  /** Тап по полу ведёт туда (по умолчанию да) — и на телефоне (T-20261112-36, владелец «да» TG 1791; прежде, demo-20 Б6, на
+   *  сенсорном экране было выключено). `false` — только осмотр, повороты и ракурсы; тап по предмету выбирает его в любом случае. */
   walk?: boolean;
   /** Декоративные шторы у окон (T-20261111-22, владелец TG 1643). Нет — адрес страницы (`curtainsFromUrl`), иначе по умолчанию вкл. */
   curtains?: boolean;
@@ -127,9 +127,15 @@ export interface DemoScene {
   turn(deg: number): void;
   /** Тап по окну — подойти к нему (`viewer.walkToWindow`); не окно — false. Для краёв сцены, где тап иначе поворачивает взгляд. */
   windowTap(clientX: number, clientY: number): boolean;
-  /** Тап в «3D»: по предмету — его номер в расстановке; по окну — подойти к нему (`viewer.walkToWindow`) и -1; по полу (и ковру) —
-   *  шаг туда (`viewer.goTo`, если `walk` не выключен) и -1. */
+  /** Тап в «3D» — по ближайшему под пальцем (`viewer.walkAim`, T-20261112-36): предмет — его номер в расстановке; окно — подойти
+   *  к нему (`viewer.walkToWindow`) и -1; пол (и ковёр) комнаты или закутка — шаг туда с кольцом в точке, где встанем (`viewer.goTo`,
+   *  если `walk` не выключен) и -1; стена — -1. */
   walkTap(clientX: number, clientY: number): number;
+  /** Мышь над сценой «3D» (T-20261112-36): над полом — пульсирующее кольцо там, куда пойдём; иначе кольца нет. Не чаще ~25 раз в
+   *  секунду (луч по мебели), последнее положение не теряется. */
+  previewWalk(clientX: number, clientY: number): void;
+  /** Убрать кольцо под мышью (мышь ушла со сцены, начался поворот взгляда); кольцо цели идущего пути остаётся. */
+  hideWalkHint(): void;
   /** Где стоит и куда смотрит прогулка (см, градусы) — живая проверка поворота тапом по краю и шага по полу. */
   pose(): { x: number; y: number; yaw: number; pitch: number };
   /** Номер предмета расстановки → подпись модели на сцене (живая проверка «замена дошла до сцены»). */
@@ -149,6 +155,8 @@ export interface DemoScene {
 }
 
 const CTX = { apartmentId: "demo-live", partnerId: "demo", currency: "RUB" as const, basePrice: 0 };
+/** Кольцо под мышью — не чаще раза в 40 мс (~25 в секунду): луч по мебели на каждое движение мыши грузит слабые машины (Codex 12.11). */
+const HOVER_MS = 40;
 const isRug = (it: DemoItem): boolean => String(it.role ?? "").startsWith("ковёр");
 
 /**
@@ -273,6 +281,17 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   let selected: number | null = null;
   // «Переместить»: исходное место предмета в координатах движка — черновик двигаем от него на сдвиг пальца
   let moveFrom: { x: number; y: number; rot: number } | null = null;
+  // кольцо под мышью (T-20261112-36): луч по мебели — не на каждое движение, а раз в HOVER_MS; последнее положение — хвостовым вызовом
+  let hover: { x: number; y: number } | null = null;
+  let hoverAt = 0;
+  let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+  const runHover = (): void => {
+    hoverTimer = undefined;
+    hoverAt = performance.now();
+    if (!hover || moveFrom) return;
+    const idx = slotIndex();
+    viewer.previewWalk(hover.x, hover.y, canvas.getBoundingClientRect(), (id) => idx.has(id));
+  };
   const reselect = (): void => {
     if (selected == null) return;
     const id = [...slotIndex()].find(([, i]) => i === selected)?.[0];
@@ -385,19 +404,29 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     windowTap: (x, y) => viewer.walkToWindow(x, y, canvas.getBoundingClientRect()),
     walkTap: (x, y) => {
       const rect = canvas.getBoundingClientRect();
-      const hit = viewer.pick(x, y, rect);
-      const i = hit.slotId ? slotIndex().get(hit.slotId) : undefined;
-      if (i !== undefined) return i;
-      // тап по окну — подойти к нему и посмотреть наружу (T-20261112-30, TG 1731); и там, где шаг по полу выключен (телефон)
-      if (viewer.walkToWindow(x, y, rect)) return -1;
-      if (opts.walk === false) return -1;
-      // ковёр не выбирается (нет в `slotIndex`) — под ним пол: шаг туда, как по полу; картина выбирается (номер — выше)
-      const point = hit.point ?? (hit.slotId ? viewer.floorPoint(x, y, rect) : null);
-      if (point) {
-        if (viewer.mode === "photo") viewer.photoToWalk();   // 3D из точки съёмки: шаг по полу — уже прогулка
-        viewer.goTo(point.x, point.y);
-      }
+      const idx = slotIndex();
+      // ближайшее под пальцем (T-20261112-36): окно > предмет или картина-товар (T-45, есть в `slotIndex`) > пол; ковёр не
+      // выбирается (нет в `slotIndex`) — под ним пол, шаг туда
+      const aim = viewer.walkAim(x, y, rect, (id) => idx.has(id));
+      viewer.hideWalkTarget();
+      if (aim.kind === "item") return idx.get(aim.slotId)!;
+      // тап по окну — подойти к нему и посмотреть наружу (T-20261112-30, TG 1731)
+      if (aim.kind === "window") { viewer.walkToWindow(x, y, rect); return -1; }
+      if (aim.kind !== "floor" || opts.walk === false) return -1;
+      if (viewer.mode === "photo") viewer.photoToWalk();   // 3D из точки съёмки: шаг по полу — уже прогулка
+      viewer.goTo(aim.x, aim.y);
       return -1;
+    },
+    previewWalk: (x, y) => {
+      if (opts.walk === false) return;
+      hover = { x, y };
+      const wait = HOVER_MS - (performance.now() - hoverAt);
+      if (wait > 0) { hoverTimer ??= setTimeout(runHover, wait); return; }
+      runHover();
+    },
+    hideWalkHint: () => {
+      hover = null;
+      viewer.hideWalkTarget();
     },
     pose: () => viewer.viewPose(),
     models: () => {
@@ -433,6 +462,10 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     },
     start: () => viewer.start(),
     stop: () => viewer.stop(),
-    dispose: () => viewer.dispose(),
+    dispose: () => {
+      clearTimeout(hoverTimer);
+      hover = null;
+      viewer.dispose();
+    },
   };
 }

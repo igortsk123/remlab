@@ -71,8 +71,10 @@ function openingsOnSide(room: Room, side: WallSide): Opening[] {
 
 export interface RoomVisual {
   group: THREE.Group;
-  /** Плоскость пола — по ней ходит «point-and-go» и считается попадание курсора. */
+  /** Плоскость пола самой комнаты (прямоугольник-ядро). */
   floor: THREE.Mesh;
+  /** Все полы, по которым ходит «point-and-go» и считается попадание курсора: комната и её пристройки (T-20261112-36). */
+  floors: THREE.Mesh[];
 }
 
 /** Столярка проёмов одной стены, уже поставленная на место в квартире. Отдельно — чтобы тест сверял её с серверным кадром
@@ -197,8 +199,9 @@ export function buildRoom(
 
   // ПРИСТРОЙКИ (T-20261111-08, владелец TG 1006): остаток контура за порталом-стыком — своя коробка той же отделки (пол, стены,
   // потолок без люстры), его двери закрыты (ведут в соседние комнаты, которых в сцене нет). Без неё за порталом была улица.
-  // Пол пристройки — не пол комнаты для прогулки (`floor` — только свой): точка обзора остаётся в комнате
+  // Пол пристройки — тоже пол прогулки (`floors`, T-20261112-36: в закуток можно пройти; зона — `walk.ts:walkRooms`)
   // Балкон (`outdoor`, T-20261111-20/2) — не коробка: плита с ограждением под открытым небом (`outdoor.ts`)
+  const floors: THREE.Mesh[] = [floor];
   (room.annexes ?? []).forEach((a, i) => {
     if (a.outdoor) {
       group.add(buildOutdoor(room, a, i));
@@ -206,10 +209,12 @@ export function buildRoom(
     }
     const sub: Room = { ...room, id: `${room.id}~${i}`, x: room.x + a.x, y: room.y + a.y, w: a.w, d: a.d, openings: a.openings };
     delete sub.annexes;
-    group.add(buildRoom(ctx, sub, floorMat, wallMat, { ceiling: opts.ceiling !== false, doorsClosed: true, lamp: false, outdoors: outdoorRects(room) }).group);
+    const box = buildRoom(ctx, sub, floorMat, wallMat, { ceiling: opts.ceiling !== false, doorsClosed: true, lamp: false, outdoors: outdoorRects(room) });
+    group.add(box.group);
+    floors.push(...box.floors);
   });
 
-  return { group, floor };
+  return { group, floor, floors };
 }
 
 /**
