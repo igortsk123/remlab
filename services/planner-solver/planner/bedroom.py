@@ -498,14 +498,28 @@ def _chain(st: _State, S: _Statics, plist: list[Placement], pref: float) -> _Sta
     return cur
 
 
+def _free_side_ok(S: _Statics, bed: Placement, sides) -> bool:
+    """Бок кровати без тумбы — либо к стене (зазор ≤ WALL_GAP_CM), либо с полным проходом (bed_side_passage) внутри
+    комнаты: узкая «мёртвая» полоса между боком и стеной не годится (T-20261112-38, лист UK 325×280)."""
+    z = bed_zones(bed)
+    for s in sides:
+        wall = z[f"{s}_wall"]
+        if wall.difference(S.poly).area >= 0.8 * wall.area:
+            continue
+        if z[s].difference(S.poly).area > AREA_EPS:
+            return False
+    return True
+
+
 def _sleep_units(st: _State, S: _Statics, bed_role: str, bed: Item, ns: list[tuple[str, Item]], variant: str):
     """Кандидаты группы «сон» варианта: кровать в слоте + тумбы вплотную по бокам (pair — обе, one_side — одна слева или
-    справа, solo — без тумб)."""
+    справа, solo — без тумб). Бок без тумбы — к стене или с полным проходом (`_free_side_ok`)."""
     for slot in _slots(S.room, bed):
         p = _place(bed_role, bed, slot[0], slot[1], slot[2], _bed_tpl(S, bed_role, bed))
         pref = _pref_g(S, p, slot)
         if variant == "solo":
-            yield [p], pref
+            if _free_side_ok(S, p, ("left", "right")):
+                yield [p], pref
             continue
         if variant == "pair":
             (r0, i0), (r1, i1) = ns[0], ns[1]
@@ -516,9 +530,9 @@ def _sleep_units(st: _State, S: _Statics, bed_role: str, bed: Item, ns: list[tup
                 yield [p] + ps, pref
             continue
         r0, i0 = ns[0]
-        for x, y in _nightstand_spots(p, i0):
+        for (x, y), free in zip(_nightstand_spots(p, i0), ("right", "left")):
             n = _place(r0, i0, x, y, int(p.rot), p.tpl_id)
-            if nightstand_ok(S.room, n, [p]):
+            if nightstand_ok(S.room, n, [p]) and _free_side_ok(S, p, (free,)):
                 yield [p, n], pref
 
 

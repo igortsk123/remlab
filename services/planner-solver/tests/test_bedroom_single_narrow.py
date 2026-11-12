@@ -44,12 +44,31 @@ ADDED_T31 = {
 }
 
 
+# добавки T-20261112-38/2 (движок групп) — дописаны после добавок T-31; ключи на «_» (пояснения) снимаются без проверки порядка
+ADDED_T38 = {
+    "services/planner-solver/rules/bedroom.json": [("_meta", "_engine_why"), ("_meta", "engine"),
+                                                   ("rules", "bed_foot_not_in_swing"), ("rules", "bed_side_in_swing_soft"),
+                                                   ("rules", "storage_front_radiator"), ("rules", "no_storage_at_bed_head_side"),
+                                                   ("rules", "couple_small_no_wardrobe"), (None, "group_templates")],
+}
+
+
+def _drop_t38(name: str, d: dict, check_order: bool = False) -> dict:
+    d = copy.deepcopy(d)
+    for sec, key in reversed(ADDED_T38.get(name, [])):
+        tgt = d if sec is None else d[sec]
+        if check_order and not key.startswith("_"):
+            assert list(k for k in tgt if not k.startswith("_"))[-1] == key, f"{name}: {key} — не последним ключом"
+        tgt.pop(key)
+    return d
+
+
 def _h(o) -> str:
     return hashlib.sha256(json.dumps(o, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def _without_additions(name: str, d: dict) -> dict:
-    d = copy.deepcopy(d)
+    d = _drop_t38(name, d, check_order=True)
     for sec, key in reversed(ADDED_T31.get(name, [])):
         tgt = d if sec is None else d[sec]
         assert list(k for k in tgt if not k.startswith("_"))[-1] == key, f"{name}: {key} — не последним ключом"
@@ -70,7 +89,7 @@ def _without_additions(name: str, d: dict) -> dict:
 
 
 def _drop_t31(name: str, d: dict) -> dict:
-    d = copy.deepcopy(d)
+    d = _drop_t38(name, d)
     for sec, key in ADDED_T31.get(name, []):
         (d if sec is None else d[sec]).pop(key)
     return d

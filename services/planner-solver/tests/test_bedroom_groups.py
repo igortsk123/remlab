@@ -97,6 +97,24 @@ def test_one_side_with_reason():
         assert lay.meta["variants_tried"][:2] == ["pair", "one_side"]
 
 
+@pytest.mark.parametrize("n_ns", [1, 0])
+def test_free_side_wall_or_passage(n_ns):
+    """Бок без тумбы (one_side/solo) — к стене или с полным проходом 75 см, без «мёртвой» полосы (лист UK 325×280)."""
+    room = Room(width_cm=325, depth_cm=280, room_type="bedroom", purpose="guest", openings=[
+        Opening(kind="door", wall="south", offset_cm=230, width_cm=80, swing_cm=80, hinge="left"),
+        Opening(kind="window", wall="north", offset_cm=100, width_cm=120, sill_cm=85, height_cm=150)])
+    kit = [["кровать", 150, 200, 94]] + [["тумба прикроватная", 45, 40, 55]] * n_ns + [["комод", 91, 42, 96]]
+    lay = solve_bedroom(room, _items(kit), "guest", engine="groups")
+    assert lay.meta["sleep_variant"] == ("one_side" if n_ns else "solo") and not _hard(lay)
+    bed = next(p for p in lay.placements if p.role == "кровать")
+    ns = [p for p in lay.placements if p.role.startswith("тумба")]
+    poly, z = BC.room_polygon(room), BC.bed_zones(bed)
+    taken = {s for s in ("left", "right") for n in ns if z[f"{s}_wall"].intersects(BC.footprint(n))}
+    for s in {"left", "right"} - taken:
+        flush = z[f"{s}_wall"].difference(poly).area >= 0.8 * z[f"{s}_wall"].area
+        assert flush or z[s].difference(poly).area < 1, s
+
+
 def test_couple_bed_no_fit_asks_140():
     c = _case("tiny-couple")
     lay = solve_bedroom(_room(c["room"], "couple"), _items(c["kit"]), engine="groups")

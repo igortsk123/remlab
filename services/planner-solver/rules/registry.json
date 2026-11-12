@@ -786,6 +786,54 @@
    "где": "planner/bedroom_checks.py"
   },
   {
+   "id": "BED_FOOT_IN_SWING",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "изножье «{b.role}» в дуге двери ({share * 100:.0f} % прохода)",
+   "где": "planner/bedroom_checks.py",
+   "статус": "только движок groups (switches.group_checks, T-20261112-38)"
+  },
+  {
+   "id": "BED_FOOT_SWING_EDGE",
+   "вид": "soft",
+   "стадия": "спальня",
+   "сообщение": "край дуги двери задевает угол прохода у изножья «{b.role}»",
+   "где": "planner/bedroom_checks.py",
+   "статус": "только движок groups (switches.group_checks, T-20261112-38)"
+  },
+  {
+   "id": "BED_SIDE_IN_SWING",
+   "вид": "soft",
+   "стадия": "спальня",
+   "сообщение": "проход у бока «{b.role}» в дуге двери",
+   "где": "planner/bedroom_checks.py",
+   "статус": "только движок groups (switches.group_checks, T-20261112-38)"
+  },
+  {
+   "id": "BED_SIDE_STORAGE",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "«{o.role}» у бока «{b.role}» у изголовья — там место тумбе",
+   "где": "planner/bedroom_checks.py",
+   "статус": "только движок groups (switches.group_checks, T-20261112-38)"
+  },
+  {
+   "id": "BR_ACCESS_RADIATOR",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "перед «{a.role}» радиатор ближе storage_open_reach — створка/ящик упрётся",
+   "где": "planner/bedroom_checks.py",
+   "статус": "только движок groups (switches.group_checks, T-20261112-38)"
+  },
+  {
+   "id": "BR_ACCESS_RADIATOR_FAR",
+   "вид": "soft",
+   "стадия": "спальня",
+   "сообщение": "радиатор в дальней части прохода перед «{a.role}»",
+   "где": "planner/bedroom_checks.py",
+   "статус": "только движок groups (switches.group_checks, T-20261112-38)"
+  },
+  {
    "id": "BED_NEAR_RADIATOR",
    "вид": "hard",
    "стадия": "спальня",
